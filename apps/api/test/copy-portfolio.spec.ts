@@ -229,6 +229,11 @@ describe("the whole paper portfolio: merged PnL history, today's PnL, each copy'
       expect(worst.map((t: { coin: string }) => t.coin)).toEqual(["ETH"]);
       // The id is the opening fill: stable across reads.
       expect((await get("/me/copy/trades", "alice-token").expect(200)).body.data.items[1].id).toBe(recent[1].id);
+      // One trade by its id (a share card's lookup); never another person's.
+      const one = (await get(`/me/copy/trades?id=${recent[1].id}`, "alice-token").expect(200)).body.data.items;
+      expect(one.map((t: { coin: string }) => t.coin)).toEqual(["BTC"]);
+      expect((await get(`/me/copy/trades?id=${recent[1].id}`, "bob-token").expect(200)).body.data.items).toEqual([]);
+      await get("/me/copy/trades?id=0", "alice-token").expect(400);
       // Another person sees nothing of it, even asking for the copy by id.
       expect((await get(`/me/copy/trades?strategyId=${a}`, "bob-token").expect(200)).body.data.items).toEqual([]);
       expect(bob).toBeGreaterThan(0);

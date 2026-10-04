@@ -58,6 +58,8 @@ export const copyTradesQuerySchema = z.object({
   sort: z.enum(["best", "worst", "recent"]).default("recent"),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   strategyId: z.coerce.number().int().min(1).max(2_147_483_647).optional(),
+  /** One trade by its id (its opening fill), for a share card. */
+  id: z.string().regex(/^[1-9]\d{0,18}$/).optional(),
 }).strict();
 export const copyClosedTradeSchema = z.object({
   id: z.string().regex(/^\d+$/), strategyId: z.number().int(), leaderAddress: z.string(), coin: z.string(),

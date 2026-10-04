@@ -7,13 +7,14 @@ import { I18nProvider } from "@/i18n/provider";
 import { en } from "@/i18n/messages/en";
 import type { TraderProfileResponse } from "@/lib/contracts";
 import { profileFor } from "@/fixtures/data";
-import type { TradeShareSnapshot } from "@/components/trader/trade-share-dialog";
+import type { TradeCardSource } from "@/components/trader/trade-share-dialog";
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh() {} }) }));
-vi.mock("@/components/trader/trade-share-dialog", () => ({
-  TradeShareDialog: ({ snapshot }: { snapshot: TradeShareSnapshot }) => <div role="dialog">{snapshot.market}:{snapshot.pnl}:{snapshot.capturedAt}</div>,
+vi.mock("@/components/trader/trade-share-dialog", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/components/trader/trade-share-dialog")>()),
+  TradeShareDialog: ({ source }: { source: TradeCardSource }) => <div role="dialog">{source.path}</div>,
 }));
 
-it("keeps the frozen share snapshot after live positions disappear", async () => {
+it("opens the position's server-rendered card, and keeps the dialog after live positions disappear", async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   const container = document.createElement("div");
   document.body.append(container);
@@ -26,7 +27,8 @@ it("keeps the frozen share snapshot after live positions disappear", async () =>
     expect(buttons.length).toBe(profile.positions.length * 2); // Desktop and mobile.
     await act(async () => buttons[0].click());
     const frozen = container.querySelector('[role="dialog"]')?.textContent;
-    expect(frozen).toBeTruthy();
+    // The card is identified, never described: its figures are read by the server.
+    expect(frozen).toMatch(/^\/trader\/0x89da4baec446f35a1cbe17a9d1ee5c70b05ee43f\/share-image\?kind=position&coin=[A-Za-z0-9%:]+$/);
     await render(true);
     expect(container.querySelector('[role="dialog"]')?.textContent).toBe(frozen);
     expect(container.querySelectorAll('button[aria-label="Share position"]')).toHaveLength(0);

@@ -2644,4 +2644,12 @@ export const en: Messages = {
       liquidated: "Position liquidated: {coin}{pnl}",
     },
   },
+  shareCard: {
+    tradeTitle: "Share Trade",
+    positionTitle: "Share Position",
+    styleCard: "App Card",
+    stylePoster: "Poster",
+    styleSpotlight: "Spotlight",
+    imageAlt: "{label} card",
+  },
 };

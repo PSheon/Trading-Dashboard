@@ -206,7 +206,7 @@ export class CopyRuntimeRepository {
    * back at 0; the engine splits a flip into a close and an open, so a fill
    * never crosses 0. Amounts stay exact numerics until the caller.
    */
-  async closedTrades(userId: number, sort: "best" | "worst" | "recent", limit: number, strategyId?: number) {
+  async closedTrades(userId: number, sort: "best" | "worst" | "recent", limit: number, strategyId?: number, openId?: string) {
     const order = sort === "best" ? sql`net desc, closed_at desc` : sort === "worst" ? sql`net asc, closed_at desc` : sql`closed_at desc, open_id desc`;
     const filter = sort === "best" ? sql`and net > 0` : sort === "worst" ? sql`and net < 0` : sql``;
     const result = await this.db.execute(sql`
@@ -236,7 +236,7 @@ export class CopyRuntimeRepository {
       select t.open_id::text, t.strategy_id, s.leader_address, t.coin, t.first_signed::text, t.entry_notional::text, t.entry_size::text,
         t.exit_notional::text, t.exit_size::text, t.net::text, t.fees::text, t.opened_at, t.closed_at
       from t join ${copyStrategies} s on s.id = t.strategy_id
-      where t.final = 0 and t.entry_size > 0 and t.exit_size > 0 ${filter}
+      where t.final = 0 and t.entry_size > 0 and t.exit_size > 0 ${filter} ${openId === undefined ? sql`` : sql`and t.open_id = ${openId}::bigint`}
       order by ${order} limit ${limit}
     `);
     return result.rows.map((r) => ({

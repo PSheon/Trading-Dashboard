@@ -23622,6 +23622,16 @@
               "maximum": 2147483647,
               "type": "integer"
             }
+          },
+          {
+            "name": "id",
+            "required": false,
+            "in": "query",
+            "description": "One trade by its id (its opening fill)",
+            "schema": {
+              "pattern": "^[1-9]\\d{0,18}$",
+              "type": "string"
+            }
           }
         ],
         "responses": {

@@ -30,7 +30,7 @@ const C = {
 let fonts: Promise<Array<{ name: string; data: Buffer; weight: 600 | 800; style: "normal" }>> | null = null;
 /** Host Grotesk 600 / 800 (Latin) for the figures and the name, Fredoka
  * 600 for the wordmark: bundled in src/assets, nothing fetched. */
-function loadFonts() {
+export function loadFonts() {
   fonts ??= Promise.all([
     readFile(join(process.cwd(), "src/assets/host-grotesk-600.ttf")),
     readFile(join(process.cwd(), "src/assets/host-grotesk-800.ttf")),
@@ -43,7 +43,7 @@ function loadFonts() {
   return fonts;
 }
 
-const markUri = (px: number) =>
+export const markUri = (px: number) =>
   `data:image/svg+xml;base64,${Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">${markSvgBody("dark", px)}</svg>`).toString("base64")}`;
 
 function Avatar({ data, size }: { data: ShareCardData; size: number }) {

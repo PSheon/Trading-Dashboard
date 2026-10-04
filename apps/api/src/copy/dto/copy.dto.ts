@@ -89,4 +89,6 @@ export class CopyTradesQueryDto {
   @Optional() @ToNumber() @IsInt() @Min(1) @Max(100) declare limit?: number;
   @ApiPropertyOptional({ type: "integer", minimum: 1, maximum: 2_147_483_647, description: "Only this copy's trades (must be the caller's)" })
   @Optional() @ToNumber() @IsInt() @Min(1) @Max(2_147_483_647) declare strategyId?: number;
+  @ApiPropertyOptional({ type: String, pattern: "^[1-9]\\d{0,18}$", description: "One trade by its id (its opening fill)" })
+  @Optional() @Matches(/^[1-9]\d{0,18}$/) declare id?: string;
 }

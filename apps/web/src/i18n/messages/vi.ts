@@ -1964,4 +1964,12 @@ export const vi: Messages = {
       liquidated: "Vị thế bị thanh lý: {coin}{pnl}",
     },
   },
+  shareCard: {
+    tradeTitle: "Chia sẻ giao dịch",
+    positionTitle: "Chia sẻ vị thế",
+    styleCard: "Thẻ ứng dụng",
+    stylePoster: "Áp phích",
+    styleSpotlight: "Tiêu điểm",
+    imageAlt: "Thẻ {label}",
+  },
 };

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, ChevronDown, Minus, Pause, Pencil, Play, Plus, Square } from "lucide-react";
+import { ArrowLeft, ChevronDown, Minus, Pause, Pencil, Play, Plus, Share2, Square } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { cn } from "cn";
@@ -14,6 +14,7 @@ import { CoinIcon } from "@/components/traders/coin-icon";
 import { RoiPill } from "@/components/traders/bits";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
+import { TradeShareDialog, copyCardSource, type TradeCardSource } from "@/components/trader/trade-share-dialog";
 import { useI18n } from "@/i18n/provider";
 import type { MessageKey } from "@/i18n/messages";
 import { amountInput } from "@/lib/amount-input";
@@ -50,7 +51,7 @@ function StatusBadges({ s, className }: { s: CopyStrategyView; className?: strin
   );
 }
 
-function PositionLine({ p, table }: { p: CopyPositionView; table: boolean }) {
+function PositionLine({ p, table, onShare }: { p: CopyPositionView; table: boolean; onShare?: () => void }) {
   const { t, format } = useI18n();
   const long = p.size > 0;
   const roi = p.unrealizedPnl !== null && p.notionalUsd ? p.unrealizedPnl / (Math.abs(p.size) * p.entryPx) : null;
@@ -62,6 +63,12 @@ function PositionLine({ p, table }: { p: CopyPositionView; table: boolean }) {
         <span className={cn("whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-semibold", long ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative")}>
           {t(long ? "portfolio.copy.long" : "portfolio.copy.short")}
         </span>
+        {onShare ? (
+          <button type="button" aria-haspopup="dialog" onClick={onShare} aria-label={t("trader.sharePosition")} title={t("trader.sharePosition")}
+            className="inline-flex size-5 items-center justify-center rounded-md text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+            <Share2 className="size-3" />
+          </button>
+        ) : null}
       </span>
       <span className={cn("num text-muted-foreground", table && "hidden md:block")}>{format.num(Math.abs(p.size), 4)}</span>
       <span className="num">{p.notionalUsd === null ? "—" : format.usd(p.notionalUsd, { digits: 2 })}</span>
@@ -221,6 +228,7 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
   const [orderPages, setOrderPages] = useState<string[]>([]);
   const orders = useCopyOrders(s.id, orderPages.at(-1));
   const [dialog, setDialog] = useState<"stop" | "edit" | "funds" | "withdraw" | null>(null);
+  const [card, setCard] = useState<TradeCardSource | null>(null);
   const [error, setError] = useState<string | null>(null);
   const live = s.status !== "stopped";
   const run = async (c: "pause" | "resume") => {
@@ -317,7 +325,7 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
         </section>
         <section className="rounded-2xl border border-border bg-card">
           <h3 className="border-b border-border px-4 py-3 text-sm font-bold">{t("portfolio.copy.detail.positions")}</h3>
-          {s.positions.length ? s.positions.map((p) => <PositionLine key={p.coin} p={p} table />) : <p className="px-4 py-6 text-center text-sm text-muted-foreground">{t("portfolio.copy.noOpenPositions")}</p>}
+          {s.positions.length ? s.positions.map((p) => <PositionLine key={p.coin} p={p} table onShare={p.unrealizedPnl === null ? undefined : () => setCard(copyCardSource("position", { strategyId: s.id, coin: p.coin }, coinLabel(p.coin)))} />) : <p className="px-4 py-6 text-center text-sm text-muted-foreground">{t("portfolio.copy.noOpenPositions")}</p>}
         </section>
       </div>
 
@@ -376,6 +384,7 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
       <EditDialog strategy={s} balance={balance} open={dialog === "edit"} onClose={() => setDialog(null)} />
       <FundsDialog strategy={s} balance={balance} open={dialog === "funds"} onClose={() => setDialog(null)} />
       <WithdrawDialog strategy={s} open={dialog === "withdraw"} onClose={() => setDialog(null)} />
+      {card ? <TradeShareDialog source={card} onClose={() => setCard(null)} /> : null}
     </div>
   );
 }

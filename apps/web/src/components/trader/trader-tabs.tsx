@@ -33,7 +33,7 @@ import {
   usdFull,
 } from "@/lib/trade-format";
 import { Asset, Empty, LoadError, Loading, SortHead, useSorted } from "./trade-analytics";
-import { TradeShareDialog, type TradeShareSnapshot } from "./trade-share-dialog";
+import { TradeShareDialog, traderCardSource, type TradeCardSource } from "./trade-share-dialog";
 
 /**
  * CopyDog's trader-page tabs beyond the trade analytics: 持倉, 餘額, 訂單,
@@ -111,14 +111,11 @@ function LeverageChip({ p }: { p: LivePosition }) {
   );
 }
 
-function SharePosition({ p, mark, onShare }: { p: LivePosition; mark: number | null; onShare: (snapshot: TradeShareSnapshot) => void }) {
+function SharePosition({ p, onShare }: { p: LivePosition; mark: number | null; onShare: (coin: string) => void }) {
   const { t } = useI18n();
   return <>
     <button type="button" aria-haspopup="dialog"
-      onClick={() => onShare({ market: coinLabel(p.coin), side: t(p.side === "long" ? "trader.sideLong" : "trader.sideShort"),
-        pnl: signedUsd2(p.unrealizedPnl), positive: p.unrealizedPnl >= 0, entry: price(p.entryPx), exit: price(mark),
-        detail: `${qty(Math.abs(p.szi))} · ${p.leverage ? `${p.leverage}×` : "—"}`,
-        capturedAt: new Date().toISOString(), source: `${window.location.origin}${window.location.pathname}` })}
+      onClick={() => onShare(p.coin)}
       aria-label={t("trader.sharePosition")} title={t("trader.sharePosition")}
       className="ml-2 inline-flex size-5 items-center justify-center rounded-md align-middle text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
       <Share2 className="size-3" />
@@ -128,7 +125,7 @@ function SharePosition({ p, mark, onShare }: { p: LivePosition; mark: number | n
 
 /** CopyDog's mobile position card: coin, side, leverage, size; PnL and its
  * % pill; value / entry / mark / liquidation underneath. */
-function PositionCard({ p, mark, onShare }: { p: LivePosition; mark: number | null; onShare: (snapshot: TradeShareSnapshot) => void }) {
+function PositionCard({ p, mark, onShare }: { p: LivePosition; mark: number | null; onShare: (coin: string) => void }) {
   const { t } = useI18n();
   const pct = pnlPct(p);
   return (
@@ -181,8 +178,9 @@ type PositionKey = "asset" | "size" | "value" | "entry" | "mark" | "pnl" | "liqu
  * 強平價 (distance) / 保證金 / 資金費, largest value first; cards on phones. */
 export function PositionsTab({ profile, marks }: { profile: TraderProfileResponse; marks: Readonly<Record<string, number>> }) {
   const { t } = useI18n();
-  const [snapshot, setSnapshot] = useState<TradeShareSnapshot | null>(null);
-  const share = snapshot ? <TradeShareDialog snapshot={snapshot} onClose={() => setSnapshot(null)} /> : null;
+  const [source, setSource] = useState<TradeCardSource | null>(null);
+  const share = source ? <TradeShareDialog source={source} onClose={() => setSource(null)} /> : null;
+  const setSnapshot = (coin: string) => setSource(traderCardSource(profile.address, "position", coin, coinLabel(coin)));
   const keys = useMemo<Record<PositionKey, (p: LivePosition) => number | string>>(
     () => ({
       asset: (p) => p.coin,

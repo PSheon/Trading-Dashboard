@@ -117,8 +117,8 @@ export class CopyPerformanceService {
 
   /** Closed copy trades (best, worst or latest), from the copies' fills. */
   async trades(userId: number, query: unknown): Promise<CopyTradesResponse> {
-    const { sort, limit, strategyId } = parseOr400(copyTradesQuerySchema, query);
-    const rows = await this.repository.runtime.closedTrades(userId, sort, limit, strategyId);
+    const { sort, limit, strategyId, id } = parseOr400(copyTradesQuerySchema, query);
+    const rows = await this.repository.runtime.closedTrades(userId, sort, limit, strategyId, id);
     return {
       mode: "paper",
       items: rows.map((r) => {

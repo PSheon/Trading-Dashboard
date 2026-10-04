@@ -1964,4 +1964,12 @@ export const pt: Messages = {
       liquidated: "Posição liquidada: {coin}{pnl}",
     },
   },
+  shareCard: {
+    tradeTitle: "Compartilhar operação",
+    positionTitle: "Compartilhar posição",
+    styleCard: "Cartão do app",
+    stylePoster: "Pôster",
+    styleSpotlight: "Destaque",
+    imageAlt: "Cartão de {label}",
+  },
 };

@@ -164,6 +164,17 @@ async function currentToken(publicRead = false): Promise<string | null> {
   }
 }
 
+/**
+ * A same-origin route of this web app that acts for the signed-in person
+ * (the owner's share cards): their access token goes in the Authorization
+ * header, as on api requests. Only for paths of this site ("/…").
+ */
+export async function fetchAsSession(path: string, signal?: AbortSignal): Promise<Response> {
+  if (!path.startsWith("/") || path.startsWith("//")) throw new Error("same-origin paths only");
+  const token = await currentToken(false);
+  return fetch(path, { signal, headers: token ? { Authorization: `Bearer ${token}` } : {}, credentials: "same-origin", cache: "no-store" });
+}
+
 export interface PostOptions {
   beforeSend?: () => void;
   /** Extra request headers (an explicit confirmation such as X-Confirm-Delete). */

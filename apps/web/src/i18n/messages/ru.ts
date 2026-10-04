@@ -1964,4 +1964,12 @@ export const ru: Messages = {
       liquidated: "Позиция ликвидирована: {coin}{pnl}",
     },
   },
+  shareCard: {
+    tradeTitle: "Поделиться сделкой",
+    positionTitle: "Поделиться позицией",
+    styleCard: "Карточка",
+    stylePoster: "Постер",
+    styleSpotlight: "В фокусе",
+    imageAlt: "Карточка {label}",
+  },
 };

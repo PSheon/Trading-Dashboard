@@ -1964,4 +1964,12 @@ export const tr: Messages = {
       liquidated: "Pozisyon likide edildi: {coin}{pnl}",
     },
   },
+  shareCard: {
+    tradeTitle: "İşlemi paylaş",
+    positionTitle: "Pozisyonu paylaş",
+    styleCard: "Uygulama kartı",
+    stylePoster: "Poster",
+    styleSpotlight: "Öne çıkan",
+    imageAlt: "{label} kartı",
+  },
 };

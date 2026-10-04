@@ -2648,4 +2648,12 @@ export const zhTW = {
       liquidated: "持倉已被清算：{coin}{pnl}",
     },
   },
+  shareCard: {
+    tradeTitle: "分享交易",
+    positionTitle: "分享持倉",
+    styleCard: "App 卡片",
+    stylePoster: "海報",
+    styleSpotlight: "聚焦卡",
+    imageAlt: "{label} 卡片",
+  },
 } as const;

@@ -1964,4 +1964,12 @@ export const zhCN: Messages = {
       liquidated: "持仓已被清算：{coin}{pnl}",
     },
   },
+  shareCard: {
+    tradeTitle: "分享交易",
+    positionTitle: "分享持仓",
+    styleCard: "App 卡片",
+    stylePoster: "海报",
+    styleSpotlight: "聚焦卡",
+    imageAlt: "{label} 卡片",
+  },
 };

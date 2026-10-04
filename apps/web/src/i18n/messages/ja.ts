@@ -1964,4 +1964,12 @@ export const ja: Messages = {
       liquidated: "ポジションが清算されました：{coin}{pnl}",
     },
   },
+  shareCard: {
+    tradeTitle: "トレードを共有",
+    positionTitle: "ポジションを共有",
+    styleCard: "アプリカード",
+    stylePoster: "ポスター",
+    styleSpotlight: "スポットライト",
+    imageAlt: "{label} のカード",
+  },
 };

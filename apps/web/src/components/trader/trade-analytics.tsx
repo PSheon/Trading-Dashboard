@@ -6,7 +6,7 @@ import { useMemo, useState } from "react";
 import { cn } from "cn";
 
 import { Skeleton } from "@/components/page";
-import { TradeShareDialog, type TradeShareSnapshot } from "./trade-share-dialog";
+import { TradeShareDialog, traderCardSource, type TradeCardSource } from "./trade-share-dialog";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useI18n } from "@/i18n/provider";
@@ -187,43 +187,39 @@ function Duration({ trade }: { trade: RoundTrip }) {
   return <>{trade.partial ? `>${duration(trade.holdSeconds)}` : duration(trade.holdSeconds)}</>;
 }
 
-function tradeSnapshot(trade: RoundTrip, side: string): TradeShareSnapshot {
-  const pnl = shownPnl(trade);
-  return { market: coinLabel(trade.coin), side, pnl: signedUsd2(pnl), positive: pnl >= 0,
-    entry: `${trade.entryApprox ? "≈" : ""}${price(trade.entryPx)}`, exit: trade.exitPx === null ? "—" : price(trade.exitPx),
-    detail: `${duration(trade.holdSeconds)} · ${trade.partial ? "> " : ""}${new Date(trade.entryTime).toISOString()} → ${trade.exitTime ? new Date(trade.exitTime).toISOString() : "—"}`,
-    capturedAt: new Date().toISOString(), source: `${window.location.origin}${window.location.pathname}` };
+function tradeSource(address: string, trade: RoundTrip): TradeCardSource {
+  return traderCardSource(address, "trade", trade.id, coinLabel(trade.coin));
 }
 
-function ShareButton({ trade }: { trade: RoundTrip }) {
+function ShareButton({ trade, address }: { trade: RoundTrip; address: string }) {
   const { t } = useI18n();
-  const [snapshot, setSnapshot] = useState<TradeShareSnapshot | null>(null);
+  const [source, setSource] = useState<TradeCardSource | null>(null);
   return <>
-    <button type="button" aria-haspopup="dialog" onClick={() => setSnapshot(tradeSnapshot(trade, t(trade.side === "long" ? "trader.sideLong" : "trader.sideShort")))}
+    <button type="button" aria-haspopup="dialog" onClick={() => setSource(tradeSource(address, trade))}
       aria-label={t("trader.shareTrade")} title={t("trader.shareTrade")}
       className="ml-1.5 inline-flex size-5 items-center justify-center rounded text-subtle-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
       <Share2 className="size-3" />
     </button>
-    {snapshot ? <TradeShareDialog snapshot={snapshot} onClose={() => setSnapshot(null)} /> : null}
+    {source ? <TradeShareDialog source={source} onClose={() => setSource(null)} /> : null}
   </>;
 }
 
-function TrailShare({ trade, enabled, children }: { trade: RoundTrip; enabled: boolean; children: React.ReactNode }) {
+function TrailShare({ trade, address, children }: { trade: RoundTrip; address: string | null; children: React.ReactNode }) {
   const { t } = useI18n();
-  const [snapshot, setSnapshot] = useState<TradeShareSnapshot | null>(null);
+  const [source, setSource] = useState<TradeCardSource | null>(null);
   const className = "flex shrink-0 flex-col items-end gap-1 pl-2";
-  if (!enabled) return <div className={className}>{children}</div>;
+  if (!address) return <div className={className}>{children}</div>;
   return <>
     <button type="button" className={cn(className, "rounded outline-none focus-visible:ring-2 focus-visible:ring-ring")}
       aria-haspopup="dialog" aria-label={t("trader.shareTrade")}
-      onClick={() => setSnapshot(tradeSnapshot(trade, t(trade.side === "long" ? "trader.sideLong" : "trader.sideShort")))}>{children}</button>
-    {snapshot ? <TradeShareDialog snapshot={snapshot} onClose={() => setSnapshot(null)} /> : null}
+      onClick={() => setSource(tradeSource(address, trade))}>{children}</button>
+    {source ? <TradeShareDialog source={source} onClose={() => setSource(null)} /> : null}
   </>;
 }
 
 /** A trade as CopyDog's mobile card: coin + side, entry → exit, "2d ago",
  * PnL and return. */
-export function TradeCard({ trade, share = false }: { trade: RoundTrip; share?: boolean }) {
+export function TradeCard({ trade, shareAddress = null }: { trade: RoundTrip; /** The trader's address: the card opens the share dialog. */ shareAddress?: string | null }) {
   const pnl = shownPnl(trade);
   const roi = tradeReturnPct(trade);
   return (
@@ -241,7 +237,7 @@ export function TradeCard({ trade, share = false }: { trade: RoundTrip; share?: 
         </span>
         {trade.exitTime ? <span className="num text-xs leading-[18px] text-muted-foreground">{ago(trade.exitTime)}</span> : null}
       </div>
-      <TrailShare trade={trade} enabled={share}>
+      <TrailShare trade={trade} address={shareAddress}>
         <span className={cn("num text-[15px] leading-[23px] font-semibold", pnlTone(pnl))}>{signedUsdShort(pnl)}</span>
         {roi !== null ? (
           <span className={cn("num inline-flex items-center rounded-[6px] p-1 text-xs font-semibold", roi >= 0 ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative")}>
@@ -544,7 +540,7 @@ export function TradesTab({ address }: { address: string }) {
       <>
         <ul className="overflow-hidden rounded-2xl bg-card sm:hidden">
           {sorted.map((trade) => (
-            <TradeCard key={trade.id} trade={trade} share />
+            <TradeCard key={trade.id} trade={trade} shareAddress={address} />
           ))}
         </ul>
         <div className="hidden sm:block">
@@ -596,7 +592,7 @@ export function TradesTab({ address }: { address: string }) {
                     </TableCell>
                     <TableCell className="text-right whitespace-nowrap">
                       <span className={pnlTone(pnl)}>{signedUsd2(pnl)}</span>
-                      <ShareButton trade={trade} />
+                      <ShareButton trade={trade} address={address} />
                     </TableCell>
                   </TableRow>
                 );

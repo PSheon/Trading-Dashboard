@@ -29,7 +29,8 @@ const pngOf = (src: string) =>
   });
 
 /**
- * CopyDog's 分享交易員主頁: the trader's image card in two formats (16:9 and
+ * CopyDog's 分享交易員主頁: the trader's image card — its Spotlight style,
+ * the only one CopyDog offers for a profile — in two formats (16:9 and
  * 4:5, the choice remembered), four periods (ALL first), 複製 (the PNG to
  * the clipboard) and 下載. The PNG comes from
  * /trader/<address>/share-image. As on CopyDog, a copy and a failed
@@ -100,8 +101,8 @@ export function ShareDialog({ open, onOpenChange, address, name }: { open: boole
                 type="button"
                 role="radio"
                 aria-checked={format === f}
-                aria-label={d.label}
-                title={d.label}
+                aria-label={`${t("shareCard.styleSpotlight")} · ${d.label}`}
+                title={`${t("shareCard.styleSpotlight")} · ${d.label}`}
                 onClick={() => pick(f)}
                 className={cn(
                   "overflow-hidden rounded-lg border-2 bg-background outline-none focus-visible:ring-2 focus-visible:ring-ring",

@@ -34,7 +34,7 @@ describe("分享交易員主頁, CopyDog's share flow", () => {
     const { root } = await mount();
     expect(document.body.textContent).toContain("分享交易員主頁");
     expect(image().getAttribute("src")).toBe(`/trader/${A}/share-image?period=allTime&format=landscape`);
-    expect([...document.querySelectorAll('[role="radio"][aria-label]')].map((b) => b.getAttribute("aria-label"))).toEqual(["16:9", "4:5"]);
+    expect([...document.querySelectorAll('[role="radio"][aria-label]')].map((b) => b.getAttribute("aria-label"))).toEqual(["聚焦卡 · 16:9", "聚焦卡 · 4:5"]);
     for (const p of ["24H", "7D", "30D", "ALL"]) expect(button(p)).toBeTruthy();
     for (const b of ["複製", "下載"]) expect(button(b)).toBeTruthy();
     // CopyDog's dialog has no X button.
@@ -45,7 +45,7 @@ describe("分享交易員主頁, CopyDog's share flow", () => {
   it("switches period and format, and remembers the format", async () => {
     const { root } = await mount();
     await act(async () => button("7D").click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="4:5"]')!.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="聚焦卡 · 4:5"]')!.click());
     expect(image().getAttribute("src")).toBe(`/trader/${A}/share-image?period=week&format=portrait`);
     expect(JSON.parse(localStorage.getItem("orbie_share_style")!)).toEqual({ format: "portrait" });
     await act(async () => root.unmount());

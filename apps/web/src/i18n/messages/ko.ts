@@ -1964,4 +1964,12 @@ export const ko: Messages = {
       liquidated: "포지션 강제 청산: {coin}{pnl}",
     },
   },
+  shareCard: {
+    tradeTitle: "거래 공유",
+    positionTitle: "포지션 공유",
+    styleCard: "앱 카드",
+    stylePoster: "포스터",
+    styleSpotlight: "스포트라이트",
+    imageAlt: "{label} 카드",
+  },
 };

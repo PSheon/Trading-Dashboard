@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChartPie, UserPlus, X } from "lucide-react";
+import { ChevronDown, ChartPie, Share2, UserPlus, X } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { cn } from "cn";
@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/page";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { RoiPill } from "@/components/traders/bits";
 import { Button } from "@/components/ui/button";
+import { TradeShareDialog, copyCardSource, type TradeCardSource } from "@/components/trader/trade-share-dialog";
 import { useI18n } from "@/i18n/provider";
 import type { CopyOverview, CopyStrategyView } from "@/lib/contracts";
 import { useCopyPortfolio, useCopyTrades, type CopyClosedTradeView } from "@/lib/copy";
@@ -231,9 +232,11 @@ function EmptyBlock({ icon: Icon, title, body, cta }: { icon: typeof ChartPie; t
 }
 
 function TradeRow({ trade, leaders }: { trade: CopyClosedTradeView; leaders: Map<string, Leader> }) {
-  const { format } = useI18n();
+  const { t, format } = useI18n();
+  const [card, setCard] = useState<TradeCardSource | null>(null);
   return (
     <li className="flex items-center gap-3 py-2.5">
+      {card ? <TradeShareDialog source={card} onClose={() => setCard(null)} /> : null}
       <CoinIcon coin={trade.coin} size={32} />
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="truncate text-sm font-semibold">{coinLabel(trade.coin)}</span>
@@ -243,6 +246,10 @@ function TradeRow({ trade, leaders }: { trade: CopyClosedTradeView; leaders: Map
         <span className={cn("num text-sm font-semibold", tone(trade.pnl))}>{format.usd(trade.pnl, { sign: true, digits: 2 })}</span>
         {trade.roiPct !== null ? <span className={cn("num text-xs", tone(trade.roiPct))}>{format.pct(trade.roiPct / 100, { sign: true, digits: 1 })}</span> : null}
       </div>
+      <button type="button" aria-haspopup="dialog" onClick={() => setCard(copyCardSource("trade", { id: trade.id }, coinLabel(trade.coin)))} aria-label={t("trader.shareTrade")} title={t("trader.shareTrade")}
+        className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+        <Share2 className="size-3.5" />
+      </button>
     </li>
   );
 }

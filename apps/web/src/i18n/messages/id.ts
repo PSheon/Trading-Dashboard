@@ -1964,4 +1964,12 @@ export const id: Messages = {
       liquidated: "Posisi dilikuidasi: {coin}{pnl}",
     },
   },
+  shareCard: {
+    tradeTitle: "Bagikan trade",
+    positionTitle: "Bagikan posisi",
+    styleCard: "Kartu aplikasi",
+    stylePoster: "Poster",
+    styleSpotlight: "Sorotan",
+    imageAlt: "Kartu {label}",
+  },
 };

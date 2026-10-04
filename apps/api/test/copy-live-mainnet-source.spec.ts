@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { HyperliquidLiveSourceClient } from '../src/copy/copy-live-source.client.js';
-import { canonicalLiveSourceLegs, decodeLiveSourceFill, parseLiveSourceFill } from '../src/copy/live/copy-live-source-evidence.js';
+import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceDigest, parseLiveSourceFill } from '../src/copy/live/copy-live-source-evidence.js';
 import { assertLiveSourcePrice, liveSourceDeviationBps, planLiveSourceOrder, SOURCE_EQUITY_MAX_AGE_MS, SOURCE_MID_MAX_AGE_MS, type LiveSourcePlanInput } from '../src/copy/live/copy-live-source-planner.js';
 import type { LiveSourceSizingEnvelopeV1 } from '../src/copy/live/copy-live-sizing-evidence.js';
 import { MainnetSourceReferenceReader } from '../src/copy/live/live-source-reference.js';
@@ -103,5 +103,13 @@ describe('mainnet reference reader', () => {
   it('refuses missing prices or capital instead of using zero', async () => {
     await expect(new MainnetSourceReferenceReader(market(undefined, { state: 'known', value: Dec.from('1') }) as never).read(leader, 'BTC', false)).rejects.toThrow('live_source_reference_unavailable');
     await expect(new MainnetSourceReferenceReader(market(Dec.from('1'), { state: 'failed' }) as never).read(leader, 'BTC', true)).rejects.toThrow('live_source_reference_unavailable');
+  });
+});
+
+describe('evidence digests', () => {
+  it('digest a generation-deep structure (a settled order nests about twenty levels) but refuse unbounded nesting', () => {
+    const nest = (depth: number): unknown => depth === 0 ? 'leaf' : { next: nest(depth - 1) };
+    expect(liveSourceDigest(nest(30))).toMatch(/^[0-9a-f]{64}$/);
+    expect(() => liveSourceDigest(nest(70))).toThrow('invalid_live_source_evidence');
   });
 });

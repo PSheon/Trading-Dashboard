@@ -12,6 +12,9 @@ import { CopyMarketService } from '../copy-market.service.js';
 import { HyperliquidLiveSourceClient } from '../copy-live-source.client.js';
 import { CopyLiveSourceRepository } from '../copy-live-source.repository.js';
 import { CopyFollowerLedger } from '../live/copy-follower-ledger.js';
+import { HyperliquidFollowerReceiptReader } from '../live/follower-receipt-reader.js';
+import { CopyFollowerReconciler } from '../copy-follower-monitor.service.js';
+import { CopyFollowerScanRepository } from '../copy-follower-scan.repository.js';
 import { MainnetSourceReferenceReader } from '../live/live-source-reference.js';
 import { TestnetLiveExecutionRuntime } from '../live/testnet-live-execution-runtime.js';
 import { CopyLiveEngine, DEFAULT_ENGINE_OPTIONS } from './copy-live-engine.js';
@@ -28,9 +31,9 @@ const EXTRA_RISK_BUFFER_BPS = '5', RESTING_BUILDER_FEE_CAP_TENTHS_BPS = 100;
 export const liveEngineProvider: Provider = {
   provide: LIVE_ENGINE,
   inject: [AppConfig, DATABASE_POOL, DRIZZLE_CLIENT, UnitOfWork, PostgresHyperliquidQuota, CopyMarketService, CopyFollowerLedger,
-    CopyLiveSourceRepository, CopyLiveWorkerRepository],
+    CopyLiveSourceRepository, CopyLiveWorkerRepository, CopyFollowerScanRepository],
   useFactory: (config: AppConfig, pool: Pool, db: DrizzleDb, uow: UnitOfWork, quota: PostgresHyperliquidQuota,
-    market: CopyMarketService, ledger: CopyFollowerLedger, sources: CopyLiveSourceRepository, repository: CopyLiveWorkerRepository): CopyLiveEngine | null => {
+    market: CopyMarketService, ledger: CopyFollowerLedger, sources: CopyLiveSourceRepository, repository: CopyLiveWorkerRepository, scans: CopyFollowerScanRepository): CopyLiveEngine | null => {
     const live = config.value.copy.live;
     if (config.value.copy.mode !== 'testnet' || !live) return null;
     const logger = new Logger('CopyLiveEngine');
@@ -48,7 +51,8 @@ export const liveEngineProvider: Provider = {
       repository, sources, uow, watched: new WatchedMainnetSource(db),
       testnetSource: new HyperliquidLiveSourceClient('testnet', weight => testnetBudget.acquire(weight, 'live', undefined, { signal: AbortSignal.timeout(5000) }), testnetGlobal.fetchInfo),
       runtime: hooks => new TestnetLiveExecutionRuntime(pool, testnetConfig, testnetGlobal, testnetBudget, options, Date.now, { ...hooks, reference }),
-      settler: new CopyLiveSettler(pool, testnetGlobal, testnetBudget, ledger),
+      settler: new CopyLiveSettler(pool, testnetGlobal, testnetBudget, new CopyFollowerReconciler(scans, ledger,
+        new HyperliquidFollowerReceiptReader('testnet', weight => testnetBudget.acquire(weight, 'live', undefined, { signal: AbortSignal.timeout(5000) }), testnetGlobal.fetchInfo))),
       log: message => logger.warn(message),
     }, DEFAULT_ENGINE_OPTIONS);
   },

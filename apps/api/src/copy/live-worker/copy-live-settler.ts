@@ -5,9 +5,7 @@ import { copyLiveExecutions, copyLiveRiskReservations } from '@trading-dashboard
 import { HyperliquidGlobalTransport } from '../../hyperliquid/hyperliquid-global-transport.js';
 import { RequestBudgeterService } from '../../hyperliquid/request-budgeter.service.js';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
-import type { CopyFollowerLedger } from '../live/copy-follower-ledger.js';
 import type { LiveExecutionRecord } from '../live/live-execution.js';
-import { HyperliquidFollowerReceiptReader } from '../live/follower-receipt-reader.js';
 import { HyperliquidLiveAccountObserver } from '../live/live-account-observer.js';
 import { HyperliquidAllDexsAccountSource } from '../live/live-account-ws-source.js';
 import { boundedLiveRead, HyperliquidLiveMarketResolver } from '../live/live-market-resolver.js';
@@ -26,22 +24,25 @@ export interface LiveSettleRequest {
 export type LiveSettleOutcome = { kind: 'released' } | { kind: 'pending' | 'quarantine'; reason: string };
 
 /**
- * Settles one terminal testnet order: books the account's own fills around
- * it (so settlement need not wait for the per-minute follower scan), reads
+ * Settles one terminal testnet order: scans the account's own fills now
+ * (so settlement need not wait for the scheduled follower scan), reads
  * the order's status as settlement evidence, observes the account, and asks
  * Codex's settlement DAL to release the reservation and settle the leg
  * (which a flip's opening leg waits for). Read-only at the exchange.
  */
 export class CopyLiveSettler {
   constructor(private readonly pool: Pool, private readonly global: HyperliquidGlobalTransport, private readonly budget: RequestBudgeterService,
-    private readonly ledger: CopyFollowerLedger, private readonly now = Date.now) {}
+    private readonly scanner: { runFor(accountId: string): Promise<void> }, private readonly now = Date.now) {}
 
   private acquire = (weight: number) => this.budget.acquire(weight, 'live', undefined, { signal: AbortSignal.timeout(5000) });
 
   async settle(request: LiveSettleRequest): Promise<LiveSettleOutcome> {
     const record = await this.record(request.key);
     if (!record || !TERMINAL_STATES.has(record.state)) return { kind: 'pending', reason: 'live_settlement_not_terminal' };
-    if (record.outcome?.filledSize && record.outcome.filledSize !== '0') await this.bookReceipts(request, record);
+    // Book the account's own fills now (the scheduled scan reaches an account
+    // only every two minutes). The scan also advances its proven horizon,
+    // which the next order's position projection requires.
+    if (record.outcome?.filledSize && record.outcome.filledSize !== '0') await this.scanner.runFor(request.accountId);
     const scope = new PostgresLiveRiskScope(this.pool, this.now);
     return scope.run({ userId: request.userId, network: 'testnet', accountAddress: request.accountAddress,
       source: { network: request.sourceNetwork, leaderAddress: request.leaderAddress } }, async (_scope, session) => this.global.runOriginal(session, async () => {
@@ -69,17 +70,6 @@ export class CopyLiveSettler {
   private async record(key: string): Promise<LiveExecutionRecord | null> {
     const [row] = await drizzle(this.pool).select().from(copyLiveExecutions).where(eq(copyLiveExecutions.key, key));
     return row ? decodeLiveExecutionRow(row) : null;
-  }
-
-  /** The account's fills from just before the order to now, booked by the
-   * follower ledger (idempotent on the exchange's own identities). */
-  private async bookReceipts(request: LiveSettleRequest, record: LiveExecutionRecord): Promise<void> {
-    const reader = new HyperliquidFollowerReceiptReader('testnet', this.acquire, this.global.fetchInfo, this.now);
-    const to = this.now(), from = Math.max(0, record.createdAt - 60_000);
-    // Fills only: funding receipts are the follower scan's (and cost another 120).
-    const result = await reader.read({ accountAddress: request.accountAddress, from, to, maxRequests: 2, resumeWindows: [{ kind: 'fills', from, to, depth: 0 }] });
-    const identity = { network: 'testnet' as const, accountAddress: request.accountAddress };
-    for (const receipt of result.fills) await this.ledger.bookFill(request.accountId, receipt.raw, identity);
   }
 
   /** Settlement-grade orderStatus by the original cloid (as the transport's

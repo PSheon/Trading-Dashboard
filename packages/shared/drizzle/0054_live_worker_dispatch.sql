@@ -3,7 +3,11 @@ CREATE TABLE "copy_live_activations" (
 	"user_id" integer NOT NULL,
 	"strategy_id" integer NOT NULL,
 	"account_id" text NOT NULL,
-	"activated_at" timestamp with time zone NOT NULL
+	"state" text DEFAULT 'pending' NOT NULL,
+	"control_revision" bigint NOT NULL,
+	"requested_at" timestamp with time zone NOT NULL,
+	"activated_at" timestamp with time zone,
+	CONSTRAINT "copy_live_activations_state_check" CHECK ("copy_live_activations"."state" in ('pending', 'activated') and "copy_live_activations"."control_revision" >= 0 and ("copy_live_activations"."state" = 'activated') = ("copy_live_activations"."activated_at" is not null))
 );
 --> statement-breakpoint
 CREATE TABLE "copy_live_dispatches" (
@@ -40,6 +44,7 @@ ALTER TABLE "copy_live_dispatches" ADD CONSTRAINT "copy_live_dispatches_strategy
 ALTER TABLE "copy_live_dispatches" ADD CONSTRAINT "copy_live_dispatches_account_id_copy_execution_accounts_id_fk" FOREIGN KEY ("account_id") REFERENCES "public"."copy_execution_accounts"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "copy_live_dispatches" ADD CONSTRAINT "copy_live_dispatches_source_fill_id_copy_live_source_fills_id_fk" FOREIGN KEY ("source_fill_id") REFERENCES "public"."copy_live_source_fills"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "copy_live_dispatches" ADD CONSTRAINT "copy_live_dispatches_execution_key_copy_live_executions_key_fk" FOREIGN KEY ("execution_key") REFERENCES "public"."copy_live_executions"("key") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "copy_live_activations_state_idx" ON "copy_live_activations" USING btree ("state");--> statement-breakpoint
 CREATE UNIQUE INDEX "copy_live_dispatch_leg_uq" ON "copy_live_dispatches" USING btree ("mandate_id","source_fill_id","leg");--> statement-breakpoint
 CREATE UNIQUE INDEX "copy_live_dispatch_execution_uq" ON "copy_live_dispatches" USING btree ("execution_key") WHERE "copy_live_dispatches"."execution_key" is not null;--> statement-breakpoint
 CREATE INDEX "copy_live_dispatch_work_idx" ON "copy_live_dispatches" USING btree ("state","updated_at");--> statement-breakpoint

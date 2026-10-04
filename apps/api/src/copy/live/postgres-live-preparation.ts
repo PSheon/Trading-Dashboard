@@ -151,7 +151,8 @@ export class PostgresLivePreparation {
     const intent: LiveOrderIntent = { authorizationId: local.grant.id, userId: local.account.userId, strategyId: local.strategy.id, walletId: local.wallet.privyWalletId,
       network: 'testnet', accountAddress: address(local.account.address!), cloid, asset: plan.order.asset, side: plan.order.side, size: plan.order.size, limitPrice: plan.order.limitPrice,
       sizeDecimals: plan.order.sizeDecimals, timeInForce: plan.order.timeInForce, reduceOnly: plan.order.reduceOnly, market,
-      ...(local.consent.builderAddress ? { builder: { address: local.consent.builderAddress, feeTenthsBps: local.consent.builderMaxFeeTenthsOfBps, approvedMaxFeeTenthsBps: local.consent.builderMaxFeeTenthsOfBps } } : {}) };
+      // A zero fee attaches no builder code (nothing to approve or collect).
+      ...(local.consent.builderAddress && local.consent.builderMaxFeeTenthsOfBps > 0 ? { builder: { address: local.consent.builderAddress, feeTenthsBps: local.consent.builderMaxFeeTenthsOfBps, approvedMaxFeeTenthsBps: local.consent.builderMaxFeeTenthsOfBps } } : {}) };
     const action = buildOrderAction(intent), fingerprint = intentFingerprint(intent, action);
     const record = await session.transaction(async tx => {
       const current = await loadLivePreparationAuthority(session, tx, binding, this.now());

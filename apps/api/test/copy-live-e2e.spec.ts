@@ -13,6 +13,9 @@ import { PostgresHyperliquidQuota } from '../src/hyperliquid/postgres-hyperliqui
 import { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
 import { TestnetLiveExecutionRuntime } from '../src/copy/live/testnet-live-execution-runtime.js';
 import { CopyFollowerLedger } from '../src/copy/live/copy-follower-ledger.js';
+import { HyperliquidFollowerReceiptReader } from '../src/copy/live/follower-receipt-reader.js';
+import { CopyFollowerReconciler } from '../src/copy/copy-follower-monitor.service.js';
+import { CopyFollowerScanRepository } from '../src/copy/copy-follower-scan.repository.js';
 import { CopyLiveSourceRepository } from '../src/copy/copy-live-source.repository.js';
 import { digest as mandateDigest } from '../src/copy/copy-live-mandate-evidence.js';
 import { liveCopySettingsDigest } from '../src/copy/copy-live-mandate-consent.js';
@@ -57,7 +60,8 @@ const authorizationKey = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
 const agent = privateKeyToAccount(`0x${'11'.repeat(32)}`), leader = `0x${'44'.repeat(20)}`;
 let db: TestDb, pool: Pool, seed: Awaited<ReturnType<typeof preparationFixture>>, budget: RequestBudgeterService, config: AppConfig, global: HyperliquidGlobalTransport;
 let logs: string[] = [], weights: number[] = [];
-let raw: ReturnType<typeof vi.fn<typeof fetch>>, exchangeBodies: unknown[], placedOid: number | null, placedSize: string, placedAt = 0;
+let raw: ReturnType<typeof vi.fn<typeof fetch>>, exchangeBodies: unknown[];
+let placedOrders: { oid: number; cloid: string; p: string; s: string; side: string; r: boolean; at: number }[] = [];
 // The actual clock throughout: the shared egress quota checks deadlines against it.
 const clock = () => Date.now();
 
@@ -74,7 +78,7 @@ beforeEach(async () => {
   const original = budget.acquire.bind(budget); weights = [];
   vi.spyOn(budget, 'acquire').mockImplementation((weight, ...rest) => { weights.push(weight); return original(weight, ...rest); });
   // The actual clock, so every bound identity and consent is current.
-  shared.clock = Date.now(); shared.position = '0'; logs = []; exchangeBodies = []; placedOid = null; placedSize = '0';
+  shared.clock = Date.now(); shared.position = '0'; logs = []; exchangeBodies = []; placedOrders = [];
   const t = shared.clock, delta = t - now, date = (value: number) => new Date(value + delta);
   const [version] = await db.select().from(schema.copyStrategyVersions);
   const settings = { ...version!.settings, perTradeUsd: 20 };
@@ -90,6 +94,7 @@ beforeEach(async () => {
     activationCursor: date(now - 2000), createdAt: date(now - 3000), updatedAt: date(now - 2000) });
   await db.delete(schema.copyLiveSourceFills); await db.delete(schema.copyLiveSourceStreams);
   await db.update(schema.copyStrategies).set({ status: 'paused', pauseNewRisk: true });
+  await db.insert(schema.copyLiveActivations).values({ mandateId: 'mandate', userId: 1, strategyId: 9, accountId: 'account', state: 'pending', controlRevision: 0, requestedAt: date(now - 2000) });
   await db.insert(schema.copyFundingOperations).values({ id: 'fund', userId: 1, accountId: 'account', strategyId: 9, idempotencyKey: 'fund-key-0000000001', network: 'testnet',
     address: `0x${'55'.repeat(20)}`, destination: seed.f.identity.accountAddress, amount: '100', nonce: 1, status: 'credited', claimedAt: date(now - 9000), attemptedAt: date(now - 9000),
     evidenceHash: 'a'.repeat(64), transactionHash: `0x${'b'.repeat(64)}`, creditedAmount: '100', fee: '0' });
@@ -107,42 +112,48 @@ async function providers(endpoint: string, body: Record<string, unknown> | undef
     return Response.json({ method: 'eth_signTypedData_v4', data: { encoding: 'hex', signature: await agent.signTypedData({ ...typed, primaryType: typed.primary_type } as unknown as TypedDataDefinition) } });
   }
   if (endpoint === 'https://api.hyperliquid-testnet.xyz/exchange') {
-    exchangeBodies.push(body); const order = (body as { action: { orders: { s: string }[] } }).action.orders[0]!;
-    placedOid = 77; placedSize = order.s; placedAt = Date.now(); shared.position = order.s;
-    return Response.json({ status: 'ok', response: { type: 'order', data: { statuses: [{ filled: { oid: 77, totalSz: order.s, avgPx: '100' } }] } } });
+    exchangeBodies.push(body); const order = (body as { action: { orders: { c: string; p: string; s: string; b: boolean; r: boolean }[] } }).action.orders[0]!;
+    const placed = { oid: 77 + placedOrders.length, cloid: order.c, p: order.p, s: order.s, side: order.b ? 'B' : 'A', r: order.r, at: Date.now() };
+    placedOrders.push(placed);
+    shared.position = String(placedOrders.reduce((sum, o) => sum + (o.side === 'B' ? 1 : -1) * Number(o.s), 0));
+    return Response.json({ status: 'ok', response: { type: 'order', data: { statuses: [{ filled: { oid: placed.oid, totalSz: order.s, avgPx: '100' } }] } } });
   }
   expect(endpoint).toBe('https://api.hyperliquid-testnet.xyz/info');
-  const placed = (exchangeBodies[0] as { action: { orders: { c: string; p: string; s: string }[] } } | undefined)?.action.orders[0];
-  const user = body!.user;
+  const user = body!.user, status = placedOrders.find(o => o.cloid === body!.oid);
   const values: Record<string, unknown> = { userRole: { role: 'user' }, userAbstraction: 'disabled', userDexAbstraction: false,
     spotClearinghouseState: { portfolioMarginEnabled: false, balances: [] }, perpDexs: [null], spotMeta: { tokens: [{ index: 7, name: 'USDC', isCanonical: true }] },
     meta, allPerpMetas: [meta], metaAndAssetCtxs: [meta, [{ midPx: '100', markPx: '100' }]],
     activeAssetData: { user, coin: 'BTC', leverage: { type: 'cross', value: 10 }, maxTradeSzs: ['1', '1'], availableToTrade: ['100', '100'], markPx: '100' },
     userFees: { userAddRate: '-0.0001', userCrossRate: '0.0005', activeReferralDiscount: '0', trial: null },
     extraAgents: [{ address: agent.address, name: 'dedicated', validUntil: Date.now() + 60000 }],
-    orderStatus: placedOid && placed ? { status: 'order', order: { status: 'filled', statusTimestamp: placedAt + 2, order: { coin: 'BTC', oid: placedOid, cloid: placed.c, side: 'B', reduceOnly: false,
-      tif: 'Ioc', origSz: placed.s, sz: '0', limitPx: placed.p, timestamp: placedAt, isTrigger: false, isPositionTpsl: false, children: [] } } } : { status: 'unknownOid' },
-    userFillsByTime: placedOid ? [{ coin: 'BTC', px: '100', sz: placedSize, side: 'B', time: placedAt + 1, startPosition: '0', dir: 'Open Long', closedPnl: '0',
-      hash: `0x${'34'.repeat(32)}`, oid: placedOid, crossed: true, fee: '0.01', tid: 501, feeToken: 'USDC' }] : [], userFunding: [] };
+    orderStatus: status ? { status: 'order', order: { status: 'filled', statusTimestamp: status.at + 2, order: { coin: 'BTC', oid: status.oid, cloid: status.cloid, side: status.side, reduceOnly: status.r,
+      tif: 'Ioc', origSz: status.s, sz: '0', limitPx: status.p, timestamp: status.at, isTrigger: false, isPositionTpsl: false, children: [] } } } : { status: 'unknownOid' },
+    userFillsByTime: placedOrders.map((o, i) => ({ coin: 'BTC', px: '100', sz: o.s, side: o.side, time: o.at + 1, startPosition: '0', dir: 'Open Long', closedPnl: '0',
+      hash: `0x${String(34 + i).repeat(32)}`, oid: o.oid, crossed: true, fee: '0.01', tid: 501 + i, feeToken: 'USDC' })), userFunding: [] };
   if (!(String(body!.type) in values)) throw Error(`Unsupported offline INFO ${String(body!.type)}`);
   return Response.json(values[String(body!.type)]);
 }
-function engine(midPrice = '100') {
+function engine(midPrice = '100', egress = global) {
+  // Settlement right after the order (scan 240 + status + account ~630): an
+  // order and its settlement exceed one minute's 1200 testnet weight, so in
+  // production settlement waits for a later pass; here it gets its own room.
+  const settleGlobal = new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(pool, { schema }))), { egressKey: 'e2e-settle-egress', ownerId: 'e2e-settle' }, raw);
+  const settleBudget = new RequestBudgeterService(new AppConfig({ ...config.value, hyperliquid: { ...config.value.hyperliquid, budgetPerMin: 200, burst: 1000 } }));
   const reference = { read: vi.fn(async () => ({ midPrice, midObservedAt: Date.now(), leaderEquity: null, leaderEquityObservedAt: null })) };
   const options = { slippageBps: '30', extraRiskBufferBps: '5', restingOrderBuilderFeeCapTenthsBps: 100, maxSourceDeviationBps: '500' };
   return new CopyLiveEngine({
     repository: new CopyLiveWorkerRepository(db, new UnitOfWork(db)), sources: new CopyLiveSourceRepository(db), uow: new UnitOfWork(db),
     watched: new WatchedMainnetSource(db, clock), testnetSource: { read: vi.fn() } as never,
-    runtime: hooks => new TestnetLiveExecutionRuntime(pool, config, global, budget, options, clock, { ...hooks, reference }),
-    // Settlement right after the order: its own bucket, as the next pass would find refilled.
-    settler: new CopyLiveSettler(pool, global, new RequestBudgeterService(config), new CopyFollowerLedger(db, new UnitOfWork(db)), clock), log: message => logs.push(message),
+    runtime: hooks => new TestnetLiveExecutionRuntime(pool, config, egress, budget, options, clock, { ...hooks, reference }),
+    settler: new CopyLiveSettler(pool, settleGlobal, settleBudget, new CopyFollowerReconciler(new CopyFollowerScanRepository(db), new CopyFollowerLedger(db, new UnitOfWork(db)),
+      new HyperliquidFollowerReceiptReader('testnet', weight => settleBudget.acquire(weight, 'live', undefined, { signal: AbortSignal.timeout(5000) }), settleGlobal.fetchInfo, clock)), clock), log: message => logs.push(message),
   }, { testnetSourceIntervalMs: 60_000, sourceLagMs: 0, passBudgetMs: 60_000 }, clock);
 }
-async function leaderOpens() {
+async function leaderOpens(tid = 1001) {
   await new Promise(resolve => setTimeout(resolve, 5));
   const time = Date.now() - 2, rawFill = { coin: 'BTC', px: '100', sz: '1', side: 'B', time, startPosition: '0', dir: 'Open Long', closedPnl: '0',
-    hash: `0x${'12'.repeat(32)}`, oid: 2001, crossed: true, fee: '0.01', tid: 1001, feeToken: 'USDC' };
-  await db.insert(schema.fills).values({ address: leader, tid: 1001n, coin: 'BTC', side: 'B', dir: 'Open Long', px: '100', sz: '1', fee: '0.01', hash: rawFill.hash, ts: new Date(time), raw: rawFill });
+    hash: `0x${'12'.repeat(32)}`, oid: 1000 + tid, crossed: true, fee: '0.01', tid, feeToken: 'USDC' };
+  await db.insert(schema.fills).values({ address: leader, tid: BigInt(tid), coin: 'BTC', side: 'B', dir: 'Open Long', px: '100', sz: '1', fee: '0.01', hash: rawFill.hash, ts: new Date(time), raw: rawFill });
 }
 
 describe('testnet copy of a mainnet leader, end to end against provider doubles', { timeout: 30_000 }, () => {
@@ -164,6 +175,20 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     expect(await db.select().from(schema.copyFollowerReceipts)).toHaveLength(1);
     // Later passes neither sign nor send again.
     await e.tick(); expect(exchangeBodies).toHaveLength(1);
+  });
+  it('after a settled order the next leader open is sized from the projected position and also settles', async () => {
+    let e = engine(); await e.tick(); await leaderOpens(1001); await e.tick(); await new Promise(resolve => setTimeout(resolve, 5)); await e.tick();
+    expect((await db.select().from(schema.copyLiveDispatches))[0]).toMatchObject({ state: 'settled' });
+    // A minute of testnet weight is spent; the next order runs on fresh quota (production: the next minute).
+    budget.onModuleDestroy(); budget = new RequestBudgeterService(config);
+    e = engine('100', new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(pool, { schema }))), { egressKey: 'e2e-second-egress', ownerId: 'e2e-2' }, raw));
+    await leaderOpens(1002); await e.tick();
+    expect(logs).toEqual([]); expect(exchangeBodies).toHaveLength(2);
+    expect(exchangeBodies[1]).toMatchObject({ action: { orders: [{ b: true, s: '0.19', r: false }] } });
+    await new Promise(resolve => setTimeout(resolve, 5)); await e.tick();
+    const rows = await db.select().from(schema.copyLiveDispatches);
+    expect(rows.map(r => r.state)).toEqual(['settled', 'settled']);
+    expect(await db.select().from(schema.copyFollowerReceipts)).toHaveLength(2);
   });
   it('refuses the open when the testnet mid strays from mainnet beyond the threshold; nothing is signed or sent', async () => {
     const e = engine('120'); await e.tick(); await leaderOpens(); await e.tick();

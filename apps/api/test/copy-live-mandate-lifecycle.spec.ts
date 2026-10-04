@@ -4,7 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { eq } from 'drizzle-orm';
 import { privateKeyToAccount } from 'viem/accounts';
 import { adminSettingsSchema, DEFAULT_COPY_RISK_LIMITS, liveCopyMandateOwnerTypedData, liveCopyOverviewSchema } from '@trading-dashboard/shared/contracts';
-import { appSettings, copyControls, copyAgentSetups, copyExecutionAccounts, copyExecutionWallets, copyLiveExecutions, copyLiveMandates,
+import { appSettings, copyLiveActivations, leaders, copyControls, copyAgentSetups, copyExecutionAccounts, copyExecutionWallets, copyLiveExecutions, copyLiveMandates,
   copyLiveStrategyConfigs, copyRiskPolicies, copyStrategies, copyStrategyVersions, copyWalletAuthorizations, paperAccounts, users } from '@trading-dashboard/shared/database';
 import { CopyLiveMandateRepository } from '../src/copy/copy-live-mandate.repository.js';
 import { CopyLiveMandateService } from '../src/copy/copy-live-mandate.service.js';
@@ -86,6 +86,19 @@ describe('dedicated testnet preparation', () => {
     expect(await db.select().from(paperAccounts)).toEqual([]);
     expect(await db.select().from(copyStrategies)).toHaveLength(1);
   });
+  it('a mainnet leader is watched within the site-wide cap: at the cap a new address is refused and nothing is created', async () => {
+    const [general] = await db.select().from(appSettings).where(eq(appSettings.key, 'general'));
+    const capped = `0x${'66'.repeat(20)}`, under = `0x${'77'.repeat(20)}`;
+    await db.insert(leaders).values({ address: `0x${'88'.repeat(20)}`, active: true, source: 'favorite' });
+    await db.update(appSettings).set({ value: { ...(general!.value as object), maxWatchedAddresses: 1 } }).where(eq(appSettings.key, 'general'));
+    await expect(service.create(uid, { ...draft(), idempotencyKey: 'mainnet-capped-key-0001', leader: capped, sourceNetwork: 'mainnet' }))
+      .rejects.toMatchObject({ status: 409, response: { code: 'watch_capacity', limit: 1 } });
+    expect(await db.select().from(copyStrategies)).toHaveLength(1);
+    expect(await db.select().from(leaders).where(eq(leaders.address, capped))).toEqual([]);
+    await db.update(appSettings).set({ value: { ...(general!.value as object), maxWatchedAddresses: 2 } }).where(eq(appSettings.key, 'general'));
+    expect(await service.create(uid, { ...draft(), idempotencyKey: 'mainnet-under-key-0001', leader: under, sourceNetwork: 'mainnet' })).toMatchObject({ sourceNetwork: 'mainnet' });
+    expect((await db.select().from(leaders).where(eq(leaders.address, under)))[0]).toMatchObject({ active: true, source: 'copy' });
+  });
   it('requires an explicitly stored complete risk policy, not schema default authority', async () => {
     await db.delete(copyRiskPolicies);
     await expect(service.create(uid, { ...draft(), leader: `0x${'55'.repeat(20)}` })).rejects.toMatchObject({ status: 503 });
@@ -112,6 +125,8 @@ describe('exact local owner consent generations', () => {
     const [a, b] = await Promise.all([service.approve(uid, first.mandate.id, { consentSignature: signature }), service.approve(uid, first.mandate.id, { consentSignature: signature })]);
     expect(a).toEqual(b); expect(a.state).toBe('active');
     expect(await strategy()).toMatchObject({ status: 'paused', pauseNewRisk: true, cash: '0' });
+    // Approval leaves the generation awaiting its funded start, bound to the current control revision.
+    expect(await db.select().from(copyLiveActivations)).toMatchObject([{ mandateId: first.mandate.id, state: 'pending', controlRevision: (await strategy())!.controlRevision, activatedAt: null }]);
     expect((await service.overview(uid)).capabilities.automaticExecution).toBe(false);
     expect(JSON.stringify(await stored())).not.toContain(signature);
   });

@@ -1,5 +1,5 @@
 {
-  "id": "b253189f-7e00-47e3-b5c9-96648dd4fb5a",
+  "id": "b6398a05-589b-4222-b969-6bc1cf6c71e4",
   "prevId": "9f218e5c-c348-4958-aeee-006b16ee6293",
   "version": "7",
   "dialect": "postgresql",
@@ -4385,14 +4385,49 @@
           "primaryKey": false,
           "notNull": true
         },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "control_revision": {
+          "name": "control_revision",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "requested_at": {
+          "name": "requested_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
         "activated_at": {
           "name": "activated_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "copy_live_activations_state_idx": {
+          "name": "copy_live_activations_state_idx",
+          "columns": [
+            {
+              "expression": "state",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "copy_live_activations_mandate_id_copy_live_mandates_id_fk": {
           "name": "copy_live_activations_mandate_id_copy_live_mandates_id_fk",
@@ -4450,7 +4485,12 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "copy_live_activations_state_check": {
+          "name": "copy_live_activations_state_check",
+          "value": "\"copy_live_activations\".\"state\" in ('pending', 'activated') and \"copy_live_activations\".\"control_revision\" >= 0 and (\"copy_live_activations\".\"state\" = 'activated') = (\"copy_live_activations\".\"activated_at\" is not null)"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.copy_live_dispatches": {

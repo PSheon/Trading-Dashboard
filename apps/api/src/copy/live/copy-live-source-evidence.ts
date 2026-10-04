@@ -46,7 +46,9 @@ function id(value: unknown): string {
 }
 export function liveSourceDigest(value: unknown): string {
   function canonical(input: unknown, depth = 0): string {
-    if (depth > 16) fail();
+    // Bounded recursion. A generation manifest holding a settled order's
+    // retained proof nests about twenty levels deep; 64 keeps headroom.
+    if (depth > 64) fail();
     if (Array.isArray(input)) return `[${input.map(v => canonical(v, depth + 1)).join(',')}]`;
     if (input && typeof input === 'object') return `{${Object.keys(input).sort().map(key => `${JSON.stringify(key)}:${canonical((input as Record<string, unknown>)[key], depth + 1)}`).join(',')}}`;
     if (input === null || typeof input === 'string' || typeof input === 'boolean' || (typeof input === 'number' && Number.isFinite(input))) return JSON.stringify(input);

@@ -113,7 +113,7 @@ export async function loadLiveRiskAuthority(session: LiveRiskDatabaseSession, db
     stream.state==='ready'&&stream.network===fill.network&&stream.leaderAddress===fill.leaderAddress&&stream.coverageFrom&&stream.coverageThrough&&stream.coverageDigest&&
     stream.coverageFrom.getTime()<=m.activationCursor!.getTime()&&stream.coverageThrough.getTime()>=fill.providerTime,'live_risk_source_changed');
   const {policy,limits,platform,user,accounts,states,general,revenue,controlsRows:controls}=prep;
-  riskSourceRequire(intent.builder?intent.builder.address===consent.builderAddress&&intent.builder.feeTenthsBps<=consent.builderMaxFeeTenthsOfBps:consent.builderAddress===null&&consent.builderMaxFeeTenthsOfBps===0,'live_risk_builder_changed');
+  riskSourceRequire(intent.builder?intent.builder.address===consent.builderAddress&&intent.builder.feeTenthsBps<=consent.builderMaxFeeTenthsOfBps:consent.builderMaxFeeTenthsOfBps===0,'live_risk_builder_changed');
   const liabilities=await read(db.select({reservation:copyLiveRiskReservations,journal:copyLiveExecutions,historicalGrant:copyWalletAuthorizations,historicalWallet:copyExecutionWallets}).from(copyLiveRiskReservations)
     .innerJoin(copyLiveExecutions,eq(copyLiveExecutions.key,copyLiveRiskReservations.key))
     .leftJoin(copyWalletAuthorizations,eq(copyWalletAuthorizations.id,copyLiveRiskReservations.authorizationId))

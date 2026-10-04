@@ -1,9 +1,9 @@
-import { watchLeader } from '../watcher/leader-watch.js';
+import { WatchCapacityError, watchLeader } from '../watcher/leader-watch.js';
 import { randomUUID } from 'node:crypto';
 import { ConflictException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm';
-import { adminSettingsSchema, copyRiskLimitsSchema, DEFAULT_COPY_RISK_LIMITS, liveCopyMandateIntentSchema, liveCopyMandateSchema, liveCopyStrategySchema, type CreateLiveCopyStrategy, type LiveCopyMandateIntent } from '@trading-dashboard/shared/contracts';
-import { appSettings, copyAgentSetups, copyControls, copyExecutionAccounts, copyExecutionWallets, copyLiveMandates, copyLiveStrategyConfigs, copyRiskPolicies, copyStrategies, copyStrategyVersions, copyWalletAuthorizations, users } from '@trading-dashboard/shared/database';
+import { adminSettingsSchema, generalSettingsSchema, copyRiskLimitsSchema, DEFAULT_COPY_RISK_LIMITS, liveCopyMandateIntentSchema, liveCopyMandateSchema, liveCopyStrategySchema, type CreateLiveCopyStrategy, type LiveCopyMandateIntent } from '@trading-dashboard/shared/contracts';
+import { appSettings, copyLiveActivations, copyAgentSetups, copyControls, copyExecutionAccounts, copyExecutionWallets, copyLiveMandates, copyLiveStrategyConfigs, copyRiskPolicies, copyStrategies, copyStrategyVersions, copyWalletAuthorizations, users } from '@trading-dashboard/shared/database';
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
 import type { DbExecutor, DbTransaction } from '../db/unit-of-work.js';
@@ -82,7 +82,19 @@ export class CopyLiveMandateRepository {
     await tx.insert(copyLiveStrategyConfigs).values({ strategyId: row.id, userId, idempotencyKey: input.idempotencyKey, sourceNetwork: input.sourceNetwork, budgetUsd: input.budgetUsd, strategyVersion: 1 });
     // A mainnet leader's fills reach testnet copies through the market
     // watcher (REST-confirmed, with proven coverage): make sure it is watched.
-    if (input.sourceNetwork === 'mainnet') await watchLeader(tx, input.leader, 'copy');
+    if (input.sourceNetwork === 'mainnet') {
+      // Within the site-wide cap on watched addresses, serialised like paper
+      // copies and favorites: at the cap a leader nobody watches yet is refused
+      // and the whole preparation rolls back.
+      const [general] = await tx.select().from(appSettings).where(eq(appSettings.key, 'general'));
+      const limit = generalSettingsSchema.shape.maxWatchedAddresses.safeParse((general?.value as { maxWatchedAddresses?: unknown } | undefined)?.maxWatchedAddresses);
+      if (!limit.success) throw new ServiceUnavailableException('Invalid watch capacity setting');
+      try { await watchLeader(tx, input.leader, 'copy', limit.data); }
+      catch (error) {
+        if (error instanceof WatchCapacityError) throw new ConflictException({ statusCode: 409, code: 'watch_capacity', limit: error.limit, message: "The site can't watch more traders right now" });
+        throw error;
+      }
+    }
     return this.strategyWire(row.id, tx);
   }
   async context(tx: DbTransaction, userId: number, accountId: string, now: number) {
@@ -153,7 +165,14 @@ export class CopyLiveMandateRepository {
     if (row.state !== 'prepared') conflict();
     await tx.update(copyStrategies).set({ status: 'paused', pauseNewRisk: true }).where(and(eq(copyStrategies.id, row.strategyId), eq(copyStrategies.userId, row.userId), eq(copyStrategies.mode, 'testnet')));
     const [updated] = await tx.update(copyLiveMandates).set({ state: 'active', consentDigest: digest(signature.toLowerCase()), activationCursor: new Date(now), revision: row.revision + 1, updatedAt: new Date(now) }).where(and(eq(copyLiveMandates.id, row.id), eq(copyLiveMandates.revision, row.revision), eq(copyLiveMandates.state, 'prepared'))).returning();
-    if (!updated) conflict(); return updated;
+    if (!updated) conflict();
+    // Awaiting its start: the worker starts trading this generation once it
+    // is funded, and only while the strategy keeps this control revision.
+    const [strategy] = await tx.select({ controlRevision: copyStrategies.controlRevision }).from(copyStrategies).where(eq(copyStrategies.id, row.strategyId));
+    if (!strategy) conflict();
+    await tx.insert(copyLiveActivations).values({ mandateId: row.id, userId: row.userId, strategyId: row.strategyId, accountId: row.accountId,
+      state: 'pending', controlRevision: strategy.controlRevision, requestedAt: new Date(now) }).onConflictDoNothing();
+    return updated;
   }
   async barrier(tx: DbTransaction, userId: number, id: string, state: 'paused' | 'revoked', clock: () => number) {
     const owner = await this.lock(tx, userId), row = await this.find(userId, id, tx, true);

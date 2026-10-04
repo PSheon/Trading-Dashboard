@@ -119,7 +119,7 @@ export class CopyLiveEngine {
       // A journal under this identity means an earlier pass reached the
       // exchange boundary; only reconciliation may continue it.
       const journal = await this.deps.repository.journalState(key);
-      if (journal !== null) { await this.deps.repository.update(row.id, { state: 'submitted', executionKey: key }); return; }
+      if (journal !== null) { await this.deps.repository.update(row.id, row.state as 'pending' | 'submitted', { state: 'submitted', executionKey: key }); return; }
       return this.submit(row, mandate, signalAgeMs);
     }
     const state = row.executionKey ? await this.deps.repository.journalState(row.executionKey) : null;
@@ -127,24 +127,24 @@ export class CopyLiveEngine {
     if (!TERMINAL_STATES.has(state)) { await this.execute(row, mandate); return; }
     const outcome = await this.deps.settler.settle({ userId: row.userId, accountId: row.accountId, accountAddress: mandate.accountAddress,
       sourceNetwork: mandate.sourceNetwork, leaderAddress: mandate.leaderAddress, key: row.executionKey! });
-    if (outcome.kind === 'released') await this.deps.repository.update(row.id, { state: 'settled', settledAt: new Date(this.now()), reason: null });
-    else if (outcome.kind === 'quarantine') await this.deps.repository.update(row.id, { state: 'refused', reason: outcome.reason.slice(0, 80) });
-    else await this.deps.repository.update(row.id, { reason: outcome.reason.slice(0, 80) });
+    if (outcome.kind === 'released') await this.deps.repository.update(row.id, row.state as 'pending' | 'submitted', { state: 'settled', settledAt: new Date(this.now()), reason: null });
+    else if (outcome.kind === 'quarantine') await this.deps.repository.update(row.id, row.state as 'pending' | 'submitted', { state: 'refused', reason: outcome.reason.slice(0, 80) });
+    else await this.deps.repository.update(row.id, row.state as 'pending' | 'submitted', { reason: outcome.reason.slice(0, 80) });
   }
 
   private async submit(row: DispatchRow, m: LiveMandateWork, signalAgeMs: number): Promise<void> {
     const now = this.now();
     if (now - row.leaderTime.getTime() > signalAgeMs) {
-      await this.deps.repository.update(row.id, { state: 'refused', reason: row.reason && row.attempts > 0 ? row.reason : 'signal_expired' }); return;
+      await this.deps.repository.update(row.id, row.state as 'pending' | 'submitted', { state: 'refused', reason: row.reason && row.attempts > 0 ? row.reason : 'signal_expired' }); return;
     }
     if (m.strategyStatus !== 'active') return; // paused/stopping: new legs wait, then expire.
     if (row.leg === 'close' && !await this.deps.repository.everOpened(row.mandateId, row.coin)) {
-      await this.deps.repository.update(row.id, { state: 'refused', reason: 'no_follower_position' }); return;
+      await this.deps.repository.update(row.id, row.state as 'pending' | 'submitted', { state: 'refused', reason: 'no_follower_position' }); return;
     }
     if (row.leg === 'open') {
       // A flip opens only after its close leg settled (the planner proves it).
       const close = await this.deps.repository.dispatch(`${row.mandateId}|${row.sourceFillId}|close`);
-      if (close?.state === 'refused') { await this.deps.repository.update(row.id, { state: 'refused', reason: 'flip_close_not_settled' }); return; }
+      if (close?.state === 'refused') { await this.deps.repository.update(row.id, row.state as 'pending' | 'submitted', { state: 'refused', reason: 'flip_close_not_settled' }); return; }
       if (close && close.state !== 'settled') return;
     }
     await this.execute(row, m);
@@ -158,9 +158,9 @@ export class CopyLiveEngine {
       const record = await runtime.execute({ userId: row.userId, accountId: row.accountId, mandateId: row.mandateId, sourceFillId: row.sourceFillId, leg: row.leg });
       const times = { ...(timing.sentAt ? { sentAt: new Date(timing.sentAt) } : {}), ...(timing.ackedAt ? { ackedAt: new Date(timing.ackedAt) } : {}) };
       if (record.errorCode === 'unattempted_expired') {
-        await this.deps.repository.update(row.id, { state: 'refused', reason: 'unattempted_expired', executionKey: record.key, firstAttemptAt: first, attempts: row.attempts + 1 }); return;
+        await this.deps.repository.update(row.id, row.state as 'pending' | 'submitted', { state: 'refused', reason: 'unattempted_expired', executionKey: record.key, firstAttemptAt: first, attempts: row.attempts + 1 }); return;
       }
-      await this.deps.repository.update(row.id, { state: 'submitted', executionKey: record.key, firstAttemptAt: first, attempts: row.attempts + 1, reason: null, ...times });
+      await this.deps.repository.update(row.id, row.state as 'pending' | 'submitted', { state: 'submitted', executionKey: record.key, firstAttemptAt: first, attempts: row.attempts + 1, reason: null, ...times });
     } catch (error) {
       const reason = reasonOf(error);
       const times = timing.sentAt ? { sentAt: new Date(timing.sentAt), ...(timing.ackedAt ? { ackedAt: new Date(timing.ackedAt) } : {}) } : {};
@@ -168,10 +168,10 @@ export class CopyLiveEngine {
       const key = `testnet:${m.accountAddress}:${liveSourceExecutionCloid(row.mandateId, row.sourceFillId, row.leg)}`;
       const journal = await this.deps.repository.journalState(key);
       if (row.state === 'pending' && journal !== null && journal !== 'prepared') {
-        await this.deps.repository.update(row.id, { state: 'submitted', executionKey: key, firstAttemptAt: first, attempts: row.attempts + 1, reason, ...times }); return;
+        await this.deps.repository.update(row.id, row.state as 'pending' | 'submitted', { state: 'submitted', executionKey: key, firstAttemptAt: first, attempts: row.attempts + 1, reason, ...times }); return;
       }
       const permanent = row.state === 'pending' && PERMANENT.has(reason);
-      await this.deps.repository.update(row.id, { ...(permanent ? { state: 'refused' as const } : {}), reason, firstAttemptAt: first, attempts: row.attempts + 1, ...times });
+      await this.deps.repository.update(row.id, row.state as 'pending' | 'submitted', { ...(permanent ? { state: 'refused' as const } : {}), reason, firstAttemptAt: first, attempts: row.attempts + 1, ...times });
     }
   }
 

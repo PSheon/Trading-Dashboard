@@ -75,6 +75,8 @@ beforeEach(async () => {
   await db.update(schema.copyLiveMandates).set({ sourceNetwork: 'mainnet', intent: consent, intentDigest: mandateDigest(consent) });
   await db.delete(schema.copyLiveSourceFills); await db.delete(schema.copyLiveSourceStreams);
   await db.update(schema.copyStrategies).set({ status: 'paused', pauseNewRisk: true });
+  // The owner's approval leaves the generation awaiting its start.
+  await db.insert(schema.copyLiveActivations).values({ mandateId: 'mandate', userId: 1, strategyId: 9, accountId: 'account', state: 'pending', controlRevision: 0, requestedAt: new Date(now - 2000) });
   runtimeCalls.length = 0; settleCalls.length = 0; runtimeImpl = filled; settleImpl = async () => ({ kind: 'released' });
 });
 afterAll(async () => { await closeTestDb(); });
@@ -84,13 +86,45 @@ describe('testnet copy execution engine', () => {
     await coverage(now - 10_000, now); await leaderFill(1, now - 500, 'B', '1', '0');
     await engine().tick();
     expect((await db.select().from(schema.copyStrategies))[0]).toMatchObject({ status: 'paused', pauseNewRisk: true });
-    expect(await db.select().from(schema.copyLiveActivations)).toHaveLength(0);
+    expect(await db.select().from(schema.copyLiveActivations)).toMatchObject([{ state: 'pending', activatedAt: null }]);
     await credit(); clock = now + 1000; await engine().tick();
     expect((await db.select().from(schema.copyStrategies))[0]).toMatchObject({ status: 'active', pauseNewRisk: false });
-    expect(await db.select().from(schema.copyLiveActivations)).toHaveLength(1);
+    expect(await db.select().from(schema.copyLiveActivations)).toMatchObject([{ state: 'activated' }]);
     // The pre-activation fill was ingested but is not a signal for this copy.
     expect(await db.select().from(schema.copyLiveSourceFills)).toHaveLength(1);
     expect(await dispatches()).toHaveLength(0); expect(runtimeCalls).toHaveLength(0);
+  });
+
+  it('never starts a strategy that a control paused after approval, nor one without a pending start', async () => {
+    await credit(); await coverage(now - 10_000, now);
+    // A strategy-level pause (as the admin's control command does) advances the control revision.
+    await db.update(schema.copyStrategies).set({ pauseNewRisk: true, controlRevision: 1 });
+    await engine().tick();
+    expect((await db.select().from(schema.copyStrategies))[0]).toMatchObject({ status: 'paused', pauseNewRisk: true });
+    await db.update(schema.copyStrategies).set({ controlRevision: 0 });
+    for (const scope of ['platform', 'user'] as const) {
+      await db.update(schema.copyControls).set({ pauseNewRisk: true }).where(eq(schema.copyControls.scope, scope));
+      await engine().tick();
+      expect((await db.select().from(schema.copyStrategies))[0]).toMatchObject({ status: 'paused' });
+      await db.update(schema.copyControls).set({ pauseNewRisk: false }).where(eq(schema.copyControls.scope, scope));
+    }
+    await db.delete(schema.copyLiveActivations); await engine().tick();
+    expect((await db.select().from(schema.copyStrategies))[0]).toMatchObject({ status: 'paused' });
+    await db.insert(schema.copyLiveActivations).values({ mandateId: 'mandate', userId: 1, strategyId: 9, accountId: 'account', state: 'pending', controlRevision: 0, requestedAt: new Date(now - 2000) });
+    await engine().tick();
+    expect((await db.select().from(schema.copyStrategies))[0]).toMatchObject({ status: 'active', pauseNewRisk: false, controlRevision: 1 });
+    expect((await db.select().from(schema.copyLiveActivations))[0]).toMatchObject({ state: 'activated' });
+  });
+
+  it('a stale pass cannot move a work row out of a terminal state', async () => {
+    await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+    const fill = await leaderFill(10, now + 100, 'B', '1', '0');
+    clock = now + 1000; await engine().tick();
+    const repository = new CopyLiveWorkerRepository(db, new UnitOfWork(db)), [row] = await dispatches();
+    await db.update(schema.copyLiveDispatches).set({ state: 'settled', settledAt: new Date(clock) });
+    expect(await repository.update(row!.id, 'submitted', { state: 'refused', reason: 'late_writer' })).toBe(false);
+    expect(await repository.update(row!.id, 'pending', { attempts: 99 })).toBe(false);
+    expect((await dispatches())[0]).toMatchObject({ sourceFillId: fill, state: 'settled', reason: null });
   });
 
   it('ingests only the span the watcher proved, then mirrors each new leg once with its latency timings', async () => {

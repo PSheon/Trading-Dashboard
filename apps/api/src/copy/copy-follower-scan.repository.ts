@@ -37,6 +37,18 @@ export class CopyFollowerScanRepository {
       return { ...claimed, address: row.address, accountCreatedAt: row.accountCreatedAt };
     });
   }
+  /** Claims one testnet account's scan regardless of its schedule. A pass
+   * already holding it loses its claim token, so its save is ignored. */
+  claimAccount(accountId: string): Promise<ScanClaim | null> {
+    return this.db.transaction(async tx => {
+      const [account] = await tx.select().from(copyExecutionAccounts).where(and(eq(copyExecutionAccounts.id, accountId), eq(copyExecutionAccounts.network, "testnet"), isNotNull(copyExecutionAccounts.address)));
+      if (!account?.address) return null;
+      await tx.insert(copyFollowerScans).values({ accountId }).onConflictDoNothing();
+      const [claimed] = await tx.update(copyFollowerScans).set({ claimToken: randomUUID(), nextRunAt: sql`clock_timestamp() + interval '120 seconds'`, updatedAt: sql`clock_timestamp()` })
+        .where(eq(copyFollowerScans.accountId, accountId)).returning();
+      return claimed ? { ...claimed, address: account.address, accountCreatedAt: account.createdAt } : null;
+    });
+  }
   async save(claim: ScanClaim, scanState: ScanState, through: number | null) {
     return this.db.transaction(async tx => {
       const [account] = await tx.select().from(copyExecutionAccounts).where(eq(copyExecutionAccounts.id, claim.accountId)).for("share");

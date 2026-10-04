@@ -6,7 +6,7 @@ import { CopyFollowerLedger } from "./live/copy-follower-ledger.js";
 import { HyperliquidFollowerReceiptReader } from "./live/follower-receipt-reader.js";
 import { LiveBoundaryError } from "./live/wallet-authorization.js";
 
-import { CopyFollowerScanRepository, type ScanState } from "./copy-follower-scan.repository.js";
+import { CopyFollowerScanRepository, type ScanClaim, type ScanState } from "./copy-follower-scan.repository.js";
 
 const ms = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const pendingWindow = z.object({ kind: z.enum(["fills", "funding"]), from: ms, to: ms, depth: z.number().int().min(0).max(53) });
@@ -20,6 +20,15 @@ export class CopyFollowerReconciler {
     private readonly reader: HyperliquidFollowerReceiptReader) {}
   async runOnce(): Promise<void> {
     const claim = await this.repository.claim(); if (!claim) return;
+    await this.process(claim);
+  }
+  /** Scans one account now (the live engine, right after an order filled):
+   * the same windows, bookings and horizon as the scheduled pass. */
+  async runFor(accountId: string): Promise<void> {
+    const claim = await this.repository.claimAccount(accountId); if (!claim) return;
+    await this.process(claim);
+  }
+  private async process(claim: ScanClaim): Promise<void> {
     try {
       const previous = claim.scanState == null ? null : stateSchema.parse(claim.scanState);
       const outstanding = previous?.pending.length ? previous : null;

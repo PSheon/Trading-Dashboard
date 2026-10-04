@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, gt, inArray, isNotNull, ne, sql } from 'drizzle-orm';
-import { copyExecutionAccounts, copyFundingOperations, copyLiveActivations, copyLiveDispatches, copyLiveExecutions, copyLiveMandates,
+import { copyControls, copyExecutionAccounts, copyFundingOperations, copyLiveActivations, copyLiveDispatches, copyLiveExecutions, copyLiveMandates,
   copyLiveSourceFills, copyLiveSourceStreams, copyLiveStopOperations, copyLiveStrategyConfigs, copyStrategies, copyRiskPolicies } from '@trading-dashboard/shared/database';
 import { copyRiskLimitsSchema, DEFAULT_COPY_RISK_LIMITS } from '@trading-dashboard/shared/contracts';
 import { DRIZZLE_CLIENT } from '../../db/db.constants.js';
@@ -26,7 +26,7 @@ export class CopyLiveWorkerRepository {
 
   /** Consent generations that are acknowledged and unexpired. */
   async mandates(now: number): Promise<LiveMandateWork[]> {
-    const rows = await this.db.select({ mandate: copyLiveMandates, account: copyExecutionAccounts, strategy: copyStrategies, activatedAt: copyLiveActivations.activatedAt })
+    const rows = await this.db.select({ mandate: copyLiveMandates, account: copyExecutionAccounts, strategy: copyStrategies, activatedAt: copyLiveActivations.activatedAt, activationState: copyLiveActivations.state })
       .from(copyLiveMandates)
       .innerJoin(copyExecutionAccounts, eq(copyExecutionAccounts.id, copyLiveMandates.accountId))
       .innerJoin(copyStrategies, eq(copyStrategies.id, copyLiveMandates.strategyId))
@@ -34,9 +34,9 @@ export class CopyLiveWorkerRepository {
       .where(and(eq(copyLiveMandates.state, 'active'), isNotNull(copyLiveMandates.consentDigest), isNotNull(copyLiveMandates.activationCursor),
         gt(copyLiveMandates.expiresAt, new Date(now)), eq(copyStrategies.mode, 'testnet'), isNotNull(copyExecutionAccounts.address)))
       .orderBy(asc(copyLiveMandates.createdAt)).limit(500);
-    return rows.map(({ mandate: m, account: a, strategy: s, activatedAt }) => ({ mandateId: m.id, userId: m.userId, strategyId: m.strategyId, accountId: m.accountId,
+    return rows.map(({ mandate: m, account: a, strategy: s, activatedAt, activationState }) => ({ mandateId: m.id, userId: m.userId, strategyId: m.strategyId, accountId: m.accountId,
       accountAddress: a.address!, sourceNetwork: m.sourceNetwork, leaderAddress: m.leaderAddress, cursor: m.activationCursor!, expiresAt: m.expiresAt,
-      strategyStatus: s.status, activated: activatedAt !== null, activatedAt }));
+      strategyStatus: s.status, activated: activationState === 'activated', activatedAt }));
   }
   streams(mandates: readonly LiveMandateWork[]): LiveStreamWork[] {
     const out = new Map<string, LiveStreamWork>();
@@ -52,10 +52,12 @@ export class CopyLiveWorkerRepository {
   }
 
   /**
-   * A funded, acknowledged generation starts trading: its paused strategy
-   * becomes active once. Funded means a credited transfer to the account and
-   * none still pending; a stop request on the account blocks it. Returns the
-   * mandates activated now.
+   * A funded, acknowledged generation starts trading: its strategy goes from
+   * paused to active once. Only a generation the owner's approval left
+   * `pending`, and only while the strategy is exactly as approval left it
+   * (paused, same control revision: no pause, reduce-only or kill switch
+   * since), with platform and user controls clear. Funded means a credited
+   * transfer to the account and none pending; a stop request blocks it.
    */
   async activateFunded(mandates: readonly LiveMandateWork[], now: number): Promise<string[]> {
     const activated: string[] = [];
@@ -64,18 +66,23 @@ export class CopyLiveWorkerRepository {
         await tx.execute(sql`select pg_advisory_xact_lock_shared(7403, 0)`);
         await tx.execute(sql`select pg_advisory_xact_lock_shared(7405, 0)`);
         await lockCopyUser(tx, m.userId);
+        const [pending] = await tx.select().from(copyLiveActivations).where(eq(copyLiveActivations.mandateId, m.mandateId)).for('update');
+        if (!pending || pending.state !== 'pending' || pending.strategyId !== m.strategyId || pending.accountId !== m.accountId) return false;
         const [mandate] = await tx.select().from(copyLiveMandates).where(eq(copyLiveMandates.id, m.mandateId)).for('update');
         const [strategy] = await tx.select().from(copyStrategies).where(eq(copyStrategies.id, m.strategyId)).for('update');
-        if (!mandate || mandate.state !== 'active' || mandate.expiresAt.getTime() <= now || !strategy || strategy.mode !== 'testnet' || strategy.status !== 'paused' || strategy.reduceOnly) return false;
-        const [already] = await tx.select().from(copyLiveActivations).where(eq(copyLiveActivations.mandateId, m.mandateId));
-        if (already) return false;
+        if (!mandate || mandate.state !== 'active' || mandate.expiresAt.getTime() <= now || !strategy || strategy.mode !== 'testnet' || strategy.status !== 'paused' ||
+          strategy.reduceOnly || strategy.controlRevision !== pending.controlRevision) return false;
+        const controls = await tx.select().from(copyControls).where(sql`${copyControls.scope} = 'platform' or (${copyControls.scope} = 'user' and ${copyControls.scopeId} = ${m.userId})`);
+        if (controls.some(row => row.pauseNewRisk || row.reduceOnly)) return false;
         const funding = await tx.select({ status: copyFundingOperations.status }).from(copyFundingOperations).where(eq(copyFundingOperations.accountId, m.accountId));
         if (!funding.some(f => f.status === 'credited') || funding.some(f => ['prepared', 'unknown', 'accepted'].includes(f.status))) return false;
         const stops = await tx.select({ id: copyLiveStopOperations.id }).from(copyLiveStopOperations)
           .where(and(eq(copyLiveStopOperations.accountId, m.accountId), ne(copyLiveStopOperations.state, 'stopped'))).limit(1);
         if (stops.length) return false;
-        await tx.update(copyStrategies).set({ status: 'active', pauseNewRisk: false }).where(eq(copyStrategies.id, m.strategyId));
-        await tx.insert(copyLiveActivations).values({ mandateId: m.mandateId, userId: m.userId, strategyId: m.strategyId, accountId: m.accountId, activatedAt: new Date(now) });
+        const changed = await tx.update(copyStrategies).set({ status: 'active', pauseNewRisk: false, controlRevision: strategy.controlRevision + 1 })
+          .where(and(eq(copyStrategies.id, m.strategyId), eq(copyStrategies.status, 'paused'), eq(copyStrategies.controlRevision, pending.controlRevision))).returning({ id: copyStrategies.id });
+        if (changed.length !== 1) return false;
+        await tx.update(copyLiveActivations).set({ state: 'activated', activatedAt: new Date(now) }).where(and(eq(copyLiveActivations.mandateId, m.mandateId), eq(copyLiveActivations.state, 'pending')));
         return true;
       });
       if (done) activated.push(m.mandateId);
@@ -109,8 +116,13 @@ export class CopyLiveWorkerRepository {
     const [row] = await this.db.select().from(copyLiveDispatches).where(eq(copyLiveDispatches.id, id));
     return row ?? null;
   }
-  async update(id: string, patch: Partial<typeof copyLiveDispatches.$inferInsert>): Promise<void> {
-    await this.db.update(copyLiveDispatches).set({ ...patch, updatedAt: new Date() }).where(eq(copyLiveDispatches.id, id));
+  /** Moves a work row on from the state its caller read, never from a
+   * terminal one (settled, refused): a stale pass changes nothing. */
+  async update(id: string, from: 'pending' | 'submitted', patch: Partial<typeof copyLiveDispatches.$inferInsert>): Promise<boolean> {
+    const { id: _id, mandateId: _m, sourceFillId: _f, leg: _l, ...allowed } = patch;
+    const rows = await this.db.update(copyLiveDispatches).set({ ...allowed, updatedAt: new Date() })
+      .where(and(eq(copyLiveDispatches.id, id), eq(copyLiveDispatches.state, from))).returning({ id: copyLiveDispatches.id });
+    return rows.length === 1;
   }
   async journalState(key: string): Promise<string | null> {
     const [row] = await this.db.select({ state: copyLiveExecutions.state }).from(copyLiveExecutions).where(eq(copyLiveExecutions.key, key));

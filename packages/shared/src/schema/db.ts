@@ -1806,15 +1806,24 @@ export const copyLiveDispatches = pgTable("copy_live_dispatches", {
   check("copy_live_dispatch_state_check", sql`${oneOf(t.state, ["pending", "submitted", "settled", "refused"])} and ${t.leg} in ('open','close') and ${t.attempts} >= 0 and (${t.state} <> 'refused' or ${t.reason} is not null) and (${t.state} not in ('submitted','settled') or ${t.executionKey} is not null) and (${t.reason} is null or ${t.reason} ~ '^[a-z][a-z0-9_]{0,79}$')`),
 ]);
 
-/** A consent generation the worker started trading, once it was funded:
- * its strategy went from paused to active. Never repeated for a generation. */
+/** A consent generation awaiting its start, then started. The owner's
+ * approval records it `pending` with the strategy's control revision at that
+ * moment; the worker starts trading (paused -> active) only while the
+ * strategy is still in exactly that state: any later pause, reduce-only or
+ * kill switch (which advances the control revision) keeps it from starting. */
 export const copyLiveActivations = pgTable("copy_live_activations", {
   mandateId: text("mandate_id").primaryKey().references(() => copyLiveMandates.id, { onDelete: "restrict" }),
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
   strategyId: integer("strategy_id").notNull().references(() => copyStrategies.id, { onDelete: "restrict" }),
   accountId: text("account_id").notNull().references(() => copyExecutionAccounts.id, { onDelete: "restrict" }),
-  activatedAt: timestamp("activated_at", { withTimezone: true }).notNull(),
-});
+  state: text("state").$type<"pending" | "activated">().notNull().default("pending"),
+  controlRevision: bigint("control_revision", { mode: "number" }).notNull(),
+  requestedAt: timestamp("requested_at", { withTimezone: true }).notNull(),
+  activatedAt: timestamp("activated_at", { withTimezone: true }),
+}, (t) => [
+  index("copy_live_activations_state_idx").on(t.state),
+  check("copy_live_activations_state_check", sql`${oneOf(t.state, ["pending", "activated"])} and ${t.controlRevision} >= 0 and (${t.state} = 'activated') = (${t.activatedAt} is not null)`),
+]);
 
 /** Shared outbound provider capacity. Reservations are never refunded merely
  * because the process cannot determine whether a request was delivered. */

@@ -263,7 +263,7 @@ export function AreaChart({
         <svg
           width={width}
           height={height}
-          className="block overflow-visible"
+          className="orbit-fade-in block overflow-visible"
           role={ariaLabel ? "img" : undefined}
           aria-hidden={!ariaLabel}
           aria-label={ariaLabel}

@@ -5,6 +5,8 @@ import { ArrowDownRight, ArrowUpRight, ChevronDown } from "lucide-react";
 import { useMemo, useState } from "react";
 import { cn } from "cn";
 
+import { useSlidingIndicator } from "@/lib/use-sliding-indicator";
+
 import { OrbieMark, Wordmark } from "@/components/brand/logo";
 import { AreaChart } from "@/components/charts/area-chart";
 import { ChartSnapshotStrip } from "./chart-snapshot-strip";
@@ -304,8 +306,12 @@ export function KpiTiles({
 /** Orbit's capsule toggle inside the raised chart panel: a page-coloured
  * track, the active choice the orange pill. */
 function TextSeg<T extends string>({ value, onChange, options }: { value: T; onChange: (value: T) => void; options: Array<{ value: T; label: React.ReactNode }> }) {
+  const [trackRef, pill] = useSlidingIndicator<HTMLDivElement>(value);
   return (
-    <div role="radiogroup" className="flex items-center gap-0.5 rounded-full bg-background p-1">
+    <div ref={trackRef} role="radiogroup" className="relative flex items-center gap-0.5 rounded-full bg-background p-1">
+      {pill ? (
+        <span aria-hidden className="absolute inset-y-1 rounded-full bg-primary transition-[left,width] duration-300 ease-(--ease-orbit) motion-reduce:transition-none" style={{ left: pill.left, width: pill.width }} />
+      ) : null}
       {options.map((option) => {
         const active = option.value === value;
         return (
@@ -313,13 +319,14 @@ function TextSeg<T extends string>({ value, onChange, options }: { value: T; onC
             key={option.value}
             type="button"
             role="radio"
+            data-active={active}
             aria-checked={active}
             tabIndex={active ? 0 : -1}
             onKeyDown={rovingFocus}
             onClick={() => onChange(option.value)}
             className={cn(
-              "h-9 rounded-full px-3 text-[13px] whitespace-nowrap outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
-              active ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground hover:text-foreground",
+              "relative h-9 rounded-full px-3 text-[13px] whitespace-nowrap outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
+              active ? cn("font-extrabold text-primary-foreground", !pill && "bg-primary") : "font-bold text-muted-foreground hover:text-foreground",
             )}
           >
             {option.label}

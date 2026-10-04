@@ -244,7 +244,11 @@ export function traderCard(address: string, row: BoardSourceRow | undefined, ide
     winRate: null,
     sharpe: null,
     maxDrawdown: null,
-    source: identity?.pnlAllTime != null ? "leaderboard" : "none",
+    // "leaderboard" names where the card's figures came from: only the
+    // account value (trader_stats.account_value, never null on a row). Its
+    // PnL / ROI are the whole account's, never shown as a card's (perp) PnL /
+    // ROI (audit A3), so they are not what makes it a source.
+    source: identity?.accountValue != null ? "leaderboard" : "none",
   };
 }
 

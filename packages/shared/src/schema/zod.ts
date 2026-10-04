@@ -1842,8 +1842,9 @@ export type BoardResponse = z.infer<typeof boardResponseSchema>;
  * extra columns CopyDog's watchlist shows (favorites, insights wallets).
  * `pnl` / `roi` / `sparkline` are all-time. From the discovery pool when it
  * has the trader's figures (`source: "pool"`), else the leaderboard
- * (`"leaderboard"`: no copy score, sparkline, win rate or risk figures),
- * else identity only (`"none"`). No Hyperliquid calls. */
+ * (`"leaderboard"`: the account value and its import time only; the
+ * leaderboard's PnL / ROI are the whole account's, so `pnl`, `roi` and every
+ * other figure are null), else identity only (`"none"`). No Hyperliquid calls. */
 export const traderCardSchema = boardTraderSchema.extend({
   pnl30d: z.number().nullable(),
   /** Winning ÷ all closed trades of the trade ledger (all coins). */
@@ -1973,7 +1974,8 @@ export const discoverSearchResultSchema = z.object({
   xHandle: z.string().nullable(),
   verified: z.boolean(),
   kol: z.boolean(),
-  /** All-time PnL and ROI: the pool's perp figures, else the leaderboard's. */
+  /** All-time perp PnL and ROI from the discovery pool; null for a trader
+   * outside it (the leaderboard's figures are the whole account's). */
   pnl: z.number().nullable(),
   roi: z.number().nullable(),
   accountValue: z.number().nullable(),

@@ -48,18 +48,28 @@ export function createCoinIconSource({ fetchImpl = fetch, now = Date.now, market
   const inFlight = new Map<string, Promise<CoinIcon>>();
   let known: { names: ReadonlySet<string>; until: number } | null = null;
   let knownLoading: Promise<ReadonlySet<string> | null> | null = null;
+  /** No list was ever read: the next attempt is not before this. */
+  let unknownUntil = 0;
 
   /** Only a known market is asked for upstream: an arbitrary name that fits
    * the pattern would otherwise cost one request to app.hyperliquid.xyz
-   * each (audit C). An unreadable list refuses until it can be read. */
+   * each (audit C). An unreadable list refuses until it can be read, and is
+   * asked for again after `MARKETS_RETRY_MS`, not on every icon request
+   * (the last list read stays in use meanwhile). */
   async function isKnown(coin: string): Promise<boolean> {
     if (!markets) return true;
+    if (!known && unknownUntil > now()) return false;
     if (!known || known.until <= now()) {
-      knownLoading ??= markets().then((names) => {
-        if (names) known = { names: new Set(names), until: now() + MARKETS_TTL_MS };
-        else if (known) known = { names: known.names, until: now() + MARKETS_RETRY_MS };
+      const failed = () => {
+        if (known) known = { names: known.names, until: now() + MARKETS_RETRY_MS };
+        else unknownUntil = now() + MARKETS_RETRY_MS;
         return known?.names ?? null;
-      }).catch(() => known?.names ?? null).finally(() => { knownLoading = null; });
+      };
+      knownLoading ??= markets().then((names) => {
+        if (!names) return failed();
+        known = { names: new Set(names), until: now() + MARKETS_TTL_MS };
+        return known.names;
+      }).catch(failed).finally(() => { knownLoading = null; });
       await knownLoading;
     }
     return known?.names.has(coin) ?? false;

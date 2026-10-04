@@ -28,6 +28,27 @@ it("refuses every uncached icon while the market list cannot be read", async () 
   expect(upstream).not.toHaveBeenCalled();
 });
 
+it("asks for an unreadable market list again after a minute, not on every icon request", async () => {
+  let clock = 1_000_000;
+  const upstream = vi.fn<typeof fetch>(async () => svg());
+  const markets = vi.fn<() => Promise<readonly string[] | null>>(async () => null);
+  const icons = createCoinIconSource({ fetchImpl: upstream, markets, now: () => clock });
+  for (const coin of ["BTC", "ETH", "SOL", "BTC"]) expect(await icons.get(coin)).toBeNull();
+  expect(markets).toHaveBeenCalledTimes(1);
+  // A failed read (an exception) waits as well.
+  markets.mockRejectedValueOnce(new Error("api unreachable"));
+  clock += 60_001;
+  expect(await icons.get("BTC")).toBeNull();
+  expect(await icons.get("ETH")).toBeNull();
+  expect(markets).toHaveBeenCalledTimes(2);
+  // Once the list reads, icons are served.
+  markets.mockResolvedValue(["BTC"]);
+  clock += 60_001;
+  expect(await icons.get("BTC")).toEqual({ svg: "<svg></svg>" });
+  expect(markets).toHaveBeenCalledTimes(3);
+  expect(upstream).toHaveBeenCalledTimes(1);
+});
+
 it("limits icons per client, apart from the share images' count", async () => {
   const now = 5_000_000;
   for (let i = 0; i < ICONS_PER_MINUTE; i++) expect(iconRetryAfter("203.0.113.7", now)).toBe(0);

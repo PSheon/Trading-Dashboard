@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, desc, eq, gt, gte, inArray, isNotNull, lt, lte, notInArray, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, gt, gte, inArray, isNotNull, lt, lte, notInArray, sql, type SQL } from "drizzle-orm";
 import { cohortMembers, cohortSnapshots, discoveryTraders, kolAvatars, kolTraders, traderAnalytics, traderStats, type CohortPosition } from "@trading-dashboard/shared/database";
 import { CHAIN_DEFAULT, type CohortTier } from "@trading-dashboard/shared/contracts";
 
@@ -78,28 +78,33 @@ export class CohortRepository {
       .where(and(eq(discoveryTraders.chain, CHAIN_DEFAULT), eq(discoveryTraders.inPool, true), isNotNull(discoveryTraders.pnlAll)));
   }
 
-  /** Largest active non-vault accounts with known perp portfolio figures.
-   * Never infer a perp tier from whole-account leaderboard PnL. Unknown
-   * perp history stays excluded; a short tier remains visibly short. */
+  /** Active non-vault accounts with known perp portfolio figures, largest
+   * perp equity first, as the pool's members are chosen (equity not known
+   * yet after every known one, never ranked by the whole account's value:
+   * audit A4). Never infer a perp tier from whole-account leaderboard PnL.
+   * Unknown perp history stays excluded; a short tier remains visibly short. */
   async leaderboardTopUp(tier: CohortTier, limit: number, exclude: string[]): Promise<Array<{ address: string; pnlAll: string | null; roiAll: string | null }>> {
     if (limit <= 0) return [];
+    // The member's latest snapshot, else the ledger's classification (as `poolFigures`).
+    const perpEquity = sql`coalesce(${cohortMembers.perpEquity}, case when jsonb_typeof(${traderAnalytics.classification}->'perpAccountValue') = 'number' then (${traderAnalytics.classification}->>'perpAccountValue')::numeric end)`;
     return this.db
       .select({ address: traderStats.address, pnlAll: discoveryTraders.pnlAll, roiAll: discoveryTraders.roiAll })
       .from(traderStats)
       .innerJoin(discoveryTraders, and(eq(discoveryTraders.chain, traderStats.chain), eq(discoveryTraders.address, traderStats.address)))
       .leftJoin(traderAnalytics, and(eq(traderAnalytics.chain, traderStats.chain), eq(traderAnalytics.address, traderStats.address)))
+      .leftJoin(cohortMembers, and(eq(cohortMembers.chain, traderStats.chain), eq(cohortMembers.address, traderStats.address)))
       .where(and(
         eq(traderStats.chain, CHAIN_DEFAULT),
         eq(traderStats.isVault, false),
-        // The perp-equity ceiling of `cohortEligible`, where the ledger knows it.
-        sql`coalesce(case when jsonb_typeof(${traderAnalytics.classification}->'perpAccountValue') = 'number' then (${traderAnalytics.classification}->>'perpAccountValue')::numeric end, 0) <= ${COHORT_MAX_PERP_EQUITY}`,
+        // The perp-equity ceiling of `cohortEligible`, where it is known.
+        sql`coalesce(${perpEquity}, 0) <= ${COHORT_MAX_PERP_EQUITY}`,
         gt(traderStats.volumeMonth, "0"),
         gt(traderStats.accountValue, "0"),
         isNotNull(discoveryTraders.portfolioAt),
         bounds(discoveryTraders.pnlAll, tier),
         exclude.length > 0 ? notInArray(traderStats.address, exclude) : undefined,
       ))
-      .orderBy(desc(traderStats.accountValue), asc(traderStats.address))
+      .orderBy(sql`${perpEquity} desc nulls last`, asc(traderStats.address))
       .limit(limit);
   }
 

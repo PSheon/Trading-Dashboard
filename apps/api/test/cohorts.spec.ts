@@ -150,6 +150,22 @@ describe("cohort job and endpoints (real Postgres)", () => {
     expect((await repository.leaderboardTopUp("extremely_profitable", 20, [])).map(row => row.address)).not.toContain(addr(7));
   });
 
+  it("tops a short tier up by perp equity, as the pool's members, never by the whole account's value (audit A4)", async () => {
+    await seed();
+    const now = new Date();
+    const analytics = (address: string, perp: number) => ({ address, source: "hyperliquid" as const, summary: {}, classification: { perpAccountValue: perp },
+      coverageFrom: new Date(now.getTime() - 86_400_000), fillCursor: now, fillsRead: 100, truncated: true, computedAt: now });
+    // addr(4): the larger account (600k) with little perp equity; addr(8): a smaller account, mostly perp.
+    await db.insert(traderStats).values([stat(addr(8), -70_000, 100_000), stat(addr(9), -80_000, 900_000)]);
+    await db.insert(discoveryTraders).values([
+      { address: addr(8), inPool: false, pnlAll: "-70000", roiAll: "-0.1", portfolioAt: now },
+      { address: addr(9), inPool: false, pnlAll: "-80000", roiAll: "-0.1", portfolioAt: now },
+    ]);
+    await db.insert(traderAnalytics).values([analytics(addr(4), 1_000), analytics(addr(8), 50_000)]);
+    // addr(9)'s perp equity is not known: last, however large its account.
+    expect((await repository.leaderboardTopUp("unprofitable", 3, [])).map((row) => row.address)).toEqual([addr(8), addr(4), addr(9)]);
+  });
+
   it("chooses members per tier from the pool, topped up from the leaderboard", async () => {
     await seed();
     expect(await service.build(2)).toMatchObject({ total: 4, added: 4 });

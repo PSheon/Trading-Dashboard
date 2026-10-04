@@ -9,6 +9,7 @@ import { createContext, lazy, Suspense, use, useCallback, useEffect, useMemo, us
 
 import type { PrivySnapshot } from "@/lib/auth-privy";
 import type { WalletSigner } from "@/lib/wallet-signer";
+import { fixtureSigner } from "@/lib/fixture-signer";
 
 import { SessionQueries } from "@/lib/session-queries";
 import { PRIVY_APP_ID } from "@/lib/config";
@@ -187,6 +188,10 @@ function FixtureAuth({ children }: { children: React.ReactNode }) {
   setAccessTokenGetter(fixtureTokenGetter, scope);
 
   const persist = useCallback((next: boolean) => setStored(next ? "1" : null), [setStored]);
+  // `?signer=fixture`: a fixed-signature stand-in for the embedded wallet
+  // (lib/fixture-signer.ts), read once the page has hydrated.
+  const signerFlag = useSyncExternalStore(noSubscription, () => window.location.search.includes("signer=fixture"), () => false);
+  const signer = useMemo(() => (signerFlag ? fixtureSigner(window.location.search) : null), [signerFlag]);
 
   const value = useMemo<AuthState>(
     () => ({
@@ -195,9 +200,9 @@ function FixtureAuth({ children }: { children: React.ReactNode }) {
       login: () => persist(true),
       logout: async () => persist(false),
       identity: signedIn ? "demo@example.com" : null,
-      wallet: null,
+      wallet: signedIn ? signer : null,
     }),
-    [signedIn, persist],
+    [signedIn, persist, signer],
   );
 
   return <AuthContext value={value}><SessionQueries key={sessionKey()}>{children}</SessionQueries></AuthContext>;

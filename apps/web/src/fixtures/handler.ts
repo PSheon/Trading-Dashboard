@@ -1,7 +1,8 @@
 import { kolSchema, kolImportResponseSchema, kolPreviewSchema } from "@trading-dashboard/shared/contracts";
 import { copyExecutionWalletsSchema } from "@trading-dashboard/shared/contracts";
 import { copyFundingOverviewSchema } from "@trading-dashboard/shared/contracts";
-import { walletWithdrawalSchema } from "@trading-dashboard/shared/contracts";
+import { walletWithdrawalClaimSchema, walletWithdrawalSchema, type WalletWithdrawal } from "@trading-dashboard/shared/contracts";
+import { FIXTURE_WALLET_ADDRESS } from "@/lib/fixture-signer";
 import { fixtureKols, previewKols, importKols, saveKol, removeKol } from "./kols";
 import { adminSourcesSchema, importPreviewSchema } from "@trading-dashboard/shared/contracts";
 import { fixtureImportPreview, fixtureCommitImport } from "./import-preview";
@@ -191,7 +192,7 @@ let telegram: Omit<TelegramStatus, "bot"> = startLinked
 // balances / with USDC waiting on Arbitrum; otherwise it is empty ($0.00, as
 // on a new CopyDog account). Testnet, like the api default.
 const walletMode = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("wallet") : null;
-const FIXTURE_WALLET = "0x5f0e6a3b1c2d4e5f60718293a4b5c6d7e8f90a1b";
+const FIXTURE_WALLET = FIXTURE_WALLET_ADDRESS;
 
 function fixtureWallet() {
   const funded = walletMode === "funded";
@@ -223,6 +224,20 @@ function fixtureWalletHistory() {
       ]
     : [];
   return { network: "testnet" as const, address: FIXTURE_WALLET, transfers, from: new Date(Date.now() - 90 * day), truncated: false, fetchedAt: new Date() };
+}
+
+/** The demo wallet's withdrawal journal (the api's, in memory): reserve →
+ * broadcast claim → submit with the signature. `?withdraw=rejected` makes
+ * the exchange refuse the submission. */
+let withdrawal: WalletWithdrawal | null = null;
+const withdrawOutcome = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("withdraw") : null;
+function ownWithdrawal(id: string): WalletWithdrawal {
+  if (!withdrawal || withdrawal.id !== id) throw new ApiError(404, "Withdrawal not found");
+  return withdrawal;
+}
+function moveWithdrawal(status: WalletWithdrawal["status"]): WalletWithdrawal {
+  withdrawal = { ...withdrawal!, status, updatedAt: new Date().toISOString() };
+  return withdrawal;
 }
 
 /** Set by POST /me/telegram/link: when the fixture "presses Start". */
@@ -324,7 +339,8 @@ export async function fixtureRequest<T>(
   const parts = url.pathname.split("/").filter(Boolean);
   const search = url.searchParams;
   const signedIn = token !== null;
-  const walletIdPath = parts[0] === "me" && parts[1] === "copy" && ["execution-wallets", "wallet-authorizations", "funding"].includes(parts[2] ?? "");
+  const walletIdPath = (parts[0] === "me" && parts[1] === "copy" && ["execution-wallets", "wallet-authorizations", "funding"].includes(parts[2] ?? ""))
+    || (parts[0] === "me" && parts[1] === "wallet" && parts[2] === "withdrawals" && parts.length === 5);
   const route = `${method} /${parts.map((p, i) => (walletIdPath && i === 3 ? ":id" : i > 0 && /^0x/i.test(p) ? ":address" : /^\d+$/.test(p) ? ":id" : p)).join("/")}`;
   if (route.startsWith("GET /traders/:address")) traderBusy(url.pathname, url.search);
 
@@ -632,7 +648,31 @@ export async function fixtureRequest<T>(
       return wire(copyOrdersResponseSchema, fixtureCopyOrders(Number(parts[3]), search.get("before") ?? undefined));
     case "GET /me/wallet/withdrawals/current":
       requireUser(token);
-      return wire(walletWithdrawalSchema.nullable(), null);
+      return wire(walletWithdrawalSchema.nullable(), withdrawal && (withdrawal.status === "prepared" || withdrawal.status === "unknown") ? withdrawal : null);
+    case "POST /me/wallet/withdrawals": {
+      requireUser(token);
+      if (withdrawal && (withdrawal.status === "prepared" || withdrawal.status === "unknown")) throw new ApiError(409, "A withdrawal is pending", { code: "withdrawal_pending" });
+      const input = body as { destination: string; amount: string };
+      const now = new Date().toISOString();
+      withdrawal = { id: crypto.randomUUID(), network: "testnet", address: FIXTURE_WALLET, destination: input.destination.toLowerCase(), amount: input.amount, nonce: Date.now(), status: "prepared", createdAt: now, updatedAt: now };
+      return wire(walletWithdrawalSchema, withdrawal);
+    }
+    case "POST /me/wallet/withdrawals/:id/broadcast": {
+      requireUser(token);
+      const claimed = ownWithdrawal(parts[3]!).status === "prepared";
+      return wire(walletWithdrawalClaimSchema, { operation: claimed ? moveWithdrawal("unknown") : withdrawal!, claimed });
+    }
+    case "POST /me/wallet/withdrawals/:id/submit":
+      requireUser(token);
+      if (ownWithdrawal(parts[3]!).status !== "unknown" || !/^0x[0-9a-f]{130}$/i.test(String((body as { signature?: string })?.signature))) throw new ApiError(409, "Not submittable");
+      return wire(walletWithdrawalSchema, moveWithdrawal(withdrawOutcome === "rejected" ? "rejected" : "accepted"));
+    case "POST /me/wallet/withdrawals/:id/cancel":
+      requireUser(token);
+      if (ownWithdrawal(parts[3]!).status !== "prepared") throw new ApiError(409, "Already broadcast");
+      return wire(walletWithdrawalSchema, moveWithdrawal("cancelled"));
+    case "POST /me/wallet/withdrawals/:id/reconcile":
+      requireUser(token);
+      return wire(walletWithdrawalSchema, ownWithdrawal(parts[3]!));
     case "GET /me/wallet/history":
       requireUser(token);
       return wire(walletHistoryResponseSchema, fixtureWalletHistory());

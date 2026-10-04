@@ -12,7 +12,7 @@ import { CopyWalletService } from "./copy-wallet.service.js";
 import { CopyFundingRepository, type FundingRow } from "./copy-funding.repository.js";
 import { CopyFundingExchangeClient } from "./copy-funding-exchange.client.js";
 import { fundingCreditEvidence } from "./copy-funding-evidence.js";
-import { FUNDING_NONCE_SKEW_MS, fundingScanSchema, type FundingScan } from "./copy-funding-scan.js";
+import { FUNDING_NONCE_SKEW_MS, FUNDING_NONCE_EXPIRY_MS, fundingScanSchema, type FundingScan } from "./copy-funding-scan.js";
 
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 export const wire = (row: FundingRow): CopyFunding => ({ id: row.id, accountId: row.accountId, strategyId: row.strategyId,
@@ -124,7 +124,8 @@ export class CopyFundingService {
         // evidence survive restart; late-indexed data is found in a new cycle.
         const parsed = fundingScanSchema.safeParse(operation.scanState);
         const start = Math.max(0, operation.nonce - FUNDING_NONCE_SKEW_MS);
-        const scan: FundingScan = parsed.success ? parsed.data : { version: 1, windows: [{ start, end: Math.max(start, Date.now()) }], receipts: [] };
+        const cycleEnd = Math.max(start, Date.now());
+        const scan: FundingScan = parsed.success ? parsed.data : { version: 1, windows: [{ start, end: cycleEnd }], receipts: [], cycleEnd };
         if (!scan.windows.length) {
           if (scan.receipts.length === 1) return wire(await this.repository.credit(userId, id, scan.receipts[0]!, digest(scan.receipts[0]), operation.scanRevision));
           return wire(await this.repository.find(userId, id)); // Ambiguous evidence stays pending.
@@ -149,6 +150,12 @@ export class CopyFundingService {
         }
         if (candidates.length > hashes.length) window.afterHash = hashes.at(-1)!;
         else scan.windows.shift();
+        // A transfer still unknown whose nonce expired before this cycle's
+        // read ended, with no credit anywhere in that read, can never execute:
+        // its terminal state is rejected (not executed), with that evidence.
+        if (!scan.windows.length && !scan.receipts.length && operation.status === "unknown" && scan.cycleEnd !== undefined && scan.cycleEnd >= operation.nonce + FUNDING_NONCE_EXPIRY_MS) {
+          return wire(await this.repository.finish(userId, id, "rejected", digest({ source: "ledger_absent_after_nonce_expiry", destination: operation.destination, nonce: operation.nonce, ledgerFrom: start, ledgerTo: scan.cycleEnd })));
+        }
         const saved = await this.repository.saveScan(operation, !scan.windows.length && !scan.receipts.length ? null : scan);
         if (saved && !scan.windows.length && scan.receipts.length === 1) return wire(await this.repository.credit(userId, id, scan.receipts[0]!, digest(scan.receipts[0]), saved.scanRevision));
         return wire(await this.repository.find(userId, id));

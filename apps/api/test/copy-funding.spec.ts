@@ -133,6 +133,22 @@ describe("durable strategy funding", () => {
     await service.submit(userId, op.id, await signature(op)); expect(exchange.send).toHaveBeenCalledTimes(1);
     await expect(reserve()).rejects.toThrow("pending");
   });
+  it("an unknown transfer gets a terminal state: rejected once a full ledger read past its nonce's expiry shows no credit, pending before that", async () => {
+    exchange.send.mockRejectedValue(new Error("private response loss"));
+    const op = await attempted(); expect(op.status).toBe("unknown");
+    // A read that ends inside the nonce window: still possible, still pending.
+    expect((await service.reconcile(userId, op.id)).status).toBe("unknown");
+    // Three days later the nonce can no longer execute and the ledger has nothing.
+    const later = vi.spyOn(Date, "now").mockReturnValue(op.nonce + 3 * 86_400_000);
+    try {
+      let status = "unknown";
+      for (let i = 0; i < 3 && status === "unknown"; i++) status = (await service.reconcile(userId, op.id)).status;
+      expect(status).toBe("rejected");
+    } finally { later.mockRestore(); }
+    // The address is free again.
+    exchange.send.mockResolvedValue({ status: "ok", response: { type: "default" } });
+    await expect(reserve()).resolves.toBeTruthy();
+  });
   it.each([{ status: "err", response: "nonce already used" }, { status: "ok", response: { type: "unexpected" } }, null])("keeps ambiguous reply pending: %j", async (reply) => {
     exchange.send.mockResolvedValue(reply); expect((await attempted()).status).toBe("unknown");
   });

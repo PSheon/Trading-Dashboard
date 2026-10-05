@@ -43,11 +43,16 @@ function View() {
   return <QueryClientProvider client={client}><I18nProvider locale="en" messages={en}><WithdrawDialog open={open} onOpenChange={setOpen} /></I18nProvider></QueryClientProvider>;
 }
 async function settle() { await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); }); }
-// A fixed 30 ms was not enough on CI's slower runners: wait until every query
-// the dialog started has answered, then let React commit.
+// A fixed 30 ms was not enough on CI's slower runners, and "nothing fetching"
+// alone isn't either: the recovery read only starts once the wallet summary
+// has answered and React has re-rendered, so between the two nothing is in
+// flight. Wait until the recovery read itself has settled, then let React commit.
 async function render() {
   await act(async () => root.render(<View />));
-  await act(async () => { await vi.waitFor(() => { if (client.isFetching() > 0) throw new Error("still fetching"); }, { timeout: 5000, interval: 10 }); });
+  await act(async () => { await vi.waitFor(() => {
+    const recovery = client.getQueryCache().findAll({ queryKey: ["wallet", "withdrawal"] });
+    if (client.isFetching() > 0 || !recovery.length || recovery.some((query) => query.state.status === "pending")) throw new Error("still loading");
+  }, { timeout: 5000, interval: 10 }); });
   await settle();
 }
 function button(label: string) { return [...document.querySelectorAll("button")].find((item) => item.textContent === label)!; }

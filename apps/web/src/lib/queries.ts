@@ -296,12 +296,14 @@ export function useTraderProfile(address: string, initial?: InitialRead<TraderPr
   });
 }
 
-/** GET /traders/:address/activity: sample size and last trade, loaded
- * alongside the profile (it costs the api more and arrives later). */
-export function useTraderActivity(address: string, initial?: InitialRead<TraderActivityResponse> | null) {
+/** GET /traders/:address/activity: sample size and last trade. It costs
+ * the api Hyperliquid's fill lists, so the page asks for it once its first
+ * paint is in (`enabled`), except for a blank profile, whose 404 it decides. */
+export function useTraderActivity(address: string, initial?: InitialRead<TraderActivityResponse> | null, { enabled = true }: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: queryKeys.trader.activity(address),
     queryFn: ({ signal }) => api.get<TraderActivityResponse>(`/traders/${address}/activity`, signal),
+    enabled,
     ...seeded(initial),
     refetchInterval: 60_000,
     ...traderRetry,
@@ -418,10 +420,13 @@ export function useTraderTransfers(address: string, enabled = true) {
   });
 }
 
-export function useTraderFills(address: string, limit = 100) {
+/** `enabled`: false until the trader page's first paint is in (the list
+ * costs the api two fill lists, ≈ 240 weight). */
+export function useTraderFills(address: string, limit = 100, { enabled = true }: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: queryKeys.trader.fills(address, limit),
     queryFn: ({ signal }) => api.get<TraderFill[]>(`/traders/${address}/fills?limit=${limit}`, signal),
+    enabled,
     refetchInterval: livePoll(address),
     ...traderRetry,
   });

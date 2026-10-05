@@ -45,8 +45,12 @@ export function ActivityTabs({
   marks = NO_MARKS,
   feedOpen = false,
   onToggleFeed,
+  fillsReady = true,
 }: {
   profile: TraderProfileResponse;
+  /** The page's first paint is in: the fill list may load (it loads at
+   * once when its tab is opened). */
+  fillsReady?: boolean;
   /** Fills seen on Hyperliquid's WebSocket, merged over the REST list. */
   liveFills?: TraderFill[];
   /** Live mids for the positions' mark column. */
@@ -59,7 +63,7 @@ export function ActivityTabs({
   const panelId = useId();
   const [tab, setTab] = useState<Tab>("positions");
   const [perfView, setPerfView] = useState<PerfView>("best");
-  const fills = useTraderFills(profile.address, FILL_LIMIT);
+  const fills = useTraderFills(profile.address, FILL_LIMIT, { enabled: fillsReady || tab === "fills" });
   const fillRows = useMemo(() => mergeLiveFills(fills.data, liveFills), [fills.data, liveFills]);
   // All-time, like CopyDog's performance tab; shared with the profile rail.
   const analytics = useTraderAnalytics(profile.address, "all");

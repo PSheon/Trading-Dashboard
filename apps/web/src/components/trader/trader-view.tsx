@@ -75,11 +75,17 @@ function TraderLoaded({ address, initial }: { address: string; initial?: TraderI
   const [window, setWindow] = useState<TraderWindow>("allTime");
   const [market, setMarket] = useState<Market>("perp");
 
-  // The profile is the cheap first paint; activity (sample size, which
-  // mutes the KPI tiles) costs the api fill lists and loads alongside it.
+  // The profile and the chart are the first paint. Activity (sample size,
+  // which mutes the KPI tiles) and the fills tab cost the api Hyperliquid's
+  // fill lists (≈ 240 weight), so they are asked for once the first paint
+  // is in: asked for alongside it, they spent the page budget the profile
+  // and chart were waiting on (Stage, 2026-10-05). A blank profile asks for
+  // the activity at once: only its fills tell a 404 from a quiet account.
   const profile = useTraderProfile(address, initial?.profile);
-  const activity = useTraderActivity(address, initial?.activity);
   const portfolio = usePortfolio(address, window, market);
+  const firstPaint = Boolean(profile.data) && (Boolean(portfolio.data) || portfolio.errorUpdateCount > 0);
+  const blank = Boolean(profile.data) && traderIsUnknown(profile.data, undefined) === null;
+  const activity = useTraderActivity(address, initial?.activity, { enabled: firstPaint || blank || profile.errorUpdateCount > 0 });
   const allTimePerp = usePortfolio(address, "allTime", "perp");
   // Positions, account value, fills and marks straight from Hyperliquid's
   // WebSocket, over the REST profile (initial state and fallback).
@@ -140,6 +146,7 @@ function TraderLoaded({ address, initial }: { address: string; initial?: TraderI
       profile={profile}
       live={live}
       lowSample={activity.data?.sample.lowSample ?? false}
+      firstPaint={firstPaint}
       portfolio={portfolio}
       allTimePerp={allTimePerp}
       copyScore={copyScore.data?.copyScore ?? null}
@@ -153,11 +160,12 @@ function TraderLoaded({ address, initial }: { address: string; initial?: TraderI
 
 /** The desktop page: profile rail | KPIs + chart + tabs | copy panel. Its
  * own reads live here, so they start only when this layout is shown. */
-function DesktopTrader({ address, profile, live, lowSample, portfolio, allTimePerp, copyScore, window, onWindow, market, onMarket }: {
+function DesktopTrader({ address, profile, live, lowSample, firstPaint, portfolio, allTimePerp, copyScore, window, onWindow, market, onMarket }: {
   address: string;
   profile: ReturnType<typeof useTraderProfile>;
   live: ReturnType<typeof useLiveTrader>;
   lowSample: boolean;
+  firstPaint: boolean;
   portfolio: ReturnType<typeof usePortfolio>;
   allTimePerp: ReturnType<typeof usePortfolio>;
   copyScore: number | null;
@@ -243,6 +251,7 @@ function DesktopTrader({ address, profile, live, lowSample, portfolio, allTimePe
             marks={live.mids}
             feedOpen={feedOpen}
             onToggleFeed={() => setFeedOpen((open) => !open)}
+            fillsReady={firstPaint}
           />
         ) : (
           <Skeleton className="h-64 rounded-2xl" />

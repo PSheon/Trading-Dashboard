@@ -169,8 +169,15 @@ function PrivyAuth({ appId, children }: { appId: string; children: React.ReactNo
   );
 }
 
+/** A saved Privy session: its tokens in localStorage, or, with a custom auth
+ * domain (cookie mode, where the tokens are HttpOnly cookies), the readable
+ * `privy-session` marker cookie Privy sets beside them. Without the cookie
+ * check a signed-in visitor would read as signed out until the idle load
+ * (up to 3 s). The Stage Dev app has no custom domain (2026-10-05), so this
+ * only matters once one is configured. */
 function hasSavedPrivySession(): boolean {
-  return readLocalStorage("privy:token") !== null || readLocalStorage("privy:refresh_token") !== null;
+  if (readLocalStorage("privy:token") !== null || readLocalStorage("privy:refresh_token") !== null) return true;
+  try { return document.cookie.split(";").some((part) => part.trim().startsWith("privy-session=")); } catch { return false; }
 }
 
 // --- fixture login ------------------------------------------------------------

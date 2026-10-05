@@ -79,6 +79,18 @@ it("loads Privy at once for a saved session or Privy's OAuth callback, and keeps
   expect(sdk.login).not.toHaveBeenCalled();
 });
 
+it("loads Privy at once for a cookie-mode session (custom auth domain: no token in localStorage)", async () => {
+  document.cookie = "privy-session=t; path=/";
+  sdk.authenticated = true;
+  try {
+    await act(async () => root.render(<AuthProvider><Probe /></AuthProvider>));
+    expect(auth?.status).not.toBe("signedOut"); // never a signed-out flash
+    await turns();
+    expect(sdk.loaded).toBeGreaterThan(0);
+    expect(auth?.status).toBe("signedIn");
+  } finally { document.cookie = "privy-session=; path=/; max-age=0"; }
+});
+
 it("loads Privy at once when its OAuth callback is in the URL (no saved session yet)", async () => {
   history.replaceState(null, "", "/explore?privy_oauth_code=c&privy_oauth_state=s&privy_oauth_provider=google");
   sdk.authenticated = true;

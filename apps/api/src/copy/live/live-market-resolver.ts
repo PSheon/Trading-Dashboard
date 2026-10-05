@@ -45,6 +45,9 @@ const marketSchema = z.object({ name: z.string().min(1).max(80), szDecimals: z.n
   maxLeverage: z.number().int().positive(), isDelisted: z.boolean().optional() });
 const metaSchema = z.object({ universe: z.array(marketSchema).max(10_000) });
 export const MAX_LIVE_PERP_DEXES = 1000;
+/** Longest an up-front weight reservation (before any evidence clock) may
+ * take when the budget itself sets no bound. */
+export const RESERVE_BOUND_MS = 10_000;
 // Provider-listed names are opaque identifiers (testnet includes i<3fl).
 // Separators, spot formats, whitespace and control characters stay unsupported.
 export const LIVE_DEX_NAME = /^[^:\s/@\p{Cc}\p{Cf}]{1,40}$/u;
@@ -87,7 +90,10 @@ export class HyperliquidLiveMarketResolver implements LiveMarketResolver {
   async resolve(coin: string): Promise<LiveMarketIdentity> {
     if (typeof coin !== 'string' || !LIVE_PERP_COIN.test(coin) || coin.length > 80)
       throw new LiveBoundaryError('invalid_live_market_coin');
-    const started = this.now(), dex = coin.includes(':') ? coin.split(':')[0]! : '';
+    const dex = coin.includes(':') ? coin.split(':')[0]! : '';
+    // perpDexs (a named dex) and meta, 20 each, paid before the clock starts.
+    await boundedLiveRead(() => this.acquire(dex ? 40 : 20), RESERVE_BOUND_MS);
+    const started = this.now();
     let index = 0;
     if (dex) {
       const dexes = await this.dexes(started);
@@ -104,9 +110,10 @@ export class HyperliquidLiveMarketResolver implements LiveMarketResolver {
   async resolveAsset(asset: number): Promise<LiveMarketIdentity> {
     if (!Number.isSafeInteger(asset) || asset < 0 || (asset >= 10_000 && asset < 110_000))
       throw new LiveBoundaryError('unsupported_perpetual_asset');
-    const started = this.now();
     const dexIndex = asset < 10_000 ? 0 : Math.floor((asset - 100_000) / 10_000);
     if (dexIndex >= MAX_LIVE_PERP_DEXES) throw new LiveBoundaryError('live_market_not_listed');
+    await boundedLiveRead(() => this.acquire(dexIndex ? 40 : 20), RESERVE_BOUND_MS);
+    const started = this.now();
     let dex = '';
     if (dexIndex) {
       const dexes = await this.dexes(started);
@@ -139,7 +146,6 @@ export class HyperliquidLiveMarketResolver implements LiveMarketResolver {
     if (this.now() < started || this.now() - started > this.maxAgeMs) throw new LiveBoundaryError('market_evidence_expired');
   }
   private async read(body: Record<string, string>, started: number): Promise<unknown> {
-    await boundedLiveRead(() => this.acquire(20), Math.max(1, this.maxAgeMs - (this.now() - started)));
     this.fresh(started);
     const remaining = Math.max(1, this.maxAgeMs - (this.now() - started));
     const response = await boundedLiveRead(() => this.fetcher(this.endpoint, { method: 'POST', headers: { 'content-type': 'application/json' },

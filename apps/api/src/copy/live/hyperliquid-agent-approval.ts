@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { WALLET_NETWORKS } from "@trading-dashboard/shared/contracts";
 import { readInfoJson } from "../../hyperliquid/response-validation.js";
+import { boundedLiveRead, RESERVE_BOUND_MS } from "./live-market-resolver.js";
 import { address, LiveBoundaryError, type ExchangeApprovalEvidence, type ExchangeApprovalVerifier, type LiveNetwork, type WalletAuthorization } from "./wallet-authorization.js";
 
 const ethereumAddress = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
@@ -32,8 +33,12 @@ export class HyperliquidAgentApprovalVerifier implements ExchangeApprovalVerifie
     if (grant.network !== this.network) throw new LiveBoundaryError("exchange_approval_network_mismatch");
     const account = address(grant.accountAddress);
     const signer = address(grant.signerAddress);
-    const checkedAt = this.now();
+    let checkedAt = 0;
     try {
+      // Official weights: userRole 60, extraAgents 20. Taken before the clock
+      // starts, so a budget wait never ages the evidence.
+      await boundedLiveRead(() => this.acquire(signer !== account ? 20 : 60), RESERVE_BOUND_MS);
+      checkedAt = this.now();
       let expiresAt: number | null = null;
       if (signer !== account) {
         const matches = agentsSchema.parse(await this.read({ type: "extraAgents", user: account })).filter((agent) => address(agent.address) === signer);
@@ -55,8 +60,6 @@ export class HyperliquidAgentApprovalVerifier implements ExchangeApprovalVerifie
   }
 
   private async read(body: { type: "userRole" | "extraAgents"; user: string }): Promise<unknown> {
-    // Official weights: userRole 60, other info requests (extraAgents) 20.
-    await this.acquire(body.type === "userRole" ? 60 : 20);
     const response = await this.fetcher(this.endpoint, { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body), redirect: "error", signal: AbortSignal.timeout(5_000) });
     if (!response.ok) { await response.body?.cancel().catch(() => undefined); throw new Error("Approval evidence unavailable"); }

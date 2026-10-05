@@ -83,10 +83,15 @@ describe("fresh Hyperliquid agent approval evidence", () => {
     expect((await verifier.verify({ ...grant, network: "mainnet" })).network).toBe("mainnet");
     expect(s.fetcher.mock.calls.every(([url]) => url === "https://api.hyperliquid.xyz/info")).toBe(true);
   });
-  it("stale observations, including time spent waiting for budget, cannot authorize trading", async () => {
+  it("stale observations cannot authorize trading; a budget wait before the clock does not age them", async () => {
+    // The weight is taken before the clock starts (a drained bucket used to
+    // turn every proof stale); time spent in the read itself still counts.
     const s = setup();
     s.acquire.mockImplementationOnce(async () => { s.clock(now + 5_001); });
-    await expect(s.verifier.verify(grant)).rejects.toThrow("exchange_approval_evidence_expired");
+    await expect(s.verifier.verify(grant)).resolves.toMatchObject({ checkedAt: now + 5_001 });
+    const slow = setup(); const read = slow.fetcher.getMockImplementation()!;
+    slow.fetcher.mockImplementation(async (...args) => { const response = await read(...args); slow.clock(now + 5_001); return response; });
+    await expect(slow.verifier.verify(grant)).rejects.toThrow("exchange_approval_evidence_expired");
   });
   it.each(["http", "json", "large", "redirect", "budget"])("fails closed on %s and sanitizes remote errors", async (failure) => {
     const s = setup();

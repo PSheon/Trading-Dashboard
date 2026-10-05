@@ -154,6 +154,11 @@ function mode(values: readonly unknown[]): void {
     deny('live_risk_provider_unsupported_mode');
 }
 
+/** The account modes twice (userRole 60, userAbstraction 20,
+ * userDexAbstraction 20, spotClearinghouseState 2: before and after the
+ * rest), and metaAndAssetCtxs, activeAssetData, userFees, perpDexs and
+ * spotMeta 20 each. */
+const RISK_PROVIDER_WEIGHT = 304;
 /** Uncached fixed-testnet REST proofs. Target activeAssetData reads configured
  * leverage even without a position. No credentials, WS, signatures or actions.
  * Named dex effective-fee settings remain unproven and cannot yield a proof. */
@@ -179,8 +184,12 @@ export class HyperliquidLiveRiskProvider {
       const market = structuredClone(suppliedMarket),
         options = settingsSchema.parse(structuredClone(suppliedOptions));
       const user = address(accountAddress),
-        started = this.now(),
         timeout = options.timeoutMs ?? 5000;
+      // All thirteen reads (304) are taken from the budget at once, before this
+      // proof's clock starts, instead of each waiting inside the window
+      // (bounded on its own, by the same timeout).
+      await boundedLiveRead(() => this.acquire(RISK_PROVIDER_WEIGHT), timeout);
+      const started = this.now();
       assertMarketIdentity(market);
       if (market.network !== this.network)
         deny('live_risk_provider_source_mismatch');
@@ -216,8 +225,8 @@ export class HyperliquidLiveRiskProvider {
             fresh(earliestObservedAt);
             return Math.max(1, timeout - (this.now() - started));
           };
-        await boundedLiveRead(() => this.acquire(weight), remaining());
-        // Recheck before initiating work; an expired budget wait must not send.
+        void weight; // reserved with the rest, before the clock
+        // Recheck before initiating work; an expired window must not send.
         const response = await boundedLiveRead(() => 
           this.fetcher('https://api.hyperliquid-testnet.xyz/info', {
             method: 'POST',

@@ -154,7 +154,8 @@ describe('authoritative testnet risk provider', () => {
       ),
     ).toBe(true);
     expect(s.requests.some((r) => r.type === 'clearinghouseState')).toBe(false);
-    expect(s.acquire.mock.calls).toHaveLength(s.requests.length);
+    // The thirteen reads' weight (304) in one reservation, before the clock.
+    expect(s.acquire.mock.calls).toEqual([[304]]); expect(s.requests).toHaveLength(13);
   });
   it('applies referral discount to positive maker rates exactly once', async () => {
     const s = setup((b, v) =>

@@ -205,8 +205,9 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
       const connecting=this.connection(this.remaining(deadline),deadline);socket = connecting instanceof Promise?await connecting:connecting;
       // Nothing subscribed yet: a reusable socket stays open and clean.
       if(signal?.aborted){if(!this.global?.isOriginal())succeeded=true;fail('live_account_read_abandoned');}
-      // Closing the socket ends every subscription at once (closeAfterRead).
-      const unsubscribes=!(this.options.closeAfterRead===true&&this.global!==undefined);
+      // A read that ends by closing its socket (closeAfterRead, or an original
+      // live-risk session) ends every subscription at once: no unsubscribes.
+      const unsubscribes=!this.closesAfterRead();
       const permit=this.global?await this.commands([...(includeState?[{type:'allDexsClearinghouseState',user}]:[]),...dexes.map(dex=>({type:'openOrders',user,dex}))],deadline,unsubscribes):undefined;
       const result = await new Promise<{ state?: LiveAllDexsStateEvidence; orders: LiveAllDexsOrderEvidence }>((resolve, reject) => {
         let offset = 0, phase: 'subscribe' | 'unsubscribe' = 'subscribe', batch: string[] = [];

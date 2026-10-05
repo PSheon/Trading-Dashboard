@@ -15,13 +15,25 @@ function setup(universe = [{ name: 'xyz:TSLA', szDecimals: 3, maxLeverage: 10 }]
   return { resolver, reads, setClock: (value: number) => { clock = value; }, fetcher };
 }
 describe('authoritative indexed live markets', () => {
+  it('pays for its reads before its clock: a budget wait never ages the market evidence', async () => {
+    let clock = 100;
+    const fetcher = vi.fn<typeof fetch>(async (_url, options) => {
+      const body = JSON.parse(String(options?.body));
+      return new Response(JSON.stringify(body.type === 'perpDexs' ? [null, { name: 'xyz' }] : { universe: body.dex ? [{ name: 'xyz:TSLA', szDecimals: 3, maxLeverage: 10 }] : [{ name: 'BTC', szDecimals: 5, maxLeverage: 40 }] }));
+    });
+    const acquire = vi.fn(async () => { clock += 6_000; });
+    const resolver = new HyperliquidLiveMarketResolver('testnet', acquire, fetcher, () => clock);
+    await expect(resolver.resolve('xyz:TSLA')).resolves.toMatchObject({ observedAt: 6_100 });
+    expect(acquire.mock.calls).toEqual([[40]]);
+  });
   it('bounds a budget read that never resolves', async () => {
     vi.useFakeTimers();
     try {
       const resolver = new HyperliquidLiveMarketResolver('testnet', () => new Promise(() => {}));
       let outcome = 'pending';
       void resolver.resolve('BTC').then(() => { outcome = 'accepted'; }, () => { outcome = 'blocked'; });
-      await vi.advanceTimersByTimeAsync(5001);
+      // The reservation is taken before the 5 s clock and bounded on its own.
+      await vi.advanceTimersByTimeAsync(10_001);
       expect(outcome).toBe('blocked');
     } finally { vi.useRealTimers(); }
   });

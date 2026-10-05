@@ -86,7 +86,9 @@ describe('authoritative dedicated standard account observations', () => {
     expect(Object.isFrozen(snapshot.positions[0])).toBe(true);
     expect(s.reads.filter((b) => b.type === 'clearinghouseState')).toEqual([]);
     expect(s.aggregateRead).toHaveBeenCalledTimes(1);
-    expect(s.acquire.mock.calls.length).toBe(s.fetcher.mock.calls.length + s.aggregateRead.mock.calls.length + s.ordersRead.mock.calls.length);
+    // Every read's weight (account modes 122, spotMeta 20, allPerpMetas 20, the
+    // all-venue state and orders reads 20 + 20) in one reservation, before the clock.
+    expect(s.acquire.mock.calls).toEqual([[202]]);
   });
   it.each(['unifiedAccount', 'portfolioMargin', 'dexAbstraction', 'default', null])('refuses unresolved or unsupported abstraction %s', async (mode) => {
     await expect(setup((body, value) => body.type === 'userAbstraction' ? mode : value).observer.observe(account))
@@ -156,7 +158,8 @@ describe('authoritative dedicated standard account observations', () => {
       const observer = new HyperliquidLiveAccountObserver('testnet', () => new Promise(() => {}));
       let status = 'pending';
       void observer.observe(account).then(() => { status = 'accepted'; }, () => { status = 'blocked'; });
-      await vi.advanceTimersByTimeAsync(5001);
+      // The reservation is taken before the 5 s clock and bounded on its own.
+      await vi.advanceTimersByTimeAsync(10_001);
       expect(status).toBe('blocked');
     } finally { vi.useRealTimers(); }
   });

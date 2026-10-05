@@ -11,11 +11,14 @@ import { AdminWithdrawalController } from "./admin-withdrawal.controller.js";
 import { WithdrawalRepository } from "./withdrawal.repository.js";
 import { WithdrawalExchangeClient } from "./withdrawal-exchange.client.js";
 import { WithdrawalService } from "./withdrawal.service.js";
+import { WALLET_NETWORK_HL, type WalletNetworkHyperliquid } from "../hyperliquid/wallet-network-hyperliquid.js";
 
 /** Main-account balances, ledger and explicitly signed withdrawal intents. */
 @Module({
   imports: [AuthModule, HyperliquidModule],
   controllers: [WalletController, WithdrawalController, AdminWithdrawalController],
-  providers: [WalletRepository, WalletService, ArbitrumBalanceClient, WithdrawalRepository, WithdrawalService, WithdrawalExchangeClient],
+  providers: [WalletRepository, WalletService, ArbitrumBalanceClient, WithdrawalRepository, WithdrawalService,
+    // A withdrawal is on the wallet network: its budget and egress (testnet's own).
+    { provide: WithdrawalExchangeClient, inject: [WALLET_NETWORK_HL], useFactory: ({ budget, transport }: WalletNetworkHyperliquid) => new WithdrawalExchangeClient(budget, transport) }],
 })
 export class WalletModule {}

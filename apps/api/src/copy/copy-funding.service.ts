@@ -1,4 +1,5 @@
-import { BadGatewayException, BadRequestException, ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
+import { BadGatewayException, BadRequestException, ConflictException, Inject, Injectable, NotFoundException, Optional, ServiceUnavailableException } from "@nestjs/common";
+import { WALLET_NETWORK_HL, type WalletNetworkHyperliquid } from "../hyperliquid/wallet-network-hyperliquid.js";
 import { createHash } from "node:crypto";
 import { verifyTypedData } from "viem";
 import { copyFundingInputSchema, usdSendTypedData, WALLET_NETWORKS, type CopyFunding } from "@trading-dashboard/shared/contracts";
@@ -27,7 +28,9 @@ export const wire = (row: FundingRow): CopyFunding => ({ id: row.id, accountId: 
 export class CopyFundingService {
   private readonly lookups = new TtlCache<CopyFunding>(15_000);
   constructor(private readonly config: AppConfig, private readonly repository: CopyFundingRepository,
-    private readonly wallets: CopyWalletService, private readonly exchange: CopyFundingExchangeClient, private readonly info: HyperliquidInfoClient) {}
+    private readonly wallets: CopyWalletService, private readonly exchange: CopyFundingExchangeClient, private readonly info: HyperliquidInfoClient,
+    /** The wallet network's own budget and egress (testnet's), not mainnet's. */
+    @Optional() @Inject(WALLET_NETWORK_HL) private readonly walletNetwork: WalletNetworkHyperliquid | null = null) {}
   private get available() { return this.config.value.hyperliquid.wallet.network === "testnet" && this.config.value.copy.mode !== "disabled"; }
   private assertAvailable() { if (!this.available) throw new ServiceUnavailableException("Strategy funding is available on testnet only"); }
   async overview(userId: number) {
@@ -131,7 +134,10 @@ export class CopyFundingService {
           return wire(await this.repository.find(userId, id)); // Ambiguous evidence stays pending.
         }
         const window = scan.windows[0]!, url = WALLET_NETWORKS[operation.network].infoUrl;
-        const rows = await this.info.userNonFundingLedgerUpdates(operation.destination, window.start, window.end, "live", PAGE_RANK.fills, url);
+        // A copy account's ledger is on the wallet network: its own budget, so
+        // a testnet 429 never halves the mainnet budget.
+        const info = operation.network === this.config.value.hyperliquid.wallet.network ? this.walletNetwork?.info ?? this.info : this.info;
+        const rows = await info.userNonFundingLedgerUpdates(operation.destination, window.start, window.end, "live", PAGE_RANK.fills, url);
         if (rows.length >= MAX_LIST_ITEMS) {
           // Temporal subdivision works whether the provider caps earliest or
           // latest records. Never infer completeness from a capped response.

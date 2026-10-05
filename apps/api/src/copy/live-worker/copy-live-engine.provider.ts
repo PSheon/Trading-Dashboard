@@ -6,6 +6,7 @@ import { DRIZZLE_CLIENT } from '../../db/db.constants.js';
 import { UnitOfWork } from '../../db/unit-of-work.js';
 import { randomUUID } from 'node:crypto';
 import { HyperliquidGlobalTransport } from '../../hyperliquid/hyperliquid-global-transport.js';
+import { WALLET_NETWORK_HL, type WalletNetworkHyperliquid } from '../../hyperliquid/wallet-network-hyperliquid.js';
 import { PostgresHyperliquidQuota } from '../../hyperliquid/postgres-hyperliquid-quota.js';
 import { RequestBudgeterService } from '../../hyperliquid/request-budgeter.service.js';
 import { CopyMarketService } from '../copy-market.service.js';
@@ -39,9 +40,9 @@ const EXTRA_RISK_BUFFER_BPS = '5', RESTING_BUILDER_FEE_CAP_TENTHS_BPS = 100;
 export const liveEngineProvider: Provider = {
   provide: LIVE_ENGINE,
   inject: [AppConfig, DATABASE_POOL, DRIZZLE_CLIENT, UnitOfWork, PostgresHyperliquidQuota, CopyMarketService, CopyFollowerLedger,
-    CopyLiveSourceRepository, CopyLiveWorkerRepository, CopyFollowerScanRepository, CopyLiveStopWorkerRepository, CopyLiveReturnRepository, CopyLiveSetupService],
+    CopyLiveSourceRepository, CopyLiveWorkerRepository, CopyFollowerScanRepository, CopyLiveStopWorkerRepository, CopyLiveReturnRepository, CopyLiveSetupService, WALLET_NETWORK_HL],
   useFactory: (config: AppConfig, pool: Pool, db: DrizzleDb, uow: UnitOfWork, quota: PostgresHyperliquidQuota,
-    market: CopyMarketService, ledger: CopyFollowerLedger, sources: CopyLiveSourceRepository, repository: CopyLiveWorkerRepository, scans: CopyFollowerScanRepository, stops: CopyLiveStopWorkerRepository, returns: CopyLiveReturnRepository, setups: CopyLiveSetupService): CopyLiveEngine | null => {
+    market: CopyMarketService, ledger: CopyFollowerLedger, sources: CopyLiveSourceRepository, repository: CopyLiveWorkerRepository, scans: CopyFollowerScanRepository, stops: CopyLiveStopWorkerRepository, returns: CopyLiveReturnRepository, setups: CopyLiveSetupService, wallet: WalletNetworkHyperliquid): CopyLiveEngine | null => {
     const live = config.value.copy.live;
     if (config.value.copy.mode !== 'testnet' || !live) return null;
     const logger = new Logger('CopyLiveEngine');
@@ -50,8 +51,11 @@ export const liveEngineProvider: Provider = {
     // starve nor are starved by the mainnet watcher's budget.
     const hl = config.value.hyperliquid, egressKey = `${hl.egressKey}:testnet`;
     const testnetConfig = new AppConfig({ ...config.value, hyperliquid: { ...hl, egressKey, budgetPerMin: live.weightPerMin, burst: 1200 - live.weightPerMin, startupPaceSeconds: 0 } });
-    const testnetBudget = new RequestBudgeterService(testnetConfig);
-    const testnetGlobal = new HyperliquidGlobalTransport(quota, { egressKey, ownerId: randomUUID() });
+    // The process's one testnet bucket (HyperliquidModule), shared with the
+    // worker's setup pass and snapshot collector: before, the engine had a
+    // bucket of its own, a third testnet rate + burst against the one meter.
+    const testnetBudget = wallet.dedicated ? wallet.budget : new RequestBudgeterService(testnetConfig);
+    const testnetGlobal = wallet.dedicated ? wallet.transport : new HyperliquidGlobalTransport(quota, { egressKey, ownerId: randomUUID() });
     const reference = new MainnetSourceReferenceReader(market);
     const options = { slippageBps: String(live.slippageBps), extraRiskBufferBps: EXTRA_RISK_BUFFER_BPS,
       restingOrderBuilderFeeCapTenthsBps: RESTING_BUILDER_FEE_CAP_TENTHS_BPS, maxSourceDeviationBps: String(live.maxSourceDeviationBps) };

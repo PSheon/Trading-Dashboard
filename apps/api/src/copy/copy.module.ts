@@ -32,9 +32,9 @@ import { PrivyPolicyMasterSigner, WORKER_MASTER_SIGNER } from "./live/privy-poli
 import { CopyFundingController } from "./copy-funding.controller.js";
 import { CopyFundingRepository } from "./copy-funding.repository.js";
 import { CopyFundingService } from "./copy-funding.service.js";
+import { WALLET_NETWORK_HL, type WalletNetworkHyperliquid } from "../hyperliquid/wallet-network-hyperliquid.js";
 import { CopyFundingExchangeClient } from "./copy-funding-exchange.client.js";
 import { AppConfig } from "../config/app-config.js";
-import { RequestBudgeterService } from "../hyperliquid/request-budgeter.service.js";
 import { HyperliquidAgentApprovalVerifier } from "./live/hyperliquid-agent-approval.js";
 import { WalletAuthorizationService } from "./live/wallet-authorization.js";
 import { CopyAgentController } from "./copy-agent.controller.js";
@@ -74,9 +74,6 @@ import { CopyLivePortfolioRepository } from './copy-live-portfolio.repository.js
 import { CopyLiveReturnRepository } from './copy-live-return.repository.js';
 import { CopyLiveReturnService } from './copy-live-return.service.js';
 import { MASTER_ACTION_SIGNER, PrivyMasterActionSigner } from './live/privy-master-signer.js';
-import { HyperliquidGlobalTransport } from '../hyperliquid/hyperliquid-global-transport.js';
-import { PostgresHyperliquidQuota } from "../hyperliquid/postgres-hyperliquid-quota.js";
-import { randomUUID } from "node:crypto";
 import { HyperliquidAllDexsAccountSource } from './live/live-account-ws-source.js';
 import { reserveLive } from "../hyperliquid/hyperliquid-budget-wait.js";
 
@@ -91,28 +88,15 @@ import { reserveLive } from "../hyperliquid/hyperliquid-budget-wait.js";
 import { CopyLiveSetupController } from "./copy-live-setup.controller.js";
 import { CopyLiveSetupRepository } from "./copy-live-setup.repository.js";
 import { CopyLiveSetupService } from "./copy-live-setup.service.js";
-/** The Hyperliquid budget and transport for reads and actions on the users'
- * wallet network. On testnet that is a separate host with its own per-IP
- * limit, so it gets its own token bucket and egress key (as the worker's
- * live engine does): testnet copy setup steps (account mode, agent approval,
- * deposits) must not wait behind the mainnet page traffic in the api's
- * budget, which made the account-mode reads time out at 5 s. */
-export const WALLET_NETWORK_HL = Symbol("WALLET_NETWORK_HL");
-export interface WalletNetworkHyperliquid { readonly budget: RequestBudgeterService; readonly transport: HyperliquidGlobalTransport }
-export function walletNetworkHyperliquid(config: AppConfig, budget: RequestBudgeterService, transport: HyperliquidGlobalTransport, quota: PostgresHyperliquidQuota): WalletNetworkHyperliquid {
-  const hl = config.value.hyperliquid;
-  if (hl.wallet.network !== "testnet" || !hl.egressKey) return { budget, transport };
-  const weightPerMin = config.value.copy.live?.weightPerMin ?? 300, egressKey = `${hl.egressKey}:testnet`;
-  const testnetConfig = new AppConfig({ ...config.value, hyperliquid: { ...hl, egressKey, budgetPerMin: weightPerMin, burst: 1200 - weightPerMin, startupPaceSeconds: 0 } });
-  return { budget: new RequestBudgeterService(testnetConfig), transport: new HyperliquidGlobalTransport(quota, { egressKey, ownerId: randomUUID() }) };
-}
+// The wallet network's budget, transport and info client: one per process,
+// provided by HyperliquidModule (re-exported here for existing imports).
+export { WALLET_NETWORK_HL, walletNetworkHyperliquid, type WalletNetworkHyperliquid } from "../hyperliquid/wallet-network-hyperliquid.js";
 
 @Module({
   // NotifyModule: the operator's system message when an order keeps failing.
   imports: [AuthModule, HyperliquidModule, NotifyModule],
   controllers: [CopyController, CopyFundsController, CopyWalletController, CopyFundingController, CopyAgentController, CopyFollowerController, CopyAccountModeController, CopyFollowerSnapshotController, CopyLiveMandateController, CopyLiveStopController, CopyLiveReturnController, CopyLivePortfolioController, CopyLiveCloseController, CopyLiveSetupController],
   providers: [CopyAdminLiveRepository, CopyAdminLiveService,
-    { provide: WALLET_NETWORK_HL, inject: [AppConfig, RequestBudgeterService, HyperliquidGlobalTransport, PostgresHyperliquidQuota], useFactory: walletNetworkHyperliquid },
     CopyRepository, CopyMarketService, CopyRiskPolicyService, CopyOrderPlanner, CopySignalService, CopyExecutionService,
     CopyControlService, CopyStrategyService, CopyAdminReadService, CopyAdoptionRepairService, CopyPerformanceService, CopyStreamService, CopyFundsService, CopyFundsRepository,
     PostgresLiveExecutionJournal, PostgresWalletAuthorizationSource,
@@ -146,9 +130,9 @@ export function walletNetworkHyperliquid(config: AppConfig, budget: RequestBudge
       appId: config.value.auth.appId, appSecret: config.value.auth.appSecret, workerQuorumId: config.value.copy.agent?.workerQuorumId,
       authorizationPublicKey: config.value.copy.agent?.authorizationPublicKey }) },
     { provide: AGENT_APPROVAL_CLIENT, inject: [AppConfig, WALLET_NETWORK_HL], useFactory: (config: AppConfig, { budget, transport }: WalletNetworkHyperliquid) =>
-      new PrivyAgentApprovalClient(config.value.auth, weight => budget.acquire(weight, "live", 0, { signal: AbortSignal.timeout(5_000) }),undefined,Date.now,transport) },
+      new PrivyAgentApprovalClient(config.value.auth, weight => reserveLive(budget, weight),undefined,Date.now,transport) },
   ],
-  exports: [WALLET_NETWORK_HL, CopyControlService, CopyRiskPolicyService, CopyAdminReadService, CopyAdminLiveService, PostgresLiveExecutionJournal, PostgresWalletAuthorizationSource,
+  exports: [CopyControlService, CopyRiskPolicyService, CopyAdminReadService, CopyAdminLiveService, PostgresLiveExecutionJournal, PostgresWalletAuthorizationSource,
     // For CopyWorkerModule's loops (the worker process only).
     CopySignalService, CopyExecutionService, CopyPerformanceService, CopyFundingService, CopyFollowerReconciler, CopyFollowerSnapshotRepository,
     // For the testnet execution engine (CopyWorkerModule).

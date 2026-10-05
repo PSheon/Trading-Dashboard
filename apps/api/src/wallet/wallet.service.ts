@@ -1,4 +1,5 @@
-import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
+import { WALLET_NETWORK_HL, type WalletNetworkHyperliquid } from "../hyperliquid/wallet-network-hyperliquid.js";
 import {
   WALLET_NETWORKS,
   type WalletHistoryResponse,
@@ -54,7 +55,10 @@ export class WalletService {
     private readonly info: HyperliquidInfoClient,
     private readonly arbitrum: ArbitrumBalanceClient,
     @Inject(PRIVY_VERIFIER) private readonly privy: PrivyVerifier,
+    /** The wallet network's own budget and egress (testnet's), not mainnet's. */
+    @Optional() @Inject(WALLET_NETWORK_HL) private readonly walletNetwork: WalletNetworkHyperliquid | null = null,
   ) {}
+  private get walletInfo(): HyperliquidInfoClient { return this.walletNetwork?.info ?? this.info; }
 
   private get wallet() {
     return this.config.value.hyperliquid.wallet;
@@ -91,8 +95,8 @@ export class WalletService {
     return this.summaryCache.get(`${network}:${address}`, async () => {
       const url = this.wallet.infoUrl;
       const [perp, spot, arbitrum] = await Promise.all([
-        this.info.clearinghouseState(address, undefined, "background", PAGE_RANK.profile, url),
-        this.info.spotClearinghouseState(address, "background", PAGE_RANK.profile, url),
+        this.walletInfo.clearinghouseState(address, undefined, "background", PAGE_RANK.profile, url),
+        this.walletInfo.spotClearinghouseState(address, "background", PAGE_RANK.profile, url),
         this.arbitrum.balances(address, WALLET_NETWORKS[network].usdc).catch((error: Error) => {
           this.logger.warn(`Arbitrum balance for ${address}: ${error.message}`);
           return null;
@@ -119,7 +123,7 @@ export class WalletService {
     const from = new Date(Date.now() - TRANSFERS_WINDOW_MS);
     if (!address) return { network, address: null, transfers: [], from, truncated: false, fetchedAt: new Date() };
     return this.historyCache.get(`${network}:${address}`, async () => {
-      const rows = await this.info.userNonFundingLedgerUpdates(
+      const rows = await this.walletInfo.userNonFundingLedgerUpdates(
         address, from.getTime(), undefined, "background", PAGE_RANK.fills, this.wallet.infoUrl,
       );
       const transfers = rows

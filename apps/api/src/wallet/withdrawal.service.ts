@@ -1,4 +1,5 @@
-import { BadGatewayException, BadRequestException, ConflictException, Injectable, Logger } from "@nestjs/common";
+import { BadGatewayException, BadRequestException, ConflictException, Inject, Injectable, Logger, Optional } from "@nestjs/common";
+import { WALLET_NETWORK_HL, type WalletNetworkHyperliquid } from "../hyperliquid/wallet-network-hyperliquid.js";
 import type { RequestUser } from "../common/auth/current-user.js";
 import { parseOr400 } from "../common/http/validation.js";
 import { createHash } from "node:crypto";
@@ -40,7 +41,10 @@ export class WithdrawalService {
     this.logger[level]({ event, withdrawalId: row.id, userId: row.userId, network: row.network, nonce: row.nonce, status: row.status, amount: row.amount,
       ...(row.evidenceHash ? { evidenceHash: row.evidenceHash.slice(0, 16) } : {}), ...extra });
   }
-  constructor(private readonly config: AppConfig, private readonly wallet: WalletService, private readonly repository: WithdrawalRepository, private readonly info: HyperliquidInfoClient, private readonly exchange: WithdrawalExchangeClient) {}
+  constructor(private readonly config: AppConfig, private readonly wallet: WalletService, private readonly repository: WithdrawalRepository, private readonly info: HyperliquidInfoClient, private readonly exchange: WithdrawalExchangeClient,
+    /** The wallet network's own budget and egress (testnet's), not mainnet's. */
+    @Optional() @Inject(WALLET_NETWORK_HL) private readonly walletNetwork: WalletNetworkHyperliquid | null = null) {}
+  private get walletInfo(): HyperliquidInfoClient { return this.walletNetwork?.info ?? this.info; }
   private get network() { return this.config.value.hyperliquid.wallet.network; }
   private async scope(userId: number) {
     const address = await this.wallet.address(userId);
@@ -153,7 +157,7 @@ export class WithdrawalService {
     let found: string | null;
     try {
       found = await this.lookupCache.get(id, async () => {
-        const rows = await this.info.userNonFundingLedgerUpdates(operation.address, Math.max(0, operation.nonce - 60_000), Date.now(), "background", PAGE_RANK.fills, this.config.value.hyperliquid.wallet.infoUrl);
+        const rows = await this.walletInfo.userNonFundingLedgerUpdates(operation.address, Math.max(0, operation.nonce - 60_000), Date.now(), "background", PAGE_RANK.fills, this.config.value.hyperliquid.wallet.infoUrl);
         return ledgerMatch(operation, rows, Date.now());
       });
     } catch (error) {
@@ -199,7 +203,7 @@ export class WithdrawalService {
       let start = Math.max(0, operation.nonce - 60_000);
       for (let page = 0; ; page++) {
         if (page === LEDGER_MAX_PAGES) throw new ConflictException({ statusCode: 409, code: "withdrawal_ledger_incomplete", message: "Too many ledger updates to prove the withdrawal absent" });
-        const batch = await this.info.userNonFundingLedgerUpdates(operation.address, start, now, "background", PAGE_RANK.fills, this.config.value.hyperliquid.wallet.infoUrl);
+        const batch = await this.walletInfo.userNonFundingLedgerUpdates(operation.address, start, now, "background", PAGE_RANK.fills, this.config.value.hyperliquid.wallet.infoUrl);
         for (const row of batch) {
           const key = JSON.stringify(row);
           if (!seen.has(key)) { seen.add(key); rows.push(row); }

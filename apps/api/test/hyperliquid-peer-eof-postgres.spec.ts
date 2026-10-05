@@ -43,6 +43,14 @@ describe('private original TLS peer EOF releases only transport capacity',()=>{
   expect(evidence.acknowledgements).toEqual([expect.objectContaining({receivedAt:expect.any(Number),raw:{channel:'subscriptionResponse',data:{method:'unsubscribe',subscription:{type:'userTwapHistory',user}}}})]);
   const events=(await db.select().from(schema.hyperliquidEgressQuota))[0]!.events;expect(events.find(e=>e.kind==='ws_connect')!.units).toBe(1);expect(events.filter(e=>e.kind==='ws_message').reduce((n,e)=>n+e.units,0)).toBe(3);
  });
+ it('closes a socket that ends subscribed after its own close frame (Hyperliquid answers a close with a bare EOF)',async()=>{
+  const f=await fixture(),sub=quotaSubscription('mainnet',{type:'userTwapHistory',user});
+  const permit=await f.connection.subscribe([sub],Date.now()+5000,false,true);permit.dispatch({method:'subscribe',subscription:sub.subscription},()=>{});
+  f.socket.close=()=>{void f.eof();};
+  await f.connection.close(Date.now()+5000);await f.connection.whenIdle();
+  const row=(await db.select().from(schema.hyperliquidWsLeases))[0]!;
+  expect(row.state).toBe('closed');expect(row.subscriptions).toEqual([]);expect(row.cleanupEvidence).toMatchObject({kind:'peer_eof',code:1006,clean:false,closeSent:true,hadError:false});
+ });
  it('frees the tenth shared slot only after the original native EOF proof commits',async()=>{
   const f=await fixture();for(let i=0;i<9;i++)await meter.bindUnscoped(identity).reserveSocket(Date.now()+5000);
   await expect(meter.bindUnscoped(identity).reserveSocket(Date.now()+5000)).rejects.toThrow('hyperliquid_quota_connections');

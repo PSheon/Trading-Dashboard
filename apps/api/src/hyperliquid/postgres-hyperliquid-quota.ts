@@ -138,7 +138,7 @@ export class PostgresHyperliquidQuota {
       if(network!=='testnet'&&network!=='mainnet')fail('hyperliquid_quota_invalid');
       const id=randomUUID(),fenceToken=randomBytes(32).toString('hex'),socketId=randomUUID(),ownerId=binding.ownerId,source={leaseId:id,fenceToken,ownerId};
       const freshConnect=await apply((now,sendUntil)=>({kind:'connect',id:randomUUID(),sendUntil,lease:{id,egressKey:binding.egressKey,socketId,fenceToken,ownerId,leaseUntil:now+60000,latestAllowedSendAt:sendUntil}}),deadline);
-      const connect=this.permit(freshConnect);let socket:WebSocket|undefined,connected=false,canceled=false,cleanup:Promise<unknown>=Promise.resolve(),prepaidClose:HyperliquidSendPermit|undefined,peerFinished=false,peerReleased=false,peerDurablyReleased=false;
+      const connect=this.permit(freshConnect);let socket:WebSocket|undefined,connected=false,canceled=false,cleanup:Promise<unknown>=Promise.resolve(),prepaidClose:HyperliquidSendPermit|undefined,peerFinished=false,peerReleased=false,peerDurablyReleased=false,closeSent=false;
       let finishPeer!:(clean:boolean)=>void;const peerClosed=new Promise<boolean>(resolve=>{finishPeer=resolve;});
       let faulted=false,outstandingCommands=0;const activeSubscriptions=new Set<string>(),pendingUnsub=new Set<string>(),acknowledged=new Map<string,{receivedAt:number;raw:Readonly<Record<string,unknown>>}>(),cleanupAcknowledgements=new Map<string,{receivedAt:number;raw:Readonly<Record<string,unknown>>}>(),transportFault=()=>{if(faulted)return;faulted=true;void enqueue(()=>apply(()=>({kind:'uncertain',...source}))).catch(()=>{});};
       const enqueue=(work:()=>Promise<unknown>):Promise<void>=>{const next=cleanup.catch(()=>{}).then(work).then(()=>{});cleanup=next;void next.catch(()=>{});return next;};
@@ -198,10 +198,15 @@ export class PostgresHyperliquidQuota {
           value.on('error',transportFault);
           value.on('close',(code:number,reason?:Buffer)=>{
             if(peerFinished)return;peerFinished=true;
+            // Hyperliquid answers our close frame with a bare TLS EOF (1006),
+            // never a close frame. After our close, a clean EOF releases the
+            // socket with every subscription on it, unsubscribed or not (the
+            // closeAfterRead reads); an EOF the peer starts still needs each
+            // subscription's unsubscribe ack.
             const receivedAt=this.now(),clean=code===1000||code===1001;
-            const eof=code===1006&&!faulted&&!nativeFailed&&!localAbort&&sameTls()&&emptyWrites()&&native!.destroyed&&value.readyState===WebSocket.CLOSED&&peerEndedAt!==undefined&&nativeClosedAt!==undefined&&Number.isSafeInteger(peerEndedAt)&&peerEndedAt>0&&peerEndedAt<=nativeClosedAt&&nativeClosedAt<=receivedAt&&Number.isSafeInteger(receivedAt)&&activeSubscriptions.size===0&&pendingUnsub.size===0&&outstandingCommands===0;
+            const eof=code===1006&&!faulted&&!nativeFailed&&!localAbort&&sameTls()&&emptyWrites()&&native!.destroyed&&value.readyState===WebSocket.CLOSED&&peerEndedAt!==undefined&&nativeClosedAt!==undefined&&Number.isSafeInteger(peerEndedAt)&&peerEndedAt>0&&peerEndedAt<=nativeClosedAt&&nativeClosedAt<=receivedAt&&Number.isSafeInteger(receivedAt)&&(closeSent||activeSubscriptions.size===0&&pendingUnsub.size===0)&&outstandingCommands===0;
             peerReleased=clean||eof;finishPeer(peerReleased);
-            const proof=clean?evidence({kind:'close',receivedAt,code,reasonHex:reason&&reason.byteLength<=256?reason.toString('hex'):null}):eof?evidence({kind:'peer_eof',receivedAt,code,clean:false,servername:hostname,peerEndedAt,nativeClosedAt,hadError:false,acknowledgements:[...cleanupAcknowledgements.entries()].map(([subscriptionId,ack])=>({subscriptionId,...ack}))}):undefined;
+            const proof=clean?evidence({kind:'close',receivedAt,code,reasonHex:reason&&reason.byteLength<=256?reason.toString('hex'):null}):eof?evidence({kind:'peer_eof',receivedAt,code,clean:false,closeSent,servername:hostname,peerEndedAt,nativeClosedAt,hadError:false,acknowledgements:[...cleanupAcknowledgements.entries()].map(([subscriptionId,ack])=>({subscriptionId,...ack}))}):undefined;
             restore();
             // Transport cleanup never changes any execution journal or financial
             // uncertainty. A missing WebSocket close frame remains recorded1006.
@@ -242,7 +247,7 @@ export class PostgresHyperliquidQuota {
           let timer:ReturnType<typeof setTimeout>|undefined;
           try{
             const timeout=new Promise<boolean>((_resolve,reject)=>{timer=setTimeout(()=>reject(new LiveBoundaryError('hyperliquid_quota_expired')),Math.max(1,until-this.now()));});
-            permit.dispatch(()=>socket!.close(1000));prepaidClose=undefined;
+            permit.dispatch(()=>{closeSent=true;socket!.close(1000);});prepaidClose=undefined;
             if(!await Promise.race([peerClosed,timeout]))fail('hyperliquid_quota_lease_lost');await drain(false);if(!peerDurablyReleased)fail('hyperliquid_quota_lease_lost');fresh();
           }finally{clearTimeout(timer);}
         },

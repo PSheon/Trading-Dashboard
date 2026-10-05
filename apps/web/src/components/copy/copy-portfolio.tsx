@@ -43,7 +43,7 @@ const tone = (v: number | null | undefined) => (v === null || v === undefined ? 
 
 function StatusBadges({ s, className }: { s: CopyStrategyView; className?: string }) {
   const { t } = useI18n();
-  const chip = "whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold";
+  const chip = "chip-sm";
   return (
     <span className={cn("inline-flex items-center gap-1", className)}>
       {s.status !== "active" ? <span className={cn(chip, "bg-raised text-muted-foreground")}>{t(`portfolio.copy.status.${s.status}` as MessageKey)}</span> : null}
@@ -402,9 +402,9 @@ function StopDialog({ strategy: s, open, onClose }: { strategy: CopyStrategyView
         <p className="text-sm text-muted-foreground">{n ? t("portfolio.copy.stop.withPositions", { count: n }) : t("portfolio.copy.stop.noPositions")}</p>
         {error ? <p role="alert" className="text-xs font-semibold text-negative">{error}</p> : null}
         <div className="grid grid-cols-2 gap-3">
-          <Button variant="secondary" size="lg" className="border border-border-strong" onClick={onClose}>{t("portfolio.copy.stop.cancel")}</Button>
+          <Button variant="secondary" onClick={onClose}>{t("portfolio.copy.stop.cancel")}</Button>
           <Button
-            size="lg"
+           
             className="bg-negative text-primary-foreground hover:bg-negative/90"
             disabled={command.isPending}
             onClick={async () => {
@@ -475,7 +475,7 @@ function EditDialog({ strategy: s, balance, open, onClose }: { strategy: CopyStr
         )}
         {error ? <p role="alert" className="text-xs font-semibold text-negative">{error}</p> : null}
         <Button
-          size="xl"
+          size="cta"
           disabled={invalid || patch.isPending}
           onClick={async () => {
             setError(null);
@@ -519,7 +519,7 @@ function FundsDialog({ strategy: s, balance, open, onClose }: { strategy: CopySt
         </div>
         {error ? <p role="alert" className="text-xs font-semibold text-negative">{error}</p> : null}
         <Button
-          size="xl"
+          size="cta"
           disabled={invalid || add.isPending}
           onClick={async () => {
             setError(null);
@@ -559,7 +559,7 @@ export function WithdrawDialog({ strategy: s, open, onClose }: { strategy: CopyS
       }}>{t("copyUpdates.retryWithdrawal", { amount: format.usd(body.amountUsd, { digits: 2 }) })}</Button>)}
       <AmountInput id="withdraw-amount" value={amount} onChange={setAmount} invalid={amount !== "" && invalid} />
       {error ? <p role="alert" className="text-xs text-negative">{error}</p> : null}
-      <Button size="xl" disabled={invalid || withdraw.isPending || pending.length > 0} onClick={async () => {
+      <Button size="cta" disabled={invalid || withdraw.isPending || pending.length > 0} onClick={async () => {
         setError(null);
         try {
           await withdraw.mutateAsync({ id: s.id, amountUsd: value });
@@ -590,7 +590,7 @@ export function CopyListSkeleton({ phone = false, rows = 2 }: { phone?: boolean;
               </span>
               <span className="flex flex-col items-end gap-1">
                 <SkelBar line="h-[22px]" className="h-3.5 w-16" />
-                <SkelBar className="h-6 w-14 rounded-md" />
+                <SkelBar className="h-[22px] w-14 rounded-xl" />
               </span>
             </div>
             <div className="flex h-[38px] items-center gap-2 border-t-2 border-dotted border-border px-4">

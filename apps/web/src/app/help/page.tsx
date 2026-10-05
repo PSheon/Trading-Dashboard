@@ -22,7 +22,7 @@ export default async function HelpPage() {
     <div className="pt-2 md:pt-4">
       {/* CopyDog's FAQPage: every question with its answer as text. */}
       <JsonLd data={faqJsonLd(questions.map((q) => ({ question: inlineText(q.question), answer: blocksText(q.answer) })))} />
-      <h1 className="text-center font-display text-[2.5rem] leading-[1.2] md:text-[3.625rem]">
+      <h1 className="type-hero text-center">
         <InlineText text={title} />
       </h1>
       <div className="mt-8">

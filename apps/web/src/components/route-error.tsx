@@ -24,7 +24,7 @@ export function RouteError({ error, retry, title, retryLabel, homeLabel }: {
   }, [error]);
   return (
     <div role="alert" className="flex min-h-[60vh] flex-col items-center justify-center px-6 text-center">
-      <h1 className="text-2xl font-bold">{title}</h1>
+      <h1 className="type-h1">{title}</h1>
       <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
         <Button className="h-12 rounded-[12px] px-4 text-base font-medium" onClick={() => retry()}>
           {retryLabel}

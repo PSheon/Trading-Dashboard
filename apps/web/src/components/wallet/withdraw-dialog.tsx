@@ -214,7 +214,7 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
         {t("wallet.withdrawNote", { chain: network.chainLabel, fee: WITHDRAW_FEE_USDC })}
       </p>
 
-      <Button type="submit" size="xl" className="mt-5 w-full" disabled={(!ready && !recovering) || (!wallet?.address && !checking) || withdraw.isPending || cancel.isPending || recovery.isPending || recovery.isError}>
+      <Button type="submit" size="cta" className="mt-5 w-full" disabled={(!ready && !recovering) || (!wallet?.address && !checking) || withdraw.isPending || cancel.isPending || recovery.isPending || recovery.isError}>
         {withdraw.isPending ? <Loader2 className="animate-spin" /> : null}
         {withdraw.isPending ? checking ? t("common.loading") : t("wallet.withdrawing") : checking ? t("wallet.checkWithdrawal") : t("wallet.withdrawTitle")}
       </Button>

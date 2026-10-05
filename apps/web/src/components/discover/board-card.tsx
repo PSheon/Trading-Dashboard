@@ -64,7 +64,7 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory,
         </div>
       </div>
       <div className="flex min-w-0 items-center justify-between gap-2">
-        <span className={cn("num inline-flex h-7 min-w-0 items-center gap-1 truncate rounded-md px-2.5 text-[13px] font-extrabold", (trader.roi ?? 0) >= 0 ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>
+        <span className={cn("num chip-md min-w-0 gap-1 truncate", (trader.roi ?? 0) >= 0 ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>
           {roiHint ? (
             <Tooltip content={roiHint}>
               <span tabIndex={0} className="cursor-help underline decoration-dotted underline-offset-2 outline-none">{roiLabel}</span>
@@ -90,7 +90,7 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory,
           e.stopPropagation();
           router.push(`${traderHref(trader.address)}#copy-amount`);
         }}
-        className="orbit-press mt-auto h-12 w-full rounded-full bg-primary font-display text-base text-primary-foreground outline-none hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
+        className="orbit-press mt-auto h-11 w-full rounded-full bg-primary text-[15px] font-extrabold text-primary-foreground outline-none hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
       >
         {t("discover.copy")}
       </button>
@@ -118,10 +118,10 @@ export function BoardCardSkeleton() {
         <SkelBar line="h-[1.79rem]" className="h-6 w-40" />
       </span>
       <span className="flex items-center justify-between gap-2">
-        <SkelBar className="h-7 w-32 rounded-md" />
+        <SkelBar className="h-[30px] w-32 rounded-2xl" />
         <SkelBar className="h-2.5 w-12" />
       </span>
-      <span className="mt-auto block h-12 rounded-full bg-inset" />
+      <span className="mt-auto block h-11 rounded-full bg-inset" />
     </div>
   );
 }
@@ -133,7 +133,7 @@ export function HomeCard({ trader }: { trader: BoardTrader }) {
   const up = (trader.roi ?? 0) >= 0;
   const Arrow = up ? ArrowUpRight : ArrowDownRight;
   const pill = (
-    <span title={t("home.cardRoi")} aria-label={`${t("home.cardRoi")}: ${roiPillShort(trader.roi)}`} className={cn("num inline-flex h-6 w-fit shrink-0 items-center gap-0.5 rounded-md px-2 text-xs font-extrabold", up ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>
+    <span title={t("home.cardRoi")} aria-label={`${t("home.cardRoi")}: ${roiPillShort(trader.roi)}`} className={cn("num chip-sm w-fit shrink-0 gap-0.5", up ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>
       <Arrow className="size-[11px]" strokeWidth={2.8} aria-hidden />
       {roiPillShort(trader.roi)}
     </span>
@@ -176,7 +176,7 @@ export function HomeCardSkeleton() {
       </div>
       <span className="block h-[52px] rounded-xl bg-inset" />
       <SkelBar line="h-7" className="h-5 w-24" />
-      <SkelBar className="h-6 w-14 rounded-md" />
+      <SkelBar className="h-[22px] w-14 rounded-xl" />
     </div>
   );
 }

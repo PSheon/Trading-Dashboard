@@ -60,7 +60,7 @@ export function RoiPill({
   return (
     <span
       className={cn(
-        "num inline-flex h-6 items-center gap-0.5 rounded-full px-2 text-xs font-semibold",
+        "num chip-sm gap-0.5",
         muted
           ? "bg-raised text-subtle-foreground"
           : up
@@ -141,7 +141,7 @@ export function LowSampleTag({
       <span
         tabIndex={0}
         className={cn(
-          "num inline-flex h-6 items-center rounded-full bg-warning/12 px-2 text-[0.6875rem] font-semibold text-warning outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          "num chip-sm bg-tag-warning text-tag-warning-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring",
           className,
         )}
       >

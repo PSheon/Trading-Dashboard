@@ -77,7 +77,7 @@ export function CopyPerformance({ strategyId }: { strategyId: number }) {
   const query = useCopyPerformance(strategyId, window);
   const { t, format } = useI18n();
   const today = query.data?.todayPnl;
-  return <section className="orbit-card p-4">
+  return <section className="orbit-card card-pad">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <h3 className="text-sm font-bold">{t("copyUpdates.equityTitle")}</h3>
       <div className="flex gap-1" aria-label={t("copyUpdates.historyWindow")}>

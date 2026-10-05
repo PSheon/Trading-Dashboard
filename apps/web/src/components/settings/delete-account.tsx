@@ -158,10 +158,10 @@ export function DeleteAccountDialog({ open, onOpenChange }: { open: boolean; onO
       ) : null}
 
       <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-        <Button variant="secondary" size="lg" onClick={() => change(false)} disabled={busy}>
+        <Button variant="secondary" onClick={() => change(false)} disabled={busy}>
           {t("deleteAccount.cancel")}
         </Button>
-        <Button variant="destructive" size="lg" onClick={confirm} disabled={!ready}>
+        <Button variant="destructive" onClick={confirm} disabled={!ready}>
           {busy ? <Loader2 className="animate-spin" /> : <Trash2 />}
           {t("deleteAccount.confirm")}
         </Button>

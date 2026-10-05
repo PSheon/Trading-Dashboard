@@ -25,7 +25,7 @@ export function LegalDocument({ page, locale }: { page: ContentPage; locale: Loc
       <Link href="/" className="text-sm font-extrabold text-primary-text underline underline-offset-2 hover:text-primary-text/80">
         ← {APP_NAME}
       </Link>
-      <h1 className="mt-5 font-display text-[2rem] leading-[1.2] md:text-[2.5rem]">
+      <h1 className="type-h1 mt-5">
         <InlineText text={title} />
       </h1>
       {date ? (

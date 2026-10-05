@@ -51,7 +51,7 @@ function Cta({ href, label, className }: { href: string; label: string; classNam
     <Link
       href={href}
       className={cn(
-        "orbit-press inline-flex h-14 items-center rounded-full bg-primary px-7 font-display text-[17px] text-primary-foreground outline-none hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        "orbit-press inline-flex h-14 items-center rounded-full bg-primary px-8 font-display text-lg text-primary-foreground outline-none hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         className,
       )}
     >
@@ -114,7 +114,7 @@ export function AboutPage({ blocks }: { blocks: Block[] }) {
                   button and the "built for" line, then the trader marquee. */}
               <section className="flex flex-col items-center px-5 py-10 text-center md:py-[120px]">
                 {hero.heading ? (
-                  <h1 className="mx-auto mt-8 max-w-[300px] text-[36px] leading-none font-display text-balance sm:max-w-[500px] md:text-[56px] lg:max-w-[700px] lg:text-[79px]">
+                  <h1 className="type-hero mx-auto mt-8 max-w-[300px] text-balance sm:max-w-[500px] lg:max-w-[700px]">
                     <InlineText text={hero.heading.text} />
                   </h1>
                 ) : null}
@@ -155,7 +155,7 @@ export function AboutPage({ blocks }: { blocks: Block[] }) {
                         <Picture />
                       </div>
                       <figcaption>
-                        <h3 className="text-xl font-display">
+                        <h3 className="type-h2">
                           <InlineText text={item.title} />
                         </h3>
                         <MarkdownBlocks blocks={item.body} className="pt-2 text-base leading-[1.5] text-muted-foreground [&_p]:my-0" />

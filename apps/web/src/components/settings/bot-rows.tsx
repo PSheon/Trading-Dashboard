@@ -213,7 +213,7 @@ export function AlertBotRow({ className }: { className?: string }) {
         <div className="mt-3 ml-11 flex flex-wrap items-center gap-2 rounded-xl bg-negative-soft px-3 py-2 text-xs text-negative">
           {t("settings.unlinkConfirm")}
           <Button
-            size="xs"
+            size="sm"
             variant="destructive"
             disabled={unlink.isPending}
             // Forget the used link too, so the row starts from 連接 again.
@@ -221,7 +221,7 @@ export function AlertBotRow({ className }: { className?: string }) {
           >
             {t("settings.unlinkYes")}
           </Button>
-          <Button size="xs" variant="ghost" onClick={() => setConfirming(false)}>
+          <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>
             {t("settings.cancel")}
           </Button>
         </div>

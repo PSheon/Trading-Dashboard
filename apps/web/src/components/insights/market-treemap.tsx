@@ -76,7 +76,7 @@ export function MarketTreemap({ title, markets, loading }: { title: string; mark
   return (
     <section className="flex min-w-0 flex-col overflow-hidden rounded-2xl bg-raised p-3 md:p-5">
       <div className="flex min-h-11 items-center">
-        <h2 className="font-display text-xl">{title}</h2>
+        <h2 className="type-h2">{title}</h2>
       </div>
       <div ref={box} className="relative mt-3 h-[300px] md:h-[380px]" role="figure" aria-label={title}>
         {loading && !markets ? <Skeleton className="absolute inset-0 rounded-2xl bg-background/60" /> : null}

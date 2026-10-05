@@ -228,7 +228,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
         </dl>
         <Link
           href={`/portfolio?copy=${existing.id}`}
-          className="orbit-press flex h-[60px] w-full items-center justify-center gap-2 rounded-full bg-primary font-display text-lg text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="orbit-press flex h-14 w-full items-center justify-center gap-2 rounded-full bg-primary px-8 font-display text-lg text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Check className="size-5" strokeWidth={2.5} />
           {t("trader.copy.manage")}
@@ -410,7 +410,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
           type="button"
           onClick={submit}
           disabled={start.isPending || started || closed}
-          className="orbit-press flex min-h-[60px] w-full items-center justify-center gap-2 rounded-full bg-primary px-6 font-display text-lg text-primary-foreground outline-none hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:opacity-80"
+          className="orbit-press flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-primary px-8 font-display text-lg text-primary-foreground outline-none hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:opacity-80"
         >
           {started ? (
             <>
@@ -431,6 +431,6 @@ function Shell({ sheet, children }: { sheet: boolean; children: React.ReactNode 
   return sheet ? (
     <div className="flex flex-col gap-4 px-1 pt-9">{children}</div>
   ) : (
-    <aside aria-label={t("trader.copy.panel")} className="orbit-card flex flex-col p-5 xl:sticky xl:top-[92px]">{children}</aside>
+    <aside aria-label={t("trader.copy.panel")} className="orbit-card card-pad flex flex-col xl:sticky xl:top-[92px]">{children}</aside>
   );
 }

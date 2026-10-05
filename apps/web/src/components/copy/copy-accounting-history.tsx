@@ -16,7 +16,7 @@ export function CopyAccountingHistory({ strategyId }: { strategyId: number }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<"ledger" | "fills">("ledger");
-  return <details className="orbit-card p-4" onToggle={(e) => setOpen(e.currentTarget.open)}>
+  return <details className="orbit-card card-pad" onToggle={(e) => setOpen(e.currentTarget.open)}>
     <summary className="cursor-pointer text-sm font-semibold">{t("copyUpdates.accountingHistory")} <PaperBadge /></summary>
     {open ? <>
       <div className="my-3 flex gap-3" role="tablist" aria-label={t("copyUpdates.accountingHistory")}>

@@ -205,7 +205,7 @@ export function PaperSummary({ overview, className, collapsible = false }: { ove
 function SecHead({ title, children }: { title: string; children?: React.ReactNode }) {
   return (
     <div className="mb-3 flex min-h-8 items-center justify-between gap-3">
-      <h3 className="font-display text-[17px]">{title}</h3>
+      <h3 className="type-h2">{title}</h3>
       {children}
     </div>
   );
@@ -230,7 +230,7 @@ function EmptyBlock({ icon: Icon, title, body, cta }: { icon: typeof ChartPie; t
       <Icon className="size-9 text-muted-foreground" strokeWidth={1.5} aria-hidden />
       <p className="mt-3 text-[0.9375rem] font-bold">{title}</p>
       <p className="mt-2 max-w-sm text-[0.8125rem] text-muted-foreground">{body}</p>
-      {cta ? <Button asChild size="lg" className="mt-5"><Link href="/explore">{t("portfolio.cta")}</Link></Button> : null}
+      {cta ? <Button asChild className="mt-5"><Link href="/explore">{t("portfolio.cta")}</Link></Button> : null}
     </div>
   );
 }

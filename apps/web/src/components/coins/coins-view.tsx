@@ -58,7 +58,7 @@ function CoinIndexContent({ query }: { query: { data: CoinIndexResponse | undefi
   return (
     <Column>
       <p className="cd-label">{t("coins.markets")}</p>
-      <h1 className="mt-1 font-display text-[1.75rem] leading-[1.15] md:text-[2.5rem]">{t("coins.indexTitle")}</h1>
+      <h1 className="type-h1 mt-1">{t("coins.indexTitle")}</h1>
       <p className="mt-2 max-w-[68ch] text-[15px] leading-[1.5] font-bold text-muted-foreground">{t("coins.indexBody")}</p>
       <div className={cn("mt-[31px]", !query.data && !query.isError && "ui-skeleton")}>
         {query.isError && !query.data ? (
@@ -131,7 +131,7 @@ export function CoinBoardView({ coin }: { coin: string }) {
         <span aria-hidden> › </span>
         <span aria-current="page">{label}</span>
       </nav>
-      <h1 className="mt-3 font-display text-[1.75rem] leading-[1.15] md:text-[2.5rem]">{t("coins.title", { coin: label })}</h1>
+      <h1 className="type-h1 mt-3">{t("coins.title", { coin: label })}</h1>
       <p className="mt-2 max-w-[68ch] text-[15px] leading-[1.5] font-bold text-muted-foreground">{t("coins.body", { coin: label })}</p>
 
       {noData ? (

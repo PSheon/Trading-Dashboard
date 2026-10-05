@@ -172,7 +172,7 @@ export function ReferralLanding({ code }: { code: string }) {
       className="mx-auto max-w-lg space-y-4 py-8"
       aria-label={t("referral.title")}
     >
-      <h1 className="text-xl font-bold">{t("referral.title")}</h1>
+      <h1 className="type-h1">{t("referral.title")}</h1>
       <ReferralCapture code={code} display />
       <p className="text-sm text-muted-foreground">
         {t("referral.payoutUnavailable")}

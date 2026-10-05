@@ -9,6 +9,7 @@ import { AreaChart } from "@/components/charts/area-chart";
 import { boardName, HScroll, TraderAvatar, VerifiedTick } from "@/components/discover/board-bits";
 import { HomeCard, HomeCardSkeleton } from "@/components/discover/board-card";
 import { ErrorState, SkelBar, SkelCircle, Skeleton } from "@/components/page";
+import { buttonVariants } from "@/components/ui/button";
 import { SiteFooter } from "@/components/shell/site-footer";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { useI18n } from "@/i18n/provider";
@@ -72,19 +73,19 @@ function HomeContent({ home }: { home: { data: HomeBoardsResponse | undefined; i
           page's one <h1> is the desktop hero's; this is the same level-1
           heading where that one is not displayed. */}
       <div className="md:hidden">
-        <p role="heading" aria-level={1} className="font-display text-[1.875rem] leading-[1.18] whitespace-pre-line">
+        <p role="heading" aria-level={1} className="type-hero whitespace-pre-line">
           <Accented text={t("home.heroTitleMobile")} />
         </p>
       </div>
 
       <section className="hidden items-center gap-8 pt-4 md:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,520px)]">
         <div>
-          <h1 className="max-w-[12em] font-display text-[clamp(2.5rem,4vw,3.625rem)] leading-[1.15] text-balance whitespace-pre-line">
+          <h1 className="type-hero max-w-[12em] text-balance whitespace-pre-line">
             <Accented text={t("home.heroTitle")} />
           </h1>
           <Link
             href="/explore"
-            className="orbit-press mt-6 inline-flex h-14 items-center gap-2.5 rounded-full bg-primary px-7 text-[1.0625rem] font-extrabold text-primary-foreground outline-none hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            className={buttonVariants({ size: "cta", className: "mt-6 gap-2.5" })}
           >
             {t("home.heroBrowse")}
             <ArrowRight className="size-5" strokeWidth={2.6} aria-hidden />
@@ -96,7 +97,7 @@ function HomeContent({ home }: { home: { data: HomeBoardsResponse | undefined; i
       </section>
 
       <section>
-        <h2 className="mb-3.5 font-display text-[1.375rem] leading-tight">{t("home.byMarket")}</h2>
+        <h2 className="type-h2 mb-3.5">{t("home.byMarket")}</h2>
         {/* Desktop: one scrolling row of square tiles. */}
         <div className="hidden md:block">
           <HScroll label={t("home.byMarket")}>
@@ -217,7 +218,7 @@ function RowHeader({ title, coin, href }: { title: string; coin?: string; href: 
   const { t } = useI18n();
   return (
     <div className="mb-3.5 flex items-center justify-between gap-3">
-      <h2 className="flex items-center gap-2 font-display text-[1.375rem] leading-tight">
+      <h2 className="type-h2 flex items-center gap-2">
         {coin ? <CoinIcon coin={coin} size={24} /> : null}
         {title}
       </h2>
@@ -238,7 +239,7 @@ function RowHeader({ title, coin, href }: { title: string; coin?: string; href: 
 function CalculatorSkeleton() {
   const { t } = useI18n();
   return (
-    <section role="status" aria-label={t("common.loading")} className="orbit-card ui-skeleton flex flex-col gap-4 overflow-hidden rounded-3xl! p-5">
+    <section role="status" aria-label={t("common.loading")} className="orbit-card card-pad ui-skeleton flex flex-col gap-4 overflow-hidden">
       <div className="flex items-center gap-3">
         <SkelCircle className="size-10" />
         <SkelBar className="h-3.5 w-32" />
@@ -253,7 +254,7 @@ function CalculatorSkeleton() {
           <div className="flex h-[52px] items-center rounded-[26px] bg-inset px-4" />
         </div>
         <div className="relative min-h-[150px] pt-8">
-          <SkelBar className="absolute top-0 left-0 h-7 w-16 rounded-md" />
+          <SkelBar className="absolute top-0 left-0 h-[30px] w-16 rounded-2xl" />
           <span className="block h-[150px] rounded-2xl bg-inset" />
         </div>
       </div>
@@ -277,7 +278,7 @@ export function Calculator({ traders }: { traders: BoardTrader[] }) {
   const up = change !== null && change >= 0;
   const Arrow = up ? ArrowUpRight : ArrowDownRight;
   return (
-    <section className="orbit-card flex flex-col gap-4 overflow-hidden rounded-3xl! p-5">
+    <section className="orbit-card card-pad flex flex-col gap-4 overflow-hidden">
       <div className="flex items-center gap-3">
         <Link href={`/trader/${trader.address}`} className="flex min-w-0 items-center gap-2.5 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <TraderAvatar trader={trader} size={40} />
@@ -335,7 +336,7 @@ export function Calculator({ traders }: { traders: BoardTrader[] }) {
           </div>
         </div>
         <div className="relative min-h-[150px] pt-8" onMouseLeave={() => setHover(null)}>
-          {change !== null ? <span className={cn("num absolute top-0 left-0 z-10 inline-flex h-7 items-center gap-0.5 rounded-md px-2.5 text-xs font-extrabold", up ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>
+          {change !== null ? <span className={cn("num chip-md absolute top-0 left-0 z-10 gap-0.5", up ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>
             <Arrow className="size-3" strokeWidth={2.5} aria-hidden />
             {roiPillShort(change)}
           </span> : null}

@@ -49,7 +49,7 @@ function Badge({ tone, children }: { tone: "buy" | "sell" | "move"; children: Re
   return (
     <span
       className={cn(
-        "rounded-[6px] px-[7px] py-0.5 text-xs font-semibold whitespace-nowrap",
+        "chip-sm",
         tone === "buy" ? BUY_BADGE : tone === "sell" ? SELL_BADGE : "bg-raised text-muted-foreground",
       )}
     >
@@ -93,7 +93,7 @@ function LiqCell({ p, mark }: { p: LivePosition; mark: number | null }) {
   return (
     <span className="inline-flex items-center gap-[7px] leading-tight" title={t("trader.liqTip", { pct: d.pct >= 100 ? ">100" : d.pct.toFixed(2) })}>
       {price(p.liqPx)}
-      <span className={cn("rounded-[6px] px-[7px] py-0.5 text-xs font-semibold", LIQ_TONE[d.tone])}>{label}</span>
+      <span className={cn("chip-sm", LIQ_TONE[d.tone])}>{label}</span>
     </span>
   );
 }
@@ -105,7 +105,7 @@ function LeverageChip({ p }: { p: LivePosition }) {
   if (!p.leverage) return null;
   const side = t(p.side === "long" ? "trader.sideLong" : "trader.sideShort");
   return (
-    <span title={side} className={cn("inline-flex items-center rounded-[6px] px-1 py-px text-xs leading-[18px] font-bold", p.side === "long" ? BUY_BADGE : SELL_BADGE)}>
+    <span title={side} className={cn("chip-sm", p.side === "long" ? BUY_BADGE : SELL_BADGE)}>
       {Math.round(p.leverage)}×<span className="sr-only"> {side}</span>
     </span>
   );
@@ -135,7 +135,7 @@ function PositionCard({ p, mark, onShare }: { p: LivePosition; mark: number | nu
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="flex min-w-0 items-center gap-1.5 text-base leading-6 font-semibold">
             {coinLabel(p.coin)}
-            <span className={cn("rounded-[6px] px-[7px] py-0.5 text-xs font-semibold", p.side === "long" ? BUY_BADGE : SELL_BADGE)}>
+            <span className={cn("chip-sm", p.side === "long" ? BUY_BADGE : SELL_BADGE)}>
               {t(p.side === "long" ? "trader.sideLong" : "trader.sideShort")}
             </span>
             <LeverageChip p={p} />
@@ -147,7 +147,7 @@ function PositionCard({ p, mark, onShare }: { p: LivePosition; mark: number | nu
         <div className="flex flex-col items-end gap-[3px]">
           <span className={cn("num text-base leading-[23px] font-semibold", pnlTone(p.unrealizedPnl))}>{signedUsdShort(p.unrealizedPnl)}<SharePosition p={p} mark={mark} onShare={onShare} /></span>
           {pct !== null ? (
-            <span className={cn("num inline-flex items-center rounded-[6px] p-1 text-xs font-semibold", pct >= 0 ? BUY_BADGE : SELL_BADGE)}>
+            <span className={cn("num chip-sm", pct >= 0 ? BUY_BADGE : SELL_BADGE)}>
               {pct >= 0 ? <ArrowUpRight className="size-[9px]" strokeWidth={2.5} /> : <ArrowDownRight className="size-[9px]" strokeWidth={2.5} />}
               {Math.abs(pct).toFixed(1)}%
             </span>

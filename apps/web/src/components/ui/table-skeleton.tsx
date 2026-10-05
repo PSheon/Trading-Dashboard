@@ -18,8 +18,8 @@ export interface SkeletonColumn {
 const WIDTHS = ["w-20", "w-14", "w-16", "w-12", "w-[72px]", "w-10"];
 
 /**
- * A table while its rows load: the real table (same header, the same 52px
- * raised rows and 8px gaps, the same gutters) with a bar in each cell, and
+ * A table while its rows load: the real table (same header, the same 60px
+ * raised rows and 6px gaps, the same gutters) with a bar in each cell, and
  * one shimmer over it. `rows` is what a loaded table usually shows on
  * screen.
  */
@@ -41,7 +41,7 @@ export function TableSkeleton({
       {/* Table's own markup without its focusable scroll box (this copy is
           aria-hidden). */}
       <div className={cn("relative w-full overflow-x-hidden", dense && "table-dense")}>
-        <table className={cn("w-full border-separate border-spacing-y-2 caption-bottom text-[0.875rem] font-bold num", tableClassName)}>
+        <table className={cn("w-full border-separate border-spacing-y-1.5 caption-bottom text-[0.875rem] font-bold num", tableClassName)}>
           <thead>
             <TableRow className="hover:bg-transparent">
               {columns.map((c, i) => (

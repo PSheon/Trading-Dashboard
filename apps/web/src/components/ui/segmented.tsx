@@ -12,10 +12,12 @@ export interface SegmentedOption<T extends string> {
 }
 
 /**
- * Text toggles in a row ("24小時 7天 30天 全部"). `variant="pill"` puts the
- * group in a raised track with a filled active segment; `variant="text"`
- * is the bare CopyDog chart-header style where only the active label
- * brightens.
+ * Text toggles in a row ("24小時 7天 30天 全部"). `variant="pill"` is the
+ * C-Styles segmented control: a track with 26 px corners and 4 px inset
+ * around 44 px segments (22 px corners); the active one is orange for a
+ * page-level choice, or white (`tone="sub"`) for a sub-tab inside a card.
+ * `variant="text"` is the bare chart-header style where only the active
+ * label brightens.
  */
 function Segmented<T extends string>({
   value,
@@ -23,6 +25,7 @@ function Segmented<T extends string>({
   options,
   variant = "text",
   size = "sm",
+  tone = "page",
   className,
   label,
 }: {
@@ -30,7 +33,10 @@ function Segmented<T extends string>({
   onChange: (value: T) => void
   options: SegmentedOption<T>[]
   variant?: "text" | "pill"
+  /** The text variant's size; pill segments are always 44 px. */
   size?: "sm" | "md"
+  /** Pill only: `page` = orange active segment, `sub` = white (in a card). */
+  tone?: "page" | "sub"
   className?: string
   label?: string
 }) {
@@ -43,14 +49,14 @@ function Segmented<T extends string>({
       aria-label={label}
       className={cn(
         "relative inline-flex items-center",
-        variant === "pill" ? "gap-0.5 rounded-full bg-(--seg-track,var(--raised)) p-1" : "gap-0.5",
+        variant === "pill" ? "seg-track" : "gap-0.5",
         className
       )}
     >
       {sliding ? (
         <span
           aria-hidden
-          className="absolute rounded-full bg-primary transition-[left,top,width] duration-300 ease-(--ease-orbit) motion-reduce:transition-none"
+          className={cn("absolute rounded-[22px] transition-[left,top,width] duration-300 ease-(--ease-orbit) motion-reduce:transition-none", tone === "sub" ? "bg-card shadow-[0_1px_2px_rgb(21_19_43/8%)]" : "bg-primary")}
           style={{ left: pill.left, top: pill.top, width: pill.width, height: pill.height }}
         />
       ) : null}
@@ -67,12 +73,14 @@ function Segmented<T extends string>({
             onKeyDown={rovingFocus}
             onClick={() => onChange(option.value)}
             className={cn(
-              "relative rounded-full whitespace-nowrap transition-[background-color,color] duration-200 ease-(--ease-orbit) outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              size === "sm" ? "h-8 px-3 text-[0.8125rem]" : "h-10 px-3.5 text-sm",
+              "relative whitespace-nowrap transition-[background-color,color] duration-200 ease-(--ease-orbit) outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              variant === "pill"
+                ? "seg-item"
+                : cn("rounded-full", size === "sm" ? "h-8 px-3 text-[0.8125rem]" : "h-10 px-3.5 text-sm"),
               variant === "pill"
                 ? active
-                  ? cn("font-extrabold text-primary-foreground", !sliding && "bg-primary")
-                  : "font-bold text-muted-foreground hover:text-foreground"
+                  ? cn(tone === "sub" ? "text-foreground" : "text-primary-foreground", !sliding && (tone === "sub" ? "bg-card" : "bg-primary"))
+                  : "text-muted-foreground hover:text-foreground"
                 : active
                   ? "font-extrabold text-foreground"
                   : "font-bold text-subtle-foreground hover:text-muted-foreground"

@@ -113,7 +113,7 @@ export function LiveFeed({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="orbit-card p-4">
+      <div className="orbit-card card-pad">
         <button
           type="button"
           onClick={onCopy}

@@ -149,7 +149,7 @@ export function Dialog({ title, onClose, children, className }: { title: string;
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <button type="button" aria-label={title} className="absolute inset-0 bg-overlay" onClick={onClose} tabIndex={-1} />
       <div ref={ref} role="dialog" aria-modal="true" aria-label={title} className={cn("relative w-full max-w-sm rounded-2xl bg-popover shadow-[0_0_0_2px_var(--card-ring),var(--shadow-pop)] p-6", className)}>
-        <h2 className="mb-2 font-display text-xl">{title}</h2>
+        <h2 className="type-h2 mb-2">{title}</h2>
         {children}
       </div>
     </div>
@@ -185,7 +185,7 @@ export function GroupTags({ address, groups, className }: { address: string; gro
   return (
     <span className={cn("flex flex-wrap items-center gap-1", className)} onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
       {mine.map((g) => (
-        <span key={g.id} data-slot="group-tag" className="rounded-md px-1.5 py-0.5 text-[0.6875rem] font-semibold" style={{ backgroundColor: `${g.color}22`, color: g.color }}>
+        <span key={g.id} data-slot="group-tag" className="chip-sm" style={{ backgroundColor: `${g.color}22`, color: g.color }}>
           {g.name}
         </span>
       ))}

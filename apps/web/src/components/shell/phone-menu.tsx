@@ -97,7 +97,7 @@ export function PhoneMenu() {
           {status === "signedOut" ? (
             <div className="mt-auto p-4 pt-6">
               <Button
-                size="xl"
+                size="cta"
                 className="w-full"
                 onClick={() => {
                   setOpen(false);

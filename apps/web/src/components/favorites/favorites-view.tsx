@@ -71,16 +71,16 @@ function SignedOut() {
   const PhoneIcon = phoneTab === "saved" ? Star : Bell;
   return (
     <>
-      <div className="orbit-card mx-auto mt-[120px] hidden w-full max-w-[460px] flex-col items-center gap-3 px-8 py-10 text-center md:flex">
+      <div className="orbit-card mx-auto mt-[120px] hidden w-full max-w-[460px] flex-col items-center gap-3 rounded-[32px]! px-8 py-10 text-center md:flex">
         <span className="mb-2 flex size-24 items-center justify-center rounded-full bg-raised"><Bookmark className="size-11 text-primary-text" strokeWidth={2} aria-hidden /></span>
-        <h1 className="font-display text-[2rem] leading-[42px]">{t("favorites.signInTitle")}</h1>
+        <h1 className="type-h1">{t("favorites.signInTitle")}</h1>
         <p className="font-bold text-muted-foreground">{t("favorites.signInBody")}</p>
         <button
           type="button"
           onClick={login}
           disabled={disabled}
           title={disabled ? t("topbar.loginUnavailable") : undefined}
-          className="orbit-press mt-5 h-[60px] w-[220px] rounded-full bg-primary font-display text-lg text-primary-foreground outline-none hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+          className="orbit-press mt-5 h-14 w-[220px] rounded-full bg-primary font-display text-lg text-primary-foreground outline-none hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
         >
           {t("common.signIn")}
         </button>
@@ -115,7 +115,7 @@ function SignedOut() {
             type="button"
             onClick={login}
             disabled={disabled}
-            className="orbit-press mt-4 h-[52px] rounded-full bg-primary px-6 font-display text-base text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+            className="orbit-press mt-4 h-14 rounded-full bg-primary px-8 font-display text-lg text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
           >
             {t("common.signIn")}
           </button>
@@ -171,8 +171,8 @@ function SignedIn({ tab, onTab, view, onView }: { tab: Tab; onTab: (t: Tab) => v
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 flex-wrap items-center gap-4">
-        <h1 className="font-display text-[1.75rem] leading-[1.1] md:text-[2.5rem]">{t("favorites.title")}</h1>
-        <div className="flex gap-0.5 overflow-x-auto rounded-[28px] bg-raised p-[5px]" role="tablist" aria-label={t("favorites.title")}>
+        <h1 className="type-h1">{t("favorites.title")}</h1>
+        <div className="flex gap-0.5 overflow-x-auto rounded-[26px] bg-raised p-1" role="tablist" aria-label={t("favorites.title")}>
           {TABS.map((key) => (
             <button
               key={key}
@@ -242,13 +242,13 @@ function SavedTab({ favorites, groups, groupsLoading = false, view }: { favorite
   if (!favorites) return <div className="flex flex-col gap-4"><ChipsSkeleton /><SavedSkeleton view={view} /></div>;
   if (favorites.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-5 orbit-card px-6 py-14 text-center">
+      <div className="flex flex-col items-center gap-5 orbit-card rounded-[32px]! px-6 py-14 text-center">
         <span className="flex size-24 items-center justify-center rounded-full bg-inset"><Bookmark className="size-11 text-primary-text" strokeWidth={2} aria-hidden /></span>
         <div className="flex flex-col gap-2">
-          <h2 className="font-display text-[1.75rem]">{t("favorites.emptyTitle")}</h2>
+          <h2 className="type-h2">{t("favorites.emptyTitle")}</h2>
           <p className="mx-auto max-w-[330px] font-bold text-muted-foreground">{t("favorites.emptyBody")}</p>
         </div>
-        <Link href="/explore" className="orbit-press inline-flex h-[52px] items-center rounded-full bg-primary px-7 font-display text-base text-primary-foreground outline-none hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-ring">
+        <Link href="/explore" className="orbit-press inline-flex h-14 items-center rounded-full bg-primary px-8 font-display text-lg text-primary-foreground outline-none hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-ring">
           {t("favorites.explore")}
         </Link>
       </div>

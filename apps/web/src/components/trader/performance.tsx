@@ -510,7 +510,7 @@ export function PerformanceChart({
                 {loading && !portfolio && !failed ? <SkelBar className="h-[26px] w-20 rounded-md" /> : null}
                 {pnlPct !== null && unit === "usd" ? <RoiPill value={pnlPct} label={`${Math.abs(pnlPct * 100).toFixed(2)}%`} className="h-[26px] gap-[3px] px-3 text-sm leading-none [&>svg]:size-2.5" muted={muted} /> : null}
                 {usdPnl !== null ? (
-                  <span className={cn("num inline-flex h-7 items-center rounded-md px-3 text-sm leading-none font-extrabold", muted ? "bg-background text-subtle-foreground" : usdPnl >= 0 ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>
+                  <span className={cn("num chip-md", muted ? "bg-background text-subtle-foreground" : usdPnl >= 0 ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>
                     {usdCompact(usdPnl, { sign: true, digits: 2 })}
                   </span>
                 ) : null}

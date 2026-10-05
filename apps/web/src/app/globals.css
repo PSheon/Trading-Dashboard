@@ -387,6 +387,107 @@
   }
 }
 
+/* Type scale — the C-Styles (v29) token sheet. One h1 per page. */
+@utility type-hero {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 28px;
+  line-height: 1.2;
+  @media (width >= 48rem) {
+    font-size: 56px;
+    line-height: 1.1;
+  }
+}
+@utility type-h1 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 28px;
+  line-height: 44px;
+  @media (width >= 48rem) {
+    font-size: 40px;
+    line-height: 52px;
+  }
+}
+/* Card titles, dialog titles, section headings: 20 (17 on phones). */
+@utility type-h2 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 17px;
+  line-height: 1.3;
+  @media (width >= 48rem) {
+    font-size: 20px;
+  }
+}
+/* Captions: 13 / 700, muted. */
+@utility type-caption {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 700;
+  color: var(--muted-foreground);
+}
+/* Table headers: 12 / 700, muted (text left, numbers right). */
+@utility type-th {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 700;
+  color: var(--muted-foreground);
+}
+/* The two chips (C-Styles): small for table status, medium next to card
+   titles and for settings values. Nothing else is a chip. */
+@utility chip-sm {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 9px;
+  border-radius: 12px;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+@utility chip-md {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+/* The segmented control (C-Styles): a 52 px track with 26 px corners and a
+   4 px inset; 44 px segments with 22 px corners, Nunito 800. The active
+   segment is orange on the page ([data-active=true] / aria-selected) and
+   white inside a card (.seg-sub). */
+@utility seg-track {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 26px;
+  background-color: var(--seg-track, var(--raised));
+}
+@utility seg-item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 44px;
+  padding-inline: 16px;
+  border-radius: 22px;
+  font-size: 15px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+/* Card padding: 16 on phones, 22 from 768. */
+@utility card-pad {
+  padding: 16px;
+  @media (width >= 48rem) {
+    padding: 22px;
+  }
+}
+
 @layer utilities {
   /* Every figure in the app lines up in columns. */
   .num {
@@ -443,12 +544,18 @@
     border-bottom: 2px dotted var(--border);
   }
   /* A white card with its warm 2px ring (light) / lifted violet (dark). */
+  /* Radius 28 from 768, 24 on phones (C-Styles). */
   .orbit-card {
     background-color: var(--card);
     color: var(--card-foreground);
-    border-radius: var(--radius-2xl);
+    border-radius: 24px;
     box-shadow: 0 0 0 2px var(--card-ring);
     --seg-track: var(--inset);
+  }
+  @media (width >= 48rem) {
+    .orbit-card {
+      border-radius: var(--radius-2xl);
+    }
   }
   /* Hover lift and press for cards and round buttons. */
   .orbit-press {
@@ -475,19 +582,27 @@
   scrollbar-color: var(--border-strong) transparent;
   overscroll-behavior-x: contain;
 }
-/* Orbit data rows: every body row is a raised capsule. Unlayered, so it wins
-   over the cells' utility classes. */
+/* Orbit data rows: every body row is a raised capsule — 60 px high, 18 px
+   corners, 6 px apart (C-Styles). Unlayered, so it wins over the cells'
+   utility classes. */
 .data-rows > tr > td {
   background-color: var(--raised);
   transition: background-color 160ms;
 }
 .data-rows > tr > td:first-child {
-  border-top-left-radius: var(--radius-xl);
-  border-bottom-left-radius: var(--radius-xl);
+  border-top-left-radius: var(--radius-lg);
+  border-bottom-left-radius: var(--radius-lg);
 }
 .data-rows > tr > td:last-child {
-  border-top-right-radius: var(--radius-xl);
-  border-bottom-right-radius: var(--radius-xl);
+  border-top-right-radius: var(--radius-lg);
+  border-bottom-right-radius: var(--radius-lg);
+}
+/* An expanded row's detail: 3 px orange left edge, raised fill, 24 px in. */
+.row-expansion {
+  margin-left: 24px;
+  border-left: 3px solid var(--primary);
+  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+  background-color: var(--raised);
 }
 .data-rows > tr:hover > td,
 .data-rows > tr[data-state="selected"] > td,
@@ -521,11 +636,11 @@
   font-size: 12px;
 }
 
-/* The trader page's tab tables: bold muted headers, 52px data rows. */
+/* The trader page's tab tables: bold muted headers, 60px data rows. */
 .cd-tables table {
   font-size: 14px;
   border-collapse: separate;
-  border-spacing: 0 8px;
+  border-spacing: 0 6px;
 }
 .cd-tables th {
   height: auto;
@@ -545,7 +660,7 @@
   color: var(--foreground);
 }
 .cd-tables td {
-  height: 52px;
+  height: 60px;
   padding: 10px 6px;
   font-size: 14px;
   line-height: 20px;
@@ -597,9 +712,9 @@
   table-layout: fixed;
   min-width: 1120px;
 }
-/* CopyDog's wallet rows are 46.5px (its market rows 55px by their content). */
+/* Data rows are 60 px (C-Styles). */
 .cd-cohort-wallets td {
-  height: 46.5px;
+  height: 60px;
 }
 .cd-cohort-wallets th:nth-child(1) { width: 15%; }
 .cd-cohort-wallets th:nth-child(2) { width: 8%; }

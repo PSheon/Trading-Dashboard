@@ -55,7 +55,7 @@ function LocaleMenu() {
   return (
     <LanguageMenu
       trigger={
-        <Button variant="secondary" size="icon" className="size-11 md:size-[52px]" aria-label={t("topbar.language")}>
+        <Button variant="secondary" size="icon-header" aria-label={t("topbar.language")}>
           <Globe className="size-[18px]" strokeWidth={2.4} />
         </Button>
       }
@@ -73,7 +73,7 @@ export function AuthButton({ compact = false }: { compact?: boolean }) {
     return (
       <Tooltip content={t("topbar.loginUnavailable")}>
         <span tabIndex={0} className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          <Button disabled size="lg" className={cn("px-6", compact ? "h-11" : "h-11 md:h-[52px]")}>
+          <Button disabled size={compact ? "default" : "header"}>
             {t("topbar.login")}
           </Button>
         </span>
@@ -82,16 +82,12 @@ export function AuthButton({ compact = false }: { compact?: boolean }) {
   }
 
   if (status === "loading") {
-    return <Skeleton className={cn("rounded-full", compact ? "h-11 w-20" : "h-11 w-24 md:h-[52px] md:w-28")} />;
+    return <Skeleton className={cn("rounded-full", compact ? "h-11 w-20" : "h-[52px] w-28")} />;
   }
 
   if (status !== "signedIn") {
     return (
-      <Button
-        size="lg"
-        className={cn("px-6 text-base", compact ? "h-11" : "h-11 md:h-[52px]")}
-        onClick={login}
-      >
+      <Button size={compact ? "default" : "header"} onClick={login}>
         {mode === "fixture" ? t("topbar.fixtureLogin") : t("topbar.login")}
       </Button>
     );
@@ -192,7 +188,7 @@ function AccountPill() {
           <ChevronDown className="size-4 text-muted-foreground" strokeWidth={2.4} aria-hidden />
         </span>
       </AccountMenu>
-      <Button className="h-11 px-4 text-[15px]" onClick={openDeposit}>
+      <Button onClick={openDeposit}>
         {t("portfolio.deposit")}
       </Button>
     </div>

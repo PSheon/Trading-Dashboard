@@ -45,7 +45,7 @@ export function CopyActivityItems({ items }: { items: WireCopyEvents["items"] })
 export function CopyActivity() {
   const query = useCopyEvents();
   const { t } = useI18n();
-  return <section className="mt-6 orbit-card p-4" aria-label={t("copyUpdates.activityAria")}>
+  return <section className="mt-6 orbit-card card-pad" aria-label={t("copyUpdates.activityAria")}>
     <div className="flex items-center justify-between gap-2">
       <h2 className="flex items-center gap-2 text-sm font-bold">{t("copyUpdates.activityTitle")} <PaperBadge /></h2>
       <button type="button" disabled={query.isFetching} onClick={() => query.refetch()} className="rounded px-2 py-1 text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">{t("copyUpdates.refresh")}</button>

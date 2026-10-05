@@ -79,11 +79,11 @@ function SignedOut() {
   const { t } = useI18n();
   const { status, login } = useAuth();
   return (
-    <div className="orbit-card mx-auto mt-10 flex w-full max-w-[460px] flex-col items-center gap-3 px-8 py-10 text-center md:mt-[120px]">
+    <div className="orbit-card mx-auto mt-10 flex w-full max-w-[460px] flex-col items-center gap-3 rounded-[32px]! px-8 py-10 text-center md:mt-[120px]">
       <span className="mb-2 flex size-24 items-center justify-center rounded-full bg-raised"><ShoppingCart className="size-11 text-primary-text" strokeWidth={2} aria-hidden /></span>
-      <h1 className="font-display text-2xl md:text-[2rem] md:leading-[42px]">{t("portfolio.signInTitle")}</h1>
+      <h1 className="type-h1">{t("portfolio.signInTitle")}</h1>
       <p className="text-base leading-6 font-bold text-muted-foreground">{t("portfolio.signInBody")}</p>
-      <Button size="xl" className="mt-5 w-[200px] font-semibold" onClick={login} disabled={status === "disabled"}>
+      <Button size="cta" className="mt-5 w-[200px]" onClick={login} disabled={status === "disabled"}>
         {t("common.signIn")}
       </Button>
     </div>
@@ -109,11 +109,11 @@ function FundButtons({ className }: { className?: string }) {
   const { openDeposit, openWithdraw } = useWalletModals();
   return (
     <div className={cn("grid grid-cols-2 gap-3", className)}>
-      <Button size="lg" className="h-[52px] font-display text-base" onClick={openDeposit}>
+      <Button onClick={openDeposit}>
         <Plus />
         {t("portfolio.deposit")}
       </Button>
-      <Button size="lg" variant="secondary" className="h-[52px] bg-inset font-display text-base" onClick={openWithdraw}>
+      <Button variant="secondary" onClick={openWithdraw}>
         <ArrowUp />
         {t("portfolio.withdraw")}
       </Button>
@@ -144,7 +144,7 @@ function EmptyCopying({ className }: { className?: string }) {
   const { t } = useI18n();
   return (
     <TabEmpty icon={UserPlus} title={t("portfolio.emptyTitle")} body={t("portfolio.emptyBody")} className={className}>
-      <Button asChild size="xl" className="mt-5 w-full">
+      <Button asChild size="cta" className="mt-5 w-full">
         <Link href="/explore">{t("portfolio.cta")}</Link>
       </Button>
     </TabEmpty>
@@ -267,9 +267,9 @@ function DesktopPortfolio() {
   const [open, setOpen] = useState(false);
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="font-display text-[2.5rem] leading-[1.1]">{t("portfolio.title")}</h1>
+      <h1 className="type-h1">{t("portfolio.title")}</h1>
       <div className="flex flex-wrap items-stretch gap-4">
-        <section className="orbit-card flex w-[340px] flex-col gap-2 p-6" aria-label={t("portfolio.totalValue")}>
+        <section className="orbit-card card-pad flex w-[340px] flex-col gap-2" aria-label={t("portfolio.totalValue")}>
           {/* min-h-6: the testnet badge's height, so its arrival moves nothing. */}
           <div className="flex min-h-6 items-center justify-between gap-2">
             <p className="text-[13px] font-bold text-muted-foreground">{t("portfolio.totalValue")}</p>
@@ -392,7 +392,7 @@ function PhoneSignedOut() {
         <span className="flex size-20 items-center justify-center rounded-full bg-raised"><ChartPie className="size-9 text-primary-text" strokeWidth={2} aria-hidden /></span>
         <p className="mt-4 font-display text-xl">{t("portfolio.signInTitlePhone")}</p>
         <p className="mt-3 text-sm font-bold text-muted-foreground">{t("portfolio.signInBodyPhone")}</p>
-        <Button size="lg" className="mt-3 h-[52px] px-6 text-[15px] font-semibold" onClick={login} disabled={status === "disabled"}>
+        <Button size="cta" className="mt-3" onClick={login} disabled={status === "disabled"}>
           {t("common.signIn")}
         </Button>
       </div>

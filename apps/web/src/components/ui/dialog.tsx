@@ -48,12 +48,12 @@ export function Modal({
             (event.currentTarget as HTMLElement | null)?.focus();
           }}
           className={cn(
-            "fixed top-1/2 left-1/2 z-50 max-h-[calc(100dvh-32px)] w-[calc(100vw-32px)] max-w-[464px] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-3xl bg-popover text-popover-foreground shadow-[0_0_0_2px_var(--card-ring),var(--shadow-pop)] outline-none [--seg-track:var(--inset)] data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=open]:slide-in-from-bottom-2 motion-reduce:data-[state=open]:zoom-in-100 motion-reduce:data-[state=open]:slide-in-from-bottom-0",
+            "fixed top-1/2 left-1/2 z-50 max-h-[calc(100dvh-32px)] w-[calc(100vw-32px)] max-w-[464px] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[32px] bg-popover text-popover-foreground shadow-[0_0_0_2px_var(--card-ring),var(--shadow-pop)] outline-none [--seg-track:var(--inset)] data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=open]:slide-in-from-bottom-2 motion-reduce:data-[state=open]:zoom-in-100 motion-reduce:data-[state=open]:slide-in-from-bottom-0",
             className,
           )}
         >
           <div className={bare ? "absolute top-3 right-3" : "flex items-center justify-between gap-3 px-6 pt-5 pb-1"}>
-            <Primitive.Title className={bare ? "sr-only" : "flex items-center gap-2 font-display text-[1.375rem] leading-tight"}>
+            <Primitive.Title className={bare ? "sr-only" : "type-h2 flex items-center gap-2"}>
               {title}
               {badge}
             </Primitive.Title>

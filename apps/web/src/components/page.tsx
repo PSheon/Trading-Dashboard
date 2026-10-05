@@ -22,8 +22,8 @@ export function PageHeader({
   return (
     <div className={cn("flex flex-wrap items-end justify-between gap-4", className)}>
       <div className="min-w-0">
-        <h1 className="font-display text-[1.75rem] leading-tight md:text-[2.5rem]">{title}</h1>
-        {subtitle ? <p className="mt-2 max-w-2xl text-sm font-bold text-muted-foreground">{subtitle}</p> : null}
+        <h1 className="type-h1">{title}</h1>
+        {subtitle ? <p className="type-caption mt-1 max-w-2xl">{subtitle}</p> : null}
       </div>
       {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
     </div>
@@ -41,7 +41,7 @@ export function SectionHeader({
 }) {
   return (
     <div className={cn("mb-3.5 flex items-center justify-between gap-3", className)}>
-      <h2 className="font-display text-xl leading-tight md:text-[1.375rem]">{title}</h2>
+      <h2 className="type-h2">{title}</h2>
       {action}
     </div>
   );
@@ -67,7 +67,7 @@ export function EmptyState({
           <Icon className="size-7" strokeWidth={2.2} />
         </div>
       ) : null}
-      <p className="font-display text-xl">{title}</p>
+      <p className="type-h2">{title}</p>
       {body ? <p className="mt-2 max-w-sm text-sm leading-relaxed font-bold text-muted-foreground">{body}</p> : null}
       {action ? <div className="mt-5">{action}</div> : null}
     </div>
@@ -104,7 +104,7 @@ export function SignInPrompt({
   const t = useT();
   const { status, login } = useAuth();
   const button = (
-    <Button size="lg" onClick={login} disabled={status === "disabled" || status === "loading"}>
+    <Button onClick={login} disabled={status === "disabled" || status === "loading"}>
       {t("common.signIn")}
     </Button>
   );
@@ -128,7 +128,7 @@ export function SignInPrompt({
 }
 
 export function Panel({ className, ...props }: React.ComponentProps<"section">) {
-  return <section className={cn("rounded-2xl bg-card shadow-[0_0_0_2px_var(--card-ring)] [--seg-track:var(--inset)]", className)} {...props} />;
+  return <section className={cn("rounded-[24px] bg-card shadow-[0_0_0_2px_var(--card-ring)] [--seg-track:var(--inset)] md:rounded-2xl", className)} {...props} />;
 }
 
 /*
@@ -200,7 +200,7 @@ export function ListRowsSkeleton({ rows = 3, className, rowClassName = "py-3", c
  * form fields or label / value rows. */
 export function PanelSkeleton({ tiles = 0, chart = 0, fields = 0, rows = 0, className }: { tiles?: number; chart?: number; fields?: number; rows?: number; className?: string }) {
   return (
-    <section aria-hidden="true" className={cn("ui-skeleton flex flex-col gap-4 rounded-2xl bg-card p-5 shadow-[0_0_0_2px_var(--card-ring)] [--skel-bar:var(--raised)]", className)}>
+    <section aria-hidden="true" className={cn("ui-skeleton card-pad flex flex-col gap-4 rounded-[24px] bg-card shadow-[0_0_0_2px_var(--card-ring)] [--skel-bar:var(--raised)] md:rounded-2xl", className)}>
       <SkelBar line="h-6" className="h-3.5 w-36" />
       {tiles ? (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
@@ -218,7 +218,7 @@ export function PanelSkeleton({ tiles = 0, chart = 0, fields = 0, rows = 0, clas
           {Array.from({ length: fields }, (_, i) => (
             <div key={i} className="flex flex-col gap-2">
               <SkelBar className="h-2.5 w-24" />
-              <span className="h-11 rounded-xl bg-inset" />
+              <span className="h-12 rounded-full bg-inset" />
             </div>
           ))}
         </div>

@@ -60,7 +60,7 @@ export function AdminCopyUsers() {
                     ))}
                   </ul>
                 ) : <p className="text-xs text-subtle-foreground">{t("copyAdmin.detail.noPositions")}</p>}
-                <ControlButtons size="xs" state={u.control} onPick={(command) => setPicked({ userId: u.userId, command })} />
+                <ControlButtons size="sm" state={u.control} onPick={(command) => setPicked({ userId: u.userId, command })} />
               </Panel>
             ))}
           </div>

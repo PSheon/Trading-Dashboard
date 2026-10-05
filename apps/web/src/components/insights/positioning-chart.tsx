@@ -150,7 +150,7 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
   return (
     <section className="flex min-w-0 flex-col overflow-hidden rounded-2xl bg-raised p-3 md:p-5">
       <div className="flex min-h-11 items-center justify-between gap-3">
-        <h2 className="truncate font-display text-xl">{title}</h2>
+        <h2 className="type-h2 truncate">{title}</h2>
         <div className="flex items-center gap-0.5 rounded-full bg-background p-1" role="radiogroup" aria-label={title}>
           {WINDOWS.map((w) => (
             <button

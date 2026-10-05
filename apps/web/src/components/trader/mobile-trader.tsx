@@ -83,7 +83,7 @@ function TopBar({ profile }: { profile: TraderProfileResponse }) {
         <ArrowLeft className="size-5" strokeWidth={2.4} />
       </Link>
       {/* CopyDog centres the title across the bar, between 116px gutters. */}
-      <h1 className="pointer-events-none absolute inset-x-0 truncate px-[150px] text-center font-display text-lg leading-6 max-[374px]:px-[128px] max-[374px]:text-base" title={profile.address}>
+      <h1 className="pointer-events-none absolute inset-x-0 truncate px-[150px] text-center font-display text-xl leading-6 max-[374px]:px-[128px] max-[374px]:text-base" title={profile.address}>
         {profile.kol ? profile.displayName?.trim() || truncateAddress(profile.address) : truncateAddress(profile.address)}
       </h1>
       <span className="ml-auto flex shrink-0 items-center gap-1.5 max-[374px]:gap-1 max-[374px]:[&_button]:size-9 [&_button]:size-10 [&_button]:rounded-full [&_button]:bg-raised [&_button]:text-foreground [&_svg]:size-[18px]">
@@ -275,7 +275,7 @@ export function MobileTrader({
         </div>
       </section>
 
-      <dl className="orbit-card grid grid-cols-2 gap-x-4 gap-y-5 p-5">
+      <dl className="orbit-card card-pad grid grid-cols-2 gap-x-4 gap-y-5">
         <div className="flex min-w-0 flex-col gap-[5px]">
           <dt className="text-xs leading-4 font-bold text-muted-foreground">{t("trader.accountValue")}</dt>
           <dd className="num font-display text-xl leading-[30px]" data-testid="account-value">{profile.accountValue === null ? "—" : usd2(profile.accountValue)}</dd>
@@ -344,7 +344,7 @@ export function MobileTrader({
         <button
           type="button"
           onClick={() => (authStatus === "signedOut" ? login() : setSheet(true))}
-          className="orbit-press h-[60px] w-full rounded-full bg-primary px-6 font-display text-lg text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="orbit-press h-14 w-full rounded-full bg-primary px-8 font-display text-lg text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {copying ? t("trader.copy.manage") : t("trader.copyTrade")}
         </button>
@@ -398,7 +398,7 @@ export function MobileTraderSkeleton() {
         <div className="h-[180px] rounded-2xl bg-background/60" />
         <div className="flex h-[52px] rounded-full bg-card" />
       </section>
-      <dl className="orbit-card ui-skeleton grid grid-cols-2 gap-x-4 gap-y-5 p-5">
+      <dl className="orbit-card card-pad ui-skeleton grid grid-cols-2 gap-x-4 gap-y-5">
         {figures.map((key) => (
           <div key={key} className="flex min-w-0 flex-col gap-[5px]">
             <dt className="text-xs leading-4 font-bold text-muted-foreground">{t(key)}</dt>
@@ -414,7 +414,7 @@ export function MobileTraderSkeleton() {
       </div>
       {/* The sticky 跟單 bar's place. */}
       <div className="fixed inset-x-0 bottom-0 z-40 bg-background/92 px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:hidden">
-        <div className="h-[60px] rounded-full bg-raised" />
+        <div className="h-14 rounded-full bg-raised" />
       </div>
     </div>
   );

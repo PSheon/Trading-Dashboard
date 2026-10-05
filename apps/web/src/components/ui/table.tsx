@@ -3,8 +3,9 @@
 import * as React from "react"
 import { cn } from "cn"
 
-/** Orbit data table: small bold muted headers over "data rows" — each row a
- * raised capsule (22px ends) with 8px between rows; tabular figures. */
+/** Orbit data table (C-Styles): 12 / 700 muted headers over "data rows" —
+ * each row a raised capsule, 60 px high with 18 px ends, 6 px apart;
+ * tabular figures. Data tables sit on the page, not in a white card. */
 function Table({
   className,
   dense = false,
@@ -28,7 +29,7 @@ function Table({
     >
       <table
         data-slot="table"
-        className={cn("w-full border-separate border-spacing-y-2 caption-bottom text-[0.875rem] font-bold num", className)}
+        className={cn("w-full border-separate border-spacing-y-1.5 caption-bottom text-[0.875rem] font-bold num", className)}
         {...props}
       />
     </div>
@@ -85,7 +86,7 @@ function TableCell({ className, ...props }: React.ComponentProps<"td">) {
   return (
     <td
       data-slot="table-cell"
-      className={cn("h-[52px] px-2 align-middle whitespace-nowrap first:pl-4 last:pr-4 md:px-3 md:first:pl-[18px] md:last:pr-[18px]", className)}
+      className={cn("h-[60px] px-2 align-middle whitespace-nowrap first:pl-4 last:pr-4 md:px-3 md:first:pl-[18px] md:last:pr-[18px]", className)}
       {...props}
     />
   )

@@ -40,7 +40,7 @@ export function CrowdView({ onCoin }: { onCoin: (coin: string) => void }) {
     <Panel className="overflow-hidden">
       <div className="flex flex-wrap items-end justify-between gap-2 border-b-2 border-dotted border-border px-5 py-4">
         <div>
-          <h2 className="text-base font-bold">{t("insights.crowdTitle")}</h2>
+          <h2 className="type-h2">{t("insights.crowdTitle")}</h2>
           <p className="mt-1 text-xs text-muted-foreground">
             {t("insights.crowdSubtitle", { count: crowd.data.trackedTraders })}
           </p>
@@ -113,7 +113,7 @@ export function CrowdView({ onCoin }: { onCoin: (coin: string) => void }) {
                       <span className="text-right">
                         <span
                           className={cn(
-                            "inline-flex h-6 items-center rounded-full px-2 text-[11px] font-semibold",
+                            "chip-sm",
                             biasPct < 0.05
                               ? "bg-raised text-muted-foreground"
                               : (c.netBias ?? 0) > 0

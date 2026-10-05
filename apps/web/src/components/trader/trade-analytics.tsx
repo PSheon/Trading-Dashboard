@@ -161,7 +161,7 @@ function SideBadge({ side, mobile = false }: { side: RoundTrip["side"]; mobile?:
   return (
     <span
       className={cn(
-        "rounded-[6px] px-[7px] py-0.5 text-xs font-semibold whitespace-nowrap",
+        "chip-sm",
         long ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground",
       )}
     >
@@ -243,7 +243,7 @@ export function TradeCard({ trade, shareAddress = null }: { trade: RoundTrip; /*
       <TrailShare trade={trade} address={shareAddress}>
         <span className={cn("num text-[15px] leading-[23px] font-semibold", pnlTone(pnl))}>{signedUsdShort(pnl)}</span>
         {roi !== null ? (
-          <span className={cn("num inline-flex items-center rounded-[6px] p-1 text-xs font-semibold", roi >= 0 ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>
+          <span className={cn("num chip-sm", roi >= 0 ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>
             {roi >= 0 ? <ArrowUpRight className="size-[9px]" strokeWidth={2.5} /> : <ArrowDown className="size-[9px]" strokeWidth={2.5} />}
             {Math.abs(roi).toFixed(1)}%
           </span>

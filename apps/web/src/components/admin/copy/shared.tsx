@@ -53,7 +53,7 @@ export function Chip({ tone = "neutral", children }: { tone?: "neutral" | "good"
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap",
+        "chip-sm",
         tone === "good" && "bg-tag-profit text-tag-profit-foreground",
         tone === "bad" && "bg-tag-loss text-tag-loss-foreground",
         tone === "warn" && "bg-tag-warning text-tag-warning-foreground",
@@ -94,7 +94,7 @@ export function OrderStatus({ status }: { status: CopyOrderStatus }) {
 export function ControlButtons({ state, onPick, size = "sm" }: {
   state: { pauseNewRisk: boolean; reduceOnly: boolean };
   onPick: (command: CopyControlCommand) => void;
-  size?: "xs" | "sm";
+  size?: "sm" | "default";
 }) {
   const { t } = useI18n();
   const canPause = usePermission("execution.pause");

@@ -30,7 +30,7 @@ const KIND_STYLE: Record<ActionKind, string> = {
 export function KindBadge({ kind }: { kind: ActionKind }) {
   const { t } = useI18n();
   return (
-    <span className={cn("inline-flex h-6 items-center rounded-full px-2 text-xs font-semibold", KIND_STYLE[kind])}>
+    <span className={cn("chip-sm", KIND_STYLE[kind])}>
       {t(`actions.kinds.${kind}`)}
     </span>
   );

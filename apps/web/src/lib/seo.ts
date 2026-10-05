@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import { LOCALES, OG_LOCALES, localePath, splitLocale, type Locale } from "@/i18n/config";
 import { getLocale, getMessages } from "@/i18n/server";
 import type { Messages } from "@/i18n/messages";
-import { APP_NAME, APP_URL } from "@/lib/config";
+import { APP_NAME, APP_URL, TELEGRAM_BOT_URL, X_HANDLE, X_URL } from "@/lib/config";
 import { contentBlocks, splitTitle, type ContentPage } from "@/lib/content";
 import { inlineText, type Block } from "@/lib/markdown";
 import { ogAlt } from "@/lib/og-card";
@@ -64,7 +64,7 @@ export function pageSeo(locale: Locale, { title, description, path, index = true
     alternates: localeAlternates(locale, path),
     robots: index ? INDEXED : PRIVATE,
     openGraph: { type: "website", siteName: APP_NAME, url: localePath(locale, path), title: full, description, locale: OG_LOCALES[locale], images: images ?? SITE_CARD },
-    twitter: { card: "summary_large_image", title: full, description, images: images ?? SITE_CARD },
+    twitter: { card: "summary_large_image", site: `@${X_HANDLE}`, creator: `@${X_HANDLE}`, title: full, description, images: images ?? SITE_CARD },
   };
 }
 
@@ -118,7 +118,7 @@ export function siteJsonLd(locale: Locale, messages: Messages) {
         logo: { "@type": "ImageObject", "@id": LOGO, url: `${APP_URL}/icon-512.png`, contentUrl: `${APP_URL}/icon-512.png`, width: 512, height: 512, caption: `${APP_NAME} logo` },
         image: { "@id": LOGO },
         description,
-        sameAs: ["https://t.me/orbie_fun_bot"],
+        sameAs: [X_URL, TELEGRAM_BOT_URL],
       },
       { "@type": "WebSite", "@id": WEBSITE, name: APP_NAME, url: home, inLanguage: locale, publisher: { "@id": ORGANIZATION }, description: messages.meta.description },
       {

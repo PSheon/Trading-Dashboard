@@ -21,7 +21,7 @@ describe("page metadata", () => {
     expect(Object.keys(meta.alternates?.languages ?? {})).toHaveLength(LOCALES.length + 1);
     expect(meta.robots).toEqual({ index: true, follow: true, "max-image-preview": "large", "max-snippet": -1 });
     expect(meta.openGraph).toMatchObject({ type: "website", url: "/en/explore", title: "Explore | Orbie", description: "Browse traders.", locale: "en_US" });
-    expect(meta.twitter).toMatchObject({ card: "summary_large_image", title: "Explore | Orbie" });
+    expect(meta.twitter).toMatchObject({ card: "summary_large_image", site: "@orbie_fun", creator: "@orbie_fun", title: "Explore | Orbie" });
   });
 
   it("keeps personal pages out of the index and leaves a complete title alone", () => {
@@ -102,6 +102,8 @@ describe("structured data", () => {
     expect(graph.map((node) => node["@type"])).toEqual(["Organization", "WebSite", "SoftwareApplication"]);
     expect(JSON.stringify(graph)).not.toMatch(/copydog/i);
     expect(graph[0]).toMatchObject({ name: "Orbie", logo: { width: 512, height: 512 } });
+    // The official accounts: X and the Telegram bot.
+    expect(graph[0]).toMatchObject({ sameAs: ["https://x.com/orbie_fun", "https://t.me/orbie_fun_bot"] });
     // The site's URLs are the page language's.
     expect(graph[1]).toMatchObject({ url: expect.stringMatching(/\/en$/), inLanguage: "en" });
   });

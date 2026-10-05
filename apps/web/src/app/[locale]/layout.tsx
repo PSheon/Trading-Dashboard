@@ -15,7 +15,7 @@ import { prefetchPublic, type Prefetched } from "@/lib/server-prefetch";
 import { OG_LOCALES, PATH_HEADER, isLocale } from "@/i18n/config";
 import { getLocale, getMessages } from "@/i18n/server";
 import { JsonLd } from "@/components/json-ld";
-import { APP_NAME, APP_URL } from "@/lib/config";
+import { APP_NAME, APP_URL, X_HANDLE } from "@/lib/config";
 import { localeAlternates, siteJsonLd } from "@/lib/seo";
 import { THEME_COLOR, THEME_COOKIE, parseThemeChoice, themeClass } from "@/lib/theme";
 
@@ -60,6 +60,8 @@ export async function generateMetadata(): Promise<Metadata> {
     },
     twitter: {
       card: "summary_large_image",
+      site: `@${X_HANDLE}`,
+      creator: `@${X_HANDLE}`,
       title,
       description: messages.meta.description,
     },

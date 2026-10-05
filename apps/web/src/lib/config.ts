@@ -17,3 +17,11 @@ export const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID?.trim() || "";
  * of apps/api (for UI work before the Stage 2 endpoints exist). Off unless
  * the variable is set at build time. */
 export const API_FIXTURES = process.env.NEXT_PUBLIC_API_FIXTURES === "1";
+
+/** Orbie's official X account: the footer's 社群 link, `twitter:site` and
+ * the Organization's `sameAs`. */
+export const X_HANDLE = "orbie_fun";
+export const X_URL = `https://x.com/${X_HANDLE}`;
+
+/** The official Telegram bot (alerts). */
+export const TELEGRAM_BOT_URL = "https://t.me/orbie_fun_bot";

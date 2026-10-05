@@ -6,14 +6,16 @@ import { cn } from "cn";
 
 import { Lockup } from "@/components/brand/logo";
 import { LOCALE_NAMES } from "@/i18n/config";
+import { TELEGRAM_BOT_URL, X_URL } from "@/lib/config";
 import { useI18n } from "@/i18n/provider";
 import { LanguageMenu } from "./language-menu";
 
 /**
  * The footer card (home, about, help; C-Home board): wordmark and tagline;
  * 資源 (關於我們, 即時動態, 常見問題), 社群 and 法律 columns; a dotted rule,
- * the copyright and the language switch. Channels Orbie doesn't have yet
- * say "coming soon" rather than linking nowhere.
+ * the copyright and the language switch. X (@orbie_fun) and the Telegram
+ * bot open in a new tab; a channel Orbie doesn't have yet (email) says
+ * "coming soon" rather than linking nowhere.
  */
 export function SiteFooter({ className }: { className?: string }) {
   const { t, locale } = useI18n();
@@ -39,8 +41,10 @@ export function SiteFooter({ className }: { className?: string }) {
         </nav>
         <nav aria-label={t("home.footer.community")} className="flex min-w-[120px] flex-col">
           <span className={heading}>{t("home.footer.community")}</span>
-          {soon(t("home.footer.x"))}
-          <a href="https://t.me/orbie_fun_bot" target="_blank" rel="noreferrer" className={link}>
+          <a href={X_URL} target="_blank" rel="noopener noreferrer" className={link}>
+            {t("home.footer.x")}
+          </a>
+          <a href={TELEGRAM_BOT_URL} target="_blank" rel="noopener noreferrer" className={link}>
             {t("home.footer.telegram")}
           </a>
           {soon(t("home.footer.email"))}

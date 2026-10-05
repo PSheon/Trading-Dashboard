@@ -54,5 +54,5 @@ Follow the best traders on Hyperliquid today, and try copying them with virtual 
 
 ---
 
-<!-- Footer links: About, FAQ, Privacy Policy, Terms of Use; community: 【待填：X account】, Telegram @orbie_fun_bot, 【待填：contact email】 -->
+<!-- Footer links: About, FAQ, Privacy Policy, Terms of Use; community: X @orbie_fun (https://x.com/orbie_fun), Telegram @orbie_fun_bot, 【待填：contact email】 -->
 <!-- Copyright: © 【待填：company name】 2026 -->

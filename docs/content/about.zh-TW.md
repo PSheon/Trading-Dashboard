@@ -54,5 +54,5 @@ Hyperliquid 官方排行榜上的數萬個帳戶，Orbie 都收錄了。你可�
 
 ---
 
-<!-- 頁尾連結：關於我們、常見問題、隱私政策、使用條款；社群：【待填：X 帳號】、Telegram @orbie_fun_bot、【待填：聯絡信箱】 -->
+<!-- 頁尾連結：關於我們、常見問題、隱私政策、使用條款；社群：X @orbie_fun（https://x.com/orbie_fun）、Telegram @orbie_fun_bot、【待填：聯絡信箱】 -->
 <!-- 版權：© 【待填：公司名稱】 2026 -->

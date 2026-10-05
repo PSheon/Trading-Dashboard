@@ -7,7 +7,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ANALYTICS_CAPACITY_WAIT_MS, ESSENTIAL_CAPACITY_WAIT_MS, HyperliquidGlobalTransport, settleListAnswer } from './hyperliquid-global-transport.js';
 import { LiveBoundaryError } from '../copy/live/wallet-authorization.js';
 
-import { currentBudgetConsumer, PAGE_WORK_MAX_RANK, RequestBudgeterService, type RequestPriority } from "./request-budgeter.service.js";
+import { currentBudgetConsumer, isPageWork, PAGE_WORK_MAX_RANK, RequestBudgeterService, type RequestPriority } from "./request-budgeter.service.js";
 import type {
   HlAllMidsResponse,
   HlMetaAndAssetCtxsResponse,
@@ -207,15 +207,16 @@ export class HyperliquidInfoClient {
     apiUrl?: string,
   ): Promise<T> {
     const worst = surcharge(maxItems);
+    const page = isPageWork(priority, rank);
     let result: T;
     const admission = { admitted: false };
     try {
       result = await this.post<T>(body, base + worst, priority, rank, base, apiUrl, admission);
     } catch (error) {
-      if (admission.admitted && !(error as Error).message.endsWith(": 429")) this.budgeter.adjust(-worst);
+      if (admission.admitted && !(error as Error).message.endsWith(": 429")) this.budgeter.adjust(-worst, { page });
       throw error;
     }
-    this.budgeter.adjust(surcharge(result.length) - worst);
+    this.budgeter.adjust(surcharge(result.length) - worst, { page });
     return result;
   }
 

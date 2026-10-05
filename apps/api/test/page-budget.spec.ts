@@ -112,6 +112,27 @@ describe("page work in the Hyperliquid budget", () => {
     budget.onModuleDestroy();
   });
 
+  it("counts a page list's settled cost against the page share, not its worst case (Stage, 2026-10-05)", { timeout: 60_000 }, async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", "480");
+    vi.stubEnv("HYPERLIQUID_WEIGHT_BURST", "200");
+    const budget = new RequestBudgeterService(testConfig());
+    // Three cold pages' fill lists: each prepays 120 and settles at what
+    // its answer cost (a full fill page 120, a short TWAP list 22).
+    for (let page = 0; page < 3; page++) {
+      for (const real of [120, 22]) {
+        await asClient(`203.0.113.${page}`, () => budget.acquire(120, "background", PAGE_RANK.fills, { known: 20 }));
+        budget.adjust(real - 120, { page: true });
+        await vi.advanceTimersByTimeAsync(15_000);
+      }
+    }
+    // The last minute holds four of the lists: 2 × (120 + 22) settled, not
+    // 4 × 120 prepaid. (All six, 720 prepaid, were the whole 3-minute share
+    // at 480/min: page work then counted as over its share.)
+    expect(budget.introspect().pageWeightLastMinute).toBeLessThanOrEqual(2 * 142);
+    budget.onModuleDestroy();
+  });
+
   it("drops page work still queued once its request has been answered", async () => {
     vi.useFakeTimers();
     const budget = await drained();

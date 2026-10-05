@@ -94,3 +94,13 @@ it('settles a list call to its item count, and a trade-analytics job waits in th
   expect(q.acquire.mock.calls.slice(-2).map((call) => (call as unknown[])[2])).toEqual(['background', 'background']);
   expect(ANALYTICS_CAPACITY_WAIT_MS).toBeGreaterThan(PAGE_CAPACITY_WAIT_MS);
 });
+it('settles a page list against the page share, a background list against nothing but the bucket', async () => {
+  const fills = Array.from({ length: 40 }, (_, i) => ({ coin: 'BTC', px: '1', sz: '1', side: 'B', time: 1_790_000_000_000 + i, startPosition: '0', dir: 'Open Long',
+    closedPnl: '0', hash: '0x0', oid: i, crossed: true, fee: '0', tid: i, feeToken: 'USDC' }));
+  const fetcher = vi.fn<typeof fetch>(async () => Response.json(fills)), q = offlineGlobalTransport(fetcher), local = budget();
+  const info = new HyperliquidInfoClient(testConfig(), local as unknown as RequestBudgeterService, undefined, q.transport);
+  await info.userFills('0x' + '12'.repeat(20), 'background', PAGE_RANK.fills);
+  await info.userFills('0x' + '12'.repeat(20), 'background', 1_000);
+  // 40 items: 2 of the 100 surcharge used, 98 back.
+  expect(local.adjust.mock.calls).toEqual([[-98, { page: true }], [-98, { page: false }]]);
+});

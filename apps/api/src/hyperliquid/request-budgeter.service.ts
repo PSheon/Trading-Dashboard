@@ -197,6 +197,9 @@ export const UNRANKED_BASE = 1_000;
 export const ESSENTIAL_RANK: Readonly<Record<string, number>> = { snapshots: 100, confirm: 105, sweep: 110, cohort: 120 };
 /** Background ranks up to this are on-demand page work (see above). */
 export const PAGE_WORK_MAX_RANK = PAGE_RANK.fills;
+/** Whether a call at this lane and rank is on-demand page work. */
+export const isPageWork = (priority: RequestPriority, rank: number | undefined): boolean =>
+  priority === "background" && rank !== undefined && rank <= PAGE_WORK_MAX_RANK;
 /** Share of the budget page work may spend, over `PAGE_SHARE_WINDOW_MS`,
  * while other background work is waiting. */
 export const PAGE_SHARE = 0.5;
@@ -410,7 +413,7 @@ export class RequestBudgeterService {
   /** Page work has used its share of the budget over `PAGE_SHARE_WINDOW_MS`. */
   private pageOverShare(now: number): boolean {
     this.prune(now);
-    return this.pageWindowWeight >= (PAGE_SHARE * this.effectiveBudgetPerMin * PAGE_SHARE_WINDOW_MS) / 60_000;
+    return Math.max(0, this.pageWindowWeight) >= (PAGE_SHARE * this.effectiveBudgetPerMin * PAGE_SHARE_WINDOW_MS) / 60_000;
   }
 
   private record(ts: number, weight: number, request = true, consumer = this.consumerOf()): void {
@@ -492,7 +495,7 @@ export class RequestBudgeterService {
     this.prune(now);
     let weight = 0;
     for (let i = this.pageWindow.length - 1; i >= 0 && this.pageWindow[i].ts >= now - 60_000; i--) weight += this.pageWindow[i].weight;
-    return weight;
+    return Math.max(0, weight);
   }
 
   /**
@@ -808,8 +811,19 @@ export class RequestBudgeterService {
    * Settles a call acquired with a worst-case estimate: a positive `delta`
    * is charged like `recordAdditionalWeight`, a negative one (the estimate
    * was too high) goes back to the main bucket, and waiters may go at once.
+   * `page`: the call was page work (`isPageWork`), so its page share is
+   * settled too.
    */
-  adjust(delta: number): void {
+  adjust(delta: number, { page = false }: { page?: boolean } = {}): void {
+    // A page list's settled cost is what page work spent: its worst case
+    // (120) counted in full against `PAGE_SHARE` put page work "over its
+    // share" after three cold pages' fill lists (6 × 120 = 720, the 3-minute
+    // share at 480/min) even though they had cost ~280, and first paint then
+    // lived on the reserve's 25% refill for minutes (Stage, 2026-10-05).
+    if (page && delta !== 0) {
+      this.pageWindow.push({ ts: Date.now(), weight: delta });
+      this.pageWindowWeight += delta;
+    }
     if (delta >= 0) {
       this.recordAdditionalWeight(delta);
       return;

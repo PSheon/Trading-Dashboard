@@ -190,14 +190,19 @@ export class PrivyAccountModeClient {
   }
   /** Read-only recovery intentionally permits an expired original consent. */
   async observe(rawIntent: AccountModeIntent): Promise<Readonly<AccountModeObservation>> {
+    const trace: string[] = [];
     try {
       const intent = capture(rawIntent), started = this.now(); validTime(started);
       const remaining = () => { fresh(started, this.now()); return Math.max(1, 5000 - (this.now() - started)); };
       const read = async (type: string, weight: number) => {
         const body = { type, user: intent.accountAddress };
+        const t0 = this.now();
         await boundedLiveRead(this.budget(weight), remaining());
+        trace.push(`${type}: budget ${this.now() - t0}ms`);
+        const t1 = this.now();
         const response = await boundedLiveRead((this.global?.fetchInfo??this.fetcher)(WALLET_NETWORKS.testnet.infoUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(remaining()) }), remaining());
+        trace.push(`${type}: fetch ${this.now() - t1}ms ${response.status}`);
         if (!response.ok) { await response.body?.cancel().catch(() => undefined); throw new Error(); }
         const value = await boundedLiveRead(readInfoJson(response, 'account mode evidence', 2 * 1024 * 1024), remaining());
         fresh(started, this.now());
@@ -227,7 +232,7 @@ export class PrivyAccountModeClient {
     } catch (error) {
       // Which read or check failed, without request bodies or responses.
       const reason = error instanceof Error ? `${error.name}${error.message ? `: ${error.message.slice(0, 160)}` : ''}` : 'unknown';
-      observationLogger.warn(`Account mode observation unavailable (${reason})`);
+      observationLogger.warn(`Account mode observation unavailable (${reason}) [${trace.join('; ')}]`);
       fail('account_mode_observation_unavailable');
     }
   }

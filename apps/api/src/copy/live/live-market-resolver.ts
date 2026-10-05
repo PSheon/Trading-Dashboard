@@ -19,6 +19,10 @@ export interface LiveMarketResolver {
   resolveAsset(asset: number): Promise<LiveMarketIdentity>;
 }
 export async function boundedLiveRead<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
+  // When the deadline wins, `work` may still reject later (its own abort
+  // signal, a refused budget): handle that rejection here, or Node treats it
+  // as unhandled and takes the whole process down.
+  work.catch(() => undefined);
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([work, new Promise<never>((_, reject) => {

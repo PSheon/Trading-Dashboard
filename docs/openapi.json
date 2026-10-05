@@ -7843,6 +7843,9 @@
                               },
                               "renewalDue": {
                                 "type": "boolean"
+                              },
+                              "oneClick": {
+                                "type": "boolean"
                               }
                             },
                             "required": [

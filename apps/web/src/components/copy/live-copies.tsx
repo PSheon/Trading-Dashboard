@@ -10,11 +10,14 @@ import { useCopyFollowerSnapshot } from '@/lib/copy-follower-snapshot';
 import { useLiveCopyOverview } from '@/lib/copy-live';
 import { shortAddress } from '@/components/wallet/bits';
 import { CopyLiveStop } from '@/components/copy/copy-live-stop';
+import { LiveCopyActions } from '@/components/copy/live-copy-actions';
+import type { LiveCopyStrategy } from '@trading-dashboard/shared/contracts';
 import { Button } from '@/components/ui/button';
 import { ErrorState } from '@/components/page';
 import { cn } from '@/lib/utils';
 
-const SETTINGS = '/settings?tab=account';
+/** The step-by-step forms, for a copy set up before one-click (lab-gated). */
+const SETTINGS = '/dev/copy';
 const stageTone: Record<LiveCopyItem['stage'], string> = {
   setup: 'bg-raised text-muted-foreground', needs_deposit: 'bg-tag-warning text-tag-warning-foreground', funding: 'bg-primary/15 text-primary-text', awaiting_credit: 'bg-primary/15 text-primary-text',
   starting: 'bg-primary/15 text-primary-text', active: 'bg-positive/15 text-positive', paused: 'bg-raised text-muted-foreground', stopping: 'bg-tag-warning text-tag-warning-foreground',
@@ -49,7 +52,7 @@ export function LiveCopies({ className }: { className?: string }) {
         {items.map(item => (
           <li key={item.strategyId}>
             <LiveCopyRow item={item} text={text} account={wallets.data?.accounts.find(a => a.id === item.accountId) ?? null}
-              mandate={overview.data?.mandates.find(m => m.id === item.mandate?.id) ?? null} />
+              mandate={overview.data?.mandates.find(m => m.id === item.mandate?.id) ?? null} strategy={overview.data?.strategies?.find(s => s.id === item.strategyId) ?? null} />
           </li>
         ))}
       </ul>
@@ -57,7 +60,7 @@ export function LiveCopies({ className }: { className?: string }) {
   );
 }
 
-function LiveCopyRow({ item, text, account, mandate }: { item: LiveCopyItem; text: LiveCopiesText; account: CopyExecutionAccount | null; mandate: LiveCopyMandate | null }) {
+function LiveCopyRow({ item, text, account, mandate, strategy }: { item: LiveCopyItem; text: LiveCopiesText; account: CopyExecutionAccount | null; mandate: LiveCopyMandate | null; strategy: LiveCopyStrategy | null }) {
   const { format } = useI18n();
   const snapshot = useCopyFollowerSnapshot(account && item.stage !== 'setup' && item.stage !== 'stopped' ? account : null);
   const actions = useLiveCopyPortfolioActions();
@@ -80,7 +83,9 @@ function LiveCopyRow({ item, text, account, mandate }: { item: LiveCopyItem; tex
         <span className="rounded bg-raised px-1.5 py-0.5 text-[11px] text-muted-foreground">{item.sourceNetwork === 'mainnet' ? text.mainnetLeader : text.testnetLeader}</span>
         <span role="status" className={cn('rounded px-1.5 py-0.5 text-[11px] font-semibold', stageTone[item.stage])}>{autoReturning ? text.autoReturning : text.stages[item.stage]}</span>
       </div>
-      <p className="text-xs leading-5 text-muted-foreground">{autoReturning ? text.autoReturningHint : text.hints[item.stage]}</p>
+      {/* A one-click setup in progress has its own stages (繼續設定); the
+          old hint pointed at the Settings forms. */}
+      {!(item.stage === 'setup' && item.setup) ? <p className="text-xs leading-5 text-muted-foreground">{autoReturning ? text.autoReturningHint : text.hints[item.stage]}</p> : null}
       {item.stage === 'stopped' && item.sweep?.status === 'credited' ? <p className="num text-xs font-semibold text-positive">{text.returned.replace('{amount}', item.sweep.amount)}</p> : null}
       {reason ? <p className="text-xs text-warning">{text.refusal.replace('{reason}', reason)}</p> : null}
       {item.pendingTransfer ? <p className="text-xs">{text.transfer.replace('{status}', item.pendingTransfer.status).replace('{amount}', item.pendingTransfer.amount)}</p> : null}
@@ -116,8 +121,7 @@ function LiveCopyRow({ item, text, account, mandate }: { item: LiveCopyItem; tex
         </>
       ) : item.accountId && item.stage !== 'setup' && item.stage !== 'stopped' ? <p className="text-xs text-muted-foreground">{text.unobserved}</p> : null}
       <div className="flex flex-wrap items-end gap-2">
-        {item.stage === 'setup' ? <Link href={SETTINGS} className="text-xs font-semibold text-primary-text underline">{text.setup}</Link> : null}
-        {item.stage === 'needs_deposit' ? <Link href={SETTINGS} className="text-xs font-semibold text-primary-text underline">{text.deposit}</Link> : null}
+        {item.stage === 'setup' && !item.setup ? <Link href={SETTINGS} className="text-xs font-semibold text-primary-text underline">{text.setup}</Link> : null}
         {running && item.accountId && !item.pendingTransfer ? (
           <form className="flex items-end gap-2" onSubmit={event => { event.preventDefault(); if (validAmount) actions.transfer.mutate({ accountId: item.accountId!, amount, automatic }); }}>
             <label className="text-xs">{text.amount}
@@ -127,7 +131,7 @@ function LiveCopyRow({ item, text, account, mandate }: { item: LiveCopyItem; tex
             <Button type="submit" size="sm" variant="secondary" disabled={busy || !validAmount}>{text.withdraw}</Button>
           </form>
         ) : null}
-        {item.stop?.state === 'cancelling' ? (
+        {item.stop?.state === 'cancelling' && !item.oneClick ? (
           <div className="flex flex-col gap-1">
             <p className="text-xs text-muted-foreground">{text.consentHint}</p>
             <Button size="sm" disabled={busy} onClick={() => actions.cancellation.mutate({ stopId: item.stop!.id })}>{text.consent}</Button>
@@ -139,6 +143,7 @@ function LiveCopyRow({ item, text, account, mandate }: { item: LiveCopyItem; tex
         {busy ? <span role="status" className="text-xs text-muted-foreground">{text.busy}</span> : null}
       </div>
       {failed ? <p role="alert" className="text-xs text-negative">{text.error}</p> : null}
+      <LiveCopyActions item={item} strategy={strategy} />
       {account && mandate && (running || item.stage === 'needs_deposit' || item.stage === 'stopping') ? <CopyLiveStop selection={{ account, mandate }} /> : null}
     </div>
   );

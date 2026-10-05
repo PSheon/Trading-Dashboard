@@ -115,6 +115,9 @@ export const liveCopyPortfolioItemSchema = z.object({
   /** When the current generation ends (30 days); 續期 is offered in its last three days. */
   expiresAt: z.string().datetime().nullable().optional(),
   renewalDue: z.boolean().optional(),
+  /** The generation came from a one-click setup consent: its stop cancels
+   * its orders with no further consent. */
+  oneClick: z.boolean().optional(),
 }).strict();
 export type LiveCopyPortfolioItem = z.infer<typeof liveCopyPortfolioItemSchema>;
 export const liveCopyPortfolioSchema = z.object({ network: z.literal('testnet'), automaticExecution: z.boolean(), items: z.array(liveCopyPortfolioItemSchema).max(50) }).strict();

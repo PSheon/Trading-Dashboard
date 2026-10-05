@@ -55,7 +55,9 @@ it('lists each testnet copy with its stage, balances and positions, and nothing 
   expect(container.textContent).toContain('Needs deposit'); expect(container.textContent).toContain('Deposit USDC from your main wallet');
   expect(container.textContent).toContain('testnet price too far from mainnet');
   expect(container.textContent).toContain('$97.50'); expect(container.textContent).toContain('BTC');
-  expect(container.querySelector('a[href="/en/settings?tab=account"]')).not.toBeNull();
+  // One-click: the deposit is a silent top-up here, not the Settings forms.
+  expect(container.querySelector('a[href="/en/settings?tab=account"]')).toBeNull();
+  expect([...container.querySelectorAll('button')].filter(b => b.textContent === 'Add funds')).toHaveLength(2);
 });
 
 it('withdraws idle funds: the owner signs the exact consent, then the approval goes out once', async () => {

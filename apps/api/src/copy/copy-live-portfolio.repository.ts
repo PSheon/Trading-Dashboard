@@ -70,6 +70,7 @@ export class CopyLivePortfolioRepository {
         automaticReturn: Boolean(account?.masterPolicyId), sweep: sweep ? { amount: sweep.creditedAmount ?? sweep.amount, status: sweep.status } : null,
         setup: liveSetup ? { id: liveSetup.id, kind: liveSetup.kind, stage: liveSetup.stage, issue: liveSetup.issue?.slice(0, 80) ?? null, signer: liveSetup.signerKind } : null,
         expiresAt: mandate && ['active', 'paused'].includes(mandate.state) ? mandate.expiresAt.toISOString() : null,
+        oneClick: mandate?.consentKind === 'setup',
         renewalDue: Boolean(mandate && ['active', 'paused'].includes(mandate.state) && mandate.expiresAt.getTime() - now <= 3 * 86_400_000 && s.status !== 'stopping' && s.status !== 'stopped') };
     });
   }

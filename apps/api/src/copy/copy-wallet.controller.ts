@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Header, Headers, HttpCode, Param, Post, UnauthorizedException } from "@nestjs/common";
+import { Body, Controller, Get, Header, Headers, HttpCode, Param, Post } from "@nestjs/common";
 import { CurrentUser, requireUserId, type RequestUser } from "../common/auth/current-user.js";
+import { PRIVY_IDENTITY_TOKEN_HEADER, privyWalletJwt } from "../common/auth/privy-wallet-session.js";
 import { ApiDoc } from "../common/decorators/http.decorator.js";
 import { CopyStrategyParamsDto } from "./dto/copy.dto.js";
 import { CopyWalletService } from "./copy-wallet.service.js";
@@ -30,9 +31,8 @@ export class CopyWalletController {
   @Post("execution-wallets/:id/automatic-return")
   @HttpCode(200)
   @Header("Cache-Control", "no-store")
-  automaticReturn(@Param() params: CopyWalletIdDto, @CurrentUser() user: RequestUser | null, @Headers("authorization") authorization?: string) {
-    if (!authorization?.startsWith("Bearer ") || !authorization.slice(7).trim()) throw new UnauthorizedException("Sign in required");
-    return this.wallets.enableAutomaticReturn(requireUserId(user), params.id, authorization.slice(7).trim());
+  automaticReturn(@Param() params: CopyWalletIdDto, @CurrentUser() user: RequestUser | null, @Headers("authorization") authorization?: string, @Headers(PRIVY_IDENTITY_TOKEN_HEADER) identity?: string) {
+    return this.wallets.enableAutomaticReturn(requireUserId(user), params.id, privyWalletJwt(user, authorization, identity));
   }
   @ApiDoc("Revoke my local trading grant", "Atomically increments the grant version and records consent revocation. Blocks future server signatures; does not remove the exchange agent or cancel orders already accepted by the exchange.")
   @Post("wallet-authorizations/:id/revoke")

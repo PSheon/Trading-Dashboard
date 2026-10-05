@@ -14,7 +14,7 @@ import { clearPersonalStorage } from "@/lib/personal-storage";
 
 import { SessionQueries } from "@/lib/session-queries";
 import { PRIVY_APP_ID } from "@/lib/config";
-import { api, sessionKey, setAccessTokenGetter } from "@/lib/api";
+import { api, sessionKey, setAccessTokenGetter, setIdentityTokenGetter } from "@/lib/api";
 import { readLocaleCookie, useI18n } from "@/i18n/provider";
 import { readLocalStorage, useLocalStorage } from "@/lib/use-local-storage";
 import { useIdentityRefetch } from "@/lib/use-identity-refetch";
@@ -139,6 +139,7 @@ function PrivyAuth({ appId, children }: { appId: string; children: React.ReactNo
     ? privy.authenticated && privy.userId ? privy.userId : "anonymous"
     : urgent !== false ? "loading" : "anonymous";
   setAccessTokenGetter(privy?.getAccessToken ?? null, scope);
+  setIdentityTokenGetter(privy?.getIdentityToken ?? null);
 
   const status: AuthStatus = privy?.ready
     ? privy.authenticated ? "signedIn" : "signedOut"
@@ -194,6 +195,7 @@ function FixtureAuth({ children }: { children: React.ReactNode }) {
 
   const scope = signedIn ? "fixture:demo" : signedIn === null ? "loading" : "anonymous";
   setAccessTokenGetter(fixtureTokenGetter, scope);
+  setIdentityTokenGetter(null);
 
   const persist = useCallback((next: boolean) => setStored(next ? "1" : null), [setStored]);
   // `?signer=fixture`: a fixed-signature stand-in for the embedded wallet
@@ -263,5 +265,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   setAccessTokenGetter(null);
+  setIdentityTokenGetter(null);
   return <SessionQueries>{children}</SessionQueries>;
 }

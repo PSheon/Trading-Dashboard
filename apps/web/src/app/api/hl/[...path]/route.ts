@@ -94,6 +94,10 @@ async function forward(
   headers.set("x-request-id", id);
   const authorization = request.headers.get("authorization");
   if (authorization) headers.set("Authorization", authorization);
+  // Privy's identity token, which the api hands Privy's wallet session
+  // exchange on the copy writes (lib/api.ts sends it only there).
+  const identityToken = request.headers.get("x-privy-identity-token");
+  if (authorization && identityToken && identityToken.length <= 32768) headers.set("X-Privy-Identity-Token", identityToken);
   const contentType = request.headers.get("content-type");
   if (contentType) headers.set("Content-Type", contentType);
   const acceptLanguage = request.headers.get("accept-language");

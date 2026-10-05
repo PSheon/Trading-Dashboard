@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import { PrivyClient } from '@privy-io/node';
 import { WALLET_NETWORKS } from '@trading-dashboard/shared/contracts';
 import { verifyTypedData, type TypedDataDefinition } from 'viem';
+import { privyJwtKind } from '../../common/auth/privy-wallet-session.js';
 import { boundedLiveRead } from './live-market-resolver.js';
 import { LiveBoundaryError } from './wallet-authorization.js';
 
@@ -130,7 +131,7 @@ export class PrivyMasterActionSigner implements MasterActionSigner {
     } catch (error) {
       // Never the token or a signature: the step, Privy's status and its message.
       const status = (error as { status?: unknown })?.status;
-      this.logger.warn(`master action ${rawData?.primaryType ?? 'unknown'} refused at ${step}${mismatch ? ` (${mismatch})` : ''}: ${typeof status === 'number' ? `${status} ` : ''}${error instanceof Error ? `${error.name} ${error.message}`.replace(/eyJ[\w-]+\.[\w-]+\.[\w-]+/g, '<jwt>').slice(0, 300) : 'unknown'}`);
+      this.logger.warn(`master action ${rawData?.primaryType ?? 'unknown'} refused at ${step}${mismatch ? ` (${mismatch})` : ''} with the ${typeof userJwt === 'string' ? privyJwtKind(userJwt) : 'missing'} token: ${typeof status === 'number' ? `${status} ` : ''}${error instanceof Error ? `${error.name} ${error.message}`.replace(/eyJ[\w-]+\.[\w-]+\.[\w-]+/g, '<jwt>').slice(0, 300) : 'unknown'}`);
       throw new LiveBoundaryError('master_action_signing_unavailable');
     }
     finally { clearTimeout(timer); controller.abort(); }

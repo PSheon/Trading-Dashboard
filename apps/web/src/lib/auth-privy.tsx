@@ -17,6 +17,7 @@ import {
   PrivyProvider,
   useCreateWallet,
   useExportWallet,
+  useIdentityToken,
   usePrivy,
   useSendTransaction,
   useSignTypedData,
@@ -37,6 +38,8 @@ export interface PrivySnapshot {
   login: () => void;
   logout: () => Promise<void>;
   getAccessToken: () => Promise<string | null>;
+  /** Privy's identity token (null until Privy issues one). */
+  getIdentityToken: () => string | null;
   wallet: WalletSigner | null;
 }
 
@@ -76,8 +79,9 @@ export default function PrivyRuntime({ appId, onChange }: { appId: string; onCha
 function PrivyReporter({ onChange }: { onChange: (snapshot: PrivySnapshot | null) => void }) {
   const { ready, authenticated, login, logout, getAccessToken, user } = usePrivy();
   const wallet = useEmbeddedWallet(ready && authenticated);
-  const calls = useRef({ login, logout, getAccessToken });
-  useLayoutEffect(() => { calls.current = { login, logout, getAccessToken }; });
+  const { identityToken } = useIdentityToken();
+  const calls = useRef({ login, logout, getAccessToken, identityToken });
+  useLayoutEffect(() => { calls.current = { login, logout, getAccessToken, identityToken }; });
   const userId = user?.id ?? null;
   const identity = user?.email?.address ?? user?.google?.email ?? user?.apple?.email ?? user?.wallet?.address ?? null;
   const snapshot = useMemo<PrivySnapshot>(() => ({
@@ -88,6 +92,7 @@ function PrivyReporter({ onChange }: { onChange: (snapshot: PrivySnapshot | null
     login: () => calls.current.login(),
     logout: () => calls.current.logout(),
     getAccessToken: () => calls.current.getAccessToken(),
+    getIdentityToken: () => calls.current.identityToken,
     wallet,
   }), [ready, authenticated, userId, identity, wallet]);
   useLayoutEffect(() => { onChange(snapshot); }, [snapshot, onChange]);

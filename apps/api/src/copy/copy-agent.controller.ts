@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Header, Headers, HttpCode, Param, Post, UnauthorizedException, UseFilters } from "@nestjs/common";
+import { Body, Controller, Get, Header, Headers, HttpCode, Param, Post, UseFilters } from "@nestjs/common";
 import { CurrentUser, requireUserId, type RequestUser } from "../common/auth/current-user.js";
+import { PRIVY_IDENTITY_TOKEN_HEADER, privyWalletJwt } from "../common/auth/privy-wallet-session.js";
 import { ApiDoc } from "../common/decorators/http.decorator.js";
 import { BusyFilter } from "../traders/busy.js";
 import { CopyAgentService } from "./copy-agent.service.js";
@@ -19,9 +20,8 @@ export class CopyAgentController {
   @Post("agents/:id/challenge") @HttpCode(200) @Header("Cache-Control", "no-store") @ApiDoc("Prepare exact main-wallet consent for agent approval")
   challenge(@CurrentUser() user: RequestUser | null, @Param() params: CopyWalletIdDto) { return this.agents.challenge(requireUserId(user), params.id); }
   @Post("agents/:id/approve") @HttpCode(200) @Header("Cache-Control", "no-store") @ApiDoc("Approve the exact consented strategy agent", "Requires main-wallet consent and fresh user JWT. Master signature stays ephemeral; a local grant follows fresh exchange confirmation only.")
-  approve(@CurrentUser() user: RequestUser | null, @Param() params: CopyWalletIdDto, @Body() body: ApproveCopyAgentDto, @Headers("authorization") authorization?: string) {
+  approve(@CurrentUser() user: RequestUser | null, @Param() params: CopyWalletIdDto, @Body() body: ApproveCopyAgentDto, @Headers("authorization") authorization?: string, @Headers(PRIVY_IDENTITY_TOKEN_HEADER) identity?: string) {
     const userId = requireUserId(user);
-    if (!authorization?.startsWith("Bearer ") || !authorization.slice(7).trim()) throw new UnauthorizedException("Sign in required");
-    return this.agents.approve(userId, params.id, body.consentSignature, authorization.slice(7).trim());
+    return this.agents.approve(userId, params.id, body.consentSignature, privyWalletJwt(user, authorization, identity));
   }
 }

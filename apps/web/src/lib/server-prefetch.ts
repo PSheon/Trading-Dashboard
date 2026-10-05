@@ -44,26 +44,38 @@ export async function prefetchPublic<T>(
   }
 }
 
-/** What the trader page read on the server: the profile and the activity
- * (both public, one budget), and whether together they show nothing on
- * Hyperliquid for the address (`traderIsUnknown`: true → the 404, null →
- * not known in time, the browser decides as before). */
+/** What the trader page read on the server: the profile, the activity
+ * when the profile alone can't tell whether the address is known, and
+ * whether together they show nothing on Hyperliquid for the address
+ * (`traderIsUnknown`: true → the 404, null → not known in time, the
+ * browser decides as before). */
 export interface PrefetchedTrader {
   profile: Prefetched<TraderProfileResponse> | null;
   activity: Prefetched<TraderActivityResponse> | null;
   unknown: boolean | null;
 }
 
-/** Profile and activity in parallel within `PREFETCH_TIMEOUT_MS`. A slow
- * api leaves either one null and the page reads it from the browser. */
+/**
+ * The profile within `PREFETCH_TIMEOUT_MS`, and the activity only for a
+ * blank profile (nothing held, no stats, not tracked: only its fills can
+ * tell a 404 from a quiet account), within what is left of it. The
+ * activity costs the api Hyperliquid's two fill lists (≈ 240 weight): read
+ * for every page it spent the visitor's page budget, at the moment the
+ * profile and chart needed it, on a figure only the KPI tiles' muting uses
+ * (Stage, 2026-10-05: cold Top 100 profiles answered in 10–30 s). A slow
+ * api leaves either one null and the page reads it from the browser.
+ */
 export async function prefetchTrader(
   address: string,
   options: { apiUrl?: string; fetchImpl?: typeof fetch; client?: string; timeoutMs?: number } = {},
 ): Promise<PrefetchedTrader> {
   const a = address.toLowerCase();
-  const [profile, activity] = await Promise.all([
-    prefetchPublic<TraderProfileResponse>(`/traders/${a}`, options),
-    prefetchPublic<TraderActivityResponse>(`/traders/${a}/activity`, options),
-  ]);
-  return { profile, activity, unknown: traderIsUnknown(profile?.data as TraderProfileResponse | undefined, activity?.data as TraderActivityResponse | undefined) };
+  const started = Date.now();
+  const timeoutMs = options.timeoutMs ?? PREFETCH_TIMEOUT_MS;
+  const profile = await prefetchPublic<TraderProfileResponse>(`/traders/${a}`, { ...options, timeoutMs });
+  const decided = traderIsUnknown(profile?.data as TraderProfileResponse | undefined, undefined);
+  if (!profile || decided !== null) return { profile, activity: null, unknown: decided };
+  const left = timeoutMs - (Date.now() - started);
+  const activity = left > 0 ? await prefetchPublic<TraderActivityResponse>(`/traders/${a}/activity`, { ...options, timeoutMs: left }) : null;
+  return { profile, activity, unknown: traderIsUnknown(profile.data as TraderProfileResponse, activity?.data as TraderActivityResponse | undefined) };
 }

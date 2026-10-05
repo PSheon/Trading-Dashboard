@@ -37,14 +37,22 @@ const render = (address: string, initial?: Parameters<typeof TraderView>[0]["ini
 afterEach(() => prefetch.read.mockReset());
 
 describe("prefetchTrader: the trader page's server read", () => {
-  it("reads profile and activity for the visitor and calls a known address known", async () => {
+  it("reads only the profile for a known address: the activity's fill lists are not first paint (Stage, 2026-10-05)", async () => {
     const fetchImpl = fixtureApi();
     const read = await (await vi.importActual<typeof import("@/lib/server-prefetch")>("@/lib/server-prefetch")).prefetchTrader(KNOWN.toUpperCase().replace("0X", "0x"), { apiUrl, fetchImpl, client: "203.0.113.9" });
     expect(read.unknown).toBe(false);
     expect(read.profile?.data.address.toLowerCase()).toBe(KNOWN);
-    expect(read.activity?.data).toBeTruthy();
+    expect(read.activity).toBeNull();
     const urls = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls.map(([url]) => String(url)).sort();
-    expect(urls).toEqual([`${apiUrl}/traders/${KNOWN}`, `${apiUrl}/traders/${KNOWN}/activity`]);
+    expect(urls).toEqual([`${apiUrl}/traders/${KNOWN}`]);
+  });
+
+  it("reads the activity after a blank profile, the only case it decides", async () => {
+    const fetchImpl = fixtureApi();
+    const read = await (await vi.importActual<typeof import("@/lib/server-prefetch")>("@/lib/server-prefetch")).prefetchTrader(UNKNOWN_ADDRESS, { apiUrl, fetchImpl });
+    const urls = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls.map(([url]) => String(url));
+    expect(urls).toEqual([`${apiUrl}/traders/${UNKNOWN_ADDRESS.toLowerCase()}`, `${apiUrl}/traders/${UNKNOWN_ADDRESS.toLowerCase()}/activity`]);
+    expect(read.activity?.data).toBeTruthy();
   });
 
   it("calls an address with nothing on Hyperliquid unknown, and a slow api not known", async () => {

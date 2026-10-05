@@ -112,7 +112,7 @@ function build() {
 let fakes: ReturnType<typeof build>;
 const start = (key = 'setup-start-key-000001', extra: object = {}) => service.start(uid, { idempotencyKey: key, leader, budgetUsd: '100', settings, ...extra });
 async function sign(intent: LiveCopySetupIntent, signer = owner) {
-  return { consentSignature: await signer.signTypedData(liveCopySetupConsentTypedData(intent)),
+  return { consentSignature: await signer.signTypedData(liveCopySetupConsentTypedData(intent) as never),
     fundingSignature: intent.kind === 'start' ? await signer.signTypedData(usdSendTypedData(WALLET_NETWORKS.testnet, intent.accountAddress, intent.fundingAmount, intent.fundingNonce)) : undefined };
 }
 async function credit() {

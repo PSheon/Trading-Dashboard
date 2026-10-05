@@ -1,8 +1,10 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { ConflictException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { and, desc, eq, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import { copyStrategies, referralAttributions, referralClaims, referralCodes, referralLedger, referralPolicies, users } from '@trading-dashboard/shared/database';
+import { AppConfig } from '../config/app-config.js';
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
+import { isReturningIdentity } from '../users/deletion-markers.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
 import type { DbTransaction } from '../db/unit-of-work.js';
 import { lockCopyUser } from '../copy/copy-user-lock.js';
@@ -24,7 +26,7 @@ const copying = sql<boolean>`exists(select 1 from ${copyStrategies} where ${copy
 
 @Injectable()
 export class ReferralRepository {
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, @Optional() private readonly config?: AppConfig) {}
   private async lock(tx: DbTransaction, userId: number) {
     await lockCopyUser(tx, userId);
     const [row] = await tx.select().from(users).where(eq(users.id, userId)).for('update');
@@ -63,7 +65,10 @@ export class ReferralRepository {
         || BigInt(balances.earned) !== BigInt(balances.available) + BigInt(balances.pending) + BigInt(balances.claimed)) {
         throw new ServiceUnavailableException('Referral balances require reconciliation');
       }
-      return { code: code.code, referred: Boolean(attribution), bindOpenUntil: attribution ? null : new Date(user.createdAt.getTime() + policy.bindWindowSeconds * 1000).toISOString(),
+      // An identity that deleted an account within the retention window can't
+      // bind again (docs/account-deletion.md): no window to show either.
+      const returning = !attribution && await isReturningIdentity(tx, user, this.config);
+      return { code: code.code, referred: Boolean(attribution), bindOpenUntil: attribution || returning ? null : new Date(user.createdAt.getTime() + policy.bindWindowSeconds * 1000).toISOString(),
         hasWallet: Boolean(user.embeddedWalletAddress), policy: { version: policy.version, enabled: policy.enabled, rewardBps: policy.rewardBps,
           minClaimUnits: policy.minClaimUnits, bindWindowSeconds: policy.bindWindowSeconds }, balances };
     });
@@ -107,6 +112,10 @@ export class ReferralRepository {
       const now = new Date(nowResult.rows[0]!.now), user = locked.get(userId)!;
       if (now.getTime() < user.createdAt.getTime() || now.getTime() >= user.createdAt.getTime() + policy.bindWindowSeconds * 1000)
         throw conflict('referral_bind_closed', 'The referral binding window has closed');
+      // Deleting an account and signing up again opens no new window: a
+      // returning identity (keyed hash, retention window) can't bind, so an
+      // inviter can't re-invite the same person for credit.
+      if (await isReturningIdentity(tx, user, this.config)) throw conflict('referral_bind_closed', 'The referral binding window has closed');
       const [row] = await tx.insert(referralAttributions).values({ id: randomUUID(), referredUserId: userId, referrerUserId: target.userId,
         codeId: target.id, policyVersion: policy.version, boundAt: now }).returning();
       return { bound: true as const, boundAt: row!.boundAt.toISOString() };

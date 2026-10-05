@@ -53,7 +53,7 @@ export async function truncateAll(db: TestDb): Promise<void> {
       copy_ledger, copy_paper_fills, copy_reservations, copy_orders, copy_signal_legs, copy_positions, copy_strategy_versions, copy_strategies,
       copy_signal_outbox, copy_consumer_checkpoints, copy_controls, copy_control_events, copy_risk_policies, copy_signer_nonces,
       copy_follower_observation_budget, copy_live_source_fills, copy_live_source_streams, paper_accounts, retention_state,
-      referral_codes, referral_attributions, referral_claims, referral_ledger, referral_policies
+      referral_codes, referral_attributions, referral_claims, referral_ledger, referral_policies, account_deletion_markers
     RESTART IDENTITY CASCADE
   `);
 }

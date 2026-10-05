@@ -143,6 +143,9 @@ export const STATEMENTS: Record<Exclude<RetentionTable, "deleted_accounts">, (cu
   account_deletion_records: (cutoff, limit) => sql`
     DELETE FROM admin_audit_logs WHERE id = ANY (ARRAY(
       SELECT id FROM admin_audit_logs WHERE created_at < ${cutoff} AND event = 'user.delete' ORDER BY created_at LIMIT ${limit}))`,
+  account_deletion_markers: (cutoff, limit) => sql`
+    DELETE FROM account_deletion_markers WHERE digest = ANY (ARRAY(
+      SELECT digest FROM account_deletion_markers WHERE deleted_at < ${cutoff} ORDER BY deleted_at LIMIT ${limit}))`,
   action_outbox: (cutoff, limit) => sql`
     DELETE FROM action_outbox WHERE action_id = ANY (ARRAY(
       ${evaluations("done", cutoff, limit)} UNION ALL ${evaluations("failed", cutoff, limit)})) AND status IN ('done', 'failed')`,

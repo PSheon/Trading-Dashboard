@@ -1,14 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Optional } from "@nestjs/common";
 import { and, asc, count, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { copyExecutionAccounts, copyStrategies, favoriteGroups, notificationChannels, referralCodes, userFavorites, users } from "@trading-dashboard/shared/database";
 
 import { recordAdminAudit } from "../common/audit/admin-audit.js";
+import { AppConfig } from "../config/app-config.js";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
 import { lockCopyUser } from "../copy/copy-user-lock.js";
 import { unwatchLeaderIfUnused } from "../watcher/leader-watch.js";
+import { recordDeletedIdentity, type DeletedIdentity } from "./deletion-markers.js";
 import { deletedBeforeUser, KEPT_STRATEGY, repointStatements, type UserReference } from "./account-closure.plan.js";
 
 /** What an account holds at deletion time: counts only, for the audit
@@ -48,7 +50,7 @@ const ids = (rows: Array<{ strategy_id: number | null }>) => [...new Set(rows.fl
  */
 @Injectable()
 export class AccountRepository {
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, @Optional() private readonly config?: AppConfig) {}
 
   lockCopyOwner(tx: DbTransaction, userId: number) { return lockCopyUser(tx, userId); }
 
@@ -60,7 +62,8 @@ export class AccountRepository {
 
   /** The user row, locked; undefined when it no longer exists (or is a tombstone). */
   async lockUser(tx: DbTransaction, userId: number) {
-    const [row] = await tx.select({ id: users.id, role: users.role, disabledAt: users.disabledAt, createdAt: users.createdAt }).from(users)
+    const [row] = await tx.select({ id: users.id, role: users.role, disabledAt: users.disabledAt, createdAt: users.createdAt, privyUserId: users.privyUserId,
+      email: users.email, walletAddress: users.walletAddress, embeddedWalletAddress: users.embeddedWalletAddress }).from(users)
       .where(and(eq(users.id, userId), isNull(users.deletedAt))).for("update");
     return row;
   }
@@ -217,6 +220,12 @@ export class AccountRepository {
   /** Stops watching leaders nobody favorites or copies any more. */
   async unwatch(tx: DbTransaction, addresses: Iterable<string>): Promise<void> {
     for (const address of new Set(addresses)) await unwatchLeaderIfUnused(tx, address);
+  }
+
+  /** Keeps the deleted identity as keyed hashes only, so signing up again
+   * within the retention window can't bind a new referral (deletion-markers.ts). */
+  recordIdentity(tx: DbTransaction, identity: DeletedIdentity): Promise<number> {
+    return recordDeletedIdentity(tx, identity, this.config);
   }
 
   /** Removes a tombstone nothing was re-pointed to. */

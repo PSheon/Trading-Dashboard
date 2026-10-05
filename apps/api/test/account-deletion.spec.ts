@@ -1,6 +1,6 @@
 import type { INestApplication } from "@nestjs/common";
 import {
-  adminAuditLogs, copyAgentSetups, copyExecutionAccounts, copyFollowerLedger, copyFollowerReceipts, copyFundingOperations, copyLiveDispatches, copyLiveExecutions,
+  accountDeletionMarkers, adminAuditLogs, copyAgentSetups, copyExecutionAccounts, copyFollowerLedger, copyFollowerReceipts, copyFundingOperations, copyLiveDispatches, copyLiveExecutions,
   copyLiveMandates, copyLiveSetups, copyLiveSourceFills, copyLiveStopOperations, copyStrategies, copyWalletAuthorizationEvents, copyWalletAuthorizations,
   favoriteGroups, notificationChannels, paperAccounts, referralAttributions, referralClaims, referralCodes, referralPolicies, userFavorites, users, walletWithdrawals,
 } from "@trading-dashboard/shared/database";
@@ -17,6 +17,8 @@ import { AccountDeletionService } from "../src/users/account-deletion.service.js
 import { COPY_ACCOUNT_CLOSURE } from "../src/users/account-closure.port.js";
 import { purgeStatements, USER_REFERENCES } from "../src/users/account-closure.plan.js";
 import { AccountRepository } from "../src/users/account.repository.js";
+import { AppConfig } from "../src/config/app-config.js";
+import { ReferralRepository } from "../src/referral/referral.repository.js";
 import { FavoritesService } from "../src/users/favorites.service.js";
 import { MeController } from "../src/users/me.controller.js";
 import { ProfileRepository } from "../src/users/profile.repository.js";
@@ -251,5 +253,44 @@ describe("retention purges a deleted account's kept records after 365 days", () 
     expect((await db.select().from(referralCodes)).map((c) => c.id)).toEqual(["code-inviter"]);
     expect(await db.select().from(copyLiveSourceFills)).toHaveLength(1);
     expect((await db.execute<{ n: number }>(sql`select count(*)::int as n from copy_controls where scope = 'user'`)).rows[0]!.n).toBe(0);
+  });
+});
+
+describe("deleting and signing up again can't farm invites (keyed identity hashes, 365 days)", () => {
+  const page = { cursor: null, limit: 20 };
+  it("a returning identity can't bind again or refer itself, and the inviter's count doesn't grow", async () => {
+    const referrals = new ReferralRepository(db, app.get(AppConfig));
+    await db.insert(referralCodes).values({ id: "code-inviter", userId: inviter, code: "INVITER1", kind: "custom" });
+    const first = await insertUser(db, { privyUserId: "did:privy:returning", email: "Returning@Example.com", embeddedWalletAddress: `0x${"88".repeat(20)}` });
+    await referrals.bind(first.id, "INVITER1");
+    await referrals.setCode(first.id, "MYOLDCODE");
+    expect((await referrals.friends(inviter, page)).invited).toBe(1);
+
+    await app.get(AccountDeletionService).delete(first.id);
+    // Only keyed hashes are kept: no Privy id, email or address in them.
+    const markers = await db.select().from(accountDeletionMarkers);
+    expect(markers).toHaveLength(3);
+    expect(JSON.stringify(markers)).not.toMatch(/returning|example|8888/i);
+
+    // Signing up again works, but binds nothing: not to the inviter again …
+    const again = await insertUser(db, { privyUserId: "did:privy:returning", email: "returning@example.com", embeddedWalletAddress: `0x${"88".repeat(20)}` });
+    await expect(referrals.bind(again.id, "INVITER1")).rejects.toMatchObject({ status: 409, response: { code: "referral_bind_closed" } });
+    expect((await referrals.overview(again.id)).bindOpenUntil).toBeNull();
+    // … nor to its own old code (reserved under the tombstone) …
+    await expect(referrals.bind(again.id, "MYOLDCODE")).rejects.toMatchObject({ status: 404 });
+    // … nor through another login with the same email.
+    const twin = await insertUser(db, { privyUserId: "did:privy:returning-twin", email: "RETURNING@example.com" });
+    await expect(referrals.bind(twin.id, "INVITER1")).rejects.toMatchObject({ status: 409, response: { code: "referral_bind_closed" } });
+    // The inviter still counts the person once, as a deleted user.
+    expect((await referrals.friends(inviter, page)).invited).toBe(1);
+    // Someone new still binds normally.
+    const stranger = await insertUser(db, { privyUserId: "did:privy:stranger" });
+    await referrals.bind(stranger.id, "INVITER1");
+    expect((await referrals.friends(inviter, page)).invited).toBe(2);
+
+    // After the retention window the hashes are gone too.
+    const service = new RetentionService(new RetentionRepository(db), settings, new UnitOfWork(db));
+    expect(await service.run(new Date(Date.now() + 366 * 86_400_000), true)).toMatchObject({ removed: { account_deletion_markers: 3 } });
+    expect(await db.select().from(accountDeletionMarkers)).toHaveLength(0);
   });
 });

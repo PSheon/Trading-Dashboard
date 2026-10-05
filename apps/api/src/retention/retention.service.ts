@@ -42,6 +42,7 @@ export function retentionCutoffs(settings: RetentionSettings, now: Date): Record
     admin_audit_logs: before(settings.auditDays),
     account_deletion_records: before(settings.accountDeletionDays),
     deleted_accounts: before(settings.accountDeletionDays),
+    account_deletion_markers: before(settings.accountDeletionDays),
     action_outbox: before(settings.queueDays),
     notification_outbox: before(settings.queueDays),
     copy_signal_outbox: before(settings.queueDays),
@@ -65,6 +66,7 @@ export function inRetentionWindow(now: Date): boolean {
  * | admin audit log | 1 year |
  * | account-deletion records (`user.delete` audit rows) | 1 year |
  * | deleted accounts' kept records (tombstones, docs/account-deletion.md) | 1 year after deletion |
+ * | deleted identities' keyed hashes (account_deletion_markers) | 1 year after deletion |
  * | finished action / notification / copy-signal outbox rows | 30 days |
  * | alert delivery records (`alerts`) | 30 days |
  *

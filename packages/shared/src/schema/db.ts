@@ -396,6 +396,22 @@ export const users = pgTable("users", {
 ]);
 
 
+/**
+ * Keyed hashes (HMAC-SHA256 with a server-held key) of a deleted account's
+ * Privy id, email and wallet addresses, kept RETENTION_ACCOUNT_DELETION_DAYS
+ * (docs/account-deletion.md). They can't be turned back into the identity;
+ * they only let the same identity, signing up again within that window, be
+ * recognised as returning, so it can't bind a new referral (no invite farming
+ * through delete and sign up again). Nothing else reads them.
+ */
+export const accountDeletionMarkers = pgTable("account_deletion_markers", {
+  digest: text("digest").primaryKey(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull(),
+}, (table) => [
+  check("account_deletion_markers_digest_check", sql`${table.digest} ~ '^[0-9a-f]{64}$'`),
+  index("account_deletion_markers_deleted_idx").on(table.deletedAt),
+]);
+
 // ---------------------------------------------------------------------------
 // user_favorites — 收藏；收藏的地址也會進入監控清單（leaders.source='favorite'）
 // ---------------------------------------------------------------------------

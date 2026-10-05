@@ -37,7 +37,9 @@ const unavailable = () => new ServiceUnavailableException({ statusCode: 503, cod
  * 4. One transaction: lock, cancel what was never sent, check the blockers
  *    again, revoke grants and agents, create the tombstone, re-point the
  *    kept records, delete the user row (personal data cascades), release
- *    the watch list, and audit counts only.
+ *    the watch list, keep the identity as keyed hashes for the retention
+ *    window (no referral farming by deleting and signing up again,
+ *    deletion-markers.ts), and audit counts only.
  *
  * The caller's token stays in the auth cache on purpose: every cached hit
  * re-reads the user row, finds none and answers 401, so requests still in
@@ -104,12 +106,13 @@ export class AccountDeletionService {
         await this.favorites.removeAndUnwatch(tx, userId, address);
       }
       if (!(await this.accounts.deleteUser(tx, userId))) throw new NotFoundException("User not found");
+      const identityMarkers = await this.accounts.recordIdentity(tx, user);
       // Paper copies went with the user row: their leaders may be unwatched now.
       await this.accounts.unwatch(tx, leaders);
       // Nothing had to be kept: no tombstone either.
       const tombstone = Object.keys(kept).length ? tombstoneId : null;
       if (tombstone === null) await this.accounts.dropTombstone(tx, tombstoneId);
-      await this.accounts.recordDeletion(tx, userId, tombstone, before, { kept, cancelled, revoked, signersDetached: signers.length });
+      await this.accounts.recordDeletion(tx, userId, tombstone, before, { kept, cancelled, revoked, signersDetached: signers.length, identityMarkers });
     });
     this.events?.emit(FAVORITES_CHANGED_EVENT, { userId } satisfies FavoritesChangedEvent);
     this.logger.log(`User ${userId} deleted their account`);

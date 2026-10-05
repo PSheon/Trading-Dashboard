@@ -1441,9 +1441,10 @@ export type MaintenanceSettings = z.infer<typeof maintenanceSettingsSchema>;
  * are the `user.delete` rows of `admin_audit_logs` (counts only); every
  * other audit row is `admin_audit_logs`. `deleted_accounts` are the
  * account-deletion tombstones and the financial and audit records kept under
- * them (docs/account-deletion.md), counted per tombstone. */
+ * them (docs/account-deletion.md), counted per tombstone; and
+ * `account_deletion_markers`, the deleted identities' keyed hashes. */
 export const RETENTION_TABLES = [
-  "position_snapshots", "equity_snapshots", "admin_audit_logs", "account_deletion_records", "deleted_accounts",
+  "position_snapshots", "equity_snapshots", "admin_audit_logs", "account_deletion_records", "deleted_accounts", "account_deletion_markers",
   "action_outbox", "notification_outbox", "copy_signal_outbox", "alerts",
 ] as const;
 export type RetentionTable = (typeof RETENTION_TABLES)[number];
@@ -1461,8 +1462,9 @@ export interface RetentionSettings {
   snapshotDays: number;
   /** admin_audit_logs, except account-deletion records. */
   auditDays: number;
-  /** `user.delete` audit rows (counts only, no email or address), and the
-   * deletion tombstones with the records kept under them. */
+  /** `user.delete` audit rows (counts only, no email or address), the
+   * deletion tombstones with the records kept under them, and the deleted
+   * identities' keyed hashes (account_deletion_markers). */
   accountDeletionDays: number;
   /** Finished action_outbox, notification_outbox and copy_signal_outbox rows. */
   queueDays: number;

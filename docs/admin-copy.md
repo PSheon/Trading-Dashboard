@@ -25,34 +25,44 @@ a caller with `copy.read` only gets 403 on every write. Each command writes
 `copy_control_events` and an `admin_audit_logs` row (`copy.control`, target
 `platform:0` or `user:<id>`), and each policy save an audit row (`copy.risk`,
 target `policy:<version>`), in the same transaction as the change. Both
-events can be filtered on `/admin/audit`.
+events can be filtered on the 使用者 › 稽核紀錄 sub-tab (`/admin/users/audit`).
 
 ## Pages
 
-- **Overview** (`/admin/copy`): the platform stop state with its revision and
-  the five commands; live strategies, users copying, total exposure, policy
-  version; signal backlog and lag (the age of the oldest unconsumed signal:
-  marked "behind" over 60 s or when any signal has failed); orders by status
-  over 24 h; the latest rejections and cancellations with their reasons in
-  words; the latest orders; the latest commands with who, why and what they
-  cancelled or closed. **Orders that keep failing**: an order whose
-  execution has thrown five times or more (`overview.stuckOrders`), with its
-  last error, its attempts and its strategy. It is retried every 30 s and
-  holds that strategy's later orders (an open must not run ahead of its
-  failed close); the operator's system chat gets one message at the fifth
-  failure. The panel is absent while nothing is stuck. Signals that failed
-  eight times are the backlog's "failed" count.
-- **Strategies** (`/admin/copy/strategies`, `/admin/copy/strategies/:id`):
-  the list by status, and one strategy's positions, settings versions,
-  orders and ledger.
-- **User exposure** (`/admin/copy/users`): one card per user with a live
-  copy, with that user's stop state and the same five commands at user level.
-- **Paper orders** (`/admin/copy/orders`): every order, filterable by status
-  (`?status=failed` = rejected and cancelled).
-- **Risk limits** (`/admin/copy/risk`): a form for every field of
-  `copyRiskLimitsSchema`, validated with the same schema before sending; the
-  current version, and the version history. A caller without `risk.manage`
-  sees the limits read-only.
+The 跟單 tab of the admin (since 2026-10-05; the six copy pages before it
+redirect here), with four sub-tabs:
+
+- **狀態與命令** (`/admin/copy`): the platform stop state with its revision
+  and the five commands, and a summary line (risk policy version, signal
+  backlog, orders in 24 h and how many failed; the backlog's lag when over
+  60 s). **Orders that keep failing**: an order whose execution has thrown
+  five times or more (`overview.stuckOrders`), with its last error, its
+  attempts and its strategy. It is retried every 30 s and holds that
+  strategy's later orders (an open must not run ahead of its failed close);
+  the operator's system chat gets one message at the fifth failure; the card
+  is absent while nothing is stuck. Then one **user exposure** table (search
+  by email or #id): each row has the user's copies, exposure, unrealized PnL
+  and stop state, a 停止… menu with the four stop commands at user level (and
+  resume once stopped), and 展開, which lists the user's copies inline with
+  their settings, equity and orders and a 帳本 link: the strategy's
+  positions, settings versions, orders and ledger in a drawer
+  (`?strategy=<id>`, also where the old `/admin/copy/strategies/:id` lands).
+  The latest commands with who, why and what they cancelled or closed close
+  the page.
+- **訂單** (`/admin/copy/orders`): every order with the reason a refused one
+  was refused in words, filterable by status (`?status=failed` = rejected
+  and cancelled).
+- **風控** (`/admin/copy/risk`): the four common limits (max order notional,
+  max user exposure, max slippage, blocked coins) with the rest of
+  `copyRiskLimitsSchema` under 進階, validated with the same schema before
+  sending; the current version and the version history. A caller without
+  `risk.manage` sees the limits read-only.
+- **測試網** (`/admin/copy/testnet`): the testnet execution wallets, grants,
+  transfers, orders with an open or unknown outcome and the copy latency.
+
+The platform card and every row's 停止… use the same confirmation dialog.
+An operator (read + stop pack) can send the stop commands; resume and the
+risk policy stay with the admin.
 
 Every command opens a confirmation that says what the command does and what
 it touches (users, live strategies, exposure, the revision it will be sent

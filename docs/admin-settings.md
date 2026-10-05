@@ -236,7 +236,7 @@ drag-to-reorder in 設定 → 探索). `homeMarkets` now
 lists the home page's per-market rows. The board lists are public in
 `GET /settings`.
 
-The KOL registry (`kol_traders`) is managed under `/admin/kols` with the
+The KOL registry (`kol_traders`) is managed under 交易員資料 › KOL (`/admin/traders`) with the
 `kols.manage` permission: list, add or replace by address, edit, remove,
 and CSV import (`address, display_name, x_handle, verified, sort_order[,
 avatar_url]`; `x_handle` may be a handle, `@handle` or an x.com URL).

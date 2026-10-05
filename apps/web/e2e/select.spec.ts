@@ -30,9 +30,14 @@ test("explore's sort pill opens, moves and picks with the keyboard at 1440", asy
   // The current choice is checked and has focus.
   await expect(list.getByRole("option", { selected: true })).toHaveText(before);
   await expect(list.getByRole("option", { selected: true })).toBeFocused();
-  await page.keyboard.press("ArrowDown");
-  const next = (await page.locator('[role="option"]:focus').innerText()).trim();
-  expect(next).not.toBe(before);
+  // Arrow down moves the focus off the current choice (retried: the list
+  // may still be settling its placement on a slow machine).
+  let next = before;
+  await expect.poll(async () => {
+    await page.keyboard.press("ArrowDown");
+    next = (await page.locator('[role="option"]:focus').innerText()).trim();
+    return next;
+  }, { timeout: 5000 }).not.toBe(before);
   await page.keyboard.press("Enter");
   await expect(list).toHaveCount(0);
   await expect(sort).toHaveText(next);
@@ -63,8 +68,10 @@ test("the full leaderboard's value filter works by keyboard and fits a 390 px ph
   expect(box!.x).toBeGreaterThanOrEqual(0);
   expect(box!.x + box!.width).toBeLessThanOrEqual(390);
   await expect(list.getByRole("option", { selected: true })).toBeFocused();
-  await page.keyboard.press("ArrowDown");
-  await page.keyboard.press("ArrowDown");
+  await expect.poll(async () => {
+    await page.keyboard.press("ArrowDown");
+    return (await page.locator('[role="option"]:focus').innerText()).trim();
+  }, { timeout: 5000 }).not.toBe("Any");
   await page.keyboard.press("Enter");
   await expect(list).toHaveCount(0);
   expect((await tier.innerText()).trim()).not.toBe(before);

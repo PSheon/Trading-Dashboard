@@ -122,7 +122,7 @@ One object is one unit: fills are inserted in batches (idempotent), then cursor,
 
 **Holes and bad data.** A missing object during backfill ends the pass (`missing_object`): the participants' spans stay where they are. A line that does not parse, or a download that fails its checksum, stops the cursor (`parse_error` / `corrupt_object`) until someone looks. Neither is skipped silently.
 
-**The heartbeat** (the worker's private `/health`; through the api it is `GET /admin/system/heartbeat` for admins, since the public `/health` only says whether the feed is up) gains `archive`: `liveNextHour`, `backfillCursorHour`, `lagSeconds`, `objects`, `bytes`, `fillsSeen`, `fillsKept`, `spendDayBytes`, `spendDayUsd`, `maxDailyUsd`, `backfillFloor`, `backfillPassStartedAt`, `backfillNextPassAt`, `addresses {total, backfilled, pending, excluded}`, `lastObjectKey`, `lastRunAt`, `lastError`. No UI.
+**The heartbeat** (the worker's private `/health`; through the api it is in `GET /admin/system/overview` for admins (`worker.sample.heartbeat`), since the public `/health` only says whether the feed is up) gains `archive`: `liveNextHour`, `backfillCursorHour`, `lagSeconds`, `objects`, `bytes`, `fillsSeen`, `fillsKept`, `spendDayBytes`, `spendDayUsd`, `maxDailyUsd`, `backfillFloor`, `backfillPassStartedAt`, `backfillNextPassAt`, `addresses {total, backfilled, pending, excluded}`, `lastObjectKey`, `lastRunAt`, `lastError`. No UI.
 
 ## Storage format (migration 0021, 2026-10-02)
 
@@ -214,7 +214,7 @@ The rest of a cold page is unchanged and not fill history: account states (2 per
 
 1. Create the IAM user; export the keys in a shell.
 2. `pnpm --filter @trading-dashboard/api build && node apps/api/scripts/s3-archive-probe.mjs --sample`. Confirm: key shape, first day of each prefix, sizes, lag, the line shape, whether fills carry `twapId`. Fix `S3_ARCHIVE_START` or the parser if anything differs.
-3. Migrate (`0017`), set the variables on the worker with `S3_ARCHIVE_BACKFILL_ENABLED=false` and a low `S3_ARCHIVE_MAX_DAILY_USD`; watch `/admin/system` (or `GET /admin/system/heartbeat`) for a few hours (lag, `fillsKept`, no `lastError`).
+3. Migrate (`0017`), set the variables on the worker with `S3_ARCHIVE_BACKFILL_ENABLED=false` and a low `S3_ARCHIVE_MAX_DAILY_USD`; watch the admin 總覽 (or `GET /admin/system/overview`) for a few hours (lag, `fillsKept`, no `lastError`).
 4. Run the reconciliation. Only when archive-origin fills match REST exactly, enable backfill and raise the cap.
 
 ## Not done
@@ -222,5 +222,5 @@ The rest of a cold page is unchanged and not fill history: account states (2 per
 - The by-block half of the format-change hour (`node_fills_by_block/hourly/20250727/8.lz4`) was listed, not read; the legacy half was.
 - Legacy lines carry no `twapId`, so TWAP slices before 2025-07-27 are stored in the regular stream. Only matters if the window is extended that far.
 - Funding and ledger events (`misc_events_by_block`) are not ingested; funding still comes from REST.
-- Admin UI: `/admin/system` shows whether the ingest is enabled, its state, today's spend against the cap, lag and last run; the remaining figures are in `GET /admin/system/heartbeat`.
+- Admin UI: the 總覽 tab (系統詳情) shows whether the ingest is enabled, its state, today's spend against the cap, lag and last run; the remaining figures are in `GET /admin/system/overview` (`worker.sample.heartbeat`).
 - `history_fills` has no retention or partitioning; watch its size.

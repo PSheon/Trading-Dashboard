@@ -167,7 +167,7 @@ At the default 840/min: jobs 630 (see the table), plus the home warm-up (24 port
 
 1. Stage: deploy api (runs migration `0017`), worker, web. With `S3_ARCHIVE_ENABLED=false` nothing changes in behaviour.
 2. Locally, with the Stage IAM user's keys: `node apps/api/scripts/s3-archive-probe.mjs --sample`; settle the unverified facts.
-3. Stage worker: `S3_ARCHIVE_ENABLED=true`, backfill off, cap US$0.5. Check `/admin/system` as an admin (or `GET /admin/system/heartbeat`; the public `/health` no longer carries it) → `archive.lagSeconds`, `archive.fillsKept`, `archive.lastError: null`.
+3. Stage worker: `S3_ARCHIVE_ENABLED=true`, backfill off, cap US$0.5. Check the admin 總覽 (系統詳情) as an admin (or `GET /admin/system/overview`; the public `/health` no longer carries it) → `archive.lagSeconds`, `archive.fillsKept`, `archive.lastError: null`.
 4. Run the reconciliation against Stage's data. Archive-origin fills must equal REST tid by tid.
 5. Production: same steps with its own IAM user; then backfill on, cap US$2 until `archive.addresses.pending` reaches 0.
 

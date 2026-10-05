@@ -243,3 +243,38 @@ every route above at 390 / 820 / 1024 / 1440 / 1920 light, 390 / 1440
 dark), `tabs/` (each trader tab loading | loaded, light and dark), `align/`
 (headers signed out / in at every width), `font/compare_explore.png`
 (system face on a first visit | Noto Sans TC on the next).
+
+## Stream 11 (2026-10-05): C-Styles v29 tokens, one Select, the five-tab admin
+
+**Tokens** (`C-Styles`, "全部畫板依此套用"), as shared variants rather than
+page overrides:
+
+| Primitive | Now |
+|---|---|
+| `Button` | `cta` 56 (Fredoka 600 18, 32 px sides: follow, start exploring, empty states), `default` 44 and `sm` 36 (Nunito 800), `header` 52 (top bar only), icon 44 / 36 / 52; radius half the height; text on orange `#1a1533`; `secondary` the well colour, `destructive` `#ffd9c7` / `#7a2e0c`, `inverse` dark ink. `xs` / `lg` / `xl` are gone. |
+| `Input` / `Textarea` | 48, radius 24 / 18 px sides. Header search stays 52. |
+| `Segmented` (`seg-track`, `seg-item`) | track 26 radius with a 4 px inset, 44 px segments with 22 radius; `tone="page"` orange, `tone="sub"` white inside a card; the admin's sub-tabs dark ink as the boards draw them. |
+| Chips (`chip-sm`, `chip-md`, `Badge size`) | `3px 9px / 12 / 12px` for table status, `6px 12px / 16 / 13px` next to titles and for settings values; the ROI pills, trader-tab tags, leverage tags, group tags and copy status chips use them. |
+| Cards (`Card`, `Panel`, `.orbit-card`, `card-pad`) | 28 / 22 from 768 px, 24 / 16 on phones; dialogs and empty states 32; `Drawer` (new) a 32 px side panel, a `24 24 0 0` bottom sheet on phones. |
+| Type (`type-hero`, `type-h1`, `type-h2`, `type-caption`, `type-th`) | hero 56 (28 phones; home, about, FAQ), h1 40/52 (28 phones), h2 20 (17 phones), caption 13/700, table header 12/700. The trader name is the page's 40 px h1 with its actions on their own row; its section titles are 20. |
+| Tables (`Table`, `.cd-tables`, cohort tables, `TableSkeleton`) | rows 60 high, 18 px ends, 6 px apart; `.row-expansion` (3 px orange left edge, raised, 24 px in) for an opened row. |
+
+Boards that still draw older sizes (trader tables 56/20, insights wallets
+56/28, explore list rows 64) follow the token sheet. Skeletons were resized
+with the primitives (chip bars 22 / 30, input wells 48, CTA 56).
+
+**Select** (`components/ui/select.tsx`, Paul: "沒有做統一的 select 元件"):
+one capsule trigger (48 form / 44 toolbar / 36 in a row, chevron, orange
+focus border), a 22 px panel with 44 px items and a check, scrolling, an
+optional prefix and display text; Radix Select underneath (keyboard,
+typeahead, screen readers), `searchable` swaps in a combobox for long lists.
+Every native `<select>` and every value-picking dropdown uses it (settings
+copy sections, execution wallets, admin filters and roles, the explore
+Style / Sort pills, the full leaderboard, the insights tier picker, settings
+language, trader best/worst, the deposit network, the design lab). Tests:
+`test/select.test.tsx`, `e2e/select.spec.ts`.
+
+**Admin**: five tabs (總覽 / 跟單 / 使用者 / 交易員資料 / 設定) per the
+C-AdminNew boards; see docs/admin-simplification-proposal-2026-10-05.md
+(decisions), admin-copy.md, admin-settings.md. Old admin URLs redirect
+(`ADMIN_REDIRECTS` in next.config.ts).

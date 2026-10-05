@@ -64,7 +64,7 @@ Privy 設定檢查另見 [2026-09-30 audit](privy-configuration-audit-2026-09-30
 
 只有 worker 執行補齊。每次認領一筆、每 5 秒檢查，租約 90 秒、每 20 秒續租。失敗最多自動嘗試 3 次，前兩次等待 60／120 秒；程序中斷的工作於租約到期後可接手。租約 token 防止舊執行者覆寫工作結果；歷史同步仍屬 at-least-once，依既有成交／action 去重，並不保證網路請求只發生一次。回放使用 backfill 模式，不發送即時成交通知。
 
-`/admin/jobs` 提供狀態篩選、游標分頁與失敗工作的手動重試。查看需 `jobs.read`，重試需 `jobs.retry`；重試以 expectedVersion 防止過期畫面重複操作，並在同一交易寫入 audit。HTTP 202 表示已排隊，不表示補齊完成。抓取數量也不代表上游帳戶所有歷史均完整。
+`/admin/traders/jobs`（交易員資料 › 回補工作）提供狀態篩選、游標分頁與失敗工作的手動重試。查看需 `jobs.read`，重試需 `jobs.retry`；重試以 expectedVersion 防止過期畫面重複操作，並在同一交易寫入 audit。HTTP 202 表示已排隊，不表示補齊完成。抓取數量也不代表上游帳戶所有歷史均完整。
 
 首頁快取預熱已刪除（只在已移除的 combined 模式跑過）；API 保留按需載入的程序內快取。尚未引入共享快取或 Redis。
 

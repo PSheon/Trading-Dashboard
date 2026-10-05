@@ -35,7 +35,9 @@ afterEach(() => { vi.unstubAllGlobals(); observers = []; document.body.replaceCh
 
 const bodyRows = (el: HTMLElement) => el.querySelectorAll("tbody tr").length;
 
-describe("成交 with 2,000 rows that don't merge", () => {
+// Rendering 2,000 table rows in happy-dom takes 3–5 s on CI's runner (5 s
+// was the default limit; run 37274048145 timed out at it).
+describe("成交 with 2,000 rows that don't merge", { timeout: 20_000 }, () => {
   it("puts one step of rows in the page, and the next as the end comes near, until all are there", async () => {
     vi.stubGlobal("IntersectionObserver", FakeObserver);
     const el = document.createElement("div");

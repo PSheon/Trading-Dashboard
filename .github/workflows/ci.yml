@@ -100,13 +100,14 @@ jobs:
         if: env.CODE == 'true'
         run: >-
           node --test scripts/test-database.test.mjs apps/api/scripts/migrate.test.mjs
-          scripts/ci-changes.test.mjs scripts/api-test-files.test.mjs
+          scripts/ci-changes.test.mjs scripts/api-test-files.test.mjs scripts/test-shards.test.mjs
       - name: Web tests
         if: env.CODE == 'true'
         run: pnpm --filter @trading-dashboard/web test
 
-  # The api suite, split by file across four runners. Each shard has its own
-  # PostgreSQL service and its own disposable migrated database.
+  # The api suite, split by file across four runners by recorded run time
+  # (apps/api/vitest.config.ts). Each shard has its own PostgreSQL service and
+  # its own disposable migrated database.
   api:
     name: api (${{ matrix.shard }}/4)
     needs: changes
@@ -217,8 +218,9 @@ jobs:
         run: node scripts/image-smoke.mjs orbie-api:ci
 
   # The browser suite needs no database (its server answers from fixtures).
-  # Three runners, each with its own fixture server, take a third of the
-  # spec files each.
+  # Three runners, each with its own fixture server, take a share of the spec
+  # files balanced by recorded run time (scripts/test-shards.mjs). The list
+  # reporter prints each test's duration, which refreshes those times.
   browser:
     name: browser (${{ matrix.shard }}/3)
     needs: changes
@@ -239,7 +241,10 @@ jobs:
       - name: Install Chromium
         run: pnpm --filter @trading-dashboard/web exec playwright install --with-deps chromium
       - name: Browser smoke tests
-        run: pnpm --filter @trading-dashboard/web test:e2e --shard=${{ matrix.shard }}/3
+        run: |
+          node scripts/test-shards.mjs e2e ${{ matrix.shard }}/3 > "$RUNNER_TEMP/e2e-shard.txt"
+          cat "$RUNNER_TEMP/e2e-shard.txt"
+          pnpm --filter @trading-dashboard/web test:e2e --test-list "$RUNNER_TEMP/e2e-shard.txt" --reporter=list
       - name: Keep traces and screenshots of the failures
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

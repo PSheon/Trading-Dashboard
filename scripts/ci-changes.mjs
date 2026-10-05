@@ -21,6 +21,8 @@ const RULES = [
   [/^apps\/api\//, ['api']],
   [/^apps\/web\//, ['web']],
   [/^packages\/shared\//, ['api', 'web']],
+  // Splits both the api and the browser suites.
+  [/^scripts\/test-shards\.(?:mjs|d\.mts)$/, ['api', 'web']],
   [/^scripts\//, ['api']],
 ];
 
@@ -74,7 +76,7 @@ const shell = {
   },
 };
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   let result;
   try {
     const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));

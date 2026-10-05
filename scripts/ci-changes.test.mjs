@@ -15,6 +15,8 @@ test('each app maps to its own group; shared packages need both', () => {
   assert.deepEqual(classify(['apps/web/src/app/page.tsx', 'docs/x.md']), { api: false, web: true, code: true });
   assert.deepEqual(classify(['packages/shared/src/index.ts']), { api: true, web: true, code: true });
   assert.deepEqual(classify(['scripts/migration-smoke.mjs']), { api: true, web: false, code: true });
+  assert.deepEqual(classify(['scripts/test-shards.mjs']), { api: true, web: true, code: true });
+  assert.deepEqual(classify(['apps/web/e2e/shard-durations.json']), { api: false, web: true, code: true });
   // A README inside an app is that app's file, not documentation.
   assert.deepEqual(classify(['apps/api/src/copy/live/README.md']), { api: true, web: false, code: true });
 });

@@ -23,7 +23,7 @@ changes ─┬─ checks                 lint, typecheck, doc checks, script + w
 | `api (n/4)` | `api` | `pnpm test:api:isolated --shard=n/4` |
 | `smokes` | `api` | `migration-smoke.mjs`, `backup-restore-smoke.mjs` (pg_dump/pg_restore 16) |
 | `build` | `code` | `pnpm build`, `bootstrap-smoke.mjs`, `docker build`, `image-smoke.mjs` |
-| `browser (n/3)` | `web` | `test:e2e --shard=n/3`; traces and screenshots of failures are uploaded as `playwright-results-n` |
+| `browser (n/3)` | `web` | `test:e2e --test-list` of the shard's specs (`scripts/test-shards.mjs`); traces and screenshots of failures are uploaded as `playwright-results-n` |
 | `ci` | always | fails if any job above failed or was cancelled; skipped is fine |
 
 **Branch protection targets `ci`** (one stable name, whatever ran). Job
@@ -67,19 +67,38 @@ rerunning; `TURBO_CACHE_MAX_SIZE=1GB` bounds it.
 
 ## Shards
 
-Vitest splits the api suite by file (`--shard`, a stable hash of each path, an
-equal file count per shard). `scripts/test-api-isolated.mjs` passes the option
-through (`scripts/api-test-files.test.mjs`). Each shard creates its own
-database, so files never share one across runners. Run one shard locally the
-same way:
+Both suites are split by file, balanced by each file's run time in an earlier
+CI run, not by file count: `apps/api/test/shard-durations.json` and
+`apps/web/e2e/shard-durations.json`. `scripts/test-shards.mjs` puts the longest
+files first, each onto the shard with the least time so far; a file with no
+recorded time counts as the median one. Every file is in exactly one shard
+whatever the durations say, so stale times only cost balance.
+
+- api: `apps/api/vitest.config.ts` replaces Vitest's `--shard` split (a hash of
+  each path, an equal file count, which ran 235–352 s per shard) with that one.
+  `scripts/test-api-isolated.mjs` passes `--shard` through
+  (`scripts/api-test-files.test.mjs`); each shard creates its own database.
+- browser: `node scripts/test-shards.mjs e2e n/3` prints the shard's specs and
+  Playwright runs them with `--test-list` (Playwright's own `--shard` splits
+  contiguous runs of files by test count, 190–387 s per shard).
+
+Run one shard locally the same way:
 
 ```bash
 TEST_DATABASE_ADMIN_URL=postgres://postgres:postgres@127.0.0.1:5432/postgres \
   pnpm test:api:isolated --shard=2/4
+node scripts/test-shards.mjs e2e 2/3 > /tmp/e2e-shard.txt
+pnpm --filter @trading-dashboard/web test:e2e --test-list /tmp/e2e-shard.txt
 ```
 
-The browser shards are Playwright's `--shard` (spec files in order, balanced by
-test count): `pnpm --filter @trading-dashboard/web test:e2e --shard=2/3`.
+Refresh the times when the shards drift apart (the api shards print each file's
+time, the browser shards use the list reporter):
+
+```bash
+for job in $(gh run view <run-id> --json jobs --jq '.jobs[] | select(.name | test("^(api|browser) ")) | .databaseId'); do
+  gh run view --job "$job" --log > "/tmp/shard-$job.log"; done
+node scripts/test-shards.mjs refresh /tmp/shard-*.log
+```
 
 Root `pnpm test` now creates a fresh database for the API run, then runs web
 unit tests. `pnpm test:api:isolated [vitest filters]` runs only the isolated API

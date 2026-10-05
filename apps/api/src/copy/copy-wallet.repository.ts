@@ -70,6 +70,14 @@ export class CopyWalletRepository {
       throw error;
     }
   }
+  /** The worker became this ready account's policy-bound signer. Identity is
+   * unchanged, so the revision (which consents bind) stays as it is. */
+  async recordMasterSigner(id: string, fields: { masterPolicyId: string; masterPolicyFingerprint: string; masterSignerQuorumId: string; sweepDestination: string; signerAttachedAt: Date; walletId: string; address: string }) {
+    return this.withLockedAccount(id, async tx => (await tx.update(copyExecutionAccounts).set({ masterPolicyId: fields.masterPolicyId, masterPolicyFingerprint: fields.masterPolicyFingerprint,
+      masterSignerQuorumId: fields.masterSignerQuorumId, sweepDestination: fields.sweepDestination, signerAttachedAt: fields.signerAttachedAt, updatedAt: new Date() })
+      .where(and(eq(copyExecutionAccounts.id, id), eq(copyExecutionAccounts.state, "ready"), eq(copyExecutionAccounts.privyWalletId, fields.walletId), eq(copyExecutionAccounts.address, fields.address),
+        sql`${copyExecutionAccounts.masterPolicyId} is null`)).returning())[0]);
+  }
   async failReverification(id: string, revision: number, issue: AccountRow["issue"]) {
     await this.withLockedAccount(id, tx => tx.update(copyExecutionAccounts).set({ state: "unknown", issue, updatedAt: new Date(), revision: sql`${copyExecutionAccounts.revision} + 1` })
       .where(and(eq(copyExecutionAccounts.id, id), eq(copyExecutionAccounts.state, "ready"), eq(copyExecutionAccounts.revision, revision))));

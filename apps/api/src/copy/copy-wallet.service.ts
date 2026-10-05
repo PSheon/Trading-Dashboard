@@ -1,14 +1,15 @@
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
+import { BadRequestException, ConflictException, HttpException, Inject, Injectable, NotFoundException, Optional, ServiceUnavailableException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { createCopyExecutionWalletSchema, type CopyExecutionAccount, type CopyExecutionWallets, type CopyWalletGrant } from "@trading-dashboard/shared/contracts";
 import { AppConfig } from "../config/app-config.js";
 import { UnitOfWork } from "../db/unit-of-work.js";
 import { ProvisioningVerificationPending, ProvisioningWalletConflict, USER_WALLET_PROVISIONER, type UserWalletProvisioner } from "./live/privy-wallet-provisioner.js";
 import { CopyWalletRepository, type AccountRow, type GrantRow, type AgentRow } from "./copy-wallet.repository.js";
+import { MASTER_POLICY, type MasterPolicyPort } from "./live/privy-master-policy.js";
 
 function account(row: AccountRow): CopyExecutionAccount {
   return { id: row.id, strategyId: row.strategyId, network: row.network, state: row.state,
-    address: row.state === "ready" ? row.address : null, issue: row.issue, revision: row.revision,
+    address: row.state === "ready" ? row.address : null, issue: row.issue, revision: row.revision, automaticReturn: row.masterPolicyId !== null,
     createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() };
 }
 function authorization(grant: GrantRow, wallet: AgentRow): CopyWalletGrant {
@@ -24,7 +25,46 @@ function authorization(grant: GrantRow, wallet: AgentRow): CopyWalletGrant {
 @Injectable()
 export class CopyWalletService {
   constructor(private readonly repository: CopyWalletRepository, private readonly uow: UnitOfWork,
-    private readonly config: AppConfig, @Inject(USER_WALLET_PROVISIONER) private readonly provider: UserWalletProvisioner) {}
+    private readonly config: AppConfig, @Inject(USER_WALLET_PROVISIONER) private readonly provider: UserWalletProvisioner,
+    @Optional() @Inject(MASTER_POLICY) private readonly masterPolicy: MasterPolicyPort | null = null) {}
+
+  /**
+   * The automatic return (one-click plan §2, §3b): the owner's own session
+   * adds the worker quorum as this ready testnet account's only additional
+   * signer, bound by a new policy the owner owns (UsdSend only to the owner's
+   * main wallet, standard account mode only, no export). Off unless
+   * COPY_AUTOMATIC_RETURN (the Privy prototype's owner-session checks).
+   * Repeatable: the policy is created idempotently per account and the
+   * update sets the exact signer list.
+   */
+  async enableAutomaticReturn(userId: number, id: string, userJwt: string): Promise<CopyExecutionAccount> {
+    const { copy } = this.config.value;
+    const quorum = copy.agent?.workerQuorumId;
+    if (copy.mode !== "testnet" || !copy.live?.automaticReturn || !quorum || !this.masterPolicy?.available) {
+      throw new ServiceUnavailableException({ statusCode: 503, code: "setup_unavailable", message: "Automatic return is not available" });
+    }
+    const user = await this.owner(userId);
+    const row = await this.repository.account(id, userId);
+    if (!row) throw new NotFoundException("Execution wallet not found");
+    if (row.masterPolicyId) return account(row);
+    const strategy = await this.repository.ownedStrategy(userId, row.strategyId);
+    if (row.state !== "ready" || row.network !== "testnet" || !row.privyWalletId || !row.address || !row.ownerQuorumId || row.privyUserId !== user.privyUserId ||
+      !user.embeddedWalletAddress || !strategy || strategy.status === "stopped" || strategy.status === "stopping") throw new ConflictException({ statusCode: 409, code: "setup_wallet_conflict", message: "This copy wallet can't take the automatic return" });
+    const binding = { ownerMain: user.embeddedWalletAddress.toLowerCase(), account: row.address };
+    try {
+      const policy = await this.masterPolicy.create(user.privyUserId, binding, `master_${row.id.replaceAll("-", "")}`);
+      const verified = await this.masterPolicy.verify(policy.id, user.privyUserId, binding);
+      await this.masterPolicy.attach(row.privyWalletId, userJwt, quorum, verified.id);
+      await this.masterPolicy.assertSigner(row.privyWalletId, { address: row.address, ownerQuorumId: row.ownerQuorumId, workerQuorumId: quorum, policyId: verified.id });
+      const recorded = await this.repository.recordMasterSigner(row.id, { masterPolicyId: verified.id, masterPolicyFingerprint: verified.fingerprint, masterSignerQuorumId: quorum,
+        sweepDestination: binding.ownerMain, signerAttachedAt: new Date(), walletId: row.privyWalletId, address: row.address });
+      return account(recorded ?? (await this.repository.account(id, userId))!);
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      // No provider detail, token or DID leaves the API.
+      throw new ServiceUnavailableException({ statusCode: 503, code: "setup_unavailable", message: "Automatic return could not be set up; try again" });
+    }
+  }
 
   private async owner(userId: number) {
     const user = await this.repository.enabledOwner(userId);

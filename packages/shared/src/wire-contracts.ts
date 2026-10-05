@@ -408,6 +408,7 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "POST", path: "/me/copy/live/builder-approvals/:id/reconcile", status: 200, auth: "user (owner); read only", response: copyBuilderApprovalSchema },
   { method: "POST", path: "/me/copy/strategies/:id/execution-wallet", status: 200, auth: "user (owner); configured wallet provider; deployment network only", response: copyExecutionAccountSchema },
   { method: "POST", path: "/me/copy/execution-wallets/:id/reconcile", status: 200, auth: "user (owner)", response: copyExecutionAccountSchema },
+  { method: "POST", path: "/me/copy/execution-wallets/:id/automatic-return", status: 200, auth: "user (owner); testnet; fresh session adds the policy-bound worker signer", response: copyExecutionAccountSchema, errors: ["setup_unavailable", "setup_wallet_conflict"] },
   { method: "POST", path: "/me/copy/wallet-authorizations/:id/revoke", status: 200, auth: "user (owner)", response: copyWalletGrantSchema },
   { method: "GET", path: "/admin/copy/overview", status: 200, auth: "copy.read", response: wireAdminCopyOverviewSchema },
   { method: "GET", path: "/admin/copy/strategies", status: 200, auth: "copy.read", response: wireAdminCopyStrategiesSchema },

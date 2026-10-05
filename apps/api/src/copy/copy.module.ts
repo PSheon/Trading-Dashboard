@@ -27,6 +27,7 @@ import { CopyWalletRepository } from "./copy-wallet.repository.js";
 import { CopyAdminLiveRepository } from "./copy-admin-live.repository.js";
 import { CopyAdminLiveService } from "./copy-admin-live.service.js";
 import { PrivyUserWalletProvisioner, USER_WALLET_PROVISIONER } from "./live/privy-wallet-provisioner.js";
+import { MASTER_POLICY, PrivyMasterPolicy } from "./live/privy-master-policy.js";
 import { CopyFundingController } from "./copy-funding.controller.js";
 import { CopyFundingRepository } from "./copy-funding.repository.js";
 import { CopyFundingService } from "./copy-funding.service.js";
@@ -97,6 +98,7 @@ import { HyperliquidAllDexsAccountSource } from './live/live-account-ws-source.j
     { provide: WalletAuthorizationService, inject: [PostgresWalletAuthorizationSource, HyperliquidAgentApprovalVerifier],
       useFactory: (source: PostgresWalletAuthorizationSource, exchange: HyperliquidAgentApprovalVerifier) => new WalletAuthorizationService(source, exchange) },
     CopyWalletService, CopyWalletRepository, { provide: USER_WALLET_PROVISIONER, useClass: PrivyUserWalletProvisioner },
+    { provide: MASTER_POLICY, inject: [AppConfig], useFactory: (config: AppConfig) => new PrivyMasterPolicy(config.value.auth) },
     CopyFundingRepository, CopyFundingService, {provide:CopyFundingExchangeClient,inject:[RequestBudgeterService,HyperliquidGlobalTransport],useFactory:(budget:RequestBudgeterService,transport:HyperliquidGlobalTransport)=>new CopyFundingExchangeClient(budget,transport)},
     CopyAgentRepository, CopyAgentService,
     CopyAccountModeRepository, CopyAccountModeService,

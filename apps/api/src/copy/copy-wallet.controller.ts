@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, HttpCode, Param, Post } from "@nestjs/common";
+import { Body, Controller, Get, Header, Headers, HttpCode, Param, Post, UnauthorizedException } from "@nestjs/common";
 import { CurrentUser, requireUserId, type RequestUser } from "../common/auth/current-user.js";
 import { ApiDoc } from "../common/decorators/http.decorator.js";
 import { CopyStrategyParamsDto } from "./dto/copy.dto.js";
@@ -26,6 +26,14 @@ export class CopyWalletController {
   @Header("Cache-Control", "no-store")
   reconcile(@Param() params: CopyWalletIdDto, @CurrentUser() user: RequestUser | null) { return this.wallets.reconcile(requireUserId(user), params.id); }
 
+  @ApiDoc("Turn on the automatic return for my testnet copy wallet", "With my session, adds Orbie's worker as the wallet's only additional signer, bound by a Privy policy I own: it can return this wallet's USDC only to my main wallet and set the standard account mode, never export the key. 503 setup_unavailable while the deployment has it off (COPY_AUTOMATIC_RETURN).")
+  @Post("execution-wallets/:id/automatic-return")
+  @HttpCode(200)
+  @Header("Cache-Control", "no-store")
+  automaticReturn(@Param() params: CopyWalletIdDto, @CurrentUser() user: RequestUser | null, @Headers("authorization") authorization?: string) {
+    if (!authorization?.startsWith("Bearer ") || !authorization.slice(7).trim()) throw new UnauthorizedException("Sign in required");
+    return this.wallets.enableAutomaticReturn(requireUserId(user), params.id, authorization.slice(7).trim());
+  }
   @ApiDoc("Revoke my local trading grant", "Atomically increments the grant version and records consent revocation. Blocks future server signatures; does not remove the exchange agent or cancel orders already accepted by the exchange.")
   @Post("wallet-authorizations/:id/revoke")
   @HttpCode(200)

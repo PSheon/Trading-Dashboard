@@ -160,6 +160,7 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | POST | `/me/copy/live/builder-approvals/:id/reconcile` | 200 | user (owner); read only |
 | POST | `/me/copy/strategies/:id/execution-wallet` | 200 | user (owner); configured wallet provider; deployment network only |
 | POST | `/me/copy/execution-wallets/:id/reconcile` | 200 | user (owner) |
+| POST | `/me/copy/execution-wallets/:id/automatic-return` | 200 | user (owner); testnet; fresh session adds the policy-bound worker signer |
 | POST | `/me/copy/wallet-authorizations/:id/revoke` | 200 | user (owner) |
 | GET | `/admin/copy/overview` | 200 | copy.read |
 | GET | `/admin/copy/strategies` | 200 | copy.read |

@@ -86,8 +86,16 @@ const walletSchema = z.object({ id: z.string(), address: z.string(), owner_id: z
 
 export interface VerifiedMasterPolicy { readonly id: string; readonly ownerQuorumId: string; readonly fingerprint: string }
 
+export const MASTER_POLICY = Symbol('MASTER_POLICY');
+export interface MasterPolicyPort {
+  readonly available: boolean;
+  create(userId: string, binding: MasterPolicyBinding, attemptKey: string): Promise<{ id: string }>;
+  verify(policyId: string, userId: string, binding: MasterPolicyBinding): Promise<VerifiedMasterPolicy>;
+  attach(walletId: string, userJwt: string, workerQuorumId: string, policyId: string): Promise<void>;
+  assertSigner(walletId: string, expected: { address: string; ownerQuorumId: string; workerQuorumId: string; policyId: string }): Promise<void>;
+}
 /** Creates, verifies and attaches the master policy. Holds no user session. */
-export class PrivyMasterPolicy {
+export class PrivyMasterPolicy implements MasterPolicyPort {
   private readonly client: PrivyClient | null;
   constructor(config: { appId?: string; appSecret?: string }, client?: PrivyClient) {
     this.client = client ?? (config.appId && config.appSecret ? new PrivyClient({ appId: config.appId, appSecret: config.appSecret, timeout: 10_000, maxRetries: 0, logLevel: 'off' }) : null);

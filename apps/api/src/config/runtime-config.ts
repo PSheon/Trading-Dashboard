@@ -66,6 +66,11 @@ export interface LiveCopyConfig {
   /** How long a grant whose revocation an admin requested stays usable for
    * its copy's stop before it is revoked anyway (COPY_LIVE_REVOKE_DEADLINE_MINUTES). */
   revokeDeadlineMs?: number;
+  /** New copy wallets get the worker as a policy-bound additional signer, so
+   * their funds return automatically after a stop (COPY_AUTOMATIC_RETURN,
+   * default off until the Privy prototype's owner-session checks pass:
+   * docs/one-click-copy-plan-2026-10-05.md, prototype results). */
+  automaticReturn?: boolean;
   /** Largest testnet/mainnet mid difference at which a mainnet leader's open
    * is still mirrored on testnet (COPY_TESTNET_MAX_PRICE_DEVIATION_BPS). */
   maxSourceDeviationBps: number;
@@ -99,6 +104,7 @@ function copyTrading(source: Environment, wallet: "mainnet" | "testnet", egressK
       intervalMs: integerValue("COPY_LIVE_INTERVAL_MS", source.COPY_LIVE_INTERVAL_MS, 3000, 1000, 60_000),
       weightPerMin: integerValue("COPY_LIVE_WEIGHT_PER_MIN", source.COPY_LIVE_WEIGHT_PER_MIN, 300, 100, 400),
       revokeDeadlineMs: integerValue("COPY_LIVE_REVOKE_DEADLINE_MINUTES", source.COPY_LIVE_REVOKE_DEADLINE_MINUTES, 30, 1, 1440) * 60_000,
+      automaticReturn: booleanValue("COPY_AUTOMATIC_RETURN", source.COPY_AUTOMATIC_RETURN, false),
     };
   }
   return {

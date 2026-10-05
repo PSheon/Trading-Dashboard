@@ -27211,6 +27211,9 @@
                                     "type": "null"
                                   }
                                 ]
+                              },
+                              "automaticReturn": {
+                                "type": "boolean"
                               }
                             },
                             "required": [
@@ -27465,6 +27468,9 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "automaticReturn": {
+                          "type": "boolean"
                         }
                       },
                       "required": [
@@ -27619,6 +27625,9 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "automaticReturn": {
+                          "type": "boolean"
                         }
                       },
                       "required": [
@@ -27663,6 +27672,175 @@
         ],
         "x-required-permissions": [],
         "x-required-roles": []
+      }
+    },
+    "/me/copy/execution-wallets/{id}/automatic-return": {
+      "post": {
+        "description": "With my session, adds Orbie's worker as the wallet's only additional signer, bound by a Privy policy I own: it can return this wallet's USDC only to my main wallet and set the standard account mode, never export the key. 503 setup_unavailable while the deployment has it off (COPY_AUTOMATIC_RETURN).\n\nAccess: user (owner); testnet; fresh session adds the policy-bound worker signer\n\nError codes: setup_unavailable, setup_wallet_conflict",
+        "operationId": "CopyWalletController_automaticReturn",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "authorization",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "strategyId": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "network": {
+                          "type": "string",
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "requested",
+                            "unknown",
+                            "ready",
+                            "blocked"
+                          ]
+                        },
+                        "address": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "issue": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "verification_pending",
+                                "provider_unavailable",
+                                "wallet_conflict"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "automaticReturn": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "strategyId",
+                        "network",
+                        "state",
+                        "address",
+                        "createdAt",
+                        "updatedAt",
+                        "issue"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Turn on the automatic return for my testnet copy wallet",
+        "tags": [
+          "CopyWallet"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "x-error-codes": [
+          "setup_unavailable",
+          "setup_wallet_conflict"
+        ]
       }
     },
     "/me/copy/wallet-authorizations/{id}/revoke": {

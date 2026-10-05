@@ -9,6 +9,9 @@ export const copyExecutionAccountSchema = z.object({
   /** Optional while older deployed APIs roll out; never synthesize it. */
   revision: z.number().int().positive().optional(),
   issue: z.enum(["verification_pending", "provider_unavailable", "wallet_conflict"]).nullable(),
+  /** The worker returns this wallet's funds to the main wallet by itself
+   * after a stop (policy-bound signer). Optional while older APIs roll out. */
+  automaticReturn: z.boolean().optional(),
 });
 export const copyWalletGrantSchema = z.object({
   id: z.string(), strategyId: z.number().int().positive(), network: copyWalletNetworkSchema,

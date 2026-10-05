@@ -26,7 +26,9 @@ const stageTone: Record<LiveCopyItem['stage'], string> = {
  * shows (needs deposit, funding, awaiting credit, active, paused, stopping,
  * returning funds) and its actions: deposit or finish setup, withdraw idle
  * funds, close one position, stop (cancel, close, flat), sign the order
- * cancellation consent, return everything to the main wallet.
+ * cancellation consent, return everything to the main wallet. An account
+ * with the automatic return withdraws idle funds without a signature and
+ * returns everything by itself after a stop (自動返還中, then the amount).
  */
 export function LiveCopies({ className }: { className?: string }) {
   const { locale } = useI18n(), text = liveCopiesMessages[locale];
@@ -66,18 +68,23 @@ function LiveCopyRow({ item, text, account, mandate }: { item: LiveCopyItem; tex
   const running = item.stage === 'active' || item.stage === 'paused' || item.stage === 'starting';
   const validAmount = /^\d+(?:\.\d{1,6})?$/.test(amount) && Number(amount) > 0;
   const reason = item.lastRefusal ? (item.lastRefusal.reason === 'live_source_price_deviation' ? text.priceDeviation : item.lastRefusal.reason) : null;
+  // The worker returns this account's funds by itself after a stop (no
+  // signature): 自動返還中 instead of the 全部返還主錢包 button.
+  const automatic = item.automaticReturn === true;
+  const autoReturning = automatic && item.stage === 'sweeping';
   return (
     <div className="flex flex-col gap-3 px-4 py-4 text-sm">
       <div className="flex flex-wrap items-center gap-2">
         <Link href={`/trader/${item.leaderAddress}`} className="num font-semibold hover:underline">{shortAddress(item.leaderAddress)}</Link>
         <span className="rounded bg-raised px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground">{text.testnet}</span>
         <span className="rounded bg-raised px-1.5 py-0.5 text-[11px] text-muted-foreground">{item.sourceNetwork === 'mainnet' ? text.mainnetLeader : text.testnetLeader}</span>
-        <span role="status" className={cn('rounded px-1.5 py-0.5 text-[11px] font-semibold', stageTone[item.stage])}>{text.stages[item.stage]}</span>
+        <span role="status" className={cn('rounded px-1.5 py-0.5 text-[11px] font-semibold', stageTone[item.stage])}>{autoReturning ? text.autoReturning : text.stages[item.stage]}</span>
       </div>
-      <p className="text-xs leading-5 text-muted-foreground">{text.hints[item.stage]}</p>
+      <p className="text-xs leading-5 text-muted-foreground">{autoReturning ? text.autoReturningHint : text.hints[item.stage]}</p>
+      {item.stage === 'stopped' && item.sweep?.status === 'credited' ? <p className="num text-xs font-semibold text-positive">{text.returned.replace('{amount}', item.sweep.amount)}</p> : null}
       {reason ? <p className="text-xs text-warning">{text.refusal.replace('{reason}', reason)}</p> : null}
       {item.pendingTransfer ? <p className="text-xs">{text.transfer.replace('{status}', item.pendingTransfer.status).replace('{amount}', item.pendingTransfer.amount)}</p> : null}
-      {item.pendingTransfer?.direction === 'to_main' && item.pendingTransfer.status === 'prepared' ? (
+      {item.pendingTransfer?.direction === 'to_main' && item.pendingTransfer.status === 'prepared' && !autoReturning ? (
         <Button size="sm" variant="secondary" className="self-start" disabled={busy} onClick={() => actions.cancelTransfer.mutate({ operationId: item.pendingTransfer!.id })}>{text.cancelReturn}</Button>
       ) : null}
       {observed ? (
@@ -112,7 +119,7 @@ function LiveCopyRow({ item, text, account, mandate }: { item: LiveCopyItem; tex
         {item.stage === 'setup' ? <Link href={SETTINGS} className="text-xs font-semibold text-primary-text underline">{text.setup}</Link> : null}
         {item.stage === 'needs_deposit' ? <Link href={SETTINGS} className="text-xs font-semibold text-primary-text underline">{text.deposit}</Link> : null}
         {running && item.accountId && !item.pendingTransfer ? (
-          <form className="flex items-end gap-2" onSubmit={event => { event.preventDefault(); if (validAmount) actions.transfer.mutate({ accountId: item.accountId!, amount }); }}>
+          <form className="flex items-end gap-2" onSubmit={event => { event.preventDefault(); if (validAmount) actions.transfer.mutate({ accountId: item.accountId!, amount, automatic }); }}>
             <label className="text-xs">{text.amount}
               <input name="withdraw" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value.trim())} disabled={busy}
                 className="mt-1 block w-28 rounded-xl bg-inset px-2 py-1.5 text-sm" autoComplete="off" />
@@ -126,7 +133,7 @@ function LiveCopyRow({ item, text, account, mandate }: { item: LiveCopyItem; tex
             <Button size="sm" disabled={busy} onClick={() => actions.cancellation.mutate({ stopId: item.stop!.id })}>{text.consent}</Button>
           </div>
         ) : null}
-        {item.stage === 'sweeping' && item.accountId && !item.pendingTransfer ? (
+        {item.stage === 'sweeping' && item.accountId && !item.pendingTransfer && !automatic ? (
           <Button size="sm" disabled={busy} onClick={() => actions.transfer.mutate({ accountId: item.accountId!, amount: 'all' })}>{text.returnAll}</Button>
         ) : null}
         {busy ? <span role="status" className="text-xs text-muted-foreground">{text.busy}</span> : null}

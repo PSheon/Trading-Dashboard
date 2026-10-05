@@ -6,13 +6,13 @@ import { I18nProvider } from "../src/i18n/provider";
 import { zhTW } from "../src/i18n/messages/zh-TW";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh() {} }) }));
-vi.mock("../src/lib/auth", () => ({ useAuth: () => ({ status: "signedIn", login() {} }) }));
+vi.mock("../src/lib/auth", () => ({ useAuth: () => ({ status: copy.status, login() {} }) }));
 vi.mock("../src/lib/copy", () => ({
-  useCopyOverview: () => ({ data: { paper: { balance: 1000 }, limits: { minAllocationUsd: 100 }, platform: { pauseNewRisk: false, reduceOnly: false }, user: { pauseNewRisk: false, reduceOnly: false } } }),
+  useCopyOverview: () => ({ data: { paper: { balance: copy.balance }, limits: { minAllocationUsd: 100 }, platform: { pauseNewRisk: false, reduceOnly: false }, user: { pauseNewRisk: false, reduceOnly: false } } }),
   useCopyOf: () => copy.existing,
   useStartCopy: () => ({ mutate() {}, isPending: false }),
 }));
-const copy = vi.hoisted(() => ({ existing: undefined as unknown, enabled: true }));
+const copy = vi.hoisted(() => ({ existing: undefined as unknown, enabled: true, status: "signedIn", balance: 1000 }));
 // The site settings still carry a referral code; the panel must not show it.
 vi.mock("../src/lib/queries", () => ({ useSiteSettings: () => ({ data: { referralCode: "ORBIE", copyTradingEnabled: copy.enabled } }) }));
 
@@ -75,4 +75,24 @@ it("the start of a copy can say which of the trader's positions were not copied,
   ]);
   const delta = copyStrategySchema.parse(JSON.parse(JSON.stringify(fixtureStartCopy({ leader: `0x${"ce".repeat(20)}`, allocationUsd: 500, copyStartMode: "delta" }))));
   expect(delta.adoption).toBeUndefined();
+});
+
+it("with a zero balance the amount is locked and the call to action is disabled, saying the balance is not enough", () => {
+  copy.balance = 0;
+  for (const sheet of [false, true]) {
+    const html = render(sheet);
+    expect(cta(html)).toContain(zhTW.trader.copy.notEnoughBalance);
+    expect(cta(html)).toContain("disabled=\"\"");
+  }
+  expect(render(false)).toMatch(/<input[^>]*id="copy-amount"[^>]*disabled=""/);
+  copy.balance = 1000;
+});
+
+it("signed out, the amount is locked and the call to action signs in", () => {
+  copy.status = "signedOut";
+  const html = render(false);
+  expect(cta(html)).toContain(zhTW.common.signIn);
+  expect(cta(html)).not.toContain("disabled=\"\"");
+  expect(html).toMatch(/<input[^>]*id="copy-amount"[^>]*disabled=""/);
+  copy.status = "signedIn";
 });

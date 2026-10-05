@@ -107,8 +107,16 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
     return () => observer.disconnect();
   }, [amount]);
 
+  // Nothing to copy with: a signed-in user with a known zero balance gets a
+  // locked amount and button; a visitor gets a locked amount and a button
+  // that signs in.
+  const empty = signedIn && balanceKnown && balance <= 0;
+  const amountLocked = empty || !signedIn;
+
   const label =
     closed ? t("trader.copy.errors.disabled") :
+    !signedIn ? t("common.signIn") :
+    empty ? t("trader.copy.notEnoughBalance") :
     !amount || !(value > 0) ? t("trader.copy.enterAmount") :
     value < min ? t("trader.copy.minToCopy", { min: format.num(min) }) :
     balanceKnown && value > balance ? t("trader.copy.notEnoughBalance") :
@@ -261,7 +269,16 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
           </div>
         </div>
       ) : (
-        <div ref={fieldRef} className="flex min-w-0 items-baseline gap-2.5 pt-10">
+        <div
+          ref={fieldRef}
+          // The whole row is the field: a press anywhere but 最大 types.
+          onPointerDown={(e) => {
+            if (amountLocked || (e.target as HTMLElement).closest("button, input")) return;
+            e.preventDefault();
+            fieldRef.current?.querySelector<HTMLInputElement>("input")?.focus();
+          }}
+          className={cn("flex min-w-0 items-baseline gap-2.5 pt-10", amountLocked ? "cursor-not-allowed" : "cursor-text")}
+        >
           <label className="sr-only" htmlFor="copy-amount">
             {t("trader.copy.amount")}
           </label>
@@ -269,6 +286,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
             id="copy-amount"
             inputMode="decimal"
             placeholder="0"
+            disabled={amountLocked}
             value={amount}
             onChange={(e) => {
               setAmount(amountInput(e.target.value, amount).slice(0, 12));
@@ -277,7 +295,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
               // CopyDog clamps to the whole-dollar balance when focus leaves.
               if (amount && Number.isFinite(value) && balanceKnown) setAmount(String(Math.min(Math.floor(value), Math.floor(balance))));
             }}
-            className="num min-w-[1ch] bg-transparent p-0 font-display leading-none outline-none placeholder:text-foreground"
+            className="num min-w-[1ch] bg-transparent p-0 font-display leading-none outline-none placeholder:text-foreground disabled:cursor-not-allowed disabled:placeholder:text-muted-foreground"
             style={{ width: `${Math.max(1, (amount || "0").length)}ch`, fontSize: amountPx, height: Math.round(amountPx * 1.328) }}
           />
           {/* Orbit: the amount is the big figure, the unit a quiet suffix. */}
@@ -327,11 +345,12 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
               <button
                 key={k}
                 type="button"
+                disabled={amountLocked}
                 aria-label={k === "del" ? "Backspace" : k}
                 onClick={() => {
                   setAmount((a) => (k === "del" ? a.slice(0, -1) : `${a}${k}`.replace(/^0+(?=\d)/, "").slice(0, 12)));
                 }}
-                className="flex h-12 items-center justify-center rounded-xl text-xl font-semibold outline-none active:bg-raised focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex h-12 items-center justify-center rounded-xl text-xl font-semibold outline-none active:bg-raised focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {k === "del" ? <Delete className="size-6" strokeWidth={1.8} /> : k}
               </button>
@@ -409,8 +428,8 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
         <button
           type="button"
           onClick={submit}
-          disabled={start.isPending || started || closed}
-          className="orbit-press flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-primary px-8 font-display text-lg text-primary-foreground outline-none hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:opacity-80"
+          disabled={start.isPending || started || closed || empty}
+          className="orbit-press flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-primary px-8 font-display text-lg text-primary-foreground outline-none hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:cursor-not-allowed disabled:opacity-50"
         >
           {started ? (
             <>

@@ -40,14 +40,16 @@ export function useLiveCopyPortfolioActions() {
   const done = (name: string) => { keys.current.delete(name); void client.invalidateQueries({ queryKey: key, exact: true }); void client.invalidateQueries({ queryKey: [...queryKeys.copy.all] }); };
   const sign = (typed: Eip712TypedData) => { const wallet = auth.wallet; if (!wallet) throw new Error('owner_wallet_unavailable'); return wallet.signTypedData(typed); };
 
-  /** Idle funds while copying (an amount), or everything after a flat stop ("all"). */
+  /** Idle funds while copying (an amount), or everything after a flat stop
+   * ("all"). `automatic`: the account has the automatic return, so the
+   * worker signs it (its policy allows only the main wallet): no signature. */
   const transfer = useMutation({
-    mutationFn: async ({ accountId, amount }: { accountId: string; amount: string }) => {
+    mutationFn: async ({ accountId, amount, automatic = false }: { accountId: string; amount: string; automatic?: boolean }) => {
       const name = `return:${accountId}:${amount}`;
       const challenge = copyReturnChallengeSchema.parse(await api.post(`${ROOT}/execution-wallets/${encodeURIComponent(accountId)}/returns`, { idempotencyKey: keyFor(name), amount }));
       if (challenge.operation.status !== 'prepared') { done(name); return challenge.operation; }
-      const consentSignature = await sign(copyReturnConsentTypedData(challenge.consent));
-      const result = copyFundingSchema.parse(await api.post(`${ROOT}/returns/${encodeURIComponent(challenge.operation.id)}/approve`, { consentSignature }));
+      const body = automatic ? {} : { consentSignature: await sign(copyReturnConsentTypedData(challenge.consent)) };
+      const result = copyFundingSchema.parse(await api.post(`${ROOT}/returns/${encodeURIComponent(challenge.operation.id)}/approve`, body));
       done(name); return result;
     },
   });

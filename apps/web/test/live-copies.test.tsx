@@ -77,6 +77,36 @@ it('withdraws idle funds: the owner signs the exact consent, then the approval g
   expect(state.post.mock.calls[1]).toEqual([`/me/copy/live/returns/${operation.id}/approve`, { consentSignature: signature }]);
 });
 
+it('an account with the automatic return: idle funds go back without a signature, and after a stop it returns by itself', async () => {
+  items = [item({ automaticReturn: true })];
+  const operation = { id: '22222222-2222-4222-8222-222222222222', accountId: liveAccount.id, strategyId: liveAccount.strategyId, network: 'testnet', address: liveAccount.address,
+    destination: `0x${'11'.repeat(20)}`, amount: '12.5', nonce: liveNow, status: 'prepared', canCancel: true, transactionHash: null, creditedAmount: null, fee: null,
+    direction: 'to_main', stopId: null, createdAt: new Date(liveNow).toISOString(), updatedAt: new Date(liveNow).toISOString() };
+  state.post.mockImplementation(async (path: string) => path.endsWith('/returns')
+    ? { operation, consent: { operationId: operation.id, network: 'testnet', account: liveAccount.address, destination: operation.destination, amount: '12.5', nonce: liveNow, consentExpiresAt: liveNow + 300000 } }
+    : { ...operation, status: 'accepted' });
+  await render();
+  await act(async () => {
+    const input = container.querySelector('input[name="withdraw"]') as HTMLInputElement;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '12.5'); input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => button('Withdraw idle funds').click()); await settle();
+  expect(state.sign).not.toHaveBeenCalled();
+  expect(state.post.mock.calls[1]).toEqual([`/me/copy/live/returns/${operation.id}/approve`, {}]);
+  // Flat after a stop: 自動返還中, no button to return by hand.
+  items = [item({ automaticReturn: true, stage: 'sweeping', status: 'stopping', stop: { id: '44444444-4444-4444-8444-444444444444', state: 'flat', issue: 'stop_returning_to_main_wallet', revision: 4 },
+    pendingTransfer: { id: '55555555-5555-4555-8555-555555555555', direction: 'to_main', status: 'accepted', amount: '97.5' }, sweep: { amount: '97.5', status: 'accepted' } })];
+  state.snapshot = observed([]);
+  await act(async () => { await client.invalidateQueries(); }); await settle();
+  expect(container.textContent).toContain('Returning automatically'); expect(container.textContent).toContain('nothing to sign');
+  expect(button('Return all to main wallet')).toBeUndefined();
+  items = [item({ automaticReturn: true, stage: 'stopped', status: 'stopped', stop: null, sweep: { amount: '97.5', status: 'credited' } })];
+  await act(async () => { await client.invalidateQueries(); }); await settle();
+  expect(container.textContent).toContain('Returned 97.5 USDC to your main wallet');
+  await render('zh-TW');
+  expect(container.textContent).toContain('已返還 97.5 USDC 至主錢包');
+});
+
 it('closes one position, signs the cancellation consent while cancelling, and returns everything when flat', async () => {
   state.post.mockResolvedValue({ id: '33333333-3333-4333-8333-333333333333', accountId: liveAccount.id, strategyId: liveAccount.strategyId, coin: 'BTC', state: 'requested', reason: null, orders: 0,
     createdAt: new Date(liveNow).toISOString(), updatedAt: new Date(liveNow).toISOString() });

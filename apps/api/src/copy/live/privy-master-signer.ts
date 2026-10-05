@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { PrivyClient } from '@privy-io/node';
 import { WALLET_NETWORKS } from '@trading-dashboard/shared/contracts';
 import { verifyTypedData, type TypedDataDefinition } from 'viem';
@@ -74,12 +75,15 @@ export interface MasterActionSigner {
  */
 export class PrivyMasterActionSigner implements MasterActionSigner {
   private readonly credentials: Readonly<{ appId: string; appSecret: string }> | null;
+  private readonly logger = new Logger('PrivyMasterActionSigner');
   constructor(config: { appId?: string; appSecret?: string }, private readonly fetcher: typeof fetch = fetch, private readonly now = Date.now) {
     this.credentials = config.appId && config.appSecret ? Object.freeze({ appId: config.appId, appSecret: config.appSecret }) : null;
   }
   get available() { return this.credentials !== null; }
   async sign(rawAccount: MasterAccount, rawData: MasterTypedData, userJwt: string, rawDeadline: number, assertFresh: () => void, bound: MasterActionBound): Promise<string> {
     const controller = new AbortController(); let timer: ReturnType<typeof setTimeout> | undefined;
+    // Which step refused, for the log: the caller only ever sees one code.
+    let step = 'input', mismatch = '';
     try {
       const account = Object.freeze(structuredClone(rawAccount)), data = structuredClone(rawData), started = this.now(), deadline = Math.min(started + 5000, rawDeadline);
       if (!this.credentials || typeof userJwt !== 'string' || !userJwt.trim() || userJwt.length > 32768 || typeof assertFresh !== 'function' ||
@@ -87,12 +91,13 @@ export class PrivyMasterActionSigner implements MasterActionSigner {
         !masterActionSignable(data) || !masterActionBound(data, bound)) throw new Error();
       const remaining = () => { const now = this.now(); if (!Number.isSafeInteger(now) || now < started || now >= deadline || controller.signal.aborted) throw new Error(); return deadline - now; };
       const fresh = () => { const result: unknown = assertFresh(); if (result !== undefined) { void Promise.resolve(result).catch(() => {}); throw new Error(); } };
-      fresh(); remaining(); timer = setTimeout(() => controller.abort(), remaining()); timer.unref();
+      step = 'deadline'; fresh(); remaining(); timer = setTimeout(() => controller.abort(), remaining()); timer.unref();
       let verified = false, submitted = false;
       const walletPath = `/v1/wallets/${encodeURIComponent(account.walletId)}`, rpcPath = `${walletPath}/rpc`;
       const sdkFetch: typeof fetch = (input, init) => {
         const url = new URL(input instanceof Request ? input.url : String(input)), method = init?.method ?? (input instanceof Request ? input.method : 'GET');
-        if (url.origin !== 'https://api.privy.io' || url.search || url.hash || !(url.pathname === walletPath && method === 'GET' || url.pathname === '/v1/wallets/authenticate' && method === 'POST' || url.pathname === rpcPath && method === 'POST')) throw new Error();
+        if (url.origin !== 'https://api.privy.io' || url.search || url.hash || !(url.pathname === walletPath && method === 'GET' || url.pathname === '/v1/wallets/authenticate' && method === 'POST' || url.pathname === rpcPath && method === 'POST')) { step = `blocked ${method} ${url.origin}${url.pathname.replace(account.walletId, ':wallet')}`; throw new Error(); }
+        if (step === 'sign' || step === 'authenticate') step = url.pathname === rpcPath ? 'rpc' : 'authenticate';
         remaining();
         if (url.pathname === rpcPath) { if (!verified || submitted) throw new Error(); fresh(); remaining(); submitted = true; }
         const request = { ...init, redirect: 'error' as const, signal: AbortSignal.any([controller.signal, ...(init?.signal ? [init.signal] : [])]) };
@@ -108,17 +113,26 @@ export class PrivyMasterActionSigner implements MasterActionSigner {
         })();
       };
       const client = new PrivyClient({ ...this.credentials, timeout: remaining(), maxRetries: 0, fetch: sdkFetch, logLevel: 'off' });
+      step = 'wallet_get';
       const wallet = await boundedLiveRead(() => client.wallets().get(account.walletId), remaining());
+      step = 'wallet_identity';
+      mismatch = [wallet.id !== account.walletId && 'id', wallet.chain_type !== 'ethereum' && 'chain', typeof wallet.address !== 'string' || wallet.address.toLowerCase() !== account.address.toLowerCase() ? 'address' : '',
+        wallet.owner_id !== account.ownerQuorumId && 'owner', wallet.archived_at !== null && 'archived'].filter(Boolean).join(',');
       if (wallet.id !== account.walletId || wallet.chain_type !== 'ethereum' || typeof wallet.address !== 'string' || wallet.address.toLowerCase() !== account.address.toLowerCase() ||
         wallet.owner_id !== account.ownerQuorumId || wallet.archived_at !== null) throw new Error();
-      verified = true;
+      verified = true; step = 'sign';
       const result = await boundedLiveRead(() => client.wallets().ethereum().signTypedData(account.walletId, { address: account.address, authorization_context: { user_jwts: [userJwt] },
         request_expiry: deadline, params: { typed_data: { domain: data.domain, types: { ...data.types, EIP712Domain: domainFields }, primary_type: data.primaryType, message: data.message } } } as never), remaining());
-      remaining();
+      step = 'verify'; remaining();
       if (result.encoding !== 'hex' || !/^0x[0-9a-fA-F]{128}(?:00|01|1b|1c)$/i.test(result.signature) ||
         !await verifyTypedData({ address: account.address as `0x${string}`, ...(data as unknown as TypedDataDefinition), signature: result.signature as `0x${string}` })) throw new Error();
       remaining(); return result.signature;
-    } catch { throw new LiveBoundaryError('master_action_signing_unavailable'); }
+    } catch (error) {
+      // Never the token or a signature: the step, Privy's status and its message.
+      const status = (error as { status?: unknown })?.status;
+      this.logger.warn(`master action ${rawData?.primaryType ?? 'unknown'} refused at ${step}${mismatch ? ` (${mismatch})` : ''}: ${typeof status === 'number' ? `${status} ` : ''}${error instanceof Error ? `${error.name} ${error.message}`.replace(/eyJ[\w-]+\.[\w-]+\.[\w-]+/g, '<jwt>').slice(0, 300) : 'unknown'}`);
+      throw new LiveBoundaryError('master_action_signing_unavailable');
+    }
     finally { clearTimeout(timer); controller.abort(); }
   }
 }

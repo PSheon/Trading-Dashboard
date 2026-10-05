@@ -5,7 +5,7 @@ import { usePermission } from "@/lib/auth";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AlertRule, UpsertAlertRuleRequest } from "@/lib/contracts";
 
-import { ErrorState, Panel, Skeleton } from "@/components/page";
+import { ErrorState, Panel, PanelSkeleton } from "@/components/page";
 import { RuleEditor } from "@/components/rules/rule-editor";
 import { useI18n } from "@/i18n/provider";
 import { api, type ApiError } from "@/lib/api";
@@ -34,7 +34,7 @@ export function AdminRules() {
         {rules.isError ? (
           <ErrorState message={rules.error.message} onRetry={() => rules.refetch()} />
         ) : !rules.data ? (
-          <Skeleton className="h-48" />
+          <PanelSkeleton fields={4} />
         ) : rules.data.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t("admin.rules.empty")}</p>
         ) : (

@@ -5,7 +5,7 @@ import { useState } from "react";
 import { cn } from "cn";
 import type { AdminLiveAccount, AdminLiveLatency } from "@trading-dashboard/shared/contracts";
 
-import { ErrorState, Panel, SectionHeader, Skeleton } from "@/components/page";
+import { ErrorState, Panel, PanelSkeleton, SectionHeader } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -15,6 +15,7 @@ import { useI18n } from "@/i18n/provider";
 import { useAdminLiveAccounts, useAdminLiveLatency, useAdminLiveOrders, useAdminLiveTransfers, useRevokeLiveGrant } from "@/lib/admin-copy";
 import { usePermission } from "@/lib/auth";
 import { Chip, CopyAdminNav } from "./shared";
+import { TableSkeleton } from "@/components/ui/table-skeleton";
 
 const short = (address: string | null) => (address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "—");
 const STEPS = ["signal", "sent", "ack", "settled"] as const;
@@ -63,7 +64,7 @@ function Latency() {
       </div>
       <p className="mb-3 text-sm text-muted-foreground">{t("copyAdmin.live.latency.hint")}</p>
       {latency.isError && !d ? <ErrorState message={latency.error.message} onRetry={() => latency.refetch()} />
-        : !d ? <Skeleton className="h-24" />
+        : !d ? <PanelSkeleton tiles={4} />
         : d.count === 0 ? <p className="text-sm text-muted-foreground">{t("copyAdmin.live.latency.none")}</p>
         : (
           <Table>
@@ -100,7 +101,7 @@ function Accounts() {
       <SectionHeader title={<span id="copy-live-accounts-title">{t("copyAdmin.live.accounts.title")}</span>} />
       <Panel className="overflow-x-auto">
         {accounts.isError && !accounts.data ? <ErrorState message={accounts.error.message} onRetry={() => accounts.refetch()} />
-          : !accounts.data ? <Skeleton className="m-5 h-32" />
+          : !accounts.data ? <div className="p-3"><TableSkeleton rows={3} columns={[{}, {}, {}, { right: true }, { right: true }]} /></div>
           : items.length === 0 ? <p className="p-5 text-sm text-muted-foreground">{t("copyAdmin.live.accounts.empty")}</p>
           : (
             <Table>
@@ -214,7 +215,7 @@ function Orders() {
       {view === "unknown" ? <p className="mb-2 max-w-3xl text-sm text-muted-foreground">{t("copyAdmin.live.orders.unknownHint")}</p> : null}
       <Panel className="overflow-x-auto">
         {orders.isError && !orders.data ? <ErrorState message={orders.error.message} onRetry={() => orders.refetch()} />
-          : !orders.data ? <Skeleton className="m-5 h-32" />
+          : !orders.data ? <div className="p-3"><TableSkeleton rows={3} columns={[{}, {}, {}, { right: true }, { right: true }]} /></div>
           : items.length === 0 ? <p className="p-5 text-sm text-muted-foreground">{t("copyAdmin.live.orders.empty")}</p>
           : (
             <Table>
@@ -262,7 +263,7 @@ function Transfers() {
       <SectionHeader title={<span id="copy-live-transfers-title">{t("copyAdmin.live.transfers.title")}</span>} />
       <Panel className="overflow-x-auto">
         {transfers.isError && !transfers.data ? <ErrorState message={transfers.error.message} onRetry={() => transfers.refetch()} />
-          : !transfers.data ? <Skeleton className="m-5 h-32" />
+          : !transfers.data ? <div className="p-3"><TableSkeleton rows={3} columns={[{}, {}, {}, { right: true }, { right: true }]} /></div>
           : items.length === 0 ? <p className="p-5 text-sm text-muted-foreground">{t("copyAdmin.live.transfers.empty")}</p>
           : (
             <Table>

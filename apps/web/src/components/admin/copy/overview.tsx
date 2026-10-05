@@ -7,7 +7,7 @@ import { cn } from "cn";
 import { COPY_STUCK_ORDER_ATTEMPTS as STUCK_ORDER_ATTEMPTS, copyOrderStatusEnum, copyStrategyStatusEnum, type CopyControlCommand } from "@trading-dashboard/shared/contracts";
 
 import { KpiCard } from "@/components/admin/overview";
-import { ErrorState, Panel, SectionHeader, Skeleton } from "@/components/page";
+import { ErrorState, Panel, PanelSkeleton, SectionHeader } from "@/components/page";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useI18n } from "@/i18n/provider";
 import { coinLabel } from "@/lib/format";
@@ -15,6 +15,7 @@ import { signalLagSeconds, useAdminCopyExposure, useAdminCopyOrders, useAdminCop
 import { useNow } from "@/lib/use-now";
 import { ControlDialog, type ControlRequest } from "./control-dialog";
 import { Chip, ControlButtons, ControlState, CopyAdminNav, OrdersTable } from "./shared";
+import { TableSkeleton } from "@/components/ui/table-skeleton";
 
 /** A signal waiting this long means opens are about to go stale (the default maxSignalAgeSeconds is 120). */
 const LAG_WARN_SECONDS = 60;
@@ -42,7 +43,7 @@ export function AdminCopyOverview() {
   if (overview.isError && !d) {
     body = <Panel><ErrorState message={overview.error.message} onRetry={() => overview.refetch()} /></Panel>;
   } else if (!d) {
-    body = <Skeleton className="h-96 rounded-2xl" />;
+    body = <PanelSkeleton tiles={4} rows={4} />;
   } else {
     const lag = signalLagSeconds(d.outbox.oldestPendingAt, now);
     const behind = d.outbox.failed > 0 || (lag !== null && lag > LAG_WARN_SECONDS);
@@ -130,7 +131,7 @@ export function AdminCopyOverview() {
             action={<Link href="/admin/copy/orders?status=failed" className="text-sm font-semibold text-primary-text">{t("common.viewAll")}</Link>} />
           <Panel className="overflow-hidden">
             {failures.isError && !failures.data ? <ErrorState message={failures.error.message} onRetry={() => failures.refetch()} />
-              : !failures.data ? <Skeleton className="m-5 h-32" />
+              : !failures.data ? <div className="p-3"><TableSkeleton rows={3} columns={[{}, {}, {}, { right: true }, { right: true }]} /></div>
               : failures.data.items.length === 0 ? <p className="p-5 text-sm text-muted-foreground">{t("copyAdmin.failures.empty")}</p>
               : <OrdersTable items={failures.data.items} />}
           </Panel>
@@ -141,7 +142,7 @@ export function AdminCopyOverview() {
             action={<Link href="/admin/copy/orders" className="text-sm font-semibold text-primary-text">{t("common.viewAll")}</Link>} />
           <Panel className="overflow-hidden">
             {recent.isError && !recent.data ? <ErrorState message={recent.error.message} onRetry={() => recent.refetch()} />
-              : !recent.data ? <Skeleton className="m-5 h-32" />
+              : !recent.data ? <div className="p-3"><TableSkeleton rows={3} columns={[{}, {}, {}, { right: true }, { right: true }]} /></div>
               : recent.data.items.length === 0 ? <p className="p-5 text-sm text-muted-foreground">{t("copyAdmin.recent.empty")}</p>
               : <OrdersTable items={recent.data.items} />}
           </Panel>

@@ -11,6 +11,8 @@ export interface SkeletonColumn {
   right?: boolean;
   /** The bar's width in the cells (Tailwind class); varied per column. */
   bar?: string;
+  /** The loaded column's own classes (responsive hiding, widths). */
+  className?: string;
 }
 
 const WIDTHS = ["w-20", "w-14", "w-16", "w-12", "w-[72px]", "w-10"];
@@ -43,7 +45,7 @@ export function TableSkeleton({
           <thead>
             <TableRow className="hover:bg-transparent">
               {columns.map((c, i) => (
-                <TableHead key={i} className={c.right ? "text-right" : undefined}>
+                <TableHead key={i} className={cn(c.right && "text-right", c.className)}>
                   {c.label ?? <SkelBar className="inline-block h-2.5 w-12 align-middle" />}
                 </TableHead>
               ))}
@@ -53,7 +55,7 @@ export function TableSkeleton({
             {Array.from({ length: rows }, (_, r) => (
               <TableRow key={r}>
                 {columns.map((c, i) => (
-                  <TableCell key={i}>
+                  <TableCell key={i} className={c.className}>
                     <SkelBar className={cn("h-3", c.bar ?? WIDTHS[(i + r) % WIDTHS.length], c.right && "ml-auto")} />
                   </TableCell>
                 ))}

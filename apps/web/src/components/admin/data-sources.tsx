@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { AdminSources } from "@/lib/contracts";
 import { api } from "@/lib/api";
 import { useI18n } from "@/i18n/provider";
-import { Panel, Skeleton, ErrorState } from "@/components/page";
+import { ErrorState, Panel, PanelSkeleton } from "@/components/page";
 import { Button } from "@/components/ui/button";
 export function AdminSourcesView() {
   const { t, format } = useI18n();
@@ -44,7 +44,7 @@ export function AdminSourcesView() {
           onRetry={() => result.refetch()}
         />
       ) : !result.data ? (
-        <Skeleton className="h-72" />
+        <PanelSkeleton tiles={6} />
       ) : (
         <>
           <p className="text-xs text-muted-foreground">

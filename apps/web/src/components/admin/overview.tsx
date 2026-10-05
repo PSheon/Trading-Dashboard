@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { AdminOverview as Overview } from "@/lib/contracts";
 import { BellRing, CircleDollarSign, Radar, Users } from "lucide-react";
 
-import { ErrorState, Panel, Skeleton } from "@/components/page";
+import { ErrorState, Panel, SkelBar } from "@/components/page";
 import { useI18n } from "@/i18n/provider";
 import { api } from "@/lib/api";
 
@@ -52,9 +52,12 @@ export function AdminOverview() {
   const d = overview.data;
   if (!d) {
     return (
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {Array.from({ length: 4 }, (_, i) => (
-          <Skeleton key={i} className="h-[132px] rounded-2xl" />
+      // The four KPI cards with their icons and labels, figures as bars.
+      <div aria-hidden="true" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {([[Users, "admin.overview.users"], [Radar, "admin.overview.traders"], [BellRing, "admin.overview.alerts"], [CircleDollarSign, "admin.overview.revenue"]] as const).map(([icon, label]) => (
+          <div key={label} className="ui-skeleton rounded-[24px] [--skel-bar:var(--border)]">
+            <KpiCard icon={icon} label={t(label)} value={<SkelBar line="h-[35px]" className="h-6 w-24" />} sub={<SkelBar line="h-4" className="h-2.5 w-40" />} />
+          </div>
         ))}
       </div>
     );

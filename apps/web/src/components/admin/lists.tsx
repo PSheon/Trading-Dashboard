@@ -13,7 +13,7 @@ import type {
 import { FileUp, ListOrdered } from "lucide-react";
 import { useRef, useState } from "react";
 
-import { EmptyState, ErrorState, Panel, Skeleton } from "@/components/page";
+import { EmptyState, ErrorState, Panel } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,6 +28,7 @@ import {
 import { useI18n } from "@/i18n/provider";
 import { api, type ApiError } from "@/lib/api";
 import { parseCsv } from "@/lib/csv";
+import { TableSkeleton } from "@/components/ui/table-skeleton";
 
 /** A1 list import (CSV/JSON, parsed client-side) and A6 list versions. */
 export function AdminLists() {
@@ -235,11 +236,15 @@ export function AdminLists() {
             onRetry={() => lists.refetch()}
           />
         ) : !lists.data ? (
-          <div className="flex flex-col gap-2 p-5">
-            {Array.from({ length: 3 }, (_, i) => (
-              <Skeleton key={i} className="h-10" />
-            ))}
-          </div>
+          <TableSkeleton
+            rows={3}
+            columns={[
+              { label: t("admin.listCols.id"), bar: "w-8" },
+              { label: t("admin.listCols.file"), bar: "w-40" },
+              { label: t("admin.listCols.source"), className: "hidden sm:table-cell" },
+              { label: t("admin.listCols.importedAt"), right: true },
+            ]}
+          />
         ) : lists.data.length === 0 ? (
           <EmptyState icon={ListOrdered} title={t("admin.listsEmpty")} />
         ) : (

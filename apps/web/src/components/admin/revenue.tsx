@@ -7,7 +7,7 @@ import { Coins, Settings, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
-import { EmptyState, ErrorState, Panel, Skeleton } from "@/components/page";
+import { EmptyState, ErrorState, Panel, PanelSkeleton } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
 import { useI18n } from "@/i18n/provider";
@@ -52,7 +52,7 @@ export function AdminRevenue() {
     );
   }
   const d = revenue.data;
-  if (!d) return <Skeleton className="h-96 rounded-2xl" />;
+  if (!d) return <div className="flex flex-col gap-4"><PanelSkeleton className="h-14 justify-center py-0" /><PanelSkeleton tiles={6} /><PanelSkeleton chart={260} /></div>;
 
   if (!d.address) {
     return (

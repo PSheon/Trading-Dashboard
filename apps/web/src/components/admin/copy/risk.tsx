@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { copyRiskLimitsSchema, type CopyRiskLimits } from "@trading-dashboard/shared/contracts";
 
-import { ErrorState, Panel, SectionHeader, Skeleton } from "@/components/page";
+import { ErrorState, Panel, PanelSkeleton, SectionHeader } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -48,7 +48,7 @@ export function AdminCopyRisk() {
     <div className="flex flex-col gap-5">
       <CopyAdminNav />
       {risk.isError && !risk.data ? <Panel><ErrorState message={risk.error.message} onRetry={() => risk.refetch()} /></Panel>
-        : !risk.data ? <Skeleton className="h-96 rounded-2xl" />
+        : !risk.data ? <PanelSkeleton fields={8} />
         // A saved or reloaded version starts the form over from that version.
         : <RiskForm key={risk.data.version} policy={risk.data} save={save} onReload={() => { save.reset(); void risk.refetch(); }} reloading={risk.isFetching} />}
       <p className="max-w-3xl text-xs leading-relaxed text-subtle-foreground">{t("copyAdmin.risk.note")}</p>

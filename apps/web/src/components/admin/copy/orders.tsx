@@ -3,10 +3,11 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { copyOrderStatusEnum, type CopyOrderStatus } from "@trading-dashboard/shared/contracts";
 
-import { ErrorState, Panel, Skeleton } from "@/components/page";
+import { ErrorState, Panel } from "@/components/page";
 import { useI18n } from "@/i18n/provider";
 import { useAdminCopyOrders } from "@/lib/admin-copy";
 import { CopyAdminNav, OrdersTable } from "./shared";
+import { TableSkeleton } from "@/components/ui/table-skeleton";
 
 const FAILED: readonly CopyOrderStatus[] = ["rejected", "cancelled"];
 const selectClass = "h-10 rounded-full bg-raised px-4 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -38,7 +39,7 @@ export function AdminCopyOrders() {
       </div>
       <Panel className="overflow-hidden">
         {orders.isError && !items ? <ErrorState message={orders.error.message} onRetry={() => orders.refetch()} />
-          : !items ? <Skeleton className="m-5 h-64" />
+          : !items ? <div className="p-3"><TableSkeleton rows={6} columns={[{}, {}, {}, { right: true }, { right: true }]} /></div>
           : items.length === 0 ? <p className="p-5 text-sm text-muted-foreground">{t("copyAdmin.orders.empty")}</p>
           : <OrdersTable items={items} />}
       </Panel>

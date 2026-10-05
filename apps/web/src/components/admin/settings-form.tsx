@@ -20,7 +20,7 @@ import { useState, type SetStateAction } from "react";
 import type { ZodTypeAny } from "zod";
 import { cn } from "cn";
 
-import { ErrorState, Panel, Skeleton } from "@/components/page";
+import { ErrorState, Panel, PanelSkeleton } from "@/components/page";
 import { AddressAvatar } from "@/components/traders/address-avatar";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
@@ -59,7 +59,7 @@ export function AdminSettingsForm() {
       </Panel>
     );
   }
-  if (!settings.data) return <Skeleton className="h-[480px] rounded-2xl" />;
+  if (!settings.data) return <PanelSkeleton fields={8} />;
 
   const d = settings.data;
   return (

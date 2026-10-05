@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { CopyControlCommand } from "@trading-dashboard/shared/contracts";
 
-import { ErrorState, Panel, Skeleton } from "@/components/page";
+import { ErrorState, Panel, PanelSkeleton } from "@/components/page";
 import { useI18n } from "@/i18n/provider";
 import { useAdminCopyExposure } from "@/lib/admin-copy";
 import { coinLabel } from "@/lib/format";
@@ -29,7 +29,7 @@ export function AdminCopyUsers() {
       <CopyAdminNav />
       <p className="max-w-3xl text-sm leading-relaxed text-muted-foreground">{t("copyAdmin.users.hint")}</p>
       {exposure.isError && !items ? <Panel><ErrorState message={exposure.error.message} onRetry={() => exposure.refetch()} /></Panel>
-        : !items ? <Skeleton className="h-64 rounded-2xl" />
+        : !items ? <PanelSkeleton rows={4} />
         : items.length === 0 ? <Panel className="p-5 text-sm text-muted-foreground">{t("copyAdmin.users.empty")}</Panel>
         : (
           <div className="grid gap-3 xl:grid-cols-2">

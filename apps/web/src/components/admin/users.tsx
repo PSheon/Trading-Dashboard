@@ -6,7 +6,7 @@ import { ChevronLeft, ChevronRight, Search, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "cn";
 
-import { EmptyState, ErrorState, Panel, Skeleton } from "@/components/page";
+import { EmptyState, ErrorState, Panel } from "@/components/page";
 import { AddressAvatar } from "@/components/traders/address-avatar";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
@@ -17,6 +17,7 @@ import { useAdminUsers, useUpdateAdminUser } from "@/lib/admin-users";
 import { useMe, usePermission } from "@/lib/auth";
 import { truncateAddress } from "@/lib/format";
 import { UnresolvedWithdrawals } from "./unresolved-withdrawals";
+import { TableSkeleton } from "@/components/ui/table-skeleton";
 
 const PAGE = 20;
 
@@ -101,11 +102,20 @@ export function AdminUsers() {
         {users.isError ? (
           <ErrorState message={users.error.message} onRetry={() => users.refetch()} />
         ) : !users.data ? (
-          <div className="flex flex-col gap-2 p-5">
-            {Array.from({ length: 8 }, (_, i) => (
-              <Skeleton key={i} className="h-10" />
-            ))}
-          </div>
+          <TableSkeleton
+            rows={8}
+            columns={[
+              { label: t("admin.users.cols.user"), bar: "w-32" },
+              { label: t("admin.users.cols.role") },
+              { label: t("admin.users.cols.locale"), className: "hidden md:table-cell" },
+              { label: t("admin.users.cols.favorites"), right: true, className: "hidden md:table-cell" },
+              { label: t("admin.users.cols.telegram"), className: "hidden lg:table-cell" },
+              { label: t("admin.users.cols.status") },
+              { label: t("admin.users.cols.created"), className: "hidden xl:table-cell" },
+              { label: t("admin.users.cols.lastLogin"), className: "hidden lg:table-cell" },
+              { label: t("admin.users.cols.actions"), right: true },
+            ]}
+          />
         ) : users.data.items.length === 0 ? (
           <EmptyState icon={Users} title={t("admin.users.empty")} />
         ) : (

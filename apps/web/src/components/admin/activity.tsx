@@ -7,11 +7,12 @@ import { useState } from "react";
 
 import { ACTION_KINDS, ActionsTable } from "@/components/actions/actions-table";
 import { LiveBadge } from "@/components/actions/live-badge";
-import { EmptyState, ErrorState, Panel, Skeleton } from "@/components/page";
+import { EmptyState, ErrorState, Panel } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n/provider";
 import { useLiveActions } from "@/lib/queries";
 import { CrowdView } from "@/components/insights/crowd-view";
+import { TableSkeleton } from "@/components/ui/table-skeleton";
 
 const TIERS = ["A", "B", "C"] as const;
 
@@ -114,11 +115,19 @@ export function AdminActivity() {
           {actions.isError ? (
             <ErrorState message={actions.error.message} onRetry={() => actions.refetch()} />
           ) : !actions.data ? (
-            <div className="flex flex-col gap-2 p-5">
-              {Array.from({ length: 8 }, (_, i) => (
-                <Skeleton key={i} className="h-10" />
-              ))}
-            </div>
+            <TableSkeleton
+              rows={8}
+              columns={[
+                { label: t("actions.cols.time") },
+                { label: t("actions.cols.trader"), bar: "w-28" },
+                { label: t("actions.cols.coin") },
+                { label: t("actions.cols.action") },
+                { label: t("actions.cols.side") },
+                { label: t("actions.cols.notional"), right: true },
+                { label: t("actions.cols.leverage"), right: true, className: "hidden sm:table-cell" },
+                { label: t("actions.cols.price"), right: true, className: "hidden md:table-cell" },
+              ]}
+            />
           ) : actions.data.length === 0 ? (
             <EmptyState icon={Activity} title={t("insights.empty")} />
           ) : (

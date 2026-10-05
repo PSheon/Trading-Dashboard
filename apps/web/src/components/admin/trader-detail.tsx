@@ -7,7 +7,7 @@ import type { AdminTrader } from "@/lib/contracts";
 import { api } from "@/lib/api";
 import { useI18n } from "@/i18n/provider";
 import { usePermission } from "@/lib/auth";
-import { Panel, Skeleton, ErrorState } from "@/components/page";
+import { ErrorState, Panel, PanelSkeleton } from "@/components/page";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -73,7 +73,7 @@ export function AdminTraderView() {
           onRetry={() => result.refetch()}
         />
       ) : !result.data ? (
-        <Skeleton className="h-80" />
+        <PanelSkeleton tiles={4} rows={4} />
       ) : (
         <TraderEvidence
           data={result.data}

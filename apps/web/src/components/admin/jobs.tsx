@@ -3,7 +3,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { cn } from "cn";
-import { Panel, Skeleton } from "@/components/page";
+import { Panel, PanelSkeleton } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n/provider";
 import { api, ApiError } from "@/lib/api";
@@ -103,7 +103,7 @@ export function AdminJobs() {
         </p>
       )}
       {!jobs.data && !jobs.isError ? (
-        <Skeleton className="h-72" />
+        <PanelSkeleton rows={5} />
       ) : jobs.data?.items.length === 0 ? (
         <Panel className="p-8 text-center text-sm text-muted-foreground">
           {t("jobs.empty")}

@@ -194,3 +194,45 @@ export function ListRowsSkeleton({ rows = 3, className, rowClassName = "py-3", c
     </ul>
   );
 }
+
+/** A panel while it loads (the admin's cards): the card and its heading
+ * line, then what the loaded card holds — figure tiles, a chart's area,
+ * form fields or label / value rows. */
+export function PanelSkeleton({ tiles = 0, chart = 0, fields = 0, rows = 0, className }: { tiles?: number; chart?: number; fields?: number; rows?: number; className?: string }) {
+  return (
+    <section aria-hidden="true" className={cn("ui-skeleton flex flex-col gap-4 rounded-2xl bg-card p-5 shadow-[0_0_0_2px_var(--card-ring)] [--skel-bar:var(--raised)]", className)}>
+      <SkelBar line="h-6" className="h-3.5 w-36" />
+      {tiles ? (
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+          {Array.from({ length: tiles }, (_, i) => (
+            <div key={i} className="flex h-[74px] flex-col justify-center gap-2 rounded-[22px] bg-raised px-4 [--skel-bar:var(--border)]">
+              <SkelBar className="h-2.5 w-16" />
+              <SkelBar className="h-4 w-20" />
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {chart ? <div className="rounded-2xl bg-raised" style={{ height: chart }} /> : null}
+      {fields ? (
+        <div className="grid gap-4 md:grid-cols-2">
+          {Array.from({ length: fields }, (_, i) => (
+            <div key={i} className="flex flex-col gap-2">
+              <SkelBar className="h-2.5 w-24" />
+              <span className="h-11 rounded-xl bg-inset" />
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {rows ? (
+        <div className="flex flex-col divide-y-2 divide-dotted divide-border">
+          {Array.from({ length: rows }, (_, i) => (
+            <div key={i} className="flex items-center justify-between gap-4 py-3">
+              <SkelBar className={i % 2 ? "h-3 w-28" : "h-3 w-40"} />
+              <SkelBar className="h-3 w-16" />
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}

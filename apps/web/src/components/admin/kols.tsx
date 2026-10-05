@@ -5,7 +5,7 @@ import { useState } from "react";
 
 import { KolImportPanel } from "./kol-import";
 import { TraderAvatar } from "@/components/discover/board-bits";
-import { EmptyState, ErrorState, Panel, Skeleton } from "@/components/page";
+import { EmptyState, ErrorState, Panel } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,6 +14,7 @@ import { useI18n } from "@/i18n/provider";
 import { useKols, useRemoveKol, useSaveKol, type KolDraft } from "@/lib/admin-kols";
 import { usePermission } from "@/lib/auth";
 import { truncateAddress } from "@/lib/format";
+import { TableSkeleton } from "@/components/ui/table-skeleton";
 
 const EMPTY: KolDraft = { address: "", displayName: null, avatarUrl: null, xHandle: null, verified: false, sortOrder: 0 };
 
@@ -102,7 +103,16 @@ export function AdminKols() {
         {kols.isError ? (
           <ErrorState message={kols.error.message} onRetry={() => kols.refetch()} />
         ) : !kols.data ? (
-          <div className="flex flex-col gap-2 p-5">{Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-10" />)}</div>
+          <TableSkeleton
+            dense
+            rows={6}
+            columns={[
+              { label: "#", bar: "w-5", className: "w-12" },
+              { label: t("admin.kols.name"), bar: "w-32" },
+              { label: t("admin.kols.xHandle") },
+              { label: t("admin.kols.actions"), right: true },
+            ]}
+          />
         ) : kols.data.length === 0 ? (
           <EmptyState icon={UserRound} title={t("discover.kolEmpty")} body={t("admin.kols.emptyHint")} />
         ) : (

@@ -5,13 +5,14 @@ import { useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { copyStrategyStatusEnum, type CopyStrategyStatus } from "@trading-dashboard/shared/contracts";
 
-import { ErrorState, Panel, SectionHeader, Skeleton } from "@/components/page";
+import { ErrorState, Panel, PanelSkeleton, SectionHeader } from "@/components/page";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useI18n } from "@/i18n/provider";
 import { useAdminCopyStrategies, useAdminCopyStrategy } from "@/lib/admin-copy";
 import type { AdminCopyStrategyView } from "@/lib/contracts";
 import { coinLabel, signClass, truncateAddress } from "@/lib/format";
 import { Chip, CopyAdminNav, OrdersTable, StrategyStatus } from "./shared";
+import { TableSkeleton } from "@/components/ui/table-skeleton";
 
 const selectClass = "h-10 rounded-full bg-raised px-4 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
@@ -32,7 +33,7 @@ export function AdminCopyStrategies() {
       </div>
       <Panel className="overflow-hidden">
         {strategies.isError && !items ? <ErrorState message={strategies.error.message} onRetry={() => strategies.refetch()} />
-          : !items ? <Skeleton className="m-5 h-64" />
+          : !items ? <div className="p-3"><TableSkeleton rows={6} columns={[{}, {}, {}, { right: true }, { right: true }]} /></div>
           : items.length === 0 ? <p className="p-5 text-sm text-muted-foreground">{t("copyAdmin.strategies.empty")}</p>
           : (
             <Table>
@@ -92,7 +93,7 @@ export function AdminCopyStrategyDetail({ id }: { id: number }) {
   if (detail.isError && !d) {
     body = <Panel><ErrorState message={detail.error.message} onRetry={() => detail.refetch()} /></Panel>;
   } else if (!d) {
-    body = <Skeleton className="h-96 rounded-2xl" />;
+    body = <PanelSkeleton tiles={4} rows={6} />;
   } else {
     const s = d.strategy;
     const facts: [string, React.ReactNode][] = [

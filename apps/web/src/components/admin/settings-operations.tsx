@@ -5,7 +5,7 @@ import { useI18n } from "@/i18n/provider";
 import type { MessageKey } from "@/i18n/messages";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
-import { Panel, Skeleton } from "@/components/page";
+import { Panel, PanelSkeleton } from "@/components/page";
 import { Button } from "@/components/ui/button";
 
 export function SettingsImpact({ section, original, value }: { section: keyof AdminSettings; original: AdminSettings[keyof AdminSettings]; value: AdminSettings[keyof AdminSettings] }) {
@@ -33,7 +33,7 @@ export function SettingsRuntimePanel() {
     <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="font-semibold">{t("settingsOps.runtime")}</h2>
       <Button type="button" variant="secondary" disabled={query.isFetching} onClick={() => void query.refetch()}>{t("settingsOps.refresh")}</Button></div>
     <p className="text-xs leading-relaxed text-muted-foreground">{t("settingsOps.runtimeHint")}</p>
-    {query.isError ? <p role="alert" className="text-sm text-warning">{t("settingsOps.unavailable")}</p> : query.data ? <SettingsRuntimeDetails data={query.data} /> : <Skeleton className="h-32" />}
+    {query.isError ? <p role="alert" className="text-sm text-warning">{t("settingsOps.unavailable")}</p> : query.data ? <SettingsRuntimeDetails data={query.data} /> : <PanelSkeleton rows={3} />}
   </Panel>;
 }
 export function SettingsRuntimeDetails({ data }: { data: SettingsRuntime }) {

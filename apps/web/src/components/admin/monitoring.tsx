@@ -8,7 +8,7 @@ import { RETENTION_TABLES } from "@trading-dashboard/shared/contracts";
 import type { AdminSystemOverview } from "@/lib/contracts";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
-import { Panel, Skeleton } from "@/components/page";
+import { Panel, PanelSkeleton } from "@/components/page";
 import { useI18n } from "@/i18n/provider";
 
 export function AdminMonitoring() {
@@ -25,7 +25,7 @@ export function AdminMonitoring() {
       <button type="button" onClick={() => void query.refetch()} disabled={query.isFetching} className="rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-raised disabled:opacity-50">{t("monitoring.refresh")}</button>
     </div>
     {query.isError && <p role="alert" className="rounded-lg bg-warning/10 p-3 text-sm text-warning">{t(query.data ? "monitoring.cached" : "monitoring.unavailable")}</p>}
-    {query.data ? <MonitoringDetails data={query.data} /> : !query.isError && <Skeleton className="h-72" />}
+    {query.data ? <MonitoringDetails data={query.data} /> : !query.isError && <PanelSkeleton rows={6} />}
     {query.data && <OperationalSwitchesPanel api={query.data.api.switches} worker={query.data.worker.sample?.switches} archive={heartbeat?.archive} />}
     {heartbeat && <WorkerHeartbeat data={heartbeat} />}
   </section>;

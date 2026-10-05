@@ -5,7 +5,7 @@ import { auditEvents, type AuditResponse } from "@/lib/contracts";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
 import { useI18n } from "@/i18n/provider";
-import { Panel, Skeleton } from "@/components/page";
+import { Panel, PanelSkeleton } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -33,7 +33,7 @@ export function AdminAudit() {
       <div className="grid gap-2"><Label htmlFor="audit-target">{t("settingsOps.target")}</Label><Input id="audit-target" maxLength={256} value={filters.target} onChange={e => setFilters({ ...filters, target: e.target.value })} /></div>
       <div className="flex flex-wrap gap-2 sm:col-span-2"><Button type="submit">{t("settingsOps.search")}</Button><Button type="button" variant="secondary" disabled={query.isFetching} onClick={() => void query.refetch()}>{t("settingsOps.refresh")}</Button></div>
     </form></Panel>
-    {query.isError ? <p role="alert" className="text-warning">{t("settingsOps.failed")}</p> : query.data ? <AuditEntries items={query.data.items} /> : <Skeleton className="h-64" />}
+    {query.isError ? <p role="alert" className="text-warning">{t("settingsOps.failed")}</p> : query.data ? <AuditEntries items={query.data.items} /> : <PanelSkeleton rows={5} />}
     <div className="flex flex-wrap items-center justify-between gap-3"><Button variant="secondary" disabled={!cursors.length || query.isFetching} onClick={() => setCursors(cursors.slice(0, -1))}>{t("settingsOps.previous")}</Button><p className="text-xs">{t("settingsOps.page", { page: cursors.length + 1 })}</p><Button variant="secondary" disabled={!query.data?.nextCursor || query.isFetching || query.isError} onClick={() => setCursors([...cursors, query.data!.nextCursor!])}>{t("settingsOps.next")}</Button></div>
   </section>;
 }

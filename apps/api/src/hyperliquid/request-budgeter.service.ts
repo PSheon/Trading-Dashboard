@@ -211,6 +211,10 @@ export const PAGE_SHARE_WINDOW_MS = 3 * 60_000;
 const PAGE_QUEUE_SECONDS = 30;
 /** Share of the page queue one client may hold. */
 const PAGE_CLIENT_SHARE = 0.5;
+/** A page call that waited this long for its turn is logged … */
+const SLOW_PAGE_WAIT_MS = 2_000;
+/** … at most once per this long. */
+const SLOW_PAGE_LOG_EVERY_MS = 10_000;
 /** Waiters other than page work (live and background) that may queue. */
 export const MAX_QUEUED = 1000;
 
@@ -261,6 +265,8 @@ interface Waiter {
   /** May spend the page reserve. */
   interactive: boolean;
   consumer: string;
+  /** When it joined the queue (epoch ms). */
+  queuedAt: number;
 }
 
 /** Reads the per-minute caps of labelled consumers (the settings service,
@@ -300,6 +306,8 @@ export class RequestBudgeterService {
   private stopped = false;
   /** Live dispatches in a row while background waiters existed. */
   private liveStreak = 0;
+  /** When a slow page call was last logged. */
+  private slowPageLoggedAt = 0;
 
   /** Page weight dispatched in the trailing `PAGE_SHARE_WINDOW_MS`, and its
    * running sum. */
@@ -585,7 +593,7 @@ export class RequestBudgeterService {
       const deadline = queueMs === undefined ? undefined : setTimeout(() => leave(new BudgetWaitError(consumer, queueMs)), queueMs);
       let holding = page;
       if (page) this.holdPage(client, held);
-      const waiter: Waiter = { weight, gate, resolve, reject, rank: r, seq, page, interactive, consumer,
+      const waiter: Waiter = { weight, gate, resolve, reject, rank: r, seq, page, interactive, consumer, queuedAt: Date.now(),
         cleanup: () => {
           clearTimeout(deadline);
           cancel?.removeEventListener("abort", abort);
@@ -776,6 +784,15 @@ export class RequestBudgeterService {
   }
 
   private dispatch(next: Waiter, lane: RequestPriority, now: number): void {
+    // A page call that waited long is what a slow trader page is made of:
+    // say what held it (one line per 10 s at most).
+    const waited = now - next.queuedAt;
+    if (next.page && waited >= SLOW_PAGE_WAIT_MS && now - this.slowPageLoggedAt >= SLOW_PAGE_LOG_EVERY_MS) {
+      this.slowPageLoggedAt = now;
+      this.logger.warn(`Page call waited ${waited} ms (rank ${next.rank}, weight ${next.weight}): main ${Math.round(this.tokens)}, reserve ${Math.round(this.reserve)}, ` +
+        `page share ${Math.round(Math.max(0, this.pageWindowWeight))}/${Math.round((PAGE_SHARE * this.effectiveBudgetPerMin * PAGE_SHARE_WINDOW_MS) / 60_000)}, ` +
+        `queued ${this.queues.live.length} live + ${this.queues.background.length} background (${this.pageWaiters()} page)`);
+    }
     this.spend(next, lane);
     this.chargeCap(next.consumer, next.weight);
     this.liveStreak = lane === "live" && this.queues.background.length > 0 ? this.liveStreak + 1 : 0;

@@ -1,7 +1,17 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 import { signIn } from "./helpers";
 
 /** Review round 4, part 4: things a phone user ran into. */
+/** Opens the phone's full-screen search. A tap that lands before the page
+ * has hydrated does nothing (CI's dev server is slow to hydrate), so it
+ * taps again until the field is there. */
+async function openPhoneSearch(button: Locator, field: Locator) {
+  await expect(async () => {
+    if (!(await field.isVisible())) await button.click();
+    await expect(field).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 25_000 });
+}
+
 test.beforeEach(async ({ context, baseURL, page }) => {
   await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -38,8 +48,9 @@ test("phone settings and search keep focus inside while open", async ({ page }) 
 
   await page.goto("/");
   const open = page.getByRole("button", { name: "Search name, X handle or address" }).filter({ visible: true });
-  await open.click();
   const search = page.getByRole("search");
+  // A tap before the page has hydrated does nothing: tap until it opens.
+  await openPhoneSearch(open, search.getByRole("combobox"));
   await expect(search.getByRole("combobox")).toBeFocused();
   for (let i = 0; i < 6; i++) {
     await page.keyboard.press("Tab");
@@ -58,7 +69,7 @@ test("market icons load from this site and text fields are 16px on a touch scree
   await touch.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
   const phone = await touch.newPage();
   await phone.goto("/");
-  await phone.getByRole("button", { name: "Search name, X handle or address" }).filter({ visible: true }).click();
+  await openPhoneSearch(phone.getByRole("button", { name: "Search name, X handle or address" }).filter({ visible: true }), phone.getByRole("combobox"));
   expect(await phone.getByRole("combobox").evaluate((el) => getComputedStyle(el).fontSize)).toBe("16px");
   await touch.close();
 });

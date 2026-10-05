@@ -30,6 +30,9 @@ async function downloadsEveryCard(page: Page, name: string) {
 }
 
 test("a trader's position: App Card and Poster in both formats, server-rendered PNGs", async ({ page }) => {
+  // Four server renders of a PNG on a cold CI dev server overran 30 s
+  // (runs 37255928892, 37263554335).
+  test.slow();
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`/trader/${address}`);
   await page.getByRole("button", { name: "Share position", exact: true }).filter({ visible: true }).first().click();
@@ -38,6 +41,7 @@ test("a trader's position: App Card and Poster in both formats, server-rendered 
 });
 
 test("one of my paper copy trades, from Insights' best trades, at 390px", async ({ page }) => {
+  test.slow();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/portfolio");
   await signIn(page);

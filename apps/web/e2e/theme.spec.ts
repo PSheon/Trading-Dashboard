@@ -26,8 +26,12 @@ test("the header theme button switches the theme and the choice survives a reloa
   await page.emulateMedia({ colorScheme: "light" });
   await page.goto("/");
   await expect.poll(() => ground(page)).toBe(LIGHT);
-  await page.getByTestId("theme-toggle").click();
-  await expect(page.locator("html")).toHaveClass(/\bdark\b/);
+  // A click before the page has hydrated does nothing (a slow CI dev
+  // server, run 37255928892): click until the theme turns.
+  await expect(async () => {
+    if (!/\bdark\b/.test((await page.locator("html").getAttribute("class")) ?? "")) await page.getByTestId("theme-toggle").click();
+    await expect(page.locator("html")).toHaveClass(/\bdark\b/, { timeout: 2_000 });
+  }).toPass({ timeout: 20_000 });
   await expect.poll(() => ground(page)).toBe(DARK);
   expect((await context.cookies()).find((c) => c.name === "theme")?.value).toBe("dark");
   // The server paints the chosen theme: the class is in the first HTML.

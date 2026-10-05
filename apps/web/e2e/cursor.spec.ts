@@ -8,14 +8,15 @@ async function sample(page: Page) {
   return page.evaluate(() => {
     const kinds: Record<string, string> = {
       button: "button:not(:disabled)",
-      disabled: "button:disabled",
+      disabled: "button:disabled, input:disabled",
       link: "a[href]",
       tab: '[role="tab"]',
       radio: '[role="radio"]:not(:disabled)',
       menuitem: '[role="menuitem"]',
       option: '[role="option"]',
       sortHeader: "th button",
-      textInput: 'input:not([type="range"]):not([type="checkbox"]):not([type="radio"])',
+      // A locked field (the copy amount while signed out) is a disabled one.
+      textInput: 'input:not(:disabled):not([type="range"]):not([type="checkbox"]):not([type="radio"])',
     };
     const out: Record<string, { cursors: string[]; count: number }> = {};
     for (const [kind, selector] of Object.entries(kinds)) {

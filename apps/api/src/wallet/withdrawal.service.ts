@@ -205,6 +205,13 @@ export class WithdrawalService {
           if (!seen.has(key)) { seen.add(key); rows.push(row); }
         }
         if (batch.length < LEDGER_PAGE) break;
+        // Hyperliquid answers oldest first and caps a long range at its
+        // earliest rows (checked 2026-10-05 on mainnet: 2000 ascending rows
+        // from the start time), so the next page starts where this one ended.
+        // A full page that isn't oldest first could be the range's newest
+        // rows instead, with earlier ones missing: not a complete read.
+        if (batch.some((row, i) => i > 0 && row.time < batch[i - 1]!.time) || Math.min(...batch.map((row) => row.time)) < start)
+          throw new ConflictException({ statusCode: 409, code: "withdrawal_ledger_incomplete", message: "The ledger did not come oldest first" });
         const last = Math.max(...batch.map((row) => row.time));
         if (!Number.isSafeInteger(last) || last <= start) throw new ConflictException({ statusCode: 409, code: "withdrawal_ledger_incomplete", message: "The ledger read did not advance" });
         start = last;

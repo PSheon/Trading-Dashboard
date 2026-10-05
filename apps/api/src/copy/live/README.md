@@ -241,3 +241,31 @@ whose destination is the owner's main wallet (and nothing else), added with
 the owner's consent when the copy account is created, and the provisioning
 checks above relaxed to expect exactly that signer and policy. Until then
 the portfolio shows "Return everything" as soon as the stop is flat.
+
+### Automatic return (stream 13, 2026-10-05)
+
+That design is now on `dev`, dormant until it is switched on:
+
+- `privy-master-policy.ts`: the owner-owned policy (testnet `UsdSend` only to
+  the owner's main wallet, exact lowercase; the account's own
+  `UserSetAbstraction` disabled; `ApproveAgent` / `ApproveBuilderFee` only when
+  bound; no key or seed export), attached as the worker quorum's
+  `override_policy_ids`, never as a wallet policy.
+- `POST /me/copy/execution-wallets/:id/automatic-return` (owner's Bearer
+  session) creates and verifies the policy, attaches the signer with
+  `user_jwts`, re-reads the wallet and records `master_policy_id`,
+  `master_policy_fingerprint`, `master_signer_quorum_id`, `sweep_destination`
+  and `signer_attached_at` (migration 0063). 503 `setup_unavailable` unless
+  `COPY_AUTOMATIC_RETURN=true`.
+- Provisioning (`PrivyUserWalletProvisioner.findOwned`) accepts exactly that
+  signer for an account that records it; every other account must still have
+  none.
+- `PrivyPolicyMasterSigner` signs as the account with the worker key after
+  checking the type, the bound values (chain, destination) and the wallet's
+  signers. The stopper's `CopyLiveAutoReturn` reserves `sweep:<stop id>` for
+  everything withdrawable once flat, signs and sends it once; idle
+  withdrawals on such accounts need no owner consent. Legacy accounts keep
+  `stop_awaiting_return_to_main_wallet` and the signed return.
+
+Prototype on the Stage Dev Privy app: see
+`docs/one-click-copy-plan-2026-10-05.md`, "Prototype results".

@@ -132,6 +132,14 @@ describe("/admin/wallet/withdrawals — an unknown withdrawal's terminal state",
     expect((await db.select().from(walletWithdrawals))[0]).toMatchObject({ status: "unknown" });
   });
 
+  it("a full page that is not oldest first is not a complete read (it could be the range's newest rows)", async () => {
+    const nonce = await seed(WITHDRAWAL_NONCE_WINDOW_MS + 60_000);
+    info.userNonFundingLedgerUpdates.mockResolvedValue(Array.from({ length: 500 }, (_, i) => ({ time: nonce + 500 - i, hash: `0x${"cd".repeat(32)}`, delta: { type: "deposit", usdc: String(i + 1) } })));
+    const res = await as("admin").post(`/admin/wallet/withdrawals/${ID}/resolve`, { reason: "check" }).expect(409);
+    expect(res.body.error?.code ?? res.body.code).toBe("withdrawal_ledger_incomplete");
+    expect((await db.select().from(walletWithdrawals))[0]).toMatchObject({ status: "unknown" });
+  });
+
   it("refuses to call it not executed when the ledger has a withdraw whose nonce is missing or unreadable", async () => {
     const nonce = await seed(WITHDRAWAL_NONCE_WINDOW_MS + 60_000);
     for (const delta of [{ type: "withdraw", usdc: "12.5" }, { type: "withdraw", usdc: "12.5", nonce: String(nonce) }, { type: "withdraw", usdc: "12.5", nonce: 1.5 }]) {

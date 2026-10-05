@@ -232,6 +232,7 @@ export function MobileTrader({
         {portfolio && series.length > 1 ? (
           <AreaChart
             data={series}
+            animateKey={`${window}:${mode}`}
             height={180}
             className="-mb-3 px-2"
             axes

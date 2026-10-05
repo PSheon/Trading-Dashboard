@@ -523,6 +523,7 @@ export function PerformanceChart({
             {portfolio && series.length > 1 ? (
               <AreaChart
                 data={series}
+                animateKey={`${window}:${market}:${mode}:${unit}`}
                 height={300}
                 axes
                 interactive

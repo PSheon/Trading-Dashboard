@@ -51,7 +51,7 @@ export function EquityHistory({ data, compact = false }: { data: CopyPerformance
   if (!paths.length) return <p className="text-xs text-muted-foreground">{t("copyUpdates.equityEmpty")}</p>;
   const stale = performanceIsStale(data);
   return <div>
-    <svg viewBox="0 0 400 120" role="img" aria-label={t("copyUpdates.equityAria")} className={compact ? "h-8 w-full" : "h-36 w-full"} preserveAspectRatio="none">
+    <svg viewBox="0 0 400 120" role="img" aria-label={t("copyUpdates.equityAria")} className={compact ? "chart-draw h-8 w-full" : "chart-draw h-36 w-full"} preserveAspectRatio="none">
       {paths.map((d, i) => <path key={i} d={d} fill="none" stroke="currentColor" strokeWidth={compact ? 3 : 2} vectorEffect="non-scaling-stroke" className="text-primary-text" />)}
       {paths.filter((path) => !path.includes("L")).map((path, i) => {
         const [x, y] = path.slice(1).split(",").map(Number);

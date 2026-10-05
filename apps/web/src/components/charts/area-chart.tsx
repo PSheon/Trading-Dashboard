@@ -3,6 +3,8 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cn } from "cn";
 
+import { useChartReveal } from "./use-chart-reveal";
+
 /**
  * Hand-rolled SVG area chart (no chart library: one series, a few hundred
  * points at most). One colour rule for every chart in the app:
@@ -55,6 +57,10 @@ export interface AreaChartProps {
   /** The hovered point's time (null when the pointer leaves), for a panel
    * outside the chart (the trader chart's positions at that time). */
   onHoverChange?: (time: number | null) => void;
+  /** What the chart shows (a window, a mode, a unit): a new value replays
+   * the entrance (the line drawing in from the left) once its data has
+   * arrived. Live ticks and refetches under the same key never do. */
+  animateKey?: unknown;
 }
 
 function useWidth<T extends HTMLElement>() {
@@ -177,6 +183,7 @@ export function AreaChart({
   plain = false,
   ariaLabel,
   onHoverChange,
+  animateKey,
 }: AreaChartProps) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
@@ -229,6 +236,8 @@ export function AreaChart({
     return { x, y, line, area, zeroY, bottom, innerW, minX, maxX, yTicks, xTicks };
   }, [data, width, height, zeroBaseline, axes, yAxis, curve, pad.left, pad.right, pad.top, pad.bottom]);
 
+  const { rootRef: revealRoot, clipRef: revealClip, fillRef: revealFill, endRef: revealEnd } = useChartReveal({ ready: geo !== null, replayKey: animateKey, data });
+
   function onPointerMove(e: React.PointerEvent<SVGSVGElement>) {
     if (!geo || !interactive) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -255,7 +264,11 @@ export function AreaChart({
     below: `below-${uid}`,
     gradUp: `grad-up-${uid}`,
     gradDown: `grad-down-${uid}`,
+    reveal: `reveal-${uid}`,
   };
+  // The entrance's clip: wide enough for the line's round caps and the end
+  // dot's ring at either edge.
+  const revealWidth = width + 40;
 
   return (
     <div ref={ref} className={cn("relative w-full select-none", className)} style={{ height }}>
@@ -263,6 +276,7 @@ export function AreaChart({
         <svg
           width={width}
           height={height}
+          ref={revealRoot}
           className="orbit-fade-in block overflow-visible"
           role={ariaLabel ? "img" : undefined}
           aria-hidden={!ariaLabel}
@@ -271,6 +285,9 @@ export function AreaChart({
           onPointerLeave={() => { setHover(null); onHoverChange?.(null); }}
         >
           <defs>
+            <clipPath id={ids.reveal}>
+              <rect ref={revealClip} x={-20} y={-20} width={revealWidth} data-full={revealWidth} height={height + 40} />
+            </clipPath>
             <clipPath id={ids.above}>
               <rect x={0} y={-20} width={width} height={Math.max(0, geo.zeroY + 20)} />
             </clipPath>
@@ -340,8 +357,11 @@ export function AreaChart({
             />
           ) : null}
 
-          <g clipPath={`url(#${ids.above})`}>
-            <path d={geo.area} fill={`url(#${ids.gradUp})`} />
+          <g clipPath={`url(#${ids.reveal})`}>
+            <g ref={revealFill}>
+              <path d={geo.area} fill={`url(#${ids.gradUp})`} clipPath={`url(#${ids.above})`} />
+              {zeroBaseline ? <path d={geo.area} fill={`url(#${ids.gradDown})`} clipPath={`url(#${ids.below})`} /> : null}
+            </g>
             <path
               d={geo.line}
               fill="none"
@@ -349,11 +369,9 @@ export function AreaChart({
               strokeWidth={strokeWidth}
               strokeLinejoin="round"
               strokeLinecap="round"
+              clipPath={`url(#${ids.above})`}
             />
-          </g>
-          {zeroBaseline ? (
-            <g clipPath={`url(#${ids.below})`}>
-              <path d={geo.area} fill={`url(#${ids.gradDown})`} />
+            {zeroBaseline ? (
               <path
                 d={geo.line}
                 fill="none"
@@ -361,13 +379,14 @@ export function AreaChart({
                 strokeWidth={strokeWidth}
                 strokeLinejoin="round"
                 strokeLinecap="round"
+                clipPath={`url(#${ids.below})`}
               />
-            </g>
-          ) : null}
+            ) : null}
+          </g>
 
           {/* CopyDog's hl-spark__dot: a 6px dot with a ring pulsing out of it. */}
           {last && hover === null && !markerPoint && !plain ? (
-            <g>
+            <g ref={revealEnd}>
               <circle
                 className="spark-pulse"
                 cx={geo.x(last[0])}

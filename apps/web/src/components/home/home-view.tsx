@@ -340,23 +340,23 @@ export function Calculator({ traders }: { traders: BoardTrader[] }) {
             <Arrow className="size-3" strokeWidth={2.5} aria-hidden />
             {roiPillShort(change)}
           </span> : null}
-          <HoverChartOrEmpty series={series} hover={hover} onHover={setHover} missingRoi={simulation === null} />
+          <HoverChartOrEmpty series={series} animateKey={trader.address} hover={hover} onHover={setHover} missingRoi={simulation === null} />
         </div>
       </div>
     </section>
   );
 }
 
-function HoverChartOrEmpty({ series, hover, onHover, missingRoi }: { series: Array<readonly [number, number]>; hover: number | null; onHover: (i: number | null) => void; missingRoi: boolean }) {
+function HoverChartOrEmpty({ series, animateKey, hover, onHover, missingRoi }: { series: Array<readonly [number, number]>; animateKey: string; hover: number | null; onHover: (i: number | null) => void; missingRoi: boolean }) {
   const { t } = useI18n();
-  return series.length > 0 ? <HoverChart series={series} hover={hover} onHover={onHover} /> : (
+  return series.length > 0 ? <HoverChart series={series} animateKey={animateKey} hover={hover} onHover={onHover} /> : (
     <p className="flex h-[150px] items-center justify-center px-3 text-center text-xs font-bold text-muted-foreground" role="status">
       {t(missingRoi ? "home.calculatorMissingRoi" : "home.calculatorMissingCurve")}
     </p>
   );
 }
 
-function HoverChart({ series, hover, onHover }: { series: Array<readonly [number, number]>; hover: number | null; onHover: (i: number | null) => void }) {
+function HoverChart({ series, animateKey, hover, onHover }: { series: Array<readonly [number, number]>; animateKey: string; hover: number | null; onHover: (i: number | null) => void }) {
   const { format } = useI18n();
   return (
     <div
@@ -368,7 +368,7 @@ function HoverChart({ series, hover, onHover }: { series: Array<readonly [number
       }}
     >
       {/* CopyDog's crosshair: a dashed line and a dot on the hovered point. */}
-      <AreaChart data={series} height={150} strokeWidth={3} zeroBaseline={false} grid={0} marker={hover} formatValue={(v) => format.usd(v, { compact: true })} />
+      <AreaChart data={series} animateKey={animateKey} height={150} strokeWidth={3} zeroBaseline={false} grid={0} marker={hover} formatValue={(v) => format.usd(v, { compact: true })} />
     </div>
   );
 }

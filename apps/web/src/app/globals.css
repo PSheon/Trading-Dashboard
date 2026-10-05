@@ -310,6 +310,13 @@
   --radius-4xl: 2.25rem;   /* 36: nav capsules */
   --shadow-pop: var(--shadow-pop);
   --ease-orbit: cubic-bezier(0.22, 1, 0.36, 1);
+  /* Motion tokens (lib/motion.ts mirrors them): small state changes, panels
+     switching, collapsibles, a chart's line drawing in. */
+  --ease-draw: cubic-bezier(0.5, 1, 0.89, 1);
+  --dur-fast: 150ms;
+  --dur-base: 200ms;
+  --dur-slow: 250ms;
+  --dur-chart: 850ms;
 }
 
 @layer base {
@@ -912,6 +919,18 @@
   to { opacity: 1; transform: none; }
 }
 
+/* A small chart's entrance (sparklines drawn without the shared chart):
+   the line and its fill are revealed from left to right. The bigger charts
+   do the same in JS (components/charts/use-chart-reveal.ts) so that a
+   refetch or a live tick never replays it. */
+.chart-draw {
+  animation: chart-draw var(--dur-chart) var(--ease-draw) backwards;
+}
+@keyframes chart-draw {
+  from { clip-path: inset(-20% 100% -20% -4%); }
+  to { clip-path: inset(-20% -4% -20% -4%); }
+}
+
 /* CopyDog's about-page avatar stack: the next card slides forward, the
    front one drops away. */
 .avatar-stack-enter {
@@ -930,7 +949,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .orbit-fade-in, .orbit-float { animation: none; }
+  .orbit-fade-in, .orbit-float, .chart-draw { animation: none; }
   .orbit-press, .orbit-lift { transition-property: background-color, color, box-shadow, opacity; }
   .orbit-press:active:not(:disabled) { transform: none; }
   .orbit-lift:hover { transform: none; }

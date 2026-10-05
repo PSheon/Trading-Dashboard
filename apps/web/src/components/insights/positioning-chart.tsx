@@ -7,6 +7,7 @@ import { SkelBar, Skeleton } from "@/components/page";
 import { TIME_ZONE } from "@/i18n/config";
 import { useI18n } from "@/i18n/provider";
 import type { CohortWindow } from "@/lib/contracts";
+import { useChartReveal } from "@/components/charts/use-chart-reveal";
 import { sentiment } from "./sentiment";
 
 const PAD = { l: 12, r: 52, t: 14, b: 30 };
@@ -126,6 +127,9 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
     return { sx, sy, line, long, short, isolated, ticks, ih, mid: sy(50), btcLine, inRange };
   }, [points, btc, size, day]);
 
+  // The line draws in from the left on first appearance and when the tier
+  // or the window changes (not on the 5-minute refresh).
+  const { rootRef: revealRoot, clipRef: revealClip, fillRef: revealFill, endRef: revealEnd } = useChartReveal({ ready: geo !== null, replayKey: `${title}:${window}`, data: series });
   const last = points.length ? points[points.length - 1] : null;
   const shown = hover !== null && points[hover] ? points[hover] : last;
   const value = shown?.y ?? latest;
@@ -179,7 +183,7 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
       <div ref={box} className="relative h-[400px]">
         {loading && !geo ? <Skeleton className="absolute inset-0 rounded-2xl bg-background/60" /> : null}
         {geo ? (
-          <svg width={size.w} height={size.h} className="absolute inset-0" onMouseMove={onMove} onMouseLeave={() => setHover(null)} role="img" aria-label={title}>
+          <svg ref={revealRoot} width={size.w} height={size.h} className="absolute inset-0" onMouseMove={onMove} onMouseLeave={() => setHover(null)} role="img" aria-label={title}>
             <defs>
               <pattern id={`${id}-l`} width="4" height="4" patternUnits="userSpaceOnUse">
                 <rect width="4" height="4" fill="var(--positive)" fillOpacity="0.16" />
@@ -187,15 +191,20 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
               <pattern id={`${id}-s`} width="4" height="4" patternUnits="userSpaceOnUse">
                 <rect width="4" height="4" fill="var(--negative)" fillOpacity="0.1" />
               </pattern>
+              <clipPath id={`reveal-${id}`}><rect ref={revealClip} x="-10" y="0" width={size.w + 20} data-full={size.w + 20} height={size.h} /></clipPath>
               <clipPath id={`${id}-above`}><rect x="0" y="0" width={size.w} height={geo.mid} /></clipPath>
               <clipPath id={`${id}-below`}><rect x="0" y={geo.mid} width={size.w} height={size.h - geo.mid} /></clipPath>
             </defs>
-            <path d={geo.long} fill={`url(#${id}-l)`} />
-            <path d={geo.short} fill={`url(#${id}-s)`} />
-            <path d={geo.line} fill="none" stroke="var(--positive)" clipPath={`url(#${id}-above)`} strokeLinejoin="round" strokeLinecap="round" strokeWidth="3" />
-            <path d={geo.line} fill="none" stroke="var(--negative)" clipPath={`url(#${id}-below)`} strokeLinejoin="round" strokeLinecap="round" strokeWidth="3" />
-            {geo.isolated.map((point, i) => <circle key={i} cx={point.x} cy={point.y} r="3" fill="var(--foreground)" />)}
-            {geo.btcLine ? <path d={geo.btcLine} fill="none" strokeWidth="2" stroke="var(--muted-foreground)" strokeOpacity="0.8" strokeDasharray="5 5" strokeLinejoin="round" /> : null}
+            <g clipPath={`url(#reveal-${id})`}>
+              <g ref={revealFill}>
+                <path d={geo.long} fill={`url(#${id}-l)`} />
+                <path d={geo.short} fill={`url(#${id}-s)`} />
+              </g>
+              <path d={geo.line} fill="none" stroke="var(--positive)" clipPath={`url(#${id}-above)`} strokeLinejoin="round" strokeLinecap="round" strokeWidth="3" />
+              <path d={geo.line} fill="none" stroke="var(--negative)" clipPath={`url(#${id}-below)`} strokeLinejoin="round" strokeLinecap="round" strokeWidth="3" />
+              {geo.isolated.map((point, i) => <circle key={i} cx={point.x} cy={point.y} r="3" fill="var(--foreground)" />)}
+              {geo.btcLine ? <path d={geo.btcLine} fill="none" strokeWidth="2" stroke="var(--muted-foreground)" strokeOpacity="0.8" strokeDasharray="5 5" strokeLinejoin="round" /> : null}
+            </g>
             {[0, 25, 50, 75, 100].map((v) => (
               <text key={v} x={size.w - PAD.r + 14} y={geo.sy(v) + 4} className="num fill-muted-foreground text-[11px] font-bold">{v}%</text>
             ))}
@@ -203,10 +212,10 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
               <text key={tick.i} x={tick.px} y={size.h - 8} textAnchor={tick.i === 0 ? "start" : tick.i === 4 ? "end" : "middle"} className="fill-muted-foreground text-[11px] font-bold">{tick.label}</text>
             ))}
             {shown ? (
-              <>
+              <g ref={revealEnd}>
                 {hover !== null ? <line x1={geo.sx(shown.x)} x2={geo.sx(shown.x)} y1={PAD.t} y2={PAD.t + geo.ih} stroke="var(--muted-foreground)" strokeOpacity="0.55" strokeDasharray="3 3" /> : null}
                 <circle cx={geo.sx(shown.x)} cy={geo.sy(shown.y)} r="3.5" fill={shown.y >= 50 ? "var(--positive)" : "var(--negative)"} stroke="var(--raised)" strokeWidth="2" />
-              </>
+              </g>
             ) : null}
           </svg>
         ) : !loading ? (

@@ -63,7 +63,7 @@ export function CopySparkline({ points, width = 72, height = 28, className }: { 
   const up = values.at(-1)! >= 0;
   const [ex, ey] = xy.at(-1)!;
   return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-hidden className={cn("inline-block", up ? "text-positive" : "text-negative", className)}>
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-hidden className={cn("chart-draw inline-block", up ? "text-positive" : "text-negative", className)}>
       <path d={`${d}L${ex.toFixed(1)},${height}L${xy[0]![0].toFixed(1)},${height}Z`} fill="currentColor" fillOpacity={0.12} />
       <path d={d} fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinejoin="round" strokeLinecap="round" />
       <circle cx={ex} cy={ey} r={2.4} fill="currentColor" />
@@ -126,6 +126,7 @@ export function PortfolioChart({ overview, height = 240, className }: { overview
         {series.length > 1 ? (
           <AreaChart
             data={series}
+            animateKey={`${window}:${roi}`}
             height={height}
             axes
             interactive

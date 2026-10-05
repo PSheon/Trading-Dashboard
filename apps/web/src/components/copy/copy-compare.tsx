@@ -105,6 +105,7 @@ export function CopyCompare({ strategy: s, traderName }: { strategy: CopyStrateg
         {series.length > 1 ? (
           <AreaChart
             data={series}
+            animateKey={`${view}:${window}:${metric}`}
             height={200}
             axes
             interactive

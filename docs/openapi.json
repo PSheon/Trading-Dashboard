@@ -2125,6 +2125,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "x-privy-identity-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -2773,6 +2781,14 @@
           },
           {
             "name": "authorization",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-privy-identity-token",
             "required": true,
             "in": "header",
             "schema": {
@@ -6802,6 +6818,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "x-privy-identity-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -7205,6 +7229,14 @@
           },
           {
             "name": "authorization",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-privy-identity-token",
             "required": true,
             "in": "header",
             "schema": {
@@ -32920,6 +32952,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "x-privy-identity-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -35243,6 +35283,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "x-privy-identity-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -36403,6 +36451,14 @@
           },
           {
             "name": "authorization",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-privy-identity-token",
             "required": true,
             "in": "header",
             "schema": {

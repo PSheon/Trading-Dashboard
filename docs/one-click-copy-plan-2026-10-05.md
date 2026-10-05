@@ -410,3 +410,22 @@ Environment: Stage uses the Privy "Dev" app. API and worker both need `COPY_TRAD
 10. 跟單目前持倉 in 測試網 mode is shown disabled with a note.
 
 Order: admin rebuild (stream 11) first, then steps 1–4 of this plan, then the locale/gradient/chart/skeleton stream, then steps 5–10.
+
+## Prototype results (stream 13, 2026-10-05, Stage Dev Privy app)
+
+Script: `scripts/privy-master-policy-proto.mjs` (credentials read in-process from the Stage api service and the gitignored worker key file, never printed). It uses the production rules (`apps/api/src/copy/live/privy-master-policy.ts`, built `dist`) and asks Privy for signatures only; nothing was posted to Hyperliquid. Last run 08:41Z:
+
+| Check | Result | Evidence |
+|---|---|---|
+| (a) user-owned policy | **proven** | `policies().create({ owner: { user_id } })` returned a policy whose owner is a user key quorum (5 rules: UsdSend to owner main, UserSetAbstraction disabled for the account, ApproveAgent exact, deny key export, deny seed export). |
+| (b) attach with the owner's `user_jwts` | **not run** | The Dev app has no Privy test accounts (`GET /v1/apps/<app>/test_credentials` answers 200 with an empty body), so there is no owner session to sign with. To run it: enable a test account on the Dev app (Privy dashboard → User management → Test accounts) and rerun, or sign in on Stage and run with `PRIVY_PROTO_JWT_FILE=<file holding localStorage privy:token>`. The script then also checks that the app secret alone can't do the same update. |
+| (c) override binds only the signer | **not run** | Same: needs the owner's session (it signs a UsdSend to another address and a Withdraw with the owner's JWT, which must succeed). |
+| (d) exact lowercase `destination` | **proven** | Worker key: UsdSend to the owner main (lowercase) on Testnet → signed, and the signature recovers to the copy wallet. The same with mixed-case hex → `RPC request denied due to policy violation`. |
+| (e) everything else denied for the worker | **proven** | Worker key, each denied by policy: UsdSend to another address; UsdSend with `Mainnet` / chainId 42161; `Withdraw`; ApproveAgent for another agent; `personal_sign`; UserSetAbstraction to `unifiedAccount`, or for another user. Allowed: ApproveAgent for the bound agent and name; UserSetAbstraction `disabled` for the bound account. |
+
+Without an owner session the script attaches the worker at wallet creation with the app secret (as the agent wallets are), which is enough for (d)/(e). (b) and (c) decide whether new copy wallets can get the signer with the owner's consent, so until they are proven no account gets it: the stopper's automatic return (`CopyLiveAutoReturn`), the `PrivyPolicyMasterSigner` and the provisioning check are on `dev` but only act on accounts whose row records a master policy, and nothing writes one yet.
+
+Privy objects created on the Dev app (all labelled `orbie-proto-2026-10-05-…`; server-created users with `@example.invalid` emails, no funds):
+- users `did:privy:cmuuznk6501ly0cl88krcm566`, `did:privy:cmuv02oaz01d60cl5e1v9tmo9`, `did:privy:cmuv03o4u00me0bjvycglzbut`;
+- policies `yhyp57l2h3xj46c1khwpgxbo`, `q80rnqpd9o7vv90qp9zcfl02`, `ns5jz47b7ub1c5bsst5jk634`;
+- wallets `mpkh9sowu5csdq4gimpagdoy` (0xD23f…6aC2), `wgevdgvksfv67er3wwopasqc` (0xbB46…066d), `wsyyb5k9ncm8nsqe0apbttt3` (0x1459…4963).

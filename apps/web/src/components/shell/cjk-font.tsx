@@ -46,6 +46,10 @@ export function CjkFontWarmup() {
   const pathname = usePathname();
   useEffect(() => {
     if (typeof document === "undefined" || !document.fonts?.load) return;
+    // Not on the fixture / test server: its first import would make the dev
+    // server fetch and compile the font's ~100 slices in the middle of a
+    // browser-test run (CI run 37262398469 stalled for minutes there).
+    if (process.env.NEXT_PUBLIC_API_FIXTURES === "1" && process.env.NEXT_PUBLIC_CJK_WARMUP !== "1") return;
     if ((navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData) return;
     let cancelled = false;
     let idle: number | undefined;

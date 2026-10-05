@@ -1,4 +1,5 @@
 import { PrivyClient } from '@privy-io/node';
+import { WALLET_NETWORKS } from '@trading-dashboard/shared/contracts';
 import { verifyTypedData, type TypedDataDefinition } from 'viem';
 import { boundedLiveRead } from './live-market-resolver.js';
 import { LiveBoundaryError } from './wallet-authorization.js';
@@ -28,9 +29,28 @@ export function masterActionSignable(data: Pick<MasterTypedData, 'primaryType' |
   return Boolean(fields && declared && Object.keys(data.types).length === 1 && JSON.stringify(declared) === JSON.stringify(fields) &&
     Object.keys(data.message).sort().join(',') === fields.map(f => f.name).sort().join(','));
 }
+/** The values the caller bound the action to, checked against the typed
+ * data itself (gap audit 2026-10-05: only the shape was checked). Testnet
+ * only: a copy account never signs for mainnet here. */
+export interface MasterActionBound {
+  readonly network: 'testnet';
+  /** UsdSend: the only destination (the owner's main wallet). */
+  readonly destination?: string;
+  /** ApproveBuilderFee: the configured builder. */
+  readonly builder?: string;
+}
+export function masterActionBound(data: Pick<MasterTypedData, 'domain' | 'primaryType' | 'message'>, bound: MasterActionBound): boolean {
+  if (bound?.network !== 'testnet') return false;
+  const network = WALLET_NETWORKS[bound.network], message = data.message;
+  if (data.domain.chainId !== Number.parseInt(network.signatureChainId, 16) || message.hyperliquidChain !== network.hyperliquidChain) return false;
+  const lower = (value: unknown) => typeof value === 'string' && /^0x[0-9a-f]{40}$/.test(value) ? value : null;
+  if (data.primaryType === 'HyperliquidTransaction:UsdSend') return lower(message.destination) !== null && typeof bound.destination === 'string' && message.destination === bound.destination.toLowerCase();
+  if (data.primaryType === 'HyperliquidTransaction:ApproveBuilderFee') return lower(message.builder) !== null && typeof bound.builder === 'string' && message.builder === bound.builder.toLowerCase();
+  return false;
+}
 export interface MasterActionSigner {
   readonly available: boolean;
-  sign(account: MasterAccount, data: MasterTypedData, userJwt: string, deadline: number, assertFresh: () => void): Promise<string>;
+  sign(account: MasterAccount, data: MasterTypedData, userJwt: string, deadline: number, assertFresh: () => void, bound: MasterActionBound): Promise<string>;
 }
 
 /**
@@ -48,13 +68,13 @@ export class PrivyMasterActionSigner implements MasterActionSigner {
     this.credentials = config.appId && config.appSecret ? Object.freeze({ appId: config.appId, appSecret: config.appSecret }) : null;
   }
   get available() { return this.credentials !== null; }
-  async sign(rawAccount: MasterAccount, rawData: MasterTypedData, userJwt: string, rawDeadline: number, assertFresh: () => void): Promise<string> {
+  async sign(rawAccount: MasterAccount, rawData: MasterTypedData, userJwt: string, rawDeadline: number, assertFresh: () => void, bound: MasterActionBound): Promise<string> {
     const controller = new AbortController(); let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const account = Object.freeze(structuredClone(rawAccount)), data = structuredClone(rawData), started = this.now(), deadline = Math.min(started + 5000, rawDeadline);
       if (!this.credentials || typeof userJwt !== 'string' || !userJwt.trim() || userJwt.length > 32768 || typeof assertFresh !== 'function' ||
         data.domain.name !== 'HyperliquidSignTransaction' || data.domain.version !== '1' || data.domain.verifyingContract !== `0x${'00'.repeat(20)}` ||
-        !masterActionSignable(data)) throw new Error();
+        !masterActionSignable(data) || !masterActionBound(data, bound)) throw new Error();
       const remaining = () => { const now = this.now(); if (!Number.isSafeInteger(now) || now < started || now >= deadline || controller.signal.aborted) throw new Error(); return deadline - now; };
       const fresh = () => { const result: unknown = assertFresh(); if (result !== undefined) { void Promise.resolve(result).catch(() => {}); throw new Error(); } };
       fresh(); remaining(); timer = setTimeout(() => controller.abort(), remaining()); timer.unref();

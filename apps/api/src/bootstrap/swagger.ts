@@ -6,7 +6,7 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import type { ZodTypeAny } from "zod";
 import { httpRouteContracts, responseMetaSchema, errorEnvelopeSchema } from "@trading-dashboard/shared/contracts";
 import { IS_PUBLIC_KEY } from "../common/auth/public.decorator.js";
-import { PERMISSIONS_KEY } from "../common/auth/permissions.js";
+import { requiredPermissions } from "../common/auth/permissions.js";
 import { ROLES_KEY } from "../common/auth/current-user.js";
 
 export const SWAGGER_PATH = "docs";
@@ -78,7 +78,7 @@ export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
       seen.add(contract.method + " " + contract.path);
       const routeTargets = targets.get(operation.operationId!);
       if (!routeTargets) throw new Error("Missing route metadata for " + operation.operationId);
-      const permissions = reflector.getAllAndOverride<string[]>(PERMISSIONS_KEY, routeTargets) ?? [];
+      const permissions = requiredPermissions(reflector, routeTargets);
       const roles = reflector.getAllAndOverride<string[]>(ROLES_KEY, routeTargets) ?? [];
       const publicRoute = reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, routeTargets) && !permissions.length && !roles.length;
       operation.security = publicRoute ? [{}, { bearerAuth: [] }] : [{ bearerAuth: [] }];

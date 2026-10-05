@@ -6385,7 +6385,8 @@
           }
         ],
         "x-required-permissions": [
-          "jobs.retry"
+          "jobs.retry",
+          "jobs.read"
         ],
         "x-required-roles": [],
         "description": "Access: jobs.retry"
@@ -8119,7 +8120,8 @@
           }
         ],
         "x-required-permissions": [
-          "settings.read"
+          "settings.read",
+          "admin.access"
         ],
         "x-required-roles": [],
         "description": "Access: settings.read"
@@ -8491,7 +8493,8 @@
           }
         ],
         "x-required-permissions": [
-          "settings.write"
+          "settings.write",
+          "admin.access"
         ],
         "x-required-roles": [],
         "description": "Access: settings.write"
@@ -8701,7 +8704,8 @@
           }
         ],
         "x-required-permissions": [
-          "users.read"
+          "users.read",
+          "admin.access"
         ],
         "x-required-roles": [],
         "description": "Access: users.read"
@@ -8872,7 +8876,8 @@
           }
         ],
         "x-required-permissions": [
-          "users.manage"
+          "users.manage",
+          "admin.access"
         ],
         "x-required-roles": [],
         "description": "Access: users.manage"
@@ -9021,7 +9026,8 @@
           }
         ],
         "x-required-permissions": [
-          "overview.read"
+          "overview.read",
+          "admin.access"
         ],
         "x-required-roles": [],
         "description": "Access: overview.read"
@@ -9212,7 +9218,8 @@
           }
         ],
         "x-required-permissions": [
-          "revenue.read"
+          "revenue.read",
+          "admin.access"
         ],
         "x-required-roles": [],
         "description": "Access: revenue.read"
@@ -10466,7 +10473,8 @@
           }
         ],
         "x-required-permissions": [
-          "rules.manage"
+          "rules.manage",
+          "rules.read"
         ],
         "x-required-roles": [],
         "description": "Access: rules.manage"
@@ -23169,7 +23177,8 @@
         ],
         "x-required-permissions": [
           "admin.access",
-          "users.manage"
+          "users.manage",
+          "users.read"
         ],
         "x-required-roles": []
       }
@@ -37803,7 +37812,8 @@
         ],
         "x-required-permissions": [
           "admin.access",
-          "risk.manage"
+          "risk.manage",
+          "copy.read"
         ],
         "x-required-roles": []
       }
@@ -38923,7 +38933,7 @@
     },
     "/admin/copy/live/grants/{id}/revoke": {
       "post": {
-        "description": "Needs execution.pause; audited as copy.grant.revoke. A copy that may still hold positions or orders is stopped at once (no new risk) and the grant, limited to reductions, is revoked when that stop ends (revokeRequestedAt, stopId); an ended copy's grant is revoked at once (revokedAt). 409 live_revoke_needs_stop when the copy cannot be stopped.\n\nAccess: copy.read + execution.pause; audited copy.grant.revoke",
+        "description": "Needs execution.pause; force (revoke at once, positions may remain) also needs risk.manage (admin). Audited as copy.grant.revoke. A copy that may still hold positions or orders is stopped at once (no new risk) and the grant, limited to reductions, is revoked when that stop ends (revokeRequestedAt, stopId); an ended copy's grant is revoked at once (revokedAt). 409 live_revoke_needs_stop when the copy cannot be stopped.\n\nAccess: copy.read + execution.pause; audited copy.grant.revoke",
         "operationId": "AdminCopyLiveController_revoke",
         "parameters": [
           {

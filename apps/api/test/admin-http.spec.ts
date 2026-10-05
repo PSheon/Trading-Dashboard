@@ -79,7 +79,7 @@ describe("admin routes over HTTP", () => {
   });
 
   it("a read-scoped service cannot mutate users or read unrelated settings", async () => {
-    process.env.AUTH_SERVICE_PERMISSIONS = "users.read";
+    process.env.AUTH_SERVICE_PERMISSIONS = "admin.access,users.read";
     try {
       await request(app.getHttpServer()).get("/admin/users").set("Authorization", `Bearer ${SERVICE_TOKEN}`).expect(200);
       await request(app.getHttpServer()).patch("/admin/users/1").set("Authorization", `Bearer ${SERVICE_TOKEN}`).send({ role: "user" }).expect(403);
@@ -90,7 +90,11 @@ describe("admin routes over HTTP", () => {
   });
 
   it("lets admins and explicitly scoped services in, and keeps everyone else out", async () => {
+    // The class's admin.access is required too: a method's own permission
+    // adds to it rather than replacing it (gap audit 2026-10-05).
     process.env.AUTH_SERVICE_PERMISSIONS = "settings.read,users.read,overview.read,revenue.read";
+    for (const path of ["/admin/settings", "/admin/users", "/admin/overview", "/admin/revenue"]) expect((await get(path, SERVICE_TOKEN)).status, path).toBe(403);
+    process.env.AUTH_SERVICE_PERMISSIONS = "admin.access,settings.read,users.read,overview.read,revenue.read";
     for (const path of ["/admin/settings", "/admin/users", "/admin/overview", "/admin/revenue"]) {
       expect((await get(path)).status, path).toBe(401);
       expect((await get(path, "forged")).status, path).toBe(401);

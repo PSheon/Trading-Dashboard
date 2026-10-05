@@ -1,8 +1,9 @@
-import { ConflictException, HttpException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, HttpException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { adminRevokeLiveGrantSchema, type AdminLiveAccounts, type AdminLiveLatency, type AdminLiveOrders, type AdminLiveTransfers, type AdminRevokedLiveGrant } from '@trading-dashboard/shared/contracts';
 import { recordAdminAudit } from '../common/audit/admin-audit.js';
 import type { RequestUser } from '../common/auth/current-user.js';
+import { hasPermission } from '../common/auth/permissions.js';
 import { parseOr400 } from '../common/http/validation.js';
 import { UnitOfWork } from '../db/unit-of-work.js';
 import { CopyAdminLiveRepository } from './copy-admin-live.repository.js';
@@ -47,6 +48,9 @@ export class CopyAdminLiveService {
    */
   async revoke(id: string, input: unknown, actor: RequestUser): Promise<AdminRevokedLiveGrant> {
     const { reason, force } = parseOr400(adminRevokeLiveGrantSchema, input);
+    // Revoking now whatever the copy holds can leave positions nobody closes:
+    // an admin's call (risk.manage), not an operator's (execution.pause only).
+    if (force && !hasPermission(actor, 'risk.manage')) throw new ForbiddenException({ statusCode: 403, code: 'insufficient_permissions', message: 'Revoking at once (force) needs risk.manage' });
     return this.uow.run(async tx => {
       const row = await this.repository.lockedGrant(tx, id);
       if (!row) throw new NotFoundException('Wallet authorization not found');

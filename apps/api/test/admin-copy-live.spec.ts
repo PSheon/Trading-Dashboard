@@ -35,13 +35,15 @@ const execution = (key: string, state: string, nonce: number, reduceOnly = false
 beforeAll(async () => {
   vi.stubEnv('AUTH_SERVICE_TOKEN', READ_ONLY);
   vi.stubEnv('AUTH_SERVICE_PERMISSIONS', 'admin.access,copy.read');
-  const privy = stubPrivy({ 'admin-token': { privyUserId: 'did:privy:live-admin', profile: { email: 'ops@example.com', walletAddress: null, embeddedWalletAddress: null } } });
+  const privy = stubPrivy({ 'admin-token': { privyUserId: 'did:privy:live-admin', profile: { email: 'ops@example.com', walletAddress: null, embeddedWalletAddress: null } },
+    'operator-token': { privyUserId: 'did:privy:live-operator', profile: { email: 'operator@example.com', walletAddress: null, embeddedWalletAddress: null } } });
   ({ app, auth } = await createAuthedApp({ db, privy, controllers: [AdminCopyLiveController], providers: [CopyAdminLiveRepository, CopyAdminLiveService, CopyLiveStopRepository, CopyLiveMandateRepository] }));
   app.get(CopyAdminLiveService).now = () => new Date(now);
 });
 beforeEach(async () => {
   seed = await preparationFixture(db); auth.clearCache();
   await insertUser(db, { privyUserId: 'did:privy:live-admin', email: 'ops@example.com', role: 'admin' });
+  await insertUser(db, { privyUserId: 'did:privy:live-operator', email: 'operator@example.com', role: 'operator' });
 });
 afterAll(async () => { await app.close(); await closeTestDb(); vi.unstubAllEnvs(); });
 
@@ -173,6 +175,14 @@ describe('/admin/copy/live — testnet copy operations (B16) and latency (B18)',
     expect(forced).toEqual({ id: 'grant', version: 5, revokedAt: new Date(now).toISOString(), revokeRequestedAt: null, stopId: null });
     expect(await db.select().from(copyLiveStopOperations)).toEqual([]);
     expect((await db.select().from(adminAuditLogs))[0]).toMatchObject({ afterJson: { forced: true, why: 'forced_by_admin', positionsMayRemain: true, reason: 'agent key leaked' } });
+  });
+
+  it('an operator may revoke through the stop but not force it: forcing can leave positions open (gap audit 2026-10-05)', async () => {
+    const refused = await as('operator-token').post('/admin/copy/live/grants/grant/revoke', { reason: 'agent key leaked', force: true }).expect(403);
+    expect(refused.body.error).toMatchObject({ code: 'insufficient_permissions' });
+    expect(await db.select().from(adminAuditLogs)).toEqual([]);
+    const pending = adminRevokedLiveGrantSchema.parse((await as('operator-token').post('/admin/copy/live/grants/grant/revoke', { reason: 'agent key leaked' }).expect(200)).body.data);
+    expect(pending.revokedAt).toBeNull();
   });
 
   it('revokes at once when the copy has ended (nothing left for the grant to close)', async () => {

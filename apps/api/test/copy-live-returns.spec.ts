@@ -46,6 +46,8 @@ describe('returning USDC from a copy account to the main wallet', () => {
     expect(account).toEqual({ walletId: 'master', address: seed.f.identity.accountAddress, ownerQuorumId: 'owner' });
     expect(data).toMatchObject({ primaryType: 'HyperliquidTransaction:UsdSend', message: { destination: owner.address.toLowerCase(), amount: '12.5', time: challenge.consent.nonce } });
     expect(jwt).toBe('owner-jwt');
+    // The values the signer checks the typed data against: testnet and the owner's main wallet.
+    expect(signer.sign.mock.calls[0]![5]).toEqual({ network: 'testnet', destination: owner.address.toLowerCase() });
     // Again: the original attempt is never resent.
     expect(await service.approve(1, challenge.operation.id, { consentSignature: await ownerSigns(challenge.consent) }, 'owner-jwt')).toMatchObject({ status: 'accepted' });
     expect(exchange.send).toHaveBeenCalledOnce();

@@ -12,7 +12,7 @@ import type { Request } from "express";
 
 import { AuthService, type AuthOutcome } from "./auth.service.js";
 import { ROLES_KEY, type RequestUser } from "./current-user.js";
-import { PERMISSIONS_KEY } from "./permissions.js";
+import { requiredPermissions } from "./permissions.js";
 import { IS_PUBLIC_KEY } from "./public.decorator.js";
 import { preferredLocale } from "./request-locale.js";
 
@@ -48,7 +48,7 @@ export class AuthGuard implements CanActivate {
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, targets) ?? false;
     const roles = this.reflector.getAllAndOverride<UserRole[] | undefined>(ROLES_KEY, targets);
     const needsRole = roles !== undefined && roles.length > 0;
-    const required = this.reflector.getAllAndOverride<string[]>(PERMISSIONS_KEY, targets);
+    const required = requiredPermissions(this.reflector, targets);
     const open = isPublic && !needsRole && !required?.length;
 
     const request = context.switchToHttp().getRequest<Request & { user?: RequestUser }>();

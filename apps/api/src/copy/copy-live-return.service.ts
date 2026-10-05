@@ -75,7 +75,8 @@ export class CopyLiveReturnService {
     let signature: string;
     try {
       signature = await this.signer.sign({ walletId: context.account.privyWalletId!, address: row.address, ownerQuorumId: context.account.ownerQuorumId! },
-        usdSendTypedData(WALLET_NETWORKS.testnet, row.destination, row.amount, row.nonce), userJwt, consent.consentExpiresAt, fresh);
+        usdSendTypedData(WALLET_NETWORKS.testnet, row.destination, row.amount, row.nonce), userJwt, consent.consentExpiresAt, fresh,
+        { network: 'testnet', destination: context.owner.embeddedWalletAddress! });
     } catch {
       // Not signed: the exchange cannot have it. Definitely not sent.
       return wire(await this.repository.finish(userId, id, 'rejected', digest({ reason: 'master_signature_unavailable', id })));
@@ -127,7 +128,8 @@ export class CopyLiveReturnService {
     let signature: string;
     try {
       signature = await this.signer.sign({ walletId: context.account.privyWalletId!, address: row.accountAddress, ownerQuorumId: context.account.ownerQuorumId! },
-        approveBuilderFeeTypedData(WALLET_NETWORKS.testnet, row.builderAddress, row.maxFeeTenthsBps, row.nonce), userJwt, consent.consentExpiresAt, fresh);
+        approveBuilderFeeTypedData(WALLET_NETWORKS.testnet, row.builderAddress, row.maxFeeTenthsBps, row.nonce), userJwt, consent.consentExpiresAt, fresh,
+        { network: 'testnet', builder: row.builderAddress });
     } catch { return this.builderWire(await this.repository.finishBuilder(userId, id, 'rejected', digest({ reason: 'master_signature_unavailable', id }))); }
     let reply: unknown;
     try { reply = await this.exchange.sendAction('testnet', approveBuilderFeeRequest(WALLET_NETWORKS.testnet, row.builderAddress, row.maxFeeTenthsBps, row.nonce, signature), fresh); }

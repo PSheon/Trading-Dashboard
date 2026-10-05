@@ -38,7 +38,7 @@ export class AdminCopyLiveController {
   @Get("latency")
   latency(@Query() query: AdminLiveLatencyQueryDto): Promise<AdminLiveLatency> { return this.live.latency(query.window); }
 
-  @ApiDoc("Revoke a testnet copy's trading grant", "Needs execution.pause; audited as copy.grant.revoke. A copy that may still hold positions or orders is stopped at once (no new risk) and the grant, limited to reductions, is revoked when that stop ends (revokeRequestedAt, stopId); an ended copy's grant is revoked at once (revokedAt). 409 live_revoke_needs_stop when the copy cannot be stopped.")
+  @ApiDoc("Revoke a testnet copy's trading grant", "Needs execution.pause; force (revoke at once, positions may remain) also needs risk.manage (admin). Audited as copy.grant.revoke. A copy that may still hold positions or orders is stopped at once (no new risk) and the grant, limited to reductions, is revoked when that stop ends (revokeRequestedAt, stopId); an ended copy's grant is revoked at once (revokedAt). 409 live_revoke_needs_stop when the copy cannot be stopped.")
   @RequirePermissions("admin.access", "copy.read", "execution.pause")
   @ResponseMessage("Grant revoked")
   @Post("grants/:id/revoke") @HttpCode(200)

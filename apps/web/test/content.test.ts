@@ -68,9 +68,16 @@ describe("long-form content", () => {
     expect(inlineText("**Bold** and [link](/a)")).toBe("Bold and link");
   });
 
-  it("keeps the owner's placeholders visible and links the FAQ at /help", () => {
+  it("dates the legal pages, leaves no placeholders in them, and links the FAQ at /help", () => {
     for (const locale of ["zh-TW", "en"] as const) {
-      expect(CONTENT_PAGES.privacy[locale]).toContain("【待填");
+      for (const page of ["privacy", "terms"] as const) {
+        // Anonymous: no 【待填】 slots for a company, address or email.
+        expect(CONTENT_PAGES[page][locale], `${page}.${locale}`).not.toContain("【待填");
+        expect(CONTENT_PAGES[page][locale], `${page}.${locale}`).toContain("https://x.com/orbie_fun");
+        // The date is the first paragraph, which LegalDocument shows under the title.
+        const { rest } = splitTitle(contentBlocks(page, locale));
+        expect(rest[0], `${page}.${locale}`).toEqual({ type: "paragraph", text: locale === "zh-TW" ? "最後更新：2026-10-05" : "Last updated: 2026-10-05" });
+      }
       // The "numbers you can see" section (Orbie-only, shown on /dev) links the FAQ.
       expect(CONTENT_PAGES.numbers[locale]).toContain("](/help)");
       expect(CONTENT_PAGES.numbers[locale]).not.toContain("](/faq)");

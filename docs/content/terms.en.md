@@ -1,160 +1,101 @@
-> **Draft: must be reviewed by a qualified legal professional before it goes live.** (草稿，須經法律專業人士審閱後才能上線。)
-
 # Terms of Use
 
-Effective date: 【待填：effective date】
+Last updated: 2026-10-05
 
-## 1. Acceptance
+These are the rules for using Orbie, kept as simple as we could. By using Orbie (the website and the Telegram bot @orbie_fun_bot), you agree to these terms and to our [Privacy Policy](/privacy). If you don't agree, please don't use it. "We" means the Orbie team.
 
-These terms are an agreement between you and 【待填：company name】 ("Orbie", "we", "us") about your use of the app.orbie.fun website, the @orbie_fun_bot Telegram bot and related services (the "Service"). By using the Service you agree to these terms and to our [Privacy Policy](/privacy). If you do not agree, do not use the Service.
+## What Orbie is
 
-## 2. The Service
+Orbie is a trader-analytics and copy-trading tool for Hyperliquid. You can:
 
-Orbie is a trader-analytics and copy-trading tool for Hyperliquid. It currently offers:
+- look at Hyperliquid traders' public trades and performance;
+- favorite traders and get their trade alerts on Telegram;
+- use the embedded wallet Privy creates for you to deposit, withdraw or export your key;
+- copy traders, either as **paper copies** with virtual funds or as **testnet copies**, which place real orders on the Hyperliquid testnet with test funds.
 
-- browsing, searching and analyzing public trading data and performance metrics of Hyperliquid traders;
-- favoriting traders and receiving trade alerts through Telegram;
-- an embedded wallet, provided by Privy, for deposits, withdrawals and private key export;
-- paper (simulated) copy trading: simulated orders that follow the traders you choose, using virtual funds. No order is sent to Hyperliquid and the results are estimates. Copying with real funds is planned and not available yet.
+Copying with real funds (mainnet) isn't available.
 
-Orbie is not an exchange, broker, bank or investment adviser, and does not hold your funds. All real trades are executed on Hyperliquid and are subject to Hyperliquid's rules.
+Orbie is not an exchange, a broker or an investment adviser. Real trades happen on Hyperliquid and follow Hyperliquid's rules.
 
-## 3. Eligibility
+## Who can use Orbie
 
-You may use the Service only if all of the following are true:
+- You're 18 or older, or the age of majority where you live if that's higher.
+- Using Orbie and trading crypto derivatives is legal where you are. Following your local laws is up to you, and we don't offer Orbie where it would be illegal.
+- You're not on a sanctions list, and you're not using Orbie for someone who is.
+- You also agree to follow Hyperliquid's terms.
 
-- you are at least 18 years old, or the age of majority where you live if that is higher, and have full legal capacity;
-- you are not, and are not acting for, a sanctioned person or entity;
-- you are not located in, resident in, established in, or a citizen or resident of the United States, any country or region under comprehensive sanctions (Cuba, Iran, North Korea, Syria, and the Crimea, Donetsk and Luhansk regions), or any other place where using the Service is unlawful;
-- using the Service, and in particular trading derivatives, is legal where you are, and you also meet Hyperliquid's terms of use.
+## Not investment advice
 
-It is your responsibility to confirm these conditions. We may ask for information to confirm eligibility and may refuse or end access for anyone who does not qualify.
+Rankings, scores, performance numbers, featured traders and alerts on Orbie are information, **not investment advice**, and not a suggestion to buy or sell anything. Whether you trade, who you copy and how much is your call, and so are the results.
 
-## 4. Accounts and wallets
+## Trading is risky
 
-### 4.1 Signing in
+- Perpetuals use leverage. A small move against you can liquidate a position and wipe out its margin.
+- A copy is always a step behind the trader. Its price and size can differ, and sometimes it won't fill at all. Your results can be very different from the trader's.
+- A trader who made money in the past won't necessarily make money in the future.
+- Only put in what you can afford to lose.
 
-You sign in through Privy with email, a Google account or a crypto wallet. You must keep the accounts and devices you sign in with secure. Anything done through your sign-in method is treated as done by you.
+## Paper and testnet
 
-### 4.2 Self-custody
+- **Paper copies** use virtual USDC and never send a real order. The profit and loss you see is an estimate, and virtual funds are worth nothing.
+- **Testnet copies** place real orders on the Hyperliquid testnet, using test funds that have no real value either. The testnet itself can reset, slow down or go offline.
+- Before a testnet copy starts, you sign an authorization for an agent and choose how long it lasts. From then on, our servers place orders for you automatically, following the trader, amounts and limits you set, without asking you about each one. You can stop a copy at any time.
+- To manage risk, we may reject, delay, shrink or pause some copy orders, or pause copying altogether.
 
-- When you sign in, Privy creates an embedded wallet for you. That wallet is your Hyperliquid account, and the funds in it belong to you.
-- The private key is held by Privy. **Orbie cannot access your private key** and cannot withdraw or move your funds.
-- You can export your private key at any time. Once exported, keeping it safe is your responsibility. Anyone who obtains your private key can take your funds. Orbie cannot recover, and is not responsible for, losses caused by a leaked or lost private key or a compromised sign-in account.
-- Blockchain transactions cannot be reversed once sent. Funds sent to the wrong address, network or token may be lost permanently.
+## Your wallet is your responsibility
 
-### 4.3 Deposits and withdrawals
+- Privy creates your embedded wallet and holds its private key. The money in it is yours. Orbie can't get your private key and can't move the money in your main wallet.
+- You can export your private key. Once you do, keeping it safe is on you: anyone who has it can take your funds.
+- Keep your sign-in safe too (email, Google account or wallet). Anything done through it counts as done by you.
+- On-chain transfers can't be undone. Send to the wrong address, network or token, and the money may be gone for good.
+- Deposits and withdrawals are handled by Hyperliquid and its bridge. The minimum deposit and the withdrawal fee are shown on screen, and timing depends on Hyperliquid and Arbitrum.
 
-- Deposits are supported only as USDC on the Arbitrum network, with a minimum of 5 USDC. USDC you send arrives at your own wallet address on Arbitrum; it reaches your Hyperliquid account only after you send it to Hyperliquid's bridge from the Deposit window, signing with your own wallet. Transfers to the bridge below the minimum, or transfers not meeting these requirements, may not be credited and may not be recoverable.
-- Withdrawals are sent as USDC to an address on Arbitrum, and Hyperliquid charges a 1 USDC fee.
-- Deposits and withdrawals are processed by Hyperliquid and its bridge; timing and availability depend on Hyperliquid and Arbitrum.
+## Fees
 
-## 5. No investment advice
+- Browsing, favorites, Telegram alerts, paper copies and testnet copies currently cost you no real money.
+- Paper or testnet copies may show a builder fee in their accounting. It only ever comes out of virtual or test funds.
+- If a copy carries a builder fee, its maximum is shown to you before you sign the copy approval, and it only applies once you sign. If the rate is raised later, the old approval stops placing orders until you approve again.
+- Hyperliquid's own trading fees, funding and withdrawal fee are separate.
+- If we ever charge for copying with real funds, we'll spell out the rate before you start copying. No hidden fees.
 
-Everything in the Service, including performance data, rankings, copy scores, trading styles, tier labels, featured traders, alerts and any written explanation, is **for information only and is not investment, financial, legal or tax advice**, nor an offer or solicitation to buy or sell any asset. Orbie does not recommend any trader or strategy.
+## Invites
 
-Metrics are calculated from Hyperliquid's public data and may be inaccurate because of incomplete data, delays or the calculation method. You must make your own judgment and are solely responsible for your trading decisions.
+- You can share your own invite link.
+- A new user counts only if they link through an invite within 30 minutes of creating their account. Each account can have one inviter, and you can't invite yourself.
+- Invite rewards aren't live yet. If they launch, we'll publish the rules then.
 
-## 6. Risk disclosure
+## Please don't
 
-Trading crypto assets and derivatives is highly risky, and you may lose all the money you commit. By using the Service you confirm that you understand and accept the following risks:
+- break the law, or get around regional restrictions (for example with a VPN);
+- launder money, commit fraud or manipulate markets;
+- scrape data in bulk, flood us with requests, or otherwise disrupt Orbie (normal browsing and use is fine);
+- try to get into other people's accounts, our systems or admin tools;
+- pretend to be Orbie, the Orbie team or the official bot to trick people.
 
-- **Leverage and liquidation:** perpetual futures use leverage. A small price move against a position can liquidate it and wipe out its margin.
-- **Market risk:** prices can move sharply in a short time, and liquidity may be thin.
-- **Copy-trading latency and slippage:** a copied order is sent after the trader's fill, so its price, size and timing can differ from the trader's; it may also fill partially or not at all. Your results can differ greatly from the trader's.
-- **Past performance does not predict future results:** a trader's history, however strong, does not guarantee future results, and leaderboards are subject to survivorship bias.
-- **Trader behavior:** traders you copy may change strategy or leverage or stop trading at any time, and may hold positions in other accounts you cannot see.
-- **Technical risk:** the Service, Hyperliquid, Arbitrum, Privy, Telegram or the internet may be interrupted, delayed, faulty or attacked; alerts may be late, missed or duplicated.
-- **Smart contract and bridge risk:** Hyperliquid and its bridge may contain vulnerabilities.
-- **Regulatory risk:** laws may change and restrict or prohibit some features of the Service.
+If you do, we may suspend or disable your account and stop its copies.
 
-## 7. Copy trading
+## Data can be late or wrong
 
-Copy trading is currently available in paper (simulated) mode only. It uses virtual funds, no order is sent to Hyperliquid, and the results shown are estimates that may differ from what real orders would have achieved. Virtual funds and paper results have no monetary value. To manage risk, Orbie may reject, delay, reduce, pause or stop paper copies.
+Orbie's numbers come from Hyperliquid's public data and can be delayed, incomplete or miscalculated. Alerts can arrive late, go missing or show up twice. Double-check before you decide anything.
 
-Copying with real funds is planned and not available yet. When it becomes available, the following will apply:
+## Things change
 
-- Before you start copying, you will sign an authorization with your own wallet that gives Orbie a restricted trading permission. It will only allow trading actions such as placing and cancelling orders, and **will not allow withdrawals or transfers to outside addresses**.
-- You will authorize Orbie to place orders for you on Hyperliquid automatically, according to the traders, direction (same or reverse), amounts and limits you set. These orders will not be confirmed with you one by one.
-- Orbie will make reasonable efforts to execute copies but does **not guarantee** that every trade will be copied, filled at a particular price or time, or match the trader's result. To manage risk, Orbie may reject, delay, reduce or stop certain copy orders, or pause copy trading across the Service.
-- You will be able to stop copying or revoke the authorization at any time. Orders sent before revocation may still fill.
-- You will be responsible for monitoring your own positions and margin.
+Orbie is provided as is. We may add, change, pause or stop any feature (copying included) at any time, and the service may go down for maintenance, security issues or third-party outages. We don't promise it will always be up or error-free.
 
-## 8. Fees
+Orbie relies on third parties such as Hyperliquid, Privy, Telegram and Arbitrum, and we can't control them when they have problems.
 
-- Browsing, favorites, Telegram alerts and paper copy trading are currently free.
-- For copying with real funds (planned, not available yet), Orbie will charge a fee on each copied fill through Hyperliquid's builder fee mechanism. The exact rate will be shown to you before you sign the approval and will never exceed the maximum you approved by signature; under Hyperliquid's rules the maximum for perpetuals is 0.1%.
-- Orbie may also receive rebates through Hyperliquid's referral program. These rebates do not change the fees you pay to Hyperliquid.
-- When you trade, deposit or withdraw with real funds, you also pay Hyperliquid's trading fees, funding, withdrawal fee and blockchain network fees.
-- We may change our fees, but raising the builder fee above the maximum you approved requires your new authorization.
-- You are responsible for reporting and paying any taxes on your trading.
+## Responsibility
 
-## 9. Third-party services
+As far as the law allows, Orbie isn't responsible for losses caused by trading, liquidations, copy delays or slippage, wrong data, a leaked private key, third-party outages, or your breaking these terms. Some places don't allow limits like this; there, this section applies only as far as the law allows.
 
-The Service relies on Hyperliquid, Privy, Telegram, Arbitrum and other third parties, whose own terms apply when you use them. Orbie does not control these third parties and is not responsible for their outages, errors, policy changes or resulting losses.
+## Leaving
 
-## 10. Prohibited use
+You can stop using Orbie at any time, or delete your account (see "Deleting your account" in the [Privacy Policy](/privacy)). Whether your account is disabled or deleted, your wallet and the money in it stay yours.
 
-When using the Service you must not:
+## Updates to these terms
 
-- break any applicable law, or evade sanctions or regional restrictions (for example, by using a VPN to hide your location);
-- engage in money laundering, terrorist financing, fraud or market manipulation;
-- scrape the Service's data in bulk by automated means, send excessive requests, or interfere with or disrupt the Service;
-- try to gain unauthorized access to other users' accounts, our systems or admin functions;
-- reverse engineer the Service, or probe or scan it for vulnerabilities (except under a responsible disclosure process we publish);
-- impersonate Orbie, Orbie staff or the official Telegram bot, or use Orbie's name to deceive others;
-- resell the Service or its data, or use them commercially, without our written consent.
+We may change these terms and will update the date at the top. Bigger changes will be announced on the site or on X. If you keep using Orbie after an update, you accept the new terms.
 
-## 11. Intellectual property
+## Contact
 
-The software, interface design, the Orbie name and logo, written content and metric methods of the Service belong to Orbie or its licensors. As long as you follow these terms, we grant you a personal, non-exclusive, non-transferable right to use the Service. Public data originating from Hyperliquid is not owned by Orbie.
-
-## 12. Availability and changes to the Service
-
-The Service is provided "as is" and "as available". We may add, change, suspend or end any feature (including copy trading) at any time, and may suspend the Service for maintenance, security incidents or third-party failures; we will try to give notice in advance. We do not guarantee that the Service will be uninterrupted or error-free, or that data will be fully real-time, accurate or complete.
-
-## 13. Disclaimer of warranties
-
-To the maximum extent permitted by law, Orbie makes no express or implied warranties, including merchantability, fitness for a particular purpose, non-infringement, and the accuracy, completeness or timeliness of data.
-
-## 14. Limitation of liability
-
-To the maximum extent permitted by law:
-
-- Orbie and its directors, employees and partners are not liable for any indirect, incidental, special, consequential or punitive damages, or for loss of profits, trading losses, loss of data or loss of goodwill, even if advised of their possibility;
-- Orbie is not liable for losses caused by trading losses, liquidation, copy-trading latency or slippage, a leaked private key, third-party failures or your breach of these terms;
-- Orbie's total liability to you is limited to the greater of the fees you actually paid Orbie in the 12 months before the loss occurred, or US$100.
-
-Some jurisdictions do not allow certain liabilities to be excluded or limited; to that extent, these limits may not apply to you.
-
-## 15. Indemnification
-
-You agree to indemnify Orbie and hold it harmless from third-party claims, losses and costs (including reasonable legal fees) arising from your breach of these terms, your breach of law, or your infringement of a third party's rights.
-
-## 16. Termination
-
-- You may stop using the Service at any time and request account deletion as described in the Privacy Policy. Withdraw your funds or export your private key first.
-- We may suspend or end your account if you breach these terms, if the law requires it, or if we reasonably suspect a security or fraud issue. We may also pause or close the copies on a suspended or terminated account. When we close a paper copy, its paper positions are closed. For copying with real funds (planned), open positions will remain your own positions on Hyperliquid and you will stay responsible for them.
-- Termination does not affect your ownership of your wallet or the funds in it; you can still use your wallet through an exported private key or through Privy.
-- Terms that by their nature should survive termination (such as the risk disclosure, disclaimer, limitation of liability, indemnification and governing law) continue to apply.
-
-## 17. Changes to these terms
-
-We may change these terms and will update the effective date at the top. We will announce material changes on the website or notify you by email or Telegram. Continuing to use the Service after a change takes effect means you accept the changed terms; if you do not agree, stop using the Service.
-
-## 18. Governing law and disputes
-
-These terms are governed by 【待填：governing law】. The parties will first try to resolve any dispute arising from these terms or the Service in good faith; if that fails, the dispute will be resolved by 【待填：competent court or arbitration body and seat】.
-
-## 19. General
-
-- If any provision is invalid or unenforceable, the rest remain in effect.
-- Our failure or delay in exercising a right is not a waiver of it.
-- You may not transfer your rights or obligations under these terms without our consent; we may transfer them in a merger, acquisition or asset transfer.
-- If the Chinese and English versions of these terms conflict, the English version prevails.
-
-## 20. Contact
-
-- 【待填：company name】
-- Address: 【待填：company address】
-- Email: 【待填：contact email】
+Questions? Find us on X: [@orbie_fun](https://x.com/orbie_fun).

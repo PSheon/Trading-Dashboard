@@ -240,11 +240,22 @@ jobs:
         run: pnpm --filter @trading-dashboard/shared build
       - name: Install Chromium
         run: pnpm --filter @trading-dashboard/web exec playwright install --with-deps chromium
+      # A fixture server that never came up is started once more; a failing
+      # test is never retried. Turbopack's next/font/google loader sometimes
+      # fails the root layout on a cold start ("next/font/google queries have
+      # exactly one entry", runs 37287133224 and 37306337104); every shard
+      # starts its own server, so each run now has three chances to meet it.
       - name: Browser smoke tests
         run: |
+          set -o pipefail
           node scripts/test-shards.mjs e2e ${{ matrix.shard }}/3 > "$RUNNER_TEMP/e2e-shard.txt"
           cat "$RUNNER_TEMP/e2e-shard.txt"
-          pnpm --filter @trading-dashboard/web test:e2e --test-list "$RUNNER_TEMP/e2e-shard.txt" --reporter=list
+          e2e() { pnpm --filter @trading-dashboard/web test:e2e --test-list "$RUNNER_TEMP/e2e-shard.txt" --reporter=list 2>&1 | tee "$RUNNER_TEMP/e2e.log"; }
+          if ! e2e; then
+            grep -qE "Timed out waiting [0-9]+ms from config.webServer|from config.webServer was not able to start" "$RUNNER_TEMP/e2e.log" || exit 1
+            echo "::warning::The fixture server did not start; starting it once more."
+            e2e
+          fi
       - name: Keep traces and screenshots of the failures
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

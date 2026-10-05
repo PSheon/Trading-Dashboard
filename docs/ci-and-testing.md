@@ -23,7 +23,7 @@ changes ─┬─ checks                 lint, typecheck, doc checks, script + w
 | `api (n/4)` | `api` | `pnpm test:api:isolated --shard=n/4` |
 | `smokes` | `api` | `migration-smoke.mjs`, `backup-restore-smoke.mjs` (pg_dump/pg_restore 16) |
 | `build` | `code` | `pnpm build`, `bootstrap-smoke.mjs`, `docker build`, `image-smoke.mjs` |
-| `browser (n/3)` | `web` | `test:e2e --test-list` of the shard's specs (`scripts/test-shards.mjs`); traces and screenshots of failures are uploaded as `playwright-results-n` |
+| `browser (n/3)` | `web` | `test:e2e --test-list` of the shard's specs (`scripts/test-shards.mjs`); a fixture server that fails to start (an intermittent Turbopack next/font/google error) is started once more, a failed test never; traces and screenshots of failures are uploaded as `playwright-results-n` |
 | `ci` | always | fails if any job above failed or was cancelled; skipped is fine |
 
 **Branch protection targets `ci`** (one stable name, whatever ran). Job

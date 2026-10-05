@@ -20,7 +20,8 @@ test("includes native request body schemas and query/path/header parameters", as
   assert.ok(doc.paths["/traders"].get.parameters.some(p => p.name === "limit" && p.schema.default === 50));
   assert.ok(doc.paths["/traders/{address}"].get.parameters.some(p => p.name === "address" && p.required));
   assert.ok(doc.paths["/actions/stream"].get.parameters.some(p => p.name === "Last-Event-ID" && p.in === "header"));
-  assert.deepEqual(doc.paths["/admin/settings"].patch["x-required-permissions"], ["settings.write"]);
+  // The class's admin.access adds to the method's own permission (gap audit 2026-10-05).
+  assert.deepEqual(doc.paths["/admin/settings"].patch["x-required-permissions"], ["settings.write", "admin.access"]);
 });
 
 test("the complete native document is valid OpenAPI with resolvable local references", async () => {

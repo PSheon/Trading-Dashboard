@@ -6,8 +6,12 @@ import { agentApprovalTypedData, approveBuilderFeeRequest, approveBuilderFeeType
   liveCopySetupIntentSchema, liveCopySetupSchema, liveSetupAgentName, startLiveCopySchema, copyStrategySettingsSchema, LIVE_SETUP_CONSENT_WINDOW_MS, LIVE_SETUP_DEADLINE_MS, LIVE_SETUP_VALID_DAYS,
   WALLET_NETWORKS, type LiveCopySetup, type LiveCopySetupIntent, type LiveCopySetupKind, type StartLiveCopy } from '@trading-dashboard/shared/contracts';
 import { AppConfig } from '../config/app-config.js';
+import { BackgroundJobs } from '../runtime/background-jobs.service.js';
+import { outsideRequest } from '../runtime/request-context.js';
 import { UnitOfWork } from '../db/unit-of-work.js';
 import { CopyAccountModeService } from './copy-account-mode.service.js';
+import { HyperliquidBudgetWait, SHARED_CAPACITY_RETRY_MS } from '../hyperliquid/hyperliquid-budget-wait.js';
+import { LiveBoundaryError } from './live/wallet-authorization.js';
 import { CopyAgentService } from './copy-agent.service.js';
 import { CopyFundingExchangeClient } from './copy-funding-exchange.client.js';
 import { CopyFundingRepository } from './copy-funding.repository.js';
@@ -26,6 +30,10 @@ const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(va
 const NETWORK = WALLET_NETWORKS.testnet;
 const ZERO = `0x${'00'.repeat(20)}` as const;
 const LEASE_MS = 60_000;
+/** Stages whose step needs the signer and Hyperliquid evidence. */
+/** How long /advance waits for its drive before answering with the row. */
+const ADVANCE_ANSWER_MS = 10_000;
+const THROTTLED_STAGES: readonly SetupStage[] = ['funded', 'mode_set', 'agent_active'];
 /** How a setup's steps after confirm are signed (plan §2): with the owner's
  * live session (the progress dialog's requests), or by the worker under the
  * owner's policy. Either way the payload is exactly what the consent bound. */
@@ -80,7 +88,8 @@ export class CopyLiveSetupService {
     private readonly returns: CopyLiveReturnRepository, private readonly exchange: CopyFundingExchangeClient,
     @Inject(MASTER_ACTION_SIGNER) private readonly ownerSigner: MasterActionSigner,
     @Optional() @Inject(WORKER_MASTER_SIGNER) private readonly workerSigner: WorkerMasterSigner | null = null,
-    @Optional() private readonly now: () => number = Date.now) {}
+    @Optional() private readonly now: () => number = Date.now,
+    @Optional() private readonly jobs: BackgroundJobs | null = null) {}
 
   private available() {
     const { copy, hyperliquid } = this.config.value;
@@ -335,7 +344,26 @@ export class CopyLiveSetupService {
     const row = await this.repository.find(userId, id);
     if (row.fundingOperationId && row.stage === 'funding_submitted') await this.funding.reconcile(userId, row.fundingOperationId).catch(() => undefined);
     if (!DRIVEN_STAGES.includes(row.stage)) return this.wire(row);
-    return this.wire(await this.drive(row.id, row.signerKind === 'owner_session' ? this.ownerSessionSigner(userJwt) : null));
+    // The dialog asks every few seconds; a step that said when to come back
+    // (a pending observation, a busy Hyperliquid budget) is not run sooner.
+    if (THROTTLED_STAGES.includes(row.stage) && row.issue !== 'awaiting_owner_session' && row.nextAttemptAt && row.nextAttemptAt.getTime() > this.now()) return this.wire(row);
+    // The drive runs outside this request (its lease keeps it single): a
+    // step can outlast the 20 s request deadline (budget waits, signing, a
+    // POST and its reconcile), and must neither be cut off by the deadline
+    // nor answer the dialog with a 504 while it goes on. The dialog gets the
+    // drive's result when it is quick, else the row as it is, and polls.
+    const signer = row.signerKind === 'owner_session' ? this.ownerSessionSigner(userJwt) : null;
+    const driving = this.detached(() => this.drive(row.id, signer));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const driven = await Promise.race([driving.catch(() => null),
+      new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), ADVANCE_ANSWER_MS); })]).finally(() => clearTimeout(timer));
+    return this.wire(driven ?? await this.repository.find(userId, id));
+  }
+  /** Work that outlives the request that started it (drained on shutdown). */
+  private detached<T>(work: () => Promise<T>): Promise<T> {
+    const running = this.jobs ? this.jobs.run(work) : outsideRequest(() => Promise.resolve().then(work));
+    void running.catch((error: unknown) => this.logger.warn(`setup drive kept for a retry: ${error instanceof Error ? error.message.slice(0, 80) : 'unknown'}`));
+    return running;
   }
   /** Only before any money moved: the reserved deposit is cancelled and a
    * start's empty strategy stops. */
@@ -372,6 +400,11 @@ export class CopyLiveSetupService {
   async tick(): Promise<number> {
     let worked = 0;
     for (const row of await this.repository.open(new Date(this.now()))) {
+      // A setup the owner's session signs is driven by their open dialog at
+      // the stages that need a signature: the worker's pass there only spent
+      // the Hyperliquid budget the dialog needs, overwrote its issue and held
+      // its lease. The worker still ends it once its deadline has passed.
+      if (row.signerKind === 'owner_session' && THROTTLED_STAGES.includes(row.stage) && !(row.setupDeadline && this.now() >= row.setupDeadline.getTime())) continue;
       try { await this.drive(row.id, await this.workerPolicySigner(row)); worked++; }
       catch (error) { this.logger.warn(`setup ${row.id} kept for the next pass: ${error instanceof Error ? error.message.slice(0, 80) : 'unknown'}`); }
     }
@@ -394,10 +427,17 @@ export class CopyLiveSetupService {
           // A step may have recorded a child id on the row: work on the latest.
           row = (await this.repository.get(id)) ?? row;
           if (error instanceof Wait) { row = (await this.repository.transition(row, { issue: error.issue, nextAttemptAt: new Date(this.now() + error.retryMs) })) ?? row; break; }
+          // Hyperliquid weight not available yet: nothing was read or sent.
+          // Come back when it is (the shared per-IP window: no sooner than 65 s).
+          if (error instanceof HyperliquidBudgetWait) {
+            const retryMs = error.reason === 'shared_capacity' ? Math.max(SHARED_CAPACITY_RETRY_MS, error.retryMs) : Math.max(1_000, error.retryMs);
+            row = (await this.repository.transition(row, { issue: 'hyperliquid_busy', nextAttemptAt: new Date(this.now() + retryMs) })) ?? row; break;
+          }
           if (error instanceof Fail) { row = (await this.repository.transition(row, { stage: error.issue === 'setup_expired' ? 'expired' : 'failed', issue: error.issue, nextAttemptAt: null })) ?? row; break; }
           const code = error instanceof HttpException && typeof error.getResponse() === 'object' && (error.getResponse() as { code?: unknown }).code;
           const issue = typeof code === 'string' ? code : error instanceof Error && /^[a-z][a-z0-9_]{2,79}$/.test(error.message) ? error.message : 'setup_step_pending';
-          const backoff = Math.min(60_000, 3_000 * 2 ** Math.min(row.attempts, 5));
+          const capacity = error instanceof LiveBoundaryError && error.code === 'hyperliquid_quota_exhausted';
+          const backoff = capacity ? SHARED_CAPACITY_RETRY_MS : Math.min(60_000, 3_000 * 2 ** Math.min(row.attempts, 5));
           row = (await this.repository.transition(row, { issue, attempts: row.attempts + 1, nextAttemptAt: new Date(this.now() + backoff) })) ?? row;
           break;
         }
@@ -452,22 +492,19 @@ export class CopyLiveSetupService {
     }
     if (op.targetState === 'supported') return this.move(row, 'mode_set');
     if (op.submissionState === 'rejected' || op.targetState === 'unsupported') throw new Fail('setup_account_mode_failed');
-    const observed = await this.modes.reconcile(row.userId, op.id);
-    if (observed.targetState === 'supported') return this.move(row, 'mode_set');
-    if (observed.targetState === 'unsupported') throw new Fail('setup_account_mode_failed');
-    if (observed.submissionState !== 'prepared') throw new Wait('account_mode_pending', 3_000);
+    // Only an operation in flight (or a signing claim to recover) needs its
+    // own observation; a prepared one is observed by submit's first preflight.
+    if (op.submissionState !== 'prepared' || op.attemptedAt) {
+      const observed = await this.modes.reconcile(row.userId, op.id, { busy: 'throw' });
+      if (observed.targetState === 'supported') return this.move(row, 'mode_set');
+      if (observed.targetState === 'unsupported' || observed.submissionState === 'rejected') throw new Fail('setup_account_mode_failed');
+      if (observed.submissionState !== 'prepared') { this.assertBeforeDeadline(row); throw new Wait('account_mode_pending', 3_000); }
+    }
     this.assertBeforeDeadline(row);
     const active = this.requireSigner(signer);
-    let challenge;
-    try { challenge = await this.modes.challenge(row.userId, op.id); }
-    catch (error) {
-      if (error instanceof ConflictException && /already_supported/.test(JSON.stringify(error.getResponse()))) { await this.modes.reconcile(row.userId, op.id); throw new Wait('account_mode_pending', 0); }
-      throw error;
-    }
-    if (challenge.intent.accountAddress !== intent.accountAddress) throw new Fail('setup_binding_changed');
     const result = await this.modes.submit(row.userId, op.id, { kind: 'setup', consentDigest: row.consentDigest!, sign: async (master, modeIntent, assertFresh) => {
       assertFresh();
-      if (master.address !== intent.accountAddress) throw new Fail('setup_binding_changed');
+      if (master.address !== intent.accountAddress || modeIntent.accountAddress !== intent.accountAddress) throw new Fail('setup_binding_changed');
       return active.sign(master, modeTypedData(modeIntent), { network: 'testnet', account: intent.accountAddress }, modeIntent.consentExpiresAt);
     } });
     if (result.targetState === 'supported') return this.move(row, 'mode_set');

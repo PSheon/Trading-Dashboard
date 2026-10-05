@@ -12,6 +12,7 @@ import { wire as fundingWire } from '../src/copy/copy-funding.service.js';
 import { CopyLiveMandateRepository } from '../src/copy/copy-live-mandate.repository.js';
 import { CopyLiveSetupRepository } from '../src/copy/copy-live-setup.repository.js';
 import { CopyLiveSetupService } from '../src/copy/copy-live-setup.service.js';
+import { HyperliquidBudgetWait } from '../src/hyperliquid/hyperliquid-budget-wait.js';
 import { CopyWalletRepository } from '../src/copy/copy-wallet.repository.js';
 import type { AgentConsentIntent } from '../src/copy/copy-agent-consent.js';
 import type { AppConfig } from '../src/config/app-config.js';
@@ -242,6 +243,48 @@ describe('one-click testnet copy setup', () => {
     await service.advance(uid, setup.id, 'jwt');
     expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'expired', issue: 'setup_expired' });
     expect(ownerSign).not.toHaveBeenCalled();
+  });
+
+  it('the dialog runs no step sooner than it was told: a busy shared Hyperliquid window is a wait of at least 65 s, not a failure', async () => {
+    flags.worker = false;
+    const setup = await start();
+    await service.confirm(uid, setup.id, await sign(setup.consent!), 'jwt'); await credit(); later(5_000);
+    fakes.modes.submit.mockRejectedValueOnce(new HyperliquidBudgetWait(20_000, 'shared_capacity'));
+    expect(await service.advance(uid, setup.id, 'jwt')).toMatchObject({ stage: 'funded', issue: 'hyperliquid_busy' });
+    const [row] = await db.select().from(copyLiveSetups);
+    expect(row!.nextAttemptAt!.getTime()).toBeGreaterThanOrEqual(clock + 65_000); expect(row!.attempts).toBe(0);
+    // The dialog keeps polling every 3 s: nothing runs until then.
+    for (let i = 0; i < 20; i++) { later(3_000); await service.advance(uid, setup.id, 'jwt'); }
+    expect(fakes.modes.submit).toHaveBeenCalledTimes(1);
+    later(6_000);
+    expect((await service.advance(uid, setup.id, 'jwt')).stage).toBe('running');
+    expect(fakes.modes.submit).toHaveBeenCalledTimes(2);
+  });
+
+  it("the worker leaves an owner-session setup's signature steps to the open dialog: no reads, its issue and lease untouched, until its deadline", async () => {
+    flags.worker = false;
+    const setup = await start();
+    await service.confirm(uid, setup.id, await sign(setup.consent!), 'jwt'); await credit(); later(5_000);
+    await service.tick(); // the deposit is credited: funded
+    expect((await service.get(uid, setup.id)).stage).toBe('funded');
+    await db.update(copyLiveSetups).set({ issue: 'hyperliquid_busy', nextAttemptAt: null });
+    mode.submissionState = 'unknown'; vi.clearAllMocks();
+    for (let i = 0; i < 5; i++) { later(3_000); await service.tick(); }
+    expect(fakes.modes.reconcile).not.toHaveBeenCalled(); expect(fakes.modes.submit).not.toHaveBeenCalled();
+    expect((await db.select().from(copyLiveSetups))[0]).toMatchObject({ stage: 'funded', issue: 'hyperliquid_busy', leaseUntil: null });
+    later(25 * 3_600_000); await service.tick();
+    expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'expired', issue: 'setup_expired' });
+  });
+
+  it('past its deadline a mode submission still pending no longer holds the setup open', async () => {
+    flags.worker = false;
+    const setup = await start();
+    await service.confirm(uid, setup.id, await sign(setup.consent!), 'jwt'); await credit(); later(5_000);
+    mode.submissionState = 'unknown';
+    later(25 * 3_600_000);
+    await service.advance(uid, setup.id, 'jwt');
+    expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'expired', issue: 'setup_expired' });
+    expect(fakes.modes.submit).not.toHaveBeenCalled();
   });
 
   it('cancel works only before the deposit was sent, and stops the empty strategy', async () => {

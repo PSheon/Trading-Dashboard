@@ -13,6 +13,7 @@ import { CopyFeed } from "@/components/copy/copy-feed";
 import { AccountControls, AuthButton } from "./account-controls";
 import { AddressSearch } from "./address-search";
 import { PhoneMenu } from "./phone-menu";
+import { SiteFooter } from "./site-footer";
 import { WalletModalsProvider } from "@/components/wallet/wallet-modals";
 import { useAuth } from "@/lib/auth";
 import type { PublicSettings } from "@/lib/contracts";
@@ -34,6 +35,20 @@ function phoneChrome(pathname: string): "home" | "marketing" | "none" {
   if (pathname === "/") return "home";
   if (pathname === "/about" || pathname === "/help" || !isAppRoute(pathname)) return "marketing";
   return "none";
+}
+
+/**
+ * Pages that end in the site footer from the shell (home, about and help
+ * draw their own). Browsing pages that search engines index get it on
+ * desktop and tablet; on phones their tab bar is the navigation, as on the
+ * home page. The legal pages, which have no tab bar, get it everywhere. The
+ * trader page and the personal pages (portfolio, favorites, settings),
+ * admin and /dev end without one, as on CopyDog.
+ */
+function shellFooter(pathname: string): "everywhere" | "desktop" | null {
+  if (["/privacy", "/terms", "/delete-account"].includes(pathname)) return "everywhere";
+  if (["/explore", "/insights", "/coins"].includes(pathname) || pathname.startsWith("/coins/")) return "desktop";
+  return null;
 }
 
 /**
@@ -79,6 +94,7 @@ export function AppShell({
   // page and its breadcrumb.
   const barePhonePage = pathname === "/coins" || pathname.startsWith("/coins/");
   const chrome = phoneChrome(pathname);
+  const footer = shellFooter(pathname);
 
   // The design lab owns its frame; the production shell stays unchanged.
   if (pathname === "/dev" || pathname.startsWith("/dev/")) return <>{children}</>;
@@ -171,6 +187,7 @@ export function AppShell({
           )}
         >
           {children}
+          {footer ? <SiteFooter className={footer === "desktop" ? "hidden md:flex" : "mt-16"} /> : null}
         </main>
       </div>
 

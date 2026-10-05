@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, asc, count, desc, eq, gt, gte, ilike, inArray, isNotNull, like, max, notLike, or, sql, type SQL } from "drizzle-orm";
-import { discoveryTraders, fills, leaders, traderStats, userFavorites } from "@trading-dashboard/shared/database";
+import { discoveryTraders, fillCoverage, fills, leaders, traderStats, userFavorites } from "@trading-dashboard/shared/database";
 import {
   CHAIN_DEFAULT,
   type ActiveWithin,
@@ -128,6 +128,13 @@ export class TradersRepository {
   }
   findStats(address: string) {
     return this.db.select().from(traderStats).where(and(eq(traderStats.chain, CHAIN_DEFAULT), eq(traderStats.address, address))).limit(1);
+  }
+  /** Where our stored fills of a watched address are verified complete
+   * (`fill_coverage`), if anywhere. */
+  async verifiedFrom(address: string): Promise<Date | null> {
+    const [row] = await this.db.select({ verifiedFrom: fillCoverage.verifiedFrom }).from(fillCoverage)
+      .where(and(eq(fillCoverage.chain, CHAIN_DEFAULT), eq(fillCoverage.address, address))).limit(1);
+    return row?.verifiedFrom ?? null;
   }
   async fillSample(address: string, since: Date) {
     const mine = and(eq(fills.chain, CHAIN_DEFAULT), eq(fills.address, address), ...perpFillsOnly);

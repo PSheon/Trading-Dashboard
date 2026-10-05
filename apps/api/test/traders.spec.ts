@@ -29,7 +29,7 @@ import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { readFileSync } from "node:fs";
 
 import { BadGatewayException } from "@nestjs/common";
-import { actions, appSettings, discoveryTraders, fills, leaders, userFavorites, users } from "@trading-dashboard/shared/database";
+import { actions, appSettings, discoveryTraders, fillCoverage, fills, leaders, userFavorites, users } from "@trading-dashboard/shared/database";
 import { sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -1127,6 +1127,35 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
 
       await settings.patch({ discovery: { lowSampleThreshold: 4 } }, null);
       expect((await controller.activity(C)).sample.lowSample).toBe(false);
+    });
+
+    it("answers a tracked address from our fills, without Hyperliquid's lists, when they are verified over the window (Stage, 2026-10-05)", async () => {
+      await db.insert(leaders).values({ address: C });
+      const now = Date.now();
+      const ago = (h: number) => new Date(now - h * 3_600_000);
+      await db.insert(fills).values(Array.from({ length: 25 }, (_, i) => ({
+        tid: BigInt(100 + i), address: C, coin: "BTC", side: "B", dir: "Open Long", px: "1", sz: "1", fee: "0", closedPnl: "0", ts: ago(1 + i), raw: {},
+      })));
+      // Verified only over the last week: ours may have holes, Hyperliquid is asked.
+      await db.insert(fillCoverage).values({ address: C, verifiedFrom: ago(24 * 7), verifiedThrough: ago(0.1), backfillFloor: ago(24 * 40), backfillStatus: "complete" });
+      info.userFills.mockClear();
+      await controller.activity(C);
+      expect(info.userFills).toHaveBeenCalledTimes(1);
+      // Verified over all 30 days: our count is the answer, no list read.
+      await db.update(fillCoverage).set({ verifiedFrom: ago(24 * 40) });
+      service.userFillsCache.clear();
+      service.twapFillsCache.clear();
+      info.userFills.mockClear();
+      info.userTwapSliceFills.mockClear();
+      const res = await controller.activity(C);
+      expect(res.sample).toEqual({ fills30d: 25, capped: false, lowSample: false });
+      expect(res.lastTradeAt).toEqual(ago(1));
+      expect(info.userFills).not.toHaveBeenCalled();
+      expect(info.userTwapSliceFills).not.toHaveBeenCalled();
+      // A low count still asks Hyperliquid: a hole must not make the flag wrong.
+      await settings.patch({ discovery: { lowSampleThreshold: 30 } }, null);
+      await controller.activity(C);
+      expect(info.userFills).toHaveBeenCalledTimes(1);
     });
 
     it("uses Hyperliquid's count for a tracked address when ours has holes, and ours if Hyperliquid fails", async () => {

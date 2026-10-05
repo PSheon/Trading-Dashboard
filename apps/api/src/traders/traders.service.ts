@@ -319,7 +319,7 @@ export class TradersService {
   async activity(address: string): Promise<TraderActivityResponse> {
     const since = new Date(Date.now() - THIRTY_DAYS_MS);
     const [tracked, discovery] = await Promise.all([this.isTracked(address), this.settings.get("discovery")]);
-    const sample = tracked ? await this.trackedSample(address, since) : await this.untrackedSample(address, since);
+    const sample = tracked ? await this.trackedSample(address, since, discovery.lowSampleThreshold) : await this.untrackedSample(address, since);
     return {
       address,
       lastTradeAt: sample.lastTradeAt === null ? null : new Date(sample.lastTradeAt),
@@ -336,13 +336,19 @@ export class TradersService {
    * fills. Ours can have holes (an address imported less than 30 days ago,
    * backfill limits, downtime), and a hole must not make an active trader
    * look like a low sample; Hyperliquid's list stops at 2,000. */
-  private async trackedSample(address: string, since: Date): Promise<FillSample> {
-    const [{ n, last }, upstream] = await Promise.all([
-      this.repository.fillSample(address, since),
-      // Our count alone is still an answer if Hyperliquid is unavailable.
-      this.untrackedSample(address, since).catch((): FillSample => ({ fills30d: 0, capped: false, lastTradeAt: null })),
-    ]);
+  private async trackedSample(address: string, since: Date, lowSampleThreshold: number): Promise<FillSample> {
+    const [{ n, last }, verifiedFrom] = await Promise.all([this.repository.fillSample(address, since), this.repository.verifiedFrom(address)]);
     const ours = last ? new Date(last).getTime() : null;
+    // Ours verified over the whole window and not a low sample: Hyperliquid's
+    // lists (≈ 240 weight) could only confirm it, since they hold at most
+    // the window's newest 2,000 of each kind (ours wins the max below
+    // unless ours has holes, and a verified window has none). A low count
+    // still asks Hyperliquid, so a hole can't make the flag wrong.
+    if (verifiedFrom !== null && verifiedFrom.getTime() <= since.getTime() && n >= lowSampleThreshold) {
+      return { fills30d: n, capped: false, lastTradeAt: ours };
+    }
+    // Our count alone is still an answer if Hyperliquid is unavailable.
+    const upstream = await this.untrackedSample(address, since).catch((): FillSample => ({ fills30d: 0, capped: false, lastTradeAt: null }));
     const lastTradeAt = Math.max(ours ?? -1, upstream.lastTradeAt ?? -1);
     const count30d = n >= upstream.fills30d ? { fills30d: n, capped: false } : upstream;
     return { fills30d: count30d.fills30d, capped: count30d.capped, lastTradeAt: lastTradeAt < 0 ? null : lastTradeAt };

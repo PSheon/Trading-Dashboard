@@ -65,6 +65,9 @@ vi.mock("@/components/settings/delete-account", () => ({
 vi.mock("@/components/settings/execution-wallets", () => ({
   ExecutionWalletSettings: () => <div>execution-wallets</div>,
 }));
+vi.mock("@/components/settings/copy-wallets", () => ({
+  CopyWalletsList: () => <div>execution-wallets</div>,
+}));
 vi.mock("@/components/settings/referral", () => ({
   ReferralSettings: () => {
     state.render();

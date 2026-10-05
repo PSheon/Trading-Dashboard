@@ -43,7 +43,7 @@ import { useWallet, useWalletAddress } from "@/lib/wallet";
 import { AlertBotRow, TradingBotRow } from "./bot-rows";
 import { DeleteAccountButton, DeleteAccountDialog } from "./delete-account";
 import { ReferralSettings } from "./referral";
-import { ExecutionWalletSettings } from "./execution-wallets";
+import { CopyWalletsList } from "./copy-wallets";
 
 type Tab = "account" | "funds" | "referral";
 type PhoneView = "root" | "account" | "notifications" | "language" | "history" | "referral";
@@ -274,7 +274,7 @@ function DesktopSettings() {
                 </div>
                 <ProfileAndWallet />
               </SettingsCard>
-              <ExecutionWalletSettings />
+              <CopyWalletsList />
               <SettingsCard>
                 <SectionTitle>{t("settings.language")}</SectionTitle>
                 <Row label={t("settings.language")} value={t("settings.languageHint")} action={<LanguageSelect />} />
@@ -491,7 +491,7 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
                   <p className="truncate text-lg font-bold">{name}</p>
                 </div>
                 <ProfileAndWallet />
-                <ExecutionWalletSettings />
+                <CopyWalletsList />
                 <DeleteAccountButton className="mt-10" />
               </>
             ) : view === "notifications" ? (

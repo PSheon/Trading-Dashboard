@@ -6,6 +6,9 @@ for (const width of [1440, 390]) test(`execution wallet settings explain unavail
   await page.setViewportSize({ width, height: 900 });
   await page.goto(width < 768 ? "/en/settings?view=account" : "/en/settings?tab=account");
   await signIn(page);
+  // One-click copy replaced these forms in Settings; they live in the lab.
+  await expect(page.getByRole("region", { name: "Copy execution wallets" })).toHaveCount(0);
+  await page.goto("/en/dev/copy");
   const section = page.getByRole("region", { name: "Copy execution wallets" }).filter({ visible: true });
   await expect(section).toBeVisible();
   await expect(section).toContainText("Wallet preparation is currently unavailable.");

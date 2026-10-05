@@ -396,3 +396,17 @@ Environment: Stage uses the Privy "Dev" app. API and worker both need `COPY_TRAD
 - /Users/paul_jiang/Desktop/Paul/Trading-Dashboard/apps/api/src/copy/live-worker/copy-live-stopper.ts (and /Users/paul_jiang/Desktop/Paul/Trading-Dashboard/apps/api/src/copy/live-worker/copy-live-engine.provider.ts)
 - /Users/paul_jiang/Desktop/Paul/Trading-Dashboard/apps/web/src/components/trader/copy-panel.tsx (with /Users/paul_jiang/Desktop/Paul/Trading-Dashboard/apps/web/src/lib/auth-privy.tsx)
 - /Users/paul_jiang/Desktop/Paul/Trading-Dashboard/apps/web/src/components/copy/live-copies.tsx
+
+## Decisions (Paul, 2026-10-05: 「照建議」)
+1. Sign silently (`showWalletUIs: false`) behind Orbie's own confirm sheet: yes.
+2. The worker policy covers all four actions, each bound to exact values: sweep/withdraw `UsdSend` to the owner's main wallet, `UserSetAbstraction` disabled, `ApproveAgent` for the consented agent and expiry, `ApproveBuilderFee` for the consented builder and fee.
+3. Idle-fund withdrawal to the main wallet needs no signature: yes.
+4. Copy lifetime: 30 days by default, a 續期 prompt at T-3 days, one silent signature to renew.
+5. Seed risk policy v1 from the defaults by migration: yes.
+6. Testnet minimum stays 100 USDC.
+7. Builder fee on testnet stays 0, so the builder step is skipped.
+8. Existing copy wallets without the signer keep the manual return.
+9. The panel defaults to 模擬.
+10. 跟單目前持倉 in 測試網 mode is shown disabled with a note.
+
+Order: admin rebuild (stream 11) first, then steps 1–4 of this plan, then the locale/gradient/chart/skeleton stream, then steps 5–10.

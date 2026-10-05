@@ -6,9 +6,10 @@ import { AppConfig } from "../config/app-config.js";
 import { UnitOfWork } from "../db/unit-of-work.js";
 import { CopyWalletService } from "./copy-wallet.service.js";
 import { CopyAgentRepository, type AgentSetupRow } from "./copy-agent.repository.js";
-import { AGENT_APPROVAL_CLIENT, type AgentApprovalClient } from "./copy-agent-exchange.client.js";
+import { AGENT_APPROVAL_CLIENT, AGENT_OBSERVE_WEIGHT, type AgentApprovalClient } from "./copy-agent-exchange.client.js";
 import { agentApprovalTypedData, verifyAgentOwnerConsent, type AgentConsentIntent } from "./copy-agent-consent.js";
 import { AgentProvisioningConflict, USER_AGENT_PROVISIONER, type UserAgentProvisioner } from "./live/privy-agent-provisioner.js";
+import { LiveBoundaryError } from "./live/wallet-authorization.js";
 
 function wire(row: AgentSetupRow): CopyAgentSetup {
   return copyAgentSetupSchema.parse({ id: row.id, strategyId: row.strategyId, accountId: row.accountId, network: row.network,
@@ -204,21 +205,34 @@ export class CopyAgentService {
     }
     // Persisted attempt precedes POST. A crash, timeout or rejected transport
     // never authorizes a new nonce or a second submission.
-    if (Date.now() >= intent.consentExpiresAt || proofCheckedAt > Date.now() || Date.now() - proofCheckedAt > 5_000) return wire(row);
+    if (Date.now() >= intent.consentExpiresAt || proofCheckedAt > Date.now() || Date.now() - proofCheckedAt > 5_000) return this.notDispatched(userId, row);
     try {
       const response = await this.exchange.send(intent, signature, () => this.assertConsentFresh(intent, proofCheckedAt));
       if (response && typeof response === "object" && "status" in response && response.status === "err") {
         await this.repository.transition(row, { state: "blocked", issue: "agent_approval_rejected" });
         return wire(await this.repository.find(userId, id));
       }
-    } catch { return wire(row); }
+    } catch (error) {
+      if (error instanceof LiveBoundaryError && error.code === "agent_approval_not_dispatched") return this.notDispatched(userId, row);
+      return wire(row);
+    }
     try { return await this.observe(userId, row); }
     catch { return wire(await this.repository.find(userId, id)); }
   }
+  /** The attempt was persisted but its POST never reached the transport (a
+   * refused meter permit, a stale proof, the clock): no signature left this
+   * process, so the agent is ready again (a new nonce is challenged next
+   * time) instead of waiting forever for an approval that was never sent. */
+  private async notDispatched(userId: number, row: AgentSetupRow): Promise<CopyAgentSetup> {
+    const reverted = await this.repository.transition(row, { state: "ready", approvalAttemptedAt: null, consentDigest: null, issue: "agent_approval_not_submitted" });
+    return wire(reverted ?? await this.repository.find(userId, row.id));
+  }
   private async observe(userId: number, row: AgentSetupRow): Promise<CopyAgentSetup> {
+    // Paid before the identity clock starts: a budget wait can't age it.
+    if (this.exchange.reserve) await this.exchange.reserve(AGENT_OBSERVE_WEIGHT);
     const identity = await this.assertSetup(userId, row);
     const intent = consent(row);
-    const evidence = await this.exchange.observe(intent);
+    const evidence = await this.exchange.observe(intent, { prepaid: this.exchange.reserve !== undefined });
     if (!evidence || evidence.validUntil !== intent.expiresAt || !Number.isSafeInteger(evidence.checkedAt) || evidence.checkedAt > Date.now() || Date.now() - evidence.checkedAt > 5_000) return wire(row);
     // Exchange evidence cannot reset the age of the earlier provider identity
     // reads. Carry both proofs through the transaction and its SQL lock waits.

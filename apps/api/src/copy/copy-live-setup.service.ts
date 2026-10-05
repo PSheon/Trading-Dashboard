@@ -520,7 +520,8 @@ export class CopyLiveSetupService {
       await this.agents.reconcile(row.userId, agent.id); agent = await this.agents.row(row.userId, agent.id);
       if (agent.state === 'active') return this.move(row, 'agent_active');
       if (agent.state === 'blocked' || agent.state === 'revoked') throw new Fail('setup_agent_rejected');
-      throw new Wait('agent_approval_pending', 3_000);
+      // A reverted (never sent) approval is ready again: signed below.
+      if (agent.state !== 'ready') { this.assertBeforeDeadline(row); throw new Wait('agent_approval_pending', 3_000); }
     }
     if (agent.agentAddress !== intent.agentAddress || agent.expiresAt.getTime() !== intent.agentValidUntil || agent.policyId !== intent.agentPolicyId) throw new Fail('setup_binding_changed');
     this.assertBeforeDeadline(row);

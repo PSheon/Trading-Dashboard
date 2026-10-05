@@ -287,6 +287,18 @@ describe('one-click testnet copy setup', () => {
     expect(fakes.modes.submit).not.toHaveBeenCalled();
   });
 
+  it('past its deadline an agent approval still pending no longer holds the setup open', async () => {
+    flags.worker = false;
+    const setup = await start();
+    await service.confirm(uid, setup.id, await sign(setup.consent!), 'jwt'); await credit(); later(5_000);
+    mode.targetState = 'supported';
+    await db.update(copyAgentSetups).set({ state: 'approval_signing', consentDigest: 'a'.repeat(64), approvalNonce: clock, consentExpiresAt: new Date(clock + 300_000) });
+    expect((await service.advance(uid, setup.id, 'jwt')).stage).toBe('mode_set');
+    later(25 * 3_600_000);
+    await service.advance(uid, setup.id, 'jwt');
+    expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'expired', issue: 'setup_expired' });
+  });
+
   it('cancel works only before the deposit was sent, and stops the empty strategy', async () => {
     const setup = await start();
     const cancelled = await service.cancel(uid, setup.id);

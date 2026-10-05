@@ -3,6 +3,7 @@ import { eq, sql } from "drizzle-orm";
 import { privateKeyToAccount } from "viem/accounts";
 import { copyAgentSetups, copyExecutionAccounts, copyExecutionWallets, copyStrategies, copyWalletAuthorizations, copyWalletAuthorizationEvents, users } from "@trading-dashboard/shared/database";
 import { CopyAgentRepository } from "../src/copy/copy-agent.repository.js";
+import { LiveBoundaryError } from "../src/copy/live/wallet-authorization.js";
 import { CopyAgentService } from "../src/copy/copy-agent.service.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { agentOwnerConsentTypedData, agentApprovalTypedData } from "../src/copy/copy-agent-consent.js";
@@ -87,6 +88,16 @@ describe("explicit recoverable dedicated strategy agent setup", () => {
     await service.approve(uid, prepared.id, signature, "user-jwt");
     expect(exchange.send).toHaveBeenCalledTimes(1);
     expect((await db.select().from(copyStrategies))[0]).toMatchObject({ mode: "paper", cash: "100" });
+  });
+  it("an approval whose POST never reached the transport is ready again (same nonce), not pending forever", async () => {
+    const prepared = await service.prepare(uid, accountId, { idempotencyKey: "prepare-1", validForDays: 7 });
+    const challenge = await service.challenge(uid, prepared.id);
+    vi.mocked(exchange.send).mockRejectedValueOnce(new LiveBoundaryError("agent_approval_not_dispatched"));
+    const signature = await owner.signTypedData(agentOwnerConsentTypedData(challenge.intent));
+    expect(await service.approve(uid, prepared.id, signature, "user-jwt")).toMatchObject({ state: "ready", issue: "agent_approval_not_submitted" });
+    expect((await db.select().from(copyAgentSetups))[0]).toMatchObject({ approvalAttemptedAt: null, approvalNonce: challenge.intent.nonce });
+    expect((await service.approve(uid, prepared.id, signature, "user-jwt")).state).toBe("active");
+    expect(exchange.send).toHaveBeenCalledTimes(2);
   });
   it("accepted but unobserved approval stays pending across restart, never resubmits", async () => {
     const prepared = await service.prepare(uid, accountId, { idempotencyKey: "prepare-1", validForDays: 7 });

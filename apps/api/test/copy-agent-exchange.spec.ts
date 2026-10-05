@@ -34,7 +34,8 @@ describe("exact testnet master approval transport", () => {
     const request = vi.fn(async (_url: string | URL | Request, options?: RequestInit) => Response.json(JSON.parse(String(options?.body)).type === "userRole" ? { role: "user" } : list));
     const client = new PrivyAgentApprovalClient({}, budget, request, () => time);
     await expect(client.observe(intent)).resolves.toEqual(list.length ? { checkedAt: time, validUntil: intent.expiresAt } : null);
-    expect(budget.mock.calls.map(c => c[0])).toEqual([60, 20]);
+    // One reservation (userRole 60 + extraAgents 20), before the clock.
+    expect(budget.mock.calls.map(c => c[0])).toEqual([80]);
     expect(request).toHaveBeenCalledTimes(2);
   });
   it.each([
@@ -46,11 +47,21 @@ describe("exact testnet master approval transport", () => {
     const request = vi.fn(async (_url: string | URL | Request, options?: RequestInit) => Response.json(JSON.parse(String(options?.body)).type === "userRole" ? { role: "user" } : list));
     await expect(new PrivyAgentApprovalClient({}, async () => undefined, request, () => time).observe(intent)).rejects.toThrow("agent_approval_evidence_unavailable");
   });
-  it("rejects evidence that aged while waiting for exchange budget", async () => {
+  it("pays for its reads before its clock: a budget wait never ages the evidence; a slow read inside the window still does", async () => {
     let now = time;
-    const request = vi.fn(async (_url: string | URL | Request, options?: RequestInit) => Response.json(JSON.parse(String(options?.body)).type === "userRole" ? { role: "user" } : [{ address: intent.agentAddress, name: "copy1", validUntil: intent.expiresAt }]));
-    const client = new PrivyAgentApprovalClient({}, async () => { now += 3_000; }, request, () => now);
-    await expect(client.observe(intent)).rejects.toThrow("agent_approval_evidence_unavailable");
+    const listed = [{ address: intent.agentAddress, name: "copy1", validUntil: intent.expiresAt }];
+    const request = vi.fn(async (_url: string | URL | Request, options?: RequestInit) => Response.json(JSON.parse(String(options?.body)).type === "userRole" ? { role: "user" } : listed));
+    // Before: the clock started first and two budget waits of 3 s made it stale.
+    const client = new PrivyAgentApprovalClient({}, async () => { now += 6_000; }, request, () => now);
+    await expect(client.observe(intent)).resolves.toEqual({ checkedAt: time + 6_000, validUntil: intent.expiresAt });
+    const slow = vi.fn(async (_url: string | URL | Request, options?: RequestInit) => { now += 3_000; return Response.json(JSON.parse(String(options?.body)).type === "userRole" ? { role: "user" } : listed); });
+    await expect(new PrivyAgentApprovalClient({}, async () => undefined, slow, () => now).observe(intent)).rejects.toThrow("agent_approval_evidence_unavailable");
+  });
+  it("a POST refused before the transport is typed not_dispatched (nothing was sent)", async () => {
+    const request = vi.fn();
+    const client = new PrivyAgentApprovalClient({}, async () => undefined, request, () => time);
+    await expect(client.send(intent, signature, () => { throw new Error("stale proof"); })).rejects.toThrow("agent_approval_not_dispatched");
+    expect(request).not.toHaveBeenCalled();
   });
   it("rejects a foreign Privy master before JWT exchange or RPC, using the installed SDK", async () => {
     const requests: string[] = [];

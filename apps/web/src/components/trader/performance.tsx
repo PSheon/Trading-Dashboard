@@ -143,7 +143,8 @@ function Tile({
           style={{ width: `${fill}%` }}
         />
       </div>
-      {loading ? (
+      {/* A bar for a figure still to come; a word ("Computing…") stays. */}
+      {loading && sub === "—" ? (
         <SkelBar line="h-[18px]" className="h-2.5 w-24" />
       ) : (
         <div className={cn("num truncate text-xs leading-[18px] font-bold", tinted ? "opacity-90" : "text-muted-foreground")}>{sub}</div>

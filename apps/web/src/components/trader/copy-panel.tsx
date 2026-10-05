@@ -2,10 +2,13 @@
 
 import { ArrowDownRight, ArrowUpRight, Check, ChevronDown, Delete, TriangleAlert } from "lucide-react";
 import { Link } from "@/i18n/navigation";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { cn } from "cn";
 
+import { LiveCopyConfirm, LiveCopyProgress, liveSetupError, useLiveSetupText } from "@/components/copy/live-copy-setup-dialogs";
+import { LiveSettingsFields } from "@/components/copy/live-copy-settings-fields";
 import { PaperBadge } from "@/components/copy/paper-badge";
+import { Segmented } from "@/components/ui/segmented";
 import { HedgeNotice } from "@/components/copy/portfolio-parts";
 import { useToast } from "@/components/ui/toast";
 import { UsdcIcon } from "@/components/wallet/bits";
@@ -13,6 +16,10 @@ import { useI18n } from "@/i18n/provider";
 import { apiErrorCode } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useCopyOf, useCopyOverview, useStartCopy } from "@/lib/copy";
+import { useLiveCopyAvailable, useLiveCopySetupActions } from "@/lib/copy-live-setup";
+import { useLiveCopyPortfolio } from "@/lib/copy-live-portfolio";
+import { signErrorMessage, useWallet } from "@/lib/wallet";
+import type { CopyStrategySettings, LiveCopySetup } from "@trading-dashboard/shared/contracts";
 import { useSiteSettings } from "@/lib/queries";
 import { amountInput } from "@/lib/amount-input";
 import { hedgeWarning } from "@/lib/copy-portfolio";
@@ -20,6 +27,37 @@ import { coinLabel, truncateAddress } from "@/lib/format";
 import { rovingFocus } from "@/lib/roving-focus";
 
 type Direction = "same" | "reverse";
+type CopyMode = "paper" | "testnet";
+
+/** The 模擬 / 測試網 choice, remembered per signed-in user (decision 9: 模擬 by default). */
+const modeListeners = new Set<() => void>();
+// Without storage (a private window) the choice holds for this page's life.
+const modeMemory = new Map<string, CopyMode>();
+function readMode(key: string | null): CopyMode {
+  if (!key) return "paper";
+  try { return localStorage.getItem(key) === "testnet" ? "testnet" : "paper"; } catch { return modeMemory.get(key) ?? "paper"; }
+}
+function useCopyMode(identity: string | null): [CopyMode, (mode: CopyMode) => void] {
+  const key = identity ? `orbie:copy-mode:${identity}` : null;
+  const mode = useSyncExternalStore((listener) => { modeListeners.add(listener); return () => modeListeners.delete(listener); }, () => readMode(key), () => "paper" as CopyMode);
+  return [mode, (next) => {
+    if (key) { modeMemory.set(key, next); try { localStorage.setItem(key, next); } catch { /* remembered in memory only */ } }
+    modeListeners.forEach((listener) => listener());
+  }];
+}
+
+/** The setup whose progress dialog is open, per trader, for this page's life. */
+const openSetups = new Map<string, string | null>();
+const openSetupListeners = new Set<() => void>();
+function useOpenSetup(leader: string): [string | null, (id: string | null) => void] {
+  const id = useSyncExternalStore((listener) => { openSetupListeners.add(listener); return () => openSetupListeners.delete(listener); }, () => openSetups.get(leader) ?? null, () => null);
+  return [id, (next) => { openSetups.set(leader, next); openSetupListeners.forEach((listener) => listener()); }];
+}
+
+/** 測試網 badge, beside where the paper copy shows 模擬. */
+function TestnetBadge({ label }: { label: string }) {
+  return <span className="inline-flex h-5 shrink-0 items-center rounded-full bg-primary/15 px-2 text-[11px] font-bold text-primary-text">{label}</span>;
+}
 
 /** CopyDog's Hyperliquid floor (`Minimum ${min} to copy`); the api's policy wins once loaded. */
 const DEFAULT_MIN = 100;
@@ -49,10 +87,28 @@ let measureContext: CanvasRenderingContext2D | null = null;
 export function CopyPanel({ address, sheet = false, leaderPositions, traderName }: { address: string; sheet?: boolean; leaderPositions?: ReadonlyArray<{ coin: string; szi: number }>; traderName?: string }) {
   const { t, format } = useI18n();
   const toast = useToast();
-  const { status, login } = useAuth();
+  const { status, login, identity } = useAuth();
   const overview = useCopyOverview();
   const existing = useCopyOf(address);
   const start = useStartCopy();
+  const liveText = useLiveSetupText();
+  const liveAvailable = useLiveCopyAvailable();
+  const [chosenMode, setMode] = useCopyMode(identity);
+  const mode: CopyMode = liveAvailable ? chosenMode : "paper";
+  const testnet = mode === "testnet";
+  const wallet = useWallet();
+  const live = useLiveCopySetupActions();
+  const liveCopies = useLiveCopyPortfolio();
+  const liveExisting = liveCopies.data?.items.find((item) => item.leaderAddress === address.toLowerCase() && item.status !== "stopped") ?? null;
+  const [setup, setSetup] = useState<LiveCopySetup | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+  // Survives the panel remounting (the page redraws, the phone sheet closes).
+  const [progressId, setProgressId] = useOpenSetup(address.toLowerCase());
+  const [sizing, setSizing] = useState<"ratio" | "fixed">("ratio");
+  const [perTrade, setPerTrade] = useState("");
+  const [maxExposure, setMaxExposure] = useState("");
+  const [maxLeverage, setMaxLeverage] = useState("");
   // Only a loaded "off" closes the panel; the api refuses in any case.
   const closed = useSiteSettings().data?.copyTradingEnabled === false;
   const [direction, setDirection] = useState<Direction>("same");
@@ -69,8 +125,11 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
   // A signed-in user's balance is unknown until /me/copy has answered (and
   // stays unknown if it failed): the panel then shows "—", not 0.00, and
   // does not judge or clamp what was typed against a balance of zero.
-  const balanceKnown = !signedIn || overview.data !== undefined;
-  const balance = overview.data?.paper.balance ?? 0;
+  // 測試網: the main wallet's Hyperliquid testnet withdrawable (what the
+  // deposit UsdSend can move), never the paper balance.
+  const testnetBalance = wallet.data?.network === "testnet" ? wallet.data.hyperliquid?.withdrawable ?? null : null;
+  const balanceKnown = !signedIn || (testnet ? testnetBalance !== null : overview.data !== undefined);
+  const balance = (testnet ? testnetBalance : overview.data?.paper.balance) ?? 0;
   const balanceText = balanceKnown ? balance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
   const min = overview.data?.limits.minAllocationUsd ?? DEFAULT_MIN;
   const value = Number.parseFloat(amount);
@@ -140,6 +199,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
       return toast.error(t("trader.copy.errors.failed"));
     }
     if (value > balance) return toast.error(t("trader.copy.errors.exceedsBalance"));
+    if (testnet) return startTestnet();
     try {
       const others = overview.data?.strategies ?? [];
       const created = await start.mutateAsync({ leader: address, allocationUsd: value, direction, copyStartMode: copyExisting ? "adopt" : "delta" });
@@ -171,6 +231,62 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
       );
     }
   }
+
+  async function startTestnet() {
+    const fixed = sizing === "fixed" ? Number.parseFloat(perTrade) : null;
+    if (sizing === "fixed" && !(fixed && fixed > 0)) return toast.error(t("trader.copy.enterAmount"));
+    const exposure = maxExposure ? Number.parseFloat(maxExposure) : null, leverage = maxLeverage ? Number.parseFloat(maxLeverage) : null;
+    const settings: CopyStrategySettings = { direction, sizingMode: sizing, perTradeUsd: fixed, maxTotalExposureUsd: exposure && exposure > 0 ? exposure : null,
+      maxLeverage: leverage && leverage >= 1 ? Math.min(50, leverage) : null, copyStartMode: "delta" };
+    try {
+      const prepared = await live.start.mutateAsync({ leader: address.toLowerCase(), budgetUsd: String(Math.floor(value * 1e6) / 1e6), settings });
+      setSetup(prepared);
+      if (prepared.stage === "awaiting_consent" && prepared.consent) { setConfirmError(null); setConfirmOpen(true); return; }
+      if (prepared.stage === "provisioning") return toast.info(liveText.preparing);
+      // Already confirmed earlier (a retried start): show where it stands.
+      setProgressId(prepared.id);
+    } catch (err) { liveError(err); }
+  }
+  async function confirmTestnet() {
+    if (!setup) return;
+    setConfirmError(null);
+    try {
+      const confirmed = await live.confirm.mutateAsync(setup);
+      setConfirmOpen(false); setAmount(""); setProgressId(confirmed.id);
+    } catch (err) {
+      const code = apiErrorCode(err);
+      if (code === "consent_expired") {
+        // A fresh challenge for the same attempt; the owner confirms again.
+        try { const again = await live.start.mutateAsync({ leader: setup.leaderAddress, budgetUsd: setup.budgetUsd, settings: setup.settings }); setSetup(again); } catch { /* shown below */ }
+      }
+      setConfirmError(code ? liveSetupError(liveText, code) : signErrorMessage(err).rejected ? liveText.errors.signature_rejected : liveText.errors.generic);
+    }
+  }
+  function liveError(err: unknown) {
+    const code = apiErrorCode(err), limit = overview.data?.limits;
+    if (code === "already_copying") return toast.info(t("trader.copy.errors.alreadyCopying"));
+    toast.error(
+      code === "below_min_allocation" ? t("trader.copy.errors.minAllocation", { min: format.num(min) }) :
+      code === "above_max_allocation" ? t("trader.copy.errors.maxAllocation", { max: format.num(limit?.maxAllocationUsd ?? 0) }) :
+      code === "copy_paused" ? t("trader.copy.errors.paused") :
+      code === "strategy_limit" ? t("trader.copy.errors.limit", { limit: limit?.maxStrategies ?? 0 }) :
+      code === "copy_not_open" ? t("trader.copy.errors.disabled") :
+      liveSetupError(liveText, code),
+    );
+  }
+
+  const liveDialogs = (
+    <>
+      <LiveCopyConfirm setup={setup} traderName={traderName} open={confirmOpen} onOpenChange={(open) => { if (!live.confirm.isPending) setConfirmOpen(open); }}
+        onConfirm={() => void confirmTestnet()} pending={live.confirm.isPending || live.start.isPending} error={confirmError} />
+      <LiveCopyProgress setupId={progressId} open={progressId !== null} onOpenChange={(open) => { if (!open) setProgressId(null); }} />
+    </>
+  );
+
+  const modePill = liveAvailable ? (
+    <Segmented variant="pill" tone="sub" label={liveText.mode} value={mode} onChange={(next) => setMode(next)} className="w-full [&>button]:flex-1"
+      options={[{ value: "paper", label: liveText.paper }, { value: "testnet", label: liveText.testnet }]} />
+  ) : null;
 
   const directionPill = (
     <div role="radiogroup" aria-label={t("trader.copy.amount")} className="grid grid-cols-2 gap-0.5 rounded-full bg-inset p-1">
@@ -204,11 +320,43 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
 
   const hedgeNotice = hedge ? <HedgeNotice trader={traderName || truncateAddress(address)} coins={hedge.coins} onDismiss={() => setHedge(null)} /> : null;
 
+  // A testnet copy of this trader: its stage and budget, managed in the portfolio.
+  if (testnet && liveExisting && !started) {
+    return (
+      <Shell sheet={sheet}>
+        {modePill}
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[0.9375rem] font-bold">{liveText.copying}</p>
+          <TestnetBadge label={liveText.testnet} />
+        </div>
+        <dl className="grid grid-cols-2 gap-2 rounded-xl bg-inset p-3 text-center">
+          <div>
+            <dt className="text-[11px] text-muted-foreground">{liveText.budget}</dt>
+            <dd className="num mt-1 text-sm font-bold">{format.usd(Number(liveExisting.budgetUsd), { digits: 2 })}</dd>
+          </div>
+          <div>
+            <dt className="text-[11px] text-muted-foreground">{t("trader.copy.positions")}</dt>
+            <dd className="mt-1 text-sm font-bold">{liveExisting.setup && !["running", "failed", "expired", "cancelled"].includes(liveExisting.setup.stage) ? liveText.preparing : liveExisting.stage}</dd>
+          </div>
+        </dl>
+        <Link
+          href="/portfolio"
+          className="orbit-press flex h-14 w-full items-center justify-center gap-2 rounded-full bg-primary px-8 font-display text-lg text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Check className="size-5" strokeWidth={2.5} />
+          {liveText.manage}
+        </Link>
+        {liveDialogs}
+      </Shell>
+    );
+  }
+
   // Paper-started state: this user already copies the trader.
-  if (existing && !started) {
+  if (!testnet && existing && !started) {
     const pnl = existing.totalPnl;
     return (
       <Shell sheet={sheet}>
+        {modePill}
         {hedgeNotice}
         <div className="flex items-center justify-between gap-2">
           <p className="text-[0.9375rem] font-bold">{t("trader.copy.copying")}</p>
@@ -247,6 +395,9 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
 
   return (
     <Shell sheet={sheet}>
+     {/* A real form: Enter in the amount field starts the copy. */}
+     <form className="contents" noValidate onSubmit={(event) => { event.preventDefault(); if (!(start.isPending || live.start.isPending || started || closed || empty)) void submit(); }}>
+      {modePill}
       {hedgeNotice}
       {directionPill}
 
@@ -335,9 +486,9 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
           <div className="flex items-center gap-2.5 rounded-xl bg-inset px-3.5 py-3">
             <UsdcIcon size={26} />
             <span className="text-sm font-bold">USDC</span>
-            <PaperBadge />
+            {testnet ? <TestnetBadge label={liveText.testnet} /> : <PaperBadge />}
             <span className="ml-auto text-sm">
-              <b className="num">{balanceKnown ? format.num(balance, 2) : "—"}</b> <span className="text-muted-foreground">{t("portfolio.copy.paperBalance")}</span>
+              <b className="num">{balanceKnown ? format.num(balance, 2) : "—"}</b> <span className="text-muted-foreground">{testnet ? liveText.testnetBalance : t("portfolio.copy.paperBalance")}</span>
             </span>
           </div>
           <div role="group" aria-label={t("trader.copy.amount")} className="grid grid-cols-3 gap-1">
@@ -361,8 +512,8 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
         <div>
           <div className="mt-10 flex items-center justify-between gap-3 text-sm leading-[21px]">
             <span className="flex items-center gap-2 text-muted-foreground">
-              {t("trader.copy.balance")}
-              <PaperBadge />
+              {testnet ? <span className="whitespace-nowrap">{liveText.testnetBalance}</span> : t("trader.copy.balance")}
+              {testnet ? null : <PaperBadge />}
             </span>
             <span className="num font-semibold">{balanceText} USDC</span>
           </div>
@@ -406,17 +557,26 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
               <button
                 type="button"
                 role="switch"
-                aria-checked={copyExisting}
+                aria-checked={testnet ? false : copyExisting}
                 aria-labelledby="copy-positions"
+                aria-describedby={testnet ? "copy-positions-note" : undefined}
+                disabled={testnet}
                 onClick={() => setCopyExisting((v) => !v)}
                 className={cn(
-                  "relative h-5 w-9 shrink-0 rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-                  copyExisting ? "bg-primary" : "bg-border-strong",
+                  "relative h-5 w-9 shrink-0 rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
+                  copyExisting && !testnet ? "bg-primary" : "bg-border-strong",
                 )}
               >
-                <span className={cn("absolute top-0.5 left-0.5 size-4 rounded-full bg-primary-foreground shadow-xs transition-transform", copyExisting && "translate-x-4")} />
+                <span className={cn("absolute top-0.5 left-0.5 size-4 rounded-full bg-primary-foreground shadow-xs transition-transform", copyExisting && !testnet && "translate-x-4")} />
               </button>
             </div>
+            {testnet ? (
+              <>
+                <p id="copy-positions-note" className="mt-1.5 text-xs leading-5 text-muted-foreground">{liveText.adoptDisabled}</p>
+                <LiveSettingsFields text={liveText} sizing={sizing} setSizing={setSizing} perTrade={perTrade} setPerTrade={setPerTrade}
+                  maxExposure={maxExposure} setMaxExposure={setMaxExposure} maxLeverage={maxLeverage} setMaxLeverage={setMaxLeverage} />
+              </>
+            ) : null}
           </div>
         </div>
       </div>
@@ -430,9 +590,8 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
 
       <div className={cn("flex flex-col gap-2.5", !sheet && "pt-7")}>
         <button
-          type="button"
-          onClick={submit}
-          disabled={start.isPending || started || closed || empty}
+          type="submit"
+          disabled={start.isPending || live.start.isPending || started || closed || empty}
           className="orbit-press flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-primary px-8 font-display text-lg text-primary-foreground outline-none hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:cursor-not-allowed disabled:opacity-50"
         >
           {started ? (
@@ -444,7 +603,10 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
             label
           )}
         </button>
+        {testnet ? <p className="text-center text-xs leading-5 text-muted-foreground">{liveText.testnetNote}</p> : null}
       </div>
+     </form>
+     {liveDialogs}
     </Shell>
   );
 }

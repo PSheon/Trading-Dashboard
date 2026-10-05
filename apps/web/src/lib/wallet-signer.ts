@@ -22,8 +22,11 @@ export interface WalletSigner {
    * (created for a copy, owned by the user alone). Privy itself refuses an
    * address the signed-in user does not own; the key never reaches Orbie. */
   exportCopyKey(address: string): Promise<void>;
-  /** EIP-712 signature (0x r‖s‖v) from the embedded wallet. */
-  signTypedData(data: Eip712TypedData): Promise<`0x${string}`>;
+  /** EIP-712 signature (0x r‖s‖v) from the embedded wallet. `silent`: no
+   * Privy modal (`showWalletUIs: false`), only right after Orbie's confirm
+   * sheet has shown the exact terms (one-click copy, decision 1). A user who
+   * enrolled MFA for wallet actions is still prompted by Privy. */
+  signTypedData(data: Eip712TypedData, options?: { silent?: boolean }): Promise<`0x${string}`>;
   /** Sends a transaction from the embedded wallet; `sponsor` asks Privy to pay gas. */
   sendTransaction(tx: { to: `0x${string}`; data: `0x${string}`; chainId: number }, sponsor: boolean): Promise<`0x${string}`>;
 }

@@ -5,6 +5,7 @@ import { copyFundingSchema, copyReturnChallengeSchema, copyReturnConsentTypedDat
   liveStopCancellationChallengeSchema, liveStopCancellationOwnerTypedData, type LiveCopyPortfolioItem } from '@trading-dashboard/shared/contracts';
 import { api, sessionKey } from './api';
 import { useAuth } from './auth';
+import { liveCopyEnabled } from './copy-live-setup';
 import { queryKeys } from './query-keys';
 import type { Eip712TypedData } from './wallet-signer';
 
@@ -20,7 +21,7 @@ function usePortfolioKey() {
  * awaiting credit, starting, active, paused, stopping, sweeping, stopped). */
 export function useLiveCopyPortfolio() {
   const auth = useAuth();
-  const enabled = auth.status === 'signedIn' && auth.mode === 'privy' && Boolean(auth.identity);
+  const enabled = liveCopyEnabled(auth);
   const query = useQuery({ queryKey: usePortfolioKey(), enabled, staleTime: 0, retry: false, refetchInterval: 10_000, refetchOnWindowFocus: true,
     queryFn: async ({ signal }) => liveCopyPortfolioSchema.parse(await api.get(`${ROOT}/portfolio`, signal)) });
   // A failed read is reported (the portfolio shows it with a retry), not

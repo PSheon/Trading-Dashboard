@@ -162,8 +162,10 @@ function useEmbeddedWallet(signedIn: boolean): WalletSigner | null {
         if (!/^0x[0-9a-fA-F]{40}$/.test(target)) throw new Error("Not a wallet address");
         await exportWallet({ address: target.toLowerCase() });
       },
-      signTypedData: async (data) => {
-        const { signature } = await signTypedData(data, assertActive());
+      signTypedData: async (data, options) => {
+        // Silent only behind Orbie's own confirm sheet that lists every term
+        // (decision 1); otherwise Privy shows its modal as configured.
+        const { signature } = await signTypedData(data, { ...assertActive(), ...(options?.silent ? { uiOptions: { showWalletUIs: false } } : {}) });
         return signature as `0x${string}`;
       },
       sendTransaction: async (tx, sponsor) => {

@@ -1,0 +1,126 @@
+"use client";
+
+import { Check, Circle, LoaderCircle, TriangleAlert } from "lucide-react";
+import { cn } from "cn";
+import type { LiveCopySetup, LiveCopySetupStage } from "@trading-dashboard/shared/contracts";
+
+import { Modal } from "@/components/ui/dialog";
+import { useI18n } from "@/i18n/provider";
+import { liveSetupMessages, type LiveSetupText } from "@/i18n/live-setup";
+import { Link } from "@/i18n/navigation";
+import { setupTerminal, useLiveCopySetup } from "@/lib/copy-live-setup";
+import { truncateAddress } from "@/lib/format";
+
+/** The live-setup texts in the page's language. */
+export function useLiveSetupText(): LiveSetupText {
+  const { locale } = useI18n();
+  return liveSetupMessages[locale];
+}
+
+/** The setup error the UI names (api code or signer refusal). */
+export function liveSetupError(text: LiveSetupText, code: string | null | undefined): string {
+  return code && code in text.errors ? text.errors[code as keyof LiveSetupText["errors"]] : text.errors.generic;
+}
+
+/**
+ * Orbie's confirm sheet (plan §1 step 2): every term the one consent binds,
+ * in plain words, and one button. The signatures behind it are silent
+ * (decision 1), so this sheet is what the owner reads and approves.
+ */
+export function LiveCopyConfirm({ setup, traderName, open, onOpenChange, onConfirm, pending, error }: {
+  setup: LiveCopySetup | null; traderName?: string; open: boolean; onOpenChange: (open: boolean) => void; onConfirm: () => void; pending: boolean; error: string | null;
+}) {
+  const text = useLiveSetupText(), { format } = useI18n();
+  const consent = setup?.consent ?? null, settings = setup?.settings;
+  const title = setup?.kind === "edit" ? text.editTitle : setup?.kind === "renewal" ? text.renewTitle : text.confirmTitle;
+  const rows: [string, string][] = consent && settings ? [
+    [text.trader, traderName ? `${traderName} · ${truncateAddress(consent.leaderAddress)}` : truncateAddress(consent.leaderAddress)],
+    [text.budget, `${format.num(Number(consent.budgetUsd), 2)} USDC`],
+    [text.direction, settings.direction === "reverse" ? text.reverse : text.same],
+    [text.sizing, settings.sizingMode === "fixed" && settings.perTradeUsd !== null ? `${text.fixed} · ${format.num(settings.perTradeUsd, 2)} USDC` : text.ratio],
+    [text.maxLeverage, settings.maxLeverage === null ? text.unlimited : `${settings.maxLeverage}x`],
+    [text.maxExposure, settings.maxTotalExposureUsd === null ? text.unlimited : `${format.num(settings.maxTotalExposureUsd, 2)} USDC`],
+    [text.network, text.networkValue],
+    [text.agentExpiry, format.dateTime(new Date(consent.agentValidUntil).toISOString())],
+    [text.builderFee, consent.builderAddress && consent.builderMaxFeeTenthsOfBps > 0 ? `${(consent.builderMaxFeeTenthsOfBps / 1000).toFixed(3)}% · ${truncateAddress(consent.builderAddress)}` : text.builderNone],
+    [text.onStop, consent.masterPolicyId ? text.onStopAuto : text.onStopManual],
+  ] : [];
+  return (
+    <Modal open={open} onOpenChange={onOpenChange} title={title}>
+      <div className="flex flex-col gap-4 px-6 pt-3 pb-6">
+        {consent ? (
+          <dl className="divide-y divide-border rounded-2xl bg-inset px-4" data-testid="live-copy-terms">
+            {rows.map(([label, value]) => (
+              <div key={label} className="flex items-start justify-between gap-4 py-2.5 text-sm">
+                <dt className="shrink-0 text-muted-foreground">{label}</dt>
+                <dd className="min-w-0 text-right font-semibold break-words">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        ) : <p className="text-sm text-muted-foreground">{text.preparing}</p>}
+        <p className="text-xs leading-5 text-muted-foreground">{text.testnetNote} {text.deadline}. {text.signNote}</p>
+        {error ? <p role="alert" className="flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning"><TriangleAlert className="mt-px size-3.5 shrink-0" />{error}</p> : null}
+        <div className="flex flex-col gap-2.5">
+          <button type="button" onClick={onConfirm} disabled={pending || !consent}
+            className="orbit-press flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-primary px-8 font-display text-lg text-primary-foreground outline-none hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50">
+            {pending ? <LoaderCircle className="size-5 animate-spin" aria-hidden /> : null}{text.confirm}
+          </button>
+          <button type="button" onClick={() => onOpenChange(false)} disabled={pending}
+            className="min-h-11 rounded-full text-sm font-bold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">{text.cancel}</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+const RANK: Record<LiveCopySetupStage, number> = { provisioning: 0, awaiting_consent: 1, consented: 2, funding_submitted: 3, funded: 4, mode_set: 5, agent_active: 6, builder_ready: 7, running: 8, failed: -1, expired: -1, cancelled: -1 };
+/** Where a setup that stopped got to, from its issue. */
+const STOPPED_AT: Record<string, number> = { setup_funding_rejected: 2, setup_account_mode_failed: 4, setup_agent_rejected: 5, setup_builder_rejected: 6, setup_wallet_conflict: 1, setup_binding_changed: 2 };
+type Row = { key: keyof LiveSetupText["stages"]; doneAt: number };
+const ROWS: Record<LiveCopySetup["kind"], Row[]> = {
+  start: [{ key: "wallet", doneAt: 2 }, { key: "deposit", doneAt: 3 }, { key: "credited", doneAt: 4 }, { key: "mode", doneAt: 5 }, { key: "agent", doneAt: 6 }, { key: "start", doneAt: 8 }],
+  edit: [{ key: "generation", doneAt: 8 }],
+  renewal: [{ key: "agent", doneAt: 6 }, { key: "start", doneAt: 8 }],
+};
+/** The stage rows of a setup; `reached` holds a failed setup at the last stage it had. */
+export function liveSetupRows(setup: Pick<LiveCopySetup, "kind" | "stage">, reached = RANK[setup.stage]) {
+  const rows = ROWS[setup.kind];
+  const current = rows.find(row => reached < row.doneAt)?.key ?? null;
+  return rows.map(row => ({ key: row.key, state: reached >= row.doneAt ? "done" as const : row.key === current ? "current" as const : "pending" as const }));
+}
+
+/**
+ * The progress dialog (plan §1 step 4): the stages, an error when it stops,
+ * and a note that closing is safe (the worker continues; or, when the
+ * owner's session signs, 繼續設定 in the portfolio picks it up).
+ */
+export function LiveCopyProgress({ setupId, open, onOpenChange, onRetry }: { setupId: string | null; open: boolean; onOpenChange: (open: boolean) => void; onRetry?: () => void }) {
+  const text = useLiveSetupText();
+  const query = useLiveCopySetup(open ? setupId : null), setup = query.data;
+  const finished = setup?.stage === "running", stopped = setup && ["failed", "expired", "cancelled"].includes(setup.stage);
+  const rows = setup ? liveSetupRows(setup, stopped ? STOPPED_AT[setup.issue ?? ""] ?? 2 : RANK[setup.stage]) : [];
+  return (
+    <Modal open={open} onOpenChange={onOpenChange} title={finished ? text.done : stopped ? (setup.stage === "expired" ? text.expired : setup.stage === "cancelled" ? text.cancelled : text.failed) : text.progressTitle}>
+      <div className="flex flex-col gap-4 px-6 pt-3 pb-6" aria-live="polite">
+        <ol className="flex flex-col gap-3" data-testid="live-copy-stages">
+          {rows.map(row => (
+            <li key={row.key} data-state={row.state} className={cn("flex items-center gap-3 text-sm", row.state === "pending" && "text-muted-foreground")}>
+              {row.state === "done" ? <span className="grid size-6 place-items-center rounded-full bg-positive/15 text-positive"><Check className="size-3.5" strokeWidth={3} aria-hidden /></span>
+                : row.state === "current" && !stopped ? <LoaderCircle className="size-6 animate-spin text-primary-text" aria-hidden />
+                : <Circle className="size-6 text-border-strong" aria-hidden />}
+              <span className={cn(row.state === "current" && "font-bold")}>{text.stages[row.key]}</span>
+            </li>
+          ))}
+        </ol>
+        {setup && !setupTerminal(setup) && setup.issue === "awaiting_credit" ? <p className="text-xs text-muted-foreground">{text.waitingCredit}</p> : null}
+        {stopped || query.isError ? <p role="alert" className="flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning"><TriangleAlert className="mt-px size-3.5 shrink-0" />{liveSetupError(text, setup?.issue)}</p> : null}
+        {!finished && !stopped ? <p className="text-xs leading-5 text-muted-foreground">{setup?.signer === "worker_policy" ? text.closeSafeWorker : text.closeSafeOwner}</p> : null}
+        <div className="flex flex-col gap-2.5">
+          {finished ? <Link href="/portfolio" onClick={() => onOpenChange(false)} className="orbit-press flex min-h-12 w-full items-center justify-center rounded-full bg-primary px-6 font-display text-base text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">{text.portfolio}</Link> : null}
+          {stopped && onRetry ? <button type="button" onClick={onRetry} className="orbit-press min-h-12 rounded-full bg-primary px-6 font-display text-base text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">{text.retry}</button> : null}
+          <button type="button" onClick={() => onOpenChange(false)} className="min-h-11 rounded-full bg-inset text-sm font-bold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring">{text.close}</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}

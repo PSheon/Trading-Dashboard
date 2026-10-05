@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { createLiveCopyStrategySchema, copyExecutionWalletsSchema, copyExecutionAccountSchema, copyAgentSetupSchema, copyWalletGrantSchema, liveCopyMandateRenewalSchema, copyStrategySettingsSchema, liveCopyOverviewSchema, liveCopyStrategySchema, liveCopyMandateChallengeSchema, liveCopyMandateSchema, liveCopyMandateOwnerTypedData, approveLiveCopyMandateSchema, type CreateLiveCopyStrategy, type LiveCopyStrategy, type LiveCopyMandate, type CopyExecutionAccount, type CopyAgentSetup, type CopyWalletGrant } from '@trading-dashboard/shared/contracts';
 import { api, sessionKey } from './api';
 import { useAuth } from './auth';
+import { liveCopyEnabled } from './copy-live-setup';
 import { queryKeys } from './query-keys';
 import type { Eip712TypedData } from './wallet-signer';
 import type { AgentOwnerSnapshot } from './copy-agents';
@@ -182,7 +183,8 @@ export function useLiveCopyOverview() {
   useLayoutEffect(() => { latest.current = auth; }, [auth]);
   useLayoutEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const snapshot = () => { const a = latest.current; return { status: mounted.current ? a.status : 'disposed', mode: a.mode, identity: a.identity, session: sessionKey(), walletAddress: a.wallet?.address?.toLowerCase() ?? null }; };
-  const enabled = auth.status === 'signedIn' && auth.mode === 'privy' && Boolean(auth.identity);
+  // Privy users, and the fixture signer's stand-in (browser tests of one-click copy).
+  const enabled = liveCopyEnabled(auth);
   const query = useQuery({ queryKey: useLiveKey(), enabled, queryFn: async ({ signal }) => {
     const captured = snapshot(); const guard = () => { signal.throwIfAborted(); if (JSON.stringify(captured) !== JSON.stringify(snapshot())) throw new Error('live_session_changed'); }; guard(); const result = await api.get(ROOT, signal); guard(); return liveCopyOverviewSchema.parse(result);
   }, staleTime: 0, gcTime: 0, retry: false, refetchInterval: 15000, refetchOnWindowFocus: true });

@@ -5,7 +5,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "cn";
 
-import { EmptyState, ErrorState, PageHeader, Panel, SignInPrompt, Skeleton } from "@/components/page";
+import { EmptyState, ErrorState, PageHeader, Panel, SignInPrompt, SkelBar } from "@/components/page";
+import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { Button } from "@/components/ui/button";
 import type { MessageKey } from "@/i18n/messages";
 import { useI18n } from "@/i18n/provider";
@@ -48,8 +49,9 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   const allowed = status === "signedIn" && !me.isError && hasPermission(me.data, "admin.access");
   const pageAllowed = allowed && Boolean(current && hasPermission(me.data, current.permission));
   let body: React.ReactNode;
-  if (status === "loading" || (status === "signedIn" && me.isPending)) {
-    body = <Skeleton className="h-64 rounded-2xl" />;
+  const pending = status === "loading" || (status === "signedIn" && me.isPending);
+  if (pending) {
+    body = <AdminBodySkeleton />;
   } else if (status === "signedIn" && me.isError && !me.data && !isPermanent(me.error)) {
     // A temporary failure (network, 5xx, busy) is not "no permission".
     body = (
@@ -86,7 +88,13 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-5">
       <PageHeader title={t("admin.title")} subtitle={t("admin.subtitle")} />
-      {allowed ? (
+      {pending ? (
+        // The section menu's row while the account's permissions load.
+        <div aria-hidden="true" className="ui-skeleton flex h-[52px] gap-0.5 overflow-hidden rounded-[28px] bg-raised p-1 [--skel-bar:var(--border)]">
+          <span className="h-11 w-20 shrink-0 rounded-[22px] bg-primary/60" />
+          {["w-16", "w-20", "w-24", "w-16", "w-20", "w-16"].map((w, i) => <SkelBar key={i} line="h-11 px-4" className={cn("h-3", w)} />)}
+        </div>
+      ) : allowed ? (
         <nav
           aria-label={t("admin.title")}
           className="flex gap-0.5 overflow-x-auto rounded-[28px] bg-raised p-1 no-scrollbar"
@@ -110,6 +118,19 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         </nav>
       ) : null}
       {body}
+    </div>
+  );
+}
+
+/** An admin page's content while it loads: most are a card holding a
+ * table, so a card with a heading line over a table's header and rows. */
+export function AdminBodySkeleton() {
+  return (
+    <div aria-hidden="true" className="flex flex-col gap-4">
+      <SkelBar line="h-5" className="ui-skeleton h-3 w-72 max-w-full bg-raised" />
+      <section className="rounded-2xl bg-card p-3 shadow-[0_0_0_2px_var(--card-ring)] md:p-4">
+        <TableSkeleton columns={[{}, {}, { right: true }, { right: true }, { right: true }]} rows={6} />
+      </section>
     </div>
   );
 }

@@ -102,7 +102,11 @@ export function PortfolioChart({ overview, height = 240, className }: { overview
       <div className="flex items-start justify-between gap-3 pt-3">
         <div className="flex min-w-0 flex-col items-start gap-2">
           {query.isPending && !query.data ? (
-            <SkelBar line="h-[30.8px]" className="ui-skeleton h-6 w-40 bg-border" />
+            <>
+              <SkelBar line="h-[30.8px]" className="ui-skeleton h-6 w-40 bg-border" />
+              {/* The ROI pill's place. */}
+              {roiOk ? <SkelBar className="ui-skeleton h-[26px] w-20 bg-border" /> : null}
+            </>
           ) : (
             <p className={cn("num font-display text-[1.75rem] leading-[1.1]", last ? tone(last[1]) : "text-muted-foreground")}>
               {!last ? "—" : roi ? format.pct(lastRoi!, { sign: true, digits: 2 }) : fmtUsd(last[1])}

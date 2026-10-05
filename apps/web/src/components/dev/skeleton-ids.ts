@@ -1,0 +1,32 @@
+/** The skeleton gallery's items (components/dev/skeleton-items.tsx), for
+ * the server route that validates a frame's id; a test keeps the two in
+ * step. */
+export const SKELETON_IDS: readonly string[] = [
+  "home",
+  "explore-grid",
+  "explore-list",
+  "trader",
+  "trader-phone",
+  "trader-tabs",
+  "trader-fills",
+  "trader-trades",
+  "trader-orders",
+  "trader-twap",
+  "trader-transfers",
+  "portfolio",
+  "portfolio-copy",
+  "favorites",
+  "favorites-alerts",
+  "favorites-feed",
+  "insights",
+  "coins",
+  "coin",
+  "settings",
+  "wallet-deposit",
+  "wallet-withdraw",
+  "wallet-history",
+  "search",
+  "admin",
+  "admin-users",
+  "admin-copy",
+];

@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { DEFAULT_LOCALE, LOCALES, LOCALE_COOKIE, PATH_HEADER, isLocale, localePath, negotiateLocale, type Locale } from "@/i18n/config";
-import { contentSecurityPolicy, newNonce, privyAuthOrigins } from "@/lib/csp";
+import { contentSecurityPolicy, newNonce, privyAuthOrigins, type Framing } from "@/lib/csp";
 
 /** Read at run time (server-only), so one build serves every deployment. */
 const privyOrigins = privyAuthOrigins(process.env.NEXT_PRIVY_AUTH_ORIGINS);
@@ -52,7 +52,7 @@ export function proxy(request: NextRequest) {
   }
 
   const nonce = newNonce();
-  const csp = contentSecurityPolicy({ nonce, dev: process.env.NODE_ENV === "development", privyOrigins });
+  const csp = contentSecurityPolicy({ nonce, dev: process.env.NODE_ENV === "development", privyOrigins, framing: galleryFraming(pathname) });
   const headers = new Headers(request.headers);
   headers.set("x-nonce", nonce);
   headers.set("Content-Security-Policy", csp);
@@ -60,6 +60,13 @@ export function proxy(request: NextRequest) {
   const response = NextResponse.next({ request: { headers } });
   response.headers.set("Content-Security-Policy", csp);
   return response;
+}
+
+/** The skeleton gallery and its frames (see `Framing`). */
+export function galleryFraming(pathname: string): Framing | undefined {
+  const match = /^\/[^/]+\/dev\/skeletons(\/[^/]+)?\/?$/.exec(pathname);
+  if (!match) return undefined;
+  return match[1] ? "framed" : "gallery";
 }
 
 export const config = {

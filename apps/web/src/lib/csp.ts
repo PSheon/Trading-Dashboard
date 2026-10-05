@@ -68,7 +68,14 @@ export function newNonce(): string {
   return btoa(String.fromCharCode(...bytes));
 }
 
-export function contentSecurityPolicy({ nonce, dev, privyOrigins = [...DEFAULT_PRIVY_AUTH_ORIGINS] }: { nonce: string; dev: boolean; privyOrigins?: string[] }): string {
+/** The skeleton gallery (/<locale>/dev/skeletons, a development tool) shows
+ * its items in same-origin frames: the gallery may frame this origin
+ * ("gallery") and its frames may be framed by it ("framed"). Every other
+ * page frames nothing of ours and can't be framed. */
+export type Framing = "gallery" | "framed";
+
+export function contentSecurityPolicy({ nonce, dev, privyOrigins = [...DEFAULT_PRIVY_AUTH_ORIGINS], framing }: { nonce: string; dev: boolean; privyOrigins?: string[]; framing?: Framing }): string {
+  const self = framing === "gallery" ? ["'self'"] : [];
   const directives: Record<string, string[]> = {
     "default-src": ["'self'"],
     // React's dev build uses eval for error overlays; never in production.
@@ -79,14 +86,14 @@ export function contentSecurityPolicy({ nonce, dev, privyOrigins = [...DEFAULT_P
     "img-src": ["'self'", "data:", "blob:", "https:"],
     "font-src": ["'self'", "data:"],
     "connect-src": ["'self'", ...CSP_CONNECT_ORIGINS, ...privyOrigins],
-    "frame-src": [...CSP_FRAME_ORIGINS, ...privyOrigins],
-    "child-src": [...CSP_FRAME_ORIGINS, ...privyOrigins],
+    "frame-src": [...self, ...CSP_FRAME_ORIGINS, ...privyOrigins],
+    "child-src": [...self, ...CSP_FRAME_ORIGINS, ...privyOrigins],
     "worker-src": ["'self'", "blob:"],
     "manifest-src": ["'self'"],
     "object-src": ["'none'"],
     "base-uri": ["'self'"],
     "form-action": ["'self'"],
-    "frame-ancestors": ["'none'"],
+    "frame-ancestors": [framing === "framed" ? "'self'" : "'none'"],
   };
   const policy = Object.entries(directives).map(([name, values]) => `${name} ${values.join(" ")}`);
   if (!dev) policy.push("upgrade-insecure-requests");

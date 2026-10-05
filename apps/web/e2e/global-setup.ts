@@ -21,6 +21,7 @@ const SAMPLE: Record<string, string> = {
   "[id]": "2",
   "[[...preview]]": "",
   "[...missing]": "no-such-page",
+  "[item]": "home",
 };
 
 /** Every `page.tsx` under src/app as a URL path, dynamic segments filled in. */

@@ -46,6 +46,11 @@ const nextConfig: NextConfig = {
       { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
       ...(process.env.NODE_ENV === "production" ? [{ key: "Strict-Transport-Security", value: "max-age=15552000" }] : []),
     ] }, {
+      // The skeleton gallery's frames (a development tool) are framed by
+      // the gallery, on this origin (src/proxy.ts sets frame-ancestors).
+      source: "/:locale/dev/skeletons/:item",
+      headers: [{ key: "X-Frame-Options", value: "SAMEORIGIN" }],
+    }, {
       // Market icons are Hyperliquid's SVG files served from this origin
       // (app/api/coin-icon): opened directly, one runs nothing.
       source: "/api/coin-icon/:coin",

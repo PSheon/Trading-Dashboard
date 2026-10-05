@@ -161,7 +161,7 @@ export function AdminUsers() {
                           <span className="flex items-center gap-1.5 font-semibold">
                             <span className="max-w-[10rem] truncate">{u.displayName ?? u.email ?? `#${u.id}`}</span>
                             {self ? (
-                              <span className="rounded-full bg-primary-soft px-1.5 text-[10px] font-semibold text-primary-text">
+                              <span className="rounded-full bg-tag-alert px-1.5 text-[10px] font-semibold text-tag-alert-foreground">
                                 {t("common.you")}
                               </span>
                             ) : null}

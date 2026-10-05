@@ -1,4 +1,8 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+/** The trader's account value: drawn only once the profile is in (the
+ * loading outline shows the label, not the figure). */
+const profileIn = (page: Page) => page.getByTestId("account-value").filter({ visible: true });
 
 const UNKNOWN = `0x${"0".repeat(36)}dead`;
 
@@ -28,7 +32,7 @@ for (const width of [1440, 390]) {
     await box.press("Enter");
     await expect(page).toHaveURL(new RegExp(`/trader/${known}$`), { timeout: 30000 });
     await expect(notFound).toHaveCount(0);
-    await expect(page.getByText("Account Value", { exact: true }).filter({ visible: true }).first()).toBeVisible({ timeout: 20000 });
+    await expect(profileIn(page).first()).toBeVisible({ timeout: 20000 });
 
     // Text that is no address: the 404, without picking the first match.
     await page.goto("/");

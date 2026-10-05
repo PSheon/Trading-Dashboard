@@ -278,7 +278,7 @@ export function MobileTrader({
       <dl className="orbit-card grid grid-cols-2 gap-x-4 gap-y-5 p-5">
         <div className="flex min-w-0 flex-col gap-[5px]">
           <dt className="text-xs leading-4 font-bold text-muted-foreground">{t("trader.accountValue")}</dt>
-          <dd className="num font-display text-xl leading-[30px]">{profile.accountValue === null ? "—" : usd2(profile.accountValue)}</dd>
+          <dd className="num font-display text-xl leading-[30px]" data-testid="account-value">{profile.accountValue === null ? "—" : usd2(profile.accountValue)}</dd>
           {accountGap ? <dd role="status" className="text-[11px] leading-[14px] font-bold text-warning">{accountGap}</dd> : null}
         </div>
         <div className="flex min-w-0 flex-col gap-[5px]">

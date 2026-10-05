@@ -1,5 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 
+/** The trader's account value: drawn only once the profile is in (the
+ * loading outline shows the label, not the figure). */
+const profileIn = (page: Page) => page.getByTestId("account-value").filter({ visible: true });
+
 const TRADER = "/trader/0x89da4baec446f35a1cbe17a9d1ee5c70b05ee43f";
 const failed = (page: Page) => page.getByText("Couldn't load this trader.", { exact: true });
 const placeholders = (page: Page) => page.locator("main .ui-skeleton, main .animate-pulse").filter({ visible: true });
@@ -28,11 +32,11 @@ for (const width of [1440, 390]) {
       await expect(failed(page)).toHaveCount(0);
       // Not yet 5 s: nothing was asked again, so nothing can have arrived.
       await page.clock.fastForward(3_000);
-      await expect(page.getByText("Account Value", { exact: true }).filter({ visible: true })).toHaveCount(0);
+      await expect(profileIn(page)).toHaveCount(0);
       await page.clock.fastForward(2_500); // 5 s: asked again, busy again
       await expect(failed(page)).toHaveCount(0);
       await page.clock.fastForward(10_500); // +10 s: served
-      await expect(page.getByText("Account Value", { exact: true }).filter({ visible: true }).first()).toBeVisible({ timeout: 20000 });
+      await expect(profileIn(page).first()).toBeVisible({ timeout: 20000 });
       await page.clock.fastForward(16_000);
       await expect(placeholders(page)).toHaveCount(0, { timeout: 20000 });
       await expect(failed(page)).toHaveCount(0);
@@ -57,7 +61,7 @@ for (const width of [1440, 390]) {
       // The api is back: one click, the whole page.
       await page.evaluate(() => sessionStorage.removeItem("orbie:fixtures:trader-busy"));
       await page.getByRole("button", { name: "Retry", exact: true }).click();
-      await expect(page.getByText("Account Value", { exact: true }).filter({ visible: true }).first()).toBeVisible({ timeout: 20000 });
+      await expect(profileIn(page).first()).toBeVisible({ timeout: 20000 });
       await expect(failed(page)).toHaveCount(0);
     });
 
@@ -65,14 +69,14 @@ for (const width of [1440, 390]) {
       test.setTimeout(90000);
       await busy(page, "always:portfolio,analytics,copy-score");
       await page.goto(TRADER);
-      await expect(page.getByText("Account Value", { exact: true }).filter({ visible: true }).first()).toBeVisible({ timeout: 30000 });
+      await expect(profileIn(page).first()).toBeVisible({ timeout: 30000 });
       await expect(placeholders(page).first()).toBeVisible();
       for (const wait of [5_500, 10_500, 15_500, 20_500]) await page.clock.fastForward(wait);
       await expect(placeholders(page)).toHaveCount(0, { timeout: 20000 });
       await expect(failed(page)).toHaveCount(0);
       await expect(page.getByText(/busy/i)).toHaveCount(0);
       // The trader's own data is all there.
-      await expect(page.getByText("Account Value", { exact: true }).filter({ visible: true }).first()).toBeVisible();
+      await expect(profileIn(page).first()).toBeVisible();
     });
   });
 }

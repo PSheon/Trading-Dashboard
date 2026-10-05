@@ -11,6 +11,8 @@ import { findCurrentWalletAuthorization } from '../src/copy/live/postgres-wallet
 import { CopyLiveCloseService } from '../src/copy/copy-live-close.service.js';
 import { CopyLiveCloseRepository } from '../src/copy/copy-live-close.repository.js';
 import { CopyLiveStopper, type StopCanceller } from '../src/copy/live-worker/copy-live-stopper.js';
+import { CopyLiveAutoReturn } from '../src/copy/live-worker/copy-live-auto-return.js';
+import { CopyLiveReturnRepository, expireStaleReturns } from '../src/copy/copy-live-return.repository.js';
 import { CopyLiveStopWorkerRepository } from '../src/copy/live-worker/copy-live-stop-worker.repository.js';
 import { closeCloid, type CloseRequest, type TestnetReduceOnlyCloser } from '../src/copy/live-worker/reduce-only-closer.js';
 import type { LiveAccountSnapshot } from '../src/copy/live/live-account-observer.js';
@@ -111,6 +113,71 @@ describe('testnet stop execution', () => {
     expect(await stopRow()).toMatchObject({ state: 'flat', issue: 'stop_awaiting_return_to_main_wallet' });
     swept = true; await stopper().tick();
     expect(await stopRow()).toMatchObject({ state: 'stopped' });
+  });
+
+  describe('the automatic return (one-click plan §3c)', () => {
+    const main = `0x${'5a'.repeat(20)}`;
+    let exchange: { send: ReturnType<typeof vi.fn> }, worker: { available: boolean; sign: ReturnType<typeof vi.fn> };
+    const auto = () => new CopyLiveStopper({ repository: new CopyLiveStopWorkerRepository(db, new UnitOfWork(db)), closer, canceller: canceller as unknown as StopCanceller,
+      swept: async () => swept, autoReturn: new CopyLiveAutoReturn(new CopyLiveReturnRepository(db), exchange as never, worker as never, () => clock) }, () => clock);
+    const withSigner = () => db.update(schema.copyExecutionAccounts).set({ masterPolicyId: 'policy-1', masterPolicyFingerprint: 'c'.repeat(64), masterSignerQuorumId: 'worker',
+      sweepDestination: main, signerAttachedAt: new Date(clock) });
+    const returns = () => db.select().from(schema.copyFundingOperations).where(eq(schema.copyFundingOperations.direction, 'to_main'));
+    beforeEach(async () => {
+      await db.update(schema.users).set({ embeddedWalletAddress: main });
+      exchange = { send: vi.fn(async () => ({ status: 'ok', response: { type: 'default' } })) };
+      worker = { available: true, sign: vi.fn(async () => `0x${'11'.repeat(64)}1b`) };
+    });
+
+    it('sweeps everything withdrawable (6 decimals) to the main wallet once, signed by the worker, and the stop ends when it is credited', async () => {
+      await withSigner(); withdrawable = '25.1234567';
+      await auto().tick(); await auto().tick();
+      expect(await stopRow()).toMatchObject({ state: 'flat' });
+      await auto().tick();
+      const stop = await stopRow();
+      expect(stop.issue).toBe('stop_returning_to_main_wallet');
+      const [row] = await returns();
+      expect(row).toMatchObject({ idempotencyKey: `sweep:${stop.id}`, stopId: stop.id, amount: '25.123456', destination: main, status: 'accepted' });
+      const [target, data, bound] = worker.sign.mock.calls[0]!;
+      expect(target).toMatchObject({ workerQuorumId: 'worker', policyId: 'policy-1', address: account() });
+      expect(data).toMatchObject({ primaryType: 'HyperliquidTransaction:UsdSend', message: { destination: main, amount: '25.123456', hyperliquidChain: 'Testnet' } });
+      expect(bound).toEqual({ network: 'testnet', destination: main });
+      // Never resent while it is in flight.
+      await auto().tick();
+      expect(worker.sign).toHaveBeenCalledTimes(1); expect(exchange.send).toHaveBeenCalledTimes(1); expect(await returns()).toHaveLength(1);
+      swept = true; await auto().tick();
+      expect(await stopRow()).toMatchObject({ state: 'stopped' });
+    });
+
+    it('a legacy account (no master signer) waits for the owner\'s return, as before', async () => {
+      withdrawable = '25'; await auto().tick(); await auto().tick(); await auto().tick();
+      expect(await stopRow()).toMatchObject({ state: 'flat', issue: 'stop_awaiting_return_to_main_wallet' });
+      expect(worker.sign).not.toHaveBeenCalled(); expect(await returns()).toEqual([]);
+    });
+
+    it('waits, instead of failing, while another wallet operation of the account is pending; a stale system sweep is never expired', async () => {
+      await withSigner(); withdrawable = '25';
+      await db.insert(schema.copyFundingOperations).values({ id: 'pending-deposit', userId: 1, accountId: 'account', strategyId: 9, idempotencyKey: 'pending-deposit-key',
+        network: 'testnet', address: `0x${'77'.repeat(20)}`, destination: account(), amount: '5', nonce: clock, status: 'unknown' });
+      await auto().tick(); await auto().tick(); await auto().tick();
+      expect(await stopRow()).toMatchObject({ state: 'flat', issue: 'stop_return_waiting' });
+      expect(await returns()).toEqual([]);
+      await db.update(schema.copyFundingOperations).set({ status: 'cancelled' }).where(eq(schema.copyFundingOperations.id, 'pending-deposit'));
+      worker.sign.mockRejectedValueOnce(new Error('privy down'));
+      await auto().tick();
+      // Not signed: refused, and the owner's manual return remains.
+      expect((await returns())[0]).toMatchObject({ status: 'rejected' });
+      await auto().tick();
+      expect(await stopRow()).toMatchObject({ issue: 'stop_awaiting_return_to_main_wallet' });
+    });
+
+    it('a system sweep has no consent window: expireStaleReturns leaves it', async () => {
+      const [acc] = await db.select().from(schema.copyExecutionAccounts);
+      await db.insert(schema.copyFundingOperations).values({ id: 'system-sweep', userId: 1, accountId: acc!.id, strategyId: 9, idempotencyKey: 'sweep:old-stop', network: 'testnet',
+        address: account(), destination: main, amount: '5', nonce: clock, direction: 'to_main', createdAt: new Date(clock - 3_600_000) });
+      await db.transaction(tx => expireStaleReturns(tx, acc!.id));
+      expect((await returns())[0]).toMatchObject({ status: 'prepared' });
+    });
   });
 
   it('tracked resting orders need the owner\'s cancellation consent; untracked orders block the close', async () => {

@@ -90,7 +90,7 @@ describe("dedicated user-owned execution wallet lifecycle", () => {
     const restarted = new CopyWalletService(new CopyWalletRepository(db), new UnitOfWork(db), testConfig(), provider);
     expect(await restarted.reconcile(uid, "crashed-account")).toMatchObject({ state: "unknown", address: null });
     expect(provider.create).not.toHaveBeenCalled();
-    expect(provider.findOwned).toHaveBeenCalledWith("did:privy:wallet-owner", "copy_crashed_claim");
+    expect(provider.findOwned).toHaveBeenCalledWith("did:privy:wallet-owner", "copy_crashed_claim", null);
   });
   it("a failed pre-create lookup can retry without losing the unsubmitted intent", async () => {
     vi.mocked(provider.findOwned).mockRejectedValueOnce(new Error("lookup unavailable"));

@@ -23,8 +23,12 @@ export const RETURN_CONSENT_WINDOW_MS = 300_000;
 export async function expireStaleReturns(tx: DbTransaction, accountId: string): Promise<void> {
   await tx.update(copyFundingOperations).set({ status: 'cancelled', updatedAt: new Date() })
     .where(and(eq(copyFundingOperations.accountId, accountId), eq(copyFundingOperations.direction, 'to_main'), eq(copyFundingOperations.status, 'prepared'),
-      isNull(copyFundingOperations.attemptedAt), sql`${copyFundingOperations.createdAt} < now() - make_interval(secs => ${RETURN_CONSENT_WINDOW_MS / 1000})`));
+      isNull(copyFundingOperations.attemptedAt), sql`${copyFundingOperations.createdAt} < now() - make_interval(secs => ${RETURN_CONSENT_WINDOW_MS / 1000})`,
+      // The worker's own sweep has no consent window: it waits for its turn.
+      sql`${copyFundingOperations.idempotencyKey} not like ${SYSTEM_SWEEP_PREFIX + '%'}`));
 }
+/** Idempotency keys of the worker's automatic returns: `sweep:<stop id>`. */
+export const SYSTEM_SWEEP_PREFIX = 'sweep:';
 
 /** Account context of a master-signed action: the owner, the copy's ready
  * account and its strategy, and an unfinished stop if any. */
@@ -81,6 +85,32 @@ export class CopyLiveReturnRepository {
       const [row] = await tx.insert(copyFundingOperations).values({ id: randomUUID(), userId, accountId, strategyId: account.strategyId, idempotencyKey: input.idempotencyKey,
         network: 'testnet', address: account.address!, destination: owner.embeddedWalletAddress!, amount: input.amount, nonce: await this.nonce(tx, account.address!),
         direction: 'to_main', stopId: input.sweep ? stop?.id ?? null : null }).returning();
+      return row!;
+    });
+  }
+  /**
+   * The automatic return of a flat stop on an account with the master
+   * signer (one-click plan §3c): everything withdrawable, keyed by the stop
+   * (`sweep:<stop id>`), so it is reserved once. Waits (null) while the stop
+   * isn't flat or another wallet operation of the account or a main-wallet
+   * withdrawal is pending, instead of refusing as an owner's request does.
+   */
+  async reserveSystem(stop: { id: string; userId: number; accountId: string }, amount: string): Promise<ReturnRow | null> {
+    return this.locked(stop.userId, async tx => {
+      const { owner, account, stop: open } = await this.context(tx, stop.userId, stop.accountId);
+      const key = `${SYSTEM_SWEEP_PREFIX}${stop.id}`;
+      const [original] = await tx.select().from(copyFundingOperations).where(and(eq(copyFundingOperations.userId, stop.userId), eq(copyFundingOperations.idempotencyKey, key)));
+      if (original) return original;
+      if (open?.id !== stop.id || open.state !== 'flat' || !account.sweepDestination || account.sweepDestination !== owner.embeddedWalletAddress) return null;
+      await expireStaleReturns(tx, account.id);
+      const pendingRows = await tx.select({ id: copyFundingOperations.id }).from(copyFundingOperations)
+        .where(and(eq(copyFundingOperations.accountId, account.id), inArray(copyFundingOperations.status, ['prepared', 'unknown', 'accepted']))).limit(1);
+      const hubPending = await tx.select({ id: walletWithdrawals.id }).from(walletWithdrawals)
+        .where(and(eq(walletWithdrawals.network, 'testnet'), eq(walletWithdrawals.address, owner.embeddedWalletAddress!), inArray(walletWithdrawals.status, ['prepared', 'unknown']))).limit(1);
+      if (pendingRows.length || hubPending.length) return null;
+      const [row] = await tx.insert(copyFundingOperations).values({ id: randomUUID(), userId: stop.userId, accountId: account.id, strategyId: account.strategyId, idempotencyKey: key,
+        network: 'testnet', address: account.address!, destination: owner.embeddedWalletAddress!, amount, nonce: await this.nonce(tx, account.address!),
+        direction: 'to_main', stopId: stop.id }).returning();
       return row!;
     });
   }

@@ -21,6 +21,7 @@ import { BoundaryPrivyOrderSigningClient } from '../live/privy-order-client.js';
 import { address, LiveBoundaryError } from '../live/wallet-authorization.js';
 import type { CopyLiveStopWorkerRepository, StopRow } from './copy-live-stop-worker.repository.js';
 import { closeCloid, type CloseAccount, type TestnetReduceOnlyCloser } from './reduce-only-closer.js';
+import type { AutoReturn } from './copy-live-auto-return.js';
 
 const MAX_CLOSE_ATTEMPTS = 10, MAX_CANCEL_ATTEMPTS = 3;
 const TERMINAL: ReadonlySet<string> = new Set(['filled', 'partial', 'cancelled', 'rejected']);
@@ -33,6 +34,9 @@ export interface StopperDependencies {
   readonly canceller: StopCanceller | null;
   /** True once a transfer back to the owner's main wallet has been credited. */
   readonly swept: (stop: StopRow) => Promise<boolean>;
+  /** The automatic return of accounts with the master signer; without it
+   * (or for a legacy account) the owner returns the funds by hand. */
+  readonly autoReturn?: AutoReturn | null;
   readonly log?: (message: string) => void;
   /** A revoke-requested grant is revoked anyway after this long. */
   readonly revokeDeadlineMs?: number;
@@ -137,6 +141,11 @@ export class CopyLiveStopper {
     }
     // Nothing left to return: the stop ends without a transfer.
     if (Dec.from(snapshot.withdrawable).lt(SWEEP_DUST_USD) && Dec.from(snapshot.perpEquity).lt(SWEEP_DUST_USD)) { await this.deps.repository.finish(stop, this.now()); return; }
+    const outcome = this.deps.autoReturn ? await this.deps.autoReturn.sweep(stop, snapshot.withdrawable) : 'legacy';
+    if (outcome === 'sent') { await this.deps.repository.issue(stop, 'stop_returning_to_main_wallet'); return; }
+    if (outcome === 'waiting') { await this.deps.repository.issue(stop, 'stop_return_waiting'); return; }
+    // Legacy accounts, and a sweep that could not be signed or was refused:
+    // the owner returns the funds (one signature).
     await this.deps.repository.issue(stop, 'stop_awaiting_return_to_main_wallet');
   }
 

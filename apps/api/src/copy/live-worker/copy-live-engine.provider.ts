@@ -25,6 +25,9 @@ import { WatchedMainnetSource } from './watched-mainnet-source.js';
 import { CopyLiveStopWorkerRepository } from './copy-live-stop-worker.repository.js';
 import { CopyLiveManualCloser, CopyLiveStopper, StopCanceller } from './copy-live-stopper.js';
 import { TestnetReduceOnlyCloser } from './reduce-only-closer.js';
+import { CopyLiveAutoReturn } from './copy-live-auto-return.js';
+import { CopyFundingExchangeClient } from '../copy-funding-exchange.client.js';
+import { PrivyPolicyMasterSigner } from '../live/privy-policy-master-signer.js';
 
 export const LIVE_ENGINE = Symbol('LIVE_ENGINE');
 /** Risk inputs the runtime requires besides slippage and the price check. */
@@ -56,9 +59,13 @@ export const liveEngineProvider: Provider = {
     const closer = new TestnetReduceOnlyCloser(pool, db, uow, testnetConfig, testnetGlobal, testnetBudget, Math.max(100, live.slippageBps * 3));
     const stopper = new CopyLiveStopper({ repository: stops, closer, log: message => logger.warn(message), revokeDeadlineMs: live.revokeDeadlineMs,
       canceller: new StopCanceller(pool, db, testnetConfig, testnetGlobal, testnetBudget, stops, (account, key) => closer.reconcile(account, key)),
-      // Returning funds to the main wallet is the owner's signed transfer; the
-      // stop ends once that sweep is credited.
-      swept: stop => returns.swept(stop.id) });
+      // The stop ends once a sweep to the main wallet is credited: signed by
+      // the worker under the owner's policy for accounts with the automatic
+      // return, by the owner for every other account.
+      swept: stop => returns.swept(stop.id),
+      autoReturn: new CopyLiveAutoReturn(returns, new CopyFundingExchangeClient(testnetBudget, testnetGlobal),
+        new PrivyPolicyMasterSigner({ appId: config.value.auth.appId, appSecret: config.value.auth.appSecret, workerQuorumId: config.value.copy.agent?.workerQuorumId,
+          authorizationPrivateKey: config.value.copy.agent?.authorizationPrivateKey })) });
     const manual = new CopyLiveManualCloser(stops, closer, scanner, message => logger.warn(message));
     return new CopyLiveEngine({ stopper: { tick: async () => { await stopper.tick(); await manual.tick(); } },
       repository, sources, uow, watched: new WatchedMainnetSource(db),

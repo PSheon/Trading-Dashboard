@@ -1387,9 +1387,19 @@ export const copyExecutionAccounts = pgTable("copy_execution_accounts", {
   state: text("state").$type<"requested" | "unknown" | "ready" | "blocked">().notNull().default("requested"),
   privyWalletId: text("privy_wallet_id").unique(), ownerQuorumId: text("owner_quorum_id"), address: text("address").unique(),
   issue: text("issue").$type<"verification_pending" | "provider_unavailable" | "wallet_conflict">(),
+  /** Automatic return (one-click plan §2, §3b): the worker quorum is an
+   * additional signer of this account, bound by the owner-owned Privy policy
+   * `masterPolicyId` (UsdSend only to `sweepDestination`, the owner's main
+   * wallet, on testnet). All five set together, or none (legacy accounts keep
+   * the manual return). */
+  masterPolicyId: text("master_policy_id"), masterPolicyFingerprint: text("master_policy_fingerprint"),
+  masterSignerQuorumId: text("master_signer_quorum_id"), sweepDestination: text("sweep_destination"),
+  signerAttachedAt: timestamp("signer_attached_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [uniqueIndex("copy_execution_accounts_strategy_uq").on(t.network, t.strategyId),
+  check("copy_execution_accounts_master_signer_check", sql`(${t.masterPolicyId} is null and ${t.masterPolicyFingerprint} is null and ${t.masterSignerQuorumId} is null and ${t.sweepDestination} is null and ${t.signerAttachedAt} is null)
+    or (${t.masterPolicyId} is not null and ${t.masterPolicyFingerprint} ~ '^[0-9a-f]{64}$' and ${t.masterSignerQuorumId} is not null and ${t.sweepDestination} ~ '^0x[0-9a-f]{40}$' and ${t.signerAttachedAt} is not null)`),
   index("copy_execution_accounts_owner_idx").on(t.userId, t.createdAt),
   check("copy_execution_accounts_network_check", oneOf(t.network, ["testnet", "mainnet"])),
   check("copy_execution_accounts_state_check", oneOf(t.state, ["requested", "unknown", "ready", "blocked"])),

@@ -442,6 +442,13 @@
       "when": 1791188053716,
       "tag": "0062_copy_platform_control_seed",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1791189045136,
+      "tag": "0063_copy_master_signer",
+      "breakpoints": true
     }
   ]
 }

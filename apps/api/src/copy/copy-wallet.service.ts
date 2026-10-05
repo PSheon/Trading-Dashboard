@@ -63,7 +63,8 @@ export class CopyWalletService {
     if (!this.provider.available) throw new ServiceUnavailableException("wallet_provider_unavailable");
     let submitted = original.state !== "requested";
     try {
-      let found = await this.provider.findOwned(original.privyUserId, original.externalId);
+      const expected = original.masterPolicyId && original.masterSignerQuorumId ? { workerQuorumId: original.masterSignerQuorumId, policyId: original.masterPolicyId } : null;
+      let found = await this.provider.findOwned(original.privyUserId, original.externalId, expected);
       if (!found && original.state === "requested") {
         // Only one replica can claim creation. Unknown is committed BEFORE the
         // remote POST. Every recovery of an ambiguous outcome is lookup only.
@@ -76,7 +77,7 @@ export class CopyWalletService {
           const strategy = await this.repository.ownedStrategy(userId, original.strategyId);
           if (!strategy || strategy.status === "stopped" || strategy.status === "stopping") return this.finish(id, "blocked", "wallet_conflict");
           await this.provider.create(original.privyUserId, original.externalId);
-          found = await this.provider.findOwned(original.privyUserId, original.externalId);
+          found = await this.provider.findOwned(original.privyUserId, original.externalId, expected);
         }
       }
       if (!found) {

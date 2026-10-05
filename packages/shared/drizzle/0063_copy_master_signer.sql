@@ -1,0 +1,7 @@
+ALTER TABLE "copy_execution_accounts" ADD COLUMN "master_policy_id" text;--> statement-breakpoint
+ALTER TABLE "copy_execution_accounts" ADD COLUMN "master_policy_fingerprint" text;--> statement-breakpoint
+ALTER TABLE "copy_execution_accounts" ADD COLUMN "master_signer_quorum_id" text;--> statement-breakpoint
+ALTER TABLE "copy_execution_accounts" ADD COLUMN "sweep_destination" text;--> statement-breakpoint
+ALTER TABLE "copy_execution_accounts" ADD COLUMN "signer_attached_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "copy_execution_accounts" ADD CONSTRAINT "copy_execution_accounts_master_signer_check" CHECK (("copy_execution_accounts"."master_policy_id" is null and "copy_execution_accounts"."master_policy_fingerprint" is null and "copy_execution_accounts"."master_signer_quorum_id" is null and "copy_execution_accounts"."sweep_destination" is null and "copy_execution_accounts"."signer_attached_at" is null)
+    or ("copy_execution_accounts"."master_policy_id" is not null and "copy_execution_accounts"."master_policy_fingerprint" ~ '^[0-9a-f]{64}$' and "copy_execution_accounts"."master_signer_quorum_id" is not null and "copy_execution_accounts"."sweep_destination" ~ '^0x[0-9a-f]{40}$' and "copy_execution_accounts"."signer_attached_at" is not null));

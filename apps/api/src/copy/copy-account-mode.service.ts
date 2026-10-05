@@ -77,7 +77,8 @@ export class CopyAccountModeService {
   }
   private async identity(userId: number, row: AccountModeRow, mutation = false) {
     const checkedAt = Date.now(), current = await this.repository.assertCurrent(userId, row, undefined, mutation);
-    const master = await this.wallets.findOwned(current.owner.privyUserId, current.account.externalId);
+    const master = await this.wallets.findOwned(current.owner.privyUserId, current.account.externalId,
+      current.account.masterPolicyId && current.account.masterSignerQuorumId ? { workerQuorumId: current.account.masterSignerQuorumId, policyId: current.account.masterPolicyId } : null);
     if (!master || master.id !== row.accountWalletId || master.address !== row.accountAddress || master.externalId !== current.account.externalId || master.ownerQuorumId !== row.accountOwnerQuorumId)
       throw new ConflictException('account_mode_identity_changed');
     await this.repository.assertCurrent(userId, row, undefined, mutation); fresh(checkedAt); return { ...current, checkedAt };

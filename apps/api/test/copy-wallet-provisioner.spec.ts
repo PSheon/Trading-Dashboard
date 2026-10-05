@@ -219,4 +219,25 @@ describe("Privy execution wallet provider", () => {
     await expect(new PrivyUserWalletProvisioner(config()).findOwned(userId, externalId)).rejects.toBe(failure);
     expect(sdk.wallets.create).not.toHaveBeenCalled();
   });
+
+  describe("an account with the automatic return (one-click plan §3b)", () => {
+    const expected = { workerQuorumId: "worker-quorum", policyId: "master-policy" };
+    const signed = { additional_signers: [{ signer_id: "worker-quorum", override_policy_ids: ["master-policy"] }] };
+    it("accepts exactly the worker quorum under the account's own policy, only when the account expects it", async () => {
+      responses(wallet(signed), wallet(signed));
+      await expect(new PrivyUserWalletProvisioner(config()).findOwned(userId, externalId, expected)).resolves.toMatchObject({ id: "privy-execution-wallet" });
+      // A legacy account (no master policy recorded) must still have no signer.
+      await expect(new PrivyUserWalletProvisioner(config()).findOwned(userId, externalId)).rejects.toBeInstanceOf(ProvisioningWalletConflict);
+    });
+    it.each([
+      { name: "no signer", signers: [] },
+      { name: "a second signer", signers: [...signed.additional_signers, { signer_id: "other", override_policy_ids: [] }] },
+      { name: "another quorum", signers: [{ signer_id: "other", override_policy_ids: ["master-policy"] }] },
+      { name: "another policy", signers: [{ signer_id: "worker-quorum", override_policy_ids: ["other-policy"] }] },
+      { name: "no override policy", signers: [{ signer_id: "worker-quorum", override_policy_ids: [] }] },
+    ])("refuses $name", async ({ signers }) => {
+      responses(wallet({ additional_signers: signers }), wallet({ additional_signers: signers }));
+      await expect(new PrivyUserWalletProvisioner(config()).findOwned(userId, externalId, expected)).rejects.toBeInstanceOf(ProvisioningWalletConflict);
+    });
+  });
 });

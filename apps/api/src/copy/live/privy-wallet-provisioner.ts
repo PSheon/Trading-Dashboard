@@ -1,6 +1,11 @@
 import { Injectable } from "@nestjs/common";
 import { PrivyClient } from "@privy-io/node";
 import { AppConfig } from "../../config/app-config.js";
+import { masterSignersExact } from "./privy-master-policy.js";
+
+function signersAllowed(signers: readonly { signer_id: string; override_policy_ids?: readonly string[] | null }[], expected: ExpectedMasterSigner | null): boolean {
+  return expected ? masterSignersExact(signers.map(s => ({ signer_id: s.signer_id, override_policy_ids: s.override_policy_ids ?? [] })), expected) : signers.length === 0;
+}
 
 /** Deliberately exposes no signing, funding or server delegation method. */
 export interface ProvisionedUserWallet {
@@ -9,8 +14,11 @@ export interface ProvisionedUserWallet {
 export interface UserWalletProvisioner {
   readonly available: boolean;
   create(userId: string, externalId: string): Promise<void>;
-  findOwned(userId: string, externalId: string): Promise<ProvisionedUserWallet | null>;
+  /** `expected`: the account has the automatic return, so its only
+   * additional signer is the worker quorum under its master policy. */
+  findOwned(userId: string, externalId: string, expected?: ExpectedMasterSigner | null): Promise<ProvisionedUserWallet | null>;
 }
+export interface ExpectedMasterSigner { readonly workerQuorumId: string; readonly policyId: string }
 export const USER_WALLET_PROVISIONER = Symbol("USER_WALLET_PROVISIONER");
 export class ProvisioningWalletConflict extends Error {}
 export class ProvisioningVerificationPending extends Error {}
@@ -31,7 +39,7 @@ export class PrivyUserWalletProvisioner implements UserWalletProvisioner {
     await this.client.wallets().create({ chain_type: "ethereum", owner: { user_id: userId },
       external_id: externalId, idempotency_key: externalId, display_name: "Copy execution account" });
   }
-  async findOwned(userId: string, externalId: string): Promise<ProvisionedUserWallet | null> {
+  async findOwned(userId: string, externalId: string, expected: ExpectedMasterSigner | null = null): Promise<ProvisionedUserWallet | null> {
     if (!this.client) throw new Error("provider_unavailable");
     let wallet;
     try { wallet = await this.client.wallets().get(`ext_wal_${externalId}`); }
@@ -51,7 +59,9 @@ export class PrivyUserWalletProvisioner implements UserWalletProvisioner {
       wallet.chain_type !== "ethereum" || match.chain_type !== "ethereum" ||
       wallet.archived_at != null || match.archived_at != null ||
       !/^0x[0-9a-fA-F]{40}$/.test(wallet.address) ||
-      wallet.additional_signers.length !== 0 || match.additional_signers.length !== 0 ||
+      // Legacy and manual accounts: no signer at all. An account with the
+      // automatic return: exactly the worker quorum under its own policy.
+      !signersAllowed(wallet.additional_signers, expected) || !signersAllowed(match.additional_signers, expected) ||
       wallet.automations?.length || match.automations?.length) throw new ProvisioningWalletConflict("wallet_conflict");
     const quorum = await this.client.keyQuorums().get(wallet.owner_id);
     if (quorum.id !== wallet.owner_id || quorum.user_ids?.length !== 1 || quorum.user_ids[0] !== userId ||

@@ -1,15 +1,85 @@
 # CI and isolated tests
 
-GitHub Actions CI runs on pull requests and pushes to dev/main with read-only
-repository permissions, fixed action commit SHAs and a 30-minute job limit.
-It installs the lockfile, blocks moderate/high/critical dependency advisories, runs
-`node --test scripts/dependency-compatibility.test.mjs` for scoped overrides, checks
-migration schema freshness, checks all workspace types/lints, verifies generated
-HTTP docs, migrates a disposable PostgreSQL database, runs API/web tests and
-builds production artifacts. Dependabot tracks npm and action updates.
-No production secrets, push or deployment step is included. The workflow has
-been authored and its component commands tested locally; no remote CI run has
-been triggered by this work.
+GitHub Actions CI (`.github/workflows/ci.yml`) runs on pull requests and pushes
+to dev/main with read-only repository permissions and fixed action commit SHAs.
+No production secrets, push or deployment step is included. Dependabot tracks
+npm and action updates. A newer push to the same ref cancels the run in progress.
+
+## Job graph
+
+```
+changes ─┬─ checks                 lint, typecheck, doc checks, script + web unit tests
+         ├─ api (1/4) … api (4/4)  the api suite, one PostgreSQL each
+         ├─ smokes                 release migration + backup/restore smokes
+         ├─ build                  pnpm build, compiled api bootstrap, docker image smoke
+         └─ browser (1/3) … (3/3)  Playwright, one fixture server each
+                                   └──────── all of them ──────── ci
+```
+
+| Job | Runs when | Steps |
+| --- | --- | --- |
+| `changes` | always | decides the groups below (`scripts/ci-changes.mjs`) |
+| `checks` | always | docs-only: api build + HTTP contract/OpenAPI checks. Otherwise also dependency override tests, `pnpm audit`, migration schema freshness, typecheck, lint, script tests, web unit tests |
+| `api (n/4)` | `api` | `pnpm test:api:isolated --shard=n/4` |
+| `smokes` | `api` | `migration-smoke.mjs`, `backup-restore-smoke.mjs` (pg_dump/pg_restore 16) |
+| `build` | `code` | `pnpm build`, `bootstrap-smoke.mjs`, `docker build`, `image-smoke.mjs` |
+| `browser (n/3)` | `web` | `test:e2e --shard=n/3`; traces and screenshots of failures are uploaded as `playwright-results-n` |
+| `ci` | always | fails if any job above failed or was cancelled; skipped is fine |
+
+**Branch protection targets `ci`** (one stable name, whatever ran). Job
+timeouts: `changes`/`ci` 5 min, `smokes` 10, the rest 15.
+
+## What runs when
+
+`scripts/ci-changes.mjs` (tests: `scripts/ci-changes.test.mjs`) maps each
+changed file to groups:
+
+| Changed path | api | web |
+| --- | --- | --- |
+| `docs/**`, root `*.md` | – | – |
+| `apps/api/**`, `scripts/**` | ✓ | – |
+| `apps/web/**` | – | ✓ |
+| `packages/shared/**` | ✓ | ✓ |
+| anything else: `pnpm-lock.yaml`, `.github/**`, root configs, `patches/**`, new top-level paths | ✓ | ✓ |
+
+`code` is api or web: any change outside the docs. So a docs-only push runs
+`changes`, the doc checks in `checks` and `ci`; a web-only push skips the api
+shards and the smokes; an api-only push skips the browser shards.
+
+What the diff is taken against:
+
+- pull request: its base commit (merge base).
+- push: the head of the branch's **last successful CI run**, not just
+  `before`. If a run was cancelled by a newer push or went red, the next run
+  still sees its changes, so a docs commit on top of an untested api change
+  runs the api tests.
+- Everything runs when unsure: `before` is the zero SHA (new branch), a force
+  push, no green run to compare with, a base that is not an ancestor of HEAD,
+  an empty diff (a re-run), any other event, or an error in the script.
+
+## Caches
+
+`.github/actions/setup` installs pnpm, Node 22 with setup-node's pnpm store
+cache, and runs `pnpm install --frozen-lockfile`. `checks` and `build` also
+restore and save Turborepo's local cache (`.turbo/cache`, per job, newest entry
+first) so an unchanged package's build, typecheck and lint replay instead of
+rerunning; `TURBO_CACHE_MAX_SIZE=1GB` bounds it.
+
+## Shards
+
+Vitest splits the api suite by file (`--shard`, a stable hash of each path, an
+equal file count per shard). `scripts/test-api-isolated.mjs` passes the option
+through (`scripts/api-test-files.test.mjs`). Each shard creates its own
+database, so files never share one across runners. Run one shard locally the
+same way:
+
+```bash
+TEST_DATABASE_ADMIN_URL=postgres://postgres:postgres@127.0.0.1:5432/postgres \
+  pnpm test:api:isolated --shard=2/4
+```
+
+The browser shards are Playwright's `--shard` (spec files in order, balanced by
+test count): `pnpm --filter @trading-dashboard/web test:e2e --shard=2/3`.
 
 Root `pnpm test` now creates a fresh database for the API run, then runs web
 unit tests. `pnpm test:api:isolated [vitest filters]` runs only the isolated API
@@ -71,7 +141,7 @@ when the source is unchanged) because the OpenAPI check reads `apps/api/dist`.
 
 ## Running the CI steps locally
 
-The same commands as `.github/workflows/ci.yml`, in order. The database steps
+The same commands as the jobs in `.github/workflows/ci.yml`. The database steps
 need `TEST_DATABASE_ADMIN_URL` pointing at a disposable loopback PostgreSQL 16.
 `scripts/backup-restore-smoke.mjs` needs pg_dump/pg_restore 16 (`PG_DUMP`,
 `PG_RESTORE`): a newer pg_dump writes settings a 16 server rejects on restore.

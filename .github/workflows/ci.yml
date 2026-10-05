@@ -8,10 +8,115 @@ permissions:
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+env:
+  # CI has no Privy app: its web builds are compile checks, and
+  # `next typegen` (the typecheck) loads next.config.ts in the build
+  # phase too. next.config.ts refuses such a build unless it says it is
+  # anonymous on purpose; Railway's web build has the app id.
+  NEXT_ALLOW_ANONYMOUS_BUILD: "1"
+  # The restored Turborepo cache gains entries every run; evict the oldest.
+  TURBO_CACHE_MAX_SIZE: 1GB
+# The job graph and the rules for what runs when are in docs/ci-and-testing.md.
+# Branch protection targets the last job, `ci`, which passes only when every
+# other job passed or was skipped.
 jobs:
-  verify:
+  # Which groups this push or pull request needs (scripts/ci-changes.mjs).
+  # A push diffs against the head of the branch's last green run, so changes
+  # in a cancelled or red run are checked again. Anything unclear runs all.
+  changes:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      api: ${{ steps.groups.outputs.api }}
+      web: ${{ steps.groups.outputs.web }}
+      code: ${{ steps.groups.outputs.code }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Last green run on this branch
+        id: green
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          sha=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=$BRANCH&event=push&status=success&per_page=1" \
+            --jq '.workflow_runs[0].head_sha // ""') || sha=""
+          echo "Last green: ${sha:-none}"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - name: Changed groups
+        id: groups
+        env:
+          LAST_GREEN_SHA: ${{ steps.green.outputs.sha }}
+        run: node scripts/ci-changes.mjs
+
+  # Fast checks. A docs-only change runs only the doc checks here.
+  checks:
+    needs: changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CODE: ${{ needs.changes.outputs.code }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          turbo-cache: checks
+      - name: Dependency override compatibility
+        if: env.CODE == 'true'
+        run: node --test scripts/dependency-compatibility.test.mjs
+      # No upstream fix yet. This exact advisory is mitigated by the versioned
+      # braces patch, whose exploit/compatibility tests MUST pass first.
+      # Remove the exception and patch together when a fixed release is adopted.
+      - name: Dependency security audit
+        if: env.CODE == 'true'
+        run: pnpm audit --audit-level moderate
+      - name: Build shared contracts and the api
+        run: pnpm exec turbo run build --filter=@trading-dashboard/api
+      - name: Migration schema freshness
+        if: env.CODE == 'true'
+        run: |
+          pnpm db:generate
+          test -z "$(git status --porcelain -- packages/shared/drizzle)"
+      - name: Typecheck
+        if: env.CODE == 'true'
+        run: pnpm typecheck
+      - name: Lint
+        if: env.CODE == 'true'
+        run: pnpm lint
+      - name: HTTP contract documentation
+        run: |
+          node scripts/http-contract-docs.mjs --check
+          node scripts/openapi.mjs --check
+          node --test scripts/openapi.test.mjs
+      - name: Script tests (database URL guards, release migration diagnostics, CI change rules)
+        if: env.CODE == 'true'
+        run: >-
+          node --test scripts/test-database.test.mjs apps/api/scripts/migrate.test.mjs
+          scripts/ci-changes.test.mjs scripts/api-test-files.test.mjs
+      - name: Web tests
+        if: env.CODE == 'true'
+        run: pnpm --filter @trading-dashboard/web test
+
+  # The api suite, split by file across four runners. Each shard has its own
+  # PostgreSQL service and its own disposable migrated database.
+  api:
+    name: api (${{ matrix.shard }}/4)
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     services:
       postgres:
         image: postgres:16-alpine
@@ -27,52 +132,42 @@ jobs:
           --health-retries 20
     env:
       TEST_DATABASE_ADMIN_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
-      # CI has no Privy app: its web builds are compile checks, and
-      # `next typegen` (the typecheck) loads next.config.ts in the build
-      # phase too. next.config.ts refuses such a build unless it says it is
-      # anonymous on purpose; Railway's web build has the app id.
-      NEXT_ALLOW_ANONYMOUS_BUILD: "1"
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - uses: ./.github/actions/setup
+      - name: API tests with disposable migrated database
+        run: pnpm test:api:isolated --shard=${{ matrix.shard }}/4
+
+  # Release migration and backup tooling against a real PostgreSQL 16.
+  smokes:
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_DATABASE_ADMIN_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          node-version: '22'
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-        with:
-          run_install: false
-      - name: Install from lockfile
-        run: pnpm install --frozen-lockfile
-      - name: Dependency override compatibility
-        run: node --test scripts/dependency-compatibility.test.mjs
-      # No upstream fix yet. This exact advisory is mitigated by the versioned
-      # braces patch, whose exploit/compatibility tests MUST pass first.
-      # Remove the exception and patch together when a fixed release is adopted.
-      - name: Dependency security audit
-        run: pnpm audit --audit-level moderate
+          persist-credentials: false
+      - uses: ./.github/actions/setup
       - name: Build shared contracts
         run: pnpm --filter @trading-dashboard/shared build
-      - name: Migration schema freshness
-        run: |
-          pnpm db:generate
-          test -z "$(git status --porcelain -- packages/shared/drizzle)"
-      - name: Typecheck
-        run: pnpm typecheck
-      - name: Lint
-        run: pnpm lint
-      - name: HTTP contract documentation
-        run: |
-          pnpm --filter @trading-dashboard/api build
-          node scripts/http-contract-docs.mjs --check
-          node scripts/openapi.mjs --check
-          node --test scripts/openapi.test.mjs
-      - name: Test database URL guards
-        run: node --test scripts/test-database.test.mjs
-      - name: Safe release migration diagnostics
-        run: node --test apps/api/scripts/migrate.test.mjs
-      - name: API tests with disposable migrated database
-        run: pnpm test:api:isolated
       - name: Concurrent release migration smoke
         run: node scripts/migration-smoke.mjs
       - name: PostgreSQL restore tooling
@@ -82,39 +177,89 @@ jobs:
         env:
           PG_DUMP: /usr/lib/postgresql/16/bin/pg_dump
           PG_RESTORE: /usr/lib/postgresql/16/bin/pg_restore
-      - name: Web tests
-        run: pnpm --filter @trading-dashboard/web test
-      - name: Compiled API bootstrap and shutdown
-        run: pnpm test:bootstrap
-      - name: Production builds
-        run: pnpm build
-      - name: API runtime image
-        run: docker build -f apps/api/Dockerfile -t orbie-api:ci .
-      - name: Frozen runtime dependencies, container migration and readiness
-        run: node scripts/image-smoke.mjs orbie-api:ci
-  # The browser suite needs no database (its server answers from fixtures),
-  # so it runs beside verify instead of after the 20-minute api tests,
-  # which pushed the single job past its timeout.
-  browser:
+
+  # Production builds, the compiled api's bootstrap, and the runtime image.
+  build:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     env:
-      NEXT_ALLOW_ANONYMOUS_BUILD: "1"
+      TEST_DATABASE_ADMIN_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - uses: ./.github/actions/setup
         with:
-          node-version: '22'
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+          turbo-cache: build
+      - name: Production builds
+        run: pnpm build
+      # `pnpm test:bootstrap` minus its rebuild: the step above built both.
+      - name: Compiled API bootstrap and shutdown
+        run: node scripts/bootstrap-smoke.mjs
+      - name: API runtime image
+        run: docker build -f apps/api/Dockerfile -t orbie-api:ci .
+      - name: Frozen runtime dependencies, container migration and readiness
+        run: node scripts/image-smoke.mjs orbie-api:ci
+
+  # The browser suite needs no database (its server answers from fixtures).
+  # Three runners, each with its own fixture server, take a third of the
+  # spec files each.
+  browser:
+    name: browser (${{ matrix.shard }}/3)
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          run_install: false
-      - name: Install from lockfile
-        run: pnpm install --frozen-lockfile
+          persist-credentials: false
+      - uses: ./.github/actions/setup
       - name: Build shared contracts
         run: pnpm --filter @trading-dashboard/shared build
       - name: Install Chromium
         run: pnpm --filter @trading-dashboard/web exec playwright install --with-deps chromium
       - name: Browser smoke tests
-        run: pnpm --filter @trading-dashboard/web test:e2e
+        run: pnpm --filter @trading-dashboard/web test:e2e --shard=${{ matrix.shard }}/3
+      - name: Keep traces and screenshots of the failures
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-results-${{ matrix.shard }}
+          path: apps/web/test-results
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # The one check branch protection needs: red when any job above failed or
+  # was cancelled, green when each passed or was skipped by `changes`.
+  ci:
+    if: always()
+    needs: [changes, checks, api, smokes, build, browser]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Every job passed or was skipped
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$RESULTS" | jq -e 'all(.[]; .result == "success" or .result == "skipped")' > /dev/null

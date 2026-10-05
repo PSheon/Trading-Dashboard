@@ -12,3 +12,7 @@ test('accepts concrete workspace and root relative files with Vitest options', a
 test('keeps supported substring and glob filters instead of treating them as exact filenames', async () => {
   await assertApiTestFiles(['copy-live', 'test/copy-*.spec.ts', '-t', 'matches an exact order'], root);
 });
+test('passes CI shard options through to Vitest', async () => {
+  await assertApiTestFiles(['--shard=1/4'], root);
+  await assertApiTestFiles(['--shard', '4/4', 'test/copy-paper.spec.ts'], root);
+});

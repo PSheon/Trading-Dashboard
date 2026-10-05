@@ -8,7 +8,8 @@ import { expectNoSidewaysScroll, shot, signIn } from "./helpers";
  * and the portfolio row's pause / resume / edit. The fixture setup moves
  * one stage per read, as the worker would.
  */
-const TRADER = "/en/trader/0x89da4baec446f35a1cbe17a9d1ee5c70b05ee43f?signer=fixture&wallet=funded";
+// A trader the fixture account does not paper-copy (its phone bar says 跟單, not 管理).
+const TRADER = "/en/trader/0x005a09b498f2a28b54652a70d7812e63414161fe?signer=fixture&wallet=funded";
 const action = (page: Page, name: string | RegExp) => page.getByRole("button", { name, exact: typeof name === "string" }).filter({ visible: true });
 
 for (const width of [1440, 390]) {

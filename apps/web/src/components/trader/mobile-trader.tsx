@@ -9,7 +9,7 @@ import { cn } from "cn";
 import { AlertBell } from "@/components/alerts/alert-bell";
 import { OrbieMark } from "@/components/brand/logo";
 import { AreaChart } from "@/components/charts/area-chart";
-import { ErrorState, Skeleton } from "@/components/page";
+import { ErrorState, SkelBar, SkelCircle, Skeleton } from "@/components/page";
 import { useModalFocus } from "@/lib/use-modal-focus";
 import { FavoriteButton, RoiPill } from "@/components/traders/bits";
 import { roiPillShort } from "@/lib/board-format";
@@ -189,7 +189,7 @@ export function MobileTrader({
     <div className="flex flex-col gap-6 pb-6">
       <TopBar profile={profile} />
 
-      <section aria-label={t("trader.chart.pnlLabel")} className="flex flex-col gap-5 rounded-2xl bg-raised p-4">
+      <section aria-label={t("trader.chart.pnlLabel")} className="flex flex-col gap-5 rounded-2xl bg-raised p-4 [--skel-bar:var(--border)]">
         <div className="flex items-stretch justify-between gap-3">
           <div className="flex min-w-0 flex-1 flex-col items-start gap-2">
             <Pills
@@ -199,7 +199,10 @@ export function MobileTrader({
               options={[["pnl", t("trader.mobile.pnl")], ["roi", t("trader.mobile.roi")]]}
             />
             {loading && !portfolio && !failed ? (
-              <Skeleton className="h-9 w-44" />
+              <>
+                <SkelBar line="h-[36px]" className="h-8 w-44" />
+                {mode === "pnl" ? <SkelBar className="h-8 w-20 rounded-md" /> : null}
+              </>
             ) : (
               <div className={cn("num font-display text-[2.125rem] leading-[1.05]", headline === null ? "" : headline >= 0 ? "text-positive" : "text-negative")}>
                 {headline === null ? "—" : mode === "pnl" ? signedUsdShort(headline) : signedPctCd(headline)}
@@ -245,11 +248,15 @@ export function MobileTrader({
         ) : failed ? (
           <div className="flex h-[180px] items-center justify-center"><ErrorState onRetry={onRetry} /></div>
         ) : loading ? (
-          <Skeleton className="h-[180px]" />
+          <Skeleton className="h-[180px] rounded-2xl bg-background/60" />
         ) : (
           <div className="flex h-[180px] items-center justify-center text-sm text-muted-foreground">{t("trader.chart.noData")}</div>
         )}
-        {series.length > 1 ? <ChartSnapshotStrip data={snapshots.data} time={hoverTime} className="pt-3" /> : null}
+        {series.length > 1 ? (
+          <ChartSnapshotStrip data={snapshots.data} time={hoverTime} className="pt-3" />
+        ) : loading && !failed && snapshots.data?.coverageStart && snapshots.data.snapshots.length > 0 ? (
+          <div className="min-h-9" aria-hidden />
+        ) : null}
         <div role="radiogroup" aria-label={t("trader.kpi.period")} className="flex items-center gap-0.5 rounded-full bg-card p-1">
           {WINDOWS.map((w) => (
             <button
@@ -283,7 +290,7 @@ export function MobileTrader({
         <div className="flex min-w-0 flex-col gap-[5px]">
           <dt className="text-xs leading-4 font-bold text-muted-foreground">{t("trader.kpi.winRate")}</dt>
           <dd className={cn("num flex items-center gap-2 font-display text-xl leading-[30px]", winTone ? TONE[winTone] : "")}>
-            {winRate === null ? (isComputing(trades) ? <Skeleton className="h-6 w-16" /> : "—") : pct1(winRate)}
+            {winRate === null ? (isComputing(trades) ? <SkelBar className="ui-skeleton h-5 w-16" /> : "—") : pct1(winRate)}
             {winRate !== null ? <Ring value={winRate} /> : null}
           </dd>
           {analytics && sampleSince !== null ? (
@@ -358,6 +365,57 @@ export function MobileTrader({
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/** The phone trader page before the profile is in: the same top bar,
+ * chart card, 2×2 figures, tabs and position cards, with bars for what is
+ * still to come. */
+export function MobileTraderSkeleton() {
+  const { t } = useI18n();
+  const figures = ["trader.accountValue", "trader.kpi.sharpe", "trader.kpi.winRate", "trader.mobile.drawdown"] as const;
+  return (
+    <div aria-hidden="true" className="flex flex-col gap-6 pb-6">
+      <div className="-mx-4 -mt-4 flex items-center gap-2 bg-background/95 px-4 pt-4 pb-2">
+        <SkelCircle className="size-11 bg-raised" />
+        <SkelBar line="mx-auto h-6" className="h-4 w-28 bg-raised" />
+        <span className="flex shrink-0 items-center gap-1.5">
+          <SkelCircle className="size-10 bg-raised" />
+          <SkelCircle className="size-10 bg-raised" />
+          <SkelCircle className="size-10 bg-raised" />
+        </span>
+      </div>
+      <section className="ui-skeleton flex flex-col gap-5 rounded-2xl bg-raised p-4 [--skel-bar:var(--border)]">
+        <div className="flex items-stretch justify-between gap-3">
+          <div className="flex min-w-0 flex-1 flex-col items-start gap-2">
+            <span className="flex h-[52px] w-36 rounded-full bg-background/60" />
+            <SkelBar line="h-[36px]" className="h-8 w-44" />
+            <SkelBar className="h-8 w-20 rounded-md" />
+          </div>
+          <SkelCircle className="size-[52px] bg-card" />
+        </div>
+        <div className="h-[180px] rounded-2xl bg-background/60" />
+        <div className="flex h-[52px] rounded-full bg-card" />
+      </section>
+      <dl className="orbit-card ui-skeleton grid grid-cols-2 gap-x-4 gap-y-5 p-5">
+        {figures.map((key) => (
+          <div key={key} className="flex min-w-0 flex-col gap-[5px]">
+            <dt className="text-xs leading-4 font-bold text-muted-foreground">{t(key)}</dt>
+            <SkelBar line="h-[30px]" className="h-5 w-24" />
+          </div>
+        ))}
+      </dl>
+      <div className="flex h-[52px] rounded-full bg-raised" />
+      <div className="-mt-2 flex flex-col gap-3">
+        {[0, 1].map((i) => (
+          <div key={i} className="ui-skeleton h-[148px] rounded-[24px] bg-raised" />
+        ))}
+      </div>
+      {/* The sticky 跟單 bar's place. */}
+      <div className="fixed inset-x-0 bottom-0 z-40 bg-background/92 px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:hidden">
+        <div className="h-[60px] rounded-full bg-raised" />
+      </div>
     </div>
   );
 }

@@ -10,7 +10,7 @@ import { useSlidingIndicator } from "@/lib/use-sliding-indicator";
 import { OrbieMark, Wordmark } from "@/components/brand/logo";
 import { AreaChart } from "@/components/charts/area-chart";
 import { ChartSnapshotStrip } from "./chart-snapshot-strip";
-import { ErrorState, Skeleton } from "@/components/page";
+import { ErrorState, SkelBar, Skeleton } from "@/components/page";
 import { RoiPill } from "@/components/traders/bits";
 import {
   DropdownMenu,
@@ -113,12 +113,14 @@ function Tile({
   accent?: "primary" | "profit" | "loss";
 }) {
   const t = muted ? null : tone;
-  const tinted = accent !== undefined && !muted;
+  // A loading tile is a plain raised one: its colour follows the figure.
+  const tinted = accent !== undefined && !muted && !loading;
   return (
     <div
       className={cn(
         "flex min-w-0 flex-col gap-1.5 rounded-[24px] px-4 py-3.5",
         !tinted && "bg-raised",
+        loading && "ui-skeleton [--skel-bar:var(--border)]",
         tinted && accent === "primary" && "bg-primary text-primary-foreground",
         tinted && accent === "profit" && "bg-tag-profit text-tag-profit-foreground",
         tinted && accent === "loss" && "bg-tag-loss text-tag-loss-foreground",
@@ -131,7 +133,7 @@ function Tile({
         {action}
       </div>
       {loading ? (
-        <Skeleton className={cn("h-8 w-28", tinted && "bg-black/10")} />
+        <SkelBar line="h-8" className="h-6 w-28" />
       ) : (
         <div className={cn("num truncate font-display text-2xl leading-8", tinted ? "" : muted ? "text-subtle-foreground" : t ? TEXT[t] : "")}>{value}</div>
       )}
@@ -141,7 +143,11 @@ function Tile({
           style={{ width: `${fill}%` }}
         />
       </div>
-      <div className={cn("num truncate text-xs leading-[18px] font-bold", tinted ? "opacity-90" : "text-muted-foreground")}>{sub}</div>
+      {loading ? (
+        <SkelBar line="h-[18px]" className="h-2.5 w-24" />
+      ) : (
+        <div className={cn("num truncate text-xs leading-[18px] font-bold", tinted ? "opacity-90" : "text-muted-foreground")}>{sub}</div>
+      )}
     </div>
   );
 }
@@ -415,7 +421,7 @@ export function PerformanceChart({
     : "—";
 
   return (
-    <section className="rounded-2xl bg-raised p-3 [--seg-track:var(--background)] md:p-[18px]">
+    <section className="rounded-2xl bg-raised p-3 [--seg-track:var(--background)] [--skel-bar:var(--border)] md:p-[18px]">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-0.5 rounded-full bg-background p-1">
           {(["perp", "all", "calendar"] as const).map((m) => {
@@ -497,8 +503,10 @@ export function PerformanceChart({
                         : "text-primary-text",
                   )}
                 >
-                  {loading && !portfolio && !failed ? <Skeleton className="h-8 w-48" /> : headline}
+                  {loading && !portfolio && !failed ? <SkelBar line="h-[1.1em]" className="h-8 w-48" /> : headline}
                 </div>
+                {/* The ROI pill's place while the history loads. */}
+                {loading && !portfolio && !failed ? <SkelBar className="h-[26px] w-20 rounded-md" /> : null}
                 {pnlPct !== null && unit === "usd" ? <RoiPill value={pnlPct} label={`${Math.abs(pnlPct * 100).toFixed(2)}%`} className="h-[26px] gap-[3px] px-3 text-sm leading-none [&>svg]:size-2.5" muted={muted} /> : null}
                 {usdPnl !== null ? (
                   <span className={cn("num inline-flex h-7 items-center rounded-md px-3 text-sm leading-none font-extrabold", muted ? "bg-background text-subtle-foreground" : usdPnl >= 0 ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>
@@ -534,14 +542,19 @@ export function PerformanceChart({
             ) : failed ? (
               <div className="flex h-[300px] items-center justify-center"><ErrorState onRetry={onRetry} /></div>
             ) : loading ? (
-              <Skeleton className="h-[300px]" />
+              <Skeleton className="h-[300px] rounded-2xl bg-background/60" />
             ) : (
               <div className="flex h-[300px] items-center justify-center text-sm text-muted-foreground">
                 {t("trader.chart.noData")}
               </div>
             )}
           </div>
-          {portfolio && series.length > 1 ? <ChartSnapshotStrip data={snapshots.data} time={hoverTime} /> : null}
+          {portfolio && series.length > 1 ? (
+            <ChartSnapshotStrip data={snapshots.data} time={hoverTime} />
+          ) : loading && !failed && snapshots.data?.coverageStart && snapshots.data.snapshots.length > 0 ? (
+            // A watched trader's strip is known to come: its row is kept.
+            <div className="min-h-9" aria-hidden />
+          ) : null}
         </>
       )}
     </section>

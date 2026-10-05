@@ -6,12 +6,12 @@ import { Fragment, useId, useMemo, useState } from "react";
 import { cn } from "cn";
 import { rovingFocus } from "@/lib/roving-focus";
 
-import { ErrorState, Skeleton } from "@/components/page";
+import { ErrorState } from "@/components/page";
 import { useI18n } from "@/i18n/provider";
 import { mergeLiveFills } from "@/lib/live-trader";
 import { isComputing, useTraderAnalytics, useTraderFills } from "@/lib/queries";
-import { PerfSwitch, PerformanceTab, TradesTab, type PerfView } from "./trade-analytics";
-import { BalancesTab, FILL_LIMIT, FillsTab, fillsTruncated, OrdersTab, PositionsTab, TransfersTab, TwapTab } from "./trader-tabs";
+import { Loading, PerfSwitch, PerformanceTab, TradesTab, type PerfView } from "./trade-analytics";
+import { BalancesTab, FILL_COLS, FILL_LIMIT, POSITION_COLS, FillsTab, fillsTruncated, OrdersTab, PositionsTab, TransfersTab, TwapTab } from "./trader-tabs";
 
 export type Tab =
   | "positions"
@@ -135,7 +135,7 @@ export function ActivityTabs({
           fills.isError && !fills.data ? (
             <ErrorState onRetry={() => fills.refetch()} />
           ) : !fillRows ? (
-            <Loading />
+            <Loading cols={FILL_COLS.map((k) => t(`trader.cols.${k}`))} />
           ) : (
             <FillsTab rows={fillRows} truncated={fillsTruncated(fills.data)} />
           )
@@ -148,12 +148,35 @@ export function ActivityTabs({
   );
 }
 
-function Loading() {
+
+/** The tabs before the profile is in: the same bar (持倉 lit) over the
+ * positions table's header and rows of bars. */
+export function ActivityTabsSkeleton() {
+  const { t } = useI18n();
   return (
-    <div className="flex flex-col gap-2 p-5">
-      {Array.from({ length: 4 }, (_, i) => (
-        <Skeleton key={i} className="h-9" />
-      ))}
-    </div>
+    <section className="cd-tables" aria-hidden="true">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1 overflow-hidden py-1">
+          {TAB_GROUPS.map((group, g) => (
+            <Fragment key={g}>
+              {g > 0 ? <span className="mx-1.5 h-5 w-0.5 shrink-0 rounded-full bg-border" /> : null}
+              {group.map((id) => (
+                <span
+                  key={id}
+                  className={cn(
+                    "flex h-11 shrink-0 items-center rounded-full px-4 text-[15px] whitespace-nowrap",
+                    id === "positions" ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground",
+                  )}
+                >
+                  {t(`trader.tabs.${id}`)}
+                </span>
+              ))}
+            </Fragment>
+          ))}
+        </div>
+        <span className="hidden size-11 shrink-0 rounded-full bg-raised lg:block" />
+      </div>
+      <Loading cols={POSITION_COLS.map((k) => t(`trader.cols.${k}`))} />
+    </section>
   );
 }

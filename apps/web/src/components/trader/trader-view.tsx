@@ -4,7 +4,6 @@ import type { TraderActivityResponse, TraderProfileResponse, TraderWindow } from
 import { notFound } from "next/navigation";
 import { useState } from "react";
 
-import { Skeleton } from "@/components/page";
 import { useI18n } from "@/i18n/provider";
 import {
   type InitialRead,
@@ -19,10 +18,10 @@ import { shareName } from "@/lib/share-card";
 import { traderIsUnknown } from "@/lib/trader-presence";
 import { useIsDesktop } from "@/lib/use-is-desktop";
 import { useLiveTrader } from "@/lib/use-live-trader";
-import { ActivityTabs } from "./activity-tabs";
+import { ActivityTabs, ActivityTabsSkeleton } from "./activity-tabs";
 import { CopyPanel } from "./copy-panel";
 import { LiveFeed } from "./live-feed";
-import { MobileTrader } from "./mobile-trader";
+import { MobileTrader, MobileTraderSkeleton } from "./mobile-trader";
 import {
   KpiTiles,
   PerformanceChart,
@@ -32,7 +31,7 @@ import {
   type ChartUnit,
   type Market,
 } from "./performance";
-import { ProfileCard } from "./profile-card";
+import { ProfileCard, ProfileCardSkeleton } from "./profile-card";
 
 /** What the page read on the server (`prefetchTrader`); either is null when
  * the api did not answer in time, and the browser reads it as before. */
@@ -50,18 +49,32 @@ export function TraderView({ address, initial }: { address: string; initial?: Tr
  * profile at hand the desktop outline already carries the profile card
  * (its h1, name and figures; no reads of its own), so the first HTML has
  * them; the phone outline stays a skeleton until its own layout mounts. */
-function TraderLoading({ profile }: { profile?: TraderProfileResponse }) {
+function TraderLoading({ address, profile }: { address: string; profile?: TraderProfileResponse }) {
   return (
     <>
       {/* Both outlines, one shown by CSS: the width is not known yet. */}
-      <div className="md:hidden"><Skeleton className="h-[640px] rounded-2xl" /></div>
+      <div className="md:hidden"><MobileTraderSkeleton /></div>
       <div className="trader-grid -mx-1 md:mx-0">
         <div data-area="profile">
-          {profile ? <ProfileCard profile={profile} allTimeVolume={null} trades={undefined} tradesComputing /> : <Skeleton className="h-[640px] rounded-2xl" />}
+          {profile ? <ProfileCard profile={profile} allTimeVolume={null} trades={undefined} tradesComputing /> : <ProfileCardSkeleton />}
         </div>
-        <div data-area="main"><Skeleton className="h-[640px] rounded-2xl" /></div>
-        <div data-area="copy"><Skeleton className="h-64 rounded-2xl" /></div>
+        <div data-area="main" className="flex min-w-0 flex-col gap-4"><TraderMainSkeleton address={address} /></div>
+        <div data-area="copy"><CopyPanel address={address} /></div>
       </div>
+    </>
+  );
+}
+
+const noop = () => {};
+
+/** The middle column before its reads are in: the KPI tiles, the chart card
+ * and the tabs, each in its own loading state (same sizes as loaded). */
+function TraderMainSkeleton({ address }: { address: string }) {
+  return (
+    <>
+      <KpiTiles period="allTime" onPeriod={noop} periodPortfolio={undefined} allTime={undefined} trades={undefined} tradesComputing lowSample={false} />
+      <PerformanceChart address={address} portfolio={undefined} loading window="allTime" onWindow={noop} mode="pnl" onMode={noop} unit="usd" onUnit={noop} market="perp" onMarket={noop} muted={false} roi={null} onRetry={noop} />
+      <ActivityTabsSkeleton />
     </>
   );
 }
@@ -102,7 +115,7 @@ function TraderLoaded({ address, initial }: { address: string; initial?: TraderI
   const unknown = traderIsUnknown(profile.data, activity.data);
   if (unknown) notFound();
 
-  if (unknown === null && profile.data && !activity.isError) return <TraderLoading />;
+  if (unknown === null && profile.data && !activity.isError) return <TraderLoading address={address} />;
   // CopyDog: the profile's retries are silent; once they run out the page
   // is this one line and its retry. The poll keeps asking meanwhile, which
   // puts a query without data back to pending: `errorUpdateCount` keeps the
@@ -120,7 +133,7 @@ function TraderLoaded({ address, initial }: { address: string; initial?: TraderI
 
   // The width is known once the page has hydrated; until then only what
   // the server read (the profile) is drawn.
-  if (desktop === undefined) return <TraderLoading profile={live.profile} />;
+  if (desktop === undefined) return <TraderLoading address={address} profile={live.profile} />;
   if (!desktop) {
     // Phones: CopyDog's app layout (chart first, 2×2 card, segmented tabs).
     return live.profile ? (
@@ -137,7 +150,7 @@ function TraderLoaded({ address, initial }: { address: string; initial?: TraderI
         copyScore={copyScore.data?.copyScore ?? null}
       />
     ) : (
-      <Skeleton className="h-[640px] rounded-2xl" />
+      <MobileTraderSkeleton />
     );
   }
   return (
@@ -202,7 +215,7 @@ function DesktopTrader({ address, profile, live, lowSample, firstPaint, portfoli
             copyScore={copyScore}
           />
         ) : (
-          <Skeleton className="h-[640px] rounded-2xl" />
+          <ProfileCardSkeleton />
         )}
       </div>
       <div data-area="main" className="flex min-w-0 flex-col gap-4">
@@ -221,11 +234,7 @@ function DesktopTrader({ address, profile, live, lowSample, firstPaint, portfoli
             tradesComputing={isComputing(tradesAll)}
           />
         ) : (
-          <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-            {Array.from({ length: 4 }, (_, i) => (
-              <Skeleton key={i} className="h-[128px] rounded-[24px]" />
-            ))}
-          </div>
+          <KpiTiles period={kpiPeriod} onPeriod={setKpiPeriod} periodPortfolio={undefined} allTime={undefined} trades={undefined} tradesComputing lowSample={false} />
         )}
         <PerformanceChart
           address={address}
@@ -254,7 +263,7 @@ function DesktopTrader({ address, profile, live, lowSample, firstPaint, portfoli
             fillsReady={firstPaint}
           />
         ) : (
-          <Skeleton className="h-64 rounded-2xl" />
+          <ActivityTabsSkeleton />
         )}
       </div>
 

@@ -5,7 +5,7 @@ import { ArrowDown, ArrowRight, ArrowUpRight, Share2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { cn } from "cn";
 
-import { Skeleton } from "@/components/page";
+import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { TradeShareDialog, traderCardSource, type TradeCardSource } from "./trade-share-dialog";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -40,26 +40,29 @@ const shownPnl = (t: RoundTrip) => t.netPnl + (t.funding ?? 0);
 
 // --- shared states -------------------------------------------------------------
 
-function Computing() {
+/** A tab's table while it loads: its real header over raised rows of
+ * bars (TableSkeleton). `cols`: the header labels; the first `left` sit
+ * left, the rest right, as in the loaded table. */
+function TabTableSkeleton({ cols, left = 1 }: { cols: string[]; left?: number }) {
+  return <TableSkeleton dense tableClassName="text-xs" rows={6} columns={cols.map((label, i) => ({ label, right: i >= left }))} />;
+}
+
+function Computing({ cols, left }: { cols: string[]; left?: number }) {
   const { t } = useI18n();
   return (
-    <div className="flex flex-col gap-2 p-5" role="status">
-      <p className="text-center text-xs text-muted-foreground">{t("trader.computing")}</p>
-      {Array.from({ length: 4 }, (_, i) => (
-        <Skeleton key={i} className="h-9" />
-      ))}
+    <div role="status">
+      <p className="pt-2 text-center text-xs text-muted-foreground">{t("trader.computing")}</p>
+      <TabTableSkeleton cols={cols} left={left} />
     </div>
   );
 }
 
-export function Loading() {
-  return (
-    <div className="flex flex-col gap-2 p-5">
-      {Array.from({ length: 4 }, (_, i) => (
-        <Skeleton key={i} className="h-9" />
-      ))}
-    </div>
-  );
+/** The best / worst trades table's and the ledger's columns. */
+const TRADE_COLS = ["asset", "side", "entry", "exit", "duration", "date", "pnl"] as const;
+const LEDGER_COLS = ["asset", "side", "entry", "exit", "notional", "duration", "funding", "netPnl"] as const;
+
+export function Loading({ cols, left }: { cols: string[]; left?: number }) {
+  return <TabTableSkeleton cols={cols} left={left} />;
 }
 
 export function LoadError({ onRetry }: { onRetry: () => void }) {
@@ -455,9 +458,10 @@ export function PerformanceTab({
 }) {
   const { t } = useI18n();
   if (!analytics) {
-    if (computing) return <Computing />;
+    const cols = TRADE_COLS.map((k) => t(`trader.tradeCols.${k}`));
+    if (computing) return <Computing cols={cols} />;
     if (error) return <LoadError onRetry={onRetry} />;
-    return <Loading />;
+    return <Loading cols={cols} />;
   }
   const { summary } = analytics;
   const { best, worst } = summary;
@@ -526,7 +530,10 @@ export function TradesTab({ address }: { address: string }) {
   let body: React.ReactNode;
   // A failed "show more" or background refresh keeps the pages already loaded.
   if (query.isError && !first) body = <LoadError onRetry={() => query.refetch()} />;
-  else if (!first) body = isComputing(query) && query.failureReason ? <Computing /> : <Loading />;
+  else if (!first) {
+    const cols = LEDGER_COLS.map((k) => t(`trader.tradeCols.${k}`));
+    body = isComputing(query) && query.failureReason ? <Computing cols={cols} /> : <Loading cols={cols} />;
+  }
   else if (rows.length === 0) {
     const dense = first.coverage.truncated && first.coverage.from !== null;
     body =

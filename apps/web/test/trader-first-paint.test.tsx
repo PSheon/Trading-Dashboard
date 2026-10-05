@@ -34,9 +34,10 @@ vi.mock("../src/lib/queries", () => ({
   useCopyScore: () => ({ data: undefined }),
   usePortfolio: () => state.portfolio,
   useSiteSettings: () => ({ data: undefined }),
+  useChartSnapshots: () => ({ data: undefined }),
 }));
 vi.mock("../src/lib/use-live-trader", () => ({ useLiveTrader: (_a: string, profile: unknown) => ({ profile, fills: [], mids: {} }) }));
-vi.mock("../src/components/trader/profile-card", () => ({ ProfileCard: () => null }));
+vi.mock("../src/components/trader/profile-card", () => ({ ProfileCard: () => null, ProfileCardSkeleton: () => null }));
 vi.mock("../src/components/trader/copy-panel", () => ({ CopyPanel: () => null }));
 
 const address = `0x${"ab".repeat(20)}`;

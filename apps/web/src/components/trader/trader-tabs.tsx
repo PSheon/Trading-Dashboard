@@ -176,6 +176,9 @@ type PositionKey = "asset" | "size" | "value" | "entry" | "mark" | "pnl" | "liqu
 /** 持倉: 資產 (the leverage chip's colour is the side: CopyDog hides its
  * Long / Short badge in this table) / 數量 / 價值 / 進場價 / 標記價 / 損益 (%) /
  * 強平價 (distance) / 保證金 / 資金費, largest value first; cards on phones. */
+/** The positions table's columns (the tabs' loading state draws them). */
+export const POSITION_COLS = ["coin", "size", "value", "entry", "mark", "pnl", "liq", "margin", "funding"] as const;
+
 export function PositionsTab({ profile, marks }: { profile: TraderProfileResponse; marks: Readonly<Record<string, number>> }) {
   const { t } = useI18n();
   const [source, setSource] = useState<TradeCardSource | null>(null);
@@ -337,7 +340,7 @@ export function OrdersTab({ address }: { address: string }) {
   const rows = query.data?.orders ?? [];
   const { sorted, sort, onSort } = useSorted<TraderOrder, OrderKey>(rows, ORDER_KEYS, { key: "value", dir: "desc" });
   if (query.isError && !query.data) return <LoadError onRetry={() => query.refetch()} />;
-  if (!query.data) return <Loading />;
+  if (!query.data) return <Loading cols={(["coin", "type", "orderSide", "size", "price", "value", "trigger"] as const).map((k) => t(`trader.cols.${k}`))} />;
   if (rows.length === 0) return <Empty title={t("trader.empty.ordersTitle")} body={t("trader.empty.ordersDesc")} />;
   const head = { sort, onSort };
   return (
@@ -566,6 +569,9 @@ function useRowWindow(total: number, reset: unknown): [number, React.RefObject<H
 
 /** 成交: fills (perp and spot) grouped by order stream, 資產 (count) / 方向
  * / 數量 / 原持倉 / 價格 / 價值 / 損益 / 強平 / 時間, newest first. */
+/** The fills table's columns (its loading state draws the same header). */
+export const FILL_COLS = ["coin", "direction", "size", "origPos", "price", "value", "pnl", "liqFlag", "time"] as const;
+
 export function FillsTab({ rows, truncated = false }: { rows: TraderFill[]; truncated?: boolean }) {
   const { t } = useI18n();
   const groups = useMemo(() => groupFills(rows, truncated), [rows, truncated]);
@@ -617,7 +623,7 @@ export function TwapTab({ address }: { address: string }) {
   const rows = query.data?.twaps ?? [];
   const { sorted, sort, onSort } = useSorted<TraderTwap, TwapKey>(rows, TWAP_KEYS, { key: "time", dir: "desc" });
   if (query.isError && !query.data) return <LoadError onRetry={() => query.refetch()} />;
-  if (!query.data) return <Loading />;
+  if (!query.data) return <Loading cols={(["coin", "orderSide", "size", "filled", "duration", "time"] as const).map((k) => t(`trader.cols.${k}`))} />;
   if (rows.length === 0) return <Empty title={t("trader.empty.twapTitle")} body={t("trader.empty.twapDesc")} />;
   const head = { sort, onSort };
   return (
@@ -699,7 +705,7 @@ export function TransfersTab({ address }: { address: string }) {
   const rows = query.data?.transfers ?? [];
   const { sorted, sort, onSort } = useSorted<TraderTransfer, TransferKey>(rows, TRANSFER_KEYS, { key: "time", dir: "desc" });
   if (query.isError && !query.data) return <LoadError onRetry={() => query.refetch()} />;
-  if (!query.data) return <Loading />;
+  if (!query.data) return <Loading left={2} cols={(["time", "type", "coin", "amount", "from", "to", "hash"] as const).map((k) => t(`trader.cols.${k}`))} />;
   if (rows.length === 0) return <Empty title={t("trader.empty.transfersTitle")} body={t("trader.empty.transfersDesc")} />;
   const head = { sort, onSort };
   const party = (who: string | null) => (who ? (who === address.toLowerCase() ? t("trader.self") : shortHex(who)) : "-");

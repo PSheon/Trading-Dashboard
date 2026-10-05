@@ -23,6 +23,7 @@ import {
 import { useState } from "react";
 import { cn } from "cn";
 
+import { SkelBar, SkelCircle } from "@/components/page";
 import { TraderName } from "@/components/traders/trader-name";
 import { FavoriteButton } from "@/components/traders/bits";
 import { CoinIcon } from "@/components/traders/coin-icon";
@@ -338,12 +339,14 @@ export const SIZE_ICON: Record<SizeTier, LucideIcon> = {
 
 /** Placeholder bars while the api computes a cold address. */
 function PendingRows({ rows = 3 }: { rows?: number }) {
+  // The rows' own height (py-1.5 around a 20px line), so the figures land
+  // in place.
   return (
-    <div className="flex flex-col gap-2 py-1" aria-hidden>
+    <div className="ui-skeleton flex flex-col" aria-hidden>
       {Array.from({ length: rows }, (_, i) => (
-        <div key={i} className="flex justify-between">
-          <span className="h-3.5 w-20 animate-pulse rounded bg-raised" />
-          <span className="h-3.5 w-14 animate-pulse rounded bg-raised" />
+        <div key={i} className="flex items-center justify-between gap-3 py-1.5">
+          <SkelBar line="h-5" className="h-3 w-20" />
+          <SkelBar line="h-5" className="h-3 w-14" />
         </div>
       ))}
     </div>
@@ -473,5 +476,56 @@ function MostTradedSection({ trades, computing }: { trades: TraderAnalyticsRespo
         <p className="text-xs text-muted-foreground">{t(trades ? "trader.noClosedTrades" : "trader.kpi.noTrades")}</p>
       )}
     </Section>
+  );
+}
+
+/** The profile rail while the profile loads: the same card, sections and
+ * static labels, with bars where the name and figures go (it is drawn
+ * before the server's profile, or the browser's, has arrived). */
+export function ProfileCardSkeleton({ identity = true }: { identity?: boolean }) {
+  const { t } = useI18n();
+  const figure = <SkelBar line="h-5" className="h-3 w-16" />;
+  return (
+    <aside aria-hidden="true" className="orbit-card ui-skeleton overflow-hidden pb-5 [&>div:first-child]:mt-0 [&>div:first-child]:border-t-0">
+      {identity ? (
+        <div className="flex items-center gap-3 px-5 pt-5">
+          <SkelCircle className="size-[52px]" />
+          <div className="min-w-0 flex-1">
+            <SkelBar line="h-[24px]" className="h-4 w-28" />
+            <SkelBar line="mt-1 h-[18px]" className="h-2.5 w-24" />
+          </div>
+          <span className="flex shrink-0 items-center gap-1">
+            <SkelCircle className="size-10" />
+            <SkelCircle className="size-10" />
+          </span>
+        </div>
+      ) : null}
+      <div className="mx-4 mt-4 rounded-xl bg-inset px-4 py-3.5 [--skel-bar:var(--border)]">
+        <span className="mb-1 block text-[13px] font-bold text-muted-foreground">{t("trader.accountValue")}</span>
+        <SkelBar line="h-[30px]" className="h-6 w-32" />
+      </div>
+      <Section title={t("trader.holdings")}>
+        <div className="flex items-baseline justify-between gap-2.5 pt-0.5">
+          <span className="text-[13px] font-bold text-muted-foreground">{t("trader.leverage")}</span>
+          <SkelBar line="h-5" className="h-3 w-10" />
+        </div>
+        <div className="mt-2 cd-bar w-full" />
+        <SkelBar line="mt-1.5 mb-0.5 h-4" className="h-2.5 w-24" />
+        <div className="mt-[18px] flex items-baseline justify-between gap-2.5 pt-0.5">
+          <span className="text-[13px] font-bold text-muted-foreground">{t("trader.bias")}</span>
+          <SkelBar line="h-5" className="h-3 w-12" />
+        </div>
+        <div className="cd-bar mt-2" />
+        <SkelBar line="mt-1.5 mb-0.5 h-4" className="h-2.5 w-full" />
+      </Section>
+      <Section title={t("trader.overview")}>
+        <Row label={t("trader.unrealized")}>{figure}</Row>
+        <Row label={t("trader.marginUsage")}>{figure}</Row>
+        <Row label={t("trader.volume")}>{figure}</Row>
+      </Section>
+      <Section title={t("trader.groups")}><PendingRows /></Section>
+      <Section title={t("trader.bestWorst")}><PendingRows /></Section>
+      <Section title={t("trader.mostTraded")}><PendingRows /></Section>
+    </aside>
   );
 }

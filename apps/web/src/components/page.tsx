@@ -131,6 +131,47 @@ export function Panel({ className, ...props }: React.ComponentProps<"section">) 
   return <section className={cn("rounded-2xl bg-card shadow-[0_0_0_2px_var(--card-ring)] [--seg-track:var(--inset)]", className)} {...props} />;
 }
 
-export function Skeleton({ className }: { className?: string }) {
-  return <div aria-hidden="true" className={cn("ui-skeleton rounded-lg bg-raised", className)} />;
+/*
+ * Loading placeholders, one set for the whole app. Each loading surface
+ * has one shimmer (.ui-skeleton: a sweep that stops under reduced motion)
+ * and uses the theme's tokens, so it reads in light and dark.
+ *
+ * - Skeleton: a block on the page (bg-raised): a chart area, a raised row.
+ * - SkeletonCard: a card's outline (orbit-card, radius 28 and its ring)
+ *   with one shimmer; what is inside it are SkelBar / SkelCircle (bg-inset,
+ *   no shimmer of their own).
+ * - SkelBar: text, a figure or a capsule inside a card or a row. `line`
+ *   gives it the real line's height so swapping in the text moves nothing:
+ *   the bar is drawn centred in a box that tall.
+ * - SkelCircle: an avatar or a round button.
+ */
+export function Skeleton({ className, style }: { className?: string; style?: React.CSSProperties }) {
+  return <div aria-hidden="true" className={cn("ui-skeleton rounded-lg bg-raised [--skel-bar:var(--border)]", className)} style={style} />;
+}
+
+/** A raised block that holds bars (a table row, a tile): Skeleton with
+ * children. */
+export function SkeletonBlock({ className, children, style }: { className?: string; children?: React.ReactNode; style?: React.CSSProperties }) {
+  return (
+    <div aria-hidden="true" className={cn("ui-skeleton rounded-lg bg-raised [--skel-bar:var(--border)]", className)} style={style}>
+      {children}
+    </div>
+  );
+}
+
+export function SkeletonCard({ className, children, style }: { className?: string; children?: React.ReactNode; style?: React.CSSProperties }) {
+  return (
+    <div aria-hidden="true" className={cn("orbit-card ui-skeleton", className)} style={style}>
+      {children}
+    </div>
+  );
+}
+
+export function SkelBar({ className, line }: { className?: string; line?: string }) {
+  const bar = <span className={cn("block rounded-full bg-[var(--skel-bar,var(--inset))]", className)} />;
+  return line ? <span className={cn("flex items-center", line)}>{bar}</span> : bar;
+}
+
+export function SkelCircle({ className }: { className?: string }) {
+  return <span className={cn("block shrink-0 rounded-full bg-[var(--skel-bar,var(--inset))]", className)} />;
 }

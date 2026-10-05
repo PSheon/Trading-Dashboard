@@ -3,6 +3,7 @@ import { copyExecutionWalletsSchema } from "@trading-dashboard/shared/contracts"
 import { copyFundingOverviewSchema } from "@trading-dashboard/shared/contracts";
 import { adminResolvedWithdrawalSchema, adminUnresolvedWithdrawalsSchema, walletWithdrawalClaimSchema, walletWithdrawalSchema, type WalletWithdrawal } from "@trading-dashboard/shared/contracts";
 import { FIXTURE_WALLET_ADDRESS } from "@/lib/fixture-signer";
+import { fixtureLiveCopy } from "./live-copy";
 import { fixtureKols, previewKols, importKols, saveKol, removeKol } from "./kols";
 import { adminSourcesSchema, importPreviewSchema } from "@trading-dashboard/shared/contracts";
 import { fixtureImportPreview, fixtureCommitImport } from "./import-preview";
@@ -364,6 +365,8 @@ export async function fixtureRequest<T>(
   if (parts[0] === "insights" && parts[1] === "cohorts" && method === "GET" && parts[3] === "history") return wire(cohortHistoryResponseSchema, fixtureCohortHistory(parts[2], search.get("window") ?? "all"));
   if (parts[0] === "discover" && parts[1] === "coins" && method === "GET" && parts.length === 3) return wire(coinBoardResponseSchema, fixtureCoinBoard(decodeURIComponent(parts[2])));
 
+  const liveCopy = fixtureLiveCopy(method, parts, body);
+  if (liveCopy) { requireUser(token); return wire(liveCopy.schema, liveCopy.value); }
   if (parts[0] === "admin" && parts[1] === "copy" && parts[2] === "live") {
     requireAdmin(token);
     const live = `${method} ${parts.slice(3).map((p, i) => (parts[3] === "grants" && i === 1 ? ":id" : p)).join("/")}`;

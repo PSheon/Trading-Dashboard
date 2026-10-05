@@ -9,7 +9,7 @@ import { createContext, lazy, Suspense, use, useCallback, useEffect, useMemo, us
 
 import type { PrivySnapshot } from "@/lib/auth-privy";
 import type { WalletSigner } from "@/lib/wallet-signer";
-import { fixtureSigner } from "@/lib/fixture-signer";
+import { fixtureSigner, fixtureSignerFlag } from "@/lib/fixture-signer";
 import { clearPersonalStorage } from "@/lib/personal-storage";
 
 import { SessionQueries } from "@/lib/session-queries";
@@ -198,7 +198,7 @@ function FixtureAuth({ children }: { children: React.ReactNode }) {
   const persist = useCallback((next: boolean) => setStored(next ? "1" : null), [setStored]);
   // `?signer=fixture`: a fixed-signature stand-in for the embedded wallet
   // (lib/fixture-signer.ts), read once the page has hydrated.
-  const signerFlag = useSyncExternalStore(noSubscription, () => window.location.search.includes("signer=fixture"), () => false);
+  const signerFlag = useSyncExternalStore(noSubscription, () => fixtureSignerFlag(window.location.search), () => false);
   const signer = useMemo(() => (signerFlag ? fixtureSigner(window.location.search) : null), [signerFlag]);
 
   const value = useMemo<AuthState>(

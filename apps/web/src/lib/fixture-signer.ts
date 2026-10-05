@@ -12,7 +12,7 @@ export const FIXTURE_WALLET_ADDRESS = "0x5f0e6a3b1c2d4e5f60718293a4b5c6d7e8f90a1
  * flag fixture mode keeps having no wallet.
  */
 export function fixtureSigner(search: string): WalletSigner | null {
-  if (process.env.NEXT_PUBLIC_API_FIXTURES !== "1" || new URLSearchParams(search).get("signer") !== "fixture") return null;
+  if (!fixtureSignerFlag(search)) return null;
   return {
     address: FIXTURE_WALLET_ADDRESS,
     exportKey: async () => { throw new Error("Export is not part of fixture mode"); },
@@ -20,4 +20,16 @@ export function fixtureSigner(search: string): WalletSigner | null {
     signTypedData: async () => `0x${"ab".repeat(65)}`,
     sendTransaction: async () => { throw new Error("Transactions are not part of fixture mode"); },
   };
+}
+
+const STICKY = "orbie:fixtures:signer";
+/** `?signer=fixture` on the first page of a fixture session, kept for the
+ * tab (sessionStorage) so a link to another page keeps the stand-in wallet. */
+export function fixtureSignerFlag(search: string): boolean {
+  if (process.env.NEXT_PUBLIC_API_FIXTURES !== "1") return false;
+  const flagged = new URLSearchParams(search).get("signer") === "fixture";
+  try {
+    if (flagged) sessionStorage.setItem(STICKY, "1");
+    return flagged || sessionStorage.getItem(STICKY) === "1";
+  } catch { return flagged; }
 }

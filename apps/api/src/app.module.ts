@@ -13,7 +13,6 @@ import { DiscoveryModule } from "./discovery/discovery.module.js";
 import { ImportModule } from "./import/import.module.js";
 import { InsightsModule } from "./insights/insights.module.js";
 import { NotifyModule } from "./notify/notify.module.js";
-import { OutboxModule } from "./outbox/outbox.module.js";
 import { ReferralModule } from "./referral/referral.module.js";
 import { RulesModule } from "./rules/rules.module.js";
 import { ActionRelayListener } from "./runtime/action-relay.js";
@@ -67,7 +66,6 @@ export class AppModule {
         TradersModule,
         DiscoveryModule,
         InsightsModule,
-        OutboxModule,
       ],
       providers: [...AUTH_GUARD_PROVIDERS, ActionRelayListener, CopyFeedListener],
     };

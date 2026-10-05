@@ -29,30 +29,33 @@ function routes(): Route[] {
   return out;
 }
 
-describe("the read-only operator role (review finding 14)", () => {
+describe("the operator pack: read-only plus the copy stop commands (review finding 14; Paul 2026-10-05)", () => {
   const operator = new Set<Permission>(ROLE_PERMISSIONS.operator);
   const all = routes();
 
-  it("is exactly: enter the admin area, every *.read grant, and reading every user's alerts", () => {
+  it("is exactly: enter the admin area, every *.read grant, reading every user's alerts, and the stop commands", () => {
     expect([...operator].sort()).toEqual([
-      "admin.access", "alerts.readAll", "audit.read", "copy.read", "jobs.read", "lists.read", "overview.read", "revenue.read",
+      "admin.access", "alerts.readAll", "audit.read", "copy.read", "execution.pause", "jobs.read", "lists.read", "overview.read", "revenue.read",
       "rules.read", "settings.read", "sources.read", "traders.read", "users.read",
     ]);
     expect(ROLE_PERMISSIONS.operator).toBe(OPERATOR_PERMISSIONS);
-    // A new *.read permission joins the role by its name; a new write permission never does.
-    for (const p of PERMISSIONS) expect(operator.has(p), p).toBe(p.endsWith(".read") || p === "admin.access" || p === "alerts.readAll");
+    // A new *.read permission joins the pack by its name; a new write permission never does.
+    for (const p of PERMISSIONS) expect(operator.has(p), p).toBe(p.endsWith(".read") || p === "admin.access" || p === "alerts.readAll" || p === "execution.pause");
+    expect(operator.has("execution.resume")).toBe(false);
+    expect(operator.has("risk.manage")).toBe(false);
     expect(ROLE_PERMISSIONS.user).toEqual([]);
     expect(ROLE_PERMISSIONS.admin).toBe(PERMISSIONS);
   });
 
-  it("no route that changes anything can be satisfied by the operator's grants", () => {
+  it("the only routes that change anything the operator's grants satisfy are the copy stops", () => {
     const writes = all.filter((r) => r.method !== "GET" && r.permissions.length > 0);
     expect(writes.length).toBeGreaterThan(10);
     const open = writes.filter((r) => r.permissions.every((p) => operator.has(p)));
-    // POST /admin/copy/controls needs execution.pause on the route itself
-    // (backend review: the service's per-command check came after the body
-    // was parsed, and a command added without its mapping would be open).
-    expect(open.map((r) => `${r.method} ${r.path}`).sort()).toEqual([]);
+    // POST /admin/copy/controls carries execution.pause on the route itself
+    // (the service still asks execution.resume for resume, admin only); a
+    // testnet copy's grant revoke stops that copy at once, under the same grant.
+    expect(open.map((r) => `${r.method} ${r.path}`).sort()).toEqual(["POST /admin/copy/controls", "POST /admin/copy/live/grants/:id/revoke"]);
+    for (const route of open) expect(route.permissions).toContain("execution.pause");
   });
 
   it("every admin route requires a permission, and the operator can read each admin page except the KOL registry", () => {

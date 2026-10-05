@@ -1,9 +1,9 @@
 import { ServiceUnavailableException, type INestApplication } from "@nestjs/common";
-import { publicHealthSchema, wireHeartbeatSchema } from "@trading-dashboard/shared/contracts";
+import { publicHealthSchema } from "@trading-dashboard/shared/contracts";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AdminHeartbeatController, HealthController } from "../src/api/health/health.controller.js";
+import { HealthController } from "../src/api/health/health.controller.js";
 import { HealthService } from "../src/api/health/health.service.js";
 import type { AuthService } from "../src/common/auth/auth.service.js";
 import { createAuthedApp, stubPrivy } from "./auth-test-utils.js";
@@ -38,7 +38,7 @@ describe("GET /health says only what a status check needs (review finding 36)", 
     ({ app, auth } = await createAuthedApp({
       db,
       privy: stubPrivy({ "admin-token": { privyUserId: "did:privy:h-admin" }, "operator-token": { privyUserId: "did:privy:h-operator" }, "user-token": { privyUserId: "did:privy:h-user" } }),
-      controllers: [HealthController, AdminHeartbeatController],
+      controllers: [HealthController],
       providers: [{ provide: HealthService, useValue: { heartbeat } }],
     }));
   });
@@ -76,19 +76,12 @@ describe("GET /health says only what a status check needs (review finding 36)", 
     expect(JSON.stringify(down.body)).not.toContain("worker.internal");
   });
 
-  it("the full heartbeat is for admins and operators: 401 anonymous, 403 for a user, the whole contract otherwise", async () => {
-    await get("/admin/system/heartbeat").expect(401);
-    await get("/admin/system/heartbeat", "user-token").expect(403);
-    for (const token of ["admin-token", "operator-token"]) {
-      const res = await get("/admin/system/heartbeat", token).expect(200).expect("Cache-Control", "no-store");
-      const body = wireHeartbeatSchema.parse(res.body.data);
-      expect(body).toMatchObject({ feedConnected: true, dryRun: true, weightLastMinute: 737, queuedRequests: { background: 14 }, budget: { consumers: { pool: 240 } },
-        archive: { spendDayUsd: 0.1234, maxDailyUsd: 2, lagSeconds: 5400 }, fillsUnavailable: [{ address: WATCHED, missedTrades: 4 }] });
-    }
+  it("GET /admin/system/heartbeat is gone (no caller; the system overview carries the worker's heartbeat)", async () => {
+    for (const token of [undefined, "user-token", "admin-token", "operator-token"]) await get("/admin/system/heartbeat", token).expect(404);
   });
 
-  it("public and admin callers share one heartbeat read per second", async () => {
-    await Promise.all([...Array.from({ length: 20 }, () => get("/health")), get("/admin/system/heartbeat", "admin-token")]);
+  it("callers share one heartbeat read per second", async () => {
+    await Promise.all(Array.from({ length: 20 }, () => get("/health")));
     expect(heartbeat).toHaveBeenCalledTimes(1);
   });
 });

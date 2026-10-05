@@ -74,6 +74,7 @@ describe("/admin/copy — the copy-trading admin API", () => {
   const privy = stubPrivy({
     "admin-token": { privyUserId: "did:privy:copy-admin", profile: { email: "ops@example.com", walletAddress: null, embeddedWalletAddress: null } },
     "alice-token": { privyUserId: "did:privy:copy-alice", profile: { email: "alice@example.com", walletAddress: null, embeddedWalletAddress: null } },
+    "operator-token": { privyUserId: "did:privy:copy-operator", profile: { email: "op@example.com", walletAddress: null, embeddedWalletAddress: null } },
   });
   let app: INestApplication;
   let auth: AuthService;
@@ -116,6 +117,7 @@ describe("/admin/copy — the copy-trading admin API", () => {
     app.get(SettingsService).invalidate();
     adminId = (await insertUser(db, { privyUserId: "did:privy:copy-admin", email: "ops@example.com", role: "admin" })).id;
     aliceId = (await insertUser(db, { privyUserId: "did:privy:copy-alice", email: "alice@example.com" })).id;
+    await insertUser(db, { privyUserId: "did:privy:copy-operator", email: "op@example.com", role: "operator" });
   });
 
   afterAll(async () => {
@@ -145,6 +147,21 @@ describe("/admin/copy — the copy-trading admin API", () => {
       await as(READ_ONLY).get(`/admin/copy/${path}`).expect(200);
       await admin().get(`/admin/copy/${path}`).expect(200).expect("Cache-Control", "no-store");
     }
+  });
+
+  it("the operator pack stops copying (platform and one user) but can't resume or change limits (Paul, 2026-10-05)", async () => {
+    const op = as("operator-token");
+    for (const path of READS) await op.get(`/admin/copy/${path}`).expect(200);
+    const paused = await op.post("/admin/copy/controls", { scope: "platform", command: "pause_new_risk", reason: "operator drill", expectedRevision: 0 }).expect(201);
+    expect(paused.body.data).toMatchObject({ scope: "platform", state: { pauseNewRisk: true, revision: 1 } });
+    await op.post("/admin/copy/controls", { scope: "user", userId: aliceId, command: "reduce_only", reason: "operator drill", expectedRevision: 0 }).expect(201);
+    // Resume and the risk policy stay with the admin; nothing more is written.
+    const resume = await op.post("/admin/copy/controls", { scope: "platform", command: "resume", reason: "operator resume", expectedRevision: 1 }).expect(403);
+    expect(JSON.stringify(resume.body)).toContain("execution.resume");
+    await op.put("/admin/copy/risk", { limits: DEFAULT_COPY_RISK_LIMITS, reason: "operator attempt", expectedVersion: 0 }).expect(403);
+    expect(await db.select().from(copyRiskPolicies)).toEqual([]);
+    const audit = await db.select().from(adminAuditLogs);
+    expect(audit.map((a) => a.event)).toEqual(["copy.control", "copy.control"]);
   });
 
   it("a copy.read caller can't stop, resume or change limits, and nothing is written", async () => {

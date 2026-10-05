@@ -1069,7 +1069,7 @@ export const en: Messages = {
       roleBody: "Change {name} from “{from}” to “{to}”. It applies to their next request.",
       grants: {
         user: "User: no access to the admin area.",
-        operator: "Operator (read-only): can open the admin area and read every page (except the KOL registry). Cannot change settings, users, lists or rules, and cannot send copy stop or resume commands.",
+        operator: "Operator: reads every admin page (except the KOL registry) and can send the copy stop commands. Cannot resume copying, change risk limits, settings, users, lists or rules.",
         admin: "Admin: every permission, including settings, users and roles, risk limits, and copy stop and resume.",
       },
       disableTitle: "Disable this account?",
@@ -2439,7 +2439,7 @@ export const en: Messages = {
       allRoles: "All roles",
       roles: {
         user: "User",
-        operator: "Operator (read-only)",
+        operator: "Operator (read + stop)",
         admin: "Admin",
       },
       total: "{total} users",

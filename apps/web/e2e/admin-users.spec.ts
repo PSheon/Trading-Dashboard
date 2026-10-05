@@ -18,7 +18,7 @@ for (const width of [1440, 390]) {
     const role = target.getByRole("combobox", { name: "Role of whalewatcher" });
     await expect(role).toHaveText("User", { timeout: 20000 });
     // The seeded operator, and the signed-in admin who can't change themself.
-    await expect(row(page, "Kaito").getByRole("combobox")).toHaveText("Operator (read-only)");
+    await expect(row(page, "Kaito").getByRole("combobox")).toHaveText("Operator (read + stop)");
     await expect(row(page, "Demo").getByRole("combobox")).toBeDisabled();
     await expectNoSidewaysScroll(page);
     await expectAccessible(page);
@@ -27,8 +27,8 @@ for (const width of [1440, 390]) {
     // Choosing a role changes nothing by itself.
     await chooseOption(page, role, "operator");
     const dialog = page.getByRole("dialog", { name: "Change role?" });
-    await expect(dialog).toContainText("Change whalewatcher from “User” to “Operator (read-only)”");
-    await expect(dialog).toContainText("Cannot change settings, users, lists or rules");
+    await expect(dialog).toContainText("Change whalewatcher from “User” to “Operator (read + stop)”");
+    await expect(dialog).toContainText("can send the copy stop commands");
     await settled(page);
     await expectAccessible(page);
     await shot(page, `admin-users-role-dialog-${width}`);
@@ -38,7 +38,7 @@ for (const width of [1440, 390]) {
 
     await chooseOption(page, role, "operator");
     await dialog.getByRole("button", { name: "Confirm", exact: true }).click();
-    await expect(role).toHaveText("Operator (read-only)");
+    await expect(role).toHaveText("Operator (read + stop)");
     await chooseOption(page, role, "admin");
     await expect(dialog).toContainText("Admin: every permission");
     await dialog.getByRole("button", { name: "Confirm", exact: true }).click();

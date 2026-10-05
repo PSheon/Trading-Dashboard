@@ -1072,7 +1072,7 @@ export const zhTW = {
       roleBody: "把 {name} 從「{from}」改為「{to}」。對方的下一個請求就會生效。",
       grants: {
         user: "一般使用者：不能進入管理區。",
-        operator: "營運（唯讀）：可以進入管理區並查看所有頁面（KOL 名單除外），不能修改任何設定、使用者、名單、規則，也不能下達跟單停止或恢復命令。",
+        operator: "營運：可以查看所有管理頁面（KOL 名單除外），並下達跟單停止命令；不能恢復跟單、修改風控、設定、使用者、名單或規則。",
         admin: "管理員：擁有全部權限，包括設定、使用者與角色、風控上限、跟單停止與恢復。",
       },
       disableTitle: "停用這個帳號？",
@@ -2443,7 +2443,7 @@ export const zhTW = {
       allRoles: "所有角色",
       roles: {
         user: "使用者",
-        operator: "營運（唯讀）",
+        operator: "營運（唯讀＋停止）",
         admin: "管理員",
       },
       total: "共 {total} 位使用者",

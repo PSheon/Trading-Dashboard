@@ -189,25 +189,6 @@ export type ImportLeaderListResponse = z.infer<
   typeof importLeaderListResponseSchema
 >;
 
-/** GET /lists/diff?from=<listId>&to=<listId> — A4 */
-export const listDiffRequestSchema = z.object({
-  fromListId: z.coerce.number().int().positive(),
-  toListId: z.coerce.number().int().positive(),
-}).strict();
-export type ListDiffRequest = z.infer<typeof listDiffRequestSchema>;
-
-export const listDiffEntrySchema = z.object({
-  address: z.string(),
-  fromRank: z.number().int().nullable(),
-  toRank: z.number().int().nullable(),
-  status: z.enum(["new", "dropped", "unchanged", "moved"]),
-});
-export type ListDiffEntry = z.infer<typeof listDiffEntrySchema>;
-
-export const listDiffResponseSchema = z.object({
-  entries: z.array(listDiffEntrySchema),
-});
-export type ListDiffResponse = z.infer<typeof listDiffResponseSchema>;
 
 /** GET /leaders — D2 */
 export const leadersQuerySchema = z.object({

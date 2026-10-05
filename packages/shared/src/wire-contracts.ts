@@ -63,7 +63,7 @@ export const wireHeartbeatSchema = s.heartbeatResponseSchema.extend({
  * GET /health as anyone may read it (review finding 36): whether the site's
  * data feed is up, and the server's time. The budget, the queues, dry-run,
  * discovery and archive figures of the full heartbeat are for admins
- * (GET /admin/system/heartbeat) and the worker's private monitor.
+ * (the admin system overview) and the worker's private monitor.
  */
 export const publicHealthSchema = z.object({ status: z.enum(["ok", "degraded"]), feedConnected: z.boolean(), now: iso });
 export type PublicHealth = z.infer<typeof publicHealthSchema>;
@@ -205,7 +205,6 @@ export const wireAdminCopyRiskSchema = s.adminCopyRiskResponseSchema.extend({
   createdAt: iso.nullable(),
   history: z.array(s.adminCopyRiskResponseSchema.shape.history.element.extend({ createdAt: iso })),
 });
-const outboxCounts =z.array(z.object({ status: z.string(), count: z.number().int().nonnegative() }));
 /** GET /actions/stream (text/event-stream). Each SSE `event:` name maps to the
  * schema of its JSON `data:`; both ends validate every event.
  * - `action`: a new row, exactly as GET /actions returns it; its SSE `id:` is the action id (the resume cursor).
@@ -243,7 +242,6 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/leaders/:chain/:address", status: 200, auth: "public projection; full row for leaders.manage; private alerts scoped", response: wireLeaderDetailSchema },
   { method: "PATCH", path: "/leaders/:chain/:address", status: 200, auth: "leaders.manage", response: wireLeaderSchema },
   { method: "GET", path: "/lists", status: 200, auth: "lists.read", response: z.array(s.leaderListSchema.extend({ importedAt: iso })) },
-  { method: "GET", path: "/lists/diff", status: 200, auth: "lists.read", response: s.listDiffResponseSchema },
   { method: "POST", path: "/import/lists/preview", status: 200, auth: "leaders.import", response: importPreviewSchema },
   { method: "POST", path: "/import/lists", status: 201, auth: "leaders.import", response: s.importLeaderListResponseSchema },
   { method: "GET", path: "/alert-rules", status: 200, auth: "rules.read", response: z.array(s.alertRuleSchema) },
@@ -305,10 +303,8 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/admin/jobs", status: 200, auth: "jobs.read", response: backfillJobsResponseSchema },
   { method: "POST", path: "/admin/jobs/:id/retry", status: 202, auth: "jobs.retry", response: backfillJobSchema },
   { method: "GET", path: "/admin/system/overview", status: 200, auth: "admin.access", response: adminSystemSchema },
-  { method: "GET", path: "/admin/system/heartbeat", status: 200, auth: "admin.access; 503 when the worker is unreachable", response: wireHeartbeatSchema },
   { method: "GET", path: "/admin/overview", status: 200, auth: "overview.read", response: s.adminOverviewSchema.extend({ generatedAt: iso }) },
   { method: "GET", path: "/admin/revenue", status: 200, auth: "revenue.read", response: s.adminRevenueResponseSchema.extend({ lastSnapshotAt: iso.nullable() }) },
-  { method: "GET", path: "/admin/outbox", status: 200, auth: "admin.access", response: z.object({ evaluations: outboxCounts, deliveries: outboxCounts }) },
   { method: "GET", path: "/traders/:address/copy-score", status: 200, auth: "public; 503 busy", response: wireCopyScoreSchema },
   { method: "GET", path: "/discover/boards", status: 200, auth: "public", response: wireBoardSchema },
   { method: "GET", path: "/discover/home", status: 200, auth: "public", response: wireHomeBoardsSchema },

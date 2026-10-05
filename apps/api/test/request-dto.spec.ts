@@ -8,7 +8,6 @@ import { PatchAdminSettingsDto } from "../src/admin/dto/settings.dto.js";
 import { PatchMeDto, PatchFavoriteAlertDto } from "../src/users/dto/profile.dto.js";
 import { ActionsFeedQueryDto, ActionsStreamQueryDto } from "../src/api/actions/dto/action-query.dto.js";
 import { LeadersQueryDto, LeaderDetailQueryDto, PatchLeaderDto } from "../src/api/leaders/dto/leader.dto.js";
-import { ListDiffQueryDto } from "../src/api/lists/dto/list-query.dto.js";
 import { AlertsQueryDto } from "../src/api/alerts/dto/alerts-query.dto.js";
 import { ImportListDto } from "../src/import/dto/import-list.dto.js";
 import { UpsertRuleDto } from "../src/api/alert-rules/dto/rule.dto.js";
@@ -30,7 +29,6 @@ const cases: [Type<unknown>, { parse(input: unknown): unknown }, object][] = [
   [ActionsStreamQueryDto, c.actionsStreamQuerySchema, { scope: "favorites" }],
   [LeadersQueryDto, c.leadersQuerySchema, { active: "false" }],
   [LeaderDetailQueryDto, c.leaderDetailQuerySchema, {}],
-  [ListDiffQueryDto, c.listDiffRequestSchema, { fromListId: "1", toListId: "2" }],
   [AlertsQueryDto, c.alertsQuerySchema, { address: A, ruleId: "2" }],
   [PatchMeDto, c.patchMeRequestSchema, { displayName: null, locale: "en" }],
   [PatchFavoriteAlertDto, c.patchFavoriteAlertRequestSchema, { minUsd: null, enabled: false }],

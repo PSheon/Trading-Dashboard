@@ -1,14 +1,10 @@
 import { Injectable } from "@nestjs/common";
-import type { LeaderList, ListDiffRequest, ListDiffResponse } from "@trading-dashboard/shared/contracts";
+import type { LeaderList } from "@trading-dashboard/shared/contracts";
 
-/** D6 Lists — version history + diff (A4). Import itself lives in ImportModule. */
+/** D6 Lists — version history. Import itself lives in ImportModule. */
 @Injectable()
 export class ListsService {
   async findAll(): Promise<LeaderList[]> {
     return [];
-  }
-
-  async diff(_request: ListDiffRequest): Promise<ListDiffResponse> {
-    return { entries: [] };
   }
 }

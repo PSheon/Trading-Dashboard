@@ -139,7 +139,6 @@ describe("route access on the existing controllers", () => {
     await db.insert(leaders).values({ address: WHALE });
     const adminRoutes: [("get" | "post" | "patch"), string, object?][] = [
       ["get", "/lists"],
-      ["get", "/lists/diff?fromListId=1&toListId=2"],
       ["post", "/import/lists", { fileName: "x.csv", rows: [{ address: WHALE, rank: 1 }] }],
       ["patch", `/leaders/hyperliquid/${WHALE}`, { tier: "A" }],
       ["get", "/alert-rules"],
@@ -266,7 +265,6 @@ describe("route access on the existing controllers", () => {
 
   it("validates alert queries and administrative input", async () => {
     await call("get", "/alerts?limit=1000000", "alice-token").expect(400);
-    await call("get", "/lists/diff?fromListId=oops&toListId=2", "boss-token").expect(400);
     await call("get", "/leaders?active=maybe").expect(400);
     await call("patch", `/leaders/hyperliquid/${WHALE}`, "boss-token", { active: "false" }).expect(400);
     await call("patch", `/leaders/hyperliquid/${WHALE}`, "boss-token", { address: OTHER }).expect(400);

@@ -10,12 +10,18 @@ export const PERMISSIONS = [
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 /**
- * What a read-only operator may do: enter the admin area and read. Every
- * `*.read` grant plus `alerts.readAll`; nothing that changes state. The
- * KOL registry is behind `kols.manage` (reads included), so an operator
- * does not see it.
+ * Two fixed role packs (Paul, 2026-10-05): **admin** holds every grant;
+ * **operator** reads and stops. The operator enters the admin area, holds
+ * every `*.read` grant plus `alerts.readAll`, and may send the copy stop
+ * commands (`execution.pause`: pause new risk, reduce only, cancel pending,
+ * close positions, platform-wide or for one user) — resuming, risk limits,
+ * settings, users, lists, rules, jobs and KOLs stay with the admin. The KOL
+ * registry is behind `kols.manage` (reads included), so an operator does not
+ * see it. The individual grants remain for the service token
+ * (AUTH_SERVICE_PERMISSIONS); people get one of the packs by their role.
  */
-export const OPERATOR_PERMISSIONS: readonly Permission[] = PERMISSIONS.filter((p) => p === "admin.access" || p === "alerts.readAll" || p.endsWith(".read"));
+export const OPERATOR_PERMISSIONS: readonly Permission[] = PERMISSIONS.filter((p) =>
+  p === "admin.access" || p === "alerts.readAll" || p === "execution.pause" || p.endsWith(".read"));
 export const ROLE_PERMISSIONS: Readonly<Record<UserRole, readonly Permission[]>> = {
   user: [],
   operator: OPERATOR_PERMISSIONS,

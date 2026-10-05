@@ -84,17 +84,25 @@ rely on UI visibility for access.
 ## Roles (review finding 14)
 
 `users.role` is `user`, `operator` or `admin` (a text column; no migration).
+Since 2026-10-05 (Paul) people get one of two fixed packs; the individual
+grants remain only for the service token (`AUTH_SERVICE_PERMISSIONS`).
 
 - **user**: no permissions.
-- **operator**: read-only operations. `admin.access`, every `*.read`
-  permission and `alerts.readAll`; nothing that changes state
-  (`OPERATOR_PERMISSIONS` in `packages/shared/src/permissions.ts`: a new
-  `*.read` permission joins it by its name). The KOL registry is behind
+- **operator**: reads, and stops copying. `admin.access`, every `*.read`
+  permission, `alerts.readAll` and `execution.pause` — the copy stop
+  commands (pause new risk, reduce only, cancel pending, close positions;
+  platform-wide or for one user) and revoking a testnet copy's grant, which
+  stops that copy (`OPERATOR_PERMISSIONS` in
+  `packages/shared/src/permissions.ts`: a new `*.read` permission joins it by
+  its name). Resume (`execution.resume`), risk limits, settings, users,
+  lists, rules, jobs and KOLs stay with the admin; the KOL registry is behind
   `kols.manage` even for reads, so an operator does not see it.
-  `test/operator-role.spec.ts` walks every route and fails if a route that is
-  not a GET could be satisfied by the operator's grants; the one exception,
-  `POST /admin/copy/controls`, is decided by its service from the command
-  (`execution.pause` / `execution.resume`) and answers an operator 403.
+  `test/operator-role.spec.ts` walks every route and fails if any other
+  non-GET route could be satisfied by the operator's grants;
+  `test/admin-copy-http.spec.ts` checks an operator's stop goes through and
+  its resume and risk save answer 403. Other users' Telegram chat ids never
+  reach an operator, and maintenance does not exempt one (`settings.write`
+  is the exemption).
 - **admin**: every permission.
 
 An admin assigns roles in `/admin/users` (`PATCH /admin/users/:id`,

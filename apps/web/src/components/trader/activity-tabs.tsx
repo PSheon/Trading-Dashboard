@@ -3,6 +3,7 @@
 import type { TraderFill, TraderProfileResponse } from "@/lib/contracts";
 import { Activity } from "lucide-react";
 import { Fragment, useId, useMemo, useState } from "react";
+import { useUrlState } from "@/lib/url-state";
 import { cn } from "cn";
 import { rovingFocus } from "@/lib/roving-focus";
 
@@ -63,7 +64,8 @@ export function ActivityTabs({
 }) {
   const { t } = useI18n();
   const panelId = useId();
-  const [tab, setTab] = useState<Tab>("positions");
+  // The open tab is in the URL (?tab=), so a shared link opens it.
+  const [tab, setTab] = useUrlState<Tab>("tab", TAB_ORDER, "positions");
   const [perfView, setPerfView] = useState<PerfView>("best");
   const fills = useTraderFills(profile.address, FILL_LIMIT, { enabled: fillsReady || tab === "fills" });
   const fillRows = useMemo(() => mergeLiveFills(fills.data, liveFills), [fills.data, liveFills]);

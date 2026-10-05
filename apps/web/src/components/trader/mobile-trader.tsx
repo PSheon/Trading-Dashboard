@@ -4,6 +4,7 @@ import type { PortfolioResponse, TraderAnalyticsResponse, TraderProfileResponse,
 import { ArrowLeft, X } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { useUrlState } from "@/lib/url-state";
 import { cn } from "cn";
 
 import { AlertBell } from "@/components/alerts/alert-bell";
@@ -20,6 +21,7 @@ import { CopyScoreBar, TraderAvatar } from "@/components/discover/board-bits";
 import { truncateAddress, usdCompact } from "@/lib/format";
 import { partialSampleSince, pct1, signedUsdShort, usd2, winRateTone } from "@/lib/trade-format";
 import { shareName } from "@/lib/share-card";
+import { SectionBoundary } from "@/components/section-boundary";
 import { CopyPanel } from "./copy-panel";
 import { ShareButton } from "./share-dialog";
 import { MobileInsights } from "./mobile-insights";
@@ -159,7 +161,7 @@ export function MobileTrader({
 }) {
   const { t, format } = useI18n();
   const [mode, setMode] = useState<"pnl" | "roi">("pnl");
-  const [tab, setTab] = useState<MobileTab>("positions");
+  const [tab, setTab] = useUrlState<MobileTab>("tab", MOBILE_TABS, "positions");
   const [perfView, setPerfView] = useState<PerfView>("best");
   const [sheet, setSheet] = useState(false);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
@@ -369,7 +371,9 @@ export function MobileTrader({
             >
               <X className="size-5" strokeWidth={2.4} />
             </button>
-            <CopyPanel address={profile.address} sheet leaderPositions={profile.positions} traderName={shareName(profile)} />
+            <SectionBoundary className="flex flex-col items-center gap-2 px-1 pt-9 text-center text-sm">
+              <CopyPanel address={profile.address} sheet leaderPositions={profile.positions} traderName={shareName(profile)} />
+            </SectionBoundary>
           </div>
         </div>
       ) : null}

@@ -1,8 +1,10 @@
 "use client";
 
 import type { TraderActivityResponse, TraderProfileResponse, TraderWindow } from "@/lib/contracts";
+import { traderWindowEnum } from "@trading-dashboard/shared/contracts";
 import { notFound } from "next/navigation";
 import { useState } from "react";
+import { useUrlState } from "@/lib/url-state";
 
 import { useI18n } from "@/i18n/provider";
 import {
@@ -19,6 +21,7 @@ import { traderIsUnknown } from "@/lib/trader-presence";
 import { useIsDesktop } from "@/lib/use-is-desktop";
 import { useLiveTrader } from "@/lib/use-live-trader";
 import { ActivityTabs, ActivityTabsSkeleton } from "./activity-tabs";
+import { SectionBoundary } from "@/components/section-boundary";
 import { CopyPanel } from "./copy-panel";
 import { LiveFeed } from "./live-feed";
 import { MobileTrader, MobileTraderSkeleton } from "./mobile-trader";
@@ -85,7 +88,8 @@ function TraderLoaded({ address, initial }: { address: string; initial?: TraderI
   // tiles and tables have their own reads (fills ×2000 every 30 s, a second
   // and third portfolio), which a phone used to make from a hidden copy.
   const desktop = useIsDesktop();
-  const [window, setWindow] = useState<TraderWindow>("allTime");
+  // The chart window is in the URL (?window=), so a shared link opens it.
+  const [window, setWindow] = useUrlState<TraderWindow>("window", traderWindowEnum, "allTime");
   const [market, setMarket] = useState<Market>("perp");
 
   // The profile and the chart are the first paint. Activity (sample size,
@@ -268,7 +272,9 @@ function DesktopTrader({ address, profile, live, lowSample, firstPaint, portfoli
       </div>
 
       <div data-area="copy">
-        {feedOpen ? <LiveFeed address={address} liveFills={live.fills} onCopy={() => setFeedOpen(false)} /> : <CopyPanel address={address} leaderPositions={live.profile?.positions} traderName={live.profile ? shareName(live.profile) : undefined} />}
+        <SectionBoundary key={feedOpen ? "feed" : "copy"}>
+          {feedOpen ? <LiveFeed address={address} liveFills={live.fills} onCopy={() => setFeedOpen(false)} /> : <CopyPanel address={address} leaderPositions={live.profile?.positions} traderName={live.profile ? shareName(live.profile) : undefined} />}
+        </SectionBoundary>
       </div>
     </div>
   );

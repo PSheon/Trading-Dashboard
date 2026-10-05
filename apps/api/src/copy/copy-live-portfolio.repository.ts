@@ -41,6 +41,9 @@ export class CopyLivePortfolioRepository {
         !(t.direction === 'to_main' && t.status === 'prepared' && !t.attemptedAt && t.createdAt.getTime() < Date.now() - RETURN_CONSENT_WINDOW_MS)) ?? null;
       const deposited = ops.some(t => t.direction === 'to_account' && t.status === 'credited');
       const refusal = refusals.find(r => r.strategyId === s.id && r.reason);
+      // The latest stop's sweep (newest first), shown while returning and once stopped.
+      const latestStop = stops.find(row => row.strategyId === s.id);
+      const sweep = latestStop ? ops.find(t => t.direction === 'to_main' && t.stopId === latestStop.id) ?? null : null;
       let stage: LiveCopyStage;
       if (s.status === 'stopped') stage = 'stopped';
       else if (stop?.state === 'flat' || pending?.direction === 'to_main' && pending.stopId) stage = 'sweeping';
@@ -56,7 +59,8 @@ export class CopyLivePortfolioRepository {
         mandate: mandate ? { id: mandate.id, state: mandate.state, revision: mandate.revision } : null,
         stop: stop ? { id: stop.id, state: stop.state, issue: stop.issue, revision: stop.revision } : null,
         pendingTransfer: pending ? { id: pending.id, direction: pending.direction, status: pending.status as 'prepared' | 'unknown' | 'accepted', amount: pending.amount } : null,
-        lastRefusal: refusal ? { reason: refusal.reason!, at: refusal.at.toISOString() } : null };
+        lastRefusal: refusal ? { reason: refusal.reason!, at: refusal.at.toISOString() } : null,
+        automaticReturn: Boolean(account?.masterPolicyId), sweep: sweep ? { amount: sweep.creditedAmount ?? sweep.amount, status: sweep.status } : null };
     });
   }
 }

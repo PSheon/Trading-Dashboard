@@ -45,6 +45,10 @@ export const copyReturnConsentSchema = z.object({
 export type CopyReturnConsent = z.infer<typeof copyReturnConsentSchema>;
 export const copyReturnChallengeSchema = z.object({ operation: copyFundingSchema, consent: copyReturnConsentSchema }).strict();
 export const approveCopyMasterActionSchema = z.object({ consentSignature: z.string().regex(/^0x[0-9a-fA-F]{130}$/) }).strict();
+/** A return's approval: the main wallet's consent, or none for an account
+ * with the automatic return (the worker signs it, and its policy allows only
+ * the owner's main wallet as the destination). */
+export const approveCopyReturnSchema = z.object({ consentSignature: z.string().regex(/^0x[0-9a-fA-F]{130}$/).optional() }).strict();
 /** The owner's main wallet signs this before the copy's account (a wallet the
  * owner owns, signed through Privy with their session) sends the return. */
 export function copyReturnConsentTypedData(value: CopyReturnConsent) {

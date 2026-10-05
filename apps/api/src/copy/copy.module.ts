@@ -28,6 +28,7 @@ import { CopyAdminLiveRepository } from "./copy-admin-live.repository.js";
 import { CopyAdminLiveService } from "./copy-admin-live.service.js";
 import { PrivyUserWalletProvisioner, USER_WALLET_PROVISIONER } from "./live/privy-wallet-provisioner.js";
 import { MASTER_POLICY, PrivyMasterPolicy } from "./live/privy-master-policy.js";
+import { PrivyPolicyMasterSigner, WORKER_MASTER_SIGNER } from "./live/privy-policy-master-signer.js";
 import { CopyFundingController } from "./copy-funding.controller.js";
 import { CopyFundingRepository } from "./copy-funding.repository.js";
 import { CopyFundingService } from "./copy-funding.service.js";
@@ -112,6 +113,8 @@ import { HyperliquidAllDexsAccountSource } from './live/live-account-ws-source.j
     CopyFollowerSnapshotRepository, CopyFollowerSnapshotService,
     CopyLiveMandateRepository, CopyLiveMandateService, CopyLiveStopRepository, CopyLiveStopService, CopyLiveReturnRepository, CopyLiveReturnService, CopyLivePortfolioRepository, CopyLiveCloseService, CopyLiveCloseRepository,
     { provide: MASTER_ACTION_SIGNER, inject: [AppConfig], useFactory: (config: AppConfig) => new PrivyMasterActionSigner(config.value.auth) },
+    { provide: WORKER_MASTER_SIGNER, inject: [AppConfig], useFactory: (config: AppConfig) => new PrivyPolicyMasterSigner({ appId: config.value.auth.appId, appSecret: config.value.auth.appSecret,
+      workerQuorumId: config.value.copy.agent?.workerQuorumId, authorizationPrivateKey: config.value.copy.agent?.authorizationPrivateKey }) },
     { provide: HyperliquidFollowerReceiptReader, inject: [RequestBudgeterService, HyperliquidGlobalTransport], useFactory: (budget: RequestBudgeterService, transport: HyperliquidGlobalTransport) =>
       new HyperliquidFollowerReceiptReader("testnet", weight => budget.acquire(weight, "background", undefined, { signal: AbortSignal.timeout(5_000) }), transport.fetchInfo) },
     { provide: USER_AGENT_PROVISIONER, inject: [AppConfig], useFactory: (config: AppConfig) => new PrivyUserAgentProvisioner({

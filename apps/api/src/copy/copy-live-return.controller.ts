@@ -5,7 +5,7 @@ import { BusyFilter } from '../traders/busy.js';
 import { CopyLiveReturnService } from './copy-live-return.service.js';
 import { CopyWalletIdDto } from './dto/copy-wallet.dto.js';
 import { CopyFundingIdDto } from './dto/copy-funding.dto.js';
-import { ApproveCopyMasterActionDto, CopyBuilderApprovalInputDto, CopyReturnInputDto } from './dto/copy-live-return.dto.js';
+import { ApproveCopyMasterActionDto, ApproveCopyReturnDto, CopyBuilderApprovalInputDto, CopyReturnInputDto } from './dto/copy-live-return.dto.js';
 
 function bearer(authorization?: string): string {
   if (!authorization?.startsWith('Bearer ') || !authorization.slice(7).trim()) throw new UnauthorizedException('Sign in required');
@@ -20,8 +20,8 @@ export class CopyLiveReturnController {
   @ApiDoc('Prepare returning USDC from a copy\'s account to my main wallet', 'An amount of idle funds while copying, or "all" once the copy\'s stop is flat. Returns the exact consent to sign; moves nothing.')
   reserve(@CurrentUser() user: RequestUser | null, @Param() params: CopyWalletIdDto, @Body() body: CopyReturnInputDto) { return this.returns.reserve(requireUserId(user), params.id, body); }
   @Post('returns/:id/approve') @HttpCode(200)
-  @ApiDoc('Send the return I consented to', 'Requires the main wallet\'s consent and a fresh session; the account signs the exact transfer through Privy, one attempt. Credit is confirmed from the main wallet\'s ledger.')
-  approve(@CurrentUser() user: RequestUser | null, @Param() params: CopyFundingIdDto, @Body() body: ApproveCopyMasterActionDto, @Headers('authorization') authorization?: string) {
+  @ApiDoc('Send the return I consented to', 'Requires the main wallet\'s consent and a fresh session; the account signs the exact transfer through Privy, one attempt. An account with the automatic return needs no consent: the worker signs, and its policy allows only my main wallet. Credit is confirmed from the main wallet\'s ledger.')
+  approve(@CurrentUser() user: RequestUser | null, @Param() params: CopyFundingIdDto, @Body() body: ApproveCopyReturnDto, @Headers('authorization') authorization?: string) {
     const userId = requireUserId(user); return this.returns.approve(userId, params.id, body, bearer(authorization));
   }
   @Post('execution-wallets/:id/builder-approval') @HttpCode(200)

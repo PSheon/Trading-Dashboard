@@ -54,6 +54,28 @@ describe('returning USDC from a copy account to the main wallet', () => {
     // While it is pending, no other wallet operation of the account starts.
     await expect(service.reserve(1, 'account', { idempotencyKey: key(2), amount: '1' })).rejects.toMatchObject({ status: 409 });
   });
+  it('idle funds without a signature: only an account with the automatic return, signed by the worker under its policy (Paul\'s decision 3)', async () => {
+    const worker = { available: true, sign: vi.fn(async () => `0x${'22'.repeat(64)}1b`) };
+    const automatic = new CopyLiveReturnService(config(), new CopyLiveReturnRepository(db), exchange as unknown as CopyFundingExchangeClient, new CopyLiveMandateRepository(db), signer, () => clock, worker as never);
+    const legacy = await automatic.reserve(1, 'account', { idempotencyKey: key(30), amount: '3' });
+    await expect(automatic.approve(1, legacy.operation.id, {}, 'owner-jwt')).rejects.toMatchObject({ status: 403, response: expect.objectContaining({ code: 'invalid_consent' }) });
+    expect(worker.sign).not.toHaveBeenCalled(); expect(signer.sign).not.toHaveBeenCalled();
+    await db.update(schema.copyFundingOperations).set({ status: 'cancelled' });
+    await db.update(schema.copyExecutionAccounts).set({ masterPolicyId: 'policy-1', masterPolicyFingerprint: 'c'.repeat(64), masterSignerQuorumId: 'worker',
+      sweepDestination: owner.address.toLowerCase(), signerAttachedAt: new Date(clock) });
+    const challenge = await automatic.reserve(1, 'account', { idempotencyKey: key(31), amount: '12.5' });
+    expect(await automatic.approve(1, challenge.operation.id, {}, 'owner-jwt')).toMatchObject({ status: 'accepted' });
+    expect(signer.sign).not.toHaveBeenCalled();
+    const [target, data, bound] = worker.sign.mock.calls[0]! as unknown as [object, object, object];
+    expect(target).toEqual({ walletId: 'master', address: seed.f.identity.accountAddress, ownerQuorumId: 'owner', workerQuorumId: 'worker', policyId: 'policy-1' });
+    expect(data).toMatchObject({ primaryType: 'HyperliquidTransaction:UsdSend', message: { destination: owner.address.toLowerCase(), amount: '12.5' } });
+    expect(bound).toEqual({ network: 'testnet', destination: owner.address.toLowerCase() });
+    // A main wallet that changed since the policy was made: no unsigned return.
+    await db.update(schema.copyFundingOperations).set({ status: 'cancelled' });
+    await db.update(schema.users).set({ embeddedWalletAddress: foreign.address.toLowerCase() });
+    const moved = await automatic.reserve(1, 'account', { idempotencyKey: key(32), amount: '1' });
+    await expect(automatic.approve(1, moved.operation.id, {}, 'owner-jwt')).rejects.toMatchObject({ status: 403 });
+  });
   it('a return in flight excludes a new deposit to the same copy account, as a deposit excludes a return', async () => {
     await service.reserve(1, 'account', { idempotencyKey: key(7), amount: '5' });
     await expect(new CopyFundingRepository(db).reserve(1, 'account', 'testnet', { idempotencyKey: key(8), amount: '10' })).rejects.toMatchObject({ status: 409 });

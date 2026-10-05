@@ -1686,7 +1686,7 @@
     },
     "/me/copy/live/returns/{id}/approve": {
       "post": {
-        "description": "Requires the main wallet's consent and a fresh session; the account signs the exact transfer through Privy, one attempt. Credit is confirmed from the main wallet's ledger.\n\nAccess: user (owner); main-wallet consent and fresh session; one attempt",
+        "description": "Requires the main wallet's consent and a fresh session; the account signs the exact transfer through Privy, one attempt. An account with the automatic return needs no consent: the worker signs, and its policy allows only my main wallet. Credit is confirmed from the main wallet's ledger.\n\nAccess: user (owner); main-wallet consent and fresh session; one attempt",
         "operationId": "CopyLiveReturnController_approve",
         "parameters": [
           {
@@ -1712,7 +1712,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ApproveCopyMasterActionDto"
+                "$ref": "#/components/schemas/ApproveCopyReturnDto"
               }
             }
           }
@@ -2622,6 +2622,40 @@
                                     "required": [
                                       "reason",
                                       "at"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "automaticReturn": {
+                                "type": "boolean"
+                              },
+                              "sweep": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "amount": {
+                                        "type": "string"
+                                      },
+                                      "status": {
+                                        "type": "string",
+                                        "enum": [
+                                          "prepared",
+                                          "unknown",
+                                          "accepted",
+                                          "credited",
+                                          "rejected",
+                                          "cancelled"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "amount",
+                                      "status"
                                     ],
                                     "additionalProperties": false
                                   },
@@ -39320,18 +39354,15 @@
         ],
         "additionalProperties": false
       },
-      "ApproveCopyMasterActionDto": {
+      "ApproveCopyReturnDto": {
         "type": "object",
         "properties": {
           "consentSignature": {
             "type": "string",
             "pattern": "^0x[0-9a-fA-F]{130}$",
-            "description": "Main-wallet EIP-712 signature over the exact consent"
+            "description": "Main-wallet EIP-712 signature over the exact consent; omitted for an account with the automatic return (the worker signs, its policy allows only the main wallet)"
           }
         },
-        "required": [
-          "consentSignature"
-        ],
         "additionalProperties": false
       },
       "CopyBuilderApprovalInputDto": {
@@ -39345,6 +39376,20 @@
         },
         "required": [
           "idempotencyKey"
+        ],
+        "additionalProperties": false
+      },
+      "ApproveCopyMasterActionDto": {
+        "type": "object",
+        "properties": {
+          "consentSignature": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{130}$",
+            "description": "Main-wallet EIP-712 signature over the exact consent"
+          }
+        },
+        "required": [
+          "consentSignature"
         ],
         "additionalProperties": false
       },

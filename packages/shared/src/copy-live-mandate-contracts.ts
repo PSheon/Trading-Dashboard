@@ -100,6 +100,13 @@ export const liveCopyPortfolioItemSchema = z.object({
   pendingTransfer: z.object({ id: z.string().uuid(), direction: z.enum(['to_account', 'to_main']), status: z.enum(['prepared', 'unknown', 'accepted']), amount: z.string() }).strict().nullable(),
   /** The latest leg the worker refused, with its reason (e.g. a price deviation). */
   lastRefusal: z.object({ reason: z.string(), at: z.string().datetime() }).strict().nullable(),
+  /** The account's funds return to the main wallet by themselves after a
+   * stop (the worker's policy-bound signer); idle withdrawals need no
+   * signature. Optional while older APIs roll out. */
+  automaticReturn: z.boolean().optional(),
+  /** The latest stop's return to the main wallet (credited: the amount
+   * that arrived). */
+  sweep: z.object({ amount: z.string(), status: z.enum(['prepared', 'unknown', 'accepted', 'credited', 'rejected', 'cancelled']) }).strict().nullable().optional(),
 }).strict();
 export type LiveCopyPortfolioItem = z.infer<typeof liveCopyPortfolioItemSchema>;
 export const liveCopyPortfolioSchema = z.object({ network: z.literal('testnet'), automaticExecution: z.boolean(), items: z.array(liveCopyPortfolioItemSchema).max(50) }).strict();

@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Inject, Inj
 import { createHash } from 'node:crypto';
 import { verifyTypedData } from 'viem';
 import { z } from 'zod';
-import { approveBuilderFeeRequest, approveBuilderFeeTypedData, approveCopyMasterActionSchema, canonicalUsdc, copyBuilderChallengeSchema, copyBuilderConsentTypedData,
+import { approveBuilderFeeRequest, approveBuilderFeeTypedData, approveCopyMasterActionSchema, approveCopyReturnSchema, canonicalUsdc, copyBuilderChallengeSchema, copyBuilderConsentTypedData,
   copyReturnChallengeSchema, copyReturnConsentTypedData, copyReturnInputSchema, usdSendTypedData, WALLET_NETWORKS, withdrawalUnits } from '@trading-dashboard/shared/contracts';
 import { AppConfig } from '../config/app-config.js';
 import { Dec } from '../common/decimal/dec.js';
@@ -11,6 +11,7 @@ import { wire } from './copy-funding.service.js';
 import { CopyLiveMandateRepository } from './copy-live-mandate.repository.js';
 import { CopyLiveReturnRepository, RETURN_CONSENT_WINDOW_MS, type BuilderApprovalRow, type ReturnRow } from './copy-live-return.repository.js';
 import { MASTER_ACTION_SIGNER, type MasterActionSigner } from './live/privy-master-signer.js';
+import { WORKER_MASTER_SIGNER, type WorkerMasterSigner } from './live/privy-policy-master-signer.js';
 
 const CONSENT_WINDOW_MS = RETURN_CONSENT_WINDOW_MS;
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -33,7 +34,9 @@ function input<T>(schema: z.ZodType<T>, value: unknown): T {
 export class CopyLiveReturnService {
   constructor(private readonly config: AppConfig, private readonly repository: CopyLiveReturnRepository, private readonly exchange: CopyFundingExchangeClient,
     private readonly mandates: CopyLiveMandateRepository, @Inject(MASTER_ACTION_SIGNER) private readonly signer: MasterActionSigner,
-    @Optional() private readonly now: () => number = Date.now) {}
+    @Optional() private readonly now: () => number = Date.now,
+    /** Signs as an account with the automatic return (no owner consent needed). */
+    @Optional() @Inject(WORKER_MASTER_SIGNER) private readonly workerSigner: WorkerMasterSigner | null = null) {}
   private assertAvailable() {
     if (this.config.value.hyperliquid.wallet.network !== 'testnet' || this.config.value.copy.mode === 'disabled' || !this.signer.available) throw new ServiceUnavailableException('Account returns are available on testnet only');
   }
@@ -59,14 +62,23 @@ export class CopyLiveReturnService {
 
   async approve(userId: number, id: string, body: unknown, userJwt: string) {
     this.assertAvailable();
-    const { consentSignature } = input(approveCopyMasterActionSchema, body);
+    const { consentSignature } = input(approveCopyReturnSchema, body);
     const row = await this.repository.find(userId, id), consent = this.consent(row), now = this.now();
     if (row.status !== 'prepared') return wire(row);
     if (now >= consent.consentExpiresAt) throw new ConflictException({ statusCode: 409, code: 'consent_expired', message: 'Prepare the return again' });
-    let valid = false;
-    try { valid = await verifyTypedData({ address: row.destination as `0x${string}`, ...copyReturnConsentTypedData(consent), signature: consentSignature as `0x${string}` }); } catch { /* invalid */ }
-    if (!valid) throw new ForbiddenException('Invalid owner consent');
     const context = await this.contextOf(userId, row.accountId);
+    // Without a consent only an account with the automatic return: its worker
+    // signer's policy allows nothing but this destination (Paul's decision 3).
+    const account = context.account;
+    const automatic = consentSignature === undefined;
+    if (automatic) {
+      if (!account.masterPolicyId || !account.masterSignerQuorumId || !account.sweepDestination || account.sweepDestination !== context.owner.embeddedWalletAddress ||
+        row.destination !== account.sweepDestination || !this.workerSigner?.available) throw new ForbiddenException({ statusCode: 403, code: 'invalid_consent', message: 'Sign the return with your main wallet' });
+    } else {
+      let valid = false;
+      try { valid = await verifyTypedData({ address: row.destination as `0x${string}`, ...copyReturnConsentTypedData(consent), signature: consentSignature as `0x${string}` }); } catch { /* invalid */ }
+      if (!valid) throw new ForbiddenException('Invalid owner consent');
+    }
     if (!Dec.from(await this.exchange.withdrawable('testnet', row.address)).gte(row.amount)) throw new ConflictException({ statusCode: 409, code: 'no_free_collateral', message: 'Not enough transferable USDC' });
     const checkedAt = this.now();
     const fresh = () => { const at = this.now(); if (!Number.isSafeInteger(at) || at - checkedAt > 5000 || at >= consent.consentExpiresAt) throw new Error('stale'); };
@@ -74,9 +86,12 @@ export class CopyLiveReturnService {
     if (!attempt) return wire(await this.repository.find(userId, id));
     let signature: string;
     try {
-      signature = await this.signer.sign({ walletId: context.account.privyWalletId!, address: row.address, ownerQuorumId: context.account.ownerQuorumId! },
-        usdSendTypedData(WALLET_NETWORKS.testnet, row.destination, row.amount, row.nonce), userJwt, consent.consentExpiresAt, fresh,
-        { network: 'testnet', destination: context.owner.embeddedWalletAddress! });
+      const typed = usdSendTypedData(WALLET_NETWORKS.testnet, row.destination, row.amount, row.nonce);
+      signature = automatic
+        ? await this.workerSigner!.sign({ walletId: account.privyWalletId!, address: row.address, ownerQuorumId: account.ownerQuorumId!, workerQuorumId: account.masterSignerQuorumId!, policyId: account.masterPolicyId! },
+          typed, { network: 'testnet', destination: account.sweepDestination! }, consent.consentExpiresAt)
+        : await this.signer.sign({ walletId: account.privyWalletId!, address: row.address, ownerQuorumId: account.ownerQuorumId! },
+          typed, userJwt, consent.consentExpiresAt, fresh, { network: 'testnet', destination: context.owner.embeddedWalletAddress! });
     } catch {
       // Not signed: the exchange cannot have it. Definitely not sent.
       return wire(await this.repository.finish(userId, id, 'rejected', digest({ reason: 'master_signature_unavailable', id })));

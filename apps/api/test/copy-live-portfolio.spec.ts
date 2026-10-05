@@ -40,10 +40,17 @@ describe('testnet copy stages for the portfolio', () => {
     await db.insert(schema.copyLiveStopOperations).values({ ...values, id: '44444444-4444-4444-8444-444444444444', state: 'closing' });
     expect(await stage()).toMatchObject({ stage: 'stopping', stop: { state: 'closing' } });
     await db.update(schema.copyLiveStopOperations).set({ state: 'flat', flatCertificate: {}, flatDigest: 'd'.repeat(64), flatVerifiedAt: new Date(now) });
-    expect((await stage()).stage).toBe('sweeping');
+    expect(await stage()).toMatchObject({ stage: 'sweeping', automaticReturn: false, sweep: null });
+    // An account with the automatic return, its sweep in flight, then credited.
+    await db.update(schema.copyExecutionAccounts).set({ masterPolicyId: 'policy-1', masterPolicyFingerprint: 'c'.repeat(64), masterSignerQuorumId: 'worker',
+      sweepDestination: `0x${'55'.repeat(20)}`, signerAttachedAt: new Date(now) });
+    await db.insert(schema.copyFundingOperations).values({ id: '55555555-5555-4555-8555-555555555555', userId: 1, accountId: 'account', strategyId: 9, idempotencyKey: 'sweep:44444444-4444-4444-8444-444444444444',
+      network: 'testnet', address: seed.f.identity.accountAddress, destination: `0x${'55'.repeat(20)}`, amount: '97.5', nonce: now + 5, direction: 'to_main', stopId: '44444444-4444-4444-8444-444444444444',
+      status: 'accepted', claimedAt: new Date(now), attemptedAt: new Date(now), evidenceHash: 'e'.repeat(64) });
+    expect(await stage()).toMatchObject({ stage: 'sweeping', automaticReturn: true, sweep: { amount: '97.5', status: 'accepted' } });
     await db.update(schema.copyLiveStopOperations).set({ state: 'stopped' });
     await db.update(schema.copyStrategies).set({ status: 'stopped', stoppedAt: new Date(now) });
-    expect(await stage()).toMatchObject({ stage: 'stopped', stop: null });
+    expect(await stage()).toMatchObject({ stage: 'stopped', stop: null, sweep: { amount: '97.5' } });
     const fill = seed.fill;
     await db.insert(schema.copyLiveDispatches).values({ id: 'refused-leg', mandateId: 'mandate', userId: 1, strategyId: 9, accountId: 'account', sourceFillId: fill.id, leg: 'open', coin: 'BTC',
       state: 'refused', reason: 'live_source_price_deviation', leaderTime: new Date(now), receivedAt: new Date(now) });

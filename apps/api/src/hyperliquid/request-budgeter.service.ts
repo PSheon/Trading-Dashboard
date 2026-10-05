@@ -366,18 +366,25 @@ export class RequestBudgeterService {
 
   /**
    * Refills both buckets from one rate. The reserve gets everything until
-   * it is full while nothing waits for the main bucket; half the refill
-   * while main-bucket work is waiting (so a cold page's own fill lists
-   * aren't held behind the reserve refilling after its first paint); and
-   * only its guaranteed share (`pageReserveShare`) while page work is over
-   * its share of the minute. The rest goes to the main bucket.
+   * it is full while nothing waits for the main bucket or a first-paint
+   * call waits for it; a third of the refill while only main-bucket work is
+   * waiting (so a cold page's own fill lists aren't held behind the
+   * reserve refilling after its first paint); and only its guaranteed
+   * share (`pageReserveShare`) while page work is over its share of the
+   * minute. The rest goes to the main bucket.
    */
   private refill(now: number): void {
     const elapsed = Math.max(0, now - this.lastRefillAt);
     this.lastRefillAt = now;
     if (elapsed === 0) return;
     const delta = this.refilled(now - elapsed, now);
-    const share = this.pageOverShare(now) ? this.pageReserveShare : this.queues.background.some((w) => !w.interactive) ? RESERVE_REFILL_SPLIT : 1;
+    // While a first-paint call waits for the reserve, the whole refill is
+    // its: split with the fill lists and trade-analytics jobs that are
+    // always queued behind a cold page, a second cold page's profile waited
+    // three times as long as the budget needed (Stage, 2026-10-05).
+    const background = this.queues.background;
+    const share = this.pageOverShare(now) ? this.pageReserveShare
+      : background.some((w) => w.interactive) || !background.some((w) => !w.interactive) ? 1 : RESERVE_REFILL_SPLIT;
     const toReserve = Math.min(delta * share, Math.max(0, this.reserveCapacity - this.reserve));
     this.reserve += toReserve;
     this.tokens = Math.min(this.mainCapacity, this.tokens + delta - toReserve);

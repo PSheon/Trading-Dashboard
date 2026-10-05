@@ -133,6 +133,28 @@ describe("page work in the Hyperliquid budget", () => {
     budget.onModuleDestroy();
   });
 
+  it("refills the reserve at the whole rate while a first-paint call waits for it, even with lists queued behind (Stage, 2026-10-05)", { timeout: 60_000 }, async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", "480");
+    vi.stubEnv("HYPERLIQUID_WEIGHT_BURST", "200");
+    const budget = new RequestBudgeterService(testConfig());
+    // A cold page's first paint took the reserve (120) and its fill list
+    // took the main bucket into debt; a background list waits behind them.
+    await asClient("203.0.113.1", () => budget.acquire(120, "background", PAGE_RANK.profile));
+    await asClient("203.0.113.1", () => budget.acquire(120, "background", PAGE_RANK.fills, { known: 20 }));
+    const list = track(budget.acquire(120, "background"));
+    // The next cold page's profile (60): at 8/s it needs 7.5 s of refill;
+    // with a third of it, 22.5 s.
+    const started = Date.now();
+    const profile = asClient("203.0.113.2", () => budget.acquire(60, "background", PAGE_RANK.profile)).then(() => Date.now() - started);
+    let waited = Infinity;
+    void profile.then((ms) => { waited = ms; });
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(waited).toBeLessThanOrEqual(8_000);
+    expect(list.state).not.toBe("refused");
+    budget.onModuleDestroy();
+  });
+
   it("drops page work still queued once its request has been answered", async () => {
     vi.useFakeTimers();
     const budget = await drained();

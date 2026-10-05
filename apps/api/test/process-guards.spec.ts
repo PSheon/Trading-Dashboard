@@ -11,7 +11,7 @@ describe("process guards", () => {
     const target = Object.assign(new EventEmitter(), { exitCode: undefined as number | undefined, pid: 1, kill: vi.fn() }) as unknown as NodeJS.Process;
     const log = logger();
     installProcessGuards(log, target);
-    target.emit("unhandledRejection", new DOMException("The operation was aborted due to timeout", "TimeoutError"), Promise.resolve());
+    (target as unknown as EventEmitter).emit("unhandledRejection", new DOMException("The operation was aborted due to timeout", "TimeoutError"), Promise.resolve());
     expect(log.error).toHaveBeenCalledWith(expect.stringContaining("Unhandled rejection: TimeoutError"));
     expect(target.kill).not.toHaveBeenCalled();
     expect(target.exitCode).toBeUndefined();
@@ -21,7 +21,7 @@ describe("process guards", () => {
     const target = Object.assign(new EventEmitter(), { exitCode: undefined as number | undefined, pid: 42, kill: vi.fn() }) as unknown as NodeJS.Process;
     const log = logger();
     installProcessGuards(log, target);
-    target.emit("uncaughtException", new TypeError("boom"), "uncaughtException");
+    (target as unknown as EventEmitter).emit("uncaughtException", new TypeError("boom"), "uncaughtException");
     expect(log.error).toHaveBeenCalledWith(expect.stringContaining("TypeError: boom"));
     expect(target.exitCode).toBe(1);
     expect(target.kill).toHaveBeenCalledWith(42, "SIGTERM");

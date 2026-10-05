@@ -283,8 +283,8 @@ No. All data, rankings, scores and featured traders on Orbie are information onl
 
 ### How do I get in touch?
 
-- Email: 【待填：contact email】
+- Email: coming soon
 - X: [@orbie_fun](https://x.com/orbie_fun)
-- 【待填：Telegram community or support channel】
+- Telegram community: coming soon
 
 Note: @orbie_fun_bot only sends alerts and does not handle support messages.

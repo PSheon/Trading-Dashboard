@@ -16,7 +16,7 @@ In Orbie: 1. Open Settings. 2. On a phone, tap the row at the top showing your e
 
 ## If you cannot sign in
 
-Email 【待填：contact email】 from the address registered to your account and ask us to delete it. We will verify that the request comes from you and complete the deletion within 30 days.
+Email contact is coming soon. Until then, send us a DM on X ([@orbie_fun](https://x.com/orbie_fun)) with the email or wallet address you signed up with and ask us to delete your account. We will verify that the request comes from you and complete the deletion within 30 days.
 
 ## What is deleted
 
@@ -30,4 +30,4 @@ The following is removed as soon as you delete your account: your Orbie account 
 
 ## Questions
 
-If you have questions about deleting your account or your data, contact 【待填：contact email】.
+If you have questions about deleting your account or your data, send us a DM on X ([@orbie_fun](https://x.com/orbie_fun)). Email contact is coming soon.

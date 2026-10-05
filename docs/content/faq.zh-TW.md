@@ -281,8 +281,8 @@ Orbie 唯一的官方機器人是 **@orbie_fun_bot**。它只會發送提醒，*
 
 ### 遇到問題怎麼聯絡？
 
-- Email：【待填：聯絡信箱】
+- Email：即將推出
 - X：[@orbie_fun](https://x.com/orbie_fun)
-- 【待填：Telegram 社群或客服管道】
+- Telegram 社群：即將推出
 
 請注意：@orbie_fun_bot 只負責發送提醒，不處理客服訊息。

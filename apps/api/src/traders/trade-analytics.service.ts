@@ -242,7 +242,11 @@ export class TradeAnalyticsService {
     if (!row) return { row: await this.compute(address, true, { caller }), watched: false };
     const watched = await this.traders.isTracked(address);
     const age = Date.now() - row.computedAt.getTime();
-    if (age > (watched ? TRACKED_FALLBACK_MS : STALE_MS)) this.compute(address, false, { caller }).catch(() => undefined);
+    // Nobody waits for a stale row's refresh (the stored answer goes out
+    // now), so it goes behind every page's own calls: at the analytics rank
+    // its list and state reads drained the main bucket the next cold page's
+    // first paint and fill lists needed (Stage, 2026-10-05).
+    if (age > (watched ? TRACKED_FALLBACK_MS : STALE_MS)) this.compute(address, false, { caller, rank: UNRANKED_BASE }).catch(() => undefined);
     return { row, watched };
   }
 

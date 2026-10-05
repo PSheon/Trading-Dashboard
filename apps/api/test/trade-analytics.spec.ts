@@ -12,6 +12,7 @@ import { AnalysisHistoryRepository } from "../src/traders/analysis-history.repos
 import { HistoryFillStore } from "../src/traders/history-fill.store.js";
 import { AnalysisHistoryService } from "../src/traders/analysis-history.service.js";
 import { TradeAnalyticsRepository } from "../src/traders/trade-analytics.repository.js";
+import { UNRANKED_BASE } from "../src/hyperliquid/request-budgeter.service.js";
 import { STALE_MS, MAX_CONCURRENT, MAX_WAITING, TRACKED_FALLBACK_MS, TradeAnalyticsService } from "../src/traders/trade-analytics.service.js";
 import { PAGE_DEADLINE_MS } from "../src/traders/traders.controller.js";
 import type { TradersService } from "../src/traders/traders.service.js";
@@ -263,6 +264,22 @@ describe("trade analytics for any address", () => {
     const eth = (await get(`/traders/${X}/trades?status=closed`)).body.data.items.find((t: { coin: string }) => t.coin === "ETH");
     expect(eth.funding).toBe(0.25);
     expect(res.body.data.coverage.fundingFrom).not.toBeNull();
+  });
+
+  it("refreshes a stale row behind every page call: nobody waits for it (Stage, 2026-10-05)", async () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(T(3));
+    try { await service.compute(X, true); await service.settled(); }
+    finally { clock.mockRestore(); }
+    history.push(fill("SOL", 5, -5, 12, T(1), { closedPnl: "10" }));
+    info.userFillsByTime.mockClear();
+    info.clearinghouseState.mockClear();
+    await db.update(traderAnalytics).set({ computedAt: new Date(Date.now() - STALE_MS - 1000) });
+    await get(`/traders/${X}/analytics`).expect(200);
+    await waitFor(async () => (await db.select().from(traderAnalytics))[0].fillCursor!.getTime() === T(1));
+    await service.settled();
+    const ranks = [...info.userFillsByTime.mock.calls, ...info.clearinghouseState.mock.calls].map((call) => (call as unknown[]).at(-1));
+    expect(ranks.length).toBeGreaterThan(0);
+    expect(ranks.every((rank) => typeof rank === "number" && rank >= UNRANKED_BASE)).toBe(true);
   });
 
   it("does not use a partial profile as evidence that positions closed", async () => {

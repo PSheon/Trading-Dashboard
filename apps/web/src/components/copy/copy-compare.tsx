@@ -5,7 +5,7 @@ import { cn } from "cn";
 
 import { AreaChart } from "@/components/charts/area-chart";
 import { Seg } from "@/components/copy/portfolio-parts";
-import { Skeleton } from "@/components/page";
+import { SkelBar, Skeleton } from "@/components/page";
 import { RoiPill } from "@/components/traders/bits";
 import { useI18n } from "@/i18n/provider";
 import type { CopyStrategyView } from "@/lib/contracts";
@@ -83,7 +83,12 @@ export function CopyCompare({ strategy: s, traderName }: { strategy: CopyStrateg
       <div className="flex items-start justify-between gap-3 px-3 pt-3">
         <div className="flex flex-col items-start gap-2">
           <p className="text-xs text-muted-foreground">{view === "yours" ? t("pf.detail.yourCopy") : traderName}</p>
-          {query.isPending && !query.data ? <Skeleton className="h-8 w-40" /> : (
+          {query.isPending && !query.data ? (
+            <>
+              <SkelBar line="h-[28.6px]" className="ui-skeleton h-6 w-40 bg-raised" />
+              {metric === "pnl" ? <SkelBar className="ui-skeleton h-[26px] w-20 bg-raised" /> : null}
+            </>
+          ) : (
             <p className={cn("num text-[26px] leading-[1.1] font-bold", last ? tone(last[1]) : "text-muted-foreground")}>
               {!last ? "—" : metric === "roi" ? format.pct(last[1], { sign: true, digits: 2 }) : format.usd(last[1], { sign: true, digits: 2 })}
             </p>

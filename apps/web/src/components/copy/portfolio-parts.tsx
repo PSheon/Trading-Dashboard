@@ -8,7 +8,7 @@ import { cn } from "cn";
 import { AreaChart } from "@/components/charts/area-chart";
 import { PaperBadge } from "@/components/copy/paper-badge";
 import { TraderAvatar, boardName } from "@/components/discover/board-bits";
-import { SkelBar, Skeleton } from "@/components/page";
+import { ListRowsSkeleton, SkelBar, Skeleton } from "@/components/page";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { RoiPill } from "@/components/traders/bits";
 import { Button } from "@/components/ui/button";
@@ -281,7 +281,7 @@ function BestWorst({ leaders }: { leaders: Map<string, Leader> }) {
       ) : list.isError ? (
         <p className="py-4 text-sm text-muted-foreground">{t("copyUpdates.historyError")}</p>
       ) : (
-        <Skeleton className="h-40" />
+        <ListRowsSkeleton rowClassName="py-2.5" />
       )}
     </section>
   );

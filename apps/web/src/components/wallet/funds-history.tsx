@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import { cn } from "cn";
 
 import { PaperBadge } from "@/components/copy/paper-badge";
-import { EmptyState, ErrorState, Skeleton } from "@/components/page";
+import { EmptyState, ErrorState, ListRowsSkeleton } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n/provider";
 import type { MessageKey } from "@/i18n/messages";
@@ -47,7 +47,7 @@ export function FundsHistory({ className }: { className?: string }) {
       {hub.isError ? <ErrorState onRetry={() => void hub.refetch()} /> : null}
       {flows.isError ? <ErrorState onRetry={() => void flows.refetch()} /> : null}
       {loading ? (
-        <div className="flex flex-col gap-2">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
+        <ListRowsSkeleton />
       ) : shown.length === 0 ? (
         <EmptyState icon={ReceiptText} title={t("funds.empty")} body={t("wallet.historyEmptyBody")} />
       ) : (

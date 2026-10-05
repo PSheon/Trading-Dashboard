@@ -175,3 +175,22 @@ export function SkelBar({ className, line }: { className?: string; line?: string
 export function SkelCircle({ className }: { className?: string }) {
   return <span className={cn("block shrink-0 rounded-full bg-[var(--skel-bar,var(--inset))]", className)} />;
 }
+
+/** A dotted list while it loads (activity, trades, transfers): rows of an
+ * icon or avatar disc, a title and a detail line, and a figure at the end. */
+export function ListRowsSkeleton({ rows = 3, className, rowClassName = "py-3", circle = "size-9" }: { rows?: number; className?: string; rowClassName?: string; circle?: string }) {
+  return (
+    <ul aria-hidden="true" className={cn("ui-skeleton divide-y-2 divide-dotted divide-border [--skel-bar:var(--raised)]", className)}>
+      {Array.from({ length: rows }, (_, i) => (
+        <li key={i} className={cn("flex items-center gap-3", rowClassName)}>
+          <SkelCircle className={circle} />
+          <span className="flex min-w-0 flex-1 flex-col gap-1">
+            <SkelBar line="h-5" className={i % 2 ? "h-3 w-24" : "h-3 w-32"} />
+            <SkelBar line="h-4" className="h-2.5 w-20" />
+          </span>
+          <SkelBar className="h-3 w-16" />
+        </li>
+      ))}
+    </ul>
+  );
+}

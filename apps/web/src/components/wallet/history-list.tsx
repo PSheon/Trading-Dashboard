@@ -3,7 +3,7 @@
 import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, ReceiptText } from "lucide-react";
 import { cn } from "cn";
 
-import { EmptyState, ErrorState, Skeleton } from "@/components/page";
+import { EmptyState, ErrorState, ListRowsSkeleton } from "@/components/page";
 import { useI18n } from "@/i18n/provider";
 import type { MessageKey } from "@/i18n/messages";
 import type { TraderTransfer } from "@/lib/contracts";
@@ -89,13 +89,7 @@ export function WalletHistoryList({ className }: { className?: string }) {
     return <ErrorState onRetry={() => history.refetch()} />;
   }
   if (!history.data) {
-    return (
-      <div className={cn("flex flex-col gap-2", className)}>
-        {[0, 1, 2].map((i) => (
-          <Skeleton key={i} className="h-14 w-full" />
-        ))}
-      </div>
-    );
+    return <ListRowsSkeleton className={className} />;
   }
   return (
     <div className={className}>

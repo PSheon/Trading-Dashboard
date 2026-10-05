@@ -4,7 +4,7 @@ import { Loader2, TriangleAlert } from "lucide-react";
 import { useIsMutating } from "@tanstack/react-query";
 import { useId, useState } from "react";
 
-import { ErrorState, Skeleton } from "@/components/page";
+import { ErrorState, SkelBar } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
@@ -71,12 +71,19 @@ export function WithdrawDialog({ open, onOpenChange }: { open: boolean; onOpenCh
       {wallet.isError && !summary ? (
         <ErrorState onRetry={() => wallet.refetch()} />
       ) : !summary ? (
-        <div className="flex flex-col gap-4">
-          <Skeleton className="h-4 w-20" />
-          <Skeleton className="h-12 w-full" />
-          <Skeleton className="h-4 w-24" />
-          <Skeleton className="h-12 w-full" />
-          <Skeleton className="h-14 w-full rounded-full" />
+        // The form's own labels and fields, the 可用 / 最大 line, the note
+        // and the button, while the wallet is read.
+        <div aria-hidden="true" className="ui-skeleton flex flex-col">
+          <span className="text-sm font-semibold">{t("wallet.destination")}</span>
+          <span className="mt-2.5 h-12 rounded-xl bg-inset" />
+          <span className="mt-6 text-sm font-semibold">{t("wallet.amount")}</span>
+          <span className="mt-2.5 h-12 rounded-xl bg-inset" />
+          <span className="mt-1.5 flex items-center justify-between">
+            <SkelBar line="h-4" className="h-2.5 w-28" />
+            <SkelBar line="h-4" className="h-2.5 w-8" />
+          </span>
+          <SkelBar line="mt-6 h-4 justify-center" className="h-2.5 w-64 max-w-full" />
+          <span className="mt-5 h-14 rounded-full bg-raised" />
         </div>
       ) : !summary.address ? (
         <p className="rounded-xl bg-raised p-4 text-sm text-muted-foreground">{t("wallet.noWallet")}</p>

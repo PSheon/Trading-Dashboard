@@ -9,7 +9,7 @@ import { describeCopyEvent } from "@/components/copy/copy-feed";
 import { useLeaders } from "@/components/copy/copy-portfolio";
 import { PaperBadge } from "@/components/copy/paper-badge";
 import { boardName } from "@/components/discover/board-bits";
-import { Skeleton } from "@/components/page";
+import { ListRowsSkeleton } from "@/components/page";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
@@ -84,7 +84,7 @@ function CopiesList() {
     const s = overview.data?.strategies.find((x) => x.id === strategyId);
     return s ? boardName(leaders.get(s.leaderAddress) ?? { address: s.leaderAddress, displayName: null }) : null;
   };
-  if (!events.data) return events.isError ? <p className="py-8 text-center text-sm text-muted-foreground">{t("copyUpdates.activityError")}</p> : <div className="flex flex-col gap-3 py-3">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-12" />)}</div>;
+  if (!events.data) return events.isError ? <p className="py-8 text-center text-sm text-muted-foreground">{t("copyUpdates.activityError")}</p> : <ListRowsSkeleton rows={4} />;
   const items = [...events.data.items].reverse().filter((e) => describeCopyEvent(e).kind !== "other");
   if (!items.length) return <Empty title={t("feed.emptyCopies")} body={t("feed.emptyCopiesDesc")} />;
   return (
@@ -136,7 +136,7 @@ const buys = (a: Pick<ActionFeedItem, "kind" | "side">) => (a.kind === "open" ||
 function FollowingList({ onNavigate }: { onNavigate: () => void }) {
   const { t, format } = useI18n();
   const feed = useActions({ scope: "favorites", limit: 50 }, { refetchInterval: 15_000 });
-  if (!feed.data) return feed.isError ? <p className="py-8 text-center text-sm text-muted-foreground">{t("copyUpdates.activityError")}</p> : <div className="flex flex-col gap-3 py-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-12" />)}</div>;
+  if (!feed.data) return feed.isError ? <p className="py-8 text-center text-sm text-muted-foreground">{t("copyUpdates.activityError")}</p> : <ListRowsSkeleton />;
   if (!feed.data.length) return <Empty title={t("feed.followingEmpty")} body={t("feed.followingWaiting")} />;
   return (
     <ul className="divide-y-2 divide-dotted divide-border">
@@ -163,7 +163,7 @@ function DepositsList() {
   const { t, format } = useI18n();
   const history = useWalletHistory();
   const rows = useMemo(() => (history.data?.transfers ?? []).filter((x) => x.kind === "deposit" || x.kind === "withdraw"), [history.data]);
-  if (!history.data) return history.isError ? <p className="py-8 text-center text-sm text-muted-foreground">{t("copyUpdates.activityError")}</p> : <div className="flex flex-col gap-3 py-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-12" />)}</div>;
+  if (!history.data) return history.isError ? <p className="py-8 text-center text-sm text-muted-foreground">{t("copyUpdates.activityError")}</p> : <ListRowsSkeleton />;
   if (!rows.length) return <Empty title={t("feed.emptyDeposits")} />;
   return (
     <ul className="divide-y-2 divide-dotted divide-border">

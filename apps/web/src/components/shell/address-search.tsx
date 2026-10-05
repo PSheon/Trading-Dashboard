@@ -12,6 +12,7 @@ import { truncateAddress, usdCompact } from "@/lib/format";
 import { useDiscoverSearch } from "@/lib/queries";
 import { useIsDesktop } from "@/lib/use-is-desktop";
 import { useModalFocus } from "@/lib/use-modal-focus";
+import { SkelBar, SkelCircle } from "@/components/page";
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 /** Keystrokes settle this long before a search request goes out. */
@@ -117,6 +118,8 @@ export function AddressSearch({ compact = false, buttonClassName }: {
   const showRecent = open && trimmed.length === 0 && recent.length > 0;
   const showList = (open && trimmed.length > 0 && (rows.length > 0 || (settled && search.isSuccess))) || showRecent;
   const listRows: Array<Result | Recent | { address: string; direct: true }> = showRecent ? recent : rows;
+  // Typed, and the first answer is still out: the list's rows as skeletons.
+  const searching = open && trimmed.length > 0 && !showList && !search.isError && !(settled && !search.isPending);
 
   // Close on a click outside.
   useEffect(() => {
@@ -287,6 +290,40 @@ export function AddressSearch({ compact = false, buttonClassName }: {
       </div>
       {overlay && !showList && trimmed.length === 0 ? (
         <p className="px-5 py-4 text-sm text-muted-foreground">{t("topbar.searchHint")}</p>
+      ) : null}
+      {searching ? (
+        <div
+          role="status"
+          aria-label={t("common.loading")}
+          className={
+            overlay
+              ? "min-h-0 flex-1 overflow-hidden pb-6"
+              : "absolute inset-x-0 top-[calc(100%+10px)] z-50 overflow-hidden rounded-2xl bg-popover p-2 shadow-[0_0_0_2px_var(--card-ring),var(--shadow-pop)]"
+          }
+        >
+          <div aria-hidden="true" className="ui-skeleton">
+            {[0, 1, 2].map((i) =>
+              overlay ? (
+                <div key={i} className="flex min-h-16 flex-col justify-center gap-1.5 px-5 py-3">
+                  <SkelBar className="h-3.5 w-32" />
+                  <SkelBar className="h-2.5 w-56 max-w-full" />
+                </div>
+              ) : (
+                <div key={i} className="flex min-h-14 items-center gap-3 px-3 py-2.5">
+                  <SkelCircle className="size-[34px]" />
+                  <span className="flex min-w-0 flex-1 flex-col gap-1.5">
+                    <SkelBar className="h-3 w-28" />
+                    <SkelBar className="h-2 w-20" />
+                  </span>
+                  <span className="flex flex-col items-end gap-1.5">
+                    <SkelBar className="h-3 w-14" />
+                    <SkelBar className="h-2 w-10" />
+                  </span>
+                </div>
+              ),
+            )}
+          </div>
+        </div>
       ) : null}
       {showList ? (
         <div

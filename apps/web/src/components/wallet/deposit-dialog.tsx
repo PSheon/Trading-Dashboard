@@ -2,7 +2,7 @@
 
 import { ArrowDownToLine, Check, ChevronDown, Info, Loader2, TriangleAlert } from "lucide-react";
 
-import { ErrorState, Skeleton } from "@/components/page";
+import { ErrorState, SkelBar, SkelCircle } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
@@ -46,11 +46,20 @@ export function DepositDialog({ open, onOpenChange }: { open: boolean; onOpenCha
       {wallet.isError && !summary ? (
         <ErrorState onRetry={() => wallet.refetch()} />
       ) : !summary || !network ? (
-        <div className="flex flex-col items-center gap-4">
-          <Skeleton className="h-12 w-full" />
-          <Skeleton className="size-[196px]" />
-          <Skeleton className="h-12 w-full" />
-          <Skeleton className="h-14 w-full rounded-full" />
+        // The chain picker, the QR code, the address row, the note and the
+        // button, while the wallet is read.
+        <div aria-hidden="true" className="ui-skeleton flex flex-col items-center gap-4 [--skel-bar:var(--border)]">
+          <span className="flex h-12 w-full items-center gap-2.5 rounded-xl bg-raised px-4">
+            <SkelCircle className="size-[22px]" />
+            <SkelBar className="h-3 w-28" />
+          </span>
+          <span className="size-[196px] rounded-xl bg-raised" />
+          <span className="flex h-12 w-full items-center gap-2 rounded-xl bg-raised py-2 pr-2 pl-4">
+            <SkelBar className="mx-auto h-3 w-64 max-w-full" />
+            <SkelCircle className="size-8 rounded-lg" />
+          </span>
+          <SkelBar line="h-4" className="h-2.5 w-60 max-w-full bg-raised" />
+          <span className="h-14 w-full rounded-full bg-raised" />
         </div>
       ) : !summary.address ? (
         <p className="rounded-xl bg-raised p-4 text-sm text-muted-foreground">{t("wallet.noWallet")}</p>

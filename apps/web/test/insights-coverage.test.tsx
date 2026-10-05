@@ -46,9 +46,10 @@ describe("the insights headline waits for the tier to be read", () => {
     state.history = { tier: "rekt", window: "all", series: [], btc: [] };
     const html = render();
     expect(state.detail).toMatchObject({ walletCount: 33, memberCount: 150, headlineReady: false, hero: { longPct: 6.9 } });
-    // Neither split card is drawn (their titles are gone with them), so the
-    // partial read's "7% 做多" is nowhere; the per-market map waits as well.
-    expect(html).not.toContain(zhTW.insights.cohort.notional);
+    // Both split cards are their placeholders (the card and its title, no
+    // figure), so the partial read's "7% 做多" is nowhere; the per-market map
+    // waits as well.
+    expect(html.match(/<section aria-hidden="true" class="orbit-card ui-skeleton/g)).toHaveLength(2);
     expect(html).not.toContain(`7% ${zhTW.insights.cohort.long}`);
     expect(html).not.toContain("$69.00K");
     expect(html).toContain(zhTW.insights.cohort.building);

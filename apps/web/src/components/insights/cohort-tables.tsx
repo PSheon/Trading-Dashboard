@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { cn } from "cn";
 
 import { CoinStack, CopyScoreBar, signTone, TraderAvatar, VerifiedTick } from "@/components/discover/board-bits";
+import { SkelBar, SkelCircle } from "@/components/page";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { useI18n } from "@/i18n/provider";
 import type { CohortMarket, CohortWallet } from "@/lib/contracts";
@@ -205,6 +206,41 @@ export function MarketsTable({ rows, filter }: { rows: CohortMarket[]; filter: "
               </tr>
             );
           })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** 錢包 while the tier loads: the same table (header, raised rows, cells'
+ * padding) with an avatar and bars in each row. */
+export function WalletsTableSkeleton({ rows = 8 }: { rows?: number }) {
+  const { t } = useI18n();
+  const c = (key: string) => t(`insights.cohort.cols.${key}` as "insights.cohort.cols.pnl");
+  const right = ["pnl", "roi", "perpEquity", "copyScore", "positionValue", "leverage", "upnl", "bias"] as const;
+  return (
+    <div aria-hidden="true" className="ui-skeleton max-h-[640px] overflow-hidden [--skel-bar:var(--border)]">
+      <table className="cd-cohort-table cd-cohort-wallets w-full border-separate border-spacing-y-2">
+        <thead>
+          <tr>
+            <th className="px-3 py-3 text-left text-[0.8125rem] font-medium whitespace-nowrap text-subtle-foreground">{c("address")}</th>
+            <th className="px-3 py-3 text-left text-[0.8125rem] font-medium text-subtle-foreground">{c("assets")}</th>
+            {right.map((k) => <th key={k} className="px-3 py-3 text-right text-[0.8125rem] font-medium whitespace-nowrap text-subtle-foreground">{c(k)}</th>)}
+          </tr>
+        </thead>
+        <tbody className="data-rows">
+          {Array.from({ length: rows }, (_, r) => (
+            <tr key={r}>
+              <td className="px-3 py-3">
+                <span className="flex items-center gap-[9px]">
+                  <SkelCircle className="size-[22px]" />
+                  <SkelBar line="h-5" className="h-3 w-24" />
+                </span>
+              </td>
+              <td className="px-3 py-3"><SkelBar className="h-4 w-12" /></td>
+              {right.map((k) => <td key={k} className="px-3 py-3"><SkelBar className="ml-auto h-3 w-12" /></td>)}
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>

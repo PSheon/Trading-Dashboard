@@ -10,7 +10,7 @@ import { AlertBell, alertSummary } from "@/components/alerts/alert-bell";
 import { BoardCard, BoardCardSkeleton } from "@/components/discover/board-card";
 import { BoardSparkline, boardName, CopyScoreBar, signTone, TraderAvatar, VerifiedTick } from "@/components/discover/board-bits";
 import { ViewToggle } from "@/components/explore/boards-view";
-import { EmptyState, ErrorState, Skeleton } from "@/components/page";
+import { EmptyState, ErrorState, SkelBar, SkelCircle } from "@/components/page";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { FavoriteButton } from "@/components/traders/bits";
 import { useI18n } from "@/i18n/provider";
@@ -53,17 +53,9 @@ export function FavoritesView() {
     if (next !== `${globalThis.location.pathname}${globalThis.location.search}`) globalThis.history.replaceState(null, "", next);
   }, [tab, view]);
 
-  if (status === "loading") {
-    return (
-      <div className="flex flex-col gap-5" aria-busy="true">
-        <Skeleton className="h-9 w-32" />
-        <Skeleton className="h-11 w-full max-w-md" />
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {Array.from({ length: 4 }, (_, i) => <BoardCardSkeleton key={i} />)}
-        </div>
-      </div>
-    );
-  }
+  // While sign-in is unknown: the signed-in page in its loading state (its
+  // reads wait for the session), as a returning visitor sees it.
+  if (status === "loading") return <div aria-busy="true"><SignedIn tab={tab} onTab={setTab} view={view} onView={setView} /></div>;
   if (status !== "signedIn") return <SignedOut />;
   return <SignedIn tab={tab} onTab={setTab} view={view} onView={setView} />;
 }
@@ -151,7 +143,8 @@ function SignedIn({ tab, onTab, view, onView }: { tab: Tab; onTab: (t: Tab) => v
   if (tab === "saved") right = <ViewToggle value={view} onChange={onView} />;
   if (tab === "alerts" && max !== undefined) {
     right = (
-      <span className="flex items-center gap-2">
+      // min-h-12: the 連結 Telegram button's height, so its arrival moves nothing.
+      <span className="flex min-h-12 items-center gap-2">
         <span className={cn("num text-sm font-semibold", alerting >= max ? "text-warning" : "text-muted-foreground")}>
           {t("favorites.alerts.count", { count: alerting, max })}
         </span>
@@ -246,7 +239,7 @@ function SavedTab({ favorites, groups, view }: { favorites: Favorite[] | undefin
   if (selected) items = items.filter((c) => selected.addresses.includes(c.address));
   if (sort) items = [...items].sort((a, b) => (b[sort] ?? -Infinity) - (a[sort] ?? -Infinity));
 
-  if (!favorites) return <SavedSkeleton view={view} />;
+  if (!favorites) return <div className="flex flex-col gap-4"><ChipsSkeleton /><SavedSkeleton view={view} /></div>;
   if (favorites.length === 0) {
     return (
       <div className="flex flex-col items-center gap-5 orbit-card px-6 py-14 text-center">
@@ -296,13 +289,78 @@ function SavedTab({ favorites, groups, view }: { favorites: Favorite[] | undefin
   );
 }
 
-function SavedSkeleton({ view }: { view: "grid" | "list" }) {
-  return view === "grid" ? (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-      {Array.from({ length: 4 }, (_, i) => <BoardCardSkeleton key={i} />)}
+/** The group chips' row while the saved list loads: 全部, two groups and
+ * 新增分組 (it wraps on a phone, as the loaded row does). */
+function ChipsSkeleton() {
+  return (
+    <div aria-hidden="true" className="ui-skeleton flex flex-wrap items-center gap-2">
+      {["w-20", "w-24", "w-24"].map((w, i) => <span key={i} className={cn("h-11 rounded-full border-2 border-input", w)} />)}
+      {/* 新增分組, dashed. */}
+      <span className="h-11 w-[116px] rounded-full border-2 border-dashed border-input" />
     </div>
-  ) : (
-    <div className="flex flex-col gap-2">{Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-16" />)}</div>
+  );
+}
+
+/** The saved traders while their cards load, in the chosen layout: the
+ * explore cards (grid), or the watchlist table on desktop and its cards on
+ * phones (list). */
+function SavedSkeleton({ view }: { view: "grid" | "list" }) {
+  const { t } = useI18n();
+  if (view === "grid") {
+    return (
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        {Array.from({ length: 4 }, (_, i) => <BoardCardSkeleton key={i} />)}
+      </div>
+    );
+  }
+  const heads = ["copyScore", "accountValue", "totalPnl", "roi", "pnl30d", "winRate", "sharpe", "mdd"] as const;
+  return (
+    <>
+      <div aria-hidden="true" className="ui-skeleton hidden overflow-hidden orbit-card md:block">
+        <table className="w-full min-w-[1080px] table-fixed border-collapse">
+          <colgroup>
+            <col style={{ width: "19%" }} /><col style={{ width: "10%" }} /><col style={{ width: "9%" }} /><col style={{ width: "8%" }} /><col style={{ width: "7%" }} />
+            <col style={{ width: "8%" }} /><col style={{ width: "6%" }} /><col style={{ width: "6%" }} /><col style={{ width: "7%" }} /><col style={{ width: "8%" }} /><col style={{ width: "12%" }} />
+          </colgroup>
+          <thead className="border-b-2 border-dotted border-border">
+            <tr>
+              <th className="px-3 py-3 text-left text-[0.8125rem] font-semibold text-subtle-foreground">{t("favorites.cols.trader")}</th>
+              {heads.map((h) => <th key={h} className="px-3 py-3 text-right text-[0.8125rem] font-semibold whitespace-nowrap text-subtle-foreground">{t(`favorites.cols.${h}`)}</th>)}
+              <th className="px-3 py-3 text-center text-[0.8125rem] font-semibold whitespace-nowrap text-subtle-foreground">{t("favorites.cols.pnlChart")}</th>
+              <th className="px-3 py-3" />
+            </tr>
+          </thead>
+          <tbody>
+            {Array.from({ length: 5 }, (_, r) => (
+              <tr key={r} className="border-b-2 border-dotted border-border last:border-0">
+                <td className="px-3 py-3">
+                  <span className="flex items-center gap-3">
+                    <SkelCircle className="size-11" />
+                    <SkelBar className="h-3.5 w-28" />
+                  </span>
+                </td>
+                {heads.map((h) => <td key={h} className="px-3 py-3"><SkelBar className="ml-auto h-3 w-12" /></td>)}
+                <td className="px-3 py-3"><SkelBar className="mx-auto h-[34px] w-[76px] rounded-lg" /></td>
+                <td className="px-3 py-3"><span className="flex justify-end gap-1"><SkelCircle className="size-8" /><SkelCircle className="size-8" /></span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <ul aria-hidden="true" className="ui-skeleton flex flex-col gap-2 md:hidden">
+        {Array.from({ length: 6 }, (_, i) => (
+          <li key={i} className="orbit-card flex items-center gap-3 p-3">
+            <SkelCircle className="size-10" />
+            <span className="flex min-w-0 flex-1 flex-col gap-1">
+              <SkelBar line="h-5" className="h-3.5 w-28" />
+              <SkelBar line="h-4" className="h-2.5 w-40" />
+            </span>
+            <SkelCircle className="size-8" />
+            <SkelCircle className="size-8" />
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 
@@ -446,7 +504,23 @@ function AlertsTab({ favorites }: { favorites: Favorite[] | undefined }) {
   const cards = useCards(addresses);
   const save = useSetFavoriteAlert();
   const byAddress = useMemo(() => new Map(cards.items.map((c) => [c.address, c])), [cards.items]);
-  if (!favorites) return <div className="flex flex-col gap-2">{Array.from({ length: 3 }, (_, i) => <Skeleton key={i} className="h-16" />)}</div>;
+  if (!favorites) {
+    // The alert list's card: rows of avatar, name and summary, the bell pill.
+    return (
+      <ul aria-hidden="true" className="ui-skeleton divide-y-2 divide-dotted divide-border orbit-card">
+        {Array.from({ length: 3 }, (_, i) => (
+          <li key={i} className="flex items-center gap-3 px-4 py-3">
+            <SkelCircle className="size-10" />
+            <span className="flex min-w-0 flex-1 flex-col gap-1">
+              <SkelBar line="h-5" className="h-3.5 w-28" />
+              <SkelBar line="h-4" className="h-2.5 w-48" />
+            </span>
+            <SkelBar className="h-9 w-20" />
+          </li>
+        ))}
+      </ul>
+    );
+  }
   const on = favorites.filter((f) => f.alert.enabled);
   const off = favorites.filter((f) => !f.alert.enabled);
   const card = (f: Favorite): TraderCard => byAddress.get(f.address) ?? { address: f.address, displayName: f.stats?.displayName ?? null, avatarUrl: null, xHandle: null, verified: false, kol: false, accountValue: null, pnl: null, roi: null, copyScore: null, style: null, topCoins: [], lastTradeAt: null, sparkline: [], pnl30d: null, winRate: null, sharpe: null, maxDrawdown: null, source: "none" };
@@ -507,7 +581,20 @@ function FeedTab({ rows, loading, highlight, favorites, hasFavorites }: {
   const addresses = useMemo(() => [...new Set(rows.map((r) => r.address))].slice(0, 200), [rows]);
   const cards = useTraderCards(addresses);
   const cardNames = useMemo(() => new Map((cards.data?.items ?? []).map((c) => [c.address, c.displayName])), [cards.data]);
-  if (loading) return <div className="flex flex-col gap-2">{Array.from({ length: 5 }, (_, i) => <Skeleton key={i} className="h-12" />)}</div>;
+  if (loading) {
+    // The feed's card: a coin, a sentence and the time per row.
+    return (
+      <ul aria-hidden="true" className="ui-skeleton divide-y-2 divide-dotted divide-border orbit-card">
+        {Array.from({ length: 6 }, (_, i) => (
+          <li key={i} className="flex items-center gap-3 px-4 py-3">
+            <SkelCircle className="size-[26px]" />
+            <SkelBar line="h-[23px] flex-1" className={i % 2 ? "h-3 w-3/5" : "h-3 w-4/5"} />
+            <SkelBar className="h-2.5 w-12" />
+          </li>
+        ))}
+      </ul>
+    );
+  }
   if (rows.length === 0) {
     return <EmptyState icon={Zap} title={hasFavorites ? t("favorites.feed.emptyWaiting") : t("favorites.feed.emptyNoAlerts")} className="orbit-card" />;
   }

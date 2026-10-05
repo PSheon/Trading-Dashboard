@@ -5,14 +5,14 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { cn } from "cn";
 
-import { ErrorState, Skeleton } from "@/components/page";
+import { ErrorState, SkelBar } from "@/components/page";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useI18n } from "@/i18n/provider";
 import { cohortHeadlineReady } from "@trading-dashboard/shared/contracts";
 import type { CohortDetail, CohortTier, CohortWindow } from "@/lib/contracts";
 import { usdCompact } from "@/lib/format";
 import { useCohort, useCohortHistory } from "@/lib/queries";
-import { MarketsTable, WalletsTable } from "./cohort-tables";
+import { MarketsTable, WalletsTable, WalletsTableSkeleton } from "./cohort-tables";
 import { MarketTreemap } from "./market-treemap";
 import { PositioningChart } from "./positioning-chart";
 import { SplitBar } from "./sentiment";
@@ -137,7 +137,7 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
               ) : null}
             </div>
             {!data ? (
-              <div className="flex flex-col gap-2 p-4">{Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-10" />)}</div>
+              <WalletsTableSkeleton />
             ) : tab === "wallets" ? (
               <WalletsTable rows={data.wallets} />
             ) : (
@@ -191,14 +191,20 @@ function HyperliquidWordmark({ className }: { className?: string }) {
 function HeroCards({ data }: { data: CohortDetail | undefined }) {
   const { t } = useI18n();
   if (!data) {
+    // HeroCard's own card, title and split bar, with bars for the legend.
     return (
       <>
-        {[0, 1].map((i) => (
-          <div key={i} className="flex flex-col gap-4 orbit-card p-4">
-            <Skeleton className="h-4 w-28" />
-            <Skeleton className="h-1.5 w-full" />
-            <div className="flex justify-between"><Skeleton className="h-4 w-32" /><Skeleton className="h-4 w-32" /></div>
-          </div>
+        {([t("insights.cohort.unrealizedPnl"), t("insights.cohort.notional")]).map((title) => (
+          <section key={title} aria-hidden="true" className="orbit-card ui-skeleton overflow-hidden px-5 py-[18px]">
+            <h2 className="text-[13px] leading-5 font-bold text-muted-foreground">{title}</h2>
+            <div className="mt-2.5 flex flex-col gap-3">
+              <div className="cd-bar h-3 rounded-full" />
+              <div className="flex items-center justify-between gap-1.5">
+                <SkelBar line="h-[18px]" className="h-2.5 w-32" />
+                <SkelBar line="h-[18px]" className="h-2.5 w-32" />
+              </div>
+            </div>
+          </section>
         ))}
       </>
     );

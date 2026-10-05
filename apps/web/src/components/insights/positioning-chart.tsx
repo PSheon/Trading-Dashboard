@@ -3,7 +3,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { cn } from "cn";
 
-import { Skeleton } from "@/components/page";
+import { SkelBar, Skeleton } from "@/components/page";
 import { TIME_ZONE } from "@/i18n/config";
 import { useI18n } from "@/i18n/provider";
 import type { CohortWindow } from "@/lib/contracts";
@@ -169,10 +169,15 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
           ))}
         </div>
       </div>
-      {shown ? <p className="px-3 pt-2 text-[11px] text-muted-foreground">{t("copyUpdates.historical")} · <time dateTime={new Date(shown.x).toISOString()}>{stamp.format(new Date(shown.x))}</time></p> : null}
+      {shown ? (
+        <p className="px-3 pt-2 text-[11px] leading-4 text-muted-foreground">{t("copyUpdates.historical")} · <time dateTime={new Date(shown.x).toISOString()}>{stamp.format(new Date(shown.x))}</time></p>
+      ) : loading ? (
+        // The caption's line, kept while the history loads.
+        <SkelBar line="px-3 pt-2 h-6" className="ui-skeleton h-2 w-48 bg-border" />
+      ) : null}
       {points.some(point => point.boundary) ? <p className="px-3 pt-1 text-[11px] text-muted-foreground">{t("insights.cohort.membershipChanged")}</p> : null}
       <div ref={box} className="relative h-[400px]">
-        {loading && !geo ? <Skeleton className="absolute inset-0" /> : null}
+        {loading && !geo ? <Skeleton className="absolute inset-0 rounded-2xl bg-background/60" /> : null}
         {geo ? (
           <svg width={size.w} height={size.h} className="absolute inset-0" onMouseMove={onMove} onMouseLeave={() => setHover(null)} role="img" aria-label={title}>
             <defs>

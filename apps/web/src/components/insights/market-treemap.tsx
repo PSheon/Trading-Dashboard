@@ -79,7 +79,7 @@ export function MarketTreemap({ title, markets, loading }: { title: string; mark
         <h2 className="font-display text-xl">{title}</h2>
       </div>
       <div ref={box} className="relative mt-3 h-[300px] md:h-[380px]" role="figure" aria-label={title}>
-        {loading && !markets ? <Skeleton className="absolute inset-0" /> : null}
+        {loading && !markets ? <Skeleton className="absolute inset-0 rounded-2xl bg-background/60" /> : null}
         {!loading && cells.length === 0 ? (
           <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-raised/40 text-sm text-muted-foreground">{t("insights.cohort.treemapEmpty")}</div>
         ) : null}

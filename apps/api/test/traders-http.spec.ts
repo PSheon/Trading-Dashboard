@@ -27,6 +27,7 @@ import { ChartSnapshotsService } from "../src/traders/chart-snapshots.service.js
 import { TradersService } from "../src/traders/traders.service.js";
 import type { TraderOrdersReader } from "../src/traders/trader-orders-reader.js";
 import type { TraderTwapReader } from "../src/traders/trader-twap-reader.js";
+import { PAGE_RANK } from "../src/hyperliquid/request-budgeter.service.js";
 import { ACCOUNT_READ_DEADLINE_MS, type TraderAccountReader } from "../src/traders/trader-account-reader.js";
 import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
 import { createAuthedApp, stubPrivy } from "./auth-test-utils.js";
@@ -146,6 +147,18 @@ describe("public discovery routes over HTTP", () => {
       expect(res.body.data.perpEquity).toBe(0);
       expect(res.body.data.dataQuality.sources.perps.asOf).toBe(new Date(observedAt).toISOString());
       expect(res.body.data.dataQuality.sources['perp:xyz'].asOf).toBe(new Date(observedAt).toISOString());
+    } finally { service.ordersDexCache.set('dexes', ['']); }
+  });
+
+  it('reads a cold dex list at the first-paint rank, not behind the page\'s fill lists (Stage, 2026-10-05)', async () => {
+    const address = `0x${'45'.repeat(20)}`, service = app.get(TradersService);
+    // A cold dex list: the profile waits on it before any other source.
+    (service.ordersDexCache as unknown as { entries: Map<string, unknown> }).entries.delete('dexes');
+    info.perpDexs.mockClear();
+    try {
+      await request(app.getHttpServer()).get(`/traders/${address}`).expect(200);
+      expect(info.perpDexs).toHaveBeenCalledTimes(1);
+      expect(info.perpDexs.mock.calls[0][1]).toBe(PAGE_RANK.profile);
     } finally { service.ordersDexCache.set('dexes', ['']); }
   });
 

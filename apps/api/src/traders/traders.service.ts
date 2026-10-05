@@ -238,7 +238,11 @@ export class TradersService {
     };
     // Identity/tracking, the dex universe, spot valuation and account mode are
     // required. Without them the accounting scope itself would be a guess.
-    const [dexes, tracked, vault] = await Promise.all([this.accountReader ? this.allDexes() : this.perpDexes(), this.isTracked(address), this.isVault(address)]);
+    // The dex list comes first and everything else waits on it, so it goes
+    // at the first-paint rank: at the fills rank (the orders tab's) a cold
+    // profile queued behind the page's own fill lists (Stage, 2026-10-05:
+    // profiles of cold Top 100 traders answered in 10–30 s).
+    const [dexes, tracked, vault] = await Promise.all([this.accountReader ? this.allDexes(PAGE_RANK.profile) : this.perpDexes(), this.isTracked(address), this.isVault(address)]);
     sources.dexes = { status: "available", asOf: new Date((this.accountReader ? this.ordersDexCache : this.dexCache).observedAt("dexes") ?? Date.now()).toISOString(), stale: false,
       maxAgeMs: this.accountReader ? 60000 : DEX_LIST_TTL_MS };
     const statesWork = this.accountReader ? (async () => {
@@ -557,8 +561,10 @@ export class TradersService {
       return { orders: mergeOrders(snapshot.orders), dexes: snapshot.dexes, fetchedAt: new Date(snapshot.observedAt) };
     }, (value) => Math.max(0, value.fetchedAt.getTime() + ORDERS_TTL_MS - Date.now()), PAGE_RANK.fills);
   }
-  private allDexes(): Promise<string[]> {
-    return this.ordersDexCache.get('dexes', async () => ['', ...(await this.info.perpDexs(LANE, PAGE_RANK.fills)).flatMap(d => d ? [d.name] : [])]);
+  /** Every named venue (main first), app-wide for 60 s. `rank`: the
+   * caller's (the profile's first paint, or the orders tab's). */
+  private allDexes(rank: number = PAGE_RANK.fills): Promise<string[]> {
+    return this.ordersDexCache.get('dexes', async () => ['', ...(await this.info.perpDexs(LANE, rank)).flatMap(d => d ? [d.name] : [])], undefined, rank);
   }
 
   // --- GET /traders/:address/twap -------------------------------------------

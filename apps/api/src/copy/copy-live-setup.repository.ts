@@ -1,6 +1,6 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, desc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
-import { copyLiveActivations, copyLiveSetups, copyStrategies, users } from '@trading-dashboard/shared/database';
+import { copyAgentSetups, copyFundingOperations, copyLiveActivations, copyLiveMandates, copyLiveSetups, copyLiveStrategyConfigs, copyStrategies, copyStrategyVersions, users } from '@trading-dashboard/shared/database';
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
 import type { DbExecutor } from '../db/unit-of-work.js';
@@ -69,6 +69,26 @@ export class CopyLiveSetupRepository {
   async strategy(id: number) {
     const [row] = await this.db.select().from(copyStrategies).where(eq(copyStrategies.id, id));
     return row ?? null;
+  }
+  /** A running testnet copy (an edit's or renewal's subject): its strategy
+   * and config, its current generation and its active agent. */
+  async runningCopy(userId: number, strategyId: number) {
+    const [found] = await this.db.select({ strategy: copyStrategies, config: copyLiveStrategyConfigs }).from(copyStrategies)
+      .innerJoin(copyLiveStrategyConfigs, eq(copyLiveStrategyConfigs.strategyId, copyStrategies.id))
+      .where(and(eq(copyStrategies.id, strategyId), eq(copyStrategies.userId, userId), eq(copyStrategies.mode, 'testnet')));
+    if (!found) return { found: null, mandate: null, agent: null };
+    const [mandate] = await this.db.select().from(copyLiveMandates).where(and(eq(copyLiveMandates.strategyId, strategyId), sql`${copyLiveMandates.state} in ('active', 'paused')`));
+    const [agent] = mandate ? await this.db.select().from(copyAgentSetups).where(and(eq(copyAgentSetups.accountId, mandate.accountId), eq(copyAgentSetups.state, 'active'))) : [];
+    return { found, mandate: mandate ?? null, agent: agent ?? null };
+  }
+  async strategySettings(strategyId: number, version: number) {
+    const [row] = await this.db.select().from(copyStrategyVersions).where(and(eq(copyStrategyVersions.strategyId, strategyId), eq(copyStrategyVersions.version, version)));
+    if (!row) throw new NotFoundException('Strategy version not found');
+    return row.settings;
+  }
+  /** The deposit belongs to this setup (its consent binds it). */
+  async tagFunding(fundingId: string, setupId: string): Promise<void> {
+    await this.db.update(copyFundingOperations).set({ liveSetupId: setupId }).where(eq(copyFundingOperations.id, fundingId));
   }
   /** A start that never moved funds ends with its paused, empty strategy. */
   async stopUnfundedStrategy(tx: DbExecutor, userId: number, strategyId: number): Promise<void> {

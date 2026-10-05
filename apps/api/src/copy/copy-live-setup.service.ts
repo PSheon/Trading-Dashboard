@@ -5,8 +5,6 @@ import { z } from 'zod';
 import { agentApprovalTypedData, approveBuilderFeeRequest, approveBuilderFeeTypedData, confirmLiveCopySetupSchema, copyIdempotencyKeySchema, liveCopyBudgetSchema, liveCopySetupConsentTypedData,
   liveCopySetupIntentSchema, liveCopySetupSchema, liveSetupAgentName, startLiveCopySchema, copyStrategySettingsSchema, LIVE_SETUP_CONSENT_WINDOW_MS, LIVE_SETUP_DEADLINE_MS, LIVE_SETUP_VALID_DAYS,
   WALLET_NETWORKS, type LiveCopySetup, type LiveCopySetupIntent, type LiveCopySetupKind, type StartLiveCopy } from '@trading-dashboard/shared/contracts';
-import { copyAgentSetups, copyFundingOperations, copyLiveMandates, copyLiveStrategyConfigs, copyStrategies, copyStrategyVersions } from '@trading-dashboard/shared/database';
-import { and, eq, sql } from 'drizzle-orm';
 import { AppConfig } from '../config/app-config.js';
 import { UnitOfWork } from '../db/unit-of-work.js';
 import { CopyAccountModeService } from './copy-account-mode.service.js';
@@ -165,7 +163,7 @@ export class CopyLiveSetupService {
       if (deposit && this.now() - deposit.nonce > 86_400_000) { await this.fundingRows.cancel(userId, deposit.id); deposit = null; }
       if (!deposit) {
         const reserved = await this.funding.reserve(userId, row.accountId!, { idempotencyKey: randomUUID(), amount: row.budgetUsd });
-        await this.uow.run(tx => tx.update(copyFundingOperations).set({ liveSetupId: row.id }).where(eq(copyFundingOperations.id, reserved.id)));
+        await this.repository.tagFunding(reserved.id, row.id);
         deposit = await this.fundingRows.find(userId, reserved.id);
         await step({ fundingOperationId: deposit.id });
       }
@@ -211,14 +209,10 @@ export class CopyLiveSetupService {
 
   // --- edit / renew -------------------------------------------------------------
   private async running(userId: number, strategyId: number) {
-    const [found] = await this.repository.reader().select({ strategy: copyStrategies, config: copyLiveStrategyConfigs }).from(copyStrategies)
-      .innerJoin(copyLiveStrategyConfigs, eq(copyLiveStrategyConfigs.strategyId, copyStrategies.id))
-      .where(and(eq(copyStrategies.id, strategyId), eq(copyStrategies.userId, userId), eq(copyStrategies.mode, 'testnet')));
+    const { found, mandate, agent } = await this.repository.runningCopy(userId, strategyId);
     if (!found) throw new NotFoundException('Copy not found');
     if (['stopping', 'stopped'].includes(found.strategy.status)) throw new ConflictException({ statusCode: 409, code: 'live_stop_in_progress', message: 'A stop is in progress for this copy' });
-    const [mandate] = await this.repository.reader().select().from(copyLiveMandates).where(and(eq(copyLiveMandates.strategyId, strategyId), sql`${copyLiveMandates.state} in ('active', 'paused')`));
     if (!mandate) refuse(409, 'setup_unavailable', 'This copy has no running generation to change');
-    const [agent] = await this.repository.reader().select().from(copyAgentSetups).where(and(eq(copyAgentSetups.accountId, mandate!.accountId), eq(copyAgentSetups.state, 'active')));
     if (!agent || !agent.agentAddress || !agent.policyId || !agent.policyFingerprint) refuse(409, 'setup_unavailable', 'This copy has no active agent');
     const current = await this.repository.current(strategyId);
     return { ...found, mandate: mandate!, agent: agent!, current };
@@ -242,8 +236,8 @@ export class CopyLiveSetupService {
     if (prior) return this.wire(prior.stage === 'awaiting_consent' ? await this.rechallengeChange(prior) : prior);
     const state = await this.running(userId, strategyId);
     if (state.current) throw new ConflictException({ statusCode: 409, code: 'setup_unavailable', message: 'A setup for this copy is still running' });
-    const [version] = await this.repository.reader().select().from(copyStrategyVersions).where(and(eq(copyStrategyVersions.strategyId, strategyId), eq(copyStrategyVersions.version, state.strategy.version)));
-    return this.wire(await this.change(userId, 'renewal', state, request.idempotencyKey, state.config.budgetUsd, version!.settings));
+    const settings = await this.repository.strategySettings(strategyId, state.strategy.version);
+    return this.wire(await this.change(userId, 'renewal', state, request.idempotencyKey, state.config.budgetUsd, settings));
   }
   private async change(userId: number, kind: 'edit' | 'renewal', state: Awaited<ReturnType<CopyLiveSetupService['running']>>, key: string, budgetUsd: string, settings: unknown): Promise<SetupRow> {
     const row = await this.repository.insert(this.repository.reader(), { id: randomUUID(), userId, strategyId: state.strategy.id, accountId: state.mandate.accountId, kind, idempotencyKey: key,

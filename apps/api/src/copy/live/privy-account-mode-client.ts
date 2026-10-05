@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { Logger } from '@nestjs/common';
 import { PrivyClient } from '@privy-io/node';
 import { UserSetAbstractionTypes } from '@nktkas/hyperliquid/api/exchange';
 import { WALLET_NETWORKS, splitSignature } from '@trading-dashboard/shared/contracts';
@@ -223,6 +224,13 @@ export class PrivyAccountModeClient {
       const sourceDigest = `0x${createHash('sha256').update(JSON.stringify({ network: 'testnet', user: intent.accountAddress, evidence, started, completedAt })).digest('hex')}` as const;
       return frozen({ network: 'testnet', accountAddress: intent.accountAddress, role, abstraction, dexAbstraction, portfolioMarginEnabled,
         earliestObservedAt: started, completedAt, source: 'https://api.hyperliquid-testnet.xyz/info', sourceDigest, status, issue });
-    } catch { fail('account_mode_observation_unavailable'); }
+    } catch (error) {
+      // Which read or check failed, without request bodies or responses.
+      const reason = error instanceof Error ? `${error.name}${error.message ? `: ${error.message.slice(0, 160)}` : ''}` : 'unknown';
+      observationLogger.warn(`Account mode observation unavailable (${reason})`);
+      fail('account_mode_observation_unavailable');
+    }
   }
 }
+
+const observationLogger = new Logger('PrivyAccountModeClient');

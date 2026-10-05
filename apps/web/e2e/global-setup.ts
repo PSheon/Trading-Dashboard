@@ -13,6 +13,8 @@ import type { FullConfig } from "@playwright/test";
  * race; next.config.ts keeps the compiled routes for the whole run.
  */
 const SAMPLE: Record<string, string> = {
+  // The suite runs in English (each spec sets the locale cookie to en).
+  "[locale]": "en",
   "[address]": "0x89da4baec446f35a1cbe17a9d1ee5c70b05ee43f",
   "[coin]": "BTC",
   "[code]": "REFERRAL",
@@ -51,7 +53,7 @@ export default async function globalSetup(config: FullConfig) {
     const response = await fetch(new URL(path, baseURL), { headers: { cookie: "locale=en" }, signal: AbortSignal.timeout(300_000) });
     await response.arrayBuffer();
     // The lab's crash page answers 500 on purpose (e2e/error-boundary.spec.ts).
-    if (response.status >= 500 && path !== "/dev/crash") throw new Error(`Warming ${path} answered ${response.status}`);
+    if (response.status >= 500 && path !== "/en/dev/crash") throw new Error(`Warming ${path} answered ${response.status}`);
   }
   console.log(`Compiled ${paths.length} routes in ${Math.round((Date.now() - started) / 1000)} s`);
 }

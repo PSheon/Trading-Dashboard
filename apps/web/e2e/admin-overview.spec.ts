@@ -14,7 +14,7 @@ for (const width of [1440, 390]) {
   test(`the overview carries revenue, status, queues, the deployment and the counts at ${width}px`, async ({ page }) => {
     test.setTimeout(90000);
     await page.setViewportSize({ width, height: 900 });
-    await page.goto("/admin");
+    await page.goto("/en/admin");
     await signIn(page);
     await expect(page.getByText("Watched traders", { exact: true })).toBeVisible({ timeout: 20000 });
 

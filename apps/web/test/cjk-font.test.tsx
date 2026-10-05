@@ -11,7 +11,7 @@ vi.mock("next/navigation", () => ({ usePathname: () => "/explore" }));
 vi.mock("@/components/shell/noto-font", () => ({ notoSansTc: { style: { fontFamily: "'Noto Sans TC', 'Noto Sans TC Fallback'" } } }));
 
 const css = readFileSync(resolve(process.cwd(), "src/app/globals.css"), "utf8");
-const layout = readFileSync(resolve(process.cwd(), "src/app/layout.tsx"), "utf8");
+const layout = readFileSync(resolve(process.cwd(), "src/app/[locale]/layout.tsx"), "utf8");
 const notoModule = readFileSync(resolve(process.cwd(), "src/components/shell/noto-font.ts"), "utf8");
 
 /** Paul, 2026-10-05 (「好修改」): no Noto Sans TC before LCP on a first visit. */

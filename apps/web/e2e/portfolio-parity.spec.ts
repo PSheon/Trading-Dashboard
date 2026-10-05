@@ -10,7 +10,7 @@ test.describe("portfolio parity", () => {
 
   test("desktop: chart, today's PnL, legend, the three tabs and the copy comparison at 1440px", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto("/portfolio");
+    await page.goto("/en/portfolio");
     await signIn(page);
     const chart = page.getByRole("region", { name: "Paper portfolio PnL history" });
     await expect(chart).toBeVisible();
@@ -54,7 +54,7 @@ test.describe("portfolio parity", () => {
 
   test("phone: paper summary, the three tabs and the insights chart at 390px", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto("/portfolio");
+    await page.goto("/en/portfolio");
     await signIn(page);
     await expect(page.getByTestId("paper-today").filter({ visible: true })).toBeVisible();
     await shot(page, "portfolio-390");
@@ -77,7 +77,7 @@ test.describe("activity panel", () => {
 
   test("signed out it asks to sign in; signed in it lists copy fills, favorites' trades and wallet transfers at 390px", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto("/portfolio");
+    await page.goto("/en/portfolio");
     await page.getByRole("button", { name: "Activity" }).filter({ visible: true }).click();
     const panel = page.getByRole("dialog", { name: /Activity/ });
     await expect(panel.getByText("Sign in for alerts")).toBeVisible();

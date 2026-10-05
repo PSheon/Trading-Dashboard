@@ -17,7 +17,7 @@ test.beforeEach(async ({ context, baseURL }) => {
 test("explore's sort pill opens, moves and picks with the keyboard at 1440", async ({ page }) => {
   test.setTimeout(60000);
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/explore");
+  await page.goto("/en/explore");
   const sort = page.getByRole("combobox", { name: "Sort", exact: true });
   await expect(sort).toBeVisible({ timeout: 20000 });
   const before = (await sort.innerText()).trim();
@@ -55,7 +55,7 @@ test("explore's sort pill opens, moves and picks with the keyboard at 1440", asy
 test("the full leaderboard's value filter works by keyboard and fits a 390 px phone", async ({ page }) => {
   test.setTimeout(60000);
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/dev/explore/all");
+  await page.goto("/en/dev/explore/all");
   const tier = page.getByRole("combobox", { name: "Min account value", exact: true });
   await expect(tier).toBeVisible({ timeout: 20000 });
   const before = (await tier.innerText()).trim();

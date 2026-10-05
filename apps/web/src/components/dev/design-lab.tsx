@@ -1,8 +1,7 @@
 "use client";
 
 import { Select } from "@/components/ui/select";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { Link, useRouter } from "@/i18n/navigation";
 import { ArrowRight, ArrowUpRight, SlidersHorizontal, Bookmark, FlaskConical, Settings } from "lucide-react";
 import { useState } from "react";
 import { OrbieMark } from "@/components/brand/logo";

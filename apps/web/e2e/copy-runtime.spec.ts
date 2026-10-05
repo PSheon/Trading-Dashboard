@@ -13,17 +13,17 @@ test.beforeEach(async ({ context, baseURL }) => {
 /** The fixture records real observations, not seeded historical returns.
  * A browser clock creates a second observation without waiting a minute. */
 async function openObservedCopy(page: Page) {
-  await page.goto("/portfolio");
+  await page.goto("/en/portfolio");
   await signIn(page);
   await page.getByRole("button", { name: /^Machi is ugly dog/ }).filter({ visible: true }).first().click();
   await expect(performance(page).getByTestId("copy-coverage")).toBeVisible();
 }
 
 async function startIdleCopy(page: Page, width: number) {
-  await page.goto("/portfolio?paper=empty");
+  await page.goto("/en/portfolio?paper=empty");
   await signIn(page);
   await page.getByRole("link", { name: "Find traders" }).filter({ visible: true }).click();
-  await page.locator('a[href^="/trader/0x"]').filter({ visible: true }).first().click();
+  await page.locator('a[href*="/trader/0x"]').filter({ visible: true }).first().click();
   if (width < 768) {
     await action(page, "Copy").click();
     const sheet = page.getByRole("dialog", { name: "Copy", exact: true });

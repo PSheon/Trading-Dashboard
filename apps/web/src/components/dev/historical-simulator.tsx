@@ -1,7 +1,7 @@
 "use client";
 
 import { Select } from "@/components/ui/select";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { ArrowDownRight, ArrowUpRight, Info } from "lucide-react";
 import { useId, useMemo, useState } from "react";
 import { AreaChart } from "@/components/charts/area-chart";

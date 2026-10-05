@@ -3,7 +3,7 @@
 import { normalizeAmount } from "@/lib/amount-input";
 import { readAlertDisplayValues, type AlertSidesInput, type FavoriteAlert } from "@/lib/contracts";
 import { Bell, BellRing, Send } from "lucide-react";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useState } from "react";
 import { cn } from "cn";
 

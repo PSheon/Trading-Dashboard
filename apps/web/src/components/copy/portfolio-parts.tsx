@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronDown, ChartPie, Share2, UserPlus, X } from "lucide-react";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useMemo, useState } from "react";
 import { cn } from "cn";
 

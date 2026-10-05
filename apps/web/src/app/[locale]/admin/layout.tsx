@@ -6,6 +6,6 @@ export async function generateMetadata() {
   return { ...(await titled((m) => m.admin.title)()), robots: { index: false, follow: false } };
 }
 
-export default function AdminLayout({ children }: LayoutProps<"/admin">) {
+export default function AdminLayout({ children }: LayoutProps<"/[locale]/admin">) {
   return <AdminShell>{children}</AdminShell>;
 }

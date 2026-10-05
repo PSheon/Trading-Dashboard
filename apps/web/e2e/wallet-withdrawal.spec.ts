@@ -4,7 +4,7 @@ import { expectNoSidewaysScroll, signIn } from "./helpers";
 for (const width of [1440, 390]) test(`main withdrawal form displays its network and blocks unavailable signing at ${width}px`, async ({ page, context, baseURL }) => {
   await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
   await page.setViewportSize({ width, height: 900 });
-  await page.goto("/portfolio?wallet=funded");
+  await page.goto("/en/portfolio?wallet=funded");
   await signIn(page);
   await page.getByRole("button", { name: "Withdraw", exact: true }).filter({ visible: true }).first().click();
   const dialog = page.getByRole("dialog");
@@ -24,7 +24,7 @@ for (const width of [1440, 390]) test(`main withdrawal form displays its network
 for (const width of [1440, 390]) test(`a main withdrawal is signed, submitted and confirmed, and the modal closes at ${width}px`, async ({ page, context, baseURL }) => {
   await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
   await page.setViewportSize({ width, height: 900 });
-  await page.goto("/portfolio?wallet=funded&signer=fixture");
+  await page.goto("/en/portfolio?wallet=funded&signer=fixture");
   await signIn(page);
   await page.getByRole("button", { name: "Withdraw", exact: true }).filter({ visible: true }).first().click();
   const dialog = page.getByRole("dialog");
@@ -40,7 +40,7 @@ for (const width of [1440, 390]) test(`a main withdrawal is signed, submitted an
 
 test("an exchange refusal says so and leaves the form for a new withdrawal", async ({ page, context, baseURL }) => {
   await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
-  await page.goto("/portfolio?wallet=funded&signer=fixture&withdraw=rejected");
+  await page.goto("/en/portfolio?wallet=funded&signer=fixture&withdraw=rejected");
   await signIn(page);
   await page.getByRole("button", { name: "Withdraw", exact: true }).filter({ visible: true }).first().click();
   const dialog = page.getByRole("dialog");

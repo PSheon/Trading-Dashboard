@@ -43,7 +43,7 @@ const expected: Record<string, string[]> = {
   textInput: ["text"],
 };
 
-for (const path of ["/", "/explore", "/favorites", "/settings"]) {
+for (const path of ["/en", "/en/explore", "/en/favorites", "/en/settings"]) {
   test(`cursor per element type on ${path}`, async ({ page, context, baseURL }) => {
     await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
     await page.goto(path);
@@ -55,7 +55,7 @@ for (const path of ["/", "/explore", "/favorites", "/settings"]) {
 
 test("cursor per element type on a trader page", async ({ page, context, baseURL }) => {
   await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
-  await page.goto("/explore");
+  await page.goto("/en/explore");
   await openFirstTrader(page);
   await expect(page.getByRole("tablist", { name: "Trading activity" })).toBeVisible();
   const found = await sample(page);

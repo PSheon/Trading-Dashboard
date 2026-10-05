@@ -1,7 +1,7 @@
 "use client";
 import encodeQR from "@paulmillr/qr";
-import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { Link, usePathname } from "@/i18n/navigation";
+import { useSearchParams } from "next/navigation";
 import {
   useEffect,
   useMemo,
@@ -11,6 +11,7 @@ import {
 } from "react";
 import { Button } from "@/components/ui/button";
 import { TIME_ZONE_LABEL } from "@/i18n/config";
+import { splitLocale } from "@/i18n/config";
 import { useI18n } from "@/i18n/provider";
 import { useAuth } from "@/lib/auth";
 import { api, sessionKey } from "@/lib/api";
@@ -67,7 +68,7 @@ export function ReferralCapture({
     const raw =
       code ??
       new URL(window.location.href).searchParams.get("ref") ??
-      /^\/r\/([A-Za-z0-9]{3,16})\/?$/.exec(window.location.pathname)?.[1];
+      /^\/r\/([A-Za-z0-9]{3,16})\/?$/.exec(splitLocale(window.location.pathname).path)?.[1];
     if (!raw || !/^[A-Za-z0-9]{3,16}$/.test(raw)) {
       queueMicrotask(() => {
         if (active) {

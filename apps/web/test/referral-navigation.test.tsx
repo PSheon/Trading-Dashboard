@@ -42,6 +42,7 @@ vi.mock("@/lib/use-modal-focus", () => ({
 }));
 vi.mock("@/i18n/provider", () => ({
   useI18n: () => ({ t: (key: string) => key, locale: "en", format: {} }),
+  useCurrentLocale: () => "en",
 }));
 vi.mock("@/components/wallet/wallet-modals", () => ({
   useWalletModals: () => ({

@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useState } from "react";
 import { cn } from "cn";
 import type { AdminLiveAccount, AdminLiveLatency } from "@trading-dashboard/shared/contracts";

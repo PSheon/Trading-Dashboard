@@ -7,15 +7,15 @@ for (const width of [1440, 375]) {
     await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
     await page.setViewportSize({ width, height: 1000 });
     for (const concept of ["wealth", "aero", "edge"]) {
-      await page.goto(`/dev/${concept}`);
-      const firstTrader = page.locator('a[href^="/trader/"]:visible').first();
+      await page.goto(`/en/dev/${concept}`);
+      const firstTrader = page.locator('a[href*="/trader/"]:visible').first();
       await expect(firstTrader).toBeVisible();
       const originalTrader = await firstTrader.getAttribute("href");
       await chooseOption(page, page.getByRole("combobox", { name: "Sort traders" }), "roi");
       await expect(firstTrader).not.toHaveAttribute("href", originalTrader!);
       await chooseOption(page, page.getByRole("combobox", { name: "Sort traders" }), "copyScore");
       await expect(page.locator("#calc-amount")).toBeVisible();
-      await expect(page.locator('a[href^="/trader/"]')).toHaveCount(7);
+      await expect(page.locator('a[href*="/trader/"]')).toHaveCount(7);
       const result = page.locator('[aria-live="polite"]').filter({ hasText: "$" });
       const before = await result.innerText();
       await page.locator("#calc-amount").fill("2500");
@@ -33,11 +33,11 @@ for (const width of [1440, 375]) {
     }
     await page.getByRole("link", { name: "BTC", exact: true }).click();
     await expect(page).toHaveURL(/\/dev\/edge\/explore\?.*board=BTC/);
-    await expect(page.locator('a[href^="/trader/"]:visible').first()).toBeVisible();
+    await expect(page.locator('a[href*="/trader/"]:visible').first()).toBeVisible();
     await page.getByRole("navigation", { name: "Design versions" }).getByRole("link", { name: /Aero/ }).click();
     await expect(page).toHaveURL(/\/dev\/aero\/explore/);
-    await expect(page.locator('a[href^="/trader/"]:visible').first()).toBeVisible();
-    await page.locator('a[href^="/trader/"]:visible').first().click();
+    await expect(page.locator('a[href*="/trader/"]:visible').first()).toBeVisible();
+    await page.locator('a[href*="/trader/"]:visible').first().click();
     await expect(page).toHaveURL(/\/trader\/0x/, { timeout: 20000 });
     await expect(page.getByRole("main")).toBeVisible();
   });

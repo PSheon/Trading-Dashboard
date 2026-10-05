@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 
+import { LOCALES } from "@/i18n/config";
 import { APP_URL } from "@/lib/config";
 
 /** Paths no crawler should fetch: the api forwarder, the back office, the
@@ -7,7 +8,14 @@ import { APP_URL } from "@/lib/config";
  * CopyDog's robots.txt does for its own. Under /api/ everything stays
  * disallowed (the signed-in reads `/api/hl/me`, `/copy`, `/admin`, every
  * write) except the public reads below. */
-export const DISALLOWED = ["/api/", "/api/hl/me", "/api/hl/copy", "/api/hl/admin", "/api/hl/actions/stream", "/admin", "/dev", "/settings", "/portfolio", "/favorites"];
+const PRIVATE_PAGES = ["/admin", "/dev", "/settings", "/portfolio", "/favorites"];
+/** Pages are under a locale (`/zh-TW/admin`); the unprefixed paths, which
+ * only redirect, are listed too. */
+export const DISALLOWED = [
+  "/api/", "/api/hl/me", "/api/hl/copy", "/api/hl/admin", "/api/hl/actions/stream",
+  ...PRIVATE_PAGES,
+  ...LOCALES.flatMap((locale) => PRIVATE_PAGES.map((path) => `/${locale}${path}`)),
+];
 
 /** The same-origin public reads the pages render from. CopyDog disallows
  * /api/ too, but its pages read api.copydog.xyz, another host whose own

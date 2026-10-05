@@ -11,7 +11,7 @@ export async function signIn(page: Page) {
 /** The first trader link on screen (explore mounts one layout per width;
  * other pages may still carry a hidden one). */
 export function firstTraderLink(page: Page) {
-  return page.locator('a[href^="/trader/"]').filter({ visible: true }).first();
+  return page.locator('a[href*="/trader/"]').filter({ visible: true }).first();
 }
 
 /** Opens the first trader from /explore and waits for the route change;

@@ -1,8 +1,7 @@
 "use client";
 
 import { Loader2, ShieldCheck, Trash2 } from "lucide-react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { Link, useRouter } from "@/i18n/navigation";
 import { useId, useState } from "react";
 import { cn } from "cn";
 

@@ -2,7 +2,7 @@
 
 import type { PortfolioResponse, TraderAnalyticsResponse, TraderProfileResponse, TraderWindow } from "@/lib/contracts";
 import { ArrowLeft, X } from "lucide-react";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { cn } from "cn";
 

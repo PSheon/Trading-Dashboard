@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronRight, X } from "lucide-react";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useState } from "react";
 import { Dialog as Primitive } from "radix-ui";
 import { cn } from "cn";

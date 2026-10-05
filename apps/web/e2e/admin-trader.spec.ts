@@ -8,7 +8,7 @@ for (const width of [1440, 375])
   }) => {
     await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
     await page.setViewportSize({ width, height: 1000 });
-    await page.goto("/admin/traders");
+    await page.goto("/en/admin/traders");
     await signIn(page);
     // The diagnosis opens from the 交易員資料 tab's search, in a drawer.
     const search = page.getByRole("searchbox", { name: "Diagnose an address" }).or(page.getByLabel("Diagnose an address", { exact: true }));

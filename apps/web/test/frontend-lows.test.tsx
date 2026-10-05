@@ -83,7 +83,7 @@ describe("account deletion", () => {
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
     expect(state.del).toHaveBeenCalledTimes(1);
     expect(document.body.textContent).not.toContain(en.deleteAccount.failed);
-    expect(state.replace).toHaveBeenCalledWith("/?accountDeleted=1");
+    expect(state.replace).toHaveBeenCalledWith("/en?accountDeleted=1");
   });
 });
 

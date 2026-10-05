@@ -15,7 +15,7 @@ import { clearPersonalStorage } from "@/lib/personal-storage";
 import { SessionQueries } from "@/lib/session-queries";
 import { PRIVY_APP_ID } from "@/lib/config";
 import { api, sessionKey, setAccessTokenGetter } from "@/lib/api";
-import { useI18n } from "@/i18n/provider";
+import { readLocaleCookie, useI18n } from "@/i18n/provider";
 import { readLocalStorage, useLocalStorage } from "@/lib/use-local-storage";
 import { useIdentityRefetch } from "@/lib/use-identity-refetch";
 import { useWalletBackfill } from "@/lib/use-wallet-backfill";
@@ -225,15 +225,20 @@ function AuthEffects() {
   const { data: me } = useMe();
   const { wallet, status } = useAuth();
   useIdentityRefetch(status);
-  const { locale, setLocale } = useI18n();
+  const { setLocale } = useI18n();
   const adoptedFor = useRef<number | null>(null);
   useWalletBackfill(wallet?.address ?? null);
 
   useEffect(() => {
     if (!me || adoptedFor.current === me.id) return;
     adoptedFor.current = me.id;
-    if (me.locale !== locale) setLocale(me.locale);
-  }, [me, locale, setLocale]);
+    // The account's language is adopted when this browser hasn't saved the
+    // same choice (a sign-in on another device, a change made elsewhere):
+    // the cookie takes it and the page moves to its prefix. Once they agree
+    // nothing moves, so a page opened in another language on purpose (a
+    // shared /en link) stays, and there is no loop.
+    if (readLocaleCookie() !== me.locale) setLocale(me.locale);
+  }, [me, setLocale]);
 
   return null;
 }

@@ -9,7 +9,7 @@ for (const width of [1440, 375])
     await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
     await page.setViewportSize({ width, height: 1000 });
     // Orbie's indexed-trader search lives in the lab (CopyDog has no such page).
-    await page.goto("/dev/explore/all?q=%40research_whale");
+    await page.goto("/en/dev/explore/all?q=%40research_whale");
     const results = page.getByRole("region", { name: "Matching traders" });
     await expect(
       results.getByText("Research Whale", { exact: true }),
@@ -21,7 +21,7 @@ for (const width of [1440, 375])
     );
     // Private favorite groups on the favorites page (CopyDog's watchlist
     // chips; the fixture account starts with two seeded groups).
-    await page.goto("/favorites");
+    await page.goto("/en/favorites");
     await signIn(page);
     // Three tabs, as on CopyDog: copies are on /portfolio, not here.
     await expect(page.getByRole("tablist", { name: "Saved" }).getByRole("tab")).toHaveText([/^Saved/, /^Alerts/, /^Feed/]);

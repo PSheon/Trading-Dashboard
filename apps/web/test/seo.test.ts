@@ -14,9 +14,13 @@ describe("page metadata", () => {
     const meta = pageSeo("en", { path: "/explore", title: "Explore", description: "Browse traders." });
     expect(meta.title).toBe("Explore");
     expect(meta.description).toBe("Browse traders.");
-    expect(meta.alternates).toEqual({ canonical: "/explore" });
+    // The canonical URL is this language's; every language and x-default
+    // (the unprefixed path, which redirects to the visitor's) are alternates.
+    expect(meta.alternates?.canonical).toBe("/en/explore");
+    expect(meta.alternates?.languages).toMatchObject({ en: "/en/explore", "zh-TW": "/zh-TW/explore", ja: "/ja/explore", "x-default": "/explore" });
+    expect(Object.keys(meta.alternates?.languages ?? {})).toHaveLength(LOCALES.length + 1);
     expect(meta.robots).toEqual({ index: true, follow: true, "max-image-preview": "large", "max-snippet": -1 });
-    expect(meta.openGraph).toMatchObject({ type: "website", url: "/explore", title: "Explore | Orbie", description: "Browse traders.", locale: "en_US" });
+    expect(meta.openGraph).toMatchObject({ type: "website", url: "/en/explore", title: "Explore | Orbie", description: "Browse traders.", locale: "en_US" });
     expect(meta.twitter).toMatchObject({ card: "summary_large_image", title: "Explore | Orbie" });
   });
 
@@ -44,6 +48,7 @@ describe("robots.txt, the manifest and the sitemap's data", () => {
     const file = robots();
     expect(file.rules).toEqual([{ userAgent: "*", allow: ["/", ...PUBLIC_READS], disallow: DISALLOWED }]);
     for (const path of ["/admin", "/dev", "/api/", "/settings", "/portfolio", "/favorites"]) expect(DISALLOWED).toContain(path);
+    for (const locale of LOCALES) for (const path of ["/admin", "/dev", "/settings", "/portfolio", "/favorites"]) expect(DISALLOWED).toContain(`/${locale}${path}`);
     expect(file.sitemap).toMatch(/\/sitemap\.xml$/);
   });
 
@@ -93,14 +98,16 @@ describe("robots.txt, the manifest and the sitemap's data", () => {
 
 describe("structured data", () => {
   it("describes the organisation, the site and the app on every page", () => {
-    const graph = siteJsonLd(catalogs.en)["@graph"];
+    const graph = siteJsonLd("en", catalogs.en)["@graph"];
     expect(graph.map((node) => node["@type"])).toEqual(["Organization", "WebSite", "SoftwareApplication"]);
     expect(JSON.stringify(graph)).not.toMatch(/copydog/i);
     expect(graph[0]).toMatchObject({ name: "Orbie", logo: { width: 512, height: 512 } });
+    // The site's URLs are the page language's.
+    expect(graph[1]).toMatchObject({ url: expect.stringMatching(/\/en$/), inLanguage: "en" });
   });
 
   it("adds the about page as a WebPage of the site", () => {
-    expect(webPageJsonLd({ name: "About", description: "d", path: "/about" })).toMatchObject({ "@type": "WebPage", isPartOf: { "@id": expect.stringMatching(/#website$/) }, url: expect.stringMatching(/\/about$/) });
+    expect(webPageJsonLd({ locale: "zh-TW", name: "About", description: "d", path: "/about" })).toMatchObject({ "@type": "WebPage", isPartOf: { "@id": expect.stringMatching(/#website$/) }, url: expect.stringMatching(/\/zh-TW\/about$/) });
   });
 
   it("lists every FAQ question with a plain-text answer, in both written languages", () => {

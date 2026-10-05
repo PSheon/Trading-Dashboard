@@ -4,7 +4,7 @@ import { expect, test, type Page } from "@playwright/test";
  * loading outline shows the label, not the figure). */
 const profileIn = (page: Page) => page.getByTestId("account-value").filter({ visible: true });
 
-const TRADER = "/trader/0x89da4baec446f35a1cbe17a9d1ee5c70b05ee43f";
+const TRADER = "/en/trader/0x89da4baec446f35a1cbe17a9d1ee5c70b05ee43f";
 const failed = (page: Page) => page.getByText("Couldn't load this trader.", { exact: true });
 const placeholders = (page: Page) => page.locator("main .ui-skeleton, main .animate-pulse").filter({ visible: true });
 /** The fixture api answers the trader page's requests 503 busy (see fixtures/handler.ts). */

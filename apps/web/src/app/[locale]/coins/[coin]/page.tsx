@@ -15,7 +15,7 @@ import { loadCoinBoard } from "@/lib/share-card-data";
 /** One api read per request, shared by the metadata and the page. */
 const unknownMarket = cache(async (coin: string) => coinIsUnknown(await loadCoinBoard(coin, { client: clientAddress(await headers()) })) === true);
 
-export async function generateMetadata({ params }: PageProps<"/coins/[coin]">): Promise<Metadata> {
+export async function generateMetadata({ params }: PageProps<"/[locale]/coins/[coin]">): Promise<Metadata> {
   const coin = coinFromSlug((await params).coin);
   const locale = await getLocale();
   const messages = getMessages(locale);
@@ -31,7 +31,7 @@ export async function generateMetadata({ params }: PageProps<"/coins/[coin]">): 
  * traded is the page with its 「尚無市場資料」 empty state (200), as on CopyDog.
  * When the api can't say, the page renders and decides once its own read
  * answers. */
-export default async function CoinPage({ params }: PageProps<"/coins/[coin]">) {
+export default async function CoinPage({ params }: PageProps<"/[locale]/coins/[coin]">) {
   const coin = coinFromSlug((await params).coin);
   if (!coin || (await unknownMarket(coin))) notFound();
   return <CoinBoardView coin={coin} />;

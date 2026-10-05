@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { usePathname } from "@/i18n/navigation";
 import { useEffect } from "react";
 
 import { CJK_FONT_COOKIE, CJK_FONT_COOKIE_MAX_AGE, encodeCjkFont } from "@/lib/cjk-font";

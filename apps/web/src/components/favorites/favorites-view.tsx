@@ -1,7 +1,7 @@
 "use client";
 
 import { Bell, Bookmark, ChevronDown, Send, Star, X, Zap } from "lucide-react";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { cn } from "cn";

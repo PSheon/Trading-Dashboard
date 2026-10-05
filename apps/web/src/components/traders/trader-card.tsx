@@ -1,7 +1,7 @@
 "use client";
 
 import type { TraderActivity } from "@/lib/contracts";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { cn } from "cn";
 
 import { AreaChart, type SeriesPoint } from "@/components/charts/area-chart";

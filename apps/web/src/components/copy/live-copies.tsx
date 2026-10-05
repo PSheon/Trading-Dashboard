@@ -1,5 +1,5 @@
 'use client';
-import Link from 'next/link';
+import { Link } from '@/i18n/navigation';
 import { useState } from 'react';
 import type { CopyExecutionAccount, LiveCopyMandate } from '@trading-dashboard/shared/contracts';
 import { useI18n } from '@/i18n/provider';

@@ -7,7 +7,7 @@ test.beforeEach(async ({ context, baseURL }) => {
 test("anonymous admin gate, demo login and logout clear private UI", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto("/admin/users");
+  await page.goto("/en/admin/users");
   await expect(page.getByRole("button", { name: "Demo login", exact: true })).toBeVisible();
   await expect(page.getByRole("table")).toHaveCount(0);
   await signIn(page);
@@ -19,7 +19,7 @@ test("anonymous admin gate, demo login and logout clear private UI", async ({ pa
   expect(errors).toEqual([]);
 });
 test("public discovery navigates to a trader with activity without signing in", async ({ page }) => {
-  const response = await page.goto("/explore");
+  const response = await page.goto("/en/explore");
   expect(response?.headers()["x-content-type-options"]).toBe("nosniff");
   await expect(firstTraderLink(page)).toBeVisible();
   await openFirstTrader(page);
@@ -31,7 +31,7 @@ for (const width of [1440, 390]) {
     const errors: string[] = [];
     page.on("pageerror", error => errors.push(error.message));
     await page.setViewportSize({ width, height: 900 });
-    await page.goto("/explore");
+    await page.goto("/en/explore");
     await openFirstTrader(page);
     const mobile = width < 768;
     const activity = mobile

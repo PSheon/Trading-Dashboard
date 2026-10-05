@@ -1,7 +1,7 @@
 "use client";
 
 import { Globe } from "lucide-react";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { cn } from "cn";
 
 import { Lockup } from "@/components/brand/logo";

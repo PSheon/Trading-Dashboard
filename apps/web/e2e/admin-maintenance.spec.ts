@@ -12,7 +12,7 @@ for (const width of [1440, 390]) {
   test(`maintenance mode is switched on with a confirmation and the notice shows on every page at ${width}px`, async ({ page }) => {
     test.setTimeout(90000);
     await page.setViewportSize({ width, height: 900 });
-    await page.goto("/admin/settings");
+    await page.goto("/en/admin/settings");
     await signIn(page);
     const general = page.locator("#general");
     const toggle = general.getByRole("switch", { name: "Turn maintenance mode on" });
@@ -52,7 +52,7 @@ for (const width of [1440, 390]) {
     // Site-wide: the notice is on a public page too (client-side navigation keeps the fixture state).
     await page.getByRole("link", { name: "Home" }).filter({ visible: true }).first().click();
     // The dev server may still be compiling the home page.
-    await expect(page).toHaveURL(/\/$/, { timeout: 20000 });
+    await expect(page).toHaveURL(/\/en$/, { timeout: 20000 });
     await expect(notice).toBeVisible();
     await expectNoSidewaysScroll(page);
     await shot(page, `maintenance-home-${width}`);

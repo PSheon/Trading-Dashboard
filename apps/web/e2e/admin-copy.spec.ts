@@ -19,7 +19,7 @@ const armStale = (page: Page, kind: "control" | "risk") => page.evaluate((k) => 
 
 async function open(page: Page, width: number) {
   await page.setViewportSize({ width, height: 900 });
-  await page.goto("/admin/copy");
+  await page.goto("/en/admin/copy");
   await signIn(page);
   await expect(page.getByRole("region", { name: "Platform stop state" })).toBeVisible({ timeout: 20000 });
 }

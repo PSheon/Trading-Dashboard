@@ -1,5 +1,5 @@
 import { Bell, BriefcaseBusiness, Compass, ShieldCheck, type LucideIcon } from "lucide-react";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { cn } from "cn";
 
 import { AlertsMock, AvatarStack, BoardMock, CopyMock, KolMarquee, PortfolioMock, ProfileMock } from "@/components/content/about-visuals";

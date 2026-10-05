@@ -5,7 +5,7 @@ for (const width of [1440, 375]) {
     test.setTimeout(90000);
     await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
     await page.setViewportSize({ width, height: 1000 });
-    await page.goto("/admin/settings");
+    await page.goto("/en/admin/settings");
     await signIn(page);
     const changes = page.getByRole("region", { name: "Changes on save" });
     await expect(changes).toContainText("Nothing changed yet.", { timeout: 20000 });
@@ -14,7 +14,7 @@ for (const width of [1440, 375]) {
     await saveSettings(page);
     await expect(changes.getByRole("status")).toContainText("Saved");
     expect((await (await wcag(page)).analyze()).violations).toEqual([]);
-    await page.goto("/admin/users/audit");
+    await page.goto("/en/admin/users/audit");
     await page.getByRole("button", { name: "Next", exact: true }).click();
     await expect(page.getByText("Page 2", { exact: true })).toBeVisible();
     await chooseOption(page, page.getByLabel("Event", { exact: true }), "job.retry");

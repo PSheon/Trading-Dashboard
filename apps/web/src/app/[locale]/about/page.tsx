@@ -15,7 +15,7 @@ export default async function About() {
   return (
     <>
       {/* As CopyDog's about page: a WebPage that belongs to the site. */}
-      <JsonLd data={webPageJsonLd({ name: inlineText(splitTitle(blocks).title), description: withApp(getMessages(locale).meta.pages.about), path: "/about" })} />
+      <JsonLd data={webPageJsonLd({ locale, name: inlineText(splitTitle(blocks).title), description: withApp(getMessages(locale).meta.pages.about), path: "/about" })} />
       <AboutPage blocks={blocks} />
     </>
   );

@@ -28,7 +28,7 @@ function decodedSegment(segment: string): string {
  * within the 1.5 s prefetch budget, counted against the visitor. */
 const traderRead = cache(async (address: string) => prefetchTrader(address, { client: clientAddress(await headers()) }));
 
-export async function generateMetadata({ params }: PageProps<"/trader/[address]">): Promise<Metadata> {
+export async function generateMetadata({ params }: PageProps<"/[locale]/trader/[address]">): Promise<Metadata> {
   const address = decodedSegment((await params).address);
   const locale = await getLocale();
   const messages = getMessages(locale);
@@ -39,7 +39,11 @@ export async function generateMetadata({ params }: PageProps<"/trader/[address]"
   const [found, read] = await Promise.all([loadTraderName(address, { client }), traderRead(address)]);
   if (read.unknown) return {};
   const name = found ?? truncateAddress(address);
-  return pageSeo(locale, { path: `/trader/${address.toLowerCase()}`, title: `${name} · Hyperliquid`, description: withApp(messages.meta.pages.trader.replaceAll("{name}", name)) });
+  const path = `/trader/${address.toLowerCase()}`;
+  // The trader's own card (app/trader/[address]/opengraph-image.tsx, outside
+  // the locale tree: one image for every language, at the URL already shared).
+  const images = [{ url: `${path}/opengraph-image`, width: 1200, height: 630, alt: "Trader PnL card", type: "image/png" }];
+  return pageSeo(locale, { path, title: `${name} · Hyperliquid`, description: withApp(messages.meta.pages.trader.replaceAll("{name}", name)), images });
 }
 
 /** Anything that can't be an address (the search box sends whatever was
@@ -49,7 +53,7 @@ export async function generateMetadata({ params }: PageProps<"/trader/[address]"
  * Hyperliquid is a real 404, and a known one renders its profile in the
  * first HTML. When the api is slow or down the page renders without them
  * and the browser reads and decides, as before. */
-export default async function TraderPage({ params }: PageProps<"/trader/[address]">) {
+export default async function TraderPage({ params }: PageProps<"/[locale]/trader/[address]">) {
   const address = decodedSegment((await params).address);
   if (!ADDRESS.test(address)) notFound();
   const { profile, activity, unknown } = await traderRead(address);

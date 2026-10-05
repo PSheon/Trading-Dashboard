@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { createContext, use, useCallback, useMemo, useTransition } from "react";
 
 import { createFormatter, type Formatter } from "@/lib/format";
-import { LOCALE_COOKIE, LOCALE_COOKIE_MAX_AGE, type Locale } from "./config";
+import { DEFAULT_LOCALE, LOCALE_COOKIE, LOCALE_COOKIE_MAX_AGE, localePath, type Locale } from "./config";
 import type { MessageKey, Messages } from "./messages";
 
 export type TranslateValues = Record<string, string | number>;
@@ -14,12 +14,24 @@ interface I18nContextValue {
   locale: Locale;
   t: Translate;
   format: Formatter;
-  /** Writes the cookie and re-renders the server tree in the new locale. */
+  /** Saves the choice (the cookie) and opens the same page, with the same
+   * query, under the new locale's prefix. */
   setLocale: (next: Locale) => void;
   switching: boolean;
 }
 
 const I18nContext = createContext<I18nContextValue | null>(null);
+
+/** The visitor's saved language: where an unprefixed URL sends them. */
+export function writeLocaleCookie(locale: Locale): void {
+  document.cookie = `${LOCALE_COOKIE}=${encodeURIComponent(locale)}; path=/; max-age=${LOCALE_COOKIE_MAX_AGE}; samesite=lax${location.protocol === "https:" ? "; secure" : ""}`;
+}
+
+/** The saved language, if any. */
+export function readLocaleCookie(): string | null {
+  const match = document.cookie.split("; ").find((part) => part.startsWith(`${LOCALE_COOKIE}=`));
+  return match ? decodeURIComponent(match.slice(LOCALE_COOKIE.length + 1)) : null;
+}
 
 function lookup(messages: Messages, key: string): string | undefined {
   let node: unknown = messages;
@@ -61,9 +73,10 @@ export function I18nProvider({
 
   const setLocale = useCallback(
     (next: Locale) => {
+      writeLocaleCookie(next);
       if (next === locale) return;
-      document.cookie = `${LOCALE_COOKIE}=${encodeURIComponent(next)}; path=/; max-age=${LOCALE_COOKIE_MAX_AGE}; samesite=lax${location.protocol === "https:" ? "; secure" : ""}`;
-      startTransition(() => router.refresh());
+      const { pathname, search, hash } = window.location;
+      startTransition(() => router.replace(localePath(next, `${pathname}${search}${hash}`), { scroll: false }));
     },
     [locale, router],
   );
@@ -84,6 +97,12 @@ function useI18nContext(): I18nContextValue {
 
 export function useI18n() {
   return useI18nContext();
+}
+
+/** The page's locale, or the default outside a provider (a link rendered
+ * on its own). */
+export function useCurrentLocale(): Locale {
+  return use(I18nContext)?.locale ?? DEFAULT_LOCALE;
 }
 
 export function useT(): Translate {

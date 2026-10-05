@@ -8,7 +8,7 @@ for (const width of [1440, 375])
   }) => {
     await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
     await page.setViewportSize({ width, height: 1000 });
-    await page.goto("/admin/kols");
+    await page.goto("/en/admin/kols");
     await signIn(page);
     // The KOL registry is the 交易員資料 tab; its CSV import opens in a drawer.
     await expect(page).toHaveURL(/\/admin\/traders$/);

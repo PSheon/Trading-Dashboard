@@ -8,7 +8,7 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/auth", () => ({ useAuth: () => ({ status: state.status }), useMe: () => ({ data: state.data, isError: state.isError, isPending: false }) }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/admin/users" }));
-vi.mock("@/i18n/provider", () => ({ useI18n: () => ({ t: (key: string) => key }) }));
+vi.mock("@/i18n/provider", () => ({ useI18n: () => ({ t: (key: string) => key }), useCurrentLocale: () => "en" }));
 vi.mock("@/components/page", () => ({
   Panel: ({ children }: { children: React.ReactNode }) => children,
   PageHeader: () => null,
@@ -30,8 +30,8 @@ it("gates mounted admin content and navigation by effective grants and denies st
     state.data = { role: "user", permissions: ["admin.access", "users.read"] };
     await render();
     expect(container.textContent).toContain("private-users");
-    expect(container.querySelector('a[href="/admin/users"]')).not.toBeNull();
-    expect(container.querySelector('a[href="/admin/settings"]')).toBeNull();
+    expect(container.querySelector('a[href="/en/admin/users"]')).not.toBeNull();
+    expect(container.querySelector('a[href="/en/admin/settings"]')).toBeNull();
     state.isError = true;
     await render();
     expect(container.textContent).not.toContain("private-users");

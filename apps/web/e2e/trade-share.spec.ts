@@ -34,7 +34,7 @@ test("a trader's position: App Card and Poster in both formats, server-rendered 
   // (runs 37255928892, 37263554335).
   test.slow();
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto(`/trader/${address}`);
+  await page.goto(`/en/trader/${address}`);
   await page.getByRole("button", { name: "Share position", exact: true }).filter({ visible: true }).first().click();
   await expect(page.getByRole("dialog", { name: "Share Position" })).toBeVisible();
   await downloadsEveryCard(page, "share-position");
@@ -43,7 +43,7 @@ test("a trader's position: App Card and Poster in both formats, server-rendered 
 test("one of my paper copy trades, from Insights' best trades, at 390px", async ({ page }) => {
   test.slow();
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/portfolio");
+  await page.goto("/en/portfolio");
   await signIn(page);
   await page.getByRole("tab", { name: "Insights" }).filter({ visible: true }).click();
   await page.getByRole("button", { name: "Share trade", exact: true }).filter({ visible: true }).first().click();

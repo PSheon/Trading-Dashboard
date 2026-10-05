@@ -18,7 +18,7 @@ const setting = (page: Page, label: string) => page.locator("dl > div").filter({
 const failNext = (page: Page, kind: "patch" | "commands") => page.evaluate((k) => sessionStorage.setItem("orbie:fixtures:copy-fail", k), kind);
 
 async function openCopy(page: Page, trader: string) {
-  await page.goto("/portfolio");
+  await page.goto("/en/portfolio");
   await signIn(page);
   await page.getByRole("button", { name: new RegExp(`^${trader}`) }).filter({ visible: true }).first().click();
   await expect(page).toHaveURL(/[?&]copy=\d+/);
@@ -32,7 +32,7 @@ for (const width of [1440, 390]) {
     });
 
     test("local copy selection and Back work without Flight requests and preserve query and hash", async ({ page, baseURL }) => {
-      await page.goto("/portfolio?view=copying&tag=alpha&tag=beta#paper");
+      await page.goto("/en/portfolio?view=copying&tag=alpha&tag=beta#paper");
       await signIn(page);
       const copy = page.getByRole("button", { name: /^Machi is ugly dog/ }).filter({ visible: true }).first();
       await expect(copy).toBeVisible();
@@ -44,10 +44,10 @@ for (const width of [1440, 390]) {
       });
       const historyLength = await page.evaluate(() => history.length);
       await copy.click();
-      await expect(page).toHaveURL(`${baseURL}/portfolio?view=copying&tag=alpha&tag=beta&copy=1#paper`);
+      await expect(page).toHaveURL(`${baseURL}/en/portfolio?view=copying&tag=alpha&tag=beta&copy=1#paper`);
       await expect(action(page, "Edit settings")).toBeVisible();
       await action(page, "Back").click();
-      await expect(page).toHaveURL(`${baseURL}/portfolio?view=copying&tag=alpha&tag=beta#paper`);
+      await expect(page).toHaveURL(`${baseURL}/en/portfolio?view=copying&tag=alpha&tag=beta#paper`);
       await expect(copy).toBeVisible();
       expect(await page.evaluate(() => history.length)).toBe(historyLength);
       expect(flights).toEqual([]);
@@ -192,11 +192,11 @@ for (const width of [1440, 390]) {
 
     test("start a copy on the trader page, pause it, resume it, then stop it", async ({ page }) => {
       test.setTimeout(120000);
-      await page.goto("/portfolio?paper=empty");
+      await page.goto("/en/portfolio?paper=empty");
       await signIn(page);
       // Client-side from here on: the fixture account lives in this page.
       await page.getByRole("link", { name: "Find traders" }).filter({ visible: true }).click();
-      await page.locator('a[href^="/trader/0x"]').filter({ visible: true }).first().click();
+      await page.locator('a[href*="/trader/0x"]').filter({ visible: true }).first().click();
       await expect(page).toHaveURL(/\/trader\/0x/, { timeout: 30000 });
       if (width < 768) {
         // Phones: the sheet has its own keypad (the field is read-only).

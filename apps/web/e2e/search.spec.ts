@@ -16,7 +16,7 @@ for (const width of [1440, 390]) {
   test(`search Enter opens the typed trader, or the 404, at ${width}px`, async ({ page }) => {
     test.setTimeout(90000);
     await page.setViewportSize({ width, height: 900 });
-    await page.goto("/");
+    await page.goto("/en");
     const open = async () => {
       // Phones show the search icon until it's tapped.
       if (width < 768) await page.getByRole("button", { name: "Search name, X handle or address" }).click();
@@ -25,7 +25,7 @@ for (const width of [1440, 390]) {
     const notFound = page.getByRole("heading", { name: "404", exact: true });
 
     // A known address: its trader page.
-    const first = await page.locator('a[href^="/trader/0x"]').first().getAttribute("href");
+    const first = await page.locator('a[href*="/trader/0x"]').first().getAttribute("href");
     const known = first!.split("/").pop()!;
     let box = await open();
     await box.fill(known.toUpperCase().replace("0X", "0x"));
@@ -35,7 +35,7 @@ for (const width of [1440, 390]) {
     await expect(profileIn(page).first()).toBeVisible({ timeout: 20000 });
 
     // Text that is no address: the 404, without picking the first match.
-    await page.goto("/");
+    await page.goto("/en");
     box = await open();
     await box.fill("zz garbage");
     await box.press("Enter");
@@ -44,7 +44,7 @@ for (const width of [1440, 390]) {
     await expect(page.getByRole("link", { name: "Back to Leaderboard" })).toHaveAttribute("href", "/");
 
     // An address Hyperliquid has nothing for: the 404 once the page has asked.
-    await page.goto("/");
+    await page.goto("/en");
     box = await open();
     await box.fill(UNKNOWN);
     await box.press("Enter");
@@ -53,7 +53,7 @@ for (const width of [1440, 390]) {
 
     // A lit row opens that trader (desktop dropdown).
     if (width >= 768) {
-      await page.goto("/");
+      await page.goto("/en");
       box = await open();
       await box.fill(known.slice(0, 6));
       const option = page.getByRole("option").first();
@@ -67,10 +67,10 @@ for (const width of [1440, 390]) {
 }
 
 test("the full leaderboard is a lab page; explore no longer links to it", async ({ page }) => {
-  expect((await page.goto("/explore/all"))?.status()).toBe(404);
-  await page.goto("/explore");
-  await expect(page.locator('a[href^="/trader/"]').first()).toBeAttached();
+  expect((await page.goto("/en/explore/all"))?.status()).toBe(404);
+  await page.goto("/en/explore");
+  await expect(page.locator('a[href*="/trader/"]').first()).toBeAttached();
   await expect(page.locator('a[href*="explore/all"]')).toHaveCount(0);
-  await page.goto("/dev/explore/all");
+  await page.goto("/en/dev/explore/all");
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 });

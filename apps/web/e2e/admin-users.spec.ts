@@ -12,7 +12,7 @@ for (const width of [1440, 390]) {
   test(`a role change and a disable are confirmed before anything is sent at ${width}px`, async ({ page }) => {
     test.setTimeout(90000);
     await page.setViewportSize({ width, height: 900 });
-    await page.goto("/admin/users");
+    await page.goto("/en/admin/users");
     await signIn(page);
     const target = row(page, "whalewatcher");
     await expect(target.getByText("User", { exact: true })).toBeVisible({ timeout: 20000 });
@@ -73,7 +73,7 @@ for (const width of [1440, 390]) {
   test(`an operator reads every tab, may send stop commands, and every other write control is off at ${width}px`, async ({ page }) => {
     test.setTimeout(120000);
     await page.setViewportSize({ width, height: 900 });
-    await page.goto("/admin/users?as=operator");
+    await page.goto("/en/admin/users?as=operator");
     await signIn(page);
     const target = row(page, "whalewatcher");
     await target.getByRole("button", { name: "Manage whalewatcher" }).click({ timeout: 20000 });
@@ -126,7 +126,7 @@ for (const width of [1440, 390]) {
   test(`a withdrawal in doubt is listed above the users and resolved with a reason at ${width}px`, async ({ page }) => {
     test.setTimeout(90000);
     await page.setViewportSize({ width, height: 900 });
-    await page.goto("/admin/users?withdrawals=doubt");
+    await page.goto("/en/admin/users?withdrawals=doubt");
     await signIn(page);
     const panel = page.getByRole("region", { name: "Withdrawals in doubt" });
     await expect(panel).toContainText("alice@example.com", { timeout: 20000 });

@@ -14,7 +14,7 @@ for (const width of [1440, 390]) {
   test(`settings: limits saved from one changes card; market lists edited as chips by keyboard; the env-moved knobs are read-only at ${width}px`, async ({ page }) => {
     test.setTimeout(120000);
     await page.setViewportSize({ width, height: 900 });
-    await page.goto("/admin/settings");
+    await page.goto("/en/admin/settings");
     await signIn(page);
     const changes = page.getByRole("region", { name: "Changes on save" });
     await expect(changes).toContainText("Nothing changed yet.", { timeout: 20000 });
@@ -80,6 +80,6 @@ for (const width of [1440, 390]) {
 }
 
 test("the old default-rules page lands on the settings' notifications", async ({ page }) => {
-  await page.goto("/admin/rules");
+  await page.goto("/en/admin/rules");
   await expect(page).toHaveURL(/\/admin\/settings#notifications$/);
 });

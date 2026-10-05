@@ -8,7 +8,7 @@ test.beforeEach(async ({ context, baseURL }) => {
 
 for (const width of [1440, 390]) test(`hovering the trader chart shows the positions held then (chart snapshots) at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 900 });
-  await page.goto(`/trader/${address}`);
+  await page.goto(`/en/trader/${address}`);
   const strip = page.getByTestId("chart-snapshot").filter({ visible: true });
   await expect(strip).toContainText("Hover the chart", { timeout: 20_000 });
   const chart = page.getByRole("img", { name: /PnL/ }).filter({ visible: true }).first();

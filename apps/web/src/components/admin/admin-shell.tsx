@@ -1,8 +1,7 @@
 "use client";
 
 import { LogIn, ShieldAlert } from "lucide-react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { Link, usePathname } from "@/i18n/navigation";
 import { cn } from "cn";
 
 import { EmptyState, ErrorState, PageHeader, Panel, SignInPrompt, SkelBar } from "@/components/page";

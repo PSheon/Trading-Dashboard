@@ -25,7 +25,8 @@ describe("error boundaries", () => {
     expect(host.querySelector('[role="alert"] h1')?.textContent).toBe("Failed to load");
     expect(host.textContent).not.toContain("secret");
     expect(host.textContent).not.toContain("abc123");
-    expect(host.querySelector("a")?.getAttribute("href")).toBe("/");
+    // Home in the page's language (zh-TW outside a provider).
+    expect(host.querySelector("a")?.getAttribute("href")).toBe("/zh-TW");
     await act(async () => host.querySelector("button")!.click());
     expect(retry).toHaveBeenCalledTimes(1);
     expect(log).toHaveBeenCalledWith(error);
@@ -43,13 +44,15 @@ describe("error boundaries", () => {
   it("routes that answer 404 by themselves have no loading boundary above them", () => {
     // A loading.tsx starts the response (HTTP 200) before the page can call
     // notFound(), which would turn these real 404s back into soft ones.
-    const app = join(import.meta.dirname, "../src/app");
+    const root = join(import.meta.dirname, "../src/app");
+    const app = join(root, "[locale]");
     for (const dir of ["", "trader", "trader/[address]", "coins", "coins/[coin]", "[...missing]", "dev"]) {
       expect(existsSync(join(app, dir, "loading.tsx")), `app/${dir}/loading.tsx`).toBe(false);
     }
     for (const dir of ["explore", "insights", "favorites", "portfolio", "settings", "admin"]) {
       expect(existsSync(join(app, dir, "loading.tsx")), `app/${dir}/loading.tsx`).toBe(true);
     }
-    for (const file of ["error.tsx", "global-error.tsx", "not-found.tsx"]) expect(existsSync(join(app, file)), file).toBe(true);
+    for (const file of ["error.tsx", "not-found.tsx"]) expect(existsSync(join(app, file)), file).toBe(true);
+    expect(existsSync(join(root, "global-error.tsx"))).toBe(true);
   });
 });

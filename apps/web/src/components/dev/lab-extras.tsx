@@ -1,7 +1,7 @@
 "use client";
 
 import { Download } from "lucide-react";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 
 import { MarkdownBlocks } from "@/components/content/markdown";
 import { Button } from "@/components/ui/button";

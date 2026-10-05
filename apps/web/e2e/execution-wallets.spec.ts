@@ -4,7 +4,7 @@ import { expectNoSidewaysScroll, signIn } from "./helpers";
 for (const width of [1440, 390]) test(`execution wallet settings explain unavailable preparation at ${width}px`, async ({ page, context, baseURL }) => {
   await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
   await page.setViewportSize({ width, height: 900 });
-  await page.goto(width < 768 ? "/settings?view=account" : "/settings?tab=account");
+  await page.goto(width < 768 ? "/en/settings?view=account" : "/en/settings?tab=account");
   await signIn(page);
   const section = page.getByRole("region", { name: "Copy execution wallets" }).filter({ visible: true });
   await expect(section).toBeVisible();

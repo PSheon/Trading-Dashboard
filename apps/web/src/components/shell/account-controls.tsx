@@ -2,7 +2,7 @@
 
 import { Briefcase, ChevronDown, Globe, LogOut, Moon, Settings, ShieldCheck, Sun } from "lucide-react";
 import { cn } from "cn";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 
 import { Skeleton } from "@/components/page";
 import { useWalletModals } from "@/components/wallet/wallet-modals";

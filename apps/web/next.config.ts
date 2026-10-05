@@ -73,9 +73,10 @@ const nextConfig: NextConfig = {
   // The dev badge sits on top of the icon rail's bottom items.
   devIndicators: false,
   // Stage 2 moved every page; old links (bookmarks, Telegram messages that
-  // point at /leaders/<address>) land on their new homes.
+  // point at /leaders/<address>) land on their new homes, with or without a
+  // locale prefix (src/proxy.ts then adds the visitor's to an unprefixed one).
   redirects() {
-    return [
+    return withLocales([
       { source: "/feed", destination: "/insights", permanent: false },
       { source: "/heatmap", destination: "/insights", permanent: false },
       { source: "/leaders", destination: "/explore", permanent: false },
@@ -87,9 +88,24 @@ const nextConfig: NextConfig = {
       { source: "/status", destination: "/admin", permanent: false },
       { source: "/login", destination: "/", permanent: false },
       ...ADMIN_REDIRECTS,
-    ];
+    ]);
   },
 };
+
+/** The eleven locales of src/i18n/config.ts (test/next-config.test.ts keeps
+ * the two in step); next.config can't import the app's modules. */
+export const LOCALE_PATTERN = "en|zh-TW|zh-CN|ko|ja|ru|tr|vi|es|pt|id";
+
+type Redirect = { source: string; destination: string; permanent: boolean };
+
+/** Each redirect as written, and the same under a `/<locale>/` prefix
+ * (`/zh-TW/admin/revenue` → `/zh-TW/admin`). */
+export function withLocales(redirects: Redirect[]): Redirect[] {
+  return redirects.flatMap((rule) => [
+    rule,
+    { ...rule, source: `/:locale(${LOCALE_PATTERN})${rule.source}`, destination: rule.destination === "/" ? "/:locale" : `/:locale${rule.destination}` },
+  ]);
+}
 
 /**
  * The admin's old pages (bookmarks, links in messages) land on their place in

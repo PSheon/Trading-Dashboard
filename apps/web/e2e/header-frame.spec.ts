@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { signIn } from "./helpers";
 
-const TRADER = "/trader/0x89da4baec446f35a1cbe17a9d1ee5c70b05ee43f";
+const TRADER = "/en/trader/0x89da4baec446f35a1cbe17a9d1ee5c70b05ee43f";
 
 test.beforeEach(async ({ context, baseURL }) => {
   await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
@@ -11,7 +11,7 @@ test.beforeEach(async ({ context, baseURL }) => {
  * (desktop capsule, phone tab bar and ☰ menu); they appear once signed in. */
 test("the signed-out header has no Portfolio / Saved; signing in shows them", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/explore");
+  await page.goto("/en/explore");
   const header = page.locator("header.orbit-header");
   await expect(header.getByRole("button", { name: "Demo login" })).toBeVisible();
   await expect(header.getByRole("navigation", { name: "Mine" })).toHaveCount(0);
@@ -26,17 +26,17 @@ test("the signed-out header has no Portfolio / Saved; signing in shows them", as
 
 test("the phone tab bar and menu offer Portfolio / Saved only when signed in", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
+  await page.goto("/en");
   const tabs = page.getByRole("navigation", { name: "Main navigation" }).filter({ visible: true });
   await expect(tabs.getByRole("link")).toHaveText(["Home", "Explore", "Insights"]);
 
-  await page.goto("/help");
+  await page.goto("/en/help");
   await page.getByRole("button", { name: "Open menu" }).click();
   const menu = page.getByRole("dialog");
   await expect(menu.getByRole("link", { name: "Settings" })).toBeVisible();
   await expect(menu.getByRole("link", { name: /^(Portfolio|Saved)$/ })).toHaveCount(0);
 
-  await page.goto("/");
+  await page.goto("/en");
   await signIn(page);
   await expect(tabs.getByRole("link")).toHaveText(["Home", "Explore", "Saved", "Portfolio"]);
 });
@@ -71,7 +71,7 @@ async function edges(page: Page) {
 for (const width of [390, 1440, 1920]) {
   test(`header, content and footer edges line up at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
-    for (const path of ["/", "/explore", "/coins", TRADER, "/about"]) {
+    for (const path of ["/en", "/en/explore", "/en/coins", TRADER, "/en/about"]) {
       await page.goto(path);
       await expect(page.locator("main")).toBeVisible();
       const e = await edges(page);

@@ -1,7 +1,7 @@
 "use client";
 
 import { copyRecordLabel } from "./copy-labels";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { PaperBadge } from "@/components/copy/paper-badge";
 import type { MessageKey } from "@/i18n/messages";
 import { useI18n } from "@/i18n/provider";

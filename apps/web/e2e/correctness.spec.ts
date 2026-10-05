@@ -18,12 +18,12 @@ test.beforeEach(async ({ context, baseURL, page }) => {
 });
 
 test("phone settings: back from a sub-view, then close, leaves settings (no loop)", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/en");
   // The Portfolio tab is there once signed in.
   await signIn(page);
   await page.getByRole("link", { name: "Portfolio" }).filter({ visible: true }).click();
   await expect(page).toHaveURL(/\/portfolio$/);
-  await page.goto("/settings");
+  await page.goto("/en/settings");
   const panel = page.getByRole("dialog", { name: "Settings" });
   await panel.getByRole("button", { name: /Language/ }).click();
   await expect(page).toHaveURL(/view=language/);
@@ -38,7 +38,7 @@ test("phone settings: back from a sub-view, then close, leaves settings (no loop
 });
 
 test("phone settings and search keep focus inside while open", async ({ page }) => {
-  await page.goto("/settings");
+  await page.goto("/en/settings");
   const panel = page.getByRole("dialog", { name: "Settings" });
   await expect(panel).toBeVisible();
   for (let i = 0; i < 12; i++) {
@@ -46,7 +46,7 @@ test("phone settings and search keep focus inside while open", async ({ page }) 
     expect(await panel.evaluate((el) => el.contains(document.activeElement))).toBe(true);
   }
 
-  await page.goto("/");
+  await page.goto("/en");
   const open = page.getByRole("button", { name: "Search name, X handle or address" }).filter({ visible: true });
   const search = page.getByRole("search");
   // A tap before the page has hydrated does nothing: tap until it opens.
@@ -61,22 +61,22 @@ test("phone settings and search keep focus inside while open", async ({ page }) 
 });
 
 test("market icons load from this site and text fields are 16px on a touch screen", async ({ page, browser, baseURL }) => {
-  await page.goto("/");
+  await page.goto("/en");
   const sources = await page.locator("img").evaluateAll((images) => images.map((image) => image.getAttribute("src") ?? ""));
   expect(sources.filter((src) => src.includes("hyperliquid.xyz"))).toEqual([]);
 
   const touch = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, baseURL });
   await touch.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
   const phone = await touch.newPage();
-  await phone.goto("/");
+  await phone.goto("/en");
   await openPhoneSearch(phone.getByRole("button", { name: "Search name, X handle or address" }).filter({ visible: true }), phone.getByRole("combobox"));
   expect(await phone.getByRole("combobox").evaluate((el) => getComputedStyle(el).fontSize)).toBe("16px");
   await touch.close();
 });
 
 test("a phone home card never cuts an address twice", async ({ page }) => {
-  await page.goto("/");
-  const cards = page.locator('a[href^="/trader/0x"]').filter({ visible: true });
+  await page.goto("/en");
+  const cards = page.locator('a[href*="/trader/0x"]').filter({ visible: true });
   // The cards fill in after the first paint; read them once they are there.
   await expect(cards.nth(3)).toBeVisible();
   const names = await cards.evaluateAll((cards) => cards.map((card) => (card as HTMLElement).innerText));

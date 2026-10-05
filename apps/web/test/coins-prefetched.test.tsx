@@ -20,7 +20,7 @@ describe("the coin index rendered from the server's read", () => {
     const index = JSON.parse(JSON.stringify(await fixtureRequest("GET", "/discover/coins", undefined, null))) as CoinIndexResponse;
     expect(index.items.length).toBeGreaterThan(0);
     const fetchSpy = vi.spyOn(globalThis, "fetch");
-    const href = `href="${coinHref(index.items[0]!.coin)}"`;
+    const href = `href="/en${coinHref(index.items[0]!.coin)}"`;
     expect(wrap(new QueryClient(), <CoinIndexView initial={{ data: index, fetchedAt: Date.now() }} />)).toContain(href);
     expect(wrap(new QueryClient(), <CoinIndexView />)).not.toContain(href);
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -29,7 +29,7 @@ describe("the coin index rendered from the server's read", () => {
 
   it("the page's Suspense fallback is skeletons with no query of its own", async () => {
     vi.doMock("next/headers", () => ({ headers: async () => new Headers() }));
-    const { default: CoinsPage } = await import("@/app/coins/page");
+    const { default: CoinsPage } = await import("@/app/[locale]/coins/page");
     expect((CoinsPage() as { props: { fallback: { type: unknown } } }).props.fallback.type).toBe(CoinIndexSkeleton);
     const client = new QueryClient();
     expect(wrap(client, <CoinIndexSkeleton />)).toContain("ui-skeleton");

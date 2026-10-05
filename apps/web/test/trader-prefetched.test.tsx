@@ -65,14 +65,14 @@ describe("prefetchTrader: the trader page's server read", () => {
 
 describe("the trader page on the server", () => {
   it("answers a real 404 for an address Hyperliquid has nothing for, before anything is sent", async () => {
-    const { default: TraderPage } = await import("@/app/trader/[address]/page");
+    const { default: TraderPage } = await import("@/app/[locale]/trader/[address]/page");
     prefetch.read.mockResolvedValue({ profile: null, activity: null, unknown: true });
     await expect(TraderPage({ params: Promise.resolve({ address: UNKNOWN_ADDRESS }) } as never)).rejects.toThrow("NEXT_HTTP_ERROR_FALLBACK;404");
     expect(prefetch.read).toHaveBeenCalledWith(UNKNOWN_ADDRESS, { client: "203.0.113.9" });
   });
 
   it("hands what it read to the page, and renders without it when the api was slow", async () => {
-    const { default: TraderPage } = await import("@/app/trader/[address]/page");
+    const { default: TraderPage } = await import("@/app/[locale]/trader/[address]/page");
     const read = { profile: { data: { address: KNOWN }, fetchedAt: 1 }, activity: null, unknown: false };
     prefetch.read.mockResolvedValue(read);
     const element = (await TraderPage({ params: Promise.resolve({ address: KNOWN }) } as never)) as { props: { initial: unknown } };

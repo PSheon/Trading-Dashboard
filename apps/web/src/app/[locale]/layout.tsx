@@ -1,7 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Fredoka, Nunito } from "next/font/google";
 import { cookies, headers } from "next/headers";
-import "./globals.css";
+import { notFound } from "next/navigation";
+import "../globals.css";
 
 import { AppProviders } from "@/components/app-providers";
 import { AppShell } from "@/components/shell/app-shell";
@@ -11,11 +12,11 @@ import { CJK_FONT_COOKIE, parseCjkFont } from "@/lib/cjk-font";
 import { clientAddress } from "@/lib/client-address";
 import type { PublicSettings } from "@/lib/contracts";
 import { prefetchPublic, type Prefetched } from "@/lib/server-prefetch";
-import { OG_LOCALES } from "@/i18n/config";
+import { OG_LOCALES, PATH_HEADER, isLocale } from "@/i18n/config";
 import { getLocale, getMessages } from "@/i18n/server";
 import { JsonLd } from "@/components/json-ld";
 import { APP_NAME, APP_URL } from "@/lib/config";
-import { siteJsonLd } from "@/lib/seo";
+import { localeAlternates, siteJsonLd } from "@/lib/seo";
 import { THEME_COLOR, THEME_COOKIE, parseThemeChoice, themeClass } from "@/lib/theme";
 
 /** Orbit's faces, self-hosted at build time with size-adjusted fallbacks so
@@ -41,6 +42,9 @@ export async function generateMetadata(): Promise<Metadata> {
   // CopyDog's shape: "<page> | <site>", and the home page's own title as
   // the default.
   const title = `${messages.meta.homeTitle} | ${APP_NAME}`;
+  // Every page's canonical URL and its eleven language versions; a page
+  // with its own SEO (lib/seo.ts) writes the same from its own path.
+  const path = (await headers()).get(PATH_HEADER);
   return {
     metadataBase: new URL(APP_URL),
     applicationName: APP_NAME,
@@ -49,7 +53,7 @@ export async function generateMetadata(): Promise<Metadata> {
     openGraph: {
       type: "website",
       siteName: APP_NAME,
-      url: "/",
+      url: `/${locale}`,
       title,
       description: messages.meta.description,
       locale: OG_LOCALES[locale],
@@ -59,6 +63,7 @@ export async function generateMetadata(): Promise<Metadata> {
       title,
       description: messages.meta.description,
     },
+    ...(path ? { alternates: localeAlternates(locale, path) } : {}),
   };
 }
 
@@ -82,7 +87,13 @@ async function siteSettings(): Promise<Prefetched<PublicSettings> | null> {
 }
 const SETTINGS_PREFETCH_MS = 400;
 
-export default async function RootLayout({ children }: LayoutProps<"/">) {
+/**
+ * The root layout sits under `[locale]`: the URL's language is the page's
+ * (`<html lang>`, the catalog, the metadata), and any other first segment
+ * is a 404 (the proxy has already sent unprefixed page URLs to a locale).
+ */
+export default async function RootLayout({ children, params }: LayoutProps<"/[locale]">) {
+  if (!isLocale((await params).locale)) notFound();
   const locale = await getLocale();
   const messages = getMessages(locale);
   // The theme chosen with the toggle (cookie); none = follow the system.
@@ -105,7 +116,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
         </head>
       ) : null}
       <body className="min-h-full bg-background text-foreground">
-        <JsonLd data={siteJsonLd(messages)} />
+        <JsonLd data={siteJsonLd(locale, messages)} />
         <AppProviders locale={locale} messages={messages} themeChoice={themeChoice}>
           <AppShell settings={settings} announcementDismissed={cookieStore.get(ANNOUNCEMENT_COOKIE)?.value ?? null}>{children}</AppShell>
           <CjkFontWarmup />

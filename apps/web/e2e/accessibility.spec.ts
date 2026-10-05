@@ -7,7 +7,7 @@ for (const width of [1280, 390]) {
     test.setTimeout(90000);
     await context.addCookies([{ name: 'locale', value: 'en', url: baseURL! }]);
     await page.setViewportSize({ width, height: 900 });
-    await page.goto('/explore');
+    await page.goto('/en/explore');
     await expect(firstTraderLink(page)).toBeVisible();
     const discovery = await (await wcag(page)).analyze();
     expect.soft(discovery.violations).toEqual([]);
@@ -19,7 +19,7 @@ for (const width of [1280, 390]) {
 }
 test('activity tabs support arrow, Home and End keys', async ({ page, context, baseURL }) => {
   await context.addCookies([{ name: 'locale', value: 'en', url: baseURL! }]);
-  await page.goto('/explore');
+  await page.goto('/en/explore');
   await openFirstTrader(page);
   const tabs = page.getByRole('tablist', { name: 'Trading activity' }).getByRole('tab');
   await tabs.first().focus();
@@ -35,10 +35,10 @@ test('activity tabs support arrow, Home and End keys', async ({ page, context, b
 test('signed-in settings and user administration accessibility', async ({ page, context, baseURL }) => {
   test.setTimeout(60000);
   await context.addCookies([{ name: 'locale', value: 'en', url: baseURL! }]);
-  await page.goto('/admin/users');
+  await page.goto('/en/admin/users');
   await signIn(page);
   await expect(page.getByRole('table')).toBeVisible();
-  for (const path of ['/admin/users', '/settings', '/admin/settings']) {
+  for (const path of ['/en/admin/users', '/en/settings', '/en/admin/settings']) {
     await page.goto(path);
     await expect(page.getByRole('main')).toBeVisible();
     // Wait for fixture queries to settle rather than scanning skeleton-only UI.

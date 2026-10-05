@@ -1,8 +1,7 @@
 "use client";
 
 import { ArrowDownRight, ArrowUpRight, Clock3 } from "lucide-react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { Link, useRouter } from "@/i18n/navigation";
 import { cn } from "cn";
 
 import { SkelBar, SkelCircle } from "@/components/page";

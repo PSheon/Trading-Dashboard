@@ -21,8 +21,8 @@ describe("home rendered from the server's read", () => {
     const home = JSON.parse(JSON.stringify(await fixtureRequest("GET", "/discover/home", undefined, null)));
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     const first = home.featured[0].address as string;
-    expect(render({ home: { data: home, fetchedAt: Date.now() } })).toContain(`href="/trader/${first}"`);
-    expect(render()).not.toContain(`href="/trader/${first}"`);
+    expect(render({ home: { data: home, fetchedAt: Date.now() } })).toContain(`href="/en/trader/${first}"`);
+    expect(render()).not.toContain(`href="/en/trader/${first}"`);
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
   });
@@ -31,7 +31,7 @@ describe("home rendered from the server's read", () => {
 describe("the home page's Suspense fallback", () => {
   it("is skeletons with no query of its own, so a client navigation keeps the server's rows", async () => {
     vi.doMock("next/headers", () => ({ headers: async () => new Headers() }));
-    const { default: HomePage } = await import("@/app/page");
+    const { default: HomePage } = await import("@/app/[locale]/page");
     const fallback = (HomePage() as { props: { fallback: { type: unknown } } }).props.fallback;
     expect(fallback.type).toBe(HomeSkeleton);
     const client = new QueryClient();
@@ -53,11 +53,11 @@ describe("依市場瀏覽 tiles", () => {
     const html = render({ home: { data: { ...home, trending: { coins: ["ZEC", "PUMP"], stocks: ["xyz:CBRS", "xyz:BRENTOIL"] } }, fetchedAt: Date.now() } });
     const tilesOf = (markup: string) => /data-testid="phone-crypto-tiles"([\s\S]*?)<\/div>/.exec(markup)?.[1] ?? "";
     const tiles = tilesOf(html);
-    const order = [...tiles.matchAll(/href="\/explore\?board=([^"&]+)/g)].map((m) => decodeURIComponent(m[1]));
+    const order = [...tiles.matchAll(/href="\/en\/explore\?board=([^"&]+)/g)].map((m) => decodeURIComponent(m[1]));
     expect(order).toEqual(["BTC", "ETH", "SOL", "HYPE", "DOGE", "ZEC", "PUMP"]);
     expect(html).toContain("board=xyz%3ACBRS");
     // An api without the field: the fixed tiles only.
     const plain = tilesOf(render({ home: { data: home, fetchedAt: Date.now() } }));
-    expect([...plain.matchAll(/href="\/explore\?board=([^"&]+)/g)].map((m) => m[1])).toEqual(["BTC", "ETH", "SOL", "HYPE", "DOGE"]);
+    expect([...plain.matchAll(/href="\/en\/explore\?board=([^"&]+)/g)].map((m) => m[1])).toEqual(["BTC", "ETH", "SOL", "HYPE", "DOGE"]);
   });
 });

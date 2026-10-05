@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 
 import { InlineText, MarkdownBlocks } from "@/components/content/markdown";
 import type { Locale } from "@/i18n/config";

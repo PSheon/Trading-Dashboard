@@ -14,7 +14,7 @@ const DARK = "rgb(21, 19, 43)";
 
 test("with no choice the page follows the system theme", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "dark" });
-  await page.goto("/");
+  await page.goto("/en");
   await expect.poll(() => ground(page)).toBe(DARK);
   await page.emulateMedia({ colorScheme: "light" });
   await expect.poll(() => ground(page)).toBe(LIGHT);
@@ -24,7 +24,7 @@ test("with no choice the page follows the system theme", async ({ page }) => {
 test("the header theme button switches the theme and the choice survives a reload", async ({ page, context }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.emulateMedia({ colorScheme: "light" });
-  await page.goto("/");
+  await page.goto("/en");
   await expect.poll(() => ground(page)).toBe(LIGHT);
   // A click before the page has hydrated does nothing (a slow CI dev
   // server, run 37255928892): click until the theme turns.
@@ -35,7 +35,7 @@ test("the header theme button switches the theme and the choice survives a reloa
   await expect.poll(() => ground(page)).toBe(DARK);
   expect((await context.cookies()).find((c) => c.name === "theme")?.value).toBe("dark");
   // The server paints the chosen theme: the class is in the first HTML.
-  const html = await (await page.request.get("/explore")).text();
+  const html = await (await page.request.get("/en/explore")).text();
   expect(html).toMatch(/<html[^>]*class="[^"]*\bdark\b/);
   await page.reload();
   await expect(page.locator("html")).toHaveClass(/\bdark\b/);
@@ -47,7 +47,7 @@ test("the header theme button switches the theme and the choice survives a reloa
 
 test("the phone menu offers system, light and dark", async ({ page, context }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/about");
+  await page.goto("/en/about");
   await page.getByRole("button", { name: "Open menu" }).click();
   const group = page.getByRole("radiogroup", { name: "Theme" });
   await group.getByRole("radio", { name: "Dark" }).click();
@@ -63,7 +63,7 @@ for (const theme of ["light", "dark"] as const) {
       test.setTimeout(90000);
       await context.addCookies([{ name: "theme", value: theme, url: baseURL! }]);
       await page.setViewportSize({ width, height: 900 });
-      for (const path of ["/", "/explore", "/insights", "/coins", "/trader/0x89da4baec446f35a1cbe17a9d1ee5c70b05ee43f", "/about"]) {
+      for (const path of ["/en", "/en/explore", "/en/insights", "/en/coins", "/en/trader/0x89da4baec446f35a1cbe17a9d1ee5c70b05ee43f", "/en/about"]) {
         await page.goto(path);
         await expect.poll(() => ground(page), path).toBe(theme === "dark" ? DARK : LIGHT);
         await expect(page.locator("main")).toBeVisible();

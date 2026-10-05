@@ -36,7 +36,7 @@ it("exports every route with native input metadata, wire responses and real auth
     const { httpRouteContracts } = await import("@trading-dashboard/shared/contracts");
     expect(Object.values(doc.paths).reduce((n, path) => n + Object.keys(path!).length, 0)).toBe(httpRouteContracts.length);
     expect(doc.paths["/admin/settings"].patch!.security).toEqual([{ bearerAuth: [] }]);
-    expect(doc.paths["/admin/settings"].patch!).toMatchObject({ "x-required-permissions": ["settings.write"] });
+    expect(doc.paths["/admin/settings"].patch!).toMatchObject({ "x-required-permissions": ["settings.write", "admin.access"] });
     expect(doc.paths["/traders"].get!.security).toEqual([{}, { bearerAuth: [] }]);
     expect(doc.paths["/actions/stream"].get!.parameters).toContainEqual(expect.objectContaining({ name: "Last-Event-ID", in: "header" }));
     const query = doc.paths["/traders/sparklines"].get!.parameters as { name: string; schema: SchemaObject }[];

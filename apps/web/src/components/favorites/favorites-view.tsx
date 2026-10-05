@@ -197,7 +197,7 @@ function SignedIn({ tab, onTab, view, onView }: { tab: Tab; onTab: (t: Tab) => v
       {favorites.isError && !favorites.data ? (
         <ErrorState message={t("favorites.error")} onRetry={() => favorites.refetch()} />
       ) : tab === "saved" ? (
-        <SavedTab favorites={favorites.data} groups={groups.data ?? []} view={view} />
+        <SavedTab favorites={favorites.data} groups={groups.data ?? []} groupsLoading={!groups.data && !groups.isError} view={view} />
       ) : tab === "alerts" ? (
         <AlertsTab favorites={favorites.data} />
       ) : feed.query.errorUpdateCount > 0 && !feed.query.data ? (
@@ -225,7 +225,7 @@ function useCards(addresses: string[]) {
 
 type SortKey = "copyScore" | "accountValue" | "pnl" | "roi" | "pnl30d" | "winRate" | "sharpe" | "maxDrawdown";
 
-function SavedTab({ favorites, groups, view }: { favorites: Favorite[] | undefined; groups: FavoriteGroup[]; view: "grid" | "list" }) {
+function SavedTab({ favorites, groups, groupsLoading = false, view }: { favorites: Favorite[] | undefined; groups: FavoriteGroup[]; groupsLoading?: boolean; view: "grid" | "list" }) {
   const { t } = useI18n();
   const now = useNow();
   const [active, setActive] = useState<number | null>(null);
@@ -256,7 +256,9 @@ function SavedTab({ favorites, groups, view }: { favorites: Favorite[] | undefin
   }
   return (
     <div className="flex flex-col gap-4">
-      <GroupChips groups={groups} counts={counts} total={favorites.length} active={active} onSelect={setActive} />
+      {/* The chips' row keeps its skeleton until the groups are in: drawn
+          without them it is one row on a phone, then wraps to two. */}
+      {groupsLoading ? <ChipsSkeleton /> : <GroupChips groups={groups} counts={counts} total={favorites.length} active={active} onSelect={setActive} />}
       {cards.isError && !cards.data ? (
         <ErrorState message={t("favorites.error")} onRetry={() => cards.refetch()} />
       ) : !cards.data ? (

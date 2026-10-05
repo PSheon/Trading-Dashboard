@@ -31,6 +31,12 @@ await withTestDatabase(async (url) => {
     const seeded = await pool.query("SELECT (SELECT count(*)::int FROM copy_controls WHERE scope = 'platform' AND scope_id = 0 AND NOT pause_new_risk AND NOT reduce_only) AS platform, (SELECT count(*)::int FROM copy_risk_policies WHERE reason = 'seeded defaults' AND created_by_user_id IS NULL) AS policies");
     assert.deepEqual(seeded.rows[0], { platform: 1, policies: 1 });
     console.log('Copy platform control row and risk policy v1 are seeded');
+    // 0064: one-click setups, their consent kind on generations, and one active plus one renewing agent per account.
+    await pool.query('SELECT id, user_id, strategy_id, account_id, kind, stage, signer_kind, intent, intent_digest, consent_digest, setup_deadline, lease_until FROM copy_live_setups LIMIT 0');
+    await pool.query('SELECT consent_kind, live_setup_id FROM copy_live_mandates LIMIT 0');
+    await pool.query('SELECT live_setup_id, signer_kind FROM copy_funding_operations LIMIT 0');
+    const agentIndexes = await pool.query("SELECT indexname FROM pg_indexes WHERE tablename = 'copy_agent_setups' AND indexname IN ('copy_agent_setups_active_uq', 'copy_agent_setups_pending_uq', 'copy_agent_setups_current_uq') ORDER BY indexname");
+    assert.deepEqual(agentIndexes.rows.map(row => row.indexname), ['copy_agent_setups_active_uq', 'copy_agent_setups_pending_uq']);
     console.log('Persistent history schema is queryable after release migrations');
     console.log('Concurrent release migrations are repeatable');
     // This database is disposable. Retain the already-applied schema but

@@ -89,6 +89,10 @@ export class CopyLiveMandateService {
     input(z.object({}).strict(), value);
     return this.uow.run(async tx => this.repository.wire(await this.repository.barrier(tx, userId, id, 'paused', this.now)));
   }
+  async resume(userId: number, id: string, value: unknown = {}) {
+    input(z.object({}).strict(), value); this.available();
+    return this.uow.run(async tx => this.repository.wire(await this.repository.resume(tx, userId, id, this.now)));
+  }
   async revoke(userId: number, id: string, value: unknown = {}) {
     input(z.object({}).strict(), value);
     return this.uow.run(async tx => this.repository.wire(await this.repository.barrier(tx, userId, id, 'revoked', this.now)));

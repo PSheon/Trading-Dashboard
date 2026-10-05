@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
-import { copyAgentSetups, copyExecutionAccounts, copyLiveExecutions, copyLiveIntentProvenance, copyLiveManualCloses, copyLiveMandates, copyLiveStopCancellations,
+import { copyAgentSetups, copyExecutionAccounts, copyLiveDispatches, copyLiveExecutions, copyLiveIntentProvenance, copyLiveManualCloses, copyLiveMandates, copyLiveStopCancellations,
   copyExecutionWallets, copyLiveStopConsents, copyLiveStopOperations, copySignerNonces, copyStrategies, copyWalletAuthorizationEvents, copyWalletAuthorizations, users } from '@trading-dashboard/shared/database';
 import { recordAdminAudit } from '../../common/audit/admin-audit.js';
 import { DRIZZLE_CLIENT } from '../../db/db.constants.js';
@@ -9,6 +9,7 @@ import type { DrizzleDb } from '../../db/drizzle.provider.js';
 import { UnitOfWork } from '../../db/unit-of-work.js';
 import { lockCopyUser } from '../copy-user-lock.js';
 import { decodeLiveExecutionRow } from '../live/postgres-live-journal.js';
+import { liveSourceExecutionCloid } from '../live/postgres-live-preparation.js';
 import type { LiveExecutionRecord } from '../live/live-execution.js';
 import type { LiveOrderIntent } from '../live/live-order.js';
 import { unwatchLeaderIfUnused } from '../../watcher/leader-watch.js';
@@ -160,6 +161,26 @@ export class CopyLiveStopWorkerRepository {
   async consent(stopId: string) {
     const [row] = await this.db.select().from(copyLiveStopConsents).where(eq(copyLiveStopConsents.stopId, stopId));
     return row ?? null;
+  }
+  /**
+   * The setup consent of the generation that placed this order (plan §2
+   * "Stop cancellation"): the order is a copy leg of a setup-consented
+   * generation of this account, and its cloid derives from that generation.
+   * Cancelling can't move funds, so that consent covers it with no per-stop one.
+   */
+  async setupConsent(stop: StopRow, executionKey: string) {
+    const [row] = await this.db.select({ dispatch: copyLiveDispatches, mandate: copyLiveMandates }).from(copyLiveDispatches)
+      .innerJoin(copyLiveMandates, eq(copyLiveMandates.id, copyLiveDispatches.mandateId))
+      .where(and(eq(copyLiveDispatches.executionKey, executionKey), eq(copyLiveMandates.accountId, stop.accountId), eq(copyLiveMandates.userId, stop.userId),
+        eq(copyLiveMandates.consentKind, 'setup'))).limit(1);
+    if (!row || !row.mandate.consentDigest || !row.mandate.liveSetupId) return null;
+    const cloid = liveSourceExecutionCloid(row.dispatch.mandateId, row.dispatch.sourceFillId, row.dispatch.leg);
+    if (executionKey !== `testnet:${row.mandate.accountAddress}:${cloid}`) return null;
+    return row.mandate;
+  }
+  async mandateConsentDigest(mandateId: string): Promise<string | null> {
+    const [row] = await this.db.select({ digest: copyLiveMandates.consentDigest, kind: copyLiveMandates.consentKind }).from(copyLiveMandates).where(eq(copyLiveMandates.id, mandateId));
+    return row?.kind === 'setup' ? row.digest : null;
   }
   async ownerEnabled(userId: number): Promise<boolean> {
     const [row] = await this.db.select({ disabledAt: users.disabledAt }).from(users).where(eq(users.id, userId));

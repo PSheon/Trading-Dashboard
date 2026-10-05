@@ -55,7 +55,8 @@ export class CopyAgentRepository {
     }
     return { owner, account, strategy };
   }
-  async ensure(tx: DbTransaction, userId: number, accountId: string, input: { idempotencyKey: string; validForDays: number }, workerQuorumId: string) {
+  async ensure(tx: DbTransaction, userId: number, accountId: string, input: { idempotencyKey: string; validForDays: number }, workerQuorumId: string,
+    setup: { liveSetupId: string; renewal: boolean } | null = null) {
     // Serialize setup admission without holding a transaction across provider calls.
     const owner = await this.owner(userId, tx);
     const account = await this.account(userId, accountId, tx);
@@ -65,15 +66,26 @@ export class CopyAgentRepository {
       return prior;
     }
     if (account.state !== "ready" || account.privyUserId !== owner.privyUserId || !account.address || !account.privyWalletId || !account.ownerQuorumId || account.network !== "testnet") throw new ConflictException("agent_account_not_ready");
-    const [current] = await tx.select().from(copyAgentSetups).where(and(eq(copyAgentSetups.accountId, accountId), sql`${copyAgentSetups.state} not in ('blocked', 'revoked')`));
-    if (current) {
+    const currents = await tx.select().from(copyAgentSetups).where(and(eq(copyAgentSetups.accountId, accountId), sql`${copyAgentSetups.state} not in ('blocked', 'revoked')`));
+    if (setup?.renewal) {
+      // A renewal prepares the next agent while the current one keeps trading
+      // (offered in its last three days): one active and one pending agent may
+      // coexist. Approving the new one retires the old grant (activate).
+      const active = currents.find(row => row.state === "active");
+      if (!active || active.expiresAt.getTime() <= Date.now() || active.expiresAt.getTime() - Date.now() > 3 * 86_400_000 + 3_600_000) throw new ConflictException("agent_renewal_unavailable");
+      for (const pending of currents.filter(row => row.state !== "active")) {
+        // An abandoned earlier renewal that never reached the exchange.
+        if (pending.approvalAttemptedAt) throw new ConflictException("agent_approval_pending");
+        await tx.update(copyAgentSetups).set({ state: "blocked", issue: "agent_renewal_abandoned", revision: pending.revision + 1, updatedAt: new Date() }).where(eq(copyAgentSetups.id, pending.id));
+      }
+    } else for (const current of currents) {
       if (current.expiresAt.getTime() > Date.now()) throw new ConflictException("agent_setup_exists");
       await tx.update(copyAgentSetups).set({ state: "blocked", issue: "agent_expired", revision: current.revision + 1, updatedAt: new Date() }).where(eq(copyAgentSetups.id, current.id));
       if (current.authorizationId) await this.revoke(tx, userId, eq(copyWalletAuthorizations.id, current.authorizationId));
     }
     const id = randomUUID(); const now = new Date();
     const [row] = await tx.insert(copyAgentSetups).values({ id, userId, strategyId: account.strategyId, accountId, network: "testnet", ...input,
-      externalId: `agent_${id.replaceAll("-", "")}`, policyAttemptId: `policy_${id.replaceAll("-", "")}`, workerQuorumId,
+      externalId: `agent_${id.replaceAll("-", "")}`, policyAttemptId: `policy_${id.replaceAll("-", "")}`, workerQuorumId, liveSetupId: setup?.liveSetupId ?? null,
       accountAddress: account.address, accountWalletId: account.privyWalletId, accountOwnerQuorumId: account.ownerQuorumId,
       expiresAt: new Date(now.getTime() + input.validForDays * 86_400_000), createdAt: now, updatedAt: now }).returning();
     await this.assertCurrent(userId, row!, tx);
@@ -126,6 +138,9 @@ export class CopyAgentRepository {
       await this.revoke(tx, userId, eq(copyWalletAuthorizations.walletId, wallet.id));
       await tx.update(copyExecutionWallets).set({ retiredAt: new Date() }).where(eq(copyExecutionWallets.id, wallet.id));
     }
+    // A renewal's new agent replaces the account's current one.
+    await tx.update(copyAgentSetups).set({ state: "revoked", issue: "agent_renewed", revision: sql`${copyAgentSetups.revision} + 1`, updatedAt: new Date() })
+      .where(and(eq(copyAgentSetups.accountId, locked.accountId), eq(copyAgentSetups.state, "active"), sql`${copyAgentSetups.id} <> ${locked.id}`));
     assertFresh();
     const walletId = randomUUID(); const authorizationId = randomUUID();
     await tx.insert(copyExecutionWallets).values({ id: walletId, userId, strategyId: locked.strategyId, network: locked.network, accountAddress: locked.accountAddress,

@@ -1426,8 +1426,13 @@ export const copyFundingOperations = pgTable("copy_funding_operations", {
   direction: text("direction").$type<"to_account" | "to_main">().notNull().default("to_account"),
   /** A return that ends a stop (its sweep). */
   stopId: text("stop_id").references((): AnyPgColumn => copyLiveStopOperations.id, { onDelete: "restrict" }),
+  /** The one-click setup this deposit belongs to (its consent binds it). */
+  liveSetupId: text("live_setup_id").references((): AnyPgColumn => copyLiveSetups.id, { onDelete: "restrict" }),
+  /** Who signed a return: the owner's session or the worker under the owner's policy. */
+  signerKind: text("signer_kind").$type<"owner_session" | "worker_policy">(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
+  check("copy_funding_signer_kind_check", sql`${t.signerKind} is null or ${t.signerKind} in ('owner_session', 'worker_policy')`),
   check("copy_funding_direction_check", sql`${oneOf(t.direction, ["to_account", "to_main"])} and (${t.stopId} is null or ${t.direction} = 'to_main')`),
   uniqueIndex("copy_funding_key_uq").on(t.userId, t.idempotencyKey),
   uniqueIndex("copy_funding_nonce_uq").on(t.network, t.address, t.nonce),
@@ -1461,10 +1466,14 @@ export const copyAgentSetups = pgTable("copy_agent_setups", {
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), approvalNonce: bigint("approval_nonce", { mode: "number" }),
   consentExpiresAt: timestamp("consent_expires_at", { withTimezone: true }), consentDigest: text("consent_digest"),
   approvalAttemptedAt: timestamp("approval_attempted_at", { withTimezone: true }), authorizationId: text("authorization_id"),
+  liveSetupId: text("live_setup_id").references((): AnyPgColumn => copyLiveSetups.id, { onDelete: "restrict" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   uniqueIndex("copy_agent_setups_idempotency_uq").on(t.userId, t.idempotencyKey),
-  uniqueIndex("copy_agent_setups_current_uq").on(t.network, t.accountId).where(sql`${t.state} not in ('blocked', 'revoked')`),
+  // One active agent per account, and at most one being prepared (a renewal
+  // prepares the next while the current one keeps trading).
+  uniqueIndex("copy_agent_setups_active_uq").on(t.network, t.accountId).where(sql`${t.state} = 'active'`),
+  uniqueIndex("copy_agent_setups_pending_uq").on(t.network, t.accountId).where(sql`${t.state} not in ('blocked', 'revoked', 'active')`),
   uniqueIndex("copy_agent_setups_agent_uq").on(t.agentWalletId), index("copy_agent_setups_owner_idx").on(t.userId, t.createdAt),
   check("copy_agent_setups_network_check", oneOf(t.network, ["testnet", "mainnet"])),
   check("copy_agent_setups_state_check", oneOf(t.state, ["policy_prepared", "policy_unknown", "wallet_prepared", "wallet_unknown", "ready", "approval_signing", "approval_unknown", "active", "blocked", "revoked"])),
@@ -1492,6 +1501,7 @@ export const copyAccountModeOperations = pgTable("copy_account_mode_operations",
   observation: jsonb("observation").$type<Record<string, unknown>>(), observedAt: timestamp("observed_at", { withTimezone: true }),
   issue: text("issue"), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  liveSetupId: text("live_setup_id").references((): AnyPgColumn => copyLiveSetups.id, { onDelete: "restrict" }),
 }, (t) => [
   uniqueIndex("copy_account_modes_key_uq").on(t.userId, t.idempotencyKey),
   uniqueIndex("copy_account_modes_account_uq").on(t.network, t.accountId),
@@ -1582,7 +1592,12 @@ export const copyLiveMandates = pgTable("copy_live_mandates", {
   revision: integer("revision").notNull().default(1), activationCursor: timestamp("activation_cursor", { withTimezone: true }),
   consentExpiresAt: timestamp("consent_expires_at", { withTimezone: true }).notNull(), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  /** mandate: the owner signed this generation's intent; setup: the owner's
+   * one-click setup consent (`liveSetupId`) bound it, and the server filled it. */
+  consentKind: text("consent_kind").$type<"mandate" | "setup">().notNull().default("mandate"),
+  liveSetupId: text("live_setup_id").references((): AnyPgColumn => copyLiveSetups.id, { onDelete: "restrict" }),
 }, (t) => [
+  check("copy_live_mandates_consent_kind_check", sql`${t.consentKind} in ('mandate', 'setup') and (${t.consentKind} = 'mandate') = (${t.liveSetupId} is null)`),
   uniqueIndex("copy_live_mandates_key_uq").on(t.userId, t.idempotencyKey),
   uniqueIndex("copy_live_mandates_current_uq").on(t.strategyId).where(sql`${t.state} not in ('stopped', 'revoked', 'expired')`),
   uniqueIndex("copy_live_mandates_account_uq").on(t.network, t.accountId).where(sql`${t.state} not in ('stopped', 'revoked', 'expired')`),
@@ -1895,10 +1910,48 @@ export const copyLiveBuilderApprovals = pgTable("copy_live_builder_approvals", {
   state: text("state").$type<"prepared" | "unknown" | "accepted" | "rejected" | "approved">().notNull().default("prepared"),
   attemptedAt: timestamp("attempted_at", { withTimezone: true }), evidenceDigest: text("evidence_digest"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  liveSetupId: text("live_setup_id").references((): AnyPgColumn => copyLiveSetups.id, { onDelete: "restrict" }),
 }, (t) => [
   uniqueIndex("copy_live_builder_approvals_key_uq").on(t.userId, t.idempotencyKey),
   uniqueIndex("copy_live_builder_approvals_nonce_uq").on(t.network, t.accountAddress, t.nonce),
   check("copy_live_builder_approvals_check", sql`${t.network} = 'testnet' and ${oneOf(t.state, ["prepared", "unknown", "accepted", "rejected", "approved"])} and ${t.maxFeeTenthsBps} between 1 and 100 and ${t.accountAddress} ~ '^0x[0-9a-f]{40}$' and ${t.builderAddress} ~ '^0x[0-9a-f]{40}$' and ${t.nonce} > 0 and (${t.state} = 'prepared' or ${t.attemptedAt} is not null)`),
+]);
+
+/**
+ * One-click testnet copy (docs/one-click-copy-plan-2026-10-05.md §3a): one
+ * row per start, edit or renewal, the source of truth the worker's setup
+ * driver resumes from after a crash or a closed tab. `intent` is the exact
+ * owner consent (`liveCopySetupIntentSchema`); its signature is verified once
+ * at confirm and only its digest is kept. Each child operation records this
+ * row's id; an attempted child is only ever reconciled, never resent.
+ */
+export const copyLiveSetups = pgTable("copy_live_setups", {
+  id: text("id").primaryKey(), userId: integer("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  strategyId: integer("strategy_id").notNull().references(() => copyStrategies.id, { onDelete: "restrict" }),
+  accountId: text("account_id").references(() => copyExecutionAccounts.id, { onDelete: "restrict" }),
+  kind: text("kind").$type<"start" | "edit" | "renewal">().notNull(), idempotencyKey: text("idempotency_key").notNull(),
+  stage: text("stage").$type<"provisioning" | "awaiting_consent" | "consented" | "funding_submitted" | "funded" | "mode_set" | "agent_active" | "builder_ready" | "running" | "failed" | "expired" | "cancelled">().notNull().default("provisioning"),
+  signerKind: text("signer_kind").$type<"owner_session" | "worker_policy">(),
+  leaderAddress: text("leader_address").notNull(), sourceNetwork: text("source_network").$type<"testnet" | "mainnet">().notNull(),
+  budgetUsd: text("budget_usd").notNull(), settings: jsonb("settings").$type<Record<string, unknown>>().notNull(),
+  intent: jsonb("intent").$type<Record<string, unknown>>(), intentDigest: text("intent_digest"), consentDigest: text("consent_digest"),
+  consentExpiresAt: timestamp("consent_expires_at", { withTimezone: true }), setupDeadline: timestamp("setup_deadline", { withTimezone: true }),
+  confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+  fundingOperationId: text("funding_operation_id"), agentSetupId: text("agent_setup_id"), modeOperationId: text("mode_operation_id"),
+  builderApprovalId: text("builder_approval_id"), mandateId: text("mandate_id"),
+  issue: text("issue"), revision: integer("revision").notNull().default(1), attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }), leaseUntil: timestamp("lease_until", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("copy_live_setups_key_uq").on(t.userId, t.idempotencyKey),
+  uniqueIndex("copy_live_setups_current_uq").on(t.strategyId).where(sql`${t.stage} not in ('running', 'failed', 'expired', 'cancelled')`),
+  index("copy_live_setups_open_idx").on(t.stage, t.nextAttemptAt),
+  index("copy_live_setups_owner_idx").on(t.userId, t.createdAt),
+  check("copy_live_setups_kind_check", oneOf(t.kind, ["start", "edit", "renewal"])),
+  check("copy_live_setups_stage_check", oneOf(t.stage, ["provisioning", "awaiting_consent", "consented", "funding_submitted", "funded", "mode_set", "agent_active", "builder_ready", "running", "failed", "expired", "cancelled"])),
+  check("copy_live_setups_signer_check", sql`${t.signerKind} is null or ${t.signerKind} in ('owner_session', 'worker_policy')`),
+  check("copy_live_setups_identity_check", sql`${t.leaderAddress} ~ '^0x[0-9a-f]{40}$' and ${t.sourceNetwork} in ('testnet', 'mainnet') and ${t.budgetUsd} ~ '^(0|[1-9][0-9]*)(\\.[0-9]{1,6})?$' and ${t.idempotencyKey} ~ '^[A-Za-z0-9_-]{16,128}$' and ${t.revision} >= 1 and ${t.attempts} >= 0`),
+  check("copy_live_setups_consent_check", sql`${t.stage} in ('provisioning', 'awaiting_consent', 'failed', 'expired', 'cancelled') or (${t.consentDigest} ~ '^[0-9a-f]{64}$' and ${t.intentDigest} ~ '^[0-9a-f]{64}$' and ${t.confirmedAt} is not null and ${t.signerKind} is not null and ${t.setupDeadline} is not null)`),
 ]);
 
 /** The owner's request to close one position of a running testnet copy

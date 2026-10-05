@@ -2,7 +2,7 @@ import { WatchCapacityError, watchLeader } from '../watcher/leader-watch.js';
 import { randomUUID } from 'node:crypto';
 import { ConflictException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm';
-import { adminSettingsSchema, generalSettingsSchema, copyRiskLimitsSchema, DEFAULT_COPY_RISK_LIMITS, type CopyErrorCode, liveCopyMandateIntentSchema, liveCopyMandateSchema, liveCopyStrategySchema, type CreateLiveCopyStrategy, type LiveCopyMandateIntent } from '@trading-dashboard/shared/contracts';
+import { adminSettingsSchema, generalSettingsSchema, copyRiskLimitsSchema, DEFAULT_COPY_RISK_LIMITS, type CopyErrorCode, liveCopyMandateIntentSchema, liveCopyMandateSchema, liveCopyStrategySchema, type CreateLiveCopyStrategy, type LiveCopyMandateIntent, type LiveCopySetupIntent } from '@trading-dashboard/shared/contracts';
 import { appSettings, copyLiveActivations, copyLiveBuilderApprovals, copyAgentSetups, copyControls, copyExecutionAccounts, copyExecutionWallets, copyLiveMandates, copyLiveStrategyConfigs, copyRiskPolicies, copyStrategies, copyStrategyVersions, copyWalletAuthorizations, users } from '@trading-dashboard/shared/database';
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
@@ -174,11 +174,14 @@ export class CopyLiveMandateRepository {
     const [row] = await tx.insert(copyLiveMandates).values({ ...columns, id: mandateId, idempotencyKey: key, intent, intentDigest: digest(intent), consentExpiresAt: new Date(consentExpiresAt), expiresAt: new Date(expiresAt), createdAt: new Date(now), updatedAt: new Date(now) }).returning();
     return row;
   }
-  async activate(tx: DbTransaction, row: MandateRow, signature: string, now: number) {
+  /** `consent`: the owner's signature over this generation's intent, or a
+   * one-click setup whose verified consent bound it (its digest is kept). */
+  async activate(tx: DbTransaction, row: MandateRow, consent: string | { readonly liveSetupId: string; readonly consentDigest: string }, now: number) {
     if (row.state === 'active') return row;
     if (row.state !== 'prepared') conflict();
     await tx.update(copyStrategies).set({ status: 'paused', pauseNewRisk: true }).where(and(eq(copyStrategies.id, row.strategyId), eq(copyStrategies.userId, row.userId), eq(copyStrategies.mode, 'testnet')));
-    const [updated] = await tx.update(copyLiveMandates).set({ state: 'active', consentDigest: digest(signature.toLowerCase()), activationCursor: new Date(now), revision: row.revision + 1, updatedAt: new Date(now) }).where(and(eq(copyLiveMandates.id, row.id), eq(copyLiveMandates.revision, row.revision), eq(copyLiveMandates.state, 'prepared'))).returning();
+    const kind = typeof consent === 'string' ? { consentDigest: digest(consent.toLowerCase()) } : { consentDigest: consent.consentDigest, consentKind: 'setup' as const, liveSetupId: consent.liveSetupId };
+    const [updated] = await tx.update(copyLiveMandates).set({ state: 'active', ...kind, activationCursor: new Date(now), revision: row.revision + 1, updatedAt: new Date(now) }).where(and(eq(copyLiveMandates.id, row.id), eq(copyLiveMandates.revision, row.revision), eq(copyLiveMandates.state, 'prepared'))).returning();
     if (!updated) conflict();
     // Awaiting its start: the worker starts trading this generation once it
     // is funded, and only while the strategy keeps this control revision.
@@ -187,6 +190,46 @@ export class CopyLiveMandateRepository {
     await tx.insert(copyLiveActivations).values({ mandateId: row.id, userId: row.userId, strategyId: row.strategyId, accountId: row.accountId,
       state: 'pending', controlRevision: strategy.controlRevision, requestedAt: new Date(now) }).onConflictDoNothing();
     return updated;
+  }
+  /**
+   * A one-click setup's generation (plan §2 "Mandate"): the server fills the
+   * unchanged mandate intent once the agent grant is active, checks that it
+   * binds exactly what the setup consent bound, and activates it under that
+   * consent in the same transaction. An edit or renewal first replaces the
+   * copy's current generation (expired) and, for an edit, its settings and
+   * budget become the strategy's next version. A paused copy stays paused.
+   */
+  async prepareFromSetup(tx: DbTransaction, userId: number, setup: { id: string; kind: 'start' | 'edit' | 'renewal'; consentDigest: string; intent: LiveCopySetupIntent; settings: CreateLiveCopyStrategy['settings'] }, clock: () => number) {
+    await this.lock(tx, userId); const now = clock(), intent = setup.intent, key = `setup_${setup.id.replaceAll('-', '')}`;
+    const [existing] = await tx.select().from(copyLiveMandates).where(and(eq(copyLiveMandates.userId, userId), eq(copyLiveMandates.idempotencyKey, key)));
+    if (existing) return existing;
+    if (intent.setupId !== setup.id || intent.userId !== userId) conflict();
+    let wasPaused = false;
+    if (setup.kind !== 'start') {
+      const [strategy] = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.id, intent.strategyId), eq(copyStrategies.userId, userId), eq(copyStrategies.mode, 'testnet'))).for('update');
+      if (!strategy || ['stopping', 'stopped'].includes(strategy.status) || strategy.reduceOnly) throw new ConflictException({ statusCode: 409, code: 'live_stop_in_progress', message: 'A stop is in progress for this copy' });
+      const current = await tx.select().from(copyLiveMandates).where(and(eq(copyLiveMandates.accountId, intent.accountId), sql`${copyLiveMandates.state} not in ('stopped','revoked','expired')`)).for('update');
+      if (current.some(row => row.state === 'stopping')) throw new ConflictException({ statusCode: 409, code: 'live_stop_in_progress', message: 'A stop is in progress for this copy' });
+      wasPaused = strategy.status === 'paused' && current.some(row => row.state === 'paused');
+      for (const row of current) await tx.update(copyLiveMandates).set({ state: 'expired', revision: row.revision + 1, updatedAt: new Date(now) }).where(eq(copyLiveMandates.id, row.id));
+      await tx.update(copyStrategies).set({ status: 'paused', pauseNewRisk: true }).where(eq(copyStrategies.id, strategy.id));
+      if (setup.kind === 'edit') {
+        const version = strategy.version + 1;
+        await tx.insert(copyStrategyVersions).values({ strategyId: strategy.id, version, settings: setup.settings, createdByUserId: userId });
+        await tx.update(copyStrategies).set({ version }).where(eq(copyStrategies.id, strategy.id));
+        await tx.update(copyLiveStrategyConfigs).set({ strategyVersion: version, budgetUsd: intent.budgetUsd }).where(eq(copyLiveStrategyConfigs.strategyId, strategy.id));
+      }
+    }
+    const row = await this.prepare(tx, userId, intent.accountId, key, clock);
+    // Everything the owner consented to, as the generation binds it.
+    if (row.strategyId !== intent.strategyId || row.leaderAddress !== intent.leaderAddress || row.sourceNetwork !== intent.sourceNetwork || row.budgetUsd !== intent.budgetUsd ||
+      row.settingsDigest !== intent.settingsDigest || row.accountAddress !== intent.accountAddress || row.ownerAddress !== intent.ownerAddress || row.ownerPrivyUserId !== intent.ownerPrivyUserId ||
+      row.agentAddress !== intent.agentAddress || row.policyId !== intent.agentPolicyId || row.policyFingerprint !== intent.agentPolicyFingerprint || row.workerQuorumId !== intent.workerQuorumId ||
+      row.builderAddress !== intent.builderAddress || row.builderMaxFeeTenthsOfBps !== intent.builderMaxFeeTenthsOfBps || row.expiresAt.getTime() > intent.agentValidUntil) conflict();
+    const active = await this.activate(tx, row, { liveSetupId: setup.id, consentDigest: setup.consentDigest }, now);
+    if (!wasPaused) return active;
+    const [paused] = await tx.update(copyLiveMandates).set({ state: 'paused', revision: active.revision + 1, updatedAt: new Date(now) }).where(and(eq(copyLiveMandates.id, active.id), eq(copyLiveMandates.revision, active.revision))).returning();
+    return paused ?? conflict();
   }
   async barrier(tx: DbTransaction, userId: number, id: string, state: 'paused' | 'revoked', clock: () => number) {
     const owner = await this.lock(tx, userId), row = await this.find(userId, id, tx, true);
@@ -202,6 +245,31 @@ export class CopyLiveMandateRepository {
     await tx.update(copyStrategies).set({ status: 'paused', pauseNewRisk: true }).where(eq(copyStrategies.id, row.strategyId));
     const [updated] = await tx.update(copyLiveMandates).set({ state, revision: row.revision + 1, updatedAt: new Date(now) }).where(and(eq(copyLiveMandates.id, id), eq(copyLiveMandates.revision, row.revision))).returning();
     if (!updated) conflict(); return updated;
+  }
+  /**
+   * Resume (plan §4 parity): a paused generation becomes active again within
+   * its unexpired lifetime, with no signature (its consent covers the whole
+   * generation). Same gates as the funded start: controls clear, no stop, the
+   * strategy exactly paused. A generation that never started stays waiting
+   * for its deposit (activateFunded starts it).
+   */
+  async resume(tx: DbTransaction, userId: number, id: string, clock: () => number) {
+    const owner = await this.lock(tx, userId), row = await this.find(userId, id, tx, true), now = clock();
+    const [strategy] = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.id, row.strategyId), eq(copyStrategies.userId, userId), eq(copyStrategies.mode, 'testnet'))).for('update');
+    if (!strategy || owner.privyUserId !== row.ownerPrivyUserId) conflict();
+    if (row.state === 'active') return row;
+    if (row.state === 'stopping' || strategy.status === 'stopping' || strategy.status === 'stopped') throw new ConflictException({ statusCode: 409, code: 'live_stop_in_progress', message: 'A stop is in progress for this copy' });
+    if (row.state !== 'paused' || row.expiresAt.getTime() <= now || strategy.status !== 'paused' || strategy.reduceOnly) conflict();
+    await this.barriers(tx, userId);
+    const [updated] = await tx.update(copyLiveMandates).set({ state: 'active', revision: row.revision + 1, updatedAt: new Date(now) }).where(and(eq(copyLiveMandates.id, id), eq(copyLiveMandates.revision, row.revision))).returning();
+    if (!updated) conflict();
+    const [activation] = await tx.select().from(copyLiveActivations).where(eq(copyLiveActivations.mandateId, id));
+    if (activation?.state === 'activated') {
+      await tx.update(copyStrategies).set({ status: 'active', pauseNewRisk: false, controlRevision: strategy.controlRevision + 1 }).where(and(eq(copyStrategies.id, strategy.id), eq(copyStrategies.status, 'paused')));
+    } else if (activation?.state === 'pending' && activation.controlRevision !== strategy.controlRevision) {
+      await tx.update(copyLiveActivations).set({ controlRevision: strategy.controlRevision }).where(and(eq(copyLiveActivations.mandateId, id), eq(copyLiveActivations.state, 'pending')));
+    }
+    return updated;
   }
   async recoverStrategy(tx: DbTransaction, userId: number, key: string) {
     const owner = await this.lock(tx, userId);

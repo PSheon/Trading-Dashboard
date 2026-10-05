@@ -16,12 +16,15 @@ export interface MasterTypedData {
 export const MASTER_ACTION_SIGNER = Symbol('MASTER_ACTION_SIGNER');
 
 /** The only actions a copy account signs here, with their exact fields: a
- * USDC transfer (the return to the owner's main wallet) and the builder fee
- * approval. Anything else (ApproveAgent, Withdraw3, …) is refused before
- * Privy is asked. */
+ * USDC transfer (the return to the owner's main wallet), the builder fee
+ * approval, and for a one-click setup the standard account mode and the
+ * consented agent's approval (each only with the values the caller bound).
+ * Anything else (Withdraw3, …) is refused before Privy is asked. */
 const SIGNABLE: Readonly<Record<string, readonly { name: string; type: string }[]>> = {
   'HyperliquidTransaction:UsdSend': [{ name: 'hyperliquidChain', type: 'string' }, { name: 'destination', type: 'string' }, { name: 'amount', type: 'string' }, { name: 'time', type: 'uint64' }],
   'HyperliquidTransaction:ApproveBuilderFee': [{ name: 'hyperliquidChain', type: 'string' }, { name: 'maxFeeRate', type: 'string' }, { name: 'builder', type: 'address' }, { name: 'nonce', type: 'uint64' }],
+  'HyperliquidTransaction:UserSetAbstraction': [{ name: 'hyperliquidChain', type: 'string' }, { name: 'user', type: 'address' }, { name: 'abstraction', type: 'string' }, { name: 'nonce', type: 'uint64' }],
+  'HyperliquidTransaction:ApproveAgent': [{ name: 'hyperliquidChain', type: 'string' }, { name: 'agentAddress', type: 'address' }, { name: 'agentName', type: 'string' }, { name: 'nonce', type: 'uint64' }],
 };
 export function masterActionSignable(data: Pick<MasterTypedData, 'primaryType' | 'types' | 'message'>): boolean {
   const fields = Object.hasOwn(SIGNABLE, data.primaryType) ? SIGNABLE[data.primaryType]! : null;
@@ -38,6 +41,10 @@ export interface MasterActionBound {
   readonly destination?: string;
   /** ApproveBuilderFee: the configured builder. */
   readonly builder?: string;
+  /** UserSetAbstraction: the copy account itself (only "disabled"). */
+  readonly account?: string;
+  /** ApproveAgent: exactly the consented agent and its name. */
+  readonly agent?: { readonly address: string; readonly name: string };
 }
 export function masterActionBound(data: Pick<MasterTypedData, 'domain' | 'primaryType' | 'message'>, bound: MasterActionBound): boolean {
   if (bound?.network !== 'testnet') return false;
@@ -46,6 +53,9 @@ export function masterActionBound(data: Pick<MasterTypedData, 'domain' | 'primar
   const lower = (value: unknown) => typeof value === 'string' && /^0x[0-9a-f]{40}$/.test(value) ? value : null;
   if (data.primaryType === 'HyperliquidTransaction:UsdSend') return lower(message.destination) !== null && typeof bound.destination === 'string' && message.destination === bound.destination.toLowerCase();
   if (data.primaryType === 'HyperliquidTransaction:ApproveBuilderFee') return lower(message.builder) !== null && typeof bound.builder === 'string' && message.builder === bound.builder.toLowerCase();
+  if (data.primaryType === 'HyperliquidTransaction:UserSetAbstraction') return lower(message.user) !== null && typeof bound.account === 'string' && message.user === bound.account.toLowerCase() && message.abstraction === 'disabled';
+  if (data.primaryType === 'HyperliquidTransaction:ApproveAgent') return lower(message.agentAddress) !== null && typeof bound.agent?.address === 'string' && typeof bound.agent.name === 'string' &&
+    message.agentAddress === bound.agent.address.toLowerCase() && message.agentName === bound.agent.name;
   return false;
 }
 export interface MasterActionSigner {

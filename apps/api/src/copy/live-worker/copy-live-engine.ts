@@ -20,6 +20,9 @@ export interface LiveEngineDependencies {
   readonly testnetSource: HyperliquidLiveSourceClient;
   readonly runtime: (hooks: Pick<TestnetLiveExecutionHooks, 'onExchange'>) => LiveExecutor;
   readonly settler: { settle(request: LiveSettleRequest): Promise<LiveSettleOutcome> };
+  /** One-click setups (credit → mode → agent → builder → generation), before
+   * funded generations start, so a generation made now starts this pass. */
+  readonly setups?: { tick(): Promise<number> };
   /** Owner stop requests (cancel, close, flat, return); after the legs. */
   readonly stopper?: { tick(): Promise<void> };
   readonly log?: (message: string) => void;
@@ -59,6 +62,10 @@ export class CopyLiveEngine {
 
   async tick(): Promise<void> {
     const started = this.now();
+    if (this.deps.setups) {
+      try { await this.deps.setups.tick(); }
+      catch (error) { this.deps.log?.(`setups kept for the next pass: ${reasonOf(error)}`); }
+    }
     let mandates = await this.deps.repository.mandates(started);
     if ((await this.deps.repository.activateFunded(mandates, started)).length) mandates = await this.deps.repository.mandates(this.now());
     for (const stream of this.deps.repository.streams(mandates)) {

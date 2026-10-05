@@ -26,6 +26,8 @@ export class CopyLiveMandateController {
   approve(@CurrentUser() user: RequestUser | null, @Param() params: CopyWalletIdDto, @Body() body: ApproveLiveCopyMandateDto) { return this.mandates.approve(requireUserId(user), params.id, body); }
   @Post('mandates/:id/pause') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Pause new risk locally without cancelling orders or settling funds')
   pause(@CurrentUser() user: RequestUser | null, @Param() params: CopyWalletIdDto, @Body() body: EmptyLiveCopyMandateDto) { return this.mandates.pause(requireUserId(user), params.id, body); }
+  @Post('mandates/:id/resume') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Resume a paused generation', 'No signature: the generation\'s consent covers it until it expires. Controls must be clear and no stop in progress.')
+  resume(@CurrentUser() user: RequestUser | null, @Param() params: CopyWalletIdDto, @Body() body: EmptyLiveCopyMandateDto) { return this.mandates.resume(requireUserId(user), params.id, body); }
   @Post('mandates/:id/revoke') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Revoke local execution consent', 'Preserves all orders, unknown receipts and financial liabilities for reconciliation.')
   revoke(@CurrentUser() user: RequestUser | null, @Param() params: CopyWalletIdDto, @Body() body: EmptyLiveCopyMandateDto) { return this.mandates.revoke(requireUserId(user), params.id, body); }
 }

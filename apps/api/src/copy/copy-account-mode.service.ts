@@ -22,6 +22,13 @@ export interface AccountModeAbsenceProof {
   readonly dexes: readonly string[]; readonly sourceDigest: string; readonly complete: true; readonly empty: true;
 }
 export interface AccountModeAbsenceReader { prove(accountAddress: string): Promise<Readonly<AccountModeAbsenceProof>> }
+/** Who authorises one mode change: the owner's own consent for this exact
+ * operation with their fresh session (Settings), or a one-click setup whose
+ * consent (verified at its confirm) bound the account to "disabled", with the
+ * setup's signer (the owner's session or the worker under the owner's policy). */
+export type AccountModeAuthority =
+  | { readonly kind: 'owner'; readonly consentSignature: string; readonly userJwt: string }
+  | { readonly kind: 'setup'; readonly consentDigest: string; sign(master: AccountModeOwnedMaster, intent: AccountModeIntent, assertFresh: () => void): Promise<string> };
 function wire(row: AccountModeRow): CopyAccountModeOperation {
   return copyAccountModeOperationSchema.parse({ id: row.id, accountId: row.accountId, strategyId: row.strategyId, network: row.network,
     accountAddress: row.accountAddress, target: row.target, revision: row.revision, submissionState: row.submissionState, targetState: row.targetState,
@@ -75,6 +82,17 @@ export class CopyAccountModeService {
     const row = await this.uow.run(tx => this.repository.ensure(tx, userId, accountId, parsed.data.idempotencyKey));
     return this.reconcile(userId, row.id);
   }
+  /** The setup's mode operation for its account (one per account): the
+   * existing one when Settings already made it. Prepare only; no exchange call. */
+  async ensureForSetup(userId: number, accountId: string, idempotencyKey: string, liveSetupId: string): Promise<AccountModeRow> {
+    this.enabled();
+    return this.uow.run(async tx => {
+      const [existing] = await this.repository.forAccount(tx, accountId);
+      if (existing) { if (existing.userId !== userId) throw new ConflictException('account_mode_identity_changed'); return existing; }
+      return this.repository.ensure(tx, userId, accountId, idempotencyKey, liveSetupId);
+    });
+  }
+  async row(userId: number, id: string) { return this.repository.find(userId, id); }
   private async identity(userId: number, row: AccountModeRow, mutation = false) {
     const checkedAt = Date.now(), current = await this.repository.assertCurrent(userId, row, undefined, mutation);
     const master = await this.wallets.findOwned(current.owner.privyUserId, current.account.externalId,
@@ -138,6 +156,11 @@ export class CopyAccountModeService {
     return wire(row);
   }
   async approve(userId: number, id: string, consentSignature: string, userJwt: string): Promise<CopyAccountModeOperation> {
+    return this.submit(userId, id, { kind: 'owner', consentSignature, userJwt });
+  }
+  /** One attempt of the exact prepared operation; the attempt is durable
+   * before the POST, and an attempted operation is only reconciled. */
+  async submit(userId: number, id: string, authority: AccountModeAuthority): Promise<CopyAccountModeOperation> {
     this.enabled(); let row = await this.repository.find(userId, id);
     // A duplicate request observes the existing claim without revising it.
     if (row.submissionState === 'signing' && !row.attemptedAt) return wire(row);
@@ -145,20 +168,23 @@ export class CopyAccountModeService {
     const original = intent(row); liveConsent(original);
     const first = await this.preflight(userId, row);
     if (baseline(first.observation) === 'supported') return this.reconcile(userId, id);
-    if (!userJwt || !/^0x[0-9a-fA-F]{128}(?:00|01|1b|1c)$/i.test(consentSignature) ||
-        !await verifyTypedData({ address: row.ownerAddress as `0x${string}`, ...accountModeOwnerConsentTypedData(original), signature: consentSignature as `0x${string}` }))
+    if (authority.kind === 'owner' ? !authority.userJwt || !/^0x[0-9a-fA-F]{128}(?:00|01|1b|1c)$/i.test(authority.consentSignature) ||
+        !await verifyTypedData({ address: row.ownerAddress as `0x${string}`, ...accountModeOwnerConsentTypedData(original), signature: authority.consentSignature as `0x${string}` })
+      : !/^[0-9a-f]{64}$/.test(authority.consentDigest) || typeof authority.sign !== 'function')
       throw new BadRequestException('invalid_account_mode_consent');
+    const consentDigest = authority.kind === 'owner' ? accountModeDigest(authority.consentSignature) : authority.consentDigest;
     const claimed = await this.uow.run(async tx => {
       await this.repository.assertCurrent(userId, row, tx, true); first.assertFresh(); liveConsent(original);
-      const next = await this.repository.transition(row, { submissionState: 'signing', claimToken: randomUUID(), signingStartedAt: new Date(), consentDigest: accountModeDigest(consentSignature), issue: null }, tx);
+      const next = await this.repository.transition(row, { submissionState: 'signing', claimToken: randomUUID(), signingStartedAt: new Date(), consentDigest, issue: null }, tx);
       first.assertFresh(); liveConsent(original); return next;
     });
     if (!claimed) return this.reconcile(userId, id); row = claimed;
     let signature: string, final: Awaited<ReturnType<CopyAccountModeService['preflight']>>;
     try {
       first.assertFresh(); liveConsent(original);
-      signature = await this.exchange.signMaster({ walletId: row.accountWalletId, address: row.accountAddress, ownerQuorumId: row.accountOwnerQuorumId }, original, userJwt,
-        completionGuard(original, first));
+      const master = { walletId: row.accountWalletId, address: row.accountAddress, ownerQuorumId: row.accountOwnerQuorumId };
+      signature = authority.kind === 'owner' ? await this.exchange.signMaster(master, original, authority.userJwt, completionGuard(original, first))
+        : await authority.sign(master, original, completionGuard(original, first));
       if (!/^0x[0-9a-fA-F]{130}$/.test(signature) || !await verifyTypedData({ address: row.accountAddress as `0x${string}`, ...accountModeTypedData(original), signature: signature as `0x${string}` }))
         throw new BadRequestException('account_mode_master_signature_invalid');
       await this.exchange.acquire(); final = await this.preflight(userId, row);

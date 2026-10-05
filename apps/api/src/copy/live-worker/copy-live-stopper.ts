@@ -172,10 +172,24 @@ export class StopCanceller {
     if (!target.intent) return 'stop_cancel_target_unproven';
     const consentRow = await this.repository.consent(stop.id), now = this.now();
     const parsed = consentRow ? liveStopCancellationIntentSchema.safeParse(consentRow.intent) : null;
-    if (!consentRow?.consentDigest || !parsed?.success || liveStopCancellationIntentDigest(parsed.data) !== consentRow.intentDigest) return 'stop_cancellation_consent_required';
-    const intent = parsed.data;
-    if (intent.stopId !== stop.id || intent.capturedStopRevision !== stop.revision || intent.targetDigest !== stop.targetDigest || intent.expiresAt <= now + 5000 ||
-      intent.accountAddress !== stop.accountAddress || intent.agentAddress !== address(target.record.authorization.signerAddress)) return 'stop_cancellation_consent_required';
+    // The owner's consent for this stop, or else the setup consent of the
+    // generation that placed the order (one-click copies: no prompt to stop).
+    let intent: { agentWalletId: string; agentOwnerQuorumId: string; agentAddress: string; accountAddress: string; workerQuorumId: string; nonce: number; expiresAt: number };
+    let consentDigest: string, currentDigest: () => Promise<string | null>, revision: number | null;
+    if (consentRow?.consentDigest && parsed?.success && liveStopCancellationIntentDigest(parsed.data) === consentRow.intentDigest) {
+      intent = parsed.data; consentDigest = consentRow.consentDigest; revision = parsed.data.capturedStopRevision;
+      currentDigest = async () => (await this.repository.consent(stop.id))?.consentDigest ?? null;
+      if (parsed.data.stopId !== stop.id || parsed.data.capturedStopRevision !== stop.revision || parsed.data.targetDigest !== stop.targetDigest) return 'stop_cancellation_consent_required';
+    } else {
+      const mandate = await this.repository.setupConsent(stop, target.record.key);
+      if (!mandate) return 'stop_cancellation_consent_required';
+      intent = { agentWalletId: mandate.agentWalletId, agentOwnerQuorumId: target.record.authorization.privyOwnerId, agentAddress: mandate.agentAddress, accountAddress: mandate.accountAddress,
+        workerQuorumId: mandate.workerQuorumId, nonce: mandate.nonce, expiresAt: Math.min(mandate.expiresAt.getTime(), target.record.authorization.expiresAt) };
+      consentDigest = mandate.consentDigest!; revision = null;
+      currentDigest = () => this.repository.mandateConsentDigest(mandate.id);
+      if (target.record.authorization.walletId !== mandate.agentWalletId) return 'stop_cancellation_consent_required';
+    }
+    if (intent.expiresAt <= now + 5000 || intent.accountAddress !== stop.accountAddress || intent.agentAddress !== address(target.record.authorization.signerAddress)) return 'stop_cancellation_consent_required';
     const attempts = await this.repository.attempts(stop.id, target.record.key);
     const last = attempts.at(-1);
     if (last && last.expiresAfter > now) return 'waiting';
@@ -185,16 +199,16 @@ export class StopCanceller {
       walletId: intent.agentWalletId, privyOwnerId: intent.agentOwnerQuorumId, signerAddress: address(intent.agentAddress), accountAddress: address(intent.accountAddress),
       network: 'testnet', scope: 'copy:cancel', validFrom: intent.nonce, expiresAt: intent.expiresAt, revokedAt: null };
     const claim = await this.repository.claim({ stopId: stop.id, executionKey: target.record.key, attempt: attempts.length + 1, signerAddress: authorization.signerAddress,
-      consentDigest: consentRow.consentDigest, now });
+      consentDigest, now });
     if (!claim) return 'waiting';
     const base = { operationId: claim.id, stopId: stop.id, claimToken: claim.claimToken, state: 'claimed' as const, createdAt: now,
-      target: { record: target.record, intent: target.intent }, authorization, ownerConsentDigest: consentRow.consentDigest, nonce: claim.nonce,
+      target: { record: target.record, intent: target.intent }, authorization, ownerConsentDigest: consentDigest, nonce: claim.nonce,
       expiresAfter: Math.min(claim.expiresAfter, intent.expiresAt), action: trackedCancellationAction({ record: target.record, intent: target.intent }) };
     const operation: PreparedTrackedCancellation = { ...base, fingerprint: trackedCancellationFingerprint({ ...base, fingerprint: '' }) };
     const verifier = new HyperliquidAgentApprovalVerifier('testnet', this.acquire, this.global.fetchInfo, this.now);
     const authority: TrackedCancellationAuthority = { authorize: async (op, phase) => {
-      const current = await this.repository.get(stop.id), consent = await this.repository.consent(stop.id), grant = await findCurrentWalletAuthorization(this.db, account.authorizationId, 'stop');
-      if (current?.state !== 'cancelling' || current.revision !== intent.capturedStopRevision || consent?.consentDigest !== consentRow.consentDigest || !await this.repository.ownerEnabled(stop.userId) ||
+      const current = await this.repository.get(stop.id), digestNow = await currentDigest(), grant = await findCurrentWalletAuthorization(this.db, account.authorizationId, 'stop');
+      if (current?.state !== 'cancelling' || (revision !== null && current.revision !== revision) || digestNow !== consentDigest || !await this.repository.ownerEnabled(stop.userId) ||
         !grant || grant.revokedAt !== null || grant.expiresAt <= this.now() || address(grant.signerAddress) !== authorization.signerAddress) throw new LiveBoundaryError('cancel_current_authority_invalid');
       const exchangeApproval = await verifier.verify(grant), checkedAt = this.now();
       return { phase, operationId: op.operationId, operationFingerprint: op.fingerprint, claimToken: op.claimToken, targetExecutionKey: op.target.record.key,

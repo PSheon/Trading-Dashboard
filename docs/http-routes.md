@@ -109,10 +109,19 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | POST | `/me/copy/live/execution-wallets/:id/mandates` | 200 | user (owner); exact current verified agent binding |
 | POST | `/me/copy/live/mandates/:id/approve` | 200 | user (owner); exact owner consent; the copy starts once funded when automatic testnet execution is on |
 | POST | `/me/copy/live/mandates/:id/pause` | 200 | user (owner); local new-risk barrier |
+| POST | `/me/copy/live/mandates/:id/resume` | 200 | user (owner); no signature within the generation's lifetime |
 | POST | `/me/copy/live/mandates/:id/revoke` | 200 | user (owner); local consent revocation preserves liabilities |
 | POST | `/me/copy/live/mandates/:id/stop` | 200 | user (owner); durable local risk barrier; no financial execution |
 | POST | `/me/copy/live/execution-wallets/:id/positions/close` | 200 | user (owner); one position of a running testnet copy; executed by the worker |
 | GET | `/me/copy/live/execution-wallets/:id/closes` | 200 | user (owner); read only |
+| POST | `/me/copy/live/setups` | 200 | user (owner); testnet; prepares strategy, wallet, agent and deposit, no exchange call; one consent challenge |
+| GET | `/me/copy/live/setups` | 200 | user (owner); read only |
+| GET | `/me/copy/live/setups/:id` | 200 | user (owner); read only |
+| POST | `/me/copy/live/setups/:id/confirm` | 200 | user (owner); the setup consent, the deposit signature and a fresh session; one deposit attempt |
+| POST | `/me/copy/live/setups/:id/advance` | 200 | user (owner); fresh session signs the next consented step; attempted steps are only reconciled |
+| POST | `/me/copy/live/setups/:id/cancel` | 200 | user (owner); only before the deposit was sent |
+| PATCH | `/me/copy/live/strategies/:id` | 200 | user (owner); a new generation under one setup consent |
+| POST | `/me/copy/live/strategies/:id/renew` | 200 | user (owner); last three days of the lifetime; a new agent and generation under one setup consent |
 | GET | `/me/copy/live/portfolio` | 200 | user (owner); testnet copies with their funding and stop stage; read only |
 | GET | `/me/copy/live/stops` | 200 | user (owner); bounded durable stop history; read only |
 | GET | `/me/copy/live/stops/by-key/:key` | 200 | user (owner); exact original stop recovery; read only |

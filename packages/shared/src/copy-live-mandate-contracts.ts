@@ -107,6 +107,14 @@ export const liveCopyPortfolioItemSchema = z.object({
   /** The latest stop's return to the main wallet (credited: the amount
    * that arrived). */
   sweep: z.object({ amount: z.string(), status: z.enum(['prepared', 'unknown', 'accepted', 'credited', 'rejected', 'cancelled']) }).strict().nullable().optional(),
+  /** The copy's latest one-click setup (start, edit or renewal) while it is
+   * unfinished, or when it ended without finishing (failed / expired). */
+  setup: z.object({ id: z.string().uuid(), kind: z.enum(['start', 'edit', 'renewal']),
+    stage: z.enum(['provisioning', 'awaiting_consent', 'consented', 'funding_submitted', 'funded', 'mode_set', 'agent_active', 'builder_ready', 'running', 'failed', 'expired', 'cancelled']),
+    issue: z.string().nullable(), signer: z.enum(['owner_session', 'worker_policy']).nullable() }).strict().nullable().optional(),
+  /** When the current generation ends (30 days); 續期 is offered in its last three days. */
+  expiresAt: z.string().datetime().nullable().optional(),
+  renewalDue: z.boolean().optional(),
 }).strict();
 export type LiveCopyPortfolioItem = z.infer<typeof liveCopyPortfolioItemSchema>;
 export const liveCopyPortfolioSchema = z.object({ network: z.literal('testnet'), automaticExecution: z.boolean(), items: z.array(liveCopyPortfolioItemSchema).max(50) }).strict();

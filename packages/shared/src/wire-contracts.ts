@@ -15,6 +15,7 @@ import { copyAccountModeOverviewSchema, copyAccountModeOperationSchema, copyAcco
 import { copyFollowerStatementSchema } from "./copy-follower-contracts.js";
 import { copyFollowerActivitySchema } from "./copy-follower-activity-contracts.js";
 import { copyFollowerSnapshotReadSchema } from "./copy-follower-view-contracts.js";
+import { liveCopySetupSchema, liveCopySetupsSchema } from "./copy-live-setup-contracts.js";
 import { liveCopyOverviewSchema, liveCopyStrategySchema, liveCopyMandateChallengeSchema, liveCopyMandateSchema, liveCopyPortfolioSchema, liveManualCloseSchema, liveManualClosesSchema } from "./copy-live-mandate-contracts.js";
 import { liveCopyStopSchema, liveCopyStopsSchema, liveStopCancellationChallengeSchema } from './copy-live-stop-contracts.js';
 import { adminLiveAccountsSchema, adminLiveTransfersSchema, adminLiveOrdersSchema, adminLiveLatencySchema, adminRevokedLiveGrantSchema } from './admin-copy-live-contracts.js';
@@ -356,10 +357,19 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "POST", path: "/me/copy/live/execution-wallets/:id/mandates", status: 200, auth: "user (owner); exact current verified agent binding", response: liveCopyMandateChallengeSchema, errors: ["copy_not_open", "copy_paused", "below_min_allocation", "above_max_allocation", "leverage_above_limit", "builder_fee_approval_required"] },
   { method: "POST", path: "/me/copy/live/mandates/:id/approve", status: 200, auth: "user (owner); exact owner consent; the copy starts once funded when automatic testnet execution is on", response: liveCopyMandateSchema, errors: ["consent_expired", "invalid_consent"] },
   { method: "POST", path: "/me/copy/live/mandates/:id/pause", status: 200, auth: "user (owner); local new-risk barrier", response: liveCopyMandateSchema, errors: ["live_stop_in_progress"] },
+  { method: "POST", path: "/me/copy/live/mandates/:id/resume", status: 200, auth: "user (owner); no signature within the generation's lifetime", response: liveCopyMandateSchema, errors: ["live_stop_in_progress", "copy_paused"] },
   { method: "POST", path: "/me/copy/live/mandates/:id/revoke", status: 200, auth: "user (owner); local consent revocation preserves liabilities", response: liveCopyMandateSchema, errors: ["live_stop_in_progress"] },
   { method: 'POST', path: '/me/copy/live/mandates/:id/stop', status: 200, auth: 'user (owner); durable local risk barrier; no financial execution', response: liveCopyStopSchema },
   { method: 'POST', path: '/me/copy/live/execution-wallets/:id/positions/close', status: 200, auth: 'user (owner); one position of a running testnet copy; executed by the worker', response: liveManualCloseSchema },
   { method: 'GET', path: '/me/copy/live/execution-wallets/:id/closes', status: 200, auth: 'user (owner); read only', response: liveManualClosesSchema },
+  { method: "POST", path: "/me/copy/live/setups", status: 200, auth: "user (owner); testnet; prepares strategy, wallet, agent and deposit, no exchange call; one consent challenge", response: liveCopySetupSchema, errors: [...liveStrategyErrors, "setup_unavailable", "setup_wallet_conflict", "funding_pending"] },
+  { method: "GET", path: "/me/copy/live/setups", status: 200, auth: "user (owner); read only", response: liveCopySetupsSchema },
+  { method: "GET", path: "/me/copy/live/setups/:id", status: 200, auth: "user (owner); read only", response: liveCopySetupSchema },
+  { method: "POST", path: "/me/copy/live/setups/:id/confirm", status: 200, auth: "user (owner); the setup consent, the deposit signature and a fresh session; one deposit attempt", response: liveCopySetupSchema, errors: ["consent_expired", "invalid_consent", "setup_unavailable", "setup_wallet_conflict", "setup_builder_rejected", "insufficient_main_balance"] },
+  { method: "POST", path: "/me/copy/live/setups/:id/advance", status: 200, auth: "user (owner); fresh session signs the next consented step; attempted steps are only reconciled", response: liveCopySetupSchema },
+  { method: "POST", path: "/me/copy/live/setups/:id/cancel", status: 200, auth: "user (owner); only before the deposit was sent", response: liveCopySetupSchema, errors: ["funding_pending"] },
+  { method: "PATCH", path: "/me/copy/live/strategies/:id", status: 200, auth: "user (owner); a new generation under one setup consent", response: liveCopySetupSchema, errors: ["setup_unavailable", "live_stop_in_progress", "below_min_allocation", "above_max_allocation", "leverage_above_limit", "copy_not_open"] },
+  { method: "POST", path: "/me/copy/live/strategies/:id/renew", status: 200, auth: "user (owner); last three days of the lifetime; a new agent and generation under one setup consent", response: liveCopySetupSchema, errors: ["setup_unavailable", "live_stop_in_progress"] },
   { method: 'GET', path: '/me/copy/live/portfolio', status: 200, auth: 'user (owner); testnet copies with their funding and stop stage; read only', response: liveCopyPortfolioSchema },
   { method: 'GET', path: '/me/copy/live/stops', status: 200, auth: 'user (owner); bounded durable stop history; read only', response: liveCopyStopsSchema },
   { method: 'GET', path: '/me/copy/live/stops/by-key/:key', status: 200, auth: 'user (owner); exact original stop recovery; read only', response: liveCopyStopSchema },

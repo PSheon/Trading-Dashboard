@@ -103,7 +103,10 @@ export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
       } };
     }
   }
-  if (seen.size !== httpRouteContracts.length) throw new Error("OpenAPI controller coverage is incomplete");
+  if (seen.size !== httpRouteContracts.length) {
+    const missing = httpRouteContracts.map(route => route.method + " " + route.path).filter(route => !seen.has(route));
+    throw new Error("OpenAPI controller coverage is incomplete: " + missing.join(", "));
+  }
   return document;
 }
 

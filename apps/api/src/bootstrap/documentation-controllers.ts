@@ -38,9 +38,10 @@ import { CopyLiveMandateController } from "../copy/copy-live-mandate.controller.
 import { CopyLiveReturnController } from "../copy/copy-live-return.controller.js";
 import { CopyLivePortfolioController } from "../copy/copy-live-portfolio.controller.js";
 import { CopyLiveCloseController } from "../copy/copy-live-close.controller.js";
+import { CopyLiveSetupController } from "../copy/copy-live-setup.controller.js";
 import { CopyLiveStopController } from "../copy/copy-live-stop.controller.js";
 import { ReferralController, ReferralPublicController } from '../referral/referral.controller.js';
 
 /** Offline schema export only: controllers are instantiated with inert providers. */
-export const documentationControllers = [CopyFundsController, CopyLiveStopController, CopyLiveReturnController, CopyLivePortfolioController, CopyLiveCloseController, ReferralController, ReferralPublicController, AdminSourcesController, AdminTraderController, FavoriteGroupsController, TraderSearchController, AdminAuditController, AdminSettingsRuntimeController,
+export const documentationControllers = [CopyFundsController, CopyLiveSetupController, CopyLiveStopController, CopyLiveReturnController, CopyLivePortfolioController, CopyLiveCloseController, ReferralController, ReferralPublicController, AdminSourcesController, AdminTraderController, FavoriteGroupsController, TraderSearchController, AdminAuditController, AdminSettingsRuntimeController,
   AdminJobsController, AdminSystemController, AdminController, PublicSettingsController, ActionsController, AlertRulesController, AlertsController, HealthController, ReadinessController, LeadersController, ListsController, ImportController, InsightsController, TelegramController, TradeAnalyticsController, TradersController, MeController, DiscoveryController, CopyScoreController, AdminKolController, KolAvatarController, WalletController, WithdrawalController, AdminWithdrawalController, CopyController, CopyWalletController, CopyFundingController, CopyAgentController, CopyAccountModeController, CopyFollowerController, CopyFollowerSnapshotController, CopyLiveMandateController, AdminCopyController, AdminCopyLiveController];

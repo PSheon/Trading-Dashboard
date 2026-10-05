@@ -23,6 +23,14 @@ function consent(row: AgentSetupRow): AgentConsentIntent {
     nonce: row.approvalNonce, expiresAt: row.expiresAt.getTime(), consentExpiresAt: row.consentExpiresAt.getTime() };
 }
 
+/** Who authorises one agent approval: the owner's consent for this exact
+ * operation with their fresh session (Settings), or a one-click setup whose
+ * consent (verified at its confirm) bound this agent and expiry, with the
+ * setup's signer (the owner's session or the worker under the owner's policy). */
+export type AgentApprovalAuthority =
+  | { readonly kind: "owner"; readonly consentSignature: string; readonly userJwt: string }
+  | { readonly kind: "setup"; readonly consentDigest: string; sign(account: { walletId: string; address: string; ownerQuorumId: string }, intent: AgentConsentIntent, assertFresh: () => void): Promise<string> };
+
 /** Separate explicit setup. An active grant alone never starts a strategy or
  * changes either its paper allocation or real execution capability. */
 @Injectable()
@@ -49,6 +57,19 @@ export class CopyAgentService {
     const row = await this.uow.run(tx => this.repository.ensure(tx, userId, accountId, parsed.data, this.provider.configuredWorkerQuorumId!));
     return this.reconcile(userId, row.id);
   }
+  /** A one-click setup's agent (30 days by default): prepared and made
+   * ready (policy and wallet) with no exchange call. `renewal` lets a new
+   * agent be prepared while the current one has under three days left. */
+  async prepareForSetup(userId: number, accountId: string, idempotencyKey: string, liveSetupId: string, validForDays: number, renewal = false): Promise<AgentSetupRow> {
+    this.enabled();
+    const verified = await this.wallets.reconcile(userId, accountId);
+    if (verified.state !== "ready") throw new ConflictException("agent_account_not_ready");
+    const row = await this.uow.run(tx => this.repository.ensure(tx, userId, accountId, { idempotencyKey, validForDays }, this.provider.configuredWorkerQuorumId!, { liveSetupId, renewal }));
+    await this.reconcile(userId, row.id);
+    return this.repository.find(userId, row.id);
+  }
+  async row(userId: number, id: string) { return this.repository.refreshGrant(await this.repository.find(userId, id)); }
+  async challengeRow(userId: number, id: string) { return (await this.challenge(userId, id)).intent; }
   private async assertSetup(userId: number, row: AgentSetupRow) {
     const checkedAt = Date.now();
     if (row.network !== "testnet" || row.network !== this.config.value.hyperliquid.wallet.network || row.workerQuorumId !== this.provider.configuredWorkerQuorumId ||
@@ -138,26 +159,33 @@ export class CopyAgentService {
     return { operation: wire(challenged), intent: consent(challenged) };
   }
   async approve(userId: number, id: string, consentSignature: string, userJwt: string): Promise<CopyAgentSetup> {
+    return this.submit(userId, id, { kind: "owner", consentSignature, userJwt });
+  }
+  /** One approval attempt of the exact prepared agent; durable before the
+   * POST, and an attempted approval is only observed, never resent. */
+  async submit(userId: number, id: string, authority: AgentApprovalAuthority): Promise<CopyAgentSetup> {
     this.enabled();
     let row = await this.repository.refreshGrant(await this.repository.find(userId, id));
     if (row.state === "active") return wire(row);
     if (row.state === "approval_unknown" || row.state === "approval_signing") return this.reconcile(userId, id);
-    if (row.state !== "ready" || !userJwt) throw new ConflictException("agent_consent_required");
+    if (row.state !== "ready" || (authority.kind === "owner" && !authority.userJwt)) throw new ConflictException("agent_consent_required");
     const intent = consent(row);
     const initialProof = await this.assertSetup(userId, row);
     const { owner, account } = initialProof;
-    if (!owner.embeddedWalletAddress || !await verifyAgentOwnerConsent(owner.embeddedWalletAddress, intent, consentSignature)) throw new BadRequestException("invalid_agent_consent");
+    if (authority.kind === "owner" ? !owner.embeddedWalletAddress || !await verifyAgentOwnerConsent(owner.embeddedWalletAddress, intent, authority.consentSignature)
+      : !/^[0-9a-f]{64}$/.test(authority.consentDigest) || row.liveSetupId === null || Date.now() < intent.nonce || Date.now() >= intent.consentExpiresAt) throw new BadRequestException("invalid_agent_consent");
     const claimed = await this.uow.run(async tx => {
       await this.repository.assertCurrent(userId, row, tx);
-      return this.repository.transition(row, { state: "approval_signing", consentDigest: createHash("sha256").update(JSON.stringify(intent)).digest("hex") }, tx);
+      return this.repository.transition(row, { state: "approval_signing", consentDigest: authority.kind === "owner" ? createHash("sha256").update(JSON.stringify(intent)).digest("hex") : authority.consentDigest }, tx);
     });
     if (!claimed) return this.reconcile(userId, id);
     row = claimed;
     let signature: string;
     let proofCheckedAt: number;
     try {
-      signature = await this.exchange.signMaster({ walletId: account.privyWalletId!, address: account.address!, ownerQuorumId: account.ownerQuorumId! }, intent, userJwt,
-        () => this.assertConsentFresh(intent, initialProof.checkedAt));
+      const master = { walletId: account.privyWalletId!, address: account.address!, ownerQuorumId: account.ownerQuorumId! };
+      signature = authority.kind === "owner" ? await this.exchange.signMaster(master, intent, authority.userJwt, () => this.assertConsentFresh(intent, initialProof.checkedAt))
+        : await authority.sign(master, intent, () => this.assertConsentFresh(intent, initialProof.checkedAt));
       if (!/^0x[0-9a-fA-F]{130}$/.test(signature) || !await verifyTypedData({ address: row.accountAddress as `0x${string}`, ...agentApprovalTypedData(intent), signature: signature as `0x${string}` })) throw new BadRequestException("agent_master_signature_invalid");
       await this.exchange.acquire();
       const finalProof = await this.assertSetup(userId, row);

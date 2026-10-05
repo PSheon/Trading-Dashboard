@@ -69,7 +69,7 @@ export class CopyAccountModeRepository {
     const moving = await (tx === this.db ? withdrawals : withdrawals.for('update'));
     if (active.length || history.length || pending.length || moving.length) throw new ConflictException('account_mode_account_not_dormant');
   }
-  async ensure(tx: DbTransaction, userId: number, accountId: string, idempotencyKey: string) {
+  async ensure(tx: DbTransaction, userId: number, accountId: string, idempotencyKey: string, liveSetupId: string | null = null) {
     const owner = await this.owner(userId, tx), account = await this.account(userId, accountId, tx);
     const [prior] = await tx.select().from(copyAccountModeOperations).where(and(eq(copyAccountModeOperations.userId, userId), eq(copyAccountModeOperations.idempotencyKey, idempotencyKey)));
     if (prior) {
@@ -82,9 +82,10 @@ export class CopyAccountModeRepository {
       throw new ConflictException('account_mode_setup_exists');
     const [row] = await tx.insert(copyAccountModeOperations).values({ id: randomUUID(), userId, accountId, strategyId: account.strategyId,
       network: 'testnet', idempotencyKey, accountAddress: account.address, accountWalletId: account.privyWalletId,
-      accountOwnerQuorumId: account.ownerQuorumId, ownerPrivyUserId: owner.privyUserId, ownerAddress: owner.embeddedWalletAddress }).returning();
+      accountOwnerQuorumId: account.ownerQuorumId, ownerPrivyUserId: owner.privyUserId, ownerAddress: owner.embeddedWalletAddress, liveSetupId }).returning();
     await this.assertCurrent(userId, row!, tx); return row!;
   }
+  forAccount(tx: Executor, accountId: string) { return tx.select().from(copyAccountModeOperations).where(eq(copyAccountModeOperations.accountId, accountId)).limit(1); }
   async transition(row: AccountModeRow, changes: Partial<typeof copyAccountModeOperations.$inferInsert>, tx: Executor = this.db) {
     const [next] = await tx.update(copyAccountModeOperations).set({ ...changes, revision: row.revision + 1, updatedAt: new Date() })
       .where(and(eq(copyAccountModeOperations.id, row.id), eq(copyAccountModeOperations.revision, row.revision), eq(copyAccountModeOperations.submissionState, row.submissionState))).returning();

@@ -52,7 +52,7 @@ export function sourceSizingExample(mode:'fixed'|'ratio'='fixed',direction:'same
     authorizationId:'grant',authorizationVersion:4,policyId:'policy',policyFingerprint:'a'.repeat(64),workerQuorumId:'worker',settingsDigest:liveCopySettingsDigest(settings),budgetUsd:'100',builderAddress:null,builderMaxFeeTenthsOfBps:0,
     plannerVersion:1,nonce:now-60000,consentExpiresAt:now+240000,expiresAt:now+86400000};
   const mandate={...intent,id:intent.mandateId,idempotencyKey:'generation-operation-key',intent:{...intent},intentDigest:digest(intent),consentDigest:'b'.repeat(64),state:'active',revision:2,activationCursor:new Date(now-1000),
-    consentExpiresAt:new Date(intent.consentExpiresAt),expiresAt:new Date(intent.expiresAt),createdAt:new Date(now-60000),updatedAt:new Date(now)} as MandateRow;
+    consentExpiresAt:new Date(intent.consentExpiresAt),expiresAt:new Date(intent.expiresAt),createdAt:new Date(now-60000),updatedAt:new Date(now),consentKind:'mandate',liveSetupId:null} as MandateRow;
   const fill=parseLiveSourceFill({tid:1,oid:7,time:now-500,coin:'BTC',side:'B',px:'100',sz:'1',startPosition:'0'}, {network:'testnet',leaderAddress:intent.leaderAddress,from:now-1000,to:now,receivedAt:now,kind:'fills'}),leg=canonicalLiveSourceLegs(fill)[0]!;
   const follower=f.accountSource.snapshot,leader=mode==='ratio'?structuredClone({...follower,accountAddress:intent.leaderAddress,perpEquity:'1000',withdrawable:'1000',dexes:follower.dexes.map(d=>({...d,equity:'1000',rawUsd:'1000',crossEquity:'1000',withdrawable:'1000'}))}):null;
   const key=f.reservations.own.key,baseline=captureLivePositionBaseline({mandateId:'mandate',accountId:'account',strategyId:9,firstExecutionKey:key,network:'testnet',accountAddress:follower.accountAddress},follower,now);

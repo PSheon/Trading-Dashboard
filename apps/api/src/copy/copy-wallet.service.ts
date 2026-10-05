@@ -66,6 +66,59 @@ export class CopyWalletService {
     }
   }
 
+  /** Whether new one-click setups get the worker as a policy-bound signer
+   * (COPY_AUTOMATIC_RETURN and a configured worker quorum). Off: the
+   * owner's session signs every step after confirm. */
+  get workerPolicyEnabled(): boolean {
+    const { copy } = this.config.value;
+    return copy.mode === "testnet" && Boolean(copy.live?.automaticReturn && copy.agent?.workerQuorumId && this.masterPolicy?.available);
+  }
+
+  /**
+   * A one-click setup's policy (plan §2): created before the owner's consent
+   * so the consent binds its id and fingerprint, owned by the owner, and
+   * covering the return, the standard account mode and exactly the consented
+   * agent. Null when the worker policy is off or Privy can't create it now
+   * (the setup then runs with the owner's session).
+   */
+  async prepareSetupPolicy(userId: number, accountId: string, agent: { address: string; name: string }, attemptKey: string): Promise<{ id: string; fingerprint: string } | null> {
+    if (!this.workerPolicyEnabled) return null;
+    const user = await this.owner(userId), row = await this.repository.account(accountId, userId);
+    if (!row || row.state !== "ready" || !row.address || !user.embeddedWalletAddress || row.privyUserId !== user.privyUserId) return null;
+    if (row.masterPolicyId) return null; // an account that already has one keeps it (legacy binding)
+    const binding = { ownerMain: user.embeddedWalletAddress.toLowerCase(), account: row.address, agent };
+    try {
+      const policy = await this.masterPolicy!.create(user.privyUserId, binding, attemptKey);
+      const verified = await this.masterPolicy!.verify(policy.id, user.privyUserId, binding);
+      return { id: verified.id, fingerprint: verified.fingerprint };
+    } catch { return null; }
+  }
+
+  /**
+   * At a setup's confirm, with the owner's own session: adds the worker as
+   * the account's only additional signer under the consented policy, checks
+   * the result, and records it on the account. False when it can't (the
+   * setup then continues with the owner's session); nothing is retried here.
+   */
+  async attachSetupSigner(userId: number, accountId: string, userJwt: string, policy: { id: string; fingerprint: string }, agent: { address: string; name: string }): Promise<boolean> {
+    if (!this.workerPolicyEnabled) return false;
+    const quorum = this.config.value.copy.agent!.workerQuorumId;
+    const user = await this.owner(userId), row = await this.repository.account(accountId, userId);
+    if (!row || !user.embeddedWalletAddress) return false;
+    if (row.masterPolicyId) return row.masterPolicyId === policy.id && row.masterSignerQuorumId === quorum;
+    if (row.state !== "ready" || row.network !== "testnet" || !row.privyWalletId || !row.address || !row.ownerQuorumId || row.privyUserId !== user.privyUserId) return false;
+    const binding = { ownerMain: user.embeddedWalletAddress.toLowerCase(), account: row.address, agent };
+    try {
+      const verified = await this.masterPolicy!.verify(policy.id, user.privyUserId, binding);
+      if (verified.fingerprint !== policy.fingerprint) return false;
+      await this.masterPolicy!.attach(row.privyWalletId, userJwt, quorum, verified.id);
+      await this.masterPolicy!.assertSigner(row.privyWalletId, { address: row.address, ownerQuorumId: row.ownerQuorumId, workerQuorumId: quorum, policyId: verified.id });
+      const recorded = await this.repository.recordMasterSigner(row.id, { masterPolicyId: verified.id, masterPolicyFingerprint: verified.fingerprint, masterSignerQuorumId: quorum,
+        sweepDestination: binding.ownerMain, signerAttachedAt: new Date(), walletId: row.privyWalletId, address: row.address });
+      return Boolean(recorded);
+    } catch { return false; }
+  }
+
   private async owner(userId: number) {
     const user = await this.repository.enabledOwner(userId);
     if (!user) throw new NotFoundException("User not found");

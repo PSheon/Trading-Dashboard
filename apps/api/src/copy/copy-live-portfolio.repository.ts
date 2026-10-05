@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { RETURN_CONSENT_WINDOW_MS } from './copy-live-return.repository.js';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { copyAgentSetups, copyExecutionAccounts, copyFundingOperations, copyLiveActivations, copyLiveDispatches, copyLiveMandates, copyLiveStopOperations,
-  copyLiveStrategyConfigs, copyStrategies } from '@trading-dashboard/shared/database';
+  copyLiveSetups, copyLiveStrategyConfigs, copyStrategies } from '@trading-dashboard/shared/database';
 import type { LiveCopyPortfolioItem, LiveCopyStage } from '@trading-dashboard/shared/contracts';
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
@@ -18,7 +18,7 @@ export class CopyLivePortfolioRepository {
       .where(and(eq(copyStrategies.userId, userId), eq(copyStrategies.mode, 'testnet'))).orderBy(desc(copyStrategies.createdAt)).limit(50);
     if (!strategies.length) return [];
     const ids = strategies.map(row => row.strategy.id);
-    const [accounts, setups, mandates, activations, stops, transfers, refusals] = await Promise.all([
+    const [accounts, setups, mandates, activations, stops, transfers, refusals, liveSetups] = await Promise.all([
       this.db.select().from(copyExecutionAccounts).where(and(eq(copyExecutionAccounts.userId, userId), inArray(copyExecutionAccounts.strategyId, ids))),
       this.db.select().from(copyAgentSetups).where(and(eq(copyAgentSetups.userId, userId), eq(copyAgentSetups.state, 'active'))),
       this.db.select().from(copyLiveMandates).where(and(eq(copyLiveMandates.userId, userId), inArray(copyLiveMandates.strategyId, ids))).orderBy(desc(copyLiveMandates.createdAt)),
@@ -27,7 +27,9 @@ export class CopyLivePortfolioRepository {
       this.db.select().from(copyFundingOperations).where(and(eq(copyFundingOperations.userId, userId), inArray(copyFundingOperations.strategyId, ids))).orderBy(desc(copyFundingOperations.createdAt)),
       this.db.select({ strategyId: copyLiveDispatches.strategyId, reason: copyLiveDispatches.reason, at: copyLiveDispatches.updatedAt }).from(copyLiveDispatches)
         .where(and(eq(copyLiveDispatches.userId, userId), eq(copyLiveDispatches.state, 'refused'))).orderBy(desc(copyLiveDispatches.updatedAt)).limit(200),
+      this.db.select().from(copyLiveSetups).where(and(eq(copyLiveSetups.userId, userId), inArray(copyLiveSetups.strategyId, ids))).orderBy(desc(copyLiveSetups.createdAt)),
     ]);
+    const now = Date.now();
     return strategies.map(({ strategy: s, config: c }) => {
       const account = accounts.find(a => a.strategyId === s.id && a.network === 'testnet') ?? null;
       const setup = account ? setups.find(row => row.accountId === account.id) : undefined;
@@ -44,8 +46,13 @@ export class CopyLivePortfolioRepository {
       // The latest stop's sweep (newest first), shown while returning and once stopped.
       const latestStop = stops.find(row => row.strategyId === s.id);
       const sweep = latestStop ? ops.find(t => t.direction === 'to_main' && t.stopId === latestStop.id) ?? null : null;
+      // The latest setup, shown while unfinished or when a start never finished.
+      const latest = liveSetups.find(row => row.strategyId === s.id) ?? null;
+      const liveSetup = latest && (latest.stage !== 'running' && latest.stage !== 'cancelled') && !(latest.kind !== 'start' && ['failed', 'expired'].includes(latest.stage) && latest.updatedAt.getTime() < now - 86_400_000) ? latest : null;
+      const settingUp = liveSetup && !['failed', 'expired'].includes(liveSetup.stage) && liveSetup.kind === 'start';
       let stage: LiveCopyStage;
       if (s.status === 'stopped') stage = 'stopped';
+      else if (settingUp && !stop && s.status !== 'stopping') stage = 'setup';
       else if (stop?.state === 'flat' || pending?.direction === 'to_main' && pending.stopId) stage = 'sweeping';
       else if (stop || s.status === 'stopping') stage = 'stopping';
       else if (!account || account.state !== 'ready' || !setup || !mandate || !mandate.activationCursor || mandate.state === 'prepared') stage = 'setup';
@@ -60,7 +67,10 @@ export class CopyLivePortfolioRepository {
         stop: stop ? { id: stop.id, state: stop.state, issue: stop.issue, revision: stop.revision } : null,
         pendingTransfer: pending ? { id: pending.id, direction: pending.direction, status: pending.status as 'prepared' | 'unknown' | 'accepted', amount: pending.amount } : null,
         lastRefusal: refusal ? { reason: refusal.reason!, at: refusal.at.toISOString() } : null,
-        automaticReturn: Boolean(account?.masterPolicyId), sweep: sweep ? { amount: sweep.creditedAmount ?? sweep.amount, status: sweep.status } : null };
+        automaticReturn: Boolean(account?.masterPolicyId), sweep: sweep ? { amount: sweep.creditedAmount ?? sweep.amount, status: sweep.status } : null,
+        setup: liveSetup ? { id: liveSetup.id, kind: liveSetup.kind, stage: liveSetup.stage, issue: liveSetup.issue?.slice(0, 80) ?? null, signer: liveSetup.signerKind } : null,
+        expiresAt: mandate && ['active', 'paused'].includes(mandate.state) ? mandate.expiresAt.toISOString() : null,
+        renewalDue: Boolean(mandate && ['active', 'paused'].includes(mandate.state) && mandate.expiresAt.getTime() - now <= 3 * 86_400_000 && s.status !== 'stopping' && s.status !== 'stopped') };
     });
   }
 }

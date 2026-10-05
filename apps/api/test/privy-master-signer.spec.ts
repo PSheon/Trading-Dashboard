@@ -48,4 +48,23 @@ describe("the copy account's own signer signs only what Orbie needs it for", () 
     await expect(signer.sign(account, usdSendTypedData(WALLET_NETWORKS.mainnet, main, "1", 1) as never, "jwt", Date.now() + 5000, () => undefined, { network: "testnet", destination: main })).rejects.toThrow("master_action_signing_unavailable");
     expect(fetcher).not.toHaveBeenCalled();
   });
+
+  it("a one-click setup's mode and agent approval: only the standard mode for the bound account, only the consented agent and name", () => {
+    const account = `0x${"22".repeat(20)}`, agentAddress = `0x${"44".repeat(20)}`, name = "copy7 valid_until 1790000000000";
+    const domain = usdSendTypedData(net, account, "1", 1).domain;
+    const mode = { domain, primaryType: "HyperliquidTransaction:UserSetAbstraction", types: { "HyperliquidTransaction:UserSetAbstraction": [{ name: "hyperliquidChain", type: "string" }, { name: "user", type: "address" }, { name: "abstraction", type: "string" }, { name: "nonce", type: "uint64" }] },
+      message: { hyperliquidChain: "Testnet", user: account, abstraction: "disabled", nonce: 1 } };
+    expect(masterActionSignable(mode as never)).toBe(true);
+    expect(masterActionBound(mode as never, { network: "testnet", account })).toBe(true);
+    expect(masterActionBound(mode as never, { network: "testnet", account: agentAddress })).toBe(false);
+    expect(masterActionBound(mode as never, { network: "testnet" })).toBe(false);
+    expect(masterActionBound({ ...mode, message: { ...mode.message, abstraction: "unifiedAccount" } } as never, { network: "testnet", account })).toBe(false);
+    const agent = { domain, primaryType: "HyperliquidTransaction:ApproveAgent", types: { "HyperliquidTransaction:ApproveAgent": [{ name: "hyperliquidChain", type: "string" }, { name: "agentAddress", type: "address" }, { name: "agentName", type: "string" }, { name: "nonce", type: "uint64" }] },
+      message: { hyperliquidChain: "Testnet", agentAddress, agentName: name, nonce: 1 } };
+    expect(masterActionSignable(agent as never)).toBe(true);
+    expect(masterActionBound(agent as never, { network: "testnet", agent: { address: agentAddress, name } })).toBe(true);
+    expect(masterActionBound(agent as never, { network: "testnet", agent: { address: account, name } })).toBe(false);
+    expect(masterActionBound(agent as never, { network: "testnet", agent: { address: agentAddress, name: "copy7 valid_until 1" } })).toBe(false);
+    expect(masterActionBound({ ...agent, message: { ...agent.message, hyperliquidChain: "Mainnet" } } as never, { network: "testnet", agent: { address: agentAddress, name } })).toBe(false);
+  });
 });

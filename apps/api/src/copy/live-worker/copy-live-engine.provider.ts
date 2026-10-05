@@ -28,6 +28,7 @@ import { TestnetReduceOnlyCloser } from './reduce-only-closer.js';
 import { CopyLiveAutoReturn } from './copy-live-auto-return.js';
 import { CopyFundingExchangeClient } from '../copy-funding-exchange.client.js';
 import { PrivyPolicyMasterSigner } from '../live/privy-policy-master-signer.js';
+import { CopyLiveSetupService } from '../copy-live-setup.service.js';
 
 export const LIVE_ENGINE = Symbol('LIVE_ENGINE');
 /** Risk inputs the runtime requires besides slippage and the price check. */
@@ -38,9 +39,9 @@ const EXTRA_RISK_BUFFER_BPS = '5', RESTING_BUILDER_FEE_CAP_TENTHS_BPS = 100;
 export const liveEngineProvider: Provider = {
   provide: LIVE_ENGINE,
   inject: [AppConfig, DATABASE_POOL, DRIZZLE_CLIENT, UnitOfWork, PostgresHyperliquidQuota, CopyMarketService, CopyFollowerLedger,
-    CopyLiveSourceRepository, CopyLiveWorkerRepository, CopyFollowerScanRepository, CopyLiveStopWorkerRepository, CopyLiveReturnRepository],
+    CopyLiveSourceRepository, CopyLiveWorkerRepository, CopyFollowerScanRepository, CopyLiveStopWorkerRepository, CopyLiveReturnRepository, CopyLiveSetupService],
   useFactory: (config: AppConfig, pool: Pool, db: DrizzleDb, uow: UnitOfWork, quota: PostgresHyperliquidQuota,
-    market: CopyMarketService, ledger: CopyFollowerLedger, sources: CopyLiveSourceRepository, repository: CopyLiveWorkerRepository, scans: CopyFollowerScanRepository, stops: CopyLiveStopWorkerRepository, returns: CopyLiveReturnRepository): CopyLiveEngine | null => {
+    market: CopyMarketService, ledger: CopyFollowerLedger, sources: CopyLiveSourceRepository, repository: CopyLiveWorkerRepository, scans: CopyFollowerScanRepository, stops: CopyLiveStopWorkerRepository, returns: CopyLiveReturnRepository, setups: CopyLiveSetupService): CopyLiveEngine | null => {
     const live = config.value.copy.live;
     if (config.value.copy.mode !== 'testnet' || !live) return null;
     const logger = new Logger('CopyLiveEngine');
@@ -67,7 +68,7 @@ export const liveEngineProvider: Provider = {
         new PrivyPolicyMasterSigner({ appId: config.value.auth.appId, appSecret: config.value.auth.appSecret, workerQuorumId: config.value.copy.agent?.workerQuorumId,
           authorizationPrivateKey: config.value.copy.agent?.authorizationPrivateKey })) });
     const manual = new CopyLiveManualCloser(stops, closer, scanner, message => logger.warn(message));
-    return new CopyLiveEngine({ stopper: { tick: async () => { await stopper.tick(); await manual.tick(); } },
+    return new CopyLiveEngine({ setups, stopper: { tick: async () => { await stopper.tick(); await manual.tick(); } },
       repository, sources, uow, watched: new WatchedMainnetSource(db),
       testnetSource: new HyperliquidLiveSourceClient('testnet', weight => testnetBudget.acquire(weight, 'live', undefined, { signal: AbortSignal.timeout(5000) }), testnetGlobal.fetchInfo),
       runtime: hooks => new TestnetLiveExecutionRuntime(pool, testnetConfig, testnetGlobal, testnetBudget, options, Date.now, { ...hooks, reference }),

@@ -39,12 +39,21 @@ export const mineNav: NavItem[] = [
   { href: "/favorites", label: "nav.favorites", icon: Star },
 ];
 
-/** Phones: the four tabs of the floating capsule (M boards). */
+/** Phones: the four tabs of the floating capsule (M boards), signed in. */
 export const mobileNav: NavItem[] = [
   { href: "/", label: "nav.home", icon: House },
   { href: "/explore", label: "nav.explore", icon: Compass },
   { href: "/favorites", label: "nav.favorites", icon: Star },
   { href: "/portfolio", label: "nav.portfolio", icon: Briefcase },
+];
+
+/** Phones, signed out (and while sign-in is unknown): no 收藏 / 投資組合,
+ * as in the desktop header (Paul, 2026-10-05); 洞察 takes their place so
+ * the bar mirrors the header's 探索 / 洞察 capsule. */
+export const mobileNavSignedOut: NavItem[] = [
+  { href: "/", label: "nav.home", icon: House },
+  { href: "/explore", label: "nav.explore", icon: Compass },
+  { href: "/insights", label: "nav.insights", icon: ChartSpline },
 ];
 
 export const adminNav: NavItem = { href: "/admin", label: "nav.admin", icon: ShieldCheck };

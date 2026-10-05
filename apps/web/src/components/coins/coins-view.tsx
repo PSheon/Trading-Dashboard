@@ -27,15 +27,11 @@ const money = (value: number) => usdCompact(value, { digits: 2 });
 const count = (value: number) => value.toLocaleString("en-US");
 const rate = (value: number | null) => (value === null ? "—" : `${(value * 100).toFixed(1)}%`);
 
-/** Page column: CopyDog's 1068 px measure, a little lower than other pages. */
+/** Page column: CopyDog's 1068 px measure, narrower than other pages, so
+ * it is centred in the page frame (the frame's edges still match the
+ * header's). */
 function Column({ children }: { children: React.ReactNode }) {
-  // CopyDog centres the column in the page (equal side padding), so it
-  // gives back the frame's extra 16px on the right.
-  return (
-    <div className="md:pr-4">
-      <div className="w-full max-w-[1068px]">{children}</div>
-    </div>
-  );
+  return <div className="mx-auto w-full max-w-[1068px]">{children}</div>;
 }
 
 // CopyDog's .data-table: mono caps headers (33px), 13px cells in 48–49px rows.

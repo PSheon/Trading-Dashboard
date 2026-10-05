@@ -16,18 +16,19 @@ import { ThemeChoiceControl } from "./theme-toggle";
 /**
  * The menu behind the ☰ on CopyDog's phone marketing pages (about, FAQ,
  * 404): a sheet from the right with the wordmark and ×, a grid of the
- * eleven languages, 排行榜 / 收藏 / 投資組合 / 設定, and 登入 at the bottom
- * while signed out.
+ * eleven languages, 排行榜 / 收藏 / 投資組合 / 設定 (收藏 and 投資組合 only
+ * once signed in), and 登入 at the bottom while signed out.
  */
 export function PhoneMenu() {
   const { t, locale } = useI18n();
   const changeLocale = useChangeLocale();
   const { status, login } = useAuth();
   const [open, setOpen] = useState(false);
+  // 收藏 / 投資組合 only for a signed-in visitor, as in the header.
+  const signedIn = status === "signedIn";
   const items = [
     { href: "/explore", label: t("nav.leaderboard") },
-    { href: "/favorites", label: t("nav.favorites") },
-    { href: "/portfolio", label: t("nav.portfolio") },
+    ...(signedIn ? [{ href: "/favorites", label: t("nav.favorites") }, { href: "/portfolio", label: t("nav.portfolio") }] : []),
     { href: "/settings", label: t("nav.settings") },
   ];
   return (

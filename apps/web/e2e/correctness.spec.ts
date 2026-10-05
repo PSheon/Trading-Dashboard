@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { signIn } from "./helpers";
 
 /** Review round 4, part 4: things a phone user ran into. */
 test.beforeEach(async ({ context, baseURL, page }) => {
@@ -8,6 +9,8 @@ test.beforeEach(async ({ context, baseURL, page }) => {
 
 test("phone settings: back from a sub-view, then close, leaves settings (no loop)", async ({ page }) => {
   await page.goto("/");
+  // The Portfolio tab is there once signed in.
+  await signIn(page);
   await page.getByRole("link", { name: "Portfolio" }).filter({ visible: true }).click();
   await expect(page).toHaveURL(/\/portfolio$/);
   await page.goto("/settings");

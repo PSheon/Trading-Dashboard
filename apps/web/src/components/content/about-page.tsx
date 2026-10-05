@@ -100,6 +100,7 @@ export function AboutPage({ blocks }: { blocks: Block[] }) {
   const parts = chunks(body);
   let feature = 0;
   return (
+    <>
     <div className="-mx-4 -mt-4 flex flex-col md:-mx-5 md:-mt-2">
       {parts.map((part, p) => {
         const secs = sections(part);
@@ -242,7 +243,10 @@ export function AboutPage({ blocks }: { blocks: Block[] }) {
           </div>
         );
       })}
-      <SiteFooter className="mt-20" />
     </div>
+    {/* In the page frame, outside the full-bleed sections: its edges match
+        the header's. */}
+    <SiteFooter className="mt-20" />
+    </>
   );
 }

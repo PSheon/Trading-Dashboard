@@ -19,7 +19,7 @@ export function AnnouncementBanner() {
   if (!text || dismissed === text) return null;
 
   return (
-    <div className="mx-auto max-w-[1600px] px-4 pt-3 md:px-5 md:pt-1">
+    <div className="page-frame pt-3 md:pt-1">
       <div className="flex items-start gap-3 rounded-[22px] bg-tag-alert px-4 py-2.5 text-tag-alert-foreground md:items-center">
         <Megaphone aria-hidden className="mt-0.5 size-4 shrink-0 md:mt-0" strokeWidth={2.4} />
         <p className="min-w-0 flex-1 text-[0.8125rem] leading-relaxed font-bold">

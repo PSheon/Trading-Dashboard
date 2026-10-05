@@ -14,7 +14,8 @@ import { AccountControls, AuthButton } from "./account-controls";
 import { AddressSearch } from "./address-search";
 import { PhoneMenu } from "./phone-menu";
 import { WalletModalsProvider } from "@/components/wallet/wallet-modals";
-import { discoverNav, isActive, mineNav, mobileNav, type NavItem } from "./nav";
+import { useAuth } from "@/lib/auth";
+import { discoverNav, isActive, mineNav, mobileNav, mobileNavSignedOut, type NavItem } from "./nav";
 
 /** Every route the app serves; anything else is the 404 page. */
 const ROUTES = ["/explore", "/favorites", "/insights", "/portfolio", "/settings", "/coins", "/trader", "/admin", "/about", "/help", "/dev"];
@@ -38,10 +39,15 @@ function phoneChrome(pathname: string): "home" | "marketing" | "none" {
  * wordmark and the 探索 / 洞察 capsule, the search centred, the 投資組合 /
  * 收藏 capsule with language, theme and the account on the right. On phones
  * a floating capsule tab bar at the bottom.
+ *
+ * 投資組合 / 收藏 are the visitor's own pages: they show once someone is
+ * signed in, never while signed out or while sign-in is still unknown (the
+ * signed-out header is drawn until then, and the capsule fades in).
  */
 export function AppShell({ children }: { children: React.ReactNode }) {
   const t = useT();
   const pathname = usePathname();
+  const signedIn = useAuth().status === "signedIn";
   // A trader page on a phone has its own top bar and a sticky 跟單 button in
   // place of the header and the tab bar.
   const traderPage = pathname.startsWith("/trader/");
@@ -65,7 +71,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {t("nav.skip")}
       </a>
 
-      <header className="orbit-header sticky top-0 z-40 hidden grid-cols-[auto_minmax(0,1fr)_auto] items-center xl:grid-cols-[minmax(0,1fr)_minmax(200px,400px)_minmax(0,1fr)] gap-3 bg-background/92 px-5 py-3 backdrop-blur-xl md:grid">
+      {/* The bar's background spans the window; its contents sit in the
+          page frame, so they line up with the page below. Three equal
+          columns, the sides never narrower than their contents: the search
+          (at most 400px) sits in the middle one, centred on the page
+          whenever both sides fit a third, as they do signed out or in. */}
+      <header className="orbit-header sticky top-0 z-40 hidden bg-background/92 backdrop-blur-xl md:block">
+        <div className="page-frame grid grid-cols-[minmax(max-content,1fr)_minmax(0,1fr)_minmax(max-content,1fr)] items-center gap-3 py-3">
         <div className="flex min-w-0 items-center gap-3">
           <Link
             href="/"
@@ -80,8 +92,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <AddressSearch />
         </div>
         <div className="flex min-w-0 items-center justify-end gap-3">
-          <NavCapsule label={t("nav.mine")} items={mineNav} pathname={pathname} />
+          {signedIn ? (
+            <NavCapsule
+              label={t("nav.mine")}
+              items={mineNav}
+              pathname={pathname}
+              className="animate-in duration-300 fade-in-0 motion-reduce:animate-none"
+            />
+          ) : null}
           <AccountControls />
+        </div>
         </div>
       </header>
       {/* Solid, without backdrop-filter: a filter would make the phone header
@@ -119,7 +139,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           className={cn(
             // overflow-x-clip: row scroll arrows hang half outside their
             // row; without the clip they add a few px of page scroll.
-            "mx-auto w-full max-w-[1600px] overflow-x-clip px-4 py-4 outline-none md:px-5 md:pt-2 md:pb-10",
+            "page-frame overflow-x-clip py-4 outline-none md:pt-2 md:pb-10",
             traderPage && "md:pb-14",
           )}
         >
@@ -130,11 +150,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <nav
         aria-label={t("nav.primary")}
         className={cn(
-          "fixed inset-x-3 bottom-[calc(12px+env(safe-area-inset-bottom))] z-30 h-[68px] grid-cols-4 gap-1 rounded-4xl bg-raised p-1.5 shadow-[0_10px_30px_-12px_rgb(21_19_43/35%)] md:hidden",
+          "fixed inset-x-3 bottom-[calc(12px+env(safe-area-inset-bottom))] z-30 h-[68px] gap-1 rounded-4xl bg-raised p-1.5 shadow-[0_10px_30px_-12px_rgb(21_19_43/35%)] md:hidden",
+          signedIn ? "grid-cols-4" : "grid-cols-3",
           tabBar ? "grid" : "hidden",
         )}
       >
-        {mobileNav.map((item) => (
+        {(signedIn ? mobileNav : mobileNavSignedOut).map((item) => (
           <TabLink key={item.href} item={item} active={isActive(pathname, item.href)} />
         ))}
       </nav>
@@ -145,10 +166,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
 /** A raised capsule of links; the current page is the orange pill. Labels
  * show from 1400px, icons only below (T1024 / T820 boards). */
-function NavCapsule({ label, items, pathname }: { label: string; items: NavItem[]; pathname: string }) {
+function NavCapsule({ label, items, pathname, className }: { label: string; items: NavItem[]; pathname: string; className?: string }) {
   const t = useT();
   return (
-    <nav aria-label={label} className="flex shrink-0 gap-0.5 rounded-[26px] bg-raised p-1">
+    <nav aria-label={label} className={cn("flex shrink-0 gap-0.5 rounded-[26px] bg-raised p-1", className)}>
       {items.map((item) => {
         const Icon = item.icon;
         const active = isActive(pathname, item.href);

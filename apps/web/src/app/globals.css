@@ -353,6 +353,20 @@
   :root:not(.light) .theme-icon-dark { display: block; }
 }
 
+/* The page frame: one column that the header, every page's content and
+ * the footer share, so their outer edges line up at every width. The C
+ * boards are 1440 wide with 20px sides; past 1440 the frame stops growing
+ * and centres, so a wide screen shows the boards' own proportions. */
+@utility page-frame {
+  margin-inline: auto;
+  width: 100%;
+  max-width: 1440px;
+  padding-inline: 16px;
+  @media (width >= 48rem) {
+    padding-inline: 20px;
+  }
+}
+
 @layer utilities {
   /* Every figure in the app lines up in columns. */
   .num {

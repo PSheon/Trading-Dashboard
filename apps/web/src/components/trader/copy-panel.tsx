@@ -46,12 +46,19 @@ function useCopyMode(identity: string | null): [CopyMode, (mode: CopyMode) => vo
   }];
 }
 
-/** The setup whose progress dialog is open, per trader, for this page's life. */
-const openSetups = new Map<string, string | null>();
-const openSetupListeners = new Set<() => void>();
-function useOpenSetup(leader: string): [string | null, (id: string | null) => void] {
-  const id = useSyncExternalStore((listener) => { openSetupListeners.add(listener); return () => openSetupListeners.delete(listener); }, () => openSetups.get(leader) ?? null, () => null);
-  return [id, (next) => { openSetups.set(leader, next); openSetupListeners.forEach((listener) => listener()); }];
+/**
+ * The testnet setup this panel is confirming or following, per trader, for
+ * the page's life: the panel can remount while a dialog is open (the trader
+ * page redraws its layout), and neither the confirm sheet nor the progress
+ * dialog may vanish with it.
+ */
+interface PanelSetup { setup: LiveCopySetup | null; confirmOpen: boolean; progressId: string | null }
+const EMPTY_SETUP: PanelSetup = { setup: null, confirmOpen: false, progressId: null };
+const panelSetups = new Map<string, PanelSetup>();
+const panelSetupListeners = new Set<() => void>();
+function usePanelSetup(leader: string): [PanelSetup, (change: Partial<PanelSetup>) => void] {
+  const value = useSyncExternalStore((listener) => { panelSetupListeners.add(listener); return () => panelSetupListeners.delete(listener); }, () => panelSetups.get(leader) ?? EMPTY_SETUP, () => EMPTY_SETUP);
+  return [value, (change) => { panelSetups.set(leader, { ...(panelSetups.get(leader) ?? EMPTY_SETUP), ...change }); panelSetupListeners.forEach((listener) => listener()); }];
 }
 
 /** 測試網 badge, beside where the paper copy shows 模擬. */
@@ -100,11 +107,11 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
   const live = useLiveCopySetupActions();
   const liveCopies = useLiveCopyPortfolio();
   const liveExisting = liveCopies.data?.items.find((item) => item.leaderAddress === address.toLowerCase() && item.status !== "stopped") ?? null;
-  const [setup, setSetup] = useState<LiveCopySetup | null>(null);
-  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [{ setup, confirmOpen, progressId }, updateSetup] = usePanelSetup(address.toLowerCase());
+  const setSetup = (next: LiveCopySetup | null) => updateSetup({ setup: next });
+  const setConfirmOpen = (open: boolean) => updateSetup({ confirmOpen: open });
+  const setProgressId = (id: string | null) => updateSetup({ progressId: id });
   const [confirmError, setConfirmError] = useState<string | null>(null);
-  // Survives the panel remounting (the page redraws, the phone sheet closes).
-  const [progressId, setProgressId] = useOpenSetup(address.toLowerCase());
   const [sizing, setSizing] = useState<"ratio" | "fixed">("ratio");
   const [perTrade, setPerTrade] = useState("");
   const [maxExposure, setMaxExposure] = useState("");

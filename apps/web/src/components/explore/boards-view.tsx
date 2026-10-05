@@ -8,8 +8,8 @@ import { useEffect, useMemo, useState } from "react";
 import { cn } from "cn";
 
 import { boardName, CoinStack, CopyScoreBar, signTone, TraderAvatar, VerifiedTick } from "@/components/discover/board-bits";
-import { BoardCard, BoardCardSkeleton, BoardMobileRow } from "@/components/discover/board-card";
-import { EmptyState, ErrorState, Skeleton } from "@/components/page";
+import { BoardCard, BoardCardSkeleton, BoardMobileRow, BoardMobileRowSkeleton } from "@/components/discover/board-card";
+import { EmptyState, ErrorState, SkelBar, SkelCircle } from "@/components/page";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import {
   DropdownMenu,
@@ -477,6 +477,7 @@ function BoardTable({ items, sorts, sort, onSort, pnlLabel, roiLabel, roiHint }:
 }
 
 function BoardSkeleton({ view }: { view: View }) {
+  const { t } = useI18n();
   return (
     <>
       {view !== "list" ? (
@@ -484,14 +485,40 @@ function BoardSkeleton({ view }: { view: View }) {
           {Array.from({ length: 8 }, (_, i) => <BoardCardSkeleton key={i} />)}
         </div>
       ) : (
-        <div className="hidden flex-col gap-2 md:flex">
-          {Array.from({ length: 10 }, (_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}
+        // BoardTable's header over its 64px raised rows.
+        <div aria-hidden="true" className="ui-skeleton hidden overflow-hidden md:block [--skel-bar:var(--border)]">
+          <table className="w-full min-w-[860px] border-separate border-spacing-y-2 text-sm font-bold">
+            <thead>
+              <tr>
+                {([["discover.trader", "left"], ["discover.copyScore", "left"], ["discover.assets", "left"], ["discover.pnl", "right"], ["discover.roi", "right"], ["discover.equity", "right"]] as const).map(([key, align], i) => (
+                  <th key={key} className={cn("px-3 pt-1 text-xs font-bold text-muted-foreground", align === "right" ? "text-right" : "text-left", i === 0 && "pl-[18px]")}>{t(key)}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="data-rows">
+              {Array.from({ length: 10 }, (_, r) => (
+                <tr key={r}>
+                  <td className="h-16 px-3 pl-[18px]">
+                    <span className="flex items-center gap-2.5">
+                      <SkelCircle className="size-9" />
+                      <SkelBar className="h-3.5 w-28" />
+                    </span>
+                  </td>
+                  <td className="px-3"><SkelBar className="h-2.5 w-36" /></td>
+                  <td className="px-3"><SkelBar className="h-[18px] w-12" /></td>
+                  <td className="px-3"><SkelBar className="ml-auto h-3 w-20" /></td>
+                  <td className="px-3"><SkelBar className="ml-auto h-3 w-14" /></td>
+                  <td className="px-3 pr-[18px]"><SkelBar className="ml-auto h-3 w-24" /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
       {view !== "grid" ? (
-        <div className="flex flex-col gap-2 md:hidden">
-          {Array.from({ length: 8 }, (_, i) => <Skeleton key={i} className="h-[70px] rounded-[24px]" />)}
-        </div>
+        <ul className="flex flex-col gap-2 md:hidden">
+          {Array.from({ length: 8 }, (_, i) => <BoardMobileRowSkeleton key={i} />)}
+        </ul>
       ) : null}
     </>
   );

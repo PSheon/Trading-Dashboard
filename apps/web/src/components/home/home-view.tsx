@@ -8,7 +8,7 @@ import { cn } from "cn";
 import { AreaChart } from "@/components/charts/area-chart";
 import { boardName, HScroll, TraderAvatar, VerifiedTick } from "@/components/discover/board-bits";
 import { HomeCard, HomeCardSkeleton } from "@/components/discover/board-card";
-import { ErrorState, Skeleton } from "@/components/page";
+import { ErrorState, SkelBar, SkelCircle, Skeleton } from "@/components/page";
 import { SiteFooter } from "@/components/shell/site-footer";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { useI18n } from "@/i18n/provider";
@@ -137,8 +137,12 @@ function HomeContent({ home }: { home: { data: HomeBoardsResponse | undefined; i
             ))
         : !home.isError
           ? Array.from({ length: 3 }, (_, i) => (
-              <section key={i}>
-                <Skeleton className="mb-3.5 h-11 w-40" />
+              <section key={i} aria-hidden="true">
+                {/* RowHeader: the title's line and 查看全部. */}
+                <div className="mb-3.5 flex items-center justify-between gap-3">
+                  <Skeleton className="h-[27.5px] w-32 rounded-full" />
+                  <Skeleton className="h-11 w-[84px] rounded-full" />
+                </div>
                 <div className="-mx-4 flex gap-3 overflow-hidden px-4 py-1 md:mx-0 md:px-0.5">
                   {Array.from({ length: 7 }, (_, j) => <HomeCardSkeleton key={j} />)}
                 </div>
@@ -228,10 +232,33 @@ function RowHeader({ title, coin, href }: { title: string; coin?: string; href: 
   );
 }
 
-/** CopyDog's hero placeholder: one shimmering block the size of the card. */
+/** The calculator card while the rows load: the same card, its trader row
+ * (avatar, name, dots, ›), the two figure wells with their static labels
+ * and the chart's place. */
 function CalculatorSkeleton() {
   const { t } = useI18n();
-  return <div role="status" aria-label={t("common.loading")} className="ui-skeleton h-[288px] rounded-3xl bg-raised" />;
+  return (
+    <section role="status" aria-label={t("common.loading")} className="orbit-card ui-skeleton flex flex-col gap-4 overflow-hidden rounded-3xl! p-5">
+      <div className="flex items-center gap-3">
+        <SkelCircle className="size-10" />
+        <SkelBar className="h-3.5 w-32" />
+        <SkelBar className="ml-auto h-1.5 w-28" />
+        <SkelCircle className="ml-1 size-11" />
+      </div>
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-4" aria-hidden="true">
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[13px] font-bold text-muted-foreground">{t("home.ifInvested")}</span>
+          <div className="flex h-[52px] items-center rounded-[26px] bg-inset px-4" />
+          <span className="mt-2.5 text-[13px] font-bold text-muted-foreground">{t("home.youWouldHave")}</span>
+          <div className="flex h-[52px] items-center rounded-[26px] bg-inset px-4" />
+        </div>
+        <div className="relative min-h-[150px] pt-8">
+          <SkelBar className="absolute top-0 left-0 h-7 w-16 rounded-md" />
+          <span className="block h-[150px] rounded-2xl bg-inset" />
+        </div>
+      </div>
+    </section>
+  );
 }
 
 /** "If you invested $1,000 … you would have today": six traders, all-time ROI. */

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { cn } from "cn";
 
-import { EmptyState, ErrorState, Skeleton } from "@/components/page";
+import { EmptyState, ErrorState, SkelBar, SkelCircle } from "@/components/page";
 import { boardName, TraderAvatar } from "@/components/discover/board-bits";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { useI18n } from "@/i18n/provider";
@@ -60,7 +60,7 @@ function CoinIndexContent({ query }: { query: { data: CoinIndexResponse | undefi
       <p className="cd-label">{t("coins.markets")}</p>
       <h1 className="mt-1 font-display text-[1.75rem] leading-[1.15] md:text-[2.5rem]">{t("coins.indexTitle")}</h1>
       <p className="mt-2 max-w-[68ch] text-[15px] leading-[1.5] font-bold text-muted-foreground">{t("coins.indexBody")}</p>
-      <div className="mt-[31px]">
+      <div className={cn("mt-[31px]", !query.data && !query.isError && "ui-skeleton")}>
         {query.isError && !query.data ? (
           <ErrorState onRetry={query.refetch} />
         ) : query.data && query.data.items.length === 0 ? (
@@ -92,10 +92,15 @@ function CoinIndexContent({ query }: { query: { data: CoinIndexResponse | undefi
                     </tr>
                   ))
                 : Array.from({ length: 12 }, (_, i) => (
-                    <tr key={i}>
-                      <td className={td}><Skeleton className="h-4 w-24" /></td>
-                      <td className={td}><Skeleton className="ml-auto h-4 w-12" /></td>
-                      <td className={td}><Skeleton className="ml-auto h-4 w-16" /></td>
+                    <tr key={i} aria-hidden="true" className="[--skel-bar:var(--border)]">
+                      <td className={td}>
+                        <span className="flex items-center gap-2">
+                          <SkelCircle className="size-[18px]" />
+                          <SkelBar className="h-3.5 w-16" />
+                        </span>
+                      </td>
+                      <td className={td}><SkelBar className="ml-auto h-3 w-12" /></td>
+                      <td className={td}><SkelBar className="ml-auto h-3 w-20" /></td>
                     </tr>
                   ))}
             </tbody>
@@ -142,9 +147,9 @@ export function CoinBoardView({ coin }: { coin: string }) {
             ["coins.trades", stats ? count(stats.trades) : null, ""],
           ] as const
         ).map(([key, value, tone]) => (
-          <div key={key} className="min-w-[150px] rounded-[24px] bg-raised px-4 py-3.5">
+          <div key={key} className={cn("min-w-[150px] rounded-[24px] bg-raised px-4 py-3.5", value === null && "ui-skeleton [--skel-bar:var(--border)]")}>
             <dt className="cd-label text-muted-foreground">{t(key)}</dt>
-            <dd className={cn("num font-display text-2xl leading-[30px]", tone)}>{value ?? <Skeleton className="mt-1 h-6 w-16" />}</dd>
+            <dd className={cn("num font-display text-2xl leading-[30px]", tone)}>{value ?? <SkelBar line="h-[30px]" className="h-5 w-20" />}</dd>
           </div>
         ))}
       </dl>
@@ -154,7 +159,7 @@ export function CoinBoardView({ coin }: { coin: string }) {
           <ErrorState onRetry={() => void query.refetch()} />
         ) : (
           // Phones scroll the table sideways, as CopyDog's does.
-          <div className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
+          <div className={cn("-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0", !query.data && "ui-skeleton")}>
             <table className="w-full min-w-[560px] border-separate border-spacing-y-2">
               <thead>
                 <tr>
@@ -187,8 +192,18 @@ export function CoinBoardView({ coin }: { coin: string }) {
                       </tr>
                     ))
                   : Array.from({ length: 10 }, (_, i) => (
-                      <tr key={i}>
-                        <td className={td} colSpan={6}><Skeleton className="h-4 w-full" /></td>
+                      <tr key={i} aria-hidden="true" className="[--skel-bar:var(--border)]">
+                        <td className={td}><SkelBar className="h-3 w-5" /></td>
+                        <td className={cn(td, "max-w-[260px]")}>
+                          <span className="flex items-center gap-2">
+                            <SkelCircle className="size-5" />
+                            <SkelBar className="h-3.5 w-24" />
+                          </span>
+                        </td>
+                        <td className={td}><SkelBar className="ml-auto h-3 w-14" /></td>
+                        <td className={td}><SkelBar className="ml-auto h-3 w-10" /></td>
+                        <td className={td}><SkelBar className="ml-auto h-3 w-8" /></td>
+                        <td className={td}><SkelBar className="ml-auto h-3 w-16" /></td>
                       </tr>
                     ))}
               </tbody>

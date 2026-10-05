@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { cn } from "cn";
 
+import { SkelBar, SkelCircle } from "@/components/page";
 import { Tooltip } from "@/components/ui/tooltip";
 import { TIME_ZONE } from "@/i18n/config";
 import { TraderName } from "@/components/traders/trader-name";
@@ -97,14 +98,30 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory,
   );
 }
 
+/** BoardCard while the board loads: the same card, paddings and rows
+ * (avatar and name, sparkline, PnL, ROI tag, 跟單), each as a bar or a
+ * circle, so the cards swap in without moving. */
 export function BoardCardSkeleton() {
   return (
-    <div aria-hidden="true" className="orbit-card ui-skeleton flex h-[330px] flex-col gap-4 p-[18px]">
-      <div className="flex items-center gap-2.5"><div className="size-11 rounded-full bg-inset" /><div className="h-4 w-28 rounded-full bg-inset" /><div className="ml-auto size-[52px] rounded-full bg-inset" /></div>
-      <div className="h-[72px] rounded-2xl bg-inset" />
-      <div className="h-8 w-40 rounded-full bg-inset" />
-      <div className="h-7 w-32 rounded-full bg-inset" />
-      <div className="mt-auto h-12 rounded-full bg-inset" />
+    <div aria-hidden="true" className="orbit-card ui-skeleton flex min-w-0 flex-col gap-3 p-[18px]">
+      <div className="flex min-h-[52px] items-center gap-2.5">
+        <SkelCircle className="size-11" />
+        <span className="flex min-w-0 flex-1 flex-col gap-1">
+          <SkelBar line="h-5" className="h-3.5 w-28" />
+          <SkelBar className="h-4 w-10" />
+        </span>
+        <SkelCircle className="size-[52px]" />
+      </div>
+      <span className="block h-[72px] rounded-2xl bg-inset" />
+      <span className="flex flex-col">
+        <SkelBar line="h-4" className="h-2.5 w-10" />
+        <SkelBar line="h-[1.79rem]" className="h-6 w-40" />
+      </span>
+      <span className="flex items-center justify-between gap-2">
+        <SkelBar className="h-7 w-32 rounded-md" />
+        <SkelBar className="h-2.5 w-12" />
+      </span>
+      <span className="mt-auto block h-12 rounded-full bg-inset" />
     </div>
   );
 }
@@ -148,9 +165,38 @@ export function HomeCard({ trader }: { trader: BoardTrader }) {
   );
 }
 
-/** CopyDog's hl-fcard--skel: one shimmering block the size of the card. */
+/** HomeCard while the rows load: the same card (avatar and name,
+ * sparkline, PnL line, ROI pill) as bars and a circle. */
 export function HomeCardSkeleton() {
-  return <div aria-hidden="true" className="ui-skeleton h-[176px] w-[164px] shrink-0 rounded-[24px] bg-raised md:w-[190px]" />;
+  return (
+    <div aria-hidden="true" className="orbit-card ui-skeleton flex w-[164px] shrink-0 flex-col gap-2 rounded-[24px]! p-3.5 md:w-[190px]">
+      <div className="flex items-center gap-2">
+        <SkelCircle className="size-8" />
+        <SkelBar className="h-3 w-20" />
+      </div>
+      <span className="block h-[52px] rounded-xl bg-inset" />
+      <SkelBar line="h-7" className="h-5 w-24" />
+      <SkelBar className="h-6 w-14 rounded-md" />
+    </div>
+  );
+}
+
+/** BoardMobileRow while the board loads. */
+export function BoardMobileRowSkeleton() {
+  return (
+    <li aria-hidden="true" className="orbit-card ui-skeleton flex items-center gap-3 rounded-[24px]! px-3.5 py-3">
+      <SkelCircle className="size-11" />
+      <span className="flex min-w-0 flex-1 flex-col gap-1">
+        <SkelBar line="h-[22px]" className="h-3.5 w-28" />
+        <SkelBar className="h-3.5 w-12" />
+      </span>
+      <span className="flex shrink-0 flex-col items-end gap-1">
+        <SkelBar line="h-5" className="h-3.5 w-16" />
+        <SkelBar line="h-5" className="h-2.5 w-10" />
+      </span>
+      <SkelCircle className="size-10" />
+    </li>
+  );
 }
 
 /** Mobile list row (CopyDog's dense list): avatar, name, coins and score;

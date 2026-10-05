@@ -5,8 +5,9 @@ import { expect, test } from "@playwright/test";
 test("an unprefixed URL goes to the saved language, then the browser's, keeping the query", async ({ browser, baseURL }) => {
   const japanese = await browser.newContext({ locale: "ja-JP" });
   const page = await japanese.newPage();
-  await page.goto("/explore?window=7d");
-  await expect(page).toHaveURL(`${baseURL}/ja/explore?window=7d`);
+  // Explore writes its own canonical query (sort=pnl with 30d) once it renders.
+  await page.goto("/explore?sort=pnl&window=30d");
+  await expect(page).toHaveURL(`${baseURL}/ja/explore?sort=pnl&window=30d`);
   await expect(page.locator("html")).toHaveAttribute("lang", "ja");
   // A saved choice outranks the browser.
   await japanese.addCookies([{ name: "locale", value: "ko", url: baseURL! }]);
@@ -25,10 +26,10 @@ test("an unprefixed URL goes to the saved language, then the browser's, keeping 
 test("the language menu moves the same page to the new prefix and saves the choice", async ({ page, context, baseURL }) => {
   await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/en/explore?window=7d");
+  await page.goto("/en/explore?sort=pnl&window=30d");
   await page.getByRole("button", { name: "Language" }).first().click();
   await page.getByRole("menuitemradio", { name: "日本語" }).click();
-  await expect(page).toHaveURL(`${baseURL}/ja/explore?window=7d`);
+  await expect(page).toHaveURL(`${baseURL}/ja/explore?sort=pnl&window=30d`);
   await expect(page.locator("html")).toHaveAttribute("lang", "ja");
   expect((await context.cookies()).find((c) => c.name === "locale")?.value).toBe("ja");
   // Links stay in the new language.
@@ -51,10 +52,15 @@ test("a missing page under a locale is a 404 in that language; the api and image
   expect(response?.status()).toBe(404);
   await expect(page.getByRole("heading", { level: 1, name: "404" })).toBeVisible();
   await expect(page.locator("html")).toHaveAttribute("lang", "zh-TW");
-  for (const path of ["/api/hl/settings", "/robots.txt", "/sitemap.xml", "/opengraph-image"]) {
+  for (const path of ["/robots.txt", "/sitemap.xml", "/opengraph-image"]) {
     const answer = await request.get(path, { maxRedirects: 0 });
     expect(answer.status(), path).toBe(200);
   }
+  // The api forwarder answers itself (the test server has no api behind
+  // it), never with a locale redirect.
+  const api = await request.get("/api/hl/settings", { maxRedirects: 0 });
+  expect(api.headers().location).toBeUndefined();
+  expect(api.status()).not.toBe(307);
   // An old admin bookmark under a locale.
   await page.context().addCookies([{ name: "locale", value: "en", url: page.url() }]);
   const old = await request.get("/en/admin/revenue", { maxRedirects: 0 });

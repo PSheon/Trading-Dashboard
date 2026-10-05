@@ -41,7 +41,7 @@ for (const width of [1440, 390]) {
     await box.press("Enter");
     await expect(page).toHaveURL(/\/trader\/zz%20garbage$/);
     await expect(notFound).toBeVisible();
-    await expect(page.getByRole("link", { name: "Back to Leaderboard" })).toHaveAttribute("href", "/");
+    await expect(page.getByRole("link", { name: "Back to Leaderboard" })).toHaveAttribute("href", "/en");
 
     // An address Hyperliquid has nothing for: the 404 once the page has asked.
     await page.goto("/en");

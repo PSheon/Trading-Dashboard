@@ -17,7 +17,7 @@ for (const width of [1440, 375])
     await expect(results).toContainText("No leaderboard metrics yet");
     await expect(results.getByRole("link")).toHaveAttribute(
       "href",
-      "/trader/0x" + "a1".repeat(20),
+      "/en/trader/0x" + "a1".repeat(20),
     );
     // Private favorite groups on the favorites page (CopyDog's watchlist
     // chips; the fixture account starts with two seeded groups).

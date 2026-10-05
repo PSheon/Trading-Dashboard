@@ -3,6 +3,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
 import { TradeAnalyticsRepository, type AnalyticsRow } from "../src/traders/trade-analytics.repository.js";
+import { ESSENTIAL_RANK, PAGE_RANK, UNRANKED_BASE } from "../src/hyperliquid/request-budgeter.service.js";
 import { TRACKED_BACKOFF_BASE_MS, TRACKED_BACKOFF_MAX_MS, TRACKED_REFRESH_PER_TICK, TradeAnalyticsService } from "../src/traders/trade-analytics.service.js";
 import type { TradersService } from "../src/traders/traders.service.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
@@ -57,6 +58,30 @@ describe("the worker's turn over watched addresses (refreshTracked)", () => {
     expect(service.trackedRetryAt(address(1))! - last).toBe(TRACKED_BACKOFF_MAX_MS);
     failing.clear();
     expect(await service.refreshTracked(service.trackedRetryAt(address(1))!)).toEqual([address(1)]);
+    expect(service.trackedRetryAt(address(1))).toBeUndefined();
+  });
+
+  it("refreshes at the tracked rank: behind every page, ahead of the pool, history and backfill (gap audit 2026-10-05)", async () => {
+    await db.insert(leaders).values({ address: address(1) });
+    expect(await service.refreshTracked()).toEqual([address(1)]);
+    const rank = (compute.mock.calls[0] as [string, boolean, { rank?: number }])[2].rank!;
+    expect(rank).toBe(ESSENTIAL_RANK.tracked);
+    expect(rank).toBeGreaterThan(PAGE_RANK.analytics);
+    expect(rank).toBeLessThan(UNRANKED_BASE - 1);
+  });
+
+  it("a failed funding read backs the address off like a failed rebuild (it was swallowed, gap audit 2026-10-05)", async () => {
+    await db.insert(leaders).values({ address: address(1) });
+    const funding = vi.spyOn(service, "fundingStep").mockRejectedValue(new Error("userFunding 500"));
+    const t0 = Date.now();
+    expect(await service.refreshTracked(t0)).toEqual([]);
+    expect(funding).toHaveBeenCalledTimes(1);
+    expect(service.trackedRetryAt(address(1))).toBe(t0 + TRACKED_BACKOFF_BASE_MS);
+    // While backing off it is not tried again.
+    expect(await service.refreshTracked(t0 + 1)).toEqual([]);
+    expect(funding).toHaveBeenCalledTimes(1);
+    funding.mockResolvedValue(undefined);
+    expect(await service.refreshTracked(t0 + TRACKED_BACKOFF_BASE_MS + 1)).toEqual([address(1)]);
     expect(service.trackedRetryAt(address(1))).toBeUndefined();
   });
 });

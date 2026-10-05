@@ -426,6 +426,20 @@ describe("trade analytics for any address", () => {
     expect((await get(`/traders/${X}/analytics`)).body.data.classification).toMatchObject({ accountValue: 50_000, sizeTier: "medium" });
   });
 
+  it("a failed portfolio or account read keeps the stored tiers instead of writing null over them (0x469e, gap audit 2026-10-05)", async () => {
+    await service.compute(X, true);
+    await service.settled();
+    const before = (await get(`/traders/${X}/analytics`)).body.data.classification;
+    expect(before).toMatchObject({ pnlTier: expect.any(String), sizeTier: expect.any(String), perpAccountValue: 2_500_000 });
+    await db.execute(sql`update trader_analytics set computed_at = now() - interval '1 hour'`);
+    traders.rawPortfolio.mockRejectedValueOnce(new Error("portfolio 429"));
+    info.clearinghouseState.mockRejectedValueOnce(new Error("clearinghouse 500"));
+    await service.compute(X, false);
+    await service.settled();
+    const after = (await get(`/traders/${X}/analytics`)).body.data.classification;
+    expect(after).toMatchObject({ pnlTier: before.pnlTier, sizeTier: before.sizeTier, allTimePnl: before.allTimePnl, accountValue: before.accountValue, perpAccountValue: before.perpAccountValue });
+  });
+
   it("rebuilds a tracked address from our fills table without reading Hyperliquid's fills", async () => {
     tracked.add(TRACKED);
     await db.insert(fills).values(history.map((f) => toFillRow(TRACKED, f)));

@@ -111,8 +111,9 @@ import { currentRequestAnswered, currentRequestClient } from "../runtime/request
  *   and after a 429 backoff alike. A call at a page rank is never held by
  *   its consumer's cap (a page that joined a pool computation), only
  *   charged to it.
- * - **Essential work.** Snapshots and sweeps of watched leaders and the
- *   cohort's reads (`ESSENTIAL_RANK`) go ahead of every other background
+ * - **Essential work.** Snapshots and sweeps of watched leaders, the
+ *   cohort's reads and the watched traders' analytics refresh
+ *   (`ESSENTIAL_RANK`) go ahead of every other background
  *   job: behind pages, before the pool, history, backfill and anything
  *   unranked. They are what the product's own figures and alerts rest on,
  *   and they are small; the rest shares what they leave.
@@ -193,8 +194,10 @@ export const UNRANKED_BASE = 1_000;
 /** Default rank of the calls of essential consumers (by label): behind
  * pages, ahead of every other background job. The 5-minute snapshots go
  * first, then the fill confirms of watched leaders, then the sweeps, then
- * the cohort's reads. */
-export const ESSENTIAL_RANK: Readonly<Record<string, number>> = { snapshots: 100, confirm: 105, sweep: 110, cohort: 120 };
+ * the cohort's reads, then the worker's refresh of the watched traders'
+ * analytics (`tracked`: unranked, it queued behind the pool and history
+ * and timed out, gap audit 2026-10-05). */
+export const ESSENTIAL_RANK = { snapshots: 100, confirm: 105, sweep: 110, cohort: 120, tracked: 130 } as const satisfies Record<string, number>;
 /** Background ranks up to this are on-demand page work (see above). */
 export const PAGE_WORK_MAX_RANK = PAGE_RANK.fills;
 /** Whether a call at this lane and rank is on-demand page work. */
@@ -597,7 +600,7 @@ export class RequestBudgeterService {
     return new Promise((resolve, reject) => {
       const seq = this.seq++;
       const queue = this.queues[priority];
-      const defaultRank = priority === "background" ? (ESSENTIAL_RANK[consumer] ?? UNRANKED_BASE + seq) : seq;
+      const defaultRank = priority === "background" ? ((ESSENTIAL_RANK as Readonly<Record<string, number>>)[consumer] ?? UNRANKED_BASE + seq) : seq;
       const r = rank ?? defaultRank;
       // A page's list call, and a trade-analytics job's, waits only for its
       // known part (the surplus is given back once the answer is counted);

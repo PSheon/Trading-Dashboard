@@ -26,7 +26,7 @@ import {
   type Trade,
 } from "../analytics/trade-reconstruction.js";
 import { ANALYTICS_CONSUMER, HyperliquidInfoClient, twapSliceToFill, USER_FUNDING_PAGE_SIZE } from "../hyperliquid/hyperliquid-info.client.js";
-import { budgetConsumer, currentBudgetConsumer, PAGE_RANK, UNRANKED_BASE } from "../hyperliquid/request-budgeter.service.js";
+import { budgetConsumer, currentBudgetConsumer, ESSENTIAL_RANK, PAGE_RANK, UNRANKED_BASE } from "../hyperliquid/request-budgeter.service.js";
 import type { HlUserFill } from "../hyperliquid/types.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { BusyException } from "./busy.js";
@@ -278,7 +278,14 @@ export class TradeAnalyticsService {
       if (this.jobs.stopping) break;
       const funding = fundingCursor === null || now - fundingCursor.getTime() >= TRACKED_FUNDING_EVERY_MS;
       try {
-        await this.compute(address, false, { rank: UNRANKED_BASE, funding });
+        // At the tracked rank (behind pages, ahead of the pool, history and
+        // backfill): unranked, these refreshes queued behind every other
+        // background job and timed out ("budget not available to tracked
+        // within 120 s", gap audit 2026-10-05).
+        await this.compute(address, false, { rank: ESSENTIAL_RANK.tracked, funding: false });
+        // Awaited here, so a failed funding read backs the address off like
+        // a failed rebuild instead of being retried every minute.
+        if (funding) await this.fundingTurn(address);
         this.trackedBackoff.delete(address);
         done.push(address);
       } catch (error) {
@@ -322,13 +329,10 @@ export class TradeAnalyticsService {
     }
     if (this.jobs.stopping) return Promise.reject(new Error("Shutting down"));
     if (this.inflight.size >= MAX_CONCURRENT + MAX_WAITING) return Promise.reject(new BusyException(5_000));
-    // A job a request started reads as "analytics" (the background lane,
-    // waiting for room); a worker loop's keeps its own label and cap.
-    const labelled = <T>(work: () => Promise<T>) => (currentBudgetConsumer() ? work() : budgetConsumer(ANALYTICS_CONSUMER, work));
     const promise = this.jobs.run(() => labelled(() => this.serial(address, () => this.limited(() => this.refresh(address, rank, caller)))));
     this.inflight.set(address, promise);
     promise
-      .then(() => funding ? this.jobs.run(() => labelled(() => this.serial(address, () => this.limited(() => this.fundingStep(address))))) : undefined)
+      .then(() => funding ? this.fundingTurn(address) : undefined)
       .catch((error: Error) => {
         if (!(error instanceof BusyException)) this.logger.warn(`Trade analytics for ${address} failed: ${error.message}`);
       })
@@ -336,6 +340,11 @@ export class TradeAnalyticsService {
         if (this.inflight.get(address) === promise) this.inflight.delete(address);
       });
     return promise;
+  }
+
+  /** The funding step after a computation, in the address's serial chain. */
+  private fundingTurn(address: string): Promise<void> {
+    return this.jobs.run(() => labelled(() => this.serial(address, () => this.limited(() => this.fundingStep(address)))));
   }
 
   /** Whether figures are stored for this address (a read answers at once). */
@@ -434,7 +443,7 @@ export class TradeAnalyticsService {
       kind = "refresh";
       ({ next, fillCount, persist } = await this.incrementalHyperliquid(address, state, cost));
     }
-    const classification = await this.classify(address, live, cost);
+    const classification = await this.classify(address, live, cost, state?.classification);
     const { row, trades } = await this.repository.transaction(async (tx) => {
       await this.repository.assertState(tx, address, state);
       await persist(tx);
@@ -846,22 +855,31 @@ export class TradeAnalyticsService {
    * 表現 and the cohorts; Hyperliquid's leaderboard PnL includes spot), the
    * size tier on the whole account's value (as the trader page's 帳戶價值;
    * CopyDog tiers on perp equity and calls a unified account holding its
-   * funds in spot small). A failure leaves a tier null rather than failing
-   * the trades.
+   * funds in spot small). A source that fails keeps the figures stored
+   * from it last time (`previous`); with none stored the tier is null
+   * rather than failing the trades. (Until 2026-10-05 a failed read wrote
+   * null over good tiers: 0x469e showed null/null for hours.)
    */
-  private async classify(address: string, live: LiveAccount | null, cost: Cost): Promise<Omit<TraderClassification, "style">> {
+  private async classify(address: string, live: LiveAccount | null, cost: Cost, previous?: unknown): Promise<Omit<TraderClassification, "style">> {
+    const parsed = previous === undefined ? undefined : traderClassificationSchema.safeParse(previous);
+    const kept = parsed?.success ? parsed.data : undefined;
     const raw = await this.portfolio(address, cost).catch((error: Error) => {
       this.logger.warn(`Portfolio for ${address} failed: ${error.message}`);
       return null;
     });
-    const allTimePnl = raw ? (portfolioSeries(raw, "allTime", "perp").pnl.at(-1)?.[1] ?? null) : null;
-    const perpAccountValue = live?.perpAccountValue ?? null;
+    const allTimePnl = raw ? (portfolioSeries(raw, "allTime", "perp").pnl.at(-1)?.[1] ?? null) : (kept?.allTimePnl ?? null);
+    const perpAccountValue = live ? live.perpAccountValue : (kept?.perpAccountValue ?? null);
     // The profile's total (perp + spot + staked) when the page just read it;
     // else the portfolio's latest whole-account value.
     const profile = this.traders.profileCache.peek(address)?.value as { accountValue?: number | null; unavailableParts?: unknown } | undefined;
     const whole = profile && !profile.unavailableParts ? profile.accountValue : null;
-    const accountValue = whole ?? (raw ? (portfolioSeries(raw, "allTime", "all").accountValue.at(-1)?.[1] ?? null) : null);
-    return { allTimePnl, perpAccountValue, accountValue, pnlTier: pnlTier(allTimePnl), sizeTier: sizeTier(accountValue) };
+    const accountValue = whole ?? (raw ? (portfolioSeries(raw, "allTime", "all").accountValue.at(-1)?.[1] ?? null) : (kept?.accountValue ?? null));
+    return {
+      allTimePnl, perpAccountValue, accountValue,
+      // Figures stored before `accountValue` was kept have only the tier.
+      pnlTier: raw || allTimePnl !== null ? pnlTier(allTimePnl) : (kept?.pnlTier ?? null),
+      sizeTier: whole != null || raw || accountValue !== null ? sizeTier(accountValue) : (kept?.sizeTier ?? null),
+    };
   }
 
   /**
@@ -989,6 +1007,12 @@ export class TradeAnalyticsService {
     });
     this.record(address, { kind: "funding", ms: Date.now() - started, ...cost, fills: events.length, trades });
   }
+}
+
+/** A job a request started reads as "analytics" (the background lane,
+ * waiting for room); a worker loop's keeps its own label and cap. */
+function labelled<T>(work: () => Promise<T>): Promise<T> {
+  return currentBudgetConsumer() ? work() : budgetConsumer(ANALYTICS_CONSUMER, work);
 }
 
 /** A watched address's figures the worker is due to refresh (stale, not yet

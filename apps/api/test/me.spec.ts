@@ -446,7 +446,8 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
       await db.insert(referralPolicies).values({ version: 'retention-test', effectiveFrom: new Date(0) });
       await db.insert(referralClaims).values({ id: 'historical-claim', userId: id, key: 'historical-owner-key', requestHash: 'a'.repeat(64), policyVersion: 'retention-test',
         network: 'mainnet', token: 'USDC', destination: OTHER, amountUnits: '1', status: 'unknown', attemptId: 'retained-attempt', createdAt: new Date(), updatedAt: new Date() });
-      expect((await alice.delete('/me').expect(409)).body.error.code).toBe('referral_records_exist');
+      // A claim whose payout is still unknown is in flight: it blocks.
+      expect((await alice.delete('/me').expect(409)).body.error.code).toBe('referral_claim_pending');
       expect(await db.select().from(referralClaims)).toHaveLength(1);
       expect(await db.select().from(users).where(eq(users.id, id))).toHaveLength(1);
     });
@@ -473,8 +474,10 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
       expect(await leaderRow(ADDR)).toMatchObject({ active: false, source: "favorite" });
       expect((await leaderRow(OTHER)).active).toBe(true);
       const [audit] = await db.select().from(adminAuditLogs).where(eq(adminAuditLogs.event, "user.delete"));
-      expect(audit).toMatchObject({ actorKind: "user", actorUserId: id, target: `user:${id}`, afterJson: null,
+      // Nothing had to be kept, so there is no tombstone (docs/account-deletion.md).
+      expect(audit).toMatchObject({ actorKind: "user", actorUserId: id, target: `user:${id}`, afterJson: expect.objectContaining({ tombstoneUserId: null, kept: {} }),
         beforeJson: { role: "user", favorites: 2, alerts: 1, groups: 1, telegramLinked: true } });
+      expect(await db.select().from(users)).toHaveLength(1); // Bob
       expect(JSON.stringify(audit.beforeJson)).not.toContain("alice@example.com");
 
       // The same token is refused while its cache entry lives (requests in
@@ -502,10 +505,10 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
       expect(await db.select().from(users).where(eq(users.id, id))).toHaveLength(0);
     });
 
-    it("preserves pending withdrawal evidence and returns a controlled conflict on deletion", async () => {
+    it("a withdrawal whose outcome is unknown blocks deletion (409 withdrawal_pending) and is kept", async () => {
       const id = (await alice.get("/me").expect(200)).body.data.id as number;
       await db.insert(walletWithdrawals).values({ id: "withdrawal-record", userId: id, network: "testnet", address: ADDR, destination: OTHER, amount: "12.5", nonce: Date.now(), origin: "legacy", status: "unknown" });
-      expect((await alice.delete("/me").expect(409)).body.error.code).toBe("execution_records_exist");
+      expect((await alice.delete("/me").expect(409)).body.error.code).toBe("withdrawal_pending");
       expect(await db.select().from(walletWithdrawals)).toHaveLength(1);
       expect(await db.select().from(users).where(eq(users.id, id))).toHaveLength(1);
     });

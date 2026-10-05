@@ -72,7 +72,7 @@ export class CopyLiveReturnService {
     const account = context.account;
     const automatic = consentSignature === undefined;
     if (automatic) {
-      if (!account.masterPolicyId || !account.masterSignerQuorumId || !account.sweepDestination || account.sweepDestination !== context.owner.embeddedWalletAddress ||
+      if (!account.masterPolicyId || !account.masterSignerQuorumId || account.signerDetachedAt || !account.sweepDestination || account.sweepDestination !== context.owner.embeddedWalletAddress ||
         row.destination !== account.sweepDestination || !this.workerSigner?.available) throw new ForbiddenException({ statusCode: 403, code: 'invalid_consent', message: 'Sign the return with your main wallet' });
     } else {
       let valid = false;

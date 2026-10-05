@@ -940,6 +940,7 @@ export const zhTW = {
         equity_snapshots: "權益快照",
         admin_audit_logs: "管理稽核紀錄",
         account_deletion_records: "帳戶刪除紀錄",
+        deleted_accounts: "已刪除帳號保留的紀錄",
         action_outbox: "已完成的訊號評估",
         notification_outbox: "已完成的通知發送",
         copy_signal_outbox: "已完成的跟單訊號",

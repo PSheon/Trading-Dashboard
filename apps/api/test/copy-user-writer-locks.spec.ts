@@ -221,10 +221,10 @@ describe('actual writers serialize with the original live risk scope', () => {
       expect((await new SettingsService(new SettingsRepository(db), new UnitOfWork(db)).patch({ discovery: { lowSampleThreshold: 30 } }, null)).discovery.lowSampleThreshold).toBe(30);
     });
   });
-  it('blocks the deletion decision before rows and preserves execution-history refusal', async () => {
+  it('blocks the deletion decision before rows, and never deletes a copy account it could not check', async () => {
     await db.update(copyStrategies).set({ status: 'stopped', stoppedAt: new Date() }).where(eq(copyStrategies.id, strategyId));
     const service = new AccountDeletionService(new AccountRepository(db), null as never, new UnitOfWork(db));
-    await expect(heldWriter(() => service.delete(uid), async () => { expect(await userRow()).toBeDefined(); })).rejects.toThrow('Execution accounts require reconciliation');
+    await expect(heldWriter(() => service.delete(uid), async () => { expect(await userRow()).toBeDefined(); })).rejects.toThrow("Your copy accounts can't be checked");
     expect(await userRow()).toBeDefined();
   });
   it('blocks worker stop settlement before changing the shared strategy status', async () => {

@@ -1,11 +1,12 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { retentionState } from "@trading-dashboard/shared/database";
+import { retentionState, users } from "@trading-dashboard/shared/database";
 import type { RetentionTable } from "@trading-dashboard/shared/contracts";
-import { and, eq, isNull, lt, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
+import { purgeStatements } from "../users/account-closure.plan.js";
 
 export interface RetentionOutcome {
   status: "ok" | "partial" | "failed";
@@ -68,10 +69,38 @@ export class RetentionRepository {
     return row;
   }
 
-  /** Deletes up to `limit` rows of `table` older than `cutoff`; returns how many. */
+  /** Deletes up to `limit` rows of `table` older than `cutoff`; returns how
+   * many (for `deleted_accounts`, how many tombstones were purged). */
   async deleteBatch(table: RetentionTable, cutoff: Date, limit: number): Promise<number> {
+    if (table === "deleted_accounts") return this.purgeDeletedAccounts(cutoff, limit);
     const result = await this.db.execute(STATEMENTS[table](cutoff, limit));
     return result.rowCount ?? 0;
+  }
+
+  /**
+   * Purges up to `limit` account-deletion tombstones deleted before `cutoff`,
+   * oldest first, each with every record kept under it, in one transaction
+   * per tombstone (users/account-closure.plan.ts, children before parents).
+   * A tombstone that can't be purged (a row of someone else still points at
+   * one of its records) is left as it was and reported after the others.
+   */
+  async purgeDeletedAccounts(cutoff: Date, limit: number): Promise<number> {
+    const due = await this.db.select({ id: users.id }).from(users)
+      .where(and(isNotNull(users.deletedAt), lt(users.deletedAt, cutoff))).orderBy(asc(users.deletedAt), asc(users.id)).limit(limit);
+    let purged = 0;
+    const failed: number[] = [];
+    for (const { id } of due) {
+      try {
+        await this.db.transaction(async (tx) => {
+          for (const { statement } of purgeStatements(id)) await tx.execute(statement);
+        });
+        purged++;
+      } catch {
+        failed.push(id);
+      }
+    }
+    if (failed.length) throw new Error(`deleted_accounts: ${failed.length} tombstone(s) could not be purged (first ${failed[0]}); ${purged} purged`);
+    return purged;
   }
 }
 
@@ -101,7 +130,7 @@ const signals = (status: "done" | "failed", cutoff: Date, limit: number) => sql`
 /** One bounded, index-driven DELETE per table (plans: docs/data-retention.md).
  * The inner query picks the batch; the outer delete re-checks the status so a
  * row that changed in between is left alone. */
-export const STATEMENTS: Record<RetentionTable, (cutoff: Date, limit: number) => SQL> = {
+export const STATEMENTS: Record<Exclude<RetentionTable, "deleted_accounts">, (cutoff: Date, limit: number) => SQL> = {
   position_snapshots: (cutoff, limit) => sql`
     DELETE FROM position_snapshots WHERE ctid = ANY (ARRAY(
       SELECT ctid FROM position_snapshots WHERE ts < ${cutoff} ORDER BY ts LIMIT ${limit}))`,

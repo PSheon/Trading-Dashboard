@@ -50,6 +50,8 @@ run("retention delete plans", () => {
     const cutoffs = retentionCutoffs(RETENTION_DEFAULTS, now);
     const lines: string[] = [];
     for (const table of RETENTION_TABLES) {
+      // Tombstones are purged one by one through their primary keys (account-closure.plan.ts).
+      if (table === "deleted_accounts") continue;
       const real = table === "account_deletion_records" ? "admin_audit_logs" : table;
       const total = Number((await db.execute(sql.raw(`select count(*)::int as n from ${real}`))).rows[0].n);
       let plan: string[] = [];

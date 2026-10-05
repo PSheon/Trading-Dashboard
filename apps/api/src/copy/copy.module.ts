@@ -88,11 +88,15 @@ import { HyperliquidAllDexsAccountSource } from './live/live-account-ws-source.j
 import { CopyLiveSetupController } from "./copy-live-setup.controller.js";
 import { CopyLiveSetupRepository } from "./copy-live-setup.repository.js";
 import { CopyLiveSetupService } from "./copy-live-setup.service.js";
+import { CopyAccountClosureService } from "./copy-account-closure.service.js";
+import { COPY_ACCOUNT_CLOSURE } from "../users/account-closure.port.js";
 @Module({
   // NotifyModule: the operator's system message when an order keeps failing.
   imports: [AuthModule, HyperliquidModule, NotifyModule],
   controllers: [CopyController, CopyFundsController, CopyWalletController, CopyFundingController, CopyAgentController, CopyFollowerController, CopyAccountModeController, CopyFollowerSnapshotController, CopyLiveMandateController, CopyLiveStopController, CopyLiveReturnController, CopyLivePortfolioController, CopyLiveCloseController, CopyLiveSetupController],
   providers: [CopyAdminLiveRepository, CopyAdminLiveService,
+    // Account deletion's exchange reads and signer removal (UsersModule).
+    { provide: COPY_ACCOUNT_CLOSURE, useClass: CopyAccountClosureService },
     CopyRepository, CopyMarketService, CopyRiskPolicyService, CopyOrderPlanner, CopySignalService, CopyExecutionService,
     CopyControlService, CopyStrategyService, CopyAdminReadService, CopyAdoptionRepairService, CopyPerformanceService, CopyStreamService, CopyFundsService, CopyFundsRepository,
     PostgresLiveExecutionJournal, PostgresWalletAuthorizationSource,
@@ -130,6 +134,8 @@ import { CopyLiveSetupService } from "./copy-live-setup.service.js";
     // For CopyWorkerModule's loops (the worker process only).
     CopySignalService, CopyExecutionService, CopyPerformanceService, CopyFundingService, CopyFollowerReconciler, CopyFollowerSnapshotRepository,
     // For the testnet execution engine (CopyWorkerModule).
-    CopyMarketService, CopyFollowerLedger, CopyFollowerScanRepository, CopyLiveReturnRepository, CopyLiveSetupService],
+    CopyMarketService, CopyFollowerLedger, CopyFollowerScanRepository, CopyLiveReturnRepository, CopyLiveSetupService,
+    // For account deletion (UsersModule).
+    COPY_ACCOUNT_CLOSURE],
 })
 export class CopyModule {}

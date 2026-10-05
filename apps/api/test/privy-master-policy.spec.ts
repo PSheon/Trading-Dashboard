@@ -49,6 +49,19 @@ describe("the copy account's master policy (one-click plan §2)", () => {
     await expect(privy.verify("policy-1", "did:privy:someone", binding)).rejects.toThrow("master_policy_conflict");
     expect(canonical({ b: 1, a: [2, { d: 3, c: 4 }] })).toBe('{"a":[2,{"c":4,"d":3}],"b":1}');
   });
+
+  it("account deletion detaches the worker with the owner's session and checks no signer is left", async () => {
+    const wallets = { update: vi.fn(async () => ({})), get: vi.fn(async () => ({ id: "wallet-1", address: account, owner_id: "owner-q", policy_ids: [], additional_signers: [] })) };
+    const privy = new PrivyMasterPolicy({}, { wallets: () => wallets } as never);
+    await privy.detach("wallet-1", "owner-jwt");
+    expect(wallets.update).toHaveBeenCalledExactlyOnceWith("wallet-1", { authorization_context: { user_jwts: ["owner-jwt"] }, additional_signers: [] });
+    // Still a signer after the update, or no session: never reported as detached.
+    wallets.get.mockResolvedValueOnce({ id: "wallet-1", address: account, owner_id: "owner-q", policy_ids: [], additional_signers: [{ signer_id: "worker-q", override_policy_ids: ["policy-1"] }] } as never);
+    await expect(privy.detach("wallet-1", "owner-jwt")).rejects.toThrow("master_policy_conflict");
+    await expect(privy.detach("wallet-1", "")).rejects.toThrow("master_policy_unavailable");
+    wallets.update.mockRejectedValueOnce(new Error("provider detail"));
+    await expect(privy.detach("wallet-1", "owner-jwt")).rejects.toThrow("master_policy_unavailable");
+  });
 });
 
 describe("the worker signs as a copy account only under the owner's policy (PrivyPolicyMasterSigner)", () => {

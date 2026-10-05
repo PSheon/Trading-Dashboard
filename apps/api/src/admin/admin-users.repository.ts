@@ -46,7 +46,8 @@ export class AdminUsersRepository {
   lockCopyOwner(tx: DbTransaction, id: number) { return lockCopyUser(tx, id); }
 
   async list(query: AdminUsersQuery) {
-    const conditions: SQL[] = [];
+    // Account-deletion tombstones are not people (docs/account-deletion.md).
+    const conditions: SQL[] = [isNull(users.deletedAt)];
     if (query.role) conditions.push(eq(users.role, query.role));
     const q = query.q?.trim();
     if (q) {
@@ -82,7 +83,7 @@ export class AdminUsersRepository {
   }
 
   async lockUser(tx: DbTransaction, id: number) {
-    const [row] = await tx.select().from(users).where(eq(users.id, id)).for("update");
+    const [row] = await tx.select().from(users).where(and(eq(users.id, id), isNull(users.deletedAt))).for("update");
     return row;
   }
 

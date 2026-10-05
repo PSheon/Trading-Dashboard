@@ -41,6 +41,7 @@ export function retentionCutoffs(settings: RetentionSettings, now: Date): Record
     equity_snapshots: before(settings.snapshotDays),
     admin_audit_logs: before(settings.auditDays),
     account_deletion_records: before(settings.accountDeletionDays),
+    deleted_accounts: before(settings.accountDeletionDays),
     action_outbox: before(settings.queueDays),
     notification_outbox: before(settings.queueDays),
     copy_signal_outbox: before(settings.queueDays),
@@ -63,6 +64,7 @@ export function inRetentionWindow(now: Date): boolean {
  * | position and equity snapshots | 90 days |
  * | admin audit log | 1 year |
  * | account-deletion records (`user.delete` audit rows) | 1 year |
+ * | deleted accounts' kept records (tombstones, docs/account-deletion.md) | 1 year after deletion |
  * | finished action / notification / copy-signal outbox rows | 30 days |
  * | alert delivery records (`alerts`) | 30 days |
  *

@@ -762,14 +762,14 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       await alice.post(`/me/copy/strategies/${id}/commands`, { command: "resume" }).expect(409);
     });
 
-    it("account deletion waits until every copy is stopped (CopyDog)", async () => {
-      const { id } = await startCopy();
+    it("a running paper copy doesn't block account deletion: it never held money, so it goes with the account and its leader is unwatched", async () => {
+      await startCopy();
       const [u] = await db.select().from(users);
-      await expect(app.get(AccountDeletionService).delete(u!.id)).rejects.toMatchObject({ status: 409 });
-      await alice.post(`/me/copy/strategies/${id}/commands`, { command: "stop" }).expect(200);
-      await execution.settleStopping();
       await app.get(AccountDeletionService).delete(u!.id);
       expect(await db.select().from(copyStrategies)).toHaveLength(0);
+      expect(await db.select().from(paperAccounts)).toHaveLength(0);
+      const [leader] = await db.select().from(leaders).where(eq(leaders.address, LEADER));
+      expect(leader!.active).toBe(false);
     });
   });
 

@@ -32,6 +32,29 @@ describe("strategy funding trusted transport", () => {
     const [url, init] = fetcher.mock.calls[0] as unknown as [string, RequestInit]; expect(url).toBe("https://rpc.hyperliquid-testnet.xyz/explorer"); expect(JSON.parse(init.body as string)).toEqual({ type: "txDetails", hash });
     expect(() => transport.txDetails("testnet", "https://foreign.example")).toThrow("Invalid funding evidence"); expect(fetcher).toHaveBeenCalledTimes(1);
   });
+  it("account deletion: an account is empty only with no value above a cent, no position, no resting order and no spot balance", async () => {
+    const answer = (perp: unknown, orders: unknown, spot: unknown) => vi.fn(async (_url: string, init: RequestInit) => {
+      const type = JSON.parse(init.body as string).type;
+      return new Response(JSON.stringify(type === "clearinghouseState" ? perp : type === "openOrders" ? orders : spot));
+    });
+    const perp = (accountValue: string, szi?: string) => ({ marginSummary: { accountValue }, withdrawable: accountValue, assetPositions: szi ? [{ position: { coin: "BTC", szi } }] : [] });
+    const cases: Array<[unknown, unknown, unknown, boolean]> = [
+      [perp("0.004"), [], { balances: [{ coin: "USDC", total: "0.0" }] }, true],
+      [perp("12.5"), [], { balances: [] }, false],
+      [perp("0", "0.01"), [], { balances: [] }, false],
+      [perp("0"), [{ coin: "BTC", oid: 1 }], { balances: [] }, false],
+      [perp("0"), [], { balances: [{ coin: "USDC", total: "3.2" }] }, false],
+    ];
+    for (const [p, o, sp, empty] of cases) {
+      const fetcher = answer(p, o, sp); vi.stubGlobal("fetch", fetcher);
+      expect((await client().transport.holdings("testnet", op.address)).empty).toBe(empty);
+      expect(fetcher.mock.calls.map(([url, init]) => [url, JSON.parse((init as RequestInit).body as string)])).toEqual(["clearinghouseState", "openOrders", "spotClearinghouseState"]
+        .map(type => ["https://api.hyperliquid-testnet.xyz/info", { type, user: op.address }]));
+    }
+    // An answer it can't read is never "empty".
+    vi.stubGlobal("fetch", answer({ assetPositions: [] }, [], { balances: [] }));
+    await expect(client().transport.holdings("testnet", op.address)).rejects.toThrow("Account holdings unavailable");
+  });
   it("never retries response loss", async () => {
     const fetcher = vi.fn(async () => { throw new Error("response lost"); }); vi.stubGlobal("fetch", fetcher);
     await expect(client().transport.send(op, signature)).rejects.toThrow("funding_submission_unknown"); expect(fetcher).toHaveBeenCalledTimes(1);

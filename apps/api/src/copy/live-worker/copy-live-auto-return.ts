@@ -28,7 +28,8 @@ export class CopyLiveAutoReturn implements AutoReturn {
 
   async sweep(stop: StopRow, withdrawable: string): Promise<AutoReturnOutcome> {
     const { owner, account } = await this.returns.contextRead(stop.userId, stop.accountId);
-    if (!account.masterPolicyId || !account.masterSignerQuorumId || !account.sweepDestination) return 'legacy';
+    // A signer taken off again (account deletion) returns by hand, like a legacy account.
+    if (!account.masterPolicyId || !account.masterSignerQuorumId || account.signerDetachedAt || !account.sweepDestination) return 'legacy';
     // The policy allows only the main wallet it was made for: a changed main
     // wallet fails closed, and the owner returns the funds by hand.
     if (!this.signer.available || account.sweepDestination !== owner.embeddedWalletAddress) return 'failed';

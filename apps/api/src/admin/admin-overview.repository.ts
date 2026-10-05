@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { eq, gte, sql } from "drizzle-orm";
+import { eq, gte, isNull, sql } from "drizzle-orm";
 import { alerts, leaders, users } from "@trading-dashboard/shared/database";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
@@ -17,7 +17,9 @@ export class AdminOverviewRepository {
         new7d: sql<number>`(count(*) filter (where ${users.createdAt} >= ${since7d}))::int`,
         active7d: sql<number>`(count(*) filter (where ${users.lastLoginAt} >= ${since7d}))::int`,
       })
-      .from(users);
+      .from(users)
+      // Account-deletion tombstones are not users.
+      .where(isNull(users.deletedAt));
   }
 
   traderCounts() {

@@ -456,6 +456,13 @@
       "when": 1791202504371,
       "tag": "0064_copy_live_setups",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1791210828954,
+      "tag": "0065_account_tombstones",
+      "breakpoints": true
     }
   ]
 }

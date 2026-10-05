@@ -72,10 +72,10 @@ describe("execution wallet user API", () => {
     expect(copyExecutionWalletsSchema.parse(summary.body.data).accounts[0].id).toBe(result.id);
     expect(provider.create).toHaveBeenCalledTimes(1);
   });
-  it("retains execution account evidence in the account deletion guard", async () => {
+  it("a running copy with an execution account blocks account deletion (the account is kept, never deleted with paper copies)", async () => {
     const result = await app.get(CopyWalletService).prepare(uid, strategy, { network: "testnet" });
     expect(result.state).toBe("unknown");
     const repo = new AccountRepository(db);
-    await expect(new UnitOfWork(db).run((tx) => repo.hasExecutionRecords(tx, uid))).resolves.toBe(true);
+    await expect(new UnitOfWork(db).run((tx) => repo.blockers(tx, uid))).resolves.toEqual([{ code: "copies_active", strategyIds: [strategy] }]);
   });
 });

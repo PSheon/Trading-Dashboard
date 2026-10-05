@@ -937,6 +937,7 @@ export const en: Messages = {
         equity_snapshots: "Equity snapshots",
         admin_audit_logs: "Admin audit log",
         account_deletion_records: "Account-deletion records",
+        deleted_accounts: "Deleted accounts' kept records",
         action_outbox: "Finished signal evaluations",
         notification_outbox: "Finished notification deliveries",
         copy_signal_outbox: "Finished copy signals",

@@ -4,6 +4,7 @@ import { ProfileRepository } from "./profile.repository.js";
 import { FavoritesRepository } from "./favorites.repository.js";
 import { Module } from "@nestjs/common";
 
+import { CopyModule } from "../copy/copy.module.js";
 import { IngestionModule } from "../watcher/ingestion.module.js";
 import { FavoritesService } from "./favorites.service.js";
 import { AccountDeletionService } from "./account-deletion.service.js";
@@ -13,7 +14,8 @@ import { ProfileService } from "./profile.service.js";
 
 /** /me/*: profile, account deletion, favorites, their groups and Telegram alerts. */
 @Module({
-  imports: [IngestionModule],
+  // CopyModule: account deletion's copy-account checks (COPY_ACCOUNT_CLOSURE).
+  imports: [IngestionModule, CopyModule],
   controllers: [FavoriteGroupsController, MeController],
   providers: [FavoriteGroupsRepository, AccountRepository, AccountDeletionService, ProfileRepository, FavoritesRepository, ProfileService, FavoritesService],
   exports: [FavoritesService],

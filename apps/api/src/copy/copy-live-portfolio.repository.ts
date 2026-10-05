@@ -67,7 +67,7 @@ export class CopyLivePortfolioRepository {
         stop: stop ? { id: stop.id, state: stop.state, issue: stop.issue, revision: stop.revision } : null,
         pendingTransfer: pending ? { id: pending.id, direction: pending.direction, status: pending.status as 'prepared' | 'unknown' | 'accepted', amount: pending.amount } : null,
         lastRefusal: refusal ? { reason: refusal.reason!, at: refusal.at.toISOString() } : null,
-        automaticReturn: Boolean(account?.masterPolicyId), sweep: sweep ? { amount: sweep.creditedAmount ?? sweep.amount, status: sweep.status } : null,
+        automaticReturn: Boolean(account?.masterPolicyId && !account.signerDetachedAt), sweep: sweep ? { amount: sweep.creditedAmount ?? sweep.amount, status: sweep.status } : null,
         setup: liveSetup ? { id: liveSetup.id, kind: liveSetup.kind, stage: liveSetup.stage, issue: liveSetup.issue?.slice(0, 80) ?? null, signer: liveSetup.signerKind } : null,
         expiresAt: mandate && ['active', 'paused'].includes(mandate.state) ? mandate.expiresAt.toISOString() : null,
         oneClick: mandate?.consentKind === 'setup',

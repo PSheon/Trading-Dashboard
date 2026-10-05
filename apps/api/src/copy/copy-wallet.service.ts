@@ -9,7 +9,7 @@ import { MASTER_POLICY, type MasterPolicyPort } from "./live/privy-master-policy
 
 function account(row: AccountRow): CopyExecutionAccount {
   return { id: row.id, strategyId: row.strategyId, network: row.network, state: row.state,
-    address: row.state === "ready" ? row.address : null, issue: row.issue, revision: row.revision, automaticReturn: row.masterPolicyId !== null,
+    address: row.state === "ready" ? row.address : null, issue: row.issue, revision: row.revision, automaticReturn: row.masterPolicyId !== null && row.signerDetachedAt === null,
     createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() };
 }
 function authorization(grant: GrantRow, wallet: AgentRow): CopyWalletGrant {
@@ -156,7 +156,7 @@ export class CopyWalletService {
     if (!this.provider.available) throw new ServiceUnavailableException("wallet_provider_unavailable");
     let submitted = original.state !== "requested";
     try {
-      const expected = original.masterPolicyId && original.masterSignerQuorumId ? { workerQuorumId: original.masterSignerQuorumId, policyId: original.masterPolicyId } : null;
+      const expected = original.masterPolicyId && original.masterSignerQuorumId && !original.signerDetachedAt ? { workerQuorumId: original.masterSignerQuorumId, policyId: original.masterPolicyId } : null;
       let found = await this.provider.findOwned(original.privyUserId, original.externalId, expected);
       if (!found && original.state === "requested") {
         // Only one replica can claim creation. Unknown is committed BEFORE the

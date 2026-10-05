@@ -377,7 +377,23 @@ export const users = pgTable("users", {
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }).notNull().defaultNow(),
   /** Set by an admin; a disabled user is treated as signed out. */
   disabledAt: timestamp("disabled_at", { withTimezone: true }),
-}, (table) => [check("users_role_check", oneOf(table.role, userRoleEnum))]);
+  /**
+   * Set only on an account-deletion tombstone (docs/account-deletion.md): an
+   * anonymous row created when a person deletes their account, which the
+   * financial and audit records that must be kept are re-pointed to, so
+   * their references stay valid without identifying anyone. It carries no
+   * personal data (checked below), can never sign in (its Privy id is
+   * `deleted:<uuid>`, and it is disabled) and is purged with those records
+   * RETENTION_ACCOUNT_DELETION_DAYS after this time.
+   */
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+}, (table) => [
+  check("users_role_check", oneOf(table.role, userRoleEnum)),
+  check("users_tombstone_check", sql`${table.deletedAt} is null or (${table.privyUserId} ~ '^deleted:[0-9a-f-]{36}$' and ${table.email} is null
+    and ${table.walletAddress} is null and ${table.embeddedWalletAddress} is null and ${table.displayName} is null and ${table.role} = 'user'
+    and ${table.disabledAt} is not null)`),
+  index("users_tombstone_idx").on(table.deletedAt).where(sql`${table.deletedAt} is not null`),
+]);
 
 
 // ---------------------------------------------------------------------------
@@ -1395,9 +1411,14 @@ export const copyExecutionAccounts = pgTable("copy_execution_accounts", {
   masterPolicyId: text("master_policy_id"), masterPolicyFingerprint: text("master_policy_fingerprint"),
   masterSignerQuorumId: text("master_signer_quorum_id"), sweepDestination: text("sweep_destination"),
   signerAttachedAt: timestamp("signer_attached_at", { withTimezone: true }),
+  /** When account deletion removed the worker quorum from this wallet's
+   * signers again (with the owner's session); the policy columns above stay
+   * as the record of what had been attached. */
+  signerDetachedAt: timestamp("signer_detached_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [uniqueIndex("copy_execution_accounts_strategy_uq").on(t.network, t.strategyId),
+  check("copy_execution_accounts_signer_detached_check", sql`${t.signerDetachedAt} is null or (${t.signerAttachedAt} is not null and ${t.signerDetachedAt} >= ${t.signerAttachedAt})`),
   check("copy_execution_accounts_master_signer_check", sql`(${t.masterPolicyId} is null and ${t.masterPolicyFingerprint} is null and ${t.masterSignerQuorumId} is null and ${t.sweepDestination} is null and ${t.signerAttachedAt} is null)
     or (${t.masterPolicyId} is not null and ${t.masterPolicyFingerprint} ~ '^[0-9a-f]{64}$' and ${t.masterSignerQuorumId} is not null and ${t.sweepDestination} ~ '^0x[0-9a-f]{40}$' and ${t.signerAttachedAt} is not null)`),
   index("copy_execution_accounts_owner_idx").on(t.userId, t.createdAt),

@@ -101,7 +101,7 @@ describe("data retention", () => {
     expect(run).toMatchObject({ ran: true, status: "ok", error: null });
     if (!run.ran) throw new Error("did not run");
     expect(run.removed).toEqual({
-      position_snapshots: 2, equity_snapshots: 2, admin_audit_logs: 1, account_deletion_records: 1,
+      position_snapshots: 2, equity_snapshots: 2, admin_audit_logs: 1, account_deletion_records: 1, deleted_accounts: 0,
       action_outbox: 2, notification_outbox: 2, copy_signal_outbox: 2, alerts: 1,
     });
     expect(Object.keys(run.removed)).toEqual([...RETENTION_TABLES]);

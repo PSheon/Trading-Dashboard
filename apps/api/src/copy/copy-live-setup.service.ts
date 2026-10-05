@@ -364,7 +364,7 @@ export class CopyLiveSetupService {
   private async workerPolicySigner(row: SetupRow): Promise<SetupSigner | null> {
     if (row.signerKind !== 'worker_policy' || !this.workerSigner?.available || !row.accountId) return null;
     const account = await this.walletRows.account(row.accountId, row.userId);
-    if (!account?.masterPolicyId || !account.masterSignerQuorumId) return null;
+    if (!account?.masterPolicyId || !account.masterSignerQuorumId || account.signerDetachedAt) return null;
     const signer = this.workerSigner;
     return { kind: 'worker_policy', sign: (master, data, bound, deadline) => signer.sign({ ...master, workerQuorumId: account.masterSignerQuorumId!, policyId: account.masterPolicyId! }, data, bound, deadline) };
   }

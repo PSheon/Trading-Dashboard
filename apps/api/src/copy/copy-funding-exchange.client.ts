@@ -28,6 +28,35 @@ export class CopyFundingExchangeClient {
     if (!value || typeof value !== "object" || !("withdrawable" in value) || typeof value.withdrawable !== "string" || !/^\d+(?:\.\d+)?$/.test(value.withdrawable)) throw new Error("Funding balance unavailable");
     return value.withdrawable;
   }
+  /**
+   * Whether a copy account holds anything (account deletion): its perp
+   * account value, open positions, resting orders and spot balances. Below a
+   * cent counts as empty (rounding dust can't be returned). Throws when the
+   * exchange can't be read: an unknown balance is never treated as empty.
+   */
+  async holdings(network: FundingRow["network"], address: string): Promise<{ empty: boolean; accountValue: string; positions: number; openOrders: number; spotBalances: number }> {
+    const url = WALLET_NETWORKS[network].infoUrl;
+    const perp = await this.read(url, { type: "clearinghouseState", user: address }, 2);
+    const orders = await this.read(url, { type: "openOrders", user: address }, 20);
+    const spot = await this.read(url, { type: "spotClearinghouseState", user: address }, 2);
+    const decimal = (value: unknown) => typeof value === "string" && /^-?\d+(?:\.\d+)?$/.test(value);
+    if (!perp || typeof perp !== "object" || !("marginSummary" in perp) || !perp.marginSummary || typeof perp.marginSummary !== "object" ||
+      !("accountValue" in perp.marginSummary) || !decimal(perp.marginSummary.accountValue) || !("assetPositions" in perp) || !Array.isArray(perp.assetPositions) ||
+      !Array.isArray(orders) || !spot || typeof spot !== "object" || !("balances" in spot) || !Array.isArray(spot.balances)) throw new Error("Account holdings unavailable");
+    const accountValue = perp.marginSummary.accountValue as string;
+    const positions = perp.assetPositions.filter((p: unknown) => {
+      const size = p && typeof p === "object" && "position" in p && p.position && typeof p.position === "object" && "szi" in p.position ? p.position.szi : null;
+      if (!decimal(size)) throw new Error("Account holdings unavailable");
+      return Number(size) !== 0;
+    }).length;
+    const spotBalances = spot.balances.filter((b: unknown) => {
+      const total = b && typeof b === "object" && "total" in b ? b.total : null;
+      if (!decimal(total)) throw new Error("Account holdings unavailable");
+      return Number(total) >= 0.01;
+    }).length;
+    const empty = Math.abs(Number(accountValue)) < 0.01 && positions === 0 && orders.length === 0 && spotBalances === 0;
+    return { empty, accountValue, positions, openOrders: orders.length, spotBalances };
+  }
   /** Sends an exact user-signed action (approveBuilderFee) from the account. */
   async sendAction(network: FundingRow["network"], body: unknown, assertFreshProof: () => void): Promise<unknown> {
     try {

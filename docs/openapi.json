@@ -22557,7 +22557,7 @@
         "description": "Access: user"
       },
       "delete": {
-        "description": "Deletes the Orbie account and its data; the Privy wallet and funds are not affected. Requires the X-Confirm-Delete header.\n\nAccess: user; 409 last_admin",
+        "description": "Deletes the Orbie account and its personal data; kept financial and audit records are anonymised and purged after 365 days. Only in-flight state blocks it (409 with the blocker's code). The Privy wallets and funds are not affected. Requires the X-Confirm-Delete header.\n\nAccess: user; 409 last_admin",
         "operationId": "MeController_deleteMe",
         "parameters": [
           {
@@ -22565,6 +22565,14 @@
             "required": true,
             "in": "header",
             "description": "Must be \"delete-account\": the explicit confirmation of the person deleting their account.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "authorization",
+            "required": true,
+            "in": "header",
             "schema": {
               "type": "string"
             }

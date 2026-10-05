@@ -151,7 +151,7 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
   async query(record: LiveExecutionRecord): Promise<ExchangeOutcome | null> {
     record = structuredClone(record);
     if (record.authorization.network !== this.network) throw new LiveBoundaryError("transport_network_mismatch");
-    const market = await boundedLiveRead(this.resolver().resolveAsset(record.action.orders[0].a), 5_000);
+    const market = await boundedLiveRead(() => this.resolver().resolveAsset(record.action.orders[0].a), 5_000);
     if (record.market && !isDeepStrictEqual(marketIdentityKey(record.market), marketIdentityKey(market)))
       throw new LiveBoundaryError('exchange_market_identity_mismatch');
     this.assertObservationFresh(market.observedAt);
@@ -186,13 +186,13 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
     const remaining = () => {
       this.assertObservationFresh(checkedAt); return Math.max(1, 5000 - (this.now() - checkedAt));
     };
-    const market = await boundedLiveRead(this.resolver().resolveAsset(record.action.orders[0].a), remaining());
-    await boundedLiveRead(this.acquire(20), remaining());
-    const response = await boundedLiveRead(this.infoFetcher()(`${this.endpoint}/info`, { method: 'POST', headers: { 'content-type': 'application/json' },
+    const market = await boundedLiveRead(() => this.resolver().resolveAsset(record.action.orders[0].a), remaining());
+    await boundedLiveRead(() => this.acquire(20), remaining());
+    const response = await boundedLiveRead(() => this.infoFetcher()(`${this.endpoint}/info`, { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ type: 'orderStatus', user: record.authorization.accountAddress, oid: record.action.orders[0].c }),
       signal: AbortSignal.timeout(remaining()), redirect: 'error' }), remaining());
     if (!response.ok) throw new LiveBoundaryError('exchange_http_failure');
-    const raw = await boundedLiveRead(readInfoJson(response, 'live order evidence', 256 * 1024), remaining());
+    const raw = await boundedLiveRead(() => readInfoJson(response, 'live order evidence', 256 * 1024), remaining());
     const completedAt = this.now(), evidence = parseLiveOrderEvidence({ record, market, raw, checkedAt, completedAt, now: completedAt });
     this.assertObservationFresh(checkedAt); return evidence;
   }
@@ -204,7 +204,7 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
   }
   private async verifyMarket(intent: LiveOrderIntent, record: LiveExecutionRecord): Promise<LiveMarketIdentity> {
     if (!intent.market) throw new LiveBoundaryError('live_market_identity_missing');
-    const market = await boundedLiveRead(this.resolver().resolve(intent.market.coin), 5_000);
+    const coin = intent.market.coin, market = await boundedLiveRead(() => this.resolver().resolve(coin), 5_000);
     if (!isDeepStrictEqual(marketIdentityKey(intent.market), marketIdentityKey(market)) ||
         (record.market && !isDeepStrictEqual(marketIdentityKey(record.market), marketIdentityKey(market))) ||
         market.asset !== record.action.orders[0].a || market.sizeDecimals !== intent.sizeDecimals)
@@ -230,7 +230,8 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
   }
   private async acquire(weight: number): Promise<void> {
     if (!this.dependencies || typeof this.dependencies.acquire !== 'function') throw new LiveBoundaryError('live_request_budget_missing');
-    await boundedLiveRead(this.dependencies.acquire(weight), 5_000);
+    const dependencies = this.dependencies;
+    await boundedLiveRead(() => dependencies.acquire(weight), 5_000);
   }
   private infoFetcher(): typeof fetch { return this.dependencies?.globalTransport?.fetchInfo ?? this.fetcher; }
   private async post(path: "info" | "exchange", body: unknown, admitted = false, quotaPermit?: HyperliquidSendPermit, assertFresh?: () => void): Promise<unknown> {
@@ -253,9 +254,9 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
       throw error;
     }
     try {
-      const response = await boundedLiveRead(pending, this.timeoutMs);
+      const response = await boundedLiveRead(() => pending, this.timeoutMs);
       if (!response.ok) throw new LiveBoundaryError('exchange_http_failure');
-      return await boundedLiveRead(readInfoJson(response, 'live exchange', 256 * 1024), this.timeoutMs);
+      return await boundedLiveRead(() => readInfoJson(response, 'live exchange', 256 * 1024), this.timeoutMs);
     } catch (error) {
       // After actual transport entry no adapter exception can assert that
       // the exchange did not receive the request. Retain unknown recovery.

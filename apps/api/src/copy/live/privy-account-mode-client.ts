@@ -74,14 +74,14 @@ async function readSdkJson(response: Response, remaining: () => number, signal: 
     if (Number(response.headers.get('content-length')) > 64 * 1024) throw new Error();
     for (;;) {
       if (signal.aborted) throw new Error();
-      const { done, value } = await boundedLiveRead(reader.read(), remaining());
+      const { done, value } = await boundedLiveRead(() => reader.read(), remaining());
       if (done) break;
       size += value.byteLength; if (size > 64 * 1024) throw new Error(); chunks.push(value);
     }
     return JSON.parse(Buffer.concat(chunks, size).toString('utf8'));
   } finally {
     signal.removeEventListener('abort', abort);
-    await boundedLiveRead(reader.cancel(), 100).catch(() => undefined); reader.releaseLock();
+    await boundedLiveRead(() => reader.cancel(), 100).catch(() => undefined); reader.releaseLock();
   }
 }
 
@@ -109,7 +109,7 @@ export class PrivyAccountModeClient {
   get available(): boolean { return this.credentials !== null; }
   /** Caller reserves weight exactly once before its durable attempt/POST. */
   async acquire(): Promise<void> {
-    try { await boundedLiveRead(this.budget(1), 5000); } catch { fail('account_mode_budget_unavailable'); }
+    try { await boundedLiveRead(() => this.budget(1), 5000); } catch { fail('account_mode_budget_unavailable'); }
   }
   async signMaster(rawMaster: AccountModeOwnedMaster, rawIntent: AccountModeIntent, userJwt: string, assertFreshProof?: () => void): Promise<string> {
     const controller = new AbortController(); let timer: NodeJS.Timeout | undefined;
@@ -141,20 +141,22 @@ export class PrivyAccountModeClient {
           live(intent, this.now()); fresh(started, this.now()); remaining(); rpcSubmitted = true;
         }
         const work = this.fetcher(input, { ...init, redirect: 'error', signal: AbortSignal.any([controller.signal, ...(init?.signal ? [init.signal] : [])]) });
+        // Handled now: `remaining()` below may throw before the read is awaited.
+        void Promise.resolve(work).catch(() => undefined);
         return (async () => {
-          const response = await boundedLiveRead(work, remaining());
+          const response = await boundedLiveRead(() => work, remaining());
           const value = await readSdkJson(response, remaining, controller.signal);
           return Response.json(value, { status: response.status, headers: response.headers });
         })();
       };
       // Exchanged authorization keys remain scoped to this invocation.
       const client = new PrivyClient({ ...this.credentials, timeout: Math.min(10_000, remaining()), maxRetries: 0, fetch: sdkFetch, logLevel: 'off' });
-      const wallet = await boundedLiveRead(client.wallets().get(master.walletId), remaining());
+      const wallet = await boundedLiveRead(() => client.wallets().get(master.walletId), remaining());
       if (wallet.id !== master.walletId || wallet.chain_type !== 'ethereum' || typeof wallet.address !== 'string' ||
           wallet.address.toLowerCase() !== master.address || wallet.owner_id !== master.ownerQuorumId || wallet.archived_at !== null) throw new Error();
       verifiedIdentity = true;
       live(intent, this.now()); fresh(started, this.now());
-      const result = await boundedLiveRead(client.wallets().ethereum().signTypedData(master.walletId, {
+      const result = await boundedLiveRead(() => client.wallets().ethereum().signTypedData(master.walletId, {
         address: master.address, authorization_context: { user_jwts: [userJwt] }, request_expiry: intent.consentExpiresAt,
         params: { typed_data: { domain: data.domain, types: { ...data.types, EIP712Domain: domainFields }, primary_type: data.primaryType, message: data.message } },
       }), remaining());
@@ -182,10 +184,10 @@ export class PrivyAccountModeClient {
       // Complete request construction first, then check captured caller proof.
       // No await or further clock-dependent preparation precedes actual POST.
       const dispatch=()=>{synchronousProof(assertFreshProof);permit?.assertFresh();live(intent,this.now());remaining();return this.fetcher(WALLET_NETWORKS.testnet.exchangeUrl,request);};
-      const work=permit?permit.dispatch(dispatch):dispatch();
-      const response = await boundedLiveRead(work, remaining());
+      const work=permit?permit.dispatch(dispatch):dispatch();void Promise.resolve(work).catch(()=>undefined);
+      const response = await boundedLiveRead(() => work, remaining());
       if (!response.ok) { await response.body?.cancel().catch(() => undefined); throw new Error(); }
-      return frozen(acknowledgment.parse(await boundedLiveRead(readInfoJson(response, 'account mode acknowledgment', 64 * 1024), remaining())));
+      return frozen(acknowledgment.parse(await boundedLiveRead(() => readInfoJson(response, 'account mode acknowledgment', 64 * 1024), remaining())));
     } catch { fail('account_mode_submission_unknown'); }
   }
   /** Read-only recovery intentionally permits an expired original consent. */
@@ -197,14 +199,14 @@ export class PrivyAccountModeClient {
       const read = async (type: string, weight: number) => {
         const body = { type, user: intent.accountAddress };
         const t0 = this.now();
-        await boundedLiveRead(this.budget(weight), remaining());
+        await boundedLiveRead(() => this.budget(weight), remaining());
         trace.push(`${type}: budget ${this.now() - t0}ms`);
         const t1 = this.now();
-        const response = await boundedLiveRead((this.global?.fetchInfo??this.fetcher)(WALLET_NETWORKS.testnet.infoUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        const response = await boundedLiveRead(() => (this.global?.fetchInfo??this.fetcher)(WALLET_NETWORKS.testnet.infoUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(remaining()) }), remaining());
         trace.push(`${type}: fetch ${this.now() - t1}ms ${response.status}`);
         if (!response.ok) { await response.body?.cancel().catch(() => undefined); throw new Error(); }
-        const value = await boundedLiveRead(readInfoJson(response, 'account mode evidence', 2 * 1024 * 1024), remaining());
+        const value = await boundedLiveRead(() => readInfoJson(response, 'account mode evidence', 2 * 1024 * 1024), remaining());
         fresh(started, this.now());
         if (value && typeof value === 'object' && !Array.isArray(value)) {
           const row = value as Record<string, unknown>;

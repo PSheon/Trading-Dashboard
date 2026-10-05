@@ -61,7 +61,7 @@ async function readCancellationJson(
     for (;;) {
       if (signal.aborted || now() >= deadline)
         throw new LiveBoundaryError('cancel_response_deadline');
-      const { done, value } = await boundedLiveRead(
+      const { done, value } = await boundedLiveRead(() => 
         reader.read(),
         Math.max(1, deadline - now()),
       );
@@ -80,7 +80,7 @@ async function readCancellationJson(
     return JSON.parse(Buffer.concat(chunks, size).toString('utf8'));
   } finally {
     signal.removeEventListener('abort', abort);
-    await boundedLiveRead(reader.cancel(), 100).catch(() => undefined);
+    await boundedLiveRead(() => reader.cancel(), 100).catch(() => undefined);
     reader.releaseLock();
   }
 }
@@ -153,7 +153,7 @@ export class HyperliquidTrackedCancellationTransport {
       });
       scopedGuard();
       // Quota is durably prepaid before the final current permission read.
-      const quota = await boundedLiveRead(
+      const quota = await boundedLiveRead(() => 
         this.global
           .currentQuota()
           .acquireRest(1, Math.min(this.now() + 5000, operation.expiresAfter)),
@@ -184,9 +184,9 @@ export class HyperliquidTrackedCancellationTransport {
           request,
         );
       });
-      const response = await boundedLiveRead(pending, timeout);
+      const response = await boundedLiveRead(() => pending, timeout);
       if (!response.ok) {
-        await boundedLiveRead(
+        await boundedLiveRead(() => 
           response.body?.cancel() ?? Promise.resolve(),
           100,
         ).catch(() => undefined);

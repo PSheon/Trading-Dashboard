@@ -38,7 +38,7 @@ async function readSdkBody(response: Response, remaining: () => number, signal: 
   try {
     for (;;) {
       if (signal.aborted) throw new Error();
-      const { done, value } = await boundedLiveRead(reader.read(), remaining());
+      const { done, value } = await boundedLiveRead(() => reader.read(), remaining());
       if (done) break;
       size += value.byteLength;
       if (size > 64 * 1024) throw new Error();
@@ -47,7 +47,7 @@ async function readSdkBody(response: Response, remaining: () => number, signal: 
     return JSON.parse(Buffer.concat(chunks, size).toString('utf8'));
   } finally {
     signal.removeEventListener('abort', abort);
-    await boundedLiveRead(reader.cancel(), 100).catch(() => undefined);
+    await boundedLiveRead(() => reader.cancel(), 100).catch(() => undefined);
     reader.releaseLock();
   }
 }
@@ -78,13 +78,14 @@ export class BoundaryPrivyOrderSigningClient implements PrivyOrderSigningClient 
         const responseWork = this.fetcher(input, { ...init, redirect: 'error', signal: AbortSignal.any([
           controller.signal, ...(init?.signal ? [init.signal] : []),
         ]) });
+        void Promise.resolve(responseWork).catch(() => undefined);
         return (async () => {
-          const response = await boundedLiveRead(responseWork, remaining());
+          const response = await boundedLiveRead(() => responseWork, remaining());
           const value = await readSdkBody(response, remaining, controller.signal);
           return Response.json(value, { status: response.status, headers: response.headers });
         })();
       } });
-      return await boundedLiveRead(client.wallets().get(id), 10_000);
+      return await boundedLiveRead(() => client.wallets().get(id), 10_000);
     } catch { fail('privy_order_wallet_unavailable'); }
     finally { clearTimeout(timer); controller.abort(); }
   }
@@ -131,13 +132,14 @@ export class BoundaryPrivyOrderSigningClient implements PrivyOrderSigningClient 
         const responseWork = this.fetcher(request, { ...init, redirect: 'error', signal: AbortSignal.any([
           controller.signal, ...(init?.signal ? [init.signal] : []),
         ]) });
+        void Promise.resolve(responseWork).catch(() => undefined);
         return (async () => {
-          const response = await boundedLiveRead(responseWork, deadlineRemaining());
+          const response = await boundedLiveRead(() => responseWork, deadlineRemaining());
           const value = await readSdkBody(response, deadlineRemaining, controller.signal);
           return Response.json(value, { status: response.status, headers: response.headers });
         })();
       } });
-      const result = await boundedLiveRead(client.wallets().ethereum().signTypedData(id, input), deadlineRemaining());
+      const result = await boundedLiveRead(() => client.wallets().ethereum().signTypedData(id, input), deadlineRemaining());
       if (result.encoding !== 'hex' || !/^0x[0-9a-fA-F]{128}(?:00|01|1b|1c)$/i.test(result.signature)) throw new Error();
       return { encoding: result.encoding, signature: result.signature };
     } catch { return fail('privy_order_signing_unavailable'); }

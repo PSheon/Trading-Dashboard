@@ -33,7 +33,7 @@ async function json(response: Response, remaining: () => number, signal: AbortSi
   try {
     for (;;) {
       signal.throwIfAborted();
-      const next = await boundedLiveRead(reader.read(), remaining());
+      const next = await boundedLiveRead(() => reader.read(), remaining());
       if (next.done) break;
       bytes += next.value.byteLength; if (bytes > BODY_CAP) fail('live_source_response_invalid'); chunks.push(next.value);
     }
@@ -41,7 +41,7 @@ async function json(response: Response, remaining: () => number, signal: AbortSi
     return JSON.parse(Buffer.concat(chunks, bytes).toString('utf8')) as unknown;
   } finally {
     signal.removeEventListener('abort', abort);
-    await boundedLiveRead(reader.cancel(), 100).catch(() => undefined); reader.releaseLock();
+    await boundedLiveRead(() => reader.cancel(), 100).catch(() => undefined); reader.releaseLock();
   }
 }
 const ENDPOINTS: Record<LiveSourceNetwork, string> = { testnet: 'https://api.hyperliquid-testnet.xyz/info', mainnet: 'https://api.hyperliquid.xyz/info' };
@@ -76,10 +76,10 @@ export class HyperliquidLiveSourceClient {
         requestsUsed++;
         const observedAt = this.now(); let rows: unknown;
         try {
-          await boundedLiveRead(this.acquire(120), remaining()); remaining();
+          await boundedLiveRead(() => this.acquire(120), remaining()); remaining();
           const body = { type: window.kind === 'fills' ? 'userFillsByTime' : 'userTwapSliceFillsByTime', user: request.leaderAddress,
             startTime: window.from, endTime: window.to, ...(window.kind === 'fills' ? { aggregateByTime: false } : {}) };
-          const response = await boundedLiveRead(this.fetcher(ENDPOINTS[this.network], { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          const response = await boundedLiveRead(() => this.fetcher(ENDPOINTS[this.network], { method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body), redirect: 'error', signal: controller.signal }), remaining());
           if (!response.ok) { void response.body?.cancel().catch(() => undefined); fail('live_source_read_unavailable'); }
           rows = await json(response, remaining, controller.signal); remaining();

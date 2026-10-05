@@ -97,22 +97,22 @@ export class PrivyMasterActionSigner implements MasterActionSigner {
         if (url.pathname === rpcPath) { if (!verified || submitted) throw new Error(); fresh(); remaining(); submitted = true; }
         const request = { ...init, redirect: 'error' as const, signal: AbortSignal.any([controller.signal, ...(init?.signal ? [init.signal] : [])]) };
         return (async () => {
-          const response = await boundedLiveRead(this.fetcher(input, request), remaining());
+          const response = await boundedLiveRead(() => this.fetcher(input, request), remaining());
           if (!response.body) throw new Error();
           const reader = response.body.getReader(), chunks: Uint8Array[] = []; let bytes = 0;
           try {
             if (Number(response.headers.get('content-length')) > 65536) throw new Error();
-            for (;;) { const { done, value } = await boundedLiveRead(reader.read(), remaining()); if (done) break; bytes += value.byteLength; if (bytes > 65536) throw new Error(); chunks.push(value); }
+            for (;;) { const { done, value } = await boundedLiveRead(() => reader.read(), remaining()); if (done) break; bytes += value.byteLength; if (bytes > 65536) throw new Error(); chunks.push(value); }
             return Response.json(JSON.parse(Buffer.concat(chunks, bytes).toString()), { status: response.status, headers: response.headers });
-          } finally { await boundedLiveRead(reader.cancel(), 100).catch(() => {}); reader.releaseLock(); }
+          } finally { await boundedLiveRead(() => reader.cancel(), 100).catch(() => {}); reader.releaseLock(); }
         })();
       };
       const client = new PrivyClient({ ...this.credentials, timeout: remaining(), maxRetries: 0, fetch: sdkFetch, logLevel: 'off' });
-      const wallet = await boundedLiveRead(client.wallets().get(account.walletId), remaining());
+      const wallet = await boundedLiveRead(() => client.wallets().get(account.walletId), remaining());
       if (wallet.id !== account.walletId || wallet.chain_type !== 'ethereum' || typeof wallet.address !== 'string' || wallet.address.toLowerCase() !== account.address.toLowerCase() ||
         wallet.owner_id !== account.ownerQuorumId || wallet.archived_at !== null) throw new Error();
       verified = true;
-      const result = await boundedLiveRead(client.wallets().ethereum().signTypedData(account.walletId, { address: account.address, authorization_context: { user_jwts: [userJwt] },
+      const result = await boundedLiveRead(() => client.wallets().ethereum().signTypedData(account.walletId, { address: account.address, authorization_context: { user_jwts: [userJwt] },
         request_expiry: deadline, params: { typed_data: { domain: data.domain, types: { ...data.types, EIP712Domain: domainFields }, primary_type: data.primaryType, message: data.message } } } as never), remaining());
       remaining();
       if (result.encoding !== 'hex' || !/^0x[0-9a-fA-F]{128}(?:00|01|1b|1c)$/i.test(result.signature) ||

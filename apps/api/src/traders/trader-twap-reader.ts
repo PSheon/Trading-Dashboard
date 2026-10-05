@@ -111,14 +111,18 @@ export class TraderTwapReader {
    const wall=Date.now(),elapsed=performance.now()-startedMono;
    if(!Number.isSafeInteger(wall)||wall<startedAt||!Number.isFinite(elapsed)||elapsed<0||elapsed>this.timeoutMs+this.cleanupTimeoutMs||Math.abs(wall-startedAt-elapsed)>1000)fail();
   };
-  const wait=<T>(promise:Promise<T>,deadline:number)=>{
+  // Work is started only after the clock check (a started promise whose
+  // check then threw was left without a handler: an unhandled rejection).
+  const wait=<T>(start:Promise<T>|(()=>Promise<T>),deadline:number)=>{
+   if(typeof start!=='function')void start.catch(()=>undefined);
    assertClock();
    const remaining=this.timeoutMs+this.cleanupTimeoutMs-(performance.now()-startedMono);
+   const promise=typeof start==='function'?start():start;
    return bounded(promise,Math.min(deadline,Date.now()+Math.max(0,remaining)));
   };
   let session=this.session;
   let reserved:Awaited<ReturnType<ReturnType<HyperliquidGlobalTransport['currentQuota']>['reserveSocket']>>|undefined;
-  if(session){try{await wait(session.connection.renew(until),until);}catch(error){this.abort(session);throw error;}}
+  if(session){try{await wait(()=>session!.connection.renew(until),until);}catch(error){this.abort(session);throw error;}}
   else{
    const reservation=this.transport.currentQuota().reserveSocket(until,this.network);let expired=false;
    void reservation.then(value=>{if(expired)void this.cancelUnsent(value.connection);},()=>{});
@@ -170,15 +174,15 @@ export class TraderTwapReader {
    const detach=()=>{socket!.off('open',onOpen);socket!.off('error',reject);socket!.off('message',onMessage);socket!.off('close',onClose);};
    try{
    await wait(opened.promise,until);
-   const permit=await wait(connection.subscribe([subscription],until,true,false),until);
+   const permit=await wait(()=>connection.subscribe([subscription],until,true,false),until);
    subscribed=true;
    permit.dispatch({method:'subscribe',subscription:subscription.subscription},command=>socket!.send(JSON.stringify(command)));
-   const [,result]=await wait(Promise.all([ack.promise,snapshot.promise]),until);
+   const [,result]=await wait(()=>Promise.all([ack.promise,snapshot.promise]),until);
    unsubscribeRequested=true;
    permit.dispatch({method:'unsubscribe',subscription:subscription.subscription},command=>socket!.send(JSON.stringify(command)));
    const cleanupUntil=Date.now()+this.cleanupTimeoutMs;
    await wait(unsubscribed.promise,cleanupUntil);
-   await wait(connection.whenIdle(),cleanupUntil);
+   await wait(()=>connection.whenIdle(),cleanupUntil);
    cleaned=true;
    assertClock();if(result.observedAt>Date.now())fail();
    return result;

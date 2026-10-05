@@ -36,11 +36,11 @@ export class HyperliquidAccountModeAbsenceReader implements AccountModeAbsenceRe
       const remaining = () => { fresh(started, this.now()); return Math.max(1, 5000 - (this.now() - started)); };
       const read = async (type: string, weight: number, accountScoped = false) => {
         const body = { type, ...(accountScoped ? { user } : {}) };
-        await boundedLiveRead(this.acquire(weight), remaining());
-        const response = await boundedLiveRead(this.fetcher('https://api.hyperliquid-testnet.xyz/info', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        await boundedLiveRead(() => this.acquire(weight), remaining());
+        const response = await boundedLiveRead(() => this.fetcher('https://api.hyperliquid-testnet.xyz/info', { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(remaining()) }), remaining());
         if (!response.ok) { await response.body?.cancel().catch(() => undefined); fail(); }
-        const value = await boundedLiveRead(readInfoJson(response, 'mode absence evidence', 2 * 1024 * 1024), remaining());
+        const value = await boundedLiveRead(() => readInfoJson(response, 'mode absence evidence', 2 * 1024 * 1024), remaining());
         fresh(started, this.now());
         if (value && typeof value === 'object' && !Array.isArray(value)) {
           const row = value as Record<string, unknown>;
@@ -59,8 +59,8 @@ export class HyperliquidAccountModeAbsenceReader implements AccountModeAbsenceRe
         coin: z.string().min(1).max(80), token: integer, total: zero, hold: zero,
       })).max(10000) }).parse(spot).balances;
       unique(balances.map(b => String(b.token))); unique(balances.map(b => b.coin));
-      await boundedLiveRead(this.acquire(40), remaining());
-      const proof = structuredClone(await boundedLiveRead(readAccount.call(this.source, user, dexes, remaining()), remaining()));
+      await boundedLiveRead(() => this.acquire(40), remaining());
+      const proof = structuredClone(await boundedLiveRead(() => readAccount.call(this.source, user, dexes, remaining()), remaining()));
       if (proof.state.network !== 'testnet' || address(proof.state.accountAddress) !== user || proof.orders.network !== 'testnet' || address(proof.orders.accountAddress) !== user) fail();
       for (const at of [proof.state.observedAt, proof.orders.observedAt, proof.orders.completedAt]) fresh(at, this.now());
       if (proof.orders.completedAt < proof.orders.observedAt) fail();

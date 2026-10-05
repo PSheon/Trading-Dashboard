@@ -85,13 +85,13 @@ export class CopyLiveSettler {
       if (!Number.isSafeInteger(now) || now - checkedAt > 5000) throw new LiveBoundaryError('live_boundary_evidence_expired');
       return Math.max(1, 5000 - (now - checkedAt));
     };
-    const market = await boundedLiveRead(resolver.resolveAsset(record.action.orders[0]!.a), remaining());
-    await boundedLiveRead(this.acquire(20), remaining());
-    const response = await boundedLiveRead(this.global.fetchInfo('https://api.hyperliquid-testnet.xyz/info', { method: 'POST', headers: { 'content-type': 'application/json' },
+    const market = await boundedLiveRead(() => resolver.resolveAsset(record.action.orders[0]!.a), remaining());
+    await boundedLiveRead(() => this.acquire(20), remaining());
+    const response = await boundedLiveRead(() => this.global.fetchInfo('https://api.hyperliquid-testnet.xyz/info', { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ type: 'orderStatus', user: record.authorization.accountAddress, oid: record.action.orders[0]!.c }),
       signal: AbortSignal.timeout(remaining()), redirect: 'error' }), remaining());
     if (!response.ok) throw new LiveBoundaryError('exchange_http_failure');
-    const raw = await boundedLiveRead(readInfoJson(response, 'live order evidence', 256 * 1024), remaining());
+    const raw = await boundedLiveRead(() => readInfoJson(response, 'live order evidence', 256 * 1024), remaining());
     const completedAt = this.now();
     return parseLiveOrderEvidence({ record, market, raw, checkedAt, completedAt, now: completedAt });
   }

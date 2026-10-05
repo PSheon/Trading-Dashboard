@@ -18,7 +18,18 @@ export interface LiveMarketResolver {
   resolve(coin: string): Promise<LiveMarketIdentity>;
   resolveAsset(asset: number): Promise<LiveMarketIdentity>;
 }
-export async function boundedLiveRead<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
+/** Runs `start()` with a deadline. The timeout is computed first (a lazy
+ * `remaining()` may throw once the evidence window has passed), and only
+ * then is the work started, with its rejection handled at once. Passing an
+ * already started promise was the crash class: `boundedLiveRead(acquire(),
+ * remaining())` started the read, `remaining()` threw before the helper was
+ * entered, and the orphaned read's later rejection was unhandled. */
+export async function boundedLiveRead<T>(start: () => PromiseLike<T> | T, timeout: number | (() => number)): Promise<T> {
+  if (typeof start !== 'function') throw new LiveBoundaryError('live_read_invalid');
+  const timeoutMs = typeof timeout === 'function' ? timeout() : timeout;
+  if (!Number.isFinite(timeoutMs)) throw new LiveBoundaryError('live_read_invalid');
+  let work: Promise<T>;
+  try { work = Promise.resolve(start()); } catch (error) { work = Promise.reject(error); }
   // When the deadline wins, `work` may still reject later (its own abort
   // signal, a refused budget): handle that rejection here, or Node treats it
   // as unhandled and takes the whole process down.
@@ -128,13 +139,13 @@ export class HyperliquidLiveMarketResolver implements LiveMarketResolver {
     if (this.now() < started || this.now() - started > this.maxAgeMs) throw new LiveBoundaryError('market_evidence_expired');
   }
   private async read(body: Record<string, string>, started: number): Promise<unknown> {
-    await boundedLiveRead(this.acquire(20), Math.max(1, this.maxAgeMs - (this.now() - started)));
+    await boundedLiveRead(() => this.acquire(20), Math.max(1, this.maxAgeMs - (this.now() - started)));
     this.fresh(started);
     const remaining = Math.max(1, this.maxAgeMs - (this.now() - started));
-    const response = await boundedLiveRead(this.fetcher(this.endpoint, { method: 'POST', headers: { 'content-type': 'application/json' },
+    const response = await boundedLiveRead(() => this.fetcher(this.endpoint, { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(remaining) }), remaining);
     if (!response.ok) throw new LiveBoundaryError('market_evidence_unavailable');
-    const result = await boundedLiveRead(readInfoJson(response, 'live market', 2 * 1024 * 1024),
+    const result = await boundedLiveRead(() => readInfoJson(response, 'live market', 2 * 1024 * 1024),
       Math.max(1, this.maxAgeMs - (this.now() - started)));
     this.fresh(started);
     return result;

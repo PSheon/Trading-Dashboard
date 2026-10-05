@@ -137,11 +137,11 @@ export class TestnetReduceOnlyCloser {
   }
 
   private async mid(coin: string, dex: string): Promise<Dec> {
-    await boundedLiveRead(this.acquire(2), 5000);
-    const response = await boundedLiveRead(this.global.fetchInfo('https://api.hyperliquid-testnet.xyz/info', { method: 'POST', headers: { 'content-type': 'application/json' },
+    await boundedLiveRead(() => this.acquire(2), 5000);
+    const response = await boundedLiveRead(() => this.global.fetchInfo('https://api.hyperliquid-testnet.xyz/info', { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify(dex ? { type: 'allMids', dex } : { type: 'allMids' }), redirect: 'error', signal: AbortSignal.timeout(5000) }), 5000);
     if (!response.ok) throw new LiveBoundaryError('close_price_unavailable');
-    const mids = await boundedLiveRead(readInfoJson(response, 'testnet mids', 2 * 1024 * 1024), 5000) as Record<string, unknown>;
+    const mids = await boundedLiveRead(() => readInfoJson(response, 'testnet mids', 2 * 1024 * 1024), 5000) as Record<string, unknown>;
     const value = typeof mids?.[coin] === 'string' ? Dec.parse(mids[coin] as string) : null;
     if (!value?.isPositive) throw new LiveBoundaryError('close_price_unavailable');
     return value;

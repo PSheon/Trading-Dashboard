@@ -216,9 +216,9 @@ export class HyperliquidLiveRiskProvider {
             fresh(earliestObservedAt);
             return Math.max(1, timeout - (this.now() - started));
           };
-        await boundedLiveRead(this.acquire(weight), remaining());
+        await boundedLiveRead(() => this.acquire(weight), remaining());
         // Recheck before initiating work; an expired budget wait must not send.
-        const response = await boundedLiveRead(
+        const response = await boundedLiveRead(() => 
           this.fetcher('https://api.hyperliquid-testnet.xyz/info', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
@@ -229,7 +229,7 @@ export class HyperliquidLiveRiskProvider {
           remaining(),
         );
         if (!response.ok) deny('live_risk_provider_unavailable');
-        const value = await boundedLiveRead(
+        const value = await boundedLiveRead(() => 
           readInfoJson(response, 'risk provider', 2 * 1024 * 1024),
           remaining(),
         );

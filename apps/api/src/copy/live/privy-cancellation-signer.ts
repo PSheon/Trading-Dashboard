@@ -60,7 +60,7 @@ export class PrivyTrackedCancellationSigner {
     phase: 'sign' | 'submit',
   ): Promise<CancellationPermit> {
     const permit = captureCancellationPermit(
-      await boundedLiveRead(
+      await boundedLiveRead(() => 
         this.authority.authorize(structuredClone(operation), phase),
         5000,
       ),
@@ -117,7 +117,7 @@ export class PrivyTrackedCancellationSigner {
               // after all remote reads and SDK authorization preparation.
               await this.current(operation, 'sign');
               const walletCheckedAt = this.now();
-              const wallet = await boundedLiveRead(
+              const wallet = await boundedLiveRead(() => 
                 this.client.getWallet(authorization.walletId),
                 5000,
               );
@@ -132,7 +132,7 @@ export class PrivyTrackedCancellationSigner {
                 throw new LiveBoundaryError(
                   'cancel_privy_wallet_identity_mismatch',
                 );
-              const context = await boundedLiveRead(
+              const context = await boundedLiveRead(() => 
                 this.signingAuthorization(),
                 5000,
               );

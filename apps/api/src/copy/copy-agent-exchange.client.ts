@@ -45,18 +45,18 @@ export class PrivyAgentApprovalClient implements AgentApprovalClient {
         if(url.origin!=='https://api.privy.io'||url.search||url.hash||!(url.pathname===walletPath&&method==='GET'||url.pathname==='/v1/wallets/authenticate'&&method==='POST'||url.pathname===rpcPath&&method==='POST'))throw new Error();
         const request={...init,redirect:'error' as const,signal:AbortSignal.any([controller.signal,...(init?.signal?[init.signal]:[])])};
         remaining();if(url.pathname===rpcPath){if(!verified||submitted)throw new Error();proof();remaining();submitted=true;}
-        const work=this.fetcher(input,request);
-        return (async()=>{const response=await boundedLiveRead(work,remaining());if(!response.body)throw new Error();
+        const work=this.fetcher(input,request);void Promise.resolve(work).catch(()=>{});
+        return (async()=>{const response=await boundedLiveRead(() => work,remaining());if(!response.body)throw new Error();
           const reader=response.body.getReader(),chunks:Uint8Array[]=[];let bytes=0;const abort=()=>{void reader.cancel().catch(()=>{});};controller.signal.addEventListener('abort',abort,{once:true});
-          try{if(Number(response.headers.get('content-length'))>65536)throw new Error();for(;;){const {done,value}=await boundedLiveRead(reader.read(),remaining());if(done)break;bytes+=value.byteLength;if(bytes>65536)throw new Error();chunks.push(value);}
+          try{if(Number(response.headers.get('content-length'))>65536)throw new Error();for(;;){const {done,value}=await boundedLiveRead(() => reader.read(),remaining());if(done)break;bytes+=value.byteLength;if(bytes>65536)throw new Error();chunks.push(value);}
             return Response.json(JSON.parse(Buffer.concat(chunks,bytes).toString()),{status:response.status,headers:response.headers});
-          }finally{controller.signal.removeEventListener('abort',abort);await boundedLiveRead(reader.cancel(),100).catch(()=>{});reader.releaseLock();}
+          }finally{controller.signal.removeEventListener('abort',abort);await boundedLiveRead(() => reader.cancel(),100).catch(()=>{});reader.releaseLock();}
         })();
       };
       const client=new PrivyClient({...this.credentials,timeout:remaining(),maxRetries:0,fetch:sdkFetch,logLevel:'off'});
-      const wallet=await boundedLiveRead(client.wallets().get(account.walletId),remaining());
+      const wallet=await boundedLiveRead(() => client.wallets().get(account.walletId),remaining());
       if(wallet.id!==account.walletId||wallet.chain_type!=='ethereum'||typeof wallet.address!=='string'||wallet.address.toLowerCase()!==account.address.toLowerCase()||wallet.owner_id!==account.ownerQuorumId||wallet.archived_at!==null)throw new Error();verified=true;
-      const result=await boundedLiveRead(client.wallets().ethereum().signTypedData(account.walletId,{address:account.address,authorization_context:{user_jwts:[userJwt]},request_expiry:intent.consentExpiresAt,params:{typed_data:{domain:data.domain,types:{...data.types,EIP712Domain:domainFields},primary_type:data.primaryType,message:data.message}}}),remaining());
+      const result=await boundedLiveRead(() => client.wallets().ethereum().signTypedData(account.walletId,{address:account.address,authorization_context:{user_jwts:[userJwt]},request_expiry:intent.consentExpiresAt,params:{typed_data:{domain:data.domain,types:{...data.types,EIP712Domain:domainFields},primary_type:data.primaryType,message:data.message}}}),remaining());
       remaining();if(result.encoding!=='hex'||!/^0x[0-9a-fA-F]{128}(?:00|01|1b|1c)$/i.test(result.signature)||!await verifyTypedData({address:account.address as `0x${string}`,...data,signature:result.signature as `0x${string}`}))throw new Error();remaining();return result.signature;
     }catch{throw new LiveBoundaryError('agent_master_approval_unavailable');}finally{clearTimeout(timer);controller.abort();}
   }

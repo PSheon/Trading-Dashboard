@@ -121,15 +121,15 @@ export class HyperliquidFollowerReceiptReader {
       try {
         // Admit a bounded worst-case surcharge before any HTTP request. Funding
         // has the same physical row bound because general docs mention blocks.
-        await boundedLiveRead(this.acquire(RESPONSE_WEIGHT), remaining());
+        await boundedLiveRead(() => this.acquire(RESPONSE_WEIGHT), remaining());
         const body = { type: window.kind === 'fills' ? 'userFillsByTime' : 'userFunding', user,
           startTime: window.from, endTime: window.to, ...(window.kind === 'fills' ? { aggregateByTime: false } : {}) };
-        const response = await boundedLiveRead(this.fetcher('https://api.hyperliquid-testnet.xyz/info', {
+        const response = await boundedLiveRead(() => this.fetcher('https://api.hyperliquid-testnet.xyz/info', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
           redirect: 'error', signal: AbortSignal.timeout(remaining()),
         }), remaining());
         if (!response.ok) { void response.body?.cancel().catch(() => undefined); fail('follower_reader_read_unavailable'); }
-        rows = await boundedLiveRead(readInfoJson(response, 'follower receipts', 2 * 1024 * 1024), remaining());
+        rows = await boundedLiveRead(() => readInfoJson(response, 'follower receipts', 2 * 1024 * 1024), remaining());
         remaining();
       } catch (error) {
         const reason = !this.fresh(started) ? 'evidence_expired' : error instanceof LiveBoundaryError && error.code === 'live_read_deadline_exceeded'

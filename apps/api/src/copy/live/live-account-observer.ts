@@ -105,13 +105,13 @@ export class HyperliquidLiveAccountObserver {
       const read = async (type: string, weight: number, extra: Record<string, unknown> = {}) => {
         const body = { type, ...extra };
         const remaining = () => { this.fresh(started); return Math.max(1, this.maxAgeMs - (this.now() - started)); };
-        await boundedLiveRead(this.acquire(weight), remaining());
-        const response = await boundedLiveRead(this.fetcher('https://api.hyperliquid-testnet.xyz/info', {
+        await boundedLiveRead(() => this.acquire(weight), remaining());
+        const response = await boundedLiveRead(() => this.fetcher('https://api.hyperliquid-testnet.xyz/info', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
           redirect: 'error', signal: AbortSignal.timeout(remaining()),
         }), remaining());
         if (!response.ok) fail('live_account_observation_unavailable');
-        const value = await boundedLiveRead(readInfoJson(response, type, (type === 'allPerpMetas' ? 8 : 2) * 1024 * 1024), remaining());
+        const value = await boundedLiveRead(() => readInfoJson(response, type, (type === 'allPerpMetas' ? 8 : 2) * 1024 * 1024), remaining());
         this.fresh(started);
         if (value && typeof value === 'object' && !Array.isArray(value)) {
           const row = value as Record<string, unknown>;
@@ -151,12 +151,12 @@ export class HyperliquidLiveAccountObserver {
         const remaining = () => { this.fresh(started); return Math.max(1, this.maxAgeMs - (this.now() - started)); };
         // Reserve shared read capacity before opening a read-only subscription.
         const combined = this.aggregateSource.readAccount;
-        await boundedLiveRead(this.acquire(combined ? 40 : 20), remaining());
-        const result = combined ? structuredClone(await boundedLiveRead(combined.call(this.aggregateSource,
+        await boundedLiveRead(() => this.acquire(combined ? 40 : 20), remaining());
+        const result = combined ? structuredClone(await boundedLiveRead(() => combined.call(this.aggregateSource,
           user, venues.map((v) => v.dex), remaining()), remaining())) : undefined;
         if (combined && (!result?.state || !result.orders)) fail('live_account_source_mismatch');
         if (result) combinedOrders = result.orders;
-        const proof = result?.state ?? structuredClone(await boundedLiveRead(this.aggregateSource.read(user, remaining()), remaining()));
+        const proof = result?.state ?? structuredClone(await boundedLiveRead(() => this.aggregateSource.read(user, remaining()), remaining()));
         if (proof.network !== this.network || address(proof.accountAddress) !== user) fail('live_account_source_mismatch');
         this.fresh(proof.observedAt); this.fresh(started);
         sources.push({ subscription: { type: 'allDexsClearinghouseState', user }, proof }); return proof.data;
@@ -181,8 +181,8 @@ export class HyperliquidLiveAccountObserver {
         const remaining = () => { this.fresh(started); return Math.max(1, this.maxAgeMs - (this.now() - started)); };
         let proof = combinedOrders;
         if (!proof) {
-          await boundedLiveRead(this.acquire(20), remaining());
-          proof = structuredClone(await boundedLiveRead(this.aggregateSource.readOrders!(user, venues.map((v) => v.dex), remaining()), remaining()));
+          await boundedLiveRead(() => this.acquire(20), remaining());
+          proof = structuredClone(await boundedLiveRead(() => this.aggregateSource.readOrders!(user, venues.map((v) => v.dex), remaining()), remaining()));
         }
         if (proof.network !== this.network || address(proof.accountAddress) !== user) fail('live_account_source_mismatch');
         this.fresh(proof.observedAt); this.fresh(proof.completedAt);

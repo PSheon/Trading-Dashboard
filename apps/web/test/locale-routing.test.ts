@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { LOCALE_PATTERN, withLocales } from "../next.config";
 import { LOCALES, PATH_HEADER, localePath, negotiateLocale, splitLocale } from "../src/i18n/config";
-import { isUnprefixedRoute, proxy } from "../src/proxy";
+import { HEALTHCHECK_HOST, isUnprefixedRoute, proxy } from "../src/proxy";
 
 const request = (path: string, init: { cookie?: string; language?: string } = {}) =>
   new NextRequest(`https://app.orbie.fun${path}`, {
@@ -83,5 +83,15 @@ describe("next.config redirects under a locale", () => {
       { source: "/login", destination: "/", permanent: false },
       { source: `/:locale(${LOCALE_PATTERN})/login`, destination: "/:locale", permanent: false },
     ]);
+  });
+});
+
+describe("deploy healthcheck", () => {
+  it("answers Railway's healthcheck with 200 instead of redirecting it to a locale", async () => {
+    const check = proxy(new NextRequest("http://healthcheck.railway.app/", { headers: { host: HEALTHCHECK_HOST } }));
+    expect(check.status).toBe(200);
+    expect(await check.text()).toBe("ok");
+    // Everyone else still gets the locale redirect.
+    expect(proxy(new NextRequest("https://app.orbie.fun/")).status).toBe(307);
   });
 });

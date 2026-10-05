@@ -37,8 +37,16 @@ export function preferredLocale(cookie: string | undefined, acceptLanguage: stri
  * adds it to its scripts; pages are dynamically rendered already, which
  * nonces require.
  */
+/** Railway's deploy healthcheck calls the service with this Host. It wants
+ * a 200, and every page URL without a locale now redirects, so the check
+ * gets a plain "ok" instead of a page. */
+export const HEALTHCHECK_HOST = "healthcheck.railway.app";
+
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  if (request.headers.get("host") === HEALTHCHECK_HOST) {
+    return new NextResponse("ok", { status: 200, headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" } });
+  }
   if (!isUnprefixedRoute(pathname)) {
     const first = pathname.split("/")[1] ?? "";
     if (!isLocale(first)) {

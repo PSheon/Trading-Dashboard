@@ -61,8 +61,8 @@ export function AppShell({
 }) {
   const t = useT();
   const pathname = usePathname();
-  // At the top of the page the bars are clear, so the glow under them reads
-  // as one piece; once the page scrolls they take their solid background.
+  // At the top of the page the bars are clear; once it scrolls, their
+  // frosted panel (.bar-scrim) fades in.
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
     const update = () => setScrolled(window.scrollY > 4);
@@ -88,8 +88,7 @@ export function AppShell({
 
   return (
     <WalletModalsProvider>
-    <div className="relative isolate min-h-dvh">
-      <div aria-hidden className="orbit-aurora" />
+    <div className="min-h-dvh">
       <a
         href="#main"
         className="sr-only z-50 rounded-full bg-primary px-4 py-2 font-extrabold text-primary-foreground focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
@@ -102,7 +101,8 @@ export function AppShell({
           columns, the sides never narrower than their contents: the search
           (at most 400px) sits in the middle one, centred on the page
           whenever both sides fit a third, as they do signed out or in. */}
-      <header data-scrolled={scrolled} className="orbit-header sticky top-0 z-40 hidden transition-[background-color,backdrop-filter] duration-300 data-[scrolled=false]:bg-transparent data-[scrolled=true]:bg-background/92 data-[scrolled=true]:backdrop-blur-xl motion-reduce:transition-none md:block">
+      <header data-scrolled={scrolled} className="orbit-header sticky top-0 z-40 isolate hidden md:block">
+        <div aria-hidden className="bar-scrim" />
         <div className="page-frame grid grid-cols-[minmax(max-content,1fr)_minmax(0,1fr)_minmax(max-content,1fr)] items-center gap-3 py-3">
         <div className="flex min-w-0 items-center gap-3">
           <Link
@@ -130,10 +130,12 @@ export function AppShell({
         </div>
         </div>
       </header>
-      {/* Solid, without backdrop-filter: a filter would make the phone header
-          the containing block of the full-screen search overlay inside it. */}
+      {/* No backdrop-filter on the header itself (it would become the
+          containing block of the full-screen search overlay inside it); the
+          blur lives on its .bar-scrim child. */}
       {chrome !== "none" ? (
-        <header data-scrolled={scrolled} className="fixed inset-x-0 top-0 z-40 flex h-[72px] items-center gap-2.5 px-4 transition-colors duration-300 data-[scrolled=false]:bg-transparent data-[scrolled=true]:bg-background motion-reduce:transition-none md:hidden">
+        <header data-scrolled={scrolled} className="fixed inset-x-0 top-0 z-40 isolate flex h-[72px] items-center gap-2.5 px-4 md:hidden">
+          <div aria-hidden className="bar-scrim" />
           <Link href="/" aria-label={APP_NAME} className="mr-auto flex shrink-0 items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <Lockup />
           </Link>

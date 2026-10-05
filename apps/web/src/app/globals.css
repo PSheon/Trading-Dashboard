@@ -30,10 +30,6 @@
 
   /* The page ground: ONE token, so the background can change in one place. */
   --page: #fbf6ee;
-  /* The glow under the top bar (the boards' blob colours). */
-  --aurora-1: #ffe1d0;
-  --aurora-2: #e9e0ff;
-  --aurora-3: #d9f2e5;
 
   --background: var(--page);
   --foreground: #15132b;
@@ -127,9 +123,6 @@
 :root.dark {
   color-scheme: dark;
   --page: #15132b;
-  --aurora-1: rgb(255 122 69 / 14%);
-  --aurora-2: #2a2366;
-  --aurora-3: rgb(95 227 173 / 9%);
   --foreground: #fbf6ee;
   --card: #2a2655;
   --card-foreground: #fbf6ee;
@@ -174,9 +167,6 @@
   :root:not(.light) {
     color-scheme: dark;
     --page: #15132b;
-  --aurora-1: rgb(255 122 69 / 14%);
-  --aurora-2: #2a2366;
-  --aurora-3: rgb(95 227 173 / 9%);
     --foreground: #fbf6ee;
     --card: #2a2655;
     --card-foreground: #fbf6ee;
@@ -967,23 +957,26 @@
   }
 }
 
-/* A soft gradient glow under the top bar, full-bleed behind the page frame.
-   Static (no motion), paint-only (no layout), and it fades out into the page
-   well above the content's first text. */
-.orbit-aurora {
+/* The top bars own no background: one frosted panel behind each bar fades
+   in once the page scrolls, and its last 2rem is masked out, so the tint
+   and the blur dissolve together into the content scrolling underneath
+   (DonutMe's shell header) instead of ending in a hard edge. */
+.bar-scrim {
   position: absolute;
   inset-inline: 0;
   top: 0;
   z-index: -1;
-  height: 360px;
+  height: calc(100% + 2rem);
   pointer-events: none;
-  background:
-    radial-gradient(55% 115% at 10% 0%, var(--aurora-1), transparent 70%),
-    radial-gradient(45% 105% at 52% 0%, var(--aurora-2), transparent 72%),
-    radial-gradient(45% 120% at 94% 0%, var(--aurora-3), transparent 70%);
-  -webkit-mask-image: linear-gradient(to bottom, #000 35%, transparent);
-  mask-image: linear-gradient(to bottom, #000 35%, transparent);
+  background: color-mix(in oklab, var(--background) 92%, transparent);
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2rem), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 2rem), transparent);
+  opacity: 0;
+  transition: opacity 300ms ease-out;
 }
-@media (max-width: 767px) {
-  .orbit-aurora { height: 240px; }
+[data-scrolled="true"] > .bar-scrim { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .bar-scrim { transition: none; }
 }

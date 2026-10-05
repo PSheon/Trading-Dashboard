@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Fredoka, Noto_Sans_TC, Nunito } from "next/font/google";
+import { Fredoka, Nunito } from "next/font/google";
 import { cookies, headers } from "next/headers";
 import "./globals.css";
 
@@ -7,7 +7,7 @@ import { AppProviders } from "@/components/app-providers";
 import { AppShell } from "@/components/shell/app-shell";
 import { CjkFontWarmup } from "@/components/shell/cjk-font";
 import { ANNOUNCEMENT_COOKIE } from "@/lib/announcement";
-import { CJK_FONT_COOKIE } from "@/lib/cjk-font";
+import { CJK_FONT_COOKIE, parseCjkFont } from "@/lib/cjk-font";
 import { clientAddress } from "@/lib/client-address";
 import type { PublicSettings } from "@/lib/contracts";
 import { prefetchPublic, type Prefetched } from "@/lib/server-prefetch";
@@ -33,19 +33,6 @@ const fredoka = Fredoka({
   subsets: ["latin"],
   weight: ["500", "600"],
   display: "swap",
-});
-
-/** Noto Sans TC, the CJK web font. Only its @font-face rules are in the
- * page's CSS: no font stack names it until this browser has its slices
- * cached (the cjk-font cookie, set by CjkFontWarmup after a page has
- * loaded), so a first visit fetches none of it and draws CJK in the
- * system's face (globals.css, --font-cjk). Never preloaded; `optional`: a
- * slice that is not ready at once is never swapped in later. */
-const notoSansTc = Noto_Sans_TC({
-  variable: "--font-noto-tc",
-  weight: ["500", "700"],
-  display: "optional",
-  preload: false,
 });
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -101,14 +88,22 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   // The theme chosen with the toggle (cookie); none = follow the system.
   const [cookieStore, settings] = await Promise.all([cookies(), siteSettings()]);
   const themeChoice = parseThemeChoice(cookieStore.get(THEME_COOKIE)?.value);
-  // The CJK web font, once this browser has it cached (see CjkFontWarmup).
-  const cjkWeb = cookieStore.get(CJK_FONT_COOKIE)?.value === "1";
+  // The CJK web font, once this browser has it cached (see CjkFontWarmup):
+  // its stylesheet is linked and the family put first. A first visit's CSS
+  // has none of it (components/shell/noto-font is imported only there).
+  const cjkFont = parseCjkFont(cookieStore.get(CJK_FONT_COOKIE)?.value);
 
   return (
     <html
       lang={locale}
-      className={`${themeClass(themeChoice)} ${nunito.variable} ${fredoka.variable} ${notoSansTc.variable}${cjkWeb ? " cjk-web" : ""} h-full antialiased`.trim()}
+      className={`${themeClass(themeChoice)} ${nunito.variable} ${fredoka.variable}${cjkFont ? " cjk-web" : ""} h-full antialiased`.trim()}
+      style={cjkFont ? ({ "--font-noto-tc": cjkFont.family } as React.CSSProperties) : undefined}
     >
+      {cjkFont ? (
+        <head>
+          {cjkFont.css.map((href) => <link key={href} rel="stylesheet" href={href} precedence="cjk-font" />)}
+        </head>
+      ) : null}
       <body className="min-h-full bg-background text-foreground">
         <JsonLd data={siteJsonLd(messages)} />
         <AppProviders locale={locale} messages={messages} themeChoice={themeChoice}>

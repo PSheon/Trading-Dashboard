@@ -211,20 +211,21 @@
 
 /* CJK text. A first visit uses the system's face: PingFang TC (macOS,
  * iOS), Hiragino Sans (older macOS), Microsoft JhengHei (Windows), Noto
- * Sans CJK TC (Android, ChromeOS, Linux). Noto Sans TC, the web font, is
- * never asked for before the page has loaded: once the browser is idle the
- * page's characters are fetched into the cache (components/shell/
- * cjk-font.tsx), and from the next visit on <html> carries .cjk-web and
- * puts it first (font-display: optional, so a slice that is not cached
- * never swaps in under the reader). "Noto Sans TC" is not named in the
- * system list: the web font's @font-face has that name and would shadow
- * an installed copy, fetching it on a first visit. */
+ * Sans CJK TC (Android, ChromeOS, Linux). Noto Sans TC, the web font, is in
+ * no first-paint CSS and never asked for before the page has loaded: a few
+ * seconds after load its @font-face chunk and the page's characters'
+ * slices are fetched into the cache (components/shell/cjk-font.tsx), and
+ * from the next visit on the layout links that chunk, sets
+ * --font-noto-tc on <html class="cjk-web"> and puts it first
+ * (font-display: optional, so a slice that is not cached never swaps in
+ * under the reader). "Noto Sans TC" is not named in the system list: the
+ * web font's @font-face has that name and would shadow an installed copy. */
 :root {
   --font-cjk-system: "PingFang TC", "Hiragino Sans", "Microsoft JhengHei", "Noto Sans CJK TC";
   --font-cjk: var(--font-cjk-system);
 }
 :root.cjk-web {
-  --font-cjk: var(--font-noto-tc), var(--font-cjk-system);
+  --font-cjk: var(--font-noto-tc, "Noto Sans TC"), var(--font-cjk-system);
 }
 
 @theme inline {

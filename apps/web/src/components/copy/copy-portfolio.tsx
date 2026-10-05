@@ -9,6 +9,7 @@ import { CopyAccountingHistory } from "@/components/copy/copy-accounting-history
 import { PaperBadge } from "@/components/copy/paper-badge";
 import { CopyCompare } from "@/components/copy/copy-compare";
 import { CopySparkline } from "@/components/copy/portfolio-parts";
+import { SkelBar, SkelCircle } from "@/components/page";
 import { TraderAvatar, boardName } from "@/components/discover/board-bits";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { RoiPill } from "@/components/traders/bits";
@@ -570,4 +571,55 @@ export function WithdrawDialog({ strategy: s, open, onClose }: { strategy: CopyS
       }}>{withdraw.isPending ? (t("copyUpdates.processing")) : (t("copyUpdates.withdrawConfirm"))}</Button>
     </div>
   </Modal>;
+}
+
+/** The copy list while /me/copy loads: CopyTable's header over raised rows
+ * (avatar, name and figure bars) on desktop, CopyCards' cards on phones. */
+export function CopyListSkeleton({ phone = false, rows = 2 }: { phone?: boolean; rows?: number }) {
+  const { t } = useI18n();
+  if (phone) {
+    return (
+      <div aria-hidden="true" className="ui-skeleton flex flex-col gap-3">
+        {Array.from({ length: rows }, (_, i) => (
+          <div key={i} className="orbit-card">
+            <div className="flex items-center gap-3 p-4">
+              <SkelCircle className="size-11" />
+              <span className="flex min-w-0 flex-1 flex-col gap-1">
+                <SkelBar line="h-[22px]" className="h-3.5 w-28" />
+                <SkelBar line="h-[18px]" className="h-2.5 w-20" />
+              </span>
+              <span className="flex flex-col items-end gap-1">
+                <SkelBar line="h-[22px]" className="h-3.5 w-16" />
+                <SkelBar className="h-6 w-14 rounded-md" />
+              </span>
+            </div>
+            <div className="flex h-[38px] items-center gap-2 border-t-2 border-dotted border-border px-4">
+              <SkelBar className="h-2.5 w-24" />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  const cols = "grid grid-cols-[2.2fr_0.8fr_0.8fr_1.1fr_1fr_1.1fr_1.1fr_0.9fr_40px] items-center gap-3";
+  const heads = ["days", "positions", "equity", "equityCurve", "upnl", "pnl", "roi"] as const;
+  return (
+    <div aria-hidden="true" className="ui-skeleton flex flex-col gap-2 [--skel-bar:var(--border)]">
+      <div className={cn(cols, "px-[18px] pt-2 text-xs font-bold text-muted-foreground")}>
+        <span>{t("portfolio.copy.cols.trader")}</span>
+        {heads.map((h) => <span key={h} className="text-right">{t(`portfolio.copy.cols.${h}`)}</span>)}
+        <span />
+      </div>
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className={cn(cols, "min-h-16 rounded-xl bg-raised px-[18px] py-3")}>
+          <span className="flex min-w-0 items-center gap-2.5">
+            <SkelCircle className="size-9" />
+            <SkelBar className="h-3.5 w-24" />
+          </span>
+          {heads.map((h) => <SkelBar key={h} className="ml-auto h-3 w-12" />)}
+          <SkelCircle className="ml-auto size-8" />
+        </div>
+      ))}
+    </div>
+  );
 }

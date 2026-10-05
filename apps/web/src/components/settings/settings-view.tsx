@@ -28,7 +28,7 @@ import { cn } from "cn";
 import { ThemeChoiceControl } from "@/components/shell/theme-toggle";
 
 import { Wordmark } from "@/components/brand/logo";
-import { Skeleton } from "@/components/page";
+import { SkelBar } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -73,16 +73,18 @@ function useAccountName(): { name: string; initial: string; email: string | null
  */
 export function SettingsView() {
   const { status } = useAuth();
-  if (status === "loading") return <SettingsSkeleton />;
-  const signedIn = status === "signedIn";
+  // While sign-in is unknown the signed-in page is drawn in its loading
+  // state (its reads wait for the session), as a returning visitor sees it.
+  const loading = status === "loading";
+  const signedIn = status === "signedIn" || loading;
   return (
-    <>
+    <div aria-busy={loading || undefined} className="contents">
       <div className="hidden md:block">{signedIn ? <DesktopSettings /> : <SignedOut />}</div>
       {/* The phone sheet exists signed out too (登入 on top, only 語言). */}
       <div className="md:hidden">
         <PhoneSettings signedIn={signedIn} />
       </div>
-    </>
+    </div>
   );
 }
 
@@ -99,25 +101,6 @@ function SignedOut() {
       <Button size="xl" className="mt-6 w-[200px] font-semibold" onClick={login} disabled={status === "disabled"}>
         {t("common.signIn")}
       </Button>
-    </div>
-  );
-}
-
-function SettingsSkeleton() {
-  return (
-    <div className="flex flex-col gap-5">
-      <Skeleton className="h-8 w-24" />
-      <div className="grid gap-6 md:grid-cols-[360px_1fr]">
-        <div className="hidden flex-col gap-2 md:flex">
-          <Skeleton className="h-14 w-full" />
-          <Skeleton className="h-14 w-full" />
-        </div>
-        <div className="flex flex-col gap-4">
-          <Skeleton className="h-12 w-60" />
-          <Skeleton className="h-24 w-full" />
-          <Skeleton className="h-24 w-full" />
-        </div>
-      </div>
     </div>
   );
 }
@@ -202,7 +185,7 @@ function ProfileAndWallet() {
           address ? (
             <span className="font-mono">{shortAddress(address)}</span>
           ) : wallet.isPending ? (
-            <Skeleton className="h-3.5 w-28" />
+            <SkelBar line="h-4" className="ui-skeleton h-2.5 w-28" />
           ) : (
             t("settings.walletPending")
           )
@@ -226,9 +209,11 @@ function FundsSummary() {
       <div>
         <p className="text-xs text-muted-foreground">{t("portfolio.totalValue")}</p>
         {wallet.data ? (
-          <p className="num mt-1 font-display text-[2.125rem]">{format.usd(wallet.data.totalValue, { digits: 2 })}</p>
+          <p className="num mt-1 font-display text-[2.125rem] leading-[1.2]">{format.usd(wallet.data.totalValue, { digits: 2 })}</p>
         ) : (
-          <Skeleton className="mt-2 h-8 w-32" />
+          <p aria-hidden="true" className="num mt-1 flex h-[1.2em] items-center font-display text-[2.125rem]">
+            <span className="ui-skeleton block h-[0.75em] w-[4.5em] rounded-full bg-raised" />
+          </p>
         )}
       </div>
       <div className="flex gap-2">

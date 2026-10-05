@@ -8,7 +8,7 @@ import { cn } from "cn";
 import { AreaChart } from "@/components/charts/area-chart";
 import { PaperBadge } from "@/components/copy/paper-badge";
 import { TraderAvatar, boardName } from "@/components/discover/board-bits";
-import { Skeleton } from "@/components/page";
+import { SkelBar, Skeleton } from "@/components/page";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { RoiPill } from "@/components/traders/bits";
 import { Button } from "@/components/ui/button";
@@ -102,7 +102,7 @@ export function PortfolioChart({ overview, height = 240, className }: { overview
       <div className="flex items-start justify-between gap-3 pt-3">
         <div className="flex min-w-0 flex-col items-start gap-2">
           {query.isPending && !query.data ? (
-            <Skeleton className="h-8 w-40" />
+            <SkelBar line="h-[30.8px]" className="ui-skeleton h-6 w-40 bg-border" />
           ) : (
             <p className={cn("num font-display text-[1.75rem] leading-[1.1]", last ? tone(last[1]) : "text-muted-foreground")}>
               {!last ? "—" : roi ? format.pct(lastRoi!, { sign: true, digits: 2 }) : fmtUsd(last[1])}
@@ -133,7 +133,7 @@ export function PortfolioChart({ overview, height = 240, className }: { overview
             ariaLabel={t("pf.chart.aria")}
           />
         ) : query.isPending ? (
-          <div style={{ height }}><Skeleton className="h-full" /></div>
+          <div style={{ height }}><Skeleton className="h-full rounded-2xl bg-background/60" /></div>
         ) : (
           <div className="flex items-center justify-center text-sm text-muted-foreground" style={{ height }}>
             {query.isError ? t("copyUpdates.historyError") : t("pf.chart.noData")}
@@ -502,5 +502,59 @@ export function HedgeNotice({ trader, coins, onDismiss }: { trader: string; coin
       </div>
       <p className="mt-1.5 text-xs text-muted-foreground">{t("pf.hedge.body", { trader, coins: coins.map(coinLabel).join(", ") })}</p>
     </div>
+  );
+}
+
+/** The 模擬帳戶 card while /me/copy loads: same card, title, value line and
+ * the four figure wells (`compact`: the phone's collapsed card). */
+export function PaperSummarySkeleton({ className, compact = false }: { className?: string; compact?: boolean }) {
+  const { t } = useI18n();
+  return (
+    <section aria-hidden="true" className={cn("ui-skeleton flex flex-col rounded-2xl bg-raised p-6 [--skel-bar:var(--border)]", className)}>
+      <div className="flex items-center justify-between gap-2">
+        <p className="font-display text-xl">{t("portfolio.copy.paperAccount")}</p>
+        <SkelBar className="h-6 w-14" />
+      </div>
+      <SkelBar line="h-[50px]" className="h-8 w-40" />
+      <SkelBar line="mt-1 h-5" className="h-3 w-28" />
+      {compact ? (
+        <SkelBar line="pt-4 h-8" className="h-2.5 w-40" />
+      ) : (
+        <>
+          <div className="mt-5 grid grid-cols-1 gap-2 xl:grid-cols-2">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="flex flex-col gap-0.5 rounded-xl bg-card px-4 py-3">
+                <SkelBar line="h-4" className="h-2.5 w-14" />
+                <SkelBar line="h-7" className="h-4 w-20" />
+              </div>
+            ))}
+          </div>
+          <SkelBar line="mt-auto pt-4 h-8" className="h-2.5 w-40" />
+        </>
+      )}
+    </section>
+  );
+}
+
+/** PortfolioChart while /me/copy loads: its header controls, the headline
+ * and the chart area, at the loaded sizes. */
+export function PortfolioChartSkeleton({ height = 240, className }: { height?: number; className?: string }) {
+  return (
+    <section aria-hidden="true" className={cn("ui-skeleton flex min-w-0 flex-col rounded-2xl bg-raised p-3 [--skel-bar:var(--border)] md:p-[18px]", className)}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="h-10 w-28 rounded-full bg-background" />
+          <SkelBar className="h-6 w-14" />
+        </div>
+        <span className="h-10 w-56 rounded-full bg-background" />
+      </div>
+      <div className="flex flex-col items-start gap-2 pt-3">
+        <SkelBar line="h-[30.8px]" className="h-6 w-40" />
+        <SkelBar className="h-[26px] w-20" />
+      </div>
+      <div className="flex-1 px-1.5 pt-1.5 pb-2">
+        <div className="rounded-2xl bg-background/60" style={{ height }} />
+      </div>
+    </section>
   );
 }

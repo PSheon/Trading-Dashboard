@@ -13,6 +13,7 @@ import { CopyFollowerStatementSettings } from "./copy-follower-statement";
 import { CopyLiveStrategySettings } from "./copy-live";
 import { useActualCopyWalletPreparation, useLiveCopyOverview } from "@/lib/copy-live";
 import { CopyAccountModeSettings } from "./copy-account-mode";
+import { SkelBar } from "@/components/page";
 
 /** Setup and revocation only. Preparing a wallet never starts trading. */
 export function ExecutionWalletSettings() {
@@ -43,7 +44,30 @@ export function ExecutionWalletSettings() {
       <h3 className="text-[0.9375rem] font-bold">{t("executionWallets.title")}</h3>
       <p className="mt-2 text-xs leading-5 text-muted-foreground">{t("executionWallets.setupHint")}</p>
       <CopyLiveStrategySettings accounts={wallets.isError ? [] : data?.accounts ?? []} authorizations={wallets.isError ? [] : data?.authorizations ?? []}/>
-      {wallets.isPending ? <p role="status" className="mt-3 text-sm">{t("executionWallets.loading")}</p> : null}
+      {wallets.isPending ? (
+        <>
+          <p role="status" className="sr-only">{t("executionWallets.loading")}</p>
+          {/* The loaded card's first lines: network, a note, the copy picker. */}
+          <div aria-hidden="true" className="ui-skeleton mt-3 flex flex-col gap-2">
+            <SkelBar line="h-4" className="h-2.5 w-28" />
+            <SkelBar line="h-4" className="h-2.5 w-44" />
+            <div className="mt-2 flex items-end gap-3">
+              <div className="min-w-0 flex-1">
+                <SkelBar line="h-4" className="h-2.5 w-16" />
+                <div className="mt-1 h-9 rounded-xl bg-inset" />
+              </div>
+              <div className="h-9 w-32 rounded-full bg-inset" />
+            </div>
+            {/* 策略測試網注資 and the other sections' heads. */}
+            <SkelBar line="mt-5 h-5" className="h-3 w-32" />
+            <SkelBar line="h-5" className="h-2.5 w-full max-w-md" />
+            <SkelBar line="h-5" className="h-2.5 w-24" />
+            <h4 className="mt-5 text-sm font-bold">{t("executionWallets.authorizations")}</h4>
+            <p className="text-xs leading-5 text-muted-foreground">{t("executionWallets.revokeHint")}</p>
+            <SkelBar line="mt-1 h-4" className="h-2.5 w-28" />
+          </div>
+        </>
+      ) : null}
       {wallets.isError ? (
         <div className="mt-3 text-sm">
           <p role="alert">{t("executionWallets.loadError")}</p>

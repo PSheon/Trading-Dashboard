@@ -8,9 +8,9 @@ import { cn } from "cn";
 
 import { ActivityPanel } from "@/components/copy/activity-panel";
 import { CopyActivity } from "@/components/copy/copy-activity";
-import { CopyCards, CopyDetail, CopyTable, useLeaders } from "@/components/copy/copy-portfolio";
+import { CopyCards, CopyDetail, CopyListSkeleton, CopyTable, useLeaders } from "@/components/copy/copy-portfolio";
 import { LiveCopies } from "@/components/copy/live-copies";
-import { ExposurePanel, InsightsPanel, PaperSummary, PortfolioChart } from "@/components/copy/portfolio-parts";
+import { ExposurePanel, InsightsPanel, PaperSummary, PaperSummarySkeleton, PortfolioChart, PortfolioChartSkeleton } from "@/components/copy/portfolio-parts";
 import { ErrorState, Skeleton } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { NetworkBadge } from "@/components/wallet/bits";
@@ -37,10 +37,16 @@ type Tab = "copying" | "insights" | "exposure";
 export function PortfolioView() {
   const { status } = useAuth();
   if (status === "loading") {
+    // The signed-in page in its loading state (its reads wait for the
+    // session): a returning visitor's page fills in where it stands.
     return (
-      <div className="flex flex-col gap-6">
-        <Skeleton className="h-[166px] w-full max-w-[340px]" />
-        <Skeleton className="h-40 w-full" />
+      <div aria-busy="true">
+        <div className="hidden md:block">
+          <DesktopPortfolio />
+        </div>
+        <div className="md:hidden">
+          <PhonePortfolio />
+        </div>
       </div>
     );
   }
@@ -90,7 +96,12 @@ function TotalValue({ wallet, className }: { wallet: ReturnType<typeof useWallet
     return <p className={cn("num font-extrabold", className)}>{format.usd(wallet.data.totalValue, { digits: 2 })}</p>;
   }
   if (wallet.isError) return <p className={cn("num font-extrabold text-muted-foreground", className)}>—</p>;
-  return <Skeleton className="mt-1 h-10 w-36" />;
+  // A bar on the figure's own line (same font size and leading).
+  return (
+    <p aria-hidden="true" className={cn("num flex h-[1.25em] items-center font-extrabold", className)}>
+      <span className="ui-skeleton block h-[0.75em] w-[4.5em] rounded-full bg-raised" />
+    </p>
+  );
 }
 
 function FundButtons({ className }: { className?: string }) {
@@ -259,7 +270,8 @@ function DesktopPortfolio() {
       <h1 className="font-display text-[2.5rem] leading-[1.1]">{t("portfolio.title")}</h1>
       <div className="flex flex-wrap items-stretch gap-4">
         <section className="orbit-card flex w-[340px] flex-col gap-2 p-6" aria-label={t("portfolio.totalValue")}>
-          <div className="flex items-center justify-between gap-2">
+          {/* min-h-6: the testnet badge's height, so its arrival moves nothing. */}
+          <div className="flex min-h-6 items-center justify-between gap-2">
             <p className="text-[13px] font-bold text-muted-foreground">{t("portfolio.totalValue")}</p>
             <NetworkBadge network={wallet.data?.network} />
           </div>
@@ -277,17 +289,46 @@ function DesktopPortfolio() {
           {wallet.isError && !wallet.data ? <ErrorState onRetry={() => wallet.refetch()} /> : null}
           <FundButtons className="mt-auto pt-2" />
         </section>
-        {copy.data ? <PaperSummary overview={copy.data} className="w-[340px]" /> : null}
-        {copy.data && copy.data.strategies.length > 0 ? <PortfolioChart overview={copy.data} className="min-w-[420px] flex-1" /> : null}
+        {copy.data ? <PaperSummary overview={copy.data} className="w-[340px]" /> : !copy.isError ? <PaperSummarySkeleton className="w-[340px]" /> : null}
+        {copy.data && copy.data.strategies.length > 0 ? (
+          <PortfolioChart overview={copy.data} className="min-w-[420px] flex-1" />
+        ) : !copy.data && !copy.isError ? (
+          <PortfolioChartSkeleton className="min-w-[420px] flex-1" />
+        ) : null}
       </div>
       {copy.data ? (
         <CopyingSection overview={copy.data} phone={false} />
       ) : copy.isError ? (
         <ErrorState onRetry={() => copy.refetch()} />
       ) : (
-        <Skeleton className="h-40 w-full" />
+        <CopySectionSkeleton />
       )}
     </div>
+  );
+}
+
+/** CopyingSection while /me/copy loads: its tab row (COPYING lit) over the
+ * list's header and rows. */
+function CopySectionSkeleton() {
+  const { t } = useI18n();
+  return (
+    <section aria-hidden="true">
+      <div className="mb-1 flex gap-1">
+        {(["copying", "insights", "exposure"] as const).map((value) => (
+          <span
+            key={value}
+            className={cn(
+              "flex h-11 items-center gap-2 rounded-full px-4 text-[15px]",
+              value === "copying" ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground",
+            )}
+          >
+            {t(`portfolio.tabs.${value}`)}
+            {value === "copying" ? <span className="inline-flex size-6 rounded-full bg-card/80" /> : null}
+          </span>
+        ))}
+      </div>
+      <CopyListSkeleton />
+    </section>
   );
 }
 
@@ -379,7 +420,7 @@ function PhoneBody({
   return (
     <>
       <div className="orbit-card mx-4 mt-3 px-5 py-4">
-        <div className="flex items-center gap-2">
+        <div className="flex min-h-6 items-center gap-2">
           <p className="text-[13px] font-bold text-muted-foreground">{t("portfolio.totalValue")}</p>
           <NetworkBadge network={wallet.data?.network} />
         </div>
@@ -416,7 +457,7 @@ function PhoneBody({
             </button>
           ))}
         </div>
-        <div role="tabpanel" className={copy.data?.strategies.length ? "pt-4 pb-6" : "pt-8"}>
+        <div role="tabpanel" className={copy.data && copy.data.strategies.length === 0 ? "pt-8" : "pt-4 pb-6"}>
           <PhoneTab tab={tab} copy={copy} setTab={setTab} />
         </div>
       </div>
@@ -429,7 +470,15 @@ function PhoneTab({ tab, copy, setTab }: { tab: Tab; copy: ReturnType<typeof use
   const leaders = useLeaders(copy.data?.strategies ?? []);
   const [, select] = useSelectedCopy();
   if (!copy.data) {
-    return copy.isError ? <ErrorState onRetry={() => copy.refetch()} /> : <Skeleton className="h-40 w-full" />;
+    if (copy.isError) return <ErrorState onRetry={() => copy.refetch()} />;
+    return tab === "copying" ? (
+      <div className="flex flex-col gap-4">
+        <PaperSummarySkeleton className="p-4" compact />
+        <CopyListSkeleton phone />
+      </div>
+    ) : (
+      <Skeleton className="h-60 w-full rounded-2xl" />
+    );
   }
   const has = copy.data.strategies.length > 0;
   if (tab === "copying") {

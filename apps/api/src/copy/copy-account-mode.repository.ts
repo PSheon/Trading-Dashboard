@@ -91,12 +91,14 @@ export class CopyAccountModeRepository {
       .where(and(eq(copyAccountModeOperations.id, row.id), eq(copyAccountModeOperations.revision, row.revision), eq(copyAccountModeOperations.submissionState, row.submissionState))).returning();
     return next ?? null;
   }
-  async challenge(tx: DbTransaction, userId: number, row: AccountModeRow, assertFresh: () => void) {
+  /** Allocates the operation's nonce, or keeps a live one that has at least
+   * `minRemainingMs` of its five-minute window left. */
+  async challenge(tx: DbTransaction, userId: number, row: AccountModeRow, assertFresh: () => void, minRemainingMs = 0) {
     await this.assertCurrent(userId, row, tx, true);
     const locked = await this.find(userId, row.id, tx, true); assertFresh();
     if (locked.submissionState !== 'prepared' || locked.attemptedAt || locked.revision !== row.revision || locked.targetState === 'supported')
       throw new ConflictException('account_mode_challenge_changed');
-    if (locked.intent && locked.nonce && locked.consentExpiresAt && locked.consentExpiresAt.getTime() > Date.now()) return locked;
+    if (locked.intent && locked.nonce && locked.consentExpiresAt && locked.consentExpiresAt.getTime() > Date.now() + minRemainingMs) return locked;
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`live-nonce:testnet:${locked.accountAddress}`}, 2))`);
     const now = Date.now(); assertFresh();
     const result = await tx.execute<{ nonce: string }>(sql`insert into ${copySignerNonces} (network, signer_address, nonce) values ('testnet', ${locked.accountAddress}, ${now})

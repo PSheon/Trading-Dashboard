@@ -21,17 +21,18 @@ afterEach(()=>{vi.restoreAllMocks();vi.unstubAllGlobals();});
 describe('registered setup clients share durable quota at actual transport',()=>{
  it('routes every readonly mode/approval/balance/explorer read through fixed-network global dispatch',async()=>{
   const f=fixture();await f.mode.observe(f.modeIntent);await f.agent.observe(f.agentIntent);await f.funding.available(f.operation);await f.funding.txDetails('testnet',`0x${'aa'.repeat(32)}`);
-  expect(f.global.acquire.mock.calls.map(([weight])=>weight).sort((a,b)=>a-b)).toEqual([2,2,20,20,20,40,60,60]);expect(f.fetcher).toHaveBeenCalledTimes(8);
+  // The mode observation's four reads are one meter charge (102), sent together.
+  expect(f.global.acquire.mock.calls.map(([weight])=>weight).sort((a,b)=>a-b)).toEqual([2,20,40,60,102]);expect(f.fetcher).toHaveBeenCalledTimes(8);
  });
  it.each(['mode','agent','funding'] as const)('denies %s exchange POST when global quota denies, retaining unknown rather than retrying',async kind=>{
   const f=fixture();f.global.acquire.mockRejectedValueOnce(Error('private provider quota detail'));
   const work=kind==='mode'?f.mode.send(f.modeIntent,signature,()=>{}):kind==='agent'?f.agent.send(f.agentIntent,signature,()=>{}):f.funding.send(f.operation,signature,()=>{});
-  await expect(work).rejects.toThrow(/submission_unknown/);expect(f.fetcher).not.toHaveBeenCalled();expect(f.global.acquire).toHaveBeenCalledWith(1,expect.any(Number));
+  await expect(work).rejects.toThrow(kind==='mode'?/not_dispatched/:/submission_unknown/);expect(f.fetcher).not.toHaveBeenCalled();expect(f.global.acquire).toHaveBeenCalledWith(1,expect.any(Number));
  });
  it.each(['mode','agent','funding'] as const)('rechecks the same %s quota permit after costly final proof with no transport gap',async kind=>{
   const f=fixture(),guard=vi.fn(()=>{f.advance();});
   const work=kind==='mode'?f.mode.send(f.modeIntent,signature,guard):kind==='agent'?f.agent.send(f.agentIntent,signature,guard):f.funding.send(f.operation,signature,guard);
-  await expect(work).rejects.toThrow(/submission_unknown/);expect(guard).toHaveBeenCalledOnce();expect(f.fetcher).not.toHaveBeenCalled();expect(f.global.acquire).toHaveBeenCalledOnce();
+  await expect(work).rejects.toThrow(kind==='mode'?/not_dispatched/:/submission_unknown/);expect(guard).toHaveBeenCalledOnce();expect(f.fetcher).not.toHaveBeenCalled();expect(f.global.acquire).toHaveBeenCalledOnce();
  });
  it.each(['mode','agent','funding'] as const)('sends %s once after private quota and synchronous proof without adding JWT fields',async kind=>{
   const f=fixture(),guard=vi.fn();const work=kind==='mode'?f.mode.send(f.modeIntent,signature,guard):kind==='agent'?f.agent.send(f.agentIntent,signature,guard):f.funding.send(f.operation,signature,guard);
@@ -40,6 +41,6 @@ describe('registered setup clients share durable quota at actual transport',()=>
  });
  it.each(['mode','agent','funding'] as const)('fails closed for %s global configured send without a captured local proof callback',async kind=>{
   const f=fixture();const work=kind==='mode'?f.mode.send(f.modeIntent,signature):kind==='agent'?f.agent.send(f.agentIntent,signature):f.funding.send(f.operation,signature);
-  await expect(work).rejects.toThrow(/submission_unknown/);expect(f.fetcher).not.toHaveBeenCalled();
+  await expect(work).rejects.toThrow(kind==='mode'?/not_dispatched/:/submission_unknown/);expect(f.fetcher).not.toHaveBeenCalled();
  });
 });

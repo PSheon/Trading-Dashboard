@@ -78,6 +78,7 @@ import { HyperliquidGlobalTransport } from '../hyperliquid/hyperliquid-global-tr
 import { PostgresHyperliquidQuota } from "../hyperliquid/postgres-hyperliquid-quota.js";
 import { randomUUID } from "node:crypto";
 import { HyperliquidAllDexsAccountSource } from './live/live-account-ws-source.js';
+import { reserveLive } from "../hyperliquid/hyperliquid-budget-wait.js";
 
 /**
  * Paper copy trading (Stage 4 step 3): /me/copy for the signed-in user, the
@@ -126,10 +127,12 @@ export function walletNetworkHyperliquid(config: AppConfig, budget: RequestBudge
     CopyAgentRepository, CopyAgentService,
     CopyAccountModeRepository, CopyAccountModeService,
     { provide: ACCOUNT_MODE_CLIENT, inject: [AppConfig, WALLET_NETWORK_HL], useFactory: (config: AppConfig, { budget, transport }: WalletNetworkHyperliquid) =>
-      new PrivyAccountModeClient(config.value.auth, weight => budget.acquire(weight, "live", 0, { signal: AbortSignal.timeout(5_000) }),undefined,Date.now,transport) },
+      // Weight is reserved before any evidence clock starts (reserveLive):
+      // a busy bucket answers HyperliquidBudgetWait instead of stale evidence.
+      new PrivyAccountModeClient(config.value.auth, (weight, options) => reserveLive(budget, weight, options),undefined,Date.now,transport) },
     { provide: ACCOUNT_MODE_ABSENCE_READER, inject: [WALLET_NETWORK_HL], useFactory: ({ budget, transport }: WalletNetworkHyperliquid) =>
-      new HyperliquidAccountModeAbsenceReader(weight => budget.acquire(weight, "live", 0, { signal: AbortSignal.timeout(5_000) }), transport.fetchInfo, Date.now,
-        new HyperliquidAllDexsAccountSource(Date.now, undefined, 'testnet', transport)) },
+      new HyperliquidAccountModeAbsenceReader((weight, options) => reserveLive(budget, weight, options), transport.fetchInfo, Date.now,
+        new HyperliquidAllDexsAccountSource(Date.now, undefined, 'testnet', transport, { closeAfterRead: true }), transport) },
     CopyFollowerLedger, CopyFollowerScanRepository, CopyFollowerReconciler, CopyFollowerStatementService, CopyFollowerStatementRepository,
     CopyFollowerActivityRepository, CopyFollowerActivityService,
     CopyFollowerSnapshotRepository, CopyFollowerSnapshotService,

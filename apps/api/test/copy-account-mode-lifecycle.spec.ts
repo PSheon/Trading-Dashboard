@@ -4,8 +4,9 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { accountModeOwnerConsentTypedData } from '@trading-dashboard/shared/contracts';
 import { copyAccountModeOperations, copyExecutionAccounts, copyExecutionWallets, copyStrategies, copyWalletAuthorizations, copySignerNonces, users } from '@trading-dashboard/shared/database';
 import { CopyAccountModeRepository } from '../src/copy/copy-account-mode.repository.js';
-import { CopyAccountModeService } from '../src/copy/copy-account-mode.service.js';
+import { ATTEMPT_WEIGHT, CopyAccountModeService, PREFLIGHT_WEIGHT } from '../src/copy/copy-account-mode.service.js';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
+import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
 import { accountModeTypedData, type AccountModeIntent, type AccountModeObservation } from '../src/copy/live/privy-account-mode-client.js';
 import type { UserWalletProvisioner } from '../src/copy/live/privy-wallet-provisioner.js';
 import type { AccountModeClient, AccountModeAbsenceReader, AccountModeAbsenceProof } from '../src/copy/copy-account-mode.service.js';
@@ -31,7 +32,7 @@ beforeEach(async () => {
   await db.insert(copyExecutionAccounts).values({ id: accountId, userId: uid, strategyId, network: 'testnet', privyUserId: 'did:privy:mode-owner',
     externalId: 'dedicated-master', state: 'ready', address, privyWalletId: 'master-wallet', ownerQuorumId: 'owner-quorum' });
   provider = { available: true, findOwned: vi.fn(async () => ({ id: 'master-wallet', address, externalId: 'dedicated-master', ownerQuorumId: 'owner-quorum' })), create: vi.fn() };
-  exchange = { available: true, acquire: vi.fn(async () => undefined), signMaster: vi.fn(async (_account, intent) => master.signTypedData(accountModeTypedData(intent))),
+  exchange = { available: true, acquire: vi.fn(async () => undefined), reserve: vi.fn(async () => undefined), signMaster: vi.fn(async (_account, intent) => master.signTypedData(accountModeTypedData(intent))),
     send: vi.fn(async () => { configured = true; return { status: 'ok', response: { type: 'default' } }; }), observe: vi.fn(async intent => observation(intent)) };
   absence = { prove: vi.fn(async (user): Promise<AccountModeAbsenceProof> => ({ network: 'testnet', accountAddress: user, observedAt: Date.now(), completedAt: Date.now(),
     dexes: ['', 'xyz'], sourceDigest: '22'.repeat(32), complete: true as const, empty: true as const })) };
@@ -40,6 +41,8 @@ beforeEach(async () => {
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 afterAll(closeTestDb);
+/** Attempts paid for: both preflights and the POST, reserved at once before the first clock. */
+const attempts = () => vi.mocked(exchange.reserve!).mock.calls.filter(([weight]) => weight === ATTEMPT_WEIGHT).length;
 async function challenge() { const prepared = await service.prepare(uid, accountId, { idempotencyKey: key }); return service.challenge(uid, prepared.id); }
 async function approve() { const c = await challenge(); return service.approve(uid, c.operation.id, await owner.signTypedData(accountModeOwnerConsentTypedData(c.intent)), 'fresh-user-jwt'); }
 
@@ -108,7 +111,7 @@ describe('durable owned-master standard-mode operation', () => {
     try { expect((await replica.approve(uid, c.operation.id, consent, 'second-jwt')).submissionState).toBe('signing'); }
     finally { release(); }
     expect(await first).toMatchObject({ submissionState: 'accepted', targetState: 'supported' });
-    expect(exchange.signMaster).toHaveBeenCalledTimes(1); expect(exchange.acquire).toHaveBeenCalledTimes(1); expect(exchange.send).toHaveBeenCalledTimes(1);
+    expect(exchange.signMaster).toHaveBeenCalledTimes(1); expect(attempts()).toBe(1); expect(exchange.send).toHaveBeenCalledTimes(1);
   });
   it('records unknown and exact immutable intent before the sole financial POST, then observes mode separately', async () => {
     exchange.send = vi.fn(async (intent) => {
@@ -162,8 +165,11 @@ describe('durable owned-master standard-mode operation', () => {
     await expect(service.approve(uid, c.operation.id, await foreign.signTypedData(accountModeOwnerConsentTypedData(c.intent)), 'jwt')).rejects.toThrow();
     expect(exchange.signMaster).not.toHaveBeenCalled(); expect(exchange.send).not.toHaveBeenCalled();
   });
-  it('carries identity and mode checks through signing/budget waits', async () => {
-    const c = await challenge(); exchange.acquire = vi.fn(async () => { await db.update(users).set({ disabledAt: new Date() }).where(eq(users.id, uid)); });
+  it('carries identity and mode checks through signing', async () => {
+    // The final preflight after signing checks identity again (there is no
+    // budget wait there any more: the attempt is paid for before it starts).
+    const c = await challenge(); const sign = exchange.signMaster;
+    exchange.signMaster = vi.fn(async (...args: Parameters<typeof sign>) => { const signed = await sign(...args); await db.update(users).set({ disabledAt: new Date() }).where(eq(users.id, uid)); return signed; });
     await expect(service.approve(uid, c.operation.id, await owner.signTypedData(accountModeOwnerConsentTypedData(c.intent)), 'jwt')).rejects.toThrow();
     expect(exchange.send).not.toHaveBeenCalled(); expect((await db.select().from(copyAccountModeOperations))[0]!.attemptedAt).toBeNull();
   });
@@ -196,9 +202,29 @@ describe('durable owned-master standard-mode operation', () => {
     const result = await service.approve(uid, c.operation.id, consent, 'jwt');
     expect(vi.mocked(exchange.send).mock.calls[0]![2]).toBeTypeOf('function');
     expect(result.submissionState).toBe('unknown'); expect(result.attemptedAt).not.toBeNull(); expect(posts).toBe(0);
-    expect(exchange.acquire).toHaveBeenCalledTimes(1); expect(exchange.signMaster).toHaveBeenCalledTimes(1);
+    expect(attempts()).toBe(1); expect(exchange.signMaster).toHaveBeenCalledTimes(1);
     await service.approve(uid, c.operation.id, consent, 'retry-jwt');
     expect(exchange.send).toHaveBeenCalledTimes(1); expect(exchange.signMaster).toHaveBeenCalledTimes(1);
+  });
+  it('abandons the absence proof when a sibling read fails, and pays for the preflight before its clock', async () => {
+    const prepared = await service.prepare(uid, accountId, { idempotencyKey: key });
+    let seen: AbortSignal | undefined; const prove = absence.prove;
+    absence.prove = vi.fn(async (user: string, options?: { signal?: AbortSignal }) => { seen = options?.signal; await new Promise(resolve => setTimeout(resolve, 20)); return prove(user); });
+    exchange.observe = vi.fn(async () => { throw new Error('observation failed'); });
+    vi.mocked(exchange.reserve!).mockClear();
+    await expect(service.challenge(uid, prepared.id)).rejects.toThrow();
+    expect(seen?.aborted).toBe(true); expect(vi.mocked(exchange.reserve!).mock.calls).toEqual([[PREFLIGHT_WEIGHT]]);
+  });
+  it('puts an attempt back to prepared when its POST never reached the transport, and a retry may send it', async () => {
+    // Before: the attempt stayed unknown with nothing ever sent and nothing to observe.
+    const c = await challenge(), consent = await owner.signTypedData(accountModeOwnerConsentTypedData(c.intent));
+    exchange.send = vi.fn(async () => { throw new LiveBoundaryError('account_mode_not_dispatched'); });
+    expect(await service.approve(uid, c.operation.id, consent, 'jwt')).toMatchObject({ submissionState: 'prepared', attemptedAt: null, issue: 'account_mode_not_submitted' });
+    const [row] = await db.select().from(copyAccountModeOperations);
+    expect(row).toMatchObject({ nonce: c.intent.nonce, claimToken: null, attemptProof: null });
+    exchange.send = vi.fn(async () => { configured = true; return { status: 'ok', response: { type: 'default' } }; });
+    expect(await service.approve(uid, c.operation.id, consent, 'jwt')).toMatchObject({ submissionState: 'accepted', targetState: 'supported' });
+    expect(exchange.send).toHaveBeenCalledTimes(1);
   });
   it('checks consent at the same completion clock as oldest proof after all exchange guard validation', async () => {
     const c = await challenge(), consent = await owner.signTypedData(accountModeOwnerConsentTypedData(c.intent));
@@ -211,7 +237,7 @@ describe('durable owned-master standard-mode operation', () => {
     });
     const result = await service.approve(uid, c.operation.id, consent, 'jwt');
     expect(posts).toBe(0); expect(result.submissionState).toBe('unknown'); expect(result.attemptedAt).not.toBeNull();
-    expect(exchange.send).toHaveBeenCalledTimes(1); expect(exchange.acquire).toHaveBeenCalledTimes(1);
+    expect(exchange.send).toHaveBeenCalledTimes(1); expect(attempts()).toBe(1);
   });
   it('refuses a master provider identity changed before signing', async () => {
     const c = await challenge(); provider.findOwned = vi.fn(async () => ({ id: 'other-wallet', address, externalId: 'dedicated-master', ownerQuorumId: 'owner-quorum' }));

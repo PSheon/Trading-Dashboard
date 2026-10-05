@@ -10,12 +10,26 @@ import { readInfoJson } from '../../hyperliquid/response-validation.js';
 import { boundedLiveRead } from './live-market-resolver.js';
 import {HyperliquidGlobalTransport} from '../../hyperliquid/hyperliquid-global-transport.js';
 import { LiveBoundaryError } from './wallet-authorization.js';
+import { LIVE_RESERVE_WAIT_MS, sharedCapacityWait, type LiveBudget, type LiveReserveOptions } from '../../hyperliquid/hyperliquid-budget-wait.js';
 
 export interface AccountModeIntent {
   readonly operationId: string; readonly accountId: string; readonly strategyId: number;
   readonly network: 'testnet'; readonly accountAddress: string; readonly nonce: number; readonly consentExpiresAt: number;
 }
 export interface AccountModeOwnedMaster { readonly walletId: string; readonly address: string; readonly ownerQuorumId: string }
+/** Provider weight of one observation: userRole 60, userAbstraction 20,
+ * userDexAbstraction 20, spotClearinghouseState 2. */
+export const ACCOUNT_MODE_OBSERVE_WEIGHT = 102;
+export interface AccountModeObserveOptions {
+  /** The caller already took the weight from the budget (a preflight). */
+  readonly prepaid?: boolean;
+  /** Longest wait for the local budget (not prepaid). */
+  readonly maxWaitMs?: number;
+  /** Longest wait for room in the shared per-IP meter, before the clock starts. */
+  readonly meterWaitMs?: number;
+  /** Abandoned (a sibling read failed): nothing more is started. */
+  readonly signal?: AbortSignal;
+}
 export interface AccountModeObservation {
   readonly network: 'testnet'; readonly accountAddress: string;
   readonly role: 'missing' | 'user' | 'agent' | 'vault' | 'subAccount';
@@ -100,7 +114,7 @@ export function accountModeTypedData(raw: AccountModeIntent) {
  * retries, retains a JWT, creates a wallet or approves an agent. */
 export class PrivyAccountModeClient {
   private readonly credentials: Readonly<{ appId: string; appSecret: string }> | null;
-  constructor(config: { appId?: string; appSecret?: string }, private readonly budget: (weight: number) => Promise<unknown>,
+  constructor(config: { appId?: string; appSecret?: string }, private readonly budget: LiveBudget,
     private readonly fetcher: typeof fetch = fetch, private readonly now = Date.now,private readonly global?:HyperliquidGlobalTransport) {
     if(global!==undefined&&!(global instanceof HyperliquidGlobalTransport))fail('account_mode_invalid_client');
     if (typeof budget !== 'function' || typeof fetcher !== 'function' || typeof now !== 'function') fail('account_mode_invalid_client');
@@ -174,6 +188,7 @@ export class PrivyAccountModeClient {
     const intent = capture(rawIntent), data = accountModeTypedData(intent);
     live(intent, this.now()); validSignature(signature);
     const body = JSON.stringify({ action: data.message, nonce: intent.nonce, signature: splitSignature(signature) });
+    let dispatched = false;
     try {
       const started = this.now(), timeout = Math.max(1, Math.min(10_000, intent.consentExpiresAt - started)), deadline = started + timeout;
       const remaining = () => { const now = this.now(); validTime(now); if (now < started || now >= deadline) throw new Error(); return deadline - now; };
@@ -183,39 +198,61 @@ export class PrivyAccountModeClient {
       live(intent, this.now()); remaining();
       // Complete request construction first, then check captured caller proof.
       // No await or further clock-dependent preparation precedes actual POST.
-      const dispatch=()=>{synchronousProof(assertFreshProof);permit?.assertFresh();live(intent,this.now());remaining();return this.fetcher(WALLET_NETWORKS.testnet.exchangeUrl,request);};
+      const dispatch=()=>{synchronousProof(assertFreshProof);permit?.assertFresh();live(intent,this.now());remaining();dispatched=true;return this.fetcher(WALLET_NETWORKS.testnet.exchangeUrl,request);};
       const work=permit?permit.dispatch(dispatch):dispatch();void Promise.resolve(work).catch(()=>undefined);
       const response = await boundedLiveRead(() => work, remaining());
       if (!response.ok) { await response.body?.cancel().catch(() => undefined); throw new Error(); }
       return frozen(acknowledgment.parse(await boundedLiveRead(() => readInfoJson(response, 'account mode acknowledgment', 64 * 1024), remaining())));
-    } catch { fail('account_mode_submission_unknown'); }
+    } catch {
+      // Refused before the POST was handed to the transport (the meter's
+      // permit, a stale proof, the clock): nothing left this process, and
+      // the caller may put the operation back. Once handed over, unknown.
+      fail(dispatched ? 'account_mode_submission_unknown' : 'account_mode_not_dispatched');
+    }
   }
-  /** Read-only recovery intentionally permits an expired original consent. */
-  async observe(rawIntent: AccountModeIntent): Promise<Readonly<AccountModeObservation>> {
+  /** Takes `weight` from this client's Hyperliquid budget, before any
+   * evidence clock starts (`HyperliquidBudgetWait` when it isn't available
+   * within `maxWaitMs`). A preflight pays for all of its reads at once. */
+  async reserve(weight: number, options: LiveReserveOptions = {}): Promise<void> {
+    if (!Number.isSafeInteger(weight) || weight < 1 || weight > 1200) fail('account_mode_invalid_client');
+    await this.budget(weight, options);
+  }
+  /** Read-only recovery intentionally permits an expired original consent.
+   * Its weight is paid before its 5 s clock starts: by the caller
+   * (`prepaid`), or here. The four reads are one charge of the shared meter,
+   * sent together; the clock starts as they go out, after every wait. */
+  async observe(rawIntent: AccountModeIntent, options: AccountModeObserveOptions = {}): Promise<Readonly<AccountModeObservation>> {
     const trace: string[] = [];
     try {
-      const intent = capture(rawIntent), started = this.now(); validTime(started);
+      const intent = capture(rawIntent), { signal } = options;
+      const t0 = this.now();
+      const budgetWaitMs = options.maxWaitMs ?? LIVE_RESERVE_WAIT_MS;
+      // The budget bounds its own wait; this bounds a budget that doesn't.
+      if (!options.prepaid) await boundedLiveRead(() => this.budget(ACCOUNT_MODE_OBSERVE_WEIGHT, { signal, maxWaitMs: budgetWaitMs }), budgetWaitMs + 2_000);
+      trace.push(`budget ${this.now() - t0}ms`);
+      const bodies = (['userRole', 'userAbstraction', 'userDexAbstraction', 'spotClearinghouseState'] as const).map(type => ({ type, user: intent.accountAddress }));
+      let started = 0;
+      const startClock = () => { signal?.throwIfAborted(); started = this.now(); validTime(started); return AbortSignal.timeout(5000); };
+      const meterWaitMs = options.meterWaitMs ?? (options.prepaid ? 0 : LIVE_RESERVE_WAIT_MS);
+      const t1 = this.now();
+      const global = this.global;
+      const responses = await boundedLiveRead(() => global
+        ? global.fetchInfoBatch(WALLET_NETWORKS.testnet.infoUrl, bodies, { maxWaitMs: meterWaitMs, signal, onDispatch: startClock })
+        : (() => { const bound = startClock(); return Promise.all(bodies.map(body => this.fetcher(WALLET_NETWORKS.testnet.infoUrl, { method: 'POST',
+          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), redirect: 'error', signal: bound }))); })(), meterWaitMs + 5000);
       const remaining = () => { fresh(started, this.now()); return Math.max(1, 5000 - (this.now() - started)); };
-      const read = async (type: string, weight: number) => {
-        const body = { type, user: intent.accountAddress };
-        const t0 = this.now();
-        await boundedLiveRead(() => this.budget(weight), remaining());
-        trace.push(`${type}: budget ${this.now() - t0}ms`);
-        const t1 = this.now();
-        const response = await boundedLiveRead(() => (this.global?.fetchInfo??this.fetcher)(WALLET_NETWORKS.testnet.infoUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(remaining()) }), remaining());
-        trace.push(`${type}: fetch ${this.now() - t1}ms ${response.status}`);
+      trace.push(`meter ${started - t1}ms`, `fetch ${this.now() - started}ms ${responses.map(r => r.status).join('/')}`);
+      const evidence = await Promise.all(responses.map(async (response, i) => {
         if (!response.ok) { await response.body?.cancel().catch(() => undefined); throw new Error(); }
-        const value = await boundedLiveRead(() => readInfoJson(response, 'account mode evidence', 2 * 1024 * 1024), remaining());
+        const value = await boundedLiveRead(() => readInfoJson(response, 'account mode evidence', 2 * 1024 * 1024), remaining);
         fresh(started, this.now());
         if (value && typeof value === 'object' && !Array.isArray(value)) {
           const row = value as Record<string, unknown>;
           if (row.user !== undefined && (typeof row.user !== 'string' || row.user.toLowerCase() !== intent.accountAddress) ||
               row.network !== undefined && row.network !== 'testnet') throw new Error();
         }
-        return { body, value };
-      };
-      const evidence = await Promise.all([read('userRole', 60), read('userAbstraction', 20), read('userDexAbstraction', 20), read('spotClearinghouseState', 2)]);
+        return { body: bodies[i]!, value };
+      }));
       const role = roleSchema.parse(evidence[0]!.value).role, abstraction = abstractionSchema.parse(evidence[1]!.value);
       const dexAbstraction = z.boolean().nullable().parse(evidence[2]!.value), spot = spotSchema.parse(evidence[3]!.value);
       if (new Set(spot.balances.map(b => b.token)).size !== spot.balances.length || new Set(spot.balances.map(b => b.coin)).size !== spot.balances.length ||
@@ -235,6 +272,9 @@ export class PrivyAccountModeClient {
       // Which read or check failed, without request bodies or responses.
       const reason = error instanceof Error ? `${error.name}${error.message ? `: ${error.message.slice(0, 160)}` : ''}` : 'unknown';
       observationLogger.warn(`Account mode observation unavailable (${reason}) [${trace.join('; ')}]`);
+      // Nothing was observed because the weight isn't there yet: say when.
+      const wait = sharedCapacityWait(error);
+      if (wait) throw wait;
       fail('account_mode_observation_unavailable');
     }
   }

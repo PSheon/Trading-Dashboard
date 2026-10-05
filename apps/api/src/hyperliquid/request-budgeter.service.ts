@@ -660,6 +660,21 @@ export class RequestBudgeterService {
     return client === undefined ? this.pageQueued : (this.pageQueuedByClient.get(client) ?? 0);
   }
 
+  /**
+   * About how long a `live` call of `weight` queued now would wait: the
+   * live waiters ahead of it plus its own weight, less what the buckets
+   * hold, at the current refill rate (0: it would go now). A hint for a
+   * caller deciding whether to wait or come back later, not a promise:
+   * background turns and 429 backoffs can make it longer.
+   */
+  liveWaitMs(weight: number): number {
+    const now = Date.now();
+    this.refill(now);
+    const ahead = this.queues.live.reduce((sum, waiter) => sum + waiter.gate, 0);
+    const short = Math.min(weight, this.mainCapacity + this.reserveCapacity) + ahead - (this.tokens + this.reserve);
+    return short <= 0 ? 0 : this.msToRefill(short, now);
+  }
+
   /** Waiters currently queued per lane (introspection and tests). */
   queued(): Record<RequestPriority, number> {
     return { live: this.queues.live.length, background: this.queues.background.length };

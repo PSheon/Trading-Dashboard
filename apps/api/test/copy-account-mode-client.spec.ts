@@ -205,12 +205,13 @@ describe('dedicated testnet standard-mode principal provider', () => {
     const guard = vi.fn(() => { if (now - time > 5000) throw new Error('expired captured account proof'); });
     guard();
     const provider = new PrivyAccountModeClient({}, budget, transport, () => { now = time + 5001; return now; });
-    await expect(provider.send(intent, signature, guard)).rejects.toThrow('account_mode_submission_unknown');
+    // Refused before the POST reached the transport: typed, so the caller may put the operation back.
+    await expect(provider.send(intent, signature, guard)).rejects.toThrow('account_mode_not_dispatched');
     expect(requests).toHaveLength(0); expect(guard).toHaveBeenCalledTimes(2); expect(budget).not.toHaveBeenCalled();
   });
   it('refuses an asynchronous exchange proof fence before transport', async () => {
     const provider = client(false);
-    await expect(provider.send(intent, signature, async () => undefined)).rejects.toThrow('account_mode_submission_unknown');
+    await expect(provider.send(intent, signature, async () => undefined)).rejects.toThrow('account_mode_not_dispatched');
     expect(requests).toHaveLength(0); expect(budget).not.toHaveBeenCalled();
   });
   it.each(['0xbad', `0x${'11'.repeat(64)}ff`])('rejects malformed signatures before sending %s', async sig => {
@@ -258,7 +259,8 @@ describe('dedicated testnet standard-mode principal provider', () => {
     expect(result).toMatchObject({ network: 'testnet', accountAddress: master.address, earliestObservedAt: time, completedAt: time,
       role: 'user', abstraction: 'disabled', dexAbstraction: false, portfolioMarginEnabled: false, status: 'confirmed', issue: null });
     expect(result.sourceDigest).toMatch(/^0x[0-9a-f]{64}$/); expect(Object.isFrozen(result)).toBe(true);
-    expect(budget.mock.calls.map(c => c[0]).sort((a, b) => a - b)).toEqual([2, 20, 20, 60]);
+    // One reservation for the four reads (60 + 20 + 20 + 2), taken before the clock.
+    expect(budget.mock.calls.map(c => c[0])).toEqual([102]);
     expect(requests).toHaveLength(4); expect(requests.every(r => r.url === 'https://api.hyperliquid-testnet.xyz/info' && r.body!.user === master.address && r.redirect === 'error')).toBe(true);
   });
   it.each([
@@ -294,11 +296,22 @@ describe('dedicated testnet standard-mode principal provider', () => {
   ])('rejects malformed or foreign observation %s %j', async (key, value) => {
     modeValues[key as string] = value; await expect(client(false).observe(intent)).rejects.toThrow(/^account_mode_observation_unavailable$/);
   });
-  it('captures earliest budget wait, rejects delayed/future clocks, and ignores no old mode proof', async () => {
-    budget.mockImplementation(async () => { now += 1300; });
+  it('pays for its weight before its clock starts: a budget wait never ages the evidence', async () => {
+    // Before: the 5 s clock started before four budget waits of 1.3 s each,
+    // and a drained bucket turned every observation stale (the setup stall).
+    budget.mockImplementation(async () => { now += 6_000; });
+    expect(await client(false).observe(intent)).toMatchObject({ status: 'confirmed', earliestObservedAt: time + 6_000 });
+  });
+  it('rejects delayed or future clocks inside its window and ignores no old mode proof', async () => {
+    onPath = () => { now += 1300; };
     await expect(client(false).observe(intent)).rejects.toThrow('account_mode_observation_unavailable');
-    now = time; budget.mockImplementation(async () => { now = time - 1; });
+    now = time; let reads = 0; onPath = () => { if (++reads === 2) now = time - 1; };
     await expect(client(false).observe(intent)).rejects.toThrow('account_mode_observation_unavailable');
+  });
+  it('a busy budget is a typed wait: nothing is read', async () => {
+    const { HyperliquidBudgetWait } = await import('../src/hyperliquid/hyperliquid-budget-wait.js');
+    budget.mockRejectedValue(new HyperliquidBudgetWait(12_000, 'local_budget'));
+    await expect(client(false).observe(intent)).rejects.toMatchObject({ retryMs: 12_000, reason: 'local_budget' }); expect(requests).toHaveLength(0);
   });
   it('redacts failed read and performs no exchange or wallet call', async () => {
     failurePath = '/info'; await expect(client(false).observe(intent)).rejects.toThrow(/^account_mode_observation_unavailable$/);
@@ -312,6 +325,6 @@ describe('dedicated testnet standard-mode principal provider', () => {
   it('bounds stalled budget by the total observation deadline', async () => {
     vi.useFakeTimers(); budget.mockImplementation(() => new Promise(() => {}));
     const pending = client(false).observe(intent).catch(error => error as Error);
-    await vi.advanceTimersByTimeAsync(5001); expect(await pending).toMatchObject({ message: 'account_mode_observation_unavailable' }); expect(requests).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(10_001); expect(await pending).toMatchObject({ message: 'account_mode_observation_unavailable' }); expect(requests).toHaveLength(0);
   });
 });

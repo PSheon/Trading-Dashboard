@@ -95,14 +95,43 @@ export class HyperliquidGlobalTransport {
    }
   }
  }
- async #info(input:Parameters<typeof fetch>[0],init:Parameters<typeof fetch>[1],lane:HyperliquidRestLane|undefined,waitForCapacity:boolean,maxWaitMs=PAGE_CAPACITY_WAIT_MS):Promise<Response>{
-  // Configuration is checked before parsing or scheduling any outbound work.
-  const budget=this.currentQuota(),url=typeof input==='string'?input:input instanceof URL?input.toString():'';
+ /** The url, type and provider weight of one info request, or a refusal. */
+ #infoRequest(input:Parameters<typeof fetch>[0],init:Parameters<typeof fetch>[1]):{url:string;type:string;weight:number;body:string}{
+  const url=typeof input==='string'?input:input instanceof URL?input.toString():'';
   if(!['https://api.hyperliquid.xyz/info','https://api.hyperliquid-testnet.xyz/info'].includes(url)||!init||init.method!=='POST'||typeof init.body!=='string'||Buffer.byteLength(init.body)>65536)return fail('hyperliquid_quota_request_invalid');
   let parsed:unknown;try{parsed=JSON.parse(init.body);}catch{fail('hyperliquid_quota_request_invalid');}
   if(!parsed||typeof parsed!=='object'||Array.isArray(parsed)||!Object.hasOwn(parsed,'type')||typeof (parsed as {type:unknown}).type!=='string')fail('hyperliquid_quota_request_invalid');
   const type=(parsed as {type:string}).type,weight=cheap.has(type)?2:type==='userRole'?60:ordinary.has(type)?20:lists.has(type)?120:type==='candleSnapshot'?104:0;
   if(!weight)fail('hyperliquid_quota_request_invalid');
+  return {url,type,weight,body:init.body};
+ }
+ /**
+  * Several unlabelled info reads charged to the shared meter as ONE charge
+  * (their summed weight, one meter transaction) and sent together. When the
+  * window is full it waits for room, at most `maxWaitMs` and never past
+  * `signal`, before anything is sent. `onDispatch` runs right before the
+  * reads go out, inside the permit: an evidence clock starts there, after
+  * every wait, and its signal (if any) bounds the reads. Lists (settled
+  * afterwards) are not accepted here.
+  */
+ async fetchInfoBatch(url:string,bodies:readonly Readonly<Record<string,unknown>>[],{maxWaitMs,signal,onDispatch}:{maxWaitMs:number;signal?:AbortSignal;onDispatch?:()=>AbortSignal|undefined}):Promise<Response[]>{
+  const budget=this.currentQuota();
+  if(!Array.isArray(bodies)||bodies.length<1||bodies.length>16||!Number.isSafeInteger(maxWaitMs)||maxWaitMs<0||maxWaitMs>ESSENTIAL_CAPACITY_WAIT_MS)return fail('hyperliquid_quota_request_invalid');
+  const requests=bodies.map(body=>this.#infoRequest(url,{method:'POST',body:JSON.stringify(body)}));
+  if(requests.some(r=>lists.has(r.type)))fail('hyperliquid_quota_request_invalid');
+  const weight=requests.reduce((sum,r)=>sum+r.weight,0);
+  signal?.throwIfAborted();const permit=await this.#acquire(budget,weight,undefined,maxWaitMs>0,signal,maxWaitMs);signal?.throwIfAborted();
+  return permit.dispatch(()=>{
+   signal?.throwIfAborted();const bound=onDispatch?.(),signals=[signal,bound].filter((s):s is AbortSignal=>s!==undefined);
+   const shared=signals.length>1?AbortSignal.any(signals):signals[0];
+   const work=requests.map(r=>this.rawFetch(r.url,{method:'POST',body:r.body,headers:new Headers({'Content-Type':'application/json'}),redirect:'error',signal:shared}));
+   return Promise.all(work);
+  });
+ }
+ async #info(input:Parameters<typeof fetch>[0],init:Parameters<typeof fetch>[1],lane:HyperliquidRestLane|undefined,waitForCapacity:boolean,maxWaitMs=PAGE_CAPACITY_WAIT_MS):Promise<Response>{
+  // Configuration is checked before parsing or scheduling any outbound work.
+  const budget=this.currentQuota(),{url,type,weight}=this.#infoRequest(input,init);
+  if(!init)return fail('hyperliquid_quota_request_invalid');
   const captured:RequestInit={method:'POST',body:init.body,headers:new Headers(init.headers),redirect:'error',signal:init.signal};
   captured.signal?.throwIfAborted();const permit=await this.#acquire(budget,weight,lane,waitForCapacity,captured.signal,maxWaitMs);captured.signal?.throwIfAborted();
   const response=await permit.dispatch(()=>{captured.signal?.throwIfAborted();return this.rawFetch(url,captured);});

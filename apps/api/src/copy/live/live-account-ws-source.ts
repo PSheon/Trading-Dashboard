@@ -22,7 +22,10 @@ export interface LiveAllDexsAccountEvidence {
 export interface LiveAllDexsAccountSource {
   read(accountAddress: string, timeoutMs: number): Promise<LiveAllDexsStateEvidence>;
   readOrders?(accountAddress: string, dexes: readonly string[], timeoutMs: number): Promise<LiveAllDexsOrderEvidence>;
-  readAccount?(accountAddress: string, dexes: readonly string[], timeoutMs: number): Promise<LiveAllDexsAccountEvidence>;
+  /** `signal`: the caller gave up (a sibling read failed). Checked before a
+   * socket is reserved and before anything is subscribed, so abandoned work
+   * holds no connection, subscriptions or uncertain lease. */
+  readAccount?(accountAddress: string, dexes: readonly string[], timeoutMs: number, signal?: AbortSignal): Promise<LiveAllDexsAccountEvidence>;
   close?(): void|Promise<void>;
 }
 const BATCH = 90, MESSAGE_LIMIT = 1800, WINDOW = 60_000, MIN_ORDER_INTERVAL = 1000;
@@ -45,7 +48,13 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
   private disposed=false;
   constructor(private readonly now = Date.now,
     private readonly createSocket = (url: string, options: WebSocket.ClientOptions) => new WebSocket(url, options),
-    readonly network: 'testnet' | 'mainnet' = 'testnet',private readonly global?:HyperliquidGlobalTransport) {
+    readonly network: 'testnet' | 'mainnet' = 'testnet',private readonly global?:HyperliquidGlobalTransport,
+    /** `closeAfterRead`: an all-venue read subscribes every venue and then
+     * closes its socket (one prepaid close) instead of unsubscribing each
+     * venue: 270 WS units for 268 dexes instead of 538, and no unsubscribe
+     * round trips. For a source whose reads are occasional (the api's
+     * account-mode absence proof); a new socket per read. */
+    private readonly options:{readonly closeAfterRead?:boolean}={}) {
     if (!['testnet', 'mainnet'].includes(network)) fail('live_account_source_mismatch');
     if(global!==undefined&&!(global instanceof HyperliquidGlobalTransport))fail('live_account_source_mismatch');
   }
@@ -103,9 +112,11 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
     if(this.socket===socket)this.socket=undefined;
   }
   private remaining(deadline:number):number{const left=deadline-this.now();if(left<=0||left>5000)fail('live_account_orders_deadline_exceeded');return left;}
-  private async commands(subscriptions:readonly Record<string,unknown>[],deadline:number):Promise<HyperliquidCommandPermit|undefined>{
+  /** Reads end with a close of their socket, not with unsubscribes. */
+  private closesAfterRead():boolean{return this.global!==undefined&&(this.options.closeAfterRead===true||this.global.isOriginal());}
+  private async commands(subscriptions:readonly Record<string,unknown>[],deadline:number,unsubscribe=true):Promise<HyperliquidCommandPermit|undefined>{
     if(!this.global)return;const quota=this.globalSocket;if(!quota)return fail('live_account_aggregate_unavailable');
-    await quota.whenIdle();if(!this.socketNew)await quota.renew(deadline);this.socketNew=false;return quota.subscribe(subscriptions.map(body=>quotaSubscription(this.network,body)),deadline,true,this.global.isOriginal());
+    await quota.whenIdle();if(!this.socketNew)await quota.renew(deadline);this.socketNew=false;return quota.subscribe(subscriptions.map(body=>quotaSubscription(this.network,body)),deadline,unsubscribe,this.closesAfterRead());
   }
   private send(socket:WebSocket,command:Record<string,unknown>,permit?:HyperliquidCommandPermit):void{
     if(this.global){if(!permit)return fail('live_account_aggregate_unavailable');permit.dispatch(command,captured=>socket.send(JSON.stringify(captured)));}
@@ -158,7 +169,7 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
         timer = setTimeout(() => { deny(); socket?.terminate(); }, this.remaining(deadline));
         if (socket!.readyState === WebSocket.OPEN) open();
       });
-      if(this.globalSocket){await this.globalSocket.whenIdle();if(this.global?.isOriginal())await this.globalSocket.close(deadline);this.remaining(deadline);}succeeded = true; return result;
+      if(this.globalSocket){await this.globalSocket.whenIdle();if(this.closesAfterRead())await this.globalSocket.close(deadline);this.remaining(deadline);}succeeded = true; return result;
     } finally {
       clearTimeout(timer);
       if (socket) {
@@ -173,24 +184,30 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
   async readOrders(accountAddress: string, requestedDexes: readonly string[], timeoutMs: number): Promise<LiveAllDexsOrderEvidence> {
     return (await this.readSnapshots(accountAddress, requestedDexes, timeoutMs, false)).orders;
   }
-  async readAccount(accountAddress: string, requestedDexes: readonly string[], timeoutMs: number): Promise<LiveAllDexsAccountEvidence> {
-    const result = await this.readSnapshots(accountAddress, requestedDexes, timeoutMs, true);
+  async readAccount(accountAddress: string, requestedDexes: readonly string[], timeoutMs: number, signal?: AbortSignal): Promise<LiveAllDexsAccountEvidence> {
+    const result = await this.readSnapshots(accountAddress, requestedDexes, timeoutMs, true, signal);
     if (!result.state) throw new LiveBoundaryError('live_account_aggregate_unavailable');
     return { state: result.state, orders: result.orders };
   }
-  private async readSnapshots(accountAddress: string, requestedDexes: readonly string[], timeoutMs: number, includeState: boolean):
+  private async readSnapshots(accountAddress: string, requestedDexes: readonly string[], timeoutMs: number, includeState: boolean, signal?: AbortSignal):
     Promise<{ state?: LiveAllDexsStateEvidence; orders: LiveAllDexsOrderEvidence }> {
     const user = address(accountAddress), observedAt = this.now(), dexes = dexList.parse([...requestedDexes]);
     if (new Set(dexes).size !== dexes.length) fail('live_account_duplicate_evidence');
     this.admit(timeoutMs);
+    if (signal?.aborted) fail('live_account_read_abandoned');
     if (this.lastOrderAttempt !== undefined && observedAt - this.lastOrderAttempt < MIN_ORDER_INTERVAL) fail('live_account_orders_throttled');
     this.reserve(2 * dexes.length + (includeState ? 2 : 0)); this.lastOrderAttempt = observedAt; this.busy = true;
     let socket: WebSocket | undefined, timer: ReturnType<typeof setTimeout> | undefined;
     let open: (() => void) | undefined, message: ((raw: WebSocket.RawData) => void) | undefined, unavailable: (() => void) | undefined;
     let succeeded = false;
     try {
-      const deadline=observedAt+timeoutMs,connecting=this.connection(this.remaining(deadline),deadline);socket = connecting instanceof Promise?await connecting:connecting;
-      const permit=this.global?await this.commands([...(includeState?[{type:'allDexsClearinghouseState',user}]:[]),...dexes.map(dex=>({type:'openOrders',user,dex}))],deadline):undefined;
+      const deadline=observedAt+timeoutMs;if(signal?.aborted)fail('live_account_read_abandoned');
+      const connecting=this.connection(this.remaining(deadline),deadline);socket = connecting instanceof Promise?await connecting:connecting;
+      // Nothing subscribed yet: a reusable socket stays open and clean.
+      if(signal?.aborted){if(!this.global?.isOriginal())succeeded=true;fail('live_account_read_abandoned');}
+      // Closing the socket ends every subscription at once (closeAfterRead).
+      const unsubscribes=!(this.options.closeAfterRead===true&&this.global!==undefined);
+      const permit=this.global?await this.commands([...(includeState?[{type:'allDexsClearinghouseState',user}]:[]),...dexes.map(dex=>({type:'openOrders',user,dex}))],deadline,unsubscribes):undefined;
       const result = await new Promise<{ state?: LiveAllDexsStateEvidence; orders: LiveAllDexsOrderEvidence }>((resolve, reject) => {
         let offset = 0, phase: 'subscribe' | 'unsubscribe' = 'subscribe', batch: string[] = [];
         let pending = new Set<string>(), acknowledged = new Set<string>(), bytes = 0, frames = 0, retainedOrders = 0;
@@ -221,8 +238,9 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
         const finish = () => {
           if (stopped) return;
           if (phase === 'subscribe' && pending.size === 0 && batch.every((dex) => venues.has(dex))) {
-            phase = 'unsubscribe'; pending = new Set(batch); for (const dex of batch) send('unsubscribe', dex);
-          } else if (phase === 'unsubscribe' && pending.size === 0 && statePhase === 'done') {
+            phase = 'unsubscribe'; pending = new Set(batch); if (unsubscribes) for (const dex of batch) send('unsubscribe', dex); else pending.clear();
+          }
+          if (phase === 'unsubscribe' && pending.size === 0 && statePhase === 'done') {
             if (offset < dexes.length) next();
             else resolve({ state, orders: { network: this.network, accountAddress: user, observedAt, completedAt: this.now(),
               requestedDexes: dexes, venues: dexes.map((dex) => venues.get(dex)!) } });
@@ -255,9 +273,12 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
               if (typeof payload.data?.user !== 'string' || address(payload.data.user) !== user) { deny('live_account_source_mismatch'); return; }
               if (statePhase !== 'subscribe') return;
               state = { network: this.network, accountAddress: user, observedAt, data: payload.data };
-              statePhase = 'unsubscribe'; sendState('unsubscribe');
+              if (unsubscribes) { statePhase = 'unsubscribe'; sendState('unsubscribe'); } else { statePhase = 'done'; finish(); }
             } else if (payload.channel === 'openOrders') {
               const row = payload.data;
+              // Still subscribed (closeAfterRead): a later update of a venue an
+              // earlier batch already captured is not evidence of this read.
+              if (!unsubscribes && row && typeof row.dex === 'string' && !batch.includes(row.dex) && venues.has(row.dex)) return;
               if (!row || typeof row.user !== 'string' || address(row.user) !== user || typeof row.dex !== 'string' ||
                   !batch.includes(row.dex) || !Array.isArray(row.orders)) { deny('live_account_source_mismatch'); return; }
               if (!acknowledged.has(row.dex)) { deny('live_account_order_ack_missing'); return; }
@@ -273,7 +294,7 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
         timer = setTimeout(() => deny('live_account_orders_deadline_exceeded'), this.remaining(deadline));
         if (socket!.readyState === WebSocket.OPEN) open();
       });
-      if(this.globalSocket){await this.globalSocket.whenIdle();if(this.global?.isOriginal())await this.globalSocket.close(deadline);this.remaining(deadline);}succeeded = true; return result;
+      if(this.globalSocket){await this.globalSocket.whenIdle();if(this.closesAfterRead())await this.globalSocket.close(deadline);this.remaining(deadline);}succeeded = true; return result;
     } finally {
       clearTimeout(timer);
       if (socket) {

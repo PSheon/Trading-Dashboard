@@ -32,7 +32,8 @@ describe('all-venue mode-bootstrap absence proof', () => {
     const s = setup(); s.setDexes([null, null, { name: 'i<3fl' }, ...Array.from({ length: 265 }, (_, i) => ({ name: `dex${i}` }))]);
     const result = await s.reader.prove(user); expect(result).toMatchObject({ network: 'testnet', accountAddress: user, complete: true, empty: true, observedAt: time });
     expect(result.dexes).toHaveLength(267); expect(result.dexes.slice(0, 2)).toEqual(['', 'i<3fl']); expect(Object.isFrozen(result.dexes)).toBe(true);
-    expect(s.budget.mock.calls.map(c => c[0])).toEqual([20, 2, 20, 40, 20]); expect(s.readAccount).toHaveBeenCalledTimes(1);
+    // One reservation (20 + 2 + 20 + 40 + 20), before the clock starts.
+    expect(s.budget.mock.calls.map(c => c[0])).toEqual([102]); expect(s.readAccount).toHaveBeenCalledTimes(1);
   });
   it.each(['missing-state', 'duplicate-state', 'position', 'margin', 'missing-order', 'nonempty-order', 'wrong-user', 'wrong-network', 'stale', 'future'])('refuses %s coverage', async kind => {
     const s = setup(); s.patch(proof => {
@@ -60,9 +61,34 @@ describe('all-venue mode-bootstrap absence proof', () => {
     const s = setup(); s.patch(proof => { s.setDexes([null, { name: 'new' }]); return proof; });
     await expect(s.reader.prove(user)).rejects.toThrow('account_mode_absence_unproven');
   });
-  it('keeps earliest source age through final metadata and budget waits', async () => {
-    const s = setup(); let n = 0; s.budget.mockImplementation(async () => { if (++n === 5) s.setClock(time + 5001); });
+  it('keeps earliest source age through final metadata', async () => {
+    const s = setup(); let n = 0; const fetcher = s.fetcher.getMockImplementation()!;
+    s.fetcher.mockImplementation(async (url, options) => { if (JSON.parse(String(options?.body)).type === 'perpDexs' && ++n === 2) s.setClock(time + 5001); return fetcher(url, options); });
     await expect(s.reader.prove(user)).rejects.toThrow('account_mode_absence_unproven');
+  });
+  it('pays for its weight before its clock starts: a budget wait never ages the proof', async () => {
+    // Before: five budget waits inside the 5 s window (here 4 s each) made it stale.
+    let clock = time; const s = setup(); s.budget.mockImplementation(async () => { clock += 4_000; s.setClock(clock); });
+    await expect(s.reader.prove(user)).resolves.toMatchObject({ complete: true }); expect(s.budget).toHaveBeenCalledTimes(1);
+  });
+  it('prepaid by its caller, it takes no weight; abandoned, it reserves no socket and subscribes nothing', async () => {
+    const s = setup();
+    await s.reader.prove(user, { prepaid: true }); expect(s.budget).not.toHaveBeenCalled();
+    const abandon = new AbortController(); abandon.abort();
+    await expect(s.reader.prove(user, { prepaid: true, signal: abandon.signal })).rejects.toThrow();
+    expect(s.readAccount).toHaveBeenCalledTimes(1);
+  });
+  it('waits for its turn on the shared all-venue source instead of being refused', async () => {
+    const s = setup(); let busy = false, overlapped = false;
+    s.readAccount.mockImplementationOnce(async (address: string, requested: readonly string[]) => {
+      busy = true; await new Promise(resolve => setTimeout(resolve, 30)); busy = false;
+      return { state: { network: 'testnet', accountAddress: address, observedAt: time, data: { user: address, clearinghouseStates: requested.map(dex => [dex, state()]) } },
+        orders: { network: 'testnet', accountAddress: address, observedAt: time, completedAt: time, requestedDexes: [...requested], venues: requested.map(dex => ({ dex, user: address, observedAt: time, receivedAt: time, orders: [] })) } };
+    });
+    const spy = s.readAccount.getMockImplementation()!;
+    s.readAccount.mockImplementation(async (...args: Parameters<typeof spy>) => { if (busy) overlapped = true; return spy(...args); });
+    const [a, b] = await Promise.all([s.reader.prove(user), s.reader.prove(user)]);
+    expect(a.complete && b.complete).toBe(true); expect(overlapped).toBe(false);
   });
   it('never substitutes a main-only or missing combined source for complete absence', async () => {
     const reader = new HyperliquidAccountModeAbsenceReader(async () => undefined, fetch, () => time, { read: vi.fn() });

@@ -29,6 +29,11 @@ changes ─┬─ checks                 lint, typecheck, doc checks, script + w
 **Branch protection targets `ci`** (one stable name, whatever ran). Job
 timeouts: `changes`/`ci` 5 min, `smokes` 10, the rest 15.
 
+Measured on 2026-10-05: before the split, `verify` took 26–27 min and
+`browser` 13 min (run 37290083739). A full run now takes 8.5–10.5 min
+(37302960342, 37307133721): the api shards about 5.5–6.5 min each, the
+browser shards about 6.5–7 min, `checks` 2–3.5, `build` 3, `smokes` 1.5.
+
 ## What runs when
 
 `scripts/ci-changes.mjs` (tests: `scripts/ci-changes.test.mjs`) maps each

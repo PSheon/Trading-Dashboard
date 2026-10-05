@@ -1448,7 +1448,7 @@ export const zhCN: Messages = {
     general: "通用",
     history: "交易记录",
     feedbackTitle: "一起打造 Orbie",
-    feedbackBody: "告诉我们你想要的功能、反馈问题，或直接跟我们聊聊。",
+    feedbackBody: "想要的功能、遇到的问题，都欢迎到 X 私信我们。",
     feedbackCta: "分享意见",
     logout: "退出登录",
     close: "关闭",

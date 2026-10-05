@@ -1448,7 +1448,7 @@ export const ja: Messages = {
     general: "一般",
     history: "取引履歴",
     feedbackTitle: "Orbie を一緒に育てよう",
-    feedbackBody: "ほしい機能のご要望やバグ報告、ご相談をお寄せください。",
+    feedbackBody: "ほしい機能やバグのご報告は、X の DM でお寄せください。",
     feedbackCta: "フィードバックを送る",
     logout: "ログアウト",
     close: "閉じる",

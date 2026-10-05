@@ -2137,7 +2137,7 @@ export const en: Messages = {
     general: "General",
     history: "Transaction History",
     feedbackTitle: "Build Orbie with us",
-    feedbackBody: "Tell us what you want, report a problem, or just chat with us.",
+    feedbackBody: "Tell us what you want or report a problem: send us a DM on X.",
     feedbackCta: "Share feedback",
     logout: "Log out",
     close: "Close",

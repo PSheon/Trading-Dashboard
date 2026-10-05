@@ -1448,7 +1448,7 @@ export const ko: Messages = {
     general: "일반",
     history: "거래 내역",
     feedbackTitle: "Orbie를 함께 만들어요",
-    feedbackBody: "원하는 기능을 알려주시거나 문제를 제보하고, 편하게 이야기해 주세요.",
+    feedbackBody: "원하는 기능이나 문제가 있다면 X에서 DM으로 알려주세요.",
     feedbackCta: "의견 보내기",
     logout: "로그아웃",
     close: "닫기",

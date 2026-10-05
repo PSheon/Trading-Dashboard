@@ -1448,7 +1448,7 @@ export const vi: Messages = {
     general: "Chung",
     history: "Lịch sử giao dịch",
     feedbackTitle: "Cùng xây dựng Orbie",
-    feedbackBody: "Cho chúng tôi biết tính năng bạn muốn, báo lỗi hoặc trò chuyện với chúng tôi.",
+    feedbackBody: "Cho chúng tôi biết tính năng bạn muốn hoặc báo lỗi: nhắn tin cho chúng tôi trên X.",
     feedbackCta: "Gửi phản hồi",
     logout: "Đăng xuất",
     close: "Đóng",

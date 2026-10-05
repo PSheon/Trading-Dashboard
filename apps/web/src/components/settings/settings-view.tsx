@@ -22,6 +22,7 @@ import { useRef, useState } from "react";
 
 import { useIsDesktop } from "@/lib/use-is-desktop";
 import { useModalFocus } from "@/lib/use-modal-focus";
+import { X_URL } from "@/lib/config";
 import { cn } from "cn";
 
 import { ThemeChoiceControl } from "@/components/shell/theme-toggle";
@@ -433,7 +434,7 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
               <p className="font-display text-xl leading-6">{t("settings.feedbackTitle")}</p>
               <p className="mt-2 text-sm leading-[21px] text-muted-foreground">{t("settings.feedbackBody")}</p>
               <Button asChild size="sm" className="mt-4 h-[37px] px-3.5 text-sm font-semibold">
-                <a href="https://t.me/orbie_fun_bot" target="_blank" rel="noreferrer">
+                <a href={X_URL} target="_blank" rel="noopener noreferrer">
                   {t("settings.feedbackCta")}
                 </a>
               </Button>

@@ -2141,7 +2141,7 @@ export const zhTW = {
     general: "一般",
     history: "交易紀錄",
     feedbackTitle: "一起打造 Orbie",
-    feedbackBody: "告訴我們你想要的功能、回報問題，或直接跟我們聊聊。",
+    feedbackBody: "想要的功能、遇到的問題，都歡迎到 X 私訊我們。",
     feedbackCta: "分享意見",
     logout: "登出",
     close: "關閉",

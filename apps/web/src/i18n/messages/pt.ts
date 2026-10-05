@@ -1448,7 +1448,7 @@ export const pt: Messages = {
     general: "Geral",
     history: "Histórico de transações",
     feedbackTitle: "Construa o Orbie com a gente",
-    feedbackBody: "Conte o que você quer, relate um problema ou só converse com a gente.",
+    feedbackBody: "Conte o que você quer ou relate um problema: mande uma DM para a gente no X.",
     feedbackCta: "Enviar feedback",
     logout: "Sair",
     close: "Fechar",

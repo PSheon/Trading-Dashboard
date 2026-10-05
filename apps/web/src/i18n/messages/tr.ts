@@ -1448,7 +1448,7 @@ export const tr: Messages = {
     general: "Genel",
     history: "İşlem Geçmişi",
     feedbackTitle: "Orbie'yi birlikte şekillendirin",
-    feedbackBody: "İstediğiniz özellikleri iletin, hata bildirin ya da bizimle konuşun.",
+    feedbackBody: "İstediğiniz özellikleri iletin ya da hata bildirin: bize X üzerinden DM gönderin.",
     feedbackCta: "Geri bildirim gönder",
     logout: "Çıkış yap",
     close: "Kapat",

@@ -1448,7 +1448,7 @@ export const id: Messages = {
     general: "Umum",
     history: "Riwayat Transaksi",
     feedbackTitle: "Bantu kembangkan Orbie",
-    feedbackBody: "Beri tahu fitur yang kamu inginkan, laporkan masalah, atau ngobrol saja dengan kami.",
+    feedbackBody: "Beri tahu fitur yang kamu inginkan atau laporkan masalah: kirim DM ke kami di X.",
     feedbackCta: "Kirim masukan",
     logout: "Keluar",
     close: "Tutup",

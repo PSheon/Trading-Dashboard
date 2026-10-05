@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { NestFactory } from "@nestjs/core";
 
 import { setupHttp } from "./bootstrap/http.setup.js";
+import { installProcessGuards } from "./bootstrap/process-guards.js";
 import { setupShutdown } from "./bootstrap/shutdown.setup.js";
 import { swaggerEnabled } from "./bootstrap/swagger-policy.js";
 import { validateEnvironment, type RuntimeConfig } from "./config/runtime-config.js";
@@ -48,6 +49,7 @@ async function startApi(config: RuntimeConfig, logger: StructuredLogger): Promis
 async function bootstrap(): Promise<void> {
   const config = validateEnvironment();
   const logger = redactingLogger(config);
+  installProcessGuards(logger);
   if (config.app.isWorker) {
     const { startWorker } = await import("./bootstrap/worker.bootstrap.js");
     await startWorker(config, logger);

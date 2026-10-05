@@ -309,7 +309,11 @@ export class ActionStreamService implements OnModuleDestroy {
     // Coalesce one burst's rows (they are emitted synchronously) into one query.
     setImmediate(() => {
       this.flushScheduled = false;
-      this.flushing = this.flushing.then(() => this.flush());
+      // A failed flush is logged and the chain continues; otherwise every
+      // later flush would be skipped behind one rejected promise.
+      this.flushing = this.flushing.then(() => this.flush()).catch((error: unknown) => {
+        this.logger.warn(`Action stream flush failed: ${error instanceof Error ? error.message.slice(0, 160) : "unknown"}`);
+      });
     });
   }
 

@@ -6,6 +6,7 @@ import { NestFactory } from "@nestjs/core";
 import { Pool, type PoolClient } from "pg";
 
 import type { RuntimeConfig } from "../config/runtime-config.js";
+import { guardPool } from "./process-guards.js";
 import { RequestBudgeterService } from "../hyperliquid/request-budgeter.service.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { operationalSwitches } from "../runtime/operational-switches.js";
@@ -25,7 +26,7 @@ import { workerMonitorKey } from "../runtime/worker-calls.js";
  * health server's. Losing the lease connection exits the process.
  */
 export async function startWorker(config: RuntimeConfig, logger: StructuredLogger): Promise<void> {
-  const pool = new Pool({ connectionString: config.database.url, max: 1, keepAlive: true, connectionTimeoutMillis: 3000, query_timeout: 3000, options: WORKER_LEASE_SESSION_OPTIONS });
+  const pool = guardPool(new Pool({ connectionString: config.database.url, max: 1, keepAlive: true, connectionTimeoutMillis: 3000, query_timeout: 3000, options: WORKER_LEASE_SESSION_OPTIONS }), logger, "worker lease");
   let client: PoolClient | undefined;
   let app: INestApplicationContext | undefined;
   let ready = false;
@@ -80,7 +81,12 @@ export async function startWorker(config: RuntimeConfig, logger: StructuredLogge
     };
     client.on("error", ownershipLost);
     client.on("end", ownershipLost);
-    leaseProbe = setInterval(() => { void client?.query("SELECT 1").catch(ownershipLost); }, 5000);
+    // A slow probe is not a lost lock: only three failures in a row (15 s),
+    // or the connection's own 'error'/'end', give up the lease.
+    let probeFailures = 0;
+    leaseProbe = setInterval(() => {
+      void client?.query("SELECT 1").then(() => { probeFailures = 0; }, () => { probeFailures += 1; if (probeFailures >= 3) ownershipLost(); });
+    }, 5000);
     leaseProbe.unref();
     while (!await acquireWorkerLease(client)) await delay(1000, undefined, { signal: abort.signal });
     if (stopping) return;

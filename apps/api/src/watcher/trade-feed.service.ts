@@ -188,7 +188,9 @@ export class TradeFeedService {
     catch{socket.terminate();await shard.quota?.uncertain().catch(()=>{});}
   }
   private async beat(shard:Shard,pong?:Buffer):Promise<void>{
-    if(shard.heartbeat)return shard.heartbeat;
+    // A beat already in flight covers this one; returning its promise would
+    // hand a second fire-and-forget caller a rejection nobody handles.
+    if(shard.heartbeat)return;
     const task=(async()=>{
       const socket=shard.socket,quota=shard.quota;if(this.stopped||!socket||socket.readyState!==WebSocket.OPEN||!quota)return;
       if(Date.now()-shard.lastMessageAt>STALE_AFTER_MS){await this.closeShard(shard);return;}
@@ -200,6 +202,8 @@ export class TradeFeedService {
   }
   private open(shard:Shard):Promise<void>{
     if(shard.opening)return shard.opening;
+    // An explicit open replaces a pending reconnect, so the timer can't open a second socket later.
+    clearTimeout(shard.reconnectTimer);shard.reconnectTimer=undefined;
     const task=this.openSocket(shard);shard.opening=task;void task.finally(()=>{if(shard.opening===task)shard.opening=undefined;}).catch(()=>{});return task;
   }
   private async openSocket(shard:Shard):Promise<void>{
@@ -217,13 +221,20 @@ export class TradeFeedService {
       clearInterval(shard.pingTimer);shard.pingTimer=setInterval(()=>{void this.beat(shard);},PING_INTERVAL_MS);
     })().catch(()=>{void this.closeShard(shard);});});
     socket.on('ping',payload=>{void this.beat(shard,payload);});
-    socket.on('message',data=>{shard.lastMessageAt=Date.now();this.handleMessage(data.toString());});
+    socket.on('message',data=>{shard.lastMessageAt=Date.now();try{this.handleMessage(data.toString());}catch(error){this.logger.warn(`Trade feed message skipped: ${error instanceof Error?error.message.slice(0,160):'unknown'}`);}});
     socket.on('error',()=>{this.logger.error('Trade feed socket unavailable');});
     socket.on('close',()=>{
       clearInterval(shard.pingTimer);if(this.stopped||shard.socket!==socket)return;
-      shard.socket=undefined;shard.downSince??=Date.now();const delay=Math.min(MAX_RECONNECT_DELAY_MS,1000*2**shard.attempt);shard.attempt++;
-      shard.reconnectTimer=setTimeout(()=>{void this.open(shard).catch(()=>{shard.downSince??=Date.now();this.logger.warn('Trade feed global admission unavailable');});},delay);
+      shard.socket=undefined;shard.downSince??=Date.now();this.scheduleReconnect(shard);
     });
+  }
+  /** Backoff reconnect. A failed open (no admission, no socket) schedules the
+   * next attempt instead of leaving the shard's markets unwatched until the
+   * hourly market refresh. */
+  private scheduleReconnect(shard:Shard):void{
+    if(this.stopped)return;clearTimeout(shard.reconnectTimer);
+    const delay=Math.min(MAX_RECONNECT_DELAY_MS,1000*2**shard.attempt);shard.attempt++;
+    shard.reconnectTimer=setTimeout(()=>{shard.reconnectTimer=undefined;void this.open(shard).catch(()=>{shard.downSince??=Date.now();this.logger.warn('Trade feed global admission unavailable; retrying');this.scheduleReconnect(shard);});},delay);
   }
   private async subscribe(shard:Shard,coins:string[]):Promise<void>{
     const socket=shard.socket,quota=shard.quota;if(!quota||!socket)throw new LiveBoundaryError('hyperliquid_quota_egress_unconfigured');

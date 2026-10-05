@@ -14,7 +14,8 @@ export class DatabaseLifecycle implements OnApplicationShutdown {
   async onApplicationShutdown() {
     await this.jobs.drain();
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const closed = this.pool.end().then(() => true);
+    // If end() rejects after the deadline wins, that rejection is handled.
+    const closed = this.pool.end().then(() => true, () => false);
     try {
       const done = await Promise.race([closed, new Promise<boolean>((resolve) => {
         timer = setTimeout(() => resolve(false), 3000);

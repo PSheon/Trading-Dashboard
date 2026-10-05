@@ -2,7 +2,7 @@ import { WatchCapacityError, watchLeader } from '../watcher/leader-watch.js';
 import { randomUUID } from 'node:crypto';
 import { ConflictException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm';
-import { adminSettingsSchema, generalSettingsSchema, copyRiskLimitsSchema, DEFAULT_COPY_RISK_LIMITS, liveCopyMandateIntentSchema, liveCopyMandateSchema, liveCopyStrategySchema, type CreateLiveCopyStrategy, type LiveCopyMandateIntent } from '@trading-dashboard/shared/contracts';
+import { adminSettingsSchema, generalSettingsSchema, copyRiskLimitsSchema, DEFAULT_COPY_RISK_LIMITS, type CopyErrorCode, liveCopyMandateIntentSchema, liveCopyMandateSchema, liveCopyStrategySchema, type CreateLiveCopyStrategy, type LiveCopyMandateIntent } from '@trading-dashboard/shared/contracts';
 import { appSettings, copyLiveActivations, copyLiveBuilderApprovals, copyAgentSetups, copyControls, copyExecutionAccounts, copyExecutionWallets, copyLiveMandates, copyLiveStrategyConfigs, copyRiskPolicies, copyStrategies, copyStrategyVersions, copyWalletAuthorizations, users } from '@trading-dashboard/shared/database';
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
@@ -14,6 +14,8 @@ import { Dec } from '../common/decimal/dec.js';
 import { decodeLiveCopyMandate, digest, type MandateRow } from './copy-live-mandate-evidence.js';
 export { type MandateRow } from './copy-live-mandate-evidence.js';
 function conflict(): never { throw new ConflictException('Live mandate binding changed'); }
+/** A refusal the UI names (wire-contracts `copyErrorCodes`). */
+function refuse(code: CopyErrorCode, message: string, details: Record<string, unknown> = {}): never { throw new ConflictException({ statusCode: 409, code, message, ...details }); }
 @Injectable()
 export class CopyLiveMandateRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
@@ -31,7 +33,7 @@ export class CopyLiveMandateRepository {
   }
   async preparation(db: DbExecutor) {
     const [general] = await db.select().from(appSettings).where(eq(appSettings.key, 'general'));
-    if (!general || (general.value as { copyTradingEnabled?: unknown }).copyTradingEnabled !== true) throw new ServiceUnavailableException('Copy preparation unavailable');
+    if (!general || (general.value as { copyTradingEnabled?: unknown }).copyTradingEnabled !== true) throw new ServiceUnavailableException({ statusCode: 503, code: 'copy_not_open', message: 'Copy trading is not open' });
     const [policy] = await db.select().from(copyRiskPolicies).orderBy(desc(copyRiskPolicies.version)).limit(1);
     if (!policy || !policy.limits || Object.keys(DEFAULT_COPY_RISK_LIMITS).some(key => !Object.hasOwn(policy.limits, key))) throw new ServiceUnavailableException('Explicit risk policy required');
     const parsed = copyRiskLimitsSchema.safeParse(policy.limits);
@@ -41,18 +43,21 @@ export class CopyLiveMandateRepository {
   async builder(db: DbExecutor) {
     const [row] = await db.select().from(appSettings).where(eq(appSettings.key, 'revenue'));
     if (!row) return { builderAddress: null, builderMaxFeeTenthsOfBps: 0 };
-    if (!Object.hasOwn(Object(row.value), 'builderAddress') || !Object.hasOwn(Object(row.value), 'builderFeeTenthsBps')) throw new ServiceUnavailableException('Explicit builder settings required');
+    // A saved section missing a key means that key's default (no builder, fee
+    // 0), exactly as the risk authority reads it: refusing it here made every
+    // preparation 503 while the orders' own check accepted the same row.
     const parsed = adminSettingsSchema.shape.revenue.safeParse(row.value);
     if (!parsed.success) throw new ServiceUnavailableException('Invalid builder settings');
     return { builderAddress: parsed.data.builderAddress?.toLowerCase() ?? null, builderMaxFeeTenthsOfBps: parsed.data.builderFeeTenthsBps };
   }
   checkBudget(budget: string, limits: typeof DEFAULT_COPY_RISK_LIMITS) {
-    if (Dec.from(budget).lt(limits.minAllocationUsd) || Dec.from(budget).gt(limits.maxAllocationUsd)) throw new ConflictException('Budget outside current allocation policy');
+    if (Dec.from(budget).lt(limits.minAllocationUsd)) refuse('below_min_allocation', 'Budget below the minimum allocation', { min: limits.minAllocationUsd });
+    if (Dec.from(budget).gt(limits.maxAllocationUsd)) refuse('above_max_allocation', 'Budget above the maximum allocation', { max: limits.maxAllocationUsd });
   }
   async barriers(db: DbExecutor, userId: number) {
     const controls = await db.select().from(copyControls).where(sql`${copyControls.scope} = 'platform' or (${copyControls.scope} = 'user' and ${copyControls.scopeId} = ${userId})`);
     if (controls.length !== 2 || controls.filter(row => row.scope === 'platform' && row.scopeId === 0).length !== 1 || controls.filter(row => row.scope === 'user' && row.scopeId === userId).length !== 1) throw new ConflictException('Complete platform and user controls required');
-    if (controls.some(row => row.pauseNewRisk || row.reduceOnly)) throw new ConflictException('New risk is paused');
+    if (controls.some(row => row.pauseNewRisk || row.reduceOnly)) refuse('copy_paused', 'New risk is paused');
   }
   async strategyWire(id: number, db: DbExecutor = this.db) {
     const [row] = await db.select({ strategy: copyStrategies, config: copyLiveStrategyConfigs, settings: copyStrategyVersions.settings }).from(copyStrategies)
@@ -75,8 +80,9 @@ export class CopyLiveMandateRepository {
     await tx.insert(copyControls).values({ scope: 'user', scopeId: userId, pauseNewRisk: false, reduceOnly: false }).onConflictDoNothing({ target: [copyControls.scope, copyControls.scopeId] });
     await this.barriers(tx, userId);
     const active = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.userId, userId), ne(copyStrategies.status, 'stopped')));
-    if (active.length >= limits.maxStrategiesPerUser || active.some(row => row.mode === 'testnet' && row.leaderAddress === input.leader)) conflict();
-    if (input.settings.maxLeverage !== null && input.settings.maxLeverage > limits.maxLeverage) conflict();
+    if (active.some(row => row.mode === 'testnet' && row.leaderAddress === input.leader)) refuse('already_copying', 'You already copy this trader on testnet');
+    if (active.length >= limits.maxStrategiesPerUser) refuse('strategy_limit', 'Copy limit reached', { limit: limits.maxStrategiesPerUser });
+    if (input.settings.maxLeverage !== null && input.settings.maxLeverage > limits.maxLeverage) refuse('leverage_above_limit', 'Leverage above the platform limit', { limit: limits.maxLeverage });
     const [row] = await tx.insert(copyStrategies).values({ userId, leaderAddress: input.leader, mode: 'testnet', status: 'paused', pauseNewRisk: true, allocated: '0', cash: '0', activatedAt: new Date(now) }).returning();
     await tx.insert(copyStrategyVersions).values({ strategyId: row.id, version: 1, settings: input.settings, createdByUserId: userId });
     await tx.insert(copyLiveStrategyConfigs).values({ strategyId: row.id, userId, idempotencyKey: input.idempotencyKey, sourceNetwork: input.sourceNetwork, budgetUsd: input.budgetUsd, strategyVersion: 1 });
@@ -107,7 +113,7 @@ export class CopyLiveMandateRepository {
     const [config] = await tx.select().from(copyLiveStrategyConfigs).where(eq(copyLiveStrategyConfigs.strategyId, strategy.id));
     if (config.strategyVersion !== strategy.version || !['testnet', 'mainnet'].includes(config.sourceNetwork)) conflict();
     const limits = await this.preparation(tx); this.checkBudget(config.budgetUsd, limits); await this.barriers(tx, userId);
-    if (wire.settings.maxLeverage !== null && wire.settings.maxLeverage > limits.maxLeverage) conflict();
+    if (wire.settings.maxLeverage !== null && wire.settings.maxLeverage > limits.maxLeverage) refuse('leverage_above_limit', 'Leverage above the platform limit', { limit: limits.maxLeverage });
     const rows = await tx.select({ setup: copyAgentSetups, wallet: copyExecutionWallets, grant: copyWalletAuthorizations }).from(copyAgentSetups)
       .innerJoin(copyWalletAuthorizations, eq(copyWalletAuthorizations.id, copyAgentSetups.authorizationId))
       .innerJoin(copyExecutionWallets, eq(copyExecutionWallets.id, copyWalletAuthorizations.walletId))

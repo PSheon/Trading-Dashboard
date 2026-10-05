@@ -107,7 +107,7 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | GET | `/me/copy/live/mandates/by-key/:key` | 200 | user (owner); original local idempotency key; read only |
 | GET | `/me/copy/live/mandates/:id/challenge` | 200 | user (owner); original persisted consent intent; read only |
 | POST | `/me/copy/live/execution-wallets/:id/mandates` | 200 | user (owner); exact current verified agent binding |
-| POST | `/me/copy/live/mandates/:id/approve` | 200 | user (owner); exact local owner consent; automatic execution unavailable |
+| POST | `/me/copy/live/mandates/:id/approve` | 200 | user (owner); exact owner consent; the copy starts once funded when automatic testnet execution is on |
 | POST | `/me/copy/live/mandates/:id/pause` | 200 | user (owner); local new-risk barrier |
 | POST | `/me/copy/live/mandates/:id/revoke` | 200 | user (owner); local consent revocation preserves liabilities |
 | POST | `/me/copy/live/mandates/:id/stop` | 200 | user (owner); durable local risk barrier; no financial execution |

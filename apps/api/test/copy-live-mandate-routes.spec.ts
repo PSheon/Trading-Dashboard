@@ -116,6 +116,31 @@ describe('authenticated local live mandate HTTP routes', () => {
 });
 
 
+describe('coded refusals and settings tolerance (one-click plan §3e, §3h)', () => {
+  const code = async (body: object, status: number) => (await post(`${root}/strategies`, body).expect(status)).body.error;
+  it('names each refusal of a new copy so the UI can say why', async () => {
+    expect(await code({ ...draft, budgetUsd: '99' }, 409)).toMatchObject({ code: 'below_min_allocation' });
+    expect(await code({ ...draft, budgetUsd: '100001' }, 409)).toMatchObject({ code: 'above_max_allocation' });
+    expect(await code({ ...draft, leader, idempotencyKey: 'route-same-leader-0001' }, 409)).toMatchObject({ code: 'already_copying' });
+    expect(await code({ ...draft, settings: { ...settings, maxLeverage: 20 } }, 409)).toMatchObject({ code: 'leverage_above_limit' });
+    await db.update(copyControls).set({ pauseNewRisk: true }).where(eq(copyControls.scope, 'platform'));
+    expect(await code(draft, 409)).toMatchObject({ code: 'copy_paused' });
+    await db.update(copyControls).set({ pauseNewRisk: false });
+    await db.update(copyRiskPolicies).set({ limits: { ...DEFAULT_COPY_RISK_LIMITS, maxStrategiesPerUser: 1 } });
+    expect(await code(draft, 409)).toMatchObject({ code: 'strategy_limit' });
+    await db.update(appSettings).set({ value: { copyTradingEnabled: false } }).where(eq(appSettings.key, 'general'));
+    expect(await code(draft, 503)).toMatchObject({ code: 'copy_not_open' });
+  });
+  it('reads a revenue section missing a key with its default (no builder, fee 0), as the orders\' check does', async () => {
+    await db.update(appSettings).set({ value: { builderFeeTenthsBps: 0 } }).where(eq(appSettings.key, 'revenue'));
+    const challenge = await prepare();
+    expect(challenge.intent).toMatchObject({ builderAddress: null, builderMaxFeeTenthsOfBps: 0 });
+  });
+  it('names an expired or foreign consent', async () => {
+    const challenge = await prepare();
+    expect((await post(`${root}/mandates/${challenge.mandate.id}/approve`, { consentSignature: await foreign.signTypedData(liveCopyMandateOwnerTypedData(challenge.intent)) }).expect(403)).body.error).toMatchObject({ code: 'invalid_consent' });
+  });
+});
 describe('original local operation recovery HTTP', () => {
   it('recovers exact draft/key/id challenges without changing nonce, expiry, revision or archived state', async () => {
     const created = liveCopyStrategySchema.parse((await post(`${root}/strategies`, draft).expect(200)).body.data), c = await prepare();

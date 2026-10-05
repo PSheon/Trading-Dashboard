@@ -74,7 +74,7 @@ export class CopyFundingService {
     try {
       if (!await this.exchange.available(row)) {
         await this.repository.restoreUnsent(userId, id);
-        throw new ConflictException("Insufficient transferable USDC");
+        throw new ConflictException({ statusCode: 409, code: "insufficient_main_balance", message: "Insufficient transferable USDC" });
       }
       await this.exchange.acquire();
     } catch (error) {

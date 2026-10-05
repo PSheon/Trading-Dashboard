@@ -28022,7 +28022,7 @@
     },
     "/me/copy/execution-wallets/{id}/funding": {
       "post": {
-        "description": "Destination is the verified user-owned execution account. No funds are moved by reservation.\n\nAccess: user (owner); testnet; verified execution account",
+        "description": "Destination is the verified user-owned execution account. No funds are moved by reservation.\n\nAccess: user (owner); testnet; verified execution account\n\nError codes: funding_pending",
         "operationId": "CopyFundingController_reserve",
         "parameters": [
           {
@@ -28225,7 +28225,10 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-roles": [],
+        "x-error-codes": [
+          "funding_pending"
+        ]
       }
     },
     "/me/copy/funding/{id}/broadcast": {
@@ -28441,7 +28444,7 @@
     },
     "/me/copy/funding/{id}/submit": {
       "post": {
-        "description": "One attempt only. Exchange acknowledgement remains accepted until recipient ledger and transaction nonce confirm credit.\n\nAccess: user (owner); exact source signature; one attempt",
+        "description": "One attempt only. Exchange acknowledgement remains accepted until recipient ledger and transaction nonce confirm credit.\n\nAccess: user (owner); exact source signature; one attempt\n\nError codes: insufficient_main_balance",
         "operationId": "CopyFundingController_submit",
         "parameters": [
           {
@@ -28644,7 +28647,10 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-roles": [],
+        "x-error-codes": [
+          "insufficient_main_balance"
+        ]
       }
     },
     "/me/copy/funding/{id}/cancel": {
@@ -34045,7 +34051,7 @@
     },
     "/me/copy/live/strategies": {
       "post": {
-        "description": "Creates local configuration only. Does not allocate simulated funds or start execution.\n\nAccess: user (owner); fresh paused testnet configuration",
+        "description": "Creates local configuration only. Does not allocate simulated funds or start execution.\n\nAccess: user (owner); fresh paused testnet configuration\n\nError codes: copy_not_open, copy_paused, strategy_limit, already_copying, below_min_allocation, above_max_allocation, leverage_above_limit, watch_capacity",
         "operationId": "CopyLiveMandateController_create",
         "parameters": [],
         "requestBody": {
@@ -34259,7 +34265,17 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-roles": [],
+        "x-error-codes": [
+          "copy_not_open",
+          "copy_paused",
+          "strategy_limit",
+          "already_copying",
+          "below_min_allocation",
+          "above_max_allocation",
+          "leverage_above_limit",
+          "watch_capacity"
+        ]
       }
     },
     "/me/copy/live/execution-wallets/{id}/mandates": {
@@ -34706,12 +34722,20 @@
         ],
         "x-required-permissions": [],
         "x-required-roles": [],
-        "description": "Access: user (owner); exact current verified agent binding"
+        "description": "Access: user (owner); exact current verified agent binding\n\nError codes: copy_not_open, copy_paused, below_min_allocation, above_max_allocation, leverage_above_limit, builder_fee_approval_required",
+        "x-error-codes": [
+          "copy_not_open",
+          "copy_paused",
+          "below_min_allocation",
+          "above_max_allocation",
+          "leverage_above_limit",
+          "builder_fee_approval_required"
+        ]
       }
     },
     "/me/copy/live/mandates/{id}/approve": {
       "post": {
-        "description": "The generation becomes active and its activation pending. With automatic testnet execution on (`capabilities.automaticExecution`), the strategy starts copying once its account has a credited deposit and no transfer pending; until then, and when execution is off, it stays paused.\n\nAccess: user (owner); exact local owner consent; automatic execution unavailable",
+        "description": "The generation becomes active and its activation pending. With automatic testnet execution on (`capabilities.automaticExecution`), the strategy starts copying once its account has a credited deposit and no transfer pending; until then, and when execution is off, it stays paused.\n\nAccess: user (owner); exact owner consent; the copy starts once funded when automatic testnet execution is on\n\nError codes: consent_expired, invalid_consent",
         "operationId": "CopyLiveMandateController_approve",
         "parameters": [
           {
@@ -34905,7 +34929,11 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-roles": [],
+        "x-error-codes": [
+          "consent_expired",
+          "invalid_consent"
+        ]
       }
     },
     "/me/copy/live/mandates/{id}/pause": {
@@ -35104,12 +35132,15 @@
         ],
         "x-required-permissions": [],
         "x-required-roles": [],
-        "description": "Access: user (owner); local new-risk barrier"
+        "description": "Access: user (owner); local new-risk barrier\n\nError codes: live_stop_in_progress",
+        "x-error-codes": [
+          "live_stop_in_progress"
+        ]
       }
     },
     "/me/copy/live/mandates/{id}/revoke": {
       "post": {
-        "description": "Preserves all orders, unknown receipts and financial liabilities for reconciliation.\n\nAccess: user (owner); local consent revocation preserves liabilities",
+        "description": "Preserves all orders, unknown receipts and financial liabilities for reconciliation.\n\nAccess: user (owner); local consent revocation preserves liabilities\n\nError codes: live_stop_in_progress",
         "operationId": "CopyLiveMandateController_revoke",
         "parameters": [
           {
@@ -35303,7 +35334,10 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-roles": [],
+        "x-error-codes": [
+          "live_stop_in_progress"
+        ]
       }
     },
     "/admin/copy/overview": {

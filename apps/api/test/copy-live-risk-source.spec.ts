@@ -209,6 +209,22 @@ describe('durable local actual source authority before remote reads',()=>{
   it('rejects a legacy account-only lock even for valid source provenance',async()=>{
     await scopes.run({userId:1,network:'testnet',accountAddress:f.identity.accountAddress},async(_scope,session)=>{await expect(source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold()).rejects.toThrow('live_risk_source_scope_missing');});expect(fetcher).not.toHaveBeenCalled();
   });
+  it('counts only live accounts and this account\'s transfers: stopped copies and another copy\'s funding no longer block (one-click plan §3i)',async()=>{
+    const hex=(n:number)=>`0x${n.toString(16).padStart(40,'0')}`;
+    for(let n=20;n<29;n++){
+      await db.insert(copyStrategies).values({id:n,userId:1,mode:'testnet',leaderAddress:hex(1000+n),allocated:'0',cash:'0',status:'stopped',activatedAt:new Date(now),stoppedAt:new Date(now)});
+      await db.insert(copyExecutionAccounts).values({id:`old-${n}`,userId:1,strategyId:n,network:'testnet',state:'ready',address:hex(n),privyUserId:'did:privy:risk-source',externalId:`old-${n}`,privyWalletId:`old-master-${n}`,ownerQuorumId:'owner'});
+    }
+    await db.insert(copyStrategies).values({id:30,userId:1,mode:'testnet',leaderAddress:hex(2000),allocated:'0',cash:'0',status:'paused',activatedAt:new Date(now)});
+    await db.insert(copyExecutionAccounts).values({id:'other-live',userId:1,strategyId:30,network:'testnet',state:'ready',address:hex(30),privyUserId:'did:privy:risk-source',externalId:'other-live',privyWalletId:'other-master',ownerQuorumId:'owner'});
+    await db.insert(copyFundingOperations).values({id:'other-funding',userId:1,accountId:'other-live',strategyId:30,idempotencyKey:'other-funding-0001',network:'testnet',address:`0x${'55'.repeat(20)}`,destination:hex(30),amount:'10',nonce:now,status:'unknown'});
+    // Past the account and transfer checks: the next proof missing is the baseline.
+    await scopes.run(id(),async(_scope,session)=>{await expect(source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold()).rejects.toThrow('live_risk_baseline_unproven');});
+    // Nine copies still running are more than one user's coverage.
+    for(let n=20;n<28;n++)await db.update(copyStrategies).set({status:'paused',stoppedAt:null}).where(eq(copyStrategies.id,n));
+    await scopes.run(id(),async(_scope,session)=>{await expect(source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold()).rejects.toThrow('live_risk_user_coverage_unproven');});
+    expect(fetcher).not.toHaveBeenCalled();
+  });
   it('requires a durable first-empty baseline even for the genuine authority chain',async()=>{
     await scopes.run(id(),async(_scope,session)=>{await expect(source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold()).rejects.toThrow('live_risk_baseline_unproven');});
     expect(fetcher).not.toHaveBeenCalled();

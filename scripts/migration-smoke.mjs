@@ -27,6 +27,10 @@ await withTestDatabase(async (url) => {
     await pool.query('SELECT id, user_id, name, color, sort_order FROM favorite_groups LIMIT 0');
     await pool.query('SELECT user_id, group_id, chain, address FROM favorite_group_members LIMIT 0');
     await pool.query('SELECT id, user_id, account_id, strategy_id, network, amount, nonce, status, attempted_at, transaction_hash, credited_amount, fee, scan_state, scan_revision FROM copy_funding_operations LIMIT 0');
+    // 0062: the platform control row and risk policy v1 are seeded once.
+    const seeded = await pool.query("SELECT (SELECT count(*)::int FROM copy_controls WHERE scope = 'platform' AND scope_id = 0 AND NOT pause_new_risk AND NOT reduce_only) AS platform, (SELECT count(*)::int FROM copy_risk_policies WHERE reason = 'seeded defaults' AND created_by_user_id IS NULL) AS policies");
+    assert.deepEqual(seeded.rows[0], { platform: 1, policies: 1 });
+    console.log('Copy platform control row and risk policy v1 are seeded');
     console.log('Persistent history schema is queryable after release migrations');
     console.log('Concurrent release migrations are repeatable');
     // This database is disposable. Retain the already-applied schema but

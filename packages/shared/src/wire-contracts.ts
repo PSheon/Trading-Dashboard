@@ -217,8 +217,27 @@ export const actionStreamEventSchemas = {
 } as const;
 export type ActionStreamEventName = keyof typeof actionStreamEventSchemas;
 export interface HttpStreamContract { contentType: "text/event-stream"; events: Record<string, z.ZodTypeAny> }
+/**
+ * Stable `error.code`s of the copy routes (one-click copy plan §3h), for the
+ * UI to say what went wrong instead of a bare 409. Each route lists the ones
+ * it may answer in `errors`; the setup codes belong to the one-click setup
+ * routes (plan steps 5–7).
+ */
+export const copyErrorCodes = [
+  "already_copying", "strategy_limit", "below_min_allocation", "above_max_allocation", "leverage_above_limit",
+  "copy_not_open", "copy_paused", "watch_capacity", "insufficient_main_balance", "funding_pending",
+  "builder_fee_approval_required", "live_stop_in_progress",
+  "consent_expired", "invalid_consent", "setup_unavailable", "setup_wallet_conflict", "setup_funding_rejected",
+  "setup_account_mode_failed", "setup_agent_rejected", "setup_builder_rejected", "setup_expired",
+] as const;
+export const copyErrorCodeSchema = z.enum(copyErrorCodes);
+export type CopyErrorCode = z.infer<typeof copyErrorCodeSchema>;
+const liveStrategyErrors: readonly CopyErrorCode[] = ["copy_not_open", "copy_paused", "strategy_limit", "already_copying", "below_min_allocation", "above_max_allocation", "leverage_above_limit", "watch_capacity"];
+
 export interface HttpRouteContract {
   method: string; path: string; status: number; auth: string;
+  /** Stable error codes this route may answer, besides the generic ones. */
+  errors?: readonly CopyErrorCode[];
   /** JSON body schema; `z.never()` for a stream (no JSON body). */
   response: z.ZodTypeAny;
   /** Set for server-sent-event routes. */
@@ -330,14 +349,14 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/me/referral/claims/by-key/:key", status: 200, auth: "user (owner); original read-only request recovery", response: referralClaimSchema },
   { method: "POST", path: "/me/referral/claims", status: 200, auth: "user (owner); existing request recovery; new payout unavailable", response: referralClaimSchema },
   { method: "GET", path: "/referral/check/:code", status: 200, auth: "public; code validity only", response: referralCheckSchema },
-  { method: "POST", path: "/me/copy/live/strategies", status: 200, auth: "user (owner); fresh paused testnet configuration", response: liveCopyStrategySchema },
+  { method: "POST", path: "/me/copy/live/strategies", status: 200, auth: "user (owner); fresh paused testnet configuration", response: liveCopyStrategySchema, errors: liveStrategyErrors },
   { method: "GET", path: "/me/copy/live/strategies/by-key/:key", status: 200, auth: "user (owner); original local idempotency key", response: liveCopyStrategySchema },
   { method: "GET", path: "/me/copy/live/mandates/by-key/:key", status: 200, auth: "user (owner); original local idempotency key; read only", response: liveCopyMandateChallengeSchema },
   { method: "GET", path: "/me/copy/live/mandates/:id/challenge", status: 200, auth: "user (owner); original persisted consent intent; read only", response: liveCopyMandateChallengeSchema },
-  { method: "POST", path: "/me/copy/live/execution-wallets/:id/mandates", status: 200, auth: "user (owner); exact current verified agent binding", response: liveCopyMandateChallengeSchema },
-  { method: "POST", path: "/me/copy/live/mandates/:id/approve", status: 200, auth: "user (owner); exact local owner consent; automatic execution unavailable", response: liveCopyMandateSchema },
-  { method: "POST", path: "/me/copy/live/mandates/:id/pause", status: 200, auth: "user (owner); local new-risk barrier", response: liveCopyMandateSchema },
-  { method: "POST", path: "/me/copy/live/mandates/:id/revoke", status: 200, auth: "user (owner); local consent revocation preserves liabilities", response: liveCopyMandateSchema },
+  { method: "POST", path: "/me/copy/live/execution-wallets/:id/mandates", status: 200, auth: "user (owner); exact current verified agent binding", response: liveCopyMandateChallengeSchema, errors: ["copy_not_open", "copy_paused", "below_min_allocation", "above_max_allocation", "leverage_above_limit", "builder_fee_approval_required"] },
+  { method: "POST", path: "/me/copy/live/mandates/:id/approve", status: 200, auth: "user (owner); exact owner consent; the copy starts once funded when automatic testnet execution is on", response: liveCopyMandateSchema, errors: ["consent_expired", "invalid_consent"] },
+  { method: "POST", path: "/me/copy/live/mandates/:id/pause", status: 200, auth: "user (owner); local new-risk barrier", response: liveCopyMandateSchema, errors: ["live_stop_in_progress"] },
+  { method: "POST", path: "/me/copy/live/mandates/:id/revoke", status: 200, auth: "user (owner); local consent revocation preserves liabilities", response: liveCopyMandateSchema, errors: ["live_stop_in_progress"] },
   { method: 'POST', path: '/me/copy/live/mandates/:id/stop', status: 200, auth: 'user (owner); durable local risk barrier; no financial execution', response: liveCopyStopSchema },
   { method: 'POST', path: '/me/copy/live/execution-wallets/:id/positions/close', status: 200, auth: 'user (owner); one position of a running testnet copy; executed by the worker', response: liveManualCloseSchema },
   { method: 'GET', path: '/me/copy/live/execution-wallets/:id/closes', status: 200, auth: 'user (owner); read only', response: liveManualClosesSchema },
@@ -377,9 +396,9 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "POST", path: "/me/copy/agents/:id/challenge", status: 200, auth: "user (owner); verified agent", response: copyAgentChallengeSchema },
   { method: "POST", path: "/me/copy/agents/:id/approve", status: 200, auth: "user (owner); exact signed consent; fresh user JWT", response: copyAgentSetupSchema },
   { method: "GET", path: "/me/copy/funding", status: 200, auth: "user (owner)", response: copyFundingOverviewSchema },
-  { method: "POST", path: "/me/copy/execution-wallets/:id/funding", status: 200, auth: "user (owner); testnet; verified execution account", response: copyFundingSchema },
+  { method: "POST", path: "/me/copy/execution-wallets/:id/funding", status: 200, auth: "user (owner); testnet; verified execution account", response: copyFundingSchema, errors: ["funding_pending"] },
   { method: "POST", path: "/me/copy/funding/:id/broadcast", status: 200, auth: "user (owner); one permission", response: copyFundingClaimSchema },
-  { method: "POST", path: "/me/copy/funding/:id/submit", status: 200, auth: "user (owner); exact source signature; one attempt", response: copyFundingSchema },
+  { method: "POST", path: "/me/copy/funding/:id/submit", status: 200, auth: "user (owner); exact source signature; one attempt", response: copyFundingSchema, errors: ["insufficient_main_balance"] },
   { method: "POST", path: "/me/copy/funding/:id/cancel", status: 200, auth: "user (owner); unattempted intent only", response: copyFundingSchema },
   { method: "POST", path: "/me/copy/funding/:id/reconcile", status: 200, auth: "user (owner); positive transaction and recipient evidence", response: copyFundingSchema },
   { method: "POST", path: "/me/copy/live/execution-wallets/:id/returns", status: 200, auth: "user (owner); testnet; return to the main wallet, consent challenge only", response: copyReturnChallengeSchema },

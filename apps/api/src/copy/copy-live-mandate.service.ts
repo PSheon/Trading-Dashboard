@@ -18,7 +18,7 @@ export class CopyLiveMandateService {
   private available() { if (this.config.value.copy.mode === 'disabled') throw new ServiceUnavailableException('Live preparation unavailable'); }
   private fresh(row: MandateRow) {
     const now = this.now();
-    if (!Number.isSafeInteger(now) || now < row.nonce || now >= row.consentExpiresAt.getTime() || now >= row.expiresAt.getTime()) throw new ConflictException('Mandate consent expired');
+    if (!Number.isSafeInteger(now) || now < row.nonce || now >= row.consentExpiresAt.getTime() || now >= row.expiresAt.getTime()) throw new ConflictException({ statusCode: 409, code: 'consent_expired', message: 'Mandate consent expired' });
     return now;
   }
   private renewal(row: MandateRow, now: number) {
@@ -70,7 +70,7 @@ export class CopyLiveMandateService {
     await this.repository.owner(userId);
     const original = await this.repository.find(userId, id);
     const intent = this.repository.decode(original); this.fresh(original);
-    if (!await verifyLiveCopyMandateConsent(intent, body.consentSignature, this.now())) throw new ForbiddenException('Invalid owner consent');
+    if (!await verifyLiveCopyMandateConsent(intent, body.consentSignature, this.now())) throw new ForbiddenException({ statusCode: 403, code: 'invalid_consent', message: 'Invalid owner consent' });
     return this.uow.run(async tx => {
       await this.repository.lock(tx, userId);
       const row = await this.repository.find(userId, id, tx, true);

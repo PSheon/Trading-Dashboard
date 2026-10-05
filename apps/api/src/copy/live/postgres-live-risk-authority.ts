@@ -4,7 +4,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { adminSettingsSchema, copyRiskLimitsSchema, copyStrategySettingsSchema } from '@trading-dashboard/shared/contracts';
 import { appSettings, copyAgentSetups, copyControls, copyExecutionAccounts, copyExecutionWallets, copyFollowerAccountState, copyFundingOperations,
   copyAccountModeOperations, copyLivePositionBaselines, copyLiveExecutions, copyLiveIntentProvenance, copyLiveMandates, copyLiveRiskReservations, copyLiveSignalLegs, copyLiveSourceFills, copyLiveSourceStreams,
-  copyLiveStrategyConfigs, copyRiskPolicies, copyStrategies, copyStrategyVersions, copyWalletAuthorizations, users, walletWithdrawals } from '@trading-dashboard/shared/database';
+  copyLiveStrategyConfigs, copyRiskPolicies, copyStrategies, copyStrategyVersions, copyWalletAuthorizations, users } from '@trading-dashboard/shared/database';
 import type { DbExecutor } from '../../db/unit-of-work.js';
 import type { LiveRiskDatabaseSession } from './postgres-live-risk-scope.js';
 import { decodeLiveCopyMandate } from '../copy-live-mandate-evidence.js';
@@ -63,14 +63,23 @@ export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSessi
   const [revenue]=await read(db.select().from(appSettings).where(eq(appSettings.key,'revenue')));
   const builder=revenue?adminSettingsSchema.shape.revenue.parse(revenue.value):{builderAddress:null,builderFeeTenthsBps:0};
   riskSourceRequire((builder.builderAddress?.toLowerCase()??null)===consent.builderAddress&&builder.builderFeeTenthsBps===consent.builderMaxFeeTenthsOfBps,'live_risk_builder_changed');
-  const accounts=await read(db.select().from(copyExecutionAccounts).where(eq(copyExecutionAccounts.userId,a.userId)).orderBy(copyExecutionAccounts.id).limit(9));
+  // The user's live accounts: a strategy that hasn't stopped, or money still
+  // moving (a stopped strategy is flat and swept, or holds only dust). Every
+  // account ever counted refused all orders from a user's ninth copy on, even
+  // after the old ones had stopped (one-click plan §3i).
+  const accounts=await read(db.select({account:copyExecutionAccounts}).from(copyExecutionAccounts).innerJoin(copyStrategies,eq(copyStrategies.id,copyExecutionAccounts.strategyId))
+    .where(and(eq(copyExecutionAccounts.userId,a.userId),sql`(${copyStrategies.status}<>'stopped' or exists (select 1 from copy_funding_operations f where f.account_id=${copyExecutionAccounts.id} and f.status in ('prepared','unknown','accepted')))`))
+    .orderBy(copyExecutionAccounts.id).limit(9)).then(rows=>rows.map(row=>row.account));
   riskSourceRequire(accounts.length<=8&&accounts.every(account=>account.network==='testnet'&&account.address&&account.privyWalletId&&account.ownerQuorumId&&account.privyUserId===o.privyUserId),'live_risk_user_coverage_unproven');
   const states=await read(db.select().from(copyFollowerAccountState).where(sql`${copyFollowerAccountState.accountId} in (select id from copy_execution_accounts where user_id=${a.userId})`));
   riskSourceRequire(!states.some(state=>state.quarantined),'live_risk_quarantined');
-  const pending=await read(db.select({id:copyFundingOperations.id}).from(copyFundingOperations).where(and(eq(copyFundingOperations.userId,a.userId),sql`${copyFundingOperations.status} in ('prepared','unknown','accepted')`)).limit(1));
-  const withdrawals=await read(db.select({id:walletWithdrawals.id}).from(walletWithdrawals).where(and(eq(walletWithdrawals.userId,a.userId),sql`${walletWithdrawals.status} in ('prepared','unknown','accepted')`)).limit(1));
-  riskSourceRequire(pending.length===0&&withdrawals.length===0,'live_risk_transfer_pending');
-  const modes=await read(db.select({id:copyAccountModeOperations.id}).from(copyAccountModeOperations).where(and(eq(copyAccountModeOperations.userId,a.userId),sql`${copyAccountModeOperations.submissionState} in ('signing','unknown') or (${copyAccountModeOperations.submissionState}='accepted' and ${copyAccountModeOperations.targetState}<>'supported')`)).limit(1));
+  // A transfer or mode change in flight on this account (its balance or mode
+  // is moving under the order). Another copy's funding or sweep, or a main
+  // wallet withdrawal, doesn't touch this account and no longer pauses its
+  // legs (one-click plan §3i).
+  const pending=await read(db.select({id:copyFundingOperations.id}).from(copyFundingOperations).where(and(eq(copyFundingOperations.accountId,a.id),sql`${copyFundingOperations.status} in ('prepared','unknown','accepted')`)).limit(1));
+  riskSourceRequire(pending.length===0,'live_risk_transfer_pending');
+  const modes=await read(db.select({id:copyAccountModeOperations.id}).from(copyAccountModeOperations).where(and(eq(copyAccountModeOperations.accountId,a.id),sql`(${copyAccountModeOperations.submissionState} in ('signing','unknown') or (${copyAccountModeOperations.submissionState}='accepted' and ${copyAccountModeOperations.targetState}<>'supported'))`)).limit(1));
   riskSourceRequire(modes.length===0,'live_risk_mode_pending');
   const [sourceStream]=await read(db.select().from(copyLiveSourceStreams).where(and(eq(copyLiveSourceStreams.network,consent.sourceNetwork),eq(copyLiveSourceStreams.leaderAddress,consent.leaderAddress))));
   riskSourceRequire(sourceStream&&sourceStream.state==='ready'&&sourceStream.coverageFrom&&sourceStream.coverageThrough&&sourceStream.coverageDigest&&sourceStream.coverageFrom.getTime()<=m.activationCursor!.getTime(),'live_risk_source_changed');

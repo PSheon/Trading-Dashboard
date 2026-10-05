@@ -84,7 +84,8 @@ export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
       operation.security = publicRoute ? [{}, { bearerAuth: [] }] : [{ bearerAuth: [] }];
       operation["x-required-permissions"] = permissions;
       operation["x-required-roles"] = roles;
-      operation.description = [operation.description, "Access: " + contract.auth].filter(Boolean).join("\n\n");
+      operation.description = [operation.description, "Access: " + contract.auth, contract.errors?.length ? "Error codes: " + contract.errors.join(", ") : ""].filter(Boolean).join("\n\n");
+      if (contract.errors?.length) operation["x-error-codes"] = [...contract.errors];
       const success: ResponseObject & { "x-event-schemas"?: Record<string, SchemaObject> } = contract.status === 204 ? { description: "No content" }
         : contract.stream ? { description: "Server-sent events. Errors before admission use the JSON error envelope.",
           content: { "text/event-stream": { schema: { type: "string" } } },

@@ -192,7 +192,7 @@ describe("durable strategy funding", () => {
   it("restores unattempted intent after budget failure or insufficient balance", async () => {
     const op = await reserve(); await service.claim(userId, op.id);
     exchange.available.mockResolvedValue(false);
-    await expect(service.submit(userId, op.id, await signature(op))).rejects.toThrow("Insufficient");
+    await expect(service.submit(userId, op.id, await signature(op))).rejects.toMatchObject({ response: expect.objectContaining({ code: "insufficient_main_balance" }) });
     expect((await repository.find(userId, op.id)).status).toBe("prepared"); expect(exchange.send).not.toHaveBeenCalled();
     exchange.available.mockResolvedValue(true); await service.claim(userId, op.id); exchange.acquire.mockRejectedValue(new Error("budget"));
     await expect(service.submit(userId, op.id, await signature(op))).rejects.toThrow();

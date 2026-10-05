@@ -1830,8 +1830,13 @@ export const coinIndexRowSchema = z.object({
 export type CoinIndexRow = z.infer<typeof coinIndexRowSchema>;
 /** GET /discover/markets: every Hyperliquid perp market name (main dex and
  * HIP-3, "xyz:TSLA"), from the hourly market catalog; null while no list
- * has been read. The web's icon route fetches only these. */
-export const marketNamesResponseSchema = z.object({ markets: z.array(z.string()).nullable() });
+ * has been read. The web's icon route fetches only these. `volumes`: each
+ * active market's exchange 24h notional volume in USD, when a fresh read is
+ * at hand (the admin's market pickers show it). */
+export const marketNamesResponseSchema = z.object({
+  markets: z.array(z.string()).nullable(),
+  volumes: z.record(z.string(), z.number()).optional(),
+});
 export type MarketNamesResponse = z.infer<typeof marketNamesResponseSchema>;
 
 export const coinIndexResponseSchema = z.object({

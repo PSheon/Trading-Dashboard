@@ -10,10 +10,12 @@ for (const width of [1440, 375])
     await page.setViewportSize({ width, height: 1000 });
     await page.goto("/admin/traders");
     await signIn(page);
-    await page
-      .getByLabel("Hyperliquid address", { exact: true })
-      .fill("0x" + "ab".repeat(20));
-    await page.getByRole("button", { name: "Inspect", exact: true }).click();
+    // The diagnosis opens from the 交易員資料 tab's search, in a drawer.
+    const search = page.getByRole("searchbox", { name: "Diagnose an address" }).or(page.getByLabel("Diagnose an address", { exact: true }));
+    await search.fill("0x" + "ab".repeat(20));
+    await search.press("Enter");
+    await expect(page).toHaveURL(/address=0x(ab){20}/);
+    const drawer = page.getByRole("dialog");
     await expect(
       page.getByRole("heading", { name: "Research trader", exact: true }),
     ).toBeVisible();
@@ -47,10 +49,10 @@ for (const width of [1440, 375])
       path: `/tmp/orbie-admin-trader-${width}.png`,
       fullPage: true,
     });
-    await page
-      .getByLabel("Hyperliquid address", { exact: true })
-      .fill("0x" + "cd".repeat(20));
-    await page.getByRole("button", { name: "Inspect", exact: true }).click();
+    await drawer.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(drawer).toHaveCount(0);
+    await search.fill("0x" + "cd".repeat(20));
+    await search.press("Enter");
     await expect(
       page.getByRole("heading", { name: "Unlabelled address", exact: true }),
     ).toBeVisible();

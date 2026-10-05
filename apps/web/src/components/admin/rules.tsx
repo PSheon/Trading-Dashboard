@@ -5,14 +5,15 @@ import { usePermission } from "@/lib/auth";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AlertRule, UpsertAlertRuleRequest } from "@/lib/contracts";
 
-import { ErrorState, Panel, PanelSkeleton } from "@/components/page";
+import { ErrorState, PanelSkeleton } from "@/components/page";
 import { RuleEditor } from "@/components/rules/rule-editor";
 import { useI18n } from "@/i18n/provider";
 import { api, type ApiError } from "@/lib/api";
 
 /** Default rules (userId null): what admins are alerted on for imported
- * traders. Users set alerts on their favorites instead. */
-export function AdminRules() {
+ * traders. Users set alerts on their favorites instead. Shown in 設定 ›
+ * 通知's drawer (the old 預設規則 page). */
+export function DefaultRulesEditor() {
   const canManage = usePermission("rules.manage");
   const { t } = useI18n();
   const queryClient = useQueryClient();
@@ -27,10 +28,9 @@ export function AdminRules() {
   });
 
   return (
-    <Panel className="p-5 md:p-6">
-      <h2 className="text-base font-bold">{t("admin.rules.title")}</h2>
-      <p className="mt-1 text-[0.8125rem] text-muted-foreground">{t("admin.rules.hint")}</p>
-      <div className="mt-5 flex flex-col gap-3">
+    <div className="flex flex-col gap-3">
+      <p className="type-caption">{t("admin.rules.hint")}</p>
+      <div className="flex flex-col gap-3">
         {rules.isError ? (
           <ErrorState message={rules.error.message} onRetry={() => rules.refetch()} />
         ) : !rules.data ? (
@@ -58,6 +58,6 @@ export function AdminRules() {
           ))
         )}
       </div>
-    </Panel>
+    </div>
   );
 }

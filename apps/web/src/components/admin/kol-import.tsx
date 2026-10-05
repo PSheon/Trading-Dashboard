@@ -204,7 +204,7 @@ function KolReview({ data: d }: { data: KolPreview }) {
       aria-label={t("kolReview.title")}
       className="space-y-3 border-t-2 border-dotted border-border pt-4"
     >
-      <h3 className="font-semibold">{t("kolReview.title")}</h3>
+      <h3 className="type-h2">{t("kolReview.title")}</h3>
       <p className="text-xs text-muted-foreground">
         {t("kolReview.snapshot")} {format.dateTime(d.sampledAt)}
       </p>

@@ -1,53 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { cn } from "cn";
 import type { CopyControlCommand, CopyOrderStatus, CopyStrategyStatus } from "@trading-dashboard/shared/contracts";
 
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { MessageKey } from "@/i18n/messages";
 import { useI18n } from "@/i18n/provider";
 import { copyReasonText } from "@/lib/admin-copy";
 import { usePermission } from "@/lib/auth";
 import type { AdminCopyOrderView } from "@/lib/contracts";
 import { coinLabel } from "@/lib/format";
-
-const PAGES: { href: string; label: MessageKey }[] = [
-  { href: "/admin/copy", label: "copyAdmin.nav.overview" },
-  { href: "/admin/copy/strategies", label: "copyAdmin.nav.strategies" },
-  { href: "/admin/copy/users", label: "copyAdmin.nav.users" },
-  { href: "/admin/copy/orders", label: "copyAdmin.nav.orders" },
-  { href: "/admin/copy/risk", label: "copyAdmin.nav.risk" },
-  { href: "/admin/copy/live", label: "copyAdmin.nav.live" },
-];
-
-/** The copy admin's own pages, under the admin section tabs. */
-export function CopyAdminNav() {
-  const { t } = useI18n();
-  const pathname = usePathname();
-  return (
-    <nav aria-label={t("copyAdmin.nav.title")} className="-mx-4 flex gap-1.5 overflow-x-auto px-4 no-scrollbar md:mx-0 md:px-0">
-      {PAGES.map((page) => {
-        const active = page.href === "/admin/copy" ? pathname === page.href : pathname.startsWith(page.href);
-        return (
-          <Link
-            key={page.href}
-            href={page.href}
-            aria-current={active ? "page" : undefined}
-            className={cn(
-              "flex h-10 shrink-0 items-center rounded-full border-2 px-4 text-[0.8125rem] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-              active ? "border-primary bg-primary font-extrabold text-primary-foreground" : "border-input font-bold text-muted-foreground hover:bg-raised hover:text-foreground",
-            )}
-          >
-            {t(page.label)}
-          </Link>
-        );
-      })}
-    </nav>
-  );
-}
 
 export function Chip({ tone = "neutral", children }: { tone?: "neutral" | "good" | "bad" | "warn" | "info"; children: React.ReactNode }) {
   return (
@@ -58,7 +21,7 @@ export function Chip({ tone = "neutral", children }: { tone?: "neutral" | "good"
         tone === "bad" && "bg-tag-loss text-tag-loss-foreground",
         tone === "warn" && "bg-tag-warning text-tag-warning-foreground",
         tone === "info" && "bg-tag-alert text-tag-alert-foreground",
-        tone === "neutral" && "bg-raised text-muted-foreground",
+        tone === "neutral" && "bg-(--seg-track,var(--raised)) text-muted-foreground",
       )}
     >
       {children}
@@ -106,7 +69,7 @@ export function ControlButtons({ state, onPick, size = "sm" }: {
       <Button variant="secondary" size={size} disabled={!canPause || state.reduceOnly} onClick={() => onPick("reduce_only")}>{t("copyAdmin.commands.reduce_only")}</Button>
       <Button variant="secondary" size={size} disabled={!canPause} onClick={() => onPick("cancel_pending")}>{t("copyAdmin.commands.cancel_pending")}</Button>
       <Button variant="destructive" size={size} disabled={!canPause} onClick={() => onPick("close_positions")}>{t("copyAdmin.commands.close_positions")}</Button>
-      <Button variant="outline" size={size} disabled={!canResume || !stopped} onClick={() => onPick("resume")}>{t("copyAdmin.commands.resume")}</Button>
+      <Button variant="default" size={size} disabled={!canResume || !stopped} onClick={() => onPick("resume")}>{t("copyAdmin.commands.resume")}</Button>
     </div>
   );
 }
@@ -132,7 +95,7 @@ export function OrdersTable({ items, showUser = true }: { items: AdminCopyOrderV
             <TableCell className="whitespace-nowrap text-muted-foreground">{format.dateTime(o.createdAt)}</TableCell>
             {showUser ? <TableCell className="hidden max-w-[12rem] truncate md:table-cell">{o.userEmail ?? `#${o.userId}`}</TableCell> : null}
             <TableCell className="whitespace-nowrap">
-              <Link href={`/admin/copy/strategies/${o.strategyId}`} className="font-semibold underline decoration-border underline-offset-4">
+              <Link href={`/admin/copy?strategy=${o.strategyId}`} className="font-semibold underline decoration-border underline-offset-4">
                 {coinLabel(o.coin)}
               </Link>{" "}
               <span className={o.side === "B" ? "text-positive" : "text-negative"}>{t(o.side === "B" ? "common.buy" : "common.sell")}</span>{" "}

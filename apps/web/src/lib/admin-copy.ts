@@ -21,11 +21,12 @@ import { queryKeys } from "@/lib/query-keys";
 /** The admin pages follow a live system: stop state, backlog and orders move while the page is open. */
 const REFETCH_MS = 10_000;
 
-export function useAdminCopyOverview() {
+export function useAdminCopyOverview(enabled = true) {
   return useQuery({
     queryKey: queryKeys.admin.copy.overview,
     queryFn: ({ signal }) => api.get<AdminCopyOverviewView>("/admin/copy/overview", signal),
     refetchInterval: REFETCH_MS,
+    enabled,
   });
 }
 
@@ -48,11 +49,12 @@ export function useAdminCopyStrategies(filter: { status?: CopyStrategyStatus | "
   });
 }
 
-export function useAdminCopyStrategy(id: number) {
+export function useAdminCopyStrategy(id: number | null) {
   return useQuery({
-    queryKey: queryKeys.admin.copy.strategy(id),
+    queryKey: queryKeys.admin.copy.strategy(id ?? 0),
     queryFn: ({ signal }) => api.get<AdminCopyStrategyDetailView>(`/admin/copy/strategies/${id}`, signal),
     refetchInterval: REFETCH_MS,
+    enabled: id !== null,
   });
 }
 

@@ -19684,6 +19684,12 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "volumes": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "number"
+                          }
                         }
                       },
                       "required": [

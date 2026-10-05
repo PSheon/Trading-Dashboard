@@ -121,4 +121,14 @@ describe("trending markets", () => {
     const blocked = new MarketCatalogService({ perpDexs: () => new Promise(() => {}) } as unknown as HyperliquidInfoClient);
     expect(await blocked.trending(1)).toEqual([]);
   });
+  it("keeps each active market's 24h volume from the trending read for the admin's market pickers", async () => {
+    const { catalog, info } = setup();
+    Object.assign(info, {
+      metaAndAssetCtxs: vi.fn(async (_lane: string, _signal: unknown, dex?: string) => dex === "xyz"
+        ? [universe(["xyz:TSLA", "xyz:OLD"], ["xyz:OLD"]), [{ dayNtlVlm: "5000000" }, { dayNtlVlm: "9" }]]
+        : dex === "empty" ? [universe([]), []] : [universe(["BTC", "ETH", "MEGA"]), [{ dayNtlVlm: "1200000000" }, { dayNtlVlm: "800000000" }, { dayNtlVlm: "0" }]]),
+    });
+    expect(await catalog.trending()).toEqual(["BTC", "ETH", "xyz:TSLA"]);
+    expect(Object.fromEntries((await catalog.dayVolumes())!)).toEqual({ BTC: 1_200_000_000, ETH: 800_000_000, "xyz:TSLA": 5_000_000 });
+  });
 });

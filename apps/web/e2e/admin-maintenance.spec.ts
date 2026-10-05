@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { expectAccessible, expectNoSidewaysScroll, shot, signIn } from "./helpers";
+import { expectAccessible, expectNoSidewaysScroll, saveSettings, shot, signIn } from "./helpers";
 
 // The viewer's own zone must not matter: every time on the site is UTC.
 test.use({ timezoneId: "Asia/Taipei" });
@@ -27,7 +27,7 @@ for (const width of [1440, 390]) {
     const utc = ends.toISOString().slice(0, 16);
     await expect(general.getByText("Expected end (optional, shown to visitors) (UTC)", { exact: true })).toBeVisible();
     await general.getByLabel("Expected end (optional, shown to visitors)").fill(utc);
-    await general.getByRole("button", { name: "Save section", exact: true }).click();
+    await saveSettings(page);
     // Nothing is saved until the confirmation.
     const dialog = page.getByRole("dialog", { name: "Turn maintenance mode on?" });
     await expect(dialog).toContainText("refused at once");
@@ -35,7 +35,7 @@ for (const width of [1440, 390]) {
     await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(dialog).toHaveCount(0);
     await expect(notice).toHaveCount(0);
-    await general.getByRole("button", { name: "Save section", exact: true }).click();
+    await saveSettings(page);
     await dialog.getByRole("button", { name: "Confirm and save", exact: true }).click();
     await expect(dialog).toHaveCount(0);
 
@@ -62,7 +62,7 @@ for (const width of [1440, 390]) {
     await expect(toggle).toBeVisible({ timeout: 20000 });
     await expect(toggle).toHaveAttribute("aria-checked", "true");
     await toggle.click();
-    await general.getByRole("button", { name: "Save section", exact: true }).click();
+    await saveSettings(page);
     await page.getByRole("dialog", { name: "Turn maintenance mode off?" }).getByRole("button", { name: "Confirm and save", exact: true }).click();
     await expect(notice).toHaveCount(0);
   });

@@ -133,3 +133,13 @@ export function fixtureCohortHistory(tier: string, window: string) {
     btc: Array.from({ length: points }, (_, i) => [end - (points - 1 - i) * 6 * 3_600_000, Math.round(84_000 + 6_000 * Math.sin(i / 14))] as [number, number]),
   };
 }
+
+/** GET /discover/markets: the main dex's perps and the xyz HIP-3 stocks the
+ * fixtures know, with made-up 24h volumes (largest first by name order). */
+export function fixtureMarketNames(): { markets: string[]; volumes: Record<string, number> } {
+  const crypto = ["BTC", "ETH", "SOL", "HYPE", "DOGE", "ZEC", "NEAR", "PUMP", "XRP", "SUI", "AVAX", "LINK", "kPEPE", "WIF", "ENA", "TAO"];
+  const stocks = ["xyz:SP500", "xyz:GOLD", "xyz:SILVER", "xyz:CL", "xyz:BRENTOIL", "xyz:NVDA", "xyz:TSLA", "xyz:AAPL", "xyz:MU", "xyz:MSFT", "xyz:AMZN", "xyz:GOOGL", "xyz:META", "xyz:COIN"];
+  const volumes: Record<string, number> = {};
+  [...crypto, ...stocks].forEach((coin, i) => { volumes[coin] = Math.round(2_400_000_000 / (i + 1)); });
+  return { markets: [...crypto, ...stocks].sort(), volumes };
+}

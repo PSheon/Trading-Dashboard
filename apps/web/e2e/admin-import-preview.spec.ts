@@ -8,7 +8,7 @@ for (const width of [1440, 375])
   }) => {
     await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
     await page.setViewportSize({ width, height: 1000 });
-    await page.goto("/admin/lists");
+    await page.goto("/admin/traders/lists");
     await signIn(page);
     await expect(
       page.getByRole("button", { name: "Preview impact", exact: true }),
@@ -72,36 +72,16 @@ for (const width of [1440, 375])
       page.getByRole("button", { name: "Confirm import", exact: true }),
     ).toBeDisabled();
     await expect(page.getByText(/Imported list #\d+: 1 items, 1 new addresses\./)).toBeVisible();
+    // The old 資料來源 page is now the overview's collection counts.
     await page.goto("/admin/data-sources");
-    await expect(
-      page.getByRole("heading", { name: "Data sources", exact: true }),
-    ).toBeVisible();
-    await expect(page.getByRole("heading",{name:"Official leaderboard addresses",exact:true})).toBeVisible();
-    await expect(
-      page.getByText(
-        "Sets overlap; do not add these counts or treat them as live subscriptions.",
-        { exact: true },
-      ),
-    ).toBeVisible();
-    expect(
-      await page.evaluate(
-        () => document.documentElement.scrollWidth <= innerWidth,
-      ),
-    ).toBe(true);
-    expect(
-      (
-        await (await wcag(page))
-          .analyze()
-      ).violations,
-    ).toEqual([]);
-    await page.screenshot({
-      path: `/tmp/orbie-data-sources-${width}.png`,
-      fullPage: true,
-    });
+    await expect(page).toHaveURL(/\/admin$/);
+    const counts = page.getByRole("region", { name: "Collection counts" });
+    await expect(counts.getByText("Official leaderboard addresses", { exact: true })).toBeVisible({ timeout: 20000 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
 test('malformed JSON rows are rejected before rendering the raw table',async({page,context,baseURL})=>{
  await context.addCookies([{name:'locale',value:'en',url:baseURL!}]);
- await page.goto('/admin/lists');await signIn(page);
+ await page.goto('/admin/traders/lists');await signIn(page);
  await page.locator('input[type=file]').setInputFiles({name:'invalid.json',mimeType:'application/json',buffer:Buffer.from('[null]')});
  await expect(page.getByText("Couldn't parse the file",{exact:true})).toBeVisible();
  await expect(page.getByRole('button',{name:'Preview impact',exact:true})).toBeDisabled();

@@ -39,7 +39,7 @@ export function AdminJobs() {
   return (
     <section className="space-y-4" aria-labelledby="jobs-title">
       <div>
-        <h2 id="jobs-title" className="text-lg font-bold">
+        <h2 id="jobs-title" className="type-h2">
           {t("jobs.title")}
         </h2>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed text-muted-foreground">
@@ -170,7 +170,7 @@ export function JobCard({
     job.leaseExpiresAt !== null &&
     Date.parse(job.leaseExpiresAt) < now;
   return (
-    <Panel className="min-w-0 p-5">
+    <Panel className="card-pad min-w-0">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-xs text-muted-foreground">
           #{job.id} ·{" "}

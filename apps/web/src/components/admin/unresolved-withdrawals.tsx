@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 
-import { Panel } from "@/components/page";
+import { Input } from "@/components/ui/input";
+import { AdminCard } from "./ui";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
 import { useI18n } from "@/i18n/provider";
@@ -33,17 +34,16 @@ export function UnresolvedWithdrawals() {
   const now = list.dataUpdatedAt;
   const close = () => { if (!resolve.isPending) { setTarget(null); setReason(""); resolve.reset(); } };
   return (
-    <Panel>
-      <section aria-labelledby="withdrawals-in-doubt" className="flex flex-col gap-3 p-4">
-        <h2 id="withdrawals-in-doubt" className="text-sm font-semibold">{t("admin.withdrawals.title")}</h2>
-        <p className="text-xs leading-5 text-muted-foreground">{t("admin.withdrawals.hint")}</p>
-        {outcome ? <p role="status" className="text-xs text-positive">{outcome}</p> : null}
+    <>
+      <AdminCard aria-labelledby="withdrawals-in-doubt" title={<span id="withdrawals-in-doubt">{t("admin.withdrawals.title")}</span>} className="shadow-[0_0_0_2px_var(--warning)]">
+        <p className="type-caption">{t("admin.withdrawals.hint")}</p>
+        {outcome ? <p role="status" className="text-sm font-bold text-positive">{outcome}</p> : null}
         <ul className="divide-y-2 divide-dotted divide-border">
           {items.map((item) => {
             const open = new Date(item.resolvableAt).getTime() > now;
             return (
-              <li key={item.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2 text-xs">
-                <span className="font-medium">{item.email ?? `#${item.userId}`}</span>
+              <li key={item.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2.5 text-sm font-bold">
+                <span className="font-extrabold">{item.email ?? `#${item.userId}`}</span>
                 <span className="num">{format.usd(Number(item.amount), { digits: 2 })}</span>
                 <span className="num text-muted-foreground" title={item.destination}>→ {truncateAddress(item.destination)}</span>
                 <span className="text-muted-foreground">{t("admin.withdrawals.signed")} {format.dateTime(item.createdAt)}</span>
@@ -57,7 +57,7 @@ export function UnresolvedWithdrawals() {
             );
           })}
         </ul>
-      </section>
+      </AdminCard>
       <Modal open={target !== null} onOpenChange={(next) => { if (!next) close(); }} title={t("admin.withdrawals.resolve")}>
         <form className="flex flex-col gap-3" onSubmit={(event) => {
           event.preventDefault();
@@ -67,13 +67,12 @@ export function UnresolvedWithdrawals() {
             setTarget(null); setReason("");
           } });
         }}>
-          <label className="text-sm" htmlFor="withdrawal-reason">{t("admin.withdrawals.reason")}</label>
-          <input id="withdrawal-reason" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} autoComplete="off"
-            className="h-10 rounded-lg border border-border bg-raised px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+          <label className="text-sm font-bold" htmlFor="withdrawal-reason">{t("admin.withdrawals.reason")}</label>
+          <Input id="withdrawal-reason" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} autoComplete="off" />
           {resolve.isError ? <p role="alert" className="text-xs text-negative">{t("admin.withdrawals.failed", { reason: apiErrorCode(resolve.error) ?? resolve.error.message })}</p> : null}
           <Button type="submit" disabled={resolve.isPending || reason.trim().length < 3}>{t("admin.withdrawals.confirm")}</Button>
         </form>
       </Modal>
-    </Panel>
+    </>
   );
 }

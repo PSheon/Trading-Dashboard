@@ -11,6 +11,8 @@ test.beforeEach(async ({ context, baseURL }) => {
 });
 
 const section = (page: Page, name: string) => page.getByRole("navigation", { name: "Copy trading" }).getByRole("link", { name, exact: true });
+/** A row of the user-exposure table. */
+const userRow = (page: Page, name: string) => page.getByRole("region", { name: "User exposure" }).getByRole("row").filter({ hasText: name });
 /** Radix fades the dialog in; a scan mid-fade reads blended colours. */
 const settled = (page: Page) => page.getByRole("dialog").evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)));
 const armStale = (page: Page, kind: "control" | "risk") => page.evaluate((k) => sessionStorage.setItem("orbie:fixtures:admin-copy-stale", k), kind);
@@ -19,7 +21,7 @@ async function open(page: Page, width: number) {
   await page.setViewportSize({ width, height: 900 });
   await page.goto("/admin/copy");
   await signIn(page);
-  await expect(page.getByRole("heading", { name: "Platform stop state", exact: true })).toBeVisible({ timeout: 20000 });
+  await expect(page.getByRole("region", { name: "Platform stop state" })).toBeVisible({ timeout: 20000 });
 }
 
 /** Fills the confirmation and sends it. */
@@ -37,7 +39,7 @@ async function confirm(page: Page, command: string, word: string, reason: string
 
 for (const width of [1440, 390]) {
   test.describe(`copy admin at ${width}px`, () => {
-    test("overview: state, backlog and orders with reasons; a platform pause needs a reason and the typed word", async ({ page }) => {
+    test("status: the platform's state and commands, stuck orders with their ledger; a platform pause needs a reason and the typed word", async ({ page }) => {
       test.setTimeout(90000);
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
@@ -45,26 +47,23 @@ for (const width of [1440, 390]) {
       const platform = page.getByRole("region", { name: "Platform stop state" });
       await expect(platform.getByText("Paper", { exact: true })).toBeVisible();
       await expect(platform.getByText("Running", { exact: true })).toBeVisible();
-      await expect(platform.getByText(/^revision 4/)).toBeVisible();
-      // Backlog and lag, and the reasons of refused orders in words.
-      const backlog = page.getByRole("region", { name: "Signal backlog and lag" });
-      await expect(backlog.getByText("Healthy", { exact: true })).toBeVisible();
-      await expect(backlog.getByText("#48211", { exact: true })).toBeVisible();
+      await expect(platform.getByText(/revision 4 · risk policy v2 · signal backlog 2/)).toBeVisible();
       // An order the executor cannot book is on the page, with its error and how often it failed.
       const stuck = page.getByTestId("copy-stuck-orders");
-      await expect(stuck.getByRole("heading", { name: "Orders that keep failing", exact: true })).toBeVisible();
+      await expect(stuck.getByRole("heading", { name: /Orders that keep failing/ })).toBeVisible();
       await expect(stuck).toContainText("Order #9041 · ETH · reduce · reduce-only");
       await expect(stuck).toContainText("numeric field overflow");
       await expect(stuck).toContainText("Failed attempts: 7");
-      await expect(stuck.getByRole("link", { name: "Strategy #4" })).toHaveAttribute("href", "/admin/copy/strategies/4");
-      const failures = page.getByRole("region", { name: "Recent rejections and cancellations" });
-      await expect(failures.getByText("Signal was too old", { exact: true }).filter({ visible: true }).first()).toBeVisible();
-      await expect(failures.getByText("Coin is on the blocked list", { exact: true }).filter({ visible: true }).first()).toBeVisible();
-      await expect(failures.getByText("Under the minimum order after the strategy exposure cap", { exact: true }).filter({ visible: true }).first()).toBeVisible();
-      await expect(failures.getByText("Strategy stopped before submission", { exact: true }).filter({ visible: true }).first()).toBeVisible();
       await expectNoSidewaysScroll(page);
       await expectAccessible(page);
-      await shot(page, `admin-copy-overview-${width}`);
+      await shot(page, `admin-copy-status-${width}`);
+      // Its strategy's ledger opens in a drawer (the old copy/strategies/[id] page).
+      await stuck.getByRole("button", { name: "Strategy #4" }).click();
+      await expect(page).toHaveURL(/\/admin\/copy\?strategy=4$/);
+      const ledger = page.getByRole("dialog", { name: "Strategy #4" });
+      await expect(ledger.getByRole("heading", { name: "Ledger", exact: true })).toBeVisible({ timeout: 20000 });
+      await ledger.getByRole("button", { name: "Close", exact: true }).click();
+      await expect(page).toHaveURL(/\/admin\/copy$/);
 
       await platform.getByRole("button", { name: "Pause new risk", exact: true }).click();
       const dialog = page.getByRole("dialog", { name: "Pause new risk" });
@@ -75,7 +74,7 @@ for (const width of [1440, 390]) {
       await confirm(page, "Pause new risk", "PAUSE", "Drill: stale mids from Hyperliquid");
       await expect(dialog).toHaveCount(0);
       await expect(platform.getByText("New risk paused", { exact: true })).toBeVisible();
-      await expect(platform.getByText(/^revision 5/)).toBeVisible();
+      await expect(platform.getByText(/revision 5/)).toBeVisible();
       await expect(platform.getByRole("button", { name: "Pause new risk", exact: true })).toBeDisabled();
       await expect(page.getByRole("region", { name: "Recent stop and resume commands" }).getByText("Drill: stale mids from Hyperliquid", { exact: true }).filter({ visible: true })).toBeVisible();
       expect(errors).toEqual([]);
@@ -95,7 +94,7 @@ for (const width of [1440, 390]) {
       await expect(dialog).toHaveCount(0);
       await expect(platform.getByText("New risk paused", { exact: true })).toBeVisible();
       await expect(platform.getByText("Reduce-only", { exact: true }).first()).toBeVisible();
-      await expect(platform.getByText(/^revision 6/)).toBeVisible();
+      await expect(platform.getByText(/revision 6/)).toBeVisible();
       // Every open position of the four live copies got its close.
       const commands = page.getByRole("region", { name: "Recent stop and resume commands" });
       await expect(commands.getByText("Kill switch test", { exact: true }).filter({ visible: true })).toBeVisible();
@@ -106,61 +105,54 @@ for (const width of [1440, 390]) {
       await expect(platform.getByText("Running", { exact: true })).toBeVisible();
     });
 
-    test("user exposure: one user's stop state is changed without touching the platform's", async ({ page }) => {
+    test("user exposure: a row's Stop… changes that user's stop state, not the platform's; Expand shows the user's copies with their ledger", async ({ page }) => {
       test.setTimeout(90000);
       await open(page, width);
-      await section(page, "User exposure").click();
-      await expect(page).toHaveURL(/\/admin\/copy\/users$/);
-      const sam = page.getByRole("region", { name: "degen_sam@example.com" });
-      const anonymous = page.getByRole("region", { name: "#12" });
+      const sam = userRow(page, "degen_sam@example.com");
+      const anonymous = userRow(page, "#12");
       await expect(sam.getByText("Running", { exact: true })).toBeVisible();
       await expect(anonymous.getByText("Reduce-only", { exact: true }).first()).toBeVisible();
       await expectNoSidewaysScroll(page);
-      await expectAccessible(page);
-      await shot(page, `admin-copy-users-${width}`);
 
-      await sam.getByRole("button", { name: "Pause new risk", exact: true }).click();
+      await sam.getByRole("button", { name: "Stop commands for degen_sam@example.com" }).click();
+      await page.getByRole("menuitem", { name: "Pause new risk", exact: true }).click();
       await expect(page.getByRole("dialog", { name: "Pause new risk" })).toContainText("degen_sam@example.com");
       await confirm(page, "Pause new risk", "PAUSE", "Exposure review");
       await expect(sam.getByText("New risk paused", { exact: true })).toBeVisible();
-      await expect(sam.getByText("r1", { exact: true })).toBeVisible();
 
-      await anonymous.getByRole("button", { name: "Resume", exact: true }).click();
+      await anonymous.getByRole("button", { name: "Stop commands for #12" }).click();
+      await page.getByRole("menuitem", { name: "Resume", exact: true }).click();
       await confirm(page, "Resume", "RESUME", "Review done");
       await expect(anonymous.getByText("Running", { exact: true })).toBeVisible();
-
-      await section(page, "Overview").click();
       await expect(page.getByRole("region", { name: "Platform stop state" }).getByText("Running", { exact: true })).toBeVisible();
+
+      // Expand: the user's copies inline, each with its ledger.
+      const demo = userRow(page, "demo@example.com");
+      await demo.getByRole("button", { name: "Expand", exact: true }).click();
+      await expect(demo.getByRole("button", { name: "Collapse", exact: true })).toHaveAttribute("aria-expanded", "true");
+      const copies = page.locator("[id^=copy-user-]");
+      await expect(copies.getByRole("button", { name: "Ledger" }).first()).toBeVisible();
+      await expectAccessible(page);
+      await shot(page, `admin-copy-users-${width}`);
+      await copies.getByRole("button", { name: "Ledger" }).first().click();
+      const ledger = page.getByRole("dialog", { name: /^Strategy #\d+$/ });
+      await expect(ledger.getByText(/^Settings v\d+$/)).toBeVisible({ timeout: 20000 });
+      await settled(page);
+      await expectAccessible(page);
+      await shot(page, `admin-copy-ledger-${width}`);
     });
 
-    test("strategies, one strategy's detail and the order list", async ({ page }) => {
+    test("orders: the list with reasons, filtered to the failed ones", async ({ page }) => {
       test.setTimeout(90000);
       await open(page, width);
-      await section(page, "Strategies").click();
-      await expect(page.getByText("5 strategies", { exact: true })).toBeVisible();
-      await chooseOption(page, page.getByRole("combobox", { name: "Strategy status" }), "stopped");
-      await expect(page.getByText("1 strategies", { exact: true })).toBeVisible();
-      await chooseOption(page, page.getByRole("combobox", { name: "Strategy status" }), "");
-      await expectNoSidewaysScroll(page);
-      await expectAccessible(page);
-      await shot(page, `admin-copy-strategies-${width}`);
-
-      await page.getByRole("link", { name: "#2", exact: true }).click();
-      // The dev server may still be compiling the detail route.
-      await expect(page).toHaveURL(/\/admin\/copy\/strategies\/2$/, { timeout: 20000 });
-      await expect(page.getByRole("heading", { name: "Strategy #2", exact: true })).toBeVisible({ timeout: 20000 });
-      await expect(page.getByText("Settings v2", { exact: true })).toBeVisible();
-      await expect(page.getByText("Strategy stopped before submission", { exact: true }).filter({ visible: true }).first()).toBeVisible();
-      await expectNoSidewaysScroll(page);
-      await expectAccessible(page);
-      await shot(page, `admin-copy-strategy-${width}`);
-
-      await section(page, "Paper orders").click();
+      await section(page, "Orders").click();
+      await expect(page).toHaveURL(/\/admin\/copy\/orders$/);
       await expect(page.getByText("13 orders", { exact: true })).toBeVisible({ timeout: 20000 });
       await chooseOption(page, page.getByRole("combobox", { name: "Order status" }), "failed");
       await expect(page).toHaveURL(/status=failed/);
       await expect(page.getByText("5 orders", { exact: true })).toBeVisible();
       await expect(page.getByText("User is reduce-only", { exact: true }).filter({ visible: true }).first()).toBeVisible();
+      await expect(page.getByText("Signal was too old", { exact: true }).filter({ visible: true }).first()).toBeVisible();
       await expectNoSidewaysScroll(page);
       await expectAccessible(page);
       await shot(page, `admin-copy-orders-${width}`);
@@ -171,8 +163,8 @@ for (const width of [1440, 390]) {
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
       await open(page, width);
-      await section(page, "Testnet copies").click();
-      await expect(page).toHaveURL(/\/admin\/copy\/live$/);
+      await section(page, "Testnet").click();
+      await expect(page).toHaveURL(/\/admin\/copy\/testnet$/);
       const latency = page.getByTestId("copy-live-latency");
       await expect(latency).toContainText("9 copied fills");
       await expect(latency).toContainText("840 ms");
@@ -222,8 +214,11 @@ for (const width of [1440, 390]) {
     test("risk limits: an impossible policy can't be saved; a save needs a reason and becomes the next version", async ({ page }) => {
       test.setTimeout(90000);
       await open(page, width);
-      await section(page, "Risk limits").click();
+      await section(page, "Risk").click();
       await expect(page.getByRole("heading", { name: "Platform risk limits", exact: true })).toBeVisible({ timeout: 20000 });
+      // The four common limits first; the rest under 進階.
+      await expect(page.getByLabel("Max leverage (×)")).toBeHidden();
+      await page.getByRole("button", { name: "Advanced" }).click();
       await expect(page.getByText("Current v2", { exact: true })).toBeVisible();
       const save = page.getByRole("button", { name: "Save as v3", exact: true });
       await expect(save).toBeDisabled();
@@ -252,6 +247,7 @@ for (const width of [1440, 390]) {
       await expect(page.getByRole("alert").filter({ hasText: "Someone else saved a newer policy" })).toBeVisible();
       await page.getByRole("button", { name: "Reload", exact: true }).click();
       await expect(page.getByText("Current v3", { exact: true })).toBeVisible();
+      await page.getByRole("button", { name: "Advanced" }).click();
       await expect(page.getByLabel("Max leverage (×)")).toHaveValue("8");
 
       await page.getByLabel("Max leverage (×)").fill("5");
@@ -259,6 +255,7 @@ for (const width of [1440, 390]) {
       await page.getByRole("button", { name: "Save as v4", exact: true }).click();
       await expect(page.getByRole("status")).toContainText("Saved as v4");
       await expect(page.getByText("Current v4", { exact: true })).toBeVisible();
+      await page.getByRole("button", { name: "Advanced" }).click();
       await expect(page.getByLabel("Max leverage (×)")).toHaveValue("5");
       const history = page.getByRole("table");
       await expect(history.getByText("v4 · current", { exact: true })).toBeVisible();
@@ -266,3 +263,10 @@ for (const width of [1440, 390]) {
     });
   });
 }
+
+test("the old copy admin URLs land on the copy tab", async ({ page }) => {
+  for (const [from, to] of [["/admin/copy/users", /\/admin\/copy$/], ["/admin/copy/strategies", /\/admin\/copy$/], ["/admin/copy/strategies/2", /\/admin\/copy\?strategy=2$/], ["/admin/copy/live", /\/admin\/copy\/testnet$/]] as const) {
+    await page.goto(from);
+    await expect(page).toHaveURL(to);
+  }
+});

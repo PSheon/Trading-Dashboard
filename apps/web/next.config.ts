@@ -82,13 +82,38 @@ const nextConfig: NextConfig = {
       { source: "/leaders/:address", destination: "/trader/:address", permanent: false },
       { source: "/leaders/:chain/:address", destination: "/trader/:address", permanent: false },
       { source: "/alerts", destination: "/settings", permanent: false },
-      { source: "/import", destination: "/admin/lists", permanent: false },
-      { source: "/lists", destination: "/admin/lists", permanent: false },
-      { source: "/status", destination: "/admin/system", permanent: false },
+      { source: "/import", destination: "/admin/traders/lists", permanent: false },
+      { source: "/lists", destination: "/admin/traders/lists", permanent: false },
+      { source: "/status", destination: "/admin", permanent: false },
       { source: "/login", destination: "/", permanent: false },
+      ...ADMIN_REDIRECTS,
     ];
   },
 };
+
+/**
+ * The admin's old pages (bookmarks, links in messages) land on their place in
+ * the five tabs of 2026-10-05: 收入, 系統 and 資料來源 folded into 總覽, 營運
+ * was removed (its data is the public 洞察 page), the copy pages became the
+ * 跟單 tab's sub-tabs (a strategy's ledger opens on it), 稽核 a 使用者
+ * sub-tab, KOL / 名單 / 回補工作 the 交易者資料 tab's, 預設規則 the 設定
+ * tab's 通知 section.
+ */
+export const ADMIN_REDIRECTS = [
+  { source: "/admin/revenue", destination: "/admin", permanent: false },
+  { source: "/admin/system", destination: "/admin", permanent: false },
+  { source: "/admin/data-sources", destination: "/admin", permanent: false },
+  { source: "/admin/activity", destination: "/admin", permanent: false },
+  { source: "/admin/copy/users", destination: "/admin/copy", permanent: false },
+  { source: "/admin/copy/strategies", destination: "/admin/copy", permanent: false },
+  { source: "/admin/copy/strategies/:id", destination: "/admin/copy?strategy=:id", permanent: false },
+  { source: "/admin/copy/live", destination: "/admin/copy/testnet", permanent: false },
+  { source: "/admin/audit", destination: "/admin/users/audit", permanent: false },
+  { source: "/admin/kols", destination: "/admin/traders", permanent: false },
+  { source: "/admin/lists", destination: "/admin/traders/lists", permanent: false },
+  { source: "/admin/jobs", destination: "/admin/traders/jobs", permanent: false },
+  { source: "/admin/rules", destination: "/admin/settings#notifications", permanent: false },
+];
 
 /** Fixture mode answers every API call from sample data in the browser (and
  * signs anyone in): development and tests only, never a production build

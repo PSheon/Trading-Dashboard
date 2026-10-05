@@ -127,9 +127,9 @@ export class DiscoveryService {
   }
 
   /** Every perp market name the catalog lists (no Hyperliquid call per request). */
-  async marketNames(): Promise<{ markets: string[] | null }> {
-    const markets = await this.markets.markets();
-    return { markets: markets ? [...markets].sort() : null };
+  async marketNames(): Promise<{ markets: string[] | null; volumes?: Record<string, number> }> {
+    const [markets, volumes] = await Promise.all([this.markets.markets(), this.markets.dayVolumes()]);
+    return { markets: markets ? [...markets].sort() : null, ...(volumes ? { volumes: Object.fromEntries(volumes) } : {}) };
   }
 
   /**

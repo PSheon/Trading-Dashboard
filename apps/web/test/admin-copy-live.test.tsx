@@ -11,7 +11,7 @@ import { settleQueries } from './query-settle';
 
 const state = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), permissions: ['admin.access', 'copy.read'] as string[] }));
 vi.mock('@/lib/api', () => ({ api: { get: state.get, post: state.post } }));
-vi.mock('@/lib/auth', () => ({ usePermission: (p: string) => state.permissions.includes(p) }));
+vi.mock('@/lib/auth', () => ({ usePermission: (p: string) => state.permissions.includes(p), useMe: () => ({ data: { permissions: state.permissions } }) }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh() {} }), usePathname: () => '/admin/copy/live' }));
 vi.mock('next/link', () => ({ default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a> }));
 

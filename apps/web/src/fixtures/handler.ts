@@ -13,7 +13,7 @@ import { traderSearchQuerySchema, traderSearchResponseSchema } from "@trading-da
 import { auditQuerySchema, auditResponseSchema, settingsRuntimeSchema } from "@trading-dashboard/shared/contracts";
 import { fixtureJobs } from "./jobs";
 import { backfillJobSchema, backfillJobsQuerySchema, backfillJobsResponseSchema, retryBackfillJobSchema } from "@trading-dashboard/shared/contracts";
-import { adminSystemSchema } from "@trading-dashboard/shared/contracts";
+import { adminSystemSchema, marketNamesResponseSchema } from "@trading-dashboard/shared/contracts";
 import { systemOverview } from "./admin";
 /**
  * In-browser stand-in for apps/api, used only when the build sets
@@ -152,7 +152,7 @@ import {
   setAdminUsers,
 } from "./admin";
 import { fixtureAnalytics, fixtureTradePage } from "./trades";
-import { fixtureBoard, fixtureCohort, fixtureCohortHistory, fixtureCoinBoard, fixtureCoinIndex, fixtureHome, fixtureSearch } from "./discovery";
+import { fixtureBoard, fixtureCohort, fixtureCohortHistory, fixtureCoinBoard, fixtureCoinIndex, fixtureHome, fixtureMarketNames, fixtureSearch } from "./discovery";
 import { fixtureCopyAccounting, fixtureCopyEvents, fixtureCopyPerformance, fixtureCopyPortfolio, fixtureCopyTrades, fixtureFundsHistory, fixtureWithdrawFunds, fixtureAddFunds, fixtureCopyCommand, fixtureCopyOrders, fixtureCopyOverview, fixturePatchCopy, fixtureStartCopy } from "./copy";
 import { fixtureAdminCopyControl, fixtureAdminCopyExposure, fixtureAdminCopyOrders, fixtureAdminCopyOverview, fixtureAdminCopyPutRisk, fixtureAdminCopyRisk, fixtureAdminCopyStrategies, fixtureAdminCopyStrategy, fixtureAdminLiveAccounts, fixtureAdminLiveLatency, fixtureAdminLiveOrders, fixtureAdminLiveRevoke, fixtureAdminLiveTransfers } from "./admin-copy";
 import { createGroup, deleteGroup, dropMember, listGroups, patchGroup, resetGroups, setMember, traderCards } from "./watchlist";
@@ -376,6 +376,8 @@ export async function fixtureRequest<T>(
   switch (route) {
     case "GET /discover/coins":
       return wire(coinIndexResponseSchema, fixtureCoinIndex());
+    case "GET /discover/markets":
+      return wire(marketNamesResponseSchema, fixtureMarketNames());
     case "GET /discover/home":
       return wire(homeBoardsResponseSchema, fixtureHome());
     case "GET /discover/boards":
@@ -844,7 +846,7 @@ export async function fixtureRequest<T>(
     case "GET /admin/audit": {
       requireAdmin(token);
       const query = auditQuerySchema.parse(Object.fromEntries(url.searchParams));
-      const rows = Array.from({ length: 30 }, (_, index) => ({ id: String(30 - index), actorKind: "user", actorUserId: 1, event: "settings.update", target: "app_settings", before: { discovery: { candidatePoolSize: 1000 } }, after: { discovery: { candidatePoolSize: 500 } }, createdAt: new Date().toISOString() }))
+      const rows = Array.from({ length: 30 }, (_, index) => ({ id: String(30 - index), actorKind: "user", actorUserId: 1, event: "settings.update", target: "app_settings", before: { notifications: { maxAlertTraders: 3 } }, after: { notifications: { maxAlertTraders: 5 } }, createdAt: new Date().toISOString() }))
         .filter(row => (!query.beforeId || BigInt(row.id) < BigInt(query.beforeId)) && (!query.event || row.event === query.event) && (!query.actorKind || row.actorKind === query.actorKind) && (!query.actorUserId || row.actorUserId === query.actorUserId) && (!query.target || row.target === query.target));
       const items = rows.slice(0, query.limit);
       return wire(auditResponseSchema, { items, nextCursor: rows.length > query.limit ? items.at(-1)!.id : null });

@@ -6,7 +6,10 @@ import { ChevronLeft, ChevronRight, Search, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "cn";
 
-import { EmptyState, ErrorState, Panel } from "@/components/page";
+import { EmptyState, ErrorState } from "@/components/page";
+import { Label } from "@/components/ui/label";
+import { AdminSubTabs } from "./admin-shell";
+import { Notice } from "./ui";
 import { AddressAvatar } from "@/components/traders/address-avatar";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -27,8 +30,10 @@ type Pending = { user: AdminUser; role: UserRole } | { user: AdminUser; disabled
 const ROLE_TONE: Record<UserRole, string> = {
   admin: "bg-tag-alert text-tag-alert-foreground",
   operator: "bg-tag-warning text-tag-warning-foreground",
-  user: "bg-raised text-muted-foreground",
+  user: "text-muted-foreground",
 };
+
+export const USERS_SUB_TABS = { "/admin/users": "admin.sub.users", "/admin/users/audit": "admin.sub.audit" } as const;
 
 export function AdminUsers() {
   const { t, format } = useI18n();
@@ -40,6 +45,7 @@ export function AdminUsers() {
   const [page, setPage] = useState(0);
   // Nothing is sent on the first click (review finding 63): a role change and a disable are confirmed.
   const [pending, setPending] = useState<Pending | null>(null);
+  const [managing, setManaging] = useState<AdminUser | null>(null);
 
   useEffect(() => {
     const id = setTimeout(() => {
@@ -56,18 +62,19 @@ export function AdminUsers() {
   const pages = Math.max(1, Math.ceil(total / PAGE));
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-5">
+      <AdminSubTabs tab="users" labels={USERS_SUB_TABS} />
       <UnresolvedWithdrawals />
       <div className="flex flex-wrap items-center gap-2.5">
-        <div className="relative w-full sm:w-72">
-          <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-subtle-foreground" />
+        <div className="relative w-full sm:w-[360px]">
+          <Search className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-muted-foreground" />
           <input
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t("admin.users.search")}
             aria-label={t("admin.users.search")}
-            className="h-10 w-full rounded-full bg-raised pr-4 pl-10 text-sm outline-none placeholder:text-subtle-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            className="h-12 w-full rounded-full border-2 border-transparent bg-raised pr-4 pl-11 text-[15px] font-bold outline-none placeholder:text-subtle-foreground focus-visible:border-primary"
           />
         </div>
         <Select
@@ -77,21 +84,20 @@ export function AdminUsers() {
             setRole(value as UserRole | "");
             setPage(0);
           }}
-          label={t("admin.users.allRoles")}
-          options={[{ value: "", label: t("admin.users.allRoles") }, ...userRoleEnum.map((r) => ({ value: r, label: t(`admin.users.roles.${r}`) }))]}
+          label={t("admin.users.roleFilter")}
+          prefix={t("admin.users.cols.role")}
+          options={[{ value: "", label: t("admin.users.allShort") }, ...userRoleEnum.map((r) => ({ value: r, label: t(`admin.users.roles.${r}`) }))]}
         />
         {users.data ? (
-          <span className="num ml-auto text-xs text-muted-foreground">{t("admin.users.total", { total })}</span>
+          <span className="num type-caption ml-auto">{t("admin.users.total", { total })}</span>
         ) : null}
       </div>
 
       {update.isError ? (
-        <p role="alert" className="rounded-xl bg-negative-soft px-4 py-2.5 text-sm text-negative">
-          {t("admin.users.failed", { message: update.error.message })}
-        </p>
+        <Notice tone="negative">{t("admin.users.failed", { message: update.error.message })}</Notice>
       ) : null}
 
-      <Panel className="overflow-hidden">
+      <div className="min-w-0">
         {users.isError ? (
           <ErrorState message={users.error.message} onRetry={() => users.refetch()} />
         ) : !users.data ? (
@@ -131,25 +137,9 @@ export function AdminUsers() {
                 const self = u.id === me?.id;
                 const busy = update.isPending && update.variables?.id === u.id;
                 const actions = (
-                  <div className="flex justify-end gap-1.5">
-                    <Select
-                      size="row"
-                      label={t("adminOps.users.role", { name: nameOf(u) })}
-                      value={u.role}
-                      disabled={!canManage || self || busy}
-                      onValueChange={(value) => setPending({ user: u, role: value as UserRole })}
-                      align="end"
-                      options={userRoleEnum.map((r) => ({ value: r, label: t(`admin.users.roles.${r}`) }))}
-                    />
-                    <Button
-                      variant={u.disabled ? "secondary" : "destructive"}
-                      size="sm"
-                      disabled={!canManage || self || busy}
-                      onClick={() => setPending({ user: u, disabled: !u.disabled })}
-                    >
-                      {u.disabled ? t("admin.users.enable") : t("admin.users.disable")}
-                    </Button>
-                  </div>
+                  <Button variant="inverse" size="sm" disabled={busy} onClick={() => setManaging(u)} aria-label={t("admin.users.manageUser", { name: nameOf(u) })}>
+                    {t("admin.users.manage")}
+                  </Button>
                 );
                 return (
                   <TableRow key={u.id}>
@@ -172,24 +162,17 @@ export function AdminUsers() {
                       </span>
                     </TableCell>
                     <TableCell>
-                      <span
-                        className={cn(
-                          "rounded-full px-2 py-0.5 text-[11px] font-semibold",
-                          ROLE_TONE[u.role],
-                        )}
-                      >
+                      <span className={cn("chip-sm", ROLE_TONE[u.role])}>
                         {t(`admin.users.roles.${u.role}`)}
                       </span>
                     </TableCell>
                     <TableCell className="hidden text-muted-foreground md:table-cell">{LOCALE_NAMES[u.locale as Locale] ?? u.locale}</TableCell>
                     <TableCell className="hidden text-right md:table-cell">{u.favorites}</TableCell>
                     <TableCell className="hidden lg:table-cell">
-                      <span className={u.telegramEnabled ? "text-positive" : "text-subtle-foreground"}>
-                        {u.telegramEnabled ? t("common.enabled") : "—"}
-                      </span>
+                      {u.telegramEnabled ? <span className="chip-sm bg-tag-profit text-tag-profit-foreground">{t("admin.users.linked")}</span> : <span className="text-muted-foreground">{t("admin.users.notLinked")}</span>}
                     </TableCell>
                     <TableCell>
-                      <span className={u.disabled ? "text-negative" : "text-muted-foreground"}>
+                      <span className={cn("chip-sm", u.disabled ? "bg-tag-loss text-tag-loss-foreground" : "bg-tag-profit text-tag-profit-foreground")}>
                         {u.disabled ? t("admin.users.disabled") : t("admin.users.active")}
                       </span>
                     </TableCell>
@@ -213,7 +196,7 @@ export function AdminUsers() {
           </Table>
         )}
         {users.data && total > PAGE ? (
-          <div className="flex items-center justify-between border-t-2 border-dotted border-border px-4 py-3">
+          <div className="flex items-center justify-between pt-3">
             <Button variant="secondary" size="sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
               <ChevronLeft />
               {t("common.prev")}
@@ -225,7 +208,9 @@ export function AdminUsers() {
             </Button>
           </div>
         ) : null}
-      </Panel>
+      </div>
+      <ManageDialog user={managing} self={managing?.id === me?.id} canManage={canManage} onClose={() => setManaging(null)}
+        onPick={(change) => { setManaging(null); setPending(change); }} />
       <ConfirmChange
         pending={pending}
         onCancel={() => setPending(null)}
@@ -240,6 +225,33 @@ export function AdminUsers() {
 
 const nameOf = (u: AdminUser) => u.displayName ?? u.email ?? `#${u.id}`;
 
+/** 管理: the user's role pack and access, each change confirmed next. */
+function ManageDialog({ user, self, canManage, onClose, onPick }: { user: AdminUser | null; self: boolean; canManage: boolean; onClose: () => void; onPick: (change: Pending) => void }) {
+  const { t } = useI18n();
+  return (
+    <Modal open={user !== null} onOpenChange={(open) => { if (!open) onClose(); }} title={user ? nameOf(user) : ""}>
+      {user ? (
+        <div className="flex flex-col gap-4">
+          {self ? <p className="type-caption">{t("admin.users.selfHint")}</p> : !canManage ? <p className="type-caption">{t("admin.users.readOnly")}</p> : null}
+          <div className="grid gap-2">
+            <Label htmlFor="manage-role">{t("admin.users.cols.role")}</Label>
+            <Select id="manage-role" label={t("adminOps.users.role", { name: nameOf(user) })} value={user.role} disabled={!canManage || self}
+              onValueChange={(value) => { if (value !== user.role) onPick({ user, role: value as UserRole }); }}
+              options={userRoleEnum.map((r) => ({ value: r, label: t(`admin.users.roles.${r}`) }))} />
+            <p className="type-caption">{t(`adminOps.users.grants.${user.role}`)}</p>
+          </div>
+          <div className="flex flex-wrap justify-between gap-2 border-t-2 border-dotted border-border pt-4">
+            <Button variant={user.disabled ? "secondary" : "destructive"} disabled={!canManage || self} onClick={() => onPick({ user, disabled: !user.disabled })}>
+              {user.disabled ? t("admin.users.enable") : t("admin.users.disable")}
+            </Button>
+            <Button variant="secondary" onClick={onClose}>{t("adminOps.users.cancel")}</Button>
+          </div>
+        </div>
+      ) : null}
+    </Modal>
+  );
+}
+
 function ConfirmChange({ pending, onCancel, onConfirm }: { pending: Pending | null; onCancel: () => void; onConfirm: (change: Pending) => void }) {
   const { t } = useI18n();
   let title = "";
@@ -249,7 +261,7 @@ function ConfirmChange({ pending, onCancel, onConfirm }: { pending: Pending | nu
     body = (
       <>
         <p>{t("adminOps.users.roleBody", { name: nameOf(pending.user), from: t(`admin.users.roles.${pending.user.role}`), to: t(`admin.users.roles.${pending.role}`) })}</p>
-        <p className="mt-3 rounded-xl bg-raised p-3 text-xs">{t(`adminOps.users.grants.${pending.role}`)}</p>
+        <p className="mt-3 rounded-[22px] bg-inset p-3.5 text-xs font-bold">{t(`adminOps.users.grants.${pending.role}`)}</p>
       </>
     );
   } else if (pending) {

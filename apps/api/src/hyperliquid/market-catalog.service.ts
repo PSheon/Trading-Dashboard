@@ -29,7 +29,7 @@ export class MarketCatalogService implements OnModuleInit {
   private list: { coins: ReadonlySet<string>; at: number } | null = null;
   private loading: Promise<ReadonlySet<string> | null> | null = null;
   private failedAt = 0;
-  private trendingList: { coins: string[]; at: number } | null = null;
+  private trendingList: { coins: string[]; volumes: ReadonlyMap<string, number>; at: number } | null = null;
   private trendingLoading: Promise<string[]> | null = null;
   private trendingAttemptedAt = -Infinity;
   /** Settable for tests. */
@@ -89,7 +89,7 @@ export class MarketCatalogService implements OnModuleInit {
         }
         if (volumes.size === 0) throw new Error("No market volume available");
         const coins = [...volumes].sort(([a, av], [b, bv]) => bv - av || a.localeCompare(b)).map(([coin]) => coin);
-        this.trendingList = { coins, at: this.now() };
+        this.trendingList = { coins, volumes, at: this.now() };
         return coins;
       }).catch((error: unknown) => {
         this.logger.warn(`Trending market read failed: ${(error as Error).message}`);
@@ -102,6 +102,14 @@ export class MarketCatalogService implements OnModuleInit {
     try {
       return await Promise.race([this.trendingLoading, new Promise<string[]>(resolve => { timer = setTimeout(() => resolve([]), waitMs); })]);
     } finally { clearTimeout(timer); }
+  }
+
+  /** Each active market's exchange 24h notional volume (USD) from the last
+   * trending read still fresh (15 min); null when there is none. Starts a
+   * read when due, never waits for it. */
+  async dayVolumes(): Promise<ReadonlyMap<string, number> | null> {
+    await this.trending(0);
+    return this.trendingList && this.now() - this.trendingList.at < 15 * 60_000 ? this.trendingList.volumes : null;
   }
 
   private refresh(): Promise<ReadonlySet<string> | null> {

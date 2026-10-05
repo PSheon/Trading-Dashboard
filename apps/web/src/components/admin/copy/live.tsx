@@ -14,7 +14,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/i18n/provider";
 import { useAdminLiveAccounts, useAdminLiveLatency, useAdminLiveOrders, useAdminLiveTransfers, useRevokeLiveGrant } from "@/lib/admin-copy";
 import { usePermission } from "@/lib/auth";
-import { Chip, CopyAdminNav } from "./shared";
+import { Chip } from "./shared";
+import { AdminSubTabs } from "@/components/admin/admin-shell";
+import { COPY_SUB_TABS } from "./status";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
 
 const short = (address: string | null) => (address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "—");
@@ -30,9 +32,9 @@ export function AdminCopyLive() {
   const { t } = useI18n();
   return (
     <div className="flex flex-col gap-5">
-      <CopyAdminNav />
+      <AdminSubTabs tab="copy" labels={COPY_SUB_TABS} />
       <div>
-        <h2 className="text-lg font-bold">{t("copyAdmin.live.title")}</h2>
+        <h2 className="type-h2">{t("copyAdmin.live.title")}</h2>
         <p className="mt-1 max-w-3xl text-sm leading-relaxed text-muted-foreground">{t("copyAdmin.live.hint")}</p>
       </div>
       <Latency />
@@ -50,9 +52,9 @@ function Latency() {
   const d: AdminLiveLatency | undefined = latency.data;
   const ms = (value: number | null) => (value === null ? "—" : `${format.num(value, 0)} ms`);
   return (
-    <Panel className="p-5" aria-labelledby="copy-live-latency-title" data-testid="copy-live-latency">
+    <Panel className="card-pad" aria-labelledby="copy-live-latency-title" data-testid="copy-live-latency">
       <div className="mb-1 flex flex-wrap items-center gap-2">
-        <h3 id="copy-live-latency-title" className="text-[0.9375rem] font-bold">{t("copyAdmin.live.latency.title")}</h3>
+        <h3 id="copy-live-latency-title" className="type-h2">{t("copyAdmin.live.latency.title")}</h3>
         {d ? <Chip tone="info">{t("copyAdmin.live.latency.legs", { count: d.count })}</Chip> : null}
         <div className="ml-auto flex gap-1" role="group">
           {(["24h", "7d"] as const).map((w) => (

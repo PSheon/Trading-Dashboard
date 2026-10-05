@@ -7,6 +7,7 @@ import { cn } from "cn";
 
 import { EmptyState, ErrorState, PageHeader, Panel, SignInPrompt, SkelBar } from "@/components/page";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
+import { TabLinks } from "./ui";
 import { Button } from "@/components/ui/button";
 import type { MessageKey } from "@/i18n/messages";
 import { useI18n } from "@/i18n/provider";
@@ -14,22 +15,22 @@ import type { Permission } from "@trading-dashboard/shared/contracts";
 import { hasPermission } from "@/lib/permissions";
 import { useAuth, useMe } from "@/lib/auth";
 
-const SECTIONS: { href: string; label: MessageKey; permission: Permission }[] = [
-  { href: "/admin", label: "admin.nav.overview", permission: "overview.read" },
-  { href: "/admin/revenue", label: "admin.nav.revenue", permission: "revenue.read" },
-  { href: "/admin/data-sources", label: "sources.title", permission: "sources.read" },
-  { href: "/admin/traders", label: "adminTrader.title", permission: "traders.read" },
-  { href: "/admin/copy", label: "copyAdmin.nav.title", permission: "copy.read" },
-  { href: "/admin/users", label: "admin.nav.users", permission: "users.read" },
-  { href: "/admin/settings", label: "admin.nav.settings", permission: "settings.read" },
-  { href: "/admin/lists", label: "admin.nav.lists", permission: "lists.read" },
-  { href: "/admin/kols", label: "admin.nav.kols", permission: "kols.manage" },
-  { href: "/admin/rules", label: "admin.nav.rules", permission: "rules.read" },
-  { href: "/admin/activity", label: "admin.nav.activity", permission: "admin.access" },
-  { href: "/admin/audit", label: "settingsOps.audit", permission: "audit.read" },
-  { href: "/admin/jobs", label: "jobs.title", permission: "jobs.read" },
-  { href: "/admin/system", label: "admin.nav.system", permission: "admin.access" },
+/** The five tabs (v29 boards; Paul 2026-10-05). A tab links to its first
+ * sub-page the account may open. */
+export const ADMIN_TABS: { key: string; label: MessageKey; pages: { href: string; permission: Permission }[] }[] = [
+  { key: "overview", label: "admin.nav.overview", pages: [{ href: "/admin", permission: "overview.read" }] },
+  { key: "copy", label: "copyAdmin.nav.title", pages: [
+    { href: "/admin/copy", permission: "copy.read" }, { href: "/admin/copy/orders", permission: "copy.read" },
+    { href: "/admin/copy/risk", permission: "copy.read" }, { href: "/admin/copy/testnet", permission: "copy.read" },
+  ] },
+  { key: "users", label: "admin.nav.users", pages: [{ href: "/admin/users", permission: "users.read" }, { href: "/admin/users/audit", permission: "audit.read" }] },
+  { key: "traders", label: "admin.nav.traderData", pages: [
+    { href: "/admin/traders", permission: "kols.manage" }, { href: "/admin/traders/lists", permission: "lists.read" },
+    { href: "/admin/traders/jobs", permission: "jobs.read" },
+  ] },
+  { key: "settings", label: "admin.nav.settings", pages: [{ href: "/admin/settings", permission: "settings.read" }] },
 ];
+const PAGES = ADMIN_TABS.flatMap((tab) => tab.pages.map((page) => ({ ...page, tab: tab.key })));
 
 /** 401 / 403 / 404: the answer about this account; anything else may pass. */
 function isPermanent(error: unknown): boolean {
@@ -45,9 +46,10 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   const { status } = useAuth();
   const me = useMe();
 
-  const current = SECTIONS.find((section) => section.href === pathname) ?? [...SECTIONS].reverse().find((section) => pathname.startsWith(`${section.href}/`));
+  const current = PAGES.find((page) => page.href === pathname);
   const allowed = status === "signedIn" && !me.isError && hasPermission(me.data, "admin.access");
   const pageAllowed = allowed && Boolean(current && hasPermission(me.data, current.permission));
+  const tabs = ADMIN_TABS.map((tab) => ({ tab, href: tab.pages.find((page) => hasPermission(me.data, page.permission))?.href })).filter((x): x is { tab: (typeof ADMIN_TABS)[number]; href: string } => Boolean(x.href));
   let body: React.ReactNode;
   const pending = status === "loading" || (status === "signedIn" && me.isPending);
   if (pending) {
@@ -87,39 +89,32 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex flex-col gap-5">
-      <PageHeader title={t("admin.title")} subtitle={t("admin.subtitle")} />
+      <PageHeader title={t("admin.title")} />
       {pending ? (
-        // The section menu's row while the account's permissions load.
-        <div aria-hidden="true" className="ui-skeleton flex h-[52px] gap-0.5 overflow-hidden rounded-[28px] bg-raised p-1 [--skel-bar:var(--border)]">
-          <span className="h-11 w-20 shrink-0 rounded-[22px] bg-primary/60" />
-          {["w-16", "w-20", "w-24", "w-16", "w-20", "w-16"].map((w, i) => <SkelBar key={i} line="h-11 px-4" className={cn("h-3", w)} />)}
+        // The tab row while the account's permissions load.
+        <div aria-hidden="true" className="ui-skeleton flex h-[52px] w-fit max-w-full gap-0.5 overflow-hidden rounded-[26px] bg-raised p-1 [--skel-bar:var(--border)]">
+          <span className="h-11 w-[68px] shrink-0 rounded-[22px] bg-primary/60" />
+          {["w-12", "w-16", "w-24", "w-12"].map((w, i) => <SkelBar key={i} line="h-11 px-4" className={cn("h-3", w)} />)}
         </div>
       ) : allowed ? (
-        <nav
-          aria-label={t("admin.title")}
-          className="flex gap-0.5 overflow-x-auto rounded-[28px] bg-raised p-1 no-scrollbar"
-        >
-          {SECTIONS.filter((s) => hasPermission(me.data, s.permission)).map((s) => {
-            const active = s.href === "/admin" ? pathname === "/admin" : pathname.startsWith(s.href);
-            return (
-              <Link
-                key={s.href}
-                href={s.href}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "flex h-11 shrink-0 items-center rounded-[22px] px-4 text-sm whitespace-nowrap outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
-                  active ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground hover:bg-raised-hover hover:text-foreground",
-                )}
-              >
-                {t(s.label)}
-              </Link>
-            );
-          })}
-        </nav>
+        <TabLinks
+          label={t("admin.title")}
+          items={tabs.map(({ tab, href }) => ({ href, label: t(tab.label), active: current?.tab === tab.key || (!current && tab.pages.some((page) => pathname.startsWith(`${page.href}/`))) }))}
+        />
       ) : null}
       {body}
     </div>
   );
+}
+
+/** A tab's sub-pages the account may open, as the dark-ink sub-tabs. */
+export function AdminSubTabs({ tab, labels }: { tab: string; labels: Record<string, MessageKey> }) {
+  const { t } = useI18n();
+  const pathname = usePathname();
+  const me = useMe();
+  const pages = ADMIN_TABS.find((x) => x.key === tab)?.pages.filter((page) => hasPermission(me.data, page.permission)) ?? [];
+  if (pages.length < 2) return null;
+  return <TabLinks tone="sub" label={t(ADMIN_TABS.find((x) => x.key === tab)!.label)} items={pages.map((page) => ({ href: page.href, label: t(labels[page.href]), active: page.href === pathname }))} />;
 }
 
 /** An admin page's content while it loads: most are a card holding a
@@ -128,9 +123,7 @@ export function AdminBodySkeleton() {
   return (
     <div aria-hidden="true" className="flex flex-col gap-4">
       <SkelBar line="h-5" className="ui-skeleton h-3 w-72 max-w-full bg-raised" />
-      <section className="rounded-2xl bg-card p-3 shadow-[0_0_0_2px_var(--card-ring)] md:p-4">
-        <TableSkeleton columns={[{}, {}, { right: true }, { right: true }, { right: true }]} rows={6} />
-      </section>
+      <TableSkeleton columns={[{}, {}, { right: true }, { right: true }, { right: true }]} rows={6} />
     </div>
   );
 }

@@ -63,3 +63,8 @@ export async function chooseOption(page: Page, trigger: Locator, value: string |
   await option.click();
   await expect(content).toHaveCount(0);
 }
+
+/** Saves the admin settings page: the 儲存 button of its "Changes on save" card. */
+export async function saveSettings(page: Page) {
+  await page.getByRole("region", { name: "Changes on save" }).getByRole("button", { name: "Save", exact: true }).click();
+}

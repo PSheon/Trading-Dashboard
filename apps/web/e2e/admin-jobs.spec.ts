@@ -8,7 +8,7 @@ for (const width of [1440, 375]) {
   }) => {
     await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
     await page.setViewportSize({ width, height: 1000 });
-    await page.goto("/admin/jobs");
+    await page.goto("/admin/traders/jobs");
     await signIn(page);
     await expect(
       page.getByRole("heading", { name: "Backfill jobs", exact: true }),

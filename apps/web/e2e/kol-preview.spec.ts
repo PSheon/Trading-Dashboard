@@ -10,6 +10,9 @@ for (const width of [1440, 375])
     await page.setViewportSize({ width, height: 1000 });
     await page.goto("/admin/kols");
     await signIn(page);
+    // The KOL registry is the 交易員資料 tab; its CSV import opens in a drawer.
+    await expect(page).toHaveURL(/\/admin\/traders$/);
+    await page.getByRole("button", { name: "Import CSV", exact: true }).click();
     await expect(
       page.getByRole("button", { name: "Preview KOL changes", exact: true }),
     ).toBeVisible();

@@ -18,7 +18,7 @@ export function AdminMonitoring() {
   const heartbeat = query.data?.worker.sample?.heartbeat;
   return <section className="space-y-4" aria-labelledby="monitoring-title" aria-busy={query.isFetching}>
     <div className="flex flex-wrap items-start justify-between gap-4">
-      <div><h2 id="monitoring-title" className="text-lg font-bold">{t("monitoring.title")}</h2>
+      <div><h2 id="monitoring-title" className="type-h2">{t("monitoring.title")}</h2>
         <p className="mt-1 text-xs text-muted-foreground">{t("monitoring.hint")}</p>
         {query.data && <p className="mt-2 text-xs text-muted-foreground">{t("monitoring.sample")} · {format.dateTime(query.data.sampledAt)}</p>}
       </div>
@@ -46,15 +46,15 @@ export function MonitoringDetails({ data: d }: { data: AdminSystemOverview }) {
   </>;
   return <div className="space-y-4">
     <div className="grid gap-4 lg:grid-cols-3">
-      <Panel className="p-5"><h3 className="font-semibold">API</h3><Status state={d.api.state} />
+      <Panel className="card-pad"><h3 className="type-h2">API</h3><Status state={d.api.state} />
         <p className="mt-3 text-xs text-muted-foreground">{t("monitoring.uptime")} · {t("monitoring.seconds", {value: format.num(d.api.uptimeSeconds, 0)})}</p>{budget(d.api.budget)}</Panel>
-      <Panel className="p-5"><h3 className="font-semibold">Worker</h3><Status state={d.worker.state} />
+      <Panel className="card-pad"><h3 className="type-h2">Worker</h3><Status state={d.worker.state} />
         {worker && <p className="mt-3 text-xs text-muted-foreground">{t("monitoring.sample")} · {time(worker.sampledAt)}</p>}{budget(worker?.budget ?? null)}</Panel>
-      <Panel className="p-5"><h3 className="font-semibold">PostgreSQL</h3><Status state={d.database.state} />
+      <Panel className="card-pad"><h3 className="type-h2">PostgreSQL</h3><Status state={d.database.state} />
         <dl className="mt-3 text-xs"><Metric label={t("monitoring.latency")} value={d.database.latencyMs === null ? t("monitoring.unknown") : t("monitoring.milliseconds", {value: d.database.latencyMs})} /></dl></Panel>
     </div>
     <div className="grid items-start gap-4 xl:grid-cols-2">
-      <Panel className="p-5"><h3 className="font-semibold">{t("monitoring.data")}</h3>
+      <Panel className="card-pad"><h3 className="type-h2">{t("monitoring.data")}</h3>
         {!d.data ? <p className="mt-4 text-sm text-muted-foreground">{t("monitoring.dataMissing")}</p> : <dl className="mt-3 divide-y-2 divide-dotted divide-border text-sm">
           <Metric label={t("monitoring.leaderboard")} value={format.num(d.data.leaderboardCount, 0)} />
           <Metric label={t("monitoring.leaderboardAt")} value={time(d.data.leaderboardUpdatedAt)} />
@@ -71,7 +71,7 @@ export function MonitoringDetails({ data: d }: { data: AdminSystemOverview }) {
           </>}
         </dl>}<p className="mt-3 text-xs leading-relaxed text-muted-foreground">{t("monitoring.coverageHint")} {d.data?.freshness && t("settingsOps.freshnessHint")}</p>
       </Panel>
-      <Panel className="p-5"><h3 className="font-semibold">{t("monitoring.outbox")}</h3>
+      <Panel className="card-pad"><h3 className="type-h2">{t("monitoring.outbox")}</h3>
         {d.outbox === null ? <p className="mt-4 text-sm text-muted-foreground">{t("monitoring.outboxMissing")}</p> : d.outbox.map(q => <div key={q.kind} className="mt-4">
           <h4 className="text-sm font-medium">{t(`monitoring.${q.kind}`)}</h4>
           <dl className="mt-1 divide-y-2 divide-dotted divide-border text-xs">
@@ -90,7 +90,7 @@ export function MonitoringDetails({ data: d }: { data: AdminSystemOverview }) {
 export function RetentionPanel({ retention: r }: { retention: NonNullable<AdminSystemOverview["retention"]> | null }) {
   const { t, format } = useI18n();
   const time = (v: string | null) => v ? format.dateTime(v) : t("adminOps.retention.never");
-  return <Panel className="p-5" data-testid="retention-panel"><h3 className="font-semibold">{t("adminOps.retention.title")}</h3>
+  return <Panel className="card-pad" data-testid="retention-panel"><h3 className="type-h2">{t("adminOps.retention.title")}</h3>
     {r === null ? <p className="mt-4 text-sm text-muted-foreground">{t("adminOps.retention.missing")}</p> : <div className="grid items-start gap-x-8 gap-y-4 xl:grid-cols-2">
       <dl className="mt-3 divide-y-2 divide-dotted divide-border text-sm">
         <Metric label={t("adminOps.retention.status")} value={r.running ? t("adminOps.retention.running") : r.lastStatus ? t(`adminOps.retention.statuses.${r.lastStatus}`) : t("adminOps.retention.never")} />

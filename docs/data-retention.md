@@ -11,6 +11,8 @@ periods of 2026-10-01.
 | Position and equity snapshots | `position_snapshots`, `equity_snapshots` | 90 days | `RETENTION_SNAPSHOT_DAYS` (30–3650) |
 | Admin audit log | `admin_audit_logs` (every event except `user.delete`) | 1 year | `RETENTION_AUDIT_DAYS` (30–3650) |
 | Account-deletion records | `admin_audit_logs` where `event = 'user.delete'` | 1 year | `RETENTION_ACCOUNT_DELETION_DAYS` (30–3650) |
+| Deleted accounts' kept records | the tombstone `users` row (`deleted_at`) and every record re-pointed to it (`purgeStatements`, docs/account-deletion.md) | 1 year after the deletion | `RETENTION_ACCOUNT_DELETION_DAYS` |
+| Deleted identities (keyed hashes) | `account_deletion_markers` | 1 year after the deletion | `RETENTION_ACCOUNT_DELETION_DAYS` |
 | Finished evaluations | `action_outbox` (`done`, `failed`) | 30 days | `RETENTION_QUEUE_DAYS` (7–3650) |
 | Finished deliveries | `notification_outbox` (`sent`, `dry_run`, `failed`) | 30 days | `RETENTION_QUEUE_DAYS` |
 | Finished copy signals | `copy_signal_outbox` (`done`, `failed`) | 30 days | `RETENTION_QUEUE_DAYS` |
@@ -209,7 +211,9 @@ E2E_RETENTION_PLANS=1 E2E_OUT=/tmp/retention-plans.txt TEST_DATABASE_ADMIN_URL=�
 | --- | --- |
 | Alert delivery records are kept 30 days | `alerts` and finished `notification_outbox` rows are deleted after 30 days by this job |
 | Admin audit logs and account-deletion records are kept 1 year | `admin_audit_logs`, both kinds, deleted after 365 days |
-| A deletion record holds only an account number, a time and counts | `AccountRepository.recordDeletion`: role, favorites, alerts, groups, telegramLinked |
+| A deletion record holds only an account number, a time and counts | `AccountRepository.recordDeletion`: role, favorites, alerts, groups, telegramLinked; after: the tombstone id and counts of what was kept, cancelled and revoked |
+| Kept financial records are anonymous and deleted 1 year after the deletion | re-pointed to the tombstone (`repointStatements`), purged with it by `deleted_accounts` |
+| Only keyed hashes of the identity are kept, 1 year, to stop invite farming | `account_deletion_markers` (deletion-markers.ts), purged by `account_deletion_markers` |
 | The Telegram link is deleted when you unlink; the chat ID in records of sent alerts goes with the record after 30 days | `TelegramLinkRepository.unlink` deletes `notification_channels`; the delivery payload (`notification_outbox`, `alerts`) carries the chat ID until this job removes the row |
 | Account data is removed at once on self-deletion; paper copy records go with the account | `users` row deleted, foreign keys cascade (favorites, groups, alerts, channels, tokens, queued notifications, paper account, strategies and their orders, fills, positions, ledger) |
 | Server logs are kept 30 days | not in this repository: it is the host's (Railway's) log retention and has not been checked |

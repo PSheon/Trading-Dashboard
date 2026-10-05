@@ -105,7 +105,8 @@ Beyond that, we only hand over data when the law requires it. Each of these serv
 - **Trader position and equity snapshots:** deleted automatically after 90 days. This is public trader data.
 - **Admin activity log:** deleted automatically after 1 year.
 - **Account deletion records:** deleted automatically after 1 year. Each one holds only an account number, the time and a few counts (such as how many favorites), never an email or address.
-- **Testnet copy, withdrawal and invite records:** not deleted automatically for now, because they involve funds and need to be reconciled.
+- **Testnet copy, withdrawal and invite records:** kept while you have an account; once you delete it, kept anonymously and deleted automatically after 1 year (see "Deleting your account" below).
+- **Keyed hashes of a deleted identity:** kept for 1 year after you delete your account, then deleted automatically (see below).
 - **Public fills of watched addresses:** kept long term to calculate performance.
 - **Server logs and backups:** kept according to our host Railway's settings. We haven't set a period of our own.
 
@@ -113,11 +114,12 @@ Beyond that, we only hand over data when the law requires it. Each of these serv
 
 Go to Settings → Account → Delete account; the steps are on [Delete your Orbie account](/delete-account). A few things to know first:
 
-- Any copy that's still running has to be stopped first.
-- If you've used testnet copies, withdrawn from your main wallet, or have invite records (you invited someone or were invited), those records need to be reconciled first, and you can't delete the account yourself yet. Reach out to us on X and we'll help.
-- **What gets deleted:** your account details, favorites and groups, alert settings, Telegram link and delivery records, paper copy records and your invite code.
-- **What stays:** the deletion record above (kept for 1 year), and your trades on Hyperliquid (public on-chain data that nobody can delete).
-- **Your sign-in at Privy and your embedded wallet stay too,** because your money is in that wallet. If you sign in the same way later, you'll get the same wallet back with a brand-new Orbie account. We recommend withdrawing or exporting your key before you delete.
+- **Only things still in progress stop you:** a testnet copy that's running or paused, a copy that's stopping, a one-click setup whose deposit was sent, a deposit, return, withdrawal or referral reward claim still being confirmed, an order still being confirmed, or a copy account that still holds money, positions or orders. Having used testnet copies, withdrawn or invited people never stops you. Paper copies are simply deleted with the account; anything never sent is cancelled automatically.
+- **What gets deleted:** your account details (email, wallet addresses, display name, language, Privy account ID), favorites and groups, alert settings, Telegram link and delivery records, paper copies, and invite codes nobody signed up with.
+- **Financial records kept anonymously for 1 year:** testnet copies, orders and fills, deposits and returns, main-wallet withdrawals, invite relations and authorization records. They involve money and must be kept for legal and reconciliation reasons, so on deletion they're moved under an anonymous number with no personal data that no longer points to you, and deleted together with it after 1 year.
+- **Keyed hashes kept for 1 year:** one hash each of your Privy account ID, email and wallet addresses, made with a key only our server holds. They can't be reversed and can't identify you directly; they're only used to recognise the same identity signing up again within the year. The new account works normally but can't bind an invite code, so nobody can farm invite rewards by deleting and signing up again. They're deleted automatically after 1 year.
+- **What also stays:** the deletion record above (1 year), and your trades on Hyperliquid (public on-chain data that nobody can delete).
+- **Your sign-in at Privy, your embedded wallet and your copy-account wallets stay too,** because your money is in them. Orbie's signing permission on those wallets (the automatic return) is removed when you delete, and no funds are moved. If you sign in the same way later, you'll get the same wallet back with a brand-new Orbie account. We recommend withdrawing or exporting your key before you delete.
 
 ## What you can do
 

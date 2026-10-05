@@ -7,7 +7,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ANALYTICS_CAPACITY_WAIT_MS, ESSENTIAL_CAPACITY_WAIT_MS, HyperliquidGlobalTransport, settleListAnswer } from './hyperliquid-global-transport.js';
 import { LiveBoundaryError } from '../copy/live/wallet-authorization.js';
 
-import { currentBudgetConsumer, isPageWork, PAGE_WORK_MAX_RANK, RequestBudgeterService, type RequestPriority } from "./request-budgeter.service.js";
+import { CONSUMER_ANALYTICS, currentBudgetConsumer, isPageWork, PAGE_WORK_MAX_RANK, RequestBudgeterService, type RequestPriority } from "./request-budgeter.service.js";
 import type {
   HlAllMidsResponse,
   HlMetaAndAssetCtxsResponse,
@@ -97,7 +97,7 @@ const REQUEST_TIMEOUT_MS = 20_000;
  * pool's loops held the lane, 85 times in two hours on 2026-10-04). */
 const ESSENTIAL_LANE_CONSUMERS = new Set(["snapshots", "confirm", "sweep"]);
 /** The budget consumer of a trade-analytics job a request started. */
-export const ANALYTICS_CONSUMER = "analytics";
+export const ANALYTICS_CONSUMER = CONSUMER_ANALYTICS;
 
 const surcharge = (items: number) => Math.ceil(items / 20) * EXTRA_WEIGHT_PER_20_ITEMS;
 

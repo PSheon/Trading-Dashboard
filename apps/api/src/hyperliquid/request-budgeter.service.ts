@@ -220,6 +220,9 @@ export const MAX_QUEUED = 1000;
 
 /** Consumer labels the budgeter assigns itself. */
 export const CONSUMER_PAGE = "page";
+/** The label of trade-analytics work a request started (its computation
+ * and funding): page-driven work, held to the page share with the pages. */
+export const CONSUMER_ANALYTICS = "analytics";
 export const CONSUMER_LIVE = "live";
 export const CONSUMER_OTHER = "other";
 
@@ -391,7 +394,7 @@ export class RequestBudgeterService {
     // always queued behind a cold page, a second cold page's profile waited
     // three times as long as the budget needed (Stage, 2026-10-05).
     const background = this.queues.background;
-    const share = this.pageOverShare(now) ? this.pageReserveShare
+    const share = this.pageHeld(now) ? this.pageReserveShare
       : background.some((w) => w.interactive) || !background.some((w) => !w.interactive) ? 1 : RESERVE_REFILL_SPLIT;
     const toReserve = Math.min(delta * share, Math.max(0, this.reserveCapacity - this.reserve));
     this.reserve += toReserve;
@@ -423,6 +426,26 @@ export class RequestBudgeterService {
     while (this.pageWindow.length > 0 && this.pageWindow[0].ts < pageCutoff) {
       this.pageWindowWeight -= this.pageWindow.shift()!.weight;
     }
+  }
+
+  /** Work a page view caused: its own calls, and the trade-analytics jobs
+   * it started (`CONSUMER_ANALYTICS`: a request's computation and funding). */
+  private pageDriven(waiter: Waiter): boolean {
+    return waiter.page || waiter.consumer === CONSUMER_ANALYTICS;
+  }
+
+  /**
+   * Page work is held to its share now: it has used its share of the
+   * budget over `PAGE_SHARE_WINDOW_MS` *and* other background work (fill
+   * storage, snapshots, sweeps, the pool) is waiting. With nothing else
+   * waiting it may use everything, as the class comment says: an api
+   * process runs no periodic jobs, so the only background work it held
+   * first paint for was the trade analytics its own pages had started,
+   * and a visitor browsing a few cold Top 100 traders a minute got first
+   * paint at the reserve's 25% refill (Stage, 2026-10-05: 10–30 s).
+   */
+  private pageHeld(now: number): boolean {
+    return this.pageOverShare(now) && this.queues.background.some((w) => !this.pageDriven(w));
   }
 
   /** Page work has used its share of the budget over `PAGE_SHARE_WINDOW_MS`. */
@@ -665,7 +688,7 @@ export class RequestBudgeterService {
     // Live counts the reserve and the main bucket above its debt.
     if (lane === "live") return { available: Math.max(0, this.tokens) + this.reserve, most: this.mainCapacity + this.reserveCapacity };
     if (next.interactive) {
-      const main = this.pageOverShare(now) ? 0 : Math.max(0, this.tokens - this.liveReserve);
+      const main = this.pageHeld(now) ? 0 : Math.max(0, this.tokens - this.liveReserve);
       return { available: this.reserve + main, most: this.reserveCapacity + this.mainCapacity - this.liveReserve };
     }
     const reserve = forced ? 0 : this.liveReserve;
@@ -709,11 +732,12 @@ export class RequestBudgeterService {
       const lane = this.queues[pick.lane];
       const now = Date.now();
       this.refill(now);
-      // Page work over its share of the minute yields to any other
-      // background waiter (fill storage, snapshots, sweeps); interactive
-      // calls are served from the reserve regardless.
-      const overShare = pick.lane === "background" && this.pageOverShare(now);
-      const skipPage = overShare && lane.some((w) => !w.page) && lane.some((w) => w.page && !w.interactive);
+      // Page work over its share of the minute (and the analytics its pages
+      // started) yields to any other background waiter (fill storage,
+      // snapshots, sweeps); interactive calls are served from the reserve
+      // regardless.
+      const overShare = pick.lane === "background" && this.pageHeld(now);
+      const skipPage = overShare;
       // The best waiter of each bucket: interactive calls (the reserve) and
       // everything else (the main bucket). Within a bucket the lowest rank
       // goes first even when a later one would fit now, so tokens build up
@@ -723,7 +747,7 @@ export class RequestBudgeterService {
       let capped = Infinity;
       for (let i = 0; i < lane.length; i++) {
         const a = lane[i];
-        if (skipPage && a.page && !a.interactive) continue;
+        if (skipPage && this.pageDriven(a) && !a.interactive) continue;
         // A page-rank call is charged to its consumer but never held by its cap.
         const wait = a.page ? 0 : this.capWait(a.consumer, a.weight);
         if (wait > 0) { capped = Math.min(capped, wait); continue; }

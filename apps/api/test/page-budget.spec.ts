@@ -5,7 +5,7 @@ import request from "supertest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { clientKey } from "../src/common/http/client-key.js";
-import { MAX_QUEUED, PAGE_RANK, PAGE_SHARE, PageBusyError, RequestBudgeterService } from "../src/hyperliquid/request-budgeter.service.js";
+import { budgetConsumer, MAX_QUEUED, PAGE_RANK, PAGE_SHARE, PageBusyError, RequestBudgeterService } from "../src/hyperliquid/request-budgeter.service.js";
 import { BackgroundJobs } from "../src/runtime/background-jobs.service.js";
 import { withRequestSignal } from "../src/runtime/request-context.js";
 import { requestContext } from "../src/runtime/request-middleware.js";
@@ -153,6 +153,38 @@ describe("page work in the Hyperliquid budget", () => {
     expect(waited).toBeLessThanOrEqual(8_000);
     expect(list.state).not.toBe("refused");
     budget.onModuleDestroy();
+  });
+
+  it("over its share, first paint keeps the whole refill while only page-driven work waits; product work still holds it (Stage, 2026-10-05)", { timeout: 60_000 }, async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", "480");
+    vi.stubEnv("HYPERLIQUID_WEIGHT_BURST", "200");
+    const firstPaintWait = async (product: boolean) => {
+      const budget = new RequestBudgeterService(testConfig());
+      // A visitor browsing cold pages: page work past its 3-minute share (720).
+      for (let i = 0; i < 6; i++) {
+        const sent = track(asClient(`203.0.113.${i}`, () => budget.acquire(120, "background", PAGE_RANK.fills)));
+        for (let s = 0; s < 30 && sent.state === "queued"; s++) await vi.advanceTimersByTimeAsync(1_000);
+        expect(sent.state).toBe("sent");
+      }
+      // The last page's first paint took the reserve; the analytics it
+      // started waits behind (and, in the worker, a product job).
+      await asClient("203.0.113.200", () => budget.acquire(120, "background", PAGE_RANK.profile));
+      const analytics = track(budgetConsumer("analytics", () => budget.acquire(120, "background", PAGE_RANK.analytics, { known: 20 })));
+      const job = product ? track(budget.acquire(120, "background")) : undefined;
+      const started = Date.now();
+      let waited = Infinity;
+      void asClient("203.0.113.201", () => budget.acquire(60, "background", PAGE_RANK.profile)).then(() => { waited = Date.now() - started; });
+      for (let i = 0; i < 60 && waited === Infinity; i++) await vi.advanceTimersByTimeAsync(1_000);
+      expect(analytics.state).not.toBe("refused");
+      expect(job?.state).not.toBe("refused");
+      budget.onModuleDestroy();
+      return waited;
+    };
+    // Only the analytics its pages started waits: the whole rate (60 at 8/s).
+    expect(await firstPaintWait(false)).toBeLessThanOrEqual(8_000);
+    // A product job waits: first paint lives on the reserve's 25% (2/s).
+    expect(await firstPaintWait(true)).toBeGreaterThanOrEqual(20_000);
   });
 
   it("drops page work still queued once its request has been answered", async () => {

@@ -15,6 +15,8 @@ import { AddressSearch } from "./address-search";
 import { PhoneMenu } from "./phone-menu";
 import { WalletModalsProvider } from "@/components/wallet/wallet-modals";
 import { useAuth } from "@/lib/auth";
+import type { PublicSettings } from "@/lib/contracts";
+import { type InitialRead, useSiteSettings } from "@/lib/queries";
 import { discoverNav, isActive, mineNav, mobileNav, mobileNavSignedOut, type NavItem } from "./nav";
 
 /** Every route the app serves; anything else is the 404 page. */
@@ -44,10 +46,23 @@ function phoneChrome(pathname: string): "home" | "marketing" | "none" {
  * signed in, never while signed out or while sign-in is still unknown (the
  * signed-out header is drawn until then, and the capsule fades in).
  */
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({
+  children,
+  settings,
+  announcementDismissed,
+}: {
+  children: React.ReactNode;
+  /** GET /settings as the server read it: the banners are in the first
+   * HTML instead of pushing the page down when the browser's read lands. */
+  settings?: InitialRead<PublicSettings> | null;
+  /** The dismissed announcement's hash (cookie). */
+  announcementDismissed?: string | null;
+}) {
   const t = useT();
   const pathname = usePathname();
   const signedIn = useAuth().status === "signedIn";
+  // Seeds the query the banners (and pages) read, before they mount.
+  useSiteSettings(settings);
   // A trader page on a phone has its own top bar and a sticky 跟單 button in
   // place of the header and the tab bar.
   const traderPage = pathname.startsWith("/trader/");
@@ -131,7 +146,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         )}
       >
         <MaintenanceBanner />
-        <AnnouncementBanner />
+        <AnnouncementBanner dismissed={announcementDismissed} />
         <CopyFeed />
         <main
           id="main"

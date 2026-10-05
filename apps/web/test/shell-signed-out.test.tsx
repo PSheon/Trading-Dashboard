@@ -15,6 +15,7 @@ vi.mock("@/components/shell/phone-menu", () => ({ PhoneMenu: () => null }));
 vi.mock("@/components/shell/announcement-banner", () => ({ AnnouncementBanner: () => null }));
 vi.mock("@/components/shell/maintenance-banner", () => ({ MaintenanceBanner: () => null }));
 vi.mock("@/components/copy/copy-feed", () => ({ CopyFeed: () => null }));
+vi.mock("@/lib/queries", () => ({ useSiteSettings: () => ({ data: undefined }) }));
 vi.mock("@/components/wallet/wallet-modals", () => ({ WalletModalsProvider: ({ children }: { children: React.ReactNode }) => children }));
 
 let root: Root, container: HTMLDivElement;

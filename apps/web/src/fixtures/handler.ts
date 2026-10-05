@@ -308,6 +308,17 @@ function upsertRule(list: AlertRule[], body: unknown, userId: number | null) {
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Browser checks hold every answer back to see the loading states:
+ * `sessionStorage["orbie:fixtures:delay"]` = milliseconds added to each. */
+function extraDelay(): number {
+  try {
+    const ms = Number(sessionStorage.getItem("orbie:fixtures:delay"));
+    return Number.isFinite(ms) && ms > 0 ? ms : 0;
+  } catch {
+    return 0;
+  }
+}
+
 /**
  * Browser tests make the trader page's requests busy:
  * `sessionStorage["orbie:fixtures:trader-busy"]` = `"2"` answers each
@@ -340,7 +351,7 @@ export async function fixtureRequest<T>(
   body: unknown,
   token: string | null,
 ): Promise<T> {
-  await delay(60 + Math.random() * 120);
+  await delay(60 + Math.random() * 120 + extraDelay());
   const url = new URL(path, "http://fixtures.invalid");
   const parts = url.pathname.split("/").filter(Boolean);
   const search = url.searchParams;

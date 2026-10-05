@@ -1,12 +1,16 @@
 import type { Metadata, Viewport } from "next";
 import { Fredoka, Noto_Sans_TC, Nunito } from "next/font/google";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import "./globals.css";
 
 import { AppProviders } from "@/components/app-providers";
 import { AppShell } from "@/components/shell/app-shell";
 import { CjkFontWarmup } from "@/components/shell/cjk-font";
+import { ANNOUNCEMENT_COOKIE } from "@/lib/announcement";
 import { CJK_FONT_COOKIE } from "@/lib/cjk-font";
+import { clientAddress } from "@/lib/client-address";
+import type { PublicSettings } from "@/lib/contracts";
+import { prefetchPublic, type Prefetched } from "@/lib/server-prefetch";
 import { OG_LOCALES } from "@/i18n/config";
 import { getLocale, getMessages } from "@/i18n/server";
 import { JsonLd } from "@/components/json-ld";
@@ -79,11 +83,23 @@ export const viewport: Viewport = {
   colorScheme: "light dark",
 };
 
+/** GET /settings for the banners' first frame (announcement, maintenance),
+ * within a short budget: a slow api leaves them to the browser's read, as
+ * before. Fixture mode answers from the sample data. */
+async function siteSettings(): Promise<Prefetched<PublicSettings> | null> {
+  if (process.env.NEXT_PUBLIC_API_FIXTURES === "1") {
+    const { fixtureRequest } = await import("@/fixtures/handler");
+    return { data: await fixtureRequest<PublicSettings>("GET", "/settings", undefined, null), fetchedAt: Date.now() };
+  }
+  return prefetchPublic<PublicSettings>("/settings", { client: clientAddress(await headers()), timeoutMs: SETTINGS_PREFETCH_MS });
+}
+const SETTINGS_PREFETCH_MS = 400;
+
 export default async function RootLayout({ children }: LayoutProps<"/">) {
   const locale = await getLocale();
   const messages = getMessages(locale);
   // The theme chosen with the toggle (cookie); none = follow the system.
-  const cookieStore = await cookies();
+  const [cookieStore, settings] = await Promise.all([cookies(), siteSettings()]);
   const themeChoice = parseThemeChoice(cookieStore.get(THEME_COOKIE)?.value);
   // The CJK web font, once this browser has it cached (see CjkFontWarmup).
   const cjkWeb = cookieStore.get(CJK_FONT_COOKIE)?.value === "1";
@@ -96,7 +112,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-full bg-background text-foreground">
         <JsonLd data={siteJsonLd(messages)} />
         <AppProviders locale={locale} messages={messages} themeChoice={themeChoice}>
-          <AppShell>{children}</AppShell>
+          <AppShell settings={settings} announcementDismissed={cookieStore.get(ANNOUNCEMENT_COOKIE)?.value ?? null}>{children}</AppShell>
           <CjkFontWarmup />
         </AppProviders>
       </body>

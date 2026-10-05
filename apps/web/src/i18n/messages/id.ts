@@ -58,7 +58,7 @@ export const id: Messages = {
     maxExposure: "Eksposur maksimum strategi (USDC)",
     feeLimit: "Batas biaya builder",
       "title": "Persiapan strategi aktual",
-      "hint": "Buat strategi testnet khusus. Strategi tetap dijeda sampai akunnya terdanai dan Anda menandatangani persetujuan salin; setelah itu mulai menyalin di testnet Hyperliquid. Anggaran bukan deposit dan tidak memakai uang simulasi.",
+      "hint": "Buat strategi testnet khusus. Strategi tetap dijeda sampai akunnya terdanai dan kamu menandatangani persetujuan salin; setelah itu mulai menyalin di testnet Hyperliquid. Anggaran bukan deposit dan tidak memakai uang simulasi.",
       "leader": "Alamat pemimpin",
       "budget": "Anggaran risiko (USDC)",
       "create": "Siapkan strategi dijeda",
@@ -208,7 +208,7 @@ export const id: Messages = {
   },
   copyAgents: {
     "title": "Persetujuan agen strategi",
-    "hint": "Izinkan agen berdagang untuk satu akun testnet khusus hingga kedaluwarsa. Tindakan ini tidak memindahkan dana. Setelah akun terdanai dan Anda menandatangani persetujuan salin, agen menempatkan order salinan di testnet Hyperliquid.",
+    "hint": "Izinkan agen berdagang untuk satu akun testnet khusus hingga kedaluwarsa. Tindakan ini tidak memindahkan dana. Setelah akun terdanai dan kamu menandatangani persetujuan salin, agen menempatkan order salinan di testnet Hyperliquid.",
     "unavailable": "Pengaturan agen hanya tersedia di testnet dengan penyedia dompet yang terhubung.",
     "days": "Masa berlaku (hari)",
     "prepare": "Siapkan agen",
@@ -242,7 +242,7 @@ export const id: Messages = {
   },
   copyFunding: {
     "title": "Pendanaan strategi di testnet",
-    "hint": "Transfer USDC uji dari akun utama ke akun khusus. Tinjau dan tanda tangani transfer yang disiapkan. Setelah dana masuk dan persetujuan salin ditandatangani, penyalinan dimulai di testnet. Saldo simulasi Anda tidak berubah.",
+    "hint": "Transfer USDC uji dari akun utama ke akun khusus. Tinjau dan tanda tangani transfer yang disiapkan. Setelah dana masuk dan persetujuan salin ditandatangani, penyalinan dimulai di testnet. Saldo simulasi kamu tidak berubah.",
     "unavailable": "Pendanaan strategi mainnet belum tersedia atau penyedia dompet tidak tersedia.",
     "amount": "Jumlah pendanaan",
     "prepare": "Siapkan transfer",

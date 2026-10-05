@@ -209,19 +209,38 @@
   }
 }
 
+/* CJK text. A first visit uses the system's face: PingFang TC (macOS,
+ * iOS), Hiragino Sans (older macOS), Microsoft JhengHei (Windows), Noto
+ * Sans CJK TC (Android, ChromeOS, Linux). Noto Sans TC, the web font, is
+ * never asked for before the page has loaded: once the browser is idle the
+ * page's characters are fetched into the cache (components/shell/
+ * cjk-font.tsx), and from the next visit on <html> carries .cjk-web and
+ * puts it first (font-display: optional, so a slice that is not cached
+ * never swaps in under the reader). "Noto Sans TC" is not named in the
+ * system list: the web font's @font-face has that name and would shadow
+ * an installed copy, fetching it on a first visit. */
+:root {
+  --font-cjk-system: "PingFang TC", "Hiragino Sans", "Microsoft JhengHei", "Noto Sans CJK TC";
+  --font-cjk: var(--font-cjk-system);
+}
+:root.cjk-web {
+  --font-cjk: var(--font-noto-tc), var(--font-cjk-system);
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-page: var(--page);
-  /* Fredoka: numbers, headings, the wordmark. Nunito: body and UI. Noto
-     Sans TC after Nunito for CJK (self-hosted, unicode-range slices). */
-  --font-display: var(--font-fredoka), var(--font-nunito), var(--font-noto-tc), "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  /* Fredoka: numbers, headings, the wordmark. Nunito: body and UI. CJK
+     after Nunito: --font-cjk, the system's own CJK face on a first visit
+     (see :root below). */
+  --font-display: var(--font-fredoka), var(--font-nunito), var(--font-cjk), system-ui, sans-serif;
   --font-wordmark: var(--font-fredoka), var(--font-nunito), system-ui, sans-serif;
-  --font-sans: var(--font-nunito), var(--font-noto-tc), "PingFang TC", "PingFang SC", "Noto Sans SC", "Microsoft JhengHei", "Microsoft YaHei", "Hiragino Sans", "Yu Gothic", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --font-sans: var(--font-nunito), var(--font-cjk), "PingFang SC", "Noto Sans SC", "Microsoft YaHei", "Yu Gothic", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
   /* No monospace face: addresses and figures use Nunito with tabular
      figures (see .font-mono below). */
-  --font-mono: var(--font-nunito), var(--font-noto-tc), ui-monospace, "SFMono-Regular", monospace;
-  --font-heading: var(--font-fredoka), var(--font-nunito), var(--font-noto-tc), "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-mono: var(--font-nunito), var(--font-cjk), ui-monospace, "SFMono-Regular", monospace;
+  --font-heading: var(--font-fredoka), var(--font-nunito), var(--font-cjk), system-ui, sans-serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);

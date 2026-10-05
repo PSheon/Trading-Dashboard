@@ -5,6 +5,8 @@ import "./globals.css";
 
 import { AppProviders } from "@/components/app-providers";
 import { AppShell } from "@/components/shell/app-shell";
+import { CjkFontWarmup } from "@/components/shell/cjk-font";
+import { CJK_FONT_COOKIE } from "@/lib/cjk-font";
 import { OG_LOCALES } from "@/i18n/config";
 import { getLocale, getMessages } from "@/i18n/server";
 import { JsonLd } from "@/components/json-ld";
@@ -29,12 +31,12 @@ const fredoka = Fredoka({
   display: "swap",
 });
 
-/** CJK after Nunito. Large: never preloaded; the browser fetches only the
- * unicode-range slices a page uses. `optional`: a first visit on a slow
- * connection keeps the system CJK face (PingFang / JhengHei / Noto CJK)
- * instead of re-painting every heading seconds later — that late swap was
- * the phone LCP (14 s in Lighthouse); the slices are cached for the next
- * page. */
+/** Noto Sans TC, the CJK web font. Only its @font-face rules are in the
+ * page's CSS: no font stack names it until this browser has its slices
+ * cached (the cjk-font cookie, set by CjkFontWarmup after a page has
+ * loaded), so a first visit fetches none of it and draws CJK in the
+ * system's face (globals.css, --font-cjk). Never preloaded; `optional`: a
+ * slice that is not ready at once is never swapped in later. */
 const notoSansTc = Noto_Sans_TC({
   variable: "--font-noto-tc",
   weight: ["500", "700"],
@@ -81,17 +83,21 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   const locale = await getLocale();
   const messages = getMessages(locale);
   // The theme chosen with the toggle (cookie); none = follow the system.
-  const themeChoice = parseThemeChoice((await cookies()).get(THEME_COOKIE)?.value);
+  const cookieStore = await cookies();
+  const themeChoice = parseThemeChoice(cookieStore.get(THEME_COOKIE)?.value);
+  // The CJK web font, once this browser has it cached (see CjkFontWarmup).
+  const cjkWeb = cookieStore.get(CJK_FONT_COOKIE)?.value === "1";
 
   return (
     <html
       lang={locale}
-      className={`${themeClass(themeChoice)} ${nunito.variable} ${fredoka.variable} ${notoSansTc.variable} h-full antialiased`.trim()}
+      className={`${themeClass(themeChoice)} ${nunito.variable} ${fredoka.variable} ${notoSansTc.variable}${cjkWeb ? " cjk-web" : ""} h-full antialiased`.trim()}
     >
       <body className="min-h-full bg-background text-foreground">
         <JsonLd data={siteJsonLd(messages)} />
         <AppProviders locale={locale} messages={messages} themeChoice={themeChoice}>
           <AppShell>{children}</AppShell>
+          <CjkFontWarmup />
         </AppProviders>
       </body>
     </html>

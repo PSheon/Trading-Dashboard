@@ -10,7 +10,7 @@ import { RequestBudgeterService } from "../hyperliquid/request-budgeter.service.
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { operationalSwitches } from "../runtime/operational-switches.js";
 import type { StructuredLogger } from "../runtime/structured-logger.js";
-import { acquireWorkerLease } from "../runtime/worker-lease.js";
+import { acquireWorkerLease, WORKER_LEASE_SESSION_OPTIONS } from "../runtime/worker-lease.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { WorkerHeartbeatService } from "../worker/worker-heartbeat.service.js";
 import { startWorkerHealthServer } from "./worker-health-server.js";
@@ -25,7 +25,7 @@ import { workerMonitorKey } from "../runtime/worker-calls.js";
  * health server's. Losing the lease connection exits the process.
  */
 export async function startWorker(config: RuntimeConfig, logger: StructuredLogger): Promise<void> {
-  const pool = new Pool({ connectionString: config.database.url, max: 1, keepAlive: true, connectionTimeoutMillis: 3000, query_timeout: 3000 });
+  const pool = new Pool({ connectionString: config.database.url, max: 1, keepAlive: true, connectionTimeoutMillis: 3000, query_timeout: 3000, options: WORKER_LEASE_SESSION_OPTIONS });
   let client: PoolClient | undefined;
   let app: INestApplicationContext | undefined;
   let ready = false;

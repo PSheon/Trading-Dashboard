@@ -1,6 +1,6 @@
 import { readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import type { FullConfig } from "@playwright/test";
+import { chromium, type FullConfig } from "@playwright/test";
 
 /**
  * Compiles every route of the fixture server before the first test.
@@ -57,4 +57,28 @@ export default async function globalSetup(config: FullConfig) {
     if (response.status >= 500 && path !== "/en/dev/crash") throw new Error(`Warming ${path} answered ${response.status}`);
   }
   console.log(`Compiled ${paths.length} routes in ${Math.round((Date.now() - started) / 1000)} s`);
+  await warmClient(baseURL);
+}
+
+/**
+ * The fetches above compile each route's server side and the chunks its HTML
+ * names. The fixture handler (`import("@/fixtures/handler")` in lib/api.ts)
+ * and other lazy chunks compile only when a browser asks for them: 3 s for
+ * the fixtures alone in CI, so the first test of a fresh server waited past
+ * a 5 s expect for the explore grid (browser shard 1/3, run 37304913234).
+ * One real page load here pays for them before any test's clock starts.
+ */
+async function warmClient(baseURL: string) {
+  const started = Date.now();
+  const browser = await chromium.launch();
+  try {
+    const context = await browser.newContext({ baseURL });
+    await context.addCookies([{ name: "locale", value: "en", url: baseURL }]);
+    const page = await context.newPage();
+    await page.goto("/en/explore", { timeout: 120_000 });
+    await page.locator('a[href*="/trader/"]').first().waitFor({ state: "attached", timeout: 120_000 });
+  } finally {
+    await browser.close();
+  }
+  console.log(`Loaded the explore page's client chunks in ${Math.round((Date.now() - started) / 1000)} s`);
 }

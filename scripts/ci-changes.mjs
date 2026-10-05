@@ -16,6 +16,9 @@ const ZERO_SHA = /^0+$/;
 
 /** Each changed path maps to the groups it needs. First match wins. */
 const RULES = [
+  // The web pages' copy: apps/web/test/content.test.ts checks the generated
+  // module against it.
+  [/^docs\/content\//, ['web']],
   [/^docs\//, []],
   [/^[^/]+\.md$/, []],
   [/^apps\/api\//, ['api']],

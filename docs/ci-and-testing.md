@@ -36,7 +36,8 @@ changed file to groups:
 
 | Changed path | api | web |
 | --- | --- | --- |
-| `docs/**`, root `*.md` | – | – |
+| `docs/content/**` (the web pages' copy, checked by the web unit tests) | – | ✓ |
+| the rest of `docs/**`, root `*.md` | – | – |
 | `apps/api/**`, `scripts/**` | ✓ | – |
 | `apps/web/**` | – | ✓ |
 | `packages/shared/**` | ✓ | ✓ |

@@ -34711,7 +34711,7 @@
     },
     "/me/copy/live/mandates/{id}/approve": {
       "post": {
-        "description": "Active acknowledges consent only. The strategy remains paused; automatic execution is unavailable.\n\nAccess: user (owner); exact local owner consent; automatic execution unavailable",
+        "description": "The generation becomes active and its activation pending. With automatic testnet execution on (`capabilities.automaticExecution`), the strategy starts copying once its account has a credited deposit and no transfer pending; until then, and when execution is off, it stays paused.\n\nAccess: user (owner); exact local owner consent; automatic execution unavailable",
         "operationId": "CopyLiveMandateController_approve",
         "parameters": [
           {
@@ -34895,7 +34895,7 @@
             }
           }
         },
-        "summary": "Acknowledge exact owner consent locally",
+        "summary": "Acknowledge exact owner consent",
         "tags": [
           "CopyLiveMandate"
         ],

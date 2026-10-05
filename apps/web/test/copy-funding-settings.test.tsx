@@ -45,7 +45,7 @@ it("loads without a transfer or signature and requires separate preparation and 
   });
   await click("Prepare funding"); expect(state.sign).not.toHaveBeenCalled(); expect(state.post).toHaveBeenCalledTimes(1);
   expect(state.post.mock.calls[0]).toEqual(["/me/copy/execution-wallets/account/funding", { amount: "10", idempotencyKey: expect.any(String) }]);
-  expect(container.textContent).toContain("Receiving funds does not start copying");
+  expect(container.textContent).toContain("Once it is credited and the copy consent is signed, copying starts on testnet");
   await click("Confirm and sign transfer");
   expect(state.sign).toHaveBeenCalledTimes(1); expect(state.post.mock.calls.map(([path]) => path)).toEqual(["/me/copy/execution-wallets/account/funding", `/me/copy/funding/${op.id}/broadcast`, `/me/copy/funding/${op.id}/submit`]);
   const typed = state.sign.mock.calls[0][0]; expect(typed.domain.chainId).toBe(421614); expect(typed.primaryType).toBe("HyperliquidTransaction:UsdSend"); expect(typed.message).toMatchObject({ destination: account.address, amount: "10", time: op.nonce });

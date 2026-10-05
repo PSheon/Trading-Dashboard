@@ -113,11 +113,12 @@ remain unknown, so aggregate equity is nullable. Public reporting evidence is
 not a dedicated-account risk permit. The actual market watcher loads the full
 indexed metadata in two REST requests and meters its socket subscriptions.
 
-These concrete boundaries do not complete the mainnet product. The financial
-worker, durable cancel/stop/flat/sweep operations, generation-renewal execution,
-HIP-3 effective-fee admission, collected-fee allocation and treasury payouts still
-require implementation and separate actual owner-funded acceptance. Runtime
-configuration continues to reject `COPY_TRADING_MODE=testnet|live`.
+These concrete boundaries do not complete the mainnet product. Generation-renewal
+execution, HIP-3 effective-fee admission, collected-fee allocation and treasury
+payouts still require implementation and separate actual owner-funded acceptance.
+Runtime configuration accepts `COPY_TRADING_MODE=testnet` (the testnet worker,
+`apps/api/src/copy/live-worker/`, runs funded generations on Hyperliquid testnet)
+and continues to reject `COPY_TRADING_MODE=live` (`src/config/runtime-config.ts`).
 
 The state flow is `prepared -> submitting -> resting | filled | partial |
 cancelled | rejected`. Exceptions after the POST begins produce `unknown`.

@@ -22,7 +22,7 @@ export class CopyLiveMandateController {
   create(@CurrentUser() user: RequestUser | null, @Body() body: CreateLiveCopyStrategyDto) { return this.mandates.create(requireUserId(user), body); }
   @Post('execution-wallets/:id/mandates') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Prepare exact local owner consent for a verified testnet agent')
   prepare(@CurrentUser() user: RequestUser | null, @Param() params: CopyWalletIdDto, @Body() body: PrepareLiveCopyMandateDto) { return this.mandates.prepare(requireUserId(user), params.id, body); }
-  @Post('mandates/:id/approve') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Acknowledge exact owner consent locally', 'Active acknowledges consent only. The strategy remains paused; automatic execution is unavailable.')
+  @Post('mandates/:id/approve') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Acknowledge exact owner consent', 'The generation becomes active and its activation pending. With automatic testnet execution on (`capabilities.automaticExecution`), the strategy starts copying once its account has a credited deposit and no transfer pending; until then, and when execution is off, it stays paused.')
   approve(@CurrentUser() user: RequestUser | null, @Param() params: CopyWalletIdDto, @Body() body: ApproveLiveCopyMandateDto) { return this.mandates.approve(requireUserId(user), params.id, body); }
   @Post('mandates/:id/pause') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Pause new risk locally without cancelling orders or settling funds')
   pause(@CurrentUser() user: RequestUser | null, @Param() params: CopyWalletIdDto, @Body() body: EmptyLiveCopyMandateDto) { return this.mandates.pause(requireUserId(user), params.id, body); }

@@ -36,7 +36,7 @@ A3、A4、A5、A8、C 三項 Low，以及 31aaa38 的 portfolio 功能（新端�
 | A4 殘留 | 小 | `cohort.repository.ts:102` leaderboard top-up 仍按全帳戶 `accountValue` 排序，與 6b70bc4 說明「never by the whole account」不一致（只在 pool 不夠時補位） | — |
 | A6 | 部分 | cohort 上限 500/2000、取全部合格者；Copy Score 母體仍 `candidate_pool`，`candidatePoolSize` 預設 1000（`zod.ts:1550`） | — |
 | A7 | 未修 | `S3_ARCHIVE_ENABLED` 預設 false | `runtime-config.ts:96` |
-| B1–B6 | 未修 | `runtime-config.ts:64` 仍拒 testnet/live；live runtime、cancellation transport 無 module 引用；`needs_deposit` 0 筆；deposit-dialog 只有 Arbitrum；`live-order.ts:45` asset≥10000 拒絕 | — |
+| B1–B6 | 未修 | `runtime-config.ts:64` 仍拒 testnet/live（**2026-10-05 更正：過時。`runtime-config.ts:87-95` 接受 `COPY_TRADING_MODE=testnet`，只拒 `live`；testnet worker 在 `copy/live-worker/`**）；live runtime、cancellation transport 無 module 引用；`needs_deposit` 0 筆；deposit-dialog 只有 Arbitrum；`live-order.ts:45` asset≥10000 拒絕 | — |
 
 ### 新問題（本輪發現）
 
@@ -88,7 +88,7 @@ CopyDog 已知錯誤（我們要避免）：快照過期（Bholu metricsUpdatedA
 
 | # | 功能 | Orbie 狀態 | 證據 | 缺什麼 | 優先 |
 | --- | --- | --- | --- | --- | --- |
-| B1 | 真實跟單執行 worker | 未做 | `runtime-config.ts:64` 拒絕 testnet/live；`copy-worker.service.ts:39-45` 只跑 paper；`testnet-live-execution-runtime.ts:56` 全 repo 無 import | 財務 worker 未註冊；訊號→送單→成交 settlement | **P0** |
+| B1 | 真實跟單執行 worker | 未做（**2026-10-05 更正：testnet 已做**，見 `copy/live-worker/`；`runtime-config.ts:87-95` 接受 testnet、只拒 live） | `runtime-config.ts:64` 拒絕 testnet/live（過時）；`copy-worker.service.ts:39-45` 只跑 paper；`testnet-live-execution-runtime.ts:56` 全 repo 無 import | 財務 worker 未註冊；訊號→送單→成交 settlement | **P0** |
 | B2 | 停止→撤單→平倉→sweep | 部分 | `copy-live-stop.service.ts:8-25` 只寫停止屏障；`hyperliquid-cancellation-transport.ts`、`privy-cancellation-signer.ts` 無 module 引用 | 本人撤單授權、晚到成交、reduce-only 平倉、sweep 回主錢包 | **P0** |
 | B3 | 真實注資狀態機 needs_deposit/funding | 部分 | `copy-funding.controller.ts:13-23` 有 testnet reserve/submit/reconcile；`grep needs_deposit` 0 筆；`copy-strategy.service.ts:185-195` 啟動仍扣 paper balance | 策略啟動未綁真實入金 | **P0** |
 | B4 | 真實 idle withdrawal（vault→主錢包） | 未做 | `copy-strategy.service.ts:274-299` 回本地 paper 帳 | 執行帳戶→hub 真實轉帳 | **P0** |
@@ -96,7 +96,7 @@ CopyDog 已知錯誤（我們要避免）：快照過期（Bholu metricsUpdatedA
 | B6 | HIP-3 股票實盤跟單 | 部分 | `live-order.ts:45` asset≥10000 → `live_market_identity_missing` | 股票 perp 不可實盤 | **P0** |
 | B7 | 單一部位手動平倉 | 未做 | `schema/copy.ts:153` 只有 `close_positions`（全部） | 逐倉平倉 | P1 |
 | B8 | 推薦返佣申領 | 部分 | `referral.controller.ts:8-33` 七路由齊；`referral.service.ts:36` `claimCapability.enabled:false` | 費用歸屬、treasury 付款 | P1 |
-| B9 | Telegram 跟單 bot | 部分 | `bot-rows.tsx:69-82` 已是開關；`notify.repository.ts:26-27` 只推 paper 事件；`message-template.ts:31,135` 只有 en/zh-TW | 真實成交／資金事件；其他 9 語系訊息 | P1 |
+| B9 | Telegram 跟單 bot | 部分 | `bot-rows.tsx:69-82` 已是開關；`notify.repository.ts:26-27` 只推 paper 事件；`message-template.ts:31,135` 只有 en/zh-TW（2026-10-05 更正：過時，已改由 `telegramMessages(locale)` 供 11 語系） | 真實成交／資金事件；其他 9 語系訊息 | P1 |
 | B10 | Portfolio 即時 feed（WS） | 部分 | `lib/copy.ts:184` 15 秒輪詢，追趕與翻頁已補 | 推送訂閱 | P1 |
 | B11 | 總投組合併曲線 | 未做 | `portfolio-view.tsx:9-10` 只有每策略曲線 | 跨策略合併 | P1 |
 | B12 | 分享 poster／spotlight | 部分 | `trade-share-dialog.tsx:11-60` 單一樣式 | 多 family 卡 | P1 |

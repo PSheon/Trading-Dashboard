@@ -30,7 +30,7 @@ export function ExecutionWalletSettings() {
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
   const { openExport } = useWalletModals();
   const data = wallets.data;
-  const eligibleActual = data?.network === "testnet" ? actual.data?.strategies.filter(item => item.status === "paused" && item.pauseNewRisk && !item.reduceOnly && item.sourceNetwork === "testnet") ?? [] : [];
+  const eligibleActual = data?.network === "testnet" ? actual.data?.strategies.filter(item => item.status === "paused" && item.pauseNewRisk && !item.reduceOnly) ?? [] : [];
   const eligibleCopies = [ ...(copies.data?.strategies.filter(item => item.status !== "stopped" && item.status !== "stopping").map(item => ({ ...item, kind: "paper" as const })) ?? []), ...eligibleActual.map(item => ({ ...item, kind: "actual" as const })) ];
   const strategy = eligibleCopies.find((item) => String(item.id) === selected);
   const actualStrategy = eligibleActual.find(item => item.id === strategy?.id);

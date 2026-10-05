@@ -19,6 +19,7 @@ import { useCopyPortfolio, useCopyTrades, type CopyClosedTradeView } from "@/lib
 import { PORTFOLIO_WINDOWS, exposure, insightsOverview, netInvested, paperLegend, sharePct, todayChange } from "@/lib/copy-portfolio";
 import { coinLabel, usdCompact } from "@/lib/format";
 import type { CopyPerformanceWindow } from "@trading-dashboard/shared/contracts";
+import { useSlidingIndicator } from "@/lib/use-sliding-indicator";
 
 type Leader = { address: string; displayName: string | null; avatarUrl: string | null };
 const leaderOf = (leaders: Map<string, Leader>, address: string): Leader => leaders.get(address) ?? { address, displayName: null, avatarUrl: null };
@@ -26,18 +27,22 @@ const tone = (v: number | null | undefined) => (v === null || v === undefined ? 
 
 /** CopyDog's text segments (mono, uppercase, no pill). */
 export function Seg<T extends string>({ value, onChange, options, label }: { value: T; onChange: (value: T) => void; options: Array<[T, React.ReactNode]>; label: string }) {
+  // The orange pill slides to the chosen option, as every segmented control's does.
+  const [trackRef, pill] = useSlidingIndicator<HTMLDivElement>(value);
   return (
-    <div role="radiogroup" aria-label={label} className="flex items-center gap-0.5 rounded-full bg-(--seg-track,var(--raised)) p-1">
+    <div ref={trackRef} role="radiogroup" aria-label={label} className="relative flex items-center gap-0.5 rounded-full bg-(--seg-track,var(--raised)) p-1">
+      {pill ? <span aria-hidden className="absolute rounded-full bg-primary transition-[left,top,width] duration-300 ease-(--ease-orbit) motion-reduce:transition-none" style={{ left: pill.left, top: pill.top, width: pill.width, height: pill.height }} /> : null}
       {options.map(([v, text]) => (
         <button
           key={v}
           type="button"
           role="radio"
+          data-active={v === value}
           aria-checked={v === value}
           onClick={() => onChange(v)}
           className={cn(
-            "h-9 rounded-full px-3 text-[13px] whitespace-nowrap outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
-            v === value ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground hover:text-foreground",
+            "relative h-9 rounded-full px-3 text-[13px] whitespace-nowrap outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
+            v === value ? cn("font-extrabold text-primary-foreground", !pill && "bg-primary") : "font-bold text-muted-foreground hover:text-foreground",
           )}
         >
           {text}
@@ -213,10 +218,12 @@ function SecHead({ title, children }: { title: string; children?: React.ReactNod
 }
 
 function Pills<T extends string>({ value, onChange, options, label }: { value: T; onChange: (v: T) => void; options: Array<[T, string]>; label: string }) {
+  const [trackRef, pill] = useSlidingIndicator<HTMLDivElement>(value);
   return (
-    <div role="radiogroup" aria-label={label} className="flex gap-0.5 rounded-full bg-(--seg-track,var(--raised)) p-1">
+    <div ref={trackRef} role="radiogroup" aria-label={label} className="relative flex gap-0.5 rounded-full bg-(--seg-track,var(--raised)) p-1">
+      {pill ? <span aria-hidden className="absolute rounded-full bg-primary transition-[left,top,width] duration-300 ease-(--ease-orbit) motion-reduce:transition-none" style={{ left: pill.left, top: pill.top, width: pill.width, height: pill.height }} /> : null}
       {options.map(([v, text]) => (
-        <button key={v} type="button" role="radio" aria-checked={v === value} onClick={() => onChange(v)} className={cn("h-8 rounded-full px-3 text-xs outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring", v === value ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground")}>
+        <button key={v} type="button" role="radio" data-active={v === value} aria-checked={v === value} onClick={() => onChange(v)} className={cn("relative h-8 rounded-full px-3 text-xs outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring", v === value ? cn("font-extrabold text-primary-foreground", !pill && "bg-primary") : "font-bold text-muted-foreground")}>
           {text}
         </button>
       ))}

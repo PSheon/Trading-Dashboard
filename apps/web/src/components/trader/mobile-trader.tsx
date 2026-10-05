@@ -30,6 +30,7 @@ import { PerformanceTab, TradesTab, type PerfView } from "./trade-analytics";
 import { PositionsTab } from "./trader-tabs";
 import { unavailableNote } from "./profile-card";
 import { SwitchPanel } from "@/components/ui/switch-panel";
+import { useSlidingIndicator } from "@/lib/use-sliding-indicator";
 
 /** A row of pills, the active one filled with the brand colour (CopyDog's
  * mobile segmented controls). */
@@ -48,19 +49,23 @@ function Pills<T extends string>({
   className?: string;
   stretch?: boolean;
 }) {
+  // The orange pill slides to the chosen option, as every segmented control's does.
+  const [trackRef, pill] = useSlidingIndicator<HTMLDivElement>(value);
   return (
-    <div role="radiogroup" aria-label={label} className={cn("flex items-center gap-0.5 rounded-full bg-raised p-1", className)}>
+    <div ref={trackRef} role="radiogroup" aria-label={label} className={cn("relative flex items-center gap-0.5 rounded-full bg-raised p-1", className)}>
+      {pill ? <span aria-hidden className="absolute rounded-full bg-primary transition-[left,top,width] duration-300 ease-(--ease-orbit) motion-reduce:transition-none" style={{ left: pill.left, top: pill.top, width: pill.width, height: pill.height }} /> : null}
       {options.map(([v, text]) => (
         <button
           key={v}
           type="button"
           role="radio"
+          data-active={value === v}
           aria-checked={value === v}
           onClick={() => onChange(v)}
           className={cn(
-            "min-h-11 rounded-full px-3.5 py-2 text-sm leading-5 whitespace-nowrap outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
+            "relative min-h-11 rounded-full px-3.5 py-2 text-sm leading-5 whitespace-nowrap outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
             stretch && "min-w-0 flex-1",
-            value === v ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground",
+            value === v ? cn("font-extrabold text-primary-foreground", !pill && "bg-primary") : "font-bold text-muted-foreground",
           )}
         >
           {text}

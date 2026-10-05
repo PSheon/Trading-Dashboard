@@ -10,14 +10,14 @@ import { clearPersonalStorage } from "../src/lib/personal-storage";
 
 const state = vi.hoisted(() => ({
   identity: null as string | null, replace: vi.fn(), logout: vi.fn(async () => {}),
-  del: vi.fn(async () => undefined), post: vi.fn(), me: { isError: false, isPending: false, data: undefined as unknown, error: null as unknown, refetch: vi.fn() },
+  del: vi.fn(async () => undefined), post: vi.fn(), openWithdraw: vi.fn(), me: { isError: false, isPending: false, data: undefined as unknown, error: null as unknown, refetch: vi.fn() },
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: state.replace, refresh() {}, push() {} }), usePathname: () => "/admin/users" }));
 vi.mock("../src/lib/auth", () => ({
   useAuth: () => ({ status: "signedIn", mode: "privy", identity: state.identity, logout: state.logout, wallet: null }),
   useMe: () => state.me,
 }));
-vi.mock("../src/components/wallet/wallet-modals", () => ({ useWalletModals: () => ({ openExport() {} }) }));
+vi.mock("../src/components/wallet/wallet-modals", () => ({ useWalletModals: () => ({ openExport() {}, openWithdraw: state.openWithdraw }) }));
 vi.mock("../src/lib/api", async (original) => {
   const actual = await original<typeof import("../src/lib/api")>();
   return { ...actual, api: { ...actual.api, delete: state.del, post: state.post } };
@@ -27,7 +27,7 @@ let root: Root;
 let container: HTMLDivElement;
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-  state.identity = null; state.replace.mockReset(); state.logout.mockReset().mockResolvedValue(undefined); state.del.mockReset().mockResolvedValue(undefined); state.post.mockReset();
+  state.identity = null; state.replace.mockReset(); state.logout.mockReset().mockResolvedValue(undefined); state.del.mockReset().mockResolvedValue(undefined); state.post.mockReset(); state.openWithdraw.mockReset();
   state.me = { isError: false, isPending: false, data: undefined, error: null, refetch: vi.fn() };
   sessionStorage.clear(); localStorage.clear();
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
@@ -67,9 +67,8 @@ describe("sign-out on a shared device", () => {
 });
 
 describe("account deletion", () => {
-  it("reports the deletion even when signing out afterwards fails", async () => {
+  async function confirmDeletion() {
     const { DeleteAccountDialog } = await import("../src/components/settings/delete-account");
-    state.logout.mockRejectedValue(new Error("Privy unavailable"));
     await act(async () => root.render(wrap(<DeleteAccountDialog open onOpenChange={() => {}} />)));
     const box = document.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
     await act(async () => box.click());
@@ -81,6 +80,35 @@ describe("account deletion", () => {
     const confirm = [...document.querySelectorAll("button")].filter((b) => b.textContent?.includes(en.deleteAccount.cta)).at(-1)!;
     await act(async () => confirm.click());
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+  }
+
+  it("shows each blocker with what to do and where, and stays signed in", async () => {
+    const { ApiError } = await import("../src/lib/api");
+    state.del.mockRejectedValue(new ApiError(409, "in progress", { code: "copies_active", strategyIds: [9],
+      blockers: [{ code: "copies_active", strategyIds: [9] }, { code: "withdrawal_pending", strategyIds: [] }, { code: "referral_claim_pending", strategyIds: [] }] }));
+    await confirmDeletion();
+    const alert = [...document.querySelectorAll('[role="alert"]')].find((el) => el.textContent?.includes(en.deleteAccount.blockedTitle))!;
+    expect(alert.textContent).toContain(en.deleteAccount.blockers.copies_active);
+    expect(alert.textContent).toContain(en.deleteAccount.blockers.withdrawal_pending);
+    expect(alert.querySelector('[data-blocker="copies_active"] a')!.getAttribute("href")).toMatch(/\/portfolio\?copy=9$/);
+    expect(alert.querySelector('[data-blocker="referral_claim_pending"] a')!.getAttribute("href")).toMatch(/\/settings\?tab=referral&view=referral$/);
+    await act(async () => alert.querySelector<HTMLButtonElement>('[data-blocker="withdrawal_pending"] button')!.click());
+    expect(state.openWithdraw).toHaveBeenCalledTimes(1);
+    expect(state.logout).not.toHaveBeenCalled();
+    expect(state.replace).not.toHaveBeenCalled();
+  });
+
+  it("says the copy accounts can't be checked when the api can't (503)", async () => {
+    const { ApiError } = await import("../src/lib/api");
+    state.del.mockRejectedValue(new ApiError(503, "unavailable", { code: "closure_check_unavailable" }));
+    await confirmDeletion();
+    expect(document.body.textContent).toContain(en.deleteAccount.unavailable);
+    expect(state.logout).not.toHaveBeenCalled();
+  });
+
+  it("reports the deletion even when signing out afterwards fails", async () => {
+    state.logout.mockRejectedValue(new Error("Privy unavailable"));
+    await confirmDeletion();
     expect(state.del).toHaveBeenCalledTimes(1);
     expect(document.body.textContent).not.toContain(en.deleteAccount.failed);
     expect(state.replace).toHaveBeenCalledWith("/en?accountDeleted=1");

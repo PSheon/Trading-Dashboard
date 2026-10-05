@@ -239,6 +239,10 @@ function moveWithdrawal(status: WalletWithdrawal["status"]): WalletWithdrawal {
   return withdrawal;
 }
 
+/** `?deleteBlock=<code>`: DELETE /me answers that blocker (docs/account-deletion.md),
+ * as the api does while something is in flight, about the fixture's copy 1. */
+const deleteBlock = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("deleteBlock") : null;
+
 /** `?withdrawals=doubt`: one main-wallet withdrawal whose outcome is
  * unknown and whose nonce window has passed (admin users page). */
 let withdrawalsInDoubt = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("withdrawals") === "doubt"
@@ -511,6 +515,10 @@ export async function fixtureRequest<T>(
     case "DELETE /me": {
       // The demo account: forget what it saved (the page signs out next).
       requireUser(token);
+      if (deleteBlock) {
+        const strategyIds = ["withdrawal_pending", "referral_claim_pending"].includes(deleteBlock) ? [] : [1];
+        throw new ApiError(409, "Something is still in progress; finish it before deleting your account", { code: deleteBlock, strategyIds, blockers: [{ code: deleteBlock, strategyIds }] });
+      }
       favorites.clear();
       resetGroups();
       meLocale = "zh-TW";

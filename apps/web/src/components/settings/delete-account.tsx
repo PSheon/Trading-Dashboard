@@ -1,20 +1,37 @@
 "use client";
 
-import { Loader2, ShieldCheck, Trash2 } from "lucide-react";
+import { CircleAlert, Loader2, ShieldCheck, Trash2 } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { useId, useState } from "react";
 import { cn } from "cn";
 
 import { useWalletModals } from "@/components/wallet/wallet-modals";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
 import { useI18n } from "@/i18n/provider";
-import { api, apiErrorCode } from "@/lib/api";
+import { api, ApiError, apiErrorCode } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 /** What the user types to confirm, in every language (as GitHub and
  * others do): a fixed word is harder to confirm by accident. */
 const CONFIRM_WORD = "DELETE";
+
+/** What still blocks a deletion (409 from DELETE /me, docs/account-deletion.md):
+ * only state in flight; each says what to do and links to where. */
+const BLOCKERS = ["copies_active", "stop_in_progress", "setup_in_progress", "transfer_pending", "execution_pending",
+  "copy_account_not_empty", "withdrawal_pending", "referral_claim_pending"] as const;
+type BlockerCode = (typeof BLOCKERS)[number];
+export interface DeletionBlocker { code: BlockerCode; strategyIds: number[] }
+const isBlocker = (code: unknown): code is BlockerCode => typeof code === "string" && (BLOCKERS as readonly string[]).includes(code);
+
+/** The blockers of a 409, most important first (the api's order). */
+export function deletionBlockers(error: unknown): DeletionBlocker[] | null {
+  if (!(error instanceof ApiError) || error.status !== 409 || !isBlocker(error.code)) return null;
+  const ids = (value: unknown) => Array.isArray(value) ? value.filter((id): id is number => Number.isInteger(id) && id > 0) : [];
+  const listed = Array.isArray(error.details.blockers) ? error.details.blockers.flatMap((b: unknown) =>
+    b && typeof b === "object" && "code" in b && isBlocker(b.code) ? [{ code: b.code, strategyIds: ids("strategyIds" in b ? b.strategyIds : []) }] : []) : [];
+  return listed.length ? listed : [{ code: error.code, strategyIds: ids(error.details.strategyIds) }];
+}
 
 /**
  * CopyDog's 刪除帳號 (its App: Settings › the email row › Delete account ›
@@ -54,6 +71,7 @@ export function DeleteAccountDialog({ open, onOpenChange }: { open: boolean; onO
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [blockers, setBlockers] = useState<DeletionBlocker[] | null>(null);
   const ackId = useId();
   const wordId = useId();
   const ready = understood && typed.trim().toUpperCase() === CONFIRM_WORD && !busy;
@@ -64,6 +82,7 @@ export function DeleteAccountDialog({ open, onOpenChange }: { open: boolean; onO
       setUnderstood(false);
       setTyped("");
       setError(null);
+      setBlockers(null);
     }
     onOpenChange(next);
   }
@@ -71,13 +90,16 @@ export function DeleteAccountDialog({ open, onOpenChange }: { open: boolean; onO
   async function confirm() {
     setBusy(true);
     setError(null);
+    setBlockers(null);
     try {
       // The api deletes only with this explicit confirmation (sent once the
       // person has typed the word), never on a valid token alone.
       await api.delete("/me", { headers: { "X-Confirm-Delete": "delete-account" } });
     } catch (err) {
       const code = apiErrorCode(err);
-      setError(code === "last_admin" ? t("deleteAccount.lastAdmin") : code === "copies_active" ? t("deleteAccount.copiesActive") : t("deleteAccount.failed"));
+      const blocked = deletionBlockers(err);
+      if (blocked) setBlockers(blocked);
+      else setError(code === "last_admin" ? t("deleteAccount.lastAdmin") : code === "closure_check_unavailable" ? t("deleteAccount.unavailable") : t("deleteAccount.failed"));
       setBusy(false);
       return;
     }
@@ -117,8 +139,11 @@ export function DeleteAccountDialog({ open, onOpenChange }: { open: boolean; onO
         <li>{t("deleteAccount.removedFavorites")}</li>
         <li>{t("deleteAccount.removedAlerts")}</li>
         <li>{t("deleteAccount.removedSettings")}</li>
+        <li>{t("deleteAccount.removedPaper")}</li>
         <li>{t("deleteAccount.removedAccount")}</li>
       </ul>
+      <p className="mt-4 text-sm font-semibold">{t("deleteAccount.keptTitle")}</p>
+      <p className="mt-1.5 text-[0.8125rem] leading-relaxed text-muted-foreground">{t("deleteAccount.keptBody")}</p>
       <p className="mt-3 text-[0.8125rem] leading-relaxed text-muted-foreground">
         {t("deleteAccount.relogin")}{" "}
         <Link href="/delete-account" className="text-foreground underline underline-offset-2" onClick={() => change(false)}>
@@ -155,6 +180,7 @@ export function DeleteAccountDialog({ open, onOpenChange }: { open: boolean; onO
           {error}
         </p>
       ) : null}
+      {blockers ? <Blockers blockers={blockers} onLeave={() => change(false)} /> : null}
 
       <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <Button variant="secondary" onClick={() => change(false)} disabled={busy}>
@@ -166,5 +192,35 @@ export function DeleteAccountDialog({ open, onOpenChange }: { open: boolean; onO
         </Button>
       </div>
     </Modal>
+  );
+}
+
+/** Why the account can't go yet, and the way to each fix: the copy in the
+ * portfolio, the withdrawal, or the referral page. */
+function Blockers({ blockers, onLeave }: { blockers: DeletionBlocker[]; onLeave: () => void }) {
+  const { t } = useI18n();
+  const { openWithdraw } = useWalletModals();
+  const action = cn(buttonVariants({ variant: "secondary", size: "sm" }), "mt-2 self-start");
+  return (
+    <div role="alert" className="mt-4 rounded-2xl bg-negative-soft p-4 text-sm">
+      <p className="flex items-center gap-2 font-semibold text-negative">
+        <CircleAlert className="size-4 shrink-0" />
+        {t("deleteAccount.blockedTitle")}
+      </p>
+      <ul className="mt-2 flex flex-col gap-3">
+        {blockers.map(({ code, strategyIds }) => (
+          <li key={code} data-blocker={code} className="flex flex-col">
+            <span className="leading-relaxed text-foreground">{t(`deleteAccount.blockers.${code}`)}</span>
+            {code === "withdrawal_pending" ? (
+              <button type="button" className={action} onClick={() => { onLeave(); openWithdraw(); }}>{t("deleteAccount.openWithdrawal")}</button>
+            ) : code === "referral_claim_pending" ? (
+              <Link href="/settings?tab=referral&view=referral" className={action} onClick={onLeave}>{t("deleteAccount.openReferral")}</Link>
+            ) : (
+              <Link href={strategyIds[0] ? `/portfolio?copy=${strategyIds[0]}` : "/portfolio"} className={action} onClick={onLeave}>{t("deleteAccount.openCopy")}</Link>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

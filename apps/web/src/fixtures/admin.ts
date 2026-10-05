@@ -241,7 +241,7 @@ export function systemOverview() {
     outbox: ["evaluations", "deliveries"].map(kind => ({ kind, pending: 2, processing: 1, failed: 0, due: 1, expiredLeases: 0, oldestDueAt: now })),
     // Last night's retention run: every table reached, snapshots and queues trimmed.
     retention: { running: false, lastStartedAt: "2026-10-01T18:07:00.000Z", lastFinishedAt: "2026-10-01T18:07:42.000Z", lastStatus: "ok", lastError: null, durationMs: 42_180,
-      removed: { position_snapshots: 15_604, equity_snapshots: 4_147, admin_audit_logs: 0, account_deletion_records: 0, deleted_accounts: 0, action_outbox: 1_689, notification_outbox: 212, copy_signal_outbox: 311, alerts: 198 },
-      cutoffs: { position_snapshots: "2026-07-03T18:07:00.000Z", equity_snapshots: "2026-07-03T18:07:00.000Z", admin_audit_logs: "2025-10-01T18:07:00.000Z", account_deletion_records: "2025-10-01T18:07:00.000Z", deleted_accounts: "2025-10-01T18:07:00.000Z",
+      removed: { position_snapshots: 15_604, equity_snapshots: 4_147, admin_audit_logs: 0, account_deletion_records: 0, deleted_accounts: 0, account_deletion_markers: 0, action_outbox: 1_689, notification_outbox: 212, copy_signal_outbox: 311, alerts: 198 },
+      cutoffs: { position_snapshots: "2026-07-03T18:07:00.000Z", equity_snapshots: "2026-07-03T18:07:00.000Z", admin_audit_logs: "2025-10-01T18:07:00.000Z", account_deletion_records: "2025-10-01T18:07:00.000Z", deleted_accounts: "2025-10-01T18:07:00.000Z", account_deletion_markers: "2025-10-01T18:07:00.000Z",
         action_outbox: "2026-09-01T18:07:00.000Z", notification_outbox: "2026-09-01T18:07:00.000Z", copy_signal_outbox: "2026-09-01T18:07:00.000Z", alerts: "2026-09-01T18:07:00.000Z" } } };
 }

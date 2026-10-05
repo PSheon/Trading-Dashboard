@@ -202,7 +202,8 @@ function Blockers({ blockers, onLeave }: { blockers: DeletionBlocker[]; onLeave:
   const { openWithdraw } = useWalletModals();
   const action = cn(buttonVariants({ variant: "secondary", size: "sm" }), "mt-2 self-start");
   return (
-    <div role="alert" className="mt-4 rounded-2xl bg-negative-soft p-4 text-sm">
+    // Below the fold of a long dialog: bring it into view once it appears.
+    <div role="alert" ref={(el) => { el?.scrollIntoView?.({ block: "nearest" }); }} className="mt-4 rounded-2xl bg-negative-soft p-4 text-sm">
       <p className="flex items-center gap-2 font-semibold text-negative">
         <CircleAlert className="size-4 shrink-0" />
         {t("deleteAccount.blockedTitle")}

@@ -1,5 +1,6 @@
 "use client";
 
+import { Select } from "@/components/ui/select";
 import { TraderSearchResults } from "./trader-search-results";
 import { activeWithinSchema, type ActiveWithin, type TraderWindow } from "@/lib/contracts";
 import { ChevronLeft, ChevronRight, Search } from "lucide-react";
@@ -130,23 +131,17 @@ export function FullLeaderboardView() {
             className="h-10 w-full rounded-full bg-raised pr-4 pl-10 text-sm outline-none placeholder:text-subtle-foreground focus-visible:ring-2 focus-visible:ring-ring"
           />
         </div>
-        <label className="flex h-10 items-center gap-2 rounded-full bg-raised pr-2 pl-4 text-sm">
-          <span className="text-muted-foreground">{t("explore.minAccountValue")}</span>
-          <select
-            value={minValue}
-            onChange={(e) => {
-              setMinValue(Number(e.target.value));
-              setPage(0);
-            }}
-            className="h-8 rounded-full bg-transparent pr-1 font-semibold outline-none"
-          >
-            {MIN_VALUES.map((v) => (
-              <option key={v} value={v} className="bg-popover">
-                {v === 0 ? t("explore.anyValue") : `≥ ${usd0(v)}`}
-              </option>
-            ))}
-          </select>
-        </label>
+        <Select
+          size="sm"
+          label={t("explore.minAccountValue")}
+          prefix={t("explore.minAccountValue")}
+          value={String(minValue)}
+          onValueChange={(v) => {
+            setMinValue(Number(v));
+            setPage(0);
+          }}
+          options={MIN_VALUES.map((v) => ({ value: String(v), label: v === 0 ? t("explore.anyValue") : `≥ ${usd0(v)}` }))}
+        />
         <button
           type="button"
           role="switch"

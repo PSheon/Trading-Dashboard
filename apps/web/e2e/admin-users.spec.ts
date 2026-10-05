@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { expectAccessible, expectNoSidewaysScroll, shot, signIn } from "./helpers";
+import { chooseOption, expectAccessible, expectNoSidewaysScroll, shot, signIn } from "./helpers";
 
 test.beforeEach(async ({ context, baseURL }) => {
   await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
@@ -16,16 +16,16 @@ for (const width of [1440, 390]) {
     await signIn(page);
     const target = row(page, "whalewatcher");
     const role = target.getByRole("combobox", { name: "Role of whalewatcher" });
-    await expect(role).toHaveValue("user", { timeout: 20000 });
+    await expect(role).toHaveText("User", { timeout: 20000 });
     // The seeded operator, and the signed-in admin who can't change themself.
-    await expect(row(page, "Kaito").getByRole("combobox")).toHaveValue("operator");
+    await expect(row(page, "Kaito").getByRole("combobox")).toHaveText("Operator (read-only)");
     await expect(row(page, "Demo").getByRole("combobox")).toBeDisabled();
     await expectNoSidewaysScroll(page);
     await expectAccessible(page);
     await shot(page, `admin-users-${width}`);
 
     // Choosing a role changes nothing by itself.
-    await role.selectOption("operator");
+    await chooseOption(page, role, "operator");
     const dialog = page.getByRole("dialog", { name: "Change role?" });
     await expect(dialog).toContainText("Change whalewatcher from “User” to “Operator (read-only)”");
     await expect(dialog).toContainText("Cannot change settings, users, lists or rules");
@@ -34,15 +34,15 @@ for (const width of [1440, 390]) {
     await shot(page, `admin-users-role-dialog-${width}`);
     await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(dialog).toHaveCount(0);
-    await expect(role).toHaveValue("user");
+    await expect(role).toHaveText("User");
 
-    await role.selectOption("operator");
+    await chooseOption(page, role, "operator");
     await dialog.getByRole("button", { name: "Confirm", exact: true }).click();
-    await expect(role).toHaveValue("operator");
-    await role.selectOption("admin");
+    await expect(role).toHaveText("Operator (read-only)");
+    await chooseOption(page, role, "admin");
     await expect(dialog).toContainText("Admin: every permission");
     await dialog.getByRole("button", { name: "Confirm", exact: true }).click();
-    await expect(role).toHaveValue("admin");
+    await expect(role).toHaveText("Admin");
 
     await target.getByRole("button", { name: "Disable", exact: true }).click();
     const disable = page.getByRole("dialog", { name: "Disable this account?" });

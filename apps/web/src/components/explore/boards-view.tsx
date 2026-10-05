@@ -11,12 +11,7 @@ import { boardName, CoinStack, CopyScoreBar, signTone, TraderAvatar, VerifiedTic
 import { BoardCard, BoardCardSkeleton, BoardMobileRow, BoardMobileRowSkeleton } from "@/components/discover/board-card";
 import { EmptyState, ErrorState, SkelBar, SkelCircle } from "@/components/page";
 import { CoinIcon } from "@/components/traders/coin-icon";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Select } from "@/components/ui/select";
 import { useI18n } from "@/i18n/provider";
 import { boardCoinLabel, boardPnl, boardRoi, boardUsd } from "@/lib/board-format";
 import type { BoardMarket, BoardSort, BoardTrader, BoardWindow, TradingStyle } from "@/lib/contracts";
@@ -144,11 +139,12 @@ export function BoardsView() {
       <div className="flex flex-wrap items-center justify-between gap-3 md:gap-4">
         <div className="flex w-full items-center gap-4 md:w-auto">
           {/* The desktop title (C-Explore): Fredoka 40 beside the asset switch. */}
-          <h1 className="hidden font-display text-[2.5rem] leading-[1.1] md:block">{t("discover.title")}</h1>
+          <h1 className="type-h1 hidden md:block">{t("discover.title")}</h1>
           <AssetSwitch value={market} onChange={switchMarket} />
         </div>
         <div className="hidden flex-wrap items-center gap-2.5 md:flex">
           <PillMenu
+            name={t("discover.styleLabel")}
             label={style === "any" ? t("discover.styleLabel") : STYLE_MENU[style]}
             active={style !== "any"}
             value={style}
@@ -156,6 +152,7 @@ export function BoardsView() {
             onChange={(v) => setStyle(v as TradingStyle | "any")}
           />
           <PillMenu
+            name={t("discover.sortLabel")}
             label={sortLabel(effectiveSort)}
             value={effectiveSort}
             options={r.sorts.map((s) => ({ value: s, label: sortLabel(s) }))}
@@ -163,7 +160,7 @@ export function BoardsView() {
             strong
           />
           {r.windowed ? (
-            <div className="flex h-12 items-center gap-0.5 rounded-full bg-raised p-1" role="group" aria-label={t("discover.timeframe")}>
+            <div className="seg-track" role="group" aria-label={t("discover.timeframe")}>
               {(["30d", "all"] as const).map((w) => (
                 <button
                   key={w}
@@ -171,8 +168,8 @@ export function BoardsView() {
                   aria-pressed={r.effectiveWindow === w}
                   onClick={() => setWindow(w)}
                   className={cn(
-                    "h-10 rounded-full px-4 text-sm outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
-                    r.effectiveWindow === w ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground hover:text-foreground",
+                    "seg-item outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
+                    r.effectiveWindow === w ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
                   )}
                 >
                   {t(`discover.window.${w}`)}
@@ -308,7 +305,7 @@ function BarsGlyph() {
 function AssetSwitch({ value, onChange }: { value: BoardMarket; onChange: (v: BoardMarket) => void }) {
   const { t } = useI18n();
   return (
-    <div className="grid w-full grid-cols-2 gap-0.5 rounded-[28px] bg-raised p-[5px] md:inline-grid md:w-auto" role="tablist" aria-label={t("discover.assetClass")}>
+    <div className="grid w-full grid-cols-2 gap-0.5 rounded-[26px] bg-raised p-1 md:inline-grid md:w-auto" role="tablist" aria-label={t("discover.assetClass")}>
       {(["crypto", "stocks"] as const).map((m) => (
         <button
           key={m}
@@ -317,8 +314,8 @@ function AssetSwitch({ value, onChange }: { value: BoardMarket; onChange: (v: Bo
           aria-selected={value === m}
           onClick={() => onChange(m)}
           className={cn(
-            "flex h-11 items-center justify-center gap-2 rounded-[22px] px-[22px] text-[0.9375rem] outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring md:min-w-[108px]",
-            value === m ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground hover:text-foreground",
+            "seg-item outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring md:min-w-[108px]",
+            value === m ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
           )}
         >
           {m === "crypto" ? <CoinGlyph active={value === m} /> : <CandlesGlyph />}
@@ -337,7 +334,7 @@ export function ViewToggle({ value, onChange, listFirst = false }: {
 }) {
   const { t } = useI18n();
   return (
-    <div className="flex h-11 items-center gap-0.5 rounded-full bg-raised p-1 md:h-12" role="group" aria-label={t("discover.layout")}>
+    <div className="flex items-center gap-0.5 rounded-[26px] bg-raised p-1" role="group" aria-label={t("discover.layout")}>
       {(listFirst ? (["list", "grid"] as const) : (["grid", "list"] as const)).map((v) => {
         const Icon = v === "grid" ? GridGlyph : BarsGlyph;
         return (
@@ -348,7 +345,7 @@ export function ViewToggle({ value, onChange, listFirst = false }: {
             aria-label={t(`discover.${v}`)}
             onClick={() => onChange(v)}
             className={cn(
-              "flex size-9 items-center justify-center rounded-full outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring md:size-10",
+              "flex size-11 items-center justify-center rounded-full outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
               value === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
             )}
           >
@@ -360,7 +357,9 @@ export function ViewToggle({ value, onChange, listFirst = false }: {
   );
 }
 
-function PillMenu({ label, value, options, onChange, active = false, strong = false }: {
+function PillMenu({ name, label, value, options, onChange, active = false, strong = false }: {
+  /** The filter's accessible name ("Style", "Sort"); `label` is what the pill shows. */
+  name: string;
   label: string;
   value: string;
   options: Array<{ value: string; label: string }>;
@@ -368,33 +367,18 @@ function PillMenu({ label, value, options, onChange, active = false, strong = fa
   active?: boolean;
   strong?: boolean;
 }) {
-  // CopyDog's pill menus: the list drops from the pill's left edge at least
-  // as wide as the pill, the current choice in the accent colour, and the
-  // chevron turns while it's open.
+  // The board's filter pills: the shared select at the toolbar size, the
+  // pill naming the filter and the list checking the current choice.
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        className={cn(
-          "group flex h-12 items-center gap-2 rounded-full bg-raised px-[18px] text-sm leading-none font-bold outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring",
-          strong || active ? "text-foreground" : "text-muted-foreground",
-        )}
-      >
-        {label}
-        <ChevronDown className="size-3.5 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" strokeWidth={3} />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="min-w-[var(--radix-dropdown-menu-trigger-width)]">
-        {options.map((o) => (
-          <DropdownMenuItem
-            key={o.value}
-            onSelect={() => onChange(o.value)}
-            aria-current={o.value === value ? "true" : undefined}
-            className={cn("text-[0.875rem]", o.value === value ? "font-extrabold text-primary-text" : "font-bold")}
-          >
-            {o.label}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <Select
+      size="sm"
+      label={name}
+      display={label}
+      value={value}
+      onValueChange={onChange}
+      options={options}
+      className={cn("w-auto", strong || active ? "text-foreground" : "text-muted-foreground")}
+    />
   );
 }
 
@@ -557,7 +541,7 @@ function FilterSheet({ sorts, windowed, sort, window, style, onClose, onApply }:
       <div className="absolute inset-x-0 bottom-0 flex max-h-[85vh] flex-col rounded-t-[32px] bg-card pb-[env(safe-area-inset-bottom)] shadow-[0_0_0_2px_var(--card-ring)] animate-in slide-in-from-bottom duration-300 motion-reduce:animate-none">
         <span className="mx-auto mt-2.5 h-1.5 w-12 rounded-full bg-border" aria-hidden />
         <div className="flex items-center justify-between px-5 pt-3 pb-2">
-          <h2 className="font-display text-[1.375rem]">{t("discover.filters")}</h2>
+          <h2 className="type-h2">{t("discover.filters")}</h2>
           <button type="button" onClick={onClose} aria-label={t("discover.close")} className="orbit-press flex size-11 items-center justify-center rounded-full bg-inset outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <X className="size-5" strokeWidth={2.4} />
           </button>

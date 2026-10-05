@@ -49,7 +49,7 @@ describe("the insights headline waits for the tier to be read", () => {
     // Both split cards are their placeholders (the card and its title, no
     // figure), so the partial read's "7% 做多" is nowhere; the per-market map
     // waits as well.
-    expect(html.match(/<section aria-hidden="true" class="orbit-card ui-skeleton/g)).toHaveLength(2);
+    expect(html.match(/<section aria-hidden="true" class="orbit-card card-pad ui-skeleton/g)).toHaveLength(2);
     expect(html).not.toContain(`7% ${zhTW.insights.cohort.long}`);
     expect(html).not.toContain("$69.00K");
     expect(html).toContain(zhTW.insights.cohort.building);

@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 /** Signs in to the fixture account. The desktop top bar has the demo login
  * button; a phone has no top bar on most pages (as on CopyDog), so the
@@ -52,4 +52,14 @@ export async function expectNoSidewaysScroll(page: Page) {
 export async function expectAccessible(page: Page) {
   const audit = await (await wcag(page)).analyze();
   expect(audit.violations.map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) }))).toEqual([]);
+}
+
+/** Picks `value` in a shared Select (components/ui/select): opens it from
+ * its combobox trigger and clicks the option carrying that value. */
+export async function chooseOption(page: Page, trigger: Locator, value: string | { index: number }) {
+  await trigger.click();
+  const content = page.locator('[data-slot="select-content"]');
+  const option = typeof value === "string" ? content.locator(`[data-value="${value}"]`) : content.locator("[data-value]").nth(value.index);
+  await option.click();
+  await expect(content).toHaveCount(0);
 }

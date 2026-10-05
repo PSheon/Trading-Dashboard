@@ -1,6 +1,7 @@
 "use client";
 import { useId, useState } from 'react';
 import type { CopyExecutionAccount } from '@trading-dashboard/shared/contracts';
+import { Select } from "@/components/ui/select";
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/i18n/provider';
 import { useAuth } from '@/lib/auth';
@@ -26,9 +27,7 @@ function StatementView({ accounts }: { accounts: readonly CopyExecutionAccount[]
     <p className="mt-2 text-xs leading-5 text-muted-foreground">{t('copyFollowerStatement.hint')}</p>
     <p className="mt-2 text-xs leading-5 text-muted-foreground">{t('copyFollowerStatement.deltaHint')}</p>
     <div className="mt-3"><label htmlFor={selectId} className="block text-xs font-semibold">{t('executionWallets.strategy')}</label>
-      <select id={selectId} className="mt-1 w-full rounded-xl bg-inset px-3 py-2 text-sm" value={account?.id ?? ''} onChange={(e) => setSelected(e.target.value)}>
-        <option value="">{t('executionWallets.selectStrategy')}</option>{eligible.map((a) => <option key={a.id} value={a.id}>{t('executionWallets.copyNumber', { id: a.strategyId })} · {t(`executionWallets.networks.${a.network}`)}</option>)}
-      </select>
+      <Select id={selectId} className="mt-1 w-full" value={account?.id ?? ''} placeholder={t('executionWallets.selectStrategy')} onValueChange={setSelected} options={eligible.map((a) => ({ value: a.id, label: `${t('executionWallets.copyNumber', { id: a.strategyId })} · ${t(`executionWallets.networks.${a.network}`)}` }))} />
     </div>
     {!eligible.length ? <p className="mt-3 text-xs text-muted-foreground">{t('copyFollowerStatement.empty')}</p> : null}
     {account && query.isPending ? <p role="status" className="mt-3 text-xs">{t('copyFollowerStatement.loading')}</p> : null}

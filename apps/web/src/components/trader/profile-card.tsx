@@ -1,5 +1,6 @@
 "use client";
 
+import { Select } from "@/components/ui/select";
 import type { PnlTier, SizeTier, TraderAnalyticsResponse, TraderProfileResponse } from "@/lib/contracts";
 import {
   Anchor,
@@ -27,13 +28,7 @@ import { SkelBar, SkelCircle } from "@/components/page";
 import { TraderName } from "@/components/traders/trader-name";
 import { FavoriteButton } from "@/components/traders/bits";
 import { CoinIcon } from "@/components/traders/coin-icon";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+
 import { useI18n } from "@/i18n/provider";
 import { coinLabel, truncateAddress } from "@/lib/format";
 import { CopyScoreBar, TraderAvatar, XProfileLink } from "@/components/discover/board-bits";
@@ -57,8 +52,8 @@ function useCopied() {
 function Section({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
     <div className="mt-4 border-t-2 border-dotted border-border px-5 pt-4">
-      <div className="mb-2.5 flex min-h-5 items-center justify-between gap-2">
-        <h2 className="font-display text-[15px] leading-5">{title}</h2>
+      <div className="mb-2.5 flex min-h-[26px] items-center justify-between gap-2">
+        <h2 className="type-h2">{title}</h2>
         {action}
       </div>
       {children}
@@ -207,43 +202,40 @@ export function ProfileCard({
   return (
     <aside aria-labelledby="trader-name" className="orbit-card overflow-hidden pb-5 [&>div:first-child]:mt-0 [&>div:first-child]:border-t-0">
       {identity ? (
-        <div className="flex items-center gap-3 px-5 pt-5">
-          {/* CopyDog's header: the picture alone, then the name and its 𝕏;
-              no verified tick and no account-type badge. */}
-          <TraderAvatar trader={{ address: profile.address, avatarUrl: profile.kol?.avatarUrl ?? null }} size={52} />
-          <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-1">
-              <h1 id="trader-name" className="flex min-w-0 font-display text-[1.375rem] leading-[1.1]">
-                <TraderName trader={profile} />
+        <>
+          {/* C-Trader: the picture, then the name as the page's h1 (40/52,
+              up to two lines) over the address; the round actions below. */}
+          <div className="flex items-center gap-3 px-5 pt-5">
+            <TraderAvatar trader={{ address: profile.address, avatarUrl: profile.kol?.avatarUrl ?? null }} size={52} />
+            <div className="min-w-0 flex-1">
+              <h1 id="trader-name" className="type-h1 flex min-w-0">
+                <TraderName trader={profile} className="line-clamp-2 whitespace-normal [overflow-wrap:anywhere]" />
               </h1>
-              {/* CopyDog puts the KOL's 𝕏 right after the name. */}
-              {profile.kol?.xHandle ? <XProfileLink handle={profile.kol.xHandle} className="text-[11px]" /> : null}
+              <span className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => copy("address", profile.address)}
+                  className="num flex items-center gap-1 rounded text-[13px] leading-[18px] font-bold whitespace-nowrap text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                  title={profile.address}
+                  aria-label={`${t("common.copy")} ${profile.address}`}
+                >
+                  {truncateAddress(profile.address)}
+                  {copied === "address" ? <Check className="size-3 text-positive" /> : <Copy className="size-3" />}
+                </button>
+                {profile.kol?.xHandle ? <XProfileLink handle={profile.kol.xHandle} className="text-[11px]" /> : null}
+              </span>
             </div>
-            <span className="mt-1 flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => copy("address", profile.address)}
-                className="num flex items-center gap-1 rounded text-xs leading-[18px] font-bold whitespace-nowrap text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-                title={profile.address}
-                aria-label={`${t("common.copy")} ${profile.address}`}
-              >
-                {truncateAddress(profile.address)}
-                {copied === "address" ? <Check className="size-3 text-positive" /> : <Copy className="size-3" />}
-              </button>
-            </span>
           </div>
-          {/* CopyDog's desktop header has ★ and share only; alerts live on
-              the watchlist (and the phone header's bell). */}
-          <span className="flex shrink-0 items-center gap-1">
-            <FavoriteButton address={profile.address} favorite={profile.favorite} solid />
+          <div className="flex items-center gap-2 px-5 pt-3">
+            <FavoriteButton address={profile.address} favorite={profile.favorite} solid className="size-11 rounded-full bg-inset" />
             <ShareButton
               address={profile.address}
               name={shareName({ address: profile.address, displayName: profile.displayName, kol: profile.kol })}
-              className="size-10 rounded-full bg-inset text-foreground hover:bg-raised-hover"
+              className="size-11 rounded-full bg-inset text-foreground hover:bg-raised-hover"
               iconClassName="size-[17px]"
             />
-          </span>
-        </div>
+          </div>
+        </>
       ) : null}
 
       <AccountValue profile={profile} />
@@ -434,21 +426,15 @@ function BestWorstSection({ trades, computing }: { trades: TraderAnalyticsRespon
     <Section
       title={t("trader.bestWorst")}
       action={
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            aria-label={t("trader.bestWorst")}
-            className="group -my-1 inline-flex items-center gap-[3px] rounded-full bg-inset px-2.5 py-1 text-xs leading-4 font-extrabold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-raised data-[state=open]:text-foreground"
-          >
-            {t(view === "best" ? "trader.best" : "trader.worst")}
-            <ChevronDown className="size-[11px] transition-transform group-data-[state=open]:rotate-180" aria-hidden />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent sideOffset={4} className="min-w-[var(--radix-dropdown-menu-trigger-width)] rounded-lg p-1">
-            <DropdownMenuRadioGroup value={view} onValueChange={(v) => setView(v as "best" | "worst")}>
-              <DropdownMenuRadioItem value="best" className="rounded-md px-2 py-1.5 text-xs">{t("trader.best")}</DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="worst" className="rounded-md px-2 py-1.5 text-xs">{t("trader.worst")}</DropdownMenuRadioItem>
-            </DropdownMenuRadioGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <Select
+          size="row"
+          align="end"
+          label={t("trader.bestWorst")}
+          value={view}
+          onValueChange={(v) => setView(v as "best" | "worst")}
+          className="-my-1.5"
+          options={[{ value: "best", label: t("trader.best") }, { value: "worst", label: t("trader.worst") }]}
+        />
       }
     >
       {!trades ? (
@@ -488,17 +474,19 @@ export function ProfileCardSkeleton({ identity = true }: { identity?: boolean })
   return (
     <aside aria-hidden="true" className="orbit-card ui-skeleton overflow-hidden pb-5 [&>div:first-child]:mt-0 [&>div:first-child]:border-t-0">
       {identity ? (
-        <div className="flex items-center gap-3 px-5 pt-5">
-          <SkelCircle className="size-[52px]" />
-          <div className="min-w-0 flex-1">
-            <SkelBar line="h-[24px]" className="h-4 w-28" />
-            <SkelBar line="mt-1 h-[18px]" className="h-2.5 w-24" />
+        <>
+          <div className="flex items-center gap-3 px-5 pt-5">
+            <SkelCircle className="size-[52px]" />
+            <div className="min-w-0 flex-1">
+              <SkelBar line="h-[44px] md:h-[52px]" className="h-6 w-28 md:h-8" />
+              <SkelBar line="h-[18px]" className="h-2.5 w-24" />
+            </div>
           </div>
-          <span className="flex shrink-0 items-center gap-1">
-            <SkelCircle className="size-10" />
-            <SkelCircle className="size-10" />
-          </span>
-        </div>
+          <div className="flex items-center gap-2 px-5 pt-3">
+            <SkelCircle className="size-11" />
+            <SkelCircle className="size-11" />
+          </div>
+        </>
       ) : null}
       <div className="mx-4 mt-4 rounded-xl bg-inset px-4 py-3.5 [--skel-bar:var(--border)]">
         <span className="mb-1 block text-[13px] font-bold text-muted-foreground">{t("trader.accountValue")}</span>

@@ -1,5 +1,6 @@
 "use client";
 
+import { Select } from "@/components/ui/select";
 import type { ActionKind } from "@/lib/contracts";
 import { Activity, X } from "lucide-react";
 import { useSearchParams } from "next/navigation";
@@ -15,9 +16,6 @@ import { CrowdView } from "@/components/insights/crowd-view";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
 
 const TIERS = ["A", "B", "C"] as const;
-
-const selectClass =
-  "h-10 rounded-full bg-raised px-4 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 /** 營運: the site-wide live action stream and the crowd view, moved here
  * from 洞察 (Stage 3 §3.2); users see their favorites' moves under
@@ -65,36 +63,10 @@ export function AdminActivity() {
             aria-label={t("insights.coin")}
             className="h-10 w-44 rounded-full bg-raised px-4 text-sm outline-none placeholder:text-subtle-foreground focus-visible:ring-2 focus-visible:ring-ring"
           />
-          <select
-            value={kind}
-            onChange={(e) => setKind(e.target.value as ActionKind | "")}
-            aria-label={t("insights.allKinds")}
-            className={selectClass}
-          >
-            <option value="" className="bg-popover">
-              {t("insights.allKinds")}
-            </option>
-            {ACTION_KINDS.map((k) => (
-              <option key={k} value={k} className="bg-popover">
-                {t(`actions.kinds.${k}`)}
-              </option>
-            ))}
-          </select>
-          <select
-            value={tier}
-            onChange={(e) => setTier(e.target.value)}
-            aria-label={t("insights.allTiers")}
-            className={selectClass}
-          >
-            <option value="" className="bg-popover">
-              {t("insights.allTiers")}
-            </option>
-            {TIERS.map((tr) => (
-              <option key={tr} value={tr} className="bg-popover">
-                {t("insights.tier", { tier: tr })}
-              </option>
-            ))}
-          </select>
+          <Select size="sm" value={kind} onValueChange={(value) => setKind(value as ActionKind | "")} label={t("insights.allKinds")}
+            options={[{ value: "", label: t("insights.allKinds") }, ...ACTION_KINDS.map((k) => ({ value: k, label: t(`actions.kinds.${k}`) }))]} />
+          <Select size="sm" value={tier} onValueChange={setTier} label={t("insights.allTiers")}
+            options={[{ value: "", label: t("insights.allTiers") }, ...TIERS.map((tr) => ({ value: String(tr), label: t("insights.tier", { tier: tr }) }))]} />
           {filtered ? (
             <Button
               variant="ghost"

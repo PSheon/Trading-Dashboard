@@ -8,6 +8,7 @@ import { I18nProvider } from "@/i18n/provider";
 import { en } from "@/i18n/messages/en";
 import type { CopyExecutionAccount, CopyFunding, CopyFundingOverview } from "@trading-dashboard/shared/contracts";
 import { settleQueries, type SettleOptions } from "./query-settle";
+import { chooseOption, selectTrigger } from './select-helper';
 
 const state = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), sign: vi.fn(), status: "signedIn", identity: "owner", session: "1", wallet: true, walletAddress: `0x${"11".repeat(20)}` }));
 vi.mock("@/lib/auth", () => ({ useAuth: () => ({ status: state.status, identity: state.identity, mode: "privy", wallet: state.wallet ? { address: state.walletAddress, signTypedData: state.sign } : null }) }));
@@ -32,7 +33,7 @@ const settleHeld = () => settle({ mutations: false });
 async function render(accounts = [account], wait: () => Promise<void> = settle) { await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale="en" messages={en}><CopyFundingSettings accounts={accounts} /></I18nProvider></QueryClientProvider>)); await wait(); }
 function button(text: string) { const found = [...container.querySelectorAll("button")].find((item) => item.textContent === text); if (!found) throw new Error(`Missing button ${text}`); return found; }
 async function click(text: string, wait: () => Promise<void> = settle) { await act(async () => button(text).click()); await wait(); }
-async function selectAccount() { await act(async () => { const select = container.querySelector("select")!; select.value = account.id; select.dispatchEvent(new Event("change", { bubbles: true })); }); }
+async function selectAccount() { await chooseOption(selectTrigger(container), account.id); }
 
 it("loads without a transfer or signature and requires separate preparation and explicit signing", async () => {
   await render(); expect(state.post).not.toHaveBeenCalled(); expect(state.sign).not.toHaveBeenCalled();

@@ -1,4 +1,4 @@
-import { signIn, wcag } from "./helpers";
+import { signIn, wcag, chooseOption } from "./helpers";
 import { expect, test } from "@playwright/test";
 for (const width of [1440, 375]) {
   test(`settings impact and read-only audit work at ${width}px`, async ({ page, context, baseURL }) => {
@@ -17,10 +17,10 @@ for (const width of [1440, 375]) {
     await page.goto("/admin/audit");
     await page.getByRole("button", { name: "Next", exact: true }).click();
     await expect(page.getByText("Page 2", { exact: true })).toBeVisible();
-    await page.getByLabel("Event", { exact: true }).selectOption("job.retry");
+    await chooseOption(page, page.getByLabel("Event", { exact: true }), "job.retry");
     await page.getByRole("button", { name: "Apply filters", exact: true }).click();
     await expect(page.getByText("No matching records", { exact: true })).toBeVisible();
-    await page.getByLabel("Event", { exact: true }).selectOption("settings.update");
+    await chooseOption(page, page.getByLabel("Event", { exact: true }), "settings.update");
     await page.getByRole("button", { name: "Apply filters", exact: true }).click();
     await page.getByText("View changes", { exact: true }).first().click();
     await expect(page.getByText('"candidatePoolSize": 500', { exact: false }).first()).toBeVisible();

@@ -9,6 +9,7 @@ import { en } from "@/i18n/messages/en";
 import { fixtureCopyOverview } from "@/fixtures/copy";
 import type { ExecutionWallet, ExecutionWalletOverview, WalletAuthorization } from "@/lib/copy-execution-wallets";
 import { flush as flushFor, settleQueries, type SettleOptions } from "./query-settle";
+import { chooseOption, selectTrigger } from './select-helper';
 
 const state = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), status: "signedIn" }));
 vi.mock("@/lib/auth", () => ({ useAuth: () => ({ status: state.status, identity: "wallet-owner", mode: "fixture" }) }));
@@ -53,8 +54,7 @@ function button(text: string): HTMLButtonElement {
 async function click(text: string, wait: () => Promise<void> = settle) { await act(async () => button(text).click()); await wait(); }
 async function selectCopy() {
   await act(async () => {
-    const select = container.querySelector("select")!;
-    select.value = "9"; select.dispatchEvent(new Event("change", { bubbles: true }));
+    await chooseOption(selectTrigger(container), "9");
   });
 }
 
@@ -85,7 +85,7 @@ it("shows loading and read failures with a working retry", async () => {
   expect(container.textContent).not.toContain("provider details");
   state.get.mockImplementation(async (path: string) => path === "/me/copy" ? copies : overview);
   await click("Retry");
-  expect(container.querySelector("select")).not.toBeNull();
+  expect(selectTrigger(container)).not.toBeNull();
 });
 
 it("recovers uncertain creation through the existing wallet without retrying creation or displaying funding controls", async () => {
@@ -119,7 +119,7 @@ it("prevents duplicate preparation while the initial request is pending", async 
   state.post.mockImplementationOnce(() => new Promise((resolve) => { complete = resolve; }));
   await click("Prepare dedicated wallet", settleHeld);
   expect(button("Preparing…").disabled).toBe(true);
-  expect(container.querySelector("select")?.disabled).toBe(true);
+  expect(selectTrigger(container)?.disabled).toBe(true);
   await click("Preparing…", settleHeld);
   expect(state.post).toHaveBeenCalledOnce();
   overview = { ...overview, accounts: [account] };
@@ -131,11 +131,11 @@ it("allows retrying copy-list errors without enabling wallet preparation", async
   state.get.mockImplementation(async (path: string) => { if (path === "/me/copy") throw new Error("copies unavailable"); return overview; });
   await render();
   expect(container.textContent).toContain("Could not load your copies.");
-  expect(container.querySelector("select")).toBeNull();
+  expect(selectTrigger(container)).toBeNull();
   expect(state.post).not.toHaveBeenCalled();
   state.get.mockImplementation(async (path: string) => path === "/me/copy" ? copies : overview);
   await click("Retry");
-  expect(container.querySelector("select")).not.toBeNull();
+  expect(selectTrigger(container)).not.toBeNull();
   expect(button("Prepare dedicated wallet").disabled).toBe(true);
 });
 
@@ -156,7 +156,7 @@ it("excludes stopping and stopped copies from preparation but preserves their wa
   state.get.mockImplementation(async (path: string) => path === "/me/copy" ? stoppedCopies : overview);
   overview.accounts = [account];
   await render();
-  expect(container.querySelector("select")).toBeNull();
+  expect(selectTrigger(container)).toBeNull();
   expect(container.textContent).toContain("Create a paper copy first");
   expect(container.textContent).toContain("Copy #9");
   expect(button("Check wallet status").disabled).toBe(false);

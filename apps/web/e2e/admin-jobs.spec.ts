@@ -1,4 +1,4 @@
-import { signIn, wcag } from "./helpers";
+import { signIn, wcag, chooseOption } from "./helpers";
 import { expect, test } from "@playwright/test";
 for (const width of [1440, 375]) {
   test(`jobs paginate, filter and requeue without claiming completion at ${width}px`, async ({
@@ -17,9 +17,8 @@ for (const width of [1440, 375]) {
     await expect(page.getByText("Page 2", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Previous", exact: true }).click();
     await expect(page.getByText("Page 1", { exact: true })).toBeVisible();
-    await page
-      .getByRole("combobox", { name: "Job status" })
-      .selectOption("failed");
+    await chooseOption(page, page
+      .getByRole("combobox", { name: "Job status" }), "failed");
     await page
       .getByRole("button", { name: "Requeue job #30", exact: true })
       .click();
@@ -31,11 +30,10 @@ for (const width of [1440, 375]) {
     await expect(
       page.getByText("No jobs match this filter.", { exact: true }),
     ).toBeVisible();
-    await page
-      .getByRole("combobox", { name: "Job status" })
-      .selectOption("pending");
+    await chooseOption(page, page
+      .getByRole("combobox", { name: "Job status" }), "pending");
     await expect(
-      page.locator("span").filter({ hasText: /^Queued$/ }),
+      page.getByRole("main").locator("span:not([data-slot]):not(button span)").filter({ hasText: /^Queued$/ }),
     ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Requeue job #30", exact: true }),

@@ -6,6 +6,7 @@ import { ArrowLeft } from "lucide-react";
 import { copyStrategyStatusEnum, type CopyStrategyStatus } from "@trading-dashboard/shared/contracts";
 
 import { ErrorState, Panel, PanelSkeleton, SectionHeader } from "@/components/page";
+import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useI18n } from "@/i18n/provider";
 import { useAdminCopyStrategies, useAdminCopyStrategy } from "@/lib/admin-copy";
@@ -14,7 +15,6 @@ import { coinLabel, signClass, truncateAddress } from "@/lib/format";
 import { Chip, CopyAdminNav, OrdersTable, StrategyStatus } from "./shared";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
 
-const selectClass = "h-10 rounded-full bg-raised px-4 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 export function AdminCopyStrategies() {
   const { t, format } = useI18n();
@@ -25,10 +25,8 @@ export function AdminCopyStrategies() {
     <div className="flex flex-col gap-4">
       <CopyAdminNav />
       <div className="flex flex-wrap items-center gap-2.5">
-        <select aria-label={t("copyAdmin.strategies.filter")} value={status} onChange={(e) => setStatus(e.target.value as CopyStrategyStatus | "")} className={selectClass}>
-          <option value="">{t("copyAdmin.strategies.all")}</option>
-          {copyStrategyStatusEnum.map((s) => <option key={s} value={s}>{t(`copyAdmin.strategyStatus.${s}`)}</option>)}
-        </select>
+        <Select size="sm" label={t("copyAdmin.strategies.filter")} value={status} onValueChange={(value) => setStatus(value as CopyStrategyStatus | "")}
+          options={[{ value: "", label: t("copyAdmin.strategies.all") }, ...copyStrategyStatusEnum.map((s) => ({ value: s, label: t(`copyAdmin.strategyStatus.${s}`) }))]} />
         {items ? <span className="num ml-auto text-xs text-muted-foreground">{t("copyAdmin.strategies.count", { count: items.length })}</span> : null}
       </div>
       <Panel className="overflow-hidden">

@@ -1,12 +1,12 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { cn } from "cn";
 
 import { ErrorState, SkelBar } from "@/components/page";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Select } from "@/components/ui/select";
+
 import { useI18n } from "@/i18n/provider";
 import { cohortHeadlineReady } from "@trading-dashboard/shared/contracts";
 import type { CohortDetail, CohortTier, CohortWindow } from "@/lib/contracts";
@@ -56,7 +56,7 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
     <div className="flex flex-col gap-4">
       <header className="relative flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <HyperliquidWordmark className="flex h-[41px] md:hidden" />
-        <h1 className="font-display text-[1.75rem] leading-[1.15] text-balance md:text-[2.5rem]">{t("insights.cohort.bannerTitle")}</h1>
+        <h1 className="type-h1 text-balance">{t("insights.cohort.bannerTitle")}</h1>
         <div className="flex items-center gap-4 max-md:absolute max-md:top-[18px] max-md:right-[18px] md:order-3">
           {tierPicker ? <TierPicker value={tier} onChange={setTier} /> : null}
           <HyperliquidWordmark className="hidden md:flex" />
@@ -102,7 +102,7 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
           </div>
           <section>
             <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex gap-0.5 rounded-[28px] bg-raised p-[5px]" role="tablist">
+              <div className="flex gap-0.5 rounded-[26px] bg-raised p-1" role="tablist">
                 {(["wallets", "markets"] as const).map((key) => (
                   <button
                     key={key}
@@ -153,25 +153,15 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
 function TierPicker({ value, onChange }: { value: CohortTier; onChange: (tier: CohortTier) => void }) {
   const { t } = useI18n();
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        aria-label={t("insights.cohort.tierLabel")}
-        className="flex h-11 items-center gap-1.5 rounded-full bg-raised px-4 text-sm font-extrabold outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        {t(`trader.pnlTiers.${value}`)}
-        <ChevronDown className="size-3.5" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-52">
-        <DropdownMenuRadioGroup value={value} onValueChange={(v) => onChange(v as CohortTier)}>
-          {TIERS.map((tier) => (
-            <DropdownMenuRadioItem key={tier} value={tier} className="flex flex-col items-start gap-0">
-              <span className="font-semibold">{t(`trader.pnlTiers.${tier}`)}</span>
-              <span className="text-[0.6875rem] text-subtle-foreground">{t(`trader.pnlTierHints.${tier}`)}</span>
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <Select
+      size="sm"
+      align="end"
+      label={t("insights.cohort.tierLabel")}
+      value={value}
+      onValueChange={(v) => onChange(v as CohortTier)}
+      contentClassName="min-w-72"
+      options={TIERS.map((tier) => ({ value: tier, label: t(`trader.pnlTiers.${tier}`), hint: t(`trader.pnlTierHints.${tier}`) }))}
+    />
   );
 }
 
@@ -195,8 +185,8 @@ function HeroCards({ data }: { data: CohortDetail | undefined }) {
     return (
       <>
         {([t("insights.cohort.unrealizedPnl"), t("insights.cohort.notional")]).map((title) => (
-          <section key={title} aria-hidden="true" className="orbit-card ui-skeleton overflow-hidden px-5 py-[18px]">
-            <h2 className="text-[13px] leading-5 font-bold text-muted-foreground">{title}</h2>
+          <section key={title} aria-hidden="true" className="orbit-card card-pad ui-skeleton overflow-hidden">
+            <h2 className="type-h2">{title}</h2>
             <div className="mt-2.5 flex flex-col gap-3">
               <div className="cd-bar h-3 rounded-full" />
               <div className="flex items-center justify-between gap-1.5">
@@ -234,8 +224,8 @@ function HeroCards({ data }: { data: CohortDetail | undefined }) {
 
 function HeroCard({ title, pos, left, right }: { title: string; pos: number | null; left: React.ReactNode; right: React.ReactNode }) {
   return (
-    <section className="orbit-card overflow-hidden px-5 py-[18px]">
-      <h2 className="text-[13px] leading-5 font-bold text-muted-foreground">{title}</h2>
+    <section className="orbit-card card-pad overflow-hidden">
+      <h2 className="type-h2">{title}</h2>
       <div className="mt-2.5 flex flex-col gap-3">
         <SplitBar pos={pos} className="cd-bar h-3 rounded-full [&>*]:rounded-full" />
         <div className="flex items-center justify-between gap-1.5 text-xs leading-[18px] font-bold whitespace-nowrap text-muted-foreground [&_.font-semibold]:font-display [&_.font-semibold]:text-[15px]">

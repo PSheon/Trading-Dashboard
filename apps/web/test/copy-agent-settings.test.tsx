@@ -10,6 +10,7 @@ import { catalogs } from "@/i18n/messages";
 import { LOCALES, type Locale } from "@/i18n/config";
 import type { CopyAgentOverview, CopyAgentSetup, CopyExecutionAccount } from "@trading-dashboard/shared/contracts";
 import { settleQueries, type SettleOptions } from "./query-settle";
+import { chooseOption, selectTrigger } from './select-helper';
 const state = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), sign: vi.fn(), status: "signedIn", mode: "privy", identity: "owner", session: "1", walletAddress: `0x${"11".repeat(20)}` as string | null }));
 vi.mock("@/lib/auth", () => ({ useAuth: () => ({ status: state.status, mode: state.mode, identity: state.identity, wallet: state.walletAddress ? { address: state.walletAddress, signTypedData: state.sign } : null }) }));
 vi.mock("@/lib/api", () => ({ api: { get: state.get, post: state.post }, sessionKey: () => state.session }));
@@ -27,7 +28,7 @@ const settleHeld = () => settle({ mutations: false });
 async function render(locale: Locale = "en", accounts = [account], wait: () => Promise<void> = settle) { await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale={locale} messages={catalogs[locale]}><CopyAgentSettings accounts={accounts} /></I18nProvider></QueryClientProvider>)); await wait(); }
 function button(label: string) { const found = [...container.querySelectorAll("button")].find((item) => item.textContent === label); if (!found) throw new Error(`Missing button ${label}`); return found; }
 async function click(label: string, wait: () => Promise<void> = settle) { await act(async () => button(label).click()); await wait(); }
-async function selectAccount() { await act(async () => { const select = container.querySelector("select")!; select.value = account.id; select.dispatchEvent(new Event("change", { bubbles: true })); }); await settle(); }
+async function selectAccount() { await chooseOption(selectTrigger(container), account.id); await settle(); }
 async function acknowledge() { await act(async () => (container.querySelector('input[type="checkbox"]') as HTMLInputElement).click()); await settle(); }
 
 it("creates a separate agent without signing and requires explicit reviewed owner consent", async () => {
@@ -75,8 +76,8 @@ it.each(["wallet", "account"] as const)("blocks approval when the %s changes dur
 });
 it.each(LOCALES)("renders translated states and associated form labels in %s", async (locale) => {
   data.setups = [setup("revoked")]; await render(locale); expect(container.querySelector("section")!.getAttribute("aria-label")).toBe(catalogs[locale].copyAgents.title); expect(container.textContent).toContain(catalogs[locale].copyAgents.states.revoked);
-  expect(container.querySelectorAll("select, input")).toHaveLength(2);
-  for (const control of container.querySelectorAll("select, input")) { expect(control.id).not.toBe(""); expect([...container.querySelectorAll("label")].find((label) => label.htmlFor === control.id)?.textContent).toBeTruthy(); }
+  expect(container.querySelectorAll('[data-slot="select-trigger"], input')).toHaveLength(2);
+  for (const control of container.querySelectorAll('[data-slot="select-trigger"], input')) { expect(control.id).not.toBe(""); expect([...container.querySelectorAll("label")].find((label) => label.htmlFor === control.id)?.textContent).toBeTruthy(); }
   expect(state.post).not.toHaveBeenCalled();
 });
 it("hides approval for mainnet, unavailable providers and elapsed expiries", async () => {

@@ -1,7 +1,8 @@
 "use client";
 
+import { Select } from "@/components/ui/select";
 import Link from "next/link";
-import { ArrowDownRight, ArrowUpRight, ChevronDown, Info } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Info } from "lucide-react";
 import { useId, useMemo, useState } from "react";
 import { AreaChart } from "@/components/charts/area-chart";
 import { boardName, TraderAvatar } from "@/components/discover/board-bits";
@@ -40,8 +41,7 @@ export function HistoricalSimulator({ traders, loading, error, onRetry }: {
             <label className={styles.label} htmlFor={`${id}-trader`}>{en ? "Trader" : "選擇交易員"}</label>
             <div className={styles.traderSelect}>
               <TraderAvatar trader={trader} size={32} />
-              <select id={`${id}-trader`} value={trader.address} onChange={(event) => setSelected(event.target.value)}>{traders.map((item) => <option key={item.address} value={item.address}>{boardName(item)}</option>)}</select>
-              <ChevronDown size={16} aria-hidden />
+              <Select id={`${id}-trader`} className="min-w-0 flex-1" value={trader.address} onValueChange={setSelected} options={traders.map((item) => ({ value: item.address, label: boardName(item) }))} />
             </div>
             <Link className={styles.profile} href={`/trader/${trader.address}`}>{en ? "View trader profile" : "查看交易員詳情"}<ArrowUpRight size={14} /></Link>
             <label className={styles.label} htmlFor="calc-amount">{en ? "Initial investment" : "投入金額"}</label>

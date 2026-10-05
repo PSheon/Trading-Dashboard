@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
+import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { useWalletModals } from "@/components/wallet/wallet-modals";
 import { useI18n } from "@/i18n/provider";
@@ -40,7 +41,7 @@ export function ExecutionWalletSettings() {
   const error = create.isError || actualWallet.isError || reconcile.isError || revoke.isError;
 
   return (
-    <section className="orbit-card px-6 py-5" aria-label={t("executionWallets.title")}>
+    <section className="orbit-card card-pad" aria-label={t("executionWallets.title")}>
       <h3 className="text-[0.9375rem] font-bold">{t("executionWallets.title")}</h3>
       <p className="mt-2 text-xs leading-5 text-muted-foreground">{t("executionWallets.setupHint")}</p>
       <CopyLiveStrategySettings accounts={wallets.isError ? [] : data?.accounts ?? []} authorizations={wallets.isError ? [] : data?.authorizations ?? []}/>
@@ -87,10 +88,8 @@ export function ExecutionWalletSettings() {
             <div className="mt-4 flex flex-wrap items-end gap-3">
               <div className="min-w-0 flex-1">
                 <label htmlFor={selectId} className="block text-xs font-semibold">{t("executionWallets.strategy")}</label>
-                <select id={selectId} value={selected} onChange={(event) => { setSelected(event.target.value); create.reset(); }} className="mt-1 w-full rounded-xl bg-inset px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" disabled={busy}>
-                  <option value="">{t("executionWallets.selectStrategy")}</option>
-                  {eligibleCopies.map((item) => <option key={item.id} value={item.id}>{t("executionWallets.copyNumber", { id: item.id })} · {truncateAddress(item.leaderAddress)}{item.kind === "actual" ? ` · ${t("copyLive.actual")}` : ""}</option>)}
-                </select>
+                <Select id={selectId} value={selected} onValueChange={(value) => { setSelected(value); create.reset(); }} className="mt-1 w-full" disabled={busy} placeholder={t("executionWallets.selectStrategy")}
+                  options={eligibleCopies.map((item) => ({ value: String(item.id), label: `${t("executionWallets.copyNumber", { id: item.id })} · ${truncateAddress(item.leaderAddress)}${item.kind === "actual" ? ` · ${t("copyLive.actual")}` : ""}` }))} />
               </div>
               <Button size="sm" disabled={!strategy || existing || !data.available || busy || wallets.isError || Boolean(actualStrategy && (!actual.data?.capabilities.strategyPreparation || !actualWallet.recovery.isSuccess))} onClick={() => { if (actualStrategy) actualWallet.mutate(actualStrategy); else if (strategy) create.mutate({ strategyId: strategy.id, network: data.network }); }}>
                 {create.isPending || actualWallet.isPending ? t("executionWallets.creating") : existing ? t("executionWallets.prepared") : originalWallet ? t("copyLive.find") : t("executionWallets.create")}

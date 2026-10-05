@@ -11,6 +11,7 @@ import { liveAccount, liveIntent, liveMandate, liveNow, liveOverview, liveOwner,
 import { createLiveCopyJournal } from '@/lib/copy-live';
 import type { CopyWalletGrant } from '@trading-dashboard/shared/contracts';
 import { settleQueries, type SettleOptions } from './query-settle';
+import { chooseOption } from './select-helper';
 const state = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), sign: vi.fn(), status: 'signedIn', mode: 'privy', identity: 'owner@email', session: '1' }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ ...state, userId: 'did:privy:owner', wallet: { address: liveOwner, signTypedData: state.sign } }) }));
 vi.mock('@/lib/api', () => ({ api: { get: state.get, post: state.post }, sessionKey: () => state.session }));
@@ -25,7 +26,7 @@ const settle = (options?: SettleOptions) => settleQueries(client, { ms: 25, ...o
 const settleHeld = () => settle({ mutations: false });
 async function render(locale: Locale = 'en', grants?: CopyWalletGrant[], wait: () => Promise<void> = settle) { await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale={locale} messages={catalogs[locale]}><CopyLiveStrategySettings accounts={[liveAccount]} authorizations={grants}/></I18nProvider></QueryClientProvider>)); await wait(); }
 async function click(label: string, wait: () => Promise<void> = settle) { const b = [...container.querySelectorAll('button')].find(b => b.textContent === label); expect(b).toBeTruthy(); await act(async () => b!.click()); await wait(); }
-async function select() { await act(async () => { const el = container.querySelector('select[name="account"]')! as HTMLSelectElement; el.value = liveAccount.id; el.dispatchEvent(new Event('change', { bubbles: true })); }); await settle(); }
+async function select() { await chooseOption(container.querySelector('[data-slot="select-trigger"][id$="-account"]'), liveAccount.id); await settle(); }
 async function input(name: string, value: string) { await act(async () => { const el = container.querySelector(`input[name="${name}"]`)! as HTMLInputElement; const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!; setter.call(el, value); el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }); await settle(); }
 it('shows separate actual preparation and budget consent without paper equity or activation claims', async () => { await render(); expect(container.textContent).toContain('Budget authorization is not a deposit'); expect(container.textContent).toContain('Automatic execution is unavailable'); expect(state.post).not.toHaveBeenCalled(); expect(state.sign).not.toHaveBeenCalled(); expect(container.textContent).not.toContain('0%'); });
 it('creates only an explicitly entered paused draft and preserves the exact budget string', async () => { overview = { ...overview, strategies: [], mandates: [] }; await render(); await input('leader', liveStrategy.leaderAddress); await input('budget', '100.000001'); await click('Prepare paused strategy'); expect(state.post.mock.calls[0][0]).toBe('/me/copy/live/strategies'); expect(state.post.mock.calls[0][1]).toMatchObject({ budgetUsd: '100.000001', sourceNetwork: 'testnet', settings: { direction: 'same', sizingMode: 'ratio', copyStartMode: 'delta' } }); expect(state.sign).not.toHaveBeenCalled(); });

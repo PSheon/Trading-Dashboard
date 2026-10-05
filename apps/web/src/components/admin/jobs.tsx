@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { cn } from "cn";
 import { Panel, PanelSkeleton } from "@/components/page";
+import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n/provider";
 import { api, ApiError } from "@/lib/api";
@@ -46,23 +47,17 @@ export function AdminJobs() {
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-3">
-        <select
-          aria-label={t("jobs.filter")}
+        <Select
+          size="sm"
+          label={t("jobs.filter")}
           value={status}
-          onChange={(e) => {
-            setStatus(e.target.value as typeof status);
+          onValueChange={(value) => {
+            setStatus(value as typeof status);
             setCursors([]);
             retry.reset();
           }}
-          className="h-10 rounded-full bg-raised px-4 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <option value="">{t("jobs.all")}</option>
-          {(["pending", "running", "completed", "failed"] as const).map((s) => (
-            <option key={s} value={s}>
-              {t(`jobs.${s}`)}
-            </option>
-          ))}
-        </select>
+          options={[{ value: "", label: t("jobs.all") }, ...(["pending", "running", "completed", "failed"] as const).map((s) => ({ value: s, label: t(`jobs.${s}`) }))]}
+        />
         <Button
           variant="secondary"
           disabled={jobs.isFetching}

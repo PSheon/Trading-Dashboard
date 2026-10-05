@@ -4,7 +4,6 @@ import {
   ArrowLeft,
   ArrowUp,
   Bell,
-  ChevronDown,
   ChevronRight,
   Globe,
   Gift,
@@ -29,14 +28,9 @@ import { ThemeChoiceControl } from "@/components/shell/theme-toggle";
 
 import { Wordmark } from "@/components/brand/logo";
 import { SkelBar } from "@/components/page";
+import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+
 import { shortAddress } from "@/components/wallet/bits";
 import { FundsHistory } from "@/components/wallet/funds-history";
 import { useWalletModals } from "@/components/wallet/wallet-modals";
@@ -94,11 +88,11 @@ function SignedOut() {
   return (
     // CopyDog's settings shell spans the rail edge to 28px short of the
     // window (centre x=744 at 1440), narrower on the right than the page frame.
-    <div className="orbit-card mx-auto mt-10 flex w-full max-w-[460px] flex-col items-center px-8 py-10 text-center md:mt-[120px]">
+    <div className="orbit-card mx-auto mt-10 flex w-full max-w-[460px] flex-col items-center rounded-[32px]! px-8 py-10 text-center md:mt-[120px]">
       <span className="flex size-24 items-center justify-center rounded-full bg-raised"><Settings className="size-11 text-primary-text" strokeWidth={2} aria-hidden /></span>
-      <h1 className="mt-4 font-display text-[2rem] leading-tight">{t("settings.signInTitle")}</h1>
+      <h1 className="type-h1 mt-4">{t("settings.signInTitle")}</h1>
       <p className="mt-2 text-sm leading-5 font-bold text-muted-foreground">{t("settings.signInBody")}</p>
-      <Button size="xl" className="mt-6 w-[200px] font-semibold" onClick={login} disabled={status === "disabled"}>
+      <Button size="cta" className="mt-6 w-[200px]" onClick={login} disabled={status === "disabled"}>
         {t("common.signIn")}
       </Button>
     </div>
@@ -120,12 +114,12 @@ function Avatar({ initial, size = 44 }: { initial: string; size?: number }) {
 }
 
 function SectionTitle({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <h3 className={cn("pb-1 font-display text-xl", className)}>{children}</h3>;
+  return <h3 className={cn("type-h2 pb-1", className)}>{children}</h3>;
 }
 
 /** One white settings card (C-Settings). */
 function SettingsCard({ children, className, danger = false }: { children: React.ReactNode; className?: string; danger?: boolean }) {
-  return <div className={cn("orbit-card px-6 py-5", danger && "shadow-[0_0_0_2px_var(--tag-loss)]", className)}>{children}</div>;
+  return <div className={cn("orbit-card card-pad", danger && "shadow-[0_0_0_2px_var(--tag-loss)]", className)}>{children}</div>;
 }
 
 function Row({ label, value, action, className }: { label: string; value?: React.ReactNode; action?: React.ReactNode; className?: string }) {
@@ -144,27 +138,15 @@ function LanguageSelect() {
   const { t, locale } = useI18n();
   const changeLocale = useChangeLocale();
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          aria-label={t("settings.language")}
-          className="flex h-11 w-[160px] items-center justify-between gap-2 rounded-full bg-inset pr-3.5 pl-4 text-sm font-extrabold outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {LOCALE_NAMES[locale]}
-          <ChevronDown className="size-4 text-muted-foreground" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-[150px]">
-        <DropdownMenuRadioGroup value={locale} onValueChange={(v) => isLocale(v) && changeLocale(v)}>
-          {LOCALES.map((l) => (
-            <DropdownMenuRadioItem key={l} value={l}>
-              {LOCALE_NAMES[l]}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <Select
+      size="sm"
+      align="end"
+      label={t("settings.language")}
+      value={locale}
+      onValueChange={(v) => isLocale(v) && changeLocale(v)}
+      className="w-[160px]"
+      options={LOCALES.map((l) => ({ value: l, label: LOCALE_NAMES[l] }))}
+    />
   );
 }
 
@@ -205,7 +187,7 @@ function FundsSummary() {
   const wallet = useWallet();
   const { openDeposit, openWithdraw } = useWalletModals();
   return (
-    <div className="flex flex-wrap items-end justify-between gap-4 orbit-card p-5">
+    <div className="flex flex-wrap items-end justify-between gap-4 orbit-card card-pad">
       <div>
         <p className="text-xs text-muted-foreground">{t("portfolio.totalValue")}</p>
         {wallet.data ? (
@@ -274,7 +256,7 @@ function DesktopSettings() {
 
   return (
     <div className="flex flex-col gap-5">
-      <h1 className="font-display text-[2.5rem] leading-[1.1]">{t("settings.title")}</h1>
+      <h1 className="type-h1">{t("settings.title")}</h1>
       <div className="grid grid-cols-[220px_minmax(0,1fr)] items-start gap-4 lg:grid-cols-[240px_minmax(0,760px)]">
         <nav aria-label={t("settings.title")} className="flex flex-col gap-1 rounded-2xl bg-raised p-2.5">
           <MenuItem icon={User} label={t("settings.menu.account")} active={tab === "account"} onClick={() => setTab("account")} />
@@ -287,7 +269,7 @@ function DesktopSettings() {
               <SettingsCard>
                 <div className="flex items-center gap-3.5 pb-2">
                   <Avatar initial={initial} />
-                  <h2 className="truncate font-display text-[1.375rem]">{name}</h2>
+                  <h2 className="type-h2 truncate">{name}</h2>
                 </div>
                 <ProfileAndWallet />
               </SettingsCard>
@@ -311,7 +293,7 @@ function DesktopSettings() {
             <div className="flex flex-col gap-4">
               <FundsSummary />
               <div>
-                <h2 className="mb-1 font-display text-xl">{t("wallet.historyTitle")}</h2>
+                <h2 className="type-h2 mb-1">{t("wallet.historyTitle")}</h2>
                 <FundsHistory className="mt-2" />
               </div>
             </div>
@@ -429,7 +411,7 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
                   <p className="mt-[3px] text-xs leading-[18px] text-muted-foreground">{t("settings.signInBody")}</p>
                 </div>
               </div>
-              <Button size="xl" className="mt-6 w-full" onClick={login} disabled={status === "disabled"}>
+              <Button size="cta" className="mt-6 w-full" onClick={login} disabled={status === "disabled"}>
                 {t("common.signIn")}
               </Button>
             </>
@@ -446,7 +428,7 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
           <p className="mt-[22px] mb-2 text-xs leading-[18px] font-bold text-muted-foreground">{t("theme.label")}</p>
           <ThemeChoiceControl />
 
-          <div className="mt-6 flex items-center gap-4 orbit-card p-5">
+          <div className="mt-6 flex items-center gap-4 orbit-card card-pad">
             <div className="min-w-0 flex-1">
               <p className="font-display text-xl leading-6">{t("settings.feedbackTitle")}</p>
               <p className="mt-2 text-sm leading-[21px] text-muted-foreground">{t("settings.feedbackBody")}</p>
@@ -490,7 +472,7 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
             >
               <ArrowLeft className="size-5" />
             </button>
-            <h1 className="text-lg font-bold">
+            <h1 className="font-display text-xl">
               {view === "account"
                 ? t("settings.menu.account")
                 : view === "notifications"

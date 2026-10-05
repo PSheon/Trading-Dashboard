@@ -8,6 +8,7 @@ import { cn } from "cn";
 
 import { EmptyState, ErrorState, Panel } from "@/components/page";
 import { AddressAvatar } from "@/components/traders/address-avatar";
+import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -69,24 +70,16 @@ export function AdminUsers() {
             className="h-10 w-full rounded-full bg-raised pr-4 pl-10 text-sm outline-none placeholder:text-subtle-foreground focus-visible:ring-2 focus-visible:ring-ring"
           />
         </div>
-        <select
+        <Select
+          size="sm"
           value={role}
-          onChange={(e) => {
-            setRole(e.target.value as UserRole | "");
+          onValueChange={(value) => {
+            setRole(value as UserRole | "");
             setPage(0);
           }}
-          aria-label={t("admin.users.allRoles")}
-          className="h-10 rounded-full bg-raised px-4 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <option value="" className="bg-popover">
-            {t("admin.users.allRoles")}
-          </option>
-          {userRoleEnum.map((r) => (
-            <option key={r} value={r} className="bg-popover">
-              {t(`admin.users.roles.${r}`)}
-            </option>
-          ))}
-        </select>
+          label={t("admin.users.allRoles")}
+          options={[{ value: "", label: t("admin.users.allRoles") }, ...userRoleEnum.map((r) => ({ value: r, label: t(`admin.users.roles.${r}`) }))]}
+        />
         {users.data ? (
           <span className="num ml-auto text-xs text-muted-foreground">{t("admin.users.total", { total })}</span>
         ) : null}
@@ -139,22 +132,18 @@ export function AdminUsers() {
                 const busy = update.isPending && update.variables?.id === u.id;
                 const actions = (
                   <div className="flex justify-end gap-1.5">
-                    <select
-                      aria-label={t("adminOps.users.role", { name: nameOf(u) })}
+                    <Select
+                      size="row"
+                      label={t("adminOps.users.role", { name: nameOf(u) })}
                       value={u.role}
                       disabled={!canManage || self || busy}
-                      onChange={(e) => setPending({ user: u, role: e.target.value as UserRole })}
-                      className="h-6 rounded-full bg-raised px-2 text-xs font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-45"
-                    >
-                      {userRoleEnum.map((r) => (
-                        <option key={r} value={r} className="bg-popover">
-                          {t(`admin.users.roles.${r}`)}
-                        </option>
-                      ))}
-                    </select>
+                      onValueChange={(value) => setPending({ user: u, role: value as UserRole })}
+                      align="end"
+                      options={userRoleEnum.map((r) => ({ value: r, label: t(`admin.users.roles.${r}`) }))}
+                    />
                     <Button
                       variant={u.disabled ? "secondary" : "destructive"}
-                      size="xs"
+                      size="sm"
                       disabled={!canManage || self || busy}
                       onClick={() => setPending({ user: u, disabled: !u.disabled })}
                     >

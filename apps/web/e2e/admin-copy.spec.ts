@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { expectAccessible, expectNoSidewaysScroll, shot, signIn } from "./helpers";
+import { expectAccessible, expectNoSidewaysScroll, shot, signIn, chooseOption } from "./helpers";
 
 /**
  * The copy-trading admin against the fixture account (an admin). Its state
@@ -138,9 +138,9 @@ for (const width of [1440, 390]) {
       await open(page, width);
       await section(page, "Strategies").click();
       await expect(page.getByText("5 strategies", { exact: true })).toBeVisible();
-      await page.getByRole("combobox", { name: "Strategy status" }).selectOption("stopped");
+      await chooseOption(page, page.getByRole("combobox", { name: "Strategy status" }), "stopped");
       await expect(page.getByText("1 strategies", { exact: true })).toBeVisible();
-      await page.getByRole("combobox", { name: "Strategy status" }).selectOption("");
+      await chooseOption(page, page.getByRole("combobox", { name: "Strategy status" }), "");
       await expectNoSidewaysScroll(page);
       await expectAccessible(page);
       await shot(page, `admin-copy-strategies-${width}`);
@@ -157,7 +157,7 @@ for (const width of [1440, 390]) {
 
       await section(page, "Paper orders").click();
       await expect(page.getByText("13 orders", { exact: true })).toBeVisible({ timeout: 20000 });
-      await page.getByRole("combobox", { name: "Order status" }).selectOption("failed");
+      await chooseOption(page, page.getByRole("combobox", { name: "Order status" }), "failed");
       await expect(page).toHaveURL(/status=failed/);
       await expect(page.getByText("5 orders", { exact: true })).toBeVisible();
       await expect(page.getByText("User is reduce-only", { exact: true }).filter({ visible: true }).first()).toBeVisible();

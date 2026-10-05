@@ -1,18 +1,13 @@
 "use client";
 
-import { ArrowDownToLine, Check, ChevronDown, Info, Loader2, TriangleAlert } from "lucide-react";
+import { ArrowDownToLine, Check, Info, Loader2, TriangleAlert } from "lucide-react";
 
 import { ErrorState, SkelBar, SkelCircle } from "@/components/page";
+import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+
 import { useI18n } from "@/i18n/provider";
 import { useAuth } from "@/lib/auth";
 import type { WalletSummary } from "@/lib/contracts";
@@ -65,23 +60,13 @@ export function DepositDialog({ open, onOpenChange }: { open: boolean; onOpenCha
         <p className="rounded-xl bg-raised p-4 text-sm text-muted-foreground">{t("wallet.noWallet")}</p>
       ) : (
         <div className="flex flex-col items-center gap-4">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className="flex h-12 w-full items-center gap-2.5 rounded-xl bg-raised px-4 text-left text-sm font-semibold outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <ArbitrumIcon size={22} />
-                <span className="flex-1">{network.chainLabel}</span>
-                <ChevronDown className="size-4 text-muted-foreground" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-[var(--radix-dropdown-menu-trigger-width)]">
-              <DropdownMenuRadioGroup value={network.chainLabel}>
-                <DropdownMenuRadioItem value={network.chainLabel}>{network.chainLabel}</DropdownMenuRadioItem>
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Select
+            className="w-full"
+            label={t("executionWallets.network")}
+            value={network.chainLabel}
+            onValueChange={() => undefined}
+            options={[{ value: network.chainLabel, label: <span className="inline-flex items-center gap-2.5"><ArbitrumIcon size={22} />{network.chainLabel}</span>, text: network.chainLabel }]}
+          />
 
           <AddressQr value={summary.address} label={t("wallet.qrLabel")} />
 
@@ -97,7 +82,7 @@ export function DepositDialog({ open, onOpenChange }: { open: boolean; onOpenCha
 
           <PendingBridge summary={summary} />
 
-          <Button size="xl" className="w-full" onClick={() => copy(summary.address!)}>
+          <Button size="cta" className="w-full" onClick={() => copy(summary.address!)}>
             {copied ? <Check /> : null}
             {copied ? t("wallet.copied") : t("wallet.copyAddress")}
           </Button>

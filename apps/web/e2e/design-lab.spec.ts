@@ -1,4 +1,4 @@
-import { wcag } from "./helpers";
+import { wcag, chooseOption } from "./helpers";
 import { expect, test } from "@playwright/test";
 
 for (const width of [1440, 375]) {
@@ -11,9 +11,9 @@ for (const width of [1440, 375]) {
       const firstTrader = page.locator('a[href^="/trader/"]:visible').first();
       await expect(firstTrader).toBeVisible();
       const originalTrader = await firstTrader.getAttribute("href");
-      await page.getByRole("combobox", { name: "Sort traders" }).selectOption("roi");
+      await chooseOption(page, page.getByRole("combobox", { name: "Sort traders" }), "roi");
       await expect(firstTrader).not.toHaveAttribute("href", originalTrader!);
-      await page.getByRole("combobox", { name: "Sort traders" }).selectOption("copyScore");
+      await chooseOption(page, page.getByRole("combobox", { name: "Sort traders" }), "copyScore");
       await expect(page.locator("#calc-amount")).toBeVisible();
       await expect(page.locator('a[href^="/trader/"]')).toHaveCount(7);
       const result = page.locator('[aria-live="polite"]').filter({ hasText: "$" });
@@ -23,7 +23,7 @@ for (const width of [1440, 375]) {
       await page.getByRole("button", { name: "$5,000", exact: true }).click();
       await expect(page.locator("#calc-amount")).toHaveValue("5,000");
       const selectedResult = await result.innerText();
-      await page.getByRole("combobox", { name: "Trader", exact: true }).selectOption({ index: 1 });
+      await chooseOption(page, page.getByRole("combobox", { name: "Trader", exact: true }), { index: 1 });
       await expect(result).not.toHaveText(selectedResult);
       await page.getByRole("button", { name: "Featured KOLs", exact: true }).click();
       await expect(page.getByRole("button", { name: "Featured KOLs", exact: true })).toHaveAttribute("aria-pressed", "true");

@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
+import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n/provider";
 import { sessionKey } from "@/lib/api";
@@ -35,9 +36,7 @@ function FundingForm({ accounts, walletAddress, t, format }: { accounts: CopyExe
       prepare.mutate({ accountId, amount, idempotencyKey }, { onSuccess: () => setKey(null) });
     }}>
       <div className="min-w-0 flex-1"><label htmlFor={selectId} className="block text-xs font-semibold">{t("executionWallets.strategy")}</label>
-        <select id={selectId} className="mt-1 w-full rounded-xl bg-inset px-3 py-2 text-sm" value={accountId} disabled={busy || pending || Boolean(key)} onChange={(e) => { setAccountId(e.target.value); prepare.reset(); }}>
-          <option value="">{t("executionWallets.selectStrategy")}</option>{eligible.map((a) => <option key={a.id} value={a.id}>{t("executionWallets.copyNumber", { id: a.strategyId })}</option>)}
-        </select></div>
+        <Select id={selectId} className="mt-1 w-full" value={accountId} disabled={busy || pending || Boolean(key)} placeholder={t("executionWallets.selectStrategy")} onValueChange={(value) => { setAccountId(value); prepare.reset(); }} options={eligible.map((a) => ({ value: a.id, label: t("executionWallets.copyNumber", { id: a.strategyId }) }))} /></div>
       <div><label htmlFor={amountId} className="block text-xs font-semibold">{t("copyFunding.amount")}</label><input id={amountId} inputMode="decimal" className="mt-1 w-32 rounded-xl bg-inset px-3 py-2 text-sm" value={amount} disabled={busy || pending || Boolean(key)} onChange={(e) => { setAmount(e.target.value); prepare.reset(); }} /></div>
       <Button size="sm" type="submit" disabled={!accountId || !valid || pending || busy || query.isError}>{t("copyFunding.prepare")}</Button>
       {key && !pending && !busy ? <Button size="sm" variant="secondary" type="button" onClick={() => { setKey(null); prepare.reset(); void query.refetch(); }}>{t("executionWallets.cancel")}</Button> : null}

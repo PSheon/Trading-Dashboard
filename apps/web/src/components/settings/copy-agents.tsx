@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
+import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n/provider";
 import { useAuth } from "@/lib/auth";
@@ -63,9 +64,7 @@ function AgentForm({ accounts }: { accounts: CopyExecutionAccount[] }) {
       prepare.mutate({ account, validForDays: Number(days), replacement: original && terminal(original) ? original : undefined });
     }}>
       <div className="min-w-0 flex-1"><label htmlFor={selectId} className="block text-xs font-semibold">{t("executionWallets.strategy")}</label>
-        <select id={selectId} className="mt-1 w-full rounded-xl bg-inset px-3 py-2 text-sm" value={accountId} disabled={busy} onChange={(event) => { setAccountId(event.target.value); setDays(String(journal?.creations.find((item) => item.accountId === event.target.value)?.validForDays ?? 7)); prepare.reset(); }}>
-          <option value="">{t("executionWallets.selectStrategy")}</option>{eligible.map((a) => <option key={a.id} value={a.id}>{t("executionWallets.copyNumber", { id: a.strategyId })}</option>)}
-        </select></div>
+        <Select id={selectId} className="mt-1 w-full" value={accountId} disabled={busy} placeholder={t("executionWallets.selectStrategy")} onValueChange={(value) => { setAccountId(value); setDays(String(journal?.creations.find((item) => item.accountId === value)?.validForDays ?? 7)); prepare.reset(); }} options={eligible.map((a) => ({ value: a.id, label: t("executionWallets.copyNumber", { id: a.strategyId }) }))} /></div>
       <div><label htmlFor={daysId} className="block text-xs font-semibold">{t("copyAgents.days")}</label><input id={daysId} type="number" min="1" max="30" step="1" className="mt-1 w-28 rounded-xl bg-inset px-3 py-2 text-sm" value={days} disabled={busy || unresolvedCreation} onChange={(event) => setDays(event.target.value)} /></div>
       <Button type="submit" size="sm" disabled={!account || !validDays || busy || unresolvedCreation}>{original && terminal(original) ? t("copyAgents.replacement") : t("copyAgents.prepare")}</Button>
     </form> : null}

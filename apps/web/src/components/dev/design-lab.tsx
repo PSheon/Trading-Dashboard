@@ -1,5 +1,6 @@
 "use client";
 
+import { Select } from "@/components/ui/select";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, ArrowUpRight, SlidersHorizontal, Bookmark, FlaskConical, Settings } from "lucide-react";
@@ -47,7 +48,7 @@ export function DesignLab({ concept, screen, numbers }: { concept: string; scree
         <nav aria-label={en ? "Design versions" : "設計版本"} className={styles.versions}>
           {concepts.map((item, i) => <Link key={item.id} href={`/dev/${item.id}/${screen}`} aria-current={selected.id === item.id ? "page" : undefined}><span>0{i + 1}</span> {item.name}<small>{en ? item.en : item.label}</small></Link>)}
         </nav>
-        <select className={styles.archive} aria-label={en ? "Previous designs" : "先前版本"} value={previousConcepts.some((item) => item.id === selected.id) ? selected.id : ""} onChange={(event) => { if (event.target.value) router.push(`/dev/${event.target.value}/${screen}`); }}><option value="">{en ? "Previous designs" : "先前版本"}</option>{previousConcepts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
+        <Select size="sm" className={styles.archive} label={en ? "Previous designs" : "先前版本"} placeholder={en ? "Previous designs" : "先前版本"} value={previousConcepts.some((item) => item.id === selected.id) ? selected.id : ""} onValueChange={(value) => { if (value) router.push(`/dev/${value}/${screen}`); }} options={previousConcepts.map((item) => ({ value: item.id, label: item.name }))} />
         <Link className={styles.exit} href="/">{en ? "Current site" : "返回正式版"} <ArrowUpRight size={14} /></Link>
       </div>
       <div className={styles.frame}>
@@ -103,7 +104,7 @@ function LabHome({ base }: { base: string }) {
       </section>
       <section className={styles.leaders}>
         <div className={styles.sectionTitle}><h2>{en ? "Trader rankings" : "交易員排行"}</h2><Link href={`${base}/explore`}>{en ? "All traders" : "完整榜單"} <ArrowRight size={15} /></Link></div>
-        <div className={styles.filters} role="group" aria-label={en ? "Trader category" : "交易員分類"}>{(["crypto", "stocks", "featured"] as const).map((key) => <button key={key} type="button" aria-pressed={group === key} onClick={() => setGroup(key)}>{key === "crypto" ? (en ? "Crypto" : "加密貨幣") : key === "stocks" ? (en ? "Stocks & commodities" : "股票與商品") : (en ? "Featured KOLs" : "精選 KOL")}</button>)}<label className={styles.sort}><SlidersHorizontal size={14} /><span>{en ? "Sort by" : "排序"}</span><select aria-label={en ? "Sort traders" : "交易員排序"} value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}><option value="copyScore">{en ? "Copy score" : "跟單評分"}</option><option value="pnl">{en ? "Profit & loss" : "損益"}</option><option value="roi">ROI</option></select></label></div><div className={styles.period}>{en ? "All-time performance · Select a trader to view positions and trading history." : "全部期間績效 · 點選交易員，查看持倉與交易紀錄。"}</div>
+        <div className={styles.filters} role="group" aria-label={en ? "Trader category" : "交易員分類"}>{(["crypto", "stocks", "featured"] as const).map((key) => <button key={key} type="button" aria-pressed={group === key} onClick={() => setGroup(key)}>{key === "crypto" ? (en ? "Crypto" : "加密貨幣") : key === "stocks" ? (en ? "Stocks & commodities" : "股票與商品") : (en ? "Featured KOLs" : "精選 KOL")}</button>)}<label className={styles.sort}><SlidersHorizontal size={14} /><span>{en ? "Sort by" : "排序"}</span><Select size="sm" label={en ? "Sort traders" : "交易員排序"} value={sort} onValueChange={(value) => setSort(value as typeof sort)} options={[{ value: "copyScore", label: en ? "Copy score" : "跟單評分" }, { value: "pnl", label: en ? "Profit & loss" : "損益" }, { value: "roi", label: "ROI" }]} /></label></div><div className={styles.period}>{en ? "All-time performance · Select a trader to view positions and trading history." : "全部期間績效 · 點選交易員，查看持倉與交易紀錄。"}</div>
         {home.isError && !home.data ? <ErrorState onRetry={() => home.refetch()} /> : !home.data ? <div className={styles.loading}>{Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="h-20" />)}</div> : items.length === 0 ? <p className={styles.empty}>{en ? "No traders in this market yet. Try another category." : "這個分類尚無交易員，請切換其他分類。"}</p> : <div className={styles.traders}><div className={styles.tableHead}><span>{en ? "Trader" : "交易員"}</span><span>{en ? "PnL / USD" : "損益 / USD"}</span><span>ROI</span><span>{en ? "PnL trend" : "損益趨勢"}</span><span>{en ? "Score" : "評分"}</span><span /></div>{items.slice(0, 6).map((trader, index) => <TraderRow trader={trader} index={index} key={trader.address} />)}</div>}
       </section>
       <HistoricalSimulator traders={home.data?.calculator ?? []} loading={!home.data && !home.isError} error={home.isError && !home.data} onRetry={() => { void home.refetch(); }} />

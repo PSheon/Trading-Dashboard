@@ -20,6 +20,9 @@ import { useCopyEvents, useCopyOverview } from "@/lib/copy";
 import { coinLabel, truncateAddress } from "@/lib/format";
 import { useActions } from "@/lib/queries";
 import { useWalletHistory } from "@/lib/wallet";
+import { SwitchPanel } from "@/components/ui/switch-panel";
+
+const CHIPS = ["copies", "following", "deposits"] as const;
 
 type Chip = "copies" | "following" | "deposits";
 
@@ -206,13 +209,13 @@ export function ActivityPanel({ open, onClose }: { open: boolean; onClose: () =>
       bodyClassName="px-4 pt-3 pb-8"
     >
       <div role="tablist" aria-label={t("feed.title")} className="flex gap-2">
-        {(["copies", "following", "deposits"] as const).map((c) => (
+        {CHIPS.map((c) => (
           <button key={c} type="button" role="tab" aria-selected={chip === c} onClick={() => setChip(c)} className={cn("h-9 rounded-full px-4 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring", chip === c ? "bg-primary text-primary-foreground" : "bg-raised text-foreground")}>
             {t(`feed.chips.${c}`)}
           </button>
         ))}
       </div>
-      <div role="tabpanel" className="mt-2">
+      <SwitchPanel value={chip} order={CHIPS} role="tabpanel" className="mt-2">
         {!signedIn ? (
           <div className="flex flex-col items-center px-6 py-14 text-center">
             <Bell className="size-8 text-muted-foreground" strokeWidth={1.5} aria-hidden />
@@ -221,7 +224,7 @@ export function ActivityPanel({ open, onClose }: { open: boolean; onClose: () =>
             <Button className="mt-4" onClick={login} disabled={status === "disabled"}>{t("common.signIn")}</Button>
           </div>
         ) : chip === "copies" ? <CopiesList /> : chip === "following" ? <FollowingList onNavigate={onClose} /> : <DepositsList />}
-      </div>
+      </SwitchPanel>
     </Modal>
   );
 }

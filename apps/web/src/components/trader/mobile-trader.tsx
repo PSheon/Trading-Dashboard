@@ -29,6 +29,7 @@ import { signedPctCd, WINDOWS } from "./performance";
 import { PerformanceTab, TradesTab, type PerfView } from "./trade-analytics";
 import { PositionsTab } from "./trader-tabs";
 import { unavailableNote } from "./profile-card";
+import { SwitchPanel } from "@/components/ui/switch-panel";
 
 /** A row of pills, the active one filled with the brand colour (CopyDog's
  * mobile segmented controls). */
@@ -114,6 +115,7 @@ function Ring({ value, className }: { value: number; className?: string }) {
 const TONE = { positive: "text-positive", warning: "text-warning", negative: "text-negative" } as const;
 
 type MobileTab = "positions" | "insights" | "performance" | "trades";
+const MOBILE_TABS: readonly MobileTab[] = ["positions", "insights", "performance", "trades"];
 
 /**
  * The trader page on phones, laid out as CopyDog's app: its own top bar,
@@ -319,7 +321,7 @@ export function MobileTrader({
         ]}
       />
 
-      <div className="-mt-2">
+      <SwitchPanel value={tab} order={MOBILE_TABS} className="-mt-2">
         {tab === "positions" ? <PositionsTab profile={profile} marks={marks} /> : null}
         {tab === "insights" ? <MobileInsights profile={profile} trades={trades.data} computing={isComputing(trades)} /> : null}
         {tab === "performance" ? (
@@ -339,7 +341,7 @@ export function MobileTrader({
             <TradesTab address={profile.address} />
           </div>
         ) : null}
-      </div>
+      </SwitchPanel>
 
       <div className="fixed inset-x-0 bottom-0 z-40 bg-background/92 px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-xl md:hidden">
         <button

@@ -395,26 +395,30 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
           {t("trader.copy.more")}
           <ChevronDown className={cn("size-3 transition-transform", more && "rotate-180")} />
         </button>
-        {more ? (
-          <div id={sheet ? "copy-more-sheet" : "copy-more"} className="mt-3 flex items-center justify-between gap-3">
-            <span id="copy-positions" className="text-[13px] font-semibold" title={t("trader.copy.copyPositionsDesc")}>
-              {t("trader.copy.copyPositions")}
-            </span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={copyExisting}
-              aria-labelledby="copy-positions"
-              onClick={() => setCopyExisting((v) => !v)}
-              className={cn(
-                "relative h-5 w-9 shrink-0 rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-                copyExisting ? "bg-primary" : "bg-border-strong",
-              )}
-            >
-              <span className={cn("absolute top-0.5 left-0.5 size-4 rounded-full bg-primary-foreground shadow-xs transition-transform", copyExisting && "translate-x-4")} />
-            </button>
+        {/* Opens with its height and opacity (globals.css .collapse-panel);
+            closed, it is hidden from focus and assistive technology. */}
+        <div id={sheet ? "copy-more-sheet" : "copy-more"} className="collapse-panel" data-open={more} inert={!more}>
+          <div className="-m-0.5 p-0.5">
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <span id="copy-positions" className="text-[13px] font-semibold" title={t("trader.copy.copyPositionsDesc")}>
+                {t("trader.copy.copyPositions")}
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={copyExisting}
+                aria-labelledby="copy-positions"
+                onClick={() => setCopyExisting((v) => !v)}
+                className={cn(
+                  "relative h-5 w-9 shrink-0 rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                  copyExisting ? "bg-primary" : "bg-border-strong",
+                )}
+              >
+                <span className={cn("absolute top-0.5 left-0.5 size-4 rounded-full bg-primary-foreground shadow-xs transition-transform", copyExisting && "translate-x-4")} />
+              </button>
+            </div>
           </div>
-        ) : null}
+        </div>
       </div>
 
       {paused ? (

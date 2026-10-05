@@ -12,6 +12,7 @@ import { mergeLiveFills } from "@/lib/live-trader";
 import { isComputing, useTraderAnalytics, useTraderFills } from "@/lib/queries";
 import { Loading, PerfSwitch, PerformanceTab, TradesTab, type PerfView } from "./trade-analytics";
 import { BalancesTab, FILL_COLS, FILL_LIMIT, POSITION_COLS, FillsTab, fillsTruncated, OrdersTab, PositionsTab, TransfersTab, TwapTab } from "./trader-tabs";
+import { SwitchPanel } from "@/components/ui/switch-panel";
 
 export type Tab =
   | "positions"
@@ -31,6 +32,7 @@ export const TAB_GROUPS: Tab[][] = [
   ["positions", "performance"],
   ["balances", "orders", "fills", "trades", "twap", "transfers"],
 ];
+const TAB_ORDER = TAB_GROUPS.flat();
 const NO_FILLS: TraderFill[] = [];
 const NO_MARKS: Readonly<Record<string, number>> = {};
 
@@ -117,7 +119,7 @@ export function ActivityTabs({
         </div>
       </div>
 
-      <div role="tabpanel" id={panelId} aria-labelledby={`${panelId}-${tab}`} tabIndex={0}>
+      <SwitchPanel value={tab} order={TAB_ORDER} role="tabpanel" id={panelId} aria-labelledby={`${panelId}-${tab}`} tabIndex={0}>
         {tab === "positions" ? <PositionsTab profile={profile} marks={marks} /> : null}
         {tab === "performance" ? (
           <PerformanceTab
@@ -143,7 +145,7 @@ export function ActivityTabs({
         {tab === "trades" ? <TradesTab address={profile.address} /> : null}
         {tab === "twap" ? <TwapTab address={profile.address} /> : null}
         {tab === "transfers" ? <TransfersTab address={profile.address} /> : null}
-      </div>
+      </SwitchPanel>
     </section>
   );
 }

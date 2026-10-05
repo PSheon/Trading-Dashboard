@@ -20,8 +20,10 @@ import { useAuth } from "@/lib/auth";
 import type { CopyOverview, WalletSummary } from "@/lib/contracts";
 import { useCopyOverview, useCopyPortfolio } from "@/lib/copy";
 import { useWallet } from "@/lib/wallet";
+import { SwitchPanel } from "@/components/ui/switch-panel";
 
 type Tab = "copying" | "insights" | "exposure";
+const TAB_ORDER: readonly Tab[] = ["copying", "insights", "exposure"];
 
 /**
  * 投資組合, as on CopyDog (`/hyperliquid/portfolio`):
@@ -250,11 +252,11 @@ function CopyingSection({ overview, phone }: { overview: CopyOverview; phone: bo
           </button>
         ))}
       </div>
-      <div id="desktop-copy-panel" role="tabpanel" aria-labelledby={`desktop-copy-tab-${tab}`}>
+      <SwitchPanel value={tab} order={TAB_ORDER} id="desktop-copy-panel" role="tabpanel" aria-labelledby={`desktop-copy-tab-${tab}`}>
         {tab === "copying" ? <CopyTable strategies={overview.strategies} leaders={leaders} onSelect={select} sparklines={sparklines} bare />
           : tab === "insights" ? <InsightsPanel overview={overview} leaders={leaders} onSelect={(id) => select(id)} desktop />
           : <ExposurePanel overview={overview} leaders={leaders} desktop />}
-      </div>
+      </SwitchPanel>
     </section>
     </>
   );
@@ -457,9 +459,9 @@ function PhoneBody({
             </button>
           ))}
         </div>
-        <div role="tabpanel" className={copy.data && copy.data.strategies.length === 0 ? "pt-8" : "pt-4 pb-6"}>
+        <SwitchPanel value={tab} order={TAB_ORDER} role="tabpanel" className={copy.data && copy.data.strategies.length === 0 ? "pt-8" : "pt-4 pb-6"}>
           <PhoneTab tab={tab} copy={copy} setTab={setTab} />
-        </div>
+        </SwitchPanel>
       </div>
     </>
   );

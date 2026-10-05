@@ -23,6 +23,7 @@ import { coinLabel, truncateAddress } from "@/lib/format";
 import { useFavorites, useLiveActions, useSiteSettings, useSparklines, useToggleFavorite } from "@/lib/queries";
 import { useNow } from "@/lib/use-now";
 import { GroupChips, GroupTags } from "./groups";
+import { SwitchPanel } from "@/components/ui/switch-panel";
 
 type Tab = "saved" | "alerts" | "feed";
 const TABS: Tab[] = ["saved", "alerts", "feed"];
@@ -194,6 +195,7 @@ function SignedIn({ tab, onTab, view, onView }: { tab: Tab; onTab: (t: Tab) => v
         {right}
       </div>
 
+      <SwitchPanel value={tab} order={TABS}>
       {favorites.isError && !favorites.data ? (
         <ErrorState message={t("favorites.error")} onRetry={() => favorites.refetch()} />
       ) : tab === "saved" ? (
@@ -206,6 +208,7 @@ function SignedIn({ tab, onTab, view, onView }: { tab: Tab; onTab: (t: Tab) => v
       ) : (
         <FeedTab rows={feedRows} loading={!feed.query.data} highlight={feed.highlight} favorites={list} hasFavorites={list.length > 0} />
       )}
+      </SwitchPanel>
     </div>
   );
 }

@@ -13,6 +13,7 @@ import { useI18n } from "@/i18n/provider";
 import type { Permission } from "@trading-dashboard/shared/contracts";
 import { hasPermission } from "@/lib/permissions";
 import { useAuth, useMe } from "@/lib/auth";
+import { SwitchPanel } from "@/components/ui/switch-panel";
 
 /** The five tabs (v29 boards; Paul 2026-10-05). A tab links to its first
  * sub-page the account may open. */
@@ -30,6 +31,7 @@ export const ADMIN_TABS: { key: string; label: MessageKey; pages: { href: string
   { key: "settings", label: "admin.nav.settings", pages: [{ href: "/admin/settings", permission: "settings.read" }] },
 ];
 const PAGES = ADMIN_TABS.flatMap((tab) => tab.pages.map((page) => ({ ...page, tab: tab.key })));
+const PAGE_ORDER = PAGES.map((page) => page.href);
 
 /** 401 / 403 / 404: the answer about this account; anything else may pass. */
 function isPermanent(error: unknown): boolean {
@@ -101,7 +103,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
           items={tabs.map(({ tab, href }) => ({ href, label: t(tab.label), active: current?.tab === tab.key || (!current && tab.pages.some((page) => pathname.startsWith(`${page.href}/`))) }))}
         />
       ) : null}
-      {body}
+      {/* Moving between the admin's tabs and sub-tabs crossfades the page. */}
+      <SwitchPanel value={current?.href ?? pathname} order={PAGE_ORDER}>{body}</SwitchPanel>
     </div>
   );
 }

@@ -931,6 +931,36 @@
   to { clip-path: inset(-20% -4% -20% -4%); }
 }
 
+/* In-page switches (components/ui/switch-panel.tsx): the new tab's
+   content crossfades in with a short slide from the tab's side. Backwards
+   fill only, so nothing (no transform) stays on the panel afterwards. */
+.switch-panel {
+  animation: switch-panel var(--dur-base) var(--ease-orbit) backwards;
+}
+@keyframes switch-panel {
+  from { opacity: 0; transform: translate3d(var(--switch-from, 6px), 0, 0); }
+}
+
+/* A collapsible (更多設定): height and opacity together. The panel is a
+   one-row grid whose row grows from 0fr to 1fr; its child clips. */
+.collapse-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  transition: grid-template-rows var(--dur-slow) var(--ease-orbit), opacity var(--dur-slow) var(--ease-orbit), visibility 0s linear var(--dur-slow);
+}
+.collapse-panel[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+  transition: grid-template-rows var(--dur-slow) var(--ease-orbit), opacity var(--dur-slow) var(--ease-orbit), visibility 0s;
+}
+.collapse-panel > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
 /* CopyDog's about-page avatar stack: the next card slides forward, the
    front one drops away. */
 .avatar-stack-enter {
@@ -949,7 +979,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .orbit-fade-in, .orbit-float, .chart-draw { animation: none; }
+  .orbit-fade-in, .orbit-float, .chart-draw, .switch-panel { animation: none; }
+  .collapse-panel, .collapse-panel[data-open="true"] { transition: none; }
   .orbit-press, .orbit-lift { transition-property: background-color, color, box-shadow, opacity; }
   .orbit-press:active:not(:disabled) { transform: none; }
   .orbit-lift:hover { transform: none; }

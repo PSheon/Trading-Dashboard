@@ -27,20 +27,6 @@ class MaintenanceDto {
   @ApiProperty({ type: String, format: "date-time", nullable: true, description: "Expected end, shown to visitors. Informational: writes stay refused until maintenance is switched off" })
   @IsDefined() @Nullable() @IsISO8601({ strict: true }) declare endsAt: string | null;
 }
-class RetentionDto {
-  @ApiProperty({ type: Boolean, description: "Off stops the retention job; nothing is deleted" })
-  @IsBoolean() declare enabled: boolean;
-  @ApiProperty({ type: "integer", minimum: 30, maximum: 3650, description: "position_snapshots and equity_snapshots, days" })
-  @IsInt() @Min(30) @Max(3650) declare snapshotDays: number;
-  @ApiProperty({ type: "integer", minimum: 30, maximum: 3650, description: "admin_audit_logs except account-deletion records, days" })
-  @IsInt() @Min(30) @Max(3650) declare auditDays: number;
-  @ApiProperty({ type: "integer", minimum: 30, maximum: 3650, description: "Account-deletion records (user.delete audit rows), days" })
-  @IsInt() @Min(30) @Max(3650) declare accountDeletionDays: number;
-  @ApiProperty({ type: "integer", minimum: 7, maximum: 3650, description: "Finished action_outbox, notification_outbox and copy_signal_outbox rows, days" })
-  @IsInt() @Min(7) @Max(3650) declare queueDays: number;
-  @ApiProperty({ type: "integer", minimum: 7, maximum: 3650, description: "Alert delivery records (alerts), days" })
-  @IsInt() @Min(7) @Max(3650) declare alertDays: number;
-}
 class GeneralPatchDto {
   @ApiPropertyOptional({ type: () => AnnouncementDto })
   @Optional() @IsObject() @Type(() => AnnouncementDto) @ValidateNested() declare announcement?: AnnouncementDto;
@@ -54,42 +40,20 @@ class GeneralPatchDto {
   @Optional() @IsInt() @Min(1) @Max(100000) declare maxWatchedAddresses?: number;
   @ApiPropertyOptional({ type: () => MaintenanceDto, description: "The whole value when changed: enabled, message and endsAt" })
   @Optional() @IsObject() @Type(() => MaintenanceDto) @ValidateNested() declare maintenance?: MaintenanceDto;
-  @ApiPropertyOptional({ type: () => RetentionDto, description: "Data retention periods; the whole value when changed. The privacy policy states the defaults" })
-  @Optional() @IsObject() @Type(() => RetentionDto) @ValidateNested() declare retention?: RetentionDto;
 }
 class DiscoveryPatchDto {
-  @ApiPropertyOptional({ type: "array", maxItems: 12, items: { type: "string", pattern: "^0x[0-9a-fA-F]{40}$" } })
-  @Optional() @IsArray() @ArrayMaxSize(12) @Matches(/^0x[0-9a-fA-F]{40}$/, { each: true }) declare featuredAddresses?: string[];
   @ApiPropertyOptional({ type: "array", maxItems: 16, items: { type: "string", minLength: 1, maxLength: 24 } })
   @Optional() @IsArray() @ArrayMaxSize(16) @IsString({ each: true }) @MinLength(1, { each: true }) @MaxLength(24, { each: true }) declare homeMarkets?: string[];
   @ApiPropertyOptional({ type: Boolean })
   @Optional() @IsBoolean() declare hideVaults?: boolean;
   @ApiPropertyOptional({ type: "integer", minimum: 0, maximum: 1000 })
   @Optional() @IsInt() @Min(0) @Max(1000) declare lowSampleThreshold?: number;
-  @ApiPropertyOptional({ type: "integer", minimum: 5, maximum: 240 })
-  @Optional() @IsInt() @Min(5) @Max(240) declare leaderboardRefreshMinutes?: number;
   @ApiPropertyOptional({ type: String, enum: ["day", "week", "month", "any"] })
   @Optional() @IsIn(["day", "week", "month", "any"]) declare defaultActiveWithin?: c.ActiveWithin;
-  @ApiPropertyOptional({ type: "integer", minimum: 50, maximum: 5000 })
-  @Optional() @IsInt() @Min(50) @Max(5000) declare candidatePoolSize?: number;
-  @ApiPropertyOptional({ type: "integer", minimum: 0, maximum: 600 })
-  @Optional() @IsInt() @Min(0) @Max(600) declare poolWeightPerMinute?: number;
-  @ApiPropertyOptional({ type: "integer", minimum: 0, maximum: 600 })
-  @Optional() @IsInt() @Min(0) @Max(600) declare poolPerformanceWeightPerMinute?: number;
-  @ApiPropertyOptional({ type: "integer", minimum: 0, maximum: 600 })
-  @Optional() @IsInt() @Min(0) @Max(600) declare historyWeightPerMinute?: number;
-  @ApiPropertyOptional({ type: "integer", minimum: 0, maximum: 600 })
-  @Optional() @IsInt() @Min(0) @Max(600) declare backfillWeightPerMinute?: number;
   @ApiPropertyOptional({ type: "array", maxItems: 16, items: { type: "string", pattern: BOARD_COIN.source } })
   @Optional() @IsArray() @ArrayMaxSize(16) @Matches(BOARD_COIN, { each: true }) declare cryptoBoards?: string[];
   @ApiPropertyOptional({ type: "array", maxItems: 16, items: { type: "string", pattern: BOARD_COIN.source } })
   @Optional() @IsArray() @ArrayMaxSize(16) @Matches(BOARD_COIN, { each: true }) declare stockBoards?: string[];
-  @ApiPropertyOptional({ type: "integer", minimum: 0, maximum: 500 })
-  @Optional() @IsInt() @Min(0) @Max(2000) declare cohortMembersPerTier?: number;
-  @ApiPropertyOptional({ type: "integer", minimum: 5, maximum: 240 })
-  @Optional() @IsInt() @Min(5) @Max(240) declare cohortRefreshMinutes?: number;
-  @ApiPropertyOptional({ type: "integer", minimum: 0, maximum: 600 })
-  @Optional() @IsInt() @Min(0) @Max(600) declare cohortWeightPerMinute?: number;
 }
 class NotificationsPatchDto {
   @ApiPropertyOptional({ type: Boolean })
@@ -102,8 +66,6 @@ class RevenuePatchDto {
   @Nullable() @ToLowerCase() @Matches(/^0x[0-9a-f]{40}$/) declare builderAddress?: string | null;
   @ApiPropertyOptional({ type: "integer", minimum: 0, maximum: 100 })
   @Optional() @IsInt() @Min(0) @Max(100) declare builderFeeTenthsBps?: number;
-  @ApiPropertyOptional({ type: String, nullable: true, pattern: "^[A-Za-z0-9]{1,20}$" })
-  @Nullable() @Matches(/^[A-Za-z0-9]{1,20}$/) declare referralCode?: string | null;
 }
 class RevisionsDto {
   @ApiPropertyOptional({ type: String, pattern: "^[a-f0-9]{64}$" })

@@ -55,11 +55,13 @@ describe("admin settings — real Postgres", () => {
   });
 
   it("GET /settings returns the public subset", async () => {
-    await patch({ discovery: { featuredAddresses: [A] }, revenue: { referralCode: "ORBIE" } }, service_);
+    await patch({ discovery: { homeMarkets: ["ETH", "BTC"] } }, service_);
     const pub = await new PublicSettingsController(settings).get();
     expect(publicSettingsSchema.strict().parse(pub)).toEqual(pub);
-    expect(pub.featuredAddresses).toEqual([A.toLowerCase()]);
-    expect(pub.referralCode).toBe("ORBIE");
+    expect(pub.homeMarkets).toEqual(["ETH", "BTC"]);
+    // The two settings nobody read are gone (Paul, 2026-10-05).
+    expect(pub).not.toHaveProperty("featuredAddresses");
+    expect(pub).not.toHaveProperty("referralCode");
   });
 
   it("merges a partial section over the stored one and records who saved it", async () => {
@@ -81,16 +83,23 @@ describe("admin settings — real Postgres", () => {
     expect(row.updatedByUserId).toBeNull();
   });
 
-  it("lowercases and de-duplicates featured addresses, keeping the order", async () => {
-    const saved = await patch(
-      { discovery: { featuredAddresses: [B, A, B.toLowerCase(), A.toUpperCase().replace("0X", "0x")] } },
-      service_,
-    );
-    expect(saved.discovery.featuredAddresses).toEqual([B.toLowerCase(), A.toLowerCase()]);
-    expect((await new SettingsService(new SettingsRepository(db), new UnitOfWork(db)).get("discovery")).featuredAddresses).toEqual([
-      B.toLowerCase(),
-      A.toLowerCase(),
-    ]);
+  it("refuses the settings that moved to env or were removed (Paul, 2026-10-05)", async () => {
+    for (const body of [
+      { discovery: { featuredAddresses: [A] } },
+      { discovery: { poolWeightPerMinute: 50 } },
+      { discovery: { candidatePoolSize: 500 } },
+      { discovery: { leaderboardRefreshMinutes: 30 } },
+      { discovery: { cohortWeightPerMinute: 50 } },
+      { general: { retention: { enabled: false } } },
+      { revenue: { referralCode: "ORBIE" } },
+    ]) {
+      await expect(patch(body as never, service_)).rejects.toThrow(BadRequestException);
+    }
+    const all = await service.getAll();
+    expect(all.discovery).not.toHaveProperty("poolWeightPerMinute");
+    expect(all.discovery).not.toHaveProperty("featuredAddresses");
+    expect(all.general).not.toHaveProperty("retention");
+    expect(all.revenue).not.toHaveProperty("referralCode");
   });
 
   it("lowercases the builder address and snapshots when it changes", async () => {

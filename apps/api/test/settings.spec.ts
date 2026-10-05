@@ -24,7 +24,7 @@ describe("SettingsService — real Postgres", () => {
     expect(typeof service.appliedDiscovery).toBe("function");
     expect(service.appliedDiscovery()).toEqual([]);
     service.acknowledgeDiscovery("pool", old);
-    await service.patch({ discovery: { candidatePoolSize: 500 } }, null);
+    await service.patch({ discovery: { lowSampleThreshold: 7 } }, null);
     expect(service.appliedDiscovery()[0].revision).toBe(old.revisions.discovery);
     const next = await service.getAll();
     service.acknowledgeDiscovery("pool", next);
@@ -96,7 +96,7 @@ describe("SettingsService — real Postgres", () => {
     const before = await service.getAll();
     await db.execute(sql`ALTER TABLE app_settings ADD CONSTRAINT test_reject_revenue CHECK (key <> 'revenue')`);
     try {
-      await expect(service.patch({ general: { signupsOpen: false }, revenue: { referralCode: "FAIL" } }, null)).rejects.toThrow();
+      await expect(service.patch({ general: { signupsOpen: false }, revenue: { builderFeeTenthsBps: 5 } }, null)).rejects.toThrow();
       expect(await db.select().from(appSettings)).toHaveLength(0);
       expect(await service.getAll()).toEqual(before);
     } finally {
@@ -167,9 +167,10 @@ describe("SettingsService — real Postgres", () => {
 
   it("exposes only the public subset", async () => {
     const service = new SettingsService(new SettingsRepository(db), new UnitOfWork(db));
-    await service.patch({ revenue: { referralCode: "ORBIE", builderFeeTenthsBps: 10 } }, null);
+    await service.patch({ revenue: { builderFeeTenthsBps: 10 } }, null);
     const pub = await service.getPublic();
-    expect(pub.referralCode).toBe("ORBIE");
+    expect(pub).not.toHaveProperty("referralCode");
+    expect(pub).not.toHaveProperty("featuredAddresses");
     expect(pub).not.toHaveProperty("builderFeeTenthsBps");
     expect(pub).not.toHaveProperty("builderAddress");
   });

@@ -333,12 +333,11 @@ describe("RevenueService — real Postgres", () => {
     });
 
     it("returns zeros with an address but no snapshots yet", async () => {
-      await settings.patch({ revenue: { builderAddress: ZERO, builderFeeTenthsBps: 10, referralCode: "ORBIE" } }, null);
+      await settings.patch({ revenue: { builderAddress: ZERO, builderFeeTenthsBps: 10 } }, null);
       const res = await service.report("7d", new Date("2026-09-29T12:00:00Z"));
       expect(res).toEqual({
         address: ZERO,
         builderFeeTenthsBps: 10,
-        referralCode: "ORBIE",
         totals: { builderUsd: 0, referralUsd: 0, claimedUsd: 0, unclaimedUsd: 0, referredUsers: 0, referredVolumeUsd: 0 },
         rangeUsd: { builder: 0, referral: 0 },
         daily: [],

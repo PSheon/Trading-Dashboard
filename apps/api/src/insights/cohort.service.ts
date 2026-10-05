@@ -51,9 +51,9 @@ export interface CohortRefreshLog {
  * pool's traders grouped by all-time perp PnL tier: every eligible one is a
  * member, as on CopyDog (whose 極度盈利 members are its pool's tier, 352 on
  * 2026-10-04, no round cap), largest perp equity first, with
- * `discovery.cohortMembersPerTier` only as a safety cap; a tier the pool
+ * `DISCOVERY_COHORT_MEMBERS_PER_TIER` only as a safety cap; a tier the pool
  * leaves short is topped up from the leaderboard up to that cap. A cron tick (every minute) spends at most
- * `discovery.cohortWeightPerMinute` Hyperliquid weight reading members'
+ * `HYPERLIQUID_COHORT_WEIGHT_PER_MIN` Hyperliquid weight reading members'
  * positions — `clearinghouseState` on the main dex plus the dexes they hold
  * or traded (2 weight each); every dex on the first read and once a day
  * after (22 with 11 dexes) — oldest first, so each
@@ -100,13 +100,13 @@ export class CohortService {
   /** Rebuilds membership when due, refreshes members within the
    * allowance, then writes the history rows that are due. */
   async tick(now = Date.now()): Promise<void> {
-    const discovery = await this.settings.get("discovery");
+    const { discovery, weights } = this.config.value.tuning;
     const intervalMs = discovery.cohortRefreshMinutes * 60_000;
     if (this.builtAt === 0 || now - this.builtAt >= intervalMs) {
       await this.build(discovery.cohortMembersPerTier);
       this.builtAt = now;
     }
-    const perMinute = discovery.cohortWeightPerMinute;
+    const perMinute = weights.cohort;
     if (perMinute > 0) {
       const elapsedMin = Math.max(0, (now - this.tokensAt) / 60_000);
       this.tokens = Math.min(perMinute * MAX_SAVED_MINUTES, this.tokens + perMinute * Math.min(elapsedMin, MAX_SAVED_MINUTES));
@@ -279,7 +279,7 @@ export class CohortService {
    * @throws NotFoundException for an unknown tier. */
   async detail(tier: string): Promise<CohortDetailResponse> {
     const parsed = parseTier(tier);
-    const discovery = await this.settings.get("discovery");
+    const { discovery } = this.config.value.tuning;
     return this.detailCache.get(parsed, async () => {
       const scores = await this.copyScores();
       return aggregate(parsed, await this.snapshots(parsed, scores), this.freshSince(discovery.cohortRefreshMinutes * 60_000, new Date()));

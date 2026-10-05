@@ -143,6 +143,7 @@ describe("LeaderboardIngestService — real Postgres", () => {
     });
   }
 
+  afterEach(() => { delete process.env.DISCOVERY_LEADERBOARD_REFRESH_MINUTES; });
   beforeEach(async () => {
     await db.execute(sql`TRUNCATE TABLE trader_stats`);
     await db.delete(appSettings);
@@ -252,7 +253,7 @@ describe("LeaderboardIngestService — real Postgres", () => {
     expect(await vaultRows()).toEqual(SAMPLE_VAULTS);
   });
 
-  it("imports when older than discovery.leaderboardRefreshMinutes (default 15), read on every check", async () => {
+  it("imports when older than DISCOVERY_LEADERBOARD_REFRESH_MINUTES (default 15), read on every check", async () => {
     const fetchSpy = mockFetch();
     const leaderboardFetches = () => fetchSpy.mock.calls.filter((c) => String(c[0]) === LEADERBOARD_URL).length;
     expect(await service.refreshIfStale()).not.toBeNull(); // empty table
@@ -263,7 +264,7 @@ describe("LeaderboardIngestService — real Postgres", () => {
     expect(await service.refreshIfStale(t + 16 * 60_000)).not.toBeNull();
     expect(leaderboardFetches()).toBe(2);
 
-    await settings.patch({ discovery: { leaderboardRefreshMinutes: 60 } }, null);
+    process.env.DISCOVERY_LEADERBOARD_REFRESH_MINUTES = "60"; // deploy-time since 2026-10-05; testConfig() reads it per access
     const t2 = Date.now();
     expect(await service.refreshIfStale(t2 + 30 * 60_000)).toBeNull();
     expect(await service.refreshIfStale(t2 + 61 * 60_000)).not.toBeNull();
@@ -278,7 +279,7 @@ describe("LeaderboardIngestService — real Postgres", () => {
     fetchSpy.mockImplementation(async () => new Response("bad gateway", { status: 502 }));
     await expect(service.refresh()).rejects.toThrow(/502/);
     // The scheduled tick logs instead of throwing; make the table stale first.
-    await settings.patch({ discovery: { leaderboardRefreshMinutes: 5 } }, null);
+    process.env.DISCOVERY_LEADERBOARD_REFRESH_MINUTES = "5";
     await db.execute(sql`UPDATE trader_stats SET updated_at = now() - interval '1 hour'`);
     await expect(service.onTick()).resolves.toBeUndefined();
     expect(await all()).toHaveLength(sample.leaderboardRows.length);

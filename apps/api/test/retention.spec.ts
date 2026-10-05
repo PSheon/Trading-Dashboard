@@ -1,4 +1,6 @@
-import { RETENTION_DEFAULTS, RETENTION_TABLES, adminSettingsSchema, adminSystemSchema, patchAdminSettingsRequestSchema } from "@trading-dashboard/shared/contracts";
+import { RETENTION_DEFAULTS, RETENTION_TABLES, adminSettingsSchema, adminSystemSchema, patchAdminSettingsRequestSchema, type RetentionSettings } from "@trading-dashboard/shared/contracts";
+import { AppConfig } from "../src/config/app-config.js";
+import { TUNING_DEFAULTS, validateEnvironment } from "../src/config/runtime-config.js";
 import {
   actionOutbox, actions, adminAuditLogs, alerts, appSettings, copyConsumerCheckpoints, copySignalOutbox,
   equitySnapshots, notificationOutbox, positionSnapshots, retentionState,
@@ -22,9 +24,11 @@ const NOW = new Date("2026-10-02T19:00:00Z");
 const DAY = 86_400_000;
 const ago = (days: number) => new Date(NOW.getTime() - days * DAY);
 
-function setup(limits: Partial<RetentionService["limits"]> = {}) {
+function setup(limits: Partial<RetentionService["limits"]> = {}, retention: Partial<RetentionSettings> = {}) {
   const repository = new RetentionRepository(db);
-  const settings = new SettingsService(new SettingsRepository(db), new UnitOfWork(db));
+  // The periods are deploy-time (RETENTION_*) since 2026-10-05.
+  const config = { value: { tuning: { ...TUNING_DEFAULTS, retention: { ...TUNING_DEFAULTS.retention, ...retention } } } } as unknown as AppConfig;
+  const settings = new SettingsService(new SettingsRepository(db), new UnitOfWork(db), undefined, config);
   const jobs = new BackgroundJobs();
   const service = new RetentionService(repository, settings, new UnitOfWork(db), jobs);
   service.limits = { ...service.limits, pauseMs: 0, ...limits };
@@ -43,7 +47,10 @@ afterAll(closeTestDb);
 describe("data retention", () => {
   it("has the periods the privacy policy states as defaults", () => {
     expect(RETENTION_DEFAULTS).toEqual({ enabled: true, snapshotDays: 90, auditDays: 365, accountDeletionDays: 365, queueDays: 30, alertDays: 30 });
-    expect(adminSettingsSchema.shape.general.parse({}).retention).toEqual(RETENTION_DEFAULTS);
+    expect(TUNING_DEFAULTS.retention).toEqual(RETENTION_DEFAULTS);
+    expect(validateEnvironment({ DATABASE_URL: "postgres://u@localhost/db" }).tuning.retention).toEqual(RETENTION_DEFAULTS);
+    // No longer an admin setting.
+    expect(adminSettingsSchema.shape.general.parse({})).not.toHaveProperty("retention");
     const cut = retentionCutoffs(RETENTION_DEFAULTS, NOW);
     expect(cut.position_snapshots).toEqual(ago(90));
     expect(cut.equity_snapshots).toEqual(ago(90));
@@ -158,23 +165,24 @@ describe("data retention", () => {
     expect((await db.select().from(copySignalOutbox)).map((r) => r.tid)).toEqual([2n]);
   });
 
-  it("uses the periods an admin saved, and deletes nothing when switched off", async () => {
-    const { service, settings } = setup();
+  it("uses the deployment's RETENTION_* periods, and deletes nothing when switched off", async () => {
     await db.insert(equitySnapshots).values([100, 50, 20].map((d) => ({ address, ts: ago(d), accountValue: "1" })));
-    await settings.patch({ general: { retention: { ...RETENTION_DEFAULTS, enabled: false } } }, null);
-    expect(await service.run(NOW, true)).toEqual({ ran: false, reason: "disabled" });
+    expect(await setup({}, { enabled: false }).service.run(NOW, true)).toEqual({ ran: false, reason: "disabled" });
     expect(await count("equity_snapshots")).toBe(3);
 
-    await settings.patch({ general: { retention: { ...RETENTION_DEFAULTS, snapshotDays: 30 } } }, null);
-    const run = await service.run(NOW, true);
+    const run = await setup({}, { snapshotDays: 30 }).service.run(NOW, true);
     if (!run.ran) throw new Error("did not run");
     expect(run.removed.equity_snapshots).toBe(2);
     expect(run.cutoffs.equity_snapshots).toBe(ago(30).toISOString());
 
-    // The form's bounds: a period cannot be set so short that it empties a table by accident.
-    expect(patchAdminSettingsRequestSchema.safeParse({ general: { retention: { ...RETENTION_DEFAULTS, snapshotDays: 1 } } }).success).toBe(false);
-    expect(patchAdminSettingsRequestSchema.safeParse({ general: { retention: { ...RETENTION_DEFAULTS, queueDays: 6 } } }).success).toBe(false);
-    expect(patchAdminSettingsRequestSchema.safeParse({ general: { retention: { snapshotDays: 60 } } }).success).toBe(false);
+    // The bounds: a period cannot be set so short that it empties a table by accident.
+    const env = (extra: Record<string, string>) => () => validateEnvironment({ DATABASE_URL: "postgres://u@localhost/db", ...extra });
+    expect(env({ RETENTION_SNAPSHOT_DAYS: "1" })).toThrow("RETENTION_SNAPSHOT_DAYS must be an integer between 30 and 3650");
+    expect(env({ RETENTION_QUEUE_DAYS: "6" })).toThrow("RETENTION_QUEUE_DAYS must be an integer between 7 and 3650");
+    expect(env({ RETENTION_ENABLED: "maybe" })).toThrow("RETENTION_ENABLED must be true, false, 1 or 0");
+    expect(env({ RETENTION_SNAPSHOT_DAYS: "60", RETENTION_ENABLED: "false" })().tuning.retention).toMatchObject({ snapshotDays: 60, enabled: false });
+    // …and the admin settings refuse the old field.
+    expect(patchAdminSettingsRequestSchema.safeParse({ general: { retention: { ...RETENTION_DEFAULTS } } }).success).toBe(false);
   });
 
   it("deletes in bounded batches: a run stops at its allowance and the next run continues", async () => {

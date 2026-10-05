@@ -18,6 +18,8 @@ import { UnitOfWork } from "../db/unit-of-work.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import { Optional } from "@nestjs/common";
 import { RequestBudgeterService, type ConsumerCapSource } from "../hyperliquid/request-budgeter.service.js";
+import { AppConfig } from "../config/app-config.js";
+import { tuningConfig, type TuningConfig } from "../config/runtime-config.js";
 
 const CACHE_TTL_MS = 30_000;
 /** NOTIFY channel a save is announced on; the payload is the saving process's `origin`. */
@@ -48,27 +50,35 @@ export class SettingsService implements ConsumerCapSource {
   /** undefined: no relay in this process (plain TTL cache). false: the relay lost its connection. */
   private relayConnected: boolean | undefined;
 
+  /** The deploy-time tuning (DISCOVERY_*, HYPERLIQUID_*_WEIGHT_PER_MIN,
+   * RETENTION_*): the process's AppConfig, or the defaults without one (tests). */
+  readonly tuning: TuningConfig;
+
   constructor(private readonly repository: SettingsRepository, private readonly uow: UnitOfWork,
-    @Optional() budgeter?: RequestBudgeterService) {
-    // The budgeter enforces the per-job weight caps the admin sets here.
+    @Optional() budgeter?: RequestBudgeterService, @Optional() config?: AppConfig) {
+    this.tuning = config?.value.tuning ?? tuningConfig();
+    // The budgeter enforces the per-job weight caps of the deployment.
     budgeter?.useConsumerCaps(this);
   }
 
-  /** Weight-per-minute caps of the labelled budget consumers. The budgeter
-   * enforces them on what is actually sent and scales them to the budget
-   * the process has; the pool and cohort loops also pace themselves by the
-   * same settings, which a failed computation's calls slipped past. */
+  /** Weight-per-minute caps of the labelled budget consumers (env, read at
+   * startup). The budgeter enforces them on what is actually sent and
+   * scales them to the budget the process has; the pool and cohort loops
+   * also pace themselves by the same values. */
   async consumerCaps(): Promise<Record<string, number>> {
-    const { historyWeightPerMinute, backfillWeightPerMinute, poolWeightPerMinute, poolPerformanceWeightPerMinute, cohortWeightPerMinute } = await this.get("discovery");
-    return { history: historyWeightPerMinute, backfill: backfillWeightPerMinute, "pool.ledgers": poolWeightPerMinute, "pool.performance": poolPerformanceWeightPerMinute, cohort: cohortWeightPerMinute };
+    const w = this.tuning.weights;
+    return { history: w.history, backfill: w.backfill, "pool.ledgers": w.poolLedger, "pool.performance": w.poolPerformance, cohort: w.cohort };
   }
 
   private readonly applied = new Map<AppliedDiscovery["consumer"], AppliedDiscovery>();
-  /** Called by the consumer after accepting this exact snapshot, never by reads/saves. */
+  /** Called by the consumer after accepting this exact snapshot, never by
+   * reads/saves; the sizes and caps it ran with are the deployment's. */
   acknowledgeDiscovery(consumer: AppliedDiscovery["consumer"], snapshot: AdminSettingsSnapshot): void {
-    const { candidatePoolSize, poolWeightPerMinute, poolPerformanceWeightPerMinute, leaderboardRefreshMinutes } = snapshot.discovery;
+    const { discovery, weights } = this.tuning;
     this.applied.set(consumer, { consumer, revision: snapshot.revisions.discovery, checkedAt: new Date().toISOString(),
-      recovered: snapshot.invalidSections.includes("discovery"), candidatePoolSize, poolWeightPerMinute, poolPerformanceWeightPerMinute, leaderboardRefreshMinutes });
+      recovered: snapshot.invalidSections.includes("discovery"), candidatePoolSize: discovery.candidatePoolSize,
+      poolWeightPerMinute: weights.poolLedger, poolPerformanceWeightPerMinute: weights.poolPerformance,
+      leaderboardRefreshMinutes: discovery.leaderboardRefreshMinutes });
   }
   appliedDiscovery(): AppliedDiscovery[] { return [...this.applied.values()].map(row => ({ ...row })); }
 
@@ -112,13 +122,12 @@ export class SettingsService implements ConsumerCapSource {
   }
 
   async getPublic(): Promise<PublicSettings> {
-    const { general, discovery, notifications, revenue } = await this.getAll();
+    const { general, discovery, notifications } = await this.getAll();
     return {
       announcement: general.announcement,
       signupsOpen: general.signupsOpen,
       copyTradingEnabled: general.copyTradingEnabled,
       maintenance: general.maintenance,
-      featuredAddresses: discovery.featuredAddresses,
       homeMarkets: discovery.homeMarkets,
       cryptoBoards: discovery.cryptoBoards,
       stockBoards: discovery.stockBoards,
@@ -126,7 +135,6 @@ export class SettingsService implements ConsumerCapSource {
       lowSampleThreshold: discovery.lowSampleThreshold,
       defaultActiveWithin: discovery.defaultActiveWithin,
       maxAlertTraders: notifications.maxAlertTraders,
-      referralCode: revenue.referralCode,
     };
   }
 

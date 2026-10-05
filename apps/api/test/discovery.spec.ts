@@ -84,7 +84,12 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
   const db = getTestDb();
   const repository = new DiscoveryRepository(db);
   const kols = new KolService(new KolRepository(db), new UnitOfWork(db));
-  const discoverySettings = { candidatePoolSize: 3, poolWeightPerMinute: 100, poolPerformanceWeightPerMinute: 240, homeMarkets: ["BTC", "xyz:TSLA"], cryptoBoards: ["BTC"], stockBoards: ["xyz:TSLA"] };
+  const discoverySettings = { homeMarkets: ["BTC", "xyz:TSLA"], cryptoBoards: ["BTC"], stockBoards: ["xyz:TSLA"] };
+  /** testConfig() with the deploy-time pool size and loop caps of a case. */
+  const tuned = (discovery: { candidatePoolSize?: number }, weights: { poolLedger?: number; poolPerformance?: number }) => {
+    const base = testConfig().value;
+    return { value: { ...base, tuning: { ...base.tuning, discovery: { ...base.tuning.discovery, ...discovery }, weights: { ...base.tuning.weights, ...weights } } } } as ReturnType<typeof testConfig>;
+  };
   const settings = { get: vi.fn(async () => discoverySettings), getAll: vi.fn(async () => ({ discovery: discoverySettings })), acknowledgeDiscovery: vi.fn() } as unknown as SettingsService;
   const ingest = { lastImportAt: vi.fn(async () => new Date("2026-09-30T00:00:00Z")) } as unknown as LeaderboardIngestService;
   const info = { portfolio: vi.fn(async () => PORTFOLIO) };
@@ -112,7 +117,7 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
     }),
   };
   const pool = new DiscoveryPoolService(
-    testConfig(), repository, info as unknown as HyperliquidInfoClient, analytics as unknown as TradeAnalyticsService, ingest, settings,
+    tuned({ candidatePoolSize: 3 }, { poolLedger: 100, poolPerformance: 240 }), repository, info as unknown as HyperliquidInfoClient, analytics as unknown as TradeAnalyticsService, ingest, settings,
   );
 
   const stat = (address: string, pnlAllTime: number, extra: Partial<typeof traderStats.$inferInsert> = {}) => ({
@@ -150,9 +155,10 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
   });
 
   it("acknowledges a paused policy only after membership is built, without upstream refresh", async () => {
-    const actualSettings = new SettingsService(new SettingsRepository(db), new UnitOfWork(db));
-    const saved = await actualSettings.patch({ discovery: { candidatePoolSize: 50, poolWeightPerMinute: 0 } }, null);
-    const fresh = new DiscoveryPoolService(testConfig(), repository, info as never, analytics as never, ingest, actualSettings);
+    const config = tuned({ candidatePoolSize: 50 }, { poolLedger: 0 });
+    const actualSettings = new SettingsService(new SettingsRepository(db), new UnitOfWork(db), undefined, config);
+    const saved = await actualSettings.patch({ discovery: { lowSampleThreshold: 5 } }, null);
+    const fresh = new DiscoveryPoolService(config, repository, info as never, analytics as never, ingest, actualSettings);
     await fresh.tick();
     expect(actualSettings.appliedDiscovery()).toEqual([]);
     await db.insert(traderStats).values([stat(addr(1), 900)]);

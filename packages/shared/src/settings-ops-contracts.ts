@@ -6,6 +6,16 @@ export const appliedDiscoverySchema = z.object({
   candidatePoolSize: z.number(), poolWeightPerMinute: z.number(), poolPerformanceWeightPerMinute: z.number().optional(), leaderboardRefreshMinutes: z.number(),
 });
 export type AppliedDiscovery = z.infer<typeof appliedDiscoverySchema>;
+/** The deploy-time tuning a process runs with (DISCOVERY_*, the
+ * HYPERLIQUID_*_WEIGHT_PER_MIN loop caps, RETENTION_*): read at startup,
+ * shown read-only in the admin. */
+const count = z.number().int().nonnegative();
+export const deploymentTuningSchema = z.object({
+  discovery: z.object({ leaderboardRefreshMinutes: count, candidatePoolSize: count, cohortMembersPerTier: count, cohortRefreshMinutes: count }),
+  weights: z.object({ poolLedger: count, poolPerformance: count, history: count, backfill: count, cohort: count }),
+  retention: z.object({ enabled: z.boolean(), snapshotDays: count, auditDays: count, accountDeletionDays: count, queueDays: count, alertDays: count }),
+});
+export type DeploymentTuning = z.infer<typeof deploymentTuningSchema>;
 export const settingsRuntimeSchema = z.object({
   savedRevision: z.string(), sampledAt: z.string().datetime({ offset: true }),
   state: z.enum(["active", "standby", "stopping", "stale", "unavailable", "not_configured"]),

@@ -169,6 +169,49 @@ function archive(source: Environment) {
   };
 }
 
+/**
+ * Deploy-time tuning (Paul, 2026-10-05): the Hyperliquid weight caps of the
+ * background loops, the discovery refresh and size knobs, and data
+ * retention used to be admin settings; nobody tunes them day to day and a
+ * wrong value starves user requests or deletes data, so they are read here
+ * once at startup (change the variable, restart the worker). Defaults are
+ * the values Stage and local ran with. The weight caps are each loop's own
+ * allowance inside the process's HYPERLIQUID_WEIGHT_* budget (0 pauses a
+ * loop). Retention periods are what the privacy policy (§6) states.
+ */
+export const TUNING_DEFAULTS = {
+  discovery: { leaderboardRefreshMinutes: 15, candidatePoolSize: 1000, cohortMembersPerTier: 500, cohortRefreshMinutes: 40 },
+  weights: { poolLedger: 100, poolPerformance: 240, history: 120, backfill: 120, cohort: 150 },
+  retention: { enabled: true, snapshotDays: 90, auditDays: 365, accountDeletionDays: 365, queueDays: 30, alertDays: 30 },
+} as const;
+export function tuningConfig(source: Environment = {}) {
+  const d = TUNING_DEFAULTS;
+  return {
+    discovery: {
+      leaderboardRefreshMinutes: integerValue("DISCOVERY_LEADERBOARD_REFRESH_MINUTES", source.DISCOVERY_LEADERBOARD_REFRESH_MINUTES, d.discovery.leaderboardRefreshMinutes, 5, 240),
+      candidatePoolSize: integerValue("DISCOVERY_CANDIDATE_POOL_SIZE", source.DISCOVERY_CANDIDATE_POOL_SIZE, d.discovery.candidatePoolSize, 50, 5000),
+      cohortMembersPerTier: integerValue("DISCOVERY_COHORT_MEMBERS_PER_TIER", source.DISCOVERY_COHORT_MEMBERS_PER_TIER, d.discovery.cohortMembersPerTier, 0, 2000),
+      cohortRefreshMinutes: integerValue("DISCOVERY_COHORT_REFRESH_MINUTES", source.DISCOVERY_COHORT_REFRESH_MINUTES, d.discovery.cohortRefreshMinutes, 5, 240),
+    },
+    weights: {
+      poolLedger: integerValue("HYPERLIQUID_POOL_LEDGER_WEIGHT_PER_MIN", source.HYPERLIQUID_POOL_LEDGER_WEIGHT_PER_MIN, d.weights.poolLedger, 0, 600),
+      poolPerformance: integerValue("HYPERLIQUID_POOL_PERFORMANCE_WEIGHT_PER_MIN", source.HYPERLIQUID_POOL_PERFORMANCE_WEIGHT_PER_MIN, d.weights.poolPerformance, 0, 600),
+      history: integerValue("HYPERLIQUID_HISTORY_WEIGHT_PER_MIN", source.HYPERLIQUID_HISTORY_WEIGHT_PER_MIN, d.weights.history, 0, 600),
+      backfill: integerValue("HYPERLIQUID_BACKFILL_WEIGHT_PER_MIN", source.HYPERLIQUID_BACKFILL_WEIGHT_PER_MIN, d.weights.backfill, 0, 600),
+      cohort: integerValue("HYPERLIQUID_COHORT_WEIGHT_PER_MIN", source.HYPERLIQUID_COHORT_WEIGHT_PER_MIN, d.weights.cohort, 0, 600),
+    },
+    retention: {
+      enabled: booleanValue("RETENTION_ENABLED", source.RETENTION_ENABLED, d.retention.enabled),
+      snapshotDays: integerValue("RETENTION_SNAPSHOT_DAYS", source.RETENTION_SNAPSHOT_DAYS, d.retention.snapshotDays, 30, 3650),
+      auditDays: integerValue("RETENTION_AUDIT_DAYS", source.RETENTION_AUDIT_DAYS, d.retention.auditDays, 30, 3650),
+      accountDeletionDays: integerValue("RETENTION_ACCOUNT_DELETION_DAYS", source.RETENTION_ACCOUNT_DELETION_DAYS, d.retention.accountDeletionDays, 30, 3650),
+      queueDays: integerValue("RETENTION_QUEUE_DAYS", source.RETENTION_QUEUE_DAYS, d.retention.queueDays, 7, 3650),
+      alertDays: integerValue("RETENTION_ALERT_DAYS", source.RETENTION_ALERT_DAYS, d.retention.alertDays, 7, 3650),
+    },
+  };
+}
+export type TuningConfig = ReturnType<typeof tuningConfig>;
+
 function productionSecret(key: string, value: string | undefined, production: boolean): void {
   if (!production || value === undefined) return;
   if (value.trim().length < 32 || /change[-_ ]?me|your[-_ ]?secret|replace[-_ ]?with|example|placeholder/i.test(value)) {
@@ -289,6 +332,6 @@ export function validateEnvironment(source: Environment = process.env) {
     expensivePerMinute: integerValue("API_EXPENSIVE_PER_MINUTE", source.API_EXPENSIVE_PER_MINUTE, 10, 1, 1000000),
     favoritesPerUser: integerValue("MAX_FAVORITES_PER_USER", source.MAX_FAVORITES_PER_USER, 100, 1, 10000),
   };
-  return { app, database, limits, http, auth: { serviceToken, permissions, adminEmails, appId, appSecret, verificationKey }, telegram, hyperliquid, alert, stream, copy: copyTrading(source, hyperliquid.wallet.network, egressKey), archive: archive(source) };
+  return { app, database, limits, http, auth: { serviceToken, permissions, adminEmails, appId, appSecret, verificationKey }, telegram, hyperliquid, alert, stream, copy: copyTrading(source, hyperliquid.wallet.network, egressKey), archive: archive(source), tuning: tuningConfig(source) };
 }
 export type RuntimeConfig = ReturnType<typeof validateEnvironment>;

@@ -83,7 +83,6 @@ export class RevenueService {
     const empty: AdminRevenueResponse = {
       address,
       builderFeeTenthsBps: revenue.builderFeeTenthsBps,
-      referralCode: revenue.referralCode,
       totals: {
         builderUsd: 0,
         referralUsd: 0,

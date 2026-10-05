@@ -91,10 +91,6 @@ export function AdminRevenue() {
           <span className="text-muted-foreground">{t("admin.revenue.builderFee")}</span>
           <span className="num font-semibold">{format.pct(feePct, { digits: 3 })}</span>
         </span>
-        <span className="flex items-center gap-2">
-          <span className="text-muted-foreground">{t("admin.revenue.referralCode")}</span>
-          <span className="font-mono font-semibold">{d.referralCode ?? "—"}</span>
-        </span>
         {d.lastSnapshotAt ? (
           <span className="num ml-auto text-xs text-subtle-foreground">
             {t("admin.revenue.lastSnapshot", { time: format.relative(d.lastSnapshotAt) })}

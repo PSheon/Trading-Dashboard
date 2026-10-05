@@ -1465,40 +1465,27 @@ export const RETENTION_TABLES = [
 ] as const;
 export type RetentionTable = (typeof RETENTION_TABLES)[number];
 
-const retentionDays = (min: number) => z.number().int().min(min).max(3650);
 /**
- * How long operational data is kept (review findings 3 and 20). The worker
- * deletes what is older, once a day off-peak, in bounded batches. The
- * defaults are the periods the privacy policy (§6) states: changing one here
- * makes that text untrue until the policy is changed too.
+ * How long operational data is kept (review findings 3 and 20). Since
+ * 2026-10-05 these are deploy-time settings (RETENTION_* on the worker),
+ * not admin settings; the defaults are the periods the privacy policy (§6)
+ * states: changing one makes that text untrue until the policy changes too.
  */
-const retentionFields = {
+export interface RetentionSettings {
   /** Off stops the job; nothing is deleted. */
-  enabled: z.boolean(),
+  enabled: boolean;
   /** position_snapshots and equity_snapshots. */
-  snapshotDays: retentionDays(30),
+  snapshotDays: number;
   /** admin_audit_logs, except account-deletion records. */
-  auditDays: retentionDays(30),
+  auditDays: number;
   /** `user.delete` audit rows (counts only, no email or address). */
-  accountDeletionDays: retentionDays(30),
+  accountDeletionDays: number;
   /** Finished action_outbox, notification_outbox and copy_signal_outbox rows. */
-  queueDays: retentionDays(7),
+  queueDays: number;
   /** Alert delivery records (`alerts`): what was sent to whom, and its result. */
-  alertDays: retentionDays(7),
-};
-export const RETENTION_DEFAULTS = { enabled: true, snapshotDays: 90, auditDays: 365, accountDeletionDays: 365, queueDays: 30, alertDays: 30 } as const;
-/** A stored value that lacks a field reads that field's default. */
-export const retentionSettingsSchema = z.object({
-  enabled: retentionFields.enabled.default(RETENTION_DEFAULTS.enabled),
-  snapshotDays: retentionFields.snapshotDays.default(RETENTION_DEFAULTS.snapshotDays),
-  auditDays: retentionFields.auditDays.default(RETENTION_DEFAULTS.auditDays),
-  accountDeletionDays: retentionFields.accountDeletionDays.default(RETENTION_DEFAULTS.accountDeletionDays),
-  queueDays: retentionFields.queueDays.default(RETENTION_DEFAULTS.queueDays),
-  alertDays: retentionFields.alertDays.default(RETENTION_DEFAULTS.alertDays),
-});
-export type RetentionSettings = z.infer<typeof retentionSettingsSchema>;
-/** A save sends every field: a missing one must not quietly fall back to its default. */
-export const retentionPatchSchema = z.object(retentionFields).strict();
+  alertDays: number;
+}
+export const RETENTION_DEFAULTS = { enabled: true, snapshotDays: 90, auditDays: 365, accountDeletionDays: 365, queueDays: 30, alertDays: 30 } as const satisfies RetentionSettings;
 
 /** One schema per `app_settings.key`; `.default()`s are the values before
  * an admin saves anything. */
@@ -1523,8 +1510,6 @@ export const generalSettingsSchema = z.object({
    * watches yet is refused; addresses already watched, and the admin's
    * imported leaders, are not affected. Lowering it stops additions only. */
   maxWatchedAddresses: z.number().int().min(1).max(100_000).default(100),
-  /** Data retention periods (the whole value when changed). */
-  retention: retentionSettingsSchema.default(RETENTION_DEFAULTS),
 });
 export type GeneralSettings = z.infer<typeof generalSettingsSchema>;
 
@@ -1533,52 +1518,19 @@ export type GeneralSettings = z.infer<typeof generalSettingsSchema>;
 export const boardCoinSchema = z.string().regex(/^(?:[a-z0-9]{1,12}:)?[A-Za-z0-9]{1,20}$/);
 
 export const discoverySettingsSchema = z.object({
-  /** Trader cards on the home page, in order; empty → top by month PnL. */
-  featuredAddresses: z.array(addressSchema).max(12).default([]),
   /** The home page's market rows, in this fixed order (CopyDog's). */
   homeMarkets: z.array(z.string().min(1).max(24)).max(16)
     .default(["BTC", "ETH", "SOL", "HYPE", "xyz:SP500", "xyz:GOLD", "xyz:NVDA", "xyz:TSLA"]),
   hideVaults: z.boolean().default(true),
   /** Fewer 30-day fills than this → greyed out with a "low sample" tag. */
   lowSampleThreshold: z.number().int().min(0).max(1000).default(20),
-  leaderboardRefreshMinutes: z.number().int().min(5).max(240).default(15),
   /** Default activity filter on explore and home lists: "month" hides
    * accounts with no volume in 30 days (holders, not traders). */
   defaultActiveWithin: activeWithinSchema.default("month"),
-  /** Discovery pool: the official leaderboard's top N (by all-time PnL)
-   * among non-vault accounts that traded in 30 days, plus every KOL. */
-  candidatePoolSize: z.number().int().min(50).max(5000).default(1000),
-  /** Hyperliquid weight per minute the pool's trade-ledger loop (cold
-   * builds and incremental refreshes of `trader_trades`) may spend; shared
-   * with page traffic under the global budget, it always yields to pages
-   * and scales down while pages are busy. 0 pauses it. */
-  poolWeightPerMinute: z.number().int().min(0).max(600).default(100),
-  /** Hyperliquid weight per minute the pool's performance loop (one
-   * `portfolio` read of 20 per row: PnL, ROI, Sharpe, drawdown, copy score,
-   * sparklines) may spend, independently of the ledger loop. Rows the
-   * boards and home rows show, KOLs and followed traders are refreshed
-   * four times as often as the rest. 240 → 12 rows a minute. */
-  poolPerformanceWeightPerMinute: z.number().int().min(0).max(600).default(240),
-  /** Cap on the durable fill-history job's Hyperliquid weight per minute
-   * (enforced by the budgeter as a token bucket). */
-  historyWeightPerMinute: z.number().int().min(0).max(600).default(120),
-  /** Cap on the watcher's backward fill backfill (one window a minute). */
-  backfillWeightPerMinute: z.number().int().min(0).max(600).default(120),
   /** Explore / home coin boards, in order (Hyperliquid coin names). */
   cryptoBoards: z.array(boardCoinSchema).max(16).default(["BTC", "ETH", "SOL", "DOGE", "HYPE", "ZEC", "NEAR"]),
   stockBoards: z.array(boardCoinSchema).max(16)
     .default(["xyz:SP500", "xyz:GOLD", "xyz:CL", "xyz:NVDA", "xyz:TSLA", "xyz:BRENTOIL", "xyz:SILVER"]),
-  /** 洞察 cohorts: every eligible pool trader of a PnL tier is a member, as
-   * on CopyDog (its 極度盈利 lists 352 members, no cap: its pool's tier);
-   * this is only a safety cap per tier, above any tier's size at the
-   * default pool of 1,000 … */
-  cohortMembersPerTier: z.number().int().min(0).max(2000).default(500),
-  /** … each member's positions, and one history row per tier, refreshed
-   * this often (CopyDog's history rows are ~36 min apart) … */
-  cohortRefreshMinutes: z.number().int().min(5).max(240).default(40),
-  /** … within this much Hyperliquid weight per minute (yields to pages):
-   * ~1,140 members cost ~90 a minute at 40 min. */
-  cohortWeightPerMinute: z.number().int().min(0).max(600).default(150),
 });
 export type DiscoverySettings = z.infer<typeof discoverySettingsSchema>;
 
@@ -1597,8 +1549,6 @@ export const revenueSettingsSchema = z.object({
   /** Builder fee in tenths of a basis point (Hyperliquid's unit; perps max
    * 100 = 0.1%). Charged on copy-trade orders once execution ships. */
   builderFeeTenthsBps: z.number().int().min(0).max(100).default(0),
-  /** Hyperliquid referral code shown to new users. */
-  referralCode: z.string().regex(/^[A-Za-z0-9]{1,20}$/).nullable().default(null),
 });
 export type RevenueSettings = z.infer<typeof revenueSettingsSchema>;
 
@@ -1625,7 +1575,6 @@ export const patchAdminSettingsRequestSchema = z.object({
   general: generalSettingsSchema.partial().extend({
     announcement: z.object({ enabled: z.boolean(), text: localizedTextSchema.strict() }).strict().optional(),
     maintenance: maintenanceSettingsSchema.extend({ message: localizedTextSchema.strict() }).strict().optional(),
-    retention: retentionPatchSchema.optional(),
   }).strict().optional(),
   discovery: discoverySettingsSchema.partial().strict().optional(),
   notifications: notificationSettingsSchema.partial().strict().optional(),
@@ -1649,7 +1598,6 @@ export const publicSettingsSchema = z.object({
   copyTradingEnabled: z.boolean(),
   /** Optional while older APIs roll out; absent means not in maintenance. */
   maintenance: maintenanceSettingsSchema.optional(),
-  featuredAddresses: z.array(z.string()),
   homeMarkets: z.array(z.string()),
   /** Coin boards on explore and home (optional while older APIs roll out). */
   cryptoBoards: z.array(z.string()).optional(),
@@ -1658,7 +1606,6 @@ export const publicSettingsSchema = z.object({
   lowSampleThreshold: z.number().int(),
   defaultActiveWithin: activeWithinSchema,
   maxAlertTraders: z.number().int(),
-  referralCode: z.string().nullable(),
 });
 export type PublicSettings = z.infer<typeof publicSettingsSchema>;
 
@@ -1728,7 +1675,6 @@ export const adminRevenueResponseSchema = z.object({
   /** null until an admin sets `revenue.builderAddress`. */
   address: z.string().nullable(),
   builderFeeTenthsBps: z.number().int(),
-  referralCode: z.string().nullable(),
   /** Cumulative, as of the latest snapshot. */
   totals: z.object({
     builderUsd: z.number(),

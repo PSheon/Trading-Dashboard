@@ -6,7 +6,6 @@ import { usePermission } from "@/lib/auth";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   activeWithinSchema,
-  addressSchema,
   discoverySettingsSchema,
   generalSettingsSchema,
   notificationSettingsSchema,
@@ -15,13 +14,13 @@ import {
   type AdminSettingsSnapshot,
   type PatchAdminSettingsRequest,
 } from "@/lib/contracts";
-import { ArrowDown, ArrowUp, Check, Plus, X } from "lucide-react";
+import { Check } from "lucide-react";
 import { useState, type SetStateAction } from "react";
 import type { ZodTypeAny } from "zod";
 import { cn } from "cn";
 
 import { ErrorState, Panel, PanelSkeleton } from "@/components/page";
-import { AddressAvatar } from "@/components/traders/address-avatar";
+
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -33,7 +32,6 @@ import { useI18n } from "@/i18n/provider";
 import { api, type ApiError } from "@/lib/api";
 
 type Section = keyof AdminSettings;
-const MAX_FEATURED = 12;
 
 const SCHEMAS: Record<Section, ZodTypeAny> = {
   general: generalSettingsSchema,
@@ -259,9 +257,6 @@ function Toggle({
   );
 }
 
-/** The retention periods and the shortest each may be (the api's bounds). */
-const RETENTION_FIELDS = [["snapshotDays", 30], ["auditDays", 30], ["accountDeletionDays", 30], ["queueDays", 7], ["alertDays", 7]] as const;
-
 function GeneralForm({ value: incoming, revision: incomingRevision }: { value: AdminSettings["general"]; revision: string }) {
   const { t } = useI18n();
   const { value, original, revision, setValue, accept } = useSectionDraft<"general">(incoming, incomingRevision);
@@ -270,9 +265,6 @@ function GeneralForm({ value: incoming, revision: incomingRevision }: { value: A
     set({ announcement: { ...value.announcement, ...patch } });
   const setMaintenance = (patch: Partial<AdminSettings["general"]["maintenance"]>) =>
     set({ maintenance: { ...value.maintenance, ...patch } });
-  // The whole retention value is sent when any of it changes.
-  const setRetention = (patch: Partial<AdminSettings["general"]["retention"]>) =>
-    set({ retention: { ...value.retention, ...patch } });
   // Switching maintenance on or off is confirmed; editing its text is not.
   const confirm = (next: AdminSettings["general"], before: AdminSettings["general"]) =>
     next.maintenance.enabled === before.maintenance.enabled ? null
@@ -347,34 +339,6 @@ function GeneralForm({ value: incoming, revision: incomingRevision }: { value: A
         />
         <p className="max-w-prose text-xs text-muted-foreground">{t("adminOps.settings.maxWatchedHint")}</p>
       </div>
-      <div id="retention-settings" className="flex flex-col gap-3 rounded-xl bg-raised/50 p-4">
-        <h3 className="text-sm font-semibold">{t("adminOps.retention.settingsTitle")}</h3>
-        <p className="max-w-prose text-xs text-muted-foreground">{t("adminOps.retention.settingsHint")}</p>
-        <Toggle
-          label={t("adminOps.retention.enabled")}
-          hint={t("adminOps.retention.enabledHint")}
-          checked={value.retention.enabled}
-          onChange={(enabled) => setRetention({ enabled })}
-        />
-        <div className="grid gap-3 sm:grid-cols-2">
-          {RETENTION_FIELDS.map(([field, min]) => (
-            <div key={field} className="grid gap-2">
-              <Label htmlFor={`retention-${field}`}>{t(`adminOps.retention.${field}`)}</Label>
-              <Input
-                id={`retention-${field}`}
-                type="number"
-                min={min}
-                max={3650}
-                value={value.retention[field]}
-                onChange={(e) => {
-                  const next = Number(e.target.value);
-                  if (Number.isInteger(next) && next >= 1) setRetention({ [field]: next });
-                }}
-              />
-            </div>
-          ))}
-        </div>
-      </div>
       <div className="flex flex-col gap-3 rounded-xl bg-raised/50 p-4">
         <div className="flex items-center gap-2">
           <h3 className="text-sm font-semibold">{t("adminOps.maintenance.title")}</h3>
@@ -425,111 +389,9 @@ function DiscoveryForm({ value: incoming, revision: incomingRevision }: { value:
   const setMarketsText = (text: string) => setMarketsInput({ revision, text });
   const [boardsInput, setBoardsInput] = useState({ revision, cryptoBoards: original.cryptoBoards.join(", "), stockBoards: original.stockBoards.join(", ") });
   if (boardsInput.revision !== revision) setBoardsInput({ revision, cryptoBoards: original.cryptoBoards.join(", "), stockBoards: original.stockBoards.join(", ") });
-  const [candidate, setCandidate] = useState("");
-  const [candidateError, setCandidateError] = useState<string>();
   const set = (patch: Partial<AdminSettings["discovery"]>) => setValue((v) => ({ ...v, ...patch }));
-  const featured = value.featuredAddresses;
-
-  function addFeatured() {
-    const address = candidate.trim().toLowerCase();
-    if (!addressSchema.safeParse(address).success) {
-      setCandidateError(t("admin.settings.discovery.featuredInvalid"));
-      return;
-    }
-    if (featured.includes(address)) {
-      setCandidateError(t("admin.settings.discovery.featuredDuplicate"));
-      return;
-    }
-    if (featured.length >= MAX_FEATURED) {
-      setCandidateError(t("admin.settings.discovery.featuredFull", { max: MAX_FEATURED }));
-      return;
-    }
-    set({ featuredAddresses: [...featured, address] });
-    setCandidate("");
-    setCandidateError(undefined);
-  }
-
-  function move(index: number, delta: number) {
-    const next = [...featured];
-    const [item] = next.splice(index, 1);
-    next.splice(index + delta, 0, item);
-    set({ featuredAddresses: next });
-  }
-
   return (
     <FormCard id="discovery" title={t("admin.settings.discovery.title")} section="discovery" value={value} original={original} revision={revision} onSaved={accept}>
-      <div className="grid gap-2">
-        <Label>{t("admin.settings.discovery.featured")}</Label>
-        <p className="text-xs text-muted-foreground">
-          {t("admin.settings.discovery.featuredHint", { max: MAX_FEATURED })}
-        </p>
-        {featured.length > 0 ? (
-          <ol className="flex flex-col gap-1.5">
-            {featured.map((address, i) => (
-              <li key={address} className="flex items-center gap-2.5 rounded-xl bg-raised/60 py-1.5 pr-1.5 pl-3">
-                <span className="num w-5 text-xs text-subtle-foreground">{i + 1}</span>
-                <AddressAvatar seed={address} size={22} />
-                <span className="min-w-0 flex-1 truncate font-mono text-xs">{address}</span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  disabled={i === 0}
-                  onClick={() => move(i, -1)}
-                  aria-label={t("admin.settings.discovery.moveUp")}
-                >
-                  <ArrowUp />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  disabled={i === featured.length - 1}
-                  onClick={() => move(i, 1)}
-                  aria-label={t("admin.settings.discovery.moveDown")}
-                >
-                  <ArrowDown />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => set({ featuredAddresses: featured.filter((a) => a !== address) })}
-                  aria-label={t("admin.settings.discovery.remove")}
-                >
-                  <X />
-                </Button>
-              </li>
-            ))}
-          </ol>
-        ) : null}
-        <div className="flex gap-2">
-          <Input
-            value={candidate}
-            onChange={(e) => {
-              setCandidate(e.target.value);
-              setCandidateError(undefined);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                addFeatured();
-              }
-            }}
-            placeholder={t("admin.settings.discovery.featuredPlaceholder")}
-            aria-invalid={candidateError ? true : undefined}
-            aria-label={t("admin.settings.discovery.featuredPlaceholder")}
-            className="font-mono"
-            disabled={featured.length >= MAX_FEATURED}
-          />
-          <Button type="button" variant="secondary" className="h-10" onClick={addFeatured} disabled={featured.length >= MAX_FEATURED}>
-            <Plus />
-            {t("admin.settings.discovery.featuredAdd")}
-          </Button>
-        </div>
-        {candidateError ? <p className="text-xs text-negative">{candidateError}</p> : null}
-      </div>
-
       <div className="grid gap-2">
         <Label htmlFor="home-markets">{t("admin.settings.discovery.homeMarkets")}</Label>
         <Input
@@ -574,22 +436,6 @@ function DiscoveryForm({ value: incoming, revision: incomingRevision }: { value:
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="grid gap-2"><Label htmlFor="candidate-pool-size">{t("settingsOps.candidatePoolSize")}</Label>
-          <Input id="candidate-pool-size" type="number" min={50} max={5000} value={value.candidatePoolSize} onChange={e => set({ candidatePoolSize: Number(e.target.value) })} /></div>
-        <div className="grid gap-2"><Label htmlFor="pool-weight">{t("settingsOps.poolWeightPerMinute")}</Label>
-          <Input id="pool-weight" type="number" min={0} max={600} value={value.poolWeightPerMinute} onChange={e => set({ poolWeightPerMinute: Number(e.target.value) })} /></div>
-      </div>
-      <p className="text-xs leading-relaxed text-muted-foreground">{t("settingsOps.poolHint")}</p>
-      <div className="grid gap-4 sm:grid-cols-3">
-        {([["poolPerformanceWeightPerMinute", "performanceWeight"], ["historyWeightPerMinute", "historyWeight"], ["backfillWeightPerMinute", "backfillWeight"]] as const).map(([field, label]) => (
-          <div key={field} className="grid content-start gap-2">
-            <Label htmlFor={field}>{t(`adminOps.settings.${label}`)}</Label>
-            <Input id={field} type="number" min={0} max={600} value={value[field]} onChange={e => set({ [field]: Number(e.target.value) })} />
-          </div>
-        ))}
-      </div>
-      <p className="text-xs leading-relaxed text-muted-foreground">{t("adminOps.settings.weightsHint")}</p>
       {(["cryptoBoards", "stockBoards"] as const).map(key => <div key={key} className="grid gap-2">
         <Label htmlFor={key}>{t(`settingsOps.${key}`)}</Label>
         <Input id={key} value={boardsInput[key]} onChange={e => { setBoardsInput({ ...boardsInput, [key]: e.target.value }); set({ [key]: [...new Set(e.target.value.split(",").map(v => v.trim()).filter(Boolean))] }); }} />
@@ -606,17 +452,6 @@ function DiscoveryForm({ value: incoming, revision: incomingRevision }: { value:
             max={1000}
             value={value.lowSampleThreshold}
             onChange={(e) => set({ lowSampleThreshold: Number(e.target.value) })}
-          />
-        </div>
-        <div className="grid gap-2">
-          <Label htmlFor="refresh">{t("admin.settings.discovery.refresh")}</Label>
-          <Input
-            id="refresh"
-            type="number"
-            min={5}
-            max={240}
-            value={value.leaderboardRefreshMinutes}
-            onChange={(e) => set({ leaderboardRefreshMinutes: Number(e.target.value) })}
           />
         </div>
       </div>
@@ -699,15 +534,6 @@ function RevenueForm({ value: incoming, revision: incomingRevision }: { value: A
               tenths: Number.isFinite(value.builderFeeTenthsBps) ? format.num(value.builderFeeTenthsBps, 0) : "—",
             })}
           </p>
-        </div>
-        <div className="grid gap-2">
-          <Label htmlFor="referral-code">{t("admin.settings.revenue.referralCode")}</Label>
-          <Input
-            id="referral-code"
-            value={value.referralCode ?? ""}
-            onChange={(e) => set({ referralCode: e.target.value.trim() || null })}
-            className="font-mono"
-          />
         </div>
       </div>
     </FormCard>

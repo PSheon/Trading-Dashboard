@@ -35,7 +35,7 @@ export const INDEX_LAG_MS = 60_000;
  * stopped a 10,000-fills-a-day address after a week while REST still held
  * three more (audit A2); the span is read in pages (`storedFillPages`), so
  * its size is not bounded by memory. The calls are paced by the backfill's
- * budget cap (`discovery.backfillWeightPerMinute`). */
+ * budget cap (`HYPERLIQUID_BACKFILL_WEIGHT_PER_MIN`). */
 export const BACKFILL_LOOKBACK_MS = 365 * 86_400_000;
 export const BACKFILL_MAX_FILLS = 500_000;
 /** Most pages per endpoint in one backward window or targeted re-read.

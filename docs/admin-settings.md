@@ -160,22 +160,53 @@ imported leaders, are not counted or refused. Lowering it removes nothing. Set i
 to what the worker's budget can carry (see the budget table in
 [railway-deploy.md](railway-deploy.md)).
 
-`general.retention` (review finding 20) is how long operational data is kept:
-`snapshotDays` 90, `auditDays` 365, `accountDeletionDays` 365, `queueDays` 30,
-`alertDays` 30, and `enabled`. The whole value is sent when any of it changes
-(a partial one is a 400, so a missing field can never fall back to its default
-unnoticed). The worker's retention job reads it at the start of each run; see
-[data-retention.md](data-retention.md). The defaults are the periods the privacy
-policy states.
+## Moved to the environment, and removed (Paul, 2026-10-05)
 
-The Discovery card now has inputs for the three weight caps that could only be
-set through the API: `poolPerformanceWeightPerMinute`,
-`historyWeightPerMinute` and `backfillWeightPerMinute` (0–600 each; 0 pauses
-that work).
+Fifteen fields that only a developer tunes left the admin settings and are
+read from each process's environment at start (change the variable, restart
+the process; the worker is the one that uses them). Defaults are the values
+Stage and local ran with, so a deployment that sets nothing behaves as before.
+`GET /admin/system/overview` shows the api's and the worker's values
+(`api.tuning`, `worker.sample.tuning`), read-only, on the admin 總覽 and under
+設定 → 進階.
+
+| Was (admin setting) | Now (environment) | Default | Bounds |
+| --- | --- | --- | --- |
+| `discovery.poolWeightPerMinute` | `HYPERLIQUID_POOL_LEDGER_WEIGHT_PER_MIN` | 100 | 0–600 (0 pauses) |
+| `discovery.poolPerformanceWeightPerMinute` | `HYPERLIQUID_POOL_PERFORMANCE_WEIGHT_PER_MIN` | 240 | 0–600 |
+| `discovery.historyWeightPerMinute` | `HYPERLIQUID_HISTORY_WEIGHT_PER_MIN` | 120 | 0–600 |
+| `discovery.backfillWeightPerMinute` | `HYPERLIQUID_BACKFILL_WEIGHT_PER_MIN` | 120 | 0–600 |
+| `discovery.cohortWeightPerMinute` | `HYPERLIQUID_COHORT_WEIGHT_PER_MIN` | 150 | 0–600 |
+| `discovery.leaderboardRefreshMinutes` | `DISCOVERY_LEADERBOARD_REFRESH_MINUTES` | 15 | 5–240 |
+| `discovery.candidatePoolSize` | `DISCOVERY_CANDIDATE_POOL_SIZE` | 1000 | 50–5000 |
+| `discovery.cohortMembersPerTier` | `DISCOVERY_COHORT_MEMBERS_PER_TIER` | 500 | 0–2000 |
+| `discovery.cohortRefreshMinutes` | `DISCOVERY_COHORT_REFRESH_MINUTES` | 40 | 5–240 |
+| `general.retention.enabled` | `RETENTION_ENABLED` | true | true/false |
+| `general.retention.snapshotDays` | `RETENTION_SNAPSHOT_DAYS` | 90 | 30–3650 |
+| `general.retention.auditDays` | `RETENTION_AUDIT_DAYS` | 365 | 30–3650 |
+| `general.retention.accountDeletionDays` | `RETENTION_ACCOUNT_DELETION_DAYS` | 365 | 30–3650 |
+| `general.retention.queueDays` | `RETENTION_QUEUE_DAYS` | 30 | 7–3650 |
+| `general.retention.alertDays` | `RETENTION_ALERT_DAYS` | 30 | 7–3650 |
+
+(The proposal spoke of "six" weight caps; the schema had five, all moved.)
+Deleted outright, because nothing read them: `discovery.featuredAddresses`
+(the home page's 精選 row is the KOL board) and `revenue.referralCode`
+(users' referral codes are a separate feature). Both also left `GET /settings`
+and the revenue response.
+
+A PATCH naming any of these fields is a 400 (`.strict()` sections).
+Migration `0061_settings_env_moved` strips them from the stored JSON
+(`app_settings`), keeping every other saved value; the read path already
+ignored them. Values an environment had saved under the old names are not
+carried over: read them before migrating (`select key, value from
+app_settings`) and set the variables that differ from the defaults.
+
+The retention periods are the ones the privacy policy (§6) states; changing
+one makes that text untrue until the policy changes too. See
+[data-retention.md](data-retention.md).
 
 Some things are deliberately not settings. They are read from each process's
-environment at start and shown, read-only, on `/admin/system` ("Deployment
-switches"), the api's next to the worker's because the two are separate
+environment at start and shown, read-only, on the admin 總覽 ("部署開關"), the api's next to the worker's because the two are separate
 processes: `IS_WORKER`, `COPY_TRADING_MODE`, `HYPERLIQUID_NETWORK`,
 `TELEGRAM_DRY_RUN`, whether the S3 archive ingest is enabled and its
 `S3_ARCHIVE_MAX_DAILY_USD`, and the `MAX_FAVORITES_PER_USER` default. Below
@@ -188,19 +219,20 @@ switches and the column says "not reported".
 
 ## Discovery pool settings and the KOL registry (Stage 3)
 
-`discovery` gained these fields: `candidatePoolSize` (default 1,000: the
-official leaderboard's top N by all-time PnL among non-vault accounts with
-30-day volume, plus every KOL), `poolPerformanceWeightPerMinute` (default
-240: the Hyperliquid weight the pool's performance loop — one `portfolio`
-read per row for PnL, ROI, Sharpe, drawdown, copy score and sparklines —
-may spend per minute; rows on the boards, home rows, KOLs and followed
-traders are read four times as often as the rest), `poolWeightPerMinute`
-(default 100: the pool's trade-ledger loop — cold builds and incremental
-refreshes; 0 pauses it), `historyWeightPerMinute` and
-`backfillWeightPerMinute` (default 120 each: caps the budgeter enforces on
-the durable fill-history job and the backward fill backfill), `cohortWeightPerMinute`
-(default 60), and `cryptoBoards` / `stockBoards` (the explore tabs and home market tiles,
-Hyperliquid coin names such as `BTC` or `xyz:TSLA`). `homeMarkets` now
+The pool's size and loop caps are deploy-time since 2026-10-05 (table above):
+`DISCOVERY_CANDIDATE_POOL_SIZE` (1,000: the official leaderboard's top N by
+all-time PnL among non-vault accounts with 30-day volume, plus every KOL),
+`HYPERLIQUID_POOL_PERFORMANCE_WEIGHT_PER_MIN` (240: one `portfolio` read per
+row for PnL, ROI, Sharpe, drawdown, copy score and sparklines; rows on the
+boards, home rows, KOLs and followed traders are read four times as often as
+the rest), `HYPERLIQUID_POOL_LEDGER_WEIGHT_PER_MIN` (100: cold builds and
+incremental refreshes of trade ledgers; 0 pauses it), `HYPERLIQUID_HISTORY_WEIGHT_PER_MIN`
+and `HYPERLIQUID_BACKFILL_WEIGHT_PER_MIN` (120 each) and
+`HYPERLIQUID_COHORT_WEIGHT_PER_MIN` (150; the earlier text here said 60, the
+schema default had been 150 since 2026-10-04). `discovery` keeps
+`cryptoBoards` / `stockBoards` (the explore tabs and home market tiles,
+Hyperliquid coin names such as `BTC` or `xyz:TSLA`; edited as chips with
+drag-to-reorder in 設定 → 探索). `homeMarkets` now
 lists the home page's per-market rows. The board lists are public in
 `GET /settings`.
 

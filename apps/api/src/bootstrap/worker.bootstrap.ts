@@ -47,6 +47,7 @@ export async function startWorker(config: RuntimeConfig, logger: StructuredLogge
       return {
         settings: live ? app!.get(SettingsService).appliedDiscovery() : [],
         switches: operationalSwitches(config),
+        tuning: config.tuning,
         budget: budgeter ? { ...budgeter.introspect(), queued: budgeter.queued() } : null,
         heartbeat: live ? await app!.get(WorkerHeartbeatService).heartbeat() : null,
       };

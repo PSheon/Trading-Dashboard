@@ -6,20 +6,21 @@ periods of 2026-10-01.
 
 ## Periods
 
-| Data | Table | Default | Setting (`general.retention`) |
+| Data | Table | Default | Variable (worker) |
 | --- | --- | --- | --- |
-| Position and equity snapshots | `position_snapshots`, `equity_snapshots` | 90 days | `snapshotDays` (30–3650) |
-| Admin audit log | `admin_audit_logs` (every event except `user.delete`) | 1 year | `auditDays` (30–3650) |
-| Account-deletion records | `admin_audit_logs` where `event = 'user.delete'` | 1 year | `accountDeletionDays` (30–3650) |
-| Finished evaluations | `action_outbox` (`done`, `failed`) | 30 days | `queueDays` (7–3650) |
-| Finished deliveries | `notification_outbox` (`sent`, `dry_run`, `failed`) | 30 days | `queueDays` |
-| Finished copy signals | `copy_signal_outbox` (`done`, `failed`) | 30 days | `queueDays` |
-| Alert delivery records | `alerts` | 30 days | `alertDays` (7–3650) |
+| Position and equity snapshots | `position_snapshots`, `equity_snapshots` | 90 days | `RETENTION_SNAPSHOT_DAYS` (30–3650) |
+| Admin audit log | `admin_audit_logs` (every event except `user.delete`) | 1 year | `RETENTION_AUDIT_DAYS` (30–3650) |
+| Account-deletion records | `admin_audit_logs` where `event = 'user.delete'` | 1 year | `RETENTION_ACCOUNT_DELETION_DAYS` (30–3650) |
+| Finished evaluations | `action_outbox` (`done`, `failed`) | 30 days | `RETENTION_QUEUE_DAYS` (7–3650) |
+| Finished deliveries | `notification_outbox` (`sent`, `dry_run`, `failed`) | 30 days | `RETENTION_QUEUE_DAYS` |
+| Finished copy signals | `copy_signal_outbox` (`done`, `failed`) | 30 days | `RETENTION_QUEUE_DAYS` |
+| Alert delivery records | `alerts` | 30 days | `RETENTION_ALERT_DAYS` (7–3650) |
 
-Admins edit the periods in **Settings › General › Data retention**; `enabled: false`
-stops the job. The defaults are the periods the policy states: changing one
-makes the policy untrue until its text is changed too (the form says so).
-A save is audited like every settings change.
+The periods are deploy-time since 2026-10-05 (they were `general.retention`
+in the admin settings): set them on the worker and restart it;
+`RETENTION_ENABLED=false` stops the job. The defaults are the periods the
+policy states: changing one makes the policy untrue until its text is changed
+too. Each run's audit entry (`retention.run`) records the periods it used.
 
 ## The job
 

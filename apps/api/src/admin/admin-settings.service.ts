@@ -13,8 +13,7 @@ import { isZodError, parseOr400 } from "../common/http/validation.js";
 
 /**
  * GET/PATCH /admin/settings on top of `SettingsService`: validates the
- * request, normalizes addresses (lowercase; featured list de-duplicated in
- * order) and takes a revenue snapshot as soon as the platform address
+ * request, normalizes the builder address (lowercase) and takes a revenue snapshot as soon as the platform address
  * changes, so the revenue page isn't empty for up to an hour.
  */
 @Injectable()
@@ -56,12 +55,6 @@ export class AdminSettingsService {
 
 function normalize(request: PatchAdminSettingsRequest): PatchAdminSettingsRequest {
   const out: PatchAdminSettingsRequest = { ...request };
-  if (request.discovery?.featuredAddresses) {
-    out.discovery = {
-      ...request.discovery,
-      featuredAddresses: [...new Set(request.discovery.featuredAddresses.map((a) => a.toLowerCase()))],
-    };
-  }
   if (typeof request.revenue?.builderAddress === "string") {
     out.revenue = { ...request.revenue, builderAddress: request.revenue.builderAddress.toLowerCase() };
   }

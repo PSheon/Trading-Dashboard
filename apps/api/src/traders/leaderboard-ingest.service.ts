@@ -34,7 +34,7 @@ async function fetchJson(url: string, signal?: AbortSignal): Promise<unknown> {
 
 /**
  * Imports Hyperliquid's official leaderboard into `trader_stats` (Stage 2
- * §4) whenever it is older than `discovery.leaderboardRefreshMinutes`,
+ * §4) whenever it is older than `DISCOVERY_LEADERBOARD_REFRESH_MINUTES`,
  * checked every minute and at startup, so a changed setting applies without
  * a restart. Vaults are flagged from Hyperliquid's vault list (§10,
  * 競品分析 §3.9).
@@ -91,7 +91,7 @@ export class LeaderboardIngestService {
   async refreshIntervalMs(): Promise<number> {
     const snapshot = await this.settings.getAll();
     this.settings.acknowledgeDiscovery("leaderboard", snapshot);
-    return snapshot.discovery.leaderboardRefreshMinutes * 60_000;
+    return this.config.value.tuning.discovery.leaderboardRefreshMinutes * 60_000;
   }
 
   /** Imports if the table is empty or older than the configured interval. */

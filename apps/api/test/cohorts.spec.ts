@@ -1,4 +1,5 @@
 import type { INestApplication } from "@nestjs/common";
+import { TUNING_DEFAULTS } from "../src/config/runtime-config.js";
 import { cohortMembers, cohortSnapshots, discoveryTraders, kolTraders, traderAnalytics, traderStats } from "@trading-dashboard/shared/database";
 import { COHORT_HEADLINE_MIN_COVERAGE, cohortHeadlineReady, discoverySettingsSchema, wireCohortDetailSchema, wireCohortHistorySchema } from "@trading-dashboard/shared/contracts";
 import { eq } from "drizzle-orm";
@@ -95,7 +96,7 @@ describe("cohort aggregation (CopyDog's cohorts)", () => {
 describe("cohort job and endpoints (real Postgres)", () => {
   const db = getTestDb();
   const repository = new CohortRepository(db);
-  const settingsValue = { ...discoverySettingsSchema.parse({}), cohortMembersPerTier: 2 };
+  const settingsValue = discoverySettingsSchema.parse({});
   const settings = { get: vi.fn(async () => settingsValue) } as unknown as SettingsService;
   const info = {
     perpDexs: vi.fn(async () => [null, { name: "xyz" }, { name: "flx" }]),
@@ -103,7 +104,8 @@ describe("cohort job and endpoints (real Postgres)", () => {
       dex === "xyz" ? state(100, [["xyz:TSLA", 1, 500, 5]]) : dex ? state(0, []) : state(address === addr(1) ? 10_000 : 2_000, [["BTC", address === addr(1) ? 1 : -1, 20_000, address === addr(1) ? 100 : -40]])),
     candleSnapshot: vi.fn(async () => [{ t: 1, T: 2, s: "BTC", i: "1h", o: "1", c: "84000", h: "1", l: "1", v: "1", n: 1 }]),
   };
-  const config = { value: { ...testConfig().value, app: { ...testConfig().value.app, nodeEnv: "development" } } } as ReturnType<typeof testConfig>;
+  const base = testConfig().value;
+  const config = { value: { ...base, app: { ...base.app, nodeEnv: "development" }, tuning: { ...base.tuning, discovery: { ...base.tuning.discovery, cohortMembersPerTier: 2 } } } } as ReturnType<typeof testConfig>;
   let service: CohortService;
   // The pool snapshot's percentile, as the trader page shows it (not the
   // stored legacy column, which is 91 for addr(1) in the seed).
@@ -185,7 +187,7 @@ describe("cohort job and endpoints (real Postgres)", () => {
   });
 
   it("makes every eligible pool trader of a tier a member, as CopyDog (352 in its 極度盈利, no cap of 150)", async () => {
-    const defaults = discoverySettingsSchema.parse({});
+    const defaults = TUNING_DEFAULTS.discovery;
     expect(defaults.cohortMembersPerTier).toBeGreaterThanOrEqual(500);
     const many = Array.from({ length: 160 }, (_, i) => `0x${(0x1000 + i).toString(16).padStart(40, "0")}`);
     const now = new Date();

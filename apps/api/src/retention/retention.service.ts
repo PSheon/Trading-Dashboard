@@ -56,7 +56,7 @@ export function inRetentionWindow(now: Date): boolean {
 /**
  * Data retention (review findings 3 and 20; privacy policy §6). Once a day,
  * off-peak, the worker deletes what is older than the periods in
- * `general.retention`:
+ * RETENTION_* (deploy-time, read at startup):
  *
  * | data | default |
  * | --- | --- |
@@ -99,7 +99,7 @@ export class RetentionService {
 
   private async runOnce(now: Date, force: boolean): Promise<RetentionRun> {
     if (this.jobs.stopping) return { ran: false, reason: "stopping" };
-    const settings = (await this.settings.get("general")).retention;
+    const settings = this.settings.tuning.retention;
     if (!settings.enabled) return { ran: false, reason: "disabled" };
     if (!force) {
       if (!inRetentionWindow(now)) return { ran: false, reason: "outside_window" };

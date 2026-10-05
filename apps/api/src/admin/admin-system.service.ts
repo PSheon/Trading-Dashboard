@@ -45,7 +45,7 @@ export class AdminSystemService {
       sampledAt: new Date().toISOString(),
       api: { state: "active", uptimeSeconds: Math.floor(process.uptime()),
         budget: { ...budget, lastRateLimitedAt: budget.lastRateLimitedAt?.toISOString() ?? null, queued: this.budgeter.queued() },
-        switches: operationalSwitches(this.config.value) },
+        switches: operationalSwitches(this.config.value), tuning: this.config.value.tuning },
       worker: worker.status === "fulfilled" ? worker.value : { state: "unavailable", sample: null },
       database: database.status === "fulfilled" ? { state: "available", latencyMs: database.value } : { state: "unavailable", latencyMs: null },
       data: data.status === "fulfilled" ? data.value : null,

@@ -102,9 +102,31 @@ No Privy secret on the worker (it mounts no user API). No AWS key on api or web.
 
 `NEXT_PUBLIC_*` values are compiled in: changing one needs a rebuild, not a restart.
 
-### Budget settings (database, not environment)
+### Tuning (environment, worker)
 
-The per-job weight caps live in `app_settings` (`discovery`) and are edited in `/admin/settings` (or `PATCH /admin/settings`); the worker reports what it actually applied on `/health/monitor`, and `/health` → `budget.consumers` shows who spent the trailing minute, `budget.caps` what each job is held to.
+The per-job weight caps, the discovery refresh/size knobs and data retention
+are deploy-time variables since 2026-10-05 (they were admin settings; see
+[admin-settings.md](admin-settings.md#moved-to-the-environment-and-removed-paul-2026-10-05)).
+They are read at startup: change one and restart. The worker is the process
+that uses them; the api reads the same names only to show them. Unset = the
+default, which is what Stage and local ran with.
+
+| Variable | Default (Stage, production) | What it bounds |
+| --- | --- | --- |
+| `HYPERLIQUID_POOL_PERFORMANCE_WEIGHT_PER_MIN` | `240` | the pool's `portfolio` reads (12 rows a minute): board / home / card figures |
+| `HYPERLIQUID_POOL_LEDGER_WEIGHT_PER_MIN` | `100` | the pool's trade-ledger builds and refreshes (coin boards, style, last trade); 0 pauses |
+| `HYPERLIQUID_COHORT_WEIGHT_PER_MIN` | `150` | 洞察 member positions |
+| `HYPERLIQUID_HISTORY_WEIGHT_PER_MIN` / `HYPERLIQUID_BACKFILL_WEIGHT_PER_MIN` | `120` / `120` | durable fill-history pages / backward fill backfill |
+| `DISCOVERY_LEADERBOARD_REFRESH_MINUTES` | `15` | official leaderboard import interval |
+| `DISCOVERY_CANDIDATE_POOL_SIZE` | `1000` | pool size (plus every KOL) |
+| `DISCOVERY_COHORT_MEMBERS_PER_TIER` / `DISCOVERY_COHORT_REFRESH_MINUTES` | `500` / `40` | members per 洞察 tier (a safety cap) / member refresh and history row spacing |
+| `RETENTION_ENABLED` | `true` | the daily retention job |
+| `RETENTION_SNAPSHOT_DAYS` / `RETENTION_AUDIT_DAYS` / `RETENTION_ACCOUNT_DELETION_DAYS` | `90` / `365` / `365` | snapshots / admin audit / account-deletion records (the privacy policy's periods) |
+| `RETENTION_QUEUE_DAYS` / `RETENTION_ALERT_DAYS` | `30` / `30` | finished outbox rows / alert delivery records |
+
+The worker reports what it runs with on `/health/monitor` (`tuning`), shown on
+the admin 總覽; `/health` → `budget.consumers` shows who spent the trailing
+minute, `budget.caps` what each job is held to.
 
 **The settings are maxima.** All five are enforced by the budgeter on what is actually sent (one-minute token buckets), and together they may take at most 75 % of the process's *effective* budget; above that they shrink in proportion. So they follow `HYPERLIQUID_WEIGHT_BUDGET_PER_MIN` and a 429 backoff without anyone editing them:
 
@@ -119,16 +141,11 @@ The per-job weight caps live in `app_settings` (`discovery`) and are edited in `
 
 Snapshots and sweeps of watched leaders and the cohort's reads go before every other job (`ESSENTIAL_RANK`: after pages, before the pool, history, backfill and unranked work), so they take what they need first: with 20 watched leaders about 16 + 53 a minute, plus the cohort's cap. A worker at 360 therefore runs everything (`budget-consumers.spec.ts`: an hour with every job saturated, every snapshot run inside 30 s, every sweep inside 3 min, no cap exceeded). Held at its 429 floor of 72 the same leaders need 69 of the 72: snapshots and sweeps still complete (sweeps in 14–15 of their 15 minutes, the first after the 429 up to two minutes over) and the pool waits; a real backoff climbs back 10 % of the budget per 20 answered calls, within minutes. The floor of a 600 worker is 120. More watched leaders need proportionally more: about 3.5 a minute each.
 
-| Setting | Code default (2026-10-02) | Dev | What it bounds |
-| --- | --- | --- | --- |
-| `discovery.poolPerformanceWeightPerMinute` | 240 | 240 | the pool's `portfolio` reads (12 rows a minute): board / home / card figures |
-| `discovery.poolWeightPerMinute` | 100 | 100 | the pool's trade-ledger builds and refreshes (coin boards, style, last trade) |
-| `discovery.cohortWeightPerMinute` | 150 (60 before 2026-10-04) | 60 (stored) | 洞察 member positions: every eligible pool trader of a tier (~1,130 on dev), each every `cohortRefreshMinutes` (40) |
-| `discovery.cohortMembersPerTier` | 500 (150 before 2026-10-04; a safety cap, CopyDog has none) | default | members per tier |
-| `discovery.cohortRefreshMinutes` | 40 (15 before 2026-10-04) | default | member refresh and history row spacing (CopyDog ~36 min) |
-| `discovery.historyWeightPerMinute` | 120 | 120 | durable fill-history pages (cap enforced by the budgeter) |
-| `discovery.backfillWeightPerMinute` | 120 | 120 | backward fill backfill windows (cap enforced by the budgeter) |
-| `discovery.candidatePoolSize` | 1,000 | — | — |
+The cohort caps' history: `HYPERLIQUID_COHORT_WEIGHT_PER_MIN` 150 (60 before
+2026-10-04), `DISCOVERY_COHORT_MEMBERS_PER_TIER` 500 (150 before; CopyDog has
+no cap), `DISCOVERY_COHORT_REFRESH_MINUTES` 40 (15 before; CopyDog's rows are
+~36 min apart). Every eligible pool trader of a tier (~1,130 on dev) is read
+each refresh.
 
 At the default 840/min: jobs 630 (see the table), plus the home warm-up (24 portfolios every 10 min ≈ 48), leader snapshots and sweeps (≈ 60 averaged) ≈ 750 when every job is busy, leaving ≈ 90 plus the page reserve for pages; every job scales down to a quarter of its allowance while page traffic approaches half the budget (`backgroundFactor` on `/health`). The page reserve (60 % of the burst, refilled first; `HYPERLIQUID_PAGE_RESERVE_SHARE` of the rate is its floor) is never spent by jobs. Pool freshness at 240: ≈ 480 visible rows of ≈ 1,140 are read every ≈ 54 min (median age ≈ 27 min), the rest every ≈ 3.6 h (`discovery.*AgeSeconds` on `/health`). The archive ingest spends no Hyperliquid weight.
 

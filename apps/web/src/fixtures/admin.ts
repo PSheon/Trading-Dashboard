@@ -46,7 +46,6 @@ export let adminSettings: AdminSettings = adminSettingsSchema.parse({
     },
   },
   discovery: {
-    featuredAddresses: [5, 7, 0, 10, 11, 4, 16, 8].map((i) => traderStats[i].address),
     homeMarkets: ["BTC", "ETH", "SOL", "HYPE", "xyz:TSLA", "xyz:NVDA", "xyz:GOLD", "DOGE"],
     lowSampleThreshold: LOW_SAMPLE_THRESHOLD,
   },
@@ -54,7 +53,6 @@ export let adminSettings: AdminSettings = adminSettingsSchema.parse({
   revenue: {
     builderAddress: "0x7a3c9e5f1b2d4a6c8e0f1a2b3c4d5e6f7a8b9c0d",
     builderFeeTenthsBps: 25,
-    referralCode: "ORBIE",
   },
 });
 
@@ -70,19 +68,17 @@ export function setAdminSettings(next: AdminSettings, sections: (keyof AdminSett
 }
 
 export function publicSettings(): PublicSettings {
-  const { general, discovery, notifications, revenue } = adminSettings;
+  const { general, discovery, notifications } = adminSettings;
   return {
     announcement: general.announcement,
     signupsOpen: general.signupsOpen,
     copyTradingEnabled: general.copyTradingEnabled,
     maintenance: general.maintenance,
-    featuredAddresses: discovery.featuredAddresses,
     homeMarkets: discovery.homeMarkets,
     hideVaults: discovery.hideVaults,
     lowSampleThreshold: discovery.lowSampleThreshold,
     defaultActiveWithin: discovery.defaultActiveWithin,
     maxAlertTraders: notifications.maxAlertTraders,
-    referralCode: revenue.referralCode,
   };
 }
 
@@ -178,7 +174,7 @@ const revenueDays = Array.from({ length: 60 }, (_, i) => {
 });
 
 export function revenue(range: "7d" | "30d" | "90d" | "all"): AdminRevenueResponse {
-  const { builderAddress, builderFeeTenthsBps, referralCode } = adminSettings.revenue;
+  const { builderAddress, builderFeeTenthsBps } = adminSettings.revenue;
   const n = range === "7d" ? 7 : range === "30d" ? 30 : range === "90d" ? 90 : revenueDays.length;
   const daily = builderAddress ? revenueDays.slice(-n) : [];
   const builderTotal = revenueDays.reduce((s, d) => s + d.builder, 0);
@@ -187,7 +183,6 @@ export function revenue(range: "7d" | "30d" | "90d" | "all"): AdminRevenueRespon
   return {
     address: builderAddress,
     builderFeeTenthsBps,
-    referralCode,
     totals: builderAddress
       ? {
           builderUsd: builderTotal,

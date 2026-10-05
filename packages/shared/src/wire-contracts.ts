@@ -4,7 +4,7 @@ import { importPreviewSchema } from "./import-preview-contracts.js";
 import { adminTraderSchema } from "./admin-trader-contracts.js";
 import { favoriteGroupSchema, favoriteGroupsSchema } from "./favorite-group-contracts.js";
 import { traderSearchResponseSchema } from "./trader-search-contracts.js";
-import { appliedDiscoverySchema, settingsRuntimeSchema, auditResponseSchema } from "./settings-ops-contracts.js";
+import { appliedDiscoverySchema, deploymentTuningSchema, settingsRuntimeSchema, auditResponseSchema } from "./settings-ops-contracts.js";
 import { backfillJobSchema, backfillJobsResponseSchema } from "./job-contracts.js";
 import { z } from "zod";
 import { adminResolvedWithdrawalSchema, adminUnresolvedWithdrawalsSchema, walletWithdrawalSchema, walletWithdrawalClaimSchema } from "./wallet-withdrawal-contracts.js";
@@ -92,6 +92,8 @@ export const workerMonitorSchema = z.object({
   settings: z.array(appliedDiscoverySchema).optional(),
   /** Optional while older workers roll out. */
   switches: operationalSwitchesSchema.optional(),
+  /** The worker's deploy-time tuning (optional while older workers roll out). */
+  tuning: deploymentTuningSchema.optional(),
   uptimeSeconds: z.number().nonnegative(), budget: runtimeBudgetSchema.nullable(), heartbeat: wireHeartbeatSchema.nullable(),
 }).refine(v => v.state !== "active" || (v.budget !== null && v.heartbeat !== null), "Active worker requires telemetry");
 /** `removed` and `cutoffs` are keyed by `RETENTION_TABLES`; a table absent
@@ -109,7 +111,8 @@ export const adminSystemSchema = z.object({
   sampledAt: iso,
   api: z.object({ state: z.literal("active"), uptimeSeconds: z.number(), budget: runtimeBudgetSchema,
     /** Optional while older APIs roll out. */
-    switches: operationalSwitchesSchema.optional() }),
+    switches: operationalSwitchesSchema.optional(),
+    tuning: deploymentTuningSchema.optional() }),
   worker: z.object({ state: z.enum(["active", "standby", "stopping", "stale", "unavailable", "not_configured"]), sample: workerMonitorSchema.nullable() }),
   database: z.object({ state: z.enum(["available", "unavailable"]), latencyMs: z.number().nullable() }),
   data: z.object({

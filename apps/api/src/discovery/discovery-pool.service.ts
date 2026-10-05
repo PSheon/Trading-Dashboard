@@ -64,11 +64,11 @@ export interface PoolFreshness {
 
 /**
  * The discovery pool (Stage 3 §1.7): the official leaderboard's top
- * `discovery.candidatePoolSize` by all-time PnL among non-vault accounts
+ * `DISCOVERY_CANDIDATE_POOL_SIZE` by all-time PnL among non-vault accounts
  * that traded in 30 days, plus every KOL. Two loops, each on its own cron
  * tick, allowance and budgeter rank, so neither waits on the other:
  *
- * - **performance** (`discovery.poolPerformanceWeightPerMinute`): one
+ * - **performance** (`HYPERLIQUID_POOL_PERFORMANCE_WEIGHT_PER_MIN`): one
  *   `portfolio` read (20) per row for PnL, ROI, Sharpe, drawdown, account
  *   value, copy score and sparklines. Rows are taken by urgency, the age
  *   of their figures weighted `VISIBLE_WEIGHT`× for the rows the site
@@ -77,7 +77,7 @@ export interface PoolFreshness {
  *   budget's pace and the rest of the pool follows behind. At 240/min
  *   (12 rows) with ≈ 480 visible rows of ≈ 1,140, a visible row is read
  *   every ≈ 54 min (median age ≈ 27 min), the rest every ≈ 3.6 h.
- * - **ledgers** (`discovery.poolWeightPerMinute`): the trade ledger (the
+ * - **ledgers** (`HYPERLIQUID_POOL_LEDGER_WEIGHT_PER_MIN`): the trade ledger (the
  *   trader page's own analytics, incremental after the first read,
  *   without the funding step) for style, coins, last trade and per-coin
  *   PnL. Visible rows whose ledger is older than `LEDGER_REFRESH_MS` are
@@ -149,12 +149,12 @@ export class DiscoveryPoolService {
    * urgent row first, within the minute's allowance. */
   async performanceTick(now = Date.now()): Promise<void> {
     const snapshot = await this.settings.getAll();
-    const discovery = snapshot.discovery;
+    const { discovery, weights } = this.config.value.tuning;
     await this.buildIfDue(discovery.candidatePoolSize, now);
     // A pool acknowledgement requires an actual membership decision. Empty
     // upstream data keeps the old pool and must not be reported as applied.
     if (this.builtForSize === discovery.candidatePoolSize) this.settings.acknowledgeDiscovery("pool", snapshot);
-    const perMinute = discovery.poolPerformanceWeightPerMinute;
+    const perMinute = weights.poolPerformance;
     if (perMinute <= 0) { this.performanceTokens = 0; this.performanceTokensAt = now; return; }
     this.performanceTokens = this.credit(this.performanceTokens, this.performanceTokensAt, perMinute, now);
     this.performanceTokensAt = now;
@@ -191,8 +191,7 @@ export class DiscoveryPoolService {
    * stale ledger first, then cold builds while no page waits on the
    * budget, then the rest. */
   async ledgerTick(now = Date.now()): Promise<void> {
-    const discovery = await this.settings.get("discovery");
-    const perMinute = discovery.poolWeightPerMinute;
+    const perMinute = this.config.value.tuning.weights.poolLedger;
     if (perMinute <= 0) { this.ledgerTokens = 0; this.ledgerTokensAt = now; return; }
     this.ledgerTokens = this.credit(this.ledgerTokens, this.ledgerTokensAt, perMinute, now);
     this.ledgerTokensAt = now;

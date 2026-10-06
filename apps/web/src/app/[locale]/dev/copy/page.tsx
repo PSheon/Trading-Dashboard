@@ -9,9 +9,10 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-/** The step-by-step testnet copy forms (wallet, deposit, account mode, agent,
- * mandate), for development and support: one-click setup on the trader page
- * replaced them for users. Lab only: 404 in production unless NEXT_DEV_LAB=1. */
+/** The step-by-step paper copy wallet forms (wallet, deposit, statements,
+ * signing authorizations), for development and support. An actual copy
+ * starts one way only: one-click setup on the trader page (setup, consent,
+ * worker). Lab only: 404 in production unless NEXT_DEV_LAB=1. */
 export default async function DevCopyPage() {
   if (!labEnabled()) return renderNotFound();
   return (

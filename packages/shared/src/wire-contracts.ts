@@ -16,7 +16,7 @@ import { copyFollowerStatementSchema } from "./copy-follower-contracts.js";
 import { copyFollowerActivitySchema } from "./copy-follower-activity-contracts.js";
 import { copyFollowerSnapshotReadSchema } from "./copy-follower-view-contracts.js";
 import { liveCopySetupSchema, liveCopySetupsSchema } from "./copy-live-setup-contracts.js";
-import { liveCopyOverviewSchema, liveCopyStrategySchema, liveCopyMandateChallengeSchema, liveCopyMandateSchema, liveCopyPortfolioSchema, liveManualCloseSchema, liveManualClosesSchema } from "./copy-live-mandate-contracts.js";
+import { liveCopyOverviewSchema, liveCopyMandateSchema, liveCopyPortfolioSchema, liveManualCloseSchema, liveManualClosesSchema } from "./copy-live-mandate-contracts.js";
 import { liveCopyStopSchema, liveCopyStopsSchema } from './copy-live-stop-contracts.js';
 import { adminLiveAccountsSchema, adminLiveTransfersSchema, adminLiveOrdersSchema, adminLiveLatencySchema, adminRevokedLiveGrantSchema } from './admin-copy-live-contracts.js';
 import * as s from "./schema/zod.js";
@@ -352,12 +352,6 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/me/referral/claims/by-key/:key", status: 200, auth: "user (owner); original read-only request recovery", response: referralClaimSchema },
   { method: "POST", path: "/me/referral/claims", status: 200, auth: "user (owner); existing request recovery; new payout unavailable", response: referralClaimSchema },
   { method: "GET", path: "/referral/check/:code", status: 200, auth: "public; code validity only", response: referralCheckSchema },
-  { method: "POST", path: "/me/copy/live/strategies", status: 200, auth: "user (owner); fresh paused testnet configuration", response: liveCopyStrategySchema, errors: liveStrategyErrors },
-  { method: "GET", path: "/me/copy/live/strategies/by-key/:key", status: 200, auth: "user (owner); original local idempotency key", response: liveCopyStrategySchema },
-  { method: "GET", path: "/me/copy/live/mandates/by-key/:key", status: 200, auth: "user (owner); original local idempotency key; read only", response: liveCopyMandateChallengeSchema },
-  { method: "GET", path: "/me/copy/live/mandates/:id/challenge", status: 200, auth: "user (owner); original persisted consent intent; read only", response: liveCopyMandateChallengeSchema },
-  { method: "POST", path: "/me/copy/live/execution-wallets/:id/mandates", status: 200, auth: "user (owner); exact current verified agent binding", response: liveCopyMandateChallengeSchema, errors: ["copy_not_open", "copy_paused", "below_min_allocation", "above_max_allocation", "leverage_above_limit", "builder_fee_approval_required"] },
-  { method: "POST", path: "/me/copy/live/mandates/:id/approve", status: 200, auth: "user (owner); exact owner consent; the copy starts once funded when automatic testnet execution is on", response: liveCopyMandateSchema, errors: ["consent_expired", "invalid_consent"] },
   { method: "POST", path: "/me/copy/live/mandates/:id/pause", status: 200, auth: "user (owner); local new-risk barrier", response: liveCopyMandateSchema, errors: ["live_stop_in_progress"] },
   { method: "POST", path: "/me/copy/live/mandates/:id/resume", status: 200, auth: "user (owner); no signature within the generation's lifetime", response: liveCopyMandateSchema, errors: ["live_stop_in_progress", "copy_paused"] },
   { method: "POST", path: "/me/copy/live/mandates/:id/revoke", status: 200, auth: "user (owner); local consent revocation preserves liabilities", response: liveCopyMandateSchema, errors: ["live_stop_in_progress"] },

@@ -24,8 +24,6 @@ export const liveCopyStrategySchema = z.object({
   pauseNewRisk: z.boolean(), reduceOnly: z.boolean(), createdAt: z.string().datetime(),
 }).strict();
 export type LiveCopyStrategy = z.infer<typeof liveCopyStrategySchema>;
-export const prepareLiveCopyMandateSchema = z.object({ idempotencyKey: copyIdempotencyKeySchema }).strict();
-export const approveLiveCopyMandateSchema = z.object({ consentSignature: z.string().regex(/^0x[0-9a-fA-F]{130}$/) }).strict();
 export const liveCopyMandateIntentSchema = z.object({
   mandateId: id, accountId: id, userId: version, strategyId: version, strategyVersion: version,
   network: z.enum(['testnet', 'mainnet']), sourceNetwork: z.enum(['testnet', 'mainnet']), leaderAddress: address,
@@ -54,13 +52,6 @@ export const liveCopyMandateSchema = z.object({
   createdAt: z.string().datetime(), updatedAt: z.string().datetime(),
 }).strict();
 export type LiveCopyMandate = z.infer<typeof liveCopyMandateSchema>;
-export const liveCopyMandateRenewalSchema = z.object({ checkedAt: z.string().datetime(), eligible: z.boolean(),
-  reason: z.enum(['prepared_consent_expired', 'generation_expired', 'revoked']).nullable(), mandateId: z.string().min(1).max(128), revision: z.number().int().positive(), nonce: millis,
-}).strict().refine(v => v.eligible === (v.reason !== null));
-export const liveCopyMandateChallengeSchema = z.object({ mandate: liveCopyMandateSchema, intent: liveCopyMandateIntentSchema, renewal: liveCopyMandateRenewalSchema.optional() }).strict().superRefine((v, ctx) => {
-  if (v.renewal && (v.renewal.mandateId !== v.mandate.id || v.renewal.revision !== v.mandate.revision || v.renewal.nonce !== v.intent.nonce))
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Renewal evidence must refer to the original consent generation' });
-});
 export const liveCopyOverviewSchema = z.object({
   mode: z.literal('actual'), network: z.enum(['testnet', 'mainnet']),
   capabilities: z.object({ strategyPreparation: z.boolean(), automaticExecution: z.boolean(), sourceNetworks: z.array(z.enum(['testnet', 'mainnet'])),
@@ -73,26 +64,6 @@ export const liveCopyOverviewSchema = z.object({
       maxLeverage: z.number().nullable(), maxStrategiesPerUser: z.number().int().positive() }).strict().optional() }).strict(),
   strategies: z.array(liveCopyStrategySchema), mandates: z.array(liveCopyMandateSchema),
 }).strict();
-
-/** Local owner consent. This payload does not itself invoke the exchange. */
-export function liveCopyMandateOwnerTypedData(value: LiveCopyMandateIntent) {
-  const input = liveCopyMandateIntentSchema.parse(value);
-  const fields: [string, string][] = [
-    ['mandateId', 'string'], ['accountId', 'string'], ['userId', 'uint64'], ['strategyId', 'uint64'], ['strategyVersion', 'uint64'],
-    ['network', 'string'], ['sourceNetwork', 'string'], ['leaderAddress', 'address'], ['accountAddress', 'address'],
-    ['accountRevision', 'uint64'], ['ownerAddress', 'address'], ['ownerPrivyUserId', 'string'],
-    ['setupId', 'string'], ['setupRevision', 'uint64'], ['executionWalletId', 'string'], ['agentWalletId', 'string'], ['agentAddress', 'address'],
-    ['authorizationId', 'string'], ['authorizationVersion', 'uint64'], ['policyId', 'string'], ['policyFingerprint', 'string'],
-    ['workerQuorumId', 'string'], ['settingsDigest', 'string'], ['budgetUsd', 'string'], ['builderAddress', 'address'],
-    ['builderMaxFeeTenthsOfBps', 'uint64'], ['plannerVersion', 'uint64'], ['nonce', 'uint64'], ['consentExpiresAt', 'uint64'], ['expiresAt', 'uint64'],
-  ];
-  return {
-    domain: { name: 'Copy Trading Mandate', version: '1', chainId: 421614, verifyingContract: `0x${'00'.repeat(20)}` as `0x${string}` },
-    primaryType: 'CopyTradingMandate' as const,
-    types: { CopyTradingMandate: fields.map(([name, type]) => ({ name, type })) },
-    message: { ...input, builderAddress: input.builderAddress ?? `0x${'00'.repeat(20)}` },
-  };
-}
 
 /** Where a testnet copy stands, as CopyDog's portfolio shows it: setup →
  * needs_deposit → funding → awaiting_credit → starting → active (or paused);

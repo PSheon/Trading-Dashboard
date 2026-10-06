@@ -10,17 +10,16 @@ import { useCreateExecutionWallet, useExecutionWallets, useReconcileExecutionWal
 import { truncateAddress } from "@/lib/format";
 import { CopyFundingSettings } from "./copy-funding";
 import { CopyFollowerStatementSettings } from "./copy-follower-statement";
-import { CopyLiveStrategySettings } from "./copy-live";
-import { useActualCopyWalletPreparation, useLiveCopyOverview } from "@/lib/copy-live";
 import { SkelBar } from "@/components/page";
 
-/** Setup and revocation only. Preparing a wallet never starts trading. */
+/** Setup and revocation only. Preparing a wallet never starts trading.
+ * Paper copies only: an actual copy gets its wallet, agent and consent from
+ * its one-click setup (`/me/copy/live/setups`). */
 export function ExecutionWalletSettings() {
   const { t, format } = useI18n();
   const selectId = useId();
   const wallets = useExecutionWallets();
   const copies = useCopyOverview();
-  const actual = useLiveCopyOverview();
   const create = useCreateExecutionWallet();
   const reconcile = useReconcileExecutionWallet();
   const revoke = useRevokeWalletAuthorization();
@@ -28,21 +27,16 @@ export function ExecutionWalletSettings() {
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
   const { openExport } = useWalletModals();
   const data = wallets.data;
-  const eligibleActual = data?.network === "testnet" ? actual.data?.strategies.filter(item => item.status === "paused" && item.pauseNewRisk && !item.reduceOnly) ?? [] : [];
-  const eligibleCopies = [ ...(copies.data?.strategies.filter(item => item.status !== "stopped" && item.status !== "stopping").map(item => ({ ...item, kind: "paper" as const })) ?? []), ...eligibleActual.map(item => ({ ...item, kind: "actual" as const })) ];
+  const eligibleCopies = copies.data?.strategies.filter(item => item.status !== "stopped" && item.status !== "stopping") ?? [];
   const strategy = eligibleCopies.find((item) => String(item.id) === selected);
-  const actualStrategy = eligibleActual.find(item => item.id === strategy?.id);
-  const actualWallet = useActualCopyWalletPreparation(eligibleActual, actualStrategy?.id ?? null);
-  const originalWallet = actualWallet.recovery.data?.find(item => item.strategyId === actualStrategy?.id);
   const existing = data?.accounts.some((account) => account.strategyId === strategy?.id && account.network === data.network);
-  const busy = create.isPending || actualWallet.isPending || reconcile.isPending || revoke.isPending;
-  const error = create.isError || actualWallet.isError || reconcile.isError || revoke.isError;
+  const busy = create.isPending || reconcile.isPending || revoke.isPending;
+  const error = create.isError || reconcile.isError || revoke.isError;
 
   return (
     <section className="orbit-card card-pad" aria-label={t("executionWallets.title")}>
       <h3 className="text-[0.9375rem] font-bold">{t("executionWallets.title")}</h3>
       <p className="mt-2 text-xs leading-5 text-muted-foreground">{t("executionWallets.setupHint")}</p>
-      <CopyLiveStrategySettings accounts={wallets.isError ? [] : data?.accounts ?? []} authorizations={wallets.isError ? [] : data?.authorizations ?? []}/>
       {wallets.isPending ? (
         <>
           <p role="status" className="sr-only">{t("executionWallets.loading")}</p>
@@ -87,14 +81,13 @@ export function ExecutionWalletSettings() {
               <div className="min-w-0 flex-1">
                 <label htmlFor={selectId} className="block text-xs font-semibold">{t("executionWallets.strategy")}</label>
                 <Select id={selectId} value={selected} onValueChange={(value) => { setSelected(value); create.reset(); }} className="mt-1 w-full" disabled={busy} placeholder={t("executionWallets.selectStrategy")}
-                  options={eligibleCopies.map((item) => ({ value: String(item.id), label: `${t("executionWallets.copyNumber", { id: item.id })} · ${truncateAddress(item.leaderAddress)}${item.kind === "actual" ? ` · ${t("copyLive.actual")}` : ""}` }))} />
+                  options={eligibleCopies.map((item) => ({ value: String(item.id), label: `${t("executionWallets.copyNumber", { id: item.id })} · ${truncateAddress(item.leaderAddress)}` }))} />
               </div>
-              <Button size="sm" loading={actualWallet.isPending || create.isPending} disabled={!(actualWallet.isPending || create.isPending) && (!strategy || existing || !data.available || busy || wallets.isError || Boolean(actualStrategy && (!actual.data?.capabilities.strategyPreparation || !actualWallet.recovery.isSuccess)))} onClick={() => { if (actualStrategy) actualWallet.mutate(actualStrategy); else if (strategy) create.mutate({ strategyId: strategy.id, network: data.network }); }}>
-                {create.isPending || actualWallet.isPending ? t("executionWallets.creating") : existing ? t("executionWallets.prepared") : originalWallet ? t("copyLive.find") : t("executionWallets.create")}
+              <Button size="sm" loading={create.isPending} disabled={!create.isPending && (!strategy || existing || !data.available || busy || wallets.isError)} onClick={() => { if (strategy) create.mutate({ strategyId: strategy.id, network: data.network }); }}>
+                {create.isPending ? t("executionWallets.creating") : existing ? t("executionWallets.prepared") : t("executionWallets.create")}
               </Button>
             </div>
           ) : <p className="mt-3 text-xs text-muted-foreground">{t("executionWallets.noCopies")}</p>}
-          {originalWallet && !existing ? <p role="status" className="mt-3 text-xs text-warning">{t("copyLive.pending")}</p> : null}
           {error ? <p role="alert" className="mt-3 text-xs text-negative">{t("executionWallets.actionError")}</p> : null}
           <div className="mt-4 space-y-3">
             {data.accounts.map((account) => (

@@ -16,6 +16,7 @@ import { HyperliquidBudgetWait } from '../src/hyperliquid/hyperliquid-budget-wai
 import { CopyWalletRepository } from '../src/copy/copy-wallet.repository.js';
 import type { AgentConsentIntent } from '../src/copy/copy-agent-consent.js';
 import type { AppConfig } from '../src/config/app-config.js';
+import { AccountRepository } from '../src/users/account.repository.js';
 import { testConfig } from './config-test-utils.js';
 import { closeTestDb, getTestDb, insertUser, openCopyTrading, truncateAll, type TestDb } from './db-test-utils.js';
 
@@ -360,6 +361,29 @@ describe('one-click testnet copy setup', () => {
     await service.advance(uid, setup.id);
     expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'expired', issue: 'setup_expired', pendingSignature: null });
     expect(fakes.modes.setupNonce).not.toHaveBeenCalled();
+  });
+
+  it("a deposit Hyperliquid took but never credited ends the setup at its deadline, and no longer holds cancel or account deletion", async () => {
+    const setup = await start();
+    await service.confirm(uid, setup.id, await sign(setup.consent!));
+    later(5_000); await service.tick();
+    expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'funding_submitted', issue: 'awaiting_credit' });
+    // Before the deadline the deposit still holds everything.
+    await expect(service.cancel(uid, setup.id)).rejects.toMatchObject({ status: 409, response: { code: 'funding_pending' } });
+    later(25 * 3_600_000); await service.tick();
+    // Ended, with where the money went: sent (accepted) to the copy wallet.
+    const ended = await service.get(uid, setup.id);
+    expect(ended).toMatchObject({ stage: 'expired', issue: 'setup_deposit_uncredited', funding: { status: 'accepted', destination: accountAddress, amount: '100' } });
+    const blockers = await db.transaction(tx => new AccountRepository(db).blockers(tx, uid));
+    expect(blockers.map(blocker => blocker.code)).not.toContain('transfer_pending');
+    expect(blockers.map(blocker => blocker.code)).not.toContain('setup_in_progress');
+    expect((await service.cancel(uid, setup.id)).stage).toBe('cancelled');
+    expect((await db.select().from(copyStrategies).where(eq(copyStrategies.id, setup.strategyId)))[0]!.status).toBe('stopped');
+    // The deposit is still looked for (a credit seen later lands in the copy wallet).
+    expect((await db.select().from(copyFundingOperations).where(eq(copyFundingOperations.id, setup.consent!.fundingOperationId)))[0]!.status).toBe('accepted');
+    // The main wallet's next deposit still waits for it (one pending transfer
+    // per source wallet): a clean refusal, not a stuck setup.
+    await expect(start('setup-start-key-000002')).rejects.toMatchObject({ status: 409, response: { code: 'funding_pending' } });
   });
 
   it('the dialog runs no step sooner than it was told: a busy shared Hyperliquid window is a wait of at least 65 s, not a failure', async () => {

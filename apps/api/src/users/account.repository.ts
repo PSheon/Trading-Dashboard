@@ -94,7 +94,8 @@ export class AccountRepository {
       update copy_strategies s set status = 'stopped', pause_new_risk = true, stopped_at = now()
       where s.user_id = ${userId} and s.mode = 'testnet' and s.status = 'paused'
         and not exists (select 1 from copy_live_mandates m where m.strategy_id = s.id and m.state in ('active', 'paused', 'stopping', 'stopped'))
-        and not exists (select 1 from copy_funding_operations f where f.strategy_id = s.id and f.status in ('prepared', 'unknown', 'accepted'))
+        and not exists (select 1 from copy_funding_operations f where f.strategy_id = s.id and f.status in ('prepared', 'unknown', 'accepted')
+          and not (f.status = 'accepted' and exists (select 1 from copy_live_setups x where x.id = f.live_setup_id and x.stage in ('expired', 'cancelled', 'failed'))))
         and not exists (select 1 from copy_live_executions e where e.strategy_id = s.id)
         and not exists (select 1 from copy_live_stop_operations o where o.strategy_id = s.id)
         and not exists (select 1 from copy_live_setups x where x.strategy_id = s.id and x.stage not in ('failed', 'expired', 'cancelled'))
@@ -117,7 +118,11 @@ export class AccountRepository {
     if (stops.rows.length) found.push(["stop_in_progress", ids(stops.rows)]);
     const setups = await tx.execute<{ strategy_id: number }>(sql`select strategy_id from copy_live_setups where user_id = ${userId} and stage not in ('running', 'failed', 'expired', 'cancelled')`);
     if (setups.rows.length) found.push(["setup_in_progress", ids(setups.rows)]);
-    const transfers = await tx.execute<{ strategy_id: number }>(sql`select strategy_id from copy_funding_operations where user_id = ${userId} and status in ('prepared', 'unknown', 'accepted')`);
+    // A setup's deposit whose credit was never seen once the setup ended at
+    // its deadline doesn't hold the account: what arrived is checked on the
+    // exchange (copy_account_not_empty).
+    const transfers = await tx.execute<{ strategy_id: number }>(sql`select strategy_id from copy_funding_operations f where f.user_id = ${userId} and f.status in ('prepared', 'unknown', 'accepted')
+      and not (f.status = 'accepted' and exists (select 1 from copy_live_setups x where x.id = f.live_setup_id and x.stage in ('expired', 'cancelled', 'failed')))`);
     if (transfers.rows.length) found.push(["transfer_pending", ids(transfers.rows)]);
     const executions = await tx.execute<{ strategy_id: number }>(sql`select strategy_id from copy_live_executions where user_id = ${userId} and state in ('prepared', 'submitting', 'unknown', 'resting', 'partial')`);
     if (executions.rows.length) found.push(["execution_pending", ids(executions.rows)]);

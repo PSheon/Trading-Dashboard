@@ -83,5 +83,31 @@ describe('testnet copy stages for the portfolio', () => {
     expect((await stage()).setup).toMatchObject({ id: intent.setupId, stage: 'awaiting_consent', consent: intent });
     await db.update(schema.copyLiveSetups).set({ consentExpiresAt: new Date(at - 1) });
     expect((await stage()).setup).toMatchObject({ stage: 'awaiting_consent', consent: null });
+    // consentOf: only a setup still awaiting its consent, with an intent that parses.
+    await db.update(schema.copyLiveSetups).set({ consentExpiresAt: new Date(at + 300_000), intent: { ...intent, budgetUsd: 'not a budget' } });
+    expect((await stage()).setup).toMatchObject({ stage: 'awaiting_consent', consent: null });
+    await db.update(schema.copyLiveSetups).set({ intent });
+    expect((await stage()).setup!.consent).toMatchObject({ setupId: intent.setupId });
+    const confirmed = { consentDigest: 'c'.repeat(64), confirmedAt: new Date(at), signerKind: 'owner_session' as const, setupDeadline: new Date(at + 86_400_000) };
+    for (const later of ['provisioning', 'consented', 'funding_submitted', 'failed'] as const) {
+      await db.update(schema.copyLiveSetups).set({ stage: later, ...(['consented', 'funding_submitted'].includes(later) ? confirmed : {}) });
+      expect((await stage()).setup, later).toMatchObject({ stage: later, consent: null });
+    }
+    await db.update(schema.copyLiveSetups).set({ stage: 'awaiting_consent', intent: null, consentDigest: null, confirmedAt: null, signerKind: null, setupDeadline: null });
+    expect((await stage()).setup).toMatchObject({ consent: null });
+  });
+  it("a deposit whose credit was never seen by its setup's deadline holds nothing and is offered back like a credited one", async () => {
+    await db.delete(schema.copyLiveMandates);
+    const setupId = '99999999-9999-4999-8999-999999999999';
+    await db.insert(schema.copyLiveSetups).values({ id: setupId, userId: 1, strategyId: 9, accountId: 'account', kind: 'start', idempotencyKey: 'portfolio-uncredited-0001',
+      stage: 'funding_submitted', leaderAddress: `0x${'44'.repeat(20)}`, sourceNetwork: 'testnet', budgetUsd: '50', settings: {},
+      consentDigest: 'c'.repeat(64), intentDigest: 'd'.repeat(64), confirmedAt: new Date(now), signerKind: 'owner_session', setupDeadline: new Date(now + 86_400_000) });
+    await funding('accepted', '33333333-3333-4333-8333-333333333333', { liveSetupId: setupId });
+    // While the setup waits for it: the deposit is in flight.
+    expect(await stage()).toMatchObject({ stage: 'setup', pendingTransfer: { direction: 'to_account', status: 'accepted' } });
+    // The setup ended at its deadline, then was cancelled (its strategy stopped).
+    await db.update(schema.copyLiveSetups).set({ stage: 'cancelled', issue: 'setup_deposit_uncredited' });
+    await db.update(schema.copyStrategies).set({ status: 'stopped', stoppedAt: new Date(now) });
+    expect(await stage()).toMatchObject({ stage: 'sweeping', pendingTransfer: null });
   });
 });

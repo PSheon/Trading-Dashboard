@@ -44,9 +44,15 @@ export class CopyLivePortfolioRepository {
       const activation = mandate ? activations.find(a => a.mandateId === mandate.id) : undefined;
       const stop = stops.find(row => row.strategyId === s.id && row.state !== 'stopped') ?? null;
       const ops = transfers.filter(t => t.strategyId === s.id);
+      // A setup's deposit Hyperliquid took whose credit was never seen by the
+      // setup's deadline (it ended: setup_deposit_uncredited): what arrived
+      // is in the copy wallet, so it is offered back like a credited one and
+      // holds nothing (see funding-blocking.ts).
+      const uncredited = (t: (typeof ops)[number]) => t.direction === 'to_account' && t.status === 'accepted' && Boolean(t.liveSetupId) &&
+        liveSetups.some(row => row.id === t.liveSetupId && ['expired', 'cancelled', 'failed'].includes(row.stage));
       // A return prepared and never attempted past its consent window can no
       // longer be sent (it is cancelled on the next reservation): not pending.
-      const pending = ops.find(t => ['prepared', 'unknown', 'accepted'].includes(t.status) &&
+      const pending = ops.find(t => ['prepared', 'unknown', 'accepted'].includes(t.status) && !uncredited(t) &&
         !(t.direction === 'to_main' && t.status === 'prepared' && !t.attemptedAt && t.createdAt.getTime() < Date.now() - RETURN_CONSENT_WINDOW_MS)) ?? null;
       const deposited = ops.some(t => t.direction === 'to_account' && t.status === 'credited');
       const refusal = refusals.find(r => r.strategyId === s.id && r.reason);
@@ -54,7 +60,7 @@ export class CopyLivePortfolioRepository {
       const latestStop = stops.find(row => row.strategyId === s.id);
       // A start that ended without a generation stops with no stop operation:
       // a deposit that arrived is returned by hand (a sweep of a stopped copy).
-      const lastDeposit = ops.find(t => t.direction === 'to_account' && t.status === 'credited');
+      const lastDeposit = ops.find(t => t.direction === 'to_account' && (t.status === 'credited' || uncredited(t)));
       const stranded = s.status === 'stopped' && !latestStop && Boolean(lastDeposit) &&
         !ops.some(t => t.direction === 'to_main' && t.status === 'credited' && t.createdAt >= lastDeposit!.createdAt);
       const sweep = latestStop ? ops.find(t => t.direction === 'to_main' && t.stopId === latestStop.id) ?? null

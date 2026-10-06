@@ -51,6 +51,8 @@ export interface SetupSigner {
   readonly kind: 'owner_session' | 'worker_policy';
   sign(account: MasterAccount, data: MasterTypedData, bound: MasterActionBound, deadline: number): Promise<string>;
 }
+/** Failures that are the deadline passing (the setup ends `expired`). */
+const EXPIRED_ISSUES: readonly string[] = ['setup_expired', 'setup_deposit_uncredited'];
 /** A step can't go on yet (a lookup is pending, or a signature is due). */
 class Wait extends Error { constructor(readonly issue: string, readonly retryMs = 3_000) { super(issue); } }
 /** The setup cannot finish; the owner sees the code. */
@@ -572,7 +574,7 @@ export class CopyLiveSetupService {
             const retryMs = error.reason === 'shared_capacity' ? Math.max(SHARED_CAPACITY_RETRY_MS, error.retryMs) : Math.max(1_000, error.retryMs);
             row = (await this.repository.transition(row, { issue: 'hyperliquid_busy', nextAttemptAt: new Date(this.now() + retryMs) })) ?? row; break;
           }
-          if (error instanceof Fail) { row = (await this.repository.transition(row, { stage: error.issue === 'setup_expired' ? 'expired' : 'failed', issue: error.issue, nextAttemptAt: null })) ?? row; break; }
+          if (error instanceof Fail) { row = (await this.repository.transition(row, { stage: EXPIRED_ISSUES.includes(error.issue) ? 'expired' : 'failed', issue: error.issue, nextAttemptAt: null })) ?? row; break; }
           const code = error instanceof HttpException && typeof error.getResponse() === 'object' && (error.getResponse() as { code?: unknown }).code;
           const issue = typeof code === 'string' ? code : error instanceof Error && /^[a-z][a-z0-9_]{2,79}$/.test(error.message) ? error.message : 'setup_step_pending';
           const capacity = error instanceof LiveBoundaryError && error.code === 'hyperliquid_quota_exhausted';
@@ -613,6 +615,12 @@ export class CopyLiveSetupService {
         const deposit = await this.fundingRows.find(row.userId, intent.fundingOperationId);
         if (deposit.status === 'credited') return this.move(row, 'funded');
         if (deposit.status === 'rejected' || deposit.status === 'cancelled') throw new Fail('setup_funding_rejected');
+        // Hyperliquid took the deposit but its credit was never seen: at the
+        // deadline the setup ends (expired) with the deposit's whereabouts on
+        // it (its funding: sent to the copy wallet), so cancel, a new start, a
+        // return and account deletion are no longer held by it. A credit seen
+        // later lands in the copy wallet and is returned from the portfolio.
+        if (row.setupDeadline && this.now() >= row.setupDeadline.getTime()) throw new Fail('setup_deposit_uncredited');
         throw new Wait('awaiting_credit', 3_000);
       }
       case 'funded': return this.modeStep(row, intent, signer);

@@ -6,6 +6,7 @@ import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
 import type { DbTransaction } from '../db/unit-of-work.js';
 import { lockCopyUser } from './copy-user-lock.js';
+import { blockingFunding } from './funding-blocking.js';
 
 export type ReturnRow = typeof copyFundingOperations.$inferSelect;
 export type BuilderApprovalRow = typeof copyLiveBuilderApprovals.$inferSelect;
@@ -78,7 +79,7 @@ export class CopyLiveReturnRepository {
       if (!input.sweep && (stop || ['stopping', 'stopped'].includes(strategy.status))) throw new ConflictException({ statusCode: 409, code: 'return_use_sweep', message: 'The copy is stopping: return everything once it is flat' });
       await expireStaleReturns(tx, accountId);
       const pendingRows = await tx.select({ id: copyFundingOperations.id }).from(copyFundingOperations)
-        .where(and(eq(copyFundingOperations.accountId, accountId), inArray(copyFundingOperations.status, ['prepared', 'unknown', 'accepted']))).limit(1);
+        .where(and(eq(copyFundingOperations.accountId, accountId), blockingFunding())).limit(1);
       const hubPending = await tx.select({ id: walletWithdrawals.id }).from(walletWithdrawals)
         .where(and(eq(walletWithdrawals.network, 'testnet'), eq(walletWithdrawals.address, owner.embeddedWalletAddress!), inArray(walletWithdrawals.status, ['prepared', 'unknown']))).limit(1);
       if (pendingRows.length || hubPending.length) throw busy();
@@ -104,7 +105,7 @@ export class CopyLiveReturnRepository {
       if (open?.id !== stop.id || open.state !== 'flat' || !account.sweepDestination || account.sweepDestination !== owner.embeddedWalletAddress) return null;
       await expireStaleReturns(tx, account.id);
       const pendingRows = await tx.select({ id: copyFundingOperations.id }).from(copyFundingOperations)
-        .where(and(eq(copyFundingOperations.accountId, account.id), inArray(copyFundingOperations.status, ['prepared', 'unknown', 'accepted']))).limit(1);
+        .where(and(eq(copyFundingOperations.accountId, account.id), blockingFunding())).limit(1);
       const hubPending = await tx.select({ id: walletWithdrawals.id }).from(walletWithdrawals)
         .where(and(eq(walletWithdrawals.network, 'testnet'), eq(walletWithdrawals.address, owner.embeddedWalletAddress!), inArray(walletWithdrawals.status, ['prepared', 'unknown']))).limit(1);
       if (pendingRows.length || hubPending.length) return null;

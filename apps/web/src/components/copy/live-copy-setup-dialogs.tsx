@@ -43,6 +43,15 @@ function stoppedText(texts: CopyTexts, setup: LiveCopySetup): string {
 const BUSY_ISSUES = new Set(["busy", "hyperliquid_busy", "hyperliquid_quota_exhausted"]);
 const QUIET_ISSUES = new Set(["awaiting_credit", "awaiting_owner_signature", "awaiting_owner_session", "funding_not_submitted"]);
 
+/** The confirm sheet's trader line: the name and the short address, or the
+ * address once when the trader has no name of their own (the name a page
+ * passes is then the same short address, or the full one). */
+export function confirmTraderLine(address: string, name?: string | null): string {
+  const short = truncateAddress(address), own = name?.trim();
+  if (!own || own === short || own.toLowerCase() === address.toLowerCase()) return short;
+  return `${own} · ${short}`;
+}
+
 /**
  * Orbie's confirm sheet (plan §1 step 2): every term the one consent binds,
  * in plain words, and one button. The signatures behind it are silent
@@ -57,7 +66,7 @@ export function LiveCopyConfirm({ setup, traderName, open, onOpenChange, onConfi
   const consent = setup?.consent ?? null, settings = setup?.settings;
   const title = setup?.kind === "edit" ? text.editTitle : setup?.kind === "renewal" ? text.renewTitle : text.confirmTitle;
   const rows: [string, string][] = consent && settings ? [
-    [text.trader, traderName ? `${traderName} · ${truncateAddress(consent.leaderAddress)}` : truncateAddress(consent.leaderAddress)],
+    [text.trader, confirmTraderLine(consent.leaderAddress, traderName)],
     [text.budget, `${format.num(Number(consent.budgetUsd), 2)} USDC`],
     [text.direction, settings.direction === "reverse" ? text.reverse : text.same],
     [text.sizing, settings.sizingMode === "fixed" && settings.perTradeUsd !== null ? `${text.fixed} · ${format.num(settings.perTradeUsd, 2)} USDC` : text.ratio],

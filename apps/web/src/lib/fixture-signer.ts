@@ -22,12 +22,13 @@ export function fixtureSigner(search: string): WalletSigner | null {
     exportCopyKey: async () => { throw new Error("Export is not part of fixture mode"); },
     signTypedData: async (data) => { fixtureSignerCalls.push(data.primaryType); return `0x${"ab".repeat(65)}`; },
     // `?signers=fail`: Privy refuses (or the owner declines) adding the worker;
+    // `?signers=decline-once`: declined the first time only (the owner retries);
     // `?signers=hang`: Privy never answers (confirm gives up after its timeout).
     addSigners: async (address, signers) => {
       if (!/^0x[0-9a-fA-F]{40}$/.test(address) || address.toLowerCase() === FIXTURE_WALLET_ADDRESS) throw new Error("copy_wallet_unavailable");
       fixtureSignerCalls.push("addSigners");
       const mode = sticky(search, "signers", SIGNERS);
-      if (mode === "fail") throw new Error("User rejected the request");
+      if (mode === "fail" || (mode === "decline-once" && !declinedOnce)) { declinedOnce = true; throw new Error("User rejected the request"); }
       if (mode === "hang") return new Promise<void>(() => undefined);
       fixtureSigners.set(address.toLowerCase(), signers.map((signer) => ({ signerId: signer.signerId, policyIds: [...signer.policyIds] })));
     },
@@ -37,6 +38,7 @@ export function fixtureSigner(search: string): WalletSigner | null {
 }
 
 const SIGNERS = "orbie:fixtures:signers";
+let declinedOnce = false;
 /** Every signature (its primary type) and addSigners the fixture wallet was asked for, in order. */
 export const fixtureSignerCalls: string[] = [];
 /** The signers the fixture signer added to copy accounts (what Privy would

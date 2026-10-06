@@ -165,7 +165,7 @@ test("addSigners declined: nothing is deposited and the copy does not start; con
   const errors = pageErrors(page);
   await context.addCookies([{ name: "locale", value: "zh-TW", url: baseURL! }]);
   await page.setViewportSize({ width: 1440, height: 900 });
-  const confirm = await startCopy(page, 1440, "signers=fail");
+  const confirm = await startCopy(page, 1440, "signers=decline-once");
   // The sheet stays, with what happened; no /confirm was sent (no progress dialog).
   await expect(confirm.getByRole("alert")).toHaveText("Orbie 需要加入它的簽署者才能執行這個跟單。沒有入金，跟單也沒有開始。請再試一次並允許。");
   await expect(page.getByRole("dialog", { name: /正在設定跟單|跟單已開始/ })).toHaveCount(0);
@@ -173,9 +173,9 @@ test("addSigners declined: nothing is deposited and the copy does not start; con
   await page.waitForTimeout(500);
   await shot(page, "testnet-copy-signer-declined-1440");
   // Allowed on the retry (the consent still valid): the copy starts.
-  await page.evaluate(() => sessionStorage.setItem("orbie:fixtures:signers", "ok"));
   await confirm.getByRole("button", { name: "確認並開始" }).click();
   await expect(page.getByRole("dialog", { name: "跟單已開始" })).toBeVisible({ timeout: 30000 });
+  expect(await walletCalls(page)).toEqual(["CopyLiveSetupConsent", "HyperliquidTransaction:UsdSend", "addSigners", "CopyLiveSetupConsent", "HyperliquidTransaction:UsdSend", "addSigners"]);
   expect(errors().filter((text) => !/409 \/me\/copy\/live\/setups/.test(text))).toEqual([]);
 });
 

@@ -53,7 +53,7 @@ function OwnedCopyLiveStop({ selection }: { selection: LiveStopSelection | null 
         <Button type="button" aria-describedby={hint} loading={mutation.isPending && mutation.variables === undefined} disabled={!(mutation.isPending && mutation.variables === undefined) && (working || !storageReady || alreadyRequested || selection!.mandate.state === 'prepared' || selection!.mandate.activationCursor === null)} onClick={() => setConfirming(true)}>{working ? text.working : text.request}</Button>
         {selection!.account.address ? <AccountDetails address={selection!.account.address} label={text.account} /> : null}
       </div>}
-      <TransferConfirm kind="stop" open={confirming} amount={null} destination={wallet?.address ?? null} pending={mutation.isPending && mutation.variables === undefined} error={null}
+      <TransferConfirm kind="stop" open={confirming} amount={null} destination={wallet?.address ?? null} network={selection?.account.network ?? null} pending={mutation.isPending && mutation.variables === undefined} error={null}
         onConfirm={() => { setConfirming(false); void send(undefined); }} onOpenChange={setConfirming} />
       {storageError && <p role="alert" className="text-sm">{text.storage}</p>}
       {mutation.isError && <p role="alert" className="text-sm">{text.error}</p>}
@@ -126,7 +126,7 @@ function OwnedStopAction({ selection }: { selection: LiveStopSelection }) {
       <Button type="button" variant="destructive" className="w-full" loading={mutation.isPending} disabled={!mutation.isPending && (!storageReady || selection.mandate.state === 'prepared' || selection.mandate.activationCursor === null)} onClick={() => setConfirming(true)}>{t('folio.stop')}</Button>
     )}
     {mutation.isError ? <p role="alert" className="text-xs text-negative">{text.error}</p> : null}
-    <TransferConfirm kind="stop" open={confirming} amount={null} destination={wallet?.address ?? null} pending={mutation.isPending} error={null}
+    <TransferConfirm kind="stop" open={confirming} amount={null} destination={wallet?.address ?? null} network={selection.account.network} pending={mutation.isPending} error={null}
       onConfirm={() => { setConfirming(false); void send(undefined); }} onOpenChange={setConfirming} />
   </div>;
 }

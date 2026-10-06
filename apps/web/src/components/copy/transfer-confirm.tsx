@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
 import { useI18n } from "@/i18n/provider";
 import { liveCopiesMessages } from "@/i18n/live-copies";
+import { liveSetupText } from "@/i18n/live-setup";
 import { truncateAddress } from "@/lib/format";
 
 export type TransferSheetKind = "withdraw" | "returnAll" | "stop";
@@ -18,8 +19,10 @@ export type TransferSheetKind = "withdraw" | "returnAll" | "stop";
  * same for every account: the worker signs the transfer under the account's
  * Privy policy, so no wallet prompt follows.
  */
-export function TransferConfirm({ kind, open, amount, destination, pending, error, onConfirm, onOpenChange }: {
+export function TransferConfirm({ kind, open, amount, destination, network, pending, error, onConfirm, onOpenChange }: {
   kind: TransferSheetKind; open: boolean;
+  /** The copy account's network: on mainnet the sheet says real funds (it said 測試網 there). */
+  network: "testnet" | "mainnet" | null;
   /** The amount in words: "25.00 USDC", or 全部（約 …） for a return of everything. */
   amount: string | null;
   /** The owner's main wallet address, when known. */
@@ -30,7 +33,7 @@ export function TransferConfirm({ kind, open, amount, destination, pending, erro
   const { locale, t } = useI18n(), ui = liveCopiesMessages[locale].ui;
   const title = kind === "withdraw" ? ui.withdrawTitle : kind === "returnAll" ? ui.returnTitle : ui.stopTitle;
   const wallet = destination ? `${ui.mainWallet} · ${truncateAddress(destination)}` : ui.mainWallet;
-  const rows: [string, string][] = [[ui.amountRow, amount ?? "—"], [ui.destination, wallet], [ui.network, ui.networkValue], [ui.eta, ui.etaValue]];
+  const rows: [string, string][] = [[ui.amountRow, amount ?? "—"], [ui.destination, wallet], [ui.network, liveSetupText(locale, network).networkValue], [ui.eta, ui.etaValue]];
   const cta = kind === "stop" ? ui.confirmStop : kind === "withdraw" ? ui.confirmWithdraw : ui.confirmReturn;
   return (
     <Modal open={open} onOpenChange={(next) => { if (!pending) onOpenChange(next); }} title={title}>

@@ -284,7 +284,7 @@ function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; te
         {busy ? <span role="status" className="text-xs text-muted-foreground">{text.busy}</span> : null}
       </div>
       {failed ? <p role="alert" className="text-xs text-negative">{failed}</p> : null}
-      <TransferConfirm kind={sheet?.kind ?? 'withdraw'} open={sheet !== null} amount={sheetAmount} destination={auth.wallet?.address ?? null}
+      <TransferConfirm kind={sheet?.kind ?? 'withdraw'} open={sheet !== null} amount={sheetAmount} destination={auth.wallet?.address ?? null} network={item.network ?? null}
         pending={actions.transfer.isPending} error={sheetError} onConfirm={confirmTransfer} onOpenChange={(open) => { if (!open) setSheet(null); }} />
       <LiveCopyActions item={item} strategy={strategy} />
     </div>

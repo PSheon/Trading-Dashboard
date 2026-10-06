@@ -508,6 +508,7 @@ export const pt: Messages = {
     copy: "Copiar",
     copied: "Copiado",
     copyFailed: "Não foi possível copiar",
+    signInUnavailable: "Não foi possível carregar o login. Você está navegando sem login; toque em Entrar para tentar de novo.",
     share: "Compartilhar",
     linkCopied: "Link copiado",
     favorite: "Salvar trader",
@@ -1187,6 +1188,7 @@ export const pt: Messages = {
         version: "Configurações v{version}",
       },
       actions: {
+        failed: "Não foi possível pausar ou retomar esta cópia. Tente novamente.",
         pause: "Pausar a cópia",
         resume: "Retomar a cópia",
         stop: "Parar de copiar",

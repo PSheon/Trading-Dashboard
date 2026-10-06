@@ -223,6 +223,17 @@ function orderReason(o: CopyOrderView): string | null {
   return o.reason.replaceAll("_", " ");
 }
 
+/** A paper copy command's failure in words: the code's own text, busy or
+ * rate limited, else `fallback` (never one line for every action). */
+export function paperCopyErrorText(t: (key: MessageKey, values?: Record<string, string | number>) => string, err: unknown, fallback: MessageKey): string {
+  const code = apiErrorCode(err), status = (err as { status?: number } | null)?.status;
+  if (code === "copy_paused") return t("trader.copy.errors.paused");
+  if (code === "copy_not_open" || code === "copy_disabled") return t("trader.copy.errors.disabled");
+  if (status === 429) return t("common.errors.rateLimited");
+  if (status === 502 || status === 503 || status === 504) return t("common.errors.busy");
+  return t(fallback);
+}
+
 /** One copy: CopyDog's account view (your copy, P&L, ROI, capital, equity, days, direction), its actions, settings, positions and paper orders. */
 export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy: CopyStrategyView; leader: Leader; balance: number; onBack: () => void }) {
   const { t, format } = useI18n();
@@ -237,8 +248,9 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
     setError(null);
     try {
       await command.mutateAsync({ id: s.id, command: c });
-    } catch {
-      setError(t("portfolio.copy.edit.failed"));
+    } catch (err) {
+      // Its own words (web audit L7), not the edit dialog's.
+      setError(paperCopyErrorText(t, err, "portfolio.copy.actions.failed"));
     }
   };
   const stat = (label: string, value: React.ReactNode, cls = "") => (
@@ -413,8 +425,8 @@ function StopDialog({ strategy: s, open, onClose }: { strategy: CopyStrategyView
               try {
                 await command.mutateAsync({ id: s.id, command: "stop" });
                 onClose();
-              } catch {
-                setError(t("portfolio.copy.stop.failed"));
+              } catch (err) {
+                setError(paperCopyErrorText(t, err, "portfolio.copy.stop.failed"));
               }
             }}
           >

@@ -34,7 +34,8 @@ export function MaintenanceBanner() {
   const maintenance = data?.maintenance;
   if (!maintenance?.enabled) return null;
   const text = maintenance.message[locale === "zh-TW" ? "zh-TW" : "en"].trim() || t("maintenance.body");
-  const ahead = maintenance.endsAt !== null && Date.parse(maintenance.endsAt) > now;
+  // Not known yet (0, server and hydration): no "ends at" line until it is.
+  const ahead = now > 0 && maintenance.endsAt !== null && Date.parse(maintenance.endsAt) > now;
 
   return (
     <div role="status" className="page-frame pt-3 md:pt-1">

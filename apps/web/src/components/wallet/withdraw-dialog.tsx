@@ -117,6 +117,9 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
   const [amountInputValue, setAmount] = useState("");
   const recovery = useWithdrawalRecovery(summary);
   const pendingOperation = recovery.data?.status === "unknown" || recovery.data?.status === "prepared" ? recovery.data : null;
+  // Withdrawals wait for the recovery read only until it has answered once:
+  // a later failed poll keeps that answer (web audit M7).
+  const recoveryBlocked = recovery.isError && recovery.data === undefined;
   const destination = pendingOperation?.destination ?? destinationInput;
   const amount = pendingOperation?.amount ?? amountInputValue;
   const recovering = Boolean(pendingOperation);
@@ -141,7 +144,7 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
       className="flex flex-col"
       onSubmit={(e) => {
         e.preventDefault();
-        if ((!ready && !recovering) || withdraw.isPending || cancel.isPending || recovery.isPending || recovery.isError) return;
+        if ((!ready && !recovering) || withdraw.isPending || cancel.isPending || recovery.isPending || recoveryBlocked) return;
         // CopyDog's three toasts: "Withdrawing $X…" (no icon) while signing,
         // then the submitted confirmation (and the modal closes) or the error.
         const pending = toast.info(checking ? t("wallet.checkWithdrawal") : t("wallet.withdrawSubmitting", { amount: format.usd(Number(amount), { digits: 2 }) }), { icon: false });
@@ -152,12 +155,12 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
       {pendingOperation && (pendingOperation.status === "prepared" || pendingOperation.canCancel) ? (
         <div className="mb-4 rounded-xl bg-raised p-3 text-sm text-muted-foreground">
           <p>{t("wallet.withdrawPrepared")}</p>
-          <Button type="button" variant="secondary" size="sm" className="mt-3" loading={cancel.isPending} disabled={!(cancel.isPending) && (cancel.isPending || withdraw.isPending || recovery.isError)} onClick={() => cancel.mutate(pendingOperation.id, { onError: () => toast.error(t("common.error")) })}>
+          <Button type="button" variant="secondary" size="sm" className="mt-3" loading={cancel.isPending} disabled={!(cancel.isPending) && (cancel.isPending || withdraw.isPending || recoveryBlocked)} onClick={() => cancel.mutate(pendingOperation.id, { onError: () => toast.error(t("common.error")) })}>
             {cancel.isPending ? t("wallet.cancellingPreparation") : t("wallet.cancelPreparation")}
           </Button>
         </div>
       ) : null}
-      {recovery.isError ? <ErrorState onRetry={() => void recovery.refetch()} /> : null}
+      {recoveryBlocked ? <ErrorState onRetry={() => void recovery.refetch()} /> : null}
       <label htmlFor={destId} className="text-sm font-semibold">
         {t("wallet.destination")}
       </label>
@@ -214,7 +217,7 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
         {t("wallet.withdrawNote", { chain: network.chainLabel, fee: WITHDRAW_FEE_USDC })}
       </p>
 
-      <Button type="submit" size="cta" className="mt-5 w-full" loading={withdraw.isPending} disabled={!(withdraw.isPending) && ((!ready && !recovering) || (!wallet?.address && !checking) || withdraw.isPending || cancel.isPending || recovery.isPending || recovery.isError)}>
+      <Button type="submit" size="cta" className="mt-5 w-full" loading={withdraw.isPending} disabled={!(withdraw.isPending) && ((!ready && !recovering) || (!wallet?.address && !checking) || withdraw.isPending || cancel.isPending || recovery.isPending || recoveryBlocked)}>
         {withdraw.isPending ? checking ? t("common.loading") : t("wallet.withdrawing") : checking ? t("wallet.checkWithdrawal") : t("wallet.withdrawTitle")}
       </Button>
       {!wallet ? <p className="mt-2 text-center text-xs text-muted-foreground">{t("wallet.unavailableDemo")}</p> : null}

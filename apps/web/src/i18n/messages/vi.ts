@@ -508,6 +508,7 @@ export const vi: Messages = {
     copy: "Sao chép",
     copied: "Đã sao chép",
     copyFailed: "Không thể sao chép",
+    signInUnavailable: "Không tải được đăng nhập. Bạn đang xem ở trạng thái chưa đăng nhập; bấm Đăng nhập để thử lại.",
     share: "Chia sẻ",
     linkCopied: "Đã sao chép liên kết",
     favorite: "Lưu trader",
@@ -1187,6 +1188,7 @@ export const vi: Messages = {
         version: "Cài đặt v{version}",
       },
       actions: {
+        failed: "Không thể tạm dừng hoặc tiếp tục bản sao chép này. Hãy thử lại.",
         pause: "Tạm dừng sao chép",
         resume: "Tiếp tục sao chép",
         stop: "Dừng sao chép",

@@ -33,7 +33,7 @@ vi.mock("../src/lib/api", () => ({ api: {
     const status = path.endsWith("/cancel") ? "cancelled" : path.endsWith("/submit") ? "accepted" : state.keepPrepared ? "prepared" : "accepted";
     state.pending = { ...state.pending, status }; return state.pending;
   },
-}, sessionKey: () => state.scope, apiErrorCode: () => undefined }));
+}, sessionKey: () => state.scope, apiErrorCode: () => undefined, isBusy: () => false }));
 vi.mock("../src/components/ui/toast", () => ({ useToast: () => ({ info: () => "toast", dismiss() {}, success() {}, error() {} }) }));
 let root: Root;
 let container: HTMLDivElement;
@@ -78,13 +78,22 @@ it("recovers another device's pending nonce, freezes its input and checks that I
   expect(document.querySelector('[role="dialog"]')).toBeNull();
 });
 
-it("blocks new submissions when durable recovery data cannot be read", async () => {
+it("blocks new submissions while durable recovery data has never been read", async () => {
+  state.failRead = true;
+  await render();
+  const submit = document.querySelector('form button[type="submit"]') as HTMLButtonElement;
+  expect(submit.disabled).toBe(true);
+  await act(async () => submit.click());
+  expect(state.sign).not.toHaveBeenCalled(); expect(state.fetch).not.toHaveBeenCalled();
+});
+
+it("a failed poll after a good read keeps that read: the pending withdrawal can still be looked up (web audit M7)", async () => {
   await render();
   state.failRead = true;
-  await act(async () => { await client.invalidateQueries({ queryKey: ["wallet"] }); }); await settle();
-  expect(button(en.wallet.checkWithdrawal).disabled).toBe(true);
-  await act(async () => button(en.wallet.checkWithdrawal).click());
-  expect(state.sign).not.toHaveBeenCalled(); expect(state.fetch).not.toHaveBeenCalled();
+  await act(async () => { await client.invalidateQueries({ queryKey: ["wallet"] }); });
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1_200)); });
+  expect(button(en.wallet.checkWithdrawal).disabled).toBe(false);
+  expect(document.body.textContent).not.toContain(en.common.error);
 });
 
 it("lets the owner cancel unbroadcast preparation without a signature or exchange request", async () => {
@@ -142,4 +151,15 @@ it("can cancel a lost claim response only when the server proves no exchange att
   await act(async () => button(en.wallet.cancelPreparation).click()); await settle();
   expect(state.posts).toEqual([{ path: "/me/wallet/withdrawals/11111111-1111-4111-8111-111111111111/cancel", body: {} }]);
   expect(state.sign).not.toHaveBeenCalled(); expect(state.fetch).not.toHaveBeenCalled();
+});
+
+it("storage the browser blocks doesn't block withdrawals: the server's journal is read (web audit L9)", async () => {
+  const original = Object.getOwnPropertyDescriptor(window, "localStorage")!;
+  Object.defineProperty(window, "localStorage", { configurable: true, get() { throw new DOMException("blocked", "SecurityError"); } });
+  try {
+    state.pending = null;
+    await render();
+    expect(client.getQueryCache().findAll({ queryKey: ["wallet", "withdrawal"] }).every((query) => query.state.status === "success")).toBe(true);
+    expect(document.body.textContent).not.toContain(en.common.error);
+  } finally { Object.defineProperty(window, "localStorage", original); }
 });

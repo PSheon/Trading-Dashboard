@@ -103,7 +103,9 @@ export function useCopyStream(opts: { enabled: boolean; eventsKey: readonly unkn
         } catch (error) {
           if (stop.signal.aborted) break;
           if (error instanceof ApiError && [400, 401, 403].includes(error.status)) { setStatus("off"); break; }
+          // Rate limited or busy: no sooner than the api's Retry-After (web audit L4).
           if (error instanceof ApiError && error.status === 429) retryAfter = error.retryAfterMs ?? 30_000;
+          else if (error instanceof ApiError && error.status === 503 && error.retryAfterMs) retryAfter = Math.min(65_000, error.retryAfterMs);
           attempt += 1;
         } finally {
           if (watchdog) clearInterval(watchdog);

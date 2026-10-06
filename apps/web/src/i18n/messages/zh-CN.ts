@@ -508,6 +508,7 @@ export const zhCN: Messages = {
     copy: "复制",
     copied: "已复制",
     copyFailed: "复制失败",
+    signInUnavailable: "登录服务加载失败，目前以未登录状态浏览；点击“登录”可重试。",
     share: "分享",
     linkCopied: "链接已复制",
     favorite: "加入收藏",
@@ -1187,6 +1188,7 @@ export const zhCN: Messages = {
         version: "设置版本 v{version}",
       },
       actions: {
+        failed: "无法暂停或恢复这个跟单，请重试。",
         pause: "暂停跟单",
         resume: "恢复跟单",
         stop: "停止跟单",

@@ -203,7 +203,7 @@ export function KpiTiles({
   const first = allTime?.pnl[0]?.[0] ?? null;
   const spanDays = allTime && allTime.pnl.length > 1 ? (allTime.pnl.at(-1)![0] - allTime.pnl[0][0]) / 86_400_000 : null;
   const annual = annualized(roi, PERIOD_DAYS[period] ?? spanDays);
-  const recordDays = first === null ? null : Math.round((now - first) / 86_400_000);
+  const recordDays = first === null || !now ? null : Math.round((now - first) / 86_400_000);
   const annualTitle =
     period === "allTime" && annual !== null && recordDays !== null && recordDays < YOUNG_RECORD_DAYS
       ? t("trader.kpi.annualizedYoung", { days: recordDays })
@@ -248,7 +248,7 @@ export function KpiTiles({
         tone={signTone(pnl)}
         muted={lowSample}
         fill={along(pnl, -1e6, 1e6)}
-        sub={first === null ? "—" : t("trader.kpi.history", { value: trackRecord(first, now) })}
+        sub={first === null || !now ? "—" : t("trader.kpi.history", { value: trackRecord(first, now) })}
       />
       <Tile
         accent={roi !== null && roi < 0 ? "loss" : "profit"}

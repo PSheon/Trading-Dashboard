@@ -629,7 +629,7 @@ function FeedTab({ rows, loading, highlight, favorites, hasFavorites }: {
                   </>
                 ) : null}
               </span>
-              <time className="num shrink-0 text-xs text-subtle-foreground" dateTime={String(row.ts)}>{format.relative(row.ts, now)}</time>
+              <time className="num shrink-0 text-xs text-subtle-foreground" dateTime={String(row.ts)}>{now ? format.relative(row.ts, now) : null}</time>
             </Link>
           </li>
         );

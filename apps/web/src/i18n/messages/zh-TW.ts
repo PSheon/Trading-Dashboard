@@ -1202,6 +1202,7 @@ export const zhTW = {
     copy: "複製",
     copied: "已複製",
     copyFailed: "複製失敗",
+    signInUnavailable: "登入服務載入失敗，目前以未登入狀態瀏覽；按「登入」可再試一次。",
     share: "分享",
     linkCopied: "已複製連結",
     favorite: "加入收藏",
@@ -1882,6 +1883,7 @@ export const zhTW = {
         version: "設定版本 v{version}",
       },
       actions: {
+        failed: "無法暫停或恢復這個跟單，請再試一次。",
         pause: "暫停跟單",
         resume: "恢復跟單",
         stop: "停止跟單",

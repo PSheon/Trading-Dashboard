@@ -1199,6 +1199,7 @@ export const en: Messages = {
     copy: "Copy",
     copied: "Copied",
     copyFailed: "Couldn't copy",
+    signInUnavailable: "Sign-in couldn't load. You're browsing signed out; press Sign in to try again.",
     share: "Share",
     linkCopied: "Link copied",
     favorite: "Add to favorites",
@@ -1878,6 +1879,7 @@ export const en: Messages = {
         version: "Settings v{version}",
       },
       actions: {
+        failed: "Couldn't pause or resume this copy. Try again.",
         pause: "Pause copying",
         resume: "Resume copying",
         stop: "Stop copying",

@@ -107,6 +107,20 @@ async function migrateLegacyWithdrawal(summary: WalletIdentity, expectedSession 
   });
 }
 
+/**
+ * A withdrawal journal an older version of the site kept in this browser.
+ * Blocked storage (a privacy mode, a sandboxed frame) can't hold one, so it
+ * reads as none: the server's journal is the authority, and withdrawals
+ * must not fail for good because the browser refuses storage (web audit
+ * L9). A journal that is there but corrupt still stops (its own error).
+ */
+function legacyJournal(network: WalletIdentity["network"], address: string): boolean {
+  let storage: Storage;
+  try { storage = window.localStorage; } catch { return false; }
+  try { return Boolean(createWithdrawalJournal(storage, network, address).read()); }
+  catch (error) { if (error instanceof Error && error.message === "withdrawal_storage_invalid") throw error; return false; }
+}
+
 /** Pending metadata is scoped by network, account and the signed-in session;
  * the authoritative journal survives browser and device changes. */
 export function useWithdrawalRecovery(summary: WalletIdentity) {
@@ -116,7 +130,7 @@ export function useWithdrawalRecovery(summary: WalletIdentity) {
     queryFn: async ({ signal }) => {
       if (!summary.address) return null;
       const expectedSession = sessionKey();
-      if (createWithdrawalJournal(localStorage, summary.network, summary.address).read()) await withWithdrawalLock(summary, () => migrateLegacyWithdrawal(summary, expectedSession));
+      if (legacyJournal(summary.network, summary.address)) await withWithdrawalLock(summary, () => migrateLegacyWithdrawal(summary, expectedSession));
       const raw = await api.get<WalletWithdrawal | null>(`${WITHDRAWALS}/current`, signal);
       if (!raw) return null;
       const operation = walletWithdrawalSchema.parse(raw);
@@ -126,7 +140,9 @@ export function useWithdrawalRecovery(summary: WalletIdentity) {
     staleTime: 0,
     refetchInterval: 10_000,
     enabled: status === "signedIn" && Boolean(summary.address),
-    retry: false,
+    // A passing failure (busy, 5xx) is asked again; one failed poll after a
+    // good read keeps that read (the dialog blocks only without one).
+    ...busyRetry,
   });
 }
 

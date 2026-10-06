@@ -508,6 +508,7 @@ export const ko: Messages = {
     copy: "복사",
     copied: "복사됨",
     copyFailed: "복사하지 못했습니다",
+    signInUnavailable: "로그인을 불러오지 못했습니다. 로그아웃 상태로 보고 있습니다. 다시 시도하려면 로그인을 누르세요.",
     share: "공유",
     linkCopied: "링크 복사됨",
     favorite: "저장 목록에 추가",
@@ -1187,6 +1188,7 @@ export const ko: Messages = {
         version: "설정 v{version}",
       },
       actions: {
+        failed: "이 카피를 일시중지하거나 재개하지 못했습니다. 다시 시도하세요.",
         pause: "카피 일시중지",
         resume: "카피 재개",
         stop: "카피 중지",

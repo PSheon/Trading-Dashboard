@@ -8,11 +8,13 @@ import type { WireCopyEvents } from "@trading-dashboard/shared/contracts";
 import { describeCopyEvent } from "@/components/copy/copy-feed";
 import { shortAgo } from "@/components/copy/activity-panel";
 
-const stream = vi.hoisted(() => ({ calls: [] as Array<string | undefined>, bodies: [] as string[][] }));
+const stream = vi.hoisted(() => ({ calls: [] as Array<string | undefined>, bodies: [] as string[][], failures: [] as Error[] }));
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
   openEventStream: vi.fn(async (_path: string, opts: { lastEventId?: string; signal: AbortSignal }) => {
     stream.calls.push(opts.lastEventId);
+    const failure = stream.failures.shift();
+    if (failure) throw failure;
     const chunks = stream.bodies.shift() ?? [];
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -78,6 +80,7 @@ describe("useCopyStream", () => {
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
     stream.calls.length = 0;
     stream.bodies.length = 0;
+    stream.failures.length = 0;
     client = new QueryClient();
     container = document.createElement("div");
     document.body.append(container);
@@ -115,6 +118,19 @@ describe("useCopyStream", () => {
     await vi.waitFor(() => expect(seen).toEqual(["9"]));
     expect(stream.calls[0]).toBeUndefined();
     expect(client.getQueryData(key)).toBeUndefined();
+  });
+
+  it("a busy 503 waits for its Retry-After before connecting again (web audit L4)", async () => {
+    const { ApiError } = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      stream.failures.push(new ApiError(503, "busy", { code: "busy" }, 40_000));
+      await act(async () => { root.render(<QueryClientProvider client={client}><Probe onEvent={() => undefined} /></QueryClientProvider>); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+      expect(stream.calls).toHaveLength(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(21_000); });
+      expect(stream.calls).toHaveLength(2);
+    } finally { vi.useRealTimers(); }
   });
 
   it("a reset drops the stale list so it reloads", async () => {

@@ -508,6 +508,7 @@ export const id: Messages = {
     copy: "Salin",
     copied: "Tersalin",
     copyFailed: "Gagal menyalin",
+    signInUnavailable: "Login gagal dimuat. Kamu sedang tidak masuk; tekan Masuk untuk mencoba lagi.",
     share: "Bagikan",
     linkCopied: "Tautan tersalin",
     favorite: "Simpan",
@@ -1187,6 +1188,7 @@ export const id: Messages = {
         version: "Pengaturan v{version}",
       },
       actions: {
+        failed: "Gagal menjeda atau melanjutkan copy ini. Coba lagi.",
         pause: "Jeda penyalinan",
         resume: "Lanjutkan penyalinan",
         stop: "Hentikan penyalinan",

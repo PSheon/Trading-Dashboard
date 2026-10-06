@@ -88,7 +88,7 @@ export function AdminCopyStatus() {
   if (overview.isError && !d) platform = <AdminCard><ErrorState message={overview.error.message} onRetry={() => overview.refetch()} /></AdminCard>;
   else if (!d) platform = <PanelSkeleton rows={2} />;
   else {
-    const lag = signalLagSeconds(d.outbox.oldestPendingAt, now);
+    const lag = now ? signalLagSeconds(d.outbox.oldestPendingAt, now) : null;
     const failed24h = (d.orders24h.rejected ?? 0) + (d.orders24h.cancelled ?? 0);
     const orders24h = Object.values(d.orders24h).reduce((a, n) => a + (n ?? 0), 0);
     platform = (

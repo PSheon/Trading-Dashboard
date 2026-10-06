@@ -6,6 +6,11 @@ import { useSyncExternalStore } from "react";
  * The current time for relative labels ("3 小時前"), ticking every 30 s
  * while anything is subscribed. Components stay pure (no `Date.now()` in
  * render) and all subscribers share one timer and one value.
+ *
+ * 0 on the server and while hydrating (web audit M8): a server process's
+ * clock read once would be days stale, and any time it rendered could
+ * differ from the browser's. A component renders nothing time-dependent
+ * while it is 0; the real time arrives right after hydration.
  */
 const TICK_MS = 30_000;
 
@@ -36,6 +41,8 @@ function getSnapshot(): number {
   return now;
 }
 
+const getServerSnapshot = () => 0;
+
 export function useNow(): number {
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }

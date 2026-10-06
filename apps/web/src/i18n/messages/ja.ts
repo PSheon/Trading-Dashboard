@@ -508,6 +508,7 @@ export const ja: Messages = {
     copy: "コピー",
     copied: "コピーしました",
     copyFailed: "コピーできませんでした",
+    signInUnavailable: "サインインを読み込めませんでした。サインインしていない状態で表示しています。もう一度試すにはサインインを押してください。",
     share: "シェア",
     linkCopied: "リンクをコピーしました",
     favorite: "保存に追加",
@@ -1187,6 +1188,7 @@ export const ja: Messages = {
         version: "設定 v{version}",
       },
       actions: {
+        failed: "このコピーを一時停止・再開できませんでした。もう一度お試しください。",
         pause: "コピーを一時停止",
         resume: "コピーを再開",
         stop: "コピーを停止",

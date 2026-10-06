@@ -508,6 +508,7 @@ export const es: Messages = {
     copy: "Copiar",
     copied: "Copiado",
     copyFailed: "No se pudo copiar",
+    signInUnavailable: "No se pudo cargar el inicio de sesión. Navegas sin sesión; pulsa Iniciar sesión para reintentar.",
     share: "Compartir",
     linkCopied: "Enlace copiado",
     favorite: "Añadir a guardados",
@@ -1187,6 +1188,7 @@ export const es: Messages = {
         version: "Ajustes v{version}",
       },
       actions: {
+        failed: "No se pudo pausar ni reanudar esta copia. Inténtalo de nuevo.",
         pause: "Pausar la copia",
         resume: "Reanudar la copia",
         stop: "Dejar de copiar",

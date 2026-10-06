@@ -46,3 +46,17 @@ it('a 503 or the network on a refetch keeps the portfolio and the overview; a 40
     expect(seen.overview!.data).toBeUndefined();
   } finally { vi.useRealTimers(); }
 });
+
+it("whether testnet copy is available is read once a minute, not on the site-wide 10 s poll (web audit L5)", async () => {
+  const { useLiveCopyAvailable } = await import('@/lib/copy-live-setup');
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    state.get.mockImplementation(async () => overview);
+    const polling = new QueryClient({ defaultOptions: { queries: { refetchInterval: 10_000 } } });
+    function Available() { useLiveCopyAvailable(); return null; }
+    await act(async () => root.render(<QueryClientProvider client={polling}><Available /></QueryClientProvider>));
+    await act(async () => { await vi.advanceTimersByTimeAsync(45_000); });
+    expect(state.get).toHaveBeenCalledTimes(1);
+    polling.clear();
+  } finally { vi.useRealTimers(); }
+});

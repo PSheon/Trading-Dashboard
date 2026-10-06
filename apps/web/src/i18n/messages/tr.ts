@@ -508,6 +508,7 @@ export const tr: Messages = {
     copy: "Kopyala",
     copied: "Kopyalandı",
     copyFailed: "Kopyalanamadı",
+    signInUnavailable: "Giriş yüklenemedi. Oturum açmadan geziyorsunuz; tekrar denemek için Giriş yap'a basın.",
     share: "Paylaş",
     linkCopied: "Bağlantı kopyalandı",
     favorite: "Kaydedilenlere ekle",
@@ -1187,6 +1188,7 @@ export const tr: Messages = {
         version: "Ayarlar v{version}",
       },
       actions: {
+        failed: "Bu kopya duraklatılamadı veya sürdürülemedi. Tekrar deneyin.",
         pause: "Kopyalamayı duraklat",
         resume: "Kopyalamayı sürdür",
         stop: "Kopyalamayı durdur",

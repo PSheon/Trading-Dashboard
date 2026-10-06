@@ -23,7 +23,9 @@ export function liveCopyEnabled(auth: Pick<Auth, 'status' | 'mode' | 'identity' 
 /** Whether this deployment runs testnet copies (`capabilities.automaticExecution`). */
 export function useLiveCopyAvailable(): boolean {
   const auth = useAuth(), enabled = liveCopyEnabled(auth);
-  const query = useQuery({ queryKey: [...queryKeys.copy.all, 'live-capabilities', auth.identity, sessionKey()], enabled, staleTime: 60_000, retry: false,
+  // Once a minute at most: the site-wide 10 s poll would otherwise reread
+  // it on every trader page (web audit L5).
+  const query = useQuery({ queryKey: [...queryKeys.copy.all, 'live-capabilities', auth.identity, sessionKey()], enabled, staleTime: 60_000, refetchInterval: 60_000, retry: false,
     queryFn: async ({ signal }) => liveCopyOverviewSchema.parse(await api.get(ROOT, signal)).capabilities });
   return enabled && query.data?.automaticExecution === true;
 }

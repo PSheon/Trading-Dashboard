@@ -10,7 +10,7 @@ import { en } from "../src/i18n/messages/en";
 const DEST = `0x${"22".repeat(20)}`;
 const state = vi.hoisted(() => ({
   posts: [] as string[], release: null as null | (() => void), fail: null as null | Error,
-  toasts: [] as Array<[string, string]>,
+  toasts: [] as Array<[string, string]>, currentFails: false,
 }));
 const OP = { id: "11111111-1111-4111-8111-111111111111", network: "testnet", address: `0x${"11".repeat(20)}`, destination: `0x${"22".repeat(20)}`, amount: "12.5", nonce: 1780000000000, status: "prepared", createdAt: "2026-10-03T00:00:00.000Z", updatedAt: "2026-10-03T00:00:00.000Z" };
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh() {} }) }));
@@ -22,7 +22,7 @@ vi.mock("../src/lib/auth", () => ({ useAuth: () => ({ status: "signedIn", wallet
 } } }) }));
 vi.mock("../src/lib/api", () => ({ api: {
   get: async (path: string) => {
-    if (path === "/me/wallet/withdrawals/current") return null;
+    if (path === "/me/wallet/withdrawals/current") { if (state.currentFails) throw Object.assign(new Error("Service Unavailable"), { status: 503 }); return null; }
     if (path === "/me/wallet") return { network: "testnet", address: `0x${"11".repeat(20)}`, hyperliquid: { perpValue: 100, withdrawable: 100, spotUsdc: 0, spotUsdcHold: 0 }, arbitrum: null, totalValue: 100, fetchedAt: "2026-10-03T00:00:00.000Z" };
     throw new Error("unexpected GET " + path);
   },
@@ -33,7 +33,7 @@ vi.mock("../src/lib/api", () => ({ api: {
     if (path.endsWith("/submit")) return { ...OP, status: "accepted" };
     throw new Error("unexpected POST " + path);
   },
-}, sessionKey: () => "alice", apiErrorCode: () => undefined }));
+}, sessionKey: () => "alice", apiErrorCode: () => undefined, isBusy: () => false }));
 vi.mock("../src/components/ui/toast", () => ({ useToast: () => ({
   info: (m: string) => { state.toasts.push(["info", m]); return 7; },
   dismiss() {}, success: (m: string) => state.toasts.push(["success", m]), error: (m: string) => state.toasts.push(["error", m]),
@@ -114,4 +114,19 @@ it("does not call the api's busy, rate-limit or connection failures a signing fa
   expect(withdrawErrorText(new Error("User rejected"), t as never, "r")).toBe("wallet.rejected");
   // The wallet SDK's own English message is never shown.
   expect(withdrawErrorText(new Error("Bad typed data"), t as never, "r")).toBe("common.errors.failed");
+});
+
+it("one failed recovery poll after a good read doesn't block withdrawals (web audit M7)", { timeout: 15_000 }, async () => {
+  state.currentFails = false;
+  await render();
+  const submit = () => [...document.querySelectorAll("button")].find((b) => b.textContent === en.wallet.withdrawTitle)!;
+  state.currentFails = true;
+  await act(async () => { await client.refetchQueries(); });
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1_200)); });
+  expect(client.getQueryCache().getAll().some((query) => query.state.status === "error")).toBe(true);
+  expect(document.body.textContent).not.toContain(en.common.error);
+  const [dest, amount] = [...document.querySelectorAll("input")];
+  await act(async () => { type(dest!, DEST); type(amount!, "12.5"); });
+  expect(submit().disabled).toBe(false);
+  state.currentFails = false;
 });

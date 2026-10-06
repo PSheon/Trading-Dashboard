@@ -42,7 +42,8 @@ export function roiPillWhole(ratio: number | null | undefined): string {
 
 /** Last trade as CopyDog tags cards: "52m ago", "21h ago", "3d ago". */
 export function agoShort(time: string | number | Date | null | undefined, now = Date.now()): string | null {
-  if (time === null || time === undefined) return null;
+  // now 0: the time isn't known yet (useNow while hydrating).
+  if (time === null || time === undefined || now === 0) return null;
   const t = new Date(time).getTime();
   if (Number.isNaN(t)) return null;
   const s = Math.max(0, (now - t) / 1000);

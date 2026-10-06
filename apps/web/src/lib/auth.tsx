@@ -20,6 +20,7 @@ import { readLocalStorage, useLocalStorage } from "@/lib/use-local-storage";
 import { useIdentityRefetch } from "@/lib/use-identity-refetch";
 import { useWalletBackfill } from "@/lib/use-wallet-backfill";
 import { IslandBoundary } from "@/components/island-boundary";
+import { useToast } from "@/components/ui/toast";
 
 /**
  * One auth surface for the whole app, whatever is behind it:
@@ -101,6 +102,8 @@ const noSubscription = () => () => {};
 /** When to load the SDK on a page whose visitor has no saved session: once
  * the browser is idle, and at the latest after this long. */
 const PRIVY_IDLE_TIMEOUT_MS = 3_000;
+/** How long Privy may take to become ready once loading, before the visitor is treated as signed out. */
+export const PRIVY_READY_TIMEOUT_MS = 10_000;
 
 function PrivyAuth({ appId, children }: { appId: string; children: React.ReactNode }) {
   const [privy, setPrivy] = useState<PrivySnapshot | null>(null);
@@ -109,6 +112,11 @@ function PrivyAuth({ appId, children }: { appId: string; children: React.ReactNo
   // 登入 tries it again (`attempt` remounts it).
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const toast = useToast(), { t } = useI18n();
+  const fail = useCallback(() => {
+    setPrivy(null); setFailed(true);
+    toast.info(t("common.signInUnavailable"));
+  }, [toast, t]);
   // Whether Privy is needed at once (a saved session, or Privy's OAuth
   // callback in the URL); null on the server and while hydrating, so the
   // server's frame and the first client frame agree ("loading").
@@ -128,6 +136,20 @@ function PrivyAuth({ appId, children }: { appId: string; children: React.ReactNo
     return () => window.clearTimeout(id);
   }, [urgent]);
 
+  // Privy loaded but never ready (its iframe blocked, a hung network): after
+  // PRIVY_READY_TIMEOUT_MS the visitor is signed out and told, instead of
+  // every signed-in request waiting forever (lib/api.ts's identity wait).
+  // It stays mounted: if it does become ready later, the visitor is who
+  // Privy says from then on.
+  const ready = Boolean(privy?.ready);
+  const [timedOut, setTimedOut] = useState(false);
+  useEffect(() => {
+    if (!load || failed || ready) return;
+    const id = window.setTimeout(() => { setTimedOut(true); toast.info(t("common.signInUnavailable")); }, PRIVY_READY_TIMEOUT_MS);
+    return () => window.clearTimeout(id);
+  }, [load, failed, ready, attempt, toast, t]);
+  const unavailable = failed || (timedOut && !ready);
+
   // 登入 pressed before the SDK arrived: open Privy's modal once it is ready.
   useEffect(() => {
     if (!privy?.ready || !loginWhenReady.current) return;
@@ -141,12 +163,12 @@ function PrivyAuth({ appId, children }: { appId: string; children: React.ReactNo
   // Until Privy is ready, a browser with a saved Privy session makes the
   // requests that need the caller wait for the token (public reads go out
   // at once, see lib/api.ts); one without goes ahead as anonymous at once.
-  const scope = failed ? "anonymous" : privy?.ready
+  const scope = unavailable ? "anonymous" : privy?.ready
     ? privy.authenticated && privy.userId ? privy.userId : "anonymous"
     : urgent !== false ? "loading" : "anonymous";
   setAccessTokenGetter(privy?.getAccessToken ?? null, scope);
 
-  const status: AuthStatus = failed ? "signedOut" : privy?.ready
+  const status: AuthStatus = unavailable ? "signedOut" : privy?.ready
     ? privy.authenticated ? "signedIn" : "signedOut"
     : urgent !== false ? "loading" : "signedOut";
   const login = useCallback(() => {
@@ -171,7 +193,7 @@ function PrivyAuth({ appId, children }: { appId: string; children: React.ReactNo
   return (
     <>
       {load && !failed ? (
-        <IslandBoundary key={attempt} onError={() => { setPrivy(null); setFailed(true); }}>
+        <IslandBoundary key={attempt} onError={fail}>
           <Suspense fallback={null}><PrivyRuntime appId={appId} onChange={setPrivy} /></Suspense>
         </IslandBoundary>
       ) : null}

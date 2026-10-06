@@ -50,14 +50,20 @@ export async function signSetup(setup: LiveCopySetup, sign: (data: Eip712TypedDa
  * setup and returns the funds after a stop. Declined or failed: nothing is
  * attached and the setup is signed in this browser instead (no error).
  */
-export async function attachWorker(setup: LiveCopySetup, wallet: Pick<WalletSigner, 'addSigners'>, timeoutMs = ATTACH_WORKER_TIMEOUT_MS): Promise<boolean> {
+export async function attachWorker(setup: LiveCopySetup, wallet: Pick<WalletSigner, 'addSigners'>, timeoutMs = ATTACH_WORKER_TIMEOUT_MS,
+  onLate: (accountId: string) => void = () => undefined): Promise<boolean> {
   const consent = setup.consent;
   if (!consent || consent.kind !== 'start' || !consent.masterPolicyId || !consent.workerQuorumId) return false;
   // Privy may never answer: after `timeoutMs` the setup goes on signed in
   // this browser (confirm checks with Privy what is really attached).
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const late = new Promise<false>(resolve => { timer = setTimeout(() => resolve(false), timeoutMs); });
+  let timer: ReturnType<typeof setTimeout> | undefined, timedOut = false;
+  const late = new Promise<false>(resolve => { timer = setTimeout(() => { timedOut = true; resolve(false); }, timeoutMs); });
   const added = wallet.addSigners(consent.accountAddress, [{ signerId: consent.workerQuorumId, policyIds: [consent.masterPolicyId] }]).then(() => true, () => false);
+  // The signer landing after confirm went on without it: the account's next
+  // reconcile adopts exactly the consented policy (the api's orphan
+  // adoption), so the automatic return is on now instead of at the setup's
+  // next step.
+  void added.then(ok => { if (ok && timedOut) onLate(consent.accountId); });
   try { return await Promise.race([added, late]); }
   finally { clearTimeout(timer); }
 }
@@ -135,7 +141,10 @@ export function useLiveCopySetupActions() {
       const body = await signSetup(setup, (data, options) => wallet.signTypedData(data, options));
       assertSame();
       setConfirmPhase('attaching');
-      try { await attachWorker(setup, wallet); } finally { setConfirmPhase(null); }
+      try {
+        await attachWorker(setup, wallet, ATTACH_WORKER_TIMEOUT_MS,
+          accountId => void api.post(`/me/copy/execution-wallets/${encodeURIComponent(accountId)}/reconcile`, {}).catch(() => undefined));
+      } finally { setConfirmPhase(null); }
       assertSame();
       const result = liveCopySetupSchema.parse(await api.post(`${ROOT}/setups/${encodeURIComponent(setup.id)}/confirm`, body));
       for (const name of namesOf(setup)) forget(name);

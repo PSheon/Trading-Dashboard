@@ -244,3 +244,29 @@ it("Privy never answering the signer request can't hold confirm: after 20 s the 
     expect(probe.current!.confirmPhase).toBeNull();
   } finally { vi.useRealTimers(); }
 });
+
+it("the signer landing after confirm went on without it is recorded at once: the browser asks the api to reconcile the copy wallet (the attachWorker race)", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    let land!: () => void;
+    state.addSigners.mockImplementation(() => new Promise<void>(resolve => { land = resolve; }));
+    state.post.mockResolvedValue({ ...setup('start', 'funding_submitted'), signer: 'owner_session' });
+    const confirming = act(async () => { await probe.current!.confirm.mutateAsync(setup()); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(21_000); });
+    await confirming;
+    expect(state.post).toHaveBeenCalledTimes(1);
+    // Privy finally answers: one reconcile of exactly this copy wallet.
+    await act(async () => { land(); await vi.advanceTimersByTimeAsync(0); });
+    expect(state.post).toHaveBeenCalledTimes(2);
+    expect(state.post).toHaveBeenLastCalledWith('/me/copy/execution-wallets/acct/reconcile', {});
+  } finally { vi.useRealTimers(); }
+});
+
+it("a signer added in time, or refused, asks for no extra reconcile", async () => {
+  state.post.mockResolvedValue({ ...setup('start', 'funding_submitted'), signer: 'worker_policy' });
+  await act(async () => { await probe.current!.confirm.mutateAsync(setup()); });
+  state.addSigners.mockRejectedValueOnce(new Error('declined'));
+  state.identity = `owner-${++person}@email`;
+  await act(async () => { await probe.current!.confirm.mutateAsync(setup()); });
+  expect(state.post.mock.calls.map(([path]) => path).filter(path => String(path).endsWith('/reconcile'))).toEqual([]);
+});

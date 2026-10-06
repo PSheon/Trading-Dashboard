@@ -331,6 +331,15 @@ describe("the automatic return: the policy-bound worker signer the owner's brows
     expect(await enabled.reconcile(uid, id)).toMatchObject({ state: "ready", automaticReturn: true });
     expect(policy.verify).toHaveBeenCalledWith("policy-1", "did:privy:wallet-owner", { ownerMain: main, account: account!.address, agent: { address: `0x${"33".repeat(20)}`, name: `copy${strategy} valid_until 1800000000000` } });
     expect(policy.assertSigner).toHaveBeenCalledWith("provider-wallet", { address: addr, ownerQuorumId: "verified-user-quorum", workerQuorumId: "worker-quorum", policyId: "policy-1" });
+    // The attachWorker race (addSigners still in flight when confirm asked
+    // Privy): the setup was confirmed with the owner's session and no policy
+    // recorded, then the signer landed. The next reconcile (the setup's own
+    // agent step runs one; the browser asks for one when addSigners settles
+    // late) adopts exactly the consented policy.
+    await db.update(copyExecutionAccounts).set({ masterPolicyId: null, masterPolicyFingerprint: null, masterSignerQuorumId: null, sweepDestination: null, signerAttachedAt: null }).where(eq(copyExecutionAccounts.id, id));
+    await db.update(copyLiveSetups).set({ stage: "funding_submitted", signerKind: "owner_session", consentDigest: "c".repeat(64), intentDigest: "d".repeat(64), confirmedAt: new Date(), setupDeadline: new Date(Date.now() + 86_400_000) });
+    expect(await enabled.reconcile(uid, id)).toMatchObject({ state: "ready", automaticReturn: true });
+    expect((await db.select().from(copyExecutionAccounts).where(eq(copyExecutionAccounts.id, id)))[0]).toMatchObject({ masterPolicyId: "policy-1", masterSignerQuorumId: "worker-quorum" });
     // Another signer than the setup's policy: still a conflict, the wallet blocked as before.
     await db.update(copyExecutionAccounts).set({ masterPolicyId: null, masterPolicyFingerprint: null, masterSignerQuorumId: null, sweepDestination: null, signerAttachedAt: null }).where(eq(copyExecutionAccounts.id, id));
     policy.assertSigner.mockRejectedValue(new MasterPolicyConflict());

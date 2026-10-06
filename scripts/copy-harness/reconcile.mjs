@@ -14,7 +14,7 @@
 //   3. every dispatch with an execution has follower fills on the same side;
 //   4. the follower's position per coin has the leader's direction (flat when the leader is flat);
 //   5. the portfolio's positions and equity equal C (when P is given);
-//   plus latency: received − leader and sent − leader, p50/p95/max.
+//   plus latency: received − leader, sent − leader and first follower fill − leader, p50/p95/max.
 //
 // Usage (from the repo root):
 //   node scripts/copy-harness/reconcile.mjs --leader 0x… --leader-network testnet \
@@ -133,13 +133,16 @@ if (portfolioUrl) {
 
 const received = dispatches.map((d) => (d.receivedAt - d.leaderTime) / 1000);
 const sent = dispatches.filter((d) => d.sentAt > 0).map((d) => (d.sentAt - d.leaderTime) / 1000);
+const filled = dispatches.map((d) => (fillsByCloid.get(d.cloid.toLowerCase()) ?? []).reduce((min, f) => Math.min(min, f.time), Infinity) - d.leaderTime)
+  .filter(Number.isFinite).map((ms) => ms / 1000);
 const reasons = {}; for (const d of dispatches) { const k = `${d.state}/${d.reason || "-"}`; reasons[k] = (reasons[k] ?? 0) + 1; }
 const report = {
   window: { since: new Date(since).toISOString(), until: new Date().toISOString() },
   leader: { address: leader, network: leaderNet, orders: leaderOrders.size, fills: leaderFills.length, positions: Object.fromEntries(L) },
   follower: { address: follower, network: net, fills: followerFills.length, equity: followerState.marginSummary.accountValue, withdrawable: followerState.withdrawable, positions: Object.fromEntries(C) },
   dispatches: { count: dispatches.length, byStateReason: reasons },
-  latencySeconds: { received: { p50: pct(received, 0.5), p95: pct(received, 0.95), max: pct(received, 1) }, sent: { p50: pct(sent, 0.5), p95: pct(sent, 0.95), max: pct(sent, 1) } },
+  latencySeconds: { received: { p50: pct(received, 0.5), p95: pct(received, 0.95), max: pct(received, 1) }, sent: { p50: pct(sent, 0.5), p95: pct(sent, 0.95), max: pct(sent, 1) },
+    filled: { p50: pct(filled, 0.5), p95: pct(filled, 0.95), max: pct(filled, 1) } },
   portfolio,
   failures,
 };

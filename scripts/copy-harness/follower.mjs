@@ -33,7 +33,18 @@ export async function privyTestCredentials(env) {
  * @param {any} browser @param {{ web: string, api: string, env: Record<string, string>, log?: Log }} options */
 export async function login(browser, { web, api, env, log = () => {} }) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: "zh-TW" });
+  // The local web is `next dev`: its dev overlay (a stale build error, an HMR
+  // warning) would sit over the page and take the clicks. Hidden here, and
+  // what it said is logged, so it never decides a run.
+  // (CSSOM, not a <style>: the page's CSP refuses inline styles.)
+  await context.addInitScript(() => {
+    const hide = () => document.querySelectorAll("nextjs-portal").forEach((el) => /** @type {HTMLElement} */ (el).style.setProperty("display", "none", "important"));
+    new MutationObserver(hide).observe(document, { childList: true, subtree: true });
+  });
   const page = await context.newPage();
+  const devErrors = new Set();
+  page.on("console", (m) => { if (m.type() === "error" && devErrors.size < 20) { const text = m.text().slice(0, 200); if (!devErrors.has(text)) { devErrors.add(text); log("web_console_error", { text }); } } });
+  page.on("pageerror", (e) => log("web_page_error", { message: e.message.slice(0, 300) }));
   const cred = await privyTestCredentials(env);
   await page.goto(`${web}/zh-TW/portfolio`, { waitUntil: "domcontentloaded" });
   const signIn = page.locator("button", { hasText: /^(登入|Sign in)$/ }).first();
@@ -50,7 +61,7 @@ export async function login(browser, { web, api, env, log = () => {} }) {
   await page.keyboard.press("Enter");
   const otp = page.locator('input[autocomplete="one-time-code"], input[name="code-0"], input[inputmode="numeric"]').first();
   await otp.waitFor({ timeout: 30_000 });
-  await otp.click();
+  await otp.focus();
   await page.keyboard.type(cred.otp, { delay: 60 });
   const token = async () => {
     const raw = await page.evaluate(() => localStorage.getItem("privy:token"));
@@ -71,8 +82,9 @@ export async function login(browser, { web, api, env, log = () => {} }) {
 
 export class ApiError extends Error {
   constructor(method, path, status, body) {
-    super(`${method} ${path} → ${status} ${body?.code ?? body?.error?.code ?? ""} ${body?.message ?? ""}`.trim());
-    this.status = status; this.body = body; this.code = body?.code ?? body?.error?.code ?? null;
+    const code = body?.error?.code ?? body?.code ?? null;
+    super(`${method} ${path} → ${status} ${code ?? ""} ${body?.message ?? ""}`.trim());
+    this.status = status; this.body = body; this.code = code;
   }
 }
 /** The api answers `{ data }` (or the bare value on older routes). */
@@ -83,7 +95,8 @@ export function apiClient(base, token) {
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     const json = await response.json().catch(() => null);
-    if (!response.ok) throw new ApiError(method, path, response.status, json?.error ?? json);
+    // Errors: { success: false, statusCode, message, error: { code }, meta }.
+    if (!response.ok) throw new ApiError(method, path, response.status, json);
     return json && typeof json === "object" && "data" in json ? json.data : json;
   };
   return { get: (path) => call("GET", path), post: (path, body = {}) => call("POST", path, body) };

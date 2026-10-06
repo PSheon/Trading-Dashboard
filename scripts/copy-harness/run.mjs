@@ -16,7 +16,8 @@
 // 10. a summary table (pass/fail per check, latency p50/p95).
 //
 // --dry-run needs no funds: login, cleanup, the setup up to its consent challenge, the browser's two
-// signatures and addSigners (its /confirm is intercepted, so nothing is deposited), then cancel.
+// signatures and addSigners (its /confirm is intercepted, so nothing is deposited; with an empty main
+// wallet the real /confirm goes out and must be refused 409 insufficient_main_balance), then cancel.
 //
 // The local api and worker must run with COPY_TRADING_MODE=testnet: `node scripts/copy-harness/stack.mjs
 // restart worker` (and `api`) starts them with the harness profile (harness.env: testnet mode, the
@@ -151,7 +152,10 @@ try {
       consent?.budgetUsd === String(TERMS.budgetUsd) && consent?.fundingAmount === String(TERMS.budgetUsd) && Boolean(consent?.masterPolicyId && consent?.workerQuorumId),
     `setup ${setup.id} ${setup.stage}${setup.issue ? ` (${setup.issue})` : ""}, source ${consent?.sourceNetwork}, budget ${consent?.budgetUsd}, account ${consent?.accountAddress}`)) await finish(EXIT.failed);
 
-  const confirmed = await confirmFromPortfolio(follower.page, { web: WEB, setupId, dryRun: DRY, log });
+  // A dry run never deposits: its /confirm is intercepted, except while the main wallet can't cover the
+  // budget, when the real /confirm must be refused (409 insufficient_main_balance) with nothing sent.
+  const unfundedConfirm = DRY && mainBefore.total < TERMS.budgetUsd;
+  const confirmed = await confirmFromPortfolio(follower.page, { web: WEB, setupId, dryRun: DRY && !unfundedConfirm, log });
   log("browser_confirm", confirmed);
   check("browser_signed_consent_and_deposit", Boolean(confirmed.confirmRequest?.consentSignature && confirmed.confirmRequest?.fundingSignature),
     confirmed.confirmRequest ? `consent ${confirmed.confirmRequest.consentSignature}, deposit ${confirmed.confirmRequest.fundingSignature}` : `no /confirm sent (${confirmed.outcome}${confirmed.alert ? `: ${confirmed.alert}` : ""})`);
@@ -161,6 +165,8 @@ try {
     `${signerUpdate ?? "no Privy wallet update"}; ${confirmed.outcome} after ${(confirmed.ms / 1000).toFixed(1)} s; privy: ${confirmed.privy.filter((c) => !c.includes("analytics")).join(", ")}`);
 
   if (DRY) {
+    if (unfundedConfirm) check("dry_run_unfunded_confirm_refused", confirmed.confirmStatus === 409 && confirmed.confirmBody?.error?.code === "insufficient_main_balance",
+      `${confirmed.confirmStatus} ${confirmed.confirmBody?.error?.code ?? confirmed.outcome}`);
     const cancelled = await follower.client.post(`/me/copy/live/setups/${setupId}/cancel`);
     check("dry_run_cancelled", cancelled.stage === "cancelled", `setup ${setupId} ${cancelled.stage}`);
     const after = await usdc(main);
@@ -223,7 +229,7 @@ try {
     check("stop_shown_stopped", stopped.value?.stage === "stopped", `stage ${stopped.value?.stage}, stop ${stopped.value?.stop?.state}`);
   } catch (error) { check("stop_shown_stopped", false, error.message); }
 
-  const latency = reconcile?.latencySeconds ? { "signal received": reconcile.latencySeconds.received, "order sent": reconcile.latencySeconds.sent } : null;
+  const latency = reconcile?.latencySeconds ? { "signal received": reconcile.latencySeconds.received, "order sent": reconcile.latencySeconds.sent, "first follower fill": reconcile.latencySeconds.filled } : null;
   await finish(checks.some((c) => c.ok === false) ? EXIT.failed : EXIT.green, { latency, weightPerOrder: "n/a (the testnet bucket is not exposed by the worker)" });
 } catch (error) {
   check("harness_error", false, `${error.name}: ${error.message}`);

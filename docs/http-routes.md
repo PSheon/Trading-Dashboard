@@ -117,16 +117,14 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | POST | `/me/copy/live/setups` | 200 | user (owner); testnet; prepares strategy, wallet, agent and deposit, no exchange call; one consent challenge |
 | GET | `/me/copy/live/setups` | 200 | user (owner); read only |
 | GET | `/me/copy/live/setups/:id` | 200 | user (owner); read only |
-| POST | `/me/copy/live/setups/:id/confirm` | 200 | user (owner); the setup consent, the deposit signature and a fresh session; one deposit attempt |
-| POST | `/me/copy/live/setups/:id/advance` | 200 | user (owner); fresh session signs the next consented step; attempted steps are only reconciled |
+| POST | `/me/copy/live/setups/:id/confirm` | 200 | user (owner); the worker signer the browser added, the setup consent, the deposit signature and a fresh session; one deposit attempt |
+| POST | `/me/copy/live/setups/:id/advance` | 200 | user (owner); drives the setup now, signed by the worker; no body; attempted steps are only reconciled |
 | POST | `/me/copy/live/setups/:id/cancel` | 200 | user (owner); before the consent, or once the setup failed or expired |
 | PATCH | `/me/copy/live/strategies/:id` | 200 | user (owner); a new generation under one setup consent |
-| POST | `/me/copy/live/strategies/:id/renew` | 200 | user (owner); last three days of the lifetime; a new agent and generation under one setup consent |
+| POST | `/me/copy/live/strategies/:id/renew` | 200 | user (owner); refused for now (renewal_unavailable) |
 | GET | `/me/copy/live/portfolio` | 200 | user (owner); testnet copies with their funding and stop stage; read only |
 | GET | `/me/copy/live/stops` | 200 | user (owner); bounded durable stop history; read only |
 | GET | `/me/copy/live/stops/by-key/:key` | 200 | user (owner); exact original stop recovery; read only |
-| POST | `/me/copy/live/stops/:id/cancellation/challenge` | 200 | user (owner); exact cancellation consent challenge of a cancelling stop; no signing |
-| POST | `/me/copy/live/stops/:id/cancellation` | 200 | user (owner); verified owner consent to cancel the stop's tracked orders |
 | POST | `/me/copy/strategies` | 201 | user; 403 copy_not_open (`general.copyTradingEnabled` off); 409 already_copying / insufficient_balance / copy_paused |
 | PATCH | `/me/copy/strategies/:id` | 200 | user (owner) |
 | POST | `/me/copy/strategies/:id/funds` | 200 | user (owner) |
@@ -146,26 +144,20 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | GET | `/me/copy/account-modes` | 200 | user (owner) |
 | GET | `/me/copy/account-modes/by-key/:key` | 200 | user (owner); original idempotency key |
 | POST | `/me/copy/execution-wallets/:id/mode` | 200 | user (owner); ready dedicated testnet master |
-| POST | `/me/copy/account-modes/:id/challenge` | 200 | user (owner); complete dormant account proof |
-| POST | `/me/copy/account-modes/:id/approve` | 200 | user (owner); exact signed consent; fresh user JWT; one durable attempt |
 | POST | `/me/copy/account-modes/:id/reconcile` | 200 | user (owner); read-only original mode operation |
 | GET | `/me/copy/execution-wallets/:id/statement` | 200 | user (owner) |
 | GET | `/me/copy/execution-wallets/:id/activity` | 200 | user (owner); booked actual receipts; before-only pagination |
 | GET | `/me/copy/execution-wallets/:id/snapshot` | 200 | user (owner); cached actual testnet observation |
 | POST | `/me/copy/execution-wallets/:id/agent` | 200 | user (owner); configured testnet agent provider |
 | POST | `/me/copy/agents/:id/reconcile` | 200 | user (owner) |
-| POST | `/me/copy/agents/:id/challenge` | 200 | user (owner); verified agent |
-| POST | `/me/copy/agents/:id/approve` | 200 | user (owner); exact signed consent; fresh user JWT |
 | GET | `/me/copy/funding` | 200 | user (owner) |
 | POST | `/me/copy/execution-wallets/:id/funding` | 200 | user (owner); testnet; verified execution account |
 | POST | `/me/copy/funding/:id/broadcast` | 200 | user (owner); one permission |
 | POST | `/me/copy/funding/:id/submit` | 200 | user (owner); exact source signature; one attempt |
 | POST | `/me/copy/funding/:id/cancel` | 200 | user (owner); unattempted intent only |
 | POST | `/me/copy/funding/:id/reconcile` | 200 | user (owner); positive transaction and recipient evidence |
-| POST | `/me/copy/live/execution-wallets/:id/returns` | 200 | user (owner); testnet; return to the main wallet, consent challenge only |
-| POST | `/me/copy/live/returns/:id/approve` | 200 | user (owner); main-wallet consent and fresh session; one attempt |
-| POST | `/me/copy/live/execution-wallets/:id/builder-approval` | 200 | user (owner); testnet; configured builder fee, consent challenge only |
-| POST | `/me/copy/live/builder-approvals/:id/approve` | 200 | user (owner); main-wallet consent and fresh session; one attempt |
+| POST | `/me/copy/live/execution-wallets/:id/returns` | 200 | user (owner); testnet; return to the main wallet, prepared only |
+| POST | `/me/copy/live/returns/:id/approve` | 200 | user (owner); signed by the worker under the owner's policy; no body; one attempt |
 | POST | `/me/copy/live/builder-approvals/:id/reconcile` | 200 | user (owner); read only |
 | POST | `/me/copy/strategies/:id/execution-wallet` | 200 | user (owner); configured wallet provider; deployment network only |
 | POST | `/me/copy/execution-wallets/:id/reconcile` | 200 | user (owner) |

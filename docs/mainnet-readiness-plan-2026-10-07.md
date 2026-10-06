@@ -48,4 +48,6 @@
 | Stage 切主網 | ✅ 02:45 完成：先備份（`stage-before-mainnet.dump`），部署 `bf9f8820`（api 跑 0071、0072），api／worker 設主網 env。worker 開機：`Copy execution on mainnet every 3000 ms for 1 listed owner(s)`、`Order bucket (mainnet): capacity 840 … weighs 772`。Privy 測試帳號登入 Stage：`network: mainnet`、`actualAllowed: false`、上限 12–15／50／3x／2；頁面標籤只有 正式、模擬。舊 testnet 跟單（strategy 5，79 testnet USDC）變成歷史紀錄，不再處理 |
 | ⑤ 主網差異稽核 | 03:00–04:30：修三個主網必卡的點——①交易代理授權一律讀 testnet（主網設定永遠卡在「交易代理授權」）、②跟單帳戶成交入帳把主網證據當無效（主網每筆成交都無法結算、平倉無法完成）、③轉帳確認頁在主網寫「測試網」；快照收集器只觀察進行中或有資金的帳戶；刪除舊的 mandate approve 路徑（6 個端點）。**待核准**：網頁停止按鈕只接受 testnet（`stop-mainnet.patch`）、網頁帳戶快照只接受 testnet（`snapshot-mainnet.patch`）。手冊：`docs/mainnet-first-copy-runbook.md` |
 | 緊急停止演練 | 待 Paul（需要 admin 登入）：後台暫停平台 → 新跟單被拒 `copy_paused` → 解除 |
-| 主網兩筆跟單 | 待 Paul 9:00 |
+| Stage 部署 `13e19217` | ✅ 03:50：主網代理授權確認、主網成交結算、確認頁網路文字、刪除舊 mandate approve 路徑、快照只觀察有效帳戶 |
+| **待 Paul 核准** | ① 網頁「停止跟單」在主網被擋（`lib/copy-live-stop.ts` 只收 testnet），修正 patch 已寫好並有測試，自動權限擋下提交；核准前只能用後台「全部平倉」。② 投資組合卡片在主網的權益／損益顯示「—」，修正 patch 已寫好，兩個舊測試待更新 |
+| 主網兩筆跟單 | 待 Paul 9:00：照 `docs/mainnet-first-copy-runbook.md`；先入 103 USDC + 0.0005 ETH（Arbitrum）到主錢包 |

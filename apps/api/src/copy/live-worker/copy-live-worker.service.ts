@@ -28,6 +28,8 @@ export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDe
   private readonly kicks = new Set<string>();
   private readonly audits = new Set<string>();
   private readonly scheduled = new Map<string, { at: number; timer: ReturnType<typeof setTimeout> }>();
+  private readonly signalling = new Set<string>();
+  private readonly resignal = new Set<string>();
   constructor(private readonly config: AppConfig, private readonly jobs: BackgroundJobs, @Inject(LIVE_ENGINE) private readonly engine: CopyLiveEngine | null) {}
   onApplicationBootstrap(): void {
     const live = this.config.value.copy.live;
@@ -68,11 +70,28 @@ export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDe
     if (held) clearTimeout(held.timer);
     const timer = setTimeout(() => {
       this.scheduled.delete(leader);
-      this.kicks.add(leader);
-      void this.drain();
+      void this.signal(leader);
     }, Math.max(0, at - Date.now()));
     timer.unref?.();
     this.scheduled.set(leader, { at, timer });
+  }
+
+  /** A kick's signal half runs at once, beside a pass or an order in flight
+   * (one per leader at a time); its order half joins the queue. */
+  private async signal(leader: string): Promise<void> {
+    if (!this.engine || this.jobs.stopping) return;
+    if (this.signalling.has(leader)) { this.resignal.add(leader); return; }
+    this.signalling.add(leader);
+    const engine = this.engine;
+    try {
+      if (await this.jobs.run(() => engine.signal(leader))) { this.kicks.add(leader); void this.drain(); }
+    } catch (error) { this.logger.error(`Copy signal of ${leader} failed: ${error instanceof Error ? `${error.name}: ${error.message}` : 'unknown'}`); }
+    finally {
+      this.signalling.delete(leader);
+      const next = engine.followUp(leader);
+      if (next !== null) this.schedule(leader, next);
+      if (this.resignal.delete(leader)) void this.signal(leader);
+    }
   }
 
   /** The regular pass; skipped while other work runs (the next tick comes soon). */
@@ -91,10 +110,8 @@ export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDe
         const [leader] = this.kicks;
         if (leader !== undefined) {
           this.kicks.delete(leader);
-          try { await this.jobs.run(() => engine.kick(leader)); }
+          try { await this.jobs.run(() => engine.workLeader(leader)); }
           catch (error) { this.logger.error(`Copy kick of ${leader} failed: ${error instanceof Error ? `${error.name}: ${error.message}` : 'unknown'}`); }
-          const next = engine.followUp(leader);
-          if (next !== null) this.schedule(leader, next);
           continue;
         }
         const [audited] = this.audits;

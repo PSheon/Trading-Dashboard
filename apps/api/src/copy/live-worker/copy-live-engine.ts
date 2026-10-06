@@ -174,14 +174,37 @@ export class CopyLiveEngine {
    * Setups, activations and stops stay with the regular pass.
    */
   async kick(leader: string): Promise<void> {
-    const started = this.now();
-    const mandates = (await this.deps.repository.mandates(started)).filter(m => m.sourceNetwork === 'mainnet' && m.leaderAddress === leader);
+    if (!await this.signal(leader)) return;
+    await this.workLeader(leader);
+  }
+
+  /**
+   * The signal half of a kick: reads the leader's fills (fast source) and
+   * enqueues its copies' new legs. It never waits for an order: the worker
+   * runs it at once, beside a pass or an order in flight (a source read is
+   * CAS-guarded and an enqueue idempotent). False when the leader has no
+   * fast-source copy.
+   */
+  async signal(leader: string): Promise<boolean> {
+    const mandates = (await this.deps.repository.mandates(this.now())).filter(m => m.sourceNetwork === 'mainnet' && m.leaderAddress === leader);
     const streams = this.deps.repository.streams(mandates).filter(stream => this.fastLeader(stream));
-    if (!streams.length) return;
+    if (!streams.length) return false;
     for (const stream of streams) {
       try { await this.ingest(stream, mandates, true); }
       catch (error) { this.deps.log?.(`source ${stream.network}:${stream.leaderAddress} not read: ${reasonOf(error)}`); }
     }
+    for (const m of mandates.filter(row => row.activated && row.strategyStatus === 'active')) {
+      try { await this.enqueue(m); } catch (error) { this.deps.log?.(`legs of ${m.mandateId} not enqueued: ${reasonOf(error)}`); }
+    }
+    return true;
+  }
+
+  /** The order half of a kick: merges and works this leader's copies' legs,
+   * fresh pending legs first (one at a time with the passes). */
+  async workLeader(leader: string): Promise<void> {
+    const started = this.now();
+    const mandates = (await this.deps.repository.mandates(started)).filter(m => m.sourceNetwork === 'mainnet' && m.leaderAddress === leader);
+    if (!mandates.length) return;
     const limit = await this.deps.repository.signalAgeLimitMs();
     const held = await this.prepareWork(mandates.filter(row => row.activated && row.strategyStatus === 'active'));
     const byId = new Map(mandates.map(m => [m.mandateId, m]));

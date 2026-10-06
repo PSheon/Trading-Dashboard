@@ -13,7 +13,8 @@ function setup() {
   const engine = {
     witness: vi.fn((_leader: string, _tid: number, time: number) => time + G + 100),
     followUp: vi.fn(() => { const next = followUp; followUp = null; return next; }),
-    kick: vi.fn(async (who: string) => { log.push(`kick ${who} @${Date.now() - T0}`); }),
+    signal: vi.fn(async (who: string) => { log.push(`signal ${who} @${Date.now() - T0}`); return true; }),
+    workLeader: vi.fn(async (who: string) => { log.push(`kick ${who} @${Date.now() - T0}`); }),
     audit: vi.fn(async (who: string) => { log.push(`audit ${who}`); return []; }),
     tick: vi.fn(async () => { log.push(`pass start @${Date.now() - T0}`); await new Promise<void>(resolve => { releasePass = resolve; }); log.push('pass end'); }),
   };
@@ -23,22 +24,23 @@ function setup() {
 }
 
 describe('copy live worker: realtime kicks', () => {
-  it('kicks a leader once its feed trade is G old, and never during a pass', async () => {
+  it('reads a leader once its feed trade is G old, even during a pass; its orders wait for the pass', async () => {
     vi.useFakeTimers({ now: T0 });
     const { service, engine, log, releasePass } = setup();
     service.onLeaderTraded({ address: leader, time: T0 - 500, tid: 1 });
     service.onLeaderTraded({ address: leader, time: T0 - 200, tid: 2 }); // later: the earlier kick stands
     await vi.advanceTimersByTimeAsync(1599);
-    expect(engine.kick).not.toHaveBeenCalled();
+    expect(engine.workLeader).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
-    expect(engine.kick).toHaveBeenCalledTimes(1); expect(log).toEqual([`kick ${leader} @1600`]);
+    expect(engine.workLeader).toHaveBeenCalledTimes(1); expect(log).toEqual([`signal ${leader} @1600`, `kick ${leader} @1600`]);
     // A pass is running when the next trade's kick falls due.
     const pass = service.tick();
     service.onLeaderTraded({ address: leader, time: T0 + 1600, tid: 3 });
     await vi.advanceTimersByTimeAsync(5000);
-    expect(engine.kick).toHaveBeenCalledTimes(1);
+    expect(engine.workLeader).toHaveBeenCalledTimes(1);
     releasePass(); await pass;
-    expect(log.slice(1)).toEqual(['pass start @1600', 'pass end', `kick ${leader} @6600`]);
+    // The signal is read at 3700, during the pass; the order half after it.
+    expect(log.slice(2)).toEqual(['pass start @1600', `signal ${leader} @3700`, 'pass end', `kick ${leader} @6600`]);
     service.onModuleDestroy();
   });
 
@@ -48,11 +50,11 @@ describe('copy live worker: realtime kicks', () => {
     setFollowUp(T0 + 1000 + 3000);
     service.onLeaderTraded({ address: leader, time: T0 - 2100, tid: 1 });
     await vi.advanceTimersByTimeAsync(0);
-    expect(engine.kick).toHaveBeenCalledTimes(1);
+    expect(engine.workLeader).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(3999);
-    expect(engine.kick).toHaveBeenCalledTimes(1);
+    expect(engine.workLeader).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(1);
-    expect(engine.kick).toHaveBeenCalledTimes(2);
+    expect(engine.workLeader).toHaveBeenCalledTimes(2);
     service.onLeaderVerified({ address: leader });
     await vi.advanceTimersByTimeAsync(0);
     expect(engine.audit).toHaveBeenCalledWith(leader);
@@ -60,7 +62,7 @@ describe('copy live worker: realtime kicks', () => {
   });
 
   it('ignores triggers before it started (tests, paper mode)', async () => {
-    const engine = { witness: vi.fn(() => T0), kick: vi.fn() };
+    const engine = { witness: vi.fn(() => T0), signal: vi.fn(), workLeader: vi.fn() };
     const service = new CopyLiveWorkerService(testConfig(), new BackgroundJobs(), engine as unknown as CopyLiveEngine);
     service.onLeaderTraded({ address: leader, time: T0, tid: 1 });
     expect(engine.witness).not.toHaveBeenCalled();

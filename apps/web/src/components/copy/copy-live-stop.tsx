@@ -37,10 +37,12 @@ function OwnedCopyLiveStop({ selection }: { selection: LiveStopSelection | null 
   const track = useActionToast();
   const [confirming, setConfirming] = useState(false);
   const heading = useId(), hint = useId();
-  const items = history.data?.items ?? [];
+  // Only this copy's stops: the history and the journal hold every copy's.
+  const items = (history.data?.items ?? []).filter(item => !selection || item.accountId === selection.account.id);
   const alreadyRequested = !!selection && (attempts.some(a => a.mandateId === selection.mandate.id) || items.some(i => i.mandateId === selection.mandate.id) || ['stopping', 'stopped'].includes(selection.mandate.state));
   const validSelection = !!selection && selection.mandate.mode === 'actual' && selection.mandate.network === 'testnet' && selection.account.network === 'testnet' && selection.mandate.accountId === selection.account.id && selection.mandate.accountAddress === selection.account.address && selection.mandate.strategyId === selection.account.strategyId;
   const working = mutation.isPending || discard.isPending;
+  const mine = attempts.filter(attempt => !selection || attempt.accountId === selection.account.id);
   const send = (attempt?: LiveStopAttempt) => track(mutation.mutateAsync(attempt), { pending: t('toast.copy.stopping'), success: t('toast.copy.stopRequested'), error: () => text.error });
   return <section aria-labelledby={heading} className="min-w-0 space-y-4 rounded-lg border border-border p-4">
     <h3 id={heading} className="font-semibold">{text.title}</h3>
@@ -56,7 +58,7 @@ function OwnedCopyLiveStop({ selection }: { selection: LiveStopSelection | null 
       {storageError && <p role="alert" className="text-sm">{text.storage}</p>}
       {mutation.isError && <p role="alert" className="text-sm">{text.error}</p>}
       {discard.isError && <p role="alert" className="text-sm">{discardText.error}</p>}
-      {attempts.length > 0 && <ul className="space-y-3" aria-label={text.recover}>{attempts.map((attempt, index) => {
+      {mine.length > 0 && <ul className="space-y-3" aria-label={text.recover}>{mine.map((attempt, index) => {
         const observed = items.some(item => item.mandateId === attempt.mandateId && item.accountId === attempt.accountId && item.originalMandateRevision === attempt.request.expectedMandateRevision);
         const unsent = attempt.dispatchState === 'unsent', action = unsent ? resumeText.resume : text.recover;
         const account = truncateAddress(attempt.accountAddress);
@@ -94,4 +96,37 @@ function OwnedCopyLiveStop({ selection }: { selection: LiveStopSelection | null 
       </div>
     </>}
   </section>;
+}
+
+/**
+ * The detail sheet's 停止跟單: one button, the confirm sheet's one sentence,
+ * and nothing else (Paul, 2026-10-06: no paragraph, no ids). A request this
+ * browser could not confirm is offered again for this copy only.
+ */
+export function LiveCopyStopAction({ selection }: { selection: LiveStopSelection }) {
+  const auth = useAuth();
+  if (auth.status !== 'signedIn' || (auth.mode !== 'privy' && auth.mode !== 'fixture')) return null;
+  return <OwnedStopAction selection={selection} />;
+}
+function OwnedStopAction({ selection }: { selection: LiveStopSelection }) {
+  const { userId, wallet } = useAuth();
+  const { locale, t } = useI18n(), text = liveStopMessages[locale];
+  const { enabled, history, attempts, storageReady, mutation } = useLiveCopyStops(selection, userId ?? null);
+  const track = useActionToast();
+  const [confirming, setConfirming] = useState(false);
+  const mine = attempts.filter(attempt => attempt.accountId === selection.account.id && attempt.mandateId === selection.mandate.id);
+  const requested = (history.data?.items ?? []).some(item => item.mandateId === selection.mandate.id) || ['stopping', 'stopped'].includes(selection.mandate.state);
+  const send = (attempt?: LiveStopAttempt) => track(mutation.mutateAsync(attempt), { pending: t('toast.copy.stopping'), success: t('toast.copy.stopRequested'), error: () => text.error });
+  if (!enabled) return null;
+  if (requested && !mine.length) return <p role="status" className="text-xs font-semibold text-muted-foreground">{t('folio.stopRequested')}</p>;
+  return <div className="flex flex-col gap-2">
+    {mine.length ? (
+      <Button type="button" variant="secondary" className="w-full" loading={mutation.isPending} onClick={() => void send(mine[0])}>{t('folio.resumeStop')}</Button>
+    ) : (
+      <Button type="button" variant="destructive" className="w-full" loading={mutation.isPending} disabled={!mutation.isPending && (!storageReady || selection.mandate.state === 'prepared' || selection.mandate.activationCursor === null)} onClick={() => setConfirming(true)}>{t('folio.stop')}</Button>
+    )}
+    {mutation.isError ? <p role="alert" className="text-xs text-negative">{text.error}</p> : null}
+    <TransferConfirm kind="stop" open={confirming} amount={null} destination={wallet?.address ?? null} pending={mutation.isPending} error={null}
+      onConfirm={() => { setConfirming(false); void send(undefined); }} onOpenChange={setConfirming} />
+  </div>;
 }

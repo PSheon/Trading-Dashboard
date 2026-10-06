@@ -31,7 +31,7 @@ import { TextButton } from "@/components/ui/text-button";
 type Leader = { address: string; displayName: string | null; avatarUrl: string | null };
 
 /** Names and avatars of the copied leaders (the discovery cards read). */
-export function useLeaders(strategies: CopyStrategyView[]): Map<string, Leader> {
+export function useLeaders(strategies: ReadonlyArray<Pick<CopyStrategyView, "leaderAddress">>): Map<string, Leader> {
   const addresses = useMemo(() => [...new Set(strategies.map((s) => s.leaderAddress))].sort(), [strategies]);
   const cards = useTraderCards(addresses);
   return useMemo(() => {

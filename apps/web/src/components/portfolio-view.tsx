@@ -1,22 +1,27 @@
 "use client";
 
-import { ArrowUp, Bell, ChartPie, ChevronDown, Plus, Settings, ShoppingCart, UserPlus, type LucideIcon } from "lucide-react";
+import { ArrowUp, Bell, ChartPie, Plus, Settings, ShoppingCart, UserPlus, type LucideIcon } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { useSearchParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { cn } from "cn";
 
 import { ActivityPanel } from "@/components/copy/activity-panel";
-import { CopyActivity } from "@/components/copy/copy-activity";
+import { RecentActivity } from "@/components/copy/recent-activity";
 import { CopyCards, CopyDetail, CopyListSkeleton, CopyTable, useLeaders } from "@/components/copy/copy-portfolio";
 import { LiveCopies } from "@/components/copy/live-copies";
 import { ExposurePanel, InsightsPanel, PaperSummary, PaperSummarySkeleton, PortfolioChart, PortfolioChartSkeleton } from "@/components/copy/portfolio-parts";
 import { ErrorState, Skeleton } from "@/components/page";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Tabs } from "@/components/ui/tabs";
+import { boardName } from "@/components/discover/board-bits";
+import { useLiveCopyPortfolio } from "@/lib/copy-live-portfolio";
+import { useSiteMode } from "@/lib/site-mode";
+import { useUrlState } from "@/lib/url-state";
 import { useWalletModals } from "@/components/wallet/wallet-modals";
 import { useI18n } from "@/i18n/provider";
 import { useAuth } from "@/lib/auth";
-import type { CopyOverview, WalletSummary } from "@/lib/contracts";
+import type { CopyOverview } from "@/lib/contracts";
 import { useCopyOverview, useCopyPortfolio } from "@/lib/copy";
 import { useWallet } from "@/lib/wallet";
 import { SwitchPanel } from "@/components/ui/switch-panel";
@@ -71,9 +76,93 @@ export function PortfolioView() {
       <div className="md:hidden">
         <PhonePortfolio />
       </div>
-      <CopyActivity />
     </>
   );
+}
+
+type View = "real" | "paper";
+const VIEWS: readonly View[] = ["real", "paper"];
+
+/**
+ * Real money and paper never share a screen (Paul, 2026-10-06): a switch at
+ * the top, 正式 (測試網 where testnet copies run) or 模擬, in the URL
+ * (?view=paper). A deployment without real copies opens on 模擬.
+ */
+function usePortfolioView(): [View, (view: View) => void] {
+  const mode = useSiteMode();
+  return useUrlState<View>("view", VIEWS, mode === "paper" ? "paper" : "real");
+}
+
+function ViewSwitch({ view, onChange, className }: { view: View; onChange: (view: View) => void; className?: string }) {
+  const { t } = useI18n();
+  const mode = useSiteMode();
+  return (
+    <Tabs value={view} onChange={onChange} label={t("folio.view")} idPrefix="portfolio-view" controls="portfolio-view-panel" className={cn("seg-track w-fit", className)}
+      items={[{ value: "real", label: mode === "paper" ? t("folio.real") : t(`mode.${mode}`) }, { value: "paper", label: t("mode.paper") }]} />
+  );
+}
+
+/** 我的資金: one figure (the main wallet and the money in real copies), the two parts under it, 儲值 and 提款. */
+function MyFunds({ wallet, inCopies, className }: { wallet: ReturnType<typeof useWallet>; inCopies: number; className?: string }) {
+  const { t, format } = useI18n();
+  const main = wallet.data?.totalValue ?? null;
+  return (
+    <section className={cn("orbit-card card-pad flex flex-col gap-3", className)} aria-label={t("folio.myFunds")} data-testid="my-funds">
+      <p className="text-[13px] font-bold text-muted-foreground">{t("folio.myFunds")}</p>
+      {main !== null ? <p className="num font-display text-[2.25rem] leading-tight">{format.usd(main + inCopies, { digits: 2 })}</p> : <TotalValue wallet={wallet} className="font-display text-[2.25rem] leading-tight" />}
+      <dl className="grid grid-cols-2 gap-3 text-xs">
+        <div><dt className="text-muted-foreground">{t("folio.mainWallet")}</dt><dd className="num mt-0.5 text-sm font-bold">{main === null ? "—" : format.usd(main, { digits: 2 })}</dd></div>
+        <div><dt className="text-muted-foreground">{t("folio.inCopies")}</dt><dd className="num mt-0.5 text-sm font-bold">{format.usd(inCopies, { digits: 2 })}</dd></div>
+      </dl>
+      {wallet.isError && !wallet.data ? <ErrorState onRetry={() => wallet.refetch()} /> : null}
+      <FundButtons />
+    </section>
+  );
+}
+
+function NoCopies() {
+  const { t } = useI18n();
+  return (
+    <div className="orbit-card card-pad flex flex-col items-center gap-2 text-center">
+      <p className="font-display text-lg">{t("folio.emptyTitle")}</p>
+      <p className="text-sm font-bold text-muted-foreground">{t("folio.emptyBody")}</p>
+      <Link href="/explore" className={cn(buttonVariants(), "mt-2")}>{t("folio.find")}</Link>
+    </div>
+  );
+}
+
+/** 正式: 我的資金, 跟單中 (compact cards, a detail sheet each), 已結束 and 最近活動. */
+function RealPortfolio() {
+  const wallet = useWallet();
+  const live = useLiveCopyPortfolio();
+  const items = useMemo(() => live.data?.items ?? [], [live.data]);
+  const leaders = useLeaders(items);
+  const [equities, setEquities] = useState<ReadonlyMap<number, number>>(new Map());
+  const onEquity = useCallback((id: number, equity: number | null) => setEquities((prev) => {
+    if (equity === null ? !prev.has(id) : prev.get(id) === equity) return prev;
+    const next = new Map(prev);
+    if (equity === null) next.delete(id); else next.set(id, equity);
+    return next;
+  }), []);
+  const inCopies = [...equities.values()].reduce((sum, v) => sum + v, 0);
+  const names = useMemo(() => new Map(items.map((item) => [item.strategyId, boardName(leaders.get(item.leaderAddress) ?? { address: item.leaderAddress, displayName: null })])), [items, leaders]);
+  return (
+    <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start lg:gap-5" data-view="real">
+      <div className="flex flex-col gap-4 lg:sticky lg:top-24">
+        <MyFunds wallet={wallet} inCopies={inCopies} />
+        <RecentActivity names={names} className="hidden lg:block" />
+      </div>
+      <LiveCopies onEquity={onEquity} empty={<NoCopies />} />
+      <RecentActivity names={names} className="lg:hidden" />
+    </div>
+  );
+}
+
+/** The paper copies' names (strategy id → trader), for 最近活動. */
+function usePaperNames(overview: CopyOverview | undefined) {
+  const strategies = useMemo(() => overview?.strategies ?? [], [overview]);
+  const leaders = useLeaders(strategies);
+  return useMemo(() => new Map(strategies.map((s) => [s.id, boardName(leaders.get(s.leaderAddress) ?? { address: s.leaderAddress, displayName: null })])), [strategies, leaders]);
 }
 
 function SignedOut() {
@@ -119,25 +208,6 @@ function FundButtons({ className }: { className?: string }) {
         {t("portfolio.withdraw")}
       </Button>
     </div>
-  );
-}
-
-function Breakdown({ summary }: { summary: WalletSummary }) {
-  const { t, format } = useI18n();
-  const rows = [
-    { label: t("portfolio.perp"), value: summary.hyperliquid?.perpValue ?? 0 },
-    { label: t("portfolio.spot"), value: summary.hyperliquid?.spotUsdc ?? 0 },
-    { label: t("portfolio.arbitrum"), value: summary.arbitrum?.usdc ?? 0 },
-  ];
-  return (
-    <dl className="mt-3 grid gap-1.5 rounded-xl bg-inset p-3 text-xs font-bold">
-      {rows.map((r) => (
-        <div key={r.label} className="flex justify-between gap-3">
-          <dt className="text-muted-foreground">{r.label}</dt>
-          <dd className="num font-semibold">{format.usd(r.value, { digits: 2 })}</dd>
-        </div>
-      ))}
-    </dl>
   );
 }
 
@@ -216,78 +286,46 @@ function CopyingSection({ overview, phone }: { overview: CopyOverview; phone: bo
       />
     );
   }
-  // Testnet copies (real orders on Hyperliquid testnet) list above the paper ones.
-  const live = <LiveCopies className="mb-4" />;
-  if (overview.strategies.length === 0) return <>{live}<EmptyCopying className={phone ? undefined : "mt-14 px-6"} /></>;
-  if (phone) return <>{live}<CopyCards strategies={overview.strategies} leaders={leaders} onSelect={select} sparklines={sparklines} /></>;
+  if (overview.strategies.length === 0) return <EmptyCopying className={phone ? undefined : "mt-14 px-6"} />;
+  if (phone) return <CopyCards strategies={overview.strategies} leaders={leaders} onSelect={select} sparklines={sparklines} />;
   const values = ["copying", "insights", "exposure"] as const;
   return (
-    <>
-    {live}
     <section>
-      <div role="tablist" aria-label={t("portfolio.title")} className="mb-1 flex gap-1">
-        {values.map((value) => (
-          <button
-            key={value}
-            id={`desktop-copy-tab-${value}`}
-            type="button"
-            role="tab"
-            aria-selected={tab === value}
-            tabIndex={tab === value ? 0 : -1}
-            aria-controls="desktop-copy-panel"
-            onKeyDown={(event) => {
-              const index = values.indexOf(value);
-              const next = event.key === "ArrowRight" ? values[(index + 1) % values.length] : event.key === "ArrowLeft" ? values[(index + values.length - 1) % values.length] : event.key === "Home" ? values[0] : event.key === "End" ? values[values.length - 1] : null;
-              if (next) { event.preventDefault(); setTab(next); document.getElementById(`desktop-copy-tab-${next}`)?.focus(); }
-            }}
-            onClick={() => setTab(value)}
-            className={cn(
-              "flex h-11 items-center gap-2 rounded-full px-4 text-[15px] outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
-              tab === value ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground hover:bg-raised hover:text-foreground",
-            )}
-          >
-            {t(`portfolio.tabs.${value}`)}
-            {value === "copying" ? <span className={cn("num inline-flex size-6 items-center justify-center rounded-full font-display text-xs", tab === value ? "bg-card/80 text-foreground" : "bg-raised text-foreground")}>{overview.strategies.length}</span> : null}
-          </button>
-        ))}
-      </div>
+      <Tabs value={tab} onChange={setTab} label={t("portfolio.title")} idPrefix="desktop-copy-tab" controls="desktop-copy-panel" className="mb-1"
+        items={values.map((value) => ({ value, label: t(`portfolio.tabs.${value}`),
+          badge: value === "copying" ? <span className={cn("num inline-flex size-6 items-center justify-center rounded-full font-display text-xs", tab === value ? "bg-card/80 text-foreground" : "bg-raised text-foreground")}>{overview.strategies.length}</span> : null }))} />
       <SwitchPanel value={tab} order={TAB_ORDER} id="desktop-copy-panel" role="tabpanel" aria-labelledby={`desktop-copy-tab-${tab}`}>
         {tab === "copying" ? <CopyTable strategies={overview.strategies} leaders={leaders} onSelect={select} sparklines={sparklines} bare />
           : tab === "insights" ? <InsightsPanel overview={overview} leaders={leaders} onSelect={(id) => select(id)} desktop />
           : <ExposurePanel overview={overview} leaders={leaders} desktop />}
       </SwitchPanel>
     </section>
-    </>
   );
 }
 
 function DesktopPortfolio() {
   const { t } = useI18n();
-  const wallet = useWallet();
-  const copy = useCopyOverview();
-  const [open, setOpen] = useState(false);
+  const [view, setView] = usePortfolioView();
   return (
-    <div className="flex flex-col gap-6">
-      <h1 className="type-h1">{t("portfolio.title")}</h1>
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="type-h1">{t("portfolio.title")}</h1>
+        <ViewSwitch view={view} onChange={setView} />
+      </div>
+      <div id="portfolio-view-panel" role="tabpanel" aria-labelledby={`portfolio-view-${view}`}>
+        {view === "real" ? <RealPortfolio /> : <DesktopPaper />}
+      </div>
+    </div>
+  );
+}
+
+/** 模擬 on desktop: the paper account and its chart, the paper copies, their activity. */
+function DesktopPaper() {
+  const copy = useCopyOverview();
+  const names = usePaperNames(copy.data);
+  return (
+    <div className="flex flex-col gap-5" data-view="paper">
       <div className="flex flex-wrap items-stretch gap-4">
-        <section className="orbit-card card-pad flex w-[340px] flex-col gap-2" aria-label={t("portfolio.totalValue")}>
-          <div className="flex min-h-6 items-center justify-between gap-2">
-            <p className="text-[13px] font-bold text-muted-foreground">{t("portfolio.totalValue")}</p>
-          </div>
-          <button
-            type="button"
-            className="flex items-center gap-1 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-expanded={open}
-            aria-label={t("portfolio.breakdown")}
-            onClick={() => setOpen((v) => !v)}
-            disabled={!wallet.data}
-          >
-            <TotalValue wallet={wallet} className="font-display text-[2.5rem] leading-tight" />
-          </button>
-          {open && wallet.data ? <Breakdown summary={wallet.data} /> : null}
-          {wallet.isError && !wallet.data ? <ErrorState onRetry={() => wallet.refetch()} /> : null}
-          <FundButtons className="mt-auto pt-2" />
-        </section>
         {copy.data ? <PaperSummary overview={copy.data} className="w-[340px]" /> : !copy.isError ? <PaperSummarySkeleton className="w-[340px]" /> : null}
         {copy.data && copy.data.strategies.length > 0 ? (
           <PortfolioChart overview={copy.data} className="min-w-[420px] flex-1" />
@@ -302,6 +340,7 @@ function DesktopPortfolio() {
       ) : (
         <CopySectionSkeleton />
       )}
+      <RecentActivity names={names} />
     </div>
   );
 }
@@ -332,20 +371,17 @@ function CopySectionSkeleton() {
 }
 
 function PhonePortfolio() {
-  const { t } = useI18n();
-  const wallet = useWallet();
   const [tab, setTab] = useState<Tab>("copying");
-  const [open, setOpen] = useState(false);
-  const tabs: { value: Tab; label: string }[] = [
-    { value: "copying", label: t("portfolio.tabs.copying") },
-    { value: "insights", label: t("portfolio.tabs.insights") },
-    { value: "exposure", label: t("portfolio.tabs.exposure") },
-  ];
-
+  const [view, setView] = usePortfolioView();
   return (
     <div className="-mx-4 -mt-4">
       <PhoneHeader />
-      <PhoneBody tab={tab} setTab={setTab} tabs={tabs} wallet={wallet} open={open} setOpen={setOpen} />
+      <div className="px-4 pt-3">
+        <ViewSwitch view={view} onChange={setView} className="w-full [&>button]:flex-1 [&>button]:justify-center" />
+      </div>
+      <div id="portfolio-view-panel" role="tabpanel" aria-labelledby={`portfolio-view-${view}`} className="px-4 pt-4 pb-6">
+        {view === "real" ? <RealPortfolio /> : <PhonePaper tab={tab} setTab={setTab} />}
+      </div>
     </div>
   );
 }
@@ -399,67 +435,20 @@ function PhoneSignedOut() {
   );
 }
 
-function PhoneBody({
-  tab,
-  setTab,
-  tabs,
-  wallet,
-  open,
-  setOpen,
-}: {
-  tab: Tab;
-  setTab: (tab: Tab) => void;
-  tabs: { value: Tab; label: string }[];
-  wallet: ReturnType<typeof useWallet>;
-  open: boolean;
-  setOpen: (update: (value: boolean) => boolean) => void;
-}) {
+/** 模擬 on phones: the paper copies with 跟單中 / 洞察 / 曝險, then their activity. */
+function PhonePaper({ tab, setTab }: { tab: Tab; setTab: (tab: Tab) => void }) {
   const { t } = useI18n();
   const copy = useCopyOverview();
+  const names = usePaperNames(copy.data);
   return (
-    <>
-      <div className="orbit-card mx-4 mt-3 px-5 py-4">
-        <div className="flex min-h-6 items-center gap-2">
-          <p className="text-[13px] font-bold text-muted-foreground">{t("portfolio.totalValue")}</p>
-        </div>
-        <button
-          type="button"
-          className="flex w-full items-center justify-between text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-expanded={open}
-          aria-label={t("portfolio.breakdown")}
-          onClick={() => setOpen((v) => !v)}
-          disabled={!wallet.data}
-        >
-          <TotalValue wallet={wallet} className="font-display text-[2.25rem] leading-tight" />
-          <ChevronDown className={cn("size-5 text-muted-foreground transition-transform duration-200", open && "rotate-180")} strokeWidth={2.4} />
-        </button>
-        {open && wallet.data ? <Breakdown summary={wallet.data} /> : null}
-        <FundButtons className="mt-3" />
-      </div>
-
-      <div className="px-4 pt-4">
-        <div role="tablist" aria-label={t("portfolio.title")} className="grid grid-flow-col gap-0.5 rounded-full bg-raised p-1">
-          {tabs.map((item) => (
-            <button
-              key={item.value}
-              type="button"
-              role="tab"
-              aria-selected={tab === item.value}
-              onClick={() => setTab(item.value)}
-              className={cn(
-                "h-11 rounded-full px-3 text-[0.9375rem] outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
-                tab === item.value ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground",
-              )}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-        <SwitchPanel value={tab} order={TAB_ORDER} role="tabpanel" className={copy.data && copy.data.strategies.length === 0 ? "pt-8" : "pt-4 pb-6"}>
-          <PhoneTab tab={tab} copy={copy} setTab={setTab} />
-        </SwitchPanel>
-      </div>
-    </>
+    <div className="flex flex-col gap-4" data-view="paper">
+      <Tabs value={tab} onChange={setTab} label={t("portfolio.title")} size="sm" className="seg-track w-full [&>button]:flex-1 [&>button]:justify-center"
+        items={TAB_ORDER.map((value) => ({ value, label: t(`portfolio.tabs.${value}`) }))} />
+      <SwitchPanel value={tab} order={TAB_ORDER} role="tabpanel" className={copy.data && copy.data.strategies.length === 0 ? "pt-4" : undefined}>
+        <PhoneTab tab={tab} copy={copy} setTab={setTab} />
+      </SwitchPanel>
+      <RecentActivity names={names} />
+    </div>
   );
 }
 

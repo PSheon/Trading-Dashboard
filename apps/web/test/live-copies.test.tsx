@@ -18,7 +18,7 @@ vi.mock('@/lib/api', async () => ({ ...(await vi.importActual<typeof import('@/l
 vi.mock('@/lib/copy-execution-wallets', () => ({ useExecutionWallets: () => ({ data: { accounts: [liveAccount] } }) }));
 vi.mock('@/lib/copy-live', () => ({ useLiveCopyOverview: () => ({ data: { mandates: [{ ...liveMandate, state: 'active' }], strategies: state.strategies } }) }));
 vi.mock('@/lib/copy-follower-snapshot', () => ({ useCopyFollowerSnapshot: () => ({ data: state.snapshot, refetch: state.refetch }) }));
-vi.mock('@/components/copy/copy-live-stop', () => ({ CopyLiveStop: () => <div data-testid="stop">stop</div> }));
+vi.mock('@/components/copy/copy-live-stop', () => ({ CopyLiveStop: () => <div data-testid="stop">stop</div>, LiveCopyStopAction: () => <div data-testid="stop">stop</div> }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh() {}, push() {} }), usePathname: () => '/portfolio', useSearchParams: () => new URLSearchParams() }));
 vi.mock('next/link', () => ({ default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a> }));
 
@@ -40,11 +40,18 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); client.clear(); container.remove(); });
 const settle = () => settleQueries(client, { ms: 15 });
-async function render(locale: Locale = 'en') {
+/** Renders the list and, unless `open` is false, opens the first copy's detail sheet (Paul, 2026-10-06: a card per copy, its actions in a sheet). */
+async function render(locale: Locale = 'en', { open = true }: { open?: boolean } = {}) {
   await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale={locale} messages={catalogs[locale]}><LiveCopies /></I18nProvider></QueryClientProvider>));
   await settle();
+  if (open && cards().length && !document.querySelector('[data-testid="live-copy-sheet"]')) await openCard(0);
 }
-const button = (label: string) => [...container.querySelectorAll('button')].find(b => b.textContent === label)!;
+const cards = () => [...container.querySelectorAll<HTMLButtonElement>('[data-testid="live-copy-card"]')];
+async function openCard(index: number) { await act(async () => cards()[index]!.click()); await settle(); }
+const detail = () => document.querySelector('[data-testid="live-copy-sheet"]') as HTMLElement | null;
+/** The dialog on top (the copy's sheet is one too). */
+const topDialog = () => [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].at(-1)!;
+const button = (label: string) => [...document.querySelectorAll('button')].find(b => b.textContent === label)!;
 /** The confirm sheet in front of every withdrawal and return (Paul, 2026-10-06). */
 const sheet = () => document.querySelector('[data-testid="transfer-confirm"]') as HTMLElement | null;
 const sheetButton = (label: string) => [...(sheet()?.querySelectorAll('button') ?? [])].find(b => b.textContent === label) as HTMLButtonElement | undefined;
@@ -54,14 +61,19 @@ it('lists each testnet copy with its stage, balances and positions, and nothing 
   await render(); expect(container.textContent).toBe('');
   items = [item(), item({ strategyId: 99, stage: 'needs_deposit', status: 'paused', lastRefusal: { reason: 'live_source_price_deviation', at: new Date(liveNow).toISOString() } })];
   await act(async () => { await client.invalidateQueries(); }); await settle();
-  expect(container.textContent).toContain('Testnet copies');
-  expect(container.textContent).toContain('Active'); expect(container.textContent).toContain('Mainnet leader');
-  expect(container.textContent).toContain('Needs deposit'); expect(container.textContent).toContain('Deposit USDC from your main wallet');
-  expect(container.textContent).toContain('testnet price too far from mainnet');
-  expect(container.textContent).toContain('$97.50'); expect(container.textContent).toContain('BTC');
+  // Two lines per card: name and status; PnL (equity less the budget) and ROI.
+  expect(cards()).toHaveLength(2);
+  expect(cards()[0]!.textContent).toContain('Copying'); expect(cards()[0]!.textContent).toContain('-$2.50'); expect(cards()[0]!.textContent).toContain('2.5%');
+  expect(cards()[1]!.textContent).toContain('Setting up');
+  await openCard(0);
+  expect(detail()!.textContent).toContain('Active'); expect(detail()!.textContent).toContain('$97.50'); expect(detail()!.textContent).toContain('BTC');
+  await act(async () => { (document.querySelector('[role="dialog"] button[aria-label="Close"]') as HTMLButtonElement).click(); }); await settle();
+  await openCard(1);
+  expect(detail()!.textContent).toContain('Needs deposit'); expect(detail()!.textContent).toContain('Deposit USDC from your main wallet');
+  expect(detail()!.textContent).toContain('testnet price too far from mainnet');
   // One-click: the deposit is a silent top-up here, not the Settings forms.
-  expect(container.querySelector('a[href="/en/settings?tab=account"]')).toBeNull();
-  expect([...container.querySelectorAll('button')].filter(b => b.textContent === 'Add funds')).toHaveLength(2);
+  expect(document.querySelector('a[href="/en/settings?tab=account"]')).toBeNull();
+  expect([...detail()!.querySelectorAll('button')].filter(b => b.textContent === 'Add funds')).toHaveLength(1);
 });
 
 it('withdraws idle funds: the owner signs the exact consent, then the approval goes out once', async () => {
@@ -73,7 +85,7 @@ it('withdraws idle funds: the owner signs the exact consent, then the approval g
     : { ...operation, status: 'accepted' });
   await render();
   await act(async () => {
-    const input = container.querySelector('input[name="withdraw"]') as HTMLInputElement;
+    const input = document.querySelector('input[name="withdraw"]') as HTMLInputElement;
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '12.5'); input.dispatchEvent(new Event('input', { bubbles: true }));
   });
   await act(async () => button('Withdraw idle funds').click()); await settle();
@@ -95,7 +107,7 @@ it('an account with the automatic return: idle funds go back without a signature
     : { ...operation, status: 'accepted' });
   await render();
   await act(async () => {
-    const input = container.querySelector('input[name="withdraw"]') as HTMLInputElement;
+    const input = document.querySelector('input[name="withdraw"]') as HTMLInputElement;
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '12.5'); input.dispatchEvent(new Event('input', { bubbles: true }));
   });
   await act(async () => button('Withdraw idle funds').click()); await settle();
@@ -111,13 +123,15 @@ it('an account with the automatic return: idle funds go back without a signature
     pendingTransfer: { id: '55555555-5555-4555-8555-555555555555', direction: 'to_main', status: 'accepted', amount: '97.5' }, sweep: { amount: '97.5', status: 'accepted' } })];
   state.snapshot = observed([]);
   await act(async () => { await client.invalidateQueries(); }); await settle();
-  expect(container.textContent).toContain('Returning automatically'); expect(container.textContent).toContain('nothing to sign');
+  expect(detail()!.textContent).toContain('Returning automatically'); expect(detail()!.textContent).toContain('nothing to sign');
   expect(button('Return all to main wallet')).toBeUndefined();
   items = [item({ automaticReturn: true, stage: 'stopped', status: 'stopped', stop: null, sweep: { amount: '97.5', status: 'credited' } })];
   await act(async () => { await client.invalidateQueries(); }); await settle();
-  expect(container.textContent).toContain('Returned 97.5 USDC to your main wallet');
+  // Stopped: folded under 已結束; its sheet says what came back.
+  await act(async () => { (container.querySelector('summary') as HTMLElement).click(); });
+  expect(detail()!.textContent).toContain('Returned 97.5 USDC to your main wallet');
   await render('zh-TW');
-  expect(container.textContent).toContain('已返還 97.5 USDC 至主錢包');
+  expect(detail()!.textContent).toContain('已返還 97.5 USDC 至主錢包');
 });
 
 it('closes one position, signs the cancellation consent while cancelling, and returns everything when flat', async () => {
@@ -134,14 +148,22 @@ it('closes one position, signs the cancellation consent while cancelling, and re
   items = [item({ stage: 'sweeping', status: 'stopping', stop: { id: '44444444-4444-4444-8444-444444444444', state: 'flat', issue: null, revision: 4 } })];
   state.snapshot = observed([]);
   await act(async () => { await client.invalidateQueries(); }); await settle();
-  expect(container.textContent).toContain('Returning funds'); expect(container.textContent).toContain('No open positions');
+  expect(detail()!.textContent).toContain('Returning funds'); expect(detail()!.textContent).toContain('No open positions');
   expect(button('Return all to main wallet')).toBeDefined();
 });
 
 it.each(LOCALES)('renders every stage in %s', async locale => {
   items = (['setup', 'needs_deposit', 'funding', 'awaiting_credit', 'starting', 'active', 'paused', 'stopping', 'sweeping', 'stopped'] as const).map((stage, i) => item({ strategyId: i + 1, stage }));
-  await render(locale);
-  for (const stage of Object.values(liveCopiesMessages[locale].stages)) expect(container.textContent).toContain(stage);
+  await render(locale, { open: false });
+  const stages = liveCopiesMessages[locale].stages, keys = ['setup', 'needs_deposit', 'funding', 'awaiting_credit', 'starting', 'active', 'paused', 'stopping', 'sweeping'] as const;
+  // Stopped copies fold under 已結束; every other card opens a sheet that names its stage.
+  expect(cards()).toHaveLength(keys.length + 1);
+  expect(container.textContent).toContain(catalogs[locale].folio.ended.replace('{count}', '1'));
+  for (const [i, key] of keys.entries()) {
+    await openCard(i);
+    expect(detail()!.textContent, key).toContain(stages[key]);
+    await act(async () => { (document.querySelector('[role="dialog"] button[aria-label]') as HTMLButtonElement).click(); }); await settle();
+  }
 });
 
 it('says the copies could not be read, with a retry, instead of hiding the section', async () => {
@@ -153,11 +175,11 @@ it('says the copies could not be read, with a retry, instead of hiding the secti
     return { network: 'testnet', automaticExecution: true, items };
   });
   await render();
-  expect(container.textContent).toContain('Testnet copies');
+  expect(container.textContent).toContain('Copying');
   expect(container.textContent).toContain(catalogs.en.common.error);
   fail = false;
   await act(async () => button(catalogs.en.common.retry).click()); await settle();
-  expect(container.textContent).toContain('Active');
+  expect(cards()).toHaveLength(1);
 });
 
 it('a prepared return can be cancelled from the portfolio (its consent key does not survive a reload)', async () => {
@@ -169,7 +191,7 @@ it('a prepared return can be cancelled from the portfolio (its consent key does 
   await render();
   await act(async () => button('Cancel this return').click()); await settle();
   expect(state.post).toHaveBeenCalledWith(`/me/copy/funding/${id}/cancel`, {});
-  expect(container.textContent).not.toContain('The action did not complete');
+  expect(document.body.textContent).not.toContain('The action did not complete');
 });
 
 it('a start that ended after its deposit arrived (no stop to sweep it) offers 全部返還主錢包, signed by the worker on an automatic account', async () => {
@@ -182,7 +204,7 @@ it('a start that ended after its deposit arrived (no stop to sweep it) offers �
   items = [item({ automaticReturn: true, stage: 'sweeping', status: 'stopped', mandate: null, stop: null, sweep: null })];
   state.snapshot = observed([]);
   await render();
-  expect(container.textContent).not.toContain('Returning automatically');
+  expect(detail()!.textContent).not.toContain('Returning automatically');
   await act(async () => button('Return all to main wallet').click()); await settle();
   expect(sheet()!.dataset.kind).toBe('returnAll'); expect(state.post).not.toHaveBeenCalled();
   await act(async () => sheetButton('Confirm return')!.click()); await settle();
@@ -196,20 +218,20 @@ it('加碼 that fails keeps the dialog and the typed amount, with the reason', a
   state.post.mockRejectedValue(new ApiError(409, 'busy', { code: 'funding_pending' }));
   await render('zh-TW');
   await act(async () => button('加碼').click());
-  const input = () => document.querySelector('[role="dialog"] input') as HTMLInputElement;
+  const input = () => topDialog().querySelector('input') as HTMLInputElement;
   await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input(), '25'); input().dispatchEvent(new Event('input', { bubbles: true })); });
-  const submit = [...document.querySelectorAll('[role="dialog"] button')].find(b => b.textContent?.includes('25'))!;
+  const submit = [...topDialog().querySelectorAll('button')].find(b => b.textContent?.includes('25'))!;
   await act(async () => (submit as HTMLButtonElement).click()); await settle();
   expect(input()).toBeTruthy();
   expect(input().value).toBe('25');
-  expect(document.querySelector('[role="dialog"]')!.textContent).toContain('已有一筆入金正在處理');
+  expect(topDialog().textContent).toContain('已有一筆入金正在處理');
 });
 
 it("a transfer in flight is said in the page's language, never as the raw status", async () => {
   items = [item({ stage: 'funding', status: 'paused', pendingTransfer: { id: '77777777-7777-4777-8777-777777777777', direction: 'to_account', status: 'prepared', amount: '100' } })];
   await render('zh-TW');
-  expect(container.textContent).toContain('入金・等待送出：100 USDC');
-  expect(container.textContent).not.toMatch(/prepared|unknown|accepted/);
+  expect(detail()!.textContent).toContain('入金・等待送出：100 USDC');
+  expect(detail()!.textContent).not.toMatch(/prepared|unknown|accepted/);
   for (const locale of LOCALES) {
     const text = liveCopiesMessages[locale];
     for (const status of ['prepared', 'unknown', 'accepted'] as const) expect(text.transferStatus[status], locale).not.toBe(status);
@@ -249,7 +271,7 @@ it("a failed edit says why inside the edit dialog, which stays open on top (web 
   state.patch.mockRejectedValue(new ApiError(409, 'A stop is in progress for this copy', { code: 'live_stop_in_progress' }));
   await render();
   await act(async () => button('Edit settings').click());
-  const dialog = () => document.querySelector('[role="dialog"]')!;
+  const dialog = () => topDialog();
   await act(async () => { (dialog().querySelector('button[type="submit"]') as HTMLButtonElement).click(); });
   await settle();
   expect(dialog()).toBeTruthy();
@@ -258,9 +280,9 @@ it("a failed edit says why inside the edit dialog, which stays open on top (web 
 
 it('the withdraw box shows a placeholder and the most you can withdraw, 全部 fills it, and a transfer in flight says so instead of vanishing', async () => {
   await render('zh-TW');
-  const input = () => container.querySelector('input[name="withdraw"]') as HTMLInputElement | null;
+  const input = () => document.querySelector('input[name="withdraw"]') as HTMLInputElement | null;
   expect(input()!.placeholder).toBe('輸入金額');
-  expect(container.textContent).toContain('最多可提領 $80.25');
+  expect(detail()!.textContent).toContain('最多可提領 $80.25');
   await act(async () => button('全部').click());
   expect(input()!.value).toBe('80.25');
   // More than the account can withdraw: the button stays off.
@@ -269,7 +291,7 @@ it('the withdraw box shows a placeholder and the most you can withdraw, 全部 f
   items = [item({ pendingTransfer: { id: '88888888-8888-4888-8888-888888888888', direction: 'to_main', status: 'accepted', amount: '12.5' } })];
   await act(async () => { await client.invalidateQueries(); }); await settle();
   expect(input()).toBeNull();
-  expect(container.querySelector('[data-testid="transfer-pending"]')!.textContent).toBe('轉帳處理中，完成後可再次提領');
+  expect(document.querySelector('[data-testid="transfer-pending"]')!.textContent).toBe('轉帳處理中，完成後可再次提領');
 });
 
 it('reads the account again once a transfer settles, so the equity moves without a reload', async () => {
@@ -285,7 +307,7 @@ it('every action ends in a toast: success, or the failure in words with no raw c
   const { ToastProvider } = await import('@/components/ui/toast');
   const { ApiError } = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
   await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale="zh-TW" messages={catalogs['zh-TW']}><ToastProvider><LiveCopies /></ToastProvider></I18nProvider></QueryClientProvider>));
-  await settle();
+  await settle(); await openCard(0);
   const toasts = () => [...document.querySelectorAll('[data-testid="toasts"] [role="alert"]')].map(el => ({ type: el.getAttribute('data-type'), text: el.textContent }));
   state.post.mockResolvedValueOnce({ id: '33333333-3333-4333-8333-333333333333', accountId: liveAccount.id, strategyId: liveAccount.strategyId, coin: 'BTC', state: 'requested', reason: null, orders: 0,
     createdAt: new Date(liveNow).toISOString(), updatedAt: new Date(liveNow).toISOString() });

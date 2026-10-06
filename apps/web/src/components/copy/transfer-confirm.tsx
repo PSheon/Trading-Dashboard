@@ -27,24 +27,25 @@ export function TransferConfirm({ kind, open, amount, destination, pending, erro
   pending: boolean; error: string | null;
   onConfirm: () => void; onOpenChange: (open: boolean) => void;
 }) {
-  const { locale } = useI18n(), ui = liveCopiesMessages[locale].ui;
+  const { locale, t } = useI18n(), ui = liveCopiesMessages[locale].ui;
   const title = kind === "withdraw" ? ui.withdrawTitle : kind === "returnAll" ? ui.returnTitle : ui.stopTitle;
   const wallet = destination ? `${ui.mainWallet} · ${truncateAddress(destination)}` : ui.mainWallet;
-  const rows: [string, string][] = kind === "stop"
-    ? [[ui.stopAction, ui.stopActionValue], [ui.stopFunds, ui.stopFundsAuto], [ui.destination, wallet], [ui.network, ui.networkValue], [ui.eta, ui.etaValue]]
-    : [[ui.amountRow, amount ?? "—"], [ui.destination, wallet], [ui.network, ui.networkValue], [ui.eta, ui.etaValue]];
+  const rows: [string, string][] = [[ui.amountRow, amount ?? "—"], [ui.destination, wallet], [ui.network, ui.networkValue], [ui.eta, ui.etaValue]];
   const cta = kind === "stop" ? ui.confirmStop : kind === "withdraw" ? ui.confirmWithdraw : ui.confirmReturn;
   return (
     <Modal open={open} onOpenChange={(next) => { if (!pending) onOpenChange(next); }} title={title}>
       <div className="flex flex-col gap-4 px-6 pt-3 pb-6" data-testid="transfer-confirm" data-kind={kind}>
-        <dl className="divide-y divide-border rounded-2xl bg-inset px-4">
-          {rows.map(([label, value]) => (
-            <div key={label} className="flex items-start justify-between gap-4 py-2.5 text-sm">
-              <dt className="shrink-0 text-muted-foreground">{label}</dt>
-              <dd className="num min-w-0 text-right font-semibold break-words">{value}</dd>
-            </div>
-          ))}
-        </dl>
+        {/* A stop is one plain sentence: what happens, and where the money goes. */}
+        {kind === "stop" ? <p className="text-sm leading-6">{t("folio.stopSentence", { address: destination ? truncateAddress(destination) : "" }).replace("  ", " ")}</p> : (
+          <dl className="divide-y divide-border rounded-2xl bg-inset px-4">
+            {rows.map(([label, value]) => (
+              <div key={label} className="flex items-start justify-between gap-4 py-2.5 text-sm">
+                <dt className="shrink-0 text-muted-foreground">{label}</dt>
+                <dd className="num min-w-0 text-right font-semibold break-words">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
         {error ? <p role="alert" className="flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning"><TriangleAlert className="mt-px size-3.5 shrink-0" />{error}</p> : null}
         <div className="flex flex-col gap-2.5">
           <Button type="button" size="cta" className="w-full" loading={pending} onClick={onConfirm}>{cta}</Button>

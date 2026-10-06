@@ -1,6 +1,7 @@
 'use client';
 import { Link } from '@/i18n/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown } from 'lucide-react';
 import type { CopyExecutionAccount, LiveCopyMandate } from '@trading-dashboard/shared/contracts';
 import { useI18n } from '@/i18n/provider';
 import { liveCopiesMessages, type LiveCopiesText } from '@/i18n/live-copies';
@@ -8,11 +9,15 @@ import { useLiveCopyPortfolio, useLiveCopyPortfolioActions, type LiveCopyItem } 
 import { useExecutionWallets } from '@/lib/copy-execution-wallets';
 import { useCopyFollowerSnapshot } from '@/lib/copy-follower-snapshot';
 import { useLiveCopyOverview } from '@/lib/copy-live';
-import { shortAddress } from '@/components/wallet/bits';
-import { CopyLiveStop } from '@/components/copy/copy-live-stop';
+import { CopyIconButton } from '@/components/wallet/bits';
+import { LiveCopyStopAction } from '@/components/copy/copy-live-stop';
+import { useLeaders } from '@/components/copy/copy-portfolio';
+import { TraderAvatar, boardName } from '@/components/discover/board-bits';
+import { RoiPill } from '@/components/traders/bits';
+import { Drawer } from '@/components/ui/drawer';
+import { truncateAddress } from '@/lib/format';
 import { LiveCopyActions } from '@/components/copy/live-copy-actions';
 import type { LiveCopyStrategy } from '@trading-dashboard/shared/contracts';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { TransferConfirm } from '@/components/copy/transfer-confirm';
 import { amountInput } from '@/lib/amount-input';
@@ -31,39 +36,128 @@ const stageTone: Record<LiveCopyItem['stage'], string> = {
   sweeping: 'bg-tag-warning text-tag-warning-foreground', stopped: 'bg-raised text-muted-foreground',
 };
 
+/** A copy's state in one word and a dot (the compact card's first line). */
+type CardStatus = 'running' | 'paused' | 'starting' | 'attention' | 'stopping' | 'stopped';
+export function cardStatus(item: LiveCopyItem): CardStatus {
+  if (item.setup && ['failed', 'expired'].includes(item.setup.stage)) return 'attention';
+  if (item.stop?.state === 'blocked' || item.stop?.state === 'cancelling' && !item.oneClick) return 'attention';
+  switch (item.stage) {
+    case 'active': return 'running';
+    case 'paused': return 'paused';
+    case 'stopping': case 'sweeping': return 'stopping';
+    case 'stopped': return 'stopped';
+    default: return 'starting';
+  }
+}
+const DOT: Record<CardStatus, string> = { running: 'bg-positive', paused: 'bg-subtle-foreground', starting: 'bg-primary', attention: 'bg-warning', stopping: 'bg-warning', stopped: 'bg-subtle-foreground' };
+
+/** The copy's account as the account reads take it (the portfolio row carries its id and address). */
+function accountOf(item: LiveCopyItem, accounts: CopyExecutionAccount[] | undefined): CopyExecutionAccount | null {
+  return accounts?.find(a => a.id === item.accountId) ?? null;
+}
+
 /**
- * The owner's testnet copies in the portfolio, each with the stage CopyDog
- * shows (needs deposit, funding, awaiting credit, active, paused, stopping,
- * returning funds) and its actions: deposit or finish setup, withdraw idle
- * funds, close one position, stop (cancel, close, flat), sign the order
- * cancellation consent, return everything to the main wallet. An account
- * with the automatic return withdraws idle funds without a signature and
- * returns everything by itself after a stop (自動返還中, then the amount).
+ * 跟單中 (Paul, 2026-10-06): one compact card per testnet copy, two lines
+ * (avatar, name and a status dot; PnL and ROI), and 已結束 (n) folded below.
+ * A card opens the copy's detail sheet (equity, withdrawable, positions,
+ * withdraw, pause, edit, add funds, stop). `onEquity` hands each copy's
+ * equity up to 我的資金.
  */
-export function LiveCopies({ className }: { className?: string }) {
-  const { locale } = useI18n(), text = liveCopiesMessages[locale];
+export function LiveCopies({ className, onEquity, empty = null }: { className?: string; onEquity?: (strategyId: number, equity: number | null) => void; empty?: React.ReactNode }) {
+  const { locale, t } = useI18n(), text = liveCopiesMessages[locale];
   const portfolio = useLiveCopyPortfolio(), wallets = useExecutionWallets(), overview = useLiveCopyOverview();
-  const items = portfolio.data?.items ?? [];
+  const items = useMemo(() => portfolio.data?.items ?? [], [portfolio.data]);
+  const leaders = useLeaders(items);
+  const [openId, setOpenId] = useState<number | null>(null);
   // The read failed: say so, with a retry, instead of hiding the section.
   if (portfolio.enabled && portfolio.isError && !items.length) return (
-    <section className={cn('orbit-card', className)} aria-label={text.title}>
-      <h2 className="border-b-2 border-dotted border-border px-4 py-3.5 text-[0.8125rem] font-semibold">{text.title}</h2>
+    <section className={cn('orbit-card', className)} aria-label={t('folio.copying')}>
+      <h2 className="px-4 pt-4 text-[0.9375rem] font-extrabold">{t('folio.copying')}</h2>
       <ErrorState onRetry={() => void portfolio.refetch()} />
     </section>
   );
-  if (!items.length) return null;
+  if (!items.length) return <>{empty}</>;
+  const running = items.filter(item => item.stage !== 'stopped'), ended = items.filter(item => item.stage === 'stopped');
+  const open = items.find(item => item.strategyId === openId) ?? null;
+  const leaderOf = (item: LiveCopyItem) => leaders.get(item.leaderAddress) ?? { address: item.leaderAddress, displayName: null, avatarUrl: null };
+  const card = (item: LiveCopyItem) => (
+    <LiveCopyCard key={item.strategyId} item={item} leader={leaderOf(item)} account={accountOf(item, wallets.data?.accounts)} onOpen={() => setOpenId(item.strategyId)} onEquity={onEquity} />
+  );
   return (
-    <section className={cn('orbit-card', className)} aria-label={text.title}>
-      <h2 className="border-b-2 border-dotted border-border px-4 py-3.5 text-[0.8125rem] font-semibold">{text.title}</h2>
-      <ul className="divide-y-2 divide-dotted divide-border">
-        {items.map(item => (
-          <li key={item.strategyId}>
-            <LiveCopyRow item={item} text={text} account={wallets.data?.accounts.find(a => a.id === item.accountId) ?? null}
-              mandate={overview.data?.mandates.find(m => m.id === item.mandate?.id) ?? null} strategy={overview.data?.strategies?.find(s => s.id === item.strategyId) ?? null} />
-          </li>
-        ))}
-      </ul>
+    <section className={cn('flex flex-col gap-3', className)} aria-label={t('folio.copying')}>
+      <h2 className="text-[0.9375rem] font-extrabold">{t('folio.copying')}</h2>
+      {running.length ? <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{running.map(card)}</div> : empty}
+      {ended.length ? (
+        <details className="group">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-full text-sm font-bold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+            <ChevronDown className="size-4 transition-transform group-open:rotate-180" aria-hidden />
+            {t('folio.ended', { count: ended.length })}
+          </summary>
+          <div className="mt-2 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{ended.map(card)}</div>
+        </details>
+      ) : null}
+      {open ? (
+        <LiveCopySheet item={open} text={text} leader={leaderOf(open)} account={accountOf(open, wallets.data?.accounts)}
+          mandate={overview.data?.mandates.find(m => m.id === open.mandate?.id) ?? null} strategy={overview.data?.strategies?.find(s => s.id === open.strategyId) ?? null}
+          onClose={() => setOpenId(null)} />
+      ) : null}
     </section>
+  );
+}
+
+type Leader = { address: string; displayName: string | null; avatarUrl: string | null };
+
+/** The account's figures: equity, PnL (equity less the budget) and ROI. */
+function useFigures(item: LiveCopyItem, account: CopyExecutionAccount | null) {
+  const snapshot = useCopyFollowerSnapshot(account && item.stage !== 'setup' && item.stage !== 'stopped' ? account : null);
+  const observed = snapshot.data?.status === 'observed' ? snapshot.data : null;
+  const equity = observed ? Number(observed.metrics.perpEquity) : null, budget = Number(item.budgetUsd);
+  const pnl = equity !== null && budget > 0 ? equity - budget : null;
+  return { snapshot, observed, equity, pnl, roi: pnl !== null ? pnl / budget : null };
+}
+
+function LiveCopyCard({ item, leader, account, onOpen, onEquity }: { item: LiveCopyItem; leader: Leader; account: CopyExecutionAccount | null; onOpen: () => void; onEquity?: (strategyId: number, equity: number | null) => void }) {
+  const { t, format } = useI18n();
+  const { equity, pnl, roi } = useFigures(item, account);
+  useEffect(() => { onEquity?.(item.strategyId, item.stage === 'stopped' ? null : equity); }, [onEquity, item.strategyId, item.stage, equity]);
+  const status = cardStatus(item);
+  return (
+    <button type="button" onClick={onOpen} data-testid="live-copy-card" aria-haspopup="dialog"
+      className="orbit-card orbit-press flex w-full min-w-0 flex-col gap-2 p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <span className="flex min-w-0 items-center gap-3">
+        <TraderAvatar trader={leader} size={36} />
+        <span className="min-w-0 flex-1 truncate text-[0.9375rem] font-bold">{boardName(leader)}</span>
+        <span className="flex shrink-0 items-center gap-1.5 text-xs font-bold text-muted-foreground">
+          <span aria-hidden className={cn('size-2 rounded-full', DOT[status])} />{t(`folio.status.${status}`)}
+        </span>
+      </span>
+      <span className="flex min-w-0 items-center gap-2 pl-12">
+        <span className="text-xs text-muted-foreground">{t('folio.pnl')}</span>
+        <span className={cn('num text-[0.9375rem] font-bold', pnl === null ? 'text-muted-foreground' : pnl >= 0 ? 'text-positive' : 'text-negative')}>{pnl === null ? '—' : format.usd(pnl, { sign: true, digits: 2 })}</span>
+        {roi === null ? null : <RoiPill value={roi} className="ml-auto" />}
+      </span>
+    </button>
+  );
+}
+
+/** The copy's detail sheet (a bottom sheet on phones, a side panel on desktop). */
+function LiveCopySheet({ item, text, leader, account, mandate, strategy, onClose }: { item: LiveCopyItem; text: LiveCopiesText; leader: Leader; account: CopyExecutionAccount | null; mandate: LiveCopyMandate | null; strategy: LiveCopyStrategy | null; onClose: () => void }) {
+  const { t } = useI18n();
+  const running = item.stage === 'active' || item.stage === 'paused' || item.stage === 'starting';
+  return (
+    <Drawer open onOpenChange={(open) => { if (!open) onClose(); }} title={boardName(leader)} description={t(`folio.status.${cardStatus(item)}`)}>
+      <div className="flex flex-col gap-4" data-testid="live-copy-sheet">
+        <LiveCopyRow item={item} text={text} account={account} strategy={strategy} />
+        {account && mandate && (running || item.stage === 'needs_deposit' || item.stage === 'stopping') ? <LiveCopyStopAction selection={{ account, mandate }} /> : null}
+        {item.accountAddress ? (
+          <details className="text-xs text-muted-foreground">
+            <summary className="min-h-8 cursor-pointer font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring">{text.ui.details}</summary>
+            <p className="mt-1 flex items-center gap-1"><span>{t('folio.account')}:</span><span className="num">{truncateAddress(item.accountAddress)}</span><CopyIconButton value={item.accountAddress} /></p>
+            <p className="mt-1 flex items-center gap-1"><Link href={`/trader/${item.leaderAddress}`} className="font-semibold text-primary-text hover:underline">{truncateAddress(item.leaderAddress)}</Link></p>
+          </details>
+        ) : null}
+      </div>
+    </Drawer>
   );
 }
 
@@ -72,9 +166,9 @@ export function LiveCopies({ className }: { className?: string }) {
 const AMOUNT = /^\d+(?:\.\d{1,6})?$/;
 const floorCents = (value: string) => { const [whole, fraction = ''] = value.split('.'); return fraction ? `${whole}.${fraction.slice(0, 2).padEnd(2, '0')}` : whole!; };
 
-function LiveCopyRow({ item, text, account, mandate, strategy }: { item: LiveCopyItem; text: LiveCopiesText; account: CopyExecutionAccount | null; mandate: LiveCopyMandate | null; strategy: LiveCopyStrategy | null }) {
+function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; text: LiveCopiesText; account: CopyExecutionAccount | null; strategy: LiveCopyStrategy | null }) {
   const { format, t } = useI18n(), auth = useAuth();
-  const snapshot = useCopyFollowerSnapshot(account && item.stage !== 'setup' && item.stage !== 'stopped' ? account : null);
+  const { snapshot } = useFigures(item, account);
   const actions = useLiveCopyPortfolioActions();
   const track = useActionToast();
   const [amount, setAmount] = useState('');
@@ -123,10 +217,8 @@ function LiveCopyRow({ item, text, account, mandate, strategy }: { item: LiveCop
   };
   const sheetAmount = sheet ? (sheet.kind === 'returnAll' ? (withdrawable !== null ? text.ui.allAmount.replace('{amount}', `${format.num(Number(withdrawable), 2)} USDC`) : text.ui.all) : `${format.num(Number(sheet.amount), 2)} USDC`) : null;
   return (
-    <div className="flex flex-col gap-3 px-4 py-4 text-sm">
+    <div className="flex flex-col gap-3 text-sm">
       <div className="flex flex-wrap items-center gap-2">
-        <Link href={`/trader/${item.leaderAddress}`} className="num font-semibold hover:underline">{shortAddress(item.leaderAddress)}</Link>
-        <Badge>{item.sourceNetwork === 'mainnet' ? text.mainnetLeader : text.testnetLeader}</Badge>
         <span role="status" className={cn('chip-sm', stageTone[item.stage])}>{autoReturning ? text.autoReturning : text.stages[item.stage]}</span>
       </div>
       {/* A one-click setup in progress has its own stages (繼續設定); the
@@ -203,7 +295,6 @@ function LiveCopyRow({ item, text, account, mandate, strategy }: { item: LiveCop
       <TransferConfirm kind={sheet?.kind ?? 'withdraw'} open={sheet !== null} amount={sheetAmount} destination={auth.wallet?.address ?? null}
         pending={actions.transfer.isPending} error={sheetError} onConfirm={confirmTransfer} onOpenChange={(open) => { if (!open) setSheet(null); }} />
       <LiveCopyActions item={item} strategy={strategy} />
-      {account && mandate && (running || item.stage === 'needs_deposit' || item.stage === 'stopping') ? <CopyLiveStop selection={{ account, mandate }} /> : null}
     </div>
   );
 }

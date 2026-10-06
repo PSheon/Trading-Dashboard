@@ -2,7 +2,7 @@ import { WatchCapacityError, watchLeader } from '../watcher/leader-watch.js';
 import { randomUUID } from 'node:crypto';
 import { ConflictException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { and, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
-import { ACTUAL_STRATEGY_MODE, isHyperliquidNetwork, liveSourceNetworks, adminSettingsSchema, generalSettingsSchema, copyRiskLimitsSchema, DEFAULT_COPY_RISK_LIMITS, type CopyErrorCode, liveCopyMandateIntentSchema, liveCopyMandateSchema, liveCopyStrategySchema, type CreateLiveCopyStrategy, type LiveCopyMandateIntent, type LiveCopySetupIntent } from '@trading-dashboard/shared/contracts';
+import { ACTUAL_STRATEGY_MODE, liveSourceNetworks, adminSettingsSchema, generalSettingsSchema, copyRiskLimitsSchema, DEFAULT_COPY_RISK_LIMITS, type CopyErrorCode, liveCopyMandateIntentSchema, liveCopyMandateSchema, liveCopyStrategySchema, type CreateLiveCopyStrategy, type LiveCopyMandateIntent, type LiveCopySetupIntent } from '@trading-dashboard/shared/contracts';
 import { appSettings, copyLiveActivations, copyLiveSetups, copyLiveBuilderApprovals, copyAgentSetups, copyControls, copyExecutionAccounts, copyExecutionWallets, copyLiveMandates, copyLiveStrategyConfigs, copyRiskPolicies, copyStrategies, copyStrategyVersions, copyWalletAuthorizations, users } from '@trading-dashboard/shared/database';
 import { AppConfig } from '../config/app-config.js';
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
@@ -23,7 +23,7 @@ function refuse(code: CopyErrorCode, message: string, details: Record<string, un
 export class CopyLiveMandateRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, private readonly config: AppConfig) {}
   /** The deployment's network: new copies are made on it, and only its copies
-   * are prepared, resumed or recovered here. */
+   * are prepared or resumed here. */
   get network() { return deploymentNetwork(this.config); }
   private get caps() { return this.config.value.copy.live?.caps; }
   reader(): DrizzleDb { return this.db; }
@@ -227,17 +227,16 @@ export class CopyLiveMandateRepository {
     const [row] = await tx.insert(copyLiveMandates).values({ ...columns, id: mandateId, idempotencyKey: key, intent, intentDigest: digest(intent), consentExpiresAt: new Date(consentExpiresAt), expiresAt: new Date(expiresAt), createdAt: new Date(now), updatedAt: new Date(now) }).returning();
     return row;
   }
-  /** `consent`: the owner's signature over this generation's intent, or a
-   * one-click setup whose verified consent bound it (its digest is kept). */
-  async activate(tx: DbTransaction, row: MandateRow, consent: string | { readonly liveSetupId: string; readonly consentDigest: string }, now: number) {
+  /** `consent`: the one-click setup whose verified consent bound this
+   * generation (its digest is kept). */
+  async activate(tx: DbTransaction, row: MandateRow, consent: { readonly liveSetupId: string; readonly consentDigest: string }, now: number) {
     if (row.state === 'active') return row;
     if (row.state !== 'prepared') conflict();
-    // Every way a generation becomes active (an owner signature, a setup's
-    // consent): a listed owner on this deployment's network only (security review).
+    // A listed owner on this deployment's network only (security review).
     this.assertAllowed(row.ownerPrivyUserId);
     if (row.network !== this.network) conflict();
     await tx.update(copyStrategies).set({ status: 'paused', pauseNewRisk: true }).where(and(eq(copyStrategies.id, row.strategyId), eq(copyStrategies.userId, row.userId), eq(copyStrategies.mode, ACTUAL_STRATEGY_MODE)));
-    const kind = typeof consent === 'string' ? { consentDigest: digest(consent.toLowerCase()) } : { consentDigest: consent.consentDigest, consentKind: 'setup' as const, liveSetupId: consent.liveSetupId };
+    const kind = { consentDigest: consent.consentDigest, consentKind: 'setup' as const, liveSetupId: consent.liveSetupId };
     // Never before the row's own created_at (the activation check): a caller
     // that read its clock before preparing would otherwise be milliseconds early.
     const at = Math.max(now, row.createdAt.getTime());
@@ -335,27 +334,6 @@ export class CopyLiveMandateRepository {
       await tx.update(copyLiveActivations).set({ controlRevision: strategy.controlRevision }).where(and(eq(copyLiveActivations.mandateId, id), eq(copyLiveActivations.state, 'pending')));
     }
     return updated;
-  }
-  async recoverStrategy(tx: DbTransaction, userId: number, key: string) {
-    const owner = await this.lock(tx, userId);
-    const [config] = await tx.select().from(copyLiveStrategyConfigs).where(and(eq(copyLiveStrategyConfigs.userId, userId), eq(copyLiveStrategyConfigs.idempotencyKey, key)));
-    if (!config) throw new NotFoundException('Strategy not found');
-    const accounts = await tx.select().from(copyExecutionAccounts).where(eq(copyExecutionAccounts.strategyId, config.strategyId));
-    if (accounts.some(account => account.userId !== userId || !isHyperliquidNetwork(account.network) || account.privyUserId !== owner.privyUserId)) conflict();
-    return this.strategyWire(config.strategyId, tx);
-  }
-  async recoverMandate(tx: DbTransaction, userId: number, lookup: { id: string } | { key: string }) {
-    const owner = await this.lock(tx, userId);
-    const [row] = await tx.select().from(copyLiveMandates).where(and(eq(copyLiveMandates.userId, userId), 'id' in lookup ? eq(copyLiveMandates.id, lookup.id) : eq(copyLiveMandates.idempotencyKey, lookup.key)));
-    if (!row) throw new NotFoundException('Mandate not found');
-    this.decode(row);
-    const [account] = await tx.select().from(copyExecutionAccounts).where(and(eq(copyExecutionAccounts.id, row.accountId), eq(copyExecutionAccounts.userId, userId)));
-    const [strategy] = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.id, row.strategyId), eq(copyStrategies.userId, userId), eq(copyStrategies.mode, ACTUAL_STRATEGY_MODE)));
-    if (!account || !strategy || account.strategyId !== row.strategyId || account.network !== row.network || account.address !== row.accountAddress ||
-      account.privyUserId !== owner.privyUserId || row.ownerPrivyUserId !== owner.privyUserId || row.ownerAddress !== owner.embeddedWalletAddress) conflict();
-    // Preserve original archived evidence. This read grants no authority and
-    // deliberately does not demand an unexpired/current remote agent grant.
-    return row;
   }
   async overview(userId: number) {
     await this.owner(userId);

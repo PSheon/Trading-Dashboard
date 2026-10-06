@@ -4,7 +4,7 @@ import { ApiDoc } from '../common/decorators/http.decorator.js';
 import { BusyFilter } from '../traders/busy.js';
 import { CopyLiveMandateService } from './copy-live-mandate.service.js';
 import { CopyWalletIdDto } from './dto/copy-wallet.dto.js';
-import { EmptyLiveCopyMandateDto, LiveCopyOperationKeyDto, CreateLiveCopyStrategyDto, PrepareLiveCopyMandateDto, ApproveLiveCopyMandateDto } from './dto/copy-live-mandate.dto.js';
+import { EmptyLiveCopyMandateDto } from './dto/copy-live-mandate.dto.js';
 
 @Controller('me/copy/live')
 @UseFilters(BusyFilter)
@@ -12,18 +12,6 @@ export class CopyLiveMandateController {
   constructor(private readonly mandates: CopyLiveMandateService) {}
   @Get() @Header('Cache-Control', 'no-store') @ApiDoc('Read my dedicated testnet copy strategies and local owner mandates')
   overview(@CurrentUser() user: RequestUser | null) { return this.mandates.overview(requireUserId(user)); }
-  @Get('strategies/by-key/:key') @Header('Cache-Control', 'no-store') @ApiDoc('Recover my original dedicated strategy by its local operation key')
-  strategyByKey(@CurrentUser() user: RequestUser | null, @Param() params: LiveCopyOperationKeyDto) { return this.mandates.strategyByKey(requireUserId(user), params.key); }
-  @Get('mandates/by-key/:key') @Header('Cache-Control', 'no-store') @ApiDoc('Recover my exact original local mandate challenge by key', 'Returns archived evidence and server-checked renewal eligibility without changing its intent, nonce, expiry or state.')
-  mandateByKey(@CurrentUser() user: RequestUser | null, @Param() params: LiveCopyOperationKeyDto) { return this.mandates.mandateByKey(requireUserId(user), params.key); }
-  @Get('mandates/:id/challenge') @Header('Cache-Control', 'no-store') @ApiDoc('Read the exact original local mandate challenge', 'Includes server-checked renewal eligibility. Recovery does not refresh consent or activate trading.')
-  originalChallenge(@CurrentUser() user: RequestUser | null, @Param() params: CopyWalletIdDto) { return this.mandates.originalChallenge(requireUserId(user), params.id); }
-  @Post('strategies') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Prepare a fresh paused testnet copy strategy', 'Creates local configuration only. Does not allocate simulated funds or start execution.')
-  create(@CurrentUser() user: RequestUser | null, @Body() body: CreateLiveCopyStrategyDto) { return this.mandates.create(requireUserId(user), body); }
-  @Post('execution-wallets/:id/mandates') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Prepare exact local owner consent for a verified testnet agent')
-  prepare(@CurrentUser() user: RequestUser | null, @Param() params: CopyWalletIdDto, @Body() body: PrepareLiveCopyMandateDto) { return this.mandates.prepare(requireUserId(user), params.id, body); }
-  @Post('mandates/:id/approve') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Acknowledge exact owner consent', 'The generation becomes active and its activation pending. With automatic testnet execution on (`capabilities.automaticExecution`), the strategy starts copying once its account has a credited deposit and no transfer pending; until then, and when execution is off, it stays paused.')
-  approve(@CurrentUser() user: RequestUser | null, @Param() params: CopyWalletIdDto, @Body() body: ApproveLiveCopyMandateDto) { return this.mandates.approve(requireUserId(user), params.id, body); }
   @Post('mandates/:id/pause') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Pause new risk locally without cancelling orders or settling funds')
   pause(@CurrentUser() user: RequestUser | null, @Param() params: CopyWalletIdDto, @Body() body: EmptyLiveCopyMandateDto) { return this.mandates.pause(requireUserId(user), params.id, body); }
   @Post('mandates/:id/resume') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Resume a paused generation', 'No signature: the generation\'s consent covers it until it expires. Controls must be clear and no stop in progress.')

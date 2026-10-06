@@ -360,6 +360,12 @@ export function validateEnvironment(source: Environment = process.env) {
      * long: during a redeploy the instance it replaces is still spending
      * the same IP limit. 0: full rate and a full burst at once. */
     startupPaceSeconds: integerValue("HYPERLIQUID_STARTUP_PACE_SECONDS", source.HYPERLIQUID_STARTUP_PACE_SECONDS, 60, 0, 600),
+    /** What background work may hold of the shared per-IP REST window (the
+     * meter, hyperliquid-global-quota.ts); the rest is kept for pages and copy
+     * orders. Default 840. On a mainnet copy canary lower it (e.g. 400, the same
+     * value on the api and the worker) so one order's evidence (≤ 772 a minute)
+     * always finds room. */
+    backgroundRestCap: integerValue("HYPERLIQUID_BACKGROUND_REST_CAP", source.HYPERLIQUID_BACKGROUND_REST_CAP, 840, 0, 1200),
     wallet,
   };
   const alert = { maxActionAgeSeconds: integerValue("ALERT_MAX_ACTION_AGE_SECONDS", source.ALERT_MAX_ACTION_AGE_SECONDS, 120, 1, 86400) };

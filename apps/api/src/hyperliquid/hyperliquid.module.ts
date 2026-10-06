@@ -13,7 +13,8 @@ import { WALLET_NETWORK_HL, walletNetworkHyperliquid } from './wallet-network-hy
 
 @Module({
   providers: [HyperliquidInfoClient, RequestBudgeterService, MarketCatalogService,
-    { provide: PostgresHyperliquidQuota, inject: [UnitOfWork], useFactory: (uow: UnitOfWork) => new PostgresHyperliquidQuota(uow) },
+    { provide: PostgresHyperliquidQuota, inject: [UnitOfWork, AppConfig], useFactory: (uow: UnitOfWork, config: AppConfig) =>
+      new PostgresHyperliquidQuota(uow, undefined, undefined, config.value.hyperliquid.backgroundRestCap) },
     { provide: HyperliquidGlobalTransport, inject: [PostgresHyperliquidQuota, AppConfig], useFactory: (quota: PostgresHyperliquidQuota, config: AppConfig) =>
       new HyperliquidGlobalTransport(quota, { egressKey: config.value.hyperliquid.egressKey, ownerId: randomUUID() }) },
     // One wallet-network (testnet) bucket per process, shared by every caller.

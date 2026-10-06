@@ -13,6 +13,7 @@ import { assertLiveEvidenceCapacity, evidenceFinalCheck, evidenceFirstWave, live
   MAX_EVIDENCE_CHARGE } from "../src/copy/live/live-shared-reads.js";
 import { LiveBoundaryError } from "../src/copy/live/wallet-authorization.js";
 import { errorCode } from "../src/runtime/safe-error-text.js";
+import { planHyperliquidQuota, type HyperliquidQuotaState } from "../src/hyperliquid/hyperliquid-global-quota.js";
 
 const base = { DATABASE_URL: "postgres://u:p@localhost:5432/db", NODE_ENV: "test", HYPERLIQUID_EGRESS_KEY: "egress", HYPERLIQUID_STARTUP_PACE_SECONDS: "0" };
 /** COPY_LIVE_WEIGHT_PER_MIN is read with COPY_TRADING_MODE=testnet (and its signing keys): set it on the parsed config. */
@@ -120,5 +121,20 @@ describe("the order path's token bucket", () => {
     await payment;
     expect(paid).toBe(true);
     expect(shared.paidWeight).toBe(772);
+  });
+
+  it("HYPERLIQUID_BACKGROUND_REST_CAP keeps room on the shared window for an order's evidence beside a full background lane", () => {
+    const now = 1_800_000_000_000;
+    const charge = (state: HyperliquidQuotaState, id: string, weight: number, lane: "background" | undefined, backgroundCap?: number) =>
+      planHyperliquidQuota({ now, state, leases: [], backgroundCap, request: { kind: "rest", id, weight, sendUntil: now + 1000, ...(lane ? { lane } : {}) } }).state;
+    const empty: HyperliquidQuotaState = { egressKey: "egress", revision: 1, events: [], updatedAt: now };
+    // Default 840: a full background lane leaves 360, less than one order (772 with the leader).
+    expect(() => charge(charge(empty, "bg", 840, "background"), "order", 772, undefined)).toThrow();
+    expect(config({}).value.hyperliquid.backgroundRestCap).toBe(840);
+    // 400 on the canary: background stops at 400 and the order fits.
+    const full = charge(empty, "bg", 400, "background", 400);
+    expect(() => charge(full, "bg2", 1, "background", 400)).toThrow();
+    expect(charge(full, "order", 772, undefined, 400).events.reduce((sum, e) => sum + e.units, 0)).toBe(1172);
+    expect(config({ HYPERLIQUID_BACKGROUND_REST_CAP: "400" }).value.hyperliquid.backgroundRestCap).toBe(400);
   });
 });

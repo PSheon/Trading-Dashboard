@@ -14,7 +14,7 @@ function fixture(){
  const modeIntent:AccountModeIntent={operationId:'mode',accountId:'account',strategyId:1,network:'testnet',accountAddress:address,nonce:started,consentExpiresAt:started+300000};
  const agentIntent:AgentConsentIntent={id:'agent',strategyId:1,network:'testnet',accountAddress:address,agentAddress:`0x${'22'.repeat(20)}`,policyId:'policy',workerQuorumId:'worker',nonce:started,expiresAt:started+86400000,consentExpiresAt:started+300000};
  const operation={id:'funding',userId:1,accountId:'account',strategyId:1,network:'testnet',address,destination:`0x${'22'.repeat(20)}`,amount:'1',nonce:started,status:'unknown',attemptedAt:new Date(started)} as FundingRow;
- const mode=new PrivyAccountModeClient({},budget,fetcher,()=>now,global.transport),agent=new PrivyAgentApprovalClient({},budget,fetcher,()=>now,global.transport),funding=new CopyFundingExchangeClient({acquire:budget} as unknown as RequestBudgeterService,global.transport);
+ const mode=new PrivyAccountModeClient({},budget,fetcher,()=>now,global.transport),agent=new PrivyAgentApprovalClient({},budget,fetcher,()=>now,global.transport),funding=new CopyFundingExchangeClient({acquire:budget,liveCapacity:1200,liveWaitMs:()=>0,refillMs:()=>0} as unknown as RequestBudgeterService,global.transport);
  return {global,mode,agent,funding,modeIntent,agentIntent,operation,fetcher,advance:()=>{now+=5001;}};
 }
 afterEach(()=>{vi.restoreAllMocks();vi.unstubAllGlobals();});

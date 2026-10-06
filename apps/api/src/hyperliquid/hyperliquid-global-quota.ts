@@ -38,6 +38,10 @@ export const HYPERLIQUID_REST_CAP=1200;
  * meter prepays list calls at 120) kept the window full, and a cold trader
  * page's /activity and /fills answered 503 within 0.4 s. */
 export const HYPERLIQUID_BACKGROUND_REST_CAP=840;
+/** A deployment's own background cap (HYPERLIQUID_BACKGROUND_REST_CAP): lower
+ * it to keep more of the window for copy orders, whose evidence (568–772 a
+ * minute for one order) must fit beside whatever background holds. */
+export function backgroundRestCap(value:number|undefined):number{return value===undefined?HYPERLIQUID_BACKGROUND_REST_CAP:Math.max(0,Math.min(HYPERLIQUID_REST_CAP,Math.floor(value)));}
 export interface HyperliquidQuotaPlan {readonly state:HyperliquidQuotaState;readonly leases:readonly HyperliquidQuotaLease[];readonly charged:number;}
 const integer=z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const identifier=z.string().min(1).max(128).regex(/^[^\s\p{Cc}\p{Cf}]+$/u);
@@ -98,7 +102,7 @@ export function hyperliquidLeaseReclaimed(lease:Pick<HyperliquidQuotaLease,'stat
 /** Pure accounting only. The DAL must durably commit the complete plan before
  * issuing a private finite outbound capability. No refunds; an expired lease
  * keeps its slot until HYPERLIQUID_STALE_LEASE_RECLAIM_MS has passed. */
-export function planHyperliquidQuota(raw:{readonly now:number;readonly state:HyperliquidQuotaState;readonly leases:readonly HyperliquidQuotaLease[];readonly request:HyperliquidQuotaRequest}):HyperliquidQuotaPlan {
+export function planHyperliquidQuota(raw:{readonly now:number;readonly state:HyperliquidQuotaState;readonly leases:readonly HyperliquidQuotaLease[];readonly request:HyperliquidQuotaRequest;readonly backgroundCap?:number}):HyperliquidQuotaPlan {
   try{
     const now=integer.positive().parse(raw.now),s=stateSchema.parse(structuredClone(raw.state)),leases=z.array(leaseSchema).max(100).parse(structuredClone(raw.leases)),request=requestSchema.parse(structuredClone(raw.request));
     requireQuota(now>=s.updatedAt);unique(s.events.map(e=>e.id));unique(leases.map(l=>l.id));unique(leases.map(l=>l.socketId));
@@ -139,7 +143,7 @@ export function planHyperliquidQuota(raw:{readonly now:number;readonly state:Hyp
     const limits=()=>{requireQuota(active().length<=10,'hyperliquid_quota_connections');requireQuota(active().reduce((sum,l)=>sum+l.subscriptions.length,0)<=1000,'hyperliquid_quota_subscriptions');
       requireQuota(new Set(active().flatMap(l=>l.subscriptions.filter(sub=>sub.user!==null).map(sub=>`${sub.network}:${sub.user}`))).size<=10,'hyperliquid_quota_users');};
     limits();
-    if(request.kind==='rest')charge('rest',request.weight,request.id,request.sendUntil,request.lane==='background'?HYPERLIQUID_BACKGROUND_REST_CAP:HYPERLIQUID_REST_CAP);
+    if(request.kind==='rest')charge('rest',request.weight,request.id,request.sendUntil,request.lane==='background'?backgroundRestCap(raw.backgroundCap):HYPERLIQUID_REST_CAP);
     else if(request.kind==='connect'){
       requireQuota(!leases.some(l=>l.id===request.lease.id||l.socketId===request.lease.socketId),'hyperliquid_quota_lease_lost');
       requireQuota(request.lease.egressKey===s.egressKey&&request.lease.leaseUntil>now&&request.lease.leaseUntil<=now+60000&&request.lease.latestAllowedSendAt===request.sendUntil&&request.sendUntil<=request.lease.leaseUntil);

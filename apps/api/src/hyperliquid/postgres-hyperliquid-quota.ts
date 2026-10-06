@@ -53,7 +53,8 @@ export class PostgresHyperliquidQuota {
     for(const [id,entry] of pending)if(entry.at<cutoff)pending.delete(id);
     return [...pending.entries()].slice(0,HYPERLIQUID_MAX_SETTLEMENTS).map(([id,entry])=>({id,units:entry.units}));
   }
-  constructor(private readonly uow:UnitOfWork,private readonly now=Date.now,private readonly monotonic=()=>performance.now()){}
+  /** `backgroundCap`: this process's background REST cap on the shared window (default 840). */
+  constructor(private readonly uow:UnitOfWork,private readonly now=Date.now,private readonly monotonic=()=>performance.now(),private readonly backgroundCap?:number){}
   bindUnscoped(identity:HyperliquidQuotaBinding):BoundHyperliquidQuota {return this.bind(capture(identity));}
   bindOriginal(session:LiveRiskDatabaseSession,identity:HyperliquidQuotaBinding):BoundHyperliquidQuota {
     assertOriginalLiveRiskSession(session);return this.bind(capture(identity),session);
@@ -103,7 +104,7 @@ export class PostgresHyperliquidQuota {
         const stored=await tx.select().from(leases).where(and(eq(leases.egressKey,binding.egressKey),ne(leases.state,'closed'),gt(leases.leaseUntil,new Date(dbNow-HYPERLIQUID_STALE_LEASE_RECLAIM_MS)))).limit(11);await held();
         if(referenced!==undefined&&!stored.some(l=>l.id===referenced)){stored.push(...await tx.select().from(leases).where(and(eq(leases.egressKey,binding.egressKey),ne(leases.state,'closed'),eq(leases.id,referenced))).limit(1));await held();}
         const previous=rows[0]!,state={egressKey:previous.egressKey,revision:previous.revision,events:previous.events,updatedAt:previous.updatedAt.getTime()},captured:HyperliquidQuotaLease[]=stored.map(({cleanupEvidence:_cleanupEvidence,cleanupEvidenceDigest:_cleanupEvidenceDigest,...l})=>({...l,leaseUntil:l.leaseUntil.getTime(),latestAllowedSendAt:l.latestAllowedSendAt.getTime(),createdAt:l.createdAt.getTime(),updatedAt:l.updatedAt.getTime(),closedAt:l.closedAt?.getTime()??null}));
-        const plan=planHyperliquidQuota({now:dbNow,state,leases:captured,request:planned});
+        const plan=planHyperliquidQuota({now:dbNow,state,leases:captured,request:planned,backgroundCap:this.backgroundCap});
         const result=await tx.update(quota).set({revision:plan.state.revision,events:structuredClone(plan.state.events) as typeof previous.events,updatedAt:new Date(dbNow)}).where(and(eq(quota.egressKey,binding.egressKey),eq(quota.revision,previous.revision))).returning({key:quota.egressKey});await held();if(result.length!==1)fail('hyperliquid_quota_conflict');
         for(const l of plan.leases){
           const old=stored.find(s=>s.id===l.id);if(old&&old.revision===l.revision)continue;

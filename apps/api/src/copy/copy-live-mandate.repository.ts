@@ -1,9 +1,9 @@
 import { WatchCapacityError, watchLeader } from '../watcher/leader-watch.js';
 import { randomUUID } from 'node:crypto';
 import { ConflictException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
-import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { adminSettingsSchema, generalSettingsSchema, copyRiskLimitsSchema, DEFAULT_COPY_RISK_LIMITS, type CopyErrorCode, liveCopyMandateIntentSchema, liveCopyMandateSchema, liveCopyStrategySchema, type CreateLiveCopyStrategy, type LiveCopyMandateIntent, type LiveCopySetupIntent } from '@trading-dashboard/shared/contracts';
-import { appSettings, copyLiveActivations, copyLiveBuilderApprovals, copyAgentSetups, copyControls, copyExecutionAccounts, copyExecutionWallets, copyLiveMandates, copyLiveStrategyConfigs, copyRiskPolicies, copyStrategies, copyStrategyVersions, copyWalletAuthorizations, users } from '@trading-dashboard/shared/database';
+import { appSettings, copyLiveActivations, copyLiveSetups, copyLiveBuilderApprovals, copyAgentSetups, copyControls, copyExecutionAccounts, copyExecutionWallets, copyLiveMandates, copyLiveStrategyConfigs, copyRiskPolicies, copyStrategies, copyStrategyVersions, copyWalletAuthorizations, users } from '@trading-dashboard/shared/database';
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
 import type { DbExecutor, DbTransaction } from '../db/unit-of-work.js';
@@ -59,6 +59,18 @@ export class CopyLiveMandateRepository {
     if (controls.length !== 2 || controls.filter(row => row.scope === 'platform' && row.scopeId === 0).length !== 1 || controls.filter(row => row.scope === 'user' && row.scopeId === userId).length !== 1) throw new ConflictException('Complete platform and user controls required');
     if (controls.some(row => row.pauseNewRisk || row.reduceOnly)) refuse('copy_paused', 'New risk is paused');
   }
+  /** The owner's paused testnet copies whose start never ran a generation
+   * and ended or never got its consent: what 取消設定 would end. */
+  async unfinishedStarts(tx: DbExecutor, userId: number, strategyIds: number[]): Promise<Array<{ strategyId: number; leaderAddress: string; setupId: string }>> {
+    if (!strategyIds.length) return [];
+    const rows = await tx.select({ strategyId: copyLiveSetups.strategyId, leaderAddress: copyLiveSetups.leaderAddress, setupId: copyLiveSetups.id }).from(copyLiveSetups)
+      .where(and(eq(copyLiveSetups.userId, userId), eq(copyLiveSetups.kind, 'start'), inArray(copyLiveSetups.strategyId, strategyIds),
+        inArray(copyLiveSetups.stage, ['provisioning', 'awaiting_consent', 'failed', 'expired']),
+        sql`not exists (select 1 from ${copyLiveMandates} m where m.strategy_id = ${copyLiveSetups.strategyId} and m.state in ('active', 'paused', 'stopping', 'stopped'))`))
+      .orderBy(desc(copyLiveSetups.createdAt));
+    // The latest start of each copy.
+    return rows.filter((row, index) => rows.findIndex(other => other.strategyId === row.strategyId) === index);
+  }
   async strategyWire(id: number, db: DbExecutor = this.db) {
     const [row] = await db.select({ strategy: copyStrategies, config: copyLiveStrategyConfigs, settings: copyStrategyVersions.settings }).from(copyStrategies)
       .innerJoin(copyLiveStrategyConfigs, and(eq(copyLiveStrategyConfigs.strategyId, copyStrategies.id), eq(copyLiveStrategyConfigs.userId, copyStrategies.userId)))
@@ -81,7 +93,14 @@ export class CopyLiveMandateRepository {
     await this.barriers(tx, userId);
     const active = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.userId, userId), ne(copyStrategies.status, 'stopped')));
     if (active.some(row => row.mode === 'testnet' && row.leaderAddress === input.leader)) refuse('already_copying', 'You already copy this trader on testnet');
-    if (active.length >= limits.maxStrategiesPerUser) refuse('strategy_limit', 'Copy limit reached', { limit: limits.maxStrategiesPerUser });
+    if (active.length >= limits.maxStrategiesPerUser) {
+      // Starts left unfinished (their sheet closed, or they failed or expired
+      // before a generation ran) still count: each holds a copy wallet and
+      // an agent at Privy, so the limit also bounds those. The refusal names
+      // them, for the owner to cancel the one they no longer want.
+      const unfinished = await this.unfinishedStarts(tx, userId, active.filter(row => row.mode === 'testnet' && row.status === 'paused').map(row => row.id));
+      refuse('strategy_limit', 'Copy limit reached', { limit: limits.maxStrategiesPerUser, unfinished });
+    }
     if (input.settings.maxLeverage !== null && input.settings.maxLeverage > limits.maxLeverage) refuse('leverage_above_limit', 'Leverage above the platform limit', { limit: limits.maxLeverage });
     const [row] = await tx.insert(copyStrategies).values({ userId, leaderAddress: input.leader, mode: 'testnet', status: 'paused', pauseNewRisk: true, allocated: '0', cash: '0', activatedAt: new Date(now) }).returning();
     await tx.insert(copyStrategyVersions).values({ strategyId: row.id, version: 1, settings: input.settings, createdByUserId: userId });

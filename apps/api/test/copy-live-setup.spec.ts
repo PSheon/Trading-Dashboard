@@ -386,6 +386,17 @@ describe('one-click testnet copy setup', () => {
     await expect(start('setup-start-key-000002')).rejects.toMatchObject({ status: 409, response: { code: 'funding_pending' } });
   });
 
+  it("at the copy limit, a start left unfinished for another trader still counts, and the refusal names it to cancel", async () => {
+    const abandoned = await start();
+    await db.update(copyRiskPolicies).set({ limits: { ...DEFAULT_COPY_RISK_LIMITS, maxStrategiesPerUser: 1 } });
+    const other = `0x${'47'.repeat(20)}`;
+    const refused = await start('setup-start-key-000002', { leader: other }).catch((error: { response: unknown }) => error.response);
+    expect(refused).toMatchObject({ statusCode: 409, code: 'strategy_limit', limit: 1, unfinished: [{ strategyId: abandoned.strategyId, leaderAddress: leader, setupId: abandoned.id }] });
+    // Cancelled, it no longer counts.
+    await service.cancel(uid, abandoned.id);
+    expect((await start('setup-start-key-000003', { leader: other })).stage).toBe('awaiting_consent');
+  });
+
   it('the dialog runs no step sooner than it was told: a busy shared Hyperliquid window is a wait of at least 65 s, not a failure', async () => {
     flags.worker = false;
     const setup = await start();

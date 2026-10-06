@@ -29,7 +29,7 @@ import { CopyLiveManualCloser, CopyLiveStopper, StopCanceller } from './copy-liv
 import { TestnetReduceOnlyCloser } from './reduce-only-closer.js';
 import { CopyLiveAutoReturn } from './copy-live-auto-return.js';
 import { CopyFundingExchangeClient } from '../copy-funding-exchange.client.js';
-import { PrivyPolicyMasterSigner } from '../live/privy-policy-master-signer.js';
+import { WORKER_MASTER_SIGNER, type WorkerMasterSigner } from '../live/privy-policy-master-signer.js';
 import { CopyLiveSetupService } from '../copy-live-setup.service.js';
 import { HyperliquidInfoClient, twapSliceToFill } from '../../hyperliquid/hyperliquid-info.client.js';
 import { TradeFeedService } from '../../watcher/trade-feed.service.js';
@@ -55,10 +55,10 @@ export const liveEngineProvider: Provider = {
   provide: LIVE_ENGINE,
   inject: [AppConfig, DATABASE_POOL, DRIZZLE_CLIENT, UnitOfWork, CopyMarketService, CopyFollowerLedger,
     CopyLiveSourceRepository, CopyLiveWorkerRepository, CopyFollowerScanRepository, CopyLiveStopWorkerRepository, CopyLiveReturnRepository, CopyLiveSetupService, WALLET_NETWORK_HL,
-    HyperliquidInfoClient, { token: TradeFeedService, optional: true }],
+    HyperliquidInfoClient, WORKER_MASTER_SIGNER, { token: TradeFeedService, optional: true }],
   useFactory: async (config: AppConfig, pool: Pool, db: DrizzleDb, uow: UnitOfWork,
     market: CopyMarketService, ledger: CopyFollowerLedger, sources: CopyLiveSourceRepository, repository: CopyLiveWorkerRepository, scans: CopyFollowerScanRepository, stops: CopyLiveStopWorkerRepository, returns: CopyLiveReturnRepository, setups: CopyLiveSetupService, wallet: WalletNetworkHyperliquid,
-    info: HyperliquidInfoClient, feed?: TradeFeedService): Promise<CopyLiveEngine | null> => {
+    info: HyperliquidInfoClient, workerSigner: WorkerMasterSigner, feed?: TradeFeedService): Promise<CopyLiveEngine | null> => {
     const live = config.value.copy.live;
     if (config.value.copy.mode !== 'testnet' || !live) return null;
     const logger = new Logger('CopyLiveEngine');
@@ -86,12 +86,9 @@ export const liveEngineProvider: Provider = {
     const stopper = new CopyLiveStopper({ repository: stops, closer, log: message => logger.warn(message), revokeDeadlineMs: live.revokeDeadlineMs,
       canceller: new StopCanceller(pool, db, testnetConfig, testnetGlobal, testnetBudget, stops, (account, key) => closer.reconcile(account, key)),
       // The stop ends once a sweep to the main wallet is credited: signed by
-      // the worker under the owner's policy for accounts with the automatic
-      // return, by the owner for every other account.
+      // the worker under the owner's policy (CopyModule's one signer).
       swept: stop => returns.swept(stop.id),
-      autoReturn: new CopyLiveAutoReturn(returns, new CopyFundingExchangeClient(testnetBudget, testnetGlobal),
-        new PrivyPolicyMasterSigner({ appId: config.value.auth.appId, appSecret: config.value.auth.appSecret, workerQuorumId: config.value.copy.agent?.workerQuorumId,
-          authorizationPrivateKey: config.value.copy.agent?.authorizationPrivateKey })) });
+      autoReturn: new CopyLiveAutoReturn(returns, new CopyFundingExchangeClient(testnetBudget, testnetGlobal), workerSigner) });
     const manual = new CopyLiveManualCloser(stops, closer, scanner, message => logger.warn(message));
     // Realtime mainnet signal (COPY_LIVE_FAST_SOURCE): the worker's mainnet
     // info client in the live lane, which acquires the worst case and gives

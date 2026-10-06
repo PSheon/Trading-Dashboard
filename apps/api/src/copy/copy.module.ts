@@ -140,6 +140,6 @@ export { WALLET_NETWORK_HL, walletNetworkHyperliquid, type WalletNetworkHyperliq
     // For CopyWorkerModule's loops (the worker process only).
     CopySignalService, CopyExecutionService, CopyPerformanceService, CopyFundingService, CopyFollowerReconciler, CopyFollowerSnapshotRepository,
     // For the testnet execution engine (CopyWorkerModule).
-    CopyMarketService, CopyFollowerLedger, CopyFollowerScanRepository, CopyLiveReturnRepository, CopyLiveSetupService],
+    CopyMarketService, CopyFollowerLedger, CopyFollowerScanRepository, CopyLiveReturnRepository, CopyLiveSetupService, WORKER_MASTER_SIGNER],
 })
 export class CopyModule {}

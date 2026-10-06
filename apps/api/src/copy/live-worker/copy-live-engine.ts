@@ -5,7 +5,7 @@ import type { LiveExecutionRecord } from '../live/live-execution.js';
 import type { TestnetLiveExecutionHooks, TestnetLiveExecutionRequest } from '../live/testnet-live-execution-runtime.js';
 import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceDigest } from '../live/copy-live-source-evidence.js';
 import { liveSourceExecutionCloid } from '../live/postgres-live-preparation.js';
-import { LiveBoundaryError } from '../live/wallet-authorization.js';
+import { describeUnexpected, errorCode } from '../../runtime/safe-error-text.js';
 import { TERMINAL_STATES, type LiveSettleOutcome, type LiveSettleRequest } from './copy-live-settler.js';
 import type { CopyLiveWorkerRepository, DispatchRow, LiveMandateWork, LiveStreamWork } from './copy-live-worker.repository.js';
 import { openNotionalCeiling, planAdjustments, type PendingLeg } from './copy-live-adjustments.js';
@@ -88,24 +88,8 @@ const PLANNING_MARGIN_MS = 15_000;
 const HOLD_MARGIN_MS = 30_000;
 /** Held when its follower notional could be under this much more than the minimum. */
 const HOLD_HEADROOM = '1.1';
-/** An error that is no boundary code (a TypeError, a timeout): its name and
- * where it came from, for the log only. Never its message, which may echo
- * provider data or key material (security review 2026-10-06): the stack
- * frames are code locations only. */
-export const describeUnexpected = (error: unknown): string | null => {
-  if (error instanceof LiveBoundaryError || error instanceof Error && /^[a-z][a-z0-9_]{0,79}$/.test(error.message)) return null;
-  if (!(error instanceof Error)) return `non-error ${typeof error}`;
-  const frames = (error.stack ?? '').split('\n').slice(1).map(line => line.trim()).filter(line => /^at /.test(line))
-    .map(line => line.replace(/^at\s+/, '').replace(/\(?(?:file:\/\/)?[^()]*\/(apps|node_modules|node:internal)\//, '($1/')).slice(0, 4);
-  return `${/^[A-Za-z]{1,40}$/.test(error.name) ? error.name : 'Error'}${frames.length ? ` @ ${frames.join(' | ').slice(0, 400)}` : ''}`;
-};
-/** What a log may say about any error: its boundary code, or its name and
- * code locations (describeUnexpected). Never a raw message. */
-export const safeErrorText = (error: unknown): string => describeUnexpected(error) ?? reasonOf(error);
-const reasonOf = (error: unknown) => {
-  const code = error instanceof LiveBoundaryError ? error.code : error instanceof Error && /^[a-z][a-z0-9_]{0,79}$/.test(error.message) ? error.message : 'live_execution_failed';
-  return code.replace(/[^a-z0-9_]/g, '_').slice(0, 80);
-};
+export { describeUnexpected, safeErrorText } from '../../runtime/safe-error-text.js';
+const reasonOf = (error: unknown) => errorCode(error);
 
 /**
  * One pass of testnet copy execution, in this order: start funded

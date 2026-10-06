@@ -32,9 +32,12 @@ await withTestDatabase(async (url) => {
     assert.deepEqual(seeded.rows[0], { platform: 1, policies: 1 });
     console.log('Copy platform control row and risk policy v1 are seeded');
     // 0064: one-click setups, their consent kind on generations, and one active plus one renewing agent per account.
-    await pool.query('SELECT id, user_id, strategy_id, account_id, kind, stage, signer_kind, intent, intent_digest, consent_digest, setup_deadline, lease_until FROM copy_live_setups LIMIT 0');
+    await pool.query('SELECT id, user_id, strategy_id, account_id, kind, stage, intent, intent_digest, consent_digest, setup_deadline, lease_until FROM copy_live_setups LIMIT 0');
     await pool.query('SELECT consent_kind, live_setup_id FROM copy_live_mandates LIMIT 0');
-    await pool.query('SELECT live_setup_id, signer_kind FROM copy_funding_operations LIMIT 0');
+    await pool.query('SELECT live_setup_id FROM copy_funding_operations LIMIT 0');
+    // 0071: one signing model: the browser-signed columns are gone.
+    const dropped = await pool.query("SELECT table_name, column_name FROM information_schema.columns WHERE (table_name, column_name) IN (('copy_live_setups', 'signer_kind'), ('copy_live_setups', 'pending_signature'), ('copy_live_setups', 'owner_signature'), ('copy_funding_operations', 'signer_kind'))");
+    assert.deepEqual(dropped.rows, []);
     const agentIndexes = await pool.query("SELECT indexname FROM pg_indexes WHERE tablename = 'copy_agent_setups' AND indexname IN ('copy_agent_setups_active_uq', 'copy_agent_setups_pending_uq', 'copy_agent_setups_current_uq') ORDER BY indexname");
     assert.deepEqual(agentIndexes.rows.map(row => row.indexname), ['copy_agent_setups_active_uq', 'copy_agent_setups_pending_uq']);
     console.log('Persistent history schema is queryable after release migrations');

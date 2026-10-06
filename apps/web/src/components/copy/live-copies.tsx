@@ -176,11 +176,11 @@ function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; te
   const [sheet, setSheet] = useState<{ kind: 'withdraw' | 'returnAll'; amount: string } | null>(null);
   const [sheetError, setSheetError] = useState<string | null>(null);
   const observed = snapshot.data?.status === 'observed' ? snapshot.data : null;
-  const busy = actions.transfer.isPending || actions.cancellation.isPending || actions.close.isPending || actions.cancelTransfer.isPending;
-  // What failed, in words (lib/copy-error-text.ts): never one line for all four.
+  const busy = actions.transfer.isPending || actions.close.isPending || actions.cancelTransfer.isPending;
+  // What failed, in words (lib/copy-error-text.ts): never one line for all three.
   const texts = useCopyTexts();
   const copyError = (err: unknown) => copyErrorText(texts, err);
-  const failure = [actions.transfer, actions.cancellation, actions.close, actions.cancelTransfer].find(action => action.isError)?.error ?? null;
+  const failure = [actions.transfer, actions.close, actions.cancelTransfer].find(action => action.isError)?.error ?? null;
   const failed = failure && !sheet ? copyErrorText(texts, failure) : null;
   const running = item.stage === 'active' || item.stage === 'paused' || item.stage === 'starting';
   const withdrawable = observed ? observed.metrics.withdrawable : null;
@@ -191,8 +191,7 @@ function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; te
   // The worker returns this account's funds by itself after a stop (no
   // signature): 自動返還中 instead of the 全部返還主錢包 button. A copy
   // that ended before it ever ran (a start that failed after its deposit)
-  // has no stop to sweep it: the button stays, signed by the worker when
-  // the account has the automatic return.
+  // has no stop to sweep it: the button stays, signed by the worker.
   const automatic = item.automaticReturn === true;
   const autoReturning = automatic && item.stage === 'sweeping' && item.status !== 'stopped';
   // A transfer that settled moves the equity: read the account again then,
@@ -207,7 +206,7 @@ function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; te
     if (!sheet || !item.accountId) return;
     const all = sheet.kind === 'returnAll';
     setSheetError(null);
-    void track(actions.transfer.mutateAsync({ accountId: item.accountId, amount: sheet.amount, automatic }), {
+    void track(actions.transfer.mutateAsync({ accountId: item.accountId, amount: sheet.amount }), {
       pending: t(all ? 'toast.copy.returning' : 'toast.copy.withdrawing'),
       success: all ? t('toast.copy.returned') : t('toast.copy.withdrawn', { amount: format.num(Number(sheet.amount), 2) }),
       error: copyError,
@@ -278,13 +277,6 @@ function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; te
               </p>
             ) : null}
           </form>
-        ) : null}
-        {item.stop?.state === 'cancelling' && !item.oneClick ? (
-          <div className="flex flex-col gap-1">
-            <p className="text-xs text-muted-foreground">{text.consentHint}</p>
-            <Button size="sm" loading={actions.cancellation.isPending} disabled={busy && !actions.cancellation.isPending}
-              onClick={() => void track(actions.cancellation.mutateAsync({ stopId: item.stop!.id }), { success: t('toast.copy.consentSigned'), error: copyError })}>{text.consent}</Button>
-          </div>
         ) : null}
         {item.stage === 'sweeping' && item.accountId && !item.pendingTransfer && !autoReturning ? (
           <Button size="sm" loading={actions.transfer.isPending && actions.transfer.variables?.amount === 'all'} disabled={busy && !(actions.transfer.isPending && actions.transfer.variables?.amount === 'all')} onClick={() => { setSheetError(null); setSheet({ kind: 'returnAll', amount: 'all' }); }}>{text.returnAll}</Button>

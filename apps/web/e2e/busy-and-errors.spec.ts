@@ -141,7 +141,7 @@ test("an account switch in the same tab shows the new person none of the previou
   test.setTimeout(120000);
   await context.addCookies([{ name: "locale", value: "zh-TW", url: baseURL! }]);
   await page.setViewportSize({ width: 1440, height: 900 });
-  await testnetPanel(page, 1440, "setup=owner");
+  await testnetPanel(page, 1440, "signers=ok");
   await action(page, "開始跟單 $150").click();
   const confirm = page.getByRole("dialog", { name: "確認跟單設定" });
   await expect(confirm.getByTestId("live-copy-terms")).toContainText("150 USDC", { timeout: 15000 });

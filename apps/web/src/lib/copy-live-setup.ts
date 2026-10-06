@@ -6,7 +6,6 @@ import { liveCopyMandateSchema, liveCopyOverviewSchema, liveCopySetupConsentType
 import { api, ApiError, sessionKey } from './api';
 import { useAuth } from './auth';
 import { isTransient, retryAfter } from './copy-error-text';
-import { masterActionErrorCode, signMasterAction } from './copy-master-action';
 import { FIXTURE_WALLET_ADDRESS } from './fixture-signer';
 import { queryKeys } from './query-keys';
 import type { Eip712TypedData, WalletSigner } from './wallet-signer';
@@ -41,7 +40,7 @@ export async function signSetup(setup: LiveCopySetup, sign: (data: Eip712TypedDa
   const consent = setup.consent;
   const consentSignature = await withSignTimeout(sign(liveCopySetupConsentTypedData(consent) as unknown as Eip712TypedData, { silent: true }), timeoutMs);
   const fundingSignature = consent.kind === 'start'
-    ? await withSignTimeout(sign(usdSendTypedData(WALLET_NETWORKS.testnet, consent.accountAddress, consent.fundingAmount, consent.fundingNonce) as unknown as Eip712TypedData, { silent: true }), timeoutMs) : undefined;
+    ? await withSignTimeout(sign(usdSendTypedData(WALLET_NETWORKS[consent.network], consent.accountAddress, consent.fundingAmount, consent.fundingNonce) as unknown as Eip712TypedData, { silent: true }), timeoutMs) : undefined;
   return { consentSignature, ...(fundingSignature ? { fundingSignature } : {}) };
 }
 /** How long a silent signature may take before confirm gives up on it (the sheet can close again). */
@@ -54,28 +53,28 @@ function withSignTimeout<T>(signing: Promise<T>, ms: number): Promise<T> {
 }
 
 /**
- * The automatic return (COPY_AUTOMATIC_RETURN, the consent bound a policy):
- * the owner's browser adds exactly the worker quorum under that owner-owned
- * policy as the copy account's signer (only the owner can), then confirm
- * has the api check it with Privy and record it, so the worker finishes the
- * setup and returns the funds after a stop. Declined or failed: nothing is
- * attached and the setup is signed in this browser instead (no error).
+ * The one signing model (2026-10-07): the owner's browser adds exactly the
+ * worker quorum under the owner-owned policy the consent bound as the copy
+ * account's signer (Privy's addSigners: only the owner can); the worker then
+ * signs every step of the setup, the returns and the stop. Declined, failed
+ * or not answered within `timeoutMs`: throws `worker_signer_missing`, so
+ * confirm is never sent and nothing is deposited. Confirming again (while
+ * the consent lasts) asks again.
  */
 export async function attachWorker(setup: LiveCopySetup, wallet: Pick<WalletSigner, 'addSigners'>, timeoutMs = ATTACH_WORKER_TIMEOUT_MS,
-  onLate: (accountId: string) => void = () => undefined): Promise<boolean> {
+  onLate: (accountId: string) => void = () => undefined): Promise<void> {
   const consent = setup.consent;
-  if (!consent || consent.kind !== 'start' || !consent.masterPolicyId || !consent.workerQuorumId) return false;
-  // Privy may never answer: after `timeoutMs` the setup goes on signed in
-  // this browser (confirm checks with Privy what is really attached).
+  // An edit of a running copy deposits nothing and signs nothing new.
+  if (consent?.kind === 'edit') return;
+  if (!consent || consent.kind !== 'start' || !consent.masterPolicyId || !consent.workerQuorumId) throw new Error('worker_signer_missing');
   let timer: ReturnType<typeof setTimeout> | undefined, timedOut = false;
   const late = new Promise<false>(resolve => { timer = setTimeout(() => { timedOut = true; resolve(false); }, timeoutMs); });
   const added = wallet.addSigners(consent.accountAddress, [{ signerId: consent.workerQuorumId, policyIds: [consent.masterPolicyId] }]).then(() => true, () => false);
-  // The signer landing after confirm went on without it: the account's next
-  // reconcile adopts exactly the consented policy (the api's orphan
-  // adoption), so the automatic return is on now instead of at the setup's
-  // next step.
+  // The signer landing after confirm gave up: the account's next reconcile
+  // adopts exactly the consented policy (the api's orphan adoption), so a
+  // retried confirm finds it.
   void added.then(ok => { if (ok && timedOut) onLate(consent.accountId); });
-  try { return await Promise.race([added, late]); }
+  try { if (!await Promise.race([added, late])) throw new Error('worker_signer_missing'); }
   finally { clearTimeout(timer); }
 }
 /** How long confirm waits for Privy to add the worker signer. */
@@ -169,6 +168,7 @@ export function useLiveCopySetupActions() {
       const body = await signSetup(setup, (data, options) => wallet.signTypedData(data, options));
       assertSame();
       setConfirmPhase('attaching');
+      // Declined or timed out: throws, so no /confirm is sent and nothing is deposited.
       try {
         await attachWorker(setup, wallet, ATTACH_WORKER_TIMEOUT_MS,
           accountId => void api.post(`/me/copy/execution-wallets/${encodeURIComponent(accountId)}/reconcile`, {}).catch(() => undefined));
@@ -233,31 +233,13 @@ function liveSetupKey(id: string | null, identity: string | null) {
   return [...queryKeys.copy.all, 'live-setup', id, identity, sessionKey()] as const;
 }
 
-/** After a wallet error, how long the dialog waits before signing again. */
-const SIGN_RETRY_MS = 10_000;
-/** Server refusals of a signature that a fresh payload replaces (the next
- * poll brings it): no error to show. */
-const RENEWED = new Set(['owner_signature_stale', 'owner_signature_expired', 'owner_signature_not_requested']);
-
 /**
- * One setup, polled every 2 s until it finishes. A setup the owner's browser
- * signs (`owner_session`) is continued by this dialog: each poll asks the
- * server for the next step (`advance`), and when the server parks the copy
- * account's next signature (`pendingSignature`: the account mode, the agent
- * approval, the builder fee) the dialog signs exactly it with that copy
- * account, silently, and sends it back with its digest; no extra click. A
- * wallet error is shown (`walletError`) and signing is tried again a little
- * later while the dialog stays open.
+ * One setup, polled every 2 s until it finishes. The worker runs every step
+ * after confirm (its own pass, every few seconds), so the dialog only reads;
+ * nothing here signs or drives anything.
  */
 export function useLiveCopySetup(id: string | null) {
   const auth = useAuth(), enabled = Boolean(id) && liveCopyEnabled(auth);
-  const advanceAt = useRef(0), signing = useRef<string | null>(null), retryAt = useRef(0);
-  const latest = useRef(auth);
-  useLayoutEffect(() => { latest.current = auth; });
-  const [walletError, setWalletError] = useState<string | null>(null);
-  // The last advance failed in passing (busy, 5xx, network): the dialog says
-  // it retries, with the stages it last read.
-  const [advanceBusy, setAdvanceBusy] = useState(false);
   const query = useQuery<LiveCopySetup>({
     queryKey: liveSetupKey(id, auth.identity), enabled, retry: false, staleTime: 0,
     // Ended, or refused for good (signed out, not this owner's: a 4xx): no
@@ -265,47 +247,14 @@ export function useLiveCopySetup(id: string | null) {
     // asked again after the api's Retry-After, else 10 s.
     refetchInterval: q => setupTerminal(q.state.data) || (q.state.error instanceof ApiError && q.state.error.status >= 400 && q.state.error.status < 500) ? false
       : q.state.error ? retryAfter(q.state.error, 10_000) : 2000,
-    queryFn: async ({ signal }): Promise<LiveCopySetup> => {
-      const read = liveCopySetupSchema.parse(await api.get(`${ROOT}/setups/${encodeURIComponent(id!)}`, signal));
-      const path = `${ROOT}/setups/${encodeURIComponent(id!)}/advance`;
-      const pending = read.signer === 'owner_session' ? read.pendingSignature : null;
-      if (pending && signing.current !== pending.digest && Date.now() >= retryAt.current) {
-        signing.current = pending.digest;
-        try {
-          const wallet = latest.current.wallet;
-          if (!wallet) throw new Error('owner_wallet_unavailable');
-          const signature = await signMasterAction(wallet, pending, { kind: pending.kind, account: pending.account });
-          const result = liveCopySetupSchema.parse(await api.post(path, { digest: pending.digest, signature }));
-          setWalletError(null); return result;
-        } catch (error) {
-          const code = error instanceof ApiError ? error.code : null;
-          if (code && RENEWED.has(code)) return read;
-          retryAt.current = Date.now() + SIGN_RETRY_MS;
-          setWalletError(code ?? masterActionErrorCode(error));
-          return read;
-        } finally { signing.current = null; }
-      }
-      const driven = ['consented', 'funding_submitted', 'funded', 'mode_set', 'agent_active', 'builder_ready'].includes(read.stage);
-      if (driven && !pending && read.signer === 'owner_session' && Date.now() >= advanceAt.current) {
-        advanceAt.current = Date.now() + 3000;
-        // A failed advance is not a failed read: the dialog keeps the stages
-        // it just read and asks again (after Retry-After when busy).
-        try { const advanced = liveCopySetupSchema.parse(await api.post(path, {})); setAdvanceBusy(false); return advanced; }
-        catch (error) {
-          if (!isTransient(error)) throw error;
-          advanceAt.current = Date.now() + retryAfter(error, 3000); setAdvanceBusy(true);
-          return read;
-        }
-      }
-      return read;
-    },
+    queryFn: async ({ signal }): Promise<LiveCopySetup> => liveCopySetupSchema.parse(await api.get(`${ROOT}/setups/${encodeURIComponent(id!)}`, signal)),
   });
   const client = useQueryClient(), terminal = setupTerminal(query.data);
   useEffect(() => { if (terminal) void client.invalidateQueries({ queryKey: [...queryKeys.copy.all] }); }, [terminal, client]);
   const passing = query.isError && isTransient(query.error);
-  return { ...query, walletError: terminal ? null : walletError,
-    /** Retrying a passing failure (the read or the advance): say so calmly, keep the stages. */
-    retrying: !terminal && (passing || (advanceBusy && !query.isError)),
+  return { ...query,
+    /** Retrying a passing failure: say so calmly, keep the stages. */
+    retrying: !terminal && passing,
     /** A failure the dialog can't retry its way out of (a 4xx). */
     failure: query.isError && !passing ? query.error : null };
 }

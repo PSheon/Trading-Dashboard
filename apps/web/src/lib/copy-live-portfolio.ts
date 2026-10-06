@@ -1,16 +1,13 @@
 'use client';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRef } from 'react';
-import { copyFundingSchema, copyReturnChallengeSchema, copyReturnConsentTypedData, liveCopyPortfolioSchema, liveManualCloseSchema,
-  liveStopCancellationChallengeSchema, liveStopCancellationOwnerTypedData, usdSendTypedData, WALLET_NETWORKS, type LiveCopyPortfolioItem } from '@trading-dashboard/shared/contracts';
+import { copyFundingSchema, copyReturnChallengeSchema, liveCopyPortfolioSchema, liveManualCloseSchema, type LiveCopyPortfolioItem } from '@trading-dashboard/shared/contracts';
 import { api, sessionKey } from './api';
 import { useAuth } from './auth';
 import { isTransient } from './copy-error-text';
 import { liveCopyEnabled } from './copy-live-setup';
 import { busyRetry } from './query-policy';
-import { signMasterAction } from './copy-master-action';
 import { queryKeys } from './query-keys';
-import type { Eip712TypedData } from './wallet-signer';
 
 const ROOT = '/me/copy/live';
 export type LiveCopyItem = LiveCopyPortfolioItem;
@@ -36,41 +33,25 @@ export function useLiveCopyPortfolio() {
 /**
  * The owner's actions on a testnet copy. Each keeps one idempotency key per
  * attempt (a retry reuses it: the server returns the original operation and
- * never sends twice). Consents are signed by the main wallet.
+ * never sends twice). Nothing here signs: the worker signs every copy-account
+ * action under the owner's policy.
  */
 export function useLiveCopyPortfolioActions() {
-  const auth = useAuth(), client = useQueryClient(), key = usePortfolioKey();
+  const client = useQueryClient(), key = usePortfolioKey();
   const keys = useRef(new Map<string, string>());
   const keyFor = (name: string) => { let value = keys.current.get(name); if (!value) { value = crypto.randomUUID(); keys.current.set(name, value); } return value; };
   const done = (name: string) => { keys.current.delete(name); void client.invalidateQueries({ queryKey: key, exact: true }); void client.invalidateQueries({ queryKey: [...queryKeys.copy.all] }); };
-  const sign = (typed: Eip712TypedData) => { const wallet = auth.wallet; if (!wallet) throw new Error('owner_wallet_unavailable'); return wallet.signTypedData(typed); };
 
   /** Idle funds while copying (an amount), or everything after a flat stop
-   * ("all"). `automatic`: the account has the automatic return, so the
-   * worker signs it (its policy allows only the main wallet): no signature. */
+   * ("all"): the worker signs it (its policy allows only the main wallet).
+   * A copy without the worker signer is refused (409 worker_signer_missing). */
   const transfer = useMutation({
-    mutationFn: async ({ accountId, amount, automatic = false }: { accountId: string; amount: string; automatic?: boolean }) => {
+    mutationFn: async ({ accountId, amount }: { accountId: string; amount: string }) => {
       const name = `return:${accountId}:${amount}`;
       const challenge = copyReturnChallengeSchema.parse(await api.post(`${ROOT}/execution-wallets/${encodeURIComponent(accountId)}/returns`, { idempotencyKey: keyFor(name), amount }));
       if (challenge.operation.status !== 'prepared') { done(name); return challenge.operation; }
-      // The main wallet's consent, and the copy account's own UsdSend of
-      // exactly that amount to the main wallet (signed here, silently).
-      const consent = challenge.consent, wallet = auth.wallet;
-      const body = automatic ? {} : { consentSignature: await sign(copyReturnConsentTypedData(consent)),
-        masterSignature: await signMasterAction({ signAsAccount: (address, data) => { if (!wallet) throw new Error('owner_wallet_unavailable'); return wallet.signAsAccount(address, data); } },
-          challenge.masterAction, { kind: 'usd_send', account: consent.account, typedData: usdSendTypedData(WALLET_NETWORKS.testnet, consent.destination, consent.amount, consent.nonce) }) };
-      const result = copyFundingSchema.parse(await api.post(`${ROOT}/returns/${encodeURIComponent(challenge.operation.id)}/approve`, body));
+      const result = copyFundingSchema.parse(await api.post(`${ROOT}/returns/${encodeURIComponent(challenge.operation.id)}/approve`, {}));
       done(name); return result;
-    },
-  });
-  /** The owner's consent to cancel a stopping copy's tracked orders. */
-  const cancellation = useMutation({
-    mutationFn: async ({ stopId }: { stopId: string }) => {
-      const challenge = liveStopCancellationChallengeSchema.parse(await api.post(`${ROOT}/stops/${encodeURIComponent(stopId)}/cancellation/challenge`, {}));
-      if (challenge.consented) { done(`cancel:${stopId}`); return challenge; }
-      const consentSignature = await sign(liveStopCancellationOwnerTypedData(challenge.intent));
-      const result = liveStopCancellationChallengeSchema.parse(await api.post(`${ROOT}/stops/${encodeURIComponent(stopId)}/cancellation`, { consentSignature }));
-      done(`cancel:${stopId}`); return result;
     },
   });
   /** Close one position of a running copy (the worker sends the orders). */
@@ -89,5 +70,5 @@ export function useLiveCopyPortfolioActions() {
       done(`cancel-transfer:${operationId}`); return result;
     },
   });
-  return { transfer, cancellation, close, cancelTransfer };
+  return { transfer, close, cancelTransfer };
 }

@@ -93,25 +93,13 @@ describe("Privy main account identity", () => {
     expect(sdk.exportWallet).toHaveBeenCalledTimes(1);
   });
 
-  it("signs as one of the user's own copy wallets, silently and by its address, and refuses the main wallet or a wallet that isn't theirs", async () => {
-    const copy = "0x" + "3c".repeat(20), stranger = "0x" + "4d".repeat(20);
+  it("never signs as a copy wallet: the worker signs every copy-account action under the owner's policy (one signing model)", async () => {
+    const copy = "0x" + "3c".repeat(20);
     sdk.user.linkedAccounts = [account(MAIN), account(copy, null)];
-    sdk.wallets = [account(MAIN), account(copy, null), account(stranger, null, "metamask")];
+    sdk.wallets = [account(MAIN), account(copy, null)];
     await render();
-    vi.useFakeTimers({ toFake: ["setTimeout"] });
-    try {
-      expect(await auth.wallet!.signAsAccount(copy.toUpperCase().replace("0X", "0x"), typedData)).toBe("0x1234");
-      expect(sdk.signTypedData).toHaveBeenCalledExactlyOnceWith(typedData, { address: copy, uiOptions: { showWalletUIs: false } });
-      expect(sdk.refreshUser).not.toHaveBeenCalled();
-      // The main wallet, an external wallet, an address not among the user's wallets.
-      for (const target of [MAIN, stranger, "0x" + "5e".repeat(20), "0xbad"]) {
-        const refused = expect(auth.wallet!.signAsAccount(target, typedData)).rejects.toThrow("copy_wallet_unavailable");
-        await vi.runAllTimersAsync(); await refused;
-      }
-      expect(sdk.signTypedData).toHaveBeenCalledTimes(1);
-      // A wallet missing from the list is looked for again after refreshing Privy's user.
-      expect(sdk.refreshUser).toHaveBeenCalled();
-    } finally { vi.useRealTimers(); }
+    expect(auth.wallet).not.toHaveProperty("signAsAccount");
+    expect(Object.keys(auth.wallet!).sort()).toEqual(["addSigners", "address", "exportCopyKey", "exportKey", "removeSigners", "sendTransaction", "signTypedData"]);
   });
 
   it("adds and removes signers only on one of the user's own copy wallets", async () => {

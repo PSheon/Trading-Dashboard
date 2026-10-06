@@ -186,13 +186,6 @@ function useEmbeddedWallet(signedIn: boolean): WalletSigner | null {
         const { signature } = await signTypedData(data, { ...assertActive(), ...(options?.silent ? { uiOptions: { showWalletUIs: false } } : {}) });
         return signature as `0x${string}`;
       },
-      signAsAccount: async (target, data) => {
-        const address = await ownedCopyAccount(target);
-        // Silent: the action is the one Orbie prepared from the owner's own
-        // confirmed consent (one-click copy, decision 1).
-        const { signature } = await sdk.current.signTypedData(data, { address, uiOptions: { showWalletUIs: false } });
-        return signature as `0x${string}`;
-      },
       addSigners: async (target, signers) => {
         const address = await ownedCopyAccount(target);
         await sdk.current.addSigners({ address, signers: signers.map((signer) => ({ signerId: signer.signerId, policyIds: [...signer.policyIds] })) });

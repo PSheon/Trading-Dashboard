@@ -27,16 +27,12 @@ export interface WalletSigner {
    * sheet has shown the exact terms (one-click copy, decision 1). A user who
    * enrolled MFA for wallet actions is still prompted by Privy. */
   signTypedData(data: Eip712TypedData, options?: { silent?: boolean }): Promise<`0x${string}`>;
-  /** EIP-712 signature by one of the user's own copy accounts (a Privy
-   * wallet the server created for them, owned by them alone), silently: the
-   * exact action Orbie prepared for it (lib/copy-master-action.ts). Refused
-   * (`copy_wallet_unavailable`) unless that address is one of the signed-in
-   * user's Privy wallets other than the main one. */
-  signAsAccount(address: string, data: Eip712TypedData): Promise<`0x${string}`>;
   /** Adds signers to one of the user's own copy accounts (Privy's
    * `useSigners().addSigners`; only the owner can): exactly the worker
-   * quorum under the owner's own policy, for the automatic return. Same
-   * ownership check as `signAsAccount`. */
+   * quorum under the owner's own policy. The worker then signs every
+   * action of that copy account; the browser never signs as it. Refused
+   * (`copy_wallet_unavailable`) unless that address is one of the signed-in
+   * user's Privy wallets other than the main one. */
   addSigners(address: string, signers: { signerId: string; policyIds: string[] }[]): Promise<void>;
   /** Removes every signer from one of the user's own copy accounts (account
    * deletion takes the worker off first). */

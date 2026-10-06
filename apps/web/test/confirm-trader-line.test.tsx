@@ -20,7 +20,7 @@ const consent = liveCopySetupIntentSchema.parse({ kind: 'start', setupId: '0b0a6
   fundingOperationId: '6f1c1d2e-3a4b-4c5d-8e9f-0a1b2c3d4e5f', fundingNonce: now - 10, fundingAmount: '150', nonce: now, consentExpiresAt: now + 300_000, setupDeadline: now + 86_400_000 });
 const setup: LiveCopySetup = { id: '0b0a6a3e-2f6b-4b7a-9a65-6b7c9f1e2d3c', kind: 'start', strategyId: 7, accountId: 'acct', leaderAddress: leader, sourceNetwork: 'mainnet', budgetUsd: '150',
   settings: { direction: 'same', sizingMode: 'ratio', perTradeUsd: null, maxTotalExposureUsd: null, maxLeverage: 5, copyStartMode: 'delta' }, stage: 'awaiting_consent', issue: null,
-  signer: null, consent, funding: null, pendingSignature: null, mandateId: null, setupDeadline: null, createdAt: new Date(now).toISOString(), updatedAt: new Date(now).toISOString() };
+  consent, funding: null, mandateId: null, setupDeadline: null, createdAt: new Date(now).toISOString(), updatedAt: new Date(now).toISOString() };
 
 let root: Root, container: HTMLDivElement;
 beforeEach(() => { container = document.createElement('div'); document.body.append(container); root = createRoot(container); });

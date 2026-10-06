@@ -29,8 +29,8 @@ const now = Date.now();
 const consent = { kind: 'start', setupId: '0b0a6a3e-2f6b-4b7a-9a65-6b7c9f1e2d3c', nonce: now } as unknown as LiveCopySetup['consent'];
 function setup(stage: LiveCopySetup['stage'], extra: Partial<LiveCopySetup> = {}): LiveCopySetup {
   return { id: '0b0a6a3e-2f6b-4b7a-9a65-6b7c9f1e2d3c', kind: 'start', strategyId: 7, accountId: 'acct', leaderAddress: `0x${'44'.repeat(20)}`, sourceNetwork: 'mainnet', budgetUsd: '150',
-    settings: { direction: 'same', sizingMode: 'ratio', perTradeUsd: null, maxTotalExposureUsd: null, maxLeverage: 5, copyStartMode: 'delta' }, stage, issue: null, signer: null, consent: null,
-    funding: null, pendingSignature: null, mandateId: null, setupDeadline: null, createdAt: new Date(now).toISOString(), updatedAt: new Date(now).toISOString(), ...extra };
+    settings: { direction: 'same', sizingMode: 'ratio', perTradeUsd: null, maxTotalExposureUsd: null, maxLeverage: 5, copyStartMode: 'delta' }, stage, issue: null, consent: null,
+    funding: null, mandateId: null, setupDeadline: null, createdAt: new Date(now).toISOString(), updatedAt: new Date(now).toISOString(), ...extra };
 }
 
 let root: Root, container: HTMLDivElement;
@@ -81,7 +81,7 @@ const extra = copyErrorMessages['zh-TW'];
 const alert = () => document.querySelector('[role="alert"]');
 
 it('a passing failure (busy, 5xx, the network) is a calm retrying line with the last stages, never 發生錯誤', async () => {
-  state.setup = setup('funding_submitted', { signer: 'owner_session' });
+  state.setup = setup('funding_submitted');
   state.retrying = true;
   await open();
   expect(document.querySelector('[data-testid="live-copy-retrying"]')!.textContent).toBe(extra.retrying);
@@ -91,14 +91,14 @@ it('a passing failure (busy, 5xx, the network) is a calm retrying line with the 
 });
 
 it("a running setup's own wait says so calmly: busy Hyperliquid retries, other waits retry later", async () => {
-  state.setup = setup('mode_set', { signer: 'worker_policy', issue: 'hyperliquid_busy' });
+  state.setup = setup('mode_set', { issue: 'hyperliquid_busy' });
   await open();
   expect(document.querySelector('[data-testid="live-copy-retrying"]')!.textContent).toBe(extra.retrying);
-  state.setup = setup('mode_set', { signer: 'worker_policy', issue: 'agent_verification_pending' });
+  state.setup = setup('mode_set', { issue: 'agent_verification_pending' });
   await open();
   expect(document.querySelector('[data-testid="live-copy-retrying"]')!.textContent).toBe(extra.stepRetrying);
   // Waiting for the credit has its own line, not a retry note.
-  state.setup = setup('funding_submitted', { signer: 'worker_policy', issue: 'awaiting_credit' });
+  state.setup = setup('funding_submitted', { issue: 'awaiting_credit' });
   await open();
   expect(document.querySelector('[data-testid="live-copy-retrying"]')).toBeNull();
   expect(document.body.textContent).toContain(zh.waitingCredit);
@@ -106,7 +106,7 @@ it("a running setup's own wait says so calmly: busy Hyperliquid retries, other w
 });
 
 it('a refusal for good says what it is, not the generic line', async () => {
-  state.setup = setup('funding_submitted', { signer: 'owner_session' });
+  state.setup = setup('funding_submitted');
   state.failure = new ApiError(409, 'A stop is in progress for this copy', { code: 'live_stop_in_progress' });
   await open();
   expect(alert()!.textContent).toBe(extra.codes.live_stop_in_progress);

@@ -10,11 +10,10 @@ import { liveCopiesMessages } from '@/i18n/live-copies';
 import { LOCALES, type Locale } from '@/i18n/config';
 import { liveAccount, liveMandate, liveNow } from './copy-live-fixtures';
 import { settleQueries } from './query-settle';
-import { MASTER_SIGNATURE, withMasterAction } from './master-action-test-utils';
 
 const state = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), sign: vi.fn(), addSigners: vi.fn(async () => undefined), snapshot: null as unknown, strategies: [] as unknown[], refetch: vi.fn(async () => undefined) }));
-vi.mock('@/lib/auth', () => ({ useAuth: () => ({ status: 'signedIn', mode: 'privy', identity: 'owner@email', wallet: { address: `0x${'11'.repeat(20)}`, signTypedData: state.sign, signAsAccount: async () => MASTER_SIGNATURE, addSigners: state.addSigners } }) }));
-vi.mock('@/lib/api', async () => ({ ...(await vi.importActual<typeof import('@/lib/api')>('@/lib/api')), api: { get: state.get, patch: state.patch, post: (...args: unknown[]) => Promise.resolve((state.post as (...a: unknown[]) => unknown)(...args)).then(value => withMasterAction(args[0], value)) }, sessionKey: () => '1' }));
+vi.mock('@/lib/auth', () => ({ useAuth: () => ({ status: 'signedIn', mode: 'privy', identity: 'owner@email', wallet: { address: `0x${'11'.repeat(20)}`, signTypedData: state.sign, addSigners: state.addSigners } }) }));
+vi.mock('@/lib/api', async () => ({ ...(await vi.importActual<typeof import('@/lib/api')>('@/lib/api')), api: { get: state.get, patch: state.patch, post: (...args: unknown[]) => Promise.resolve((state.post as (...a: unknown[]) => unknown)(...args)) }, sessionKey: () => '1' }));
 vi.mock('@/lib/copy-execution-wallets', () => ({ useExecutionWallets: () => ({ data: { accounts: [liveAccount] } }) }));
 vi.mock('@/lib/copy-live', () => ({ useLiveCopyOverview: () => ({ data: { mandates: [{ ...liveMandate, state: 'active' }], strategies: state.strategies } }) }));
 vi.mock('@/lib/copy-follower-snapshot', () => ({ useCopyFollowerSnapshot: () => ({ data: state.snapshot, refetch: state.refetch }) }));
@@ -76,12 +75,12 @@ it('lists each testnet copy with its stage, balances and positions, and nothing 
   expect([...detail()!.querySelectorAll('button')].filter(b => b.textContent === 'Add funds')).toHaveLength(1);
 });
 
-it('withdraws idle funds: the owner signs the exact consent, then the approval goes out once', async () => {
+it('withdraws idle funds: nothing to sign, the worker signs it and the approval goes out once', async () => {
   const operation = { id: '22222222-2222-4222-8222-222222222222', accountId: liveAccount.id, strategyId: liveAccount.strategyId, network: 'testnet', address: liveAccount.address,
     destination: `0x${'11'.repeat(20)}`, amount: '12.5', nonce: liveNow, status: 'prepared', canCancel: true, transactionHash: null, creditedAmount: null, fee: null,
     direction: 'to_main', stopId: null, createdAt: new Date(liveNow).toISOString(), updatedAt: new Date(liveNow).toISOString() };
   state.post.mockImplementation(async (path: string) => path.endsWith('/returns')
-    ? { operation, consent: { operationId: operation.id, network: 'testnet', account: liveAccount.address, destination: operation.destination, amount: '12.5', nonce: liveNow, consentExpiresAt: Date.now() + 300000 } }
+    ? { operation }
     : { ...operation, status: 'accepted' });
   await render();
   await act(async () => {
@@ -92,9 +91,8 @@ it('withdraws idle funds: the owner signs the exact consent, then the approval g
   await act(async () => sheetButton('Confirm withdrawal')!.click()); await settle();
   expect(state.post.mock.calls[0]![0]).toBe(`/me/copy/live/execution-wallets/${liveAccount.id}/returns`);
   expect(state.post.mock.calls[0]![1]).toMatchObject({ amount: '12.5' });
-  expect(state.sign.mock.calls[0]![0]).toMatchObject({ primaryType: 'CopyAccountReturn', message: { amount: '12.5', destination: operation.destination } });
-  // The copy account signs exactly the usdSend the consent covers, in this browser.
-  expect(state.post.mock.calls[1]).toEqual([`/me/copy/live/returns/${operation.id}/approve`, { consentSignature: signature, masterSignature: MASTER_SIGNATURE }]);
+  expect(state.sign).not.toHaveBeenCalled();
+  expect(state.post.mock.calls[1]).toEqual([`/me/copy/live/returns/${operation.id}/approve`, {}]);
 });
 
 it('an account with the automatic return: idle funds go back without a signature, and after a stop it returns by itself', async () => {
@@ -103,7 +101,7 @@ it('an account with the automatic return: idle funds go back without a signature
     destination: `0x${'11'.repeat(20)}`, amount: '12.5', nonce: liveNow, status: 'prepared', canCancel: true, transactionHash: null, creditedAmount: null, fee: null,
     direction: 'to_main', stopId: null, createdAt: new Date(liveNow).toISOString(), updatedAt: new Date(liveNow).toISOString() };
   state.post.mockImplementation(async (path: string) => path.endsWith('/returns')
-    ? { operation, consent: { operationId: operation.id, network: 'testnet', account: liveAccount.address, destination: operation.destination, amount: '12.5', nonce: liveNow, consentExpiresAt: liveNow + 300000 } }
+    ? { operation }
     : { ...operation, status: 'accepted' });
   await render();
   await act(async () => {
@@ -134,7 +132,7 @@ it('an account with the automatic return: idle funds go back without a signature
   expect(detail()!.textContent).toContain('已返還 97.5 USDC 至主錢包');
 });
 
-it('closes one position, signs the cancellation consent while cancelling, and returns everything when flat', async () => {
+it('closes one position, has nothing to sign while cancelling, and returns everything when flat', async () => {
   state.post.mockResolvedValue({ id: '33333333-3333-4333-8333-333333333333', accountId: liveAccount.id, strategyId: liveAccount.strategyId, coin: 'BTC', state: 'requested', reason: null, orders: 0,
     createdAt: new Date(liveNow).toISOString(), updatedAt: new Date(liveNow).toISOString() });
   await render();
@@ -144,7 +142,8 @@ it('closes one position, signs the cancellation consent while cancelling, and re
   items = [item({ stage: 'stopping', status: 'stopping', stop: { id: '44444444-4444-4444-8444-444444444444', state: 'cancelling', issue: 'stop_cancellation_consent_required', revision: 2 } })];
   await act(async () => { await client.invalidateQueries(); }); await settle();
   expect(button('Close')).toBeUndefined(); // the stop closes positions now
-  expect(button('Sign consent to cancel orders')).toBeDefined();
+  // The worker cancels the copy's orders under the setup's consent: no prompt.
+  expect(button('Sign consent to cancel orders')).toBeUndefined();
   items = [item({ stage: 'sweeping', status: 'stopping', stop: { id: '44444444-4444-4444-8444-444444444444', state: 'flat', issue: null, revision: 4 } })];
   state.snapshot = observed([]);
   await act(async () => { await client.invalidateQueries(); }); await settle();
@@ -199,7 +198,7 @@ it('a start that ended after its deposit arrived (no stop to sweep it) offers �
     destination: `0x${'11'.repeat(20)}`, amount: '100', nonce: liveNow, status: 'prepared', canCancel: true, transactionHash: null, creditedAmount: null, fee: null,
     direction: 'to_main', stopId: null, createdAt: new Date(liveNow).toISOString(), updatedAt: new Date(liveNow).toISOString() };
   state.post.mockImplementation(async (path: string) => path.endsWith('/returns')
-    ? { operation, consent: { operationId: operation.id, network: 'testnet', account: liveAccount.address, destination: operation.destination, amount: '100', nonce: liveNow, consentExpiresAt: liveNow + 300000 } }
+    ? { operation }
     : { ...operation, status: 'accepted' });
   items = [item({ automaticReturn: true, stage: 'sweeping', status: 'stopped', mandate: null, stop: null, sweep: null })];
   state.snapshot = observed([]);
@@ -248,11 +247,11 @@ it("a setup left at its consent (the panel closed during a slow start, automatic
     builderMaxFeeTenthsOfBps: 0, sweepDestination: owner, masterPolicyId: 'master-policy', masterPolicyFingerprint: 'c'.repeat(64), fundingOperationId: '6f1c1d2e-3a4b-4c5d-8e9f-0a1b2c3d4e5f',
     fundingNonce: at - 10, fundingAmount: '100', nonce: at, consentExpiresAt: at + 300_000, setupDeadline: at + 86_400_000 };
   const setup = { id, kind: 'start', strategyId: liveAccount.strategyId, accountId: liveAccount.id, leaderAddress: consent.leaderAddress, sourceNetwork: 'mainnet', budgetUsd: '100',
-    settings: { direction: 'same', sizingMode: 'ratio', perTradeUsd: null, maxTotalExposureUsd: null, maxLeverage: null, copyStartMode: 'delta' }, stage: 'awaiting_consent', issue: null, signer: null,
-    consent, funding: null, pendingSignature: null, mandateId: null, setupDeadline: null, createdAt: new Date(at).toISOString(), updatedAt: new Date(at).toISOString() };
-  items = [item({ stage: 'setup', status: 'paused', mandate: null, setup: { id, kind: 'start', stage: 'awaiting_consent', issue: null, signer: null, consent } })];
+    settings: { direction: 'same', sizingMode: 'ratio', perTradeUsd: null, maxTotalExposureUsd: null, maxLeverage: null, copyStartMode: 'delta' }, stage: 'awaiting_consent', issue: null,
+    consent, funding: null, mandateId: null, setupDeadline: null, createdAt: new Date(at).toISOString(), updatedAt: new Date(at).toISOString() };
+  items = [item({ stage: 'setup', status: 'paused', mandate: null, setup: { id, kind: 'start', stage: 'awaiting_consent', issue: null, consent } })];
   state.get.mockImplementation(async (path: string) => path === '/me/copy/live/portfolio' ? { network: 'testnet', automaticExecution: true, items } : path === `/me/copy/live/setups/${id}` ? setup : null);
-  state.post.mockResolvedValue({ ...setup, consent: null, stage: 'funding_submitted', signer: 'worker_policy' });
+  state.post.mockResolvedValue({ ...setup, consent: null, stage: 'funding_submitted' });
   await render('zh-TW');
   await act(async () => button('繼續設定').click()); await settle();
   const sheet = [...document.querySelectorAll('[role="dialog"]')].find(d => d.textContent?.includes('確認跟單設定'));

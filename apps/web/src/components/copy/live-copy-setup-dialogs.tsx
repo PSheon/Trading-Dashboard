@@ -41,7 +41,7 @@ function stoppedText(texts: CopyTexts, setup: LiveCopySetup): string {
 }
 /** Issues of a running setup that are a passing wait, said calmly (not as an error). */
 const BUSY_ISSUES = new Set(["busy", "hyperliquid_busy", "hyperliquid_quota_exhausted"]);
-const QUIET_ISSUES = new Set(["awaiting_credit", "awaiting_owner_signature", "awaiting_owner_session", "funding_not_submitted"]);
+const QUIET_ISSUES = new Set(["awaiting_credit", "funding_not_submitted"]);
 
 /** The confirm sheet's trader line: the name and the short address, or the
  * address once when the trader has no name of their own (the name a page
@@ -105,7 +105,7 @@ export function LiveCopyConfirm({ setup, traderName, open, onOpenChange, onConfi
 
 const RANK: Record<LiveCopySetupStage, number> = { provisioning: 0, awaiting_consent: 1, consented: 2, funding_submitted: 3, funded: 4, mode_set: 5, agent_active: 6, builder_ready: 7, running: 8, failed: -1, expired: -1, cancelled: -1 };
 /** Where a setup that stopped got to, from its issue. */
-const STOPPED_AT: Record<string, number> = { setup_funding_rejected: 2, setup_account_mode_failed: 4, setup_agent_rejected: 5, setup_builder_rejected: 6, setup_wallet_conflict: 1, setup_binding_changed: 2, setup_deposit_uncredited: 3 };
+const STOPPED_AT: Record<string, number> = { setup_funding_rejected: 2, setup_account_mode_failed: 4, setup_agent_rejected: 5, setup_builder_rejected: 6, setup_wallet_conflict: 1, setup_binding_changed: 2, setup_deposit_uncredited: 3, signer_model_changed: 4 };
 type Row = { key: keyof LiveSetupText["stages"]; doneAt: number };
 const ROWS: Record<LiveCopySetup["kind"], Row[]> = {
   start: [{ key: "wallet", doneAt: 2 }, { key: "deposit", doneAt: 3 }, { key: "credited", doneAt: 4 }, { key: "mode", doneAt: 5 }, { key: "agent", doneAt: 6 }, { key: "start", doneAt: 8 }],
@@ -121,8 +121,7 @@ export function liveSetupRows(setup: Pick<LiveCopySetup, "kind" | "stage">, reac
 
 /**
  * The progress dialog (plan §1 step 4): the stages, an error when it stops,
- * and a note that closing is safe (the worker continues; or, when the
- * owner's session signs, 繼續設定 in the portfolio picks it up).
+ * and a note that closing is safe (the worker signs and runs every step).
  *
  * A setup still waiting for its consent is handed back to Orbie's confirm
  * sheet (`onConsent`) while the consent can be signed; once it expired the
@@ -178,18 +177,16 @@ export function LiveCopyProgress({ setupId, open, onOpenChange, onRetry, onConse
           ))}
         </ol>
         {setup && !setupTerminal(setup) && setup.issue === "awaiting_credit" ? <p className="text-xs text-muted-foreground">{text.waitingCredit}</p> : null}
-        {setup && !setupTerminal(setup) && setup.pendingSignature && !query.walletError ? <p className="text-xs text-muted-foreground">{text.signingCopyWallet}</p> : null}
         {consentLapsed ? <p className="text-xs leading-5 text-muted-foreground">{text.consentLapsedHint}</p> : null}
         {/* A passing failure (busy, 5xx, the network) or a step that waits:
             a calm line, the last stages kept, retried on its own. */}
         {runningNote && !(stopped || query.failure) ? <p role="status" data-testid="live-copy-retrying" className="flex items-center gap-2 text-xs text-muted-foreground"><LoaderCircle className="size-3.5 shrink-0 animate-spin" aria-hidden />{runningNote}</p> : null}
         {stopped && setup.stage !== "cancelled" ? <p role="alert" className="flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning"><TriangleAlert className="mt-px size-3.5 shrink-0" />{stoppedText(texts, setup)}</p>
-          : query.failure ? <p role="alert" className="flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning"><TriangleAlert className="mt-px size-3.5 shrink-0" />{copyErrorText(texts, query.failure)}</p>
-          : query.walletError ? <p role="alert" className="flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning"><TriangleAlert className="mt-px size-3.5 shrink-0" />{liveSetupError(texts, query.walletError)}</p> : null}
+          : query.failure ? <p role="alert" className="flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning"><TriangleAlert className="mt-px size-3.5 shrink-0" />{copyErrorText(texts, query.failure)}</p> : null}
         {provisioning ? <p className="text-xs leading-5 text-muted-foreground">{text.preparingHint}</p> : null}
         {(ended || setup?.stage === "cancelled") && deposited ? <p className="text-xs leading-5 text-muted-foreground">{text.depositStays}</p> : null}
         {cancelError ? <p role="alert" className="text-xs text-negative">{cancelError}</p> : null}
-        {!finished && !stopped && !consentLapsed && !provisioning ? <p className="text-xs leading-5 text-muted-foreground">{setup?.signer === "worker_policy" ? text.closeSafeWorker : text.closeSafeOwner}</p> : null}
+        {!finished && !stopped && !consentLapsed && !provisioning ? <p className="text-xs leading-5 text-muted-foreground">{text.closeSafeWorker}</p> : null}
         <div className="flex flex-col gap-2.5">
           {finished ? <Link href="/portfolio" onClick={() => onOpenChange(false)} className="orbit-press flex min-h-12 w-full items-center justify-center rounded-full bg-primary px-6 font-display text-base text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">{text.portfolio}</Link> : null}
           {(ended || consentLapsed || provisioning) && onRetry ? <Button type="button" size="cta" className="w-full" disabled={actions.cancel.isPending} onClick={() => onRetry(setup!)}>{text.restart}</Button> : null}

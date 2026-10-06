@@ -98,7 +98,7 @@ for (const width of [1440, 390]) {
 }
 
 /** Starts a 150 USDC testnet copy from the trader panel in zh-TW and confirms it. */
-async function startOwnerCopy(page: Page, width: number, flags: string) {
+async function startCopy(page: Page, width: number, flags: string) {
   // A phone's trader page has no sign-in button: sign in first, then open it.
   await page.goto(`/zh-TW/portfolio?signer=fixture&wallet=funded&${flags}`);
   await page.getByRole("button", { name: /^(示範登入|登入)$/ }).filter({ visible: true }).first().click();
@@ -120,6 +120,7 @@ async function startOwnerCopy(page: Page, width: number, flags: string) {
   const confirm = page.getByRole("dialog", { name: "確認跟單設定" });
   await expect(confirm.getByTestId("live-copy-terms")).toContainText("150 USDC");
   await confirm.getByRole("button", { name: "確認並開始" }).click();
+  return confirm;
 }
 const pageErrors = (page: Page) => {
   const errors: string[] = [];
@@ -127,77 +128,55 @@ const pageErrors = (page: Page) => {
   page.on("response", (response) => { if (response.status() >= 400 && !response.url().includes("/api/coin-icon/")) errors.push(`${response.status()} ${new URL(response.url()).pathname}`); });
   return () => errors.filter((text) => !/Download the React DevTools|favicon/.test(text));
 };
+/** What the fixture wallet was asked to sign or add, in order. */
+const walletCalls = (page: Page) => page.evaluate(() => (window as unknown as { __orbieFixtureSignerCalls?: string[] }).__orbieFixtureSignerCalls ?? []);
 
-// The owner's browser signs (no worker policy): at the account and agent
-// steps the fixture parks the copy account's action, and the open dialog
-// signs it with that copy account and sends it back: no extra click.
+// The one signing model (2026-10-07): the browser signs the setup consent
+// and the deposit and adds the worker (addSigners); the worker signs every
+// other step under the owner's policy, so the copy reaches running with no
+// other wallet request.
 for (const width of [1440, 390]) {
   for (const scheme of ["light", "dark"] as const) {
-    test(`an owner-signed setup finishes with the dialog open at ${width}px (${scheme}, zh-TW)`, async ({ page, context, baseURL }) => {
+    test(`a one-click start reaches running with only the consent, the deposit and addSigners in the browser at ${width}px (${scheme}, zh-TW)`, async ({ page, context, baseURL }) => {
       test.setTimeout(120000);
       const errors = pageErrors(page);
       await context.addCookies([{ name: "locale", value: "zh-TW", url: baseURL! }]);
       await page.emulateMedia({ colorScheme: scheme });
       await page.setViewportSize({ width, height: 900 });
-      await startOwnerCopy(page, width, "setup=owner");
+      await startCopy(page, width, "signers=ok");
       const progress = page.getByRole("dialog", { name: /正在設定跟單|跟單已開始/ });
       await expect(progress).toBeVisible();
-      await expect(progress).toContainText("關閉後設定會暫停，之後在投資組合點「繼續設定」即可接續。");
+      await expect(progress).toContainText("可以關閉此視窗，設定會在背景繼續。");
       await page.waitForTimeout(500); // the dialog has finished fading in
-      await shot(page, `testnet-copy-owner-progress-${width}-${scheme}`);
-      // Account setup and the trading agent are each signed by the copy wallet in this browser.
+      await shot(page, `testnet-copy-worker-progress-${width}-${scheme}`);
       await expect(page.getByRole("dialog", { name: "跟單已開始" })).toBeVisible({ timeout: 30000 });
       await expect(progress.getByTestId("live-copy-stages").locator('[data-state="done"]')).toHaveCount(6);
       await expect(progress.getByRole("alert")).toHaveCount(0);
+      expect(await walletCalls(page)).toEqual(["CopyLiveSetupConsent", "HyperliquidTransaction:UsdSend", "addSigners"]);
       await expectNoSidewaysScroll(page);
-      await shot(page, `testnet-copy-owner-done-${width}-${scheme}`);
+      await shot(page, `testnet-copy-worker-done-${width}-${scheme}`);
       expect(errors()).toEqual([]);
     });
   }
 }
 
-test("a copy wallet the browser can't use yet is named calmly; the dialog closed, 繼續設定 resumes and finishes", async ({ page, context, baseURL }) => {
+test("addSigners declined: nothing is deposited and the copy does not start; confirming again and allowing it starts the copy", async ({ page, context, baseURL }) => {
   test.setTimeout(120000);
   const errors = pageErrors(page);
   await context.addCookies([{ name: "locale", value: "zh-TW", url: baseURL! }]);
   await page.setViewportSize({ width: 1440, height: 900 });
-  await startOwnerCopy(page, 1440, "setup=owner&copywallet=late");
-  const progress = page.getByRole("dialog", { name: "正在設定跟單" });
-  const alert = progress.getByRole("alert");
-  await expect(alert).toHaveText("這個瀏覽器還讀不到你的跟單錢包，請重新整理頁面後繼續。", { timeout: 30000 });
+  const confirm = await startCopy(page, 1440, "signers=fail");
+  // The sheet stays, with what happened; no /confirm was sent (no progress dialog).
+  await expect(confirm.getByRole("alert")).toHaveText("Orbie 需要加入它的簽署者才能執行這個跟單。沒有入金，跟單也沒有開始。請再試一次並允許。");
+  await expect(page.getByRole("dialog", { name: /正在設定跟單|跟單已開始/ })).toHaveCount(0);
+  expect(await walletCalls(page)).toEqual(["CopyLiveSetupConsent", "HyperliquidTransaction:UsdSend", "addSigners"]);
   await page.waitForTimeout(500);
-  await shot(page, "testnet-copy-owner-wallet-error-1440");
-  // Closing pauses it (the tab could close here): the portfolio resumes it.
-  await progress.getByRole("button", { name: "關閉", exact: true }).last().click();
-  await expect(progress).toHaveCount(0);
-  await page.locator('a[href="/zh-TW/portfolio"]').filter({ visible: true }).first().click();
-  await expect(page).toHaveURL(/\/zh-TW\/portfolio/);
-  // The unfinished copy's card opens its sheet, where 繼續設定 is.
-  const card = page.getByTestId("live-copy-card").filter({ visible: true }).first();
-  await expect(card).toBeVisible({ timeout: 15000 });
-  await card.click();
-  const resume = page.getByTestId("live-copy-sheet").getByRole("button", { name: "繼續設定", exact: true });
-  await expect(resume).toBeVisible();
-  await shot(page, "testnet-copy-owner-resume-1440");
-  await resume.click();
-  await expect(page.getByRole("dialog", { name: "跟單已開始" })).toBeVisible({ timeout: 30000 });
-  await expect(page.getByRole("dialog", { name: "跟單已開始" }).getByTestId("live-copy-stages").locator('[data-state="done"]')).toHaveCount(6);
-  expect(errors()).toEqual([]);
-});
-
-test("the automatic return: confirm adds the worker from the browser and the worker finishes; declined, the browser signs instead", async ({ page, context, baseURL }) => {
-  test.setTimeout(120000);
-  const errors = pageErrors(page);
-  await context.addCookies([{ name: "locale", value: "zh-TW", url: baseURL! }]);
-  await page.setViewportSize({ width: 1440, height: 900 });
-  // Privy refuses adding the signer (or the owner declines): no error, the setup is signed in this browser.
-  await startOwnerCopy(page, 1440, "signers=fail");
-  const progress = page.getByRole("dialog", { name: /正在設定跟單|跟單已開始/ });
-  await expect(progress).toContainText("關閉後設定會暫停，之後在投資組合點「繼續設定」即可接續。");
-  await expect(page.getByRole("dialog", { name: "跟單已開始" })).toBeVisible({ timeout: 30000 });
-  await expect(progress.getByRole("alert")).toHaveCount(0);
   await shot(page, "testnet-copy-signer-declined-1440");
-  expect(errors()).toEqual([]);
+  // Allowed on the retry (the consent still valid): the copy starts.
+  await page.evaluate(() => sessionStorage.setItem("orbie:fixtures:signers", "ok"));
+  await confirm.getByRole("button", { name: "確認並開始" }).click();
+  await expect(page.getByRole("dialog", { name: "跟單已開始" })).toBeVisible({ timeout: 30000 });
+  expect(errors().filter((text) => !/409 \/me\/copy\/live\/setups/.test(text))).toEqual([]);
 });
 
 test("the step-by-step forms moved to /dev/copy; Settings keeps the read-only copy wallets", async ({ page, context, baseURL }) => {

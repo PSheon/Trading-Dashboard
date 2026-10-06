@@ -94,8 +94,14 @@ export const describeUnexpected = (error: unknown): string | null => {
   if (error instanceof LiveBoundaryError || error instanceof Error && /^[a-z][a-z0-9_]{0,79}$/.test(error.message)) return null;
   if (!(error instanceof Error)) return `non-error ${typeof error}`;
   const stack = (error.stack ?? '').split('\n').slice(1, 5).map(line => line.trim()).join(' | ');
-  return `${error.name}: ${error.message}`.slice(0, 240) + (stack ? ` @ ${stack.slice(0, 400)}` : '');
+  return redactSecrets(`${error.name}: ${error.message}`.slice(0, 240) + (stack ? ` @ ${stack.slice(0, 400)}` : ''));
 };
+/** Never logs key or signature material a provider error might echo: long
+ * hex runs (private keys, signatures, digests), JWTs and bearer tokens. */
+export const redactSecrets = (text: string): string => text
+  .replace(/\b(?:0x)?[0-9a-fA-F]{40,}\b/g, (hex) => hex.length <= 42 && hex.startsWith('0x') ? hex : '<hex>')
+  .replace(/eyJ[\w-]+\.[\w-]+\.[\w-]+/g, '<jwt>')
+  .replace(/(bearer|authorization|privy-authorization-signature)[=:\s]+\S+/gi, '$1 <redacted>');
 const reasonOf = (error: unknown) => {
   const code = error instanceof LiveBoundaryError ? error.code : error instanceof Error && /^[a-z][a-z0-9_]{0,79}$/.test(error.message) ? error.message : 'live_execution_failed';
   return code.replace(/[^a-z0-9_]/g, '_').slice(0, 80);

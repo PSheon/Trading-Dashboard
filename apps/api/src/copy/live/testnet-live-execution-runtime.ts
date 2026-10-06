@@ -132,7 +132,10 @@ export class TestnetLiveExecutionRuntime {
       // Resolve global configuration against the original private context before
       // creating native clients. No unscoped fallback can open a second pool.
       this.global.currentQuota();
-      const acquire = (weight: number) => this.budget.acquire(weight, 'live', undefined, { signal: AbortSignal.timeout(5000) });
+      // A budget wait that runs out is said as such (Stage 2026-10-06: it
+      // surfaced as an uncoded TimeoutError and was stored as live_execution_failed).
+      const acquire = (weight: number) => this.budget.acquire(weight, 'live', undefined, { signal: AbortSignal.timeout(5000) })
+        .catch((error: unknown) => { throw error instanceof Error && error.name === 'TimeoutError' ? new LiveBoundaryError('live_budget_wait_timeout') : error; });
       const sockets = new HyperliquidAllDexsAccountSource(this.now, undefined, 'testnet', this.global);
       const observer = new HyperliquidLiveAccountObserver('testnet', acquire, this.global.fetchInfo, this.now, 5000, sockets);
       const resolver = new HyperliquidLiveMarketResolver('testnet', acquire, this.global.fetchInfo, this.now);

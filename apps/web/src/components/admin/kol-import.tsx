@@ -1,4 +1,5 @@
 "use client";
+import { useSaveToast } from "@/lib/use-action-toast";
 import { useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import type { KolPreview, KolInput } from "@/lib/contracts";
@@ -33,6 +34,7 @@ export function KolImportPanel({
   const [replace, setReplace] = useState(false);
   const [confirmRemoval, setConfirmRemoval] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
+  const saved = useSaveToast();
   const preview = useMutation<
     KolPreview,
     ApiError,
@@ -117,12 +119,12 @@ export function KolImportPanel({
           onClick={() =>
             commit.mutate(
               { csv: csv!, replace },
-              {
+              saved({
                 onSuccess: () => {
                   preview.reset();
                   setConfirmRemoval(false);
                 },
-              },
+              }),
             )
           }
         >

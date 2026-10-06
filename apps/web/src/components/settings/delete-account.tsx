@@ -2,12 +2,14 @@
 
 import { CircleAlert, ShieldCheck, Trash2 } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { cn } from "cn";
 
 import { useWalletModals } from "@/components/wallet/wallet-modals";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
+import { useToast } from "@/components/ui/toast";
+import { ACTION_PENDING_AFTER_MS } from "@/lib/use-action-toast";
 import { useI18n } from "@/i18n/provider";
 import { api, ApiError, apiErrorCode } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -72,6 +74,8 @@ export function DeleteAccountButton({ className }: { className?: string }) {
 
 export function DeleteAccountDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const { t } = useI18n();
+  const toast = useToast();
+  const workingToast = useRef<number | null>(null);
   const router = useRouter();
   const { logout, wallet } = useAuth();
   const { openExport } = useWalletModals();
@@ -99,6 +103,9 @@ export function DeleteAccountDialog({ open, onOpenChange }: { open: boolean; onO
     setBusy(true);
     setError(null);
     setBlockers(null);
+    // Deleting takes a few seconds (Privy, then the api): say so.
+    const working = window.setTimeout(() => { workingToast.current = toast.info(t("toast.account.deleting"), { autoClose: false, icon: false }); }, ACTION_PENDING_AFTER_MS);
+    const settle = () => { window.clearTimeout(working); if (workingToast.current !== null) toast.dismiss(workingToast.current); workingToast.current = null; };
     try {
       // The api deletes only with this explicit confirmation (sent once the
       // person has typed the word), never on a valid token alone.
@@ -114,12 +121,16 @@ export function DeleteAccountDialog({ open, onOpenChange }: { open: boolean; onO
     } catch (err) {
       const code = apiErrorCode(err);
       const blocked = deletionBlockers(err);
+      settle();
+      const line = code === "last_admin" ? t("deleteAccount.lastAdmin") : code === "closure_check_unavailable" ? t("deleteAccount.unavailable")
+        : code === "copy_signer_attached" || code === "copy_wallet_unavailable" ? t("deleteAccount.signerAttached") : t("deleteAccount.failed");
       if (blocked) setBlockers(blocked);
-      else setError(code === "last_admin" ? t("deleteAccount.lastAdmin") : code === "closure_check_unavailable" ? t("deleteAccount.unavailable")
-        : code === "copy_signer_attached" || code === "copy_wallet_unavailable" ? t("deleteAccount.signerAttached") : t("deleteAccount.failed"));
+      else setError(line);
+      toast.error(blocked ? t("deleteAccount.failed") : line);
       setBusy(false);
       return;
     }
+    settle();
     // The account is gone: whatever signing out does (or fails to do), the
     // person is told it was deleted, never "deletion failed".
     try { await logout(); } catch { /* the session ends with the account anyway */ }

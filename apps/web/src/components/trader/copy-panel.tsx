@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
 import { HedgeNotice } from "@/components/copy/portfolio-parts";
 import { useToast } from "@/components/ui/toast";
+import { usePendingToast } from "@/lib/use-action-toast";
 import { UsdcIcon } from "@/components/wallet/bits";
 import { useI18n } from "@/i18n/provider";
 import { liveCopiesMessages } from "@/i18n/live-copies";
@@ -100,7 +101,7 @@ let measureContext: CanvasRenderingContext2D | null = null;
  */
 export function CopyPanel({ address, sheet = false, leaderPositions, traderName }: { address: string; sheet?: boolean; leaderPositions?: ReadonlyArray<{ coin: string; szi: number }>; traderName?: string }) {
   const { t, format, locale } = useI18n();
-  const toast = useToast();
+  const toast = useToast(), pending = usePendingToast();
   const { status, login, identity } = useAuth();
   const overview = useCopyOverview();
   const existing = useCopyOf(address);
@@ -220,7 +221,8 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
     if (testnet) return startTestnet();
     try {
       const others = overview.data?.strategies ?? [];
-      const created = await start.mutateAsync({ leader: address, allocationUsd: value, direction, copyStartMode: copyExisting ? "adopt" : "delta" });
+      const created = await pending(start.mutateAsync({ leader: address, allocationUsd: value, direction, copyStartMode: copyExisting ? "adopt" : "delta" }), t("toast.copy.starting"));
+      toast.success(t("toast.copy.started"));
       setHedge(hedgeWarning(leaderPositions ?? [], direction, others, address));
       // 跟單目前持倉: say which of the trader's positions were left out (a
       // market that is not copied, a position too small, a cap).
@@ -258,7 +260,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
       maxLeverage: leverage && leverage >= 1 ? Math.min(50, leverage) : null, copyStartMode: "delta" };
     updateSetup({ starting: true });
     try {
-      const prepared = await live.start.mutateAsync({ leader: address.toLowerCase(), budgetUsd: String(Math.floor(value * 1e6) / 1e6), settings });
+      const prepared = await pending(live.start.mutateAsync({ leader: address.toLowerCase(), budgetUsd: String(Math.floor(value * 1e6) / 1e6), settings }), t("toast.copy.starting"));
       if (prepared.stage === "awaiting_consent" && prepared.consent) { setConfirmError(null); updateSetup({ setup: prepared, confirmOpen: true, starting: false }); return; }
       updateSetup({ setup: prepared, starting: false });
       // Still preparing (its wallet or agent is slow), or already confirmed
@@ -273,6 +275,8 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
     try {
       const confirmed = await live.confirm.mutateAsync(setup);
       setConfirmOpen(false); setAmount(""); setProgressId(confirmed.id);
+      // The progress dialog takes over; the toast says it is under way.
+      toast.info(t("toast.copy.starting"));
     } catch (err) {
       const code = apiErrorCode(err);
       if (code === "consent_expired") {
@@ -280,6 +284,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
         try { const again = await live.start.mutateAsync({ leader: setup.leaderAddress, budgetUsd: setup.budgetUsd, settings: setup.settings }); setSetup(again); } catch { /* shown below */ }
       }
       setConfirmError(copyErrorText(copyTexts, err));
+      toast.error(copyErrorText(copyTexts, err));
     }
   }
   function liveError(err: unknown) {
@@ -302,10 +307,10 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
   }
   /** The same terms again (a fresh consent); the server ends the old setup. */
   async function restartTestnet(from: LiveCopySetup | string) {
-    try { reviewSetup(await live.restart.mutateAsync(from)); } catch (err) { liveError(err); }
+    try { reviewSetup(await live.restart.mutateAsync(from)); toast.success(t("toast.copy.setupRestarted")); } catch (err) { liveError(err); }
   }
   async function cancelTestnet(id: string) {
-    try { await live.cancel.mutateAsync(id); updateSetup({ setup: null, confirmOpen: false, progressId: null }); } catch (err) { liveError(err); }
+    try { await live.cancel.mutateAsync(id); updateSetup({ setup: null, confirmOpen: false, progressId: null }); toast.success(t("toast.copy.setupCancelled")); } catch (err) { liveError(err); }
   }
 
   const liveDialogs = (

@@ -1,5 +1,6 @@
 "use client";
 
+import { useSaveToast } from "@/lib/use-action-toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronDown } from "lucide-react";
 import { useState } from "react";
@@ -96,6 +97,7 @@ function SettingsEditor({ snapshot, stale }: { snapshot: AdminSettingsSnapshot; 
     setDrafts((d) => ({ ...d, [section]: { ...d[section], value: { ...d[section].value, ...patch } } }));
   const dirty = SECTIONS.filter((s) => changedFields(drafts[s]).length > 0);
 
+  const saved = useSaveToast();
   const save = useMutation<AdminSettingsSnapshot, ApiError, PatchAdminSettingsRequest>({
     mutationFn: (body) => api.patch<AdminSettingsSnapshot>("/admin/settings", body),
     onSuccess: (data) => {
@@ -140,7 +142,7 @@ function SettingsEditor({ snapshot, stale }: { snapshot: AdminSettingsSnapshot; 
       return;
     }
     setAsking(null);
-    save.mutate(body);
+    save.mutate(body, saved());
   }
 
   const disabled = !canSave || save.isPending || reload.isPending;

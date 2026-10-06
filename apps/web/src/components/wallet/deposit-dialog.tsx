@@ -104,6 +104,7 @@ function PendingBridge({ summary }: { summary: WalletSummary }) {
   // to the mutation, so closing the dialog during Privy's prompt keeps it.
   // The SDK's own (English) message is never shown.
   const bridge = useBridgeDeposit({
+    onSuccess: () => toast.success(t("toast.wallet.deposited")),
     onError: (err) => toast.error(signErrorMessage(err).rejected ? t("wallet.rejected") : `${t("common.errors.failed")}${needsSponsor ? ` ${t("wallet.noGas", { chain: network.chainLabel })}` : ""}`),
   });
   if (usdc <= 0) return null;

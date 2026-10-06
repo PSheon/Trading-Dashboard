@@ -12,7 +12,7 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock("../src/lib/auth", () => ({ useAuth: () => state }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh() {} }) }));
-vi.mock("../src/components/ui/toast", () => ({ useToast: () => ({ error: (message: string) => state.errors.push(message) }) }));
+vi.mock("../src/components/ui/toast", () => ({ useToast: () => ({ error: (message: string) => state.errors.push(message), success: () => 0 }) }));
 const ADDRESS = "0x1111111111111111111111111111111111111111";
 let root: Root;
 let container: HTMLDivElement;

@@ -77,8 +77,16 @@ export function useUnlinkTelegram() {
 }
 
 export function useTelegramTest() {
+  const toast = useToast();
+  const t = useT();
   return useMutation<TelegramTestResponse, ApiError>({
     mutationFn: () => api.post<TelegramTestResponse>("/me/telegram/test"),
+    onSuccess: (result) => {
+      if (result.dryRun) toast.warning(t("settings.testDryRun"));
+      else if (result.sent) toast.success(t("toast.alerts.testSent"));
+      else toast.error(t("settings.testFailed"));
+    },
+    onError: () => toast.error(t("settings.testFailed")),
   });
 }
 
@@ -97,7 +105,8 @@ export function useSetFavoriteAlert() {
       else if (error.code === "alert_limit") toast.info(t("alerts.limit", { limit: typeof error.details.limit === "number" ? error.details.limit : 3 }));
       else toast.error(t(apiErrorKey(error)));
     },
-    onSuccess: (saved) => {
+    onSuccess: (saved, { patch }) => {
+      toast.success(t(patch.enabled === false ? "toast.alerts.off" : "toast.alerts.saved"));
       queryClient.setQueryData<Favorite[]>(queryKeys.favorites, (list) =>
         list?.map((f) => (f.address === saved.address ? saved : f)),
       );
@@ -115,6 +124,7 @@ export function useAddFavorite() {
     mutationFn: (address) => api.put<Favorite>(`/me/favorites/${address}`),
     onError: () => toast.error(t("favorites.addFailed")),
     onSuccess: (saved) => {
+      toast.success(t("toast.favorites.added"));
       queryClient.setQueryData<Favorite[]>(queryKeys.favorites, (list) =>
         list ? [saved, ...list.filter((f) => f.address !== saved.address)] : list,
       );
@@ -130,8 +140,11 @@ export function useAddFavorite() {
 /** Preferences apply only to future confirmed paper-copy events. */
 export function useSetCopyAlerts() {
   const queryClient = useQueryClient();
+  const toast = useToast();
+  const t = useT();
   return useMutation({
     mutationFn: (enabled: boolean) => api.patch<TelegramStatus>("/me/telegram/copy-alerts", { enabled }),
-    onSuccess: (status) => queryClient.setQueryData(TELEGRAM_KEY, status),
+    onSuccess: (status, enabled) => { queryClient.setQueryData(TELEGRAM_KEY, status); toast.success(t(enabled ? "toast.settings.botOn" : "toast.settings.botOff")); },
+    onError: (error: unknown) => toast.error(t(apiErrorKey(error as { status?: number }))),
   });
 }

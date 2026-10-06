@@ -1,5 +1,6 @@
 "use client";
 
+import { useSaveToast } from "@/lib/use-action-toast";
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { copyRiskLimitsSchema, type CopyRiskLimits } from "@trading-dashboard/shared/contracts";
@@ -67,6 +68,7 @@ export function AdminCopyRisk() {
 function RiskForm({ policy, save, onReload, reloading }: { policy: AdminCopyRiskView; save: ReturnType<typeof useSaveCopyRisk>; onReload: () => void; reloading: boolean }) {
   const { t, format } = useI18n();
   const canManage = usePermission("risk.manage");
+  const saved = useSaveToast();
   const [draft, setDraft] = useState<Draft>(() => toDraft(policy.limits));
   const [reason, setReason] = useState("");
   const parsed = copyRiskLimitsSchema.safeParse(toLimits(draft));
@@ -99,7 +101,7 @@ function RiskForm({ policy, save, onReload, reloading }: { policy: AdminCopyRisk
         onSubmit={(event) => {
           event.preventDefault();
           if (!ready || !parsed.success) return;
-          save.mutate({ limits: parsed.data, reason: reason.trim(), expectedVersion: policy.version });
+          save.mutate({ limits: parsed.data, reason: reason.trim(), expectedVersion: policy.version }, saved());
         }}
       >
         <AdminCard

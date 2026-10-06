@@ -1,4 +1,5 @@
 "use client";
+import { useSaveToast } from "@/lib/use-action-toast";
 import { importLeaderListRequestSchema } from "@/lib/contracts";
 import { queryKeys } from "@/lib/query-keys";
 import { usePermission } from "@/lib/auth";
@@ -52,6 +53,7 @@ export function AdminLists() {
     fileName: fileName ?? "unknown",
     rows,
   };
+  const saved = useSaveToast();
   const review = useMutation<ImportPreview, ApiError, ImportLeaderListRequest>({
     mutationFn: (body) => api.post("/import/lists/preview", body),
   });
@@ -194,7 +196,7 @@ export function AdminLists() {
               importList.isPending ||
               review.isPending
             )}
-            onClick={() => importList.mutate(payload)}
+            onClick={() => importList.mutate(payload, saved())}
           >
             <FileUp />
             {importList.isPending

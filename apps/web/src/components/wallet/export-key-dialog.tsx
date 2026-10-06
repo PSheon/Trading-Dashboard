@@ -43,6 +43,7 @@ export function ExportKeyDialog({ open, onOpenChange, target = null }: { open: b
       onOpenChange(false);
       if (target) await wallet.exportCopyKey(target.address);
       else await wallet.exportKey();
+      if (activeWallet.current === wallet) toast.success(t("toast.wallet.keyExported"));
     } catch {
       // Delayed failures belong to the session that initiated the export.
       if (activeWallet.current !== wallet) return;

@@ -1,4 +1,5 @@
 "use client";
+import { useSaveToast } from "@/lib/use-action-toast";
 import { useState } from "react";
 import { Link } from "@/i18n/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -28,6 +29,7 @@ export function AdminJobs() {
       api.get<BackfillJobsResponse>(`/admin/jobs?${qs}`, signal),
     refetchInterval: 5000,
   });
+  const saved = useSaveToast();
   const retry = useMutation({
     mutationFn: (job: BackfillJob) =>
       api.post<BackfillJob>(`/admin/jobs/${job.id}/retry`, {
@@ -112,7 +114,7 @@ export function AdminJobs() {
               now={jobs.dataUpdatedAt}
               canRetry={canRetry}
               busy={jobs.isError || retry.isPending}
-              onRetry={() => retry.mutate(job)}
+              onRetry={() => retry.mutate(job, saved())}
             />
           ))}
         </div>

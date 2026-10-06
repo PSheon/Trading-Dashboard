@@ -1,5 +1,6 @@
 "use client";
 
+import { useSaveToast } from "@/lib/use-action-toast";
 import { BadgeCheck, Pencil, Trash2, UserRound } from "lucide-react";
 import { useState } from "react";
 
@@ -26,6 +27,7 @@ export function AdminKols() {
   const { t } = useI18n();
   const canManage = usePermission("kols.manage");
   const kols = useKols();
+  const saved = useSaveToast();
   const save = useSaveKol();
   const remove = useRemoveKol();
   const [draft, setDraft] = useState<KolDraft>(EMPTY);
@@ -103,7 +105,7 @@ export function AdminKols() {
                     aria-label={`${t("admin.kols.remove")} ${kol.displayName ?? kol.address}`}
                     loading={remove.isPending && remove.variables === kol.address} disabled={!(remove.isPending && remove.variables === kol.address) && (remove.isPending)}
                     onClick={() => {
-                      if (globalThis.confirm(t("admin.kols.confirmRemove", { name: kol.displayName ?? kol.address }))) remove.mutate(kol.address);
+                      if (globalThis.confirm(t("admin.kols.confirmRemove", { name: kol.displayName ?? kol.address }))) remove.mutate(kol.address, saved());
                     }}
                   >
                     <Trash2 />
@@ -122,7 +124,7 @@ export function AdminKols() {
           onSubmit={(e) => {
             e.preventDefault();
             if (!valid) return;
-            save.mutate({ draft: { ...draft, address: draft.address.toLowerCase() }, existing: editing }, { onSuccess: close });
+            save.mutate({ draft: { ...draft, address: draft.address.toLowerCase() }, existing: editing }, saved({ onSuccess: close }));
           }}
         >
           <div className="grid gap-1.5">

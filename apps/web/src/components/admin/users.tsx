@@ -1,5 +1,6 @@
 "use client";
 
+import { useSaveToast } from "@/lib/use-action-toast";
 import { LOCALE_NAMES, type Locale } from "@/i18n/config";
 import { userRoleEnum, type AdminUser, type UserRole } from "@/lib/contracts";
 import { ChevronLeft, ChevronRight, Search, Users } from "lucide-react";
@@ -56,6 +57,7 @@ export function AdminUsers() {
   }, [query]);
 
   const users = useAdminUsers({ q, role, limit: PAGE, offset: page * PAGE });
+  const saved = useSaveToast();
   const update = useUpdateAdminUser();
 
   const total = users.data?.total ?? 0;
@@ -215,7 +217,7 @@ export function AdminUsers() {
         pending={pending}
         onCancel={() => setPending(null)}
         onConfirm={(change) => {
-          update.mutate({ id: change.user.id, patch: "role" in change ? { role: change.role } : { disabled: change.disabled } });
+          update.mutate({ id: change.user.id, patch: "role" in change ? { role: change.role } : { disabled: change.disabled } }, saved());
           setPending(null);
         }}
       />

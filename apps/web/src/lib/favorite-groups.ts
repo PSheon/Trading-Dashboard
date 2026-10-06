@@ -47,12 +47,21 @@ function useGroupFailure() {
   };
 }
 
+/** The success toast of a group write. */
+function useGroupDone() {
+  const toast = useToast();
+  const t = useT();
+  return (key: "toast.favorites.groupCreated" | "toast.favorites.groupDeleted" | "toast.favorites.groupSaved") => toast.success(t(key));
+}
+
 /** POST /me/favorite-groups; 409 `group_name_exists` / `group_limit`. */
 export function useCreateFavoriteGroup() {
   const refresh = useRefresh();
   const failed = useGroupFailure();
+  const done = useGroupDone();
   return useMutation<FavoriteGroup, ApiError, FavoriteGroupInput>({
     mutationFn: (body) => api.post<FavoriteGroup>("/me/favorite-groups", body),
+    onSuccess: () => done("toast.favorites.groupCreated"),
     onError: failed,
     onSettled: refresh,
   });
@@ -61,8 +70,10 @@ export function useCreateFavoriteGroup() {
 export function useDeleteFavoriteGroup() {
   const refresh = useRefresh();
   const failed = useGroupFailure();
+  const done = useGroupDone();
   return useMutation<void, ApiError, number>({
     mutationFn: (id) => api.delete<void>(`/me/favorite-groups/${id}`),
+    onSuccess: () => done("toast.favorites.groupDeleted"),
     onError: failed,
     onSettled: refresh,
   });
@@ -72,6 +83,7 @@ export function useDeleteFavoriteGroup() {
 export function useToggleGroupMember() {
   const client = useQueryClient();
   const failed = useGroupFailure();
+  const done = useGroupDone();
   return useMutation<unknown, ApiError, { id: number; address: string; member: boolean }>({
     mutationFn: ({ id, address, member }) =>
       member ? api.put<void>(`/me/favorite-groups/${id}/members/${address}`) : api.delete<void>(`/me/favorite-groups/${id}/members/${address}`),
@@ -80,6 +92,7 @@ export function useToggleGroupMember() {
         groups?.map((g) => (g.id !== id ? g : { ...g, addresses: member ? [...new Set([...g.addresses, address])] : g.addresses.filter((a) => a !== address) })),
       );
     },
+    onSuccess: () => done("toast.favorites.groupSaved"),
     onError: failed,
     onSettled: () => client.invalidateQueries({ queryKey: queryKeys.favoriteGroups }),
   });

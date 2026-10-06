@@ -1,5 +1,6 @@
 "use client";
 
+import { useSaveToast } from "@/lib/use-action-toast";
 import { Link } from "@/i18n/navigation";
 import { useState } from "react";
 import { cn } from "cn";
@@ -168,6 +169,7 @@ function Accounts() {
  * positions may remain open with nobody to close them. */
 function RevokeForm({ grant, force, onClose }: { grant: NonNullable<AdminLiveAccount["grant"]>; force: boolean; onClose: () => void }) {
   const { t } = useI18n();
+  const saved = useSaveToast();
   const revoke = useRevokeLiveGrant();
   const [reason, setReason] = useState("");
   const [understood, setUnderstood] = useState(false);
@@ -175,7 +177,7 @@ function RevokeForm({ grant, force, onClose }: { grant: NonNullable<AdminLiveAcc
   return (
     <form className="flex flex-col gap-4" onSubmit={(event) => {
       event.preventDefault();
-      if (ok && !revoke.isPending) revoke.mutate({ id: grant.id, reason: reason.trim(), force }, { onSuccess: onClose });
+      if (ok && !revoke.isPending) revoke.mutate({ id: grant.id, reason: reason.trim(), force }, saved({ onSuccess: onClose }));
     }}>
       <p className="text-sm leading-relaxed text-muted-foreground">{t(force ? "copyAdmin.live.revoke.forceHelp" : "copyAdmin.live.revoke.help")}</p>
       <p className="num rounded-xl bg-raised p-3 text-xs font-semibold">{t("copyAdmin.live.revoke.target", { id: grant.id, version: grant.version })}</p>

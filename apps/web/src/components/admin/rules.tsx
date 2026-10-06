@@ -1,4 +1,5 @@
 "use client";
+import { useSaveToast } from "@/lib/use-action-toast";
 import { queryKeys } from "@/lib/query-keys";
 import { usePermission } from "@/lib/auth";
 
@@ -22,6 +23,7 @@ export function DefaultRulesEditor() {
     queryFn: ({ signal }) => api.get<AlertRule[]>("/alert-rules", signal),
     refetchInterval: false,
   });
+  const saved = useSaveToast();
   const save = useMutation<AlertRule, ApiError, UpsertAlertRuleRequest>({
     mutationFn: (body) => api.post<AlertRule>("/alert-rules", body),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.admin.rules }),
@@ -52,7 +54,7 @@ export function DefaultRulesEditor() {
                   kind: rule.kind,
                   quietHours: rule.quietHours ?? null,
                   ...patch,
-                })
+                }, saved())
               }
             />
           ))

@@ -505,6 +505,7 @@ export function useToggleFavorite() {
     },
     // CopyDog: "Failed to add to watchlist" / "… remove from …" toasts.
     onError: (_error, { favorite }) => toast.error(t(favorite ? "favorites.addFailed" : "favorites.removeFailed")),
+    onSuccess: (_data, { favorite }) => toast.success(t(favorite ? "toast.favorites.added" : "toast.favorites.removed")),
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.favorites });
       void queryClient.invalidateQueries({ queryKey: queryKeys.favoriteGroups });

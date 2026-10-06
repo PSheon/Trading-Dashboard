@@ -15,6 +15,8 @@ import { CoinIcon } from "@/components/traders/coin-icon";
 import { RoiPill } from "@/components/traders/bits";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
+import { useToast } from "@/components/ui/toast";
+import { usePendingToast } from "@/lib/use-action-toast";
 import { TradeShareDialog, copyCardSource, type TradeCardSource } from "@/components/trader/trade-share-dialog";
 import { useI18n } from "@/i18n/provider";
 import type { MessageKey } from "@/i18n/messages";
@@ -236,6 +238,7 @@ export function paperCopyErrorText(t: (key: MessageKey, values?: Record<string, 
 export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy: CopyStrategyView; leader: Leader; balance: number; onBack: () => void }) {
   const { t, format } = useI18n();
   const command = useCopyCommand();
+  const toast = useToast();
   const [orderPages, setOrderPages] = useState<string[]>([]);
   const orders = useCopyOrders(s.id, orderPages.at(-1));
   const [dialog, setDialog] = useState<"stop" | "edit" | "funds" | "withdraw" | null>(null);
@@ -246,9 +249,11 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
     setError(null);
     try {
       await command.mutateAsync({ id: s.id, command: c });
+      toast.success(t(c === "pause" ? "toast.copy.paused" : "toast.copy.resumed"));
     } catch (err) {
       // Its own words (web audit L7), not the edit dialog's.
-      setError(paperCopyErrorText(t, err, "portfolio.copy.actions.failed"));
+      const line = paperCopyErrorText(t, err, "portfolio.copy.actions.failed");
+      setError(line); toast.error(line);
     }
   };
   const stat = (label: string, value: React.ReactNode, cls = "") => (
@@ -404,6 +409,7 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
 function StopDialog({ strategy: s, open, onClose }: { strategy: CopyStrategyView; open: boolean; onClose: () => void }) {
   const { t } = useI18n();
   const command = useCopyCommand();
+  const toast = useToast(), pending = usePendingToast();
   const [error, setError] = useState<string | null>(null);
   const n = s.positions.length;
   return (
@@ -420,10 +426,12 @@ function StopDialog({ strategy: s, open, onClose }: { strategy: CopyStrategyView
             onClick={async () => {
               setError(null);
               try {
-                await command.mutateAsync({ id: s.id, command: "stop" });
+                await pending(command.mutateAsync({ id: s.id, command: "stop" }), t("toast.copy.stopping"));
+                toast.success(t("toast.copy.stopped"));
                 onClose();
               } catch (err) {
-                setError(paperCopyErrorText(t, err, "portfolio.copy.stop.failed"));
+                const line = paperCopyErrorText(t, err, "portfolio.copy.stop.failed");
+                setError(line); toast.error(line);
               }
             }}
           >
@@ -448,6 +456,7 @@ function AmountInput({ id, value, onChange, invalid }: { id: string; value: stri
 function EditDialog({ strategy: s, balance, open, onClose }: { strategy: CopyStrategyView; balance: number; open: boolean; onClose: () => void }) {
   const { t, format } = useI18n();
   const patch = usePatchCopy();
+  const toast = useToast();
   const [mode, setMode] = useState(s.settings.sizingMode);
   const [maxAlloc, setMaxAlloc] = useState(String(Math.floor(s.settings.maxTotalExposureUsd ?? s.allocated * 5)));
   const [perTrade, setPerTrade] = useState(s.settings.perTradeUsd ? String(Math.floor(s.settings.perTradeUsd)) : "");
@@ -492,9 +501,10 @@ function EditDialog({ strategy: s, balance, open, onClose }: { strategy: CopyStr
             setError(null);
             try {
               await patch.mutateAsync({ id: s.id, patch: { sizingMode: mode, maxTotalExposureUsd: max, perTradeUsd: mode === "fixed" ? per : s.settings.perTradeUsd } });
+              toast.success(t("toast.copy.edited"));
               onClose();
             } catch {
-              setError(t("portfolio.copy.edit.failed"));
+              setError(t("portfolio.copy.edit.failed")); toast.error(t("portfolio.copy.edit.failed"));
             }
           }}
         >
@@ -509,6 +519,7 @@ function EditDialog({ strategy: s, balance, open, onClose }: { strategy: CopyStr
 function FundsDialog({ strategy: s, balance, open, onClose }: { strategy: CopyStrategyView; balance: number; open: boolean; onClose: () => void }) {
   const { t, format } = useI18n();
   const add = useAddCopyFunds();
+  const toast = useToast();
   const [amount, setAmount] = useState("");
   const [error, setError] = useState<string | null>(null);
   const value = Number.parseFloat(amount);
@@ -537,10 +548,12 @@ function FundsDialog({ strategy: s, balance, open, onClose }: { strategy: CopySt
             setError(null);
             try {
               await add.mutateAsync({ id: s.id, amountUsd: value });
+              toast.success(t("toast.copy.toppedUp", { amount: format.num(value, 2) }));
               setAmount("");
               onClose();
             } catch (err) {
-              setError(apiErrorCode(err) === "insufficient_balance" ? t("trader.copy.errors.exceedsBalance") : t("portfolio.copy.funds.failed"));
+              const line = apiErrorCode(err) === "insufficient_balance" ? t("trader.copy.errors.exceedsBalance") : t("portfolio.copy.funds.failed");
+              setError(line); toast.error(line);
             }
           }}
         >
@@ -554,6 +567,7 @@ function FundsDialog({ strategy: s, balance, open, onClose }: { strategy: CopySt
 export function WithdrawDialog({ strategy: s, open, onClose }: { strategy: CopyStrategyView; open: boolean; onClose: () => void }) {
   const { t, format } = useI18n();
   const withdraw = useWithdrawCopyFunds();
+  const toast = useToast(), whilePending = usePendingToast();
   const [amount, setAmount] = useState("");
   const [error, setError] = useState<string | null>(null);
   const pending = withdraw.pendingOperations.filter((body) => body.id === s.id);
@@ -566,19 +580,21 @@ export function WithdrawDialog({ strategy: s, open, onClose }: { strategy: CopyS
       <label htmlFor="withdraw-amount" className="flex justify-between text-sm font-semibold">USDC <span className="text-xs text-muted-foreground">{t("copyUpdates.available")}: {available == null ? "—" : format.usd(available, { digits: 2 })}</span></label>
       {pending.map((body) => <Button key={body.amountUsd} variant="secondary" loading={withdraw.isPending && withdraw.variables?.amountUsd === body.amountUsd} disabled={withdraw.isPending && withdraw.variables?.amountUsd !== body.amountUsd} onClick={async () => {
         setError(null);
-        try { await withdraw.mutateAsync(body); setAmount(""); onClose(); }
-        catch { setError(t("copyUpdates.withdrawUnknown")); }
+        try { await whilePending(withdraw.mutateAsync(body), t("toast.copy.withdrawing")); toast.success(t("toast.copy.withdrawn", { amount: format.num(body.amountUsd, 2) })); setAmount(""); onClose(); }
+        catch { setError(t("copyUpdates.withdrawUnknown")); toast.error(t("copyUpdates.withdrawUnknown")); }
       }}>{t("copyUpdates.retryWithdrawal", { amount: format.usd(body.amountUsd, { digits: 2 }) })}</Button>)}
       <AmountInput id="withdraw-amount" value={amount} onChange={setAmount} invalid={amount !== "" && invalid} />
       {error ? <p role="alert" className="text-xs text-negative">{error}</p> : null}
       <Button size="cta" loading={withdraw.isPending && pending.length === 0} disabled={!(withdraw.isPending && pending.length === 0) && (invalid || withdraw.isPending || pending.length > 0)} onClick={async () => {
         setError(null);
         try {
-          await withdraw.mutateAsync({ id: s.id, amountUsd: value });
+          await whilePending(withdraw.mutateAsync({ id: s.id, amountUsd: value }), t("toast.copy.withdrawing"));
+          toast.success(t("toast.copy.withdrawn", { amount: format.num(value, 2) }));
           setAmount("");
           onClose();
         } catch (error) {
-          setError(t(apiErrorCode(error) ? "copyUpdates.withdrawError" : "copyUpdates.withdrawUnknown"));
+          const line = t(apiErrorCode(error) ? "copyUpdates.withdrawError" : "copyUpdates.withdrawUnknown");
+          setError(line); toast.error(line);
         }
       }}>{withdraw.isPending ? (t("copyUpdates.processing")) : (t("copyUpdates.withdrawConfirm"))}</Button>
     </div>

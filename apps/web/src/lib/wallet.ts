@@ -72,11 +72,13 @@ export function signErrorMessage(error: unknown): { rejected: boolean; message: 
  */
 /** `result.onError` belongs to the mutation (as useWithdraw's): a dialog
  * closed during Privy's transaction prompt still tells the user. */
-export function useBridgeDeposit(result: { onError?: (error: Error) => void } = {}) {
+export function useBridgeDeposit(result: { onError?: (error: Error) => void; onSuccess?: () => void; onMutate?: () => void } = {}) {
   const { wallet } = useAuth();
   const queryClient = useQueryClient();
   return useMutation({
     onError: result.onError ? (error: Error) => result.onError!(error) : undefined,
+    onSuccess: result.onSuccess ? () => result.onSuccess!() : undefined,
+    onMutate: result.onMutate ? () => result.onMutate!() : undefined,
     mutationFn: async ({ summary, sponsor }: { summary: WalletSummary; sponsor: boolean }) => {
       if (!wallet?.address) throw new Error("No wallet");
       if (!summary.address || summary.address !== wallet.address.toLowerCase()) throw new Error("Wallet mismatch");

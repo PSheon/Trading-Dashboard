@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { TIME_ZONE_LABEL } from "@/i18n/config";
 import { splitLocale } from "@/i18n/config";
 import { useI18n } from "@/i18n/provider";
+import { useToast } from "@/components/ui/toast";
 import { useAuth } from "@/lib/auth";
 import { api, sessionKey } from "@/lib/api";
 import { referralCheckSchema, type ReferralClaim } from "@/lib/contracts";
@@ -229,6 +230,7 @@ function LinkQr({ value, label }: { value: string; label: string }) {
   );
 }
 function ReferralView() {
+  const toast = useToast();
   const { t, format } = useI18n(),
     auth = useAuth(),
     capture = useReferralCaptureRecord(),
@@ -265,7 +267,10 @@ function ReferralView() {
     setError(false);
     try {
       await fn();
+      if (name === "save") toast.success(t("toast.saved"));
+      else if (name === "copy") toast.success(t("trader.share.copied"));
     } catch {
+      toast.error(t("common.errors.failed"));
       if (alive.current) setError(true);
     } finally {
       if (alive.current) {

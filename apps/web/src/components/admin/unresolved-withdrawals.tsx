@@ -1,5 +1,6 @@
 "use client";
 
+import { useSaveToast } from "@/lib/use-action-toast";
 import { useState } from "react";
 
 import { Input } from "@/components/ui/input";
@@ -24,6 +25,7 @@ export function UnresolvedWithdrawals() {
   const canRead = usePermission("users.read");
   const canResolve = usePermission("users.manage");
   const list = useUnresolvedWithdrawals(canRead);
+  const saved = useSaveToast();
   const resolve = useResolveWithdrawal();
   const [target, setTarget] = useState<string | null>(null);
   const [reason, setReason] = useState("");
@@ -62,10 +64,10 @@ export function UnresolvedWithdrawals() {
         <form className="flex flex-col gap-3" onSubmit={(event) => {
           event.preventDefault();
           if (!target || reason.trim().length < 3) return;
-          resolve.mutate({ id: target, reason: reason.trim() }, { onSuccess: (data) => {
+          resolve.mutate({ id: target, reason: reason.trim() }, saved({ onSuccess: (data) => {
             setOutcome(t(data.status === "accepted" ? "admin.withdrawals.accepted" : "admin.withdrawals.notExecuted"));
             setTarget(null); setReason("");
-          } });
+          } }));
         }}>
           <label className="text-sm font-bold" htmlFor="withdrawal-reason">{t("admin.withdrawals.reason")}</label>
           <Input id="withdrawal-reason" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} autoComplete="off" />

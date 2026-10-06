@@ -1,5 +1,6 @@
 "use client";
 
+import { useSaveToast } from "@/lib/use-action-toast";
 import { useState } from "react";
 import type { CopyControlCommand } from "@trading-dashboard/shared/contracts";
 
@@ -47,6 +48,7 @@ function ControlTitle({ request }: { request: ControlRequest | null }) {
 
 function ControlForm({ request, onClose }: { request: ControlRequest; onClose: () => void }) {
   const { t, format } = useI18n();
+  const saved = useSaveToast();
   const control = useAdminCopyControl();
   const [reason, setReason] = useState("");
   const [typed, setTyped] = useState("");
@@ -63,7 +65,7 @@ function ControlForm({ request, onClose }: { request: ControlRequest; onClose: (
         if (!armed || control.isPending) return;
         control.mutate(
           { target: request.target, command: request.command, reason: reason.trim(), expectedRevision: request.revision },
-          { onSuccess: onClose },
+          saved({ onSuccess: onClose }),
         );
       }}
     >

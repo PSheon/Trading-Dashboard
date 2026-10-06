@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import { UserSetAbstractionTypes } from '@nktkas/hyperliquid/api/exchange';
-import { WALLET_NETWORKS, splitSignature } from '@trading-dashboard/shared/contracts';
+import { HYPERLIQUID_NETWORKS, WALLET_NETWORKS, splitSignature, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { z } from 'zod';
 import { Dec } from '../../common/decimal/dec.js';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
@@ -12,7 +12,7 @@ import { LIVE_RESERVE_WAIT_MS, sharedCapacityWait, type LiveBudget, type LiveRes
 
 export interface AccountModeIntent {
   readonly operationId: string; readonly accountId: string; readonly strategyId: number;
-  readonly network: 'testnet'; readonly accountAddress: string; readonly nonce: number; readonly consentExpiresAt: number;
+  readonly network: HyperliquidNetwork; readonly accountAddress: string; readonly nonce: number; readonly consentExpiresAt: number;
 }
 export interface AccountModeOwnedMaster { readonly walletId: string; readonly address: string; readonly ownerQuorumId: string }
 /** Provider weight of one observation: userRole 60, userAbstraction 20,
@@ -29,19 +29,19 @@ export interface AccountModeObserveOptions {
   readonly signal?: AbortSignal;
 }
 export interface AccountModeObservation {
-  readonly network: 'testnet'; readonly accountAddress: string;
+  readonly network: HyperliquidNetwork; readonly accountAddress: string;
   readonly role: 'missing' | 'user' | 'agent' | 'vault' | 'subAccount';
   readonly abstraction: 'default' | 'disabled' | 'unifiedAccount' | 'portfolioMargin';
   readonly dexAbstraction: boolean | null; readonly portfolioMarginEnabled: boolean;
   readonly earliestObservedAt: number; readonly completedAt: number;
-  readonly source: 'https://api.hyperliquid-testnet.xyz/info'; readonly sourceDigest: `0x${string}`;
+  readonly source: (typeof WALLET_NETWORKS)[HyperliquidNetwork]['infoUrl']; readonly sourceDigest: `0x${string}`;
   readonly status: 'confirmed' | 'unproven' | 'unsupported'; readonly issue: string | null;
 }
 const integer = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const identifier = z.string().min(1).max(128).regex(/^[^\s\p{Cc}\p{Cf}]+$/u);
 const ethereumAddress = z.string().regex(/^0x[0-9a-fA-F]{40}$/).refine(v => !/^0x0{40}$/i.test(v)).transform(v => v.toLowerCase());
 const intentSchema = z.object({ operationId: identifier, accountId: identifier, strategyId: integer,
-  network: z.literal('testnet'), accountAddress: ethereumAddress, nonce: integer, consentExpiresAt: integer }).strict()
+  network: z.enum(HYPERLIQUID_NETWORKS), accountAddress: ethereumAddress, nonce: integer, consentExpiresAt: integer }).strict()
   .refine(v => v.consentExpiresAt > v.nonce && v.consentExpiresAt - v.nonce <= 300_000);
 const types = frozen(structuredClone(UserSetAbstractionTypes));
 const roleSchema = z.object({ role: z.enum(['missing', 'user', 'agent', 'vault', 'subAccount']) });
@@ -77,11 +77,11 @@ function synchronousProof(assertFreshProof?: () => void): void {
 
 /** Current principal action only. No deprecated DEX opt-out or multisig aliases. */
 export function accountModeTypedData(raw: AccountModeIntent) {
-  const intent = capture(raw);
-  return frozen({ domain: { name: 'HyperliquidSignTransaction', version: '1', chainId: 421614,
+  const intent = capture(raw), network = WALLET_NETWORKS[intent.network];
+  return frozen({ domain: { name: 'HyperliquidSignTransaction', version: '1', chainId: Number.parseInt(network.signatureChainId, 16),
     verifyingContract: '0x0000000000000000000000000000000000000000' as const },
   types, primaryType: 'HyperliquidTransaction:UserSetAbstraction' as const,
-  message: { type: 'userSetAbstraction' as const, signatureChainId: '0x66eee' as const, hyperliquidChain: 'Testnet' as const,
+  message: { type: 'userSetAbstraction' as const, signatureChainId: network.signatureChainId, hyperliquidChain: network.hyperliquidChain,
     user: intent.accountAddress as `0x${string}`, abstraction: 'disabled' as const, nonce: intent.nonce } });
 }
 
@@ -118,7 +118,7 @@ export class PrivyAccountModeClient {
       live(intent, this.now()); remaining();
       // Complete request construction first, then check captured caller proof.
       // No await or further clock-dependent preparation precedes actual POST.
-      const dispatch=()=>{synchronousProof(assertFreshProof);permit?.assertFresh();live(intent,this.now());remaining();dispatched=true;return this.fetcher(WALLET_NETWORKS.testnet.exchangeUrl,request);};
+      const dispatch=()=>{synchronousProof(assertFreshProof);permit?.assertFresh();live(intent,this.now());remaining();dispatched=true;return this.fetcher(WALLET_NETWORKS[intent.network].exchangeUrl,request);};
       const work=permit?permit.dispatch(dispatch):dispatch();void Promise.resolve(work).catch(()=>undefined);
       const response = await boundedLiveRead(() => work, remaining());
       if (!response.ok) { await response.body?.cancel().catch(() => undefined); throw new Error(); }
@@ -157,8 +157,8 @@ export class PrivyAccountModeClient {
       const t1 = this.now();
       const global = this.global;
       const responses = await boundedLiveRead(() => global
-        ? global.fetchInfoBatch(WALLET_NETWORKS.testnet.infoUrl, bodies, { maxWaitMs: meterWaitMs, signal, onDispatch: startClock })
-        : (() => { const bound = startClock(); return Promise.all(bodies.map(body => this.fetcher(WALLET_NETWORKS.testnet.infoUrl, { method: 'POST',
+        ? global.fetchInfoBatch(WALLET_NETWORKS[intent.network].infoUrl, bodies, { maxWaitMs: meterWaitMs, signal, onDispatch: startClock })
+        : (() => { const bound = startClock(); return Promise.all(bodies.map(body => this.fetcher(WALLET_NETWORKS[intent.network].infoUrl, { method: 'POST',
           headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), redirect: 'error', signal: bound }))); })(), meterWaitMs + 5000);
       const remaining = () => { fresh(started, this.now()); return Math.max(1, 5000 - (this.now() - started)); };
       trace.push(`meter ${started - t1}ms`, `fetch ${this.now() - started}ms ${responses.map(r => r.status).join('/')}`);
@@ -169,7 +169,7 @@ export class PrivyAccountModeClient {
         if (value && typeof value === 'object' && !Array.isArray(value)) {
           const row = value as Record<string, unknown>;
           if (row.user !== undefined && (typeof row.user !== 'string' || row.user.toLowerCase() !== intent.accountAddress) ||
-              row.network !== undefined && row.network !== 'testnet') throw new Error();
+              row.network !== undefined && row.network !== intent.network) throw new Error();
         }
         return { body: bodies[i]!, value };
       }));
@@ -185,9 +185,9 @@ export class PrivyAccountModeClient {
       } else if (abstraction !== 'disabled') { status = 'unproven'; issue = 'account_mode_standard_unproven'; }
       else if (dexAbstraction !== false) { status = 'unproven'; issue = 'account_mode_legacy_state_unproven'; }
       const completedAt = this.now(); fresh(started, completedAt);
-      const sourceDigest = `0x${createHash('sha256').update(JSON.stringify({ network: 'testnet', user: intent.accountAddress, evidence, started, completedAt })).digest('hex')}` as const;
-      return frozen({ network: 'testnet', accountAddress: intent.accountAddress, role, abstraction, dexAbstraction, portfolioMarginEnabled,
-        earliestObservedAt: started, completedAt, source: 'https://api.hyperliquid-testnet.xyz/info', sourceDigest, status, issue });
+      const sourceDigest = `0x${createHash('sha256').update(JSON.stringify({ network: intent.network, user: intent.accountAddress, evidence, started, completedAt })).digest('hex')}` as const;
+      return frozen({ network: intent.network, accountAddress: intent.accountAddress, role, abstraction, dexAbstraction, portfolioMarginEnabled,
+        earliestObservedAt: started, completedAt, source: WALLET_NETWORKS[intent.network].infoUrl, sourceDigest, status, issue });
     } catch (error) {
       // Which read or check failed, without request bodies or responses.
       const reason = error instanceof Error ? `${error.name}${error.message ? `: ${error.message.slice(0, 160)}` : ''}` : 'unknown';

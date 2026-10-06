@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 import { and, eq, sql } from "drizzle-orm";
 import { copyExecutionAccounts, copyExecutionWallets, copyWalletAuthorizations, copyStrategies, users, copyLiveExecutionEvidence, copyLiveExecutions, copyFollowerReceipts, copyFollowerLedger,
   copyFollowerAccountState, copyFollowerReceiptConflicts } from "@trading-dashboard/shared/database";
+import type { HyperliquidNetwork } from "@trading-dashboard/shared/contracts";
 import { DRIZZLE_CLIENT } from "../../db/db.constants.js";
 import type { DrizzleDb } from "../../db/drizzle.provider.js";
 import { UnitOfWork, type DbTransaction } from "../../db/unit-of-work.js";
@@ -14,7 +15,7 @@ import { LiveBoundaryError } from "./wallet-authorization.js";
 import { lockCopyUser } from "../copy-user-lock.js";
 
 type Booking = { inserted: boolean; quarantined: boolean };
-type ReceiptAccountIdentity = { network: "testnet" | "mainnet"; accountAddress: string };
+type ReceiptAccountIdentity = { network: HyperliquidNetwork; accountAddress: string };
 
 /** Immutable actual receipts and signed USDC components. This does not infer
  * equity, fabricate missing fills, release reservations or alter paper cash.
@@ -91,7 +92,7 @@ export class CopyFollowerLedger {
     const direct = await tx.select().from(copyLiveExecutions).where(and(eq(copyLiveExecutions.network,account.network),
       eq(copyLiveExecutions.accountAddress,account.address!),sql`${copyLiveExecutions.record}->'outcome'->>'exchangeOrderId' = ${fill.oid}`)).limit(2);
     const observed = await tx.select({evidence:copyLiveExecutionEvidence,journal:copyLiveExecutions}).from(copyLiveExecutionEvidence)
-      .leftJoin(copyLiveExecutions,eq(copyLiveExecutions.key,copyLiveExecutionEvidence.key)).where(and(eq(copyLiveExecutionEvidence.network,account.network as 'testnet'),
+      .leftJoin(copyLiveExecutions,eq(copyLiveExecutions.key,copyLiveExecutionEvidence.key)).where(and(eq(copyLiveExecutionEvidence.network,account.network),
         eq(copyLiveExecutionEvidence.accountAddress,account.address!),eq(copyLiveExecutionEvidence.exchangeOrderId,fill.oid))).limit(2);
     const mismatch = {key:null,reason:'follower_execution_identity_mismatch'};
     const keys = new Set([...direct.map(r=>r.key),...observed.map(r=>r.evidence.key)]);

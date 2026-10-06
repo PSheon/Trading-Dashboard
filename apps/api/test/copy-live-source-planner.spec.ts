@@ -4,6 +4,8 @@ import { canonicalLiveSourceLegs, parseLiveSourceFill, liveSourceDigest, type Li
 import { combinedCloseFraction, planLiveSourceOrder, type LiveSourcePlanInput } from '../src/copy/live/copy-live-source-planner.js';
 import type { LiveSourceSizingEnvelopeV1 } from '../src/copy/live/copy-live-sizing-evidence.js';
 import { Dec } from '../src/common/decimal/dec.js';
+import { digest } from '../src/copy/copy-live-mandate-evidence.js';
+import { captureLivePositionBaseline } from '../src/copy/live/live-position-baseline.js';
 import { settledGenerationExample, sourceSizingExample } from './copy-live-generation-test-utils.js';
 const example=sourceSizingExample;
 function closeExample(position='90',carry='15',full=false,mode:'fixed'|'ratio'='fixed'):LiveSourcePlanInput{
@@ -131,5 +133,61 @@ describe('actual source sizing from retained original observations',()=>{
       if (kind === 'before cursor') members[0].providerTime = e.mandate.activationCursor!.getTime();
       expect(() => planLiveSourceOrder(e)).toThrow('live_source_sizing_unproven');
     });
+  });
+});
+
+/** The planner fixture on a MAINNET execution account (every execution-side
+ * observation relabelled and its digests recomputed), copying a leader on
+ * `sourceNetwork`. */
+function onMainnetAccount(mode: 'fixed' | 'ratio', sourceNetwork: 'testnet' | 'mainnet'): LiveSourcePlanInput {
+  const e = structuredClone(example(mode)) as LiveSourcePlanInput & { mandate: Record<string, unknown> };
+  const intent = { ...(e.mandate.intent as Record<string, unknown>), network: 'mainnet', sourceNetwork };
+  Object.assign(e.mandate, { network: 'mainnet', sourceNetwork, intent, intentDigest: digest(intent) });
+  const envelope = JSON.parse(JSON.stringify(e.sizingBasis), (key, value) => key === 'network' && value === 'testnet' ? 'mainnet' : value) as LiveSourceSizingEnvelopeV1;
+  const b = envelope.basis as any, o = envelope.observations, key = e.currentExecutionKey.replace(/^testnet:/, 'mainnet:');
+  const baseline = captureLivePositionBaseline({ mandateId: 'mandate', accountId: 'account', strategyId: 9, firstExecutionKey: key, network: 'mainnet', accountAddress: o.follower.accountAddress }, o.follower, e.now);
+  (o.generationManifest as any).baseline = baseline;
+  b.generation.baselineDigest = baseline.baselineDigest; b.follower.snapshotDigest = followerReceiptDigestV1(o.follower);
+  if (o.leader) b.leader.snapshotDigest = followerReceiptDigestV1(o.leader);
+  const fill = parseLiveSourceFill({ tid: 1, oid: 7, time: e.now - 500, coin: 'BTC', side: 'B', px: '100', sz: '1', startPosition: '0' },
+    { network: sourceNetwork, leaderAddress: e.mandate.leaderAddress, from: e.now - 1000, to: e.now, receivedAt: e.now, kind: 'fills' });
+  Object.assign(b, { sourceFillId: fill.id, sourceDigest: fill.sourceDigest });
+  return { ...e, sizingBasis: envelope, currentExecutionKey: key, fill, leg: canonicalLiveSourceLegs(fill)[0]! };
+}
+const sourceReference = (e: LiveSourcePlanInput, network: 'testnet' | 'mainnet', ratio: boolean) => ({ network, leaderAddress: e.mandate.leaderAddress,
+  leaderEquity: ratio ? '1000' : null, leaderEquityObservedAt: ratio ? e.now - 30000 : null, midPrice: '100', midObservedAt: e.now - 2000, maxDeviationBps: '500' });
+describe('the source reference follows the execution network', () => {
+  it.each(['fixed', 'ratio'] as const)('plans a mainnet leader %s open on a mainnet account with no reference (the leader snapshot sizes ratio)', mode => {
+    const e = onMainnetAccount(mode, 'mainnet');
+    expect(planLiveSourceOrder(e)).toMatchObject({ order: { coin: 'BTC', side: 'B', size: mode === 'fixed' ? '0.09' : '0.1', limitPrice: '100.5' } });
+    expect((planLiveSourceOrder(e).sizingBasis.basis as any).network).toBe('mainnet');
+  });
+  it('refuses a source reference for a mainnet leader on a mainnet account', () => {
+    const e = onMainnetAccount('fixed', 'mainnet');
+    (e.sizingBasis as any).basis.sourceReference = sourceReference(e, 'mainnet', false);
+    expect(() => planLiveSourceOrder(e)).toThrow('live_source_sizing_unproven');
+  });
+  it('still requires the mainnet reference for a mainnet leader on a testnet account', () => {
+    const e = structuredClone(example('fixed')) as LiveSourcePlanInput & { mandate: Record<string, unknown> };
+    const intent = { ...(e.mandate.intent as Record<string, unknown>), sourceNetwork: 'mainnet' };
+    Object.assign(e.mandate, { sourceNetwork: 'mainnet', intent, intentDigest: digest(intent) });
+    const fill = parseLiveSourceFill({ tid: 1, oid: 7, time: e.now - 500, coin: 'BTC', side: 'B', px: '100', sz: '1', startPosition: '0' },
+      { network: 'mainnet', leaderAddress: e.mandate.leaderAddress, from: e.now - 1000, to: e.now, receivedAt: e.now, kind: 'fills' });
+    const b = (e.sizingBasis as any).basis;
+    Object.assign(b, { sourceFillId: fill.id, sourceDigest: fill.sourceDigest });
+    const plan = { ...e, fill, leg: canonicalLiveSourceLegs(fill)[0]! };
+    expect(() => planLiveSourceOrder(plan)).toThrow('live_source_sizing_unproven');
+    b.sourceReference = sourceReference(e, 'testnet', false); // labelled with the execution network, not the source
+    expect(() => planLiveSourceOrder(plan)).toThrow('live_source_sizing_unproven');
+    b.sourceReference = sourceReference(e, 'mainnet', false);
+    expect(planLiveSourceOrder(plan).order).toMatchObject({ side: 'B', size: '0.09' });
+  });
+  it.each(['basis', 'market', 'follower', 'quote', 'key'] as const)('refuses a testnet %s on a mainnet account', kind => {
+    const e = onMainnetAccount('fixed', 'mainnet'), b = (e.sizingBasis as any).basis, o = (e.sizingBasis as any).observations;
+    if (kind === 'basis') b.network = 'testnet';
+    if (kind === 'market') { b.market.network = 'testnet'; o.quote.market.network = 'testnet'; o.quote.quote.market.network = 'testnet'; }
+    if (kind === 'follower') b.follower.network = 'testnet';
+    if (kind === 'quote') o.quote.network = 'testnet';
+    expect(() => planLiveSourceOrder(kind === 'key' ? { ...e, currentExecutionKey: e.currentExecutionKey.replace(/^mainnet:/, 'testnet:') } : e)).toThrow('live_source_sizing_unproven');
   });
 });

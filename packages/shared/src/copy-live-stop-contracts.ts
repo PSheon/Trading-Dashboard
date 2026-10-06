@@ -13,7 +13,7 @@ export type RequestLiveCopyStop = z.infer<typeof requestLiveCopyStopSchema>;
  * and returned funds. Only the latter verified stages may report stopped. */
 export const liveCopyStopSchema = z.object({
   id: z.string().uuid(), accountId: id, mandateId: id, strategyId: revision,
-  network: z.literal('testnet'), accountAddress: z.string().regex(/^0x[0-9a-f]{40}$/),
+  network: z.enum(['testnet', 'mainnet']), accountAddress: z.string().regex(/^0x[0-9a-f]{40}$/),
   originalMandateRevision: revision, revision,
   state: z.enum(['requested', 'cancelling', 'closing', 'blocked', 'flat', 'stopped']),
   desiredAction: z.literal('cancel_and_close'),
@@ -46,7 +46,7 @@ const consentTime = z.number().int().positive().max(MAX_TIME);
 const consentHash = z.string().regex(/^[0-9a-f]{64}$/);
 export const liveStopCancellationIntentSchema = z.object({
   authorizationId: consentId, stopId: consentId, accountId: consentId, strategyId: revision, userId: revision,
-  network: z.literal('testnet'), purpose: z.literal('cancel_tracked_orders'), schemaVersion: z.literal(1),
+  network: z.enum(['testnet', 'mainnet']), purpose: z.literal('cancel_tracked_orders'), schemaVersion: z.literal(1),
   capturedStopRevision: revision, targetDigest: consentHash, accountAddress: consentAddress,
   accountRevision: revision, accountWalletId: consentId, accountOwnerQuorumId: consentId,
   ownerPrivyUserId: consentId, ownerAddress: consentAddress,

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isHyperliquidNetwork, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { isDeepStrictEqual } from 'node:util';
 import { Dec } from '../../common/decimal/dec.js';
 import type { LiveExecutionRecord } from './live-execution.js';
@@ -8,7 +9,7 @@ import { freezeLiveReservation } from './live-risk-reservation.js';
 import { address, LiveBoundaryError } from './wallet-authorization.js';
 
 export interface LiveOrderEvidenceIdentity {
-  readonly network: 'testnet'; readonly accountAddress: string; readonly key: string; readonly fingerprint: string; readonly nonce: number;
+  readonly network: HyperliquidNetwork; readonly accountAddress: string; readonly key: string; readonly fingerprint: string; readonly nonce: number;
   readonly userId: number; readonly strategyId: number; readonly walletId: string; readonly authorizationId: string;
   readonly authorizationVersion: number; readonly market: LiveMarketIdentity; readonly action: HyperliquidOrderAction;
 }
@@ -58,11 +59,11 @@ export function liveEvidenceOid(value: unknown): string {
  * the original acknowledgement and the fresh terminal read. */
 export function liveOrderIdentityBinding(identity: LiveOrderEvidenceIdentity) {
   const id = structuredClone(identity), order = id.action?.orders?.[0];
-  check(id.network === 'testnet' && order && id.action.orders.length === 1 && integer(id.nonce) && integer(id.userId) && integer(id.strategyId) && integer(id.authorizationVersion));
-  assertMarketIdentity(id.market); check(id.market.network === 'testnet' && id.market.asset === order.a && typeof order.b === 'boolean' && address(id.accountAddress) === id.accountAddress && !/^0x0{40}$/.test(id.accountAddress));
+  check(isHyperliquidNetwork(id.network) && order && id.action.orders.length === 1 && integer(id.nonce) && integer(id.userId) && integer(id.strategyId) && integer(id.authorizationVersion));
+  assertMarketIdentity(id.market); check(id.market.network === id.network && id.market.asset === order.a && typeof order.b === 'boolean' && address(id.accountAddress) === id.accountAddress && !/^0x0{40}$/.test(id.accountAddress));
   for (const value of [id.walletId, id.authorizationId]) check(typeof value === 'string' && value.length > 0 && value.length <= 128 && !/[\s\p{Cc}\p{Cf}]/u.test(value));
   const intent: LiveOrderIntent = { userId: id.userId, strategyId: id.strategyId, walletId: id.walletId, authorizationId: id.authorizationId,
-    network: 'testnet', accountAddress: address(id.accountAddress), reduceOnly: order.r, cloid: order.c, asset: order.a, side: order.b ? 'B' : 'A', size: order.s,
+    network: id.network, accountAddress: address(id.accountAddress), reduceOnly: order.r, cloid: order.c, asset: order.a, side: order.b ? 'B' : 'A', size: order.s,
     limitPrice: order.p, sizeDecimals: id.market.sizeDecimals, timeInForce: order.t?.limit?.tif, market: id.market,
     ...(id.action.builder ? { builder: { address: id.action.builder.b, feeTenthsBps: id.action.builder.f, approvedMaxFeeTenthsBps: id.action.builder.f } } : {}) };
   const action = buildOrderAction(intent); check(isDeepStrictEqual(action, id.action) && id.key === executionKey(intent) && id.fingerprint === intentFingerprint(intent, action));
@@ -72,18 +73,18 @@ export function liveOrderIdentityBinding(identity: LiveOrderEvidenceIdentity) {
 export function captureLiveOrderIdentity(record: LiveExecutionRecord, market: LiveMarketIdentity): Readonly<LiveOrderEvidenceIdentity> {
   check(record && record.authorization && record.action?.orders?.length === 1); assertMarketIdentity(market);
   const auth = record.authorization, order = record.action.orders[0];
-  check(auth.network === 'testnet' && market.network === 'testnet' && market.asset === order.a &&
+  check(isHyperliquidNetwork(auth.network) && market.network === auth.network && market.asset === order.a &&
     integer(auth.userId) && integer(auth.strategyId) && integer(auth.version) && integer(record.nonce) && integer(record.createdAt) && record.nonce >= record.createdAt);
   for (const id of [auth.id, auth.walletId]) check(typeof id === 'string' && id.length > 0 && id.length <= 128 && !/[\s\p{Cc}\p{Cf}]/u.test(id));
   check(!record.market || isDeepStrictEqual(marketIdentityKey(record.market), marketIdentityKey(market)));
   const accountAddress = address(auth.accountAddress); check(!/^0x0{40}$/.test(accountAddress));
   const intent: LiveOrderIntent = { userId: auth.userId, strategyId: auth.strategyId, walletId: auth.walletId, authorizationId: auth.id,
-    network: 'testnet', accountAddress, reduceOnly: order.r, cloid: order.c, asset: order.a, side: order.b ? 'B' : 'A', size: order.s,
+    network: auth.network, accountAddress, reduceOnly: order.r, cloid: order.c, asset: order.a, side: order.b ? 'B' : 'A', size: order.s,
     limitPrice: order.p, sizeDecimals: market.sizeDecimals, timeInForce: order.t?.limit?.tif, market,
     ...(record.action.builder ? { builder: { address: record.action.builder.b, feeTenthsBps: record.action.builder.f, approvedMaxFeeTenthsBps: record.action.builder.f } } : {}) };
   const action = buildOrderAction(intent); check(typeof order.b === 'boolean' && isDeepStrictEqual(action, record.action));
   check(record.key === executionKey(intent) && record.fingerprint === intentFingerprint(intent, action));
-  return freezeLiveReservation(structuredClone({ network: 'testnet' as const, accountAddress, key: record.key, fingerprint: record.fingerprint,
+  return freezeLiveReservation(structuredClone({ network: auth.network, accountAddress, key: record.key, fingerprint: record.fingerprint,
     nonce: record.nonce, userId: auth.userId, strategyId: auth.strategyId, walletId: auth.walletId, authorizationId: auth.id,
     authorizationVersion: auth.version, market, action }));
 }
@@ -97,7 +98,7 @@ export function parseLiveOrderEvidence(input: { record: LiveExecutionRecord; mar
     check(Buffer.byteLength(JSON.stringify(raw)) <= 256 * 1024);
     const identity = captureLiveOrderIdentity(record, market);
     const sourceIdentity = (value: Record<string, unknown>) => check((value.user === undefined || typeof value.user === 'string' && address(value.user) === identity.accountAddress) &&
-      (value.network === undefined || value.network === 'testnet'));
+      (value.network === undefined || value.network === identity.network));
     sourceIdentity(raw);
     const source = { identity, checkedAt, completedAt, sourceDigest: digestLiveEvidence({ identity, checkedAt, completedAt, raw }), raw };
     if (raw.status === 'unknownOid') return freezeLiveReservation({ ...source, kind: 'missing' as const });
@@ -125,7 +126,7 @@ export function parseLiveIocAcknowledgement(input: { identity: LiveOrderEvidence
   try {
     const { identity, checkedAt } = structuredClone(input), raw = object(structuredClone(input.raw));
     liveOrderIdentityBinding(identity);
-    check(integer(checkedAt) && identity.network === 'testnet' && identity.action.orders[0].t.limit.tif === 'Ioc' && Buffer.byteLength(JSON.stringify(raw)) <= 256 * 1024);
+    check(integer(checkedAt) && isHyperliquidNetwork(identity.network) && identity.action.orders[0].t.limit.tif === 'Ioc' && Buffer.byteLength(JSON.stringify(raw)) <= 256 * 1024);
     check(raw.status === 'ok'); const response = object(raw.response); check(response.type === 'order');
     const statuses = object(response.data).statuses; check(Array.isArray(statuses) && statuses.length === 1);
     const result = object(statuses[0]); check(Object.keys(result).length === 1 && result.filled);

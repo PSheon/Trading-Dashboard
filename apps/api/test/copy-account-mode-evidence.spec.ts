@@ -23,7 +23,7 @@ function setup() {
         venues: requested.map(dex => ({ dex, user: address, observedAt: clock, receivedAt: clock, orders: [] })) } };
     return patch ? patch(data) : data;
   });
-  const reader = new HyperliquidAccountModeAbsenceReader(budget, fetcher, () => clock, { read: vi.fn(), readAccount });
+  const reader = new HyperliquidAccountModeAbsenceReader('testnet', budget, fetcher, () => clock, { read: vi.fn(), readAccount });
   return { reader, budget, fetcher, readAccount, setClock: (n: number) => { clock = n; },
     setDexes: (d: typeof dexes) => { dexes = d; }, patch: (fn: NonNullable<typeof patch>) => { patch = fn; } };
 }
@@ -91,7 +91,7 @@ describe('all-venue mode-bootstrap absence proof', () => {
     expect(a.complete && b.complete).toBe(true); expect(overlapped).toBe(false);
   });
   it('never substitutes a main-only or missing combined source for complete absence', async () => {
-    const reader = new HyperliquidAccountModeAbsenceReader(async () => undefined, fetch, () => time, { read: vi.fn() });
+    const reader = new HyperliquidAccountModeAbsenceReader('testnet', async () => undefined, fetch, () => time, { read: vi.fn() });
     await expect(reader.prove(user)).rejects.toThrow('account_mode_absence_unproven');
   });
 });

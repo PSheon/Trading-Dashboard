@@ -2,14 +2,17 @@ import { WatchCapacityError, watchLeader } from '../watcher/leader-watch.js';
 import { randomUUID } from 'node:crypto';
 import { ConflictException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { and, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
-import { adminSettingsSchema, generalSettingsSchema, copyRiskLimitsSchema, DEFAULT_COPY_RISK_LIMITS, type CopyErrorCode, liveCopyMandateIntentSchema, liveCopyMandateSchema, liveCopyStrategySchema, type CreateLiveCopyStrategy, type LiveCopyMandateIntent, type LiveCopySetupIntent } from '@trading-dashboard/shared/contracts';
+import { ACTUAL_STRATEGY_MODE, isHyperliquidNetwork, liveSourceNetworks, adminSettingsSchema, generalSettingsSchema, copyRiskLimitsSchema, DEFAULT_COPY_RISK_LIMITS, type CopyErrorCode, liveCopyMandateIntentSchema, liveCopyMandateSchema, liveCopyStrategySchema, type CreateLiveCopyStrategy, type LiveCopyMandateIntent, type LiveCopySetupIntent } from '@trading-dashboard/shared/contracts';
 import { appSettings, copyLiveActivations, copyLiveSetups, copyLiveBuilderApprovals, copyAgentSetups, copyControls, copyExecutionAccounts, copyExecutionWallets, copyLiveMandates, copyLiveStrategyConfigs, copyRiskPolicies, copyStrategies, copyStrategyVersions, copyWalletAuthorizations, users } from '@trading-dashboard/shared/database';
+import { AppConfig } from '../config/app-config.js';
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
 import type { DbExecutor, DbTransaction } from '../db/unit-of-work.js';
 import { lockCopyUser } from './copy-user-lock.js';
 import { liveCopySettingsDigest } from './copy-live-mandate-consent.js';
 import { Dec } from '../common/decimal/dec.js';
+import { assertLiveSettings, effectiveLiveLimits } from './copy-live-caps.js';
+import { deploymentNetwork } from './live-deployment.js';
 
 import { decodeLiveCopyMandate, digest, type MandateRow } from './copy-live-mandate-evidence.js';
 export { type MandateRow } from './copy-live-mandate-evidence.js';
@@ -18,7 +21,20 @@ function conflict(): never { throw new ConflictException('Live mandate binding c
 function refuse(code: CopyErrorCode, message: string, details: Record<string, unknown> = {}): never { throw new ConflictException({ statusCode: 409, code, message, ...details }); }
 @Injectable()
 export class CopyLiveMandateRepository {
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, private readonly config: AppConfig) {}
+  /** The deployment's network: new copies are made on it, and only its copies
+   * are prepared, resumed or recovered here. */
+  get network() { return deploymentNetwork(this.config); }
+  private get caps() { return this.config.value.copy.live?.caps; }
+  reader(): DrizzleDb { return this.db; }
+  /** COPY_LIVE_ALLOWED_PRIVY_USER_IDS: on a live deployment only these owners
+   * may start an actual copy (everyone keeps paper). */
+  assertAllowed(privyUserId: string): void {
+    const allowed = this.config.value.copy.live?.allowedPrivyUserIds;
+    if (allowed && !allowed.has(privyUserId)) refuse('live_not_allowed', 'Real-fund copies are not open to your account yet; paper copies are');
+  }
+  /** Fixed sizing within the deployment's bounds, and leverage within its cap. */
+  assertSettings(settings: CreateLiveCopyStrategy['settings']): void { assertLiveSettings(this.caps, settings); }
   async owner(userId: number, db: DbExecutor = this.db) {
     const [owner] = await db.select().from(users).where(and(eq(users.id, userId), isNull(users.disabledAt)));
     if (!owner) throw new NotFoundException('Owner not found');
@@ -32,6 +48,11 @@ export class CopyLiveMandateRepository {
     return this.owner(userId, tx);
   }
   async preparation(db: DbExecutor) {
+    // The deployment's caps (COPY_LIVE_*) apply as the stricter of the two.
+    return effectiveLiveLimits(this.caps, await this.policy(db));
+  }
+  /** The newest explicit risk policy, as stored (no deployment caps). */
+  async policy(db: DbExecutor) {
     const [general] = await db.select().from(appSettings).where(eq(appSettings.key, 'general'));
     if (!general || (general.value as { copyTradingEnabled?: unknown }).copyTradingEnabled !== true) throw new ServiceUnavailableException({ statusCode: 503, code: 'copy_not_open', message: 'Copy trading is not open' });
     const [policy] = await db.select().from(copyRiskPolicies).orderBy(desc(copyRiskPolicies.version)).limit(1);
@@ -41,6 +62,9 @@ export class CopyLiveMandateRepository {
     return parsed.data;
   }
   async builder(db: DbExecutor) {
+    // A live deployment charges no builder fee for now: its setups skip the
+    // builder step and its generations bind none.
+    if (this.config.value.copy.live?.builderFee === false) return { builderAddress: null, builderMaxFeeTenthsOfBps: 0 };
     const [row] = await db.select().from(appSettings).where(eq(appSettings.key, 'revenue'));
     if (!row) return { builderAddress: null, builderMaxFeeTenthsOfBps: 0 };
     // A saved section missing a key means that key's default (no builder, fee
@@ -75,34 +99,42 @@ export class CopyLiveMandateRepository {
     const [row] = await db.select({ strategy: copyStrategies, config: copyLiveStrategyConfigs, settings: copyStrategyVersions.settings }).from(copyStrategies)
       .innerJoin(copyLiveStrategyConfigs, and(eq(copyLiveStrategyConfigs.strategyId, copyStrategies.id), eq(copyLiveStrategyConfigs.userId, copyStrategies.userId)))
       .innerJoin(copyStrategyVersions, and(eq(copyStrategyVersions.strategyId, copyStrategies.id), eq(copyStrategyVersions.version, copyStrategies.version)))
-      .where(and(eq(copyStrategies.id, id), eq(copyStrategies.mode, 'testnet')));
+      .where(and(eq(copyStrategies.id, id), eq(copyStrategies.mode, ACTUAL_STRATEGY_MODE)));
     if (!row) conflict();
-    return liveCopyStrategySchema.parse({ id, mode: 'actual', network: 'testnet', sourceNetwork: row.config.sourceNetwork, leaderAddress: row.strategy.leaderAddress, budgetUsd: row.config.budgetUsd,
+    return liveCopyStrategySchema.parse({ id, mode: 'actual', network: row.strategy.network, sourceNetwork: row.config.sourceNetwork, leaderAddress: row.strategy.leaderAddress, budgetUsd: row.config.budgetUsd,
       status: row.strategy.status, version: row.strategy.version, settings: row.settings, pauseNewRisk: row.strategy.pauseNewRisk, reduceOnly: row.strategy.reduceOnly, createdAt: row.strategy.createdAt.toISOString() });
   }
   async create(tx: DbTransaction, userId: number, input: CreateLiveCopyStrategy, clock: () => number) {
-    await this.lock(tx, userId); const now = clock();
+    const owner = await this.lock(tx, userId); const now = clock(), network = this.network;
     const [existing] = await tx.select().from(copyLiveStrategyConfigs).where(and(eq(copyLiveStrategyConfigs.userId, userId), eq(copyLiveStrategyConfigs.idempotencyKey, input.idempotencyKey)));
     if (existing) {
       const result = await this.strategyWire(existing.strategyId, tx);
       if (result.leaderAddress !== input.leader || result.sourceNetwork !== input.sourceNetwork || result.budgetUsd !== input.budgetUsd || liveCopySettingsDigest(result.settings) !== liveCopySettingsDigest(input.settings)) conflict();
       return result;
     }
-    const limits = await this.preparation(tx); this.checkBudget(input.budgetUsd, limits);
+    this.assertAllowed(owner.privyUserId);
+    if (!liveSourceNetworks(network).includes(input.sourceNetwork)) refuse('live_source_network_unsupported', `This deployment copies ${liveSourceNetworks(network).join(' and ')} traders only`);
+    this.assertSettings(input.settings);
+    const policy = await this.policy(tx), limits = effectiveLiveLimits(this.caps, policy); this.checkBudget(input.budgetUsd, limits);
     await tx.insert(copyControls).values({ scope: 'user', scopeId: userId, pauseNewRisk: false, reduceOnly: false }).onConflictDoNothing({ target: [copyControls.scope, copyControls.scopeId] });
     await this.barriers(tx, userId);
     const active = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.userId, userId), ne(copyStrategies.status, 'stopped')));
-    if (active.some(row => row.mode === 'testnet' && row.leaderAddress === input.leader)) refuse('already_copying', 'You already copy this trader on testnet');
-    if (active.length >= limits.maxStrategiesPerUser) {
+    const actual = active.filter(row => row.mode === ACTUAL_STRATEGY_MODE && row.network === network);
+    if (actual.some(row => row.leaderAddress === input.leader)) refuse('already_copying', 'You already copy this trader with real funds');
+    // The policy's limit counts every copy (as paper's does); the stricter of
+    // it and the deployment's cap (COPY_LIVE_MAX_STRATEGIES_PER_USER) counts
+    // this network's actual copies, so another network's history neither
+    // blocks nor widens it. Without a cap both are the policy's.
+    if (active.length >= policy.maxStrategiesPerUser || actual.length >= limits.maxStrategiesPerUser) {
       // Starts left unfinished (their sheet closed, or they failed or expired
       // before a generation ran) still count: each holds a copy wallet and
       // an agent at Privy, so the limit also bounds those. The refusal names
       // them, for the owner to cancel the one they no longer want.
-      const unfinished = await this.unfinishedStarts(tx, userId, active.filter(row => row.mode === 'testnet' && row.status === 'paused').map(row => row.id));
-      refuse('strategy_limit', 'Copy limit reached', { limit: limits.maxStrategiesPerUser, unfinished });
+      const unfinished = await this.unfinishedStarts(tx, userId, actual.filter(row => row.status === 'paused').map(row => row.id));
+      refuse('strategy_limit', 'Copy limit reached', { limit: actual.length >= limits.maxStrategiesPerUser ? limits.maxStrategiesPerUser : policy.maxStrategiesPerUser, unfinished });
     }
     if (input.settings.maxLeverage !== null && input.settings.maxLeverage > limits.maxLeverage) refuse('leverage_above_limit', 'Leverage above the platform limit', { limit: limits.maxLeverage });
-    const [row] = await tx.insert(copyStrategies).values({ userId, leaderAddress: input.leader, mode: 'testnet', status: 'paused', pauseNewRisk: true, allocated: '0', cash: '0', activatedAt: new Date(now) }).returning();
+    const [row] = await tx.insert(copyStrategies).values({ userId, leaderAddress: input.leader, mode: ACTUAL_STRATEGY_MODE, network, status: 'paused', pauseNewRisk: true, allocated: '0', cash: '0', activatedAt: new Date(now) }).returning();
     await tx.insert(copyStrategyVersions).values({ strategyId: row.id, version: 1, settings: input.settings, createdByUserId: userId });
     await tx.insert(copyLiveStrategyConfigs).values({ strategyId: row.id, userId, idempotencyKey: input.idempotencyKey, sourceNetwork: input.sourceNetwork, budgetUsd: input.budgetUsd, strategyVersion: 1 });
     // A mainnet leader's fills reach testnet copies through the market
@@ -127,11 +159,13 @@ export class CopyLiveMandateRepository {
     const [account] = await tx.select().from(copyExecutionAccounts).where(and(eq(copyExecutionAccounts.id, accountId), eq(copyExecutionAccounts.userId, userId))).for('update');
     if (!account) throw new NotFoundException('Account not found');
     const [strategy] = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.id, account.strategyId), eq(copyStrategies.userId, userId))).for('update');
-    if (!strategy || strategy.mode !== 'testnet' || strategy.status !== 'paused' || !strategy.pauseNewRisk || strategy.reduceOnly || account.network !== 'testnet' || account.state !== 'ready' || account.privyUserId !== owner.privyUserId) conflict();
+    if (!strategy || strategy.mode !== ACTUAL_STRATEGY_MODE || strategy.network !== this.network || strategy.status !== 'paused' || !strategy.pauseNewRisk || strategy.reduceOnly ||
+      account.network !== this.network || account.state !== 'ready' || account.privyUserId !== owner.privyUserId) conflict();
     const wire = await this.strategyWire(strategy.id, tx);
     const [config] = await tx.select().from(copyLiveStrategyConfigs).where(eq(copyLiveStrategyConfigs.strategyId, strategy.id));
-    if (config.strategyVersion !== strategy.version || !['testnet', 'mainnet'].includes(config.sourceNetwork)) conflict();
+    if (config.strategyVersion !== strategy.version || !liveSourceNetworks(this.network).includes(config.sourceNetwork)) conflict();
     const limits = await this.preparation(tx); this.checkBudget(config.budgetUsd, limits); await this.barriers(tx, userId);
+    this.assertAllowed(owner.privyUserId); this.assertSettings(wire.settings);
     if (wire.settings.maxLeverage !== null && wire.settings.maxLeverage > limits.maxLeverage) refuse('leverage_above_limit', 'Leverage above the platform limit', { limit: limits.maxLeverage });
     const rows = await tx.select({ setup: copyAgentSetups, wallet: copyExecutionWallets, grant: copyWalletAuthorizations }).from(copyAgentSetups)
       .innerJoin(copyWalletAuthorizations, eq(copyWalletAuthorizations.id, copyAgentSetups.authorizationId))
@@ -139,11 +173,11 @@ export class CopyLiveMandateRepository {
       .where(and(eq(copyAgentSetups.accountId, accountId), eq(copyAgentSetups.state, 'active')));
     if (rows.length !== 1) conflict();
     const { setup, wallet, grant } = rows[0];
-    if (setup.userId !== userId || setup.strategyId !== strategy.id || setup.network !== 'testnet' || setup.accountAddress !== account.address || setup.accountWalletId !== account.privyWalletId || setup.accountOwnerQuorumId !== account.ownerQuorumId ||
-      wallet.userId !== userId || wallet.strategyId !== strategy.id || wallet.network !== 'testnet' || wallet.accountAddress !== account.address || wallet.privyWalletId !== setup.agentWalletId || wallet.privyOwnerId !== setup.agentOwnerQuorumId || wallet.signerAddress !== setup.agentAddress || wallet.privyOwnerId !== account.ownerQuorumId || wallet.retiredAt !== null ||
+    if (setup.userId !== userId || setup.strategyId !== strategy.id || setup.network !== account.network || setup.accountAddress !== account.address || setup.accountWalletId !== account.privyWalletId || setup.accountOwnerQuorumId !== account.ownerQuorumId ||
+      wallet.userId !== userId || wallet.strategyId !== strategy.id || wallet.network !== account.network || wallet.accountAddress !== account.address || wallet.privyWalletId !== setup.agentWalletId || wallet.privyOwnerId !== setup.agentOwnerQuorumId || wallet.signerAddress !== setup.agentAddress || wallet.privyOwnerId !== account.ownerQuorumId || wallet.retiredAt !== null ||
       grant.revokedAt !== null || grant.revokeRequestedAt !== null || grant.validFrom.getTime() > now || grant.expiresAt.getTime() <= now || !grant.exchangeApprovedAt || grant.exchangeApprovedAt.getTime() > now || setup.expiresAt?.getTime() !== grant.expiresAt.getTime() || !grant.scopes.includes('copy:trade') || !grant.scopes.includes('copy:reduce')) conflict();
     const binding = {
-      accountId, userId, strategyId: strategy.id, strategyVersion: strategy.version, network: 'testnet' as const, sourceNetwork: config.sourceNetwork, leaderAddress: strategy.leaderAddress,
+      accountId, userId, strategyId: strategy.id, strategyVersion: strategy.version, network: account.network, sourceNetwork: config.sourceNetwork, leaderAddress: strategy.leaderAddress,
       accountAddress: account.address, accountRevision: account.revision, ownerAddress: owner.embeddedWalletAddress, ownerPrivyUserId: owner.privyUserId,
       setupId: setup.id, setupRevision: setup.revision, executionWalletId: wallet.id, agentWalletId: wallet.privyWalletId, agentAddress: wallet.signerAddress,
       authorizationId: grant.id, authorizationVersion: grant.version, policyId: setup.policyId, policyFingerprint: setup.policyFingerprint,
@@ -198,7 +232,7 @@ export class CopyLiveMandateRepository {
   async activate(tx: DbTransaction, row: MandateRow, consent: string | { readonly liveSetupId: string; readonly consentDigest: string }, now: number) {
     if (row.state === 'active') return row;
     if (row.state !== 'prepared') conflict();
-    await tx.update(copyStrategies).set({ status: 'paused', pauseNewRisk: true }).where(and(eq(copyStrategies.id, row.strategyId), eq(copyStrategies.userId, row.userId), eq(copyStrategies.mode, 'testnet')));
+    await tx.update(copyStrategies).set({ status: 'paused', pauseNewRisk: true }).where(and(eq(copyStrategies.id, row.strategyId), eq(copyStrategies.userId, row.userId), eq(copyStrategies.mode, ACTUAL_STRATEGY_MODE)));
     const kind = typeof consent === 'string' ? { consentDigest: digest(consent.toLowerCase()) } : { consentDigest: consent.consentDigest, consentKind: 'setup' as const, liveSetupId: consent.liveSetupId };
     // Never before the row's own created_at (the activation check): a caller
     // that read its clock before preparing would otherwise be milliseconds early.
@@ -228,7 +262,7 @@ export class CopyLiveMandateRepository {
     if (intent.setupId !== setup.id || intent.userId !== userId) conflict();
     let wasPaused = false;
     if (setup.kind !== 'start') {
-      const [strategy] = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.id, intent.strategyId), eq(copyStrategies.userId, userId), eq(copyStrategies.mode, 'testnet'))).for('update');
+      const [strategy] = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.id, intent.strategyId), eq(copyStrategies.userId, userId), eq(copyStrategies.mode, ACTUAL_STRATEGY_MODE))).for('update');
       if (!strategy || ['stopping', 'stopped'].includes(strategy.status) || strategy.reduceOnly) throw new ConflictException({ statusCode: 409, code: 'live_stop_in_progress', message: 'A stop is in progress for this copy' });
       const current = await tx.select().from(copyLiveMandates).where(and(eq(copyLiveMandates.accountId, intent.accountId), sql`${copyLiveMandates.state} not in ('stopped','revoked','expired')`)).for('update');
       if (current.some(row => row.state === 'stopping')) throw new ConflictException({ statusCode: 409, code: 'live_stop_in_progress', message: 'A stop is in progress for this copy' });
@@ -257,7 +291,7 @@ export class CopyLiveMandateRepository {
     const owner = await this.lock(tx, userId), row = await this.find(userId, id, tx, true);
     const now = clock();
     const [account] = await tx.select().from(copyExecutionAccounts).where(and(eq(copyExecutionAccounts.id, row.accountId), eq(copyExecutionAccounts.userId, userId)));
-    const [strategy] = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.id, row.strategyId), eq(copyStrategies.userId, userId), eq(copyStrategies.mode, 'testnet')));
+    const [strategy] = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.id, row.strategyId), eq(copyStrategies.userId, userId), eq(copyStrategies.mode, ACTUAL_STRATEGY_MODE)));
     if (!account || !strategy || account.network !== row.network || account.strategyId !== row.strategyId || owner.privyUserId !== row.ownerPrivyUserId || account.privyUserId !== owner.privyUserId) conflict();
     if (row.state === state) return row;
     // A stop in progress owns the strategy: pausing or revoking consent must
@@ -277,8 +311,9 @@ export class CopyLiveMandateRepository {
    */
   async resume(tx: DbTransaction, userId: number, id: string, clock: () => number) {
     const owner = await this.lock(tx, userId), row = await this.find(userId, id, tx, true), now = clock();
-    const [strategy] = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.id, row.strategyId), eq(copyStrategies.userId, userId), eq(copyStrategies.mode, 'testnet'))).for('update');
-    if (!strategy || owner.privyUserId !== row.ownerPrivyUserId) conflict();
+    const [strategy] = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.id, row.strategyId), eq(copyStrategies.userId, userId), eq(copyStrategies.mode, ACTUAL_STRATEGY_MODE))).for('update');
+    // Another network's generation is history on this deployment: never resumed here.
+    if (!strategy || owner.privyUserId !== row.ownerPrivyUserId || row.network !== this.network || strategy.network !== this.network) conflict();
     if (row.state === 'active') return row;
     if (row.state === 'stopping' || strategy.status === 'stopping' || strategy.status === 'stopped') throw new ConflictException({ statusCode: 409, code: 'live_stop_in_progress', message: 'A stop is in progress for this copy' });
     if (row.state !== 'paused' || row.expiresAt.getTime() <= now || strategy.status !== 'paused' || strategy.reduceOnly) conflict();
@@ -298,7 +333,7 @@ export class CopyLiveMandateRepository {
     const [config] = await tx.select().from(copyLiveStrategyConfigs).where(and(eq(copyLiveStrategyConfigs.userId, userId), eq(copyLiveStrategyConfigs.idempotencyKey, key)));
     if (!config) throw new NotFoundException('Strategy not found');
     const accounts = await tx.select().from(copyExecutionAccounts).where(eq(copyExecutionAccounts.strategyId, config.strategyId));
-    if (accounts.some(account => account.userId !== userId || account.network !== 'testnet' || account.privyUserId !== owner.privyUserId)) conflict();
+    if (accounts.some(account => account.userId !== userId || !isHyperliquidNetwork(account.network) || account.privyUserId !== owner.privyUserId)) conflict();
     return this.strategyWire(config.strategyId, tx);
   }
   async recoverMandate(tx: DbTransaction, userId: number, lookup: { id: string } | { key: string }) {
@@ -307,7 +342,7 @@ export class CopyLiveMandateRepository {
     if (!row) throw new NotFoundException('Mandate not found');
     this.decode(row);
     const [account] = await tx.select().from(copyExecutionAccounts).where(and(eq(copyExecutionAccounts.id, row.accountId), eq(copyExecutionAccounts.userId, userId)));
-    const [strategy] = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.id, row.strategyId), eq(copyStrategies.userId, userId), eq(copyStrategies.mode, 'testnet')));
+    const [strategy] = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.id, row.strategyId), eq(copyStrategies.userId, userId), eq(copyStrategies.mode, ACTUAL_STRATEGY_MODE)));
     if (!account || !strategy || account.strategyId !== row.strategyId || account.network !== row.network || account.address !== row.accountAddress ||
       account.privyUserId !== owner.privyUserId || row.ownerPrivyUserId !== owner.privyUserId || row.ownerAddress !== owner.embeddedWalletAddress) conflict();
     // Preserve original archived evidence. This read grants no authority and

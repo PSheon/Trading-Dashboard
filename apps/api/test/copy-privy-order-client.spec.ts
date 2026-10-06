@@ -22,7 +22,7 @@ function setup() {
     return Response.json({ method: 'eth_signTypedData_v4', data: { encoding: 'hex', signature } });
   });
   return { fetcher, advance: (ms: number) => { now += ms; },
-    client: new BoundaryPrivyOrderSigningClient({ appId: 'fixture-app', appSecret: 'fixture-secret' }, fetcher, () => now) };
+    client: new BoundaryPrivyOrderSigningClient('testnet', { appId: 'fixture-app', appSecret: 'fixture-secret' }, fetcher, () => now) };
 }
 describe('real SDK order RPC boundary (HTTP replaced)', () => {
   it('sends one exact authorized testnet agent request with an SDK generated signature header', async () => {

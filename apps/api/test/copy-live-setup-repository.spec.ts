@@ -57,7 +57,7 @@ describe('abandonedStarts', () => {
     await apart({ kind: 'edit' });
     const stranger = await insertUser(db, { privyUserId: 'did:privy:setup-repository-other' });
     await apart({ userId: stranger.id });
-    const found = await repository.abandonedStarts(db, 1, leader);
+    const found = await repository.abandonedStarts(db, 1, leader, 'testnet');
     expect(found.map(row => row.id).sort()).toEqual([...unconfirmed, ...ended].map(row => row.id).sort());
   });
 });

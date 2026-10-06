@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import { isHyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { Dec } from '../../common/decimal/dec.js';
 import type { LiveAccountSnapshot } from './live-account-observer.js';
 import type { LiveRiskReservation } from './live-account-risk.js';
@@ -31,7 +32,7 @@ function unique(values: readonly (string | number)[]) { check(new Set(values).si
 export function calculateLiveExternalExposure(raw: LiveExternalExposureInput): Readonly<{ exposureUsd: string; coinExposureUsd: string }> {
   const input = structuredClone(raw), { snapshot, reservations, coin, now } = input;
   check(Number.isSafeInteger(now) && now > 0 && typeof input.accountId === 'string' && input.accountId.length > 0 &&
-    snapshot.network === 'testnet' && address(snapshot.accountAddress) === address(input.accountAddress), 'live_risk_identity');
+    isHyperliquidNetwork(snapshot.network) && address(snapshot.accountAddress) === address(input.accountAddress), 'live_risk_identity');
   check(typeof coin === 'string' && LIVE_PERP_COIN.test(coin) && coin.length <= 80);
   const riskPrice = money(input.riskPrice); check(riskPrice.isPositive);
   check(snapshot.positions.length <= 10000 && snapshot.restingOrders.length <= 5000 && reservations.length <= 5001);
@@ -55,7 +56,7 @@ export function calculateLiveExternalExposure(raw: LiveExternalExposureInput): R
   }
   for (const row of reservations) {
     const r = row.intent, market = r.market;
-    check(market && row.accountId === input.accountId && r.network === 'testnet' && address(r.accountAddress) === address(input.accountAddress), 'live_risk_identity');
+    check(market && row.accountId === input.accountId && r.network === snapshot.network && address(r.accountAddress) === address(input.accountAddress), 'live_risk_identity');
     const canonical = buildOrderAction(r);
     check(row.key === executionKey(r) && row.fingerprint === intentFingerprint(r, canonical) && isDeepStrictEqual(row.action, canonical));
     check(row.state === 'held' && row.exchangeOrderId === null && row.expiresAt > now || row.state === 'resting' && typeof row.exchangeOrderId === 'string' && /^[1-9]\d*$/.test(row.exchangeOrderId), 'live_risk_liability_unknown');

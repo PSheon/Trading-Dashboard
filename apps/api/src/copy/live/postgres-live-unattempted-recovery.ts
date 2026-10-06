@@ -2,7 +2,7 @@ import {and,eq,inArray,or,sql} from 'drizzle-orm';
 import {loadMergedMembers} from './copy-live-merged-members.js';
 import {isDeepStrictEqual} from 'node:util';
 import {copyExecutionAccounts,copyExecutionWallets,copyWalletAuthorizations,copyWalletAuthorizationEvents,copyAgentSetups,copyStrategies,users,copyLiveExecutions,copyLiveRiskReservations,copyLiveExecutionEvidence,copyFollowerReceipts,copyLiveIntentProvenance,copyLiveSignalLegs,copyLiveReductionCarry,copyLiveSourceFills,copyLiveMandates,copyLiveStrategyConfigs,copyStrategyVersions,copyRiskPolicies} from '@trading-dashboard/shared/database';
-import {copyRiskLimitsSchema,copyStrategySettingsSchema} from '@trading-dashboard/shared/contracts';
+import {ACTUAL_STRATEGY_MODE,copyRiskLimitsSchema,copyStrategySettingsSchema,isHyperliquidNetwork} from '@trading-dashboard/shared/contracts';
 import type {DbTransaction} from '../../db/unit-of-work.js';
 import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from './postgres-live-risk-scope.js';
 import {LiveBoundaryError} from './wallet-authorization.js';
@@ -24,9 +24,9 @@ export class PostgresLiveUnattemptedRecovery {
  private fresh(at:number){const now=this.now();check(Number.isSafeInteger(now)&&now>=at&&now-at<=5000);}
  private async load(session:LiveRiskDatabaseSession,tx:DbTransaction,input:{accountId:string;key:string}){
   const [account]=await this.query(session,tx.select().from(copyExecutionAccounts).where(eq(copyExecutionAccounts.id,input.accountId)).for('update'));
-  check(account&&account.network==='testnet'&&account.address===session.scope.identity.accountAddress&&account.userId===session.scope.identity.userId&&session.scope.identity.network==='testnet');
+  check(account&&account.network===session.scope.identity.network&&account.address===session.scope.identity.accountAddress&&account.userId===session.scope.identity.userId&&isHyperliquidNetwork(session.scope.identity.network));
   const [owner]=await this.query(session,tx.select().from(users).where(eq(users.id,account.userId))),[strategy]=await this.query(session,tx.select().from(copyStrategies).where(eq(copyStrategies.id,account.strategyId)));
-  check(owner&&owner.privyUserId===account.privyUserId&&strategy&&strategy.userId===account.userId&&strategy.mode==='testnet');
+  check(owner&&owner.privyUserId===account.privyUserId&&strategy&&strategy.userId===account.userId&&strategy.mode===ACTUAL_STRATEGY_MODE);
   const [journal]=await this.query(session,tx.select().from(copyLiveExecutions).where(eq(copyLiveExecutions.key,input.key)).for('update'));
   const [r]=await this.query(session,tx.select().from(copyLiveRiskReservations).where(eq(copyLiveRiskReservations.key,input.key)).for('update'));
   check(journal&&r&&journal.userId===account.userId&&journal.strategyId===account.strategyId&&journal.network===account.network&&journal.accountAddress===account.address&&r.accountId===account.id);
@@ -39,7 +39,7 @@ export class PostgresLiveUnattemptedRecovery {
   const consent=decodeLiveCopyMandate(m),[fillRow]=await this.query(session,tx.select().from(copyLiveSourceFills).where(eq(copyLiveSourceFills.id,leg.sourceFillId)));
   check(fillRow);const fill=decodeLiveSourceFill(fillRow),source=session.scope.identity.source;
   check(config.sourceNetwork===consent.sourceNetwork&&source&&source.network===consent.sourceNetwork&&source.leaderAddress===fill.leaderAddress&&fill.network===consent.sourceNetwork&&fill.leaderAddress===consent.leaderAddress);
-  check(m.consentDigest&&m.activationCursor&&m.revision>=p.mandateRevision&&consent.accountId===account.id&&consent.accountAddress===account.address&&consent.userId===account.userId&&consent.strategyId===strategy.id&&
+  check(m.consentDigest&&m.activationCursor&&m.revision>=p.mandateRevision&&consent.accountId===account.id&&consent.network===account.network&&consent.accountAddress===account.address&&consent.userId===account.userId&&consent.strategyId===strategy.id&&
    consent.ownerPrivyUserId===account.privyUserId&&consent.ownerAddress===owner.embeddedWalletAddress&&account.revision>=consent.accountRevision&&consent.authorizationId===record.authorization.id&&consent.authorizationVersion===record.authorization.version&&consent.agentWalletId===record.authorization.walletId&&consent.agentAddress===record.authorization.signerAddress&&
    r.authorizationId===consent.authorizationId&&r.authorizationVersion===consent.authorizationVersion&&r.strategyVersion===consent.strategyVersion&&r.walletId===consent.agentWalletId&&p.settingsDigest===consent.settingsDigest&&p.admittedAt.getTime()===record.createdAt);
   const [setup]=await this.query(session,tx.select().from(copyAgentSetups).where(eq(copyAgentSetups.id,consent.setupId))),[wallet]=await this.query(session,tx.select().from(copyExecutionWallets).where(eq(copyExecutionWallets.id,consent.executionWalletId))),[grant]=await this.query(session,tx.select().from(copyWalletAuthorizations).where(eq(copyWalletAuthorizations.id,consent.authorizationId)));
@@ -69,7 +69,7 @@ export class PostgresLiveUnattemptedRecovery {
   const receipts=await this.query(session,tx.select({key:copyFollowerReceipts.key}).from(copyFollowerReceipts).where(or(eq(copyFollowerReceipts.executionKey,input.key),and(eq(copyFollowerReceipts.accountId,account.id),or(sql`${copyFollowerReceipts.record}->>'cloid' = ${journal.cloid}`,sql`${copyFollowerReceipts.record}->'raw'->>'cloid' = ${journal.cloid}`)))).limit(1));check(receipts.length===0);
   const {sizingBasis,...provenance}=p;
   const entry:LiveGenerationJournalV1=canonical({journal,provenance:{...provenance,sizingBasisDigest:liveSourceDigest(sizingBasis)},leg,fill:fillRow,reservation:r,evidence:null});
-  const id:LiveGenerationProjectionIdentity={mandateId:m.id,mandateRevision:p.mandateRevision,accountId:account.id,userId:account.userId,strategyId:strategy.id,network:'testnet',accountAddress:account.address!,authorizationId:consent.authorizationId,settingsDigest:consent.settingsDigest,leaderAddress:consent.leaderAddress,direction:settings.direction};
+  const id:LiveGenerationProjectionIdentity={mandateId:m.id,mandateRevision:p.mandateRevision,accountId:account.id,userId:account.userId,strategyId:strategy.id,network:account.network,accountAddress:account.address!,authorizationId:consent.authorizationId,settingsDigest:consent.settingsDigest,leaderAddress:consent.leaderAddress,direction:settings.direction};
   const originalCarry=envelope.observations.generationManifest.carry.find(row=>row.mandateId===m.id&&row.coin===fill.coin);check(originalCarry);
   return {entry,carry:canonical<LiveUnattemptedCarry>(carry),originalCarry,record,basis:envelope.basis,id};
  }

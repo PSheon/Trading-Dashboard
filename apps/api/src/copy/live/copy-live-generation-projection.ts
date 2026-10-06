@@ -1,3 +1,4 @@
+import { isHyperliquidNetwork, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import type { copyLiveExecutions, copyLiveIntentProvenance, copyLiveSignalLegs, copyLiveSourceFills, copyLiveRiskReservations,
   copyLiveExecutionEvidence, copyFollowerReceipts, copyFollowerLedger, copyFollowerScans, copyFollowerReceiptConflicts,
   copyFollowerAccountState, copyLiveReductionCarry } from '@trading-dashboard/shared/database';
@@ -18,7 +19,7 @@ import { freezeLiveReservation, validateLiveReservationPayload, type LiveReserva
 import { address, LiveBoundaryError } from './wallet-authorization.js';
 export interface LiveGenerationProjectionIdentity {
   readonly mandateId: string; readonly mandateRevision: number; readonly accountId: string; readonly userId: number;
-  readonly strategyId: number; readonly network: 'testnet'; readonly accountAddress: string;
+  readonly strategyId: number; readonly network: HyperliquidNetwork; readonly accountAddress: string;
   readonly authorizationId: string; readonly settingsDigest: string; readonly leaderAddress: string;
   readonly direction: 'same' | 'reverse';
 }
@@ -81,14 +82,14 @@ function keys(rows: readonly {key:string}[]) { requireGeneration(new Set(rows.ma
 export function projectLiveGenerationPositions(raw: LiveGenerationProjectionInput): LiveGenerationProjection {
   try {
     const input=structuredClone(raw),{identity:id,snapshot,currentExecutionKey,now}=input, manifest=input.manifest as LiveGenerationManifestV1;
-    requireGeneration(id.network==='testnet'&&address(id.accountAddress)===id.accountAddress&&address(id.leaderAddress)===id.leaderAddress&&['same','reverse'].includes(id.direction)&&
+    requireGeneration(isHyperliquidNetwork(id.network)&&address(id.accountAddress)===id.accountAddress&&address(id.leaderAddress)===id.leaderAddress&&['same','reverse'].includes(id.direction)&&
       Number.isSafeInteger(id.mandateRevision)&&id.mandateRevision>0&&Number.isSafeInteger(now)&&now>0&&manifest?.version===1&&manifest.accountId===id.accountId&&manifest.mandateId===id.mandateId&&
       Number.isSafeInteger(manifest.checkedAt)&&manifest.checkedAt<=now&&now-manifest.checkedAt<=5000&&
       [manifest.journals,manifest.receipts,manifest.ledger,manifest.conflicts,manifest.carry].every(Array.isArray)&&manifest.journals.length<=5001&&manifest.receipts.length<=10000&&manifest.ledger.length<=30000&&manifest.conflicts.length===0&&manifest.carry.length<=1024&&
       (!manifest.accountState||manifest.accountState.accountId===id.accountId&&!manifest.accountState.quarantined));
     const view=mapLiveAccountView(id,snapshot,{blocked:false,reason:null},now,5000);
     requireGeneration(view.freshness==='fresh'&&view.coverage.complete&&view.coverage.balanceComplete&&view.coverage.orderComplete);
-    const baseline=decodeLivePositionBaseline({mandateId:id.mandateId,accountId:id.accountId,strategyId:id.strategyId,network:'testnet',accountAddress:id.accountAddress,firstExecutionKey:manifest.baseline.firstExecutionKey},manifest.baseline);
+    const baseline=decodeLivePositionBaseline({mandateId:id.mandateId,accountId:id.accountId,strategyId:id.strategyId,network:id.network,accountAddress:id.accountAddress,firstExecutionKey:manifest.baseline.firstExecutionKey},manifest.baseline);
     requireGeneration(baseline.createdAt<=manifest.checkedAt&&baseline.createdAt<=now);
     keys(manifest.receipts);keys(manifest.journals.map(entry=>entry.journal));
     requireGeneration(new Set(manifest.ledger.map(row=>`${row.receiptKey}:${row.component}`)).size===manifest.ledger.length);
@@ -100,27 +101,27 @@ export function projectLiveGenerationPositions(raw: LiveGenerationProjectionInpu
       if(manifest.manualCloses?.includes(j.key)){
         // The owner's close of one position: a reduce-only IOC by the approved
         // agent on this account, never a source leg. Its fills reduce.
-        requireGeneration(j.network==='testnet'&&j.accountAddress===id.accountAddress&&j.userId===id.userId&&j.strategyId===id.strategyId&&record.key===j.key&&
-          record.authorization.network==='testnet'&&record.authorization.accountAddress===id.accountAddress&&record.authorization.signerAddress===j.signerAddress&&
+        requireGeneration(j.network===id.network&&j.accountAddress===id.accountAddress&&j.userId===id.userId&&j.strategyId===id.strategyId&&record.key===j.key&&
+          record.authorization.network===id.network&&record.authorization.accountAddress===id.accountAddress&&record.authorization.signerAddress===j.signerAddress&&
           record.market&&record.action.orders[0].r===true&&record.action.orders[0].t.limit.tif==='Ioc'&&!p&&!leg&&!r&&record.createdAt>=baseline.createdAt);
         for(const row of manifest.receipts.filter(row=>row.executionKey===j.key))certified.set(row.key,{side:record.action.orders[0].b?'B':'A',reduceOnly:true,coin:record.market!.coin});
         continue;
       }
-      requireGeneration(j.network==='testnet'&&j.accountAddress===id.accountAddress&&j.userId===id.userId&&j.strategyId===id.strategyId&&
+      requireGeneration(j.network===id.network&&j.accountAddress===id.accountAddress&&j.userId===id.userId&&j.strategyId===id.strategyId&&
         record.key===j.key&&record.nonce===j.nonce&&record.state===j.state&&record.updatedAt===millis(j.updatedAt)&&record.authorization.id===id.authorizationId&&record.authorization.userId===id.userId&&
-        record.authorization.strategyId===id.strategyId&&record.authorization.network==='testnet'&&record.authorization.accountAddress===id.accountAddress&&record.authorization.signerAddress===j.signerAddress&&
+        record.authorization.strategyId===id.strategyId&&record.authorization.network===id.network&&record.authorization.accountAddress===id.accountAddress&&record.authorization.signerAddress===j.signerAddress&&
         record.createdAt>=baseline.createdAt&&p&&leg&&fillRow&&record.market);
       captureLiveOrderIdentity(record,record.market!);
       const intent=p!.intent as unknown as LiveOrderIntent,action=buildOrderAction(intent);
       requireGeneration(p!.key===j.key&&p!.mandateId===id.mandateId&&p!.mandateRevision>0&&p!.mandateRevision<=id.mandateRevision&&p!.settingsDigest===id.settingsDigest&&p!.plannerVersion===1&&
         /^[a-f0-9]{64}$/.test(p!.sizingBasisDigest)&&p!.fingerprint===record.fingerprint&&executionKey(intent)===j.key&&intent.authorizationId===id.authorizationId&&intent.userId===id.userId&&intent.strategyId===id.strategyId&&
-        intent.network==='testnet'&&intent.accountAddress===id.accountAddress&&intentFingerprint(intent,action)===record.fingerprint&&millis(p!.admittedAt)>=baseline.createdAt);
+        intent.network===id.network&&intent.accountAddress===id.accountAddress&&intentFingerprint(intent,action)===record.fingerprint&&millis(p!.admittedAt)>=baseline.createdAt);
       same(action,record.action);
       const fill=decodeLiveSourceFill({...fillRow!,providerTime:new Date(fillRow!.providerTime),receivedAt:new Date(fillRow!.receivedAt)}),canonical=canonicalLiveSourceLegs(fill).find(l=>l.leg===leg!.leg);
       requireGeneration(fill.leaderAddress===id.leaderAddress&&p!.sourceDigest===fill.sourceDigest&&canonical&&leg!.mandateId===id.mandateId&&leg!.id===liveSourceLegId(id.mandateId,fill.id,leg!.leg)&&
         p!.legId===leg!.id&&leg!.sourceFillId===fill.id&&leg!.executionKey===j.key&&leg!.sign===canonical.sign&&leg!.size===canonical.size&&leg!.fraction===canonical.fraction&&leg!.tradeKey===canonical.tradeKey&&
         intent.reduceOnly===(canonical.leg==='close')&&intent.side===(followerSign(canonical.sign,id.direction)*(canonical.leg==='close'?-1:1)>0?'B':'A')&&intent.market?.coin===fill.coin);
-      if(r)requireGeneration(r.key===j.key&&r.accountId===id.accountId&&r.userId===id.userId&&r.strategyId===id.strategyId&&r.network==='testnet'&&r.accountAddress===id.accountAddress&&
+      if(r)requireGeneration(r.key===j.key&&r.accountId===id.accountId&&r.userId===id.userId&&r.strategyId===id.strategyId&&r.network===id.network&&r.accountAddress===id.accountAddress&&
         r.fingerprint===record.fingerprint&&r.authorizationId===id.authorizationId&&r.cloid===j.cloid);
       if(r){
         const payload=validateLiveReservationPayload(r.payload);
@@ -163,7 +164,7 @@ export function projectLiveGenerationPositions(raw: LiveGenerationProjectionInpu
       const proof=decodeLiveSettlementProof(e!.settlementProof,e!.settlementProofDigest!),cert=proof.certificate,past=proof.input;
       requireGeneration(cert.key===j.key&&cert.accountId===id.accountId&&cert.fingerprint===record.fingerprint&&cert.nonce===record.nonce&&cert.digest===e!.settlementDigest&&cert.digest===r!.releaseEvidenceDigest&&
         r!.revision===past.reservation.revision+1&&millis(r!.attemptedAt!)===past.reservation.attemptedAt&&cert.oid===r!.exchangeOrderId&&cert.oid===e!.exchangeOrderId&&past.accountId===id.accountId&&
-        e!.accountId===id.accountId&&e!.userId===id.userId&&e!.strategyId===id.strategyId&&e!.network==='testnet'&&e!.accountAddress===id.accountAddress&&e!.fingerprint===record.fingerprint&&e!.nonce===record.nonce&&e!.cloid===j.cloid);
+        e!.accountId===id.accountId&&e!.userId===id.userId&&e!.strategyId===id.strategyId&&e!.network===id.network&&e!.accountAddress===id.accountAddress&&e!.fingerprint===record.fingerprint&&e!.nonce===record.nonce&&e!.cloid===j.cloid);
       same(e!.settlementCertificate,cert);same(e!.statusObservation,past.evidence);same(e!.statusDigest,past.evidence.sourceDigest);same(e!.acknowledgement,past.acknowledgement);same(e!.acknowledgementDigest,past.acknowledgement?.responseDigest??null);
       for(const field of ['key','fingerprint','authorization','action','market','nonce','expiresAfter','createdAt'] as const)same(record[field],past.record[field]);
       same(r!.payload,past.reservation.payload);
@@ -181,8 +182,8 @@ export function projectLiveGenerationPositions(raw: LiveGenerationProjectionInpu
     if(manifest.receipts.length)requireGeneration(manifest.scan&&manifest.scan.accountId===id.accountId&&manifest.scan.issue===null&&manifest.scan.through!==null&&manifest.scan.through>=Math.max(...manifest.receipts.map(row=>millis(row.providerTime))));
     if(manifest.receipts.length){const latest=Math.max(...manifest.receipts.map(row=>millis(row.providerTime)));requireGeneration(snapshot.coverage.earliestProviderTime>=latest&&snapshot.completedAt>=latest);}
     for(const row of [...manifest.receipts].sort((a,b)=>millis(a.providerTime)-millis(b.providerTime)||a.key.localeCompare(b.key))){
-      requireGeneration(row.accountId===id.accountId&&row.network==='testnet'&&row.accountAddress===id.accountAddress&&millis(row.providerTime)>=baseline.createdAt&&row.digest===followerReceiptDigestV1(row.record.raw));
-      const context={network:'testnet' as const,accountAddress:id.accountAddress,coin:row.coin},parsed=row.kind==='fill'?parseFollowerFill(row.record.raw,context):parseFollowerFunding(row.record.raw,context);
+      requireGeneration(row.accountId===id.accountId&&row.network===id.network&&row.accountAddress===id.accountAddress&&millis(row.providerTime)>=baseline.createdAt&&row.digest===followerReceiptDigestV1(row.record.raw));
+      const context={network:id.network,accountAddress:id.accountAddress,coin:row.coin},parsed=row.kind==='fill'?parseFollowerFill(row.record.raw,context):parseFollowerFunding(row.record.raw,context);
       requireGeneration(parsed.key===row.key&&parsed.time===millis(row.providerTime));
       for(const [field,value]of Object.entries(parsed))same(row.record[field],value);
       if(row.kind==='funding'){

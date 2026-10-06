@@ -230,10 +230,12 @@ export const copyErrorCodes = [
   "builder_fee_approval_required", "live_stop_in_progress",
   "consent_expired", "invalid_consent", "setup_unavailable", "setup_wallet_conflict", "setup_funding_rejected",
   "setup_account_mode_failed", "setup_agent_rejected", "setup_builder_rejected", "setup_expired", "worker_signer_missing", "renewal_unavailable",
+  "live_not_allowed", "live_fixed_sizing_required", "live_per_trade_out_of_range", "live_source_network_unsupported",
 ] as const;
 export const copyErrorCodeSchema = z.enum(copyErrorCodes);
 export type CopyErrorCode = z.infer<typeof copyErrorCodeSchema>;
-const liveStrategyErrors: readonly CopyErrorCode[] = ["copy_not_open", "copy_paused", "strategy_limit", "already_copying", "below_min_allocation", "above_max_allocation", "leverage_above_limit", "watch_capacity"];
+const liveStrategyErrors: readonly CopyErrorCode[] = ["copy_not_open", "copy_paused", "strategy_limit", "already_copying", "below_min_allocation", "above_max_allocation", "leverage_above_limit", "watch_capacity",
+  "live_not_allowed", "live_fixed_sizing_required", "live_per_trade_out_of_range", "live_source_network_unsupported"];
 
 export interface HttpRouteContract {
   method: string; path: string; status: number; auth: string;

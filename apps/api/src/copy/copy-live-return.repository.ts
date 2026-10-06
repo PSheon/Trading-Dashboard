@@ -2,11 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { copyExecutionAccounts, copyFundingOperations, copyLiveBuilderApprovals, copyLiveStopOperations, copyStrategies, users, walletWithdrawals } from '@trading-dashboard/shared/database';
+import { ACTUAL_STRATEGY_MODE } from '@trading-dashboard/shared/contracts';
+import { AppConfig } from '../config/app-config.js';
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
 import type { DbTransaction } from '../db/unit-of-work.js';
 import { lockCopyUser } from './copy-user-lock.js';
 import { blockingFunding } from './funding-blocking.js';
+import { deploymentNetwork } from './live-deployment.js';
 
 export type ReturnRow = typeof copyFundingOperations.$inferSelect;
 export type BuilderApprovalRow = typeof copyLiveBuilderApprovals.$inferSelect;
@@ -40,7 +43,7 @@ export interface MasterContext {
 
 @Injectable()
 export class CopyLiveReturnRepository {
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, private readonly config: AppConfig) {}
   private locked<T>(userId: number, write: (tx: DbTransaction) => PromiseLike<T>): Promise<T> {
     return this.db.transaction(async tx => { await lockCopyUser(tx, userId); return write(tx); });
   }
@@ -48,19 +51,21 @@ export class CopyLiveReturnRepository {
     const [owner] = await db.select().from(users).where(and(eq(users.id, userId), isNull(users.disabledAt)));
     const [account] = await db.select().from(copyExecutionAccounts).where(and(eq(copyExecutionAccounts.id, accountId), eq(copyExecutionAccounts.userId, userId)));
     if (!owner?.embeddedWalletAddress || !account) throw new NotFoundException('Execution account not found');
-    if (account.state !== 'ready' || !account.address || !account.privyWalletId || !account.ownerQuorumId || account.network !== 'testnet' ||
+    // Only an account of the deployment's network: one of another network is
+    // history here (nothing on it is signed or sent).
+    if (account.state !== 'ready' || !account.address || !account.privyWalletId || !account.ownerQuorumId || account.network !== deploymentNetwork(this.config) ||
       account.privyUserId !== owner.privyUserId || account.address === owner.embeddedWalletAddress) throw new ConflictException('Execution account is not ready');
     const [strategy] = await db.select().from(copyStrategies).where(and(eq(copyStrategies.id, account.strategyId), eq(copyStrategies.userId, userId)));
-    if (!strategy || strategy.mode !== 'testnet') throw new NotFoundException('Execution account not found');
+    if (!strategy || strategy.mode !== ACTUAL_STRATEGY_MODE) throw new NotFoundException('Execution account not found');
     const [stop] = await db.select().from(copyLiveStopOperations).where(and(eq(copyLiveStopOperations.accountId, account.id), ne(copyLiveStopOperations.state, 'stopped')));
     return { owner, account, strategy, stop: stop ?? null };
   }
   contextRead(userId: number, accountId: string): Promise<MasterContext> { return this.context(this.db, userId, accountId); }
   reader(): DrizzleDb { return this.db; }
-  private async nonce(tx: DbTransaction, address: string): Promise<number> {
+  private async nonce(tx: DbTransaction, network: string, address: string): Promise<number> {
     const clock = await tx.execute<{ nonce: number }>(sql`select greatest(floor(extract(epoch from clock_timestamp()) * 1000)::bigint,
-      coalesce((select max(nonce) + 1 from copy_funding_operations where network = 'testnet' and address = ${address}), 0),
-      coalesce((select max(nonce) + 1 from copy_live_builder_approvals where network = 'testnet' and account_address = ${address}), 0))::float8 as nonce`);
+      coalesce((select max(nonce) + 1 from copy_funding_operations where network = ${network} and address = ${address}), 0),
+      coalesce((select max(nonce) + 1 from copy_live_builder_approvals where network = ${network} and account_address = ${address}), 0))::float8 as nonce`);
     return clock.rows[0]!.nonce;
   }
   /** A return of `amount` from the copy's account to the owner's main wallet.
@@ -81,10 +86,10 @@ export class CopyLiveReturnRepository {
       const pendingRows = await tx.select({ id: copyFundingOperations.id }).from(copyFundingOperations)
         .where(and(eq(copyFundingOperations.accountId, accountId), blockingFunding())).limit(1);
       const hubPending = await tx.select({ id: walletWithdrawals.id }).from(walletWithdrawals)
-        .where(and(eq(walletWithdrawals.network, 'testnet'), eq(walletWithdrawals.address, owner.embeddedWalletAddress!), inArray(walletWithdrawals.status, ['prepared', 'unknown']))).limit(1);
+        .where(and(eq(walletWithdrawals.network, account.network), eq(walletWithdrawals.address, owner.embeddedWalletAddress!), inArray(walletWithdrawals.status, ['prepared', 'unknown']))).limit(1);
       if (pendingRows.length || hubPending.length) throw busy();
       const [row] = await tx.insert(copyFundingOperations).values({ id: randomUUID(), userId, accountId, strategyId: account.strategyId, idempotencyKey: input.idempotencyKey,
-        network: 'testnet', address: account.address!, destination: owner.embeddedWalletAddress!, amount: input.amount, nonce: await this.nonce(tx, account.address!),
+        network: account.network, address: account.address!, destination: owner.embeddedWalletAddress!, amount: input.amount, nonce: await this.nonce(tx, account.network, account.address!),
         direction: 'to_main', stopId: input.sweep ? stop?.id ?? null : null }).returning();
       return row!;
     });
@@ -107,10 +112,10 @@ export class CopyLiveReturnRepository {
       const pendingRows = await tx.select({ id: copyFundingOperations.id }).from(copyFundingOperations)
         .where(and(eq(copyFundingOperations.accountId, account.id), blockingFunding())).limit(1);
       const hubPending = await tx.select({ id: walletWithdrawals.id }).from(walletWithdrawals)
-        .where(and(eq(walletWithdrawals.network, 'testnet'), eq(walletWithdrawals.address, owner.embeddedWalletAddress!), inArray(walletWithdrawals.status, ['prepared', 'unknown']))).limit(1);
+        .where(and(eq(walletWithdrawals.network, account.network), eq(walletWithdrawals.address, owner.embeddedWalletAddress!), inArray(walletWithdrawals.status, ['prepared', 'unknown']))).limit(1);
       if (pendingRows.length || hubPending.length) return null;
       const [row] = await tx.insert(copyFundingOperations).values({ id: randomUUID(), userId: stop.userId, accountId: account.id, strategyId: account.strategyId, idempotencyKey: key,
-        network: 'testnet', address: account.address!, destination: owner.embeddedWalletAddress!, amount, nonce: await this.nonce(tx, account.address!),
+        network: account.network, address: account.address!, destination: owner.embeddedWalletAddress!, amount, nonce: await this.nonce(tx, account.network, account.address!),
         direction: 'to_main', stopId: stop.id }).returning();
       return row!;
     });
@@ -154,8 +159,8 @@ export class CopyLiveReturnRepository {
         if (original.accountId !== accountId || original.builderAddress !== input.builderAddress || original.maxFeeTenthsBps !== input.maxFeeTenthsBps) throw new ConflictException('Idempotency payload changed');
         return original;
       }
-      const [row] = await tx.insert(copyLiveBuilderApprovals).values({ id: randomUUID(), userId, accountId, idempotencyKey: input.idempotencyKey, network: 'testnet',
-        accountAddress: account.address!, builderAddress: input.builderAddress, maxFeeTenthsBps: input.maxFeeTenthsBps, nonce: await this.nonce(tx, account.address!),
+      const [row] = await tx.insert(copyLiveBuilderApprovals).values({ id: randomUUID(), userId, accountId, idempotencyKey: input.idempotencyKey, network: account.network,
+        accountAddress: account.address!, builderAddress: input.builderAddress, maxFeeTenthsBps: input.maxFeeTenthsBps, nonce: await this.nonce(tx, account.network, account.address!),
         createdAt: new Date(input.now), updatedAt: new Date(input.now) }).returning();
       return row!;
     });

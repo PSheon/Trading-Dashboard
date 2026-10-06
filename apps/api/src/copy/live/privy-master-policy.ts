@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import { PrivyClient } from '@privy-io/node';
 import type { PolicyRuleRequestBody } from '@privy-io/node/resources';
-import { COPY_MASTER_ACTION_TYPES, WALLET_NETWORKS, type CopyMasterPrimaryType } from '@trading-dashboard/shared/contracts';
+import { COPY_MASTER_ACTION_TYPES, WALLET_NETWORKS, isHyperliquidNetwork, type CopyMasterPrimaryType, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { z } from 'zod';
 import { safeErrorText } from '../../runtime/safe-error-text.js';
 
@@ -13,25 +13,29 @@ import { safeErrorText } from '../../runtime/safe-error-text.js';
  * wallet-level policy, so the owner's own session signs and exports freely.
  * Owned by the user (`owner: { user_id }`), so Orbie can't widen it later.
  *
- * Rules (all `eth_signTypedData_v4`, Hyperliquid's user-signed domain on
- * testnet: chainId = testnet signatureChainId, verifyingContract zero):
- * 1. UsdSend only to the owner's main wallet (exact lowercase string), on
- *    "Testnet" — the automatic return and the idle withdrawal;
+ * Rules (all `eth_signTypedData_v4`, Hyperliquid's user-signed domain on the
+ * account's network: chainId = that network's signatureChainId — 421614 on
+ * testnet, 42161 on mainnet — verifyingContract zero, and `hyperliquidChain`
+ * "Testnet" or "Mainnet"):
+ * 1. UsdSend only to the owner's main wallet (exact lowercase string) — the
+ *    automatic return and the idle withdrawal;
  * 2. UserSetAbstraction to "disabled" for this account only;
  * 3. ApproveAgent for exactly the consented agent and name (one-click setup,
  *    when an agent is bound);
  * 4. ApproveBuilderFee for exactly the consented builder and rate, only when
- *    the fee is above 0 (testnet: 0, so omitted);
+ *    the fee is above 0 (0 on a live deployment, so omitted);
  * 5. no key or seed export.
  * Proven on the Stage Dev app 2026-10-05 for 1, 3 and 5 by
  * `scripts/privy-master-policy-proto.mjs` (plan doc, prototype results).
  */
-const NETWORK = WALLET_NETWORKS.testnet;
 const ZERO = `0x${'00'.repeat(20)}`;
 const DOMAIN = [{ name: 'name', type: 'string' }, { name: 'version', type: 'string' }, { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' }];
 type Primary = CopyMasterPrimaryType;
 const address = z.string().regex(/^0x[0-9a-f]{40}$/);
 export interface MasterPolicyBinding {
+  /** The network the account lives on (the deployment's): the domain's
+   * chainId and every rule's `hyperliquidChain`. */
+  readonly network: HyperliquidNetwork;
   /** The owner's main wallet: the only UsdSend destination. */
   readonly ownerMain: string;
   /** The copy account itself (UserSetAbstraction's `user`). */
@@ -40,16 +44,18 @@ export interface MasterPolicyBinding {
   readonly builder?: { readonly address: string; readonly maxFeeRate: string } | null;
 }
 
-const domain = (): PolicyRuleRequestBody['conditions'] => [
-  { field_source: 'ethereum_typed_data_domain', field: 'chainId', operator: 'eq', value: String(Number.parseInt(NETWORK.signatureChainId, 16)) },
+const domain = (network: HyperliquidNetwork): PolicyRuleRequestBody['conditions'] => [
+  { field_source: 'ethereum_typed_data_domain', field: 'chainId', operator: 'eq', value: String(Number.parseInt(WALLET_NETWORKS[network].signatureChainId, 16)) },
   { field_source: 'ethereum_typed_data_domain', field: 'verifyingContract', operator: 'eq', value: ZERO },
 ];
 const field = (primary: Primary, name: string, value: string) => ({ field_source: 'ethereum_typed_data_message' as const, field: name, operator: 'eq' as const, value,
   typed_data: { primary_type: primary, types: { EIP712Domain: DOMAIN, [primary]: COPY_MASTER_ACTION_TYPES[primary].map(f => ({ ...f })) } } });
-const allow = (name: string, primary: Primary, values: Record<string, string>): PolicyRuleRequestBody => ({ name, method: 'eth_signTypedData_v4', action: 'ALLOW',
-  conditions: [...domain(), field(primary, 'hyperliquidChain', NETWORK.hyperliquidChain), ...Object.entries(values).map(([k, v]) => field(primary, k, v))] as PolicyRuleRequestBody['conditions'] });
+const allowOn = (network: HyperliquidNetwork) => (name: string, primary: Primary, values: Record<string, string>): PolicyRuleRequestBody => ({ name, method: 'eth_signTypedData_v4', action: 'ALLOW',
+  conditions: [...domain(network), field(primary, 'hyperliquidChain', WALLET_NETWORKS[network].hyperliquidChain), ...Object.entries(values).map(([k, v]) => field(primary, k, v))] as PolicyRuleRequestBody['conditions'] });
 
 export function masterPolicyRules(binding: MasterPolicyBinding): PolicyRuleRequestBody[] {
+  if (!isHyperliquidNetwork(binding.network)) throw new Error('master_policy_network');
+  const allow = allowOn(binding.network);
   const ownerMain = address.parse(binding.ownerMain.toLowerCase()), account = address.parse(binding.account.toLowerCase());
   const rules = [
     allow('Return USDC to the owner main wallet', 'HyperliquidTransaction:UsdSend', { destination: ownerMain }),

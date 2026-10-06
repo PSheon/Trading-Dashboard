@@ -1,10 +1,12 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Optional, ServiceUnavailableException } from '@nestjs/common';
-import { copyIdempotencyKeySchema, approveLiveCopyMandateSchema, createLiveCopyStrategySchema, prepareLiveCopyMandateSchema, liveCopyOverviewSchema, liveCopyMandateChallengeSchema } from '@trading-dashboard/shared/contracts';
+import { liveSourceNetworks, copyIdempotencyKeySchema, approveLiveCopyMandateSchema, createLiveCopyStrategySchema, prepareLiveCopyMandateSchema, liveCopyOverviewSchema, liveCopyMandateChallengeSchema } from '@trading-dashboard/shared/contracts';
 import { z } from 'zod';
 import { AppConfig } from '../config/app-config.js';
 import { UnitOfWork } from '../db/unit-of-work.js';
 import { CopyLiveMandateRepository, type MandateRow } from './copy-live-mandate.repository.js';
 import { verifyLiveCopyMandateConsent } from './copy-live-mandate-consent.js';
+import { effectiveLiveLimits } from './copy-live-caps.js';
+import { deploymentNetwork, liveExecutionEnabled } from './live-deployment.js';
 
 function input<T>(schema: z.ZodType<T>, value: unknown): T {
   const parsed = schema.safeParse(value);
@@ -38,9 +40,19 @@ export class CopyLiveMandateService {
     // all SQL waits and response validation while the original owner lock is held.
     return { ...parsed, renewal: this.renewal(row, this.now()) };
   }
+  /** The deployment's network, what this owner may start on it, and its
+   * caps (the stricter of COPY_LIVE_* and the risk policy). */
   async overview(userId: number) {
-    const data = await this.repository.overview(userId);
-    return liveCopyOverviewSchema.parse({ mode: 'actual', network: 'testnet', capabilities: { strategyPreparation: this.config.value.copy.mode !== 'disabled', automaticExecution: this.config.value.copy.mode === 'testnet', sourceNetworks: ['mainnet', 'testnet'] }, ...data });
+    const data = await this.repository.overview(userId), owner = await this.repository.owner(userId);
+    const network = deploymentNetwork(this.config), live = this.config.value.copy.live;
+    let actualAllowed = liveExecutionEnabled(this.config);
+    try { this.repository.assertAllowed(owner.privyUserId); } catch { actualAllowed = false; }
+    const limits = live ? await this.repository.preparation(this.repository.reader()).catch(() => null) : null;
+    const capped = limits ? effectiveLiveLimits(live?.caps, limits) : null;
+    return liveCopyOverviewSchema.parse({ mode: 'actual', network, capabilities: { strategyPreparation: this.config.value.copy.mode !== 'disabled',
+      automaticExecution: liveExecutionEnabled(this.config), sourceNetworks: [...liveSourceNetworks(network)], actualAllowed,
+      ...(live ? { caps: { fixedPerTradeUsd: live.caps.fixedPerTradeUsd ?? null, maxAllocationUsd: capped?.maxAllocationUsd ?? live.caps.maxAllocationUsd ?? null,
+        maxLeverage: capped?.maxLeverage ?? live.caps.maxLeverage ?? null, maxStrategiesPerUser: capped?.maxStrategiesPerUser ?? live.caps.maxStrategiesPerUser } } : {}) }, ...data });
   }
   async strategyByKey(userId: number, value: unknown) {
     const key = input(copyIdempotencyKeySchema, value);

@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import { createL1ActionHash } from '@nktkas/hyperliquid/signing';
+import { WALLET_NETWORKS } from '@trading-dashboard/shared/contracts';
 import { HyperliquidGlobalTransport } from '../../hyperliquid/hyperliquid-global-transport.js';
 import { boundedLiveRead } from './live-market-resolver.js';
 import { LiveBoundaryError } from './wallet-authorization.js';
@@ -85,7 +86,7 @@ async function readCancellationJson(
   }
 }
 
-/** Unregistered testnet cancellation port. The parent must atomically persist
+/** Unregistered cancellation port (the operation's network). The parent must atomically persist
  * and exclusively claim an operation BEFORE invoking this port, use the shared
  * signer nonce allocator, and retain liability on every result. No ACK, error,
  * not-found or local expiry can reconcile the original target. */
@@ -180,7 +181,7 @@ export class HyperliquidTrackedCancellationTransport {
         assertCancellationPermit(permit, operation, 'submit', this.now());
         exchangeRequestBegan = true;
         return this.fetcher(
-          'https://api.hyperliquid-testnet.xyz/exchange',
+          WALLET_NETWORKS[operation.authorization.network].exchangeUrl,
           request,
         );
       });

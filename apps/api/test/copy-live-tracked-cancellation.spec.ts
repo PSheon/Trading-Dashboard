@@ -162,6 +162,7 @@ function fixture() {
     return Response.json(wallet);
   });
   const client = new BoundaryPrivyOrderSigningClient(
+    'testnet',
     { appId: 'fixture-app', appSecret: 'fixture-secret' },
     rpcFetch,
     () => clock,

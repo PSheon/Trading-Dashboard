@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import type { HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { Dec } from '../../common/decimal/dec.js';
 import type { LiveExecutionRecord } from './live-execution.js';
 import type { LiveAccountRiskInput } from './live-account-risk.js';
@@ -13,7 +14,7 @@ export interface LiveSettlementLedgerComponent {
   readonly receiptKey: string; readonly component: string; readonly token: string; readonly amount: string;
 }
 export interface LiveSettlementReceipt {
-  readonly key: string; readonly accountId: string; readonly network: 'testnet'; readonly accountAddress: string;
+  readonly key: string; readonly accountId: string; readonly network: HyperliquidNetwork; readonly accountAddress: string;
   readonly kind: 'fill'|'funding'; readonly sourceId: string; readonly coin: string; readonly providerTime: number; readonly digest: string;
   readonly executionKey: string|null; readonly attribution: 'execution'|'account';
   readonly record: ParsedFollowerFill & { readonly raw: Readonly<Record<string, unknown>> };

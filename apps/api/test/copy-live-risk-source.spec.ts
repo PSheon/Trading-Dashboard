@@ -251,6 +251,8 @@ describe('durable local actual source authority before remote reads',()=>{
     if(change==='foreignNetwork'||change==='missingMaster'){
       await db.insert(copyStrategies).values({id:10,userId:1,mode:'testnet',leaderAddress:`0x${'77'.repeat(20)}`,allocated:'0',cash:'0',status:'paused',activatedAt:new Date(now)});
       await db.insert(copyExecutionAccounts).values({id:'other',userId:1,strategyId:10,network:change==='foreignNetwork'?'mainnet':'testnet',state:'unknown',privyUserId:'did:privy:risk-source',externalId:'other-account'});reason='live_risk_user_coverage_unproven';
+      // Another network's account (a database that moved networks) neither blocks nor counts: the chain goes on as the genuine one does.
+      if(change==='foreignNetwork')reason='live_risk_baseline_unproven';
     }
     await scopes.run(id(),async(_scope,session)=>{await expect(source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold()).rejects.toThrow(reason);});expect(fetcher).not.toHaveBeenCalled();
   });

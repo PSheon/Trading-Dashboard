@@ -33,7 +33,7 @@ export class CopyFundingService {
     private readonly wallets: CopyWalletService, private readonly exchange: CopyFundingExchangeClient, private readonly info: HyperliquidInfoClient,
     /** The wallet network's own budget and egress (testnet's), not mainnet's. */
     @Optional() @Inject(WALLET_NETWORK_HL) private readonly walletNetwork: WalletNetworkHyperliquid | null = null) {}
-  private get available() { return this.config.value.hyperliquid.wallet.network === "testnet" && this.config.value.copy.mode !== "disabled"; }
+  private get available() { return this.config.value.copy.mode !== "disabled"; }
   private assertAvailable() { if (!this.available) throw new ServiceUnavailableException("Strategy funding is available on testnet only"); }
   async overview(userId: number) {
     const wallets = await this.wallets.overview(userId); // enabled owner check; no provider mutations

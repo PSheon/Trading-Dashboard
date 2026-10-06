@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { and, desc, eq, ne } from 'drizzle-orm';
 import { copyControls, copyExecutionAccounts, copyLiveExecutions, copyLiveRiskReservations, copyRiskPolicies, copyStrategies, copyStrategyVersions, users } from '@trading-dashboard/shared/database';
 import { copyAgentSetups, copyExecutionWallets, copyLiveIntentProvenance, copyLiveMandates, copyLiveSignalLegs, copyLiveStrategyConfigs } from '@trading-dashboard/shared/database';
+import { ACTUAL_STRATEGY_MODE, isHyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { decodeLiveCopyMandate } from '../copy-live-mandate-evidence.js';
 import { liveCopySettingsDigest } from '../copy-live-mandate-consent.js';
 import type { DbExecutor } from '../../db/unit-of-work.js';
@@ -30,7 +31,7 @@ export class PostgresLiveReservations {
   constructor(private readonly now = Date.now) {}
   private fresh(at: number) { const now = this.now(); check(Number.isSafeInteger(at) && Number.isSafeInteger(now) && now >= at && now - at <= 5000, 'live_risk_stale'); }
   private scoped(session: LiveRiskDatabaseSession, userId: number, accountAddress: string) {
-    const id = session.scope.identity; check(id.network === 'testnet' && id.userId === userId && id.accountAddress === accountAddress, 'live_reservation_scope_mismatch'); session.scope.assertFresh();
+    const id = session.scope.identity; check(isHyperliquidNetwork(id.network) && id.userId === userId && id.accountAddress === accountAddress, 'live_reservation_scope_mismatch'); session.scope.assertFresh();
   }
   private async sql<T>(session: LiveRiskDatabaseSession, query: PromiseLike<T>): Promise<T> { const result = await query; await session.scope.assertHeld(); return result; }
   private decode(row: Row): Readonly<LiveReservationStored> {
@@ -62,7 +63,7 @@ export class PostgresLiveReservations {
   }
   private async account(session: LiveRiskDatabaseSession, db: DbExecutor, accountId: string) {
     const [account] = await this.sql(session, db.select().from(copyExecutionAccounts).where(eq(copyExecutionAccounts.id, accountId)));
-    check(account && account.state === 'ready' && account.network === 'testnet' && account.address, 'live_reservation_account_unavailable');
+    check(account && account.state === 'ready' && account.network === session.scope.identity.network && account.address, 'live_reservation_account_unavailable');
     this.scoped(session, account.userId, account.address);
     const [owner] = await this.sql(session, db.select().from(users).where(eq(users.id, account.userId)));
     check(owner && owner.disabledAt === null && owner.privyUserId === account.privyUserId, 'live_reservation_owner_unavailable'); return account;
@@ -70,7 +71,7 @@ export class PostgresLiveReservations {
   private async rows(session: LiveRiskDatabaseSession, db: DbExecutor, accountId: string) {
     await this.account(session, db, accountId);
     const rows = await this.sql(session, db.select({ reservation: copyLiveRiskReservations, journal: copyLiveExecutions }).from(copyLiveRiskReservations)
-      .innerJoin(copyLiveExecutions, eq(copyLiveExecutions.key, copyLiveRiskReservations.key)).where(and(eq(copyLiveRiskReservations.network, 'testnet'),
+      .innerJoin(copyLiveExecutions, eq(copyLiveExecutions.key, copyLiveRiskReservations.key)).where(and(eq(copyLiveRiskReservations.network, session.scope.identity.network),
         eq(copyLiveRiskReservations.accountAddress, session.scope.identity.accountAddress), ne(copyLiveRiskReservations.state, 'released'))).orderBy(copyLiveRiskReservations.key).limit(5002));
     check(rows.length <= 5001, 'live_reservation_coverage_unbounded');
     for (const row of rows) {
@@ -87,7 +88,7 @@ export class PostgresLiveReservations {
   }
   private proof(accountId: string, session: LiveRiskDatabaseSession, own: LiveRiskReservation, others: LiveRiskReservation[], checkedAt: number): LiveAccountRiskInput['reservations'] {
     check(others.length <= 5000, 'live_reservation_coverage_unbounded');
-    return freezeLiveReservation({ accountId, userId: session.scope.identity.userId, network: 'testnet' as const, accountAddress: session.scope.identity.accountAddress,
+    return freezeLiveReservation({ accountId, userId: session.scope.identity.userId, network: session.scope.identity.network, accountAddress: session.scope.identity.accountAddress,
       checkedAt, sourceDigest: hash({ accountId, identity: session.scope.identity, own, others, checkedAt }), complete: true as const, own, others });
   }
   private async local(session: LiveRiskDatabaseSession, db: DbExecutor, input: LiveAccountRiskInput, record: LiveExecutionRecord) {
@@ -97,7 +98,7 @@ export class PostgresLiveReservations {
     const [version] = await this.sql(session, db.select().from(copyStrategyVersions).where(and(eq(copyStrategyVersions.strategyId, account.strategyId), eq(copyStrategyVersions.version, input.identity.strategyVersion))));
     check(strategy && strategy.userId === account.userId && !['stopped', 'stopping'].includes(strategy.status) && strategy.version === input.identity.strategyVersion &&
       version && isDeepStrictEqual(version.settings, input.strategy.settings), 'live_reservation_strategy_changed');
-    if (strategy.mode === 'testnet') await this.actualBudget(session, db, account, strategy, input, record);
+    if (strategy.mode === ACTUAL_STRATEGY_MODE) await this.actualBudget(session, db, account, strategy, input, record);
     else check(Dec.from(strategy.allocated).eq(input.strategy.allocatedUsd), 'live_reservation_strategy_changed');
     const [policy] = await this.sql(session, db.select().from(copyRiskPolicies).orderBy(desc(copyRiskPolicies.version)).limit(1));
     check(policy && policy.version === input.identity.policyVersion && isDeepStrictEqual(policy.limits, input.policy.limits), 'live_reservation_policy_changed');
@@ -150,6 +151,7 @@ export class PostgresLiveReservations {
   }
   async hold(session: LiveRiskDatabaseSession, raw: LiveAccountRiskInput): Promise<Readonly<LiveReservationStored>> {
     const input = structuredClone(raw); this.scoped(session, input.identity.userId, input.identity.accountAddress);
+    check(input.identity.network === session.scope.identity.network, 'live_reservation_scope_mismatch');
     const checkedAt = this.now();
     const oldest = Math.min(checkedAt, input.localSource.checkedAt, input.accountSource.checkedAt, input.accountSource.snapshot.observedAt,
       input.accountSource.snapshot.completedAt, input.accountSource.snapshot.coverage.earliestProviderTime, ...input.accountSource.snapshot.dexes.map(d => d.providerTime),

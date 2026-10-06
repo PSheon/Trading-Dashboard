@@ -278,7 +278,7 @@ describe("the automatic return: the policy-bound worker signer the owner's brows
     const before = (await db.select().from(copyExecutionAccounts).where(eq(copyExecutionAccounts.id, id)))[0]!.revision;
     const enabled = new CopyWalletService(new CopyWalletRepository(db), new UnitOfWork(db), on(true), provider, policy as never);
     expect(await enabled.enableAutomaticReturn(uid, id)).toMatchObject({ id, state: "ready", automaticReturn: true });
-    expect(policy.create).toHaveBeenCalledWith("did:privy:wallet-owner", { ownerMain: main, account: addr }, `master_${id.replaceAll("-", "")}`);
+    expect(policy.create).toHaveBeenCalledWith("did:privy:wallet-owner", { network: "testnet", ownerMain: main, account: addr }, `master_${id.replaceAll("-", "")}`);
     expect(policy.assertSigner).toHaveBeenCalledWith("provider-wallet", { address: addr, ownerQuorumId: "verified-user-quorum", workerQuorumId: "worker-quorum", policyId: "policy-1" });
     const [row] = await db.select().from(copyExecutionAccounts).where(eq(copyExecutionAccounts.id, id));
     expect(row).toMatchObject({ masterPolicyId: "policy-1", masterSignerQuorumId: "worker-quorum", sweepDestination: main, revision: before });
@@ -317,7 +317,7 @@ describe("the automatic return: the policy-bound worker signer the owner's brows
     expect(policy.create).not.toHaveBeenCalled();
     const enabled = new CopyWalletService(new CopyWalletRepository(db), new UnitOfWork(db), on(true), provider, policy as never);
     expect(await enabled.prepareSetupPolicy(uid, id, agent, "master_setup_x")).toEqual({ id: "policy-1", fingerprint: "d".repeat(64) });
-    expect(policy.create).toHaveBeenCalledWith("did:privy:wallet-owner", { ownerMain: main, account: addr, agent }, "master_setup_x");
+    expect(policy.create).toHaveBeenCalledWith("did:privy:wallet-owner", { network: "testnet", ownerMain: main, account: addr, agent }, "master_setup_x");
   });
 
   it("adopts the signer the browser added for a setup whose confirm never arrived (a closed tab), instead of blocking the wallet", async () => {
@@ -330,7 +330,7 @@ describe("the automatic return: the policy-bound worker signer the owner's brows
     vi.mocked(provider.findOwned).mockImplementation(async (_user, _external, expected) => { if (!expected) throw new ProvisioningWalletConflict("wallet_conflict"); return stored; });
     const enabled = new CopyWalletService(new CopyWalletRepository(db), new UnitOfWork(db), on(true), provider, policy as never);
     expect(await enabled.reconcile(uid, id)).toMatchObject({ state: "ready", automaticReturn: true });
-    expect(policy.verify).toHaveBeenCalledWith("policy-1", "did:privy:wallet-owner", { ownerMain: main, account: account!.address, agent: { address: `0x${"33".repeat(20)}`, name: `copy${strategy} valid_until 1800000000000` } });
+    expect(policy.verify).toHaveBeenCalledWith("policy-1", "did:privy:wallet-owner", { network: "testnet", ownerMain: main, account: account!.address, agent: { address: `0x${"33".repeat(20)}`, name: `copy${strategy} valid_until 1800000000000` } });
     expect(policy.assertSigner).toHaveBeenCalledWith("provider-wallet", { address: addr, ownerQuorumId: "verified-user-quorum", workerQuorumId: "worker-quorum", policyId: "policy-1" });
     // The attachWorker race (addSigners still in flight when confirm asked
     // Privy): the setup was confirmed with the owner's session and no policy

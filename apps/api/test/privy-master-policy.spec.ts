@@ -8,7 +8,7 @@ import { PrivyPolicyMasterSigner } from "../src/copy/live/privy-policy-master-si
 const ownerMain = `0x${"5a".repeat(20)}`, other = `0x${"6b".repeat(20)}`;
 const copyKey = privateKeyToAccount(`0x${"07".repeat(32)}`);
 const account = copyKey.address.toLowerCase();
-const binding = { ownerMain: ownerMain.toUpperCase().replace("0X", "0x"), account };
+const binding = { network: "testnet" as const, ownerMain: ownerMain.toUpperCase().replace("0X", "0x"), account };
 const cond = (rule: { conditions: { field: string; value: unknown }[] }, field: string) => rule.conditions.find(c => c.field === field)?.value;
 
 describe("the copy account's master policy (one-click plan §2)", () => {
@@ -27,6 +27,23 @@ describe("the copy account's master policy (one-click plan §2)", () => {
     const full = masterPolicyRules({ ...binding, agent: { address: other, name: "copy7 valid_until 1" }, builder: { address: other, maxFeeRate: "0.01%" } });
     expect(full).toHaveLength(6);
     expect(() => masterPolicyRules({ ...binding, ownerMain: "nope" })).toThrow();
+  });
+
+  it("on a mainnet deployment binds every rule to Arbitrum's chainId 42161 and hyperliquidChain \"Mainnet\" (never testnet's)", () => {
+    const rules = masterPolicyRules({ ...binding, network: "mainnet", agent: { address: other, name: "copy7 valid_until 1" } }) as unknown as { method: string; conditions: { field: string; value: unknown }[] }[];
+    const signed = rules.filter(rule => rule.method === "eth_signTypedData_v4");
+    expect(signed).toHaveLength(3);
+    for (const rule of signed) {
+      expect(cond(rule, "chainId")).toBe("42161");
+      expect(cond(rule, "hyperliquidChain")).toBe("Mainnet");
+      expect(cond(rule, "verifyingContract")).toBe(`0x${"00".repeat(20)}`);
+    }
+    // A mainnet UsdSend signed by the worker passes the rules; testnet's domain does not.
+    const mainnetSend = usdSendTypedData(WALLET_NETWORKS.mainnet, ownerMain, "1", 1);
+    expect(mainnetSend.domain.chainId).toBe(42161);
+    expect(mainnetSend.message.hyperliquidChain).toBe(cond(signed[0]!, "hyperliquidChain"));
+    expect(usdSendTypedData(WALLET_NETWORKS.testnet, ownerMain, "1", 1).domain.chainId).not.toBe(Number(cond(signed[0]!, "chainId")));
+    expect(() => masterPolicyRules({ ...binding, network: "devnet" as never })).toThrow("master_policy_network");
   });
 
   it("creates the policy owned by the user and verifies exactly; it never changes a wallet's signers", async () => {

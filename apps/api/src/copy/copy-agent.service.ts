@@ -10,6 +10,7 @@ import { agentApprovalTypedData, type AgentConsentIntent } from "./copy-agent-co
 import { AgentProvisioningConflict, USER_AGENT_PROVISIONER, type UserAgentProvisioner } from "./live/privy-agent-provisioner.js";
 import { LiveBoundaryError } from "./live/wallet-authorization.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
+import { deploymentNetwork } from "./live-deployment.js";
 
 function wire(row: AgentSetupRow): CopyAgentSetup {
   return copyAgentSetupSchema.parse({ id: row.id, strategyId: row.strategyId, accountId: row.accountId, network: row.network,
@@ -39,7 +40,7 @@ export class CopyAgentService {
     private readonly config: AppConfig, private readonly wallets: CopyWalletService,
     @Inject(USER_AGENT_PROVISIONER) private readonly provider: UserAgentProvisioner,
     @Inject(AGENT_APPROVAL_CLIENT) private readonly exchange: AgentApprovalClient) {}
-  get available() { return this.config.value.hyperliquid.wallet.network === "testnet" && this.config.value.copy.mode !== "disabled" && this.provider.available && this.exchange.available; }
+  get available() { return this.config.value.copy.mode !== "disabled" && this.provider.available && this.exchange.available; }
   private enabled() { if (!this.available || !this.provider.configuredWorkerQuorumId) throw new ServiceUnavailableException("agent_setup_unavailable"); }
   async overview(userId: number): Promise<CopyAgentOverview> {
     await this.repository.owner(userId);
@@ -54,7 +55,7 @@ export class CopyAgentService {
     if (account.state !== "ready") throw new ConflictException("agent_account_not_ready");
     const verified = await this.wallets.reconcile(userId, accountId);
     if (verified.state !== "ready") throw new ConflictException("agent_account_not_ready");
-    const row = await this.uow.run(tx => this.repository.ensure(tx, userId, accountId, parsed.data, this.provider.configuredWorkerQuorumId!));
+    const row = await this.uow.run(tx => this.repository.ensure(tx, userId, accountId, parsed.data, this.provider.configuredWorkerQuorumId!, null, deploymentNetwork(this.config)));
     return this.reconcile(userId, row.id);
   }
   /** A one-click setup's agent (30 days by default): prepared and made
@@ -64,7 +65,7 @@ export class CopyAgentService {
     this.enabled();
     const verified = await this.wallets.reconcile(userId, accountId);
     if (verified.state !== "ready") throw new ConflictException("agent_account_not_ready");
-    const row = await this.uow.run(tx => this.repository.ensure(tx, userId, accountId, { idempotencyKey, validForDays }, this.provider.configuredWorkerQuorumId!, { liveSetupId, renewal }));
+    const row = await this.uow.run(tx => this.repository.ensure(tx, userId, accountId, { idempotencyKey, validForDays }, this.provider.configuredWorkerQuorumId!, { liveSetupId, renewal }, deploymentNetwork(this.config)));
     await this.reconcile(userId, row.id);
     return this.repository.find(userId, row.id);
   }
@@ -78,7 +79,7 @@ export class CopyAgentService {
   }
   private async assertSetup(userId: number, row: AgentSetupRow) {
     const checkedAt = Date.now();
-    if (row.network !== "testnet" || row.network !== this.config.value.hyperliquid.wallet.network || row.workerQuorumId !== this.provider.configuredWorkerQuorumId ||
+    if (row.network !== deploymentNetwork(this.config) || row.workerQuorumId !== this.provider.configuredWorkerQuorumId ||
       row.expiresAt.getTime() <= Date.now() || row.state === "revoked" || row.state === "blocked") throw new ConflictException("agent_setup_changed");
     const { owner } = await this.repository.assertCurrent(userId, row);
     const master = await this.wallets.reconcile(userId, row.accountId);

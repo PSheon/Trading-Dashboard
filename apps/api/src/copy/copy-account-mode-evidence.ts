@@ -1,5 +1,6 @@
 import type { OnModuleDestroy } from '@nestjs/common';
 import { z } from 'zod';
+import { WALLET_NETWORKS, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { Dec } from '../common/decimal/dec.js';
 import { readInfoJson } from '../hyperliquid/response-validation.js';
 import { HyperliquidAllDexsAccountSource, type LiveAllDexsAccountEvidence, type LiveAllDexsAccountSource } from './live/live-account-ws-source.js';
@@ -36,9 +37,9 @@ export class HyperliquidAccountModeAbsenceReader implements AccountModeAbsenceRe
   private readonly source: LiveAllDexsAccountSource;
   private tail: Promise<void> = Promise.resolve();
   private lastReadAt = 0;
-  constructor(private readonly acquire: LiveBudget, private readonly fetcher: typeof fetch = fetch,
+  constructor(private readonly network: HyperliquidNetwork, private readonly acquire: LiveBudget, private readonly fetcher: typeof fetch = fetch,
     private readonly now = Date.now, source?: LiveAllDexsAccountSource, private readonly global?: HyperliquidGlobalTransport) {
-    this.source = source ?? new HyperliquidAllDexsAccountSource(now);
+    this.source = source ?? new HyperliquidAllDexsAccountSource(now, undefined, network);
   }
   onModuleDestroy() { this.source.close?.(); }
   /** Waits (at most `maxWaitMs`) for this process's all-venue source: the
@@ -85,13 +86,13 @@ export class HyperliquidAccountModeAbsenceReader implements AccountModeAbsenceRe
         fresh(started, this.now());
         if (value && typeof value === 'object' && !Array.isArray(value)) {
           const row = value as Record<string, unknown>;
-          if (row.user !== undefined && (typeof row.user !== 'string' || address(row.user) !== user) || row.network !== undefined && row.network !== 'testnet') fail();
+          if (row.user !== undefined && (typeof row.user !== 'string' || address(row.user) !== user) || row.network !== undefined && row.network !== this.network) fail();
         }
         return value;
       };
       const send = (bodies: readonly Record<string, unknown>[], meterWaitMs: number, bound: () => AbortSignal) => this.global
-        ? this.global.fetchInfoBatch('https://api.hyperliquid-testnet.xyz/info', bodies, { maxWaitMs: meterWaitMs, signal, onDispatch: bound })
-        : (() => { const timeout = bound(); return Promise.all(bodies.map(body => this.fetcher('https://api.hyperliquid-testnet.xyz/info', { method: 'POST',
+        ? this.global.fetchInfoBatch(WALLET_NETWORKS[this.network].infoUrl, bodies, { maxWaitMs: meterWaitMs, signal, onDispatch: bound })
+        : (() => { const timeout = bound(); return Promise.all(bodies.map(body => this.fetcher(WALLET_NETWORKS[this.network].infoUrl, { method: 'POST',
           headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), redirect: 'error', signal: signal ? AbortSignal.any([signal, timeout]) : timeout }))); })();
       const answers = async (responses: Response[]) => Promise.all(responses.map(async response => {
         if (!response.ok) { await response.body?.cancel().catch(() => undefined); fail(); }
@@ -116,14 +117,14 @@ export class HyperliquidAccountModeAbsenceReader implements AccountModeAbsenceRe
       const proof = structuredClone(await boundedLiveRead(() => {
         reading = readAccount.call(this.source, user, dexes, remaining(), signal); return reading;
       }, remaining));
-      if (proof.state.network !== 'testnet' || address(proof.state.accountAddress) !== user || proof.orders.network !== 'testnet' || address(proof.orders.accountAddress) !== user) fail();
+      if (proof.state.network !== this.network || address(proof.state.accountAddress) !== user || proof.orders.network !== this.network || address(proof.orders.accountAddress) !== user) fail();
       for (const at of [proof.state.observedAt, proof.orders.observedAt, proof.orders.completedAt]) fresh(at, this.now());
       if (proof.orders.completedAt < proof.orders.observedAt) fail();
       const aggregate = z.object({ user: z.string(), clearinghouseStates: z.array(z.tuple([z.string().max(40), stateSchema])).max(MAX_LIVE_PERP_DEXES) }).parse(proof.state.data);
       if (address(aggregate.user) !== user) fail(); unique(aggregate.clearinghouseStates.map(([dex]) => dex));
       const rawStates = (proof.state.data as { clearinghouseStates: [string, Record<string, unknown>][] }).clearinghouseStates;
       for (const [, state] of rawStates) {
-        if (state.user !== undefined && (typeof state.user !== 'string' || address(state.user) !== user) || state.network !== undefined && state.network !== 'testnet') fail();
+        if (state.user !== undefined && (typeof state.user !== 'string' || address(state.user) !== user) || state.network !== undefined && state.network !== this.network) fail();
       }
       if (aggregate.clearinghouseStates.length !== dexes.length || aggregate.clearinghouseStates.some(([dex]) => !dexes.includes(dex))) fail();
       for (const [, state] of aggregate.clearinghouseStates) fresh(state.time, this.now());
@@ -142,7 +143,7 @@ export class HyperliquidAccountModeAbsenceReader implements AccountModeAbsenceRe
       if (JSON.stringify(finalDexes) !== JSON.stringify(list)) fail();
       const observedAt = Math.min(started, proof.state.observedAt, proof.orders.observedAt, ...aggregate.clearinghouseStates.map(([, s]) => s.time)), completedAt = this.now();
       fresh(observedAt, completedAt);
-      return Object.freeze({ network: 'testnet' as const, accountAddress: user, observedAt, completedAt, dexes: Object.freeze(dexes),
+      return Object.freeze({ network: this.network, accountAddress: user, observedAt, completedAt, dexes: Object.freeze(dexes),
         sourceDigest: accountModeDigest({ user, list, spot, agents, proof, started, completedAt }), complete: true as const, empty: true as const });
     } catch (error) {
       // Weight or the source not available yet: nothing was proven or refused.

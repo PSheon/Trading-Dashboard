@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { settleListAnswer } from '../../hyperliquid/hyperliquid-global-transport.js';
 import { z } from 'zod';
+import { isHyperliquidNetwork, WALLET_NETWORKS, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
 import { parseFollowerFill, parseFollowerFunding, type ParsedFollowerFill, type ParsedFollowerFunding } from './actual-fill-accounting.js';
 import { boundedLiveRead } from './live-market-resolver.js';
@@ -26,7 +27,7 @@ export interface FollowerReceiptReadInput {
   readonly maxDepth?: number; readonly maxReceipts?: number; readonly resumeWindows?: readonly FollowerReceiptWindow[];
 }
 export interface FollowerReceiptReadResult {
-  readonly network: 'testnet'; readonly accountAddress: string; readonly from: number; readonly to: number;
+  readonly network: HyperliquidNetwork; readonly accountAddress: string; readonly from: number; readonly to: number;
   readonly observedAt: number; readonly completedAt: number; readonly fresh: boolean;
   readonly requestsUsed: number; readonly requestedWindows: readonly FollowerReceiptWindow[];
   readonly fills: readonly FollowerFillEvidence[]; readonly funding: readonly FollowerFundingEvidence[];
@@ -78,12 +79,11 @@ function semantic(evidence: FollowerFillEvidence | FollowerFundingEvidence): str
  * Root persists immutable receipts and unresolved windows before advancing any
  * operational checkpoint; this reader deliberately exports no global cursor. */
 export class HyperliquidFollowerReceiptReader {
-  readonly network = 'testnet' as const;
   /** `refund` gives back acquired weight an answer didn't use (the budget's
    * `adjust(-weight)`); the shared per-IP meter is settled the same way. */
-  constructor(network: 'testnet', private readonly acquire: (weight: number) => Promise<unknown>,
+  constructor(readonly network: HyperliquidNetwork, private readonly acquire: (weight: number) => Promise<unknown>,
     private readonly fetcher: typeof fetch = fetch, private readonly now = Date.now, private readonly refund?: (weight: number) => void) {
-    if (network !== 'testnet' || typeof acquire !== 'function') fail('follower_reader_invalid_configuration');
+    if (!isHyperliquidNetwork(network) || typeof acquire !== 'function') fail('follower_reader_invalid_configuration');
   }
   async read(input: FollowerReceiptReadInput): Promise<FollowerReceiptReadResult> {
     let request: z.infer<typeof inputSchema>;
@@ -127,7 +127,7 @@ export class HyperliquidFollowerReceiptReader {
         await boundedLiveRead(() => this.acquire(RESPONSE_WEIGHT), remaining());
         const body = { type: window.kind === 'fills' ? 'userFillsByTime' : 'userFunding', user,
           startTime: window.from, endTime: window.to, ...(window.kind === 'fills' ? { aggregateByTime: false } : {}) };
-        const response = await boundedLiveRead(() => this.fetcher('https://api.hyperliquid-testnet.xyz/info', {
+        const response = await boundedLiveRead(() => this.fetcher(WALLET_NETWORKS[this.network].infoUrl, {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
           redirect: 'error', signal: AbortSignal.timeout(remaining()),
         }), remaining());

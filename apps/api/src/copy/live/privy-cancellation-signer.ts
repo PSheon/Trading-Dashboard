@@ -9,6 +9,7 @@ import { BoundaryPrivyOrderSigningClient } from './privy-order-client.js';
 import type { PrivySigningAuthorization } from './privy-order-signer.js';
 import { boundedLiveRead } from './live-market-resolver.js';
 import { address, LiveBoundaryError } from './wallet-authorization.js';
+import { PHANTOM_AGENT_SOURCE } from './privy-agent-provisioner.js';
 import {
   assertCancellationPermit,
   assertTrackedCancellation,
@@ -81,6 +82,10 @@ export class PrivyTrackedCancellationSigner {
       expiresAfter: operation.expiresAfter,
     });
     const authorization = operation.authorization;
+    // The phantom agent's source and the SDK's chain follow the grant's
+    // network (the deployment's): "a" on mainnet, "b" on testnet.
+    if (authorization.network !== 'testnet' && authorization.network !== 'mainnet') throw new LiveBoundaryError('cancel_signer_payload_outside_scope');
+    const source = PHANTOM_AGENT_SOURCE[authorization.network];
     let boundaryFailure: LiveBoundaryError | undefined;
     let signature;
     try {
@@ -88,7 +93,7 @@ export class PrivyTrackedCancellationSigner {
         action: { ...operation.action },
         nonce: operation.nonce,
         expiresAfter: operation.expiresAfter,
-        isTestnet: true,
+        isTestnet: authorization.network === 'testnet',
         wallet: {
           address: authorization.signerAddress,
           signTypedData: async (
@@ -106,7 +111,7 @@ export class PrivyTrackedCancellationSigner {
                   Agent: agentFields,
                 }) ||
                 !isDeepStrictEqual(data.message, {
-                  source: 'b',
+                  source,
                   connectionId: hash,
                 })
               )
@@ -161,7 +166,7 @@ export class PrivyTrackedCancellationSigner {
                       domain,
                       types: { EIP712Domain: domainFields, Agent: agentFields },
                       primary_type: 'Agent',
-                      message: { source: 'b', connectionId: hash },
+                      message: { source, connectionId: hash },
                     },
                   },
                 },
@@ -179,7 +184,7 @@ export class PrivyTrackedCancellationSigner {
                   domain,
                   types: { Agent: agentFields },
                   primaryType: 'Agent',
-                  message: { source: 'b', connectionId: hash },
+                  message: { source, connectionId: hash },
                   signature: response.signature as `0x${string}`,
                 });
               } catch {

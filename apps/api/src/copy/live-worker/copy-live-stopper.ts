@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { liveStopCancellationIntentSchema } from '@trading-dashboard/shared/contracts';
+import { liveStopCancellationIntentSchema, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { Pool } from 'pg';
 import { Dec } from '../../common/decimal/dec.js';
 import { AppConfig } from '../../config/app-config.js';
@@ -21,7 +21,7 @@ import { PrivyTrackedCancellationSigner } from '../live/privy-cancellation-signe
 import { BoundaryPrivyOrderSigningClient } from '../live/privy-order-client.js';
 import { address, LiveBoundaryError } from '../live/wallet-authorization.js';
 import type { CopyLiveStopWorkerRepository, StopRow } from './copy-live-stop-worker.repository.js';
-import { closeCloid, type CloseAccount, type TestnetReduceOnlyCloser } from './reduce-only-closer.js';
+import { closeCloid, type CloseAccount, type ReduceOnlyCloser } from './reduce-only-closer.js';
 import type { AutoReturn } from './copy-live-auto-return.js';
 
 const MAX_CLOSE_ATTEMPTS = 10, MAX_CANCEL_ATTEMPTS = 3;
@@ -30,7 +30,7 @@ const TERMINAL: ReadonlySet<string> = new Set(['filled', 'partial', 'cancelled',
 export const SWEEP_DUST_USD = '0.01';
 export interface StopperDependencies {
   readonly repository: CopyLiveStopWorkerRepository;
-  readonly closer: TestnetReduceOnlyCloser;
+  readonly closer: ReduceOnlyCloser;
   /** Cancels one tracked resting order under the owner's consent. */
   readonly canceller: StopCanceller | null;
   /** True once a transfer back to the owner's main wallet has been credited. */
@@ -52,7 +52,7 @@ const reason = (error: unknown) => (error instanceof LiveBoundaryError ? error.c
  * stopped) and each order has a fixed identity:
  * 1. wait until no order of the account is in flight (unknown ones are being
  *    reconciled by the engine; a prepared one is harmless once expired);
- * 2. cancel tracked resting orders — needs the owner's signed consent;
+ * 2. cancel tracked resting orders — under the copy's setup consent;
  * 3. reduce-only IOC closes of every position, by the approved agent;
  * 4. confirm flat from a fresh account observation (no position, no order),
  *    recorded as the flat certificate;
@@ -118,7 +118,7 @@ export class CopyLiveStopper {
       let attempt = 0;
       for (; attempt < MAX_CLOSE_ATTEMPTS; attempt++) {
         const seed = `stop:${stop.id}:${position.coin}:${attempt}`;
-        const state = await this.deps.repository.journalState(`testnet:${address(account.accountAddress)}:${closeCloid(seed)}`);
+        const state = await this.deps.repository.journalState(`${this.deps.closer.network}:${address(account.accountAddress)}:${closeCloid(seed)}`);
         if (state !== null && TERMINAL.has(state)) continue;
         await this.deps.closer.close({ account, coin: position.coin, seed, stillWanted: async () => (await this.deps.repository.get(stop.id))?.state === 'closing' });
         break;
@@ -159,14 +159,15 @@ export class CopyLiveStopper {
 
 /**
  * Cancels one tracked resting order with Codex's cancellation signer and
- * transport: a cancel by the order's own cloid, signed by the approved agent,
- * only under the owner's verified consent for this stop and its captured
- * revision, while the stop is cancelling and the grant and exchange approval
- * are current. One attempt per claim; an unknown outcome is reconciled from
+ * transport: a cancel by the order's own cloid, signed by the approved agent
+ * on the deployment's network, under the setup consent of the generation that
+ * placed the order (or an owner cancellation consent stored before the one
+ * signing model, still honoured; no new ones are taken), while the stop is
+ * cancelling and the grant and exchange approval are current. One attempt per claim; an unknown outcome is reconciled from
  * the order's status by the executor before another attempt.
  */
 export class StopCanceller {
-  constructor(private readonly pool: Pool, private readonly db: DrizzleDb, private readonly config: AppConfig, private readonly global: HyperliquidGlobalTransport,
+  constructor(private readonly network: HyperliquidNetwork, private readonly pool: Pool, private readonly db: DrizzleDb, private readonly config: AppConfig, private readonly global: HyperliquidGlobalTransport,
     private readonly budget: RequestBudgeterService, private readonly repository: CopyLiveStopWorkerRepository,
     private readonly reconcile: (account: CloseAccount, key: string) => Promise<LiveExecutionRecord>, private readonly now = Date.now) {}
   private acquire = (weight: number) => reserveLive(this.budget, weight, { maxWaitMs: 5000 });
@@ -175,24 +176,26 @@ export class StopCanceller {
     if (!target.intent) return 'stop_cancel_target_unproven';
     const consentRow = await this.repository.consent(stop.id), now = this.now();
     const parsed = consentRow ? liveStopCancellationIntentSchema.safeParse(consentRow.intent) : null;
-    // The owner's consent for this stop, or else the setup consent of the
-    // generation that placed the order (one-click copies: no prompt to stop).
+    // An owner consent stored for this stop before the one signing model, or
+    // else the setup consent of the generation that placed the order. The
+    // owner is never asked for a new one: without either, the stop reports
+    // that no cancellation authority exists.
     let intent: { agentWalletId: string; agentOwnerQuorumId: string; agentAddress: string; accountAddress: string; workerQuorumId: string; nonce: number; expiresAt: number };
     let consentDigest: string, currentDigest: () => Promise<string | null>, revision: number | null;
     if (consentRow?.consentDigest && parsed?.success && liveStopCancellationIntentDigest(parsed.data) === consentRow.intentDigest) {
       intent = parsed.data; consentDigest = consentRow.consentDigest; revision = parsed.data.capturedStopRevision;
       currentDigest = async () => (await this.repository.consent(stop.id))?.consentDigest ?? null;
-      if (parsed.data.stopId !== stop.id || parsed.data.capturedStopRevision !== stop.revision || parsed.data.targetDigest !== stop.targetDigest) return 'stop_cancellation_consent_required';
+      if (parsed.data.stopId !== stop.id || parsed.data.capturedStopRevision !== stop.revision || parsed.data.targetDigest !== stop.targetDigest) return 'stop_cancellation_authority_missing';
     } else {
       const mandate = await this.repository.setupConsent(stop, target.record.key);
-      if (!mandate) return 'stop_cancellation_consent_required';
+      if (!mandate) return 'stop_cancellation_authority_missing';
       intent = { agentWalletId: mandate.agentWalletId, agentOwnerQuorumId: target.record.authorization.privyOwnerId, agentAddress: mandate.agentAddress, accountAddress: mandate.accountAddress,
         workerQuorumId: mandate.workerQuorumId, nonce: mandate.nonce, expiresAt: Math.min(mandate.expiresAt.getTime(), target.record.authorization.expiresAt) };
       consentDigest = mandate.consentDigest!; revision = null;
       currentDigest = () => this.repository.mandateConsentDigest(mandate.id);
-      if (target.record.authorization.walletId !== mandate.agentWalletId) return 'stop_cancellation_consent_required';
+      if (target.record.authorization.walletId !== mandate.agentWalletId) return 'stop_cancellation_authority_missing';
     }
-    if (intent.expiresAt <= now + 5000 || intent.accountAddress !== stop.accountAddress || intent.agentAddress !== address(target.record.authorization.signerAddress)) return 'stop_cancellation_consent_required';
+    if (intent.expiresAt <= now + 5000 || intent.accountAddress !== stop.accountAddress || intent.agentAddress !== address(target.record.authorization.signerAddress)) return 'stop_cancellation_authority_missing';
     const attempts = await this.repository.attempts(stop.id, target.record.key);
     const last = attempts.at(-1);
     if (last && last.expiresAfter > now) return 'waiting';
@@ -200,7 +203,7 @@ export class StopCanceller {
     if (attempts.length >= MAX_CANCEL_ATTEMPTS) return 'stop_cancel_attempts_exhausted';
     const authorization: CancellationAuthorization = { id: `stop-cancel:${stop.id}`.slice(0, 200), version: 1, userId: stop.userId, strategyId: stop.strategyId,
       walletId: intent.agentWalletId, privyOwnerId: intent.agentOwnerQuorumId, signerAddress: address(intent.agentAddress), accountAddress: address(intent.accountAddress),
-      network: 'testnet', scope: 'copy:cancel', validFrom: intent.nonce, expiresAt: intent.expiresAt, revokedAt: null };
+      network: this.network, scope: 'copy:cancel', validFrom: intent.nonce, expiresAt: intent.expiresAt, revokedAt: null };
     const claim = await this.repository.claim({ stopId: stop.id, executionKey: target.record.key, attempt: attempts.length + 1, signerAddress: authorization.signerAddress,
       consentDigest, now });
     if (!claim) return 'waiting';
@@ -208,7 +211,7 @@ export class StopCanceller {
       target: { record: target.record, intent: target.intent }, authorization, ownerConsentDigest: consentDigest, nonce: claim.nonce,
       expiresAfter: Math.min(claim.expiresAfter, intent.expiresAt), action: trackedCancellationAction({ record: target.record, intent: target.intent }) };
     const operation: PreparedTrackedCancellation = { ...base, fingerprint: trackedCancellationFingerprint({ ...base, fingerprint: '' }) };
-    const verifier = new HyperliquidAgentApprovalVerifier('testnet', this.acquire, this.global.fetchInfo, this.now);
+    const verifier = new HyperliquidAgentApprovalVerifier(this.network, this.acquire, this.global.fetchInfo, this.now);
     const authority: TrackedCancellationAuthority = { authorize: async (op, phase) => {
       const current = await this.repository.get(stop.id), digestNow = await currentDigest(), grant = await findCurrentWalletAuthorization(this.db, account.authorizationId, 'stop');
       if (current?.state !== 'cancelling' || (revision !== null && current.revision !== revision) || digestNow !== consentDigest || !await this.repository.ownerEnabled(stop.userId) ||
@@ -221,10 +224,10 @@ export class StopCanceller {
     const { auth, copy } = this.config.value;
     if (!auth.appId || !auth.appSecret || !copy.agent || copy.agent.workerQuorumId !== intent.workerQuorumId) return 'stop_cancellation_signing_unavailable';
     const key = copy.agent.authorizationPrivateKey;
-    const signer = new PrivyTrackedCancellationSigner(new BoundaryPrivyOrderSigningClient({ appId: auth.appId, appSecret: auth.appSecret }, fetch, this.now), authority,
+    const signer = new PrivyTrackedCancellationSigner(new BoundaryPrivyOrderSigningClient(this.network, { appId: auth.appId, appSecret: auth.appSecret }, fetch, this.now), authority,
       async () => ({ authorization_context: { authorization_private_keys: [key] } }), this.now);
     const transport = new HyperliquidTrackedCancellationTransport(signer, this.global, fetch, this.now);
-    const evidence = await new PostgresLiveRiskScope(this.pool, this.now).run({ userId: stop.userId, network: 'testnet', accountAddress: stop.accountAddress },
+    const evidence = await new PostgresLiveRiskScope(this.pool, this.now).run({ userId: stop.userId, network: this.network, accountAddress: stop.accountAddress },
       async (_scope, session) => this.global.runOriginal(session, () => transport.attempt(operation, () => undefined)));
     await this.repository.attempted(claim.id, evidence.state, { ...evidence, response: undefined, responseDigest: createHash('sha256').update(JSON.stringify(evidence.response ?? null)).digest('hex') });
     return 'attempted';
@@ -239,7 +242,7 @@ export class StopCanceller {
  * over (and closes everything) if one starts.
  */
 export class CopyLiveManualCloser {
-  constructor(private readonly repository: CopyLiveStopWorkerRepository, private readonly closer: TestnetReduceOnlyCloser,
+  constructor(private readonly repository: CopyLiveStopWorkerRepository, private readonly closer: ReduceOnlyCloser,
     /** Books the account's fills now, so the copy's next order sees the close. */
     private readonly scanner: { runFor(accountId: string): Promise<void> }, private readonly log?: (message: string) => void) {}
   async tick(): Promise<void> {
@@ -269,7 +272,7 @@ export class CopyLiveManualCloser {
       await this.repository.finishManual(row.id, 'done', null); return;
     }
     if (row.executionKeys.length >= MAX_CLOSE_ATTEMPTS) { await this.repository.finishManual(row.id, 'refused', 'close_attempts_exhausted'); return; }
-    const seed = `manual:${row.id}:${row.executionKeys.length}`, key = `testnet:${address(account.accountAddress)}:${closeCloid(seed)}`;
+    const seed = `manual:${row.id}:${row.executionKeys.length}`, key = `${this.closer.network}:${address(account.accountAddress)}:${closeCloid(seed)}`;
     if (!await this.repository.appendManualKey(row.id, row.executionKeys.length, key)) return;
     await this.closer.close({ account, coin: row.coin, seed, stillWanted });
   }

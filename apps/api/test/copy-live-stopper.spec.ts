@@ -1,3 +1,4 @@
+import { testConfig } from './config-test-utils.js';
 import * as schema from '@trading-dashboard/shared/database';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -14,7 +15,7 @@ import { CopyLiveStopper, type StopCanceller } from '../src/copy/live-worker/cop
 import { CopyLiveAutoReturn } from '../src/copy/live-worker/copy-live-auto-return.js';
 import { CopyLiveReturnRepository, expireStaleReturns } from '../src/copy/copy-live-return.repository.js';
 import { CopyLiveStopWorkerRepository } from '../src/copy/live-worker/copy-live-stop-worker.repository.js';
-import { closeCloid, type CloseRequest, type TestnetReduceOnlyCloser } from '../src/copy/live-worker/reduce-only-closer.js';
+import { closeCloid, type CloseRequest, type ReduceOnlyCloser } from '../src/copy/live-worker/reduce-only-closer.js';
 import type { LiveAccountSnapshot } from '../src/copy/live/live-account-observer.js';
 import type { LiveExecutionRecord } from '../src/copy/live/live-execution.js';
 import { preparationFixture } from './copy-live-preparation-test-utils.js';
@@ -41,20 +42,21 @@ async function journal(key: string, state: string, expiresAfter = clock + 60_000
     userId: 1, strategyId: 9, state, record, updatedAt: new Date(clock) }).onConflictDoUpdate({ target: schema.copyLiveExecutions.key, set: { state, record: sql`jsonb_set(${schema.copyLiveExecutions.record}, '{state}', to_jsonb(${state}::text))` } });
 }
 const closer = {
+  network: 'testnet',
   observe: vi.fn(async () => snapshot()),
   close: vi.fn(async (request: CloseRequest) => { closes.push(request); const key = `testnet:${account()}:${closeCloid(request.seed)}`; await journal(key, 'submitting'); return { key, state: 'submitting' } as LiveExecutionRecord; }),
-} as unknown as TestnetReduceOnlyCloser;
+} as unknown as ReduceOnlyCloser;
 let swept = false, canceller: { cancel: ReturnType<typeof vi.fn> };
-const stopper = () => new CopyLiveStopper({ repository: new CopyLiveStopWorkerRepository(db, new UnitOfWork(db)), closer, canceller: canceller as unknown as StopCanceller,
+const stopper = () => new CopyLiveStopper({ repository: new CopyLiveStopWorkerRepository(db, new UnitOfWork(db), testConfig()), closer, canceller: canceller as unknown as StopCanceller,
   swept: async () => swept }, () => clock);
 const stopRow = async () => (await db.select().from(schema.copyLiveStopOperations))[0]!;
 
 beforeEach(async () => {
   db = getTestDb(); seed = await preparationFixture(db); clock = now; positions = []; withdrawable = '0'; resting = []; closes.length = 0; swept = false;
-  canceller = { cancel: vi.fn(async () => 'stop_cancellation_consent_required') };
+  canceller = { cancel: vi.fn(async () => 'stop_cancellation_authority_missing') };
   vi.mocked(closer.observe).mockClear(); vi.mocked(closer.close).mockClear();
   await db.insert(schema.leaders).values({ address: seed.consent.leaderAddress, active: true, source: 'copy' });
-  await new CopyLiveStopService(new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db)), new UnitOfWork(db), () => clock)
+  await new CopyLiveStopService(new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, testConfig())), new UnitOfWork(db), () => clock)
     .request(1, 'mandate', { idempotencyKey: 'stop-request-key-0001', expectedMandateRevision: 2 });
 });
 afterAll(async () => { await closeTestDb(); });
@@ -87,7 +89,7 @@ describe('testnet stop execution', () => {
   });
 
   it('an admin revoking the grant during a stop keeps it for the stop (reduce-only) and revokes it when the stop ends', async () => {
-    const admin = new CopyAdminLiveService(new CopyAdminLiveRepository(db), new UnitOfWork(db), new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db)));
+    const admin = new CopyAdminLiveService(new CopyAdminLiveRepository(db, testConfig()), new UnitOfWork(db), new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, testConfig())));
     admin.now = () => new Date(clock);
     const stop = await stopRow();
     const revoked = await admin.revoke('grant', { reason: 'leaked agent key' }, { kind: 'user', id: 1, privyUserId: 'did:privy:risk-source', role: 'admin' } as never);
@@ -118,8 +120,8 @@ describe('testnet stop execution', () => {
   describe('the automatic return (one-click plan §3c)', () => {
     const main = `0x${'5a'.repeat(20)}`;
     let exchange: { send: ReturnType<typeof vi.fn> }, worker: { available: boolean; sign: ReturnType<typeof vi.fn> };
-    const auto = () => new CopyLiveStopper({ repository: new CopyLiveStopWorkerRepository(db, new UnitOfWork(db)), closer, canceller: canceller as unknown as StopCanceller,
-      swept: async () => swept, autoReturn: new CopyLiveAutoReturn(new CopyLiveReturnRepository(db), exchange as never, worker as never, () => clock) }, () => clock);
+    const auto = () => new CopyLiveStopper({ repository: new CopyLiveStopWorkerRepository(db, new UnitOfWork(db), testConfig()), closer, canceller: canceller as unknown as StopCanceller,
+      swept: async () => swept, autoReturn: new CopyLiveAutoReturn('testnet', new CopyLiveReturnRepository(db, testConfig()), exchange as never, worker as never, () => clock) }, () => clock);
     const withSigner = () => db.update(schema.copyExecutionAccounts).set({ masterPolicyId: 'policy-1', masterPolicyFingerprint: 'c'.repeat(64), masterSignerQuorumId: 'worker',
       sweepDestination: main, signerAttachedAt: new Date(clock) });
     const returns = () => db.select().from(schema.copyFundingOperations).where(eq(schema.copyFundingOperations.direction, 'to_main'));
@@ -173,7 +175,7 @@ describe('testnet stop execution', () => {
 
     it('a sweep whose send failed is never counted as sent: not dispatched it is refused (the owner returns it), dispatched it stays unconfirmed and is not resent', async () => {
       await withSigner(); withdrawable = '25';
-      const sweep = () => new CopyLiveAutoReturn(new CopyLiveReturnRepository(db), exchange as never, worker as never, () => clock);
+      const sweep = () => new CopyLiveAutoReturn('testnet', new CopyLiveReturnRepository(db, testConfig()), exchange as never, worker as never, () => clock);
       // Refused before the POST (its proof went stale): nothing left the process.
       exchange.send.mockImplementationOnce(async (_row: unknown, _signature: string, fresh: () => void) => { clock += 60_000; fresh(); return null; });
       const stop = await auto().tick().then(() => auto().tick()).then(stopRow);
@@ -202,7 +204,7 @@ describe('testnet stop execution', () => {
     const tracked = `testnet:${account()}:0x${'cd'.repeat(16)}`; await journal(tracked, 'resting');
     await stopper().tick(); expect(await stopRow()).toMatchObject({ state: 'cancelling' });
     await stopper().tick();
-    expect(await stopRow()).toMatchObject({ state: 'cancelling', issue: 'stop_cancellation_consent_required' });
+    expect(await stopRow()).toMatchObject({ state: 'cancelling', issue: 'stop_cancellation_authority_missing' });
     expect(canceller.cancel).toHaveBeenCalledOnce();
     await journal(tracked, 'cancelled'); await stopper().tick();
     expect(await stopRow()).toMatchObject({ state: 'closing' });
@@ -215,18 +217,18 @@ describe('testnet stop execution', () => {
     await journal(`testnet:${account()}:0x${'ef'.repeat(16)}`, 'prepared', clock - 1);
     const stale = await stopRow(); await stopper().tick();
     expect(await stopRow()).toMatchObject({ state: 'closing' });
-    expect(await new CopyLiveStopWorkerRepository(db, new UnitOfWork(db)).move(stale, 'flat')).toBeNull();
+    expect(await new CopyLiveStopWorkerRepository(db, new UnitOfWork(db), testConfig()).move(stale, 'flat')).toBeNull();
     expect(await stopRow()).toMatchObject({ state: 'closing' });
   });
 
   it('pausing or revoking consent during a stop is refused and never moves the strategy back to paused', async () => {
-    const mandates = new CopyLiveMandateRepository(db), uow = new UnitOfWork(db);
+    const mandates = new CopyLiveMandateRepository(db, testConfig()), uow = new UnitOfWork(db);
     await expect(uow.run(tx => mandates.barrier(tx, 1, 'mandate', 'revoked', () => clock))).rejects.toMatchObject({ status: 409 });
     expect((await db.select().from(schema.copyStrategies))[0]).toMatchObject({ status: 'stopping' });
   });
 
   it('a single-position close is refused while a stop runs; outside a stop one open close per market', async () => {
-    const closes = new CopyLiveCloseService(new CopyLiveCloseRepository(db), () => clock);
+    const closes = new CopyLiveCloseService(new CopyLiveCloseRepository(db, testConfig()), () => clock);
     await expect(closes.request(1, 'account', { idempotencyKey: '66666666-6666-4666-8666-666666666666', coin: 'BTC' })).rejects.toMatchObject({ status: 409, response: { code: 'copy_stopping' } });
     await db.delete(schema.copyLiveStopOperations); await db.update(schema.copyStrategies).set({ status: 'active', pauseNewRisk: false, reduceOnly: false });
     const first = await closes.request(1, 'account', { idempotencyKey: '77777777-7777-4777-8777-777777777777', coin: 'BTC' });

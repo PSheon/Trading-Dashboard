@@ -1,6 +1,7 @@
 import { createPrivateKey } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { PrivyClient } from '@privy-io/node';
+import { isHyperliquidNetwork, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import type { PrivyOrderSigningClient, PrivyOrderSignInput } from './privy-order-signer.js';
 import { boundedLiveRead } from './live-market-resolver.js';
 import { LiveBoundaryError } from './wallet-authorization.js';
@@ -53,11 +54,12 @@ async function readSdkBody(response: Response, remaining: () => number, signal: 
 }
 
 /** Fixed-origin, request-scoped installed SDK adapter. Worker keys authorize
- * one exact testnet Agent RPC; principal JWTs, arbitrary signing and hidden SDK
+ * one exact Agent RPC on this client's network; principal JWTs, arbitrary signing and hidden SDK
  * retries are refused. No client/key-exchange cache survives an invocation. */
 export class BoundaryPrivyOrderSigningClient implements PrivyOrderSigningClient {
   private readonly credentials: Readonly<{ appId: string; appSecret: string }> | null;
-  constructor(config: { appId?: string; appSecret?: string }, private readonly fetcher: typeof fetch = fetch, private readonly now = Date.now) {
+  constructor(readonly network: HyperliquidNetwork, config: { appId?: string; appSecret?: string }, private readonly fetcher: typeof fetch = fetch, private readonly now = Date.now) {
+    if (!isHyperliquidNetwork(network)) fail('privy_order_signing_unavailable');
     this.credentials = config.appId && config.appSecret ? Object.freeze({ appId: config.appId, appSecret: config.appSecret }) : null;
   }
   async getWallet(id: string): ReturnType<PrivyOrderSigningClient['getWallet']> {
@@ -102,7 +104,7 @@ export class BoundaryPrivyOrderSigningClient implements PrivyOrderSigningClient 
       remaining();
       const data = input.params.typed_data, auth = input.authorization_context;
       if (!this.credentials || typeof guard !== 'function' || !isDeepStrictEqual(data.domain, domain) || !isDeepStrictEqual(data.types, types) ||
-          data.primary_type !== 'Agent' || data.message.source !== 'b' || !/^0x[0-9a-f]{64}$/.test(String(data.message.connectionId)) ||
+          data.primary_type !== 'Agent' || data.message.source !== (this.network === 'testnet' ? 'b' : 'a') || !/^0x[0-9a-f]{64}$/.test(String(data.message.connectionId)) ||
           Object.keys(data.message).sort().join(',') !== 'connectionId,source' || typeof input.address !== 'string' ||
           !/^0x[0-9a-fA-F]{40}$/.test(input.address) || /^0x0{40}$/i.test(input.address) ||
           !auth || Object.keys(auth).join(',') !== 'authorization_private_keys' || auth.authorization_private_keys?.length !== 1 ||

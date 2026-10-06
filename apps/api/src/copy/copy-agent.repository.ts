@@ -56,7 +56,7 @@ export class CopyAgentRepository {
     return { owner, account, strategy };
   }
   async ensure(tx: DbTransaction, userId: number, accountId: string, input: { idempotencyKey: string; validForDays: number }, workerQuorumId: string,
-    setup: { liveSetupId: string; renewal: boolean } | null = null) {
+    setup: { liveSetupId: string; renewal: boolean } | null = null, network: "testnet" | "mainnet" = "testnet") {
     // Serialize setup admission without holding a transaction across provider calls.
     const owner = await this.owner(userId, tx);
     const account = await this.account(userId, accountId, tx);
@@ -65,7 +65,7 @@ export class CopyAgentRepository {
       if (prior.accountId !== accountId || prior.validForDays !== input.validForDays || prior.workerQuorumId !== workerQuorumId) throw new ConflictException("agent_idempotency_conflict");
       return prior;
     }
-    if (account.state !== "ready" || account.privyUserId !== owner.privyUserId || !account.address || !account.privyWalletId || !account.ownerQuorumId || account.network !== "testnet") throw new ConflictException("agent_account_not_ready");
+    if (account.state !== "ready" || account.privyUserId !== owner.privyUserId || !account.address || !account.privyWalletId || !account.ownerQuorumId || account.network !== network) throw new ConflictException("agent_account_not_ready");
     const currents = await tx.select().from(copyAgentSetups).where(and(eq(copyAgentSetups.accountId, accountId), sql`${copyAgentSetups.state} not in ('blocked', 'revoked')`));
     if (setup?.renewal) {
       // A renewal prepares the next agent while the current one keeps trading
@@ -84,7 +84,7 @@ export class CopyAgentRepository {
       if (current.authorizationId) await this.revoke(tx, userId, eq(copyWalletAuthorizations.id, current.authorizationId));
     }
     const id = randomUUID(); const now = new Date();
-    const [row] = await tx.insert(copyAgentSetups).values({ id, userId, strategyId: account.strategyId, accountId, network: "testnet", ...input,
+    const [row] = await tx.insert(copyAgentSetups).values({ id, userId, strategyId: account.strategyId, accountId, network: account.network, ...input,
       externalId: `agent_${id.replaceAll("-", "")}`, policyAttemptId: `policy_${id.replaceAll("-", "")}`, workerQuorumId, liveSetupId: setup?.liveSetupId ?? null,
       accountAddress: account.address, accountWalletId: account.privyWalletId, accountOwnerQuorumId: account.ownerQuorumId,
       expiresAt: new Date(now.getTime() + input.validForDays * 86_400_000), createdAt: now, updatedAt: now }).returning();

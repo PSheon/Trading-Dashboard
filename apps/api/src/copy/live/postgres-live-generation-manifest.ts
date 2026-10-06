@@ -19,11 +19,11 @@ const canonical=<T>(value:unknown):T=>JSON.parse(JSON.stringify(value)) as T;
  * preparation coordinator. All quantities come from the original SQL session. */
 export async function loadLiveGenerationManifest(session:LiveRiskDatabaseSession,db:DbExecutor,authority:LivePreparationAuthority,raw:{currentExecutionKey:string;now:number}):Promise<LiveGenerationManifestV1> {
   assertOriginalLiveRiskSession(session);session.scope.assertFresh();const input=structuredClone(raw),{account:a,mandate:m}=authority;
-  check(a.userId===session.scope.identity.userId&&a.network==='testnet'&&a.address===session.scope.identity.accountAddress&&typeof input.currentExecutionKey==='string'&&input.currentExecutionKey.length>0&&Number.isSafeInteger(input.now)&&input.now>0,'live_risk_identity');
+  check(a.userId===session.scope.identity.userId&&a.network===session.scope.identity.network&&a.address===session.scope.identity.accountAddress&&typeof input.currentExecutionKey==='string'&&input.currentExecutionKey.length>0&&Number.isSafeInteger(input.now)&&input.now>0,'live_risk_identity');
   const read=async<T>(work:PromiseLike<T>):Promise<T>=>{const result=await work;await session.scope.assertHeld();return result;};
   const [row]=await read(db.select().from(copyLivePositionBaselines).where(eq(copyLivePositionBaselines.mandateId,m.id)));
   check(row&&Buffer.byteLength(JSON.stringify(row.record))<=2*1024*1024,'live_risk_baseline_unproven');
-  const baseline=decodeLivePositionBaseline({mandateId:m.id,accountId:a.id,strategyId:a.strategyId,network:'testnet',accountAddress:a.address!,firstExecutionKey:row.firstExecutionKey},row.record);
+  const baseline=decodeLivePositionBaseline({mandateId:m.id,accountId:a.id,strategyId:a.strategyId,network:a.network,accountAddress:a.address!,firstExecutionKey:row.firstExecutionKey},row.record);
   for(const field of ['mandateId','accountId','strategyId','network','accountAddress','firstExecutionKey','sourceDigest','snapshotDigest','baselineDigest','producerVersion'] as const)check(row[field]===baseline[field],'live_risk_baseline_unproven');
   check(row.observedAt.getTime()===baseline.observedAt&&row.completedAt.getTime()===baseline.completedAt&&row.createdAt.getTime()===baseline.createdAt&&baseline.createdAt<=input.now,'live_risk_baseline_unproven');
   const entries=await read(db.select({journal:copyLiveExecutions,provenance:copyLiveIntentProvenance,leg:copyLiveSignalLegs,fill:copyLiveSourceFills,reservation:copyLiveRiskReservations,evidence:copyLiveExecutionEvidence})
@@ -33,7 +33,7 @@ export async function loadLiveGenerationManifest(session:LiveRiskDatabaseSession
     .where(or(eq(copyLiveExecutions.accountAddress,a.address!),eq(copyLiveRiskReservations.accountId,a.id),eq(copyLiveExecutionEvidence.accountId,a.id))).orderBy(copyLiveExecutions.key).limit(5002));
   check(entries.length<=5001,'live_risk_generation_unbounded');
   const first=entries.find(e=>e.journal.key===baseline.firstExecutionKey),firstRecord=first?.journal.record as unknown as LiveExecutionRecord;
-  check(first&&first.provenance?.mandateId===m.id&&first.journal.network==='testnet'&&first.journal.accountAddress===a.address&&first.journal.userId===a.userId&&first.journal.strategyId===a.strategyId&&firstRecord.key===baseline.firstExecutionKey&&firstRecord.createdAt>=baseline.createdAt&&first.provenance.admittedAt.getTime()>=baseline.createdAt,'live_risk_baseline_unproven');
+  check(first&&first.provenance?.mandateId===m.id&&first.journal.network===a.network&&first.journal.accountAddress===a.address&&first.journal.userId===a.userId&&first.journal.strategyId===a.strategyId&&firstRecord.key===baseline.firstExecutionKey&&firstRecord.createdAt>=baseline.createdAt&&first.provenance.admittedAt.getTime()>=baseline.createdAt,'live_risk_baseline_unproven');
   const receipts=await read(db.select().from(copyFollowerReceipts).where(or(eq(copyFollowerReceipts.accountId,a.id),eq(copyFollowerReceipts.accountAddress,a.address!))).orderBy(copyFollowerReceipts.key).limit(10001));
   const ledger=await read(db.select().from(copyFollowerLedger).where(sql`${copyFollowerLedger.receiptKey} in (select key from copy_follower_receipts where account_id=${a.id} or account_address=${a.address})`).orderBy(copyFollowerLedger.receiptKey,copyFollowerLedger.component).limit(30001));
   const [scan]=await read(db.select().from(copyFollowerScans).where(eq(copyFollowerScans.accountId,a.id)));

@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import { isHyperliquidNetwork, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import type { LiveAccountSnapshot } from './live-account-observer.js';
 import { mapLiveAccountView } from './live-account-view.js';
 import { followerReceiptDigestV1 } from './actual-fill-accounting.js';
@@ -7,7 +8,7 @@ import { freezeLiveReservation } from './live-risk-reservation.js';
 import { Dec } from '../../common/decimal/dec.js';
 
 export interface LivePositionBaselineIdentity {
-  mandateId: string; accountId: string; strategyId: number; firstExecutionKey: string; network: 'testnet'; accountAddress: string;
+  mandateId: string; accountId: string; strategyId: number; firstExecutionKey: string; network: HyperliquidNetwork; accountAddress: string;
 }
 export interface LivePositionBaseline extends LivePositionBaselineIdentity {
   observedAt: number; completedAt: number; createdAt: number; sourceDigest: string; snapshotDigest: string; baselineDigest: string;
@@ -20,9 +21,9 @@ const fail = (): never => { throw new LiveBoundaryError('live_risk_baseline_unpr
  * current account risk permit or evidence to adopt an existing position. */
 export function captureLivePositionBaseline(identity: LivePositionBaselineIdentity, snapshot: LiveAccountSnapshot, now: number): LivePositionBaseline {
   try {
-    if (identity.network !== 'testnet' || !identity.mandateId || !identity.accountId || !Number.isSafeInteger(identity.strategyId) || identity.strategyId < 1 ||
-      address(identity.accountAddress) !== identity.accountAddress || !identity.firstExecutionKey.startsWith(`testnet:${identity.accountAddress}:`) ||
-      !/^0x[0-9a-f]{32}$/.test(identity.firstExecutionKey.slice(`testnet:${identity.accountAddress}:`.length))) fail();
+    if (!isHyperliquidNetwork(identity.network) || !identity.mandateId || !identity.accountId || !Number.isSafeInteger(identity.strategyId) || identity.strategyId < 1 ||
+      address(identity.accountAddress) !== identity.accountAddress || !identity.firstExecutionKey.startsWith(`${identity.network}:${identity.accountAddress}:`) ||
+      !/^0x[0-9a-f]{32}$/.test(identity.firstExecutionKey.slice(`${identity.network}:${identity.accountAddress}:`.length))) fail();
     const view = mapLiveAccountView(identity, snapshot, { blocked: false, reason: null }, now, 5000);
     if (view.freshness !== 'fresh' || snapshot.positions.length || snapshot.restingOrders.length ||
       !Dec.from(snapshot.totalMarginUsed).isZero || !Dec.from(snapshot.exposureUsd).isZero ||

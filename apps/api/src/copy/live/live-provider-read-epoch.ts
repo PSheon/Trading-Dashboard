@@ -8,7 +8,7 @@ import { evidenceFinalCheck, evidenceFirstWave, liveInfoWeights, LiveSharedReads
 import type { LiveReserveOptions } from '../../hyperliquid/hyperliquid-budget-wait.js';
 import { address } from './wallet-authorization.js';
 
-/** Shared provider reads for an epoch (testnet): the budget the epoch pays
+/** Shared provider reads for an epoch (on the readers' network): the budget the epoch pays
  * its reads from, the info fetch, and the batch transport for each wave. */
 export interface LiveEpochSharing {
   /** The order bucket (reserveLive): bounds its own wait, and refuses at once
@@ -55,7 +55,7 @@ export class LiveProviderReadEpoch {
     private readonly provider: HyperliquidLiveRiskProvider,
     options: LiveRiskProviderOptions, private readonly now = Date.now, private readonly sharing?: LiveEpochSharing) {
     riskSourceRequire(observer instanceof HyperliquidLiveAccountObserver && resolver instanceof HyperliquidLiveMarketResolver &&
-      provider instanceof HyperliquidLiveRiskProvider, 'live_risk_source_unavailable');
+      provider instanceof HyperliquidLiveRiskProvider && observer.network === resolver.network && provider.network === resolver.network, 'live_risk_source_unavailable');
     this.options = freezeLiveReservation({ extraRiskBufferBps: options.extraRiskBufferBps,
       restingOrderBuilderFeeCapTenthsBps: options.restingOrderBuilderFeeCapTenthsBps,
       ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }) });
@@ -80,6 +80,8 @@ export class LiveProviderReadEpoch {
     if (previous) riskSourceRequire(previous.bindingDigest === bindingDigest, 'live_risk_epoch_mismatch');
     const authority = await session.read(db => loadLivePreparationAuthority(session, db, binding, this.now()));
     this.fresh(started);
+    // The readers observe one network: the account's (the scope's).
+    riskSourceRequire(authority.account.network === this.resolver.network, 'live_risk_identity');
     const authorityDigest = riskSourceDigest(authority);
     if (previous) {
       riskSourceRequire(previous.authorityDigest === authorityDigest, 'live_risk_local_changed');
@@ -88,7 +90,7 @@ export class LiveProviderReadEpoch {
       riskSourceRequire(!binding.includeLeader || frames.leader !== null, 'live_risk_epoch_mismatch');
       return frames;
     }
-    const shared = this.sharing ? new LiveSharedReads(this.sharing.fetcher, this.sharing.batch, this.now, 5000, this.sharing.acquire) : undefined;
+    const shared = this.sharing ? new LiveSharedReads(this.resolver.network, this.sharing.fetcher, this.sharing.batch, this.now, 5000, this.sharing.acquire) : undefined;
     const frames = this.sharing ? this.collectShared(session, binding, authority, authorityDigest, started, this.sharing, shared!) : (async (): Promise<LiveProviderEpochFrames> => {
       const snapshots: LiveAccountSnapshot[] = [];
       const accountsWork = (async () => {

@@ -18,7 +18,10 @@ describe("the copy agent's approval typed data", () => {
       message: { hyperliquidChain: "Testnet", agentAddress: `0x${"33".repeat(20)}`, agentName: "copy42 valid_until 1790604800000", nonce: 1_790_000_000_000 },
     });
   });
-  it("does not construct a mainnet approval yet", () => {
-    expect(() => agentApprovalTypedData({ ...intent, network: "mainnet" })).toThrow();
+  it("constructs a mainnet approval on Arbitrum's chain (42161, \"Mainnet\") and nothing for another network", () => {
+    const mainnet = agentApprovalTypedData({ ...intent, network: "mainnet" });
+    expect(mainnet.domain.chainId).toBe(42161);
+    expect(mainnet.message.hyperliquidChain).toBe("Mainnet");
+    expect(() => agentApprovalTypedData({ ...intent, network: "devnet" as never })).toThrow();
   });
 });

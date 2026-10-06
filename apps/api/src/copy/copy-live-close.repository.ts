@@ -2,6 +2,9 @@ import { ConflictException, Inject, Injectable, NotFoundException } from '@nestj
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { copyAgentSetups, copyExecutionAccounts, copyLiveManualCloses, copyLiveStopOperations, copyStrategies, users } from '@trading-dashboard/shared/database';
+import { ACTUAL_STRATEGY_MODE } from '@trading-dashboard/shared/contracts';
+import { AppConfig } from '../config/app-config.js';
+import { deploymentNetwork } from './live-deployment.js';
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
 import { lockCopyUser } from './copy-user-lock.js';
@@ -12,7 +15,7 @@ export type CloseRow = typeof copyLiveManualCloses.$inferSelect;
  * agent. The copy keeps following its leader. */
 @Injectable()
 export class CopyLiveCloseRepository {
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, private readonly config: AppConfig) {}
   async request(userId: number, accountId: string, idempotencyKey: string, coin: string, at: Date): Promise<CloseRow> {
     return this.db.transaction(async tx => {
       await lockCopyUser(tx, userId);
@@ -22,7 +25,7 @@ export class CopyLiveCloseRepository {
       const [account] = await tx.select().from(copyExecutionAccounts).where(and(eq(copyExecutionAccounts.id, accountId), eq(copyExecutionAccounts.userId, userId)));
       if (!owner || owner.disabledAt || !account) throw new NotFoundException('Execution account not found');
       const [strategy] = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.id, account.strategyId), eq(copyStrategies.userId, userId)));
-      if (!strategy || strategy.mode !== 'testnet' || account.state !== 'ready' || account.network !== 'testnet') throw new ConflictException('Execution account is not ready');
+      if (!strategy || strategy.mode !== ACTUAL_STRATEGY_MODE || account.state !== 'ready' || account.network !== deploymentNetwork(this.config)) throw new ConflictException('Execution account is not ready');
       if (['stopping', 'stopped'].includes(strategy.status)) throw new ConflictException({ statusCode: 409, code: 'copy_stopping', message: 'The stop closes every position' });
       const [stop] = await tx.select({ id: copyLiveStopOperations.id }).from(copyLiveStopOperations).where(and(eq(copyLiveStopOperations.accountId, accountId), inArray(copyLiveStopOperations.state, ['requested', 'cancelling', 'closing', 'blocked', 'flat'])));
       if (stop) throw new ConflictException({ statusCode: 409, code: 'copy_stopping', message: 'The stop closes every position' });

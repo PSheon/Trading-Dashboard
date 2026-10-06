@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { assessLiveAccountRisk, type LiveAccountRiskInput } from '../src/copy/live/live-account-risk.js';
-import { buildOrderAction, type LiveOrderIntent } from '../src/copy/live/live-order.js';
+import { buildOrderAction, executionKey, type LiveOrderIntent } from '../src/copy/live/live-order.js';
 import { Dec } from '../src/common/decimal/dec.js';
 
 import { now, account, reservation, fixture } from './copy-live-risk-test-utils.js';
@@ -312,4 +312,25 @@ it('allows a safe reduction after leverage policy tightens without authorizing n
   });
   expect(assessLiveAccountRisk(f)).toMatchObject({ ok: true, requiredMarginUsd: '0' });
   expect(assessLiveAccountRisk(updateIntent(f, { reduceOnly: false, side: 'B' }))).toEqual({ ok: false, reason: 'live_risk_leverage' });
+});
+
+/** The same proof for a mainnet deployment: every piece observed on mainnet. */
+function onMainnet(f: LiveAccountRiskInput): LiveAccountRiskInput {
+  const value = JSON.parse(JSON.stringify(f), (key, v) => key === 'network' && v === 'testnet' ? 'mainnet' : v) as LiveAccountRiskInput;
+  return edit(value, v => { v.reservations.own = reservation(v.intent); v.userExposureProof.excludedExecutionKey = executionKey(v.intent); });
+}
+it('assesses a proof whose identity and every piece are on mainnet', () => {
+  const f = onMainnet(fixture());
+  expect(f.identity.network).toBe('mainnet');
+  expect(assessLiveAccountRisk(f)).toMatchObject({ ok: true, key: `mainnet:${account}:0x${'ab'.repeat(16)}`, fingerprint: f.reservations.own.fingerprint });
+});
+it.each([
+  ['market', 'live_risk_market', (v: any) => { v.market.network = 'testnet'; }],
+  ['account snapshot', 'live_risk_identity', (v: any) => { v.accountSource.snapshot.network = 'testnet'; }],
+  ['fees', 'live_risk_identity', (v: any) => { v.fees.network = 'testnet'; }],
+  ['leverage proof', 'live_risk_identity', (v: any) => { v.leverageProofs[0].network = 'testnet'; }],
+  ['reservation set', 'live_risk_reservation', (v: any) => { v.reservations.network = 'testnet'; }],
+  ['user exposure proof', 'live_risk_identity', (v: any) => { v.userExposureProof.network = 'testnet'; }],
+] as const)('refuses a mainnet identity with a testnet %s', (_name, reason, change) => {
+  expect(assessLiveAccountRisk(edit(onMainnet(fixture()), change))).toEqual({ ok: false, reason });
 });

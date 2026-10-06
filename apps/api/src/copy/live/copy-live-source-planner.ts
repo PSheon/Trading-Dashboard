@@ -1,4 +1,4 @@
-import { copyStrategySettingsSchema, type CopyRiskLimits, type CopyStrategySettings } from '@trading-dashboard/shared/contracts';
+import { copyStrategySettingsSchema, HYPERLIQUID_NETWORKS, isHyperliquidNetwork, type CopyRiskLimits, type CopyStrategySettings, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { Dec } from '../../common/decimal/dec.js';
@@ -38,15 +38,16 @@ export function mergedMemberIds(sizingBasis:unknown,ownFillId:string):string[]{
 const hash=z.string().regex(/^[a-f0-9]{64}$/),id=z.string().min(1).max(160),integer=z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),version=integer.refine(v=>v>0),addr=z.string().regex(/^0x[0-9a-f]{40}$/);
 const decimal=z.string().max(80).regex(/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]{1,18})?$/).refine(v=>Dec.from(v).toString()===v);
 const nonnegative=decimal.refine(v=>Dec.from(v).gte(0)),positive=decimal.refine(v=>Dec.from(v).isPositive);
-const market=z.object({network:z.literal('testnet'),coin:id,dex:z.string(),asset:integer,universeIndex:integer,perpDexIndex:integer,sizeDecimals:integer,maxLeverage:version,observedAt:integer}).strict();
-const snapshotIdentity={network:z.literal('testnet'),accountAddress:addr,equity:nonnegative,observedAt:integer,completedAt:integer,sourceDigest:hash,snapshotDigest:hash};
-const basisSchema=z.object({version:z.literal(1),mandateId:id,mandateRevision:version,settingsDigest:hash,sourceFillId:id,sourceDigest:hash,network:z.literal('testnet'),accountAddress:addr,coin:id,
+const network=z.enum(HYPERLIQUID_NETWORKS);
+const market=z.object({network,coin:id,dex:z.string(),asset:integer,universeIndex:integer,perpDexIndex:integer,sizeDecimals:integer,maxLeverage:version,observedAt:integer}).strict();
+const snapshotIdentity={network,accountAddress:addr,equity:nonnegative,observedAt:integer,completedAt:integer,sourceDigest:hash,snapshotDigest:hash};
+const basisSchema=z.object({version:z.literal(1),mandateId:id,mandateRevision:version,settingsDigest:hash,sourceFillId:id,sourceDigest:hash,network,accountAddress:addr,coin:id,
   leg:z.enum(['open','close']),direction:z.enum(['same','reverse']),sizingMode:z.enum(['ratio','fixed']),budgetUsd:positive,perTradeUsd:positive.nullable(),market,
   quote:z.object({midPrice:positive,slippageBps:nonnegative,observedAt:integer,completedAt:integer,sourceDigest:hash}).strict(),
   follower:z.object({...snapshotIdentity,positionSize:decimal,positionsDigest:hash}).strict(),leader:z.object(snapshotIdentity).strict().nullable(),
   generation:z.object({mandateId:id,baselineDigest:hash,receiptManifestDigest:hash,positionsDigest:hash,positionSize:decimal}).strict(),
   carry:z.object({amount:nonnegative,revision:version}).strict(),fixedTradeClaim:z.boolean(),settledDependency:z.object({legId:id,certificateDigest:hash}).strict().nullable(),
-  sourceReference:z.object({network:z.literal('mainnet'),leaderAddress:addr,leaderEquity:positive.nullable(),leaderEquityObservedAt:integer.nullable(),midPrice:positive,midObservedAt:integer,maxDeviationBps:nonnegative}).strict().optional(),
+  sourceReference:z.object({network,leaderAddress:addr,leaderEquity:positive.nullable(),leaderEquityObservedAt:integer.nullable(),midPrice:positive,midObservedAt:integer,maxDeviationBps:nonnegative}).strict().optional(),
   merged:z.object({members:z.array(z.object({sourceFillId:id,sourceDigest:hash,providerTime:integer,sign:z.union([z.literal(1),z.literal(-1)]),size:positive,px:positive,
     fraction:positive.refine(v=>Dec.from(v).lte(1)).nullable()}).strict()).min(2).max(MAX_MERGED_LEGS)}).strict().optional(),}).strict();
 function requireSizing(value:unknown):asserts value {if(!value)throw new LiveBoundaryError('live_source_sizing_unproven');}
@@ -69,19 +70,19 @@ export function combinedCloseFraction(fractions:readonly string[]):Dec{
 }
 function fresh(at:number,now:number){requireSizing(Number.isSafeInteger(at)&&at>=0&&at<=now&&now-at<=5000);}
 function equal(a:unknown,b:unknown){requireSizing(isDeepStrictEqual(a,b));}
-/** Mainnet references may be older than the 5 s provider frames: a mid is the
+/** Source-network references may be older than the 5 s provider frames: a mid is the
  * shared mainnet mids read (3 s cache), leader capital the paper sizing's
  * 60 s cache. Both stay bounded and are never used past these ages. */
 export const SOURCE_MID_MAX_AGE_MS=10_000,SOURCE_EQUITY_MAX_AGE_MS=120_000;
-/** Basis points by which the testnet mid differs from the mainnet mid. */
-export function liveSourceDeviationBps(testnetMid:string,mainnetMid:string):Dec{
-  const reference=Dec.from(mainnetMid);requireSizing(reference.isPositive&&Dec.from(testnetMid).isPositive);
-  return Dec.from(testnetMid).sub(reference).abs().mul(10000).div(reference);
+/** Basis points by which the execution network's mid differs from the source network's mid. */
+export function liveSourceDeviationBps(executionMid:string,sourceMid:string):Dec{
+  const reference=Dec.from(sourceMid);requireSizing(reference.isPositive&&Dec.from(executionMid).isPositive);
+  return Dec.from(executionMid).sub(reference).abs().mul(10000).div(reference);
 }
-/** Throws `live_source_price_deviation` when testnet prices sit too far from
- * mainnet to mirror a mainnet leader faithfully (e.g. ZEC −90 % on 10-04). */
-export function assertLiveSourcePrice(testnetMid:string,reference:Pick<LiveSourceReferenceV1,'midPrice'|'maxDeviationBps'>):void{
-  if(liveSourceDeviationBps(testnetMid,reference.midPrice).gt(Dec.from(reference.maxDeviationBps)))throw new LiveBoundaryError('live_source_price_deviation');
+/** Throws `live_source_price_deviation` when execution-network prices sit too far
+ * from the source network to mirror its leader faithfully (e.g. testnet ZEC −90 % on 10-04). */
+export function assertLiveSourcePrice(executionMid:string,reference:Pick<LiveSourceReferenceV1,'midPrice'|'maxDeviationBps'>):void{
+  if(liveSourceDeviationBps(executionMid,reference.midPrice).gt(Dec.from(reference.maxDeviationBps)))throw new LiveBoundaryError('live_source_price_deviation');
 }
 /** Decode bounded JSON evidence without introducing an observation time. */
 export function decodeLiveSourceSizingEnvelope(raw: unknown): LiveSourceSizingEnvelopeV1 {
@@ -93,8 +94,8 @@ export function decodeLiveSourceSizingEnvelope(raw: unknown): LiveSourceSizingEn
     return freezeLiveReservation({...envelope,basis});
   }catch{throw new LiveBoundaryError('live_source_sizing_unproven');}
 }
-function snapshotMirror(snapshot:LiveSourceSizingEnvelopeV1['observations']['follower'],expected:LiveSourceSizingBasisV1['leader'],now:number,id:{accountId:string;strategyId:number}){
-  requireSizing(expected);const view=mapLiveAccountView({...id,network:'testnet',accountAddress:expected.accountAddress},snapshot,{blocked:false,reason:null},now,5000);
+function snapshotMirror(snapshot:LiveSourceSizingEnvelopeV1['observations']['follower'],expected:LiveSourceSizingBasisV1['leader'],now:number,id:{accountId:string;strategyId:number},network:HyperliquidNetwork){
+  requireSizing(expected&&expected.network===network);const view=mapLiveAccountView({accountId:id.accountId,strategyId:id.strategyId,network,accountAddress:expected.accountAddress},snapshot,{blocked:false,reason:null},now,5000);
   requireSizing(view.freshness==='fresh'&&view.coverage.complete&&view.coverage.balanceComplete&&view.coverage.orderComplete);
   equal({network:snapshot.network,accountAddress:snapshot.accountAddress,equity:snapshot.perpEquity,observedAt:snapshot.observedAt,completedAt:snapshot.completedAt,sourceDigest:snapshot.sourceDigest,snapshotDigest:followerReceiptDigestV1(snapshot)},expected);
 }
@@ -119,32 +120,34 @@ function conservativeLimit(mid:Dec,side:'B'|'A',slippage:string,szDecimals:numbe
 export function planLiveSourceOrder(raw: LiveSourcePlanInput): PlannedLiveSourceOrder {
   try{
     const input=structuredClone(raw),{mandate:m,now,limits,currentExecutionKey}=input,consent=decodeLiveCopyMandate(m),settings=copyStrategySettingsSchema.strict().parse(input.settings),envelope=decodeLiveSourceSizingEnvelope(input.sizingBasis),b=envelope.basis,o=envelope.observations;
-    requireSizing(Number.isSafeInteger(now)&&now>0&&m.state==='active'&&m.consentDigest&&m.activationCursor&&m.expiresAt.getTime()>now&&['testnet','mainnet'].includes(consent.sourceNetwork)&&
+    requireSizing(Number.isSafeInteger(now)&&now>0&&m.state==='active'&&m.consentDigest&&m.activationCursor&&m.expiresAt.getTime()>now&&isHyperliquidNetwork(consent.network)&&isHyperliquidNetwork(consent.sourceNetwork)&&
       settings.copyStartMode==='delta'&&consent.settingsDigest===liveCopySettingsDigest(settings)&&Number.isSafeInteger(limits.maxSignalAgeSeconds)&&limits.maxSignalAgeSeconds>0&&limits.maxSignalAgeSeconds<=86400&&
       Number.isFinite(limits.maxSlippageBps)&&limits.maxSlippageBps>=0&&limits.maxSlippageBps<=10000&&Dec.from(b.quote.slippageBps).lte(limits.maxSlippageBps)&&
-      currentExecutionKey.startsWith(`testnet:${consent.accountAddress}:`)&&/^0x[a-f0-9]{32}$/.test(currentExecutionKey.slice(`testnet:${consent.accountAddress}:`.length)));
+      currentExecutionKey.startsWith(`${consent.network}:${consent.accountAddress}:`)&&/^0x[a-f0-9]{32}$/.test(currentExecutionKey.slice(`${consent.network}:${consent.accountAddress}:`.length)));
     const fill=decodeLiveSourceFill({...input.fill,normalized:{...input.fill.normalized},providerTime:new Date(input.fill.providerTime),receivedAt:new Date(input.fill.receivedAt)}),leg=canonicalLiveSourceLegs(fill).find(l=>l.leg===input.leg.leg);equal(leg,input.leg);requireSizing(leg);
     requireSizing(fill.network===consent.sourceNetwork&&fill.leaderAddress===consent.leaderAddress&&fill.providerTime>m.activationCursor!.getTime()&&fill.providerTime<=now&&now-fill.providerTime<=limits.maxSignalAgeSeconds*1000&&fill.receivedAt<=now&&
-      b.mandateId===m.id&&b.mandateRevision===m.revision&&b.settingsDigest===consent.settingsDigest&&b.sourceFillId===fill.id&&b.sourceDigest===fill.sourceDigest&&b.accountAddress===consent.accountAddress&&
+      b.mandateId===m.id&&b.mandateRevision===m.revision&&b.network===consent.network&&b.market.network===consent.network&&b.settingsDigest===consent.settingsDigest&&b.sourceFillId===fill.id&&b.sourceDigest===fill.sourceDigest&&b.accountAddress===consent.accountAddress&&
       b.coin===fill.coin&&b.leg===leg.leg&&b.direction===settings.direction&&b.sizingMode===settings.sizingMode&&b.budgetUsd===consent.budgetUsd&&b.perTradeUsd===(settings.perTradeUsd===null?null:Dec.from(settings.perTradeUsd).toString())&&
       b.market.coin===fill.coin&&b.follower.accountAddress===consent.accountAddress&&address(b.accountAddress)===b.accountAddress);
     for(const at of [b.market.observedAt,b.quote.observedAt,b.quote.completedAt,b.follower.observedAt,b.follower.completedAt])fresh(at,now);
-    const {positionSize:_position,positionsDigest:_positions,...followerIdentity}=b.follower;snapshotMirror(o.follower,followerIdentity,now,consent);
+    const {positionSize:_position,positionsDigest:_positions,...followerIdentity}=b.follower;snapshotMirror(o.follower,followerIdentity,now,consent,consent.network);
     const target=o.follower.positions.find(p=>p.coin===fill.coin);equal(b.follower.positionSize,target?.size??'0');
-    const q=o.quote;requireSizing(q.network==='testnet'&&q.accountAddress===consent.accountAddress&&q.coin===fill.coin&&q.asset===b.market.asset&&q.dex===b.market.dex);
+    const q=o.quote;requireSizing(q.network===consent.network&&q.accountAddress===consent.accountAddress&&q.coin===fill.coin&&q.asset===b.market.asset&&q.dex===b.market.dex);
     assertMarketIdentity(q.market);assertMarketIdentity(q.quote.market);equal(marketIdentityKey(q.market),marketIdentityKey(b.market));equal(marketIdentityKey(q.quote.market),marketIdentityKey(b.market));
     equal(b.quote,{midPrice:q.quote.midPrice,slippageBps:b.quote.slippageBps,observedAt:q.quote.observedAt,completedAt:q.completedAt,sourceDigest:q.quote.sourceDigest});
     requireSizing(b.quote.observedAt<=b.quote.completedAt&&q.earliestObservedAt<=q.quote.observedAt);fresh(q.earliestObservedAt,now);fresh(q.completedAt,now);
-    const projection=projectLiveGenerationPositions({identity:{mandateId:m.id,mandateRevision:m.revision,accountId:consent.accountId,userId:consent.userId,strategyId:consent.strategyId,network:'testnet',accountAddress:consent.accountAddress,
+    const projection=projectLiveGenerationPositions({identity:{mandateId:m.id,mandateRevision:m.revision,accountId:consent.accountId,userId:consent.userId,strategyId:consent.strategyId,network:consent.network,accountAddress:consent.accountAddress,
       authorizationId:consent.authorizationId,settingsDigest:consent.settingsDigest,leaderAddress:consent.leaderAddress,direction:settings.direction},manifest:o.generationManifest,snapshot:o.follower,currentExecutionKey,now});
     equal(b.generation,{mandateId:m.id,baselineDigest:projection.baselineDigest,receiptManifestDigest:projection.receiptManifestDigest,positionsDigest:projection.positionsDigest,positionSize:projection.positions[fill.coin]??'0'});
     equal(b.follower.positionsDigest,projection.positionsDigest);equal(b.follower.positionSize,b.generation.positionSize);
     const carry=o.generationManifest.carry.filter(row=>row.mandateId===m.id&&row.coin===fill.coin);requireSizing(carry.length===1);equal(b.carry,{amount:carry[0]!.carry,revision:carry[0]!.revision});
     requireSizing(b.fixedTradeClaim===(leg.leg==='open'&&settings.sizingMode==='fixed'));
     const reference=b.sourceReference??null;
-    requireSizing(consent.sourceNetwork==='mainnet'&&leg.leg==='open'?reference!==null:reference===null);
+    // A reference (the source network's mid and leader capital) exists exactly
+    // for an open whose leader trades on another network than this copy.
+    requireSizing(consent.sourceNetwork!==consent.network&&leg.leg==='open'?reference!==null:reference===null);
     if(reference){
-      requireSizing(reference.network==='mainnet'&&reference.leaderAddress===consent.leaderAddress&&reference.midObservedAt<=now&&now-reference.midObservedAt<=SOURCE_MID_MAX_AGE_MS&&
+      requireSizing(reference.network===consent.sourceNetwork&&reference.leaderAddress===consent.leaderAddress&&reference.midObservedAt<=now&&now-reference.midObservedAt<=SOURCE_MID_MAX_AGE_MS&&
         (settings.sizingMode==='ratio')===(reference.leaderEquity!==null)&&(reference.leaderEquity===null)===(reference.leaderEquityObservedAt===null)&&
         (reference.leaderEquityObservedAt===null||reference.leaderEquityObservedAt<=now&&now-reference.leaderEquityObservedAt<=SOURCE_EQUITY_MAX_AGE_MS));
       assertLiveSourcePrice(b.quote.midPrice,reference);
@@ -176,7 +179,7 @@ export function planLiveSourceOrder(raw: LiveSourcePlanInput): PlannedLiveSource
     if(leg.leg==='open'&&settings.sizingMode==='ratio'&&reference){
       requireSizing(b.leader===null&&o.leader===null);leaderEquity=reference.leaderEquity;
     }else if(leg.leg==='open'&&settings.sizingMode==='ratio'){
-      requireSizing(b.leader&&o.leader&&b.leader.accountAddress===consent.leaderAddress);snapshotMirror(o.leader!,b.leader,now,{accountId:'leader',strategyId:consent.strategyId});requireSizing(Dec.from(b.leader!.equity).isPositive);
+      requireSizing(b.leader&&o.leader&&b.leader.accountAddress===consent.leaderAddress);snapshotMirror(o.leader!,b.leader,now,{accountId:'leader',strategyId:consent.strategyId},consent.network);requireSizing(Dec.from(b.leader!.equity).isPositive);
       leaderEquity=b.leader!.equity;
     }else requireSizing(b.leader===null&&o.leader===null);
     const sign=followerSign(leg.sign,settings.direction),position=Dec.from(b.generation.positionSize),mid=Dec.from(b.quote.midPrice),side=leg.leg==='close'?(sign>0?'A':'B'):(sign>0?'B':'A');
@@ -199,7 +202,7 @@ export function planLiveSourceOrder(raw: LiveSourcePlanInput): PlannedLiveSource
       // and must never round up or silently exceed the signed owner budget.
       if(settings.sizingMode==='fixed')size=rationalSize([b.perTradeUsd!],[Dec.max(mid,price).toString()],b.market.sizeDecimals);
       // Leader notional (source-network fill price) scaled by capital, then
-      // converted to the follower's coins at the TESTNET mid. A merged
+      // converted to the follower's coins at the EXECUTION network's mid. A merged
       // adjustment sums its legs' leader notional (exact decimal products).
       else{requireSizing(leaderEquity);const notional=merged?Dec.sum(merged.map(m=>Dec.from(m.size).mul(m.px))).toString():null;
         size=rationalSize([...(notional?[notional]:[leg.size,fill.px]),Dec.min(Dec.from(b.follower.equity),Dec.from(b.budgetUsd)).toString()],[leaderEquity,b.quote.midPrice],b.market.sizeDecimals);}

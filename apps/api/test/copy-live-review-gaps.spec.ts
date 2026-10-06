@@ -1,3 +1,4 @@
+import { testConfig } from './config-test-utils.js';
 import * as schema from '@trading-dashboard/shared/database';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 
@@ -48,7 +49,7 @@ describe('a leader reduction after the owner closed the position by hand', () =>
   const close = (coin: string, state: 'requested' | 'done', updatedAt: number) => ({ id: `close-${coin}-${updatedAt}`, userId: 1, accountId: 'account', strategyId: 9, idempotencyKey: `close-key-${coin}-${updatedAt}`,
     coin, state, executionKeys: [], createdAt: new Date(updatedAt - 1000), updatedAt: new Date(updatedAt) });
   it('is position_closed_by_owner only for a finished close of that coin after the latest open', async () => {
-    const repo = new CopyLiveWorkerRepository(db, new UnitOfWork(db));
+    const repo = new CopyLiveWorkerRepository(db, new UnitOfWork(db), testConfig());
     expect(await repo.closedByOwner('mandate', 'account', 'BTC')).toBe(false); // never opened
     await db.insert(schema.copyLiveDispatches).values(dispatch(now - 10_000));
     expect(await repo.closedByOwner('mandate', 'account', 'BTC')).toBe(false);
@@ -60,7 +61,7 @@ describe('a leader reduction after the owner closed the position by hand', () =>
     expect(await repo.closedByOwner('mandate', 'account', 'BTC')).toBe(true);
   });
   it('is not, once the copy opened the coin again after that close', async () => {
-    const repo = new CopyLiveWorkerRepository(db, new UnitOfWork(db));
+    const repo = new CopyLiveWorkerRepository(db, new UnitOfWork(db), testConfig());
     await db.insert(schema.copyLiveDispatches).values(dispatch(now - 10_000));
     await db.insert(schema.copyLiveManualCloses).values(close('BTC', 'done', now - 8_000));
     expect(await repo.closedByOwner('mandate', 'account', 'BTC')).toBe(true);

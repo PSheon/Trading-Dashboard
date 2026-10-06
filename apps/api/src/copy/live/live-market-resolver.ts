@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isHyperliquidNetwork, WALLET_NETWORKS } from '@trading-dashboard/shared/contracts';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
 import { LiveBoundaryError, type LiveNetwork } from './wallet-authorization.js';
 import type { LiveSharedReads } from './live-shared-reads.js';
@@ -65,7 +66,7 @@ export function marketIdentityKey(m: LiveMarketIdentity) {
     universeIndex: m.universeIndex, perpDexIndex: m.perpDexIndex, sizeDecimals: m.sizeDecimals };
 }
 export function assertMarketIdentity(m: LiveMarketIdentity): void {
-  if (!m || !['testnet', 'mainnet'].includes(m.network) || typeof m.coin !== 'string' ||
+  if (!m || !isHyperliquidNetwork(m.network) || typeof m.coin !== 'string' ||
       !LIVE_PERP_COIN.test(m.coin) || m.coin.length > 80 || !Number.isSafeInteger(m.universeIndex) || m.universeIndex < 0 || m.universeIndex >= 10_000 ||
       !Number.isSafeInteger(m.perpDexIndex) || m.perpDexIndex < 0 || m.perpDexIndex >= MAX_LIVE_PERP_DEXES ||
       !Number.isSafeInteger(m.asset) || m.asset < 0 ||
@@ -84,16 +85,16 @@ export class HyperliquidLiveMarketResolver implements LiveMarketResolver {
   private readonly endpoint: string;
   constructor(readonly network: LiveNetwork, private readonly acquire: (weight: number) => Promise<unknown>,
     private readonly fetcher: typeof fetch = fetch, private readonly now = Date.now, private readonly maxAgeMs = 5_000) {
-    if (!['testnet', 'mainnet'].includes(network) || typeof acquire !== 'function' ||
+    if (!isHyperliquidNetwork(network) || typeof acquire !== 'function' ||
         !Number.isSafeInteger(maxAgeMs) || maxAgeMs < 1 || maxAgeMs > 5_000) throw new LiveBoundaryError('invalid_market_resolver');
-    this.endpoint = network === 'testnet' ? 'https://api.hyperliquid-testnet.xyz/info' : 'https://api.hyperliquid.xyz/info';
+    this.endpoint = WALLET_NETWORKS[network].infoUrl;
   }
-  /** With an order epoch's `shared` reads (testnet), its paid, memoised
+  /** With an order epoch's `shared` reads (on this network), its paid, memoised
    * reads and its clock: one `meta` read serves every coin of the dex. */
   async resolve(coin: string, shared?: LiveSharedReads): Promise<LiveMarketIdentity> {
     if (typeof coin !== 'string' || !LIVE_PERP_COIN.test(coin) || coin.length > 80)
       throw new LiveBoundaryError('invalid_live_market_coin');
-    if (shared && this.network !== 'testnet') throw new LiveBoundaryError('invalid_market_resolver');
+    if (shared && this.network !== shared.network) throw new LiveBoundaryError('invalid_market_resolver');
     const dex = coin.includes(':') ? coin.split(':')[0]! : '';
     // perpDexs (a named dex) and meta, 20 each, paid before the clock starts.
     if (!shared) await boundedLiveRead(() => this.acquire(dex ? 40 : 20), RESERVE_BOUND_MS);
@@ -117,7 +118,7 @@ export class HyperliquidLiveMarketResolver implements LiveMarketResolver {
   async resolveAsset(asset: number, shared?: LiveSharedReads): Promise<LiveMarketIdentity> {
     if (!Number.isSafeInteger(asset) || asset < 0 || (asset >= 10_000 && asset < 110_000))
       throw new LiveBoundaryError('unsupported_perpetual_asset');
-    if (shared && this.network !== 'testnet') throw new LiveBoundaryError('invalid_market_resolver');
+    if (shared && this.network !== shared.network) throw new LiveBoundaryError('invalid_market_resolver');
     const dexIndex = asset < 10_000 ? 0 : Math.floor((asset - 100_000) / 10_000);
     if (dexIndex >= MAX_LIVE_PERP_DEXES) throw new LiveBoundaryError('live_market_not_listed');
     if (!shared) await boundedLiveRead(() => this.acquire(dexIndex ? 40 : 20), RESERVE_BOUND_MS);

@@ -60,11 +60,11 @@ describe("startup environment", () => {
   ])("rejects invalid %s without echoing its value", (key, value) => {
     expect(() => validateEnvironment({ ...base, [key]: value })).toThrow(key);
   });
-  it("copy trading is paper by default; testnet needs its signing prerequisites; live is refused", () => {
+  it("copy trading is paper by default; testnet needs its signing prerequisites", () => {
     expect(validateEnvironment(base).copy).toEqual({ mode: "paper", workerIntervalMs: 2000 });
     expect(validateEnvironment({ ...base, COPY_TRADING_MODE: "disabled" }).copy.mode).toBe("disabled");
-    expect(() => validateEnvironment({ ...base, COPY_TRADING_MODE: "live" })).toThrow("owner's explicit approval");
-    expect(() => validateEnvironment({ ...base, COPY_TRADING_MODE: "yolo" })).toThrow("paper, testnet or disabled");
+    expect(() => validateEnvironment({ ...base, COPY_TRADING_MODE: "live" })).toThrow("HYPERLIQUID_NETWORK=mainnet");
+    expect(() => validateEnvironment({ ...base, COPY_TRADING_MODE: "yolo" })).toThrow("paper, testnet, live or disabled");
     const key = generateKeyPairSync("ec", { namedCurve: "prime256v1" }).privateKey.export({ format: "der", type: "pkcs8" }).toString("base64");
     const testnet = { ...base, COPY_TRADING_MODE: "testnet", HYPERLIQUID_NETWORK: "testnet", HYPERLIQUID_EGRESS_KEY: "shared-egress",
       PRIVY_APP_ID: "app", PRIVY_APP_SECRET: "secret", PRIVY_AGENT_AUTHORIZATION_KEY: key, PRIVY_AGENT_WORKER_QUORUM_ID: "worker" };
@@ -84,6 +84,43 @@ describe("startup environment", () => {
       .toEqual({ leaders: new Set([`0x${"e7".repeat(20)}`, `0x${"aa".repeat(20)}`]), graceMs: 2000 });
     expect(validateEnvironment({ ...testnet, COPY_LIVE_FAST_SOURCE: "all", COPY_LIVE_FAST_SOURCE_GRACE_MS: "3000" }).copy.live?.fastSource).toEqual({ leaders: "all", graceMs: 3000 });
     expect(() => validateEnvironment({ ...testnet, COPY_LIVE_FAST_SOURCE: "0xnope" })).toThrow("COPY_LIVE_FAST_SOURCE");
+  });
+
+  describe("a live deployment (HYPERLIQUID_NETWORK=mainnet, COPY_TRADING_MODE=live)", () => {
+    const key = generateKeyPairSync("ec", { namedCurve: "prime256v1" }).privateKey.export({ format: "der", type: "pkcs8" }).toString("base64");
+    const live = { ...base, COPY_TRADING_MODE: "live", HYPERLIQUID_NETWORK: "mainnet", HYPERLIQUID_EGRESS_KEY: "shared-egress",
+      PRIVY_APP_ID: "app", PRIVY_APP_SECRET: "secret", PRIVY_AGENT_AUTHORIZATION_KEY: key, PRIVY_AGENT_WORKER_QUORUM_ID: "worker",
+      COPY_LIVE_ALLOWED_PRIVY_USER_IDS: "did:privy:paul, did:privy:other" };
+    it("boots with the allowlist, on mainnet only, with the default caps and no builder fee", () => {
+      const copy = validateEnvironment(live).copy;
+      expect(copy).toMatchObject({ mode: "live", live: { network: "mainnet", builderFee: false, testnetSourceIntervalMs: 60_000,
+        caps: { maxStrategiesPerUser: 2, fixedPerTradeUsd: { min: 12, max: 15 }, maxLeverage: 3 } } });
+      expect(copy.live?.allowedPrivyUserIds).toEqual(new Set(["did:privy:paul", "did:privy:other"]));
+      expect(copy.live?.caps.maxAllocationUsd).toBeUndefined();
+      expect(validateEnvironment({ ...live, COPY_LIVE_MAX_ALLOCATION_USD: "50", COPY_LIVE_MAX_STRATEGIES_PER_USER: "1", COPY_LIVE_MAX_LEVERAGE: "2",
+        COPY_LIVE_FIXED_PER_TRADE_MIN_USD: "13", COPY_LIVE_FIXED_PER_TRADE_MAX_USD: "14" }).copy.live?.caps)
+        .toEqual({ maxStrategiesPerUser: 1, maxAllocationUsd: 50, maxLeverage: 2, fixedPerTradeUsd: { min: 13, max: 14 } });
+    });
+    it("refuses to boot without the allowlist, on testnet, or with bad caps", () => {
+      expect(() => validateEnvironment({ ...live, COPY_LIVE_ALLOWED_PRIVY_USER_IDS: undefined })).toThrow("COPY_LIVE_ALLOWED_PRIVY_USER_IDS");
+      expect(() => validateEnvironment({ ...live, COPY_LIVE_ALLOWED_PRIVY_USER_IDS: " , " })).toThrow("COPY_LIVE_ALLOWED_PRIVY_USER_IDS");
+      expect(() => validateEnvironment({ ...live, COPY_LIVE_ALLOWED_PRIVY_USER_IDS: "paul@example.com" })).toThrow("COPY_LIVE_ALLOWED_PRIVY_USER_IDS");
+      expect(() => validateEnvironment({ ...live, HYPERLIQUID_NETWORK: "testnet" })).toThrow("HYPERLIQUID_NETWORK=mainnet");
+      expect(() => validateEnvironment({ ...live, COPY_TRADING_MODE: "testnet" })).toThrow("HYPERLIQUID_NETWORK=testnet");
+      expect(() => validateEnvironment({ ...live, PRIVY_AGENT_AUTHORIZATION_KEY: undefined, PRIVY_AGENT_WORKER_QUORUM_ID: undefined })).toThrow("PRIVY_AGENT_AUTHORIZATION_KEY");
+      // At least 11 USDC a trade (the exchange's 10 USDC minimum with rounding room), min ≤ max.
+      expect(() => validateEnvironment({ ...live, COPY_LIVE_FIXED_PER_TRADE_MIN_USD: "10" })).toThrow("COPY_LIVE_FIXED_PER_TRADE_MIN_USD");
+      expect(() => validateEnvironment({ ...live, COPY_LIVE_FIXED_PER_TRADE_MIN_USD: "16" })).toThrow("must not exceed");
+      expect(() => validateEnvironment({ ...live, COPY_LIVE_MAX_STRATEGIES_PER_USER: "0" })).toThrow("COPY_LIVE_MAX_STRATEGIES_PER_USER");
+    });
+    it("leaves a testnet deployment's caps as they were unless set, and its testnet source interval configurable", () => {
+      const testnet = { ...live, COPY_TRADING_MODE: "testnet", HYPERLIQUID_NETWORK: "testnet", COPY_LIVE_ALLOWED_PRIVY_USER_IDS: undefined };
+      expect(validateEnvironment(testnet).copy.live).toMatchObject({ network: "testnet", builderFee: true, caps: { maxStrategiesPerUser: 2 } });
+      expect(validateEnvironment(testnet).copy.live?.caps).toEqual({ maxStrategiesPerUser: 2 });
+      expect(validateEnvironment(testnet).copy.live?.allowedPrivyUserIds).toBeUndefined();
+      expect(validateEnvironment({ ...testnet, COPY_LIVE_TESTNET_SOURCE_INTERVAL_MS: "3000" }).copy.live?.testnetSourceIntervalMs).toBe(3000);
+      expect(() => validateEnvironment({ ...testnet, COPY_LIVE_FIXED_PER_TRADE_MIN_USD: "12" })).toThrow("set together");
+    });
   });
 
   it("requires a database explicitly", () => {

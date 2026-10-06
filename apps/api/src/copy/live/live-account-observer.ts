@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import { safeErrorText } from '../../runtime/safe-error-text.js';
 import { z } from 'zod';
+import { isHyperliquidNetwork, WALLET_NETWORKS, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { HyperliquidAllDexsAccountSource, type LiveAllDexsAccountSource, type LiveAllDexsOrderEvidence } from './live-account-ws-source.js';
 export { HyperliquidAllDexsAccountSource, type LiveAllDexsAccountSource, type LiveAllDexsStateEvidence, type LiveAllDexsOrderEvidence, type LiveAllDexsAccountEvidence } from './live-account-ws-source.js';
 import { Dec } from '../../common/decimal/dec.js';
@@ -31,7 +32,7 @@ export interface LiveObservedDex {
   readonly crossExposureUsd: string; readonly crossMaintenanceMarginUsed: string;
 }
 export interface LiveAccountSnapshot {
-  readonly network: 'testnet'; readonly accountAddress: string; readonly role: 'user'; readonly accountMode: 'standard';
+  readonly network: HyperliquidNetwork; readonly accountAddress: string; readonly role: 'user'; readonly accountMode: 'standard';
   readonly accountAbstraction: 'disabled'; readonly observedAt: number; readonly completedAt: number;
   readonly sourceDigest: string; readonly collateralToken: number; readonly collateralCoin: 'USDC';
   readonly perpEquity: string; readonly totalMarginUsed: string; readonly withdrawable: string;
@@ -94,22 +95,22 @@ function mode(role: unknown, abstraction: unknown, dexAbstraction: unknown, spot
   return parsed;
 }
 
-/** Read-only evidence for dedicated standard testnet accounts. Spot collateral,
+/** Read-only evidence for dedicated standard accounts on one network. Spot collateral,
  * unified balances, portfolio margin and unobserved venues never become equity.
  * Aggregate values are reporting totals; funding a dex requires its own row. */
 export class HyperliquidLiveAccountObserver {
-  readonly network = 'testnet' as const;
   private readonly aggregateSource: LiveAllDexsAccountSource;
-  constructor(network: 'testnet', private readonly acquire: (weight: number) => Promise<unknown>,
+  constructor(readonly network: HyperliquidNetwork, private readonly acquire: (weight: number) => Promise<unknown>,
     private readonly fetcher: typeof fetch = fetch, private readonly now = Date.now, private readonly maxAgeMs = 5000,
     aggregateSource?: LiveAllDexsAccountSource) {
-    if (network !== 'testnet' || typeof acquire !== 'function' || !Number.isSafeInteger(maxAgeMs) || maxAgeMs < 1 || maxAgeMs > 5000)
+    if (!isHyperliquidNetwork(network) || typeof acquire !== 'function' || !Number.isSafeInteger(maxAgeMs) || maxAgeMs < 1 || maxAgeMs > 5000)
       fail('live_account_invalid_observer');
-    this.aggregateSource = aggregateSource ?? new HyperliquidAllDexsAccountSource(now);
+    this.aggregateSource = aggregateSource ?? new HyperliquidAllDexsAccountSource(now, undefined, network);
   }
   async observe(accountAddress: string, options: LiveAccountObservationOptions = {}): Promise<LiveAccountSnapshot> {
     try {
       const user = address(accountAddress), shared = options.shared;
+      if (shared && shared.network !== this.network) fail('live_account_source_mismatch');
       const allowed = z.array(z.string().regex(LIVE_DEX_NAME).max(40)).max(MAX_LIVE_PERP_DEXES - 1).parse(options.supportedDexes ?? []);
       unique(allowed);
       const supported = new Set(['', ...allowed]);
@@ -131,7 +132,7 @@ export class HyperliquidLiveAccountObserver {
         let value: unknown;
         if (shared) value = await boundedLiveRead(() => shared.get(body), remaining());
         else {
-          const response = await boundedLiveRead(() => this.fetcher('https://api.hyperliquid-testnet.xyz/info', {
+          const response = await boundedLiveRead(() => this.fetcher(WALLET_NETWORKS[this.network].infoUrl, {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
             redirect: 'error', signal: AbortSignal.timeout(remaining()),
           }), remaining());
@@ -141,7 +142,7 @@ export class HyperliquidLiveAccountObserver {
         this.fresh(started);
         if (value && typeof value === 'object' && !Array.isArray(value)) {
           const row = value as Record<string, unknown>;
-          if (row.user !== undefined && (typeof row.user !== 'string' || address(row.user) !== user) || row.network !== undefined && row.network !== 'testnet')
+          if (row.user !== undefined && (typeof row.user !== 'string' || address(row.user) !== user) || row.network !== undefined && row.network !== this.network)
             fail('live_account_source_mismatch');
         }
         sources.push({ body, value }); return value;

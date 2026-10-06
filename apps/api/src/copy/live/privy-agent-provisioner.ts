@@ -2,9 +2,13 @@ import { createHash, createPublicKey } from "node:crypto";
 import { PrivyClient } from "@privy-io/node";
 import type { PolicyRuleRequestBody } from "@privy-io/node/resources";
 import { z } from "zod";
+import type { HyperliquidNetwork } from "@trading-dashboard/shared/contracts";
 
 export interface AgentProviderConfig {
   appId?: string; appSecret?: string; workerQuorumId?: string; authorizationPublicKey?: string;
+  /** The deployment's network: the phantom agent's `source` ("a" on mainnet,
+   * "b" on testnet) and the policy's name. */
+  network: HyperliquidNetwork;
 }
 export interface AgentPolicyInput { userId: string; expiresAt: number }
 export interface AgentPolicyCreateInput extends AgentPolicyInput { attemptId: string; requestExpiry: number }
@@ -29,7 +33,10 @@ export class AgentProvisioningVerificationPending extends Error { constructor() 
 export class AgentProviderUnavailable extends Error { constructor() { super("agent_provider_unavailable"); } }
 export class AgentProvisioningInputError extends Error { constructor() { super("agent_invalid_input"); } }
 
-const policyName = "Copy testnet agent";
+/** Testnet's name is unchanged, so the policies already created still verify. */
+const policyNames = { testnet: "Copy testnet agent", mainnet: "Copy mainnet agent" } as const satisfies Record<HyperliquidNetwork, string>;
+/** Hyperliquid's phantom-agent `source` for L1 actions on each network. */
+export const PHANTOM_AGENT_SOURCE = { mainnet: "a", testnet: "b" } as const satisfies Record<HyperliquidNetwork, string>;
 const idPattern = /^[a-zA-Z0-9_-]{1,128}$/;
 const providerId = z.string().regex(idPattern);
 const quorumSchema = z.object({
@@ -47,7 +54,7 @@ const walletSchema = z.object({
   automations: z.array(z.unknown()).length(0).optional(), custody: z.null().optional(),
 });
 const policySchema = z.object({
-  id: providerId, name: z.literal(policyName), version: z.literal("1.0"), chain_type: z.literal("ethereum"),
+  id: providerId, name: z.string(), version: z.literal("1.0"), chain_type: z.literal("ethereum"),
   created_at: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
   owner_id: providerId,
   rules: z.array(z.object({
@@ -82,15 +89,15 @@ function publicKeyIdentity(value: string): string {
   return encoded;
 }
 
-function policyRules(expiresAt: number): PolicyRuleRequestBody[] {
+function policyRules(network: HyperliquidNetwork, expiresAt: number): PolicyRuleRequestBody[] {
   // This restricts the schema/network/time, not the order hidden by connectionId.
   // Match PrivyOrderSigner's complete emitted types; a second broad ALLOW would bypass this rule.
   return [{
-    name: "Allow testnet phantom agent until consent expiry", method: "eth_signTypedData_v4", action: "ALLOW",
+    name: `Allow ${network} phantom agent until consent expiry`, method: "eth_signTypedData_v4", action: "ALLOW",
     conditions: [
       { field_source: "ethereum_typed_data_domain", field: "chainId", operator: "eq", value: "1337" },
       { field_source: "ethereum_typed_data_domain", field: "verifyingContract", operator: "eq", value: "0x0000000000000000000000000000000000000000" },
-      { field_source: "ethereum_typed_data_message", field: "source", operator: "eq", value: "b", typed_data: {
+      { field_source: "ethereum_typed_data_message", field: "source", operator: "eq", value: PHANTOM_AGENT_SOURCE[network], typed_data: {
         primary_type: "Agent", types: {
           EIP712Domain: [
             { name: "name", type: "string" }, { name: "version", type: "string" },
@@ -169,8 +176,8 @@ export class PrivyUserAgentProvisioner implements UserAgentProvisioner {
     // SDK create does not accept a per-request expiry. Set it on a dedicated client;
     // the persisted deadline is a header and never changes the idempotent body.
     const response = await this.providerRequest(() => this.newClient(args.requestExpiry).policies().create({
-      version: "1.0", name: policyName, chain_type: "ethereum", owner: { user_id: args.userId },
-      rules: policyRules(args.expiresAt), idempotency_key: args.attemptId,
+      version: "1.0", name: policyNames[this.config.network], chain_type: "ethereum", owner: { user_id: args.userId },
+      rules: policyRules(this.config.network, args.expiresAt), idempotency_key: args.attemptId,
     }));
     return parseEvidence(z.object({ id: providerId }), response);
   }
@@ -181,7 +188,7 @@ export class PrivyUserAgentProvisioner implements UserAgentProvisioner {
     this.assertInput(args); this.assertId(args.policyId);
     const policy = parseEvidence(policySchema, await this.providerRequest(() => client.policies().get(args.policyId)));
     const rules = policy.rules.map(({ id: _id, ...rule }) => rule);
-    if (policy.id !== args.policyId || canonical(rules) !== canonical(policyRules(args.expiresAt))) throw new AgentProvisioningConflict();
+    if (policy.id !== args.policyId || policy.name !== policyNames[this.config.network] || canonical(rules) !== canonical(policyRules(this.config.network, args.expiresAt))) throw new AgentProvisioningConflict();
     await this.verifyUserQuorum(policy.owner_id, args.userId);
     this.assertInput(args);
     const fingerprint = createHash("sha256").update(canonical({
@@ -200,7 +207,7 @@ export class PrivyUserAgentProvisioner implements UserAgentProvisioner {
     await this.providerRequest(() => client.wallets().create({
       chain_type: "ethereum", owner: { user_id: args.userId }, policy_ids: [args.policyId],
       additional_signers: [{ signer_id: this.config.workerQuorumId!, override_policy_ids: [args.policyId] }],
-      external_id: args.externalId, idempotency_key: args.externalId, display_name: policyName,
+      external_id: args.externalId, idempotency_key: args.externalId, display_name: policyNames[this.config.network],
     }));
   }
 

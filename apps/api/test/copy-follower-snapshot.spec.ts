@@ -11,7 +11,7 @@ import { closeTestDb, getTestDb, insertUser, truncateAll, type TestDb } from './
 
 let db: TestDb, repository: CopyFollowerSnapshotRepository, service: CopyFollowerSnapshotService, userId: number;
 const snapshot = (): LiveAccountSnapshot => structuredClone(fixture().accountSource.snapshot);
-beforeAll(() => { db = getTestDb(); repository = new CopyFollowerSnapshotRepository(db); service = new CopyFollowerSnapshotService(repository); });
+beforeAll(() => { db = getTestDb(); repository = new CopyFollowerSnapshotRepository(db, testConfig()); service = new CopyFollowerSnapshotService(repository); });
 beforeEach(async () => {
   await truncateAll(db); await db.delete(copyFollowerObservationBudget); vi.spyOn(Date, 'now').mockReturnValue(now);
   const user = await insertUser(db); userId = user.id;
@@ -26,9 +26,9 @@ describe('actual follower acquisition, isolation and retained observations', () 
     expect(await db.select().from(copyFollowerObservations)).toHaveLength(0);
   });
   it('admits one acquisition across concurrent repository instances and preserves allowance after a restart', async () => {
-    const claims = await Promise.all(Array.from({ length: 8 }, () => new CopyFollowerSnapshotRepository(db).claim()));
+    const claims = await Promise.all(Array.from({ length: 8 }, () => new CopyFollowerSnapshotRepository(db, testConfig()).claim()));
     expect(claims.filter(Boolean)).toHaveLength(1);
-    expect(await new CopyFollowerSnapshotRepository(db).claim()).toBeNull();
+    expect(await new CopyFollowerSnapshotRepository(db, testConfig()).claim()).toBeNull();
     await repository.issue(claims.find(Boolean)!, 'source_unavailable');
     expect(await repository.claim()).toBeNull();
   });
@@ -75,7 +75,8 @@ describe('actual follower acquisition, isolation and retained observations', () 
   it('does not label a mainnet master with testnet observations', async () => {
     await db.update(copyExecutionAccounts).set({ network: 'mainnet' }).where(eq(copyExecutionAccounts.id, 'account'));
     expect(await repository.claim()).toBeNull();
-    await expect(service.get(userId, 'account')).rejects.toThrow('actual_snapshot_network_unsupported');
+    // Its own (mainnet) observations only: none, so nothing is shown as observed.
+    expect(await service.get(userId, 'account')).toMatchObject({ network: 'mainnet', status: 'unavailable', observation: null });
   });
   it('performs provider work outside transactions and rechecks ownership before publishing', async () => {
     let enter!: () => void, release!: (value: LiveAccountSnapshot) => void;

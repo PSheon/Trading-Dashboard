@@ -1,3 +1,4 @@
+import { testConfig } from './config-test-utils.js';
 import * as schema from '@trading-dashboard/shared/database';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
@@ -6,7 +7,7 @@ import { CopyLiveSourceRepository } from '../src/copy/copy-live-source.repositor
 import { liveSourceExecutionCloid } from '../src/copy/live/postgres-live-preparation.js';
 import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
 import type { LiveExecutionRecord } from '../src/copy/live/live-execution.js';
-import type { TestnetLiveExecutionHooks, TestnetLiveExecutionRequest } from '../src/copy/live/testnet-live-execution-runtime.js';
+import type { LiveExecutionHooks, LiveExecutionRequest } from '../src/copy/live/live-execution-runtime.js';
 import { CopyLiveEngine, type LiveEngineDependencies } from '../src/copy/live-worker/copy-live-engine.js';
 import { CopyLiveWorkerRepository } from '../src/copy/live-worker/copy-live-worker.repository.js';
 import { WatchedMainnetSource } from '../src/copy/live-worker/watched-mainnet-source.js';
@@ -20,9 +21,9 @@ import { closeTestDb, getTestDb, type TestDb } from './db-test-utils.js';
 // the settler are doubles. Ratio sizing (same-coin legs merge).
 let db: TestDb, clock: number, seed: Awaited<ReturnType<typeof preparationFixture>>;
 const leader = `0x${'44'.repeat(20)}`;
-type Runtime = (request: TestnetLiveExecutionRequest, hooks: Pick<TestnetLiveExecutionHooks, 'onExchange'>) => Promise<LiveExecutionRecord>;
+type Runtime = (request: LiveExecutionRequest, hooks: Pick<LiveExecutionHooks, 'onExchange'>) => Promise<LiveExecutionRecord>;
 let runtimeImpl: Runtime, settle: 'released' | 'pending';
-const calls: TestnetLiveExecutionRequest[] = [];
+const calls: LiveExecutionRequest[] = [];
 const keyOf = (fillId: string, leg: 'open' | 'close') => `testnet:${seed.f.identity.accountAddress}:${liveSourceExecutionCloid('mandate', fillId, leg)}`;
 const filled: Runtime = async (request, hooks) => {
   calls.push(request);
@@ -34,7 +35,7 @@ const filled: Runtime = async (request, hooks) => {
 };
 function engine(extra: Partial<LiveEngineDependencies> = {}) {
   return new CopyLiveEngine({
-    repository: new CopyLiveWorkerRepository(db, new UnitOfWork(db)), sources: new CopyLiveSourceRepository(db), uow: new UnitOfWork(db),
+    network: 'testnet', repository: new CopyLiveWorkerRepository(db, new UnitOfWork(db), testConfig()), sources: new CopyLiveSourceRepository(db), uow: new UnitOfWork(db),
     watched: new WatchedMainnetSource(db, () => clock),
     testnetSource: { read: vi.fn(async () => { throw new Error('no testnet source in this test'); }) } as never,
     runtime: hooks => ({ execute: request => runtimeImpl(request, hooks) }),
@@ -84,7 +85,7 @@ describe('same-coin leader legs become one follower adjustment', () => {
     for (let i = 0; i < 5; i++) ids.push(await leaderFill(10 + i, now + 100 + i * 100, 'A', '1', String(-i)));
     await coverage(now - 10_000, now + 900); clock = now + 1000; await engine().tick();
     // The newest leg leads (its signal is the order's); it carries the other four.
-    expect(calls).toEqual([{ userId: 1, accountId: 'account', mandateId: 'mandate', sourceFillId: ids[4], leg: 'open', members: ids.slice(0, 4) }]);
+    expect(calls).toEqual([{ userId: 1, accountId: 'account', mandateId: 'mandate', sourceFillId: ids[4], leg: 'open', members: ids.slice(0, 4), signalDeadline: expect.any(Number) }]);
     const rows = await dispatches(), lead = rows.find(r => r.sourceFillId === ids[4])!;
     expect(lead).toMatchObject({ state: 'submitted', adjustmentId: lead.id, executionKey: keyOf(ids[4]!, 'open') });
     expect(rows.filter(r => r.id !== lead.id)).toEqual(ids.slice(0, 4).map(id => expect.objectContaining({ sourceFillId: id, state: 'refused', reason: 'merged_into_adjustment', adjustmentId: lead.id })));

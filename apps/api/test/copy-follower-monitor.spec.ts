@@ -1,3 +1,4 @@
+import { testConfig } from './config-test-utils.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { copyExecutionAccounts, copyStrategies, copyFollowerScans, copyFollowerReceipts, copyFollowerAccountState, users } from "@trading-dashboard/shared/database";
@@ -16,7 +17,7 @@ function evidence(input: { accountAddress: string; from: number; to: number }, c
     observations: [], unresolvedWindows: [], fills: [], funding: [], historicalCompleteness: "unproven",
     completenessReasons: ["latest_10000_fills_limit", "provider_history_unproven"], ...changes };
 }
-beforeAll(() => { db = getTestDb(); repository = new CopyFollowerScanRepository(db); ledger = new CopyFollowerLedger(db, new UnitOfWork(db)); });
+beforeAll(() => { db = getTestDb(); repository = new CopyFollowerScanRepository(db, testConfig()); ledger = new CopyFollowerLedger(db, new UnitOfWork(db)); });
 beforeEach(async () => {
   await truncateAll(db); uid = (await insertUser(db)).id;
   strategyId = (await db.insert(copyStrategies).values({ userId: uid, leaderAddress: `0x${"55".repeat(20)}`, allocated: "100", cash: "100", activatedAt: new Date() }).returning())[0].id;

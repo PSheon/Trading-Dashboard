@@ -3,7 +3,10 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { copyAgentSetups, copyExecutionAccounts, copyLiveDispatches, copyLiveExecutions, copyLiveIntentProvenance, copyLiveManualCloses, copyLiveMandates, copyLiveStopCancellations,
   copyExecutionWallets, copyLiveStopConsents, copyLiveStopOperations, copySignerNonces, copyStrategies, copyWalletAuthorizationEvents, copyWalletAuthorizations, users } from '@trading-dashboard/shared/database';
+import { ACTUAL_STRATEGY_MODE } from '@trading-dashboard/shared/contracts';
 import { recordAdminAudit } from '../../common/audit/admin-audit.js';
+import { AppConfig } from '../../config/app-config.js';
+import { deploymentNetwork } from '../live-deployment.js';
 import { DRIZZLE_CLIENT } from '../../db/db.constants.js';
 import type { DrizzleDb } from '../../db/drizzle.provider.js';
 import { UnitOfWork } from '../../db/unit-of-work.js';
@@ -20,13 +23,16 @@ export type StopState = StopRow['state'];
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
 /** SQL for the stop executor; every state change is a compare-and-set on the
- * stop's revision, so a stale pass changes nothing. */
+ * stop's revision, so a stale pass changes nothing. Only the deployment's
+ * network: another network's stops, closes and grants are never worked here. */
 @Injectable()
 export class CopyLiveStopWorkerRepository {
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, private readonly uow: UnitOfWork) {}
+  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, private readonly uow: UnitOfWork, private readonly config: AppConfig) {}
+  private get network() { return deploymentNetwork(this.config); }
 
   async open(): Promise<StopRow[]> {
-    return this.db.select().from(copyLiveStopOperations).where(inArray(copyLiveStopOperations.state, ['requested', 'cancelling', 'closing', 'flat']))
+    return this.db.select().from(copyLiveStopOperations).where(and(inArray(copyLiveStopOperations.state, ['requested', 'cancelling', 'closing', 'flat']),
+      eq(copyLiveStopOperations.network, this.network)))
       .orderBy(asc(copyLiveStopOperations.createdAt)).limit(50);
   }
   async get(id: string): Promise<StopRow | null> {
@@ -52,7 +58,9 @@ export class CopyLiveStopWorkerRepository {
       authorizationId: found.setup.authorizationId, walletId: found.setup.agentWalletId, workerQuorumId: found.setup.workerQuorumId };
   }
   async manualCloses() {
-    return this.db.select().from(copyLiveManualCloses).where(eq(copyLiveManualCloses.state, 'requested')).orderBy(asc(copyLiveManualCloses.createdAt)).limit(50);
+    return this.db.select().from(copyLiveManualCloses).where(and(eq(copyLiveManualCloses.state, 'requested'),
+      sql`exists (select 1 from ${copyExecutionAccounts} a where a.id = ${copyLiveManualCloses.accountId} and a.network = ${this.network})`))
+      .orderBy(asc(copyLiveManualCloses.createdAt)).limit(50);
   }
   async manualClose(id: string) {
     const [row] = await this.db.select().from(copyLiveManualCloses).where(eq(copyLiveManualCloses.id, id));
@@ -76,7 +84,7 @@ export class CopyLiveStopWorkerRepository {
   async inflight(accountAddress: string): Promise<{ record: LiveExecutionRecord; intent: LiveOrderIntent | null }[]> {
     const rows = await this.db.select({ journal: copyLiveExecutions, intent: copyLiveIntentProvenance.intent }).from(copyLiveExecutions)
       .leftJoin(copyLiveIntentProvenance, eq(copyLiveIntentProvenance.key, copyLiveExecutions.key))
-      .where(and(eq(copyLiveExecutions.network, 'testnet'), eq(copyLiveExecutions.accountAddress, accountAddress),
+      .where(and(eq(copyLiveExecutions.network, this.network), eq(copyLiveExecutions.accountAddress, accountAddress),
         inArray(copyLiveExecutions.state, ['prepared', 'submitting', 'unknown', 'resting']))).limit(1001);
     return rows.map(row => ({ record: decodeLiveExecutionRow(row.journal), intent: (row.intent as unknown as LiveOrderIntent | null) ?? null }));
   }
@@ -108,7 +116,7 @@ export class CopyLiveStopWorkerRepository {
       await tx.update(copyLiveMandates).set({ state: 'stopped', revision: sql`${copyLiveMandates.revision} + 1`, updatedAt: at })
         .where(and(eq(copyLiveMandates.accountId, stop.accountId), eq(copyLiveMandates.state, 'stopping')));
       const [strategy] = await tx.update(copyStrategies).set({ status: 'stopped', stoppedAt: at, pauseNewRisk: true })
-        .where(and(eq(copyStrategies.id, stop.strategyId), eq(copyStrategies.mode, 'testnet'))).returning();
+        .where(and(eq(copyStrategies.id, stop.strategyId), eq(copyStrategies.mode, ACTUAL_STRATEGY_MODE))).returning();
       if (strategy) await unwatchLeaderIfUnused(tx, strategy.leaderAddress);
       // A grant an admin revoked while this copy was still trading is revoked
       // now that the copy is flat and ended (it was kept for this stop only).
@@ -135,7 +143,7 @@ export class CopyLiveStopWorkerRepository {
     return this.uow.run(async tx => {
       const pending = await tx.select({ grant: copyWalletAuthorizations, wallet: copyExecutionWallets }).from(copyWalletAuthorizations)
         .innerJoin(copyExecutionWallets, eq(copyExecutionWallets.id, copyWalletAuthorizations.walletId))
-        .where(and(sql`${copyWalletAuthorizations.revokeRequestedAt} is not null`, sql`${copyWalletAuthorizations.revokedAt} is null`))
+        .where(and(sql`${copyWalletAuthorizations.revokeRequestedAt} is not null`, sql`${copyWalletAuthorizations.revokedAt} is null`, eq(copyExecutionWallets.network, this.network)))
         .for('update', { of: copyWalletAuthorizations }).limit(100);
       const forced: Array<{ id: string; reason: string }> = [];
       for (const { grant, wallet } of pending) {
@@ -175,7 +183,7 @@ export class CopyLiveStopWorkerRepository {
         eq(copyLiveMandates.consentKind, 'setup'))).limit(1);
     if (!row || !row.mandate.consentDigest || !row.mandate.liveSetupId) return null;
     const cloid = liveSourceExecutionCloid(row.dispatch.mandateId, row.dispatch.sourceFillId, row.dispatch.leg);
-    if (executionKey !== `testnet:${row.mandate.accountAddress}:${cloid}`) return null;
+    if (executionKey !== `${row.mandate.network}:${row.mandate.accountAddress}:${cloid}` || row.mandate.network !== this.network) return null;
     return row.mandate;
   }
   async mandateConsentDigest(mandateId: string): Promise<string | null> {
@@ -193,8 +201,8 @@ export class CopyLiveStopWorkerRepository {
   /** Claims the next cancel attempt and its nonce on the agent's signer. */
   async claim(input: { stopId: string; executionKey: string; attempt: number; signerAddress: string; consentDigest: string; now: number }) {
     return this.uow.run(async tx => {
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`live-nonce:testnet:${input.signerAddress}`}, 2))`);
-      const allocated = await tx.execute(sql`insert into ${copySignerNonces} (network, signer_address, nonce) values ('testnet', ${input.signerAddress}, ${input.now})
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`live-nonce:${this.network}:${input.signerAddress}`}, 2))`);
+      const allocated = await tx.execute(sql`insert into ${copySignerNonces} (network, signer_address, nonce) values (${this.network}, ${input.signerAddress}, ${input.now})
         on conflict (network, signer_address) do update set nonce = greatest(${input.now}, ${copySignerNonces}.nonce + 1) returning nonce`);
       const nonce = Number(allocated.rows[0]?.nonce);
       const [row] = await tx.insert(copyLiveStopCancellations).values({ id: randomUUID(), stopId: input.stopId, executionKey: input.executionKey, attempt: input.attempt,

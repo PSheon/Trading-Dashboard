@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { isHyperliquidNetwork, WALLET_NETWORKS, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { Dec } from '../../common/decimal/dec.js';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
 import type {
@@ -22,7 +23,7 @@ export interface LiveRiskProviderOptions {
   readonly timeoutMs?: number;
 }
 export interface LiveRiskProviderProof {
-  readonly network: 'testnet';
+  readonly network: HyperliquidNetwork;
   readonly accountAddress: string;
   readonly coin: string;
   readonly dex: string;
@@ -32,7 +33,7 @@ export interface LiveRiskProviderProof {
   readonly completedAt: number;
   readonly sourceDigest: string;
   readonly accountModeProof: {
-    readonly network: 'testnet';
+    readonly network: HyperliquidNetwork;
     readonly accountAddress: string;
     readonly role: 'user';
     readonly accountAbstraction: 'disabled';
@@ -160,19 +161,18 @@ function mode(values: readonly unknown[]): void {
  * rest), and metaAndAssetCtxs, activeAssetData, userFees, perpDexs and
  * spotMeta 20 each. */
 const RISK_PROVIDER_WEIGHT = 304;
-/** Uncached fixed-testnet REST proofs. Target activeAssetData reads configured
+/** Uncached fixed-network REST proofs. Target activeAssetData reads configured
  * leverage even without a position. No credentials, WS, signatures or actions.
  * Named dex effective-fee settings remain unproven and cannot yield a proof. */
 export class HyperliquidLiveRiskProvider {
-  readonly network = 'testnet' as const;
   private closed = false;
   constructor(
-    network: 'testnet',
+    readonly network: HyperliquidNetwork,
     private readonly acquire: (weight: number) => Promise<unknown>,
     private readonly fetcher: typeof fetch = fetch,
     private readonly now = Date.now,
   ) {
-    if (network !== 'testnet' || typeof acquire !== 'function')
+    if (!isHyperliquidNetwork(network) || typeof acquire !== 'function')
       deny('live_risk_provider_invalid_input');
   }
   async observe(
@@ -199,7 +199,7 @@ export class HyperliquidLiveRiskProvider {
       if (!shared) await boundedLiveRead(() => this.acquire(RISK_PROVIDER_WEIGHT), timeout);
       const started = shared ? shared.startedAt : this.now();
       assertMarketIdentity(market);
-      if (market.network !== this.network)
+      if (market.network !== this.network || (shared && shared.network !== this.network))
         deny('live_risk_provider_source_mismatch');
       const fresh = (at: number) => {
         const now = this.now();
@@ -236,7 +236,7 @@ export class HyperliquidLiveRiskProvider {
         else {
           // Recheck before initiating work; an expired window must not send.
           const response = await boundedLiveRead(() =>
-            this.fetcher('https://api.hyperliquid-testnet.xyz/info', {
+            this.fetcher(WALLET_NETWORKS[this.network].infoUrl, {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify(body),

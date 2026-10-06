@@ -71,7 +71,7 @@ async function simulate(scenario: Scenario) {
     twapSlices: async () => [] as HlUserFill[] };
   const fast = new FastMainnetSource(reader, G, Date.now);
   const engine = new CopyLiveEngine({
-    repository: new CopyLiveWorkerRepository(db, new UnitOfWork(db)), sources: new CopyLiveSourceRepository(db), uow: new UnitOfWork(db),
+    network: 'testnet', repository: new CopyLiveWorkerRepository(db, new UnitOfWork(db), testConfig()), sources: new CopyLiveSourceRepository(db), uow: new UnitOfWork(db),
     watched: new WatchedMainnetSource(db), testnetSource: { read: async () => { throw new Error('unused'); } } as never,
     runtime: hooks => ({ execute: async request => {
       const coin = (await db.select({ coin: schema.copyLiveSourceFills.coin }).from(schema.copyLiveSourceFills).where(eq(schema.copyLiveSourceFills.id, request.sourceFillId)))[0]!.coin;

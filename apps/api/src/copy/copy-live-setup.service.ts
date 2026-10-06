@@ -25,6 +25,7 @@ import { CopyWalletService } from './copy-wallet.service.js';
 import type { MasterAccount, MasterActionBound, MasterTypedData } from './live/master-action.js';
 import { safeErrorText } from '../runtime/safe-error-text.js';
 import { WORKER_MASTER_SIGNER, type WorkerMasterSigner } from './live/privy-policy-master-signer.js';
+import { deploymentNetwork, liveExecutionEnabled } from './live-deployment.js';
 
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const LEASE_MS = 60_000;
@@ -67,7 +68,7 @@ const modeTypedData = (intent: { network: WalletNetwork; accountAddress: string;
   userSetAbstractionTypedData(WALLET_NETWORKS[intent.network], intent.accountAddress, intent.nonce) as unknown as MasterTypedData;
 
 /**
- * One-click testnet copy (docs/one-click-copy-plan-2026-10-05.md §2, §3a).
+ * One-click copy on the deployment's network (docs/one-click-copy-plan-2026-10-05.md §2, §3a).
  *
  * start: a paused strategy, its copy wallet, a ready 30-day agent, the
  * reserved deposit and the owner-owned Privy policy, then ONE consent
@@ -93,9 +94,15 @@ export class CopyLiveSetupService {
     @Optional() private readonly jobs: BackgroundJobs | null = null) {}
 
   private available() {
-    const { copy, hyperliquid } = this.config.value;
-    if (copy.mode !== 'testnet' || hyperliquid.wallet.network !== 'testnet' || !this.agents.available || !this.modes.available || !this.wallets.workerPolicyEnabled || !this.workerSigner?.available)
-      refuse(503, 'setup_unavailable', 'Testnet copy is not available right now');
+    if (!liveExecutionEnabled(this.config) || !this.agents.available || !this.modes.available || !this.wallets.workerPolicyEnabled || !this.workerSigner?.available)
+      refuse(503, 'setup_unavailable', 'Copying with real funds is not available right now');
+  }
+  private get network() { return deploymentNetwork(this.config); }
+  /** A live deployment's default leverage cap (COPY_LIVE_MAX_LEVERAGE) when the
+   * owner set none, so the consent binds the leverage the copy really uses. */
+  private liveSettings<T extends { maxLeverage: number | null }>(settings: T): T {
+    const cap = this.config.value.copy.live?.caps.maxLeverage;
+    return cap !== undefined && settings.maxLeverage === null ? { ...settings, maxLeverage: cap } : settings;
   }
 
   // --- read -------------------------------------------------------------------
@@ -119,8 +126,11 @@ export class CopyLiveSetupService {
   /** Idempotent by key: a retry continues provisioning, and an expired
    * challenge is issued again (with a fresh deposit nonce if needed). */
   async start(userId: number, body: unknown): Promise<LiveCopySetup> {
-    const request = input(startLiveCopySchema, body) as StartLiveCopy; this.available();
+    const parsed = input(startLiveCopySchema, body) as StartLiveCopy; this.available();
+    const request = { ...parsed, settings: this.liveSettings(parsed.settings) };
     const owner = await this.repository.owner(userId);
+    // Refused before anything is prepared; paper stays open to everyone.
+    this.mandates.assertAllowed(owner.privyUserId);
     if (!owner.embeddedWalletAddress) refuse(409, 'setup_wallet_conflict', 'Your main wallet is not ready');
     let row = await this.repository.byKey(userId, request.idempotencyKey);
     if (!row) {
@@ -131,7 +141,7 @@ export class CopyLiveSetupService {
         // A start for this leader that ended without a generation, or never
         // got its consent (the sheet closed, the page reloaded: its key is
         // gone), ends first instead of answering already_copying forever.
-        for (const abandoned of await this.repository.abandonedStarts(tx, userId, request.leader)) await this.endAbandoned(tx, abandoned);
+        for (const abandoned of await this.repository.abandonedStarts(tx, userId, request.leader, this.network)) await this.endAbandoned(tx, abandoned);
         const strategy = await this.mandates.create(tx, userId, { idempotencyKey: request.idempotencyKey, leader: request.leader, sourceNetwork: request.sourceNetwork,
           budgetUsd: request.budgetUsd, settings: request.settings }, this.now);
         return this.repository.insert(tx, { id: randomUUID(), userId, strategyId: strategy.id, kind: 'start', idempotencyKey: request.idempotencyKey,
@@ -156,7 +166,7 @@ export class CopyLiveSetupService {
     try {
       // 1. The copy wallet (one per strategy).
       if (!row.accountId) {
-        const account = await this.wallets.prepare(userId, row.strategyId, { network: this.config.value.hyperliquid.wallet.network });
+        const account = await this.wallets.prepare(userId, row.strategyId, { network: this.network });
         await step({ accountId: account.id });
       }
       const account = await this.wallets.reconcile(userId, row.accountId!);
@@ -214,7 +224,7 @@ export class CopyLiveSetupService {
     const setupDeadline = Math.min(nonce + LIVE_SETUP_DEADLINE_MS, parts.agent.validUntil);
     if (setupDeadline <= consentExpiresAt) throw new Fail('agent_expired');
     const intent = liveCopySetupIntentSchema.parse({ kind: row.kind, setupId: row.id, userId: row.userId, ownerAddress: owner.embeddedWalletAddress, ownerPrivyUserId: owner.privyUserId,
-      strategyId: row.strategyId, leaderAddress: row.leaderAddress, sourceNetwork: row.sourceNetwork, network: this.config.value.hyperliquid.wallet.network, budgetUsd: row.budgetUsd,
+      strategyId: row.strategyId, leaderAddress: row.leaderAddress, sourceNetwork: row.sourceNetwork, network: this.network, budgetUsd: row.budgetUsd,
       settingsDigest: liveCopySettingsDigest(row.settings), accountId: row.accountId, accountAddress: parts.accountAddress, accountAbstraction: 'disabled',
       agentAddress: parts.agent.address, agentPolicyId: parts.agent.policyId, agentPolicyFingerprint: parts.agent.fingerprint, workerQuorumId: parts.agent.workerQuorumId,
       agentValidUntil: parts.agent.validUntil, builderAddress: builder.builderAddress, builderMaxFeeTenthsOfBps: builder.builderAddress ? builder.builderMaxFeeTenthsOfBps : 0,
@@ -239,7 +249,7 @@ export class CopyLiveSetupService {
 
   // --- edit / renew -------------------------------------------------------------
   private async running(userId: number, strategyId: number) {
-    const { found, mandate, agent } = await this.repository.runningCopy(userId, strategyId);
+    const { found, mandate, agent } = await this.repository.runningCopy(userId, strategyId, this.network);
     if (!found) throw new NotFoundException('Copy not found');
     if (['stopping', 'stopped'].includes(found.strategy.status)) throw new ConflictException({ statusCode: 409, code: 'live_stop_in_progress', message: 'A stop is in progress for this copy' });
     if (!mandate) refuse(409, 'setup_unavailable', 'This copy has no running generation to change');
@@ -255,13 +265,17 @@ export class CopyLiveSetupService {
   }
   /** A new generation with new settings or budget, one silent signature (plan §4). */
   async startEdit(userId: number, strategyId: number, body: unknown): Promise<LiveCopySetup> {
-    const request = input(editSchema, body); this.available();
+    const parsed = input(editSchema, body); this.available();
+    const request = { ...parsed, settings: this.liveSettings(parsed.settings) };
     const prior = await this.repository.byKey(userId, request.idempotencyKey);
     if (prior) return this.wire(prior.stage === 'awaiting_consent' ? await this.rechallengeChange(prior) : prior);
     const state = await this.running(userId, strategyId);
     if (state.current) throw new ConflictException({ statusCode: 409, code: 'setup_unavailable', message: 'A setup for this copy is still running' });
+    this.mandates.assertAllowed((await this.repository.owner(userId)).privyUserId);
+    // The budget (a top-up included) within the deployment's and the policy's caps.
     const limits = await this.mandates.preparation(this.repository.reader());
     this.mandates.checkBudget(request.budgetUsd, limits);
+    this.mandates.assertSettings(request.settings);
     if (request.settings.maxLeverage !== null && request.settings.maxLeverage > limits.maxLeverage) throw new ConflictException({ statusCode: 409, code: 'leverage_above_limit', message: 'Leverage above the platform limit', limit: limits.maxLeverage });
     return this.wire(await this.change(userId, 'edit', state, request.idempotencyKey, request.budgetUsd, request.settings));
   }
@@ -439,7 +453,7 @@ export class CopyLiveSetupService {
   /** The worker's pass: every confirmed, unfinished setup that is due. */
   async tick(): Promise<number> {
     let worked = 0;
-    for (const row of await this.repository.open(new Date(this.now()))) {
+    for (const row of await this.repository.open(new Date(this.now()), this.network)) {
       try { await this.drive(row.id, await this.workerPolicySigner(row)); worked++; }
       catch (error) { this.logger.warn(`setup ${row.id} kept for the next pass: ${safeErrorText(error)}`); }
     }
@@ -461,7 +475,7 @@ export class CopyLiveSetupService {
     const now = this.now();
     for (const [id, at] of this.approvalChecks) if (now - at > 600_000) this.approvalChecks.delete(id);
     let checked = 0;
-    for (const agent of await this.repository.abandonedApprovals(new Date(now - ABANDONED_APPROVAL_WINDOW_MS))) {
+    for (const agent of await this.repository.abandonedApprovals(new Date(now - ABANDONED_APPROVAL_WINDOW_MS), this.network)) {
       if (checked >= 3) break;
       if (now - (this.approvalChecks.get(agent.id) ?? 0) < 60_000) continue;
       this.approvalChecks.set(agent.id, now); checked++;
@@ -528,6 +542,9 @@ export class CopyLiveSetupService {
 
   private async step(row: SetupRow, signer: SetupSigner | null): Promise<SetupRow> {
     const intent = this.intent(row);
+    // Another network's setup is history on this deployment: left exactly as
+    // it is, nothing signed or sent (the driver's pass never picks one).
+    if (intent.network !== this.network) return row;
     // A renewal confirmed before renewals were refused: its agent isn't one
     // the worker's policy allows (2026-10-07).
     if (row.kind === 'renewal') throw new Fail('renewal_unavailable');
@@ -608,7 +625,7 @@ export class CopyLiveSetupService {
     throw new Wait('agent_approval_pending', 3_000);
   }
 
-  /** Testnet keeps the fee at 0 (decision 7): skipped. Otherwise the
+  /** A fee of 0 (testnet's decision 7; a live deployment for now) is skipped. Otherwise the
    * consented builder and rate, once, then observed on the exchange. */
   private async builderStep(row: SetupRow, intent: LiveCopySetupIntent, signer: SetupSigner | null): Promise<SetupRow> {
     if (!intent.builderAddress || intent.builderMaxFeeTenthsOfBps <= 0 || row.kind !== 'start') return this.move(row, 'builder_ready');

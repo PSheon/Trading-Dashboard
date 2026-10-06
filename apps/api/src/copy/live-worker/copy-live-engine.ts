@@ -1,8 +1,9 @@
+import type { HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import type { HyperliquidLiveSourceClient, LiveSourceReadResult } from '../copy-live-source.client.js';
 import type { CopyLiveSourceRepository } from '../copy-live-source.repository.js';
 import type { UnitOfWork } from '../../db/unit-of-work.js';
 import type { LiveExecutionRecord } from '../live/live-execution.js';
-import type { TestnetLiveExecutionHooks, TestnetLiveExecutionRequest } from '../live/testnet-live-execution-runtime.js';
+import type { LiveExecutionHooks, LiveExecutionRequest } from '../live/live-execution-runtime.js';
 import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceDigest } from '../live/copy-live-source-evidence.js';
 import { liveSourceExecutionCloid } from '../live/postgres-live-preparation.js';
 import { describeUnexpected, errorCode } from '../../runtime/safe-error-text.js';
@@ -21,15 +22,18 @@ export interface SignalTiming {
   started: number; read: { asked: number; sentAt: number; answeredAt: number } | null;
   ingest: IngestOutcome | null; ingestedAt: number; enqueuedAt: number;
 }
-export interface LiveExecutor { execute(request: TestnetLiveExecutionRequest): Promise<LiveExecutionRecord> }
+export interface LiveExecutor { execute(request: LiveExecutionRequest): Promise<LiveExecutionRecord> }
 export interface LiveEngineDependencies {
+  /** The deployment's network (HYPERLIQUID_NETWORK): every order's identity
+   * (`<network>:<account>:<cloid>`) is on it. */
+  readonly network: HyperliquidNetwork;
   readonly repository: CopyLiveWorkerRepository;
   readonly sources: CopyLiveSourceRepository;
   readonly uow: UnitOfWork;
   readonly watched: WatchedMainnetSource;
   /** Testnet leaders only (a testnet copy of a testnet address). */
   readonly testnetSource: HyperliquidLiveSourceClient;
-  readonly runtime: (hooks: Pick<TestnetLiveExecutionHooks, 'onExchange'>) => LiveExecutor;
+  readonly runtime: (hooks: Pick<LiveExecutionHooks, 'onExchange'>) => LiveExecutor;
   readonly settler: { settle(request: LiveSettleRequest): Promise<LiveSettleOutcome> };
   /** One-click setups (credit → mode → agent → builder → generation), before
    * funded generations start, so a generation made now starts this pass. */
@@ -53,7 +57,8 @@ export interface LiveEngineDependencies {
 }
 export interface LiveEngineOptions {
   /** Testnet-leader REST polls are costly (two worst-case 120-weight reads):
-   * at most one per stream this often. Mainnet leaders cost nothing extra. */
+   * at most one per stream this often (COPY_LIVE_TESTNET_SOURCE_INTERVAL_MS;
+   * 3000 for the testnet harness). Mainnet leaders cost nothing extra. */
   readonly testnetSourceIntervalMs: number;
   /** A mainnet read stops this long before now, so the watcher can confirm. */
   readonly sourceLagMs: number;
@@ -78,7 +83,7 @@ export const HIP3_REFUSAL = 'live_market_hip3_unsupported';
 const isHip3 = (coin: string) => coin.includes(':');
 /** Refusals that no retry can change. Everything else is retried until the
  * leader fill is older than the policy's signal age. */
-const PERMANENT = new Set(['live_source_price_deviation', 'below_min_notional', 'live_risk_adoption_unproven', 'live_market_unknown',
+const PERMANENT = new Set(['live_source_price_deviation', 'live_budget_over_capacity', 'below_min_notional', 'live_risk_adoption_unproven', 'live_market_unknown',
   'live_account_unsupported_role', 'live_account_unsupported_abstraction', 'unattempted_expired', 'live_risk_provider_fee_scope_unproven', HIP3_REFUSAL]);
 /** A merged order is planned within this long after its legs are merged
  * (evidence reads ~4 s): no leg merged older than the signal age less this. */
@@ -92,7 +97,7 @@ export { describeUnexpected, safeErrorText } from '../../runtime/safe-error-text
 const reasonOf = (error: unknown) => errorCode(error);
 
 /**
- * One pass of testnet copy execution, in this order: start funded
+ * One pass of copy execution on the deployment's network, in this order: start funded
  * generations, ingest leader fills, enqueue new legs, then work the open
  * legs (submit pending ones, reconcile unknown/resting ones from the
  * exchange, settle terminal ones). Every step is restart-safe: the
@@ -290,7 +295,7 @@ export class CopyLiveEngine {
    */
   async merge(m: LiveMandateWork): Promise<string[]> {
     if (m.sizingMode !== 'ratio') return [];
-    const keyOf = (row: Pick<DispatchRow, 'mandateId' | 'sourceFillId' | 'leg'>) => `testnet:${m.accountAddress}:${liveSourceExecutionCloid(row.mandateId, row.sourceFillId, row.leg)}`;
+    const keyOf = (row: Pick<DispatchRow, 'mandateId' | 'sourceFillId' | 'leg'>) => `${this.deps.network}:${m.accountAddress}:${liveSourceExecutionCloid(row.mandateId, row.sourceFillId, row.leg)}`;
     const rows = await this.deps.repository.mergeable(m.mandateId, keyOf);
     if (!rows.length) return [];
     const legs: PendingLeg[] = [];
@@ -336,7 +341,7 @@ export class CopyLiveEngine {
   async work(row: DispatchRow, m: LiveMandateWork | null, signalAgeMs: number): Promise<void> {
     const mandate = m ?? await this.mandateOf(row);
     if (!mandate) return;
-    const key = `testnet:${mandate.accountAddress}:${liveSourceExecutionCloid(row.mandateId, row.sourceFillId, row.leg)}`;
+    const key = `${this.deps.network}:${mandate.accountAddress}:${liveSourceExecutionCloid(row.mandateId, row.sourceFillId, row.leg)}`;
     if (row.state === 'pending') {
       // A journal under this identity means an earlier pass reached the
       // exchange boundary; only reconciliation may continue it.
@@ -379,17 +384,18 @@ export class CopyLiveEngine {
     }
     // In the leader's order: an earlier leg of the coin still waiting goes first.
     if (await this.deps.repository.earlierPending(row)) return;
-    await this.execute(row, m);
+    await this.execute(row, m, row.leaderTime.getTime() + signalAgeMs);
   }
 
-  /** Submits (first time) or reconciles (afterwards) the leg's one order. */
-  private async execute(row: DispatchRow, m: LiveMandateWork): Promise<void> {
+  /** Submits (first time) or reconciles (afterwards) the leg's one order. A
+   * first submission's budget wait never outlasts the signal (`signalDeadline`). */
+  private async execute(row: DispatchRow, m: LiveMandateWork, signalDeadline?: number): Promise<void> {
     const timing: { sentAt?: number; ackedAt?: number } = {}, first = row.firstAttemptAt ?? new Date(this.now());
     const runtime = this.deps.runtime({ onExchange: event => { if (event.phase === 'request') timing.sentAt ??= event.at; else timing.ackedAt ??= event.at; } });
     try {
       const members = row.adjustmentId === row.id ? await this.deps.repository.members(row.id) : [];
       const record = await runtime.execute({ userId: row.userId, accountId: row.accountId, mandateId: row.mandateId, sourceFillId: row.sourceFillId, leg: row.leg,
-        ...(members.length ? { members } : {}) });
+        ...(members.length ? { members } : {}), ...(signalDeadline !== undefined ? { signalDeadline } : {}) });
       const times = { ...(timing.sentAt ? { sentAt: new Date(timing.sentAt) } : {}), ...(timing.ackedAt ? { ackedAt: new Date(timing.ackedAt) } : {}) };
       if (record.errorCode === 'unattempted_expired') {
         await this.deps.repository.update(row, { state: 'refused', reason: 'unattempted_expired', executionKey: record.key, firstAttemptAt: first, attempts: row.attempts + 1 }); return;
@@ -404,7 +410,7 @@ export class CopyLiveEngine {
       if (unexpected) this.deps.log?.(`leg ${row.id} failed unexpectedly: ${unexpected}`);
       const times = timing.sentAt ? { sentAt: new Date(timing.sentAt), ...(timing.ackedAt ? { ackedAt: new Date(timing.ackedAt) } : {}) } : {};
       // A POST that began leaves an exchange-side outcome to reconcile.
-      const key = `testnet:${m.accountAddress}:${liveSourceExecutionCloid(row.mandateId, row.sourceFillId, row.leg)}`;
+      const key = `${this.deps.network}:${m.accountAddress}:${liveSourceExecutionCloid(row.mandateId, row.sourceFillId, row.leg)}`;
       const journal = await this.deps.repository.journalState(key);
       if (row.state === 'pending' && journal !== null && journal !== 'prepared') {
         await this.deps.repository.update(row, { state: 'submitted', executionKey: key, firstAttemptAt: first, attempts: row.attempts + 1, reason, ...times }); return;

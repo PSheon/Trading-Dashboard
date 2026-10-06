@@ -4,7 +4,7 @@ import { and, desc, eq, inArray, ne } from 'drizzle-orm';
 import { MERGED_REASON } from './live-worker/copy-live-worker.repository.js';
 import { copyAgentSetups, copyExecutionAccounts, copyFundingOperations, copyLiveActivations, copyLiveDispatches, copyLiveMandates, copyLiveStopOperations,
   copyLiveSetups, copyLiveStrategyConfigs, copyStrategies } from '@trading-dashboard/shared/database';
-import { liveCopySetupIntentSchema, type LiveCopyPortfolioItem, type LiveCopyStage } from '@trading-dashboard/shared/contracts';
+import { ACTUAL_STRATEGY_MODE, liveCopySetupIntentSchema, type LiveCopyPortfolioItem, type LiveCopyStage } from '@trading-dashboard/shared/contracts';
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
 
@@ -15,7 +15,8 @@ function consentOf(setup: typeof copyLiveSetups.$inferSelect, now: number) {
   return parsed.success ? parsed.data : null;
 }
 
-/** Read model of the owner's testnet copies: one row per strategy with the
+/** Read model of the owner's actual copies (every network: another network's
+ * are history, marked by `network`): one row per strategy with the
  * stage the portfolio shows. SQL only; nothing here contacts the exchange. */
 @Injectable()
 export class CopyLivePortfolioRepository {
@@ -23,7 +24,7 @@ export class CopyLivePortfolioRepository {
   async items(userId: number): Promise<LiveCopyPortfolioItem[]> {
     const strategies = await this.db.select({ strategy: copyStrategies, config: copyLiveStrategyConfigs }).from(copyStrategies)
       .innerJoin(copyLiveStrategyConfigs, eq(copyLiveStrategyConfigs.strategyId, copyStrategies.id))
-      .where(and(eq(copyStrategies.userId, userId), eq(copyStrategies.mode, 'testnet'))).orderBy(desc(copyStrategies.createdAt)).limit(50);
+      .where(and(eq(copyStrategies.userId, userId), eq(copyStrategies.mode, ACTUAL_STRATEGY_MODE))).orderBy(desc(copyStrategies.createdAt)).limit(50);
     if (!strategies.length) return [];
     const ids = strategies.map(row => row.strategy.id);
     const [accounts, setups, mandates, activations, stops, transfers, refusals, liveSetups] = await Promise.all([
@@ -40,7 +41,7 @@ export class CopyLivePortfolioRepository {
     ]);
     const now = Date.now();
     return strategies.map(({ strategy: s, config: c }) => {
-      const account = accounts.find(a => a.strategyId === s.id && a.network === 'testnet') ?? null;
+      const account = accounts.find(a => a.strategyId === s.id && a.network === s.network) ?? null;
       const setup = account ? setups.find(row => row.accountId === account.id) : undefined;
       const mandate = mandates.find(m => m.strategyId === s.id) ?? null;
       const activation = mandate ? activations.find(a => a.mandateId === mandate.id) : undefined;
@@ -82,7 +83,7 @@ export class CopyLivePortfolioRepository {
       else if (s.status === 'active' && mandate.state === 'active') stage = 'active';
       else if (activation?.state === 'pending' && mandate.state === 'active') stage = 'starting';
       else stage = 'paused';
-      return { strategyId: s.id, leaderAddress: s.leaderAddress, sourceNetwork: c.sourceNetwork, budgetUsd: c.budgetUsd, status: s.status, stage, createdAt: s.createdAt.toISOString(),
+      return { strategyId: s.id, leaderAddress: s.leaderAddress, sourceNetwork: c.sourceNetwork, network: s.network, budgetUsd: c.budgetUsd, status: s.status, stage, createdAt: s.createdAt.toISOString(),
         accountId: account?.id ?? null, accountAddress: account?.address ?? null,
         mandate: mandate ? { id: mandate.id, state: mandate.state, revision: mandate.revision } : null,
         stop: stop ? { id: stop.id, state: stop.state, issue: stop.issue, revision: stop.revision } : null,

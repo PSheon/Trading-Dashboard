@@ -505,6 +505,13 @@
       "when": 1791303368934,
       "tag": "0071_one_signing_model",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1791308232780,
+      "tag": "0072_one_network_per_deployment",
+      "breakpoints": true
     }
   ]
 }

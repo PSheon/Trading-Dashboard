@@ -18,7 +18,7 @@ function input<T>(schema: z.ZodType<T>, value: unknown): T {
 }
 
 /**
- * USDC back from a copy's testnet account to the owner's main wallet (idle
+ * USDC back from a copy's account (on the deployment's network) to the owner's main wallet (idle
  * funds while copying, or everything once its stop is flat). The account is
  * a wallet the owner alone owns; every return is signed by the worker under
  * the owner's Privy policy, which allows a UsdSend to the owner's main
@@ -35,7 +35,8 @@ export class CopyLiveReturnService {
     @Optional() private readonly now: () => number = Date.now,
     @Optional() @Inject(WORKER_MASTER_SIGNER) private readonly workerSigner: WorkerMasterSigner | null = null) {}
   private assertAvailable() {
-    if (this.config.value.hyperliquid.wallet.network !== 'testnet' || this.config.value.copy.mode === 'disabled') throw new ServiceUnavailableException('Account returns are available on testnet only');
+    // The account itself must be of the deployment's network (the repository's context).
+    if (this.config.value.copy.mode === 'disabled') throw new ServiceUnavailableException('Account returns are unavailable on this deployment');
   }
 
   async reserve(userId: number, accountId: string, body: unknown) {

@@ -1,3 +1,4 @@
+import { testConfig } from './config-test-utils.js';
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import { eq } from 'drizzle-orm';
@@ -21,7 +22,7 @@ const body = () => ({ idempotencyKey: 'durable-stop-request-0001', expectedManda
 beforeAll(() => { db = getTestDb(); pool = new Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 2 }); });
 beforeEach(async () => {
   seed = await preparationFixture(db); clock = now;
-  service = new CopyLiveStopService(new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db)), new UnitOfWork(db), () => clock);
+  service = new CopyLiveStopService(new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, testConfig())), new UnitOfWork(db), () => clock);
 });
 afterAll(async () => { await pool.end(); await closeTestDb(); });
 async function prepareActualJournal() {
@@ -90,7 +91,7 @@ it('atomically records the owner request and blocks new risk without claiming ca
 });
 it('recovers the exact original key across retries and a restarted service after its response is lost', async () => {
   const original = await service.request(1, 'mandate', body()); clock += 1000;
-  const restarted = new CopyLiveStopService(new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db)), new UnitOfWork(db), () => clock);
+  const restarted = new CopyLiveStopService(new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, testConfig())), new UnitOfWork(db), () => clock);
   expect(await restarted.request(1, 'mandate', body())).toEqual(original);
   expect(await restarted.byKey(1, body().idempotencyKey)).toEqual(original);
   expect(await restarted.overview(1)).toEqual({ items: [original], truncated: false });

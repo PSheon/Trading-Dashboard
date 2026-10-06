@@ -1,3 +1,4 @@
+import { testConfig } from './config-test-utils.js';
 import * as schema from '@trading-dashboard/shared/database';
 import { eq } from 'drizzle-orm';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -31,7 +32,7 @@ beforeEach(async () => {
   exchange = { withdrawable: vi.fn(async () => '42.1234567'), send: vi.fn(async () => ({ status: 'ok', response: { type: 'default' } })),
     sendAction: vi.fn(async () => ({ status: 'ok', response: { type: 'default' } })), maxBuilderFee: vi.fn(async () => 10) };
   worker = { available: true, sign: vi.fn(async () => `0x${'22'.repeat(64)}1b`) };
-  service = new CopyLiveReturnService(config(), new CopyLiveReturnRepository(db), exchange as unknown as CopyFundingExchangeClient, () => clock, worker as never);
+  service = new CopyLiveReturnService(config(), new CopyLiveReturnRepository(db, testConfig()), exchange as unknown as CopyFundingExchangeClient, () => clock, worker as never);
 });
 afterAll(async () => { await closeTestDb(); });
 
@@ -120,7 +121,7 @@ describe('returning USDC from a copy account to the main wallet', () => {
     await expect(service.reserve(1, 'account', { idempotencyKey: key(7), amount: '5' })).rejects.toMatchObject({ status: 409, response: { code: 'return_use_sweep' } });
     const sweep = await service.reserve(1, 'account', { idempotencyKey: key(8), amount: 'all' });
     expect(sweep.operation).toMatchObject({ amount: '42.123456', stopId: stop!.id, direction: 'to_main' });
-    const repository = new CopyLiveReturnRepository(db);
+    const repository = new CopyLiveReturnRepository(db, testConfig());
     expect(await repository.swept(stop!.id)).toBe(false);
     await db.update(schema.copyFundingOperations).set({ status: 'credited', attemptedAt: new Date(clock), claimedAt: new Date(clock), evidenceHash: 'e'.repeat(64),
       transactionHash: `0x${'f'.repeat(64)}`, creditedAmount: '41.123456', fee: '1' }).where(eq(schema.copyFundingOperations.id, sweep.operation.id));

@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import WebSocket from 'ws';
 import { safeErrorText } from '../../runtime/safe-error-text.js';
 import { z } from 'zod';
+import { isHyperliquidNetwork, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { MAX_LIVE_PERP_DEXES, LIVE_DEX_NAME } from './live-market-resolver.js';
 import { address, LiveBoundaryError } from './wallet-authorization.js';
 import {HyperliquidGlobalTransport} from '../../hyperliquid/hyperliquid-global-transport.js';
@@ -9,13 +10,13 @@ import {quotaSubscription} from '../../hyperliquid/hyperliquid-global-quota.js';
 import type {HyperliquidSocketQuota,HyperliquidCommandPermit} from '../../hyperliquid/postgres-hyperliquid-quota.js';
 
 export interface LiveAllDexsStateEvidence {
-  readonly network: 'testnet' | 'mainnet'; readonly accountAddress: string; readonly observedAt: number; readonly data: unknown;
+  readonly network: HyperliquidNetwork; readonly accountAddress: string; readonly observedAt: number; readonly data: unknown;
 }
 export interface LiveOrderVenueEvidence {
   readonly dex: string; readonly user: string; readonly observedAt: number; readonly receivedAt: number; readonly orders: readonly unknown[];
 }
 export interface LiveAllDexsOrderEvidence {
-  readonly network: 'testnet' | 'mainnet'; readonly accountAddress: string; readonly observedAt: number; readonly completedAt: number;
+  readonly network: HyperliquidNetwork; readonly accountAddress: string; readonly observedAt: number; readonly completedAt: number;
   readonly requestedDexes: readonly string[]; readonly venues: readonly LiveOrderVenueEvidence[];
 }
 export interface LiveAllDexsAccountEvidence {
@@ -77,14 +78,14 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
   private disposed=false;
   constructor(private readonly now = Date.now,
     private readonly createSocket = (url: string, options: WebSocket.ClientOptions) => new WebSocket(url, options),
-    readonly network: 'testnet' | 'mainnet' = 'testnet',private readonly global?:HyperliquidGlobalTransport,
+    readonly network: HyperliquidNetwork = 'testnet',private readonly global?:HyperliquidGlobalTransport,
     /** `closeAfterRead`: an all-venue read subscribes every venue and then
      * closes its socket (one prepaid close) instead of unsubscribing each
      * venue: 270 WS units for 268 dexes instead of 538, and no unsubscribe
      * round trips. For a source whose reads are occasional (the api's
      * account-mode absence proof); a new socket per read. */
     private readonly options:{readonly closeAfterRead?:boolean}={}) {
-    if (!['testnet', 'mainnet'].includes(network)) fail('live_account_source_mismatch');
+    if (!isHyperliquidNetwork(network)) fail('live_account_source_mismatch');
     if(global!==undefined&&!(global instanceof HyperliquidGlobalTransport))fail('live_account_source_mismatch');
   }
 

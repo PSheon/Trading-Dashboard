@@ -18,7 +18,7 @@ export const createLiveCopyStrategySchema = z.object({
 }).strict();
 export type CreateLiveCopyStrategy = z.infer<typeof createLiveCopyStrategySchema>;
 export const liveCopyStrategySchema = z.object({
-  id: version, mode: z.literal('actual'), network: z.literal('testnet'),
+  id: version, mode: z.literal('actual'), network: z.enum(['testnet', 'mainnet']),
   sourceNetwork: z.enum(['testnet', 'mainnet']), leaderAddress: address, budgetUsd: liveCopyBudgetSchema,
   status: copyStrategyStatusSchema, version, settings,
   pauseNewRisk: z.boolean(), reduceOnly: z.boolean(), createdAt: z.string().datetime(),
@@ -28,7 +28,7 @@ export const prepareLiveCopyMandateSchema = z.object({ idempotencyKey: copyIdemp
 export const approveLiveCopyMandateSchema = z.object({ consentSignature: z.string().regex(/^0x[0-9a-fA-F]{130}$/) }).strict();
 export const liveCopyMandateIntentSchema = z.object({
   mandateId: id, accountId: id, userId: version, strategyId: version, strategyVersion: version,
-  network: z.literal('testnet'), sourceNetwork: z.enum(['testnet', 'mainnet']), leaderAddress: address,
+  network: z.enum(['testnet', 'mainnet']), sourceNetwork: z.enum(['testnet', 'mainnet']), leaderAddress: address,
   accountAddress: address, accountRevision: version, ownerAddress: address, ownerPrivyUserId: id,
   setupId: id, setupRevision: version, executionWalletId: id, agentWalletId: id, agentAddress: address,
   authorizationId: id, authorizationVersion: version, policyId: id, policyFingerprint: hash,
@@ -47,7 +47,7 @@ export const liveCopyMandateIntentSchema = z.object({
 export type LiveCopyMandateIntent = z.infer<typeof liveCopyMandateIntentSchema>;
 export const liveCopyMandateStateSchema = z.enum(['prepared', 'active', 'paused', 'stopping', 'stopped', 'revoked', 'expired']);
 export const liveCopyMandateSchema = z.object({
-  id: id, accountId: id, strategyId: version, mode: z.literal('actual'), network: z.literal('testnet'),
+  id: id, accountId: id, strategyId: version, mode: z.literal('actual'), network: z.enum(['testnet', 'mainnet']),
   accountAddress: address, sourceNetwork: z.enum(['testnet', 'mainnet']), leaderAddress: address,
   budgetUsd: liveCopyBudgetSchema, strategyVersion: version, state: liveCopyMandateStateSchema, revision: version,
   activationCursor: z.string().datetime().nullable(), expiresAt: z.string().datetime(),
@@ -62,8 +62,15 @@ export const liveCopyMandateChallengeSchema = z.object({ mandate: liveCopyMandat
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Renewal evidence must refer to the original consent generation' });
 });
 export const liveCopyOverviewSchema = z.object({
-  mode: z.literal('actual'), network: z.literal('testnet'),
-  capabilities: z.object({ strategyPreparation: z.boolean(), automaticExecution: z.boolean(), sourceNetworks: z.array(z.enum(['testnet', 'mainnet'])) }).strict(),
+  mode: z.literal('actual'), network: z.enum(['testnet', 'mainnet']),
+  capabilities: z.object({ strategyPreparation: z.boolean(), automaticExecution: z.boolean(), sourceNetworks: z.array(z.enum(['testnet', 'mainnet'])),
+    /** This owner may start an actual copy on this deployment (a live
+     * deployment allows listed owners only: COPY_LIVE_ALLOWED_PRIVY_USER_IDS). */
+    actualAllowed: z.boolean().optional(),
+    /** The deployment's caps on a new actual copy: fixed sizing within these
+     * per-trade bounds (null: any sizing), the largest budget and leverage. */
+    caps: z.object({ fixedPerTradeUsd: z.object({ min: z.number(), max: z.number() }).strict().nullable(), maxAllocationUsd: z.number().nullable(),
+      maxLeverage: z.number().nullable(), maxStrategiesPerUser: z.number().int().positive() }).strict().optional() }).strict(),
   strategies: z.array(liveCopyStrategySchema), mandates: z.array(liveCopyMandateSchema),
 }).strict();
 
@@ -94,6 +101,9 @@ export const liveCopyStageSchema = z.enum(['setup', 'needs_deposit', 'funding', 
 export type LiveCopyStage = z.infer<typeof liveCopyStageSchema>;
 export const liveCopyPortfolioItemSchema = z.object({
   strategyId: version, leaderAddress: address, sourceNetwork: z.enum(['testnet', 'mainnet']), budgetUsd: liveCopyBudgetSchema,
+  /** The network the copy executes on. One that isn't the deployment's
+   * (`liveCopyPortfolioSchema.network`) is history here: shown, never worked. */
+  network: z.enum(['testnet', 'mainnet']).optional(),
   status: copyStrategyStatusSchema, stage: liveCopyStageSchema, createdAt: z.string().datetime(),
   accountId: id.nullable(), accountAddress: address.nullable(),
   mandate: z.object({ id, state: liveCopyMandateStateSchema, revision: version }).strict().nullable(),
@@ -123,7 +133,7 @@ export const liveCopyPortfolioItemSchema = z.object({
   oneClick: z.boolean().optional(),
 }).strict();
 export type LiveCopyPortfolioItem = z.infer<typeof liveCopyPortfolioItemSchema>;
-export const liveCopyPortfolioSchema = z.object({ network: z.literal('testnet'), automaticExecution: z.boolean(), items: z.array(liveCopyPortfolioItemSchema).max(50) }).strict();
+export const liveCopyPortfolioSchema = z.object({ network: z.enum(['testnet', 'mainnet']), automaticExecution: z.boolean(), items: z.array(liveCopyPortfolioItemSchema).max(50) }).strict();
 
 /** Close one position of a running testnet copy (CopyDog's close-position). */
 export const requestLiveManualCloseSchema = z.object({

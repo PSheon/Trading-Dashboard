@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, desc, eq, getTableColumns, inArray, isNotNull, ne, or, sql } from 'drizzle-orm';
-import { liveCopyStopSchema, type RequestLiveCopyStop } from '@trading-dashboard/shared/contracts';
+import { ACTUAL_STRATEGY_MODE, liveCopyStopSchema, type RequestLiveCopyStop } from '@trading-dashboard/shared/contracts';
 import { copyAgentSetups, copyExecutionAccounts, copyLiveExecutions, copyLiveIntentProvenance, copyLiveMandates,
   copyLiveRiskReservations, copyLiveStopOperations, copyStrategies } from '@trading-dashboard/shared/database';
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
@@ -27,8 +27,9 @@ export class CopyLiveStopRepository {
       .where(and(eq(copyExecutionAccounts.id, mandate.accountId), eq(copyExecutionAccounts.userId, userId))).for('update');
     if (!binding) throw new NotFoundException('Copy account not found');
     const { account, strategy, setup } = binding;
-    if (strategy.userId !== userId || strategy.mode !== 'testnet' || strategy.id !== mandate.strategyId ||
-      account.strategyId !== mandate.strategyId || account.network !== 'testnet' || account.address !== mandate.accountAddress ||
+    // Only a copy of the deployment's network stops here (another network's is history).
+    if (strategy.userId !== userId || strategy.mode !== ACTUAL_STRATEGY_MODE || strategy.network !== this.mandates.network || strategy.id !== mandate.strategyId ||
+      account.strategyId !== mandate.strategyId || account.network !== this.mandates.network || account.address !== mandate.accountAddress ||
       owner.privyUserId !== mandate.ownerPrivyUserId || owner.embeddedWalletAddress !== mandate.ownerAddress ||
       account.privyUserId !== owner.privyUserId || !account.privyWalletId || !account.ownerQuorumId ||
       setup.userId !== userId || setup.accountId !== account.id || setup.strategyId !== strategy.id ||
@@ -119,7 +120,7 @@ export class CopyLiveStopRepository {
     })
       .from(copyLiveExecutions).leftJoin(copyLiveIntentProvenance, eq(copyLiveIntentProvenance.key, copyLiveExecutions.key))
       .leftJoin(copyLiveRiskReservations, eq(copyLiveRiskReservations.key, copyLiveExecutions.key))
-      .where(and(eq(copyLiveExecutions.userId, userId), eq(copyLiveExecutions.strategyId, strategy.id), eq(copyLiveExecutions.network, 'testnet'),
+      .where(and(eq(copyLiveExecutions.userId, userId), eq(copyLiveExecutions.strategyId, strategy.id), eq(copyLiveExecutions.network, account.network),
         eq(copyLiveExecutions.accountAddress, account.address!), or(inArray(copyLiveExecutions.state, ['prepared', 'submitting', 'unknown', 'resting']),
           and(isNotNull(copyLiveRiskReservations.key), ne(copyLiveRiskReservations.state, 'released')))))
       .orderBy(asc(copyLiveExecutions.key)).limit(1001);
@@ -127,7 +128,7 @@ export class CopyLiveStopRepository {
     // must not make an existing reservation disappear from this operation.
     const liabilities = await tx.select({ key: copyLiveRiskReservations.key }).from(copyLiveRiskReservations)
       .where(and(ne(copyLiveRiskReservations.state, 'released'), or(eq(copyLiveRiskReservations.accountId, account.id),
-        and(eq(copyLiveRiskReservations.network, 'testnet'), eq(copyLiveRiskReservations.accountAddress, account.address!)))))
+        and(eq(copyLiveRiskReservations.network, account.network), eq(copyLiveRiskReservations.accountAddress, account.address!)))))
       .orderBy(asc(copyLiveRiskReservations.key)).limit(1001);
     let issue: string | null = generations.length > 1000 || candidates.length > 1000 || liabilities.length > 1000 ? 'stop_tracking_limit' : null;
     if (liabilities.some(row => !candidates.some(candidate => candidate.execution.key === row.key))) issue ??= 'tracked_execution_unproven';
@@ -152,12 +153,12 @@ export class CopyLiveStopRepository {
           provenance.admittedAt.getTime() !== record.createdAt || provenance.admittedAt.getTime() > now ||
           !original.activationCursor || provenance.admittedAt < original.activationCursor || provenance.admittedAt >= original.expiresAt ||
           record.key !== executionKey(intent) || record.fingerprint !== intentFingerprint(intent, action) || !isDeepStrictEqual(record.action, action) ||
-          intent.userId !== userId || intent.strategyId !== strategy.id || intent.network !== 'testnet' || intent.accountAddress !== account.address ||
+          intent.userId !== userId || intent.strategyId !== strategy.id || intent.network !== account.network || intent.accountAddress !== account.address ||
           intent.authorizationId !== original.authorizationId || intent.walletId !== original.agentWalletId ||
           record.authorization.id !== original.authorizationId || record.authorization.walletId !== original.agentWalletId ||
           record.authorization.signerAddress !== original.agentAddress || record.authorization.version !== original.authorizationVersion ||
           (record.state !== 'prepared' && !reservation) || reservation && (reservation.accountId !== account.id || reservation.userId !== userId ||
-            reservation.strategyId !== strategy.id || reservation.network !== 'testnet' || reservation.accountAddress !== account.address ||
+            reservation.strategyId !== strategy.id || reservation.network !== account.network || reservation.accountAddress !== account.address ||
             reservation.fingerprint !== record.fingerprint || reservation.cloid !== execution.cloid || reservation.asset !== intent.asset ||
             reservation.walletId !== intent.walletId || reservation.authorizationId !== original.authorizationId ||
             reservation.authorizationVersion !== original.authorizationVersion)) throw new Error();
@@ -176,7 +177,7 @@ export class CopyLiveStopRepository {
     await tx.update(copyLiveMandates).set({ state: 'stopping', revision: sql`${copyLiveMandates.revision} + 1`, updatedAt: new Date(now) })
       .where(and(eq(copyLiveMandates.accountId, account.id), inArray(copyLiveMandates.state, ['active', 'paused'])));
     const [row] = await tx.insert(copyLiveStopOperations).values({ id: randomUUID(), userId, strategyId: strategy.id, accountId: account.id,
-      mandateId, idempotencyKey: input.idempotencyKey, originalMandateRevision: input.expectedMandateRevision, network: 'testnet',
+      mandateId, idempotencyKey: input.idempotencyKey, originalMandateRevision: input.expectedMandateRevision, network: account.network,
       accountAddress: account.address!, ownerPrivyUserId: owner.privyUserId, ownerAddress: owner.embeddedWalletAddress!,
       accountWalletId: account.privyWalletId!, accountOwnerQuorumId: account.ownerQuorumId!, originalIntentDigest: mandate.intentDigest,
       originalConsentDigest, state: issue ? 'blocked' : 'requested', targetManifest: manifest,

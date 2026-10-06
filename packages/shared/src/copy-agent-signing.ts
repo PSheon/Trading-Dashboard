@@ -8,7 +8,7 @@ export interface AgentConsentIntent {
 }
 const zero = `0x${"00".repeat(20)}` as const;
 function validate(input: AgentConsentIntent) {
-  if (input.network !== "testnet" || !Number.isSafeInteger(input.strategyId) || input.strategyId < 1 || input.strategyId > 2_147_483_647 ||
+  if ((input.network !== "testnet" && input.network !== "mainnet") || !Number.isSafeInteger(input.strategyId) || input.strategyId < 1 || input.strategyId > 2_147_483_647 ||
     !input.id || input.id.length > 128 || !input.policyId || !input.workerQuorumId ||
     !/^0x[0-9a-fA-F]{40}$/.test(input.accountAddress) || !/^0x[0-9a-fA-F]{40}$/.test(input.agentAddress) ||
     input.accountAddress.toLowerCase() === zero || input.agentAddress.toLowerCase() === zero || input.accountAddress.toLowerCase() === input.agentAddress.toLowerCase() ||

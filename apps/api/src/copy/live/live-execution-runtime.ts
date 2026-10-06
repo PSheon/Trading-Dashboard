@@ -4,6 +4,7 @@ import { Pool } from 'pg';
 import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { z } from 'zod';
+import { WALLET_NETWORKS, isHyperliquidNetwork, liveSourceNetworks, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { copyExecutionAccounts, copyLiveMandates, copyLiveExecutions, copyLiveIntentProvenance,
   copyLiveRiskReservations, copyLiveSignalLegs, copyLiveSourceFills, copyAgentSetups,
   copyExecutionWallets, copyWalletAuthorizations, copyWalletAuthorizationEvents, users } from '@trading-dashboard/shared/database';
@@ -42,10 +43,10 @@ import type { LiveSourceReferenceReader } from './live-source-reference.js';
 import { captureLiveOrderIdentity, parseLiveIocAcknowledgement } from './live-order-evidence.js';
 import { PostgresLiveSettlement } from './postgres-live-settlement.js';
 
-const TESTNET_INFO = 'https://api.hyperliquid-testnet.xyz/info';
 const id = z.string().min(1).max(160).regex(/^[^\s\p{Cc}\p{Cf}]+$/u);
 const requestSchema = z.object({ userId: z.number().int().positive().max(2147483647), accountId: id,
-  mandateId: id, sourceFillId: id, leg: z.enum(['open', 'close']), members: z.array(id).min(1).max(63).optional() }).strict();
+  mandateId: id, sourceFillId: id, leg: z.enum(['open', 'close']), members: z.array(id).min(1).max(63).optional(),
+  signalDeadline: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional() }).strict();
 const bps = z.string().max(80).regex(/^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/).refine(v => {
   try { return Dec.from(v).gte(0) && Dec.from(v).lte(10000); } catch { return false; }
 });
@@ -54,11 +55,11 @@ const optionsSchema = z.object({ slippageBps: bps, extraRiskBufferBps: bps,
   timeoutMs: z.number().int().min(1).max(5000).optional(), maxSourceDeviationBps: bps.optional() }).strict();
 /** Exchange timing hooks for latency measurement (B18): when the order POST
  * starts and when its response arrives. They observe; they cannot veto. */
-export interface TestnetLiveExecutionHooks {
+export interface LiveExecutionHooks {
   readonly reference?: LiveSourceReferenceReader;
   readonly onExchange?: (event: { readonly phase: 'request' | 'response'; readonly at: number }) => void;
 }
-export interface TestnetLiveExecutionRequest {
+export interface LiveExecutionRequest {
   readonly userId: number;
   readonly accountId: string;
   readonly mandateId: string;
@@ -66,6 +67,10 @@ export interface TestnetLiveExecutionRequest {
   readonly leg: 'open' | 'close';
   /** One merged adjustment: the other same-coin leader legs it carries. */
   readonly members?: readonly string[];
+  /** When the leader's signal stops being worth copying (the leg is refused
+   * as expired after it): the evidence's budget wait never outlasts it, so a
+   * full bucket can't hold the worker's pass longer than the signal lives. */
+  readonly signalDeadline?: number;
 }
 /** An exchange approval observed this recently is reused within one order
  * (prepare, sign and the final pre-POST check each verify it): its own
@@ -97,25 +102,28 @@ function epochMarkets(resolver: HyperliquidLiveMarketResolver, shared: () => Liv
   };
   return { network: resolver.network, resolve: coin => fallback(value => resolver.resolve(coin, value)), resolveAsset: asset => fallback(value => resolver.resolveAsset(asset, value)) };
 }
-export class TestnetLiveExecutionRuntime {
+/** One copy order on the deployment's network (HYPERLIQUID_NETWORK): every
+ * read, signature and order of this runtime is on `network`, and it refuses an
+ * account or mandate of any other network. */
+export class LiveExecutionRuntime {
   private readonly options: Readonly<LivePreparationOptions>;
-  constructor(private readonly pool: Pool, private readonly config: AppConfig, private readonly global: HyperliquidGlobalTransport,
+  constructor(private readonly network: HyperliquidNetwork, private readonly pool: Pool, private readonly config: AppConfig, private readonly global: HyperliquidGlobalTransport,
     private readonly budget: RequestBudgeterService, options: LivePreparationOptions, private readonly now = Date.now,
-    private readonly hooks: TestnetLiveExecutionHooks = {}) {
+    private readonly hooks: LiveExecutionHooks = {}) {
     if (!(pool instanceof Pool) || !(config instanceof AppConfig) || !(global instanceof HyperliquidGlobalTransport) ||
-      !(budget instanceof RequestBudgeterService) || typeof now !== 'function') throw new LiveBoundaryError('testnet_runtime_dependencies');
+      !(budget instanceof RequestBudgeterService) || typeof now !== 'function' || !isHyperliquidNetwork(network)) throw new LiveBoundaryError('live_runtime_dependencies');
     const parsed = optionsSchema.safeParse(structuredClone(options));
-    if (!parsed.success) throw new LiveBoundaryError('testnet_runtime_options');
+    if (!parsed.success) throw new LiveBoundaryError('live_runtime_options');
     this.options = Object.freeze(parsed.data);
   }
   /** Unregistered application capability. IDs route SQL only; every authority,
    * snapshot and permit is produced by concrete components in this invocation.
    * This method does not settle/release attempted reservations or run a worker. */
-  async execute(supplied: TestnetLiveExecutionRequest): Promise<LiveExecutionRecord> {
+  async execute(supplied: LiveExecutionRequest): Promise<LiveExecutionRecord> {
     const parsed = requestSchema.safeParse(structuredClone(supplied));
-    if (!parsed.success) throw new LiveBoundaryError('testnet_runtime_request');
+    if (!parsed.success) throw new LiveBoundaryError('live_runtime_request');
     const request = Object.freeze(parsed.data), app = this.config.value;
-    if (app.hyperliquid.wallet.network !== 'testnet') throw new LiveBoundaryError('testnet_runtime_network');
+    if (app.hyperliquid.wallet.network !== this.network) throw new LiveBoundaryError('live_runtime_network');
     if (!app.hyperliquid.egressKey) throw new LiveBoundaryError('hyperliquid_quota_egress_unconfigured');
     // Bootstrap supplies routing coordinates only. This connection is released
     // before the original lock session, including with a one-connection pool.
@@ -123,12 +131,12 @@ export class TestnetLiveExecutionRuntime {
     const [routing] = await db.select({ account: copyExecutionAccounts, mandate: copyLiveMandates }).from(copyExecutionAccounts)
       .innerJoin(copyLiveMandates, eq(copyLiveMandates.id, request.mandateId))
       .where(and(eq(copyExecutionAccounts.id, request.accountId), eq(copyExecutionAccounts.userId, request.userId)));
-    riskSourceRequire(routing && routing.account.network === 'testnet' && routing.account.address && routing.mandate.accountId === request.accountId &&
-      routing.mandate.userId === request.userId && routing.mandate.network === 'testnet' && ['testnet', 'mainnet'].includes(routing.mandate.sourceNetwork), 'testnet_runtime_identity');
+    riskSourceRequire(routing && routing.account.network === this.network && routing.account.address && routing.mandate.accountId === request.accountId &&
+      routing.mandate.userId === request.userId && routing.mandate.network === this.network && liveSourceNetworks(this.network).includes(routing.mandate.sourceNetwork), 'live_runtime_identity');
     const accountAddress = address(routing.account.address), leaderAddress = address(routing.mandate.leaderAddress);
-    const cloid = liveSourceExecutionCloid(request.mandateId, request.sourceFillId, request.leg), key = `testnet:${accountAddress}:${cloid}`;
+    const cloid = liveSourceExecutionCloid(request.mandateId, request.sourceFillId, request.leg), key = `${this.network}:${accountAddress}:${cloid}`;
     const scope = new PostgresLiveRiskScope(this.pool, this.now);
-    return scope.run({ userId: request.userId, network: 'testnet', accountAddress,
+    return scope.run({ userId: request.userId, network: this.network, accountAddress,
       source: { network: routing.mandate.sourceNetwork, leaderAddress } }, async (_scope, session) => this.global.runOriginal(session, async () => {
       // Resolve global configuration against the original private context before
       // creating native clients. No unscoped fallback can open a second pool.
@@ -137,27 +145,30 @@ export class TestnetLiveExecutionRuntime {
       // HyperliquidBudgetWait (stored as live_budget_wait), never an uncoded
       // TimeoutError (Stage 2026-10-06), and a weight the bucket can never
       // hold fails at once (live_budget_over_capacity). The order's evidence
-      // is paid up front and may wait the bucket's refill time; the small
-      // reads around a clock wait at most 5 s, as before.
-      const prepay = liveBudget(this.budget), acquire = liveBudget(this.budget, { maxWaitMs: 5000 });
+      // is paid up front and may wait the bucket's refill time, but never past
+      // the signal's deadline; the small reads around a clock wait at most 5 s,
+      // as before.
+      const prepay = liveBudget(this.budget, request.signalDeadline === undefined ? {}
+        : { maxWaitMs: Math.max(0, Math.min(this.budget.refillMs(), request.signalDeadline - this.now())) });
+      const acquire = liveBudget(this.budget, { maxWaitMs: 5000 });
       // Each account read gets its own socket: the epoch observes every live
       // account of the owner at once (one shared source refused all but one).
-      const sockets = new PerReadAllDexsAccountSource(() => new HyperliquidAllDexsAccountSource(this.now, undefined, 'testnet', this.global));
-      const observer = new HyperliquidLiveAccountObserver('testnet', acquire, this.global.fetchInfo, this.now, 5000, sockets);
-      const resolver = new HyperliquidLiveMarketResolver('testnet', acquire, this.global.fetchInfo, this.now);
-      const provider = new HyperliquidLiveRiskProvider('testnet', acquire, this.global.fetchInfo, this.now);
+      const sockets = new PerReadAllDexsAccountSource(() => new HyperliquidAllDexsAccountSource(this.now, undefined, this.network, this.global));
+      const observer = new HyperliquidLiveAccountObserver(this.network, acquire, this.global.fetchInfo, this.now, 5000, sockets);
+      const resolver = new HyperliquidLiveMarketResolver(this.network, acquire, this.global.fetchInfo, this.now);
+      const provider = new HyperliquidLiveRiskProvider(this.network, acquire, this.global.fetchInfo, this.now);
       const reservations = new PostgresLiveReservations(this.now);
       // One order's evidence reads are shared by the observer, the resolver
       // and the risk providers, and each wave goes out as one meter charge.
       const epoch = new LiveProviderReadEpoch(observer, resolver, provider, this.options, this.now, { acquire: prepay, fetcher: this.global.fetchInfo,
-        batch: (bodies, onDispatch) => this.global.fetchInfoBatch(TESTNET_INFO, bodies, { maxWaitMs: 0, onDispatch: () => { onDispatch(); return undefined; } }) });
+        batch: (bodies, onDispatch) => this.global.fetchInfoBatch(WALLET_NETWORKS[this.network].infoUrl, bodies, { maxWaitMs: 0, onDispatch: () => { onDispatch(); return undefined; } }) });
       try {
         const existing = await this.existing(session, request, key);
         if (existing?.record.unattemptedRelease || existing?.record.state === 'prepared' && existing.reservation) {
           const reservation = existing.reservation, checkedAt = this.now();
           riskSourceRequire(reservation && (existing.record.unattemptedRelease || reservation.state === 'held' &&
             checkedAt > existing.record.expiresAfter && checkedAt > reservation.expiresAt.getTime()),
-            'testnet_runtime_reservation_recovery_required');
+            'live_runtime_reservation_recovery_required');
           // Only the dedicated recomputable zero-effect certificate can release
           // this old hold. It replays historical authority/carry on the SAME
           // original session and grants no replacement execution authority.
@@ -166,16 +177,16 @@ export class TestnetLiveExecutionRuntime {
           await session.scope.assertHeld();
           const released = await new ScopedLiveExecutionJournal(session, key).get(key);
           riskSourceRequire(released?.state === 'rejected' && released.errorCode === 'unattempted_expired' && released.unattemptedRelease,
-            'testnet_runtime_reservation_recovery_required');
+            'live_runtime_reservation_recovery_required');
           return released;
         }
         const source = new PostgresLiveRiskSource(observer, resolver, provider, reservations, this.options, this.now, epoch);
         const binding = source.bind(session, { accountId: request.accountId, key });
         const authorizations = new WalletAuthorizationService(new ScopedWalletAuthorizationSource(session,
           existing?.record.authorization.id ?? routing.mandate.authorizationId),
-          reusedApproval(new HyperliquidAgentApprovalVerifier('testnet', acquire, this.global.fetchInfo, this.now), this.now), this.now);
+          reusedApproval(new HyperliquidAgentApprovalVerifier(this.network, acquire, this.global.fetchInfo, this.now), this.now), this.now);
         const gate = new AccountRiskExecutionGate(binding.proofSource, this.now);
-        const signingClient = new BoundaryPrivyOrderSigningClient({ appId: app.auth.appId, appSecret: app.auth.appSecret }, fetch, this.now);
+        const signingClient = new BoundaryPrivyOrderSigningClient(this.network, { appId: app.auth.appId, appSecret: app.auth.appSecret }, fetch, this.now);
         const signer = new PrivyOrderSigner(signingClient, authorizations, async () => {
           session.scope.assertFresh();
           const authority = await session.read(db => loadLivePreparationAuthority(session, db, request, this.now()));
@@ -183,7 +194,7 @@ export class TestnetLiveExecutionRuntime {
           return { authorization_context: { authorization_private_keys: [app.copy.agent!.authorizationPrivateKey] } };
         }, gate, this.now);
         const exchange: { raw?: unknown; at?: number } = {};
-        const transport = new HyperliquidLiveTransport('testnet', signer, gate, this.timedFetch(exchange), 5000, this.now,
+        const transport = new HyperliquidLiveTransport(this.network, signer, gate, this.timedFetch(exchange), 5000, this.now,
           { marketResolver: epochMarkets(resolver, () => epoch.sharedReads(session)), acquire, globalTransport: this.global });
         const executor = new LiveOrderExecutor(authorizations, new ScopedLiveExecutionJournal(session, key), transport, gate, this.now);
         if (existing && existing.record.state !== 'prepared') {
@@ -194,7 +205,7 @@ export class TestnetLiveExecutionRuntime {
         this.signingConfiguration(authority.consent.workerQuorumId);
         const preparation = new PostgresLivePreparation(observer, resolver, provider, this.options, this.now, epoch, this.hooks.reference);
         const prepared = await preparation.prepare(session, request);
-        riskSourceRequire(prepared.record.key === key, 'testnet_runtime_identity');
+        riskSourceRequire(prepared.record.key === key, 'live_runtime_identity');
         const input = await binding.forHold();
         await reservations.hold(session, input);
         await session.scope.assertHeld();
@@ -245,19 +256,19 @@ export class TestnetLiveExecutionRuntime {
   }
   private signingConfiguration(workerQuorumId: string): void {
     const { auth, copy } = this.config.value;
-    riskSourceRequire(auth.appId && auth.appSecret && copy.agent && copy.agent.workerQuorumId === workerQuorumId, 'testnet_runtime_signing_configuration');
+    riskSourceRequire(auth.appId && auth.appSecret && copy.agent && copy.agent.workerQuorumId === workerQuorumId, 'live_runtime_signing_configuration');
     try {
       const bytes = Buffer.from(copy.agent.authorizationPrivateKey, 'base64');
       const key = createPrivateKey({ key: bytes, format: 'der', type: 'pkcs8' });
       riskSourceRequire(bytes.toString('base64') === copy.agent.authorizationPrivateKey && key.asymmetricKeyType === 'ec' &&
         key.asymmetricKeyDetails?.namedCurve === 'prime256v1' && key.export({ format: 'der', type: 'pkcs8' }).equals(bytes) &&
         createPublicKey(key).export({ format: 'der', type: 'spki' }).toString('base64') === copy.agent.authorizationPublicKey,
-        'testnet_runtime_signing_configuration');
-    } catch { throw new LiveBoundaryError('testnet_runtime_signing_configuration'); }
+        'live_runtime_signing_configuration');
+    } catch { throw new LiveBoundaryError('live_runtime_signing_configuration'); }
   }
   /** Historical immutable identity validation deliberately ignores grant expiry,
    * revocation and strategy stop state. It grants only original-key querying. */
-  private async existing(session: LiveRiskDatabaseSession, request: TestnetLiveExecutionRequest, key: string): Promise<{
+  private async existing(session: LiveRiskDatabaseSession, request: LiveExecutionRequest, key: string): Promise<{
     intent: LiveOrderIntent; record: LiveExecutionRecord;
     reservation: Pick<typeof copyLiveRiskReservations.$inferSelect, 'revision' | 'state' | 'expiresAt'> | null;
   } | null> {
@@ -265,7 +276,7 @@ export class TestnetLiveExecutionRuntime {
       const read = async <T>(query: PromiseLike<T>) => { const value = await query; await session.scope.assertHeld(); return value; };
       const [journal] = await read(db.select().from(copyLiveExecutions).where(eq(copyLiveExecutions.key, key)));
       if (!journal) return null;
-      riskSourceRequire(Buffer.byteLength(JSON.stringify(journal.record)) <= 16384, 'testnet_runtime_historical_identity');
+      riskSourceRequire(Buffer.byteLength(JSON.stringify(journal.record)) <= 16384, 'live_runtime_historical_identity');
       const [row] = await read(db.select({ provenance: copyLiveIntentProvenance, leg: copyLiveSignalLegs, fill: copyLiveSourceFills,
         account: copyExecutionAccounts, mandate: copyLiveMandates, owner: users, setup: copyAgentSetups, wallet: copyExecutionWallets, grant: copyWalletAuthorizations })
         .from(copyLiveIntentProvenance).innerJoin(copyLiveSignalLegs, eq(copyLiveSignalLegs.id, copyLiveIntentProvenance.legId))
@@ -277,10 +288,10 @@ export class TestnetLiveExecutionRuntime {
         .innerJoin(copyExecutionWallets, eq(copyExecutionWallets.id, copyLiveMandates.executionWalletId))
         .innerJoin(copyWalletAuthorizations, eq(copyWalletAuthorizations.id, copyLiveMandates.authorizationId))
         .where(eq(copyLiveIntentProvenance.key, key)));
-      riskSourceRequire(row, 'testnet_runtime_historical_identity');
+      riskSourceRequire(row, 'live_runtime_historical_identity');
       const { account: a, mandate: m, setup: s, wallet: w, grant: g, provenance: p, leg: l, owner: o } = row;
       riskSourceRequire(Buffer.byteLength(JSON.stringify(p.intent)) <= 16384 && Buffer.byteLength(JSON.stringify(p.sizingBasis)) <= 2 * 1024 * 1024 &&
-        Buffer.byteLength(JSON.stringify(row.fill.raw)) <= 262144, 'testnet_runtime_historical_identity');
+        Buffer.byteLength(JSON.stringify(row.fill.raw)) <= 262144, 'live_runtime_historical_identity');
       const consent = decodeLiveCopyMandate(m), fill = decodeLiveSourceFill(row.fill), intent = structuredClone(p.intent) as unknown as LiveOrderIntent;
       const basis = decodeLiveSourceSizingEnvelope(p.sizingBasis).basis;
       const record = structuredClone(decodeLiveExecutionRow(journal)), action = buildOrderAction(intent), fingerprint = intentFingerprint(intent, action);
@@ -309,7 +320,7 @@ export class TestnetLiveExecutionRuntime {
       const zeroEffectCleanup = Boolean(record.unattemptedRelease) || record.state === 'prepared' && reservation?.state === 'held' &&
         Number.isSafeInteger(checkedAt) && checkedAt > record.expiresAfter && checkedAt > reservation.expiresAt.getTime();
       const canonical = canonicalLiveSourceLegs(fill).find(leg => leg.leg === request.leg), identity = session.scope.identity;
-      riskSourceRequire(a.id === request.accountId && a.userId === request.userId && a.network === 'testnet' && a.address === identity.accountAddress &&
+      riskSourceRequire(a.id === request.accountId && a.userId === request.userId && a.network === this.network && a.address === identity.accountAddress &&
         a.privyUserId === o.privyUserId && a.privyWalletId === s.accountWalletId && a.ownerQuorumId === s.accountOwnerQuorumId &&
         m.id === request.mandateId && consent.accountId === a.id && consent.userId === a.userId && consent.accountAddress === a.address &&
         consent.ownerPrivyUserId === o.privyUserId && consent.ownerAddress === o.embeddedWalletAddress && consent.sourceNetwork === identity.source?.network &&
@@ -335,11 +346,11 @@ export class TestnetLiveExecutionRuntime {
         record.authorization.privyOwnerId === w.privyOwnerId && record.authorization.signerAddress === w.signerAddress &&
         record.authorization.validFrom === g.validFrom.getTime() && record.authorization.expiresAt === g.expiresAt.getTime() && isDeepStrictEqual(record.authorization.scopes, g.scopes) &&
         record.fingerprint === fingerprint && p.fingerprint === fingerprint && isDeepStrictEqual(record.action, action) && isDeepStrictEqual(record.market, intent.market),
-        'testnet_runtime_historical_identity');
+        'live_runtime_historical_identity');
       if (reservation) riskSourceRequire(reservation.accountId === a.id && reservation.userId === a.userId && reservation.strategyId === a.strategyId &&
         reservation.network === a.network && reservation.accountAddress === a.address && reservation.fingerprint === fingerprint &&
         reservation.walletId === w.privyWalletId && reservation.authorizationId === g.id && reservation.authorizationVersion === consent.authorizationVersion,
-        'testnet_runtime_historical_identity');
+        'live_runtime_historical_identity');
       return { intent, record, reservation: reservation ? { revision: reservation.revision, state: reservation.state, expiresAt: reservation.expiresAt } : null };
     });
   }

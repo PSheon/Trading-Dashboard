@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { CancelByCloidRequest } from '@nktkas/hyperliquid/api/exchange';
 import { canonicalize } from '@nktkas/hyperliquid/signing';
+import { isHyperliquidNetwork, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import {
   buildOrderAction,
   executionKey,
@@ -30,7 +31,7 @@ export interface CancellationAuthorization {
   privyOwnerId: string;
   signerAddress: `0x${string}`;
   accountAddress: `0x${string}`;
-  network: 'testnet';
+  network: HyperliquidNetwork;
   scope: 'copy:cancel';
   validFrom: number;
   expiresAt: number;
@@ -111,8 +112,8 @@ export function trackedCancellationAction(
 ): TrackedCancellationAction {
   const { intent, record } = target;
   if (
-    intent.network !== 'testnet' ||
-    record.authorization.network !== 'testnet'
+    !isHyperliquidNetwork(intent.network) ||
+    record.authorization.network !== intent.network
   )
     fail('cancel_network_mismatch');
   const original = buildOrderAction(intent);
@@ -207,7 +208,7 @@ export function assertTrackedCancellation(
     !Number.isSafeInteger(auth.strategyId) ||
     auth.strategyId < 1 ||
     /^0x0{40}$/.test(address(auth.accountAddress)) ||
-    auth.network !== 'testnet' ||
+    auth.network !== operation.target.intent.network ||
     auth.scope !== 'copy:cancel' ||
     auth.revokedAt !== null ||
     !id(auth.id) ||
@@ -260,7 +261,7 @@ export function assertCancellationPermit(
     !fresh(permit.checkedAt) ||
     !isDeepStrictEqual(permit.authorization, auth) ||
     !approval ||
-    approval.network !== 'testnet' ||
+    approval.network !== auth.network ||
     address(approval.accountAddress) !== address(auth.accountAddress) ||
     address(approval.signerAddress) !== address(auth.signerAddress) ||
     !fresh(approval.checkedAt) ||

@@ -4,7 +4,7 @@ const money = z.string().max(80).regex(/^-?(?:0|[1-9]\d*)(?:\.\d{1,18})?$/);
 const unsigned = money.refine(v => !v.startsWith('-') || /^-0(?:\.0+)?$/.test(v));
 const integer = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const dex = z.string().max(40).regex(/^(?:[^:\s/@\p{Cc}\p{Cf}]{1,40})?$/u), coin = z.string().min(1).max(80).regex(/^(?:[^:\s/@\p{Cc}\p{Cf}]{1,40}:)?[^:\s/@\p{Cc}\p{Cf}]{1,80}$/u);
-const identity = { mode: z.literal('actual'), network: z.literal('testnet'), accountId: z.string().min(1).max(128), strategyId: z.number().int().positive(), accountAddress: z.string().regex(/^0x[0-9a-f]{40}$/) };
+const identity = { mode: z.literal('actual'), network: z.enum(['testnet', 'mainnet']), accountId: z.string().min(1).max(128), strategyId: z.number().int().positive(), accountAddress: z.string().regex(/^0x[0-9a-f]{40}$/) };
 export const copyFollowerSnapshotIssueSchema = z.enum(['not_observed', 'source_unavailable', 'unsupported_mode', 'unsupported_network', 'incomplete_coverage', 'invalid_evidence']);
 const position = z.object({ coin, dex, asset: integer, sizeDecimals: integer.max(6), size: money, entryPrice: unsigned, positionValue: unsigned,
   unrealizedPnl: money, marginUsed: unsigned, leverage: integer.positive(), leverageType: z.enum(['cross', 'isolated']), maxLeverage: integer.positive(), fundingSinceOpen: money, fundingSinceChange: money }).strict();

@@ -40,7 +40,7 @@ describe('owner-signed actual copy mandate', () => {
   it('rejects unsafe authority bounds, unsupported planner and extra signing material', () => {
     for (const change of [{ budgetUsd: '0' }, { budgetUsd: '1e2' }, { accountAddress: intent.ownerAddress },
       { builderMaxFeeTenthsOfBps: 1 }, { nonce: Number.MAX_SAFE_INTEGER + 1 }, { plannerVersion: 2 },
-      { network: 'mainnet' }, { consentExpiresAt: now + 300001 }, { expiresAt: now + 31 * 86400000 }, { userJwt: 'secret' }])
+      { network: 'devnet' }, { consentExpiresAt: now + 300001 }, { expiresAt: now + 31 * 86400000 }, { userJwt: 'secret' }])
       expect(liveCopyMandateIntentSchema.safeParse({ ...intent, ...change }).success).toBe(false);
   });
   it('canonicalizes settings independent of JSONB key order and binds any changed setting', () => {

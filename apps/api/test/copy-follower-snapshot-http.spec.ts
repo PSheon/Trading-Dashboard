@@ -64,9 +64,9 @@ it('reports failed refresh against retained evidence instead of returning a fabr
   const response = await get().expect(200);
   expect(response.body.data).toMatchObject({ status: 'observed', freshness: 'stale', lastReadIssue: 'source_unavailable', metrics: { perpEquity: '100' } });
 });
-it('refuses detached master identity and unsupported networks', async () => {
+it('refuses detached master identity; another network\'s account shows no observation of this one', async () => {
   await db.update(copyExecutionAccounts).set({ network: 'mainnet' }).where(eq(copyExecutionAccounts.id, accountId));
-  await get().expect(409);
+  expect((await get().expect(200)).body.data).toMatchObject({ network: 'mainnet', status: 'unavailable' });
   await db.update(copyExecutionAccounts).set({ network: 'testnet', privyUserId: 'did:privy:detached' }).where(eq(copyExecutionAccounts.id, accountId));
   await get().expect(404);
 });

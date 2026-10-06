@@ -19,11 +19,11 @@ describe("exact testnet master approval transport", () => {
       signature: { r: `0x${"11".repeat(32)}`, s: `0x${"22".repeat(32)}`, v: 27 } });
     expect(options.redirect).toBe("error");
   });
-  it("cannot submit expired consent or mainnet approval", async () => {
+  it("cannot submit expired consent or an approval of an unknown network", async () => {
     const request = vi.fn();
     const client = new PrivyAgentApprovalClient({}, async () => undefined, request, () => intent.consentExpiresAt);
     await expect(client.send(intent, signature)).rejects.toThrow("agent_consent_expired");
-    await expect(client.send({ ...intent, network: "mainnet" }, signature)).rejects.toThrow("invalid_agent_consent");
+    await expect(client.send({ ...intent, network: "devnet" as never }, signature)).rejects.toThrow("invalid_agent_consent");
     expect(request).not.toHaveBeenCalled();
   });
   it.each([

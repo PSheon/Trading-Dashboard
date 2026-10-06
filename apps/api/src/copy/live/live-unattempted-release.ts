@@ -1,4 +1,5 @@
 import {isDeepStrictEqual} from 'node:util';
+import {isHyperliquidNetwork} from '@trading-dashboard/shared/contracts';
 import type {copyLiveReductionCarry} from '@trading-dashboard/shared/database';
 import type {LiveGenerationJournalV1,LiveGenerationProjectionIdentity,LiveGenerationSqlRow} from './copy-live-generation-projection.js';
 import type {LiveExecutionRecord} from './live-execution.js';
@@ -36,7 +37,7 @@ function validate(raw:LiveUnattemptedReleaseInput):LiveUnattemptedReleaseInput{
  check(Object.keys(input).sort().join(',')==='checkedAt,original'&&Object.keys(input.original).sort().join(',')==='carry,evidence,fill,identity,journal,leg,provenance,reservation');
  const {journal:j,provenance:p,leg,fill:row,reservation:r,evidence:e}=entry,record=j.record as unknown as LiveExecutionRecord;
  check(Object.keys(record).every(key=>['key','fingerprint','authorization','action','market','nonce','expiresAfter','state','createdAt','updatedAt','errorCode'].includes(key)));
- check(Number.isSafeInteger(checkedAt)&&checkedAt>0&&id.network==='testnet'&&address(id.accountAddress)===id.accountAddress&&address(id.leaderAddress)===id.leaderAddress&&
+ check(Number.isSafeInteger(checkedAt)&&checkedAt>0&&isHyperliquidNetwork(id.network)&&address(id.accountAddress)===id.accountAddress&&address(id.leaderAddress)===id.leaderAddress&&
   Number.isSafeInteger(id.userId)&&id.userId>0&&Number.isSafeInteger(id.strategyId)&&id.strategyId>0&&Number.isSafeInteger(id.mandateRevision)&&id.mandateRevision>0&&['same','reverse'].includes(id.direction));
  check(j.network===id.network&&j.accountAddress===id.accountAddress&&j.userId===id.userId&&j.strategyId===id.strategyId&&j.state==='prepared'&&record.state==='prepared'&&
   record.key===j.key&&record.nonce===j.nonce&&record.updatedAt===time(j.updatedAt)&&Number.isSafeInteger(record.createdAt)&&record.createdAt>0&&record.updatedAt===record.createdAt&&

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { copyLiveDispatches, copyLiveExecutions, copyLiveIntentProvenance, copyLiveSignalLegs, copyLiveSourceFills, copyLiveSourceStreams,
   copyLivePositionBaselines, copyLiveReductionCarry, copySignerNonces, copyFollowerReceipts, copyLiveRiskReservations } from '@trading-dashboard/shared/database';
+import type { HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import type { DbExecutor } from '../../db/unit-of-work.js';
 import { Dec } from '../../common/decimal/dec.js';
 import { assertOriginalLiveRiskSession, type LiveRiskDatabaseSession } from './postgres-live-risk-scope.js';
@@ -34,8 +35,9 @@ export interface LivePreparationBinding {
 }
 export interface LivePreparationOptions extends LiveRiskProviderOptions {
   readonly slippageBps: string;
-  /** Largest testnet/mainnet mid difference (bps) at which a mainnet leader's
-   * open is still mirrored on testnet. Required for a mainnet source. */
+  /** Largest difference (bps) between the execution network's mid and the
+   * source network's at which a leader's open on another network is still
+   * mirrored. Required when the source network differs from the execution network. */
   readonly maxSourceDeviationBps?: string;
 }
 /** Stable economic identity, independent of a worker, quote or retry time. */
@@ -71,7 +73,9 @@ export class PostgresLivePreparation {
       (binding.members === undefined || Array.isArray(binding.members) && binding.members.length >= 1 && binding.members.length < MAX_MERGED_LEGS &&
         binding.members.every(v => typeof v === 'string' && v.length > 0 && v.length <= 160 && v !== binding.sourceFillId) && new Set(binding.members).size === binding.members.length), 'live_preparation_binding');
     const local = await session.read(db => loadLivePreparationAuthority(session, db, binding, started));
-    const cloid = liveSourceExecutionCloid(binding.mandateId, binding.sourceFillId, binding.leg), key = executionKey({ network: 'testnet', accountAddress: address(local.account.address!), cloid });
+    // The execution network: the account's (the authority binds it to the scope).
+    const network = local.account.network;
+    const cloid = liveSourceExecutionCloid(binding.mandateId, binding.sourceFillId, binding.leg), key = executionKey({ network, accountAddress: address(local.account.address!), cloid });
     const existing = await session.read(async db => {
       const [row] = await this.checked(session, db.select().from(copyLiveExecutions).where(eq(copyLiveExecutions.key, key)));
       if (!row) return null;
@@ -123,22 +127,24 @@ export class PostgresLivePreparation {
       const rows = await this.checked(session, db.select().from(copyLivePositionBaselines).where(eq(copyLivePositionBaselines.mandateId, binding.mandateId)));
       return rows.length > 0;
     });
-    if (!baselineExists) await session.read(db => this.assertFirstAccount(session, db, local.account.id, local.account.address!));
+    if (!baselineExists) await session.read(db => this.assertFirstAccount(session, db, local.account.id, network, local.account.address!));
     const manifest = baselineExists ? await session.read(db => loadLiveGenerationManifest(session, db, local, { currentExecutionKey: key, now: started })) : null;
-    const mainnetSource = local.consent.sourceNetwork === 'mainnet';
+    // The leader trades on another network than this copy executes on.
+    const crossNetworkSource = local.consent.sourceNetwork !== network;
     const frames = await this.epoch.collect(session, { accountId: binding.accountId, mandateId: binding.mandateId, key, coin: source.fill.coin,
-      includeLeader: !mainnetSource && local.settings.sizingMode === 'ratio' && binding.leg === 'open' });
+      includeLeader: !crossNetworkSource && local.settings.sizingMode === 'ratio' && binding.leg === 'open' });
     riskSourceRequire(frames.authorityDigest === riskSourceDigest(local), 'live_risk_local_changed');
     const { market, leader, target: quote } = frames, follower = frames.snapshots[local.accounts.findIndex(a => a.id === binding.accountId)]!;
     await session.scope.assertHeld(); this.fresh(started);
-    // A mainnet leader's open is priced on testnet but checked against the
-    // mainnet mid and sized by the leader's mainnet capital (as paper copies).
+    // A leader's open on another network is priced on the execution network but
+    // checked against the source network's mid and sized by the leader's capital
+    // there (as paper copies). A leader on the execution network needs neither.
     let sourceReference: LiveSourceReferenceV1 | null = null;
-    if (mainnetSource && binding.leg === 'open') {
-      riskSourceRequire(this.reference && this.options.maxSourceDeviationBps !== undefined, 'live_source_reference_unconfigured');
+    if (crossNetworkSource && binding.leg === 'open') {
+      riskSourceRequire(this.reference && this.reference.network === local.consent.sourceNetwork && this.options.maxSourceDeviationBps !== undefined, 'live_source_reference_unconfigured');
       const read = await this.reference.read(local.consent.leaderAddress, source.fill.coin, local.settings.sizingMode === 'ratio');
       await session.scope.assertHeld(); this.fresh(started);
-      sourceReference = { network: 'mainnet', leaderAddress: local.consent.leaderAddress, leaderEquity: read.leaderEquity, leaderEquityObservedAt: read.leaderEquityObservedAt,
+      sourceReference = { network: local.consent.sourceNetwork, leaderAddress: local.consent.leaderAddress, leaderEquity: read.leaderEquity, leaderEquityObservedAt: read.leaderEquityObservedAt,
         midPrice: read.midPrice, midObservedAt: read.midObservedAt, maxDeviationBps: Dec.from(this.options.maxSourceDeviationBps).toString() };
       assertLiveSourcePrice(quote.quote.midPrice, sourceReference);
     }
@@ -147,7 +153,7 @@ export class PostgresLivePreparation {
     this.fresh(oldest);
     const planningAt = this.now();
     const baseline = manifest?.baseline ?? captureLivePositionBaseline({ mandateId: binding.mandateId, accountId: local.account.id, strategyId: local.strategy.id,
-      firstExecutionKey: key, network: 'testnet', accountAddress: local.account.address! }, follower, planningAt);
+      firstExecutionKey: key, network, accountAddress: local.account.address! }, follower, planningAt);
     const currentManifest: LiveGenerationManifestV1 = manifest ?? { version: 1, accountId: local.account.id, mandateId: binding.mandateId, checkedAt: planningAt,
       baseline, journals: [], receipts: [], ledger: [], scan: null, conflicts: [], accountState: null, carry: [] };
     const legId = liveSourceLegId(binding.mandateId, source.fill.id, binding.leg);
@@ -159,19 +165,19 @@ export class PostgresLivePreparation {
     }
     const withCarry: LiveGenerationManifestV1 = { ...currentManifest, carry: seedCarry ? [...currentManifest.carry, carry] : currentManifest.carry };
     const projection = projectLiveGenerationPositions({ identity: { mandateId: binding.mandateId, mandateRevision: local.mandate.revision, accountId: local.account.id, userId: local.account.userId,
-      strategyId: local.strategy.id, network: 'testnet', accountAddress: local.account.address!, authorizationId: local.grant.id, settingsDigest: local.consent.settingsDigest,
+      strategyId: local.strategy.id, network, accountAddress: local.account.address!, authorizationId: local.grant.id, settingsDigest: local.consent.settingsDigest,
       leaderAddress: local.consent.leaderAddress, direction: local.settings.direction }, manifest: withCarry, snapshot: follower, currentExecutionKey: key, now: planningAt });
     const closeLeg = canonicalLiveSourceLegs(source.fill).find(v => v.leg === 'close'), dependsOn = binding.leg === 'open' && closeLeg ? liveSourceLegId(binding.mandateId, source.fill.id, 'close') : null;
     const dependency = dependsOn ? withCarry.journals.find(v => v.leg?.id === dependsOn) : null;
     const positionSize = projection.positions[source.fill.coin] ?? '0';
     const sizing: LiveSourceSizingEnvelopeV1 = { version: 1, basis: { version: 1, mandateId: binding.mandateId, mandateRevision: local.mandate.revision,
-      settingsDigest: local.consent.settingsDigest, sourceFillId: source.fill.id, sourceDigest: source.fill.sourceDigest, network: 'testnet', accountAddress: local.account.address!,
+      settingsDigest: local.consent.settingsDigest, sourceFillId: source.fill.id, sourceDigest: source.fill.sourceDigest, network, accountAddress: local.account.address!,
       coin: source.fill.coin, leg: binding.leg, direction: local.settings.direction, sizingMode: local.settings.sizingMode, budgetUsd: local.consent.budgetUsd,
       perTradeUsd: local.settings.perTradeUsd === null ? null : Dec.from(local.settings.perTradeUsd).toString(), market,
       quote: { midPrice: quote.quote.midPrice, slippageBps: Dec.min(Dec.from(this.options.slippageBps), Dec.from(local.limits.maxSlippageBps)).toString(), observedAt: quote.quote.observedAt, completedAt: quote.completedAt, sourceDigest: quote.quote.sourceDigest },
-      follower: { network: 'testnet', accountAddress: follower.accountAddress, equity: follower.perpEquity, positionSize, observedAt: follower.observedAt, completedAt: follower.completedAt,
+      follower: { network, accountAddress: follower.accountAddress, equity: follower.perpEquity, positionSize, observedAt: follower.observedAt, completedAt: follower.completedAt,
         sourceDigest: follower.sourceDigest, snapshotDigest: followerReceiptDigestV1(follower), positionsDigest: projection.positionsDigest },
-      leader: leader ? { network: 'testnet', accountAddress: leader.accountAddress, equity: leader.perpEquity, observedAt: leader.observedAt, completedAt: leader.completedAt, sourceDigest: leader.sourceDigest, snapshotDigest: followerReceiptDigestV1(leader) } : null,
+      leader: leader ? { network, accountAddress: leader.accountAddress, equity: leader.perpEquity, observedAt: leader.observedAt, completedAt: leader.completedAt, sourceDigest: leader.sourceDigest, snapshotDigest: followerReceiptDigestV1(leader) } : null,
       generation: { mandateId: binding.mandateId, baselineDigest: projection.baselineDigest, receiptManifestDigest: projection.receiptManifestDigest, positionsDigest: projection.positionsDigest, positionSize },
       carry: { amount: carry.carry, revision: carry.revision }, fixedTradeClaim: binding.leg === 'open' && local.settings.sizingMode === 'fixed',
       settledDependency: dependsOn && dependency?.evidence?.settlementDigest ? { legId: dependsOn, certificateDigest: dependency.evidence.settlementDigest } : null,
@@ -190,7 +196,7 @@ export class PostgresLivePreparation {
     if (source.members.length && !plan.order.reduceOnly && Dec.from(plan.order.size).mul(plan.order.limitPrice).lt(minOrderNotional(local.limits)))
       throw new LiveBoundaryError('below_min_notional');
     const intent: LiveOrderIntent = { authorizationId: local.grant.id, userId: local.account.userId, strategyId: local.strategy.id, walletId: local.wallet.privyWalletId,
-      network: 'testnet', accountAddress: address(local.account.address!), cloid, asset: plan.order.asset, side: plan.order.side, size: plan.order.size, limitPrice: plan.order.limitPrice,
+      network, accountAddress: address(local.account.address!), cloid, asset: plan.order.asset, side: plan.order.side, size: plan.order.size, limitPrice: plan.order.limitPrice,
       sizeDecimals: plan.order.sizeDecimals, timeInForce: plan.order.timeInForce, reduceOnly: plan.order.reduceOnly, market,
       // A zero fee attaches no builder code (nothing to approve or collect).
       ...(local.consent.builderAddress && local.consent.builderMaxFeeTenthsOfBps > 0 ? { builder: { address: local.consent.builderAddress, feeTenthsBps: local.consent.builderMaxFeeTenthsOfBps, approvedMaxFeeTenthsBps: local.consent.builderMaxFeeTenthsOfBps } } : {}) };
@@ -201,7 +207,7 @@ export class PostgresLivePreparation {
       if (manifest) {
         const final = await loadLiveGenerationManifest(session, tx, current, { currentExecutionKey: key, now: started });
         riskSourceRequire(riskSourceDigest(final) === riskSourceDigest(manifest), 'live_preparation_generation_changed');
-      } else await this.assertFirstAccount(session, tx, local.account.id, local.account.address!);
+      } else await this.assertFirstAccount(session, tx, local.account.id, network, local.account.address!);
       const now = this.now(), authorization = assertWalletAuthorization(current.currentAuthorization, intent, now);
       planLiveSourceOrder({ mandate: current.mandate, settings: current.settings, fill: source.fill, leg: source.leg, sizingBasis: sizing, now, limits: current.limits, currentExecutionKey: key, ...(members.length ? { members } : {}) });
       const [currentFill] = await this.checked(session, tx.select().from(copyLiveSourceFills).where(eq(copyLiveSourceFills.id, source.fill.id)));
@@ -225,13 +231,13 @@ export class PostgresLivePreparation {
       const [leg] = await this.checked(session, tx.select().from(copyLiveSignalLegs).where(eq(copyLiveSignalLegs.id, legId)).for('update'));
       riskSourceRequire(leg?.state === 'planned' && leg.executionKey === null && leg.mandateId === binding.mandateId && leg.sourceFillId === source.fill.id &&
         leg.tradeKey === source.leg.tradeKey && leg.sign === source.leg.sign && leg.size === source.leg.size && leg.fraction === source.leg.fraction && leg.dependsOnId === plan.dependsOnLegId, 'live_preparation_claim_conflict');
-      await this.checked(session, tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`live-nonce:testnet:${authorization.signerAddress}`}, 2))`));
-      const allocated = await this.checked(session, tx.execute(sql`insert into ${copySignerNonces} (network, signer_address, nonce) values ('testnet', ${authorization.signerAddress}, ${now})
+      await this.checked(session, tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`live-nonce:${network}:${authorization.signerAddress}`}, 2))`));
+      const allocated = await this.checked(session, tx.execute(sql`insert into ${copySignerNonces} (network, signer_address, nonce) values (${network}, ${authorization.signerAddress}, ${now})
         on conflict (network, signer_address) do update set nonce = greatest(${now}, ${copySignerNonces}.nonce + 1) returning nonce`));
       const nonce = Number(allocated.rows[0]?.nonce);
       riskSourceRequire(Number.isSafeInteger(nonce) && nonce >= now && nonce <= now + 30000, 'nonce_clock_skew');
       const saved: LiveExecutionRecord = { key, fingerprint, authorization, action, market, nonce, expiresAfter: now + 60000, state: 'prepared', createdAt: now, updatedAt: now };
-      await this.checked(session, tx.insert(copyLiveExecutions).values({ key, network: 'testnet', accountAddress: local.account.address!, signerAddress: authorization.signerAddress,
+      await this.checked(session, tx.insert(copyLiveExecutions).values({ key, network, accountAddress: local.account.address!, signerAddress: authorization.signerAddress,
         cloid, nonce, userId: local.account.userId, strategyId: local.strategy.id, state: 'prepared', record: saved as unknown as Record<string, unknown>, updatedAt: new Date(now) }));
       if (!manifest) await this.checked(session, tx.insert(copyLivePositionBaselines).values({ mandateId: baseline.mandateId, firstExecutionKey: key, accountId: baseline.accountId, strategyId: baseline.strategyId,
         network: baseline.network, accountAddress: baseline.accountAddress, observedAt: new Date(baseline.observedAt), completedAt: new Date(baseline.completedAt), createdAt: new Date(baseline.createdAt),
@@ -250,8 +256,8 @@ export class PostgresLivePreparation {
     this.fresh(started); this.fresh(oldest);
     return { intent: structuredClone(intent), record: structuredClone(record) };
   }
-  private async assertFirstAccount(session: LiveRiskDatabaseSession, db: DbExecutor, accountId: string, accountAddress: string): Promise<void> {
-    const history = await this.checked(session, db.select({ key: copyLiveExecutions.key }).from(copyLiveExecutions).where(and(eq(copyLiveExecutions.network, 'testnet'), eq(copyLiveExecutions.accountAddress, accountAddress))).limit(1));
+  private async assertFirstAccount(session: LiveRiskDatabaseSession, db: DbExecutor, accountId: string, network: HyperliquidNetwork, accountAddress: string): Promise<void> {
+    const history = await this.checked(session, db.select({ key: copyLiveExecutions.key }).from(copyLiveExecutions).where(and(eq(copyLiveExecutions.network, network), eq(copyLiveExecutions.accountAddress, accountAddress))).limit(1));
     const receipts = await this.checked(session, db.select({ key: copyFollowerReceipts.key }).from(copyFollowerReceipts).where(eq(copyFollowerReceipts.accountId, accountId)).limit(1));
     const liabilities = await this.checked(session, db.select({ key: copyLiveRiskReservations.key }).from(copyLiveRiskReservations).where(eq(copyLiveRiskReservations.accountId, accountId)).limit(1));
     if (history.length || receipts.length || liabilities.length) throw new LiveBoundaryError('live_preparation_baseline_missing');

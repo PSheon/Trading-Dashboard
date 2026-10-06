@@ -1,3 +1,4 @@
+import { testConfig } from './config-test-utils.js';
 import * as schema from '@trading-dashboard/shared/database';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -6,7 +7,7 @@ import { digest as mandateDigest } from '../src/copy/copy-live-mandate-evidence.
 import { CopyLiveSourceRepository } from '../src/copy/copy-live-source.repository.js';
 import { liveSourceExecutionCloid } from '../src/copy/live/postgres-live-preparation.js';
 import type { LiveExecutionRecord } from '../src/copy/live/live-execution.js';
-import type { TestnetLiveExecutionHooks, TestnetLiveExecutionRequest } from '../src/copy/live/testnet-live-execution-runtime.js';
+import type { LiveExecutionHooks, LiveExecutionRequest } from '../src/copy/live/live-execution-runtime.js';
 import { CopyLiveEngine, type LiveEngineDependencies } from '../src/copy/live-worker/copy-live-engine.js';
 import { CopyLiveWorkerRepository } from '../src/copy/live-worker/copy-live-worker.repository.js';
 import { WatchedMainnetSource } from '../src/copy/live-worker/watched-mainnet-source.js';
@@ -21,9 +22,9 @@ import { closeTestDb, getTestDb, type TestDb } from './db-test-utils.js';
 // doubles, the provider is a fake `userFillsByTime` / TWAP reader.
 let db: TestDb, clock: number, seed: Awaited<ReturnType<typeof preparationFixture>>;
 const leader = `0x${'44'.repeat(20)}`, G = 2000, ZERO = `0x${'00'.repeat(32)}`;
-const runtimeCalls: TestnetLiveExecutionRequest[] = [];
+const runtimeCalls: LiveExecutionRequest[] = [];
 const keyOf = (fillId: string, leg: 'open' | 'close') => `testnet:${seed.f.identity.accountAddress}:${liveSourceExecutionCloid('mandate', fillId, leg)}`;
-const filled = async (request: TestnetLiveExecutionRequest, hooks: Pick<TestnetLiveExecutionHooks, 'onExchange'>) => {
+const filled = async (request: LiveExecutionRequest, hooks: Pick<LiveExecutionHooks, 'onExchange'>) => {
   runtimeCalls.push(request);
   const key = keyOf(request.sourceFillId, request.leg);
   hooks.onExchange?.({ phase: 'request', at: clock + 10 }); hooks.onExchange?.({ phase: 'response', at: clock + 40 });
@@ -48,7 +49,7 @@ function reader(fills: () => HlUserFill[], slices: () => HlUserFill[] = () => []
 }
 function engine(fast?: FastMainnetSource, extra: Partial<LiveEngineDependencies> = {}) {
   return new CopyLiveEngine({
-    repository: new CopyLiveWorkerRepository(db, new UnitOfWork(db)), sources: new CopyLiveSourceRepository(db), uow: new UnitOfWork(db),
+    network: 'testnet', repository: new CopyLiveWorkerRepository(db, new UnitOfWork(db), testConfig()), sources: new CopyLiveSourceRepository(db), uow: new UnitOfWork(db),
     watched: new WatchedMainnetSource(db, () => clock),
     testnetSource: { read: vi.fn(async () => { throw new Error('no testnet source in this test'); }) } as never,
     runtime: hooks => ({ execute: request => filled(request, hooks) }),
@@ -166,7 +167,7 @@ describe('realtime copy signal (fast mainnet source)', () => {
   });
 
   it('runs fresh pending legs ahead of 100 older submitted ones', async () => {
-    const repository = new CopyLiveWorkerRepository(db, new UnitOfWork(db));
+    const repository = new CopyLiveWorkerRepository(db, new UnitOfWork(db), testConfig());
     await db.insert(schema.copyLiveSourceStreams).values({ id: `mainnet:${leader}`, network: 'mainnet', leaderAddress: leader });
     const fill = async (tid: number, time: number) => {
       const raw = rest(tid, time), id = `mainnet:${leader}:${tid}`;

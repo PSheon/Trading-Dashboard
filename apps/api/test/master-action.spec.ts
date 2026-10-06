@@ -71,7 +71,7 @@ describe("the copy account's own signer signs only what Orbie needs it for", () 
       expect((data.types as Record<string, unknown>)[data.primaryType]).toEqual(COPY_MASTER_ACTION_TYPES[data.primaryType]);
       expect(masterActionSignable(data as never)).toBe(true);
     }
-    const rules = masterPolicyRules({ ownerMain: main, account: `0x${"55".repeat(20)}`, agent: { address: agent, name: "copy7" }, builder: { address: builder, maxFeeRate: "0.01%" } });
+    const rules = masterPolicyRules({ network: "testnet", ownerMain: main, account: `0x${"55".repeat(20)}`, agent: { address: agent, name: "copy7" }, builder: { address: builder, maxFeeRate: "0.01%" } });
     for (const rule of rules.filter(r => r.method === "eth_signTypedData_v4")) {
       for (const condition of rule.conditions.filter(c => c.field_source === "ethereum_typed_data_message") as { typed_data: { primary_type: keyof typeof COPY_MASTER_ACTION_TYPES; types: Record<string, unknown> } }[])
         expect(condition.typed_data.types[condition.typed_data.primary_type]).toEqual(COPY_MASTER_ACTION_TYPES[condition.typed_data.primary_type]);

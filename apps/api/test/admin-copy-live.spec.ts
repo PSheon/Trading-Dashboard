@@ -1,3 +1,4 @@
+import { testConfig } from './config-test-utils.js';
 import type { INestApplication } from '@nestjs/common';
 import { adminAuditLogs, copyFundingOperations, copyLiveDispatches, copyLiveExecutions, copyLiveManualCloses, copyLiveMandates, copyLiveStopOperations, copyStrategies, copyWalletAuthorizationEvents, copyWalletAuthorizations } from '@trading-dashboard/shared/database';
 import { liveCopyMandateIntentSchema, adminLiveAccountsSchema, adminLiveLatencySchema, adminLiveOrdersSchema, adminLiveTransfersSchema, adminRevokedLiveGrantSchema } from '@trading-dashboard/shared/contracts';
@@ -151,7 +152,7 @@ describe('/admin/copy/live — testnet copy operations (B16) and latency (B18)',
 
   it('a pending revoke is bounded: revoked by the worker past the deadline, when its stop is blocked, or at once on force (with positions-may-remain in the audit)', async () => {
     const first = adminRevokedLiveGrantSchema.parse((await as('admin-token').post('/admin/copy/live/grants/grant/revoke', { reason: 'leaked agent key' }).expect(200)).body.data);
-    const stops = new CopyLiveStopWorkerRepository(db, new UnitOfWork(db));
+    const stops = new CopyLiveStopWorkerRepository(db, new UnitOfWork(db), testConfig());
     // Within the deadline, with its stop running: still pending.
     expect(await stops.expirePendingRevokes(now + 60_000, 30 * 60_000)).toEqual([]);
     // Past it: revoked by the system, audited.

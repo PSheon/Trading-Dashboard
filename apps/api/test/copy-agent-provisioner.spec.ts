@@ -19,7 +19,7 @@ const expiresAt = now + 60_099;
 const requestExpiry = now + 30_000;
 const authorizationPublicKey = generateKeyPairSync("ec", { namedCurve: "prime256v1" }).publicKey.export({ type: "spki", format: "der" }).toString("base64");
 const anotherPublicKey = generateKeyPairSync("ec", { namedCurve: "prime256v1" }).publicKey.export({ type: "spki", format: "der" }).toString("base64");
-const config = { appId: "test-app", appSecret: "test-secret", workerQuorumId, authorizationPublicKey };
+const config = { appId: "test-app", appSecret: "test-secret", workerQuorumId, authorizationPublicKey, network: "testnet" as const };
 const policyArgs = { policyId, userId, expiresAt };
 const walletArgs = { ...policyArgs, externalId };
 

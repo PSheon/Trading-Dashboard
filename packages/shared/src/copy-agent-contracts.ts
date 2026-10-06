@@ -12,7 +12,7 @@ export const copyAgentSetupSchema = z.object({
 });
 export const copyAgentOverviewSchema = z.object({ available: z.boolean(), network: z.enum(["testnet", "mainnet"]), setups: z.array(copyAgentSetupSchema) });
 export const copyAgentConsentIntentSchema = z.object({
-  id: z.string(), strategyId: z.number().int().positive(), network: z.literal("testnet"),
+  id: z.string(), strategyId: z.number().int().positive(), network: z.enum(["testnet", "mainnet"]),
   accountAddress: z.string(), agentAddress: z.string(), policyId: z.string(), workerQuorumId: z.string(),
   nonce: z.number().int().positive().safe(), expiresAt: z.number().int().positive().safe(), consentExpiresAt: z.number().int().positive().safe(),
 });

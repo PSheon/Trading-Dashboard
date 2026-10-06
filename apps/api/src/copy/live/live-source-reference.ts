@@ -1,8 +1,10 @@
+import type { HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { Dec } from '../../common/decimal/dec.js';
 import type { CopyMarketService } from '../copy-market.service.js';
 import { LiveBoundaryError, address } from './wallet-authorization.js';
 
-/** Mainnet observations for a testnet copy of a mainnet leader: the coin's
+/** Source-network observations for a copy whose leader trades on another
+ * network than the copy (today: a mainnet leader of a testnet copy): the coin's
  * mainnet mid (the deviation check) and the leader's whole-account value
  * (ratio sizing's denominator, the same figure paper copies use). */
 export interface LiveSourceReference {
@@ -12,6 +14,8 @@ export interface LiveSourceReference {
   readonly leaderEquityObservedAt: number | null;
 }
 export interface LiveSourceReferenceReader {
+  /** The network it reads: a reference is used only for a leader on this network. */
+  readonly network: HyperliquidNetwork;
   read(leaderAddress: string, coin: string, includeEquity: boolean): Promise<LiveSourceReference>;
 }
 
@@ -19,6 +23,7 @@ export interface LiveSourceReferenceReader {
  * (allMids, 3 s cache) and leader capital (60 s cache). Missing or failed
  * reads refuse; nothing is priced at zero. */
 export class MainnetSourceReferenceReader implements LiveSourceReferenceReader {
+  readonly network = 'mainnet' as const;
   constructor(private readonly market: Pick<CopyMarketService, 'midPrices' | 'leaderEquity' | 'equityCache'>) {}
   async read(leader: string, coin: string, includeEquity: boolean): Promise<LiveSourceReference> {
     const leaderAddress = address(leader);

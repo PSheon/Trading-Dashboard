@@ -16,8 +16,9 @@ export class CopyFollowerSnapshotService {
   constructor(private readonly repository: CopyFollowerSnapshotRepository) {}
   async get(userId: number, accountId: string): Promise<CopyFollowerSnapshotRead> {
     const result = await this.repository.getOwned(userId, accountId);
-    if (result.account.network !== 'testnet') throw new ConflictException('actual_snapshot_network_unsupported');
-    const identity = { mode: 'actual' as const, network: 'testnet' as const, accountId: result.account.id, strategyId: result.account.strategyId, accountAddress: result.account.address };
+    // Another network's account (history on this deployment) shows its last stored observation.
+    if (result.account.network !== 'testnet' && result.account.network !== 'mainnet') throw new ConflictException('actual_snapshot_network_unsupported');
+    const identity = { mode: 'actual' as const, network: result.account.network, accountId: result.account.id, strategyId: result.account.strategyId, accountAddress: result.account.address };
     if (!result.observation) return copyFollowerSnapshotReadSchema.parse({ ...identity, status: 'unavailable', observation: null, reason: result.job?.issue ?? 'not_observed' });
     try {
       const snapshot = result.observation.snapshot as unknown as LiveAccountSnapshot;
@@ -41,7 +42,7 @@ export class CopyFollowerSnapshotCollector implements OnApplicationBootstrap, On
     @Inject(FOLLOWER_SNAPSHOT_READER) private readonly reader: FollowerSnapshotReader,
     private readonly config: AppConfig, private readonly jobs: BackgroundJobs) {}
   onApplicationBootstrap(): void {
-    if (this.config.value.app.nodeEnv === 'test' || this.config.value.hyperliquid.wallet.network !== 'testnet') return;
+    if (this.config.value.app.nodeEnv === 'test') return;
     this.timer = setInterval(() => void this.tick(), 15000); this.timer.unref?.();
   }
   onModuleDestroy(): void { clearInterval(this.timer); this.reader.close?.(); }

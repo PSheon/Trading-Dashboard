@@ -86,6 +86,7 @@ import { assertBucketHolds, LIVE_RESERVE_WAIT_MS, liveBudget } from "../hyperliq
  */
 import { CopyLiveSetupController } from "./copy-live-setup.controller.js";
 import { CopyLiveSetupRepository } from "./copy-live-setup.repository.js";
+import { deploymentNetwork } from "./live-deployment.js";
 import { CopyLiveSetupService } from "./copy-live-setup.service.js";
 // The wallet network's budget, transport and info client: one per process,
 // provided by HyperliquidModule (re-exported here for existing imports).
@@ -118,21 +119,21 @@ export { WALLET_NETWORK_HL, walletNetworkHyperliquid, type WalletNetworkHyperliq
       // a busy bucket answers HyperliquidBudgetWait instead of stale evidence.
       // Setup steps wait at most LIVE_RESERVE_WAIT_MS (their driver's lease).
       return new PrivyAccountModeClient(config.value.auth, liveBudget(budget, { maxWaitMs: LIVE_RESERVE_WAIT_MS }),undefined,Date.now,transport); } },
-    { provide: ACCOUNT_MODE_ABSENCE_READER, inject: [WALLET_NETWORK_HL], useFactory: ({ budget, transport }: WalletNetworkHyperliquid) =>
-      new HyperliquidAccountModeAbsenceReader(liveBudget(budget, { maxWaitMs: LIVE_RESERVE_WAIT_MS }), transport.fetchInfo, Date.now,
-        new HyperliquidAllDexsAccountSource(Date.now, undefined, 'testnet', transport, { closeAfterRead: true }), transport) },
+    { provide: ACCOUNT_MODE_ABSENCE_READER, inject: [WALLET_NETWORK_HL], useFactory: ({ budget, transport, network }: WalletNetworkHyperliquid) =>
+      new HyperliquidAccountModeAbsenceReader(network, liveBudget(budget, { maxWaitMs: LIVE_RESERVE_WAIT_MS }), transport.fetchInfo, Date.now,
+        new HyperliquidAllDexsAccountSource(Date.now, undefined, network, transport, { closeAfterRead: true }), transport) },
     CopyFollowerLedger, CopyFollowerScanRepository, CopyFollowerReconciler, CopyFollowerStatementService, CopyFollowerStatementRepository,
     CopyFollowerActivityRepository, CopyFollowerActivityService,
     CopyFollowerSnapshotRepository, CopyFollowerSnapshotService,
     CopyLiveMandateRepository, CopyLiveMandateService, CopyLiveStopRepository, CopyLiveStopService, CopyLiveReturnRepository, CopyLiveReturnService, CopyLivePortfolioRepository, CopyLiveCloseService, CopyLiveCloseRepository, CopyLiveSetupRepository, CopyLiveSetupService,
     { provide: WORKER_MASTER_SIGNER, inject: [AppConfig], useFactory: (config: AppConfig) => new PrivyPolicyMasterSigner({ appId: config.value.auth.appId, appSecret: config.value.auth.appSecret,
       workerQuorumId: config.value.copy.agent?.workerQuorumId, authorizationPrivateKey: config.value.copy.agent?.authorizationPrivateKey }) },
-    { provide: HyperliquidFollowerReceiptReader, inject: [WALLET_NETWORK_HL], useFactory: ({ budget, transport }: WalletNetworkHyperliquid) =>
-      new HyperliquidFollowerReceiptReader("testnet", liveBudget(budget, { lane: "background", maxWaitMs: 5_000 }), transport.fetchInfo,
+    { provide: HyperliquidFollowerReceiptReader, inject: [WALLET_NETWORK_HL], useFactory: ({ budget, transport, network }: WalletNetworkHyperliquid) =>
+      new HyperliquidFollowerReceiptReader(network, liveBudget(budget, { lane: "background", maxWaitMs: 5_000 }), transport.fetchInfo,
         Date.now, weight => { if (weight > 0) budget.adjust(-weight); }) },
     { provide: USER_AGENT_PROVISIONER, inject: [AppConfig], useFactory: (config: AppConfig) => new PrivyUserAgentProvisioner({
       appId: config.value.auth.appId, appSecret: config.value.auth.appSecret, workerQuorumId: config.value.copy.agent?.workerQuorumId,
-      authorizationPublicKey: config.value.copy.agent?.authorizationPublicKey }) },
+      authorizationPublicKey: config.value.copy.agent?.authorizationPublicKey, network: deploymentNetwork(config) }) },
     { provide: AGENT_APPROVAL_CLIENT, inject: [AppConfig, WALLET_NETWORK_HL], useFactory: (config: AppConfig, { budget, transport }: WalletNetworkHyperliquid) =>
       new PrivyAgentApprovalClient(config.value.auth, liveBudget(budget, { maxWaitMs: LIVE_RESERVE_WAIT_MS }),undefined,Date.now,transport) },
   ],

@@ -1,7 +1,9 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { accountModeIntentSchema } from '@trading-dashboard/shared/contracts';
+import { ACTUAL_STRATEGY_MODE, accountModeIntentSchema } from '@trading-dashboard/shared/contracts';
+import { AppConfig } from '../config/app-config.js';
+import { deploymentNetwork } from './live-deployment.js';
 import { copyAccountModeOperations, copyExecutionAccounts, copyExecutionWallets, copyFundingOperations, copyLiveExecutions,
   copySignerNonces, copyStrategies, copyWalletAuthorizations, users, walletWithdrawals } from '@trading-dashboard/shared/database';
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
@@ -13,7 +15,9 @@ type Executor = DrizzleDb | DbTransaction;
 export const accountModeDigest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 @Injectable()
 export class CopyAccountModeRepository {
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, private readonly config: AppConfig) {}
+  /** Only the deployment's network's accounts change mode here. */
+  private get network() { return deploymentNetwork(this.config); }
   async owner(userId: number, tx: Executor = this.db) {
     if (tx !== this.db) await tx.execute(sql`select pg_advisory_xact_lock(7404, ${userId})`);
     const query = tx.select().from(users).where(and(eq(users.id, userId), isNull(users.disabledAt)));
@@ -41,13 +45,13 @@ export class CopyAccountModeRepository {
     const owner = await this.owner(userId, tx), account = await this.account(userId, row.accountId, tx);
     const query = tx.select().from(copyStrategies).where(and(eq(copyStrategies.id, row.strategyId), eq(copyStrategies.userId, userId)));
     const [strategy] = await (tx === this.db ? query : query.for('update'));
-    if (!strategy || account.state !== 'ready' || account.network !== 'testnet' || row.network !== 'testnet' ||
+    if (!strategy || account.state !== 'ready' || account.network !== this.network || row.network !== account.network ||
         owner.privyUserId !== row.ownerPrivyUserId || account.privyUserId !== owner.privyUserId || owner.embeddedWalletAddress !== row.ownerAddress ||
         account.strategyId !== row.strategyId || account.address !== row.accountAddress || account.privyWalletId !== row.accountWalletId || account.ownerQuorumId !== row.accountOwnerQuorumId)
       throw new ConflictException('account_mode_identity_changed');
     if (mutation) {
       if (['stopped', 'stopping'].includes(strategy.status) ||
-          (strategy.mode === 'testnet' && (strategy.status !== 'paused' || !strategy.pauseNewRisk)))
+          (strategy.mode === ACTUAL_STRATEGY_MODE && (strategy.status !== 'paused' || !strategy.pauseNewRisk)))
         throw new ConflictException('account_mode_strategy_not_dormant');
       await this.assertDormant(row, tx);
     }
@@ -76,12 +80,12 @@ export class CopyAccountModeRepository {
       if (prior.accountId !== accountId) throw new ConflictException('account_mode_idempotency_conflict');
       await this.assertCurrent(userId, prior, tx); return prior;
     }
-    if (account.state !== 'ready' || account.network !== 'testnet' || account.privyUserId !== owner.privyUserId || !account.address || !account.privyWalletId || !account.ownerQuorumId ||
+    if (account.state !== 'ready' || account.network !== this.network || account.privyUserId !== owner.privyUserId || !account.address || !account.privyWalletId || !account.ownerQuorumId ||
         !owner.embeddedWalletAddress || owner.embeddedWalletAddress === account.address) throw new ConflictException('account_mode_account_not_ready');
     if ((await tx.select({ id: copyAccountModeOperations.id }).from(copyAccountModeOperations).where(eq(copyAccountModeOperations.accountId, accountId))).length)
       throw new ConflictException('account_mode_setup_exists');
     const [row] = await tx.insert(copyAccountModeOperations).values({ id: randomUUID(), userId, accountId, strategyId: account.strategyId,
-      network: 'testnet', idempotencyKey, accountAddress: account.address, accountWalletId: account.privyWalletId,
+      network: account.network, idempotencyKey, accountAddress: account.address, accountWalletId: account.privyWalletId,
       accountOwnerQuorumId: account.ownerQuorumId, ownerPrivyUserId: owner.privyUserId, ownerAddress: owner.embeddedWalletAddress, liveSetupId }).returning();
     await this.assertCurrent(userId, row!, tx); return row!;
   }
@@ -99,14 +103,14 @@ export class CopyAccountModeRepository {
     if (locked.submissionState !== 'prepared' || locked.attemptedAt || locked.revision !== row.revision || locked.targetState === 'supported')
       throw new ConflictException('account_mode_challenge_changed');
     if (locked.intent && locked.nonce && locked.consentExpiresAt && locked.consentExpiresAt.getTime() > Date.now() + minRemainingMs) return locked;
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`live-nonce:testnet:${locked.accountAddress}`}, 2))`);
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`live-nonce:${locked.network}:${locked.accountAddress}`}, 2))`);
     const now = Date.now(); assertFresh();
-    const result = await tx.execute<{ nonce: string }>(sql`insert into ${copySignerNonces} (network, signer_address, nonce) values ('testnet', ${locked.accountAddress}, ${now})
+    const result = await tx.execute<{ nonce: string }>(sql`insert into ${copySignerNonces} (network, signer_address, nonce) values (${locked.network}, ${locked.accountAddress}, ${now})
       on conflict (network, signer_address) do update set nonce = greatest(${now}, ${copySignerNonces.nonce} + 1) returning nonce`);
     const nonce = Number(result.rows[0]?.nonce);
     if (!Number.isSafeInteger(nonce) || nonce > Date.now() + 30000) throw new ConflictException('account_mode_nonce_clock_skew');
     const intent = accountModeIntentSchema.parse({ operationId: locked.id, accountId: locked.accountId, strategyId: locked.strategyId,
-      network: 'testnet', accountAddress: locked.accountAddress, nonce, consentExpiresAt: nonce + 300000 });
+      network: locked.network, accountAddress: locked.accountAddress, nonce, consentExpiresAt: nonce + 300000 });
     const next = await this.transition(locked, { nonce, consentExpiresAt: new Date(intent.consentExpiresAt), intent, intentDigest: accountModeDigest(intent), consentDigest: null, issue: null }, tx);
     assertFresh(); if (!next) throw new ConflictException('account_mode_challenge_changed'); return next;
   }

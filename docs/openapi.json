@@ -212,7 +212,7 @@
     },
     "/me/copy/live/setups": {
       "post": {
-        "description": "Idempotent by key: prepares the paused strategy, copy wallet, agent and deposit with no exchange call, then returns the one consent challenge. A retry continues preparation and renews an expired challenge.\n\nAccess: user (owner); testnet; prepares strategy, wallet, agent and deposit, no exchange call; one consent challenge\n\nError codes: copy_not_open, copy_paused, strategy_limit, already_copying, below_min_allocation, above_max_allocation, leverage_above_limit, watch_capacity, setup_unavailable, setup_wallet_conflict, funding_pending",
+        "description": "Idempotent by key: prepares the paused strategy, copy wallet, agent and deposit with no exchange call, then returns the one consent challenge. A retry continues preparation and renews an expired challenge.\n\nAccess: user (owner); testnet; prepares strategy, wallet, agent and deposit, no exchange call; one consent challenge\n\nError codes: copy_not_open, copy_paused, strategy_limit, already_copying, below_min_allocation, above_max_allocation, leverage_above_limit, watch_capacity, live_not_allowed, live_fixed_sizing_required, live_per_trade_out_of_range, live_source_network_unsupported, setup_unavailable, setup_wallet_conflict, funding_pending",
         "operationId": "CopyLiveSetupController_start",
         "parameters": [],
         "requestBody": {
@@ -450,7 +450,10 @@
                                 },
                                 "network": {
                                   "type": "string",
-                                  "const": "testnet"
+                                  "enum": [
+                                    "testnet",
+                                    "mainnet"
+                                  ]
                                 },
                                 "budgetUsd": {
                                   "type": "string",
@@ -828,6 +831,10 @@
           "above_max_allocation",
           "leverage_above_limit",
           "watch_capacity",
+          "live_not_allowed",
+          "live_fixed_sizing_required",
+          "live_per_trade_out_of_range",
+          "live_source_network_unsupported",
           "setup_unavailable",
           "setup_wallet_conflict",
           "funding_pending"
@@ -1066,7 +1073,10 @@
                                       },
                                       "network": {
                                         "type": "string",
-                                        "const": "testnet"
+                                        "enum": [
+                                          "testnet",
+                                          "mainnet"
+                                        ]
                                       },
                                       "budgetUsd": {
                                         "type": "string",
@@ -1686,7 +1696,10 @@
                                 },
                                 "network": {
                                   "type": "string",
-                                  "const": "testnet"
+                                  "enum": [
+                                    "testnet",
+                                    "mainnet"
+                                  ]
                                 },
                                 "budgetUsd": {
                                   "type": "string",
@@ -2309,7 +2322,10 @@
                                 },
                                 "network": {
                                   "type": "string",
-                                  "const": "testnet"
+                                  "enum": [
+                                    "testnet",
+                                    "mainnet"
+                                  ]
                                 },
                                 "budgetUsd": {
                                   "type": "string",
@@ -2940,7 +2956,10 @@
                                 },
                                 "network": {
                                   "type": "string",
-                                  "const": "testnet"
+                                  "enum": [
+                                    "testnet",
+                                    "mainnet"
+                                  ]
                                 },
                                 "budgetUsd": {
                                   "type": "string",
@@ -3552,7 +3571,10 @@
                                 },
                                 "network": {
                                   "type": "string",
-                                  "const": "testnet"
+                                  "enum": [
+                                    "testnet",
+                                    "mainnet"
+                                  ]
                                 },
                                 "budgetUsd": {
                                   "type": "string",
@@ -4177,7 +4199,10 @@
                                 },
                                 "network": {
                                   "type": "string",
-                                  "const": "testnet"
+                                  "enum": [
+                                    "testnet",
+                                    "mainnet"
+                                  ]
                                 },
                                 "budgetUsd": {
                                   "type": "string",
@@ -4807,7 +4832,10 @@
                                 },
                                 "network": {
                                   "type": "string",
-                                  "const": "testnet"
+                                  "enum": [
+                                    "testnet",
+                                    "mainnet"
+                                  ]
                                 },
                                 "budgetUsd": {
                                   "type": "string",
@@ -5262,7 +5290,10 @@
                         },
                         "network": {
                           "type": "string",
-                          "const": "testnet"
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
                         },
                         "accountAddress": {
                           "type": "string",
@@ -5450,7 +5481,10 @@
                               },
                               "network": {
                                 "type": "string",
-                                "const": "testnet"
+                                "enum": [
+                                  "testnet",
+                                  "mainnet"
+                                ]
                               },
                               "accountAddress": {
                                 "type": "string",
@@ -5657,7 +5691,10 @@
                         },
                         "network": {
                           "type": "string",
-                          "const": "testnet"
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
                         },
                         "accountAddress": {
                           "type": "string",
@@ -6335,7 +6372,7 @@
     },
     "/me/copy/live/portfolio": {
       "get": {
-        "description": "Setup, deposit, funding, awaiting credit, starting, active or paused; stopping, sweeping and stopped. Database only; balances come from the account snapshot.\n\nAccess: user (owner); testnet copies with their funding and stop stage; read only",
+        "description": "The deployment's network; a copy of another network is history (its `network`). Setup, deposit, funding, awaiting credit, starting, active or paused; stopping, sweeping and stopped. Database only; balances come from the account snapshot.\n\nAccess: user (owner); testnet copies with their funding and stop stage; read only",
         "operationId": "CopyLivePortfolioController_portfolio",
         "parameters": [],
         "responses": {
@@ -6373,7 +6410,10 @@
                       "properties": {
                         "network": {
                           "type": "string",
-                          "const": "testnet"
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
                         },
                         "automaticExecution": {
                           "type": "boolean"
@@ -6403,6 +6443,13 @@
                                 "type": "string",
                                 "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$",
                                 "maxLength": 32
+                              },
+                              "network": {
+                                "type": "string",
+                                "enum": [
+                                  "testnet",
+                                  "mainnet"
+                                ]
                               },
                               "status": {
                                 "type": "string",
@@ -6729,7 +6776,10 @@
                                               },
                                               "network": {
                                                 "type": "string",
-                                                "const": "testnet"
+                                                "enum": [
+                                                  "testnet",
+                                                  "mainnet"
+                                                ]
                                               },
                                               "budgetUsd": {
                                                 "type": "string",
@@ -6966,7 +7016,7 @@
             }
           }
         },
-        "summary": "Read my testnet copies and their stage",
+        "summary": "Read my actual copies and their stage",
         "tags": [
           "CopyLivePortfolio"
         ],
@@ -34084,7 +34134,10 @@
                         },
                         "network": {
                           "type": "string",
-                          "const": "testnet"
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
                         },
                         "operations": {
                           "type": "array",
@@ -34103,7 +34156,10 @@
                               },
                               "network": {
                                 "type": "string",
-                                "const": "testnet"
+                                "enum": [
+                                  "testnet",
+                                  "mainnet"
+                                ]
                               },
                               "accountAddress": {
                                 "type": "string",
@@ -34293,7 +34349,10 @@
                         },
                         "network": {
                           "type": "string",
-                          "const": "testnet"
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
                         },
                         "accountAddress": {
                           "type": "string",
@@ -34484,7 +34543,10 @@
                         },
                         "network": {
                           "type": "string",
-                          "const": "testnet"
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
                         },
                         "accountAddress": {
                           "type": "string",
@@ -34663,7 +34725,10 @@
                         },
                         "network": {
                           "type": "string",
-                          "const": "testnet"
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
                         },
                         "accountAddress": {
                           "type": "string",
@@ -35523,7 +35588,10 @@
                             },
                             "network": {
                               "type": "string",
-                              "const": "testnet"
+                              "enum": [
+                                "testnet",
+                                "mainnet"
+                              ]
                             },
                             "accountId": {
                               "type": "string",
@@ -36108,7 +36176,10 @@
                             },
                             "network": {
                               "type": "string",
-                              "const": "testnet"
+                              "enum": [
+                                "testnet",
+                                "mainnet"
+                              ]
                             },
                             "accountId": {
                               "type": "string",
@@ -36231,7 +36302,10 @@
                         },
                         "network": {
                           "type": "string",
-                          "const": "testnet"
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
                         },
                         "capabilities": {
                           "type": "object",
@@ -36251,6 +36325,60 @@
                                   "mainnet"
                                 ]
                               }
+                            },
+                            "actualAllowed": {
+                              "type": "boolean"
+                            },
+                            "caps": {
+                              "type": "object",
+                              "properties": {
+                                "fixedPerTradeUsd": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "min": {
+                                          "type": "number"
+                                        },
+                                        "max": {
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "min",
+                                        "max"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "maxAllocationUsd": {
+                                  "type": [
+                                    "number",
+                                    "null"
+                                  ]
+                                },
+                                "maxLeverage": {
+                                  "type": [
+                                    "number",
+                                    "null"
+                                  ]
+                                },
+                                "maxStrategiesPerUser": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0
+                                }
+                              },
+                              "required": [
+                                "fixedPerTradeUsd",
+                                "maxAllocationUsd",
+                                "maxLeverage",
+                                "maxStrategiesPerUser"
+                              ],
+                              "additionalProperties": false
                             }
                           },
                           "required": [
@@ -36276,7 +36404,10 @@
                               },
                               "network": {
                                 "type": "string",
-                                "const": "testnet"
+                                "enum": [
+                                  "testnet",
+                                  "mainnet"
+                                ]
                               },
                               "sourceNetwork": {
                                 "type": "string",
@@ -36431,7 +36562,10 @@
                               },
                               "network": {
                                 "type": "string",
-                                "const": "testnet"
+                                "enum": [
+                                  "testnet",
+                                  "mainnet"
+                                ]
                               },
                               "accountAddress": {
                                 "type": "string",
@@ -36623,7 +36757,10 @@
                         },
                         "network": {
                           "type": "string",
-                          "const": "testnet"
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
                         },
                         "sourceNetwork": {
                           "type": "string",
@@ -36858,7 +36995,10 @@
                             },
                             "network": {
                               "type": "string",
-                              "const": "testnet"
+                              "enum": [
+                                "testnet",
+                                "mainnet"
+                              ]
                             },
                             "accountAddress": {
                               "type": "string",
@@ -36976,7 +37116,10 @@
                             },
                             "network": {
                               "type": "string",
-                              "const": "testnet"
+                              "enum": [
+                                "testnet",
+                                "mainnet"
+                              ]
                             },
                             "sourceNetwork": {
                               "type": "string",
@@ -37295,7 +37438,10 @@
                             },
                             "network": {
                               "type": "string",
-                              "const": "testnet"
+                              "enum": [
+                                "testnet",
+                                "mainnet"
+                              ]
                             },
                             "accountAddress": {
                               "type": "string",
@@ -37413,7 +37559,10 @@
                             },
                             "network": {
                               "type": "string",
-                              "const": "testnet"
+                              "enum": [
+                                "testnet",
+                                "mainnet"
+                              ]
                             },
                             "sourceNetwork": {
                               "type": "string",
@@ -37662,7 +37811,7 @@
     },
     "/me/copy/live/strategies": {
       "post": {
-        "description": "Creates local configuration only. Does not allocate simulated funds or start execution.\n\nAccess: user (owner); fresh paused testnet configuration\n\nError codes: copy_not_open, copy_paused, strategy_limit, already_copying, below_min_allocation, above_max_allocation, leverage_above_limit, watch_capacity",
+        "description": "Creates local configuration only. Does not allocate simulated funds or start execution.\n\nAccess: user (owner); fresh paused testnet configuration\n\nError codes: copy_not_open, copy_paused, strategy_limit, already_copying, below_min_allocation, above_max_allocation, leverage_above_limit, watch_capacity, live_not_allowed, live_fixed_sizing_required, live_per_trade_out_of_range, live_source_network_unsupported",
         "operationId": "CopyLiveMandateController_create",
         "parameters": [],
         "requestBody": {
@@ -37719,7 +37868,10 @@
                         },
                         "network": {
                           "type": "string",
-                          "const": "testnet"
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
                         },
                         "sourceNetwork": {
                           "type": "string",
@@ -37885,7 +38037,11 @@
           "below_min_allocation",
           "above_max_allocation",
           "leverage_above_limit",
-          "watch_capacity"
+          "watch_capacity",
+          "live_not_allowed",
+          "live_fixed_sizing_required",
+          "live_per_trade_out_of_range",
+          "live_source_network_unsupported"
         ]
       }
     },
@@ -37970,7 +38126,10 @@
                             },
                             "network": {
                               "type": "string",
-                              "const": "testnet"
+                              "enum": [
+                                "testnet",
+                                "mainnet"
+                              ]
                             },
                             "accountAddress": {
                               "type": "string",
@@ -38088,7 +38247,10 @@
                             },
                             "network": {
                               "type": "string",
-                              "const": "testnet"
+                              "enum": [
+                                "testnet",
+                                "mainnet"
+                              ]
                             },
                             "sourceNetwork": {
                               "type": "string",
@@ -38423,7 +38585,10 @@
                         },
                         "network": {
                           "type": "string",
-                          "const": "testnet"
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
                         },
                         "accountAddress": {
                           "type": "string",
@@ -38625,7 +38790,10 @@
                         },
                         "network": {
                           "type": "string",
-                          "const": "testnet"
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
                         },
                         "accountAddress": {
                           "type": "string",
@@ -38828,7 +38996,10 @@
                         },
                         "network": {
                           "type": "string",
-                          "const": "testnet"
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
                         },
                         "accountAddress": {
                           "type": "string",
@@ -39031,7 +39202,10 @@
                         },
                         "network": {
                           "type": "string",
-                          "const": "testnet"
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
                         },
                         "accountAddress": {
                           "type": "string",

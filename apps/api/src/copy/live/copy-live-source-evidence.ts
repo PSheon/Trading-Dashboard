@@ -5,8 +5,8 @@ import { legsOf } from '../copy-math.js';
 import { address, LiveBoundaryError } from './wallet-authorization.js';
 import { LIVE_PERP_COIN } from './live-market-resolver.js';
 import type { copyLiveSourceFills } from '@trading-dashboard/shared/database';
-/** Leader fills come from a fixed public network: testnet, or mainnet when a
- * testnet copy mirrors a mainnet leader. Execution stays on testnet. */
+/** Leader fills come from a fixed public network (the consent's source
+ * network), which may differ from the network the copy executes on. */
 export type LiveSourceNetwork = 'testnet' | 'mainnet';
 export interface LiveSourceFillContext {
   network: LiveSourceNetwork; leaderAddress: string; from: number; to: number; receivedAt: number; kind: 'fills' | 'twap';

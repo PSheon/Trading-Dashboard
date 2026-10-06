@@ -2,11 +2,13 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, gt, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 import { copyControls, copyExecutionAccounts, copyFundingOperations, copyLiveManualCloses, copyLiveActivations, copyLiveDispatches, copyLiveExecutions, copyLiveMandates,
   copyLiveSourceFills, copyLiveSourceStreams, copyLiveStopOperations, copyLiveStrategyConfigs, copyStrategies, copyStrategyVersions, copyRiskPolicies, fillCoverage, fills } from '@trading-dashboard/shared/database';
-import { CHAIN_DEFAULT, copyRiskLimitsSchema, copyStrategySettingsSchema, DEFAULT_COPY_RISK_LIMITS } from '@trading-dashboard/shared/contracts';
+import { ACTUAL_STRATEGY_MODE, CHAIN_DEFAULT, copyRiskLimitsSchema, copyStrategySettingsSchema, DEFAULT_COPY_RISK_LIMITS } from '@trading-dashboard/shared/contracts';
+import { AppConfig } from '../../config/app-config.js';
 import { DRIZZLE_CLIENT } from '../../db/db.constants.js';
 import type { DrizzleDb } from '../../db/drizzle.provider.js';
 import { UnitOfWork } from '../../db/unit-of-work.js';
 import { lockCopyUser } from '../copy-user-lock.js';
+import { deploymentNetwork } from '../live-deployment.js';
 import type { LiveSourceNetwork } from '../live/copy-live-source-evidence.js';
 
 export type DispatchRow = typeof copyLiveDispatches.$inferSelect;
@@ -24,10 +26,17 @@ export interface LiveMandateWork {
 export const MERGED_REASON = 'merged_into_adjustment';
 export interface LiveStreamWork { network: LiveSourceNetwork; leaderAddress: string; earliestCursor: Date }
 
-/** SQL for the live worker. Short transactions only; no provider I/O here. */
+/** SQL for the live worker. Short transactions only; no provider I/O here.
+ * Only the deployment's network: a generation, leg or order of another
+ * network (a database that moved networks) is never worked here. */
 @Injectable()
 export class CopyLiveWorkerRepository {
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, private readonly uow: UnitOfWork) {}
+  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, private readonly uow: UnitOfWork, private readonly config: AppConfig) {}
+  private get network() { return deploymentNetwork(this.config); }
+  /** Legs of a generation on the deployment's network. */
+  private ownNetwork() {
+    return sql`exists (select 1 from ${copyLiveMandates} n where n.id = ${copyLiveDispatches.mandateId} and n.network = ${this.network})`;
+  }
 
   /** Consent generations that are acknowledged and unexpired. */
   async mandates(now: number): Promise<LiveMandateWork[]> {
@@ -40,7 +49,8 @@ export class CopyLiveWorkerRepository {
       .leftJoin(copyStrategyVersions, and(eq(copyStrategyVersions.strategyId, copyStrategies.id), eq(copyStrategyVersions.version, copyStrategies.version)))
       .leftJoin(copyLiveStrategyConfigs, eq(copyLiveStrategyConfigs.strategyId, copyStrategies.id))
       .where(and(eq(copyLiveMandates.state, 'active'), isNotNull(copyLiveMandates.consentDigest), isNotNull(copyLiveMandates.activationCursor),
-        gt(copyLiveMandates.expiresAt, new Date(now)), eq(copyStrategies.mode, 'testnet'), isNotNull(copyExecutionAccounts.address)))
+        gt(copyLiveMandates.expiresAt, new Date(now)), eq(copyStrategies.mode, ACTUAL_STRATEGY_MODE), eq(copyLiveMandates.network, this.network),
+        eq(copyExecutionAccounts.network, this.network), isNotNull(copyExecutionAccounts.address)))
       .orderBy(asc(copyLiveMandates.createdAt)).limit(500);
     return rows.map(({ mandate: m, account: a, strategy: s, activatedAt, activationState, settings, budgetUsd }) => ({ mandateId: m.id, userId: m.userId, strategyId: m.strategyId, accountId: m.accountId,
       accountAddress: a.address!, sourceNetwork: m.sourceNetwork, leaderAddress: m.leaderAddress, cursor: m.activationCursor!, expiresAt: m.expiresAt,
@@ -79,7 +89,7 @@ export class CopyLiveWorkerRepository {
         if (!pending || pending.state !== 'pending' || pending.strategyId !== m.strategyId || pending.accountId !== m.accountId) return false;
         const [mandate] = await tx.select().from(copyLiveMandates).where(eq(copyLiveMandates.id, m.mandateId)).for('update');
         const [strategy] = await tx.select().from(copyStrategies).where(eq(copyStrategies.id, m.strategyId)).for('update');
-        if (!mandate || mandate.state !== 'active' || mandate.expiresAt.getTime() <= now || !strategy || strategy.mode !== 'testnet' || strategy.status !== 'paused' ||
+        if (!mandate || mandate.state !== 'active' || mandate.expiresAt.getTime() <= now || mandate.network !== this.network || !strategy || strategy.mode !== ACTUAL_STRATEGY_MODE || strategy.status !== 'paused' ||
           strategy.reduceOnly || strategy.controlRevision !== pending.controlRevision) return false;
         const controls = await tx.select().from(copyControls).where(sql`${copyControls.scope} = 'platform' or (${copyControls.scope} = 'user' and ${copyControls.scopeId} = ${m.userId})`);
         if (controls.some(row => row.pauseNewRisk || row.reduceOnly)) return false;
@@ -192,7 +202,7 @@ export class CopyLiveWorkerRepository {
     const fresh = sql`case when ${copyLiveDispatches.state} = 'pending' or exists (select 1 from ${copyLiveDispatches} p where p.mandate_id = ${copyLiveDispatches.mandateId}
       and p.source_fill_id = ${copyLiveDispatches.sourceFillId} and p.state = 'pending') then 0 else 1 end`;
     return this.db.select().from(copyLiveDispatches)
-      .where(and(inArray(copyLiveDispatches.state, ['pending', 'submitted']), mandateIds ? inArray(copyLiveDispatches.mandateId, [...mandateIds]) : undefined))
+      .where(and(inArray(copyLiveDispatches.state, ['pending', 'submitted']), this.ownNetwork(), mandateIds ? inArray(copyLiveDispatches.mandateId, [...mandateIds]) : undefined))
       .orderBy(fresh, asc(copyLiveDispatches.leaderTime), asc(copyLiveDispatches.id)).limit(limit);
   }
   /** Fills the watcher confirmed over REST inside both its verified span and
@@ -262,7 +272,7 @@ export class CopyLiveWorkerRepository {
     return row?.status ?? null;
   }
   async mandate(id: string) {
-    const [row] = await this.db.select().from(copyLiveMandates).where(eq(copyLiveMandates.id, id));
+    const [row] = await this.db.select().from(copyLiveMandates).where(and(eq(copyLiveMandates.id, id), eq(copyLiveMandates.network, this.network)));
     return row ?? null;
   }
 }

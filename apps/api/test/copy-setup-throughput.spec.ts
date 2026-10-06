@@ -165,7 +165,7 @@ function setupProcess(name: string, meter: Meter, testnet: Testnet, db: ReturnTy
   const live = (weight: number, options?: { maxWaitMs?: number; signal?: AbortSignal }) => reserveLive(budget, weight, options);
   const config = new AppConfig({ hyperliquid: { wallet: { network: 'testnet' } }, copy: { mode: 'testnet' } } as never);
   const client = new PrivyAccountModeClient({ appId: 'app', appSecret: 'secret' }, live, testnet.fetch, Date.now, transport);
-  const absence = new HyperliquidAccountModeAbsenceReader(live, transport.fetchInfo, Date.now, allVenueSource(meter, name, true), transport);
+  const absence = new HyperliquidAccountModeAbsenceReader('testnet', live, transport.fetchInfo, Date.now, allVenueSource(meter, name, true), transport);
   const wallets = { available: true, findOwned: async () => { await sleep(150); return { id: 'master-wallet', address: accountAddress, externalId: 'ext', ownerQuorumId: 'owner-quorum' }; } };
   const uow = { run: <T>(work: (tx: unknown) => Promise<T>) => work({}) };
   const modes = new CopyAccountModeService(db.modeRepository as never, uow as never, config, wallets as never, client, absence);

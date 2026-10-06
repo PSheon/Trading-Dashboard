@@ -48,8 +48,17 @@ describe('dedicated testnet standard-mode principal provider', () => {
     expect(data.primaryType).toBe('HyperliquidTransaction:UserSetAbstraction'); expect(data.message).toEqual(expectedAction);
     expect(Object.isFrozen(data)).toBe(true); expect(Object.isFrozen(data.domain)).toBe(true); expect(Object.isFrozen(data.message)).toBe(true);
   });
+  it('signs and sends a mainnet intent with the mainnet chain fields and origin', async () => {
+    const mainnet = { ...intent, network: 'mainnet' } as const, data = accountModeTypedData(mainnet);
+    expect(data.domain).toEqual({ ...expectedDomain, chainId: 42161 });
+    expect(data.message).toEqual({ ...expectedAction, signatureChainId: '0xa4b1', hyperliquidChain: 'Mainnet' });
+    const sent: string[] = [];
+    const provider = new PrivyAccountModeClient({ appId: 'test-app', appSecret: 'test-secret' }, budget, async input => { sent.push(String(input)); return Response.json({ status: 'ok', response: { type: 'default' } }); }, () => now);
+    await provider.send(mainnet, signature);
+    expect(sent).toEqual(['https://api.hyperliquid.xyz/exchange']);
+  });
   it.each([
-    { network: 'mainnet' }, { accountAddress: 'bad' }, { accountAddress: `0x${'00'.repeat(20)}` },
+    { network: 'devnet' }, { accountAddress: 'bad' }, { accountAddress: `0x${'00'.repeat(20)}` },
     { nonce: -1 }, { nonce: Number.MAX_SAFE_INTEGER + 1 }, { nonce: time + 1 },
     { consentExpiresAt: time }, { consentExpiresAt: time + 300_001 }, { strategyId: 0 }, { operationId: '' },
   ])('rejects invalid intent before signing or POST %j', async changes => {

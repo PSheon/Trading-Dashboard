@@ -3,7 +3,7 @@ import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import { copyExecutionAccounts, copyExecutionWallets, copyWalletAuthorizations, copyLiveExecutions, copyLiveRiskReservations, copyLiveExecutionEvidence,
   copyFollowerReceipts, copyFollowerLedger, copyFollowerAccountState, copyStrategies, users,
   copyLiveIntentProvenance, copyLiveSignalLegs, copyLiveReductionCarry, copyLiveSourceFills, copyLiveMandates, copyLiveStrategyConfigs, copyStrategyVersions, copyRiskPolicies } from '@trading-dashboard/shared/database';
-import { copyStrategySettingsSchema, copyRiskLimitsSchema } from '@trading-dashboard/shared/contracts';
+import { ACTUAL_STRATEGY_MODE, copyStrategySettingsSchema, copyRiskLimitsSchema, isHyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { Dec } from '../../common/decimal/dec.js';
 import { decodeLiveCopyMandate } from '../copy-live-mandate-evidence.js';
 import { decodeLiveSourceFill, canonicalLiveSourceLegs } from './copy-live-source-evidence.js';
@@ -51,8 +51,8 @@ export class PostgresLiveSettlement {
   private async load(session: LiveRiskDatabaseSession, tx: DbTransaction, accountId: string, key: string) {
     session.scope.assertFresh();
     const [account] = await this.query(session, tx.select().from(copyExecutionAccounts).where(eq(copyExecutionAccounts.id, accountId)).for('update'));
-    check(account && account.network === 'testnet' && account.address === session.scope.identity.accountAddress && account.userId === session.scope.identity.userId &&
-      session.scope.identity.network === 'testnet' && account.privyWalletId && account.ownerQuorumId);
+    check(account && account.network === session.scope.identity.network && account.address === session.scope.identity.accountAddress && account.userId === session.scope.identity.userId &&
+      isHyperliquidNetwork(session.scope.identity.network) && account.privyWalletId && account.ownerQuorumId);
     const [owner] = await this.query(session, tx.select().from(users).where(eq(users.id, account.userId)));
     const [strategy] = await this.query(session, tx.select().from(copyStrategies).where(eq(copyStrategies.id, account.strategyId)));
     // Enabled flags, strategy stop, and current grant revocation do not erase
@@ -111,13 +111,13 @@ export class PostgresLiveSettlement {
         old?.acknowledgement && (!isDeepStrictEqual(old.acknowledgement,ack) || old.acknowledgementDigest !== ack.responseDigest))
         return this.quarantine(session,tx,row,'live_settlement_ack_conflict');
       const other = await this.query(session,tx.select({key:copyLiveExecutionEvidence.key}).from(copyLiveExecutionEvidence)
-        .where(and(eq(copyLiveExecutionEvidence.network,'testnet'),eq(copyLiveExecutionEvidence.accountAddress,row.accountAddress),eq(copyLiveExecutionEvidence.exchangeOrderId,ack.oid))).limit(2));
+        .where(and(eq(copyLiveExecutionEvidence.network,record.authorization.network),eq(copyLiveExecutionEvidence.accountAddress,row.accountAddress),eq(copyLiveExecutionEvidence.exchangeOrderId,ack.oid))).limit(2));
       if (other.some(e => e.key !== row.key)) return this.quarantine(session,tx,row,'live_settlement_oid_conflict');
       if (old?.acknowledgement) return {kind:'recorded' as const,oid:ack.oid,revision:old.revision};
       if (row.state === 'released' || old?.settlementCertificate) return {kind:'pending' as const,reason:'live_settlement_already_released'};
       const saved = old ? await this.query(session,tx.update(copyLiveExecutionEvidence).set({exchangeOrderId:ack.oid,acknowledgement:json(ack),acknowledgementDigest:ack.responseDigest,
         revision:old.revision+1,updatedAt:new Date(this.now())}).where(and(eq(copyLiveExecutionEvidence.key,row.key),eq(copyLiveExecutionEvidence.revision,old.revision))).returning()) :
-        await this.query(session,tx.insert(copyLiveExecutionEvidence).values({key:row.key,accountId:row.accountId,userId:row.userId,strategyId:row.strategyId,network:'testnet',accountAddress:row.accountAddress,
+        await this.query(session,tx.insert(copyLiveExecutionEvidence).values({key:row.key,accountId:row.accountId,userId:row.userId,strategyId:row.strategyId,network:record.authorization.network,accountAddress:row.accountAddress,
           cloid:row.cloid,fingerprint:row.fingerprint,nonce:record.nonce,exchangeOrderId:ack.oid,acknowledgement:json(ack),acknowledgementDigest:ack.responseDigest,
           createdAt:new Date(started),updatedAt:new Date(this.now())}).returning());
       check(saved.length === 1,'live_settlement_revision_changed');
@@ -154,7 +154,7 @@ export class PostgresLiveSettlement {
       }
       if (oid) {
         const other = await this.query(session,tx.select({key:copyLiveExecutionEvidence.key}).from(copyLiveExecutionEvidence)
-          .where(and(eq(copyLiveExecutionEvidence.network,'testnet'),eq(copyLiveExecutionEvidence.accountAddress,row.accountAddress),eq(copyLiveExecutionEvidence.exchangeOrderId,oid))).limit(2));
+          .where(and(eq(copyLiveExecutionEvidence.network,record.authorization.network),eq(copyLiveExecutionEvidence.accountAddress,row.accountAddress),eq(copyLiveExecutionEvidence.exchangeOrderId,oid))).limit(2));
         if (other.some(e => e.key !== row.key)) return this.quarantine(session,tx,row,'live_settlement_oid_conflict');
       }
       if (old?.settlementCertificate) return {kind:'pending' as const,reason:'live_settlement_already_released'};
@@ -162,7 +162,7 @@ export class PostgresLiveSettlement {
       const saved = old ? await this.query(session,tx.update(copyLiveExecutionEvidence).set({exchangeOrderId:oid,acknowledgement:ack,acknowledgementDigest:ackDigest,
         statusObservation:json(observation),statusDigest:observation.sourceDigest,revision:old.revision+1,updatedAt:new Date(this.now())})
         .where(and(eq(copyLiveExecutionEvidence.key,input.key),eq(copyLiveExecutionEvidence.revision,old.revision))).returning()) :
-        await this.query(session,tx.insert(copyLiveExecutionEvidence).values({key:row.key,accountId:row.accountId,userId:row.userId,strategyId:row.strategyId,network:'testnet',accountAddress:row.accountAddress,
+        await this.query(session,tx.insert(copyLiveExecutionEvidence).values({key:row.key,accountId:row.accountId,userId:row.userId,strategyId:row.strategyId,network:record.authorization.network,accountAddress:row.accountAddress,
           cloid:row.cloid,fingerprint:row.fingerprint,nonce:record.nonce,exchangeOrderId:oid,acknowledgement:ack,acknowledgementDigest:ackDigest,statusObservation:json(observation),statusDigest:observation.sourceDigest,
           createdAt:new Date(started),updatedAt:new Date(this.now())}).returning());
       check(saved.length === 1,'live_settlement_revision_changed');
@@ -222,14 +222,14 @@ export class PostgresLiveSettlement {
       check(strategy.mode === 'paper' && !config && legs.length === 0,'live_settlement_source_missing');
       return null;
     }
-    check(strategy.mode === 'testnet' && legs.length === 1,'live_settlement_source_changed');
+    check(strategy.mode === ACTUAL_STRATEGY_MODE && legs.length === 1,'live_settlement_source_changed');
     const leg = legs[0]!;
     const [m] = await this.query(session,tx.select().from(copyLiveMandates).where(eq(copyLiveMandates.id,p.mandateId)));
     const [fillRow] = await this.query(session,tx.select().from(copyLiveSourceFills).where(eq(copyLiveSourceFills.id,leg.sourceFillId)));
     check(m && fillRow,'live_settlement_source_changed');
     const consent = decodeLiveCopyMandate(m), envelope = decodeLiveSourceSizingEnvelope(p.sizingBasis), b = envelope.basis;
     check(m.consentDigest && m.activationCursor && m.revision >= p.mandateRevision && p.mandateRevision === b.mandateRevision && p.admittedAt.getTime() === record.createdAt &&
-      consent.accountId === account.id && consent.accountAddress === account.address && consent.userId === row.userId && consent.strategyId === row.strategyId &&
+      consent.accountId === account.id && consent.network === account.network && consent.accountAddress === account.address && consent.userId === row.userId && consent.strategyId === row.strategyId &&
       consent.authorizationId === row.authorizationId && consent.authorizationVersion === row.authorizationVersion && consent.agentWalletId === row.walletId &&
       consent.agentAddress === record.authorization.signerAddress && consent.strategyVersion === row.strategyVersion &&
       p.key === record.key && p.fingerprint === record.fingerprint && p.plannerVersion === 1 && p.settingsDigest === consent.settingsDigest &&
@@ -260,7 +260,7 @@ export class PostgresLiveSettlement {
       or(sql`${copyFollowerReceipts.record}->>'oid' = ${oid}`,eq(copyFollowerReceipts.executionKey,key)))).orderBy(copyFollowerReceipts.key).limit(10001));
     check(receipts.length <= 10000,'live_settlement_receipt_coverage_unproven');
     const ledger = receipts.length ? await this.query(session,tx.select().from(copyFollowerLedger).where(inArray(copyFollowerLedger.receiptKey,receipts.map(r => r.key)))) : [];
-    return receipts.map(r => ({key:r.key,accountId:r.accountId,network:r.network as 'testnet',accountAddress:r.accountAddress,kind:r.kind,sourceId:r.sourceId,coin:r.coin,
+    return receipts.map(r => ({key:r.key,accountId:r.accountId,network:r.network,accountAddress:r.accountAddress,kind:r.kind,sourceId:r.sourceId,coin:r.coin,
       providerTime:r.providerTime.getTime(),digest:r.digest,executionKey:r.executionKey,attribution:r.attribution,record:r.record as unknown as LiveSettlementReceipt['record'],
       ledger:ledger.filter(l => l.receiptKey === r.key).map(l => ({receiptKey:l.receiptKey,component:l.component,token:l.token,amount:l.amount})).sort((a,b) => a.component.localeCompare(b.component))}));
   }

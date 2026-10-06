@@ -7,6 +7,7 @@ import { ProvisioningVerificationPending, ProvisioningWalletConflict, USER_WALLE
 import { CopyWalletRepository, type AccountRow, type GrantRow, type AgentRow } from "./copy-wallet.repository.js";
 import { MASTER_POLICY, MasterPolicyConflict, type MasterPolicyPort } from "./live/privy-master-policy.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
+import { deploymentNetwork, liveExecutionEnabled } from "./live-deployment.js";
 
 function account(row: AccountRow): CopyExecutionAccount {
   return { id: row.id, strategyId: row.strategyId, network: row.network, state: row.state,
@@ -32,7 +33,7 @@ export class CopyWalletService {
 
   /**
    * The automatic return (one-click plan §2, §3b): the worker quorum as this
-   * ready testnet account's only additional signer, bound by a new policy
+   * ready account's only additional signer, bound by a new policy
    * the owner owns (UsdSend only to the owner's main wallet, standard
    * account mode only, no export). Only the owner's browser can add the
    * signer (Privy refuses the server's use of the owner's session): this
@@ -51,9 +52,9 @@ export class CopyWalletService {
     if (!row) throw new NotFoundException("Execution wallet not found");
     if (row.masterPolicyId) return account(row);
     const strategy = await this.repository.ownedStrategy(userId, row.strategyId);
-    if (row.state !== "ready" || row.network !== "testnet" || !row.privyWalletId || !row.address || !row.ownerQuorumId || row.privyUserId !== user.privyUserId ||
+    if (row.state !== "ready" || row.network !== deploymentNetwork(this.config) || !row.privyWalletId || !row.address || !row.ownerQuorumId || row.privyUserId !== user.privyUserId ||
       !user.embeddedWalletAddress || !strategy || strategy.status === "stopped" || strategy.status === "stopping") throw new ConflictException({ statusCode: 409, code: "setup_wallet_conflict", message: "This copy wallet can't take the automatic return" });
-    const binding = { ownerMain: user.embeddedWalletAddress.toLowerCase(), account: row.address };
+    const binding = { network: row.network, ownerMain: user.embeddedWalletAddress.toLowerCase(), account: row.address };
     try {
       const policy = await this.masterPolicy.create(user.privyUserId, binding, `master_${row.id.replaceAll("-", "")}`);
       const verified = await this.masterPolicy.verify(policy.id, user.privyUserId, binding);
@@ -87,7 +88,7 @@ export class CopyWalletService {
    * signed for (2026-10-07), so one-click setups and returns need it. */
   get workerPolicyEnabled(): boolean {
     const { copy } = this.config.value;
-    return copy.mode === "testnet" && Boolean(copy.agent?.workerQuorumId && this.masterPolicy?.available);
+    return liveExecutionEnabled(this.config) && Boolean(copy.agent?.workerQuorumId && this.masterPolicy?.available);
   }
 
   /**
@@ -100,9 +101,9 @@ export class CopyWalletService {
   async prepareSetupPolicy(userId: number, accountId: string, agent: { address: string; name: string }, attemptKey: string): Promise<{ id: string; fingerprint: string } | null> {
     if (!this.workerPolicyEnabled) return null;
     const user = await this.owner(userId), row = await this.repository.account(accountId, userId);
-    if (!row || row.state !== "ready" || !row.address || !user.embeddedWalletAddress || row.privyUserId !== user.privyUserId) return null;
+    if (!row || row.state !== "ready" || !row.address || row.network !== deploymentNetwork(this.config) || !user.embeddedWalletAddress || row.privyUserId !== user.privyUserId) return null;
     if (row.masterPolicyId) return null; // an account that already has one keeps it (legacy binding)
-    const binding = { ownerMain: user.embeddedWalletAddress.toLowerCase(), account: row.address, agent };
+    const binding = { network: row.network, ownerMain: user.embeddedWalletAddress.toLowerCase(), account: row.address, agent };
     try {
       const policy = await this.masterPolicy!.create(user.privyUserId, binding, attemptKey);
       const verified = await this.masterPolicy!.verify(policy.id, user.privyUserId, binding);
@@ -126,8 +127,8 @@ export class CopyWalletService {
     const user = await this.owner(userId), row = await this.repository.account(accountId, userId);
     if (!row || !user.embeddedWalletAddress) return false;
     if (row.masterPolicyId) return row.masterPolicyId === policy.id && row.masterSignerQuorumId === quorum;
-    if (row.state !== "ready" || row.network !== "testnet" || !row.privyWalletId || !row.address || !row.ownerQuorumId || row.privyUserId !== user.privyUserId) return false;
-    const binding = { ownerMain: user.embeddedWalletAddress.toLowerCase(), account: row.address, agent };
+    if (row.state !== "ready" || row.network !== deploymentNetwork(this.config) || !row.privyWalletId || !row.address || !row.ownerQuorumId || row.privyUserId !== user.privyUserId) return false;
+    const binding = { network: row.network, ownerMain: user.embeddedWalletAddress.toLowerCase(), account: row.address, agent };
     try {
       const verified = await this.masterPolicy!.verify(policy.id, user.privyUserId, binding);
       if (verified.fingerprint !== policy.fingerprint) return false;

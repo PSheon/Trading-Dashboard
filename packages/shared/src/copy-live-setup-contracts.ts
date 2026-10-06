@@ -42,7 +42,7 @@ export const liveCopySetupKindSchema = z.enum(['start', 'edit', 'renewal']);
 export type LiveCopySetupKind = z.infer<typeof liveCopySetupKindSchema>;
 export const liveCopySetupIntentSchema = z.object({
   kind: liveCopySetupKindSchema, setupId: id, userId: version, ownerAddress: address, ownerPrivyUserId: id,
-  strategyId: version, leaderAddress: address, sourceNetwork: z.enum(['testnet', 'mainnet']), network: z.literal('testnet'),
+  strategyId: version, leaderAddress: address, sourceNetwork: z.enum(['testnet', 'mainnet']), network: z.enum(['testnet', 'mainnet']),
   budgetUsd: liveCopyBudgetSchema, settingsDigest: hash,
   accountId: id, accountAddress: address, accountAbstraction: z.literal('disabled'),
   agentAddress: address, agentPolicyId: id, agentPolicyFingerprint: hash, workerQuorumId: id, agentValidUntil: millis,

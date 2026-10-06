@@ -38,6 +38,21 @@ export const WALLET_NETWORKS = {
 } as const;
 
 export type WalletNetworkConfig = (typeof WALLET_NETWORKS)[keyof typeof WALLET_NETWORKS];
+/** A Hyperliquid network. A deployment executes actual copies on exactly one
+ * (HYPERLIQUID_NETWORK); rows of the other stay readable history. */
+export type HyperliquidNetwork = keyof typeof WALLET_NETWORKS;
+export const HYPERLIQUID_NETWORKS = ["testnet", "mainnet"] as const satisfies readonly HyperliquidNetwork[];
+/** The leaders' networks a deployment on `network` may copy: a testnet
+ * deployment copies mainnet and testnet leaders (a mainnet leader through a
+ * mainnet price reference); a mainnet deployment copies mainnet leaders only. */
+export function liveSourceNetworks(network: HyperliquidNetwork): readonly HyperliquidNetwork[] {
+  return network === "mainnet" ? ["mainnet"] : ["mainnet", "testnet"];
+}
+export function isHyperliquidNetwork(value: unknown): value is HyperliquidNetwork { return value === "testnet" || value === "mainnet"; }
+/** `copy_strategies.mode` of an actual copy: named "testnet" when only
+ * testnet existed, it means "actual" on the deployment's network (the
+ * strategy's own network is its account's). */
+export const ACTUAL_STRATEGY_MODE = "testnet" as const;
 
 /** Bridge2 credits nothing below this; a smaller transfer is lost. */
 export const MIN_BRIDGE_USDC = 5;

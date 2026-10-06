@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { verifyTypedData } from 'viem';
-import { accountModeIntentSchema, copyAccountModeOperationSchema, prepareCopyAccountModeSchema, type CopyAccountModeOperation, type AccountModeIntent } from '@trading-dashboard/shared/contracts';
+import { WALLET_NETWORKS, accountModeIntentSchema, copyAccountModeOperationSchema, prepareCopyAccountModeSchema, type CopyAccountModeOperation, type AccountModeIntent, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { AppConfig } from '../config/app-config.js';
 import { UnitOfWork } from '../db/unit-of-work.js';
 import { currentRequestSignal } from '../runtime/request-context.js';
@@ -12,6 +12,7 @@ import { ACCOUNT_MODE_ABSENCE_WEIGHT } from './copy-account-mode-evidence.js';
 import { HyperliquidBudgetWait, type LiveReserveOptions } from '../hyperliquid/hyperliquid-budget-wait.js';
 import { LiveBoundaryError } from './live/wallet-authorization.js';
 import { safeErrorText } from '../runtime/safe-error-text.js';
+import { deploymentNetwork } from './live-deployment.js';
 
 export const ACCOUNT_MODE_CLIENT = Symbol('ACCOUNT_MODE_CLIENT');
 export const ACCOUNT_MODE_ABSENCE_READER = Symbol('ACCOUNT_MODE_ABSENCE_READER');
@@ -25,7 +26,7 @@ export interface AccountModeClient {
   observe(intent: AccountModeIntent, options?: AccountModeObserveOptions): Promise<Readonly<AccountModeObservation>>;
 }
 export interface AccountModeAbsenceProof {
-  readonly network: 'testnet'; readonly accountAddress: string; readonly observedAt: number; readonly completedAt: number;
+  readonly network: HyperliquidNetwork; readonly accountAddress: string; readonly observedAt: number; readonly completedAt: number;
   readonly dexes: readonly string[]; readonly sourceDigest: string; readonly complete: true; readonly empty: true;
 }
 /** This process's all-venue source, held for one proof (see `turn`). */
@@ -102,9 +103,9 @@ export class CopyAccountModeService {
     @Inject(USER_WALLET_PROVISIONER) private readonly wallets: UserWalletProvisioner,
     @Inject(ACCOUNT_MODE_CLIENT) private readonly exchange: AccountModeClient,
     @Inject(ACCOUNT_MODE_ABSENCE_READER) private readonly absence: AccountModeAbsenceReader) {}
-  get available() { return this.config.value.hyperliquid.wallet.network === 'testnet' && this.config.value.copy.mode !== 'disabled' && this.wallets.available && this.exchange.available; }
+  get available() { return this.config.value.copy.mode !== 'disabled' && this.wallets.available && this.exchange.available; }
   private enabled() { if (!this.available) throw new ServiceUnavailableException('account_mode_setup_unavailable'); }
-  async overview(userId: number) { await this.repository.owner(userId); return { available: this.available, network: 'testnet' as const, operations: (await this.repository.list(userId)).map(wire) }; }
+  async overview(userId: number) { await this.repository.owner(userId); return { available: this.available, network: deploymentNetwork(this.config), operations: (await this.repository.list(userId)).map(wire) }; }
   async byKey(userId: number, key: string) { return wire(await this.repository.byKey(userId, key)); }
   async prepare(userId: number, accountId: string, input: unknown) {
     this.enabled(); const parsed = prepareCopyAccountModeSchema.safeParse(input); if (!parsed.success) throw new BadRequestException('invalid_account_mode_setup');
@@ -131,7 +132,7 @@ export class CopyAccountModeService {
     await this.repository.assertCurrent(userId, row, undefined, mutation); fresh(checkedAt); return { ...current, checkedAt };
   }
   private assertObservation(row: AccountModeRow, proof: AccountModeObservation) {
-    if (proof.network !== 'testnet' || proof.accountAddress !== row.accountAddress || proof.source !== 'https://api.hyperliquid-testnet.xyz/info' ||
+    if (proof.network !== row.network || proof.accountAddress !== row.accountAddress || proof.source !== WALLET_NETWORKS[row.network].infoUrl ||
         !/^0x[0-9a-f]{64}$/.test(proof.sourceDigest) || proof.completedAt < proof.earliestObservedAt) throw new ConflictException('account_mode_evidence_changed');
     fresh(proof.earliestObservedAt); fresh(proof.completedAt);
   }
@@ -154,7 +155,7 @@ export class CopyAccountModeService {
     const [identity, observation, absence] = await Promise.all([settle(this.identity(userId, row, true)),
       settle(this.exchange.observe(readable, { prepaid: true, signal: abandon.signal, meterWaitMs: IN_WINDOW_METER_WAIT_MS })), proving]);
     this.assertObservation(row, observation); baseline(observation);
-    if (absence.network !== 'testnet' || absence.accountAddress !== row.accountAddress || absence.complete !== true || absence.empty !== true ||
+    if (absence.network !== row.network || absence.accountAddress !== row.accountAddress || absence.complete !== true || absence.empty !== true ||
         !/^[0-9a-f]{64}$/.test(absence.sourceDigest) || !Array.isArray(absence.dexes) || !absence.dexes.includes('') || new Set(absence.dexes).size !== absence.dexes.length || absence.completedAt < absence.observedAt)
       throw new ConflictException('account_mode_absence_unproven');
     fresh(absence.observedAt); fresh(absence.completedAt); fresh(identity.checkedAt); fresh(started);

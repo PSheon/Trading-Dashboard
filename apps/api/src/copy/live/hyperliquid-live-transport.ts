@@ -182,7 +182,7 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
    * not carry terminal source timing or authoritative cancellation quantity. */
   async queryEvidence(supplied: LiveExecutionRecord): Promise<Readonly<LiveOrderEvidence>> {
     const record = structuredClone(supplied), checkedAt = this.now();
-    if (this.network !== 'testnet' || record.authorization.network !== 'testnet') throw new LiveBoundaryError('transport_network_mismatch');
+    if (record.authorization.network !== this.network) throw new LiveBoundaryError('transport_network_mismatch');
     const remaining = () => {
       this.assertObservationFresh(checkedAt); return Math.max(1, 5000 - (this.now() - checkedAt));
     };

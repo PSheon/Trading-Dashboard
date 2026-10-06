@@ -1,3 +1,4 @@
+import type { HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import type { LiveMarketIdentity } from './live-market-resolver.js';
 import type { LiveAccountSnapshot } from './live-account-observer.js';
 import type { LiveRiskProviderProof } from './live-risk-provider.js';
@@ -13,7 +14,7 @@ export interface LiveSourceSizingBasisV1 {
   readonly settingsDigest: string;
   readonly sourceFillId: string;
   readonly sourceDigest: string;
-  readonly network: 'testnet';
+  readonly network: HyperliquidNetwork;
   readonly accountAddress: string;
   readonly coin: string;
   readonly leg: 'open' | 'close';
@@ -30,7 +31,7 @@ export interface LiveSourceSizingBasisV1 {
     readonly sourceDigest: string;
   };
   readonly follower: {
-    readonly network: 'testnet';
+    readonly network: HyperliquidNetwork;
     readonly accountAddress: string;
     readonly equity: string;
     readonly positionSize: string;
@@ -41,7 +42,7 @@ export interface LiveSourceSizingBasisV1 {
     readonly positionsDigest: string;
   };
   readonly leader: {
-    readonly network: 'testnet';
+    readonly network: HyperliquidNetwork;
     readonly accountAddress: string;
     readonly equity: string;
     readonly observedAt: number;
@@ -57,11 +58,13 @@ export interface LiveSourceSizingBasisV1 {
     readonly positionSize: string;
   };
   readonly carry: { readonly amount: string; readonly revision: number };
-  /** Present only for an opening leg of a testnet copy that follows a MAINNET
-   * leader: the leader's whole-account value (the ratio denominator, as paper
-   * sizing uses) and the coin's mainnet mid, read on mainnet. The testnet mid
-   * above prices the order; it must lie within `maxDeviationBps` of this mid
-   * (testnet books can sit far from mainnet). Absent for a testnet source. */
+  /** Present only for an opening leg of a copy whose leader trades on ANOTHER
+   * network than the copy executes on (a mainnet leader of a testnet copy):
+   * the leader's whole-account value (the ratio denominator, as paper sizing
+   * uses) and the coin's mid, read on the source network. The execution
+   * network's mid above prices the order; it must lie within `maxDeviationBps`
+   * of this mid (testnet books can sit far from mainnet). Absent when the
+   * leader trades on the execution network. */
   readonly sourceReference?: LiveSourceReferenceV1;
   /** This is verified against the original SQL claim, never a caller permit. */
   readonly fixedTradeClaim: boolean;
@@ -86,7 +89,8 @@ export interface LiveMergedLegV1 {
 export interface LiveMergedLegsV1 { readonly members: readonly LiveMergedLegV1[] }
 
 export interface LiveSourceReferenceV1 {
-  readonly network: 'mainnet';
+  /** The source network (the consent's `sourceNetwork`). */
+  readonly network: HyperliquidNetwork;
   readonly leaderAddress: string;
   /** Null for fixed sizing, which does not use the leader's capital. */
   readonly leaderEquity: string | null;

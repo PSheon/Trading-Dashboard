@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { Logger } from '@nestjs/common';
-import { WALLET_NETWORKS, canonicalUsdc, usdSendTypedData, withdrawalUnits } from '@trading-dashboard/shared/contracts';
+import { WALLET_NETWORKS, canonicalUsdc, usdSendTypedData, withdrawalUnits, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { Dec } from '../../common/decimal/dec.js';
 import { safeErrorText } from '../../runtime/safe-error-text.js';
 import type { CopyFundingExchangeClient } from '../copy-funding-exchange.client.js';
@@ -27,13 +27,16 @@ const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(va
  */
 export class CopyLiveAutoReturn implements AutoReturn {
   private readonly logger = new Logger('CopyLiveAutoReturn');
-  constructor(private readonly returns: CopyLiveReturnRepository, private readonly exchange: CopyFundingExchangeClient,
+  constructor(private readonly network: HyperliquidNetwork, private readonly returns: CopyLiveReturnRepository, private readonly exchange: CopyFundingExchangeClient,
     private readonly signer: WorkerMasterSigner, private readonly now: () => number = Date.now) {}
 
   async sweep(stop: StopRow, withdrawable: string): Promise<AutoReturnOutcome> {
     const { owner, account } = await this.returns.contextRead(stop.userId, stop.accountId);
     // A signer taken off again (account deletion) returns by hand, like a legacy account.
     if (!account.masterPolicyId || !account.masterSignerQuorumId || account.signerDetachedAt || !account.sweepDestination) return 'legacy';
+    // An account of another network (a database that moved networks) is
+    // history: nothing on it is signed or sent from this deployment.
+    if (account.network !== this.network) return 'failed';
     // The policy allows only the main wallet it was made for: a changed main
     // wallet fails closed, and the owner returns the funds by hand.
     if (!this.signer.available || account.sweepDestination !== owner.embeddedWalletAddress) return 'failed';
@@ -51,7 +54,7 @@ export class CopyLiveAutoReturn implements AutoReturn {
     let signature: string;
     try {
       signature = await this.signer.sign({ walletId: account.privyWalletId!, address: attempt.address, ownerQuorumId: account.ownerQuorumId!, workerQuorumId: account.masterSignerQuorumId, policyId: account.masterPolicyId },
-        usdSendTypedData(WALLET_NETWORKS.testnet, attempt.destination, attempt.amount, attempt.nonce), { network: 'testnet', destination: account.sweepDestination }, checkedAt + 30_000);
+        usdSendTypedData(WALLET_NETWORKS[this.network], attempt.destination, attempt.amount, attempt.nonce), { network: this.network, destination: account.sweepDestination }, checkedAt + 30_000);
     } catch (error) {
       // Not signed: the exchange cannot have it.
       this.logger.warn(`sweep ${row.id} not signed: ${safeErrorText(error)}`);

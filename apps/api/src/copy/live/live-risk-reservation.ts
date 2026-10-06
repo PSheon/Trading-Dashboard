@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import { copyRiskLimitsSchema } from '@trading-dashboard/shared/contracts';
+import { copyRiskLimitsSchema, isHyperliquidNetwork, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { Dec, USD_DP } from '../../common/decimal/dec.js';
 import type { LiveAccountRiskInput, LiveRiskIdentity, LiveRiskLeverageProof, LiveRiskReservation } from './live-account-risk.js';
 import { buildOrderAction, executionKey, intentFingerprint, type HyperliquidOrderAction, type LiveOrderIntent } from './live-order.js';
@@ -15,7 +15,7 @@ export interface LiveReservationBoundsInput {
   readonly fees: LiveAccountRiskInput['fees']; readonly policy: LiveAccountRiskInput['policy']; readonly expiresAt: number;
 }
 export interface LiveReservationPayload extends Omit<LiveRiskReservation, 'state' | 'exchangeOrderId'> {
-  readonly userId: number; readonly strategyId: number; readonly network: 'testnet'; readonly accountAddress: string;
+  readonly userId: number; readonly strategyId: number; readonly network: HyperliquidNetwork; readonly accountAddress: string;
   readonly walletId: string; readonly authorizationId: string; readonly createdAt: number; readonly sourceDigest: string;
 }
 export type LiveReservationState = 'held' | 'unknown' | 'resting' | 'released' | 'quarantined';
@@ -52,7 +52,7 @@ export function planLiveReservation(raw: LiveReservationBoundsInput): Readonly<L
     const input = structuredClone(raw), { now, identity: id, intent, action, market, quote, leverage, fees, policy } = input;
     intentKeys(intent);
     requireValue(integer(now) && integer(input.expiresAt) && input.expiresAt > now && input.expiresAt <= now + 60000);
-    requireValue(id.network === 'testnet' && id.dedicated === true && intent.network === 'testnet' &&
+    requireValue(isHyperliquidNetwork(id.network) && id.dedicated === true && intent.network === id.network &&
       integer(id.userId) && integer(id.strategyId) && integer(id.strategyVersion) && integer(id.policyVersion) && integer(id.authorizationVersion));
     for (const key of ['accountId', 'walletId', 'authorizationId'] as const) identifier(id[key]);
     const accountAddress = address(id.accountAddress);
@@ -62,15 +62,15 @@ export function planLiveReservation(raw: LiveReservationBoundsInput): Readonly<L
     for (const key of Object.keys(copyRiskLimitsSchema.innerType().shape)) requireValue(Object.hasOwn(policy.limits, key));
     const limits = copyRiskLimitsSchema.parse(policy.limits);
     requireValue(intent.market); assertMarketIdentity(market); assertMarketIdentity(intent.market); assertMarketIdentity(quote.market);
-    requireValue(market.network === 'testnet' && market.asset === intent.asset && market.sizeDecimals === intent.sizeDecimals &&
+    requireValue(market.network === id.network && market.asset === intent.asset && market.sizeDecimals === intent.sizeDecimals &&
       isDeepStrictEqual(marketIdentityKey(market), marketIdentityKey(intent.market)) && isDeepStrictEqual(marketIdentityKey(market), marketIdentityKey(quote.market)));
     for (const at of [market.observedAt, intent.market.observedAt, quote.market.observedAt, quote.observedAt, leverage.observedAt, fees.observedAt]) fresh(at, now);
     for (const value of [quote.sourceDigest, leverage.sourceDigest, fees.sourceDigest]) digest(value);
     requireValue(isDeepStrictEqual(buildOrderAction(intent), action));
-    requireValue(leverage.network === 'testnet' && address(leverage.accountAddress) === accountAddress && leverage.coin === market.coin &&
+    requireValue(leverage.network === id.network && address(leverage.accountAddress) === accountAddress && leverage.coin === market.coin &&
       leverage.dex === market.dex && leverage.asset === market.asset && integer(leverage.value) && integer(leverage.maxLeverage) &&
       leverage.value <= leverage.maxLeverage && leverage.maxLeverage === market.maxLeverage && ['cross', 'isolated'].includes(leverage.type));
-    requireValue(fees.network === 'testnet' && address(fees.accountAddress) === accountAddress && fees.dex === market.dex &&
+    requireValue(fees.network === id.network && address(fees.accountAddress) === accountAddress && fees.dex === market.dex &&
       Number.isSafeInteger(fees.restingOrderBuilderFeeCapTenthsBps) && fees.restingOrderBuilderFeeCapTenthsBps >= 0 && fees.restingOrderBuilderFeeCapTenthsBps <= 100);
     const mid = money(quote.midPrice), mark = money(quote.markPrice), limit = money(intent.limitPrice), size = money(intent.size);
     requireValue(mid.isPositive && mark.isPositive && limit.isPositive && size.isPositive);
@@ -80,7 +80,7 @@ export function planLiveReservation(raw: LiveReservationBoundsInput): Readonly<L
       .add(money(fees.extraRiskBufferBps)).add(Dec.from(intent.builder?.feeTenthsBps ?? 0).div(10));
     const fee = rate.isPositive ? Dec.max(quantum, ceilDecimalProduct([notional, rate], [10000], USD_DP)) : Dec.ZERO;
     const payload: LiveReservationPayload = { accountId: id.accountId, key: executionKey(intent), fingerprint: intentFingerprint(intent, action),
-      userId: id.userId, strategyId: id.strategyId, network: 'testnet', accountAddress, walletId: id.walletId, authorizationId: id.authorizationId,
+      userId: id.userId, strategyId: id.strategyId, network: id.network, accountAddress, walletId: id.walletId, authorizationId: id.authorizationId,
       strategyVersion: id.strategyVersion, policyVersion: id.policyVersion, authorizationVersion: id.authorizationVersion,
       intent, action, expiresAt: input.expiresAt, notionalUsd: notional.toString(), marginUsd: margin.toString(), feeBufferUsd: fee.toString(),
       createdAt: now, sourceDigest: createHash('sha256').update(JSON.stringify(input)).digest('hex') };
@@ -100,7 +100,7 @@ export function validateLiveReservationPayload(raw: unknown): Readonly<LiveReser
     onlyKeys(p, ['accountId', 'key', 'fingerprint', 'userId', 'strategyId', 'network', 'accountAddress', 'walletId', 'authorizationId', 'strategyVersion', 'policyVersion',
       'authorizationVersion', 'intent', 'action', 'expiresAt', 'notionalUsd', 'marginUsd', 'feeBufferUsd', 'createdAt', 'sourceDigest']);
     for (const key of ['accountId', 'walletId', 'authorizationId'] as const) identifier(p[key]);
-    requireValue(p.network === 'testnet' && p.intent.network === 'testnet' && address(p.accountAddress) === p.accountAddress &&
+    requireValue(isHyperliquidNetwork(p.network) && p.intent.network === p.network && address(p.accountAddress) === p.accountAddress &&
       address(p.intent.accountAddress) === p.accountAddress && integer(p.userId) && integer(p.strategyId) && integer(p.strategyVersion) && integer(p.policyVersion) && integer(p.authorizationVersion) &&
       p.intent.userId === p.userId && p.intent.strategyId === p.strategyId && p.intent.walletId === p.walletId && p.intent.authorizationId === p.authorizationId);
     requireValue(integer(p.createdAt) && integer(p.expiresAt) && p.expiresAt > p.createdAt && p.expiresAt <= p.createdAt + 60000);

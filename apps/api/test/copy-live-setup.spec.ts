@@ -41,7 +41,7 @@ const workerSign = vi.fn(async (..._args: unknown[]) => `0x${'cd'.repeat(65)}`);
 function config(): AppConfig {
   const base = testConfig();
   return { get value() { return { ...base.value, copy: { mode: 'testnet', workerIntervalMs: 2000, agent: { workerQuorumId: 'worker-quorum', authorizationPrivateKey: 'k', authorizationPublicKey: 'p' },
-    live: { automaticReturn: flags.worker, maxSourceDeviationBps: 500, slippageBps: 30, intervalMs: 3000, weightPerMin: 300 } } } as never; } } as AppConfig;
+    live: { network: 'testnet', caps: { maxStrategiesPerUser: 10 }, builderFee: true, testnetSourceIntervalMs: 60_000, maxSourceDeviationBps: 500, slippageBps: 30, intervalMs: 3000, weightPerMin: 300 } } } as never; } } as AppConfig;
 }
 function build() {
   const fundingRows = new CopyFundingRepository(db), walletRows = new CopyWalletRepository(db);
@@ -124,7 +124,7 @@ function build() {
     }),
     reconcile: vi.fn(async () => undefined),
   };
-  service = new CopyLiveSetupService(config(), new CopyLiveSetupRepository(db), new UnitOfWork(db), new CopyLiveMandateRepository(db), wallets as never, walletRows,
+  service = new CopyLiveSetupService(config(), new CopyLiveSetupRepository(db), new UnitOfWork(db), new CopyLiveMandateRepository(db, testConfig()), wallets as never, walletRows,
     agents as never, modes as never, funding as never, fundingRows, {} as never, {} as never, { available: true, sign: workerSign } as never, () => flags.ticking ? ++clock : clock);
   return { wallets, agents, modes, funding };
 }
@@ -454,7 +454,7 @@ describe('one-click testnet copy setup', () => {
     const [mandate] = await db.select().from(copyLiveMandates);
     await db.update(copyLiveActivations).set({ state: 'activated', activatedAt: new Date() });
     await db.update(copyStrategies).set({ status: 'active', pauseNewRisk: false });
-    const repository = new CopyLiveMandateRepository(db), uow = new UnitOfWork(db);
+    const repository = new CopyLiveMandateRepository(db, testConfig()), uow = new UnitOfWork(db);
     await uow.run(tx => repository.barrier(tx, uid, mandate!.id, 'paused', () => clock));
     expect((await db.select().from(copyStrategies))[0]).toMatchObject({ status: 'paused' });
     const resumed = await uow.run(tx => repository.resume(tx, uid, mandate!.id, () => clock));

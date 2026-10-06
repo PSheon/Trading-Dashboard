@@ -1,4 +1,6 @@
-export type LiveNetwork = "testnet" | "mainnet";
+import { isHyperliquidNetwork, type HyperliquidNetwork } from "@trading-dashboard/shared/contracts";
+
+export type LiveNetwork = HyperliquidNetwork;
 export type WalletScope = "copy:trade" | "copy:reduce";
 export type EthereumAddress = `0x${string}`;
 
@@ -88,7 +90,7 @@ export function assertWalletAuthorization(grant: WalletAuthorization | null, req
       grant.strategyId !== request.strategyId || grant.walletId !== request.walletId || !grant.privyOwnerId) {
     throw new LiveBoundaryError("wallet_owner_or_strategy_mismatch");
   }
-  if (grant.network !== request.network || !["testnet", "mainnet"].includes(request.network)) throw new LiveBoundaryError("wallet_network_mismatch");
+  if (grant.network !== request.network || !isHyperliquidNetwork(request.network)) throw new LiveBoundaryError("wallet_network_mismatch");
   if (address(grant.accountAddress) !== address(request.accountAddress)) throw new LiveBoundaryError("wallet_account_mismatch");
   address(grant.signerAddress);
   const scope: WalletScope = request.reduceOnly ? "copy:reduce" : "copy:trade";

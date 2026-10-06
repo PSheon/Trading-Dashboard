@@ -10,7 +10,7 @@ import { UnitOfWork } from '../src/db/unit-of-work.js';
 import { HyperliquidGlobalTransport } from '../src/hyperliquid/hyperliquid-global-transport.js';
 import { PostgresHyperliquidQuota } from '../src/hyperliquid/postgres-hyperliquid-quota.js';
 import { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
-import { TestnetLiveExecutionRuntime, type TestnetLiveExecutionRequest } from '../src/copy/live/testnet-live-execution-runtime.js';
+import { LiveExecutionRuntime, type LiveExecutionRequest } from '../src/copy/live/live-execution-runtime.js';
 import { preparationFixture } from './copy-live-preparation-test-utils.js';
 import { getTestDb, closeTestDb, type TestDb } from './db-test-utils.js';
 import { now } from './copy-live-risk-test-utils.js';
@@ -73,8 +73,8 @@ function configuration(extra: Record<string, string | undefined> = {}) {
     PRIVY_AGENT_AUTHORIZATION_KEY: authorizationKey, PRIVY_AGENT_WORKER_QUORUM_ID: 'worker',
     HYPERLIQUID_STARTUP_PACE_SECONDS: '0', HYPERLIQUID_WEIGHT_BUDGET_PER_MIN: '200', HYPERLIQUID_WEIGHT_BURST: '1000', ...extra }));
 }
-const request = (): TestnetLiveExecutionRequest => ({ userId: 1, accountId: 'account', mandateId: 'mandate', sourceFillId: seed.fill.id, leg: 'open' });
-const runtime = (c = config, deployment = options) => new TestnetLiveExecutionRuntime(pool, c, global, budget, deployment, () => clock);
+const request = (): LiveExecutionRequest => ({ userId: 1, accountId: 'account', mandateId: 'mandate', sourceFillId: seed.fill.id, leg: 'open' });
+const runtime = (c = config, deployment = options) => new LiveExecutionRuntime('testnet', pool, c, global, budget, deployment, () => clock);
 async function revokeHistoricalGrant() {
   const repository = new CopyWalletRepository(db);
   return db.transaction(async tx => {
@@ -148,22 +148,22 @@ describe('unregistered concrete testnet execution runtime', () => {
     expect(connect).not.toHaveBeenCalled(); expect(raw).not.toHaveBeenCalled();
   });
   it('rejects a structurally forged transport instead of accepting a caller gate or quota bypass', () => {
-    expect(() => new TestnetLiveExecutionRuntime(pool, config, { ...global } as HyperliquidGlobalTransport,
-      budget, options)).toThrow('testnet_runtime_dependencies');
+    expect(() => new LiveExecutionRuntime('testnet', pool, config, { ...global } as HyperliquidGlobalTransport,
+      budget, options)).toThrow('live_runtime_dependencies');
   });
   it.each([{ slippageBps: '-1' }, { extraRiskBufferBps: 'NaN' }, { restingOrderBuilderFeeCapTenthsBps: 101 }])('rejects invalid deployment risk settings %j', patch => {
-    expect(() => runtime(config, { ...options, ...patch })).toThrow('testnet_runtime_options');
+    expect(() => runtime(config, { ...options, ...patch })).toThrow('live_runtime_options');
   });
   it('rejects a foreign owner before any network observation or nonce allocation', async () => {
-    await expect(runtime().execute({ ...request(), userId: 2 })).rejects.toThrow('testnet_runtime_identity');
+    await expect(runtime().execute({ ...request(), userId: 2 })).rejects.toThrow('live_runtime_identity');
     expect(raw).not.toHaveBeenCalled(); expect(await db.select().from(schema.copySignerNonces)).toHaveLength(0);
   });
   it('refuses mainnet configuration even though discovery and global quota support mainnet', async () => {
-    await expect(runtime(configuration({ HYPERLIQUID_NETWORK: 'mainnet' })).execute(request())).rejects.toThrow('testnet_runtime_network');
+    await expect(runtime(configuration({ HYPERLIQUID_NETWORK: 'mainnet' })).execute(request())).rejects.toThrow('live_runtime_network');
     expect(raw).not.toHaveBeenCalled();
   });
   it('does not treat an expired mandate as admission authority', async () => {
-    const expired = new TestnetLiveExecutionRuntime(pool, config, global, budget, options, () => now + 60001);
+    const expired = new LiveExecutionRuntime('testnet', pool, config, global, budget, options, () => now + 60001);
     await expect(expired.execute(request())).rejects.toThrow('live_risk_mandate_changed');
     expect(raw).not.toHaveBeenCalled(); expect(await db.select().from(schema.copyLiveExecutions)).toHaveLength(0);
   });
@@ -256,14 +256,14 @@ describe('unregistered concrete testnet execution runtime', () => {
       if (corruption === 'future event') await db.update(schema.copyWalletAuthorizationEvents).set({ createdAt: new Date(clock + 1) });
       if (corruption === 'future revocation') await db.update(schema.copyWalletAuthorizations).set({ revokedAt: new Date(clock + 1) });
       if (corruption === 'revocation before admission') await db.update(schema.copyWalletAuthorizations).set({ revokedAt: new Date(original.createdAt - 1) });
-      raw.mockClear(); await expect(runtime().execute(request())).rejects.toThrow('testnet_runtime_historical_identity'); expect(raw).not.toHaveBeenCalled();
+      raw.mockClear(); await expect(runtime().execute(request())).rejects.toThrow('live_runtime_historical_identity'); expect(raw).not.toHaveBeenCalled();
     });
   it('waits for a real revoked grant event ahead of the app clock and accepts it only after the read clock catches up', async () => {
     await actualClockFixture(); const original = await runtime(config, { ...options, slippageBps: '0' }).execute(request());
     await revokeHistoricalGrant();
     // Model SQL ahead of app time without restamping the grant or saved order.
     await db.update(schema.copyWalletAuthorizationEvents).set({ createdAt: new Date(clock + 1) });
-    raw.mockClear(); await expect(runtime().execute(request())).rejects.toThrow('testnet_runtime_historical_identity');
+    raw.mockClear(); await expect(runtime().execute(request())).rejects.toThrow('live_runtime_historical_identity');
     expect(raw).not.toHaveBeenCalled(); clock += 2;
     expect(await runtime().execute(request())).toEqual(original); expect(raw).not.toHaveBeenCalled();
   });
@@ -280,7 +280,7 @@ describe('unregistered concrete testnet execution runtime', () => {
     const [prepared] = await db.select().from(schema.copyLiveExecutions); expect(prepared!.state).toBe('prepared');
     expect(await db.select().from(schema.copyLiveRiskReservations)).toHaveLength(1);
     raw.mockClear();
-    await expect(runtime().execute(request())).rejects.toThrow('testnet_runtime_reservation_recovery_required');
+    await expect(runtime().execute(request())).rejects.toThrow('live_runtime_reservation_recovery_required');
     expect(raw).not.toHaveBeenCalled(); expect(await db.select().from(schema.copySignerNonces)).toHaveLength(1);
   });
   it('refuses a completed response after the original epoch expires while preserving its terminal journal for read-only recovery', async () => {
@@ -291,11 +291,11 @@ describe('unregistered concrete testnet execution runtime', () => {
     raw.mockClear(); const recovered = await runtime().execute(request()); expect(recovered.state).toBe('filled'); expect(raw).not.toHaveBeenCalled();
   });
   it('does not accept a caller-supplied gate or proof array on an otherwise valid routing request', async () => {
-    await expect(runtime().execute({ ...request(), proof: seed.f } as TestnetLiveExecutionRequest)).rejects.toThrow('testnet_runtime_request');
+    await expect(runtime().execute({ ...request(), proof: seed.f } as LiveExecutionRequest)).rejects.toThrow('live_runtime_request');
     expect(raw).not.toHaveBeenCalled();
   });
   it('binds the configured worker quorum to the current owner consent before collecting any provider proof', async () => {
-    await expect(runtime(configuration({ PRIVY_AGENT_WORKER_QUORUM_ID: 'foreign-worker' })).execute(request())).rejects.toThrow('testnet_runtime_signing_configuration');
+    await expect(runtime(configuration({ PRIVY_AGENT_WORKER_QUORUM_ID: 'foreign-worker' })).execute(request())).rejects.toThrow('live_runtime_signing_configuration');
     expect(raw).not.toHaveBeenCalled(); expect(await db.select().from(schema.copyLiveExecutions)).toHaveLength(0);
   });
   it('captures deployment settings and routing IDs before asynchronous SQL starts', async () => {
@@ -380,7 +380,7 @@ describe('unregistered concrete testnet execution runtime', () => {
     await expect(runtime(config, { ...options, slippageBps: '0' }).execute(request())).rejects.toThrow();
     await db.update(schema.copyExecutionAccounts).set({ revision: 2, privyWalletId: 'foreign-master' });
     clock += 60001; raw.mockClear();
-    await expect(runtime().execute(request())).rejects.toThrow('testnet_runtime_historical_identity'); expect(raw).not.toHaveBeenCalled();
+    await expect(runtime().execute(request())).rejects.toThrow('live_runtime_historical_identity'); expect(raw).not.toHaveBeenCalled();
     expect((await db.select().from(schema.copyLiveRiskReservations))[0]!.state).toBe('held');
   });
   it('does not apply a historical revision exception to unexpired held financial admission', async () => {
@@ -388,7 +388,7 @@ describe('unregistered concrete testnet execution runtime', () => {
     raw.mockImplementation((url, init) => String(url) === 'https://api.privy.io/v1/wallets/agent' ? Promise.reject(Error('Pre-sign fault')) : previous(url, init));
     await expect(runtime(config, { ...options, slippageBps: '0' }).execute(request())).rejects.toThrow();
     await db.update(schema.copyExecutionAccounts).set({ revision: 2 }); raw.mockClear();
-    await expect(runtime().execute(request())).rejects.toThrow('testnet_runtime_historical_identity'); expect(raw).not.toHaveBeenCalled();
+    await expect(runtime().execute(request())).rejects.toThrow('live_runtime_historical_identity'); expect(raw).not.toHaveBeenCalled();
     expect((await db.select().from(schema.copyLiveRiskReservations))[0]!.state).toBe('held');
   });
   it('rejects a regressed account revision during zero-effect expiry cleanup', async () => {
@@ -397,7 +397,7 @@ describe('unregistered concrete testnet execution runtime', () => {
     await expect(runtime(config, { ...options, slippageBps: '0' }).execute(request())).rejects.toThrow();
     const [held] = await db.select().from(schema.copyLiveRiskReservations); expect(held!.state).toBe('held');
     await db.update(schema.copyExecutionAccounts).set({ revision: 1 }); clock += 60001; raw.mockClear();
-    await expect(runtime().execute(request())).rejects.toThrow('testnet_runtime_historical_identity'); expect(raw).not.toHaveBeenCalled();
+    await expect(runtime().execute(request())).rejects.toThrow('live_runtime_historical_identity'); expect(raw).not.toHaveBeenCalled();
     expect((await db.select().from(schema.copyLiveRiskReservations))[0]!.state).toBe('held');
   });
   it('keeps new financial preparation bound to the exact signed account revision', async () => {
@@ -425,9 +425,9 @@ describe('a testnet copy of a MAINNET leader', () => {
     await db.insert(schema.copyLiveSourceFills).values({ ...fill, normalized: { ...fill.normalized }, providerTime: new Date(fill.providerTime), receivedAt: new Date(fill.receivedAt) });
     seed = { ...seed, consent, fill };
   }
-  const reference = (midPrice: string) => ({ read: vi.fn(async () => ({ midPrice, midObservedAt: clock, leaderEquity: null, leaderEquityObservedAt: null })) });
-  const mainnetRuntime = (hooks: ConstructorParameters<typeof TestnetLiveExecutionRuntime>[6]) =>
-    new TestnetLiveExecutionRuntime(pool, config, global, budget, mainnetOptions, () => clock, hooks);
+  const reference = (midPrice: string) => ({ network: 'mainnet' as const, read: vi.fn(async () => ({ midPrice, midObservedAt: clock, leaderEquity: null, leaderEquityObservedAt: null })) });
+  const mainnetRuntime = (hooks: ConstructorParameters<typeof LiveExecutionRuntime>[7]) =>
+    new LiveExecutionRuntime('testnet', pool, config, global, budget, mainnetOptions, () => clock, hooks);
   it('prices the order on testnet, records the mainnet reference and reports exchange timing', async () => {
     await mainnetFixture(); const events: string[] = [], source = reference('101');
     const result = await mainnetRuntime({ reference: source, onExchange: event => events.push(event.phase) }).execute(request());
@@ -463,7 +463,7 @@ describe('a testnet copy of a MAINNET leader', () => {
       }
       return ids;
     }
-    const equity = (leaderEquity: string) => ({ read: vi.fn(async () => ({ midPrice: '100', midObservedAt: clock, leaderEquity, leaderEquityObservedAt: clock })) });
+    const equity = (leaderEquity: string) => ({ network: 'mainnet' as const, read: vi.fn(async () => ({ midPrice: '100', midObservedAt: clock, leaderEquity, leaderEquityObservedAt: clock })) });
     it('sends one order of the four legs\' summed size and claims the other three legs', async () => {
       await mainnetFixture(null, 'ratio'); const later = await adds(), lead = later[2]!, members = [seed.fill.id, later[0]!, later[1]!];
       // The newest add leads; it carries the three before it.

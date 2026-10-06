@@ -38,13 +38,15 @@ function walletNetwork(source: Environment) {
 
 /**
  * COPY_TRADING_MODE is the deployment's copy capability (review #11):
- * `paper` (default: virtual balances, simulated fills), `disabled`, or
- * `testnet`: paper keeps working and, in addition, dedicated testnet copies
- * execute real orders on Hyperliquid TESTNET (leader fills from mainnet or
- * testnet). Testnet execution needs the wallet network on testnet, the
- * worker's Privy signing key and quorum, and a shared egress key; a missing
- * one refuses startup rather than running as paper. `live` (mainnet funds)
- * is refused: it needs the owner's explicit approval, never an env switch.
+ * `paper` (default: virtual balances, simulated fills), `disabled`,
+ * `testnet` or `live`. With `testnet` or `live`, paper keeps working and, in
+ * addition, dedicated copies execute real orders on the deployment's one
+ * Hyperliquid network (HYPERLIQUID_NETWORK): `testnet` needs
+ * HYPERLIQUID_NETWORK=testnet, `live` needs HYPERLIQUID_NETWORK=mainnet and
+ * an explicit allowlist of the Privy users who may copy with real funds
+ * (COPY_LIVE_ALLOWED_PRIVY_USER_IDS; everyone else keeps paper). Both need the
+ * worker's Privy signing key and quorum and a shared egress key; a missing
+ * one refuses startup rather than running as paper.
  */
 interface AgentSigningConfig { authorizationPrivateKey: string; authorizationPublicKey: string; workerQuorumId: string }
 function agentSigning(source: Environment): AgentSigningConfig | undefined {
@@ -62,19 +64,48 @@ function agentSigning(source: Environment): AgentSigningConfig | undefined {
     return { authorizationPrivateKey, workerQuorumId, authorizationPublicKey: createPublicKey(key).export({ format: "der", type: "spki" }).toString("base64") };
   } catch { throw new Error("PRIVY_AGENT_AUTHORIZATION_KEY must be a canonical base64 P256 PKCS8 private key"); }
 }
+/** The deployment's caps on actual copies, each applied as the stricter of
+ * this value and the newest risk policy's (copy-live-caps.ts). */
+export interface LiveCopyCaps {
+  /** Actual copies one owner may hold (COPY_LIVE_MAX_STRATEGIES_PER_USER,
+   * default 2): the per-user limit and the startup capacity check. */
+  maxStrategiesPerUser: number;
+  /** Largest budget of one copy, its top-ups included
+   * (COPY_LIVE_MAX_ALLOCATION_USD; unset: the risk policy's alone). */
+  maxAllocationUsd?: number;
+  /** Fixed sizing only, with the per-trade amount inside these bounds
+   * (COPY_LIVE_FIXED_PER_TRADE_MIN_USD / _MAX_USD; default 12 / 15 on a
+   * `live` deployment, unset on testnet unless both are set). */
+  fixedPerTradeUsd?: { min: number; max: number };
+  /** Highest leverage a copy may use (COPY_LIVE_MAX_LEVERAGE; default 3 on a
+   * `live` deployment, unset on testnet: the risk policy's alone). */
+  maxLeverage?: number;
+}
 export interface LiveCopyConfig {
+  /** The one network every actual copy of this deployment executes on
+   * (HYPERLIQUID_NETWORK): wallets, agents, the master policy, orders,
+   * cancellations, returns and the order budget. */
+  network: "mainnet" | "testnet";
+  /** Privy users who may start an actual copy (COPY_LIVE_ALLOWED_PRIVY_USER_IDS,
+   * comma-separated). Required on a `live` deployment; unset on testnet:
+   * everyone. Everyone else keeps paper. */
+  allowedPrivyUserIds?: ReadonlySet<string>;
+  caps: LiveCopyCaps;
+  /** Whether a setup approves the builder fee (off on a `live` deployment for
+   * now: the builder step is skipped). */
+  builderFee: boolean;
+  /** How often a testnet leader's fills are polled over REST
+   * (COPY_LIVE_TESTNET_SOURCE_INTERVAL_MS, default 60000; 3000 for the
+   * testnet harness). */
+  testnetSourceIntervalMs: number;
   /** How long a grant whose revocation an admin requested stays usable for
    * its copy's stop before it is revoked anyway (COPY_LIVE_REVOKE_DEADLINE_MINUTES). */
   revokeDeadlineMs?: number;
-  /** New copy wallets get the worker as a policy-bound additional signer, so
-   * their funds return automatically after a stop (COPY_AUTOMATIC_RETURN,
-   * default off until the Privy prototype's owner-session checks pass:
-   * docs/one-click-copy-plan-2026-10-05.md, prototype results). */
-  automaticReturn?: boolean;
-  /** Largest testnet/mainnet mid difference at which a mainnet leader's open
-   * is still mirrored on testnet (COPY_TESTNET_MAX_PRICE_DEVIATION_BPS). */
+  /** Largest mid difference between the leader's network and the execution
+   * network at which a leader's open is still mirrored, when the two differ
+   * (COPY_TESTNET_MAX_PRICE_DEVIATION_BPS). */
   maxSourceDeviationBps: number;
-  /** IOC limit distance from the testnet mid (COPY_LIVE_SLIPPAGE_BPS). */
+  /** IOC limit distance from the execution network's mid (COPY_LIVE_SLIPPAGE_BPS). */
   slippageBps: number;
   /** One live worker pass every this many ms (COPY_LIVE_INTERVAL_MS). */
   intervalMs: number;
@@ -94,7 +125,8 @@ export interface LiveCopyConfig {
   weightPerMin: number;
   /** Mainnet leaders whose copy signal comes from the realtime fast source
    * (COPY_LIVE_FAST_SOURCE: comma-separated addresses, or `all`). Unset or
-   * empty: every mainnet leader keeps the watcher-verified source. */
+   * empty: every mainnet leader keeps the watcher-verified source. A testnet
+   * leader is always read from REST, every testnetSourceIntervalMs. */
   fastSource?: { leaders: "all" | ReadonlySet<string>; graceMs: number };
 }
 /** COPY_LIVE_FAST_SOURCE: `all`, or comma-separated 0x addresses. */
@@ -106,24 +138,55 @@ function fastSourceLeaders(raw: string | undefined): "all" | ReadonlySet<string>
   if (!leaders.every((leader) => /^0x[0-9a-f]{40}$/.test(leader))) throw new Error("COPY_LIVE_FAST_SOURCE must be `all` or comma-separated 0x addresses");
   return new Set(leaders);
 }
+function privyUserIds(raw: string | undefined): ReadonlySet<string> | undefined {
+  const ids = (raw ?? "").split(",").map((part) => part.trim()).filter(Boolean);
+  if (!ids.length) return undefined;
+  if (!ids.every((id) => /^did:privy:[A-Za-z0-9_-]{1,128}$/.test(id))) throw new Error("COPY_LIVE_ALLOWED_PRIVY_USER_IDS must be comma-separated did:privy: ids");
+  return new Set(ids);
+}
+function liveCaps(source: Environment, mode: "testnet" | "live"): LiveCopyCaps {
+  const live = mode === "live";
+  const fixedMin = optional(source.COPY_LIVE_FIXED_PER_TRADE_MIN_USD), fixedMax = optional(source.COPY_LIVE_FIXED_PER_TRADE_MAX_USD);
+  if (!live && Boolean(fixedMin) !== Boolean(fixedMax)) throw new Error("COPY_LIVE_FIXED_PER_TRADE_MIN_USD and COPY_LIVE_FIXED_PER_TRADE_MAX_USD must be set together");
+  const fixedPerTradeUsd = live || fixedMin ? {
+    // At least 11 (Hyperliquid's 10 USDC minimum with rounding room).
+    min: decimalValue("COPY_LIVE_FIXED_PER_TRADE_MIN_USD", fixedMin, 12, 11, 1_000_000),
+    max: decimalValue("COPY_LIVE_FIXED_PER_TRADE_MAX_USD", fixedMax, 15, 11, 1_000_000),
+  } : undefined;
+  if (fixedPerTradeUsd && fixedPerTradeUsd.min > fixedPerTradeUsd.max) throw new Error("COPY_LIVE_FIXED_PER_TRADE_MIN_USD must not exceed COPY_LIVE_FIXED_PER_TRADE_MAX_USD");
+  const maxAllocation = optional(source.COPY_LIVE_MAX_ALLOCATION_USD), maxLeverage = optional(source.COPY_LIVE_MAX_LEVERAGE);
+  return {
+    maxStrategiesPerUser: integerValue("COPY_LIVE_MAX_STRATEGIES_PER_USER", source.COPY_LIVE_MAX_STRATEGIES_PER_USER, 2, 1, 50),
+    ...(maxAllocation ? { maxAllocationUsd: decimalValue("COPY_LIVE_MAX_ALLOCATION_USD", maxAllocation, 0, 1, 10_000_000) } : {}),
+    ...(fixedPerTradeUsd ? { fixedPerTradeUsd } : {}),
+    ...(live || maxLeverage ? { maxLeverage: integerValue("COPY_LIVE_MAX_LEVERAGE", maxLeverage, 3, 1, 50) } : {}),
+  };
+}
+export type CopyTradingMode = "paper" | "disabled" | "testnet" | "live";
 function copyTrading(source: Environment, wallet: "mainnet" | "testnet", egressKey: string | undefined):
-  { mode: "paper" | "disabled" | "testnet"; workerIntervalMs: number; agent?: AgentSigningConfig; live?: LiveCopyConfig } {
+  { mode: CopyTradingMode; workerIntervalMs: number; agent?: AgentSigningConfig; live?: LiveCopyConfig } {
   const mode = (source.COPY_TRADING_MODE ?? "paper").trim().toLowerCase();
-  if (mode === "live") throw new Error("COPY_TRADING_MODE=live (mainnet funds) is not available: it needs the owner's explicit approval");
-  if (mode !== "paper" && mode !== "disabled" && mode !== "testnet") throw new Error("COPY_TRADING_MODE must be paper, testnet or disabled");
+  if (mode !== "paper" && mode !== "disabled" && mode !== "testnet" && mode !== "live") throw new Error("COPY_TRADING_MODE must be paper, testnet, live or disabled");
   const agent = agentSigning(source);
   let live: LiveCopyConfig | undefined;
-  if (mode === "testnet") {
-    if (wallet !== "testnet") throw new Error("COPY_TRADING_MODE=testnet requires HYPERLIQUID_NETWORK=testnet");
-    if (!agent) throw new Error("COPY_TRADING_MODE=testnet requires PRIVY_AGENT_AUTHORIZATION_KEY and PRIVY_AGENT_WORKER_QUORUM_ID");
-    if (!egressKey) throw new Error("COPY_TRADING_MODE=testnet requires HYPERLIQUID_EGRESS_KEY (shared by the api and the worker)");
+  if (mode === "testnet" || mode === "live") {
+    const name = `COPY_TRADING_MODE=${mode}`, network = mode === "live" ? "mainnet" : "testnet";
+    if (wallet !== network) throw new Error(`${name} requires HYPERLIQUID_NETWORK=${network}`);
+    if (!agent) throw new Error(`${name} requires PRIVY_AGENT_AUTHORIZATION_KEY and PRIVY_AGENT_WORKER_QUORUM_ID`);
+    if (!egressKey) throw new Error(`${name} requires HYPERLIQUID_EGRESS_KEY (shared by the api and the worker)`);
+    const allowedPrivyUserIds = privyUserIds(source.COPY_LIVE_ALLOWED_PRIVY_USER_IDS);
+    if (mode === "live" && !allowedPrivyUserIds) throw new Error("COPY_TRADING_MODE=live requires COPY_LIVE_ALLOWED_PRIVY_USER_IDS (the Privy users who may copy with real funds)");
     live = {
+      network,
+      ...(allowedPrivyUserIds ? { allowedPrivyUserIds } : {}),
+      caps: liveCaps(source, mode),
+      builderFee: mode !== "live",
+      testnetSourceIntervalMs: integerValue("COPY_LIVE_TESTNET_SOURCE_INTERVAL_MS", source.COPY_LIVE_TESTNET_SOURCE_INTERVAL_MS, 60_000, 1000, 600_000),
       maxSourceDeviationBps: integerValue("COPY_TESTNET_MAX_PRICE_DEVIATION_BPS", source.COPY_TESTNET_MAX_PRICE_DEVIATION_BPS, 500, 0, 10_000),
       slippageBps: integerValue("COPY_LIVE_SLIPPAGE_BPS", source.COPY_LIVE_SLIPPAGE_BPS, 30, 0, 500),
       intervalMs: integerValue("COPY_LIVE_INTERVAL_MS", source.COPY_LIVE_INTERVAL_MS, 3000, 1000, 60_000),
       weightPerMin: integerValue("COPY_LIVE_WEIGHT_PER_MIN", source.COPY_LIVE_WEIGHT_PER_MIN, 300, 100, 700),
       revokeDeadlineMs: integerValue("COPY_LIVE_REVOKE_DEADLINE_MINUTES", source.COPY_LIVE_REVOKE_DEADLINE_MINUTES, 30, 1, 1440) * 60_000,
-      automaticReturn: booleanValue("COPY_AUTOMATIC_RETURN", source.COPY_AUTOMATIC_RETURN, false),
     };
     const fast = fastSourceLeaders(source.COPY_LIVE_FAST_SOURCE);
     // G: a read certifies fills only up to this long before it was sent
@@ -131,7 +194,7 @@ function copyTrading(source: Environment, wallet: "mainnet" | "testnet", egressK
     if (fast) live.fastSource = { leaders: fast, graceMs: integerValue("COPY_LIVE_FAST_SOURCE_GRACE_MS", source.COPY_LIVE_FAST_SOURCE_GRACE_MS, 2000, 0, 60_000) };
   }
   return {
-    mode: mode as "paper" | "disabled" | "testnet",
+    mode,
     workerIntervalMs: integerValue("COPY_WORKER_INTERVAL_MS", source.COPY_WORKER_INTERVAL_MS, 2000, 250, 60_000),
     agent, ...(live ? { live } : {}),
   };

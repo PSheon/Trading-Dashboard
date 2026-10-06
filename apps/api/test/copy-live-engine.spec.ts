@@ -1,3 +1,4 @@
+import { testConfig } from './config-test-utils.js';
 import * as schema from '@trading-dashboard/shared/database';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,7 +8,7 @@ import { CopyLiveSourceRepository } from '../src/copy/copy-live-source.repositor
 import { liveSourceExecutionCloid } from '../src/copy/live/postgres-live-preparation.js';
 import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
 import type { LiveExecutionRecord } from '../src/copy/live/live-execution.js';
-import type { TestnetLiveExecutionHooks, TestnetLiveExecutionRequest } from '../src/copy/live/testnet-live-execution-runtime.js';
+import type { LiveExecutionHooks, LiveExecutionRequest } from '../src/copy/live/live-execution-runtime.js';
 import { CopyLiveEngine, type LiveEngineDependencies } from '../src/copy/live-worker/copy-live-engine.js';
 import { CopyLiveWorkerRepository } from '../src/copy/live-worker/copy-live-worker.repository.js';
 import { WatchedMainnetSource } from '../src/copy/live-worker/watched-mainnet-source.js';
@@ -20,9 +21,9 @@ import { closeTestDb, getTestDb, type TestDb } from './db-test-utils.js';
 // (signing/exchange) and the settler are doubles that record their calls.
 let db: TestDb, clock: number, seed: Awaited<ReturnType<typeof preparationFixture>>;
 const leader = `0x${'44'.repeat(20)}`;
-type Runtime = (request: TestnetLiveExecutionRequest, hooks: Pick<TestnetLiveExecutionHooks, 'onExchange'>) => Promise<LiveExecutionRecord>;
+type Runtime = (request: LiveExecutionRequest, hooks: Pick<LiveExecutionHooks, 'onExchange'>) => Promise<LiveExecutionRecord>;
 let runtimeImpl: Runtime, settleImpl: (request: LiveSettleRequest) => Promise<LiveSettleOutcome>;
-const runtimeCalls: TestnetLiveExecutionRequest[] = [], settleCalls: LiveSettleRequest[] = [];
+const runtimeCalls: LiveExecutionRequest[] = [], settleCalls: LiveSettleRequest[] = [];
 const keyOf = (fillId: string, leg: 'open' | 'close') => `testnet:${seed.f.identity.accountAddress}:${liveSourceExecutionCloid('mandate', fillId, leg)}`;
 
 async function journal(key: string, state: string) {
@@ -41,7 +42,7 @@ const filled: Runtime = async (request, hooks) => {
 
 function engine(extra: Partial<LiveEngineDependencies> = {}) {
   return new CopyLiveEngine({
-    repository: new CopyLiveWorkerRepository(db, new UnitOfWork(db)), sources: new CopyLiveSourceRepository(db), uow: new UnitOfWork(db),
+    network: 'testnet', repository: new CopyLiveWorkerRepository(db, new UnitOfWork(db), testConfig()), sources: new CopyLiveSourceRepository(db), uow: new UnitOfWork(db),
     watched: new WatchedMainnetSource(db, () => clock),
     testnetSource: { read: vi.fn(async () => { throw new Error('no testnet source in this test'); }) } as never,
     runtime: hooks => ({ execute: request => runtimeImpl(request, hooks) }),
@@ -120,7 +121,7 @@ describe('testnet copy execution engine', () => {
     await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
     const fill = await leaderFill(10, now + 100, 'B', '1', '0');
     clock = now + 1000; await engine().tick();
-    const repository = new CopyLiveWorkerRepository(db, new UnitOfWork(db)), [row] = await dispatches();
+    const repository = new CopyLiveWorkerRepository(db, new UnitOfWork(db), testConfig()), [row] = await dispatches();
     await db.update(schema.copyLiveDispatches).set({ state: 'settled', settledAt: new Date(clock) });
     expect(await repository.update({ ...row!, state: 'submitted' }, { state: 'refused', reason: 'late_writer' })).toBe(false);
     expect(await repository.update({ ...row!, state: 'pending' }, { attempts: 99 })).toBe(false);
@@ -131,7 +132,7 @@ describe('testnet copy execution engine', () => {
     await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
     await leaderFill(11, now + 100, 'B', '1', '0');
     clock = now + 1000; await engine().tick();
-    const repository = new CopyLiveWorkerRepository(db, new UnitOfWork(db));
+    const repository = new CopyLiveWorkerRepository(db, new UnitOfWork(db), testConfig());
     await db.update(schema.copyLiveDispatches).set({ state: 'pending', attempts: 1, reason: 'exchange_busy' });
     const [read] = await dispatches();
     expect(await repository.update(read!, { attempts: read!.attempts + 1, reason: 'exchange_timeout' })).toBe(true);
@@ -156,7 +157,7 @@ describe('testnet copy execution engine', () => {
     const [row] = await dispatches();
     expect(row).toMatchObject({ sourceFillId: fill, leg: 'open', state: 'submitted', attempts: 1, executionKey: keyOf(fill, 'open') });
     expect(row!.leaderTime.getTime()).toBe(now + 500); expect(row!.sentAt!.getTime()).toBe(clock + 10); expect(row!.ackedAt!.getTime()).toBe(clock + 40);
-    expect(runtimeCalls).toEqual([{ userId: 1, accountId: 'account', mandateId: 'mandate', sourceFillId: fill, leg: 'open' }]);
+    expect(runtimeCalls).toEqual([{ userId: 1, accountId: 'account', mandateId: 'mandate', sourceFillId: fill, leg: 'open', signalDeadline: expect.any(Number) }]);
     clock += 3000; await engine().tick();
     expect((await dispatches())[0]).toMatchObject({ state: 'settled' }); expect(settleCalls).toHaveLength(1);
     clock += 3000; await engine().tick();
@@ -208,7 +209,7 @@ describe('testnet copy execution engine', () => {
     await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
     const fill = await leaderFill(8, now + 100, 'B', '1', '0');
     // The previous worker died after the exchange boundary: journal `unknown`, row still pending.
-    await engine().enqueue((await new CopyLiveWorkerRepository(db, new UnitOfWork(db)).mandates(clock))[0]!);
+    await engine().enqueue((await new CopyLiveWorkerRepository(db, new UnitOfWork(db), testConfig()).mandates(clock))[0]!);
     await journal(keyOf(fill, 'open'), 'unknown');
     runtimeImpl = async request => { runtimeCalls.push(request); return { key: keyOf(fill, 'open'), state: 'unknown' } as LiveExecutionRecord; };
     clock = now + 1000; await engine().tick();

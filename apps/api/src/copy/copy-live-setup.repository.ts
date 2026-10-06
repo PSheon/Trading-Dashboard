@@ -2,6 +2,7 @@ import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { copyAgentSetups, copyFundingOperations, copyLiveActivations, copyLiveMandates, copyLiveSetups, copyLiveStrategyConfigs, copyStrategies, copyStrategyVersions, users } from '@trading-dashboard/shared/database';
+import { ACTUAL_STRATEGY_MODE, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
 import type { DbExecutor } from '../db/unit-of-work.js';
@@ -64,10 +65,13 @@ export class CopyLiveSetupRepository {
     if (!token) return;
     await this.db.update(copyLiveSetups).set({ leaseUntil: null, leaseToken: null }).where(and(eq(copyLiveSetups.id, id), eq(copyLiveSetups.leaseToken, token)));
   }
-  /** Confirmed, unfinished setups whose next attempt is due, oldest first. */
-  open(now: Date, limit = 20) {
+  /** Confirmed, unfinished setups of copies on `network` (the deployment's)
+   * whose next attempt is due, oldest first. Another network's setups are
+   * never driven here. */
+  open(now: Date, network: HyperliquidNetwork, limit = 20) {
     return this.db.select().from(copyLiveSetups).where(and(inArray(copyLiveSetups.stage, [...DRIVEN_STAGES]),
-      or(isNull(copyLiveSetups.nextAttemptAt), lte(copyLiveSetups.nextAttemptAt, now)))).orderBy(asc(copyLiveSetups.updatedAt)).limit(limit);
+      or(isNull(copyLiveSetups.nextAttemptAt), lte(copyLiveSetups.nextAttemptAt, now)),
+      sql`exists (select 1 from ${copyStrategies} s where s.id = ${copyLiveSetups.strategyId} and s.network = ${network})`)).orderBy(asc(copyLiveSetups.updatedAt)).limit(limit);
   }
   async activation(mandateId: string) {
     const [row] = await this.db.select().from(copyLiveActivations).where(eq(copyLiveActivations.mandateId, mandateId));
@@ -77,12 +81,12 @@ export class CopyLiveSetupRepository {
     const [row] = await this.db.select().from(copyStrategies).where(eq(copyStrategies.id, id));
     return row ?? null;
   }
-  /** A running testnet copy (an edit's or renewal's subject): its strategy
-   * and config, its current generation and its active agent. */
-  async runningCopy(userId: number, strategyId: number) {
+  /** A running actual copy on `network` (an edit's or renewal's subject): its
+   * strategy and config, its current generation and its active agent. */
+  async runningCopy(userId: number, strategyId: number, network: HyperliquidNetwork) {
     const [found] = await this.db.select({ strategy: copyStrategies, config: copyLiveStrategyConfigs }).from(copyStrategies)
       .innerJoin(copyLiveStrategyConfigs, eq(copyLiveStrategyConfigs.strategyId, copyStrategies.id))
-      .where(and(eq(copyStrategies.id, strategyId), eq(copyStrategies.userId, userId), eq(copyStrategies.mode, 'testnet')));
+      .where(and(eq(copyStrategies.id, strategyId), eq(copyStrategies.userId, userId), eq(copyStrategies.mode, ACTUAL_STRATEGY_MODE), eq(copyStrategies.network, network)));
     if (!found) return { found: null, mandate: null, agent: null };
     const [mandate] = await this.db.select().from(copyLiveMandates).where(and(eq(copyLiveMandates.strategyId, strategyId), sql`${copyLiveMandates.state} in ('active', 'paused')`));
     const [agent] = mandate ? await this.db.select().from(copyAgentSetups).where(and(eq(copyAgentSetups.accountId, mandate.accountId), eq(copyAgentSetups.state, 'active'))) : [];
@@ -111,7 +115,7 @@ export class CopyLiveSetupRepository {
         eq(copyFundingOperations.userId, userId), inArray(copyFundingOperations.status, ['prepared', 'unknown']), isNull(copyFundingOperations.attemptedAt)));
     }
     const stopped = await tx.update(copyStrategies).set({ status: 'stopped', pauseNewRisk: true, stoppedAt: new Date() })
-      .where(and(eq(copyStrategies.id, setup.strategyId), eq(copyStrategies.userId, userId), eq(copyStrategies.mode, 'testnet'), eq(copyStrategies.status, 'paused'),
+      .where(and(eq(copyStrategies.id, setup.strategyId), eq(copyStrategies.userId, userId), eq(copyStrategies.mode, ACTUAL_STRATEGY_MODE), eq(copyStrategies.status, 'paused'),
         sql`not exists (select 1 from ${copyLiveMandates} m where m.strategy_id = ${copyStrategies.id} and m.state in ('active', 'paused', 'stopping', 'stopped'))`,
         sql`not exists (select 1 from ${copyLiveSetups} x where x.strategy_id = ${copyStrategies.id} and x.id <> ${setup.id} and x.stage not in ('running', 'failed', 'expired', 'cancelled'))`))
       .returning({ id: copyStrategies.id });
@@ -123,19 +127,20 @@ export class CopyLiveSetupRepository {
   }
   /** The owner's starts for this leader that ended or never got a consent:
    * a new start for the same leader ends them first. */
-  abandonedStarts(tx: DbExecutor, userId: number, leader: string): Promise<SetupRow[]> {
+  abandonedStarts(tx: DbExecutor, userId: number, leader: string, network: HyperliquidNetwork): Promise<SetupRow[]> {
     return tx.select().from(copyLiveSetups).where(and(eq(copyLiveSetups.userId, userId), eq(copyLiveSetups.kind, 'start'), eq(copyLiveSetups.leaderAddress, leader),
-      inArray(copyLiveSetups.stage, ['provisioning', 'awaiting_consent', 'failed', 'expired'])));
+      inArray(copyLiveSetups.stage, ['provisioning', 'awaiting_consent', 'failed', 'expired']),
+      sql`exists (select 1 from ${copyStrategies} s where s.id = ${copyLiveSetups.strategyId} and s.network = ${network})`));
   }
   /** Agents whose approval was being signed or sent when their setup ended
    * (expired, failed, cancelled) in the last `since`, on a copy not stopped
    * (a stopped copy's agent is not reconciled: it can't trade): nothing
    * drives them any more, so the worker reconciles them (oldest first). */
-  abandonedApprovals(since: Date, limit = 20) {
+  abandonedApprovals(since: Date, network: HyperliquidNetwork, limit = 20) {
     return this.db.select({ id: copyAgentSetups.id, userId: copyAgentSetups.userId }).from(copyAgentSetups)
       .innerJoin(copyLiveSetups, eq(copyLiveSetups.id, copyAgentSetups.liveSetupId))
       .innerJoin(copyStrategies, eq(copyStrategies.id, copyAgentSetups.strategyId))
       .where(and(inArray(copyAgentSetups.state, ['approval_unknown', 'approval_signing']), inArray(copyLiveSetups.stage, ['failed', 'expired', 'cancelled']),
-        gt(copyLiveSetups.updatedAt, since), sql`${copyStrategies.status} not in ('stopping', 'stopped')`)).orderBy(asc(copyAgentSetups.updatedAt)).limit(limit);
+        gt(copyLiveSetups.updatedAt, since), eq(copyAgentSetups.network, network), sql`${copyStrategies.status} not in ('stopping', 'stopped')`)).orderBy(asc(copyAgentSetups.updatedAt)).limit(limit);
   }
 }

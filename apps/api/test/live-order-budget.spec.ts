@@ -21,7 +21,7 @@ const base = { DATABASE_URL: "postgres://u:p@localhost:5432/db", NODE_ENV: "test
 const config = ({ COPY_LIVE_WEIGHT_PER_MIN, ...env }: Record<string, string>) => {
   const value = validateEnvironment({ ...base, ...env });
   return new AppConfig(COPY_LIVE_WEIGHT_PER_MIN === undefined ? value
-    : { ...value, copy: { ...value.copy, live: { maxSourceDeviationBps: 500, slippageBps: 30, intervalMs: 3000, weightPerMin: Number(COPY_LIVE_WEIGHT_PER_MIN) } } });
+    : { ...value, copy: { ...value.copy, live: { network: 'testnet' as const, caps: { maxStrategiesPerUser: 2 }, builderFee: true, testnetSourceIntervalMs: 60_000, maxSourceDeviationBps: 500, slippageBps: 30, intervalMs: 3000, weightPerMin: Number(COPY_LIVE_WEIGHT_PER_MIN) } } });
 };
 // Only the instance check runs at construction; nothing is read here.
 const quota = Object.create(PostgresHyperliquidQuota.prototype) as PostgresHyperliquidQuota;
@@ -75,7 +75,7 @@ describe("the order path's token bucket", () => {
     expect(MAX_EVIDENCE_CHARGE).toBe(360);
     const charges: number[] = [];
     const ok = (body: Record<string, unknown>) => new Response(JSON.stringify(body.type === "perpDexs" ? [null] : {}));
-    const shared = new LiveSharedReads(vi.fn(), async (bodies, onDispatch) => { onDispatch(); charges.push(liveInfoWeights(bodies)); return bodies.map(ok); }, Date.now);
+    const shared = new LiveSharedReads("testnet", vi.fn(), async (bodies, onDispatch) => { onDispatch(); charges.push(liveInfoWeights(bodies)); return bodies.map(ok); }, Date.now);
     const observed = users(3);
     await shared.wave(evidenceFirstWave(observed, observed[0]!, "BTC"));
     expect(charges.reduce((a, b) => a + b, 0)).toBe(446);
@@ -113,7 +113,7 @@ describe("the order path's token bucket", () => {
     vi.useFakeTimers();
     const budget = orderBucket({ HYPERLIQUID_NETWORK: "testnet" }).budget;
     await budget.acquire(900, "live");
-    const shared = new LiveSharedReads(vi.fn(), undefined, Date.now, 5000, liveBudget(budget));
+    const shared = new LiveSharedReads("testnet", vi.fn(), undefined, Date.now, 5000, liveBudget(budget));
     let paid = false;
     const payment = shared.pay(772).then(() => { paid = true; });
     await vi.advanceTimersByTimeAsync(10_000);

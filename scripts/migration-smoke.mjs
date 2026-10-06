@@ -38,6 +38,10 @@ await withTestDatabase(async (url) => {
     // 0071: one signing model: the browser-signed columns are gone.
     const dropped = await pool.query("SELECT table_name, column_name FROM information_schema.columns WHERE (table_name, column_name) IN (('copy_live_setups', 'signer_kind'), ('copy_live_setups', 'pending_signature'), ('copy_live_setups', 'owner_signature'), ('copy_funding_operations', 'signer_kind'))");
     assert.deepEqual(dropped.rows, []);
+    // 0072: one network per deployment: an actual copy records its network, and the network checks take mainnet.
+    await pool.query('SELECT network FROM copy_strategies LIMIT 0');
+    const pinned = await pool.query("SELECT conname FROM pg_constraint WHERE contype = 'c' AND pg_get_constraintdef(oid) LIKE '%network = ''testnet''::text%'");
+    assert.deepEqual(pinned.rows, []);
     const agentIndexes = await pool.query("SELECT indexname FROM pg_indexes WHERE tablename = 'copy_agent_setups' AND indexname IN ('copy_agent_setups_active_uq', 'copy_agent_setups_pending_uq', 'copy_agent_setups_current_uq') ORDER BY indexname");
     assert.deepEqual(agentIndexes.rows.map(row => row.indexname), ['copy_agent_setups_active_uq', 'copy_agent_setups_pending_uq']);
     console.log('Persistent history schema is queryable after release migrations');

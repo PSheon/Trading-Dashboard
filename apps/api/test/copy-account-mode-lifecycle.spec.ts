@@ -35,7 +35,7 @@ beforeEach(async () => {
     send: vi.fn(async () => { configured = true; return { status: 'ok', response: { type: 'default' } }; }), observe: vi.fn(async intent => observation(intent)) };
   absence = { prove: vi.fn(async (user): Promise<AccountModeAbsenceProof> => ({ network: 'testnet', accountAddress: user, observedAt: Date.now(), completedAt: Date.now(),
     dexes: ['', 'xyz'], sourceDigest: '22'.repeat(32), complete: true as const, empty: true as const })) };
-  repository = new CopyAccountModeRepository(db);
+  repository = new CopyAccountModeRepository(db, testConfig());
   service = new CopyAccountModeService(repository, new UnitOfWork(db), testConfig(), provider, exchange, absence);
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
@@ -113,7 +113,7 @@ describe('durable owned-master standard-mode operation', () => {
     absence.prove = vi.fn(async (...args: Parameters<typeof prove>) => { if (++proofs === 2) { started(); await released; } return prove(...args); });
     const first = submit(c.operation.id).catch((error: unknown) => error as Error);
     await held;
-    const replica = new CopyAccountModeService(new CopyAccountModeRepository(db), new UnitOfWork(db), testConfig(), provider, exchange, absence);
+    const replica = new CopyAccountModeService(new CopyAccountModeRepository(db, testConfig()), new UnitOfWork(db), testConfig(), provider, exchange, absence);
     try { expect((await submit(c.operation.id, master, replica)).submissionState).toBe('signing'); }
     finally { release(); }
     expect(await first).toMatchObject({ submissionState: 'accepted', targetState: 'supported' });
@@ -133,7 +133,7 @@ describe('durable owned-master standard-mode operation', () => {
     exchange.send = vi.fn(async () => { throw new Error('private provider timeout'); });
     const c = { operation: await prepare() };
     expect((await submit(c.operation.id)).submissionState).toBe('unknown');
-    const restarted = new CopyAccountModeService(new CopyAccountModeRepository(db), new UnitOfWork(db), testConfig(), provider, exchange, absence);
+    const restarted = new CopyAccountModeService(new CopyAccountModeRepository(db, testConfig()), new UnitOfWork(db), testConfig(), provider, exchange, absence);
     expect((await submit(c.operation.id, master, restarted)).submissionState).toBe('unknown');
     await expect(restarted.prepare(uid, accountId, { idempotencyKey: 'new-key-after-unknown' })).rejects.toThrow();
     configured = true;

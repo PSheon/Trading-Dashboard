@@ -25,10 +25,10 @@ import { WatcherModule } from "../watcher/watcher.module.js";
   imports: [CopyModule, HyperliquidModule, WatcherModule],
   providers: [CopyWorkerService, CopyFundingMonitor, CopyFollowerMonitor, CopyFollowerSnapshotCollector,
     CopyLiveSourceRepository, CopyLiveWorkerRepository, CopyLiveStopWorkerRepository, liveEngineProvider, CopyLiveWorkerService,
-    // Testnet reads use the wallet network's own budget (copy.module.ts), not
+    // Copy-account reads use the wallet network's own budget (copy.module.ts), not
     // the worker's mainnet budget, which the pool and archive loops keep busy.
-    { provide: FOLLOWER_SNAPSHOT_READER, inject: [WALLET_NETWORK_HL], useFactory: ({ budget, transport }: WalletNetworkHyperliquid) =>
-      new HyperliquidLiveAccountObserver('testnet', liveBudget(budget, { lane: 'background', maxWaitMs: 5000 }), transport.fetchInfo, Date.now, 5000,
-        new HyperliquidAllDexsAccountSource(Date.now, undefined, 'testnet', transport)) }],
+    { provide: FOLLOWER_SNAPSHOT_READER, inject: [WALLET_NETWORK_HL], useFactory: ({ budget, transport, network }: WalletNetworkHyperliquid) =>
+      new HyperliquidLiveAccountObserver(network, liveBudget(budget, { lane: 'background', maxWaitMs: 5000 }), transport.fetchInfo, Date.now, 5000,
+        new HyperliquidAllDexsAccountSource(Date.now, undefined, network, transport)) }],
 })
 export class CopyWorkerModule {}

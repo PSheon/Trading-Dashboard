@@ -1,11 +1,11 @@
 import { isDeepStrictEqual } from 'node:util';
+import { isHyperliquidNetwork, WALLET_NETWORKS, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
 import { boundedLiveRead } from './live-market-resolver.js';
 import { LiveBoundaryError } from './wallet-authorization.js';
 import { HYPERLIQUID_BACKGROUND_REST_CAP, HYPERLIQUID_REST_CAP } from '../../hyperliquid/hyperliquid-global-quota.js';
 import type { LiveReserveOptions } from '../../hyperliquid/hyperliquid-budget-wait.js';
 
-const ENDPOINT = 'https://api.hyperliquid-testnet.xyz/info';
 /** Hyperliquid's info weights for the reads evidence uses (the shared meter's
  * table, hyperliquid-global-transport.ts): 2 for the cheap reads, 60 for
  * userRole, 20 for every other one. */
@@ -34,7 +34,7 @@ export function evidenceFirstWave(users: readonly string[], target: string, coin
 export const evidenceFinalCheck = (users: readonly string[]): Record<string, unknown>[] => [...users.flatMap(accountModeBodies), { type: 'perpDexs' }];
 /** What an order's evidence pays before its clock starts, for `users`
  * observed accounts (the owner's live accounts, plus the leader for a
- * testnet ratio open): 204 a user + 160 (568 for two accounts, 772 with the
+ * cross-network ratio open): 204 a user + 160 (568 for two accounts, 772 with the
  * leader). The other open coins' reads (≤ 60 each) are paid as they go. */
 export function liveEvidencePrepaidWeight(users: number): number {
   const addresses = Array.from({ length: users }, (_, index) => `0x${index.toString(16).padStart(40, '0')}`);
@@ -90,8 +90,13 @@ export class LiveSharedReads {
   sentWeight = 0;
   paidWeight = 0;
   #credit = 0;
-  constructor(private readonly fetcher: typeof fetch, private readonly batch: LiveInfoBatch | undefined, private readonly now: () => number,
-    private readonly maxAgeMs = 5000, private readonly acquire?: (weight: number, options?: LiveReserveOptions) => Promise<unknown>) {}
+  readonly #endpoint: string;
+  /** `network`: the execution network every reader of this epoch observes; `batch` must send to the same network. */
+  constructor(readonly network: HyperliquidNetwork, private readonly fetcher: typeof fetch, private readonly batch: LiveInfoBatch | undefined, private readonly now: () => number,
+    private readonly maxAgeMs = 5000, private readonly acquire?: (weight: number, options?: LiveReserveOptions) => Promise<unknown>) {
+    if (!isHyperliquidNetwork(network)) throw new LiveBoundaryError('invalid_market_resolver');
+    this.#endpoint = WALLET_NETWORKS[network].infoUrl;
+  }
   /** Pays for reads ahead (before the clock starts): no budget wait later.
    * The budget bounds the wait itself (reserveLive: the bucket's refill
    * time; a reservation it can never hold fails at once). */
@@ -122,7 +127,7 @@ export class LiveSharedReads {
     return Promise.all(chunks.map(chunk => {
       if (this.batch && chunk.length > 1) return this.batch(chunk, onDispatch);
       onDispatch();
-      return Promise.all(chunk.map(body => boundedLiveRead(() => this.fetcher(ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      return Promise.all(chunk.map(body => boundedLiveRead(() => this.fetcher(this.#endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(this.fresh()) }), this.fresh())));
     })).then(lists => lists.flat());
   }

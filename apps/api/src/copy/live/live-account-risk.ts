@@ -1,4 +1,4 @@
-import { copyRiskLimitsSchema, copyStrategySettingsSchema, type CopyRiskLimits, type CopyStrategySettings } from '@trading-dashboard/shared/contracts';
+import { copyRiskLimitsSchema, copyStrategySettingsSchema, isHyperliquidNetwork, type CopyRiskLimits, type CopyStrategySettings, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { isDeepStrictEqual } from 'node:util';
 import { Dec, USD_DP } from '../../common/decimal/dec.js';
 import type { LiveAccountSnapshot } from './live-account-observer.js';
@@ -12,11 +12,11 @@ import { minOrderNotional } from '../min-order-notional.js';
 export interface LiveRiskIdentity {
   readonly accountId: string; readonly userId: number; readonly strategyId: number;
   readonly strategyVersion: number; readonly policyVersion: number; readonly authorizationVersion: number;
-  readonly authorizationId: string; readonly walletId: string; readonly network: 'testnet';
+  readonly authorizationId: string; readonly walletId: string; readonly network: HyperliquidNetwork;
   readonly accountAddress: string; readonly dedicated: true;
 }
 export interface LiveRiskLeverageProof {
-  readonly network: 'testnet'; readonly accountAddress: string;
+  readonly network: HyperliquidNetwork; readonly accountAddress: string;
   readonly coin: string; readonly dex: string; readonly asset: number; readonly value: number;
   readonly type: 'cross' | 'isolated'; readonly observedAt: number; readonly sourceDigest: string;
   readonly maxLeverage: number;
@@ -35,7 +35,7 @@ export interface LiveAccountRiskInput {
   readonly localSource: { readonly checkedAt: number; readonly sourceDigest: string };
   readonly intent: LiveOrderIntent; readonly action: HyperliquidOrderAction; readonly market: LiveMarketIdentity;
   readonly accountSource: { readonly accountId: string; readonly userId: number; readonly strategyId: number;
-    readonly network: 'testnet'; readonly accountAddress: string; readonly checkedAt: number;
+    readonly network: HyperliquidNetwork; readonly accountAddress: string; readonly checkedAt: number;
     readonly sourceDigest: string; readonly quarantined: boolean; readonly snapshot: LiveAccountSnapshot };
   readonly policy: { readonly version: number; readonly limits: CopyRiskLimits };
   readonly strategy: { readonly version: number; readonly settings: CopyStrategySettings; readonly allocatedUsd: string };
@@ -43,17 +43,17 @@ export interface LiveAccountRiskInput {
   readonly quote: { readonly market: LiveMarketIdentity; readonly midPrice: string; readonly markPrice: string;
     readonly observedAt: number; readonly sourceDigest: string };
   readonly leverageProofs: readonly LiveRiskLeverageProof[];
-  readonly fees: { readonly network: 'testnet'; readonly accountAddress: string; readonly dex: string; readonly observedAt: number;
+  readonly fees: { readonly network: HyperliquidNetwork; readonly accountAddress: string; readonly dex: string; readonly observedAt: number;
     readonly sourceDigest: string; readonly makerFeeBps: string; readonly takerFeeBps: string;
     readonly extraRiskBufferBps: string; readonly restingOrderBuilderFeeCapTenthsBps: number };
   readonly signal: { readonly kind: 'fill' | 'adoption'; readonly leaderSide: 'B' | 'A';
     readonly price: string; readonly at: number } | null;
   /** All other user copy accounts, including their orders/reservations. Excludes this dedicated account. */
   readonly userExposureProof: { readonly userId: number; readonly checkedAt: number; readonly sourceDigest: string;
-    readonly network: 'testnet'; readonly coin: string; readonly excludedAccountId: string; readonly excludedExecutionKey: string;
+    readonly network: HyperliquidNetwork; readonly coin: string; readonly excludedAccountId: string; readonly excludedExecutionKey: string;
     readonly complete: true; readonly otherAccountsExposureUsd: string; readonly otherAccountsCoinExposureUsd: string;
     readonly ordersLastMinuteExcludingOwn: number };
-  readonly reservations: { readonly accountId: string; readonly userId: number; readonly network: 'testnet';
+  readonly reservations: { readonly accountId: string; readonly userId: number; readonly network: HyperliquidNetwork;
     readonly accountAddress: string; readonly checkedAt: number; readonly sourceDigest: string; readonly complete: true;
     readonly own: LiveRiskReservation; readonly others: readonly LiveRiskReservation[] };
 }
@@ -98,7 +98,7 @@ function assess(input: LiveAccountRiskInput): LiveAccountRiskAssessment {
   const { now, identity: id, intent, action, market, accountSource: source, policy, strategy, reservations, fees } = input;
   requireProof(integer(now, 0), 'live_risk_stale');
   fresh(input.localSource.checkedAt, now); digest(input.localSource.sourceDigest);
-  requireProof(id.dedicated === true && id.network === 'testnet' && intent.network === 'testnet' && source.network === 'testnet' &&
+  requireProof(id.dedicated === true && isHyperliquidNetwork(id.network) && intent.network === id.network && source.network === id.network &&
     integer(id.userId) && integer(id.strategyId) && typeof id.accountId === 'string' && id.accountId.length > 0 &&
     typeof id.walletId === 'string' && id.walletId.length > 0 && typeof id.authorizationId === 'string' && id.authorizationId.length > 0 &&
     intent.userId === id.userId && intent.strategyId === id.strategyId && intent.walletId === id.walletId &&
@@ -118,7 +118,7 @@ function assess(input: LiveAccountRiskInput): LiveAccountRiskAssessment {
     requireProof(typeof control.pauseNewRisk === 'boolean' && typeof control.reduceOnly === 'boolean', 'live_risk_evidence_invalid');
   }
   const snapshot = source.snapshot;
-  requireProof(snapshot.network === 'testnet' && address(snapshot.accountAddress) === address(id.accountAddress), 'live_risk_identity');
+  requireProof(snapshot.network === id.network && address(snapshot.accountAddress) === address(id.accountAddress), 'live_risk_identity');
   requireProof(snapshot.role === 'user' && snapshot.accountMode === 'standard' && snapshot.accountAbstraction === 'disabled', 'live_risk_account_mode');
   digest(source.sourceDigest); digest(snapshot.sourceDigest);
   requireProof(source.sourceDigest === snapshot.sourceDigest, 'live_risk_source');
@@ -138,7 +138,7 @@ function assess(input: LiveAccountRiskInput): LiveAccountRiskAssessment {
     'live_risk_evidence_invalid');
   try { assertMarketIdentity(market); requireProof(intent.market, 'live_risk_market'); sameMarket(market, intent.market); }
   catch { throw new LiveBoundaryError('live_risk_market'); }
-  requireProof(market.network === 'testnet' && market.asset === intent.asset && market.sizeDecimals === intent.sizeDecimals, 'live_risk_market');
+  requireProof(market.network === id.network && market.asset === intent.asset && market.sizeDecimals === intent.sizeDecimals, 'live_risk_market');
   fresh(market.observedAt, now); fresh(intent.market.observedAt, now);
   let built: HyperliquidOrderAction;
   try { built = buildOrderAction(intent); } catch { throw new LiveBoundaryError('live_risk_action'); }
@@ -212,7 +212,7 @@ function assess(input: LiveAccountRiskInput): LiveAccountRiskAssessment {
     money(snapshot.grossRestingExposureUsd).eq(Dec.sum(orders.map(o => money(o.notionalUsd)))), 'live_risk_account_totals');
   requireProof(!orders.some(o => o.cloid === intent.cloid), 'live_risk_order_already_observed');
 
-  requireProof(fees.network === 'testnet' && address(fees.accountAddress) === address(id.accountAddress) && fees.dex === market.dex, 'live_risk_identity');
+  requireProof(fees.network === id.network && address(fees.accountAddress) === address(id.accountAddress) && fees.dex === market.dex, 'live_risk_identity');
   fresh(fees.observedAt, now); digest(fees.sourceDigest);
   const feeBps = Dec.max(Dec.ZERO, money(fees.makerFeeBps, true), money(fees.takerFeeBps, true), Dec.from(limits.takerFeeBps))
     .add(money(fees.extraRiskBufferBps));
@@ -225,7 +225,7 @@ function assess(input: LiveAccountRiskInput): LiveAccountRiskAssessment {
   unique(input.leverageProofs.map(p => p.coin), 'live_risk_leverage');
   const leverageByCoin = new Map(input.leverageProofs.map(p => [p.coin, p]));
   for (const p of input.leverageProofs) {
-    requireProof(p.network === 'testnet' && address(p.accountAddress) === address(id.accountAddress), 'live_risk_identity');
+    requireProof(p.network === id.network && address(p.accountAddress) === address(id.accountAddress), 'live_risk_identity');
     fresh(p.observedAt, now); digest(p.sourceDigest); observedIdentity(p.coin, p.dex, p.asset);
     requireProof(integer(p.value) && integer(p.maxLeverage) && p.value <= p.maxLeverage && ['cross', 'isolated'].includes(p.type), 'live_risk_leverage');
     const position = positionByCoin.get(p.coin);
@@ -240,11 +240,11 @@ function assess(input: LiveAccountRiskInput): LiveAccountRiskAssessment {
   const currentLeverage = leverage(market.coin, market.asset, market.dex);
   const requiredMargin = intent.reduceOnly ? Dec.ZERO : ceilDecimalProduct([notional], [currentLeverage], USD_DP);
   requireProof(reservations.complete === true && reservations.accountId === id.accountId && reservations.userId === id.userId &&
-    reservations.network === 'testnet' && address(reservations.accountAddress) === address(id.accountAddress) && reservations.others.length <= 5000, 'live_risk_reservation');
+    reservations.network === id.network && address(reservations.accountAddress) === address(id.accountAddress) && reservations.others.length <= 5000, 'live_risk_reservation');
   fresh(reservations.checkedAt, now); digest(reservations.sourceDigest);
   function validReservation(row: LiveRiskReservation, own: boolean) {
     const r = row.intent;
-    requireProof(row.accountId === id.accountId && r.network === 'testnet' && address(r.accountAddress) === address(id.accountAddress) &&
+    requireProof(row.accountId === id.accountId && r.network === id.network && address(r.accountAddress) === address(id.accountAddress) &&
       r.userId === id.userId && r.strategyId === id.strategyId && r.walletId === id.walletId && r.authorizationId === id.authorizationId &&
       r.market && integer(row.strategyVersion) && integer(row.policyVersion) && integer(row.authorizationVersion) &&
       integer(row.expiresAt, 0) && ['held', 'unknown', 'resting'].includes(row.state) &&
@@ -324,7 +324,7 @@ function assess(input: LiveAccountRiskInput): LiveAccountRiskAssessment {
     requireProof(positions.every(p => p.leverage <= Math.min(limits.maxLeverage, settings.maxLeverage ?? limits.maxLeverage, p.maxLeverage)), 'live_risk_leverage');
   }
   const user = input.userExposureProof;
-  requireProof(user.userId === id.userId && user.complete === true && user.network === 'testnet' && user.coin === market.coin &&
+  requireProof(user.userId === id.userId && user.complete === true && user.network === id.network && user.coin === market.coin &&
     user.excludedAccountId === id.accountId && user.excludedExecutionKey === key && integer(user.ordersLastMinuteExcludingOwn, 0), 'live_risk_identity');
   fresh(user.checkedAt, now); digest(user.sourceDigest);
   const external = money(user.otherAccountsExposureUsd), externalCoin = money(user.otherAccountsCoinExposureUsd);

@@ -1,7 +1,7 @@
 import { and, desc, eq, ne, sql } from 'drizzle-orm';
 import { effectiveGrantScopes } from './postgres-wallet-authorizations.js';
 import { isDeepStrictEqual } from 'node:util';
-import { adminSettingsSchema, copyRiskLimitsSchema, copyStrategySettingsSchema } from '@trading-dashboard/shared/contracts';
+import { ACTUAL_STRATEGY_MODE, adminSettingsSchema, copyRiskLimitsSchema, copyStrategySettingsSchema, isHyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { appSettings, copyAgentSetups, copyControls, copyExecutionAccounts, copyExecutionWallets, copyFollowerAccountState, copyFundingOperations,
   copyAccountModeOperations, copyLivePositionBaselines, copyLiveExecutions, copyLiveIntentProvenance, copyLiveMandates, copyLiveRiskReservations, copyLiveSignalLegs, copyLiveSourceFills, copyLiveSourceStreams,
   copyLiveStrategyConfigs, copyRiskPolicies, copyStrategies, copyStrategyVersions, copyWalletAuthorizations, users } from '@trading-dashboard/shared/database';
@@ -34,12 +34,12 @@ export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSessi
   riskSourceRequire(row,'live_risk_authority_missing');
   const {account:a,owner:o,strategy:s,config:c,version:v,mandate:m,setup,wallet:w,grant:g}=row;
   const scope=session.scope.identity;
-  riskSourceRequire(a.id===binding.accountId&&a.userId===scope.userId&&a.network==='testnet'&&scope.network==='testnet'&&a.address===scope.accountAddress&&a.state==='ready'&&
+  riskSourceRequire(a.id===binding.accountId&&a.userId===scope.userId&&isHyperliquidNetwork(scope.network)&&a.network===scope.network&&a.address===scope.accountAddress&&a.state==='ready'&&
     a.privyWalletId&&a.ownerQuorumId&&a.privyUserId===o.privyUserId&&o.disabledAt===null,'live_risk_identity');
   const consent=decodeLiveCopyMandate(m),settings=copyStrategySettingsSchema.parse(v.settings);
   riskSourceRequire(scope.source?.network===consent.sourceNetwork&&scope.source.leaderAddress===consent.leaderAddress,'live_risk_source_scope_missing');
-  riskSourceRequire(s.userId===a.userId&&s.mode==='testnet'&&s.status==='active'&&m.state==='active'&&m.consentDigest&&m.activationCursor&&m.expiresAt.getTime()>now&&
-    consent.accountId===a.id&&consent.userId===a.userId&&consent.strategyId===s.id&&consent.accountRevision===a.revision&&consent.accountAddress===a.address&&
+  riskSourceRequire(s.userId===a.userId&&s.mode===ACTUAL_STRATEGY_MODE&&s.status==='active'&&m.state==='active'&&m.consentDigest&&m.activationCursor&&m.expiresAt.getTime()>now&&
+    consent.accountId===a.id&&consent.userId===a.userId&&consent.strategyId===s.id&&consent.network===a.network&&consent.accountRevision===a.revision&&consent.accountAddress===a.address&&
     consent.ownerPrivyUserId===o.privyUserId&&consent.ownerAddress===o.embeddedWalletAddress&&consent.strategyVersion===s.version&&
     c.strategyVersion===s.version&&c.userId===a.userId&&['testnet','mainnet'].includes(c.sourceNetwork)&&consent.sourceNetwork===c.sourceNetwork&&c.budgetUsd===consent.budgetUsd&&
     consent.leaderAddress===s.leaderAddress&&consent.settingsDigest===liveCopySettingsDigest(settings)&&consent.plannerVersion===1,'live_risk_mandate_changed');
@@ -62,16 +62,19 @@ export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSessi
   riskSourceRequire(general.length===1&&(general[0]!.value as {copyTradingEnabled?:unknown}).copyTradingEnabled===true,'live_risk_platform_disabled');
   const [revenue]=await read(db.select().from(appSettings).where(eq(appSettings.key,'revenue')));
   const builder=revenue?adminSettingsSchema.shape.revenue.parse(revenue.value):{builderAddress:null,builderFeeTenthsBps:0};
-  riskSourceRequire((builder.builderAddress?.toLowerCase()??null)===consent.builderAddress&&builder.builderFeeTenthsBps===consent.builderMaxFeeTenthsOfBps,'live_risk_builder_changed');
+  // A generation that binds no builder fee (a live deployment for now) charges none, whatever the revenue settings say.
+  riskSourceRequire((consent.builderAddress===null&&consent.builderMaxFeeTenthsOfBps===0)||((builder.builderAddress?.toLowerCase()??null)===consent.builderAddress&&builder.builderFeeTenthsBps===consent.builderMaxFeeTenthsOfBps),'live_risk_builder_changed');
   // The user's live accounts: a strategy that hasn't stopped, or money still
   // moving (a stopped strategy is flat and swept, or holds only dust). Every
   // account ever counted refused all orders from a user's ninth copy on, even
-  // after the old ones had stopped (one-click plan §3i).
+  // after the old ones had stopped (one-click plan §3i). Only this network's
+  // accounts: another network's copies (a database that moved networks) hold
+  // no exposure here and never block this one's orders.
   const accounts=await read(db.select({account:copyExecutionAccounts}).from(copyExecutionAccounts).innerJoin(copyStrategies,eq(copyStrategies.id,copyExecutionAccounts.strategyId))
-    .where(and(eq(copyExecutionAccounts.userId,a.userId),sql`(${copyStrategies.status}<>'stopped' or exists (select 1 from copy_funding_operations f where f.account_id=${copyExecutionAccounts.id} and f.status in ('prepared','unknown','accepted')))`))
+    .where(and(eq(copyExecutionAccounts.userId,a.userId),eq(copyExecutionAccounts.network,a.network),sql`(${copyStrategies.status}<>'stopped' or exists (select 1 from copy_funding_operations f where f.account_id=${copyExecutionAccounts.id} and f.status in ('prepared','unknown','accepted')))`))
     .orderBy(copyExecutionAccounts.id).limit(9)).then(rows=>rows.map(row=>row.account));
-  riskSourceRequire(accounts.length<=8&&accounts.every(account=>account.network==='testnet'&&account.address&&account.privyWalletId&&account.ownerQuorumId&&account.privyUserId===o.privyUserId),'live_risk_user_coverage_unproven');
-  const states=await read(db.select().from(copyFollowerAccountState).where(sql`${copyFollowerAccountState.accountId} in (select id from copy_execution_accounts where user_id=${a.userId})`));
+  riskSourceRequire(accounts.length<=8&&accounts.every(account=>account.network===a.network&&account.address&&account.privyWalletId&&account.ownerQuorumId&&account.privyUserId===o.privyUserId),'live_risk_user_coverage_unproven');
+  const states=await read(db.select().from(copyFollowerAccountState).where(sql`${copyFollowerAccountState.accountId} in (select id from copy_execution_accounts where user_id=${a.userId} and network=${a.network})`));
   riskSourceRequire(!states.some(state=>state.quarantined),'live_risk_quarantined');
   // A transfer or mode change in flight on this account (its balance or mode
   // is moving under the order). Another copy's funding or sweep, or a main
@@ -84,7 +87,7 @@ export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSessi
   const [sourceStream]=await read(db.select().from(copyLiveSourceStreams).where(and(eq(copyLiveSourceStreams.network,consent.sourceNetwork),eq(copyLiveSourceStreams.leaderAddress,consent.leaderAddress))));
   riskSourceRequire(sourceStream&&sourceStream.state==='ready'&&sourceStream.coverageFrom&&sourceStream.coverageThrough&&sourceStream.coverageDigest&&sourceStream.coverageFrom.getTime()<=m.activationCursor!.getTime(),'live_risk_source_changed');
   const identity={accountId:a.id,userId:a.userId,strategyId:s.id,strategyVersion:s.version,policyVersion:policy.version,authorizationVersion:g.version,
-    authorizationId:g.id,walletId:w.privyWalletId,network:'testnet' as const,accountAddress:a.address,dedicated:true as const};
+    authorizationId:g.id,walletId:w.privyWalletId,network:a.network,accountAddress:a.address,dedicated:true as const};
   return {...row,consent,settings,currentAuthorization,identity,policy:{version:policy.version,limits},limits,builder,platform,user,
     controls:{platform:{pauseNewRisk:platform.pauseNewRisk,reduceOnly:platform.reduceOnly},user:{pauseNewRisk:user.pauseNewRisk,reduceOnly:user.reduceOnly},strategy:{pauseNewRisk:s.pauseNewRisk,reduceOnly:s.reduceOnly}},
     sourceStream,accounts,states,general,revenue,controlsRows:controls};
@@ -127,16 +130,16 @@ export async function loadLiveRiskAuthority(session: LiveRiskDatabaseSession, db
   const liabilities=await read(db.select({reservation:copyLiveRiskReservations,journal:copyLiveExecutions,historicalGrant:copyWalletAuthorizations,historicalWallet:copyExecutionWallets}).from(copyLiveRiskReservations)
     .innerJoin(copyLiveExecutions,eq(copyLiveExecutions.key,copyLiveRiskReservations.key))
     .leftJoin(copyWalletAuthorizations,eq(copyWalletAuthorizations.id,copyLiveRiskReservations.authorizationId))
-    .leftJoin(copyExecutionWallets,eq(copyExecutionWallets.id,copyWalletAuthorizations.walletId)).where(and(eq(copyLiveRiskReservations.userId,a.userId),ne(copyLiveRiskReservations.state,'released'))).orderBy(copyLiveRiskReservations.key).limit(5002));
+    .leftJoin(copyExecutionWallets,eq(copyExecutionWallets.id,copyWalletAuthorizations.walletId)).where(and(eq(copyLiveRiskReservations.userId,a.userId),eq(copyLiveRiskReservations.network,a.network),ne(copyLiveRiskReservations.state,'released'))).orderBy(copyLiveRiskReservations.key).limit(5002));
   riskSourceRequire(liabilities.length<=5001&&JSON.stringify(liabilities).length<=8*1024*1024,'live_risk_user_coverage_unbounded');
   const orphan=await read(db.select({key:copyLiveExecutions.key}).from(copyLiveExecutions).leftJoin(copyLiveRiskReservations,eq(copyLiveRiskReservations.key,copyLiveExecutions.key))
-    .where(and(eq(copyLiveExecutions.userId,a.userId),sql`${copyLiveExecutions.state} in ('prepared','submitting','unknown','resting')`,sql`(${copyLiveRiskReservations.key} is null or ${copyLiveRiskReservations.state}='released')`,ne(copyLiveExecutions.key,binding.key))).limit(1));
+    .where(and(eq(copyLiveExecutions.userId,a.userId),eq(copyLiveExecutions.network,a.network),sql`${copyLiveExecutions.state} in ('prepared','submitting','unknown','resting')`,sql`(${copyLiveRiskReservations.key} is null or ${copyLiveRiskReservations.state}='released')`,ne(copyLiveExecutions.key,binding.key))).limit(1));
   riskSourceRequire(orphan.length===0,'live_risk_orphan_execution');
   const recent=await read(db.select({key:copyLiveExecutions.key}).from(copyLiveExecutions).where(and(eq(copyLiveExecutions.userId,a.userId),ne(copyLiveExecutions.key,binding.key),sql`(${copyLiveExecutions.record}->>'createdAt')::numeric >= ${now-60000}`)).limit(limits.maxOrdersPerMinute+1));
   const [baselineRow]=await read(db.select().from(copyLivePositionBaselines).where(eq(copyLivePositionBaselines.mandateId,m.id)));
   let baseline:ReturnType<typeof decodeLivePositionBaseline>|null=null;
   if(baselineRow) {
-    baseline=decodeLivePositionBaseline({mandateId:m.id,accountId:a.id,strategyId:s.id,network:'testnet',accountAddress:a.address,firstExecutionKey:baselineRow.firstExecutionKey},baselineRow.record);
+    baseline=decodeLivePositionBaseline({mandateId:m.id,accountId:a.id,strategyId:s.id,network:a.network,accountAddress:a.address,firstExecutionKey:baselineRow.firstExecutionKey},baselineRow.record);
     for(const field of ['mandateId','accountId','strategyId','network','accountAddress','firstExecutionKey','sourceDigest','snapshotDigest','baselineDigest','producerVersion'] as const)
       riskSourceRequire(baselineRow[field]===baseline[field],'live_risk_baseline_unproven');
     riskSourceRequire(baselineRow.observedAt.getTime()===baseline.observedAt&&baselineRow.completedAt.getTime()===baseline.completedAt&&baselineRow.createdAt.getTime()===baseline.createdAt,'live_risk_baseline_unproven');

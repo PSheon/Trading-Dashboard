@@ -42,7 +42,7 @@ beforeEach(async () => {
     policyId: 'restricted-policy', policyFingerprint: 'a'.repeat(64), agentWalletId: 'privy-agent', agentOwnerQuorumId: 'owner-quorum', agentAddress,
     accountAddress: address, accountWalletId: 'privy-master', accountOwnerQuorumId: 'owner-quorum', state: 'active', authorizationId: 'mandate-grant',
     expiresAt, createdAt: new Date(clock - 1000), updatedAt: new Date(clock - 100) });
-  service = new CopyLiveMandateService(testConfig(), new CopyLiveMandateRepository(db), new UnitOfWork(db), () => clock);
+  service = new CopyLiveMandateService(testConfig(), new CopyLiveMandateRepository(db, testConfig()), new UnitOfWork(db), () => clock);
   scopes = new PostgresLiveRiskScope(pool, () => clock);
 });
 afterAll(async () => { await pool.end(); await closeTestDb(); });
@@ -118,7 +118,7 @@ describe('dedicated testnet preparation', () => {
   it('disabled deployment advertises preparationfalse and never automatic execution', async () => {
     const old = process.env.COPY_TRADING_MODE; process.env.COPY_TRADING_MODE = 'disabled';
     try {
-      expect(liveCopyOverviewSchema.parse(await service.overview(uid)).capabilities).toEqual({ strategyPreparation: false, automaticExecution: false, sourceNetworks: ['mainnet', 'testnet'] });
+      expect(liveCopyOverviewSchema.parse(await service.overview(uid)).capabilities).toEqual({ strategyPreparation: false, automaticExecution: false, sourceNetworks: ['mainnet', 'testnet'], actualAllowed: false });
       await expect(service.create(uid, draft())).rejects.toMatchObject({ status: 503 });
       await expect(challenge()).rejects.toMatchObject({ status: 503 });
     } finally { if (old === undefined) delete process.env.COPY_TRADING_MODE; else process.env.COPY_TRADING_MODE = old; }

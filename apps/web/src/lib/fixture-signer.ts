@@ -65,3 +65,7 @@ export function fixtureSignerFlag(search: string): boolean {
     return flagged || sessionStorage.getItem(STICKY) === "1";
   } catch { return flagged; }
 }
+
+/** The fixture api's token for the second fixture person (`?as=second` at
+ * the demo login): browser tests of an account switch in the same tab. */
+export const FIXTURE_SECOND_TOKEN = "fixture-token-second";

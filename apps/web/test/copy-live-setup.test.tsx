@@ -333,3 +333,16 @@ it("a silent signature that never comes ends confirm with signing_timeout after 
     expect(state.post).not.toHaveBeenCalled();
   } finally { vi.useRealTimers(); }
 });
+
+it("the progress dialog opens on the setup confirm just answered: a first poll that fails in passing still shows its stages", async () => {
+  const { ApiError } = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
+  const confirmed = { ...setup('start', 'funding_submitted'), signer: 'worker_policy' as const };
+  state.post.mockResolvedValue(confirmed);
+  await act(async () => { await probe.current!.confirm.mutateAsync(setup()); });
+  state.get.mockRejectedValue(new ApiError(503, 'busy', { code: 'busy' }, 30_000));
+  await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale="en" messages={catalogs.en}><Probe /><ProgressProbe id={confirmed.id} /></I18nProvider></QueryClientProvider>));
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)); });
+  expect(progress.current!.data?.stage).toBe('funding_submitted');
+  expect(progress.current!.retrying).toBe(true);
+  expect(progress.current!.failure).toBeNull();
+});

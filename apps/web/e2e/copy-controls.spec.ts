@@ -156,7 +156,9 @@ for (const width of [1440, 390]) {
     test("a failed pause, resume or save says so, changes nothing, and works on the next try", async ({ page }) => {
       test.setTimeout(90000);
       await openCopy(page, "Machi is ugly dog");
-      const failed = page.getByRole("alert").filter({ hasText: "Failed to update configuration" });
+      // Pause and resume say why in their own words (web audit L7): the
+      // fixture fails with a 503, which reads as busy, not as an edit failure.
+      const failed = page.getByRole("alert").filter({ hasText: "The service is busy. Try again in a moment." });
 
       await failNext(page, "commands");
       await action(page, "Pause copying").click();

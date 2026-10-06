@@ -2,7 +2,7 @@ import { agentApprovalTypedData, liveCopyMandateSchema, liveCopyOverviewSchema, 
   type CopyMasterActionRequest, type LiveCopyPortfolioItem, type LiveCopySetup, type LiveCopySetupIntent, type LiveCopyStrategy } from "@trading-dashboard/shared/contracts";
 import type { ZodTypeAny } from "zod";
 import { ApiError } from "@/lib/api";
-import { FIXTURE_WALLET_ADDRESS, fixtureOwnerSetupFlag, fixtureSignerFlag, fixtureSigners } from "@/lib/fixture-signer";
+import { FIXTURE_SECOND_TOKEN, FIXTURE_WALLET_ADDRESS, fixtureOwnerSetupFlag, fixtureSignerFlag, fixtureSigners } from "@/lib/fixture-signer";
 
 /**
  * One-click testnet copy in fixture mode, only with the fixture signer
@@ -189,16 +189,27 @@ export function fixtureLiveDeletionBlockers(): { code: string; strategyIds: numb
 
 /** The live routes under /me/copy/live with their response contract, or
  * undefined for any other path. */
-export function fixtureLiveCopy(method: string, parts: string[], body: unknown): { schema: ZodTypeAny; value: unknown } | undefined {
+export function fixtureLiveCopy(method: string, parts: string[], body: unknown, token: string | null = null): { schema: ZodTypeAny; value: unknown } | undefined {
   if (!liveFixtureEnabled() || parts[0] !== "me" || parts[1] !== "copy" || parts[2] !== "live") return undefined;
   load();
-  const value = liveRoute(method, parts, body);
+  // The second person (`?as=second`) has no testnet copies of their own.
+  const value = token === FIXTURE_SECOND_TOKEN ? secondPersonRoute(method, parts) : liveRoute(method, parts, body);
   if (value === undefined) return undefined;
   const area = parts[3] ?? "";
   const schema = area === "" ? liveCopyOverviewSchema : area === "portfolio" ? liveCopyPortfolioSchema : area === "mandates" ? liveCopyMandateSchema
     : area === "setups" && parts.length === 4 && method === "GET" ? liveCopySetupsSchema : liveCopySetupSchema;
   return { schema, value };
 }
+function secondPersonRoute(method: string, parts: string[]): unknown {
+  const route = `${method} ${parts.slice(3).join("/")}`;
+  if (route === "GET ") return { mode: "actual", network: "testnet", capabilities: { strategyPreparation: true, automaticExecution: true, sourceNetworks: ["mainnet", "testnet"] }, strategies: [], mandates: [] };
+  if (route === "GET portfolio") return { network: "testnet", automaticExecution: true, items: [] };
+  if (route === "GET setups") return { items: [] };
+  throw new ApiError(404, "Setup not found");
+}
+/** `?setup=busy`: a confirmed setup's first reads answer 503 busy (Retry-After 4 s). */
+const busyReads = new Map<string, number>();
+const setupFlag = () => { try { return new URLSearchParams(window.location.search).get("setup") ?? sessionStorage.getItem("orbie:fixtures:setup"); } catch { return null; } };
 function liveRoute(method: string, parts: string[], body: unknown): unknown {
   const rest = parts.slice(3), input = (body ?? {}) as Record<string, unknown>;
   const route = `${method} ${rest.map((p, i) => (i === 1 && ["setups", "strategies", "mandates"].includes(rest[0]!) ? ":id" : p)).join("/")}`;
@@ -225,7 +236,19 @@ function liveRoute(method: string, parts: string[], body: unknown): unknown {
     }
     // A read moves the worker's stages on; the owner-signed ones move only
     // with /advance and the signature of the pending action.
-    case "GET setups/:id": { const setup = find(rest[1]!); return setup.signer === "owner_session" && (OWNER_STEPS[setup.stage] || setup.stage === "agent_active") ? setup : step(setup); }
+    case "GET setups/:id": {
+      const setup = find(rest[1]!);
+      const confirmed = !["provisioning", "awaiting_consent", "running", "failed", "expired", "cancelled"].includes(setup.stage);
+      if (setupFlag() === "busy" && confirmed && (busyReads.get(setup.id) ?? 0) < 3) {
+        busyReads.set(setup.id, (busyReads.get(setup.id) ?? 0) + 1);
+        throw new ApiError(503, "Hyperliquid is busy", { code: "busy" }, 4_000);
+      }
+      // `?setup=uncredited`: the deposit was sent and never seen credited; the deadline ended the setup.
+      if (setupFlag() === "uncredited" && setup.kind === "start" && setup.stage === "funding_submitted") {
+        return save({ ...setup, stage: "expired", issue: "setup_deposit_uncredited", funding: { ...creditedDeposit(setup), status: "accepted", transactionHash: null, creditedAmount: null, fee: null } });
+      }
+      return setup.signer === "owner_session" && (OWNER_STEPS[setup.stage] || setup.stage === "agent_active") ? setup : step(setup);
+    }
     case "POST setups/:id/advance": return step(find(rest[1]!), input);
     case "POST setups/:id/confirm": {
       const setup = find(rest[1]!);

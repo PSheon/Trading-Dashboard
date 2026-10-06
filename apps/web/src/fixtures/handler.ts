@@ -369,7 +369,7 @@ export async function fixtureRequest<T>(
   if (parts[0] === "insights" && parts[1] === "cohorts" && method === "GET" && parts[3] === "history") return wire(cohortHistoryResponseSchema, fixtureCohortHistory(parts[2], search.get("window") ?? "all"));
   if (parts[0] === "discover" && parts[1] === "coins" && method === "GET" && parts.length === 3) return wire(coinBoardResponseSchema, fixtureCoinBoard(decodeURIComponent(parts[2])));
 
-  const liveCopy = fixtureLiveCopy(method, parts, body);
+  const liveCopy = fixtureLiveCopy(method, parts, body, token);
   if (liveCopy) { requireUser(token); return wire(liveCopy.schema, liveCopy.value); }
   if (parts[0] === "admin" && parts[1] === "copy" && parts[2] === "live") {
     requireAdmin(token);

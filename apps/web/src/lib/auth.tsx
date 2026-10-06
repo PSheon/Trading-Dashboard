@@ -9,7 +9,7 @@ import { createContext, lazy, Suspense, use, useCallback, useEffect, useMemo, us
 
 import type { PrivySnapshot } from "@/lib/auth-privy";
 import type { WalletSigner } from "@/lib/wallet-signer";
-import { fixtureSigner, fixtureSignerFlag } from "@/lib/fixture-signer";
+import { FIXTURE_SECOND_TOKEN, fixtureSigner, fixtureSignerFlag } from "@/lib/fixture-signer";
 import { clearPersonalStorage } from "@/lib/personal-storage";
 
 import { SessionQueries } from "@/lib/session-queries";
@@ -217,18 +217,24 @@ function hasSavedPrivySession(): boolean {
 
 const FIXTURE_SESSION_KEY = "fixture-signed-in";
 
-const fixtureTokenGetter = async () =>
-  readLocalStorage(FIXTURE_SESSION_KEY) === "1" ? "fixture-token" : null;
+/** "1": the demo account; "2": a second person (browser tests of an
+ * account switch in the same tab sign in with `?as=second`). */
+const fixtureTokenGetter = async () => {
+  const stored = readLocalStorage(FIXTURE_SESSION_KEY);
+  return stored === "1" ? "fixture-token" : stored === "2" ? FIXTURE_SECOND_TOKEN : null;
+};
+const fixtureLoginAs = () => { try { return new URLSearchParams(window.location.search).get("as") === "second" ? "2" : "1"; } catch { return "1"; } };
 
 function FixtureAuth({ children }: { children: React.ReactNode }) {
   // undefined while hydrating, so server and client render the same frame.
   const [stored, setStored] = useLocalStorage(FIXTURE_SESSION_KEY);
-  const signedIn = stored === undefined ? null : stored === "1";
+  const signedIn = stored === undefined ? null : stored === "1" || stored === "2";
+  const second = stored === "2";
 
-  const scope = signedIn ? "fixture:demo" : signedIn === null ? "loading" : "anonymous";
+  const scope = signedIn ? second ? "fixture:second" : "fixture:demo" : signedIn === null ? "loading" : "anonymous";
   setAccessTokenGetter(fixtureTokenGetter, scope);
 
-  const persist = useCallback((next: boolean) => setStored(next ? "1" : null), [setStored]);
+  const persist = useCallback((next: boolean) => setStored(next ? fixtureLoginAs() : null), [setStored]);
   // `?signer=fixture`: a fixed-signature stand-in for the embedded wallet
   // (lib/fixture-signer.ts), read once the page has hydrated.
   const signerFlag = useSyncExternalStore(noSubscription, () => fixtureSignerFlag(window.location.search), () => false);
@@ -240,10 +246,10 @@ function FixtureAuth({ children }: { children: React.ReactNode }) {
       mode: "fixture",
       login: () => persist(true),
       logout: async () => { clearPersonalStorage(); persist(false); },
-      identity: signedIn ? "demo@example.com" : null,
+      identity: signedIn ? second ? "second@example.com" : "demo@example.com" : null,
       wallet: signedIn ? signer : null,
     }),
-    [signedIn, persist, signer],
+    [signedIn, second, persist, signer],
   );
 
   return <AuthContext value={value}><SessionQueries key={sessionKey()}>{children}</SessionQueries></AuthContext>;

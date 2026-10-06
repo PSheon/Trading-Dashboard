@@ -133,6 +133,9 @@ export function useLiveCopySetupActions() {
   const namesOf = (setup: Pick<LiveCopySetup, 'kind' | 'strategyId' | 'leaderAddress' | 'budgetUsd' | 'settings'>) => setup.kind === 'start' ? [startName(setup.leaderAddress, setup.budgetUsd, setup.settings)]
     : [editName(setup.strategyId, setup.budgetUsd, setup.settings), `renew:${setup.strategyId}`];
   const refresh = () => { void client.invalidateQueries({ queryKey: [...queryKeys.copy.all] }); };
+  /** The progress dialog opens on what the server just answered: a first
+   * poll that fails in passing still shows the stages (never an empty list). */
+  const seed = (setup: LiveCopySetup) => { client.setQueryData(liveSetupKey(setup.id, latest.current.identity), setup); return setup; };
   const owner = () => {
     const current = latest.current, wallet = current.wallet, identity = current.identity, session = sessionKey();
     if (!wallet || !liveCopyEnabled(current)) throw new Error('owner_wallet_unavailable');
@@ -143,7 +146,7 @@ export function useLiveCopySetupActions() {
   const prepare = async (name: string, send: (key: string) => Promise<unknown>) => {
     const key = keyFor(name);
     for (let attempt = 0; ; attempt++) {
-      const setup = liveCopySetupSchema.parse(await send(key));
+      const setup = seed(liveCopySetupSchema.parse(await send(key)));
       if (setup.stage !== 'provisioning' || attempt >= 8) return setup;
       await new Promise(resolve => setTimeout(resolve, 1500));
     }
@@ -171,7 +174,7 @@ export function useLiveCopySetupActions() {
           accountId => void api.post(`/me/copy/execution-wallets/${encodeURIComponent(accountId)}/reconcile`, {}).catch(() => undefined));
       } finally { setConfirmPhase(null); }
       assertSame();
-      const result = liveCopySetupSchema.parse(await api.post(`${ROOT}/setups/${encodeURIComponent(setup.id)}/confirm`, body));
+      const result = seed(liveCopySetupSchema.parse(await api.post(`${ROOT}/setups/${encodeURIComponent(setup.id)}/confirm`, body)));
       for (const name of namesOf(setup)) forget(name);
       refresh(); return result;
     },
@@ -225,6 +228,11 @@ export function useLiveCopySetupActions() {
   return { start, edit, renew, confirm, confirmPhase, cancel, restart, resume, pause, topUp };
 }
 
+/** One setup's poll, for this person and session. */
+function liveSetupKey(id: string | null, identity: string | null) {
+  return [...queryKeys.copy.all, 'live-setup', id, identity, sessionKey()] as const;
+}
+
 /** After a wallet error, how long the dialog waits before signing again. */
 const SIGN_RETRY_MS = 10_000;
 /** Server refusals of a signature that a fresh payload replaces (the next
@@ -251,7 +259,7 @@ export function useLiveCopySetup(id: string | null) {
   // it retries, with the stages it last read.
   const [advanceBusy, setAdvanceBusy] = useState(false);
   const query = useQuery<LiveCopySetup>({
-    queryKey: [...queryKeys.copy.all, 'live-setup', id, auth.identity, sessionKey()], enabled, retry: false, staleTime: 0,
+    queryKey: liveSetupKey(id, auth.identity), enabled, retry: false, staleTime: 0,
     // Ended, or refused for good (signed out, not this owner's: a 4xx): no
     // more polling. A passing failure (network, 5xx, Hyperliquid busy) is
     // asked again after the api's Retry-After, else 10 s.

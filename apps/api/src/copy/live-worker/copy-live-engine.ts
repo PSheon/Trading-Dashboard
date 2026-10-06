@@ -88,6 +88,14 @@ const PLANNING_MARGIN_MS = 15_000;
 const HOLD_MARGIN_MS = 30_000;
 /** Held when its follower notional could be under this much more than the minimum. */
 const HOLD_HEADROOM = '1.1';
+/** An error that is no boundary code (a TypeError, a provider's prose): its
+ * name, message and the top of its stack, for the log only (never stored). */
+export const describeUnexpected = (error: unknown): string | null => {
+  if (error instanceof LiveBoundaryError || error instanceof Error && /^[a-z][a-z0-9_]{0,79}$/.test(error.message)) return null;
+  if (!(error instanceof Error)) return `non-error ${typeof error}`;
+  const stack = (error.stack ?? '').split('\n').slice(1, 5).map(line => line.trim()).join(' | ');
+  return `${error.name}: ${error.message}`.slice(0, 240) + (stack ? ` @ ${stack.slice(0, 400)}` : '');
+};
 const reasonOf = (error: unknown) => {
   const code = error instanceof LiveBoundaryError ? error.code : error instanceof Error && /^[a-z][a-z0-9_]{0,79}$/.test(error.message) ? error.message : 'live_execution_failed';
   return code.replace(/[^a-z0-9_]/g, '_').slice(0, 80);
@@ -401,6 +409,9 @@ export class CopyLiveEngine {
         `first attempt +${first.getTime() - row.leaderTime.getTime()}, sent ${times.sentAt ? `+${times.sentAt.getTime() - row.leaderTime.getTime()}` : '-'} ms after the leader`);
     } catch (error) {
       const reason = reasonOf(error);
+      // Stored as live_execution_failed: say what it really was (Stage 2026-10-06).
+      const unexpected = describeUnexpected(error);
+      if (unexpected) this.deps.log?.(`leg ${row.id} failed unexpectedly: ${unexpected}`);
       const times = timing.sentAt ? { sentAt: new Date(timing.sentAt), ...(timing.ackedAt ? { ackedAt: new Date(timing.ackedAt) } : {}) } : {};
       // A POST that began leaves an exchange-side outcome to reconcile.
       const key = `testnet:${m.accountAddress}:${liveSourceExecutionCloid(row.mandateId, row.sourceFillId, row.leg)}`;

@@ -16,6 +16,17 @@ export type FollowerSnapshotClaim = Readonly<{ accountId: string; userId: number
 export type FollowerSnapshotIssue = NonNullable<typeof copyFollowerObservationJobs.$inferSelect['issue']>;
 /** Observations of the deployment's network's copy accounts only (another
  * network's accounts keep their last observation as history). */
+/**
+ * Accounts worth an observation: those of a live or stopping copy, and those
+ * that may hold funds (a deposit was sent to them and their latest
+ * observation, if any, still showed equity). A setup that ended before its
+ * deposit (Stage's 0x0a6a…, never moved to standard mode) was observed every
+ * two minutes forever and logged unsupported_mode each time.
+ */
+const observable = sql`(exists (select 1 from copy_live_mandates m where m.account_id = ${copyExecutionAccounts.id} and m.state in ('active', 'paused', 'stopping'))
+  or (exists (select 1 from copy_funding_operations f where f.account_id = ${copyExecutionAccounts.id} and f.direction = 'to_account' and f.status in ('unknown', 'accepted', 'credited'))
+    and not exists (select 1 from copy_follower_observations o where o.id = ${copyFollowerObservationJobs.latestObservationId}
+      and coalesce(nullif(o.snapshot->>'perpEquity', ''), '0')::numeric < 0.01)))`;
 @Injectable()
 export class CopyFollowerSnapshotRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, private readonly config: AppConfig) {}
@@ -38,7 +49,7 @@ export class CopyFollowerSnapshotRepository {
         and address <> '0x0000000000000000000000000000000000000000' on conflict (account_id) do nothing`);
       const [row] = await tx.select({ account: copyExecutionAccounts }).from(copyFollowerObservationJobs)
         .innerJoin(copyExecutionAccounts, eq(copyExecutionAccounts.id, copyFollowerObservationJobs.accountId))
-        .where(and(eq(copyExecutionAccounts.network, network), sql`${copyExecutionAccounts.address} is not null and ${copyExecutionAccounts.address} <> '0x0000000000000000000000000000000000000000'`, sql`${copyFollowerObservationJobs.nextRunAt} <= clock_timestamp()`))
+        .where(and(eq(copyExecutionAccounts.network, network), sql`${copyExecutionAccounts.address} is not null and ${copyExecutionAccounts.address} <> '0x0000000000000000000000000000000000000000'`, observable, sql`${copyFollowerObservationJobs.nextRunAt} <= clock_timestamp()`))
         .orderBy(copyFollowerObservationJobs.nextRunAt, copyFollowerObservationJobs.accountId).limit(1).for('update', { of: copyFollowerObservationJobs, skipLocked: true });
       if (!row?.account.address) return null;
       const claimToken = randomUUID();

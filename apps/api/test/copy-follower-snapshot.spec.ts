@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
-import { copyExecutionAccounts, copyFollowerObservations, copyFollowerObservationJobs, copyFollowerObservationBudget, copyFollowerAccountState, copyStrategies, users } from '@trading-dashboard/shared/database';
+import { copyExecutionAccounts, copyFundingOperations, copyFollowerObservations, copyFollowerObservationJobs, copyFollowerObservationBudget, copyFollowerAccountState, copyStrategies, users } from '@trading-dashboard/shared/database';
 import { CopyFollowerSnapshotRepository } from '../src/copy/copy-follower-snapshot.repository.js';
 import { CopyFollowerSnapshotService, CopyFollowerSnapshotCollector } from '../src/copy/copy-follower-snapshot.service.js';
 import { BackgroundJobs } from '../src/runtime/background-jobs.service.js';
@@ -16,7 +16,9 @@ beforeEach(async () => {
   await truncateAll(db); await db.delete(copyFollowerObservationBudget); vi.spyOn(Date, 'now').mockReturnValue(now);
   const user = await insertUser(db); userId = user.id;
   await db.insert(copyStrategies).values({ id: 9, userId, leaderAddress: `0x${'44'.repeat(20)}`, mode: 'testnet', status: 'paused', allocated: '0', cash: '0', activatedAt: new Date(now) });
-  await db.insert(copyExecutionAccounts).values({ id: 'account', userId, strategyId: 9, network: 'testnet', state: 'ready', address: account, privyUserId: user.privyUserId, externalId: 'snapshot-fixture', privyWalletId: 'master', ownerQuorumId: 'owner' });
+  await db.insert(copyExecutionAccounts).values({ id: 'account', userId, strategyId: 9, network: 'testnet', state: 'ready', address: account, privyUserId: user.privyUserId, externalId: 'snapshot-fixture', privyWalletId: 'master', ownerQuorumId: 'owner' });  // A credited deposit: the account may hold funds, so it is observed.
+  await db.insert(copyFundingOperations).values({ id: 'deposit', userId, accountId: 'account', strategyId: 9, idempotencyKey: 'snapshot-deposit-key', network: 'testnet',
+    address: `0x${'66'.repeat(20)}`, destination: account, amount: '50', nonce: now, status: 'credited', evidenceHash: 'e'.repeat(64), transactionHash: `0x${'e'.repeat(64)}`, creditedAmount: '49', fee: '1' });
 });
 afterEach(() => vi.restoreAllMocks()); afterAll(closeTestDb);
 async function store() { const claim = await repository.claim(); expect(claim).not.toBeNull(); await repository.save(claim!, snapshot()); return claim!; }
@@ -24,6 +26,19 @@ describe('actual follower acquisition, isolation and retained observations', () 
   it('returns unknown before first observation and never uses zero paper cash as account equity', async () => {
     expect(await service.get(userId, 'account')).toMatchObject({ mode: 'actual', network: 'testnet', status: 'unavailable', reason: 'not_observed', observation: null });
     expect(await db.select().from(copyFollowerObservations)).toHaveLength(0);
+  });
+  it('observes only accounts that may hold funds or run a copy (a setup that ended before its deposit was observed every two minutes)', async () => {
+    await db.delete(copyFundingOperations);
+    expect(await repository.claim()).toBeNull();
+    // A deposit sent (not yet credited) is enough.
+    await db.insert(copyFundingOperations).values({ id: 'sent', userId, accountId: 'account', strategyId: 9, idempotencyKey: 'snapshot-sent-key', network: 'testnet',
+      address: `0x${'66'.repeat(20)}`, destination: account, amount: '50', nonce: now + 1, status: 'accepted', evidenceHash: 'f'.repeat(64) });
+    await db.delete(copyFollowerObservationBudget);
+    await store();
+    // Its latest observation shows it empty (returned after a stop): no more reads.
+    await db.execute(sql`update copy_follower_observations set snapshot = jsonb_set(snapshot, '{perpEquity}', '"0"')`);
+    await db.update(copyFollowerObservationJobs).set({ nextRunAt: new Date(0), claimToken: null, attemptedAt: null }); await db.delete(copyFollowerObservationBudget);
+    expect(await repository.claim()).toBeNull();
   });
   it('admits one acquisition across concurrent repository instances and preserves allowance after a restart', async () => {
     const claims = await Promise.all(Array.from({ length: 8 }, () => new CopyFollowerSnapshotRepository(db, testConfig()).claim()));

@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { copyFollowerSnapshotReadSchema } from '@trading-dashboard/shared/contracts';
-import { copyExecutionAccounts, copyFollowerObservationBudget, copyStrategies, users } from '@trading-dashboard/shared/database';
+import { copyExecutionAccounts, copyFundingOperations, copyFollowerObservationBudget, copyStrategies, users } from '@trading-dashboard/shared/database';
 import { CopyFollowerSnapshotController } from '../src/copy/copy-follower-snapshot.controller.js';
 import { CopyFollowerSnapshotRepository } from '../src/copy/copy-follower-snapshot.repository.js';
 import { CopyFollowerSnapshotService } from '../src/copy/copy-follower-snapshot.service.js';
@@ -32,6 +32,9 @@ beforeEach(async () => {
   const strategy = (await db.insert(copyStrategies).values({ userId, leaderAddress: `0x${'44'.repeat(20)}`, mode: 'testnet', status: 'paused', allocated: '0', cash: '0', activatedAt: new Date(now) }).returning())[0]!;
   await db.insert(copyExecutionAccounts).values({ id: accountId, userId, strategyId: strategy.id, network: 'testnet', state: 'ready', address: account,
     privyUserId: owner.privyUserId, externalId: 'private-provider-id', privyWalletId: 'private-wallet', ownerQuorumId: 'private-quorum' });
+  // A credited deposit: only an account that may hold funds (or runs a copy) is observed.
+  await db.insert(copyFundingOperations).values({ id: 'deposit', userId, accountId, strategyId: strategy.id, idempotencyKey: 'snapshot-http-deposit', network: 'testnet',
+    address: `0x${'66'.repeat(20)}`, destination: account, amount: '50', nonce: now, status: 'credited', evidenceHash: 'e'.repeat(64), transactionHash: `0x${'e'.repeat(64)}`, creditedAmount: '49', fee: '1' });
 });
 afterEach(() => vi.restoreAllMocks());
 afterAll(async () => { await app?.close(); await closeTestDb(); vi.unstubAllEnvs(); });

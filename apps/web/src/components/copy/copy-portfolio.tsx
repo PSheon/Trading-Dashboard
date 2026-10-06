@@ -6,7 +6,7 @@ import { useMemo, useState } from "react";
 import { cn } from "cn";
 
 import { CopyAccountingHistory } from "@/components/copy/copy-accounting-history";
-import { PaperBadge } from "@/components/copy/paper-badge";
+import { ModeBadge } from "@/components/shell/mode-badge";
 import { CopyCompare } from "@/components/copy/copy-compare";
 import { CopySparkline } from "@/components/copy/portfolio-parts";
 import { SkelBar, SkelCircle } from "@/components/page";
@@ -122,7 +122,6 @@ export function CopyTable({ strategies, leaders, onSelect, sparklines, bare = fa
                 >
                   {boardName(leader)}
                 </button>
-                <PaperBadge />
                 <StatusBadges s={s} />
               </span>
               <span className="num text-right">{t("portfolio.copy.daysShort", { count: copyDays(s.createdAt) })}</span>
@@ -180,7 +179,6 @@ export function CopyCards({ strategies, leaders, onSelect, sparklines }: { strat
                 <span className="truncate text-[0.9375rem] font-bold">{boardName(leader)}</span>
                 <span className="mt-1 flex min-w-0 items-center gap-1.5">
                   <span className="num text-xs text-muted-foreground">{s.equity === null ? "—" : format.usd(s.equity, { digits: 2 })}</span>
-                  <PaperBadge />
                   <StatusBadges s={s} />
                 </span>
               </span>
@@ -272,7 +270,6 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
           </Link>
           <p className="num text-xs text-muted-foreground">{truncateAddress(s.leaderAddress)}</p>
         </div>
-        <PaperBadge />
         <StatusBadges s={s} />
       </div>
 
@@ -410,7 +407,7 @@ function StopDialog({ strategy: s, open, onClose }: { strategy: CopyStrategyView
   const [error, setError] = useState<string | null>(null);
   const n = s.positions.length;
   return (
-    <Modal open={open} onOpenChange={(o) => !o && onClose()} title={t("portfolio.copy.stop.title")} badge={<PaperBadge />}>
+    <Modal open={open} onOpenChange={(o) => !o && onClose()} title={t("portfolio.copy.stop.title")} badge={<ModeBadge mode="paper" />}>
       <div className="flex flex-col gap-5 p-5">
         <p className="text-sm text-muted-foreground">{n ? t("portfolio.copy.stop.withPositions", { count: n }) : t("portfolio.copy.stop.noPositions")}</p>
         {error ? <p role="alert" className="text-xs font-semibold text-negative">{error}</p> : null}
@@ -459,7 +456,7 @@ function EditDialog({ strategy: s, balance, open, onClose }: { strategy: CopyStr
   const per = Number.parseFloat(perTrade);
   const invalid = !(max > 0) || (mode === "fixed" && (!(per > 0) || per > max));
   return (
-    <Modal open={open} onOpenChange={(o) => !o && onClose()} title={t("portfolio.copy.edit.title")} badge={<PaperBadge />}>
+    <Modal open={open} onOpenChange={(o) => !o && onClose()} title={t("portfolio.copy.edit.title")} badge={<ModeBadge mode="paper" />}>
       <div className="flex flex-col gap-5 p-5">
         <div role="radiogroup" className="grid grid-cols-2 gap-1 rounded-full border border-border-strong bg-raised p-1">
           {(["fixed", "ratio"] as const).map((m) => (
@@ -517,7 +514,7 @@ function FundsDialog({ strategy: s, balance, open, onClose }: { strategy: CopySt
   const value = Number.parseFloat(amount);
   const invalid = !(value > 0) || value > balance;
   return (
-    <Modal open={open} onOpenChange={(o) => !o && onClose()} title={t("portfolio.copy.funds.title")} badge={<PaperBadge />}>
+    <Modal open={open} onOpenChange={(o) => !o && onClose()} title={t("portfolio.copy.funds.title")} badge={<ModeBadge mode="paper" />}>
       <div className="flex flex-col gap-4 p-5">
         <label htmlFor="funds-amount" className="flex justify-between text-sm font-semibold">
           USDC
@@ -563,7 +560,7 @@ export function WithdrawDialog({ strategy: s, open, onClose }: { strategy: CopyS
   const available = s.freeCollateralUsd;
   const value = Number.parseFloat(amount);
   const invalid = !(value > 0) || available == null || value > available;
-  return <Modal open={open} onOpenChange={(o) => !o && onClose()} title={t("copyUpdates.withdrawTitle")} badge={<PaperBadge />}>
+  return <Modal open={open} onOpenChange={(o) => !o && onClose()} title={t("copyUpdates.withdrawTitle")} badge={<ModeBadge mode="paper" />}>
     <div className="flex flex-col gap-4 p-5">
       <p className="text-xs text-muted-foreground">{t("copyUpdates.withdrawHint")}</p>
       <label htmlFor="withdraw-amount" className="flex justify-between text-sm font-semibold">USDC <span className="text-xs text-muted-foreground">{t("copyUpdates.available")}: {available == null ? "—" : format.usd(available, { digits: 2 })}</span></label>

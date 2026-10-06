@@ -7,7 +7,6 @@ import { cn } from "cn";
 
 import { LiveCopyConfirm, LiveCopyProgress, liveSetupError, useCopyTexts, useLiveSetupText } from "@/components/copy/live-copy-setup-dialogs";
 import { LiveSettingsFields } from "@/components/copy/live-copy-settings-fields";
-import { PaperBadge } from "@/components/copy/paper-badge";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
 import { HedgeNotice } from "@/components/copy/portfolio-parts";
@@ -72,11 +71,6 @@ export function usePanelSetup(identity: string | null, leader: string): [PanelSe
     panelSetups.set(key, { ...(panelSetups.get(key) ?? EMPTY_SETUP), ...change });
     panelSetupListeners.forEach((listener) => listener());
   }];
-}
-
-/** 測試網 badge, beside where the paper copy shows 模擬. */
-function TestnetBadge({ label }: { label: string }) {
-  return <span className="inline-flex h-5 shrink-0 items-center rounded-full bg-primary/15 px-2 text-[11px] font-bold text-primary-text">{label}</span>;
 }
 
 /** CopyDog's Hyperliquid floor (`Minimum ${min} to copy`); the api's policy wins once loaded. */
@@ -375,7 +369,6 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
         {modePill}
         <div className="flex items-center justify-between gap-2">
           <p className="text-[0.9375rem] font-bold">{lapsed ? liveText.consentLapsed : endedSetup.stage === "expired" ? liveText.expired : liveText.failed}</p>
-          <TestnetBadge label={liveText.testnet} />
         </div>
         <p role={lapsed ? undefined : "alert"} className="flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning">
           <TriangleAlert className="mt-px size-3.5 shrink-0" />{lapsed ? liveText.consentLapsedHint : liveSetupError(copyTexts, endedSetup.issue)}
@@ -397,7 +390,6 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
         {modePill}
         <div className="flex items-center justify-between gap-2">
           <p className="text-[0.9375rem] font-bold">{settingUp ? liveText.progressTitle : liveText.copying}</p>
-          <TestnetBadge label={liveText.testnet} />
         </div>
         <dl className="grid grid-cols-2 gap-2 rounded-xl bg-inset p-3 text-center">
           <div>
@@ -439,7 +431,6 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
           <div className="flex items-center gap-1.5">
             {existing.status === "paused" ? <span className="rounded-full bg-raised px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">{t("trader.copy.paused")}</span> : null}
             {existing.status === "stopping" ? <span className="rounded-full bg-raised px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">{t("trader.copy.stopping")}</span> : null}
-            <PaperBadge />
           </div>
         </div>
         <dl className="grid grid-cols-3 gap-2 rounded-xl bg-inset p-3 text-center">
@@ -562,7 +553,6 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
           <div className="flex items-center gap-2.5 rounded-xl bg-inset px-3.5 py-3">
             <UsdcIcon size={26} />
             <span className="text-sm font-bold">USDC</span>
-            {testnet ? <TestnetBadge label={liveText.testnet} /> : <PaperBadge />}
             <span className="ml-auto text-sm">
               <b className="num">{balanceKnown ? format.num(balance, 2) : "—"}</b> <span className="text-muted-foreground">{testnet ? liveText.testnetBalance : t("portfolio.copy.paperBalance")}</span>
             </span>
@@ -589,7 +579,6 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
           <div className="mt-10 flex items-center justify-between gap-3 text-sm leading-[21px]">
             <span className="flex items-center gap-2 text-muted-foreground">
               {testnet ? <span className="whitespace-nowrap">{liveText.testnetBalance}</span> : t("trader.copy.balance")}
-              {testnet ? null : <PaperBadge />}
             </span>
             <span className="num font-semibold">{balanceText} USDC</span>
           </div>

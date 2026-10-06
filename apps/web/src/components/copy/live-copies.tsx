@@ -88,7 +88,6 @@ function LiveCopyRow({ item, text, account, mandate, strategy }: { item: LiveCop
     <div className="flex flex-col gap-3 px-4 py-4 text-sm">
       <div className="flex flex-wrap items-center gap-2">
         <Link href={`/trader/${item.leaderAddress}`} className="num font-semibold hover:underline">{shortAddress(item.leaderAddress)}</Link>
-        <span className="rounded bg-raised px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground">{text.testnet}</span>
         <span className="rounded bg-raised px-1.5 py-0.5 text-[11px] text-muted-foreground">{item.sourceNetwork === 'mainnet' ? text.mainnetLeader : text.testnetLeader}</span>
         <span role="status" className={cn('rounded px-1.5 py-0.5 text-[11px] font-semibold', stageTone[item.stage])}>{autoReturning ? text.autoReturning : text.stages[item.stage]}</span>
       </div>

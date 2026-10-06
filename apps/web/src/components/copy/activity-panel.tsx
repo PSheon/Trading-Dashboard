@@ -7,7 +7,6 @@ import { cn } from "cn";
 
 import { describeCopyEvent } from "@/components/copy/copy-feed";
 import { useLeaders } from "@/components/copy/copy-portfolio";
-import { PaperBadge } from "@/components/copy/paper-badge";
 import { boardName } from "@/components/discover/board-bits";
 import { ListRowsSkeleton } from "@/components/page";
 import { CoinIcon } from "@/components/traders/coin-icon";
@@ -204,7 +203,6 @@ export function ActivityPanel({ open, onClose }: { open: boolean; onClose: () =>
       open={open}
       onOpenChange={(o) => { if (!o) onClose(); }}
       title={t("feed.title")}
-      badge={chip === "copies" && signedIn ? <PaperBadge /> : null}
       className="top-0 left-0 h-dvh max-h-none w-screen max-w-none translate-x-0 translate-y-0 rounded-none border-0"
       bodyClassName="px-4 pt-3 pb-8"
     >

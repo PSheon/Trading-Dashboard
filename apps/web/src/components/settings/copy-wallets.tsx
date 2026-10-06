@@ -34,7 +34,6 @@ export function CopyWalletsList() {
             <li key={account.id} className="flex flex-col gap-2 py-3 text-xs">
               <div className="flex flex-wrap items-center gap-2 font-semibold">
                 <span>{t("executionWallets.copyNumber", { id: account.strategyId })}</span>
-                <span className="rounded bg-raised px-1.5 py-0.5 text-[11px] text-muted-foreground">{t(`executionWallets.networks.${account.network}`)}</span>
                 {account.automaticReturn ? <span className="rounded bg-positive/15 px-1.5 py-0.5 text-[11px] text-positive">{text.automaticReturnOn}</span> : null}
               </div>
               <p className="num break-all font-mono text-muted-foreground" title={account.address!}>{truncateAddress(account.address!)}</p>

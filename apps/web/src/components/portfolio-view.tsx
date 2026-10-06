@@ -13,7 +13,6 @@ import { LiveCopies } from "@/components/copy/live-copies";
 import { ExposurePanel, InsightsPanel, PaperSummary, PaperSummarySkeleton, PortfolioChart, PortfolioChartSkeleton } from "@/components/copy/portfolio-parts";
 import { ErrorState, Skeleton } from "@/components/page";
 import { Button } from "@/components/ui/button";
-import { NetworkBadge } from "@/components/wallet/bits";
 import { useWalletModals } from "@/components/wallet/wallet-modals";
 import { useI18n } from "@/i18n/provider";
 import { useAuth } from "@/lib/auth";
@@ -272,10 +271,8 @@ function DesktopPortfolio() {
       <h1 className="type-h1">{t("portfolio.title")}</h1>
       <div className="flex flex-wrap items-stretch gap-4">
         <section className="orbit-card card-pad flex w-[340px] flex-col gap-2" aria-label={t("portfolio.totalValue")}>
-          {/* min-h-6: the testnet badge's height, so its arrival moves nothing. */}
           <div className="flex min-h-6 items-center justify-between gap-2">
             <p className="text-[13px] font-bold text-muted-foreground">{t("portfolio.totalValue")}</p>
-            <NetworkBadge network={wallet.data?.network} />
           </div>
           <button
             type="button"
@@ -424,7 +421,6 @@ function PhoneBody({
       <div className="orbit-card mx-4 mt-3 px-5 py-4">
         <div className="flex min-h-6 items-center gap-2">
           <p className="text-[13px] font-bold text-muted-foreground">{t("portfolio.totalValue")}</p>
-          <NetworkBadge network={wallet.data?.network} />
         </div>
         <button
           type="button"

@@ -2,7 +2,6 @@
 
 import { copyRecordLabel } from "./copy-labels";
 import { Link } from "@/i18n/navigation";
-import { PaperBadge } from "@/components/copy/paper-badge";
 import type { MessageKey } from "@/i18n/messages";
 import { useI18n } from "@/i18n/provider";
 import { useCopyEvents } from "@/lib/copy";
@@ -48,7 +47,7 @@ export function CopyActivity() {
   const { t } = useI18n();
   return <section className="mt-6 orbit-card card-pad" aria-label={t("copyUpdates.activityAria")}>
     <div className="flex items-center justify-between gap-2">
-      <h2 className="flex items-center gap-2 text-sm font-bold">{t("copyUpdates.activityTitle")} <PaperBadge /></h2>
+      <h2 className="flex items-center gap-2 text-sm font-bold">{t("copyUpdates.activityTitle")}</h2>
       <TextButton busy={query.isFetching} onClick={() => void query.refetch()} className="rounded px-2 py-1 text-xs text-muted-foreground no-underline hover:text-foreground">{t("copyUpdates.refresh")}</TextButton>
     </div>
     <p className="mt-2 text-[11px] text-muted-foreground">{t("copyUpdates.activityHint")}</p>

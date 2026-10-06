@@ -8,7 +8,6 @@ import { useI18n } from "@/i18n/provider";
 import { useAuth } from "@/lib/auth";
 import { api, sessionKey } from "@/lib/api";
 import { defaultRetry } from "@/lib/query-policy";
-import { PaperBadge } from "./paper-badge";
 import { TextButton } from "@/components/ui/text-button";
 
 /** The real persisted paper ledger, separate from the bounded activity
@@ -18,7 +17,7 @@ export function CopyAccountingHistory({ strategyId }: { strategyId: number }) {
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<"ledger" | "fills">("ledger");
   return <details className="orbit-card card-pad" onToggle={(e) => setOpen(e.currentTarget.open)}>
-    <summary className="cursor-pointer text-sm font-semibold">{t("copyUpdates.accountingHistory")} <PaperBadge /></summary>
+    <summary className="cursor-pointer text-sm font-semibold">{t("copyUpdates.accountingHistory")}</summary>
     {open ? <>
       <div className="my-3 flex gap-3" role="tablist" aria-label={t("copyUpdates.accountingHistory")}>
         {(["ledger", "fills"] as const).map((value) => <button type="button" key={value} role="tab" aria-selected={kind === value} className={`rounded px-3 py-2 text-xs ${kind === value ? "bg-raised text-primary-text" : "text-muted-foreground"}`} onClick={() => setKind(value)}>{t(`copyUpdates.${value}`)}</button>)}

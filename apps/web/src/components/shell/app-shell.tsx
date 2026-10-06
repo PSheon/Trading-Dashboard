@@ -12,6 +12,7 @@ import { MaintenanceBanner } from "./maintenance-banner";
 import { CopyFeed } from "@/components/copy/copy-feed";
 import { AccountControls, AuthButton } from "./account-controls";
 import { AddressSearch } from "./address-search";
+import { ModeBadge } from "./mode-badge";
 import { PhoneMenu } from "./phone-menu";
 import { SiteFooter } from "./site-footer";
 import { WalletModalsProvider } from "@/components/wallet/wallet-modals";
@@ -128,6 +129,7 @@ export function AppShell({
           >
             <Lockup />
           </Link>
+          <IslandBoundary><ModeBadge className="-ml-2" /></IslandBoundary>
           <NavCapsule label={t("nav.primary")} items={discoverNav} pathname={pathname} />
         </div>
         <div className="flex min-w-0 justify-center">
@@ -152,9 +154,10 @@ export function AppShell({
       {chrome !== "none" ? (
         <header data-scrolled={scrolled} className="fixed inset-x-0 top-0 z-40 isolate flex h-[72px] items-center gap-2.5 px-4 md:hidden">
           <div aria-hidden className="bar-scrim" />
-          <Link href="/" aria-label={APP_NAME} className="mr-auto flex shrink-0 items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <Link href="/" aria-label={APP_NAME} className="flex shrink-0 items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <Lockup />
           </Link>
+          <IslandBoundary><ModeBadge className="mr-auto" /></IslandBoundary>
           <IslandBoundary><AddressSearch compact /></IslandBoundary>
           <IslandBoundary>{chrome === "marketing" ? <PhoneMenu /> : <AuthButton compact />}</IslandBoundary>
         </header>

@@ -6,7 +6,6 @@ import { useMemo, useState } from "react";
 import { cn } from "cn";
 
 import { AreaChart } from "@/components/charts/area-chart";
-import { PaperBadge } from "@/components/copy/paper-badge";
 import { TraderAvatar, boardName } from "@/components/discover/board-bits";
 import { ListRowsSkeleton, SkelBar, Skeleton } from "@/components/page";
 import { CoinIcon } from "@/components/traders/coin-icon";
@@ -100,7 +99,6 @@ export function PortfolioChart({ overview, height = 240, className }: { overview
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Seg label={t("pf.chart.metric")} value={roi ? "roi" : "pnl"} onChange={setMetric} options={roiOk ? [["pnl", t("pf.chart.pnl")], ["roi", t("pf.chart.roi")]] : [["pnl", t("pf.chart.pnl")]]} />
-          <PaperBadge />
         </div>
         <Seg label={t("copyUpdates.historyWindow")} value={window} onChange={setWindow} options={PORTFOLIO_WINDOWS.map(([w, key]) => [w, t(`windows.${key}`)])} />
       </div>
@@ -174,7 +172,6 @@ export function PaperSummary({ overview, className, collapsible = false }: { ove
     <section className={cn("flex flex-col rounded-2xl bg-raised p-6", className)} aria-label={t("portfolio.copy.paperAccount")}>
       <div className="flex items-center justify-between gap-2">
         <p className="font-display text-xl">{t("portfolio.copy.paperAccount")}</p>
-        <PaperBadge />
       </div>
       <div className="flex items-center justify-between gap-2">
         <p className="num font-display text-[2.5rem] leading-tight">{p.totalValue === null ? "—" : format.usd(p.totalValue, { digits: 2 })}</p>
@@ -399,7 +396,7 @@ export function ExposurePanel({ overview, leaders, desktop }: { overview: CopyOv
   const net = e.long - e.short;
   const direction = (
     <section>
-      <SecHead title={t("pf.exposure.direction")}><PaperBadge /></SecHead>
+      <SecHead title={t("pf.exposure.direction")} />
       <p className="num text-2xl font-bold">{format.usd(e.gross, { digits: 2 })}</p>
       {e.assets.some((a) => a.hedged) ? <p className="mt-1 text-xs text-warning">{t("copyUpdates.hedgeHint")}</p> : null}
       <div className="mt-3"><Bar parts={[[e.longPct, "bg-positive"], [e.shortPct, "bg-negative"]]} /></div>

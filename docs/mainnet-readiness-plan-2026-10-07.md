@@ -43,7 +43,8 @@
 | --- | --- |
 | ① 統一簽署 | ✅ 完成（`a45aec1b` CI 綠）：刪 8 個端點與 4 個欄位（migration 0071，會刪欄位，部署前備份）；拒絕 addSigners → 入金前 409；真實 Privy 驗證 worker 可簽返還／帳戶模式、轉給別人被拒 |
 | ③ 額度與下單路徑 | ✅ 完成（CI 綠）：額度包裝合一；開機檢查容量；主網 worker 360／840；最小金額規則合一；dex 範圍讀取未做（無法證明安全；主網只有 11 個 dex） |
-| ② 網路參數化 | 進行中（02:05 起） |
+| ② 網路參數化 | ✅ 完成（CI 綠 `bf9f8820`）：`HYPERLIQUID_NETWORK` 單一來源；live 只允許名單內帳號；上限取 env 與 DB 較嚴者；migration 0072；所有 worker 查詢只處理部署網路的資料；安全審查兩項（下單時風控檢查上限與名單、所有 mandate 路徑檢查名單）已修 |
 | ④ 自動化測試台 | ✅ 建好（CI 綠）：`node scripts/copy-harness/run.mjs` 一行跑完整流程；不需資金的步驟實跑全綠（登入、設定、瀏覽器簽同意與入金、addSigners 經 Privy 200、餘額不足被 409 擋、取消後確認沒扣錢）。真實下單／對帳／提領／停止返還待受控交易員 `0xb567…53e1` 有 ≥170 testnet USDC |
-| Stage 切主網 | 待 ② 完成；舊 testnet 資料不刪，改為「只處理部署網路的資料」；需移除 `COPY_LIVE_WEIGHT_PER_MIN=700`、風控 `maxStrategiesPerUser ≤ 2` |
+| Stage 切主網 | ✅ 02:45 完成：先備份（`stage-before-mainnet.dump`），部署 `bf9f8820`（api 跑 0071、0072），api／worker 設主網 env。worker 開機：`Copy execution on mainnet every 3000 ms for 1 listed owner(s)`、`Order bucket (mainnet): capacity 840 … weighs 772`。Privy 測試帳號登入 Stage：`network: mainnet`、`actualAllowed: false`、上限 12–15／50／3x／2；頁面標籤只有 正式、模擬。舊 testnet 跟單（strategy 5，79 testnet USDC）變成歷史紀錄，不再處理 |
+| 緊急停止演練 | 待 Paul（需要 admin 登入）：後台暫停平台 → 新跟單被拒 `copy_paused` → 解除 |
 | 主網兩筆跟單 | 待 Paul 9:00 |

@@ -48,8 +48,12 @@ export async function expectNoSidewaysScroll(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 }
 
-/** No WCAG 2.1 A/AA violations on the settled page. */
+/** No WCAG 2.1 A/AA violations on the settled page. Next streams a dynamic
+ * page's metadata, so its <title> can land after the content (axe's
+ * document-title then failed now and then, e.g. admin-copy at 390): the
+ * audit waits for it. */
 export async function expectAccessible(page: Page) {
+  await expect.poll(() => page.title(), { timeout: 10_000, message: "the page has its <title>" }).not.toBe("");
   const audit = await (await wcag(page)).analyze();
   expect(audit.violations.map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) }))).toEqual([]);
 }

@@ -6,6 +6,8 @@ import { z } from "zod";
 import { readInfoJson } from "../hyperliquid/response-validation.js";
 import { agentApprovalTypedData, type AgentConsentIntent } from "./copy-agent-consent.js";
 import { LiveBoundaryError } from "./live/wallet-authorization.js";
+import { Logger } from "@nestjs/common";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 export const AGENT_APPROVAL_CLIENT = Symbol("AGENT_APPROVAL_CLIENT");
 /** Provider weight of one agent observation: userRole 60 + extraAgents 20. */
@@ -39,20 +41,23 @@ export class PrivyAgentApprovalClient implements AgentApprovalClient {
     if(this.now()>=intent.consentExpiresAt)throw new LiveBoundaryError('agent_consent_expired');
     let dispatched=false;
     try{
-      const request:RequestInit={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:{type:'approveAgent',signatureChainId:WALLET_NETWORKS.testnet.signatureChainId,...data.message},nonce:intent.nonce,signature:splitSignature(signature)}),redirect:'error',signal:AbortSignal.timeout(10000)};
+      const network=WALLET_NETWORKS[intent.network];
+      const request:RequestInit={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:{type:'approveAgent',signatureChainId:network.signatureChainId,...data.message},nonce:intent.nonce,signature:splitSignature(signature)}),redirect:'error',signal:AbortSignal.timeout(10000)};
       if(this.global&&typeof assertFreshProof!=='function')throw new Error();
       const permit=this.global?await this.global.currentQuota().acquireRest(1,Math.min(this.now()+5000,intent.consentExpiresAt)):undefined;
       const dispatch=()=>{
         const result:unknown=assertFreshProof?.();if(result!==undefined){void Promise.resolve(result).catch(()=>{});throw new Error();}
         permit?.assertFresh();if(this.now()<intent.nonce||this.now()>=intent.consentExpiresAt)throw new Error();
-        dispatched=true;return this.fetcher(WALLET_NETWORKS.testnet.exchangeUrl,request);
+        dispatched=true;return this.fetcher(network.exchangeUrl,request);
       };
       const response=await (permit?permit.dispatch(dispatch):dispatch());
       if(!response.ok){await response.body?.cancel().catch(()=>{});throw new Error();}return await readInfoJson(response,'agent approval submission',64*1024);
-    }catch{
+    }catch(error){
       // Refused before the POST reached the transport (the meter's permit, a
-      // stale proof, the clock): nothing left this process.
-      throw new LiveBoundaryError(dispatched?'agent_approval_submission_unknown':'agent_approval_not_dispatched');
+      // stale proof, the clock): nothing left this process. Either way, why.
+      const code=dispatched?'agent_approval_submission_unknown':'agent_approval_not_dispatched';
+      new Logger('PrivyAgentApprovalClient').warn(`agent approval ${code}: ${safeErrorText(error)}`);
+      throw new LiveBoundaryError(code);
     }
   }
   /** Provider weight of one observation: userRole 60 + extraAgents 20. */

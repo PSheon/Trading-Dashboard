@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto';
+import { Logger } from '@nestjs/common';
 import { PrivyClient } from '@privy-io/node';
 import type { PolicyRuleRequestBody } from '@privy-io/node/resources';
 import { COPY_MASTER_ACTION_TYPES, WALLET_NETWORKS, type CopyMasterPrimaryType } from '@trading-dashboard/shared/contracts';
 import { z } from 'zod';
+import { safeErrorText } from '../../runtime/safe-error-text.js';
 
 /**
  * The Privy policy that binds the worker quorum when it signs as a copy
@@ -108,12 +110,20 @@ export interface MasterPolicyPort {
  * Holds no user session: only the owner's browser adds or removes signers. */
 export class PrivyMasterPolicy implements MasterPolicyPort {
   private readonly client: PrivyClient | null;
+  private readonly logger = new Logger('PrivyMasterPolicy');
   constructor(config: { appId?: string; appSecret?: string }, client?: PrivyClient) {
     this.client = client ?? (config.appId && config.appSecret ? new PrivyClient({ appId: config.appId, appSecret: config.appSecret, timeout: 10_000, maxRetries: 0, logLevel: 'off' }) : null);
   }
   get available() { return this.client !== null; }
   private require(): PrivyClient { if (!this.client) throw new MasterPolicyUnavailable(); return this.client; }
-  private async call<T>(work: () => PromiseLike<T>): Promise<T> { try { return await work(); } catch { throw new MasterPolicyUnavailable(); } }
+  private async call<T>(work: () => PromiseLike<T>): Promise<T> {
+    try { return await work(); }
+    catch (error) {
+      // Privy's status and the error's name, never its message or a token.
+      this.logger.warn(`master policy call failed: ${safeErrorText(error)}`);
+      throw new MasterPolicyUnavailable();
+    }
+  }
 
   /** Idempotent per `attemptKey` (Privy keeps the key for 24 h). */
   async create(userId: string, binding: MasterPolicyBinding, attemptKey: string): Promise<{ id: string }> {

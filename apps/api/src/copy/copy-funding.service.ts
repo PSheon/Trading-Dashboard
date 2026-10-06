@@ -1,4 +1,5 @@
-import { BadGatewayException, BadRequestException, ConflictException, Inject, Injectable, NotFoundException, Optional, ServiceUnavailableException } from "@nestjs/common";
+import { BadGatewayException, BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from "@nestjs/common";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 import { WALLET_NETWORK_HL, type WalletNetworkHyperliquid } from "../hyperliquid/wallet-network-hyperliquid.js";
 import { createHash } from "node:crypto";
 import { verifyTypedData } from "viem";
@@ -26,6 +27,7 @@ export const wire = (row: FundingRow): CopyFunding => ({ id: row.id, accountId: 
  * until the complete live trading lifecycle is connected and verified. */
 @Injectable()
 export class CopyFundingService {
+  private readonly logger = new Logger(CopyFundingService.name);
   private readonly lookups = new TtlCache<CopyFunding>(15_000);
   constructor(private readonly config: AppConfig, private readonly repository: CopyFundingRepository,
     private readonly wallets: CopyWalletService, private readonly exchange: CopyFundingExchangeClient, private readonly info: HyperliquidInfoClient,
@@ -97,7 +99,11 @@ export class CopyFundingService {
       if (!Number.isSafeInteger(identityCheckedAt) || now < identityCheckedAt || now - identityCheckedAt > 5000 ||
         account.id !== attempt.accountId || account.address !== attempt.destination || account.network !== attempt.network ||
         attempt.network !== this.config.value.hyperliquid.wallet.network) throw new ConflictException("funding_identity_evidence_expired");
-    }); } catch { return wire(await this.repository.find(userId, id)); }
+    }); } catch (error) {
+      // Its outcome is unknown: confirmed from the ledger, never resent.
+      this.logger.warn(`deposit ${id} outcome unknown: ${safeErrorText(error)}`);
+      return wire(await this.repository.find(userId, id));
+    }
     if (reply && typeof reply === "object" && Object.keys(reply).sort().join(",") === "response,status" && "status" in reply && "response" in reply) {
       if (reply.status === "ok" && reply.response && typeof reply.response === "object" && Object.keys(reply.response).join(",") === "type" && "type" in reply.response && reply.response.type === "default") return wire(await this.repository.finish(userId, id, "accepted", digest(reply)));
       if (reply.status === "err" && typeof reply.response === "string" && reply.response && !/nonce/i.test(reply.response)) return wire(await this.repository.finish(userId, id, "rejected", digest(reply)));
@@ -114,7 +120,8 @@ export class CopyFundingService {
   async reconcilePending() {
     const operations = await this.repository.claimPending(5);
     for (const operation of operations) {
-      try { await this.confirm(operation); } catch { /* Keep the durable intent pending for the next bounded check. */ }
+      // Kept pending for the next bounded check; why, for the log.
+      try { await this.confirm(operation); } catch (error) { this.logger.warn(`transfer ${operation.id} not confirmed yet: ${safeErrorText(error)}`); }
     }
     return operations.length;
   }
@@ -175,6 +182,9 @@ export class CopyFundingService {
         if (saved && !scan.windows.length && scan.receipts.length === 1) return wire(await this.repository.credit(userId, id, scan.receipts[0]!, digest(scan.receipts[0]), saved.scanRevision));
         return wire(await this.repository.find(userId, id));
       });
-    } catch { throw new BadGatewayException("Funding confirmation unavailable"); }
+    } catch (error) {
+      this.logger.warn(`transfer ${id} confirmation unavailable: ${safeErrorText(error)}`);
+      throw new BadGatewayException("Funding confirmation unavailable");
+    }
   }
 }

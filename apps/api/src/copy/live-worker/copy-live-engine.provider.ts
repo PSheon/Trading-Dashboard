@@ -30,6 +30,9 @@ import { CopyLiveAutoReturn } from './copy-live-auto-return.js';
 import { CopyFundingExchangeClient } from '../copy-funding-exchange.client.js';
 import { PrivyPolicyMasterSigner } from '../live/privy-policy-master-signer.js';
 import { CopyLiveSetupService } from '../copy-live-setup.service.js';
+import { HyperliquidInfoClient, twapSliceToFill } from '../../hyperliquid/hyperliquid-info.client.js';
+import { TradeFeedService } from '../../watcher/trade-feed.service.js';
+import { FastMainnetSource } from './fast-mainnet-source.js';
 
 export const LIVE_ENGINE = Symbol('LIVE_ENGINE');
 /** Risk inputs the runtime requires besides slippage and the price check. */
@@ -40,9 +43,11 @@ const EXTRA_RISK_BUFFER_BPS = '5', RESTING_BUILDER_FEE_CAP_TENTHS_BPS = 100;
 export const liveEngineProvider: Provider = {
   provide: LIVE_ENGINE,
   inject: [AppConfig, DATABASE_POOL, DRIZZLE_CLIENT, UnitOfWork, PostgresHyperliquidQuota, CopyMarketService, CopyFollowerLedger,
-    CopyLiveSourceRepository, CopyLiveWorkerRepository, CopyFollowerScanRepository, CopyLiveStopWorkerRepository, CopyLiveReturnRepository, CopyLiveSetupService, WALLET_NETWORK_HL],
+    CopyLiveSourceRepository, CopyLiveWorkerRepository, CopyFollowerScanRepository, CopyLiveStopWorkerRepository, CopyLiveReturnRepository, CopyLiveSetupService, WALLET_NETWORK_HL,
+    HyperliquidInfoClient, { token: TradeFeedService, optional: true }],
   useFactory: (config: AppConfig, pool: Pool, db: DrizzleDb, uow: UnitOfWork, quota: PostgresHyperliquidQuota,
-    market: CopyMarketService, ledger: CopyFollowerLedger, sources: CopyLiveSourceRepository, repository: CopyLiveWorkerRepository, scans: CopyFollowerScanRepository, stops: CopyLiveStopWorkerRepository, returns: CopyLiveReturnRepository, setups: CopyLiveSetupService, wallet: WalletNetworkHyperliquid): CopyLiveEngine | null => {
+    market: CopyMarketService, ledger: CopyFollowerLedger, sources: CopyLiveSourceRepository, repository: CopyLiveWorkerRepository, scans: CopyFollowerScanRepository, stops: CopyLiveStopWorkerRepository, returns: CopyLiveReturnRepository, setups: CopyLiveSetupService, wallet: WalletNetworkHyperliquid,
+    info: HyperliquidInfoClient, feed?: TradeFeedService): CopyLiveEngine | null => {
     const live = config.value.copy.live;
     if (config.value.copy.mode !== 'testnet' || !live) return null;
     const logger = new Logger('CopyLiveEngine');
@@ -72,12 +77,26 @@ export const liveEngineProvider: Provider = {
         new PrivyPolicyMasterSigner({ appId: config.value.auth.appId, appSecret: config.value.auth.appSecret, workerQuorumId: config.value.copy.agent?.workerQuorumId,
           authorizationPrivateKey: config.value.copy.agent?.authorizationPrivateKey })) });
     const manual = new CopyLiveManualCloser(stops, closer, scanner, message => logger.warn(message));
+    // Realtime mainnet signal (COPY_LIVE_FAST_SOURCE): the worker's mainnet
+    // info client in the live lane, which acquires the worst case and gives
+    // back what each answer didn't use.
+    const fast = live.fastSource ? {
+      source: new FastMainnetSource({
+        fills: (leader, from) => info.userFillsByTime(leader, from, undefined, 'live'),
+        twapSlices: async (leader, from) => (await info.userTwapSliceFillsByTime(leader, from, undefined, 'live')).map(twapSliceToFill),
+      }, live.fastSource.graceMs, Date.now, message => logger.warn(message)),
+      leaders: live.fastSource.leaders,
+      // No feed (or a socket down): the pass polls the fast leaders instead.
+      feedUp: () => { const status = feed?.status(); return !!status && status.socketsTotal > 0 && status.disconnectedSince === null; },
+    } : undefined;
     return new CopyLiveEngine({ setups, stopper: { tick: async () => { await stopper.tick(); await manual.tick(); } },
       repository, sources, uow, watched: new WatchedMainnetSource(db),
-      testnetSource: new HyperliquidLiveSourceClient('testnet', weight => testnetBudget.acquire(weight, 'live', undefined, { signal: AbortSignal.timeout(5000) }), testnetGlobal.fetchInfo),
+      testnetSource: new HyperliquidLiveSourceClient('testnet', weight => testnetBudget.acquire(weight, 'live', undefined, { signal: AbortSignal.timeout(5000) }), testnetGlobal.fetchInfo,
+        Date.now, weight => { if (weight > 0) testnetBudget.adjust(-weight); }),
       runtime: hooks => new TestnetLiveExecutionRuntime(pool, testnetConfig, testnetGlobal, testnetBudget, options, Date.now, { ...hooks, reference }),
       settler: new CopyLiveSettler(pool, testnetGlobal, testnetBudget, scanner),
       log: message => logger.warn(message),
+      ...(fast ? { fast } : {}),
     }, DEFAULT_ENGINE_OPTIONS);
   },
 };

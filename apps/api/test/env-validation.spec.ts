@@ -74,6 +74,13 @@ describe("startup environment", () => {
     expect(() => validateEnvironment({ ...testnet, HYPERLIQUID_EGRESS_KEY: undefined })).toThrow("HYPERLIQUID_EGRESS_KEY");
     expect(() => validateEnvironment({ ...testnet, PRIVY_AGENT_AUTHORIZATION_KEY: undefined, PRIVY_AGENT_WORKER_QUORUM_ID: undefined })).toThrow("PRIVY_AGENT_AUTHORIZATION_KEY");
     expect(() => validateEnvironment({ ...testnet, COPY_TESTNET_MAX_PRICE_DEVIATION_BPS: "10001" })).toThrow("COPY_TESTNET_MAX_PRICE_DEVIATION_BPS");
+    // The realtime copy source is off unless named, per leader or for all.
+    expect(validateEnvironment(testnet).copy.live?.fastSource).toBeUndefined();
+    expect(validateEnvironment({ ...testnet, COPY_LIVE_FAST_SOURCE: " " }).copy.live?.fastSource).toBeUndefined();
+    expect(validateEnvironment({ ...testnet, COPY_LIVE_FAST_SOURCE: `0x${"E7".repeat(20)}, 0x${"aa".repeat(20)}` }).copy.live?.fastSource)
+      .toEqual({ leaders: new Set([`0x${"e7".repeat(20)}`, `0x${"aa".repeat(20)}`]), graceMs: 2000 });
+    expect(validateEnvironment({ ...testnet, COPY_LIVE_FAST_SOURCE: "all", COPY_LIVE_FAST_SOURCE_GRACE_MS: "3000" }).copy.live?.fastSource).toEqual({ leaders: "all", graceMs: 3000 });
+    expect(() => validateEnvironment({ ...testnet, COPY_LIVE_FAST_SOURCE: "0xnope" })).toThrow("COPY_LIVE_FAST_SOURCE");
   });
 
   it("requires a database explicitly", () => {

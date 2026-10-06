@@ -13,13 +13,15 @@ import { CopyLiveWorkerRepository } from "./live-worker/copy-live-worker.reposit
 import { CopyLiveStopWorkerRepository } from "./live-worker/copy-live-stop-worker.repository.js";
 import { CopyLiveWorkerService } from "./live-worker/copy-live-worker.service.js";
 import { liveEngineProvider } from "./live-worker/copy-live-engine.provider.js";
+import { WatcherModule } from "../watcher/watcher.module.js";
 
 /** The copy loops: the paper copy worker, testnet copy execution (only with
  * COPY_TRADING_MODE=testnet), strategy funding confirmations, the
  * follower receipt monitor and the follower snapshot collector. Imported by
  * the worker process only (AppModule.worker()); the api never constructs them. */
 @Module({
-  imports: [CopyModule, HyperliquidModule],
+  // WatcherModule: the trade feed's state (the fast copy source polls while it is down).
+  imports: [CopyModule, HyperliquidModule, WatcherModule],
   providers: [CopyWorkerService, CopyFundingMonitor, CopyFollowerMonitor, CopyFollowerSnapshotCollector,
     CopyLiveSourceRepository, CopyLiveWorkerRepository, CopyLiveStopWorkerRepository, liveEngineProvider, CopyLiveWorkerService,
     // Testnet reads use the wallet network's own budget (copy.module.ts), not

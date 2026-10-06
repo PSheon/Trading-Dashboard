@@ -1,8 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, gt, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 import { copyControls, copyExecutionAccounts, copyFundingOperations, copyLiveManualCloses, copyLiveActivations, copyLiveDispatches, copyLiveExecutions, copyLiveMandates,
-  copyLiveSourceFills, copyLiveSourceStreams, copyLiveStopOperations, copyLiveStrategyConfigs, copyStrategies, copyRiskPolicies } from '@trading-dashboard/shared/database';
-import { copyRiskLimitsSchema, DEFAULT_COPY_RISK_LIMITS } from '@trading-dashboard/shared/contracts';
+  copyLiveSourceFills, copyLiveSourceStreams, copyLiveStopOperations, copyLiveStrategyConfigs, copyStrategies, copyRiskPolicies, fillCoverage, fills } from '@trading-dashboard/shared/database';
+import { CHAIN_DEFAULT, copyRiskLimitsSchema, DEFAULT_COPY_RISK_LIMITS } from '@trading-dashboard/shared/contracts';
 import { DRIZZLE_CLIENT } from '../../db/db.constants.js';
 import type { DrizzleDb } from '../../db/drizzle.provider.js';
 import { UnitOfWork } from '../../db/unit-of-work.js';
@@ -107,10 +107,34 @@ export class CopyLiveWorkerRepository {
   async record(rows: (typeof copyLiveDispatches.$inferInsert)[]): Promise<void> {
     if (rows.length) await this.db.insert(copyLiveDispatches).values(rows).onConflictDoNothing();
   }
-  /** Open work, oldest first: pending legs and submitted legs not yet settled. */
-  async open(limit = 100): Promise<DispatchRow[]> {
-    return this.db.select().from(copyLiveDispatches).where(inArray(copyLiveDispatches.state, ['pending', 'submitted']))
-      .orderBy(asc(copyLiveDispatches.leaderTime), asc(copyLiveDispatches.id)).limit(limit);
+  /** Open work: pending legs first (a fresh signal must not wait behind
+   * reconciliation, which has no deadline), with the submitted close of a
+   * flip whose open is pending (the open goes once it settles); then the
+   * other submitted legs not yet settled; oldest first within each, a
+   * fill's close before its open. `mandateIds` narrows it to those copies. */
+  async open(limit = 100, mandateIds?: readonly string[]): Promise<DispatchRow[]> {
+    if (mandateIds && !mandateIds.length) return [];
+    const fresh = sql`case when ${copyLiveDispatches.state} = 'pending' or exists (select 1 from ${copyLiveDispatches} p where p.mandate_id = ${copyLiveDispatches.mandateId}
+      and p.source_fill_id = ${copyLiveDispatches.sourceFillId} and p.state = 'pending') then 0 else 1 end`;
+    return this.db.select().from(copyLiveDispatches)
+      .where(and(inArray(copyLiveDispatches.state, ['pending', 'submitted']), mandateIds ? inArray(copyLiveDispatches.mandateId, [...mandateIds]) : undefined))
+      .orderBy(fresh, asc(copyLiveDispatches.leaderTime), asc(copyLiveDispatches.id)).limit(limit);
+  }
+  /** Fills the watcher confirmed over REST inside both its verified span and
+   * the leader's mainnet copy stream's coverage that the stream does not
+   * hold. Zero-hash fills without a TWAP id are left out on both paths. */
+  async unmirroredFills(leader: string, limit = 100): Promise<{ tid: string; time: number }[]> {
+    const id = `mainnet:${leader}`;
+    const rows = await this.db.select({ tid: fills.tid, ts: fills.ts }).from(fills)
+      .innerJoin(fillCoverage, and(eq(fillCoverage.chain, fills.chain), eq(fillCoverage.address, fills.address)))
+      .innerJoin(copyLiveSourceStreams, eq(copyLiveSourceStreams.id, id))
+      .where(and(eq(fills.chain, CHAIN_DEFAULT), eq(fills.address, leader),
+        sql`${fills.ts} >= greatest(${copyLiveSourceStreams.coverageFrom}, ${fillCoverage.verifiedFrom})`,
+        sql`${fills.ts} <= least(${copyLiveSourceStreams.coverageThrough}, ${fillCoverage.verifiedThrough})`,
+        sql`not (coalesce(${fills.raw}->>'hash', '') ~ '^0x0{64}$' and coalesce(jsonb_typeof(${fills.raw}->'twapId'), 'null') = 'null')`,
+        sql`not exists (select 1 from ${copyLiveSourceFills} s where s.stream_id = ${id} and s.tid = ${fills.tid}::text)`))
+      .orderBy(asc(fills.ts), asc(fills.tid)).limit(limit);
+    return rows.map(row => ({ tid: row.tid.toString(), time: row.ts.getTime() }));
   }
   async dispatch(id: string): Promise<DispatchRow | null> {
     const [row] = await this.db.select().from(copyLiveDispatches).where(eq(copyLiveDispatches.id, id));

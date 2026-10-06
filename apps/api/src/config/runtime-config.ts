@@ -86,6 +86,19 @@ export interface LiveCopyConfig {
    * reads weigh about 770 and its settlement about 400, so a low rate with
    * a large burst (default 300/min, burst 900) lets one order go at once. */
   weightPerMin: number;
+  /** Mainnet leaders whose copy signal comes from the realtime fast source
+   * (COPY_LIVE_FAST_SOURCE: comma-separated addresses, or `all`). Unset or
+   * empty: every mainnet leader keeps the watcher-verified source. */
+  fastSource?: { leaders: "all" | ReadonlySet<string>; graceMs: number };
+}
+/** COPY_LIVE_FAST_SOURCE: `all`, or comma-separated 0x addresses. */
+function fastSourceLeaders(raw: string | undefined): "all" | ReadonlySet<string> | null {
+  const value = (raw ?? "").trim().toLowerCase();
+  if (!value) return null;
+  if (value === "all") return "all";
+  const leaders = value.split(",").map((part) => part.trim()).filter(Boolean);
+  if (!leaders.every((leader) => /^0x[0-9a-f]{40}$/.test(leader))) throw new Error("COPY_LIVE_FAST_SOURCE must be `all` or comma-separated 0x addresses");
+  return new Set(leaders);
 }
 function copyTrading(source: Environment, wallet: "mainnet" | "testnet", egressKey: string | undefined):
   { mode: "paper" | "disabled" | "testnet"; workerIntervalMs: number; agent?: AgentSigningConfig; live?: LiveCopyConfig } {
@@ -106,6 +119,10 @@ function copyTrading(source: Environment, wallet: "mainnet" | "testnet", egressK
       revokeDeadlineMs: integerValue("COPY_LIVE_REVOKE_DEADLINE_MINUTES", source.COPY_LIVE_REVOKE_DEADLINE_MINUTES, 30, 1, 1440) * 60_000,
       automaticReturn: booleanValue("COPY_AUTOMATIC_RETURN", source.COPY_AUTOMATIC_RETURN, false),
     };
+    const fast = fastSourceLeaders(source.COPY_LIVE_FAST_SOURCE);
+    // G: a read certifies fills only up to this long before it was sent
+    // (the fill index trails the exchange; measured p99.9 on mainnet).
+    if (fast) live.fastSource = { leaders: fast, graceMs: integerValue("COPY_LIVE_FAST_SOURCE_GRACE_MS", source.COPY_LIVE_FAST_SOURCE_GRACE_MS, 2000, 0, 60_000) };
   }
   return {
     mode: mode as "paper" | "disabled" | "testnet",

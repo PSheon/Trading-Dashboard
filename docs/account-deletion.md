@@ -47,6 +47,21 @@
 
 **保留並匿名化**（改指向墓碑，365 天後清除）：測試網跟單、跟單帳戶與錢包、授權與撤銷紀錄、訂單、成交、回執、帳本、入金／轉回、主錢包提領、一鍵設定、邀請關係與邀請獎勵紀錄、稽核紀錄的操作者。
 
+**保留紀錄裡仍有的明文**（2026-10-06 邏輯檢查 D：寫清楚，而不是改成雜湊）。改指向墓碑只換掉 `user_id`；下列欄位照原樣留到 365 天後清除：
+
+- 錢包地址：`copy_funding_operations.address`／`destination`、`wallet_withdrawals.address`／`destination`、`copy_execution_accounts.address`、`copy_agent_setups` 與 `copy_execution_wallets` 的帳戶與代理地址、mandate 與停止的 `owner_address`、`account_address`。
+- Privy 編號：`copy_execution_accounts.privy_user_id`、`privy_wallet_id`，`copy_execution_wallets.privy_wallet_id`，mandate 與停止的 `owner_privy_user_id`。
+- 簽署過的 intent JSON（mandate、停止撤單同意、一鍵設定的 consent `copy_live_setups.intent`）：裡面有本人的主錢包地址、Privy 使用者編號與跟單帳戶地址。
+
+不保留：email、顯示名稱、語言、Telegram chat id 與使用者名稱、登入用的 Privy ID 在 `users` 上（墓碑是 `deleted:<uuid>`）。
+
+為什麼不改成雜湊：
+1. **轉回路徑**：Privy 錢包刪帳號後仍屬於本人（`docs/content/delete-account.*`）。刪除只擋「還有錢或還在途」，但入金晚到（檢查後才入帳）或交易所端留有零頭時，要靠 `copy_execution_accounts.privy_user_id`／`address` 找到是誰的跟單錢包，才能把錢轉回他的主錢包；雜湊後就找不到。
+2. **證據鏈**：intent 的 `intent_digest` 是對 JSON 原文算的，同意簽章也是對它簽的；改掉任何欄位，這些紀錄就無法再驗證（`decodeLiveCopyMandate`、`assertStored` 會拒絕），失去對帳與爭議的用途。
+3. **對帳**：入金／轉回／提領要和 Hyperliquid 的公開帳本逐筆對上，用的就是地址；這些地址本來就公開在鏈上。
+
+文案（隱私權政策、刪除帳號頁）因此改成「不再連到你的帳號、email、名字或 Telegram；仍保留錢包地址與擁有跟單錢包的 Privy 帳號編號」，不再說「沒有任何個人資料」。
+
 ### 墓碑設計（migration 0065）
 
 選擇最小的 schema 變更：在 `users` 本身建一列「墓碑」，而不是另開 `deleted_users` 表或把 25 張表的 `user_id` 改成可為 null。理由：所有 RESTRICT 外鍵都指向 `users(id)`，改指向同一張表的另一列，不必改任何外鍵、型別或讀取程式；每次刪除一個墓碑，所以 `(user_id, idempotency_key)` 之類的唯一鍵不會互撞。

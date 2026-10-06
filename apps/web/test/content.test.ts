@@ -22,6 +22,16 @@ describe("long-form content", () => {
     expect(CONTENT_PAGES.faq["zh-TW"]).not.toContain("全部平倉後，你用主錢包簽署一次");
   });
 
+  it("the kept records after a deletion are described as they are: wallet addresses and the copy wallets' Privy ID stay", () => {
+    for (const key of ["privacy", "deleteAccount"] as const) {
+      const en = CONTENT_PAGES[key].en, zh = CONTENT_PAGES[key]["zh-TW"];
+      expect(en, key).toContain("Privy account ID that owns your copy wallets");
+      expect(zh, key).toContain("擁有你跟單錢包的 Privy 帳號編號");
+      expect(en, key).not.toMatch(/with no personal data|carries no personal data/);
+      expect(zh, key).not.toContain("沒有任何個人資料的匿名編號");
+    }
+  });
+
   it("zh-TW reads 繁中; every other locale reads English", () => {
     expect(contentLocale("zh-TW")).toBe("zh-TW");
     expect(contentLocale("en")).toBe("en");

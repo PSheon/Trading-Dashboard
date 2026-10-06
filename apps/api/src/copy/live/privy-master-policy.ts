@@ -91,13 +91,15 @@ export interface MasterPolicyPort {
   readonly available: boolean;
   create(userId: string, binding: MasterPolicyBinding, attemptKey: string): Promise<{ id: string }>;
   verify(policyId: string, userId: string, binding: MasterPolicyBinding): Promise<VerifiedMasterPolicy>;
-  attach(walletId: string, userJwt: string, workerQuorumId: string, policyId: string): Promise<void>;
+  /** The wallet's signers are exactly the worker under the policy (the
+   * owner's browser attached them: `useSigners().addSigners`). */
   assertSigner(walletId: string, expected: { address: string; ownerQuorumId: string; workerQuorumId: string; policyId: string }): Promise<void>;
-  /** Account deletion: removes every additional signer (the worker quorum)
-   * with the owner's own session, then checks none is left. */
-  detach(walletId: string, userJwt: string): Promise<void>;
+  /** Account deletion: the wallet has no additional signer left (the owner's
+   * browser removed them: `useSigners().removeSigners`). */
+  assertDetached(walletId: string): Promise<void>;
 }
-/** Creates, verifies and attaches the master policy. Holds no user session. */
+/** Creates and verifies the master policy, and reads a wallet's signers.
+ * Holds no user session: only the owner's browser adds or removes signers. */
 export class PrivyMasterPolicy implements MasterPolicyPort {
   private readonly client: PrivyClient | null;
   constructor(config: { appId?: string; appSecret?: string }, client?: PrivyClient) {
@@ -129,19 +131,8 @@ export class PrivyMasterPolicy implements MasterPolicyPort {
     return { id: policy.id, ownerQuorumId: policy.owner_id, fingerprint };
   }
 
-  /** Adds the worker quorum as the wallet's only additional signer, bound by
-   * the policy, with the owner's own session (never the app secret alone). */
-  async attach(walletId: string, userJwt: string, workerQuorumId: string, policyId: string): Promise<void> {
+  async assertDetached(walletId: string): Promise<void> {
     const client = this.require();
-    if (typeof userJwt !== 'string' || !userJwt.trim() || userJwt.length > 32768) throw new MasterPolicyUnavailable();
-    await this.call(() => client.wallets().update(walletId, { authorization_context: { user_jwts: [userJwt] },
-      additional_signers: [{ signer_id: workerQuorumId, override_policy_ids: [policyId] }] }));
-  }
-
-  async detach(walletId: string, userJwt: string): Promise<void> {
-    const client = this.require();
-    if (typeof userJwt !== 'string' || !userJwt.trim() || userJwt.length > 32768) throw new MasterPolicyUnavailable();
-    await this.call(() => client.wallets().update(walletId, { authorization_context: { user_jwts: [userJwt] }, additional_signers: [] }));
     const parsed = walletSchema.safeParse(await this.call(() => client.wallets().get(walletId)));
     if (!parsed.success || parsed.data.id !== walletId || parsed.data.additional_signers.length) throw new MasterPolicyConflict();
   }

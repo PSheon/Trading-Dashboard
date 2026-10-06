@@ -10,10 +10,11 @@ import { liveCopiesMessages } from '@/i18n/live-copies';
 import { LOCALES, type Locale } from '@/i18n/config';
 import { liveAccount, liveMandate, liveNow } from './copy-live-fixtures';
 import { settleQueries } from './query-settle';
+import { MASTER_SIGNATURE, withMasterAction } from './master-action-test-utils';
 
 const state = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), sign: vi.fn(), snapshot: null as unknown }));
-vi.mock('@/lib/auth', () => ({ useAuth: () => ({ status: 'signedIn', mode: 'privy', identity: 'owner@email', wallet: { address: `0x${'11'.repeat(20)}`, signTypedData: state.sign } }) }));
-vi.mock('@/lib/api', () => ({ api: { get: state.get, post: state.post }, sessionKey: () => '1' }));
+vi.mock('@/lib/auth', () => ({ useAuth: () => ({ status: 'signedIn', mode: 'privy', identity: 'owner@email', wallet: { address: `0x${'11'.repeat(20)}`, signTypedData: state.sign, signAsAccount: async () => MASTER_SIGNATURE } }) }));
+vi.mock('@/lib/api', () => ({ api: { get: state.get, post: (...args: unknown[]) => Promise.resolve((state.post as (...a: unknown[]) => unknown)(...args)).then(value => withMasterAction(args[0], value)) }, sessionKey: () => '1' }));
 vi.mock('@/lib/copy-execution-wallets', () => ({ useExecutionWallets: () => ({ data: { accounts: [liveAccount] } }) }));
 vi.mock('@/lib/copy-live', () => ({ useLiveCopyOverview: () => ({ data: { mandates: [{ ...liveMandate, state: 'active' }] } }) }));
 vi.mock('@/lib/copy-follower-snapshot', () => ({ useCopyFollowerSnapshot: () => ({ data: state.snapshot }) }));
@@ -65,7 +66,7 @@ it('withdraws idle funds: the owner signs the exact consent, then the approval g
     destination: `0x${'11'.repeat(20)}`, amount: '12.5', nonce: liveNow, status: 'prepared', canCancel: true, transactionHash: null, creditedAmount: null, fee: null,
     direction: 'to_main', stopId: null, createdAt: new Date(liveNow).toISOString(), updatedAt: new Date(liveNow).toISOString() };
   state.post.mockImplementation(async (path: string) => path.endsWith('/returns')
-    ? { operation, consent: { operationId: operation.id, network: 'testnet', account: liveAccount.address, destination: operation.destination, amount: '12.5', nonce: liveNow, consentExpiresAt: liveNow + 300000 } }
+    ? { operation, consent: { operationId: operation.id, network: 'testnet', account: liveAccount.address, destination: operation.destination, amount: '12.5', nonce: liveNow, consentExpiresAt: Date.now() + 300000 } }
     : { ...operation, status: 'accepted' });
   await render();
   await act(async () => {
@@ -76,7 +77,8 @@ it('withdraws idle funds: the owner signs the exact consent, then the approval g
   expect(state.post.mock.calls[0]![0]).toBe(`/me/copy/live/execution-wallets/${liveAccount.id}/returns`);
   expect(state.post.mock.calls[0]![1]).toMatchObject({ amount: '12.5' });
   expect(state.sign.mock.calls[0]![0]).toMatchObject({ primaryType: 'CopyAccountReturn', message: { amount: '12.5', destination: operation.destination } });
-  expect(state.post.mock.calls[1]).toEqual([`/me/copy/live/returns/${operation.id}/approve`, { consentSignature: signature }]);
+  // The copy account signs exactly the usdSend the consent covers, in this browser.
+  expect(state.post.mock.calls[1]).toEqual([`/me/copy/live/returns/${operation.id}/approve`, { consentSignature: signature, masterSignature: MASTER_SIGNATURE }]);
 });
 
 it('an account with the automatic return: idle funds go back without a signature, and after a stop it returns by itself', async () => {

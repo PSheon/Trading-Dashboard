@@ -22,6 +22,7 @@ vi.mock("@privy-io/react-auth", () => {
     useSignTypedData: () => ({ signTypedData: vi.fn() }),
     useSendTransaction: () => ({ sendTransaction: vi.fn() }),
     useCreateWallet: () => ({ createWallet: vi.fn(async () => ({})) }),
+    useUser: () => ({ refreshUser: vi.fn(async () => ({})) }),
   };
 });
 

@@ -38,3 +38,4 @@ export * from "./referral-contracts.js";
 export * from "./copy-live-stop-contracts.js";
 export * from "./admin-copy-live-contracts.js";
 export * from "./copy-live-setup-contracts.js";
+export * from "./copy-master-action-contracts.js";

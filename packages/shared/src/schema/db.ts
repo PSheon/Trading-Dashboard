@@ -1976,6 +1976,14 @@ export const copyLiveSetups = pgTable("copy_live_setups", {
   confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
   fundingOperationId: text("funding_operation_id"), agentSetupId: text("agent_setup_id"), modeOperationId: text("mode_operation_id"),
   builderApprovalId: text("builder_approval_id"), mandateId: text("mandate_id"),
+  /** The copy account's signature due from the owner's browser (an
+   * owner-session setup): the exact typed data, its EIP-712 digest and until
+   * when it is taken. Readable by the owner; null when nothing is due. */
+  pendingSignature: jsonb("pending_signature").$type<{ kind: "account_mode" | "agent_approval" | "builder_fee" | "usd_send"; account: string; typedData: Record<string, unknown>; digest: string; expiresAt: number }>(),
+  /** The last signature the owner's browser sent, verified against the
+   * pending payload (it recovers to the copy account). The step uses it only
+   * while the payload it would sign has this digest; never sent to the web. */
+  ownerSignature: jsonb("owner_signature").$type<{ digest: string; signature: string }>(),
   issue: text("issue"), revision: integer("revision").notNull().default(1), attempts: integer("attempts").notNull().default(0),
   nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }), leaseUntil: timestamp("lease_until", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

@@ -12,8 +12,12 @@ export class CopyBuilderApprovalInputDto {
 export class ApproveCopyMasterActionDto {
   @ApiProperty({ type: String, pattern: '^0x[0-9a-fA-F]{130}$', description: 'Main-wallet EIP-712 signature over the exact consent' })
   @Matches(/^0x[0-9a-fA-F]{130}$/) declare consentSignature: string;
+  @ApiProperty({ type: String, pattern: '^0x[0-9a-fA-F]{130}$', description: "The copy account's own signature of the challenge's masterAction, made in the owner's browser" })
+  @Matches(/^0x[0-9a-fA-F]{130}$/) declare masterSignature: string;
 }
 export class ApproveCopyReturnDto {
   @ApiProperty({ type: String, pattern: '^0x[0-9a-fA-F]{130}$', required: false, description: 'Main-wallet EIP-712 signature over the exact consent; omitted for an account with the automatic return (the worker signs, its policy allows only the main wallet)' })
   @IsOptional() @Matches(/^0x[0-9a-fA-F]{130}$/) declare consentSignature?: string;
+  @ApiProperty({ type: String, pattern: '^0x[0-9a-fA-F]{130}$', required: false, description: "The copy account's own UsdSend signature (the challenge's masterAction), made in the owner's browser; with the consent only" })
+  @IsOptional() @Matches(/^0x[0-9a-fA-F]{130}$/) declare masterSignature?: string;
 }

@@ -34,7 +34,6 @@ const provider: UserAgentProvisioner = { available: true, configuredWorkerQuorum
   findOwned: vi.fn(async (input) => walletExists ? { id: "agent-provider-wallet", address: agent.address.toLowerCase(), externalId: input.externalId, ownerQuorumId: "user-quorum", policyId: "agent-policy", workerQuorumId: "worker-quorum" } : null),
 };
 const exchange: AgentApprovalClient = { available: true, acquire: vi.fn(async () => undefined),
-  signMaster: vi.fn(async (_account, intent) => master.signTypedData(agentApprovalTypedData(intent))),
   send: vi.fn(async () => { exchangeApproved = true; return { status: "ok", response: { type: "default" } }; }),
   observe: vi.fn(async (intent) => exchangeApproved ? { checkedAt: Date.now(), validUntil: intent.expiresAt } : null),
 };
@@ -42,7 +41,7 @@ const get = (token = "alice") => request(app.getHttpServer()).get("/me/copy/agen
 const post = (path: string, body: object, token = "alice") => request(app.getHttpServer()).post(path).set("Authorization", `Bearer ${token}`).send(body);
 const setupPath = (id: string, action: string) => `/me/copy/agents/${id}/${action}`;
 const fakeSignature = `0x${"00".repeat(64)}1b`;
-function assertNoApproval() { expect(exchange.signMaster).not.toHaveBeenCalled(); expect(exchange.acquire).not.toHaveBeenCalled(); expect(exchange.send).not.toHaveBeenCalled(); }
+function assertNoApproval() { expect(exchange.acquire).not.toHaveBeenCalled(); expect(exchange.send).not.toHaveBeenCalled(); }
 function assertNoProviderMutation() { expect(provider.createPolicy).not.toHaveBeenCalled(); expect(provider.createWallet).not.toHaveBeenCalled(); }
 async function prepare() { const response = await post(preparePath, { idempotencyKey: randomUUID() }).expect(200).expect("Cache-Control", "no-store"); return copyAgentSetupSchema.parse(response.body.data); }
 async function challenge(id: string) { const response = await post(setupPath(id, "challenge"), {}).expect(200).expect("Cache-Control", "no-store"); return copyAgentChallengeSchema.parse(response.body.data); }
@@ -69,7 +68,7 @@ describe("explicit strategy agent authenticated HTTP routes", () => {
       const status = token === serviceToken ? 403 : 401;
       const summary = request(app.getHttpServer()).get("/me/copy/agents"); if (token) summary.set("Authorization", `Bearer ${token}`); await summary.expect(status);
       const id = randomUUID();
-      for (const [path, body] of [[preparePath, { idempotencyKey: randomUUID(), validForDays: 7 }], ...["challenge", "reconcile"].map((action) => [setupPath(id, action), {}]), [setupPath(id, "approve"), { consentSignature: fakeSignature }]] as [string, object][]) {
+      for (const [path, body] of [[preparePath, { idempotencyKey: randomUUID(), validForDays: 7 }], ...["challenge", "reconcile"].map((action) => [setupPath(id, action), {}]), [setupPath(id, "approve"), { consentSignature: fakeSignature, masterSignature: fakeSignature }]] as [string, object][]) {
         const call = request(app.getHttpServer()).post(path).send(body); if (token) call.set("Authorization", `Bearer ${token}`); await call.expect(status);
       }
     }
@@ -80,7 +79,7 @@ describe("explicit strategy agent authenticated HTTP routes", () => {
     await get().expect(200); await db.update(users).set({ disabledAt: new Date() }).where(eq(users.id, uid));
     await get().expect(401);
     await post(preparePath, { idempotencyKey: randomUUID() }).expect(401);
-    for (const action of ["challenge", "reconcile", "approve"]) await post(setupPath(randomUUID(), action), action === "approve" ? { consentSignature: fakeSignature } : {}).expect(401);
+    for (const action of ["challenge", "reconcile", "approve"]) await post(setupPath(randomUUID(), action), action === "approve" ? { consentSignature: fakeSignature, masterSignature: fakeSignature } : {}).expect(401);
     assertNoProviderMutation(); assertNoApproval(); expect(wallets.reconcile).not.toHaveBeenCalled();
   });
 
@@ -92,9 +91,17 @@ describe("explicit strategy agent authenticated HTTP routes", () => {
     const consent = await challenge(prepared.id); assertNoApproval();
     expect(consent.intent).toMatchObject({ id: prepared.id, strategyId, accountAddress: master.address.toLowerCase(), agentAddress: agent.address.toLowerCase(), network: "testnet" });
     const signature = await owner.signTypedData(agentOwnerConsentTypedData(consent.intent));
-    const response = await post(setupPath(prepared.id, "approve"), { consentSignature: signature }).expect(200).expect("Cache-Control", "no-store");
+    // The copy account signs the challenge's ApproveAgent in the owner's browser.
+    expect(consent.masterAction).toMatchObject({ kind: "agent_approval", account: master.address.toLowerCase(), expiresAt: consent.intent.consentExpiresAt,
+      typedData: { primaryType: "HyperliquidTransaction:ApproveAgent", message: { agentAddress: agent.address.toLowerCase(), agentName: `copy${strategyId} valid_until ${consent.intent.expiresAt}`, nonce: consent.intent.nonce } } });
+    expect(consent.masterAction.typedData).toEqual(JSON.parse(JSON.stringify(agentApprovalTypedData(consent.intent))));
+    const masterSignature = await master.signTypedData(consent.masterAction.typedData as never);
+    await post(setupPath(prepared.id, "approve"), { consentSignature: signature }).expect(400);
+    await post(setupPath(prepared.id, "approve"), { consentSignature: signature, masterSignature: await owner.signTypedData(consent.masterAction.typedData as never) }).expect(403);
+    assertNoApproval();
+    const response = await post(setupPath(prepared.id, "approve"), { consentSignature: signature, masterSignature }).expect(200).expect("Cache-Control", "no-store");
     expect(copyAgentSetupSchema.parse(response.body.data).state).toBe("active");
-    expect(exchange.signMaster).toHaveBeenCalledExactlyOnceWith({ walletId: "master-provider-wallet", address: master.address.toLowerCase(), ownerQuorumId: "user-quorum" }, consent.intent, "alice", expect.any(Function));
+    expect(vi.mocked(exchange.send).mock.calls[0]![1]).toBe(masterSignature);
     expect(exchange.send).toHaveBeenCalledTimes(1); expect(await db.select().from(copyWalletAuthorizations)).toHaveLength(1);
     expect(JSON.stringify(await db.select().from(copyAgentSetups))).not.toContain(signature);
     expect((await db.select().from(copyStrategies))[0]).toMatchObject({ mode: "paper", cash: "100", allocated: "100" });
@@ -105,13 +112,13 @@ describe("explicit strategy agent authenticated HTTP routes", () => {
     const prepared = await prepare(); vi.clearAllMocks();
     const summary = await get("bob").expect(200); expect(copyAgentOverviewSchema.parse(summary.body.data).setups).toEqual([]);
     await post(preparePath, { idempotencyKey: randomUUID() }, "bob").expect(404);
-    for (const action of ["challenge", "reconcile", "approve"]) await post(setupPath(prepared.id, action), action === "approve" ? { consentSignature: fakeSignature } : {}, "bob").expect(404);
+    for (const action of ["challenge", "reconcile", "approve"]) await post(setupPath(prepared.id, action), action === "approve" ? { consentSignature: fakeSignature, masterSignature: fakeSignature } : {}, "bob").expect(404);
     assertNoProviderMutation(); assertNoApproval(); expect(provider.findOwned).not.toHaveBeenCalled(); expect(wallets.reconcile).not.toHaveBeenCalled();
     expect(await db.select().from(copyAgentSetups)).toHaveLength(1); expect(await db.select().from(copyWalletAuthorizations)).toHaveLength(0);
   });
 
   it("rejects malformed preparation DTOs and account/network/provider overrides before provider calls", async () => {
-    for (const input of [{}, [], { idempotencyKey: "" }, { idempotencyKey: 1 }, { idempotencyKey: "a".repeat(129) }, ...[0, 31, 1.5, "7", null].map((validForDays) => ({ idempotencyKey: "key", validForDays })), ...[{ userId: uid }, { network: "mainnet" }, { accountAddress: owner.address }, { agentAddress: owner.address }, { workerQuorumId: "other" }, { policyId: "other" }, { userJwt: "secret" }, { consentSignature: fakeSignature }].map((extra) => ({ idempotencyKey: "key", ...extra }))]) await post(preparePath, input).expect(400);
+    for (const input of [{}, [], { idempotencyKey: "" }, { idempotencyKey: 1 }, { idempotencyKey: "a".repeat(129) }, ...[0, 31, 1.5, "7", null].map((validForDays) => ({ idempotencyKey: "key", validForDays })), ...[{ userId: uid }, { network: "mainnet" }, { accountAddress: owner.address }, { agentAddress: owner.address }, { workerQuorumId: "other" }, { policyId: "other" }, { userJwt: "secret" }, { consentSignature: fakeSignature, masterSignature: fakeSignature }].map((extra) => ({ idempotencyKey: "key", ...extra }))]) await post(preparePath, input).expect(400);
     await post("/me/copy/execution-wallets/bad%20id/agent", { idempotencyKey: "key" }).expect(400);
     assertNoProviderMutation(); assertNoApproval(); expect(wallets.reconcile).not.toHaveBeenCalled(); expect(await db.select().from(copyAgentSetups)).toHaveLength(0);
   });
@@ -119,7 +126,7 @@ describe("explicit strategy agent authenticated HTTP routes", () => {
   it("rejects malformed approval DTOs and extra consent/JWT/signing fields before signing", async () => {
     const prepared = await prepare(); vi.clearAllMocks();
     for (const body of [{}, [], { consentSignature: 1 }, { consentSignature: "bad" }, { consentSignature: `0x${"00".repeat(64)}` }, { consentSignature: `0x${"00".repeat(64)}ff` }, ...[{ network: "mainnet" }, { nonce: 1 }, { id: prepared.id }, { userId: uid }, { policyId: "other" }, { userJwt: "secret" }, { signature: fakeSignature }].map((extra) => ({ consentSignature: fakeSignature, ...extra }))]) await post(setupPath(prepared.id, "approve"), body).expect(400);
-    for (const action of ["challenge", "reconcile", "approve"]) await post(setupPath("bad%20id", action), action === "approve" ? { consentSignature: fakeSignature } : {}).expect(400);
+    for (const action of ["challenge", "reconcile", "approve"]) await post(setupPath("bad%20id", action), action === "approve" ? { consentSignature: fakeSignature, masterSignature: fakeSignature } : {}).expect(400);
     assertNoApproval(); expect(provider.findOwned).not.toHaveBeenCalled(); expect(await db.select().from(copyWalletAuthorizations)).toHaveLength(0);
   });
 
@@ -129,14 +136,14 @@ describe("explicit strategy agent authenticated HTTP routes", () => {
     await db.update(copyExecutionAccounts).set({ network: "testnet" }).where(eq(copyExecutionAccounts.id, accountId));
     const prepared = await prepare(); await challenge(prepared.id); vi.clearAllMocks();
     await db.update(copyAgentSetups).set({ network: "mainnet" }).where(eq(copyAgentSetups.id, prepared.id));
-    await post(setupPath(prepared.id, "challenge"), {}).expect(409); await post(setupPath(prepared.id, "approve"), { consentSignature: fakeSignature }).expect(409);
+    await post(setupPath(prepared.id, "challenge"), {}).expect(409); await post(setupPath(prepared.id, "approve"), { consentSignature: fakeSignature, masterSignature: fakeSignature }).expect(409);
     assertNoApproval(); expect(provider.findOwned).not.toHaveBeenCalled(); expect(await db.select().from(copyWalletAuthorizations)).toHaveLength(0);
   });
 
   it("rejects expired setup and returns its expired recovery state without approval", async () => {
     const prepared = await prepare(); await challenge(prepared.id); vi.clearAllMocks();
     await db.update(copyAgentSetups).set({ expiresAt: new Date(Date.now() - 1) }).where(eq(copyAgentSetups.id, prepared.id));
-    await post(setupPath(prepared.id, "challenge"), {}).expect(409); await post(setupPath(prepared.id, "approve"), { consentSignature: fakeSignature }).expect(409);
+    await post(setupPath(prepared.id, "challenge"), {}).expect(409); await post(setupPath(prepared.id, "approve"), { consentSignature: fakeSignature, masterSignature: fakeSignature }).expect(409);
     const recovery = await post(setupPath(prepared.id, "reconcile"), {}).expect(200); expect(recovery.body.data.state).toBe("expired");
     assertNoApproval(); expect(provider.findOwned).not.toHaveBeenCalled(); expect(await db.select().from(copyWalletAuthorizations)).toHaveLength(0);
   });
@@ -145,9 +152,10 @@ describe("explicit strategy agent authenticated HTTP routes", () => {
     const prepared = await prepare(), consent = await challenge(prepared.id), original = agentOwnerConsentTypedData(consent.intent);
     const signatures = [fakeSignature, await agent.signTypedData(original), await owner.signTypedData({ ...original, domain: { ...original.domain, chainId: 42161 } })];
     for (const changes of [{ id: randomUUID() }, { strategyId: strategyId + 1 }, { accountAddress: owner.address }, { agentAddress: owner.address }, { policyId: "other-policy" }, { workerQuorumId: "other-worker" }, { expiresAt: consent.intent.expiresAt + 1 }]) signatures.push(await owner.signTypedData(agentOwnerConsentTypedData({ ...consent.intent, ...changes })));
-    for (const consentSignature of signatures) await post(setupPath(prepared.id, "approve"), { consentSignature }).expect(400);
+    const masterSignature = await master.signTypedData(consent.masterAction.typedData as never);
+    for (const consentSignature of signatures) await post(setupPath(prepared.id, "approve"), { consentSignature, masterSignature }).expect(400);
     const valid = await owner.signTypedData(original); vi.spyOn(Date, "now").mockReturnValue(consent.intent.consentExpiresAt);
-    await post(setupPath(prepared.id, "approve"), { consentSignature: valid }).expect(400);
+    await post(setupPath(prepared.id, "approve"), { consentSignature: valid, masterSignature }).expect(400);
     assertNoApproval(); expect(await db.select().from(copyWalletAuthorizations)).toHaveLength(0); expect((await db.select().from(copyAgentSetups))[0].state).toBe("ready");
   });
 });

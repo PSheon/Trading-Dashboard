@@ -18,9 +18,31 @@ export function fixtureSigner(search: string): WalletSigner | null {
     exportKey: async () => { throw new Error("Export is not part of fixture mode"); },
     exportCopyKey: async () => { throw new Error("Export is not part of fixture mode"); },
     signTypedData: async () => `0x${"ab".repeat(65)}`,
+    signAsAccount: async (address) => {
+      if (!/^0x[0-9a-fA-F]{40}$/.test(address) || address.toLowerCase() === FIXTURE_WALLET_ADDRESS) throw new Error("copy_wallet_unavailable");
+      // `?copywallet=late`: the copy wallet isn't in this browser's Privy
+      // user yet the first time (a wallet made after the page loaded).
+      if (sticky(search, "copywallet", COPY_WALLET) === "late" && !lateSeen) { lateSeen = true; throw new Error("copy_wallet_unavailable"); }
+      return `0x${"cd".repeat(65)}`;
+    },
     sendTransaction: async () => { throw new Error("Transactions are not part of fixture mode"); },
   };
 }
+
+let lateSeen = false;
+const COPY_WALLET = "orbie:fixtures:copywallet", OWNER_SETUP = "orbie:fixtures:setup";
+/** A fixture URL flag, kept for the tab (sessionStorage) like `?signer=fixture`. */
+function sticky(search: string, name: string, key: string): string | null {
+  if (process.env.NEXT_PUBLIC_API_FIXTURES !== "1") return null;
+  const value = new URLSearchParams(search).get(name);
+  try {
+    if (value) sessionStorage.setItem(key, value);
+    return value ?? sessionStorage.getItem(key);
+  } catch { return value; }
+}
+/** `?setup=owner`: the fixture's one-click setups are signed by the owner's
+ * browser (no worker policy): the progress dialog signs each pending action. */
+export function fixtureOwnerSetupFlag(search: string): boolean { return sticky(search, "setup", OWNER_SETUP) === "owner"; }
 
 const STICKY = "orbie:fixtures:signer";
 /** `?signer=fixture` on the first page of a fixture session, kept for the

@@ -229,9 +229,13 @@ missing piece is authority, not code:
 - A transfer out of that account is a `usdSend` signed by the account
   itself. The worker's agent (API wallet) can trade and reduce but
   Hyperliquid does not let an agent transfer or withdraw funds.
-- So the return is signed by the account wallet through Privy with the
-  owner's live session JWT (`PrivyMasterActionSigner`, `user_jwts`) after
-  the owner's main wallet signs the exact transfer (consent).
+- So the return is signed by the account wallet itself in the owner's
+  browser (Privy's `signTypedData` with that wallet's address, silently)
+  next to the owner's main wallet's consent to the exact transfer; the api
+  checks the signature recovers to the account for exactly that payload
+  (`master-action.ts`) before it sends anything. (Until 2026-10-06 the
+  server signed with the owner's session JWT, `user_jwts`; Privy refuses
+  that exchange for this app, so that path is gone.)
 
 Making the sweep automatic safely needs a server signer on the account
 wallet that can sign only that transfer: a Privy key quorum (the worker's
@@ -251,9 +255,10 @@ That design is now on `dev`, dormant until it is switched on:
   `UserSetAbstraction` disabled; `ApproveAgent` / `ApproveBuilderFee` only when
   bound; no key or seed export), attached as the worker quorum's
   `override_policy_ids`, never as a wallet policy.
-- `POST /me/copy/execution-wallets/:id/automatic-return` (owner's Bearer
-  session) creates and verifies the policy, attaches the signer with
-  `user_jwts`, re-reads the wallet and records `master_policy_id`,
+- `POST /me/copy/execution-wallets/:id/automatic-return` creates and
+  verifies the policy, checks the signer the owner's browser attached
+  (`useSigners().addSigners`; the server never uses the owner's session),
+  re-reads the wallet and records `master_policy_id`,
   `master_policy_fingerprint`, `master_signer_quorum_id`, `sweep_destination`
   and `signer_attached_at` (migration 0063). 503 `setup_unavailable` unless
   `COPY_AUTOMATIC_RETURN=true`.
@@ -269,3 +274,22 @@ That design is now on `dev`, dormant until it is switched on:
 
 Prototype on the Stage Dev Privy app: see
 `docs/one-click-copy-plan-2026-10-05.md`, "Prototype results".
+
+### Owner-signed actions in the browser (stream 19, 2026-10-06)
+
+Every action a copy account signs "as the owner" (a one-click setup's
+standard account mode, agent approval and builder fee; returns to the main
+wallet; the Settings account-mode and agent approvals) is signed in the
+owner's browser with the copy account (`WalletSigner.signAsAccount`, only
+for one of the signed-in user's own Privy wallets), never by the server
+with a user JWT. The api prepares the exact typed data and its EIP-712
+digest (`masterActionRequest`: a setup parks it as `pendingSignature`, the
+challenges return it as `masterAction`), and takes the signature only when
+it recovers to the copy account for exactly that payload, still bound to
+the consented values (`masterSignatureRefusal`); a setup's step then runs
+with it exactly as before (same preflights, nonces and never-resend rules).
+Refusals are specific: `owner_signature_not_requested`, `_stale`,
+`_expired`, `_invalid`, `_malformed` on `/advance`, and
+`master_signature_invalid` / `account_mode_master_signature_invalid` /
+`agent_master_signature_invalid` on the approvals.
+

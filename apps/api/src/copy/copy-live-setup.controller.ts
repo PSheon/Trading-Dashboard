@@ -1,10 +1,9 @@
-import { Body, Controller, Get, Header, Headers, HttpCode, Param, Patch, Post, UseFilters } from '@nestjs/common';
+import { Body, Controller, Get, Header, HttpCode, Param, Patch, Post, UseFilters } from '@nestjs/common';
 import { CurrentUser, requireUserId, type RequestUser } from '../common/auth/current-user.js';
-import { PRIVY_IDENTITY_TOKEN_HEADER, privyWalletJwt } from '../common/auth/privy-wallet-session.js';
 import { ApiDoc } from '../common/decorators/http.decorator.js';
 import { BusyFilter } from '../traders/busy.js';
 import { CopyStrategyParamsDto } from './dto/copy.dto.js';
-import { ConfirmLiveCopySetupDto, EditLiveCopyDto, LiveSetupIdDto, RenewLiveCopyDto, StartLiveCopyDto } from './dto/copy-live-setup.dto.js';
+import { AdvanceLiveCopySetupDto, ConfirmLiveCopySetupDto, EditLiveCopyDto, LiveSetupIdDto, RenewLiveCopyDto, StartLiveCopyDto } from './dto/copy-live-setup.dto.js';
 import { CopyLiveSetupService } from './copy-live-setup.service.js';
 
 /** One-click testnet copy (docs/one-click-copy-plan-2026-10-05.md §3a). */
@@ -18,13 +17,13 @@ export class CopyLiveSetupController {
   list(@CurrentUser() user: RequestUser | null) { return this.setups.list(requireUserId(user)); }
   @Get('setups/:id') @Header('Cache-Control', 'no-store') @ApiDoc('Read one setup (the progress dialog polls it)')
   get(@CurrentUser() user: RequestUser | null, @Param() params: LiveSetupIdDto) { return this.setups.get(requireUserId(user), params.id); }
-  @Post('setups/:id/confirm') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Confirm with the setup consent and the deposit signature', "Verifies the consent once, adds the policy-bound worker signer with the owner's session (when the worker policy is on), submits the deposit once, then runs what it can.")
-  confirm(@CurrentUser() user: RequestUser | null, @Param() params: LiveSetupIdDto, @Body() body: ConfirmLiveCopySetupDto, @Headers('authorization') authorization?: string, @Headers(PRIVY_IDENTITY_TOKEN_HEADER) identity?: string) {
-    const userId = requireUserId(user); return this.setups.confirm(userId, params.id, body, privyWalletJwt(user, authorization, identity));
+  @Post('setups/:id/confirm') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Confirm with the setup consent and the deposit signature', 'Verifies the consent once, submits the deposit once, then runs what it can.')
+  confirm(@CurrentUser() user: RequestUser | null, @Param() params: LiveSetupIdDto, @Body() body: ConfirmLiveCopySetupDto) {
+    const userId = requireUserId(user); return this.setups.confirm(userId, params.id, body);
   }
-  @Post('setups/:id/advance') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Continue a setup with my session', "For setups the owner's session signs (worker policy off): the next step's exact consented payload; attempted steps are only reconciled.")
-  advance(@CurrentUser() user: RequestUser | null, @Param() params: LiveSetupIdDto, @Headers('authorization') authorization?: string, @Headers(PRIVY_IDENTITY_TOKEN_HEADER) identity?: string) {
-    const userId = requireUserId(user); return this.setups.advance(userId, params.id, privyWalletJwt(user, authorization, identity));
+  @Post('setups/:id/advance') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Continue a setup my browser signs', "For setups the owner's browser signs: with no body, runs the next step, which parks the copy account's next action as `pendingSignature`; with `{ digest, signature }`, first takes the browser's signature of that pending action (409 owner_signature_not_requested / owner_signature_stale / owner_signature_expired, 403 owner_signature_invalid), then runs it. Attempted steps are only reconciled; the same signature twice changes nothing.")
+  advance(@CurrentUser() user: RequestUser | null, @Param() params: LiveSetupIdDto, @Body() body: AdvanceLiveCopySetupDto) {
+    const userId = requireUserId(user); return this.setups.advance(userId, params.id, body);
   }
   @Post('setups/:id/cancel') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Cancel a setup before its deposit was sent')
   cancel(@CurrentUser() user: RequestUser | null, @Param() params: LiveSetupIdDto) { return this.setups.cancel(requireUserId(user), params.id); }

@@ -63,36 +63,4 @@ describe("exact testnet master approval transport", () => {
     await expect(client.send(intent, signature, () => { throw new Error("stale proof"); })).rejects.toThrow("agent_approval_not_dispatched");
     expect(request).not.toHaveBeenCalled();
   });
-  it("rejects a foreign Privy master before JWT exchange or RPC, using the installed SDK", async () => {
-    const requests: string[] = [];
-    vi.stubGlobal("fetch", async (input: Request | string | URL) => {
-      const url = new URL(input instanceof Request ? input.url : String(input)); requests.push(url.pathname);
-      return Response.json({ id: "master", chain_type: "ethereum", address: intent.accountAddress, owner_id: "foreign", archived_at: null });
-    });
-    const client = new PrivyAgentApprovalClient({ appId: "test-app", appSecret: "test-secret" }, async () => undefined, fetch, () => time);
-    await expect(client.signMaster({ walletId: "master", address: intent.accountAddress, ownerQuorumId: "owner" }, intent, "user-jwt")).rejects.toThrow("agent_master_approval_unavailable");
-    expect(requests).toEqual(["/v1/wallets/master"]);
-  });
-  it("redacts provider errors and never retries an ambiguous SDK read", async () => {
-    const request = vi.fn(async () => Response.json({ error: "secret token and provider payload" }, { status: 500 }));
-    vi.stubGlobal("fetch", request);
-    const client = new PrivyAgentApprovalClient({ appId: "test-app", appSecret: "test-secret" }, async () => undefined, request, () => time);
-    await expect(client.signMaster({ walletId: "master", address: intent.accountAddress, ownerQuorumId: "owner" }, intent, "user-jwt")).rejects.toThrow(/^agent_master_approval_unavailable$/);
-    expect(request).toHaveBeenCalledTimes(1);
-  });
-  it('runs the captured synchronous local proof at the actual SDK RPC after JWT exchange, before transport',async()=>{
-    const requests:string[]=[],guard=vi.fn(()=>{throw Error('local scope expired');});
-    const request:typeof fetch=async(input)=>{const url=new URL(input instanceof Request?input.url:String(input));requests.push(url.pathname);
-      if(url.pathname==='/v1/wallets/master')return Response.json({id:'master',chain_type:'ethereum',address:intent.accountAddress,owner_id:'owner',archived_at:null});
-      // An invocation-scoped authorization key avoids any network/credentials.
-      if(url.pathname==='/v1/wallets/authenticate')return Response.json({expires_at:time+600000,encrypted_authorization_key:{encryption_type:'HPKE',encapsulated_key:'invalid',ciphertext:'invalid'}});
-      throw Error('unexpected RPC');
-    };
-    const client=new PrivyAgentApprovalClient({appId:'test-app',appSecret:'test-secret'},async()=>{},request,()=>time);
-    // Required hook is asserted at entry as well, so no provider work occurs
-    // for an already-lost owner proof; delayed actual RPC covered below.
-    await expect(client.signMaster({walletId:'master',address:intent.accountAddress,ownerQuorumId:'owner'},intent,'jwt',guard)).rejects.toThrow('agent_master_approval_unavailable');
-    expect(guard).toHaveBeenCalled();expect(requests).not.toContain('/v1/wallets/master/rpc');
-  });
-
 });

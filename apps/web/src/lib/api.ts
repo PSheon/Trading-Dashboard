@@ -68,12 +68,6 @@ function pageLocale(): string | undefined {
 export type AccessTokenGetter = () => Promise<string | null>;
 
 let accessTokenGetter: AccessTokenGetter | null = null;
-/** Privy's identity token: the JWT Privy's wallet session exchange takes
- * (it refuses the access token there). Sent only on the copy writes that
- * let the api act on the user's own wallets, never on reads. */
-const IDENTITY_TOKEN_HEADER = "X-Privy-Identity-Token";
-let identityTokenGetter: (() => string | null) | null = null;
-export function setIdentityTokenGetter(getter: (() => string | null) | null) { identityTokenGetter = getter; }
 /** The identity requests are sent as; "loading" until the provider knows. */
 let identityScope: string | null = null;
 let sessionGeneration = 0;
@@ -246,10 +240,6 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
   const headers: Record<string, string> = { ...options?.headers, Accept: "application/json", [API_CONTRACT_HEADER]: API_CONTRACT_VERSION };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (token) headers.Authorization = `Bearer ${token}`;
-  if (token && method !== "GET" && path.startsWith("/me/copy/")) {
-    const identityToken = identityTokenGetter?.();
-    if (identityToken) headers[IDENTITY_TOKEN_HEADER] = identityToken;
-  }
   const locale = pageLocale();
   if (locale) headers["Accept-Language"] = locale;
 

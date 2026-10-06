@@ -54,15 +54,12 @@ export class MeController {
   @ApiHeader({ name: ACCOUNT_DELETION_HEADER, required: true, description: `Must be "${ACCOUNT_DELETION_CONFIRMATION}": the explicit confirmation of the person deleting their account.` })
   @Delete()
   @HttpCode(204)
-  async deleteMe(@CurrentUser() user: RequestUser | null, @Headers(ACCOUNT_DELETION_HEADER) confirmation?: string, @Headers("authorization") authorization?: string): Promise<void> {
+  async deleteMe(@CurrentUser() user: RequestUser | null, @Headers(ACCOUNT_DELETION_HEADER) confirmation?: string): Promise<void> {
     const userId = requireUserId(user);
     if (confirmation !== ACCOUNT_DELETION_CONFIRMATION) {
       throw new HttpException({ statusCode: HttpStatus.PRECONDITION_REQUIRED, code: "confirmation_required", message: "Confirm the account deletion" }, HttpStatus.PRECONDITION_REQUIRED);
     }
-    // The bearer is the owner's Privy session: it takes the worker off a
-    // copy wallet's signers (automatic return) before the account goes.
-    const bearer = authorization?.startsWith("Bearer ") ? authorization.slice(7).trim() : undefined;
-    await this.deletion.delete(userId, bearer || undefined);
+    await this.deletion.delete(userId);
   }
 
   @ApiDoc("List favorites")

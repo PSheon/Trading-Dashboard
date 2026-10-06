@@ -17,10 +17,10 @@ import {
   PrivyProvider,
   useCreateWallet,
   useExportWallet,
-  useIdentityToken,
   usePrivy,
   useSendTransaction,
   useSignTypedData,
+  useUser,
   useWallets,
 } from "@privy-io/react-auth";
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
@@ -38,8 +38,6 @@ export interface PrivySnapshot {
   login: () => void;
   logout: () => Promise<void>;
   getAccessToken: () => Promise<string | null>;
-  /** Privy's identity token (null until Privy issues one). */
-  getIdentityToken: () => string | null;
   wallet: WalletSigner | null;
 }
 
@@ -79,9 +77,8 @@ export default function PrivyRuntime({ appId, onChange }: { appId: string; onCha
 function PrivyReporter({ onChange }: { onChange: (snapshot: PrivySnapshot | null) => void }) {
   const { ready, authenticated, login, logout, getAccessToken, user } = usePrivy();
   const wallet = useEmbeddedWallet(ready && authenticated);
-  const { identityToken } = useIdentityToken();
-  const calls = useRef({ login, logout, getAccessToken, identityToken });
-  useLayoutEffect(() => { calls.current = { login, logout, getAccessToken, identityToken }; });
+  const calls = useRef({ login, logout, getAccessToken });
+  useLayoutEffect(() => { calls.current = { login, logout, getAccessToken }; });
   const userId = user?.id ?? null;
   const identity = user?.email?.address ?? user?.google?.email ?? user?.apple?.email ?? user?.wallet?.address ?? null;
   const snapshot = useMemo<PrivySnapshot>(() => ({
@@ -92,7 +89,6 @@ function PrivyReporter({ onChange }: { onChange: (snapshot: PrivySnapshot | null
     login: () => calls.current.login(),
     logout: () => calls.current.logout(),
     getAccessToken: () => calls.current.getAccessToken(),
-    getIdentityToken: () => calls.current.identityToken,
     wallet,
   }), [ready, authenticated, userId, identity, wallet]);
   useLayoutEffect(() => { onChange(snapshot); }, [snapshot, onChange]);
@@ -114,6 +110,7 @@ function useEmbeddedWallet(signedIn: boolean): WalletSigner | null {
   const { signTypedData } = useSignTypedData();
   const { sendTransaction } = useSendTransaction();
   const { createWallet } = useCreateWallet();
+  const { refreshUser } = useUser();
   const creatingFor = useRef<string | null>(null);
   const activeSigner = useRef<WalletSigner | null>(null);
   const userId = signedIn ? user?.id ?? null : null;
@@ -145,8 +142,8 @@ function useEmbeddedWallet(signedIn: boolean): WalletSigner | null {
   const address = embedded?.address.toLowerCase() ?? null;
   // The SDK's functions, read at call time: Privy may hand out new ones on
   // every render, and a new signer each render would report again.
-  const sdk = useRef({ exportWallet, signTypedData, sendTransaction });
-  useLayoutEffect(() => { sdk.current = { exportWallet, signTypedData, sendTransaction }; });
+  const sdk = useRef({ exportWallet, signTypedData, sendTransaction, refreshUser, wallets });
+  useLayoutEffect(() => { sdk.current = { exportWallet, signTypedData, sendTransaction, refreshUser, wallets }; });
   const signer = useMemo<WalletSigner | null>(() => {
     if (!signedIn) return null;
     const { exportWallet, signTypedData, sendTransaction } = {
@@ -158,6 +155,20 @@ function useEmbeddedWallet(signedIn: boolean): WalletSigner | null {
       if (!address || !userId || activeSigner.current !== current) throw new Error("Wallet is not ready. Reload or sign in again.");
       // Never allow the SDK to fall back to a default wallet.
       return { address };
+    };
+    /** One of this user's Privy wallets other than the main one (a copy
+     * account the server created for them). A wallet made after this page
+     * loaded is in Privy's user object only once it is refreshed. */
+    const ownedCopyAccount = async (target: string) => {
+      const { address: main } = assertActive(), lower = target.toLowerCase();
+      if (!/^0x[0-9a-f]{40}$/.test(lower) || lower === main) throw new Error("copy_wallet_unavailable");
+      const find = () => sdk.current.wallets.find((wallet) => isPrivyWallet(wallet.walletClientType) && wallet.address.toLowerCase() === lower);
+      if (find()) return lower;
+      await sdk.current.refreshUser().catch(() => undefined);
+      for (let wait = 0; wait < 30 && !find(); wait++) await new Promise((resolve) => setTimeout(resolve, 100));
+      assertActive();
+      if (!find()) throw new Error("copy_wallet_unavailable");
+      return lower;
     };
     const current: WalletSigner = {
       address,
@@ -171,6 +182,13 @@ function useEmbeddedWallet(signedIn: boolean): WalletSigner | null {
         // Silent only behind Orbie's own confirm sheet that lists every term
         // (decision 1); otherwise Privy shows its modal as configured.
         const { signature } = await signTypedData(data, { ...assertActive(), ...(options?.silent ? { uiOptions: { showWalletUIs: false } } : {}) });
+        return signature as `0x${string}`;
+      },
+      signAsAccount: async (target, data) => {
+        const address = await ownedCopyAccount(target);
+        // Silent: the action is the one Orbie prepared from the owner's own
+        // confirmed consent (one-click copy, decision 1).
+        const { signature } = await sdk.current.signTypedData(data, { address, uiOptions: { showWalletUIs: false } });
         return signature as `0x${string}`;
       },
       sendTransaction: async (tx, sponsor) => {

@@ -241,48 +241,47 @@ describe("owner consent revocation", () => {
   });
 });
 
-describe("the automatic return: the owner's session adds the policy-bound worker signer (one-click plan §3b)", () => {
+describe("the automatic return: the policy-bound worker signer the owner's browser added, recorded once Privy shows it (one-click plan §3b)", () => {
   const main = `0x${"5a".repeat(20)}`;
   const on = (automaticReturn: boolean) => { const base = testConfig(); return { get value() { return { ...base.value, copy: { mode: "testnet" as const, workerIntervalMs: 2000,
     agent: { workerQuorumId: "worker-quorum" }, live: { automaticReturn } } } as never; } } as never; };
-  let policy: { available: boolean; create: ReturnType<typeof vi.fn>; verify: ReturnType<typeof vi.fn>; attach: ReturnType<typeof vi.fn>; assertSigner: ReturnType<typeof vi.fn> };
+  let policy: { available: boolean; create: ReturnType<typeof vi.fn>; verify: ReturnType<typeof vi.fn>; assertSigner: ReturnType<typeof vi.fn> };
   beforeEach(async () => {
     await db.update(users).set({ embeddedWalletAddress: main }).where(eq(users.id, uid));
     policy = { available: true, create: vi.fn(async () => ({ id: "policy-1" })), verify: vi.fn(async () => ({ id: "policy-1", ownerQuorumId: "q", fingerprint: "d".repeat(64) })),
-      attach: vi.fn(async () => undefined), assertSigner: vi.fn(async () => undefined) };
+      assertSigner: vi.fn(async () => undefined) };
   });
   const ready = async () => (await service.prepare(uid, strategy, { network: "testnet" })).id;
 
   it("is off unless the deployment turns it on, and never touches Privy then", async () => {
     const id = await ready();
     const off = new CopyWalletService(new CopyWalletRepository(db), new UnitOfWork(db), on(false), provider, policy as never);
-    await expect(off.enableAutomaticReturn(uid, id, "owner-jwt")).rejects.toMatchObject({ response: expect.objectContaining({ code: "setup_unavailable" }) });
+    await expect(off.enableAutomaticReturn(uid, id)).rejects.toMatchObject({ response: expect.objectContaining({ code: "setup_unavailable" }) });
     expect(policy.create).not.toHaveBeenCalled();
   });
 
-  it("creates the owner's policy for the main wallet, attaches with the owner's session, verifies, records it once", async () => {
+  it("creates the owner's policy for the main wallet, verifies the signer Privy shows, records it once", async () => {
     const id = await ready();
     const before = (await db.select().from(copyExecutionAccounts).where(eq(copyExecutionAccounts.id, id)))[0]!.revision;
     const enabled = new CopyWalletService(new CopyWalletRepository(db), new UnitOfWork(db), on(true), provider, policy as never);
-    expect(await enabled.enableAutomaticReturn(uid, id, "owner-jwt")).toMatchObject({ id, state: "ready", automaticReturn: true });
+    expect(await enabled.enableAutomaticReturn(uid, id)).toMatchObject({ id, state: "ready", automaticReturn: true });
     expect(policy.create).toHaveBeenCalledWith("did:privy:wallet-owner", { ownerMain: main, account: addr }, `master_${id.replaceAll("-", "")}`);
-    expect(policy.attach).toHaveBeenCalledWith("provider-wallet", "owner-jwt", "worker-quorum", "policy-1");
     expect(policy.assertSigner).toHaveBeenCalledWith("provider-wallet", { address: addr, ownerQuorumId: "verified-user-quorum", workerQuorumId: "worker-quorum", policyId: "policy-1" });
     const [row] = await db.select().from(copyExecutionAccounts).where(eq(copyExecutionAccounts.id, id));
     expect(row).toMatchObject({ masterPolicyId: "policy-1", masterSignerQuorumId: "worker-quorum", sweepDestination: main, revision: before });
     // Identity is unchanged: consents bound to the account revision stay valid.
     // Again: nothing more at Privy; and reconcile now expects exactly that signer.
-    await enabled.enableAutomaticReturn(uid, id, "owner-jwt");
+    await enabled.enableAutomaticReturn(uid, id);
     expect(policy.create).toHaveBeenCalledTimes(1);
     await enabled.reconcile(uid, id);
     expect(provider.findOwned).toHaveBeenLastCalledWith("did:privy:wallet-owner", row!.externalId, { workerQuorumId: "worker-quorum", policyId: "policy-1" });
   });
 
-  it("records nothing when Privy fails, and answers without provider detail", async () => {
+  it("records nothing while Privy doesn't show the signer, and answers without provider detail", async () => {
     const id = await ready();
-    policy.attach.mockRejectedValue(new Error("privy says no: did:privy:wallet-owner"));
+    policy.assertSigner.mockRejectedValue(new Error("privy says no: did:privy:wallet-owner"));
     const enabled = new CopyWalletService(new CopyWalletRepository(db), new UnitOfWork(db), on(true), provider, policy as never);
-    const error = await enabled.enableAutomaticReturn(uid, id, "owner-jwt").catch((e: { response: unknown }) => e.response);
+    const error = await enabled.enableAutomaticReturn(uid, id).catch((e: { response: unknown }) => e.response);
     expect(error).toEqual({ statusCode: 503, code: "setup_unavailable", message: "Automatic return could not be set up; try again" });
     expect((await db.select().from(copyExecutionAccounts).where(eq(copyExecutionAccounts.id, id)))[0]!.masterPolicyId).toBeNull();
   });

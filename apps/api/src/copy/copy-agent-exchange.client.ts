@@ -1,8 +1,6 @@
 import {HyperliquidGlobalTransport} from '../hyperliquid/hyperliquid-global-transport.js';
-import {verifyTypedData} from 'viem';
 import {boundedLiveRead} from './live/live-market-resolver.js';
 import { LIVE_RESERVE_WAIT_MS, sharedCapacityWait } from "../hyperliquid/hyperliquid-budget-wait.js";
-import { PrivyClient } from "@privy-io/node";
 import { WALLET_NETWORKS, splitSignature } from "@trading-dashboard/shared/contracts";
 import { z } from "zod";
 import { readInfoJson } from "../hyperliquid/response-validation.js";
@@ -17,17 +15,15 @@ export interface AgentApprovalClient {
   acquire(): Promise<unknown>;
   /** Takes weight before a clock starts (HyperliquidBudgetWait when busy). Optional for doubles. */
   reserve?(weight: number): Promise<unknown>;
-  signMaster(account: { walletId: string; address: string; ownerQuorumId: string }, intent: AgentConsentIntent, userJwt: string,assertFreshProof?:()=>void): Promise<string>;
   send(intent: AgentConsentIntent, signature: string,assertFreshProof?:()=>void): Promise<unknown>;
   /** `prepaid`: the caller reserved OBSERVE_WEIGHT before its own clock. */
   observe(intent: AgentConsentIntent, options?: { prepaid?: boolean }): Promise<{ checkedAt: number; validUntil: number } | null>;
 }
-const domainFields = [{ name: "name", type: "string" }, { name: "version", type: "string" }, { name: "chainId", type: "uint256" }, { name: "verifyingContract", type: "address" }];
 const agents = z.array(z.object({ address: z.string().regex(/^0x[0-9a-fA-F]{40}$/), name: z.string().max(256),
   validUntil: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable() })).max(100);
 
-/** Fresh user authorization is used for one exact master approval. Neither the
- * JWT nor a reusable master authorization is persisted or passed to workers. */
+/** Sends one exact master approval (signed by the copy account in the
+ * owner's browser) and observes it; signs nothing itself. */
 export class PrivyAgentApprovalClient implements AgentApprovalClient {
   private readonly credentials: Readonly<{ appId: string; appSecret: string }> | null;
   constructor(config: { appId?: string; appSecret?: string }, private readonly budget: (weight: number) => Promise<unknown>,
@@ -38,35 +34,6 @@ export class PrivyAgentApprovalClient implements AgentApprovalClient {
   get available() { return this.credentials !== null; }
   acquire() { return this.budget(1); }
   reserve(weight: number) { return this.budget(weight); }
-  async signMaster(rawAccount:{walletId:string;address:string;ownerQuorumId:string},rawIntent:AgentConsentIntent,userJwt:string,assertFreshProof?:()=>void):Promise<string>{
-    const controller=new AbortController();let timer:ReturnType<typeof setTimeout>|undefined;
-    try{
-      const account=Object.freeze(structuredClone(rawAccount)),intent=Object.freeze(structuredClone(rawIntent)),data=agentApprovalTypedData(intent),started=this.now(),deadline=Math.min(started+5000,intent.consentExpiresAt);
-      const proof=()=>{const value:unknown=assertFreshProof?.();if(value!==undefined){void Promise.resolve(value).catch(()=>{});throw new Error();}};
-      const remaining=()=>{const now=this.now();if(!Number.isSafeInteger(now)||now<started||now<intent.nonce||now>=deadline||controller.signal.aborted)throw new Error();return deadline-now;};
-      if(!this.credentials||typeof userJwt!=='string'||!userJwt.trim()||userJwt.length>32768||account.address.toLowerCase()!==intent.accountAddress.toLowerCase()||this.global&&typeof assertFreshProof!=='function')throw new Error();
-      proof();remaining();timer=setTimeout(()=>controller.abort(),remaining());timer.unref();
-      let verified=false,submitted=false;const walletPath=`/v1/wallets/${encodeURIComponent(account.walletId)}`,rpcPath=`${walletPath}/rpc`;
-      const sdkFetch:typeof fetch=(input,init)=>{
-        const url=new URL(input instanceof Request?input.url:String(input)),method=init?.method??(input instanceof Request?input.method:'GET');
-        if(url.origin!=='https://api.privy.io'||url.search||url.hash||!(url.pathname===walletPath&&method==='GET'||url.pathname==='/v1/wallets/authenticate'&&method==='POST'||url.pathname===rpcPath&&method==='POST'))throw new Error();
-        const request={...init,redirect:'error' as const,signal:AbortSignal.any([controller.signal,...(init?.signal?[init.signal]:[])])};
-        remaining();if(url.pathname===rpcPath){if(!verified||submitted)throw new Error();proof();remaining();submitted=true;}
-        const work=this.fetcher(input,request);void Promise.resolve(work).catch(()=>{});
-        return (async()=>{const response=await boundedLiveRead(() => work,remaining());if(!response.body)throw new Error();
-          const reader=response.body.getReader(),chunks:Uint8Array[]=[];let bytes=0;const abort=()=>{void reader.cancel().catch(()=>{});};controller.signal.addEventListener('abort',abort,{once:true});
-          try{if(Number(response.headers.get('content-length'))>65536)throw new Error();for(;;){const {done,value}=await boundedLiveRead(() => reader.read(),remaining());if(done)break;bytes+=value.byteLength;if(bytes>65536)throw new Error();chunks.push(value);}
-            return Response.json(JSON.parse(Buffer.concat(chunks,bytes).toString()),{status:response.status,headers:response.headers});
-          }finally{controller.signal.removeEventListener('abort',abort);await boundedLiveRead(() => reader.cancel(),100).catch(()=>{});reader.releaseLock();}
-        })();
-      };
-      const client=new PrivyClient({...this.credentials,timeout:remaining(),maxRetries:0,fetch:sdkFetch,logLevel:'off'});
-      const wallet=await boundedLiveRead(() => client.wallets().get(account.walletId),remaining());
-      if(wallet.id!==account.walletId||wallet.chain_type!=='ethereum'||typeof wallet.address!=='string'||wallet.address.toLowerCase()!==account.address.toLowerCase()||wallet.owner_id!==account.ownerQuorumId||wallet.archived_at!==null)throw new Error();verified=true;
-      const result=await boundedLiveRead(() => client.wallets().ethereum().signTypedData(account.walletId,{address:account.address,authorization_context:{user_jwts:[userJwt]},request_expiry:intent.consentExpiresAt,params:{typed_data:{domain:data.domain,types:{...data.types,EIP712Domain:domainFields},primary_type:data.primaryType,message:data.message}}}),remaining());
-      remaining();if(result.encoding!=='hex'||!/^0x[0-9a-fA-F]{128}(?:00|01|1b|1c)$/i.test(result.signature)||!await verifyTypedData({address:account.address as `0x${string}`,...data,signature:result.signature as `0x${string}`}))throw new Error();remaining();return result.signature;
-    }catch{throw new LiveBoundaryError('agent_master_approval_unavailable');}finally{clearTimeout(timer);controller.abort();}
-  }
   async send(rawIntent:AgentConsentIntent,signature:string,assertFreshProof?:()=>void):Promise<unknown>{
     const intent=Object.freeze(structuredClone(rawIntent)),data=agentApprovalTypedData(intent);
     if(this.now()>=intent.consentExpiresAt)throw new LiveBoundaryError('agent_consent_expired');

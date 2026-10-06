@@ -27,6 +27,12 @@ export interface WalletSigner {
    * sheet has shown the exact terms (one-click copy, decision 1). A user who
    * enrolled MFA for wallet actions is still prompted by Privy. */
   signTypedData(data: Eip712TypedData, options?: { silent?: boolean }): Promise<`0x${string}`>;
+  /** EIP-712 signature by one of the user's own copy accounts (a Privy
+   * wallet the server created for them, owned by them alone), silently: the
+   * exact action Orbie prepared for it (lib/copy-master-action.ts). Refused
+   * (`copy_wallet_unavailable`) unless that address is one of the signed-in
+   * user's Privy wallets other than the main one. */
+  signAsAccount(address: string, data: Eip712TypedData): Promise<`0x${string}`>;
   /** Sends a transaction from the embedded wallet; `sponsor` asks Privy to pay gas. */
   sendTransaction(tx: { to: `0x${string}`; data: `0x${string}`; chainId: number }, sponsor: boolean): Promise<`0x${string}`>;
 }

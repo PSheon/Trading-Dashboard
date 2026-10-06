@@ -1,9 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Logger } from '@nestjs/common';
-import { PrivyClient } from '@privy-io/node';
 import { UserSetAbstractionTypes } from '@nktkas/hyperliquid/api/exchange';
 import { WALLET_NETWORKS, splitSignature } from '@trading-dashboard/shared/contracts';
-import { verifyTypedData } from 'viem';
 import { z } from 'zod';
 import { Dec } from '../../common/decimal/dec.js';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
@@ -45,8 +43,6 @@ const ethereumAddress = z.string().regex(/^0x[0-9a-fA-F]{40}$/).refine(v => !/^0
 const intentSchema = z.object({ operationId: identifier, accountId: identifier, strategyId: integer,
   network: z.literal('testnet'), accountAddress: ethereumAddress, nonce: integer, consentExpiresAt: integer }).strict()
   .refine(v => v.consentExpiresAt > v.nonce && v.consentExpiresAt - v.nonce <= 300_000);
-const masterSchema = z.object({ walletId: identifier, address: ethereumAddress, ownerQuorumId: identifier }).strict();
-const domainFields = [{ name: 'name', type: 'string' }, { name: 'version', type: 'string' }, { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' }];
 const types = frozen(structuredClone(UserSetAbstractionTypes));
 const roleSchema = z.object({ role: z.enum(['missing', 'user', 'agent', 'vault', 'subAccount']) });
 const abstractionSchema = z.enum(['default', 'disabled', 'unifiedAccount', 'portfolioMargin']);
@@ -78,26 +74,6 @@ function synchronousProof(assertFreshProof?: () => void): void {
   const result: unknown = assertFreshProof?.();
   if (result !== undefined) { void Promise.resolve(result).catch(() => undefined); throw new Error(); }
 }
-async function readSdkJson(response: Response, remaining: () => number, signal: AbortSignal): Promise<unknown> {
-  if (!response.body) throw new Error();
-  const reader = response.body.getReader(), chunks: Uint8Array[] = [];
-  const abort = () => { void reader.cancel().catch(() => undefined); };
-  signal.addEventListener('abort', abort, { once: true });
-  let size = 0;
-  try {
-    if (Number(response.headers.get('content-length')) > 64 * 1024) throw new Error();
-    for (;;) {
-      if (signal.aborted) throw new Error();
-      const { done, value } = await boundedLiveRead(() => reader.read(), remaining());
-      if (done) break;
-      size += value.byteLength; if (size > 64 * 1024) throw new Error(); chunks.push(value);
-    }
-    return JSON.parse(Buffer.concat(chunks, size).toString('utf8'));
-  } finally {
-    signal.removeEventListener('abort', abort);
-    await boundedLiveRead(() => reader.cancel(), 100).catch(() => undefined); reader.releaseLock();
-  }
-}
 
 /** Current principal action only. No deprecated DEX opt-out or multisig aliases. */
 export function accountModeTypedData(raw: AccountModeIntent) {
@@ -111,7 +87,8 @@ export function accountModeTypedData(raw: AccountModeIntent) {
 
 /** One explicitly authorized owner setup action. Durable attempted state and
  * final local ownership/consent gates belong to the caller; this client never
- * retries, retains a JWT, creates a wallet or approves an agent. */
+ * retries, signs, creates a wallet or approves an agent (the copy account's
+ * own signature is made in the owner's browser). */
 export class PrivyAccountModeClient {
   private readonly credentials: Readonly<{ appId: string; appSecret: string }> | null;
   constructor(config: { appId?: string; appSecret?: string }, private readonly budget: LiveBudget,
@@ -124,63 +101,6 @@ export class PrivyAccountModeClient {
   /** Caller reserves weight exactly once before its durable attempt/POST. */
   async acquire(): Promise<void> {
     try { await boundedLiveRead(() => this.budget(1), 5000); } catch { fail('account_mode_budget_unavailable'); }
-  }
-  async signMaster(rawMaster: AccountModeOwnedMaster, rawIntent: AccountModeIntent, userJwt: string, assertFreshProof?: () => void): Promise<string> {
-    const controller = new AbortController(); let timer: NodeJS.Timeout | undefined;
-    try {
-      if (this.global && typeof assertFreshProof !== 'function') throw new Error();
-      const intent = capture(rawIntent), master = frozen(masterSchema.parse(structuredClone(rawMaster)));
-      const data = accountModeTypedData(intent), started = this.now();
-      live(intent, started);
-      if (!this.credentials || typeof userJwt !== 'string' || !userJwt.trim() || userJwt.length > 32_768 || master.address !== intent.accountAddress) throw new Error();
-      const deadline = Math.min(started + 5000, intent.consentExpiresAt);
-      timer = setTimeout(() => controller.abort(), deadline - started); timer.unref();
-      const remaining = () => { const now = this.now(); live(intent, now);
-        if (now < started || now >= deadline || controller.signal.aborted) throw new Error(); return deadline - now; };
-      let verifiedIdentity = false, rpcSubmitted = false;
-      const walletPath = `/v1/wallets/${encodeURIComponent(master.walletId)}`;
-      const rpcPath = `/v1/wallets/${encodeURIComponent(master.walletId)}/rpc`;
-      const sdkFetch: typeof fetch = (input, init) => {
-        const url = new URL(input instanceof Request ? input.url : String(input));
-        const method = init?.method ?? (input instanceof Request ? input.method : 'GET');
-        if (url.origin !== 'https://api.privy.io' || url.search || url.hash ||
-            !(url.pathname === walletPath && method === 'GET' || url.pathname === '/v1/wallets/authenticate' && method === 'POST' || url.pathname === rpcPath && method === 'POST')) throw new Error();
-        remaining();
-        // SDK JWT authorization awaits HPKE exchange internally. Recheck at
-        // the actual RPC boundary, after that wait, before invoking transport.
-        if (url.pathname === rpcPath) {
-          live(intent, this.now()); fresh(started, this.now());
-          if (!verifiedIdentity || rpcSubmitted) throw new Error();
-          synchronousProof(assertFreshProof);
-          live(intent, this.now()); fresh(started, this.now()); remaining(); rpcSubmitted = true;
-        }
-        const work = this.fetcher(input, { ...init, redirect: 'error', signal: AbortSignal.any([controller.signal, ...(init?.signal ? [init.signal] : [])]) });
-        // Handled now: `remaining()` below may throw before the read is awaited.
-        void Promise.resolve(work).catch(() => undefined);
-        return (async () => {
-          const response = await boundedLiveRead(() => work, remaining());
-          const value = await readSdkJson(response, remaining, controller.signal);
-          return Response.json(value, { status: response.status, headers: response.headers });
-        })();
-      };
-      // Exchanged authorization keys remain scoped to this invocation.
-      const client = new PrivyClient({ ...this.credentials, timeout: Math.min(10_000, remaining()), maxRetries: 0, fetch: sdkFetch, logLevel: 'off' });
-      const wallet = await boundedLiveRead(() => client.wallets().get(master.walletId), remaining());
-      if (wallet.id !== master.walletId || wallet.chain_type !== 'ethereum' || typeof wallet.address !== 'string' ||
-          wallet.address.toLowerCase() !== master.address || wallet.owner_id !== master.ownerQuorumId || wallet.archived_at !== null) throw new Error();
-      verifiedIdentity = true;
-      live(intent, this.now()); fresh(started, this.now());
-      const result = await boundedLiveRead(() => client.wallets().ethereum().signTypedData(master.walletId, {
-        address: master.address, authorization_context: { user_jwts: [userJwt] }, request_expiry: intent.consentExpiresAt,
-        params: { typed_data: { domain: data.domain, types: { ...data.types, EIP712Domain: domainFields }, primary_type: data.primaryType, message: data.message } },
-      }), remaining());
-      live(intent, this.now()); fresh(started, this.now());
-      if (result.encoding !== 'hex') throw new Error(); validSignature(result.signature);
-      if (!await verifyTypedData({ address: master.address as `0x${string}`, ...data, signature: result.signature as `0x${string}` })) throw new Error();
-      live(intent, this.now()); fresh(started, this.now());
-      return result.signature;
-    } catch { return fail('account_mode_master_signature_unavailable'); }
-    finally { if (timer) clearTimeout(timer); controller.abort(); }
   }
   /** Exactly one POST per call. Caller must persist attempted/unknown first;
    * neither success acknowledgment nor timeout grants authority to resubmit. */

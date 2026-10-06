@@ -2,10 +2,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRef } from 'react';
 import { copyFundingSchema, copyReturnChallengeSchema, copyReturnConsentTypedData, liveCopyPortfolioSchema, liveManualCloseSchema,
-  liveStopCancellationChallengeSchema, liveStopCancellationOwnerTypedData, type LiveCopyPortfolioItem } from '@trading-dashboard/shared/contracts';
+  liveStopCancellationChallengeSchema, liveStopCancellationOwnerTypedData, usdSendTypedData, WALLET_NETWORKS, type LiveCopyPortfolioItem } from '@trading-dashboard/shared/contracts';
 import { api, sessionKey } from './api';
 import { useAuth } from './auth';
 import { liveCopyEnabled } from './copy-live-setup';
+import { signMasterAction } from './copy-master-action';
 import { queryKeys } from './query-keys';
 import type { Eip712TypedData } from './wallet-signer';
 
@@ -49,7 +50,12 @@ export function useLiveCopyPortfolioActions() {
       const name = `return:${accountId}:${amount}`;
       const challenge = copyReturnChallengeSchema.parse(await api.post(`${ROOT}/execution-wallets/${encodeURIComponent(accountId)}/returns`, { idempotencyKey: keyFor(name), amount }));
       if (challenge.operation.status !== 'prepared') { done(name); return challenge.operation; }
-      const body = automatic ? {} : { consentSignature: await sign(copyReturnConsentTypedData(challenge.consent)) };
+      // The main wallet's consent, and the copy account's own UsdSend of
+      // exactly that amount to the main wallet (signed here, silently).
+      const consent = challenge.consent, wallet = auth.wallet;
+      const body = automatic ? {} : { consentSignature: await sign(copyReturnConsentTypedData(consent)),
+        masterSignature: await signMasterAction({ signAsAccount: (address, data) => { if (!wallet) throw new Error('owner_wallet_unavailable'); return wallet.signAsAccount(address, data); } },
+          challenge.masterAction, { kind: 'usd_send', account: consent.account, typedData: usdSendTypedData(WALLET_NETWORKS.testnet, consent.destination, consent.amount, consent.nonce) }) };
       const result = copyFundingSchema.parse(await api.post(`${ROOT}/returns/${encodeURIComponent(challenge.operation.id)}/approve`, body));
       done(name); return result;
     },

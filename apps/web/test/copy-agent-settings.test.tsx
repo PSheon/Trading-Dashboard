@@ -11,9 +11,10 @@ import { LOCALES, type Locale } from "@/i18n/config";
 import type { CopyAgentOverview, CopyAgentSetup, CopyExecutionAccount } from "@trading-dashboard/shared/contracts";
 import { settleQueries, type SettleOptions } from "./query-settle";
 import { chooseOption, selectTrigger } from './select-helper';
+import { MASTER_SIGNATURE, withMasterAction } from "./master-action-test-utils";
 const state = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), sign: vi.fn(), status: "signedIn", mode: "privy", identity: "owner", session: "1", walletAddress: `0x${"11".repeat(20)}` as string | null }));
-vi.mock("@/lib/auth", () => ({ useAuth: () => ({ status: state.status, mode: state.mode, identity: state.identity, wallet: state.walletAddress ? { address: state.walletAddress, signTypedData: state.sign } : null }) }));
-vi.mock("@/lib/api", () => ({ api: { get: state.get, post: state.post }, sessionKey: () => state.session }));
+vi.mock("@/lib/auth", () => ({ useAuth: () => ({ status: state.status, mode: state.mode, identity: state.identity, wallet: state.walletAddress ? { address: state.walletAddress, signTypedData: state.sign, signAsAccount: async () => MASTER_SIGNATURE } : null }) }));
+vi.mock("@/lib/api", () => ({ api: { get: state.get, post: (...args: unknown[]) => Promise.resolve((state.post as (...a: unknown[]) => unknown)(...args)).then(value => withMasterAction(args[0], value)) }, sessionKey: () => state.session }));
 vi.mock("@/lib/query-policy", () => ({ defaultRetry: { retry: false } }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh() {} }) }));
 const account: CopyExecutionAccount = { id: "account", strategyId: 9, network: "testnet", state: "ready", address: `0x${"22".repeat(20)}`, issue: null, createdAt: "2026-10-03T00:00:00Z", updatedAt: "2026-10-03T00:00:00Z" };
@@ -37,7 +38,7 @@ it("creates a separate agent without signing and requires explicit reviewed owne
   await click("Prepare agent"); expect(state.post).toHaveBeenCalledTimes(1); expect(state.sign).not.toHaveBeenCalled(); expect(button("Confirm and sign approval").disabled).toBe(true);
   expect(container.textContent).toContain(account.address); expect(container.textContent).toContain(op.agentAddress); expect(container.textContent).toContain(state.walletAddress); await acknowledge(); await click("Confirm and sign approval");
   expect(state.sign).toHaveBeenCalledOnce(); expect(state.sign.mock.calls[0][0].primaryType).toBe("CopyAgentConsent"); expect(state.post.mock.calls.map(([path]) => path)).toEqual(["/me/copy/execution-wallets/account/agent", "/me/copy/agents/agent/challenge", "/me/copy/agents/agent/approve"]);
-  expect(state.post.mock.calls[2][1]).toEqual({ consentSignature: `0x${"aa".repeat(65)}` }); expect(container.textContent).toContain("Delegation approved"); expect(container.textContent).toContain("the agent places the copy's orders on Hyperliquid testnet"); expect(container.querySelector('input[type="checkbox"]')).toBeNull();
+  expect(state.post.mock.calls[2][1]).toEqual({ consentSignature: `0x${"aa".repeat(65)}`, masterSignature: MASTER_SIGNATURE }); expect(container.textContent).toContain("Delegation approved"); expect(container.textContent).toContain("the agent places the copy's orders on Hyperliquid testnet"); expect(container.querySelector('input[type="checkbox"]')).toBeNull();
 });
 it("preserves an unresolved setup key through unmount and uses only an explicit original retry", async () => {
   state.post.mockRejectedValue(new Error("private remote detail")); await render(); await selectAccount(); await click("Prepare agent"); const original = state.post.mock.calls[0].slice(0, 2); expect(container.textContent).not.toContain("private remote");

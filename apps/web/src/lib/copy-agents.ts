@@ -3,9 +3,10 @@
 import { useLayoutEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
-import { agentOwnerConsentTypedData, copyAgentApproveSchema, copyAgentChallengeSchema, copyAgentOverviewSchema, copyAgentSetupSchema, prepareCopyAgentSchema, type CopyAgentSetup, type CopyExecutionAccount } from "@trading-dashboard/shared/contracts";
+import { agentApprovalTypedData, agentOwnerConsentTypedData, copyAgentApproveSchema, copyAgentChallengeSchema, copyAgentOverviewSchema, copyAgentSetupSchema, prepareCopyAgentSchema, type CopyAgentSetup, type CopyExecutionAccount } from "@trading-dashboard/shared/contracts";
 import { api, sessionKey } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { signMasterAction } from "@/lib/copy-master-action";
 import { queryKeys } from "@/lib/query-keys";
 import { defaultRetry } from "@/lib/query-policy";
 import type { Eip712TypedData } from "@/lib/wallet-signer";
@@ -38,8 +39,10 @@ interface AgentDependencies extends OwnerDependencies {
   journal: ReturnType<typeof createAgentJournal>; now(): number;
   assertCurrent?(operation: CopyAgentSetup, approving: boolean): void;
   sign(data: Eip712TypedData): Promise<string>;
+  /** The copy account's own signature (in this browser, silently). */
+  signAccount(address: string, data: Eip712TypedData): Promise<`0x${string}`>;
   challenge(id: string, beforeSend: () => void): Promise<unknown>;
-  approve(id: string, body: { consentSignature: string }, beforeSend: () => void): Promise<unknown>;
+  approve(id: string, body: { consentSignature: string; masterSignature: string }, beforeSend: () => void): Promise<unknown>;
   reconcile(id: string, beforeSend: () => void): Promise<unknown>;
 }
 interface CreationDependencies extends OwnerDependencies {
@@ -84,13 +87,16 @@ export async function runCopyAgentApproval(original: CopyAgentSetup, deps: Agent
   }
   if (op.network !== "testnet" || Date.parse(op.expiresAt) <= deps.now()) throw new Error("agent_consent_expired");
   const raw = await deps.challenge(op.id, () => guard()); guard();
-  const { operation, intent } = copyAgentChallengeSchema.parse(raw); sameOperation(op, operation);
+  const { operation, intent, masterAction } = copyAgentChallengeSchema.parse(raw); sameOperation(op, operation);
   if (operation.state !== "ready" || intent.id !== op.id || intent.strategyId !== op.strategyId || intent.network !== op.network || intent.accountAddress !== op.accountAddress || intent.agentAddress !== op.agentAddress || intent.expiresAt !== Date.parse(op.expiresAt)) throw new Error("agent_challenge_changed");
   const typedData = agentOwnerConsentTypedData(intent);
   const assertExpiry = () => { if (intent.consentExpiresAt <= deps.now() || intent.expiresAt <= deps.now() || intent.nonce > deps.now() + 30_000) throw new Error("agent_consent_expired"); };
   guard(); assertExpiry();
   const signature = await deps.sign(typedData); guard(); assertExpiry();
-  const body = copyAgentApproveSchema.parse({ consentSignature: signature });
+  // The copy account signs exactly the approval the consent covers.
+  const masterSignature = await signMasterAction({ signAsAccount: deps.signAccount }, masterAction,
+    { kind: "agent_approval", account: op.accountAddress, typedData: agentApprovalTypedData(intent) }, deps.now()); guard(); assertExpiry();
+  const body = copyAgentApproveSchema.parse({ consentSignature: signature, masterSignature });
   // Durable barrier precedes submission, including when the response is lost or the tab closes.
   deps.journal.markApproval(op.id); guard(); assertExpiry();
   // After submission, a concurrent observer may legitimately advance the state.
@@ -129,7 +135,7 @@ export function useCopyAgentActions(accounts: CopyExecutionAccount[], setups: Co
     const account = value.accounts.find((item) => item.id === original.accountId && item.strategyId === original.strategyId && item.network === original.network && item.address === original.accountAddress && item.state === "ready");
     if (!operation || !account) throw new Error("agent_operation_changed"); sameOperation(original, operation);
     if (approving && (!capturedAccount || account.updatedAt !== capturedAccount.updatedAt || operation.state !== "ready" || Date.parse(operation.expiresAt) <= Date.now())) throw new Error("agent_operation_changed");
-  }, sign: (typed) => { const wallet = latest.current.wallet; if (!wallet) throw new Error("agent_owner_unavailable"); return wallet.signTypedData(typed); }, challenge: (id, beforeSend) => api.post(`${ROOT}/${encodeURIComponent(id)}/challenge`, {}, { beforeSend }), approve: (id, body, beforeSend) => api.post(`${ROOT}/${encodeURIComponent(id)}/approve`, body, { beforeSend }), reconcile: (id, beforeSend) => api.post(`${ROOT}/${encodeURIComponent(id)}/reconcile`, {}, { beforeSend }) }); }, onSettled: settled });
+  }, sign: (typed) => { const wallet = latest.current.wallet; if (!wallet) throw new Error("agent_owner_unavailable"); return wallet.signTypedData(typed); }, signAccount: (address, typed) => { const wallet = latest.current.wallet; if (!wallet) throw new Error("agent_owner_unavailable"); return wallet.signAsAccount(address, typed); }, challenge: (id, beforeSend) => api.post(`${ROOT}/${encodeURIComponent(id)}/challenge`, {}, { beforeSend }), approve: (id, body, beforeSend) => api.post(`${ROOT}/${encodeURIComponent(id)}/approve`, body, { beforeSend }), reconcile: (id, beforeSend) => api.post(`${ROOT}/${encodeURIComponent(id)}/reconcile`, {}, { beforeSend }) }); }, onSettled: settled });
   const reconcile = useMutation({ retry: false, mutationFn: async (op: CopyAgentSetup) => {
     const guard = ownerGuard({ snapshot }, false); guard(); const raw = await api.post(`${ROOT}/${encodeURIComponent(op.id)}/reconcile`, {}, { beforeSend: guard }); guard();
     // Policy/wallet provisioning can discover its separate agent address during reconciliation.

@@ -3,17 +3,17 @@ import { act, useLayoutEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { liveCopySetupIntentSchema, type LiveCopySetup, type LiveCopySetupIntent } from '@trading-dashboard/shared/contracts';
+import { liveCopySetupIntentSchema, userSetAbstractionTypedData, WALLET_NETWORKS, type CopyMasterActionRequest, type LiveCopySetup, type LiveCopySetupIntent } from '@trading-dashboard/shared/contracts';
 import { I18nProvider } from '@/i18n/provider';
 import { catalogs } from '@/i18n/messages';
 import { liveSetupMessages } from '@/i18n/live-setup';
 import { LOCALES } from '@/i18n/config';
-import { signSetup, useLiveCopySetupActions } from '@/lib/copy-live-setup';
+import { signSetup, useLiveCopySetup, useLiveCopySetupActions } from '@/lib/copy-live-setup';
 
-const state = vi.hoisted(() => ({ post: vi.fn(), get: vi.fn(), patch: vi.fn(), sign: vi.fn(), identity: 'owner@email', session: '1' }));
-vi.mock('@/lib/auth', () => ({ useAuth: () => ({ status: 'signedIn', mode: 'privy', identity: state.identity, wallet: { address: `0x${'11'.repeat(20)}`, signTypedData: state.sign } }) }));
+const state = vi.hoisted(() => ({ post: vi.fn(), get: vi.fn(), patch: vi.fn(), sign: vi.fn(), signAs: vi.fn(), identity: 'owner@email', session: '1' }));
+vi.mock('@/lib/auth', () => ({ useAuth: () => ({ status: 'signedIn', mode: 'privy', identity: state.identity, wallet: { address: `0x${'11'.repeat(20)}`, signTypedData: state.sign, signAsAccount: state.signAs } }) }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh() {}, push() {} }), usePathname: () => '/trader', useSearchParams: () => new URLSearchParams() }));
-vi.mock('@/lib/api', () => ({ api: { get: state.get, post: state.post, patch: state.patch }, sessionKey: () => state.session }));
+vi.mock('@/lib/api', async () => ({ ApiError: (await vi.importActual<typeof import('@/lib/api')>('@/lib/api')).ApiError, api: { get: state.get, post: state.post, patch: state.patch }, sessionKey: () => state.session }));
 
 const now = Date.now();
 function intent(kind: LiveCopySetupIntent['kind'] = 'start'): LiveCopySetupIntent {
@@ -27,15 +27,18 @@ function intent(kind: LiveCopySetupIntent['kind'] = 'start'): LiveCopySetupInten
 const settings = { direction: 'same' as const, sizingMode: 'ratio' as const, perTradeUsd: null, maxTotalExposureUsd: null, maxLeverage: 5, copyStartMode: 'delta' as const };
 function setup(kind: LiveCopySetupIntent['kind'] = 'start', stage: LiveCopySetup['stage'] = 'awaiting_consent'): LiveCopySetup {
   return { id: '0b0a6a3e-2f6b-4b7a-9a65-6b7c9f1e2d3c', kind, strategyId: 7, accountId: 'acct', leaderAddress: `0x${'44'.repeat(20)}`, sourceNetwork: 'mainnet', budgetUsd: '150', settings, stage, issue: null,
-    signer: null, consent: stage === 'awaiting_consent' ? intent(kind) : null, funding: null, mandateId: null, setupDeadline: null, createdAt: new Date(now).toISOString(), updatedAt: new Date(now).toISOString() };
+    signer: null, consent: stage === 'awaiting_consent' ? intent(kind) : null, funding: null, pendingSignature: null, mandateId: null, setupDeadline: null, createdAt: new Date(now).toISOString(), updatedAt: new Date(now).toISOString() };
 }
 
 let root: Root, container: HTMLDivElement, client: QueryClient;
 const probe: { current: ReturnType<typeof useLiveCopySetupActions> | null } = { current: null };
+const progress: { current: ReturnType<typeof useLiveCopySetup> | null } = { current: null };
 function Probe() { const value = useLiveCopySetupActions(); useLayoutEffect(() => { probe.current = value; }); return null; }
+function ProgressProbe({ id }: { id: string }) { const value = useLiveCopySetup(id); useLayoutEffect(() => { progress.current = value; }); return null; }
 beforeEach(async () => {
   vi.clearAllMocks(); state.identity = 'owner@email'; state.session = '1';
   state.sign.mockImplementation(async () => `0x${'ab'.repeat(65)}`);
+  state.signAs.mockImplementation(async () => `0x${'cd'.repeat(65)}`);
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale="en" messages={catalogs.en}><Probe /></I18nProvider></QueryClientProvider>));
@@ -89,4 +92,54 @@ it('every language has every one-click text', () => {
     expect(keys(liveSetupMessages[locale]).sort()).toEqual(english);
     for (const text of Object.values(liveSetupMessages[locale])) if (typeof text === 'string') expect(text.trim()).not.toBe('');
   }
+});
+
+/** An owner-signed setup at the account step, its mode change parked for the browser. */
+const accountAddress = `0x${'22'.repeat(20)}`;
+const pending: CopyMasterActionRequest = { kind: 'account_mode', account: accountAddress, typedData: JSON.parse(JSON.stringify(userSetAbstractionTypedData(WALLET_NETWORKS.testnet, accountAddress, now))),
+  digest: `0x${'ab'.repeat(32)}`, expiresAt: now + 200_000 };
+const parked = (): LiveCopySetup => ({ ...setup('start', 'funded'), signer: 'owner_session', issue: 'awaiting_owner_signature', pendingSignature: pending });
+async function openProgress() {
+  await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale="en" messages={catalogs.en}><Probe /><ProgressProbe id={setup().id} /></I18nProvider></QueryClientProvider>));
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+}
+
+it("the open dialog signs the parked action with the copy account, silently, and sends it with its digest: no extra click", async () => {
+  state.get.mockResolvedValue(parked());
+  state.post.mockResolvedValue({ ...setup('start', 'mode_set'), signer: 'owner_session' });
+  await openProgress();
+  expect(state.signAs).toHaveBeenCalledExactlyOnceWith(accountAddress, pending.typedData);
+  expect(state.sign).not.toHaveBeenCalled();
+  expect(state.post).toHaveBeenCalledExactlyOnceWith('/me/copy/live/setups/0b0a6a3e-2f6b-4b7a-9a65-6b7c9f1e2d3c/advance', { digest: pending.digest, signature: `0x${'cd'.repeat(65)}` });
+  expect(progress.current!.data?.stage).toBe('mode_set');
+  expect(progress.current!.walletError).toBeNull();
+});
+
+it('a wallet error is named and signing waits before trying again; a payload the server replaced is no error', async () => {
+  state.get.mockResolvedValue(parked());
+  state.signAs.mockRejectedValueOnce(new Error('copy_wallet_unavailable'));
+  await openProgress();
+  expect(progress.current!.walletError).toBe('copy_wallet_unavailable');
+  expect(state.post).not.toHaveBeenCalled();
+  // The next poll (2 s later) doesn't sign again yet.
+  await act(async () => { await client.refetchQueries(); });
+  expect(state.signAs).toHaveBeenCalledTimes(1);
+  // A stale action is replaced on the next read: nothing to show.
+  await act(async () => root.unmount()); client.clear(); root = createRoot(container);
+  const { ApiError } = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
+  state.post.mockRejectedValueOnce(new ApiError(409, 'The action changed', { code: 'owner_signature_stale' }));
+  await openProgress();
+  expect(state.post).toHaveBeenCalledTimes(1);
+  expect(progress.current!.walletError).toBeNull();
+});
+
+it('a closed tab resumes: reopening the dialog signs the action still pending', async () => {
+  state.get.mockResolvedValue(parked());
+  state.signAs.mockImplementationOnce(() => new Promise(() => undefined)); // the tab closes while signing
+  await openProgress();
+  await act(async () => root.unmount()); client.clear(); root = createRoot(container);
+  state.post.mockResolvedValue({ ...setup('start', 'mode_set'), signer: 'owner_session' });
+  await openProgress();
+  expect(state.signAs).toHaveBeenCalledTimes(2);
+  expect(state.post).toHaveBeenCalledExactlyOnceWith(expect.stringMatching(/\/advance$/), { digest: pending.digest, signature: `0x${'cd'.repeat(65)}` });
 });

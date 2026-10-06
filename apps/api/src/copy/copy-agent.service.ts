@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Inject, Injectable, ServiceUnavailableException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, ServiceUnavailableException } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { copyAgentSetupSchema, prepareCopyAgentSchema, type CopyAgentSetup, type CopyAgentOverview } from "@trading-dashboard/shared/contracts";
 import { verifyTypedData } from "viem";
@@ -10,12 +10,18 @@ import { AGENT_APPROVAL_CLIENT, AGENT_OBSERVE_WEIGHT, type AgentApprovalClient }
 import { agentApprovalTypedData, verifyAgentOwnerConsent, type AgentConsentIntent } from "./copy-agent-consent.js";
 import { AgentProvisioningConflict, USER_AGENT_PROVISIONER, type UserAgentProvisioner } from "./live/privy-agent-provisioner.js";
 import { LiveBoundaryError } from "./live/wallet-authorization.js";
+import { masterActionRequest, masterSignatureRefusal, type MasterTypedData } from "./live/master-action.js";
 
 function wire(row: AgentSetupRow): CopyAgentSetup {
   return copyAgentSetupSchema.parse({ id: row.id, strategyId: row.strategyId, accountId: row.accountId, network: row.network,
     state: row.state !== "revoked" && row.expiresAt.getTime() <= Date.now() ? "expired" : row.state,
     accountAddress: row.accountAddress, agentAddress: row.agentAddress, expiresAt: row.expiresAt.toISOString(),
     authorizationId: row.authorizationId, issue: row.issue, revision: row.revision, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() });
+}
+/** The exact ApproveAgent the copy account signs, with the values it must carry. */
+function masterApproval(intent: AgentConsentIntent) {
+  return { data: agentApprovalTypedData(intent) as unknown as MasterTypedData,
+    bound: { network: "testnet" as const, agent: { address: intent.agentAddress, name: `copy${intent.strategyId} valid_until ${intent.expiresAt}` } } };
 }
 function consent(row: AgentSetupRow): AgentConsentIntent {
   if (!row.agentAddress || !row.policyId || !row.approvalNonce || !row.consentExpiresAt) throw new ConflictException("agent_consent_not_prepared");
@@ -25,11 +31,12 @@ function consent(row: AgentSetupRow): AgentConsentIntent {
 }
 
 /** Who authorises one agent approval: the owner's consent for this exact
- * operation with their fresh session (Settings), or a one-click setup whose
- * consent (verified at its confirm) bound this agent and expiry, with the
- * setup's signer (the owner's session or the worker under the owner's policy). */
+ * operation with the copy account's own ApproveAgent signature made in their
+ * browser (Settings), or a one-click setup whose consent (verified at its
+ * confirm) bound this agent and expiry, with the setup's signer (the owner's
+ * browser or the worker under the owner's policy). */
 export type AgentApprovalAuthority =
-  | { readonly kind: "owner"; readonly consentSignature: string; readonly userJwt: string }
+  | { readonly kind: "owner"; readonly consentSignature: string; readonly masterSignature: string }
   | { readonly kind: "setup"; readonly consentDigest: string; sign(account: { walletId: string; address: string; ownerQuorumId: string }, intent: AgentConsentIntent, assertFresh: () => void): Promise<string> };
 
 /** Separate explicit setup. An active grant alone never starts a strategy or
@@ -157,10 +164,13 @@ export class CopyAgentService {
     const row = await this.repository.find(userId, id);
     await this.assertSetup(userId, row);
     const challenged = await this.uow.run(tx => this.repository.challenge(tx, userId, id));
-    return { operation: wire(challenged), intent: consent(challenged) };
+    const intent = consent(challenged), approval = masterApproval(intent);
+    // The copy account signs the ApproveAgent in the owner's browser, until
+    // the approval's own window ends.
+    return { operation: wire(challenged), intent, masterAction: masterActionRequest(intent.accountAddress, approval.data, approval.bound, intent.consentExpiresAt) };
   }
-  async approve(userId: number, id: string, consentSignature: string, userJwt: string): Promise<CopyAgentSetup> {
-    return this.submit(userId, id, { kind: "owner", consentSignature, userJwt });
+  async approve(userId: number, id: string, consentSignature: string, masterSignature: string): Promise<CopyAgentSetup> {
+    return this.submit(userId, id, { kind: "owner", consentSignature, masterSignature });
   }
   /** One approval attempt of the exact prepared agent; durable before the
    * POST, and an attempted approval is only observed, never resent. */
@@ -169,12 +179,19 @@ export class CopyAgentService {
     let row = await this.repository.refreshGrant(await this.repository.find(userId, id));
     if (row.state === "active") return wire(row);
     if (row.state === "approval_unknown" || row.state === "approval_signing") return this.reconcile(userId, id);
-    if (row.state !== "ready" || (authority.kind === "owner" && !authority.userJwt)) throw new ConflictException("agent_consent_required");
+    if (row.state !== "ready") throw new ConflictException("agent_consent_required");
     const intent = consent(row);
     const initialProof = await this.assertSetup(userId, row);
     const { owner, account } = initialProof;
     if (authority.kind === "owner" ? !owner.embeddedWalletAddress || !await verifyAgentOwnerConsent(owner.embeddedWalletAddress, intent, authority.consentSignature)
       : !/^[0-9a-f]{64}$/.test(authority.consentDigest) || row.liveSetupId === null || Date.now() < intent.nonce || Date.now() >= intent.consentExpiresAt) throw new BadRequestException("invalid_agent_consent");
+    // The copy account's own signature of exactly this approval (made in the
+    // owner's browser), checked before anything is claimed.
+    if (authority.kind === "owner") {
+      const approval = masterApproval(intent);
+      if (await masterSignatureRefusal(intent.accountAddress, approval.data, approval.bound, authority.masterSignature))
+        throw new ForbiddenException({ statusCode: 403, code: "agent_master_signature_invalid", message: "The copy account's signature is not for this agent approval" });
+    }
     const claimed = await this.uow.run(async tx => {
       await this.repository.assertCurrent(userId, row, tx);
       return this.repository.transition(row, { state: "approval_signing", consentDigest: authority.kind === "owner" ? createHash("sha256").update(JSON.stringify(intent)).digest("hex") : authority.consentDigest }, tx);
@@ -185,8 +202,7 @@ export class CopyAgentService {
     let proofCheckedAt: number;
     try {
       const master = { walletId: account.privyWalletId!, address: account.address!, ownerQuorumId: account.ownerQuorumId! };
-      signature = authority.kind === "owner" ? await this.exchange.signMaster(master, intent, authority.userJwt, () => this.assertConsentFresh(intent, initialProof.checkedAt))
-        : await authority.sign(master, intent, () => this.assertConsentFresh(intent, initialProof.checkedAt));
+      signature = authority.kind === "owner" ? authority.masterSignature : await authority.sign(master, intent, () => this.assertConsentFresh(intent, initialProof.checkedAt));
       if (!/^0x[0-9a-fA-F]{130}$/.test(signature) || !await verifyTypedData({ address: row.accountAddress as `0x${string}`, ...agentApprovalTypedData(intent), signature: signature as `0x${string}` })) throw new BadRequestException("agent_master_signature_invalid");
       await this.exchange.acquire();
       const finalProof = await this.assertSetup(userId, row);

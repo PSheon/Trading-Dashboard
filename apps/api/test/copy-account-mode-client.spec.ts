@@ -1,17 +1,7 @@
-import { generateKeyPairSync } from 'node:crypto';
-import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { privateKeyToAccount } from 'viem/accounts';
 import { PrivyAccountModeClient, accountModeTypedData, type AccountModeIntent, type AccountModeOwnedMaster } from '../src/copy/live/privy-account-mode-client.js';
-import { offlineGlobalTransport } from './hyperliquid-global-test-utils.js';
 
-// Real installed SDK, including HPKE JWT exchange/request authorization. Only HTTP is replaced.
-const require = createRequire(import.meta.url);
-const sdkCrypto = require(join(dirname(require.resolve('@privy-io/node')), 'lib/cryptography.js')) as {
-  setupHPKESender(): Promise<{ encryptPayload(key: Uint8Array, payload: Uint8Array): Promise<{ ciphertext: Uint8Array; encapsulatedKey: Uint8Array }> }>;
-};
-const authKey = generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).privateKey.export({ type: 'pkcs8', format: 'der' }).toString('base64');
 const masterSigner = privateKeyToAccount(`0x${'01'.repeat(32)}`);
 const foreignSigner = privateKeyToAccount(`0x${'02'.repeat(32)}`);
 const time = 1_800_000_000_000;
@@ -25,18 +15,15 @@ const expectedTypes = { 'HyperliquidTransaction:UserSetAbstraction': [
 ] } as const;
 const expectedAction = { type: 'userSetAbstraction', signatureChainId: '0x66eee', hyperliquidChain: 'Testnet', user: master.address, abstraction: 'disabled', nonce: time } as const;
 let now: number;
-let walletChanges: Record<string, unknown>;
-let rpcChanges: Record<string, unknown>;
 let failurePath: string | undefined;
 let onPath: ((path: string) => void) | undefined;
-let signWithForeign: boolean;
 const requests: { url: string; path: string; method: string; body: Record<string, unknown> | undefined; headers: Headers; redirect: RequestRedirect | undefined }[] = [];
 const modeValues: Record<string, unknown> = {};
 let budget: ReturnType<typeof vi.fn<(weight: number) => Promise<void>>>;
 let transport: typeof fetch;
 
 beforeEach(() => {
-  now = time; walletChanges = {}; rpcChanges = {}; failurePath = undefined; onPath = undefined; signWithForeign = false; requests.length = 0;
+  now = time; failurePath = undefined; onPath = undefined; requests.length = 0;
   Object.assign(modeValues, { userRole: { role: 'user' }, userAbstraction: 'disabled', userDexAbstraction: false, spotClearinghouseState: { balances: [], portfolioMarginEnabled: false } });
   budget = vi.fn(async (_weight: number) => undefined);
   transport = async (input, init) => {
@@ -45,21 +32,6 @@ beforeEach(() => {
     requests.push({ url: url.href, path: url.pathname, method: init?.method ?? 'GET', body, headers: new Headers(init?.headers), redirect: init?.redirect });
     onPath?.(url.pathname);
     if (url.pathname === failurePath) return Response.json({ error: 'private token provider detail' }, { status: 500 });
-    if (url.pathname === '/v1/wallets/master') return Response.json({ id: 'master', address: master.address, chain_type: 'ethereum', owner_id: 'owner-quorum', archived_at: null, ...walletChanges });
-    if (url.pathname === '/v1/wallets/authenticate') {
-      if (typeof body?.user_jwt !== 'string' || body.encryption_type !== 'HPKE' || typeof body.recipient_public_key !== 'string') throw new Error('incorrect SDK auth request');
-      const recipient = await crypto.subtle.importKey('spki', Buffer.from(body.recipient_public_key, 'base64'), { name: 'ECDH', namedCurve: 'P-256' }, true, []);
-      const raw = new Uint8Array(await crypto.subtle.exportKey('raw', recipient));
-      const sender = await sdkCrypto.setupHPKESender();
-      const encrypted = await sender.encryptPayload(raw, new TextEncoder().encode(authKey));
-      return Response.json({ expires_at: time + 600_000, encrypted_authorization_key: { encryption_type: 'HPKE', encapsulated_key: Buffer.from(encrypted.encapsulatedKey).toString('base64'), ciphertext: Buffer.from(encrypted.ciphertext).toString('base64') } });
-    }
-    if (url.pathname === '/v1/wallets/master/rpc') {
-      if (body?.method !== 'eth_signTypedData_v4') throw new Error('unexpected SDK RPC');
-      const signed = await (signWithForeign ? foreignSigner : masterSigner).signTypedData({ domain: expectedDomain, types: expectedTypes,
-        primaryType: 'HyperliquidTransaction:UserSetAbstraction', message: { hyperliquidChain: 'Testnet', user: master.address as `0x${string}`, abstraction: 'disabled', nonce: BigInt(time) } });
-      return Response.json({ method: 'eth_signTypedData_v4', data: { encoding: 'hex', signature: signed, ...rpcChanges } });
-    }
     if (url.href === 'https://api.hyperliquid-testnet.xyz/info' && typeof body?.type === 'string' && Object.hasOwn(modeValues, body.type)) return Response.json(modeValues[body.type]);
     if (url.href === 'https://api.hyperliquid-testnet.xyz/exchange') return Response.json({ status: 'ok', response: { type: 'default' } });
     throw new Error(`unexpected transport path ${url.pathname}`);
@@ -70,115 +42,11 @@ afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(
 const client = (credentials = true) => new PrivyAccountModeClient(credentials ? { appId: 'test-app', appSecret: 'test-secret' } : {}, budget, transport, () => now);
 
 describe('dedicated testnet standard-mode principal provider', () => {
-  it('requires the current caller proof before any production-configured signing request', async () => {
-    const global = offlineGlobalTransport(transport, () => now).transport;
-    const provider = new PrivyAccountModeClient({ appId: 'test-app', appSecret: 'test-secret' }, budget, transport, () => now, global);
-    await expect(provider.signMaster(master, intent, 'jwt')).rejects.toThrow('account_mode_master_signature_unavailable');
-    expect(requests).toHaveLength(0);
-  });
-  it('signs with the production-configured transport only after its synchronous caller proof', async () => {
-    const global = offlineGlobalTransport(transport, () => now).transport;
-    const provider = new PrivyAccountModeClient({ appId: 'test-app', appSecret: 'test-secret' }, budget, transport, () => now, global);
-    const proof = vi.fn(() => undefined);
-    await expect(provider.signMaster(master, intent, 'jwt', proof)).resolves.toMatch(/^0x[0-9a-f]{130}$/i);
-    expect(proof).toHaveBeenCalledTimes(1);
-    expect(requests.map(r => r.path)).toEqual(['/v1/wallets/master', '/v1/wallets/authenticate', '/v1/wallets/master/rpc']);
-  });
   it('builds immutable canonical principal typed data, not agent or multisig wire aliases', () => {
     const data = accountModeTypedData(intent);
     expect(data.domain).toEqual(expectedDomain); expect(data.types).toEqual(expectedTypes);
     expect(data.primaryType).toBe('HyperliquidTransaction:UserSetAbstraction'); expect(data.message).toEqual(expectedAction);
     expect(Object.isFrozen(data)).toBe(true); expect(Object.isFrozen(data.domain)).toBe(true); expect(Object.isFrozen(data.message)).toBe(true);
-  });
-  it('uses exact owned master SDK RPC with per-request JWT and consent expiry', async () => {
-    await expect(client().signMaster(master, intent, 'jwt-one')).resolves.toMatch(/^0x[0-9a-f]{130}$/i);
-    expect(requests.map(r => r.path)).toEqual(['/v1/wallets/master', '/v1/wallets/authenticate', '/v1/wallets/master/rpc']);
-    expect(requests[1]!.body!.user_jwt).toBe('jwt-one');
-    const rpc = requests[2]!;
-    expect(requests.every(r => r.redirect === 'error')).toBe(true);
-    expect(rpc.headers.get('privy-request-expiry')).toBe(String(time + 300_000));
-    expect(rpc.headers.has('privy-authorization-signature')).toBe(true);
-    expect(rpc.body).toEqual({ address: master.address, chain_type: 'ethereum', method: 'eth_signTypedData_v4', params: { typed_data: {
-      domain: expectedDomain, primary_type: 'HyperliquidTransaction:UserSetAbstraction', message: expectedAction,
-      types: { ...expectedTypes, EIP712Domain: [{ name: 'name', type: 'string' }, { name: 'version', type: 'string' }, { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' }] },
-    } } });
-    expect(budget).not.toHaveBeenCalled();
-  });
-  it('does not reuse exchanged authorization keys across owner requests even with the same JWT', async () => {
-    const provider = client(); await provider.signMaster(master, intent, 'jwt-same'); await provider.signMaster(master, intent, 'jwt-same');
-    expect(requests.filter(r => r.path === '/v1/wallets/authenticate')).toHaveLength(2);
-  });
-  it.each([{ id: 'other' }, { address: foreignSigner.address }, { owner_id: 'foreign' }, { chain_type: 'solana' }, { archived_at: time }, { archived_at: undefined }])('rejects mismatched or unproven Privy identity before authorization %j', async (changes) => {
-    walletChanges = changes;
-    await expect(client().signMaster(master, intent, 'jwt')).rejects.toThrow('account_mode_master_signature_unavailable');
-    expect(requests.map(r => r.path)).toEqual(['/v1/wallets/master']);
-  });
-  it('does not authorize signing when wallet-read identity expires', async () => {
-    onPath = path => { if (path === '/v1/wallets/master') now += 5001; };
-    await expect(client().signMaster(master, intent, 'jwt')).rejects.toThrow('account_mode_master_signature_unavailable');
-    expect(requests.map(r => r.path)).toEqual(['/v1/wallets/master']);
-  });
-  it('blocks actual SDK RPC after delayed JWT exchange consumes identity freshness', async () => {
-    onPath = path => { if (path === '/v1/wallets/authenticate') now += 5001; };
-    await expect(client().signMaster(master, intent, 'jwt')).rejects.toThrow('account_mode_master_signature_unavailable');
-    expect(requests.map(r => r.path)).toEqual(['/v1/wallets/master', '/v1/wallets/authenticate']);
-  });
-  it('rechecks the caller all-venue proof at the actual SDK RPC after JWT exchange', async () => {
-    let proofValid = true;
-    onPath = path => { if (path === '/v1/wallets/authenticate') proofValid = false; };
-    const check = vi.fn(() => { if (!proofValid) throw new Error('expired all-venue proof'); });
-    await expect(client().signMaster(master, intent, 'jwt', check)).rejects.toThrow('account_mode_master_signature_unavailable');
-    expect(requests.some(r => r.path.endsWith('/rpc'))).toBe(false);
-    expect(check).toHaveBeenCalled();
-  });
-  it('refuses an asynchronous proof hook instead of signing before its check completes', async () => {
-    await expect(client().signMaster(master, intent, 'jwt', async () => undefined)).rejects.toThrow('account_mode_master_signature_unavailable');
-    expect(requests.some(r => r.path.endsWith('/rpc'))).toBe(false);
-  });
-  it('checks identity and consent again after a synchronous proof hook consumes their remaining time', async () => {
-    await expect(client().signMaster(master, intent, 'jwt', () => { now += 5001; })).rejects.toThrow('account_mode_master_signature_unavailable');
-    expect(requests.some(r => r.path.endsWith('/rpc'))).toBe(false);
-  });
-  it('bounds complete SDK wallet response bytes before JWT authorization', async () => {
-    walletChanges = { providerDetails: 'x'.repeat(65 * 1024) };
-    await expect(client().signMaster(master, intent, 'jwt')).rejects.toThrow('account_mode_master_signature_unavailable');
-    expect(requests.map(r => r.path)).toEqual(['/v1/wallets/master']);
-  });
-  it('cancels a stalled SDK body and aborts the invocation when its total deadline ends', async () => {
-    vi.useFakeTimers(); const cancel = vi.fn(); let signal: AbortSignal | null | undefined;
-    const fetcher: typeof fetch = async (_input, init) => { signal = init?.signal; return new Response(new ReadableStream({
-      start(controller) { controller.enqueue(new TextEncoder().encode('{')); }, cancel,
-    })); };
-    const result = new PrivyAccountModeClient({ appId: 'app', appSecret: 'secret' }, budget, fetcher, () => now).signMaster(master, intent, 'jwt').catch(error => error as Error);
-    await vi.advanceTimersByTimeAsync(10000);
-    expect(await result).toMatchObject({ message: 'account_mode_master_signature_unavailable' });
-    expect(cancel).toHaveBeenCalledTimes(1); expect(signal?.aborted).toBe(true);
-  });
-  it('blocks actual SDK RPC when consent expires during JWT exchange', async () => {
-    onPath = path => { if (path === '/v1/wallets/authenticate') now = intent.consentExpiresAt; };
-    await expect(client().signMaster(master, intent, 'jwt')).rejects.toThrow('account_mode_master_signature_unavailable');
-    expect(requests.some(r => r.path.endsWith('/rpc'))).toBe(false);
-  });
-  it('does not return a master signature if consent expires during RPC response', async () => {
-    onPath = path => { if (path.endsWith('/rpc')) now = intent.consentExpiresAt; };
-    await expect(client().signMaster(master, intent, 'jwt')).rejects.toThrow('account_mode_master_signature_unavailable');
-    expect(requests.filter(r => r.path.endsWith('/rpc'))).toHaveLength(1);
-  });
-  it('captures immutable account and intent before the first provider await', async () => {
-    const originalMaster = { ...master }; const originalIntent = { ...intent };
-    onPath = path => { if (path === '/v1/wallets/master') { originalMaster.address = foreignSigner.address; originalMaster.ownerQuorumId = 'foreign'; originalIntent.accountAddress = foreignSigner.address; originalIntent.nonce++; originalIntent.consentExpiresAt++; } };
-    await client().signMaster(originalMaster, originalIntent, 'jwt');
-    expect((requests.find(r => r.path.endsWith('/rpc'))!.body!.params as { typed_data: { message: unknown } }).typed_data.message).toEqual(expectedAction);
-  });
-  it.each([{ encoding: 'base64' }, { signature: '0xbad' }])('rejects malformed SDK signature response %j', async changes => {
-    rpcChanges = changes; await expect(client().signMaster(master, intent, 'jwt')).rejects.toThrow('account_mode_master_signature_unavailable');
-  });
-  it('rejects a well-formed signature recovered from another account', async () => {
-    signWithForeign = true; await expect(client().signMaster(master, intent, 'jwt')).rejects.toThrow('account_mode_master_signature_unavailable');
-  });
-  it.each(['/v1/wallets/master', '/v1/wallets/authenticate', '/v1/wallets/master/rpc'])('redacts SDK faults without retrying %s', async path => {
-    failurePath = path; await expect(client().signMaster(master, intent, 'jwt')).rejects.toThrow(/^account_mode_master_signature_unavailable$/);
-    expect(requests.filter(r => r.path === path)).toHaveLength(1);
   });
   it.each([
     { network: 'mainnet' }, { accountAddress: 'bad' }, { accountAddress: `0x${'00'.repeat(20)}` },
@@ -186,13 +54,7 @@ describe('dedicated testnet standard-mode principal provider', () => {
     { consentExpiresAt: time }, { consentExpiresAt: time + 300_001 }, { strategyId: 0 }, { operationId: '' },
   ])('rejects invalid intent before signing or POST %j', async changes => {
     const invalid = { ...intent, ...changes } as AccountModeIntent;
-    await expect(client().signMaster(master, invalid, 'jwt')).rejects.toThrow(); await expect(client().send(invalid, signature)).rejects.toThrow();
-    expect(requests).toHaveLength(0);
-  });
-  it('rejects missing credentials/JWT or an account binding change before provider calls', async () => {
-    await expect(client(false).signMaster(master, intent, 'jwt')).rejects.toThrow();
-    await expect(client().signMaster(master, intent, '')).rejects.toThrow();
-    await expect(client().signMaster({ ...master, address: foreignSigner.address }, intent, 'jwt')).rejects.toThrow();
+    await expect(client().send(invalid, signature)).rejects.toThrow();
     expect(requests).toHaveLength(0);
   });
   it('requires caller budget once and sends exact immutable action without JWT, expiry or legacy fallback', async () => {

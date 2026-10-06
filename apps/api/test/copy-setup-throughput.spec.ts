@@ -123,7 +123,8 @@ function database(intent: LiveCopySetupIntent, setupId: string) {
     sourceNetwork: 'mainnet', budgetUsd: '100', settings, stage: 'funded', issue: null, signerKind: 'owner_session', intent, intentDigest: createHash('sha256').update(JSON.stringify(intent)).digest('hex'),
     consentDigest: 'c'.repeat(64), consentExpiresAt: new Date(intent.consentExpiresAt), confirmedAt: now, setupDeadline: new Date(intent.setupDeadline), fundingOperationId: null,
     modeOperationId: 'mode-op', agentSetupId: 'agent-op', builderApprovalId: null, mandateId: null, attempts: 0, nextAttemptAt: null, leaseUntil: null, revision: 1, createdAt: now, updatedAt: now } as unknown as SetupRow;
-  const rows = { mode, setup, agentActive: false, stages: [] as { stage: string; at: number }[] };
+  const rows = { mode, setup, agentActive: false, stages: [] as { stage: string; at: number }[], agentIntent: null as null | { id: string; strategyId: number; network: 'testnet'; accountAddress: string; agentAddress: string;
+    policyId: string; workerQuorumId: string; expiresAt: number; nonce: number; consentExpiresAt: number } };
   const io = async <T>(value: T): Promise<T> => { await sleep(4); return structuredClone(value); };
   const modeRepository = {
     find: async () => io(rows.mode), assertCurrent: async () => io({ owner: { privyUserId: 'did:privy:owner' }, account: { externalId: 'ext', masterPolicyId: null, masterSignerQuorumId: null } }),
@@ -168,25 +169,29 @@ function setupProcess(name: string, meter: Meter, testnet: Testnet, db: ReturnTy
   const agents = {
     available: true,
     row: async () => { await sleep(4); return { state: db.rows.agentActive ? 'active' : 'ready', agentAddress, expiresAt: new Date((db.rows.setup.intent as { agentValidUntil: number }).agentValidUntil), policyId: 'agent-policy' }; },
-    reconcile: async () => undefined, challengeRow: async () => { await sleep(10); },
+    reconcile: async () => undefined,
+    // The approval's nonce (its own five-minute window), kept while it lasts.
+    challengeRow: async () => {
+      await sleep(300); // the agent's Privy identity checks
+      if (!db.rows.agentIntent || db.rows.agentIntent.consentExpiresAt <= Date.now()) {
+        const nonce = Date.now();
+        db.rows.agentIntent = { id: 'agent-op', strategyId: 7, network: 'testnet' as const, accountAddress, agentAddress, policyId: 'agent-policy', workerQuorumId: 'worker-quorum',
+          expiresAt: (db.rows.setup.intent as { agentValidUntil: number }).agentValidUntil, nonce, consentExpiresAt: nonce + 300_000 };
+      }
+      return structuredClone(db.rows.agentIntent);
+    },
     submit: async (_user: number, _id: string, authority: { sign: (m: unknown, i: unknown, f: () => void) => Promise<string> }) => {
       await sleep(300); // the agent's Privy identity checks
-      const nonce = Date.now();
-      await authority.sign({ walletId: 'master-wallet', address: accountAddress, ownerQuorumId: 'owner-quorum' }, { id: 'agent-op', strategyId: 7, network: 'testnet', accountAddress, agentAddress,
-        policyId: 'agent-policy', workerQuorumId: 'worker-quorum', expiresAt: (db.rows.setup.intent as { agentValidUntil: number }).agentValidUntil, nonce, consentExpiresAt: nonce + 300_000 }, () => undefined);
+      await authority.sign({ walletId: 'master-wallet', address: accountAddress, ownerQuorumId: 'owner-quorum' }, db.rows.agentIntent, () => undefined);
       // The POST (1) and the observation after it (userRole 60 + extraAgents 20).
       await live(81); meter.charge('rest', 1, name); await sleep(150); meter.charge('rest', 80, name); await sleep(150);
       db.rows.agentActive = true; return { state: 'active' };
     },
   };
-  // Privy signs (wallet lookup, HPKE authorization, RPC): about 2 s.
-  const ownerSigner = { available: true, sign: async (_account: unknown, data: Parameters<typeof master.signTypedData>[0]) => {
-    await sleep(2_000); return data.primaryType === 'HyperliquidTransaction:UserSetAbstraction' ? master.signTypedData(data) : `0x${'cd'.repeat(65)}`;
-  } };
   const mandates = { prepareFromSetup: async () => { await sleep(20); return { id: 'mandate-1' }; } };
   const serviceConfig = new AppConfig({ hyperliquid: { wallet: { network: 'testnet' } }, copy: { mode: 'testnet' } } as never);
   const service = new CopyLiveSetupService(serviceConfig, db.setupRepository as never, uow as never, mandates as never, {} as never, {} as never, agents as never, modes,
-    {} as never, {} as never, {} as never, {} as never, ownerSigner as never, null, Date.now);
+    {} as never, {} as never, {} as never, {} as never, null, Date.now);
   return { service, budget, absence };
 }
 
@@ -211,6 +216,7 @@ describe('one-click setup throughput on the real testnet buckets', () => {
     await api.budget.acquire(900, 'live'); meter.charge('rest', 600, 'earlier'); meter.charge('ws', 538, 'earlier');
 
     let advancing = false, ticking = false, advanceAt = 0, advances = 0;
+    const signed: string[] = [];
     const errors: string[] = [];
     const deadline = T0 + 10 * 60_000;
     let nextPoll = T0, nextTick = T0 + 1_000, nextCollect = T0 + 5_000;
@@ -221,7 +227,13 @@ describe('one-click setup throughput on the real testnet buckets', () => {
         nextPoll = now + 2_000;
         if (!advancing && now >= advanceAt) {
           advancing = true; advanceAt = now + 3_000; advances++;
-          void api.service.advance(1, setupId, 'owner-jwt').catch(error => { errors.push(String(error?.message ?? error)); }).finally(() => { advancing = false; });
+          // A pending action is signed in the browser (Privy's iframe: about 1 s) and sent back.
+          void api.service.advance(1, setupId).then(async read => {
+            const pending = read.pendingSignature;
+            if (!pending) return;
+            await sleep(1_000); signed.push(pending.kind);
+            await api.service.advance(1, setupId, { digest: pending.digest, signature: await master.signTypedData(pending.typedData as never) });
+          }).catch(error => { errors.push(String(error?.message ?? error)); }).finally(() => { advancing = false; });
         }
       }
       // The worker's setup pass (the live engine's tick).
@@ -241,6 +253,10 @@ describe('one-click setup throughput on the real testnet buckets', () => {
     expect(db.rows.stages.map(s => s.stage)).toEqual(['mode_set', 'agent_active', 'builder_ready', 'running']);
     expect(elapsed).toBeLessThan(3 * 60_000);
     expect(testnet.posts).toBe(1); // exactly one userSetAbstraction POST (the agent's is simulated)
+    // The mode change and the agent approval, each signed once in the browser
+    // (a budget wait reuses the signature while its nonce lasts).
+    expect(signed).toEqual(['account_mode', 'agent_approval']);
+    expect(errors).toEqual([]);
     expect(meter.peak.rest).toBeLessThanOrEqual(REST_CAP); expect(meter.peak.ws).toBeLessThanOrEqual(WS_CAP);
     expect(meter.refusals).toEqual([]);
   }, 60_000);

@@ -11,6 +11,7 @@ const sdk = vi.hoisted(() => ({
   signTypedData: vi.fn(async () => ({ signature: "0x1234" })),
   sendTransaction: vi.fn(async () => ({ hash: "0x5678" })),
   createWallet: vi.fn(async () => ({})),
+  refreshUser: vi.fn(async () => ({})),
 }));
 vi.mock("../src/lib/config", () => ({ PRIVY_APP_ID: "test-app" }));
 vi.mock("../src/lib/session-queries", () => ({ SessionQueries: ({ children }: { children: React.ReactNode }) => children }));
@@ -26,6 +27,7 @@ vi.mock("@privy-io/react-auth", () => ({
   useSignTypedData: () => ({ signTypedData: sdk.signTypedData }),
   useSendTransaction: () => ({ sendTransaction: sdk.sendTransaction }),
   useCreateWallet: () => ({ createWallet: sdk.createWallet }),
+  useUser: () => ({ refreshUser: sdk.refreshUser }),
 }));
 
 const MAIN = "0x1111111111111111111111111111111111111111";
@@ -86,6 +88,27 @@ describe("Privy main account identity", () => {
     await render();
     await expect(old.exportCopyKey(copy)).rejects.toThrow();
     expect(sdk.exportWallet).toHaveBeenCalledTimes(1);
+  });
+
+  it("signs as one of the user's own copy wallets, silently and by its address, and refuses the main wallet or a wallet that isn't theirs", async () => {
+    const copy = "0x" + "3c".repeat(20), stranger = "0x" + "4d".repeat(20);
+    sdk.user.linkedAccounts = [account(MAIN), account(copy, null)];
+    sdk.wallets = [account(MAIN), account(copy, null), account(stranger, null, "metamask")];
+    await render();
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      expect(await auth.wallet!.signAsAccount(copy.toUpperCase().replace("0X", "0x"), typedData)).toBe("0x1234");
+      expect(sdk.signTypedData).toHaveBeenCalledExactlyOnceWith(typedData, { address: copy, uiOptions: { showWalletUIs: false } });
+      expect(sdk.refreshUser).not.toHaveBeenCalled();
+      // The main wallet, an external wallet, an address not among the user's wallets.
+      for (const target of [MAIN, stranger, "0x" + "5e".repeat(20), "0xbad"]) {
+        const refused = expect(auth.wallet!.signAsAccount(target, typedData)).rejects.toThrow("copy_wallet_unavailable");
+        await vi.runAllTimersAsync(); await refused;
+      }
+      expect(sdk.signTypedData).toHaveBeenCalledTimes(1);
+      // A wallet missing from the list is looked for again after refreshing Privy's user.
+      expect(sdk.refreshUser).toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
   });
 
   it("recognizes a Privy v2 main account", async () => {

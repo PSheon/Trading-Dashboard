@@ -3,9 +3,10 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
-import { accountModeOwnerConsentTypedData, approveCopyAccountModeSchema, copyAccountModeChallengeSchema, copyAccountModeOperationSchema, copyAccountModeOverviewSchema, prepareCopyAccountModeSchema, type CopyAccountModeOperation, type CopyExecutionAccount } from "@trading-dashboard/shared/contracts";
+import { accountModeOwnerConsentTypedData, approveCopyAccountModeSchema, copyAccountModeChallengeSchema, copyAccountModeOperationSchema, copyAccountModeOverviewSchema, prepareCopyAccountModeSchema, userSetAbstractionTypedData, WALLET_NETWORKS, type CopyAccountModeOperation, type CopyExecutionAccount } from "@trading-dashboard/shared/contracts";
 import { api, sessionKey } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { signMasterAction } from "@/lib/copy-master-action";
 import { queryKeys } from "@/lib/query-keys";
 import type { Eip712TypedData } from "@/lib/wallet-signer";
 
@@ -28,8 +29,10 @@ interface ConsentDependencies extends BaseDependencies {
   now(): number; assertCurrent?(operation: CopyAccountModeOperation, signing: boolean): void;
   adoptChallenge?(original: CopyAccountModeOperation, operation: CopyAccountModeOperation, expiresAt: number): void;
   sign(data: Eip712TypedData): Promise<string>;
+  /** The copy account's own signature (in this browser, silently). */
+  signAccount(address: string, data: Eip712TypedData): Promise<`0x${string}`>;
   challenge(id: string, beforeSend: () => void): Promise<unknown>;
-  approve(id: string, body: { consentSignature: string }, beforeSend: () => void): Promise<unknown>;
+  approve(id: string, body: { consentSignature: string; masterSignature: string }, beforeSend: () => void): Promise<unknown>;
   reconcile(id: string, beforeSend: () => void): Promise<unknown>;
 }
 function ownerGuard(deps: Pick<BaseDependencies, "snapshot">, requireWallet = true) {
@@ -69,7 +72,10 @@ export async function runCopyAccountModeConsent(input: CopyAccountModeOperation,
   const expiry = () => { const now = deps.now(); if (!Number.isSafeInteger(now) || intent.consentExpiresAt <= now || intent.nonce > now + 30000) throw new Error("mode_consent_expired"); };
   const finalGuard = () => { guard(); expiry(); }; finalGuard();
   const signature = await deps.sign(accountModeOwnerConsentTypedData(intent)); finalGuard();
-  const body = approveCopyAccountModeSchema.parse({ consentSignature: signature });
+  // The copy account signs exactly the mode change the consent covers.
+  const masterSignature = await signMasterAction({ signAsAccount: deps.signAccount }, challenge.masterAction,
+    { kind: "account_mode", account: op.accountAddress, typedData: userSetAbstractionTypedData(WALLET_NETWORKS.testnet, intent.accountAddress, intent.nonce) }, deps.now()); finalGuard();
+  const body = approveCopyAccountModeSchema.parse({ consentSignature: signature, masterSignature });
   deps.journal.markApproval(op.id); finalGuard(); const result = await deps.approve(op.id, body, finalGuard); guard(false); return sameIdentity(op, result);
 }
 
@@ -92,7 +98,7 @@ export function useCopyAccountModeActions(accounts: readonly CopyExecutionAccoun
   const exclusive = async <T,>(fn: () => Promise<T>) => { if (busy.current) throw new Error("mode_action_in_progress"); busy.current = true; try { return await fn(); } finally { busy.current = false; } };
   const settled = async () => { await Promise.all([client.invalidateQueries({ queryKey: key, exact: true }), client.invalidateQueries({ queryKey: recoveryKey, exact: true })]); };
   const prepare = useMutation({ retry: false, mutationFn: (account: CopyExecutionAccount) => exclusive(() => prepareCopyAccountMode(account, { snapshot, journal: journal(), assertAccount, newKey: () => crypto.randomUUID(), create: (id, body, beforeSend) => api.post(`/me/copy/execution-wallets/${encodeURIComponent(id)}/mode`, body, { beforeSend }) })), onSettled: settled });
-  const consent = useMutation({ retry: false, mutationFn: ({ operation, reconcileOnly = false }: { operation: CopyAccountModeOperation; reconcileOnly?: boolean }) => exclusive(() => { const account = current.current.accounts.find(a => a.id === operation.accountId); if (!account) throw new Error("mode_account_changed"); const capturedAccount = structuredClone(account); return runCopyAccountModeConsent(operation, { snapshot, journal: journal(), now: () => Date.now(), assertCurrent: (op, signing) => { assertCurrent(op, signing); if (signing) assertAccount(capturedAccount); }, adoptChallenge: (original, next, deadline) => { assertCurrent(original, true); setDeadlines(value => ({ ...value, [next.id]: deadline })); current.current = { ...current.current, operations: current.current.operations.map(op => op.id === original.id ? next : op) }; client.setQueryData(key, (previous: z.infer<typeof copyAccountModeOverviewSchema> | undefined) => previous ? { ...previous, operations: previous.operations.map(op => op.id === original.id ? next : op) } : previous); }, sign: typed => { const wallet = latest.current.wallet; if (!wallet) throw new Error("mode_owner_unavailable"); return wallet.signTypedData(typed); }, challenge: (id, beforeSend) => api.post(`${ROOT}/${encodeURIComponent(id)}/challenge`, {}, { beforeSend }), approve: (id, body, beforeSend) => api.post(`${ROOT}/${encodeURIComponent(id)}/approve`, body, { beforeSend }), reconcile: (id, beforeSend) => api.post(`${ROOT}/${encodeURIComponent(id)}/reconcile`, {}, { beforeSend }) }, reconcileOnly); }), onSettled: settled });
+  const consent = useMutation({ retry: false, mutationFn: ({ operation, reconcileOnly = false }: { operation: CopyAccountModeOperation; reconcileOnly?: boolean }) => exclusive(() => { const account = current.current.accounts.find(a => a.id === operation.accountId); if (!account) throw new Error("mode_account_changed"); const capturedAccount = structuredClone(account); return runCopyAccountModeConsent(operation, { snapshot, journal: journal(), now: () => Date.now(), assertCurrent: (op, signing) => { assertCurrent(op, signing); if (signing) assertAccount(capturedAccount); }, adoptChallenge: (original, next, deadline) => { assertCurrent(original, true); setDeadlines(value => ({ ...value, [next.id]: deadline })); current.current = { ...current.current, operations: current.current.operations.map(op => op.id === original.id ? next : op) }; client.setQueryData(key, (previous: z.infer<typeof copyAccountModeOverviewSchema> | undefined) => previous ? { ...previous, operations: previous.operations.map(op => op.id === original.id ? next : op) } : previous); }, sign: typed => { const wallet = latest.current.wallet; if (!wallet) throw new Error("mode_owner_unavailable"); return wallet.signTypedData(typed); }, signAccount: (address, typed) => { const wallet = latest.current.wallet; if (!wallet) throw new Error("mode_owner_unavailable"); return wallet.signAsAccount(address, typed); }, challenge: (id, beforeSend) => api.post(`${ROOT}/${encodeURIComponent(id)}/challenge`, {}, { beforeSend }), approve: (id, body, beforeSend) => api.post(`${ROOT}/${encodeURIComponent(id)}/approve`, body, { beforeSend }), reconcile: (id, beforeSend) => api.post(`${ROOT}/${encodeURIComponent(id)}/reconcile`, {}, { beforeSend }) }, reconcileOnly); }), onSettled: settled });
   const recover = useMutation({ retry: false, mutationFn: (creation: Creation) => exclusive(async () => { const guard = ownerGuard({ snapshot }, false); guard(); const raw = await api.get(`${ROOT}/by-key/${encodeURIComponent(creation.key)}`); guard(); const op = copyAccountModeOperationSchema.parse(raw); if (op.accountId !== creation.accountId || op.strategyId !== creation.strategyId || op.network !== creation.network || op.accountAddress !== creation.address || (creation.operationId && creation.operationId !== op.id)) throw new Error("mode_operation_changed"); journal().saveCreation({ ...creation, operationId: op.id }); return op; }), onSettled: settled });
   return { prepare, consent, recover, recovery, ownerReady, deadlines };
 }

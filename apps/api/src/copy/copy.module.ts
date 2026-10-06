@@ -73,7 +73,6 @@ import { CopyLiveCloseRepository } from './copy-live-close.repository.js';
 import { CopyLivePortfolioRepository } from './copy-live-portfolio.repository.js';
 import { CopyLiveReturnRepository } from './copy-live-return.repository.js';
 import { CopyLiveReturnService } from './copy-live-return.service.js';
-import { MASTER_ACTION_SIGNER, PrivyMasterActionSigner } from './live/privy-master-signer.js';
 import { HyperliquidAllDexsAccountSource } from './live/live-account-ws-source.js';
 import { reserveLive } from "../hyperliquid/hyperliquid-budget-wait.js";
 
@@ -121,7 +120,6 @@ export { WALLET_NETWORK_HL, walletNetworkHyperliquid, type WalletNetworkHyperliq
     CopyFollowerActivityRepository, CopyFollowerActivityService,
     CopyFollowerSnapshotRepository, CopyFollowerSnapshotService,
     CopyLiveMandateRepository, CopyLiveMandateService, CopyLiveStopRepository, CopyLiveStopService, CopyLiveReturnRepository, CopyLiveReturnService, CopyLivePortfolioRepository, CopyLiveCloseService, CopyLiveCloseRepository, CopyLiveSetupRepository, CopyLiveSetupService,
-    { provide: MASTER_ACTION_SIGNER, inject: [AppConfig], useFactory: (config: AppConfig) => new PrivyMasterActionSigner(config.value.auth) },
     { provide: WORKER_MASTER_SIGNER, inject: [AppConfig], useFactory: (config: AppConfig) => new PrivyPolicyMasterSigner({ appId: config.value.auth.appId, appSecret: config.value.auth.appSecret,
       workerQuorumId: config.value.copy.agent?.workerQuorumId, authorizationPrivateKey: config.value.copy.agent?.authorizationPrivateKey }) },
     { provide: HyperliquidFollowerReceiptReader, inject: [WALLET_NETWORK_HL], useFactory: ({ budget, transport }: WalletNetworkHyperliquid) =>

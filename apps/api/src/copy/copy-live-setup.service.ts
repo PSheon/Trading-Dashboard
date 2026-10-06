@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, HttpExcepti
 import { createHash, randomUUID } from 'node:crypto';
 import { verifyTypedData, type TypedDataDefinition } from 'viem';
 import { z } from 'zod';
-import { agentApprovalTypedData, approveBuilderFeeRequest, approveBuilderFeeTypedData, confirmLiveCopySetupSchema, copyIdempotencyKeySchema, liveCopyBudgetSchema, liveCopySetupConsentTypedData,
+import { advanceLiveCopySetupSchema, agentApprovalTypedData, approveBuilderFeeRequest, approveBuilderFeeTypedData, confirmLiveCopySetupSchema, copyIdempotencyKeySchema, copyMasterActionRequestSchema, liveCopyBudgetSchema, liveCopySetupConsentTypedData,
   liveCopySetupIntentSchema, liveCopySetupSchema, liveSetupAgentName, startLiveCopySchema, copyStrategySettingsSchema, LIVE_SETUP_CONSENT_WINDOW_MS, LIVE_SETUP_DEADLINE_MS, LIVE_SETUP_VALID_DAYS,
   WALLET_NETWORKS, type LiveCopySetup, type LiveCopySetupIntent, type LiveCopySetupKind, type StartLiveCopy } from '@trading-dashboard/shared/contracts';
 import { AppConfig } from '../config/app-config.js';
@@ -22,7 +22,7 @@ import { CopyLiveReturnRepository } from './copy-live-return.repository.js';
 import { CopyLiveSetupRepository, DRIVEN_STAGES, type SetupRow, type SetupStage } from './copy-live-setup.repository.js';
 import { CopyWalletRepository } from './copy-wallet.repository.js';
 import { CopyWalletService } from './copy-wallet.service.js';
-import { MASTER_ACTION_SIGNER, type MasterAccount, type MasterActionBound, type MasterActionSigner, type MasterTypedData } from './live/privy-master-signer.js';
+import { masterActionDigest, masterActionRequest, masterSignatureRefusal, type MasterAccount, type MasterActionBound, type MasterTypedData } from './live/master-action.js';
 import { WORKER_MASTER_SIGNER, type WorkerMasterSigner } from './live/privy-policy-master-signer.js';
 import { MASTER_POLICY_TYPES } from './live/privy-master-policy.js';
 
@@ -34,9 +34,17 @@ const LEASE_MS = 60_000;
 /** How long /advance waits for its drive before answering with the row. */
 const ADVANCE_ANSWER_MS = 10_000;
 const THROTTLED_STAGES: readonly SetupStage[] = ['funded', 'mode_set', 'agent_active'];
-/** How a setup's steps after confirm are signed (plan §2): with the owner's
- * live session (the progress dialog's requests), or by the worker under the
- * owner's policy. Either way the payload is exactly what the consent bound. */
+/** A mode nonce parked for the owner's browser keeps this much of its
+ * five-minute window, so its signature still meets the submission's minimum. */
+const OWNER_MODE_NONCE_MIN_REMAINING_MS = 120_000;
+/** How long before its nonce runs out the owner's signature is still taken
+ * (the submission's own minimum, plus its preflight). */
+const OWNER_MODE_SIGNATURE_MARGIN_MS = 65_000;
+const OWNER_AGENT_SIGNATURE_MARGIN_MS = 15_000;
+/** How a setup's steps after confirm are signed (plan §2): in the owner's
+ * browser (the progress dialog signs the parked payload with the copy
+ * account), or by the worker under the owner's policy. Either way the
+ * payload is exactly what the consent bound. */
 export interface SetupSigner {
   readonly kind: 'owner_session' | 'worker_policy';
   sign(account: MasterAccount, data: MasterTypedData, bound: MasterActionBound, deadline: number): Promise<string>;
@@ -86,14 +94,13 @@ export class CopyLiveSetupService {
     private readonly agents: CopyAgentService, private readonly modes: CopyAccountModeService,
     private readonly funding: CopyFundingService, private readonly fundingRows: CopyFundingRepository,
     private readonly returns: CopyLiveReturnRepository, private readonly exchange: CopyFundingExchangeClient,
-    @Inject(MASTER_ACTION_SIGNER) private readonly ownerSigner: MasterActionSigner,
     @Optional() @Inject(WORKER_MASTER_SIGNER) private readonly workerSigner: WorkerMasterSigner | null = null,
     @Optional() private readonly now: () => number = Date.now,
     @Optional() private readonly jobs: BackgroundJobs | null = null) {}
 
   private available() {
     const { copy, hyperliquid } = this.config.value;
-    if (copy.mode !== 'testnet' || hyperliquid.wallet.network !== 'testnet' || !this.agents.available || !this.modes.available || !this.ownerSigner.available)
+    if (copy.mode !== 'testnet' || hyperliquid.wallet.network !== 'testnet' || !this.agents.available || !this.modes.available)
       refuse(503, 'setup_unavailable', 'Testnet copy is not available right now');
   }
 
@@ -103,8 +110,15 @@ export class CopyLiveSetupService {
     const awaiting = row.stage === 'awaiting_consent' && row.intent && row.consentExpiresAt && row.consentExpiresAt.getTime() > this.now();
     return liveCopySetupSchema.parse({ id: row.id, kind: row.kind, strategyId: row.strategyId, accountId: row.accountId, leaderAddress: row.leaderAddress,
       sourceNetwork: row.sourceNetwork, budgetUsd: row.budgetUsd, settings: row.settings, stage: row.stage, issue: row.issue?.slice(0, 80) ?? null,
-      signer: row.signerKind, consent: awaiting ? row.intent : null, funding: fundingRow ? fundingWire(fundingRow) : null, mandateId: row.mandateId,
+      signer: row.signerKind, consent: awaiting ? row.intent : null, funding: fundingRow ? fundingWire(fundingRow) : null, pendingSignature: this.pending(row), mandateId: row.mandateId,
       setupDeadline: row.setupDeadline?.toISOString() ?? null, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() });
+  }
+  /** The copy account's signature due from the owner's browser, while it is. */
+  private pending(row: SetupRow) {
+    const pending = row.pendingSignature;
+    if (!pending || row.signerKind !== 'owner_session' || !DRIVEN_STAGES.includes(row.stage) || pending.expiresAt <= this.now() || row.ownerSignature?.digest === pending.digest) return null;
+    const parsed = copyMasterActionRequestSchema.safeParse(pending);
+    return parsed.success ? parsed.data : null;
   }
   async get(userId: number, id: string) { await this.repository.owner(userId); return this.wire(await this.repository.find(userId, id)); }
   async list(userId: number) {
@@ -277,9 +291,8 @@ export class CopyLiveSetupService {
   }
 
   // --- confirm -----------------------------------------------------------------
-  /** Verifies the one consent, attaches the worker signer with the owner's
-   * session (worker policy on), submits the deposit, and runs what it can. */
-  async confirm(userId: number, id: string, body: unknown, userJwt: string): Promise<LiveCopySetup> {
+  /** Verifies the one consent, submits the deposit, and runs what it can. */
+  async confirm(userId: number, id: string, body: unknown): Promise<LiveCopySetup> {
     const request = input(confirmLiveCopySetupSchema, body); this.available();
     let row = await this.repository.find(userId, id);
     if (row.stage !== 'awaiting_consent') return this.wire(row);
@@ -294,12 +307,9 @@ export class CopyLiveSetupService {
     if (!valid) throw new ForbiddenException({ statusCode: 403, code: 'invalid_consent', message: 'Invalid owner consent' });
     const consentDigest = digest(request.consentSignature.toLowerCase());
     await this.assertBinding(row, intent);
-    // The worker becomes the account's policy-bound signer, with the owner's
-    // own session (never the app secret alone). Off, or not possible now: the
-    // owner's session signs the remaining steps (the dialog stays useful).
+    // The owner's browser signs the remaining steps (the progress dialog);
+    // an edit of an account the worker already signs for keeps the worker.
     let signerKind: 'owner_session' | 'worker_policy' = 'owner_session';
-    if (row.kind === 'start' && intent.masterPolicyId && await this.wallets.attachSetupSigner(userId, intent.accountId, userJwt,
-      { id: intent.masterPolicyId, fingerprint: intent.masterPolicyFingerprint }, { address: intent.agentAddress, name: liveSetupAgentName(intent) })) signerKind = 'worker_policy';
     if (row.kind === 'edit') {
       const account = await this.walletRows.account(intent.accountId, userId);
       if (account?.masterPolicyId) signerKind = 'worker_policy';
@@ -319,7 +329,7 @@ export class CopyLiveSetupService {
     } else {
       row = (await this.repository.transition(row, { ...confirmed, stage: 'consented' })) ?? await this.repository.find(userId, id);
     }
-    return this.wire(await this.drive(row.id, this.ownerSessionSigner(userJwt)));
+    return this.wire(await this.drive(row.id, row.signerKind === 'worker_policy' ? await this.workerPolicySigner(row) : this.ownerBrowserSigner(row.id)));
   }
   /** Everything the consent bound is still what the rows say. */
   private async assertBinding(row: SetupRow, intent: LiveCopySetupIntent) {
@@ -339,25 +349,70 @@ export class CopyLiveSetupService {
       throw new ConflictException({ statusCode: 409, code: 'setup_builder_rejected', message: 'The builder fee changed; start again' });
   }
 
-  /** The owner's open dialog continues a setup that their session signs. */
-  async advance(userId: number, id: string, userJwt: string): Promise<LiveCopySetup> {
-    const row = await this.repository.find(userId, id);
+  /**
+   * The owner's open dialog continues a setup their browser signs: with no
+   * body it runs the next step (which parks the copy account's next
+   * signature on the row, `pendingSignature`); with `{ digest, signature }`
+   * it first takes the browser's signature of that pending action, once it
+   * recovers to the copy account for exactly that payload, then runs it.
+   * Sending the same signature again changes nothing.
+   */
+  async advance(userId: number, id: string, body: unknown = {}): Promise<LiveCopySetup> {
+    const parsed = advanceLiveCopySetupSchema.safeParse(body ?? {});
+    if (!parsed.success) throw new BadRequestException({ statusCode: 400, code: 'owner_signature_malformed', message: 'Send the pending digest with its signature' });
+    let row = await this.repository.find(userId, id);
+    if ('signature' in parsed.data) row = await this.acceptOwnerSignature(row, parsed.data.digest, parsed.data.signature);
     if (row.fundingOperationId && row.stage === 'funding_submitted') await this.funding.reconcile(userId, row.fundingOperationId).catch(() => undefined);
     if (!DRIVEN_STAGES.includes(row.stage)) return this.wire(row);
+    // A signature is due from the browser: nothing to run until it comes
+    // (the agent step's identity reads would only be repeated).
+    if (this.pending(row)) return this.wire(row);
     // The dialog asks every few seconds; a step that said when to come back
     // (a pending observation, a busy Hyperliquid budget) is not run sooner.
     if (THROTTLED_STAGES.includes(row.stage) && row.issue !== 'awaiting_owner_session' && row.nextAttemptAt && row.nextAttemptAt.getTime() > this.now()) return this.wire(row);
     // The drive runs outside this request (its lease keeps it single): a
-    // step can outlast the 20 s request deadline (budget waits, signing, a
-    // POST and its reconcile), and must neither be cut off by the deadline
-    // nor answer the dialog with a 504 while it goes on. The dialog gets the
-    // drive's result when it is quick, else the row as it is, and polls.
-    const signer = row.signerKind === 'owner_session' ? this.ownerSessionSigner(userJwt) : null;
+    // step can outlast the 20 s request deadline (budget waits, a POST and
+    // its reconcile), and must neither be cut off by the deadline nor answer
+    // the dialog with a 504 while it goes on. The dialog gets the drive's
+    // result when it is quick, else the row as it is, and polls.
+    const signer = row.signerKind === 'owner_session' ? this.ownerBrowserSigner(row.id) : null;
     const driving = this.detached(() => this.drive(row.id, signer));
     let timer: ReturnType<typeof setTimeout> | undefined;
     const driven = await Promise.race([driving.catch(() => null),
       new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), ADVANCE_ANSWER_MS); })]).finally(() => clearTimeout(timer));
     return this.wire(driven ?? await this.repository.find(userId, id));
+  }
+  /** The browser's signature of the pending action, checked before anything
+   * uses it: it is the action still due (same digest, not expired, nothing
+   * changed since), still bound to what the consent bound, and recovers to
+   * the copy account. Every refusal has its own code. */
+  private async acceptOwnerSignature(original: SetupRow, signed: string, signature: string): Promise<SetupRow> {
+    let row = original;
+    for (let attempt = 0; ; attempt++) {
+      if (row.ownerSignature?.digest === signed && row.ownerSignature.signature.toLowerCase() === signature.toLowerCase()) return row;
+      const pending = row.signerKind === 'owner_session' && DRIVEN_STAGES.includes(row.stage) ? row.pendingSignature : null;
+      if (!pending) refuse(409, 'owner_signature_not_requested', 'No signature is due for this setup');
+      if (pending!.digest !== signed) refuse(409, 'owner_signature_stale', 'The action changed; sign the current one');
+      if (this.now() >= pending!.expiresAt) refuse(409, 'owner_signature_expired', 'The action expired; a new one follows');
+      const request = copyMasterActionRequestSchema.safeParse(pending), intent = liveCopySetupIntentSchema.safeParse(row.intent);
+      if (!request.success || !intent.success || digest(intent.data) !== row.intentDigest || request.data.account !== intent.data.accountAddress ||
+        masterActionDigest(request.data.typedData as MasterTypedData) !== signed) refuse(409, 'owner_signature_stale', 'The action changed; sign the current one');
+      const bound = this.boundFor(request.data!.kind, intent.data!);
+      if (!bound || await masterSignatureRefusal(intent.data!.accountAddress, request.data!.typedData as MasterTypedData, bound, signature))
+        throw new ForbiddenException({ statusCode: 403, code: 'owner_signature_invalid', message: "The signature is not the copy account's for this action" });
+      const next = await this.repository.transition(row, { ownerSignature: { digest: signed, signature }, nextAttemptAt: null, issue: null });
+      if (next) return next;
+      // A drive moved the row meanwhile: check again against what it is now.
+      if (attempt >= 3) refuse(409, 'owner_signature_stale', 'The action changed; sign the current one');
+      row = await this.repository.find(row.userId, row.id);
+    }
+  }
+  /** The values an action of this kind must carry, from the consent. */
+  private boundFor(kind: string, intent: LiveCopySetupIntent): MasterActionBound | null {
+    if (kind === 'account_mode') return { network: 'testnet', account: intent.accountAddress };
+    if (kind === 'agent_approval') return { network: 'testnet', agent: { address: intent.agentAddress, name: liveSetupAgentName(intent) } };
+    if (kind === 'builder_fee' && intent.builderAddress) return { network: 'testnet', builder: intent.builderAddress };
+    return null;
   }
   /** Work that outlives the request that started it (drained on shutdown). */
   private detached<T>(work: () => Promise<T>): Promise<T> {
@@ -386,8 +441,26 @@ export class CopyLiveSetupService {
   }
 
   // --- the driver ---------------------------------------------------------------
-  ownerSessionSigner(userJwt: string): SetupSigner {
-    return { kind: 'owner_session', sign: (account, data, bound, deadline) => this.ownerSigner.sign(account, data, userJwt, deadline, () => undefined, bound) };
+  /** The owner's browser signs (owner_session): the step's exact payload is
+   * parked on the row for the progress dialog, and the step goes on only
+   * with the browser's signature of exactly it (taken by /advance). */
+  ownerBrowserSigner(id: string): SetupSigner {
+    return { kind: 'owner_session', sign: (account, data, bound, expiresAt) => this.ownerSigned(id, account, data, bound, expiresAt) };
+  }
+  private async ownerSigned(id: string, account: MasterAccount, data: MasterTypedData, bound: MasterActionBound, expiresAt: number): Promise<string> {
+    let request: ReturnType<typeof masterActionRequest>;
+    try { request = masterActionRequest(account.address, data, bound, expiresAt); } catch { throw new Fail('setup_binding_changed'); }
+    const row = await this.repository.get(id);
+    if (!row) throw new Wait('setup_changed', 0);
+    // Taken by /advance after the same checks; checked again against the
+    // payload this step signs now (a new nonce is a new digest).
+    if (row.ownerSignature?.digest === request.digest && !await masterSignatureRefusal(account.address, data, bound, row.ownerSignature.signature)) return row.ownerSignature.signature;
+    if (this.now() >= expiresAt) throw new Wait('owner_signature_expired', 1_000);
+    if (row.pendingSignature?.digest !== request.digest || row.pendingSignature.expiresAt !== request.expiresAt) {
+      const parked = await this.repository.transition(row, { pendingSignature: request });
+      if (!parked) throw new Wait('setup_changed', 0);
+    }
+    throw new Wait('awaiting_owner_signature', 15_000);
   }
   private async workerPolicySigner(row: SetupRow): Promise<SetupSigner | null> {
     if (row.signerKind !== 'worker_policy' || !this.workerSigner?.available || !row.accountId) return null;
@@ -447,7 +520,7 @@ export class CopyLiveSetupService {
     } finally { await this.repository.release(id); }
   }
   private async move(row: SetupRow, stage: SetupStage, changes: Partial<SetupRow> = {}): Promise<SetupRow> {
-    const next = await this.repository.transition(row, { stage, issue: null, attempts: 0, nextAttemptAt: null, ...changes });
+    const next = await this.repository.transition(row, { stage, issue: null, attempts: 0, nextAttemptAt: null, pendingSignature: null, ...changes });
     if (!next) throw new Wait('setup_changed', 0);
     return next;
   }
@@ -502,10 +575,20 @@ export class CopyLiveSetupService {
     }
     this.assertBeforeDeadline(row);
     const active = this.requireSigner(signer);
+    if (active.kind === 'owner_session') {
+      // The browser signs before any Hyperliquid weight is spent: a nonce
+      // with time left in its window (no exchange call), then its exact
+      // payload parked for the dialog until the signature is here.
+      const prepared = await this.modes.setupNonce(row.userId, op.id, OWNER_MODE_NONCE_MIN_REMAINING_MS);
+      if (prepared.accountAddress !== intent.accountAddress) throw new Fail('setup_binding_changed');
+      await active.sign({ walletId: '', address: intent.accountAddress, ownerQuorumId: '' }, modeTypedData(prepared), { network: 'testnet', account: intent.accountAddress },
+        prepared.consentExpiresAt - OWNER_MODE_SIGNATURE_MARGIN_MS);
+    }
     const result = await this.modes.submit(row.userId, op.id, { kind: 'setup', consentDigest: row.consentDigest!, sign: async (master, modeIntent, assertFresh) => {
       assertFresh();
       if (master.address !== intent.accountAddress || modeIntent.accountAddress !== intent.accountAddress) throw new Fail('setup_binding_changed');
-      return active.sign(master, modeTypedData(modeIntent), { network: 'testnet', account: intent.accountAddress }, modeIntent.consentExpiresAt);
+      return active.sign(master, modeTypedData(modeIntent), { network: 'testnet', account: intent.accountAddress },
+        active.kind === 'owner_session' ? modeIntent.consentExpiresAt - OWNER_MODE_SIGNATURE_MARGIN_MS : modeIntent.consentExpiresAt);
     } });
     if (result.targetState === 'supported') return this.move(row, 'mode_set');
     if (result.submissionState === 'rejected') throw new Fail('setup_account_mode_failed');
@@ -529,12 +612,22 @@ export class CopyLiveSetupService {
     // approved with the owner's session.
     const active = this.requireSigner(signer, row.kind === 'renewal' ? 'owner_session' : undefined);
     // Allocates the approval nonce (its own five-minute window to sign and send).
-    await this.agents.challengeRow(row.userId, agent.id);
+    const challenged = await this.agents.challengeRow(row.userId, agent.id);
     const name = liveSetupAgentName(intent);
+    const agentExpiry = (consentExpiresAt: number) => active.kind === 'owner_session' ? consentExpiresAt - OWNER_AGENT_SIGNATURE_MARGIN_MS : consentExpiresAt;
+    if (active.kind === 'owner_session') {
+      // A nonce too close to its end can't be signed and sent in time: the
+      // next one is allocated once it has run out.
+      if (challenged.consentExpiresAt - this.now() < 60_000) throw new Wait('awaiting_owner_signature', Math.max(1_000, challenged.consentExpiresAt - this.now() + 100));
+      if (challenged.accountAddress.toLowerCase() !== intent.accountAddress || challenged.agentAddress.toLowerCase() !== intent.agentAddress || challenged.expiresAt !== intent.agentValidUntil) throw new Fail('setup_binding_changed');
+      // The browser signs before the submission spends anything.
+      await active.sign({ walletId: '', address: intent.accountAddress, ownerQuorumId: '' }, agentApprovalTypedData(challenged) as unknown as MasterTypedData,
+        { network: 'testnet', agent: { address: intent.agentAddress, name } }, agentExpiry(challenged.consentExpiresAt));
+    }
     const result = await this.agents.submit(row.userId, agent.id, { kind: 'setup', consentDigest: row.consentDigest!, sign: async (master, consent, assertFresh) => {
       assertFresh();
       if (master.address !== intent.accountAddress || consent.agentAddress.toLowerCase() !== intent.agentAddress || consent.expiresAt !== intent.agentValidUntil) throw new Fail('setup_binding_changed');
-      return active.sign(master, agentApprovalTypedData(consent) as unknown as MasterTypedData, { network: 'testnet', agent: { address: intent.agentAddress, name } }, consent.consentExpiresAt);
+      return active.sign(master, agentApprovalTypedData(consent) as unknown as MasterTypedData, { network: 'testnet', agent: { address: intent.agentAddress, name } }, agentExpiry(consent.consentExpiresAt));
     } });
     if (result.state === 'active') return this.move(row, 'agent_active');
     if (result.state === 'blocked') throw new Fail('setup_agent_rejected');
@@ -561,13 +654,17 @@ export class CopyLiveSetupService {
     this.assertBeforeDeadline(row);
     const active = this.requireSigner(signer);
     const account = (await this.walletRows.account(intent.accountId, row.userId))!;
+    const builderData = approveBuilderFeeTypedData(NETWORK, approval.builderAddress, approval.maxFeeTenthsBps, approval.nonce) as unknown as MasterTypedData;
+    // The browser signs before the attempt is claimed (its nonce is the approval's own).
+    if (active.kind === 'owner_session') await active.sign({ walletId: '', address: intent.accountAddress, ownerQuorumId: '' }, builderData, { network: 'testnet', builder: intent.builderAddress }, row.setupDeadline!.getTime());
     const attempt = await this.returns.beginBuilder(row.userId, approval.id);
     if (!attempt) throw new Wait('builder_approval_pending', 1_000);
     const deadline = this.now() + 30_000;
     let signature: string;
     try {
       signature = await active.sign({ walletId: account.privyWalletId!, address: intent.accountAddress, ownerQuorumId: account.ownerQuorumId! },
-        approveBuilderFeeTypedData(NETWORK, attempt.builderAddress, attempt.maxFeeTenthsBps, attempt.nonce) as unknown as MasterTypedData, { network: 'testnet', builder: intent.builderAddress }, deadline);
+        approveBuilderFeeTypedData(NETWORK, attempt.builderAddress, attempt.maxFeeTenthsBps, attempt.nonce) as unknown as MasterTypedData, { network: 'testnet', builder: intent.builderAddress },
+        active.kind === 'owner_session' ? row.setupDeadline!.getTime() : deadline);
     } catch { await this.returns.finishBuilder(row.userId, approval.id, 'rejected', digest({ reason: 'master_signature_unavailable', id: approval.id })); throw new Fail('setup_builder_rejected'); }
     const reply = await this.exchange.sendAction('testnet', approveBuilderFeeRequest(NETWORK, attempt.builderAddress, attempt.maxFeeTenthsBps, attempt.nonce, signature),
       () => { if (this.now() >= deadline) throw new Error('stale'); }).catch(() => null);

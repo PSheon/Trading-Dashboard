@@ -470,6 +470,13 @@
       "when": 1791212221634,
       "tag": "0066_account_deletion_markers",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1791252579435,
+      "tag": "0067_copy_setup_owner_signature",
+      "breakpoints": true
     }
   ]
 }

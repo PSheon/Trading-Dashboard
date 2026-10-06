@@ -10,7 +10,7 @@ import { CopyAccountModeController } from '../src/copy/copy-account-mode.control
 import { CopyAccountModeRepository } from '../src/copy/copy-account-mode.repository.js';
 import { CopyAccountModeService, ACCOUNT_MODE_CLIENT, ACCOUNT_MODE_ABSENCE_READER, type AccountModeClient, type AccountModeAbsenceReader, type AccountModeAbsenceProof } from '../src/copy/copy-account-mode.service.js';
 import { USER_WALLET_PROVISIONER, type UserWalletProvisioner } from '../src/copy/live/privy-wallet-provisioner.js';
-import { accountModeTypedData, type AccountModeObservation } from '../src/copy/live/privy-account-mode-client.js';
+import type { AccountModeObservation } from '../src/copy/live/privy-account-mode-client.js';
 import type { AuthService } from '../src/common/auth/auth.service.js';
 import { createAuthedApp, stubPrivy } from './auth-test-utils.js';
 import { closeTestDb, getTestDb, insertUser, truncateAll } from './db-test-utils.js';
@@ -20,7 +20,7 @@ const address = master.address.toLowerCase(), accountId = 'mode-route-account', 
 const privy = stubPrivy({ alice: { privyUserId: 'did:privy:mode-alice' }, bob: { privyUserId: 'did:privy:mode-bob' }, expired: { privyUserId: 'did:privy:mode-alice', expiresAt: new Date(0) } });
 let app: INestApplication, auth: AuthService, uid: number, strategyId: number, configured = false;
 const wallets: UserWalletProvisioner = { available: true, findOwned: vi.fn(async () => ({ id: 'master', address, ownerQuorumId: 'owner', externalId: 'mode-master' })), create: vi.fn() };
-const exchange: AccountModeClient = { available: true, acquire: vi.fn(async () => undefined), signMaster: vi.fn(async (_owned, intent) => master.signTypedData(accountModeTypedData(intent))),
+const exchange: AccountModeClient = { available: true, acquire: vi.fn(async () => undefined), 
   send: vi.fn(async () => { configured = true; return { status: 'ok', response: { type: 'default' } }; }),
   observe: vi.fn(async (intent): Promise<AccountModeObservation> => ({ network: 'testnet', accountAddress: intent.accountAddress, role: 'user', abstraction: configured ? 'disabled' : 'default',
     dexAbstraction: configured ? false : null, portfolioMarginEnabled: false, earliestObservedAt: Date.now(), completedAt: Date.now(), source: 'https://api.hyperliquid-testnet.xyz/info',
@@ -49,11 +49,11 @@ describe('explicit authenticated account-mode HTTP workflow', () => {
     for (const token of [null, 'bad', 'expired', serviceToken]) {
       const status = token === serviceToken ? 403 : 401;
       for (const url of ['/me/copy/account-modes', `/me/copy/account-modes/by-key/${key}`]) { const call = request(app.getHttpServer()).get(url); if (token) call.set('Authorization', `Bearer ${token}`); await call.expect(status); }
-      for (const [url, body] of [[`/me/copy/execution-wallets/${accountId}/mode`, { idempotencyKey: key }], ...['challenge', 'reconcile'].map(action => [path(randomUUID(), action), {}]), [path(randomUUID(), 'approve'), { consentSignature: `0x${'00'.repeat(64)}1b` }]] as [string, object][]) {
+      for (const [url, body] of [[`/me/copy/execution-wallets/${accountId}/mode`, { idempotencyKey: key }], ...['challenge', 'reconcile'].map(action => [path(randomUUID(), action), {}]), [path(randomUUID(), 'approve'), { consentSignature: `0x${'00'.repeat(64)}1b`, masterSignature: `0x${'00'.repeat(64)}1b` }]] as [string, object][]) {
         const call = request(app.getHttpServer()).post(url).send(body); if (token) call.set('Authorization', `Bearer ${token}`); await call.expect(status);
       }
     }
-    expect(exchange.signMaster).not.toHaveBeenCalled(); expect(exchange.send).not.toHaveBeenCalled(); expect(wallets.findOwned).not.toHaveBeenCalled();
+    expect(exchange.send).not.toHaveBeenCalled(); expect(wallets.findOwned).not.toHaveBeenCalled();
     expect(await db.select().from(copyAccountModeOperations)).toHaveLength(0);
   });
   it('returns registered no-store wire contracts and original key recovery without new preparation', async () => {
@@ -62,15 +62,20 @@ describe('explicit authenticated account-mode HTTP workflow', () => {
     const found = await get(`/me/copy/account-modes/by-key/${key}`).expect(200).expect('Cache-Control', 'no-store'); expect(copyAccountModeOperationSchema.parse(found.body.data).id).toBe(op.id);
     await get(`/me/copy/account-modes/by-key/${key}`, 'bob').expect(404);
     const registered = httpRouteContracts.filter(c => c.path.includes('account-modes') || c.path === '/me/copy/execution-wallets/:id/mode'); expect(registered).toHaveLength(6);
-    expect(exchange.signMaster).not.toHaveBeenCalled(); expect(wallets.create).not.toHaveBeenCalled();
+    expect(wallets.create).not.toHaveBeenCalled();
   });
-  it('keeps owner consent separate and posts one exact master action with current caller JWT', async () => {
+  it("keeps owner consent separate and posts one exact master action the copy account signed in the owner's browser", async () => {
     const op = await prepare(); const c = copyAccountModeChallengeSchema.parse((await post(path(op.id, 'challenge'), {}).expect(200)).body.data);
     const signed = await owner.signTypedData(accountModeOwnerConsentTypedData(c.intent));
-    const result = await post(path(op.id, 'approve'), { consentSignature: signed }).expect(200).expect('Cache-Control', 'no-store');
+    // The consent alone (no copy account signature) is refused at the DTO.
+    await post(path(op.id, 'approve'), { consentSignature: signed }).expect(400);
+    const masterSignature = await master.signTypedData(c.masterAction.typedData as never);
+    await post(path(op.id, 'approve'), { consentSignature: signed, masterSignature: await bob.signTypedData(c.masterAction.typedData as never) }).expect(403);
+    const result = await post(path(op.id, 'approve'), { consentSignature: signed, masterSignature }).expect(200).expect('Cache-Control', 'no-store');
     expect(copyAccountModeOperationSchema.parse(result.body.data)).toMatchObject({ submissionState: 'accepted', targetState: 'supported' });
-    expect(vi.mocked(exchange.signMaster).mock.calls[0]![2]).toBe('alice'); expect(exchange.send).toHaveBeenCalledTimes(1);
-    await post(path(op.id, 'approve'), { consentSignature: signed }).expect(200); expect(exchange.send).toHaveBeenCalledTimes(1);
+    expect(exchange.send).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(exchange.send).mock.calls[0]![1]).toBe(masterSignature);
+    await post(path(op.id, 'approve'), { consentSignature: signed, masterSignature }).expect(200); expect(exchange.send).toHaveBeenCalledTimes(1);
   });
   it('rejects forged actions, malformed keys/signatures and foreign account callers at DTO/auth boundaries', async () => {
     await post(`/me/copy/execution-wallets/${accountId}/mode`, { idempotencyKey: 'short' }).expect(400);
@@ -82,6 +87,6 @@ describe('explicit authenticated account-mode HTTP workflow', () => {
   it('blocks disabled owners even after token caching', async () => {
     await get().expect(200); await db.update(users).set({ disabledAt: new Date() }).where(eq(users.id, uid));
     await get().expect(401); await post(`/me/copy/execution-wallets/${accountId}/mode`, { idempotencyKey: key }).expect(401);
-    expect(exchange.signMaster).not.toHaveBeenCalled(); expect(exchange.send).not.toHaveBeenCalled();
+    expect(exchange.send).not.toHaveBeenCalled();
   });
 });

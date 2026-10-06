@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { copyFundingSchema } from './copy-funding-contracts.js';
+import { copyMasterActionRequestSchema } from './copy-master-action-contracts.js';
 import { liveCopyBudgetSchema } from './copy-live-mandate-contracts.js';
 import { copyIdempotencyKeySchema, copyStrategySettingsSchema } from './schema/copy.js';
 
@@ -112,6 +113,10 @@ export const liveCopySetupSchema = z.object({
   /** Set while the owner's signature is due (awaiting_consent). */
   consent: liveCopySetupIntentSchema.nullable(),
   funding: copyFundingSchema.nullable(),
+  /** The copy account's next signature, due from the owner's browser (an
+   * owner-session setup): the progress dialog signs it silently and sends it
+   * to /advance with its digest. Null when nothing is due. */
+  pendingSignature: copyMasterActionRequestSchema.nullable(),
   mandateId: id.nullable(), setupDeadline: z.string().datetime().nullable(),
   createdAt: z.string().datetime(), updatedAt: z.string().datetime(),
 }).strict();

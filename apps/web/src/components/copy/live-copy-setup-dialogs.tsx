@@ -113,7 +113,9 @@ export function LiveCopyProgress({ setupId, open, onOpenChange, onRetry }: { set
           ))}
         </ol>
         {setup && !setupTerminal(setup) && setup.issue === "awaiting_credit" ? <p className="text-xs text-muted-foreground">{text.waitingCredit}</p> : null}
-        {stopped || query.isError ? <p role="alert" className="flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning"><TriangleAlert className="mt-px size-3.5 shrink-0" />{liveSetupError(text, setup?.issue)}</p> : null}
+        {setup && !setupTerminal(setup) && setup.pendingSignature && !query.walletError ? <p className="text-xs text-muted-foreground">{text.signingCopyWallet}</p> : null}
+        {stopped || query.isError ? <p role="alert" className="flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning"><TriangleAlert className="mt-px size-3.5 shrink-0" />{liveSetupError(text, setup?.issue)}</p>
+          : query.walletError ? <p role="alert" className="flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning"><TriangleAlert className="mt-px size-3.5 shrink-0" />{liveSetupError(text, query.walletError)}</p> : null}
         {!finished && !stopped ? <p className="text-xs leading-5 text-muted-foreground">{setup?.signer === "worker_policy" ? text.closeSafeWorker : text.closeSafeOwner}</p> : null}
         <div className="flex flex-col gap-2.5">
           {finished ? <Link href="/portfolio" onClick={() => onOpenChange(false)} className="orbit-press flex min-h-12 w-full items-center justify-center rounded-full bg-primary px-6 font-display text-base text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">{text.portfolio}</Link> : null}

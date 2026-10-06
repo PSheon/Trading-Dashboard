@@ -2,7 +2,7 @@ import { ConflictException, Inject, Injectable, Logger, NotFoundException, Optio
 import { EventEmitter2 } from "@nestjs/event-emitter";
 
 import { UnitOfWork, type DbTransaction } from "../db/unit-of-work.js";
-import { COPY_ACCOUNT_CLOSURE, type CopyAccountClosurePort } from "./account-closure.port.js";
+import { COPY_ACCOUNT_CLOSURE, CopySignerAttached, type CopyAccountClosurePort } from "./account-closure.port.js";
 import { AccountRepository, type ClosureAccount, type DeletionBlocker } from "./account.repository.js";
 import { FavoritesRepository } from "./favorites.repository.js";
 import { FAVORITES_CHANGED_EVENT, type FavoritesChangedEvent } from "./favorites.service.js";
@@ -59,15 +59,18 @@ export class AccountDeletionService {
   ) {}
 
   /**
-   * @param userJwt the caller's Privy access token: only needed to take the
-   *   worker off a wallet's signers.
+   * A copy wallet that had the worker as its signer (automatic return) is
+   * only let go once Privy shows the worker gone: the owner's browser
+   * removes it before asking (only the owner can).
    * @throws NotFoundException when the user row is already gone.
    * @throws ConflictException `last_admin`, or the first blocker's code with
    *   `strategyIds` and the full `blockers` list.
    * @throws ServiceUnavailableException `closure_check_unavailable` when a copy
-   *   account can't be checked or its signer can't be removed (nothing deleted).
+   *   account can't be checked (nothing deleted).
+   * @throws ConflictException `copy_signer_attached` when Privy still shows the
+   *   worker as a copy wallet's signer (nothing deleted).
    */
-  async delete(userId: number, userJwt?: string): Promise<void> {
+  async delete(userId: number): Promise<void> {
     const checked = await this.dryRun(userId);
 
     if (checked.length) {
@@ -85,9 +88,13 @@ export class AccountDeletionService {
     }
 
     const signers = await this.uow.run((tx) => this.accounts.attachedSigners(tx, userId));
-    if (signers.length && (!this.closure || !userJwt)) throw unavailable();
+    if (signers.length && !this.closure) throw unavailable();
     for (const signer of signers) {
-      try { await this.closure!.detachSigner(signer.walletId, userJwt!); } catch { throw unavailable(); }
+      try { await this.closure!.assertSignerDetached(signer.walletId); }
+      catch (error) {
+        if (error instanceof CopySignerAttached) throw new ConflictException({ statusCode: 409, code: "copy_signer_attached", message: "Remove Orbie's signer from your copy wallet first" });
+        throw unavailable();
+      }
       await this.accounts.recordSignerDetached(signer.id);
     }
 

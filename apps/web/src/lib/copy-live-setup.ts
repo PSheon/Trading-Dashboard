@@ -1,10 +1,11 @@
 'use client';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { liveCopyMandateSchema, liveCopyOverviewSchema, liveCopySetupConsentTypedData, liveCopySetupSchema, LIVE_SETUP_TERMINAL, usdSendTypedData, WALLET_NETWORKS,
   type CopyStrategySettings, type LiveCopySetup } from '@trading-dashboard/shared/contracts';
-import { api, sessionKey } from './api';
+import { api, ApiError, sessionKey } from './api';
 import { useAuth } from './auth';
+import { masterActionErrorCode, signMasterAction } from './copy-master-action';
 import { FIXTURE_WALLET_ADDRESS } from './fixture-signer';
 import { queryKeys } from './query-keys';
 import type { Eip712TypedData } from './wallet-signer';
@@ -119,28 +120,60 @@ export function useLiveCopySetupActions() {
   return { start, edit, renew, confirm, cancel, resume, pause, topUp };
 }
 
+/** After a wallet error, how long the dialog waits before signing again. */
+const SIGN_RETRY_MS = 10_000;
+/** Server refusals of a signature that a fresh payload replaces (the next
+ * poll brings it): no error to show. */
+const RENEWED = new Set(['owner_signature_stale', 'owner_signature_expired', 'owner_signature_not_requested']);
+
 /**
- * One setup, polled every 2 s until it finishes. A setup the owner's session
- * signs (worker policy off) is continued by this dialog: each poll asks the
- * server for the next step with this session (`advance`).
+ * One setup, polled every 2 s until it finishes. A setup the owner's browser
+ * signs (`owner_session`) is continued by this dialog: each poll asks the
+ * server for the next step (`advance`), and when the server parks the copy
+ * account's next signature (`pendingSignature`: the account mode, the agent
+ * approval, the builder fee) the dialog signs exactly it with that copy
+ * account, silently, and sends it back with its digest; no extra click. A
+ * wallet error is shown (`walletError`) and signing is tried again a little
+ * later while the dialog stays open.
  */
 export function useLiveCopySetup(id: string | null) {
   const auth = useAuth(), enabled = Boolean(id) && liveCopyEnabled(auth);
-  const advanceAt = useRef(0);
+  const advanceAt = useRef(0), signing = useRef<string | null>(null), retryAt = useRef(0);
+  const latest = useRef(auth);
+  useLayoutEffect(() => { latest.current = auth; });
+  const [walletError, setWalletError] = useState<string | null>(null);
   const query = useQuery<LiveCopySetup>({
     queryKey: [...queryKeys.copy.all, 'live-setup', id, auth.identity, sessionKey()], enabled, retry: false, staleTime: 0,
     refetchInterval: q => setupTerminal(q.state.data) ? false : 2000,
     queryFn: async ({ signal }): Promise<LiveCopySetup> => {
       const read = liveCopySetupSchema.parse(await api.get(`${ROOT}/setups/${encodeURIComponent(id!)}`, signal));
+      const path = `${ROOT}/setups/${encodeURIComponent(id!)}/advance`;
+      const pending = read.signer === 'owner_session' ? read.pendingSignature : null;
+      if (pending && signing.current !== pending.digest && Date.now() >= retryAt.current) {
+        signing.current = pending.digest;
+        try {
+          const wallet = latest.current.wallet;
+          if (!wallet) throw new Error('owner_wallet_unavailable');
+          const signature = await signMasterAction(wallet, pending, { kind: pending.kind, account: pending.account });
+          const result = liveCopySetupSchema.parse(await api.post(path, { digest: pending.digest, signature }));
+          setWalletError(null); return result;
+        } catch (error) {
+          const code = error instanceof ApiError ? error.code : null;
+          if (code && RENEWED.has(code)) return read;
+          retryAt.current = Date.now() + SIGN_RETRY_MS;
+          setWalletError(code ?? masterActionErrorCode(error));
+          return read;
+        } finally { signing.current = null; }
+      }
       const driven = ['consented', 'funding_submitted', 'funded', 'mode_set', 'agent_active', 'builder_ready'].includes(read.stage);
-      if (driven && read.signer === 'owner_session' && Date.now() >= advanceAt.current) {
+      if (driven && !pending && read.signer === 'owner_session' && Date.now() >= advanceAt.current) {
         advanceAt.current = Date.now() + 3000;
-        return liveCopySetupSchema.parse(await api.post(`${ROOT}/setups/${encodeURIComponent(id!)}/advance`, {}));
+        return liveCopySetupSchema.parse(await api.post(path, {}));
       }
       return read;
     },
   });
   const client = useQueryClient(), terminal = setupTerminal(query.data);
   useEffect(() => { if (terminal) void client.invalidateQueries({ queryKey: [...queryKeys.copy.all] }); }, [terminal, client]);
-  return query;
+  return { ...query, walletError: terminal ? null : walletError };
 }

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { withdrawalUnits } from "./wallet-withdrawal-contracts.js";
+import { copyMasterActionRequestSchema, copyMasterSignatureSchema } from "./copy-master-action-contracts.js";
 
 export function canonicalUsdc(units: bigint): string {
   const fraction = (units % 1_000_000n).toString().padStart(6, "0").replace(/0+$/, "");
@@ -43,14 +44,19 @@ export const copyReturnConsentSchema = z.object({
   amount: z.string(), nonce: z.number().int().positive().safe(), consentExpiresAt: z.number().int().positive().safe(),
 }).strict();
 export type CopyReturnConsent = z.infer<typeof copyReturnConsentSchema>;
-export const copyReturnChallengeSchema = z.object({ operation: copyFundingSchema, consent: copyReturnConsentSchema }).strict();
-export const approveCopyMasterActionSchema = z.object({ consentSignature: z.string().regex(/^0x[0-9a-fA-F]{130}$/) }).strict();
+/** `masterAction`: the copy account's UsdSend, signed in the owner's browser
+ * (null once the return is no longer prepared). */
+export const copyReturnChallengeSchema = z.object({ operation: copyFundingSchema, consent: copyReturnConsentSchema, masterAction: copyMasterActionRequestSchema.nullable() }).strict();
+/** The main wallet's consent and the copy account's own signature of the
+ * exact action (signed in the owner's browser). */
+export const approveCopyMasterActionSchema = z.object({ consentSignature: z.string().regex(/^0x[0-9a-fA-F]{130}$/), masterSignature: copyMasterSignatureSchema }).strict();
 /** A return's approval: the main wallet's consent, or none for an account
  * with the automatic return (the worker signs it, and its policy allows only
  * the owner's main wallet as the destination). */
-export const approveCopyReturnSchema = z.object({ consentSignature: z.string().regex(/^0x[0-9a-fA-F]{130}$/).optional() }).strict();
-/** The owner's main wallet signs this before the copy's account (a wallet the
- * owner owns, signed through Privy with their session) sends the return. */
+export const approveCopyReturnSchema = z.object({ consentSignature: z.string().regex(/^0x[0-9a-fA-F]{130}$/).optional(), masterSignature: copyMasterSignatureSchema.optional() }).strict()
+  .refine(value => (value.consentSignature === undefined) === (value.masterSignature === undefined), "The consent and the copy account's signature go together");
+/** The owner's main wallet signs this next to the copy account's own UsdSend
+ * (a wallet the owner owns, signed in their browser). */
 export function copyReturnConsentTypedData(value: CopyReturnConsent) {
   const input = copyReturnConsentSchema.parse(value);
   return {
@@ -73,7 +79,7 @@ export const copyBuilderApprovalSchema = z.object({
   id: z.string().uuid(), accountId: z.string(), state: z.enum(["prepared", "unknown", "accepted", "rejected", "approved"]),
   builderAddress: address, maxFeeTenthsBps: z.number().int(), createdAt: z.string().datetime(), updatedAt: z.string().datetime(),
 }).strict();
-export const copyBuilderChallengeSchema = z.object({ approval: copyBuilderApprovalSchema, consent: copyBuilderConsentSchema }).strict();
+export const copyBuilderChallengeSchema = z.object({ approval: copyBuilderApprovalSchema, consent: copyBuilderConsentSchema, masterAction: copyMasterActionRequestSchema.nullable() }).strict();
 export function copyBuilderConsentTypedData(value: CopyBuilderConsent) {
   const input = copyBuilderConsentSchema.parse(value);
   return {

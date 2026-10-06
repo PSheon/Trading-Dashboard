@@ -29,7 +29,7 @@ describe("the copy account's master policy (one-click plan §2)", () => {
     expect(() => masterPolicyRules({ ...binding, ownerMain: "nope" })).toThrow();
   });
 
-  it("creates the policy owned by the user, attaches the worker with the owner's session only, and verifies exactly", async () => {
+  it("creates the policy owned by the user and verifies exactly; it never changes a wallet's signers", async () => {
     const policies = { create: vi.fn(async () => ({ id: "policy-1" })), get: vi.fn() };
     const wallets = { update: vi.fn(async () => ({})), get: vi.fn() };
     const keyQuorums = { get: vi.fn(async () => ({ id: "owner-q", authorization_threshold: 1, authorization_keys: [], user_ids: ["did:privy:u"], key_quorum_ids: [] })) };
@@ -37,9 +37,6 @@ describe("the copy account's master policy (one-click plan §2)", () => {
     const privy = new PrivyMasterPolicy({}, client as never);
     expect(await privy.create("did:privy:u", binding, "master-acc-1")).toEqual({ id: "policy-1" });
     expect(policies.create).toHaveBeenCalledWith(expect.objectContaining({ owner: { user_id: "did:privy:u" }, idempotency_key: "master-acc-1", name: MASTER_POLICY_NAME, chain_type: "ethereum" }));
-    await privy.attach("wallet-1", "owner-jwt", "worker-q", "policy-1");
-    expect(wallets.update).toHaveBeenCalledExactlyOnceWith("wallet-1", { authorization_context: { user_jwts: ["owner-jwt"] }, additional_signers: [{ signer_id: "worker-q", override_policy_ids: ["policy-1"] }] });
-    await expect(privy.attach("wallet-1", "", "worker-q", "policy-1")).rejects.toThrow("master_policy_unavailable");
     const stored = { id: "policy-1", owner_id: "owner-q", name: MASTER_POLICY_NAME, version: "1.0", chain_type: "ethereum", rules: masterPolicyRules(binding).map((r, i) => ({ id: `r${i}`, ...r })) };
     policies.get.mockResolvedValue(stored);
     const verified = await privy.verify("policy-1", "did:privy:u", binding);
@@ -48,19 +45,19 @@ describe("the copy account's master policy (one-click plan §2)", () => {
     await expect(privy.verify("policy-1", "did:privy:u", { ...binding, ownerMain: other })).rejects.toThrow("master_policy_conflict");
     await expect(privy.verify("policy-1", "did:privy:someone", binding)).rejects.toThrow("master_policy_conflict");
     expect(canonical({ b: 1, a: [2, { d: 3, c: 4 }] })).toBe('{"a":[2,{"c":4,"d":3}],"b":1}');
+    expect(wallets.update).not.toHaveBeenCalled();
   });
 
-  it("account deletion detaches the worker with the owner's session and checks no signer is left", async () => {
+  it("account deletion checks with the app secret that no signer is left (the owner's browser removed it)", async () => {
     const wallets = { update: vi.fn(async () => ({})), get: vi.fn(async () => ({ id: "wallet-1", address: account, owner_id: "owner-q", policy_ids: [], additional_signers: [] })) };
     const privy = new PrivyMasterPolicy({}, { wallets: () => wallets } as never);
-    await privy.detach("wallet-1", "owner-jwt");
-    expect(wallets.update).toHaveBeenCalledExactlyOnceWith("wallet-1", { authorization_context: { user_jwts: ["owner-jwt"] }, additional_signers: [] });
-    // Still a signer after the update, or no session: never reported as detached.
+    await privy.assertDetached("wallet-1");
+    // Still a signer, or Privy can't tell: never reported as detached.
     wallets.get.mockResolvedValueOnce({ id: "wallet-1", address: account, owner_id: "owner-q", policy_ids: [], additional_signers: [{ signer_id: "worker-q", override_policy_ids: ["policy-1"] }] } as never);
-    await expect(privy.detach("wallet-1", "owner-jwt")).rejects.toThrow("master_policy_conflict");
-    await expect(privy.detach("wallet-1", "")).rejects.toThrow("master_policy_unavailable");
-    wallets.update.mockRejectedValueOnce(new Error("provider detail"));
-    await expect(privy.detach("wallet-1", "owner-jwt")).rejects.toThrow("master_policy_unavailable");
+    await expect(privy.assertDetached("wallet-1")).rejects.toThrow("master_policy_conflict");
+    wallets.get.mockRejectedValueOnce(new Error("provider detail"));
+    await expect(privy.assertDetached("wallet-1")).rejects.toThrow("master_policy_unavailable");
+    expect(wallets.update).not.toHaveBeenCalled();
   });
 });
 

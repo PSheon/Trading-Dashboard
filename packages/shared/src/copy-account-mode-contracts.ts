@@ -1,8 +1,11 @@
 import { z } from 'zod';
 import { copyIdempotencyKeySchema } from './schema/copy.js';
+import { copyMasterActionRequestSchema, copyMasterSignatureSchema } from './copy-master-action-contracts.js';
 
 export const prepareCopyAccountModeSchema = z.object({ idempotencyKey: copyIdempotencyKeySchema }).strict();
-export const approveCopyAccountModeSchema = z.object({ consentSignature: z.string().regex(/^0x[0-9a-fA-F]{130}$/) }).strict();
+/** The main wallet's consent, and the copy account's own signature of the
+ * mode change (signed in the owner's browser: the challenge's `masterAction`). */
+export const approveCopyAccountModeSchema = z.object({ consentSignature: z.string().regex(/^0x[0-9a-fA-F]{130}$/), masterSignature: copyMasterSignatureSchema }).strict();
 const millis = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 export const accountModeIntentSchema = z.object({
   operationId: z.string().min(1).max(128), accountId: z.string().min(1).max(128),
@@ -20,7 +23,7 @@ export const copyAccountModeOperationSchema = z.object({
 });
 export type CopyAccountModeOperation = z.infer<typeof copyAccountModeOperationSchema>;
 export const copyAccountModeOverviewSchema = z.object({ available: z.boolean(), network: z.literal('testnet'), operations: z.array(copyAccountModeOperationSchema) });
-export const copyAccountModeChallengeSchema = z.object({ operation: copyAccountModeOperationSchema, intent: accountModeIntentSchema });
+export const copyAccountModeChallengeSchema = z.object({ operation: copyAccountModeOperationSchema, intent: accountModeIntentSchema, masterAction: copyMasterActionRequestSchema });
 export function accountModeOwnerConsentTypedData(value: AccountModeIntent) {
   const input = accountModeIntentSchema.parse(value);
   return {

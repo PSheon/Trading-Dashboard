@@ -14,7 +14,7 @@ import { RetentionRepository } from "../src/retention/retention.repository.js";
 import { RetentionService } from "../src/retention/retention.service.js";
 import type { SettingsService } from "../src/settings/settings.service.js";
 import { AccountDeletionService } from "../src/users/account-deletion.service.js";
-import { COPY_ACCOUNT_CLOSURE } from "../src/users/account-closure.port.js";
+import { COPY_ACCOUNT_CLOSURE, CopySignerAttached } from "../src/users/account-closure.port.js";
 import { purgeStatements, USER_REFERENCES } from "../src/users/account-closure.plan.js";
 import { AccountRepository } from "../src/users/account.repository.js";
 import { AppConfig } from "../src/config/app-config.js";
@@ -38,7 +38,7 @@ import { closeTestDb, getTestDb, insertUser } from "./db-test-utils.js";
 const db = getTestDb();
 const OWNER_MAIN = `0x${"55".repeat(20)}`, OTHER = `0x${"77".repeat(20)}`, PAPER_LEADER = `0x${"66".repeat(20)}`;
 const STOP = "11111111-1111-4111-8111-111111111111";
-const closure = { isEmpty: vi.fn(async (_network: string, _address: string) => true), detachSigner: vi.fn(async (_walletId: string, _jwt: string) => {}) };
+const closure = { isEmpty: vi.fn(async (_network: string, _address: string) => true), assertSignerDetached: vi.fn(async (_walletId: string) => {}) };
 let app: INestApplication, auth: AuthService, settings: SettingsService, seed: Awaited<ReturnType<typeof preparationFixture>>;
 let inviter: number, invitee: number;
 
@@ -51,7 +51,7 @@ beforeEach(async () => {
   seed = await preparationFixture(db);
   auth.clearCache();
   closure.isEmpty.mockReset().mockResolvedValue(true);
-  closure.detachSigner.mockReset().mockResolvedValue(undefined);
+  closure.assertSignerDetached.mockReset().mockResolvedValue(undefined);
   inviter = (await insertUser(db, { privyUserId: "did:privy:inviter" })).id;
   invitee = (await insertUser(db, { privyUserId: "did:privy:invitee" })).id;
 });
@@ -198,13 +198,13 @@ describe("DELETE /me — a user with only history", () => {
       .toEqual({ "attr-owner": [t, inviter], "attr-invitee": [invitee, t] });
     expect((await db.select().from(referralCodes)).map((c) => [c.id, c.userId, c.isCurrent]).sort()).toEqual([["code-inviter", inviter, true], ["code-owner", t, false]]);
 
-    // Grants and agents are revoked; the worker was taken off the wallet with the owner's session.
+    // Grants and agents are revoked; Privy shows the worker off the wallet (the owner's browser removed it).
     const [grant] = await db.select().from(copyWalletAuthorizations);
     expect(grant).toMatchObject({ revokedAt: expect.any(Date), version: 5 });
     expect(await db.select().from(copyWalletAuthorizationEvents)).toEqual([expect.objectContaining({ authorizationId: "grant", userId: t, version: 5, action: "revoked" })]);
     expect((await db.select().from(copyAgentSetups))[0]).toMatchObject({ state: "revoked", issue: "account_deleted" });
     expect(closure.isEmpty).toHaveBeenCalledWith("testnet", account());
-    expect(closure.detachSigner).toHaveBeenCalledExactlyOnceWith("master", "owner-token");
+    expect(closure.assertSignerDetached).toHaveBeenCalledExactlyOnceWith("master");
 
     // One audit entry, counts only, under the tombstone.
     const [audit] = await db.select().from(adminAuditLogs).where(eq(adminAuditLogs.event, "user.delete"));
@@ -217,10 +217,12 @@ describe("DELETE /me — a user with only history", () => {
     await request(app.getHttpServer()).get("/me").set("Authorization", "Bearer owner-token").expect(401);
   });
 
-  it("a signer that can't be detached answers 503 and deletes nothing", async () => {
+  it("a signer still on the wallet answers 409 copy_signer_attached, one Privy can't check 503; either deletes nothing", async () => {
     await history();
     await db.update(copyExecutionAccounts).set({ masterPolicyId: "policy-1", masterPolicyFingerprint: "c".repeat(64), masterSignerQuorumId: "worker", sweepDestination: OWNER_MAIN, signerAttachedAt: new Date(now) });
-    closure.detachSigner.mockRejectedValue(new Error("privy down"));
+    closure.assertSignerDetached.mockRejectedValueOnce(new CopySignerAttached());
+    expect((await deleteMe().expect(409)).body.error.code).toBe("copy_signer_attached");
+    closure.assertSignerDetached.mockRejectedValueOnce(new Error("privy down"));
     expect((await deleteMe().expect(503)).body.error.code).toBe("closure_check_unavailable");
     expect(await tombstones()).toHaveLength(0);
     expect((await db.select().from(copyExecutionAccounts))[0]!.signerDetachedAt).toBeNull();

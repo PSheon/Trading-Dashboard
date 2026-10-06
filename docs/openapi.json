@@ -751,6 +751,137 @@
                             }
                           ]
                         },
+                        "pendingSignature": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "account_mode",
+                                    "agent_approval",
+                                    "builder_fee",
+                                    "usd_send"
+                                  ]
+                                },
+                                "account": {
+                                  "type": "string",
+                                  "pattern": "^0x[0-9a-f]{40}$"
+                                },
+                                "typedData": {
+                                  "type": "object",
+                                  "properties": {
+                                    "domain": {
+                                      "type": "object",
+                                      "properties": {
+                                        "name": {
+                                          "type": "string",
+                                          "const": "HyperliquidSignTransaction"
+                                        },
+                                        "version": {
+                                          "type": "string",
+                                          "const": "1"
+                                        },
+                                        "chainId": {
+                                          "type": "integer",
+                                          "exclusiveMinimum": 0
+                                        },
+                                        "verifyingContract": {
+                                          "type": "string",
+                                          "const": "0x0000000000000000000000000000000000000000"
+                                        }
+                                      },
+                                      "required": [
+                                        "name",
+                                        "version",
+                                        "chainId",
+                                        "verifyingContract"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    "types": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "name": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64
+                                            },
+                                            "type": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 32
+                                            }
+                                          },
+                                          "required": [
+                                            "name",
+                                            "type"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        "minItems": 1,
+                                        "maxItems": 8
+                                      }
+                                    },
+                                    "primaryType": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 64
+                                    },
+                                    "message": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "maxLength": 160
+                                          },
+                                          {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 9007199254740991
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "domain",
+                                    "types",
+                                    "primaryType",
+                                    "message"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "digest": {
+                                  "type": "string",
+                                  "pattern": "^0x[0-9a-f]{64}$"
+                                },
+                                "expiresAt": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "account",
+                                "typedData",
+                                "digest",
+                                "expiresAt"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "mandateId": {
                           "anyOf": [
                             {
@@ -797,6 +928,7 @@
                         "signer",
                         "consent",
                         "funding",
+                        "pendingSignature",
                         "mandateId",
                         "setupDeadline",
                         "createdAt",
@@ -1382,6 +1514,137 @@
                                   }
                                 ]
                               },
+                              "pendingSignature": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "kind": {
+                                        "type": "string",
+                                        "enum": [
+                                          "account_mode",
+                                          "agent_approval",
+                                          "builder_fee",
+                                          "usd_send"
+                                        ]
+                                      },
+                                      "account": {
+                                        "type": "string",
+                                        "pattern": "^0x[0-9a-f]{40}$"
+                                      },
+                                      "typedData": {
+                                        "type": "object",
+                                        "properties": {
+                                          "domain": {
+                                            "type": "object",
+                                            "properties": {
+                                              "name": {
+                                                "type": "string",
+                                                "const": "HyperliquidSignTransaction"
+                                              },
+                                              "version": {
+                                                "type": "string",
+                                                "const": "1"
+                                              },
+                                              "chainId": {
+                                                "type": "integer",
+                                                "exclusiveMinimum": 0
+                                              },
+                                              "verifyingContract": {
+                                                "type": "string",
+                                                "const": "0x0000000000000000000000000000000000000000"
+                                              }
+                                            },
+                                            "required": [
+                                              "name",
+                                              "version",
+                                              "chainId",
+                                              "verifyingContract"
+                                            ],
+                                            "additionalProperties": false
+                                          },
+                                          "types": {
+                                            "type": "object",
+                                            "additionalProperties": {
+                                              "type": "array",
+                                              "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "name": {
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                    "maxLength": 64
+                                                  },
+                                                  "type": {
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                    "maxLength": 32
+                                                  }
+                                                },
+                                                "required": [
+                                                  "name",
+                                                  "type"
+                                                ],
+                                                "additionalProperties": false
+                                              },
+                                              "minItems": 1,
+                                              "maxItems": 8
+                                            }
+                                          },
+                                          "primaryType": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 64
+                                          },
+                                          "message": {
+                                            "type": "object",
+                                            "additionalProperties": {
+                                              "anyOf": [
+                                                {
+                                                  "type": "string",
+                                                  "maxLength": 160
+                                                },
+                                                {
+                                                  "type": "integer",
+                                                  "minimum": 0,
+                                                  "maximum": 9007199254740991
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        },
+                                        "required": [
+                                          "domain",
+                                          "types",
+                                          "primaryType",
+                                          "message"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      "digest": {
+                                        "type": "string",
+                                        "pattern": "^0x[0-9a-f]{64}$"
+                                      },
+                                      "expiresAt": {
+                                        "type": "integer",
+                                        "exclusiveMinimum": 0,
+                                        "maximum": 9007199254740991
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "account",
+                                      "typedData",
+                                      "digest",
+                                      "expiresAt"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
                               "mandateId": {
                                 "anyOf": [
                                   {
@@ -1428,6 +1691,7 @@
                               "signer",
                               "consent",
                               "funding",
+                              "pendingSignature",
                               "mandateId",
                               "setupDeadline",
                               "createdAt",
@@ -2017,6 +2281,137 @@
                             }
                           ]
                         },
+                        "pendingSignature": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "account_mode",
+                                    "agent_approval",
+                                    "builder_fee",
+                                    "usd_send"
+                                  ]
+                                },
+                                "account": {
+                                  "type": "string",
+                                  "pattern": "^0x[0-9a-f]{40}$"
+                                },
+                                "typedData": {
+                                  "type": "object",
+                                  "properties": {
+                                    "domain": {
+                                      "type": "object",
+                                      "properties": {
+                                        "name": {
+                                          "type": "string",
+                                          "const": "HyperliquidSignTransaction"
+                                        },
+                                        "version": {
+                                          "type": "string",
+                                          "const": "1"
+                                        },
+                                        "chainId": {
+                                          "type": "integer",
+                                          "exclusiveMinimum": 0
+                                        },
+                                        "verifyingContract": {
+                                          "type": "string",
+                                          "const": "0x0000000000000000000000000000000000000000"
+                                        }
+                                      },
+                                      "required": [
+                                        "name",
+                                        "version",
+                                        "chainId",
+                                        "verifyingContract"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    "types": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "name": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64
+                                            },
+                                            "type": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 32
+                                            }
+                                          },
+                                          "required": [
+                                            "name",
+                                            "type"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        "minItems": 1,
+                                        "maxItems": 8
+                                      }
+                                    },
+                                    "primaryType": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 64
+                                    },
+                                    "message": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "maxLength": 160
+                                          },
+                                          {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 9007199254740991
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "domain",
+                                    "types",
+                                    "primaryType",
+                                    "message"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "digest": {
+                                  "type": "string",
+                                  "pattern": "^0x[0-9a-f]{64}$"
+                                },
+                                "expiresAt": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "account",
+                                "typedData",
+                                "digest",
+                                "expiresAt"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "mandateId": {
                           "anyOf": [
                             {
@@ -2063,6 +2458,7 @@
                         "signer",
                         "consent",
                         "funding",
+                        "pendingSignature",
                         "mandateId",
                         "setupDeadline",
                         "createdAt",
@@ -2105,7 +2501,7 @@
     },
     "/me/copy/live/setups/{id}/confirm": {
       "post": {
-        "description": "Verifies the consent once, adds the policy-bound worker signer with the owner's session (when the worker policy is on), submits the deposit once, then runs what it can.\n\nAccess: user (owner); the setup consent, the deposit signature and a fresh session; one deposit attempt\n\nError codes: consent_expired, invalid_consent, setup_unavailable, setup_wallet_conflict, setup_builder_rejected, insufficient_main_balance",
+        "description": "Verifies the consent once, submits the deposit once, then runs what it can.\n\nAccess: user (owner); the setup consent, the deposit signature and a fresh session; one deposit attempt\n\nError codes: consent_expired, invalid_consent, setup_unavailable, setup_wallet_conflict, setup_builder_rejected, insufficient_main_balance",
         "operationId": "CopyLiveSetupController_confirm",
         "parameters": [
           {
@@ -2115,22 +2511,6 @@
             "description": "Setup id",
             "schema": {
               "format": "uuid",
-              "type": "string"
-            }
-          },
-          {
-            "name": "authorization",
-            "required": true,
-            "in": "header",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "x-privy-identity-token",
-            "required": true,
-            "in": "header",
-            "schema": {
               "type": "string"
             }
           }
@@ -2671,6 +3051,137 @@
                             }
                           ]
                         },
+                        "pendingSignature": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "account_mode",
+                                    "agent_approval",
+                                    "builder_fee",
+                                    "usd_send"
+                                  ]
+                                },
+                                "account": {
+                                  "type": "string",
+                                  "pattern": "^0x[0-9a-f]{40}$"
+                                },
+                                "typedData": {
+                                  "type": "object",
+                                  "properties": {
+                                    "domain": {
+                                      "type": "object",
+                                      "properties": {
+                                        "name": {
+                                          "type": "string",
+                                          "const": "HyperliquidSignTransaction"
+                                        },
+                                        "version": {
+                                          "type": "string",
+                                          "const": "1"
+                                        },
+                                        "chainId": {
+                                          "type": "integer",
+                                          "exclusiveMinimum": 0
+                                        },
+                                        "verifyingContract": {
+                                          "type": "string",
+                                          "const": "0x0000000000000000000000000000000000000000"
+                                        }
+                                      },
+                                      "required": [
+                                        "name",
+                                        "version",
+                                        "chainId",
+                                        "verifyingContract"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    "types": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "name": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64
+                                            },
+                                            "type": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 32
+                                            }
+                                          },
+                                          "required": [
+                                            "name",
+                                            "type"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        "minItems": 1,
+                                        "maxItems": 8
+                                      }
+                                    },
+                                    "primaryType": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 64
+                                    },
+                                    "message": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "maxLength": 160
+                                          },
+                                          {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 9007199254740991
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "domain",
+                                    "types",
+                                    "primaryType",
+                                    "message"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "digest": {
+                                  "type": "string",
+                                  "pattern": "^0x[0-9a-f]{64}$"
+                                },
+                                "expiresAt": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "account",
+                                "typedData",
+                                "digest",
+                                "expiresAt"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "mandateId": {
                           "anyOf": [
                             {
@@ -2717,6 +3228,7 @@
                         "signer",
                         "consent",
                         "funding",
+                        "pendingSignature",
                         "mandateId",
                         "setupDeadline",
                         "createdAt",
@@ -2766,7 +3278,7 @@
     },
     "/me/copy/live/setups/{id}/advance": {
       "post": {
-        "description": "For setups the owner's session signs (worker policy off): the next step's exact consented payload; attempted steps are only reconciled.\n\nAccess: user (owner); fresh session signs the next consented step; attempted steps are only reconciled",
+        "description": "For setups the owner's browser signs: with no body, runs the next step, which parks the copy account's next action as `pendingSignature`; with `{ digest, signature }`, first takes the browser's signature of that pending action (409 owner_signature_not_requested / owner_signature_stale / owner_signature_expired, 403 owner_signature_invalid), then runs it. Attempted steps are only reconciled; the same signature twice changes nothing.\n\nAccess: user (owner); fresh session signs the next consented step; attempted steps are only reconciled",
         "operationId": "CopyLiveSetupController_advance",
         "parameters": [
           {
@@ -2778,24 +3290,18 @@
               "format": "uuid",
               "type": "string"
             }
-          },
-          {
-            "name": "authorization",
-            "required": true,
-            "in": "header",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "x-privy-identity-token",
-            "required": true,
-            "in": "header",
-            "schema": {
-              "type": "string"
-            }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdvanceLiveCopySetupDto"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Success",
@@ -3322,6 +3828,137 @@
                             }
                           ]
                         },
+                        "pendingSignature": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "account_mode",
+                                    "agent_approval",
+                                    "builder_fee",
+                                    "usd_send"
+                                  ]
+                                },
+                                "account": {
+                                  "type": "string",
+                                  "pattern": "^0x[0-9a-f]{40}$"
+                                },
+                                "typedData": {
+                                  "type": "object",
+                                  "properties": {
+                                    "domain": {
+                                      "type": "object",
+                                      "properties": {
+                                        "name": {
+                                          "type": "string",
+                                          "const": "HyperliquidSignTransaction"
+                                        },
+                                        "version": {
+                                          "type": "string",
+                                          "const": "1"
+                                        },
+                                        "chainId": {
+                                          "type": "integer",
+                                          "exclusiveMinimum": 0
+                                        },
+                                        "verifyingContract": {
+                                          "type": "string",
+                                          "const": "0x0000000000000000000000000000000000000000"
+                                        }
+                                      },
+                                      "required": [
+                                        "name",
+                                        "version",
+                                        "chainId",
+                                        "verifyingContract"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    "types": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "name": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64
+                                            },
+                                            "type": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 32
+                                            }
+                                          },
+                                          "required": [
+                                            "name",
+                                            "type"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        "minItems": 1,
+                                        "maxItems": 8
+                                      }
+                                    },
+                                    "primaryType": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 64
+                                    },
+                                    "message": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "maxLength": 160
+                                          },
+                                          {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 9007199254740991
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "domain",
+                                    "types",
+                                    "primaryType",
+                                    "message"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "digest": {
+                                  "type": "string",
+                                  "pattern": "^0x[0-9a-f]{64}$"
+                                },
+                                "expiresAt": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "account",
+                                "typedData",
+                                "digest",
+                                "expiresAt"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "mandateId": {
                           "anyOf": [
                             {
@@ -3368,6 +4005,7 @@
                         "signer",
                         "consent",
                         "funding",
+                        "pendingSignature",
                         "mandateId",
                         "setupDeadline",
                         "createdAt",
@@ -3394,7 +4032,7 @@
             }
           }
         },
-        "summary": "Continue a setup with my session",
+        "summary": "Continue a setup my browser signs",
         "tags": [
           "CopyLiveSetup"
         ],
@@ -3948,6 +4586,137 @@
                             }
                           ]
                         },
+                        "pendingSignature": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "account_mode",
+                                    "agent_approval",
+                                    "builder_fee",
+                                    "usd_send"
+                                  ]
+                                },
+                                "account": {
+                                  "type": "string",
+                                  "pattern": "^0x[0-9a-f]{40}$"
+                                },
+                                "typedData": {
+                                  "type": "object",
+                                  "properties": {
+                                    "domain": {
+                                      "type": "object",
+                                      "properties": {
+                                        "name": {
+                                          "type": "string",
+                                          "const": "HyperliquidSignTransaction"
+                                        },
+                                        "version": {
+                                          "type": "string",
+                                          "const": "1"
+                                        },
+                                        "chainId": {
+                                          "type": "integer",
+                                          "exclusiveMinimum": 0
+                                        },
+                                        "verifyingContract": {
+                                          "type": "string",
+                                          "const": "0x0000000000000000000000000000000000000000"
+                                        }
+                                      },
+                                      "required": [
+                                        "name",
+                                        "version",
+                                        "chainId",
+                                        "verifyingContract"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    "types": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "name": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64
+                                            },
+                                            "type": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 32
+                                            }
+                                          },
+                                          "required": [
+                                            "name",
+                                            "type"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        "minItems": 1,
+                                        "maxItems": 8
+                                      }
+                                    },
+                                    "primaryType": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 64
+                                    },
+                                    "message": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "maxLength": 160
+                                          },
+                                          {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 9007199254740991
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "domain",
+                                    "types",
+                                    "primaryType",
+                                    "message"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "digest": {
+                                  "type": "string",
+                                  "pattern": "^0x[0-9a-f]{64}$"
+                                },
+                                "expiresAt": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "account",
+                                "typedData",
+                                "digest",
+                                "expiresAt"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "mandateId": {
                           "anyOf": [
                             {
@@ -3994,6 +4763,7 @@
                         "signer",
                         "consent",
                         "funding",
+                        "pendingSignature",
                         "mandateId",
                         "setupDeadline",
                         "createdAt",
@@ -4589,6 +5359,137 @@
                             }
                           ]
                         },
+                        "pendingSignature": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "account_mode",
+                                    "agent_approval",
+                                    "builder_fee",
+                                    "usd_send"
+                                  ]
+                                },
+                                "account": {
+                                  "type": "string",
+                                  "pattern": "^0x[0-9a-f]{40}$"
+                                },
+                                "typedData": {
+                                  "type": "object",
+                                  "properties": {
+                                    "domain": {
+                                      "type": "object",
+                                      "properties": {
+                                        "name": {
+                                          "type": "string",
+                                          "const": "HyperliquidSignTransaction"
+                                        },
+                                        "version": {
+                                          "type": "string",
+                                          "const": "1"
+                                        },
+                                        "chainId": {
+                                          "type": "integer",
+                                          "exclusiveMinimum": 0
+                                        },
+                                        "verifyingContract": {
+                                          "type": "string",
+                                          "const": "0x0000000000000000000000000000000000000000"
+                                        }
+                                      },
+                                      "required": [
+                                        "name",
+                                        "version",
+                                        "chainId",
+                                        "verifyingContract"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    "types": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "name": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64
+                                            },
+                                            "type": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 32
+                                            }
+                                          },
+                                          "required": [
+                                            "name",
+                                            "type"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        "minItems": 1,
+                                        "maxItems": 8
+                                      }
+                                    },
+                                    "primaryType": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 64
+                                    },
+                                    "message": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "maxLength": 160
+                                          },
+                                          {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 9007199254740991
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "domain",
+                                    "types",
+                                    "primaryType",
+                                    "message"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "digest": {
+                                  "type": "string",
+                                  "pattern": "^0x[0-9a-f]{64}$"
+                                },
+                                "expiresAt": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "account",
+                                "typedData",
+                                "digest",
+                                "expiresAt"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "mandateId": {
                           "anyOf": [
                             {
@@ -4635,6 +5536,7 @@
                         "signer",
                         "consent",
                         "funding",
+                        "pendingSignature",
                         "mandateId",
                         "setupDeadline",
                         "createdAt",
@@ -5234,6 +6136,137 @@
                             }
                           ]
                         },
+                        "pendingSignature": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "account_mode",
+                                    "agent_approval",
+                                    "builder_fee",
+                                    "usd_send"
+                                  ]
+                                },
+                                "account": {
+                                  "type": "string",
+                                  "pattern": "^0x[0-9a-f]{40}$"
+                                },
+                                "typedData": {
+                                  "type": "object",
+                                  "properties": {
+                                    "domain": {
+                                      "type": "object",
+                                      "properties": {
+                                        "name": {
+                                          "type": "string",
+                                          "const": "HyperliquidSignTransaction"
+                                        },
+                                        "version": {
+                                          "type": "string",
+                                          "const": "1"
+                                        },
+                                        "chainId": {
+                                          "type": "integer",
+                                          "exclusiveMinimum": 0
+                                        },
+                                        "verifyingContract": {
+                                          "type": "string",
+                                          "const": "0x0000000000000000000000000000000000000000"
+                                        }
+                                      },
+                                      "required": [
+                                        "name",
+                                        "version",
+                                        "chainId",
+                                        "verifyingContract"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    "types": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "name": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64
+                                            },
+                                            "type": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 32
+                                            }
+                                          },
+                                          "required": [
+                                            "name",
+                                            "type"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        "minItems": 1,
+                                        "maxItems": 8
+                                      }
+                                    },
+                                    "primaryType": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 64
+                                    },
+                                    "message": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "maxLength": 160
+                                          },
+                                          {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 9007199254740991
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "domain",
+                                    "types",
+                                    "primaryType",
+                                    "message"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "digest": {
+                                  "type": "string",
+                                  "pattern": "^0x[0-9a-f]{64}$"
+                                },
+                                "expiresAt": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "account",
+                                "typedData",
+                                "digest",
+                                "expiresAt"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "mandateId": {
                           "anyOf": [
                             {
@@ -5280,6 +6313,7 @@
                         "signer",
                         "consent",
                         "funding",
+                        "pendingSignature",
                         "mandateId",
                         "setupDeadline",
                         "createdAt",
@@ -6535,7 +7569,7 @@
     },
     "/me/copy/live/execution-wallets/{id}/returns": {
       "post": {
-        "description": "An amount of idle funds while copying, or \"all\" once the copy's stop is flat. Returns the exact consent to sign; moves nothing.\n\nAccess: user (owner); testnet; return to the main wallet, consent challenge only",
+        "description": "An amount of idle funds while copying, or \"all\" once the copy's stop is flat. Returns the exact consent for the main wallet and the copy account's own UsdSend (masterAction) for the browser to sign; moves nothing.\n\nAccess: user (owner); testnet; return to the main wallet, consent challenge only",
         "operationId": "CopyLiveReturnController_reserve",
         "parameters": [
           {
@@ -6757,11 +7791,143 @@
                             "consentExpiresAt"
                           ],
                           "additionalProperties": false
+                        },
+                        "masterAction": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "account_mode",
+                                    "agent_approval",
+                                    "builder_fee",
+                                    "usd_send"
+                                  ]
+                                },
+                                "account": {
+                                  "type": "string",
+                                  "pattern": "^0x[0-9a-f]{40}$"
+                                },
+                                "typedData": {
+                                  "type": "object",
+                                  "properties": {
+                                    "domain": {
+                                      "type": "object",
+                                      "properties": {
+                                        "name": {
+                                          "type": "string",
+                                          "const": "HyperliquidSignTransaction"
+                                        },
+                                        "version": {
+                                          "type": "string",
+                                          "const": "1"
+                                        },
+                                        "chainId": {
+                                          "type": "integer",
+                                          "exclusiveMinimum": 0
+                                        },
+                                        "verifyingContract": {
+                                          "type": "string",
+                                          "const": "0x0000000000000000000000000000000000000000"
+                                        }
+                                      },
+                                      "required": [
+                                        "name",
+                                        "version",
+                                        "chainId",
+                                        "verifyingContract"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    "types": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "name": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64
+                                            },
+                                            "type": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 32
+                                            }
+                                          },
+                                          "required": [
+                                            "name",
+                                            "type"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        "minItems": 1,
+                                        "maxItems": 8
+                                      }
+                                    },
+                                    "primaryType": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 64
+                                    },
+                                    "message": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "maxLength": 160
+                                          },
+                                          {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 9007199254740991
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "domain",
+                                    "types",
+                                    "primaryType",
+                                    "message"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "digest": {
+                                  "type": "string",
+                                  "pattern": "^0x[0-9a-f]{64}$"
+                                },
+                                "expiresAt": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "account",
+                                "typedData",
+                                "digest",
+                                "expiresAt"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         }
                       },
                       "required": [
                         "operation",
-                        "consent"
+                        "consent",
+                        "masterAction"
                       ],
                       "additionalProperties": false
                     },
@@ -6799,7 +7965,7 @@
     },
     "/me/copy/live/returns/{id}/approve": {
       "post": {
-        "description": "Requires the main wallet's consent and a fresh session; the account signs the exact transfer through Privy, one attempt. An account with the automatic return needs no consent: the worker signs, and its policy allows only my main wallet. Credit is confirmed from the main wallet's ledger.\n\nAccess: user (owner); main-wallet consent and fresh session; one attempt",
+        "description": "Requires the main wallet's consent and the copy account's own signature of the exact UsdSend (made in my browser, 403 master_signature_invalid otherwise); one attempt. An account with the automatic return needs neither: the worker signs, and its policy allows only my main wallet. Credit is confirmed from the main wallet's ledger.\n\nAccess: user (owner); main-wallet consent and fresh session; one attempt",
         "operationId": "CopyLiveReturnController_approve",
         "parameters": [
           {
@@ -6808,22 +7974,6 @@
             "in": "path",
             "schema": {
               "format": "uuid",
-              "type": "string"
-            }
-          },
-          {
-            "name": "authorization",
-            "required": true,
-            "in": "header",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "x-privy-identity-token",
-            "required": true,
-            "in": "header",
-            "schema": {
               "type": "string"
             }
           }
@@ -7173,11 +8323,143 @@
                             "consentExpiresAt"
                           ],
                           "additionalProperties": false
+                        },
+                        "masterAction": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "account_mode",
+                                    "agent_approval",
+                                    "builder_fee",
+                                    "usd_send"
+                                  ]
+                                },
+                                "account": {
+                                  "type": "string",
+                                  "pattern": "^0x[0-9a-f]{40}$"
+                                },
+                                "typedData": {
+                                  "type": "object",
+                                  "properties": {
+                                    "domain": {
+                                      "type": "object",
+                                      "properties": {
+                                        "name": {
+                                          "type": "string",
+                                          "const": "HyperliquidSignTransaction"
+                                        },
+                                        "version": {
+                                          "type": "string",
+                                          "const": "1"
+                                        },
+                                        "chainId": {
+                                          "type": "integer",
+                                          "exclusiveMinimum": 0
+                                        },
+                                        "verifyingContract": {
+                                          "type": "string",
+                                          "const": "0x0000000000000000000000000000000000000000"
+                                        }
+                                      },
+                                      "required": [
+                                        "name",
+                                        "version",
+                                        "chainId",
+                                        "verifyingContract"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    "types": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "name": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64
+                                            },
+                                            "type": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 32
+                                            }
+                                          },
+                                          "required": [
+                                            "name",
+                                            "type"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        "minItems": 1,
+                                        "maxItems": 8
+                                      }
+                                    },
+                                    "primaryType": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 64
+                                    },
+                                    "message": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "maxLength": 160
+                                          },
+                                          {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 9007199254740991
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "domain",
+                                    "types",
+                                    "primaryType",
+                                    "message"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "digest": {
+                                  "type": "string",
+                                  "pattern": "^0x[0-9a-f]{64}$"
+                                },
+                                "expiresAt": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "account",
+                                "typedData",
+                                "digest",
+                                "expiresAt"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         }
                       },
                       "required": [
                         "approval",
-                        "consent"
+                        "consent",
+                        "masterAction"
                       ],
                       "additionalProperties": false
                     },
@@ -7215,7 +8497,7 @@
     },
     "/me/copy/live/builder-approvals/{id}/approve": {
       "post": {
-        "description": "Requires the main wallet's consent and a fresh session; approved once the exchange reports the fee.\n\nAccess: user (owner); main-wallet consent and fresh session; one attempt",
+        "description": "Requires the main wallet's consent and the copy account's own signature of the exact approval (made in my browser); approved once the exchange reports the fee.\n\nAccess: user (owner); main-wallet consent and fresh session; one attempt",
         "operationId": "CopyLiveReturnController_approveBuilder",
         "parameters": [
           {
@@ -7224,22 +8506,6 @@
             "in": "path",
             "schema": {
               "format": "uuid",
-              "type": "string"
-            }
-          },
-          {
-            "name": "authorization",
-            "required": true,
-            "in": "header",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "x-privy-identity-token",
-            "required": true,
-            "in": "header",
-            "schema": {
               "type": "string"
             }
           }
@@ -22600,14 +23866,6 @@
             "schema": {
               "type": "string"
             }
-          },
-          {
-            "name": "authorization",
-            "required": true,
-            "in": "header",
-            "schema": {
-              "type": "string"
-            }
           }
         ],
         "responses": {
@@ -32944,22 +34202,6 @@
               "pattern": "^[A-Za-z0-9_-]{1,128}$",
               "type": "string"
             }
-          },
-          {
-            "name": "authorization",
-            "required": true,
-            "in": "header",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "x-privy-identity-token",
-            "required": true,
-            "in": "header",
-            "schema": {
-              "type": "string"
-            }
           }
         ],
         "responses": {
@@ -35221,11 +36463,136 @@
                             "consentExpiresAt"
                           ],
                           "additionalProperties": false
+                        },
+                        "masterAction": {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "account_mode",
+                                "agent_approval",
+                                "builder_fee",
+                                "usd_send"
+                              ]
+                            },
+                            "account": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "typedData": {
+                              "type": "object",
+                              "properties": {
+                                "domain": {
+                                  "type": "object",
+                                  "properties": {
+                                    "name": {
+                                      "type": "string",
+                                      "const": "HyperliquidSignTransaction"
+                                    },
+                                    "version": {
+                                      "type": "string",
+                                      "const": "1"
+                                    },
+                                    "chainId": {
+                                      "type": "integer",
+                                      "exclusiveMinimum": 0
+                                    },
+                                    "verifyingContract": {
+                                      "type": "string",
+                                      "const": "0x0000000000000000000000000000000000000000"
+                                    }
+                                  },
+                                  "required": [
+                                    "name",
+                                    "version",
+                                    "chainId",
+                                    "verifyingContract"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "types": {
+                                  "type": "object",
+                                  "additionalProperties": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "name": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 64
+                                        },
+                                        "type": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 32
+                                        }
+                                      },
+                                      "required": [
+                                        "name",
+                                        "type"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    "minItems": 1,
+                                    "maxItems": 8
+                                  }
+                                },
+                                "primaryType": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 64
+                                },
+                                "message": {
+                                  "type": "object",
+                                  "additionalProperties": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "maxLength": 160
+                                      },
+                                      {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 9007199254740991
+                                      }
+                                    ]
+                                  }
+                                }
+                              },
+                              "required": [
+                                "domain",
+                                "types",
+                                "primaryType",
+                                "message"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "digest": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{64}$"
+                            },
+                            "expiresAt": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "account",
+                            "typedData",
+                            "digest",
+                            "expiresAt"
+                          ],
+                          "additionalProperties": false
                         }
                       },
                       "required": [
                         "operation",
-                        "intent"
+                        "intent",
+                        "masterAction"
                       ],
                       "additionalProperties": false
                     },
@@ -35264,7 +36631,7 @@
     },
     "/me/copy/agents/{id}/approve": {
       "post": {
-        "description": "Requires main-wallet consent and fresh user JWT. Master signature stays ephemeral; a local grant follows fresh exchange confirmation only.\n\nAccess: user (owner); exact signed consent; fresh user JWT",
+        "description": "Requires main-wallet consent and the copy account's own ApproveAgent signature of the challenge's masterAction (made in my browser; 403 agent_master_signature_invalid otherwise). A local grant follows fresh exchange confirmation only.\n\nAccess: user (owner); exact signed consent; fresh user JWT",
         "operationId": "CopyAgentController_approve",
         "parameters": [
           {
@@ -35273,22 +36640,6 @@
             "in": "path",
             "schema": {
               "pattern": "^[A-Za-z0-9_-]{1,128}$",
-              "type": "string"
-            }
-          },
-          {
-            "name": "authorization",
-            "required": true,
-            "in": "header",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "x-privy-identity-token",
-            "required": true,
-            "in": "header",
-            "schema": {
               "type": "string"
             }
           }
@@ -36214,11 +37565,136 @@
                             "consentExpiresAt"
                           ],
                           "additionalProperties": false
+                        },
+                        "masterAction": {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "account_mode",
+                                "agent_approval",
+                                "builder_fee",
+                                "usd_send"
+                              ]
+                            },
+                            "account": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "typedData": {
+                              "type": "object",
+                              "properties": {
+                                "domain": {
+                                  "type": "object",
+                                  "properties": {
+                                    "name": {
+                                      "type": "string",
+                                      "const": "HyperliquidSignTransaction"
+                                    },
+                                    "version": {
+                                      "type": "string",
+                                      "const": "1"
+                                    },
+                                    "chainId": {
+                                      "type": "integer",
+                                      "exclusiveMinimum": 0
+                                    },
+                                    "verifyingContract": {
+                                      "type": "string",
+                                      "const": "0x0000000000000000000000000000000000000000"
+                                    }
+                                  },
+                                  "required": [
+                                    "name",
+                                    "version",
+                                    "chainId",
+                                    "verifyingContract"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "types": {
+                                  "type": "object",
+                                  "additionalProperties": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "name": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 64
+                                        },
+                                        "type": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 32
+                                        }
+                                      },
+                                      "required": [
+                                        "name",
+                                        "type"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    "minItems": 1,
+                                    "maxItems": 8
+                                  }
+                                },
+                                "primaryType": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 64
+                                },
+                                "message": {
+                                  "type": "object",
+                                  "additionalProperties": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "maxLength": 160
+                                      },
+                                      {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 9007199254740991
+                                      }
+                                    ]
+                                  }
+                                }
+                              },
+                              "required": [
+                                "domain",
+                                "types",
+                                "primaryType",
+                                "message"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "digest": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{64}$"
+                            },
+                            "expiresAt": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "account",
+                            "typedData",
+                            "digest",
+                            "expiresAt"
+                          ],
+                          "additionalProperties": false
                         }
                       },
                       "required": [
                         "operation",
-                        "intent"
+                        "intent",
+                        "masterAction"
                       ],
                       "additionalProperties": false
                     },
@@ -36437,7 +37913,7 @@
     },
     "/me/copy/account-modes/{id}/approve": {
       "post": {
-        "description": "Requires exact owner consent and fresh user JWT; one durable attempt only, followed by separate mode observation.\n\nAccess: user (owner); exact signed consent; fresh user JWT; one durable attempt",
+        "description": "Requires exact owner consent and the copy account's own signature of the challenge's masterAction (made in my browser; 403 account_mode_master_signature_invalid otherwise); one durable attempt only, followed by separate mode observation.\n\nAccess: user (owner); exact signed consent; fresh user JWT; one durable attempt",
         "operationId": "CopyAccountModeController_approve",
         "parameters": [
           {
@@ -36446,22 +37922,6 @@
             "in": "path",
             "schema": {
               "pattern": "^[A-Za-z0-9_-]{1,128}$",
-              "type": "string"
-            }
-          },
-          {
-            "name": "authorization",
-            "required": true,
-            "in": "header",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "x-privy-identity-token",
-            "required": true,
-            "in": "header",
-            "schema": {
               "type": "string"
             }
           }
@@ -44857,6 +46317,22 @@
         ],
         "additionalProperties": false
       },
+      "AdvanceLiveCopySetupDto": {
+        "type": "object",
+        "properties": {
+          "digest": {
+            "type": "string",
+            "pattern": "^0x[0-9a-f]{64}$",
+            "description": "The pending signature's digest (the setup's pendingSignature.digest); with `signature` only"
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{130}$",
+            "description": "The copy account's signature of the pending action, made in the owner's browser"
+          }
+        },
+        "additionalProperties": false
+      },
       "EditLiveCopyDto": {
         "type": "object",
         "properties": {
@@ -44955,6 +46431,11 @@
             "type": "string",
             "pattern": "^0x[0-9a-fA-F]{130}$",
             "description": "Main-wallet EIP-712 signature over the exact consent; omitted for an account with the automatic return (the worker signs, its policy allows only the main wallet)"
+          },
+          "masterSignature": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{130}$",
+            "description": "The copy account's own UsdSend signature (the challenge's masterAction), made in the owner's browser; with the consent only"
           }
         },
         "additionalProperties": false
@@ -44980,10 +46461,16 @@
             "type": "string",
             "pattern": "^0x[0-9a-fA-F]{130}$",
             "description": "Main-wallet EIP-712 signature over the exact consent"
+          },
+          "masterSignature": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{130}$",
+            "description": "The copy account's own signature of the challenge's masterAction, made in the owner's browser"
           }
         },
         "required": [
-          "consentSignature"
+          "consentSignature",
+          "masterSignature"
         ],
         "additionalProperties": false
       },
@@ -45955,10 +47442,16 @@
           "consentSignature": {
             "type": "string",
             "description": "Ephemeral signature of the exact main-wallet CopyAgentConsent challenge"
+          },
+          "masterSignature": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{130}$",
+            "description": "The copy account's own signature of the challenge's masterAction (ApproveAgent), made in the owner's browser"
           }
         },
         "required": [
-          "consentSignature"
+          "consentSignature",
+          "masterSignature"
         ],
         "additionalProperties": false
       },
@@ -45982,10 +47475,16 @@
           "consentSignature": {
             "type": "string",
             "description": "Ephemeral main-wallet signature of the exact CopyAccountModeConsent challenge"
+          },
+          "masterSignature": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{130}$",
+            "description": "The copy account's own signature of the challenge's masterAction (UserSetAbstraction), made in the owner's browser"
           }
         },
         "required": [
-          "consentSignature"
+          "consentSignature",
+          "masterSignature"
         ],
         "additionalProperties": false
       },

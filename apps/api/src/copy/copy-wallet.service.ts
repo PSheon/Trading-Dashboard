@@ -29,15 +29,16 @@ export class CopyWalletService {
     @Optional() @Inject(MASTER_POLICY) private readonly masterPolicy: MasterPolicyPort | null = null) {}
 
   /**
-   * The automatic return (one-click plan §2, §3b): the owner's own session
-   * adds the worker quorum as this ready testnet account's only additional
-   * signer, bound by a new policy the owner owns (UsdSend only to the owner's
-   * main wallet, standard account mode only, no export). Off unless
-   * COPY_AUTOMATIC_RETURN (the Privy prototype's owner-session checks).
-   * Repeatable: the policy is created idempotently per account and the
-   * update sets the exact signer list.
+   * The automatic return (one-click plan §2, §3b): the worker quorum as this
+   * ready testnet account's only additional signer, bound by a new policy
+   * the owner owns (UsdSend only to the owner's main wallet, standard
+   * account mode only, no export). Only the owner's browser can add the
+   * signer (Privy refuses the server's use of the owner's session): this
+   * records it once Privy shows exactly that signer. Off unless
+   * COPY_AUTOMATIC_RETURN. Repeatable: the policy is created idempotently
+   * per account.
    */
-  async enableAutomaticReturn(userId: number, id: string, userJwt: string): Promise<CopyExecutionAccount> {
+  async enableAutomaticReturn(userId: number, id: string): Promise<CopyExecutionAccount> {
     const { copy } = this.config.value;
     const quorum = copy.agent?.workerQuorumId;
     if (copy.mode !== "testnet" || !copy.live?.automaticReturn || !quorum || !this.masterPolicy?.available) {
@@ -54,7 +55,6 @@ export class CopyWalletService {
     try {
       const policy = await this.masterPolicy.create(user.privyUserId, binding, `master_${row.id.replaceAll("-", "")}`);
       const verified = await this.masterPolicy.verify(policy.id, user.privyUserId, binding);
-      await this.masterPolicy.attach(row.privyWalletId, userJwt, quorum, verified.id);
       await this.masterPolicy.assertSigner(row.privyWalletId, { address: row.address, ownerQuorumId: row.ownerQuorumId, workerQuorumId: quorum, policyId: verified.id });
       const recorded = await this.repository.recordMasterSigner(row.id, { masterPolicyId: verified.id, masterPolicyFingerprint: verified.fingerprint, masterSignerQuorumId: quorum,
         sweepDestination: binding.ownerMain, signerAttachedAt: new Date(), walletId: row.privyWalletId, address: row.address });
@@ -95,12 +95,12 @@ export class CopyWalletService {
   }
 
   /**
-   * At a setup's confirm, with the owner's own session: adds the worker as
-   * the account's only additional signer under the consented policy, checks
-   * the result, and records it on the account. False when it can't (the
-   * setup then continues with the owner's session); nothing is retried here.
+   * At a setup's confirm: once the owner's browser added the worker as the
+   * account's only additional signer under the consented policy, checks the
+   * result with Privy and records it on the account. False when it isn't
+   * there (the setup then continues with the owner's browser signing).
    */
-  async attachSetupSigner(userId: number, accountId: string, userJwt: string, policy: { id: string; fingerprint: string }, agent: { address: string; name: string }): Promise<boolean> {
+  async attachSetupSigner(userId: number, accountId: string, policy: { id: string; fingerprint: string }, agent: { address: string; name: string }): Promise<boolean> {
     if (!this.workerPolicyEnabled) return false;
     const quorum = this.config.value.copy.agent!.workerQuorumId;
     const user = await this.owner(userId), row = await this.repository.account(accountId, userId);
@@ -111,7 +111,6 @@ export class CopyWalletService {
     try {
       const verified = await this.masterPolicy!.verify(policy.id, user.privyUserId, binding);
       if (verified.fingerprint !== policy.fingerprint) return false;
-      await this.masterPolicy!.attach(row.privyWalletId, userJwt, quorum, verified.id);
       await this.masterPolicy!.assertSigner(row.privyWalletId, { address: row.address, ownerQuorumId: row.ownerQuorumId, workerQuorumId: quorum, policyId: verified.id });
       const recorded = await this.repository.recordMasterSigner(row.id, { masterPolicyId: verified.id, masterPolicyFingerprint: verified.fingerprint, masterSignerQuorumId: quorum,
         sweepDestination: binding.ownerMain, signerAttachedAt: new Date(), walletId: row.privyWalletId, address: row.address });

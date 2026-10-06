@@ -26,3 +26,9 @@ export class ConfirmLiveCopySetupDto {
   @ApiProperty({ type: String, description: 'The main wallet\'s signature of the exact CopyLiveSetupConsent' }) @IsString() @Matches(/^0x[0-9a-fA-F]{130}$/) declare consentSignature: string;
   @ApiPropertyOptional({ type: String, description: "The main wallet's UsdSend to the copy account (a start only)" }) @IsOptional() @IsString() @Matches(/^0x[0-9a-fA-F]{130}$/) declare fundingSignature?: string;
 }
+export class AdvanceLiveCopySetupDto {
+  @ApiPropertyOptional({ type: String, pattern: '^0x[0-9a-f]{64}$', description: "The pending signature's digest (the setup's pendingSignature.digest); with `signature` only" })
+  @IsOptional() @IsString() @Matches(/^0x[0-9a-f]{64}$/) declare digest?: string;
+  @ApiPropertyOptional({ type: String, pattern: '^0x[0-9a-fA-F]{130}$', description: "The copy account's signature of the pending action, made in the owner's browser" })
+  @IsOptional() @IsString() @Matches(/^0x[0-9a-fA-F]{130}$/) declare signature?: string;
+}

@@ -12,12 +12,12 @@ import { liveAccount, liveMandate, liveNow } from './copy-live-fixtures';
 import { settleQueries } from './query-settle';
 import { MASTER_SIGNATURE, withMasterAction } from './master-action-test-utils';
 
-const state = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), sign: vi.fn(), addSigners: vi.fn(async () => undefined), snapshot: null as unknown, strategies: [] as unknown[] }));
+const state = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), sign: vi.fn(), addSigners: vi.fn(async () => undefined), snapshot: null as unknown, strategies: [] as unknown[], refetch: vi.fn(async () => undefined) }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ status: 'signedIn', mode: 'privy', identity: 'owner@email', wallet: { address: `0x${'11'.repeat(20)}`, signTypedData: state.sign, signAsAccount: async () => MASTER_SIGNATURE, addSigners: state.addSigners } }) }));
 vi.mock('@/lib/api', async () => ({ ...(await vi.importActual<typeof import('@/lib/api')>('@/lib/api')), api: { get: state.get, patch: state.patch, post: (...args: unknown[]) => Promise.resolve((state.post as (...a: unknown[]) => unknown)(...args)).then(value => withMasterAction(args[0], value)) }, sessionKey: () => '1' }));
 vi.mock('@/lib/copy-execution-wallets', () => ({ useExecutionWallets: () => ({ data: { accounts: [liveAccount] } }) }));
 vi.mock('@/lib/copy-live', () => ({ useLiveCopyOverview: () => ({ data: { mandates: [{ ...liveMandate, state: 'active' }], strategies: state.strategies } }) }));
-vi.mock('@/lib/copy-follower-snapshot', () => ({ useCopyFollowerSnapshot: () => ({ data: state.snapshot }) }));
+vi.mock('@/lib/copy-follower-snapshot', () => ({ useCopyFollowerSnapshot: () => ({ data: state.snapshot, refetch: state.refetch }) }));
 vi.mock('@/components/copy/copy-live-stop', () => ({ CopyLiveStop: () => <div data-testid="stop">stop</div> }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh() {}, push() {} }), usePathname: () => '/portfolio', useSearchParams: () => new URLSearchParams() }));
 vi.mock('next/link', () => ({ default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a> }));
@@ -45,6 +45,9 @@ async function render(locale: Locale = 'en') {
   await settle();
 }
 const button = (label: string) => [...container.querySelectorAll('button')].find(b => b.textContent === label)!;
+/** The confirm sheet in front of every withdrawal and return (Paul, 2026-10-06). */
+const sheet = () => document.querySelector('[data-testid="transfer-confirm"]') as HTMLElement | null;
+const sheetButton = (label: string) => [...(sheet()?.querySelectorAll('button') ?? [])].find(b => b.textContent === label) as HTMLButtonElement | undefined;
 
 it('lists each testnet copy with its stage, balances and positions, and nothing without copies', async () => {
   items = [];
@@ -74,6 +77,7 @@ it('withdraws idle funds: the owner signs the exact consent, then the approval g
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '12.5'); input.dispatchEvent(new Event('input', { bubbles: true }));
   });
   await act(async () => button('Withdraw idle funds').click()); await settle();
+  await act(async () => sheetButton('Confirm withdrawal')!.click()); await settle();
   expect(state.post.mock.calls[0]![0]).toBe(`/me/copy/live/execution-wallets/${liveAccount.id}/returns`);
   expect(state.post.mock.calls[0]![1]).toMatchObject({ amount: '12.5' });
   expect(state.sign.mock.calls[0]![0]).toMatchObject({ primaryType: 'CopyAccountReturn', message: { amount: '12.5', destination: operation.destination } });
@@ -95,6 +99,11 @@ it('an account with the automatic return: idle funds go back without a signature
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '12.5'); input.dispatchEvent(new Event('input', { bubbles: true }));
   });
   await act(async () => button('Withdraw idle funds').click()); await settle();
+  // The same confirm sheet as every account: nothing is sent until it is confirmed.
+  expect(sheet()!.textContent).toContain('12.5 USDC'); expect(sheet()!.textContent).toContain('Your main wallet · 0x1111…1111');
+  expect(sheet()!.textContent).toContain('Hyperliquid testnet'); expect(sheet()!.textContent).toContain('About 1 minute');
+  expect(state.post).not.toHaveBeenCalled();
+  await act(async () => sheetButton('Confirm withdrawal')!.click()); await settle();
   expect(state.sign).not.toHaveBeenCalled();
   expect(state.post.mock.calls[1]).toEqual([`/me/copy/live/returns/${operation.id}/approve`, {}]);
   // Flat after a stop: 自動返還中, no button to return by hand.
@@ -175,6 +184,8 @@ it('a start that ended after its deposit arrived (no stop to sweep it) offers �
   await render();
   expect(container.textContent).not.toContain('Returning automatically');
   await act(async () => button('Return all to main wallet').click()); await settle();
+  expect(sheet()!.dataset.kind).toBe('returnAll'); expect(state.post).not.toHaveBeenCalled();
+  await act(async () => sheetButton('Confirm return')!.click()); await settle();
   expect(state.post.mock.calls[0]).toEqual([`/me/copy/live/execution-wallets/${liveAccount.id}/returns`, { idempotencyKey: expect.any(String), amount: 'all' }]);
   expect(state.post.mock.calls[1]).toEqual([`/me/copy/live/returns/${operation.id}/approve`, {}]);
   expect(state.sign).not.toHaveBeenCalled();
@@ -243,4 +254,46 @@ it("a failed edit says why inside the edit dialog, which stays open on top (web 
   await settle();
   expect(dialog()).toBeTruthy();
   expect(dialog().querySelector('[role="alert"]')!.textContent).toBe(copyErrorMessages.en.codes.live_stop_in_progress);
+});
+
+it('the withdraw box shows a placeholder and the most you can withdraw, 全部 fills it, and a transfer in flight says so instead of vanishing', async () => {
+  await render('zh-TW');
+  const input = () => container.querySelector('input[name="withdraw"]') as HTMLInputElement | null;
+  expect(input()!.placeholder).toBe('輸入金額');
+  expect(container.textContent).toContain('最多可提領 $80.25');
+  await act(async () => button('全部').click());
+  expect(input()!.value).toBe('80.25');
+  // More than the account can withdraw: the button stays off.
+  await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input(), '81'); input()!.dispatchEvent(new Event('input', { bubbles: true })); });
+  expect(button('提領閒置資金').disabled).toBe(true);
+  items = [item({ pendingTransfer: { id: '88888888-8888-4888-8888-888888888888', direction: 'to_main', status: 'accepted', amount: '12.5' } })];
+  await act(async () => { await client.invalidateQueries(); }); await settle();
+  expect(input()).toBeNull();
+  expect(container.querySelector('[data-testid="transfer-pending"]')!.textContent).toBe('轉帳處理中，完成後可再次提領');
+});
+
+it('reads the account again once a transfer settles, so the equity moves without a reload', async () => {
+  items = [item({ pendingTransfer: { id: '88888888-8888-4888-8888-888888888888', direction: 'to_main', status: 'accepted', amount: '12.5' } })];
+  await render();
+  state.refetch.mockClear();
+  items = [item()];
+  await act(async () => { await client.invalidateQueries(); }); await settle();
+  expect(state.refetch).toHaveBeenCalled();
+});
+
+it('every action ends in a toast: success, or the failure in words with no raw code', async () => {
+  const { ToastProvider } = await import('@/components/ui/toast');
+  const { ApiError } = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
+  await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale="zh-TW" messages={catalogs['zh-TW']}><ToastProvider><LiveCopies /></ToastProvider></I18nProvider></QueryClientProvider>));
+  await settle();
+  const toasts = () => [...document.querySelectorAll('[data-testid="toasts"] [role="alert"]')].map(el => ({ type: el.getAttribute('data-type'), text: el.textContent }));
+  state.post.mockResolvedValueOnce({ id: '33333333-3333-4333-8333-333333333333', accountId: liveAccount.id, strategyId: liveAccount.strategyId, coin: 'BTC', state: 'requested', reason: null, orders: 0,
+    createdAt: new Date(liveNow).toISOString(), updatedAt: new Date(liveNow).toISOString() });
+  await act(async () => button('平倉').click()); await settle();
+  expect(toasts()).toContainEqual({ type: 'success', text: '已送出 BTC 平倉' });
+  state.post.mockRejectedValueOnce(new ApiError(409, 'Conflict', { code: 'funding_pending' }));
+  await act(async () => button('平倉').click()); await settle();
+  const failed = toasts().find(t => t.type === 'error')!;
+  expect(failed.text).toContain('已有一筆入金正在處理');
+  expect(failed.text).not.toMatch(/funding_pending|409|Conflict/);
 });

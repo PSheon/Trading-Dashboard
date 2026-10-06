@@ -30,7 +30,15 @@ const settleHeld = () => settle({ mutations: false });
 const flush = () => flushFor(15);
 async function render(locale: Locale = 'en', wait: () => Promise<void> = settle) { await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale={locale} messages={catalogs[locale]}><CopyLiveStop selection={selection}/></I18nProvider></QueryClientProvider>)); await wait(); }
 function button(label: string) { const b = [...container.querySelectorAll('button')].find(b => b.textContent === label); expect(b).toBeTruthy(); return b!; }
-async function click(label: string, wait: () => Promise<void> = settle) { await act(async () => button(label).click()); await wait(); }
+async function click(label: string, wait: () => Promise<void> = settle) {
+  const opening = !document.querySelector('[data-testid="transfer-confirm"]');
+  await act(async () => button(label).click());
+  // 申請停止 opens the confirm sheet (where the funds go, the network, the
+  // time); nothing is sent until it is confirmed (Paul, 2026-10-06).
+  const sheet = document.querySelector('[data-testid="transfer-confirm"]');
+  if (opening && sheet) await act(async () => (sheet.querySelector('button') as HTMLButtonElement).click());
+  await wait();
+}
 it('loads history without automatically creating or signing and describes the boundary', async () => {
   let resolve!: (v: unknown) => void; state.get.mockReturnValue(new Promise(r => { resolve = r; })); await render('en', flush); expect(container.textContent).toContain('Loading stop history'); expect(state.post).not.toHaveBeenCalled();
   await act(async () => resolve({ items: [], truncated: false })); await settle(); expect(container.textContent).toContain('No recorded stop requests'); expect(container.textContent).toContain('returned funds are not confirmed'); expect(state.sign).not.toHaveBeenCalled();
@@ -42,7 +50,8 @@ it('sends only explicit stop metadata and leaves the request disabled after succ
 });
 it('prevents a second stop POST from a same-turn double click', async () => {
   let release!: () => void; state.post.mockImplementation(async (_path, _body, options) => { options.beforeSend(); await new Promise<void>(r => { release = r; }); return stop(); });
-  await render(); const b = button('Request stop'); await act(async () => { b.click(); b.click(); }); await settleHeld(); expect(state.post).toHaveBeenCalledOnce();
+  await render(); await act(async () => button('Request stop').click()); expect(state.post).not.toHaveBeenCalled();
+  const b = [...document.querySelectorAll('[data-testid="transfer-confirm"] button')].find(b => b.textContent === 'Confirm stop') as HTMLButtonElement; await act(async () => { b.click(); b.click(); }); await settleHeld(); expect(state.post).toHaveBeenCalledOnce();
   await act(async () => release()); await settle(); expect(state.post).toHaveBeenCalledOnce();
 });
 it('requires the actual Privy owner ID even when the display identity is available', async () => { state.ownerId = ''; await render(); expect(state.get).not.toHaveBeenCalled(); expect(state.post).not.toHaveBeenCalled(); expect(container.textContent).toContain('Sign in'); });
@@ -82,8 +91,10 @@ it('does not bypass prepared or changed-revision guards to resume an unsent requ
 it.each(['paused', 'revoked'] as const)('explicitly discards an unsent revision 2 draft locally before requesting %s revision 3 with a fresh key', async stateName => {
   const uuid = vi.spyOn(crypto, 'randomUUID').mockReturnValueOnce('11111111-1111-4111-8111-111111111111').mockReturnValueOnce('22222222-2222-4222-8222-222222222222'); state.post.mockRejectedValueOnce(new Error('token unavailable'));
   await render(); await click('Request stop'); selection = { ...selection, mandate: { ...selection.mandate, state: stateName, revision: 3 } }; await render();
-  expect(button('Request stop').disabled).toBe(true); expect(button('Resume unsent request').disabled).toBe(true); expect(container.textContent).toContain('Mandate revision: 2'); expect(container.textContent).toContain('Mandate revision: 3');
+  expect(button('Request stop').disabled).toBe(true); expect(button('Resume unsent request').disabled).toBe(true); expect(container.textContent).not.toContain('Mandate revision');
   const gets = state.get.mock.calls.length, posts = state.post.mock.calls.length; await click('Discard unsent draft');
+  // A busy button holds its orbit mark for 300 ms (ui/button BUSY_MIN_MS); the stop was sent from the confirm sheet just before.
+  await act(async () => { await new Promise(r => setTimeout(r, 320)); });
   expect(state.get).toHaveBeenCalledTimes(gets); expect(state.post).toHaveBeenCalledTimes(posts); expect(state.sign).not.toHaveBeenCalled(); expect(uuid).toHaveBeenCalledOnce(); expect(button('Request stop').disabled).toBe(false); expect(container.textContent).not.toContain('Resume unsent request'); expect(container.textContent).not.toContain('Unable to verify the request');
   state.post.mockImplementation(async (_path, _body, options) => { options.beforeSend(); return { ...stop(), originalMandateRevision: 3 }; }); await click('Request stop');
   expect(state.post.mock.calls[1][1]).toEqual({ idempotencyKey: '22222222-2222-4222-8222-222222222222', expectedMandateRevision: 3 }); expect(uuid).toHaveBeenCalledTimes(2);
@@ -107,7 +118,7 @@ it('reports safe errors and fail-closes damaged recovery storage', async () => {
 });
 it('shows bounded history, counts, incomplete tracking, safe issue and machine-readable times', async () => {
   state.get.mockResolvedValue({ items: [{ ...stop(), state: 'blocked', trackingComplete: false, issue: 'provider_detail' }], truncated: true }); await render(); expect(container.textContent).toContain('Progress blocked'); expect(container.textContent).toContain('Tracked executions: 2'); expect(container.textContent).toContain('Execution tracking is incomplete'); expect(container.textContent).toContain('Progress needs verification'); expect(container.textContent).toContain('latest 100'); expect(container.textContent).not.toContain('provider_detail'); expect(container.querySelectorAll('time[datetime]')).toHaveLength(2);
-  expect(container.querySelector('section[aria-labelledby]')).toBeTruthy(); expect(button('Request stop').getAttribute('aria-describedby')).toBeTruthy(); expect(container.querySelector('.break-all')).toBeTruthy(); expect(container.querySelector('.flex-wrap')).toBeTruthy();
+  expect(container.querySelector('section[aria-labelledby]')).toBeTruthy(); expect(button('Request stop').getAttribute('aria-describedby')).toBeTruthy(); expect(container.textContent).not.toContain(liveMandate.id); expect(container.textContent).toContain('Details'); expect(container.querySelector('.flex-wrap')).toBeTruthy();
 });
 it('does not regress a newer operation revision during recovery', async () => {
   state.get.mockImplementation(async path => path.includes('/by-key/') ? stop() : { items: [{ ...stop(), state: 'blocked', issue: 'tracking_incomplete', revision: 2 }], truncated: false });
@@ -122,8 +133,8 @@ it.each(LOCALES)('renders accessible native stop wording in %s without mutation'
 });
 it.each(LOCALES)('renders native explicit unsent resume controls in %s', async locale => {
   state.post.mockRejectedValueOnce(new Error('token unavailable')); await render(locale); await click(liveStopMessages[locale].request);
-  expect(container.textContent).toContain(liveStopResumeMessages[locale].unsent); expect(button(liveStopResumeMessages[locale].resume).disabled).toBe(false); expect(button(liveStopResumeMessages[locale].resume).getAttribute('aria-label')).toContain(liveMandate.id); expect(state.post).toHaveBeenCalledOnce();
+  expect(container.textContent).toContain(liveStopResumeMessages[locale].unsent); expect(button(liveStopResumeMessages[locale].resume).disabled).toBe(false); expect(button(liveStopResumeMessages[locale].resume).getAttribute('aria-label')).toContain('0x2222…2222'); expect(state.post).toHaveBeenCalledOnce();
   if (locale === 'id') expect(Object.values(liveStopResumeMessages[locale]).join(' ')).not.toMatch(/\bAnda\b/);
-  expect(container.textContent).toContain(liveStopDiscardMessages[locale].hint); expect(button(liveStopDiscardMessages[locale].discard).getAttribute('aria-describedby')).toBeTruthy(); expect(button(liveStopDiscardMessages[locale].discard).getAttribute('aria-label')).toContain(liveMandate.id);
+  expect(container.textContent).toContain(liveStopDiscardMessages[locale].hint); expect(button(liveStopDiscardMessages[locale].discard).getAttribute('aria-describedby')).toBeTruthy(); expect(button(liveStopDiscardMessages[locale].discard).getAttribute('aria-label')).toContain('0x2222…2222');
   if (locale === 'id') expect(Object.values(liveStopDiscardMessages[locale]).join(' ')).not.toMatch(/\bAnda\b/);
 });

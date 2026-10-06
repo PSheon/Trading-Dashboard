@@ -7,12 +7,14 @@ import { LiveCopyConfirm, LiveCopyProgress, liveSetupError, useCopyTexts, useLiv
 import { LiveSettingsFields } from "@/components/copy/live-copy-settings-fields";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
+import { useToast } from "@/components/ui/toast";
 import { fill } from "@/i18n/live-setup";
 import { useI18n } from "@/i18n/provider";
 import { apiErrorCode } from "@/lib/api";
 import { copyErrorText } from "@/lib/copy-error-text";
 import { amountInput } from "@/lib/amount-input";
 import { setupTerminal, useLiveCopySetupActions } from "@/lib/copy-live-setup";
+import { useActionToast } from "@/lib/use-action-toast";
 import type { LiveCopyItem } from "@/lib/copy-live-portfolio";
 
 /**
@@ -24,7 +26,8 @@ import type { LiveCopyItem } from "@/lib/copy-live-portfolio";
  * sheet), and 加碼 (a silent UsdSend from the main wallet).
  */
 export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strategy: LiveCopyStrategy | null }) {
-  const text = useLiveSetupText(), texts = useCopyTexts(), { format } = useI18n();
+  const text = useLiveSetupText(), texts = useCopyTexts(), { format, t } = useI18n();
+  const track = useActionToast(), toast = useToast();
   const actions = useLiveCopySetupActions();
   const [progressId, setProgressId] = useState<string | null>(null);
   const [pendingSetup, setPendingSetup] = useState<LiveCopySetup | null>(null);
@@ -46,13 +49,20 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
     if (setup.stage === "awaiting_consent" && setup.consent) { setConfirmError(null); setProgressId(null); setPendingSetup(setup); }
     else setProgressId(setup.id);
   };
-  const restart = (setup: LiveCopySetup | string) => { setError(null); actions.restart.mutate(setup, { onSuccess: review, onError: fail }); };
-  const cancel = (id: string) => { setError(null); actions.cancel.mutate(id, { onError: fail }); };
+  // Every action ends in a toast (success, or the failure in words); the
+  // inline line under the buttons stays for the failure.
+  const restart = (setup: LiveCopySetup | string) => { setError(null); void track(actions.restart.mutateAsync(setup), { success: t("toast.copy.setupRestarted"), error: message, onSuccess: review, onError: fail }); };
+  const cancel = (id: string) => { setError(null); void track(actions.cancel.mutateAsync(id), { success: t("toast.copy.setupCancelled"), error: message, onError: fail }); };
   const confirm = async () => {
     if (!pendingSetup) return;
-    try { const done = await actions.confirm.mutateAsync(pendingSetup); setPendingSetup(null); setProgressId(done.id); }
+    const kind = pendingSetup.kind;
+    try {
+      const done = await actions.confirm.mutateAsync(pendingSetup); setPendingSetup(null); setProgressId(done.id);
+      if (kind === "start") toast.info(t("toast.copy.starting")); else toast.success(t(kind === "edit" ? "toast.copy.edited" : "toast.copy.renewed"));
+    }
     catch (err) {
       setConfirmError(message(err));
+      toast.error(message(err));
       // A fresh challenge for the same terms; the owner confirms again.
       if (apiErrorCode(err) === "consent_expired") actions.restart.mutate(pendingSetup, { onSuccess: (next) => { if (next.consent) setPendingSetup(next); } });
     }
@@ -72,28 +82,28 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
         {stopped || lapsed ? <Button size="sm" loading={actions.restart.isPending} disabled={busy && !actions.restart.isPending} onClick={() => restart((stopped ?? lapsed)!.id)}>{text.restart}</Button> : null}
         {stopped || lapsed ? <Button size="sm" variant="secondary" loading={actions.cancel.isPending} disabled={busy && !actions.cancel.isPending} onClick={() => cancel((stopped ?? lapsed)!.id)}>{text.cancelSetup}</Button> : null}
         {running && mandateId && item.status === "active" ? (
-          <Button size="sm" variant="secondary" loading={actions.pause.isPending} disabled={busy && !actions.pause.isPending} onClick={() => actions.pause.mutate(mandateId, { onError: fail })}>{text.pause}</Button>
+          <Button size="sm" variant="secondary" loading={actions.pause.isPending} disabled={busy && !actions.pause.isPending} onClick={() => void track(actions.pause.mutateAsync(mandateId), { success: t("toast.copy.paused"), error: message, onError: fail })}>{text.pause}</Button>
         ) : null}
         {running && mandateId && item.status === "paused" && item.mandate?.state === "paused" ? (
-          <Button size="sm" variant="secondary" loading={actions.resume.isPending} disabled={busy && !actions.resume.isPending} onClick={() => actions.resume.mutate(mandateId, { onError: fail })}>{text.resume}</Button>
+          <Button size="sm" variant="secondary" loading={actions.resume.isPending} disabled={busy && !actions.resume.isPending} onClick={() => void track(actions.resume.mutateAsync(mandateId), { success: t("toast.copy.resumed"), error: message, onError: fail })}>{text.resume}</Button>
         ) : null}
         {running && strategy && !unfinished ? <Button size="sm" variant="secondary" disabled={busy} onClick={() => { setError(null); setEditing(true); }}>{text.edit}</Button> : null}
         {(running || item.stage === "needs_deposit") && item.accountId && !item.pendingTransfer ? (
           <Button size="sm" variant="secondary" disabled={busy} onClick={() => { setError(null); setTopUpError(null); setToppingUp(true); }}>{text.topUp}</Button>
         ) : null}
         {running && item.renewalDue && !unfinished ? (
-          <Button size="sm" loading={actions.renew.isPending} disabled={busy && !actions.renew.isPending} onClick={() => actions.renew.mutate({ strategyId: item.strategyId }, { onSuccess: review, onError: fail })}>{text.renew}</Button>
+          <Button size="sm" loading={actions.renew.isPending} disabled={busy && !actions.renew.isPending} onClick={() => void track(actions.renew.mutateAsync({ strategyId: item.strategyId }), { error: message, onSuccess: review, onError: fail })}>{text.renew}</Button>
         ) : null}
       </div>
       {/* While editing, the dialog shows its own failure (it sits on top). */}
       {error && !editing ? <p role="alert" className="text-xs text-negative">{error}</p> : null}
       {editing && strategy ? (
         <EditDialog strategy={strategy} onClose={() => { setEditing(false); setError(null); }} pending={actions.edit.isPending} error={error}
-          onSave={(budgetUsd, settings) => { setError(null); actions.edit.mutate({ strategyId: item.strategyId, budgetUsd, settings }, { onSuccess: (setup) => { setEditing(false); review(setup); }, onError: fail }); }} />
+          onSave={(budgetUsd, settings) => { setError(null); void track(actions.edit.mutateAsync({ strategyId: item.strategyId, budgetUsd, settings }), { error: message, onSuccess: (setup) => { setEditing(false); review(setup); }, onError: fail }); }} />
       ) : null}
       {toppingUp && item.accountId ? (
         <TopUpDialog pending={actions.topUp.isPending} error={topUpError} onClose={() => setToppingUp(false)}
-          onConfirm={(amount) => { setTopUpError(null); actions.topUp.mutate({ accountId: item.accountId!, amount }, { onSuccess: () => setToppingUp(false), onError: (err) => setTopUpError(message(err)) }); }} />
+          onConfirm={(amount) => { setTopUpError(null); void track(actions.topUp.mutateAsync({ accountId: item.accountId!, amount }), { success: t("toast.copy.toppedUp", { amount: format.num(Number(amount), 2) }), error: message, onSuccess: () => setToppingUp(false), onError: (err) => setTopUpError(message(err)) }); }} />
       ) : null}
       <LiveCopyConfirm setup={pendingSetup} open={pendingSetup !== null} onOpenChange={(open) => { if (!open && !actions.confirm.isPending) setPendingSetup(null); }}
         onConfirm={() => void confirm()} pending={actions.confirm.isPending || actions.restart.isPending} error={confirmError}

@@ -111,7 +111,8 @@ it.each(['revoked', 'expired'] as const)('keeps stopping an approved %s generati
   const request = [...container.querySelectorAll('button')].find(button => button.textContent === 'Request stop')!;
   expect(request).toBeTruthy();
   expect(request.disabled).toBe(false);
-  expect(request.closest('section')?.textContent).toContain('old-approved');
+  // The mandate id is internal and never shown; the stop goes to the approved generation.
+  expect(request.closest('section')?.textContent).not.toContain('old-approved');
   expect(state.post).not.toHaveBeenCalled();
   expect(state.sign).not.toHaveBeenCalled();
 });

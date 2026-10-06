@@ -1,8 +1,13 @@
 'use client';
-import { useId } from 'react';
+import { useId, useState } from 'react';
 import { useI18n } from '@/i18n/provider';
 import { liveStopMessages, liveStopResumeMessages, liveStopDiscardMessages } from '@/i18n/copy-live-stop';
-import { canResumeLiveCopyStop, useLiveCopyStops, type LiveStopSelection } from '@/lib/copy-live-stop';
+import { canResumeLiveCopyStop, useLiveCopyStops, type LiveStopAttempt, type LiveStopSelection } from '@/lib/copy-live-stop';
+import { liveCopiesMessages } from '@/i18n/live-copies';
+import { TransferConfirm } from '@/components/copy/transfer-confirm';
+import { CopyIconButton } from '@/components/wallet/bits';
+import { truncateAddress } from '@/lib/format';
+import { useActionToast } from '@/lib/use-action-toast';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/auth';
 
@@ -12,42 +17,56 @@ export function CopyLiveStop({ selection }: { selection: LiveStopSelection | nul
   if (auth.status !== 'signedIn' || auth.mode !== 'privy') return <section className="min-w-0 rounded-lg border border-border p-4"><h3 className="font-semibold">{liveStopMessages[locale].title}</h3><p role="status">{liveStopMessages[locale].signIn}</p></section>;
   return <OwnedCopyLiveStop selection={selection}/>;
 }
+
+/** The copy account in short, with a copy button, behind 詳細資料: the
+ * full address, the mandate and its revision are internal and never shown. */
+function AccountDetails({ address, label }: { address: string; label: string }) {
+  const { locale } = useI18n(), ui = liveCopiesMessages[locale].ui;
+  return <details className="text-xs text-muted-foreground">
+    <summary className="min-h-8 cursor-pointer font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring">{ui.details}</summary>
+    <p className="mt-1 flex items-center gap-1"><span>{label}:</span><span className="num">{truncateAddress(address)}</span><CopyIconButton value={address} /></p>
+  </details>;
+}
+
 function OwnedCopyLiveStop({ selection }: { selection: LiveStopSelection | null }) {
   // The owner's Privy id, from the auth layer (Privy renders beside the page).
-  const { userId } = useAuth();
+  const { userId, wallet } = useAuth();
   const user = userId ? { id: userId } : null;
-  const { locale, format } = useI18n(), text = liveStopMessages[locale], resumeText = liveStopResumeMessages[locale], discardText = liveStopDiscardMessages[locale];
+  const { locale, format, t } = useI18n(), text = liveStopMessages[locale], resumeText = liveStopResumeMessages[locale], discardText = liveStopDiscardMessages[locale];
   const { enabled, history, attempts, storageError, storageReady, mutation, discard } = useLiveCopyStops(selection, user?.id ?? null);
+  const track = useActionToast();
+  const [confirming, setConfirming] = useState(false);
   const heading = useId(), hint = useId();
   const items = history.data?.items ?? [];
   const alreadyRequested = !!selection && (attempts.some(a => a.mandateId === selection.mandate.id) || items.some(i => i.mandateId === selection.mandate.id) || ['stopping', 'stopped'].includes(selection.mandate.state));
   const validSelection = !!selection && selection.mandate.mode === 'actual' && selection.mandate.network === 'testnet' && selection.account.network === 'testnet' && selection.mandate.accountId === selection.account.id && selection.mandate.accountAddress === selection.account.address && selection.mandate.strategyId === selection.account.strategyId;
   const working = mutation.isPending || discard.isPending;
+  const send = (attempt?: LiveStopAttempt) => track(mutation.mutateAsync(attempt), { pending: t('toast.copy.stopping'), success: t('toast.copy.stopRequested'), error: () => text.error });
   return <section aria-labelledby={heading} className="min-w-0 space-y-4 rounded-lg border border-border p-4">
     <h3 id={heading} className="font-semibold">{text.title}</h3>
     <p id={hint} className="text-sm text-muted-foreground">{text.hint}</p>
     {!enabled ? <p role="status">{text.signIn}</p> : <>
       {!validSelection && <p>{text.select}</p>}
       {validSelection && <div className="min-w-0 space-y-2">
-        <p className="break-all text-sm">{text.account}: {selection!.account.address} · testnet</p>
-        <p className="break-all text-sm">{text.mandate}: {selection!.mandate.id}</p>
-        <p className="text-sm">{discardText.revision}: {selection!.mandate.revision}</p>
-        <Button type="button" aria-describedby={hint} loading={mutation.isPending && mutation.variables === undefined} disabled={!(mutation.isPending && mutation.variables === undefined) && (working || !storageReady || alreadyRequested || selection!.mandate.state === 'prepared' || selection!.mandate.activationCursor === null)} onClick={() => mutation.mutate(undefined)}>{working ? text.working : text.request}</Button>
+        <Button type="button" aria-describedby={hint} loading={mutation.isPending && mutation.variables === undefined} disabled={!(mutation.isPending && mutation.variables === undefined) && (working || !storageReady || alreadyRequested || selection!.mandate.state === 'prepared' || selection!.mandate.activationCursor === null)} onClick={() => setConfirming(true)}>{working ? text.working : text.request}</Button>
+        {selection!.account.address ? <AccountDetails address={selection!.account.address} label={text.account} /> : null}
       </div>}
+      <TransferConfirm kind="stop" open={confirming} amount={null} destination={wallet?.address ?? null} pending={mutation.isPending && mutation.variables === undefined} error={null}
+        onConfirm={() => { setConfirming(false); void send(undefined); }} onOpenChange={setConfirming} />
       {storageError && <p role="alert" className="text-sm">{text.storage}</p>}
       {mutation.isError && <p role="alert" className="text-sm">{text.error}</p>}
       {discard.isError && <p role="alert" className="text-sm">{discardText.error}</p>}
       {attempts.length > 0 && <ul className="space-y-3" aria-label={text.recover}>{attempts.map((attempt, index) => {
         const observed = items.some(item => item.mandateId === attempt.mandateId && item.accountId === attempt.accountId && item.originalMandateRevision === attempt.request.expectedMandateRevision);
         const unsent = attempt.dispatchState === 'unsent', action = unsent ? resumeText.resume : text.recover;
+        const account = truncateAddress(attempt.accountAddress);
         return <li key={attempt.request.idempotencyKey} className="min-w-0 space-y-2 border-t-2 border-dotted border-border pt-3">
-          <p className="break-all text-sm">{text.mandate}: {attempt.mandateId} · {text.account}: {attempt.accountAddress}</p>
-          <p className="text-sm">{discardText.revision}: {attempt.request.expectedMandateRevision}</p>
+          <p className="text-sm">{text.account}: <span className="num">{account}</span></p>
           {!observed && <p role="status" className="text-sm text-muted-foreground">{unsent ? resumeText.unsent : text.unknown}</p>}
-          <Button type="button" variant="outline" loading={mutation.isPending && mutation.variables === attempt} disabled={!(mutation.isPending && mutation.variables === attempt) && (working || storageError || unsent && !canResumeLiveCopyStop(attempt, selection, user?.id ?? null))} aria-label={`${action}: ${attempt.mandateId}`} onClick={() => mutation.mutate(attempt)}>{working ? text.working : action}</Button>
+          <Button type="button" variant="outline" loading={mutation.isPending && mutation.variables === attempt} disabled={!(mutation.isPending && mutation.variables === attempt) && (working || storageError || unsent && !canResumeLiveCopyStop(attempt, selection, user?.id ?? null))} aria-label={`${action}: ${account}`} onClick={() => void send(attempt)}>{working ? text.working : action}</Button>
           {unsent && <div className="space-y-2">
             <p id={`${hint}-discard-${index}`} className="text-sm text-muted-foreground">{discardText.hint}</p>
-            <Button type="button" variant="outline" loading={discard.isPending && discard.variables === attempt} disabled={!(discard.isPending && discard.variables === attempt) && (working || storageError || attempt.ownerId !== user?.id)} aria-label={`${discardText.discard}: ${attempt.mandateId}`} aria-describedby={`${hint}-discard-${index}`} onClick={() => discard.mutate(attempt)}>{discardText.discard}</Button>
+            <Button type="button" variant="outline" loading={discard.isPending && discard.variables === attempt} disabled={!(discard.isPending && discard.variables === attempt) && (working || storageError || attempt.ownerId !== user?.id)} aria-label={`${discardText.discard}: ${account}`} aria-describedby={`${hint}-discard-${index}`} onClick={() => discard.mutate(attempt)}>{discardText.discard}</Button>
           </div>}
         </li>;
       })}</ul>}
@@ -62,8 +81,6 @@ function OwnedCopyLiveStop({ selection }: { selection: LiveStopSelection | null 
         {history.data?.truncated && <p className="text-sm text-muted-foreground">{text.truncated}</p>}
         <ul className="space-y-3" aria-label={text.history}>{items.map(item => <li key={item.id} className="min-w-0 space-y-2 rounded-md border border-border p-3">
           <p className="font-medium">{text[item.state]}</p>
-          <p className="break-all text-sm">{text.account}: {item.accountAddress} · {item.network}</p>
-          <p className="break-all text-sm">{text.mandate}: {item.mandateId}</p>
           <p className="text-sm">{text.tracked}: {item.trackedExecutionCount}</p>
           {!item.trackingComplete && <p className="text-sm">{text.incomplete}</p>}
           {item.issue !== null && <p role="status" className="text-sm">{text.issue}</p>}
@@ -72,6 +89,7 @@ function OwnedCopyLiveStop({ selection }: { selection: LiveStopSelection | null 
             <div><dt className="inline">{text.updated}: </dt><dd className="inline"><time dateTime={item.updatedAt}>{format.dateTime(item.updatedAt)}</time></dd></div>
             {item.flatVerifiedAt && <div><dt className="inline">{text.flatTime}: </dt><dd className="inline"><time dateTime={item.flatVerifiedAt}>{format.dateTime(item.flatVerifiedAt)}</time></dd></div>}
           </dl>
+          <AccountDetails address={item.accountAddress} label={text.account} />
         </li>)}</ul>
       </div>
     </>}

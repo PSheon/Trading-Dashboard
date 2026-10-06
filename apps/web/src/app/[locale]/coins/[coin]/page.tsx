@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { cache } from "react";
 
 import { CoinBoardView } from "@/components/coins/coins-view";
+import { renderNotFound } from "@/components/shell/not-found-view";
 import { getLocale, getMessages } from "@/i18n/server";
 import { coinFromSlug, coinHref } from "@/lib/coin-slug";
 import { clientAddress } from "@/lib/client-address";
@@ -33,6 +34,7 @@ export async function generateMetadata({ params }: PageProps<"/[locale]/coins/[c
  * answers. */
 export default async function CoinPage({ params }: PageProps<"/[locale]/coins/[coin]">) {
   const coin = coinFromSlug((await params).coin);
-  if (!coin || (await unknownMarket(coin))) notFound();
+  if (!coin) return renderNotFound();
+  if (await unknownMarket(coin)) notFound();
   return <CoinBoardView coin={coin} />;
 }

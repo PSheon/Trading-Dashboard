@@ -1,10 +1,9 @@
-import { notFound } from "next/navigation";
+import { renderNotFound } from "@/components/shell/not-found-view";
 
-/** Every URL no other route matches. Without this Next answers those from
- * its own fallback, where the title not-found.tsx renders loses to the
- * layout's once the page hydrates; as a route that calls notFound(), an
- * unmatched URL gets the same 404 — status, page and tab title — as a
- * missing trader or market. Every real route outranks a catch-all. */
-export default function Missing(): never {
-  notFound();
+/** Every URL no other route matches. The proxy has answered it 404 (no
+ * page in `lib/page-routes.ts` matches), so the 404 is rendered here, in
+ * the first HTML, with the status and the 404's title. Every real route
+ * outranks a catch-all. */
+export default function Missing() {
+  return renderNotFound();
 }

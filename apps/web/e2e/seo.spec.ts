@@ -101,6 +101,36 @@ test("a URL that is nothing, a malformed address and a malformed coin are real 4
   }
 });
 
+/** The HTML as served, before any script runs (curl's view, and a crawler's
+ * that doesn't run JavaScript): the 404's words and its own title are in
+ * it, in the URL's language. Next 16 answers a `notFound()` thrown during
+ * render with an empty `<html id="__next_error__">`; these come from the
+ * proxy's status instead (lib/page-routes.ts). */
+test("a 404 is in the served HTML, with its own title, in each language", async ({ request }) => {
+  const cases = [
+    { path: "/zh-TW/zz-no-such-page", title: "找不到頁面 | Orbie", body: "此頁面不存在。", home: "返回排行榜" },
+    { path: "/en/zz-no-such-page", title: "Page not found | Orbie", body: "This page doesn&#x27;t exist.", home: "Back to Leaderboard" },
+    { path: "/zh-TW/trader/0x1234", title: "找不到頁面 | Orbie", body: "此頁面不存在。", home: "返回排行榜" },
+    { path: "/en/a/b/c", title: "Page not found | Orbie", body: "This page doesn&#x27;t exist.", home: "Back to Leaderboard" },
+  ];
+  for (const { path, title, body, home } of cases) {
+    const response = await request.get(path, { maxRedirects: 0 });
+    expect(response.status(), path).toBe(404);
+    const html = await response.text();
+    expect(html, path).not.toContain('id="__next_error__"');
+    const titles = [...html.matchAll(/<title>([^<]*)<\/title>/g)].map((match) => match[1]);
+    expect(titles[0], path).toBe(title);
+    expect(titles.every((text) => text === title), `${path}: ${titles.join(" / ")}`).toBe(true);
+    // The visible words, outside scripts (the RSC payload in a <script> would
+    // match even when the HTML has none).
+    const visible = html.replace(/<script[\s\S]*?<\/script>/g, "").replace(/<template[\s\S]*?<\/template>/g, "");
+    expect(visible, path).toMatch(/<h1[^>]*>404<\/h1>/);
+    expect(visible, path).toContain(body);
+    expect(visible, path).toContain(home);
+    expect(visible, path).toContain('<meta name="robots" content="noindex"/>');
+  }
+});
+
 test("the FAQ is questions that open in place, one at a time", async ({ page }) => {
   await page.goto("/en/help");
   const questions = page.getByRole("main").locator("button[aria-expanded]");

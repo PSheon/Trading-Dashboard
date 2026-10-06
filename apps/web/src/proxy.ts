@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { DEFAULT_LOCALE, LOCALES, LOCALE_COOKIE, PATH_HEADER, isLocale, localePath, negotiateLocale, type Locale } from "@/i18n/config";
 import { contentSecurityPolicy, newNonce, privyAuthOrigins, type Framing } from "@/lib/csp";
+import { NOT_FOUND_HEADER, isStaticNotFound } from "@/lib/page-routes";
 
 /** Read at run time (server-only), so one build serves every deployment. */
 const privyOrigins = privyAuthOrigins(process.env.NEXT_PRIVY_AUTH_ORIGINS);
@@ -66,7 +67,13 @@ export function proxy(request: NextRequest) {
   headers.set("x-nonce", nonce);
   headers.set("Content-Security-Policy", csp);
   headers.set(PATH_HEADER, pathname);
-  const response = NextResponse.next({ request: { headers } });
+  // A 404 decided here (no page matches, an address or coin that can't be
+  // one, the lab while it is off) is answered with its status now, and the
+  // page renders the 404 into the first HTML (see lib/page-routes.ts).
+  const notFound = !isUnprefixedRoute(pathname) && isStaticNotFound(pathname);
+  if (notFound) headers.set(NOT_FOUND_HEADER, "1");
+  else headers.delete(NOT_FOUND_HEADER);
+  const response = NextResponse.next({ request: { headers }, ...(notFound ? { status: 404 } : {}) });
   response.headers.set("Content-Security-Policy", csp);
   return response;
 }

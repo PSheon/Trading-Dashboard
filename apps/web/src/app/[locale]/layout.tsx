@@ -16,6 +16,7 @@ import { OG_LOCALES, PATH_HEADER, isLocale } from "@/i18n/config";
 import { getLocale, getMessages } from "@/i18n/server";
 import { JsonLd } from "@/components/json-ld";
 import { APP_NAME, APP_URL, X_HANDLE } from "@/lib/config";
+import { NOT_FOUND_HEADER } from "@/lib/page-routes";
 import { localeAlternates, siteJsonLd } from "@/lib/seo";
 import { THEME_COLOR, THEME_COOKIE, parseThemeChoice, themeClass } from "@/lib/theme";
 
@@ -44,7 +45,13 @@ export async function generateMetadata(): Promise<Metadata> {
   const title = `${messages.meta.homeTitle} | ${APP_NAME}`;
   // Every page's canonical URL and its eleven language versions; a page
   // with its own SEO (lib/seo.ts) writes the same from its own path.
-  const path = (await headers()).get(PATH_HEADER);
+  const requestHeaders = await headers();
+  const path = requestHeaders.get(PATH_HEADER);
+  // A 404 the proxy answered (lib/page-routes.ts): the 404's own title,
+  // "<page not found> | <site>", in the first HTML.
+  if (requestHeaders.get(NOT_FOUND_HEADER) === "1") {
+    return { metadataBase: new URL(APP_URL), applicationName: APP_NAME, title: { absolute: `${messages.meta.notFound} | ${APP_NAME}` } };
+  }
   return {
     metadataBase: new URL(APP_URL),
     applicationName: APP_NAME,

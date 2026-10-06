@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { cache } from "react";
 
+import { renderNotFound } from "@/components/shell/not-found-view";
 import { TraderView } from "@/components/trader/trader-view";
 import { getLocale, getMessages } from "@/i18n/server";
 import { clientAddress } from "@/lib/client-address";
@@ -55,7 +56,7 @@ export async function generateMetadata({ params }: PageProps<"/[locale]/trader/[
  * and the browser reads and decides, as before. */
 export default async function TraderPage({ params }: PageProps<"/[locale]/trader/[address]">) {
   const address = decodedSegment((await params).address);
-  if (!ADDRESS.test(address)) notFound();
+  if (!ADDRESS.test(address)) return renderNotFound();
   const { profile, activity, unknown } = await traderRead(address);
   if (unknown) notFound();
   return <TraderView address={address} initial={{ profile, activity }} />;

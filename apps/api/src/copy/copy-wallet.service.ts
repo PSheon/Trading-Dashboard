@@ -220,7 +220,7 @@ export class CopyWalletService {
         // Explicit re-verification failed. Hide the address and require fresh
         // ownership evidence; do not return an old positive result as success.
         // A stale failure must not overwrite a newer observer's verification.
-        await this.repository.failReverification(id, original.revision, issue);
+        await this.repository.failReverification(id, original, issue);
         return this.read(id);
       }
       // No provider error text, token, owner DID or SDK details escape the API.

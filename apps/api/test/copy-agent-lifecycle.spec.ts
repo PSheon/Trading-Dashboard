@@ -5,6 +5,8 @@ import { copyAgentSetups, copyExecutionAccounts, copyLiveSetups, copyExecutionWa
 import { CopyAgentRepository } from "../src/copy/copy-agent.repository.js";
 import { LiveBoundaryError } from "../src/copy/live/wallet-authorization.js";
 import { CopyAgentService } from "../src/copy/copy-agent.service.js";
+import { CopyWalletRepository } from "../src/copy/copy-wallet.repository.js";
+import { CopyWalletService } from "../src/copy/copy-wallet.service.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { agentOwnerConsentTypedData, agentApprovalTypedData, type AgentConsentIntent } from "../src/copy/copy-agent-consent.js";
 import type { UserAgentProvisioner } from "../src/copy/live/privy-agent-provisioner.js";
@@ -90,6 +92,20 @@ describe("explicit recoverable dedicated strategy agent setup", () => {
     await service.approve(uid, prepared.id, signature, await browserSign(challenge));
     expect(exchange.send).toHaveBeenCalledTimes(1);
     expect((await db.select().from(copyStrategies))[0]).toMatchObject({ mode: "paper", cash: "100" });
+  });
+  it("an approval runs across real reconciles of the copy account without moving the revision its running generation binds", async () => {
+    // The real wallet service: every challenge, submit and observation checks the account with Privy.
+    const walletProvider = { available: true, create: vi.fn(), findOwned: vi.fn(async () => ({ id: "master-wallet", address: master.address.toLowerCase(), externalId: "master-external", ownerQuorumId: "user-quorum" })) };
+    const realWallets = new CopyWalletService(new CopyWalletRepository(db), new UnitOfWork(db), testConfig(), walletProvider as never);
+    const real = new CopyAgentService(new CopyAgentRepository(db), new UnitOfWork(db), testConfig(), realWallets, provider, exchange);
+    const [before] = await db.select().from(copyExecutionAccounts);
+    const prepared = await real.prepare(uid, accountId, { idempotencyKey: "prepare-1", validForDays: 7 });
+    const challenge = await real.challenge(uid, prepared.id);
+    const result = await real.approve(uid, prepared.id, await owner.signTypedData(agentOwnerConsentTypedData(challenge.intent)), await browserSign(challenge));
+    expect(result.state).toBe("active");
+    expect(walletProvider.findOwned.mock.calls.length).toBeGreaterThanOrEqual(3);
+    const [after] = await db.select().from(copyExecutionAccounts);
+    expect(after).toMatchObject({ state: "ready", revision: before.revision, updatedAt: before.updatedAt });
   });
   it("an approval whose POST never reached the transport is ready again (same nonce), not pending forever", async () => {
     const prepared = await service.prepare(uid, accountId, { idempotencyKey: "prepare-1", validForDays: 7 });

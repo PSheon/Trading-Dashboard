@@ -1,0 +1,1 @@
+ALTER TABLE "copy_execution_accounts" ADD COLUMN "identity_checks" integer DEFAULT 0 NOT NULL;

@@ -67,12 +67,22 @@ export class CopyWalletRepository {
     return this.withLockedAccount(id, async tx => (await tx.update(copyExecutionAccounts).set({ state: "unknown", issue: "verification_pending", updatedAt: new Date(), revision: sql`${copyExecutionAccounts.revision} + 1` })
       .where(and(eq(copyExecutionAccounts.id, id), eq(copyExecutionAccounts.state, "requested"))).returning())[0]);
   }
+  /** The wallet Privy shows is this account's. Only a change (first seen,
+   * or ready again after a failed check) moves the revision that consents
+   * and generations bind: a reconcile that finds it as it was (every agent
+   * challenge, every setup step) leaves the row untouched. */
   async confirmIdentity(id: string, rawIdentity: ProvisionedUserWallet) {
     const found = structuredClone(rawIdentity);
-    try { return await this.withLockedAccount(id, async tx => (await tx.update(copyExecutionAccounts).set({ state: "ready", issue: null, privyWalletId: found.id,
-      address: found.address, ownerQuorumId: found.ownerQuorumId, updatedAt: new Date(), revision: sql`${copyExecutionAccounts.revision} + 1` })
-      .where(and(eq(copyExecutionAccounts.id, id), sql`${copyExecutionAccounts.state} <> 'blocked'`,
-        sql`(${copyExecutionAccounts.privyWalletId} is null or (${copyExecutionAccounts.privyWalletId} = ${found.id} and ${copyExecutionAccounts.address} = ${found.address} and ${copyExecutionAccounts.ownerQuorumId} = ${found.ownerQuorumId}))`)).returning())[0]);
+    try { return await this.withLockedAccount(id, async tx => {
+      const [current] = await tx.select().from(copyExecutionAccounts).where(eq(copyExecutionAccounts.id, id));
+      if (current && current.state === "ready" && current.issue === null && current.privyWalletId === found.id && current.address === found.address && current.ownerQuorumId === found.ownerQuorumId) {
+        return (await tx.update(copyExecutionAccounts).set({ identityChecks: sql`${copyExecutionAccounts.identityChecks} + 1` }).where(eq(copyExecutionAccounts.id, id)).returning())[0];
+      }
+      return (await tx.update(copyExecutionAccounts).set({ state: "ready", issue: null, privyWalletId: found.id,
+        address: found.address, ownerQuorumId: found.ownerQuorumId, updatedAt: new Date(), revision: sql`${copyExecutionAccounts.revision} + 1` })
+        .where(and(eq(copyExecutionAccounts.id, id), sql`${copyExecutionAccounts.state} <> 'blocked'`,
+          sql`(${copyExecutionAccounts.privyWalletId} is null or (${copyExecutionAccounts.privyWalletId} = ${found.id} and ${copyExecutionAccounts.address} = ${found.address} and ${copyExecutionAccounts.ownerQuorumId} = ${found.ownerQuorumId}))`)).returning())[0];
+    });
     } catch (error) {
       // Drizzle wraps the pg SQLSTATE in cause. Reusing a wallet/address bound
       // to another account is a permanent identity conflict, not an outage.
@@ -89,9 +99,11 @@ export class CopyWalletRepository {
       .where(and(eq(copyExecutionAccounts.id, id), eq(copyExecutionAccounts.state, "ready"), eq(copyExecutionAccounts.privyWalletId, fields.walletId), eq(copyExecutionAccounts.address, fields.address),
         sql`${copyExecutionAccounts.masterPolicyId} is null`)).returning())[0]);
   }
-  async failReverification(id: string, revision: number, issue: AccountRow["issue"]) {
+  /** A failed check of a ready account, unless the account changed or a
+   * newer check succeeded since this one read it. */
+  async failReverification(id: string, seen: Pick<AccountRow, "revision" | "identityChecks">, issue: AccountRow["issue"]) {
     await this.withLockedAccount(id, tx => tx.update(copyExecutionAccounts).set({ state: "unknown", issue, updatedAt: new Date(), revision: sql`${copyExecutionAccounts.revision} + 1` })
-      .where(and(eq(copyExecutionAccounts.id, id), eq(copyExecutionAccounts.state, "ready"), eq(copyExecutionAccounts.revision, revision))));
+      .where(and(eq(copyExecutionAccounts.id, id), eq(copyExecutionAccounts.state, "ready"), eq(copyExecutionAccounts.revision, seen.revision), eq(copyExecutionAccounts.identityChecks, seen.identityChecks))));
   }
   async finish(id: string, state: AccountRow["state"], issue: AccountRow["issue"]) {
     await this.withLockedAccount(id, tx => tx.update(copyExecutionAccounts).set({ state, issue, updatedAt: new Date(), revision: sql`${copyExecutionAccounts.revision} + 1` })

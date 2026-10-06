@@ -1415,7 +1415,12 @@ export const copyExecutionAccounts = pgTable("copy_execution_accounts", {
   strategyId: integer("strategy_id").notNull().references(() => copyStrategies.id, { onDelete: "restrict" }),
   network: text("network").$type<"testnet" | "mainnet">().notNull(),
   privyUserId: text("privy_user_id").notNull(), externalId: text("external_id").notNull().unique(),
+  /** Moves only when the account changes (consents and generations bind it). */
   revision: integer("revision").notNull().default(1),
+  /** Every ownership check that found the account as it was: a failed check
+   * that started before a newer success can't downgrade it (its CAS sees
+   * this move), without touching `revision`. */
+  identityChecks: integer("identity_checks").notNull().default(0),
   state: text("state").$type<"requested" | "unknown" | "ready" | "blocked">().notNull().default("requested"),
   privyWalletId: text("privy_wallet_id").unique(), ownerQuorumId: text("owner_quorum_id"), address: text("address").unique(),
   issue: text("issue").$type<"verification_pending" | "provider_unavailable" | "wallet_conflict">(),

@@ -125,7 +125,7 @@ describe('actual writers serialize with the original live risk scope', () => {
   });
   it('blocks failed master reverification under the held scope', async () => {
     const row = await accountRow();
-    await heldWriter(() => new CopyWalletRepository(db).failReverification(accountId, row.revision, 'verification_pending'), async () => { expect((await accountRow()).state).toBe('ready'); });
+    await heldWriter(() => new CopyWalletRepository(db).failReverification(accountId, row, 'verification_pending'), async () => { expect((await accountRow()).state).toBe('ready'); });
     expect((await accountRow()).state).toBe('unknown');
   });
   it('blocks restoring the verified master identity to ready', async () => {

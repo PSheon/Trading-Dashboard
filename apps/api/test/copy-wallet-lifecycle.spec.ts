@@ -141,6 +141,17 @@ describe("dedicated user-owned execution wallet lifecycle", () => {
     expect((await service.reconcile(uid, initial.id)).state).toBe("ready");
     expect(provider.create).not.toHaveBeenCalled();
   });
+  it("a reconcile that finds the account as it was changes nothing a consent binds (revision, updatedAt); a real change still moves it", async () => {
+    const initial = await service.prepare(uid, strategy, { network: "testnet" });
+    const [before] = await db.select().from(copyExecutionAccounts);
+    for (let i = 0; i < 3; i++) expect((await service.reconcile(uid, initial.id)).state).toBe("ready");
+    const [after] = await db.select().from(copyExecutionAccounts);
+    expect(after).toMatchObject({ revision: before.revision, updatedAt: before.updatedAt });
+    vi.mocked(provider.findOwned).mockRejectedValueOnce(new Error("provider unavailable"));
+    await service.reconcile(uid, initial.id);
+    expect((await service.reconcile(uid, initial.id)).state).toBe("ready");
+    expect((await db.select().from(copyExecutionAccounts))[0].revision).toBe(before.revision + 2);
+  });
   it("failed reverification hides a stale positive result until new proof arrives", async () => {
     const initial = await service.prepare(uid, strategy, { network: "testnet" });
     vi.mocked(provider.findOwned).mockRejectedValueOnce(new Error("provider unavailable"));

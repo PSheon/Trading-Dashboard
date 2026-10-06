@@ -1,8 +1,7 @@
-import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { verifyTypedData } from 'viem';
-import { accountModeIntentSchema, accountModeOwnerConsentTypedData, copyAccountModeOperationSchema, prepareCopyAccountModeSchema, userSetAbstractionTypedData, WALLET_NETWORKS,
-  type CopyAccountModeOperation, type AccountModeIntent } from '@trading-dashboard/shared/contracts';
+import { accountModeIntentSchema, copyAccountModeOperationSchema, prepareCopyAccountModeSchema, type CopyAccountModeOperation, type AccountModeIntent } from '@trading-dashboard/shared/contracts';
 import { AppConfig } from '../config/app-config.js';
 import { UnitOfWork } from '../db/unit-of-work.js';
 import { currentRequestSignal } from '../runtime/request-context.js';
@@ -12,7 +11,7 @@ import { ACCOUNT_MODE_OBSERVE_WEIGHT, accountModeTypedData, type AccountModeObse
 import { ACCOUNT_MODE_ABSENCE_WEIGHT } from './copy-account-mode-evidence.js';
 import { HyperliquidBudgetWait, type LiveReserveOptions } from '../hyperliquid/hyperliquid-budget-wait.js';
 import { LiveBoundaryError } from './live/wallet-authorization.js';
-import { masterActionRequest, masterSignatureRefusal, type MasterTypedData } from './live/master-action.js';
+import { safeErrorText } from '../runtime/safe-error-text.js';
 
 export const ACCOUNT_MODE_CLIENT = Symbol('ACCOUNT_MODE_CLIENT');
 export const ACCOUNT_MODE_ABSENCE_READER = Symbol('ACCOUNT_MODE_ABSENCE_READER');
@@ -44,14 +43,11 @@ export interface AccountModeAbsenceReader {
   /** Waits for the shared all-venue source before a clock starts. */
   turn?(options?: LiveReserveOptions): Promise<AccountModeAbsenceTurn>;
 }
-/** Who authorises one mode change: the owner's own consent for this exact
- * operation with the copy account's own signature made in their browser
- * (Settings), or a one-click setup whose consent (verified at its confirm)
- * bound the account to "disabled", with the setup's signer (the owner's
- * browser or the worker under the owner's policy). */
+/** Who authorises one mode change: a one-click setup whose consent
+ * (verified at its confirm) bound the account to "disabled", signed by the
+ * worker under the owner's policy (the only signing model, 2026-10-07). */
 export type AccountModeAuthority =
-  | { readonly kind: 'owner'; readonly consentSignature: string; readonly masterSignature: string }
-  | { readonly kind: 'setup'; readonly consentDigest: string; sign(master: AccountModeOwnedMaster, intent: AccountModeIntent, assertFresh: () => void): Promise<string> };
+  { readonly kind: 'setup'; readonly consentDigest: string; sign(master: AccountModeOwnedMaster, intent: AccountModeIntent, assertFresh: () => void): Promise<string> };
 function wire(row: AccountModeRow): CopyAccountModeOperation {
   return copyAccountModeOperationSchema.parse({ id: row.id, accountId: row.accountId, strategyId: row.strategyId, network: row.network,
     accountAddress: row.accountAddress, target: row.target, revision: row.revision, submissionState: row.submissionState, targetState: row.targetState,
@@ -65,14 +61,6 @@ function intent(row: AccountModeRow): AccountModeIntent {
       parsed.accountAddress !== row.accountAddress || parsed.nonce !== row.nonce || parsed.consentExpiresAt !== row.consentExpiresAt.getTime() || accountModeDigest(parsed) !== row.intentDigest)
     throw new ConflictException('account_mode_intent_changed');
   return Object.freeze(parsed);
-}
-/** The exact UserSetAbstraction the copy account signs for this intent. */
-export function accountModeMasterTypedData(value: AccountModeIntent): MasterTypedData {
-  return userSetAbstractionTypedData(WALLET_NETWORKS.testnet, value.accountAddress, value.nonce) as unknown as MasterTypedData;
-}
-/** The challenge's action for the owner's browser (taken until the nonce's window ends). */
-export function accountModeMasterAction(value: AccountModeIntent) {
-  return masterActionRequest(value.accountAddress, accountModeMasterTypedData(value), { network: 'testnet', account: value.accountAddress }, value.consentExpiresAt);
 }
 function readIntent(row: AccountModeRow): AccountModeIntent {
   if (row.intent) return intent(row);
@@ -109,6 +97,7 @@ function baseline(proof: AccountModeObservation): 'default' | 'supported' {
 }
 @Injectable()
 export class CopyAccountModeService {
+  private readonly logger = new Logger(CopyAccountModeService.name);
   constructor(private readonly repository: CopyAccountModeRepository, private readonly uow: UnitOfWork, private readonly config: AppConfig,
     @Inject(USER_WALLET_PROVISIONER) private readonly wallets: UserWalletProvisioner,
     @Inject(ACCOUNT_MODE_CLIENT) private readonly exchange: AccountModeClient,
@@ -179,23 +168,6 @@ export class CopyAccountModeService {
     };
     assertFresh(); return { identity, observation: finalMode, absence, started, assertFresh, assertCompletion };
   }
-  async challenge(userId: number, id: string) {
-    this.enabled(); const row = await this.repository.find(userId, id);
-    if (row.submissionState !== 'prepared' || row.attemptedAt || row.targetState === 'supported') throw new ConflictException('account_mode_not_signable');
-    const proof = await this.preflight(userId, row);
-    if (baseline(proof.observation) !== 'default') throw new ConflictException('account_mode_already_supported');
-    const challenged = await this.uow.run(tx => this.repository.challenge(tx, userId, row, proof.assertFresh));
-    const allocated = intent(challenged);
-    return { operation: wire(challenged), intent: allocated, masterAction: accountModeMasterAction(allocated) };
-  }
-  /** A setup's mode nonce for the owner's browser to sign, with no exchange
-   * call: the current one while it keeps `minRemainingMs` of its window,
-   * else a new one. The submission's own preflight still precedes any POST. */
-  async setupNonce(userId: number, id: string, minRemainingMs: number): Promise<AccountModeIntent> {
-    this.enabled(); const row = await this.repository.find(userId, id);
-    if (row.submissionState !== 'prepared' || row.attemptedAt || row.targetState === 'supported') throw new ConflictException('account_mode_not_signable');
-    return intent(await this.uow.run(tx => this.repository.challenge(tx, userId, row, () => undefined, minRemainingMs)));
-  }
   /** Observes the account's mode. Its weight is paid first: when the budget
    * is busy nothing is read and the row is left as it is (`busy: 'throw'`:
    * the `HyperliquidBudgetWait` is passed on, for a driver to come back). */
@@ -220,12 +192,10 @@ export class CopyAccountModeService {
       row = updated ?? await this.repository.find(userId, id);
     } catch (error) {
       if (error instanceof HyperliquidBudgetWait) { if (busy === 'throw') throw error; return wire(row); }
+      this.logger.warn(`account mode ${row.id} not observed: ${safeErrorText(error)}`);
       row = (await this.repository.transition(row, { targetState: 'unknown', issue: 'account_mode_observation_pending' })) ?? await this.repository.find(userId, id);
     }
     return wire(row);
-  }
-  async approve(userId: number, id: string, consentSignature: string, masterSignature: string): Promise<CopyAccountModeOperation> {
-    return this.submit(userId, id, { kind: 'owner', consentSignature, masterSignature });
   }
   /** One attempt of the exact prepared operation; the attempt is durable
    * before the POST, and an attempted operation is only reconciled. */
@@ -239,14 +209,6 @@ export class CopyAccountModeService {
     // A duplicate request observes the existing claim without revising it.
     if (row.submissionState === 'signing' && !row.attemptedAt) return wire(row);
     if (row.submissionState !== 'prepared' || row.attemptedAt || row.targetState === 'supported') return this.reconcile(userId, id);
-    // The owner's consent signed this operation's allocated nonce, and the
-    // copy account (in their browser) signed exactly its mode change: both
-    // checked before any Hyperliquid weight is spent.
-    if (authority.kind === 'owner') {
-      const allocated = intent(row); liveConsent(allocated);
-      if (await masterSignatureRefusal(row.accountAddress, accountModeMasterTypedData(allocated), { network: 'testnet', account: row.accountAddress }, authority.masterSignature))
-        throw new ForbiddenException({ statusCode: 403, code: 'account_mode_master_signature_invalid', message: "The copy account's signature is not for this mode change" });
-    }
     // The whole attempt is paid before its first clock starts: the preflight
     // before signing, the one before the POST, and the POST.
     await this.exchange.reserve?.(ATTEMPT_WEIGHT);
@@ -255,13 +217,10 @@ export class CopyAccountModeService {
     // A setup's consent bound the account to "disabled", not a nonce: the
     // nonce is allocated here, under this preflight (no separate challenge
     // preflight), with time left in its window to sign and send.
-    if (authority.kind === 'setup') row = await this.uow.run(tx => this.repository.challenge(tx, userId, row, first.assertFresh, SETUP_NONCE_MIN_REMAINING_MS));
+    row = await this.uow.run(tx => this.repository.challenge(tx, userId, row, first.assertFresh, SETUP_NONCE_MIN_REMAINING_MS));
     const original = intent(row); liveConsent(original);
-    if (authority.kind === 'owner' ? !/^0x[0-9a-fA-F]{128}(?:00|01|1b|1c)$/i.test(authority.consentSignature) ||
-        !await verifyTypedData({ address: row.ownerAddress as `0x${string}`, ...accountModeOwnerConsentTypedData(original), signature: authority.consentSignature as `0x${string}` })
-      : !/^[0-9a-f]{64}$/.test(authority.consentDigest) || typeof authority.sign !== 'function')
-      throw new BadRequestException('invalid_account_mode_consent');
-    const consentDigest = authority.kind === 'owner' ? accountModeDigest(authority.consentSignature) : authority.consentDigest;
+    if (!/^[0-9a-f]{64}$/.test(authority.consentDigest) || typeof authority.sign !== 'function') throw new BadRequestException('invalid_account_mode_consent');
+    const consentDigest = authority.consentDigest;
     const claimed = await this.uow.run(async tx => {
       await this.repository.assertCurrent(userId, row, tx, true); first.assertFresh(); liveConsent(original);
       const next = await this.repository.transition(row, { submissionState: 'signing', claimToken: randomUUID(), signingStartedAt: new Date(), consentDigest, issue: null }, tx);
@@ -272,7 +231,7 @@ export class CopyAccountModeService {
     try {
       first.assertFresh(); liveConsent(original);
       const master = { walletId: row.accountWalletId, address: row.accountAddress, ownerQuorumId: row.accountOwnerQuorumId };
-      signature = authority.kind === 'owner' ? authority.masterSignature : await authority.sign(master, original, completionGuard(original, first));
+      signature = await authority.sign(master, original, completionGuard(original, first));
       if (!/^0x[0-9a-fA-F]{130}$/.test(signature) || !await verifyTypedData({ address: row.accountAddress as `0x${string}`, ...accountModeTypedData(original), signature: signature as `0x${string}` }))
         throw new BadRequestException('account_mode_master_signature_invalid');
       final = await this.preflight(userId, row, { prepaid: true });
@@ -304,6 +263,8 @@ export class CopyAccountModeService {
       }
     } catch (error) {
       if (error instanceof LiveBoundaryError && error.code === 'account_mode_not_dispatched') return this.notDispatched(userId, row);
+      // Sent, its answer lost: reconciled from the exchange, never resent.
+      this.logger.warn(`account mode ${row.id} outcome unknown: ${safeErrorText(error)}`);
       return wire(row);
     }
     // Paid for separately (the attempt's own weight is spent): when the

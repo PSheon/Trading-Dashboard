@@ -13,7 +13,7 @@ let db: TestDb, repository: CopyLiveSetupRepository, seed: Awaited<ReturnType<ty
 const leader = `0x${'44'.repeat(20)}`, other = `0x${'45'.repeat(20)}`;
 let n = 0;
 /** What a confirmed setup carries (copy_live_setups_consent_check). */
-const CONFIRMED = { consentDigest: 'c'.repeat(64), intentDigest: 'd'.repeat(64), confirmedAt: new Date(now), signerKind: 'owner_session' as const, setupDeadline: new Date(now + 86_400_000) };
+const CONFIRMED = { consentDigest: 'c'.repeat(64), intentDigest: 'd'.repeat(64), confirmedAt: new Date(now), setupDeadline: new Date(now + 86_400_000) };
 async function setup(values: Partial<typeof schema.copyLiveSetups.$inferInsert> = {}) {
   n++;
   const unconfirmed = ['provisioning', 'awaiting_consent', 'failed', 'expired', 'cancelled'].includes(values.stage ?? 'awaiting_consent');

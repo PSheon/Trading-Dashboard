@@ -24,7 +24,8 @@ import { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.serv
  * buckets (RequestBudgeterService, 300/min + 900 burst, as the api's and the
  * worker's testnet buckets are), one shared per-IP meter (1,200 REST and
  * 2,000 WS units a minute, as Postgres keeps them), the dialog's polling
- * (every 2 s, /advance at most every 3 s), the worker's setup pass (every
+ * (every 2 s, /advance at most every 3 s: it only drives, the worker signs
+ * every step under the owner's policy), the worker's setup pass (every
  * 3 s, its own bucket) and the follower snapshot collector (one all-venue
  * read a minute). Testnet lists 268 perp dexes. Provider I/O, SQL and Privy
  * are in-memory with realistic latencies; time is simulated.
@@ -112,6 +113,7 @@ function allVenueSource(meter: Meter, name: string, closeAfterRead: boolean): Li
   return { read: vi.fn(), readAccount };
 }
 
+const io = async <T>(value: T): Promise<T> => { await sleep(4); return structuredClone(value); };
 /** Shared rows (the database both processes see), in memory. */
 function database(intent: LiveCopySetupIntent, setupId: string) {
   const now = new Date(T0);
@@ -120,12 +122,11 @@ function database(intent: LiveCopySetupIntent, setupId: string) {
     intent: null, nonce: null, consentExpiresAt: null, intentDigest: null, accountWalletId: 'master-wallet', accountOwnerQuorumId: 'owner-quorum', claimToken: null,
     signingStartedAt: null, consentDigest: null, observation: null, attemptProof: null, acknowledgmentDigest: null, idempotencyKey: 'mode-key', liveSetupId: setupId } as unknown as AccountModeRow;
   const setup = { id: setupId, userId: 1, strategyId: intent.strategyId, accountId: intent.accountId, kind: 'start', idempotencyKey: 'setup-key', leaderAddress: intent.leaderAddress,
-    sourceNetwork: 'mainnet', budgetUsd: '100', settings, stage: 'funded', issue: null, signerKind: 'owner_session', intent, intentDigest: createHash('sha256').update(JSON.stringify(intent)).digest('hex'),
+    sourceNetwork: 'mainnet', budgetUsd: '100', settings, stage: 'funded', issue: null, intent, intentDigest: createHash('sha256').update(JSON.stringify(intent)).digest('hex'),
     consentDigest: 'c'.repeat(64), consentExpiresAt: new Date(intent.consentExpiresAt), confirmedAt: now, setupDeadline: new Date(intent.setupDeadline), fundingOperationId: null,
     modeOperationId: 'mode-op', agentSetupId: 'agent-op', builderApprovalId: null, mandateId: null, attempts: 0, nextAttemptAt: null, leaseUntil: null, revision: 1, createdAt: now, updatedAt: now } as unknown as SetupRow;
   const rows = { mode, setup, agentActive: false, stages: [] as { stage: string; at: number }[], agentIntent: null as null | { id: string; strategyId: number; network: 'testnet'; accountAddress: string; agentAddress: string;
     policyId: string; workerQuorumId: string; expiresAt: number; nonce: number; consentExpiresAt: number } };
-  const io = async <T>(value: T): Promise<T> => { await sleep(4); return structuredClone(value); };
   const modeRepository = {
     find: async () => io(rows.mode), assertCurrent: async () => io({ owner: { privyUserId: 'did:privy:owner' }, account: { externalId: 'ext', masterPolicyId: null, masterSignerQuorumId: null } }),
     transition: async (row: AccountModeRow, changes: Partial<AccountModeRow>) => {
@@ -158,7 +159,7 @@ function database(intent: LiveCopySetupIntent, setupId: string) {
 }
 
 /** One process: its bucket, clients and services on the shared rows and meter. */
-function setupProcess(name: string, meter: Meter, testnet: Testnet, db: ReturnType<typeof database>) {
+function setupProcess(name: string, meter: Meter, testnet: Testnet, db: ReturnType<typeof database>, signed: string[]) {
   const { budget, transport } = processStack(meter, testnet, name);
   // As copy.module wires them: weight is reserved before an evidence clock starts.
   const live = (weight: number, options?: { maxWaitMs?: number; signal?: AbortSignal }) => reserveLive(budget, weight, options);
@@ -192,8 +193,11 @@ function setupProcess(name: string, meter: Meter, testnet: Testnet, db: ReturnTy
   };
   const mandates = { prepareFromSetup: async () => { await sleep(20); return { id: 'mandate-1' }; } };
   const serviceConfig = new AppConfig({ hyperliquid: { wallet: { network: 'testnet' } }, copy: { mode: 'testnet' } } as never);
-  const service = new CopyLiveSetupService(serviceConfig, db.setupRepository as never, uow as never, mandates as never, {} as never, {} as never, agents as never, modes,
-    {} as never, {} as never, {} as never, {} as never, null, Date.now);
+  // The account's recorded worker signer, and the worker's Privy signature (about 1 s).
+  const walletRows = { account: async () => io({ masterPolicyId: 'master-policy', masterSignerQuorumId: 'worker-quorum', signerDetachedAt: null }) };
+  const workerSigner = { available: true, sign: async (_account: unknown, data: { primaryType: string }) => { await sleep(1_000); signed.push(data.primaryType); return master.signTypedData(data as never); } };
+  const service = new CopyLiveSetupService(serviceConfig, db.setupRepository as never, uow as never, mandates as never, {} as never, walletRows as never, agents as never, modes,
+    {} as never, {} as never, {} as never, {} as never, workerSigner, Date.now);
   return { service, budget, absence };
 }
 
@@ -211,14 +215,14 @@ describe('one-click setup throughput on the real testnet buckets', () => {
       builderAddress: null, builderMaxFeeTenthsOfBps: 0, sweepDestination: ownerAddress, masterPolicyId: '', masterPolicyFingerprint: '', fundingOperationId: randomUUID(), fundingNonce: nonce - 1,
       fundingAmount: '100', nonce, consentExpiresAt: nonce + 300_000, setupDeadline: nonce + 24 * 3_600_000 });
     const meter = new Meter(), testnet = new Testnet(), db = database(intent, setupId);
-    const api = setupProcess('api', meter, testnet, db), worker = setupProcess('worker', meter, testnet, db);
+    const signed: string[] = [];
+    const api = setupProcess('api', meter, testnet, db, signed), worker = setupProcess('worker', meter, testnet, db, signed);
     const collector = allVenueSource(meter, 'collector', false);
     // As on Stage after an hour of failed attempts: the api's bucket is empty
     // and the shared window holds the last minute's charges.
     await api.budget.acquire(900, 'live'); meter.charge('rest', 600, 'earlier'); meter.charge('ws', 538, 'earlier');
 
     let advancing = false, ticking = false, advanceAt = 0, advances = 0;
-    const signed: string[] = [];
     const errors: string[] = [];
     const deadline = T0 + 10 * 60_000;
     let nextPoll = T0, nextTick = T0 + 1_000, nextCollect = T0 + 5_000;
@@ -229,13 +233,7 @@ describe('one-click setup throughput on the real testnet buckets', () => {
         nextPoll = now + 2_000;
         if (!advancing && now >= advanceAt) {
           advancing = true; advanceAt = now + 3_000; advances++;
-          // A pending action is signed in the browser (Privy's iframe: about 1 s) and sent back.
-          void api.service.advance(1, setupId).then(async read => {
-            const pending = read.pendingSignature;
-            if (!pending) return;
-            await sleep(1_000); signed.push(pending.kind);
-            await api.service.advance(1, setupId, { digest: pending.digest, signature: await master.signTypedData(pending.typedData as never) });
-          }).catch(error => { errors.push(String(error?.message ?? error)); }).finally(() => { advancing = false; });
+          void api.service.advance(1, setupId).catch(error => { errors.push(String(error?.message ?? error)); }).finally(() => { advancing = false; });
         }
       }
       // The worker's setup pass (the live engine's tick).
@@ -255,9 +253,8 @@ describe('one-click setup throughput on the real testnet buckets', () => {
     expect(db.rows.stages.map(s => s.stage)).toEqual(['mode_set', 'agent_active', 'builder_ready', 'running']);
     expect(elapsed).toBeLessThan(3 * 60_000);
     expect(testnet.posts).toBe(1); // exactly one userSetAbstraction POST (the agent's is simulated)
-    // The mode change and the agent approval, each signed once in the browser
-    // (a budget wait reuses the signature while its nonce lasts).
-    expect(signed).toEqual(['account_mode', 'agent_approval']);
+    // The mode change and the agent approval, each signed once by the worker.
+    expect(signed).toEqual(['HyperliquidTransaction:UserSetAbstraction', 'HyperliquidTransaction:ApproveAgent']);
     expect(errors).toEqual([]);
     expect(meter.peak.rest).toBeLessThanOrEqual(REST_CAP); expect(meter.peak.ws).toBeLessThanOrEqual(WS_CAP);
     expect(meter.refusals).toEqual([]);

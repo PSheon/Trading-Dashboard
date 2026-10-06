@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { copyFundingSchema } from './copy-funding-contracts.js';
-import { copyMasterActionRequestSchema } from './copy-master-action-contracts.js';
 import { copyIdempotencyKeySchema, copyStrategySettingsSchema, liveCopyBudgetSchema } from './schema/copy.js';
 
 /**
@@ -8,9 +7,10 @@ import { copyIdempotencyKeySchema, copyStrategySettingsSchema, liveCopyBudgetSch
  * the owner signs ONE setup consent (this EIP-712 payload) and the funding
  * UsdSend; the server then runs fund → credit → account mode → agent →
  * (builder fee) → mandate → activation, each step bound to this consent's
- * exact values. With the worker policy (COPY_AUTOMATIC_RETURN) the steps
- * after confirm need no open tab; without it the owner's session signs them
- * while the progress dialog is open, and the setup resumes on return.
+ * exact values. Every step after confirm is signed by the worker under the
+ * owner-owned Privy policy the consent binds (the owner's browser adds the
+ * worker as the copy account's signer at confirm), so no tab needs to stay
+ * open.
  */
 const id = z.string().min(1).max(128);
 const address = z.string().regex(/^0x[0-9a-f]{40}$/).refine(value => value !== `0x${'00'.repeat(20)}`, 'Nonzero address required');
@@ -49,8 +49,8 @@ export const liveCopySetupIntentSchema = z.object({
   builderAddress: address.nullable(), builderMaxFeeTenthsOfBps: z.number().int().nonnegative().max(100),
   /** Where every return goes: the owner's main wallet. */
   sweepDestination: address,
-  /** The owner-owned Privy policy that binds the worker's signatures (empty
-   * when the worker policy is off: the owner's session signs instead). */
+  /** The owner-owned Privy policy that binds the worker's signatures (a
+   * start always has one; an edit of a copy without one carries ''). */
   masterPolicyId: z.string().max(128), masterPolicyFingerprint: z.union([hash, z.literal('')]),
   /** The deposit the main wallet signs with this consent (start only; empty otherwise). */
   fundingOperationId: z.union([z.string().uuid(), z.literal('')]), fundingNonce: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), fundingAmount: z.string().max(32),
@@ -102,20 +102,13 @@ export const liveCopySetupStageSchema = z.enum(['provisioning', 'awaiting_consen
   'failed', 'expired', 'cancelled']);
 export type LiveCopySetupStage = z.infer<typeof liveCopySetupStageSchema>;
 export const LIVE_SETUP_TERMINAL: readonly LiveCopySetupStage[] = ['running', 'failed', 'expired', 'cancelled'];
-export const liveCopySetupSignerSchema = z.enum(['owner_session', 'worker_policy']);
 export const liveCopySetupSchema = z.object({
   id: z.string().uuid(), kind: liveCopySetupKindSchema, strategyId: version, accountId: id.nullable(), leaderAddress: address,
   sourceNetwork: z.enum(['testnet', 'mainnet']), budgetUsd: liveCopyBudgetSchema, settings: copyStrategySettingsSchema,
   stage: liveCopySetupStageSchema, issue: z.string().max(80).nullable(),
-  /** Who signs the steps after confirm: the worker (tab may close) or the owner's session (keep the dialog open, or come back). */
-  signer: liveCopySetupSignerSchema.nullable(),
   /** Set while the owner's signature is due (awaiting_consent). */
   consent: liveCopySetupIntentSchema.nullable(),
   funding: copyFundingSchema.nullable(),
-  /** The copy account's next signature, due from the owner's browser (an
-   * owner-session setup): the progress dialog signs it silently and sends it
-   * to /advance with its digest. Null when nothing is due. */
-  pendingSignature: copyMasterActionRequestSchema.nullable(),
   mandateId: id.nullable(), setupDeadline: z.string().datetime().nullable(),
   createdAt: z.string().datetime(), updatedAt: z.string().datetime(),
 }).strict();

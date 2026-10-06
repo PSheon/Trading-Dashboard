@@ -6,6 +6,7 @@ import { UnitOfWork } from "../db/unit-of-work.js";
 import { ProvisioningVerificationPending, ProvisioningWalletConflict, USER_WALLET_PROVISIONER, type UserWalletProvisioner } from "./live/privy-wallet-provisioner.js";
 import { CopyWalletRepository, type AccountRow, type GrantRow, type AgentRow } from "./copy-wallet.repository.js";
 import { MASTER_POLICY, MasterPolicyConflict, type MasterPolicyPort } from "./live/privy-master-policy.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 function account(row: AccountRow): CopyExecutionAccount {
   return { id: row.id, strategyId: row.strategyId, network: row.network, state: row.state,
@@ -35,16 +36,14 @@ export class CopyWalletService {
    * the owner owns (UsdSend only to the owner's main wallet, standard
    * account mode only, no export). Only the owner's browser can add the
    * signer (Privy refuses the server's use of the owner's session): this
-   * records it once Privy shows exactly that signer. Off unless
-   * COPY_AUTOMATIC_RETURN. Repeatable: the policy is created idempotently
+   * records it once Privy shows exactly that signer. Repeatable: the policy is created idempotently
    * per account. Until the browser added it: 409
    * `automatic_return_signer_missing` with the `workerQuorumId` and
    * `policyId` to add (`useSigners().addSigners`), then call again.
    */
   async enableAutomaticReturn(userId: number, id: string): Promise<CopyExecutionAccount> {
-    const { copy } = this.config.value;
-    const quorum = copy.agent?.workerQuorumId;
-    if (copy.mode !== "testnet" || !copy.live?.automaticReturn || !quorum || !this.masterPolicy?.available) {
+    const quorum = this.config.value.copy.agent?.workerQuorumId;
+    if (!this.workerPolicyEnabled || !quorum || !this.masterPolicy) {
       throw new ServiceUnavailableException({ statusCode: 503, code: "setup_unavailable", message: "Automatic return is not available" });
     }
     const user = await this.owner(userId);
@@ -73,9 +72,6 @@ export class CopyWalletService {
     }
   }
 
-  /** Whether new one-click setups get the worker as a policy-bound signer
-   * (COPY_AUTOMATIC_RETURN and a configured worker quorum). Off: the
-   * owner's session signs every step after confirm. */
   /** A ready account with no recorded signer whose wallet Privy shows with a
    * signer: the owner's browser added the worker for a setup whose confirm
    * never recorded it (a closed tab). Adopted when it is exactly the setup's
@@ -86,9 +82,12 @@ export class CopyWalletService {
     if (!policy) return false;
     return this.attachSetupSigner(userId, row.id, policy, { address: policy.agentAddress, name: liveSetupAgentName(policy) });
   }
+  /** Whether the worker can be a copy account's policy-bound signer (a
+   * configured worker quorum and Privy): the only way a copy account is
+   * signed for (2026-10-07), so one-click setups and returns need it. */
   get workerPolicyEnabled(): boolean {
     const { copy } = this.config.value;
-    return copy.mode === "testnet" && Boolean(copy.live?.automaticReturn && copy.agent?.workerQuorumId && this.masterPolicy?.available);
+    return copy.mode === "testnet" && Boolean(copy.agent?.workerQuorumId && this.masterPolicy?.available);
   }
 
   /**
@@ -96,7 +95,7 @@ export class CopyWalletService {
    * so the consent binds its id and fingerprint, owned by the owner, and
    * covering the return, the standard account mode and exactly the consented
    * agent. Null when the worker policy is off or Privy can't create it now
-   * (the setup then runs with the owner's session).
+   * (the setup then waits: no consent without it).
    */
   async prepareSetupPolicy(userId: number, accountId: string, agent: { address: string; name: string }, attemptKey: string): Promise<{ id: string; fingerprint: string } | null> {
     if (!this.workerPolicyEnabled) return null;
@@ -109,8 +108,8 @@ export class CopyWalletService {
       const verified = await this.masterPolicy!.verify(policy.id, user.privyUserId, binding);
       return { id: verified.id, fingerprint: verified.fingerprint };
     } catch (error) {
-      // The setup then runs with the owner's session: say why, never silently.
-      this.logger.warn(`setup policy unavailable for account ${accountId}: ${error instanceof Error ? error.message.slice(0, 160) : "unknown"}`);
+      // The setup waits for it: say why, never silently.
+      this.logger.warn(`setup policy unavailable for account ${accountId}: ${safeErrorText(error)}`);
       return null;
     }
   }
@@ -119,7 +118,7 @@ export class CopyWalletService {
    * At a setup's confirm: once the owner's browser added the worker as the
    * account's only additional signer under the consented policy, checks the
    * result with Privy and records it on the account. False when it isn't
-   * there (the setup then continues with the owner's browser signing).
+   * there (the setup's confirm is then refused: worker_signer_missing).
    */
   async attachSetupSigner(userId: number, accountId: string, policy: { id: string; fingerprint: string }, agent: { address: string; name: string }): Promise<boolean> {
     if (!this.workerPolicyEnabled) return false;
@@ -137,8 +136,8 @@ export class CopyWalletService {
         sweepDestination: binding.ownerMain, signerAttachedAt: new Date(), walletId: row.privyWalletId, address: row.address });
       return Boolean(recorded);
     } catch (error) {
-      // No token or DID: why the signer wasn't recorded (the setup then signs in the owner's browser).
-      this.logger.warn(`setup signer for account ${accountId} not recorded: ${error instanceof Error ? `${error.name} ${error.message}`.slice(0, 160) : "unknown"}`);
+      // No token or DID: why the signer wasn't recorded (the setup's confirm is then refused, nothing deposited).
+      this.logger.warn(`setup signer for account ${accountId} not recorded: ${safeErrorText(error)}`);
       return false;
     }
   }

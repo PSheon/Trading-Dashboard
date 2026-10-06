@@ -8,14 +8,12 @@ import { CopyAgentService } from "../src/copy/copy-agent.service.js";
 import { CopyWalletRepository } from "../src/copy/copy-wallet.repository.js";
 import { CopyWalletService } from "../src/copy/copy-wallet.service.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
-import { agentOwnerConsentTypedData, agentApprovalTypedData, type AgentConsentIntent } from "../src/copy/copy-agent-consent.js";
+import { agentApprovalTypedData, type AgentConsentIntent } from "../src/copy/copy-agent-consent.js";
 import type { UserAgentProvisioner } from "../src/copy/live/privy-agent-provisioner.js";
 import type { AgentApprovalClient } from "../src/copy/copy-agent-exchange.client.js";
 import { testConfig } from "./config-test-utils.js";
 import { closeTestDb, getTestDb, insertUser, truncateAll, type TestDb } from "./db-test-utils.js";
 
-/** The copy account's own signature of the challenge's ApproveAgent, made in the owner's browser. */
-const browserSign = (challenge: { masterAction: { typedData: unknown } }) => master.signTypedData(challenge.masterAction.typedData as never);
 const owner = privateKeyToAccount(`0x${"01".repeat(32)}`);
 const master = privateKeyToAccount(`0x${"02".repeat(32)}`);
 const agent = privateKeyToAccount(`0x${"03".repeat(32)}`);
@@ -48,6 +46,17 @@ beforeEach(async () => {
 });
 afterAll(closeTestDb);
 afterEach(() => vi.restoreAllMocks());
+/** The agent's one-click setup (its consent bound this agent), once. */
+async function linkSetup(id: string) {
+  await db.insert(copyLiveSetups).values({ id: 'setup-1', userId: uid, strategyId, kind: 'start', idempotencyKey: 'agent-signing-setup-0001', leaderAddress: `0x${'44'.repeat(20)}`,
+    sourceNetwork: 'mainnet', budgetUsd: '100', settings: {} }).onConflictDoNothing();
+  await db.update(copyAgentSetups).set({ liveSetupId: 'setup-1' }).where(eq(copyAgentSetups.id, id));
+}
+/** The approval's nonce, as a setup's agent step allocates it. */
+async function challengeOf(id: string) { await linkSetup(id); return { intent: await service.challengeRow(uid, id) }; }
+/** A setup's approval: the worker signs the ApproveAgent as the copy account (a key here). */
+const approveAs = (id: string, userId = uid, on: CopyAgentService = service) => on.submit(userId, id, { kind: "setup", consentDigest: "c".repeat(64),
+  sign: async (_account, intent, assertFresh) => { assertFresh(); return master.signTypedData(agentApprovalTypedData(intent)); } });
 describe("explicit recoverable dedicated strategy agent setup", () => {
   it("prepares a user-owned agent without approval, trading or paper balance changes", async () => {
     const result = await service.prepare(uid, accountId, { idempotencyKey: "prepare-1", validForDays: 7 });
@@ -76,20 +85,19 @@ describe("explicit recoverable dedicated strategy agent setup", () => {
     expect((await service.reconcile(uid, result.id)).state).toBe("ready");
     expect(provider.createWallet).toHaveBeenCalledTimes(1);
   });
-  it("only exact owner-signed consent can approve; grant follows fresh exchange evidence", async () => {
+  it("only the owner's own setup can approve; grant follows fresh exchange evidence", async () => {
     const prepared = await service.prepare(uid, accountId, { idempotencyKey: "prepare-1", validForDays: 7 });
-    const challenge = await service.challenge(uid, prepared.id);
-    const signature = await owner.signTypedData(agentOwnerConsentTypedData(challenge.intent));
-    await expect(service.approve(stranger, prepared.id, signature, await browserSign(challenge))).rejects.toThrow();
+    await challengeOf(prepared.id);
+    await expect(approveAs(prepared.id, stranger)).rejects.toThrow();
     vi.mocked(exchange.send).mockImplementation(async () => {
       const [row] = await db.select().from(copyAgentSetups);
       expect(row.state).toBe("approval_unknown"); expect(row.approvalAttemptedAt).not.toBeNull();
       expect(await db.select().from(copyWalletAuthorizations)).toHaveLength(0);
       approvalExists = true; return { status: "ok", response: { type: "default" } };
     });
-    const result = await service.approve(uid, prepared.id, signature, await browserSign(challenge));
+    const result = await approveAs(prepared.id);
     expect(result.state).toBe("active"); expect(await db.select().from(copyWalletAuthorizations)).toHaveLength(1);
-    await service.approve(uid, prepared.id, signature, await browserSign(challenge));
+    await approveAs(prepared.id);
     expect(exchange.send).toHaveBeenCalledTimes(1);
     expect((await db.select().from(copyStrategies))[0]).toMatchObject({ mode: "paper", cash: "100" });
   });
@@ -100,8 +108,8 @@ describe("explicit recoverable dedicated strategy agent setup", () => {
     const real = new CopyAgentService(new CopyAgentRepository(db), new UnitOfWork(db), testConfig(), realWallets, provider, exchange);
     const [before] = await db.select().from(copyExecutionAccounts);
     const prepared = await real.prepare(uid, accountId, { idempotencyKey: "prepare-1", validForDays: 7 });
-    const challenge = await real.challenge(uid, prepared.id);
-    const result = await real.approve(uid, prepared.id, await owner.signTypedData(agentOwnerConsentTypedData(challenge.intent)), await browserSign(challenge));
+    await challengeOf(prepared.id);
+    const result = await approveAs(prepared.id, uid, real);
     expect(result.state).toBe("active");
     expect(walletProvider.findOwned.mock.calls.length).toBeGreaterThanOrEqual(3);
     const [after] = await db.select().from(copyExecutionAccounts);
@@ -109,81 +117,73 @@ describe("explicit recoverable dedicated strategy agent setup", () => {
   });
   it("an approval whose POST never reached the transport is ready again (same nonce), not pending forever", async () => {
     const prepared = await service.prepare(uid, accountId, { idempotencyKey: "prepare-1", validForDays: 7 });
-    const challenge = await service.challenge(uid, prepared.id);
+    const challenge = await challengeOf(prepared.id);
     vi.mocked(exchange.send).mockRejectedValueOnce(new LiveBoundaryError("agent_approval_not_dispatched"));
-    const signature = await owner.signTypedData(agentOwnerConsentTypedData(challenge.intent));
-    expect(await service.approve(uid, prepared.id, signature, await browserSign(challenge))).toMatchObject({ state: "ready", issue: "agent_approval_not_submitted" });
+    expect(await approveAs(prepared.id)).toMatchObject({ state: "ready", issue: "agent_approval_not_submitted" });
     expect((await db.select().from(copyAgentSetups))[0]).toMatchObject({ approvalAttemptedAt: null, approvalNonce: challenge.intent.nonce });
-    expect((await service.approve(uid, prepared.id, signature, await browserSign(challenge))).state).toBe("active");
+    expect((await approveAs(prepared.id)).state).toBe("active");
     expect(exchange.send).toHaveBeenCalledTimes(2);
   });
   it("accepted but unobserved approval stays pending across restart, never resubmits", async () => {
     const prepared = await service.prepare(uid, accountId, { idempotencyKey: "prepare-1", validForDays: 7 });
-    const challenge = await service.challenge(uid, prepared.id);
+    await challengeOf(prepared.id);
     vi.mocked(exchange.send).mockImplementation(async () => { throw new Error("ambiguous"); });
-    const signature = await owner.signTypedData(agentOwnerConsentTypedData(challenge.intent));
-    expect((await service.approve(uid, prepared.id, signature, await browserSign(challenge))).state).toBe("approval_unknown");
+    expect((await approveAs(prepared.id)).state).toBe("approval_unknown");
     expect((await service.reconcile(uid, prepared.id)).state).toBe("approval_unknown");
     expect(exchange.send).toHaveBeenCalledTimes(1); expect(await db.select().from(copyWalletAuthorizations)).toHaveLength(0);
     approvalExists = true;
     expect((await service.reconcile(uid, prepared.id)).state).toBe("active");
   });
-  it("owner disablement after the browser signed blocks the exchange POST", async () => {
+  it("owner disablement after the worker signed blocks the exchange POST", async () => {
     const prepared = await service.prepare(uid, accountId, { idempotencyKey: "prepare-1", validForDays: 7 });
-    const challenge = await service.challenge(uid, prepared.id);
-    // Disabled after the browser signed, before the final identity proof.
+    await challengeOf(prepared.id);
+    // Disabled after the worker signed, before the final identity proof.
     vi.mocked(exchange.acquire).mockImplementation(async () => { await db.update(users).set({ disabledAt: new Date() }).where(eq(users.id, uid)); });
-    const signature = await owner.signTypedData(agentOwnerConsentTypedData(challenge.intent));
-    await expect(service.approve(uid, prepared.id, signature, await browserSign(challenge))).rejects.toThrow();
+    await expect(approveAs(prepared.id)).rejects.toThrow();
     expect(exchange.send).not.toHaveBeenCalled(); expect(await db.select().from(copyWalletAuthorizations)).toHaveLength(0);
   });
   it("changed policy or worker identity cannot produce a grant", async () => {
     const prepared = await service.prepare(uid, accountId, { idempotencyKey: "prepare-1", validForDays: 7 });
-    const challenge = await service.challenge(uid, prepared.id);
+    await challengeOf(prepared.id);
     vi.mocked(provider.findOwned).mockResolvedValue({ id: "agent-wallet", address: agent.address.toLowerCase(), externalId: "wrong", ownerQuorumId: "user-quorum", policyId: "user-policy", workerQuorumId: "other-worker" });
-    const signature = await owner.signTypedData(agentOwnerConsentTypedData(challenge.intent));
-    await expect(service.approve(uid, prepared.id, signature, await browserSign(challenge))).rejects.toThrow();
+    await expect(approveAs(prepared.id)).rejects.toThrow();
     expect(await db.select().from(copyWalletAuthorizations)).toHaveLength(0);
   });
   it("concurrent observers issue only one grant", async () => {
     const prepared = await service.prepare(uid, accountId, { idempotencyKey: "prepare-1", validForDays: 7 });
-    const challenge = await service.challenge(uid, prepared.id);
+    await challengeOf(prepared.id);
     vi.mocked(exchange.send).mockRejectedValue(new Error("lost response"));
-    await service.approve(uid, prepared.id, await owner.signTypedData(agentOwnerConsentTypedData(challenge.intent)), await browserSign(challenge));
+    await approveAs(prepared.id);
     approvalExists = true;
     const replica = new CopyAgentService(new CopyAgentRepository(db), new UnitOfWork(db), testConfig(), wallets as never, provider, exchange);
     const results = await Promise.all([service.reconcile(uid, prepared.id), replica.reconcile(uid, prepared.id)]);
     expect(results.every(row => row.state === "active")).toBe(true);
     expect(await db.select().from(copyWalletAuthorizations)).toHaveLength(1);
   });
-  it("local revocation is reflected in setup and cannot be restored by replaying consent", async () => {
+  it("local revocation is reflected in setup and cannot be restored by approving again", async () => {
     const prepared = await service.prepare(uid, accountId, { idempotencyKey: "prepare-1", validForDays: 7 });
-    const challenge = await service.challenge(uid, prepared.id);
-    const signature = await owner.signTypedData(agentOwnerConsentTypedData(challenge.intent));
-    const active = await service.approve(uid, prepared.id, signature, await browserSign(challenge));
+    await challengeOf(prepared.id);
+    const active = await approveAs(prepared.id);
     await db.update(copyWalletAuthorizations).set({ revokedAt: new Date(), version: 2 }).where(eq(copyWalletAuthorizations.id, active.authorizationId!));
     expect((await service.overview(uid)).setups[0].state).toBe("revoked");
-    await expect(service.approve(uid, prepared.id, signature, await browserSign(challenge))).rejects.toThrow();
+    await expect(approveAs(prepared.id)).rejects.toThrow();
     expect(exchange.send).toHaveBeenCalledTimes(1);
     expect(await db.select().from(copyWalletAuthorizations)).toHaveLength(1);
   });
   it("a policy changed while waiting for exchange budget blocks the approval POST", async () => {
     const prepared = await service.prepare(uid, accountId, { idempotencyKey: "prepare-1", validForDays: 7 });
-    const challenge = await service.challenge(uid, prepared.id);
+    await challengeOf(prepared.id);
     vi.mocked(exchange.acquire).mockImplementation(async () => {
       vi.mocked(provider.verifyPolicy).mockResolvedValue({ id: "user-policy", ownerQuorumId: "user-quorum", fingerprint: "b".repeat(64) });
     });
-    await expect(service.approve(uid, prepared.id, await owner.signTypedData(agentOwnerConsentTypedData(challenge.intent)), await browserSign(challenge))).rejects.toThrow();
+    await expect(approveAs(prepared.id)).rejects.toThrow();
     expect(exchange.send).not.toHaveBeenCalled();
     expect(await db.select().from(copyWalletAuthorizations)).toHaveLength(0);
   });
 
   it("carries the original identity proof to a setup's signing boundary", async () => {
     const prepared = await service.prepare(uid, accountId, { idempotencyKey: 'signing-proof', validForDays: 7 });
-    await service.challenge(uid, prepared.id);
-    await db.insert(copyLiveSetups).values({ id: 'setup-1', userId: uid, strategyId, kind: 'start', idempotencyKey: 'agent-signing-setup-0001', leaderAddress: `0x${'44'.repeat(20)}`,
-      sourceNetwork: 'mainnet', budgetUsd: '100', settings: {} });
-    await db.update(copyAgentSetups).set({ liveSetupId: 'setup-1' }).where(eq(copyAgentSetups.id, prepared.id));
+    await challengeOf(prepared.id);
     let nativeCalls = 0;
     const sign = async (_account: unknown, intent: AgentConsentIntent, guard: () => void) => {
       const now = Date.now(), clock = vi.spyOn(Date, 'now').mockReturnValue(now + 5001);
@@ -197,24 +197,24 @@ describe("explicit recoverable dedicated strategy agent setup", () => {
 
   it('rechecks original identity proof after global exchange admission and preserves the attempted nonce', async () => {
     const prepared = await service.prepare(uid, accountId, { idempotencyKey: 'sending-proof', validForDays: 7 });
-    const challenge = await service.challenge(uid, prepared.id), signature = await owner.signTypedData(agentOwnerConsentTypedData(challenge.intent));
+    await challengeOf(prepared.id);
     let nativeCalls = 0;
     vi.mocked(exchange.send).mockImplementation(async (_intent, _signature, guard?: () => void) => {
       const now = Date.now(), clock = vi.spyOn(Date, 'now').mockReturnValue(now + 5001);
       try { if (!guard) throw new Error('missing native send guard'); guard(); nativeCalls++; return { status: 'ok', response: { type: 'default' } }; }
       finally { clock.mockRestore(); }
     });
-    expect((await service.approve(uid, prepared.id, signature, await browserSign(challenge))).state).toBe('approval_unknown');
+    expect((await approveAs(prepared.id)).state).toBe('approval_unknown');
     expect(vi.mocked(exchange.send).mock.calls[0][2]).toEqual(expect.any(Function)); expect(nativeCalls).toBe(0);
-    await service.approve(uid, prepared.id, signature, await browserSign(challenge)); expect(exchange.send).toHaveBeenCalledTimes(1);
+    await approveAs(prepared.id); expect(exchange.send).toHaveBeenCalledTimes(1);
     expect((await db.select().from(copyAgentSetups))[0].approvalAttemptedAt).not.toBeNull();
   });
 
   async function pendingApproval() {
     const prepared = await service.prepare(uid, accountId, { idempotencyKey: "fresh-proof", validForDays: 7 });
-    const challenge = await service.challenge(uid, prepared.id);
+    await challengeOf(prepared.id);
     vi.mocked(exchange.send).mockRejectedValue(new Error("response lost"));
-    const result = await service.approve(uid, prepared.id, await owner.signTypedData(agentOwnerConsentTypedData(challenge.intent)), await browserSign(challenge));
+    const result = await approveAs(prepared.id);
     expect(result.state).toBe("approval_unknown"); approvalExists = true; return result;
   }
 

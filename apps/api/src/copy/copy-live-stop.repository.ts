@@ -1,10 +1,10 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, desc, eq, getTableColumns, inArray, isNotNull, ne, or, sql } from 'drizzle-orm';
-import { liveCopyStopSchema, liveStopCancellationIntentSchema, type RequestLiveCopyStop } from '@trading-dashboard/shared/contracts';
-import { copyAgentSetups, copyExecutionAccounts, copyExecutionWallets, copyLiveExecutions, copyLiveIntentProvenance, copyLiveMandates,
-  copyLiveRiskReservations, copyLiveStopConsents, copyLiveStopOperations, copyStrategies, copyWalletAuthorizations } from '@trading-dashboard/shared/database';
+import { liveCopyStopSchema, type RequestLiveCopyStop } from '@trading-dashboard/shared/contracts';
+import { copyAgentSetups, copyExecutionAccounts, copyLiveExecutions, copyLiveIntentProvenance, copyLiveMandates,
+  copyLiveRiskReservations, copyLiveStopOperations, copyStrategies } from '@trading-dashboard/shared/database';
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
 import type { DbTransaction } from '../db/unit-of-work.js';
@@ -12,7 +12,6 @@ import { CopyLiveMandateRepository } from './copy-live-mandate.repository.js';
 import { liveSourceDigest } from './live/copy-live-source-evidence.js';
 import { buildOrderAction, executionKey, intentFingerprint, type LiveOrderIntent } from './live/live-order.js';
 import { decodeLiveExecutionRow, immutableLiveExecution } from './live/postgres-live-journal.js';
-import { liveStopCancellationIntentDigest } from './copy-live-stop-consent.js';
 
 type StopRow = typeof copyLiveStopOperations.$inferSelect;
 const conflict = (code = 'live_stop_binding_changed'): never => { throw new ConflictException({ statusCode: 409, code, message: 'Refresh the original stop operation' }); };
@@ -81,59 +80,6 @@ export class CopyLiveStopRepository {
       this.assertStored(row, await this.context(tx, userId, row.mandateId)); items.push(this.wire(row));
     }
     return { items, truncated: ids.length > 100 };
-  }
-  /** The current cancellation consent intent of a cancelling stop, created
-   * on first request (five-minute approval window, thirty-minute lifetime,
-   * bound to the stop's current revision and the account's current agent). */
-  async cancellationChallenge(tx: DbTransaction, userId: number, stopId: string, clock: () => number) {
-    await this.lock(tx, userId);
-    const [stop] = await tx.select().from(copyLiveStopOperations).where(and(eq(copyLiveStopOperations.id, stopId), eq(copyLiveStopOperations.userId, userId))).for('update');
-    if (!stop) throw new NotFoundException('Stop not found');
-    const context = await this.context(tx, userId, stop.mandateId); this.assertStored(stop, context);
-    if (stop.state !== 'cancelling') conflict('live_stop_not_cancelling');
-    const now = clock();
-    const [held] = await tx.select().from(copyLiveStopConsents).where(eq(copyLiveStopConsents.stopId, stop.id)).for('update');
-    if (held) {
-      const parsed = liveStopCancellationIntentSchema.safeParse(held.intent);
-      if (parsed.success && parsed.data.capturedStopRevision === stop.revision && (held.consentDigest ? parsed.data.expiresAt > now + 60_000 : parsed.data.consentExpiresAt > now + 30_000))
-        return { stopId: stop.id, intent: parsed.data, consented: held.consentDigest !== null };
-    }
-    const [row] = await tx.select({ setup: copyAgentSetups, wallet: copyExecutionWallets, grant: copyWalletAuthorizations }).from(copyAgentSetups)
-      .innerJoin(copyWalletAuthorizations, eq(copyWalletAuthorizations.id, copyAgentSetups.authorizationId))
-      .innerJoin(copyExecutionWallets, eq(copyExecutionWallets.id, copyWalletAuthorizations.walletId))
-      .where(and(eq(copyAgentSetups.accountId, stop.accountId), eq(copyAgentSetups.state, 'active')));
-    if (!row || row.grant.revokedAt || !row.setup.agentWalletId || !row.setup.agentAddress || !row.setup.agentOwnerQuorumId || !row.setup.policyId || !row.setup.policyFingerprint) conflict('live_stop_agent_unavailable');
-    // The grant must outlive the consent: approval window first, then lifetime.
-    const expiresAt = Math.min(now + 1_800_000, row!.grant.expiresAt.getTime()), consentExpiresAt = Math.min(now + 300_000, expiresAt - 30_000);
-    if (consentExpiresAt <= now + 10_000) conflict('live_stop_agent_expiring');
-    const intent = liveStopCancellationIntentSchema.parse({ authorizationId: `stop-cancel:${stop.id}`, stopId: stop.id, accountId: stop.accountId, strategyId: stop.strategyId,
-      userId, network: 'testnet', purpose: 'cancel_tracked_orders', schemaVersion: 1, capturedStopRevision: stop.revision, targetDigest: stop.targetDigest,
-      accountAddress: stop.accountAddress, accountRevision: context.account.revision, accountWalletId: stop.accountWalletId, accountOwnerQuorumId: stop.accountOwnerQuorumId,
-      ownerPrivyUserId: stop.ownerPrivyUserId, ownerAddress: stop.ownerAddress, setupId: row!.setup.id, setupRevision: row!.setup.revision, executionWalletId: row!.wallet.id,
-      agentWalletId: row!.setup.agentWalletId, agentAddress: row!.setup.agentAddress, agentOwnerQuorumId: row!.setup.agentOwnerQuorumId, workerQuorumId: row!.setup.workerQuorumId,
-      grantId: row!.grant.id, grantVersion: row!.grant.version, grantValidFrom: row!.grant.validFrom.getTime(), grantExpiresAt: row!.grant.expiresAt.getTime(),
-      policyId: row!.setup.policyId, policyFingerprint: row!.setup.policyFingerprint, nonce: now, consentExpiresAt, expiresAt });
-    const values = { userId, intent: intent as unknown as Record<string, unknown>, intentDigest: liveStopCancellationIntentDigest(intent), consentDigest: null, verifiedAt: null,
-      expiresAt: new Date(intent.expiresAt), updatedAt: new Date(now) };
-    await tx.insert(copyLiveStopConsents).values({ stopId: stop.id, ...values, createdAt: new Date(now) }).onConflictDoUpdate({ target: copyLiveStopConsents.stopId, set: values });
-    return { stopId: stop.id, intent, consented: false };
-  }
-  /** Records the owner's verified consent (its digest; never the signature). */
-  async approveCancellation(tx: DbTransaction, userId: number, stopId: string, intentDigest: string, signature: string, clock: () => number) {
-    await this.lock(tx, userId);
-    const [stop] = await tx.select().from(copyLiveStopOperations).where(and(eq(copyLiveStopOperations.id, stopId), eq(copyLiveStopOperations.userId, userId))).for('update');
-    const [held] = await tx.select().from(copyLiveStopConsents).where(eq(copyLiveStopConsents.stopId, stopId)).for('update');
-    if (!stop || !held) throw new NotFoundException('Stop not found');
-    const parsed = liveStopCancellationIntentSchema.safeParse(held.intent);
-    if (stop.state !== 'cancelling' || held.intentDigest !== intentDigest || !parsed.success || parsed.data.capturedStopRevision !== stop.revision) conflict('live_stop_consent_changed');
-    const now = clock(), consentDigest = createHash('sha256').update(signature.toLowerCase()).digest('hex');
-    if (held.consentDigest && held.consentDigest !== consentDigest) conflict('live_stop_consent_changed');
-    await tx.update(copyLiveStopConsents).set({ consentDigest, verifiedAt: new Date(now), updatedAt: new Date(now) }).where(eq(copyLiveStopConsents.stopId, stopId));
-    return { stopId, intent: parsed.data!, consented: true };
-  }
-  async consentIntent(userId: number, stopId: string) {
-    const [held] = await this.db.select().from(copyLiveStopConsents).where(and(eq(copyLiveStopConsents.stopId, stopId), eq(copyLiveStopConsents.userId, userId)));
-    return held ?? null;
   }
   async request(tx: DbTransaction, userId: number, mandateId: string, input: RequestLiveCopyStop, clock: () => number) {
     await this.lock(tx, userId);

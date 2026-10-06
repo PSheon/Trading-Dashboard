@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { privateKeyToAccount } from 'viem/accounts';
-import { hashTypedData, verifyTypedData, type TypedDataDefinition } from 'viem';
+import { verifyTypedData, type TypedDataDefinition } from 'viem';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { adminSettingsSchema, DEFAULT_COPY_RISK_LIMITS, liveCopySetupConsentTypedData, liveCopySetupSchema, usdSendTypedData, WALLET_NETWORKS, type LiveCopySetup, type LiveCopySetupIntent } from '@trading-dashboard/shared/contracts';
+import { adminSettingsSchema, DEFAULT_COPY_RISK_LIMITS, liveCopySetupConsentTypedData, liveCopySetupSchema, usdSendTypedData, WALLET_NETWORKS, type LiveCopySetupIntent } from '@trading-dashboard/shared/contracts';
 import { appSettings, copyAgentSetups, copyControls, copyExecutionAccounts, copyExecutionWallets, copyFundingOperations, copyLiveActivations, copyLiveMandates, copyLiveSetups,
   copyLiveStrategyConfigs, copyRiskPolicies, copyStrategies, copyWalletAuthorizations, leaders } from '@trading-dashboard/shared/database';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
@@ -24,7 +24,7 @@ import { closeTestDb, getTestDb, insertUser, openCopyTrading, truncateAll, type 
 // wallet, agent, mode and deposit steps are doubles that keep the same rows
 // the real services keep, so the generation step runs the real preparation.
 const owner = privateKeyToAccount(`0x${'01'.repeat(32)}`), stranger = privateKeyToAccount(`0x${'05'.repeat(32)}`);
-// The copy account: a Privy wallet the owner alone owns, which signs in their browser.
+// The copy account: a Privy wallet the owner alone owns; the worker signs for it under the owner's policy.
 const copyAccount = privateKeyToAccount(`0x${'03'.repeat(32)}`);
 const leader = `0x${'44'.repeat(20)}`, accountAddress = copyAccount.address.toLowerCase(), agentAddress = `0x${'33'.repeat(20)}`;
 const settings = { direction: 'same' as const, sizingMode: 'ratio' as const, perTradeUsd: null, maxTotalExposureUsd: null, maxLeverage: 5, copyStartMode: 'delta' as const };
@@ -138,15 +138,6 @@ async function credit() {
   await db.update(copyFundingOperations).set({ status: 'credited', transactionHash: `0x${'f'.repeat(64)}`, creditedAmount: '100', fee: '0', evidenceHash: 'd'.repeat(64) }).where(eq(copyFundingOperations.direction, 'to_account'));
 }
 const later = (ms: number) => { clock += ms; };
-/** The progress dialog: signs the pending action with the copy account (in
- * the browser) and sends it with its digest. */
-async function signPending(setup: LiveCopySetup, signer = copyAccount) {
-  const pending = setup.pendingSignature!;
-  expect(pending.account).toBe(accountAddress);
-  const signature = await signer.signTypedData(pending.typedData as never);
-  return service.advance(uid, setup.id, { digest: pending.digest, signature });
-}
-
 beforeAll(() => { db = getTestDb(); });
 beforeEach(async () => {
   await truncateAll(db); vi.clearAllMocks(); flags.worker = true; flags.attach = true; flags.ticking = false; clock = Date.now();
@@ -195,7 +186,8 @@ describe('one-click testnet copy setup', () => {
   it("with the worker policy: confirm records the signer the owner's browser added, sends the deposit once; the worker finishes with the tab closed", async () => {
     const setup = await start();
     const confirmed = await service.confirm(uid, setup.id, await sign(setup.consent!));
-    expect(confirmed).toMatchObject({ stage: 'funding_submitted', signer: 'worker_policy', pendingSignature: null });
+    expect(confirmed).toMatchObject({ stage: 'funding_submitted' });
+    expect(confirmed).not.toHaveProperty('signer'); expect(confirmed).not.toHaveProperty('pendingSignature');
     // Checked with Privy (the browser added it: only the owner can), never with the owner's session.
     expect(fakes.wallets.attachSetupSigner).toHaveBeenCalledExactlyOnceWith(uid, setup.consent!.accountId, { id: 'master-policy', fingerprint: 'c'.repeat(64) },
       { address: agentAddress, name: `copy${setup.strategyId} valid_until ${setup.consent!.agentValidUntil}` });
@@ -208,7 +200,7 @@ describe('one-click testnet copy setup', () => {
     await credit(); later(5_000);
     await service.tick();
     const done = await service.get(uid, setup.id);
-    expect(done).toMatchObject({ stage: 'running', pendingSignature: null });
+    expect(done).toMatchObject({ stage: 'running' });
     expect(workerSign).toHaveBeenCalledTimes(2);
     const [modeCall, agentCall] = workerSign.mock.calls as unknown as [[unknown, { primaryType: string; message: Record<string, unknown> }, unknown, number], [unknown, { primaryType: string; message: Record<string, unknown> }, unknown, number]];
     expect(modeCall[1]).toMatchObject({ primaryType: 'HyperliquidTransaction:UserSetAbstraction', message: { user: accountAddress, abstraction: 'disabled', hyperliquidChain: 'Testnet' } });
@@ -217,18 +209,14 @@ describe('one-click testnet copy setup', () => {
     expect(modeCall[2]).toEqual({ network: 'testnet', account: accountAddress });
     expect(agentCall[1]).toMatchObject({ primaryType: 'HyperliquidTransaction:ApproveAgent', message: { agentAddress, agentName: `copy${setup.strategyId} valid_until ${setup.consent!.agentValidUntil}` } });
     expect(agentCall[2]).toEqual({ network: 'testnet', agent: { address: agentAddress, name: `copy${setup.strategyId} valid_until ${setup.consent!.agentValidUntil}` } });
+    // The approval's own nonce was allocated first (the agent service's submit needs it).
+    expect(fakes.agents.challengeRow).toHaveBeenCalledTimes(1);
+    expect(agentCall[1].message.nonce).toBe(agentIntent!.nonce);
     const [mandate] = await db.select().from(copyLiveMandates);
     const consentDigest = createHash('sha256').update(JSON.stringify((await sign(setup.consent!)).consentSignature.toLowerCase())).digest('hex');
     expect(mandate).toMatchObject({ state: 'active', consentKind: 'setup', liveSetupId: setup.id, consentDigest, leaderAddress: leader, sourceNetwork: 'mainnet', budgetUsd: '100', agentAddress });
     expect((await db.select().from(copyLiveActivations))[0]).toMatchObject({ mandateId: mandate!.id, state: 'pending' });
     expect(done.mandateId).toBe(mandate!.id);
-  });
-
-  it("a signer the browser didn't add (declined, Privy refused) falls back to the browser signing", async () => {
-    flags.attach = false;
-    const setup = await start();
-    expect((await service.confirm(uid, setup.id, await sign(setup.consent!))).signer).toBe('owner_session');
-    expect((await db.select().from(copyExecutionAccounts))[0]!.masterPolicyId).toBeNull();
   });
 
   it('a signer the browser added is recorded even when the consent itself is then refused (never left unrecorded on the wallet)', async () => {
@@ -240,104 +228,19 @@ describe('one-click testnet copy setup', () => {
     expect(fakes.funding.submit).not.toHaveBeenCalled();
   });
 
-  it("the owner's browser signs: each step parks its exact payload, the dialog's signature is checked, then the step is submitted with it", async () => {
-    flags.worker = false;
-    const setup = await start();
-    expect(setup.consent!.masterPolicyId).toBe('');
-    expect((await service.confirm(uid, setup.id, await sign(setup.consent!))).signer).toBe('owner_session');
-    await credit(); later(5_000);
-    await service.tick();
-    // The worker leaves the signature steps to the dialog.
-    expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'funded', issue: 'awaiting_owner_session', pendingSignature: null });
-    // The dialog asks: the mode change is parked, nothing submitted yet.
-    const parked = await service.advance(uid, setup.id);
-    expect(parked).toMatchObject({ stage: 'funded', issue: 'awaiting_owner_signature' });
-    expect(parked.pendingSignature).toMatchObject({ kind: 'account_mode', account: accountAddress, expiresAt: modeIntent!.consentExpiresAt - 65_000,
-      typedData: { primaryType: 'HyperliquidTransaction:UserSetAbstraction', message: { hyperliquidChain: 'Testnet', user: accountAddress, abstraction: 'disabled', nonce: modeIntent!.nonce } } });
-    expect(parked.pendingSignature!.digest).toBe(hashTypedData(parked.pendingSignature!.typedData as never));
-    expect(fakes.modes.submit).not.toHaveBeenCalled();
-    // Polling again without a signature runs nothing.
-    later(3_000); expect((await service.advance(uid, setup.id)).pendingSignature).toEqual(parked.pendingSignature);
-    expect(fakes.modes.setupNonce).toHaveBeenCalledTimes(1);
-    // The signature: verified, then the mode step goes on with exactly it.
-    const moded = await signPending(parked);
-    expect(moded).toMatchObject({ stage: 'mode_set', issue: 'awaiting_owner_signature' });
-    expect(fakes.modes.submit).toHaveBeenCalledTimes(1);
-    expect(await verifyTypedData({ address: copyAccount.address, ...(parked.pendingSignature!.typedData as unknown as TypedDataDefinition), signature: signed[0] as `0x${string}` })).toBe(true);
-    // Then the agent: the consented agent and name, its own nonce.
-    expect(moded.pendingSignature).toMatchObject({ kind: 'agent_approval', account: accountAddress, expiresAt: agentIntent!.consentExpiresAt - 15_000,
-      typedData: { primaryType: 'HyperliquidTransaction:ApproveAgent', message: { agentAddress, agentName: `copy${setup.strategyId} valid_until ${setup.consent!.agentValidUntil}`, nonce: agentIntent!.nonce } } });
-    expect(fakes.agents.submit).not.toHaveBeenCalled();
-    const done = await signPending(moded);
-    expect(done).toMatchObject({ stage: 'running', pendingSignature: null });
-    expect(fakes.agents.submit).toHaveBeenCalledTimes(1);
-    expect(signed).toHaveLength(2);
-    expect(workerSign).not.toHaveBeenCalled();
-  });
-
-  it("refuses every other signature with its own code, and takes the same one twice without submitting twice", async () => {
-    flags.worker = false;
-    const setup = await start();
-    await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit(); later(5_000);
-    await expect(service.advance(uid, setup.id, { digest: `0x${'ab'.repeat(32)}`, signature: `0x${'ab'.repeat(65)}` })).rejects.toMatchObject({ status: 409, response: { code: 'owner_signature_not_requested' } });
-    await expect(service.advance(uid, setup.id, { signature: `0x${'ab'.repeat(65)}` })).rejects.toMatchObject({ status: 400, response: { code: 'owner_signature_malformed' } });
-    const parked = await service.advance(uid, setup.id);
-    const pending = parked.pendingSignature!;
-    // Signed by another key (the main wallet), or for other typed data.
-    await expect(service.advance(uid, setup.id, { digest: pending.digest, signature: await owner.signTypedData(pending.typedData as never) })).rejects.toMatchObject({ status: 403, response: { code: 'owner_signature_invalid' } });
-    const other = { ...pending.typedData, message: { ...pending.typedData.message, nonce: Number(pending.typedData.message.nonce) + 1 } };
-    await expect(service.advance(uid, setup.id, { digest: pending.digest, signature: await copyAccount.signTypedData(other as never) })).rejects.toMatchObject({ status: 403, response: { code: 'owner_signature_invalid' } });
-    await expect(service.advance(uid, setup.id, { digest: hashTypedData(other as never), signature: await copyAccount.signTypedData(other as never) })).rejects.toMatchObject({ status: 409, response: { code: 'owner_signature_stale' } });
-    // A payload the row says is pending but that changed since it was parked.
-    await db.update(copyLiveSetups).set({ pendingSignature: { ...pending, typedData: other } });
-    await expect(service.advance(uid, setup.id, { digest: pending.digest, signature: await copyAccount.signTypedData(pending.typedData as never) })).rejects.toMatchObject({ status: 409, response: { code: 'owner_signature_stale' } });
-    await db.update(copyLiveSetups).set({ pendingSignature: pending });
-    expect(fakes.modes.submit).not.toHaveBeenCalled();
-    // The right one, twice (a retried request): one submission.
-    const signature = await copyAccount.signTypedData(pending.typedData as never);
-    expect((await service.advance(uid, setup.id, { digest: pending.digest, signature })).stage).toBe('mode_set');
-    expect((await service.advance(uid, setup.id, { digest: pending.digest, signature })).stage).toBe('mode_set');
-    expect(fakes.modes.submit).toHaveBeenCalledTimes(1);
-    // A pending action past its time is refused, and a new one follows.
-    const agentPending = (await service.get(uid, setup.id)).pendingSignature!;
-    later(300_000);
-    expect((await service.get(uid, setup.id)).pendingSignature).toBeNull();
-    await expect(service.advance(uid, setup.id, { digest: agentPending.digest, signature: await copyAccount.signTypedData(agentPending.typedData as never) }))
-      .rejects.toMatchObject({ status: 409, response: { code: 'owner_signature_expired' } });
-    const renewed = await service.advance(uid, setup.id);
-    expect(renewed.pendingSignature!.digest).not.toBe(agentPending.digest);
-    expect((await signPending(renewed)).stage).toBe('running');
-    expect(fakes.agents.submit).toHaveBeenCalledTimes(1);
-  });
-
   it('starts the copy on a real clock: the generation is activated no earlier than it was created (Stage 2026-10-06)', async () => {
-    flags.worker = false;
     const setup = await start();
     await service.confirm(uid, setup.id, await sign(setup.consent!));
     await credit(); later(5_000);
-    const moded = await signPending(await service.advance(uid, setup.id));
     // Every read of the clock moves it on, as Date.now() does: the mandate
     // step read the time before the generation row took its created_at.
     flags.ticking = true;
-    expect(await signPending(moded)).toMatchObject({ stage: 'running', issue: null });
+    await service.tick();
+    expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'running', issue: null });
     const [mandate] = await db.select().from(copyLiveMandates);
     expect(mandate!.state).toBe('active');
     expect(mandate!.activationCursor!.getTime()).toBeGreaterThanOrEqual(mandate!.createdAt.getTime());
   });
-  it('a setup stopped at the account step under the old server-side signing continues with the browser, no new setup', async () => {
-    flags.worker = false;
-    const setup = await start();
-    await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit(); later(5_000);
-    await service.tick();
-    // As Paul's Stage setup was left: funded, refused by Privy's session exchange, backing off.
-    await db.update(copyLiveSetups).set({ issue: 'master_action_signing_unavailable', attempts: 3, nextAttemptAt: new Date(clock + 24_000) });
-    expect((await service.advance(uid, setup.id)).pendingSignature).toBeNull();
-    later(25_000);
-    const parked = await service.advance(uid, setup.id);
-    expect(parked).toMatchObject({ stage: 'funded', pendingSignature: { kind: 'account_mode' } });
-    expect((await signPending(await signPending(parked))).stage).toBe('running');
-  });
-
   it('never resends an attempted step: an unknown mode submission is only reconciled, then continues', async () => {
     const setup = await start();
     await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit(); later(5_000);
@@ -354,13 +257,12 @@ describe('one-click testnet copy setup', () => {
   });
 
   it('past its deadline nothing new is signed: the setup expires (the funds stay withdrawable)', async () => {
-    flags.worker = false;
     const setup = await start();
     await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit();
     later(25 * 3_600_000);
     await service.advance(uid, setup.id);
-    expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'expired', issue: 'setup_expired', pendingSignature: null });
-    expect(fakes.modes.setupNonce).not.toHaveBeenCalled();
+    expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'expired', issue: 'setup_expired' });
+    expect(workerSign).not.toHaveBeenCalled(); expect(fakes.modes.submit).not.toHaveBeenCalled();
   });
 
   it("a deposit Hyperliquid took but never credited ends the setup at its deadline, and no longer holds cancel or account deletion", async () => {
@@ -397,43 +299,22 @@ describe('one-click testnet copy setup', () => {
     expect((await start('setup-start-key-000003', { leader: other })).stage).toBe('awaiting_consent');
   });
 
-  it('the dialog runs no step sooner than it was told: a busy shared Hyperliquid window is a wait of at least 65 s, not a failure', async () => {
-    flags.worker = false;
+  it('no step runs sooner than it was told: a busy shared Hyperliquid window is a wait of at least 65 s, not a failure', async () => {
     const setup = await start();
     await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit(); later(5_000);
     fakes.modes.submit.mockRejectedValueOnce(new HyperliquidBudgetWait(20_000, 'shared_capacity'));
-    const parked = await service.advance(uid, setup.id);
-    expect(await signPending(parked)).toMatchObject({ stage: 'funded', issue: 'hyperliquid_busy' });
+    expect(await service.advance(uid, setup.id)).toMatchObject({ stage: 'funded', issue: 'hyperliquid_busy' });
     const [row] = await db.select().from(copyLiveSetups);
     expect(row!.nextAttemptAt!.getTime()).toBeGreaterThanOrEqual(clock + 65_000); expect(row!.attempts).toBe(0);
-    // The dialog keeps polling every 3 s: nothing runs until then.
-    for (let i = 0; i < 20; i++) { later(3_000); await service.advance(uid, setup.id); }
+    // Asked to drive every 3 s (and the worker's pass): nothing runs until then.
+    for (let i = 0; i < 20; i++) { later(3_000); await service.advance(uid, setup.id); await service.tick(); }
     expect(fakes.modes.submit).toHaveBeenCalledTimes(1);
     later(6_000);
-    // The stored signature is used again (the same nonce): no new prompt.
-    const moded = await service.advance(uid, setup.id);
-    expect(moded.stage).toBe('mode_set');
+    expect((await service.advance(uid, setup.id)).stage).toBe('running');
     expect(fakes.modes.submit).toHaveBeenCalledTimes(2);
-    expect((await signPending(moded)).stage).toBe('running');
-  });
-
-  it("the worker leaves an owner-session setup's signature steps to the open dialog: no reads, its issue and lease untouched, until its deadline", async () => {
-    flags.worker = false;
-    const setup = await start();
-    await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit(); later(5_000);
-    await service.tick(); // the deposit is credited: funded
-    expect((await service.get(uid, setup.id)).stage).toBe('funded');
-    await db.update(copyLiveSetups).set({ issue: 'hyperliquid_busy', nextAttemptAt: null });
-    mode.submissionState = 'unknown'; vi.clearAllMocks();
-    for (let i = 0; i < 5; i++) { later(3_000); await service.tick(); }
-    expect(fakes.modes.reconcile).not.toHaveBeenCalled(); expect(fakes.modes.submit).not.toHaveBeenCalled();
-    expect((await db.select().from(copyLiveSetups))[0]).toMatchObject({ stage: 'funded', issue: 'hyperliquid_busy', leaseUntil: null });
-    later(25 * 3_600_000); await service.tick();
-    expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'expired', issue: 'setup_expired' });
   });
 
   it('past its deadline a mode submission still pending no longer holds the setup open', async () => {
-    flags.worker = false;
     const setup = await start();
     await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit(); later(5_000);
     mode.submissionState = 'unknown';
@@ -444,7 +325,6 @@ describe('one-click testnet copy setup', () => {
   });
 
   it('past its deadline an agent approval still pending no longer holds the setup open', async () => {
-    flags.worker = false;
     const setup = await start();
     await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit(); later(5_000);
     mode.targetState = 'supported';
@@ -500,7 +380,6 @@ describe('one-click testnet copy setup', () => {
   });
 
   it('an expired start is ended by a new start for the same leader; a confirmed one still going is not', async () => {
-    flags.worker = false;
     const setup = await start();
     await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit();
     await expect(start('setup-start-key-000002')).rejects.toMatchObject({ status: 409, response: { code: 'already_copying' } });
@@ -514,7 +393,6 @@ describe('one-click testnet copy setup', () => {
   });
 
   it("the worker reconciles an agent approval left unknown when its setup expired, once a minute at most", async () => {
-    flags.worker = false;
     const setup = await start();
     await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit(); later(5_000);
     mode.targetState = 'supported';
@@ -585,6 +463,38 @@ describe('one-click testnet copy setup', () => {
     await db.update(copyControls).set({ pauseNewRisk: true }).where(eq(copyControls.scope, 'platform'));
     await uow.run(tx => repository.barrier(tx, uid, mandate!.id, 'paused', () => clock));
     await expect(uow.run(tx => repository.resume(tx, uid, mandate!.id, () => clock))).rejects.toMatchObject({ status: 409, response: { code: 'copy_paused' } });
+  });
+
+  it('a declined or timed-out addSigners: confirm is refused 409 worker_signer_missing before anything is deposited; a retry with the signer goes on', async () => {
+    flags.attach = false;
+    const setup = await start();
+    const body = await sign(setup.consent!);
+    await expect(service.confirm(uid, setup.id, body)).rejects.toMatchObject({ status: 409, response: { code: 'worker_signer_missing' } });
+    expect(fakes.funding.claim).not.toHaveBeenCalled(); expect(fakes.funding.submit).not.toHaveBeenCalled();
+    expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'awaiting_consent' });
+    expect((await db.select().from(copyFundingOperations))[0]).toMatchObject({ status: 'prepared', attemptedAt: null });
+    // Retried while the consent is valid, now with the signer added.
+    flags.attach = true;
+    expect(await service.confirm(uid, setup.id, body)).toMatchObject({ stage: 'funding_submitted' });
+    expect(fakes.funding.submit).toHaveBeenCalledTimes(1);
+  });
+
+  it('/advance only drives the setup now: a body carrying a signature is refused 400, an empty one runs the steps with the worker', async () => {
+    const setup = await start();
+    await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit(); later(5_000);
+    await expect(service.advance(uid, setup.id, { digest: `0x${'ab'.repeat(32)}`, signature: `0x${'ab'.repeat(65)}` })).rejects.toMatchObject({ status: 400 });
+    expect(fakes.modes.submit).not.toHaveBeenCalled();
+    expect(await service.advance(uid, setup.id, {})).toMatchObject({ stage: 'running' });
+    expect(workerSign).toHaveBeenCalledTimes(2);
+  });
+
+  it('renewal is refused for now (renewal_unavailable): nothing is prepared', async () => {
+    const setup = await start();
+    await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit(); later(5_000); await service.tick();
+    expect((await service.get(uid, setup.id)).stage).toBe('running');
+    await expect(service.startRenewal(uid, setup.strategyId, { idempotencyKey: 'setup-renew-key-000001' })).rejects.toMatchObject({ status: 409, response: { code: 'renewal_unavailable' } });
+    expect(await db.select().from(copyLiveSetups)).toHaveLength(1);
+    expect(fakes.agents.prepareForSetup).toHaveBeenCalledTimes(1);
   });
 
   it("a drive that outlives its lease leaves the next holder's lease in place when it ends", async () => {

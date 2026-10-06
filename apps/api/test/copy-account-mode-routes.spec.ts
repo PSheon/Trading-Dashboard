@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import request from 'supertest';
 import { privateKeyToAccount } from 'viem/accounts';
 import { beforeAll, beforeEach, afterAll, afterEach, describe, expect, it, vi } from 'vitest';
-import { accountModeOwnerConsentTypedData, copyAccountModeChallengeSchema, copyAccountModeOperationSchema, copyAccountModeOverviewSchema, httpRouteContracts } from '@trading-dashboard/shared/contracts';
+import { copyAccountModeOperationSchema, copyAccountModeOverviewSchema, httpRouteContracts } from '@trading-dashboard/shared/contracts';
 import { copyAccountModeOperations, copyExecutionAccounts, copyStrategies, users } from '@trading-dashboard/shared/database';
 import { CopyAccountModeController } from '../src/copy/copy-account-mode.controller.js';
 import { CopyAccountModeRepository } from '../src/copy/copy-account-mode.repository.js';
@@ -49,7 +49,7 @@ describe('explicit authenticated account-mode HTTP workflow', () => {
     for (const token of [null, 'bad', 'expired', serviceToken]) {
       const status = token === serviceToken ? 403 : 401;
       for (const url of ['/me/copy/account-modes', `/me/copy/account-modes/by-key/${key}`]) { const call = request(app.getHttpServer()).get(url); if (token) call.set('Authorization', `Bearer ${token}`); await call.expect(status); }
-      for (const [url, body] of [[`/me/copy/execution-wallets/${accountId}/mode`, { idempotencyKey: key }], ...['challenge', 'reconcile'].map(action => [path(randomUUID(), action), {}]), [path(randomUUID(), 'approve'), { consentSignature: `0x${'00'.repeat(64)}1b`, masterSignature: `0x${'00'.repeat(64)}1b` }]] as [string, object][]) {
+      for (const [url, body] of [[`/me/copy/execution-wallets/${accountId}/mode`, { idempotencyKey: key }], [path(randomUUID(), 'reconcile'), {}]] as [string, object][]) {
         const call = request(app.getHttpServer()).post(url).send(body); if (token) call.set('Authorization', `Bearer ${token}`); await call.expect(status);
       }
     }
@@ -61,27 +61,20 @@ describe('explicit authenticated account-mode HTTP workflow', () => {
     const overview = await get().expect(200).expect('Cache-Control', 'no-store'); expect(copyAccountModeOverviewSchema.parse(overview.body.data).operations).toEqual([op]);
     const found = await get(`/me/copy/account-modes/by-key/${key}`).expect(200).expect('Cache-Control', 'no-store'); expect(copyAccountModeOperationSchema.parse(found.body.data).id).toBe(op.id);
     await get(`/me/copy/account-modes/by-key/${key}`, 'bob').expect(404);
-    const registered = httpRouteContracts.filter(c => c.path.includes('account-modes') || c.path === '/me/copy/execution-wallets/:id/mode'); expect(registered).toHaveLength(6);
+    const registered = httpRouteContracts.filter(c => c.path.includes('account-modes') || c.path === '/me/copy/execution-wallets/:id/mode'); expect(registered).toHaveLength(4);
     expect(wallets.create).not.toHaveBeenCalled();
   });
-  it("keeps owner consent separate and posts one exact master action the copy account signed in the owner's browser", async () => {
-    const op = await prepare(); const c = copyAccountModeChallengeSchema.parse((await post(path(op.id, 'challenge'), {}).expect(200)).body.data);
-    const signed = await owner.signTypedData(accountModeOwnerConsentTypedData(c.intent));
-    // The consent alone (no copy account signature) is refused at the DTO.
-    await post(path(op.id, 'approve'), { consentSignature: signed }).expect(400);
-    const masterSignature = await master.signTypedData(c.masterAction.typedData as never);
-    await post(path(op.id, 'approve'), { consentSignature: signed, masterSignature: await bob.signTypedData(c.masterAction.typedData as never) }).expect(403);
-    const result = await post(path(op.id, 'approve'), { consentSignature: signed, masterSignature }).expect(200).expect('Cache-Control', 'no-store');
-    expect(copyAccountModeOperationSchema.parse(result.body.data)).toMatchObject({ submissionState: 'accepted', targetState: 'supported' });
-    expect(exchange.send).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(exchange.send).mock.calls[0]![1]).toBe(masterSignature);
-    await post(path(op.id, 'approve'), { consentSignature: signed, masterSignature }).expect(200); expect(exchange.send).toHaveBeenCalledTimes(1);
+  it("has no browser-signed challenge or approve: the mode change is signed by the worker during a one-click setup only", async () => {
+    const op = await prepare();
+    await post(path(op.id, 'challenge'), {}).expect(404);
+    await post(path(op.id, 'approve'), { consentSignature: `0x${'00'.repeat(64)}1b`, masterSignature: `0x${'00'.repeat(64)}1b` }).expect(404);
+    expect(exchange.send).not.toHaveBeenCalled();
+    expect((await db.select().from(copyAccountModeOperations))[0]).toMatchObject({ submissionState: 'prepared', attemptedAt: null });
   });
   it('rejects forged actions, malformed keys/signatures and foreign account callers at DTO/auth boundaries', async () => {
     await post(`/me/copy/execution-wallets/${accountId}/mode`, { idempotencyKey: 'short' }).expect(400);
     await post(`/me/copy/execution-wallets/${accountId}/mode`, { idempotencyKey: key, abstraction: 'portfolioMargin' }).expect(400);
-    const op = await prepare(); await post(path(op.id, 'approve'), { consentSignature: '0xbad' }).expect(400);
-    await post(path(op.id, 'challenge'), {}, 'bob').expect(404); await post(path(op.id, 'reconcile'), {}, 'bob').expect(404);
+    const op = await prepare(); await post(path(op.id, 'reconcile'), {}, 'bob').expect(404);
     expect(exchange.send).not.toHaveBeenCalled();
   });
   it('blocks disabled owners even after token caching', async () => {

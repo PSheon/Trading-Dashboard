@@ -9,15 +9,15 @@ import { backfillJobSchema, backfillJobsResponseSchema } from "./job-contracts.j
 import { z } from "zod";
 import { adminResolvedWithdrawalSchema, adminUnresolvedWithdrawalsSchema, walletWithdrawalSchema, walletWithdrawalClaimSchema } from "./wallet-withdrawal-contracts.js";
 import { copyExecutionAccountSchema, copyExecutionWalletsSchema, copyWalletGrantSchema } from "./copy-wallet-contracts.js";
-import { copyFundingSchema, copyFundingClaimSchema, copyFundingOverviewSchema, copyReturnChallengeSchema, copyBuilderChallengeSchema, copyBuilderApprovalSchema } from "./copy-funding-contracts.js";
-import { copyAgentSetupSchema, copyAgentOverviewSchema, copyAgentChallengeSchema } from "./copy-agent-contracts.js";
-import { copyAccountModeOverviewSchema, copyAccountModeOperationSchema, copyAccountModeChallengeSchema } from "./copy-account-mode-contracts.js";
+import { copyFundingSchema, copyFundingClaimSchema, copyFundingOverviewSchema, copyReturnChallengeSchema, copyBuilderApprovalSchema } from "./copy-funding-contracts.js";
+import { copyAgentSetupSchema, copyAgentOverviewSchema } from "./copy-agent-contracts.js";
+import { copyAccountModeOverviewSchema, copyAccountModeOperationSchema } from "./copy-account-mode-contracts.js";
 import { copyFollowerStatementSchema } from "./copy-follower-contracts.js";
 import { copyFollowerActivitySchema } from "./copy-follower-activity-contracts.js";
 import { copyFollowerSnapshotReadSchema } from "./copy-follower-view-contracts.js";
 import { liveCopySetupSchema, liveCopySetupsSchema } from "./copy-live-setup-contracts.js";
 import { liveCopyOverviewSchema, liveCopyStrategySchema, liveCopyMandateChallengeSchema, liveCopyMandateSchema, liveCopyPortfolioSchema, liveManualCloseSchema, liveManualClosesSchema } from "./copy-live-mandate-contracts.js";
-import { liveCopyStopSchema, liveCopyStopsSchema, liveStopCancellationChallengeSchema } from './copy-live-stop-contracts.js';
+import { liveCopyStopSchema, liveCopyStopsSchema } from './copy-live-stop-contracts.js';
 import { adminLiveAccountsSchema, adminLiveTransfersSchema, adminLiveOrdersSchema, adminLiveLatencySchema, adminRevokedLiveGrantSchema } from './admin-copy-live-contracts.js';
 import * as s from "./schema/zod.js";
 import { referralOverviewSchema, referralCodeSchema, referralCheckSchema, referralBindSchema, referralFriendsSchema, referralClaimSchema, referralClaimsSchema } from './referral-contracts.js';
@@ -229,7 +229,7 @@ export const copyErrorCodes = [
   "copy_not_open", "copy_paused", "watch_capacity", "insufficient_main_balance", "funding_pending",
   "builder_fee_approval_required", "live_stop_in_progress",
   "consent_expired", "invalid_consent", "setup_unavailable", "setup_wallet_conflict", "setup_funding_rejected",
-  "setup_account_mode_failed", "setup_agent_rejected", "setup_builder_rejected", "setup_expired",
+  "setup_account_mode_failed", "setup_agent_rejected", "setup_builder_rejected", "setup_expired", "worker_signer_missing", "renewal_unavailable",
 ] as const;
 export const copyErrorCodeSchema = z.enum(copyErrorCodes);
 export type CopyErrorCode = z.infer<typeof copyErrorCodeSchema>;
@@ -365,16 +365,14 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "POST", path: "/me/copy/live/setups", status: 200, auth: "user (owner); testnet; prepares strategy, wallet, agent and deposit, no exchange call; one consent challenge", response: liveCopySetupSchema, errors: [...liveStrategyErrors, "setup_unavailable", "setup_wallet_conflict", "funding_pending"] },
   { method: "GET", path: "/me/copy/live/setups", status: 200, auth: "user (owner); read only", response: liveCopySetupsSchema },
   { method: "GET", path: "/me/copy/live/setups/:id", status: 200, auth: "user (owner); read only", response: liveCopySetupSchema },
-  { method: "POST", path: "/me/copy/live/setups/:id/confirm", status: 200, auth: "user (owner); the setup consent, the deposit signature and a fresh session; one deposit attempt", response: liveCopySetupSchema, errors: ["consent_expired", "invalid_consent", "setup_unavailable", "setup_wallet_conflict", "setup_builder_rejected", "insufficient_main_balance"] },
-  { method: "POST", path: "/me/copy/live/setups/:id/advance", status: 200, auth: "user (owner); fresh session signs the next consented step; attempted steps are only reconciled", response: liveCopySetupSchema },
+  { method: "POST", path: "/me/copy/live/setups/:id/confirm", status: 200, auth: "user (owner); the worker signer the browser added, the setup consent, the deposit signature and a fresh session; one deposit attempt", response: liveCopySetupSchema, errors: ["consent_expired", "invalid_consent", "worker_signer_missing", "setup_unavailable", "setup_wallet_conflict", "setup_builder_rejected", "insufficient_main_balance"] },
+  { method: "POST", path: "/me/copy/live/setups/:id/advance", status: 200, auth: "user (owner); drives the setup now, signed by the worker; no body; attempted steps are only reconciled", response: liveCopySetupSchema },
   { method: "POST", path: "/me/copy/live/setups/:id/cancel", status: 200, auth: "user (owner); before the consent, or once the setup failed or expired", response: liveCopySetupSchema, errors: ["funding_pending"] },
   { method: "PATCH", path: "/me/copy/live/strategies/:id", status: 200, auth: "user (owner); a new generation under one setup consent", response: liveCopySetupSchema, errors: ["setup_unavailable", "live_stop_in_progress", "below_min_allocation", "above_max_allocation", "leverage_above_limit", "copy_not_open"] },
-  { method: "POST", path: "/me/copy/live/strategies/:id/renew", status: 200, auth: "user (owner); last three days of the lifetime; a new agent and generation under one setup consent", response: liveCopySetupSchema, errors: ["setup_unavailable", "live_stop_in_progress"] },
+  { method: "POST", path: "/me/copy/live/strategies/:id/renew", status: 200, auth: "user (owner); refused for now (renewal_unavailable)", response: liveCopySetupSchema, errors: ["renewal_unavailable"] },
   { method: 'GET', path: '/me/copy/live/portfolio', status: 200, auth: 'user (owner); testnet copies with their funding and stop stage; read only', response: liveCopyPortfolioSchema },
   { method: 'GET', path: '/me/copy/live/stops', status: 200, auth: 'user (owner); bounded durable stop history; read only', response: liveCopyStopsSchema },
   { method: 'GET', path: '/me/copy/live/stops/by-key/:key', status: 200, auth: 'user (owner); exact original stop recovery; read only', response: liveCopyStopSchema },
-  { method: 'POST', path: '/me/copy/live/stops/:id/cancellation/challenge', status: 200, auth: 'user (owner); exact cancellation consent challenge of a cancelling stop; no signing', response: liveStopCancellationChallengeSchema },
-  { method: 'POST', path: '/me/copy/live/stops/:id/cancellation', status: 200, auth: 'user (owner); verified owner consent to cancel the stop\'s tracked orders', response: liveStopCancellationChallengeSchema },
   { method: "POST", path: "/me/copy/strategies", status: 201, auth: "user; 403 copy_not_open (`general.copyTradingEnabled` off); 409 already_copying / insufficient_balance / copy_paused", response: wireCopyStrategySchema },
   { method: "PATCH", path: "/me/copy/strategies/:id", status: 200, auth: "user (owner)", response: wireCopyStrategySchema },
   { method: "POST", path: "/me/copy/strategies/:id/funds", status: 200, auth: "user (owner)", response: wireCopyStrategySchema },
@@ -395,26 +393,20 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/me/copy/account-modes", status: 200, auth: "user (owner)", response: copyAccountModeOverviewSchema },
   { method: "GET", path: "/me/copy/account-modes/by-key/:key", status: 200, auth: "user (owner); original idempotency key", response: copyAccountModeOperationSchema },
   { method: "POST", path: "/me/copy/execution-wallets/:id/mode", status: 200, auth: "user (owner); ready dedicated testnet master", response: copyAccountModeOperationSchema },
-  { method: "POST", path: "/me/copy/account-modes/:id/challenge", status: 200, auth: "user (owner); complete dormant account proof", response: copyAccountModeChallengeSchema },
-  { method: "POST", path: "/me/copy/account-modes/:id/approve", status: 200, auth: "user (owner); exact signed consent; fresh user JWT; one durable attempt", response: copyAccountModeOperationSchema },
   { method: "POST", path: "/me/copy/account-modes/:id/reconcile", status: 200, auth: "user (owner); read-only original mode operation", response: copyAccountModeOperationSchema },
   { method: "GET", path: "/me/copy/execution-wallets/:id/statement", status: 200, auth: "user (owner)", response: copyFollowerStatementSchema },
   { method: "GET", path: "/me/copy/execution-wallets/:id/activity", status: 200, auth: "user (owner); booked actual receipts; before-only pagination", response: copyFollowerActivitySchema },
   { method: "GET", path: "/me/copy/execution-wallets/:id/snapshot", status: 200, auth: "user (owner); cached actual testnet observation", response: copyFollowerSnapshotReadSchema },
   { method: "POST", path: "/me/copy/execution-wallets/:id/agent", status: 200, auth: "user (owner); configured testnet agent provider", response: copyAgentSetupSchema },
   { method: "POST", path: "/me/copy/agents/:id/reconcile", status: 200, auth: "user (owner)", response: copyAgentSetupSchema },
-  { method: "POST", path: "/me/copy/agents/:id/challenge", status: 200, auth: "user (owner); verified agent", response: copyAgentChallengeSchema },
-  { method: "POST", path: "/me/copy/agents/:id/approve", status: 200, auth: "user (owner); exact signed consent; fresh user JWT", response: copyAgentSetupSchema },
   { method: "GET", path: "/me/copy/funding", status: 200, auth: "user (owner)", response: copyFundingOverviewSchema },
   { method: "POST", path: "/me/copy/execution-wallets/:id/funding", status: 200, auth: "user (owner); testnet; verified execution account", response: copyFundingSchema, errors: ["funding_pending"] },
   { method: "POST", path: "/me/copy/funding/:id/broadcast", status: 200, auth: "user (owner); one permission", response: copyFundingClaimSchema },
   { method: "POST", path: "/me/copy/funding/:id/submit", status: 200, auth: "user (owner); exact source signature; one attempt", response: copyFundingSchema, errors: ["insufficient_main_balance"] },
   { method: "POST", path: "/me/copy/funding/:id/cancel", status: 200, auth: "user (owner); unattempted intent only", response: copyFundingSchema },
   { method: "POST", path: "/me/copy/funding/:id/reconcile", status: 200, auth: "user (owner); positive transaction and recipient evidence", response: copyFundingSchema },
-  { method: "POST", path: "/me/copy/live/execution-wallets/:id/returns", status: 200, auth: "user (owner); testnet; return to the main wallet, consent challenge only", response: copyReturnChallengeSchema },
-  { method: "POST", path: "/me/copy/live/returns/:id/approve", status: 200, auth: "user (owner); main-wallet consent and fresh session; one attempt", response: copyFundingSchema },
-  { method: "POST", path: "/me/copy/live/execution-wallets/:id/builder-approval", status: 200, auth: "user (owner); testnet; configured builder fee, consent challenge only", response: copyBuilderChallengeSchema },
-  { method: "POST", path: "/me/copy/live/builder-approvals/:id/approve", status: 200, auth: "user (owner); main-wallet consent and fresh session; one attempt", response: copyBuilderApprovalSchema },
+  { method: "POST", path: "/me/copy/live/execution-wallets/:id/returns", status: 200, auth: "user (owner); testnet; return to the main wallet, prepared only", response: copyReturnChallengeSchema },
+  { method: "POST", path: "/me/copy/live/returns/:id/approve", status: 200, auth: "user (owner); signed by the worker under the owner's policy; no body; one attempt", response: copyFundingSchema, errors: ["worker_signer_missing", "setup_wallet_conflict", "consent_expired"] },
   { method: "POST", path: "/me/copy/live/builder-approvals/:id/reconcile", status: 200, auth: "user (owner); read only", response: copyBuilderApprovalSchema },
   { method: "POST", path: "/me/copy/strategies/:id/execution-wallet", status: 200, auth: "user (owner); configured wallet provider; deployment network only", response: copyExecutionAccountSchema },
   { method: "POST", path: "/me/copy/execution-wallets/:id/reconcile", status: 200, auth: "user (owner)", response: copyExecutionAccountSchema },

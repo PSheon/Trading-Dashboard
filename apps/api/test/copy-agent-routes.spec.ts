@@ -4,14 +4,13 @@ import { eq } from "drizzle-orm";
 import request from "supertest";
 import { privateKeyToAccount } from "viem/accounts";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { copyAgentChallengeSchema, copyAgentOverviewSchema, copyAgentSetupSchema } from "@trading-dashboard/shared/contracts";
+import { copyAgentOverviewSchema, copyAgentSetupSchema } from "@trading-dashboard/shared/contracts";
 import { copyAgentSetups, copyExecutionAccounts, copyStrategies, copyWalletAuthorizations, users } from "@trading-dashboard/shared/database";
 import { CopyAgentController } from "../src/copy/copy-agent.controller.js";
 import { CopyAgentRepository } from "../src/copy/copy-agent.repository.js";
 import { CopyAgentService } from "../src/copy/copy-agent.service.js";
 import { CopyWalletService } from "../src/copy/copy-wallet.service.js";
 import { AGENT_APPROVAL_CLIENT, type AgentApprovalClient } from "../src/copy/copy-agent-exchange.client.js";
-import { agentApprovalTypedData, agentOwnerConsentTypedData } from "../src/copy/copy-agent-consent.js";
 import { USER_AGENT_PROVISIONER, type UserAgentProvisioner } from "../src/copy/live/privy-agent-provisioner.js";
 import type { AuthService } from "../src/common/auth/auth.service.js";
 import { createAuthedApp, stubPrivy } from "./auth-test-utils.js";
@@ -44,7 +43,6 @@ const fakeSignature = `0x${"00".repeat(64)}1b`;
 function assertNoApproval() { expect(exchange.acquire).not.toHaveBeenCalled(); expect(exchange.send).not.toHaveBeenCalled(); }
 function assertNoProviderMutation() { expect(provider.createPolicy).not.toHaveBeenCalled(); expect(provider.createWallet).not.toHaveBeenCalled(); }
 async function prepare() { const response = await post(preparePath, { idempotencyKey: randomUUID() }).expect(200).expect("Cache-Control", "no-store"); return copyAgentSetupSchema.parse(response.body.data); }
-async function challenge(id: string) { const response = await post(setupPath(id, "challenge"), {}).expect(200).expect("Cache-Control", "no-store"); return copyAgentChallengeSchema.parse(response.body.data); }
 
 beforeAll(async () => {
   vi.stubEnv("AUTH_SERVICE_TOKEN", serviceToken); vi.stubEnv("AUTH_SERVICE_PERMISSIONS", "copy.read,execution.pause");
@@ -68,7 +66,7 @@ describe("explicit strategy agent authenticated HTTP routes", () => {
       const status = token === serviceToken ? 403 : 401;
       const summary = request(app.getHttpServer()).get("/me/copy/agents"); if (token) summary.set("Authorization", `Bearer ${token}`); await summary.expect(status);
       const id = randomUUID();
-      for (const [path, body] of [[preparePath, { idempotencyKey: randomUUID(), validForDays: 7 }], ...["challenge", "reconcile"].map((action) => [setupPath(id, action), {}]), [setupPath(id, "approve"), { consentSignature: fakeSignature, masterSignature: fakeSignature }]] as [string, object][]) {
+      for (const [path, body] of [[preparePath, { idempotencyKey: randomUUID(), validForDays: 7 }], [setupPath(id, "reconcile"), {}]] as [string, object][]) {
         const call = request(app.getHttpServer()).post(path).send(body); if (token) call.set("Authorization", `Bearer ${token}`); await call.expect(status);
       }
     }
@@ -79,40 +77,27 @@ describe("explicit strategy agent authenticated HTTP routes", () => {
     await get().expect(200); await db.update(users).set({ disabledAt: new Date() }).where(eq(users.id, uid));
     await get().expect(401);
     await post(preparePath, { idempotencyKey: randomUUID() }).expect(401);
-    for (const action of ["challenge", "reconcile", "approve"]) await post(setupPath(randomUUID(), action), action === "approve" ? { consentSignature: fakeSignature, masterSignature: fakeSignature } : {}).expect(401);
+    await post(setupPath(randomUUID(), "reconcile"), {}).expect(401);
     assertNoProviderMutation(); assertNoApproval(); expect(wallets.reconcile).not.toHaveBeenCalled();
   });
 
-  it("separates preparation, owner-specific challenge and explicit approval with canonical no-store responses", async () => {
+  it("prepares a ready agent with canonical no-store responses; there is no browser-signed challenge or approve (the setup's worker approves it)", async () => {
     const prepared = await prepare(); expect(prepared).toMatchObject({ state: "ready", accountAddress: master.address.toLowerCase(), agentAddress: agent.address.toLowerCase() });
     assertNoApproval(); expect(await db.select().from(copyWalletAuthorizations)).toHaveLength(0);
     const summary = await get().expect(200).expect("Cache-Control", "no-store"); expect(copyAgentOverviewSchema.parse(summary.body.data).setups).toEqual([prepared]);
     expect(JSON.stringify(summary.body)).not.toMatch(/provider-wallet|did:privy|worker-quorum|agent-policy|user-quorum|idempotencyKey/);
-    const consent = await challenge(prepared.id); assertNoApproval();
-    expect(consent.intent).toMatchObject({ id: prepared.id, strategyId, accountAddress: master.address.toLowerCase(), agentAddress: agent.address.toLowerCase(), network: "testnet" });
-    const signature = await owner.signTypedData(agentOwnerConsentTypedData(consent.intent));
-    // The copy account signs the challenge's ApproveAgent in the owner's browser.
-    expect(consent.masterAction).toMatchObject({ kind: "agent_approval", account: master.address.toLowerCase(), expiresAt: consent.intent.consentExpiresAt,
-      typedData: { primaryType: "HyperliquidTransaction:ApproveAgent", message: { agentAddress: agent.address.toLowerCase(), agentName: `copy${strategyId} valid_until ${consent.intent.expiresAt}`, nonce: consent.intent.nonce } } });
-    expect(consent.masterAction.typedData).toEqual(JSON.parse(JSON.stringify(agentApprovalTypedData(consent.intent))));
-    const masterSignature = await master.signTypedData(consent.masterAction.typedData as never);
-    await post(setupPath(prepared.id, "approve"), { consentSignature: signature }).expect(400);
-    await post(setupPath(prepared.id, "approve"), { consentSignature: signature, masterSignature: await owner.signTypedData(consent.masterAction.typedData as never) }).expect(403);
+    await post(setupPath(prepared.id, "challenge"), {}).expect(404);
+    await post(setupPath(prepared.id, "approve"), { consentSignature: fakeSignature, masterSignature: fakeSignature }).expect(404);
     assertNoApproval();
-    const response = await post(setupPath(prepared.id, "approve"), { consentSignature: signature, masterSignature }).expect(200).expect("Cache-Control", "no-store");
-    expect(copyAgentSetupSchema.parse(response.body.data).state).toBe("active");
-    expect(vi.mocked(exchange.send).mock.calls[0]![1]).toBe(masterSignature);
-    expect(exchange.send).toHaveBeenCalledTimes(1); expect(await db.select().from(copyWalletAuthorizations)).toHaveLength(1);
-    expect(JSON.stringify(await db.select().from(copyAgentSetups))).not.toContain(signature);
+    const recovered = await post(setupPath(prepared.id, "reconcile"), {}).expect(200).expect("Cache-Control", "no-store"); expect(recovered.body.data.state).toBe("ready");
     expect((await db.select().from(copyStrategies))[0]).toMatchObject({ mode: "paper", cash: "100", allocated: "100" });
-    const recovered = await post(setupPath(prepared.id, "reconcile"), {}).expect(200).expect("Cache-Control", "no-store"); expect(recovered.body.data.state).toBe("active"); expect(exchange.send).toHaveBeenCalledTimes(1);
   });
 
   it("isolates every mutation and overview from another owner before provider or signer calls", async () => {
     const prepared = await prepare(); vi.clearAllMocks();
     const summary = await get("bob").expect(200); expect(copyAgentOverviewSchema.parse(summary.body.data).setups).toEqual([]);
     await post(preparePath, { idempotencyKey: randomUUID() }, "bob").expect(404);
-    for (const action of ["challenge", "reconcile", "approve"]) await post(setupPath(prepared.id, action), action === "approve" ? { consentSignature: fakeSignature, masterSignature: fakeSignature } : {}, "bob").expect(404);
+    await post(setupPath(prepared.id, "reconcile"), {}, "bob").expect(404);
     assertNoProviderMutation(); assertNoApproval(); expect(provider.findOwned).not.toHaveBeenCalled(); expect(wallets.reconcile).not.toHaveBeenCalled();
     expect(await db.select().from(copyAgentSetups)).toHaveLength(1); expect(await db.select().from(copyWalletAuthorizations)).toHaveLength(0);
   });
@@ -123,39 +108,20 @@ describe("explicit strategy agent authenticated HTTP routes", () => {
     assertNoProviderMutation(); assertNoApproval(); expect(wallets.reconcile).not.toHaveBeenCalled(); expect(await db.select().from(copyAgentSetups)).toHaveLength(0);
   });
 
-  it("rejects malformed approval DTOs and extra consent/JWT/signing fields before signing", async () => {
-    const prepared = await prepare(); vi.clearAllMocks();
-    for (const body of [{}, [], { consentSignature: 1 }, { consentSignature: "bad" }, { consentSignature: `0x${"00".repeat(64)}` }, { consentSignature: `0x${"00".repeat(64)}ff` }, ...[{ network: "mainnet" }, { nonce: 1 }, { id: prepared.id }, { userId: uid }, { policyId: "other" }, { userJwt: "secret" }, { signature: fakeSignature }].map((extra) => ({ consentSignature: fakeSignature, ...extra }))]) await post(setupPath(prepared.id, "approve"), body).expect(400);
-    for (const action of ["challenge", "reconcile", "approve"]) await post(setupPath("bad%20id", action), action === "approve" ? { consentSignature: fakeSignature, masterSignature: fakeSignature } : {}).expect(400);
+  it("rejects a malformed setup id before any provider call", async () => {
+    await post(setupPath("bad%20id", "reconcile"), {}).expect(400);
     assertNoApproval(); expect(provider.findOwned).not.toHaveBeenCalled(); expect(await db.select().from(copyWalletAuthorizations)).toHaveLength(0);
   });
 
-  it("blocks mainnet account setup and mainnet approval/challenge without signing", async () => {
+  it("blocks mainnet account setup without signing", async () => {
     await db.update(copyExecutionAccounts).set({ network: "mainnet" }).where(eq(copyExecutionAccounts.id, accountId));
     await post(preparePath, { idempotencyKey: "mainnet" }).expect(409); assertNoProviderMutation(); assertNoApproval();
-    await db.update(copyExecutionAccounts).set({ network: "testnet" }).where(eq(copyExecutionAccounts.id, accountId));
-    const prepared = await prepare(); await challenge(prepared.id); vi.clearAllMocks();
-    await db.update(copyAgentSetups).set({ network: "mainnet" }).where(eq(copyAgentSetups.id, prepared.id));
-    await post(setupPath(prepared.id, "challenge"), {}).expect(409); await post(setupPath(prepared.id, "approve"), { consentSignature: fakeSignature, masterSignature: fakeSignature }).expect(409);
-    assertNoApproval(); expect(provider.findOwned).not.toHaveBeenCalled(); expect(await db.select().from(copyWalletAuthorizations)).toHaveLength(0);
   });
 
-  it("rejects expired setup and returns its expired recovery state without approval", async () => {
-    const prepared = await prepare(); await challenge(prepared.id); vi.clearAllMocks();
+  it("an expired setup's recovery reads expired without approval", async () => {
+    const prepared = await prepare(); vi.clearAllMocks();
     await db.update(copyAgentSetups).set({ expiresAt: new Date(Date.now() - 1) }).where(eq(copyAgentSetups.id, prepared.id));
-    await post(setupPath(prepared.id, "challenge"), {}).expect(409); await post(setupPath(prepared.id, "approve"), { consentSignature: fakeSignature, masterSignature: fakeSignature }).expect(409);
     const recovery = await post(setupPath(prepared.id, "reconcile"), {}).expect(200); expect(recovery.body.data.state).toBe("expired");
     assertNoApproval(); expect(provider.findOwned).not.toHaveBeenCalled(); expect(await db.select().from(copyWalletAuthorizations)).toHaveLength(0);
-  });
-
-  it("rejects wrong signer, substituted intent/domain and expired consent before master signing", async () => {
-    const prepared = await prepare(), consent = await challenge(prepared.id), original = agentOwnerConsentTypedData(consent.intent);
-    const signatures = [fakeSignature, await agent.signTypedData(original), await owner.signTypedData({ ...original, domain: { ...original.domain, chainId: 42161 } })];
-    for (const changes of [{ id: randomUUID() }, { strategyId: strategyId + 1 }, { accountAddress: owner.address }, { agentAddress: owner.address }, { policyId: "other-policy" }, { workerQuorumId: "other-worker" }, { expiresAt: consent.intent.expiresAt + 1 }]) signatures.push(await owner.signTypedData(agentOwnerConsentTypedData({ ...consent.intent, ...changes })));
-    const masterSignature = await master.signTypedData(consent.masterAction.typedData as never);
-    for (const consentSignature of signatures) await post(setupPath(prepared.id, "approve"), { consentSignature, masterSignature }).expect(400);
-    const valid = await owner.signTypedData(original); vi.spyOn(Date, "now").mockReturnValue(consent.intent.consentExpiresAt);
-    await post(setupPath(prepared.id, "approve"), { consentSignature: valid, masterSignature }).expect(400);
-    assertNoApproval(); expect(await db.select().from(copyWalletAuthorizations)).toHaveLength(0); expect((await db.select().from(copyAgentSetups))[0].state).toBe("ready");
   });
 });

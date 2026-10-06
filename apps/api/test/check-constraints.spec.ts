@@ -12,6 +12,15 @@ const db = getTestDb();
 const migrations = fileURLToPath(new URL("../../../packages/shared/drizzle/", import.meta.url));
 const checks: Array<{ table: string; name: string; expression: string }> = readdirSync(migrations).filter((f) => f.endsWith(".sql")).sort()
   .flatMap((f) => parseChecks(readFileSync(migrations + f, "utf8")));
+/** The checks a later migration dropped for good (0071: the browser-signed signer kinds). */
+const dropped = new Set<string>(readdirSync(migrations).filter((f) => f.endsWith(".sql")).sort().reduce((live, f) => {
+  for (const statement of readFileSync(migrations + f, "utf8").split("--> statement-breakpoint")) {
+    const drop = /ALTER TABLE "([^"]+)" DROP CONSTRAINT "([^"]+)"/.exec(statement);
+    const add = parseChecks(statement)[0] as { table: string; name: string } | undefined;
+    if (drop) live.add(`${drop[1]}.${drop[2]}`); else if (add) live.delete(`${add.table}.${add.name}`);
+  }
+  return live;
+}, new Set<string>()));
 
 /** The constraint a statement is refused by; null when it is accepted. Each attempt is rolled back. */
 async function refusedBy(statement: ReturnType<typeof sql>): Promise<string | null> {
@@ -37,7 +46,8 @@ describe("CHECK constraints (review finding 10)", () => {
     expect(checks.length).toBeGreaterThanOrEqual(60);
     const { rows } = await db.execute(sql`select conrelid::regclass::text as "table", conname as name from pg_constraint where contype = 'c' and connamespace = 'public'::regnamespace`);
     const present = new Set(rows.map((r) => `${r.table}.${r.name}`));
-    expect(checks.filter((c) => !present.has(`${c.table}.${c.name}`))).toEqual([]);
+    expect(checks.filter((c) => !present.has(`${c.table}.${c.name}`) && !dropped.has(`${c.table}.${c.name}`))).toEqual([]);
+    expect([...dropped].filter((name) => present.has(name))).toEqual([]);
   });
 
   it("the enum lists in the constraints are the shared enums (a new value needs a migration, and this test says so)", () => {

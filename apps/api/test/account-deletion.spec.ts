@@ -67,7 +67,7 @@ const funding = (id: string, overrides: Partial<typeof copyFundingOperations.$in
 const credited = (hash: string) => ({ status: "credited" as const, claimedAt: new Date(now), attemptedAt: new Date(now), evidenceHash: "a".repeat(64), transactionHash: `0x${hash.repeat(64)}`, creditedAmount: "50", fee: "0" });
 const setup = (id: string, stage: string, overrides: Partial<typeof copyLiveSetups.$inferInsert> = {}) => ({ id, userId: 1, strategyId: 9, accountId: "account", kind: "start" as const,
   idempotencyKey: `setup-${id}-000000000000`.slice(0, 32), stage: stage as never, leaderAddress: `0x${"44".repeat(20)}`, sourceNetwork: "testnet" as const, budgetUsd: "100", settings: {}, ...overrides });
-const consented = { signerKind: "owner_session" as const, intentDigest: "a".repeat(64), consentDigest: "b".repeat(64), confirmedAt: new Date(now), setupDeadline: new Date(now + 600_000) };
+const consented = { intentDigest: "a".repeat(64), consentDigest: "b".repeat(64), confirmedAt: new Date(now), setupDeadline: new Date(now + 600_000) };
 
 /** The owner's copy is over and only history is left: a stopped testnet copy
  * with its stop, deposit, sweep, order, fill, setup and a finished main-wallet

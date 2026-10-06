@@ -255,8 +255,9 @@ describe("owner consent revocation", () => {
 
 describe("the automatic return: the policy-bound worker signer the owner's browser added, recorded once Privy shows it (one-click plan §3b)", () => {
   const main = `0x${"5a".repeat(20)}`;
-  const on = (automaticReturn: boolean) => { const base = testConfig(); return { get value() { return { ...base.value, copy: { mode: "testnet" as const, workerIntervalMs: 2000,
-    agent: { workerQuorumId: "worker-quorum" }, live: { automaticReturn } } } as never; } } as never; };
+  // The worker signer needs a configured worker quorum (and Privy); COPY_AUTOMATIC_RETURN no longer gates it.
+  const on = (worker: boolean) => { const base = testConfig(); return { get value() { return { ...base.value, copy: { mode: "testnet" as const, workerIntervalMs: 2000,
+    ...(worker ? { agent: { workerQuorumId: "worker-quorum" } } : {}), live: { automaticReturn: false } } } as never; } } as never; };
   let policy: { available: boolean; create: ReturnType<typeof vi.fn>; verify: ReturnType<typeof vi.fn>; assertSigner: ReturnType<typeof vi.fn> };
   beforeEach(async () => {
     await db.update(users).set({ embeddedWalletAddress: main }).where(eq(users.id, uid));
@@ -265,7 +266,7 @@ describe("the automatic return: the policy-bound worker signer the owner's brows
   });
   const ready = async () => (await service.prepare(uid, strategy, { network: "testnet" })).id;
 
-  it("is off unless the deployment turns it on, and never touches Privy then", async () => {
+  it("is off without a worker quorum, and never touches Privy then", async () => {
     const id = await ready();
     const off = new CopyWalletService(new CopyWalletRepository(db), new UnitOfWork(db), on(false), provider, policy as never);
     await expect(off.enableAutomaticReturn(uid, id)).rejects.toMatchObject({ response: expect.objectContaining({ code: "setup_unavailable" }) });
@@ -308,7 +309,7 @@ describe("the automatic return: the policy-bound worker signer the owner's brows
     expect(await enabled.enableAutomaticReturn(uid, id)).toMatchObject({ automaticReturn: true });
   });
 
-  it("a setup's policy is created only while the automatic return is on (no orphan policies at Privy)", async () => {
+  it("a setup's policy is created only while the worker can sign (no orphan policies at Privy)", async () => {
     const id = await ready();
     const agent = { address: `0x${"33".repeat(20)}`, name: "copy1 valid_until 1" };
     const off = new CopyWalletService(new CopyWalletRepository(db), new UnitOfWork(db), on(false), provider, policy as never);
@@ -337,7 +338,7 @@ describe("the automatic return: the policy-bound worker signer the owner's brows
     // agent step runs one; the browser asks for one when addSigners settles
     // late) adopts exactly the consented policy.
     await db.update(copyExecutionAccounts).set({ masterPolicyId: null, masterPolicyFingerprint: null, masterSignerQuorumId: null, sweepDestination: null, signerAttachedAt: null }).where(eq(copyExecutionAccounts.id, id));
-    await db.update(copyLiveSetups).set({ stage: "funding_submitted", signerKind: "owner_session", consentDigest: "c".repeat(64), intentDigest: "d".repeat(64), confirmedAt: new Date(), setupDeadline: new Date(Date.now() + 86_400_000) });
+    await db.update(copyLiveSetups).set({ stage: "funding_submitted", consentDigest: "c".repeat(64), intentDigest: "d".repeat(64), confirmedAt: new Date(), setupDeadline: new Date(Date.now() + 86_400_000) });
     expect(await enabled.reconcile(uid, id)).toMatchObject({ state: "ready", automaticReturn: true });
     expect((await db.select().from(copyExecutionAccounts).where(eq(copyExecutionAccounts.id, id)))[0]).toMatchObject({ masterPolicyId: "policy-1", masterSignerQuorumId: "worker-quorum" });
     // Another signer than the setup's policy: still a conflict, the wallet blocked as before.

@@ -25,20 +25,3 @@ export function agentApprovalTypedData(input: AgentConsentIntent) {
       agentName: `copy${input.strategyId} valid_until ${input.expiresAt}`, nonce: input.nonce },
   };
 }
-/** The main wallet's payload-specific consent precedes Privy master approval.
- * Identity JWT alone is never treated as permission to approve an agent. */
-export function agentOwnerConsentTypedData(input: AgentConsentIntent) {
-  validate(input);
-  return {
-    domain: { name: "Copy Trading Authorization", version: "1", chainId: 421614, verifyingContract: zero },
-    types: { CopyAgentConsent: [
-      { name: "operationId", type: "string" }, { name: "strategyId", type: "uint64" },
-      { name: "account", type: "address" }, { name: "agent", type: "address" }, { name: "network", type: "string" },
-      { name: "policyId", type: "string" }, { name: "workerQuorumId", type: "string" },
-      { name: "validUntil", type: "uint64" }, { name: "nonce", type: "uint64" }, { name: "consentExpiresAt", type: "uint64" },
-    ] }, primaryType: "CopyAgentConsent" as const,
-    message: { operationId: input.id, strategyId: input.strategyId, account: input.accountAddress.toLowerCase() as `0x${string}`,
-      agent: input.agentAddress.toLowerCase() as `0x${string}`, network: input.network, policyId: input.policyId,
-      workerQuorumId: input.workerQuorumId, validUntil: input.expiresAt, nonce: input.nonce, consentExpiresAt: input.consentExpiresAt },
-  };
-}

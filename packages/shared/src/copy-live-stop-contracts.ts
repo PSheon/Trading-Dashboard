@@ -64,32 +64,3 @@ export const liveStopCancellationIntentSchema = z.object({
     issue('agentAddress', 'Separate owner, master and agent identities required');
 });
 export type LiveStopCancellationIntent = z.infer<typeof liveStopCancellationIntentSchema>;
-// Plain strings (not literal key names) keep viem's message typing loose,
-// as for the mandate's typed data: uint64 values are JS numbers here.
-const stopCancellationFields: [string, string][] = [
-  ['authorizationId', 'string'], ['stopId', 'string'], ['accountId', 'string'], ['strategyId', 'uint64'], ['userId', 'uint64'],
-  ['network', 'string'], ['purpose', 'string'], ['schemaVersion', 'uint64'], ['capturedStopRevision', 'uint64'], ['targetDigest', 'string'],
-  ['accountAddress', 'address'], ['accountRevision', 'uint64'], ['accountWalletId', 'string'], ['accountOwnerQuorumId', 'string'], ['ownerPrivyUserId', 'string'],
-  ['ownerAddress', 'address'], ['setupId', 'string'], ['setupRevision', 'uint64'], ['executionWalletId', 'string'], ['agentWalletId', 'string'],
-  ['agentAddress', 'address'], ['agentOwnerQuorumId', 'string'], ['workerQuorumId', 'string'], ['grantId', 'string'], ['grantVersion', 'uint64'],
-  ['grantValidFrom', 'uint64'], ['grantExpiresAt', 'uint64'], ['policyId', 'string'], ['policyFingerprint', 'string'], ['nonce', 'uint64'],
-  ['consentExpiresAt', 'uint64'], ['expiresAt', 'uint64'],
-];
-/** The owner's main wallet signs this; its domain is distinct from mandate,
- * agent-consent and Hyperliquid exchange domains, so none can be replayed. */
-export function liveStopCancellationOwnerTypedData(value: LiveStopCancellationIntent) {
-  const input = liveStopCancellationIntentSchema.parse(value);
-  return {
-    domain: { name: 'Copy Stop Cancellation', version: '1', chainId: 421614, verifyingContract: `0x${'00'.repeat(20)}` as `0x${string}` },
-    primaryType: 'CopyStopCancellation' as const,
-    types: { CopyStopCancellation: stopCancellationFields.map(([name, type]) => ({ name, type })) },
-    message: { ...input },
-  };
-}
-
-/** The current cancellation consent challenge of a cancelling stop. */
-export const liveStopCancellationChallengeSchema = z.object({
-  stopId: z.string().uuid(), intent: liveStopCancellationIntentSchema, consented: z.boolean(),
-}).strict();
-export type LiveStopCancellationChallenge = z.infer<typeof liveStopCancellationChallengeSchema>;
-export const approveLiveStopCancellationSchema = z.object({ consentSignature: z.string().regex(/^0x[0-9a-fA-F]{130}$/) }).strict();

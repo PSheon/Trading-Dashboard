@@ -1464,17 +1464,14 @@ export const copyFundingOperations = pgTable("copy_funding_operations", {
   scanState: jsonb("scan_state").$type<unknown>(), scanRevision: integer("scan_revision").notNull().default(0),
   /** to_account: the owner's main wallet funds the copy (signed in the
    * browser). to_main: the copy's account returns USDC to the main wallet
-   * (signed by the account through Privy with the owner's session). */
+   * (signed by the worker under the owner's Privy policy). */
   direction: text("direction").$type<"to_account" | "to_main">().notNull().default("to_account"),
   /** A return that ends a stop (its sweep). */
   stopId: text("stop_id").references((): AnyPgColumn => copyLiveStopOperations.id, { onDelete: "restrict" }),
   /** The one-click setup this deposit belongs to (its consent binds it). */
   liveSetupId: text("live_setup_id").references((): AnyPgColumn => copyLiveSetups.id, { onDelete: "restrict" }),
-  /** Who signed a return: the owner's session or the worker under the owner's policy. */
-  signerKind: text("signer_kind").$type<"owner_session" | "worker_policy">(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
-  check("copy_funding_signer_kind_check", sql`${t.signerKind} is null or ${t.signerKind} in ('owner_session', 'worker_policy')`),
   check("copy_funding_direction_check", sql`${oneOf(t.direction, ["to_account", "to_main"])} and (${t.stopId} is null or ${t.direction} = 'to_main')`),
   uniqueIndex("copy_funding_key_uq").on(t.userId, t.idempotencyKey),
   uniqueIndex("copy_funding_nonce_uq").on(t.network, t.address, t.nonce),
@@ -1970,8 +1967,11 @@ export const copyLiveBuilderApprovals = pgTable("copy_live_builder_approvals", {
  * row per start, edit or renewal, the source of truth the worker's setup
  * driver resumes from after a crash or a closed tab. `intent` is the exact
  * owner consent (`liveCopySetupIntentSchema`); its signature is verified once
- * at confirm and only its digest is kept. Each child operation records this
- * row's id; an attempted child is only ever reconciled, never resent.
+ * at confirm and only its digest is kept. Every step after confirm is signed
+ * by the worker under the owner's Privy policy (the one signing model,
+ * 2026-10-07; migration 0071 dropped the browser-signed columns). Each child
+ * operation records this row's id; an attempted child is only ever
+ * reconciled, never resent.
  */
 export const copyLiveSetups = pgTable("copy_live_setups", {
   id: text("id").primaryKey(), userId: integer("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
@@ -1979,7 +1979,6 @@ export const copyLiveSetups = pgTable("copy_live_setups", {
   accountId: text("account_id").references(() => copyExecutionAccounts.id, { onDelete: "restrict" }),
   kind: text("kind").$type<"start" | "edit" | "renewal">().notNull(), idempotencyKey: text("idempotency_key").notNull(),
   stage: text("stage").$type<"provisioning" | "awaiting_consent" | "consented" | "funding_submitted" | "funded" | "mode_set" | "agent_active" | "builder_ready" | "running" | "failed" | "expired" | "cancelled">().notNull().default("provisioning"),
-  signerKind: text("signer_kind").$type<"owner_session" | "worker_policy">(),
   leaderAddress: text("leader_address").notNull(), sourceNetwork: text("source_network").$type<"testnet" | "mainnet">().notNull(),
   budgetUsd: text("budget_usd").notNull(), settings: jsonb("settings").$type<Record<string, unknown>>().notNull(),
   intent: jsonb("intent").$type<Record<string, unknown>>(), intentDigest: text("intent_digest"), consentDigest: text("consent_digest"),
@@ -1987,14 +1986,6 @@ export const copyLiveSetups = pgTable("copy_live_setups", {
   confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
   fundingOperationId: text("funding_operation_id"), agentSetupId: text("agent_setup_id"), modeOperationId: text("mode_operation_id"),
   builderApprovalId: text("builder_approval_id"), mandateId: text("mandate_id"),
-  /** The copy account's signature due from the owner's browser (an
-   * owner-session setup): the exact typed data, its EIP-712 digest and until
-   * when it is taken. Readable by the owner; null when nothing is due. */
-  pendingSignature: jsonb("pending_signature").$type<{ kind: "account_mode" | "agent_approval" | "builder_fee" | "usd_send"; account: string; typedData: Record<string, unknown>; digest: string; expiresAt: number }>(),
-  /** The last signature the owner's browser sent, verified against the
-   * pending payload (it recovers to the copy account). The step uses it only
-   * while the payload it would sign has this digest; never sent to the web. */
-  ownerSignature: jsonb("owner_signature").$type<{ digest: string; signature: string }>(),
   issue: text("issue"), revision: integer("revision").notNull().default(1), attempts: integer("attempts").notNull().default(0),
   nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }), leaseUntil: timestamp("lease_until", { withTimezone: true }),
   /** Who holds the lease: only that driver's release clears it. */
@@ -2007,9 +1998,8 @@ export const copyLiveSetups = pgTable("copy_live_setups", {
   index("copy_live_setups_owner_idx").on(t.userId, t.createdAt),
   check("copy_live_setups_kind_check", oneOf(t.kind, ["start", "edit", "renewal"])),
   check("copy_live_setups_stage_check", oneOf(t.stage, ["provisioning", "awaiting_consent", "consented", "funding_submitted", "funded", "mode_set", "agent_active", "builder_ready", "running", "failed", "expired", "cancelled"])),
-  check("copy_live_setups_signer_check", sql`${t.signerKind} is null or ${t.signerKind} in ('owner_session', 'worker_policy')`),
   check("copy_live_setups_identity_check", sql`${t.leaderAddress} ~ '^0x[0-9a-f]{40}$' and ${t.sourceNetwork} in ('testnet', 'mainnet') and ${t.budgetUsd} ~ '^(0|[1-9][0-9]*)(\\.[0-9]{1,6})?$' and ${t.idempotencyKey} ~ '^[A-Za-z0-9_-]{16,128}$' and ${t.revision} >= 1 and ${t.attempts} >= 0`),
-  check("copy_live_setups_consent_check", sql`${t.stage} in ('provisioning', 'awaiting_consent', 'failed', 'expired', 'cancelled') or (${t.consentDigest} ~ '^[0-9a-f]{64}$' and ${t.intentDigest} ~ '^[0-9a-f]{64}$' and ${t.confirmedAt} is not null and ${t.signerKind} is not null and ${t.setupDeadline} is not null)`),
+  check("copy_live_setups_consent_check", sql`${t.stage} in ('provisioning', 'awaiting_consent', 'failed', 'expired', 'cancelled') or (${t.consentDigest} ~ '^[0-9a-f]{64}$' and ${t.intentDigest} ~ '^[0-9a-f]{64}$' and ${t.confirmedAt} is not null and ${t.setupDeadline} is not null)`),
 ]);
 
 /** The owner's request to close one position of a running testnet copy

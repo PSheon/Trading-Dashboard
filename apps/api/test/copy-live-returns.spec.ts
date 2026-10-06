@@ -2,82 +2,82 @@ import * as schema from '@trading-dashboard/shared/database';
 import { eq } from 'drizzle-orm';
 import { privateKeyToAccount } from 'viem/accounts';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { adminSettingsSchema, copyBuilderConsentTypedData, copyReturnConsentTypedData, type CopyMasterActionRequest, type CopyReturnConsent } from '@trading-dashboard/shared/contracts';
 import { AppConfig } from '../src/config/app-config.js';
 import { validateEnvironment } from '../src/config/runtime-config.js';
 import { CopyFundingExchangeClient } from '../src/copy/copy-funding-exchange.client.js';
 import { CopyFundingRepository } from '../src/copy/copy-funding.repository.js';
-import { CopyLiveMandateRepository } from '../src/copy/copy-live-mandate.repository.js';
 import { CopyLiveReturnRepository } from '../src/copy/copy-live-return.repository.js';
 import { CopyLiveReturnService } from '../src/copy/copy-live-return.service.js';
 import { preparationFixture } from './copy-live-preparation-test-utils.js';
 import { closeTestDb, getTestDb, type TestDb } from './db-test-utils.js';
 
-// Real SQL; the exchange is a double. The copy account signs in the owner's browser (a key here).
+// Real SQL; the exchange and the worker's Privy signer are doubles. Every
+// return is signed by the worker under the owner's policy (one signing model).
 const owner = privateKeyToAccount(`0x${'0a'.repeat(32)}`), foreign = privateKeyToAccount(`0x${'0b'.repeat(32)}`), copyAccount = privateKeyToAccount(`0x${'0c'.repeat(32)}`);
 const accountAddress = copyAccount.address.toLowerCase();
 let db: TestDb, service: CopyLiveReturnService, clock: number;
+let worker: { available: boolean; sign: ReturnType<typeof vi.fn> };
 let exchange: { withdrawable: ReturnType<typeof vi.fn>; send: ReturnType<typeof vi.fn>; sendAction: ReturnType<typeof vi.fn>; maxBuilderFee: ReturnType<typeof vi.fn> };
 const key = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const config = () => new AppConfig(validateEnvironment({ DATABASE_URL: process.env.TEST_DATABASE_URL, HYPERLIQUID_NETWORK: 'testnet', PRIVY_APP_ID: 'app', PRIVY_APP_SECRET: 'secret' }));
-const ownerSigns = (consent: CopyReturnConsent) => owner.signTypedData(copyReturnConsentTypedData(consent));
-/** The main wallet's consent and the copy account's own signature of the challenge's action. */
-const approval = async (challenge: { consent: CopyReturnConsent; masterAction: CopyMasterActionRequest | null }, signer = copyAccount) =>
-  ({ consentSignature: await ownerSigns(challenge.consent), masterSignature: await signer.signTypedData(challenge.masterAction!.typedData as never) });
+/** The account's worker signer under the owner's policy (the automatic return). */
+const withSigner = () => db.update(schema.copyExecutionAccounts).set({ masterPolicyId: 'policy-1', masterPolicyFingerprint: 'c'.repeat(64), masterSignerQuorumId: 'worker',
+  sweepDestination: owner.address.toLowerCase(), signerAttachedAt: new Date(clock) });
 
 beforeEach(async () => {
   db = getTestDb(); await preparationFixture(db); clock = Date.now();
   await db.update(schema.users).set({ embeddedWalletAddress: owner.address.toLowerCase() });
-  await db.update(schema.copyExecutionAccounts).set({ address: accountAddress });
+  await db.update(schema.copyExecutionAccounts).set({ address: accountAddress }); await withSigner();
   exchange = { withdrawable: vi.fn(async () => '42.1234567'), send: vi.fn(async () => ({ status: 'ok', response: { type: 'default' } })),
     sendAction: vi.fn(async () => ({ status: 'ok', response: { type: 'default' } })), maxBuilderFee: vi.fn(async () => 10) };
-  service = new CopyLiveReturnService(config(), new CopyLiveReturnRepository(db), exchange as unknown as CopyFundingExchangeClient, new CopyLiveMandateRepository(db), () => clock);
+  worker = { available: true, sign: vi.fn(async () => `0x${'22'.repeat(64)}1b`) };
+  service = new CopyLiveReturnService(config(), new CopyLiveReturnRepository(db), exchange as unknown as CopyFundingExchangeClient, () => clock, worker as never);
 });
 afterAll(async () => { await closeTestDb(); });
 
 describe('returning USDC from a copy account to the main wallet', () => {
-  it("idle funds while copying: the owner consents, the copy account signs the exact usdSend in the owner's browser, sent once, accepted", async () => {
+  it("idle funds while copying: the worker signs the exact usdSend to the main wallet, sent once, accepted", async () => {
     const challenge = await service.reserve(1, 'account', { idempotencyKey: key(1), amount: '12.5' });
     expect(challenge.operation).toMatchObject({ direction: 'to_main', status: 'prepared', amount: '12.5', address: accountAddress, destination: owner.address.toLowerCase(), stopId: null });
-    expect(challenge.consent).toMatchObject({ account: accountAddress, destination: owner.address.toLowerCase(), amount: '12.5', network: 'testnet' });
-    // The action for the browser: the copy account's usdSend to the main wallet, until the consent ends.
-    expect(challenge.masterAction).toMatchObject({ kind: 'usd_send', account: accountAddress, expiresAt: challenge.consent.consentExpiresAt,
-      typedData: { primaryType: 'HyperliquidTransaction:UsdSend', message: { hyperliquidChain: 'Testnet', destination: owner.address.toLowerCase(), amount: '12.5', time: challenge.consent.nonce } } });
-    const signed = await approval(challenge);
-    await expect(service.approve(1, challenge.operation.id, { ...signed, consentSignature: await foreign.signTypedData(copyReturnConsentTypedData(challenge.consent)) })).rejects.toMatchObject({ status: 403, response: { code: 'invalid_consent' } });
-    // The consent with the main wallet's (or any other key's) signature of the transfer, or without one.
-    await expect(service.approve(1, challenge.operation.id, await approval(challenge, owner))).rejects.toMatchObject({ status: 403, response: { code: 'master_signature_invalid' } });
-    await expect(service.approve(1, challenge.operation.id, { consentSignature: signed.consentSignature })).rejects.toMatchObject({ status: 400 });
-    expect(exchange.send).not.toHaveBeenCalled();
-    const sent = await service.approve(1, challenge.operation.id, signed);
+    const sent = await service.approve(1, challenge.operation.id, {});
     expect(sent).toMatchObject({ status: 'accepted', direction: 'to_main' });
-    expect(exchange.send.mock.calls[0]![1]).toBe(signed.masterSignature);
+    const [target, data, bound] = worker.sign.mock.calls[0]! as unknown as [object, object, object];
+    expect(target).toEqual({ walletId: 'master', address: accountAddress, ownerQuorumId: 'owner', workerQuorumId: 'worker', policyId: 'policy-1' });
+    expect(data).toMatchObject({ primaryType: 'HyperliquidTransaction:UsdSend', message: { hyperliquidChain: 'Testnet', destination: owner.address.toLowerCase(), amount: '12.5' } });
+    expect(bound).toEqual({ network: 'testnet', destination: owner.address.toLowerCase() });
     // Again: the original attempt is never resent.
-    expect(await service.approve(1, challenge.operation.id, signed)).toMatchObject({ status: 'accepted' });
-    expect(exchange.send).toHaveBeenCalledOnce();
+    expect(await service.approve(1, challenge.operation.id, {})).toMatchObject({ status: 'accepted' });
+    expect(exchange.send).toHaveBeenCalledOnce(); expect(worker.sign).toHaveBeenCalledOnce();
     // While it is pending, no other wallet operation of the account starts.
     await expect(service.reserve(1, 'account', { idempotencyKey: key(2), amount: '1' })).rejects.toMatchObject({ status: 409 });
   });
-  it('idle funds without a signature: only an account with the automatic return, signed by the worker under its policy (Paul\'s decision 3)', async () => {
-    const worker = { available: true, sign: vi.fn(async () => `0x${'22'.repeat(64)}1b`) };
-    const automatic = new CopyLiveReturnService(config(), new CopyLiveReturnRepository(db), exchange as unknown as CopyFundingExchangeClient, new CopyLiveMandateRepository(db), () => clock, worker as never);
-    const legacy = await automatic.reserve(1, 'account', { idempotencyKey: key(30), amount: '3' });
-    await expect(automatic.approve(1, legacy.operation.id, {})).rejects.toMatchObject({ status: 403, response: expect.objectContaining({ code: 'invalid_consent' }) });
+  it("a main wallet that changed since the policy was made: no return (the policy allows only the old one)", async () => {
+    await db.update(schema.users).set({ embeddedWalletAddress: foreign.address.toLowerCase() });
+    const moved = await service.reserve(1, 'account', { idempotencyKey: key(32), amount: '1' });
+    await expect(service.approve(1, moved.operation.id, {})).rejects.toMatchObject({ status: 409, response: expect.objectContaining({ code: 'setup_wallet_conflict' }) });
     expect(worker.sign).not.toHaveBeenCalled();
+  });
+  it('a return the worker could not sign is refused, never sent', async () => {
+    worker.sign.mockRejectedValueOnce(new Error('privy down'));
+    const challenge = await service.reserve(1, 'account', { idempotencyKey: key(33), amount: '2' });
+    expect(await service.approve(1, challenge.operation.id, {})).toMatchObject({ status: 'rejected' });
+    expect(exchange.send).not.toHaveBeenCalled();
+  });
+  it('a return is signed by the worker only: nothing for the browser to sign, a body with signatures is refused 400, an account without the signer 409 worker_signer_missing', async () => {
+    await db.update(schema.copyExecutionAccounts).set({ masterPolicyId: null, masterPolicyFingerprint: null, masterSignerQuorumId: null, sweepDestination: null, signerAttachedAt: null });
+    const returns = service;
+    const legacy = await returns.reserve(1, 'account', { idempotencyKey: key(40), amount: '3' });
+    expect(Object.keys(legacy)).toEqual(['operation']);
+    await expect(returns.approve(1, legacy.operation.id, {})).rejects.toMatchObject({ status: 409, response: expect.objectContaining({ code: 'worker_signer_missing' }) });
     await db.update(schema.copyFundingOperations).set({ status: 'cancelled' });
     await db.update(schema.copyExecutionAccounts).set({ masterPolicyId: 'policy-1', masterPolicyFingerprint: 'c'.repeat(64), masterSignerQuorumId: 'worker',
       sweepDestination: owner.address.toLowerCase(), signerAttachedAt: new Date(clock) });
-    const challenge = await automatic.reserve(1, 'account', { idempotencyKey: key(31), amount: '12.5' });
-    expect(await automatic.approve(1, challenge.operation.id, {})).toMatchObject({ status: 'accepted' });
-    const [target, data, bound] = worker.sign.mock.calls[0]! as unknown as [object, object, object];
-    expect(target).toEqual({ walletId: 'master', address: accountAddress, ownerQuorumId: 'owner', workerQuorumId: 'worker', policyId: 'policy-1' });
-    expect(data).toMatchObject({ primaryType: 'HyperliquidTransaction:UsdSend', message: { destination: owner.address.toLowerCase(), amount: '12.5' } });
-    expect(bound).toEqual({ network: 'testnet', destination: owner.address.toLowerCase() });
-    // A main wallet that changed since the policy was made: no unsigned return.
-    await db.update(schema.copyFundingOperations).set({ status: 'cancelled' });
-    await db.update(schema.users).set({ embeddedWalletAddress: foreign.address.toLowerCase() });
-    const moved = await automatic.reserve(1, 'account', { idempotencyKey: key(32), amount: '1' });
-    await expect(automatic.approve(1, moved.operation.id, {})).rejects.toMatchObject({ status: 403 });
+    const challenge = await returns.reserve(1, 'account', { idempotencyKey: key(41), amount: '12.5' });
+    await expect(returns.approve(1, challenge.operation.id, { consentSignature: `0x${'ab'.repeat(65)}`, masterSignature: `0x${'cd'.repeat(65)}` })).rejects.toMatchObject({ status: 400 });
+    expect(worker.sign).not.toHaveBeenCalled(); expect(exchange.send).not.toHaveBeenCalled();
+    expect(await returns.approve(1, challenge.operation.id, {})).toMatchObject({ status: 'accepted' });
+    expect(worker.sign).toHaveBeenCalledOnce();
+    expect(exchange.send.mock.calls[0]![1]).toBe(`0x${'22'.repeat(64)}1b`);
   });
   it('a return in flight excludes a new deposit to the same copy account, as a deposit excludes a return', async () => {
     await service.reserve(1, 'account', { idempotencyKey: key(7), amount: '5' });
@@ -92,22 +92,21 @@ describe('returning USDC from a copy account to the main wallet', () => {
     expect((await db.select().from(schema.copyFundingOperations).where(eq(schema.copyFundingOperations.id, stale.operation.id)))[0]).toMatchObject({ status: 'cancelled' });
     // Its approval is refused as expired, never sent.
     clock = Date.now();
-    await expect(service.approve(1, stale.operation.id, await approval(stale))).resolves.toMatchObject({ status: 'cancelled' });
+    await expect(service.approve(1, stale.operation.id, {})).resolves.toMatchObject({ status: 'cancelled' });
     expect(exchange.send).not.toHaveBeenCalled();
   });
 
   it('refuses more than the account can transfer, before any attempt', async () => {
     exchange.withdrawable.mockResolvedValue('3');
     const challenge = await service.reserve(1, 'account', { idempotencyKey: key(3), amount: '12.5' });
-    await expect(service.approve(1, challenge.operation.id, await approval(challenge))).rejects.toMatchObject({ status: 409 });
+    await expect(service.approve(1, challenge.operation.id, {})).rejects.toMatchObject({ status: 409 });
     expect((await db.select().from(schema.copyFundingOperations))[0]).toMatchObject({ status: 'prepared', attemptedAt: null });
   });
   it('an ambiguous send stays unknown and is never resent', async () => {
     exchange.send.mockRejectedValueOnce(new Error('timeout'));
     const second = await service.reserve(1, 'account', { idempotencyKey: key(5), amount: '1' });
-    const signed = await approval(second);
-    expect(await service.approve(1, second.operation.id, signed)).toMatchObject({ status: 'unknown' });
-    expect(await service.approve(1, second.operation.id, signed)).toMatchObject({ status: 'unknown' });
+    expect(await service.approve(1, second.operation.id, {})).toMatchObject({ status: 'unknown' });
+    expect(await service.approve(1, second.operation.id, {})).toMatchObject({ status: 'unknown' });
     expect(exchange.send).toHaveBeenCalledOnce();
   });
   it('everything returns only once the stop is flat; the sweep belongs to the stop and its credit ends it', async () => {
@@ -126,24 +125,5 @@ describe('returning USDC from a copy account to the main wallet', () => {
     await db.update(schema.copyFundingOperations).set({ status: 'credited', attemptedAt: new Date(clock), claimedAt: new Date(clock), evidenceHash: 'e'.repeat(64),
       transactionHash: `0x${'f'.repeat(64)}`, creditedAmount: '41.123456', fee: '1' }).where(eq(schema.copyFundingOperations.id, sweep.operation.id));
     expect(await repository.swept(stop!.id)).toBe(true);
-  });
-});
-
-describe('builder fee approval by the copy account', () => {
-  it('only when a fee is configured; the owner consents, the account signs approveBuilderFee, approved once the exchange reports it', async () => {
-    await expect(service.reserveBuilder(1, 'account', { idempotencyKey: key(9) })).rejects.toMatchObject({ status: 409, response: { code: 'builder_fee_not_configured' } });
-    const builder = `0x${'77'.repeat(20)}`;
-    await db.insert(schema.appSettings).values({ key: 'revenue', value: { ...adminSettingsSchema.shape.revenue.parse({}), builderAddress: builder, builderFeeTenthsBps: 10 } })
-      .onConflictDoUpdate({ target: schema.appSettings.key, set: { value: { ...adminSettingsSchema.shape.revenue.parse({}), builderAddress: builder, builderFeeTenthsBps: 10 } } });
-    const challenge = await service.reserveBuilder(1, 'account', { idempotencyKey: key(10) });
-    expect(challenge.consent).toMatchObject({ account: accountAddress, builder, maxFeeTenthsBps: 10 });
-    expect(challenge.masterAction).toMatchObject({ kind: 'builder_fee', account: accountAddress, typedData: { primaryType: 'HyperliquidTransaction:ApproveBuilderFee', message: { maxFeeRate: '0.01%', builder, nonce: challenge.consent.nonce } } });
-    const consentSignature = await owner.signTypedData(copyBuilderConsentTypedData(challenge.consent)), masterSignature = await copyAccount.signTypedData(challenge.masterAction!.typedData as never);
-    await expect(service.approveBuilder(1, challenge.approval.id, { consentSignature, masterSignature: await owner.signTypedData(challenge.masterAction!.typedData as never) }))
-      .rejects.toMatchObject({ status: 403, response: { code: 'master_signature_invalid' } });
-    expect(exchange.sendAction).not.toHaveBeenCalled();
-    const approved = await service.approveBuilder(1, challenge.approval.id, { consentSignature, masterSignature });
-    expect(approved).toMatchObject({ state: 'approved' });
-    expect(exchange.sendAction.mock.calls[0]![1]).toMatchObject({ action: { type: 'approveBuilderFee', maxFeeRate: '0.01%', builder } });
   });
 });

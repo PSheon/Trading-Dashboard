@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { and, desc, eq, inArray, isNull, sql, or } from "drizzle-orm";
-import { copyExecutionAccounts, copyFundingOperations, copyStrategies, users, walletWithdrawals } from "@trading-dashboard/shared/database";
+import { copyExecutionAccounts, copyFundingOperations, copyRiskPolicies, copyStrategies, users, walletWithdrawals } from "@trading-dashboard/shared/database";
 import type { CopyFundingInput } from "@trading-dashboard/shared/contracts";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
@@ -40,7 +40,11 @@ export class CopyFundingRepository {
       return tx.update(copyFundingOperations).set({ updatedAt: new Date() }).where(inArray(copyFundingOperations.id, rows.map((row) => row.id))).returning();
     });
   }
-  async reserve(userId: number, accountId: string, network: FundingRow["network"], rawInput: CopyFundingInput) {
+  /** `guard` sees the owner and what the account already holds from deposits
+   * (sent or pending, less credited returns) inside the reservation's lock,
+   * and throws to refuse it (the deployment's allowlist and allocation cap). */
+  async reserve(userId: number, accountId: string, network: FundingRow["network"], rawInput: CopyFundingInput,
+    guard?: (context: { privyUserId: string; depositedUsd: string; policyMaxAllocationUsd: number | null }) => void) {
     const input = structuredClone(rawInput);
     return this.locked(userId, async (tx) => {
       const [user] = await tx.select().from(users).where(and(eq(users.id, userId), isNull(users.disabledAt))).for("update");
@@ -55,6 +59,14 @@ export class CopyFundingRepository {
       }
       const [strategy] = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.id, account.strategyId), eq(copyStrategies.userId, userId))).for("share");
       if (!strategy || ["stopping", "stopped"].includes(strategy.status)) throw new ConflictException("Copy is stopped");
+      if (guard) {
+        const held = await tx.execute<{ deposited: string }>(sql`select (coalesce(sum(case when direction = 'to_account' and status in ('prepared','unknown','accepted','credited') then amount::numeric end), 0)
+          - coalesce(sum(case when direction = 'to_main' and status = 'credited' then coalesce(credited_amount, amount)::numeric end), 0))::text as deposited
+          from copy_funding_operations where account_id = ${accountId}`);
+        const [policy] = await tx.select({ limits: copyRiskPolicies.limits }).from(copyRiskPolicies).orderBy(desc(copyRiskPolicies.version)).limit(1);
+        const max = (policy?.limits as { maxAllocationUsd?: unknown } | undefined)?.maxAllocationUsd;
+        guard({ privyUserId: user.privyUserId, depositedUsd: held.rows[0]?.deposited ?? "0", policyMaxAllocationUsd: typeof max === "number" ? max : null });
+      }
       const source = and(eq(copyFundingOperations.network, network), eq(copyFundingOperations.address, user.embeddedWalletAddress));
       await expireStaleReturns(tx, accountId);
       // Either direction on this copy account: a return to the main wallet in

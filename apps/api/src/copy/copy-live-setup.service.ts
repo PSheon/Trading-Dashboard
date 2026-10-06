@@ -321,6 +321,8 @@ export class CopyLiveSetupService {
    * its consent lasts. */
   async confirm(userId: number, id: string, body: unknown): Promise<LiveCopySetup> {
     const request = input(confirmLiveCopySetupSchema, body); this.available();
+    // Only a listed owner confirms (and deposits into) an actual copy (security review).
+    this.mandates.assertAllowed((await this.repository.owner(userId)).privyUserId);
     let row = await this.repository.find(userId, id);
     if (row.stage !== 'awaiting_consent') return this.wire(row);
     const parsed = liveCopySetupIntentSchema.safeParse(row.intent);

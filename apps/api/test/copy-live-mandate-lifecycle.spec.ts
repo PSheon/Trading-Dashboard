@@ -360,3 +360,44 @@ describe('server-checked readonly original renewal evidence', () => {
     expect((await stored()).state).toBe('prepared');
   });
 });
+
+describe('the deployment allowlist on every mandate path (security review)', () => {
+  /** A mainnet deployment whose COPY_LIVE_ALLOWED_PRIVY_USER_IDS does or doesn't list the fixture owner. */
+  const mainnet = (allowed: boolean) => {
+    const base = testConfig();
+    return { get value() { const v = base.value; return { ...v, hyperliquid: { ...v.hyperliquid, wallet: { ...v.hyperliquid.wallet, network: 'mainnet' } },
+      copy: { ...v.copy, mode: 'live', live: { network: 'mainnet', caps: { maxStrategiesPerUser: 10 }, builderFee: false, testnetSourceIntervalMs: 60_000,
+        allowedPrivyUserIds: new Set([allowed ? 'did:privy:mandate-owner' : 'did:privy:paul-only']), maxSourceDeviationBps: 500, slippageBps: 30, intervalMs: 3000, weightPerMin: 300 } } }; } } as never;
+  };
+  const services = (allowed: boolean) => { const repository = new CopyLiveMandateRepository(db, mainnet(allowed)); return { repository, service: new CopyLiveMandateService(mainnet(allowed), repository, new UnitOfWork(db), () => clock) }; };
+  const notAllowed = { response: expect.objectContaining({ code: 'live_not_allowed' }) };
+  beforeEach(async () => {
+    // The fixture's copy, moved to mainnet with the deployment.
+    for (const table of [copyExecutionAccounts, copyExecutionWallets, copyAgentSetups, copyStrategies]) await db.update(table).set({ network: 'mainnet' } as never);
+    await db.update(copyLiveStrategyConfigs).set({ sourceNetwork: 'mainnet' });
+  });
+
+  it('a non-listed owner gets no mandate created, prepared, activated or resumed on a mainnet deployment, by any path', async () => {
+    const listed = services(true), unlisted = services(false);
+    await expect(unlisted.service.create(uid, { ...draft(), sourceNetwork: 'mainnet', idempotencyKey: 'unlisted-draft-key-0001' })).rejects.toMatchObject(notAllowed);
+    await expect(unlisted.service.prepare(uid, accountId, { idempotencyKey: 'mandate-generation-key-0001' })).rejects.toMatchObject(notAllowed);
+    // Prepared while listed, then the owner left the list: no activation by signature …
+    const prepared = await listed.service.prepare(uid, accountId, { idempotencyKey: 'mandate-generation-key-0001' });
+    expect(prepared.intent.network).toBe('mainnet');
+    const signature = await owner.signTypedData(liveCopyMandateOwnerTypedData(prepared.intent));
+    await expect(unlisted.service.approve(uid, prepared.mandate.id, { consentSignature: signature })).rejects.toMatchObject(notAllowed);
+    // … nor by a setup's consent, nor straight through the repository.
+    await expect(new UnitOfWork(db).run(tx => unlisted.repository.prepareFromSetup(tx, uid, { id: '00000000-0000-4000-8000-000000000009', kind: 'start', consentDigest: 'a'.repeat(64),
+      intent: { setupId: '00000000-0000-4000-8000-000000000009', userId: uid, network: 'mainnet', ownerPrivyUserId: 'did:privy:mandate-owner' } as never, settings }, () => clock))).rejects.toMatchObject(notAllowed);
+    const row = await stored();
+    await expect(new UnitOfWork(db).run(tx => unlisted.repository.activate(tx, row!, { liveSetupId: 'x', consentDigest: 'b'.repeat(64) }, clock))).rejects.toMatchObject(notAllowed);
+    expect((await stored())!.state).toBe('prepared');
+    // Activated and paused while listed: no resume once unlisted.
+    expect((await listed.service.approve(uid, prepared.mandate.id, { consentSignature: signature })).state).toBe('active');
+    expect((await listed.service.pause(uid, prepared.mandate.id)).state).toBe('paused');
+    await expect(unlisted.service.resume(uid, prepared.mandate.id)).rejects.toMatchObject(notAllowed);
+    expect((await stored())!.state).toBe('paused');
+    // Pausing and revoking (risk only goes down) stay open to the owner.
+    expect((await unlisted.service.revoke(uid, prepared.mandate.id)).state).toBe('revoked');
+  });
+});

@@ -232,6 +232,10 @@ export class CopyLiveMandateRepository {
   async activate(tx: DbTransaction, row: MandateRow, consent: string | { readonly liveSetupId: string; readonly consentDigest: string }, now: number) {
     if (row.state === 'active') return row;
     if (row.state !== 'prepared') conflict();
+    // Every way a generation becomes active (an owner signature, a setup's
+    // consent): a listed owner on this deployment's network only (security review).
+    this.assertAllowed(row.ownerPrivyUserId);
+    if (row.network !== this.network) conflict();
     await tx.update(copyStrategies).set({ status: 'paused', pauseNewRisk: true }).where(and(eq(copyStrategies.id, row.strategyId), eq(copyStrategies.userId, row.userId), eq(copyStrategies.mode, ACTUAL_STRATEGY_MODE)));
     const kind = typeof consent === 'string' ? { consentDigest: digest(consent.toLowerCase()) } : { consentDigest: consent.consentDigest, consentKind: 'setup' as const, liveSetupId: consent.liveSetupId };
     // Never before the row's own created_at (the activation check): a caller
@@ -256,7 +260,10 @@ export class CopyLiveMandateRepository {
    * budget become the strategy's next version. A paused copy stays paused.
    */
   async prepareFromSetup(tx: DbTransaction, userId: number, setup: { id: string; kind: 'start' | 'edit' | 'renewal'; consentDigest: string; intent: LiveCopySetupIntent; settings: CreateLiveCopyStrategy['settings'] }, clock: () => number) {
-    await this.lock(tx, userId); const now = clock(), intent = setup.intent, key = `setup_${setup.id.replaceAll('-', '')}`;
+    const owner = await this.lock(tx, userId); const now = clock(), intent = setup.intent, key = `setup_${setup.id.replaceAll('-', '')}`;
+    // A listed owner's own setup, on this deployment's network (security review).
+    this.assertAllowed(owner.privyUserId);
+    if (intent.network !== this.network || intent.ownerPrivyUserId !== owner.privyUserId) conflict();
     const [existing] = await tx.select().from(copyLiveMandates).where(and(eq(copyLiveMandates.userId, userId), eq(copyLiveMandates.idempotencyKey, key)));
     if (existing) return existing;
     if (intent.setupId !== setup.id || intent.userId !== userId) conflict();
@@ -314,6 +321,7 @@ export class CopyLiveMandateRepository {
     const [strategy] = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.id, row.strategyId), eq(copyStrategies.userId, userId), eq(copyStrategies.mode, ACTUAL_STRATEGY_MODE))).for('update');
     // Another network's generation is history on this deployment: never resumed here.
     if (!strategy || owner.privyUserId !== row.ownerPrivyUserId || row.network !== this.network || strategy.network !== this.network) conflict();
+    this.assertAllowed(owner.privyUserId);
     if (row.state === 'active') return row;
     if (row.state === 'stopping' || strategy.status === 'stopping' || strategy.status === 'stopped') throw new ConflictException({ statusCode: 409, code: 'live_stop_in_progress', message: 'A stop is in progress for this copy' });
     if (row.state !== 'paused' || row.expiresAt.getTime() <= now || strategy.status !== 'paused' || strategy.reduceOnly) conflict();

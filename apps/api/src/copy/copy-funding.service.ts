@@ -1,4 +1,5 @@
 import { BadGatewayException, BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from "@nestjs/common";
+import { Dec } from "../common/decimal/dec.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
 import { WALLET_NETWORK_HL, type WalletNetworkHyperliquid } from "../hyperliquid/wallet-network-hyperliquid.js";
 import { createHash } from "node:crypto";
@@ -55,7 +56,21 @@ export class CopyFundingService {
     const parsed = copyFundingInputSchema.safeParse(body);
     if (!parsed.success) throw new BadRequestException("Invalid funding request");
     await this.verified(userId, accountId);
-    return wire(await this.repository.reserve(userId, accountId, this.config.value.hyperliquid.wallet.network, parsed.data));
+    return wire(await this.repository.reserve(userId, accountId, this.config.value.hyperliquid.wallet.network, parsed.data, this.liveGuard(parsed.data.amount)));
+  }
+  /** A deposit or top-up into an actual copy on a deployment with caps: a
+   * listed owner only, and the account's deposits stay within the stricter of
+   * COPY_LIVE_MAX_ALLOCATION_USD and the policy (security review). */
+  private liveGuard(amount: string) {
+    const live = this.config.value.copy.live;
+    if (!live) return undefined;
+    return ({ privyUserId, depositedUsd, policyMaxAllocationUsd }: { privyUserId: string; depositedUsd: string; policyMaxAllocationUsd: number | null }) => {
+      if (live.allowedPrivyUserIds && !live.allowedPrivyUserIds.has(privyUserId))
+        throw new ConflictException({ statusCode: 409, code: "live_not_allowed", message: "Real-fund copies are not open to your account yet; paper copies are" });
+      const caps = [live.caps.maxAllocationUsd, policyMaxAllocationUsd].filter((v): v is number => typeof v === "number");
+      if (caps.length && Dec.from(depositedUsd).add(amount).gt(String(Math.min(...caps))))
+        throw new ConflictException({ statusCode: 409, code: "above_max_allocation", message: "This would put more than the maximum allocation in the copy", max: Math.min(...caps) });
+    };
   }
   async claim(userId: number, id: string) {
     this.assertAvailable();

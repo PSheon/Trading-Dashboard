@@ -17,7 +17,7 @@
 | ① 統一簽署 | 刪除 `owner_session`。setup／return／mode／agent／stop 只走 worker。`attachWorker` 被拒時拋錯；server `confirm` 在 `funding.submit` 前回 409 `worker_signer_missing`。刪除 `signAsAccount`、pendingSignature、`copy-master-action`、`settings/copy-agents`、`copy-account-mode` 的 owner approve。migration 0071：失敗進行中的 owner_session setup，移除死欄位與約束。typed data 只留 `packages/shared` 一份 | `copy-live-setup.*`、`copy-live-return.*`、`copy-account-mode.*`、`copy-agent.*`、`copy-live-stop.service`、`master-action.ts`、shared contracts、web `lib/copy-*`、`auth-privy`、`wallet-signer`、相關元件 | 拒絕 addSigners → 不送 `/confirm`、server 409；`/advance` 帶簽章 → 400；return 不帶簽章由 worker 簽；testnet 新跟單到 running 時沒有任何 signAsAccount 呼叫 | 第一批 |
 | ③ 額度與下單路徑 | 12 處 budget acquire 包裝合併成 `reserveLive`（逾時改成 `HyperliquidBudgetWait`）；同一網路只建一個 bucket；開機時證據權重大於 live 容量就拒絕啟動；worker 有自己的主網預算（360/840）；下單前的帳戶 WS 讀取只訂閱有資產的 dex 與目標 dex（先用測試證明標準模式帳戶不可能在其他 dex 有掛單）；最小下單金額規則合成一個 `minOrderNotional(limits)` | `request-budgeter.service.ts`、`hyperliquid-budget-wait.ts`、observer、ws-source、read-epoch、shared-reads、`copy.module`／`copy-worker.module` 的包裝 | rate 700 時開機報錯；主網預設下 2 個帳戶可通過；證據 ≤ 2 個 dex 訂閱；逾時以 `HyperliquidBudgetWait` 呈現 | 第一批 |
 | ② 網路參數化 | 部署設定決定網路（`HYPERLIQUID_NETWORK`）；`COPY_TRADING_MODE=live` 搭配 `COPY_LIVE_ALLOWED_PRIVY_USER_IDS`；`LiveExecutionRuntime(network)`、closer、settler、stopper；主網 Privy policy（42161／Mainnet）、agent 與 cancellation 的 source；同網路時免價格參考；約 12 個寫死的 info URL 改 `WALLET_NETWORKS[network]`；migration 0072 放寬 11 條 `network='testnet'` 約束；上限檢查（固定金額 12–15） | `runtime-config.ts`、`wallet-network-hyperliquid.ts`、`copy-live-engine.provider.ts`、runtime 等、privy policy／agent／cancellation、source planner、repositories、migration 0072 | live + mainnet 設定可開機；主網 policy 規則為 42161／"Mainnet"；mainnet 交易員對 mainnet 跟單不需價格參考；migration 測試可寫入 mainnet 列 | 第二批 |
-| ④ 自動化測試台 | 自有 testnet 交易員（`@nktkas/hyperliquid`，劇本：開、加、減到低於最小額、平、翻、小於最小額）；testnet 來源輪詢間隔可設定，並支援 fast source；跟隨者用 Privy 測試帳號 + Playwright（同意、入金、addSigners）；五方對帳（交易員成交／`admin/copy/live/orders`／follower `orderStatus`+`userFills`／`clearinghouseState`／`me/copy/live/portfolio`）、延遲 p95 ≤ 10 s、停止 → 返還、閒置提領；主網唯讀對帳模式 | `scripts/copy-harness/*`、`apps/web/e2e/stage-copy.spec.ts`、web format／error-text 合併 | 六筆劇本五方一致；停止返還與提領通過 | 第二批 |
+| ④ 自動化測試台 | ✅ 建好（CI 綠）：`node scripts/copy-harness/run.mjs` 一行跑完整流程；不需資金的步驟實跑全綠（登入、設定、瀏覽器簽同意與入金、addSigners 經 Privy 200、餘額不足被 409 擋、取消後確認沒扣錢）。真實下單／對帳／提領／停止返還待受控交易員 `0xb567…53e1` 有 ≥170 testnet USDC |
 
 ## 時程
 
@@ -25,6 +25,10 @@
 - 4–7 h：② + ④；①③ 部署到本機與 testnet 驗證
 - 7–8 h：測試台在 testnet 全綠；Stage 備份 → Paul 確認 → 清 testnet 跟單資料 → 切主網設定（只允許 Paul、上限、builder 0）→ 演練緊急停止開關
 - 8–10 h：Paul 主網兩筆跟單；測試台以唯讀模式即時對帳
+
+## 已知小問題（不擋主網）
+
+- 快照收集器對「取消但沒完成設定」的帳戶（`0x0a6a…`，帳戶模式未設定）每 2 分鐘重試一次並記警告；應停止觀察未完成設定的帳戶。
 
 ## 已知必修（分析 2026-10-07）
 
@@ -40,6 +44,6 @@
 | ① 統一簽署 | ✅ 完成（`a45aec1b` CI 綠）：刪 8 個端點與 4 個欄位（migration 0071，會刪欄位，部署前備份）；拒絕 addSigners → 入金前 409；真實 Privy 驗證 worker 可簽返還／帳戶模式、轉給別人被拒 |
 | ③ 額度與下單路徑 | ✅ 完成（CI 綠）：額度包裝合一；開機檢查容量；主網 worker 360／840；最小金額規則合一；dex 範圍讀取未做（無法證明安全；主網只有 11 個 dex） |
 | ② 網路參數化 | 進行中（02:05 起） |
-| ④ 自動化測試台 | 進行中（02:05 起）：leader／reconcile 腳本已完成（`2b83ad9d`）；完整跑需要 testnet USDC（受控交易員 `0xb567…53e1` 與測試帳號主錢包 `0x3864…23f4` 都是 0，等 Paul 早上轉入） |
+| ④ 自動化測試台 | ✅ 建好（CI 綠）：`node scripts/copy-harness/run.mjs` 一行跑完整流程；不需資金的步驟實跑全綠（登入、設定、瀏覽器簽同意與入金、addSigners 經 Privy 200、餘額不足被 409 擋、取消後確認沒扣錢）。真實下單／對帳／提領／停止返還待受控交易員 `0xb567…53e1` 有 ≥170 testnet USDC |
 | Stage 切主網 | 待 ② 完成；舊 testnet 資料不刪，改為「只處理部署網路的資料」；需移除 `COPY_LIVE_WEIGHT_PER_MIN=700`、風控 `maxStrategiesPerUser ≤ 2` |
 | 主網兩筆跟單 | 待 Paul 9:00 |

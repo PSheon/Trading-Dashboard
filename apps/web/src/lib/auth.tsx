@@ -248,6 +248,8 @@ function FixtureAuth({ children }: { children: React.ReactNode }) {
       logout: async () => { clearPersonalStorage(); persist(false); },
       identity: signedIn ? second ? "second@example.com" : "demo@example.com" : null,
       wallet: signedIn ? signer : null,
+      // The fixture signer stands in for a Privy owner (copy stops read it).
+      userId: signedIn && signer ? (second ? "did:fixture:second" : "did:fixture:demo") : null,
     }),
     [signedIn, second, persist, signer],
   );

@@ -4,6 +4,8 @@ import { copyFundingOverviewSchema } from "@trading-dashboard/shared/contracts";
 import { adminResolvedWithdrawalSchema, adminUnresolvedWithdrawalsSchema, walletWithdrawalClaimSchema, walletWithdrawalSchema, type WalletWithdrawal } from "@trading-dashboard/shared/contracts";
 import { FIXTURE_WALLET_ADDRESS } from "@/lib/fixture-signer";
 import { fixtureLiveCopy, fixtureLiveDeletionBlockers } from "./live-copy";
+import { demoAccounts, demoSnapshot, portfolioDemo } from "./portfolio-demo";
+import { copyFollowerSnapshotReadSchema, liveCopyStopsSchema } from "@trading-dashboard/shared/contracts";
 import { fixtureKols, previewKols, importKols, saveKol, removeKol } from "./kols";
 import { adminSourcesSchema, importPreviewSchema } from "@trading-dashboard/shared/contracts";
 import { fixtureImportPreview, fixtureCommitImport } from "./import-preview";
@@ -612,7 +614,17 @@ export async function fixtureRequest<T>(
       requireUser(token);
       // Browser fixtures have no real Privy wallet provider. Never manufacture
       // a ready account, deposit address or live signing authorization.
+      if (portfolioDemo()) return wire(copyExecutionWalletsSchema, { available: true, network: "testnet", accounts: demoAccounts(), authorizations: [] });
       return wire(copyExecutionWalletsSchema, { available: false, network: "testnet", accounts: [], authorizations: [] });
+    case "GET /me/copy/execution-wallets/:id/snapshot": {
+      requireUser(token);
+      const snapshot = portfolioDemo() ? demoSnapshot(parts[3]!) : null;
+      if (!snapshot) throw new ApiError(404, "Copy account not found");
+      return wire(copyFollowerSnapshotReadSchema, snapshot);
+    }
+    case "GET /me/copy/live/stops":
+      requireUser(token);
+      return wire(liveCopyStopsSchema, { items: [], truncated: false });
     case "GET /me/copy/funding":
       requireUser(token);
       return wire(copyFundingOverviewSchema, { available: false, network: "testnet", operations: [] });

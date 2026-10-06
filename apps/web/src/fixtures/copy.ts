@@ -8,6 +8,7 @@
  * set to `patch`, `commands` or `funds` makes the next such request answer
  * 503 once, so a control's error state can be driven through the real UI.
  */
+import { demoEvents, portfolioDemo } from "./portfolio-demo";
 import { ApiError } from "@/lib/api";
 import type { CopyStrategySettings } from "@trading-dashboard/shared/contracts";
 
@@ -297,7 +298,16 @@ for (const { s, o } of strategies.flatMap((s) => s.orders.map((o) => ({ s, o }))
     action: closing ? "close" : "open", realizedPnl: closing ? "45.10" : "0", fee: String(o.fee),
   } });
 }
+let demoSeeded = false;
 export function fixtureCopyEvents(after: string, limit: number, before?: string) {
+  // `?portfolio=demo`: the demo testnet copies' activity joins the feed, in time order.
+  if (!demoSeeded && portfolioDemo()) {
+    demoSeeded = true;
+    const merged = [...fixtureEvents, ...demoEvents()].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    fixtureEvents.length = 0;
+    merged.forEach((event, i) => fixtureEvents.push({ ...event, id: String(i + 1) }));
+    fixtureEventId = fixtureEvents.length;
+  }
   const eligible = fixtureEvents.filter((event) => before ? BigInt(event.id) < BigInt(before) : BigInt(event.id) > BigInt(after));
   const items = before || after === "0" ? eligible.slice(-Math.min(100, limit)) : eligible.slice(0, Math.min(100, limit));
   return { items, nextCursor: items.at(-1)?.id ?? after, previousCursor: items[0]?.id ?? null, hasMore: eligible.length > items.length };

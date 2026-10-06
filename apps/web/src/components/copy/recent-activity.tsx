@@ -28,8 +28,7 @@ export function useEventLine() {
       ? [coin, side, size].filter(Boolean).join(" ")
       : [LABELLED.has(event.type) ? t(`copyUpdates.events.${event.type}` as MessageKey) : event.type === "order_rejected" ? t("copyUpdates.orderRejected") : event.type === "order_cancelled" ? t("copyUpdates.orderCancelled") : null,
         coin, amount !== null && Number.isFinite(amount) ? format.usd(amount, { digits: 2 }) : null].filter(Boolean).join(" ");
-    const at = new Date(event.createdAt), today = new Date().toDateString() === at.toDateString();
-    return { what: what || "—", who: name ? t("folio.follow", { name }) : null, when: today ? format.time(event.createdAt) : `${format.shortDate(event.createdAt)} ${format.time(event.createdAt)}` };
+    return { what: what || "—", who: name ? t("folio.follow", { name }) : null, when: format.clock(event.createdAt) };
   };
 }
 

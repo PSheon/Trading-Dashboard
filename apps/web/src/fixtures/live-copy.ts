@@ -2,6 +2,7 @@ import { agentApprovalTypedData, liveCopyMandateSchema, liveCopyOverviewSchema, 
   type CopyMasterActionRequest, type LiveCopyPortfolioItem, type LiveCopySetup, type LiveCopySetupIntent, type LiveCopyStrategy } from "@trading-dashboard/shared/contracts";
 import type { ZodTypeAny } from "zod";
 import { ApiError } from "@/lib/api";
+import { demoLiveItems, demoLiveStrategies, demoMandates, portfolioDemo } from "./portfolio-demo";
 import { FIXTURE_SECOND_TOKEN, FIXTURE_WALLET_ADDRESS, fixtureOwnerSetupFlag, fixtureSignerFlag, fixtureSigners } from "@/lib/fixture-signer";
 
 /**
@@ -215,8 +216,8 @@ function liveRoute(method: string, parts: string[], body: unknown): unknown {
   const route = `${method} ${rest.map((p, i) => (i === 1 && ["setups", "strategies", "mandates"].includes(rest[0]!) ? ":id" : p)).join("/")}`;
   switch (route) {
     case "GET ": return { mode: "actual", network: "testnet", capabilities: { strategyPreparation: true, automaticExecution: true, sourceNetworks: ["mainnet", "testnet"] },
-      strategies: [...strategies.values()].map(held => held.strategy), mandates: [] };
-    case "GET portfolio": return { network: "testnet", automaticExecution: true, items: [...strategies.values()].map(held => held.item).concat([...setupItems.values()]).reverse() };
+      strategies: [...strategies.values()].map(held => held.strategy).concat(portfolioDemo() ? demoLiveStrategies() : []), mandates: portfolioDemo() ? demoMandates() : [] };
+    case "GET portfolio": return { network: "testnet", automaticExecution: true, items: [...strategies.values()].map(held => held.item).concat([...setupItems.values()]).reverse().concat(portfolioDemo() ? demoLiveItems() : []) };
     case "GET setups": return { items: [...setups.values()].reverse() };
     case "POST setups": {
       const priorId = startKeys.get(String(input.idempotencyKey)), prior = priorId ? setups.get(priorId) : undefined;

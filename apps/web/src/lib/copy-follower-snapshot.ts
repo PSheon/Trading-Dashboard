@@ -1,4 +1,5 @@
 'use client';
+import { API_FIXTURES } from './config';
 import { useLayoutEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { copyFollowerSnapshotReadSchema, type CopyExecutionAccount, type CopyFollowerSnapshotRead } from '@trading-dashboard/shared/contracts';
@@ -6,6 +7,8 @@ import type { FollowerStatementDependencies } from './copy-follower-statements';
 import { api, sessionKey } from './api';
 import { useAuth } from './auth';
 import { queryKeys } from './query-keys';
+/** The owner's session: Privy, or the fixture login in a fixture build (the portfolio demo). */
+const ownerMode = (mode: string) => mode === 'privy' || (API_FIXTURES && mode === 'fixture');
 function identity(a: CopyExecutionAccount) { return [a.id, a.strategyId, a.network, a.address?.toLowerCase() ?? null] as const; }
 function units(v: string) { const negative = v.startsWith('-'), [whole, fraction = ''] = (negative ? v.slice(1) : v).split('.'); return BigInt(whole + fraction.padEnd(18, '0')) * (negative ? BigInt(-1) : BigInt(1)); }
 function sum(v: readonly string[]) { return v.reduce((n, value) => n + units(value), BigInt(0)); }
@@ -36,7 +39,7 @@ export function parseCopyFollowerSnapshot(value: unknown, account: CopyExecution
 }
 export async function loadCopyFollowerSnapshot(account: CopyExecutionAccount, deps: FollowerStatementDependencies): Promise<CopyFollowerSnapshotRead> {
   const selected = { ...account }, owner = { ...deps.snapshot() };
-  if (owner.status !== 'signedIn' || owner.mode !== 'privy' || !owner.identity) throw new Error('follower_snapshot_owner_unavailable');
+  if (owner.status !== 'signedIn' || !ownerMode(owner.mode) || !owner.identity) throw new Error('follower_snapshot_owner_unavailable');
   if (selected.network !== 'testnet') throw new Error('follower_snapshot_network_unsupported');
   if (!/^0x[0-9a-fA-F]{40}$/.test(selected.address ?? '')) throw new Error('follower_snapshot_account_unavailable');
   const guard = () => {
@@ -50,7 +53,7 @@ export function useCopyFollowerSnapshot(account: CopyExecutionAccount | null) {
   const auth = useAuth(), latest = useRef({ auth, account }), mounted = useRef(true);
   useLayoutEffect(() => { latest.current = { auth, account }; }, [auth, account]);
   useLayoutEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  const enabled = auth.status === 'signedIn' && auth.mode === 'privy' && Boolean(auth.identity) && account?.network === 'testnet' && Boolean(account.address);
+  const enabled = auth.status === 'signedIn' && ownerMode(auth.mode) && Boolean(auth.identity) && account?.network === 'testnet' && Boolean(account.address);
   const query = useQuery({ queryKey: [...queryKeys.copy.all, 'follower-snapshot', auth.status, auth.mode, auth.identity, sessionKey(), auth.wallet?.address?.toLowerCase() ?? null, ...(account ? identity(account) : [null])], enabled,
     queryFn: async ({ signal }) => {
       const startedWall = Date.now(), startedMono = performance.now();

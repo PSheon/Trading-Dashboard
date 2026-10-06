@@ -47,6 +47,8 @@ export interface Formatter {
   /** Numeric date ("09/22/2026", "2026/09/22"), for narrow places. */
   shortDate(value: DateLike): string;
   time(value: DateLike): string;
+  /** A short stamp for activity rows: 23:10 today, else 10/05 23:10. */
+  clock(value: DateLike, now?: number): string;
   /** Short date for chart axes ("26年9月" / "Sep 26"). */
   axisDate(value: DateLike, span: "hours" | "days" | "months"): string;
   relative(value: DateLike, now?: number): string;
@@ -209,6 +211,14 @@ export function createFormatter(locale: Locale): Formatter {
       const d = toDate(value);
       if (!d) return DASH;
       return df("t", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(d);
+    },
+
+    clock(value, now = Date.now()) {
+      const d = toDate(value);
+      if (!d) return DASH;
+      const hm = df("hm", { hour: "2-digit", minute: "2-digit", hour12: false }).format(d);
+      const day = df("md", { month: "2-digit", day: "2-digit" });
+      return day.format(d) === day.format(new Date(now)) && now - d.getTime() < 86_400_000 ? hm : `${day.format(d)} ${hm}`;
     },
 
     axisDate(value, span) {

@@ -1,4 +1,5 @@
 'use client';
+import { API_FIXTURES } from './config';
 import { useLayoutEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
@@ -93,7 +94,7 @@ export async function requestLiveCopyStop(input: LiveStopSelection, deps: StopDe
 export function useLiveCopyStops(selection: LiveStopSelection | null, ownerId: string | null) {
   const auth = useAuth(), client = useQueryClient();
   const owner = { status: auth.status, mode: auth.mode, identity: auth.identity, session: sessionKey(), ownerId };
-  const enabled = owner.status === 'signedIn' && owner.mode === 'privy' && !!owner.identity && !!ownerId;
+  const enabled = owner.status === 'signedIn' && (owner.mode === 'privy' || (API_FIXTURES && owner.mode === 'fixture')) && !!owner.identity && !!ownerId;
   const scope = enabled ? `privy:${ownerId}` : null;
   const key = ['copy', 'live-stops', owner.ownerId, owner.session] as const;
   const latest = useRef({ owner, selection, scope });

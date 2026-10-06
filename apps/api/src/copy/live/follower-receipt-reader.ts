@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { settleListAnswer } from '../../hyperliquid/hyperliquid-global-transport.js';
 import { z } from 'zod';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
 import { parseFollowerFill, parseFollowerFunding, type ParsedFollowerFill, type ParsedFollowerFunding } from './actual-fill-accounting.js';
@@ -43,7 +44,7 @@ const inputSchema = z.object({ accountAddress: z.string(), from: millisecond, to
 // authoritative block count, >=500 rows is conservatively possibly capped.
 const GENERAL_TIME_RANGE_CAP = 500;
 const MAX_RESPONSE_ROWS = 2000;
-const RESPONSE_WEIGHT = 20 + MAX_RESPONSE_ROWS / 20;
+export const RESPONSE_WEIGHT = 20 + MAX_RESPONSE_ROWS / 20;
 const DEADLINE_MS = 5000;
 function fail(code: string): never { throw new LiveBoundaryError(code); }
 function frozen<T>(value: T): T {
@@ -78,8 +79,10 @@ function semantic(evidence: FollowerFillEvidence | FollowerFundingEvidence): str
  * operational checkpoint; this reader deliberately exports no global cursor. */
 export class HyperliquidFollowerReceiptReader {
   readonly network = 'testnet' as const;
+  /** `refund` gives back acquired weight an answer didn't use (the budget's
+   * `adjust(-weight)`); the shared per-IP meter is settled the same way. */
   constructor(network: 'testnet', private readonly acquire: (weight: number) => Promise<unknown>,
-    private readonly fetcher: typeof fetch = fetch, private readonly now = Date.now) {
+    private readonly fetcher: typeof fetch = fetch, private readonly now = Date.now, private readonly refund?: (weight: number) => void) {
     if (network !== 'testnet' || typeof acquire !== 'function') fail('follower_reader_invalid_configuration');
   }
   async read(input: FollowerReceiptReadInput): Promise<FollowerReceiptReadResult> {
@@ -130,6 +133,11 @@ export class HyperliquidFollowerReceiptReader {
         }), remaining());
         if (!response.ok) { void response.body?.cancel().catch(() => undefined); fail('follower_reader_read_unavailable'); }
         rows = await boundedLiveRead(() => readInfoJson(response, 'follower receipts', 2 * 1024 * 1024), remaining());
+        if (Array.isArray(rows)) {
+          // A list's real weight is 20 + 1 per 20 rows; the rest goes back.
+          settleListAnswer(response, rows.length);
+          try { this.refund?.(RESPONSE_WEIGHT - Math.min(RESPONSE_WEIGHT, 20 + Math.ceil(rows.length / 20))); } catch { /* accounting only */ }
+        }
         remaining();
       } catch (error) {
         const reason = !this.fresh(started) ? 'evidence_expired' : error instanceof LiveBoundaryError && error.code === 'live_read_deadline_exceeded'

@@ -123,7 +123,8 @@ export { WALLET_NETWORK_HL, walletNetworkHyperliquid, type WalletNetworkHyperliq
     { provide: WORKER_MASTER_SIGNER, inject: [AppConfig], useFactory: (config: AppConfig) => new PrivyPolicyMasterSigner({ appId: config.value.auth.appId, appSecret: config.value.auth.appSecret,
       workerQuorumId: config.value.copy.agent?.workerQuorumId, authorizationPrivateKey: config.value.copy.agent?.authorizationPrivateKey }) },
     { provide: HyperliquidFollowerReceiptReader, inject: [WALLET_NETWORK_HL], useFactory: ({ budget, transport }: WalletNetworkHyperliquid) =>
-      new HyperliquidFollowerReceiptReader("testnet", weight => budget.acquire(weight, "background", undefined, { signal: AbortSignal.timeout(5_000) }), transport.fetchInfo) },
+      new HyperliquidFollowerReceiptReader("testnet", weight => budget.acquire(weight, "background", undefined, { signal: AbortSignal.timeout(5_000) }), transport.fetchInfo,
+        Date.now, weight => { if (weight > 0) budget.adjust(-weight); }) },
     { provide: USER_AGENT_PROVISIONER, inject: [AppConfig], useFactory: (config: AppConfig) => new PrivyUserAgentProvisioner({
       appId: config.value.auth.appId, appSecret: config.value.auth.appSecret, workerQuorumId: config.value.copy.agent?.workerQuorumId,
       authorizationPublicKey: config.value.copy.agent?.authorizationPublicKey }) },

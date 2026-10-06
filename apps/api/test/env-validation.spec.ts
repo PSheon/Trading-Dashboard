@@ -74,6 +74,9 @@ describe("startup environment", () => {
     expect(() => validateEnvironment({ ...testnet, HYPERLIQUID_EGRESS_KEY: undefined })).toThrow("HYPERLIQUID_EGRESS_KEY");
     expect(() => validateEnvironment({ ...testnet, PRIVY_AGENT_AUTHORIZATION_KEY: undefined, PRIVY_AGENT_WORKER_QUORUM_ID: undefined })).toThrow("PRIVY_AGENT_AUTHORIZATION_KEY");
     expect(() => validateEnvironment({ ...testnet, COPY_TESTNET_MAX_PRICE_DEVIATION_BPS: "10001" })).toThrow("COPY_TESTNET_MAX_PRICE_DEVIATION_BPS");
+    // Once an order reads ~385, the testnet rate may go up to 700/min (burst 500).
+    expect(validateEnvironment({ ...testnet, COPY_LIVE_WEIGHT_PER_MIN: "700" }).copy.live?.weightPerMin).toBe(700);
+    expect(() => validateEnvironment({ ...testnet, COPY_LIVE_WEIGHT_PER_MIN: "701" })).toThrow("COPY_LIVE_WEIGHT_PER_MIN");
     // The realtime copy source is off unless named, per leader or for all.
     expect(validateEnvironment(testnet).copy.live?.fastSource).toBeUndefined();
     expect(validateEnvironment({ ...testnet, COPY_LIVE_FAST_SOURCE: " " }).copy.live?.fastSource).toBeUndefined();

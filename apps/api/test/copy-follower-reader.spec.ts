@@ -160,4 +160,14 @@ describe('bounded account follower receipt reads (offline)', () => {
       await expect(s.reader.read({ ...input, ...patch })).rejects.toThrow();
     expect(s.fetcher).not.toHaveBeenCalled();
   });
+  it('gives back the weight an answer did not use (120 acquired per read, 20 + 1 per 20 rows spent)', async () => {
+    const refund = vi.fn(), acquire = vi.fn(async (_weight: number) => {});
+    const fetcher = vi.fn<typeof fetch>(async (_url, options) => {
+      const body = JSON.parse(String(options?.body));
+      return new Response(JSON.stringify(body.type === 'userFunding' ? [funding()] : Array.from({ length: 30 }, (_, i) => fill(i + 1, from + i))));
+    });
+    await new HyperliquidFollowerReceiptReader('testnet', acquire, fetcher, () => now, refund).read({ ...input, maxRequests: 2 });
+    expect(acquire.mock.calls).toEqual([[120], [120]]);
+    expect(refund.mock.calls.map(([w]) => w).sort((a, b) => a - b)).toEqual([120 - 22, 120 - 21]);
+  });
 });

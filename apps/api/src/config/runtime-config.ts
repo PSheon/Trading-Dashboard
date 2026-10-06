@@ -82,9 +82,15 @@ export interface LiveCopyConfig {
    * (COPY_LIVE_WEIGHT_PER_MIN). Testnet is a separate host with its own
    * per-IP limit, so these reads take their own budget and shared egress
    * key (`<HYPERLIQUID_EGRESS_KEY>:testnet`), never the mainnet watcher's.
-   * The burst is the rest of the 1200/min limit: one order's fresh evidence
-   * reads weigh about 770 and its settlement about 400, so a low rate with
-   * a large burst (default 300/min, burst 900) lets one order go at once. */
+   * The burst is the rest of the 1200/min limit (default 300/min, burst 900).
+   * One order's evidence reads now weigh 385 (shared reads; 424 with three
+   * other coins open, at most 450) and its settlement about 350 (the
+   * account observation 284, its own receipts about 45 after the unused list
+   * surcharge is given back, the market and the order status 22): about 735
+   * an order. At most 700/min: about one order a minute sustained, while the
+   * 500 burst still takes one order's evidence at once and the api process
+   * (setups, wallet pages) keeps room under the per-IP limit the shared meter
+   * enforces across both processes. */
   weightPerMin: number;
   /** Mainnet leaders whose copy signal comes from the realtime fast source
    * (COPY_LIVE_FAST_SOURCE: comma-separated addresses, or `all`). Unset or
@@ -115,7 +121,7 @@ function copyTrading(source: Environment, wallet: "mainnet" | "testnet", egressK
       maxSourceDeviationBps: integerValue("COPY_TESTNET_MAX_PRICE_DEVIATION_BPS", source.COPY_TESTNET_MAX_PRICE_DEVIATION_BPS, 500, 0, 10_000),
       slippageBps: integerValue("COPY_LIVE_SLIPPAGE_BPS", source.COPY_LIVE_SLIPPAGE_BPS, 30, 0, 500),
       intervalMs: integerValue("COPY_LIVE_INTERVAL_MS", source.COPY_LIVE_INTERVAL_MS, 3000, 1000, 60_000),
-      weightPerMin: integerValue("COPY_LIVE_WEIGHT_PER_MIN", source.COPY_LIVE_WEIGHT_PER_MIN, 300, 100, 400),
+      weightPerMin: integerValue("COPY_LIVE_WEIGHT_PER_MIN", source.COPY_LIVE_WEIGHT_PER_MIN, 300, 100, 700),
       revokeDeadlineMs: integerValue("COPY_LIVE_REVOKE_DEADLINE_MINUTES", source.COPY_LIVE_REVOKE_DEADLINE_MINUTES, 30, 1, 1440) * 60_000,
       automaticReturn: booleanValue("COPY_AUTOMATIC_RETURN", source.COPY_AUTOMATIC_RETURN, false),
     };

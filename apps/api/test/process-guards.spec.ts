@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { Pool } from "pg";
 import { describe, expect, it, vi } from "vitest";
 
-import { describeFailure, guardPool, installProcessGuards } from "../src/bootstrap/process-guards.js";
+import { describeFailure, guardPool, installProcessGuards, onShutdownSignals } from "../src/bootstrap/process-guards.js";
 
 const logger = () => ({ error: vi.fn(), warn: vi.fn() });
 
@@ -25,6 +25,20 @@ describe("process guards", () => {
     expect(log.error).toHaveBeenCalledWith(expect.stringContaining("TypeError: boom"));
     expect(target.exitCode).toBe(1);
     expect(target.kill).toHaveBeenCalledWith(42, "SIGTERM");
+  });
+
+  it("the worker's shutdown on the guard's SIGTERM exits 1 (Railway restarts it); a plain stop exits 0", () => {
+    const fake = () => Object.assign(new EventEmitter(), { exitCode: undefined as number | undefined, pid: 42, kill: vi.fn() }) as unknown as NodeJS.Process;
+    const crashed = fake(), shutdown = vi.fn();
+    installProcessGuards(logger(), crashed);
+    onShutdownSignals(shutdown, crashed);
+    (crashed as unknown as EventEmitter).emit("uncaughtException", new TypeError("boom"), "uncaughtException");
+    (crashed as unknown as EventEmitter).emit("SIGTERM");
+    expect(shutdown).toHaveBeenCalledExactlyOnceWith(1);
+    const stopped = fake(), stop = vi.fn();
+    onShutdownSignals(stop, stopped);
+    (stopped as unknown as EventEmitter).emit("SIGINT");
+    expect(stop).toHaveBeenCalledExactlyOnceWith(0);
   });
 
   it("describes errors by name, code and stack, never by payload", () => {

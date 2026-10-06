@@ -6,7 +6,7 @@ import { NestFactory } from "@nestjs/core";
 import { Pool, type PoolClient } from "pg";
 
 import type { RuntimeConfig } from "../config/runtime-config.js";
-import { guardPool } from "./process-guards.js";
+import { guardPool, onShutdownSignals } from "./process-guards.js";
 import { RequestBudgeterService } from "../hyperliquid/request-budgeter.service.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { operationalSwitches } from "../runtime/operational-switches.js";
@@ -69,8 +69,8 @@ export async function startWorker(config: RuntimeConfig, logger: StructuredLogge
     clearTimeout(deadline);
     process.exit(code);
   }
-  process.once("SIGTERM", () => void shutdown(0));
-  process.once("SIGINT", () => void shutdown(0));
+  // Exit 1 after an uncaught exception (installProcessGuards), else 0.
+  onShutdownSignals(shutdown);
 
   try {
     client = await pool.connect();

@@ -29,6 +29,18 @@ export function installProcessGuards(logger: GuardLogger, target: NodeJS.Process
 }
 
 /**
+ * Runs `shutdown` on SIGTERM / SIGINT with the exit code already set on the
+ * process: 1 after an uncaught exception (the guard above sets it, then
+ * sends the SIGTERM), so the restart policy sees a failure; 0 for a plain
+ * stop or deploy.
+ */
+export function onShutdownSignals(shutdown: (code: number) => unknown, target: NodeJS.Process = process): void {
+  const code = () => { const set = Number(target.exitCode ?? 0); return Number.isInteger(set) ? set : 1; };
+  target.once("SIGTERM", () => void shutdown(code()));
+  target.once("SIGINT", () => void shutdown(code()));
+}
+
+/**
  * pg emits 'error' on the pool for an idle client, and on a checked-out
  * client (a transaction) when its socket fails or the server ends the
  * session (e.g. idle-in-transaction timeout, a Postgres restart). With no

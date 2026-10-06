@@ -24,6 +24,7 @@ import { useFavorites, useLiveActions, useSiteSettings, useSparklines, useToggle
 import { useNow } from "@/lib/use-now";
 import { GroupChips, GroupTags } from "./groups";
 import { SwitchPanel } from "@/components/ui/switch-panel";
+import { OrbitSpinner } from "@/components/ui/orbit-spinner";
 
 type Tab = "saved" | "alerts" | "feed";
 const TABS: Tab[] = ["saved", "alerts", "feed"];
@@ -538,12 +539,13 @@ function AlertsTab({ favorites }: { favorites: Favorite[] | undefined }) {
       {withDelete ? (
         <button
           type="button"
-          onClick={() => save.mutate({ address: f.address, patch: { enabled: false } })}
+          aria-busy={(save.isPending && save.variables?.address === f.address) || undefined}
+          onClick={() => { if (!save.isPending) save.mutate({ address: f.address, patch: { enabled: false } }); }}
           aria-label={t("favorites.alerts.delete")}
           title={t("favorites.alerts.delete")}
           className="inline-flex size-8 items-center justify-center rounded-full text-subtle-foreground outline-none hover:bg-negative-soft hover:text-negative focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <X className="size-4" />
+          {save.isPending && save.variables?.address === f.address ? <OrbitSpinner className="size-4" /> : <X className="size-4" />}
         </button>
       ) : null}
     </li>

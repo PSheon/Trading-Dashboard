@@ -507,6 +507,7 @@ export const vi: Messages = {
     comingSoon: "Sắp ra mắt",
     copy: "Sao chép",
     copied: "Đã sao chép",
+    copyFailed: "Không thể sao chép",
     share: "Chia sẻ",
     linkCopied: "Đã sao chép liên kết",
     favorite: "Lưu trader",

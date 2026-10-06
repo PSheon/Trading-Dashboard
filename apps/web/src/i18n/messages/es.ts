@@ -507,6 +507,7 @@ export const es: Messages = {
     comingSoon: "Próximamente",
     copy: "Copiar",
     copied: "Copiado",
+    copyFailed: "No se pudo copiar",
     share: "Compartir",
     linkCopied: "Enlace copiado",
     favorite: "Añadir a guardados",

@@ -30,6 +30,7 @@ import { FavoriteButton } from "@/components/traders/bits";
 import { CoinIcon } from "@/components/traders/coin-icon";
 
 import { useI18n } from "@/i18n/provider";
+import { useToast } from "@/components/ui/toast";
 import { coinLabel, truncateAddress } from "@/lib/format";
 import { CopyScoreBar, TraderAvatar, XProfileLink } from "@/components/discover/board-bits";
 import { shareName } from "@/lib/share-card";
@@ -38,13 +39,16 @@ import { ShareButton } from "./share-dialog";
 
 function useCopied() {
   const [copied, setCopied] = useState<string | null>(null);
+  const toast = useToast(), { t } = useI18n();
   return {
     copied,
     copy(key: string, text: string) {
-      void navigator.clipboard?.writeText(text).then(() => {
+      // A blocked or missing clipboard is said, never an unhandled rejection.
+      if (!navigator.clipboard) { toast.error(t("common.copyFailed")); return; }
+      void navigator.clipboard.writeText(text).then(() => {
         setCopied(key);
         setTimeout(() => setCopied(null), 1400);
-      });
+      }).catch(() => toast.error(t("common.copyFailed")));
     },
   };
 }

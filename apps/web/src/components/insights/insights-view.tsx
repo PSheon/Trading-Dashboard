@@ -16,6 +16,7 @@ import { MarketsTable, WalletsTable, WalletsTableSkeleton } from "./cohort-table
 import { MarketTreemap } from "./market-treemap";
 import { PositioningChart } from "./positioning-chart";
 import { SplitBar } from "./sentiment";
+import { TextButton } from "@/components/ui/text-button";
 
 export const TIERS: CohortTier[] = ["extremely_profitable", "very_profitable", "profitable", "break_even", "unprofitable", "very_unprofitable", "rekt"];
 const FILTERS = ["all", "crypto", "tradfi"] as const;
@@ -66,7 +67,7 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
       {detail.isError && !data ? (
         <div className="orbit-card py-10 text-center text-sm text-muted-foreground">
           {t("insights.cohort.loadError")}{" "}
-          <button type="button" className="text-primary-text underline" onClick={() => detail.refetch()}>{t("insights.cohort.retry")}</button>
+          <TextButton busy={detail.isFetching} className="text-primary-text" onClick={() => void detail.refetch()}>{t("insights.cohort.retry")}</TextButton>
         </div>
       ) : (
         <>
@@ -77,7 +78,7 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
             <div role="status" className="rounded-xl bg-raised px-4 py-3 text-xs font-bold text-muted-foreground">
               <p>{t("insights.cohort.building")}</p>
               <p className="mt-1">{t("copyUpdates.coverage", { count: data.walletCount, total: data.memberCount })}</p>
-              <button type="button" className="mt-2 text-primary-text underline" onClick={() => void detail.refetch()}>{t("insights.cohort.retry")}</button>
+              <TextButton busy={detail.isFetching} className="mt-2 text-primary-text" onClick={() => void detail.refetch()}>{t("insights.cohort.retry")}</TextButton>
             </div>
           ) : null}
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.04fr)]">

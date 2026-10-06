@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { cn } from "cn";
 
 import { Tooltip } from "@/components/ui/tooltip";
+import { useToast } from "@/components/ui/toast";
 import { useI18n } from "@/i18n/provider";
 import type { WalletNetwork } from "@/lib/contracts";
 
@@ -84,14 +85,17 @@ export function NetworkBadge({ network, className }: { network: WalletNetwork | 
  * once the clipboard has it (CopyDog's "Deposit address copied!" toast). */
 export function useCopy(onCopied?: () => void): [boolean, (value: string) => void] {
   const [copied, setCopied] = useState(false);
+  const toast = useToast(), { t } = useI18n();
   return [
     copied,
     (value: string) => {
-      void navigator.clipboard?.writeText(value).then(() => {
+      // A blocked or missing clipboard is said, not swallowed.
+      if (!navigator.clipboard) { toast.error(t("common.copyFailed")); return; }
+      void navigator.clipboard.writeText(value).then(() => {
         setCopied(true);
         setTimeout(() => setCopied(false), 1_500);
         onCopied?.();
-      }).catch(() => undefined);
+      }).catch(() => toast.error(t("common.copyFailed")));
     },
   ];
 }

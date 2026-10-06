@@ -60,7 +60,7 @@ export function AdminJobs() {
         />
         <Button
           variant="secondary"
-          disabled={jobs.isFetching}
+          loading={jobs.isFetching} disabled={!(jobs.isFetching) && (jobs.isFetching)}
           onClick={() => void jobs.refetch()}
         >
           {t("jobs.refresh")}

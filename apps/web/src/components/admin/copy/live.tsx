@@ -193,7 +193,7 @@ function RevokeForm({ grant, force, onClose }: { grant: NonNullable<AdminLiveAcc
       {revoke.isError ? <p role="alert" className="rounded-xl bg-negative-soft px-3.5 py-2.5 text-sm text-negative">{t("copyAdmin.live.revoke.failed", { message: revoke.error.message })}</p> : null}
       <div className="flex justify-end gap-2">
         <Button type="button" variant="secondary" onClick={onClose}>{t("copyAdmin.live.revoke.cancel")}</Button>
-        <Button type="submit" disabled={!ok || revoke.isPending}>{revoke.isPending ? t("copyAdmin.live.revoke.sending") : t(force ? "copyAdmin.live.revoke.forceSubmit" : "copyAdmin.live.revoke.confirm")}</Button>
+        <Button type="submit" loading={revoke.isPending} disabled={!(revoke.isPending) && (!ok || revoke.isPending)}>{revoke.isPending ? t("copyAdmin.live.revoke.sending") : t(force ? "copyAdmin.live.revoke.forceSubmit" : "copyAdmin.live.revoke.confirm")}</Button>
       </div>
     </form>
   );

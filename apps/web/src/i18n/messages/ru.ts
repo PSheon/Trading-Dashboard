@@ -507,6 +507,7 @@ export const ru: Messages = {
     comingSoon: "Скоро",
     copy: "Копировать",
     copied: "Скопировано",
+    copyFailed: "Не удалось скопировать",
     share: "Поделиться",
     linkCopied: "Ссылка скопирована",
     favorite: "Сохранить",

@@ -35,6 +35,7 @@ import {
   type Market,
 } from "./performance";
 import { ProfileCard, ProfileCardSkeleton } from "./profile-card";
+import { TextButton } from "@/components/ui/text-button";
 
 /** What the page read on the server (`prefetchTrader`); either is null when
  * the api did not answer in time, and the browser reads it as before. */
@@ -128,9 +129,9 @@ function TraderLoaded({ address, initial }: { address: string; initial?: TraderI
     return (
       <div className="pt-8 text-center">
         <p className="text-muted-foreground">{t("trader.loadFailed")}</p>
-        <button type="button" className="mt-2 rounded text-primary-text underline outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => profile.refetch()}>
+        <TextButton busy={profile.isFetching} className="mt-2 rounded text-primary-text" onClick={() => void profile.refetch()}>
           {t("common.retry")}
-        </button>
+        </TextButton>
       </div>
     );
   }
@@ -224,7 +225,7 @@ function DesktopTrader({ address, profile, live, lowSample, firstPaint, portfoli
       </div>
       <div data-area="main" className="flex min-w-0 flex-col gap-4">
         {profile.data?.dataQuality?.partial ? (
-          <p role="status" className="text-sm text-warning">{t("trader.partialProfile")} <button type="button" className="underline" onClick={() => profile.refetch()}>{t("common.retry")}</button></p>
+          <p role="status" className="text-sm text-warning">{t("trader.partialProfile")} <TextButton busy={profile.isFetching} onClick={() => void profile.refetch()}>{t("common.retry")}</TextButton></p>
         ) : null}
         {profile.data ? (
           <KpiTiles

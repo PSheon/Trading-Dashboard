@@ -168,7 +168,7 @@ function SettingsEditor({ snapshot, stale }: { snapshot: AdminSettingsSnapshot; 
         action={canSave ? (
           <span className="flex gap-2">
             <Button variant="secondary" disabled={!dirty.length || save.isPending} onClick={() => { setDrafts(draftsOf(snapshot)); setClientError(undefined); save.reset(); }}>{t("admin.settings.discard")}</Button>
-            <Button disabled={!dirty.length || disabled || save.error?.status === 409} onClick={() => send(false)}>{save.isPending ? t("common.saving") : t("admin.settings.save")}</Button>
+            <Button loading={save.isPending && !asking} disabled={!(save.isPending && !asking) && (!dirty.length || disabled || save.error?.status === 409)} onClick={() => send(false)}>{save.isPending ? t("common.saving") : t("admin.settings.save")}</Button>
           </span>
         ) : null}
       >
@@ -178,7 +178,7 @@ function SettingsEditor({ snapshot, stale }: { snapshot: AdminSettingsSnapshot; 
         {clientError || save.isError || reload.isError ? (
           <div role="alert" className="flex flex-wrap items-center gap-3 rounded-[22px] bg-tag-loss px-4 py-3 text-sm font-bold text-tag-loss-foreground">
             <span>{save.error?.status === 409 ? t("admin.settings.conflict") : t("admin.settings.failed", { message: clientError ?? reload.error?.message ?? save.error?.message ?? "" })}</span>
-            {save.error?.status === 409 ? <Button size="sm" variant="secondary" disabled={reload.isPending} onClick={() => reload.mutate()}>{t("admin.settings.reload")}</Button> : null}
+            {save.error?.status === 409 ? <Button size="sm" variant="secondary" loading={reload.isPending} disabled={!(reload.isPending) && (reload.isPending)} onClick={() => reload.mutate()}>{t("admin.settings.reload")}</Button> : null}
           </div>
         ) : null}
       </AdminCard>
@@ -186,7 +186,7 @@ function SettingsEditor({ snapshot, stale }: { snapshot: AdminSettingsSnapshot; 
         <p className="text-sm leading-relaxed text-muted-foreground">{asking?.body}</p>
         <div className="mt-5 flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={() => setAsking(null)}>{t("adminOps.maintenance.cancel")}</Button>
-          <Button type="button" onClick={() => send(true)}>{t("adminOps.maintenance.confirm")}</Button>
+          <Button loading={save.isPending} type="button" onClick={() => send(true)}>{t("adminOps.maintenance.confirm")}</Button>
         </div>
       </Modal>
     </div>

@@ -507,6 +507,7 @@ export const pt: Messages = {
     comingSoon: "Em breve",
     copy: "Copiar",
     copied: "Copiado",
+    copyFailed: "Não foi possível copiar",
     share: "Compartilhar",
     linkCopied: "Link copiado",
     favorite: "Salvar trader",

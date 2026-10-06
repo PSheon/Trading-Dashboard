@@ -507,6 +507,7 @@ export const tr: Messages = {
     comingSoon: "Yakında",
     copy: "Kopyala",
     copied: "Kopyalandı",
+    copyFailed: "Kopyalanamadı",
     share: "Paylaş",
     linkCopied: "Bağlantı kopyalandı",
     favorite: "Kaydedilenlere ekle",

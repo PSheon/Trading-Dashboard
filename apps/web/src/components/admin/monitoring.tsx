@@ -10,6 +10,7 @@ import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
 import { Panel, PanelSkeleton } from "@/components/page";
 import { useI18n } from "@/i18n/provider";
+import { Button } from "@/components/ui/button";
 
 export function AdminMonitoring() {
   const { t, format } = useI18n();
@@ -22,7 +23,7 @@ export function AdminMonitoring() {
         <p className="mt-1 text-xs text-muted-foreground">{t("monitoring.hint")}</p>
         {query.data && <p className="mt-2 text-xs text-muted-foreground">{t("monitoring.sample")} · {format.dateTime(query.data.sampledAt)}</p>}
       </div>
-      <button type="button" onClick={() => void query.refetch()} disabled={query.isFetching} className="rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-raised disabled:opacity-50">{t("monitoring.refresh")}</button>
+      <Button type="button" variant="outline" size="sm" loading={query.isFetching} onClick={() => void query.refetch()}>{t("monitoring.refresh")}</Button>
     </div>
     {query.isError && <p role="alert" className="rounded-lg bg-warning/10 p-3 text-sm text-warning">{t(query.data ? "monitoring.cached" : "monitoring.unavailable")}</p>}
     {query.data ? <MonitoringDetails data={query.data} /> : !query.isError && <PanelSkeleton rows={6} />}

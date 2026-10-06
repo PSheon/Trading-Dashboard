@@ -507,6 +507,7 @@ export const ja: Messages = {
     comingSoon: "近日公開",
     copy: "コピー",
     copied: "コピーしました",
+    copyFailed: "コピーできませんでした",
     share: "シェア",
     linkCopied: "リンクをコピーしました",
     favorite: "保存に追加",

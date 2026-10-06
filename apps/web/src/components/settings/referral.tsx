@@ -257,8 +257,11 @@ function ReferralView() {
       alive.current = false;
     };
   }, []);
-  const action = async (fn: () => Promise<unknown>) => {
+  // Which action runs (its button shows the orbit mark; the others wait).
+  const [acting, setActing] = useState<string | null>(null);
+  const action = async (fn: () => Promise<unknown>, name: string) => {
     setBusy(true);
+    setActing(name);
     setError(false);
     try {
       await fn();
@@ -267,6 +270,7 @@ function ReferralView() {
     } finally {
       if (alive.current) {
         setBusy(false);
+        setActing(null);
         setPendingCode(client.pendingCode());
       }
     }
@@ -287,7 +291,7 @@ function ReferralView() {
           <p role="status">
             {overview.isError ? t("referral.error") : t("referral.loading")}
           </p>
-          <Button variant="secondary" onClick={() => void overview.refetch()}>
+          <Button variant="secondary" loading={overview.isFetching} onClick={() => void overview.refetch()}>
             {t("common.retry")}
           </Button>
         </>
@@ -300,13 +304,14 @@ function ReferralView() {
                 <p className="break-all text-sm">{link}</p>
                 <Button
                   variant="secondary"
+                  loading={acting === "copy"}
                   onClick={() =>
                     void action(async () => {
                       if (!navigator.clipboard)
                         throw new Error("clipboard_unavailable");
                       await navigator.clipboard.writeText(link);
                       if (alive.current) setCopied(true);
-                    })
+                    }, "copy")
                   }
                 >
                   {t(copied ? "referral.copied" : "referral.copyLink")}
@@ -329,7 +334,7 @@ function ReferralView() {
                 await client.setCode(code);
                 await overview.refetch();
                 if (alive.current) setCode("");
-              });
+              }, "save");
             }}
           >
             <label className="flex flex-col gap-1 text-sm">
@@ -346,7 +351,7 @@ function ReferralView() {
                 onChange={(e) => setCode(e.target.value)}
               />
             </label>
-            <Button disabled={busy || !!pendingCode}>
+            <Button loading={acting === "save"} disabled={acting !== "save" && (busy || !!pendingCode)}>
               {t("referral.save")}
             </Button>
           </form>
@@ -355,12 +360,13 @@ function ReferralView() {
               <p>{t("referral.pending")}</p>
               <Button
                 variant="secondary"
-                disabled={busy}
+                loading={acting === "recoverCode"}
+                disabled={busy && acting !== "recoverCode"}
                 onClick={() =>
                   void action(async () => {
                     await client.recoverCode();
                     await overview.refetch();
-                  })
+                  }, "recoverCode")
                 }
               >
                 {t("referral.checkOriginal")}
@@ -419,6 +425,7 @@ function ReferralView() {
           <p className="font-mono">{capture.code}</p>
           <Button
             variant="secondary"
+            loading={overview.isFetching}
             disabled={busy}
             onClick={() => void overview.refetch()}
           >
@@ -432,13 +439,14 @@ function ReferralView() {
             <p>{t("referral.pending")}</p>
           ) : null}
           <Button
-            disabled={busy}
+            loading={acting === "recoverClaim"}
+            disabled={busy && acting !== "recoverClaim"}
             variant="secondary"
             onClick={() =>
               void action(async () => {
                 const found = await client.recoverClaim();
                 if (alive.current) setOriginal(found);
-              })
+              }, "recoverClaim")
             }
           >
             {t("referral.checkOriginal")}
@@ -498,7 +506,7 @@ function ReferralView() {
           <p role="status">
             {t(friends.isError ? "referral.error" : "referral.loading")}
           </p>
-          <Button variant="secondary" onClick={() => void friends.refetch()}>
+          <Button variant="secondary" loading={friends.isFetching} onClick={() => void friends.refetch()}>
             {t("common.retry")}
           </Button>
         </>
@@ -512,11 +520,12 @@ function ReferralView() {
                 <ClaimRow
                   claim={c}
                   busy={busy}
+                  checking={acting === `claim:${c.id}`}
                   onCheck={() =>
                     void action(async () => {
                       const found = await client.readClaim(c);
                       if (alive.current) setOriginal(found);
-                    })
+                    }, `claim:${c.id}`)
                   }
                 />
               </li>
@@ -542,7 +551,7 @@ function ReferralView() {
           <p role="status">
             {t(claims.isError ? "referral.error" : "referral.loading")}
           </p>
-          <Button variant="secondary" onClick={() => void claims.refetch()}>
+          <Button variant="secondary" loading={claims.isFetching} onClick={() => void claims.refetch()}>
             {t("common.retry")}
           </Button>
         </>
@@ -554,10 +563,13 @@ function ClaimRow({
   claim,
   onCheck,
   busy,
+  checking = false,
 }: {
   claim: ReferralClaim;
   onCheck?: () => void;
   busy?: boolean;
+  /** This row's check is the one running. */
+  checking?: boolean;
 }) {
   const { t, format } = useI18n();
   return (
@@ -574,7 +586,7 @@ function ClaimRow({
         {format.dateTime(claim.updatedAt)} {TIME_ZONE_LABEL}
       </time>
       {onCheck ? (
-        <Button variant="secondary" disabled={busy} onClick={onCheck}>
+        <Button variant="secondary" loading={checking} disabled={busy && !checking} onClick={onCheck}>
           {t("referral.checkOriginal")}
         </Button>
       ) : null}

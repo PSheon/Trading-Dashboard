@@ -23,6 +23,8 @@ import { LanguageMenu } from "./language-menu";
 import { ThemeToggle } from "./theme-toggle";
 import { useTheme } from "@/lib/use-theme";
 import { useWallet } from "@/lib/wallet";
+import { useLogout } from "@/lib/use-logout";
+import { OrbitSpinner } from "@/components/ui/orbit-spinner";
 
 /** Header right (Orbit): signed out → language, theme and 登入; signed in →
  * the account pill (avatar menu, total value, 儲值). Plus the demo badge in
@@ -107,7 +109,8 @@ function Initial({ label }: { label: string }) {
 /** The avatar (and, in the pill, the total value) opening the account menu. */
 function AccountMenu({ children }: { children?: React.ReactNode }) {
   const { t } = useI18n();
-  const { logout, identity } = useAuth();
+  const { identity } = useAuth();
+  const { logout, pending: leaving } = useLogout();
   const { data: me } = useMe();
   const isAdmin = useIsAdmin();
   const { theme, toggle } = useTheme();
@@ -158,8 +161,9 @@ function AccountMenu({ children }: { children?: React.ReactNode }) {
           {t("theme.switchTo", { theme: theme === "dark" ? t("theme.light") : t("theme.dark") })}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => void logout()}>
-          <LogOut />
+        {/* Stays open while it signs out: the item shows it is busy. */}
+        <DropdownMenuItem aria-busy={leaving || undefined} onSelect={(event) => { event.preventDefault(); void logout(); }}>
+          {leaving ? <OrbitSpinner /> : <LogOut />}
           {t("topbar.logout")}
         </DropdownMenuItem>
       </DropdownMenuContent>

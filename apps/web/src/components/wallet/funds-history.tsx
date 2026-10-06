@@ -56,7 +56,7 @@ export function FundsHistory({ className }: { className?: string }) {
         </ul>
       )}
       {flows.hasNextPage ? (
-        <Button variant="secondary" size="sm" className="mt-3" disabled={flows.isFetchingNextPage} onClick={() => void flows.fetchNextPage()}>{t("funds.older")}</Button>
+        <Button variant="secondary" size="sm" className="mt-3" loading={flows.isFetchingNextPage} disabled={!(flows.isFetchingNextPage) && (flows.isFetchingNextPage)} onClick={() => void flows.fetchNextPage()}>{t("funds.older")}</Button>
       ) : null}
     </div>
   );

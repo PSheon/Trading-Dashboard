@@ -155,7 +155,7 @@ function RiskForm({ policy, save, onReload, reloading }: { policy: AdminCopyRisk
               </div>
             ) : null}
             <div className="flex flex-wrap items-center gap-3">
-              <Button type="submit" disabled={!ready}>{save.isPending ? t("common.saving") : t("copyAdmin.risk.save", { version: policy.version + 1 })}</Button>
+              <Button type="submit" loading={save.isPending} disabled={!(save.isPending) && (!ready)}>{save.isPending ? t("common.saving") : t("copyAdmin.risk.save", { version: policy.version + 1 })}</Button>
               <Button type="button" variant="secondary" disabled={!dirty || save.isPending} onClick={() => { setDraft(toDraft(policy.limits)); save.reset(); }}>{t("copyAdmin.risk.reset")}</Button>
               {!dirty ? <span className="text-xs text-subtle-foreground">{t("copyAdmin.risk.unchanged")}</span> : null}
             </div>

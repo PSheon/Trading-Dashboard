@@ -253,11 +253,11 @@ function AlertEditor({ address, alert, onDone }: { address: string; alert: Favor
 
       <div className="flex items-center gap-2">
         {alert.enabled ? (
-          <Button type="button" variant="ghost" size="sm" disabled={save.isPending} onClick={() => submit(false)}>
+          <Button type="button" variant="ghost" size="sm" loading={save.isPending && save.variables?.patch.enabled === false} disabled={!(save.isPending && save.variables?.patch.enabled === false) && (save.isPending)} onClick={() => submit(false)}>
             {t("common.disable")}
           </Button>
         ) : null}
-        <Button type="submit" size="sm" className="ml-auto" disabled={save.isPending || minInvalid}>
+        <Button type="submit" size="sm" className="ml-auto" loading={save.isPending && save.variables?.patch.enabled !== false} disabled={!(save.isPending && save.variables?.patch.enabled !== false) && (save.isPending || minInvalid)}>
           {save.isPending ? t("common.saving") : alert.enabled ? t("common.save") : t("alerts.turnOn")}
         </Button>
       </div>

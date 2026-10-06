@@ -66,6 +66,8 @@ it("lists every pending change in one card, saves the touched sections together 
     // Someone else saved meanwhile: 409 keeps the draft and offers a reload.
     await toggle("admin.settings.discovery.hideVaults");
     patch.mockRejectedValueOnce(new ApiError(409, "Conflict"));
+    // Save shows its busy mark for at least 300 ms (Button's loading).
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 320)); });
     await act(async () => button("admin.settings.save").click());
     await flush();
     expect(patch.mock.calls[1]?.[1]).toEqual({ discovery: { hideVaults: false }, expectedRevisions: { discovery: rev(0) } });

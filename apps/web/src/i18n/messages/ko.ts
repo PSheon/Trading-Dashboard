@@ -507,6 +507,7 @@ export const ko: Messages = {
     comingSoon: "출시 예정",
     copy: "복사",
     copied: "복사됨",
+    copyFailed: "복사하지 못했습니다",
     share: "공유",
     linkCopied: "링크 복사됨",
     favorite: "저장 목록에 추가",

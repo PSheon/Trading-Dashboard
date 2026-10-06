@@ -507,6 +507,7 @@ export const id: Messages = {
     comingSoon: "Segera hadir",
     copy: "Salin",
     copied: "Tersalin",
+    copyFailed: "Gagal menyalin",
     share: "Bagikan",
     linkCopied: "Tautan tersalin",
     favorite: "Simpan",

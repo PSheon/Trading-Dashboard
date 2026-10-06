@@ -1,6 +1,7 @@
 "use client";
 
 import type { RoundTrip, TradeCoin, TraderAnalyticsResponse, TraderTradesResponse } from "@/lib/contracts";
+import { OrbitSpinner } from "@/components/ui/orbit-spinner";
 import { ArrowDown, ArrowRight, ArrowUpRight, Share2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { cn } from "cn";
@@ -610,10 +611,12 @@ export function TradesTab({ address }: { address: string }) {
         {query.hasNextPage ? (
           <button
             type="button"
+            aria-busy={query.isFetchingNextPage || undefined}
             disabled={query.isFetchingNextPage}
-            onClick={() => query.fetchNextPage()}
-            className="block w-full border-t-2 border-dotted border-border py-3 text-center text-xs font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+            onClick={() => void query.fetchNextPage()}
+            className="flex w-full items-center justify-center gap-1.5 border-t-2 border-dotted border-border py-3 text-center text-xs font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
           >
+            {query.isFetchingNextPage ? <OrbitSpinner className="size-3.5" /> : null}
             {t("trader.showMore", { shown: rows.length, total: first.total })}
           </button>
         ) : null}

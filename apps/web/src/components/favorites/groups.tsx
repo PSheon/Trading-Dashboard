@@ -10,6 +10,7 @@ import { useI18n } from "@/i18n/provider";
 import { useModalFocus } from "@/lib/use-modal-focus";
 import { FAVORITE_GROUP_NAME_MAX, type FavoriteGroup } from "@/lib/contracts";
 import { useCreateFavoriteGroup, useDeleteFavoriteGroup, useToggleGroupMember } from "@/lib/favorite-groups";
+import { OrbitSpinner } from "@/components/ui/orbit-spinner";
 
 /**
  * CopyDog's watchlist chip row: 全部 (count), each group (colour dot, name,
@@ -166,7 +167,7 @@ function DeleteGroupDialog({ group, onClose, onDeleted }: { group: FavoriteGroup
         <Button variant="secondary" onClick={onClose}>{t("favorites.groups.cancel")}</Button>
         <Button
           variant="destructive"
-          disabled={remove.isPending}
+          loading={remove.isPending} disabled={!(remove.isPending) && (remove.isPending)}
           onClick={() => remove.mutate(group.id, { onSuccess: () => { onDeleted(); onClose(); } })}
         >
           {t("favorites.groups.confirmDelete")}
@@ -210,12 +211,13 @@ export function GroupTags({ address, groups, className }: { address: string; gro
                     type="button"
                     role="option"
                     aria-selected={member}
-                    onClick={() => toggle.mutate({ id: g.id, address, member: !member })}
+                    aria-busy={(toggle.isPending && toggle.variables?.id === g.id) || undefined}
+                    onClick={() => { if (!toggle.isPending) toggle.mutate({ id: g.id, address, member: !member }); }}
                     className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <span className="size-2 rounded-full" style={{ backgroundColor: g.color }} aria-hidden />
                     <span className="min-w-0 flex-1 truncate">{g.name}</span>
-                    {member ? <Check className="size-4 text-primary-text" /> : null}
+                    {toggle.isPending && toggle.variables?.id === g.id ? <OrbitSpinner className="size-4 text-primary-text" /> : member ? <Check className="size-4 text-primary-text" /> : null}
                   </button>
                 </li>
               );

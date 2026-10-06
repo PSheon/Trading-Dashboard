@@ -70,7 +70,7 @@ export function UnresolvedWithdrawals() {
           <label className="text-sm font-bold" htmlFor="withdrawal-reason">{t("admin.withdrawals.reason")}</label>
           <Input id="withdrawal-reason" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} autoComplete="off" />
           {resolve.isError ? <p role="alert" className="text-xs text-negative">{t("admin.withdrawals.failed", { reason: apiErrorCode(resolve.error) ?? resolve.error.message })}</p> : null}
-          <Button type="submit" disabled={resolve.isPending || reason.trim().length < 3}>{t("admin.withdrawals.confirm")}</Button>
+          <Button type="submit" loading={resolve.isPending} disabled={!(resolve.isPending) && (resolve.isPending || reason.trim().length < 3)}>{t("admin.withdrawals.confirm")}</Button>
         </form>
       </Modal>
     </>

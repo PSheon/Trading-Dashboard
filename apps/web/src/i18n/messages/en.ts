@@ -1198,6 +1198,7 @@ export const en: Messages = {
     comingSoon: "Coming soon",
     copy: "Copy",
     copied: "Copied",
+    copyFailed: "Couldn't copy",
     share: "Share",
     linkCopied: "Link copied",
     favorite: "Add to favorites",

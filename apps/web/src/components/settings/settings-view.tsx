@@ -44,6 +44,8 @@ import { AlertBotRow, TradingBotRow } from "./bot-rows";
 import { DeleteAccountButton, DeleteAccountDialog } from "./delete-account";
 import { ReferralSettings } from "./referral";
 import { CopyWalletsList } from "./copy-wallets";
+import { useLogout } from "@/lib/use-logout";
+import { OrbitSpinner } from "@/components/ui/orbit-spinner";
 
 type Tab = "account" | "funds" | "referral";
 type PhoneView = "root" | "account" | "notifications" | "language" | "history" | "referral";
@@ -347,7 +349,8 @@ function PhoneRow({ icon: Icon, label, value, onClick }: { icon: LucideIcon; lab
 function PhoneSettings({ signedIn }: { signedIn: boolean }) {
   const { t, locale } = useI18n();
   const router = useRouter();
-  const { logout, login, status, mode } = useAuth();
+  const { login, status, mode } = useAuth();
+  const signOut = useLogout();
   const { initial, email, name } = useAccountName();
   const [view, setView] = useQueryParam<PhoneView>(
     "view",
@@ -445,9 +448,11 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
           {signedIn ? (
           <button
             type="button"
-            onClick={() => void logout()}
-            className="orbit-press mt-6 h-[52px] w-full rounded-full bg-tag-loss text-[0.9375rem] font-extrabold text-tag-loss-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => void signOut.logout()}
+            aria-busy={signOut.pending || undefined}
+            className="orbit-press mt-6 inline-flex h-[52px] w-full items-center justify-center gap-2 rounded-full bg-tag-loss text-[0.9375rem] font-extrabold text-tag-loss-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
+            {signOut.pending ? <OrbitSpinner className="size-4" /> : null}
             {t("settings.logout")}
           </button>
           ) : null}

@@ -173,13 +173,13 @@ export function AdminLists() {
         <div className="flex flex-wrap items-center gap-3">
           <Button
             variant="secondary"
-            disabled={
+            loading={review.isPending} disabled={!(review.isPending) && (
               !canImport ||
               !rows.length ||
               !source.trim() ||
               review.isPending ||
               importList.isPending
-            }
+            )}
             onClick={() => review.mutate(payload)}
           >
             {review.isPending
@@ -187,13 +187,13 @@ export function AdminLists() {
               : t("importOps.preview")}
           </Button>
           <Button
-            disabled={
+            loading={importList.isPending} disabled={!(importList.isPending) && (
               !canImport ||
               !reviewed ||
               !review.data?.canImport ||
               importList.isPending ||
               review.isPending
-            }
+            )}
             onClick={() => importList.mutate(payload)}
           >
             <FileUp />

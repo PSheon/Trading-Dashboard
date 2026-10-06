@@ -10,6 +10,7 @@ import { useI18n } from "@/i18n/provider";
 import { fetchAsSession } from "@/lib/api";
 import { SHARE_FORMATS, isShareFormat, type ShareFormat } from "@/lib/share-card";
 import { TRADE_CARD_STYLES, isTradeCardStyle, tradeCardQuery, type TradeCardStyle } from "@/lib/trade-card";
+import { OrbitSpinner } from "@/components/ui/orbit-spinner";
 
 /** Where a card comes from: a trader's public trade or position
  * (/trader/<address>/share-image?kind=…) or one of the signed-in person's
@@ -104,6 +105,7 @@ export function TradeShareDialog({ source, onClose }: { source: TradeCardSource;
   const failed = image.failed || errored === url;
 
   async function copy() {
+    if (busy) return;
     setBusy("copy");
     try {
       // The promise form keeps Safari's user-gesture requirement.
@@ -116,6 +118,7 @@ export function TradeShareDialog({ source, onClose }: { source: TradeCardSource;
     }
   }
   async function download() {
+    if (busy) return;
     setBusy("download");
     try {
       const href = URL.createObjectURL(await pngOf(source, url));
@@ -162,13 +165,13 @@ export function TradeShareDialog({ source, onClose }: { source: TradeCardSource;
         </div>
       </div>
       <div className="grid grid-cols-2 gap-2.5 border-t-2 border-dotted border-border px-5 py-4">
-        <button type="button" onClick={copy} disabled={busy !== null || !ready}
+        <button type="button" onClick={copy} aria-busy={busy === "copy" || undefined} disabled={(busy !== null && busy !== "copy") || !ready}
           className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-raised text-sm font-semibold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60">
-          <Copy className="size-4" />{busy === "copy" ? t("trader.share.copying") : t("trader.share.copy")}
+          {busy === "copy" ? <OrbitSpinner className="size-4" /> : <Copy className="size-4" />}{busy === "copy" ? t("trader.share.copying") : t("trader.share.copy")}
         </button>
-        <button type="button" onClick={download} disabled={busy !== null || !ready}
+        <button type="button" onClick={download} aria-busy={busy === "download" || undefined} disabled={(busy !== null && busy !== "download") || !ready}
           className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-primary text-sm font-bold text-primary-foreground outline-none hover:brightness-105 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60">
-          <Download className="size-4" />{busy === "download" ? t("trader.share.downloading") : t("trader.share.download")}
+          {busy === "download" ? <OrbitSpinner className="size-4" /> : <Download className="size-4" />}{busy === "download" ? t("trader.share.downloading") : t("trader.share.download")}
         </button>
       </div>
     </Modal>

@@ -1201,6 +1201,7 @@ export const zhTW = {
     comingSoon: "即將推出",
     copy: "複製",
     copied: "已複製",
+    copyFailed: "複製失敗",
     share: "分享",
     linkCopied: "已複製連結",
     favorite: "加入收藏",

@@ -507,6 +507,7 @@ export const zhCN: Messages = {
     comingSoon: "即将推出",
     copy: "复制",
     copied: "已复制",
+    copyFailed: "复制失败",
     share: "分享",
     linkCopied: "链接已复制",
     favorite: "加入收藏",

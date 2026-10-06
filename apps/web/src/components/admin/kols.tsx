@@ -101,7 +101,7 @@ export function AdminKols() {
                     variant="ghost"
                     size="icon-sm"
                     aria-label={`${t("admin.kols.remove")} ${kol.displayName ?? kol.address}`}
-                    disabled={remove.isPending}
+                    loading={remove.isPending && remove.variables === kol.address} disabled={!(remove.isPending && remove.variables === kol.address) && (remove.isPending)}
                     onClick={() => {
                       if (globalThis.confirm(t("admin.kols.confirmRemove", { name: kol.displayName ?? kol.address }))) remove.mutate(kol.address);
                     }}
@@ -154,7 +154,7 @@ export function AdminKols() {
           {save.error ? <p className="text-sm text-negative">{save.error.message}</p> : null}
           <div className="mt-2 flex justify-end gap-2">
             <Button type="button" variant="secondary" onClick={close}>{t("admin.kols.cancel")}</Button>
-            <Button type="submit" disabled={!valid || save.isPending}>{t("admin.kols.save")}</Button>
+            <Button type="submit" loading={save.isPending} disabled={!(save.isPending) && (!valid || save.isPending)}>{t("admin.kols.save")}</Button>
           </div>
         </form>
       </Modal>

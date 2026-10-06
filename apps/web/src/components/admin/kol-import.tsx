@@ -104,7 +104,7 @@ export function KolImportPanel({
       <div className="flex flex-wrap gap-2">
         <Button
           variant="secondary"
-          disabled={!registryReady || !csv || preview.isPending || commit.isPending}
+          loading={preview.isPending} disabled={!(preview.isPending) && (!registryReady || !csv || preview.isPending || commit.isPending)}
           onClick={() => {
             setConfirmRemoval(false);
             preview.mutate({ csv: csv!, replace, revision: registryRevision });
@@ -113,7 +113,7 @@ export function KolImportPanel({
           {t("kolReview.preview")}
         </Button>
         <Button
-          disabled={!ready || commit.isPending || preview.isPending}
+          loading={commit.isPending} disabled={!(commit.isPending) && (!ready || commit.isPending || preview.isPending)}
           onClick={() =>
             commit.mutate(
               { csv: csv!, replace },

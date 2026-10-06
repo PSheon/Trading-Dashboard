@@ -10,6 +10,7 @@ import { Segmented } from "@/components/ui/segmented";
 import { useToast } from "@/components/ui/toast";
 import { useI18n } from "@/i18n/provider";
 import { SHARE_FORMATS, SHARE_PERIODS, isShareFormat, shareFileName, shareImagePath, type ShareFormat } from "@/lib/share-card";
+import { OrbitSpinner } from "@/components/ui/orbit-spinner";
 
 const STYLE_KEY = "orbie_share_style";
 
@@ -60,6 +61,7 @@ export function ShareDialog({ open, onOpenChange, address, name }: { open: boole
   const size = SHARE_FORMATS[format];
 
   async function copy() {
+    if (busy) return;
     setBusy("copy");
     try {
       // The promise form keeps Safari's user-gesture requirement.
@@ -73,6 +75,7 @@ export function ShareDialog({ open, onOpenChange, address, name }: { open: boole
   }
 
   async function download() {
+    if (busy) return;
     setBusy("download");
     try {
       const url = URL.createObjectURL(await pngOf(src));
@@ -151,19 +154,21 @@ export function ShareDialog({ open, onOpenChange, address, name }: { open: boole
           <button
             type="button"
             onClick={copy}
-            disabled={busy !== null}
+            aria-busy={busy === "copy" || undefined}
+            disabled={busy !== null && busy !== "copy"}
             className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-raised text-sm font-semibold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
           >
-            <Copy className="size-4" />
+            {busy === "copy" ? <OrbitSpinner className="size-4" /> : <Copy className="size-4" />}
             {busy === "copy" ? t("trader.share.copying") : t("trader.share.copy")}
           </button>
           <button
             type="button"
             onClick={download}
-            disabled={busy !== null}
+            aria-busy={busy === "download" || undefined}
+            disabled={busy !== null && busy !== "download"}
             className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-primary text-sm font-bold text-primary-foreground outline-none hover:brightness-105 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
           >
-            <Download className="size-4" />
+            {busy === "download" ? <OrbitSpinner className="size-4" /> : <Download className="size-4" />}
             {busy === "download" ? t("trader.share.downloading") : t("trader.share.download")}
           </button>
         </div>

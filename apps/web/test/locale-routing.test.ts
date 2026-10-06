@@ -93,5 +93,10 @@ describe("deploy healthcheck", () => {
     expect(await check.text()).toBe("ok");
     // Everyone else still gets the locale redirect.
     expect(proxy(new NextRequest("https://app.orbie.fun/")).status).toBe(307);
+    // Only the root: that Host on a page is an ordinary request, never a bare "ok" without its CSP.
+    const page = proxy(new NextRequest("http://healthcheck.railway.app/en/settings", { headers: { host: HEALTHCHECK_HOST } }));
+    expect(await page.text()).not.toBe("ok");
+    expect(page.headers.get("content-security-policy") ?? page.headers.get("x-middleware-request-content-security-policy") ?? "").not.toBe("");
+    expect(proxy(new NextRequest("http://healthcheck.railway.app/settings", { headers: { host: HEALTHCHECK_HOST } })).status).toBe(307);
   });
 });

@@ -484,6 +484,11 @@ describe('one-click testnet copy setup', () => {
     await db.update(copyAgentSetups).set({ state: 'ready', approvalAttemptedAt: null });
     later(60_000); await service.tick();
     expect(fakes.agents.reconcile).toHaveBeenCalledTimes(2);
+    // Nor once the copy stopped (its agent can't trade; the agent service refuses a stopped copy).
+    await db.update(copyAgentSetups).set({ state: 'approval_unknown', approvalAttemptedAt: new Date(clock) });
+    await service.cancel(uid, setup.id);
+    later(60_000); await service.tick();
+    expect(fakes.agents.reconcile).toHaveBeenCalledTimes(2);
   });
 
   it('an edit whose sheet was closed gives way to the next edit; an ended edit can be dismissed', async () => {

@@ -128,12 +128,14 @@ export class CopyLiveSetupRepository {
       inArray(copyLiveSetups.stage, ['provisioning', 'awaiting_consent', 'failed', 'expired'])));
   }
   /** Agents whose approval was being signed or sent when their setup ended
-   * (expired, failed, cancelled) in the last `since`: nothing drives them
-   * any more, so the worker reconciles them (oldest first). */
+   * (expired, failed, cancelled) in the last `since`, on a copy not stopped
+   * (a stopped copy's agent is not reconciled: it can't trade): nothing
+   * drives them any more, so the worker reconciles them (oldest first). */
   abandonedApprovals(since: Date, limit = 20) {
     return this.db.select({ id: copyAgentSetups.id, userId: copyAgentSetups.userId }).from(copyAgentSetups)
       .innerJoin(copyLiveSetups, eq(copyLiveSetups.id, copyAgentSetups.liveSetupId))
+      .innerJoin(copyStrategies, eq(copyStrategies.id, copyAgentSetups.strategyId))
       .where(and(inArray(copyAgentSetups.state, ['approval_unknown', 'approval_signing']), inArray(copyLiveSetups.stage, ['failed', 'expired', 'cancelled']),
-        gt(copyLiveSetups.updatedAt, since))).orderBy(asc(copyAgentSetups.updatedAt)).limit(limit);
+        gt(copyLiveSetups.updatedAt, since), sql`${copyStrategies.status} not in ('stopping', 'stopped')`)).orderBy(asc(copyAgentSetups.updatedAt)).limit(limit);
   }
 }

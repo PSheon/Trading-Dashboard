@@ -910,6 +910,23 @@
   50% { transform: translateY(-8px) rotate(-3deg); }
 }
 
+/* A busy button's mark (components/ui/orbit-spinner.tsx): the moon
+   circles the planet; with reduced motion the mark breathes instead. */
+.orbit-spinner-moon {
+  transform-origin: 8px 8px;
+  animation: orbit-spin 0.9s linear infinite;
+}
+@keyframes orbit-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes orbit-breathe {
+  50% { opacity: 0.45; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .orbit-spinner-moon { animation: none; }
+  .orbit-spinner { animation: orbit-breathe 1.6s ease-in-out infinite; }
+}
+
 /* Numbers and charts fade in when their data arrives. */
 .orbit-fade-in {
   animation: orbit-fade-in 0.36s var(--ease-orbit) both;

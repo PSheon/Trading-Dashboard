@@ -24,6 +24,8 @@ export interface LiveSetupText {
     'worker_signer_missing' | 'renewal_unavailable' | 'signer_model_changed' | 'generic', string>;
   continueSetup: string; pause: string; resume: string; edit: string; topUp: string; topUpConfirm: string; renew: string; renewDue: string; expiresOn: string; save: string;
   wallets: string; walletsHint: string; walletsEmpty: string; exportKey: string; revoke: string; revoked: string; devMoved: string; automaticReturnOn: string;
+  /** A copy of another network than this deployment's: history only (no action runs on it here). */
+  otherNetwork?: string;
 }
 
 const en: LiveSetupText = {
@@ -49,6 +51,7 @@ const en: LiveSetupText = {
   continueSetup: 'Continue setup', pause: 'Pause', resume: 'Resume', edit: 'Edit settings', topUp: 'Add funds', topUpConfirm: 'Add {amount} USDC', renew: 'Renew', renewDue: 'Ends {date}. Renew to keep copying.', expiresOn: 'Runs until {date}', save: 'Save',
   wallets: 'Copy wallets', walletsHint: 'A wallet made for each testnet copy, owned by you alone.', walletsEmpty: 'No copy wallets yet.', exportKey: 'Export private key', revoke: 'Revoke', revoked: 'Revoked',
   devMoved: 'The step-by-step setup forms moved to the developer tools.', automaticReturnOn: 'Automatic return on',
+  otherNetwork: 'A copy from an earlier network: kept for your records. Nothing runs on it here.',
 };
 const zhTW: LiveSetupText = {
   mode: '跟單模式', paper: '模擬', testnet: '測試網', testnetBalance: '主錢包（測試網）', testnetNote: '使用 Hyperliquid 測試網資金，不涉及真實資產。',
@@ -72,6 +75,7 @@ const zhTW: LiveSetupText = {
   continueSetup: '繼續設定', pause: '暫停', resume: '恢復', edit: '編輯設定', topUp: '加碼', topUpConfirm: '加碼 {amount} USDC', renew: '續期', renewDue: '將於 {date} 結束，續期即可繼續跟單。', expiresOn: '有效至 {date}', save: '儲存',
   wallets: '跟單錢包', walletsHint: '為每個測試網跟單建立的錢包，只有你擁有。', walletsEmpty: '尚無跟單錢包。', exportKey: '匯出私鑰', revoke: '撤銷', revoked: '已撤銷',
   devMoved: '逐步設定表單已移至開發工具。', automaticReturnOn: '已開啟自動返還',
+  otherNetwork: '先前網路的跟單：僅保留紀錄，這裡不會再執行任何操作。',
 };
 const zhCN: LiveSetupText = {
   ...zhTW,
@@ -242,4 +246,30 @@ const tr: LiveSetupText = {
 };
 
 export const liveSetupMessages: Record<Locale, LiveSetupText> = { en, 'zh-TW': zhTW, 'zh-CN': zhCN, ja, ko, es, pt, ru, id, vi, tr };
+
+/** A mainnet deployment's words for the same keys: the actual mode is 正式
+ * (real funds), and 測試網 appears nowhere. Locales without their own fall
+ * back to English for these keys. */
+type MainnetText = Pick<LiveSetupText, 'testnet' | 'testnetBalance' | 'testnetNote' | 'adoptDisabled' | 'copying' | 'networkValue' | 'walletsHint'> & { errors: Pick<LiveSetupText['errors'], 'setup_unavailable' | 'insufficient_main_balance'> };
+const mainnetEn: MainnetText = {
+  testnet: 'Live', testnetBalance: 'Main wallet', testnetNote: 'Uses real USDC on Hyperliquid mainnet.', adoptDisabled: 'Live copies follow new trades only; current positions are not copied.',
+  copying: 'Copying · Live', networkValue: 'Hyperliquid mainnet (real funds)', walletsHint: 'A wallet made for each live copy, owned by you alone.',
+  errors: { setup_unavailable: 'Live copy is not available right now.', insufficient_main_balance: 'Not enough USDC in your main wallet.' },
+};
+const mainnetText: Partial<Record<Locale, MainnetText>> = {
+  en: mainnetEn,
+  'zh-TW': { testnet: '正式', testnetBalance: '主錢包', testnetNote: '使用 Hyperliquid 主網的真實 USDC。', adoptDisabled: '正式跟單只跟新交易，不複製目前持倉。',
+    copying: '跟單中 · 正式', networkValue: 'Hyperliquid 主網（真實資金）', walletsHint: '為每個正式跟單建立的錢包，只有你擁有。',
+    errors: { setup_unavailable: '正式跟單暫時無法使用。', insufficient_main_balance: '主錢包的 USDC 不足。' } },
+  'zh-CN': { testnet: '正式', testnetBalance: '主钱包', testnetNote: '使用 Hyperliquid 主网的真实 USDC。', adoptDisabled: '正式跟单只跟新交易，不复制当前持仓。',
+    copying: '跟单中 · 正式', networkValue: 'Hyperliquid 主网（真实资金）', walletsHint: '为每个正式跟单创建的钱包，只有你拥有。',
+    errors: { setup_unavailable: '正式跟单暂时无法使用。', insufficient_main_balance: '主钱包的 USDC 不足。' } },
+};
+/** The setup texts for the deployment's network (`liveCopyOverview.network`). */
+export function liveSetupText(locale: Locale, network: 'testnet' | 'mainnet' | null | undefined): LiveSetupText {
+  const base = liveSetupMessages[locale];
+  if (network !== 'mainnet') return base;
+  const mainnet = mainnetText[locale] ?? mainnetEn;
+  return { ...base, ...mainnet, errors: { ...base.errors, ...mainnet.errors } };
+}
 export const fill = (template: string, values: Record<string, string | number>) => template.replace(/\{(\w+)\}/g, (match, key: string) => key in values ? String(values[key]) : match);

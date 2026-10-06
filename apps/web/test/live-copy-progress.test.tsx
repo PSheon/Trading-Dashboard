@@ -21,6 +21,7 @@ vi.mock('@/lib/copy-live-setup', async () => ({
   ...(await vi.importActual<typeof import('@/lib/copy-live-setup')>('@/lib/copy-live-setup')),
   useLiveCopySetup: () => ({ data: state.setup, isError: Boolean(state.failure), walletError: null, retrying: state.retrying, failure: state.failure }),
   useLiveCopySetupActions: () => ({ cancel: { mutate: state.cancel, isPending: false } }),
+  useLiveCopyDeployment: () => null,
 }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh() {}, push() {} }), usePathname: () => '/zh-TW/trader', useSearchParams: () => new URLSearchParams() }));
 

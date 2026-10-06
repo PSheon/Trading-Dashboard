@@ -19,7 +19,7 @@ import { apiErrorCode } from "@/lib/api";
 import { copyErrorText } from "@/lib/copy-error-text";
 import { useAuth } from "@/lib/auth";
 import { useCopyOf, useCopyOverview, useStartCopy } from "@/lib/copy";
-import { liveSetupScope, useLiveCopyAvailable, useLiveCopySetupActions } from "@/lib/copy-live-setup";
+import { liveSetupScope, useLiveCopyDeployment, useLiveCopySetupActions } from "@/lib/copy-live-setup";
 import { useLiveCopyPortfolio } from "@/lib/copy-live-portfolio";
 import { useWallet } from "@/lib/wallet";
 import type { CopyStrategySettings, LiveCopySetup } from "@trading-dashboard/shared/contracts";
@@ -107,7 +107,13 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
   const existing = useCopyOf(address);
   const start = useStartCopy();
   const liveText = useLiveSetupText(), copyTexts = useCopyTexts();
-  const liveAvailable = useLiveCopyAvailable();
+  const deployment = useLiveCopyDeployment(), liveAvailable = deployment?.available === true;
+  // A live deployment: a fixed amount per trade only, within its bounds.
+  const fixedOnly = deployment?.caps?.fixedPerTradeUsd ?? null, leverageCap = deployment?.caps?.maxLeverage ?? null;
+  // A testnet deployment may copy a testnet leader (`?network=testnet`, read
+  // at start); trader pages are mainnet leaders.
+  const leaderNetwork = () => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("network") === "testnet"
+    && deployment?.sourceNetworks.includes("testnet") ? "testnet" as const : "mainnet" as const;
   const [chosenMode, setMode] = useCopyMode(identity);
   const mode: CopyMode = liveAvailable ? chosenMode : "paper";
   const testnet = mode === "testnet";
@@ -144,9 +150,9 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
   // A signed-in user's balance is unknown until /me/copy has answered (and
   // stays unknown if it failed): the panel then shows "—", not 0.00, and
   // does not judge or clamp what was typed against a balance of zero.
-  // 測試網: the main wallet's Hyperliquid testnet withdrawable (what the
+  // Actual (正式 / 測試網): the main wallet's withdrawable on the deployment's network (what the
   // deposit UsdSend can move), never the paper balance.
-  const testnetBalance = wallet.data?.network === "testnet" ? wallet.data.hyperliquid?.withdrawable ?? null : null;
+  const testnetBalance = deployment && wallet.data?.network === deployment.network ? wallet.data.hyperliquid?.withdrawable ?? null : null;
   const balanceKnown = !signedIn || (testnet ? testnetBalance !== null : overview.data !== undefined);
   const balance = (testnet ? testnetBalance : overview.data?.paper.balance) ?? 0;
   const balanceText = balanceKnown ? balance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
@@ -253,14 +259,16 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
   }
 
   async function startTestnet() {
-    const fixed = sizing === "fixed" ? Number.parseFloat(perTrade) : null;
-    if (sizing === "fixed" && !(fixed && fixed > 0)) return toast.error(t("trader.copy.enterAmount"));
+    const sizingMode = fixedOnly ? "fixed" : sizing;
+    const fixed = sizingMode === "fixed" ? Number.parseFloat(perTrade) : null;
+    if (sizingMode === "fixed" && !(fixed && fixed > 0)) return toast.error(t("trader.copy.enterAmount"));
+    if (fixedOnly && fixed !== null && (fixed < fixedOnly.min || fixed > fixedOnly.max)) return toast.error(`${liveText.perTrade}: ${fixedOnly.min}–${fixedOnly.max}`);
     const exposure = maxExposure ? Number.parseFloat(maxExposure) : null, leverage = maxLeverage ? Number.parseFloat(maxLeverage) : null;
-    const settings: CopyStrategySettings = { direction, sizingMode: sizing, perTradeUsd: fixed, maxTotalExposureUsd: exposure && exposure > 0 ? exposure : null,
+    const settings: CopyStrategySettings = { direction, sizingMode, perTradeUsd: fixed, maxTotalExposureUsd: exposure && exposure > 0 ? exposure : null,
       maxLeverage: leverage && leverage >= 1 ? Math.min(50, leverage) : null, copyStartMode: "delta" };
     updateSetup({ starting: true });
     try {
-      const prepared = await pending(live.start.mutateAsync({ leader: address.toLowerCase(), budgetUsd: String(Math.floor(value * 1e6) / 1e6), settings }), t("toast.copy.starting"));
+      const prepared = await pending(live.start.mutateAsync({ leader: address.toLowerCase(), budgetUsd: String(Math.floor(value * 1e6) / 1e6), settings, sourceNetwork: leaderNetwork() }), t("toast.copy.starting"));
       if (prepared.stage === "awaiting_consent" && prepared.consent) { setConfirmError(null); updateSetup({ setup: prepared, confirmOpen: true, starting: false }); return; }
       updateSetup({ setup: prepared, starting: false });
       // Still preparing (its wallet or agent is slow), or already confirmed
@@ -281,7 +289,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
       const code = apiErrorCode(err);
       if (code === "consent_expired") {
         // A fresh challenge for the same attempt; the owner confirms again.
-        try { const again = await live.start.mutateAsync({ leader: setup.leaderAddress, budgetUsd: setup.budgetUsd, settings: setup.settings }); setSetup(again); } catch { /* shown below */ }
+        try { const again = await live.start.mutateAsync({ leader: setup.leaderAddress, budgetUsd: setup.budgetUsd, settings: setup.settings, sourceNetwork: setup.sourceNetwork }); setSetup(again); } catch { /* shown below */ }
       }
       setConfirmError(copyErrorText(copyTexts, err));
       toast.error(copyErrorText(copyTexts, err));
@@ -643,8 +651,8 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
             {testnet ? (
               <>
                 <p id="copy-positions-note" className="mt-1.5 text-xs leading-5 text-muted-foreground">{liveText.adoptDisabled}</p>
-                <LiveSettingsFields text={liveText} sizing={sizing} setSizing={setSizing} perTrade={perTrade} setPerTrade={setPerTrade}
-                  maxExposure={maxExposure} setMaxExposure={setMaxExposure} maxLeverage={maxLeverage} setMaxLeverage={setMaxLeverage} />
+                <LiveSettingsFields text={liveText} sizing={fixedOnly ? "fixed" : sizing} setSizing={setSizing} perTrade={perTrade} setPerTrade={setPerTrade}
+                  maxExposure={maxExposure} setMaxExposure={setMaxExposure} maxLeverage={maxLeverage} setMaxLeverage={setMaxLeverage} fixedOnly={fixedOnly} leverageCap={leverageCap} />
               </>
             ) : null}
           </div>

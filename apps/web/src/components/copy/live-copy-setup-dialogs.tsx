@@ -9,22 +9,24 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
 import { copyErrorMessages } from "@/i18n/copy-errors";
 import { useI18n } from "@/i18n/provider";
-import { fill, liveSetupMessages, type LiveSetupText } from "@/i18n/live-setup";
+import { fill, liveSetupText, type LiveSetupText } from "@/i18n/live-setup";
 import { Link } from "@/i18n/navigation";
 import { copyCodeText, copyErrorText, type CopyTexts } from "@/lib/copy-error-text";
-import { setupTerminal, useLiveCopySetup, useLiveCopySetupActions } from "@/lib/copy-live-setup";
+import { setupTerminal, useLiveCopyDeployment, useLiveCopySetup, useLiveCopySetupActions } from "@/lib/copy-live-setup";
 import { truncateAddress } from "@/lib/format";
 
 /** The live-setup texts in the page's language. */
+/** The setup texts in the page's language, for the deployment's network:
+ * 正式 on mainnet, 測試網 only on a testnet deployment. */
 export function useLiveSetupText(): LiveSetupText {
-  const { locale } = useI18n();
-  return liveSetupMessages[locale];
+  const { locale } = useI18n(), deployment = useLiveCopyDeployment();
+  return liveSetupText(locale, deployment?.network);
 }
 
 /** Both copy catalogs in the page's language (lib/copy-error-text.ts). */
 export function useCopyTexts(): CopyTexts {
-  const { locale } = useI18n();
-  return { live: liveSetupMessages[locale], extra: copyErrorMessages[locale] };
+  const { locale } = useI18n(), live = useLiveSetupText();
+  return { live, extra: copyErrorMessages[locale] };
 }
 
 /** The words for a setup's issue (or an api code), the generic line when it has none. */

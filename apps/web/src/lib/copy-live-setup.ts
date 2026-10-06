@@ -19,19 +19,35 @@ export function liveCopyEnabled(auth: Pick<Auth, 'status' | 'mode' | 'identity' 
   return auth.status === 'signedIn' && Boolean(auth.identity) && (auth.mode === 'privy' || (auth.mode === 'fixture' && auth.wallet?.address === FIXTURE_WALLET_ADDRESS));
 }
 
-/** Whether this deployment runs testnet copies (`capabilities.automaticExecution`). */
-export function useLiveCopyAvailable(): boolean {
+/** The deployment's actual copy: the network it executes on (the server's
+ * HYPERLIQUID_NETWORK, never assumed here), whether it runs and this owner may
+ * start one, the leaders' networks it copies and its caps. Null until the
+ * signed-in overview answered (or for a visitor). */
+export interface LiveCopyDeployment {
+  network: 'testnet' | 'mainnet'; available: boolean; sourceNetworks: ReadonlyArray<'testnet' | 'mainnet'>;
+  caps: { fixedPerTradeUsd: { min: number; max: number } | null; maxAllocationUsd: number | null; maxLeverage: number | null; maxStrategiesPerUser: number } | null;
+}
+export function useLiveCopyDeployment(): LiveCopyDeployment | null {
   const auth = useAuth(), enabled = liveCopyEnabled(auth);
   // Once a minute at most: the site-wide 10 s poll would otherwise reread
   // it on every trader page (web audit L5).
   const query = useQuery({ queryKey: [...queryKeys.copy.all, 'live-capabilities', auth.identity, sessionKey()], enabled, staleTime: 60_000, refetchInterval: 60_000, retry: false,
-    queryFn: async ({ signal }) => liveCopyOverviewSchema.parse(await api.get(ROOT, signal)).capabilities });
-  return enabled && query.data?.automaticExecution === true;
+    queryFn: async ({ signal }) => { const overview = liveCopyOverviewSchema.parse(await api.get(ROOT, signal)); return { network: overview.network, capabilities: overview.capabilities }; } });
+  if (!enabled || !query.data) return null;
+  const { network, capabilities } = query.data;
+  return { network, available: capabilities.automaticExecution && capabilities.actualAllowed !== false, sourceNetworks: capabilities.sourceNetworks, caps: capabilities.caps ?? null };
+}
+/** Whether this deployment runs actual copies for this owner (`capabilities.automaticExecution`
+ * and, on a live deployment, `actualAllowed`). */
+export function useLiveCopyAvailable(): boolean {
+  return useLiveCopyDeployment()?.available === true;
 }
 
 export const setupTerminal = (setup: Pick<LiveCopySetup, 'stage'> | null | undefined) => Boolean(setup && LIVE_SETUP_TERMINAL.includes(setup.stage));
 
-export interface StartLiveCopyInput { leader: string; budgetUsd: string; settings: CopyStrategySettings }
+export interface StartLiveCopyInput { leader: string; budgetUsd: string; settings: CopyStrategySettings;
+  /** The leader's network (default mainnet: trader pages are mainnet; a testnet deployment may copy a testnet leader). */
+  sourceNetwork?: 'testnet' | 'mainnet' }
 
 /** The setup consent and the deposit, signed without Privy's modal: called
  * only from Orbie's confirm sheet, which lists every term (decision 1). */
@@ -151,7 +167,7 @@ export function useLiveCopySetupActions() {
     }
   };
   const start = useMutation({
-    mutationFn: async (input: StartLiveCopyInput) => prepare(startName(input.leader, input.budgetUsd, input.settings), key => api.post(`${ROOT}/setups`, { idempotencyKey: key, leader: input.leader, sourceNetwork: 'mainnet', budgetUsd: input.budgetUsd, settings: input.settings })),
+    mutationFn: async (input: StartLiveCopyInput) => prepare(startName(input.leader, input.budgetUsd, input.settings), key => api.post(`${ROOT}/setups`, { idempotencyKey: key, leader: input.leader, sourceNetwork: input.sourceNetwork ?? 'mainnet', budgetUsd: input.budgetUsd, settings: input.settings })),
   });
   const edit = useMutation({
     mutationFn: async ({ strategyId, budgetUsd, settings }: { strategyId: number; budgetUsd: string; settings: CopyStrategySettings }) =>
@@ -193,7 +209,7 @@ export function useLiveCopySetupActions() {
     mutationFn: async (setupOrId: LiveCopySetup | string) => {
       const setup = typeof setupOrId === 'string' ? liveCopySetupSchema.parse(await api.get(`${ROOT}/setups/${encodeURIComponent(setupOrId)}`)) : setupOrId;
       for (const name of namesOf(setup)) forget(name);
-      const next = setup.kind === 'start' ? await start.mutateAsync({ leader: setup.leaderAddress, budgetUsd: setup.budgetUsd, settings: setup.settings })
+      const next = setup.kind === 'start' ? await start.mutateAsync({ leader: setup.leaderAddress, budgetUsd: setup.budgetUsd, settings: setup.settings, sourceNetwork: setup.sourceNetwork })
         : setup.kind === 'edit' ? await edit.mutateAsync({ strategyId: setup.strategyId, budgetUsd: setup.budgetUsd, settings: setup.settings })
         : await renew.mutateAsync({ strategyId: setup.strategyId });
       refresh(); return next;
@@ -211,14 +227,16 @@ export function useLiveCopySetupActions() {
   const topUp = useMutation({
     mutationFn: async ({ accountId, amount }: { accountId: string; amount: string }) => {
       const { wallet, assertSame } = owner(), name = `topup:${accountId}:${amount}`;
-      const reserved = await api.post<{ id: string; destination: string; amount: string; nonce: number; status: string }>(`/me/copy/execution-wallets/${encodeURIComponent(accountId)}/funding`, { idempotencyKey: keyFor(name), amount });
+      const reserved = await api.post<{ id: string; network: 'testnet' | 'mainnet'; destination: string; amount: string; nonce: number; status: string }>(`/me/copy/execution-wallets/${encodeURIComponent(accountId)}/funding`, { idempotencyKey: keyFor(name), amount });
       // The same attempt again (this key): already sent, or refused (an error, not a quiet close).
       if (reserved.status !== 'prepared') {
         forget(name); refresh();
         if (reserved.status === 'rejected' || reserved.status === 'cancelled') throw new ApiError(409, 'The deposit was refused', { code: 'setup_funding_rejected' });
         return reserved;
       }
-      const signature = await wallet.signTypedData(usdSendTypedData(WALLET_NETWORKS.testnet, reserved.destination, reserved.amount, reserved.nonce) as unknown as Eip712TypedData, { silent: true });
+      // The deposit's own network (the deployment's, as the server reserved it).
+      if (reserved.network !== 'testnet' && reserved.network !== 'mainnet') throw new Error('funding_network_unknown');
+      const signature = await wallet.signTypedData(usdSendTypedData(WALLET_NETWORKS[reserved.network], reserved.destination, reserved.amount, reserved.nonce) as unknown as Eip712TypedData, { silent: true });
       assertSame();
       await api.post(`/me/copy/funding/${encodeURIComponent(reserved.id)}/broadcast`, {});
       const result = await api.post(`/me/copy/funding/${encodeURIComponent(reserved.id)}/submit`, { signature });

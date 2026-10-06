@@ -8,12 +8,12 @@ import { LiveSettingsFields } from "@/components/copy/live-copy-settings-fields"
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
-import { fill } from "@/i18n/live-setup";
+import { fill, liveSetupMessages } from "@/i18n/live-setup";
 import { useI18n } from "@/i18n/provider";
 import { apiErrorCode } from "@/lib/api";
 import { copyErrorText } from "@/lib/copy-error-text";
 import { amountInput } from "@/lib/amount-input";
-import { setupTerminal, useLiveCopySetupActions } from "@/lib/copy-live-setup";
+import { setupTerminal, useLiveCopyDeployment, useLiveCopySetupActions } from "@/lib/copy-live-setup";
 import { useActionToast } from "@/lib/use-action-toast";
 import type { LiveCopyItem } from "@/lib/copy-live-portfolio";
 
@@ -28,7 +28,7 @@ import type { LiveCopyItem } from "@/lib/copy-live-portfolio";
 export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strategy: LiveCopyStrategy | null }) {
   const text = useLiveSetupText(), texts = useCopyTexts(), { format, t } = useI18n();
   const track = useActionToast(), toast = useToast();
-  const actions = useLiveCopySetupActions();
+  const actions = useLiveCopySetupActions(), deployment = useLiveCopyDeployment();
   const [progressId, setProgressId] = useState<string | null>(null);
   const [pendingSetup, setPendingSetup] = useState<LiveCopySetup | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
@@ -40,7 +40,10 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
   // Waiting for a consent that can no longer be signed: 重新開始 or 取消設定.
   const lapsed = unfinished?.stage === "awaiting_consent" && item.setup?.consent === null ? unfinished : null;
   const stopped = item.setup && ["failed", "expired"].includes(item.setup.stage) ? item.setup : null;
-  const running = item.stage === "active" || item.stage === "paused" || item.stage === "starting";
+  // A copy of another network than this deployment's (Stage's testnet copies
+  // after the move to mainnet) is history: shown, never acted on here.
+  const otherNetwork = Boolean(deployment && item.network && item.network !== deployment.network);
+  const running = !otherNetwork && (item.stage === "active" || item.stage === "paused" || item.stage === "starting");
   const mandateId = item.mandate?.id ?? null;
   const busy = actions.pause.isPending || actions.resume.isPending || actions.edit.isPending || actions.renew.isPending || actions.topUp.isPending || actions.restart.isPending || actions.cancel.isPending;
   const message = (err: unknown) => copyErrorText(texts, err);
@@ -68,11 +71,12 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
     }
   };
 
+  if (otherNetwork) return <p className="text-xs text-muted-foreground" data-other-network>{text.otherNetwork ?? liveSetupMessages.en.otherNetwork}</p>;
   return (
     <div className="flex flex-col gap-2">
       {item.expiresAt && running ? (
         <p className={item.renewalDue ? "text-xs font-semibold text-warning" : "text-xs text-muted-foreground"}>
-          {fill(item.renewalDue ? text.renewDue : text.expiresOn, { date: format.date(item.expiresAt) })}
+          {fill(text.expiresOn, { date: format.date(item.expiresAt) })}{item.renewalDue ? ` ${text.errors.renewal_unavailable}` : ""}
         </p>
       ) : null}
       {stopped ? <p role="alert" className="text-xs text-warning">{liveSetupError(texts, stopped.issue)}</p> : null}
@@ -91,9 +95,7 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
         {(running || item.stage === "needs_deposit") && item.accountId && !item.pendingTransfer ? (
           <Button size="sm" variant="secondary" disabled={busy} onClick={() => { setError(null); setTopUpError(null); setToppingUp(true); }}>{text.topUp}</Button>
         ) : null}
-        {running && item.renewalDue && !unfinished ? (
-          <Button size="sm" loading={actions.renew.isPending} disabled={busy && !actions.renew.isPending} onClick={() => void track(actions.renew.mutateAsync({ strategyId: item.strategyId }), { error: message, onSuccess: review, onError: fail })}>{text.renew}</Button>
-        ) : null}
+        {/* No 續期 until renewal is rebuilt (the api answers renewal_unavailable): stop and start a new copy. */}
       </div>
       {/* While editing, the dialog shows its own failure (it sits on top). */}
       {error && !editing ? <p role="alert" className="text-xs text-negative">{error}</p> : null}

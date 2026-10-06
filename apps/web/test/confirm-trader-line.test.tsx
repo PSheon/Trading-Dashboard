@@ -9,6 +9,7 @@ import { LiveCopyConfirm } from '@/components/copy/live-copy-setup-dialogs';
 import { shareName } from '@/lib/share-card';
 
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ status: 'signedIn', mode: 'privy', identity: 'owner', wallet: null }) }));
+vi.mock('@/lib/copy-live-setup', async () => ({ ...(await vi.importActual<typeof import('@/lib/copy-live-setup')>('@/lib/copy-live-setup')), useLiveCopyDeployment: () => null }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh() {}, push() {} }), usePathname: () => '/trader', useSearchParams: () => new URLSearchParams() }));
 
 const now = Date.now();

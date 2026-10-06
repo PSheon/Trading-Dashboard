@@ -15,7 +15,8 @@ import { liveCopiesMessages } from "../src/i18n/live-copies";
  * 取消設定; a running copy shows its localized stage under 狀態; a setup
  * the panel follows is never shown to another signed-in person.
  */
-const state = vi.hoisted(() => ({ identity: "owner@email", item: null as unknown, restart: vi.fn(), cancel: vi.fn(), start: vi.fn(), startPending: false }));
+const state = vi.hoisted(() => ({ identity: "owner@email", item: null as unknown, restart: vi.fn(), cancel: vi.fn(), start: vi.fn(), startPending: false,
+  deployment: { network: "testnet", available: true, sourceNetworks: ["mainnet", "testnet"], caps: null } as unknown }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh() {}, push() {} }), usePathname: () => "/zh-TW/trader", useSearchParams: () => new URLSearchParams() }));
 vi.mock("../src/lib/auth", () => ({ useAuth: () => ({ status: "signedIn", identity: state.identity, login() {} }) }));
 vi.mock("../src/lib/api", async () => ({ ...(await vi.importActual<typeof import("../src/lib/api")>("../src/lib/api")), sessionKey: () => "1" }));
@@ -25,12 +26,12 @@ vi.mock("../src/lib/copy", () => ({
 }));
 vi.mock("../src/lib/copy-live-setup", async () => ({
   ...(await vi.importActual<typeof import("../src/lib/copy-live-setup")>("../src/lib/copy-live-setup")),
-  useLiveCopyAvailable: () => true,
+  useLiveCopyAvailable: () => true, useLiveCopyDeployment: () => state.deployment,
   useLiveCopySetup: () => ({ data: undefined, isError: false, walletError: null }),
   useLiveCopySetupActions: () => ({ start: { isPending: state.startPending, mutateAsync: state.start }, confirm: { isPending: false }, restart: { isPending: false, mutateAsync: state.restart }, cancel: { isPending: false, mutateAsync: state.cancel, mutate() {} } }),
 }));
 vi.mock("../src/lib/copy-live-portfolio", () => ({ useLiveCopyPortfolio: () => ({ data: { items: state.item ? [state.item] : [] } }) }));
-vi.mock("../src/lib/wallet", () => ({ useWallet: () => ({ data: { network: "testnet", hyperliquid: { withdrawable: 500 } } }), signErrorMessage: () => ({ rejected: false, message: "" }) }));
+vi.mock("../src/lib/wallet", () => ({ useWallet: () => ({ data: { network: (state.deployment as { network: string }).network, hyperliquid: { withdrawable: 500 } } }), signErrorMessage: () => ({ rejected: false, message: "" }) }));
 vi.mock("../src/lib/queries", () => ({ useSiteSettings: () => ({ data: { copyTradingEnabled: true } }) }));
 
 const leader = `0x${"ab".repeat(20)}`;
@@ -42,6 +43,7 @@ const setupOf = (stage: string, extra: object = {}) => ({ id: "0b0a6a3e-2f6b-4b7
 let root: Root, container: HTMLDivElement;
 beforeEach(() => {
   vi.clearAllMocks(); state.identity = "owner@email";
+  state.deployment = { network: "testnet", available: true, sourceNetworks: ["mainnet", "testnet"], caps: null };
   localStorage.setItem(`orbie:copy-mode:${state.identity}`, "testnet");
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
 });
@@ -115,4 +117,27 @@ it("a slow start shows it is preparing for the whole request, and the confirm sh
   await act(async () => { answer({ ...setupOf("awaiting_consent", { consent }), strategyId: 7, leaderAddress: leader, budgetUsd: "150", settings: { direction: "same", sizingMode: "ratio", perTradeUsd: null, maxTotalExposureUsd: null, maxLeverage: null, copyStartMode: "delta" } }); });
   expect(document.body.textContent).toContain(zh.confirmTitle);
   expect(cta().textContent).not.toContain(zh.preparing);
+});
+
+it("on a mainnet deployment the actual mode is 正式 and 測試網 appears nowhere; a fixed 12–15 USDC a trade is the only sizing", async () => {
+  state.deployment = { network: "mainnet", available: true, sourceNetworks: ["mainnet"], caps: { fixedPerTradeUsd: { min: 12, max: 15 }, maxAllocationUsd: 50, maxLeverage: 3, maxStrategiesPerUser: 2 } };
+  state.item = null;
+  await render();
+  expect(container.textContent).not.toContain("測試網");
+  expect(container.textContent).toContain("正式");
+  expect(container.textContent).toContain("使用 Hyperliquid 主網的真實 USDC。");
+  expect(container.querySelector("[data-sizing='fixed-only']")?.textContent).toBe(zh.fixed);
+  expect(container.querySelector("input[placeholder='12–15']")).toBeTruthy();
+  // A running copy: 跟單中 · 正式.
+  state.item = item({ status: "active", stage: "active", mandate: { id: "m", state: "active", revision: 2 } });
+  await render();
+  expect(container.textContent).toContain("跟單中 · 正式");
+  expect(container.textContent).not.toContain("測試網");
+});
+
+it("on a testnet deployment the actual mode is still 測試網", async () => {
+  state.item = null;
+  await render();
+  expect(container.textContent).toContain("測試網");
+  expect(container.textContent).not.toContain("正式");
 });

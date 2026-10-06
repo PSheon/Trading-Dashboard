@@ -1,14 +1,11 @@
+import { copyMasterTypes, hyperliquidUserSignedDomain } from "./copy-master-action-contracts.js";
 import type { WalletNetworkConfig } from "./wallet-networks.js";
 import { splitSignature } from "./wallet-withdrawal-signing.js";
 
 /** Human-readable usdSend signing. Source and network are server-bound. */
 export function usdSendTypedData(network: WalletNetworkConfig, destination: string, amount: string, time: number) {
   return {
-    domain: { name: "HyperliquidSignTransaction", version: "1", chainId: Number.parseInt(network.signatureChainId, 16), verifyingContract: "0x0000000000000000000000000000000000000000" as const },
-    types: { "HyperliquidTransaction:UsdSend": [
-      { name: "hyperliquidChain", type: "string" }, { name: "destination", type: "string" },
-      { name: "amount", type: "string" }, { name: "time", type: "uint64" },
-    ] },
+    domain: hyperliquidUserSignedDomain(network), types: copyMasterTypes("HyperliquidTransaction:UsdSend"),
     primaryType: "HyperliquidTransaction:UsdSend" as const,
     message: { hyperliquidChain: network.hyperliquidChain, destination: destination.toLowerCase(), amount, time },
   };
@@ -26,11 +23,7 @@ export function builderFeePercent(tenthsBps: number): string {
 /** approveBuilderFee, signed by the trading account (a user-signed action). */
 export function approveBuilderFeeTypedData(network: WalletNetworkConfig, builder: string, tenthsBps: number, nonce: number) {
   return {
-    domain: { name: "HyperliquidSignTransaction", version: "1", chainId: Number.parseInt(network.signatureChainId, 16), verifyingContract: "0x0000000000000000000000000000000000000000" as const },
-    types: { "HyperliquidTransaction:ApproveBuilderFee": [
-      { name: "hyperliquidChain", type: "string" }, { name: "maxFeeRate", type: "string" },
-      { name: "builder", type: "address" }, { name: "nonce", type: "uint64" },
-    ] },
+    domain: hyperliquidUserSignedDomain(network), types: copyMasterTypes("HyperliquidTransaction:ApproveBuilderFee"),
     primaryType: "HyperliquidTransaction:ApproveBuilderFee" as const,
     message: { hyperliquidChain: network.hyperliquidChain, maxFeeRate: builderFeePercent(tenthsBps), builder: builder.toLowerCase() as `0x${string}`, nonce },
   };

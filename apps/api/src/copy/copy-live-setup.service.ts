@@ -3,8 +3,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { verifyTypedData, type TypedDataDefinition } from 'viem';
 import { z } from 'zod';
 import { advanceLiveCopySetupSchema, agentApprovalTypedData, approveBuilderFeeRequest, approveBuilderFeeTypedData, confirmLiveCopySetupSchema, copyIdempotencyKeySchema, copyMasterActionRequestSchema, liveCopyBudgetSchema, liveCopySetupConsentTypedData,
-  liveCopySetupIntentSchema, liveCopySetupSchema, liveSetupAgentName, startLiveCopySchema, copyStrategySettingsSchema, LIVE_SETUP_CONSENT_WINDOW_MS, LIVE_SETUP_DEADLINE_MS, LIVE_SETUP_VALID_DAYS,
-  WALLET_NETWORKS, type LiveCopySetup, type LiveCopySetupIntent, type LiveCopySetupKind, type StartLiveCopy } from '@trading-dashboard/shared/contracts';
+  liveCopySetupIntentSchema, liveCopySetupSchema, liveSetupAgentName, startLiveCopySchema, copyStrategySettingsSchema, userSetAbstractionTypedData, LIVE_SETUP_CONSENT_WINDOW_MS, LIVE_SETUP_DEADLINE_MS, LIVE_SETUP_VALID_DAYS,
+  WALLET_NETWORKS, type LiveCopySetup, type WalletNetwork, type LiveCopySetupIntent, type LiveCopySetupKind, type StartLiveCopy } from '@trading-dashboard/shared/contracts';
 import { AppConfig } from '../config/app-config.js';
 import { BackgroundJobs } from '../runtime/background-jobs.service.js';
 import { outsideRequest } from '../runtime/request-context.js';
@@ -24,11 +24,9 @@ import { CopyWalletRepository } from './copy-wallet.repository.js';
 import { CopyWalletService } from './copy-wallet.service.js';
 import { masterActionDigest, masterActionRequest, masterSignatureRefusal, type MasterAccount, type MasterActionBound, type MasterTypedData } from './live/master-action.js';
 import { WORKER_MASTER_SIGNER, type WorkerMasterSigner } from './live/privy-policy-master-signer.js';
-import { MASTER_POLICY_TYPES } from './live/privy-master-policy.js';
 
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const NETWORK = WALLET_NETWORKS.testnet;
-const ZERO = `0x${'00'.repeat(20)}` as const;
 const LEASE_MS = 60_000;
 /** How long after its setup ended an approval left unknown is still looked at. */
 const ABANDONED_APPROVAL_WINDOW_MS = 3 * 86_400_000;
@@ -69,14 +67,9 @@ function input<T>(schema: z.ZodType<T>, value: unknown): T {
 const refuse = (status: 409 | 503, code: string, message: string): never => {
   throw status === 409 ? new ConflictException({ statusCode: 409, code, message }) : new ServiceUnavailableException({ statusCode: 503, code, message });
 };
-/** The UserSetAbstraction typed data with exactly its signed fields (the
- * policy and the signer's allow-list compare the message keys). */
-function modeTypedData(intent: { accountAddress: string; nonce: number }): MasterTypedData {
-  const primary = 'HyperliquidTransaction:UserSetAbstraction';
-  return { domain: { name: 'HyperliquidSignTransaction', version: '1', chainId: Number.parseInt(NETWORK.signatureChainId, 16), verifyingContract: ZERO },
-    types: { [primary]: MASTER_POLICY_TYPES[primary].map(field => ({ ...field })) }, primaryType: primary,
-    message: { hyperliquidChain: NETWORK.hyperliquidChain, user: intent.accountAddress.toLowerCase(), abstraction: 'disabled', nonce: intent.nonce } };
-}
+/** The UserSetAbstraction the copy account signs for this mode nonce. */
+const modeTypedData = (intent: { network: WalletNetwork; accountAddress: string; nonce: number }) =>
+  userSetAbstractionTypedData(WALLET_NETWORKS[intent.network], intent.accountAddress, intent.nonce) as unknown as MasterTypedData;
 
 /**
  * One-click testnet copy (docs/one-click-copy-plan-2026-10-05.md §2, §3a).

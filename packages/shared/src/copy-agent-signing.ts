@@ -1,3 +1,4 @@
+import { copyMasterTypes, hyperliquidUserSignedDomain } from "./copy-master-action-contracts.js";
 import { WALLET_NETWORKS } from "./wallet-networks.js";
 
 export interface AgentConsentIntent {
@@ -17,13 +18,9 @@ function validate(input: AgentConsentIntent) {
 }
 export function agentApprovalTypedData(input: AgentConsentIntent) {
   validate(input);
-  const network = WALLET_NETWORKS.testnet;
+  const network = WALLET_NETWORKS[input.network];
   return {
-    domain: { name: "HyperliquidSignTransaction", version: "1", chainId: Number.parseInt(network.signatureChainId, 16), verifyingContract: zero },
-    types: { "HyperliquidTransaction:ApproveAgent": [
-      { name: "hyperliquidChain", type: "string" }, { name: "agentAddress", type: "address" },
-      { name: "agentName", type: "string" }, { name: "nonce", type: "uint64" },
-    ] }, primaryType: "HyperliquidTransaction:ApproveAgent" as const,
+    domain: hyperliquidUserSignedDomain(network), types: copyMasterTypes("HyperliquidTransaction:ApproveAgent"), primaryType: "HyperliquidTransaction:ApproveAgent" as const,
     message: { hyperliquidChain: network.hyperliquidChain, agentAddress: input.agentAddress.toLowerCase() as `0x${string}`,
       agentName: `copy${input.strategyId} valid_until ${input.expiresAt}`, nonce: input.nonce },
   };

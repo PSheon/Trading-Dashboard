@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { PrivyClient } from '@privy-io/node';
 import type { PolicyRuleRequestBody } from '@privy-io/node/resources';
-import { WALLET_NETWORKS } from '@trading-dashboard/shared/contracts';
+import { COPY_MASTER_ACTION_TYPES, WALLET_NETWORKS, type CopyMasterPrimaryType } from '@trading-dashboard/shared/contracts';
 import { z } from 'zod';
 
 /**
@@ -27,13 +27,7 @@ import { z } from 'zod';
 const NETWORK = WALLET_NETWORKS.testnet;
 const ZERO = `0x${'00'.repeat(20)}`;
 const DOMAIN = [{ name: 'name', type: 'string' }, { name: 'version', type: 'string' }, { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' }];
-export const MASTER_POLICY_TYPES = {
-  'HyperliquidTransaction:UsdSend': [{ name: 'hyperliquidChain', type: 'string' }, { name: 'destination', type: 'string' }, { name: 'amount', type: 'string' }, { name: 'time', type: 'uint64' }],
-  'HyperliquidTransaction:UserSetAbstraction': [{ name: 'hyperliquidChain', type: 'string' }, { name: 'user', type: 'address' }, { name: 'abstraction', type: 'string' }, { name: 'nonce', type: 'uint64' }],
-  'HyperliquidTransaction:ApproveAgent': [{ name: 'hyperliquidChain', type: 'string' }, { name: 'agentAddress', type: 'address' }, { name: 'agentName', type: 'string' }, { name: 'nonce', type: 'uint64' }],
-  'HyperliquidTransaction:ApproveBuilderFee': [{ name: 'hyperliquidChain', type: 'string' }, { name: 'maxFeeRate', type: 'string' }, { name: 'builder', type: 'address' }, { name: 'nonce', type: 'uint64' }],
-} as const;
-type Primary = keyof typeof MASTER_POLICY_TYPES;
+type Primary = CopyMasterPrimaryType;
 const address = z.string().regex(/^0x[0-9a-f]{40}$/);
 export interface MasterPolicyBinding {
   /** The owner's main wallet: the only UsdSend destination. */
@@ -49,7 +43,7 @@ const domain = (): PolicyRuleRequestBody['conditions'] => [
   { field_source: 'ethereum_typed_data_domain', field: 'verifyingContract', operator: 'eq', value: ZERO },
 ];
 const field = (primary: Primary, name: string, value: string) => ({ field_source: 'ethereum_typed_data_message' as const, field: name, operator: 'eq' as const, value,
-  typed_data: { primary_type: primary, types: { EIP712Domain: DOMAIN, [primary]: MASTER_POLICY_TYPES[primary].map(f => ({ ...f })) } } });
+  typed_data: { primary_type: primary, types: { EIP712Domain: DOMAIN, [primary]: COPY_MASTER_ACTION_TYPES[primary].map(f => ({ ...f })) } } });
 const allow = (name: string, primary: Primary, values: Record<string, string>): PolicyRuleRequestBody => ({ name, method: 'eth_signTypedData_v4', action: 'ALLOW',
   conditions: [...domain(), field(primary, 'hyperliquidChain', NETWORK.hyperliquidChain), ...Object.entries(values).map(([k, v]) => field(primary, k, v))] as PolicyRuleRequestBody['conditions'] });
 

@@ -1,4 +1,4 @@
-import { COPY_MASTER_ACTION_PRIMARY_TYPES, WALLET_NETWORKS, type CopyMasterActionKind, type CopyMasterActionRequest } from '@trading-dashboard/shared/contracts';
+import { COPY_MASTER_ACTION_PRIMARY_TYPES, COPY_MASTER_ACTION_TYPES, WALLET_NETWORKS, type CopyMasterActionKind, type CopyMasterActionRequest } from '@trading-dashboard/shared/contracts';
 import { hashTypedData, verifyTypedData, type TypedDataDefinition } from 'viem';
 
 export interface MasterAccount { readonly walletId: string; readonly address: string; readonly ownerQuorumId: string }
@@ -10,18 +10,10 @@ export interface MasterTypedData {
   readonly message: Record<string, unknown>;
 }
 
-/** The only actions a copy account signs here (in the owner's browser, or
- * by the worker under the owner's policy), with their exact fields: a
- * USDC transfer (the return to the owner's main wallet), the builder fee
- * approval, and for a one-click setup the standard account mode and the
- * consented agent's approval (each only with the values the caller bound).
+/** The only actions a copy account signs (COPY_MASTER_ACTION_TYPES, shared
+ * with the owner's policy), each only with the values the caller bound.
  * Anything else (Withdraw3, …) is refused before Privy is asked. */
-const SIGNABLE: Readonly<Record<string, readonly { name: string; type: string }[]>> = {
-  'HyperliquidTransaction:UsdSend': [{ name: 'hyperliquidChain', type: 'string' }, { name: 'destination', type: 'string' }, { name: 'amount', type: 'string' }, { name: 'time', type: 'uint64' }],
-  'HyperliquidTransaction:ApproveBuilderFee': [{ name: 'hyperliquidChain', type: 'string' }, { name: 'maxFeeRate', type: 'string' }, { name: 'builder', type: 'address' }, { name: 'nonce', type: 'uint64' }],
-  'HyperliquidTransaction:UserSetAbstraction': [{ name: 'hyperliquidChain', type: 'string' }, { name: 'user', type: 'address' }, { name: 'abstraction', type: 'string' }, { name: 'nonce', type: 'uint64' }],
-  'HyperliquidTransaction:ApproveAgent': [{ name: 'hyperliquidChain', type: 'string' }, { name: 'agentAddress', type: 'address' }, { name: 'agentName', type: 'string' }, { name: 'nonce', type: 'uint64' }],
-};
+const SIGNABLE: Readonly<Record<string, readonly { name: string; type: string }[]>> = COPY_MASTER_ACTION_TYPES;
 export function masterActionSignable(data: Pick<MasterTypedData, 'primaryType' | 'types' | 'message'>): boolean {
   const fields = Object.hasOwn(SIGNABLE, data.primaryType) ? SIGNABLE[data.primaryType]! : null;
   const declared = data.types[data.primaryType];

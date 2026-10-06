@@ -85,10 +85,11 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
           <Button size="sm" loading={actions.renew.isPending} disabled={busy && !actions.renew.isPending} onClick={() => actions.renew.mutate({ strategyId: item.strategyId }, { onSuccess: review, onError: fail })}>{text.renew}</Button>
         ) : null}
       </div>
-      {error ? <p role="alert" className="text-xs text-negative">{error}</p> : null}
+      {/* While editing, the dialog shows its own failure (it sits on top). */}
+      {error && !editing ? <p role="alert" className="text-xs text-negative">{error}</p> : null}
       {editing && strategy ? (
-        <EditDialog strategy={strategy} onClose={() => setEditing(false)} pending={actions.edit.isPending}
-          onSave={(budgetUsd, settings) => actions.edit.mutate({ strategyId: item.strategyId, budgetUsd, settings }, { onSuccess: (setup) => { setEditing(false); review(setup); }, onError: fail })} />
+        <EditDialog strategy={strategy} onClose={() => { setEditing(false); setError(null); }} pending={actions.edit.isPending} error={error}
+          onSave={(budgetUsd, settings) => { setError(null); actions.edit.mutate({ strategyId: item.strategyId, budgetUsd, settings }, { onSuccess: (setup) => { setEditing(false); review(setup); }, onError: fail }); }} />
       ) : null}
       {toppingUp && item.accountId ? (
         <TopUpDialog pending={actions.topUp.isPending} error={topUpError} onClose={() => setToppingUp(false)}
@@ -103,7 +104,7 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
   );
 }
 
-function EditDialog({ strategy, onClose, onSave, pending }: { strategy: LiveCopyStrategy; onClose: () => void; onSave: (budgetUsd: string, settings: LiveCopyStrategy["settings"]) => void; pending: boolean }) {
+function EditDialog({ strategy, onClose, onSave, pending, error }: { strategy: LiveCopyStrategy; onClose: () => void; onSave: (budgetUsd: string, settings: LiveCopyStrategy["settings"]) => void; pending: boolean; error: string | null }) {
   const text = useLiveSetupText();
   const current = strategy.settings;
   const [budget, setBudget] = useState(strategy.budgetUsd);
@@ -135,6 +136,7 @@ function EditDialog({ strategy, onClose, onSave, pending }: { strategy: LiveCopy
           </div>
         </div>
         <LiveSettingsFields text={text} sizing={sizing} setSizing={setSizing} perTrade={perTrade} setPerTrade={setPerTrade} maxExposure={maxExposure} setMaxExposure={setMaxExposure} maxLeverage={maxLeverage} setMaxLeverage={setMaxLeverage} />
+        {error ? <p role="alert" className="text-xs text-negative">{error}</p> : null}
         <Button type="submit" className="mt-2" loading={pending} disabled={!pending && !valid}>{text.save}</Button>
       </form>
     </Modal>

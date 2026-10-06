@@ -317,3 +317,19 @@ it('a start or edit with changed terms is a new attempt with its own key; the sa
   const editKeys = state.patch.mock.calls.map(([, body]) => (body as { idempotencyKey: string }).idempotencyKey);
   expect(editKeys[0]).not.toBe(editKeys[1]);
 });
+
+it("a silent signature that never comes ends confirm with signing_timeout after 90 s (the sheet can close again)", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    state.sign.mockImplementation(() => new Promise(() => undefined));
+    let failure: unknown = null;
+    const confirming = act(async () => { await probe.current!.confirm.mutateAsync(setup()).catch((error: unknown) => { failure = error; }); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(89_000); });
+    expect(failure).toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    await confirming;
+    expect((failure as Error | null)?.message).toBe('signing_timeout');
+    expect(probe.current!.confirm.isPending).toBe(false);
+    expect(state.post).not.toHaveBeenCalled();
+  } finally { vi.useRealTimers(); }
+});

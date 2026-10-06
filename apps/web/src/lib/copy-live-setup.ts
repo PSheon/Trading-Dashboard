@@ -34,13 +34,21 @@ export interface StartLiveCopyInput { leader: string; budgetUsd: string; setting
 
 /** The setup consent and the deposit, signed without Privy's modal: called
  * only from Orbie's confirm sheet, which lists every term (decision 1). */
-export async function signSetup(setup: LiveCopySetup, sign: (data: Eip712TypedData, options: { silent: boolean }) => Promise<string>) {
+export async function signSetup(setup: LiveCopySetup, sign: (data: Eip712TypedData, options: { silent: boolean }) => Promise<string>, timeoutMs = SIGN_TIMEOUT_MS) {
   if (!setup.consent) throw new Error('setup_consent_expired');
   const consent = setup.consent;
-  const consentSignature = await sign(liveCopySetupConsentTypedData(consent) as unknown as Eip712TypedData, { silent: true });
+  const consentSignature = await withSignTimeout(sign(liveCopySetupConsentTypedData(consent) as unknown as Eip712TypedData, { silent: true }), timeoutMs);
   const fundingSignature = consent.kind === 'start'
-    ? await sign(usdSendTypedData(WALLET_NETWORKS.testnet, consent.accountAddress, consent.fundingAmount, consent.fundingNonce) as unknown as Eip712TypedData, { silent: true }) : undefined;
+    ? await withSignTimeout(sign(usdSendTypedData(WALLET_NETWORKS.testnet, consent.accountAddress, consent.fundingAmount, consent.fundingNonce) as unknown as Eip712TypedData, { silent: true }), timeoutMs) : undefined;
   return { consentSignature, ...(fundingSignature ? { fundingSignature } : {}) };
+}
+/** How long a silent signature may take before confirm gives up on it (the sheet can close again). */
+export const SIGN_TIMEOUT_MS = 90_000;
+/** Privy's signTypedData has no limit of its own: past `ms` it is `signing_timeout`. */
+function withSignTimeout<T>(signing: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('signing_timeout')), ms); });
+  return Promise.race([signing, late]).finally(() => clearTimeout(timer));
 }
 
 /**

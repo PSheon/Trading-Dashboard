@@ -12,11 +12,11 @@ import { liveAccount, liveMandate, liveNow } from './copy-live-fixtures';
 import { settleQueries } from './query-settle';
 import { MASTER_SIGNATURE, withMasterAction } from './master-action-test-utils';
 
-const state = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), sign: vi.fn(), addSigners: vi.fn(async () => undefined), snapshot: null as unknown }));
+const state = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), sign: vi.fn(), addSigners: vi.fn(async () => undefined), snapshot: null as unknown, strategies: [] as unknown[] }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ status: 'signedIn', mode: 'privy', identity: 'owner@email', wallet: { address: `0x${'11'.repeat(20)}`, signTypedData: state.sign, signAsAccount: async () => MASTER_SIGNATURE, addSigners: state.addSigners } }) }));
-vi.mock('@/lib/api', async () => ({ ...(await vi.importActual<typeof import('@/lib/api')>('@/lib/api')), api: { get: state.get, post: (...args: unknown[]) => Promise.resolve((state.post as (...a: unknown[]) => unknown)(...args)).then(value => withMasterAction(args[0], value)) }, sessionKey: () => '1' }));
+vi.mock('@/lib/api', async () => ({ ...(await vi.importActual<typeof import('@/lib/api')>('@/lib/api')), api: { get: state.get, patch: state.patch, post: (...args: unknown[]) => Promise.resolve((state.post as (...a: unknown[]) => unknown)(...args)).then(value => withMasterAction(args[0], value)) }, sessionKey: () => '1' }));
 vi.mock('@/lib/copy-execution-wallets', () => ({ useExecutionWallets: () => ({ data: { accounts: [liveAccount] } }) }));
-vi.mock('@/lib/copy-live', () => ({ useLiveCopyOverview: () => ({ data: { mandates: [{ ...liveMandate, state: 'active' }] } }) }));
+vi.mock('@/lib/copy-live', () => ({ useLiveCopyOverview: () => ({ data: { mandates: [{ ...liveMandate, state: 'active' }], strategies: state.strategies } }) }));
 vi.mock('@/lib/copy-follower-snapshot', () => ({ useCopyFollowerSnapshot: () => ({ data: state.snapshot }) }));
 vi.mock('@/components/copy/copy-live-stop', () => ({ CopyLiveStop: () => <div data-testid="stop">stop</div> }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh() {}, push() {} }), usePathname: () => '/portfolio', useSearchParams: () => new URLSearchParams() }));
@@ -32,7 +32,7 @@ const observed = (positions: { coin: string; size: string }[]) => ({ status: 'ob
 let root: Root, container: HTMLDivElement, client: QueryClient, items: ReturnType<typeof item>[];
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-  items = [item()]; state.snapshot = observed([{ coin: 'BTC', size: '0.19' }]);
+  items = [item()]; state.snapshot = observed([{ coin: 'BTC', size: '0.19' }]); state.strategies = []; state.patch.mockReset();
   state.get.mockReset().mockImplementation(async (path: string) => path === '/me/copy/live/portfolio' ? { network: 'testnet', automaticExecution: true, items } : null);
   state.post.mockReset(); state.sign.mockReset().mockResolvedValue(signature);
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -228,4 +228,19 @@ it("a setup left at its consent (the panel closed during a slow start, automatic
   await act(async () => go.click()); await settle();
   expect(state.addSigners).toHaveBeenCalledExactlyOnceWith(consent.accountAddress, [{ signerId: 'worker', policyIds: ['master-policy'] }]);
   expect(state.post).toHaveBeenCalledWith(`/me/copy/live/setups/${id}/confirm`, expect.objectContaining({ consentSignature: expect.any(String), fundingSignature: expect.any(String) }));
+});
+
+it("a failed edit says why inside the edit dialog, which stays open on top (web audit M3)", async () => {
+  const { ApiError } = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
+  const { copyErrorMessages } = await import('@/i18n/copy-errors');
+  state.strategies = [{ id: liveAccount.strategyId, mode: 'actual', network: 'testnet', sourceNetwork: 'mainnet', leaderAddress: `0x${'44'.repeat(20)}`, budgetUsd: '100', status: 'active', version: 1,
+    settings: { direction: 'same', sizingMode: 'ratio', perTradeUsd: null, maxTotalExposureUsd: null, maxLeverage: 5, copyStartMode: 'delta' }, pauseNewRisk: false, reduceOnly: false, createdAt: new Date(liveNow).toISOString() }];
+  state.patch.mockRejectedValue(new ApiError(409, 'A stop is in progress for this copy', { code: 'live_stop_in_progress' }));
+  await render();
+  await act(async () => button('Edit settings').click());
+  const dialog = () => document.querySelector('[role="dialog"]')!;
+  await act(async () => { (dialog().querySelector('button[type="submit"]') as HTMLButtonElement).click(); });
+  await settle();
+  expect(dialog()).toBeTruthy();
+  expect(dialog().querySelector('[role="alert"]')!.textContent).toBe(copyErrorMessages.en.codes.live_stop_in_progress);
 });

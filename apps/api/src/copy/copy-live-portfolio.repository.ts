@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { RETURN_CONSENT_WINDOW_MS } from './copy-live-return.repository.js';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne } from 'drizzle-orm';
+import { MERGED_REASON } from './live-worker/copy-live-worker.repository.js';
 import { copyAgentSetups, copyExecutionAccounts, copyFundingOperations, copyLiveActivations, copyLiveDispatches, copyLiveMandates, copyLiveStopOperations,
   copyLiveSetups, copyLiveStrategyConfigs, copyStrategies } from '@trading-dashboard/shared/database';
 import { liveCopySetupIntentSchema, type LiveCopyPortfolioItem, type LiveCopyStage } from '@trading-dashboard/shared/contracts';
@@ -33,7 +34,8 @@ export class CopyLivePortfolioRepository {
       this.db.select().from(copyLiveStopOperations).where(and(eq(copyLiveStopOperations.userId, userId), inArray(copyLiveStopOperations.strategyId, ids))).orderBy(desc(copyLiveStopOperations.createdAt)),
       this.db.select().from(copyFundingOperations).where(and(eq(copyFundingOperations.userId, userId), inArray(copyFundingOperations.strategyId, ids))).orderBy(desc(copyFundingOperations.createdAt)),
       this.db.select({ strategyId: copyLiveDispatches.strategyId, reason: copyLiveDispatches.reason, at: copyLiveDispatches.updatedAt }).from(copyLiveDispatches)
-        .where(and(eq(copyLiveDispatches.userId, userId), eq(copyLiveDispatches.state, 'refused'))).orderBy(desc(copyLiveDispatches.updatedAt)).limit(200),
+        // A leg merged into another order's adjustment was not refused.
+        .where(and(eq(copyLiveDispatches.userId, userId), eq(copyLiveDispatches.state, 'refused'), ne(copyLiveDispatches.reason, MERGED_REASON))).orderBy(desc(copyLiveDispatches.updatedAt)).limit(200),
       this.db.select().from(copyLiveSetups).where(and(eq(copyLiveSetups.userId, userId), inArray(copyLiveSetups.strategyId, ids))).orderBy(desc(copyLiveSetups.createdAt)),
     ]);
     const now = Date.now();

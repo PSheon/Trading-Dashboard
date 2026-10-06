@@ -97,6 +97,9 @@ export const liveEngineProvider: Provider = {
       runtime: hooks => new TestnetLiveExecutionRuntime(pool, testnetConfig, testnetGlobal, testnetBudget, options, Date.now, { ...hooks, reference }),
       settler: new CopyLiveSettler(pool, testnetGlobal, testnetBudget, scanner),
       log: message => logger.warn(message),
+      // The paper copier's cached leader capital: holds an open too small for
+      // the exchange until the leader's next adds join it.
+      leaderEquity: async leader => { const equity = await market.leaderEquity(leader); return equity.state === 'known' ? equity.value.toString() : null; },
       ...(fast ? { fast } : {}),
     }, DEFAULT_ENGINE_OPTIONS);
   },

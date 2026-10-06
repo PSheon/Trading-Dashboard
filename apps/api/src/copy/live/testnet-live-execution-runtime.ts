@@ -44,7 +44,7 @@ import { PostgresLiveSettlement } from './postgres-live-settlement.js';
 const TESTNET_INFO = 'https://api.hyperliquid-testnet.xyz/info';
 const id = z.string().min(1).max(160).regex(/^[^\s\p{Cc}\p{Cf}]+$/u);
 const requestSchema = z.object({ userId: z.number().int().positive().max(2147483647), accountId: id,
-  mandateId: id, sourceFillId: id, leg: z.enum(['open', 'close']) }).strict();
+  mandateId: id, sourceFillId: id, leg: z.enum(['open', 'close']), members: z.array(id).min(1).max(63).optional() }).strict();
 const bps = z.string().max(80).regex(/^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/).refine(v => {
   try { return Dec.from(v).gte(0) && Dec.from(v).lte(10000); } catch { return false; }
 });
@@ -63,6 +63,8 @@ export interface TestnetLiveExecutionRequest {
   readonly mandateId: string;
   readonly sourceFillId: string;
   readonly leg: 'open' | 'close';
+  /** One merged adjustment: the other same-coin leader legs it carries. */
+  readonly members?: readonly string[];
 }
 /** An exchange approval observed this recently is reused within one order
  * (prepare, sign and the final pre-POST check each verify it): its own

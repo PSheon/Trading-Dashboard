@@ -1,19 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { followerReceiptDigestV1 } from '../src/copy/live/actual-fill-accounting.js';
 import { canonicalLiveSourceLegs, parseLiveSourceFill, liveSourceDigest } from '../src/copy/live/copy-live-source-evidence.js';
-import { planLiveSourceOrder, type LiveSourcePlanInput } from '../src/copy/live/copy-live-source-planner.js';
+import { combinedCloseFraction, planLiveSourceOrder, type LiveSourcePlanInput } from '../src/copy/live/copy-live-source-planner.js';
 import type { LiveSourceSizingEnvelopeV1 } from '../src/copy/live/copy-live-sizing-evidence.js';
 import { Dec } from '../src/common/decimal/dec.js';
 import { settledGenerationExample, sourceSizingExample } from './copy-live-generation-test-utils.js';
 const example=sourceSizingExample;
-function closeExample(position='90',carry='15',full=false):LiveSourcePlanInput{
-  const e=structuredClone(example()),history=settledGenerationExample(position),manifest=history.manifest as any,o=(e.sizingBasis as any).observations,b=(e.sizingBasis as any).basis;
+function closeExample(position='90',carry='15',full=false,mode:'fixed'|'ratio'='fixed'):LiveSourcePlanInput{
+  const e=structuredClone(example(mode)),history=settledGenerationExample(position),manifest=history.manifest as any,o=(e.sizingBasis as any).observations,b=(e.sizingBasis as any).basis;
   (e as any).now=history.now;(e as any).currentExecutionKey=history.currentExecutionKey;manifest.journals[0].provenance.settingsDigest=e.mandate.settingsDigest;
   manifest.carry[0].carry=carry;manifest.carry[0].revision=2;
   o.follower=history.snapshot;o.generationManifest=manifest;
   const fill=parseLiveSourceFill({tid:2,oid:8,time:e.now-50,coin:'BTC',side:'A',px:'100',sz:full?'4':'1',startPosition:'4'}, {network:'testnet',leaderAddress:e.mandate.leaderAddress,from:e.now-1000,to:e.now,receivedAt:e.now,kind:'fills'});
   (e as any).fill=fill;(e as any).leg=canonicalLiveSourceLegs(fill)[0];
   Object.assign(b,{sourceFillId:fill.id,sourceDigest:fill.sourceDigest,leg:'close',fixedTradeClaim:false,carry:{amount:carry,revision:2}});
+  if(mode==='ratio'){b.leader=null;o.leader=null;} // a close is not sized by the leader's capital
   Object.assign(b.follower,{positionSize:position,observedAt:history.snapshot.observedAt,completedAt:history.snapshot.completedAt,snapshotDigest:followerReceiptDigestV1(history.snapshot),positionsDigest:liveSourceDigest({BTC:position})});
   Object.assign(b.generation,{positionSize:position,receiptManifestDigest:liveSourceDigest({receipts:manifest.receipts,ledger:manifest.ledger}),positionsDigest:liveSourceDigest({BTC:position})});
   return e;
@@ -72,5 +73,34 @@ describe('actual source sizing from retained original observations',()=>{
     const e=side==='B'?example():closeExample(),b=(e.sizingBasis as any).basis,o=(e.sizingBasis as any).observations,mid=side==='B'?'100.005':'100.995';
     b.quote.midPrice=mid;o.quote.quote.midPrice=mid;
     expect(planLiveSourceOrder(e).order.limitPrice).toBe('100.5');
+  });
+  describe('one adjustment for several same-coin leader legs', () => {
+    /** The order's own leg plus `others` more legs like it, in leader-time order. */
+    function merged(e: LiveSourcePlanInput, others: number, fraction: string | null = null) {
+      const b = (e.sizingBasis as any).basis, own = { sourceFillId: e.fill.id, sourceDigest: e.fill.sourceDigest, providerTime: e.fill.providerTime, sign: e.leg.sign,
+        size: e.leg.size, px: e.fill.px, fraction: e.leg.fraction };
+      b.merged = { members: [own, ...Array.from({ length: others }, (_, i) => ({ ...own, sourceFillId: `${e.fill.id}-${i}`, sourceDigest: 'd'.repeat(64),
+        providerTime: e.fill.providerTime + 1 + i, ...(fraction ? { fraction } : {}) }))] };
+      return e;
+    }
+    it('sizes five same-side opens as one order of their summed leader notional', () => {
+      const single = planLiveSourceOrder(example('ratio')).order.size;
+      expect(planLiveSourceOrder(merged(example('ratio'), 4)).order).toMatchObject({ size: Dec.from(single).mul(5).toString(), side: 'B', reduceOnly: false });
+    });
+    it('closes the combined fraction 1 - (1 - f1)(1 - f2) of what is held, and a full close fully', () => {
+      expect(combinedCloseFraction(['0.25', '0.25']).toString()).toBe('0.4375');
+      expect(combinedCloseFraction(['0.5', '1']).toString()).toBe('1');
+      // Owed 15, then 0.4375 of the other 75: 47.8125, floored at the lot.
+      expect(planLiveSourceOrder(merged(closeExample('90', '15', false, 'ratio'), 1))).toMatchObject({ order: { size: '47.81', reduceOnly: true }, nextCarry: '0.0025' });
+      expect(planLiveSourceOrder(merged(closeExample('90', '15', false, 'ratio'), 1, '1'))).toMatchObject({ order: { size: '90', reduceOnly: true }, nextCarry: '0' });
+    });
+    it.each(['fixed', 'missing own leg', 'other side', 'unsorted', 'expired'] as const)('refuses a merged basis with %s', kind => {
+      const e = merged(example(kind === 'fixed' ? 'fixed' : 'ratio'), 2), members = (e.sizingBasis as any).basis.merged.members;
+      if (kind === 'missing own leg') members[0].sourceDigest = 'e'.repeat(64);
+      if (kind === 'other side') members[1].sign = -members[1].sign;
+      if (kind === 'unsorted') members.reverse();
+      if (kind === 'expired') members[2].providerTime = e.now - 200_000;
+      expect(() => planLiveSourceOrder(e)).toThrow('live_source_sizing_unproven');
+    });
   });
 });

@@ -67,7 +67,23 @@ export interface LiveSourceSizingBasisV1 {
   readonly fixedTradeClaim: boolean;
   /** A flip open requires the actual close's immutable settlement certificate. */
   readonly settledDependency: { readonly legId: string; readonly certificateDigest: string } | null;
+  /** Present for ONE follower adjustment made of several same-coin leader
+   * legs (ratio sizing): every leg, this order's own (`sourceFillId`)
+   * included, in leader-time order. An open is sized by their summed leader
+   * notional; a close by the combined fraction 1 − Π(1 − fraction). */
+  readonly merged?: LiveMergedLegsV1;
 }
+
+export interface LiveMergedLegV1 {
+  readonly sourceFillId: string;
+  readonly sourceDigest: string;
+  readonly providerTime: number;
+  readonly sign: 1 | -1;
+  readonly size: string;
+  readonly px: string;
+  readonly fraction: string | null;
+}
+export interface LiveMergedLegsV1 { readonly members: readonly LiveMergedLegV1[] }
 
 export interface LiveSourceReferenceV1 {
   readonly network: 'mainnet';

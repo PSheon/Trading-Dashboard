@@ -1,0 +1,3 @@
+ALTER TABLE "copy_live_dispatches" ADD COLUMN "adjustment_id" text;--> statement-breakpoint
+ALTER TABLE "copy_live_dispatches" ADD CONSTRAINT "copy_live_dispatches_adjustment_id_copy_live_dispatches_id_fk" FOREIGN KEY ("adjustment_id") REFERENCES "public"."copy_live_dispatches"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "copy_live_dispatch_adjustment_idx" ON "copy_live_dispatches" USING btree ("adjustment_id");

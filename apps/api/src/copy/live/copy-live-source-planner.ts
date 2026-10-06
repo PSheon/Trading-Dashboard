@@ -19,6 +19,8 @@ export interface LiveSourcePlanInput {
   readonly limits: Pick<CopyRiskLimits,'maxSignalAgeSeconds'|'maxSlippageBps'>;
   readonly currentExecutionKey: string;
 }
+/** Most leader legs one follower adjustment may merge. */
+export const MAX_MERGED_LEGS=64;
 const hash=z.string().regex(/^[a-f0-9]{64}$/),id=z.string().min(1).max(160),integer=z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),version=integer.refine(v=>v>0),addr=z.string().regex(/^0x[0-9a-f]{40}$/);
 const decimal=z.string().max(80).regex(/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]{1,18})?$/).refine(v=>Dec.from(v).toString()===v);
 const nonnegative=decimal.refine(v=>Dec.from(v).gte(0)),positive=decimal.refine(v=>Dec.from(v).isPositive);
@@ -30,8 +32,21 @@ const basisSchema=z.object({version:z.literal(1),mandateId:id,mandateRevision:ve
   follower:z.object({...snapshotIdentity,positionSize:decimal,positionsDigest:hash}).strict(),leader:z.object(snapshotIdentity).strict().nullable(),
   generation:z.object({mandateId:id,baselineDigest:hash,receiptManifestDigest:hash,positionsDigest:hash,positionSize:decimal}).strict(),
   carry:z.object({amount:nonnegative,revision:version}).strict(),fixedTradeClaim:z.boolean(),settledDependency:z.object({legId:id,certificateDigest:hash}).strict().nullable(),
-  sourceReference:z.object({network:z.literal('mainnet'),leaderAddress:addr,leaderEquity:positive.nullable(),leaderEquityObservedAt:integer.nullable(),midPrice:positive,midObservedAt:integer,maxDeviationBps:nonnegative}).strict().optional(),}).strict();
+  sourceReference:z.object({network:z.literal('mainnet'),leaderAddress:addr,leaderEquity:positive.nullable(),leaderEquityObservedAt:integer.nullable(),midPrice:positive,midObservedAt:integer,maxDeviationBps:nonnegative}).strict().optional(),
+  merged:z.object({members:z.array(z.object({sourceFillId:id,sourceDigest:hash,providerTime:integer,sign:z.union([z.literal(1),z.literal(-1)]),size:positive,px:positive,
+    fraction:positive.refine(v=>Dec.from(v).lte(1)).nullable()}).strict()).min(2).max(MAX_MERGED_LEGS)}).strict().optional(),}).strict();
 function requireSizing(value:unknown):asserts value {if(!value)throw new LiveBoundaryError('live_source_sizing_unproven');}
+const SCALE=10n**18n;
+/** 1 − Π(1 − f): the fraction of the follower position that a run of leader
+ * reductions removes together, floored at 18 decimals (exact rationals; any
+ * full close makes it 1). */
+export function combinedCloseFraction(fractions:readonly string[]):Dec{
+  if(fractions.some(f=>Dec.from(f).gte(Dec.ONE)))return Dec.ONE;
+  let n=1n,d=1n;
+  for(const f of fractions){const [whole,part='']=Dec.from(f).toString().split('.'),den=10n**BigInt(part.length),num=BigInt(whole+part);n*=den-num;d*=den;}
+  const remaining=(n*SCALE)/d,removed=SCALE-remaining;
+  return Dec.from(`${removed/SCALE}.${(removed%SCALE).toString().padStart(18,'0')}`);
+}
 function fresh(at:number,now:number){requireSizing(Number.isSafeInteger(at)&&at>=0&&at<=now&&now-at<=5000);}
 function equal(a:unknown,b:unknown){requireSizing(isDeepStrictEqual(a,b));}
 /** Mainnet references may be older than the 5 s provider frames: a mid is the
@@ -114,6 +129,17 @@ export function planLiveSourceOrder(raw: LiveSourcePlanInput): PlannedLiveSource
         (reference.leaderEquityObservedAt===null||reference.leaderEquityObservedAt<=now&&now-reference.leaderEquityObservedAt<=SOURCE_EQUITY_MAX_AGE_MS));
       assertLiveSourcePrice(b.quote.midPrice,reference);
     }
+    // A merged adjustment: every leg is listed once, in leader-time order, the
+    // order's own among them exactly as its fill says; all share the coin's
+    // side and kind, are after the cursor and young enough to copy.
+    const merged=b.merged?.members??null,m_cursor=m.activationCursor!.getTime();
+    if(merged){
+      requireSizing(settings.sizingMode==='ratio'&&new Set(merged.map(m=>m.sourceFillId)).size===merged.length&&
+        merged.every((m,i)=>i===0||merged[i-1]!.providerTime<m.providerTime||merged[i-1]!.providerTime===m.providerTime&&merged[i-1]!.sourceFillId<m.sourceFillId)&&
+        merged.every(m=>m.sign===leg.sign&&(m.fraction===null)===(leg.leg==='open')&&m.providerTime>m_cursor&&m.providerTime<=now&&now-m.providerTime<=limits.maxSignalAgeSeconds*1000));
+      const own=merged.find(m=>m.sourceFillId===fill.id);
+      requireSizing(own&&own.sourceDigest===fill.sourceDigest&&own.providerTime===fill.providerTime&&own.size===leg.size&&own.px===fill.px&&own.fraction===leg.fraction);
+    }
     let leaderEquity:string|null=null;
     if(leg.leg==='open'&&settings.sizingMode==='ratio'&&reference){
       requireSizing(b.leader===null&&o.leader===null);leaderEquity=reference.leaderEquity;
@@ -125,7 +151,9 @@ export function planLiveSourceOrder(raw: LiveSourcePlanInput): PlannedLiveSource
     const price=conservativeLimit(mid,side,b.quote.slippageBps,b.market.sizeDecimals);
     let size:Dec,nextCarry=Dec.from(b.carry.amount),dependsOnLegId:string|null=null;
     if(leg.leg==='close'){
-      requireSizing(position.sign===sign&&position.abs().gte(nextCarry)&&leg.fraction);const reduction=reduceWithCarry(position.abs(),Dec.from(leg.fraction!),nextCarry,b.market.sizeDecimals);size=floorSize(reduction.size,b.market.sizeDecimals);nextCarry=reduction.carry;
+      requireSizing(position.sign===sign&&position.abs().gte(nextCarry)&&leg.fraction);
+      const fraction=merged?combinedCloseFraction(merged.map(m=>m.fraction!)):Dec.from(leg.fraction!);
+      const reduction=reduceWithCarry(position.abs(),fraction,nextCarry,b.market.sizeDecimals);size=floorSize(reduction.size,b.market.sizeDecimals);nextCarry=reduction.carry;
       requireSizing(b.settledDependency===null);
     }else{
       const close=canonicalLiveSourceLegs(fill).find(l=>l.leg==='close');
@@ -139,8 +167,10 @@ export function planLiveSourceOrder(raw: LiveSourcePlanInput): PlannedLiveSource
       // and must never round up or silently exceed the signed owner budget.
       if(settings.sizingMode==='fixed')size=rationalSize([b.perTradeUsd!],[Dec.max(mid,price).toString()],b.market.sizeDecimals);
       // Leader notional (source-network fill price) scaled by capital, then
-      // converted to the follower's coins at the TESTNET mid.
-      else{requireSizing(leaderEquity);size=rationalSize([leg.size,fill.px,Dec.min(Dec.from(b.follower.equity),Dec.from(b.budgetUsd)).toString()],[leaderEquity,b.quote.midPrice],b.market.sizeDecimals);}
+      // converted to the follower's coins at the TESTNET mid. A merged
+      // adjustment sums its legs' leader notional (exact decimal products).
+      else{requireSizing(leaderEquity);const notional=merged?Dec.sum(merged.map(m=>Dec.from(m.size).mul(m.px))).toString():null;
+        size=rationalSize([...(notional?[notional]:[leg.size,fill.px]),Dec.min(Dec.from(b.follower.equity),Dec.from(b.budgetUsd)).toString()],[leaderEquity,b.quote.midPrice],b.market.sizeDecimals);}
     }
     requireSizing(size.isPositive);
     return freezeLiveReservation({plannerVersion:1,legId:liveSourceLegId(m.id,fill.id,leg.leg),sourceDigest:fill.sourceDigest,settingsDigest:consent.settingsDigest,sizingBasis:envelope,

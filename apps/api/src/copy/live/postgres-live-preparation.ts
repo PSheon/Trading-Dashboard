@@ -21,11 +21,16 @@ import { decodeLiveExecutionRow } from './postgres-live-journal.js';
 import type { LiveExecutionRecord } from './live-execution.js';
 import { address, assertWalletAuthorization, LiveBoundaryError } from './wallet-authorization.js';
 import { LiveProviderReadEpoch } from './live-provider-read-epoch.js';
-import { assertLiveSourcePrice } from './copy-live-source-planner.js';
+import { assertLiveSourcePrice, MAX_MERGED_LEGS } from './copy-live-source-planner.js';
 import type { LiveSourceReferenceReader } from './live-source-reference.js';
 import type { LiveSourceReferenceV1 } from './copy-live-sizing-evidence.js';
 
-export interface LivePreparationBinding { readonly accountId: string; readonly mandateId: string; readonly sourceFillId: string; readonly leg: 'open' | 'close'; }
+export interface LivePreparationBinding {
+  readonly accountId: string; readonly mandateId: string; readonly sourceFillId: string; readonly leg: 'open' | 'close';
+  /** Other same-coin leader legs this order also carries (one merged follower
+   * adjustment, ratio sizing): their source fill ids, each with this leg. */
+  readonly members?: readonly string[];
+}
 export interface LivePreparationOptions extends LiveRiskProviderOptions {
   readonly slippageBps: string;
   /** Largest testnet/mainnet mid difference (bps) at which a mainnet leader's
@@ -61,7 +66,9 @@ export class PostgresLivePreparation {
   async prepare(session: LiveRiskDatabaseSession, supplied: LivePreparationBinding): Promise<{ intent: LiveOrderIntent; record: LiveExecutionRecord }> {
     assertOriginalLiveRiskSession(session);
     const binding = Object.freeze(structuredClone(supplied)), started = this.now();
-    riskSourceRequire(binding && ['open', 'close'].includes(binding.leg) && [binding.accountId, binding.mandateId, binding.sourceFillId].every(v => typeof v === 'string' && v.length > 0 && v.length <= 160), 'live_preparation_binding');
+    riskSourceRequire(binding && ['open', 'close'].includes(binding.leg) && [binding.accountId, binding.mandateId, binding.sourceFillId].every(v => typeof v === 'string' && v.length > 0 && v.length <= 160) &&
+      (binding.members === undefined || Array.isArray(binding.members) && binding.members.length >= 1 && binding.members.length < MAX_MERGED_LEGS &&
+        binding.members.every(v => typeof v === 'string' && v.length > 0 && v.length <= 160 && v !== binding.sourceFillId) && new Set(binding.members).size === binding.members.length), 'live_preparation_binding');
     const local = await session.read(db => loadLivePreparationAuthority(session, db, binding, started));
     const cloid = liveSourceExecutionCloid(binding.mandateId, binding.sourceFillId, binding.leg), key = executionKey({ network: 'testnet', accountAddress: address(local.account.address!), cloid });
     const existing = await session.read(async db => {
@@ -86,7 +93,20 @@ export class PostgresLivePreparation {
         stream.coverageFrom && stream.coverageThrough && stream.coverageDigest && stream.coverageFrom.getTime() <= local.mandate.activationCursor!.getTime() && stream.coverageThrough.getTime() >= fill.providerTime, 'live_preparation_source');
       const leg = canonicalLiveSourceLegs(fill).find(v => v.leg === binding.leg);
       riskSourceRequire(leg, 'live_preparation_source');
-      return { fill, leg, stream };
+      // A merged adjustment's other legs: the same stream, coin, kind and
+      // side, inside the proven coverage, after the cursor. Only plain legs
+      // merge (a flip's close is its own order; its open may lead an open).
+      const members: { fill: ReturnType<typeof decodeLiveSourceFill>; leg: NonNullable<typeof leg> }[] = [];
+      for (const id of binding.members ?? []) {
+        const [memberRow] = await this.checked(session, db.select().from(copyLiveSourceFills).where(eq(copyLiveSourceFills.id, id)));
+        riskSourceRequire(memberRow, 'live_preparation_source');
+        const member = decodeLiveSourceFill(memberRow), legs = canonicalLiveSourceLegs(member), memberLeg = legs.find(v => v.leg === binding.leg);
+        riskSourceRequire(member.streamId === fill.streamId && member.coin === fill.coin && memberLeg && memberLeg.sign === leg.sign && legs.length === 1 &&
+          member.providerTime > local.mandate.activationCursor!.getTime() && stream.coverageThrough!.getTime() >= member.providerTime, 'live_preparation_source');
+        members.push({ fill: member, leg: memberLeg });
+      }
+      riskSourceRequire(!members.length || local.settings.sizingMode === 'ratio' && (binding.leg === 'open' || canonicalLiveSourceLegs(fill).length === 1), 'live_preparation_source');
+      return { fill, leg, stream, members };
     });
     const baselineExists = await session.read(async db => {
       const rows = await this.checked(session, db.select().from(copyLivePositionBaselines).where(eq(copyLivePositionBaselines.mandateId, binding.mandateId)));
@@ -144,10 +164,18 @@ export class PostgresLivePreparation {
       generation: { mandateId: binding.mandateId, baselineDigest: projection.baselineDigest, receiptManifestDigest: projection.receiptManifestDigest, positionsDigest: projection.positionsDigest, positionSize },
       carry: { amount: carry.carry, revision: carry.revision }, fixedTradeClaim: binding.leg === 'open' && local.settings.sizingMode === 'fixed',
       settledDependency: dependsOn && dependency?.evidence?.settlementDigest ? { legId: dependsOn, certificateDigest: dependency.evidence.settlementDigest } : null,
-      ...(sourceReference ? { sourceReference } : {}) },
+      ...(sourceReference ? { sourceReference } : {}),
+      ...(source.members.length ? { merged: { members: [{ fill: source.fill, leg: source.leg }, ...source.members]
+        .sort((a, b) => a.fill.providerTime - b.fill.providerTime || (a.fill.id < b.fill.id ? -1 : a.fill.id > b.fill.id ? 1 : 0))
+        .map(({ fill, leg }) => ({ sourceFillId: fill.id, sourceDigest: fill.sourceDigest, providerTime: fill.providerTime, sign: leg.sign, size: leg.size, px: fill.px, fraction: leg.fraction })) } } : {}) },
       observations: { follower, leader, quote, generationManifest: withCarry } };
     const plan = planLiveSourceOrder({ mandate: local.mandate, settings: local.settings, fill: source.fill, leg: source.leg, sizingBasis: sizing,
       now: planningAt, limits: local.limits, currentExecutionKey: key });
+    // A merged open below the exchange minimum is refused here, before any
+    // journal or nonce claims its identity, so its legs can keep accumulating
+    // (a single leg keeps the risk gate's refusal after its journal).
+    if (source.members.length && !plan.order.reduceOnly && Dec.from(plan.order.size).mul(plan.order.limitPrice).lt(Dec.max(Dec.from(10), Dec.from(local.limits.minOrderNotionalUsd))))
+      throw new LiveBoundaryError('below_min_notional');
     const intent: LiveOrderIntent = { authorizationId: local.grant.id, userId: local.account.userId, strategyId: local.strategy.id, walletId: local.wallet.privyWalletId,
       network: 'testnet', accountAddress: address(local.account.address!), cloid, asset: plan.order.asset, side: plan.order.side, size: plan.order.size, limitPrice: plan.order.limitPrice,
       sizeDecimals: plan.order.sizeDecimals, timeInForce: plan.order.timeInForce, reduceOnly: plan.order.reduceOnly, market,
@@ -169,6 +197,17 @@ export class PostgresLivePreparation {
       for (const canonical of [...canonicalLiveSourceLegs(source.fill)].sort((a, b) => a.leg === b.leg ? 0 : a.leg === 'close' ? -1 : 1)) {
         const id = liveSourceLegId(binding.mandateId, source.fill.id, canonical.leg), dependencyId = canonical.leg === 'open' && closeLeg ? liveSourceLegId(binding.mandateId, source.fill.id, 'close') : null;
         await this.checked(session, tx.insert(copyLiveSignalLegs).values({ id, mandateId: binding.mandateId, sourceFillId: source.fill.id, ...canonical, dependsOnId: dependencyId, createdAt: new Date(now), updatedAt: new Date(now) }).onConflictDoNothing());
+      }
+      // The merged legs are claimed by this order: planned, then skipped (never
+      // sent on their own); one already claimed elsewhere refuses the merge.
+      for (const member of source.members) {
+        const [currentMember] = await this.checked(session, tx.select().from(copyLiveSourceFills).where(eq(copyLiveSourceFills.id, member.fill.id)));
+        riskSourceRequire(currentMember && decodeLiveSourceFill(currentMember).sourceDigest === member.fill.sourceDigest, 'live_preparation_source');
+        const id = liveSourceLegId(binding.mandateId, member.fill.id, member.leg.leg);
+        await this.checked(session, tx.insert(copyLiveSignalLegs).values({ id, mandateId: binding.mandateId, sourceFillId: member.fill.id, ...member.leg, dependsOnId: null, createdAt: new Date(now), updatedAt: new Date(now) }).onConflictDoNothing());
+        const skipped = await this.checked(session, tx.update(copyLiveSignalLegs).set({ state: 'skipped', revision: sql`${copyLiveSignalLegs.revision} + 1`, updatedAt: new Date(now) })
+          .where(and(eq(copyLiveSignalLegs.id, id), eq(copyLiveSignalLegs.state, 'planned'), sql`${copyLiveSignalLegs.executionKey} is null`)).returning({ id: copyLiveSignalLegs.id }));
+        riskSourceRequire(skipped.length === 1, 'live_preparation_claim_conflict');
       }
       const [leg] = await this.checked(session, tx.select().from(copyLiveSignalLegs).where(eq(copyLiveSignalLegs.id, legId)).for('update'));
       riskSourceRequire(leg?.state === 'planned' && leg.executionKey === null && leg.mandateId === binding.mandateId && leg.sourceFillId === source.fill.id &&

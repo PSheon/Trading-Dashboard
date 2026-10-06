@@ -1882,8 +1882,14 @@ export const copyLiveDispatches = pgTable("copy_live_dispatches", {
   firstAttemptAt: timestamp("first_attempt_at", { withTimezone: true }), sentAt: timestamp("sent_at", { withTimezone: true }),
   ackedAt: timestamp("acked_at", { withTimezone: true }), settledAt: timestamp("settled_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Same-coin legs merged into ONE follower adjustment: the lead row (whose
+   * order it is) holds its own id, each merged leg the lead's id (and is
+   * `refused` / `merged_into_adjustment`: it is never sent on its own). Null
+   * for a leg sent on its own, as every row before merging existed. */
+  adjustmentId: text("adjustment_id").references((): AnyPgColumn => copyLiveDispatches.id, { onDelete: "restrict" }),
 }, (t) => [
   uniqueIndex("copy_live_dispatch_leg_uq").on(t.mandateId, t.sourceFillId, t.leg),
+  index("copy_live_dispatch_adjustment_idx").on(t.adjustmentId),
   uniqueIndex("copy_live_dispatch_execution_uq").on(t.executionKey).where(sql`${t.executionKey} is not null`),
   index("copy_live_dispatch_work_idx").on(t.state, t.updatedAt), index("copy_live_dispatch_owner_idx").on(t.userId, t.createdAt),
   check("copy_live_dispatch_state_check", sql`${oneOf(t.state, ["pending", "submitted", "settled", "refused"])} and ${t.leg} in ('open','close') and ${t.attempts} >= 0 and (${t.state} <> 'refused' or ${t.reason} is not null) and (${t.state} not in ('submitted','settled') or ${t.executionKey} is not null) and (${t.reason} is null or ${t.reason} ~ '^[a-z][a-z0-9_]{0,79}$')`),

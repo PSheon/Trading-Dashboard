@@ -491,6 +491,13 @@
       "when": 1791260591159,
       "tag": "0069_copy_account_identity_checks",
       "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1791279783014,
+      "tag": "0070_copy_live_adjustments",
+      "breakpoints": true
     }
   ]
 }

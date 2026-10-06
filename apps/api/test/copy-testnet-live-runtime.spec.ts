@@ -18,7 +18,9 @@ import * as authority from '../src/copy/live/postgres-live-risk-authority.js';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { TypedDataDefinition } from 'viem';
 import { digest as mandateDigest } from '../src/copy/copy-live-mandate-evidence.js';
-import { parseLiveSourceFill } from '../src/copy/live/copy-live-source-evidence.js';
+import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceLegId, parseLiveSourceFill } from '../src/copy/live/copy-live-source-evidence.js';
+import { planLiveSourceOrder } from '../src/copy/live/copy-live-source-planner.js';
+import { copyRiskLimitsSchema, copyStrategySettingsSchema } from '@trading-dashboard/shared/contracts';
 import { HyperliquidLiveAccountObserver } from '../src/copy/live/live-account-observer.js';
 import { LiveProviderReadEpoch } from '../src/copy/live/live-provider-read-epoch.js';
 import { PostgresLiveReservations } from '../src/copy/live/postgres-live-reservations.js';
@@ -95,12 +97,12 @@ beforeEach(async () => {
 });
 afterEach(() => { budget.onModuleDestroy(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 afterAll(async () => { await pool.end(); await closeTestDb(); });
-async function actualClockFixture(perTradeUsd = 10, accountRevision = 1) {
+async function actualClockFixture(perTradeUsd: number | null = 10, accountRevision = 1, sizingMode?: 'ratio') {
   // Preserve original source timestamps/consent bindings, rather than restamp
   // proof objects. The genuine fixture is created at the provider/SQL clock.
   clock = Date.now(); const delta = clock - now, date = (value: number) => new Date(value + delta);
   const [version] = await db.select().from(schema.copyStrategyVersions);
-  const settings = { ...version!.settings, perTradeUsd };
+  const settings = { ...version!.settings, perTradeUsd, ...(sizingMode ? { sizingMode } : {}) };
   await db.update(schema.copyStrategyVersions).set({ settings });
   if (accountRevision !== 1) await db.update(schema.copyExecutionAccounts).set({ revision: accountRevision });
   const consent = { ...seed.consent, accountRevision, settingsDigest: liveCopySettingsDigest(settings), agentAddress: agent.address.toLowerCase(), nonce: seed.consent.nonce + delta,
@@ -410,8 +412,8 @@ describe('a testnet copy of a MAINNET leader', () => {
   const mainnetOptions = { ...options, maxSourceDeviationBps: '500' };
   /** The actual-clock fixture, re-pointed at a mainnet leader: the consent,
    * config, stream and fill say `mainnet`; execution stays on testnet. */
-  async function mainnetFixture(perTradeUsd = 20) {
-    await actualClockFixture(perTradeUsd);
+  async function mainnetFixture(perTradeUsd: number | null = 20, sizingMode?: 'ratio') {
+    await actualClockFixture(perTradeUsd, 1, sizingMode);
     const consent = { ...seed.consent, sourceNetwork: 'mainnet' as const };
     await db.update(schema.copyLiveStrategyConfigs).set({ sourceNetwork: 'mainnet' });
     await db.update(schema.copyLiveMandates).set({ sourceNetwork: 'mainnet', intent: consent, intentDigest: mandateDigest(consent) });
@@ -448,6 +450,54 @@ describe('a testnet copy of a MAINNET leader', () => {
     await mainnetFixture();
     await expect(mainnetRuntime({}).execute(request())).rejects.toThrow('live_source_reference_unconfigured');
     expect(await db.select().from(schema.copyLiveExecutions)).toHaveLength(0);
+  });
+  describe('one merged adjustment (ratio sizing)', () => {
+    /** Three more adds of the leader's BTC long after the seed fill (long 1 -> 4). */
+    async function adds() {
+      const ids: string[] = [];
+      for (const [i, start] of ['1', '2', '3'].entries()) {
+        const fill = parseLiveSourceFill({ ...seed.fill.raw, tid: 2 + i, oid: 3 + i, time: clock - 900 + i * 100, startPosition: start },
+          { network: 'mainnet', leaderAddress: seed.consent.leaderAddress, from: clock - 2000, to: clock, receivedAt: clock, kind: 'fills' });
+        await db.insert(schema.copyLiveSourceFills).values({ ...fill, normalized: { ...fill.normalized }, providerTime: new Date(fill.providerTime), receivedAt: new Date(fill.receivedAt) });
+        ids.push(fill.id);
+      }
+      return ids;
+    }
+    const equity = (leaderEquity: string) => ({ read: vi.fn(async () => ({ midPrice: '100', midObservedAt: clock, leaderEquity, leaderEquityObservedAt: clock })) });
+    it('sends one order of the four legs\' summed size and claims the other three legs', async () => {
+      await mainnetFixture(null, 'ratio'); const members = await adds();
+      const result = await mainnetRuntime({ reference: equity('1000') }).execute({ ...request(), members });
+      // 4 x (1 @ 100) of a 1,000 account, at a 100 budget, at mid 100: 0.4 (one leg alone: 0.1).
+      expect(result).toMatchObject({ state: 'filled', action: { orders: [{ s: '0.4' }] } });
+      const [provenance] = await db.select().from(schema.copyLiveIntentProvenance);
+      expect((provenance!.sizingBasis as { basis: { merged: { members: { sourceFillId: string }[] } } }).basis.merged.members.map(m => m.sourceFillId)).toEqual([seed.fill.id, ...members]);
+      const legs = await db.select().from(schema.copyLiveSignalLegs);
+      expect(legs.find(l => l.sourceFillId === seed.fill.id)).toMatchObject({ state: 'prepared', executionKey: result.key });
+      expect(legs.filter(l => members.includes(l.sourceFillId))).toEqual(members.map(() => expect.objectContaining({ state: 'skipped', executionKey: null })));
+      // Settlement and recovery re-plan from the saved basis and the order's own fill alone: the same order.
+      const [mandate] = await db.select().from(schema.copyLiveMandates), [version] = await db.select().from(schema.copyStrategyVersions), [policy] = await db.select().from(schema.copyRiskPolicies);
+      const [own] = await db.select().from(schema.copyLiveSourceFills).where(eq(schema.copyLiveSourceFills.id, seed.fill.id)), fill = decodeLiveSourceFill(own!);
+      const replanned = planLiveSourceOrder({ mandate: { ...mandate!, state: 'active', revision: provenance!.mandateRevision }, settings: copyStrategySettingsSchema.strict().parse(version!.settings),
+        fill, leg: canonicalLiveSourceLegs(fill)[0]!, sizingBasis: provenance!.sizingBasis, now: result.createdAt, limits: copyRiskLimitsSchema.parse(policy!.limits), currentExecutionKey: result.key });
+      expect(replanned.order.size).toBe('0.4');
+    });
+    it('refuses a merge below the minimum before any journal or nonce claims it', async () => {
+      await mainnetFixture(null, 'ratio'); const members = await adds();
+      // A 10,000 account: 0.04 BTC at 100, 4 USDC.
+      await expect(mainnetRuntime({ reference: equity('10000') }).execute({ ...request(), members })).rejects.toThrow('below_min_notional');
+      expect(await db.select().from(schema.copyLiveExecutions)).toHaveLength(0); expect(await db.select().from(schema.copySignerNonces)).toHaveLength(0);
+      expect(await db.select().from(schema.copyLiveSignalLegs)).toHaveLength(0);
+    });
+    it('refuses a merge carrying a leg another order already claimed', async () => {
+      await mainnetFixture(null, 'ratio'); const members = await adds();
+      // Another adjustment already carries members[0].
+      const [fill] = await db.select().from(schema.copyLiveSourceFills).where(eq(schema.copyLiveSourceFills.id, members[0]!));
+      const leg = canonicalLiveSourceLegs(decodeLiveSourceFill(fill!))[0]!;
+      await db.insert(schema.copyLiveSignalLegs).values({ id: liveSourceLegId('mandate', members[0]!, 'open'), mandateId: 'mandate', sourceFillId: members[0]!, ...leg,
+        state: 'skipped', revision: 2, createdAt: new Date(clock - 10), updatedAt: new Date(clock - 10) });
+      await expect(mainnetRuntime({ reference: equity('1000') }).execute({ ...request(), members: [members[0]!, members[1]!] })).rejects.toThrow('live_preparation_claim_conflict');
+      expect(await db.select().from(schema.copyLiveExecutions)).toHaveLength(0); expect(await db.select().from(schema.copySignerNonces)).toHaveLength(0);
+    });
   });
   it('never takes a testnet fill as a mainnet leader signal', async () => {
     await mainnetFixture();

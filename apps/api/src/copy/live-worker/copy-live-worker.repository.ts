@@ -1,8 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, gt, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 import { copyControls, copyExecutionAccounts, copyFundingOperations, copyLiveManualCloses, copyLiveActivations, copyLiveDispatches, copyLiveExecutions, copyLiveMandates,
-  copyLiveSourceFills, copyLiveSourceStreams, copyLiveStopOperations, copyLiveStrategyConfigs, copyStrategies, copyRiskPolicies, fillCoverage, fills } from '@trading-dashboard/shared/database';
-import { CHAIN_DEFAULT, copyRiskLimitsSchema, DEFAULT_COPY_RISK_LIMITS } from '@trading-dashboard/shared/contracts';
+  copyLiveSourceFills, copyLiveSourceStreams, copyLiveStopOperations, copyLiveStrategyConfigs, copyStrategies, copyStrategyVersions, copyRiskPolicies, fillCoverage, fills } from '@trading-dashboard/shared/database';
+import { CHAIN_DEFAULT, copyRiskLimitsSchema, copyStrategySettingsSchema, DEFAULT_COPY_RISK_LIMITS } from '@trading-dashboard/shared/contracts';
 import { DRIZZLE_CLIENT } from '../../db/db.constants.js';
 import type { DrizzleDb } from '../../db/drizzle.provider.js';
 import { UnitOfWork } from '../../db/unit-of-work.js';
@@ -16,7 +16,12 @@ export interface LiveMandateWork {
   strategyStatus: string; activated: boolean;
   /** When the worker started trading this generation; fills before it are not copied. */
   activatedAt: Date | null;
+  /** Ratio sizing merges same-coin legs into one adjustment; fixed does not. */
+  sizingMode?: 'ratio' | 'fixed' | null;
+  budgetUsd?: string | null;
 }
+/** A merged leg: never sent on its own; its lead row's order carries it. */
+export const MERGED_REASON = 'merged_into_adjustment';
 export interface LiveStreamWork { network: LiveSourceNetwork; leaderAddress: string; earliestCursor: Date }
 
 /** SQL for the live worker. Short transactions only; no provider I/O here. */
@@ -26,17 +31,21 @@ export class CopyLiveWorkerRepository {
 
   /** Consent generations that are acknowledged and unexpired. */
   async mandates(now: number): Promise<LiveMandateWork[]> {
-    const rows = await this.db.select({ mandate: copyLiveMandates, account: copyExecutionAccounts, strategy: copyStrategies, activatedAt: copyLiveActivations.activatedAt, activationState: copyLiveActivations.state })
+    const rows = await this.db.select({ mandate: copyLiveMandates, account: copyExecutionAccounts, strategy: copyStrategies, activatedAt: copyLiveActivations.activatedAt, activationState: copyLiveActivations.state,
+      settings: copyStrategyVersions.settings, budgetUsd: copyLiveStrategyConfigs.budgetUsd })
       .from(copyLiveMandates)
       .innerJoin(copyExecutionAccounts, eq(copyExecutionAccounts.id, copyLiveMandates.accountId))
       .innerJoin(copyStrategies, eq(copyStrategies.id, copyLiveMandates.strategyId))
       .leftJoin(copyLiveActivations, eq(copyLiveActivations.mandateId, copyLiveMandates.id))
+      .leftJoin(copyStrategyVersions, and(eq(copyStrategyVersions.strategyId, copyStrategies.id), eq(copyStrategyVersions.version, copyStrategies.version)))
+      .leftJoin(copyLiveStrategyConfigs, eq(copyLiveStrategyConfigs.strategyId, copyStrategies.id))
       .where(and(eq(copyLiveMandates.state, 'active'), isNotNull(copyLiveMandates.consentDigest), isNotNull(copyLiveMandates.activationCursor),
         gt(copyLiveMandates.expiresAt, new Date(now)), eq(copyStrategies.mode, 'testnet'), isNotNull(copyExecutionAccounts.address)))
       .orderBy(asc(copyLiveMandates.createdAt)).limit(500);
-    return rows.map(({ mandate: m, account: a, strategy: s, activatedAt, activationState }) => ({ mandateId: m.id, userId: m.userId, strategyId: m.strategyId, accountId: m.accountId,
+    return rows.map(({ mandate: m, account: a, strategy: s, activatedAt, activationState, settings, budgetUsd }) => ({ mandateId: m.id, userId: m.userId, strategyId: m.strategyId, accountId: m.accountId,
       accountAddress: a.address!, sourceNetwork: m.sourceNetwork, leaderAddress: m.leaderAddress, cursor: m.activationCursor!, expiresAt: m.expiresAt,
-      strategyStatus: s.status, activated: activationState === 'activated', activatedAt }));
+      strategyStatus: s.status, activated: activationState === 'activated', activatedAt,
+      sizingMode: copyStrategySettingsSchema.safeParse(settings).data?.sizingMode ?? null, budgetUsd: budgetUsd ?? null }));
   }
   streams(mandates: readonly LiveMandateWork[]): LiveStreamWork[] {
     const out = new Map<string, LiveStreamWork>();
@@ -91,9 +100,58 @@ export class CopyLiveWorkerRepository {
   }
 
   async signalAgeLimitMs(): Promise<number> {
+    return (await this.limits()).maxSignalAgeSeconds * 1000;
+  }
+  /** The current risk policy's limits (the defaults when none parses). */
+  async limits() {
     const [policy] = await this.db.select().from(copyRiskPolicies).orderBy(sql`${copyRiskPolicies.version} desc`).limit(1);
     const parsed = copyRiskLimitsSchema.safeParse(policy?.limits ?? DEFAULT_COPY_RISK_LIMITS);
-    return (parsed.success ? parsed.data.maxSignalAgeSeconds : DEFAULT_COPY_RISK_LIMITS.maxSignalAgeSeconds) * 1000;
+    return parsed.success ? parsed.data : DEFAULT_COPY_RISK_LIMITS;
+  }
+
+  /** A copy's legs that may still merge: pending, on their own, never sent
+   * (no journal for their order identity), with their source fills. */
+  async mergeable(mandateId: string, keyOf: (row: DispatchRow) => string, limit = 200) {
+    const rows = await this.db.select({ dispatch: copyLiveDispatches, fill: copyLiveSourceFills }).from(copyLiveDispatches)
+      .innerJoin(copyLiveSourceFills, eq(copyLiveSourceFills.id, copyLiveDispatches.sourceFillId))
+      .where(and(eq(copyLiveDispatches.mandateId, mandateId), eq(copyLiveDispatches.state, 'pending'), isNull(copyLiveDispatches.adjustmentId)))
+      .orderBy(asc(copyLiveDispatches.leaderTime), asc(copyLiveDispatches.id)).limit(limit);
+    if (!rows.length) return [];
+    const journals = new Set((await this.db.select({ key: copyLiveExecutions.key }).from(copyLiveExecutions)
+      .where(inArray(copyLiveExecutions.key, rows.map(row => keyOf(row.dispatch))))).map(row => row.key));
+    return rows.filter(row => !journals.has(keyOf(row.dispatch)));
+  }
+  /** Makes `lead` one order for itself and `members`: each member is
+   * recorded merged into it (refused, never sent on its own), all or none. */
+  async merge(lead: Pick<DispatchRow, 'id' | 'mandateId'>, members: readonly string[]): Promise<boolean> {
+    return this.uow.run(async tx => {
+      const led = await tx.update(copyLiveDispatches).set({ adjustmentId: lead.id, updatedAt: new Date() })
+        .where(and(eq(copyLiveDispatches.id, lead.id), eq(copyLiveDispatches.state, 'pending'), isNull(copyLiveDispatches.adjustmentId))).returning({ id: copyLiveDispatches.id });
+      const merged = members.length ? await tx.update(copyLiveDispatches).set({ state: 'refused', reason: MERGED_REASON, adjustmentId: lead.id, updatedAt: new Date() })
+        .where(and(inArray(copyLiveDispatches.id, [...members]), eq(copyLiveDispatches.mandateId, lead.mandateId), eq(copyLiveDispatches.state, 'pending'), isNull(copyLiveDispatches.adjustmentId)))
+        .returning({ id: copyLiveDispatches.id }) : [];
+      if (led.length !== 1 || merged.length !== members.length) throw new Error('adjustment_merge_conflict');
+      return true;
+    }).catch(error => { if (error instanceof Error && error.message === 'adjustment_merge_conflict') return false; throw error; });
+  }
+  /** The source fills an adjustment's lead order carries besides its own. */
+  async members(leadId: string): Promise<string[]> {
+    const rows = await this.db.select({ fill: copyLiveDispatches.sourceFillId }).from(copyLiveDispatches)
+      .where(and(eq(copyLiveDispatches.adjustmentId, leadId), ne(copyLiveDispatches.id, leadId))).orderBy(asc(copyLiveDispatches.leaderTime), asc(copyLiveDispatches.id));
+    return rows.map(row => row.fill);
+  }
+  /** An adjustment refused below the exchange minimum before any order
+   * identity was claimed: its legs go back to waiting on their own (marked
+   * `below_min_notional`), so the next same-side legs can join them. */
+  async dissolve(lead: Pick<DispatchRow, 'id' | 'state' | 'attempts' | 'reason'>, attempts: number): Promise<boolean> {
+    return this.uow.run(async tx => {
+      const led = await tx.update(copyLiveDispatches).set({ adjustmentId: null, reason: 'below_min_notional', attempts, updatedAt: new Date() })
+        .where(and(eq(copyLiveDispatches.id, lead.id), eq(copyLiveDispatches.state, 'pending'), eq(copyLiveDispatches.attempts, lead.attempts))).returning({ id: copyLiveDispatches.id });
+      if (led.length !== 1) return false;
+      await tx.update(copyLiveDispatches).set({ state: 'pending', reason: 'below_min_notional', adjustmentId: null, updatedAt: new Date() })
+        .where(and(eq(copyLiveDispatches.adjustmentId, lead.id), ne(copyLiveDispatches.id, lead.id), eq(copyLiveDispatches.state, 'refused'), eq(copyLiveDispatches.reason, MERGED_REASON)));
+      return true;
+    });
   }
 
   /** Leader fills after the cursor that this generation has not picked up yet. */

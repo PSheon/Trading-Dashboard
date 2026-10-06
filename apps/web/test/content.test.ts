@@ -13,6 +13,15 @@ describe("long-form content", () => {
     expect(generated).toBe(renderContentModule());
   });
 
+  it("the privacy page and the FAQ say a return needs a signature only without the automatic return", () => {
+    const pages = [CONTENT_PAGES.privacy.en, CONTENT_PAGES.privacy["zh-TW"], CONTENT_PAGES.faq.en, CONTENT_PAGES.faq["zh-TW"]];
+    for (const text of pages) expect(text).toMatch(/automatic return|自動返還/);
+    expect(CONTENT_PAGES.privacy.en).not.toContain("Today that return also needs your signature");
+    expect(CONTENT_PAGES.privacy["zh-TW"]).not.toContain("目前也需要你自己簽名確認");
+    expect(CONTENT_PAGES.faq.en).not.toContain("you sign once with your main wallet to return");
+    expect(CONTENT_PAGES.faq["zh-TW"]).not.toContain("全部平倉後，你用主錢包簽署一次");
+  });
+
   it("zh-TW reads 繁中; every other locale reads English", () => {
     expect(contentLocale("zh-TW")).toBe("zh-TW");
     expect(contentLocale("en")).toBe("en");
@@ -76,7 +85,8 @@ describe("long-form content", () => {
         expect(CONTENT_PAGES[page][locale], `${page}.${locale}`).toContain("https://x.com/orbie_fun");
         // The date is the first paragraph, which LegalDocument shows under the title.
         const { rest } = splitTitle(contentBlocks(page, locale));
-        expect(rest[0], `${page}.${locale}`).toEqual({ type: "paragraph", text: locale === "zh-TW" ? "最後更新：2026-10-05" : "Last updated: 2026-10-05" });
+        const date = page === "privacy" ? "2026-10-06" : "2026-10-05";
+        expect(rest[0], `${page}.${locale}`).toEqual({ type: "paragraph", text: locale === "zh-TW" ? `最後更新：${date}` : `Last updated: ${date}` });
       }
       // The "numbers you can see" section (Orbie-only, shown on /dev) links the FAQ.
       expect(CONTENT_PAGES.numbers[locale]).toContain("](/help)");

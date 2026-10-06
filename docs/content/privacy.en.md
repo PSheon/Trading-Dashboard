@@ -1,6 +1,6 @@
 # Privacy Policy
 
-Last updated: 2026-10-05
+Last updated: 2026-10-06
 
 Orbie is a trader-analytics and copy-trading tool for Hyperliquid, run by a small team. This page explains, in plain words, what we collect, why, how long we keep it and what you can do about it. "We" means the Orbie team.
 
@@ -49,7 +49,7 @@ Every alert sent leaves a delivery record with the chat ID and the message text.
 - **Your main (embedded) wallet** is created by Privy when you sign in, and it is your Hyperliquid account. Privy holds the private key, and you can export it in Settings. Orbie's servers can't get that key and can't move the money in your main wallet. Deposits and withdrawals are signed by you, in your browser.
 - **Testnet copy wallets:** each testnet copy gets its own wallet. Privy creates it, you're the only owner, and you can export its key too.
 - **The copy agent:** before a testnet copy starts, you sign an authorization for an "agent" that lasts 1 to 30 days (you choose). Until then, our servers can use the agent to place orders, close positions and cancel orders for that copy's wallet. Under Hyperliquid's rules, an agent can't transfer or withdraw funds. The agent's key also lives with Privy and is set so it can't be exported.
-- **Getting money back:** when a copy stops, the money in its wallet can only go back to your own main wallet, never to another address. Today that return also needs your signature.
+- **Getting money back:** when a copy stops, the money in its wallet can only go back to your own main wallet, never to another address. If you allowed the automatic return when you started the copy, Orbie's server sends it back for you, and it can't send it anywhere else; otherwise the return needs your signature.
 - Copying with real funds (mainnet) isn't available.
 
 ## Cookies and browser storage

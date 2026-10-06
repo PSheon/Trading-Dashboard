@@ -211,7 +211,7 @@ Yes. In paper mode your account gets a virtual balance of 10,000 USDC, orders ar
 
 When you stop a copy, Orbie stops opening new positions for it, cancels its pending orders and closes its open positions at the market price. Once every position is closed, the copy's remaining balance returns to your available balance. Until then the copy shows "Stopping", and a stopping copy cannot be resumed.
 
-Paper copies use virtual positions and virtual funds: no real order is sent and your wallet is not touched. When you stop a testnet copy, Orbie cancels its orders on Hyperliquid testnet and closes its positions with reduce-only market orders; once it is flat, you sign once with your main wallet to return the copy account's funds to it. Copying with real funds is not available yet; we will update this answer when it is.
+Paper copies use virtual positions and virtual funds: no real order is sent and your wallet is not touched. When you stop a testnet copy, Orbie cancels its orders on Hyperliquid testnet and closes its positions with reduce-only market orders; once it is flat, the copy account's funds go back to your main wallet: by themselves if you allowed the automatic return when you started the copy, otherwise after you sign once with your main wallet. Copying with real funds is not available yet; we will update this answer when it is.
 
 ## Fees
 

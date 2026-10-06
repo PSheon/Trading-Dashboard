@@ -41,7 +41,12 @@ vi.mock('ws', async () => {
         this.emit('message', Buffer.from(JSON.stringify({ channel: 'subscriptionResponse', data: request })));
         if (request.method !== 'subscribe') return;
         const sums = { accountValue: '100', totalNtlPos: '0', totalRawUsd: '100', totalMarginUsed: '0' };
-        const state = { marginSummary: sums, crossMarginSummary: sums, crossMaintenanceMarginUsed: '0', withdrawable: '100', time: clock, assetPositions: [] };
+        const held = openPositions.length, value = String(5 * held), margin = String(0.5 * held);
+        const totals = { accountValue: '100', totalNtlPos: value, totalRawUsd: '100', totalMarginUsed: margin };
+        const state = held ? { marginSummary: totals, crossMarginSummary: totals, crossMaintenanceMarginUsed: '0.1', withdrawable: String(100 - 0.5 * held), time: clock,
+          assetPositions: openPositions.map(coin => ({ type: 'oneWay', position: { coin, szi: '0.05', entryPx: '100', positionValue: '5', unrealizedPnl: '0', marginUsed: '0.5',
+            maxLeverage: 20, leverage: { type: 'cross', value: 10 }, cumFunding: { allTime: '0', sinceOpen: '0', sinceChange: '0' } } })) }
+          : { marginSummary: sums, crossMarginSummary: sums, crossMaintenanceMarginUsed: '0', withdrawable: '100', time: clock, assetPositions: [] };
         this.emit('message', Buffer.from(JSON.stringify(subscription.type === 'allDexsClearinghouseState'
           ? { channel: subscription.type, data: { user: subscription.user, clearinghouseStates: [['', state]] } }
           : { channel: 'openOrders', data: { user: subscription.user, dex: subscription.dex, orders: [] } })));
@@ -52,6 +57,8 @@ vi.mock('ws', async () => {
   } };
 });
 
+/** Coins the follower already holds (the WebSocket account state). */
+let openPositions: string[] = [];
 const authorizationKey = generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64');
 const options = { extraRiskBufferBps: '5', restingOrderBuilderFeeCapTenthsBps: 100, slippageBps: '30' };
 let db: TestDb, pool: Pool, seed: Awaited<ReturnType<typeof preparationFixture>>, budget: RequestBudgeterService;
@@ -109,7 +116,8 @@ async function actualClockFixture(perTradeUsd = 10, accountRevision = 1) {
   await db.delete(schema.copyLiveSourceFills);
   await db.insert(schema.copyLiveSourceFills).values({ ...fill, normalized: { ...fill.normalized }, providerTime: new Date(fill.providerTime), receivedAt: new Date(fill.receivedAt) });
   seed = { ...seed, consent, fill };
-  const meta = { collateralToken: 7, universe: [{ name: 'BTC', szDecimals: 2, maxLeverage: 20 }] };
+  const coins = ['BTC', 'ETH', 'SOL', 'HYPE'];
+  const meta = { collateralToken: 7, universe: coins.map(name => ({ name, szDecimals: 2, maxLeverage: 20 })) };
   raw.mockImplementation(async (url, init) => {
     const endpoint = String(url), body = init?.body ? JSON.parse(String(init.body)) : undefined;
     if (endpoint === 'https://api.privy.io/v1/wallets/agent') return Response.json({ id: 'agent', chain_type: 'ethereum', address: agent.address, owner_id: 'owner', archived_at: null });
@@ -122,8 +130,8 @@ async function actualClockFixture(perTradeUsd = 10, accountRevision = 1) {
     expect(endpoint).toBe('https://api.hyperliquid-testnet.xyz/info');
     const values: Record<string, unknown> = { userRole: { role: 'user' }, userAbstraction: 'disabled', userDexAbstraction: false,
       spotClearinghouseState: { portfolioMarginEnabled: false, balances: [] }, perpDexs: [null], spotMeta: { tokens: [{ index: 7, name: 'USDC', isCanonical: true }] },
-      meta, allPerpMetas: [meta], metaAndAssetCtxs: [meta, [{ midPx: '100', markPx: '100' }]],
-      activeAssetData: { user: body.user, coin: 'BTC', leverage: { type: 'cross', value: 10 }, maxTradeSzs: ['1', '1'], availableToTrade: ['100', '100'], markPx: '100' },
+      meta, allPerpMetas: [meta], metaAndAssetCtxs: [meta, coins.map(() => ({ midPx: '100', markPx: '100' }))],
+      activeAssetData: { user: body.user, coin: body.coin, leverage: { type: 'cross', value: 10 }, maxTradeSzs: ['1', '1'], availableToTrade: ['100', '100'], markPx: '100' },
       userFees: { userAddRate: '-0.0001', userCrossRate: '0.0005', activeReferralDiscount: '0', trial: null },
       extraAgents: [{ address: agent.address, name: 'dedicated', validUntil: clock + 60000 }], orderStatus: { status: 'unknownOid' } };
     if (!(body.type in values)) throw Error(`Unsupported offline INFO ${body.type}`);
@@ -185,6 +193,23 @@ describe('unregistered concrete testnet execution runtime', () => {
     const [evidence] = await db.select().from(schema.copyLiveExecutionEvidence);
     expect(evidence).toMatchObject({ exchangeOrderId: '77', statusObservation: null, settlementCertificate: null });
     expect(evidence!.acknowledgement).toMatchObject({ oid: '77', totalSz: '0.1' });
+  });
+  it('takes exactly the REST weight its reads send, at most 450 for an order', async () => {
+    await actualClockFixture();
+    const acquire = vi.spyOn(budget, 'acquire');
+    const result = await runtime(config, { ...options, slippageBps: '0' }).execute(request());
+    expect(result.state).toBe('filled');
+    const info = raw.mock.calls.filter(([url]) => String(url).endsWith('/info')).map(([, init]) => JSON.parse(String(init?.body)) as { type: string });
+    // Info reads by Hyperliquid's weights, and 1 per exchange action.
+    const sent = info.reduce((sum, body) => sum + (body.type === 'userRole' ? 60 : ['spotClearinghouseState', 'orderStatus'].includes(body.type) ? 2 : 20), 0)
+      + raw.mock.calls.filter(([url]) => String(url).endsWith('/exchange')).length;
+    const acquired = acquire.mock.calls.reduce((sum, [weight]) => sum + weight, 0);
+    expect(acquired).toBe(sent); expect(acquired).toBeLessThanOrEqual(450);
+    // The account modes once in the first wave and once in the final check;
+    // every other shared read once.
+    expect(info.filter(b => b.type === 'userRole')).toHaveLength(2);
+    for (const type of ['userFees', 'metaAndAssetCtxs', 'spotMeta', 'allPerpMetas', 'activeAssetData', 'meta', 'extraAgents']) expect(info.filter(b => b.type === type)).toHaveLength(1);
+    expect(acquired).toBe(385);
   });
   it('reconciles an unknown original key after revocation and strategy stop without another signature or nonce', async () => {
     await actualClockFixture();

@@ -14,12 +14,13 @@ import { Dec } from '../../common/decimal/dec.js';
 import { decodeLiveCopyMandate } from '../copy-live-mandate-evidence.js';
 import { PostgresLivePreparation, liveSourceExecutionCloid, type LivePreparationOptions } from './postgres-live-preparation.js';
 import { LiveOrderExecutor, type LiveExecutionRecord } from './live-execution.js';
-import { address, LiveBoundaryError, WalletAuthorizationService } from './wallet-authorization.js';
+import { address, LiveBoundaryError, WalletAuthorizationService, type ExchangeApprovalEvidence, type ExchangeApprovalVerifier } from './wallet-authorization.js';
 import { PostgresLiveRiskScope, type LiveRiskDatabaseSession } from './postgres-live-risk-scope.js';
 import { loadLivePreparationAuthority, riskSourceRequire } from './postgres-live-risk-authority.js';
 import { HyperliquidAllDexsAccountSource } from './live-account-ws-source.js';
 import { HyperliquidLiveAccountObserver } from './live-account-observer.js';
-import { HyperliquidLiveMarketResolver } from './live-market-resolver.js';
+import { HyperliquidLiveMarketResolver, type LiveMarketResolver } from './live-market-resolver.js';
+import type { LiveSharedReads } from './live-shared-reads.js';
 import { HyperliquidLiveRiskProvider } from './live-risk-provider.js';
 import { LiveProviderReadEpoch } from './live-provider-read-epoch.js';
 import { PostgresLiveReservations } from './postgres-live-reservations.js';
@@ -40,6 +41,7 @@ import type { LiveSourceReferenceReader } from './live-source-reference.js';
 import { captureLiveOrderIdentity, parseLiveIocAcknowledgement } from './live-order-evidence.js';
 import { PostgresLiveSettlement } from './postgres-live-settlement.js';
 
+const TESTNET_INFO = 'https://api.hyperliquid-testnet.xyz/info';
 const id = z.string().min(1).max(160).regex(/^[^\s\p{Cc}\p{Cf}]+$/u);
 const requestSchema = z.object({ userId: z.number().int().positive().max(2147483647), accountId: id,
   mandateId: id, sourceFillId: id, leg: z.enum(['open', 'close']) }).strict();
@@ -61,6 +63,36 @@ export interface TestnetLiveExecutionRequest {
   readonly mandateId: string;
   readonly sourceFillId: string;
   readonly leg: 'open' | 'close';
+}
+/** An exchange approval observed this recently is reused within one order
+ * (prepare, sign and the final pre-POST check each verify it): its own
+ * `checkedAt` still bounds it to 5 s everywhere it is checked, and the local
+ * grant (revocation, expiry, rotation) is re-read from SQL every time. */
+export const APPROVAL_REUSE_MS = 1000;
+function reusedApproval(verifier: ExchangeApprovalVerifier, now: () => number): ExchangeApprovalVerifier {
+  let last: { key: string; evidence: Promise<ExchangeApprovalEvidence> } | undefined;
+  return { verify: async grant => {
+    const key = JSON.stringify([grant.network, grant.accountAddress, grant.signerAddress, grant.id, grant.version]);
+    if (last?.key === key) {
+      const evidence = await last.evidence.catch(() => undefined);
+      if (evidence && now() - evidence.checkedAt <= APPROVAL_REUSE_MS) return structuredClone(evidence);
+    }
+    const evidence = verifier.verify(grant);
+    last = { key, evidence };
+    return evidence;
+  } };
+}
+/** The exchange boundary's market checks read the order epoch's metadata
+ * (same reads, same clock) when its epoch is still fresh, else their own. */
+function epochMarkets(resolver: HyperliquidLiveMarketResolver, shared: () => LiveSharedReads | undefined): LiveMarketResolver {
+  const reads = () => { const value = shared(); try { void value?.startedAt; return value; } catch { return undefined; } };
+  const fallback = async <T>(work: (shared?: LiveSharedReads) => Promise<T>) => {
+    const value = reads();
+    if (!value) return work();
+    try { return await work(value); }
+    catch (error) { if (error instanceof LiveBoundaryError && ['live_risk_stale', 'market_evidence_expired'].includes(error.code)) return work(); throw error; }
+  };
+  return { network: resolver.network, resolve: coin => fallback(value => resolver.resolve(coin, value)), resolveAsset: asset => fallback(value => resolver.resolveAsset(asset, value)) };
 }
 export class TestnetLiveExecutionRuntime {
   private readonly options: Readonly<LivePreparationOptions>;
@@ -104,7 +136,10 @@ export class TestnetLiveExecutionRuntime {
       const resolver = new HyperliquidLiveMarketResolver('testnet', acquire, this.global.fetchInfo, this.now);
       const provider = new HyperliquidLiveRiskProvider('testnet', acquire, this.global.fetchInfo, this.now);
       const reservations = new PostgresLiveReservations(this.now);
-      const epoch = new LiveProviderReadEpoch(observer, resolver, provider, this.options, this.now);
+      // One order's evidence reads are shared by the observer, the resolver
+      // and the risk providers, and each wave goes out as one meter charge.
+      const epoch = new LiveProviderReadEpoch(observer, resolver, provider, this.options, this.now, { acquire, fetcher: this.global.fetchInfo,
+        batch: (bodies, onDispatch) => this.global.fetchInfoBatch(TESTNET_INFO, bodies, { maxWaitMs: 0, onDispatch: () => { onDispatch(); return undefined; } }) });
       try {
         const existing = await this.existing(session, request, key);
         if (existing?.record.unattemptedRelease || existing?.record.state === 'prepared' && existing.reservation) {
@@ -127,7 +162,7 @@ export class TestnetLiveExecutionRuntime {
         const binding = source.bind(session, { accountId: request.accountId, key });
         const authorizations = new WalletAuthorizationService(new ScopedWalletAuthorizationSource(session,
           existing?.record.authorization.id ?? routing.mandate.authorizationId),
-          new HyperliquidAgentApprovalVerifier('testnet', acquire, this.global.fetchInfo, this.now), this.now);
+          reusedApproval(new HyperliquidAgentApprovalVerifier('testnet', acquire, this.global.fetchInfo, this.now), this.now), this.now);
         const gate = new AccountRiskExecutionGate(binding.proofSource, this.now);
         const signingClient = new BoundaryPrivyOrderSigningClient({ appId: app.auth.appId, appSecret: app.auth.appSecret }, fetch, this.now);
         const signer = new PrivyOrderSigner(signingClient, authorizations, async () => {
@@ -138,7 +173,7 @@ export class TestnetLiveExecutionRuntime {
         }, gate, this.now);
         const exchange: { raw?: unknown; at?: number } = {};
         const transport = new HyperliquidLiveTransport('testnet', signer, gate, this.timedFetch(exchange), 5000, this.now,
-          { marketResolver: resolver, acquire, globalTransport: this.global });
+          { marketResolver: epochMarkets(resolver, () => epoch.sharedReads(session)), acquire, globalTransport: this.global });
         const executor = new LiveOrderExecutor(authorizations, new ScopedLiveExecutionJournal(session, key), transport, gate, this.now);
         if (existing && existing.record.state !== 'prepared') {
           // No prepare/hold/current grant admission/sign on historical recovery.

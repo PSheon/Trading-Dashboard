@@ -14,6 +14,7 @@ import {
   type LiveMarketIdentity,
 } from './live-market-resolver.js';
 import { address, LiveBoundaryError } from './wallet-authorization.js';
+import type { LiveSharedReads } from './live-shared-reads.js';
 
 export interface LiveRiskProviderOptions {
   readonly extraRiskBufferBps: string;
@@ -178,6 +179,9 @@ export class HyperliquidLiveRiskProvider {
     accountAddress: string,
     suppliedMarket: LiveMarketIdentity,
     suppliedOptions: LiveRiskProviderOptions,
+    /** The order epoch's shared reads: its caller paid their weight, its
+     * clock is this proof's, and it checks the account modes once at the end. */
+    shared?: LiveSharedReads,
   ): Promise<LiveRiskProviderProof> {
     try {
       // Caller references are captured synchronously, before all budget/IO waits.
@@ -192,8 +196,8 @@ export class HyperliquidLiveRiskProvider {
       // All thirteen reads (304) are taken from the budget at once, before this
       // proof's clock starts, instead of each waiting inside the window
       // (bounded on its own, by the same timeout).
-      await boundedLiveRead(() => this.acquire(RISK_PROVIDER_WEIGHT), timeout);
-      const started = this.now();
+      if (!shared) await boundedLiveRead(() => this.acquire(RISK_PROVIDER_WEIGHT), timeout);
+      const started = shared ? shared.startedAt : this.now();
       assertMarketIdentity(market);
       if (market.network !== this.network)
         deny('live_risk_provider_source_mismatch');
@@ -227,22 +231,26 @@ export class HyperliquidLiveRiskProvider {
             return Math.max(1, timeout - (this.now() - started));
           };
         void weight; // reserved with the rest, before the clock
-        // Recheck before initiating work; an expired window must not send.
-        const response = await boundedLiveRead(() => 
-          this.fetcher('https://api.hyperliquid-testnet.xyz/info', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(body),
-            redirect: 'error',
-            signal: AbortSignal.timeout(remaining()),
-          }),
-          remaining(),
-        );
-        if (!response.ok) deny('live_risk_provider_unavailable');
-        const value = await boundedLiveRead(() => 
-          readInfoJson(response, 'risk provider', 2 * 1024 * 1024),
-          remaining(),
-        );
+        let value: unknown;
+        if (shared) value = await boundedLiveRead(() => shared.get(body), remaining());
+        else {
+          // Recheck before initiating work; an expired window must not send.
+          const response = await boundedLiveRead(() =>
+            this.fetcher('https://api.hyperliquid-testnet.xyz/info', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(body),
+              redirect: 'error',
+              signal: AbortSignal.timeout(remaining()),
+            }),
+            remaining(),
+          );
+          if (!response.ok) deny('live_risk_provider_unavailable');
+          value = await boundedLiveRead(() =>
+            readInfoJson(response, 'risk provider', 2 * 1024 * 1024),
+            remaining(),
+          );
+        }
         fresh(started);
         fresh(earliestObservedAt);
         if (value && typeof value === 'object' && !Array.isArray(value)) {
@@ -319,7 +327,8 @@ export class HyperliquidLiveRiskProvider {
         .mul(discount)
         .mul(10000)
         .toString();
-      mode(await modes());
+      // An epoch checks the modes once, for every reader, after the last.
+      if (!shared) mode(await modes());
       fresh(started);
       fresh(earliestObservedAt);
       const completedAt = this.now();

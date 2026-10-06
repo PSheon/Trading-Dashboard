@@ -4,6 +4,16 @@ import { HyperliquidLiveRiskProvider, type LiveRiskProviderOptions, type LiveRis
 import { assertOriginalLiveRiskSession, type LiveRiskDatabaseSession } from './postgres-live-risk-scope.js';
 import { loadLivePreparationAuthority, riskSourceDigest, riskSourceRequire } from './postgres-live-risk-authority.js';
 import { freezeLiveReservation } from './live-risk-reservation.js';
+import { accountModeBodies, liveInfoWeights, LiveSharedReads, type LiveInfoBatch } from './live-shared-reads.js';
+import { address } from './wallet-authorization.js';
+
+/** Shared provider reads for an epoch (testnet): the budget the epoch pays
+ * its reads from, the info fetch, and the batch transport for each wave. */
+export interface LiveEpochSharing {
+  readonly acquire: (weight: number) => Promise<unknown>;
+  readonly fetcher: typeof fetch;
+  readonly batch?: LiveInfoBatch;
+}
 
 export interface LiveProviderEpochBinding {
   readonly accountId: string;
@@ -26,6 +36,7 @@ interface Epoch {
   readonly bindingDigest: string;
   readonly authorityDigest: string;
   readonly frames: Promise<LiveProviderEpochFrames>;
+  readonly shared?: LiveSharedReads;
 }
 
 /** Actual network observations shared only by one original SQL session and
@@ -39,7 +50,7 @@ export class LiveProviderReadEpoch {
   constructor(private readonly observer: HyperliquidLiveAccountObserver,
     private readonly resolver: HyperliquidLiveMarketResolver,
     private readonly provider: HyperliquidLiveRiskProvider,
-    options: LiveRiskProviderOptions, private readonly now = Date.now) {
+    options: LiveRiskProviderOptions, private readonly now = Date.now, private readonly sharing?: LiveEpochSharing) {
     riskSourceRequire(observer instanceof HyperliquidLiveAccountObserver && resolver instanceof HyperliquidLiveMarketResolver &&
       provider instanceof HyperliquidLiveRiskProvider, 'live_risk_source_unavailable');
     this.options = freezeLiveReservation({ extraRiskBufferBps: options.extraRiskBufferBps,
@@ -49,6 +60,11 @@ export class LiveProviderReadEpoch {
   private fresh(at: number): void {
     const now = this.now();
     riskSourceRequire(Number.isSafeInteger(at) && at > 0 && Number.isSafeInteger(now) && now >= at && now - at <= 5000, 'live_risk_stale');
+  }
+  /** This session's shared reads (after `collect`), so the exchange boundary
+   * verifies the market against the same metadata within the same clock. */
+  sharedReads(session: LiveRiskDatabaseSession): LiveSharedReads | undefined {
+    return this.#epochs.get(session)?.shared;
   }
   async collect(session: LiveRiskDatabaseSession, supplied: LiveProviderEpochBinding): Promise<LiveProviderEpochFrames> {
     assertOriginalLiveRiskSession(session);
@@ -69,7 +85,8 @@ export class LiveProviderReadEpoch {
       riskSourceRequire(!binding.includeLeader || frames.leader !== null, 'live_risk_epoch_mismatch');
       return frames;
     }
-    const frames = (async (): Promise<LiveProviderEpochFrames> => {
+    const shared = this.sharing ? new LiveSharedReads(this.sharing.fetcher, this.sharing.batch, this.now, 5000, this.sharing.acquire) : undefined;
+    const frames = this.sharing ? this.collectShared(session, binding, authority, authorityDigest, started, this.sharing, shared!) : (async (): Promise<LiveProviderEpochFrames> => {
       const snapshots: LiveAccountSnapshot[] = [];
       const accountsWork = (async () => {
         // The concrete all-venue observer owns an exclusive subscription.
@@ -119,10 +136,79 @@ export class LiveProviderReadEpoch {
         await Promise.allSettled([accountsWork, ...(targetWork ? [targetWork] : [])]);
       }
     })();
-    this.#epochs.set(session, { bindingDigest, authorityDigest, frames });
+    this.#epochs.set(session, { bindingDigest, authorityDigest, frames, ...(shared ? { shared } : {}) });
     // Retain failed epochs too: uncertain/expired observations never trigger
     // an implicit second collection or a later timestamp in this execution.
     void frames.catch(() => {});
     return frames;
+  }
+
+  /**
+   * One order's evidence with shared reads (P2): the observer, the resolver
+   * and the risk providers read the account modes, the dex list, spot and
+   * perp metadata, the dex's contexts and the fees once, in waves sent
+   * together; the other open coins are read in parallel; the account modes
+   * are checked once at the end. The weight of every read is paid before
+   * the clock starts (the other coins' once they are known), exactly.
+   */
+  private async collectShared(session: LiveRiskDatabaseSession, binding: LiveProviderEpochBinding, authority: Awaited<ReturnType<typeof loadLivePreparationAuthority>>,
+    authorityDigest: string, started: number, sharing: LiveEpochSharing, shared: LiveSharedReads): Promise<LiveProviderEpochFrames> {
+    const target = address(authority.account.address!), users = [...new Set([...authority.accounts.map(a => address(a.address!)),
+      ...(binding.includeLeader ? [address(authority.consent.leaderAddress)] : [])])];
+    const dex = binding.coin.includes(':') ? binding.coin.split(':')[0]! : '';
+    const finalBodies = [...users.flatMap(accountModeBodies), { type: 'perpDexs' }];
+    const first = [...users.flatMap(accountModeBodies), { type: 'perpDexs' }, { type: 'spotMeta' }, { type: 'allPerpMetas' },
+      { type: 'meta', ...(dex ? { dex } : {}) }, { type: 'metaAndAssetCtxs', dex }, { type: 'activeAssetData', user: target, coin: binding.coin }, { type: 'userFees', user: target }];
+    // Every read's weight, the final check's too, before the clock starts.
+    await shared.pay(liveInfoWeights(first) + liveInfoWeights(finalBodies));
+    const firstWave = shared.wave(first);
+    void firstWave.catch(() => {});
+    // Every reader's clock is the epoch's: it starts as the first wave goes out.
+    await Promise.race([shared.begun, firstWave]);
+    const snapshots: LiveAccountSnapshot[] = [];
+    const accountsWork = Promise.all(authority.accounts.map(account => this.observer.observe(account.address!, { shared })));
+    void accountsWork.catch(() => {});
+    let targetWork: Promise<LiveRiskProviderProof> | undefined, otherWork: Promise<LiveRiskProviderProof[]> | undefined;
+    try {
+      await firstWave;
+      await session.scope.assertHeld(); this.fresh(started);
+      const market = await this.resolver.resolve(binding.coin, shared);
+      await session.scope.assertHeld(); this.fresh(started);
+      targetWork = this.provider.observe(target, market, this.options, shared);
+      void targetWork.catch(() => {});
+      snapshots.push(...await accountsWork);
+      await session.scope.assertHeld(); this.fresh(started);
+      const current = snapshots[authority.accounts.findIndex(a => a.id === binding.accountId)];
+      riskSourceRequire(current, 'live_risk_user_coverage_unproven');
+      const leader = binding.includeLeader ? await this.observer.observe(authority.consent.leaderAddress, { shared }) : null;
+      await session.scope.assertHeld(); this.fresh(started);
+      const coins = [...new Set([...current.positions.map(p => p.coin), ...current.restingOrders.map(o => o.coin), market.coin])];
+      riskSourceRequire(coins.length <= 16, 'live_risk_market_coverage_unbounded');
+      const otherCoins = coins.filter(c => c !== market.coin);
+      // The other open coins: their own leverage reads, in parallel (one wave).
+      const otherBodies = otherCoins.flatMap(coin => {
+        const otherDex = coin.includes(':') ? coin.split(':')[0]! : '';
+        return [{ type: 'activeAssetData', user: target, coin }, ...(otherDex !== dex ? [{ type: 'meta', ...(otherDex ? { dex: otherDex } : {}) }, { type: 'metaAndAssetCtxs', dex: otherDex }] : [])];
+      });
+      if (otherBodies.length) await shared.wave(otherBodies);
+      otherWork = Promise.all(otherCoins.map(async coin => this.provider.observe(target, await this.resolver.resolve(coin, shared), this.options, shared)));
+      void otherWork.catch(() => {});
+      const target_ = await targetWork;
+      const others = await otherWork;
+      await session.scope.assertHeld(); this.fresh(started);
+      // Nothing changed while it was observed: the account modes and dex
+      // list once more, for every reader.
+      await shared.unchanged(finalBodies, 'live_account_observation_changed');
+      const final = await session.read(db => loadLivePreparationAuthority(session, db, binding, this.now()));
+      riskSourceRequire(riskSourceDigest(final) === authorityDigest, 'live_risk_local_changed');
+      const snapshotTimes = (s: LiveAccountSnapshot) => [s.observedAt, s.completedAt, s.coverage.earliestProviderTime, ...s.dexes.map(d => d.providerTime)];
+      const oldest = Math.min(started, shared.startedAt, market.observedAt, target_.earliestObservedAt, target_.completedAt,
+        ...snapshots.flatMap(snapshotTimes), ...(leader ? snapshotTimes(leader) : []),
+        ...others.flatMap(p => [p.market.observedAt, p.earliestObservedAt, p.completedAt]));
+      assertOriginalLiveRiskSession(session); this.fresh(oldest);
+      return freezeLiveReservation(structuredClone({ market, snapshots, target: target_, others, leader, oldest, authorityDigest }));
+    } finally {
+      await Promise.allSettled([accountsWork, ...(targetWork ? [targetWork] : []), ...(otherWork ? [otherWork] : [])]);
+    }
   }
 }

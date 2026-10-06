@@ -86,9 +86,11 @@ describe('authoritative dedicated standard account observations', () => {
     expect(Object.isFrozen(snapshot.positions[0])).toBe(true);
     expect(s.reads.filter((b) => b.type === 'clearinghouseState')).toEqual([]);
     expect(s.aggregateRead).toHaveBeenCalledTimes(1);
-    // Every read's weight (account modes 122, spotMeta 20, allPerpMetas 20, the
-    // all-venue state and orders reads 20 + 20) in one reservation, before the clock.
-    expect(s.acquire.mock.calls).toEqual([[202]]);
+    // Exactly the REST weight of the reads it sent (the account modes and dex
+    // list twice, spotMeta, allPerpMetas: 284), in one reservation before the
+    // clock; the all-venue state and orders come over the socket.
+    const restWeight = s.reads.reduce((sum, body) => sum + (body.type === 'userRole' ? 60 : body.type === 'spotClearinghouseState' ? 2 : 20), 0);
+    expect(s.acquire.mock.calls).toEqual([[restWeight]]); expect(restWeight).toBe(284);
   });
   it.each(['unifiedAccount', 'portfolioMargin', 'dexAbstraction', 'default', null])('refuses unresolved or unsupported abstraction %s', async (mode) => {
     await expect(setup((body, value) => body.type === 'userAbstraction' ? mode : value).observer.observe(account))

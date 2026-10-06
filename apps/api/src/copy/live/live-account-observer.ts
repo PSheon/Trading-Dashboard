@@ -6,6 +6,7 @@ import { Dec } from '../../common/decimal/dec.js';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
 import { boundedLiveRead, MAX_LIVE_PERP_DEXES, LIVE_DEX_NAME, LIVE_PERP_COIN, RESERVE_BOUND_MS } from './live-market-resolver.js';
 import { address, LiveBoundaryError } from './wallet-authorization.js';
+import { accountModeBodies, liveInfoWeights, type LiveSharedReads } from './live-shared-reads.js';
 
 export interface LiveObservedPosition {
   readonly coin: string; readonly dex: string; readonly asset: number; readonly sizeDecimals: number;
@@ -39,7 +40,17 @@ export interface LiveAccountSnapshot {
     readonly listedDexes: readonly string[]; readonly observedOrderDexes: readonly string[];
     readonly unobservedOrderDexes: readonly string[]; readonly earliestProviderTime: number };
 }
-export interface LiveAccountObservationOptions { supportedDexes?: readonly string[]; }
+export interface LiveAccountObservationOptions {
+  supportedDexes?: readonly string[];
+  /** The order epoch's shared reads: its caller paid their weight, its clock
+   * is this observation's, and it checks the account modes once at the end. */
+  shared?: LiveSharedReads;
+}
+/** The observer's REST reads: the account modes and dex list (before and
+ * after), spot metadata and every dex's metadata. The all-venue state and
+ * orders come over WebSocket (the socket quota, not REST weight). */
+const observerBodies = (user: string) => [...accountModeBodies(user), { type: 'perpDexs' }];
+export const OBSERVER_REST_WEIGHT = 2 * liveInfoWeights(observerBodies('0x')) + liveInfoWeights([{ type: 'spotMeta' }, { type: 'allPerpMetas' }]);
 const integer = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const decimal = z.string().max(80).regex(/^-?(?:0|[1-9]\d*)(?:\.\d{1,18})?$/).transform((v) => Dec.from(v).toString());
 const nonnegative = decimal.refine((v) => Dec.from(v).gte(0));
@@ -96,29 +107,35 @@ export class HyperliquidLiveAccountObserver {
   }
   async observe(accountAddress: string, options: LiveAccountObservationOptions = {}): Promise<LiveAccountSnapshot> {
     try {
-      const user = address(accountAddress);
-      // Every read's weight is taken before the clock starts (account modes
-      // 122, spotMeta 20, allPerpMetas 20, the all-venue read 40): a budget
-      // wait never ages the evidence. Before, the 5 s clock ran through seven
-      // budget waits and a drained bucket turned each observation stale.
-      const combinedRead = this.aggregateSource.readAccount !== undefined;
-      await boundedLiveRead(() => this.acquire(162 + (combinedRead ? 40 : 20 + (this.aggregateSource.readOrders ? 20 : 0))), RESERVE_BOUND_MS);
-      const started = this.now();
-      this.fresh(started);
+      const user = address(accountAddress), shared = options.shared;
       const allowed = z.array(z.string().regex(LIVE_DEX_NAME).max(40)).max(MAX_LIVE_PERP_DEXES - 1).parse(options.supportedDexes ?? []);
       unique(allowed);
       const supported = new Set(['', ...allowed]);
+      // Exactly the REST weight of this observation's reads (account modes and
+      // dex list 122 twice, spotMeta 20, allPerpMetas 20; a source without
+      // all-venue orders also reads each supported dex's open orders, 20),
+      // taken before the clock starts: a budget wait never ages the evidence.
+      // The WebSocket reads use the socket quota. An epoch's shared reads
+      // were paid by the epoch.
+      const restOrders = this.aggregateSource.readAccount === undefined && !this.aggregateSource.readOrders;
+      if (!shared) await boundedLiveRead(() => this.acquire(OBSERVER_REST_WEIGHT + (restOrders ? 20 * supported.size : 0)), RESERVE_BOUND_MS);
+      const started = shared ? shared.startedAt : this.now();
+      this.fresh(started);
       const sources: unknown[] = [];
       const read = async (type: string, weight: number, extra: Record<string, unknown> = {}) => {
         const body = { type, ...extra };
         const remaining = () => { this.fresh(started); return Math.max(1, this.maxAgeMs - (this.now() - started)); };
         void weight; // paid for before the clock
-        const response = await boundedLiveRead(() => this.fetcher('https://api.hyperliquid-testnet.xyz/info', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-          redirect: 'error', signal: AbortSignal.timeout(remaining()),
-        }), remaining());
-        if (!response.ok) fail('live_account_observation_unavailable');
-        const value = await boundedLiveRead(() => readInfoJson(response, type, (type === 'allPerpMetas' ? 8 : 2) * 1024 * 1024), remaining());
+        let value: unknown;
+        if (shared) value = await boundedLiveRead(() => shared.get(body), remaining());
+        else {
+          const response = await boundedLiveRead(() => this.fetcher('https://api.hyperliquid-testnet.xyz/info', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+            redirect: 'error', signal: AbortSignal.timeout(remaining()),
+          }), remaining());
+          if (!response.ok) fail('live_account_observation_unavailable');
+          value = await boundedLiveRead(() => readInfoJson(response, type, (type === 'allPerpMetas' ? 8 : 2) * 1024 * 1024), remaining());
+        }
         this.fresh(started);
         if (value && typeof value === 'object' && !Array.isArray(value)) {
           const row = value as Record<string, unknown>;
@@ -267,10 +284,14 @@ export class HyperliquidLiveAccountObserver {
       }
       unique(orders.map((o) => o.oid));
       if (orders.length > 5000 || positions.length > 10000) fail('live_account_unbounded_evidence');
-      const final = await accountModes();
-      const finalSpot = mode(...final.slice(0, 4) as [unknown, unknown, unknown, unknown]);
-      if (JSON.stringify(dexSchema.parse(final[4])) !== JSON.stringify(list) || JSON.stringify(finalSpot) !== JSON.stringify(spot))
-        fail('live_account_observation_changed');
+      // Nothing changed while it was observed (an epoch checks this once, for
+      // every reader, after the last of them).
+      if (!shared) {
+        const final = await accountModes();
+        const finalSpot = mode(...final.slice(0, 4) as [unknown, unknown, unknown, unknown]);
+        if (JSON.stringify(dexSchema.parse(final[4])) !== JSON.stringify(list) || JSON.stringify(finalSpot) !== JSON.stringify(spot))
+          fail('live_account_observation_changed');
+      }
       this.fresh(started); for (const d of dexes) this.fresh(d.providerTime);
       const sum = (key: 'equity' | 'marginUsed' | 'withdrawable' | 'exposureUsd') => Dec.sum(dexes.map((d) => Dec.from(d[key]))).toString();
       const unobservedOrderDexes = allOrders ? [] : venues.filter((v) => !supported.has(v.dex)).map((v) => v.dex);

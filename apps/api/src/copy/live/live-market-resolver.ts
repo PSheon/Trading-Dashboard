@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
 import { LiveBoundaryError, type LiveNetwork } from './wallet-authorization.js';
+import type { LiveSharedReads } from './live-shared-reads.js';
 
 export interface LiveMarketIdentity {
   network: LiveNetwork;
@@ -87,51 +88,55 @@ export class HyperliquidLiveMarketResolver implements LiveMarketResolver {
         !Number.isSafeInteger(maxAgeMs) || maxAgeMs < 1 || maxAgeMs > 5_000) throw new LiveBoundaryError('invalid_market_resolver');
     this.endpoint = network === 'testnet' ? 'https://api.hyperliquid-testnet.xyz/info' : 'https://api.hyperliquid.xyz/info';
   }
-  async resolve(coin: string): Promise<LiveMarketIdentity> {
+  /** With an order epoch's `shared` reads (testnet), its paid, memoised
+   * reads and its clock: one `meta` read serves every coin of the dex. */
+  async resolve(coin: string, shared?: LiveSharedReads): Promise<LiveMarketIdentity> {
     if (typeof coin !== 'string' || !LIVE_PERP_COIN.test(coin) || coin.length > 80)
       throw new LiveBoundaryError('invalid_live_market_coin');
+    if (shared && this.network !== 'testnet') throw new LiveBoundaryError('invalid_market_resolver');
     const dex = coin.includes(':') ? coin.split(':')[0]! : '';
     // perpDexs (a named dex) and meta, 20 each, paid before the clock starts.
-    await boundedLiveRead(() => this.acquire(dex ? 40 : 20), RESERVE_BOUND_MS);
-    const started = this.now();
+    if (!shared) await boundedLiveRead(() => this.acquire(dex ? 40 : 20), RESERVE_BOUND_MS);
+    const started = shared ? shared.startedAt : this.now();
+    const read = (body: Record<string, string>) => shared ? this.sharedRead(shared, body, started) : this.read(body, started);
     let index = 0;
     if (dex) {
-      const dexes = await this.dexes(started);
+      const dexes = dexSchema.parse(await read({ type: 'perpDexs' }));
+      if (dexes[0] !== null) throw new LiveBoundaryError('invalid_perp_dex_indices');
+      uniqueMarketNames(dexes.flatMap((row) => row ? [row.name] : []));
       const matches = dexes.flatMap((row, i) => row?.name === dex ? [i] : []);
       if (matches.length !== 1 || matches[0] === 0) throw new LiveBoundaryError('live_market_not_listed');
       index = matches[0]!;
     }
-    const meta = metaSchema.parse(await this.read({ type: 'meta', ...(dex ? { dex } : {}) }, started));
+    const meta = metaSchema.parse(await read({ type: 'meta', ...(dex ? { dex } : {}) }));
     uniqueMarketNames(meta.universe.map((row) => row.name));
     const matches = meta.universe.flatMap((row, i) => row.name === coin ? [i] : []);
     if (matches.length !== 1) throw new LiveBoundaryError('live_market_not_listed');
     return this.identity(meta.universe[matches[0]!]!, matches[0]!, dex, index, started);
   }
-  async resolveAsset(asset: number): Promise<LiveMarketIdentity> {
+  async resolveAsset(asset: number, shared?: LiveSharedReads): Promise<LiveMarketIdentity> {
     if (!Number.isSafeInteger(asset) || asset < 0 || (asset >= 10_000 && asset < 110_000))
       throw new LiveBoundaryError('unsupported_perpetual_asset');
+    if (shared && this.network !== 'testnet') throw new LiveBoundaryError('invalid_market_resolver');
     const dexIndex = asset < 10_000 ? 0 : Math.floor((asset - 100_000) / 10_000);
     if (dexIndex >= MAX_LIVE_PERP_DEXES) throw new LiveBoundaryError('live_market_not_listed');
-    await boundedLiveRead(() => this.acquire(dexIndex ? 40 : 20), RESERVE_BOUND_MS);
-    const started = this.now();
+    if (!shared) await boundedLiveRead(() => this.acquire(dexIndex ? 40 : 20), RESERVE_BOUND_MS);
+    const started = shared ? shared.startedAt : this.now();
+    const read = (body: Record<string, string>) => shared ? this.sharedRead(shared, body, started) : this.read(body, started);
     let dex = '';
     if (dexIndex) {
-      const dexes = await this.dexes(started);
+      const dexes = dexSchema.parse(await read({ type: 'perpDexs' }));
+      if (dexes[0] !== null) throw new LiveBoundaryError('invalid_perp_dex_indices');
+      uniqueMarketNames(dexes.flatMap((row) => row ? [row.name] : []));
       dex = dexes[dexIndex]?.name ?? '';
       if (!dex) throw new LiveBoundaryError('live_market_not_listed');
     }
     const i = dexIndex ? (asset - 100_000) % 10_000 : asset;
-    const meta = metaSchema.parse(await this.read({ type: 'meta', ...(dex ? { dex } : {}) }, started));
+    const meta = metaSchema.parse(await read({ type: 'meta', ...(dex ? { dex } : {}) }));
     uniqueMarketNames(meta.universe.map((row) => row.name));
     const market = meta.universe[i];
     if (!market) throw new LiveBoundaryError('live_market_not_listed');
     return this.identity(market, i, dex, dexIndex, started);
-  }
-  private async dexes(started: number) {
-    const dexes = dexSchema.parse(await this.read({ type: 'perpDexs' }, started));
-    if (dexes[0] !== null) throw new LiveBoundaryError('invalid_perp_dex_indices');
-    uniqueMarketNames(dexes.flatMap((row) => row ? [row.name] : []));
-    return dexes;
   }
   private identity(m: z.infer<typeof marketSchema>, i: number, dex: string, dexIndex: number, started: number): LiveMarketIdentity {
     if (m.isDelisted) throw new LiveBoundaryError('live_market_delisted');
@@ -144,6 +149,12 @@ export class HyperliquidLiveMarketResolver implements LiveMarketResolver {
   }
   private fresh(started: number) {
     if (this.now() < started || this.now() - started > this.maxAgeMs) throw new LiveBoundaryError('market_evidence_expired');
+  }
+  private async sharedRead(shared: LiveSharedReads, body: Record<string, string>, started: number): Promise<unknown> {
+    this.fresh(started);
+    const value = await boundedLiveRead(() => shared.get(body), Math.max(1, this.maxAgeMs - (this.now() - started)));
+    this.fresh(started);
+    return value;
   }
   private async read(body: Record<string, string>, started: number): Promise<unknown> {
     this.fresh(started);

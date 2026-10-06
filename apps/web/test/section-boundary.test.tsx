@@ -42,3 +42,29 @@ it("Retry after a crash on cached data reads the card's data again", async () =>
   expect(container.textContent).toContain("fresh");
   expect(reads).toHaveBeenCalledTimes(2);
 });
+
+it("Retry resets only the crashed card's own queries; a query the page shares is refetched, an unrelated one keeps its data", async () => {
+  const shared = vi.fn(async () => ({ total: 1 }));
+  const card = vi.fn<() => Promise<{ name: string } | null>>().mockResolvedValueOnce(null).mockResolvedValue({ name: "fresh" });
+  function Header() { const query = useQuery({ queryKey: ["shared"], queryFn: shared, staleTime: Infinity }); return <p>header {query.data?.total ?? "-"}</p>; }
+  function SharingCard() {
+    useQuery({ queryKey: ["shared"], queryFn: shared, staleTime: Infinity });
+    const query = useQuery({ queryKey: ["card-own"], queryFn: card, staleTime: Infinity });
+    if (query.data === null) throw new Error("the cached data can't be shown");
+    return <p>{query.data?.name ?? "loading"}</p>;
+  }
+  // Cached earlier by a page part that is no longer mounted (no observers).
+  client.setQueryData(["unrelated"], { kept: true });
+  await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale="en" messages={catalogs.en}><Header /><SectionBoundary><SharingCard /></SectionBoundary></I18nProvider></QueryClientProvider>));
+  await settle();
+  expect(shared).toHaveBeenCalledTimes(1);
+  const retry = [...container.querySelectorAll("button")].find((b) => b.textContent === catalogs.en.common.retry)!;
+  await act(async () => retry.click());
+  await settle();
+  expect(container.textContent).toContain("fresh");
+  expect(card).toHaveBeenCalledTimes(2);
+  // The header's query is read again (not cleared: it never showed "-").
+  expect(shared).toHaveBeenCalledTimes(2);
+  expect(container.textContent).toContain("header 1");
+  expect(client.getQueryData(["unrelated"])).toEqual({ kept: true });
+});

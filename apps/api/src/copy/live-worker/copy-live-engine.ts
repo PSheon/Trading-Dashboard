@@ -88,20 +88,17 @@ const PLANNING_MARGIN_MS = 15_000;
 const HOLD_MARGIN_MS = 30_000;
 /** Held when its follower notional could be under this much more than the minimum. */
 const HOLD_HEADROOM = '1.1';
-/** An error that is no boundary code (a TypeError, a provider's prose): its
- * name, message and the top of its stack, for the log only (never stored). */
+/** An error that is no boundary code (a TypeError, a timeout): its name and
+ * where it came from, for the log only. Never its message, which may echo
+ * provider data or key material (security review 2026-10-06): the stack
+ * frames are code locations only. */
 export const describeUnexpected = (error: unknown): string | null => {
   if (error instanceof LiveBoundaryError || error instanceof Error && /^[a-z][a-z0-9_]{0,79}$/.test(error.message)) return null;
   if (!(error instanceof Error)) return `non-error ${typeof error}`;
-  const stack = (error.stack ?? '').split('\n').slice(1, 5).map(line => line.trim()).join(' | ');
-  return redactSecrets(`${error.name}: ${error.message}`.slice(0, 240) + (stack ? ` @ ${stack.slice(0, 400)}` : ''));
+  const frames = (error.stack ?? '').split('\n').slice(1).map(line => line.trim()).filter(line => /^at /.test(line))
+    .map(line => line.replace(/^at\s+/, '').replace(/\(?(?:file:\/\/)?[^()]*\/(apps|node_modules|node:internal)\//, '($1/')).slice(0, 4);
+  return `${/^[A-Za-z]{1,40}$/.test(error.name) ? error.name : 'Error'}${frames.length ? ` @ ${frames.join(' | ').slice(0, 400)}` : ''}`;
 };
-/** Never logs key or signature material a provider error might echo: long
- * hex runs (private keys, signatures, digests), JWTs and bearer tokens. */
-export const redactSecrets = (text: string): string => text
-  .replace(/\b(?:0x)?[0-9a-fA-F]{40,}\b/g, (hex) => hex.length <= 42 && hex.startsWith('0x') ? hex : '<hex>')
-  .replace(/eyJ[\w-]+\.[\w-]+\.[\w-]+/g, '<jwt>')
-  .replace(/(bearer|authorization|privy-authorization-signature)[=:\s]+\S+/gi, '$1 <redacted>');
 const reasonOf = (error: unknown) => {
   const code = error instanceof LiveBoundaryError ? error.code : error instanceof Error && /^[a-z][a-z0-9_]{0,79}$/.test(error.message) ? error.message : 'live_execution_failed';
   return code.replace(/[^a-z0-9_]/g, '_').slice(0, 80);

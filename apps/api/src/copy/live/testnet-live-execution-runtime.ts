@@ -17,7 +17,7 @@ import { LiveOrderExecutor, type LiveExecutionRecord } from './live-execution.js
 import { address, LiveBoundaryError, WalletAuthorizationService, type ExchangeApprovalEvidence, type ExchangeApprovalVerifier } from './wallet-authorization.js';
 import { PostgresLiveRiskScope, type LiveRiskDatabaseSession } from './postgres-live-risk-scope.js';
 import { loadLivePreparationAuthority, riskSourceRequire } from './postgres-live-risk-authority.js';
-import { HyperliquidAllDexsAccountSource } from './live-account-ws-source.js';
+import { HyperliquidAllDexsAccountSource, PerReadAllDexsAccountSource } from './live-account-ws-source.js';
 import { HyperliquidLiveAccountObserver } from './live-account-observer.js';
 import { HyperliquidLiveMarketResolver, type LiveMarketResolver } from './live-market-resolver.js';
 import type { LiveSharedReads } from './live-shared-reads.js';
@@ -136,7 +136,9 @@ export class TestnetLiveExecutionRuntime {
       // surfaced as an uncoded TimeoutError and was stored as live_execution_failed).
       const acquire = (weight: number) => this.budget.acquire(weight, 'live', undefined, { signal: AbortSignal.timeout(5000) })
         .catch((error: unknown) => { throw error instanceof Error && error.name === 'TimeoutError' ? new LiveBoundaryError('live_budget_wait_timeout') : error; });
-      const sockets = new HyperliquidAllDexsAccountSource(this.now, undefined, 'testnet', this.global);
+      // Each account read gets its own socket: the epoch observes every live
+      // account of the owner at once (one shared source refused all but one).
+      const sockets = new PerReadAllDexsAccountSource(() => new HyperliquidAllDexsAccountSource(this.now, undefined, 'testnet', this.global));
       const observer = new HyperliquidLiveAccountObserver('testnet', acquire, this.global.fetchInfo, this.now, 5000, sockets);
       const resolver = new HyperliquidLiveMarketResolver('testnet', acquire, this.global.fetchInfo, this.now);
       const provider = new HyperliquidLiveRiskProvider('testnet', acquire, this.global.fetchInfo, this.now);

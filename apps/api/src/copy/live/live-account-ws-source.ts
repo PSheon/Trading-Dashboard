@@ -29,6 +29,29 @@ export interface LiveAllDexsAccountSource {
   close?(): void|Promise<void>;
 }
 const BATCH = 90, MESSAGE_LIMIT = 1800, WINDOW = 60_000, MIN_ORDER_INTERVAL = 1000;
+
+/**
+ * A fresh source (its own socket) for every read, closed when the read ends.
+ * One HyperliquidAllDexsAccountSource serves one read at a time (`busy`); an
+ * epoch observes every live account of the owner at once, so sharing one
+ * failed every order of an owner with several copies as
+ * live_account_aggregate_unavailable (Stage 2026-10-06, three accounts).
+ */
+export class PerReadAllDexsAccountSource implements LiveAllDexsAccountSource {
+  constructor(private readonly create: () => LiveAllDexsAccountSource) {}
+  private async use<T>(work: (source: LiveAllDexsAccountSource) => Promise<T>): Promise<T> {
+    const source = this.create();
+    try { return await work(source); } finally { await Promise.resolve(source.close?.()).catch(() => {}); }
+  }
+  read(accountAddress: string, timeoutMs: number) { return this.use(source => source.read(accountAddress, timeoutMs)); }
+  readOrders(accountAddress: string, dexes: readonly string[], timeoutMs: number) {
+    return this.use(source => source.readOrders ? source.readOrders(accountAddress, dexes, timeoutMs) : Promise.reject(new LiveBoundaryError('live_account_aggregate_unavailable')));
+  }
+  readAccount(accountAddress: string, dexes: readonly string[], timeoutMs: number, signal?: AbortSignal) {
+    return this.use(source => source.readAccount ? source.readAccount(accountAddress, dexes, timeoutMs, signal) : Promise.reject(new LiveBoundaryError('live_account_aggregate_unavailable')));
+  }
+  close(): void {}
+}
 const dexList = z.array(z.string().max(40).refine((v) => v === '' || LIVE_DEX_NAME.test(v))).min(1).max(MAX_LIVE_PERP_DEXES);
 const fail = (code: string): never => { throw new LiveBoundaryError(code); };
 

@@ -27,7 +27,7 @@ const owner = privateKeyToAccount(`0x${'01'.repeat(32)}`), stranger = privateKey
 const copyAccount = privateKeyToAccount(`0x${'03'.repeat(32)}`);
 const leader = `0x${'44'.repeat(20)}`, accountAddress = copyAccount.address.toLowerCase(), agentAddress = `0x${'33'.repeat(20)}`;
 const settings = { direction: 'same' as const, sizingMode: 'ratio' as const, perTradeUsd: null, maxTotalExposureUsd: null, maxLeverage: 5, copyStartMode: 'delta' as const };
-const flags = { worker: true, attach: true };
+const flags = { worker: true, attach: true, ticking: false };
 let db: TestDb, uid: number, clock: number, service: CopyLiveSetupService;
 let mode: { id: string; targetState: string; submissionState: string; submits: number };
 /** The mode and agent nonces the fakes allocated (as their services keep them). */
@@ -124,7 +124,7 @@ function build() {
     reconcile: vi.fn(async () => undefined),
   };
   service = new CopyLiveSetupService(config(), new CopyLiveSetupRepository(db), new UnitOfWork(db), new CopyLiveMandateRepository(db), wallets as never, walletRows,
-    agents as never, modes as never, funding as never, fundingRows, {} as never, {} as never, { available: true, sign: workerSign } as never, () => clock);
+    agents as never, modes as never, funding as never, fundingRows, {} as never, {} as never, { available: true, sign: workerSign } as never, () => flags.ticking ? ++clock : clock);
   return { wallets, agents, modes, funding };
 }
 let fakes: ReturnType<typeof build>;
@@ -148,7 +148,7 @@ async function signPending(setup: LiveCopySetup, signer = copyAccount) {
 
 beforeAll(() => { db = getTestDb(); });
 beforeEach(async () => {
-  await truncateAll(db); vi.clearAllMocks(); flags.worker = true; flags.attach = true; clock = Date.now();
+  await truncateAll(db); vi.clearAllMocks(); flags.worker = true; flags.attach = true; flags.ticking = false; clock = Date.now();
   mode = { id: 'mode-op', targetState: 'unknown', submissionState: 'prepared', submits: 0 }; modeIntent = null; agentIntent = null; signed = [];
   uid = (await insertUser(db, { privyUserId: 'did:privy:setup-owner', embeddedWalletAddress: owner.address.toLowerCase() })).id;
   await openCopyTrading(db);
@@ -309,6 +309,20 @@ describe('one-click testnet copy setup', () => {
     expect(fakes.agents.submit).toHaveBeenCalledTimes(1);
   });
 
+  it('starts the copy on a real clock: the generation is activated no earlier than it was created (Stage 2026-10-06)', async () => {
+    flags.worker = false;
+    const setup = await start();
+    await service.confirm(uid, setup.id, await sign(setup.consent!));
+    await credit(); later(5_000);
+    const moded = await signPending(await service.advance(uid, setup.id));
+    // Every read of the clock moves it on, as Date.now() does: the mandate
+    // step read the time before the generation row took its created_at.
+    flags.ticking = true;
+    expect(await signPending(moded)).toMatchObject({ stage: 'running', issue: null });
+    const [mandate] = await db.select().from(copyLiveMandates);
+    expect(mandate!.state).toBe('active');
+    expect(mandate!.activationCursor!.getTime()).toBeGreaterThanOrEqual(mandate!.createdAt.getTime());
+  });
   it('a setup stopped at the account step under the old server-side signing continues with the browser, no new setup', async () => {
     flags.worker = false;
     const setup = await start();

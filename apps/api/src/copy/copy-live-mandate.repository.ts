@@ -181,7 +181,10 @@ export class CopyLiveMandateRepository {
     if (row.state !== 'prepared') conflict();
     await tx.update(copyStrategies).set({ status: 'paused', pauseNewRisk: true }).where(and(eq(copyStrategies.id, row.strategyId), eq(copyStrategies.userId, row.userId), eq(copyStrategies.mode, 'testnet')));
     const kind = typeof consent === 'string' ? { consentDigest: digest(consent.toLowerCase()) } : { consentDigest: consent.consentDigest, consentKind: 'setup' as const, liveSetupId: consent.liveSetupId };
-    const [updated] = await tx.update(copyLiveMandates).set({ state: 'active', ...kind, activationCursor: new Date(now), revision: row.revision + 1, updatedAt: new Date(now) }).where(and(eq(copyLiveMandates.id, row.id), eq(copyLiveMandates.revision, row.revision), eq(copyLiveMandates.state, 'prepared'))).returning();
+    // Never before the row's own created_at (the activation check): a caller
+    // that read its clock before preparing would otherwise be milliseconds early.
+    const at = Math.max(now, row.createdAt.getTime());
+    const [updated] = await tx.update(copyLiveMandates).set({ state: 'active', ...kind, activationCursor: new Date(at), revision: row.revision + 1, updatedAt: new Date(at) }).where(and(eq(copyLiveMandates.id, row.id), eq(copyLiveMandates.revision, row.revision), eq(copyLiveMandates.state, 'prepared'))).returning();
     if (!updated) conflict();
     // Awaiting its start: the worker starts trading this generation once it
     // is funded, and only while the strategy keeps this control revision.

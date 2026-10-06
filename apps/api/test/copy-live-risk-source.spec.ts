@@ -11,6 +11,8 @@ import { HyperliquidLiveRiskProvider } from '../src/copy/live/live-risk-provider
 import { PostgresLiveReservations } from '../src/copy/live/postgres-live-reservations.js';
 import { captureLivePositionBaseline } from '../src/copy/live/live-position-baseline.js';
 import * as authority from '../src/copy/live/postgres-live-risk-authority.js';
+import { registerLiveDeployment } from '../src/copy/live-deployment.js';
+import type { LiveCopyConfig } from '../src/config/runtime-config.js';
 import { loadLiveGenerationManifest } from '../src/copy/live/postgres-live-generation-manifest.js';
 import { liveSourceDigest } from '../src/copy/live/copy-live-source-evidence.js';
 import { followerReceiptDigestV1 } from '../src/copy/live/actual-fill-accounting.js';
@@ -223,6 +225,26 @@ describe('durable local actual source authority before remote reads',()=>{
     // Nine copies still running are more than one user's coverage.
     for(let n=20;n<28;n++)await db.update(copyStrategies).set({status:'paused',stoppedAt:null}).where(eq(copyStrategies.id,n));
     await scopes.run(id(),async(_scope,session)=>{await expect(source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold()).rejects.toThrow('live_risk_user_coverage_unproven');});
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it('enforces the deployment caps and allowlist at order time, even where the risk policy allows the order (security review)',async()=>{
+    const live=(over:Partial<LiveCopyConfig>):LiveCopyConfig=>({network:'testnet',caps:{maxStrategiesPerUser:2},builderFee:true,testnetSourceIntervalMs:60_000,maxSourceDeviationBps:500,slippageBps:30,intervalMs:3000,weightPerMin:300,...over});
+    const hold=async(reason:string)=>{await scopes.run(id(),async(_scope,session)=>{await expect(source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold()).rejects.toThrow(reason);});};
+    try{
+      // The policy allows a budget of 100; COPY_LIVE_MAX_ALLOCATION_USD=50 does not.
+      registerLiveDeployment(live({caps:{maxStrategiesPerUser:2,maxAllocationUsd:50}}));await hold('live_risk_budget_above_cap');
+      // An owner outside COPY_LIVE_ALLOWED_PRIVY_USER_IDS.
+      registerLiveDeployment(live({allowedPrivyUserIds:new Set(['did:privy:someone-else'])}));await hold('live_risk_owner_not_allowed');
+      // A per-trade amount outside the fixed bounds, and a leverage above the cap.
+      registerLiveDeployment(live({caps:{maxStrategiesPerUser:2,fixedPerTradeUsd:{min:500,max:600}}}));await hold('live_risk_sizing_above_cap');
+      registerLiveDeployment(live({caps:{maxStrategiesPerUser:2,maxLeverage:1}}));
+      const [version]=await db.select().from(copyStrategyVersions);
+      if(((version!.settings as {maxLeverage:number|null}).maxLeverage??0)>1)await hold('live_risk_leverage_above_cap');
+      // A mainnet deployment's policy never runs a testnet copy's order.
+      registerLiveDeployment(live({network:'mainnet'}));await hold('live_risk_deployment_unproven');
+      // Within every cap, the chain goes on as the genuine one does.
+      registerLiveDeployment(live({allowedPrivyUserIds:new Set(['did:privy:risk-source']),caps:{maxStrategiesPerUser:2,maxAllocationUsd:1000}}));await hold('live_risk_baseline_unproven');
+    }finally{registerLiveDeployment(undefined);}
     expect(fetcher).not.toHaveBeenCalled();
   });
   it('requires a durable first-empty baseline even for the genuine authority chain',async()=>{

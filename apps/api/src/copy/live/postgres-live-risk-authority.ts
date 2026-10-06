@@ -13,6 +13,9 @@ import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceDigest, liveSo
 import { decodeLivePositionBaseline } from './live-position-baseline.js';
 import { buildOrderAction, executionKey, intentFingerprint, type LiveOrderIntent } from './live-order.js';
 import type { LiveExecutionRecord } from './live-execution.js';
+import { liveDeploymentPolicy } from '../live-deployment.js';
+import { effectiveLiveLimits } from '../copy-live-caps.js';
+import { Dec } from '../../common/decimal/dec.js';
 import { address, assertSameAuthorization, assertWalletAuthorization, LiveBoundaryError } from './wallet-authorization.js';
 
 export function riskSourceRequire(value: unknown, code: string): asserts value { if (!value) throw new LiveBoundaryError(code); }
@@ -54,7 +57,18 @@ export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSessi
   riskSourceRequire(settings.copyStartMode==='delta','live_risk_adoption_unproven');
   const [policy]=await read(db.select().from(copyRiskPolicies).orderBy(desc(copyRiskPolicies.version)).limit(1));
   riskSourceRequire(policy&&Object.keys(copyRiskLimitsSchema.innerType().shape).every(k=>Object.hasOwn(policy.limits,k)),'live_risk_policy_missing');
-  const limits=copyRiskLimitsSchema.parse(policy.limits);
+  // The deployment's caps and allowlist hold at order time too (security
+  // review): the stricter of each cap and the policy, and only a listed owner.
+  // A mainnet order needs the deployment's registered policy (fail closed).
+  const deployment=liveDeploymentPolicy();
+  riskSourceRequire(a.network!=='mainnet'||deployment?.network==='mainnet','live_risk_deployment_unproven');
+  riskSourceRequire(!deployment||deployment.network===a.network,'live_risk_deployment_unproven');
+  riskSourceRequire(!deployment?.allowedPrivyUserIds||deployment.allowedPrivyUserIds.has(o.privyUserId),'live_risk_owner_not_allowed');
+  const limits=effectiveLiveLimits(deployment?.caps,copyRiskLimitsSchema.parse(policy.limits));
+  riskSourceRequire(Dec.from(c.budgetUsd).lte(String(limits.maxAllocationUsd)),'live_risk_budget_above_cap');
+  const fixed=deployment?.caps.fixedPerTradeUsd;
+  riskSourceRequire(!fixed||(settings.sizingMode==='fixed'&&settings.perTradeUsd!==null&&settings.perTradeUsd>=fixed.min&&settings.perTradeUsd<=fixed.max),'live_risk_sizing_above_cap');
+  riskSourceRequire(settings.maxLeverage===null||settings.maxLeverage<=limits.maxLeverage,'live_risk_leverage_above_cap');
   const controls=await read(db.select().from(copyControls).where(sql`${copyControls.scope}='platform' or (${copyControls.scope}='user' and ${copyControls.scopeId}=${a.userId})`));
   const platform=controls.find(c=>c.scope==='platform'&&c.scopeId===0),user=controls.find(c=>c.scope==='user'&&c.scopeId===a.userId);
   riskSourceRequire(controls.length===2&&platform&&user,'live_risk_controls_unproven');
@@ -73,6 +87,8 @@ export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSessi
   const accounts=await read(db.select({account:copyExecutionAccounts}).from(copyExecutionAccounts).innerJoin(copyStrategies,eq(copyStrategies.id,copyExecutionAccounts.strategyId))
     .where(and(eq(copyExecutionAccounts.userId,a.userId),eq(copyExecutionAccounts.network,a.network),sql`(${copyStrategies.status}<>'stopped' or exists (select 1 from copy_funding_operations f where f.account_id=${copyExecutionAccounts.id} and f.status in ('prepared','unknown','accepted')))`))
     .orderBy(copyExecutionAccounts.id).limit(9)).then(rows=>rows.map(row=>row.account));
+  // This network's live copies of the owner: at most the deployment's cap.
+  riskSourceRequire(!deployment||accounts.length<=limits.maxStrategiesPerUser,'live_risk_strategy_cap');
   riskSourceRequire(accounts.length<=8&&accounts.every(account=>account.network===a.network&&account.address&&account.privyWalletId&&account.ownerQuorumId&&account.privyUserId===o.privyUserId),'live_risk_user_coverage_unproven');
   const states=await read(db.select().from(copyFollowerAccountState).where(sql`${copyFollowerAccountState.accountId} in (select id from copy_execution_accounts where user_id=${a.userId} and network=${a.network})`));
   riskSourceRequire(!states.some(state=>state.quarantined),'live_risk_quarantined');

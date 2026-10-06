@@ -50,10 +50,15 @@ export interface LiveEngineOptions {
 }
 export const DEFAULT_ENGINE_OPTIONS: LiveEngineOptions = { testnetSourceIntervalMs: 60_000, sourceLagMs: 1_000, passBudgetMs: 20_000, fastPollMs: 7_500 };
 
+/** A HIP-3 (builder-deployed dex) market: its fee scope cannot be proven
+ * (live-risk-provider), so its legs are refused when they are enqueued,
+ * before any evidence read spends weight. */
+export const HIP3_REFUSAL = 'live_market_hip3_unsupported';
+const isHip3 = (coin: string) => coin.includes(':');
 /** Refusals that no retry can change. Everything else is retried until the
  * leader fill is older than the policy's signal age. */
 const PERMANENT = new Set(['live_source_price_deviation', 'below_min_notional', 'live_risk_adoption_unproven', 'live_market_unknown',
-  'live_account_unsupported_role', 'live_account_unsupported_abstraction', 'unattempted_expired']);
+  'live_account_unsupported_role', 'live_account_unsupported_abstraction', 'unattempted_expired', 'live_risk_provider_fee_scope_unproven', HIP3_REFUSAL]);
 const reasonOf = (error: unknown) => {
   const code = error instanceof LiveBoundaryError ? error.code : error instanceof Error && /^[a-z][a-z0-9_]{0,79}$/.test(error.message) ? error.message : 'live_execution_failed';
   return code.replace(/[^a-z0-9_]/g, '_').slice(0, 80);
@@ -209,6 +214,7 @@ export class CopyLiveEngine {
       let legs: ReturnType<typeof canonicalLiveSourceLegs>;
       try { legs = canonicalLiveSourceLegs(decodeLiveSourceFill(row)); } catch { legs = []; }
       if (!legs.length) return [{ ...base, id: `${m.mandateId}|${row.id}|open`, leg: 'open' as const, state: 'refused' as const, reason: 'no_copyable_leg' }];
+      if (isHip3(row.coin)) return legs.map(leg => ({ ...base, id: `${m.mandateId}|${row.id}|${leg.leg}`, leg: leg.leg, state: 'refused' as const, reason: HIP3_REFUSAL }));
       return legs.map(leg => ({ ...base, id: `${m.mandateId}|${row.id}|${leg.leg}`, leg: leg.leg }));
     });
     await this.deps.repository.record(insert);

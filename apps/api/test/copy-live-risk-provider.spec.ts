@@ -298,9 +298,12 @@ describe('authoritative testnet risk provider', () => {
       asset: 110000,
       perpDexIndex: 1,
     };
+    const s = setup();
     await expect(
-      setup().provider.observe(user, named, options),
+      s.provider.observe(user, named, options),
     ).rejects.toThrow('live_risk_provider_fee_scope_unproven');
+    // Refused before any weight is taken.
+    expect(s.acquire).not.toHaveBeenCalled(); expect(s.requests).toHaveLength(0);
   });
   it.each(['agent', 'vault', 'subAccount', 'missing'])(
     'refuses non-user role %s',

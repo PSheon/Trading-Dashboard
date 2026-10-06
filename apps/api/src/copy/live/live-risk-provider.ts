@@ -185,6 +185,10 @@ export class HyperliquidLiveRiskProvider {
         options = settingsSchema.parse(structuredClone(suppliedOptions));
       const user = address(accountAddress),
         timeout = options.timeoutMs ?? 5000;
+      // Official userFees has no dex parameter. HIP-3 deployer/growth/AQA fee
+      // scope needs separate proven settings; do not silently use base tier.
+      // Refused before any weight is taken.
+      if (typeof market?.dex === 'string' && market.dex !== '') deny('live_risk_provider_fee_scope_unproven');
       // All thirteen reads (304) are taken from the budget at once, before this
       // proof's clock starts, instead of each waiting inside the window
       // (bounded on its own, by the same timeout).
@@ -209,9 +213,6 @@ export class HyperliquidLiveRiskProvider {
       };
       fresh(started);
       fresh(market.observedAt);
-      // Official userFees has no dex parameter. HIP-3 deployer/growth/AQA fee
-      // scope needs separate proven settings; do not silently use base tier.
-      if (market.dex !== '') deny('live_risk_provider_fee_scope_unproven');
       const earliestObservedAt = Math.min(started, market.observedAt);
       const sources: { body: Record<string, unknown>; value: unknown }[] = [];
       const read = async (

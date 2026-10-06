@@ -239,4 +239,12 @@ describe('testnet copy execution engine', () => {
     expect(stream!.coverageFrom!.getTime()).toBe(now - 2000); // the mandate's activation cursor
     expect(stream!.coverageThrough!.getTime()).toBe(now + 500);
   });
+
+  it('refuses a HIP-3 leg for good when it is enqueued, before any evidence read takes weight', async () => {
+    await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+    const fill = await leaderFill(12, now + 100, 'B', '1', '0', 'xyz:TSLA');
+    clock = now + 1000; await engine().tick();
+    expect(await dispatches()).toMatchObject([{ sourceFillId: fill, state: 'refused', reason: 'live_market_hip3_unsupported', attempts: 0 }]);
+    expect(runtimeCalls).toHaveLength(0); // the runtime is what reads (and acquires) evidence
+  });
 });

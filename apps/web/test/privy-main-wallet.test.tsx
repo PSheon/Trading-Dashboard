@@ -12,6 +12,8 @@ const sdk = vi.hoisted(() => ({
   sendTransaction: vi.fn(async () => ({ hash: "0x5678" })),
   createWallet: vi.fn(async () => ({})),
   refreshUser: vi.fn(async () => ({})),
+  addSigners: vi.fn(async () => ({ user: {} })),
+  removeSigners: vi.fn(async () => ({ user: {} })),
 }));
 vi.mock("../src/lib/config", () => ({ PRIVY_APP_ID: "test-app" }));
 vi.mock("../src/lib/session-queries", () => ({ SessionQueries: ({ children }: { children: React.ReactNode }) => children }));
@@ -28,6 +30,7 @@ vi.mock("@privy-io/react-auth", () => ({
   useSendTransaction: () => ({ sendTransaction: sdk.sendTransaction }),
   useCreateWallet: () => ({ createWallet: sdk.createWallet }),
   useUser: () => ({ refreshUser: sdk.refreshUser }),
+  useSigners: () => ({ addSigners: sdk.addSigners, removeSigners: sdk.removeSigners }),
 }));
 
 const MAIN = "0x1111111111111111111111111111111111111111";
@@ -109,6 +112,24 @@ describe("Privy main account identity", () => {
       // A wallet missing from the list is looked for again after refreshing Privy's user.
       expect(sdk.refreshUser).toHaveBeenCalled();
     } finally { vi.useRealTimers(); }
+  });
+
+  it("adds and removes signers only on one of the user's own copy wallets", async () => {
+    const copy = "0x" + "3c".repeat(20);
+    sdk.user.linkedAccounts = [account(MAIN), account(copy, null)];
+    sdk.wallets = [account(MAIN), account(copy, null)];
+    await render();
+    const signers = [{ signerId: "worker-quorum", policyIds: ["policy-1"] }];
+    await auth.wallet!.addSigners(copy, signers);
+    expect(sdk.addSigners).toHaveBeenCalledExactlyOnceWith({ address: copy, signers });
+    await auth.wallet!.removeSigners(copy);
+    expect(sdk.removeSigners).toHaveBeenCalledExactlyOnceWith({ address: copy });
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      const refused = expect(auth.wallet!.addSigners(MAIN, signers)).rejects.toThrow("copy_wallet_unavailable");
+      await vi.runAllTimersAsync(); await refused;
+    } finally { vi.useRealTimers(); }
+    expect(sdk.addSigners).toHaveBeenCalledTimes(1);
   });
 
   it("recognizes a Privy v2 main account", async () => {

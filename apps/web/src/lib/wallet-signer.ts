@@ -33,6 +33,14 @@ export interface WalletSigner {
    * (`copy_wallet_unavailable`) unless that address is one of the signed-in
    * user's Privy wallets other than the main one. */
   signAsAccount(address: string, data: Eip712TypedData): Promise<`0x${string}`>;
+  /** Adds signers to one of the user's own copy accounts (Privy's
+   * `useSigners().addSigners`; only the owner can): exactly the worker
+   * quorum under the owner's own policy, for the automatic return. Same
+   * ownership check as `signAsAccount`. */
+  addSigners(address: string, signers: { signerId: string; policyIds: string[] }[]): Promise<void>;
+  /** Removes every signer from one of the user's own copy accounts (account
+   * deletion takes the worker off first). */
+  removeSigners(address: string): Promise<void>;
   /** Sends a transaction from the embedded wallet; `sponsor` asks Privy to pay gas. */
   sendTransaction(tx: { to: `0x${string}`; data: `0x${string}`; chainId: number }, sponsor: boolean): Promise<`0x${string}`>;
 }

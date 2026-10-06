@@ -10,8 +10,8 @@ import { liveSetupMessages } from '@/i18n/live-setup';
 import { LOCALES } from '@/i18n/config';
 import { signSetup, useLiveCopySetup, useLiveCopySetupActions } from '@/lib/copy-live-setup';
 
-const state = vi.hoisted(() => ({ post: vi.fn(), get: vi.fn(), patch: vi.fn(), sign: vi.fn(), signAs: vi.fn(), identity: 'owner@email', session: '1' }));
-vi.mock('@/lib/auth', () => ({ useAuth: () => ({ status: 'signedIn', mode: 'privy', identity: state.identity, wallet: { address: `0x${'11'.repeat(20)}`, signTypedData: state.sign, signAsAccount: state.signAs } }) }));
+const state = vi.hoisted(() => ({ post: vi.fn(), get: vi.fn(), patch: vi.fn(), sign: vi.fn(), signAs: vi.fn(), addSigners: vi.fn(), identity: 'owner@email', session: '1' }));
+vi.mock('@/lib/auth', () => ({ useAuth: () => ({ status: 'signedIn', mode: 'privy', identity: state.identity, wallet: { address: `0x${'11'.repeat(20)}`, signTypedData: state.sign, signAsAccount: state.signAs, addSigners: state.addSigners } }) }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh() {}, push() {} }), usePathname: () => '/trader', useSearchParams: () => new URLSearchParams() }));
 vi.mock('@/lib/api', async () => ({ ApiError: (await vi.importActual<typeof import('@/lib/api')>('@/lib/api')).ApiError, api: { get: state.get, post: state.post, patch: state.patch }, sessionKey: () => state.session }));
 
@@ -39,6 +39,7 @@ beforeEach(async () => {
   vi.clearAllMocks(); state.identity = 'owner@email'; state.session = '1';
   state.sign.mockImplementation(async () => `0x${'ab'.repeat(65)}`);
   state.signAs.mockImplementation(async () => `0x${'cd'.repeat(65)}`);
+  state.addSigners.mockImplementation(async () => undefined);
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale="en" messages={catalogs.en}><Probe /></I18nProvider></QueryClientProvider>));
@@ -74,6 +75,9 @@ it('a retried start reuses its idempotency key, so the server answers with the s
 it('confirm sends both signatures once; a session change while signing aborts before anything is sent', async () => {
   state.post.mockResolvedValue({ ...setup('start', 'funding_submitted'), signer: 'worker_policy' });
   await act(async () => { await probe.current!.confirm.mutateAsync(setup()); });
+  // The automatic return: the worker added under the consented policy, by this browser, before confirm.
+  expect(state.addSigners).toHaveBeenCalledExactlyOnceWith(`0x${'22'.repeat(20)}`, [{ signerId: 'worker', policyIds: ['master'] }]);
+  expect(state.addSigners.mock.invocationCallOrder[0]!).toBeLessThan(state.post.mock.invocationCallOrder[0]!);
   expect(state.post).toHaveBeenCalledTimes(1);
   expect(state.post.mock.calls[0]![0]).toBe('/me/copy/live/setups/0b0a6a3e-2f6b-4b7a-9a65-6b7c9f1e2d3c/confirm');
   expect(Object.keys(state.post.mock.calls[0]![1] as object).sort()).toEqual(['consentSignature', 'fundingSignature']);
@@ -142,4 +146,16 @@ it('a closed tab resumes: reopening the dialog signs the action still pending', 
   await openProgress();
   expect(state.signAs).toHaveBeenCalledTimes(2);
   expect(state.post).toHaveBeenCalledExactlyOnceWith(expect.stringMatching(/\/advance$/), { digest: pending.digest, signature: `0x${'cd'.repeat(65)}` });
+});
+
+it('a worker signer the browser could not add (declined, Privy refused) still confirms: the browser signs the steps instead', async () => {
+  state.addSigners.mockRejectedValueOnce(new Error('User rejected the request'));
+  state.post.mockResolvedValue({ ...setup('start', 'funding_submitted'), signer: 'owner_session' });
+  await act(async () => { await probe.current!.confirm.mutateAsync(setup()); });
+  expect(state.post).toHaveBeenCalledTimes(1);
+  // No policy bound (the automatic return off) or an edit: nothing is added.
+  state.addSigners.mockClear();
+  await act(async () => { await probe.current!.confirm.mutateAsync({ ...setup(), consent: { ...intent(), masterPolicyId: '', masterPolicyFingerprint: '' } }); });
+  await act(async () => { await probe.current!.confirm.mutateAsync(setup('edit')); });
+  expect(state.addSigners).not.toHaveBeenCalled();
 });

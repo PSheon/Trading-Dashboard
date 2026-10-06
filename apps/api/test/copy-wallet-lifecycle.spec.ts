@@ -1,10 +1,11 @@
 import { exchangeApprovalFixture } from "./copy-live-test-utils.js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { and, eq } from "drizzle-orm";
-import { copyAgentSetups, copyExecutionAccounts, copyExecutionWallets, copyStrategies, copyWalletAuthorizations, copyWalletAuthorizationEvents, users } from "@trading-dashboard/shared/database";
+import { copyAgentSetups, copyExecutionAccounts, copyExecutionWallets, copyLiveSetups, copyStrategies, copyWalletAuthorizations, copyWalletAuthorizationEvents, users } from "@trading-dashboard/shared/database";
 import { copyExecutionWalletsSchema } from "@trading-dashboard/shared/contracts";
 import { CopyWalletRepository } from "../src/copy/copy-wallet.repository.js";
 import { CopyWalletService } from "../src/copy/copy-wallet.service.js";
+import { MasterPolicyConflict } from "../src/copy/live/privy-master-policy.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { PostgresWalletAuthorizationSource } from "../src/copy/live/postgres-wallet-authorizations.js";
 import { WalletAuthorizationService } from "../src/copy/live/wallet-authorization.js";
@@ -284,5 +285,44 @@ describe("the automatic return: the policy-bound worker signer the owner's brows
     const error = await enabled.enableAutomaticReturn(uid, id).catch((e: { response: unknown }) => e.response);
     expect(error).toEqual({ statusCode: 503, code: "setup_unavailable", message: "Automatic return could not be set up; try again" });
     expect((await db.select().from(copyExecutionAccounts).where(eq(copyExecutionAccounts.id, id)))[0]!.masterPolicyId).toBeNull();
+  });
+
+  it("until the owner's browser adds the signer: 409 automatic_return_signer_missing with what to add; once added, recorded", async () => {
+    const id = await ready();
+    policy.assertSigner.mockRejectedValueOnce(new MasterPolicyConflict());
+    const enabled = new CopyWalletService(new CopyWalletRepository(db), new UnitOfWork(db), on(true), provider, policy as never);
+    const error = await enabled.enableAutomaticReturn(uid, id).catch((e: { response: unknown }) => e.response);
+    expect(error).toMatchObject({ statusCode: 409, code: "automatic_return_signer_missing", workerQuorumId: "worker-quorum", policyId: "policy-1" });
+    expect((await db.select().from(copyExecutionAccounts).where(eq(copyExecutionAccounts.id, id)))[0]!.masterPolicyId).toBeNull();
+    expect(await enabled.enableAutomaticReturn(uid, id)).toMatchObject({ automaticReturn: true });
+  });
+
+  it("a setup's policy is created only while the automatic return is on (no orphan policies at Privy)", async () => {
+    const id = await ready();
+    const agent = { address: `0x${"33".repeat(20)}`, name: "copy1 valid_until 1" };
+    const off = new CopyWalletService(new CopyWalletRepository(db), new UnitOfWork(db), on(false), provider, policy as never);
+    expect(await off.prepareSetupPolicy(uid, id, agent, "master_setup_x")).toBeNull();
+    expect(policy.create).not.toHaveBeenCalled();
+    const enabled = new CopyWalletService(new CopyWalletRepository(db), new UnitOfWork(db), on(true), provider, policy as never);
+    expect(await enabled.prepareSetupPolicy(uid, id, agent, "master_setup_x")).toEqual({ id: "policy-1", fingerprint: "d".repeat(64) });
+    expect(policy.create).toHaveBeenCalledWith("did:privy:wallet-owner", { ownerMain: main, account: addr, agent }, "master_setup_x");
+  });
+
+  it("adopts the signer the browser added for a setup whose confirm never arrived (a closed tab), instead of blocking the wallet", async () => {
+    const id = await ready();
+    const [account] = await db.select().from(copyExecutionAccounts).where(eq(copyExecutionAccounts.id, id));
+    await db.insert(copyLiveSetups).values({ id: "6d1f8c52-6d0e-4c43-9d8e-0d6f3c2f8a11", userId: uid, strategyId: strategy, accountId: id, kind: "start", idempotencyKey: "adopt-setup-key-000001",
+      leaderAddress: addr, sourceNetwork: "mainnet", budgetUsd: "100", settings: {}, stage: "awaiting_consent",
+      intent: { masterPolicyId: "policy-1", masterPolicyFingerprint: "d".repeat(64), agentAddress: `0x${"33".repeat(20)}`, strategyId: strategy, agentValidUntil: 1_800_000_000_000 } });
+    // Privy shows a signer the account doesn't record: a conflict for the plain lookup.
+    vi.mocked(provider.findOwned).mockImplementation(async (_user, _external, expected) => { if (!expected) throw new ProvisioningWalletConflict("wallet_conflict"); return stored; });
+    const enabled = new CopyWalletService(new CopyWalletRepository(db), new UnitOfWork(db), on(true), provider, policy as never);
+    expect(await enabled.reconcile(uid, id)).toMatchObject({ state: "ready", automaticReturn: true });
+    expect(policy.verify).toHaveBeenCalledWith("policy-1", "did:privy:wallet-owner", { ownerMain: main, account: account!.address, agent: { address: `0x${"33".repeat(20)}`, name: `copy${strategy} valid_until 1800000000000` } });
+    expect(policy.assertSigner).toHaveBeenCalledWith("provider-wallet", { address: addr, ownerQuorumId: "verified-user-quorum", workerQuorumId: "worker-quorum", policyId: "policy-1" });
+    // Another signer than the setup's policy: still a conflict, the wallet blocked as before.
+    await db.update(copyExecutionAccounts).set({ masterPolicyId: null, masterPolicyFingerprint: null, masterSignerQuorumId: null, sweepDestination: null, signerAttachedAt: null }).where(eq(copyExecutionAccounts.id, id));
+    policy.assertSigner.mockRejectedValue(new MasterPolicyConflict());
+    expect(await enabled.reconcile(uid, id)).toMatchObject({ state: "blocked" });
   });
 });

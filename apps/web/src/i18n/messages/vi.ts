@@ -1630,6 +1630,7 @@ export const vi: Messages = {
     openWithdrawal: "Xem khoản rút",
     openReferral: "Xem thưởng giới thiệu",
     unavailable: "Hiện không thể kiểm tra các tài khoản sao chép. Vui lòng thử lại sau.",
+    signerAttached: "Người ký của Orbie vẫn còn trên một ví sao chép của bạn và không thể gỡ từ trình duyệt này. Hãy tải lại trang rồi thử lại.",
     relogin: "Nếu sau này bạn đăng nhập lại theo cùng cách, bạn sẽ nhận một tài khoản hoàn toàn mới, trống, cùng với ví cũ.",
     learnMore: "Tìm hiểu thêm",
     acknowledge: "Tôi hiểu thao tác này không thể hoàn tác và tiền của tôi vẫn nằm trong ví của chính tôi.",

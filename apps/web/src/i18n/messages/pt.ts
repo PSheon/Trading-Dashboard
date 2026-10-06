@@ -1630,6 +1630,7 @@ export const pt: Messages = {
     openWithdrawal: "Ver o saque",
     openReferral: "Ver recompensas de indicação",
     unavailable: "Não é possível verificar suas contas de cópia agora. Tente novamente mais tarde.",
+    signerAttached: "O assinante da Orbie ainda está em uma das suas carteiras de cópia e não pôde ser removido deste navegador. Recarregue a página e tente de novo.",
     relogin: "Se você entrar de novo da mesma forma depois, receberá uma conta nova e vazia, com a mesma carteira.",
     learnMore: "Saiba mais",
     acknowledge: "Entendo que isso não pode ser desfeito e que meus fundos continuam na minha própria carteira.",

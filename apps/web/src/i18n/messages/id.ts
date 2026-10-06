@@ -1630,6 +1630,7 @@ export const id: Messages = {
     openWithdrawal: "Lihat penarikan",
     openReferral: "Lihat hadiah referral",
     unavailable: "Akun salinan belum bisa diperiksa saat ini. Coba lagi nanti.",
+    signerAttached: "Penanda tangan Orbie masih ada di salah satu dompet copy kamu dan tidak bisa dihapus dari browser ini. Muat ulang halaman lalu coba lagi.",
     relogin: "Jika nanti kamu masuk lagi dengan cara yang sama, kamu akan mendapat akun baru yang kosong dan dompet yang sama.",
     learnMore: "Pelajari lebih lanjut",
     acknowledge: "Saya mengerti tindakan ini tidak dapat dibatalkan dan dana saya tetap berada di dompet saya sendiri.",

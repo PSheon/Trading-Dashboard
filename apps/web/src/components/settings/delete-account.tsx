@@ -11,6 +11,7 @@ import { Modal } from "@/components/ui/dialog";
 import { useI18n } from "@/i18n/provider";
 import { api, ApiError, apiErrorCode } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import type { WalletSigner } from "@/lib/wallet-signer";
 
 /** What the user types to confirm, in every language (as GitHub and
  * others do): a fixed word is harder to confirm by accident. */
@@ -23,6 +24,13 @@ const BLOCKERS = ["copies_active", "stop_in_progress", "setup_in_progress", "tra
 type BlockerCode = (typeof BLOCKERS)[number];
 export interface DeletionBlocker { code: BlockerCode; strategyIds: number[] }
 const isBlocker = (code: unknown): code is BlockerCode => typeof code === "string" && (BLOCKERS as readonly string[]).includes(code);
+
+/** Takes Orbie's worker off every copy wallet that has it (the automatic
+ * return), with the owner's own wallet session. */
+export async function removeCopySigners(wallet: Pick<WalletSigner, "removeSigners">) {
+  const overview = await api.get<{ accounts: { address: string | null; automaticReturn?: boolean }[] }>("/me/copy/execution-wallets");
+  for (const account of overview.accounts) if (account.automaticReturn && account.address) await wallet.removeSigners(account.address);
+}
 
 /** The blockers of a 409, most important first (the api's order). */
 export function deletionBlockers(error: unknown): DeletionBlocker[] | null {
@@ -65,7 +73,7 @@ export function DeleteAccountButton({ className }: { className?: string }) {
 export function DeleteAccountDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const { t } = useI18n();
   const router = useRouter();
-  const { logout } = useAuth();
+  const { logout, wallet } = useAuth();
   const { openExport } = useWalletModals();
   const [understood, setUnderstood] = useState(false);
   const [typed, setTyped] = useState("");
@@ -94,12 +102,21 @@ export function DeleteAccountDialog({ open, onOpenChange }: { open: boolean; onO
     try {
       // The api deletes only with this explicit confirmation (sent once the
       // person has typed the word), never on a valid token alone.
-      await api.delete("/me", { headers: { "X-Confirm-Delete": "delete-account" } });
+      try { await api.delete("/me", { headers: { "X-Confirm-Delete": "delete-account" } }); }
+      catch (first) {
+        // A copy wallet still has Orbie's worker as its signer (automatic
+        // return): only the owner can take it off, from this browser. Then
+        // the api checks with Privy and deletes.
+        if (apiErrorCode(first) !== "copy_signer_attached" || !wallet) throw first;
+        await removeCopySigners(wallet);
+        await api.delete("/me", { headers: { "X-Confirm-Delete": "delete-account" } });
+      }
     } catch (err) {
       const code = apiErrorCode(err);
       const blocked = deletionBlockers(err);
       if (blocked) setBlockers(blocked);
-      else setError(code === "last_admin" ? t("deleteAccount.lastAdmin") : code === "closure_check_unavailable" ? t("deleteAccount.unavailable") : t("deleteAccount.failed"));
+      else setError(code === "last_admin" ? t("deleteAccount.lastAdmin") : code === "closure_check_unavailable" ? t("deleteAccount.unavailable")
+        : code === "copy_signer_attached" || code === "copy_wallet_unavailable" ? t("deleteAccount.signerAttached") : t("deleteAccount.failed"));
       setBusy(false);
       return;
     }

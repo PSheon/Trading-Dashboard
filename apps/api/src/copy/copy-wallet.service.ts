@@ -1,11 +1,11 @@
-import { BadRequestException, ConflictException, HttpException, Inject, Injectable, NotFoundException, Optional, ServiceUnavailableException } from "@nestjs/common";
+import { BadRequestException, ConflictException, HttpException, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
-import { createCopyExecutionWalletSchema, type CopyExecutionAccount, type CopyExecutionWallets, type CopyWalletGrant } from "@trading-dashboard/shared/contracts";
+import { createCopyExecutionWalletSchema, liveSetupAgentName, type CopyExecutionAccount, type CopyExecutionWallets, type CopyWalletGrant } from "@trading-dashboard/shared/contracts";
 import { AppConfig } from "../config/app-config.js";
 import { UnitOfWork } from "../db/unit-of-work.js";
 import { ProvisioningVerificationPending, ProvisioningWalletConflict, USER_WALLET_PROVISIONER, type UserWalletProvisioner } from "./live/privy-wallet-provisioner.js";
 import { CopyWalletRepository, type AccountRow, type GrantRow, type AgentRow } from "./copy-wallet.repository.js";
-import { MASTER_POLICY, type MasterPolicyPort } from "./live/privy-master-policy.js";
+import { MASTER_POLICY, MasterPolicyConflict, type MasterPolicyPort } from "./live/privy-master-policy.js";
 
 function account(row: AccountRow): CopyExecutionAccount {
   return { id: row.id, strategyId: row.strategyId, network: row.network, state: row.state,
@@ -24,6 +24,7 @@ function authorization(grant: GrantRow, wallet: AgentRow): CopyWalletGrant {
  * live trading, allocate paper cash, approve an exchange agent or move funds. */
 @Injectable()
 export class CopyWalletService {
+  private readonly logger = new Logger(CopyWalletService.name);
   constructor(private readonly repository: CopyWalletRepository, private readonly uow: UnitOfWork,
     private readonly config: AppConfig, @Inject(USER_WALLET_PROVISIONER) private readonly provider: UserWalletProvisioner,
     @Optional() @Inject(MASTER_POLICY) private readonly masterPolicy: MasterPolicyPort | null = null) {}
@@ -36,7 +37,9 @@ export class CopyWalletService {
    * signer (Privy refuses the server's use of the owner's session): this
    * records it once Privy shows exactly that signer. Off unless
    * COPY_AUTOMATIC_RETURN. Repeatable: the policy is created idempotently
-   * per account.
+   * per account. Until the browser added it: 409
+   * `automatic_return_signer_missing` with the `workerQuorumId` and
+   * `policyId` to add (`useSigners().addSigners`), then call again.
    */
   async enableAutomaticReturn(userId: number, id: string): Promise<CopyExecutionAccount> {
     const { copy } = this.config.value;
@@ -55,7 +58,11 @@ export class CopyWalletService {
     try {
       const policy = await this.masterPolicy.create(user.privyUserId, binding, `master_${row.id.replaceAll("-", "")}`);
       const verified = await this.masterPolicy.verify(policy.id, user.privyUserId, binding);
-      await this.masterPolicy.assertSigner(row.privyWalletId, { address: row.address, ownerQuorumId: row.ownerQuorumId, workerQuorumId: quorum, policyId: verified.id });
+      try { await this.masterPolicy.assertSigner(row.privyWalletId, { address: row.address, ownerQuorumId: row.ownerQuorumId, workerQuorumId: quorum, policyId: verified.id }); }
+      catch (error) {
+        if (!(error instanceof MasterPolicyConflict)) throw error;
+        throw new ConflictException({ statusCode: 409, code: "automatic_return_signer_missing", message: "Add the worker signer from your browser, then try again", workerQuorumId: quorum, policyId: verified.id });
+      }
       const recorded = await this.repository.recordMasterSigner(row.id, { masterPolicyId: verified.id, masterPolicyFingerprint: verified.fingerprint, masterSignerQuorumId: quorum,
         sweepDestination: binding.ownerMain, signerAttachedAt: new Date(), walletId: row.privyWalletId, address: row.address });
       return account(recorded ?? (await this.repository.account(id, userId))!);
@@ -69,6 +76,16 @@ export class CopyWalletService {
   /** Whether new one-click setups get the worker as a policy-bound signer
    * (COPY_AUTOMATIC_RETURN and a configured worker quorum). Off: the
    * owner's session signs every step after confirm. */
+  /** A ready account with no recorded signer whose wallet Privy shows with a
+   * signer: the owner's browser added the worker for a setup whose confirm
+   * never recorded it (a closed tab). Adopted when it is exactly the setup's
+   * consented policy; anything else stays a conflict. */
+  private async adoptSetupSigner(userId: number, row: AccountRow): Promise<boolean> {
+    if (row.masterPolicyId || row.state !== "ready" || !this.workerPolicyEnabled) return false;
+    const policy = await this.repository.setupPolicy(row.id, userId);
+    if (!policy) return false;
+    return this.attachSetupSigner(userId, row.id, policy, { address: policy.agentAddress, name: liveSetupAgentName(policy) });
+  }
   get workerPolicyEnabled(): boolean {
     const { copy } = this.config.value;
     return copy.mode === "testnet" && Boolean(copy.live?.automaticReturn && copy.agent?.workerQuorumId && this.masterPolicy?.available);
@@ -115,7 +132,11 @@ export class CopyWalletService {
       const recorded = await this.repository.recordMasterSigner(row.id, { masterPolicyId: verified.id, masterPolicyFingerprint: verified.fingerprint, masterSignerQuorumId: quorum,
         sweepDestination: binding.ownerMain, signerAttachedAt: new Date(), walletId: row.privyWalletId, address: row.address });
       return Boolean(recorded);
-    } catch { return false; }
+    } catch (error) {
+      // No token or DID: why the signer wasn't recorded (the setup then signs in the owner's browser).
+      this.logger.warn(`setup signer for account ${accountId} not recorded: ${error instanceof Error ? `${error.name} ${error.message}`.slice(0, 160) : "unknown"}`);
+      return false;
+    }
   }
 
   private async owner(userId: number) {
@@ -190,6 +211,7 @@ export class CopyWalletService {
       return this.read(id);
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
+      if (error instanceof ProvisioningWalletConflict && await this.adoptSetupSigner(userId, original).catch(() => false)) return this.reconcile(userId, id);
       if (error instanceof ProvisioningWalletConflict || (error && typeof error === "object" && "code" in error && error.code === "23505")) {
         return this.finish(id, "blocked", "wallet_conflict");
       }

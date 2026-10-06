@@ -26,7 +26,7 @@ export class CopyWalletController {
   @Header("Cache-Control", "no-store")
   reconcile(@Param() params: CopyWalletIdDto, @CurrentUser() user: RequestUser | null) { return this.wallets.reconcile(requireUserId(user), params.id); }
 
-  @ApiDoc("Turn on the automatic return for my testnet copy wallet", "With my session, adds Orbie's worker as the wallet's only additional signer, bound by a Privy policy I own: it can return this wallet's USDC only to my main wallet and set the standard account mode, never export the key. 503 setup_unavailable while the deployment has it off (COPY_AUTOMATIC_RETURN).")
+  @ApiDoc("Turn on the automatic return for my testnet copy wallet", "Records Orbie's worker as the wallet's only additional signer, bound by a Privy policy I own (it can return this wallet's USDC only to my main wallet and set the standard account mode, never export the key), once Privy shows it. Only my browser can add it: until then 409 automatic_return_signer_missing with the workerQuorumId and policyId to add (Privy useSigners().addSigners), then call again. 503 setup_unavailable while the deployment has it off (COPY_AUTOMATIC_RETURN).")
   @Post("execution-wallets/:id/automatic-return")
   @HttpCode(200)
   @Header("Cache-Control", "no-store")

@@ -8,7 +8,7 @@ import { useAuth } from './auth';
 import { masterActionErrorCode, signMasterAction } from './copy-master-action';
 import { FIXTURE_WALLET_ADDRESS } from './fixture-signer';
 import { queryKeys } from './query-keys';
-import type { Eip712TypedData } from './wallet-signer';
+import type { Eip712TypedData, WalletSigner } from './wallet-signer';
 
 const ROOT = '/me/copy/live';
 type Auth = ReturnType<typeof useAuth>;
@@ -40,6 +40,21 @@ export async function signSetup(setup: LiveCopySetup, sign: (data: Eip712TypedDa
   const fundingSignature = consent.kind === 'start'
     ? await sign(usdSendTypedData(WALLET_NETWORKS.testnet, consent.accountAddress, consent.fundingAmount, consent.fundingNonce) as unknown as Eip712TypedData, { silent: true }) : undefined;
   return { consentSignature, ...(fundingSignature ? { fundingSignature } : {}) };
+}
+
+/**
+ * The automatic return (COPY_AUTOMATIC_RETURN, the consent bound a policy):
+ * the owner's browser adds exactly the worker quorum under that owner-owned
+ * policy as the copy account's signer (only the owner can), then confirm
+ * has the api check it with Privy and record it, so the worker finishes the
+ * setup and returns the funds after a stop. Declined or failed: nothing is
+ * attached and the setup is signed in this browser instead (no error).
+ */
+export async function attachWorker(setup: LiveCopySetup, wallet: Pick<WalletSigner, 'addSigners'>): Promise<boolean> {
+  const consent = setup.consent;
+  if (!consent || consent.kind !== 'start' || !consent.masterPolicyId || !consent.workerQuorumId) return false;
+  try { await wallet.addSigners(consent.accountAddress, [{ signerId: consent.workerQuorumId, policyIds: [consent.masterPolicyId] }]); return true; }
+  catch { return false; }
 }
 
 /**
@@ -87,6 +102,8 @@ export function useLiveCopySetupActions() {
     mutationFn: async (setup: LiveCopySetup) => {
       const { wallet, assertSame } = owner();
       const body = await signSetup(setup, (data, options) => wallet.signTypedData(data, options));
+      assertSame();
+      await attachWorker(setup, wallet);
       assertSame();
       const result = liveCopySetupSchema.parse(await api.post(`${ROOT}/setups/${encodeURIComponent(setup.id)}/confirm`, body));
       for (const name of [...keys.current.keys()]) if (name.endsWith(String(setup.strategyId)) || name.startsWith('start:')) forget(name);

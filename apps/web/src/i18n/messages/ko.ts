@@ -1630,6 +1630,7 @@ export const ko: Messages = {
     openWithdrawal: "출금 보기",
     openReferral: "추천 보상 보기",
     unavailable: "지금은 카피 계정을 확인할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+    signerAttached: "카피 지갑에 Orbie 서명자가 남아 있어 이 브라우저에서 제거하지 못했습니다. 페이지를 새로고침한 뒤 다시 시도하세요.",
     relogin: "나중에 같은 방법으로 다시 로그인하면 완전히 새로운 빈 계정이 만들어지고, 지갑은 그대로입니다.",
     learnMore: "자세히 알아보기",
     acknowledge: "삭제는 되돌릴 수 없으며, 자금은 본인의 지갑에 그대로 남는다는 것을 이해했습니다.",

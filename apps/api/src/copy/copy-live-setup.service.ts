@@ -291,7 +291,8 @@ export class CopyLiveSetupService {
   }
 
   // --- confirm -----------------------------------------------------------------
-  /** Verifies the one consent, submits the deposit, and runs what it can. */
+  /** Verifies the one consent, records the worker signer the owner's browser
+   * attached (worker policy on), submits the deposit, and runs what it can. */
   async confirm(userId: number, id: string, body: unknown): Promise<LiveCopySetup> {
     const request = input(confirmLiveCopySetupSchema, body); this.available();
     let row = await this.repository.find(userId, id);
@@ -299,6 +300,14 @@ export class CopyLiveSetupService {
     const parsed = liveCopySetupIntentSchema.safeParse(row.intent);
     if (!parsed.success || digest(parsed.data) !== row.intentDigest) throw new ConflictException('Setup binding changed');
     const intent = parsed.data, now = this.now();
+    // COPY_AUTOMATIC_RETURN: the owner's browser added the worker as the copy
+    // account's signer under the consented policy just before this request
+    // (Privy's addSigners: only the owner can). Checked with Privy (exactly
+    // that signer and policy) and recorded first, before any refusal below,
+    // so a signer Privy shows is never left unrecorded on the account. Not
+    // there (declined, failed, off): the owner's browser signs the steps.
+    const attached = row.kind === 'start' && intent.masterPolicyId !== '' && await this.wallets.attachSetupSigner(userId, intent.accountId,
+      { id: intent.masterPolicyId, fingerprint: intent.masterPolicyFingerprint }, { address: intent.agentAddress, name: liveSetupAgentName(intent) });
     if (now < intent.nonce || now >= intent.consentExpiresAt) refuse(409, 'consent_expired', 'The setup consent expired; start again');
     const owner = await this.repository.owner(userId);
     if (owner.embeddedWalletAddress !== intent.ownerAddress || owner.privyUserId !== intent.ownerPrivyUserId) throw new ConflictException({ statusCode: 409, code: 'setup_wallet_conflict', message: 'Your main wallet changed' });
@@ -307,9 +316,10 @@ export class CopyLiveSetupService {
     if (!valid) throw new ForbiddenException({ statusCode: 403, code: 'invalid_consent', message: 'Invalid owner consent' });
     const consentDigest = digest(request.consentSignature.toLowerCase());
     await this.assertBinding(row, intent);
-    // The owner's browser signs the remaining steps (the progress dialog);
-    // an edit of an account the worker already signs for keeps the worker.
-    let signerKind: 'owner_session' | 'worker_policy' = 'owner_session';
+    // The worker signs under the owner's policy when it is the account's
+    // signer; otherwise the owner's browser signs the remaining steps (the
+    // progress dialog). An edit of an account the worker signs for keeps it.
+    let signerKind: 'owner_session' | 'worker_policy' = attached ? 'worker_policy' : 'owner_session';
     if (row.kind === 'edit') {
       const account = await this.walletRows.account(intent.accountId, userId);
       if (account?.masterPolicyId) signerKind = 'worker_policy';
@@ -517,7 +527,7 @@ export class CopyLiveSetupService {
         if (row.stage === before) break;
       }
       return row;
-    } finally { await this.repository.release(id); }
+    } finally { await this.repository.release(id, leased.leaseToken); }
   }
   private async move(row: SetupRow, stage: SetupStage, changes: Partial<SetupRow> = {}): Promise<SetupRow> {
     const next = await this.repository.transition(row, { stage, issue: null, attempts: 0, nextAttemptAt: null, pendingSignature: null, ...changes });

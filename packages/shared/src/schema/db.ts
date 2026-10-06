@@ -1986,6 +1986,8 @@ export const copyLiveSetups = pgTable("copy_live_setups", {
   ownerSignature: jsonb("owner_signature").$type<{ digest: string; signature: string }>(),
   issue: text("issue"), revision: integer("revision").notNull().default(1), attempts: integer("attempts").notNull().default(0),
   nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }), leaseUntil: timestamp("lease_until", { withTimezone: true }),
+  /** Who holds the lease: only that driver's release clears it. */
+  leaseToken: text("lease_token"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   uniqueIndex("copy_live_setups_key_uq").on(t.userId, t.idempotencyKey),

@@ -137,13 +137,6 @@ async function credit() {
   await db.update(copyFundingOperations).set({ status: 'credited', transactionHash: `0x${'f'.repeat(64)}`, creditedAmount: '100', fee: '0', evidenceHash: 'd'.repeat(64) }).where(eq(copyFundingOperations.direction, 'to_account'));
 }
 const later = (ms: number) => { clock += ms; };
-/** The worker as the copy account's policy-bound signer (attached by the
- * owner's browser), recorded on the account and the setup. */
-async function workerAttached(setup: LiveCopySetup) {
-  await new CopyWalletRepository(db).recordMasterSigner(setup.consent!.accountId, { masterPolicyId: 'master-policy', masterPolicyFingerprint: 'c'.repeat(64), masterSignerQuorumId: 'worker-quorum',
-    sweepDestination: owner.address.toLowerCase(), signerAttachedAt: new Date(), walletId: 'master-wallet', address: accountAddress });
-  await db.update(copyLiveSetups).set({ signerKind: 'worker_policy' }).where(eq(copyLiveSetups.id, setup.id));
-}
 /** The progress dialog: signs the pending action with the copy account (in
  * the browser) and sends it with its digest. */
 async function signPending(setup: LiveCopySetup, signer = copyAccount) {
@@ -198,13 +191,14 @@ describe('one-click testnet copy setup', () => {
     expect((await db.select().from(copyLiveSetups))[0]!.consentDigest).toBeNull();
   });
 
-  it('a worker-policy setup: the deposit is sent once and the worker finishes with the tab closed', async () => {
+  it("with the worker policy: confirm records the signer the owner's browser added, sends the deposit once; the worker finishes with the tab closed", async () => {
     const setup = await start();
     const confirmed = await service.confirm(uid, setup.id, await sign(setup.consent!));
-    // Confirm never asks Privy to act with the owner's session.
-    expect(confirmed).toMatchObject({ stage: 'funding_submitted', signer: 'owner_session', pendingSignature: null });
-    expect(fakes.wallets.attachSetupSigner).not.toHaveBeenCalled();
-    await workerAttached(setup);
+    expect(confirmed).toMatchObject({ stage: 'funding_submitted', signer: 'worker_policy', pendingSignature: null });
+    // Checked with Privy (the browser added it: only the owner can), never with the owner's session.
+    expect(fakes.wallets.attachSetupSigner).toHaveBeenCalledExactlyOnceWith(uid, setup.consent!.accountId, { id: 'master-policy', fingerprint: 'c'.repeat(64) },
+      { address: agentAddress, name: `copy${setup.strategyId} valid_until ${setup.consent!.agentValidUntil}` });
+    expect((await db.select().from(copyExecutionAccounts))[0]).toMatchObject({ masterPolicyId: 'master-policy', masterSignerQuorumId: 'worker-quorum' });
     // A second confirm (a retried request) neither verifies nor sends again.
     await service.confirm(uid, setup.id, await sign(setup.consent!));
     expect(fakes.funding.submit).toHaveBeenCalledTimes(1);
@@ -227,6 +221,22 @@ describe('one-click testnet copy setup', () => {
     expect(mandate).toMatchObject({ state: 'active', consentKind: 'setup', liveSetupId: setup.id, consentDigest, leaderAddress: leader, sourceNetwork: 'mainnet', budgetUsd: '100', agentAddress });
     expect((await db.select().from(copyLiveActivations))[0]).toMatchObject({ mandateId: mandate!.id, state: 'pending' });
     expect(done.mandateId).toBe(mandate!.id);
+  });
+
+  it("a signer the browser didn't add (declined, Privy refused) falls back to the browser signing", async () => {
+    flags.attach = false;
+    const setup = await start();
+    expect((await service.confirm(uid, setup.id, await sign(setup.consent!))).signer).toBe('owner_session');
+    expect((await db.select().from(copyExecutionAccounts))[0]!.masterPolicyId).toBeNull();
+  });
+
+  it('a signer the browser added is recorded even when the consent itself is then refused (never left unrecorded on the wallet)', async () => {
+    const setup = await start();
+    later(301_000);
+    await expect(service.confirm(uid, setup.id, await sign(setup.consent!))).rejects.toMatchObject({ status: 409, response: { code: 'consent_expired' } });
+    expect(fakes.wallets.attachSetupSigner).toHaveBeenCalledTimes(1);
+    expect((await db.select().from(copyExecutionAccounts))[0]).toMatchObject({ masterPolicyId: 'master-policy' });
+    expect(fakes.funding.submit).not.toHaveBeenCalled();
   });
 
   it("the owner's browser signs: each step parks its exact payload, the dialog's signature is checked, then the step is submitted with it", async () => {
@@ -315,7 +325,7 @@ describe('one-click testnet copy setup', () => {
 
   it('never resends an attempted step: an unknown mode submission is only reconciled, then continues', async () => {
     const setup = await start();
-    await service.confirm(uid, setup.id, await sign(setup.consent!)); await workerAttached(setup); await credit(); later(5_000);
+    await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit(); later(5_000);
     mode.submissionState = 'unknown';
     await service.tick();
     expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'funded', issue: 'account_mode_pending' });
@@ -409,7 +419,7 @@ describe('one-click testnet copy setup', () => {
 
   it('edit: one consent, the next generation replaces the current one with the new settings and budget', async () => {
     const setup = await start();
-    await service.confirm(uid, setup.id, await sign(setup.consent!)); await workerAttached(setup); await credit(); later(5_000); await service.tick();
+    await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit(); later(5_000); await service.tick();
     const [first] = await db.select().from(copyLiveMandates);
     const edit = await service.startEdit(uid, setup.strategyId, { idempotencyKey: 'setup-edit-key-0000001', budgetUsd: '150', settings: { ...settings, maxLeverage: 3 } });
     expect(edit.consent).toMatchObject({ kind: 'edit', budgetUsd: '150', fundingOperationId: '', fundingAmount: '0', agentAddress });
@@ -425,7 +435,7 @@ describe('one-click testnet copy setup', () => {
 
   it('resume needs no signature: a paused generation is active again and its strategy trades', async () => {
     const setup = await start();
-    await service.confirm(uid, setup.id, await sign(setup.consent!)); await workerAttached(setup); await credit(); later(5_000); await service.tick();
+    await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit(); later(5_000); await service.tick();
     const [mandate] = await db.select().from(copyLiveMandates);
     await db.update(copyLiveActivations).set({ state: 'activated', activatedAt: new Date() });
     await db.update(copyStrategies).set({ status: 'active', pauseNewRisk: false });
@@ -438,5 +448,31 @@ describe('one-click testnet copy setup', () => {
     await db.update(copyControls).set({ pauseNewRisk: true }).where(eq(copyControls.scope, 'platform'));
     await uow.run(tx => repository.barrier(tx, uid, mandate!.id, 'paused', () => clock));
     await expect(uow.run(tx => repository.resume(tx, uid, mandate!.id, () => clock))).rejects.toMatchObject({ status: 409, response: { code: 'copy_paused' } });
+  });
+
+  it("a drive that outlives its lease leaves the next holder's lease in place when it ends", async () => {
+    const setup = await start();
+    await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit(); later(5_000);
+    // One drive is held in the mode submission (a long budget wait)...
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    let entered!: () => void;
+    const inSubmit = new Promise<void>(resolve => { entered = resolve; });
+    const submit = fakes.modes.submit.getMockImplementation()!;
+    fakes.modes.submit.mockImplementationOnce(async (...args: Parameters<typeof submit>) => { entered(); await held; return submit(...args); });
+    const first = service.tick();
+    await inSubmit;
+    // ...past its 60 s lease, and another driver (the dialog's /advance, or a second worker) takes the setup.
+    await db.update(copyLiveSetups).set({ leaseUntil: new Date(Date.now() - 1_000) }).where(eq(copyLiveSetups.id, setup.id));
+    const repository = new CopyLiveSetupRepository(db);
+    const next = await repository.lease(setup.id, 60_000);
+    expect(next?.leaseToken).toBeTruthy();
+    release(); await first;
+    const [row] = await db.select().from(copyLiveSetups).where(eq(copyLiveSetups.id, setup.id));
+    expect(row!.leaseUntil!.getTime()).toBeGreaterThan(Date.now());
+    expect(row!.leaseToken).toBe(next!.leaseToken);
+    // Its own release ends it.
+    await repository.release(setup.id, next!.leaseToken);
+    expect((await db.select().from(copyLiveSetups).where(eq(copyLiveSetups.id, setup.id)))[0]).toMatchObject({ leaseUntil: null, leaseToken: null });
   });
 });

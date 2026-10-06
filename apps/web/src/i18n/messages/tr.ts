@@ -1630,6 +1630,7 @@ export const tr: Messages = {
     openWithdrawal: "Çekimi görüntüle",
     openReferral: "Davet ödüllerini görüntüle",
     unavailable: "Kopya hesaplarınız şu anda kontrol edilemiyor. Lütfen daha sonra tekrar deneyin.",
+    signerAttached: "Orbie imzacısı kopyalama cüzdanlarınızdan birinde hâlâ duruyor ve bu tarayıcıdan kaldırılamadı. Sayfayı yenileyip tekrar deneyin.",
     relogin: "Daha sonra aynı yöntemle tekrar giriş yaparsanız yepyeni, boş bir hesap ve aynı cüzdanı alırsınız.",
     learnMore: "Daha fazla bilgi",
     acknowledge: "Bunun geri alınamayacağını ve fonlarımın kendi cüzdanımda kalacağını anlıyorum.",

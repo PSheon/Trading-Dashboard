@@ -2,7 +2,7 @@ import { agentApprovalTypedData, liveCopyMandateSchema, liveCopyOverviewSchema, 
   type CopyMasterActionRequest, type LiveCopyPortfolioItem, type LiveCopySetup, type LiveCopySetupIntent, type LiveCopyStrategy } from "@trading-dashboard/shared/contracts";
 import type { ZodTypeAny } from "zod";
 import { ApiError } from "@/lib/api";
-import { FIXTURE_WALLET_ADDRESS, fixtureOwnerSetupFlag, fixtureSignerFlag } from "@/lib/fixture-signer";
+import { FIXTURE_WALLET_ADDRESS, fixtureOwnerSetupFlag, fixtureSignerFlag, fixtureSigners } from "@/lib/fixture-signer";
 
 /**
  * One-click testnet copy in fixture mode, only with the fixture signer
@@ -51,7 +51,9 @@ function consent(setup: LiveCopySetup): LiveCopySetupIntent {
   return { kind: setup.kind, setupId: setup.id, userId: 1, ownerAddress: OWNER, ownerPrivyUserId: "did:privy:fixture", strategyId: setup.strategyId, leaderAddress: setup.leaderAddress,
     sourceNetwork: setup.sourceNetwork, network: "testnet", budgetUsd: setup.budgetUsd, settingsDigest: "a".repeat(64), accountId: `acct-${setup.strategyId}`, accountAddress: ACCOUNT,
     accountAbstraction: "disabled", agentAddress: AGENT, agentPolicyId: "fixture-agent-policy", agentPolicyFingerprint: "b".repeat(64), workerQuorumId: "fixture-worker",
-    agentValidUntil: now + 30 * 86_400_000, builderAddress: null, builderMaxFeeTenthsOfBps: 0, sweepDestination: OWNER, masterPolicyId: "fixture-master-policy", masterPolicyFingerprint: "c".repeat(64),
+    agentValidUntil: now + 30 * 86_400_000, builderAddress: null, builderMaxFeeTenthsOfBps: 0, sweepDestination: OWNER,
+    // `?setup=owner`: a deployment with the automatic return off binds no policy.
+    ...(fixtureOwnerSetupFlag(window.location.search) ? { masterPolicyId: "", masterPolicyFingerprint: "" } : { masterPolicyId: "fixture-master-policy", masterPolicyFingerprint: "c".repeat(64) }),
     fundingOperationId: start ? uuid() : "", fundingNonce: start ? now - 1 : 0, fundingAmount: start ? setup.budgetUsd : "0", nonce: now, consentExpiresAt: now + 300_000, setupDeadline: now + 86_400_000 };
 }
 function finish(setup: LiveCopySetup) {
@@ -149,7 +151,12 @@ function liveRoute(method: string, parts: string[], body: unknown): unknown {
       const setup = find(rest[1]!);
       if (setup.stage !== "awaiting_consent") return setup;
       if (setup.kind === "start" && typeof input.fundingSignature !== "string") throw new ApiError(400, "The deposit signature is required");
-      return save({ ...setup, consent: null, signer: fixtureOwnerSetupFlag(window.location.search) ? "owner_session" : "worker_policy", setupDeadline: iso(Date.now() + 86_400_000), stage: setup.kind === "start" ? "funding_submitted" : "consented",
+      // As the api: the worker signs only when Privy shows exactly it under
+      // the consented policy on the copy account (the browser added it).
+      const consented = setup.consent, signers = consented ? fixtureSigners.get(consented.accountAddress) : undefined;
+      const attached = Boolean(consented?.masterPolicyId && signers?.length === 1 && signers[0]!.signerId === consented.workerQuorumId &&
+        signers[0]!.policyIds.length === 1 && signers[0]!.policyIds[0] === consented.masterPolicyId);
+      return save({ ...setup, consent: null, signer: attached || setup.kind === "edit" && strategies.has(setup.strategyId) ? "worker_policy" : "owner_session", setupDeadline: iso(Date.now() + 86_400_000), stage: setup.kind === "start" ? "funding_submitted" : "consented",
         issue: setup.kind === "start" ? "awaiting_credit" : null });
     }
     case "POST setups/:id/cancel": return save({ ...find(rest[1]!), stage: "cancelled", consent: null });

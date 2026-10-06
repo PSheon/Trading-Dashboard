@@ -25,12 +25,22 @@ export function fixtureSigner(search: string): WalletSigner | null {
       if (sticky(search, "copywallet", COPY_WALLET) === "late" && !lateSeen) { lateSeen = true; throw new Error("copy_wallet_unavailable"); }
       return `0x${"cd".repeat(65)}`;
     },
+    // `?signers=fail`: Privy refuses (or the owner declines) adding the worker.
+    addSigners: async (address, signers) => {
+      if (!/^0x[0-9a-fA-F]{40}$/.test(address) || address.toLowerCase() === FIXTURE_WALLET_ADDRESS) throw new Error("copy_wallet_unavailable");
+      if (sticky(search, "signers", SIGNERS) === "fail") throw new Error("User rejected the request");
+      fixtureSigners.set(address.toLowerCase(), signers.map((signer) => ({ signerId: signer.signerId, policyIds: [...signer.policyIds] })));
+    },
+    removeSigners: async (address) => { fixtureSigners.delete(address.toLowerCase()); },
     sendTransaction: async () => { throw new Error("Transactions are not part of fixture mode"); },
   };
 }
 
 let lateSeen = false;
-const COPY_WALLET = "orbie:fixtures:copywallet", OWNER_SETUP = "orbie:fixtures:setup";
+const COPY_WALLET = "orbie:fixtures:copywallet", OWNER_SETUP = "orbie:fixtures:setup", SIGNERS = "orbie:fixtures:signers";
+/** The signers the fixture signer added to copy accounts (what Privy would
+ * show the api): the fixture api's confirm checks them as the api does. */
+export const fixtureSigners = new Map<string, { signerId: string; policyIds: string[] }[]>();
 /** A fixture URL flag, kept for the tab (sessionStorage) like `?signer=fixture`. */
 function sticky(search: string, name: string, key: string): string | null {
   if (process.env.NEXT_PUBLIC_API_FIXTURES !== "1") return null;

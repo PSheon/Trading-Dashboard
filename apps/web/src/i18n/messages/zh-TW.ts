@@ -2687,6 +2687,7 @@ export const zhTW = {
     openWithdrawal: "查看提領",
     openReferral: "查看邀請獎勵",
     unavailable: "暫時無法確認跟單帳戶的狀態，請稍後再試。",
+    signerAttached: "有一個跟單錢包仍掛著 Orbie 的簽署者，這個瀏覽器無法移除。請重新整理頁面後再試一次。",
     relogin: "之後若用同一個方式登入，會建立一個全新的空帳號，並回到同一個錢包。",
     learnMore: "了解更多",
     acknowledge: "我了解刪除後無法復原，資金仍在我自己的錢包中。",

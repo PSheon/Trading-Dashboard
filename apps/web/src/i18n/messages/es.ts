@@ -1630,6 +1630,7 @@ export const es: Messages = {
     openWithdrawal: "Ver el retiro",
     openReferral: "Ver recompensas por referidos",
     unavailable: "Ahora mismo no se pueden comprobar tus cuentas de copia. Inténtalo de nuevo más tarde.",
+    signerAttached: "El firmante de Orbie sigue en una de tus billeteras de copia y no se pudo quitar desde este navegador. Recarga la página e inténtalo de nuevo.",
     relogin: "Si más adelante vuelves a iniciar sesión del mismo modo, obtendrás una cuenta nueva y vacía con la misma wallet.",
     learnMore: "Más información",
     acknowledge: "Entiendo que esto no se puede deshacer y que mis fondos permanecen en mi propia wallet.",

@@ -477,6 +477,13 @@
       "when": 1791252579435,
       "tag": "0067_copy_setup_owner_signature",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1791256566652,
+      "tag": "0068_copy_setup_lease_token",
+      "breakpoints": true
     }
   ]
 }

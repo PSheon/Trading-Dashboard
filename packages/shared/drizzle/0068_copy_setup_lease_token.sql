@@ -1,0 +1,1 @@
+ALTER TABLE "copy_live_setups" ADD COLUMN "lease_token" text;

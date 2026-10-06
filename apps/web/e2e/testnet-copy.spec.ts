@@ -177,6 +177,21 @@ test("a copy wallet the browser can't use yet is named calmly; the dialog closed
   expect(errors()).toEqual([]);
 });
 
+test("the automatic return: confirm adds the worker from the browser and the worker finishes; declined, the browser signs instead", async ({ page, context, baseURL }) => {
+  test.setTimeout(120000);
+  const errors = pageErrors(page);
+  await context.addCookies([{ name: "locale", value: "zh-TW", url: baseURL! }]);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  // Privy refuses adding the signer (or the owner declines): no error, the setup is signed in this browser.
+  await startOwnerCopy(page, 1440, "signers=fail");
+  const progress = page.getByRole("dialog", { name: /正在設定跟單|跟單已開始/ });
+  await expect(progress).toContainText("關閉後設定會暫停，之後在投資組合點「繼續設定」即可接續。");
+  await expect(page.getByRole("dialog", { name: "跟單已開始" })).toBeVisible({ timeout: 30000 });
+  await expect(progress.getByRole("alert")).toHaveCount(0);
+  await shot(page, "testnet-copy-signer-declined-1440");
+  expect(errors()).toEqual([]);
+});
+
 test("the step-by-step forms moved to /dev/copy; Settings keeps the read-only copy wallets", async ({ page, context, baseURL }) => {
   await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
   await page.goto("/en/settings?tab=account");

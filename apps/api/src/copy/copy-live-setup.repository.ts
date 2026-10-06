@@ -1,4 +1,5 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { copyAgentSetups, copyFundingOperations, copyLiveActivations, copyLiveMandates, copyLiveSetups, copyLiveStrategyConfigs, copyStrategies, copyStrategyVersions, users } from '@trading-dashboard/shared/database';
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
@@ -50,13 +51,19 @@ export class CopyLiveSetupRepository {
     return next ?? null;
   }
   /** One driver (the worker's pass or the owner's open dialog) works a
-   * setup at a time; a crashed holder's lease lapses after `ms`. */
+   * setup at a time; a crashed holder's lease lapses after `ms`. The row's
+   * `leaseToken` names the holder. */
   async lease(id: string, ms: number): Promise<SetupRow | null> {
-    const [row] = await this.db.update(copyLiveSetups).set({ leaseUntil: sql`clock_timestamp() + ${`${ms} milliseconds`}::interval` })
+    const [row] = await this.db.update(copyLiveSetups).set({ leaseUntil: sql`clock_timestamp() + ${`${ms} milliseconds`}::interval`, leaseToken: randomUUID() })
       .where(and(eq(copyLiveSetups.id, id), or(isNull(copyLiveSetups.leaseUntil), lte(copyLiveSetups.leaseUntil, sql`clock_timestamp()`)))).returning();
     return row ?? null;
   }
-  async release(id: string): Promise<void> { await this.db.update(copyLiveSetups).set({ leaseUntil: null }).where(eq(copyLiveSetups.id, id)); }
+  /** Ends this holder's lease only: a drive that outlived its lease (another
+   * driver took the setup since) leaves the new holder's lease in place. */
+  async release(id: string, token: string | null): Promise<void> {
+    if (!token) return;
+    await this.db.update(copyLiveSetups).set({ leaseUntil: null, leaseToken: null }).where(and(eq(copyLiveSetups.id, id), eq(copyLiveSetups.leaseToken, token)));
+  }
   /** Confirmed, unfinished setups whose next attempt is due, oldest first. */
   open(now: Date, limit = 20) {
     return this.db.select().from(copyLiveSetups).where(and(inArray(copyLiveSetups.stage, [...DRIVEN_STAGES]),

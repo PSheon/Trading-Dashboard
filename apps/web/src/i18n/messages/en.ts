@@ -2683,6 +2683,7 @@ export const en: Messages = {
     openWithdrawal: "View withdrawal",
     openReferral: "View referral rewards",
     unavailable: "Your copy accounts can't be checked right now. Please try again later.",
+    signerAttached: "Orbie's signer is still on one of your copy wallets and couldn't be removed from this browser. Reload the page and try again.",
     relogin: "If you sign in again the same way later, you get a brand-new, empty account and the same wallet.",
     learnMore: "Learn more",
     acknowledge: "I understand this cannot be undone and that my funds stay in my own wallet.",

@@ -20,6 +20,7 @@ import {
   usePrivy,
   useSendTransaction,
   useSignTypedData,
+  useSigners,
   useUser,
   useWallets,
 } from "@privy-io/react-auth";
@@ -111,6 +112,7 @@ function useEmbeddedWallet(signedIn: boolean): WalletSigner | null {
   const { sendTransaction } = useSendTransaction();
   const { createWallet } = useCreateWallet();
   const { refreshUser } = useUser();
+  const { addSigners, removeSigners } = useSigners();
   const creatingFor = useRef<string | null>(null);
   const activeSigner = useRef<WalletSigner | null>(null);
   const userId = signedIn ? user?.id ?? null : null;
@@ -142,8 +144,8 @@ function useEmbeddedWallet(signedIn: boolean): WalletSigner | null {
   const address = embedded?.address.toLowerCase() ?? null;
   // The SDK's functions, read at call time: Privy may hand out new ones on
   // every render, and a new signer each render would report again.
-  const sdk = useRef({ exportWallet, signTypedData, sendTransaction, refreshUser, wallets });
-  useLayoutEffect(() => { sdk.current = { exportWallet, signTypedData, sendTransaction, refreshUser, wallets }; });
+  const sdk = useRef({ exportWallet, signTypedData, sendTransaction, refreshUser, wallets, addSigners, removeSigners });
+  useLayoutEffect(() => { sdk.current = { exportWallet, signTypedData, sendTransaction, refreshUser, wallets, addSigners, removeSigners }; });
   const signer = useMemo<WalletSigner | null>(() => {
     if (!signedIn) return null;
     const { exportWallet, signTypedData, sendTransaction } = {
@@ -190,6 +192,14 @@ function useEmbeddedWallet(signedIn: boolean): WalletSigner | null {
         // confirmed consent (one-click copy, decision 1).
         const { signature } = await sdk.current.signTypedData(data, { address, uiOptions: { showWalletUIs: false } });
         return signature as `0x${string}`;
+      },
+      addSigners: async (target, signers) => {
+        const address = await ownedCopyAccount(target);
+        await sdk.current.addSigners({ address, signers: signers.map((signer) => ({ signerId: signer.signerId, policyIds: [...signer.policyIds] })) });
+      },
+      removeSigners: async (target) => {
+        const address = await ownedCopyAccount(target);
+        await sdk.current.removeSigners({ address });
       },
       sendTransaction: async (tx, sponsor) => {
         const { hash } = await sendTransaction(tx, { sponsor, ...assertActive() });

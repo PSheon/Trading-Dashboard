@@ -1630,6 +1630,7 @@ export const zhCN: Messages = {
     openWithdrawal: "查看提款",
     openReferral: "查看邀请奖励",
     unavailable: "暂时无法确认跟单账户的状态，请稍后再试。",
+    signerAttached: "有一个跟单钱包仍挂着 Orbie 的签名者，这个浏览器无法移除。请刷新页面后再试一次。",
     relogin: "之后若用同一方式登录，会创建一个全新的空账号，并回到同一个钱包。",
     learnMore: "了解更多",
     acknowledge: "我了解删除后无法恢复，资金仍在我自己的钱包中。",

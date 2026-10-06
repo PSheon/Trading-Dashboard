@@ -1,6 +1,6 @@
 import { ConflictException, Inject, Injectable } from "@nestjs/common";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
-import { copyExecutionAccounts, copyExecutionWallets, copyStrategies, copyWalletAuthorizations, copyWalletAuthorizationEvents, users } from "@trading-dashboard/shared/database";
+import { copyExecutionAccounts, copyExecutionWallets, copyLiveSetups, copyStrategies, copyWalletAuthorizations, copyWalletAuthorizationEvents, users } from "@trading-dashboard/shared/database";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
@@ -51,6 +51,17 @@ export class CopyWalletRepository {
   }
   async account(id: string, userId?: number) {
     return (await this.db.select().from(copyExecutionAccounts).where(and(eq(copyExecutionAccounts.id, id), userId === undefined ? undefined : eq(copyExecutionAccounts.userId, userId))))[0];
+  }
+  /** The owner-owned policy the latest one-click setup of this account
+   * prepared for the worker signer (its consent bound it), if any. */
+  async setupPolicy(accountId: string, userId: number): Promise<{ id: string; fingerprint: string; agentAddress: string; strategyId: number; agentValidUntil: number } | null> {
+    const [row] = await this.db.select({ intent: copyLiveSetups.intent }).from(copyLiveSetups)
+      .where(and(eq(copyLiveSetups.accountId, accountId), eq(copyLiveSetups.userId, userId), eq(copyLiveSetups.kind, "start"), sql`coalesce(${copyLiveSetups.intent}->>'masterPolicyId', '') <> ''`))
+      .orderBy(desc(copyLiveSetups.createdAt)).limit(1);
+    const intent = row?.intent as { masterPolicyId?: unknown; masterPolicyFingerprint?: unknown; agentAddress?: unknown; strategyId?: unknown; agentValidUntil?: unknown } | undefined;
+    if (!intent || typeof intent.masterPolicyId !== "string" || typeof intent.masterPolicyFingerprint !== "string" || typeof intent.agentAddress !== "string" ||
+      typeof intent.strategyId !== "number" || typeof intent.agentValidUntil !== "number") return null;
+    return { id: intent.masterPolicyId, fingerprint: intent.masterPolicyFingerprint, agentAddress: intent.agentAddress, strategyId: intent.strategyId, agentValidUntil: intent.agentValidUntil };
   }
   async claimCreation(id: string) {
     return this.withLockedAccount(id, async tx => (await tx.update(copyExecutionAccounts).set({ state: "unknown", issue: "verification_pending", updatedAt: new Date(), revision: sql`${copyExecutionAccounts.revision} + 1` })

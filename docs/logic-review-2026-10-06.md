@@ -64,3 +64,31 @@
 2. B 中（lease token）、C 中四項。
 3. B 低的 `signerKind`／孤兒 policy：這決定 `COPY_AUTOMATIC_RETURN` 對一鍵帳戶是否真的有效，上 Stage 前要修。
 4. 其餘 Low 與文件一致性。
+
+## 驗證（側線 session，2026-10-06 14:30，HEAD `4acd1194`，唯讀）
+
+stream 19（`d932e8e4`）與 stream 20（`2618d70c..d01229e0` + `4acd1194`）落地後逐項核對；本機 api／worker 重建於 `7ed62469`，api 程式碼與 HEAD 相同。
+
+| 項目 | 判定 | 證據 |
+| --- | --- | --- |
+| A 死路：start 失敗／過期可取消 | 閉合 | `copy-live-setup.service.ts:465-482`；`endStart`（repo:108-123）只撤未 attempted 的入金、credited 保留、策略 paused→stopped；sweep 允許 `stopped`（`copy-live-return.repository.ts:77`） |
+| A 死路：同 leader 重開 | 閉合 | `service.ts:139-152` 先 `abandonedStarts`→`endAbandoned` 再 create；唯一索引仍在 |
+| A 死路：edit／renew 的 awaiting_consent | 閉合 | `service.ts:260-264` running() 改 cancelled |
+| A 死路：刪帳號 | 閉合 | `account.repository.ts:82-101`；credited 不再擋；餘額用交易所 `isEmpty` |
+| A 死路：abandoned-approval reconciler | 閉合（盲區） | worker tick 每輪 ≤3 個、≥60 s；`approval_unknown`+attemptedAt 查交易所；**停掉的 copy 不再 reconcile**，交易所端已 approve 的 agent 留到 ≤30 天到期（低風險） |
+| A 前端：接回確認單、重新開始／取消 | 閉合 | `live-copy-setup-dialogs.tsx:114-158`、`copy-panel.tsx` endedSetup、`live-copy-actions.tsx:36-76`；portfolio 回 `consent` |
+| B 中：lease token | 閉合 | 0068，`release where lease_token = mine` |
+| B 低：signerKind／孤兒 policy | 閉合 | confirm 時瀏覽器 addSigners、api 以 Privy 核對（`service.ts:305-327`） |
+| B 低：worker 退出碼、paper stop 守衛 | 閉合（退出碼 901bb88e）／paper stop 守衛未在本批（待確認） | `process-guards.ts:36-42` |
+| C 中：panelSetups key、冪等 key store、刪除提示、stage 文案 | 閉合 | `copy-panel.tsx` usePanelSetup；`copy-live-setup.ts:74-101`；`account-deleted-toast.tsx`；11 語齊 |
+| C 低：section boundary、healthcheck 路徑 | 閉合（部分） | `resetQueries({predicate: observers===0})` 範圍過寬且共用 query 不重置；healthcheck 限 `/` |
+| D 資安 Low：文案、marker key、tombstone 文案 | 閉合 | 882657da、08e74bd8（v2 key + PREVIOUS_KEYS）、2aca05e5 |
+
+殘留與新發現：
+1. **（中，需 prod build 確認）404 頁 SSR HTML body 為空、title 為 layout 的**：`/zh-TW/trader/<隨機>` 回 404 但內容只在 RSC payload；`not-found.tsx:10-13` 註解宣稱的 title 順序在 dev 不成立。可能是 dev 的 CSR fallback；e2e 用 hydrate 後的 h1 抓不到。
+2. （低）停掉的 copy 其 `approval_unknown` agent 不再 reconcile；其他 leader 的被放棄 paused 策略仍佔 `strategy_limit` 直到取消。
+3. （低）設定獨立 marker key 之前的舊標記在 Privy 密鑰輪替後仍失配；`docs/account-deletion.md` 說法過寬。
+4. （低）`attachWorker` 20 s 競態：addSigners 仍在飛行而 api 已查 Privy → 記 owner_session，signer 稍後掛上但 DB 無 masterPolicyId，自動返還關閉到下次 edit。
+5. （低）`live-copy-actions.tsx:74` setup 卡在 `provisioning` 時進度框無取消鈕。
+6. （既有）`funding_submitted` 無 deadline（`service.ts:612-617`），入金永遠 accepted 不 credited 時 setup 永不 expired。
+7. 測試缺口：同分頁切帳號無 e2e；404 raw HTML 無測試；api 端 `consentOf`／`abandonedStarts` 無 spec；endStart 遇 active generation、`accepted` 入金的 paused 策略兩條分支無測試。

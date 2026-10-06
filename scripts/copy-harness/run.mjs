@@ -103,8 +103,9 @@ try {
   const main = follower.me.walletAddress;
   check("follower_login", true, `user ${follower.me.id}, main wallet ${main}`);
   const overview = await follower.client.get("/me/copy/live");
-  if (!check("api_testnet_mode", overview.capabilities.automaticExecution && overview.capabilities.sourceNetworks.includes("testnet"),
-    `automaticExecution=${overview.capabilities.automaticExecution}, sources=${overview.capabilities.sourceNetworks.join(",")}`)) await finish(EXIT.failed);
+  // Testnet only: a stack whose copies run on mainnet is refused before anything is prepared.
+  if (!check("api_testnet_mode", overview.network === "testnet" && overview.capabilities.automaticExecution && overview.capabilities.sourceNetworks.includes("testnet") && overview.capabilities.actualAllowed !== false,
+    `network=${overview.network}, automaticExecution=${overview.capabilities.automaticExecution}, sources=${overview.capabilities.sourceNetworks.join(",")}, actualAllowed=${overview.capabilities.actualAllowed ?? "n/a"}`)) await finish(EXIT.failed);
   const mainBefore = await usdc(main);
   log("follower_main", { address: main, perp: mainBefore.perp, spot: mainBefore.spot });
   const gate = fundingGate({ leader: leaderFree, follower: mainBefore.total });

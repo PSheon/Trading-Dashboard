@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { parseLiveSourceFill, liveSourceDigest, reconcileLiveSourceFills, type LiveSourceFillEvidence, type LiveSourceNetwork } from './live/copy-live-source-evidence.js';
 import { address, LiveBoundaryError } from './live/wallet-authorization.js';
 import { boundedLiveRead } from './live/live-market-resolver.js';
+import { settleListAnswer } from '../hyperliquid/hyperliquid-global-transport.js';
 export interface LiveSourceReadRequest { leaderAddress: string; from: number; to: number; maxRequests: number; maxDepth?: number; maxFills?: number; }
 export interface LiveSourceWindow { kind: 'fills' | 'twap'; from: number; to: number; depth: number; }
 export interface LiveSourceWindowObservation extends LiveSourceWindow { observedAt: number; completedAt: number; count: number; responseDigest: string; saturated: boolean; }
@@ -22,6 +23,10 @@ const requestSchema = z.object({ leaderAddress: z.string(), from: integer, to: i
   maxFills: z.number().int().min(1).max(10000).default(10000),
 }).strict();
 const DEADLINE = 5000, ROW_CAP = 2000, POSSIBLE_CAP = 500, BODY_CAP = 2 * 1024 * 1024;
+/** A list read's worst case (base 20 + 1 per 20 of at most 2,000 rows),
+ * acquired up front; the answer's real weight is 20 + 1 per 20 rows. */
+export const SOURCE_READ_WORST_WEIGHT = 120;
+const listWeight = (rows: number) => Math.min(SOURCE_READ_WORST_WEIGHT, 20 + Math.ceil(rows / 20));
 function fail(code: string): never { throw new LiveBoundaryError(code); }
 async function json(response: Response, remaining: () => number, signal: AbortSignal) {
   const declared = Number(response.headers.get('content-length'));
@@ -49,7 +54,10 @@ const ENDPOINTS: Record<LiveSourceNetwork, string> = { testnet: 'https://api.hyp
  * mainnet leader). Operational window completeness never certifies the API's
  * retained history beyond the most recent 10000 fills. */
 export class HyperliquidLiveSourceClient {
-  constructor(readonly network: LiveSourceNetwork, private readonly acquire: (weight: number) => Promise<unknown>, private readonly fetcher: typeof fetch = fetch, private readonly now = Date.now) {
+  /** `refund` gives back acquired weight an answer didn't use (the budget's
+   * `adjust(-weight)`); the shared per-IP meter is settled the same way. */
+  constructor(readonly network: LiveSourceNetwork, private readonly acquire: (weight: number) => Promise<unknown>, private readonly fetcher: typeof fetch = fetch, private readonly now = Date.now,
+    private readonly refund?: (weight: number) => void) {
     if (!['testnet', 'mainnet'].includes(network) || typeof acquire !== 'function') fail('live_source_configuration_invalid');
   }
   async read(input: LiveSourceReadRequest): Promise<LiveSourceReadResult> {
@@ -76,13 +84,18 @@ export class HyperliquidLiveSourceClient {
         requestsUsed++;
         const observedAt = this.now(); let rows: unknown;
         try {
-          await boundedLiveRead(() => this.acquire(120), remaining()); remaining();
+          await boundedLiveRead(() => this.acquire(SOURCE_READ_WORST_WEIGHT), remaining()); remaining();
           const body = { type: window.kind === 'fills' ? 'userFillsByTime' : 'userTwapSliceFillsByTime', user: request.leaderAddress,
             startTime: window.from, endTime: window.to, ...(window.kind === 'fills' ? { aggregateByTime: false } : {}) };
           const response = await boundedLiveRead(() => this.fetcher(ENDPOINTS[this.network], { method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body), redirect: 'error', signal: controller.signal }), remaining());
           if (!response.ok) { void response.body?.cancel().catch(() => undefined); fail('live_source_read_unavailable'); }
-          rows = await json(response, remaining, controller.signal); remaining();
+          rows = await json(response, remaining, controller.signal);
+          if (Array.isArray(rows)) {
+            settleListAnswer(response, rows.length);
+            try { this.refund?.(SOURCE_READ_WORST_WEIGHT - listWeight(rows.length)); } catch { /* accounting only */ }
+          }
+          remaining();
         } catch { rest(window, fresh() ? 'read_unavailable' : 'evidence_expired'); break; }
         if (!Array.isArray(rows) || rows.length > ROW_CAP) fail('live_source_response_invalid');
         const additions = new Map<string, LiveSourceFillEvidence>();

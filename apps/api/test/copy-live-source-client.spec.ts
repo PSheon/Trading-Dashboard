@@ -81,4 +81,12 @@ describe('bounded fixed-network source reads', () => {
     const result=await client((async(_url,init)=>Response.json(JSON.parse(String(init?.body)).type==='userFillsByTime'?[ordinary]:[])) as typeof fetch).read(req());
     expect(result.complete).toBe(false);expect(result.fills).toEqual([]);expect(result.unresolved.some(w=>w.reason==='twap_identity_unproven')).toBe(true);
   });
+  it('gives back the weight an answer did not use (120 acquired, 20 + 1 per 20 rows spent)', async () => {
+    const refund = vi.fn(), budget = acquire();
+    const fetcher = (async (_url: unknown, init?: RequestInit) => Response.json(JSON.parse(String(init?.body)).type === 'userFillsByTime'
+      ? Array.from({ length: 45 }, (_, i) => fill(i + 1, 1000 + i)) : [])) as typeof fetch;
+    const result = await new HyperliquidLiveSourceClient('testnet', budget, fetcher, () => 2100, refund).read(req());
+    expect(result.complete).toBe(true); expect(budget.mock.calls).toEqual([[120], [120]]);
+    expect(refund.mock.calls).toEqual([[120 - 23], [120 - 20]]);
+  });
 });

@@ -14,7 +14,11 @@ import type { DbExecutor } from "../db/unit-of-work.js";
  * window, so deleting and signing up again can't farm invites.
  *
  * The key is its own secret, ACCOUNT_DELETION_MARKER_KEY, so rotating the
- * Privy app secret leaves the markers alone. Rotating the marker key keeps
+ * Privy app secret leaves the markers made under it alone. Markers made
+ * before it was set used the key derived from the *current* PRIVY_APP_SECRET
+ * (else AUTH_SERVICE_TOKEN): rotating that secret drops their key from the
+ * list, and they stop matching (fail open) until they expire;
+ * PREVIOUS_KEYS can't bring them back (its values derive the v2 way). Rotating the marker key keeps
  * the old one in ACCOUNT_DELETION_MARKER_PREVIOUS_KEYS (comma-separated)
  * until RETENTION_ACCOUNT_DELETION_DAYS have passed: new markers use the
  * current key, and a returning identity is matched under every key. The key

@@ -95,7 +95,9 @@
 - 原本的邀請關係以「已刪除的使用者」計一次，不會重複計算；已刪除使用者的邀請碼保留在墓碑下（停用）或刪除，都無法再被綁定。
 - 目前沒有任何邀請獎勵入帳程式，所以不會有獎勵記到墓碑；日後實作入帳時必須跳過已停用／墓碑的使用者。
 - 雜湊由保留作業的 `account_deletion_markers` 在 365 天後刪除。
-- 金鑰輪換：新雜湊一律用目前的 `ACCOUNT_DELETION_MARKER_KEY`；舊金鑰放進 `ACCOUNT_DELETION_MARKER_PREVIOUS_KEYS`（逗號分隔）保留一個保留期，比對時每把金鑰都會試。由 `PRIVY_APP_SECRET` 導出的舊金鑰永遠在比對清單裡，所以第一次設定 `ACCOUNT_DELETION_MARKER_KEY` 不會讓既有雜湊失配；之後輪換 Privy 密鑰也不再影響這些雜湊。
+- 金鑰輪換：新雜湊一律用目前的 `ACCOUNT_DELETION_MARKER_KEY`；舊金鑰放進 `ACCOUNT_DELETION_MARKER_PREVIOUS_KEYS`（逗號分隔）保留一個保留期，比對時每把金鑰都會試。由**目前的** `PRIVY_APP_SECRET`（否則 `AUTH_SERVICE_TOKEN`）導出的金鑰永遠在比對清單裡，所以第一次設定 `ACCOUNT_DELETION_MARKER_KEY` 不會讓既有雜湊失配。
+  - 設定 `ACCOUNT_DELETION_MARKER_KEY` **之後**寫入的雜湊不受 Privy 密鑰輪換影響。
+  - 設定**之前**寫入的雜湊仍是用 Privy 密鑰導出的金鑰算的：輪換 `PRIVY_APP_SECRET`（或在沒有它時輪換 `AUTH_SERVICE_TOKEN`）之後，清單裡只剩新密鑰導出的金鑰，這些舊雜湊就再也比對不到（fail open：那些身分可以重新綁定邀請），直到它們在 365 天後被刪除。`ACCOUNT_DELETION_MARKER_PREVIOUS_KEYS` 救不回它們（那裡的值是以 v2 方式導出，不是 Privy 導出的 v1 金鑰）。要保住它們，就在這批雜湊過期之前不要輪換該密鑰。
 
 ## Privy 那邊不刪
 

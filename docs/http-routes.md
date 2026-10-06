@@ -119,7 +119,7 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | GET | `/me/copy/live/setups/:id` | 200 | user (owner); read only |
 | POST | `/me/copy/live/setups/:id/confirm` | 200 | user (owner); the setup consent, the deposit signature and a fresh session; one deposit attempt |
 | POST | `/me/copy/live/setups/:id/advance` | 200 | user (owner); fresh session signs the next consented step; attempted steps are only reconciled |
-| POST | `/me/copy/live/setups/:id/cancel` | 200 | user (owner); only before the deposit was sent |
+| POST | `/me/copy/live/setups/:id/cancel` | 200 | user (owner); before the consent, or once the setup failed or expired |
 | PATCH | `/me/copy/live/strategies/:id` | 200 | user (owner); a new generation under one setup consent |
 | POST | `/me/copy/live/strategies/:id/renew` | 200 | user (owner); last three days of the lifetime; a new agent and generation under one setup consent |
 | GET | `/me/copy/live/portfolio` | 200 | user (owner); testnet copies with their funding and stop stage; read only |

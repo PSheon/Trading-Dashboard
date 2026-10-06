@@ -4047,6 +4047,7 @@
     },
     "/me/copy/live/setups/{id}/cancel": {
       "post": {
+        "description": "Before its consent was confirmed (the reserved deposit is cancelled), or once it failed or expired. A start that never ran a generation stops its copy; a deposit that arrived stays in the copy account and is returned to the main wallet from the portfolio. 409 funding_pending while a confirmed setup is still going.\n\nAccess: user (owner); before the consent, or once the setup failed or expired\n\nError codes: funding_pending",
         "operationId": "CopyLiveSetupController_cancel",
         "parameters": [
           {
@@ -4790,7 +4791,7 @@
             }
           }
         },
-        "summary": "Cancel a setup before its deposit was sent",
+        "summary": "Cancel or end a setup",
         "tags": [
           "CopyLiveSetup"
         ],
@@ -4801,7 +4802,6 @@
         ],
         "x-required-permissions": [],
         "x-required-roles": [],
-        "description": "Access: user (owner); only before the deposit was sent\n\nError codes: funding_pending",
         "x-error-codes": [
           "funding_pending"
         ]

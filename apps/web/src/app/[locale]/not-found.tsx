@@ -1,7 +1,7 @@
 import { Link } from "@/i18n/navigation";
 
 import { OrbieMark } from "@/components/brand/logo";
-import { buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button-variants";
 import { getLocale, getMessages } from "@/i18n/server";
 import { APP_NAME } from "@/lib/config";
 

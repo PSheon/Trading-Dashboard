@@ -9,7 +9,7 @@ import { AreaChart } from "@/components/charts/area-chart";
 import { boardName, HScroll, TraderAvatar, VerifiedTick } from "@/components/discover/board-bits";
 import { HomeCard, HomeCardSkeleton } from "@/components/discover/board-card";
 import { ErrorState, SkelBar, SkelCircle, Skeleton } from "@/components/page";
-import { buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button-variants";
 import { SiteFooter } from "@/components/shell/site-footer";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { useI18n } from "@/i18n/provider";

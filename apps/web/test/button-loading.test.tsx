@@ -47,3 +47,12 @@ it("is an ordinary button when not loading", () => {
   act(() => button().click());
   expect(onClick).toHaveBeenCalledTimes(1);
 });
+
+it("is a client component, and its styles are importable by server components (the 404 page)", async () => {
+  const [{ readFileSync }, { join }] = await Promise.all([import("node:fs"), import("node:path")]);
+  const read = (file: string) => readFileSync(join(process.cwd(), "src/components/ui", file), "utf8");
+  // `loading` keeps state: rendered from a server component (not-found.tsx)
+  // without the directive, every 404 crashed (CI run 37418783090).
+  expect(read("button.tsx").trimStart().startsWith('"use client"')).toBe(true);
+  expect(read("button-variants.ts")).not.toMatch(/^\s*["']use client["']/);
+});

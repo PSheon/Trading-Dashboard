@@ -6,7 +6,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 
-import { buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button-variants";
 import { Drawer } from "@/components/ui/drawer";
 import { useI18n } from "@/i18n/provider";
 import { api } from "@/lib/api";

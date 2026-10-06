@@ -102,12 +102,6 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | GET | `/me/referral/claims/by-key/:key` | 200 | user (owner); original read-only request recovery |
 | POST | `/me/referral/claims` | 200 | user (owner); existing request recovery; new payout unavailable |
 | GET | `/referral/check/:code` | 200 | public; code validity only |
-| POST | `/me/copy/live/strategies` | 200 | user (owner); fresh paused testnet configuration |
-| GET | `/me/copy/live/strategies/by-key/:key` | 200 | user (owner); original local idempotency key |
-| GET | `/me/copy/live/mandates/by-key/:key` | 200 | user (owner); original local idempotency key; read only |
-| GET | `/me/copy/live/mandates/:id/challenge` | 200 | user (owner); original persisted consent intent; read only |
-| POST | `/me/copy/live/execution-wallets/:id/mandates` | 200 | user (owner); exact current verified agent binding |
-| POST | `/me/copy/live/mandates/:id/approve` | 200 | user (owner); exact owner consent; the copy starts once funded when automatic testnet execution is on |
 | POST | `/me/copy/live/mandates/:id/pause` | 200 | user (owner); local new-risk barrier |
 | POST | `/me/copy/live/mandates/:id/resume` | 200 | user (owner); no signature within the generation's lifetime |
 | POST | `/me/copy/live/mandates/:id/revoke` | 200 | user (owner); local consent revocation preserves liabilities |

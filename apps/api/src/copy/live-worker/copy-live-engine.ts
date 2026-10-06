@@ -9,10 +9,10 @@ import { describeUnexpected, errorCode } from '../../runtime/safe-error-text.js'
 import { TERMINAL_STATES, type LiveSettleOutcome, type LiveSettleRequest } from './copy-live-settler.js';
 import type { CopyLiveWorkerRepository, DispatchRow, LiveMandateWork, LiveStreamWork } from './copy-live-worker.repository.js';
 import { openNotionalCeiling, planAdjustments, type PendingLeg } from './copy-live-adjustments.js';
-import { Dec } from '../../common/decimal/dec.js';
 import { MAX_ACCUMULATE_MS } from '../live/copy-live-source-planner.js';
 import type { WatchedMainnetSource } from './watched-mainnet-source.js';
 import type { FastMainnetSource } from './fast-mainnet-source.js';
+import { minOrderNotional } from '../min-order-notional.js';
 
 /** One source read's result, for the logs. */
 export interface IngestOutcome { fast: boolean; fills: number; kind: string; state: string; through: number | null }
@@ -302,7 +302,7 @@ export class CopyLiveEngine {
       legs.push({ id: dispatch.id, sourceFillId: dispatch.sourceFillId, coin: dispatch.coin, leg: dispatch.leg, sign: own.sign, size: own.size, px: fill.px,
         leaderTime: dispatch.leaderTime.getTime(), tid: BigInt(fill.tid), flip: canonical.length > 1, belowMinimum: dispatch.reason === 'below_min_notional' });
     }
-    const limits = await this.deps.repository.limits(), minimum = Dec.max(Dec.from(10), Dec.from(limits.minOrderNotionalUsd)).mul(HOLD_HEADROOM);
+    const limits = await this.deps.repository.limits(), minimum = minOrderNotional(limits).mul(HOLD_HEADROOM);
     const equity = m.sourceNetwork === 'mainnet' && m.budgetUsd && this.deps.leaderEquity && legs.some(leg => leg.leg === 'open')
       ? await this.deps.leaderEquity(m.leaderAddress).catch(() => null) : null;
     // Every merged leg must still be a fresh signal when its order is planned.

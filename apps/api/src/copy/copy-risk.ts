@@ -8,6 +8,7 @@ import { coinDex, coinKey, type CopyRiskLimits, type CopyStrategySettings } from
 
 import { Dec } from "../common/decimal/dec.js";
 import { usd } from "./copy-math.js";
+import { minOrderNotional } from "./min-order-notional.js";
 
 export interface ControlFlags {
   pauseNewRisk: boolean;
@@ -144,7 +145,7 @@ export function evaluateRisk(input: RiskInput): RiskDecision {
   const available = input.strategy.equity.sub(usedMargin);
   clamp(available.mul(leverage), "available_funds");
 
-  if (notional.lt(limits.minOrderNotionalUsd) || !notional.isPositive) {
+  if (notional.lt(minOrderNotional(limits)) || !notional.isPositive) {
     return { ok: false, reason: notes.length ? `below_min_after_${notes[notes.length - 1]}` : "below_min_notional" };
   }
   return { ok: true, notional, margin: usd(notional.div(leverage)), leverage, notes };

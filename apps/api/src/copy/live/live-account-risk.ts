@@ -7,6 +7,7 @@ import { buildOrderAction, executionKey, intentFingerprint, type HyperliquidOrde
 import { effectiveLeverage, strategyExposureCap, symbolRefusal, type ControlFlags } from '../copy-risk.js';
 import { address, LiveBoundaryError } from './wallet-authorization.js';
 import { ceilDecimalProduct } from './live-risk-rounding.js';
+import { minOrderNotional } from '../min-order-notional.js';
 
 export interface LiveRiskIdentity {
   readonly accountId: string; readonly userId: number; readonly strategyId: number;
@@ -317,7 +318,7 @@ function assess(input: LiveAccountRiskInput): LiveAccountRiskAssessment {
     const signalPrice = money(signal.price); requireProof(signalPrice.isPositive, 'live_risk_signal');
     requireProof(mid.sub(signalPrice).abs().div(signalPrice).mul(10000).lte(limits.maxSlippageBps) &&
       px.sub(mid).abs().div(mid).mul(10000).lte(limits.maxSlippageBps), 'price_moved');
-    requireProof(size.mul(px).gte(Dec.max(Dec.from(10), Dec.from(limits.minOrderNotionalUsd))), 'below_min_notional');
+    requireProof(size.mul(px).gte(minOrderNotional(limits)), 'below_min_notional');
     requireProof(notional.lte(limits.maxOrderNotionalUsd), 'max_order');
     requireProof(settings.sizingMode !== 'fixed' || settings.perTradeUsd !== null && size.mul(px).lte(settings.perTradeUsd), 'fixed_trade_size');
     requireProof(positions.every(p => p.leverage <= Math.min(limits.maxLeverage, settings.maxLeverage ?? limits.maxLeverage, p.maxLeverage)), 'live_risk_leverage');

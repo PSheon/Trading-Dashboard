@@ -7,6 +7,7 @@ import type { AssetMap, Mids } from "./copy-market.service.js";
 import { cloidOf, dec, floorSize, usd } from "./copy-math.js";
 import { evaluateRisk, symbolRefusal } from "./copy-risk.js";
 import { CopyRepository, type ControlRow, type OrderRow, type PositionRow, type StrategyRow } from "./copy.repository.js";
+import { minOrderNotional } from "./min-order-notional.js";
 
 export interface PolicyInForce {
   version: number;
@@ -218,7 +219,7 @@ export class CopyOrderPlanner {
 
     const size = floorSize(decision.notional.div(px), asset.szDecimals);
     const notional = size.mul(px);
-    if (!size.isPositive || notional.lt(o.policy.limits.minOrderNotionalUsd)) return reject("below_min_after_rounding", size);
+    if (!size.isPositive || notional.lt(minOrderNotional(o.policy.limits))) return reject("below_min_after_rounding", size);
     const order = await this.repository.insertOrder(tx, {
       ...base,
       size: dec(size),

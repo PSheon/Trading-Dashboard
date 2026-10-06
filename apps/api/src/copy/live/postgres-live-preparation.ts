@@ -24,6 +24,7 @@ import { LiveProviderReadEpoch } from './live-provider-read-epoch.js';
 import { assertLiveSourcePrice, compareMergedLegs, MAX_MERGED_LEGS } from './copy-live-source-planner.js';
 import type { LiveSourceReferenceReader } from './live-source-reference.js';
 import type { LiveSourceReferenceV1 } from './copy-live-sizing-evidence.js';
+import { minOrderNotional } from '../min-order-notional.js';
 
 export interface LivePreparationBinding {
   readonly accountId: string; readonly mandateId: string; readonly sourceFillId: string; readonly leg: 'open' | 'close';
@@ -186,7 +187,7 @@ export class PostgresLivePreparation {
     // A merged open below the exchange minimum is refused here, before any
     // journal or nonce claims its identity, so its legs can keep accumulating
     // (a single leg keeps the risk gate's refusal after its journal).
-    if (source.members.length && !plan.order.reduceOnly && Dec.from(plan.order.size).mul(plan.order.limitPrice).lt(Dec.max(Dec.from(10), Dec.from(local.limits.minOrderNotionalUsd))))
+    if (source.members.length && !plan.order.reduceOnly && Dec.from(plan.order.size).mul(plan.order.limitPrice).lt(minOrderNotional(local.limits)))
       throw new LiveBoundaryError('below_min_notional');
     const intent: LiveOrderIntent = { authorizationId: local.grant.id, userId: local.account.userId, strategyId: local.strategy.id, walletId: local.wallet.privyWalletId,
       network: 'testnet', accountAddress: address(local.account.address!), cloid, asset: plan.order.asset, side: plan.order.side, size: plan.order.size, limitPrice: plan.order.limitPrice,

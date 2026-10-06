@@ -13,6 +13,10 @@ export interface LiveSetupText {
   progressTitle: string; stages: { wallet: string; deposit: string; credited: string; mode: string; agent: string; builder: string; start: string; generation: string };
   done: string; failed: string; expired: string; cancelled: string; closeSafeWorker: string; closeSafeOwner: string; close: string; retry: string; portfolio: string;
   waitingCredit: string; waitingSession: string; signingCopyWallet: string;
+  /** A setup that ended or whose consent lapsed: start it again, or end it. */
+  restart: string; cancelSetup: string; consentLapsed: string; consentLapsedHint: string; depositStays: string;
+  /** The trader panel's testnet card: its stage cell, and a consent still due. */
+  status: string; awaitingConsent: string;
   errors: Record<'consent_expired' | 'invalid_consent' | 'setup_unavailable' | 'insufficient_main_balance' | 'funding_pending' | 'setup_wallet_conflict' | 'setup_funding_rejected' |
     'setup_account_mode_failed' | 'setup_agent_rejected' | 'setup_builder_rejected' | 'setup_expired' | 'signature_rejected' | 'copy_wallet_unavailable' | 'wallet_not_ready' |
     'wallet_signing_failed' | 'master_action_changed' | 'owner_signature_invalid' | 'generic', string>;
@@ -33,6 +37,7 @@ const en: LiveSetupText = {
   done: 'Copying has started', failed: 'Setup did not finish', expired: 'Setup timed out', cancelled: 'Cancelled',
   closeSafeWorker: 'You can close this window; setup continues in the background.', closeSafeOwner: 'Closing pauses the setup. Continue it any time from Portfolio with “Continue setup”.',
   close: 'Close', retry: 'Try again', portfolio: 'Go to portfolio', waitingCredit: 'Waiting for Hyperliquid to credit the deposit…', waitingSession: 'Waiting for you to continue…', signingCopyWallet: 'Confirming this step with your copy wallet…',
+  restart: 'Start again', cancelSetup: 'Cancel setup', consentLapsed: 'Confirmation expired', consentLapsedHint: 'This setup wasn’t confirmed in time. Start it again with the same terms, or cancel it.', depositStays: 'The deposit that arrived stays in the copy wallet. Return it to your main wallet from Portfolio.', status: 'Status', awaitingConsent: 'Awaiting your confirmation',
   errors: { consent_expired: 'The confirmation expired. Try again.', invalid_consent: 'The signature was not accepted.', setup_unavailable: 'Testnet copy is not available right now.',
     insufficient_main_balance: 'Not enough USDC in your main wallet on testnet.', funding_pending: 'Another deposit is still being processed.', setup_wallet_conflict: 'Your wallet changed. Start again.',
     setup_funding_rejected: 'The deposit was refused.', setup_account_mode_failed: 'The copy account could not be set up.', setup_agent_rejected: 'The trading agent was refused.',
@@ -56,6 +61,7 @@ const zhTW: LiveSetupText = {
   done: '跟單已開始', failed: '設定未完成', expired: '設定已逾時', cancelled: '已取消',
   closeSafeWorker: '可以關閉此視窗，設定會在背景繼續。', closeSafeOwner: '關閉後設定會暫停，之後在投資組合點「繼續設定」即可接續。',
   close: '關閉', retry: '重試', portfolio: '前往投資組合', waitingCredit: '等待 Hyperliquid 入帳…', waitingSession: '等待你繼續…', signingCopyWallet: '正在以跟單錢包確認這一步…',
+  restart: '重新開始', cancelSetup: '取消設定', consentLapsed: '確認已逾時', consentLapsedHint: '這份設定沒有在時限內確認。可以用相同條件重新開始，或取消這份設定。', depositStays: '已入帳的 USDC 留在跟單錢包，可在投資組合「全部返還主錢包」。', status: '狀態', awaitingConsent: '等待你確認',
   errors: { consent_expired: '確認已逾時，請再試一次。', invalid_consent: '簽署未被接受。', setup_unavailable: '測試網跟單暫時無法使用。',
     insufficient_main_balance: '主錢包的測試網 USDC 不足。', funding_pending: '已有一筆入金正在處理。', setup_wallet_conflict: '錢包狀態已改變，請重新開始。',
     setup_funding_rejected: '入金被拒絕。', setup_account_mode_failed: '跟單帳戶設定失敗。', setup_agent_rejected: '交易代理授權被拒絕。',
@@ -76,6 +82,7 @@ const zhCN: LiveSetupText = {
   progressTitle: '正在设置跟单', stages: { wallet: '准备钱包', deposit: '入金已发送', credited: '已到账', mode: '账户设置', agent: '交易代理授权', builder: '费用授权', start: '开始跟单', generation: '应用新设置' },
   done: '跟单已开始', failed: '设置未完成', expired: '设置已超时', cancelled: '已取消', closeSafeWorker: '可以关闭此窗口，设置会在后台继续。',
   closeSafeOwner: '关闭后设置会暂停，之后在投资组合点「继续设置」即可接续。', close: '关闭', retry: '重试', portfolio: '前往投资组合', waitingCredit: '等待 Hyperliquid 到账…', waitingSession: '等待你继续…', signingCopyWallet: '正在用跟单钱包确认这一步…',
+  restart: '重新开始', cancelSetup: '取消设置', consentLapsed: '确认已超时', consentLapsedHint: '这份设置没有在时限内确认。可以用相同条件重新开始，或取消这份设置。', depositStays: '已到账的 USDC 留在跟单钱包，可在投资组合“全部返还主钱包”。', status: '状态', awaitingConsent: '等待你确认',
   errors: { consent_expired: '确认已超时，请重试。', invalid_consent: '签名未被接受。', setup_unavailable: '测试网跟单暂时无法使用。', insufficient_main_balance: '主钱包的测试网 USDC 不足。',
     funding_pending: '已有一笔入金正在处理。', setup_wallet_conflict: '钱包状态已改变，请重新开始。', setup_funding_rejected: '入金被拒绝。', setup_account_mode_failed: '跟单账户设置失败。',
     setup_agent_rejected: '交易代理授权被拒绝。', setup_builder_rejected: '费用授权被拒绝。', setup_expired: '设置已超时。可在投资组合提取入金，或重新开始。', signature_rejected: '已取消签名。',
@@ -96,6 +103,7 @@ const ja: LiveSetupText = {
   done: 'コピーを開始しました', failed: '設定が完了しませんでした', expired: '設定がタイムアウトしました', cancelled: 'キャンセルしました',
   closeSafeWorker: 'このウィンドウを閉じても、設定はバックグラウンドで続きます。', closeSafeOwner: '閉じると設定は一時停止します。ポートフォリオの「設定を続ける」から再開できます。',
   close: '閉じる', retry: '再試行', portfolio: 'ポートフォリオへ', waitingCredit: 'Hyperliquid の入金確認を待っています…', waitingSession: '再開を待っています…', signingCopyWallet: 'コピー用ウォレットでこのステップを確認しています…',
+  restart: 'やり直す', cancelSetup: '設定をキャンセル', consentLapsed: '確認の期限切れ', consentLapsedHint: 'この設定は期限内に確認されませんでした。同じ条件でやり直すか、キャンセルしてください。', depositStays: '着金した USDC はコピー用ウォレットに残ります。ポートフォリオからメインウォレットに戻せます。', status: '状態', awaitingConsent: '確認待ち',
   errors: { consent_expired: '確認の期限が切れました。もう一度お試しください。', invalid_consent: '署名が受け付けられませんでした。', setup_unavailable: 'テストネットのコピーは現在利用できません。',
     insufficient_main_balance: 'メインウォレットのテストネット USDC が不足しています。', funding_pending: '別の入金を処理中です。', setup_wallet_conflict: 'ウォレットが変わりました。最初からやり直してください。',
     setup_funding_rejected: '入金が拒否されました。', setup_account_mode_failed: 'コピー用アカウントを設定できませんでした。', setup_agent_rejected: 'エージェントの承認が拒否されました。',
@@ -116,6 +124,7 @@ const ko: LiveSetupText = {
   progressTitle: '카피 설정 중', stages: { wallet: '지갑 준비', deposit: '입금 전송', credited: '입금 확인', mode: '계정 설정', agent: '에이전트 승인', builder: '수수료 승인', start: '카피 시작', generation: '새 설정 적용' },
   done: '카피가 시작되었습니다', failed: '설정이 완료되지 않았습니다', expired: '설정 시간이 초과되었습니다', cancelled: '취소됨', closeSafeWorker: '이 창을 닫아도 설정은 백그라운드에서 계속됩니다.',
   closeSafeOwner: '닫으면 설정이 일시 중지됩니다. 포트폴리오의 「설정 계속」에서 이어서 할 수 있습니다.', close: '닫기', retry: '다시 시도', portfolio: '포트폴리오로', waitingCredit: 'Hyperliquid 입금 확인을 기다리는 중…', waitingSession: '계속하기를 기다리는 중…', signingCopyWallet: '카피 지갑으로 이 단계를 확인하는 중…',
+  restart: '다시 시작', cancelSetup: '설정 취소', consentLapsed: '확인 시간 초과', consentLapsedHint: '이 설정은 시간 내에 확인되지 않았습니다. 같은 조건으로 다시 시작하거나 취소하세요.', depositStays: '입금된 USDC는 카피 지갑에 남아 있습니다. 포트폴리오에서 메인 지갑으로 반환하세요.', status: '상태', awaitingConsent: '확인 대기 중',
   errors: { consent_expired: '확인 시간이 지났습니다. 다시 시도하세요.', invalid_consent: '서명이 승인되지 않았습니다.', setup_unavailable: '지금은 테스트넷 카피를 사용할 수 없습니다.', insufficient_main_balance: '메인 지갑의 테스트넷 USDC가 부족합니다.',
     funding_pending: '다른 입금을 처리하는 중입니다.', setup_wallet_conflict: '지갑이 변경되었습니다. 다시 시작하세요.', setup_funding_rejected: '입금이 거부되었습니다.', setup_account_mode_failed: '카피 계정을 설정하지 못했습니다.',
     setup_agent_rejected: '에이전트 승인이 거부되었습니다.', setup_builder_rejected: '수수료 승인이 거부되었습니다.', setup_expired: '설정 시간이 초과되었습니다. 포트폴리오에서 입금을 인출하거나 다시 시작하세요.', signature_rejected: '서명이 취소되었습니다.',
@@ -134,6 +143,7 @@ const es: LiveSetupText = {
   progressTitle: 'Configurando tu copia', stages: { wallet: 'Preparar billeteras', deposit: 'Depósito enviado', credited: 'Depósito acreditado', mode: 'Configuración de la cuenta', agent: 'Agente de trading', builder: 'Aprobación de comisión', start: 'Empezar a copiar', generation: 'Aplicar configuración' },
   done: 'La copia empezó', failed: 'La configuración no terminó', expired: 'La configuración expiró', cancelled: 'Cancelado', closeSafeWorker: 'Puedes cerrar esta ventana; la configuración sigue en segundo plano.',
   closeSafeOwner: 'Al cerrar se pausa la configuración. Continúala cuando quieras desde Portafolio con «Continuar configuración».', close: 'Cerrar', retry: 'Reintentar', portfolio: 'Ir al portafolio', waitingCredit: 'Esperando que Hyperliquid acredite el depósito…', waitingSession: 'Esperando que continúes…', signingCopyWallet: 'Confirmando este paso con tu billetera de copia…',
+  restart: 'Empezar de nuevo', cancelSetup: 'Cancelar configuración', consentLapsed: 'Confirmación vencida', consentLapsedHint: 'Esta configuración no se confirmó a tiempo. Empiézala de nuevo con las mismas condiciones o cancélala.', depositStays: 'El depósito que llegó se queda en la billetera de la copia. Devuélvelo a tu billetera principal desde Portafolio.', status: 'Estado', awaitingConsent: 'Esperando tu confirmación',
   errors: { consent_expired: 'La confirmación expiró. Inténtalo de nuevo.', invalid_consent: 'La firma no fue aceptada.', setup_unavailable: 'La copia en testnet no está disponible ahora.', insufficient_main_balance: 'No hay suficiente USDC de testnet en tu billetera principal.',
     funding_pending: 'Otro depósito todavía se está procesando.', setup_wallet_conflict: 'Tu billetera cambió. Empieza de nuevo.', setup_funding_rejected: 'El depósito fue rechazado.', setup_account_mode_failed: 'No se pudo configurar la cuenta de copia.',
     setup_agent_rejected: 'El agente de trading fue rechazado.', setup_builder_rejected: 'La aprobación de comisión fue rechazada.', setup_expired: 'La configuración expiró. Retira el depósito desde Portafolio o empieza de nuevo.', signature_rejected: 'Se canceló la firma.',
@@ -152,6 +162,7 @@ const pt: LiveSetupText = {
   progressTitle: 'Configurando sua cópia', stages: { wallet: 'Preparar carteiras', deposit: 'Depósito enviado', credited: 'Depósito creditado', mode: 'Configuração da conta', agent: 'Agente de trading', builder: 'Aprovação da taxa', start: 'Começar a copiar', generation: 'Aplicar configurações' },
   done: 'A cópia começou', failed: 'A configuração não terminou', expired: 'A configuração expirou', cancelled: 'Cancelado', closeSafeWorker: 'Você pode fechar esta janela; a configuração continua em segundo plano.',
   closeSafeOwner: 'Fechar pausa a configuração. Continue quando quiser em Portfólio com «Continuar configuração».', close: 'Fechar', retry: 'Tentar de novo', portfolio: 'Ir ao portfólio', waitingCredit: 'Aguardando a Hyperliquid creditar o depósito…', waitingSession: 'Aguardando você continuar…', signingCopyWallet: 'Confirmando esta etapa com sua carteira de cópia…',
+  restart: 'Começar de novo', cancelSetup: 'Cancelar configuração', consentLapsed: 'Confirmação expirada', consentLapsedHint: 'Esta configuração não foi confirmada a tempo. Comece de novo com as mesmas condições ou cancele-a.', depositStays: 'O depósito que chegou fica na carteira da cópia. Devolva-o à sua carteira principal pelo Portfólio.', status: 'Status', awaitingConsent: 'Aguardando sua confirmação',
   errors: { consent_expired: 'A confirmação expirou. Tente de novo.', invalid_consent: 'A assinatura não foi aceita.', setup_unavailable: 'A cópia na testnet não está disponível agora.', insufficient_main_balance: 'Não há USDC de testnet suficiente na sua carteira principal.',
     funding_pending: 'Outro depósito ainda está sendo processado.', setup_wallet_conflict: 'Sua carteira mudou. Comece de novo.', setup_funding_rejected: 'O depósito foi recusado.', setup_account_mode_failed: 'Não foi possível configurar a conta de cópia.',
     setup_agent_rejected: 'O agente de trading foi recusado.', setup_builder_rejected: 'A aprovação da taxa foi recusada.', setup_expired: 'A configuração expirou. Saque o depósito em Portfólio ou comece de novo.', signature_rejected: 'A assinatura foi cancelada.',
@@ -170,6 +181,7 @@ const ru: LiveSetupText = {
   progressTitle: 'Настройка копирования', stages: { wallet: 'Подготовка кошельков', deposit: 'Депозит отправлен', credited: 'Депозит зачислен', mode: 'Настройка аккаунта', agent: 'Торговый агент', builder: 'Одобрение комиссии', start: 'Запуск копирования', generation: 'Новые настройки' },
   done: 'Копирование началось', failed: 'Настройка не завершилась', expired: 'Время настройки истекло', cancelled: 'Отменено', closeSafeWorker: 'Окно можно закрыть: настройка продолжится в фоне.',
   closeSafeOwner: 'Закрытие приостанавливает настройку. Продолжите её в Портфеле кнопкой «Продолжить настройку».', close: 'Закрыть', retry: 'Повторить', portfolio: 'В портфель', waitingCredit: 'Ждём зачисления депозита в Hyperliquid…', waitingSession: 'Ждём, пока вы продолжите…', signingCopyWallet: 'Подтверждаем этот шаг кошельком копирования…',
+  restart: 'Начать заново', cancelSetup: 'Отменить настройку', consentLapsed: 'Срок подтверждения истёк', consentLapsedHint: 'Эта настройка не была подтверждена вовремя. Начните заново на тех же условиях или отмените её.', depositStays: 'Зачисленный депозит остаётся в кошельке копии. Верните его на основной кошелёк в портфеле.', status: 'Статус', awaitingConsent: 'Ждёт вашего подтверждения',
   errors: { consent_expired: 'Срок подтверждения истёк. Попробуйте снова.', invalid_consent: 'Подпись не принята.', setup_unavailable: 'Копирование в тестнете сейчас недоступно.', insufficient_main_balance: 'Недостаточно тестовых USDC в основном кошельке.',
     funding_pending: 'Другой депозит ещё обрабатывается.', setup_wallet_conflict: 'Кошелёк изменился. Начните заново.', setup_funding_rejected: 'Депозит отклонён.', setup_account_mode_failed: 'Не удалось настроить аккаунт копирования.',
     setup_agent_rejected: 'Торговый агент отклонён.', setup_builder_rejected: 'Одобрение комиссии отклонено.', setup_expired: 'Время настройки истекло. Выведите депозит в Портфеле или начните заново.', signature_rejected: 'Подпись отменена.',
@@ -188,6 +200,7 @@ const id: LiveSetupText = {
   progressTitle: 'Menyiapkan copy kamu', stages: { wallet: 'Siapkan dompet', deposit: 'Deposit terkirim', credited: 'Deposit masuk', mode: 'Pengaturan akun', agent: 'Agen trading', builder: 'Persetujuan biaya', start: 'Mulai copy', generation: 'Terapkan pengaturan' },
   done: 'Copy sudah dimulai', failed: 'Pengaturan belum selesai', expired: 'Waktu pengaturan habis', cancelled: 'Dibatalkan', closeSafeWorker: 'Kamu bisa menutup jendela ini; pengaturan tetap berjalan di latar.',
   closeSafeOwner: 'Menutup jendela akan menjeda pengaturan. Lanjutkan kapan saja dari Portofolio lewat «Lanjutkan pengaturan».', close: 'Tutup', retry: 'Coba lagi', portfolio: 'Ke portofolio', waitingCredit: 'Menunggu Hyperliquid mengkreditkan deposit…', waitingSession: 'Menunggu kamu melanjutkan…', signingCopyWallet: 'Mengonfirmasi langkah ini dengan dompet copy kamu…',
+  restart: 'Mulai lagi', cancelSetup: 'Batalkan pengaturan', consentLapsed: 'Konfirmasi kedaluwarsa', consentLapsedHint: 'Pengaturan ini tidak dikonfirmasi tepat waktu. Mulai lagi dengan ketentuan yang sama, atau batalkan.', depositStays: 'Setoran yang sudah masuk tetap di dompet salinan. Kembalikan ke dompet utama dari Portofolio.', status: 'Status', awaitingConsent: 'Menunggu konfirmasi Anda',
   errors: { consent_expired: 'Konfirmasi kedaluwarsa. Coba lagi.', invalid_consent: 'Tanda tangan tidak diterima.', setup_unavailable: 'Copy testnet sedang tidak tersedia.', insufficient_main_balance: 'USDC testnet di dompet utama kamu tidak cukup.',
     funding_pending: 'Ada deposit lain yang masih diproses.', setup_wallet_conflict: 'Dompet kamu berubah. Mulai lagi.', setup_funding_rejected: 'Deposit ditolak.', setup_account_mode_failed: 'Akun copy gagal disiapkan.',
     setup_agent_rejected: 'Agen trading ditolak.', setup_builder_rejected: 'Persetujuan biaya ditolak.', setup_expired: 'Waktu pengaturan habis. Tarik depositnya dari Portofolio atau mulai lagi.', signature_rejected: 'Penandatanganan dibatalkan.',
@@ -206,6 +219,7 @@ const vi: LiveSetupText = {
   progressTitle: 'Đang cài đặt sao chép', stages: { wallet: 'Chuẩn bị ví', deposit: 'Đã gửi khoản nạp', credited: 'Đã ghi có', mode: 'Thiết lập tài khoản', agent: 'Ủy quyền agent', builder: 'Duyệt phí', start: 'Bắt đầu sao chép', generation: 'Áp dụng cài đặt mới' },
   done: 'Đã bắt đầu sao chép', failed: 'Cài đặt chưa hoàn tất', expired: 'Cài đặt đã quá hạn', cancelled: 'Đã hủy', closeSafeWorker: 'Bạn có thể đóng cửa sổ này; cài đặt vẫn tiếp tục ở chế độ nền.',
   closeSafeOwner: 'Đóng sẽ tạm dừng cài đặt. Tiếp tục bất cứ lúc nào trong Danh mục với «Tiếp tục cài đặt».', close: 'Đóng', retry: 'Thử lại', portfolio: 'Đến danh mục', waitingCredit: 'Đang chờ Hyperliquid ghi có khoản nạp…', waitingSession: 'Đang chờ bạn tiếp tục…', signingCopyWallet: 'Đang xác nhận bước này bằng ví sao chép của bạn…',
+  restart: 'Bắt đầu lại', cancelSetup: 'Hủy thiết lập', consentLapsed: 'Xác nhận đã hết hạn', consentLapsedHint: 'Thiết lập này chưa được xác nhận kịp thời. Hãy bắt đầu lại với cùng điều kiện, hoặc hủy nó.', depositStays: 'Khoản nạp đã đến vẫn nằm trong ví sao chép. Hoàn về ví chính từ Danh mục.', status: 'Trạng thái', awaitingConsent: 'Đang chờ bạn xác nhận',
   errors: { consent_expired: 'Xác nhận đã hết hạn. Hãy thử lại.', invalid_consent: 'Chữ ký không được chấp nhận.', setup_unavailable: 'Sao chép testnet hiện không khả dụng.', insufficient_main_balance: 'Ví chính không đủ USDC testnet.',
     funding_pending: 'Một khoản nạp khác đang được xử lý.', setup_wallet_conflict: 'Ví của bạn đã thay đổi. Hãy bắt đầu lại.', setup_funding_rejected: 'Khoản nạp bị từ chối.', setup_account_mode_failed: 'Không thể thiết lập tài khoản sao chép.',
     setup_agent_rejected: 'Ủy quyền agent bị từ chối.', setup_builder_rejected: 'Duyệt phí bị từ chối.', setup_expired: 'Cài đặt đã quá hạn. Rút khoản nạp trong Danh mục hoặc bắt đầu lại.', signature_rejected: 'Đã hủy ký.',
@@ -224,6 +238,7 @@ const tr: LiveSetupText = {
   progressTitle: 'Kopyalama kuruluyor', stages: { wallet: 'Cüzdanları hazırla', deposit: 'Yatırma gönderildi', credited: 'Yatırma geçti', mode: 'Hesap kurulumu', agent: 'İşlem ajanı', builder: 'Ücret onayı', start: 'Kopyalamayı başlat', generation: 'Yeni ayarları uygula' },
   done: 'Kopyalama başladı', failed: 'Kurulum tamamlanmadı', expired: 'Kurulum zaman aşımına uğradı', cancelled: 'İptal edildi', closeSafeWorker: 'Bu pencereyi kapatabilirsiniz; kurulum arka planda sürer.',
   closeSafeOwner: 'Kapatmak kurulumu duraklatır. Portföy\'de «Kuruluma devam et» ile istediğiniz zaman sürdürün.', close: 'Kapat', retry: 'Tekrar dene', portfolio: 'Portföye git', waitingCredit: 'Hyperliquid\'in yatırmayı geçirmesi bekleniyor…', waitingSession: 'Devam etmeniz bekleniyor…', signingCopyWallet: 'Bu adım kopyalama cüzdanınızla onaylanıyor…',
+  restart: 'Yeniden başlat', cancelSetup: 'Kurulumu iptal et', consentLapsed: 'Onayın süresi doldu', consentLapsedHint: 'Bu kurulum zamanında onaylanmadı. Aynı koşullarla yeniden başlatın veya iptal edin.', depositStays: 'Gelen yatırım kopya cüzdanında kalır. Portföy’den ana cüzdanınıza iade edin.', status: 'Durum', awaitingConsent: 'Onayınız bekleniyor',
   errors: { consent_expired: 'Onayın süresi doldu. Tekrar deneyin.', invalid_consent: 'İmza kabul edilmedi.', setup_unavailable: 'Testnet kopyalama şu anda kullanılamıyor.', insufficient_main_balance: 'Ana cüzdanınızda yeterli testnet USDC yok.',
     funding_pending: 'Başka bir yatırma hâlâ işleniyor.', setup_wallet_conflict: 'Cüzdanınız değişti. Baştan başlayın.', setup_funding_rejected: 'Yatırma reddedildi.', setup_account_mode_failed: 'Kopyalama hesabı kurulamadı.',
     setup_agent_rejected: 'İşlem ajanı reddedildi.', setup_builder_rejected: 'Ücret onayı reddedildi.', setup_expired: 'Kurulum zaman aşımına uğradı. Yatırmayı Portföy\'den çekin veya baştan başlayın.', signature_rejected: 'İmza iptal edildi.',

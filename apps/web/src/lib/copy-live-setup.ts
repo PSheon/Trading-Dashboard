@@ -58,20 +58,42 @@ export async function attachWorker(setup: LiveCopySetup, wallet: Pick<WalletSign
 }
 
 /**
+ * The idempotency key of each attempt (`start:<leader>`, `edit:<id>`,
+ * `renew:<id>`, `topup:…`), for the page's life: a remounted panel or row
+ * retries with the same key and the server answers with the same setup.
+ * Scoped to the signed-in identity and session; another session never
+ * reuses them (they are dropped when it changes).
+ */
+const setupKeys = new Map<string, string>();
+let setupKeysScope: string | null = null;
+export function liveSetupScope(identity: string | null): string | null {
+  return identity ? `${identity}#${sessionKey()}` : null;
+}
+function scopedKeys(scope: string | null) {
+  if (scope !== setupKeysScope) { setupKeys.clear(); setupKeysScope = scope; }
+  return setupKeys;
+}
+
+/**
  * One-click start, edit and renewal (docs/one-click-copy-plan-2026-10-05.md):
  * `start` prepares the setup and returns its consent challenge (one key per
  * attempt, reused by a retry so the server answers with the same setup);
  * `confirm` signs the consent and the deposit silently and sends them.
- * A session change between the two aborts.
+ * A session change between the two aborts. `restart` begins a setup that
+ * ended (or whose consent expired) again with the same terms, under a new
+ * key (the server ends the old one); `cancel` ends one that is not running
+ * a step.
  */
 export function useLiveCopySetupActions() {
   const auth = useAuth(), client = useQueryClient();
   // The session as it is now (a sign-in or account switch mid-flow aborts).
   const latest = useRef(auth);
   useLayoutEffect(() => { latest.current = auth; });
-  const keys = useRef(new Map<string, string>());
-  const keyFor = (name: string) => { let value = keys.current.get(name); if (!value) { value = crypto.randomUUID(); keys.current.set(name, value); } return value; };
-  const forget = (name: string) => keys.current.delete(name);
+  const keys = () => scopedKeys(liveSetupScope(latest.current.identity));
+  const keyFor = (name: string) => { const map = keys(); let value = map.get(name); if (!value) { value = crypto.randomUUID(); map.set(name, value); } return value; };
+  const forget = (name: string) => keys().delete(name);
+  /** The attempt names a setup was made under (exact names only). */
+  const namesOf = (setup: Pick<LiveCopySetup, 'kind' | 'strategyId' | 'leaderAddress'>) => setup.kind === 'start' ? [`start:${setup.leaderAddress}`] : [`edit:${setup.strategyId}`, `renew:${setup.strategyId}`];
   const refresh = () => { void client.invalidateQueries({ queryKey: [...queryKeys.copy.all] }); };
   const owner = () => {
     const current = latest.current, wallet = current.wallet, identity = current.identity, session = sessionKey();
@@ -106,12 +128,29 @@ export function useLiveCopySetupActions() {
       await attachWorker(setup, wallet);
       assertSame();
       const result = liveCopySetupSchema.parse(await api.post(`${ROOT}/setups/${encodeURIComponent(setup.id)}/confirm`, body));
-      for (const name of [...keys.current.keys()]) if (name.endsWith(String(setup.strategyId)) || name.startsWith('start:')) forget(name);
+      for (const name of namesOf(setup)) forget(name);
       refresh(); return result;
     },
   });
+  /** Before its consent, or once it failed or expired (a start that never
+   * ran stops; a deposit that arrived is returned from the portfolio). */
   const cancel = useMutation({
-    mutationFn: async (id: string) => { const result = liveCopySetupSchema.parse(await api.post(`${ROOT}/setups/${encodeURIComponent(id)}/cancel`, {})); keys.current.clear(); refresh(); return result; },
+    mutationFn: async (id: string) => {
+      const result = liveCopySetupSchema.parse(await api.post(`${ROOT}/setups/${encodeURIComponent(id)}/cancel`, {}));
+      for (const name of namesOf(result)) forget(name);
+      refresh(); return result;
+    },
+  });
+  /** The same terms again under a new key: a fresh consent challenge. */
+  const restart = useMutation({
+    mutationFn: async (setupOrId: LiveCopySetup | string) => {
+      const setup = typeof setupOrId === 'string' ? liveCopySetupSchema.parse(await api.get(`${ROOT}/setups/${encodeURIComponent(setupOrId)}`)) : setupOrId;
+      for (const name of namesOf(setup)) forget(name);
+      const next = setup.kind === 'start' ? await start.mutateAsync({ leader: setup.leaderAddress, budgetUsd: setup.budgetUsd, settings: setup.settings })
+        : setup.kind === 'edit' ? await edit.mutateAsync({ strategyId: setup.strategyId, budgetUsd: setup.budgetUsd, settings: setup.settings })
+        : await renew.mutateAsync({ strategyId: setup.strategyId });
+      refresh(); return next;
+    },
   });
   /** No signature: the generation's consent covers it. */
   const resume = useMutation({
@@ -126,7 +165,12 @@ export function useLiveCopySetupActions() {
     mutationFn: async ({ accountId, amount }: { accountId: string; amount: string }) => {
       const { wallet, assertSame } = owner(), name = `topup:${accountId}:${amount}`;
       const reserved = await api.post<{ id: string; destination: string; amount: string; nonce: number; status: string }>(`/me/copy/execution-wallets/${encodeURIComponent(accountId)}/funding`, { idempotencyKey: keyFor(name), amount });
-      if (reserved.status !== 'prepared') { forget(name); refresh(); return reserved; }
+      // The same attempt again (this key): already sent, or refused (an error, not a quiet close).
+      if (reserved.status !== 'prepared') {
+        forget(name); refresh();
+        if (reserved.status === 'rejected' || reserved.status === 'cancelled') throw new ApiError(409, 'The deposit was refused', { code: 'setup_funding_rejected' });
+        return reserved;
+      }
       const signature = await wallet.signTypedData(usdSendTypedData(WALLET_NETWORKS.testnet, reserved.destination, reserved.amount, reserved.nonce) as unknown as Eip712TypedData, { silent: true });
       assertSame();
       await api.post(`/me/copy/funding/${encodeURIComponent(reserved.id)}/broadcast`, {});
@@ -134,7 +178,7 @@ export function useLiveCopySetupActions() {
       forget(name); refresh(); return result;
     },
   });
-  return { start, edit, renew, confirm, cancel, resume, pause, topUp };
+  return { start, edit, renew, confirm, cancel, restart, resume, pause, topUp };
 }
 
 /** After a wallet error, how long the dialog waits before signing again. */
@@ -161,7 +205,9 @@ export function useLiveCopySetup(id: string | null) {
   const [walletError, setWalletError] = useState<string | null>(null);
   const query = useQuery<LiveCopySetup>({
     queryKey: [...queryKeys.copy.all, 'live-setup', id, auth.identity, sessionKey()], enabled, retry: false, staleTime: 0,
-    refetchInterval: q => setupTerminal(q.state.data) ? false : 2000,
+    // Ended, or refused for good (signed out, not this owner's: a 4xx): no
+    // more polling. A passing failure (network, 5xx) is asked again later.
+    refetchInterval: q => setupTerminal(q.state.data) || (q.state.error instanceof ApiError && q.state.error.status >= 400 && q.state.error.status < 500) ? false : q.state.error ? 10_000 : 2000,
     queryFn: async ({ signal }): Promise<LiveCopySetup> => {
       const read = liveCopySetupSchema.parse(await api.get(`${ROOT}/setups/${encodeURIComponent(id!)}`, signal));
       const path = `${ROOT}/setups/${encodeURIComponent(id!)}/advance`;

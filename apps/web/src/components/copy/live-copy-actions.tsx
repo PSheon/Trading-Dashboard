@@ -17,7 +17,9 @@ import { signErrorMessage } from "@/lib/wallet";
 
 /**
  * A testnet copy's one-click actions in the portfolio (plan §4 parity):
- * 繼續設定 (the progress dialog of its unfinished setup), 暫停 / 恢復 (no
+ * 繼續設定 (the progress dialog of its unfinished setup, which hands a
+ * consent still due to the confirm sheet), 重新開始 / 取消設定 for a setup
+ * that ended or whose consent lapsed, 暫停 / 恢復 (no
  * signature), 編輯設定 and 續期 (one silent signature behind Orbie's confirm
  * sheet), and 加碼 (a silent UsdSend from the main wallet).
  */
@@ -29,24 +31,34 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [toppingUp, setToppingUp] = useState(false);
+  const [topUpError, setTopUpError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const unfinished = item.setup && !setupTerminal(item.setup) ? item.setup : null;
+  // Waiting for a consent that can no longer be signed: 重新開始 or 取消設定.
+  const lapsed = unfinished?.stage === "awaiting_consent" && item.setup?.consent === null ? unfinished : null;
   const stopped = item.setup && ["failed", "expired"].includes(item.setup.stage) ? item.setup : null;
   const running = item.stage === "active" || item.stage === "paused" || item.stage === "starting";
   const mandateId = item.mandate?.id ?? null;
-  const busy = actions.pause.isPending || actions.resume.isPending || actions.edit.isPending || actions.renew.isPending || actions.topUp.isPending;
-  const fail = (err: unknown) => {
+  const busy = actions.pause.isPending || actions.resume.isPending || actions.edit.isPending || actions.renew.isPending || actions.topUp.isPending || actions.restart.isPending || actions.cancel.isPending;
+  const message = (err: unknown) => {
     const code = apiErrorCode(err);
-    setError(code ? liveSetupError(text, code) : signErrorMessage(err).rejected ? text.errors.signature_rejected : text.errors.generic);
+    return code ? liveSetupError(text, code) : signErrorMessage(err).rejected ? text.errors.signature_rejected : text.errors.generic;
   };
+  const fail = (err: unknown) => setError(message(err));
   const review = (setup: LiveCopySetup) => {
-    if (setup.stage === "awaiting_consent" && setup.consent) { setConfirmError(null); setPendingSetup(setup); }
+    if (setup.stage === "awaiting_consent" && setup.consent) { setConfirmError(null); setProgressId(null); setPendingSetup(setup); }
     else setProgressId(setup.id);
   };
+  const restart = (setup: LiveCopySetup | string) => { setError(null); actions.restart.mutate(setup, { onSuccess: review, onError: fail }); };
+  const cancel = (id: string) => { setError(null); actions.cancel.mutate(id, { onError: fail }); };
   const confirm = async () => {
     if (!pendingSetup) return;
     try { const done = await actions.confirm.mutateAsync(pendingSetup); setPendingSetup(null); setProgressId(done.id); }
-    catch (err) { const code = apiErrorCode(err); setConfirmError(code ? liveSetupError(text, code) : signErrorMessage(err).rejected ? text.errors.signature_rejected : text.errors.generic); }
+    catch (err) {
+      setConfirmError(message(err));
+      // A fresh challenge for the same terms; the owner confirms again.
+      if (apiErrorCode(err) === "consent_expired") actions.restart.mutate(pendingSetup, { onSuccess: (next) => { if (next.consent) setPendingSetup(next); } });
+    }
   };
 
   return (
@@ -57,8 +69,11 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
         </p>
       ) : null}
       {stopped ? <p role="alert" className="text-xs text-warning">{liveSetupError(text, stopped.issue)}</p> : null}
+      {lapsed ? <p className="text-xs text-muted-foreground">{text.consentLapsedHint}</p> : null}
       <div className="flex flex-wrap items-center gap-2">
-        {unfinished ? <Button size="sm" onClick={() => setProgressId(unfinished.id)}>{text.continueSetup}</Button> : null}
+        {unfinished && !lapsed ? <Button size="sm" onClick={() => setProgressId(unfinished.id)}>{text.continueSetup}</Button> : null}
+        {stopped || lapsed ? <Button size="sm" disabled={busy} onClick={() => restart((stopped ?? lapsed)!.id)}>{text.restart}</Button> : null}
+        {stopped || lapsed ? <Button size="sm" variant="secondary" disabled={busy} onClick={() => cancel((stopped ?? lapsed)!.id)}>{text.cancelSetup}</Button> : null}
         {running && mandateId && item.status === "active" ? (
           <Button size="sm" variant="secondary" disabled={busy} onClick={() => actions.pause.mutate(mandateId, { onError: fail })}>{text.pause}</Button>
         ) : null}
@@ -67,7 +82,7 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
         ) : null}
         {running && strategy && !unfinished ? <Button size="sm" variant="secondary" disabled={busy} onClick={() => { setError(null); setEditing(true); }}>{text.edit}</Button> : null}
         {(running || item.stage === "needs_deposit") && item.accountId && !item.pendingTransfer ? (
-          <Button size="sm" variant="secondary" disabled={busy} onClick={() => { setError(null); setToppingUp(true); }}>{text.topUp}</Button>
+          <Button size="sm" variant="secondary" disabled={busy} onClick={() => { setError(null); setTopUpError(null); setToppingUp(true); }}>{text.topUp}</Button>
         ) : null}
         {running && item.renewalDue && !unfinished ? (
           <Button size="sm" disabled={busy} onClick={() => actions.renew.mutate({ strategyId: item.strategyId }, { onSuccess: review, onError: fail })}>{text.renew}</Button>
@@ -79,12 +94,13 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
           onSave={(budgetUsd, settings) => actions.edit.mutate({ strategyId: item.strategyId, budgetUsd, settings }, { onSuccess: (setup) => { setEditing(false); review(setup); }, onError: fail })} />
       ) : null}
       {toppingUp && item.accountId ? (
-        <TopUpDialog pending={actions.topUp.isPending} onClose={() => setToppingUp(false)}
-          onConfirm={(amount) => actions.topUp.mutate({ accountId: item.accountId!, amount }, { onSuccess: () => setToppingUp(false), onError: (err) => { setToppingUp(false); fail(err); } })} />
+        <TopUpDialog pending={actions.topUp.isPending} error={topUpError} onClose={() => setToppingUp(false)}
+          onConfirm={(amount) => { setTopUpError(null); actions.topUp.mutate({ accountId: item.accountId!, amount }, { onSuccess: () => setToppingUp(false), onError: (err) => setTopUpError(message(err)) }); }} />
       ) : null}
       <LiveCopyConfirm setup={pendingSetup} open={pendingSetup !== null} onOpenChange={(open) => { if (!open && !actions.confirm.isPending) setPendingSetup(null); }}
-        onConfirm={() => void confirm()} pending={actions.confirm.isPending} error={confirmError} />
-      <LiveCopyProgress setupId={progressId} open={progressId !== null} onOpenChange={(open) => { if (!open) setProgressId(null); }} />
+        onConfirm={() => void confirm()} pending={actions.confirm.isPending || actions.restart.isPending} error={confirmError} />
+      <LiveCopyProgress setupId={progressId} open={progressId !== null} onOpenChange={(open) => { if (!open) setProgressId(null); }}
+        onConsent={review} onRetry={(setup) => { setProgressId(null); restart(setup); }} />
     </div>
   );
 }
@@ -127,7 +143,8 @@ function EditDialog({ strategy, onClose, onSave, pending }: { strategy: LiveCopy
   );
 }
 
-function TopUpDialog({ onClose, onConfirm, pending }: { onClose: () => void; onConfirm: (amount: string) => void; pending: boolean }) {
+/** 加碼: the amount stays typed when sending fails, with the reason. */
+function TopUpDialog({ onClose, onConfirm, pending, error }: { onClose: () => void; onConfirm: (amount: string) => void; pending: boolean; error: string | null }) {
   const text = useLiveSetupText();
   const [amount, setAmount] = useState("");
   const valid = /^\d+(?:\.\d{1,6})?$/.test(amount) && Number(amount) > 0;
@@ -138,6 +155,7 @@ function TopUpDialog({ onClose, onConfirm, pending }: { onClose: () => void; onC
           <input inputMode="decimal" autoFocus value={amount} onChange={(e) => setAmount(amountInput(e.target.value, amount).slice(0, 12))} className="num h-10 w-32 rounded-xl bg-inset px-3 text-right text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring" placeholder="0" />
         </label>
         <p className="text-xs leading-5 text-muted-foreground">{text.testnetNote} {text.signNote}</p>
+        {error ? <p role="alert" className="text-xs text-negative">{error}</p> : null}
         <Button type="submit" disabled={!valid || pending}>{fill(text.topUpConfirm, { amount: amount || "0" })}</Button>
       </form>
     </Modal>

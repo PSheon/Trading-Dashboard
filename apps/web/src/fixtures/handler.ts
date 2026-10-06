@@ -3,7 +3,7 @@ import { copyExecutionWalletsSchema } from "@trading-dashboard/shared/contracts"
 import { copyFundingOverviewSchema } from "@trading-dashboard/shared/contracts";
 import { adminResolvedWithdrawalSchema, adminUnresolvedWithdrawalsSchema, walletWithdrawalClaimSchema, walletWithdrawalSchema, type WalletWithdrawal } from "@trading-dashboard/shared/contracts";
 import { FIXTURE_WALLET_ADDRESS } from "@/lib/fixture-signer";
-import { fixtureLiveCopy } from "./live-copy";
+import { fixtureLiveCopy, fixtureLiveDeletionBlockers } from "./live-copy";
 import { fixtureKols, previewKols, importKols, saveKol, removeKol } from "./kols";
 import { adminSourcesSchema, importPreviewSchema } from "@trading-dashboard/shared/contracts";
 import { fixtureImportPreview, fixtureCommitImport } from "./import-preview";
@@ -519,6 +519,9 @@ export async function fixtureRequest<T>(
         const strategyIds = ["withdrawal_pending", "referral_claim_pending"].includes(deleteBlock) ? [] : [1];
         throw new ApiError(409, "Something is still in progress; finish it before deleting your account", { code: deleteBlock, strategyIds, blockers: [{ code: deleteBlock, strategyIds }] });
       }
+      // Testnet copies (`?signer=fixture`): as the api, only what is in flight blocks.
+      const blockers = fixtureLiveDeletionBlockers();
+      if (blockers.length) throw new ApiError(409, "Something is still in progress; finish it before deleting your account", { code: blockers[0]!.code, strategyIds: blockers[0]!.strategyIds, blockers });
       favorites.clear();
       resetGroups();
       meLocale = "zh-TW";

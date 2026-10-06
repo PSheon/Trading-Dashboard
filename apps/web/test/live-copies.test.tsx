@@ -14,7 +14,7 @@ import { MASTER_SIGNATURE, withMasterAction } from './master-action-test-utils';
 
 const state = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), sign: vi.fn(), snapshot: null as unknown }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ status: 'signedIn', mode: 'privy', identity: 'owner@email', wallet: { address: `0x${'11'.repeat(20)}`, signTypedData: state.sign, signAsAccount: async () => MASTER_SIGNATURE } }) }));
-vi.mock('@/lib/api', () => ({ api: { get: state.get, post: (...args: unknown[]) => Promise.resolve((state.post as (...a: unknown[]) => unknown)(...args)).then(value => withMasterAction(args[0], value)) }, sessionKey: () => '1' }));
+vi.mock('@/lib/api', async () => ({ ...(await vi.importActual<typeof import('@/lib/api')>('@/lib/api')), api: { get: state.get, post: (...args: unknown[]) => Promise.resolve((state.post as (...a: unknown[]) => unknown)(...args)).then(value => withMasterAction(args[0], value)) }, sessionKey: () => '1' }));
 vi.mock('@/lib/copy-execution-wallets', () => ({ useExecutionWallets: () => ({ data: { accounts: [liveAccount] } }) }));
 vi.mock('@/lib/copy-live', () => ({ useLiveCopyOverview: () => ({ data: { mandates: [{ ...liveMandate, state: 'active' }] } }) }));
 vi.mock('@/lib/copy-follower-snapshot', () => ({ useCopyFollowerSnapshot: () => ({ data: state.snapshot }) }));
@@ -161,4 +161,35 @@ it('a prepared return can be cancelled from the portfolio (its consent key does 
   await act(async () => button('Cancel this return').click()); await settle();
   expect(state.post).toHaveBeenCalledWith(`/me/copy/funding/${id}/cancel`, {});
   expect(container.textContent).not.toContain('The action did not complete');
+});
+
+it('a start that ended after its deposit arrived (no stop to sweep it) offers 全部返還主錢包, signed by the worker on an automatic account', async () => {
+  const operation = { id: '66666666-6666-4666-8666-666666666666', accountId: liveAccount.id, strategyId: liveAccount.strategyId, network: 'testnet', address: liveAccount.address,
+    destination: `0x${'11'.repeat(20)}`, amount: '100', nonce: liveNow, status: 'prepared', canCancel: true, transactionHash: null, creditedAmount: null, fee: null,
+    direction: 'to_main', stopId: null, createdAt: new Date(liveNow).toISOString(), updatedAt: new Date(liveNow).toISOString() };
+  state.post.mockImplementation(async (path: string) => path.endsWith('/returns')
+    ? { operation, consent: { operationId: operation.id, network: 'testnet', account: liveAccount.address, destination: operation.destination, amount: '100', nonce: liveNow, consentExpiresAt: liveNow + 300000 } }
+    : { ...operation, status: 'accepted' });
+  items = [item({ automaticReturn: true, stage: 'sweeping', status: 'stopped', mandate: null, stop: null, sweep: null })];
+  state.snapshot = observed([]);
+  await render();
+  expect(container.textContent).not.toContain('Returning automatically');
+  await act(async () => button('Return all to main wallet').click()); await settle();
+  expect(state.post.mock.calls[0]).toEqual([`/me/copy/live/execution-wallets/${liveAccount.id}/returns`, { idempotencyKey: expect.any(String), amount: 'all' }]);
+  expect(state.post.mock.calls[1]).toEqual([`/me/copy/live/returns/${operation.id}/approve`, {}]);
+  expect(state.sign).not.toHaveBeenCalled();
+});
+
+it('加碼 that fails keeps the dialog and the typed amount, with the reason', async () => {
+  const { ApiError } = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
+  state.post.mockRejectedValue(new ApiError(409, 'busy', { code: 'funding_pending' }));
+  await render('zh-TW');
+  await act(async () => button('加碼').click());
+  const input = () => document.querySelector('[role="dialog"] input') as HTMLInputElement;
+  await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input(), '25'); input().dispatchEvent(new Event('input', { bubbles: true })); });
+  const submit = [...document.querySelectorAll('[role="dialog"] button')].find(b => b.textContent?.includes('25'))!;
+  await act(async () => (submit as HTMLButtonElement).click()); await settle();
+  expect(input()).toBeTruthy();
+  expect(input().value).toBe('25');
+  expect(document.querySelector('[role="dialog"]')!.textContent).toContain('已有一筆入金正在處理');
 });

@@ -13,10 +13,11 @@ import { HedgeNotice } from "@/components/copy/portfolio-parts";
 import { useToast } from "@/components/ui/toast";
 import { UsdcIcon } from "@/components/wallet/bits";
 import { useI18n } from "@/i18n/provider";
+import { liveCopiesMessages } from "@/i18n/live-copies";
 import { apiErrorCode } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useCopyOf, useCopyOverview, useStartCopy } from "@/lib/copy";
-import { useLiveCopyAvailable, useLiveCopySetupActions } from "@/lib/copy-live-setup";
+import { liveSetupScope, useLiveCopyAvailable, useLiveCopySetupActions } from "@/lib/copy-live-setup";
 import { useLiveCopyPortfolio } from "@/lib/copy-live-portfolio";
 import { signErrorMessage, useWallet } from "@/lib/wallet";
 import type { CopyStrategySettings, LiveCopySetup } from "@trading-dashboard/shared/contracts";
@@ -47,18 +48,28 @@ function useCopyMode(identity: string | null): [CopyMode, (mode: CopyMode) => vo
 }
 
 /**
- * The testnet setup this panel is confirming or following, per trader, for
- * the page's life: the panel can remount while a dialog is open (the trader
- * page redraws its layout), and neither the confirm sheet nor the progress
- * dialog may vanish with it.
+ * The testnet setup this panel is confirming or following, per signed-in
+ * person and trader (`<identity>#<session>:<leader>`), for the page's life:
+ * the panel can remount while a dialog is open (the trader page redraws its
+ * layout), and neither the confirm sheet nor the progress dialog may vanish
+ * with it. Another session (signing out, switching accounts in the tab)
+ * never sees them: they are dropped when it changes.
  */
 interface PanelSetup { setup: LiveCopySetup | null; confirmOpen: boolean; progressId: string | null }
 const EMPTY_SETUP: PanelSetup = { setup: null, confirmOpen: false, progressId: null };
 const panelSetups = new Map<string, PanelSetup>();
+let panelSetupScope: string | null = null;
 const panelSetupListeners = new Set<() => void>();
-function usePanelSetup(leader: string): [PanelSetup, (change: Partial<PanelSetup>) => void] {
-  const value = useSyncExternalStore((listener) => { panelSetupListeners.add(listener); return () => panelSetupListeners.delete(listener); }, () => panelSetups.get(leader) ?? EMPTY_SETUP, () => EMPTY_SETUP);
-  return [value, (change) => { panelSetups.set(leader, { ...(panelSetups.get(leader) ?? EMPTY_SETUP), ...change }); panelSetupListeners.forEach((listener) => listener()); }];
+export function usePanelSetup(identity: string | null, leader: string): [PanelSetup, (change: Partial<PanelSetup>) => void] {
+  const scope = liveSetupScope(identity), key = `${scope}:${leader}`;
+  const value = useSyncExternalStore((listener) => { panelSetupListeners.add(listener); return () => panelSetupListeners.delete(listener); },
+    () => (scope && scope === panelSetupScope ? panelSetups.get(key) : undefined) ?? EMPTY_SETUP, () => EMPTY_SETUP);
+  return [value, (change) => {
+    if (!scope) return;
+    if (scope !== panelSetupScope) { panelSetups.clear(); panelSetupScope = scope; }
+    panelSetups.set(key, { ...(panelSetups.get(key) ?? EMPTY_SETUP), ...change });
+    panelSetupListeners.forEach((listener) => listener());
+  }];
 }
 
 /** 測試網 badge, beside where the paper copy shows 模擬. */
@@ -92,7 +103,7 @@ let measureContext: CanvasRenderingContext2D | null = null;
  * 25% / 50% / 75% / 最大 presets and a USDC row instead of the slider.
  */
 export function CopyPanel({ address, sheet = false, leaderPositions, traderName }: { address: string; sheet?: boolean; leaderPositions?: ReadonlyArray<{ coin: string; szi: number }>; traderName?: string }) {
-  const { t, format } = useI18n();
+  const { t, format, locale } = useI18n();
   const toast = useToast();
   const { status, login, identity } = useAuth();
   const overview = useCopyOverview();
@@ -107,7 +118,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
   const live = useLiveCopySetupActions();
   const liveCopies = useLiveCopyPortfolio();
   const liveExisting = liveCopies.data?.items.find((item) => item.leaderAddress === address.toLowerCase() && item.status !== "stopped") ?? null;
-  const [{ setup, confirmOpen, progressId }, updateSetup] = usePanelSetup(address.toLowerCase());
+  const [{ setup, confirmOpen, progressId }, updateSetup] = usePanelSetup(identity, address.toLowerCase());
   const setSetup = (next: LiveCopySetup | null) => updateSetup({ setup: next });
   const setConfirmOpen = (open: boolean) => updateSetup({ confirmOpen: open });
   const setProgressId = (id: string | null) => updateSetup({ progressId: id });
@@ -282,11 +293,26 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
     );
   }
 
+  /** A setup waiting for its consent: back to the confirm sheet. */
+  function reviewSetup(next: LiveCopySetup) {
+    setSetup(next);
+    if (next.stage === "awaiting_consent" && next.consent) { setConfirmError(null); updateSetup({ setup: next, confirmOpen: true, progressId: null }); }
+    else setProgressId(next.id);
+  }
+  /** The same terms again (a fresh consent); the server ends the old setup. */
+  async function restartTestnet(from: LiveCopySetup | string) {
+    try { reviewSetup(await live.restart.mutateAsync(from)); } catch (err) { liveError(err); }
+  }
+  async function cancelTestnet(id: string) {
+    try { await live.cancel.mutateAsync(id); updateSetup({ setup: null, confirmOpen: false, progressId: null }); } catch (err) { liveError(err); }
+  }
+
   const liveDialogs = (
     <>
       <LiveCopyConfirm setup={setup} traderName={traderName} open={confirmOpen} onOpenChange={(open) => { if (!live.confirm.isPending) setConfirmOpen(open); }}
-        onConfirm={() => void confirmTestnet()} pending={live.confirm.isPending || live.start.isPending} error={confirmError} />
-      <LiveCopyProgress setupId={progressId} open={progressId !== null} onOpenChange={(open) => { if (!open) setProgressId(null); }} />
+        onConfirm={() => void confirmTestnet()} pending={live.confirm.isPending || live.start.isPending || live.restart.isPending} error={confirmError} />
+      <LiveCopyProgress setupId={progressId} open={progressId !== null} onOpenChange={(open) => { if (!open) setProgressId(null); }}
+        onConsent={reviewSetup} onRetry={(ended) => void restartTestnet(ended)} />
     </>
   );
 
@@ -327,13 +353,44 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
 
   const hedgeNotice = hedge ? <HedgeNotice trader={traderName || truncateAddress(address)} coins={hedge.coins} onDismiss={() => setHedge(null)} /> : null;
 
+  // A testnet start of this trader that ended without copying (failed,
+  // expired) or whose consent lapsed: not 跟單中, but 重新開始 / 取消設定.
+  const endedSetup = liveExisting?.setup && liveExisting.setup.kind === "start" &&
+    (["failed", "expired"].includes(liveExisting.setup.stage) || (liveExisting.setup.stage === "awaiting_consent" && !liveExisting.setup.consent)) ? liveExisting.setup : null;
+  // One still waiting for the owner's consent: 繼續設定 reopens the confirm sheet.
+  const consentSetup = liveExisting?.setup?.stage === "awaiting_consent" && liveExisting.setup.consent ? liveExisting.setup : null;
+  if (testnet && liveExisting && endedSetup && !started) {
+    const lapsed = endedSetup.stage === "awaiting_consent";
+    const busy = live.restart.isPending || live.cancel.isPending;
+    return (
+      <Shell sheet={sheet}>
+        {modePill}
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[0.9375rem] font-bold">{lapsed ? liveText.consentLapsed : endedSetup.stage === "expired" ? liveText.expired : liveText.failed}</p>
+          <TestnetBadge label={liveText.testnet} />
+        </div>
+        <p role={lapsed ? undefined : "alert"} className="flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning">
+          <TriangleAlert className="mt-px size-3.5 shrink-0" />{lapsed ? liveText.consentLapsedHint : liveSetupError(liveText, endedSetup.issue)}
+        </p>
+        <button type="button" disabled={busy} onClick={() => void restartTestnet(endedSetup.id)}
+          className="orbit-press flex h-14 w-full items-center justify-center gap-2 rounded-full bg-primary px-8 font-display text-lg text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">
+          {liveText.restart}
+        </button>
+        <button type="button" disabled={busy} onClick={() => void cancelTestnet(endedSetup.id)}
+          className="min-h-11 rounded-full bg-inset text-sm font-bold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">{liveText.cancelSetup}</button>
+        {liveDialogs}
+      </Shell>
+    );
+  }
+
   // A testnet copy of this trader: its stage and budget, managed in the portfolio.
+  const settingUp = Boolean(liveExisting?.setup && liveExisting.setup.kind === "start" && !["running", "failed", "expired", "cancelled"].includes(liveExisting.setup.stage));
   if (testnet && liveExisting && !started) {
     return (
       <Shell sheet={sheet}>
         {modePill}
         <div className="flex items-center justify-between gap-2">
-          <p className="text-[0.9375rem] font-bold">{liveText.copying}</p>
+          <p className="text-[0.9375rem] font-bold">{settingUp ? liveText.progressTitle : liveText.copying}</p>
           <TestnetBadge label={liveText.testnet} />
         </div>
         <dl className="grid grid-cols-2 gap-2 rounded-xl bg-inset p-3 text-center">
@@ -342,15 +399,22 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
             <dd className="num mt-1 text-sm font-bold">{format.usd(Number(liveExisting.budgetUsd), { digits: 2 })}</dd>
           </div>
           <div>
-            <dt className="text-[11px] text-muted-foreground">{t("trader.copy.positions")}</dt>
-            <dd className="mt-1 text-sm font-bold">{liveExisting.setup && !["running", "failed", "expired", "cancelled"].includes(liveExisting.setup.stage) ? liveText.preparing : liveExisting.stage}</dd>
+            <dt className="text-[11px] text-muted-foreground">{liveText.status}</dt>
+            <dd className="mt-1 text-sm font-bold">{consentSetup ? liveText.awaitingConsent : liveExisting.setup && !["running", "failed", "expired", "cancelled"].includes(liveExisting.setup.stage) ? liveText.preparing : liveCopiesMessages[locale].stages[liveExisting.stage]}</dd>
           </div>
         </dl>
+        {consentSetup ? (
+          <button type="button" disabled={live.start.isPending} onClick={() => setProgressId(consentSetup.id)}
+            className="orbit-press flex h-14 w-full items-center justify-center gap-2 rounded-full bg-primary px-8 font-display text-lg text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            {liveText.continueSetup}
+          </button>
+        ) : null}
         <Link
           href="/portfolio"
-          className="orbit-press flex h-14 w-full items-center justify-center gap-2 rounded-full bg-primary px-8 font-display text-lg text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className={consentSetup ? "flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-inset text-sm font-bold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
+            : "orbit-press flex h-14 w-full items-center justify-center gap-2 rounded-full bg-primary px-8 font-display text-lg text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"}
         >
-          <Check className="size-5" strokeWidth={2.5} />
+          {consentSetup ? null : <Check className="size-5" strokeWidth={2.5} />}
           {liveText.manage}
         </Link>
         {liveDialogs}

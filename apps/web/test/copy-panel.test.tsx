@@ -14,8 +14,8 @@ vi.mock("../src/lib/copy", () => ({
 }));
 const copy = vi.hoisted(() => ({ existing: undefined as unknown, enabled: true, status: "signedIn", balance: 1000 }));
 // Testnet copy is off here (no `automaticExecution`): the panel is the paper one.
-vi.mock("../src/lib/copy-live-setup", () => ({ useLiveCopyAvailable: () => false, setupTerminal: () => false, useLiveCopySetup: () => ({ data: undefined }),
-  useLiveCopySetupActions: () => ({ start: { isPending: false }, confirm: { isPending: false } }) }));
+vi.mock("../src/lib/copy-live-setup", () => ({ useLiveCopyAvailable: () => false, setupTerminal: () => false, liveSetupScope: () => null, useLiveCopySetup: () => ({ data: undefined }),
+  useLiveCopySetupActions: () => ({ start: { isPending: false }, confirm: { isPending: false }, restart: { isPending: false }, cancel: { isPending: false } }) }));
 vi.mock("../src/lib/copy-live-portfolio", () => ({ useLiveCopyPortfolio: () => ({ data: undefined }) }));
 vi.mock("../src/lib/wallet", () => ({ useWallet: () => ({ data: undefined }), signErrorMessage: () => ({ rejected: false, message: "" }) }));
 // The site settings still carry a referral code; the panel must not show it.

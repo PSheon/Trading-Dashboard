@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, Circle, LoaderCircle, TriangleAlert } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "cn";
 import type { LiveCopySetup, LiveCopySetupStage } from "@trading-dashboard/shared/contracts";
 
@@ -8,7 +9,8 @@ import { Modal } from "@/components/ui/dialog";
 import { useI18n } from "@/i18n/provider";
 import { liveSetupMessages, type LiveSetupText } from "@/i18n/live-setup";
 import { Link } from "@/i18n/navigation";
-import { setupTerminal, useLiveCopySetup } from "@/lib/copy-live-setup";
+import { apiErrorCode } from "@/lib/api";
+import { setupTerminal, useLiveCopySetup, useLiveCopySetupActions } from "@/lib/copy-live-setup";
 import { truncateAddress } from "@/lib/format";
 
 /** The live-setup texts in the page's language. */
@@ -93,20 +95,49 @@ export function liveSetupRows(setup: Pick<LiveCopySetup, "kind" | "stage">, reac
  * The progress dialog (plan §1 step 4): the stages, an error when it stops,
  * and a note that closing is safe (the worker continues; or, when the
  * owner's session signs, 繼續設定 in the portfolio picks it up).
+ *
+ * A setup still waiting for its consent is handed back to Orbie's confirm
+ * sheet (`onConsent`) while the consent can be signed; once it expired the
+ * dialog offers 取消設定 (and 重新開始). A setup that failed or expired
+ * offers 重新開始 (`onRetry`: the same terms, a fresh consent) and 取消
+ * (a start that never ran stops; a deposit that arrived is returned from
+ * the portfolio).
  */
-export function LiveCopyProgress({ setupId, open, onOpenChange, onRetry }: { setupId: string | null; open: boolean; onOpenChange: (open: boolean) => void; onRetry?: () => void }) {
+export function LiveCopyProgress({ setupId, open, onOpenChange, onRetry, onConsent }: {
+  setupId: string | null; open: boolean; onOpenChange: (open: boolean) => void; onRetry?: (setup: LiveCopySetup) => void; onConsent?: (setup: LiveCopySetup) => void;
+}) {
   const text = useLiveSetupText();
   const query = useLiveCopySetup(open ? setupId : null), setup = query.data;
+  const actions = useLiveCopySetupActions();
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  const consentDue = setup?.stage === "awaiting_consent" && setup.consent ? setup : null;
+  // Handed back to the confirm sheet (once per setup and consent).
+  const handed = useRef<string | null>(null);
+  useEffect(() => {
+    if (!open || !consentDue || !onConsent) return;
+    const mark = `${consentDue.id}:${consentDue.consent!.nonce}`;
+    if (handed.current === mark) return;
+    handed.current = mark; onConsent(consentDue);
+  }, [open, consentDue, onConsent]);
   const finished = setup?.stage === "running", stopped = setup && ["failed", "expired", "cancelled"].includes(setup.stage);
+  const consentLapsed = setup?.stage === "awaiting_consent" && !setup.consent;
+  const ended = setup && ["failed", "expired"].includes(setup.stage);
   const rows = setup ? liveSetupRows(setup, stopped ? STOPPED_AT[setup.issue ?? ""] ?? 2 : RANK[setup.stage]) : [];
+  const deposited = setup?.kind === "start" && setup.funding?.status === "credited";
+  const cancel = () => {
+    if (!setup) return;
+    setCancelError(null);
+    actions.cancel.mutate(setup.id, { onError: (error) => setCancelError(liveSetupError(text, apiErrorCode(error))) });
+  };
+  const title = finished ? text.done : consentLapsed ? text.consentLapsed : stopped ? (setup.stage === "expired" ? text.expired : setup.stage === "cancelled" ? text.cancelled : text.failed) : text.progressTitle;
   return (
-    <Modal open={open} onOpenChange={onOpenChange} title={finished ? text.done : stopped ? (setup.stage === "expired" ? text.expired : setup.stage === "cancelled" ? text.cancelled : text.failed) : text.progressTitle}>
+    <Modal open={open} onOpenChange={onOpenChange} title={title}>
       <div className="flex flex-col gap-4 px-6 pt-3 pb-6" aria-live="polite">
         <ol className="flex flex-col gap-3" data-testid="live-copy-stages">
           {rows.map(row => (
             <li key={row.key} data-state={row.state} className={cn("flex items-center gap-3 text-sm", row.state === "pending" && "text-muted-foreground")}>
               {row.state === "done" ? <span className="grid size-6 place-items-center rounded-full bg-positive/15 text-positive"><Check className="size-3.5" strokeWidth={3} aria-hidden /></span>
-                : row.state === "current" && !stopped ? <LoaderCircle className="size-6 animate-spin text-primary-text" aria-hidden />
+                : row.state === "current" && !stopped && !consentLapsed ? <LoaderCircle className="size-6 animate-spin text-primary-text" aria-hidden />
                 : <Circle className="size-6 text-border-strong" aria-hidden />}
               <span className={cn(row.state === "current" && "font-bold")}>{text.stages[row.key]}</span>
             </li>
@@ -114,13 +145,18 @@ export function LiveCopyProgress({ setupId, open, onOpenChange, onRetry }: { set
         </ol>
         {setup && !setupTerminal(setup) && setup.issue === "awaiting_credit" ? <p className="text-xs text-muted-foreground">{text.waitingCredit}</p> : null}
         {setup && !setupTerminal(setup) && setup.pendingSignature && !query.walletError ? <p className="text-xs text-muted-foreground">{text.signingCopyWallet}</p> : null}
-        {stopped || query.isError ? <p role="alert" className="flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning"><TriangleAlert className="mt-px size-3.5 shrink-0" />{liveSetupError(text, setup?.issue)}</p>
+        {consentLapsed ? <p className="text-xs leading-5 text-muted-foreground">{text.consentLapsedHint}</p> : null}
+        {(stopped && setup.stage !== "cancelled") || query.isError ? <p role="alert" className="flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning"><TriangleAlert className="mt-px size-3.5 shrink-0" />{liveSetupError(text, setup?.issue)}</p>
           : query.walletError ? <p role="alert" className="flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning"><TriangleAlert className="mt-px size-3.5 shrink-0" />{liveSetupError(text, query.walletError)}</p> : null}
-        {!finished && !stopped ? <p className="text-xs leading-5 text-muted-foreground">{setup?.signer === "worker_policy" ? text.closeSafeWorker : text.closeSafeOwner}</p> : null}
+        {(ended || setup?.stage === "cancelled") && deposited ? <p className="text-xs leading-5 text-muted-foreground">{text.depositStays}</p> : null}
+        {cancelError ? <p role="alert" className="text-xs text-negative">{cancelError}</p> : null}
+        {!finished && !stopped && !consentLapsed ? <p className="text-xs leading-5 text-muted-foreground">{setup?.signer === "worker_policy" ? text.closeSafeWorker : text.closeSafeOwner}</p> : null}
         <div className="flex flex-col gap-2.5">
           {finished ? <Link href="/portfolio" onClick={() => onOpenChange(false)} className="orbit-press flex min-h-12 w-full items-center justify-center rounded-full bg-primary px-6 font-display text-base text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">{text.portfolio}</Link> : null}
-          {stopped && onRetry ? <button type="button" onClick={onRetry} className="orbit-press min-h-12 rounded-full bg-primary px-6 font-display text-base text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">{text.retry}</button> : null}
-          <button type="button" onClick={() => onOpenChange(false)} className="min-h-11 rounded-full bg-inset text-sm font-bold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring">{text.close}</button>
+          {(ended || consentLapsed) && onRetry ? <button type="button" disabled={actions.cancel.isPending} onClick={() => onRetry(setup!)} className="orbit-press min-h-12 rounded-full bg-primary px-6 font-display text-base text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">{text.restart}</button> : null}
+          {ended || consentLapsed ? <button type="button" disabled={actions.cancel.isPending} onClick={cancel} className="min-h-11 rounded-full bg-inset text-sm font-bold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">
+            {actions.cancel.isPending ? <LoaderCircle className="mx-auto size-4 animate-spin" aria-hidden /> : text.cancelSetup}</button> : null}
+          <button type="button" onClick={() => onOpenChange(false)} className="min-h-11 rounded-full text-sm font-bold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">{text.close}</button>
         </div>
       </div>
     </Modal>

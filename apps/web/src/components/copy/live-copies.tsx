@@ -72,9 +72,12 @@ function LiveCopyRow({ item, text, account, mandate, strategy }: { item: LiveCop
   const validAmount = /^\d+(?:\.\d{1,6})?$/.test(amount) && Number(amount) > 0;
   const reason = item.lastRefusal ? (item.lastRefusal.reason === 'live_source_price_deviation' ? text.priceDeviation : item.lastRefusal.reason) : null;
   // The worker returns this account's funds by itself after a stop (no
-  // signature): 自動返還中 instead of the 全部返還主錢包 button.
+  // signature): 自動返還中 instead of the 全部返還主錢包 button. A copy
+  // that ended before it ever ran (a start that failed after its deposit)
+  // has no stop to sweep it: the button stays, signed by the worker when
+  // the account has the automatic return.
   const automatic = item.automaticReturn === true;
-  const autoReturning = automatic && item.stage === 'sweeping';
+  const autoReturning = automatic && item.stage === 'sweeping' && item.status !== 'stopped';
   return (
     <div className="flex flex-col gap-3 px-4 py-4 text-sm">
       <div className="flex flex-wrap items-center gap-2">
@@ -137,8 +140,8 @@ function LiveCopyRow({ item, text, account, mandate, strategy }: { item: LiveCop
             <Button size="sm" disabled={busy} onClick={() => actions.cancellation.mutate({ stopId: item.stop!.id })}>{text.consent}</Button>
           </div>
         ) : null}
-        {item.stage === 'sweeping' && item.accountId && !item.pendingTransfer && !automatic ? (
-          <Button size="sm" disabled={busy} onClick={() => actions.transfer.mutate({ accountId: item.accountId!, amount: 'all' })}>{text.returnAll}</Button>
+        {item.stage === 'sweeping' && item.accountId && !item.pendingTransfer && !autoReturning ? (
+          <Button size="sm" disabled={busy} onClick={() => actions.transfer.mutate({ accountId: item.accountId!, amount: 'all', automatic })}>{text.returnAll}</Button>
         ) : null}
         {busy ? <span role="status" className="text-xs text-muted-foreground">{text.busy}</span> : null}
       </div>

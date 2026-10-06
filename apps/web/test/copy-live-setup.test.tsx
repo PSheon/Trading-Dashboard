@@ -35,8 +35,10 @@ const probe: { current: ReturnType<typeof useLiveCopySetupActions> | null } = { 
 const progress: { current: ReturnType<typeof useLiveCopySetup> | null } = { current: null };
 function Probe() { const value = useLiveCopySetupActions(); useLayoutEffect(() => { probe.current = value; }); return null; }
 function ProgressProbe({ id }: { id: string }) { const value = useLiveCopySetup(id); useLayoutEffect(() => { progress.current = value; }); return null; }
+// The idempotency keys live for the page (a module store): a fresh person per test.
+let person = 0;
 beforeEach(async () => {
-  vi.clearAllMocks(); state.identity = 'owner@email'; state.session = '1';
+  vi.clearAllMocks(); state.identity = `owner-${++person}@email`; state.session = '1';
   state.sign.mockImplementation(async () => `0x${'ab'.repeat(65)}`);
   state.signAs.mockImplementation(async () => `0x${'cd'.repeat(65)}`);
   state.addSigners.mockImplementation(async () => undefined);
@@ -158,4 +160,69 @@ it('a worker signer the browser could not add (declined, Privy refused) still co
   await act(async () => { await probe.current!.confirm.mutateAsync({ ...setup(), consent: { ...intent(), masterPolicyId: '', masterPolicyFingerprint: '' } }); });
   await act(async () => { await probe.current!.confirm.mutateAsync(setup('edit')); });
   expect(state.addSigners).not.toHaveBeenCalled();
+});
+
+const leader = `0x${'44'.repeat(20)}`;
+const keyOf = (call: unknown[]) => (call[1] as { idempotencyKey: string }).idempotencyKey;
+async function remount() {
+  await act(async () => root.unmount()); root = createRoot(container);
+  await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale="en" messages={catalogs.en}><Probe /></I18nProvider></QueryClientProvider>));
+}
+
+it('a remounted panel retries its start with the same key (the server answers with the same setup, not already_copying); another session never reuses it', async () => {
+  state.post.mockResolvedValue(setup());
+  await act(async () => { await probe.current!.start.mutateAsync({ leader, budgetUsd: '150', settings }); });
+  await remount();
+  await act(async () => { await probe.current!.start.mutateAsync({ leader, budgetUsd: '150', settings }); });
+  expect(keyOf(state.post.mock.calls[1]!)).toBe(keyOf(state.post.mock.calls[0]!));
+  state.session = '2'; await remount();
+  await act(async () => { await probe.current!.start.mutateAsync({ leader, budgetUsd: '150', settings }); });
+  expect(keyOf(state.post.mock.calls[2]!)).not.toBe(keyOf(state.post.mock.calls[0]!));
+});
+
+it("confirming one setup forgets exactly its own key: copy 12's confirm keeps copy 112's edit and another trader's start", async () => {
+  state.patch.mockResolvedValue(setup('edit'));
+  state.post.mockResolvedValue(setup());
+  await act(async () => { await probe.current!.edit.mutateAsync({ strategyId: 112, budgetUsd: '150', settings }); });
+  await act(async () => { await probe.current!.start.mutateAsync({ leader: `0x${'55'.repeat(20)}`, budgetUsd: '150', settings }); });
+  state.post.mockResolvedValue({ ...setup('edit', 'running') });
+  await act(async () => { await probe.current!.confirm.mutateAsync({ ...setup('edit'), strategyId: 12 }); });
+  await act(async () => { await probe.current!.edit.mutateAsync({ strategyId: 112, budgetUsd: '150', settings }); });
+  expect(keyOf(state.patch.mock.calls[1]!)).toBe(keyOf(state.patch.mock.calls[0]!));
+  state.post.mockClear(); state.post.mockResolvedValue(setup());
+  await act(async () => { await probe.current!.start.mutateAsync({ leader: `0x${'55'.repeat(20)}`, budgetUsd: '150', settings }); });
+  const starts = state.post.mock.calls.filter(([path]) => path === '/me/copy/live/setups');
+  expect(starts).toHaveLength(1);
+});
+
+it('restart begins an ended setup again with the same terms under a new key; cancel ends it', async () => {
+  state.post.mockResolvedValue(setup());
+  await act(async () => { await probe.current!.start.mutateAsync({ leader, budgetUsd: '150', settings }); });
+  const failed = { ...setup('start', 'failed'), issue: 'setup_account_mode_failed' };
+  let next: LiveCopySetup | undefined;
+  await act(async () => { next = await probe.current!.restart.mutateAsync(failed); });
+  const [first, second] = state.post.mock.calls;
+  expect(second![0]).toBe('/me/copy/live/setups');
+  expect(second![1]).toMatchObject({ leader, budgetUsd: '150', settings });
+  expect(keyOf(second!)).not.toBe(keyOf(first!));
+  expect(next!.stage).toBe('awaiting_consent');
+  // By id (the portfolio row): read first.
+  state.get.mockResolvedValueOnce(failed);
+  await act(async () => { await probe.current!.restart.mutateAsync(failed.id); });
+  expect(state.get).toHaveBeenCalledWith(`/me/copy/live/setups/${failed.id}`);
+  state.post.mockResolvedValueOnce({ ...failed, stage: 'cancelled' });
+  await act(async () => { await probe.current!.cancel.mutateAsync(failed.id); });
+  expect(state.post).toHaveBeenLastCalledWith(`/me/copy/live/setups/${failed.id}/cancel`, {});
+});
+
+it('stops polling a setup the api refuses for good (signed out, not found), and keeps polling through a passing failure', async () => {
+  const { ApiError } = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    state.get.mockRejectedValue(new ApiError(404, 'Setup not found', { code: 'not_found' }));
+    await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale="en" messages={catalogs.en}><Probe /><ProgressProbe id={setup().id} /></I18nProvider></QueryClientProvider>));
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+    expect(state.get).toHaveBeenCalledTimes(1);
+    expect(progress.current!.isError).toBe(true);
+  } finally { vi.useRealTimers(); }
 });

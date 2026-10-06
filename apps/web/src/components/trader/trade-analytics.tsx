@@ -11,19 +11,15 @@ import { TradeShareDialog, traderCardSource, type TradeCardSource } from "./trad
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useI18n } from "@/i18n/provider";
-import { coinLabel } from "@/lib/format";
+import { coinLabel, signedUsd2, signedUsdShort, timeAgo, usd2 } from "@/lib/format";
 import { isComputing, useTraderTrades } from "@/lib/queries";
 import {
-  ago,
   duration,
   pct1,
   pnlTone,
   price,
   shortTime,
-  signedUsd2,
-  signedUsdShort,
   tradeReturnPct,
-  usd2,
   winRateTone,
 } from "@/lib/trade-format";
 
@@ -239,7 +235,7 @@ export function TradeCard({ trade, shareAddress = null }: { trade: RoundTrip; /*
           <ArrowRight className="size-3 shrink-0" aria-hidden />
           {trade.exitPx === null ? "—" : price(trade.exitPx)}
         </span>
-        {trade.exitTime ? <span className="num text-xs leading-[18px] text-muted-foreground">{ago(trade.exitTime)}</span> : null}
+        {trade.exitTime ? <span className="num text-xs leading-[18px] text-muted-foreground">{timeAgo(trade.exitTime)}</span> : null}
       </div>
       <TrailShare trade={trade} address={shareAddress}>
         <span className={cn("num text-[15px] leading-[23px] font-semibold", pnlTone(pnl))}>{signedUsdShort(pnl)}</span>

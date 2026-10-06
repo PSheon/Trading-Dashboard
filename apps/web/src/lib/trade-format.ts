@@ -7,58 +7,6 @@ import { TIME_ZONE } from "@/i18n/config";
 
 const abs = Math.abs;
 
-/** "$1.40M", "$183.58K", "$469.97" (2 decimals). */
-export function usd2(value: number | null | undefined): string {
-  if (value == null || Number.isNaN(value)) return "$0";
-  if (abs(value) < 0.005) return "$0.00";
-  const sign = value < 0 ? "-" : "";
-  const n = abs(value);
-  if (n >= 1e9) return `${sign}$${(n / 1e9).toFixed(2)}B`;
-  if (n >= 1e6) return `${sign}$${(n / 1e6).toFixed(2)}M`;
-  if (n >= 1e3) return `${sign}$${(n / 1e3).toFixed(2)}K`;
-  return `${sign}$${n.toFixed(2)}`;
-}
-
-/** "+$54.05K", "-$469.97", "$0.00". */
-export function signedUsd2(value: number | null | undefined): string {
-  if (value == null || Number.isNaN(value)) return "$0";
-  if (abs(value) < 0.005) return "$0.00";
-  return `${value >= 0 ? "+" : "-"}${usd2(abs(value))}`;
-}
-
-/** "$5.6M", "$29.4K" (1 decimal, unsigned): the rail's most-traded volume. */
-export function usd1(value: number | null | undefined): string {
-  const n = abs(Number(value) || 0);
-  if (n >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
-  if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
-  if (n >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
-  return `$${n.toFixed(1)}`;
-}
-
-/** "$0", "$469", "$183K", "$14M", "$1.2B" (whole K / M): the rail's
- * notional and long / short values. */
-export function usd0(value: number | null | undefined): string {
-  if (value == null || Number.isNaN(value)) return "$0";
-  const sign = value < 0 ? "-" : "";
-  const n = abs(value);
-  if (n >= 1e9) return `${sign}$${(n / 1e9).toFixed(1)}B`;
-  if (n >= 1e6) return `${sign}$${Math.round(n / 1e6)}M`;
-  if (n >= 1e3) return `${sign}$${Math.round(n / 1e3)}K`;
-  return `${sign}$${Math.round(n)}`;
-}
-
-/** "+$54.0K": the rail's best / worst trades. */
-export function signedUsd1(value: number): string {
-  return `${value >= 0 ? "+" : "-"}${usd1(value)}`;
-}
-
-/** "+$3.20M", "+$318.5K", "-$39": the mobile trade cards. */
-export function signedUsdShort(value: number): string {
-  const n = abs(value);
-  const body = n >= 1e12 ? `${(n / 1e12).toFixed(2)}T` : n >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : `${Math.round(n)}`;
-  return `${value >= 0 ? "+" : "-"}$${body}`;
-}
-
 /** "$802.68", "$54.813", "$0.4600", "$0.003100": digits by magnitude. */
 export function price(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value)) return "-";
@@ -98,15 +46,6 @@ export function duration(seconds: number | null | undefined): string {
   return `${Math.floor(seconds)}s`;
 }
 
-/** "2d ago", "5h ago" (the mobile trade cards). */
-export function ago(value: string | number | Date, now = Date.now()): string {
-  const s = Math.max(0, (now - new Date(value).getTime()) / 1000);
-  if (s < 60) return `${Math.floor(s)}s ago`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
-}
-
 /** Net PnL + funding ÷ entry notional, % (null when meaningless). */
 export function tradeReturnPct(trade: { size: number; entryPx: number; fees: number; realizedPnl: number; netPnl: number; funding: number | null; side: string }): number | null {
   const notional = trade.size * trade.entryPx;
@@ -123,17 +62,6 @@ export function qty(value: number | null | undefined): string {
   if (n >= 1e6) return `${(value / 1e6).toFixed(2)}M`;
   if (n >= 1e3) return `${(value / 1e3).toFixed(2)}K`;
   return value.toLocaleString("en-US", { maximumFractionDigits: n >= 1 ? 2 : 5 });
-}
-
-/** "$9,999,999.00": full USD with cents (the 轉帳 tab's USD amounts). */
-export function usdFull(value: number | null | undefined): string {
-  if (value == null || Number.isNaN(value)) return "$0.00";
-  return `$${(abs(value) < 0.005 ? 0 : value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-/** "0x6fc3…b891". */
-export function shortHex(value: string | null | undefined): string {
-  return value ? `${value.slice(0, 6)}…${value.slice(-4)}` : "";
 }
 
 /** "+12.34%" (2 decimals; "+" only above 0). */

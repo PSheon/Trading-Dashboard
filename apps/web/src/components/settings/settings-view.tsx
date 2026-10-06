@@ -32,7 +32,6 @@ import { SkelBar } from "@/components/page";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 
-import { shortAddress } from "@/components/wallet/bits";
 import { FundsHistory } from "@/components/wallet/funds-history";
 import { useWalletModals } from "@/components/wallet/wallet-modals";
 import { LOCALE_NAMES, LOCALES, isLocale } from "@/i18n/config";
@@ -46,6 +45,7 @@ import { ReferralSettings } from "./referral";
 import { CopyWalletsList } from "./copy-wallets";
 import { useLogout } from "@/lib/use-logout";
 import { OrbitSpinner } from "@/components/ui/orbit-spinner";
+import { truncateAddress } from "@/lib/format";
 
 type Tab = "account" | "funds" | "referral";
 type PhoneView = "root" | "account" | "notifications" | "language" | "history" | "referral";
@@ -168,7 +168,7 @@ function ProfileAndWallet() {
         label={t("settings.wallet")}
         value={
           address ? (
-            <span className="font-mono">{shortAddress(address)}</span>
+            <span className="font-mono">{truncateAddress(address)}</span>
           ) : wallet.isPending ? (
             <SkelBar line="h-4" className="ui-skeleton h-2.5 w-28" />
           ) : (

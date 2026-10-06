@@ -40,19 +40,6 @@ export function roiPillWhole(ratio: number | null | undefined): string {
   return `${Math.round(Math.abs((n(ratio) ?? 0) * 100)).toLocaleString("en-US")}%`;
 }
 
-/** Last trade as CopyDog tags cards: "52m ago", "21h ago", "3d ago". */
-export function agoShort(time: string | number | Date | null | undefined, now = Date.now()): string | null {
-  // now 0: the time isn't known yet (useNow while hydrating).
-  if (time === null || time === undefined || now === 0) return null;
-  const t = new Date(time).getTime();
-  if (Number.isNaN(t)) return null;
-  const s = Math.max(0, (now - t) / 1000);
-  if (s < 60) return `${Math.floor(s)}s ago`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
-}
-
 /** The label CopyDog shows for a board coin ("xyz:SP500" → "SPX",
  * "xyz:CL" → "Oil"); `t` supplies the translated names. */
 export function boardCoinLabel(

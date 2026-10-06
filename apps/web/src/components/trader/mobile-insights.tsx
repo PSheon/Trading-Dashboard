@@ -9,8 +9,8 @@ import { Skeleton } from "@/components/page";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { Segmented } from "@/components/ui/segmented";
 import { useI18n } from "@/i18n/provider";
-import { coinLabel } from "@/lib/format";
-import { duration, pnlTone, signedUsd2, signedUsdShort, usd2 } from "@/lib/trade-format";
+import { coinLabel, signedUsd2, signedUsdShort, usd2 } from "@/lib/format";
+import { duration, pnlTone } from "@/lib/trade-format";
 import { freeSpot, PNL_ICON, SIZE_ICON } from "./profile-card";
 import { TradeCard } from "./trade-analytics";
 

@@ -8,8 +8,8 @@ import { TIME_ZONE } from "@/i18n/config";
 import { useI18n } from "@/i18n/provider";
 import { CALENDAR_OVERALL_SHADE, calendarShade, pnlCalendar, type CalendarCell } from "@/lib/pnl-calendar";
 import { usePortfolio } from "@/lib/queries";
-import { signedUsd2, usd0 } from "@/lib/trade-format";
 import { signedPctCd } from "./performance";
+import { signedUsd2, usd0 } from "@/lib/format";
 
 export type CalendarUnit = "usd" | "pct";
 

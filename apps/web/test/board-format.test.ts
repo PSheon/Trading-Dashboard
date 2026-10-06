@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { agoShort, boardCoinLabel, homeTiles, boardPnl, boardRoi, boardUsd, roiPillShort, roiPillWhole } from "../src/lib/board-format";
+import { boardCoinLabel, homeTiles, boardPnl, boardRoi, boardUsd, roiPillShort, roiPillWhole } from "../src/lib/board-format";
+import { timeAgo } from "../src/lib/format";
 
 describe("CopyDog board formats", () => {
   it("formats the grid card, list and home card figures as CopyDog does", () => {
@@ -16,9 +17,9 @@ describe("CopyDog board formats", () => {
 
   it("tags the last trade and names board coins", () => {
     const now = Date.parse("2026-09-30T12:00:00Z");
-    expect(agoShort("2026-09-27T11:00:00Z", now)).toBe("3d ago");
-    expect(agoShort("2026-09-30T11:08:00Z", now)).toBe("52m ago");
-    expect(agoShort(null, now)).toBeNull();
+    expect(timeAgo("2026-09-27T11:00:00Z", now)).toBe("3d ago");
+    expect(timeAgo("2026-09-30T11:08:00Z", now)).toBe("52m ago");
+    expect(timeAgo(null, now)).toBeNull();
     const t = (k: "home.markets.gold" | "home.markets.oil") => (k === "home.markets.gold" ? "黃金" : "原油");
     expect(boardCoinLabel("xyz:SP500", t)).toBe("SPX");
     expect(boardCoinLabel("xyz:GOLD", t)).toBe("黃金");

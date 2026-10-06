@@ -21,9 +21,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { rovingFocus } from "@/lib/roving-focus";
 import { useI18n } from "@/i18n/provider";
-import { usdCompact } from "@/lib/format";
+import { usdCompact, signedUsd2 } from "@/lib/format";
 import { useChartSnapshots } from "@/lib/queries";
-import { partialSampleSince, pct1, signedUsd2, winRateTone } from "@/lib/trade-format";
+import { partialSampleSince, pct1, winRateTone } from "@/lib/trade-format";
 import { useNow } from "@/lib/use-now";
 import { PnlCalendarView, type CalendarUnit } from "./pnl-calendar";
 

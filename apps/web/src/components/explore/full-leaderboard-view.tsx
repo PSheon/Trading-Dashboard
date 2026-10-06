@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
 import { useI18n } from "@/i18n/provider";
 import { useSiteSettings, useSparklines, useTraders, type TraderSort } from "@/lib/queries";
-import { usd0 } from "@/lib/trade-format";
+import { usd0 } from "@/lib/format";
 
 const PAGE_SIZE = 25;
 const noopSubscribe = () => () => {};

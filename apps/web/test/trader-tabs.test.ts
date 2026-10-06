@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { TAB_GROUPS } from "../src/components/trader/activity-tabs";
 import { groupFills } from "../src/components/trader/trader-tabs";
 import type { TraderFill } from "../src/lib/contracts";
-import { feedTime, liqDistance, qty, usd0, usd2 } from "../src/lib/trade-format";
+import { feedTime, liqDistance, qty } from "../src/lib/trade-format";
+import { usd0, usd2 } from "../src/lib/format";
 
 const fill = (tid: number, ts: number, extra: Partial<TraderFill> = {}): TraderFill => ({
   tid: String(tid), coin: "HYPE", side: "sell", dir: "Close Long", px: 40, sz: 10, notionalUsd: 400, closedPnl: 5, fee: 0.1,

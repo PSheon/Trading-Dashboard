@@ -7,10 +7,10 @@ import { cn } from "cn";
 import { Skeleton } from "@/components/page";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { useI18n } from "@/i18n/provider";
-import { coinLabel } from "@/lib/format";
+import { coinLabel, signedUsd2, usd2 } from "@/lib/format";
 import { mergeLiveFills } from "@/lib/live-trader";
 import { useTraderFills, useTraderTransfers } from "@/lib/queries";
-import { feedTime, price, qty, signedUsd2, usd2 } from "@/lib/trade-format";
+import { feedTime, price, qty } from "@/lib/trade-format";
 import { FILL_LIMIT, fillsTruncated, groupFills, type FillGroup } from "./trader-tabs";
 
 const NO_FILLS: TraderFill[] = [];

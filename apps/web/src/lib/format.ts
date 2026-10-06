@@ -301,3 +301,82 @@ export function signClass(value: Numeric): string {
   if (n === null || n === 0) return "text-foreground";
   return n > 0 ? "text-positive" : "text-negative";
 }
+
+/**
+ * Fixed-format USD of CopyDog's trader-page trade views (its JS bundle),
+ * the same in every locale: the win-rate tile, the rail's trade sections and
+ * the 表現 / 交易 tabs.
+ */
+/** "$1.40M", "$183.58K", "$469.97" (2 decimals). */
+export function usd2(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return "$0";
+  if (Math.abs(value) < 0.005) return "$0.00";
+  const sign = value < 0 ? "-" : "";
+  const n = Math.abs(value);
+  if (n >= 1e9) return `${sign}$${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `${sign}$${(n / 1e6).toFixed(2)}M`;
+  if (n >= 1e3) return `${sign}$${(n / 1e3).toFixed(2)}K`;
+  return `${sign}$${n.toFixed(2)}`;
+}
+
+/** "+$54.05K", "-$469.97", "$0.00". */
+export function signedUsd2(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return "$0";
+  if (Math.abs(value) < 0.005) return "$0.00";
+  return `${value >= 0 ? "+" : "-"}${usd2(Math.abs(value))}`;
+}
+
+/** "$5.6M", "$29.4K" (1 decimal, unsigned): the rail's most-traded volume. */
+export function usd1(value: number | null | undefined): string {
+  const n = Math.abs(Number(value) || 0);
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
+  return `$${n.toFixed(1)}`;
+}
+
+/** "$0", "$469", "$183K", "$14M", "$1.2B" (whole K / M): the rail's
+ * notional and long / short values. */
+export function usd0(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return "$0";
+  const sign = value < 0 ? "-" : "";
+  const n = Math.abs(value);
+  if (n >= 1e9) return `${sign}$${(n / 1e9).toFixed(1)}B`;
+  if (n >= 1e6) return `${sign}$${Math.round(n / 1e6)}M`;
+  if (n >= 1e3) return `${sign}$${Math.round(n / 1e3)}K`;
+  return `${sign}$${Math.round(n)}`;
+}
+
+/** "+$54.0K": the rail's best / worst trades. */
+export function signedUsd1(value: number): string {
+  return `${value >= 0 ? "+" : "-"}${usd1(value)}`;
+}
+
+/** "+$3.20M", "+$318.5K", "-$39": the mobile trade cards. */
+export function signedUsdShort(value: number): string {
+  const n = Math.abs(value);
+  const body = n >= 1e12 ? `${(n / 1e12).toFixed(2)}T` : n >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : `${Math.round(n)}`;
+  return `${value >= 0 ? "+" : "-"}$${body}`;
+}
+
+/** "$9,999,999.00": full USD with cents (the 轉帳 tab's USD amounts). */
+export function usdFull(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return "$0.00";
+  return `$${(Math.abs(value) < 0.005 ? 0 : value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/**
+ * "52m ago", "21h ago", "3d ago": the time since `time` as CopyDog tags its
+ * board cards and mobile trade cards. Null when the time is missing or
+ * invalid, or `now` is 0 (not known yet: useNow while hydrating).
+ */
+export function timeAgo(time: DateLike, now = Date.now()): string | null {
+  if (time === null || time === undefined || now === 0) return null;
+  const t = new Date(time).getTime();
+  if (Number.isNaN(t)) return null;
+  const s = Math.max(0, (now - t) / 1000);
+  if (s < 60) return `${Math.floor(s)}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}

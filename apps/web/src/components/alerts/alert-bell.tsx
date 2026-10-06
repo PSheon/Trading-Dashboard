@@ -17,9 +17,8 @@ import { useI18n, type Translate } from "@/i18n/provider";
 import { useAddFavorite, useSetFavoriteAlert, useTelegramStatus } from "@/lib/alerts";
 import { useAuth } from "@/lib/auth";
 import type { Formatter } from "@/lib/format";
-import { coinLabel } from "@/lib/format";
+import { coinLabel, usd0 } from "@/lib/format";
 import { useAlerts, useFavorites } from "@/lib/queries";
-import { usd0 } from "@/lib/trade-format";
 
 const SIDE_KEY = { buy: "alerts.sideBuy", sell: "alerts.sideSell", both: "alerts.sideBoth" } as const;
 

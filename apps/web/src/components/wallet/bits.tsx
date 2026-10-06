@@ -118,7 +118,3 @@ export function CopyIconButton({ value, className, onCopied }: { value: string; 
   );
 }
 
-/** 0xf80C…7F1a */
-export function shortAddress(address: string): string {
-  return `${address.slice(0, 6)}…${address.slice(-4)}`;
-}

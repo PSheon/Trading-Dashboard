@@ -9,9 +9,10 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { TIME_ZONE } from "@/i18n/config";
 import { TraderName } from "@/components/traders/trader-name";
 import { useI18n } from "@/i18n/provider";
-import { agoShort, boardPnl, boardRoi, roiPillShort, roiPillWhole } from "@/lib/board-format";
+import { boardPnl, boardRoi, roiPillShort, roiPillWhole } from "@/lib/board-format";
 import type { BoardTrader } from "@/lib/contracts";
 import { BoardSparkline, boardName, CoinStack, ScoreRing, signTone, TraderAvatar, VerifiedTick } from "./board-bits";
+import { timeAgo } from "@/lib/format";
 
 const traderHref = (address: string) => `/trader/${address}`;
 
@@ -36,7 +37,7 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory,
 }) {
   const { t } = useI18n();
   const router = useRouter();
-  const ago = agoShort(trader.lastTradeAt, now);
+  const ago = timeAgo(trader.lastTradeAt, now);
   return (
     <Link
       href={traderHref(trader.address)}

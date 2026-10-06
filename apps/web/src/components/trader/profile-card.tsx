@@ -31,10 +31,10 @@ import { CoinIcon } from "@/components/traders/coin-icon";
 
 import { useI18n } from "@/i18n/provider";
 import { useToast } from "@/components/ui/toast";
-import { coinLabel, truncateAddress } from "@/lib/format";
+import { coinLabel, truncateAddress, signedUsd1, signedUsd2, usd0, usd1, usd2 } from "@/lib/format";
 import { CopyScoreBar, TraderAvatar, XProfileLink } from "@/components/discover/board-bits";
 import { shareName } from "@/lib/share-card";
-import { pnlTone, signedUsd1, signedUsd2, usd0, usd1, usd2 } from "@/lib/trade-format";
+import { pnlTone } from "@/lib/trade-format";
 import { ShareButton } from "./share-dialog";
 
 function useCopied() {

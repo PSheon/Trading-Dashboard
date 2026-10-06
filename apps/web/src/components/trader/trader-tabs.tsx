@@ -16,7 +16,7 @@ import { cn } from "cn";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
 import { useI18n } from "@/i18n/provider";
-import { coinLabel } from "@/lib/format";
+import { coinLabel, signedUsd2, signedUsdShort, truncateAddress, usd2, usdFull } from "@/lib/format";
 import { useTraderOrders, useTraderTransfers, useTraderTwap } from "@/lib/queries";
 import {
   duration,
@@ -24,13 +24,8 @@ import {
   pnlTone,
   price,
   qty,
-  shortHex,
   shortTime,
   signedPct2,
-  signedUsd2,
-  signedUsdShort,
-  usd2,
-  usdFull,
 } from "@/lib/trade-format";
 import { Asset, Empty, LoadError, Loading, SortHead, useSorted } from "./trade-analytics";
 import { TradeShareDialog, traderCardSource, type TradeCardSource } from "./trade-share-dialog";
@@ -708,7 +703,7 @@ export function TransfersTab({ address }: { address: string }) {
   if (!query.data) return <Loading left={2} cols={(["time", "type", "coin", "amount", "from", "to", "hash"] as const).map((k) => t(`trader.cols.${k}`))} />;
   if (rows.length === 0) return <Empty title={t("trader.empty.transfersTitle")} body={t("trader.empty.transfersDesc")} />;
   const head = { sort, onSort };
-  const party = (who: string | null) => (who ? (who === address.toLowerCase() ? t("trader.self") : shortHex(who)) : "-");
+  const party = (who: string | null) => (who ? (who === address.toLowerCase() ? t("trader.self") : truncateAddress(who)) : "-");
   // CopyDog: a bridge deposit or withdrawal has no token and no parties, so
   // it reads as coloured dollars ("$10,349.00") with "-" on both sides.
   const bridge = (x: TraderTransfer) => x.kind === "deposit" || x.kind === "withdraw";
@@ -752,7 +747,7 @@ export function TransfersTab({ address }: { address: string }) {
                     rel="noopener noreferrer"
                     className="font-mono text-subtle-foreground hover:text-foreground hover:underline"
                   >
-                    {shortHex(x.hash)}
+                    {truncateAddress(x.hash)}
                   </a>
                 ) : (
                   "—"

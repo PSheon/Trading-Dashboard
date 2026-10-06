@@ -62,6 +62,9 @@ export interface LiveEngineOptions {
   /** An open too small for the exchange waits for the next adds at most this
    * long (default and maximum MAX_ACCUMULATE_MS). */
   readonly accumulateMs?: number;
+  /** A kick's order half stops starting work after this long (default 8 s),
+   * so the regular pass is never held up for long. */
+  readonly kickBudgetMs?: number;
   /** While the trade feed is down, a fast-source leader is read by the pass
    * at most this often. */
   readonly fastPollMs?: number;
@@ -224,7 +227,8 @@ export class CopyLiveEngine {
     const held = await this.prepareWork(mandates.filter(row => row.activated && row.strategyStatus === 'active'));
     const byId = new Map(mandates.map(m => [m.mandateId, m]));
     for (const row of await this.deps.repository.open(100, [...byId.keys()])) {
-      if (this.now() - started > this.options.passBudgetMs) break;
+      // A kick works this leader's fresh legs, briefly: the rest waits for the pass.
+      if (this.now() - started > (this.options.kickBudgetMs ?? 8_000)) break;
       if (held.has(row.id)) continue;
       try { await this.work(row, byId.get(row.mandateId) ?? null, limit); }
       catch (error) { this.deps.log?.(`leg ${row.id} kept for the next pass: ${reasonOf(error)}`); }

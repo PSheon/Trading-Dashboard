@@ -24,6 +24,10 @@ export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDe
   private timer: ReturnType<typeof setInterval> | undefined;
   private running = false;
   private started = false;
+  /** The regular pass was asked for (its interval came round) and not run yet. */
+  private passDue = false;
+  private lastPassAt = 0;
+  private intervalMs = 3000;
   /** Leaders due a kick, and those due an audit, run after the work in flight. */
   private readonly kicks = new Set<string>();
   private readonly audits = new Set<string>();
@@ -41,7 +45,7 @@ export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDe
   }
   /** Starts the passes and accepts kicks (tests call it directly). */
   start(intervalMs: number): void {
-    this.started = true;
+    this.started = true; this.intervalMs = intervalMs; this.lastPassAt = Date.now();
     this.timer = setInterval(() => void this.tick(), intervalMs);
     this.timer.unref?.();
   }
@@ -111,19 +115,29 @@ export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDe
     }
   }
 
-  /** The regular pass; skipped while other work runs (the next tick comes soon). */
+  /** The regular pass is due every interval: when other work is running it
+   * goes next, ahead of any kick waiting (it runs setups, activations, every
+   * other leader's reads and the stops, so kicks can never starve it). */
   async tick(): Promise<void> {
-    if (this.running || this.jobs.stopping || !this.engine) return;
-    await this.drain(true);
+    if (this.jobs.stopping || !this.engine) return;
+    this.passDue = true;
+    await this.drain();
   }
 
-  /** Runs due kicks and audits, and a pass when asked, one at a time. */
-  private async drain(pass = false): Promise<void> {
+  /** Runs the due pass, kicks and audits one at a time: the pass first
+   * whenever it is due (every interval), then kicks, then audits. */
+  private async drain(): Promise<void> {
     if (this.running || this.jobs.stopping || !this.engine) return;
     this.running = true;
     const engine = this.engine;
     try {
-      while (!this.jobs.stopping && (pass || this.kicks.size || this.audits.size)) {
+      while (!this.jobs.stopping && (this.passDue || this.kicks.size || this.audits.size)) {
+        if (this.passDue || Date.now() - this.lastPassAt >= this.intervalMs) {
+          this.passDue = false; this.lastPassAt = Date.now();
+          try { await this.jobs.run(() => engine.tick()); }
+          catch (error) { this.logger.error(`Testnet copy pass failed: ${error instanceof Error ? error.message : 'unknown'}`); }
+          continue;
+        }
         const [leader] = this.kicks;
         if (leader !== undefined) {
           this.kicks.delete(leader);
@@ -138,11 +152,7 @@ export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDe
             const missed = await this.jobs.run(() => engine.audit(audited));
             if (missed.length) this.logger.error(`Copy source audit: ${missed.length} fill(s) of ${audited} were missed by the copy stream`);
           } catch (error) { this.logger.error(`Copy source audit of ${audited} failed: ${error instanceof Error ? `${error.name}: ${error.message}` : 'unknown'}`); }
-          continue;
         }
-        pass = false;
-        try { await this.jobs.run(() => engine.tick()); }
-        catch (error) { this.logger.error(`Testnet copy pass failed: ${error instanceof Error ? error.message : 'unknown'}`); }
       }
     } finally { this.running = false; }
   }

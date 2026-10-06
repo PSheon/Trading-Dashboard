@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BackgroundJobs } from '../src/runtime/background-jobs.service.js';
-import type { CopyLiveEngine } from '../src/copy/live-worker/copy-live-engine.js';
+import { CopyLiveEngine } from '../src/copy/live-worker/copy-live-engine.js';
 import { CopyLiveWorkerService } from '../src/copy/live-worker/copy-live-worker.service.js';
 import { testConfig } from './config-test-utils.js';
 
@@ -66,5 +66,42 @@ describe('copy live worker: realtime kicks', () => {
     const service = new CopyLiveWorkerService(testConfig(), new BackgroundJobs(), engine as unknown as CopyLiveEngine);
     service.onLeaderTraded({ address: leader, time: T0, tid: 1 });
     expect(engine.witness).not.toHaveBeenCalled();
+  });
+
+  /** A leader whose next read is due every 100 ms, each kick's orders taking 150 ms: the kick set never empties. */
+  function busyLeader(service: CopyLiveWorkerService) {
+    service.onLeaderTraded({ address: leader, time: Date.now() - G - 100, tid: 1 });
+  }
+  it('runs the regular pass every interval while kicks never stop', async () => {
+    vi.useFakeTimers({ now: T0 });
+    let passes = 0;
+    const engine = {
+      witness: vi.fn(() => Date.now()), followUp: vi.fn(() => Date.now() + 100),
+      signal: vi.fn(async () => ({ started: Date.now(), read: null, ingest: null, ingestedAt: Date.now(), enqueuedAt: Date.now() })),
+      workLeader: vi.fn(() => new Promise<void>(resolve => setTimeout(resolve, 150))),
+      audit: vi.fn(async () => []), tick: vi.fn(async () => { passes++; await new Promise(resolve => setTimeout(resolve, 100)); }),
+    };
+    const service = new CopyLiveWorkerService(testConfig(), new BackgroundJobs(), engine as unknown as CopyLiveEngine);
+    service.start(3000); busyLeader(service);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(engine.workLeader.mock.calls.length).toBeGreaterThan(100);
+    expect(passes).toBeGreaterThanOrEqual(9);
+    service.onModuleDestroy();
+  });
+
+  it('a one-click setup advances (the pass runs its setups) while kicks keep arriving', async () => {
+    vi.useFakeTimers({ now: T0 });
+    const setups = { tick: vi.fn(async () => 0) };
+    const repository = { mandates: async () => [], activateFunded: async () => [], streams: () => [], signalAgeLimitMs: async () => 120_000, open: async () => [] };
+    const engine = new CopyLiveEngine({ repository, setups, sources: {}, uow: {}, watched: {}, testnetSource: {}, runtime: () => ({}), settler: {} } as never);
+    vi.spyOn(engine, 'witness').mockImplementation(() => Date.now());
+    vi.spyOn(engine, 'followUp').mockImplementation(() => Date.now() + 100);
+    vi.spyOn(engine, 'signal').mockImplementation(async () => ({ started: Date.now(), read: null, ingest: null, ingestedAt: Date.now(), enqueuedAt: Date.now() }));
+    vi.spyOn(engine, 'workLeader').mockImplementation(() => new Promise<void>(resolve => setTimeout(resolve, 150)));
+    const service = new CopyLiveWorkerService(testConfig(), new BackgroundJobs(), engine);
+    service.start(3000); busyLeader(service);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(setups.tick.mock.calls.length).toBeGreaterThanOrEqual(3);
+    service.onModuleDestroy();
   });
 });

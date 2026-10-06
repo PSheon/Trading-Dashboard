@@ -77,8 +77,9 @@ settlement retains the complete canonical proof and digest, records follower
 receipts and cash movements, releases reservations and advances proportional
 reduction carry atomically. A placement acknowledgment is not that settlement.
 
-`TestnetLiveExecutionRuntime` now composes those concrete dependencies for one
-immutable routing request. It shares the original PostgreSQL session and private
+`LiveExecutionRuntime(network)` (live-execution-runtime.ts) now composes those
+concrete dependencies for one immutable routing request on the deployment's
+network (HYPERLIQUID_NETWORK, testnet or mainnet). It shares the original PostgreSQL session and private
 provider epoch from preparation through reservation, signing and submission.
 Historical attempted keys reconcile without new admission, signatures or nonces.
 The factory is unregistered while worker recovery and stop handling remain

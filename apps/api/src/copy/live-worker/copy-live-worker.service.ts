@@ -7,9 +7,9 @@ import { safeErrorText, type CopyLiveEngine } from './copy-live-engine.js';
 import { LIVE_ENGINE } from './copy-live-engine.provider.js';
 
 /**
- * Drives testnet copy execution in the worker process: one engine pass every
+ * Drives copy execution on the deployment's network in the worker process: one engine pass every
  * COPY_LIVE_INTERVAL_MS (default 3 s), never two at once. Off unless
- * COPY_TRADING_MODE=testnet, and under NODE_ENV=test. Paper copies keep their
+ * COPY_TRADING_MODE is testnet or live, and under NODE_ENV=test. Paper copies keep their
  * own loop (CopyWorkerService). Shutdown drains the pass in flight.
  *
  * Realtime signal (COPY_LIVE_FAST_SOURCE): a feed trade of a fast-source
@@ -41,7 +41,7 @@ export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDe
     const live = this.config.value.copy.live;
     if (this.config.value.app.nodeEnv === 'test' || !this.engine || !live) return;
     this.start(live.intervalMs);
-    this.logger.log(`Testnet copy execution every ${live.intervalMs} ms${live.fastSource ? `; fast source for ${live.fastSource.leaders === 'all' ? 'every mainnet leader' : [...live.fastSource.leaders].join(', ')} (G ${live.fastSource.graceMs} ms)` : ''}`);
+    this.logger.log(`Copy execution on ${live.network} every ${live.intervalMs} ms${live.allowedPrivyUserIds ? ` for ${live.allowedPrivyUserIds.size} listed owner(s)` : ''}${live.fastSource ? `; fast source for ${live.fastSource.leaders === 'all' ? 'every mainnet leader' : [...live.fastSource.leaders].join(', ')} (G ${live.fastSource.graceMs} ms)` : ''}`);
   }
   /** Starts the passes and accepts kicks (tests call it directly). */
   start(intervalMs: number): void {

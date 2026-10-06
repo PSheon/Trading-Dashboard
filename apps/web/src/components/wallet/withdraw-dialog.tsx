@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, TriangleAlert } from "lucide-react";
+import { TriangleAlert } from "lucide-react";
 import { useIsMutating } from "@tanstack/react-query";
 import { useId, useState } from "react";
 
@@ -48,8 +48,8 @@ export function withdrawErrorText(err: unknown, t: Translate, recoveryText: stri
   if (status === 429) return t("common.errors.rateLimited");
   if (status === 502 || status === 503 || status === 504) return t("common.errors.busy");
   if (typeof status === "number" || (err instanceof TypeError && /fetch|network|load failed/i.test(err.message))) return t("common.errors.failed");
-  const error = signErrorMessage(err);
-  return error.rejected ? t("wallet.rejected") : t("wallet.signFailed", { message: error.message });
+  // The wallet SDK's own (English) message is never shown.
+  return signErrorMessage(err).rejected ? t("wallet.rejected") : t("common.errors.failed");
 }
 
 /**
@@ -152,7 +152,7 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
       {pendingOperation && (pendingOperation.status === "prepared" || pendingOperation.canCancel) ? (
         <div className="mb-4 rounded-xl bg-raised p-3 text-sm text-muted-foreground">
           <p>{t("wallet.withdrawPrepared")}</p>
-          <Button type="button" variant="secondary" size="sm" className="mt-3" disabled={cancel.isPending || withdraw.isPending || recovery.isError} onClick={() => cancel.mutate(pendingOperation.id, { onError: () => toast.error(t("common.error")) })}>
+          <Button type="button" variant="secondary" size="sm" className="mt-3" loading={cancel.isPending} disabled={!(cancel.isPending) && (cancel.isPending || withdraw.isPending || recovery.isError)} onClick={() => cancel.mutate(pendingOperation.id, { onError: () => toast.error(t("common.error")) })}>
             {cancel.isPending ? t("wallet.cancellingPreparation") : t("wallet.cancelPreparation")}
           </Button>
         </div>
@@ -214,8 +214,7 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
         {t("wallet.withdrawNote", { chain: network.chainLabel, fee: WITHDRAW_FEE_USDC })}
       </p>
 
-      <Button type="submit" size="cta" className="mt-5 w-full" disabled={(!ready && !recovering) || (!wallet?.address && !checking) || withdraw.isPending || cancel.isPending || recovery.isPending || recovery.isError}>
-        {withdraw.isPending ? <Loader2 className="animate-spin" /> : null}
+      <Button type="submit" size="cta" className="mt-5 w-full" loading={withdraw.isPending} disabled={!(withdraw.isPending) && ((!ready && !recovering) || (!wallet?.address && !checking) || withdraw.isPending || cancel.isPending || recovery.isPending || recovery.isError)}>
         {withdraw.isPending ? checking ? t("common.loading") : t("wallet.withdrawing") : checking ? t("wallet.checkWithdrawal") : t("wallet.withdrawTitle")}
       </Button>
       {!wallet ? <p className="mt-2 text-center text-xs text-muted-foreground">{t("wallet.unavailableDemo")}</p> : null}

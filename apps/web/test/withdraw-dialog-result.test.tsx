@@ -112,5 +112,6 @@ it("does not call the api's busy, rate-limit or connection failures a signing fa
   expect(withdrawErrorText(new TypeError("Failed to fetch"), t as never, "r")).toBe("common.errors.failed");
   expect(withdrawErrorText(new Error("withdrawal_unknown"), t as never, "r")).toBe("r");
   expect(withdrawErrorText(new Error("User rejected"), t as never, "r")).toBe("wallet.rejected");
-  expect(withdrawErrorText(new Error("Bad typed data"), t as never, "r")).toBe("wallet.signFailed");
+  // The wallet SDK's own English message is never shown.
+  expect(withdrawErrorText(new Error("Bad typed data"), t as never, "r")).toBe("common.errors.failed");
 });

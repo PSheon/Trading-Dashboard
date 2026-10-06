@@ -70,10 +70,13 @@ export function signErrorMessage(error: unknown): { rejected: boolean; message: 
  * sender's Hyperliquid account in about a minute. Never below 5 USDC: the
  * bridge doesn't credit (and loses) smaller amounts.
  */
-export function useBridgeDeposit() {
+/** `result.onError` belongs to the mutation (as useWithdraw's): a dialog
+ * closed during Privy's transaction prompt still tells the user. */
+export function useBridgeDeposit(result: { onError?: (error: Error) => void } = {}) {
   const { wallet } = useAuth();
   const queryClient = useQueryClient();
   return useMutation({
+    onError: result.onError ? (error: Error) => result.onError!(error) : undefined,
     mutationFn: async ({ summary, sponsor }: { summary: WalletSummary; sponsor: boolean }) => {
       if (!wallet?.address) throw new Error("No wallet");
       if (!summary.address || summary.address !== wallet.address.toLowerCase()) throw new Error("Wallet mismatch");

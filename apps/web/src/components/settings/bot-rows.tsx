@@ -2,6 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { BellRing, ChevronDown, ExternalLink, Loader2, Send, Unlink } from "lucide-react";
+import { OrbitSpinner } from "@/components/ui/orbit-spinner";
 import { Link } from "@/i18n/navigation";
 import { useEffect, useState } from "react";
 import { cn } from "cn";
@@ -76,9 +77,9 @@ export function TradingBotRow({ className }: { className?: string }) {
   const canEnable = Boolean(data?.linked && data.enabled && data.bot);
   const checked = data?.copyAlertsEnabled ?? false;
   return <BotRow className={className} title={t("settings.tradingBot")} hint={t("copyUpdates.alertHint")} action={
-    status.isError && !data ? <Button variant="secondary" size="sm" onClick={() => status.refetch()}>{t("common.retry")}</Button> :
+    status.isError && !data ? <Button loading={status.isFetching} variant="secondary" size="sm" onClick={() => status.refetch()}>{t("common.retry")}</Button> :
     !data ? <Skeleton className="h-9 w-16 rounded-full" /> :
-    <Button variant="secondary" size="sm" role="switch" aria-checked={checked} aria-label={t("settings.tradingBot")} disabled={update.isPending || (!canEnable && !checked)} onClick={() => update.mutate(!checked)}>
+    <Button variant="secondary" size="sm" role="switch" aria-checked={checked} aria-label={t("settings.tradingBot")} loading={update.isPending} disabled={!(update.isPending) && (update.isPending || (!canEnable && !checked))} onClick={() => update.mutate(!checked)}>
       {t(checked ? "copyUpdates.alertOn" : "copyUpdates.alertOff")}
     </Button>
   }>
@@ -140,7 +141,7 @@ export function AlertBotRow({ className }: { className?: string }) {
   let action: React.ReactNode;
   if (status.isError && !data) {
     action = (
-      <Button variant="secondary" size="sm" onClick={() => status.refetch()}>
+      <Button loading={status.isFetching} variant="secondary" size="sm" onClick={() => status.refetch()}>
         {t("common.retry")}
       </Button>
     );
@@ -162,8 +163,8 @@ export function AlertBotRow({ className }: { className?: string }) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-52">
-          <DropdownMenuItem disabled={!data.enabled || test.isPending} onSelect={() => test.mutate()}>
-            <Send />
+          <DropdownMenuItem disabled={!data.enabled || test.isPending} aria-busy={test.isPending || undefined} onSelect={() => test.mutate()}>
+            {test.isPending ? <OrbitSpinner /> : <Send />}
             {t("settings.test")}
           </DropdownMenuItem>
           <DropdownMenuItem asChild>
@@ -186,9 +187,8 @@ export function AlertBotRow({ className }: { className?: string }) {
         size="sm"
         className="h-10 px-5"
         onClick={connect}
-        disabled={create.isPending}
+        loading={create.isPending}
       >
-        {create.isPending ? <Loader2 className="animate-spin" /> : null}
         {create.isPending ? t("settings.connecting") : t("settings.connect")}
       </Button>
     );
@@ -215,7 +215,7 @@ export function AlertBotRow({ className }: { className?: string }) {
           <Button
             size="sm"
             variant="destructive"
-            disabled={unlink.isPending}
+            loading={unlink.isPending}
             // Forget the used link too, so the row starts from 連接 again.
             onClick={() => unlink.mutate(undefined, { onSettled: () => { setConfirming(false); setPending(null); } })}
           >
@@ -278,7 +278,7 @@ function Waiting({
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {expired ? (
-          <Button size="sm" onClick={onRetry} disabled={retrying}>
+          <Button size="sm" onClick={onRetry} loading={retrying}>
             {t("settings.connect")}
           </Button>
         ) : (

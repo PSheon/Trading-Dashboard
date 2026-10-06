@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, ShieldAlert } from "lucide-react";
+import { ShieldAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { Lockup } from "@/components/brand/logo";
@@ -69,8 +69,7 @@ export function ExportKeyDialog({ open, onOpenChange, target = null }: { open: b
         <ShieldAlert className="mt-px size-4 shrink-0" />
         {t("wallet.exportWarning")}
       </p>
-      <Button size="cta" className="mt-6 w-full" onClick={exportKey} disabled={!ready || busy}>
-        {busy ? <Loader2 className="animate-spin" /> : null}
+      <Button size="cta" className="mt-6 w-full" onClick={exportKey} loading={busy} disabled={!busy && !ready}>
         {t("wallet.exportCta")}
       </Button>
       {!wallet ? (

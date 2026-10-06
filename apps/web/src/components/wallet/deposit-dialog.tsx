@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDownToLine, Check, Info, Loader2, TriangleAlert } from "lucide-react";
+import { ArrowDownToLine, Check, Info, TriangleAlert } from "lucide-react";
 
 import { ErrorState, SkelBar, SkelCircle } from "@/components/page";
 import { Select } from "@/components/ui/select";
@@ -97,10 +97,15 @@ function PendingBridge({ summary }: { summary: WalletSummary }) {
   const { t, format } = useI18n();
   const toast = useToast();
   const { wallet } = useAuth();
-  const bridge = useBridgeDeposit();
   const usdc = summary.arbitrum?.usdc ?? 0;
   const network = networkConfig(summary.network);
   const needsSponsor = (summary.arbitrum?.eth ?? 0) < GAS_ETH;
+  // A failed bridge is a toast, as CopyDog's wallet errors are; it belongs
+  // to the mutation, so closing the dialog during Privy's prompt keeps it.
+  // The SDK's own (English) message is never shown.
+  const bridge = useBridgeDeposit({
+    onError: (err) => toast.error(signErrorMessage(err).rejected ? t("wallet.rejected") : `${t("common.errors.failed")}${needsSponsor ? ` ${t("wallet.noGas", { chain: network.chainLabel })}` : ""}`),
+  });
   if (usdc <= 0) return null;
   const belowMin = usdc < MIN_BRIDGE_USDC;
 
@@ -117,21 +122,11 @@ function PendingBridge({ summary }: { summary: WalletSummary }) {
       <Button
         className="mt-3 w-full"
         variant="secondary"
-        disabled={!wallet?.address || belowMin || bridge.isPending || bridge.isSuccess}
-        onClick={() =>
-          bridge.mutate(
-            { summary, sponsor: needsSponsor },
-            {
-              // A failed bridge is a toast, as CopyDog's wallet errors are.
-              onError: (err) => {
-                const error = signErrorMessage(err);
-                toast.error(error.rejected ? t("wallet.rejected") : `${t("wallet.signFailed", { message: error.message })}${needsSponsor ? ` ${t("wallet.noGas", { chain: network.chainLabel })}` : ""}`);
-              },
-            },
-          )
-        }
+        loading={bridge.isPending}
+        disabled={!bridge.isPending && (!wallet?.address || belowMin || bridge.isSuccess)}
+        onClick={() => bridge.mutate({ summary, sponsor: needsSponsor })}
       >
-        {bridge.isPending ? <Loader2 className="animate-spin" /> : bridge.isSuccess ? <Check /> : <ArrowDownToLine />}
+        {bridge.isSuccess ? <Check /> : <ArrowDownToLine />}
         {bridge.isPending ? t("wallet.bridging") : bridge.isSuccess ? t("wallet.bridgeSent") : t("wallet.bridge")}
       </Button>
       {!wallet ? <p className="mt-2 text-center text-xs text-muted-foreground">{t("wallet.unavailableDemo")}</p> : null}

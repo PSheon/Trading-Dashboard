@@ -32,8 +32,6 @@ const PENDING = new Set<string>([
   "components/favorites/favorites-view.tsx",
   "components/favorites/groups.tsx",
   "components/insights/insights-view.tsx",
-  "components/settings/bot-rows.tsx",
-  "components/settings/delete-account.tsx",
   "components/settings/referral.tsx",
   "components/settings/settings-view.tsx",
   "components/shell/account-controls.tsx",
@@ -41,10 +39,7 @@ const PENDING = new Set<string>([
   "components/trader/trade-analytics.tsx",
   "components/trader/trade-share-dialog.tsx",
   "components/trader/trader-view.tsx",
-  "components/wallet/deposit-dialog.tsx",
-  "components/wallet/export-key-dialog.tsx",
   "components/wallet/funds-history.tsx",
-  "components/wallet/withdraw-dialog.tsx",
 ]);
 
 describe("busy buttons", () => {

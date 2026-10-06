@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleAlert, Loader2, ShieldCheck, Trash2 } from "lucide-react";
+import { CircleAlert, ShieldCheck, Trash2 } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { useId, useState } from "react";
 import { cn } from "cn";
@@ -203,8 +203,8 @@ export function DeleteAccountDialog({ open, onOpenChange }: { open: boolean; onO
         <Button variant="secondary" onClick={() => change(false)} disabled={busy}>
           {t("deleteAccount.cancel")}
         </Button>
-        <Button variant="destructive" onClick={confirm} disabled={!ready}>
-          {busy ? <Loader2 className="animate-spin" /> : <Trash2 />}
+        <Button variant="destructive" onClick={confirm} loading={busy} disabled={!busy && !ready}>
+          <Trash2 />
           {t("deleteAccount.confirm")}
         </Button>
       </div>

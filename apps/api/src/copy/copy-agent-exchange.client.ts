@@ -64,6 +64,9 @@ export class PrivyAgentApprovalClient implements AgentApprovalClient {
   static readonly OBSERVE_WEIGHT = AGENT_OBSERVE_WEIGHT;
   async observe(intent: AgentConsentIntent, options: { prepaid?: boolean } = {}): Promise<{ checkedAt: number; validUntil: number } | null> {
     const data = agentApprovalTypedData(intent);
+    // The agent is read on the account's own network: a mainnet approval
+    // read on testnet finds no account (userRole "missing") and the setup
+    // never leaves its agent step.
     // Both reads are paid for before the 5 s clock starts: a budget wait
     // never ages the evidence (it did, and after the mode step drained the
     // bucket every observation timed out). A busy budget is a typed wait.
@@ -74,10 +77,10 @@ export class PrivyAgentApprovalClient implements AgentApprovalClient {
       // clock starts as they go out (after any wait for room).
       const bodies = [{ type: "userRole", user: intent.accountAddress }, { type: "extraAgents", user: intent.accountAddress }] as const;
       const start = () => { checkedAt = this.now(); return AbortSignal.timeout(5_000); };
-      const global = this.global;
+      const global = this.global, infoUrl = WALLET_NETWORKS[intent.network].infoUrl;
       const responses = await boundedLiveRead(() => global
-        ? global.fetchInfoBatch(WALLET_NETWORKS.testnet.infoUrl, bodies, { maxWaitMs: LIVE_RESERVE_WAIT_MS, onDispatch: start })
-        : (() => { const signal = start(); return Promise.all(bodies.map(body => this.fetcher(WALLET_NETWORKS.testnet.infoUrl, { method: "POST",
+        ? global.fetchInfoBatch(infoUrl, bodies, { maxWaitMs: LIVE_RESERVE_WAIT_MS, onDispatch: start })
+        : (() => { const signal = start(); return Promise.all(bodies.map(body => this.fetcher(infoUrl, { method: "POST",
           headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), redirect: "error", signal }))); })(), LIVE_RESERVE_WAIT_MS + 5_000);
       const [role, listed] = await Promise.all(responses.map(async response => {
         if (!response.ok) { await response.body?.cancel().catch(() => undefined); throw new Error(); }

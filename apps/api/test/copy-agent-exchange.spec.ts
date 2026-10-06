@@ -47,6 +47,17 @@ describe("exact testnet master approval transport", () => {
     const request = vi.fn(async (_url: string | URL | Request, options?: RequestInit) => Response.json(JSON.parse(String(options?.body)).type === "userRole" ? { role: "user" } : list));
     await expect(new PrivyAgentApprovalClient({}, async () => undefined, request, () => time).observe(intent)).rejects.toThrow("agent_approval_evidence_unavailable");
   });
+  it("reads a mainnet approval on mainnet (a testnet read finds no account and the setup never leaves its agent step)", async () => {
+    const listed = [{ address: intent.agentAddress, name: "copy1", validUntil: intent.expiresAt }];
+    const request = vi.fn(async (url: string | URL | Request, options?: RequestInit) => String(url) !== "https://api.hyperliquid.xyz/info" ? Response.json({ role: "missing" })
+      : Response.json(JSON.parse(String(options?.body)).type === "userRole" ? { role: "user" } : listed));
+    await expect(new PrivyAgentApprovalClient({}, async () => undefined, request, () => time).observe({ ...intent, network: "mainnet" })).resolves.toEqual({ checkedAt: time, validUntil: intent.expiresAt });
+    expect(request.mock.calls.map(c => String(c[0]))).toEqual(["https://api.hyperliquid.xyz/info", "https://api.hyperliquid.xyz/info"]);
+    // The testnet account is still read on testnet.
+    const testnet = vi.fn(async (_url: string | URL | Request, options?: RequestInit) => Response.json(JSON.parse(String(options?.body)).type === "userRole" ? { role: "user" } : listed));
+    await new PrivyAgentApprovalClient({}, async () => undefined, testnet, () => time).observe(intent);
+    expect(testnet.mock.calls.map(c => String(c[0]))).toEqual(["https://api.hyperliquid-testnet.xyz/info", "https://api.hyperliquid-testnet.xyz/info"]);
+  });
   it("pays for its reads before its clock: a budget wait never ages the evidence; a slow read inside the window still does", async () => {
     let now = time;
     const listed = [{ address: intent.agentAddress, name: "copy1", validUntil: intent.expiresAt }];

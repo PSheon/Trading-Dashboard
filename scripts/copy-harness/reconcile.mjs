@@ -21,6 +21,11 @@
 //     --follower 0x… --network testnet --since 2026-10-07T01:00:00Z \
 //     --db ssh|env|<postgres url> [--portfolio-url https://…/api/hl/me/copy/live/portfolio]
 // `--db env` reads the URL from HARNESS_DATABASE_URL (so it never shows in `ps`).
+// `--db none` needs no key or database at all: only the exchange's public
+// reads (L, F, C), so the dispatch checks 1–3 are skipped and listed as such.
+// `--stage` is the mainnet Stage preset: --network mainnet --leader-network
+// mainnet and, unless given, --db none and the Stage portfolio URL.
+//   node scripts/copy-harness/reconcile.mjs --stage --leader 0x… --follower 0x… --since 2026-10-07T01:00:00Z
 // The portfolio needs HARNESS_BEARER (the follower's Privy access token) in the environment;
 // the portfolio holds no balances, so P is the copy's account snapshot
 // (GET …/me/copy/execution-wallets/:id/snapshot, the figures the portfolio page shows).
@@ -32,9 +37,11 @@ import { pathToFileURL } from "node:url";
 const args = process.argv.slice(2);
 const flag = (name, fallback) => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] : fallback; };
 const leader = flag("leader")?.toLowerCase(), follower = flag("follower")?.toLowerCase();
-const leaderNet = flag("leader-network", "mainnet"), net = flag("network", "testnet");
+const stage = args.includes("--stage");
+const leaderNet = flag("leader-network", "mainnet"), net = flag("network", stage ? "mainnet" : "testnet");
 const since = Date.parse(flag("since", ""));
-const db = flag("db", "ssh"), portfolioUrl = flag("portfolio-url");
+const db = flag("db", stage ? "none" : "ssh"), portfolioUrl = flag("portfolio-url", stage && process.env.HARNESS_BEARER ? "https://web-staging-9f98.up.railway.app/api/hl/me/copy/live/portfolio" : undefined);
+if (!["testnet", "mainnet"].includes(leaderNet) || !["testnet", "mainnet"].includes(net)) { console.error("--network and --leader-network: mainnet or testnet"); process.exit(2); }
 if (!/^0x[0-9a-f]{40}$/.test(leader ?? "") || !/^0x[0-9a-f]{40}$/.test(follower ?? "") || !Number.isFinite(since)) {
   console.error("usage: --leader 0x… --follower 0x… --since <ISO> [--leader-network mainnet|testnet] [--network testnet|mainnet] [--db ssh|<url>]");
   process.exit(2);
@@ -45,6 +52,7 @@ const info = async (network, body) => { const r = await fetch(INFO[network], { m
 // Orbie's rows: over SSH to the Stage Postgres (read-only), or a local database URL.
 const SSH = ["-o", "BatchMode=yes", "-i", `${process.env.HOME}/.ssh/id_ed25519`, "25866604-3d9a-40cf-a29a-f680c43b8235@ssh.railway.com"];
 async function query(sql) {
+  if (db === "none") return [];
   if (db === "ssh") {
     // The SQL goes on stdin: no shell quoting of the statement.
     const out = execFileSync("ssh", [...SSH, `psql -U "$PGUSER" -d "$PGDATABASE" -At -F '\t' -v ON_ERROR_STOP=1`], { encoding: "utf8", input: `${sql};\n` });
@@ -78,8 +86,8 @@ const dispatches = (await query(`select d.id, d.source_fill_id, d.leg, d.coin, d
     ({ id, tid: sourceFillId.split(":").at(-1), leg, coin, state, reason, executionKey, leaderTime: Number(leaderTime), receivedAt: Number(receivedAt), sentAt: Number(sentAt), adjustmentId, executionState, cloid }));
 const byTid = new Map(dispatches.map((d) => [d.tid, d]));
 
-// 1. every leader order has a dispatch for at least one of its fills.
-for (const o of leaderOrders.values()) if (!o.tids.some((tid) => byTid.has(tid))) fail("leader_order_without_dispatch", { oid: o.oid, coin: o.coin, side: o.side, at: new Date(o.time).toISOString() });
+// 1. every leader order has a dispatch for at least one of its fills (needs Orbie's rows).
+if (db !== "none") for (const o of leaderOrders.values()) if (!o.tids.some((tid) => byTid.has(tid))) fail("leader_order_without_dispatch", { oid: o.oid, coin: o.coin, side: o.side, at: new Date(o.time).toISOString() });
 // 2. nothing lost to signal age.
 for (const d of dispatches) if (/signal_expired/.test(d.reason)) fail("signal_expired", { dispatch: d.id, reason: d.reason });
 
@@ -101,7 +109,8 @@ const sizes = (state) => new Map(state.assetPositions.map((a) => [a.position.coi
 const L = sizes(leaderState), C = sizes(followerState);
 for (const coin of new Set([...L.keys(), ...C.keys()])) {
   const l = Math.sign(L.get(coin) ?? 0), c = Math.sign(C.get(coin) ?? 0);
-  if (dispatches.some((d) => d.coin === coin) && l !== c) fail("direction_mismatch", { coin, leader: L.get(coin) ?? 0, follower: C.get(coin) ?? 0 });
+  // Without Orbie's rows: every coin either side holds (a coin the copy never traded shows as a mismatch to read, not a bug).
+  if ((db === "none" || dispatches.some((d) => d.coin === coin)) && l !== c) fail("direction_mismatch", { coin, leader: L.get(coin) ?? 0, follower: C.get(coin) ?? 0 });
 }
 
 // P — portfolio (its account snapshot) vs C.
@@ -140,7 +149,7 @@ const report = {
   window: { since: new Date(since).toISOString(), until: new Date().toISOString() },
   leader: { address: leader, network: leaderNet, orders: leaderOrders.size, fills: leaderFills.length, positions: Object.fromEntries(L) },
   follower: { address: follower, network: net, fills: followerFills.length, equity: followerState.marginSummary.accountValue, withdrawable: followerState.withdrawable, positions: Object.fromEntries(C) },
-  dispatches: { count: dispatches.length, byStateReason: reasons },
+  dispatches: db === "none" ? { skipped: "--db none: checks 1-3 (dispatch rows) need Orbie's database" } : { count: dispatches.length, byStateReason: reasons },
   latencySeconds: { received: { p50: pct(received, 0.5), p95: pct(received, 0.95), max: pct(received, 1) }, sent: { p50: pct(sent, 0.5), p95: pct(sent, 0.95), max: pct(sent, 1) },
     filled: { p50: pct(filled, 0.5), p95: pct(filled, 0.95), max: pct(filled, 1) } },
   portfolio,

@@ -1,7 +1,7 @@
 import { Link } from "@/i18n/navigation";
 
 import { OrbieMark } from "@/components/brand/logo";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { getLocale, getMessages } from "@/i18n/server";
 import { APP_NAME } from "@/lib/config";
 
@@ -19,9 +19,9 @@ export default async function NotFound() {
       <OrbieMark size={140} className="orbit-float" />
       <h1 className="num mt-4 font-display text-[7.5rem] leading-none">{m.notFound.title}</h1>
       <p className="mt-4 text-lg font-bold text-muted-foreground">{m.notFound.body}</p>
-      <Button asChild size="cta" className="mt-5">
-        <Link href="/">{m.notFound.home}</Link>
-      </Button>
+      {/* A server component: Button keeps busy state (hooks) since cac59908,
+          so the link takes its look from buttonVariants instead. */}
+      <Link href="/" data-slot="button" className={buttonVariants({ size: "cta", className: "mt-5" })}>{m.notFound.home}</Link>
     </div>
   );
 }

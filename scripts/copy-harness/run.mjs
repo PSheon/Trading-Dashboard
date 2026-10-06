@@ -18,8 +18,9 @@
 // --dry-run needs no funds: login, cleanup, the setup up to its consent challenge, the browser's two
 // signatures and addSigners (its /confirm is intercepted, so nothing is deposited), then cancel.
 //
-// The local api and worker must run with COPY_TRADING_MODE=testnet (scripts/copy-harness/stack.mjs
-// starts them with the harness profile). Secrets (.env, the leader's key) stay in their processes.
+// The local api and worker must run with COPY_TRADING_MODE=testnet: `node scripts/copy-harness/stack.mjs
+// restart worker` (and `api`) starts them with the harness profile (harness.env: testnet mode, the
+// 2 s testnet source). Secrets (.env, the leader's key) stay in their processes.
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";

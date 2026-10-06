@@ -1607,7 +1607,7 @@ export const id: Messages = {
     fundsTitle: "Danamu tidak ikut terhapus",
     fundsBody: "Danamu selalu berada di dompetmu sendiri (diamankan oleh Privy). Orbie tidak bisa memindahkannya, dan menghapus akun tidak menyentuhnya. Ekspor kunci privatmu dulu; dengan kunci itu kamu bisa memulihkan dana di dompet mana pun.",
     exportFirst: "Ekspor kunci privat dulu",
-    done: "Akun Orbie Anda telah dihapus.",
+    done: "Akun Orbie kamu telah dihapus.",
     removedTitle: "Yang akan dihapus",
     removedFavorites: "Trader dan grup yang kamu simpan",
     removedAlerts: "Pengaturan peringatan transaksi dan tautan Telegram",

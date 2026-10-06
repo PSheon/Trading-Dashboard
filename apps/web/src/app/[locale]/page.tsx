@@ -17,18 +17,20 @@ export const generateMetadata = seo("/", (m) => ({ title: `${m.meta.homeTitle} |
  * down the page falls back to the browser's own fetch, as before. */
 export default function HomePage() {
   return (
-    <>
-      <Suspense fallback={<HomeSkeleton />}>
-        <PrefetchedHome />
-      </Suspense>
-      {/* `?accountDeleted=1` after a self-service deletion: one toast. */}
-      <Suspense fallback={null}><AccountDeletedToast /></Suspense>
-    </>
+    <Suspense fallback={<HomeSkeleton />}>
+      <PrefetchedHome />
+    </Suspense>
   );
 }
 
 async function PrefetchedHome() {
   const client = clientAddress(await headers());
   const home = await prefetchPublic<HomeBoardsResponse>("/discover/home", { client });
-  return <HomeView initial={{ home }} />;
+  return (
+    <>
+      <HomeView initial={{ home }} />
+      {/* `?accountDeleted=1` after a self-service deletion: one toast. */}
+      <Suspense fallback={null}><AccountDeletedToast /></Suspense>
+    </>
+  );
 }

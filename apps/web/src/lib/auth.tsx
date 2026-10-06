@@ -19,6 +19,7 @@ import { readLocaleCookie, useI18n } from "@/i18n/provider";
 import { readLocalStorage, useLocalStorage } from "@/lib/use-local-storage";
 import { useIdentityRefetch } from "@/lib/use-identity-refetch";
 import { useWalletBackfill } from "@/lib/use-wallet-backfill";
+import { IslandBoundary } from "@/components/island-boundary";
 
 /**
  * One auth surface for the whole app, whatever is behind it:
@@ -103,6 +104,11 @@ const PRIVY_IDLE_TIMEOUT_MS = 3_000;
 
 function PrivyAuth({ appId, children }: { appId: string; children: React.ReactNode }) {
   const [privy, setPrivy] = useState<PrivySnapshot | null>(null);
+  // The SDK failed to load or render (a chunk lost to a deploy, Privy
+  // throwing): the visitor is signed out, never the global error page.
+  // 登入 tries it again (`attempt` remounts it).
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   // Whether Privy is needed at once (a saved session, or Privy's OAuth
   // callback in the URL); null on the server and while hydrating, so the
   // server's frame and the first client frame agree ("loading").
@@ -135,19 +141,20 @@ function PrivyAuth({ appId, children }: { appId: string; children: React.ReactNo
   // Until Privy is ready, a browser with a saved Privy session makes the
   // requests that need the caller wait for the token (public reads go out
   // at once, see lib/api.ts); one without goes ahead as anonymous at once.
-  const scope = privy?.ready
+  const scope = failed ? "anonymous" : privy?.ready
     ? privy.authenticated && privy.userId ? privy.userId : "anonymous"
     : urgent !== false ? "loading" : "anonymous";
   setAccessTokenGetter(privy?.getAccessToken ?? null, scope);
 
-  const status: AuthStatus = privy?.ready
+  const status: AuthStatus = failed ? "signedOut" : privy?.ready
     ? privy.authenticated ? "signedIn" : "signedOut"
     : urgent !== false ? "loading" : "signedOut";
   const login = useCallback(() => {
-    if (privy?.ready) { privy.login(); return; }
+    if (privy?.ready && !failed) { privy.login(); return; }
     loginWhenReady.current = true;
+    if (failed) { setFailed(false); setAttempt((n) => n + 1); }
     setRequested(true);
-  }, [privy]);
+  }, [privy, failed]);
   const value = useMemo<AuthState>(
     () => ({
       status,
@@ -163,7 +170,11 @@ function PrivyAuth({ appId, children }: { appId: string; children: React.ReactNo
 
   return (
     <>
-      {load ? <Suspense fallback={null}><PrivyRuntime appId={appId} onChange={setPrivy} /></Suspense> : null}
+      {load && !failed ? (
+        <IslandBoundary key={attempt} onError={() => { setPrivy(null); setFailed(true); }}>
+          <Suspense fallback={null}><PrivyRuntime appId={appId} onChange={setPrivy} /></Suspense>
+        </IslandBoundary>
+      ) : null}
       <AuthContext value={value}><SessionQueries key={sessionKey()}>{children}</SessionQueries></AuthContext>
     </>
   );

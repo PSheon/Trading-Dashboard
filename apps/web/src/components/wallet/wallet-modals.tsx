@@ -5,6 +5,7 @@ import { createContext, use, useMemo, useState } from "react";
 import { DepositDialog } from "./deposit-dialog";
 import { ExportKeyDialog, type ExportTarget } from "./export-key-dialog";
 import { WithdrawDialog } from "./withdraw-dialog";
+import { IslandBoundary } from "@/components/island-boundary";
 
 type WalletModal = "deposit" | "withdraw" | "export" | null;
 
@@ -41,9 +42,10 @@ export function WalletModalsProvider({ children }: { children: React.ReactNode }
   return (
     <Context value={value}>
       {children}
-      <DepositDialog open={open === "deposit"} onOpenChange={close} />
-      <WithdrawDialog open={open === "withdraw"} onOpenChange={close} />
-      <ExportKeyDialog open={open === "export"} target={exportTarget} onOpenChange={(next) => setOpen(next ? "export" : null)} />
+      {/* A dialog that crashes takes only itself down; opening it again retries. */}
+      <IslandBoundary resetKey={open}><DepositDialog open={open === "deposit"} onOpenChange={close} /></IslandBoundary>
+      <IslandBoundary resetKey={open}><WithdrawDialog open={open === "withdraw"} onOpenChange={close} /></IslandBoundary>
+      <IslandBoundary resetKey={open}><ExportKeyDialog open={open === "export"} target={exportTarget} onOpenChange={(next) => setOpen(next ? "export" : null)} /></IslandBoundary>
     </Context>
   );
 }

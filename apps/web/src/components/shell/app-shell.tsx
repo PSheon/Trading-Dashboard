@@ -19,6 +19,7 @@ import { useAuth } from "@/lib/auth";
 import type { PublicSettings } from "@/lib/contracts";
 import { type InitialRead, useSiteSettings } from "@/lib/queries";
 import { discoverNav, isActive, mineNav, mobileNav, mobileNavSignedOut, type NavItem } from "./nav";
+import { IslandBoundary } from "@/components/island-boundary";
 
 /** Every route the app serves; anything else is the 404 page. */
 const ROUTES = ["/explore", "/favorites", "/insights", "/portfolio", "/settings", "/coins", "/trader", "/admin", "/about", "/help", "/dev"];
@@ -130,7 +131,7 @@ export function AppShell({
           <NavCapsule label={t("nav.primary")} items={discoverNav} pathname={pathname} />
         </div>
         <div className="flex min-w-0 justify-center">
-          <AddressSearch />
+          <IslandBoundary><AddressSearch /></IslandBoundary>
         </div>
         <div className="flex min-w-0 items-center justify-end gap-3">
           {signedIn ? (
@@ -141,7 +142,7 @@ export function AppShell({
               className="animate-in duration-300 fade-in-0 motion-reduce:animate-none"
             />
           ) : null}
-          <AccountControls />
+          <IslandBoundary><AccountControls /></IslandBoundary>
         </div>
         </div>
       </header>
@@ -154,8 +155,8 @@ export function AppShell({
           <Link href="/" aria-label={APP_NAME} className="mr-auto flex shrink-0 items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <Lockup />
           </Link>
-          <AddressSearch compact />
-          {chrome === "marketing" ? <PhoneMenu /> : <AuthButton compact />}
+          <IslandBoundary><AddressSearch compact /></IslandBoundary>
+          <IslandBoundary>{chrome === "marketing" ? <PhoneMenu /> : <AuthButton compact />}</IslandBoundary>
         </header>
       ) : null}
 
@@ -173,9 +174,10 @@ export function AppShell({
           "md:pt-0 md:pb-0",
         )}
       >
-        <MaintenanceBanner />
-        <AnnouncementBanner dismissed={announcementDismissed} />
-        <CopyFeed />
+        {/* Each island of the shell fails on its own (web audit H5). */}
+        <IslandBoundary><MaintenanceBanner /></IslandBoundary>
+        <IslandBoundary><AnnouncementBanner dismissed={announcementDismissed} /></IslandBoundary>
+        <IslandBoundary><CopyFeed /></IslandBoundary>
         <main
           id="main"
           tabIndex={-1}

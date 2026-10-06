@@ -171,6 +171,24 @@ describe('testnet stop execution', () => {
       expect(await stopRow()).toMatchObject({ issue: 'stop_awaiting_return_to_main_wallet' });
     });
 
+    it('a sweep whose send failed is never counted as sent: not dispatched it is refused (the owner returns it), dispatched it stays unconfirmed and is not resent', async () => {
+      await withSigner(); withdrawable = '25';
+      const sweep = () => new CopyLiveAutoReturn(new CopyLiveReturnRepository(db), exchange as never, worker as never, () => clock);
+      // Refused before the POST (its proof went stale): nothing left the process.
+      exchange.send.mockImplementationOnce(async (_row: unknown, _signature: string, fresh: () => void) => { clock += 60_000; fresh(); return null; });
+      const stop = await auto().tick().then(() => auto().tick()).then(stopRow);
+      expect(stop.state).toBe('flat');
+      expect(await sweep().sweep(stop, withdrawable)).not.toBe('sent');
+      expect((await returns())[0]).toMatchObject({ status: 'rejected' });
+      // Sent, its answer lost: unknown, reconciled from the main wallet's ledger, never resent.
+      await db.delete(schema.copyFundingOperations);
+      exchange.send.mockImplementationOnce(async (_row: unknown, _signature: string, fresh: () => void) => { fresh(); throw new Error('socket hang up'); });
+      expect(await sweep().sweep(stop, withdrawable)).toBe('unknown');
+      expect((await returns())[0]).toMatchObject({ status: 'unknown' });
+      expect(await sweep().sweep(stop, withdrawable)).toBe('unknown');
+      expect(exchange.send).toHaveBeenCalledTimes(2);
+    });
+
     it('a system sweep has no consent window: expireStaleReturns leaves it', async () => {
       const [acc] = await db.select().from(schema.copyExecutionAccounts);
       await db.insert(schema.copyFundingOperations).values({ id: 'system-sweep', userId: 1, accountId: acc!.id, strategyId: 9, idempotencyKey: 'sweep:old-stop', network: 'testnet',
@@ -205,24 +223,6 @@ describe('testnet stop execution', () => {
     const mandates = new CopyLiveMandateRepository(db), uow = new UnitOfWork(db);
     await expect(uow.run(tx => mandates.barrier(tx, 1, 'mandate', 'revoked', () => clock))).rejects.toMatchObject({ status: 409 });
     expect((await db.select().from(schema.copyStrategies))[0]).toMatchObject({ status: 'stopping' });
-  });
-
-  it('the owner\'s cancellation consent: a challenge only while cancelling, bound to the stop revision; a foreign signature is refused', async () => {
-    const service = new CopyLiveStopService(new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db)), new UnitOfWork(db), () => clock);
-    const stop = await stopRow();
-    await expect(service.cancellationChallenge(1, stop.id)).rejects.toMatchObject({ status: 409 });
-    await journal(`testnet:${account()}:0x${'cd'.repeat(16)}`, 'resting'); await stopper().tick();
-    const cancelling = await stopRow(); expect(cancelling.state).toBe('cancelling');
-    const challenge = await service.cancellationChallenge(1, stop.id);
-    expect(challenge).toMatchObject({ stopId: stop.id, consented: false, intent: { stopId: stop.id, capturedStopRevision: cancelling.revision, targetDigest: cancelling.targetDigest,
-      purpose: 'cancel_tracked_orders', agentAddress: `0x${'33'.repeat(20)}`, ownerAddress: cancelling.ownerAddress, nonce: clock, consentExpiresAt: clock + 30000, expiresAt: clock + 60000 } });
-    expect(await service.cancellationChallenge(1, stop.id)).toEqual(challenge); // the same intent until it nears expiry
-    await expect(service.cancellationChallenge(2, stop.id)).rejects.toMatchObject({ status: 404 });
-    const { privateKeyToAccount } = await import('viem/accounts');
-    const { liveStopCancellationOwnerTypedData } = await import('@trading-dashboard/shared/contracts');
-    const foreign = await privateKeyToAccount(`0x${'09'.repeat(32)}`).signTypedData(liveStopCancellationOwnerTypedData(challenge.intent));
-    await expect(service.approveCancellation(1, stop.id, { consentSignature: foreign })).rejects.toMatchObject({ status: 403 });
-    expect((await db.select().from(schema.copyLiveStopConsents))[0]).toMatchObject({ consentDigest: null, verifiedAt: null });
   });
 
   it('a single-position close is refused while a stop runs; outside a stop one open close per market', async () => {

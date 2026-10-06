@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
+import { Logger } from '@nestjs/common';
 import { WALLET_NETWORKS, canonicalUsdc, usdSendTypedData, withdrawalUnits } from '@trading-dashboard/shared/contracts';
 import { Dec } from '../../common/decimal/dec.js';
+import { safeErrorText } from '../../runtime/safe-error-text.js';
 import type { CopyFundingExchangeClient } from '../copy-funding-exchange.client.js';
 import type { CopyLiveReturnRepository } from '../copy-live-return.repository.js';
 import type { WorkerMasterSigner } from '../live/privy-policy-master-signer.js';
@@ -8,11 +10,12 @@ import type { StopRow } from './copy-live-stop-worker.repository.js';
 
 /** What the automatic return did on this pass. `legacy`: the account has no
  * master signer (the owner returns the funds); `waiting`: another wallet
- * operation goes first; `sent`: the sweep is attempted or in flight (the
- * funding monitor confirms the credit, then the stop ends); `failed`: it
- * could not be signed or the exchange refused it (the owner's manual return
- * remains). */
-export type AutoReturnOutcome = 'legacy' | 'waiting' | 'sent' | 'failed';
+ * operation goes first; `sent`: the exchange accepted the sweep (the funding
+ * monitor confirms the credit, then the stop ends); `unknown`: it was sent
+ * but its answer was lost, so it is confirmed from the main wallet's ledger
+ * and never resent; `failed`: it was not sent (not signed, refused before
+ * the POST, or refused by the exchange): the owner's return remains. */
+export type AutoReturnOutcome = 'legacy' | 'waiting' | 'sent' | 'unknown' | 'failed';
 export interface AutoReturn { sweep(stop: StopRow, withdrawable: string): Promise<AutoReturnOutcome> }
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
@@ -23,6 +26,7 @@ const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(va
  * Privy policy, once per stop (`sweep:<stop id>`), never resent.
  */
 export class CopyLiveAutoReturn implements AutoReturn {
+  private readonly logger = new Logger('CopyLiveAutoReturn');
   constructor(private readonly returns: CopyLiveReturnRepository, private readonly exchange: CopyFundingExchangeClient,
     private readonly signer: WorkerMasterSigner, private readonly now: () => number = Date.now) {}
 
@@ -38,22 +42,39 @@ export class CopyLiveAutoReturn implements AutoReturn {
     const row = await this.returns.reserveSystem(stop, canonicalUsdc(withdrawalUnits(free.toString())));
     if (!row) return 'waiting';
     if (row.status === 'rejected' || row.status === 'cancelled') return 'failed';
+    if (row.status === 'unknown') return 'unknown';
     if (row.status !== 'prepared') return 'sent';
     const attempt = await this.returns.begin(stop.userId, row.id);
-    if (!attempt) return 'sent';
+    // Another pass holds it (claimed and in flight): its outcome is not known here.
+    if (!attempt) return 'unknown';
     const checkedAt = this.now();
     let signature: string;
     try {
       signature = await this.signer.sign({ walletId: account.privyWalletId!, address: attempt.address, ownerQuorumId: account.ownerQuorumId!, workerQuorumId: account.masterSignerQuorumId, policyId: account.masterPolicyId },
         usdSendTypedData(WALLET_NETWORKS.testnet, attempt.destination, attempt.amount, attempt.nonce), { network: 'testnet', destination: account.sweepDestination }, checkedAt + 30_000);
-    } catch {
+    } catch (error) {
       // Not signed: the exchange cannot have it.
+      this.logger.warn(`sweep ${row.id} not signed: ${safeErrorText(error)}`);
       await this.returns.finish(stop.userId, row.id, 'rejected', digest({ reason: 'worker_signature_unavailable', id: row.id }));
       return 'failed';
     }
-    const fresh = () => { const at = this.now(); if (!Number.isSafeInteger(at) || at - checkedAt > 30_000) throw new Error('stale'); };
+    // The send's last check before the POST: once it passed, the sweep may
+    // have reached the exchange.
+    let dispatched = false;
+    const fresh = () => { const at = this.now(); if (!Number.isSafeInteger(at) || at - checkedAt > 30_000) throw new Error('stale'); dispatched = true; };
     let reply: unknown;
-    try { reply = await this.exchange.send(attempt, signature, fresh); } catch { return 'sent'; }
+    try { reply = await this.exchange.send(attempt, signature, fresh); }
+    catch (error) {
+      if (!dispatched) {
+        // Refused before the POST (a stale proof, the meter): nothing left this process.
+        this.logger.warn(`sweep ${row.id} not sent: ${safeErrorText(error)}`);
+        await this.returns.finish(stop.userId, row.id, 'rejected', digest({ reason: 'sweep_not_dispatched', id: row.id }));
+        return 'failed';
+      }
+      // Possibly sent: confirmed from the main wallet's ledger, never resent.
+      this.logger.warn(`sweep ${row.id} outcome unknown: ${safeErrorText(error)}`);
+      return 'unknown';
+    }
     if (reply && typeof reply === 'object' && 'status' in reply && 'response' in reply) {
       if (reply.status === 'ok' && reply.response && typeof reply.response === 'object' && 'type' in reply.response && reply.response.type === 'default') {
         await this.returns.finish(stop.userId, row.id, 'accepted', digest(reply)); return 'sent';
@@ -62,6 +83,7 @@ export class CopyLiveAutoReturn implements AutoReturn {
         await this.returns.finish(stop.userId, row.id, 'rejected', digest(reply)); return 'failed';
       }
     }
-    return 'sent';
+    // An answer that is neither: the outcome is not known.
+    return 'unknown';
   }
 }

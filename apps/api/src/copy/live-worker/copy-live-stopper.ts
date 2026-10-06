@@ -144,6 +144,8 @@ export class CopyLiveStopper {
     if (Dec.from(snapshot.withdrawable).lt(SWEEP_DUST_USD) && Dec.from(snapshot.perpEquity).lt(SWEEP_DUST_USD)) { await this.deps.repository.finish(stop, this.now()); return; }
     const outcome = this.deps.autoReturn ? await this.deps.autoReturn.sweep(stop, snapshot.withdrawable) : 'legacy';
     if (outcome === 'sent') { await this.deps.repository.issue(stop, 'stop_returning_to_main_wallet'); return; }
+    // Sent with its answer lost: the main wallet's ledger confirms it (never resent).
+    if (outcome === 'unknown') { await this.deps.repository.issue(stop, 'stop_return_unconfirmed'); return; }
     if (outcome === 'waiting') { await this.deps.repository.issue(stop, 'stop_return_waiting'); return; }
     // Legacy accounts, and a sweep that could not be signed or was refused:
     // the owner returns the funds (one signature).

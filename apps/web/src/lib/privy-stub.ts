@@ -18,3 +18,5 @@ export const useCreateWallet = () => unavailable("useCreateWallet");
 export const useExportWallet = () => unavailable("useExportWallet");
 export const useSendTransaction = () => unavailable("useSendTransaction");
 export const useSignTypedData = () => unavailable("useSignTypedData");
+export const useUser = () => unavailable("useUser");
+export const useSigners = () => unavailable("useSigners");

@@ -93,6 +93,90 @@ for (const width of [1440, 390]) {
   }
 }
 
+/** Starts a 150 USDC testnet copy from the trader panel in zh-TW and confirms it. */
+async function startOwnerCopy(page: Page, width: number, flags: string) {
+  // A phone's trader page has no sign-in button: sign in first, then open it.
+  await page.goto(`/zh-TW/portfolio?signer=fixture&wallet=funded&${flags}`);
+  await page.getByRole("button", { name: /^(示範登入|登入)$/ }).filter({ visible: true }).first().click();
+  await page.goto(`/zh-TW/trader/0x005a09b498f2a28b54652a70d7812e63414161fe?signer=fixture&wallet=funded&${flags}`);
+  let panel = page.locator("body");
+  if (width < 768) {
+    await action(page, "跟單").click();
+    panel = page.getByRole("dialog", { name: "跟單", exact: true });
+  }
+  await panel.getByRole("radiogroup", { name: "跟單模式" }).filter({ visible: true }).getByRole("radio", { name: "測試網" }).click();
+  if (width < 768) {
+    for (const key of ["1", "5", "0"]) await panel.getByRole("button", { name: key, exact: true }).click();
+    await action(page, "開始跟單 $150").click();
+  } else {
+    const amount = page.getByRole("textbox", { name: "跟單金額（USDC）" }).filter({ visible: true });
+    await amount.fill("150");
+    await amount.press("Enter");
+  }
+  const confirm = page.getByRole("dialog", { name: "確認跟單設定" });
+  await expect(confirm.getByTestId("live-copy-terms")).toContainText("150 USDC");
+  await confirm.getByRole("button", { name: "確認並開始" }).click();
+}
+const pageErrors = (page: Page) => {
+  const errors: string[] = [];
+  page.on("console", (message) => { if (message.type() === "error" && !message.text().startsWith("Failed to load resource")) errors.push(message.text()); });
+  page.on("response", (response) => { if (response.status() >= 400 && !response.url().includes("/api/coin-icon/")) errors.push(`${response.status()} ${new URL(response.url()).pathname}`); });
+  return () => errors.filter((text) => !/Download the React DevTools|favicon/.test(text));
+};
+
+// The owner's browser signs (no worker policy): at the account and agent
+// steps the fixture parks the copy account's action, and the open dialog
+// signs it with that copy account and sends it back: no extra click.
+for (const width of [1440, 390]) {
+  for (const scheme of ["light", "dark"] as const) {
+    test(`an owner-signed setup finishes with the dialog open at ${width}px (${scheme}, zh-TW)`, async ({ page, context, baseURL }) => {
+      test.setTimeout(120000);
+      const errors = pageErrors(page);
+      await context.addCookies([{ name: "locale", value: "zh-TW", url: baseURL! }]);
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.setViewportSize({ width, height: 900 });
+      await startOwnerCopy(page, width, "setup=owner");
+      const progress = page.getByRole("dialog", { name: /正在設定跟單|跟單已開始/ });
+      await expect(progress).toBeVisible();
+      await expect(progress).toContainText("關閉後設定會暫停，之後在投資組合點「繼續設定」即可接續。");
+      await page.waitForTimeout(500); // the dialog has finished fading in
+      await shot(page, `testnet-copy-owner-progress-${width}-${scheme}`);
+      // Account setup and the trading agent are each signed by the copy wallet in this browser.
+      await expect(page.getByRole("dialog", { name: "跟單已開始" })).toBeVisible({ timeout: 30000 });
+      await expect(progress.getByTestId("live-copy-stages").locator('[data-state="done"]')).toHaveCount(6);
+      await expect(progress.getByRole("alert")).toHaveCount(0);
+      await expectNoSidewaysScroll(page);
+      await shot(page, `testnet-copy-owner-done-${width}-${scheme}`);
+      expect(errors()).toEqual([]);
+    });
+  }
+}
+
+test("a copy wallet the browser can't use yet is named calmly; the dialog closed, 繼續設定 resumes and finishes", async ({ page, context, baseURL }) => {
+  test.setTimeout(120000);
+  const errors = pageErrors(page);
+  await context.addCookies([{ name: "locale", value: "zh-TW", url: baseURL! }]);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await startOwnerCopy(page, 1440, "setup=owner&copywallet=late");
+  const progress = page.getByRole("dialog", { name: "正在設定跟單" });
+  const alert = progress.getByRole("alert");
+  await expect(alert).toHaveText("這個瀏覽器還讀不到你的跟單錢包，請重新整理頁面後繼續。", { timeout: 30000 });
+  await page.waitForTimeout(500);
+  await shot(page, "testnet-copy-owner-wallet-error-1440");
+  // Closing pauses it (the tab could close here): the portfolio resumes it.
+  await progress.getByRole("button", { name: "關閉", exact: true }).last().click();
+  await expect(progress).toHaveCount(0);
+  await page.locator('a[href="/zh-TW/portfolio"]').filter({ visible: true }).first().click();
+  await expect(page).toHaveURL(/\/zh-TW\/portfolio/);
+  const resume = page.getByRole("button", { name: "繼續設定", exact: true }).filter({ visible: true }).first();
+  await expect(resume).toBeVisible({ timeout: 15000 });
+  await shot(page, "testnet-copy-owner-resume-1440");
+  await resume.click();
+  await expect(page.getByRole("dialog", { name: "跟單已開始" })).toBeVisible({ timeout: 30000 });
+  await expect(page.getByRole("dialog", { name: "跟單已開始" }).getByTestId("live-copy-stages").locator('[data-state="done"]')).toHaveCount(6);
+  expect(errors()).toEqual([]);
+});
+
 test("the step-by-step forms moved to /dev/copy; Settings keeps the read-only copy wallets", async ({ page, context, baseURL }) => {
   await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
   await page.goto("/en/settings?tab=account");

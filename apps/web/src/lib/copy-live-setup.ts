@@ -5,6 +5,7 @@ import { liveCopyMandateSchema, liveCopyOverviewSchema, liveCopySetupConsentType
   type CopyStrategySettings, type LiveCopySetup } from '@trading-dashboard/shared/contracts';
 import { api, ApiError, sessionKey } from './api';
 import { useAuth } from './auth';
+import { isTransient, retryAfter } from './copy-error-text';
 import { masterActionErrorCode, signMasterAction } from './copy-master-action';
 import { FIXTURE_WALLET_ADDRESS } from './fixture-signer';
 import { queryKeys } from './query-keys';
@@ -70,10 +71,21 @@ export async function attachWorker(setup: LiveCopySetup, wallet: Pick<WalletSign
 /** How long confirm waits for Privy to add the worker signer. */
 export const ATTACH_WORKER_TIMEOUT_MS = 20_000;
 
+/** A payload's fingerprint for its attempt name: keys sorted, so the terms
+ * the server echoes back (jsonb reorders keys) name the same attempt. */
+export function termsFingerprint(value: unknown): string {
+  const stable = (v: unknown): unknown => Array.isArray(v) ? v.map(stable)
+    : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map(key => [key, stable((v as Record<string, unknown>)[key])])) : v;
+  return JSON.stringify(stable(value));
+}
+
 /**
- * The idempotency key of each attempt (`start:<leader>`, `edit:<id>`,
- * `renew:<id>`, `topup:…`), for the page's life: a remounted panel or row
- * retries with the same key and the server answers with the same setup.
+ * The idempotency key of each attempt (`start:<leader>:<terms>`,
+ * `edit:<id>:<terms>`, `renew:<id>`, `topup:…`), for the page's life: a
+ * remounted panel or row retries the same terms with the same key and the
+ * server answers with the same setup; changed terms (the sheet dismissed,
+ * the amount changed) are a new attempt with a new key, never a 409
+ * "payload changed" or the old setup's terms on the sheet.
  * Scoped to the signed-in identity and session; another session never
  * reuses them (they are dropped when it changes).
  */
@@ -106,7 +118,10 @@ export function useLiveCopySetupActions() {
   const keyFor = (name: string) => { const map = keys(); let value = map.get(name); if (!value) { value = crypto.randomUUID(); map.set(name, value); } return value; };
   const forget = (name: string) => keys().delete(name);
   /** The attempt names a setup was made under (exact names only). */
-  const namesOf = (setup: Pick<LiveCopySetup, 'kind' | 'strategyId' | 'leaderAddress'>) => setup.kind === 'start' ? [`start:${setup.leaderAddress}`] : [`edit:${setup.strategyId}`, `renew:${setup.strategyId}`];
+  const startName = (leader: string, budgetUsd: string, settings: unknown) => `start:${leader}:${termsFingerprint({ budgetUsd, settings })}`;
+  const editName = (strategyId: number, budgetUsd: string, settings: unknown) => `edit:${strategyId}:${termsFingerprint({ budgetUsd, settings })}`;
+  const namesOf = (setup: Pick<LiveCopySetup, 'kind' | 'strategyId' | 'leaderAddress' | 'budgetUsd' | 'settings'>) => setup.kind === 'start' ? [startName(setup.leaderAddress, setup.budgetUsd, setup.settings)]
+    : [editName(setup.strategyId, setup.budgetUsd, setup.settings), `renew:${setup.strategyId}`];
   const refresh = () => { void client.invalidateQueries({ queryKey: [...queryKeys.copy.all] }); };
   const owner = () => {
     const current = latest.current, wallet = current.wallet, identity = current.identity, session = sessionKey();
@@ -124,11 +139,11 @@ export function useLiveCopySetupActions() {
     }
   };
   const start = useMutation({
-    mutationFn: async (input: StartLiveCopyInput) => prepare(`start:${input.leader}`, key => api.post(`${ROOT}/setups`, { idempotencyKey: key, leader: input.leader, sourceNetwork: 'mainnet', budgetUsd: input.budgetUsd, settings: input.settings })),
+    mutationFn: async (input: StartLiveCopyInput) => prepare(startName(input.leader, input.budgetUsd, input.settings), key => api.post(`${ROOT}/setups`, { idempotencyKey: key, leader: input.leader, sourceNetwork: 'mainnet', budgetUsd: input.budgetUsd, settings: input.settings })),
   });
   const edit = useMutation({
     mutationFn: async ({ strategyId, budgetUsd, settings }: { strategyId: number; budgetUsd: string; settings: CopyStrategySettings }) =>
-      prepare(`edit:${strategyId}`, key => api.patch(`${ROOT}/strategies/${strategyId}`, { idempotencyKey: key, budgetUsd, settings })),
+      prepare(editName(strategyId, budgetUsd, settings), key => api.patch(`${ROOT}/strategies/${strategyId}`, { idempotencyKey: key, budgetUsd, settings })),
   });
   const renew = useMutation({
     mutationFn: async ({ strategyId }: { strategyId: number }) => prepare(`renew:${strategyId}`, key => api.post(`${ROOT}/strategies/${strategyId}/renew`, { idempotencyKey: key })),
@@ -222,11 +237,16 @@ export function useLiveCopySetup(id: string | null) {
   const latest = useRef(auth);
   useLayoutEffect(() => { latest.current = auth; });
   const [walletError, setWalletError] = useState<string | null>(null);
+  // The last advance failed in passing (busy, 5xx, network): the dialog says
+  // it retries, with the stages it last read.
+  const [advanceBusy, setAdvanceBusy] = useState(false);
   const query = useQuery<LiveCopySetup>({
     queryKey: [...queryKeys.copy.all, 'live-setup', id, auth.identity, sessionKey()], enabled, retry: false, staleTime: 0,
     // Ended, or refused for good (signed out, not this owner's: a 4xx): no
-    // more polling. A passing failure (network, 5xx) is asked again later.
-    refetchInterval: q => setupTerminal(q.state.data) || (q.state.error instanceof ApiError && q.state.error.status >= 400 && q.state.error.status < 500) ? false : q.state.error ? 10_000 : 2000,
+    // more polling. A passing failure (network, 5xx, Hyperliquid busy) is
+    // asked again after the api's Retry-After, else 10 s.
+    refetchInterval: q => setupTerminal(q.state.data) || (q.state.error instanceof ApiError && q.state.error.status >= 400 && q.state.error.status < 500) ? false
+      : q.state.error ? retryAfter(q.state.error, 10_000) : 2000,
     queryFn: async ({ signal }): Promise<LiveCopySetup> => {
       const read = liveCopySetupSchema.parse(await api.get(`${ROOT}/setups/${encodeURIComponent(id!)}`, signal));
       const path = `${ROOT}/setups/${encodeURIComponent(id!)}/advance`;
@@ -250,12 +270,24 @@ export function useLiveCopySetup(id: string | null) {
       const driven = ['consented', 'funding_submitted', 'funded', 'mode_set', 'agent_active', 'builder_ready'].includes(read.stage);
       if (driven && !pending && read.signer === 'owner_session' && Date.now() >= advanceAt.current) {
         advanceAt.current = Date.now() + 3000;
-        return liveCopySetupSchema.parse(await api.post(path, {}));
+        // A failed advance is not a failed read: the dialog keeps the stages
+        // it just read and asks again (after Retry-After when busy).
+        try { const advanced = liveCopySetupSchema.parse(await api.post(path, {})); setAdvanceBusy(false); return advanced; }
+        catch (error) {
+          if (!isTransient(error)) throw error;
+          advanceAt.current = Date.now() + retryAfter(error, 3000); setAdvanceBusy(true);
+          return read;
+        }
       }
       return read;
     },
   });
   const client = useQueryClient(), terminal = setupTerminal(query.data);
   useEffect(() => { if (terminal) void client.invalidateQueries({ queryKey: [...queryKeys.copy.all] }); }, [terminal, client]);
-  return { ...query, walletError: terminal ? null : walletError };
+  const passing = query.isError && isTransient(query.error);
+  return { ...query, walletError: terminal ? null : walletError,
+    /** Retrying a passing failure (the read or the advance): say so calmly, keep the stages. */
+    retrying: !terminal && (passing || (advanceBusy && !query.isError)),
+    /** A failure the dialog can't retry its way out of (a 4xx). */
+    failure: query.isError && !passing ? query.error : null };
 }

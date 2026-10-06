@@ -5,7 +5,9 @@ import { copyFundingSchema, copyReturnChallengeSchema, copyReturnConsentTypedDat
   liveStopCancellationChallengeSchema, liveStopCancellationOwnerTypedData, usdSendTypedData, WALLET_NETWORKS, type LiveCopyPortfolioItem } from '@trading-dashboard/shared/contracts';
 import { api, sessionKey } from './api';
 import { useAuth } from './auth';
+import { isTransient } from './copy-error-text';
 import { liveCopyEnabled } from './copy-live-setup';
+import { busyRetry } from './query-policy';
 import { signMasterAction } from './copy-master-action';
 import { queryKeys } from './query-keys';
 import type { Eip712TypedData } from './wallet-signer';
@@ -23,11 +25,12 @@ function usePortfolioKey() {
 export function useLiveCopyPortfolio() {
   const auth = useAuth();
   const enabled = liveCopyEnabled(auth);
-  const query = useQuery({ queryKey: usePortfolioKey(), enabled, staleTime: 0, retry: false, refetchInterval: 10_000, refetchOnWindowFocus: true,
+  const query = useQuery({ queryKey: usePortfolioKey(), enabled, staleTime: 0, ...busyRetry, refetchInterval: 10_000, refetchOnWindowFocus: true,
     queryFn: async ({ signal }) => liveCopyPortfolioSchema.parse(await api.get(`${ROOT}/portfolio`, signal)) });
-  // A failed read is reported (the portfolio shows it with a retry), not
-  // turned into "no testnet copies".
-  return { ...query, enabled, data: enabled && !query.isError ? query.data : undefined };
+  // A failed first read is reported (the portfolio shows it with a retry),
+  // not turned into "no testnet copies". A passing failure of a later read
+  // keeps the last answer: the rows and any dialog open on them stay.
+  return { ...query, enabled, data: enabled && (!query.isError || isTransient(query.error)) ? query.data : undefined };
 }
 
 /**

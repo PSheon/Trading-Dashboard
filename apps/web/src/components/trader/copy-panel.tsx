@@ -5,7 +5,7 @@ import { Link } from "@/i18n/navigation";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { cn } from "cn";
 
-import { LiveCopyConfirm, LiveCopyProgress, liveSetupError, useLiveSetupText } from "@/components/copy/live-copy-setup-dialogs";
+import { LiveCopyConfirm, LiveCopyProgress, liveSetupError, useCopyTexts, useLiveSetupText } from "@/components/copy/live-copy-setup-dialogs";
 import { LiveSettingsFields } from "@/components/copy/live-copy-settings-fields";
 import { PaperBadge } from "@/components/copy/paper-badge";
 import { Button } from "@/components/ui/button";
@@ -16,11 +16,12 @@ import { UsdcIcon } from "@/components/wallet/bits";
 import { useI18n } from "@/i18n/provider";
 import { liveCopiesMessages } from "@/i18n/live-copies";
 import { apiErrorCode } from "@/lib/api";
+import { copyErrorText } from "@/lib/copy-error-text";
 import { useAuth } from "@/lib/auth";
 import { useCopyOf, useCopyOverview, useStartCopy } from "@/lib/copy";
 import { liveSetupScope, useLiveCopyAvailable, useLiveCopySetupActions } from "@/lib/copy-live-setup";
 import { useLiveCopyPortfolio } from "@/lib/copy-live-portfolio";
-import { signErrorMessage, useWallet } from "@/lib/wallet";
+import { useWallet } from "@/lib/wallet";
 import type { CopyStrategySettings, LiveCopySetup } from "@trading-dashboard/shared/contracts";
 import { useSiteSettings } from "@/lib/queries";
 import { amountInput } from "@/lib/amount-input";
@@ -110,7 +111,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
   const overview = useCopyOverview();
   const existing = useCopyOf(address);
   const start = useStartCopy();
-  const liveText = useLiveSetupText();
+  const liveText = useLiveSetupText(), copyTexts = useCopyTexts();
   const liveAvailable = useLiveCopyAvailable();
   const [chosenMode, setMode] = useCopyMode(identity);
   const mode: CopyMode = liveAvailable ? chosenMode : "paper";
@@ -266,8 +267,9 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
       const prepared = await live.start.mutateAsync({ leader: address.toLowerCase(), budgetUsd: String(Math.floor(value * 1e6) / 1e6), settings });
       if (prepared.stage === "awaiting_consent" && prepared.consent) { setConfirmError(null); updateSetup({ setup: prepared, confirmOpen: true, starting: false }); return; }
       updateSetup({ setup: prepared, starting: false });
-      if (prepared.stage === "provisioning") return toast.info(liveText.preparing);
-      // Already confirmed earlier (a retried start): show where it stands.
+      // Still preparing (its wallet or agent is slow), or already confirmed
+      // earlier (a retried start): the progress dialog shows where it stands,
+      // and offers 重新開始 / 取消設定 while it is still preparing.
       setProgressId(prepared.id);
     } catch (err) { updateSetup({ starting: false }); liveError(err); }
   }
@@ -283,7 +285,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
         // A fresh challenge for the same attempt; the owner confirms again.
         try { const again = await live.start.mutateAsync({ leader: setup.leaderAddress, budgetUsd: setup.budgetUsd, settings: setup.settings }); setSetup(again); } catch { /* shown below */ }
       }
-      setConfirmError(code ? liveSetupError(liveText, code) : signErrorMessage(err).rejected ? liveText.errors.signature_rejected : liveText.errors.generic);
+      setConfirmError(copyErrorText(copyTexts, err));
     }
   }
   function liveError(err: unknown) {
@@ -293,9 +295,8 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
       code === "below_min_allocation" ? t("trader.copy.errors.minAllocation", { min: format.num(min) }) :
       code === "above_max_allocation" ? t("trader.copy.errors.maxAllocation", { max: format.num(limit?.maxAllocationUsd ?? 0) }) :
       code === "copy_paused" ? t("trader.copy.errors.paused") :
-      code === "strategy_limit" ? t("trader.copy.errors.limit", { limit: limit?.maxStrategies ?? 0 }) :
       code === "copy_not_open" ? t("trader.copy.errors.disabled") :
-      liveSetupError(liveText, code),
+      copyErrorText(copyTexts, err),
     );
   }
 
@@ -377,7 +378,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
           <TestnetBadge label={liveText.testnet} />
         </div>
         <p role={lapsed ? undefined : "alert"} className="flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning">
-          <TriangleAlert className="mt-px size-3.5 shrink-0" />{lapsed ? liveText.consentLapsedHint : liveSetupError(liveText, endedSetup.issue)}
+          <TriangleAlert className="mt-px size-3.5 shrink-0" />{lapsed ? liveText.consentLapsedHint : liveSetupError(copyTexts, endedSetup.issue)}
         </p>
         <Button type="button" size="cta" className="w-full" loading={live.restart.isPending} disabled={busy && !live.restart.isPending} onClick={() => void restartTestnet(endedSetup.id)}>
           {liveText.restart}

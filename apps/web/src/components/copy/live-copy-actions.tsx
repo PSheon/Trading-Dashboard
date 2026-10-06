@@ -3,17 +3,17 @@
 import { useState } from "react";
 import type { LiveCopySetup, LiveCopyStrategy } from "@trading-dashboard/shared/contracts";
 
-import { LiveCopyConfirm, LiveCopyProgress, liveSetupError, useLiveSetupText } from "@/components/copy/live-copy-setup-dialogs";
+import { LiveCopyConfirm, LiveCopyProgress, liveSetupError, useCopyTexts, useLiveSetupText } from "@/components/copy/live-copy-setup-dialogs";
 import { LiveSettingsFields } from "@/components/copy/live-copy-settings-fields";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
 import { fill } from "@/i18n/live-setup";
 import { useI18n } from "@/i18n/provider";
 import { apiErrorCode } from "@/lib/api";
+import { copyErrorText } from "@/lib/copy-error-text";
 import { amountInput } from "@/lib/amount-input";
 import { setupTerminal, useLiveCopySetupActions } from "@/lib/copy-live-setup";
 import type { LiveCopyItem } from "@/lib/copy-live-portfolio";
-import { signErrorMessage } from "@/lib/wallet";
 
 /**
  * A testnet copy's one-click actions in the portfolio (plan §4 parity):
@@ -24,7 +24,7 @@ import { signErrorMessage } from "@/lib/wallet";
  * sheet), and 加碼 (a silent UsdSend from the main wallet).
  */
 export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strategy: LiveCopyStrategy | null }) {
-  const text = useLiveSetupText(), { format } = useI18n();
+  const text = useLiveSetupText(), texts = useCopyTexts(), { format } = useI18n();
   const actions = useLiveCopySetupActions();
   const [progressId, setProgressId] = useState<string | null>(null);
   const [pendingSetup, setPendingSetup] = useState<LiveCopySetup | null>(null);
@@ -40,10 +40,7 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
   const running = item.stage === "active" || item.stage === "paused" || item.stage === "starting";
   const mandateId = item.mandate?.id ?? null;
   const busy = actions.pause.isPending || actions.resume.isPending || actions.edit.isPending || actions.renew.isPending || actions.topUp.isPending || actions.restart.isPending || actions.cancel.isPending;
-  const message = (err: unknown) => {
-    const code = apiErrorCode(err);
-    return code ? liveSetupError(text, code) : signErrorMessage(err).rejected ? text.errors.signature_rejected : text.errors.generic;
-  };
+  const message = (err: unknown) => copyErrorText(texts, err);
   const fail = (err: unknown) => setError(message(err));
   const review = (setup: LiveCopySetup) => {
     if (setup.stage === "awaiting_consent" && setup.consent) { setConfirmError(null); setProgressId(null); setPendingSetup(setup); }
@@ -68,7 +65,7 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
           {fill(item.renewalDue ? text.renewDue : text.expiresOn, { date: format.date(item.expiresAt) })}
         </p>
       ) : null}
-      {stopped ? <p role="alert" className="text-xs text-warning">{liveSetupError(text, stopped.issue)}</p> : null}
+      {stopped ? <p role="alert" className="text-xs text-warning">{liveSetupError(texts, stopped.issue)}</p> : null}
       {lapsed ? <p className="text-xs text-muted-foreground">{text.consentLapsedHint}</p> : null}
       <div className="flex flex-wrap items-center gap-2">
         {unfinished && !lapsed ? <Button size="sm" onClick={() => setProgressId(unfinished.id)}>{text.continueSetup}</Button> : null}

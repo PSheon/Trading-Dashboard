@@ -15,6 +15,8 @@ import type { LiveCopyStrategy } from '@trading-dashboard/shared/contracts';
 import { Button } from '@/components/ui/button';
 import { ErrorState } from '@/components/page';
 import { cn } from '@/lib/utils';
+import { useCopyTexts } from '@/components/copy/live-copy-setup-dialogs';
+import { copyCodeText, copyErrorText } from '@/lib/copy-error-text';
 
 /** The step-by-step forms, for a copy set up before one-click (lab-gated). */
 const SETTINGS = '/dev/copy';
@@ -67,10 +69,14 @@ function LiveCopyRow({ item, text, account, mandate, strategy }: { item: LiveCop
   const [amount, setAmount] = useState('');
   const observed = snapshot.data?.status === 'observed' ? snapshot.data : null;
   const busy = actions.transfer.isPending || actions.cancellation.isPending || actions.close.isPending || actions.cancelTransfer.isPending;
-  const failed = actions.transfer.isError || actions.cancellation.isError || actions.close.isError || actions.cancelTransfer.isError;
+  // What failed, in words (lib/copy-error-text.ts): never one line for all four.
+  const texts = useCopyTexts();
+  const failure = [actions.transfer, actions.cancellation, actions.close, actions.cancelTransfer].find(action => action.isError)?.error ?? null;
+  const failed = failure ? copyErrorText(texts, failure) : null;
   const running = item.stage === 'active' || item.stage === 'paused' || item.stage === 'starting';
   const validAmount = /^\d+(?:\.\d{1,6})?$/.test(amount) && Number(amount) > 0;
-  const reason = item.lastRefusal ? (item.lastRefusal.reason === 'live_source_price_deviation' ? text.priceDeviation : item.lastRefusal.reason) : null;
+  // A refusal code is never shown as is: its own words, else a plain line.
+  const reason = item.lastRefusal ? (item.lastRefusal.reason === 'live_source_price_deviation' ? text.priceDeviation : copyCodeText(texts, item.lastRefusal.reason) ?? texts.extra.refusal) : null;
   // The worker returns this account's funds by itself after a stop (no
   // signature): 自動返還中 instead of the 全部返還主錢包 button. A copy
   // that ended before it ever ran (a start that failed after its deposit)
@@ -145,7 +151,7 @@ function LiveCopyRow({ item, text, account, mandate, strategy }: { item: LiveCop
         ) : null}
         {busy ? <span role="status" className="text-xs text-muted-foreground">{text.busy}</span> : null}
       </div>
-      {failed ? <p role="alert" className="text-xs text-negative">{text.error}</p> : null}
+      {failed ? <p role="alert" className="text-xs text-negative">{failed}</p> : null}
       <LiveCopyActions item={item} strategy={strategy} />
       {account && mandate && (running || item.stage === 'needs_deposit' || item.stage === 'stopping') ? <CopyLiveStop selection={{ account, mandate }} /> : null}
     </div>

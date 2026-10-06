@@ -9,6 +9,7 @@ import { liveCopyEnabled } from './copy-live-setup';
 import { queryKeys } from './query-keys';
 import type { Eip712TypedData } from './wallet-signer';
 import type { AgentOwnerSnapshot } from './copy-agents';
+import { isTransient } from './copy-error-text';
 
 const ROOT = '/me/copy/live';
 const preparationSchema = z.object({ accountId: z.string(), strategyId: z.number().int().positive(), accountAddress: z.string(), strategyVersion: z.number().int().positive(), key: z.string().min(16).max(128), mandateId: z.string().nullable() }).strict();
@@ -188,7 +189,10 @@ export function useLiveCopyOverview() {
   const query = useQuery({ queryKey: useLiveKey(), enabled, queryFn: async ({ signal }) => {
     const captured = snapshot(); const guard = () => { signal.throwIfAborted(); if (JSON.stringify(captured) !== JSON.stringify(snapshot())) throw new Error('live_session_changed'); }; guard(); const result = await api.get(ROOT, signal); guard(); return liveCopyOverviewSchema.parse(result);
   }, staleTime: 0, gcTime: 0, retry: false, refetchInterval: 15000, refetchOnWindowFocus: true });
-  return { ...query, data: enabled && !query.isError ? query.data : undefined };
+  // A passing failure of a refetch (busy, 5xx, the network) keeps the last
+  // answer: a dialog open on it (edit, top-up) must not vanish mid-flow. A
+  // refusal for good (4xx) or a changed session drops it.
+  return { ...query, data: enabled && (!query.isError || isTransient(query.error)) ? query.data : undefined };
 }
 export function useLiveCopyActions(accounts: readonly CopyExecutionAccount[], overview: z.infer<typeof liveCopyOverviewSchema> | undefined, setups: readonly CopyAgentSetup[], selected: string, draft: Omit<CreateLiveCopyStrategy, 'idempotencyKey'> | null, grants?: readonly CopyWalletGrant[]) {
   const auth = useAuth(), state = useRef({ auth, accounts, overview, setups, selected, draft, grants }), mounted = useRef(true), busy = useRef(false), client = useQueryClient(), key = useLiveKey();

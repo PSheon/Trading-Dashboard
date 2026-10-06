@@ -270,3 +270,50 @@ it("a signer added in time, or refused, asks for no extra reconcile", async () =
   await act(async () => { await probe.current!.confirm.mutateAsync(setup()); });
   expect(state.post.mock.calls.map(([path]) => path).filter(path => String(path).endsWith('/reconcile'))).toEqual([]);
 });
+
+it("a passing poll failure (503 busy) keeps the last stages and retries after Retry-After; a failed advance falls back to the read", async () => {
+  const { ApiError } = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const running = { ...setup('start', 'funding_submitted'), signer: 'owner_session' as const };
+    state.get.mockResolvedValue(running);
+    // The advance POST fails in passing: the read just made still counts.
+    state.post.mockRejectedValue(new ApiError(502, 'Bad Gateway', { code: 'bad_gateway' }));
+    await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale="en" messages={catalogs.en}><Probe /><ProgressProbe id={running.id} /></I18nProvider></QueryClientProvider>));
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(progress.current!.data?.stage).toBe('funding_submitted');
+    expect(progress.current!.isError).toBe(false);
+    expect(progress.current!.retrying).toBe(true);
+    expect(progress.current!.failure).toBeNull();
+    // Then the read itself is refused in passing (Hyperliquid busy, Retry-After 30 s).
+    state.get.mockRejectedValue(new ApiError(503, 'busy', { code: 'busy' }, 30_000));
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_100); });
+    const calls = state.get.mock.calls.length;
+    expect(progress.current!.data?.stage).toBe('funding_submitted');
+    expect(progress.current!.retrying).toBe(true);
+    expect(progress.current!.failure).toBeNull();
+    // Not asked again before Retry-After.
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+    expect(state.get.mock.calls.length).toBe(calls);
+    await act(async () => { await vi.advanceTimersByTimeAsync(11_000); });
+    expect(state.get.mock.calls.length).toBe(calls + 1);
+  } finally { vi.useRealTimers(); }
+});
+
+it('a start or edit with changed terms is a new attempt with its own key; the same terms reuse theirs (the sheet dismissed, the amount changed)', async () => {
+  state.post.mockResolvedValue(setup());
+  const leader = `0x${'44'.repeat(20)}`;
+  await act(async () => { await probe.current!.start.mutateAsync({ leader, budgetUsd: '150', settings }); });
+  await act(async () => { await probe.current!.start.mutateAsync({ leader, budgetUsd: '200', settings }); });
+  await act(async () => { await probe.current!.start.mutateAsync({ leader, budgetUsd: '150', settings: { ...settings, maxLeverage: 3 } }); });
+  // The same terms, keys in another order (as the server's jsonb echoes them).
+  await act(async () => { await probe.current!.start.mutateAsync({ leader, budgetUsd: '150', settings: { copyStartMode: 'delta', maxLeverage: 5, maxTotalExposureUsd: null, perTradeUsd: null, sizingMode: 'ratio', direction: 'same' } }); });
+  const keys = state.post.mock.calls.map(([, body]) => (body as { idempotencyKey: string }).idempotencyKey);
+  expect(new Set(keys.slice(0, 3)).size).toBe(3);
+  expect(keys[3]).toBe(keys[0]);
+  state.patch.mockResolvedValue(setup('edit'));
+  await act(async () => { await probe.current!.edit.mutateAsync({ strategyId: 7, budgetUsd: '150', settings }); });
+  await act(async () => { await probe.current!.edit.mutateAsync({ strategyId: 7, budgetUsd: '300', settings }); });
+  const editKeys = state.patch.mock.calls.map(([, body]) => (body as { idempotencyKey: string }).idempotencyKey);
+  expect(editKeys[0]).not.toBe(editKeys[1]);
+});

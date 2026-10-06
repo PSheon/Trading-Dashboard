@@ -1,6 +1,6 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { and, asc, desc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { copyAgentSetups, copyFundingOperations, copyLiveActivations, copyLiveMandates, copyLiveSetups, copyLiveStrategyConfigs, copyStrategies, copyStrategyVersions, users } from '@trading-dashboard/shared/database';
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
@@ -97,9 +97,43 @@ export class CopyLiveSetupRepository {
   async tagFunding(fundingId: string, setupId: string): Promise<void> {
     await this.db.update(copyFundingOperations).set({ liveSetupId: setupId }).where(eq(copyFundingOperations.id, fundingId));
   }
-  /** A start that never moved funds ends with its paused, empty strategy. */
-  async stopUnfundedStrategy(tx: DbExecutor, userId: number, strategyId: number): Promise<void> {
-    await tx.update(copyStrategies).set({ status: 'stopped', pauseNewRisk: true, stoppedAt: new Date() })
-      .where(and(eq(copyStrategies.id, strategyId), eq(copyStrategies.userId, userId), eq(copyStrategies.mode, 'testnet'), eq(copyStrategies.status, 'paused')));
+  /**
+   * A start that ended without a generation (cancelled before its deposit,
+   * or failed / expired after it): its reserved, never-sent deposit is
+   * cancelled and its paused strategy stops, unless a generation ever ran
+   * or another of its setups is still going. Its copy account stays: funds
+   * that arrived are returned to the main wallet from the portfolio (a
+   * sweep is allowed once the strategy is stopped).
+   */
+  async endStart(tx: DbExecutor, userId: number, setup: Pick<SetupRow, 'id' | 'strategyId' | 'fundingOperationId'>): Promise<boolean> {
+    if (setup.fundingOperationId) {
+      await tx.update(copyFundingOperations).set({ status: 'cancelled', updatedAt: new Date() }).where(and(eq(copyFundingOperations.id, setup.fundingOperationId),
+        eq(copyFundingOperations.userId, userId), inArray(copyFundingOperations.status, ['prepared', 'unknown']), isNull(copyFundingOperations.attemptedAt)));
+    }
+    const stopped = await tx.update(copyStrategies).set({ status: 'stopped', pauseNewRisk: true, stoppedAt: new Date() })
+      .where(and(eq(copyStrategies.id, setup.strategyId), eq(copyStrategies.userId, userId), eq(copyStrategies.mode, 'testnet'), eq(copyStrategies.status, 'paused'),
+        sql`not exists (select 1 from ${copyLiveMandates} m where m.strategy_id = ${copyStrategies.id} and m.state in ('active', 'paused', 'stopping', 'stopped'))`,
+        sql`not exists (select 1 from ${copyLiveSetups} x where x.strategy_id = ${copyStrategies.id} and x.id <> ${setup.id} and x.stage not in ('running', 'failed', 'expired', 'cancelled'))`))
+      .returning({ id: copyStrategies.id });
+    if (!stopped.length) return false;
+    // A generation prepared and never activated can't run any more.
+    await tx.update(copyLiveMandates).set({ state: 'revoked', revision: sql`${copyLiveMandates.revision} + 1`, updatedAt: sql`greatest(now(), ${copyLiveMandates.createdAt})` })
+      .where(and(eq(copyLiveMandates.strategyId, setup.strategyId), eq(copyLiveMandates.state, 'prepared')));
+    return true;
+  }
+  /** The owner's starts for this leader that ended or never got a consent:
+   * a new start for the same leader ends them first. */
+  abandonedStarts(tx: DbExecutor, userId: number, leader: string): Promise<SetupRow[]> {
+    return tx.select().from(copyLiveSetups).where(and(eq(copyLiveSetups.userId, userId), eq(copyLiveSetups.kind, 'start'), eq(copyLiveSetups.leaderAddress, leader),
+      inArray(copyLiveSetups.stage, ['provisioning', 'awaiting_consent', 'failed', 'expired'])));
+  }
+  /** Agents whose approval was being signed or sent when their setup ended
+   * (expired, failed, cancelled) in the last `since`: nothing drives them
+   * any more, so the worker reconciles them (oldest first). */
+  abandonedApprovals(since: Date, limit = 20) {
+    return this.db.select({ id: copyAgentSetups.id, userId: copyAgentSetups.userId }).from(copyAgentSetups)
+      .innerJoin(copyLiveSetups, eq(copyLiveSetups.id, copyAgentSetups.liveSetupId))
+      .where(and(inArray(copyAgentSetups.state, ['approval_unknown', 'approval_signing']), inArray(copyLiveSetups.stage, ['failed', 'expired', 'cancelled']),
+        gt(copyLiveSetups.updatedAt, since))).orderBy(asc(copyAgentSetups.updatedAt)).limit(limit);
   }
 }

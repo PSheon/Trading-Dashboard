@@ -142,6 +142,25 @@ describe("DELETE /me — only in-flight state blocks", () => {
     expect(await tombstones()).toHaveLength(0);
   });
 
+  it("a start that failed after its deposit arrived (no generation ever) stops with the deletion: only funds left on the exchange block it", async () => {
+    await history();
+    const ABANDONED = `0x${"88".repeat(20)}`;
+    await db.insert(copyStrategies).values({ id: 12, userId: 1, mode: "testnet", leaderAddress: OTHER, allocated: "0", cash: "0", status: "paused", pauseNewRisk: true, activatedAt: new Date(now) });
+    await db.insert(copyExecutionAccounts).values({ id: "account-12", userId: 1, strategyId: 12, network: "testnet", state: "ready", address: ABANDONED, privyUserId: "did:privy:risk-source",
+      externalId: "abandoned-master", privyWalletId: "master-12", ownerQuorumId: "owner" });
+    await db.insert(copyFundingOperations).values(funding("66666666-6666-4666-8666-666666666666", { ...credited("d"), accountId: "account-12", strategyId: 12, destination: ABANDONED, nonce: now + 11, idempotencyKey: "fund-abandoned-1" }));
+    await db.insert(copyLiveSetups).values(setup("failed", "failed", { ...consented, strategyId: 12, accountId: "account-12", leaderAddress: OTHER, issue: "setup_account_mode_failed",
+      fundingOperationId: "66666666-6666-4666-8666-666666666666" }));
+    // Its funds are still there: that is the blocker, not copies_active.
+    closure.isEmpty.mockImplementation(async (_network, address) => address !== ABANDONED);
+    const response = await deleteMe().expect(409);
+    expect(response.body.error).toMatchObject({ code: "copy_account_not_empty", details: { strategyIds: [12] } });
+    // Returned to the main wallet: the deletion goes through and the copy is stopped.
+    closure.isEmpty.mockResolvedValue(true);
+    await deleteMe().expect(204);
+    expect((await db.select().from(copyStrategies).where(eq(copyStrategies.id, 12)))[0]).toMatchObject({ status: "stopped" });
+  });
+
   it("what was prepared but never sent is cancelled, not blocking", async () => {
     await history();
     await db.insert(copyFundingOperations).values(funding("55555555-5555-4555-8555-555555555555", { nonce: now + 7, idempotencyKey: "fund-unsent-1" }));

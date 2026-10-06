@@ -1,13 +1,14 @@
 import { z } from 'zod';
-import { copyIdempotencyKeySchema, copyStrategySettingsSchema, copyStrategyStatusSchema } from './schema/copy.js';
+import { copyIdempotencyKeySchema, copyStrategySettingsSchema, copyStrategyStatusSchema, liveCopyBudgetSchema } from './schema/copy.js';
+import { liveCopySetupIntentSchema } from './copy-live-setup-contracts.js';
+
+export { liveCopyBudgetSchema } from './schema/copy.js';
 
 const id = z.string().min(1).max(128);
 const address = z.string().regex(/^0x[0-9a-f]{40}$/).refine(value => value !== `0x${'00'.repeat(20)}`, 'Nonzero address required');
 const version = z.number().int().positive().max(2147483647);
 const millis = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const hash = z.string().regex(/^[0-9a-f]{64}$/);
-export const liveCopyBudgetSchema = z.string().regex(/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/).max(32)
-  .refine(value => /[1-9]/.test(value), 'Positive budget required');
 const settings = copyStrategySettingsSchema.strict().refine(value => value.sizingMode !== 'fixed' || value.perTradeUsd !== null, 'Fixed sizing requires a per-trade amount');
 
 /** Create a dedicated paused strategy. No paper balance allocation or wallet operation. */
@@ -111,7 +112,9 @@ export const liveCopyPortfolioItemSchema = z.object({
    * unfinished, or when it ended without finishing (failed / expired). */
   setup: z.object({ id: z.string().uuid(), kind: z.enum(['start', 'edit', 'renewal']),
     stage: z.enum(['provisioning', 'awaiting_consent', 'consented', 'funding_submitted', 'funded', 'mode_set', 'agent_active', 'builder_ready', 'running', 'failed', 'expired', 'cancelled']),
-    issue: z.string().nullable(), signer: z.enum(['owner_session', 'worker_policy']).nullable() }).strict().nullable().optional(),
+    issue: z.string().nullable(), signer: z.enum(['owner_session', 'worker_policy']).nullable(),
+    /** The consent to sign while it is due (awaiting_consent, not expired): 繼續設定 opens the confirm sheet with it. */
+    consent: liveCopySetupIntentSchema.nullable().optional() }).strict().nullable().optional(),
   /** When the current generation ends (30 days); 續期 is offered in its last three days. */
   expiresAt: z.string().datetime().nullable().optional(),
   renewalDue: z.boolean().optional(),

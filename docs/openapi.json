@@ -9112,6 +9112,215 @@
                                             "type": "null"
                                           }
                                         ]
+                                      },
+                                      "consent": {
+                                        "anyOf": [
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "kind": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "start",
+                                                  "edit",
+                                                  "renewal"
+                                                ]
+                                              },
+                                              "setupId": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 128
+                                              },
+                                              "userId": {
+                                                "type": "integer",
+                                                "exclusiveMinimum": 0,
+                                                "maximum": 2147483647
+                                              },
+                                              "ownerAddress": {
+                                                "type": "string",
+                                                "pattern": "^0x[0-9a-f]{40}$"
+                                              },
+                                              "ownerPrivyUserId": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 128
+                                              },
+                                              "strategyId": {
+                                                "type": "integer",
+                                                "exclusiveMinimum": 0,
+                                                "maximum": 2147483647
+                                              },
+                                              "leaderAddress": {
+                                                "type": "string",
+                                                "pattern": "^0x[0-9a-f]{40}$"
+                                              },
+                                              "sourceNetwork": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "testnet",
+                                                  "mainnet"
+                                                ]
+                                              },
+                                              "network": {
+                                                "type": "string",
+                                                "const": "testnet"
+                                              },
+                                              "budgetUsd": {
+                                                "type": "string",
+                                                "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$",
+                                                "maxLength": 32
+                                              },
+                                              "settingsDigest": {
+                                                "type": "string",
+                                                "pattern": "^[0-9a-f]{64}$"
+                                              },
+                                              "accountId": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 128
+                                              },
+                                              "accountAddress": {
+                                                "type": "string",
+                                                "pattern": "^0x[0-9a-f]{40}$"
+                                              },
+                                              "accountAbstraction": {
+                                                "type": "string",
+                                                "const": "disabled"
+                                              },
+                                              "agentAddress": {
+                                                "type": "string",
+                                                "pattern": "^0x[0-9a-f]{40}$"
+                                              },
+                                              "agentPolicyId": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 128
+                                              },
+                                              "agentPolicyFingerprint": {
+                                                "type": "string",
+                                                "pattern": "^[0-9a-f]{64}$"
+                                              },
+                                              "workerQuorumId": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 128
+                                              },
+                                              "agentValidUntil": {
+                                                "type": "integer",
+                                                "exclusiveMinimum": 0,
+                                                "maximum": 9007199254740991
+                                              },
+                                              "builderAddress": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "pattern": "^0x[0-9a-f]{40}$"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "builderMaxFeeTenthsOfBps": {
+                                                "type": "integer",
+                                                "minimum": 0,
+                                                "maximum": 100
+                                              },
+                                              "sweepDestination": {
+                                                "type": "string",
+                                                "pattern": "^0x[0-9a-f]{40}$"
+                                              },
+                                              "masterPolicyId": {
+                                                "type": "string",
+                                                "maxLength": 128
+                                              },
+                                              "masterPolicyFingerprint": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9a-f]{64}$"
+                                                  },
+                                                  {
+                                                    "type": "string",
+                                                    "const": ""
+                                                  }
+                                                ]
+                                              },
+                                              "fundingOperationId": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "format": "uuid"
+                                                  },
+                                                  {
+                                                    "type": "string",
+                                                    "const": ""
+                                                  }
+                                                ]
+                                              },
+                                              "fundingNonce": {
+                                                "type": "integer",
+                                                "minimum": 0,
+                                                "maximum": 9007199254740991
+                                              },
+                                              "fundingAmount": {
+                                                "type": "string",
+                                                "maxLength": 32
+                                              },
+                                              "nonce": {
+                                                "type": "integer",
+                                                "exclusiveMinimum": 0,
+                                                "maximum": 9007199254740991
+                                              },
+                                              "consentExpiresAt": {
+                                                "type": "integer",
+                                                "exclusiveMinimum": 0,
+                                                "maximum": 9007199254740991
+                                              },
+                                              "setupDeadline": {
+                                                "type": "integer",
+                                                "exclusiveMinimum": 0,
+                                                "maximum": 9007199254740991
+                                              }
+                                            },
+                                            "required": [
+                                              "kind",
+                                              "setupId",
+                                              "userId",
+                                              "ownerAddress",
+                                              "ownerPrivyUserId",
+                                              "strategyId",
+                                              "leaderAddress",
+                                              "sourceNetwork",
+                                              "network",
+                                              "budgetUsd",
+                                              "settingsDigest",
+                                              "accountId",
+                                              "accountAddress",
+                                              "accountAbstraction",
+                                              "agentAddress",
+                                              "agentPolicyId",
+                                              "agentPolicyFingerprint",
+                                              "workerQuorumId",
+                                              "agentValidUntil",
+                                              "builderAddress",
+                                              "builderMaxFeeTenthsOfBps",
+                                              "sweepDestination",
+                                              "masterPolicyId",
+                                              "masterPolicyFingerprint",
+                                              "fundingOperationId",
+                                              "fundingNonce",
+                                              "fundingAmount",
+                                              "nonce",
+                                              "consentExpiresAt",
+                                              "setupDeadline"
+                                            ],
+                                            "additionalProperties": false
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ]
                                       }
                                     },
                                     "required": [

@@ -8,7 +8,7 @@ import { advanceLiveCopySetupSchema, agentApprovalTypedData, approveBuilderFeeRe
 import { AppConfig } from '../config/app-config.js';
 import { BackgroundJobs } from '../runtime/background-jobs.service.js';
 import { outsideRequest } from '../runtime/request-context.js';
-import { UnitOfWork } from '../db/unit-of-work.js';
+import { UnitOfWork, type DbExecutor } from '../db/unit-of-work.js';
 import { CopyAccountModeService } from './copy-account-mode.service.js';
 import { HyperliquidBudgetWait, SHARED_CAPACITY_RETRY_MS } from '../hyperliquid/hyperliquid-budget-wait.js';
 import { LiveBoundaryError } from './live/wallet-authorization.js';
@@ -30,6 +30,8 @@ const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(va
 const NETWORK = WALLET_NETWORKS.testnet;
 const ZERO = `0x${'00'.repeat(20)}` as const;
 const LEASE_MS = 60_000;
+/** How long after its setup ended an approval left unknown is still looked at. */
+const ABANDONED_APPROVAL_WINDOW_MS = 3 * 86_400_000;
 /** Stages whose step needs the signer and Hyperliquid evidence. */
 /** How long /advance waits for its drive before answering with the row. */
 const ADVANCE_ANSWER_MS = 10_000;
@@ -134,19 +136,23 @@ export class CopyLiveSetupService {
     const owner = await this.repository.owner(userId);
     if (!owner.embeddedWalletAddress) refuse(409, 'setup_wallet_conflict', 'Your main wallet is not ready');
     let row = await this.repository.byKey(userId, request.idempotencyKey);
-    if (row) {
-      if (row.kind !== 'start' || row.leaderAddress !== request.leader || row.budgetUsd !== request.budgetUsd || row.sourceNetwork !== request.sourceNetwork ||
-        liveCopySettingsDigest(row.settings) !== liveCopySettingsDigest(request.settings)) throw new ConflictException('Idempotency payload changed');
-    } else {
+    if (!row) {
       row = await this.uow.run(async tx => {
-        const strategy = await this.mandates.create(tx, userId, { idempotencyKey: request.idempotencyKey, leader: request.leader, sourceNetwork: request.sourceNetwork,
-          budgetUsd: request.budgetUsd, settings: request.settings }, this.now);
+        await this.mandates.lock(tx, userId);
         const prior = await this.repository.byKey(userId, request.idempotencyKey, tx);
         if (prior) return prior;
+        // A start for this leader that ended without a generation, or never
+        // got its consent (the sheet closed, the page reloaded: its key is
+        // gone), ends first instead of answering already_copying forever.
+        for (const abandoned of await this.repository.abandonedStarts(tx, userId, request.leader)) await this.endAbandoned(tx, abandoned);
+        const strategy = await this.mandates.create(tx, userId, { idempotencyKey: request.idempotencyKey, leader: request.leader, sourceNetwork: request.sourceNetwork,
+          budgetUsd: request.budgetUsd, settings: request.settings }, this.now);
         return this.repository.insert(tx, { id: randomUUID(), userId, strategyId: strategy.id, kind: 'start', idempotencyKey: request.idempotencyKey,
           leaderAddress: request.leader, sourceNetwork: request.sourceNetwork, budgetUsd: request.budgetUsd, settings: request.settings });
       });
     }
+    if (row.kind !== 'start' || row.leaderAddress !== request.leader || row.budgetUsd !== request.budgetUsd || row.sourceNetwork !== request.sourceNetwork ||
+      liveCopySettingsDigest(row.settings) !== liveCopySettingsDigest(request.settings)) throw new ConflictException('Idempotency payload changed');
     if (row.stage === 'provisioning' || row.stage === 'awaiting_consent') row = await this.provision(row);
     return this.wire(row);
   }
@@ -230,6 +236,18 @@ export class CopyLiveSetupService {
     return next ?? this.repository.find(row.userId, row.id);
   }
 
+  /** Ends a start whose consent never came or that ended without a
+   * generation (one never-sent deposit cancelled, its strategy stopped). A
+   * deposit already sent stays with its setup (that setup is still going). */
+  private async endAbandoned(tx: DbExecutor, row: SetupRow): Promise<void> {
+    if (['provisioning', 'awaiting_consent'].includes(row.stage) && row.fundingOperationId) {
+      const deposit = await this.fundingRows.find(row.userId, row.fundingOperationId);
+      if (deposit.attemptedAt) return;
+    }
+    const ended = await this.repository.transition(row, { stage: 'cancelled', nextAttemptAt: null, pendingSignature: null, ...(['provisioning', 'awaiting_consent'].includes(row.stage) ? { issue: null } : {}) }, tx);
+    if (ended) await this.repository.endStart(tx, row.userId, row);
+  }
+
   // --- edit / renew -------------------------------------------------------------
   private async running(userId: number, strategyId: number) {
     const { found, mandate, agent } = await this.repository.runningCopy(userId, strategyId);
@@ -237,7 +255,13 @@ export class CopyLiveSetupService {
     if (['stopping', 'stopped'].includes(found.strategy.status)) throw new ConflictException({ statusCode: 409, code: 'live_stop_in_progress', message: 'A stop is in progress for this copy' });
     if (!mandate) refuse(409, 'setup_unavailable', 'This copy has no running generation to change');
     if (!agent || !agent.agentAddress || !agent.policyId || !agent.policyFingerprint) refuse(409, 'setup_unavailable', 'This copy has no active agent');
-    const current = await this.repository.current(strategyId);
+    // An edit or renewal whose consent never came (the sheet closed, its key
+    // is gone) gives way to the new one; a confirmed one still runs.
+    let current = await this.repository.current(strategyId);
+    if (current && current.kind !== 'start' && ['provisioning', 'awaiting_consent'].includes(current.stage)) {
+      const superseded = await this.repository.transition(current, { stage: 'cancelled', issue: null, nextAttemptAt: null });
+      current = superseded ? null : await this.repository.current(strategyId);
+    }
     return { ...found, mandate: mandate!, agent: agent!, current };
   }
   /** A new generation with new settings or budget, one silent signature (plan §4). */
@@ -430,21 +454,28 @@ export class CopyLiveSetupService {
     void running.catch((error: unknown) => this.logger.warn(`setup drive kept for a retry: ${error instanceof Error ? error.message.slice(0, 80) : 'unknown'}`));
     return running;
   }
-  /** Only before any money moved: the reserved deposit is cancelled and a
-   * start's empty strategy stops. */
+  /**
+   * Ends a setup that is not running a step: before its consent (the
+   * reserved deposit is cancelled), or once it failed or expired. A start
+   * ends with its paused strategy stopped when no generation ever ran; a
+   * deposit that already arrived stays in the copy account and is returned
+   * to the main wallet from the portfolio. A confirmed setup still going
+   * (the deposit sent, a step in flight) can't be cancelled.
+   */
   async cancel(userId: number, id: string): Promise<LiveCopySetup> {
     const row = await this.repository.find(userId, id);
     if (row.stage === 'cancelled') return this.wire(row);
-    if (!['provisioning', 'awaiting_consent'].includes(row.stage)) throw new ConflictException({ statusCode: 409, code: 'funding_pending', message: 'The deposit was already sent' });
-    if (row.fundingOperationId) {
+    const unconfirmed = ['provisioning', 'awaiting_consent'].includes(row.stage), ended = ['failed', 'expired'].includes(row.stage);
+    if (!unconfirmed && !ended) throw new ConflictException({ statusCode: 409, code: 'funding_pending', message: 'The deposit was already sent' });
+    if (unconfirmed && row.fundingOperationId) {
       const deposit = await this.fundingRows.find(userId, row.fundingOperationId);
       if (deposit.attemptedAt) throw new ConflictException({ statusCode: 409, code: 'funding_pending', message: 'The deposit was already sent' });
-      if (deposit.status === 'prepared' || deposit.status === 'unknown') await this.fundingRows.cancel(userId, deposit.id);
     }
     const next = await this.uow.run(async tx => {
-      const updated = await this.repository.transition(row, { stage: 'cancelled', issue: null }, tx);
-      if (!updated) throw new ConflictException('Setup changed');
-      if (row.kind === 'start') await this.repository.stopUnfundedStrategy(tx, userId, row.strategyId);
+      if (row.kind === 'start') await this.mandates.lock(tx, userId);
+      const updated = await this.repository.transition(row, { stage: 'cancelled', nextAttemptAt: null, pendingSignature: null, ...(unconfirmed ? { issue: null } : {}) }, tx);
+      if (!updated) throw new ConflictException({ statusCode: 409, code: 'setup_changed', message: 'The setup changed; refresh it' });
+      if (row.kind === 'start') await this.repository.endStart(tx, userId, row);
       return updated;
     });
     return this.wire(next);
@@ -491,7 +522,32 @@ export class CopyLiveSetupService {
       try { await this.drive(row.id, await this.workerPolicySigner(row)); worked++; }
       catch (error) { this.logger.warn(`setup ${row.id} kept for the next pass: ${error instanceof Error ? error.message.slice(0, 80) : 'unknown'}`); }
     }
+    await this.reconcileAbandonedApprovals();
     return worked;
+  }
+  /** When each abandoned approval was last looked at (one look a minute). */
+  private readonly approvalChecks = new Map<string, number>();
+  /**
+   * An agent whose approval was being signed or sent when its setup ended
+   * (the deadline passed with the approval unknown): no setup drives it any
+   * more, so the worker reconciles it here, a few a pass, each at most once
+   * a minute, for three days (an approval's nonce can't land later than
+   * that). An approval that landed shows the agent active; one never sent
+   * goes back to ready. Nothing is signed or sent.
+   */
+  private async reconcileAbandonedApprovals(): Promise<number> {
+    if (!this.agents.available) return 0;
+    const now = this.now();
+    for (const [id, at] of this.approvalChecks) if (now - at > 600_000) this.approvalChecks.delete(id);
+    let checked = 0;
+    for (const agent of await this.repository.abandonedApprovals(new Date(now - ABANDONED_APPROVAL_WINDOW_MS))) {
+      if (checked >= 3) break;
+      if (now - (this.approvalChecks.get(agent.id) ?? 0) < 60_000) continue;
+      this.approvalChecks.set(agent.id, now); checked++;
+      try { await this.agents.reconcile(agent.userId, agent.id); }
+      catch (error) { this.logger.warn(`agent ${agent.id} approval kept for the next look: ${error instanceof Error ? error.message.slice(0, 80) : 'unknown'}`); }
+    }
+    return checked;
   }
   /**
    * Advances one setup as far as it can go now, under a lease. Steps that

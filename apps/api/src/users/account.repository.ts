@@ -72,8 +72,11 @@ export class AccountRepository {
    * Cancels what was prepared but never sent, so it doesn't block: a
    * one-click setup still before its deposit was attempted (and the start's
    * empty copy), copy deposits/returns and main-wallet withdrawals never
-   * attempted, an unfunded testnet copy that never ran, and a consent
-   * generation never activated. Anything attempted is left for the blockers.
+   * attempted, a testnet copy that never ran a generation (a start that
+   * ended before its consent, or failed or expired after its deposit was
+   * credited: what arrived is checked on the exchange, copy_account_not_empty),
+   * and a consent generation never activated. Anything still in flight is
+   * left for the blockers.
    */
   async cancelUnsent(tx: DbTransaction, userId: number): Promise<UnsentCancelled> {
     const setups = await tx.execute<{ id: string }>(sql`
@@ -91,7 +94,7 @@ export class AccountRepository {
       update copy_strategies s set status = 'stopped', pause_new_risk = true, stopped_at = now()
       where s.user_id = ${userId} and s.mode = 'testnet' and s.status = 'paused'
         and not exists (select 1 from copy_live_mandates m where m.strategy_id = s.id and m.state in ('active', 'paused', 'stopping', 'stopped'))
-        and not exists (select 1 from copy_funding_operations f where f.strategy_id = s.id and f.status not in ('cancelled', 'rejected'))
+        and not exists (select 1 from copy_funding_operations f where f.strategy_id = s.id and f.status in ('prepared', 'unknown', 'accepted'))
         and not exists (select 1 from copy_live_executions e where e.strategy_id = s.id)
         and not exists (select 1 from copy_live_stop_operations o where o.strategy_id = s.id)
         and not exists (select 1 from copy_live_setups x where x.strategy_id = s.id and x.stage not in ('failed', 'expired', 'cancelled'))

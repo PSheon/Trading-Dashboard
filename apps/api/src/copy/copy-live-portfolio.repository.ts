@@ -3,9 +3,16 @@ import { RETURN_CONSENT_WINDOW_MS } from './copy-live-return.repository.js';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { copyAgentSetups, copyExecutionAccounts, copyFundingOperations, copyLiveActivations, copyLiveDispatches, copyLiveMandates, copyLiveStopOperations,
   copyLiveSetups, copyLiveStrategyConfigs, copyStrategies } from '@trading-dashboard/shared/database';
-import type { LiveCopyPortfolioItem, LiveCopyStage } from '@trading-dashboard/shared/contracts';
+import { liveCopySetupIntentSchema, type LiveCopyPortfolioItem, type LiveCopyStage } from '@trading-dashboard/shared/contracts';
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
+
+/** The setup's consent while the owner can still sign it (as GET setups/:id shows it). */
+function consentOf(setup: typeof copyLiveSetups.$inferSelect, now: number) {
+  if (setup.stage !== 'awaiting_consent' || !setup.intent || !setup.consentExpiresAt || setup.consentExpiresAt.getTime() <= now) return null;
+  const parsed = liveCopySetupIntentSchema.safeParse(setup.intent);
+  return parsed.success ? parsed.data : null;
+}
 
 /** Read model of the owner's testnet copies: one row per strategy with the
  * stage the portfolio shows. SQL only; nothing here contacts the exchange. */
@@ -45,13 +52,19 @@ export class CopyLivePortfolioRepository {
       const refusal = refusals.find(r => r.strategyId === s.id && r.reason);
       // The latest stop's sweep (newest first), shown while returning and once stopped.
       const latestStop = stops.find(row => row.strategyId === s.id);
-      const sweep = latestStop ? ops.find(t => t.direction === 'to_main' && t.stopId === latestStop.id) ?? null : null;
+      // A start that ended without a generation stops with no stop operation:
+      // a deposit that arrived is returned by hand (a sweep of a stopped copy).
+      const lastDeposit = ops.find(t => t.direction === 'to_account' && t.status === 'credited');
+      const stranded = s.status === 'stopped' && !latestStop && Boolean(lastDeposit) &&
+        !ops.some(t => t.direction === 'to_main' && t.status === 'credited' && t.createdAt >= lastDeposit!.createdAt);
+      const sweep = latestStop ? ops.find(t => t.direction === 'to_main' && t.stopId === latestStop.id) ?? null
+        : s.status === 'stopped' ? ops.find(t => t.direction === 'to_main' && !t.stopId) ?? null : null;
       // The latest setup, shown while unfinished or when a start never finished.
       const latest = liveSetups.find(row => row.strategyId === s.id) ?? null;
       const liveSetup = latest && (latest.stage !== 'running' && latest.stage !== 'cancelled') && !(latest.kind !== 'start' && ['failed', 'expired'].includes(latest.stage) && latest.updatedAt.getTime() < now - 86_400_000) ? latest : null;
       const settingUp = liveSetup && !['failed', 'expired'].includes(liveSetup.stage) && liveSetup.kind === 'start';
       let stage: LiveCopyStage;
-      if (s.status === 'stopped') stage = 'stopped';
+      if (s.status === 'stopped') stage = !latestStop && (pending?.direction === 'to_main' || (stranded && !pending)) ? 'sweeping' : 'stopped';
       else if (settingUp && !stop && s.status !== 'stopping') stage = 'setup';
       else if (stop?.state === 'flat' || pending?.direction === 'to_main' && pending.stopId) stage = 'sweeping';
       else if (stop || s.status === 'stopping') stage = 'stopping';
@@ -68,7 +81,7 @@ export class CopyLivePortfolioRepository {
         pendingTransfer: pending ? { id: pending.id, direction: pending.direction, status: pending.status as 'prepared' | 'unknown' | 'accepted', amount: pending.amount } : null,
         lastRefusal: refusal ? { reason: refusal.reason!, at: refusal.at.toISOString() } : null,
         automaticReturn: Boolean(account?.masterPolicyId && !account.signerDetachedAt), sweep: sweep ? { amount: sweep.creditedAmount ?? sweep.amount, status: sweep.status } : null,
-        setup: liveSetup ? { id: liveSetup.id, kind: liveSetup.kind, stage: liveSetup.stage, issue: liveSetup.issue?.slice(0, 80) ?? null, signer: liveSetup.signerKind } : null,
+        setup: liveSetup ? { id: liveSetup.id, kind: liveSetup.kind, stage: liveSetup.stage, issue: liveSetup.issue?.slice(0, 80) ?? null, signer: liveSetup.signerKind, consent: consentOf(liveSetup, now) } : null,
         expiresAt: mandate && ['active', 'paused'].includes(mandate.state) ? mandate.expiresAt.toISOString() : null,
         oneClick: mandate?.consentKind === 'setup',
         renewalDue: Boolean(mandate && ['active', 'paused'].includes(mandate.state) && mandate.expiresAt.getTime() - now <= 3 * 86_400_000 && s.status !== 'stopping' && s.status !== 'stopped') };

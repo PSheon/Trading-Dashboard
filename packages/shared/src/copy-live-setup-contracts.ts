@@ -1,8 +1,7 @@
 import { z } from 'zod';
 import { copyFundingSchema } from './copy-funding-contracts.js';
 import { copyMasterActionRequestSchema } from './copy-master-action-contracts.js';
-import { liveCopyBudgetSchema } from './copy-live-mandate-contracts.js';
-import { copyIdempotencyKeySchema, copyStrategySettingsSchema } from './schema/copy.js';
+import { copyIdempotencyKeySchema, copyStrategySettingsSchema, liveCopyBudgetSchema } from './schema/copy.js';
 
 /**
  * One-click testnet copy (docs/one-click-copy-plan-2026-10-05.md §2, §3a):

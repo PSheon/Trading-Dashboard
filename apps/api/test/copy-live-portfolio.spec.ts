@@ -1,4 +1,5 @@
 import * as schema from '@trading-dashboard/shared/database';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { CopyLivePortfolioRepository } from '../src/copy/copy-live-portfolio.repository.js';
 import { preparationFixture } from './copy-live-preparation-test-utils.js';
@@ -56,5 +57,31 @@ describe('testnet copy stages for the portfolio', () => {
       state: 'refused', reason: 'live_source_price_deviation', leaderTime: new Date(now), receivedAt: new Date(now) });
     expect((await stage()).lastRefusal).toMatchObject({ reason: 'live_source_price_deviation' });
     expect(await new CopyLivePortfolioRepository(db).items(2)).toEqual([]);
+  });
+  it('a start that ended without a generation after its deposit arrived offers the return (sweeping), then shows it returned', async () => {
+    await db.delete(schema.copyLiveMandates);
+    await funding('credited');
+    await db.update(schema.copyStrategies).set({ status: 'stopped', stoppedAt: new Date(now) });
+    expect(await stage()).toMatchObject({ stage: 'sweeping', stop: null, mandate: null, sweep: null, pendingTransfer: null });
+    const back = { id: '66666666-6666-4666-8666-666666666666', userId: 1, accountId: 'account', strategyId: 9, idempotencyKey: 'return-abandoned-0001', network: 'testnet' as const,
+      address: seed.f.identity.accountAddress, destination: `0x${'55'.repeat(20)}`, amount: '50', nonce: now + 9, direction: 'to_main' as const, status: 'prepared' as const };
+    await db.insert(schema.copyFundingOperations).values(back);
+    expect(await stage()).toMatchObject({ stage: 'sweeping', pendingTransfer: { direction: 'to_main', status: 'prepared' } });
+    await db.update(schema.copyFundingOperations).set({ status: 'credited', claimedAt: new Date(now), attemptedAt: new Date(now), evidenceHash: 'e'.repeat(64),
+      transactionHash: `0x${'c'.repeat(64)}`, creditedAmount: '49', fee: '1' }).where(eq(schema.copyFundingOperations.id, back.id));
+    expect(await stage()).toMatchObject({ stage: 'stopped', sweep: { amount: '49', status: 'credited' } });
+  });
+  it("an unconfirmed setup carries its consent while it can still be signed (繼續設定 opens the confirm sheet)", async () => {
+    const at = Date.now(), owner = `0x${'55'.repeat(20)}`;
+    const intent = { kind: 'start', setupId: '77777777-7777-4777-8777-777777777777', userId: 1, ownerAddress: owner, ownerPrivyUserId: 'did:privy:risk-source', strategyId: 9,
+      leaderAddress: `0x${'44'.repeat(20)}`, sourceNetwork: 'testnet', network: 'testnet', budgetUsd: '100', settingsDigest: 'a'.repeat(64), accountId: 'account',
+      accountAddress: seed.f.identity.accountAddress, accountAbstraction: 'disabled', agentAddress: `0x${'33'.repeat(20)}`, agentPolicyId: 'policy', agentPolicyFingerprint: 'a'.repeat(64),
+      workerQuorumId: 'worker', agentValidUntil: at + 30 * 86_400_000, builderAddress: null, builderMaxFeeTenthsOfBps: 0, sweepDestination: owner, masterPolicyId: '', masterPolicyFingerprint: '',
+      fundingOperationId: '88888888-8888-4888-8888-888888888888', fundingNonce: at, fundingAmount: '100', nonce: at, consentExpiresAt: at + 300_000, setupDeadline: at + 86_400_000 };
+    await db.insert(schema.copyLiveSetups).values({ id: intent.setupId, userId: 1, strategyId: 9, accountId: 'account', kind: 'start', idempotencyKey: 'portfolio-setup-key-0001',
+      stage: 'awaiting_consent', leaderAddress: intent.leaderAddress, sourceNetwork: 'testnet', budgetUsd: '100', settings: {}, intent, intentDigest: 'f'.repeat(64), consentExpiresAt: new Date(at + 300_000) });
+    expect((await stage()).setup).toMatchObject({ id: intent.setupId, stage: 'awaiting_consent', consent: intent });
+    await db.update(schema.copyLiveSetups).set({ consentExpiresAt: new Date(at - 1) });
+    expect((await stage()).setup).toMatchObject({ stage: 'awaiting_consent', consent: null });
   });
 });

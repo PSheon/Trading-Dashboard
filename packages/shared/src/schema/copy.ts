@@ -414,3 +414,7 @@ export const putCopyRiskRequestSchema = z.object({
   expectedVersion: z.number().int().min(0),
 }).strict();
 export type PutCopyRiskRequest = z.infer<typeof putCopyRiskRequestSchema>;
+
+/** A testnet copy's budget in USDC (up to six decimals, positive). */
+export const liveCopyBudgetSchema = z.string().regex(/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/).max(32)
+  .refine(value => /[1-9]/.test(value), 'Positive budget required');

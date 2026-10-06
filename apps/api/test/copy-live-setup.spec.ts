@@ -417,6 +417,89 @@ describe('one-click testnet copy setup', () => {
     await expect(service.cancel(uid, second.id)).rejects.toMatchObject({ status: 409, response: { code: 'funding_pending' } });
   });
 
+  it('a start whose sheet was closed (its key gone with a reload) gives way to a new start for the same leader, not already_copying', async () => {
+    const abandoned = await start();
+    const again = await start('setup-start-key-000002');
+    expect(again).toMatchObject({ stage: 'awaiting_consent', leaderAddress: leader });
+    expect(again.strategyId).not.toBe(abandoned.strategyId);
+    expect(await service.get(uid, abandoned.id)).toMatchObject({ stage: 'cancelled' });
+    const strategies = await db.select().from(copyStrategies);
+    expect(strategies.find(row => row.id === abandoned.strategyId)!.status).toBe('stopped');
+    expect(strategies.find(row => row.id === again.strategyId)!.status).toBe('paused');
+    expect((await db.select().from(copyFundingOperations).where(eq(copyFundingOperations.id, abandoned.consent!.fundingOperationId)))[0]!.status).toBe('cancelled');
+    // The old sheet can't be confirmed any more.
+    expect((await service.confirm(uid, abandoned.id, await sign(abandoned.consent!))).stage).toBe('cancelled');
+    expect(fakes.funding.submit).not.toHaveBeenCalled();
+    // A double-click (the same new key twice) is still one setup.
+    expect((await start('setup-start-key-000002')).id).toBe(again.id);
+  });
+
+  it('a start that failed after its deposit arrived can be cancelled (its strategy stops, the funds stay to return) and the leader copied again', async () => {
+    const setup = await start();
+    await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit(); later(5_000);
+    mode.submissionState = 'rejected';
+    await service.tick();
+    expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'failed', issue: 'setup_account_mode_failed' });
+    const cancelled = await service.cancel(uid, setup.id);
+    expect(cancelled).toMatchObject({ stage: 'cancelled', issue: 'setup_account_mode_failed' });
+    expect((await db.select().from(copyStrategies))[0]).toMatchObject({ status: 'stopped', pauseNewRisk: true });
+    // The deposit stays credited in the copy account (returned from the portfolio).
+    expect((await db.select().from(copyFundingOperations))[0]!.status).toBe('credited');
+    expect((await service.cancel(uid, setup.id)).stage).toBe('cancelled');
+    mode.submissionState = 'prepared';
+    expect((await start('setup-start-key-000002')).stage).toBe('awaiting_consent');
+  });
+
+  it('an expired start is ended by a new start for the same leader; a confirmed one still going is not', async () => {
+    flags.worker = false;
+    const setup = await start();
+    await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit();
+    await expect(start('setup-start-key-000002')).rejects.toMatchObject({ status: 409, response: { code: 'already_copying' } });
+    await expect(service.cancel(uid, setup.id)).rejects.toMatchObject({ status: 409, response: { code: 'funding_pending' } });
+    later(25 * 3_600_000); await service.advance(uid, setup.id);
+    expect((await service.get(uid, setup.id)).stage).toBe('expired');
+    const again = await start('setup-start-key-000003');
+    expect(again.stage).toBe('awaiting_consent');
+    expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'cancelled', issue: 'setup_expired' });
+    expect((await db.select().from(copyStrategies).where(eq(copyStrategies.id, setup.strategyId)))[0]!.status).toBe('stopped');
+  });
+
+  it("the worker reconciles an agent approval left unknown when its setup expired, once a minute at most", async () => {
+    flags.worker = false;
+    const setup = await start();
+    await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit(); later(5_000);
+    mode.targetState = 'supported';
+    const [agent] = await db.select().from(copyAgentSetups);
+    await db.update(copyAgentSetups).set({ state: 'approval_unknown', consentDigest: 'a'.repeat(64), approvalNonce: clock, approvalAttemptedAt: new Date(clock), consentExpiresAt: new Date(clock + 300_000) });
+    later(25 * 3_600_000); await service.advance(uid, setup.id);
+    expect((await service.get(uid, setup.id)).stage).toBe('expired');
+    fakes.agents.reconcile.mockClear();
+    await service.tick();
+    expect(fakes.agents.reconcile).toHaveBeenCalledExactlyOnceWith(uid, agent!.id);
+    later(10_000); await service.tick();
+    expect(fakes.agents.reconcile).toHaveBeenCalledTimes(1);
+    later(60_000); await service.tick();
+    expect(fakes.agents.reconcile).toHaveBeenCalledTimes(2);
+    // Once it is settled (active or back to ready) nothing more is looked at.
+    await db.update(copyAgentSetups).set({ state: 'ready', approvalAttemptedAt: null });
+    later(60_000); await service.tick();
+    expect(fakes.agents.reconcile).toHaveBeenCalledTimes(2);
+  });
+
+  it('an edit whose sheet was closed gives way to the next edit; an ended edit can be dismissed', async () => {
+    const setup = await start();
+    await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit(); later(5_000); await service.tick();
+    const abandoned = await service.startEdit(uid, setup.strategyId, { idempotencyKey: 'setup-edit-key-0000001', budgetUsd: '150', settings });
+    expect(abandoned.stage).toBe('awaiting_consent');
+    const next = await service.startEdit(uid, setup.strategyId, { idempotencyKey: 'setup-edit-key-0000002', budgetUsd: '120', settings });
+    expect(next).toMatchObject({ stage: 'awaiting_consent', budgetUsd: '120' });
+    expect((await service.get(uid, abandoned.id)).stage).toBe('cancelled');
+    // An edit that expired is dismissed, not refused.
+    await db.update(copyLiveSetups).set({ stage: 'expired', issue: 'setup_expired' }).where(eq(copyLiveSetups.id, next.id));
+    expect((await service.cancel(uid, next.id)).stage).toBe('cancelled');
+    expect((await db.select().from(copyStrategies))[0]!.status).not.toBe('stopped');
+  });
+
   it('edit: one consent, the next generation replaces the current one with the new settings and budget', async () => {
     const setup = await start();
     await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit(); later(5_000); await service.tick();

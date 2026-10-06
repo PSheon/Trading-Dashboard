@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { followerReceiptDigestV1 } from '../src/copy/live/actual-fill-accounting.js';
-import { canonicalLiveSourceLegs, parseLiveSourceFill, liveSourceDigest } from '../src/copy/live/copy-live-source-evidence.js';
+import { canonicalLiveSourceLegs, parseLiveSourceFill, liveSourceDigest, type LiveSourceFillEvidence } from '../src/copy/live/copy-live-source-evidence.js';
 import { combinedCloseFraction, planLiveSourceOrder, type LiveSourcePlanInput } from '../src/copy/live/copy-live-source-planner.js';
 import type { LiveSourceSizingEnvelopeV1 } from '../src/copy/live/copy-live-sizing-evidence.js';
 import { Dec } from '../src/common/decimal/dec.js';
@@ -75,13 +75,16 @@ describe('actual source sizing from retained original observations',()=>{
     expect(planLiveSourceOrder(e).order.limitPrice).toBe('100.5');
   });
   describe('one adjustment for several same-coin leader legs', () => {
-    /** The order's own leg plus `others` more legs like it, in leader-time order. */
-    function merged(e: LiveSourcePlanInput, others: number, fraction: string | null = null) {
-      const b = (e.sizingBasis as any).basis, own = { sourceFillId: e.fill.id, sourceDigest: e.fill.sourceDigest, providerTime: e.fill.providerTime, sign: e.leg.sign,
-        size: e.leg.size, px: e.fill.px, fraction: e.leg.fraction };
-      // The older legs first; the order's own (the freshest) last.
-      b.merged = { members: [...Array.from({ length: others }, (_, i) => ({ ...own, sourceFillId: `mainnet:${'0x'}:${i + 1}`, sourceDigest: 'd'.repeat(64),
-        providerTime: e.fill.providerTime - others + i, ...(fraction ? { fraction } : {}) })), own] };
+    /** The order's own leg plus `others` earlier legs like it (persisted
+     * fills on the same stream), in leader-time order, the own last. */
+    function merged(e: LiveSourcePlanInput, others: number, fraction: string | null = null, gapMs = 1) {
+      const b = (e.sizingBasis as any).basis, raw = e.fill.raw as Record<string, unknown>;
+      const fills = Array.from({ length: others }, (_, i) => parseLiveSourceFill({ ...raw, tid: 100 + i, oid: 200 + i, time: e.fill.providerTime - (others - i) * gapMs,
+        ...(fraction === '1' ? { sz: raw.startPosition } : {}) }, { network: e.fill.network, leaderAddress: e.fill.leaderAddress, from: e.now - 600_000, to: e.now, receivedAt: e.now, kind: 'fills' }));
+      const entry = (fill: LiveSourceFillEvidence) => { const leg = canonicalLiveSourceLegs(fill)[0]!;
+        return { sourceFillId: fill.id, sourceDigest: fill.sourceDigest, providerTime: fill.providerTime, sign: leg.sign, size: leg.size, px: fill.px, fraction: leg.fraction }; };
+      b.merged = { members: [...fills.map(entry), entry(e.fill)] };
+      (e as any).members = fills;
       return e;
     }
     it('sizes five same-side opens as one order of their summed leader notional', () => {
@@ -95,20 +98,36 @@ describe('actual source sizing from retained original observations',()=>{
       expect(planLiveSourceOrder(merged(closeExample('90', '15', false, 'ratio'), 1))).toMatchObject({ order: { size: '47.81', reduceOnly: true }, nextCarry: '0.0025' });
       expect(planLiveSourceOrder(merged(closeExample('90', '15', false, 'ratio'), 1, '1'))).toMatchObject({ order: { size: '90', reduceOnly: true }, nextCarry: '0' });
     });
-    it('carries older legs that waited up to 15 minutes, but not longer', () => {
-      const e = merged(example('ratio'), 2), members = (e.sizingBasis as any).basis.merged.members;
-      members[0].providerTime = e.now - 14 * 60_000; members[1].providerTime = e.now - 13 * 60_000;
-      (e.mandate as any).activationCursor = new Date(e.now - 20 * 60_000);
-      expect(planLiveSourceOrder(e).order.size).toBe(Dec.from(planLiveSourceOrder(example('ratio')).order.size).mul(3).toString());
-      members[0].providerTime = e.now - 15 * 60_000 - 1;
+    it('refuses a merged leg older than the policy\'s signal age, though the order\'s own leg is fresh', () => {
+      const limit = example('ratio').limits.maxSignalAgeSeconds * 1000, fresh = (gap: number) => {
+        const e = structuredClone(example('ratio')); (e.mandate as any).activationCursor = new Date(e.now - 10 * limit); return merged(e, 1, null, gap); };
+      // The own leg is 500 ms old; the other one limit - 1 ms, then limit + 1 ms.
+      expect(planLiveSourceOrder(fresh(limit - 501)).order.size).toBe(Dec.from(planLiveSourceOrder(example('ratio')).order.size).mul(2).toString());
+      expect(() => planLiveSourceOrder(fresh(limit - 499))).toThrow('live_source_sizing_unproven');
+    });
+    it.each(['larger size', 'other price', 'other time', 'other digest'] as const)('refuses a merged leg whose basis differs from its persisted fill (%s)', kind => {
+      const e = merged(example('ratio'), 2), member = (e.sizingBasis as any).basis.merged.members[0];
+      if (kind === 'larger size') member.size = '50';
+      if (kind === 'other price') member.px = '101';
+      if (kind === 'other time') member.providerTime -= 1;
+      if (kind === 'other digest') member.sourceDigest = 'e'.repeat(64);
       expect(() => planLiveSourceOrder(e)).toThrow('live_source_sizing_unproven');
+    });
+    it('refuses a merged basis without its persisted legs, with extra ones, or a leg of another leader', () => {
+      expect(() => planLiveSourceOrder({ ...merged(example('ratio'), 2), members: undefined })).toThrow('live_source_sizing_unproven');
+      const extra = merged(example('ratio'), 2);
+      expect(() => planLiveSourceOrder({ ...extra, members: [...extra.members!, extra.fill] })).toThrow('live_source_sizing_unproven');
+      const foreign = merged(example('ratio'), 1), raw = foreign.members![0]!.raw;
+      const other = parseLiveSourceFill(raw, { network: 'testnet', leaderAddress: `0x${'66'.repeat(20)}`, from: foreign.now - 1000, to: foreign.now, receivedAt: foreign.now, kind: 'fills' });
+      (foreign.sizingBasis as any).basis.merged.members[0] = { ...(foreign.sizingBasis as any).basis.merged.members[0], sourceFillId: other.id, sourceDigest: other.sourceDigest };
+      expect(() => planLiveSourceOrder({ ...foreign, members: [other] })).toThrow('live_source_sizing_unproven');
     });
     it.each(['fixed', 'missing own leg', 'own leg not newest', 'other side', 'unsorted', 'before cursor'] as const)('refuses a merged basis with %s', kind => {
       const e = merged(example(kind === 'fixed' ? 'fixed' : 'ratio'), 2), members = (e.sizingBasis as any).basis.merged.members;
       if (kind === 'missing own leg') members[2].sourceDigest = 'e'.repeat(64);
       if (kind === 'own leg not newest') members[1].providerTime = e.fill.providerTime + 1;
       if (kind === 'other side') members[1].sign = -members[1].sign;
-      if (kind === 'unsorted') [members[0], members[1]] = [members[1], members[0]];
+      if (kind === 'unsorted') { [members[0], members[1]] = [members[1], members[0]]; }
       if (kind === 'before cursor') members[0].providerTime = e.mandate.activationCursor!.getTime();
       expect(() => planLiveSourceOrder(e)).toThrow('live_source_sizing_unproven');
     });

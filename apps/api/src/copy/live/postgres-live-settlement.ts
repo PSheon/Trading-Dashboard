@@ -7,6 +7,7 @@ import { copyStrategySettingsSchema, copyRiskLimitsSchema } from '@trading-dashb
 import { Dec } from '../../common/decimal/dec.js';
 import { decodeLiveCopyMandate } from '../copy-live-mandate-evidence.js';
 import { decodeLiveSourceFill, canonicalLiveSourceLegs } from './copy-live-source-evidence.js';
+import { loadMergedMembers } from './copy-live-merged-members.js';
 import { decodeLiveSourceSizingEnvelope, planLiveSourceOrder } from './copy-live-source-planner.js';
 import { intentFingerprint } from './live-order.js';
 import type { DbTransaction } from '../../db/unit-of-work.js';
@@ -240,8 +241,9 @@ export class PostgresLiveSettlement {
     check(canonical && fill.network === consent.sourceNetwork && fill.leaderAddress === consent.leaderAddress && leg.mandateId === m.id && p.legId === leg.id &&
       p.sourceDigest === fill.sourceDigest && leg.tradeKey === canonical.tradeKey && leg.sign === canonical.sign && leg.size === canonical.size && leg.fraction === canonical.fraction &&
       leg.state === (replay ? 'settled' : 'prepared'),'live_settlement_source_changed');
+    const members = await loadMergedMembers(envelope, fill.id, ids => this.query(session, tx.select().from(copyLiveSourceFills).where(inArray(copyLiveSourceFills.id, ids))));
     const plan = planLiveSourceOrder({mandate:{...m,state:'active',revision:p.mandateRevision},settings:copyStrategySettingsSchema.strict().parse(version.settings),
-      fill,leg:canonical,sizingBasis:envelope,now:record.createdAt,limits:copyRiskLimitsSchema.parse(policy.limits),currentExecutionKey:row.key});
+      fill,leg:canonical,sizingBasis:envelope,now:record.createdAt,limits:copyRiskLimitsSchema.parse(policy.limits),currentExecutionKey:row.key,...(members ? { members } : {})});
     const intent = reservation.payload.intent;
     check(plan.legId === leg.id && plan.fixedTradeClaim === leg.fixedTradeClaim && plan.dependsOnLegId === leg.dependsOnId &&
       intentFingerprint(intent,record.action) === p.fingerprint,'live_settlement_source_changed');

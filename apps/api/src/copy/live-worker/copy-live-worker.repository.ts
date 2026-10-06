@@ -134,11 +134,12 @@ export class CopyLiveWorkerRepository {
       return true;
     }).catch(error => { if (error instanceof Error && error.message === 'adjustment_merge_conflict') return false; throw error; });
   }
-  /** Opens refused below the exchange minimum without an order (held to the
-   * bound, or superseded while too small): from pending, never sent. */
-  async refuseBelowMinimum(ids: readonly string[]): Promise<void> {
+  /** Legs refused without an order, from pending and never sent: an open
+   * superseded while too small (below_min_notional), a leg that waited to be
+   * merged until its signal was too old (merged_signal_expired). */
+  async refusePending(ids: readonly string[], reason: 'below_min_notional' | 'merged_signal_expired'): Promise<void> {
     if (!ids.length) return;
-    await this.db.update(copyLiveDispatches).set({ state: 'refused', reason: 'below_min_notional', updatedAt: new Date() })
+    await this.db.update(copyLiveDispatches).set({ state: 'refused', reason, updatedAt: new Date() })
       .where(and(inArray(copyLiveDispatches.id, [...ids]), eq(copyLiveDispatches.state, 'pending'), isNull(copyLiveDispatches.adjustmentId)));
   }
   /** Whether an earlier leg of this copy's coin is still waiting to be sent:

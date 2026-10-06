@@ -1,4 +1,5 @@
-import {and,eq,or,sql} from 'drizzle-orm';
+import {and,eq,inArray,or,sql} from 'drizzle-orm';
+import {loadMergedMembers} from './copy-live-merged-members.js';
 import {isDeepStrictEqual} from 'node:util';
 import {copyExecutionAccounts,copyExecutionWallets,copyWalletAuthorizations,copyWalletAuthorizationEvents,copyAgentSetups,copyStrategies,users,copyLiveExecutions,copyLiveRiskReservations,copyLiveExecutionEvidence,copyFollowerReceipts,copyLiveIntentProvenance,copyLiveSignalLegs,copyLiveReductionCarry,copyLiveSourceFills,copyLiveMandates,copyLiveStrategyConfigs,copyStrategyVersions,copyRiskPolicies} from '@trading-dashboard/shared/database';
 import {copyRiskLimitsSchema,copyStrategySettingsSchema} from '@trading-dashboard/shared/contracts';
@@ -58,7 +59,8 @@ export class PostgresLiveUnattemptedRecovery {
   const [version]=await this.query(session,tx.select().from(copyStrategyVersions).where(and(eq(copyStrategyVersions.strategyId,strategy.id),eq(copyStrategyVersions.version,consent.strategyVersion)))),[policy]=await this.query(session,tx.select().from(copyRiskPolicies).where(eq(copyRiskPolicies.version,r.policyVersion)));
   check(version&&policy);const settings=copyStrategySettingsSchema.strict().parse(version.settings),envelope=decodeLiveSourceSizingEnvelope(p.sizingBasis),canonicalLeg=canonicalLiveSourceLegs(fill).find(v=>v.leg===leg.leg);
   check(canonicalLeg&&envelope.basis.mandateRevision===p.mandateRevision&&envelope.basis.settingsDigest===consent.settingsDigest);
-  const plan=planLiveSourceOrder({mandate:{...m,state:'active',revision:p.mandateRevision},settings,fill,leg:canonicalLeg,sizingBasis:envelope,now:record.createdAt,limits:copyRiskLimitsSchema.parse(policy.limits),currentExecutionKey:record.key});
+  const members=await loadMergedMembers(envelope,fill.id,ids=>this.query(session,tx.select().from(copyLiveSourceFills).where(inArray(copyLiveSourceFills.id,ids))));
+  const plan=planLiveSourceOrder({mandate:{...m,state:'active',revision:p.mandateRevision},settings,fill,leg:canonicalLeg,sizingBasis:envelope,now:record.createdAt,limits:copyRiskLimitsSchema.parse(policy.limits),currentExecutionKey:record.key,...(members?{members}:{})});
   const intent=p.intent as unknown as LiveOrderIntent;
   check(plan.legId===leg.id&&plan.fixedTradeClaim===leg.fixedTradeClaim&&plan.dependsOnLegId===leg.dependsOnId);
   for(const field of ['asset','side','size','limitPrice','sizeDecimals','reduceOnly','timeInForce'] as const)check(plan.order[field]===intent[field]);

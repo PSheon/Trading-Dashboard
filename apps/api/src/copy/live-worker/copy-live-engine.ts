@@ -68,6 +68,9 @@ const isHip3 = (coin: string) => coin.includes(':');
  * leader fill is older than the policy's signal age. */
 const PERMANENT = new Set(['live_source_price_deviation', 'below_min_notional', 'live_risk_adoption_unproven', 'live_market_unknown',
   'live_account_unsupported_role', 'live_account_unsupported_abstraction', 'unattempted_expired', 'live_risk_provider_fee_scope_unproven', HIP3_REFUSAL]);
+/** A merged order is planned within this long after its legs are merged
+ * (evidence reads ~4 s): no leg merged older than the signal age less this. */
+const PLANNING_MARGIN_MS = 15_000;
 /** A merged open the planner finds below the minimum goes back to waiting
  * only while its lead's signal has at least this long left (else refused). */
 const HOLD_MARGIN_MS = 30_000;
@@ -258,9 +261,12 @@ export class CopyLiveEngine {
     const limits = await this.deps.repository.limits(), minimum = Dec.max(Dec.from(10), Dec.from(limits.minOrderNotionalUsd)).mul(HOLD_HEADROOM);
     const equity = m.sourceNetwork === 'mainnet' && m.budgetUsd && this.deps.leaderEquity && legs.some(leg => leg.leg === 'open')
       ? await this.deps.leaderEquity(m.leaderAddress).catch(() => null) : null;
-    const plan = planAdjustments(legs, this.now(), this.options.accumulateMs ?? MAX_ACCUMULATE_MS,
+    // Every merged leg must still be a fresh signal when its order is planned.
+    const windowMs = Math.max(0, Math.min(this.options.accumulateMs ?? MAX_ACCUMULATE_MS, limits.maxSignalAgeSeconds * 1000 - PLANNING_MARGIN_MS));
+    const plan = planAdjustments(legs, this.now(), windowMs,
       run => { const ceiling = equity && m.budgetUsd ? openNotionalCeiling(run, m.budgetUsd, equity) : null; return ceiling !== null && ceiling.lt(minimum); });
-    if (plan.refused.size) await this.deps.repository.refuseBelowMinimum([...plan.refused]);
+    if (plan.expired.size) await this.deps.repository.refusePending([...plan.expired], 'merged_signal_expired');
+    if (plan.refused.size) await this.deps.repository.refusePending([...plan.refused], 'below_min_notional');
     for (const run of plan.merges) {
       const lead = run.legs.at(-1)!, members = run.legs.slice(0, -1);
       await this.deps.repository.merge({ id: lead.id, mandateId: m.mandateId }, members.map(leg => leg.id));

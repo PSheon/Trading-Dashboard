@@ -18,11 +18,23 @@ export interface LiveSourcePlanInput {
   readonly leg: CanonicalLiveSourceLeg; readonly sizingBasis: unknown; readonly now: number;
   readonly limits: Pick<CopyRiskLimits,'maxSignalAgeSeconds'|'maxSlippageBps'>;
   readonly currentExecutionKey: string;
+  /** A merged adjustment's other legs, as persisted (copy_live_source_fills):
+   * every member the basis lists besides the order's own, which the planner
+   * verifies field by field. Required when the basis is merged. */
+  readonly members?: readonly LiveSourceFillEvidence[];
 }
-/** Most leader legs one follower adjustment may merge, and how old its
- * other legs may be (it carries the freshest leg's signal; the older ones
- * were too small for the exchange and waited, at most this long). */
+/** Most leader legs one follower adjustment may merge, and the longest a
+ * leg too small for the exchange may wait for more (never past the risk
+ * policy's maxSignalAgeSeconds: every merged leg must still be a fresh
+ * signal when its order is planned). */
 export const MAX_MERGED_LEGS=64,MAX_ACCUMULATE_MS=15*60_000;
+/** The other legs' ids a merged sizing basis lists (besides the order's own);
+ * none for an undecodable basis (the planner refuses that one itself). */
+export function mergedMemberIds(sizingBasis:unknown,ownFillId:string):string[]{
+  let members:readonly {sourceFillId:string}[];
+  try{members=decodeLiveSourceSizingEnvelope(sizingBasis).basis.merged?.members??[];}catch{return [];}
+  return members.map(m=>m.sourceFillId).filter(id=>id!==ownFillId);
+}
 const hash=z.string().regex(/^[a-f0-9]{64}$/),id=z.string().min(1).max(160),integer=z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),version=integer.refine(v=>v>0),addr=z.string().regex(/^0x[0-9a-f]{40}$/);
 const decimal=z.string().max(80).regex(/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]{1,18})?$/).refine(v=>Dec.from(v).toString()===v);
 const nonnegative=decimal.refine(v=>Dec.from(v).gte(0)),positive=decimal.refine(v=>Dec.from(v).isPositive);
@@ -145,11 +157,21 @@ export function planLiveSourceOrder(raw: LiveSourcePlanInput): PlannedLiveSource
     if(merged){
       requireSizing(settings.sizingMode==='ratio'&&new Set(merged.map(m=>m.sourceFillId)).size===merged.length&&
         merged.every((m,i)=>i===0||compareMergedLegs(merged[i-1]!,m)<0)&&
-        merged.every(m=>m.sign===leg.sign&&(m.fraction===null)===(leg.leg==='open')&&m.providerTime>m_cursor&&m.providerTime<=fill.providerTime&&now-m.providerTime<=MAX_ACCUMULATE_MS)&&
+        merged.every(m=>m.sign===leg.sign&&(m.fraction===null)===(leg.leg==='open')&&m.providerTime>m_cursor&&m.providerTime<=fill.providerTime&&now-m.providerTime<=limits.maxSignalAgeSeconds*1000)&&
         merged.at(-1)!.sourceFillId===fill.id);
-      const own=merged.find(m=>m.sourceFillId===fill.id);
-      requireSizing(own&&own.sourceDigest===fill.sourceDigest&&own.providerTime===fill.providerTime&&own.size===leg.size&&own.px===fill.px&&own.fraction===leg.fraction);
-    }
+      // Every leg is the persisted fill it names: its digest, time, price and
+      // canonical leg (kind, side, size, fraction), on this copy's source
+      // stream and coin. Only plain legs merge (a flip is its own orders).
+      const persisted=new Map((input.members??[]).map(f=>{const d=decodeLiveSourceFill({...f,normalized:{...f.normalized},providerTime:new Date(f.providerTime),receivedAt:new Date(f.receivedAt)});return [d.id,d] as const;}));
+      requireSizing(persisted.size===merged.length-1&&(input.members??[]).length===persisted.size);
+      for(const member of merged){
+        const source=member.sourceFillId===fill.id?fill:persisted.get(member.sourceFillId);requireSizing(source);
+        const legs=canonicalLiveSourceLegs(source),own=legs.find(l=>l.leg===leg.leg);
+        requireSizing(own&&source.sourceDigest===member.sourceDigest&&source.providerTime===member.providerTime&&source.px===member.px&&own.sign===member.sign&&own.size===member.size&&
+          own.fraction===member.fraction&&source.network===consent.sourceNetwork&&source.leaderAddress===consent.leaderAddress&&source.streamId===fill.streamId&&source.coin===fill.coin&&
+          (source.id===fill.id||legs.length===1));
+      }
+    }else requireSizing(!input.members?.length);
     let leaderEquity:string|null=null;
     if(leg.leg==='open'&&settings.sizingMode==='ratio'&&reference){
       requireSizing(b.leader===null&&o.leader===null);leaderEquity=reference.leaderEquity;

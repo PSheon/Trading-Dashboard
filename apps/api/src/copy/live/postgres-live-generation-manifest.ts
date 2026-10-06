@@ -1,4 +1,5 @@
-import { and,eq, or, sql } from 'drizzle-orm';
+import { and,eq, inArray, or, sql } from 'drizzle-orm';
+import { loadMergedMembers } from './copy-live-merged-members.js';
 import { copyLivePositionBaselines,copyLiveExecutions,copyLiveIntentProvenance,copyLiveSignalLegs,copyLiveSourceFills,copyLiveRiskReservations,copyLiveExecutionEvidence,
   copyFollowerReceipts,copyFollowerLedger,copyFollowerScans,copyFollowerReceiptConflicts,copyFollowerAccountState,copyLiveReductionCarry,copyLiveManualCloses,copyLiveMandates,copyStrategyVersions,copyRiskPolicies } from '@trading-dashboard/shared/database';
 import {copyRiskLimitsSchema,copyStrategySettingsSchema} from '@trading-dashboard/shared/contracts';
@@ -56,7 +57,8 @@ export async function loadLiveGenerationManifest(session:LiveRiskDatabaseSession
         [policy]=await read(db.select().from(copyRiskPolicies).where(eq(copyRiskPolicies.version,entry.reservation.policyVersion)));
       check(version&&policy&&provenance.admittedAt.getTime()===record.createdAt&&envelope.basis.mandateRevision===provenance.mandateRevision&&envelope.basis.settingsDigest===provenance.settingsDigest,'live_risk_generation_unproven');
       const fill=decodeLiveSourceFill(entry.fill),leg=canonicalLiveSourceLegs(fill).find(l=>l.leg===entry.leg!.leg);check(leg,'live_risk_generation_unproven');
-      const plan=planLiveSourceOrder({mandate:{...historical,state:'active',revision:provenance.mandateRevision},settings:copyStrategySettingsSchema.strict().parse(version.settings),fill,leg,sizingBasis:envelope,now:record.createdAt,limits:copyRiskLimitsSchema.parse(policy.limits),currentExecutionKey:record.key}),intent=provenance.intent as unknown as LiveOrderIntent;
+      const members=await loadMergedMembers(envelope,fill.id,ids=>read(db.select().from(copyLiveSourceFills).where(inArray(copyLiveSourceFills.id,ids))));
+      const plan=planLiveSourceOrder({mandate:{...historical,state:'active',revision:provenance.mandateRevision},settings:copyStrategySettingsSchema.strict().parse(version.settings),fill,leg,sizingBasis:envelope,now:record.createdAt,limits:copyRiskLimitsSchema.parse(policy.limits),currentExecutionKey:record.key,...(members?{members}:{})}),intent=provenance.intent as unknown as LiveOrderIntent;
       check(plan.legId===entry.leg.id&&plan.fixedTradeClaim===entry.leg.fixedTradeClaim&&plan.dependsOnLegId===entry.leg.dependsOnId,'live_risk_generation_unproven');
       for(const field of ['asset','side','size','limitPrice','sizeDecimals','reduceOnly','timeInForce'] as const)check(plan.order[field]===intent[field],'live_risk_generation_unproven');
       const originalCarry=envelope.observations.generationManifest.carry.find(row=>row.mandateId===historical.id&&row.coin===fill.coin);check(originalCarry,'live_risk_generation_unproven');

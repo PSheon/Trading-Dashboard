@@ -1,4 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
+import { inArray } from 'drizzle-orm';
+import { copyLiveSourceFills } from '@trading-dashboard/shared/database';
 import type { LiveAccountRiskProofSource } from './account-risk-execution-gate.js';
 import type { LiveAccountRiskInput, LiveRiskReservation } from './live-account-risk.js';
 import { HyperliquidLiveAccountObserver, type LiveAccountSnapshot } from './live-account-observer.js';
@@ -15,10 +17,11 @@ import { calculateLiveExternalExposure } from './live-external-exposure.js';
 import { loadLiveGenerationManifest } from './postgres-live-generation-manifest.js';
 import { projectLiveGenerationPositions,type LiveGenerationManifestV1 } from './copy-live-generation-projection.js';
 import { decodeLiveSourceSizingEnvelope,planLiveSourceOrder } from './copy-live-source-planner.js';
-import { canonicalLiveSourceLegs } from './copy-live-source-evidence.js';
+import { canonicalLiveSourceLegs, type LiveSourceFillEvidence } from './copy-live-source-evidence.js';
+import { loadMergedMembers } from './copy-live-merged-members.js';
 import type { LiveReservationStored } from './live-risk-reservation.js';
 import {LiveProviderReadEpoch} from './live-provider-read-epoch.js';
-type CollectedAuthority=LiveRiskAuthority&{generation:LiveGenerationManifestV1};
+type CollectedAuthority=LiveRiskAuthority&{generation:LiveGenerationManifestV1;members?:LiveSourceFillEvidence[]};
 export interface BoundPostgresLiveRiskSource { readonly proofSource:LiveAccountRiskProofSource; forHold():Promise<LiveAccountRiskInput>; }
 export interface LiveRiskSourceBinding { readonly accountId:string; readonly key:string; }
 const same=(a:unknown,b:unknown)=>isDeepStrictEqual(JSON.parse(JSON.stringify(a)),JSON.parse(JSON.stringify(b)));
@@ -72,12 +75,14 @@ export class PostgresLiveRiskSource {
   private async load(session:LiveRiskDatabaseSession,binding:LiveRiskSourceBinding,observedAt:number):Promise<CollectedAuthority> {
     return session.read(async db=>{const local=await loadLiveRiskAuthority(session,db,binding,this.now());
       requireProof(local.baseline,'live_risk_baseline_unproven');
-      const generation=await loadLiveGenerationManifest(session,db,local.preparation,{currentExecutionKey:binding.key,now:observedAt});return {...local,generation};});
+      const generation=await loadLiveGenerationManifest(session,db,local.preparation,{currentExecutionKey:binding.key,now:observedAt});
+      const members=await loadMergedMembers(local.provenance.sizingBasis,local.fill.id,async ids=>{const rows=await db.select().from(copyLiveSourceFills).where(inArray(copyLiveSourceFills.id,ids));await session.scope.assertHeld();return rows;});
+      return {...local,generation,...(members?{members}:{})};});
   }
   private validateSizing(local:CollectedAuthority) {
     try {
       const envelope=decodeLiveSourceSizingEnvelope(local.provenance.sizingBasis),leg=canonicalLiveSourceLegs(local.fill).find(l=>l.leg===local.row.leg.leg)!;
-      const planned=planLiveSourceOrder({mandate:local.row.mandate,settings:local.settings,fill:local.fill,leg,sizingBasis:envelope,now:local.record.createdAt,limits:local.policy.limits,currentExecutionKey:local.binding.key});
+      const planned=planLiveSourceOrder({mandate:local.row.mandate,settings:local.settings,fill:local.fill,leg,sizingBasis:envelope,now:local.record.createdAt,limits:local.policy.limits,currentExecutionKey:local.binding.key,...(local.members?{members:local.members}:{})});
       const i=local.intent;
       requireProof(same(planned.order,{coin:i.market!.coin,asset:i.asset,side:i.side,size:i.size,limitPrice:i.limitPrice,sizeDecimals:i.sizeDecimals,reduceOnly:i.reduceOnly,timeInForce:i.timeInForce})&&
         planned.legId===local.row.leg.id&&planned.fixedTradeClaim===local.row.leg.fixedTradeClaim&&planned.dependsOnLegId===local.row.leg.dependsOnId&&

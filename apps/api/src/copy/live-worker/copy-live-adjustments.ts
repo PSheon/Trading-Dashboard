@@ -27,8 +27,11 @@ export interface AdjustmentPlan {
    * for the next same-side legs of its coin. */
   readonly held: ReadonlySet<string>;
   /** Legs refused below_min_notional without an order: an open still too
-   * small when a later run of its coin superseded it, or held to the bound. */
+   * small when a later run of its coin superseded it. */
   readonly refused: ReadonlySet<string>;
+  /** Legs that waited to be merged until their signal grew too old: dropped
+   * (merged_signal_expired), never sent. */
+  readonly expired: ReadonlySet<string>;
 }
 
 /**
@@ -41,43 +44,43 @@ export interface AdjustmentPlan {
  *
  * Below the exchange minimum (`belowMinimum(run)`: the run's follower
  * notional can't reach it), an open run is held while it is its coin's
- * latest run, so the next adds join it and the whole goes as one order with
- * the newest add's fresh signal. A leg held longer than `accumulateMs` is
- * refused below_min_notional (it never reached the minimum within the
- * bound); so is a held run a later reduce or flip of its coin superseded.
- * A close is never held: it closes what the follower holds, and a leader's
- * full close is a full close (combined fraction 1).
+ * latest run, so the next adds join it and the whole goes as one order.
+ * Every leg of a merged order must still be a fresh signal (the policy's
+ * maxSignalAgeSeconds): a leg held or merged at `windowMs` or older is
+ * dropped (merged_signal_expired) and never sent; `windowMs` is the signal
+ * age less the time an order needs to be planned. A held run a later reduce
+ * or flip of its coin superseded is refused below_min_notional. A close is
+ * never held: it closes what the follower holds, and a leader's full close
+ * is a full close (combined fraction 1).
  */
-export function planAdjustments(legs: readonly PendingLeg[], now: number, accumulateMs: number,
+export function planAdjustments(legs: readonly PendingLeg[], now: number, windowMs: number,
   belowMinimum: (run: AdjustmentRun) => boolean): AdjustmentPlan {
   const byCoin = new Map<string, PendingLeg[]>();
-  const merges: AdjustmentRun[] = [], held = new Set<string>(), refused = new Set<string>();
-  for (const leg of legs) {
-    // Held past the bound: never reached the minimum in time. (An open
-    // that was not held is long expired by then: signals live minutes.)
-    if (leg.leg === 'open' && now - leg.leaderTime >= accumulateMs) { refused.add(leg.id); continue; }
-    byCoin.set(leg.coin, [...(byCoin.get(leg.coin) ?? []), leg]);
-  }
+  const merges: AdjustmentRun[] = [], held = new Set<string>(), refused = new Set<string>(), expired = new Set<string>();
+  for (const leg of legs) byCoin.set(leg.coin, [...(byCoin.get(leg.coin) ?? []), leg]);
   for (const coinLegs of byCoin.values()) {
     coinLegs.sort((a, b) => a.leaderTime - b.leaderTime || (a.tid < b.tid ? -1 : a.tid > b.tid ? 1 : 0) || (a.leg === b.leg ? 0 : a.leg === 'close' ? -1 : 1));
     const runs: PendingLeg[][] = [];
     for (const leg of coinLegs) {
       const run = runs.at(-1), last = run?.at(-1);
       // A flip's legs are each their own order (its open waits for its close).
-      const joins = run && last && last.leg === leg.leg && last.sign === leg.sign && run.length < MAX_MERGED_LEGS && !leg.flip && !last.flip &&
-        leg.leaderTime - run[0]!.leaderTime < accumulateMs;
+      const joins = run && last && last.leg === leg.leg && last.sign === leg.sign && run.length < MAX_MERGED_LEGS && !leg.flip && !last.flip;
       if (joins) run.push(leg); else runs.push([leg]);
     }
-    runs.forEach((run, index) => {
-      const shaped: AdjustmentRun = { legs: run, lastOfCoin: index === runs.length - 1 };
-      if (run[0]!.leg === 'open' && !run[0]!.flip && (run.every(leg => leg.belowMinimum) || belowMinimum(shaped))) {
-        for (const leg of run) (shaped.lastOfCoin ? held : refused).add(leg.id);
-        return;
-      }
-      if (run.length > 1) merges.push(shaped);
+    runs.forEach((all, index) => {
+      const lastOfCoin = index === runs.length - 1, isOpen = all[0]!.leg === 'open' && !all[0]!.flip;
+      const below = (legs: readonly PendingLeg[]) => isOpen && legs.length > 0 && (legs.every(leg => leg.belowMinimum) || belowMinimum({ legs, lastOfCoin }));
+      // A leg that would wait or merge past its signal age is dropped; a
+      // single leg on its own keeps the ordinary signal_expired path.
+      const mergesOrWaits = all.length > 1 || below(all);
+      const run = mergesOrWaits ? all.filter(leg => now - leg.leaderTime < windowMs) : all;
+      if (mergesOrWaits) for (const leg of all) if (!run.includes(leg)) expired.add(leg.id);
+      if (!run.length) return;
+      if (below(run)) { for (const leg of run) (lastOfCoin ? held : refused).add(leg.id); return; }
+      if (run.length > 1) merges.push({ legs: run, lastOfCoin });
     });
   }
-  return { merges, held, refused };
+  return { merges, held, refused, expired };
 }
 
 /** The follower notional an open run would have at most: its leader notional

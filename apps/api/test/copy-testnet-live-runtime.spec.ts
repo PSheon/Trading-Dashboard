@@ -3,7 +3,7 @@ import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '@trading-dashboard/shared/database';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { AppConfig } from '../src/config/app-config.js';
 import { validateEnvironment } from '../src/config/runtime-config.js';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
@@ -479,7 +479,8 @@ describe('a testnet copy of a MAINNET leader', () => {
       const [mandate] = await db.select().from(schema.copyLiveMandates), [version] = await db.select().from(schema.copyStrategyVersions), [policy] = await db.select().from(schema.copyRiskPolicies);
       const [own] = await db.select().from(schema.copyLiveSourceFills).where(eq(schema.copyLiveSourceFills.id, lead)), fill = decodeLiveSourceFill(own!);
       const replanned = planLiveSourceOrder({ mandate: { ...mandate!, state: 'active', revision: provenance!.mandateRevision }, settings: copyStrategySettingsSchema.strict().parse(version!.settings),
-        fill, leg: canonicalLiveSourceLegs(fill)[0]!, sizingBasis: provenance!.sizingBasis, now: result.createdAt, limits: copyRiskLimitsSchema.parse(policy!.limits), currentExecutionKey: result.key });
+        fill, leg: canonicalLiveSourceLegs(fill)[0]!, sizingBasis: provenance!.sizingBasis, now: result.createdAt, limits: copyRiskLimitsSchema.parse(policy!.limits), currentExecutionKey: result.key,
+        members: (await db.select().from(schema.copyLiveSourceFills).where(inArray(schema.copyLiveSourceFills.id, members))).map(decodeLiveSourceFill) });
       expect(replanned.order.size).toBe('0.4');
     });
     it('refuses a merge below the minimum before any journal or nonce claims it', async () => {
@@ -488,6 +489,34 @@ describe('a testnet copy of a MAINNET leader', () => {
       await expect(mainnetRuntime({ reference: equity('10000') }).execute({ ...request(), sourceFillId: later[2]!, members: [seed.fill.id, later[0]!, later[1]!] })).rejects.toThrow('below_min_notional');
       expect(await db.select().from(schema.copyLiveExecutions)).toHaveLength(0); expect(await db.select().from(schema.copySignerNonces)).toHaveLength(0);
       expect(await db.select().from(schema.copyLiveSignalLegs)).toHaveLength(0);
+    });
+    it('refuses a merge carrying a leg the worker holds as its own work row, or merged into another order', async () => {
+      await mainnetFixture(null, 'ratio'); const later = await adds(), request_ = { ...request(), sourceFillId: later[2]!, members: [later[0]!, later[1]!] };
+      const row = (fill: string, adjustmentId: string | null) => ({ id: `mandate|${fill}|open`, mandateId: 'mandate', userId: 1, strategyId: 9, accountId: 'account', sourceFillId: fill,
+        leg: 'open' as const, coin: 'BTC', leaderTime: new Date(clock - 900), receivedAt: new Date(clock - 800), adjustmentId });
+      await db.insert(schema.copyLiveDispatches).values([row(later[2]!, null), row(later[0]!, null)]);
+      await expect(mainnetRuntime({ reference: equity('1000') }).execute(request_)).rejects.toThrow('live_preparation_claim_conflict');
+      // Merged into another order's adjustment (led by the seed fill's row).
+      await db.insert(schema.copyLiveDispatches).values(row(seed.fill.id, null));
+      await db.update(schema.copyLiveDispatches).set({ adjustmentId: `mandate|${seed.fill.id}|open` }).where(eq(schema.copyLiveDispatches.sourceFillId, seed.fill.id));
+      await db.update(schema.copyLiveDispatches).set({ state: 'refused', reason: 'merged_into_adjustment', adjustmentId: `mandate|${seed.fill.id}|open` }).where(eq(schema.copyLiveDispatches.sourceFillId, later[0]!));
+      await expect(mainnetRuntime({ reference: equity('1000') }).execute(request_)).rejects.toThrow('live_preparation_claim_conflict');
+      expect(await db.select().from(schema.copyLiveExecutions)).toHaveLength(0);
+      // Merged into THIS order's lead: accepted.
+      await db.update(schema.copyLiveDispatches).set({ adjustmentId: `mandate|${later[2]!}|open` }).where(eq(schema.copyLiveDispatches.sourceFillId, later[0]!));
+      expect((await mainnetRuntime({ reference: equity('1000') }).execute(request_)).state).toBe('filled');
+    });
+    it('applies the per-order cap to the merged size: four legs each under it, together over it, are refused', async () => {
+      await mainnetFixture(null, 'ratio'); const later = await adds();
+      // At most 30 USDC an order: each leg alone is 0.1 BTC (~10 USDC), the four together 0.4 (~40).
+      const [policy] = await db.select().from(schema.copyRiskPolicies);
+      await db.update(schema.copyRiskPolicies).set({ limits: { ...policy!.limits as object, maxOrderNotionalUsd: 30 } });
+      const sign = vi.spyOn(BoundaryPrivyOrderSigningClient.prototype, 'signTypedData');
+      const merged = await mainnetRuntime({ reference: equity('1000') }).execute({ ...request(), sourceFillId: later[2]!, members: [seed.fill.id, later[0]!, later[1]!] })
+        .catch((error: Error) => error);
+      expect(merged instanceof Error ? merged.message : merged.state).not.toBe('filled');
+      expect(sign).not.toHaveBeenCalled(); expect(raw.mock.calls.some(([url]) => String(url).endsWith('/exchange'))).toBe(false);
+      expect(JSON.stringify(merged instanceof Error ? merged.message : merged)).toContain('max_order');
     });
     it('refuses a merge carrying a leg another order already claimed', async () => {
       await mainnetFixture(null, 'ratio'); const members = await adds();

@@ -119,17 +119,34 @@ describe('same-coin leader legs become one follower adjustment', () => {
     expect(calls).toEqual([expect.objectContaining({ sourceFillId: more[2], leg: 'open', members: [...first, more[0], more[1]] })]);
   });
 
-  it('held at most for the accumulation bound, then refused below the minimum without an order', async () => {
+  it('held only while its signal is fresh: past the policy\'s signal age (less 15 s) it is dropped, never sent', async () => {
+    // Signals expire after 40 s here: a leg may wait at most 25 s.
+    const [policy] = await db.select().from(schema.copyRiskPolicies);
+    await db.insert(schema.copyRiskPolicies).values({ version: policy!.version + 1, limits: { ...policy!.limits as object, maxSignalAgeSeconds: 40 } });
     const leaderEquity = vi.fn(async () => '1000');
     const only = await leaderFill(40, now + 100, 'A', '0.3', '0');
-    await coverage(now - 10_000, now + 200); clock = now + 300;
-    const short = (extra: Partial<LiveEngineDependencies> = {}) => new CopyLiveEngine({ ...(engine(extra) as unknown as { deps: LiveEngineDependencies }).deps },
-      { testnetSourceIntervalMs: 60_000, sourceLagMs: 0, passBudgetMs: 60_000, accumulateMs: 20_000 }, () => clock);
-    await short({ leaderEquity }).tick();
-    clock = now + 100 + 19_999; await short({ leaderEquity }).tick();
+    await coverage(now - 10_000, now + 200); clock = now + 300; await engine({ leaderEquity }).tick();
+    clock = now + 100 + 24_999; await engine({ leaderEquity }).tick();
     expect(calls).toHaveLength(0); expect((await dispatches())[0]).toMatchObject({ sourceFillId: only, state: 'pending' });
-    clock = now + 100 + 20_000; await short({ leaderEquity }).tick();
-    expect(calls).toHaveLength(0); expect((await dispatches())[0]).toMatchObject({ sourceFillId: only, state: 'refused', reason: 'below_min_notional' });
+    clock = now + 100 + 25_000; await engine({ leaderEquity }).tick();
+    expect(calls).toHaveLength(0); expect((await dispatches())[0]).toMatchObject({ sourceFillId: only, state: 'refused', reason: 'merged_signal_expired' });
+  });
+
+  it('a merge never carries a leg past the signal age: the aged legs are dropped, the fresh ones go', async () => {
+    const [policy] = await db.select().from(schema.copyRiskPolicies);
+    await db.insert(schema.copyRiskPolicies).values({ version: policy!.version + 1, limits: { ...policy!.limits as object, maxSignalAgeSeconds: 40 } });
+    const leaderEquity = vi.fn(async () => '1000');
+    const old = await leaderFill(41, now + 100, 'A', '0.3', '0'); // 3 USDC: held
+    await coverage(now - 10_000, now + 200); clock = now + 300; await engine({ leaderEquity }).tick();
+    // 26 s later (signal age 40 s, less 15 s), three more adds.
+    const fresh: string[] = [];
+    for (let i = 0; i < 3; i++) fresh.push(await leaderFill(42 + i, now + 26_000 + i * 10, 'A', '0.3', String(-0.3 * (i + 1))));
+    await coverage(now - 10_000, now + 26_100); clock = now + 26_200; await engine({ leaderEquity }).tick();
+    expect((await dispatches()).find(r => r.sourceFillId === old)).toMatchObject({ state: 'refused', reason: 'merged_signal_expired' });
+    expect(calls).toEqual([]); // without the dropped leg, 3 x 3 USDC is under 11: held
+    const more = await leaderFill(46, now + 26_150, 'A', '0.3', '-1.2');
+    await coverage(now - 10_000, now + 26_300); clock = now + 26_400; await engine({ leaderEquity }).tick();
+    expect(calls).toEqual([expect.objectContaining({ sourceFillId: more, members: fresh })]);
   });
 
   it('a held open too small when its coin is reduced is refused, without an order; the reduce goes', async () => {

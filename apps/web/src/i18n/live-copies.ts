@@ -6,7 +6,9 @@ export interface LiveCopiesText {
   stages: Record<LiveCopyStage, string>; hints: Record<LiveCopyStage, string>;
   equity: string; withdrawable: string; positions: string; noPositions: string; size: string; entry: string; pnl: string;
   close: string; closing: string; setup: string; deposit: string; withdraw: string; amount: string; withdrawConfirm: string; returnAll: string;
-  consent: string; consentHint: string; refusal: string; priceDeviation: string; transfer: string; unobserved: string; error: string; busy: string; cancelReturn: string;
+  consent: string; consentHint: string; refusal: string; priceDeviation: string; transfer: string;
+  /** A transfer in flight, in words: which way, and how far it got. */
+  transferDirection: Record<'to_account' | 'to_main', string>; transferStatus: Record<'prepared' | 'unknown' | 'accepted', string>; unobserved: string; error: string; busy: string; cancelReturn: string;
   /** Accounts with the automatic return (worker-signed sweep after a stop). */
   autoReturning: string; autoReturningHint: string; returned: string;
 }
@@ -18,7 +20,7 @@ export const liveCopiesMessages: Record<Locale, LiveCopiesText> = {
     equity: 'Equity', withdrawable: 'Withdrawable', positions: 'Positions', noPositions: 'No open positions', size: 'Size', entry: 'Entry', pnl: 'Unrealized PnL',
     close: 'Close', closing: 'Closing…', setup: 'Open setup', deposit: 'Deposit', withdraw: 'Withdraw idle funds', amount: 'Amount (USDC)', withdrawConfirm: 'Sign and withdraw',
     returnAll: 'Return all to main wallet', consent: 'Sign consent to cancel orders', consentHint: 'The stop found open orders. Your main wallet signs a consent that lets Orbie cancel only those orders.',
-    refusal: 'Last skipped signal: {reason}', priceDeviation: 'testnet price too far from mainnet', transfer: 'Transfer {status}: {amount} USDC', unobserved: 'Balances not observed yet.',
+    refusal: 'Last skipped signal: {reason}', priceDeviation: 'testnet price too far from mainnet', transfer: '{direction} · {status}: {amount} USDC', transferDirection: { to_account: 'Deposit', to_main: 'Return to main wallet' }, transferStatus: { prepared: 'waiting to be sent', unknown: 'being confirmed', accepted: 'sent, waiting for credit' }, unobserved: 'Balances not observed yet.',
     error: 'The action did not complete. Check the copy and try again.', busy: 'Working…', cancelReturn: 'Cancel this return', autoReturning: 'Returning automatically', autoReturningHint: 'Flat. The funds are on their way back to your main wallet; nothing to sign.', returned: 'Returned {amount} USDC to your main wallet' },
   'zh-TW': { title: '測試網跟單', testnet: '測試網', mainnetLeader: '主網交易員', testnetLeader: '測試網交易員',
     stages: { setup: '完成設定', needs_deposit: '待入金', funding: '入金中', awaiting_credit: '等待入帳', starting: '即將開始', active: '跟單中', paused: '已暫停', stopping: '停止中', sweeping: '資金返還中', stopped: '已停止' },
@@ -26,7 +28,7 @@ export const liveCopiesMessages: Record<Locale, LiveCopiesText> = {
     equity: '權益', withdrawable: '可提領', positions: '持倉', noPositions: '沒有持倉', size: '數量', entry: '開倉價', pnl: '未實現盈虧',
     close: '平倉', closing: '平倉中…', setup: '前往設定', deposit: '入金', withdraw: '提領閒置資金', amount: '金額（USDC）', withdrawConfirm: '簽署並提領',
     returnAll: '全部返還主錢包', consent: '簽署撤單同意', consentHint: '停止時發現未成交委託。由主錢包簽署同意，Orbie 只會取消這些委託。',
-    refusal: '最近略過的訊號：{reason}', priceDeviation: '測試網價格與主網差距過大', transfer: '轉帳{status}：{amount} USDC', unobserved: '尚未取得帳戶餘額。',
+    refusal: '最近略過的訊號：{reason}', priceDeviation: '測試網價格與主網差距過大', transfer: '{direction}・{status}：{amount} USDC', transferDirection: { to_account: '入金', to_main: '返還主錢包' }, transferStatus: { prepared: '等待送出', unknown: '確認中', accepted: '已送出，等待入帳' }, unobserved: '尚未取得帳戶餘額。',
     error: '操作未完成，請檢查此跟單後再試。', busy: '處理中…', cancelReturn: '取消這筆轉回', autoReturning: '自動返還中', autoReturningHint: '已無持倉，資金正自動返還主錢包，不需簽署。', returned: '已返還 {amount} USDC 至主錢包' },
   'zh-CN': { title: '测试网跟单', testnet: '测试网', mainnetLeader: '主网交易员', testnetLeader: '测试网交易员',
     stages: { setup: '完成设置', needs_deposit: '待入金', funding: '入金中', awaiting_credit: '等待到账', starting: '即将开始', active: '跟单中', paused: '已暂停', stopping: '停止中', sweeping: '资金返还中', stopped: '已停止' },
@@ -34,7 +36,7 @@ export const liveCopiesMessages: Record<Locale, LiveCopiesText> = {
     equity: '权益', withdrawable: '可提取', positions: '持仓', noPositions: '没有持仓', size: '数量', entry: '开仓价', pnl: '未实现盈亏',
     close: '平仓', closing: '平仓中…', setup: '前往设置', deposit: '入金', withdraw: '提取闲置资金', amount: '金额（USDC）', withdrawConfirm: '签名并提取',
     returnAll: '全部返还主钱包', consent: '签署撤单同意', consentHint: '停止时发现未成交委托。由主钱包签署同意，Orbie 只会取消这些委托。',
-    refusal: '最近跳过的信号：{reason}', priceDeviation: '测试网价格与主网差距过大', transfer: '转账{status}：{amount} USDC', unobserved: '尚未获取账户余额。',
+    refusal: '最近跳过的信号：{reason}', priceDeviation: '测试网价格与主网差距过大', transfer: '{direction}・{status}：{amount} USDC', transferDirection: { to_account: '入金', to_main: '返还主钱包' }, transferStatus: { prepared: '等待发送', unknown: '确认中', accepted: '已发送，等待到账' }, unobserved: '尚未获取账户余额。',
     error: '操作未完成，请检查此跟单后重试。', busy: '处理中…', cancelReturn: '取消这笔转回', autoReturning: '自动返还中', autoReturningHint: '已无持仓，资金正自动返还主钱包，无需签名。', returned: '已返还 {amount} USDC 至主钱包' },
   ko: { title: '테스트넷 카피', testnet: '테스트넷', mainnetLeader: '메인넷 트레이더', testnetLeader: '테스트넷 트레이더',
     stages: { setup: '설정 완료 필요', needs_deposit: '입금 필요', funding: '입금 중', awaiting_credit: '입금 확인 대기', starting: '곧 시작', active: '카피 중', paused: '일시 정지', stopping: '중지 중', sweeping: '자금 반환 중', stopped: '중지됨' },
@@ -42,7 +44,7 @@ export const liveCopiesMessages: Record<Locale, LiveCopiesText> = {
     equity: '자산', withdrawable: '출금 가능', positions: '포지션', noPositions: '보유 포지션 없음', size: '수량', entry: '진입가', pnl: '미실현 손익',
     close: '청산', closing: '청산 중…', setup: '설정 열기', deposit: '입금', withdraw: '유휴 자금 출금', amount: '금액 (USDC)', withdrawConfirm: '서명 후 출금',
     returnAll: '전액 메인 지갑으로 반환', consent: '주문 취소 동의 서명', consentHint: '중지 중 미체결 주문이 발견되었습니다. 메인 지갑으로 동의에 서명하면 Orbie는 해당 주문만 취소합니다.',
-    refusal: '최근 건너뛴 신호: {reason}', priceDeviation: '테스트넷 가격이 메인넷과 너무 다름', transfer: '이체 {status}: {amount} USDC', unobserved: '아직 잔고를 확인하지 못했습니다.',
+    refusal: '최근 건너뛴 신호: {reason}', priceDeviation: '테스트넷 가격이 메인넷과 너무 다름', transfer: '{direction} · {status}: {amount} USDC', transferDirection: { to_account: '입금', to_main: '메인 지갑으로 반환' }, transferStatus: { prepared: '전송 대기', unknown: '확인 중', accepted: '전송됨, 반영 대기' }, unobserved: '아직 잔고를 확인하지 못했습니다.',
     error: '작업이 완료되지 않았습니다. 카피를 확인하고 다시 시도하세요.', busy: '처리 중…', cancelReturn: '이 반환 취소', autoReturning: '자동 반환 중', autoReturningHint: '포지션 없음. 자금이 메인 지갑으로 자동 반환되는 중이며 서명할 필요가 없습니다.', returned: '메인 지갑으로 {amount} USDC 반환됨' },
   ja: { title: 'テストネットのコピー', testnet: 'テストネット', mainnetLeader: 'メインネットのトレーダー', testnetLeader: 'テストネットのトレーダー',
     stages: { setup: '設定を完了', needs_deposit: '入金待ち', funding: '入金中', awaiting_credit: '着金待ち', starting: 'まもなく開始', active: 'コピー中', paused: '一時停止中', stopping: '停止中', sweeping: '資金返還中', stopped: '停止済み' },
@@ -50,7 +52,7 @@ export const liveCopiesMessages: Record<Locale, LiveCopiesText> = {
     equity: '資産', withdrawable: '出金可能', positions: 'ポジション', noPositions: 'ポジションはありません', size: '数量', entry: '建値', pnl: '含み損益',
     close: '決済', closing: '決済中…', setup: '設定を開く', deposit: '入金', withdraw: '余剰資金を出金', amount: '金額（USDC）', withdrawConfirm: '署名して出金',
     returnAll: '全額をメインウォレットに戻す', consent: '注文取消の同意に署名', consentHint: '停止時に未約定の注文が見つかりました。メインウォレットで同意に署名すると、Orbie はその注文だけを取り消します。',
-    refusal: '直近でスキップしたシグナル：{reason}', priceDeviation: 'テストネット価格がメインネットと大きく乖離', transfer: '送金{status}：{amount} USDC', unobserved: '残高をまだ取得できていません。',
+    refusal: '直近でスキップしたシグナル：{reason}', priceDeviation: 'テストネット価格がメインネットと大きく乖離', transfer: '{direction}・{status}：{amount} USDC', transferDirection: { to_account: '入金', to_main: 'メインウォレットへ返還' }, transferStatus: { prepared: '送信待ち', unknown: '確認中', accepted: '送信済み、着金待ち' }, unobserved: '残高をまだ取得できていません。',
     error: '操作が完了しませんでした。コピーを確認して再試行してください。', busy: '処理中…', cancelReturn: 'この返金を取り消す', autoReturning: '自動返還中', autoReturningHint: 'ポジションなし。資金はメインウォレットへ自動で戻っています。署名は不要です。', returned: '{amount} USDC をメインウォレットに返還しました' },
   ru: { title: 'Копирование в тестнете', testnet: 'Тестнет', mainnetLeader: 'Трейдер мейннета', testnetLeader: 'Трейдер тестнета',
     stages: { setup: 'Завершите настройку', needs_deposit: 'Нужен депозит', funding: 'Пополнение', awaiting_credit: 'Ожидание зачисления', starting: 'Запуск', active: 'Копирует', paused: 'Пауза', stopping: 'Остановка', sweeping: 'Возврат средств', stopped: 'Остановлено' },
@@ -58,7 +60,7 @@ export const liveCopiesMessages: Record<Locale, LiveCopiesText> = {
     equity: 'Капитал', withdrawable: 'Доступно к выводу', positions: 'Позиции', noPositions: 'Открытых позиций нет', size: 'Размер', entry: 'Вход', pnl: 'Нереализованный PnL',
     close: 'Закрыть', closing: 'Закрытие…', setup: 'Открыть настройки', deposit: 'Пополнить', withdraw: 'Вывести свободные средства', amount: 'Сумма (USDC)', withdrawConfirm: 'Подписать и вывести',
     returnAll: 'Вернуть всё на основной кошелёк', consent: 'Подписать согласие на отмену ордеров', consentHint: 'При остановке найдены открытые ордера. Основной кошелёк подписывает согласие, и Orbie отменит только их.',
-    refusal: 'Последний пропущенный сигнал: {reason}', priceDeviation: 'цена тестнета слишком далека от мейннета', transfer: 'Перевод {status}: {amount} USDC', unobserved: 'Баланс ещё не получен.',
+    refusal: 'Последний пропущенный сигнал: {reason}', priceDeviation: 'цена тестнета слишком далека от мейннета', transfer: '{direction} · {status}: {amount} USDC', transferDirection: { to_account: 'Депозит', to_main: 'Возврат на основной кошелёк' }, transferStatus: { prepared: 'ожидает отправки', unknown: 'подтверждается', accepted: 'отправлен, ждёт зачисления' }, unobserved: 'Баланс ещё не получен.',
     error: 'Действие не завершено. Проверьте копирование и повторите.', busy: 'Выполняется…', cancelReturn: 'Отменить этот возврат', autoReturning: 'Автоматический возврат', autoReturningHint: 'Позиций нет. Средства автоматически возвращаются на основной кошелёк, подписывать ничего не нужно.', returned: 'Возвращено {amount} USDC на основной кошелёк' },
   tr: { title: 'Testnet kopyaları', testnet: 'Testnet', mainnetLeader: 'Mainnet trader', testnetLeader: 'Testnet trader',
     stages: { setup: 'Kurulumu tamamlayın', needs_deposit: 'Yatırım gerekli', funding: 'Yatırılıyor', awaiting_credit: 'Hesaba geçmesi bekleniyor', starting: 'Başlıyor', active: 'Kopyalanıyor', paused: 'Duraklatıldı', stopping: 'Durduruluyor', sweeping: 'Fonlar iade ediliyor', stopped: 'Durduruldu' },
@@ -66,7 +68,7 @@ export const liveCopiesMessages: Record<Locale, LiveCopiesText> = {
     equity: 'Varlık', withdrawable: 'Çekilebilir', positions: 'Pozisyonlar', noPositions: 'Açık pozisyon yok', size: 'Miktar', entry: 'Giriş', pnl: 'Gerçekleşmemiş K/Z',
     close: 'Kapat', closing: 'Kapatılıyor…', setup: 'Ayarları aç', deposit: 'Yatır', withdraw: 'Boştaki fonları çek', amount: 'Tutar (USDC)', withdrawConfirm: 'İmzala ve çek',
     returnAll: 'Tümünü ana cüzdana iade et', consent: 'Emir iptali onayını imzala', consentHint: 'Durdurma sırasında açık emirler bulundu. Ana cüzdanınız bir onay imzalar ve Orbie yalnızca bu emirleri iptal eder.',
-    refusal: 'Son atlanan sinyal: {reason}', priceDeviation: 'testnet fiyatı mainnet’ten çok uzak', transfer: 'Transfer {status}: {amount} USDC', unobserved: 'Bakiyeler henüz okunmadı.',
+    refusal: 'Son atlanan sinyal: {reason}', priceDeviation: 'testnet fiyatı mainnet’ten çok uzak', transfer: '{direction} · {status}: {amount} USDC', transferDirection: { to_account: 'Yatırma', to_main: 'Ana cüzdana iade' }, transferStatus: { prepared: 'gönderilmeyi bekliyor', unknown: 'onaylanıyor', accepted: 'gönderildi, hesaba geçmesi bekleniyor' }, unobserved: 'Bakiyeler henüz okunmadı.',
     error: 'İşlem tamamlanmadı. Kopyayı kontrol edip tekrar deneyin.', busy: 'İşleniyor…', cancelReturn: 'Bu iadeyi iptal et', autoReturning: 'Otomatik iade ediliyor', autoReturningHint: 'Pozisyon yok. Fonlar ana cüzdanınıza otomatik olarak dönüyor; imzalamanız gerekmiyor.', returned: 'Ana cüzdanınıza {amount} USDC iade edildi' },
   vi: { title: 'Sao chép trên testnet', testnet: 'Testnet', mainnetLeader: 'Trader mainnet', testnetLeader: 'Trader testnet',
     stages: { setup: 'Hoàn tất thiết lập', needs_deposit: 'Cần nạp tiền', funding: 'Đang nạp', awaiting_credit: 'Chờ ghi có', starting: 'Sắp bắt đầu', active: 'Đang sao chép', paused: 'Tạm dừng', stopping: 'Đang dừng', sweeping: 'Đang hoàn tiền', stopped: 'Đã dừng' },
@@ -74,7 +76,7 @@ export const liveCopiesMessages: Record<Locale, LiveCopiesText> = {
     equity: 'Tài sản', withdrawable: 'Có thể rút', positions: 'Vị thế', noPositions: 'Không có vị thế mở', size: 'Khối lượng', entry: 'Giá vào', pnl: 'Lãi/lỗ chưa thực hiện',
     close: 'Đóng', closing: 'Đang đóng…', setup: 'Mở thiết lập', deposit: 'Nạp tiền', withdraw: 'Rút tiền nhàn rỗi', amount: 'Số tiền (USDC)', withdrawConfirm: 'Ký và rút',
     returnAll: 'Hoàn toàn bộ về ví chính', consent: 'Ký đồng ý hủy lệnh', consentHint: 'Khi dừng đã phát hiện lệnh đang mở. Ví chính ký một sự đồng ý để Orbie chỉ hủy các lệnh đó.',
-    refusal: 'Tín hiệu bị bỏ qua gần nhất: {reason}', priceDeviation: 'giá testnet chênh quá xa mainnet', transfer: 'Chuyển {status}: {amount} USDC', unobserved: 'Chưa đọc được số dư.',
+    refusal: 'Tín hiệu bị bỏ qua gần nhất: {reason}', priceDeviation: 'giá testnet chênh quá xa mainnet', transfer: '{direction} · {status}: {amount} USDC', transferDirection: { to_account: 'Nạp tiền', to_main: 'Hoàn về ví chính' }, transferStatus: { prepared: 'đang chờ gửi', unknown: 'đang xác nhận', accepted: 'đã gửi, chờ ghi có' }, unobserved: 'Chưa đọc được số dư.',
     error: 'Thao tác chưa hoàn tất. Kiểm tra lần sao chép và thử lại.', busy: 'Đang xử lý…', cancelReturn: 'Hủy lần chuyển về này', autoReturning: 'Đang tự động hoàn trả', autoReturningHint: 'Không còn vị thế. Tiền đang tự động về ví chính của bạn, không cần ký.', returned: 'Đã hoàn trả {amount} USDC về ví chính' },
   es: { title: 'Copias en testnet', testnet: 'Testnet', mainnetLeader: 'Trader de mainnet', testnetLeader: 'Trader de testnet',
     stages: { setup: 'Completa la configuración', needs_deposit: 'Requiere depósito', funding: 'Depositando', awaiting_credit: 'Esperando acreditación', starting: 'Iniciando', active: 'Copiando', paused: 'En pausa', stopping: 'Deteniendo', sweeping: 'Devolviendo fondos', stopped: 'Detenida' },
@@ -82,7 +84,7 @@ export const liveCopiesMessages: Record<Locale, LiveCopiesText> = {
     equity: 'Patrimonio', withdrawable: 'Retirable', positions: 'Posiciones', noPositions: 'Sin posiciones abiertas', size: 'Tamaño', entry: 'Entrada', pnl: 'PnL no realizado',
     close: 'Cerrar', closing: 'Cerrando…', setup: 'Abrir configuración', deposit: 'Depositar', withdraw: 'Retirar fondos inactivos', amount: 'Monto (USDC)', withdrawConfirm: 'Firmar y retirar',
     returnAll: 'Devolver todo a la billetera principal', consent: 'Firmar consentimiento para cancelar órdenes', consentHint: 'Al detener se encontraron órdenes abiertas. Tu billetera principal firma un consentimiento para que Orbie cancele solo esas órdenes.',
-    refusal: 'Última señal omitida: {reason}', priceDeviation: 'precio de testnet demasiado alejado de mainnet', transfer: 'Transferencia {status}: {amount} USDC', unobserved: 'Aún no se leyeron los saldos.',
+    refusal: 'Última señal omitida: {reason}', priceDeviation: 'precio de testnet demasiado alejado de mainnet', transfer: '{direction} · {status}: {amount} USDC', transferDirection: { to_account: 'Depósito', to_main: 'Devolución a la billetera principal' }, transferStatus: { prepared: 'esperando envío', unknown: 'confirmándose', accepted: 'enviado, esperando acreditación' }, unobserved: 'Aún no se leyeron los saldos.',
     error: 'La acción no se completó. Revisa la copia e inténtalo de nuevo.', busy: 'Procesando…', cancelReturn: 'Cancelar esta devolución', autoReturning: 'Devolviendo automáticamente', autoReturningHint: 'Sin posiciones. Los fondos vuelven solos a tu billetera principal; no hay nada que firmar.', returned: 'Se devolvieron {amount} USDC a tu billetera principal' },
   pt: { title: 'Cópias na testnet', testnet: 'Testnet', mainnetLeader: 'Trader da mainnet', testnetLeader: 'Trader da testnet',
     stages: { setup: 'Concluir configuração', needs_deposit: 'Requer depósito', funding: 'Depositando', awaiting_credit: 'Aguardando crédito', starting: 'Iniciando', active: 'Copiando', paused: 'Pausada', stopping: 'Parando', sweeping: 'Devolvendo fundos', stopped: 'Parada' },
@@ -90,7 +92,7 @@ export const liveCopiesMessages: Record<Locale, LiveCopiesText> = {
     equity: 'Patrimônio', withdrawable: 'Sacável', positions: 'Posições', noPositions: 'Nenhuma posição aberta', size: 'Tamanho', entry: 'Entrada', pnl: 'PnL não realizado',
     close: 'Fechar', closing: 'Fechando…', setup: 'Abrir configurações', deposit: 'Depositar', withdraw: 'Sacar fundos ociosos', amount: 'Valor (USDC)', withdrawConfirm: 'Assinar e sacar',
     returnAll: 'Devolver tudo à carteira principal', consent: 'Assinar consentimento para cancelar ordens', consentHint: 'Ao parar foram encontradas ordens abertas. Sua carteira principal assina um consentimento para que a Orbie cancele apenas essas ordens.',
-    refusal: 'Último sinal ignorado: {reason}', priceDeviation: 'preço da testnet muito distante da mainnet', transfer: 'Transferência {status}: {amount} USDC', unobserved: 'Saldos ainda não lidos.',
+    refusal: 'Último sinal ignorado: {reason}', priceDeviation: 'preço da testnet muito distante da mainnet', transfer: '{direction} · {status}: {amount} USDC', transferDirection: { to_account: 'Depósito', to_main: 'Devolução à carteira principal' }, transferStatus: { prepared: 'aguardando envio', unknown: 'em confirmação', accepted: 'enviado, aguardando crédito' }, unobserved: 'Saldos ainda não lidos.',
     error: 'A ação não foi concluída. Verifique a cópia e tente novamente.', busy: 'Processando…', cancelReturn: 'Cancelar esta devolução', autoReturning: 'A devolver automaticamente', autoReturningHint: 'Sem posições. Os fundos estão a voltar sozinhos para a sua carteira principal; não há nada a assinar.', returned: '{amount} USDC devolvidos à sua carteira principal' },
   id: { title: 'Salinan testnet', testnet: 'Testnet', mainnetLeader: 'Trader mainnet', testnetLeader: 'Trader testnet',
     stages: { setup: 'Selesaikan penyiapan', needs_deposit: 'Perlu deposit', funding: 'Sedang deposit', awaiting_credit: 'Menunggu kredit', starting: 'Segera mulai', active: 'Menyalin', paused: 'Dijeda', stopping: 'Menghentikan', sweeping: 'Mengembalikan dana', stopped: 'Dihentikan' },
@@ -98,6 +100,6 @@ export const liveCopiesMessages: Record<Locale, LiveCopiesText> = {
     equity: 'Ekuitas', withdrawable: 'Dapat ditarik', positions: 'Posisi', noPositions: 'Tidak ada posisi terbuka', size: 'Ukuran', entry: 'Harga masuk', pnl: 'PnL belum terealisasi',
     close: 'Tutup', closing: 'Menutup…', setup: 'Buka pengaturan', deposit: 'Deposit', withdraw: 'Tarik dana menganggur', amount: 'Jumlah (USDC)', withdrawConfirm: 'Tandatangani dan tarik',
     returnAll: 'Kembalikan semua ke dompet utama', consent: 'Tandatangani persetujuan pembatalan order', consentHint: 'Saat menghentikan ditemukan order terbuka. Dompet utama menandatangani persetujuan agar Orbie hanya membatalkan order tersebut.',
-    refusal: 'Sinyal terakhir yang dilewati: {reason}', priceDeviation: 'harga testnet terlalu jauh dari mainnet', transfer: 'Transfer {status}: {amount} USDC', unobserved: 'Saldo belum terbaca.',
+    refusal: 'Sinyal terakhir yang dilewati: {reason}', priceDeviation: 'harga testnet terlalu jauh dari mainnet', transfer: '{direction} · {status}: {amount} USDC', transferDirection: { to_account: 'Setoran', to_main: 'Kembali ke dompet utama' }, transferStatus: { prepared: 'menunggu dikirim', unknown: 'sedang dikonfirmasi', accepted: 'terkirim, menunggu masuk' }, unobserved: 'Saldo belum terbaca.',
     error: 'Tindakan belum selesai. Periksa salinan lalu coba lagi.', busy: 'Memproses…', cancelReturn: 'Batalkan pengembalian ini', autoReturning: 'Dikembalikan otomatis', autoReturningHint: 'Tidak ada posisi. Dana sedang kembali otomatis ke dompet utama kamu; tidak perlu tanda tangan.', returned: '{amount} USDC dikembalikan ke dompet utama' },
 };

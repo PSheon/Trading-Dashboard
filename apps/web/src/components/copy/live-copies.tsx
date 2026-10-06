@@ -91,7 +91,7 @@ function LiveCopyRow({ item, text, account, mandate, strategy }: { item: LiveCop
       {!(item.stage === 'setup' && item.setup) ? <p className="text-xs leading-5 text-muted-foreground">{autoReturning ? text.autoReturningHint : text.hints[item.stage]}</p> : null}
       {item.stage === 'stopped' && item.sweep?.status === 'credited' ? <p className="num text-xs font-semibold text-positive">{text.returned.replace('{amount}', item.sweep.amount)}</p> : null}
       {reason ? <p className="text-xs text-warning">{text.refusal.replace('{reason}', reason)}</p> : null}
-      {item.pendingTransfer ? <p className="text-xs">{text.transfer.replace('{status}', item.pendingTransfer.status).replace('{amount}', item.pendingTransfer.amount)}</p> : null}
+      {item.pendingTransfer ? <p className="text-xs">{text.transfer.replace('{direction}', text.transferDirection[item.pendingTransfer.direction]).replace('{status}', text.transferStatus[item.pendingTransfer.status]).replace('{amount}', item.pendingTransfer.amount)}</p> : null}
       {item.pendingTransfer?.direction === 'to_main' && item.pendingTransfer.status === 'prepared' && !autoReturning ? (
         <Button size="sm" variant="secondary" className="self-start" disabled={busy} onClick={() => actions.cancelTransfer.mutate({ operationId: item.pendingTransfer!.id })}>{text.cancelReturn}</Button>
       ) : null}

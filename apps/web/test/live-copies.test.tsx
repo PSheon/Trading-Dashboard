@@ -12,8 +12,8 @@ import { liveAccount, liveMandate, liveNow } from './copy-live-fixtures';
 import { settleQueries } from './query-settle';
 import { MASTER_SIGNATURE, withMasterAction } from './master-action-test-utils';
 
-const state = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), sign: vi.fn(), snapshot: null as unknown }));
-vi.mock('@/lib/auth', () => ({ useAuth: () => ({ status: 'signedIn', mode: 'privy', identity: 'owner@email', wallet: { address: `0x${'11'.repeat(20)}`, signTypedData: state.sign, signAsAccount: async () => MASTER_SIGNATURE } }) }));
+const state = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), sign: vi.fn(), addSigners: vi.fn(async () => undefined), snapshot: null as unknown }));
+vi.mock('@/lib/auth', () => ({ useAuth: () => ({ status: 'signedIn', mode: 'privy', identity: 'owner@email', wallet: { address: `0x${'11'.repeat(20)}`, signTypedData: state.sign, signAsAccount: async () => MASTER_SIGNATURE, addSigners: state.addSigners } }) }));
 vi.mock('@/lib/api', async () => ({ ...(await vi.importActual<typeof import('@/lib/api')>('@/lib/api')), api: { get: state.get, post: (...args: unknown[]) => Promise.resolve((state.post as (...a: unknown[]) => unknown)(...args)).then(value => withMasterAction(args[0], value)) }, sessionKey: () => '1' }));
 vi.mock('@/lib/copy-execution-wallets', () => ({ useExecutionWallets: () => ({ data: { accounts: [liveAccount] } }) }));
 vi.mock('@/lib/copy-live', () => ({ useLiveCopyOverview: () => ({ data: { mandates: [{ ...liveMandate, state: 'active' }] } }) }));
@@ -192,4 +192,40 @@ it('加碼 that fails keeps the dialog and the typed amount, with the reason', a
   expect(input()).toBeTruthy();
   expect(input().value).toBe('25');
   expect(document.querySelector('[role="dialog"]')!.textContent).toContain('已有一筆入金正在處理');
+});
+
+it("a transfer in flight is said in the page's language, never as the raw status", async () => {
+  items = [item({ stage: 'funding', status: 'paused', pendingTransfer: { id: '77777777-7777-4777-8777-777777777777', direction: 'to_account', status: 'prepared', amount: '100' } })];
+  await render('zh-TW');
+  expect(container.textContent).toContain('入金・等待送出：100 USDC');
+  expect(container.textContent).not.toMatch(/prepared|unknown|accepted/);
+  for (const locale of LOCALES) {
+    const text = liveCopiesMessages[locale];
+    for (const status of ['prepared', 'unknown', 'accepted'] as const) expect(text.transferStatus[status], locale).not.toBe(status);
+    for (const direction of ['to_account', 'to_main'] as const) expect(text.transferDirection[direction].trim(), locale).not.toBe('');
+    expect(text.transfer, locale).toContain('{status}');
+  }
+});
+
+it("a setup left at its consent (the panel closed during a slow start, automatic return on): 繼續設定 opens the confirm sheet, which adds the worker and confirms", async () => {
+  const at = Date.now(), id = '0b0a6a3e-2f6b-4b7a-9a65-6b7c9f1e2d3c', owner = `0x${'11'.repeat(20)}`;
+  const consent = { kind: 'start', setupId: id, userId: 1, ownerAddress: owner, ownerPrivyUserId: 'did:privy:owner', strategyId: liveAccount.strategyId, leaderAddress: `0x${'44'.repeat(20)}`,
+    sourceNetwork: 'mainnet', network: 'testnet', budgetUsd: '100', settingsDigest: 'a'.repeat(64), accountId: liveAccount.id, accountAddress: `0x${'22'.repeat(20)}`, accountAbstraction: 'disabled',
+    agentAddress: `0x${'33'.repeat(20)}`, agentPolicyId: 'policy', agentPolicyFingerprint: 'b'.repeat(64), workerQuorumId: 'worker', agentValidUntil: at + 30 * 86_400_000, builderAddress: null,
+    builderMaxFeeTenthsOfBps: 0, sweepDestination: owner, masterPolicyId: 'master-policy', masterPolicyFingerprint: 'c'.repeat(64), fundingOperationId: '6f1c1d2e-3a4b-4c5d-8e9f-0a1b2c3d4e5f',
+    fundingNonce: at - 10, fundingAmount: '100', nonce: at, consentExpiresAt: at + 300_000, setupDeadline: at + 86_400_000 };
+  const setup = { id, kind: 'start', strategyId: liveAccount.strategyId, accountId: liveAccount.id, leaderAddress: consent.leaderAddress, sourceNetwork: 'mainnet', budgetUsd: '100',
+    settings: { direction: 'same', sizingMode: 'ratio', perTradeUsd: null, maxTotalExposureUsd: null, maxLeverage: null, copyStartMode: 'delta' }, stage: 'awaiting_consent', issue: null, signer: null,
+    consent, funding: null, pendingSignature: null, mandateId: null, setupDeadline: null, createdAt: new Date(at).toISOString(), updatedAt: new Date(at).toISOString() };
+  items = [item({ stage: 'setup', status: 'paused', mandate: null, setup: { id, kind: 'start', stage: 'awaiting_consent', issue: null, signer: null, consent } })];
+  state.get.mockImplementation(async (path: string) => path === '/me/copy/live/portfolio' ? { network: 'testnet', automaticExecution: true, items } : path === `/me/copy/live/setups/${id}` ? setup : null);
+  state.post.mockResolvedValue({ ...setup, consent: null, stage: 'funding_submitted', signer: 'worker_policy' });
+  await render('zh-TW');
+  await act(async () => button('繼續設定').click()); await settle();
+  const sheet = [...document.querySelectorAll('[role="dialog"]')].find(d => d.textContent?.includes('確認跟單設定'));
+  expect(sheet).toBeTruthy();
+  const go = [...sheet!.querySelectorAll('button')].find(b => b.textContent === '確認並開始')!;
+  await act(async () => go.click()); await settle();
+  expect(state.addSigners).toHaveBeenCalledExactlyOnceWith(consent.accountAddress, [{ signerId: 'worker', policyIds: ['master-policy'] }]);
+  expect(state.post).toHaveBeenCalledWith(`/me/copy/live/setups/${id}/confirm`, expect.objectContaining({ consentSignature: expect.any(String), fundingSignature: expect.any(String) }));
 });

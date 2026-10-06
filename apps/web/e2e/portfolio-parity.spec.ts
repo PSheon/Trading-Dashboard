@@ -23,7 +23,8 @@ test.describe("portfolio parity", () => {
     const copying = page.getByRole("tab", { name: /Copying\s*2/ }).filter({ visible: true });
     await expect(copying).toHaveAttribute("aria-selected", "true");
     // The equity-curve column draws each copy's curve, not "—".
-    await expect(page.locator('[role="tabpanel"] svg[aria-hidden]').first()).toBeVisible();
+    // The page's 正式 / 模擬 switch has its own tabpanel around everything: the copy list is #desktop-copy-panel.
+    await expect(page.locator('#desktop-copy-panel svg[aria-hidden]').first()).toBeVisible();
     await shot(page, "portfolio-1440");
 
     await page.getByRole("tab", { name: "Insights" }).filter({ visible: true }).click();
@@ -42,7 +43,7 @@ test.describe("portfolio parity", () => {
 
     // One copy: your copy vs the trader over the same window.
     await page.getByRole("tab", { name: /Copying/ }).filter({ visible: true }).click();
-    await page.locator('[role="tabpanel"] button').filter({ visible: true }).first().click();
+    await page.locator('#desktop-copy-panel button').filter({ visible: true }).first().click();
     await expect(page).toHaveURL(/copy=\d+/);
     const compare = page.getByTestId("copy-compare").filter({ visible: true });
     await expect(compare).toContainText("Same period, since");
@@ -78,11 +79,15 @@ test.describe("activity panel", () => {
   test("signed out it asks to sign in; signed in it lists copy fills, favorites' trades and wallet transfers at 390px", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/en/portfolio");
+    // Until the session is known the page is the signed-in one loading; a
+    // bell clicked then belongs to a page that is about to be replaced.
+    await expect(page.getByText("Sign in to view your portfolio").filter({ visible: true })).toBeVisible();
     await page.getByRole("button", { name: "Activity" }).filter({ visible: true }).click();
     const panel = page.getByRole("dialog", { name: /Activity/ });
     await expect(panel.getByText("Sign in for alerts")).toBeVisible();
     await panel.getByRole("button", { name: "Close" }).click();
     await signIn(page);
+    await expect(page.getByRole("tab", { name: "Paper" }).filter({ visible: true })).toBeVisible();
     await page.getByRole("button", { name: "Activity" }).filter({ visible: true }).click();
     for (const chip of ["Copies", "Following", "Deposits"]) await expect(panel.getByRole("tab", { name: chip })).toBeVisible();
     await expect(panel.getByText(/^Copy Long HYPE at/)).toBeVisible();

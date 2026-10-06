@@ -158,7 +158,8 @@ for (const width of [1440, 390]) {
       await openCopy(page, "Machi is ugly dog");
       // Pause and resume say why in their own words (web audit L7): the
       // fixture fails with a 503, which reads as busy, not as an edit failure.
-      const failed = page.getByRole("alert").filter({ hasText: "The service is busy. Try again in a moment." });
+      // The page's own notice (the same words also come as a toast, outside main).
+      const failed = page.locator("main").getByRole("alert").filter({ hasText: "The service is busy. Try again in a moment." });
 
       await failNext(page, "commands");
       await action(page, "Pause copying").click();

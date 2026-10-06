@@ -4,7 +4,8 @@ import { signIn } from "./helpers";
 const visible = (page: Page, text: string | RegExp) => page.getByText(text, { exact: typeof text === "string" }).filter({ visible: true });
 const action = (page: Page, name: string) => page.getByRole("button", { name, exact: true }).filter({ visible: true });
 const performance = (page: Page) => page.locator("section").filter({ has: page.getByRole("radiogroup", { name: "Performance view" }) }).filter({ visible: true });
-const activity = (page: Page) => page.getByRole("region", { name: "Paper copy activity" });
+// 最近活動 of the paper view (the phone and desktop layouts each draw one).
+const activity = (page: Page) => page.getByRole("region", { name: "Recent activity" }).filter({ visible: true });
 
 test.beforeEach(async ({ context, baseURL }) => {
   await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
@@ -125,13 +126,12 @@ for (const width of [1440, 390]) {
       // Cash transfers change equity, not earned P&L or gross allocation.
       const pnl = page.locator("p").filter({ hasText: /^Total P&L$/ }).filter({ visible: true }).locator("..").locator("p.num");
       await expect(pnl).toHaveText("$0.00");
-      await activity(page).getByRole("button", { name: "Refresh", exact: true }).click();
+      // Plain words, newest first; no copy number or order id (Paul, 2026-10-06). The feed polls every 15 s.
       const transferred = activity(page).locator("li").filter({ hasText: "Funds withdrawn" });
-      await expect(transferred).toHaveCount(1);
+      await expect(transferred).toHaveCount(1, { timeout: 20000 });
       await expect(transferred).toContainText(withdrawn);
-      await expect(activity(page)).toContainText("Paper");
       await expect(activity(page)).toContainText("Copy created");
-      await expect(activity(page).getByRole("link", { name: /Copy #/ }).first()).toHaveAttribute("href", /\/portfolio\?copy=\d+/);
+      await expect(activity(page)).not.toContainText("#");
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     });
   });

@@ -4,7 +4,8 @@ import { expectNoSidewaysScroll, signIn } from "./helpers";
 for (const width of [1440, 390]) test(`main withdrawal form displays its network and blocks unavailable signing at ${width}px`, async ({ page, context, baseURL }) => {
   await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
   await page.setViewportSize({ width, height: 900 });
-  await page.goto("/en/portfolio?wallet=funded");
+  // The main wallet is on the real-money view (正式); this build opens on 模擬.
+  await page.goto("/en/portfolio?wallet=funded&view=real");
   await signIn(page);
   await page.getByRole("button", { name: "Withdraw", exact: true }).filter({ visible: true }).first().click();
   const dialog = page.getByRole("dialog");
@@ -24,7 +25,7 @@ for (const width of [1440, 390]) test(`main withdrawal form displays its network
 for (const width of [1440, 390]) test(`a main withdrawal is signed, submitted and confirmed, and the modal closes at ${width}px`, async ({ page, context, baseURL }) => {
   await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
   await page.setViewportSize({ width, height: 900 });
-  await page.goto("/en/portfolio?wallet=funded&signer=fixture");
+  await page.goto("/en/portfolio?wallet=funded&signer=fixture&view=real");
   await signIn(page);
   await page.getByRole("button", { name: "Withdraw", exact: true }).filter({ visible: true }).first().click();
   const dialog = page.getByRole("dialog");

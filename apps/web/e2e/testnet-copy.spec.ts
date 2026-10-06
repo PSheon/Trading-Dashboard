@@ -67,7 +67,11 @@ for (const width of [1440, 390]) {
       await expect(progress.getByTestId("live-copy-stages").locator('[data-state="done"]')).toHaveCount(6);
       await page.getByRole("link", { name: "Go to portfolio" }).click();
       await expect(page).toHaveURL(/\/en\/portfolio/);
-      const copies = page.getByRole("region", { name: "Testnet copies" }).filter({ visible: true });
+      // A copy is a card (name, status; PnL and ROI) that opens its detail sheet.
+      const card = page.getByTestId("live-copy-card").filter({ visible: true }).first();
+      await expect(card).toContainText("Copying");
+      await card.click();
+      const copies = page.getByTestId("live-copy-sheet");
       await expect(copies).toContainText("Active");
       await expect(copies).toContainText(/Runs until/);
       // Pause and resume need no signature.
@@ -168,8 +172,12 @@ test("a copy wallet the browser can't use yet is named calmly; the dialog closed
   await expect(progress).toHaveCount(0);
   await page.locator('a[href="/zh-TW/portfolio"]').filter({ visible: true }).first().click();
   await expect(page).toHaveURL(/\/zh-TW\/portfolio/);
-  const resume = page.getByRole("button", { name: "繼續設定", exact: true }).filter({ visible: true }).first();
-  await expect(resume).toBeVisible({ timeout: 15000 });
+  // The unfinished copy's card opens its sheet, where 繼續設定 is.
+  const card = page.getByTestId("live-copy-card").filter({ visible: true }).first();
+  await expect(card).toBeVisible({ timeout: 15000 });
+  await card.click();
+  const resume = page.getByTestId("live-copy-sheet").getByRole("button", { name: "繼續設定", exact: true });
+  await expect(resume).toBeVisible();
   await shot(page, "testnet-copy-owner-resume-1440");
   await resume.click();
   await expect(page.getByRole("dialog", { name: "跟單已開始" })).toBeVisible({ timeout: 30000 });

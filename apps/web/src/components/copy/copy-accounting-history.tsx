@@ -9,6 +9,7 @@ import { useAuth } from "@/lib/auth";
 import { api, sessionKey } from "@/lib/api";
 import { defaultRetry } from "@/lib/query-policy";
 import { PaperBadge } from "./paper-badge";
+import { TextButton } from "@/components/ui/text-button";
 
 /** The real persisted paper ledger, separate from the bounded activity
  * feed. Exact decimal strings are shown without conversion through Number. */
@@ -41,7 +42,7 @@ function AccountingPage({ strategyId, kind }: { strategyId: number; kind: "ledge
     enabled: status === "signedIn",
     ...defaultRetry,
   });
-  if (query.isError) return <p role="alert" className="py-3 text-xs text-negative">{t("copyUpdates.historyError")} <button className="underline" onClick={() => void query.refetch()}>{t("copyUpdates.retry")}</button></p>;
+  if (query.isError) return <p role="alert" className="py-3 text-xs text-negative">{t("copyUpdates.historyError")} <TextButton busy={query.isFetching} onClick={() => void query.refetch()}>{t("copyUpdates.retry")}</TextButton></p>;
   if (!query.data) return <p role="status" className="py-3 text-xs text-muted-foreground">{t("common.loading")}</p>;
   const data = query.data;
   return <div role="tabpanel">

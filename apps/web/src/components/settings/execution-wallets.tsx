@@ -72,7 +72,7 @@ export function ExecutionWalletSettings() {
       {wallets.isError ? (
         <div className="mt-3 text-sm">
           <p role="alert">{t("executionWallets.loadError")}</p>
-          <Button variant="secondary" size="sm" className="mt-2" onClick={() => void wallets.refetch()}>{t("executionWallets.retry")}</Button>
+          <Button loading={wallets.isFetching} variant="secondary" size="sm" className="mt-2" onClick={() => void wallets.refetch()}>{t("executionWallets.retry")}</Button>
         </div>
       ) : null}
       {data ? (
@@ -82,7 +82,7 @@ export function ExecutionWalletSettings() {
           {copies.isPending && !eligibleCopies.length ? <p role="status" className="mt-3 text-xs">{t("executionWallets.loadingCopies")}</p> : copies.isError && !eligibleCopies.length ? (
             <div className="mt-3 text-xs">
               <p role="alert">{t("executionWallets.copiesError")}</p>
-              <Button size="sm" variant="secondary" className="mt-2" onClick={() => void copies.refetch()}>{t("executionWallets.retry")}</Button>
+              <Button loading={copies.isFetching} size="sm" variant="secondary" className="mt-2" onClick={() => void copies.refetch()}>{t("executionWallets.retry")}</Button>
             </div>
           ) : eligibleCopies.length ? (
             <div className="mt-4 flex flex-wrap items-end gap-3">
@@ -91,7 +91,7 @@ export function ExecutionWalletSettings() {
                 <Select id={selectId} value={selected} onValueChange={(value) => { setSelected(value); create.reset(); }} className="mt-1 w-full" disabled={busy} placeholder={t("executionWallets.selectStrategy")}
                   options={eligibleCopies.map((item) => ({ value: String(item.id), label: `${t("executionWallets.copyNumber", { id: item.id })} · ${truncateAddress(item.leaderAddress)}${item.kind === "actual" ? ` · ${t("copyLive.actual")}` : ""}` }))} />
               </div>
-              <Button size="sm" disabled={!strategy || existing || !data.available || busy || wallets.isError || Boolean(actualStrategy && (!actual.data?.capabilities.strategyPreparation || !actualWallet.recovery.isSuccess))} onClick={() => { if (actualStrategy) actualWallet.mutate(actualStrategy); else if (strategy) create.mutate({ strategyId: strategy.id, network: data.network }); }}>
+              <Button size="sm" loading={actualWallet.isPending || create.isPending} disabled={!(actualWallet.isPending || create.isPending) && (!strategy || existing || !data.available || busy || wallets.isError || Boolean(actualStrategy && (!actual.data?.capabilities.strategyPreparation || !actualWallet.recovery.isSuccess)))} onClick={() => { if (actualStrategy) actualWallet.mutate(actualStrategy); else if (strategy) create.mutate({ strategyId: strategy.id, network: data.network }); }}>
                 {create.isPending || actualWallet.isPending ? t("executionWallets.creating") : existing ? t("executionWallets.prepared") : originalWallet ? t("copyLive.find") : t("executionWallets.create")}
               </Button>
             </div>
@@ -115,7 +115,7 @@ export function ExecutionWalletSettings() {
                   </Button>
                 ) : null}
                 {account.state !== "blocked" ? (
-                  <Button variant="secondary" size="sm" className="mt-3" disabled={busy} onClick={() => { create.reset(); reconcile.mutate(account.id); }}>
+                  <Button variant="secondary" size="sm" className="mt-3" loading={reconcile.isPending && reconcile.variables === account.id} disabled={!(reconcile.isPending && reconcile.variables === account.id) && (busy)} onClick={() => { create.reset(); reconcile.mutate(account.id); }}>
                     {reconcile.isPending && reconcile.variables === account.id ? t("executionWallets.checking") : t(account.state === "ready" ? "executionWallets.reverify" : "executionWallets.reconcile")}
                   </Button>
                 ) : null}
@@ -146,7 +146,7 @@ export function ExecutionWalletSettings() {
                   <div className="mt-3">
                     <p className="text-xs text-warning">{t("executionWallets.revokeConfirmHint")}</p>
                     <div className="mt-2 flex flex-wrap gap-2">
-                      <Button size="sm" variant="destructive" disabled={busy} onClick={() => revoke.mutate(authorization.id, { onSuccess: () => setConfirmRevoke(null) })}>{revoke.isPending ? t("executionWallets.revoking") : t("executionWallets.confirmRevoke")}</Button>
+                      <Button size="sm" variant="destructive" loading={revoke.isPending && revoke.variables === authorization.id} disabled={!(revoke.isPending && revoke.variables === authorization.id) && (busy)} onClick={() => revoke.mutate(authorization.id, { onSuccess: () => setConfirmRevoke(null) })}>{revoke.isPending ? t("executionWallets.revoking") : t("executionWallets.confirmRevoke")}</Button>
                       <Button size="sm" variant="secondary" disabled={busy} onClick={() => setConfirmRevoke(null)}>{t("executionWallets.cancel")}</Button>
                     </div>
                   </div>

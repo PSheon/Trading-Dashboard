@@ -32,7 +32,7 @@ function OwnedCopyLiveStop({ selection }: { selection: LiveStopSelection | null 
         <p className="break-all text-sm">{text.account}: {selection!.account.address} · testnet</p>
         <p className="break-all text-sm">{text.mandate}: {selection!.mandate.id}</p>
         <p className="text-sm">{discardText.revision}: {selection!.mandate.revision}</p>
-        <Button type="button" aria-describedby={hint} disabled={working || !storageReady || alreadyRequested || selection!.mandate.state === 'prepared' || selection!.mandate.activationCursor === null} onClick={() => mutation.mutate(undefined)}>{working ? text.working : text.request}</Button>
+        <Button type="button" aria-describedby={hint} loading={mutation.isPending && mutation.variables === undefined} disabled={!(mutation.isPending && mutation.variables === undefined) && (working || !storageReady || alreadyRequested || selection!.mandate.state === 'prepared' || selection!.mandate.activationCursor === null)} onClick={() => mutation.mutate(undefined)}>{working ? text.working : text.request}</Button>
       </div>}
       {storageError && <p role="alert" className="text-sm">{text.storage}</p>}
       {mutation.isError && <p role="alert" className="text-sm">{text.error}</p>}
@@ -44,16 +44,16 @@ function OwnedCopyLiveStop({ selection }: { selection: LiveStopSelection | null 
           <p className="break-all text-sm">{text.mandate}: {attempt.mandateId} · {text.account}: {attempt.accountAddress}</p>
           <p className="text-sm">{discardText.revision}: {attempt.request.expectedMandateRevision}</p>
           {!observed && <p role="status" className="text-sm text-muted-foreground">{unsent ? resumeText.unsent : text.unknown}</p>}
-          <Button type="button" variant="outline" disabled={working || storageError || unsent && !canResumeLiveCopyStop(attempt, selection, user?.id ?? null)} aria-label={`${action}: ${attempt.mandateId}`} onClick={() => mutation.mutate(attempt)}>{working ? text.working : action}</Button>
+          <Button type="button" variant="outline" loading={mutation.isPending && mutation.variables === attempt} disabled={!(mutation.isPending && mutation.variables === attempt) && (working || storageError || unsent && !canResumeLiveCopyStop(attempt, selection, user?.id ?? null))} aria-label={`${action}: ${attempt.mandateId}`} onClick={() => mutation.mutate(attempt)}>{working ? text.working : action}</Button>
           {unsent && <div className="space-y-2">
             <p id={`${hint}-discard-${index}`} className="text-sm text-muted-foreground">{discardText.hint}</p>
-            <Button type="button" variant="outline" disabled={working || storageError || attempt.ownerId !== user?.id} aria-label={`${discardText.discard}: ${attempt.mandateId}`} aria-describedby={`${hint}-discard-${index}`} onClick={() => discard.mutate(attempt)}>{discardText.discard}</Button>
+            <Button type="button" variant="outline" loading={discard.isPending && discard.variables === attempt} disabled={!(discard.isPending && discard.variables === attempt) && (working || storageError || attempt.ownerId !== user?.id)} aria-label={`${discardText.discard}: ${attempt.mandateId}`} aria-describedby={`${hint}-discard-${index}`} onClick={() => discard.mutate(attempt)}>{discardText.discard}</Button>
           </div>}
         </li>;
       })}</ul>}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h4 className="font-medium">{text.history}</h4>
-        <Button type="button" variant="outline" disabled={history.isFetching} onClick={() => void history.refetch()}>{text.refresh}</Button>
+        <Button type="button" variant="outline" loading={history.isFetching} onClick={() => void history.refetch()}>{text.refresh}</Button>
       </div>
       <div aria-live="polite" aria-busy={history.isFetching}>
         {history.isPending && <p>{text.loading}</p>}

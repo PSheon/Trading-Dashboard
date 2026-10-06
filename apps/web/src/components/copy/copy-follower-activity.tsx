@@ -22,7 +22,7 @@ function ActivityView({ account }: { account: CopyExecutionAccount }) {
     <p className="mt-2 text-xs leading-5 text-muted-foreground">{t('copyFollowerActivity.hint')}</p>
     <p className="mt-2 text-xs leading-5 text-muted-foreground">{t('copyFollowerStatement.deltaHint')}</p>
     {query.isPending ? <p role="status" className="mt-3 text-xs">{t('copyFollowerActivity.loading')}</p> : null}
-    {query.isError ? <div className="mt-3"><p role="alert" className="text-xs text-warning">{t('copyFollowerActivity.error')}</p><Button size="sm" variant="secondary" className="mt-2" disabled={query.isFetching} onClick={() => void query.refetch()}>{t('executionWallets.retry')}</Button></div> : null}
+    {query.isError ? <div className="mt-3"><p role="alert" className="text-xs text-warning">{t('copyFollowerActivity.error')}</p><Button size="sm" variant="secondary" className="mt-2" loading={query.isFetching} onClick={() => void query.refetch()}>{t('executionWallets.retry')}</Button></div> : null}
     {page ? <div className="mt-3 space-y-3">
       <p className="break-all font-mono text-xs text-muted-foreground">{t(`executionWallets.networks.${page.network}`)} · {page.accountAddress}</p>
       <div className="space-y-1 text-xs leading-5 text-muted-foreground"><p>{t('copyFollowerStatement.history')}</p>
@@ -50,7 +50,7 @@ function ActivityView({ account }: { account: CopyExecutionAccount }) {
       </li>)}</ol>}
       <div className="flex flex-wrap gap-2">
         {page.hasMore && page.previousCursor ? <Button size="sm" variant="secondary" disabled={query.isFetching} onClick={() => setBefore(page.previousCursor!)}>{t('copyFollowerActivity.older')}</Button> : null}
-        {before ? <Button size="sm" variant="secondary" disabled={query.isFetching} onClick={() => setBefore(undefined)}>{t('copyFollowerActivity.recent')}</Button> : <Button size="sm" variant="secondary" disabled={query.isFetching} onClick={() => void query.refetch()}>{t('copyFollowerActivity.refresh')}</Button>}
+        {before ? <Button size="sm" variant="secondary" disabled={query.isFetching} onClick={() => setBefore(undefined)}>{t('copyFollowerActivity.recent')}</Button> : <Button size="sm" variant="secondary" loading={query.isFetching} onClick={() => void query.refetch()}>{t('copyFollowerActivity.refresh')}</Button>}
       </div>
     </div> : null}
     {before && query.isError ? <Button size="sm" variant="secondary" className="mt-2" disabled={query.isFetching} onClick={() => setBefore(undefined)}>{t('copyFollowerActivity.recent')}</Button> : null}

@@ -93,7 +93,7 @@ function LiveCopyRow({ item, text, account, mandate, strategy }: { item: LiveCop
       {reason ? <p className="text-xs text-warning">{text.refusal.replace('{reason}', reason)}</p> : null}
       {item.pendingTransfer ? <p className="text-xs">{text.transfer.replace('{direction}', text.transferDirection[item.pendingTransfer.direction]).replace('{status}', text.transferStatus[item.pendingTransfer.status]).replace('{amount}', item.pendingTransfer.amount)}</p> : null}
       {item.pendingTransfer?.direction === 'to_main' && item.pendingTransfer.status === 'prepared' && !autoReturning ? (
-        <Button size="sm" variant="secondary" className="self-start" disabled={busy} onClick={() => actions.cancelTransfer.mutate({ operationId: item.pendingTransfer!.id })}>{text.cancelReturn}</Button>
+        <Button size="sm" variant="secondary" className="self-start" loading={actions.cancelTransfer.isPending} disabled={busy && !actions.cancelTransfer.isPending} onClick={() => actions.cancelTransfer.mutate({ operationId: item.pendingTransfer!.id })}>{text.cancelReturn}</Button>
       ) : null}
       {observed ? (
         <>
@@ -112,7 +112,7 @@ function LiveCopyRow({ item, text, account, mandate, strategy }: { item: LiveCop
                     <span className="num text-muted-foreground">{text.entry} {p.entryPrice}</span>
                     <span className={cn('num', Number(p.unrealizedPnl) >= 0 ? 'text-positive' : 'text-negative')}>{text.pnl} {format.usd(Number(p.unrealizedPnl), { sign: true, digits: 2 })}</span>
                     {running && item.accountId ? (
-                      <Button size="sm" variant="secondary" className="ml-auto" disabled={busy} onClick={() => actions.close.mutate({ accountId: item.accountId!, coin: p.coin })}>
+                      <Button size="sm" variant="secondary" className="ml-auto" loading={actions.close.isPending && actions.close.variables?.coin === p.coin} disabled={busy && !(actions.close.isPending && actions.close.variables?.coin === p.coin)} onClick={() => actions.close.mutate({ accountId: item.accountId!, coin: p.coin })}>
                         {actions.close.isPending && actions.close.variables?.coin === p.coin ? text.closing : text.close}
                       </Button>
                     ) : null}
@@ -131,17 +131,17 @@ function LiveCopyRow({ item, text, account, mandate, strategy }: { item: LiveCop
               <input name="withdraw" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value.trim())} disabled={busy}
                 className="mt-1 block w-28 rounded-xl bg-inset px-2 py-1.5 text-sm" autoComplete="off" />
             </label>
-            <Button type="submit" size="sm" variant="secondary" disabled={busy || !validAmount}>{text.withdraw}</Button>
+            <Button type="submit" size="sm" variant="secondary" loading={actions.transfer.isPending && actions.transfer.variables?.amount !== 'all'} disabled={!(actions.transfer.isPending && actions.transfer.variables?.amount !== 'all') && (busy || !validAmount)}>{text.withdraw}</Button>
           </form>
         ) : null}
         {item.stop?.state === 'cancelling' && !item.oneClick ? (
           <div className="flex flex-col gap-1">
             <p className="text-xs text-muted-foreground">{text.consentHint}</p>
-            <Button size="sm" disabled={busy} onClick={() => actions.cancellation.mutate({ stopId: item.stop!.id })}>{text.consent}</Button>
+            <Button size="sm" loading={actions.cancellation.isPending} disabled={busy && !actions.cancellation.isPending} onClick={() => actions.cancellation.mutate({ stopId: item.stop!.id })}>{text.consent}</Button>
           </div>
         ) : null}
         {item.stage === 'sweeping' && item.accountId && !item.pendingTransfer && !autoReturning ? (
-          <Button size="sm" disabled={busy} onClick={() => actions.transfer.mutate({ accountId: item.accountId!, amount: 'all', automatic })}>{text.returnAll}</Button>
+          <Button size="sm" loading={actions.transfer.isPending && actions.transfer.variables?.amount === 'all'} disabled={busy && !(actions.transfer.isPending && actions.transfer.variables?.amount === 'all')} onClick={() => actions.transfer.mutate({ accountId: item.accountId!, amount: 'all', automatic })}>{text.returnAll}</Button>
         ) : null}
         {busy ? <span role="status" className="text-xs text-muted-foreground">{text.busy}</span> : null}
       </div>

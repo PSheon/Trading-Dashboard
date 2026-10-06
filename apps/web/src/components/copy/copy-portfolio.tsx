@@ -24,6 +24,7 @@ import type { CopyOrderView, CopyPositionView, CopyStrategyView } from "@/lib/co
 import { copyDays, useAddCopyFunds, useCopyCommand, useCopyOrders, usePatchCopy, useWithdrawCopyFunds } from "@/lib/copy";
 import { useTraderCards } from "@/lib/favorite-groups";
 import { coinLabel, truncateAddress } from "@/lib/format";
+import { TextButton } from "@/components/ui/text-button";
 
 type Leader = { address: string; displayName: string | null; avatarUrl: string | null };
 
@@ -275,11 +276,11 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
       {live ? (
         <div className="flex flex-wrap gap-2">
           {s.status === "paused" ? (
-            <Button variant="secondary" onClick={() => run("resume")} disabled={command.isPending}>
+            <Button variant="secondary" onClick={() => run("resume")} loading={command.isPending}>
               <Play /> {t("portfolio.copy.actions.resume")}
             </Button>
           ) : s.status === "active" ? (
-            <Button variant="secondary" onClick={() => run("pause")} disabled={command.isPending}>
+            <Button variant="secondary" onClick={() => run("pause")} loading={command.isPending}>
               <Pause /> {t("portfolio.copy.actions.pause")}
             </Button>
           ) : null}
@@ -379,7 +380,7 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
         {orderPages.length > 0 ? <Button variant="secondary" disabled={orders.isFetching} onClick={() => setOrderPages((pages) => pages.slice(0, -1))}>{t("portfolio.copy.detail.back")}</Button> : null}
         {orders.data?.hasMore && orders.data.previousCursor ? <Button variant="secondary" disabled={orders.isFetching} onClick={() => setOrderPages((pages) => [...pages, orders.data!.previousCursor!])}>{t("copyUpdates.olderOrders")}</Button> : null}
       </div> : null}
-      {orders.isError ? <p role="status" className="text-xs text-negative">{t("copyUpdates.historyError")} <button type="button" className="underline" onClick={() => void orders.refetch()}>{t("copyUpdates.retry")}</button></p> : null}
+      {orders.isError ? <p role="status" className="text-xs text-negative">{t("copyUpdates.historyError")} <TextButton busy={orders.isFetching} onClick={() => void orders.refetch()}>{t("copyUpdates.retry")}</TextButton></p> : null}
       <CopyAccountingHistory strategyId={s.id} />
       <StopDialog strategy={s} open={dialog === "stop"} onClose={() => setDialog(null)} />
       <EditDialog strategy={s} balance={balance} open={dialog === "edit"} onClose={() => setDialog(null)} />
@@ -406,7 +407,7 @@ function StopDialog({ strategy: s, open, onClose }: { strategy: CopyStrategyView
           <Button
            
             className="bg-negative text-primary-foreground hover:bg-negative/90"
-            disabled={command.isPending}
+            loading={command.isPending}
             onClick={async () => {
               setError(null);
               try {
@@ -476,7 +477,8 @@ function EditDialog({ strategy: s, balance, open, onClose }: { strategy: CopyStr
         {error ? <p role="alert" className="text-xs font-semibold text-negative">{error}</p> : null}
         <Button
           size="cta"
-          disabled={invalid || patch.isPending}
+          loading={patch.isPending}
+          disabled={!patch.isPending && invalid}
           onClick={async () => {
             setError(null);
             try {
@@ -520,7 +522,8 @@ function FundsDialog({ strategy: s, balance, open, onClose }: { strategy: CopySt
         {error ? <p role="alert" className="text-xs font-semibold text-negative">{error}</p> : null}
         <Button
           size="cta"
-          disabled={invalid || add.isPending}
+          loading={add.isPending}
+          disabled={!add.isPending && invalid}
           onClick={async () => {
             setError(null);
             try {
@@ -552,14 +555,14 @@ export function WithdrawDialog({ strategy: s, open, onClose }: { strategy: CopyS
     <div className="flex flex-col gap-4 p-5">
       <p className="text-xs text-muted-foreground">{t("copyUpdates.withdrawHint")}</p>
       <label htmlFor="withdraw-amount" className="flex justify-between text-sm font-semibold">USDC <span className="text-xs text-muted-foreground">{t("copyUpdates.available")}: {available == null ? "—" : format.usd(available, { digits: 2 })}</span></label>
-      {pending.map((body) => <Button key={body.amountUsd} variant="secondary" disabled={withdraw.isPending} onClick={async () => {
+      {pending.map((body) => <Button key={body.amountUsd} variant="secondary" loading={withdraw.isPending && withdraw.variables?.amountUsd === body.amountUsd} disabled={withdraw.isPending && withdraw.variables?.amountUsd !== body.amountUsd} onClick={async () => {
         setError(null);
         try { await withdraw.mutateAsync(body); setAmount(""); onClose(); }
         catch { setError(t("copyUpdates.withdrawUnknown")); }
       }}>{t("copyUpdates.retryWithdrawal", { amount: format.usd(body.amountUsd, { digits: 2 }) })}</Button>)}
       <AmountInput id="withdraw-amount" value={amount} onChange={setAmount} invalid={amount !== "" && invalid} />
       {error ? <p role="alert" className="text-xs text-negative">{error}</p> : null}
-      <Button size="cta" disabled={invalid || withdraw.isPending || pending.length > 0} onClick={async () => {
+      <Button size="cta" loading={withdraw.isPending && pending.length === 0} disabled={!(withdraw.isPending && pending.length === 0) && (invalid || withdraw.isPending || pending.length > 0)} onClick={async () => {
         setError(null);
         try {
           await withdraw.mutateAsync({ id: s.id, amountUsd: value });

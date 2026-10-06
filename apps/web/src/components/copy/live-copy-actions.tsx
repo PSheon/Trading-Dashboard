@@ -75,17 +75,17 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
         {stopped || lapsed ? <Button size="sm" loading={actions.restart.isPending} disabled={busy && !actions.restart.isPending} onClick={() => restart((stopped ?? lapsed)!.id)}>{text.restart}</Button> : null}
         {stopped || lapsed ? <Button size="sm" variant="secondary" loading={actions.cancel.isPending} disabled={busy && !actions.cancel.isPending} onClick={() => cancel((stopped ?? lapsed)!.id)}>{text.cancelSetup}</Button> : null}
         {running && mandateId && item.status === "active" ? (
-          <Button size="sm" variant="secondary" disabled={busy} onClick={() => actions.pause.mutate(mandateId, { onError: fail })}>{text.pause}</Button>
+          <Button size="sm" variant="secondary" loading={actions.pause.isPending} disabled={busy && !actions.pause.isPending} onClick={() => actions.pause.mutate(mandateId, { onError: fail })}>{text.pause}</Button>
         ) : null}
         {running && mandateId && item.status === "paused" && item.mandate?.state === "paused" ? (
-          <Button size="sm" variant="secondary" disabled={busy} onClick={() => actions.resume.mutate(mandateId, { onError: fail })}>{text.resume}</Button>
+          <Button size="sm" variant="secondary" loading={actions.resume.isPending} disabled={busy && !actions.resume.isPending} onClick={() => actions.resume.mutate(mandateId, { onError: fail })}>{text.resume}</Button>
         ) : null}
         {running && strategy && !unfinished ? <Button size="sm" variant="secondary" disabled={busy} onClick={() => { setError(null); setEditing(true); }}>{text.edit}</Button> : null}
         {(running || item.stage === "needs_deposit") && item.accountId && !item.pendingTransfer ? (
           <Button size="sm" variant="secondary" disabled={busy} onClick={() => { setError(null); setTopUpError(null); setToppingUp(true); }}>{text.topUp}</Button>
         ) : null}
         {running && item.renewalDue && !unfinished ? (
-          <Button size="sm" disabled={busy} onClick={() => actions.renew.mutate({ strategyId: item.strategyId }, { onSuccess: review, onError: fail })}>{text.renew}</Button>
+          <Button size="sm" loading={actions.renew.isPending} disabled={busy && !actions.renew.isPending} onClick={() => actions.renew.mutate({ strategyId: item.strategyId }, { onSuccess: review, onError: fail })}>{text.renew}</Button>
         ) : null}
       </div>
       {error ? <p role="alert" className="text-xs text-negative">{error}</p> : null}

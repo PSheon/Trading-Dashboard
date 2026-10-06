@@ -7,6 +7,7 @@ import type { MessageKey } from "@/i18n/messages";
 import { useI18n } from "@/i18n/provider";
 import { useCopyEvents } from "@/lib/copy";
 import type { WireCopyEvents } from "@trading-dashboard/shared/contracts";
+import { TextButton } from "@/components/ui/text-button";
 
 const reasonKeys = new Set(["platform_paused", "platform_reduce_only", "user_paused", "user_reduce_only", "strategy_paused", "strategy_reduce_only", "symbol_not_allowed", "symbol_blocked", "stale_signal", "no_price", "price_moved", "frequency", "zero_size", "below_min_notional", "leader_equity_unknown", "no_asset_info", "no_per_trade_amount", "reduce_only_no_position"]);
 
@@ -48,7 +49,7 @@ export function CopyActivity() {
   return <section className="mt-6 orbit-card card-pad" aria-label={t("copyUpdates.activityAria")}>
     <div className="flex items-center justify-between gap-2">
       <h2 className="flex items-center gap-2 text-sm font-bold">{t("copyUpdates.activityTitle")} <PaperBadge /></h2>
-      <button type="button" disabled={query.isFetching} onClick={() => query.refetch()} className="rounded px-2 py-1 text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">{t("copyUpdates.refresh")}</button>
+      <TextButton busy={query.isFetching} onClick={() => void query.refetch()} className="rounded px-2 py-1 text-xs text-muted-foreground no-underline hover:text-foreground">{t("copyUpdates.refresh")}</TextButton>
     </div>
     <p className="mt-2 text-[11px] text-muted-foreground">{t("copyUpdates.activityHint")}</p>
     {query.isError || query.olderError ? <p role="status" className="mt-3 text-xs text-warning">{t("copyUpdates.activityError")}</p> : null}

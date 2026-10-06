@@ -63,6 +63,8 @@ it("recovers a pending server transfer without the signing SDK and shows actual 
 it("preserves the same reservation key when its response is lost", async () => {
   state.post.mockRejectedValue(new Error("private provider error")); await render(); await selectAccount(); await click("Prepare funding");
   expect(container.textContent).not.toContain("private provider"); expect(container.querySelector("input")!.disabled).toBe(true);
+  // The busy mark holds at least 300 ms (Button's loading), then it can be pressed again.
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 320)); });
   await click("Prepare funding"); expect(state.post).toHaveBeenCalledTimes(2); expect(state.post.mock.calls[0]).toEqual(state.post.mock.calls[1]); expect(state.sign).not.toHaveBeenCalled();
 });
 it("recovers a persisted reservation after response loss instead of preparing a second one", async () => {

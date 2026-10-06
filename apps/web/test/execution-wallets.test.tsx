@@ -118,7 +118,8 @@ it("prevents duplicate preparation while the initial request is pending", async 
   let complete!: (value: ExecutionWallet) => void;
   state.post.mockImplementationOnce(() => new Promise((resolve) => { complete = resolve; }));
   await click("Prepare dedicated wallet", settleHeld);
-  expect(button("Preparing…").disabled).toBe(true);
+  // Busy: the orbit mark, and a second press is refused (Button's loading).
+  expect(button("Preparing…").getAttribute("aria-busy")).toBe("true");
   expect(selectTrigger(container)?.disabled).toBe(true);
   await click("Preparing…", settleHeld);
   expect(state.post).toHaveBeenCalledOnce();

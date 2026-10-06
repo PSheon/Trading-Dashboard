@@ -43,7 +43,7 @@ export function CopyWalletsList() {
                 {grants.map(grant => confirming === grant.id ? (
                   <span key={grant.id} className="flex flex-wrap items-center gap-2">
                     <span className="text-warning">{t("executionWallets.revokeConfirmHint")}</span>
-                    <Button size="sm" variant="destructive" disabled={revoke.isPending} onClick={() => revoke.mutate(grant.id, { onSuccess: () => setConfirming(null) })}>{t("executionWallets.confirmRevoke")}</Button>
+                    <Button size="sm" variant="destructive" loading={revoke.isPending && revoke.variables === grant.id} disabled={!(revoke.isPending && revoke.variables === grant.id) && (revoke.isPending)} onClick={() => revoke.mutate(grant.id, { onSuccess: () => setConfirming(null) })}>{t("executionWallets.confirmRevoke")}</Button>
                     <Button size="sm" variant="secondary" disabled={revoke.isPending} onClick={() => setConfirming(null)}>{t("executionWallets.cancel")}</Button>
                   </span>
                 ) : (

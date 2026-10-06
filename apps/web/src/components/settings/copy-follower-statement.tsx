@@ -31,7 +31,7 @@ function StatementView({ accounts }: { accounts: readonly CopyExecutionAccount[]
     </div>
     {!eligible.length ? <p className="mt-3 text-xs text-muted-foreground">{t('copyFollowerStatement.empty')}</p> : null}
     {account && query.isPending ? <p role="status" className="mt-3 text-xs">{t('copyFollowerStatement.loading')}</p> : null}
-    {account && query.isError ? <div className="mt-3"><p role="alert" className="text-xs text-warning">{t('copyFollowerStatement.error')}</p><Button size="sm" variant="secondary" className="mt-2" disabled={query.isFetching} onClick={() => void query.refetch()}>{t('executionWallets.retry')}</Button></div> : null}
+    {account && query.isError ? <div className="mt-3"><p role="alert" className="text-xs text-warning">{t('copyFollowerStatement.error')}</p><Button size="sm" variant="secondary" className="mt-2" loading={query.isFetching} disabled={!(query.isFetching) && (query.isFetching)} onClick={() => void query.refetch()}>{t('executionWallets.retry')}</Button></div> : null}
     {data ? <div className="mt-3 space-y-3">
       <p className="break-all font-mono text-xs text-muted-foreground">{data.accountAddress}</p>
       <div className="space-y-1 text-xs leading-5 text-muted-foreground">

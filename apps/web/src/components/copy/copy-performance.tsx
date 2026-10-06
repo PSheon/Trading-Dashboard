@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useI18n } from "@/i18n/provider";
 import { useCopyPerformance, type CopyPerformanceView, type CopyPerformanceWindow } from "@/lib/copy";
+import { TextButton } from "@/components/ui/text-button";
 
 /** Actual timestamps retain gaps; unavailable marks never become a zero. */
 export function equityPaths(points: CopyPerformanceView["points"], width = 400, height = 120, bucketMs = Infinity): string[] {
@@ -85,7 +86,7 @@ export function CopyPerformance({ strategyId }: { strategyId: number }) {
       </div>
     </div>
     <p className="my-3 text-xs text-muted-foreground">{t("copyUpdates.todayPnl")} <strong className="num ml-2 text-foreground">{today === null || today === undefined ? "—" : format.usd(today, { sign: true, digits: 2 })}</strong></p>
-    {query.isError ? <p role="status" className="mb-2 text-xs text-muted-foreground">{t("copyUpdates.historyError")} <button type="button" onClick={() => query.refetch()} className="underline">{t("copyUpdates.retry")}</button></p> : null}
+    {query.isError ? <p role="status" className="mb-2 text-xs text-muted-foreground">{t("copyUpdates.historyError")} <TextButton busy={query.isFetching} onClick={() => void query.refetch()}>{t("copyUpdates.retry")}</TextButton></p> : null}
     {query.data ? <EquityHistory data={query.data} /> : <p className="py-8 text-center text-xs text-muted-foreground">{query.isPending ? (t("copyUpdates.snapshotsLoading")) : "—"}</p>}
   </section>;
 }

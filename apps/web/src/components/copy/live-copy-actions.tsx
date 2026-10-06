@@ -72,8 +72,8 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
       {lapsed ? <p className="text-xs text-muted-foreground">{text.consentLapsedHint}</p> : null}
       <div className="flex flex-wrap items-center gap-2">
         {unfinished && !lapsed ? <Button size="sm" onClick={() => setProgressId(unfinished.id)}>{text.continueSetup}</Button> : null}
-        {stopped || lapsed ? <Button size="sm" disabled={busy} onClick={() => restart((stopped ?? lapsed)!.id)}>{text.restart}</Button> : null}
-        {stopped || lapsed ? <Button size="sm" variant="secondary" disabled={busy} onClick={() => cancel((stopped ?? lapsed)!.id)}>{text.cancelSetup}</Button> : null}
+        {stopped || lapsed ? <Button size="sm" loading={actions.restart.isPending} disabled={busy && !actions.restart.isPending} onClick={() => restart((stopped ?? lapsed)!.id)}>{text.restart}</Button> : null}
+        {stopped || lapsed ? <Button size="sm" variant="secondary" loading={actions.cancel.isPending} disabled={busy && !actions.cancel.isPending} onClick={() => cancel((stopped ?? lapsed)!.id)}>{text.cancelSetup}</Button> : null}
         {running && mandateId && item.status === "active" ? (
           <Button size="sm" variant="secondary" disabled={busy} onClick={() => actions.pause.mutate(mandateId, { onError: fail })}>{text.pause}</Button>
         ) : null}
@@ -98,7 +98,8 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
           onConfirm={(amount) => { setTopUpError(null); actions.topUp.mutate({ accountId: item.accountId!, amount }, { onSuccess: () => setToppingUp(false), onError: (err) => setTopUpError(message(err)) }); }} />
       ) : null}
       <LiveCopyConfirm setup={pendingSetup} open={pendingSetup !== null} onOpenChange={(open) => { if (!open && !actions.confirm.isPending) setPendingSetup(null); }}
-        onConfirm={() => void confirm()} pending={actions.confirm.isPending || actions.restart.isPending} error={confirmError} />
+        onConfirm={() => void confirm()} pending={actions.confirm.isPending || actions.restart.isPending} error={confirmError}
+        note={actions.confirmPhase === "attaching" ? text.attachingSigner : null} />
       <LiveCopyProgress setupId={progressId} open={progressId !== null} onOpenChange={(open) => { if (!open) setProgressId(null); }}
         onConsent={review} onRetry={(setup) => { setProgressId(null); restart(setup); }} />
     </div>
@@ -137,7 +138,7 @@ function EditDialog({ strategy, onClose, onSave, pending }: { strategy: LiveCopy
           </div>
         </div>
         <LiveSettingsFields text={text} sizing={sizing} setSizing={setSizing} perTrade={perTrade} setPerTrade={setPerTrade} maxExposure={maxExposure} setMaxExposure={setMaxExposure} maxLeverage={maxLeverage} setMaxLeverage={setMaxLeverage} />
-        <Button type="submit" className="mt-2" disabled={!valid || pending}>{text.save}</Button>
+        <Button type="submit" className="mt-2" loading={pending} disabled={!pending && !valid}>{text.save}</Button>
       </form>
     </Modal>
   );
@@ -156,7 +157,7 @@ function TopUpDialog({ onClose, onConfirm, pending, error }: { onClose: () => vo
         </label>
         <p className="text-xs leading-5 text-muted-foreground">{text.testnetNote} {text.signNote}</p>
         {error ? <p role="alert" className="text-xs text-negative">{error}</p> : null}
-        <Button type="submit" disabled={!valid || pending}>{fill(text.topUpConfirm, { amount: amount || "0" })}</Button>
+        <Button type="submit" loading={pending} disabled={!pending && !valid}>{fill(text.topUpConfirm, { amount: amount || "0" })}</Button>
       </form>
     </Modal>
   );

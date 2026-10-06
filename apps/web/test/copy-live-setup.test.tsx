@@ -226,3 +226,21 @@ it('stops polling a setup the api refuses for good (signed out, not found), and 
     expect(progress.current!.isError).toBe(true);
   } finally { vi.useRealTimers(); }
 });
+
+it("Privy never answering the signer request can't hold confirm: after 20 s the setup goes on signed in this browser, and the sheet can say what it waits for", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    state.addSigners.mockImplementation(() => new Promise(() => undefined));
+    state.post.mockResolvedValue({ ...setup('start', 'funding_submitted'), signer: 'owner_session' });
+    let done = false;
+    const confirming = act(async () => { await probe.current!.confirm.mutateAsync(setup()); done = true; });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    expect(probe.current!.confirmPhase).toBe('attaching');
+    expect(state.post).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+    await confirming;
+    expect(done).toBe(true);
+    expect(state.post).toHaveBeenCalledExactlyOnceWith('/me/copy/live/setups/0b0a6a3e-2f6b-4b7a-9a65-6b7c9f1e2d3c/confirm', expect.objectContaining({ consentSignature: expect.any(String) }));
+    expect(probe.current!.confirmPhase).toBeNull();
+  } finally { vi.useRealTimers(); }
+});

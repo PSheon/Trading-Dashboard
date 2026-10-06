@@ -50,12 +50,19 @@ export async function signSetup(setup: LiveCopySetup, sign: (data: Eip712TypedDa
  * setup and returns the funds after a stop. Declined or failed: nothing is
  * attached and the setup is signed in this browser instead (no error).
  */
-export async function attachWorker(setup: LiveCopySetup, wallet: Pick<WalletSigner, 'addSigners'>): Promise<boolean> {
+export async function attachWorker(setup: LiveCopySetup, wallet: Pick<WalletSigner, 'addSigners'>, timeoutMs = ATTACH_WORKER_TIMEOUT_MS): Promise<boolean> {
   const consent = setup.consent;
   if (!consent || consent.kind !== 'start' || !consent.masterPolicyId || !consent.workerQuorumId) return false;
-  try { await wallet.addSigners(consent.accountAddress, [{ signerId: consent.workerQuorumId, policyIds: [consent.masterPolicyId] }]); return true; }
-  catch { return false; }
+  // Privy may never answer: after `timeoutMs` the setup goes on signed in
+  // this browser (confirm checks with Privy what is really attached).
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<false>(resolve => { timer = setTimeout(() => resolve(false), timeoutMs); });
+  const added = wallet.addSigners(consent.accountAddress, [{ signerId: consent.workerQuorumId, policyIds: [consent.masterPolicyId] }]).then(() => true, () => false);
+  try { return await Promise.race([added, late]); }
+  finally { clearTimeout(timer); }
 }
+/** How long confirm waits for Privy to add the worker signer. */
+export const ATTACH_WORKER_TIMEOUT_MS = 20_000;
 
 /**
  * The idempotency key of each attempt (`start:<leader>`, `edit:<id>`,
@@ -120,12 +127,15 @@ export function useLiveCopySetupActions() {
   const renew = useMutation({
     mutationFn: async ({ strategyId }: { strategyId: number }) => prepare(`renew:${strategyId}`, key => api.post(`${ROOT}/strategies/${strategyId}/renew`, { idempotencyKey: key })),
   });
+  /** What confirm is waiting for, for the sheet to say (adding the worker signer can take a while). */
+  const [confirmPhase, setConfirmPhase] = useState<'attaching' | null>(null);
   const confirm = useMutation({
     mutationFn: async (setup: LiveCopySetup) => {
       const { wallet, assertSame } = owner();
       const body = await signSetup(setup, (data, options) => wallet.signTypedData(data, options));
       assertSame();
-      await attachWorker(setup, wallet);
+      setConfirmPhase('attaching');
+      try { await attachWorker(setup, wallet); } finally { setConfirmPhase(null); }
       assertSame();
       const result = liveCopySetupSchema.parse(await api.post(`${ROOT}/setups/${encodeURIComponent(setup.id)}/confirm`, body));
       for (const name of namesOf(setup)) forget(name);
@@ -178,7 +188,7 @@ export function useLiveCopySetupActions() {
       forget(name); refresh(); return result;
     },
   });
-  return { start, edit, renew, confirm, cancel, restart, resume, pause, topUp };
+  return { start, edit, renew, confirm, confirmPhase, cancel, restart, resume, pause, topUp };
 }
 
 /** After a wallet error, how long the dialog waits before signing again. */

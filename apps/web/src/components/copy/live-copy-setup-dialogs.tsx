@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { cn } from "cn";
 import type { LiveCopySetup, LiveCopySetupStage } from "@trading-dashboard/shared/contracts";
 
+import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
 import { useI18n } from "@/i18n/provider";
 import { liveSetupMessages, type LiveSetupText } from "@/i18n/live-setup";
@@ -29,8 +30,10 @@ export function liveSetupError(text: LiveSetupText, code: string | null | undefi
  * in plain words, and one button. The signatures behind it are silent
  * (decision 1), so this sheet is what the owner reads and approves.
  */
-export function LiveCopyConfirm({ setup, traderName, open, onOpenChange, onConfirm, pending, error }: {
+export function LiveCopyConfirm({ setup, traderName, open, onOpenChange, onConfirm, pending, error, note = null }: {
   setup: LiveCopySetup | null; traderName?: string; open: boolean; onOpenChange: (open: boolean) => void; onConfirm: () => void; pending: boolean; error: string | null;
+  /** What confirm is waiting for, said calmly while the button spins. */
+  note?: string | null;
 }) {
   const text = useLiveSetupText(), { format } = useI18n();
   const consent = setup?.consent ?? null, settings = setup?.settings;
@@ -62,11 +65,9 @@ export function LiveCopyConfirm({ setup, traderName, open, onOpenChange, onConfi
         ) : <p className="text-sm text-muted-foreground">{text.preparing}</p>}
         <p className="text-xs leading-5 text-muted-foreground">{text.testnetNote} {text.deadline}. {text.signNote}</p>
         {error ? <p role="alert" className="flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning"><TriangleAlert className="mt-px size-3.5 shrink-0" />{error}</p> : null}
+        {pending && note ? <p role="status" className="text-xs leading-5 text-muted-foreground">{note}</p> : null}
         <div className="flex flex-col gap-2.5">
-          <button type="button" onClick={onConfirm} disabled={pending || !consent}
-            className="orbit-press flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-primary px-8 font-display text-lg text-primary-foreground outline-none hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50">
-            {pending ? <LoaderCircle className="size-5 animate-spin" aria-hidden /> : null}{text.confirm}
-          </button>
+          <Button type="button" size="cta" className="w-full" onClick={onConfirm} loading={pending} disabled={!pending && !consent}>{text.confirm}</Button>
           <button type="button" onClick={() => onOpenChange(false)} disabled={pending}
             className="min-h-11 rounded-full text-sm font-bold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">{text.cancel}</button>
         </div>
@@ -153,9 +154,8 @@ export function LiveCopyProgress({ setupId, open, onOpenChange, onRetry, onConse
         {!finished && !stopped && !consentLapsed ? <p className="text-xs leading-5 text-muted-foreground">{setup?.signer === "worker_policy" ? text.closeSafeWorker : text.closeSafeOwner}</p> : null}
         <div className="flex flex-col gap-2.5">
           {finished ? <Link href="/portfolio" onClick={() => onOpenChange(false)} className="orbit-press flex min-h-12 w-full items-center justify-center rounded-full bg-primary px-6 font-display text-base text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">{text.portfolio}</Link> : null}
-          {(ended || consentLapsed) && onRetry ? <button type="button" disabled={actions.cancel.isPending} onClick={() => onRetry(setup!)} className="orbit-press min-h-12 rounded-full bg-primary px-6 font-display text-base text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">{text.restart}</button> : null}
-          {ended || consentLapsed ? <button type="button" disabled={actions.cancel.isPending} onClick={cancel} className="min-h-11 rounded-full bg-inset text-sm font-bold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">
-            {actions.cancel.isPending ? <LoaderCircle className="mx-auto size-4 animate-spin" aria-hidden /> : text.cancelSetup}</button> : null}
+          {(ended || consentLapsed) && onRetry ? <Button type="button" size="cta" className="w-full" disabled={actions.cancel.isPending} onClick={() => onRetry(setup!)}>{text.restart}</Button> : null}
+          {ended || consentLapsed ? <Button type="button" variant="secondary" className="w-full" loading={actions.cancel.isPending} onClick={cancel}>{text.cancelSetup}</Button> : null}
           <button type="button" onClick={() => onOpenChange(false)} className="min-h-11 rounded-full text-sm font-bold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">{text.close}</button>
         </div>
       </div>

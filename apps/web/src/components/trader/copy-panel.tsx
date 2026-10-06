@@ -8,6 +8,7 @@ import { cn } from "cn";
 import { LiveCopyConfirm, LiveCopyProgress, liveSetupError, useLiveSetupText } from "@/components/copy/live-copy-setup-dialogs";
 import { LiveSettingsFields } from "@/components/copy/live-copy-settings-fields";
 import { PaperBadge } from "@/components/copy/paper-badge";
+import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
 import { HedgeNotice } from "@/components/copy/portfolio-parts";
 import { useToast } from "@/components/ui/toast";
@@ -55,7 +56,7 @@ function useCopyMode(identity: string | null): [CopyMode, (mode: CopyMode) => vo
  * with it. Another session (signing out, switching accounts in the tab)
  * never sees them: they are dropped when it changes.
  */
-interface PanelSetup { setup: LiveCopySetup | null; confirmOpen: boolean; progressId: string | null }
+interface PanelSetup { setup: LiveCopySetup | null; confirmOpen: boolean; progressId: string | null; starting?: boolean }
 const EMPTY_SETUP: PanelSetup = { setup: null, confirmOpen: false, progressId: null };
 const panelSetups = new Map<string, PanelSetup>();
 let panelSetupScope: string | null = null;
@@ -118,7 +119,11 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
   const live = useLiveCopySetupActions();
   const liveCopies = useLiveCopyPortfolio();
   const liveExisting = liveCopies.data?.items.find((item) => item.leaderAddress === address.toLowerCase() && item.status !== "stopped") ?? null;
-  const [{ setup, confirmOpen, progressId }, updateSetup] = usePanelSetup(identity, address.toLowerCase());
+  const [{ setup, confirmOpen, progressId, starting = false }, updateSetup] = usePanelSetup(identity, address.toLowerCase());
+  // A start prepares the copy wallet, its agent and the deposit (10-20 s on
+  // Privy): pending for the whole request, also across a remount (the
+  // panel store), and the confirm sheet opens whenever it answers.
+  const preparing = starting || live.start.isPending;
   const setSetup = (next: LiveCopySetup | null) => updateSetup({ setup: next });
   const setConfirmOpen = (open: boolean) => updateSetup({ confirmOpen: open });
   const setProgressId = (id: string | null) => updateSetup({ progressId: id });
@@ -256,14 +261,15 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
     const exposure = maxExposure ? Number.parseFloat(maxExposure) : null, leverage = maxLeverage ? Number.parseFloat(maxLeverage) : null;
     const settings: CopyStrategySettings = { direction, sizingMode: sizing, perTradeUsd: fixed, maxTotalExposureUsd: exposure && exposure > 0 ? exposure : null,
       maxLeverage: leverage && leverage >= 1 ? Math.min(50, leverage) : null, copyStartMode: "delta" };
+    updateSetup({ starting: true });
     try {
       const prepared = await live.start.mutateAsync({ leader: address.toLowerCase(), budgetUsd: String(Math.floor(value * 1e6) / 1e6), settings });
-      setSetup(prepared);
-      if (prepared.stage === "awaiting_consent" && prepared.consent) { setConfirmError(null); setConfirmOpen(true); return; }
+      if (prepared.stage === "awaiting_consent" && prepared.consent) { setConfirmError(null); updateSetup({ setup: prepared, confirmOpen: true, starting: false }); return; }
+      updateSetup({ setup: prepared, starting: false });
       if (prepared.stage === "provisioning") return toast.info(liveText.preparing);
       // Already confirmed earlier (a retried start): show where it stands.
       setProgressId(prepared.id);
-    } catch (err) { liveError(err); }
+    } catch (err) { updateSetup({ starting: false }); liveError(err); }
   }
   async function confirmTestnet() {
     if (!setup) return;
@@ -310,7 +316,8 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
   const liveDialogs = (
     <>
       <LiveCopyConfirm setup={setup} traderName={traderName} open={confirmOpen} onOpenChange={(open) => { if (!live.confirm.isPending) setConfirmOpen(open); }}
-        onConfirm={() => void confirmTestnet()} pending={live.confirm.isPending || live.start.isPending || live.restart.isPending} error={confirmError} />
+        onConfirm={() => void confirmTestnet()} pending={live.confirm.isPending || live.start.isPending || live.restart.isPending} error={confirmError}
+        note={live.confirmPhase === "attaching" ? liveText.attachingSigner : null} />
       <LiveCopyProgress setupId={progressId} open={progressId !== null} onOpenChange={(open) => { if (!open) setProgressId(null); }}
         onConsent={reviewSetup} onRetry={(ended) => void restartTestnet(ended)} />
     </>
@@ -372,12 +379,10 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
         <p role={lapsed ? undefined : "alert"} className="flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning">
           <TriangleAlert className="mt-px size-3.5 shrink-0" />{lapsed ? liveText.consentLapsedHint : liveSetupError(liveText, endedSetup.issue)}
         </p>
-        <button type="button" disabled={busy} onClick={() => void restartTestnet(endedSetup.id)}
-          className="orbit-press flex h-14 w-full items-center justify-center gap-2 rounded-full bg-primary px-8 font-display text-lg text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">
+        <Button type="button" size="cta" className="w-full" loading={live.restart.isPending} disabled={busy && !live.restart.isPending} onClick={() => void restartTestnet(endedSetup.id)}>
           {liveText.restart}
-        </button>
-        <button type="button" disabled={busy} onClick={() => void cancelTestnet(endedSetup.id)}
-          className="min-h-11 rounded-full bg-inset text-sm font-bold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">{liveText.cancelSetup}</button>
+        </Button>
+        <Button type="button" variant="secondary" className="w-full" loading={live.cancel.isPending} disabled={busy && !live.cancel.isPending} onClick={() => void cancelTestnet(endedSetup.id)}>{liveText.cancelSetup}</Button>
         {liveDialogs}
       </Shell>
     );
@@ -404,10 +409,9 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
           </div>
         </dl>
         {consentSetup ? (
-          <button type="button" disabled={live.start.isPending} onClick={() => setProgressId(consentSetup.id)}
-            className="orbit-press flex h-14 w-full items-center justify-center gap-2 rounded-full bg-primary px-8 font-display text-lg text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <Button type="button" size="cta" className="w-full" loading={live.start.isPending} onClick={() => setProgressId(consentSetup.id)}>
             {liveText.continueSetup}
-          </button>
+          </Button>
         ) : null}
         <Link
           href="/portfolio"
@@ -467,7 +471,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
   return (
     <Shell sheet={sheet}>
      {/* A real form: Enter in the amount field starts the copy. */}
-     <form className="contents" noValidate onSubmit={(event) => { event.preventDefault(); if (!(start.isPending || live.start.isPending || started || closed || empty)) void submit(); }}>
+     <form className="contents" noValidate onSubmit={(event) => { event.preventDefault(); if (!(start.isPending || preparing || started || closed || empty)) void submit(); }}>
       {modePill}
       {hedgeNotice}
       {directionPill}
@@ -660,21 +664,25 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
       ) : null}
 
       <div className={cn("flex flex-col gap-2.5", !sheet && "pt-7")}>
-        <button
+        {/* A start's request is pending for its whole length (a testnet start
+            prepares a wallet and an agent: 10-20 s): the orbit mark, no
+            second press. */}
+        <Button
           type="submit"
-          disabled={start.isPending || live.start.isPending || started || closed || empty}
-          className="orbit-press flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-primary px-8 font-display text-lg text-primary-foreground outline-none hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:cursor-not-allowed disabled:opacity-50"
+          size="cta"
+          loading={start.isPending || preparing}
+          disabled={!(start.isPending || preparing) && (started || closed || empty)}
+          className="min-h-14 w-full focus-visible:ring-offset-card disabled:cursor-not-allowed"
         >
           {started ? (
             <>
               <Check className="size-5" strokeWidth={2.5} />
               {t("trader.copy.started")}
             </>
-          ) : (
-            label
-          )}
-        </button>
-        {testnet ? <p className="text-center text-xs leading-5 text-muted-foreground">{liveText.testnetNote}</p> : null}
+          ) : testnet && preparing ? liveText.preparing : label}
+        </Button>
+        {testnet && preparing ? <p role="status" className="text-center text-xs leading-5 text-muted-foreground">{liveText.preparingHint}</p>
+          : testnet ? <p className="text-center text-xs leading-5 text-muted-foreground">{liveText.testnetNote}</p> : null}
       </div>
      </form>
      {liveDialogs}

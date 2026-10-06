@@ -15,7 +15,7 @@ import { liveCopiesMessages } from "../src/i18n/live-copies";
  * 取消設定; a running copy shows its localized stage under 狀態; a setup
  * the panel follows is never shown to another signed-in person.
  */
-const state = vi.hoisted(() => ({ identity: "owner@email", item: null as unknown, restart: vi.fn(), cancel: vi.fn() }));
+const state = vi.hoisted(() => ({ identity: "owner@email", item: null as unknown, restart: vi.fn(), cancel: vi.fn(), start: vi.fn(), startPending: false }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh() {}, push() {} }), usePathname: () => "/zh-TW/trader", useSearchParams: () => new URLSearchParams() }));
 vi.mock("../src/lib/auth", () => ({ useAuth: () => ({ status: "signedIn", identity: state.identity, login() {} }) }));
 vi.mock("../src/lib/api", async () => ({ ...(await vi.importActual<typeof import("../src/lib/api")>("../src/lib/api")), sessionKey: () => "1" }));
@@ -27,7 +27,7 @@ vi.mock("../src/lib/copy-live-setup", async () => ({
   ...(await vi.importActual<typeof import("../src/lib/copy-live-setup")>("../src/lib/copy-live-setup")),
   useLiveCopyAvailable: () => true,
   useLiveCopySetup: () => ({ data: undefined, isError: false, walletError: null }),
-  useLiveCopySetupActions: () => ({ start: { isPending: false }, confirm: { isPending: false }, restart: { isPending: false, mutateAsync: state.restart }, cancel: { isPending: false, mutateAsync: state.cancel, mutate() {} } }),
+  useLiveCopySetupActions: () => ({ start: { isPending: state.startPending, mutateAsync: state.start }, confirm: { isPending: false }, restart: { isPending: false, mutateAsync: state.restart }, cancel: { isPending: false, mutateAsync: state.cancel, mutate() {} } }),
 }));
 vi.mock("../src/lib/copy-live-portfolio", () => ({ useLiveCopyPortfolio: () => ({ data: { items: state.item ? [state.item] : [] } }) }));
 vi.mock("../src/lib/wallet", () => ({ useWallet: () => ({ data: { network: "testnet", hyperliquid: { withdrawable: 500 } } }), signErrorMessage: () => ({ rejected: false, message: "" }) }));
@@ -88,4 +88,31 @@ it("a setup the panel follows belongs to the signed-in person: another person in
   expect(seen.current![0]).toMatchObject({ confirmOpen: true, progressId: "setup-of-a" });
   await act(async () => root.render(<Probe identity="b@email" />));
   expect(seen.current![0]).toEqual({ setup: null, confirmOpen: false, progressId: null });
+});
+
+it("a slow start shows it is preparing for the whole request, and the confirm sheet opens when it answers, even after a remount", async () => {
+  state.item = null;
+  let answer!: (setup: unknown) => void;
+  state.start.mockImplementation(() => new Promise((resolve) => { answer = resolve; }));
+  await render();
+  const amount = container.querySelector("input#copy-amount") as HTMLInputElement;
+  await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(amount, "150"); amount.dispatchEvent(new Event("input", { bubbles: true })); });
+  const cta = () => container.querySelector('button[type="submit"]') as HTMLButtonElement;
+  await act(async () => cta().click());
+  expect(state.start).toHaveBeenCalledTimes(1);
+  // Busy: Orbie's orbit mark, and a second press sends nothing.
+  expect(cta().getAttribute("aria-busy")).toBe("true");
+  expect(cta().textContent).toContain(zh.preparing);
+  await act(async () => cta().click());
+  expect(state.start).toHaveBeenCalledTimes(1);
+  expect(container.textContent).toContain(zh.preparingHint);
+  // The panel is drawn again while Privy prepares the wallet (11.7 s on Stage): still preparing.
+  await act(async () => root.unmount()); root = createRoot(container);
+  await render();
+  expect(cta().textContent).toContain(zh.preparing);
+  const consent = { kind: "start", masterPolicyId: "policy", consentExpiresAt: Date.now() + 300_000, nonce: Date.now(), leaderAddress: leader, budgetUsd: "150", agentValidUntil: Date.now() + 30 * 86_400_000,
+    builderAddress: null, builderMaxFeeTenthsOfBps: 0 };
+  await act(async () => { answer({ ...setupOf("awaiting_consent", { consent }), strategyId: 7, leaderAddress: leader, budgetUsd: "150", settings: { direction: "same", sizingMode: "ratio", perTradeUsd: null, maxTotalExposureUsd: null, maxLeverage: null, copyStartMode: "delta" } }); });
+  expect(document.body.textContent).toContain(zh.confirmTitle);
+  expect(cta().textContent).not.toContain(zh.preparing);
 });

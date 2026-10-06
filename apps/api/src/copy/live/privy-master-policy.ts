@@ -75,6 +75,18 @@ export function canonical(value: unknown): string {
   return JSON.stringify(value) ?? 'undefined';
 }
 export const MASTER_POLICY_NAME = 'Orbie copy account automatic return';
+/** Lower-cases the values of conditions whose typed-data field is declared
+ * `address` (Privy checksums those); leaves every other value as it is. */
+function addressCase(rules: readonly unknown[]): unknown[] {
+  return rules.map(rule => {
+    const r = rule as { conditions?: { field?: unknown; value?: unknown; typed_data?: { primary_type?: string; types?: Record<string, { name: string; type: string }[]> } }[] };
+    if (!Array.isArray(r.conditions)) return rule;
+    return { ...r, conditions: r.conditions.map(c => {
+      const declared = c.typed_data?.types?.[c.typed_data.primary_type ?? '']?.find(f => f.name === c.field)?.type;
+      return declared === 'address' && typeof c.value === 'string' && /^0x[0-9a-fA-F]{40}$/.test(c.value) ? { ...c, value: c.value.toLowerCase() } : c;
+    }) };
+  });
+}
 
 export class MasterPolicyConflict extends Error { constructor() { super('master_policy_conflict'); } }
 export class MasterPolicyUnavailable extends Error { constructor() { super('master_policy_unavailable'); } }
@@ -117,13 +129,17 @@ export class PrivyMasterPolicy implements MasterPolicyPort {
     return { id: z.string().min(1).parse(policy.id) };
   }
 
-  /** The exact rules, owned by exactly this user. */
+  /** The exact rules, owned by exactly this user. Privy stores every
+   * `address`-typed condition value in checksum case (Stage 2026-10-06), so
+   * those compare without case; every other value (the UsdSend destination is
+   * a string) must match exactly as written. */
   async verify(policyId: string, userId: string, binding: MasterPolicyBinding): Promise<VerifiedMasterPolicy> {
     const client = this.require();
     const parsed = policySchema.safeParse(await this.call(() => client.policies().get(policyId)));
     if (!parsed.success) throw new MasterPolicyConflict();
     const policy = parsed.data, rules = policy.rules.map(({ id: _id, ...rule }) => rule);
-    if (policy.id !== policyId || policy.name !== MASTER_POLICY_NAME || policy.chain_type !== 'ethereum' || canonical(rules) !== canonical(masterPolicyRules(binding))) throw new MasterPolicyConflict();
+    if (policy.id !== policyId || policy.name !== MASTER_POLICY_NAME || policy.chain_type !== 'ethereum' ||
+      canonical(addressCase(rules)) !== canonical(addressCase(masterPolicyRules(binding)))) throw new MasterPolicyConflict();
     const quorum = quorumSchema.safeParse(await this.call(() => client.keyQuorums().get(policy.owner_id)));
     if (!quorum.success || quorum.data.id !== policy.owner_id || quorum.data.authorization_threshold !== 1 || quorum.data.authorization_keys.length !== 0 ||
       quorum.data.user_ids?.length !== 1 || quorum.data.user_ids[0] !== userId || quorum.data.key_quorum_ids?.length) throw new MasterPolicyConflict();

@@ -108,7 +108,11 @@ export class CopyWalletService {
       const policy = await this.masterPolicy!.create(user.privyUserId, binding, attemptKey);
       const verified = await this.masterPolicy!.verify(policy.id, user.privyUserId, binding);
       return { id: verified.id, fingerprint: verified.fingerprint };
-    } catch { return null; }
+    } catch (error) {
+      // The setup then runs with the owner's session: say why, never silently.
+      this.logger.warn(`setup policy unavailable for account ${accountId}: ${error instanceof Error ? error.message.slice(0, 160) : "unknown"}`);
+      return null;
+    }
   }
 
   /**

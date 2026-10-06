@@ -48,6 +48,23 @@ describe("the copy account's master policy (one-click plan §2)", () => {
     expect(wallets.update).not.toHaveBeenCalled();
   });
 
+  it("accepts the policy as Privy stores it: address-typed values come back checksummed (Stage 2026-10-06), strings exactly", async () => {
+    const policies = { create: vi.fn(), get: vi.fn() };
+    const keyQuorums = { get: vi.fn(async () => ({ id: "owner-q", authorization_threshold: 1, authorization_keys: [], user_ids: ["did:privy:u"], key_quorum_ids: [] })) };
+    const privy = new PrivyMasterPolicy({}, { policies: () => policies, wallets: () => ({}), keyQuorums: () => keyQuorums } as never);
+    const agent = { address: `0x${"ab".repeat(20)}`, name: "copy7 valid_until 1" }, bound = { ...binding, agent };
+    const checksum = (value: string) => `0x${value.slice(2).split("").map((c, i) => i % 2 ? c.toUpperCase() : c).join("")}`;
+    // Privy rewrites every \`address\`-typed condition value (user, agentAddress) in checksum case.
+    const stored = (destination?: string) => ({ id: "policy-1", owner_id: "owner-q", name: MASTER_POLICY_NAME, version: "1.0", chain_type: "ethereum",
+      rules: masterPolicyRules(bound).map((r, i) => ({ id: `r${i}`, ...r, conditions: (r.conditions as { field: string; value: unknown }[]).map(c =>
+        ["user", "agentAddress"].includes(c.field) ? { ...c, value: checksum(String(c.value)) } : c.field === "destination" && destination ? { ...c, value: destination } : c) })) });
+    policies.get.mockResolvedValue(stored());
+    await expect(privy.verify("policy-1", "did:privy:u", bound)).resolves.toMatchObject({ id: "policy-1" });
+    // A string-typed value (the UsdSend destination) must still match exactly: Privy compares it as written.
+    policies.get.mockResolvedValue(stored(checksum(ownerMain)));
+    await expect(privy.verify("policy-1", "did:privy:u", bound)).rejects.toThrow("master_policy_conflict");
+  });
+
   it("account deletion checks with the app secret that no signer is left (the owner's browser removed it)", async () => {
     const wallets = { update: vi.fn(async () => ({})), get: vi.fn(async () => ({ id: "wallet-1", address: account, owner_id: "owner-q", policy_ids: [], additional_signers: [] })) };
     const privy = new PrivyMasterPolicy({}, { wallets: () => wallets } as never);

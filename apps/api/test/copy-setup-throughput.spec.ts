@@ -146,6 +146,8 @@ function database(intent: LiveCopySetupIntent, setupId: string) {
     open: async (at: Date) => io([rows.setup].filter(r => ['funded', 'mode_set', 'agent_active', 'builder_ready'].includes(r.stage) && (!r.nextAttemptAt || r.nextAttemptAt <= at))),
     lease: async (_id: string, ms: number) => { await sleep(4); if (rows.setup.leaseUntil && rows.setup.leaseUntil.getTime() > Date.now()) return null; rows.setup = { ...rows.setup, leaseUntil: new Date(Date.now() + ms) }; return structuredClone(rows.setup); },
     release: async () => { await sleep(4); rows.setup = { ...rows.setup, leaseUntil: null }; },
+    // The worker's look at approvals left by ended setups: none here.
+    abandonedApprovals: async () => io([]),
     transition: async (row: SetupRow, changes: Partial<SetupRow>) => {
       await sleep(4); if (row.revision !== rows.setup.revision) return null;
       if (changes.stage && changes.stage !== rows.setup.stage) rows.stages.push({ stage: changes.stage, at: Date.now() - T0 });

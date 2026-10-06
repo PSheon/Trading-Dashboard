@@ -3,11 +3,12 @@ import { eq } from 'drizzle-orm';
 import request from 'supertest';
 import { privateKeyToAccount } from 'viem/accounts';
 import { beforeAll, beforeEach, afterAll, describe, expect, it, vi } from 'vitest';
-import { adminSettingsSchema, DEFAULT_COPY_RISK_LIMITS, liveCopyMandateOwnerTypedData, liveCopyMandateChallengeSchema, liveCopyMandateSchema, liveCopyOverviewSchema, liveCopyStrategySchema } from '@trading-dashboard/shared/contracts';
-import { appSettings, copyControls, copyAgentSetups, copyExecutionAccounts, copyExecutionWallets, copyLiveMandates, copyLiveStrategyConfigs, copyRiskPolicies, copyStrategies, copyStrategyVersions, copyWalletAuthorizations, paperAccounts, users } from '@trading-dashboard/shared/database';
+import { adminSettingsSchema, DEFAULT_COPY_RISK_LIMITS, httpRouteContracts, liveCopyMandateSchema, liveCopyOverviewSchema } from '@trading-dashboard/shared/contracts';
+import { appSettings, copyControls, copyAgentSetups, copyExecutionAccounts, copyExecutionWallets, copyLiveMandates, copyLiveSetups, copyLiveStrategyConfigs, copyRiskPolicies, copyStrategies, copyStrategyVersions, copyWalletAuthorizations, paperAccounts, users } from '@trading-dashboard/shared/database';
 import { CopyLiveMandateController } from '../src/copy/copy-live-mandate.controller.js';
 import { CopyLiveMandateService } from '../src/copy/copy-live-mandate.service.js';
 import { CopyLiveMandateRepository } from '../src/copy/copy-live-mandate.repository.js';
+import { UnitOfWork } from '../src/db/unit-of-work.js';
 import type { AuthService } from '../src/common/auth/auth.service.js';
 import { createAuthedApp, stubPrivy } from './auth-test-utils.js';
 import { closeTestDb, getTestDb, insertUser, truncateAll, openCopyTrading } from './db-test-utils.js';
@@ -17,11 +18,17 @@ const settings = { direction: 'same' as const, sizingMode: 'fixed' as const, per
 const serviceToken = 'mandate-route-service-token-0123456789';
 const privy = stubPrivy({ alice: { privyUserId: 'did:privy:mandate-route-owner' }, bob: { privyUserId: 'did:privy:mandate-route-other' }, expired: { privyUserId: 'did:privy:mandate-route-owner', expiresAt: new Date(0) }, successor: { privyUserId: 'did:privy:mandate-route-successor' } });
 let app: INestApplication, auth: AuthService, uid: number, sid: number, clock: number;
-const root = '/me/copy/live', preparation = `${root}/execution-wallets/${accountId}/mandates`;
+const root = '/me/copy/live', setupId = '00000000-0000-4000-8000-0000000000a1';
 const post = (url: string, body: object, token = 'alice') => request(app.getHttpServer()).post(url).set('Authorization', `Bearer ${token}`).send(body);
 const get = (token = 'alice') => request(app.getHttpServer()).get(root).set('Authorization', `Bearer ${token}`);
-const draft = { idempotencyKey: 'route-fresh-draft-key-0001', leader: `0x${'55'.repeat(20)}`, sourceNetwork: 'testnet', budgetUsd: '100', settings };
-async function prepare() { return liveCopyMandateChallengeSchema.parse((await post(preparation, { idempotencyKey: 'route-generation-key-0001' }).expect(200).expect('Cache-Control', 'no-store')).body.data); }
+/** The one way a generation becomes active: a one-click setup's consent
+ * (`prepareFromSetup` prepares and activates it in one transaction). */
+async function activeMandate() {
+  const repository = app.get(CopyLiveMandateRepository), uow = new UnitOfWork(db);
+  await db.insert(copyLiveSetups).values({ id: setupId, userId: uid, strategyId: sid, kind: 'start', idempotencyKey: 'route-live-setup-key-0001', leaderAddress: leader, sourceNetwork: 'testnet', budgetUsd: '100', settings });
+  const prepared = await uow.run(tx => repository.prepare(tx, uid, accountId, 'route-generation-key-0001', Date.now));
+  return liveCopyMandateSchema.parse(repository.wire(await uow.run(tx => repository.activate(tx, prepared, { liveSetupId: setupId, consentDigest: 'c'.repeat(64) }, Date.now()))));
+}
 beforeAll(async () => {
   vi.stubEnv('AUTH_SERVICE_TOKEN', serviceToken); vi.stubEnv('AUTH_SERVICE_PERMISSIONS', 'copy.read,execution.pause');
   ({ app, auth } = await createAuthedApp({ db, privy, controllers: [CopyLiveMandateController], providers: [CopyLiveMandateService, CopyLiveMandateRepository] }));
@@ -53,145 +60,68 @@ beforeEach(async () => {
   await insertUser(db, { privyUserId: 'did:privy:mandate-route-other', embeddedWalletAddress: foreign.address.toLowerCase() });
 });
 afterAll(async () => { await app?.close(); await closeTestDb(); vi.unstubAllEnvs(); });
+
 describe('authenticated local live mandate HTTP routes', () => {
   it('rejects anonymous/invalid/expired/service callers on every route without creating authority', async () => {
     for (const token of [null, 'bad', 'expired', serviceToken]) {
       const expected = token === serviceToken ? 403 : 401;
       const read = request(app.getHttpServer()).get(root); if (token) read.set('Authorization', `Bearer ${token}`); await read.expect(expected);
-      for (const [path, body] of [[`${root}/strategies`, draft], [preparation, { idempotencyKey: 'route-generation-key-0001' }], ...['pause', 'revoke'].map(action => [`${root}/mandates/unknown/${action}`, {}]), [`${root}/mandates/unknown/approve`, { consentSignature: `0x${'00'.repeat(65)}` }]] as [string, object][]) {
-        const write = request(app.getHttpServer()).post(path).send(body); if (token) write.set('Authorization', `Bearer ${token}`); await write.expect(expected);
+      for (const action of ['pause', 'resume', 'revoke']) {
+        const write = request(app.getHttpServer()).post(`${root}/mandates/unknown/${action}`).send({}); if (token) write.set('Authorization', `Bearer ${token}`); await write.expect(expected);
       }
     }
     expect(await db.select().from(copyLiveMandates)).toEqual([]); expect(await db.select().from(copyStrategies)).toHaveLength(1);
   });
-  it('returns no-store exact wire and local active acknowledgment, keeping paper cash and automatic execution absent', async () => {
-    const created = liveCopyStrategySchema.parse((await post(`${root}/strategies`, draft).expect(200).expect('Cache-Control', 'no-store')).body.data);
-    expect(created).toMatchObject({ mode: 'actual', network: 'testnet', status: 'paused', pauseNewRisk: true });
-    const challenge = await prepare();
-    const signature = await owner.signTypedData(liveCopyMandateOwnerTypedData(challenge.intent));
-    const approved = liveCopyMandateSchema.parse((await post(`${root}/mandates/${challenge.mandate.id}/approve`, { consentSignature: signature }).expect(200).expect('Cache-Control', 'no-store')).body.data);
-    expect(approved.state).toBe('active');
+  it('returns no-store exact wire for the overview and local barriers, keeping paper cash and automatic execution absent', async () => {
+    const active = await activeMandate();
+    expect(active.state).toBe('active');
     const overview = liveCopyOverviewSchema.parse((await get().expect(200).expect('Cache-Control', 'no-store')).body.data);
-    expect(overview.capabilities.automaticExecution).toBe(false); expect(overview.mandates).toEqual([approved]);
+    expect(overview.capabilities.automaticExecution).toBe(false); expect(overview.mandates).toEqual([active]);
     expect(JSON.stringify(overview)).not.toMatch(/did:privy|owner-quorum|privy-agent|worker-quorum|restricted-policy|intentDigest|consentDigest/);
     expect(await db.select().from(paperAccounts)).toEqual([]);
-    for (const action of ['pause', 'revoke']) expect(liveCopyMandateSchema.parse((await post(`${root}/mandates/${approved.id}/${action}`, {}).expect(200).expect('Cache-Control', 'no-store')).body.data).state).toBe(action === 'pause' ? 'paused' : 'revoked');
-  });
-  it('rejects malformed nested bodies, unsupported mainnet, forged extra fields and foreign signature', async () => {
-    for (const body of [{ ...draft, budgetUsd: 100 }, { ...draft, settings: { ...settings, perTradeUsd: null } }, { ...draft, settings: { ...settings, signer: agentAddress } }, { ...draft, sourceNetwork: 'devnet' }, { ...draft, userId: uid }]) await post(`${root}/strategies`, body).expect(400);
-    await post(preparation, { idempotencyKey: 'short' }).expect(400);
-    await post(preparation, { idempotencyKey: 'route-generation-key-0001', execute: true }).expect(400);
-    const challenge = await prepare();
-    await post(`${root}/mandates/${challenge.mandate.id}/approve`, { consentSignature: '0xbad' }).expect(400);
-    await post(`${root}/mandates/${challenge.mandate.id}/approve`, { consentSignature: await foreign.signTypedData(liveCopyMandateOwnerTypedData(challenge.intent)) }).expect(403);
-    await post(`${root}/mandates/${challenge.mandate.id}/approve`, { consentSignature: await owner.signTypedData(liveCopyMandateOwnerTypedData(challenge.intent)), funds: '100' }).expect(400);
-    expect((await db.select().from(copyLiveMandates))[0].state).toBe('prepared');
+    for (const action of ['pause', 'revoke']) expect(liveCopyMandateSchema.parse((await post(`${root}/mandates/${active.id}/${action}`, {}).expect(200).expect('Cache-Control', 'no-store')).body.data).state).toBe(action === 'pause' ? 'paused' : 'revoked');
   });
   it('rejects extra action fields on local barriers rather than implying a financial close', async () => {
-    const c = await prepare(), signature = await owner.signTypedData(liveCopyMandateOwnerTypedData(c.intent));
-    await post(`${root}/mandates/${c.mandate.id}/approve`, { consentSignature: signature }).expect(200);
-    for (const action of ['pause', 'revoke']) for (const body of [{ closePositions: true }, { '': null }, { execute: undefined, account: 'foreign' }]) await post(`${root}/mandates/${c.mandate.id}/${action}`, body).expect(400);
+    const active = await activeMandate();
+    for (const action of ['pause', 'resume', 'revoke']) for (const body of [{ closePositions: true }, { '': null }, { execute: undefined, account: 'foreign' }]) await post(`${root}/mandates/${active.id}/${action}`, body).expect(400);
     expect((await db.select().from(copyLiveMandates))[0].state).toBe('active');
   });
   it('enforces cross-owner404 and rejects cached disabled owners on every route', async () => {
-    const challenge = await prepare();
-    await post(preparation, { idempotencyKey: 'foreign-generation-key-0001' }, 'bob').expect(404);
-    for (const action of ['approve', 'pause', 'revoke']) await post(`${root}/mandates/${challenge.mandate.id}/${action}`, action === 'approve' ? { consentSignature: `0x${'00'.repeat(65)}` } : {}, 'bob').expect(404);
+    const active = await activeMandate();
+    for (const action of ['pause', 'resume', 'revoke']) await post(`${root}/mandates/${active.id}/${action}`, {}, 'bob').expect(404);
     expect(liveCopyOverviewSchema.parse((await get('bob').expect(200)).body.data)).toMatchObject({ strategies: [], mandates: [] });
     await get().expect(200); await db.update(users).set({ disabledAt: new Date() }).where(eq(users.id, uid));
-    await get().expect(401); await post(`${root}/strategies`, draft).expect(401); await post(preparation, { idempotencyKey: 'route-generation-key-0001' }).expect(401);
-    for (const action of ['approve', 'pause', 'revoke']) await post(`${root}/mandates/${challenge.mandate.id}/${action}`, action === 'approve' ? { consentSignature: `0x${'00'.repeat(65)}` } : {}).expect(401);
-  });
-  it('refuses expired owner consent over HTTP without an activation cursor', async () => {
-    const challenge = await prepare(); const signature = await owner.signTypedData(liveCopyMandateOwnerTypedData(challenge.intent));
-    const expired = Date.now() - 1, nonce = expired - 300000;
-    // Simulate a past, internally consistent immutable generation without waiting five real minutes.
-    const { createHash } = await import('node:crypto');
-    const intent = { ...challenge.intent, nonce, consentExpiresAt: expired };
-    const parsed = (await import('@trading-dashboard/shared/contracts')).liveCopyMandateIntentSchema.parse(intent);
-    await db.update(copyLiveMandates).set({ nonce, consentExpiresAt: new Date(expired), intent: parsed, intentDigest: createHash('sha256').update(JSON.stringify(parsed)).digest('hex') }).where(eq(copyLiveMandates.id, challenge.mandate.id));
-    await post(`${root}/mandates/${challenge.mandate.id}/approve`, { consentSignature: signature }).expect(409);
-    expect((await db.select().from(copyLiveMandates))[0]).toMatchObject({ state: 'prepared', activationCursor: null });
+    await get().expect(401);
+    for (const action of ['pause', 'resume', 'revoke']) await post(`${root}/mandates/${active.id}/${action}`, {}).expect(401);
+    expect((await db.select().from(copyLiveMandates))[0].state).toBe('active');
   });
 });
 
-
-describe('coded refusals and settings tolerance (one-click plan §3e, §3h)', () => {
-  const code = async (body: object, status: number) => (await post(`${root}/strategies`, body).expect(status)).body.error;
-  it('names each refusal of a new copy so the UI can say why', async () => {
-    expect(await code({ ...draft, budgetUsd: '99' }, 409)).toMatchObject({ code: 'below_min_allocation' });
-    expect(await code({ ...draft, budgetUsd: '100001' }, 409)).toMatchObject({ code: 'above_max_allocation' });
-    expect(await code({ ...draft, leader, idempotencyKey: 'route-same-leader-0001' }, 409)).toMatchObject({ code: 'already_copying' });
-    expect(await code({ ...draft, settings: { ...settings, maxLeverage: 20 } }, 409)).toMatchObject({ code: 'leverage_above_limit' });
-    await db.update(copyControls).set({ pauseNewRisk: true }).where(eq(copyControls.scope, 'platform'));
-    expect(await code(draft, 409)).toMatchObject({ code: 'copy_paused' });
-    await db.update(copyControls).set({ pauseNewRisk: false });
-    await db.update(copyRiskPolicies).set({ limits: { ...DEFAULT_COPY_RISK_LIMITS, maxStrategiesPerUser: 1 } });
-    expect(await code(draft, 409)).toMatchObject({ code: 'strategy_limit' });
-    await db.update(appSettings).set({ value: { copyTradingEnabled: false } }).where(eq(appSettings.key, 'general'));
-    expect(await code(draft, 503)).toMatchObject({ code: 'copy_not_open' });
-  });
-  it('reads a revenue section missing a key with its default (no builder, fee 0), as the orders\' check does', async () => {
-    await db.update(appSettings).set({ value: { builderFeeTenthsBps: 0 } }).where(eq(appSettings.key, 'revenue'));
-    const challenge = await prepare();
-    expect(challenge.intent).toMatchObject({ builderAddress: null, builderMaxFeeTenthsOfBps: 0 });
-  });
-  it('names an expired or foreign consent', async () => {
-    const challenge = await prepare();
-    expect((await post(`${root}/mandates/${challenge.mandate.id}/approve`, { consentSignature: await foreign.signTypedData(liveCopyMandateOwnerTypedData(challenge.intent)) }).expect(403)).body.error).toMatchObject({ code: 'invalid_consent' });
-  });
-});
-describe('original local operation recovery HTTP', () => {
-  it('recovers exact draft/key/id challenges without changing nonce, expiry, revision or archived state', async () => {
-    const created = liveCopyStrategySchema.parse((await post(`${root}/strategies`, draft).expect(200)).body.data), c = await prepare();
-    const read = (path: string) => request(app.getHttpServer()).get(path).set('Authorization', 'Bearer alice').expect(200).expect('Cache-Control', 'no-store');
-    expect(liveCopyStrategySchema.parse((await read(`${root}/strategies/by-key/${draft.idempotencyKey}`)).body.data)).toEqual(created);
-    expect(liveCopyMandateChallengeSchema.parse((await read(`${root}/mandates/by-key/route-generation-key-0001`)).body.data)).toMatchObject({ mandate: c.mandate, intent: c.intent });
-    expect(liveCopyMandateChallengeSchema.parse((await read(`${root}/mandates/${c.mandate.id}/challenge`)).body.data)).toMatchObject({ mandate: c.mandate, intent: c.intent });
-    await db.update(copyLiveMandates).set({ state: 'revoked', revision: 2 });
-    const before = await db.select().from(copyLiveMandates);
-    const archived = liveCopyMandateChallengeSchema.parse((await read(`${root}/mandates/${c.mandate.id}/challenge`)).body.data);
-    expect(archived.intent).toEqual(c.intent); expect(archived.mandate.state).toBe('revoked');
-    expect((await read(`${root}/mandates/by-key/route-generation-key-0001`)).body.data).toMatchObject({ mandate: archived.mandate, intent: archived.intent });
-    expect(await db.select().from(copyLiveMandates)).toEqual(before);
-  });
-  it('enforces auth/cross-owner/key shape/current DID on every recovery path', async () => {
-    await post(`${root}/strategies`, draft).expect(200); const c = await prepare();
-    const paths = [`${root}/strategies/by-key/${draft.idempotencyKey}`, `${root}/mandates/by-key/route-generation-key-0001`, `${root}/mandates/${c.mandate.id}/challenge`];
-    for (const path of paths) {
-      await request(app.getHttpServer()).get(path).expect(401);
-      await request(app.getHttpServer()).get(path).set('Authorization', `Bearer ${serviceToken}`).expect(403);
-      await request(app.getHttpServer()).get(path).set('Authorization', 'Bearer bob').expect(404);
+describe('one way to start a live copy: setup, consent, worker', () => {
+  // The legacy local-mandate path (create a strategy, prepare a generation,
+  // sign it in the browser, approve it) is gone: /me/copy/live/setups starts
+  // every live copy. Nothing is routed, documented or created for it.
+  const removed: [method: 'get' | 'post', path: string, contract: string, body?: object][] = [
+    ['post', `${root}/strategies`, '/me/copy/live/strategies', { idempotencyKey: 'route-fresh-draft-key-0001', leader: `0x${'55'.repeat(20)}`, sourceNetwork: 'testnet', budgetUsd: '100', settings }],
+    ['get', `${root}/strategies/by-key/fixture-draft-key-0001`, '/me/copy/live/strategies/by-key/:key'],
+    ['get', `${root}/mandates/by-key/route-generation-key-0001`, '/me/copy/live/mandates/by-key/:key'],
+    ['get', `${root}/mandates/unknown/challenge`, '/me/copy/live/mandates/:id/challenge'],
+    ['post', `${root}/execution-wallets/${accountId}/mandates`, '/me/copy/live/execution-wallets/:id/mandates', { idempotencyKey: 'route-generation-key-0001' }],
+    ['post', `${root}/mandates/unknown/approve`, '/me/copy/live/mandates/:id/approve', { consentSignature: `0x${'00'.repeat(65)}` }],
+  ];
+  it('answers 404 on every legacy mandate route, including approve, and creates nothing', async () => {
+    const active = await activeMandate();
+    const routes = [...removed, ['post', `${root}/mandates/${active.id}/approve`, '/me/copy/live/mandates/:id/approve', { consentSignature: `0x${'00'.repeat(65)}` }] as const];
+    for (const [method, path, , body] of routes) {
+      const call = method === 'get' ? request(app.getHttpServer()).get(path) : request(app.getHttpServer()).post(path).send(body ?? {});
+      await call.set('Authorization', 'Bearer alice').expect(404);
     }
-    for (const category of ['strategies', 'mandates']) await request(app.getHttpServer()).get(`${root}/${category}/by-key/short`).set('Authorization', 'Bearer alice').expect(400);
-    await db.update(users).set({ privyUserId: 'did:privy:mandate-route-successor' }).where(eq(users.id, uid));
-    auth.clearCache();
-    for (const path of paths.slice(1)) await request(app.getHttpServer()).get(path).set('Authorization', 'Bearer successor').expect(409);
-    await db.update(users).set({ disabledAt: new Date() }).where(eq(users.id, uid));
-    for (const path of paths) await request(app.getHttpServer()).get(path).set('Authorization', 'Bearer successor').expect(401);
-    expect((await db.select().from(copyLiveMandates))[0].state).toBe('prepared');
+    expect(await db.select().from(copyLiveMandates)).toHaveLength(1); expect(await db.select().from(copyStrategies)).toHaveLength(1);
+    expect((await db.select().from(copyLiveMandates))[0]).toMatchObject({ id: active.id, state: 'active', consentKind: 'setup', liveSetupId: setupId });
   });
-});
-
-
-it('returns server-checked expired-original renewal over authenticated readonly GET even after old agent revocation', async () => {
-  const c = await prepare(), expired = Date.now() - 1, nonce = expired - 300000;
-  const { createHash } = await import('node:crypto');
-  const intent = (await import('@trading-dashboard/shared/contracts')).liveCopyMandateIntentSchema.parse({ ...c.intent, nonce, consentExpiresAt: expired });
-  await db.update(copyLiveMandates).set({ nonce, consentExpiresAt: new Date(expired), intent, intentDigest: createHash('sha256').update(JSON.stringify(intent)).digest('hex') });
-  await db.update(copyWalletAuthorizations).set({ revokedAt: new Date() });
-  const before = await db.select().from(copyLiveMandates), started = Date.now();
-  for (const path of [`${root}/mandates/${c.mandate.id}/challenge`, `${root}/mandates/by-key/route-generation-key-0001`]) {
-    const response = await request(app.getHttpServer()).get(path).set('Authorization', 'Bearer alice').expect(200).expect('Cache-Control', 'no-store');
-    const recovered = liveCopyMandateChallengeSchema.parse(response.body.data), renewal = Reflect.get(recovered, 'renewal');
-    expect(recovered.intent).toEqual(intent);
-    expect(renewal).toMatchObject({ eligible: true, reason: 'prepared_consent_expired', mandateId: c.mandate.id, revision: 1, nonce });
-    if (!renewal) throw new Error('Missing server renewal evidence');
-    expect(Date.parse(renewal.checkedAt)).toBeGreaterThanOrEqual(started); expect(Date.parse(renewal.checkedAt)).toBeLessThanOrEqual(Date.now());
-    await request(app.getHttpServer()).get(path).set('Authorization', 'Bearer bob').expect(404);
-  }
-  await post(preparation, { idempotencyKey: 'renewal-distinct-key-0001' }).expect(409);
-  expect(await db.select().from(copyLiveMandates)).toEqual(before);
-  await db.update(users).set({ disabledAt: new Date() }).where(eq(users.id, uid));
-  await request(app.getHttpServer()).get(`${root}/mandates/${c.mandate.id}/challenge`).set('Authorization', 'Bearer alice').expect(401);
+  it('documents none of them in the wire contracts', () => {
+    const documented = new Set(httpRouteContracts.map(c => `${c.method} ${c.path}`));
+    for (const [method, , contract] of removed) expect(documented.has(`${method.toUpperCase()} ${contract}`), contract).toBe(false);
+    expect(documented.has('GET /me/copy/live')).toBe(true); expect(documented.has('POST /me/copy/live/setups')).toBe(true);
+  });
 });

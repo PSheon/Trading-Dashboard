@@ -129,8 +129,9 @@ export class HyperliquidInfoClient {
     known?: number,
     /** Another info host (the wallet network's), still under this budget. */
     apiUrl?: string,
-    /** Set once the budget was taken: only then is there anything to refund. */
-    admission?: { admitted: boolean },
+    /** Set once the budget was taken: only then is there anything to refund.
+     * `at`: when the request left, after every budget wait. */
+    admission?: { admitted: boolean; at?: number },
   ): Promise<T> {
     const caller = currentRequestSignal();
     // Time in the budget queue doesn't count against the request timeout:
@@ -139,7 +140,7 @@ export class HyperliquidInfoClient {
     // bounded by its own request's deadline (`caller`) instead.
     const queued = AbortSignal.any([this.jobs.signal, ...(caller ? [caller] : [])]);
     await this.budgeter.acquire(weight, priority, rank, { known, signal: queued });
-    if (admission) admission.admitted = true;
+    if (admission) { admission.admitted = true; admission.at = Date.now(); }
     queued.throwIfAborted();
     // Shared per-IP window: page work may use all of it and waits briefly
     // when it is full; background work is capped below it so pages keep room.
@@ -205,11 +206,11 @@ export class HyperliquidInfoClient {
     rank: number | undefined,
     maxItems = MAX_LIST_ITEMS,
     apiUrl?: string,
+    admission: { admitted: boolean; at?: number } = { admitted: false },
   ): Promise<T> {
     const worst = surcharge(maxItems);
     const page = isPageWork(priority, rank);
     let result: T;
-    const admission = { admitted: false };
     try {
       result = await this.post<T>(body, base + worst, priority, rank, base, apiUrl, admission);
     } catch (error) {
@@ -313,6 +314,15 @@ export class HyperliquidInfoClient {
    * recent 10,000 fills retained). Time-ascending order, confirmed live.
    * TWAP slice fills are not included; see `userTwapSliceFillsByTime`.
    */
+  /** `userFillsByTime` from `startTime` to now, with the time the request
+   * left (after every budget wait): what the answer can be certain of starts
+   * there, not when the caller began waiting. */
+  async userFillsSince(address: string, startTime: number, priority: RequestPriority): Promise<{ fills: HlUserFillsByTimeResponse; sentAt: number }> {
+    const admission: { admitted: boolean; at?: number } = { admitted: false };
+    const fills = await this.postList<HlUserFillsByTimeResponse>({ type: "userFillsByTime", user: address, startTime }, WEIGHT_USER_FILLS_BY_TIME_BASE, priority, undefined, MAX_LIST_ITEMS, undefined, admission);
+    return { fills, sentAt: admission.at ?? Date.now() };
+  }
+
   userFillsByTime(
     address: string,
     startTime: number,

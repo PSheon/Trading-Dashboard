@@ -14,6 +14,13 @@ import { MAX_ACCUMULATE_MS } from '../live/copy-live-source-planner.js';
 import type { WatchedMainnetSource } from './watched-mainnet-source.js';
 import type { FastMainnetSource } from './fast-mainnet-source.js';
 
+/** One source read's result, for the logs. */
+export interface IngestOutcome { fast: boolean; fills: number; kind: string; state: string; through: number | null }
+/** A kick's signal half, timed (trade → read → ingested → enqueued). */
+export interface SignalTiming {
+  started: number; read: { asked: number; sentAt: number; answeredAt: number } | null;
+  ingest: IngestOutcome | null; ingestedAt: number; enqueuedAt: number;
+}
 export interface LiveExecutor { execute(request: TestnetLiveExecutionRequest): Promise<LiveExecutionRecord> }
 export interface LiveEngineDependencies {
   readonly repository: CopyLiveWorkerRepository;
@@ -30,13 +37,15 @@ export interface LiveEngineDependencies {
   /** Owner stop requests (cancel, close, flat, return); after the legs. */
   readonly stopper?: { tick(): Promise<void> };
   readonly log?: (message: string) => void;
+  /** Ordinary timing lines (order sent), at info level. */
+  readonly trace?: (message: string) => void;
   /** A mainnet leader's account value (the ratio denominator, cached), to
    * hold an open too small for the exchange until more legs join it. */
   readonly leaderEquity?: (leader: string) => Promise<string | null>;
   /** The realtime mainnet source, for the leaders COPY_LIVE_FAST_SOURCE
    * names; read on a kick, and by the pass while the trade feed is down. */
   readonly fast?: {
-    readonly source: Pick<FastMainnetSource, 'read' | 'witness' | 'followUp' | 'graceMs'>;
+    readonly source: Pick<FastMainnetSource, 'read' | 'witness' | 'followUp' | 'graceMs'> & Partial<Pick<FastMainnetSource, 'lastTiming'>>;
     readonly leaders: 'all' | ReadonlySet<string>;
     /** Whether the trade feed (the kicks) is up; polled while it is not. */
     readonly feedUp?: () => boolean;
@@ -154,7 +163,10 @@ export class CopyLiveEngine {
   async audit(leader: string): Promise<string[]> {
     const missed = await this.deps.repository.unmirroredFills(leader);
     if (!missed.length) return [];
-    this.deps.log?.(`ALERT copy source audit: ${missed.length} fill(s) of mainnet:${leader} inside the certified coverage were never ingested (tids ${missed.slice(0, 10).map(m => m.tid).join(', ')}); stream set to gap`);
+    const iso = (at: number) => new Date(at).toISOString(), first = missed[0]!;
+    this.deps.log?.(`ALERT copy source audit mainnet:${leader}: ${missed.length} fill(s) inside the stream's coverage [${iso(first.streamFrom)}, ${iso(first.streamThrough)}] ` +
+      `and the watcher's verified span [${iso(first.verifiedFrom)}, ${iso(first.verifiedThrough)}] were never ingested: ` +
+      `${missed.slice(0, 20).map(m => `${m.tid}@${iso(m.time)} ${m.coin}`).join(', ')}${missed.length > 20 ? ', ...' : ''}; stored now, stream set to gap (incomplete_coverage) until the next complete read`);
     const now = this.now(), from = Math.min(...missed.map(m => m.time)), to = Math.max(...missed.map(m => m.time));
     const stream = await this.deps.uow.run(tx => this.deps.sources.ensure(tx, leader, 'mainnet'));
     if (stream.state === 'quarantined') return missed.map(m => m.tid);
@@ -185,18 +197,21 @@ export class CopyLiveEngine {
    * CAS-guarded and an enqueue idempotent). False when the leader has no
    * fast-source copy.
    */
-  async signal(leader: string): Promise<boolean> {
-    const mandates = (await this.deps.repository.mandates(this.now())).filter(m => m.sourceNetwork === 'mainnet' && m.leaderAddress === leader);
+  async signal(leader: string): Promise<SignalTiming | null> {
+    const started = this.now();
+    const mandates = (await this.deps.repository.mandates(started)).filter(m => m.sourceNetwork === 'mainnet' && m.leaderAddress === leader);
     const streams = this.deps.repository.streams(mandates).filter(stream => this.fastLeader(stream));
-    if (!streams.length) return false;
+    if (!streams.length) return null;
+    let outcome: IngestOutcome | null = null;
     for (const stream of streams) {
-      try { await this.ingest(stream, mandates, true); }
+      try { outcome = await this.ingest(stream, mandates, true); }
       catch (error) { this.deps.log?.(`source ${stream.network}:${stream.leaderAddress} not read: ${reasonOf(error)}`); }
     }
+    const ingestedAt = this.now();
     for (const m of mandates.filter(row => row.activated && row.strategyStatus === 'active')) {
       try { await this.enqueue(m); } catch (error) { this.deps.log?.(`legs of ${m.mandateId} not enqueued: ${reasonOf(error)}`); }
     }
-    return true;
+    return { started, read: this.deps.fast?.source.lastTiming?.get(leader) ?? null, ingest: outcome, ingestedAt, enqueuedAt: this.now() };
   }
 
   /** The order half of a kick: merges and works this leader's copies' legs,
@@ -218,33 +233,37 @@ export class CopyLiveEngine {
 
   /** Extends one leader stream's proven coverage up to (almost) now; with
    * `fast`, from the fast source (the watched one when it has nothing). */
-  async ingest(stream: LiveStreamWork, mandates: readonly LiveMandateWork[], fast = false): Promise<void> {
+  async ingest(stream: LiveStreamWork, mandates: readonly LiveMandateWork[], fast = false): Promise<IngestOutcome | null> {
     const { network, leaderAddress } = stream, key = `${network}:${leaderAddress}`, now = this.now();
-    if (network === 'testnet' && now - (this.lastTestnetRead.get(key) ?? 0) < this.options.testnetSourceIntervalMs) return;
+    if (network === 'testnet' && now - (this.lastTestnetRead.get(key) ?? 0) < this.options.testnetSourceIntervalMs) return null;
     let current = await this.deps.uow.run(tx => this.deps.sources.ensure(tx, leaderAddress, network));
-    if (current.state === 'quarantined') return;
+    if (current.state === 'quarantined') return null;
     const earliest = mandates.filter(m => m.sourceNetwork === network && m.leaderAddress === leaderAddress).reduce((min, m) => Math.min(min, m.cursor.getTime()), Infinity);
     // A span that no current generation needs (it ended before every active
     // cursor) restarts at the earliest cursor instead of reading the gap.
     if (current.coverageThrough && current.coverageThrough.getTime() < earliest - 1) {
       const restarted = await this.deps.uow.run(tx => this.deps.sources.restart(tx, leaderAddress, network, current.revision, now));
-      if (restarted.kind !== 'recorded') return;
+      if (restarted.kind !== 'recorded') return null;
       current = restarted.stream;
     }
     const from = current.coverageThrough ? current.coverageThrough.getTime() + 1 : earliest;
     const to = Math.min(now - this.options.sourceLagMs, from + 10 * 60_000);
-    if (!Number.isFinite(from) || to < from) return;
+    if (!Number.isFinite(from) || to < from) return null;
     if (network === 'testnet') this.lastTestnetRead.set(key, now);
-    let result: LiveSourceReadResult | null = null;
+    let result: LiveSourceReadResult | null = null, viaFast = false;
     if (fast && this.fastLeader(stream)) {
       this.lastFastRead.set(leaderAddress, now);
-      try { result = await this.deps.fast!.source.read(leaderAddress, from); }
+      try { result = await this.deps.fast!.source.read(leaderAddress, from); viaFast = result !== null; }
       catch (error) { this.deps.log?.(`fast source ${leaderAddress} not read: ${reasonOf(error)}`); }
     }
     result ??= network === 'mainnet' ? await this.deps.watched.read(leaderAddress, from, to)
       : await this.deps.testnetSource.read({ leaderAddress, from, to, maxRequests: 8 });
-    if (!result) return; // The watcher has not proven this span yet.
-    await this.deps.uow.run(tx => this.deps.sources.apply(tx, current.revision, result, this.now()));
+    if (!result) return null; // The watcher has not proven this span yet.
+    const read = result, applied = await this.deps.uow.run(tx => this.deps.sources.apply(tx, current.revision, read, this.now()));
+    if (applied.stream.state === 'gap' && applied.stream.lastIssue !== current.lastIssue)
+      this.deps.log?.(`source ${key} in gap (${applied.stream.lastIssue}): read [${new Date(read.from).toISOString()}, ${new Date(read.to).toISOString()}] ${viaFast ? 'fast' : 'watched'}, ` +
+        `fresh ${read.fresh}, complete ${read.complete}, ${read.completedAt - read.observedAt} ms`);
+    return { fast: viaFast, fills: read.fills.length, kind: applied.kind, state: applied.stream.state, through: applied.stream.coverageThrough?.getTime() ?? null };
   }
 
   /** Enqueues each copy's new legs, then merges what waits together into
@@ -374,6 +393,8 @@ export class CopyLiveEngine {
         await this.deps.repository.update(row, { state: 'refused', reason: 'unattempted_expired', executionKey: record.key, firstAttemptAt: first, attempts: row.attempts + 1 }); return;
       }
       await this.deps.repository.update(row, { state: 'submitted', executionKey: record.key, firstAttemptAt: first, attempts: row.attempts + 1, reason: null, ...times });
+      if (row.state === 'pending') this.deps.trace?.(`Copy order ${row.id}${members.length ? ` (+${members.length} merged)` : ''}: received +${row.receivedAt.getTime() - row.leaderTime.getTime()}, ` +
+        `first attempt +${first.getTime() - row.leaderTime.getTime()}, sent ${times.sentAt ? `+${times.sentAt.getTime() - row.leaderTime.getTime()}` : '-'} ms after the leader`);
     } catch (error) {
       const reason = reasonOf(error);
       const times = timing.sentAt ? { sentAt: new Date(timing.sentAt), ...(timing.ackedAt ? { ackedAt: new Date(timing.ackedAt) } : {}) } : {};

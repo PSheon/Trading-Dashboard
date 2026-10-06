@@ -29,6 +29,8 @@ export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDe
   private readonly audits = new Set<string>();
   private readonly scheduled = new Map<string, { at: number; timer: ReturnType<typeof setTimeout> }>();
   private readonly signalling = new Set<string>();
+  /** The earliest feed trade each scheduled read is for (timing logs). */
+  private readonly trades = new Map<string, { tid: number; time: number; seenAt: number }>();
   private readonly resignal = new Set<string>();
   constructor(private readonly config: AppConfig, private readonly jobs: BackgroundJobs, @Inject(LIVE_ENGINE) private readonly engine: CopyLiveEngine | null) {}
   onApplicationBootstrap(): void {
@@ -54,7 +56,10 @@ export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDe
   onLeaderTraded(event: CopyLeaderTradedEvent): void {
     if (!this.started || !this.engine) return;
     const at = this.engine.witness(event.address, event.tid, event.time);
-    if (at !== null) this.schedule(event.address, at);
+    if (at === null) return;
+    const first = this.trades.get(event.address);
+    if (!first || event.time < first.time) this.trades.set(event.address, { tid: event.tid, time: event.time, seenAt: Date.now() });
+    this.schedule(event.address, at);
   }
   @OnEvent(COPY_LEADER_VERIFIED_EVENT)
   onLeaderVerified(event: CopyLeaderVerifiedEvent): void {
@@ -83,8 +88,20 @@ export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDe
     if (this.signalling.has(leader)) { this.resignal.add(leader); return; }
     this.signalling.add(leader);
     const engine = this.engine;
+    const trade = this.trades.get(leader), scheduledAt = Date.now();
+    this.trades.delete(leader);
     try {
-      if (await this.jobs.run(() => engine.signal(leader))) { this.kicks.add(leader); void this.drain(); }
+      const timing = await this.jobs.run(() => engine.signal(leader));
+      if (timing) {
+        this.kicks.add(leader); void this.drain();
+        // trade time -> feed seen -> read asked / left / answered -> ingested -> enqueued (ms after the trade).
+        if (trade) {
+          const after = (at: number | undefined) => at === undefined ? '-' : `+${at - trade.time}`;
+          this.logger.log(`Copy signal ${leader} trade ${trade.tid}: seen ${after(trade.seenAt)}, read due ${after(scheduledAt)}, asked ${after(timing.read?.asked)}, ` +
+            `left ${after(timing.read?.sentAt)}, answered ${after(timing.read?.answeredAt)}, ingested ${after(timing.ingestedAt)} ` +
+            `(${timing.ingest ? `${timing.ingest.fast ? 'fast' : 'watched'} ${timing.ingest.fills} fill(s), ${timing.ingest.kind}, ${timing.ingest.state}, through ${after(timing.ingest.through ?? undefined)}` : 'no read'}), enqueued ${after(timing.enqueuedAt)}`);
+        }
+      }
     } catch (error) { this.logger.error(`Copy signal of ${leader} failed: ${error instanceof Error ? `${error.name}: ${error.message}` : 'unknown'}`); }
     finally {
       this.signalling.delete(leader);

@@ -36,10 +36,12 @@ function rest(tid: number, time: number, extra: Partial<HlUserFill> = {}): HlUse
   return { coin: 'BTC', px: '100', sz: '1', side: 'B', time, startPosition: '0', dir: 'Open Long', closedPnl: '0', hash: `0x${'12'.repeat(32)}`,
     oid: 1000 + tid, crossed: true, fee: '0.01', tid, feeToken: 'USDC', ...extra } as HlUserFill;
 }
-function reader(fills: () => HlUserFill[], slices: () => HlUserFill[] = () => []) {
+/** `budgetWaitMs`: how long each fills read waits for the mainnet budget before it leaves. */
+function reader(fills: () => HlUserFill[], slices: () => HlUserFill[] = () => [], budgetWaitMs = 0) {
   const calls: { kind: 'fills' | 'twap'; from: number }[] = [];
   const read: FastSourceReader = {
-    fills: async (_leader, from) => { calls.push({ kind: 'fills', from }); return fills().filter(f => f.time >= from && f.time <= clock); },
+    fills: async (_leader, from) => { calls.push({ kind: 'fills', from }); clock += budgetWaitMs;
+      return { fills: fills().filter(f => f.time >= from && f.time <= clock), sentAt: clock }; },
     twapSlices: async (_leader, from) => { calls.push({ kind: 'twap', from }); return slices().filter(f => f.time >= from && f.time <= clock); },
   };
   return { read, calls };
@@ -201,5 +203,20 @@ describe('realtime copy signal (fast mainnet source)', () => {
     expect((await db.select().from(schema.copyLiveSourceFills)).map(f => f.tid)).toEqual(['9']);
     // A clean audit finds nothing.
     expect(await engine(fast).audit(leader)).toEqual([]);
+    // The gap ends with the next complete read: the copy goes on.
+    clock = now + 8000; await engine(fast).kick(leader);
+    expect(await stream()).toMatchObject({ state: 'ready', lastIssue: null }); expect((await stream()).coverageThrough!.getTime()).toBe(now + 6000);
+  });
+
+  it('a read that waited for the mainnet budget certifies from when it left, and stays fresh', async () => {
+    // The mainnet budget was busy for 6 s (Stage, 2026-10-06: every read went stale and the stream to gap).
+    const fills = [rest(1, 1000), rest(2, 9500)], { read } = reader(() => fills, () => [], 6000), fast = new FastMainnetSource(read, G, () => clock);
+    clock = 10_000; const result = await fast.read(leader, 500);
+    expect(result).toMatchObject({ observedAt: 16_000, to: 14_000, complete: true, fresh: true });
+    expect(result!.fills.map(f => f.tid)).toEqual(['1', '2']);
+    await new UnitOfWork(db).run(async tx => {
+      const sources = new CopyLiveSourceRepository(db), current = await sources.ensure(tx, leader, 'mainnet');
+      expect((await sources.apply(tx, current.revision, result!, clock)).stream).toMatchObject({ state: 'ready', lastIssue: null });
+    });
   });
 });

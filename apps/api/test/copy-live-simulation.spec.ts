@@ -67,8 +67,7 @@ async function simulate(scenario: Scenario) {
   const opened = new Set<string>(), errors: string[] = [];
   // The leader on mainnet: fills become visible to REST after their index lag.
   const rest: { fill: HlUserFill; visibleAt: number }[] = [];
-  const reader = { fills: async (_leader: string, from: number) => { const out = rest.filter(r => r.fill.time >= from && r.visibleAt <= Date.now()).map(r => r.fill);
-      return out; },
+  const reader = { fills: async (_leader: string, from: number) => ({ fills: rest.filter(r => r.fill.time >= from && r.visibleAt <= Date.now()).map(r => r.fill), sentAt: Date.now() }),
     twapSlices: async () => [] as HlUserFill[] };
   const fast = new FastMainnetSource(reader, G, Date.now);
   const engine = new CopyLiveEngine({

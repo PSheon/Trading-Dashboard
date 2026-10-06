@@ -198,9 +198,10 @@ export class CopyLiveWorkerRepository {
   /** Fills the watcher confirmed over REST inside both its verified span and
    * the leader's mainnet copy stream's coverage that the stream does not
    * hold. Zero-hash fills without a TWAP id are left out on both paths. */
-  async unmirroredFills(leader: string, limit = 100): Promise<{ tid: string; time: number }[]> {
+  async unmirroredFills(leader: string, limit = 100): Promise<{ tid: string; time: number; coin: string; streamFrom: number; streamThrough: number; verifiedFrom: number; verifiedThrough: number }[]> {
     const id = `mainnet:${leader}`;
-    const rows = await this.db.select({ tid: fills.tid, ts: fills.ts }).from(fills)
+    const rows = await this.db.select({ tid: fills.tid, ts: fills.ts, coin: fills.coin, streamFrom: copyLiveSourceStreams.coverageFrom, streamThrough: copyLiveSourceStreams.coverageThrough,
+      verifiedFrom: fillCoverage.verifiedFrom, verifiedThrough: fillCoverage.verifiedThrough }).from(fills)
       .innerJoin(fillCoverage, and(eq(fillCoverage.chain, fills.chain), eq(fillCoverage.address, fills.address)))
       .innerJoin(copyLiveSourceStreams, eq(copyLiveSourceStreams.id, id))
       .where(and(eq(fills.chain, CHAIN_DEFAULT), eq(fills.address, leader),
@@ -209,7 +210,8 @@ export class CopyLiveWorkerRepository {
         sql`not (coalesce(${fills.raw}->>'hash', '') ~ '^0x0{64}$' and coalesce(jsonb_typeof(${fills.raw}->'twapId'), 'null') = 'null')`,
         sql`not exists (select 1 from ${copyLiveSourceFills} s where s.stream_id = ${id} and s.tid = ${fills.tid}::text)`))
       .orderBy(asc(fills.ts), asc(fills.tid)).limit(limit);
-    return rows.map(row => ({ tid: row.tid.toString(), time: row.ts.getTime() }));
+    return rows.map(row => ({ tid: row.tid.toString(), time: row.ts.getTime(), coin: row.coin, streamFrom: row.streamFrom!.getTime(), streamThrough: row.streamThrough!.getTime(),
+      verifiedFrom: row.verifiedFrom!.getTime(), verifiedThrough: row.verifiedThrough!.getTime() }));
   }
   async dispatch(id: string): Promise<DispatchRow | null> {
     const [row] = await this.db.select().from(copyLiveDispatches).where(eq(copyLiveDispatches.id, id));

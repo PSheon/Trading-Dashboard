@@ -8,8 +8,9 @@ import { address, LiveBoundaryError } from '../live/wallet-authorization.js';
  * acquires its base weight plus the worst-case list surcharge and gives back
  * what the answer didn't use (`HyperliquidInfoClient.postList`). */
 export interface FastSourceReader {
-  /** `userFillsByTime` from `from` to now. */
-  fills(leader: string, from: number): Promise<HlUserFill[]>;
+  /** `userFillsByTime` from `from` to now, and when the request left
+   * (after any budget wait: the read certifies nothing before it). */
+  fills(leader: string, from: number): Promise<{ fills: HlUserFill[]; sentAt: number }>;
   /** `userTwapSliceFillsByTime` from `from` to now, each slice as a fill
    * tagged with its TWAP id (`twapSliceToFill`, as the watcher stores it). */
   twapSlices(leader: string, from: number): Promise<HlUserFill[]>;
@@ -67,6 +68,8 @@ interface LeaderState {
 export class FastMainnetSource {
   private readonly leaders = new Map<string, LeaderState>();
   private readonly counters = new Map<string, FastSourceStats>();
+  /** The last read's clock per leader (asked, left, answered): timing logs. */
+  readonly lastTiming = new Map<string, { asked: number; sentAt: number; answeredAt: number }>();
   constructor(private readonly reader: FastSourceReader, readonly graceMs: number, private readonly now: () => number = Date.now,
     private readonly log?: (message: string) => void) {
     if (!Number.isSafeInteger(graceMs) || graceMs < 0) throw new LiveBoundaryError('live_source_configuration_invalid');
@@ -101,12 +104,17 @@ export class FastMainnetSource {
 
   /** Reads from `from` to now; null when nothing can be certified yet. */
   async read(leader: string, from: number): Promise<LiveSourceReadResult | null> {
-    const leaderAddress = address(leader), observedAt = this.now(), state = this.state(leaderAddress);
-    if (![from, observedAt].every(Number.isSafeInteger) || from < 0 || from > observedAt) throw new LiveBoundaryError('live_source_request_invalid');
-    state.lastReadAt = observedAt;
+    const leaderAddress = address(leader), asked = this.now(), state = this.state(leaderAddress);
+    if (![from, asked].every(Number.isSafeInteger) || from < 0 || from > asked) throw new LiveBoundaryError('live_source_request_invalid');
+    state.lastReadAt = asked;
     const counter = this.counters.get(leaderAddress) ?? { reads: 0, twapReads: 0, weight: 0, rows: 0 };
     this.counters.set(leaderAddress, counter);
-    const regular = (await this.reader.fills(leaderAddress, from)).map(stored);
+    // The observation starts when the request left: a wait for the mainnet
+    // budget before it neither ages the evidence nor certifies anything.
+    const answer = await this.reader.fills(leaderAddress, from), observedAt = answer.sentAt;
+    if (!Number.isSafeInteger(observedAt) || observedAt < asked || observedAt > this.now()) throw new LiveBoundaryError('live_source_request_invalid');
+    this.lastTiming.set(leaderAddress, { asked, sentAt: observedAt, answeredAt: this.now() });
+    const regular = answer.fills.map(stored);
     counter.reads++; counter.weight += listWeight(regular.length); counter.rows += regular.length;
     const byTid = new Map<string, HlUserFill>();
     for (const row of regular) byTid.set(String(row.tid), row);

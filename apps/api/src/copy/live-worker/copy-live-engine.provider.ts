@@ -83,7 +83,7 @@ export const liveEngineProvider: Provider = {
     // back what each answer didn't use.
     const fast = live.fastSource ? {
       source: new FastMainnetSource({
-        fills: (leader, from) => info.userFillsByTime(leader, from, undefined, 'live'),
+        fills: (leader, from) => info.userFillsSince(leader, from, 'live'),
         twapSlices: async (leader, from) => (await info.userTwapSliceFillsByTime(leader, from, undefined, 'live')).map(twapSliceToFill),
       }, live.fastSource.graceMs, Date.now, message => logger.warn(message)),
       leaders: live.fastSource.leaders,
@@ -97,6 +97,7 @@ export const liveEngineProvider: Provider = {
       runtime: hooks => new TestnetLiveExecutionRuntime(pool, testnetConfig, testnetGlobal, testnetBudget, options, Date.now, { ...hooks, reference }),
       settler: new CopyLiveSettler(pool, testnetGlobal, testnetBudget, scanner),
       log: message => logger.warn(message),
+      trace: message => logger.log(message),
       // The paper copier's cached leader capital: holds an open too small for
       // the exchange until the leader's next adds join it.
       leaderEquity: async leader => { const equity = await market.leaderEquity(leader); return equity.state === 'known' ? equity.value.toString() : null; },

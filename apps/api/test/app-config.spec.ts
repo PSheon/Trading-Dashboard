@@ -28,6 +28,14 @@ describe("injected runtime configuration", () => {
     vi.stubEnv("STREAM_MAX_TOTAL", "999");
     expect(defaultActionStreamOptions(config).maxTotal).toBe(20);
   });
+  it("reads the deletion markers' own key and its previous keys; a previous key needs a current one, and production a strong one", () => {
+    const base = { DATABASE_URL: "postgres://test@localhost/test" };
+    expect(validateEnvironment(base).auth.deletionMarker).toEqual({ key: undefined, previousKeys: [] });
+    expect(validateEnvironment({ ...base, ACCOUNT_DELETION_MARKER_KEY: " b ", ACCOUNT_DELETION_MARKER_PREVIOUS_KEYS: "a, c" }).auth.deletionMarker).toEqual({ key: "b", previousKeys: ["a", "c"] });
+    expect(() => validateEnvironment({ ...base, ACCOUNT_DELETION_MARKER_PREVIOUS_KEYS: "a" })).toThrow("requires ACCOUNT_DELETION_MARKER_KEY");
+    expect(() => validateEnvironment({ ...base, NODE_ENV: "production", AUTH_SERVICE_TOKEN: "s".repeat(40), ACCOUNT_DELETION_MARKER_KEY: "short" })).toThrow("ACCOUNT_DELETION_MARKER_KEY must be a strong");
+  });
+
   it("includes the optional system notification destination", () => {
     const value = validateEnvironment({ DATABASE_URL: "postgres://test@localhost/test", TELEGRAM_SYSTEM_CHAT_ID: " -100123 " });
     expect(value.telegram.systemChatId).toBe("-100123");

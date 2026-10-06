@@ -13,25 +13,42 @@ import type { DbExecutor } from "../db/unit-of-work.js";
  * Used for one thing: a returning identity can't bind a new referral in that
  * window, so deleting and signing up again can't farm invites.
  *
- * The key is derived from PRIVY_APP_SECRET, else AUTH_SERVICE_TOKEN (a strong
- * secret in production); local development without either uses a fixed key.
- * Rotating the secret only makes older markers stop matching (fails open).
+ * The key is its own secret, ACCOUNT_DELETION_MARKER_KEY, so rotating the
+ * Privy app secret leaves the markers alone. Rotating the marker key keeps
+ * the old one in ACCOUNT_DELETION_MARKER_PREVIOUS_KEYS (comma-separated)
+ * until RETENTION_ACCOUNT_DELETION_DAYS have passed: new markers use the
+ * current key, and a returning identity is matched under every key. The key
+ * earlier markers were made with (derived from PRIVY_APP_SECRET, else
+ * AUTH_SERVICE_TOKEN) is always one of them, and is the current key while
+ * ACCOUNT_DELETION_MARKER_KEY is unset; local development without any
+ * secret uses a fixed key.
  */
 export interface DeletedIdentity { privyUserId: string; email: string | null; walletAddress: string | null; embeddedWalletAddress: string | null }
 
-function markerKey(config?: AppConfig): Buffer {
+/** The key markers were made with before ACCOUNT_DELETION_MARKER_KEY. */
+function derivedKey(config?: AppConfig): Buffer {
   const secret = config?.value.auth.appSecret ?? config?.value.auth.serviceToken ?? "orbie-local-development-only";
   return createHash("sha256").update(`orbie:account-deletion-marker:v1:${secret}`).digest();
 }
+const ownKey = (secret: string) => createHash("sha256").update(`orbie:account-deletion-marker:v2:${secret}`).digest();
+/** The key new markers are made with, then every key an existing marker may have been made with. */
+export function markerKeys(config?: AppConfig): Buffer[] {
+  const marker = config?.value.auth.deletionMarker;
+  const keys = marker?.key ? [ownKey(marker.key), ...(marker.previousKeys ?? []).map(ownKey), derivedKey(config)] : [derivedKey(config)];
+  return keys.filter((key, index) => keys.findIndex((other) => other.equals(key)) === index);
+}
 
-/** The digests of every identifier the identity has (deduplicated). */
-export function identityDigests(identity: DeletedIdentity, config?: AppConfig): string[] {
-  const key = markerKey(config);
+function digestsUnder(key: Buffer, identity: DeletedIdentity): string[] {
   const parts = [`privy:${identity.privyUserId}`,
     identity.email ? `email:${identity.email.trim().toLowerCase()}` : null,
     identity.walletAddress ? `wallet:${identity.walletAddress.toLowerCase()}` : null,
     identity.embeddedWalletAddress ? `wallet:${identity.embeddedWalletAddress.toLowerCase()}` : null];
   return [...new Set(parts.filter((p): p is string => p !== null).map((p) => createHmac("sha256", key).update(p).digest("hex")))];
+}
+
+/** The digests of every identifier the identity has (deduplicated), under the current key. */
+export function identityDigests(identity: DeletedIdentity, config?: AppConfig): string[] {
+  return digestsUnder(markerKeys(config)[0]!, identity);
 }
 
 /** Records the identity as deleted now (a later deletion renews the window). */
@@ -47,7 +64,8 @@ export async function recordDeletedIdentity(db: DbExecutor, identity: DeletedIde
 /** Whether this identity deleted an account within the retention window
  * (the retention job removes markers after it). */
 export async function isReturningIdentity(db: DbExecutor, identity: DeletedIdentity, config?: AppConfig): Promise<boolean> {
-  const digests = identityDigests(identity, config);
+  // Under every key a marker in the window may have been made with.
+  const digests = [...new Set(markerKeys(config).flatMap((key) => digestsUnder(key, identity)))];
   const { rows } = await db.execute<{ found: boolean }>(sql`select exists (select 1 from account_deletion_markers where digest in ${digests}) as found`);
   return rows[0]?.found === true;
 }

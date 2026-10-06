@@ -74,12 +74,13 @@
 
 ## 防止刪帳號重來刷邀請（`account_deletion_markers`，migration 0066）
 
-被邀請的人能自己刪帳號後，「刪除 → 用同一個登入重新註冊」會重新打開 30 分鐘的綁定窗口，邀請人可以反覆刷同一個人。為此刪除時保存身分的**金鑰雜湊**：Privy ID、email、錢包地址各一個 HMAC-SHA256（金鑰由伺服器密鑰導出：`PRIVY_APP_SECRET`，否則 `AUTH_SERVICE_TOKEN`），沒有金鑰無法比對任何人，也無法還原。
+被邀請的人能自己刪帳號後，「刪除 → 用同一個登入重新註冊」會重新打開 30 分鐘的綁定窗口，邀請人可以反覆刷同一個人。為此刪除時保存身分的**金鑰雜湊**：Privy ID、email、錢包地址各一個 HMAC-SHA256（金鑰是獨立的 `ACCOUNT_DELETION_MARKER_KEY`；未設定時沿用由 `PRIVY_APP_SECRET`（否則 `AUTH_SERVICE_TOKEN`）導出的金鑰），沒有金鑰無法比對任何人，也無法還原。
 
 - 同一身分在保留期內重新註冊照常可以用，但**不能綁定新的邀請**（`409 referral_bind_closed`，總覽也不顯示綁定窗口）。
 - 原本的邀請關係以「已刪除的使用者」計一次，不會重複計算；已刪除使用者的邀請碼保留在墓碑下（停用）或刪除，都無法再被綁定。
 - 目前沒有任何邀請獎勵入帳程式，所以不會有獎勵記到墓碑；日後實作入帳時必須跳過已停用／墓碑的使用者。
-- 雜湊由保留作業的 `account_deletion_markers` 在 365 天後刪除。輪換密鑰只會讓舊雜湊不再相符（放行）。
+- 雜湊由保留作業的 `account_deletion_markers` 在 365 天後刪除。
+- 金鑰輪換：新雜湊一律用目前的 `ACCOUNT_DELETION_MARKER_KEY`；舊金鑰放進 `ACCOUNT_DELETION_MARKER_PREVIOUS_KEYS`（逗號分隔）保留一個保留期，比對時每把金鑰都會試。由 `PRIVY_APP_SECRET` 導出的舊金鑰永遠在比對清單裡，所以第一次設定 `ACCOUNT_DELETION_MARKER_KEY` 不會讓既有雜湊失配；之後輪換 Privy 密鑰也不再影響這些雜湊。
 
 ## Privy 那邊不刪
 

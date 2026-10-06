@@ -263,6 +263,14 @@ export function validateEnvironment(source: Environment = process.env) {
   const appId = optional(source.PRIVY_APP_ID);
   const appSecret = optional(source.PRIVY_APP_SECRET);
   if (Boolean(appId) !== Boolean(appSecret)) throw new Error("PRIVY_APP_ID and PRIVY_APP_SECRET must be set together");
+  // The deletion markers' own key (deletion-markers.ts); unset keeps the key
+  // derived from PRIVY_APP_SECRET. A rotated key stays in PREVIOUS_KEYS for
+  // the retention window.
+  const markerKey = optional(source.ACCOUNT_DELETION_MARKER_KEY);
+  const previousMarkerKeys = (source.ACCOUNT_DELETION_MARKER_PREVIOUS_KEYS ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+  if (previousMarkerKeys.length && !markerKey) throw new Error("ACCOUNT_DELETION_MARKER_PREVIOUS_KEYS requires ACCOUNT_DELETION_MARKER_KEY");
+  productionSecret("ACCOUNT_DELETION_MARKER_KEY", markerKey, production);
+  const deletionMarker = { key: markerKey, previousKeys: previousMarkerKeys };
   const verificationKey = optional(source.PRIVY_VERIFICATION_KEY)?.replace(/\\n/g, "\n");
   if (verificationKey) {
     if (!appId) throw new Error("PRIVY_VERIFICATION_KEY requires configured Privy credentials");
@@ -338,6 +346,6 @@ export function validateEnvironment(source: Environment = process.env) {
     expensivePerMinute: integerValue("API_EXPENSIVE_PER_MINUTE", source.API_EXPENSIVE_PER_MINUTE, 10, 1, 1000000),
     favoritesPerUser: integerValue("MAX_FAVORITES_PER_USER", source.MAX_FAVORITES_PER_USER, 100, 1, 10000),
   };
-  return { app, database, limits, http, auth: { serviceToken, permissions, adminEmails, appId, appSecret, verificationKey }, telegram, hyperliquid, alert, stream, copy: copyTrading(source, hyperliquid.wallet.network, egressKey), archive: archive(source), tuning: tuningConfig(source) };
+  return { app, database, limits, http, auth: { serviceToken, permissions, adminEmails, appId, appSecret, verificationKey, deletionMarker }, telegram, hyperliquid, alert, stream, copy: copyTrading(source, hyperliquid.wallet.network, egressKey), archive: archive(source), tuning: tuningConfig(source) };
 }
 export type RuntimeConfig = ReturnType<typeof validateEnvironment>;

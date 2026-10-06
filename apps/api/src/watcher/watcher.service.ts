@@ -1,4 +1,5 @@
 import { Injectable, Logger, Optional, type OnApplicationBootstrap, type OnModuleDestroy } from "@nestjs/common";
+import { EventEmitter2 } from "@nestjs/event-emitter";
 
 import { AppConfig } from "../config/app-config.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
@@ -11,6 +12,7 @@ import { GROUP_GAP_MS } from "./action-classifier.js";
 import { FeedActionsService } from "./feed-actions.service.js";
 import { FillSyncService, type FastPathStats } from "./fill-sync.service.js";
 import { TradeFeedService, type TradeFeedStatus } from "./trade-feed.service.js";
+import { COPY_LEADER_TRADED_EVENT, COPY_LEADER_VERIFIED_EVENT, type CopyLeaderTradedEvent, type CopyLeaderVerifiedEvent } from "./copy-leader-events.js";
 
 /** The fill index usually has a feed trade within 1.5 s (measured live
  * 2026-09-29: p50 0.6 s, p90 1.5 s); the first confirm waits this long. */
@@ -29,6 +31,9 @@ const CONFIRM_LOOKBACK_MS = 10_000;
  * per endpoint); a longer backlog continues in the next sweep. */
 const SWEEP_MAX_ROUNDS = 10;
 const WATCHED_REFRESH_MS = 15_000;
+/** A copied leader's verified span is caught up this often (besides the
+ * quarter-hourly sweeps), and its copy stream audited after each. */
+export const COPIED_CATCH_UP_MS = 120_000;
 const FEED_START_RETRY_MS = 30_000;
 
 interface Expected {
@@ -92,6 +97,13 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
   private lastSweepAt: Date | null = null;
   private sweepFlight: Promise<{ addresses: number; inserted: number; failed: number }> | undefined;
   private sweepPending = false;
+  /** Leaders a live copy follows, and those followed by a testnet copy of a
+   * mainnet leader (their feed trades are copy triggers). */
+  private copied = new Set<string>();
+  private copiedMainnet = new Set<string>();
+  private copiedTimer: ReturnType<typeof setInterval> | undefined;
+  private copiedFlight: Promise<void> | undefined;
+  private watched = new Set<string>();
 
   constructor(
     private readonly config: AppConfig,
@@ -101,6 +113,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
     private readonly feedActions: FeedActionsService,
     private readonly repository: WatcherRepository,
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
+    @Optional() private readonly events?: EventEmitter2,
   ) {}
 
   /** Starts on the worker's boot (WatcherModule is imported by the worker
@@ -122,6 +135,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
     await this.refreshWatched();
     if (!this.running || this.jobs.stopping) return;
     this.watchedTimer = setInterval(() => void this.refreshWatched(), WATCHED_REFRESH_MS);
+    this.copiedTimer = setInterval(() => void this.catchUpCopied(), COPIED_CATCH_UP_MS);
     await this.startFeed();
     if (!this.running || this.jobs.stopping) { this.feed.stop(); return; }
     // Covers whatever happened while the process was down, however long.
@@ -131,6 +145,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
   stop(): void {
     this.running = false;
     clearInterval(this.watchedTimer);
+    clearInterval(this.copiedTimer);
     clearTimeout(this.feedRetryTimer);
     for (const timer of this.timers) clearTimeout(timer);
     this.timers.clear();
@@ -167,14 +182,35 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
     try {
       const addresses = await this.activeAddresses();
       this.feed.setWatched(addresses);
+      this.watched = new Set(addresses);
     } catch (error) {
       this.logger.error(`Watch list refresh failed: ${(error as Error).message}`);
+    }
+    await this.refreshCopied();
+  }
+
+  /** Re-reads which leaders live copies follow (with the watch list). */
+  async refreshCopied(): Promise<void> {
+    try {
+      const { copied, mainnet } = await this.repository.copiedAddresses();
+      this.copied = copied;
+      this.copiedMainnet = mainnet;
+    } catch (error) {
+      this.logger.error(`Copied leader refresh failed: ${(error as Error).message}`);
     }
   }
 
   /** Called by the feed for every trade a watched address is part of. */
   onTrade(address: string, trade: HlWsTrade): void {
     if (this.jobs.stopping) return;
+    if (this.copiedMainnet.has(address)) {
+      // Realtime copy trigger (the copy engine reads the fill itself).
+      try {
+        this.events?.emit(COPY_LEADER_TRADED_EVENT, { address, time: trade.time, tid: trade.tid } satisfies CopyLeaderTradedEvent);
+      } catch (error) {
+        this.logger.warn(`Copy trigger for ${address} failed: ${(error as Error).message}`);
+      }
+    }
     const burst = this.pending.get(address) ?? new Map<number, HlWsTrade>();
     if (!burst.has(trade.tid)) burst.set(trade.tid, trade);
     this.pending.set(address, burst);
@@ -333,6 +369,8 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
     }
     let inserted = 0;
     let failed = 0;
+    // Copied leaders first: their verified span gates copy signals.
+    addresses = [...addresses.filter((a) => this.copied.has(a)), ...addresses.filter((a) => !this.copied.has(a))];
     await forEachConcurrent(addresses, 4, async (address) => {
         try {
           for (let round = 0; round < SWEEP_MAX_ROUNDS && !this.jobs.stopping; round++) {
@@ -342,6 +380,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
             inserted += result.inserted;
             if (result.complete) break;
           }
+          if (this.copied.has(address)) this.verified(address);
         } catch (error) {
           // The cursor did not move: the next sweep reads from the same place.
           failed += 1;
@@ -351,6 +390,33 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
     if (addresses.length > 0 && failed < addresses.length) this.lastSweepAt = new Date();
     if (inserted > 0) this.logger.warn(`Sweep stored ${inserted} fill(s) the feed had missed`);
     return { addresses: addresses.length, inserted, failed };
+  }
+
+  private verified(address: string): void {
+    try {
+      this.events?.emit(COPY_LEADER_VERIFIED_EVENT, { address } satisfies CopyLeaderVerifiedEvent);
+    } catch (error) {
+      this.logger.warn(`Copy audit trigger for ${address} failed: ${(error as Error).message}`);
+    }
+  }
+
+  /** Catches up every copied leader's verified span (every 2 min), then
+   * has its copy stream audited. One run at a time. */
+  catchUpCopied(): Promise<void> {
+    if (this.jobs.stopping) return Promise.resolve();
+    this.copiedFlight ??= this.jobs.run(async () => {
+      await forEachConcurrent([...this.copied].filter((a) => this.watched.has(a)), 2, async (address) => {
+        try {
+          for (let round = 0; round < SWEEP_MAX_ROUNDS && !this.jobs.stopping; round++) {
+            if ((await this.fillSync.catchUp(address)).complete) break;
+          }
+          this.verified(address);
+        } catch (error) {
+          this.logger.warn(`Copied leader catch-up failed for ${address}: ${(error as Error).message}`);
+        }
+      }, this.jobs.signal);
+    }).catch(() => undefined).finally(() => { this.copiedFlight = undefined; });
+    return this.copiedFlight;
   }
 
   /** R1/R3 equity: account value across dexes, as of the address's latest

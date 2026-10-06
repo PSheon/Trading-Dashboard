@@ -19,8 +19,11 @@
 // Usage (from the repo root):
 //   node scripts/copy-harness/reconcile.mjs --leader 0x… --leader-network testnet \
 //     --follower 0x… --network testnet --since 2026-10-07T01:00:00Z \
-//     --db ssh|<postgres url> [--portfolio-url https://…/api/hl/me/copy/live/portfolio]
-// The portfolio needs HARNESS_BEARER (the follower's Privy access token) in the environment.
+//     --db ssh|env|<postgres url> [--portfolio-url https://…/api/hl/me/copy/live/portfolio]
+// `--db env` reads the URL from HARNESS_DATABASE_URL (so it never shows in `ps`).
+// The portfolio needs HARNESS_BEARER (the follower's Privy access token) in the environment;
+// the portfolio holds no balances, so P is the copy's account snapshot
+// (GET …/me/copy/execution-wallets/:id/snapshot, the figures the portfolio page shows).
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
@@ -49,7 +52,9 @@ async function query(sql) {
   }
   const require = createRequire(resolve(import.meta.dirname, "../../apps/api/package.json"));
   const { default: pg } = await import(pathToFileURL(require.resolve("pg")).href);
-  const client = new pg.Client({ connectionString: db }); await client.connect();
+  const url = db === "env" ? process.env.HARNESS_DATABASE_URL : db;
+  if (!url) throw new Error("--db env needs HARNESS_DATABASE_URL");
+  const client = new pg.Client({ connectionString: url }); await client.connect();
   try { return (await client.query({ text: sql, rowMode: "array" })).rows.map((r) => r.map((v) => v instanceof Date ? v.toISOString() : v === null ? "" : String(v))); }
   finally { await client.end(); }
 }
@@ -99,19 +104,29 @@ for (const coin of new Set([...L.keys(), ...C.keys()])) {
   if (dispatches.some((d) => d.coin === coin) && l !== c) fail("direction_mismatch", { coin, leader: L.get(coin) ?? 0, follower: C.get(coin) ?? 0 });
 }
 
-// P — portfolio vs C.
+// P — portfolio (its account snapshot) vs C.
 let portfolio = null;
 if (portfolioUrl) {
   if (!process.env.HARNESS_BEARER) fail("portfolio_unchecked", { reason: "HARNESS_BEARER is not set" });
   else {
-    const r = await fetch(portfolioUrl, { headers: { authorization: `Bearer ${process.env.HARNESS_BEARER}`, accept: "application/json" } });
-    portfolio = r.ok ? await r.json() : { status: r.status };
-    const item = (portfolio?.items ?? portfolio?.data?.items ?? []).find?.((i) => (i.accountAddress ?? i.account?.address ?? "").toLowerCase() === follower);
-    if (!item) fail("portfolio_missing_account", { status: r.status });
+    const get = async (url) => { const r = await fetch(url, { headers: { authorization: `Bearer ${process.env.HARNESS_BEARER}`, accept: "application/json" } }); const body = await r.json().catch(() => null); return { status: r.status, body: body?.data ?? body }; };
+    const list = await get(portfolioUrl);
+    const item = (list.body?.items ?? []).find?.((i) => (i.accountAddress ?? "").toLowerCase() === follower);
+    if (!item) fail("portfolio_missing_account", { status: list.status });
     else {
-      const equity = Number(item.equity ?? item.accountValue ?? NaN), actual = Number(followerState.marginSummary.accountValue);
-      if (!(Math.abs(equity - actual) <= 0.01)) fail("portfolio_equity_mismatch", { portfolio: equity, exchange: actual });
-      for (const p of item.positions ?? []) if (Number(p.szi ?? p.size) !== (C.get(p.coin) ?? 0)) fail("portfolio_position_mismatch", { coin: p.coin, portfolio: p.szi ?? p.size, exchange: C.get(p.coin) ?? 0 });
+      const base = portfolioUrl.replace(/\/me\/copy\/live\/portfolio\/?$/, "");
+      const snap = await get(`${base}/me/copy/execution-wallets/${encodeURIComponent(item.accountId)}/snapshot`);
+      portfolio = { stage: item.stage, accountId: item.accountId, snapshotStatus: snap.body?.status ?? snap.status, freshness: snap.body?.freshness ?? null,
+        equity: snap.body?.metrics?.perpEquity ?? null, positions: (snap.body?.positions ?? []).map((p) => ({ coin: p.coin, size: p.size })) };
+      if (snap.body?.status !== "observed") fail("portfolio_snapshot_unavailable", { status: snap.status, reason: snap.body?.reason ?? null });
+      else {
+        const equity = Number(snap.body.metrics.perpEquity), actual = Number(followerState.marginSummary.accountValue);
+        // Flat, the equity is still; with a position open it moves with the mark between the two reads.
+        const tolerance = C.size && [...C.values()].some((v) => v !== 0) ? Math.max(0.5, actual * 0.01) : 0.01;
+        if (!(Math.abs(equity - actual) <= tolerance)) fail("portfolio_equity_mismatch", { portfolio: equity, exchange: actual, tolerance, freshness: snap.body.freshness });
+        const shown = new Map(snap.body.positions.map((p) => [p.coin, Number(p.size)]));
+        for (const coin of new Set([...shown.keys(), ...C.keys()])) if ((shown.get(coin) ?? 0) !== (C.get(coin) ?? 0)) fail("portfolio_position_mismatch", { coin, portfolio: shown.get(coin) ?? 0, exchange: C.get(coin) ?? 0 });
+      }
     }
   }
 }
@@ -125,7 +140,7 @@ const report = {
   follower: { address: follower, network: net, fills: followerFills.length, equity: followerState.marginSummary.accountValue, withdrawable: followerState.withdrawable, positions: Object.fromEntries(C) },
   dispatches: { count: dispatches.length, byStateReason: reasons },
   latencySeconds: { received: { p50: pct(received, 0.5), p95: pct(received, 0.95), max: pct(received, 1) }, sent: { p50: pct(sent, 0.5), p95: pct(sent, 0.95), max: pct(sent, 1) } },
-  portfolioChecked: Boolean(portfolio),
+  portfolio,
   failures,
 };
 console.log(JSON.stringify(report, null, 2));

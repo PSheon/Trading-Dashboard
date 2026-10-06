@@ -10,6 +10,7 @@
 //   node ../../scripts/copy-harness/leader.mjs scenario [--coin ETH] [--gap 20]
 //   node ../../scripts/copy-harness/leader.mjs send <address> <usdc>
 //   node ../../scripts/copy-harness/leader.mjs state
+//   node ../../scripts/copy-harness/leader.mjs flatten   (closes whatever it holds: a rerun after an aborted scenario)
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
@@ -66,8 +67,16 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const [command] = args;
 if (command === "state") {
+  const [state, spot] = await Promise.all([info.clearinghouseState({ user: wallet.address }), info.spotClearinghouseState({ user: wallet.address })]);
+  const usdc = spot.balances.find((b) => b.coin === "USDC");
+  log("state", { address: wallet.address, equity: state.marginSummary.accountValue, withdrawable: state.withdrawable, spotUsdc: usdc ? String(Number(usdc.total) - Number(usdc.hold)) : "0",
+    positions: state.assetPositions.map((a) => ({ coin: a.position.coin, szi: a.position.szi })) });
+} else if (command === "flatten") {
   const state = await info.clearinghouseState({ user: wallet.address });
-  log("state", { address: wallet.address, equity: state.marginSummary.accountValue, withdrawable: state.withdrawable, positions: state.assetPositions.map((a) => ({ coin: a.position.coin, szi: a.position.szi })) });
+  for (const { position: p } of state.assetPositions) {
+    if (Number(p.szi) !== 0) await trade(p.coin, { size: -Number(p.szi), reduceOnly: true, label: `flatten ${p.coin}` });
+  }
+  log("flat", await position("ETH"));
 } else if (command === "send") {
   const [, destination, amount] = args;
   if (!/^0x[0-9a-fA-F]{40}$/.test(destination ?? "") || !(Number(amount) > 0)) throw new Error("usage: send <address> <usdc>");
@@ -93,6 +102,6 @@ if (command === "state") {
   for (const [name, run] of steps) { await run(); log("leg_done", { leg: name, position: await position(coin) }); await sleep(gap); }
   log("done", await position(coin));
 } else {
-  console.error("usage: leader.mjs scenario|send|state");
+  console.error("usage: leader.mjs scenario|send|state|flatten");
   process.exit(2);
 }

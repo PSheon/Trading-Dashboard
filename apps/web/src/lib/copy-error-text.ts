@@ -13,6 +13,8 @@ const BUSY_CODES = new Set(["busy", "hyperliquid_busy", "bad_gateway", "deadline
 const CLIENT_CODES: Record<string, string> = {
   owner_wallet_unavailable: "owner_wallet_unavailable", live_session_changed: "live_session_changed", setup_consent_expired: "consent_expired",
   signing_timeout: "signing_timeout", "Wallet is not ready. Reload or sign in again.": "wallet_not_ready",
+  // addSigners declined or timed out at confirm (lib/copy-live-setup.ts): nothing was deposited.
+  worker_signer_missing: "worker_signer_missing",
 };
 
 /**
@@ -51,14 +53,19 @@ export function copyCodeText(texts: CopyTexts, code: string | null | undefined):
   return null;
 }
 
+/** A flow's own words: for its codes (`codes`, before the catalogs) and
+ * when nothing else applies (`fallback`, instead of the generic line). */
+export interface CopyErrorOptions { readonly fallback?: string; readonly codes?: Readonly<Record<string, string>> }
+
 /**
- * The one sentence every copy flow shows for a failure: the code's own
- * text, a refused signature, busy (502/503/504, Hyperliquid, the network),
- * rate limited (429), signed out (401), else the generic line. Never a raw
- * code or English status word.
+ * The one sentence every copy flow (testnet and paper) shows for a failure:
+ * the code's own text, a refused signature, busy (502/503/504, Hyperliquid,
+ * the network), rate limited (429), signed out (401), else the flow's
+ * fallback or the generic line. Never a raw code or English status word.
  */
-export function copyErrorText(texts: CopyTexts, error: unknown): string {
+export function copyErrorText(texts: CopyTexts, error: unknown, options: CopyErrorOptions = {}): string {
   const code = copyErrorCode(error);
+  if (code && options.codes && Object.hasOwn(options.codes, code)) return options.codes[code]!;
   if (code === "strategy_limit" && error instanceof ApiError) {
     const limit = String(error.details.limit ?? "");
     const unfinished = Array.isArray(error.details.unfinished) ? error.details.unfinished as Array<{ leaderAddress?: unknown }> : [];
@@ -71,5 +78,5 @@ export function copyErrorText(texts: CopyTexts, error: unknown): string {
   if (isTransient(error)) return texts.extra.busy;
   if (error instanceof ApiError && error.status === 429) return texts.extra.rateLimited;
   if (error instanceof ApiError && (error.status === 401 || code === "authentication_required")) return texts.extra.signInAgain;
-  return texts.live.errors.generic;
+  return options.fallback ?? texts.live.errors.generic;
 }

@@ -22,6 +22,8 @@ import { useI18n } from "@/i18n/provider";
 import type { MessageKey } from "@/i18n/messages";
 import { amountInput } from "@/lib/amount-input";
 import { apiErrorCode } from "@/lib/api";
+import { copyErrorText } from "@/lib/copy-error-text";
+import { useCopyTexts } from "@/components/copy/live-copy-setup-dialogs";
 import type { CopyOrderView, CopyPositionView, CopyStrategyView } from "@/lib/contracts";
 import { copyDays, useAddCopyFunds, useCopyCommand, useCopyOrders, usePatchCopy, useWithdrawCopyFunds } from "@/lib/copy";
 import { useTraderCards } from "@/lib/favorite-groups";
@@ -223,20 +225,18 @@ function orderReason(o: CopyOrderView): string | null {
   return o.reason.replaceAll("_", " ");
 }
 
-/** A paper copy command's failure in words: the code's own text, busy or
- * rate limited, else `fallback` (never one line for every action). */
-export function paperCopyErrorText(t: (key: MessageKey, values?: Record<string, string | number>) => string, err: unknown, fallback: MessageKey): string {
-  const code = apiErrorCode(err), status = (err as { status?: number } | null)?.status;
-  if (code === "copy_paused") return t("trader.copy.errors.paused");
-  if (code === "copy_not_open" || code === "copy_disabled") return t("trader.copy.errors.disabled");
-  if (status === 429) return t("common.errors.rateLimited");
-  if (status === 502 || status === 503 || status === 504) return t("common.errors.busy");
-  return t(fallback);
+/** A paper copy command's failure in words (copyErrorText): the paper
+ * codes' own text, busy or rate limited, else `fallback` (never one line for
+ * every action). */
+export function usePaperCopyErrorText() {
+  const { t } = useI18n(), texts = useCopyTexts();
+  return (err: unknown, fallback: MessageKey) => copyErrorText(texts, err, { fallback: t(fallback),
+    codes: { copy_paused: t("trader.copy.errors.paused"), copy_not_open: t("trader.copy.errors.disabled"), copy_disabled: t("trader.copy.errors.disabled") } });
 }
 
 /** One copy: CopyDog's account view (your copy, P&L, ROI, capital, equity, days, direction), its actions, settings, positions and paper orders. */
 export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy: CopyStrategyView; leader: Leader; balance: number; onBack: () => void }) {
-  const { t, format } = useI18n();
+  const { t, format } = useI18n(), paperCopyErrorText = usePaperCopyErrorText();
   const command = useCopyCommand();
   const toast = useToast();
   const [orderPages, setOrderPages] = useState<string[]>([]);
@@ -252,7 +252,7 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
       toast.success(t(c === "pause" ? "toast.copy.paused" : "toast.copy.resumed"));
     } catch (err) {
       // Its own words (web audit L7), not the edit dialog's.
-      const line = paperCopyErrorText(t, err, "portfolio.copy.actions.failed");
+      const line = paperCopyErrorText(err, "portfolio.copy.actions.failed");
       setError(line); toast.error(line);
     }
   };
@@ -407,7 +407,7 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
 
 /** CopyDog's 停止跟單: with open positions it's 停止並平倉 (they are closed). */
 function StopDialog({ strategy: s, open, onClose }: { strategy: CopyStrategyView; open: boolean; onClose: () => void }) {
-  const { t } = useI18n();
+  const { t } = useI18n(), paperCopyErrorText = usePaperCopyErrorText();
   const command = useCopyCommand();
   const toast = useToast(), pending = usePendingToast();
   const [error, setError] = useState<string | null>(null);
@@ -430,7 +430,7 @@ function StopDialog({ strategy: s, open, onClose }: { strategy: CopyStrategyView
                 toast.success(t("toast.copy.stopped"));
                 onClose();
               } catch (err) {
-                const line = paperCopyErrorText(t, err, "portfolio.copy.stop.failed");
+                const line = paperCopyErrorText(err, "portfolio.copy.stop.failed");
                 setError(line); toast.error(line);
               }
             }}

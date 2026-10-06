@@ -2664,6 +2664,7 @@ export const zhTW = {
     fundsTitle: "你的資金不會被刪除",
     fundsBody: "資金一直在你自己的錢包裡（由 Privy 保護），Orbie 無法動用，刪除帳號也不會動到它。刪除前請先匯出私鑰，之後可以用私鑰在任何錢包取回資金。",
     exportFirst: "先匯出私鑰",
+    done: "你的 Orbie 帳號已刪除。",
     removedTitle: "會刪除的資料",
     removedFavorites: "收藏的交易員與收藏群組",
     removedAlerts: "交易提醒設定與 Telegram 連結",

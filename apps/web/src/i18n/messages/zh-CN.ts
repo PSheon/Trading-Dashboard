@@ -1607,6 +1607,7 @@ export const zhCN: Messages = {
     fundsTitle: "你的资金不会被删除",
     fundsBody: "资金一直在你自己的钱包里（由 Privy 保护），Orbie 无法动用，删除账号也不会动到它。删除前请先导出私钥，之后可以用私钥在任何钱包中取回资金。",
     exportFirst: "先导出私钥",
+    done: "你的 Orbie 账号已删除。",
     removedTitle: "将删除的数据",
     removedFavorites: "收藏的交易员与收藏群组",
     removedAlerts: "交易提醒设置与 Telegram 连接",

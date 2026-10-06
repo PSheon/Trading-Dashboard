@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import { Suspense } from "react";
 
+import { AccountDeletedToast } from "@/components/home/account-deleted-toast";
 import { HomeSkeleton, HomeView } from "@/components/home/home-view";
 import { clientAddress } from "@/lib/client-address";
 import { APP_NAME } from "@/lib/config";
@@ -16,9 +17,13 @@ export const generateMetadata = seo("/", (m) => ({ title: `${m.meta.homeTitle} |
  * down the page falls back to the browser's own fetch, as before. */
 export default function HomePage() {
   return (
-    <Suspense fallback={<HomeSkeleton />}>
-      <PrefetchedHome />
-    </Suspense>
+    <>
+      <Suspense fallback={<HomeSkeleton />}>
+        <PrefetchedHome />
+      </Suspense>
+      {/* `?accountDeleted=1` after a self-service deletion: one toast. */}
+      <Suspense fallback={null}><AccountDeletedToast /></Suspense>
+    </>
   );
 }
 

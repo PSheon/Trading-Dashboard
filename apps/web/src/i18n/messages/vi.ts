@@ -1607,6 +1607,7 @@ export const vi: Messages = {
     fundsTitle: "Tiền của bạn không bị xóa",
     fundsBody: "Tiền của bạn luôn nằm trong ví của chính bạn (được Privy bảo vệ). Orbie không thể chuyển số tiền đó, và việc xóa tài khoản không ảnh hưởng đến nó. Hãy xuất khóa riêng tư trước; với khóa này, bạn có thể lấy lại tiền trong bất kỳ ví nào.",
     exportFirst: "Xuất khóa riêng tư trước",
+    done: "Tài khoản Orbie của bạn đã bị xóa.",
     removedTitle: "Những gì sẽ bị xóa",
     removedFavorites: "Các trader và nhóm bạn đã lưu",
     removedAlerts: "Cài đặt cảnh báo giao dịch và liên kết Telegram",

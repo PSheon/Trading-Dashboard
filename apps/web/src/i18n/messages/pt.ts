@@ -1607,6 +1607,7 @@ export const pt: Messages = {
     fundsTitle: "Seus fundos não são excluídos",
     fundsBody: "Seus fundos ficam sempre na sua própria carteira (protegida pela Privy). O Orbie não pode movimentá-los, e excluir sua conta não os afeta. Exporte sua chave privada antes; com ela, você recupera os fundos em qualquer carteira.",
     exportFirst: "Exportar chave privada antes",
+    done: "Sua conta Orbie foi excluída.",
     removedTitle: "O que é excluído",
     removedFavorites: "Seus traders salvos e grupos",
     removedAlerts: "Configurações de alertas de operações e o vínculo com o Telegram",

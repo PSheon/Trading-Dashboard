@@ -2660,6 +2660,7 @@ export const en: Messages = {
     fundsTitle: "Your funds are not deleted",
     fundsBody: "Your funds always stay in your own wallet (protected by Privy). Orbie cannot move them, and deleting your account doesn't touch them. Export your private key first; with it you can recover the funds in any wallet.",
     exportFirst: "Export private key first",
+    done: "Your Orbie account was deleted.",
     removedTitle: "What is deleted",
     removedFavorites: "Your saved traders and groups",
     removedAlerts: "Trade alert settings and the Telegram link",

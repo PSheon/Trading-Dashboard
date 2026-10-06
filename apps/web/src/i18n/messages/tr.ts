@@ -1607,6 +1607,7 @@ export const tr: Messages = {
     fundsTitle: "Fonlarınız silinmez",
     fundsBody: "Fonlarınız her zaman kendi cüzdanınızda kalır (Privy tarafından korunur). Orbie onları taşıyamaz ve hesabınızı silmek onlara dokunmaz. Önce özel anahtarınızı dışa aktarın; onunla fonlarınızı herhangi bir cüzdanda geri alabilirsiniz.",
     exportFirst: "Önce özel anahtarı dışa aktar",
+    done: "Orbie hesabınız silindi.",
     removedTitle: "Silinecekler",
     removedFavorites: "Kaydettiğiniz trader'lar ve gruplar",
     removedAlerts: "İşlem uyarısı ayarları ve Telegram bağlantısı",

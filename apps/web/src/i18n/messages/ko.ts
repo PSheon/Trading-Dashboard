@@ -1607,6 +1607,7 @@ export const ko: Messages = {
     fundsTitle: "자금은 삭제되지 않습니다",
     fundsBody: "자금은 항상 본인의 지갑에 있습니다(Privy가 보호). Orbie는 자금을 옮길 수 없으며, 계정을 삭제해도 자금에는 영향이 없습니다. 먼저 개인 키를 내보내세요. 개인 키가 있으면 어느 지갑에서든 자금을 되찾을 수 있습니다.",
     exportFirst: "먼저 개인 키 내보내기",
+    done: "Orbie 계정이 삭제되었습니다.",
     removedTitle: "삭제되는 항목",
     removedFavorites: "저장한 트레이더와 그룹",
     removedAlerts: "거래 알림 설정과 Telegram 연결",

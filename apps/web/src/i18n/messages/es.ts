@@ -1607,6 +1607,7 @@ export const es: Messages = {
     fundsTitle: "Tus fondos no se eliminan",
     fundsBody: "Tus fondos siempre permanecen en tu propia wallet (protegida por Privy). Orbie no puede moverlos y eliminar tu cuenta no los toca. Exporta primero tu clave privada; con ella puedes recuperar los fondos en cualquier wallet.",
     exportFirst: "Exportar primero la clave privada",
+    done: "Tu cuenta de Orbie se eliminó.",
     removedTitle: "Qué se elimina",
     removedFavorites: "Tus traders guardados y tus grupos",
     removedAlerts: "Los ajustes de alertas de operaciones y el vínculo con Telegram",

@@ -1607,6 +1607,7 @@ export const ja: Messages = {
     fundsTitle: "資金は削除されません",
     fundsBody: "資金は常にあなた自身のウォレット（Privy により保護）にあります。Orbie が動かすことはできず、アカウントを削除しても影響はありません。先に秘密鍵をエクスポートしておけば、どのウォレットでも資金を取り戻せます。",
     exportFirst: "先に秘密鍵をエクスポート",
+    done: "Orbie アカウントを削除しました。",
     removedTitle: "削除されるもの",
     removedFavorites: "保存したトレーダーとグループ",
     removedAlerts: "取引アラートの設定と Telegram 連携",

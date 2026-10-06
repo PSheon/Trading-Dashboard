@@ -6,6 +6,7 @@ import type { DrizzleDb } from '../../db/drizzle.provider.js';
 import type { UnitOfWork } from '../../db/unit-of-work.js';
 import { HyperliquidGlobalTransport } from '../../hyperliquid/hyperliquid-global-transport.js';
 import { RequestBudgeterService } from '../../hyperliquid/request-budgeter.service.js';
+import { reserveLive } from '../../hyperliquid/hyperliquid-budget-wait.js';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
 import { roundPx, slippedPx } from '../copy-math.js';
 import { HyperliquidAgentApprovalVerifier } from '../live/hyperliquid-agent-approval.js';
@@ -60,7 +61,7 @@ export class TestnetReduceOnlyCloser {
   constructor(private readonly pool: Pool, private readonly db: DrizzleDb, private readonly uow: UnitOfWork, private readonly config: AppConfig,
     private readonly global: HyperliquidGlobalTransport, private readonly budget: RequestBudgeterService, private readonly slippageBps: number,
     private readonly now = Date.now) {}
-  private acquire = (weight: number) => this.budget.acquire(weight, 'live', undefined, { signal: AbortSignal.timeout(5000) });
+  private acquire = (weight: number) => reserveLive(this.budget, weight, { maxWaitMs: 5000 });
 
   /** A fresh all-venue observation of the account (positions and orders). */
   async observe(accountAddress: string): Promise<LiveAccountSnapshot> {

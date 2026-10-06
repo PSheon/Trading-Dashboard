@@ -4,6 +4,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { copyLiveExecutions, copyLiveRiskReservations } from '@trading-dashboard/shared/database';
 import { HyperliquidGlobalTransport } from '../../hyperliquid/hyperliquid-global-transport.js';
 import { RequestBudgeterService } from '../../hyperliquid/request-budgeter.service.js';
+import { reserveLive } from '../../hyperliquid/hyperliquid-budget-wait.js';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
 import { NEVER_PLACED, type LiveExecutionRecord } from '../live/live-execution.js';
 import { HyperliquidLiveAccountObserver } from '../live/live-account-observer.js';
@@ -34,7 +35,7 @@ export class CopyLiveSettler {
   constructor(private readonly pool: Pool, private readonly global: HyperliquidGlobalTransport, private readonly budget: RequestBudgeterService,
     private readonly scanner: { runFor(accountId: string): Promise<void> }, private readonly now = Date.now) {}
 
-  private acquire = (weight: number) => this.budget.acquire(weight, 'live', undefined, { signal: AbortSignal.timeout(5000) });
+  private acquire = (weight: number) => reserveLive(this.budget, weight, { maxWaitMs: 5000 });
 
   async settle(request: LiveSettleRequest): Promise<LiveSettleOutcome> {
     const record = await this.record(request.key);

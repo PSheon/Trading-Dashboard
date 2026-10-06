@@ -1,6 +1,7 @@
 import { Injectable,Optional } from "@nestjs/common";
 import { WALLET_NETWORKS, usdSendRequest, withdrawalUnits } from "@trading-dashboard/shared/contracts";
 import { RequestBudgeterService } from "../hyperliquid/request-budgeter.service.js";
+import { reserveLive } from "../hyperliquid/hyperliquid-budget-wait.js";
 import { readInfoJson } from "../hyperliquid/response-validation.js";
 import {HyperliquidGlobalTransport} from '../hyperliquid/hyperliquid-global-transport.js';
 import {LiveBoundaryError} from './live/wallet-authorization.js';
@@ -9,9 +10,9 @@ import type { FundingRow } from "./copy-funding.repository.js";
 @Injectable()
 export class CopyFundingExchangeClient {
   constructor(private readonly budget: RequestBudgeterService,@Optional() private readonly global?:HyperliquidGlobalTransport) {if(global!==undefined&&!(global instanceof HyperliquidGlobalTransport))throw new LiveBoundaryError("funding_client_invalid");}
-  acquire() { return this.budget.acquire(1, "live", 0, { signal: AbortSignal.timeout(10_000) }); }
+  acquire() { return reserveLive(this.budget, 1, { maxWaitMs: 10_000 }); }
   private async read(url: string, body: Record<string, unknown>, weight: number): Promise<unknown> {
-    await this.budget.acquire(weight, "live", 0, { signal: AbortSignal.timeout(10_000) });
+    await reserveLive(this.budget, weight, { maxWaitMs: 10_000 });
     const fetcher=this.global?(url.endsWith("/explorer")?this.global.fetchExplorer:this.global.fetchInfo):fetch;
     const response = await fetcher(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), redirect: "error", signal: AbortSignal.timeout(10_000) });
     if (!response.ok) { await response.body?.cancel().catch(() => undefined); throw new Error("Funding evidence unavailable"); }

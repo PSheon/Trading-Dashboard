@@ -675,6 +675,21 @@ export class RequestBudgeterService {
     return short <= 0 ? 0 : this.msToRefill(short, now);
   }
 
+  /**
+   * The most one `live` call can take at once: the whole burst,
+   * `min(HYPERLIQUID_WEIGHT_BURST, 1200 − rate)` (live spends the page
+   * reserve, then the main bucket). A heavier call would wait for a full
+   * bucket and still run into debt; `reserveLive` refuses it at once.
+   */
+  get liveCapacity(): number { return this.capacity; }
+
+  /** Milliseconds the buckets take to refill `weight` (default and at most:
+   * the whole capacity) from empty at the current rate, start-up pacing
+   * and 429 backoff included: how long a reservation may sensibly wait. */
+  refillMs(weight = this.capacity): number {
+    return this.msToRefill(Math.min(Math.max(0, weight), this.capacity), Date.now());
+  }
+
   /** Waiters currently queued per lane (introspection and tests). */
   queued(): Record<RequestPriority, number> {
     return { live: this.queues.live.length, background: this.queues.background.length };

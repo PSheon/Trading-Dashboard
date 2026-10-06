@@ -7,7 +7,7 @@ import { offlineGlobalTransport } from './hyperliquid-global-test-utils.js';
 const op: WithdrawalRow = { id: "test", userId: 1, network: "testnet", address: `0x${"11".repeat(20)}`, destination: `0x${"22".repeat(20)}`, amount: "12.5", nonce: 1780000000000, status: "unknown", origin: "client", claimedAt: new Date(), attemptedAt: new Date(), evidenceHash: null, createdAt: new Date(), updatedAt: new Date() };
 const signature = `0x${"11".repeat(64)}1b`;
 function client() {
-  const budget = { acquire: vi.fn(async () => {}) };
+  const budget = { acquire: vi.fn(async () => {}), liveCapacity: 1000, liveWaitMs: () => 0, refillMs: () => 0 };
   const global = offlineGlobalTransport(fetch);
   return { budget, global, client: new WithdrawalExchangeClient(budget as unknown as RequestBudgeterService, global.transport) };
 }

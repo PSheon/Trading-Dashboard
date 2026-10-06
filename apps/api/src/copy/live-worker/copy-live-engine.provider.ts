@@ -4,11 +4,12 @@ import { AppConfig } from '../../config/app-config.js';
 import { DATABASE_POOL, type DrizzleDb } from '../../db/drizzle.provider.js';
 import { DRIZZLE_CLIENT } from '../../db/db.constants.js';
 import { UnitOfWork } from '../../db/unit-of-work.js';
-import { randomUUID } from 'node:crypto';
-import { HyperliquidGlobalTransport } from '../../hyperliquid/hyperliquid-global-transport.js';
+import { desc } from 'drizzle-orm';
+import { copyRiskPolicies } from '@trading-dashboard/shared/database';
+import { copyRiskLimitsSchema } from '@trading-dashboard/shared/contracts';
 import { WALLET_NETWORK_HL, type WalletNetworkHyperliquid } from '../../hyperliquid/wallet-network-hyperliquid.js';
-import { PostgresHyperliquidQuota } from '../../hyperliquid/postgres-hyperliquid-quota.js';
-import { RequestBudgeterService } from '../../hyperliquid/request-budgeter.service.js';
+import { liveBudget } from '../../hyperliquid/hyperliquid-budget-wait.js';
+import { assertLiveEvidenceCapacity } from '../live/live-shared-reads.js';
 import { CopyMarketService } from '../copy-market.service.js';
 import { HyperliquidLiveSourceClient } from '../copy-live-source.client.js';
 import { CopyLiveSourceRepository } from '../copy-live-source.repository.js';
@@ -38,34 +39,48 @@ export const LIVE_ENGINE = Symbol('LIVE_ENGINE');
 /** Risk inputs the runtime requires besides slippage and the price check. */
 const EXTRA_RISK_BUFFER_BPS = '5', RESTING_BUILDER_FEE_CAP_TENTHS_BPS = 100;
 
+/** The copies one owner may hold (the newest explicit risk policy); 1 when
+ * there is none yet (live copies need one, and any owner has at least one). */
+async function maxStrategiesPerUser(db: DrizzleDb): Promise<number> {
+  const [row] = await db.select({ limits: copyRiskPolicies.limits }).from(copyRiskPolicies).orderBy(desc(copyRiskPolicies.version)).limit(1);
+  const parsed = row ? copyRiskLimitsSchema.safeParse(row.limits) : undefined;
+  return parsed?.success ? parsed.data.maxStrategiesPerUser : 1;
+}
+
 /** Builds the engine from the worker's concrete dependencies. Null unless
- * COPY_TRADING_MODE=testnet (whose prerequisites startup already checked). */
+ * COPY_TRADING_MODE=testnet (whose prerequisites startup already checked).
+ * Refuses startup when one order's evidence can't fit the order bucket
+ * (assertLiveEvidenceCapacity). */
 export const liveEngineProvider: Provider = {
   provide: LIVE_ENGINE,
-  inject: [AppConfig, DATABASE_POOL, DRIZZLE_CLIENT, UnitOfWork, PostgresHyperliquidQuota, CopyMarketService, CopyFollowerLedger,
+  inject: [AppConfig, DATABASE_POOL, DRIZZLE_CLIENT, UnitOfWork, CopyMarketService, CopyFollowerLedger,
     CopyLiveSourceRepository, CopyLiveWorkerRepository, CopyFollowerScanRepository, CopyLiveStopWorkerRepository, CopyLiveReturnRepository, CopyLiveSetupService, WALLET_NETWORK_HL,
     HyperliquidInfoClient, { token: TradeFeedService, optional: true }],
-  useFactory: (config: AppConfig, pool: Pool, db: DrizzleDb, uow: UnitOfWork, quota: PostgresHyperliquidQuota,
+  useFactory: async (config: AppConfig, pool: Pool, db: DrizzleDb, uow: UnitOfWork,
     market: CopyMarketService, ledger: CopyFollowerLedger, sources: CopyLiveSourceRepository, repository: CopyLiveWorkerRepository, scans: CopyFollowerScanRepository, stops: CopyLiveStopWorkerRepository, returns: CopyLiveReturnRepository, setups: CopyLiveSetupService, wallet: WalletNetworkHyperliquid,
-    info: HyperliquidInfoClient, feed?: TradeFeedService): CopyLiveEngine | null => {
+    info: HyperliquidInfoClient, feed?: TradeFeedService): Promise<CopyLiveEngine | null> => {
     const live = config.value.copy.live;
     if (config.value.copy.mode !== 'testnet' || !live) return null;
     const logger = new Logger('CopyLiveEngine');
-    // Testnet execution reads go to a separate host with its own per-IP
-    // limit: their own token bucket and shared egress key, so they neither
-    // starve nor are starved by the mainnet watcher's budget.
-    const hl = config.value.hyperliquid, egressKey = `${hl.egressKey}:testnet`;
-    const testnetConfig = new AppConfig({ ...config.value, hyperliquid: { ...hl, egressKey, budgetPerMin: live.weightPerMin, burst: 1200 - live.weightPerMin, startupPaceSeconds: 0 } });
-    // The process's one testnet bucket (HyperliquidModule), shared with the
-    // worker's setup pass and snapshot collector: before, the engine had a
-    // bucket of its own, a third testnet rate + burst against the one meter.
-    const testnetBudget = wallet.dedicated ? wallet.budget : new RequestBudgeterService(testnetConfig);
-    const testnetGlobal = wallet.dedicated ? wallet.transport : new HyperliquidGlobalTransport(quota, { egressKey, ownerId: randomUUID() });
+    // The process's one bucket for the wallet network (HyperliquidModule),
+    // shared with the worker's setup pass and snapshot collector: no other
+    // bucket on the same network (on testnet a separate host with its own
+    // per-IP limit, so it neither starves nor is starved by the mainnet
+    // watcher's budget).
+    const { budget: testnetBudget, transport: testnetGlobal, config: testnetConfig } = wallet;
+    const fit = assertLiveEvidenceCapacity({ capacity: testnetBudget.liveCapacity, maxStrategiesPerUser: await maxStrategiesPerUser(db),
+      network: wallet.network, budgetPerMin: testnetConfig.value.hyperliquid.budgetPerMin });
+    logger.log(`Order bucket (${wallet.network}): capacity ${fit.capacity}; the heaviest order evidence (${fit.users - 1} accounts + the leader) weighs ${fit.weight}`);
+    // Every read and action takes its weight through reserveLive: a wait
+    // that runs out is a HyperliquidBudgetWait (stored as live_budget_wait),
+    // one heavier than the bucket fails at once (live_budget_over_capacity).
+    // These readers bound the wait themselves (their clock): at most 5 s.
+    const reserve = liveBudget(testnetBudget, { maxWaitMs: 5000 });
     const reference = new MainnetSourceReferenceReader(market);
     const options = { slippageBps: String(live.slippageBps), extraRiskBufferBps: EXTRA_RISK_BUFFER_BPS,
       restingOrderBuilderFeeCapTenthsBps: RESTING_BUILDER_FEE_CAP_TENTHS_BPS, maxSourceDeviationBps: String(live.maxSourceDeviationBps) };
     const scanner = new CopyFollowerReconciler(scans, ledger,
-      new HyperliquidFollowerReceiptReader('testnet', weight => testnetBudget.acquire(weight, 'live', undefined, { signal: AbortSignal.timeout(5000) }), testnetGlobal.fetchInfo,
+      new HyperliquidFollowerReceiptReader('testnet', weight => reserve(weight), testnetGlobal.fetchInfo,
         Date.now, weight => { if (weight > 0) testnetBudget.adjust(-weight); }));
     const closer = new TestnetReduceOnlyCloser(pool, db, uow, testnetConfig, testnetGlobal, testnetBudget, Math.max(100, live.slippageBps * 3));
     const stopper = new CopyLiveStopper({ repository: stops, closer, log: message => logger.warn(message), revokeDeadlineMs: live.revokeDeadlineMs,
@@ -92,7 +107,7 @@ export const liveEngineProvider: Provider = {
     } : undefined;
     return new CopyLiveEngine({ setups, stopper: { tick: async () => { await stopper.tick(); await manual.tick(); } },
       repository, sources, uow, watched: new WatchedMainnetSource(db),
-      testnetSource: new HyperliquidLiveSourceClient('testnet', weight => testnetBudget.acquire(weight, 'live', undefined, { signal: AbortSignal.timeout(5000) }), testnetGlobal.fetchInfo,
+      testnetSource: new HyperliquidLiveSourceClient('testnet', weight => reserve(weight), testnetGlobal.fetchInfo,
         Date.now, weight => { if (weight > 0) testnetBudget.adjust(-weight); }),
       runtime: hooks => new TestnetLiveExecutionRuntime(pool, testnetConfig, testnetGlobal, testnetBudget, options, Date.now, { ...hooks, reference }),
       settler: new CopyLiveSettler(pool, testnetGlobal, testnetBudget, scanner),

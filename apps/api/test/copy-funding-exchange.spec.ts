@@ -5,7 +5,7 @@ import type { FundingRow } from "../src/copy/copy-funding.repository.js";
 
 const op: FundingRow = { id: "test", userId: 1, accountId: "account", strategyId: 1, idempotencyKey: "test-key", network: "testnet", address: `0x${"11".repeat(20)}`, destination: `0x${"22".repeat(20)}`, amount: "12.5", nonce: 1780000000000, status: "unknown", direction: "to_account", stopId: null, claimedAt: new Date(), attemptedAt: new Date(), evidenceHash: null, transactionHash: null, creditedAmount: null, fee: null, scanState: null, scanRevision: 0, liveSetupId: null, signerKind: null, createdAt: new Date(), updatedAt: new Date() };
 const signature = `0x${"11".repeat(64)}1b`;
-function client() { const budget = { acquire: vi.fn(async () => {}) }; return { budget, transport: new CopyFundingExchangeClient(budget as unknown as RequestBudgeterService) }; }
+function client() { const budget = { acquire: vi.fn(async () => {}), liveCapacity: 1000, liveWaitMs: () => 0, refillMs: () => 0 }; return { budget, transport: new CopyFundingExchangeClient(budget as unknown as RequestBudgeterService) }; }
 afterEach(() => vi.unstubAllGlobals());
 describe("strategy funding trusted transport", () => {
   it("sends the immutable usdSend exactly once to its stored network with bounded waits and no redirects", async () => {

@@ -10,6 +10,7 @@ import { copyExecutionAccounts, copyLiveMandates, copyLiveExecutions, copyLiveIn
 import { AppConfig } from '../../config/app-config.js';
 import { HyperliquidGlobalTransport } from '../../hyperliquid/hyperliquid-global-transport.js';
 import { RequestBudgeterService } from '../../hyperliquid/request-budgeter.service.js';
+import { liveBudget } from '../../hyperliquid/hyperliquid-budget-wait.js';
 import { Dec } from '../../common/decimal/dec.js';
 import { decodeLiveCopyMandate } from '../copy-live-mandate-evidence.js';
 import { PostgresLivePreparation, liveSourceExecutionCloid, type LivePreparationOptions } from './postgres-live-preparation.js';
@@ -132,10 +133,13 @@ export class TestnetLiveExecutionRuntime {
       // Resolve global configuration against the original private context before
       // creating native clients. No unscoped fallback can open a second pool.
       this.global.currentQuota();
-      // A budget wait that runs out is said as such (Stage 2026-10-06: it
-      // surfaced as an uncoded TimeoutError and was stored as live_execution_failed).
-      const acquire = (weight: number) => this.budget.acquire(weight, 'live', undefined, { signal: AbortSignal.timeout(5000) })
-        .catch((error: unknown) => { throw error instanceof Error && error.name === 'TimeoutError' ? new LiveBoundaryError('live_budget_wait_timeout') : error; });
+      // Weight through reserveLive: a wait that runs out is a
+      // HyperliquidBudgetWait (stored as live_budget_wait), never an uncoded
+      // TimeoutError (Stage 2026-10-06), and a weight the bucket can never
+      // hold fails at once (live_budget_over_capacity). The order's evidence
+      // is paid up front and may wait the bucket's refill time; the small
+      // reads around a clock wait at most 5 s, as before.
+      const prepay = liveBudget(this.budget), acquire = liveBudget(this.budget, { maxWaitMs: 5000 });
       // Each account read gets its own socket: the epoch observes every live
       // account of the owner at once (one shared source refused all but one).
       const sockets = new PerReadAllDexsAccountSource(() => new HyperliquidAllDexsAccountSource(this.now, undefined, 'testnet', this.global));
@@ -145,7 +149,7 @@ export class TestnetLiveExecutionRuntime {
       const reservations = new PostgresLiveReservations(this.now);
       // One order's evidence reads are shared by the observer, the resolver
       // and the risk providers, and each wave goes out as one meter charge.
-      const epoch = new LiveProviderReadEpoch(observer, resolver, provider, this.options, this.now, { acquire, fetcher: this.global.fetchInfo,
+      const epoch = new LiveProviderReadEpoch(observer, resolver, provider, this.options, this.now, { acquire: prepay, fetcher: this.global.fetchInfo,
         batch: (bodies, onDispatch) => this.global.fetchInfoBatch(TESTNET_INFO, bodies, { maxWaitMs: 0, onDispatch: () => { onDispatch(); return undefined; } }) });
       try {
         const existing = await this.existing(session, request, key);

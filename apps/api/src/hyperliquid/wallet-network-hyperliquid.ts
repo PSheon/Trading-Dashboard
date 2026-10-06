@@ -20,18 +20,27 @@ import { RequestBudgeterService } from './request-budgeter.service.js';
  * On mainnet it is the process's own mainnet budget, transport and client. */
 export const WALLET_NETWORK_HL = Symbol('WALLET_NETWORK_HL');
 export interface WalletNetworkHyperliquid {
+  /** The network the users' wallets and copy accounts live on. */
+  readonly network: 'mainnet' | 'testnet';
+  /** THE token bucket for this network in this process: every caller on it
+   * (setup steps, wallet reads, the worker's copy engine, closer, settler,
+   * stopper and snapshot collector) takes weight from this one, through
+   * `reserveLive` (hyperliquid-budget-wait.ts). */
   readonly budget: RequestBudgeterService; readonly transport: HyperliquidGlobalTransport;
   /** Info reads (balances, ledgers) on the wallet network's budget and transport. */
   readonly info: HyperliquidInfoClient;
+  /** The configuration `budget` was built from (its rate, burst and egress
+   * key): what the network's runtime clients are constructed with. */
+  readonly config: AppConfig;
   /** True when these are the testnet's own (not the mainnet ones). */
   readonly dedicated: boolean;
 }
 export function walletNetworkHyperliquid(config: AppConfig, budget: RequestBudgeterService, transport: HyperliquidGlobalTransport, quota: PostgresHyperliquidQuota,
   info?: HyperliquidInfoClient, jobs: BackgroundJobs = new BackgroundJobs()): WalletNetworkHyperliquid {
-  const hl = config.value.hyperliquid;
-  if (hl.wallet.network !== 'testnet' || !hl.egressKey) return { budget, transport, info: info ?? new HyperliquidInfoClient(config, budget, jobs, transport), dedicated: false };
+  const hl = config.value.hyperliquid, network = hl.wallet.network;
+  if (network !== 'testnet' || !hl.egressKey) return { network, budget, transport, info: info ?? new HyperliquidInfoClient(config, budget, jobs, transport), config, dedicated: false };
   const weightPerMin = config.value.copy.live?.weightPerMin ?? 300, egressKey = `${hl.egressKey}:testnet`;
   const testnetConfig = new AppConfig({ ...config.value, hyperliquid: { ...hl, egressKey, budgetPerMin: weightPerMin, burst: 1200 - weightPerMin, startupPaceSeconds: 0 } });
   const testnetBudget = new RequestBudgeterService(testnetConfig), testnetTransport = new HyperliquidGlobalTransport(quota, { egressKey, ownerId: randomUUID() });
-  return { budget: testnetBudget, transport: testnetTransport, info: new HyperliquidInfoClient(testnetConfig, testnetBudget, jobs, testnetTransport), dedicated: true };
+  return { network, budget: testnetBudget, transport: testnetTransport, info: new HyperliquidInfoClient(testnetConfig, testnetBudget, jobs, testnetTransport), config: testnetConfig, dedicated: true };
 }

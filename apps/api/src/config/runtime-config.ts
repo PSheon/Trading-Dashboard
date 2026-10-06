@@ -137,6 +137,10 @@ function copyTrading(source: Environment, wallet: "mainnet" | "testnet", egressK
   };
 }
 
+/** A mainnet worker's own Hyperliquid budget by default (rate, burst): see
+ * `hyperliquid.budgetPerMin`. */
+export const MAINNET_WORKER_WEIGHT = { perMin: 360, burst: 840 } as const;
+
 function decimalValue(key: string, raw: string | undefined, fallback: number, min: number, max: number): number {
   if (raw === undefined) return fallback;
   const parsed = Number(raw.trim());
@@ -319,6 +323,7 @@ export function validateEnvironment(source: Environment = process.env) {
   // discovery read. It fails here instead (staging and production; local
   // development and tests may run without it, public reads then fail).
   if (production && !egressKey) throw new Error("HYPERLIQUID_EGRESS_KEY is required in staging and production (the same value on the api and the worker)");
+  const wallet = walletNetwork(source), mainnetWorker = isWorker && wallet.network === "mainnet";
   const hyperliquid = {
     /** All application processes sharing outbound capacity use this exact
      * alias. Missing configuration never grants unmetered actual execution. */
@@ -331,12 +336,22 @@ export function validateEnvironment(source: Environment = process.env) {
      * (HYPERLIQUID_BACKGROUND_REST_CAP). A worker beside an api that reads the
      * same environment (one .env on one machine) takes
      * HYPERLIQUID_WORKER_WEIGHT_*, as it takes WORKER_PORT; a deployment
-     * sets each service's own HYPERLIQUID_WEIGHT_* instead. */
-    budgetPerMin: isWorker && source.HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN !== undefined
-      ? integerValue("HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN", source.HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN, 360, 1, 1199)
+     * sets each service's own HYPERLIQUID_WEIGHT_* instead.
+     *
+     * A worker on the MAINNET wallet network always takes
+     * HYPERLIQUID_WORKER_WEIGHT_* (default 360 / 840): there the copy orders'
+     * evidence is paid from this process bucket (wallet-network-hyperliquid.ts),
+     * and one order of an owner with two accounts plus the leader weighs 772
+     * (live-shared-reads.ts liveEvidencePrepaidWeight), more than the api-shaped
+     * 200 (or Stage's 100) burst can ever hold. 360 keeps the worker's rate
+     * (api 480 + worker 360 = the meter's 840 background lane); the 840 burst
+     * is the rest of the IP's 1,200 and holds that order (capacity 840; the
+     * startup check refuses to boot when it doesn't fit). */
+    budgetPerMin: isWorker && (mainnetWorker || source.HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN !== undefined)
+      ? integerValue("HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN", source.HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN, MAINNET_WORKER_WEIGHT.perMin, 1, 1199)
       : integerValue("HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", source.HYPERLIQUID_WEIGHT_BUDGET_PER_MIN, 840, 1, 1199),
-    burst: isWorker && source.HYPERLIQUID_WORKER_WEIGHT_BURST !== undefined
-      ? integerValue("HYPERLIQUID_WORKER_WEIGHT_BURST", source.HYPERLIQUID_WORKER_WEIGHT_BURST, 100, 1, 1200)
+    burst: isWorker && (mainnetWorker || source.HYPERLIQUID_WORKER_WEIGHT_BURST !== undefined)
+      ? integerValue("HYPERLIQUID_WORKER_WEIGHT_BURST", source.HYPERLIQUID_WORKER_WEIGHT_BURST, MAINNET_WORKER_WEIGHT.burst, 1, 1200)
       : integerValue("HYPERLIQUID_WEIGHT_BURST", source.HYPERLIQUID_WEIGHT_BURST, 200, 1, 1200),
     /** Share of the budget rate the page reserve keeps refilling at while
      * page work is over its share of the minute: the floor pages always get. */
@@ -345,7 +360,7 @@ export function validateEnvironment(source: Environment = process.env) {
      * long: during a redeploy the instance it replaces is still spending
      * the same IP limit. 0: full rate and a full burst at once. */
     startupPaceSeconds: integerValue("HYPERLIQUID_STARTUP_PACE_SECONDS", source.HYPERLIQUID_STARTUP_PACE_SECONDS, 60, 0, 600),
-    wallet: walletNetwork(source),
+    wallet,
   };
   const alert = { maxActionAgeSeconds: integerValue("ALERT_MAX_ACTION_AGE_SECONDS", source.ALERT_MAX_ACTION_AGE_SECONDS, 120, 1, 86400) };
   const stream = {

@@ -4,13 +4,16 @@ import { HyperliquidLiveRiskProvider, type LiveRiskProviderOptions, type LiveRis
 import { assertOriginalLiveRiskSession, type LiveRiskDatabaseSession } from './postgres-live-risk-scope.js';
 import { loadLivePreparationAuthority, riskSourceDigest, riskSourceRequire } from './postgres-live-risk-authority.js';
 import { freezeLiveReservation } from './live-risk-reservation.js';
-import { accountModeBodies, liveInfoWeights, LiveSharedReads, type LiveInfoBatch } from './live-shared-reads.js';
+import { evidenceFinalCheck, evidenceFirstWave, liveInfoWeights, LiveSharedReads, type LiveInfoBatch } from './live-shared-reads.js';
+import type { LiveReserveOptions } from '../../hyperliquid/hyperliquid-budget-wait.js';
 import { address } from './wallet-authorization.js';
 
 /** Shared provider reads for an epoch (testnet): the budget the epoch pays
  * its reads from, the info fetch, and the batch transport for each wave. */
 export interface LiveEpochSharing {
-  readonly acquire: (weight: number) => Promise<unknown>;
+  /** The order bucket (reserveLive): bounds its own wait, and refuses at once
+   * a weight it can never hold. */
+  readonly acquire: (weight: number, options?: LiveReserveOptions) => Promise<unknown>;
   readonly fetcher: typeof fetch;
   readonly batch?: LiveInfoBatch;
 }
@@ -156,10 +159,9 @@ export class LiveProviderReadEpoch {
     const target = address(authority.account.address!), users = [...new Set([...authority.accounts.map(a => address(a.address!)),
       ...(binding.includeLeader ? [address(authority.consent.leaderAddress)] : [])])];
     const dex = binding.coin.includes(':') ? binding.coin.split(':')[0]! : '';
-    const finalBodies = [...users.flatMap(accountModeBodies), { type: 'perpDexs' }];
-    const first = [...users.flatMap(accountModeBodies), { type: 'perpDexs' }, { type: 'spotMeta' }, { type: 'allPerpMetas' },
-      { type: 'meta', ...(dex ? { dex } : {}) }, { type: 'metaAndAssetCtxs', dex }, { type: 'activeAssetData', user: target, coin: binding.coin }, { type: 'userFees', user: target }];
-    // Every read's weight, the final check's too, before the clock starts.
+    const finalBodies = evidenceFinalCheck(users), first = evidenceFirstWave(users, target, binding.coin);
+    // Every read's weight, the final check's too, before the clock starts
+    // (liveEvidencePrepaidWeight: what the startup capacity check assumes).
     await shared.pay(liveInfoWeights(first) + liveInfoWeights(finalBodies));
     const firstWave = shared.wave(first);
     void firstWave.catch(() => {});

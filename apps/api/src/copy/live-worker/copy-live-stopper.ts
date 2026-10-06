@@ -6,6 +6,7 @@ import { AppConfig } from '../../config/app-config.js';
 import type { DrizzleDb } from '../../db/drizzle.provider.js';
 import { HyperliquidGlobalTransport } from '../../hyperliquid/hyperliquid-global-transport.js';
 import { RequestBudgeterService } from '../../hyperliquid/request-budgeter.service.js';
+import { reserveLive } from '../../hyperliquid/hyperliquid-budget-wait.js';
 import { liveStopCancellationIntentDigest } from '../copy-live-stop-consent.js';
 import { HyperliquidAgentApprovalVerifier } from '../live/hyperliquid-agent-approval.js';
 import { HyperliquidTrackedCancellationTransport } from '../live/hyperliquid-cancellation-transport.js';
@@ -166,7 +167,7 @@ export class StopCanceller {
   constructor(private readonly pool: Pool, private readonly db: DrizzleDb, private readonly config: AppConfig, private readonly global: HyperliquidGlobalTransport,
     private readonly budget: RequestBudgeterService, private readonly repository: CopyLiveStopWorkerRepository,
     private readonly reconcile: (account: CloseAccount, key: string) => Promise<LiveExecutionRecord>, private readonly now = Date.now) {}
-  private acquire = (weight: number) => this.budget.acquire(weight, 'live', undefined, { signal: AbortSignal.timeout(5000) });
+  private acquire = (weight: number) => reserveLive(this.budget, weight, { maxWaitMs: 5000 });
 
   async cancel(stop: StopRow, account: CloseAccount, target: { record: LiveExecutionRecord; intent: LiveOrderIntent | null }): Promise<string> {
     if (!target.intent) return 'stop_cancel_target_unproven';

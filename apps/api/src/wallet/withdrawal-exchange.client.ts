@@ -1,6 +1,7 @@
 import { Injectable, Optional } from "@nestjs/common";
 import { WALLET_NETWORKS, withdraw3Request } from "@trading-dashboard/shared/contracts";
 import { RequestBudgeterService } from "../hyperliquid/request-budgeter.service.js";
+import { reserveLive } from "../hyperliquid/hyperliquid-budget-wait.js";
 import { readInfoJson } from "../hyperliquid/response-validation.js";
 import type { WithdrawalRow } from "./withdrawal.repository.js";
 import { HyperliquidGlobalTransport } from '../hyperliquid/hyperliquid-global-transport.js';
@@ -10,7 +11,7 @@ import { LiveBoundaryError } from '../copy/live/wallet-authorization.js';
 @Injectable()
 export class WithdrawalExchangeClient {
   constructor(private readonly budget: RequestBudgeterService, @Optional() private readonly global?: HyperliquidGlobalTransport) {}
-  acquire() { return this.budget.acquire(1, "live", 0, { signal: AbortSignal.timeout(10_000) }); }
+  acquire() { return reserveLive(this.budget, 1, { maxWaitMs: 10_000 }); }
   async send(rawOperation: WithdrawalRow, signature: string, assertFreshProof?: () => void): Promise<unknown> {
     try {
       if (!(this.global instanceof HyperliquidGlobalTransport) || typeof assertFreshProof !== 'function') throw new Error();

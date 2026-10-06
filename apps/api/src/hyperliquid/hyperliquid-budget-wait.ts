@@ -96,3 +96,12 @@ export async function reserveLive(budget: RequestBudgeterService, weight: number
 /** Binds `reserveLive` to one bucket, with defaults a caller's options override. */
 export const liveBudget = (budget: RequestBudgeterService, defaults: LiveReserveOptions = {}): LiveBudget =>
   (weight, options) => reserveLive(budget, weight, { ...defaults, ...options });
+
+/**
+ * Startup check: `budget` can ever hold `weight` (its live capacity), or
+ * every such reservation would fail with live_budget_over_capacity. Throws a
+ * clear error to refuse startup.
+ */
+export function assertBucketHolds(budget: RequestBudgeterService, weight: number, what: string, fix: string): void {
+  if (weight > budget.liveCapacity) throw new Error(`${what} weighs ${weight}, more than this process's Hyperliquid bucket can hold (${budget.liveCapacity}: min(burst, 1200 − rate)). ${fix}`);
+}

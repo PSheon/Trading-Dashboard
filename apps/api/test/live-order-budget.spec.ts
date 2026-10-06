@@ -7,7 +7,8 @@ import { PostgresHyperliquidQuota } from "../src/hyperliquid/postgres-hyperliqui
 import { RequestBudgeterService } from "../src/hyperliquid/request-budgeter.service.js";
 import { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
 import { walletNetworkHyperliquid } from "../src/hyperliquid/wallet-network-hyperliquid.js";
-import { HyperliquidBudgetWait, liveBudget, reserveLive } from "../src/hyperliquid/hyperliquid-budget-wait.js";
+import { assertBucketHolds, HyperliquidBudgetWait, liveBudget, reserveLive } from "../src/hyperliquid/hyperliquid-budget-wait.js";
+import { ATTEMPT_WEIGHT } from "../src/copy/copy-account-mode.service.js";
 import { CopyFundingExchangeClient } from "../src/copy/copy-funding-exchange.client.js";
 import { assertLiveEvidenceCapacity, evidenceFinalCheck, evidenceFirstWave, liveEvidencePrepaidWeight, liveInfoWeights, LiveSharedReads,
   MAX_EVIDENCE_CHARGE } from "../src/copy/live/live-shared-reads.js";
@@ -136,5 +137,13 @@ describe("the order path's token bucket", () => {
     expect(() => charge(full, "bg2", 1, "background", 400)).toThrow();
     expect(charge(full, "order", 772, undefined, 400).events.reduce((sum, e) => sum + e.units, 0)).toBe(1172);
     expect(config({ HYPERLIQUID_BACKGROUND_REST_CAP: "400" }).value.hyperliquid.backgroundRestCap).toBe(400);
+  });
+
+  it("a copy setup's account-mode attempt (613) must fit the bucket that reserves it: the api's mainnet 200 can't, 480/720 can", () => {
+    expect(ATTEMPT_WEIGHT).toBe(613);
+    const api = (env: Record<string, string>) => orderBucket({ HYPERLIQUID_NETWORK: "mainnet", HYPERLIQUID_WEIGHT_BUDGET_PER_MIN: "480", ...env }).budget;
+    expect(() => assertBucketHolds(api({ HYPERLIQUID_WEIGHT_BURST: "200" }), ATTEMPT_WEIGHT, "attempt", "fix")).toThrow(/attempt weighs 613, more than .* \(200: /);
+    expect(() => assertBucketHolds(api({ HYPERLIQUID_WEIGHT_BURST: "720" }), ATTEMPT_WEIGHT, "attempt", "fix")).not.toThrow();
+    expect(() => assertBucketHolds(orderBucket({ HYPERLIQUID_NETWORK: "testnet" }).budget, ATTEMPT_WEIGHT, "attempt", "fix")).not.toThrow();
   });
 });

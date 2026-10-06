@@ -51,7 +51,7 @@ import { CopyFollowerController } from "./copy-follower.controller.js";
 import { CopyFollowerStatementService } from "./copy-follower-statement.service.js";
 import { CopyAccountModeController } from "./copy-account-mode.controller.js";
 import { CopyAccountModeRepository } from "./copy-account-mode.repository.js";
-import { CopyAccountModeService, ACCOUNT_MODE_CLIENT, ACCOUNT_MODE_ABSENCE_READER } from "./copy-account-mode.service.js";
+import { CopyAccountModeService, ACCOUNT_MODE_CLIENT, ACCOUNT_MODE_ABSENCE_READER, ATTEMPT_WEIGHT } from "./copy-account-mode.service.js";
 import { PrivyAccountModeClient } from "./live/privy-account-mode-client.js";
 import { HyperliquidAccountModeAbsenceReader } from "./copy-account-mode-evidence.js";
 import { CopyFollowerActivityRepository } from "./copy-follower-activity.repository.js";
@@ -74,7 +74,7 @@ import { CopyLivePortfolioRepository } from './copy-live-portfolio.repository.js
 import { CopyLiveReturnRepository } from './copy-live-return.repository.js';
 import { CopyLiveReturnService } from './copy-live-return.service.js';
 import { HyperliquidAllDexsAccountSource } from './live/live-account-ws-source.js';
-import { LIVE_RESERVE_WAIT_MS, liveBudget } from "../hyperliquid/hyperliquid-budget-wait.js";
+import { assertBucketHolds, LIVE_RESERVE_WAIT_MS, liveBudget } from "../hyperliquid/hyperliquid-budget-wait.js";
 
 /**
  * Paper copy trading (Stage 4 step 3): /me/copy for the signed-in user, the
@@ -109,11 +109,15 @@ export { WALLET_NETWORK_HL, walletNetworkHyperliquid, type WalletNetworkHyperliq
     CopyFundingRepository, CopyFundingService, {provide:CopyFundingExchangeClient,inject:[WALLET_NETWORK_HL],useFactory:({budget,transport}:WalletNetworkHyperliquid)=>new CopyFundingExchangeClient(budget,transport)},
     CopyAgentRepository, CopyAgentService,
     CopyAccountModeRepository, CopyAccountModeService,
-    { provide: ACCOUNT_MODE_CLIENT, inject: [AppConfig, WALLET_NETWORK_HL], useFactory: (config: AppConfig, { budget, transport }: WalletNetworkHyperliquid) =>
+    { provide: ACCOUNT_MODE_CLIENT, inject: [AppConfig, WALLET_NETWORK_HL], useFactory: (config: AppConfig, { budget, transport, network }: WalletNetworkHyperliquid) => {
+      // A copy setup's account-mode attempt is reserved at once (613): a
+      // bucket that can never hold it would fail every setup at that step.
+      if (config.value.copy.live) assertBucketHolds(budget, ATTEMPT_WEIGHT, "A copy setup's account-mode attempt",
+        network === 'testnet' ? 'Lower COPY_LIVE_WEIGHT_PER_MIN (at most 587).' : 'Raise this process\'s burst (HYPERLIQUID_WEIGHT_BURST on the api, e.g. 480 / 720).');
       // Weight is reserved before any evidence clock starts (reserveLive):
       // a busy bucket answers HyperliquidBudgetWait instead of stale evidence.
       // Setup steps wait at most LIVE_RESERVE_WAIT_MS (their driver's lease).
-      new PrivyAccountModeClient(config.value.auth, liveBudget(budget, { maxWaitMs: LIVE_RESERVE_WAIT_MS }),undefined,Date.now,transport) },
+      return new PrivyAccountModeClient(config.value.auth, liveBudget(budget, { maxWaitMs: LIVE_RESERVE_WAIT_MS }),undefined,Date.now,transport); } },
     { provide: ACCOUNT_MODE_ABSENCE_READER, inject: [WALLET_NETWORK_HL], useFactory: ({ budget, transport }: WalletNetworkHyperliquid) =>
       new HyperliquidAccountModeAbsenceReader(liveBudget(budget, { maxWaitMs: LIVE_RESERVE_WAIT_MS }), transport.fetchInfo, Date.now,
         new HyperliquidAllDexsAccountSource(Date.now, undefined, 'testnet', transport, { closeAfterRead: true }), transport) },

@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { Logger } from '@nestjs/common';
+import { safeErrorText } from '../../runtime/safe-error-text.js';
 import { z } from 'zod';
 import { HyperliquidAllDexsAccountSource, type LiveAllDexsAccountSource, type LiveAllDexsOrderEvidence } from './live-account-ws-source.js';
 export { HyperliquidAllDexsAccountSource, type LiveAllDexsAccountSource, type LiveAllDexsStateEvidence, type LiveAllDexsOrderEvidence, type LiveAllDexsAccountEvidence } from './live-account-ws-source.js';
@@ -307,6 +309,8 @@ export class HyperliquidLiveAccountObserver {
           unobservedOrderDexes, earliestProviderTime: Math.min(...dexes.map((d) => d.providerTime)) } });
     } catch (error) {
       if (error instanceof LiveBoundaryError && error.code.startsWith('live_account_')) throw error;
+      // Still refused as unavailable; what it really was goes to the log.
+      new Logger('LiveAccountObserver').warn(`observation unavailable: ${safeErrorText(error)}`);
       fail('live_account_observation_unavailable');
     }
   }

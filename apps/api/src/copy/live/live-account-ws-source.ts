@@ -1,4 +1,6 @@
+import { Logger } from '@nestjs/common';
 import WebSocket from 'ws';
+import { safeErrorText } from '../../runtime/safe-error-text.js';
 import { z } from 'zod';
 import { MAX_LIVE_PERP_DEXES, LIVE_DEX_NAME } from './live-market-resolver.js';
 import { address, LiveBoundaryError } from './wallet-authorization.js';
@@ -29,6 +31,10 @@ export interface LiveAllDexsAccountSource {
   close?(): void|Promise<void>;
 }
 const BATCH = 90, MESSAGE_LIMIT = 1800, WINDOW = 60_000, MIN_ORDER_INTERVAL = 1000;
+const logger = new Logger('LiveAccountWsSource');
+/** A failure whose outcome is already decided (the read is denied, the socket
+ * dropped): its cause goes to the log, never its raw message. */
+const note = (what: string) => (error: unknown) => { logger.warn(`${what}: ${safeErrorText(error)}`); };
 
 /**
  * A fresh source (its own socket) for every read, closed when the read ends.
@@ -41,7 +47,7 @@ export class PerReadAllDexsAccountSource implements LiveAllDexsAccountSource {
   constructor(private readonly create: () => LiveAllDexsAccountSource) {}
   private async use<T>(work: (source: LiveAllDexsAccountSource) => Promise<T>): Promise<T> {
     const source = this.create();
-    try { return await work(source); } finally { await Promise.resolve(source.close?.()).catch(() => {}); }
+    try { return await work(source); } finally { await Promise.resolve(source.close?.()).catch(note('account socket not closed cleanly')); }
   }
   read(accountAddress: string, timeoutMs: number) { return this.use(source => source.read(accountAddress, timeoutMs)); }
   readOrders(accountAddress: string, dexes: readonly string[], timeoutMs: number) {
@@ -101,7 +107,7 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
         maxPayload: 8 * 1024 * 1024, handshakeTimeout: timeoutMs, followRedirects: false, autoPong: false,
       });
       const retain=(created:WebSocket)=>{this.socket=created;const clear=()=>{if(this.socket===created){this.socket=undefined;clearInterval(this.heartbeatTimer);this.heartbeatTimer=undefined;}};created.on('error',clear);created.on('close',clear);return created;};
-      if(this.global)return (async()=>{const reservation=await this.global!.currentQuota().reserveSocket(deadline,this.network);let created:WebSocket|undefined;try{if(this.disposed)throw new LiveBoundaryError('live_account_aggregate_unavailable');created=reservation.connect.dispatch(create);reservation.connection.attach(created);}catch(error){created?.on('error',()=>{});created?.terminate();await reservation.connection.cancelBeforeConnect().catch(()=>reservation.connection.uncertain().catch(()=>{}));throw error;}this.globalSocket=reservation.connection;this.socketContext=this.global!.contextIdentity();this.socketNew=true;retain(created);if(!this.global!.isOriginal())this.startHeartbeat(created,reservation.connection);return created;})();
+      if(this.global)return (async()=>{const reservation=await this.global!.currentQuota().reserveSocket(deadline,this.network);let created:WebSocket|undefined;try{if(this.disposed)throw new LiveBoundaryError('live_account_aggregate_unavailable');created=reservation.connect.dispatch(create);reservation.connection.attach(created);}catch(error){created?.on('error',()=>{});created?.terminate();await reservation.connection.cancelBeforeConnect().catch((error:unknown)=>{note('socket reservation not cancelled')(error);return reservation.connection.uncertain().catch(note('socket reservation not marked uncertain'));});throw error;}this.globalSocket=reservation.connection;this.socketContext=this.global!.contextIdentity();this.socketNew=true;retain(created);if(!this.global!.isOriginal())this.startHeartbeat(created,reservation.connection);return created;})();
       return retain(create());
     }
     return this.socket!;
@@ -114,7 +120,7 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
         const deadline=this.now()+5000;await quota.whenIdle();await quota.renew(deadline);const permit=await quota.ping(deadline);
         if(this.disposed||this.socket!==socket||socket.readyState!==WebSocket.OPEN)return;
         permit.dispatch(()=>socket.send(JSON.stringify({method:'ping'})));
-      }catch{clearInterval(this.heartbeatTimer);this.heartbeatTimer=undefined;await this.failedSocket(socket,this.now()+5000);}})();
+      }catch(error){note('account socket heartbeat failed; closing it')(error);clearInterval(this.heartbeatTimer);this.heartbeatTimer=undefined;await this.failedSocket(socket,this.now()+5000);}})();
       this.heartbeatTask=task;void task.finally(()=>{if(this.heartbeatTask===task)this.heartbeatTask=undefined;}).catch(()=>{});
     },20000);this.heartbeatTimer.unref?.();
   }
@@ -124,13 +130,13 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
     try{
       const cleanup=(async()=>{
         if(socket.readyState!==WebSocket.CLOSED){const peer=new Promise<void>(resolve=>{closed=resolve;socket.once('close',closed);});socket.terminate();await peer;}
-        await quota.whenIdle().catch(()=>{});
+        await quota.whenIdle().catch(note('socket quota not idle after terminate'));
       })();
       await Promise.race([cleanup,new Promise<void>(resolve=>{timer=setTimeout(resolve,5000);})]);
     }finally{clearTimeout(timer);if(closed)socket.off('close',closed);}
   }
   private async failedSocket(socket:WebSocket,deadline:number):Promise<void>{
-    if(this.globalSocket&&deadline>this.now()){try{await this.globalSocket.close(deadline);}catch{await this.terminateAndFlush(socket);}}
+    if(this.globalSocket&&deadline>this.now()){try{await this.globalSocket.close(deadline);}catch(error){note('socket close refused; terminating')(error);await this.terminateAndFlush(socket);}}
     else await this.terminateAndFlush(socket);
     if(this.socket===socket)this.socket=undefined;
   }
@@ -163,7 +169,7 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
         let acknowledged = false, phase: 'subscribe' | 'unsubscribe' = 'subscribe', bytes = 0, frames = 0;
         let evidence: LiveAllDexsStateEvidence | undefined;
         open = () => { try { this.send(socket!,{ method: 'subscribe',
-          subscription: { type: 'allDexsClearinghouseState', user } },permit); } catch { deny(); } };
+          subscription: { type: 'allDexsClearinghouseState', user } },permit); } catch (error) { note('state subscribe not sent')(error); deny(); } };
         message = (raw) => {
           try {
             bytes += Buffer.byteLength(String(raw)); frames++;
@@ -185,7 +191,7 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
             if (phase === 'unsubscribe') return;
             evidence = { network: this.network, accountAddress: user, observedAt, data: payload.data };
             phase = 'unsubscribe'; this.send(socket!,{ method: 'unsubscribe', subscription: { type: 'allDexsClearinghouseState', user } },permit);
-          } catch { deny(); }
+          } catch (error) { note('account frame refused')(error); deny(); }
         };
         unavailable = () => deny();
         socket!.on('open', open); socket!.on('message', message); socket!.on('error', unavailable); socket!.on('close', unavailable); socket!.on('ping', unavailable);
@@ -243,12 +249,12 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
         const sendState = (method: 'subscribe' | 'unsubscribe') => {
           if (stopped) return;
           try { this.send(socket!,{ method, subscription: { type: 'allDexsClearinghouseState', user } },permit); }
-          catch { deny(); }
+          catch (error) { note('subscription command not sent')(error); deny(); }
         };
         const send = (method: 'subscribe' | 'unsubscribe', dex: string) => {
           if (stopped) return;
           try { this.send(socket!,{ method, subscription: { type: 'openOrders', user, dex } },permit); }
-          catch { deny(); }
+          catch (error) { note('subscription command not sent')(error); deny(); }
         };
         const next = () => {
           if (stopped) return;
@@ -311,7 +317,7 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
               venues.set(row.dex, { dex: row.dex, user, observedAt: batchStarted, receivedAt: this.now(), orders: row.orders });
               finish();
             }
-          } catch { deny(); }
+          } catch (error) { note('account frame refused')(error); deny(); }
         };
         unavailable = () => deny();
         socket!.on('open', open); socket!.on('message', message); socket!.on('error', unavailable); socket!.on('close', unavailable); socket!.on('ping', unavailable);

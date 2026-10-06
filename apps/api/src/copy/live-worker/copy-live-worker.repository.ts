@@ -134,6 +134,22 @@ export class CopyLiveWorkerRepository {
       return true;
     }).catch(error => { if (error instanceof Error && error.message === 'adjustment_merge_conflict') return false; throw error; });
   }
+  /** Opens refused below the exchange minimum without an order (held to the
+   * bound, or superseded while too small): from pending, never sent. */
+  async refuseBelowMinimum(ids: readonly string[]): Promise<void> {
+    if (!ids.length) return;
+    await this.db.update(copyLiveDispatches).set({ state: 'refused', reason: 'below_min_notional', updatedAt: new Date() })
+      .where(and(inArray(copyLiveDispatches.id, [...ids]), eq(copyLiveDispatches.state, 'pending'), isNull(copyLiveDispatches.adjustmentId)));
+  }
+  /** Whether an earlier leg of this copy's coin is still waiting to be sent:
+   * a later leg waits for it, so the follower trades in the leader's order
+   * (the adds after a flip wait for the flip's open). */
+  async earlierPending(row: Pick<DispatchRow, 'id' | 'mandateId' | 'coin' | 'leaderTime'>): Promise<boolean> {
+    const [earlier] = await this.db.select({ id: copyLiveDispatches.id }).from(copyLiveDispatches)
+      .where(and(eq(copyLiveDispatches.mandateId, row.mandateId), eq(copyLiveDispatches.coin, row.coin), eq(copyLiveDispatches.state, 'pending'), ne(copyLiveDispatches.id, row.id),
+        sql`(${copyLiveDispatches.leaderTime}, ${copyLiveDispatches.id}) < (${row.leaderTime}, ${row.id})`)).limit(1);
+    return earlier !== undefined;
+  }
   /** The source fills an adjustment's lead order carries besides its own. */
   async members(leadId: string): Promise<string[]> {
     const rows = await this.db.select({ fill: copyLiveDispatches.sourceFillId }).from(copyLiveDispatches)

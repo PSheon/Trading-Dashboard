@@ -465,26 +465,27 @@ describe('a testnet copy of a MAINNET leader', () => {
     }
     const equity = (leaderEquity: string) => ({ read: vi.fn(async () => ({ midPrice: '100', midObservedAt: clock, leaderEquity, leaderEquityObservedAt: clock })) });
     it('sends one order of the four legs\' summed size and claims the other three legs', async () => {
-      await mainnetFixture(null, 'ratio'); const members = await adds();
-      const result = await mainnetRuntime({ reference: equity('1000') }).execute({ ...request(), members });
+      await mainnetFixture(null, 'ratio'); const later = await adds(), lead = later[2]!, members = [seed.fill.id, later[0]!, later[1]!];
+      // The newest add leads; it carries the three before it.
+      const result = await mainnetRuntime({ reference: equity('1000') }).execute({ ...request(), sourceFillId: lead, members });
       // 4 x (1 @ 100) of a 1,000 account, at a 100 budget, at mid 100: 0.4 (one leg alone: 0.1).
       expect(result).toMatchObject({ state: 'filled', action: { orders: [{ s: '0.4' }] } });
       const [provenance] = await db.select().from(schema.copyLiveIntentProvenance);
-      expect((provenance!.sizingBasis as { basis: { merged: { members: { sourceFillId: string }[] } } }).basis.merged.members.map(m => m.sourceFillId)).toEqual([seed.fill.id, ...members]);
+      expect((provenance!.sizingBasis as { basis: { merged: { members: { sourceFillId: string }[] } } }).basis.merged.members.map(m => m.sourceFillId)).toEqual([...members, lead]);
       const legs = await db.select().from(schema.copyLiveSignalLegs);
-      expect(legs.find(l => l.sourceFillId === seed.fill.id)).toMatchObject({ state: 'prepared', executionKey: result.key });
+      expect(legs.find(l => l.sourceFillId === lead)).toMatchObject({ state: 'prepared', executionKey: result.key });
       expect(legs.filter(l => members.includes(l.sourceFillId))).toEqual(members.map(() => expect.objectContaining({ state: 'skipped', executionKey: null })));
       // Settlement and recovery re-plan from the saved basis and the order's own fill alone: the same order.
       const [mandate] = await db.select().from(schema.copyLiveMandates), [version] = await db.select().from(schema.copyStrategyVersions), [policy] = await db.select().from(schema.copyRiskPolicies);
-      const [own] = await db.select().from(schema.copyLiveSourceFills).where(eq(schema.copyLiveSourceFills.id, seed.fill.id)), fill = decodeLiveSourceFill(own!);
+      const [own] = await db.select().from(schema.copyLiveSourceFills).where(eq(schema.copyLiveSourceFills.id, lead)), fill = decodeLiveSourceFill(own!);
       const replanned = planLiveSourceOrder({ mandate: { ...mandate!, state: 'active', revision: provenance!.mandateRevision }, settings: copyStrategySettingsSchema.strict().parse(version!.settings),
         fill, leg: canonicalLiveSourceLegs(fill)[0]!, sizingBasis: provenance!.sizingBasis, now: result.createdAt, limits: copyRiskLimitsSchema.parse(policy!.limits), currentExecutionKey: result.key });
       expect(replanned.order.size).toBe('0.4');
     });
     it('refuses a merge below the minimum before any journal or nonce claims it', async () => {
-      await mainnetFixture(null, 'ratio'); const members = await adds();
+      await mainnetFixture(null, 'ratio'); const later = await adds();
       // A 10,000 account: 0.04 BTC at 100, 4 USDC.
-      await expect(mainnetRuntime({ reference: equity('10000') }).execute({ ...request(), members })).rejects.toThrow('below_min_notional');
+      await expect(mainnetRuntime({ reference: equity('10000') }).execute({ ...request(), sourceFillId: later[2]!, members: [seed.fill.id, later[0]!, later[1]!] })).rejects.toThrow('below_min_notional');
       expect(await db.select().from(schema.copyLiveExecutions)).toHaveLength(0); expect(await db.select().from(schema.copySignerNonces)).toHaveLength(0);
       expect(await db.select().from(schema.copyLiveSignalLegs)).toHaveLength(0);
     });
@@ -495,7 +496,7 @@ describe('a testnet copy of a MAINNET leader', () => {
       const leg = canonicalLiveSourceLegs(decodeLiveSourceFill(fill!))[0]!;
       await db.insert(schema.copyLiveSignalLegs).values({ id: liveSourceLegId('mandate', members[0]!, 'open'), mandateId: 'mandate', sourceFillId: members[0]!, ...leg,
         state: 'skipped', revision: 2, createdAt: new Date(clock - 10), updatedAt: new Date(clock - 10) });
-      await expect(mainnetRuntime({ reference: equity('1000') }).execute({ ...request(), members: [members[0]!, members[1]!] })).rejects.toThrow('live_preparation_claim_conflict');
+      await expect(mainnetRuntime({ reference: equity('1000') }).execute({ ...request(), sourceFillId: members[2]!, members: [members[0]!, members[1]!] })).rejects.toThrow('live_preparation_claim_conflict');
       expect(await db.select().from(schema.copyLiveExecutions)).toHaveLength(0); expect(await db.select().from(schema.copySignerNonces)).toHaveLength(0);
     });
   });

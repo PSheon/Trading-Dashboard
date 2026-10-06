@@ -21,7 +21,7 @@ import { decodeLiveExecutionRow } from './postgres-live-journal.js';
 import type { LiveExecutionRecord } from './live-execution.js';
 import { address, assertWalletAuthorization, LiveBoundaryError } from './wallet-authorization.js';
 import { LiveProviderReadEpoch } from './live-provider-read-epoch.js';
-import { assertLiveSourcePrice, MAX_MERGED_LEGS } from './copy-live-source-planner.js';
+import { assertLiveSourcePrice, compareMergedLegs, MAX_MERGED_LEGS } from './copy-live-source-planner.js';
 import type { LiveSourceReferenceReader } from './live-source-reference.js';
 import type { LiveSourceReferenceV1 } from './copy-live-sizing-evidence.js';
 
@@ -166,7 +166,7 @@ export class PostgresLivePreparation {
       settledDependency: dependsOn && dependency?.evidence?.settlementDigest ? { legId: dependsOn, certificateDigest: dependency.evidence.settlementDigest } : null,
       ...(sourceReference ? { sourceReference } : {}),
       ...(source.members.length ? { merged: { members: [{ fill: source.fill, leg: source.leg }, ...source.members]
-        .sort((a, b) => a.fill.providerTime - b.fill.providerTime || (a.fill.id < b.fill.id ? -1 : a.fill.id > b.fill.id ? 1 : 0))
+        .sort((a, b) => compareMergedLegs({ providerTime: a.fill.providerTime, sourceFillId: a.fill.id }, { providerTime: b.fill.providerTime, sourceFillId: b.fill.id }))
         .map(({ fill, leg }) => ({ sourceFillId: fill.id, sourceDigest: fill.sourceDigest, providerTime: fill.providerTime, sign: leg.sign, size: leg.size, px: fill.px, fraction: leg.fraction })) } } : {}) },
       observations: { follower, leader, quote, generationManifest: withCarry } };
     const plan = planLiveSourceOrder({ mandate: local.mandate, settings: local.settings, fill: source.fill, leg: source.leg, sizingBasis: sizing,

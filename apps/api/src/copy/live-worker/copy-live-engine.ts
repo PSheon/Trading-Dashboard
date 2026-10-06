@@ -10,6 +10,7 @@ import { TERMINAL_STATES, type LiveSettleOutcome, type LiveSettleRequest } from 
 import type { CopyLiveWorkerRepository, DispatchRow, LiveMandateWork, LiveStreamWork } from './copy-live-worker.repository.js';
 import { openNotionalCeiling, planAdjustments, type PendingLeg } from './copy-live-adjustments.js';
 import { Dec } from '../../common/decimal/dec.js';
+import { MAX_ACCUMULATE_MS } from '../live/copy-live-source-planner.js';
 import type { WatchedMainnetSource } from './watched-mainnet-source.js';
 import type { FastMainnetSource } from './fast-mainnet-source.js';
 
@@ -49,6 +50,9 @@ export interface LiveEngineOptions {
   readonly sourceLagMs: number;
   /** Work per pass stops once this much time has gone. */
   readonly passBudgetMs: number;
+  /** An open too small for the exchange waits for the next adds at most this
+   * long (default and maximum MAX_ACCUMULATE_MS). */
+  readonly accumulateMs?: number;
   /** While the trade feed is down, a fast-source leader is read by the pass
    * at most this often. */
   readonly fastPollMs?: number;
@@ -64,8 +68,8 @@ const isHip3 = (coin: string) => coin.includes(':');
  * leader fill is older than the policy's signal age. */
 const PERMANENT = new Set(['live_source_price_deviation', 'below_min_notional', 'live_risk_adoption_unproven', 'live_market_unknown',
   'live_account_unsupported_role', 'live_account_unsupported_abstraction', 'unattempted_expired', 'live_risk_provider_fee_scope_unproven', HIP3_REFUSAL]);
-/** An open adjustment below the exchange minimum waits for more legs at
- * most until this long before its signal would expire. */
+/** A merged open the planner finds below the minimum goes back to waiting
+ * only while its lead's signal has at least this long left (else refused). */
 const HOLD_MARGIN_MS = 30_000;
 /** Held when its follower notional could be under this much more than the minimum. */
 const HOLD_HEADROOM = '1.1';
@@ -104,7 +108,7 @@ export class CopyLiveEngine {
       catch (error) { this.deps.log?.(`source ${stream.network}:${stream.leaderAddress} not read: ${reasonOf(error)}`); }
     }
     const limit = await this.deps.repository.signalAgeLimitMs();
-    const held = await this.prepareWork(mandates.filter(row => row.activated && row.strategyStatus === 'active'), limit);
+    const held = await this.prepareWork(mandates.filter(row => row.activated && row.strategyStatus === 'active'));
     const byId = new Map(mandates.map(m => [m.mandateId, m]));
     for (const row of await this.deps.repository.open()) {
       if (this.now() - started > this.options.passBudgetMs) break;
@@ -176,7 +180,7 @@ export class CopyLiveEngine {
       catch (error) { this.deps.log?.(`source ${stream.network}:${stream.leaderAddress} not read: ${reasonOf(error)}`); }
     }
     const limit = await this.deps.repository.signalAgeLimitMs();
-    const held = await this.prepareWork(mandates.filter(row => row.activated && row.strategyStatus === 'active'), limit);
+    const held = await this.prepareWork(mandates.filter(row => row.activated && row.strategyStatus === 'active'));
     const byId = new Map(mandates.map(m => [m.mandateId, m]));
     for (const row of await this.deps.repository.open(100, [...byId.keys()])) {
       if (this.now() - started > this.options.passBudgetMs) break;
@@ -219,11 +223,11 @@ export class CopyLiveEngine {
 
   /** Enqueues each copy's new legs, then merges what waits together into
    * adjustments; returns the legs held back this pass. */
-  private async prepareWork(mandates: readonly LiveMandateWork[], signalAgeMs: number): Promise<Set<string>> {
+  private async prepareWork(mandates: readonly LiveMandateWork[]): Promise<Set<string>> {
     const held = new Set<string>();
     for (const m of mandates) {
       await this.enqueue(m);
-      try { for (const id of await this.merge(m, signalAgeMs)) held.add(id); }
+      try { for (const id of await this.merge(m)) held.add(id); }
       catch (error) { this.deps.log?.(`legs of ${m.mandateId} not merged: ${reasonOf(error)}`); }
     }
     return held;
@@ -231,12 +235,13 @@ export class CopyLiveEngine {
 
   /**
    * Same-coin legs of one copy that wait together become one follower
-   * adjustment per run (copy-live-adjustments.ts): the first leg's row
-   * leads (its order carries the others), the others are recorded merged
-   * into it. Ratio sizing only: a fixed amount is spent once per trade.
-   * Returns the legs held back (an open too small for the exchange).
+   * adjustment per run (copy-live-adjustments.ts): the newest leg's row
+   * leads (its order carries the others, and its signal is the freshest),
+   * the others are recorded merged into it. Ratio sizing only: a fixed
+   * amount is spent once per trade. Returns the legs held back (an open too
+   * small for the exchange).
    */
-  async merge(m: LiveMandateWork, signalAgeMs: number): Promise<string[]> {
+  async merge(m: LiveMandateWork): Promise<string[]> {
     if (m.sizingMode !== 'ratio') return [];
     const keyOf = (row: Pick<DispatchRow, 'mandateId' | 'sourceFillId' | 'leg'>) => `testnet:${m.accountAddress}:${liveSourceExecutionCloid(row.mandateId, row.sourceFillId, row.leg)}`;
     const rows = await this.deps.repository.mergeable(m.mandateId, keyOf);
@@ -253,11 +258,12 @@ export class CopyLiveEngine {
     const limits = await this.deps.repository.limits(), minimum = Dec.max(Dec.from(10), Dec.from(limits.minOrderNotionalUsd)).mul(HOLD_HEADROOM);
     const equity = m.sourceNetwork === 'mainnet' && m.budgetUsd && this.deps.leaderEquity && legs.some(leg => leg.leg === 'open')
       ? await this.deps.leaderEquity(m.leaderAddress).catch(() => null) : null;
-    const plan = planAdjustments(legs, this.now(), Math.max(0, signalAgeMs - HOLD_MARGIN_MS),
+    const plan = planAdjustments(legs, this.now(), this.options.accumulateMs ?? MAX_ACCUMULATE_MS,
       run => { const ceiling = equity && m.budgetUsd ? openNotionalCeiling(run, m.budgetUsd, equity) : null; return ceiling !== null && ceiling.lt(minimum); });
+    if (plan.refused.size) await this.deps.repository.refuseBelowMinimum([...plan.refused]);
     for (const run of plan.merges) {
-      const [lead, ...members] = run.legs;
-      await this.deps.repository.merge({ id: lead!.id, mandateId: m.mandateId }, members.map(leg => leg.id));
+      const lead = run.legs.at(-1)!, members = run.legs.slice(0, -1);
+      await this.deps.repository.merge({ id: lead.id, mandateId: m.mandateId }, members.map(leg => leg.id));
     }
     return [...plan.held];
   }
@@ -321,6 +327,8 @@ export class CopyLiveEngine {
       if (close?.state === 'refused') { await this.deps.repository.update(row, { state: 'refused', reason: 'flip_close_not_settled' }); return; }
       if (close && close.state !== 'settled') return;
     }
+    // In the leader's order: an earlier leg of the coin still waiting goes first.
+    if (await this.deps.repository.earlierPending(row)) return;
     await this.execute(row, m);
   }
 

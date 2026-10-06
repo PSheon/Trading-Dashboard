@@ -29,7 +29,7 @@ const filled: Runtime = async (request, hooks) => {
   const key = keyOf(request.sourceFillId, request.leg);
   hooks.onExchange?.({ phase: 'request', at: clock + 10 }); hooks.onExchange?.({ phase: 'response', at: clock + 40 });
   await db.insert(schema.copyLiveExecutions).values({ key, network: 'testnet', accountAddress: seed.f.identity.accountAddress, signerAddress: `0x${'33'.repeat(20)}`,
-    cloid: key.split(':').at(-1)!, nonce: clock, userId: 1, strategyId: 9, state: 'filled', record: { key }, updatedAt: new Date(clock) });
+    cloid: key.split(':').at(-1)!, nonce: clock + calls.length, userId: 1, strategyId: 9, state: 'filled', record: { key }, updatedAt: new Date(clock) });
   return { key, state: 'filled' } as LiveExecutionRecord;
 };
 function engine(extra: Partial<LiveEngineDependencies> = {}) {
@@ -83,24 +83,28 @@ describe('same-coin leader legs become one follower adjustment', () => {
     const ids: string[] = [];
     for (let i = 0; i < 5; i++) ids.push(await leaderFill(10 + i, now + 100 + i * 100, 'A', '1', String(-i)));
     await coverage(now - 10_000, now + 900); clock = now + 1000; await engine().tick();
-    expect(calls).toEqual([{ userId: 1, accountId: 'account', mandateId: 'mandate', sourceFillId: ids[0], leg: 'open', members: ids.slice(1) }]);
-    const rows = await dispatches(), lead = rows.find(r => r.sourceFillId === ids[0])!;
-    expect(lead).toMatchObject({ state: 'submitted', adjustmentId: lead.id, executionKey: keyOf(ids[0]!, 'open') });
-    expect(rows.filter(r => r.id !== lead.id)).toEqual(ids.slice(1).map(id => expect.objectContaining({ sourceFillId: id, state: 'refused', reason: 'merged_into_adjustment', adjustmentId: lead.id })));
+    // The newest leg leads (its signal is the order's); it carries the other four.
+    expect(calls).toEqual([{ userId: 1, accountId: 'account', mandateId: 'mandate', sourceFillId: ids[4], leg: 'open', members: ids.slice(0, 4) }]);
+    const rows = await dispatches(), lead = rows.find(r => r.sourceFillId === ids[4])!;
+    expect(lead).toMatchObject({ state: 'submitted', adjustmentId: lead.id, executionKey: keyOf(ids[4]!, 'open') });
+    expect(rows.filter(r => r.id !== lead.id)).toEqual(ids.slice(0, 4).map(id => expect.objectContaining({ sourceFillId: id, state: 'refused', reason: 'merged_into_adjustment', adjustmentId: lead.id })));
     // Settles once; no merged leg is ever sent on its own.
     clock += 3000; await engine().tick(); clock += 3000; await engine().tick();
     expect(calls).toHaveLength(1); expect((await dispatches()).find(r => r.id === lead.id)).toMatchObject({ state: 'settled' });
   });
 
-  it('a flip becomes its close, then one open that carries the adds after it', async () => {
+  it('a flip becomes its close, then its open, then the adds after it as one order', async () => {
     const open = await leaderFill(20, now + 100, 'B', '2', '0'); // long 2
     await coverage(now - 10_000, now + 200); clock = now + 300; await engine().tick();
-    const flip = await leaderFill(21, now + 400, 'A', '3', '2'), add = await leaderFill(22, now + 500, 'A', '1', '-1'); // long 2 -> short 1 -> short 2
+    const flip = await leaderFill(21, now + 400, 'A', '3', '2'); // long 2 -> short 1
+    const adds = [await leaderFill(22, now + 500, 'A', '1', '-1'), await leaderFill(23, now + 600, 'A', '1', '-2')];
     settle = 'pending';
-    await coverage(now - 10_000, now + 600); clock = now + 700; await engine().tick();
+    await coverage(now - 10_000, now + 700); clock = now + 800; await engine().tick();
+    // The adds go now; the flip's open waits for its close to settle.
+    // The flip's open waits for its close to settle, and the adds after it wait for the open.
     expect(calls.map(c => [c.sourceFillId, c.leg, c.members ?? []])).toEqual([[open, 'open', []], [flip, 'close', []]]);
     settle = 'released'; clock += 3000; await engine().tick(); clock += 3000; await engine().tick();
-    expect(calls.map(c => [c.sourceFillId, c.leg, c.members ?? []])).toEqual([[open, 'open', []], [flip, 'close', []], [flip, 'open', [add]]]);
+    expect(calls.map(c => [c.sourceFillId, c.leg, c.members ?? []]).slice(2)).toEqual([[flip, 'open', []], [adds[1], 'open', [adds[0]]]]);
   });
 
   it('an open too small for the exchange waits for the next adds, then goes as one', async () => {
@@ -112,20 +116,30 @@ describe('same-coin leader legs become one follower adjustment', () => {
     expect(await dispatches()).toEqual(first.map(id => expect.objectContaining({ sourceFillId: id, state: 'pending', adjustmentId: null, attempts: 0 })));
     const more = [await leaderFill(32, now + 500, 'A', '0.3', '-0.6'), await leaderFill(33, now + 600, 'A', '0.3', '-0.9'), await leaderFill(34, now + 700, 'A', '0.3', '-1.2')];
     await coverage(now - 10_000, now + 800); clock = now + 900; await engine({ leaderEquity }).tick();
-    expect(calls).toEqual([expect.objectContaining({ sourceFillId: first[0], leg: 'open', members: [first[1], ...more] })]);
+    expect(calls).toEqual([expect.objectContaining({ sourceFillId: more[2], leg: 'open', members: [...first, more[0], more[1]] })]);
   });
 
-  it('held at most until 30 s before the signal would expire, then sent as it is', async () => {
-    // Signals expire after 40 s here: held for at most 10 s.
-    const [policy] = await db.select().from(schema.copyRiskPolicies);
-    await db.insert(schema.copyRiskPolicies).values({ version: policy!.version + 1, limits: { ...policy!.limits as object, maxSignalAgeSeconds: 40 } });
+  it('held at most for the accumulation bound, then refused below the minimum without an order', async () => {
     const leaderEquity = vi.fn(async () => '1000');
     const only = await leaderFill(40, now + 100, 'A', '0.3', '0');
+    await coverage(now - 10_000, now + 200); clock = now + 300;
+    const short = (extra: Partial<LiveEngineDependencies> = {}) => new CopyLiveEngine({ ...(engine(extra) as unknown as { deps: LiveEngineDependencies }).deps },
+      { testnetSourceIntervalMs: 60_000, sourceLagMs: 0, passBudgetMs: 60_000, accumulateMs: 20_000 }, () => clock);
+    await short({ leaderEquity }).tick();
+    clock = now + 100 + 19_999; await short({ leaderEquity }).tick();
+    expect(calls).toHaveLength(0); expect((await dispatches())[0]).toMatchObject({ sourceFillId: only, state: 'pending' });
+    clock = now + 100 + 20_000; await short({ leaderEquity }).tick();
+    expect(calls).toHaveLength(0); expect((await dispatches())[0]).toMatchObject({ sourceFillId: only, state: 'refused', reason: 'below_min_notional' });
+  });
+
+  it('a held open too small when its coin is reduced is refused, without an order; the reduce goes', async () => {
+    const leaderEquity = vi.fn(async () => '1000');
+    const open = await leaderFill(45, now + 100, 'B', '10', '0'); // 1,000 of leader notional: 100 USDC for this copy
     await coverage(now - 10_000, now + 200); clock = now + 300; await engine({ leaderEquity }).tick();
-    clock = now + 100 + 9_999; await engine({ leaderEquity }).tick();
-    expect(calls).toHaveLength(0);
-    clock = now + 100 + 10_000; await engine({ leaderEquity }).tick();
-    expect(calls).toEqual([expect.objectContaining({ sourceFillId: only, leg: 'open' })]);
+    const small = await leaderFill(46, now + 400, 'B', '0.3', '10'), reduce = await leaderFill(47, now + 500, 'A', '1', '10.3');
+    await coverage(now - 10_000, now + 600); clock = now + 700; await engine({ leaderEquity }).tick();
+    expect(calls.map(c => [c.sourceFillId, c.leg])).toEqual([[open, 'open'], [reduce, 'close']]);
+    expect((await dispatches()).find(r => r.sourceFillId === small)).toMatchObject({ state: 'refused', reason: 'below_min_notional' });
   });
 
   it('a merged open the runtime finds below the minimum goes back to waiting, then merges again with the next add', async () => {
@@ -139,7 +153,7 @@ describe('same-coin leader legs become one follower adjustment', () => {
     runtimeImpl = filled;
     const next = await leaderFill(52, now + 3500, 'A', '1', '-2');
     await coverage(now - 10_000, now + 3600); clock = now + 3700; await engine().tick();
-    expect(calls.at(-1)).toMatchObject({ sourceFillId: legs[0], members: [legs[1], next] });
+    expect(calls.at(-1)).toMatchObject({ sourceFillId: next, members: legs });
   });
 });
 
@@ -151,8 +165,8 @@ describe('adjustment runs (pure)', () => {
     expect(plan.merges.map(run => run.legs.map(l => l.id))).toEqual([['d1', 'd2'], ['d3', 'd4']]);
     expect(plan.held.size).toBe(0);
   });
-  it('a flip close is its own order and its open leads the adds after it', () => {
-    const plan = planAdjustments([leg(1, 'close', 1), leg(2, 'close', 1, true), leg(2, 'open', -1, true), leg(3, 'open', -1)], 10, 90_000, () => false);
-    expect(plan.merges.map(run => run.legs.map(l => `${l.id}:${l.leg}`))).toEqual([['d2:open', 'd3:open']]);
+  it('a flip\'s close and open are each their own order; the adds after it merge', () => {
+    const plan = planAdjustments([leg(1, 'close', 1), leg(2, 'close', 1, true), leg(2, 'open', -1, true), leg(3, 'open', -1), leg(4, 'open', -1)], 10, 900_000, () => false);
+    expect(plan.merges.map(run => run.legs.map(l => `${l.id}:${l.leg}`))).toEqual([['d3:open', 'd4:open']]);
   });
 });

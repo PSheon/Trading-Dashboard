@@ -19,8 +19,10 @@ export interface LiveSourcePlanInput {
   readonly limits: Pick<CopyRiskLimits,'maxSignalAgeSeconds'|'maxSlippageBps'>;
   readonly currentExecutionKey: string;
 }
-/** Most leader legs one follower adjustment may merge. */
-export const MAX_MERGED_LEGS=64;
+/** Most leader legs one follower adjustment may merge, and how old its
+ * other legs may be (it carries the freshest leg's signal; the older ones
+ * were too small for the exchange and waited, at most this long). */
+export const MAX_MERGED_LEGS=64,MAX_ACCUMULATE_MS=15*60_000;
 const hash=z.string().regex(/^[a-f0-9]{64}$/),id=z.string().min(1).max(160),integer=z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),version=integer.refine(v=>v>0),addr=z.string().regex(/^0x[0-9a-f]{40}$/);
 const decimal=z.string().max(80).regex(/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]{1,18})?$/).refine(v=>Dec.from(v).toString()===v);
 const nonnegative=decimal.refine(v=>Dec.from(v).gte(0)),positive=decimal.refine(v=>Dec.from(v).isPositive);
@@ -37,6 +39,12 @@ const basisSchema=z.object({version:z.literal(1),mandateId:id,mandateRevision:ve
     fraction:positive.refine(v=>Dec.from(v).lte(1)).nullable()}).strict()).min(2).max(MAX_MERGED_LEGS)}).strict().optional(),}).strict();
 function requireSizing(value:unknown):asserts value {if(!value)throw new LiveBoundaryError('live_source_sizing_unproven');}
 const SCALE=10n**18n;
+/** Leader-time order of merged legs: time, then trade id (the fill id's last part). */
+export function compareMergedLegs(a:{providerTime:number;sourceFillId:string},b:{providerTime:number;sourceFillId:string}):number{
+  if(a.providerTime!==b.providerTime)return a.providerTime-b.providerTime;
+  const tid=(id:string)=>{const last=id.split(':').at(-1)??'';return /^[0-9]{1,20}$/.test(last)?BigInt(last):-1n;},x=tid(a.sourceFillId),y=tid(b.sourceFillId);
+  return x<y?-1:x>y?1:a.sourceFillId<b.sourceFillId?-1:a.sourceFillId>b.sourceFillId?1:0;
+}
 /** 1 − Π(1 − f): the fraction of the follower position that a run of leader
  * reductions removes together, floored at 18 decimals (exact rationals; any
  * full close makes it 1). */
@@ -130,13 +138,15 @@ export function planLiveSourceOrder(raw: LiveSourcePlanInput): PlannedLiveSource
       assertLiveSourcePrice(b.quote.midPrice,reference);
     }
     // A merged adjustment: every leg is listed once, in leader-time order, the
-    // order's own among them exactly as its fill says; all share the coin's
-    // side and kind, are after the cursor and young enough to copy.
+    // order's own (the newest: its signal age is the order's) last and
+    // exactly as its fill says; all share the coin's side and kind, are after
+    // the cursor and at most MAX_ACCUMULATE_MS old.
     const merged=b.merged?.members??null,m_cursor=m.activationCursor!.getTime();
     if(merged){
       requireSizing(settings.sizingMode==='ratio'&&new Set(merged.map(m=>m.sourceFillId)).size===merged.length&&
-        merged.every((m,i)=>i===0||merged[i-1]!.providerTime<m.providerTime||merged[i-1]!.providerTime===m.providerTime&&merged[i-1]!.sourceFillId<m.sourceFillId)&&
-        merged.every(m=>m.sign===leg.sign&&(m.fraction===null)===(leg.leg==='open')&&m.providerTime>m_cursor&&m.providerTime<=now&&now-m.providerTime<=limits.maxSignalAgeSeconds*1000));
+        merged.every((m,i)=>i===0||compareMergedLegs(merged[i-1]!,m)<0)&&
+        merged.every(m=>m.sign===leg.sign&&(m.fraction===null)===(leg.leg==='open')&&m.providerTime>m_cursor&&m.providerTime<=fill.providerTime&&now-m.providerTime<=MAX_ACCUMULATE_MS)&&
+        merged.at(-1)!.sourceFillId===fill.id);
       const own=merged.find(m=>m.sourceFillId===fill.id);
       requireSizing(own&&own.sourceDigest===fill.sourceDigest&&own.providerTime===fill.providerTime&&own.size===leg.size&&own.px===fill.px&&own.fraction===leg.fraction);
     }

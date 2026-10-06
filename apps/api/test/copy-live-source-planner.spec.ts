@@ -79,8 +79,9 @@ describe('actual source sizing from retained original observations',()=>{
     function merged(e: LiveSourcePlanInput, others: number, fraction: string | null = null) {
       const b = (e.sizingBasis as any).basis, own = { sourceFillId: e.fill.id, sourceDigest: e.fill.sourceDigest, providerTime: e.fill.providerTime, sign: e.leg.sign,
         size: e.leg.size, px: e.fill.px, fraction: e.leg.fraction };
-      b.merged = { members: [own, ...Array.from({ length: others }, (_, i) => ({ ...own, sourceFillId: `${e.fill.id}-${i}`, sourceDigest: 'd'.repeat(64),
-        providerTime: e.fill.providerTime + 1 + i, ...(fraction ? { fraction } : {}) }))] };
+      // The older legs first; the order's own (the freshest) last.
+      b.merged = { members: [...Array.from({ length: others }, (_, i) => ({ ...own, sourceFillId: `mainnet:${'0x'}:${i + 1}`, sourceDigest: 'd'.repeat(64),
+        providerTime: e.fill.providerTime - others + i, ...(fraction ? { fraction } : {}) })), own] };
       return e;
     }
     it('sizes five same-side opens as one order of their summed leader notional', () => {
@@ -94,12 +95,21 @@ describe('actual source sizing from retained original observations',()=>{
       expect(planLiveSourceOrder(merged(closeExample('90', '15', false, 'ratio'), 1))).toMatchObject({ order: { size: '47.81', reduceOnly: true }, nextCarry: '0.0025' });
       expect(planLiveSourceOrder(merged(closeExample('90', '15', false, 'ratio'), 1, '1'))).toMatchObject({ order: { size: '90', reduceOnly: true }, nextCarry: '0' });
     });
-    it.each(['fixed', 'missing own leg', 'other side', 'unsorted', 'expired'] as const)('refuses a merged basis with %s', kind => {
+    it('carries older legs that waited up to 15 minutes, but not longer', () => {
+      const e = merged(example('ratio'), 2), members = (e.sizingBasis as any).basis.merged.members;
+      members[0].providerTime = e.now - 14 * 60_000; members[1].providerTime = e.now - 13 * 60_000;
+      (e.mandate as any).activationCursor = new Date(e.now - 20 * 60_000);
+      expect(planLiveSourceOrder(e).order.size).toBe(Dec.from(planLiveSourceOrder(example('ratio')).order.size).mul(3).toString());
+      members[0].providerTime = e.now - 15 * 60_000 - 1;
+      expect(() => planLiveSourceOrder(e)).toThrow('live_source_sizing_unproven');
+    });
+    it.each(['fixed', 'missing own leg', 'own leg not newest', 'other side', 'unsorted', 'before cursor'] as const)('refuses a merged basis with %s', kind => {
       const e = merged(example(kind === 'fixed' ? 'fixed' : 'ratio'), 2), members = (e.sizingBasis as any).basis.merged.members;
-      if (kind === 'missing own leg') members[0].sourceDigest = 'e'.repeat(64);
+      if (kind === 'missing own leg') members[2].sourceDigest = 'e'.repeat(64);
+      if (kind === 'own leg not newest') members[1].providerTime = e.fill.providerTime + 1;
       if (kind === 'other side') members[1].sign = -members[1].sign;
-      if (kind === 'unsorted') members.reverse();
-      if (kind === 'expired') members[2].providerTime = e.now - 200_000;
+      if (kind === 'unsorted') [members[0], members[1]] = [members[1], members[0]];
+      if (kind === 'before cursor') members[0].providerTime = e.mandate.activationCursor!.getTime();
       expect(() => planLiveSourceOrder(e)).toThrow('live_source_sizing_unproven');
     });
   });

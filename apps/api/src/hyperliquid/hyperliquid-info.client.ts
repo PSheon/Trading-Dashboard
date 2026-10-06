@@ -87,6 +87,8 @@ export const USER_FUNDING_PAGE_SIZE = 500;
 /** Every fill list endpoint returns at most 2,000 items per call. */
 export const MAX_LIST_ITEMS = 2000;
 /** The worst-case surcharge of one list call, acquired up front. */
+/** Items a recent-window fills read prepays (`userFillsSince`). */
+const RECENT_FILLS_ITEMS = 200;
 export const MAX_LIST_SURCHARGE = Math.ceil(MAX_LIST_ITEMS / 20) * EXTRA_WEIGHT_PER_20_ITEMS;
 /** A dead connection must not hold a caller (and its per-address sync
  * chain) forever. */
@@ -319,7 +321,10 @@ export class HyperliquidInfoClient {
    * there, not when the caller began waiting. */
   async userFillsSince(address: string, startTime: number, priority: RequestPriority): Promise<{ fills: HlUserFillsByTimeResponse; sentAt: number }> {
     const admission: { admitted: boolean; at?: number } = { admitted: false };
-    const fills = await this.postList<HlUserFillsByTimeResponse>({ type: "userFillsByTime", user: address, startTime }, WEIGHT_USER_FILLS_BY_TIME_BASE, priority, undefined, MAX_LIST_ITEMS, undefined, admission);
+    // A short recent window: 200 rows' surcharge up front (30 in all), not the
+    // 2,000-row worst case (120), so a busy bucket is waited on for less; a
+    // longer answer settles the difference afterwards like every list.
+    const fills = await this.postList<HlUserFillsByTimeResponse>({ type: "userFillsByTime", user: address, startTime }, WEIGHT_USER_FILLS_BY_TIME_BASE, priority, undefined, RECENT_FILLS_ITEMS, undefined, admission);
     return { fills, sentAt: admission.at ?? Date.now() };
   }
 

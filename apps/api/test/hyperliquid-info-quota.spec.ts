@@ -104,3 +104,17 @@ it('settles a page list against the page share, a background list against nothin
   // 40 items: 2 of the 100 surcharge used, 98 back.
   expect(local.adjust.mock.calls).toEqual([[-98, { page: true }], [-98, { page: false }]]);
 });
+it('a recent-window fills read prepays 30 in the live lane and says when it left, after the budget wait', async () => {
+  const fills = Array.from({ length: 3 }, (_, i) => ({ coin: 'BTC', px: '1', sz: '1', side: 'B', time: 1_790_000_000_000 + i, startPosition: '0', dir: 'Open Long',
+    closedPnl: '0', hash: '0x0', oid: i, crossed: true, fee: '0', tid: i, feeToken: 'USDC' }));
+  const fetcher = vi.fn<typeof fetch>(async () => Response.json(fills)), q = offlineGlobalTransport(fetcher), local = budget();
+  let waitedUntil = 0;
+  local.acquire.mockImplementation(async () => { await new Promise(resolve => setTimeout(resolve, 30)); waitedUntil = Date.now(); });
+  const info = new HyperliquidInfoClient(testConfig(), local as unknown as RequestBudgeterService, undefined, q.transport);
+  const before = Date.now(), answer = await info.userFillsSince('0x' + '12'.repeat(20), 0, 'live');
+  expect(answer.fills).toHaveLength(3);
+  expect(local.acquire.mock.calls[0]).toEqual([30, 'live', undefined, expect.objectContaining({ known: 20 })]);
+  expect(answer.sentAt).toBeGreaterThanOrEqual(waitedUntil); expect(answer.sentAt - before).toBeGreaterThanOrEqual(25);
+  // 3 items: 1 of the 10 surcharge used, 9 back.
+  expect(local.adjust.mock.calls).toEqual([[-9, { page: false }]]);
+});

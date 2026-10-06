@@ -3,7 +3,7 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { AppConfig } from '../../config/app-config.js';
 import { BackgroundJobs } from '../../runtime/background-jobs.service.js';
 import { COPY_LEADER_TRADED_EVENT, COPY_LEADER_VERIFIED_EVENT, type CopyLeaderTradedEvent, type CopyLeaderVerifiedEvent } from '../../watcher/copy-leader-events.js';
-import type { CopyLiveEngine } from './copy-live-engine.js';
+import { safeErrorText, type CopyLiveEngine } from './copy-live-engine.js';
 import { LIVE_ENGINE } from './copy-live-engine.provider.js';
 
 /**
@@ -106,7 +106,7 @@ export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDe
             `(${timing.ingest ? `${timing.ingest.fast ? 'fast' : 'watched'} ${timing.ingest.fills} fill(s), ${timing.ingest.kind}, ${timing.ingest.state}, through ${after(timing.ingest.through ?? undefined)}` : 'no read'}), enqueued ${after(timing.enqueuedAt)}`);
         }
       }
-    } catch (error) { this.logger.error(`Copy signal of ${leader} failed: ${error instanceof Error ? `${error.name}: ${error.message}` : 'unknown'}`); }
+    } catch (error) { this.logger.error(`Copy signal of ${leader} failed: ${safeErrorText(error)}`); }
     finally {
       this.signalling.delete(leader);
       const next = engine.followUp(leader);
@@ -135,14 +135,14 @@ export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDe
         if (this.passDue || Date.now() - this.lastPassAt >= this.intervalMs) {
           this.passDue = false; this.lastPassAt = Date.now();
           try { await this.jobs.run(() => engine.tick()); }
-          catch (error) { this.logger.error(`Testnet copy pass failed: ${error instanceof Error ? error.message : 'unknown'}`); }
+          catch (error) { this.logger.error(`Testnet copy pass failed: ${safeErrorText(error)}`); }
           continue;
         }
         const [leader] = this.kicks;
         if (leader !== undefined) {
           this.kicks.delete(leader);
           try { await this.jobs.run(() => engine.workLeader(leader)); }
-          catch (error) { this.logger.error(`Copy kick of ${leader} failed: ${error instanceof Error ? `${error.name}: ${error.message}` : 'unknown'}`); }
+          catch (error) { this.logger.error(`Copy kick of ${leader} failed: ${safeErrorText(error)}`); }
           continue;
         }
         const [audited] = this.audits;
@@ -151,7 +151,7 @@ export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDe
           try {
             const missed = await this.jobs.run(() => engine.audit(audited));
             if (missed.length) this.logger.error(`Copy source audit: ${missed.length} fill(s) of ${audited} were missed by the copy stream`);
-          } catch (error) { this.logger.error(`Copy source audit of ${audited} failed: ${error instanceof Error ? `${error.name}: ${error.message}` : 'unknown'}`); }
+          } catch (error) { this.logger.error(`Copy source audit of ${audited} failed: ${safeErrorText(error)}`); }
         }
       }
     } finally { this.running = false; }

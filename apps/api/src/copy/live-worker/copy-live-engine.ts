@@ -99,6 +99,9 @@ export const describeUnexpected = (error: unknown): string | null => {
     .map(line => line.replace(/^at\s+/, '').replace(/\(?(?:file:\/\/)?[^()]*\/(apps|node_modules|node:internal)\//, '($1/')).slice(0, 4);
   return `${/^[A-Za-z]{1,40}$/.test(error.name) ? error.name : 'Error'}${frames.length ? ` @ ${frames.join(' | ').slice(0, 400)}` : ''}`;
 };
+/** What a log may say about any error: its boundary code, or its name and
+ * code locations (describeUnexpected). Never a raw message. */
+export const safeErrorText = (error: unknown): string => describeUnexpected(error) ?? reasonOf(error);
 const reasonOf = (error: unknown) => {
   const code = error instanceof LiveBoundaryError ? error.code : error instanceof Error && /^[a-z][a-z0-9_]{0,79}$/.test(error.message) ? error.message : 'live_execution_failed';
   return code.replace(/[^a-z0-9_]/g, '_').slice(0, 80);

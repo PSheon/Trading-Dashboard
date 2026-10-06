@@ -92,6 +92,20 @@ describe("durable follower reconciliation", () => {
     expect((await db.select().from(copyFollowerScans))[0].through).toBeNull();
     expect((await db.select().from(copyStrategies))[0].cash).toBe("100");
   });
+  it("books a mainnet deployment's receipts as mainnet evidence (they were refused as not testnet, failing every settle and stop after a fill)", async () => {
+    const base = testConfig();
+    const mainnet = { get value() { const v = base.value; return { ...v, hyperliquid: { ...v.hyperliquid, wallet: { ...v.hyperliquid.wallet, network: "mainnet" as const } } }; } } as typeof base;
+    await db.update(copyExecutionAccounts).set({ network: "mainnet" }).where(eq(copyExecutionAccounts.id, accountId));
+    const read = vi.fn(async input => evidence(input, { network: "mainnet", fills: [{ raw: { coin: "BTC", tid: 1, oid: 7, side: "B", time: input.from,
+      px: "20000", sz: "0.01", closedPnl: "0", fee: "0.06", builderFee: "0.02", feeToken: "USDC" } }] }));
+    await new CopyFollowerReconciler(new CopyFollowerScanRepository(db, mainnet), ledger, { read } as never).runFor(accountId);
+    expect(await db.select().from(copyFollowerReceipts)).toMatchObject([{ network: "mainnet", accountAddress }]);
+    expect((await db.select().from(copyFollowerScans))[0]).toMatchObject({ issue: null });
+    // Testnet evidence for the mainnet account is still refused.
+    await db.update(copyFollowerScans).set({ nextRunAt: new Date(0) });
+    read.mockImplementation(async input => evidence(input));
+    await expect(new CopyFollowerReconciler(new CopyFollowerScanRepository(db, mainnet), ledger, { read } as never).runFor(accountId)).rejects.toThrow("follower_receipt_invalid_evidence");
+  });
   it("quarantines malformed provider evidence without advancing a scan", async () => {
     const read = vi.fn(async () => { throw new LiveBoundaryError("follower_receipt_invalid_evidence"); });
     await expect(new CopyFollowerReconciler(repository, ledger, { read } as never).runOnce()).rejects.toThrow();

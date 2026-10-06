@@ -3,6 +3,7 @@ import { z } from "zod";
 import { AppConfig } from "../config/app-config.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { CopyFollowerLedger } from "./live/copy-follower-ledger.js";
+import { deploymentNetwork, liveExecutionEnabled } from "./live-deployment.js";
 import { HyperliquidFollowerReceiptReader } from "./live/follower-receipt-reader.js";
 import { LiveBoundaryError } from "./live/wallet-authorization.js";
 
@@ -37,11 +38,14 @@ export class CopyFollowerReconciler {
       const selected = outstanding?.pending.slice(0, 2);
       const retained = outstanding?.pending.slice(2) ?? [];
       const result = await this.reader.read({ accountAddress: claim.address, from, to, maxRequests: 2, ...(selected ? { resumeWindows: selected } : {}) });
-      if (result.network !== "testnet" || result.accountAddress !== claim.address || result.from !== from || result.to !== to)
+      // The account's own network (the deployment's): a mainnet scan's
+      // evidence was refused as testnet's, so every settle and stop after a
+      // fill failed on mainnet.
+      if (result.network !== claim.network || result.accountAddress !== claim.address || result.from !== from || result.to !== to)
         throw new LiveBoundaryError("follower_receipt_invalid_evidence");
       // No transaction is held across provider reads. A crash after some
       // bookings simply replays the same immutable identities next time.
-      const expectedIdentity = { network: "testnet" as const, accountAddress: claim.address };
+      const expectedIdentity = { network: claim.network, accountAddress: claim.address };
       for (const receipt of result.fills) await this.ledger.bookFill(claim.accountId, receipt.raw, expectedIdentity);
       for (const receipt of result.funding) await this.ledger.bookFunding(claim.accountId, receipt.raw, expectedIdentity);
       const pending = [...retained, ...result.unresolvedWindows].map(({ kind, from, to, depth }) => ({ kind, from, to, depth }));
@@ -53,7 +57,7 @@ export class CopyFollowerReconciler {
     } catch (error) {
       const code = error instanceof LiveBoundaryError ? error.code : "follower_scan_unavailable";
       if (code === "follower_receipt_invalid_evidence" || code === "follower_receipt_conflict") {
-        try { await this.ledger.recordInvalidEvidence(claim.accountId, code, { network: "testnet", accountAddress: claim.address }); }
+        try { await this.ledger.recordInvalidEvidence(claim.accountId, code, { network: claim.network, accountAddress: claim.address }); }
         catch (bindingError) {
           if (!(bindingError instanceof LiveBoundaryError) || bindingError.code !== "follower_account_identity_changed") throw bindingError;
         }
@@ -73,7 +77,9 @@ export class CopyFollowerMonitor implements OnApplicationBootstrap, OnModuleDest
   private running = false;
   constructor(private readonly config: AppConfig, private readonly reconciler: CopyFollowerReconciler, private readonly jobs: BackgroundJobs) {}
   onApplicationBootstrap() {
-    if (this.config.value.app.nodeEnv === "test" || this.config.value.hyperliquid.wallet.network !== "testnet") return;
+    // A testnet deployment, or one whose actual copies run (mainnet live):
+    // late fills and funding of a copy account are booked on its network.
+    if (this.config.value.app.nodeEnv === "test" || (deploymentNetwork(this.config) !== "testnet" && !liveExecutionEnabled(this.config))) return;
     this.timer = setInterval(() => void this.tick(), 60_000); this.timer.unref?.();
   }
   onModuleDestroy() { clearInterval(this.timer); }

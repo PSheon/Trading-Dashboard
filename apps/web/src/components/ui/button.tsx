@@ -13,7 +13,8 @@ import { OrbitSpinner } from "./orbit-spinner"
  * import directly). A client component: `loading` keeps state.
  * `loading`: the button keeps its colour and width, can't be pressed again,
  * and its icon (or, without one, a place before the label) shows Orbie's
- * orbit mark for at least BUSY_MIN_MS, so a fast answer doesn't flash.
+ * orbit mark for at least BUSY_MIN_MS, so a fast answer doesn't flash. A busy
+ * button is disabled, drawn at 70% (plain disabled is 45%) so the mark reads.
  */
 const BUSY_MIN_MS = 300
 
@@ -47,6 +48,7 @@ function Button({
   style,
   onClick,
   children,
+  disabled,
   ...props
 }: React.ComponentProps<"button"> &
   VariantProps<typeof buttonVariants> & {
@@ -80,6 +82,10 @@ function Button({
       style={width === null ? style : { ...style, minWidth: width }}
       onClick={busy ? (event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault() : onClick}
       {...props}
+      // Busy is disabled (Paul, 2026-10-06): no press, no keyboard activation,
+      // announced as unavailable. A Slot child (a link) can't be disabled
+      // natively, so it is marked aria-disabled instead.
+      {...(asChild ? { "aria-disabled": busy || disabled || undefined } : { disabled: busy || disabled })}
     >
       {asChild ? children : <>{busy ? <OrbitSpinner /> : null}{children}</>}
     </Comp>

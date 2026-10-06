@@ -22,7 +22,9 @@ it("shows the orbit mark in the icon's place and refuses a second press while lo
   expect(button().textContent).toContain("開始跟單");
   // The icon is hidden by the busy style, the label stays, the colour stays (not disabled).
   expect(button().className).toContain("data-[loading=true]:[&>svg:not([data-orbit-spinner])]:hidden");
-  expect(button().disabled).toBe(false);
+  // Busy is disabled (Paul, 2026-10-06), drawn at 70% so the mark reads.
+  expect(button().disabled).toBe(true);
+  expect(button().className).toContain("data-[loading=true]:disabled:opacity-70");
   act(() => button().click());
   expect(onClick).not.toHaveBeenCalled();
 });

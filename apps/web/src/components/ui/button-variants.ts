@@ -10,7 +10,7 @@ import { cva, type VariantProps } from "class-variance-authority"
  * peach/brown danger pair. Press scales down; reduced motion keeps colour.
  */
 export const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full border border-transparent bg-clip-padding font-extrabold whitespace-nowrap transition-[background-color,color,border-color,transform,opacity] duration-150 ease-(--ease-orbit) outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background active:not-aria-[haspopup]:scale-[0.97] motion-reduce:active:scale-100 disabled:pointer-events-none disabled:opacity-45 data-[loading=true]:pointer-events-none data-[loading=true]:[&>svg:not([data-orbit-spinner])]:hidden aria-invalid:border-destructive [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/button inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full border border-transparent bg-clip-padding font-extrabold whitespace-nowrap transition-[background-color,color,border-color,transform,opacity] duration-150 ease-(--ease-orbit) outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background active:not-aria-[haspopup]:scale-[0.97] motion-reduce:active:scale-100 disabled:pointer-events-none disabled:opacity-45 data-[loading=true]:disabled:opacity-70 data-[loading=true]:pointer-events-none data-[loading=true]:[&>svg:not([data-orbit-spinner])]:hidden aria-invalid:border-destructive [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {

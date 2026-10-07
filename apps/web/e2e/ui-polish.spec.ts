@@ -51,3 +51,14 @@ test("copy sheet mode covers its whole scroll viewport without a top gap", async
   await expect(body).toHaveCount(0);
   await expectNoSidewaysScroll(page);
 });
+
+test("cohort headers stick inside the table's single scrolling viewport", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/en/insights");
+  const table = page.locator('table.cd-cohort-wallets').filter({ visible: true });
+  await expect(table).toBeVisible();
+  const viewport = table.locator('..');
+  await expect.poll(() => viewport.evaluate(el => { el.scrollTop = 60; return el.scrollTop; })).toBeGreaterThan(0);
+  const gap = await viewport.evaluate(el => Math.abs(el.querySelector('thead')!.getBoundingClientRect().y - el.getBoundingClientRect().y));
+  expect(gap).toBeLessThan(1);
+});

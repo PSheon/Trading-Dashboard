@@ -46,8 +46,8 @@ export function WalletsTable({ rows }: { rows: CohortWallet[] }) {
   if (rows.length === 0) return <p className="py-10 text-center text-sm text-muted-foreground">{t("insights.cohort.tableEmpty")}</p>;
   const c = (key: string) => t(`insights.cohort.cols.${key}` as "insights.cohort.cols.pnl");
   return (
-    <><div className="max-h-[640px] overflow-auto">
-      <Table className="cd-cohort-wallets w-full border-separate border-spacing-y-1.5">
+    <>
+      <Table containerClassName="max-h-[640px] overflow-auto" className="cd-cohort-wallets w-full border-separate border-spacing-y-1.5">
         <TableHeader className="sticky top-0 z-10 bg-background">
           <TableRow>
             <SortHead label={c("address")} col="address" sort={sort} onSort={onSort} className="text-left" />
@@ -98,7 +98,7 @@ export function WalletsTable({ rows }: { rows: CohortWallet[] }) {
           ))}
         </TableBody>
       </Table>
-    </div><TablePager {...pager} /></>
+    <TablePager {...pager} /></>
   );
 }
 
@@ -142,8 +142,8 @@ export function MarketsTable({ rows, filter }: { rows: CohortMarket[]; filter: "
   const short = t("insights.cohort.short");
   const share = (part: number, whole: number) => (whole > 0 ? Math.round((100 * part) / whole) : 0);
   return (
-    <><div className="max-h-[640px] overflow-auto">
-      <Table className="cd-cohort-markets w-full min-w-[1080px] border-separate border-spacing-y-1.5">
+    <>
+      <Table containerClassName="max-h-[640px] overflow-auto" className="cd-cohort-markets w-full min-w-[1080px] border-separate border-spacing-y-1.5">
         <TableHeader className="sticky top-0 z-10 bg-background">
           <TableRow>
             <SortHead label={c("market")} col="coin" sort={sort} onSort={onSort} className="text-left" />
@@ -178,7 +178,7 @@ export function MarketsTable({ rows, filter }: { rows: CohortMarket[]; filter: "
           })}
         </TableBody>
       </Table>
-    </div><TablePager {...pager} /></>
+    <TablePager {...pager} /></>
   );
 }
 

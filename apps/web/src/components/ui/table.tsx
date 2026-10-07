@@ -9,11 +9,14 @@ import { cn } from "cn"
 function Table({
   className,
   dense = false,
+  containerClassName,
   ...props
 }: React.ComponentProps<"table"> & {
   /** CopyDog's trader-page tables: 6 px cell gutters (12 px at the row
    * ends) and 11 px headers, so eight columns fit the main column. */
   dense?: boolean
+  /** Constrain the same viewport on both axes, keeping sticky headers inside it. */
+  containerClassName?: string
 }) {
   return (
     // A horizontal scroll container with a visible thin scrollbar: when the
@@ -25,6 +28,7 @@ function Table({
       className={cn(
         "table-scroll relative w-full overflow-x-auto outline-none focus-visible:ring-2 focus-visible:ring-ring",
         dense && "table-dense",
+        containerClassName,
       )}
     >
       <table

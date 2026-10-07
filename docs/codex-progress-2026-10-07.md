@@ -86,3 +86,8 @@
 - run37607319991 第3組58項中57通過，sticky測試在抽屜300ms進場動畫中分兩次boundingBox取得不同影格，差13.79px。改為同一次browser evaluate量測兩個矩形，保留原本小於1px的嚴格斷言。
 - UI-polish三項連跑三次9/9通過；tsc與eslint通過。應用程式碼無變更。
 - Stage備份29,138,732bytes，PG18 pg_restore --list成功699項；排除history_fills資料但保留表結構。檔案 `/private/tmp/codex-trading-stage-before-ui-20261007.dump`，SHA256 `a9151bb61241990541f954fd10ca0cdd00bb2e90ac19c81ba6a458a8e78e0fbd`。
+
+### cohort sticky 收尾
+
+- 審查留下的Minor以瀏覽器驗證為真：內層Table的overflow使表頭無法跟隨外層640px容器固定。Table新增可選containerClassName，兩cohort清單把高度限制與垂直／水平捲動合併到Table容器，移除多餘外層。
+- 新瀏覽器回歸舊碼RED、新碼GREEN；UI-polish4/4，完整177檔1135/1135、tsc、eslint、diff check通過。桌機與手機截圖 `/private/tmp/codex-trading-ui/cohort-sticky-final-{1440,390}.png` 無頁面溢出。獨立審查確認原Minor已修、無新Critical／Important。

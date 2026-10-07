@@ -1,5 +1,7 @@
 "use client";
 
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+
 import { Link } from "@/i18n/navigation";
 import { notFound } from "next/navigation";
 import { cn } from "cn";
@@ -35,8 +37,6 @@ function Column({ children }: { children: React.ReactNode }) {
 }
 
 // CopyDog's .data-table: mono caps headers (33px), 13px cells in 48–49px rows.
-const th = "px-3 pt-1 text-left text-xs leading-4 font-bold whitespace-nowrap text-muted-foreground first:pl-[18px] last:pr-[18px]";
-const td = "h-[60px] px-3 text-sm leading-5 font-bold whitespace-nowrap first:pl-[18px] last:pr-[18px]";
 
 /** `initial`: the index as the server read it (app/coins/page.tsx), so the
  * rows are in the first HTML; without it the browser asks, as before. */
@@ -66,19 +66,19 @@ function CoinIndexContent({ query }: { query: { data: CoinIndexResponse | undefi
         ) : query.data && query.data.items.length === 0 ? (
           <EmptyState title={t("coins.emptyIndex")} body={t("coins.emptyBody")} />
         ) : (
-          <table className="w-full border-separate border-spacing-y-2">
-            <thead>
-              <tr>
-                <th className={th}>{t("coins.colMarket")}</th>
-                <th className={cn(th, "text-right")}>{t("coins.colProfitable")}</th>
-                <th className={cn(th, "text-right")}>{t("coins.colProfit")}</th>
-              </tr>
-            </thead>
-            <tbody className="data-rows">
+          <Table className="w-full border-separate border-spacing-y-1.5">
+            <TableHeader>
+              <TableRow>
+                <TableHead >{t("coins.colMarket")}</TableHead>
+                <TableHead className={cn("text-right")}>{t("coins.colProfitable")}</TableHead>
+                <TableHead className={cn("text-right")}>{t("coins.colProfit")}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody className="data-rows">
               {query.data
                 ? query.data.items.map((row) => (
-                    <tr key={row.coin} className="relative">
-                      <td className={td}>
+                    <TableRow key={row.coin} className="relative">
+                      <TableCell >
                         <Link
                           href={coinHref(row.coin)}
                           className="flex items-center gap-2 font-display text-[15px] outline-none after:absolute after:inset-0 after:rounded-xl focus-visible:underline"
@@ -86,25 +86,25 @@ function CoinIndexContent({ query }: { query: { data: CoinIndexResponse | undefi
                           <CoinIcon coin={row.coin} size={18} />
                           {coinLabel(row.coin)}
                         </Link>
-                      </td>
-                      <td className={cn(td, "num text-right")}>{count(row.traders)}</td>
-                      <td className={cn(td, "num text-right text-positive")}>{money(row.profit)}</td>
-                    </tr>
+                      </TableCell>
+                      <TableCell className={cn("num text-right")}>{count(row.traders)}</TableCell>
+                      <TableCell className={cn("num text-right text-positive")}>{money(row.profit)}</TableCell>
+                    </TableRow>
                   ))
                 : Array.from({ length: 12 }, (_, i) => (
-                    <tr key={i} aria-hidden="true" className="[--skel-bar:var(--border)]">
-                      <td className={td}>
+                    <TableRow key={i} aria-hidden="true" className="[--skel-bar:var(--border)]">
+                      <TableCell >
                         <span className="flex items-center gap-2">
                           <SkelCircle className="size-[18px]" />
                           <SkelBar className="h-3.5 w-16" />
                         </span>
-                      </td>
-                      <td className={td}><SkelBar className="ml-auto h-3 w-12" /></td>
-                      <td className={td}><SkelBar className="ml-auto h-3 w-20" /></td>
-                    </tr>
+                      </TableCell>
+                      <TableCell ><SkelBar className="ml-auto h-3 w-12" /></TableCell>
+                      <TableCell ><SkelBar className="ml-auto h-3 w-20" /></TableCell>
+                    </TableRow>
                   ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         )}
       </div>
     </Column>
@@ -160,23 +160,23 @@ export function CoinBoardView({ coin }: { coin: string }) {
         ) : (
           // Phones scroll the table sideways, as CopyDog's does.
           <div className={cn("-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0", !query.data && "ui-skeleton")}>
-            <table className="w-full min-w-[560px] border-separate border-spacing-y-2">
-              <thead>
-                <tr>
-                  <th className={cn(th, "w-[88px]")}>{t("coins.colRank")}</th>
-                  <th className={th}>{t("coins.colTrader")}</th>
-                  <th className={cn(th, "text-right")}>{t("coins.colPnl")}</th>
-                  <th className={cn(th, "text-right")}>{t("coins.colWinRate")}</th>
-                  <th className={cn(th, "text-right")}>{t("coins.colTrades")}</th>
-                  <th className={cn(th, "text-right")}>{t("coins.colVolume")}</th>
-                </tr>
-              </thead>
-              <tbody className="data-rows">
+            <Table className="w-full min-w-[560px] border-separate border-spacing-y-1.5">
+              <TableHeader>
+                <TableRow>
+                  <TableHead className={cn("w-[88px]")}>{t("coins.colRank")}</TableHead>
+                  <TableHead >{t("coins.colTrader")}</TableHead>
+                  <TableHead className={cn("text-right")}>{t("coins.colPnl")}</TableHead>
+                  <TableHead className={cn("text-right")}>{t("coins.colWinRate")}</TableHead>
+                  <TableHead className={cn("text-right")}>{t("coins.colTrades")}</TableHead>
+                  <TableHead className={cn("text-right")}>{t("coins.colVolume")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody className="data-rows">
                 {query.data
                   ? query.data.items.map((row, i) => (
-                      <tr key={row.address} className="relative">
-                        <td className={cn(td, "num")}>{i + 1}</td>
-                        <td className={cn(td, "max-w-[260px]")}>
+                      <TableRow key={row.address} className="relative">
+                        <TableCell className={cn("num")}>{i + 1}</TableCell>
+                        <TableCell className={cn("max-w-[260px]")}>
                           <Link
                             href={`/trader/${row.address}`}
                             className="flex min-w-0 items-center gap-2 font-medium outline-none after:absolute after:inset-0 focus-visible:underline"
@@ -184,30 +184,30 @@ export function CoinBoardView({ coin }: { coin: string }) {
                             <TraderAvatar trader={row} size={20} />
                             <span className="truncate">{boardName(row)}</span>
                           </Link>
-                        </td>
-                        <td className={cn(td, "num text-right text-positive")}>{money(row.pnl)}</td>
-                        <td className={cn(td, "num text-right")}>{rate(row.winRate)}</td>
-                        <td className={cn(td, "num text-right")}>{count(row.trades)}</td>
-                        <td className={cn(td, "num text-right")}>{money(row.volume)}</td>
-                      </tr>
+                        </TableCell>
+                        <TableCell className={cn("num text-right text-positive")}>{money(row.pnl)}</TableCell>
+                        <TableCell className={cn("num text-right")}>{rate(row.winRate)}</TableCell>
+                        <TableCell className={cn("num text-right")}>{count(row.trades)}</TableCell>
+                        <TableCell className={cn("num text-right")}>{money(row.volume)}</TableCell>
+                      </TableRow>
                     ))
                   : Array.from({ length: 10 }, (_, i) => (
-                      <tr key={i} aria-hidden="true" className="[--skel-bar:var(--border)]">
-                        <td className={td}><SkelBar className="h-3 w-5" /></td>
-                        <td className={cn(td, "max-w-[260px]")}>
+                      <TableRow key={i} aria-hidden="true" className="[--skel-bar:var(--border)]">
+                        <TableCell ><SkelBar className="h-3 w-5" /></TableCell>
+                        <TableCell className={cn("max-w-[260px]")}>
                           <span className="flex items-center gap-2">
                             <SkelCircle className="size-5" />
                             <SkelBar className="h-3.5 w-24" />
                           </span>
-                        </td>
-                        <td className={td}><SkelBar className="ml-auto h-3 w-14" /></td>
-                        <td className={td}><SkelBar className="ml-auto h-3 w-10" /></td>
-                        <td className={td}><SkelBar className="ml-auto h-3 w-8" /></td>
-                        <td className={td}><SkelBar className="ml-auto h-3 w-16" /></td>
-                      </tr>
+                        </TableCell>
+                        <TableCell ><SkelBar className="ml-auto h-3 w-14" /></TableCell>
+                        <TableCell ><SkelBar className="ml-auto h-3 w-10" /></TableCell>
+                        <TableCell ><SkelBar className="ml-auto h-3 w-8" /></TableCell>
+                        <TableCell ><SkelBar className="ml-auto h-3 w-16" /></TableCell>
+                      </TableRow>
                     ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
       </div>

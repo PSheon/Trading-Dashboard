@@ -31,3 +31,11 @@
 - 截圖：`/private/tmp/codex-trading-ui/step2-{before,after}-portfolio-{1440,390}.png`。
 - crowd-view 沒有 app 入口，只由現有元件測試使用。
 - 第 1 步已推 dev；CI run `37601660876` 正在跑。
+
+### ⑪第 3 步
+
+- 探索（含 skeleton）、幣種 index／單一幣種、cohort 錢包／市場（含 skeleton）接上共用 Table；刪 cd-cohort-table 的重複 header／cell CSS，保留 cohort 欄寬。
+- 新增 3 個區域 DOM 驗證：舊碼失敗、新碼通過；完整 web suite 1115/1115，tsc、eslint 通過。
+- 前後 1440／390 截圖已目視，無頁面橫向溢出；幣種詳細頁多欄在表格容器內捲動。
+- 截圖：`/private/tmp/codex-trading-ui/step3-{before,after}-{explore,coins,coin,insights}-{1440,390}.png`。
+- 補充第 2 步：實際 SVG 量測確認 sparkline 為 72×28、父容器 90px、clip-path none（`chart-check.mjs`）；部分重拍畫面在 HMR 後捕捉到動畫中途，後续截圖應等待動畫穩定。

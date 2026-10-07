@@ -1,5 +1,7 @@
 "use client";
 
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+
 
 import { Bitcoin, ChevronDown, ChevronRight, ListFilter, Trophy, UserRound, X } from "lucide-react";
 import { Link } from "@/i18n/navigation";
@@ -401,7 +403,7 @@ function BoardTable({ items, sorts, sort, onSort, pnlLabel, roiLabel, roiHint }:
   const head = (key: BoardSort, label: string, align: "left" | "right", title?: string) => {
     const sortable = sorts.includes(key);
     return (
-      <th className={cn("px-3 pt-1 text-xs font-bold text-muted-foreground", align === "right" ? "text-right" : "text-left")} aria-sort={sort === key ? "descending" : undefined} title={title}>
+      <TableHead className={cn("px-3 pt-1 text-xs font-bold text-muted-foreground", align === "right" ? "text-right" : "text-left")} aria-sort={sort === key ? "descending" : undefined} title={title}>
         {sortable ? (
           <button
             type="button"
@@ -414,26 +416,26 @@ function BoardTable({ items, sorts, sort, onSort, pnlLabel, roiLabel, roiHint }:
         ) : (
           label
         )}
-      </th>
+      </TableHead>
     );
   };
   return (
     <div className="hidden overflow-x-auto md:block">
-      <table className="w-full min-w-[860px] border-separate border-spacing-y-2 text-sm font-bold">
-        <thead>
-          <tr>
-            <th className="px-3 pt-1 pl-[18px] text-left text-xs font-bold text-muted-foreground">{t("discover.trader")}</th>
+      <Table className="w-full min-w-[860px] border-separate border-spacing-y-1.5 text-sm font-bold">
+        <TableHeader>
+          <TableRow>
+            <TableHead className="px-3 pt-1 pl-[18px] text-left text-xs font-bold text-muted-foreground">{t("discover.trader")}</TableHead>
             {head("copyScore", t("discover.copyScore"), "left")}
-            <th className="px-3 pt-1 text-left text-xs font-bold text-muted-foreground">{t("discover.assets")}</th>
+            <TableHead className="px-3 pt-1 text-left text-xs font-bold text-muted-foreground">{t("discover.assets")}</TableHead>
             {head("pnl", pnlLabel, "right")}
             {head("roi", roiLabel, "right", roiHint)}
             {head("accountValue", t("discover.equity"), "right")}
-          </tr>
-        </thead>
-        <tbody className="data-rows">
+          </TableRow>
+        </TableHeader>
+        <TableBody className="data-rows">
           {items.map((trader) => (
-            <tr key={trader.address}>
-              <td className="h-16 px-3 pl-[18px]">
+            <TableRow key={trader.address}>
+              <TableCell className="">
                 <Link href={`/trader/${trader.address}`} className="flex min-w-0 items-center gap-2.5 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
                   <TraderAvatar trader={trader} size={36} />
                   <span className="truncate font-extrabold">{boardName(trader)}</span>
@@ -442,20 +444,20 @@ function BoardTable({ items, sorts, sort, onSort, pnlLabel, roiLabel, roiHint }:
                     <span className="text-xs text-subtle-foreground" title={`@${trader.xHandle}`} aria-label={`X @${trader.xHandle}`}>𝕏</span>
                   ) : null}
                 </Link>
-              </td>
-              <td className="px-3">
+              </TableCell>
+              <TableCell className="px-3">
                 <CopyScoreBar score={trader.copyScore} layout="number-first" barClassName="w-28 bg-card" />
-              </td>
-              <td className="px-3">
+              </TableCell>
+              <TableCell className="px-3">
                 <CoinStack coins={trader.topCoins} size={18} dash />
-              </td>
-              <td className={cn("num px-3 text-right font-display text-[15px]", signTone(trader.pnl))}>{boardPnl(trader.pnl)}</td>
-              <td className={cn("num px-3 text-right font-display text-[15px]", signTone(trader.roi))}>{boardRoi(trader.roi)}</td>
-              <td className="num px-3 pr-[18px] text-right font-display text-[15px]">{boardUsd(trader.accountValue)}</td>
-            </tr>
+              </TableCell>
+              <TableCell className={cn("num px-3 text-right font-display text-[15px]", signTone(trader.pnl))}>{boardPnl(trader.pnl)}</TableCell>
+              <TableCell className={cn("num px-3 text-right font-display text-[15px]", signTone(trader.roi))}>{boardRoi(trader.roi)}</TableCell>
+              <TableCell className="num px-3 pr-[18px] text-right font-display text-[15px]">{boardUsd(trader.accountValue)}</TableCell>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </div>
   );
 }
@@ -471,32 +473,32 @@ function BoardSkeleton({ view }: { view: View }) {
       ) : (
         // BoardTable's header over its 64px raised rows.
         <div aria-hidden="true" className="ui-skeleton hidden overflow-hidden md:block [--skel-bar:var(--border)]">
-          <table className="w-full min-w-[860px] border-separate border-spacing-y-2 text-sm font-bold">
-            <thead>
-              <tr>
+          <Table className="w-full min-w-[860px] border-separate border-spacing-y-1.5 text-sm font-bold">
+            <TableHeader>
+              <TableRow>
                 {([["discover.trader", "left"], ["discover.copyScore", "left"], ["discover.assets", "left"], ["discover.pnl", "right"], ["discover.roi", "right"], ["discover.equity", "right"]] as const).map(([key, align], i) => (
-                  <th key={key} className={cn("px-3 pt-1 text-xs font-bold text-muted-foreground", align === "right" ? "text-right" : "text-left", i === 0 && "pl-[18px]")}>{t(key)}</th>
+                  <TableHead key={key} className={cn("px-3 pt-1 text-xs font-bold text-muted-foreground", align === "right" ? "text-right" : "text-left", i === 0 && "pl-[18px]")}>{t(key)}</TableHead>
                 ))}
-              </tr>
-            </thead>
-            <tbody className="data-rows">
+              </TableRow>
+            </TableHeader>
+            <TableBody className="data-rows">
               {Array.from({ length: 10 }, (_, r) => (
-                <tr key={r}>
-                  <td className="h-16 px-3 pl-[18px]">
+                <TableRow key={r}>
+                  <TableCell className="">
                     <span className="flex items-center gap-2.5">
                       <SkelCircle className="size-9" />
                       <SkelBar className="h-3.5 w-28" />
                     </span>
-                  </td>
-                  <td className="px-3"><SkelBar className="h-2.5 w-36" /></td>
-                  <td className="px-3"><SkelBar className="h-[18px] w-12" /></td>
-                  <td className="px-3"><SkelBar className="ml-auto h-3 w-20" /></td>
-                  <td className="px-3"><SkelBar className="ml-auto h-3 w-14" /></td>
-                  <td className="px-3 pr-[18px]"><SkelBar className="ml-auto h-3 w-24" /></td>
-                </tr>
+                  </TableCell>
+                  <TableCell className="px-3"><SkelBar className="h-2.5 w-36" /></TableCell>
+                  <TableCell className="px-3"><SkelBar className="h-[18px] w-12" /></TableCell>
+                  <TableCell className="px-3"><SkelBar className="ml-auto h-3 w-20" /></TableCell>
+                  <TableCell className="px-3"><SkelBar className="ml-auto h-3 w-14" /></TableCell>
+                  <TableCell className="px-3 pr-[18px]"><SkelBar className="ml-auto h-3 w-24" /></TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
       {view !== "grid" ? (

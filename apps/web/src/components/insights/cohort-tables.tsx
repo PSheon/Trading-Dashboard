@@ -1,5 +1,7 @@
 "use client";
 
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+
 import { Link, useRouter } from "@/i18n/navigation";
 import { useMemo, useState } from "react";
 import { cn } from "cn";
@@ -39,11 +41,11 @@ function useSort<T, K extends string>(rows: T[], keys: Record<K, (row: T) => num
 function Th<K extends string>({ label, col, sort, align = "right" }: { label: string; col: K; sort: { key: K; dir: Dir; onSort: (k: K) => void }; align?: "left" | "right" }) {
   const active = sort.key === col;
   return (
-    <th className={cn("px-3 py-3 text-[0.8125rem] font-medium whitespace-nowrap text-subtle-foreground", align === "left" ? "text-left" : "text-right")} aria-sort={active ? (sort.dir === "desc" ? "descending" : "ascending") : undefined}>
+    <TableHead className={cn("px-3 py-3 text-[0.8125rem] font-medium whitespace-nowrap text-subtle-foreground", align === "left" ? "text-left" : "text-right")} aria-sort={active ? (sort.dir === "desc" ? "descending" : "ascending") : undefined}>
       <button type="button" onClick={() => sort.onSort(col)} className={cn("inline-flex items-center gap-1 rounded outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring", active && "font-bold text-foreground")}>
         {label}
       </button>
-    </th>
+    </TableHead>
   );
 }
 
@@ -77,11 +79,11 @@ export function WalletsTable({ rows }: { rows: CohortWallet[] }) {
   const c = (key: string) => t(`insights.cohort.cols.${key}` as "insights.cohort.cols.pnl");
   return (
     <div className="max-h-[640px] overflow-auto">
-      <table className="cd-cohort-table cd-cohort-wallets w-full border-separate border-spacing-y-2">
-        <thead className="sticky top-0 z-10 bg-background">
-          <tr>
+      <Table className="cd-cohort-wallets w-full border-separate border-spacing-y-1.5">
+        <TableHeader className="sticky top-0 z-10 bg-background">
+          <TableRow>
             <Th label={c("address")} col="address" sort={sort} align="left" />
-            <th className="px-3 py-3 text-left text-[0.8125rem] font-medium text-subtle-foreground">{c("assets")}</th>
+            <TableHead className="px-3 py-3 text-left text-[0.8125rem] font-medium text-subtle-foreground">{c("assets")}</TableHead>
             <Th label={c("pnl")} col="totalPnl" sort={sort} />
             <Th label={c("roi")} col="roi" sort={sort} />
             <Th label={c("perpEquity")} col="perpEquity" sort={sort} />
@@ -90,11 +92,11 @@ export function WalletsTable({ rows }: { rows: CohortWallet[] }) {
             <Th label={c("leverage")} col="leverage" sort={sort} />
             <Th label={c("upnl")} col="sumUpnl" sort={sort} />
             <Th label={c("bias")} col="biasPct" sort={sort} />
-          </tr>
-        </thead>
-        <tbody className="data-rows">
+          </TableRow>
+        </TableHeader>
+        <TableBody className="data-rows">
           {sort.sorted.map((w) => (
-            <tr
+            <TableRow
               key={w.address}
               // CopyDog's wallet rows open the trader (the name stays a link).
               onClick={(e) => {
@@ -103,7 +105,7 @@ export function WalletsTable({ rows }: { rows: CohortWallet[] }) {
               }}
               className="cursor-pointer"
             >
-              <td className="px-3 py-3">
+              <TableCell className="px-3 py-3">
                 <Link href={`/trader/${w.address}`} className="flex min-w-0 items-center gap-[9px] rounded outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
                   <TraderAvatar trader={w} size={22} />
                   {/* CopyDog's .hl-cohort-addr: a bare address is mono 12.5px. */}
@@ -114,20 +116,20 @@ export function WalletsTable({ rows }: { rows: CohortWallet[] }) {
                   )}
                   {w.verified ? <VerifiedTick className="size-3.5" /> : null}
                 </Link>
-              </td>
-              <td className="px-3 py-3"><CoinStack coins={w.topAssets} size={16} dash /></td>
-              <td className={cn("num px-3 py-3 text-right", signTone(w.totalPnl))}>{money(w.totalPnl, true)}</td>
-              <td className={cn("num px-3 py-3 text-right", signTone(w.roi))}>{pctText(w.roi)}</td>
-              <td className="num px-3 py-3 text-right">{money(w.perpEquity)}</td>
-              <td className="px-3 py-3"><CopyScoreBar score={w.copyScore} layout="number-first" className="flex justify-end gap-2.5" barClassName="w-16" /></td>
-              <td className="num px-3 py-3 text-right">{money(w.positionValue)}</td>
-              <td className="num px-3 py-3 text-right">{w.positionValue > 0 && w.leverage !== null ? `${w.leverage.toFixed(2)}×` : "—"}</td>
-              <td className={cn("num px-3 py-3 text-right", signTone(w.sumUpnl))}>{money(w.sumUpnl, true)}</td>
-              <td className="px-3 py-3 text-right">{w.biasPct === null ? "—" : <SentimentText pctLong={w.biasPct} />}</td>
-            </tr>
+              </TableCell>
+              <TableCell className="px-3 py-3"><CoinStack coins={w.topAssets} size={16} dash /></TableCell>
+              <TableCell className={cn("num px-3 py-3 text-right", signTone(w.totalPnl))}>{money(w.totalPnl, true)}</TableCell>
+              <TableCell className={cn("num px-3 py-3 text-right", signTone(w.roi))}>{pctText(w.roi)}</TableCell>
+              <TableCell className="num px-3 py-3 text-right">{money(w.perpEquity)}</TableCell>
+              <TableCell className="px-3 py-3"><CopyScoreBar score={w.copyScore} layout="number-first" className="flex justify-end gap-2.5" barClassName="w-16" /></TableCell>
+              <TableCell className="num px-3 py-3 text-right">{money(w.positionValue)}</TableCell>
+              <TableCell className="num px-3 py-3 text-right">{w.positionValue > 0 && w.leverage !== null ? `${w.leverage.toFixed(2)}×` : "—"}</TableCell>
+              <TableCell className={cn("num px-3 py-3 text-right", signTone(w.sumUpnl))}>{money(w.sumUpnl, true)}</TableCell>
+              <TableCell className="px-3 py-3 text-right">{w.biasPct === null ? "—" : <SentimentText pctLong={w.biasPct} />}</TableCell>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </div>
   );
 }
@@ -172,41 +174,41 @@ export function MarketsTable({ rows, filter }: { rows: CohortMarket[]; filter: "
   const share = (part: number, whole: number) => (whole > 0 ? Math.round((100 * part) / whole) : 0);
   return (
     <div className="max-h-[640px] overflow-auto">
-      <table className="cd-cohort-table cd-cohort-markets w-full min-w-[1080px] border-separate border-spacing-y-2">
-        <thead className="sticky top-0 z-10 bg-background">
-          <tr>
+      <Table className="cd-cohort-markets w-full min-w-[1080px] border-separate border-spacing-y-1.5">
+        <TableHeader className="sticky top-0 z-10 bg-background">
+          <TableRow>
             <Th label={c("market")} col="coin" sort={sort} align="left" />
             <Th label={c("sentiment")} col="sentiment" sort={sort} align="left" />
             <Th label={t("insights.cohort.notional")} col="notional" sort={sort} align="left" />
             <Th label={c("traders")} col="traders" sort={sort} align="left" />
             <Th label={c("upnl")} col="upnl" sort={sort} align="left" />
-          </tr>
-        </thead>
-        <tbody className="data-rows">
+          </TableRow>
+        </TableHeader>
+        <TableBody className="data-rows">
           {sort.sorted.map((m) => {
             const notional = m.notionalLong + m.notionalShort;
             const traders = m.tradersLong + m.tradersShort;
             const pnlTraders = m.tradersProfit + m.tradersLoss;
             return (
-              <tr key={m.coin}>
-                <td className="px-3 py-3">
+              <TableRow key={m.coin}>
+                <TableCell className="px-3 py-3">
                   <span className="flex items-center gap-2 font-semibold"><CoinIcon coin={m.coin} size={18} />{coinLabel(m.coin)}</span>
-                </td>
-                <td className="px-3 py-3"><SentimentText pctLong={m.biasPct} /></td>
-                <td className="px-3 py-3">
+                </TableCell>
+                <TableCell className="px-3 py-3"><SentimentText pctLong={m.biasPct} /></TableCell>
+                <TableCell className="px-3 py-3">
                   <Split left={usdCompact(m.notionalLong, { digits: 2 })} leftSub={`${share(m.notionalLong, notional)}% ${long}`} right={usdCompact(m.notionalShort, { digits: 2 })} rightSub={`${share(m.notionalShort, notional)}% ${short}`} pos={notional > 0 ? (100 * m.notionalLong) / notional : null} />
-                </td>
-                <td className="px-3 py-3">
+                </TableCell>
+                <TableCell className="px-3 py-3">
                   <Split left={String(m.tradersLong)} leftSub={`${share(m.tradersLong, traders)}% ${long}`} right={String(m.tradersShort)} rightSub={`${share(m.tradersShort, traders)}% ${short}`} pos={traders > 0 ? (100 * m.tradersLong) / traders : null} />
-                </td>
-                <td className="px-3 py-3">
+                </TableCell>
+                <TableCell className="px-3 py-3">
                   <Split left={String(m.tradersProfit)} leftSub={`${share(m.tradersProfit, pnlTraders)}% ${t("insights.cohort.profit")}`} right={String(m.tradersLoss)} rightSub={`${share(m.tradersLoss, pnlTraders)}% ${t("insights.cohort.loss")}`} pos={pnlTraders > 0 ? (100 * m.tradersProfit) / pnlTraders : null} />
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             );
           })}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </div>
   );
 }
@@ -219,29 +221,29 @@ export function WalletsTableSkeleton({ rows = 8 }: { rows?: number }) {
   const right = ["pnl", "roi", "perpEquity", "copyScore", "positionValue", "leverage", "upnl", "bias"] as const;
   return (
     <div aria-hidden="true" className="ui-skeleton max-h-[640px] overflow-hidden [--skel-bar:var(--border)]">
-      <table className="cd-cohort-table cd-cohort-wallets w-full border-separate border-spacing-y-2">
-        <thead>
-          <tr>
-            <th className="px-3 py-3 text-left text-[0.8125rem] font-medium whitespace-nowrap text-subtle-foreground">{c("address")}</th>
-            <th className="px-3 py-3 text-left text-[0.8125rem] font-medium text-subtle-foreground">{c("assets")}</th>
-            {right.map((k) => <th key={k} className="px-3 py-3 text-right text-[0.8125rem] font-medium whitespace-nowrap text-subtle-foreground">{c(k)}</th>)}
-          </tr>
-        </thead>
-        <tbody className="data-rows">
+      <Table className="cd-cohort-wallets w-full border-separate border-spacing-y-1.5">
+        <TableHeader>
+          <TableRow>
+            <TableHead className="px-3 py-3 text-left text-[0.8125rem] font-medium whitespace-nowrap text-subtle-foreground">{c("address")}</TableHead>
+            <TableHead className="px-3 py-3 text-left text-[0.8125rem] font-medium text-subtle-foreground">{c("assets")}</TableHead>
+            {right.map((k) => <TableHead key={k} className="px-3 py-3 text-right text-[0.8125rem] font-medium whitespace-nowrap text-subtle-foreground">{c(k)}</TableHead>)}
+          </TableRow>
+        </TableHeader>
+        <TableBody className="data-rows">
           {Array.from({ length: rows }, (_, r) => (
-            <tr key={r}>
-              <td className="px-3 py-3">
+            <TableRow key={r}>
+              <TableCell className="px-3 py-3">
                 <span className="flex items-center gap-[9px]">
                   <SkelCircle className="size-[22px]" />
                   <SkelBar line="h-5" className="h-3 w-24" />
                 </span>
-              </td>
-              <td className="px-3 py-3"><SkelBar className="h-4 w-12" /></td>
-              {right.map((k) => <td key={k} className="px-3 py-3"><SkelBar className="ml-auto h-3 w-12" /></td>)}
-            </tr>
+              </TableCell>
+              <TableCell className="px-3 py-3"><SkelBar className="h-4 w-12" /></TableCell>
+              {right.map((k) => <TableCell key={k} className="px-3 py-3"><SkelBar className="ml-auto h-3 w-12" /></TableCell>)}
+            </TableRow>
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </div>
   );
 }

@@ -16,6 +16,13 @@ const wrap = (client: QueryClient, node: React.ReactNode) =>
   renderToString(<QueryClientProvider client={client}><I18nProvider locale="en" messages={en}>{node}</I18nProvider></QueryClientProvider>);
 
 describe("the coin index rendered from the server's read", () => {
+  it('renders market rows in the shared scrollable table', async () => {
+    const data = await fixtureRequest<CoinIndexResponse>('GET', '/discover/coins', undefined, null);
+    const html = wrap(new QueryClient(), <CoinIndexView initial={{data, fetchedAt: Date.now()}} />);
+    expect(html).toContain('data-slot="table"');
+    expect(html).toContain('data-slot="table-container"');
+    expect(html).toContain('data-slot="table-cell"');
+  });
   it("puts the markets in the first HTML when the page read them, and only skeletons when it could not", async () => {
     const index = JSON.parse(JSON.stringify(await fixtureRequest("GET", "/discover/coins", undefined, null))) as CoinIndexResponse;
     expect(index.items.length).toBeGreaterThan(0);

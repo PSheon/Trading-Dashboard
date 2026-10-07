@@ -8,10 +8,13 @@ import { catalogs } from '@/i18n/messages';
 import { ToastProvider } from '@/components/ui/toast';
 import { ActionsTable } from '@/components/actions/actions-table';
 import { FavoritesView } from '@/components/favorites/favorites-view';
+import { BoardsView } from '@/components/explore/boards-view';
+import { MarketsTable, WalletsTable } from '@/components/insights/cohort-tables';
+import { fixtureCohort } from '@/fixtures/discovery';
 import { actionsFeed } from '@/fixtures/data';
 import { settleQueries } from './query-settle';
 
-vi.mock('next/navigation', () => ({ useRouter: () => ({refresh() {}}), useSearchParams: () => new URLSearchParams('view=list') }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({refresh() {}, push() {}}), usePathname: () => '/explore', useSearchParams: () => new URLSearchParams('view=list') }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({status: 'signedIn', mode: 'fixture', identity: 'demo', wallet: null}) }));
 vi.mock('@/lib/api', async (original) => {
   const actual = await original<typeof import('@/lib/api')>();
@@ -62,4 +65,18 @@ it('sorts the watchlist through accessible shared heads and restores saved order
   await act(async () => sort.click());
   expect(heads[2].getAttribute('aria-sort')).toBe('none');
   expect(rows()).toEqual(saved);
+});
+it('renders the explore list in the shared table', async () => {
+  await render(<BoardsView />);
+  expect(el.querySelector('table')?.getAttribute('data-slot')).toBe('table');
+  expect(el.querySelectorAll('tbody [data-slot="table-row"]').length).toBeGreaterThan(0);
+});
+it('aligns cohort wallets and markets with shared table cells while keeping filtering', async () => {
+  const cohort = fixtureCohort('profit');
+  await render(<><WalletsTable rows={cohort.wallets} /><MarketsTable rows={cohort.markets} filter="crypto" /></>);
+  const tables = el.querySelectorAll('table');
+  expect(tables).toHaveLength(2);
+  expect([...tables].every(table => table.getAttribute('data-slot') === 'table')).toBe(true);
+  expect(tables[1].textContent).toContain('BTC');
+  expect(tables[1].textContent).not.toContain('SP500');
 });

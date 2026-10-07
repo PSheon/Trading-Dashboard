@@ -179,3 +179,6 @@
 - `--dry-run --profile stage-caps --scenarios base,3,4,6,7,8,9` 通過服務健康、登入、testnet執行能力、170資金門檻，建立setup時409 `strategy_limit`；未建立新跟單、未轉出150、未下單。紀錄 `/private/tmp/codex-harness-stage-caps-dry-20261008.log`。
 - 唯讀查本機測試帳號14：所有actual策略已停止；模擬策略#3（100）與#15（150）仍active。現行risk policy上限2計入模擬＋實際，因此兩筆模擬佔滿上限。未放寬限制、未停止它們，已向Paul詢問透過正常API停止並保留歷史後續跑。
 - 情境14所需 `admin.access`／`copy.read`／`execution.pause`／`execution.resume` 權限另待Paul授權，尚未演練。B未全綠，C不得開始；Stage服務與資料未修改。
+- Paul隨後授予6小時完成testnet測試；已正常停止#15並通過完整dry-run，修正情境8錯算FAIL的腳本，72項回歸與CI全綠。真實入金後遇本機RPC連線阻擋，已用臨時唯讀SSH通道保留完整官方憑證核對、恢復原入金，完整劇本重跑中。即時狀態、通道限制與收尾要求見[2026-10-08結果](testnet-results-2026-10-08.md)。
+
+- 10/08 02:05 B實測修正：來源讀取先保留完整配額再啟動provider時鐘；執行初始配額等待移到原始SQL鎖之前，scope內仍重新驗證全部權限／風險，保留5秒serialization與訊號期限；純模擬、無actual歷史的佔位錢包免納入actual曝光，其餘資金／mandate／負債保守保留。完整API隔離測試254檔3852項通過；真實跟單尚未通過，harness失敗即停止後續情境並正常清理。本機0073先前未套用，已本機備份後透過release runner套用、journal74筆；舊0064單一雜湊差異保留不改。情境4重跑中；Stage／主網沒有變更。證據詳見 `docs/testnet-results-2026-10-08.md`。

@@ -6,13 +6,35 @@ const req = () => ({ leaderAddress: leader, from: 1000, to: 2000, maxRequests: 6
 const acquire = () => vi.fn(async (_weight: number) => undefined);
 function client(fetcher: typeof fetch, now: () => number = () => 2100, budget: (weight: number) => Promise<unknown> = acquire()) { return new HyperliquidLiveSourceClient('testnet', budget, fetcher, now); }
 describe('bounded fixed-network source reads', () => {
+  it('reserves both mandatory channels before the provider evidence clock starts', async () => {
+    let now = 2100;
+    const budget = vi.fn(async () => { now += 4000; });
+    const fetcher = vi.fn(async () => Response.json([]));
+    const result = await client(fetcher as typeof fetch, () => now, budget).read(req());
+    expect(result).toMatchObject({ complete: true, fresh: true, observedAt: 6100, completedAt: 6100, requestsUsed: 2 });
+    expect(budget.mock.calls).toEqual([[240]]);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it('propagates initial quota refusal without publishing incomplete source coverage', async () => {
+    const budget = vi.fn(async () => { throw new Error('budget unavailable'); });
+    const fetcher = vi.fn(async () => Response.json([fill()]));
+    await expect(client(fetcher as typeof fetch, undefined, budget).read(req())).rejects.toThrow('budget unavailable');
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it('refunds only the prepaid channel that was never sent after a failed first response', async () => {
+    const refund = vi.fn(), budget = acquire();
+    const result = await new HyperliquidLiveSourceClient('testnet', budget, (async () => Response.json({}, { status: 500 })) as typeof fetch, () => 2100, refund).read(req());
+    expect(result.complete).toBe(false);
+    expect(budget.mock.calls).toEqual([[240]]);
+    expect(refund.mock.calls).toEqual([[120]]);
+  });
   it('reads both ordinary and TWAP sources at only the official testnet origin, without aggregation', async () => {
     const fetcher = vi.fn(async (_url: unknown, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)); return Response.json(body.type === 'userFillsByTime' ? [fill()] : [{ twapId: 9, fill: fill(2) }]);
     }), budget = acquire();
     const result = await client(fetcher as typeof fetch, undefined, budget).read(req());
     expect(result).toMatchObject({ network: 'testnet', leaderAddress: leader, complete: true, fresh: true, historicalCompleteness: 'unproven', requestsUsed: 2, unresolved: [] });
-    expect(result.fills.map(f => f.tradeKey)).toEqual(['oid:7', 'twap:9']); expect(budget.mock.calls).toEqual([[120], [120]]);
+    expect(result.fills.map(f => f.tradeKey)).toEqual(['oid:7', 'twap:9']); expect(budget.mock.calls).toEqual([[240]]);
     for (const [url, init] of fetcher.mock.calls) {
       expect(url).toBe('https://api.hyperliquid-testnet.xyz/info'); expect(init).toMatchObject({ redirect: 'error' });
       const body = JSON.parse(String(init?.body)); expect(body).toMatchObject({ user: leader, startTime: 1000, endTime: 2000 });
@@ -52,10 +74,10 @@ describe('bounded fixed-network source reads', () => {
     const result = await client((async () => Response.json([])) as typeof fetch).read(req());
     expect(result.complete).toBe(true); expect(result.historicalCompleteness).toBe('unproven'); expect(result.fills).toEqual([]);
   });
-  it('marks budget-wait expiry as incomplete and sends no aged provider request', async () => {
+  it('starts fresh provider requests after an initial budget wait, with the original requested window', async () => {
     let now = 2100; const budget = vi.fn(async () => { now += 5001; }), fetcher = vi.fn(async () => Response.json([]));
     const result = await client(fetcher as typeof fetch, () => now, budget).read(req());
-    expect(fetcher).not.toHaveBeenCalled(); expect(result).toMatchObject({ complete: false, fresh: false }); expect(result.unresolved[0]?.reason).toBe('evidence_expired');
+    expect(fetcher).toHaveBeenCalledTimes(2); expect(result).toMatchObject({ complete: true, fresh: true, observedAt: 7101, from: 1000, to: 2000 });
   });
   it('bounds and cancels a stalled response stream', async () => {
     const cancel = vi.fn(); const stream = new ReadableStream({ pull() {}, cancel });
@@ -86,7 +108,7 @@ describe('bounded fixed-network source reads', () => {
     const fetcher = (async (_url: unknown, init?: RequestInit) => Response.json(JSON.parse(String(init?.body)).type === 'userFillsByTime'
       ? Array.from({ length: 45 }, (_, i) => fill(i + 1, 1000 + i)) : [])) as typeof fetch;
     const result = await new HyperliquidLiveSourceClient('testnet', budget, fetcher, () => 2100, refund).read(req());
-    expect(result.complete).toBe(true); expect(budget.mock.calls).toEqual([[120], [120]]);
+    expect(result.complete).toBe(true); expect(budget.mock.calls).toEqual([[240]]);
     expect(refund.mock.calls).toEqual([[120 - 23], [120 - 20]]);
   });
 });

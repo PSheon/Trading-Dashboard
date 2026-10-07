@@ -402,9 +402,11 @@ try {
     copy ??= await startCopy(i === 0 ? "copy" : `copy_${i + 1}`);
     log("scenario_start", { scenario: name, about: SCENARIOS[name].about, strategyId: copy.strategyId, account: copy.account });
     if (!(await scenarios[name](copy))) copy = null;
+    if (checks.some((c) => c.ok === false)) { log("scenarios_stopped_after_failure", { scenario: name }); break; }
   }
   // --- 7. a copy still running is stopped (its return credited) ---------------------------------------------
   if (copy) await stopCheck("final", copy);
+  if (checks.some((c) => c.ok === false) && (await leaderState()).positions.length) await leaderRun("failure_cleanup", ["flatten"]);
 
   const latency = lastReconcile?.latencySeconds ? { "signal received": lastReconcile.latencySeconds.received, "order sent": lastReconcile.latencySeconds.sent, "first follower fill": lastReconcile.latencySeconds.filled } : null;
   await finish(checks.some((c) => c.ok === false) ? EXIT.failed : EXIT.green, { latency, weightPerOrder: "n/a (the testnet bucket is not exposed by the worker)" });

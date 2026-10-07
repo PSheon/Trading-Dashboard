@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { parseLiveSourceFill, liveSourceDigest, reconcileLiveSourceFills, type LiveSourceFillEvidence, type LiveSourceNetwork } from './live/copy-live-source-evidence.js';
 import { address, LiveBoundaryError } from './live/wallet-authorization.js';
-import { boundedLiveRead } from './live/live-market-resolver.js';
+import { boundedLiveRead, RESERVE_BOUND_MS } from './live/live-market-resolver.js';
 import { settleListAnswer } from '../hyperliquid/hyperliquid-global-transport.js';
 export interface LiveSourceReadRequest { leaderAddress: string; from: number; to: number; maxRequests: number; maxDepth?: number; maxFills?: number; }
 export interface LiveSourceWindow { kind: 'fills' | 'twap'; from: number; to: number; depth: number; }
@@ -61,13 +61,22 @@ export class HyperliquidLiveSourceClient {
     if (!['testnet', 'mainnet'].includes(network) || typeof acquire !== 'function') fail('live_source_configuration_invalid');
   }
   async read(input: LiveSourceReadRequest): Promise<LiveSourceReadResult> {
-    const started = this.now(), controller = new AbortController();
+    const requestedAt = this.now();
     let request: z.infer<typeof requestSchema>;
     try {
       request = requestSchema.parse(structuredClone(input)); request.leaderAddress = address(request.leaderAddress);
-      if (!Number.isSafeInteger(started) || started < 1 || request.from > request.to || request.to > started) fail('live_source_request_invalid');
+      if (!Number.isSafeInteger(requestedAt) || requestedAt < 1 || request.from > request.to || request.to > requestedAt) fail('live_source_request_invalid');
     } catch { fail('live_source_request_invalid'); }
     const queue: LiveSourceWindow[] = [{ kind: 'fills', from: request.from, to: request.to, depth: 0 }, { kind: 'twap', from: request.from, to: request.to, depth: 0 }];
+    // Ordinary fills and TWAP are both required. Pay for their initial reads
+    // before the provider clock, so a quota wait cannot publish half a window
+    // and change a ready stream into a gap. Subdivision reads stay bounded by
+    // the provider deadline and acquire their own worst-case weight.
+    let prepaid = Math.min(queue.length, request.maxRequests);
+    await boundedLiveRead(() => this.acquire(prepaid * SOURCE_READ_WORST_WEIGHT), RESERVE_BOUND_MS);
+    const refundUnused = () => { if (prepaid > 0) { try { this.refund?.(prepaid * SOURCE_READ_WORST_WEIGHT); } catch { /* accounting only */ } } };
+    const started = this.now(), controller = new AbortController();
+    if (!Number.isSafeInteger(started) || started < requestedAt) { refundUnused(); fail('live_source_request_invalid'); }
     const unresolved: LiveSourceReadResult['unresolved'] = [], observations: LiveSourceWindowObservation[] = [];
     const fills = new Map<string, LiveSourceFillEvidence>(); let requestsUsed = 0;
     const timer = setTimeout(() => controller.abort(), DEADLINE); timer.unref();
@@ -84,11 +93,16 @@ export class HyperliquidLiveSourceClient {
         requestsUsed++;
         const observedAt = this.now(); let rows: unknown;
         try {
-          await boundedLiveRead(() => this.acquire(SOURCE_READ_WORST_WEIGHT), remaining()); remaining();
+          const prepaidWindow = prepaid > 0;
+          if (!prepaidWindow) await boundedLiveRead(() => this.acquire(SOURCE_READ_WORST_WEIGHT), remaining());
+          remaining();
           const body = { type: window.kind === 'fills' ? 'userFillsByTime' : 'userTwapSliceFillsByTime', user: request.leaderAddress,
             startTime: window.from, endTime: window.to, ...(window.kind === 'fills' ? { aggregateByTime: false } : {}) };
-          const response = await boundedLiveRead(() => this.fetcher(ENDPOINTS[this.network], { method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body), redirect: 'error', signal: controller.signal }), remaining());
+          const response = await boundedLiveRead(() => {
+            if (prepaidWindow) prepaid--;
+            return this.fetcher(ENDPOINTS[this.network], { method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body), redirect: 'error', signal: controller.signal });
+          }, remaining());
           if (!response.ok) { void response.body?.cancel().catch(() => undefined); fail('live_source_read_unavailable'); }
           rows = await json(response, remaining, controller.signal);
           if (Array.isArray(rows)) {
@@ -124,6 +138,6 @@ export class HyperliquidLiveSourceClient {
         observedAt: started, completedAt, fresh: fresh(), complete: unresolved.length === 0 && fresh(), historicalCompleteness: 'unproven' as const, requestsUsed,
         fills: [...fills.values()].sort((a, b) => a.providerTime - b.providerTime || (BigInt(a.tid) < BigInt(b.tid) ? -1 : BigInt(a.tid) > BigInt(b.tid) ? 1 : 0)), observations, unresolved };
       return { ...result, sourceDigest: liveSourceDigest(result) };
-    } finally { clearTimeout(timer); controller.abort(); }
+    } finally { clearTimeout(timer); controller.abort(); refundUnused(); }
   }
 }

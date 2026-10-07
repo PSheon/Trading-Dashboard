@@ -1,5 +1,6 @@
 import { and, desc, eq, ne, sql } from 'drizzle-orm';
 import { effectiveGrantScopes } from './postgres-wallet-authorizations.js';
+import { liveAccountExposureSql } from './live-account-exposure.js';
 import { isDeepStrictEqual } from 'node:util';
 import { ACTUAL_STRATEGY_MODE, adminSettingsSchema, copyRiskLimitsSchema, copyStrategySettingsSchema, isHyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { appSettings, copyAgentSetups, copyControls, copyExecutionAccounts, copyExecutionWallets, copyFollowerAccountState, copyFundingOperations,
@@ -85,7 +86,7 @@ export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSessi
   // accounts: another network's copies (a database that moved networks) hold
   // no exposure here and never block this one's orders.
   const copies=await read(db.select({account:copyExecutionAccounts}).from(copyExecutionAccounts).innerJoin(copyStrategies,eq(copyStrategies.id,copyExecutionAccounts.strategyId))
-    .where(and(eq(copyExecutionAccounts.userId,a.userId),eq(copyExecutionAccounts.network,a.network),sql`(${copyStrategies.status}<>'stopped' or exists (select 1 from copy_funding_operations f where f.account_id=${copyExecutionAccounts.id} and f.status in ('prepared','unknown','accepted')))`))
+    .where(and(eq(copyExecutionAccounts.userId,a.userId),eq(copyExecutionAccounts.network,a.network),liveAccountExposureSql(copyExecutionAccounts.id,copyStrategies.mode,copyStrategies.status)))
     .orderBy(copyExecutionAccounts.id).limit(9)).then(rows=>rows.map(row=>row.account));
   // This network's live copies of the owner: at most the deployment's cap.
   riskSourceRequire(!deployment||copies.length<=limits.maxStrategiesPerUser,'live_risk_strategy_cap');

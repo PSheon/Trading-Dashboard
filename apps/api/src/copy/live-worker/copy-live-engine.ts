@@ -15,6 +15,7 @@ import type { WatchedMainnetSource } from './watched-mainnet-source.js';
 import type { FastMainnetSource } from './fast-mainnet-source.js';
 import { minOrderNotional } from '../min-order-notional.js';
 import { Dec } from '../../common/decimal/dec.js';
+import { HyperliquidBudgetWait } from '../../hyperliquid/hyperliquid-budget-wait.js';
 
 /** One source read's result, for the logs. */
 export interface IngestOutcome { fast: boolean; fills: number; kind: string; state: string; through: number | null }
@@ -423,6 +424,7 @@ export class CopyLiveEngine {
         `first attempt +${first.getTime() - row.leaderTime.getTime()}, sent ${times.sentAt ? `+${times.sentAt.getTime() - row.leaderTime.getTime()}` : '-'} ms after the leader`);
     } catch (error) {
       const reason = reasonOf(error);
+      if (error instanceof HyperliquidBudgetWait) this.deps.log?.(`leg ${row.id} budget unavailable: ${error.reason}, retry ${error.retryMs} ms`);
       // Stored as live_execution_failed: say what it really was (Stage 2026-10-06).
       const unexpected = describeUnexpected(error);
       if (unexpected) this.deps.log?.(`leg ${row.id} failed unexpectedly: ${unexpected}`);

@@ -199,6 +199,20 @@ describe('unregistered concrete testnet execution runtime', () => {
     expect(evidence).toMatchObject({ exchangeOrderId: '77', statusObservation: null, settlementCertificate: null });
     expect(evidence!.acknowledgement).toMatchObject({ oid: '77', totalSz: '0.1' });
   });
+  it('waits for initial evidence weight before acquiring the original SQL lock session', async () => {
+    await actualClockFixture();
+    const connect = vi.spyOn(pool, 'connect'), original = budget.acquire.bind(budget);
+    let connectionsWhenWaiting = 0;
+    vi.spyOn(budget, 'acquire').mockImplementationOnce(async (...args) => {
+      connectionsWhenWaiting = connect.mock.calls.length;
+      await original(...args);
+      await new Promise(resolve => setTimeout(resolve, 6000)); clock = Date.now();
+    });
+    const result = await runtime(config, { ...options, slippageBps: '0' }).execute(request());
+    expect(result.state).toBe('filled');
+    expect(connectionsWhenWaiting).toBe(1);
+    expect(connect).toHaveBeenCalledTimes(2);
+  }, 15_000);
   it('takes exactly the REST weight its reads send, at most 450 for an order', async () => {
     await actualClockFixture();
     const acquire = vi.spyOn(budget, 'acquire');

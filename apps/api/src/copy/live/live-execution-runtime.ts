@@ -4,6 +4,7 @@ import { Pool } from 'pg';
 import { and, eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { z } from 'zod';
+import { Logger } from '@nestjs/common';
 import { WALLET_NETWORKS, isHyperliquidNetwork, liveSourceNetworks, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { copyExecutionAccounts, copyLiveMandates, copyLiveExecutions, copyLiveIntentProvenance,
   copyLiveRiskReservations, copyLiveSignalLegs, copyLiveSourceFills, copyAgentSetups,
@@ -11,7 +12,7 @@ import { copyExecutionAccounts, copyLiveMandates, copyLiveExecutions, copyLiveIn
 import { AppConfig } from '../../config/app-config.js';
 import { HyperliquidGlobalTransport } from '../../hyperliquid/hyperliquid-global-transport.js';
 import { RequestBudgeterService } from '../../hyperliquid/request-budgeter.service.js';
-import { liveBudget } from '../../hyperliquid/hyperliquid-budget-wait.js';
+import { liveBudget, HyperliquidBudgetWait } from '../../hyperliquid/hyperliquid-budget-wait.js';
 import { Dec } from '../../common/decimal/dec.js';
 import { decodeLiveCopyMandate } from '../copy-live-mandate-evidence.js';
 import { PostgresLivePreparation, liveSourceExecutionCloid, type LivePreparationOptions } from './postgres-live-preparation.js';
@@ -20,10 +21,11 @@ import { errorCode } from '../../runtime/safe-error-text.js';
 import { address, LiveBoundaryError, WalletAuthorizationService, type ExchangeApprovalEvidence, type ExchangeApprovalVerifier } from './wallet-authorization.js';
 import { PostgresLiveRiskScope, type LiveRiskDatabaseSession } from './postgres-live-risk-scope.js';
 import { loadLivePreparationAuthority, riskSourceRequire } from './postgres-live-risk-authority.js';
+import { liveAccountExposureSql } from './live-account-exposure.js';
 import { HyperliquidAllDexsAccountSource, PerReadAllDexsAccountSource } from './live-account-ws-source.js';
 import { HyperliquidLiveAccountObserver } from './live-account-observer.js';
 import { HyperliquidLiveMarketResolver, type LiveMarketResolver } from './live-market-resolver.js';
-import type { LiveSharedReads } from './live-shared-reads.js';
+import { liveEvidencePrepaidWeight, type LiveSharedReads } from './live-shared-reads.js';
 import { HyperliquidLiveRiskProvider } from './live-risk-provider.js';
 import { LiveProviderReadEpoch } from './live-provider-read-epoch.js';
 import { PostgresLiveReservations } from './postgres-live-reservations.js';
@@ -137,15 +139,44 @@ export class LiveExecutionRuntime {
     // Bootstrap supplies routing coordinates only. This connection is released
     // before the original lock session, including with a one-connection pool.
     const db = drizzle(this.pool);
-    const [routing] = await db.select({ account: copyExecutionAccounts, mandate: copyLiveMandates }).from(copyExecutionAccounts)
+    const cloid = liveSourceExecutionCloid(request.mandateId, request.sourceFillId, request.leg);
+    const [routing] = await db.select({ account: copyExecutionAccounts, mandate: copyLiveMandates,
+      budgetAccounts: sql<number>`(select count(*)::integer from copy_execution_accounts a inner join copy_strategies s on s.id=a.strategy_id
+        where a.user_id=${request.userId} and a.network=${this.network} and (a.address is not null or a.privy_wallet_id is not null)
+        and ${liveAccountExposureSql(sql`a.id`, sql`s.mode`, sql`s.status`)})`,
+      budgetSizing: sql<string | null>`(select settings->>'sizingMode' from copy_strategy_versions where strategy_id=${copyLiveMandates.strategyId} and version=${copyLiveMandates.strategyVersion})`,
+      journalExists: sql<boolean>`exists(select 1 from copy_live_executions where key=${this.network} || ':' || ${copyExecutionAccounts.address} || ':' || ${cloid})`,
+    }).from(copyExecutionAccounts)
       .innerJoin(copyLiveMandates, eq(copyLiveMandates.id, request.mandateId))
       .where(and(eq(copyExecutionAccounts.id, request.accountId), eq(copyExecutionAccounts.userId, request.userId)));
     riskSourceRequire(routing && routing.account.network === this.network && routing.account.address && routing.mandate.accountId === request.accountId &&
       routing.mandate.userId === request.userId && routing.mandate.network === this.network && liveSourceNetworks(this.network).includes(routing.mandate.sourceNetwork), 'live_runtime_identity');
     const accountAddress = address(routing.account.address), leaderAddress = address(routing.mandate.leaderAddress);
-    const cloid = liveSourceExecutionCloid(request.mandateId, request.sourceFillId, request.leg), key = `${this.network}:${accountAddress}:${cloid}`;
+    const key = `${this.network}:${accountAddress}:${cloid}`;
+    // These routing estimates grant no authority. Wait for initial evidence
+    // weight before taking the original SQL locks and their five-second clock.
+    // Every identity, live account and setting is reloaded inside that scope.
+    let prepaid = 0;
+    if (!routing.journalExists) {
+      riskSourceRequire(Number.isSafeInteger(routing.budgetAccounts) && routing.budgetAccounts >= 1 && routing.budgetAccounts <= 8, 'live_risk_user_coverage_unproven');
+      const leader = request.leg === 'open' && routing.mandate.sourceNetwork === this.network && routing.budgetSizing === 'ratio';
+      const weight = liveEvidencePrepaidWeight(routing.budgetAccounts + Number(leader));
+      try {
+        await liveBudget(this.budget, request.signalDeadline === undefined ? {} : {
+          maxWaitMs: Math.max(0, Math.min(this.budget.refillMs(), request.signalDeadline - this.now())),
+        })(weight);
+      } catch (error) {
+        if (error instanceof HyperliquidBudgetWait) {
+          const state = this.budget.introspect(), queued = this.budget.queued();
+          new Logger('LiveExecutionRuntime').warn(`Evidence budget unavailable: ${error.reason}, weight ${weight}, ` +
+            `available ${Math.round(state.tokensAvailable)}, rate ${state.effectiveBudgetPerMin}/min, queued ${queued.live} live + ${queued.background} background`);
+        }
+        throw error;
+      }
+      prepaid = weight;
+    }
     const scope = new PostgresLiveRiskScope(this.pool, this.now);
-    return scope.run({ userId: request.userId, network: this.network, accountAddress,
+    try { return await scope.run({ userId: request.userId, network: this.network, accountAddress,
       source: { network: routing.mandate.sourceNetwork, leaderAddress } }, async (_scope, session) => this.global.runOriginal(session, async () => {
       // Resolve global configuration against the original private context before
       // creating native clients. No unscoped fallback can open a second pool.
@@ -153,13 +184,15 @@ export class LiveExecutionRuntime {
       // Weight through reserveLive: a wait that runs out is a
       // HyperliquidBudgetWait (stored as live_budget_wait), never an uncoded
       // TimeoutError (Stage 2026-10-06), and a weight the bucket can never
-      // hold fails at once (live_budget_over_capacity). The order's evidence
-      // is paid up front and may wait the bucket's refill time, but never past
-      // the signal's deadline; the small reads around a clock wait at most 5 s,
-      // as before.
-      const prepay = liveBudget(this.budget, request.signalDeadline === undefined ? {}
-        : { maxWaitMs: Math.max(0, Math.min(this.budget.refillMs(), request.signalDeadline - this.now())) });
+      // hold fails at once (live_budget_over_capacity). Initial evidence was
+      // prepaid before the SQL locks, bounded by the signal deadline. Extra
+      // reads inside this original scope still wait at most five seconds.
       const acquire = liveBudget(this.budget, { maxWaitMs: 5000 });
+      const prepay = async (weight: number) => {
+        const credit = Math.min(prepaid, weight);
+        if (weight > credit) await acquire(weight - credit);
+        prepaid -= credit;
+      };
       // Each account read gets its own socket: the epoch observes every live
       // account of the owner at once (one shared source refused all but one).
       const sockets = new PerReadAllDexsAccountSource(() => new HyperliquidAllDexsAccountSource(this.now, undefined, this.network, this.global));
@@ -272,7 +305,7 @@ export class LiveExecutionRuntime {
         // live. This source is never reused by a successor execution scope.
         provider.close(); await sockets.close();
       }
-    }));
+    })); } finally { if (prepaid > 0) this.budget.adjust(-prepaid); }
   }
   /** Rejects a prepared journal that holds no reservation (so was never
    * signed) and skips its leg, in one transaction; null when it is not one. */

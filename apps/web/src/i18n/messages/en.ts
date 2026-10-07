@@ -1145,6 +1145,7 @@ export const en: Messages = {
     announcement: "Announcement",
   },
   common: {
+    moreActions: "More actions",
     errors: {
       rateLimited: "Too many requests. Try again in a moment.",
       busy: "The service is busy. Try again in a moment.",

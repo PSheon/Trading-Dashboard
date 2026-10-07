@@ -35,7 +35,7 @@ const mandateId = (id: number) => `6f1c1d2e-3a4b-4c5d-8e9f-${String(id).padStart
 
 export function demoLiveItems(): LiveCopyPortfolioItem[] {
   return SEED.map((s, i) => ({
-    strategyId: s.id, leaderAddress: named[i]!.address, sourceNetwork: "mainnet", budgetUsd: s.budget, status: s.stage === "stopped" ? "stopped" : "active", stage: s.stage,
+    strategyId: s.id, network: "testnet" as const, leaderAddress: named[i]!.address, sourceNetwork: "mainnet", budgetUsd: s.budget, status: s.stage === "stopped" ? "stopped" : "active", stage: s.stage,
     createdAt: iso((i + 2) * DAY), accountId: `acct-${s.id}`, accountAddress: address(s.id),
     mandate: s.stage === "stopped" ? null : { id: mandateId(s.id), state: "active", revision: 3 }, stop: null, pendingTransfer: null, lastRefusal: null, automaticReturn: true,
     sweep: s.stage === "stopped" ? { amount: i === 2 ? "103.20" : "188.75", status: "credited" } : null, setup: null, expiresAt: iso(-25 * DAY), renewalDue: false, oneClick: true,

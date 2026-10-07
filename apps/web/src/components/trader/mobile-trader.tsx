@@ -56,7 +56,7 @@ function TopBar({ profile }: { profile: TraderProfileResponse }) {
       </h1>
       <Popover>
         <PopoverTrigger asChild>
-          <button type="button" aria-label={t("trader.copy.more")} className="orbit-press flex size-11 shrink-0 items-center justify-center rounded-full bg-raised outline-none focus-visible:ring-2 focus-visible:ring-ring"><MoreHorizontal className="size-5" /></button>
+          <button type="button" aria-label={t("common.moreActions")} className="orbit-press flex size-11 shrink-0 items-center justify-center rounded-full bg-raised outline-none focus-visible:ring-2 focus-visible:ring-ring"><MoreHorizontal className="size-5" /></button>
         </PopoverTrigger>
         <PopoverContent className="w-auto">
           <div className="flex items-center gap-3 [&_button]:size-11 [&_button]:rounded-full [&_button]:bg-raised">

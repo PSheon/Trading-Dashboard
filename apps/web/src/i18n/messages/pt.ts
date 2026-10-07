@@ -452,6 +452,7 @@ export const pt: Messages = {
     announcement: "Aviso",
   },
   common: {
+    moreActions: en.common.moreActions,
     errors: {
       rateLimited: "Muitas solicitações. Tente novamente em instantes.",
       busy: "O serviço está ocupado. Tente novamente em instantes.",

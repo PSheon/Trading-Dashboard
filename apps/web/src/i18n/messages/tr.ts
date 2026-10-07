@@ -452,6 +452,7 @@ export const tr: Messages = {
     announcement: "Duyuru",
   },
   common: {
+    moreActions: en.common.moreActions,
     errors: {
       rateLimited: "Çok fazla istek. Birazdan tekrar deneyin.",
       busy: "Hizmet meşgul. Birazdan tekrar deneyin.",

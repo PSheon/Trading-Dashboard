@@ -452,6 +452,7 @@ export const ru: Messages = {
     announcement: "Объявление",
   },
   common: {
+    moreActions: en.common.moreActions,
     errors: {
       rateLimited: "Слишком много запросов. Повторите попытку чуть позже.",
       busy: "Сервис перегружен. Повторите попытку чуть позже.",

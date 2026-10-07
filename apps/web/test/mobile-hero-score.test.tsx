@@ -62,3 +62,7 @@ it("gives the phone trader header the shared scrim, readable title space and 44p
 
 vi.mock("../src/lib/site-mode", () => ({ useSiteMode: () => "paper" }));
 vi.mock("../src/lib/copy-live-portfolio", () => ({ useLiveCopyPortfolio: () => ({ data: undefined }) }));
+it("distinguishes trader actions from the copy form's additional settings", () => {
+  expect(render(null)).toContain('aria-label="更多操作"');
+  expect(render(null)).not.toContain('aria-label="更多設定"');
+});

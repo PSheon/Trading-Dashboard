@@ -1148,6 +1148,7 @@ export const zhTW = {
     announcement: "公告",
   },
   common: {
+    moreActions: "更多操作",
     errors: {
       rateLimited: "操作太頻繁，請稍後再試。",
       busy: "服務忙碌中，請稍後再試。",

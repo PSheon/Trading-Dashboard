@@ -29,8 +29,7 @@ for (const width of [1440, 390]) {
       await page.getByRole("button", { name: "Account", exact: true }).filter({ visible: true }).click();
       await expect(page.getByRole("menuitemradio", { name: "Paper", exact: true })).toHaveAttribute("aria-checked", "true");
       await page.getByRole("menuitemradio", { name: "Testnet", exact: true }).click();
-      await selectTradingMode(page, "testnet", "zh-TW");
-  let panel = page.locator("body");
+      let panel = page.locator("body");
       if (width < 768) {
         await action(page, "Copy").click();
         panel = page.getByRole("dialog", { name: "Copy", exact: true });

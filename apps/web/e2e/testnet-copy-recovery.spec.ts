@@ -75,7 +75,7 @@ for (const width of [1440, 390]) {
         await expect(confirm).toHaveCount(0);
         await page.reload();
         await selectTradingMode(page, "testnet", "zh-TW");
-  const panel = await panelOf(page, width);
+        const panel = await panelOf(page, width);
         await expect(panel.getByText("等待你確認").filter({ visible: true })).toBeVisible({ timeout: 15000 });
         await expectNoSidewaysScroll(page);
         await shot(page, `testnet-recovery-reloaded-${width}-${scheme}`);

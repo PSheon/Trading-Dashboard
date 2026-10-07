@@ -452,6 +452,7 @@ export const zhCN: Messages = {
     announcement: "公告",
   },
   common: {
+    moreActions: "更多操作",
     errors: {
       rateLimited: "操作太频繁，请稍后再试。",
       busy: "服务繁忙，请稍后再试。",

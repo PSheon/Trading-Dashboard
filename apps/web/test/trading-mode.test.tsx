@@ -49,7 +49,7 @@ it("pins the current funds during a mutation, including another tab and legacy U
   });
   expect(selection.mode).toBe("live");
   await act(async () => { expect(selection.select("paper")).toBe(false); });
-  await act(async () => { finish(); await operation; });
+  await act(async () => { finish(); await operation; await new Promise(resolve => setTimeout(resolve, 10)); });
   expect(selection.mode).toBe("paper");
 });
 it("keeps a shared in-memory choice when reading storage works but writes are denied", async () => {

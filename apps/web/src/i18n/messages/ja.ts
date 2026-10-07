@@ -452,6 +452,7 @@ export const ja: Messages = {
     announcement: "お知らせ",
   },
   common: {
+    moreActions: en.common.moreActions,
     errors: {
       rateLimited: "リクエストが多すぎます。しばらくしてからもう一度お試しください。",
       busy: "サービスが混み合っています。しばらくしてからもう一度お試しください。",

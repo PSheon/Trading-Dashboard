@@ -32,7 +32,7 @@ let nextStrategy = 41;
 const setupItems = new Map<number, LiveCopyPortfolioItem>();
 function setupItem(setup: LiveCopySetup): LiveCopyPortfolioItem {
   const consent = setup.stage === "awaiting_consent" && setup.consent && setup.consent.consentExpiresAt > Date.now() ? setup.consent : null;
-  return { strategyId: setup.strategyId, leaderAddress: setup.leaderAddress, sourceNetwork: setup.sourceNetwork, budgetUsd: setup.budgetUsd, status: "paused", stage: "setup",
+  return { strategyId: setup.strategyId, network: "testnet", leaderAddress: setup.leaderAddress, sourceNetwork: setup.sourceNetwork, budgetUsd: setup.budgetUsd, status: "paused", stage: "setup",
     createdAt: setup.createdAt, accountId: setup.accountId, accountAddress: ACCOUNT, mandate: null, stop: null, pendingTransfer: null, lastRefusal: null, automaticReturn: false, sweep: null,
     setup: { id: setup.id, kind: setup.kind, stage: setup.stage, issue: setup.issue, consent }, expiresAt: null, renewalDue: false, oneClick: true };
 }
@@ -91,7 +91,7 @@ function finish(setup: LiveCopySetup) {
   }
   const strategy: LiveCopyStrategy = { id: setup.strategyId, mode: "actual", network: "testnet", sourceNetwork: setup.sourceNetwork, leaderAddress: setup.leaderAddress, budgetUsd: setup.budgetUsd,
     status: "active", version: 1, settings: setup.settings, pauseNewRisk: false, reduceOnly: false, createdAt: setup.createdAt };
-  strategies.set(setup.strategyId, { strategy, item: { strategyId: setup.strategyId, leaderAddress: setup.leaderAddress, sourceNetwork: setup.sourceNetwork, budgetUsd: setup.budgetUsd, status: "active",
+  strategies.set(setup.strategyId, { strategy, item: { strategyId: setup.strategyId, network: "testnet", leaderAddress: setup.leaderAddress, sourceNetwork: setup.sourceNetwork, budgetUsd: setup.budgetUsd, status: "active",
     stage: "active", createdAt: setup.createdAt, accountId: `acct-${setup.strategyId}`, accountAddress: ACCOUNT, mandate, stop: null, pendingTransfer: null, lastRefusal: null,
     automaticReturn: true, sweep: null, setup: null, expiresAt: iso(Date.now() + 30 * 86_400_000), renewalDue: false, oneClick: true } });
 }

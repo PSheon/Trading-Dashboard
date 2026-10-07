@@ -452,6 +452,7 @@ export const ko: Messages = {
     announcement: "공지",
   },
   common: {
+    moreActions: en.common.moreActions,
     errors: {
       rateLimited: "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
       busy: "서비스가 혼잡합니다. 잠시 후 다시 시도해 주세요.",

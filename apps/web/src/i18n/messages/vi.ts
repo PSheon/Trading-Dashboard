@@ -452,6 +452,7 @@ export const vi: Messages = {
     announcement: "Thông báo",
   },
   common: {
+    moreActions: en.common.moreActions,
     errors: {
       rateLimited: "Quá nhiều yêu cầu. Vui lòng thử lại sau giây lát.",
       busy: "Dịch vụ đang bận. Vui lòng thử lại sau giây lát.",

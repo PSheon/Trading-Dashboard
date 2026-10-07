@@ -452,6 +452,7 @@ export const id: Messages = {
     announcement: "Pengumuman",
   },
   common: {
+    moreActions: en.common.moreActions,
     errors: {
       rateLimited: "Terlalu banyak permintaan. Coba lagi sebentar lagi.",
       busy: "Layanan sedang sibuk. Coba lagi sebentar lagi.",

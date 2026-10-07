@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useContext, useEffect, useSyncExternalStore } from "react";
-import { QueryClientContext, type QueryClient } from "@tanstack/react-query";
+import { QueryClientContext, notifyManager, type QueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useLiveCopyDeployment } from "@/lib/copy-live-setup";
 
@@ -48,7 +48,7 @@ export function useTradingMode() {
   const key = identity ? `orbie:trading-mode:${identity}` : null;
   const subscribeScoped = useCallback((listener: () => void) => {
     const stop = subscribe(listener);
-    const stopMutations = client?.getMutationCache().subscribe(listener);
+    const stopMutations = client?.getMutationCache().subscribe(notifyManager.batchCalls(listener));
     return () => { stop(); stopMutations?.(); };
   }, [client]);
   const pending = useSyncExternalStore(subscribeScoped, () => client?.isMutating() ?? 0, () => 0);

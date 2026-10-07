@@ -2,7 +2,7 @@ import { Pool } from 'pg';
 import { beforeAll,beforeEach,afterAll,describe,it,expect,vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { liveCopyMandateIntentSchema } from '@trading-dashboard/shared/contracts';
-import { copyExecutionAccounts,copyStrategies,copyLiveExecutions,copyAgentSetups,copyExecutionWallets,copyWalletAuthorizations,copyLiveMandates,copyLiveStrategyConfigs,copyStrategyVersions,copyLiveIntentProvenance,copyLiveSignalLegs,copyLiveSourceStreams,copyLiveSourceFills,copyLivePositionBaselines,copyLiveReductionCarry,copyRiskPolicies,copyControls,users,appSettings,copyFundingOperations } from '@trading-dashboard/shared/database';
+import { copyExecutionAccounts,copyStrategies,copyLiveExecutions,copyAgentSetups,copyExecutionWallets,copyWalletAuthorizations,copyLiveMandates,copyLiveStrategyConfigs,copyStrategyVersions,copyLiveIntentProvenance,copyLiveSignalLegs,copyLiveSourceStreams,copyLiveSourceFills,copyLivePositionBaselines,copyLiveReductionCarry,copyLiveRiskReservations,copyRiskPolicies,copyControls,users,appSettings,copyFundingOperations } from '@trading-dashboard/shared/database';
 import { PostgresLiveRiskSource } from '../src/copy/live/postgres-live-risk-source.js';
 import { PostgresLiveRiskScope } from '../src/copy/live/postgres-live-risk-scope.js';
 import { HyperliquidLiveAccountObserver } from '../src/copy/live/live-account-observer.js';
@@ -123,6 +123,30 @@ describe('durable local actual source authority before remote reads',()=>{
       const proof=await source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold();
       expect(assessLiveAccountRisk(proof)).toMatchObject({ok:true});expect(proof.strategy.allocatedUsd).toBe('100');expect(proof.intent.timeInForce).toBe('Ioc');
     });expect(fetcher).toHaveBeenCalled();
+  });
+  it.each(['submitting','unknown'] as const)('bounds another copy\'s order in flight (%s) at its maximum notional instead of refusing this copy',async inFlight=>{
+    await genuineSizing();
+    const other=`0x${'30'.repeat(20)}` as const,signer=`0x${'77'.repeat(20)}`;
+    await db.insert(copyStrategies).values({id:30,userId:1,mode:'testnet',leaderAddress:`0x${'45'.repeat(20)}`,allocated:'0',cash:'0',status:'active',activatedAt:new Date(now)});
+    await db.insert(copyExecutionAccounts).values({id:'other-live',userId:1,strategyId:30,network:'testnet',state:'ready',address:other,privyUserId:'did:privy:risk-source',externalId:'other-live',privyWalletId:'other-master',ownerQuorumId:'owner'});
+    await db.insert(copyExecutionWallets).values({id:'other-wallet',userId:1,strategyId:30,network:'testnet',accountAddress:other,privyWalletId:'other-agent',privyOwnerId:'owner',signerAddress:signer});
+    await db.insert(copyWalletAuthorizations).values({id:'other-grant',walletId:'other-wallet',version:1,scopes:['copy:trade','copy:reduce'],validFrom:new Date(now-1),expiresAt:new Date(now+60000),exchangeApprovedAt:new Date(now-1)});
+    const intent={...f.intent,authorizationId:'other-grant',strategyId:30,walletId:'other-agent',accountAddress:other,cloid:`0x${'cd'.repeat(16)}` as `0x${string}`};
+    const action=buildOrderAction(intent),key=executionKey(intent),fingerprint=intentFingerprint(intent,action),created=now-10;
+    const authorization={id:'other-grant',version:1,userId:1,strategyId:30,walletId:'other-agent',privyOwnerId:'owner',signerAddress:signer,accountAddress:other,network:'testnet',scopes:['copy:trade','copy:reduce'],validFrom:now-1,expiresAt:now+60000,revokedAt:null,exchangeApprovedAt:now-1};
+    const state=inFlight==='submitting'?'submitting':'unknown';
+    await db.insert(copyLiveExecutions).values({key,network:'testnet',accountAddress:other,signerAddress:signer,cloid:intent.cloid,nonce:created,userId:1,strategyId:30,state,updatedAt:new Date(created),
+      record:{key,fingerprint,market:intent.market,action,nonce:created,expiresAfter:created+60000,state,createdAt:created,updatedAt:created,authorization}});
+    const payload={accountId:'other-live',key,fingerprint,userId:1,strategyId:30,network:'testnet' as const,accountAddress:other,walletId:'other-agent',authorizationId:'other-grant',strategyVersion:1,policyVersion:3,
+      authorizationVersion:1,intent,action,expiresAt:created+60000,notionalUsd:'100',marginUsd:'10',feeBufferUsd:'0.1',createdAt:created,sourceDigest:'a'.repeat(64)};
+    const {intent:_i,action:_a,expiresAt,createdAt,...columns}=payload;
+    await db.insert(copyLiveRiskReservations).values({...columns,cloid:intent.cloid,coin:'BTC',dex:'',asset:0,payload:payload as never,expiresAt:new Date(expiresAt),createdAt:new Date(createdAt),updatedAt:new Date(created),
+      state:inFlight==='submitting'?'held':'unknown',attemptedAt:inFlight==='submitting'?null:new Date(created)});
+    await scopes.run(id(),async(_scope,session)=>{
+      const proof=await source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold();
+      expect(proof.userExposureProof).toMatchObject({otherAccountsExposureUsd:'100',otherAccountsCoinExposureUsd:'100'});
+      expect(assessLiveAccountRisk(proof)).toMatchObject({ok:true});
+    });
   });
   it('holds a fresh independently observed market while preserving the original prepared market timestamp',async()=>{
     let clock=now;const {reservations}=await genuineSizing(()=>clock);clock++;

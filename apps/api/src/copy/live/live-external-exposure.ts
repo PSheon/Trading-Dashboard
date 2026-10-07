@@ -59,7 +59,11 @@ export function calculateLiveExternalExposure(raw: LiveExternalExposureInput): R
     check(market && row.accountId === input.accountId && r.network === snapshot.network && address(r.accountAddress) === address(input.accountAddress), 'live_risk_identity');
     const canonical = buildOrderAction(r);
     check(row.key === executionKey(r) && row.fingerprint === intentFingerprint(r, canonical) && isDeepStrictEqual(row.action, canonical));
-    check(row.state === 'held' && row.exchangeOrderId === null && row.expiresAt > now || row.state === 'resting' && typeof row.exchangeOrderId === 'string' && /^[1-9]\d*$/.test(row.exchangeOrderId), 'live_risk_liability_unknown');
+    // `unknown`: an order in flight or attempted without an answer yet. Its
+    // most it can add is its whole size (an IOC fills at most that), so it is
+    // counted at its maximum notional instead of refusing the owner's orders.
+    check(row.state === 'held' && row.exchangeOrderId === null && row.expiresAt > now || row.state === 'unknown' && (row.exchangeOrderId === null || /^[1-9]\d*$/.test(row.exchangeOrderId)) ||
+      row.state === 'resting' && typeof row.exchangeOrderId === 'string' && /^[1-9]\d*$/.test(row.exchangeOrderId), 'live_risk_liability_unknown');
     const matches = [...new Set([byCloid.get(r.cloid), row.exchangeOrderId === null ? undefined : byId.get(row.exchangeOrderId)])].filter(o => o !== undefined);
     check(matches.length <= 1);
     if (matches.length) {
@@ -67,10 +71,10 @@ export function calculateLiveExternalExposure(raw: LiveExternalExposureInput): R
       check(o.coin === market.coin && o.dex === market.dex && o.asset === r.asset && o.side === r.side && o.reduceOnly === r.reduceOnly &&
         money(o.originalSize).eq(r.size) && money(o.limitPrice).eq(r.limitPrice) && (o.cloid === null || o.cloid === r.cloid) &&
         (row.exchangeOrderId === null || o.oid === row.exchangeOrderId));
-      check(row.state === 'resting', 'live_risk_liability_unknown');
-      continue;
+      check(row.state === 'resting' || row.state === 'unknown', 'live_risk_liability_unknown');
+      continue; // The observed resting order above already counts it.
     }
-    check(row.state === 'held', 'live_risk_liability_unknown');
+    check(row.state === 'held' || row.state === 'unknown', 'live_risk_liability_unknown');
     if (!r.reduceOnly) add(Dec.max(money(row.notionalUsd), ceilDecimalProduct([money(r.size), market.coin === coin ? Dec.max(money(r.limitPrice), riskPrice) : money(r.limitPrice)])), market.coin);
   }
   return Object.freeze({ exposureUsd: exposure.toString(), coinExposureUsd: target.toString() });

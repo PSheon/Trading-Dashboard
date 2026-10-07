@@ -35,9 +35,16 @@ it.each(['oid','cloid'] as const)('rejects duplicate actual order %s identity',f
   const input=data();input.snapshot.restingOrders=[order(),{...order(),oid:field==='oid'?'10':'11',cloid:field==='cloid'?order().cloid:`0x${'cc'.repeat(16)}`}];
   expect(()=>calculateLiveExternalExposure(input)).toThrow('live_risk_liability_conflict');
 });
-it.each(['unknown','missingResting','unattemptedVisible'] as const)('retains uncertainty for %s liabilities',kind=>{
-  const input=data();input.reservations=[{...fixture().reservations.own,state:kind==='unknown'?'unknown':kind==='missingResting'?'resting':'held',exchangeOrderId:kind==='missingResting'?'10':null}];
+it.each(['missingResting','unattemptedVisible'] as const)('retains uncertainty for %s liabilities',kind=>{
+  const input=data();input.reservations=[{...fixture().reservations.own,state:kind==='missingResting'?'resting':'held',exchangeOrderId:kind==='missingResting'?'10':null}];
   if(kind==='unattemptedVisible')input.snapshot.restingOrders=[order()];expect(()=>calculateLiveExternalExposure(input)).toThrow('live_risk_liability_unknown');
+});
+it('bounds another copy\'s order in flight (unknown) at its maximum notional instead of refusing',()=>{
+  const input=data();input.reservations=[{...fixture().reservations.own,state:'unknown',exchangeOrderId:null}];
+  // Its whole size at the higher of its limit and the current price, as a held one.
+  expect(calculateLiveExternalExposure(input)).toEqual({exposureUsd:'150',coinExposureUsd:'150'});
+  // Once the exchange shows it resting, the observed order alone counts.
+  input.snapshot.restingOrders=[order()];expect(calculateLiveExternalExposure(input)).toEqual({exposureUsd:'75',coinExposureUsd:'75'});
 });
 it('does not apply a BTC mark to another coin and keeps all external exposure',()=>{
   const input=data();input.snapshot.restingOrders=[{...order(),coin:'ETH',asset:1}];expect(calculateLiveExternalExposure(input)).toEqual({exposureUsd:'50',coinExposureUsd:'0'});

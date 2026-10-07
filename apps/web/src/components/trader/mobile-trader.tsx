@@ -283,18 +283,23 @@ export function MobileTrader({
 
       {sheet ? (
         <div ref={sheetRef} className="fixed inset-0 z-50 flex items-end bg-overlay animate-in fade-in-0 motion-reduce:animate-none md:hidden" role="dialog" aria-modal="true" aria-label={t("trader.copyTrade")} onClick={() => setSheet(false)}>
-          <div className="relative max-h-[85dvh] w-full overflow-y-auto rounded-t-[32px] bg-card p-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] [--seg-track:var(--inset)] animate-in slide-in-from-bottom duration-300 motion-reduce:animate-none" onClick={(e) => e.stopPropagation()}>
-            <button
-              type="button"
-              onClick={() => setSheet(false)}
-              aria-label={t("common.close")}
-              className="absolute top-3 right-3 z-10 inline-flex size-11 items-center justify-center rounded-full bg-inset outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <X className="size-5" strokeWidth={2.4} />
-            </button>
-            <SectionBoundary className="flex flex-col items-center gap-2 px-1 pt-9 text-center text-sm">
-              <CopyPanel address={profile.address} sheet leaderPositions={profile.positions} traderName={shareName(profile)} />
-            </SectionBoundary>
+          {/* The rounded top and × stay; only the body scrolls (Stage A3). */}
+          <div className="relative flex max-h-[85dvh] w-full flex-col overflow-hidden rounded-t-[32px] bg-card pb-[calc(0.75rem+env(safe-area-inset-bottom))] [--seg-track:var(--inset)] animate-in slide-in-from-bottom duration-300 motion-reduce:animate-none" onClick={(e) => e.stopPropagation()}>
+            <div className="flex shrink-0 justify-end px-3 pt-3">
+              <button
+                type="button"
+                onClick={() => setSheet(false)}
+                aria-label={t("common.close")}
+                className="inline-flex size-11 items-center justify-center rounded-full bg-inset outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <X className="size-5" strokeWidth={2.4} />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-1" data-testid="copy-sheet-body">
+              <SectionBoundary className="flex flex-col items-center gap-2 px-1 text-center text-sm">
+                <CopyPanel address={profile.address} sheet leaderPositions={profile.positions} traderName={shareName(profile)} />
+              </SectionBoundary>
+            </div>
           </div>
         </div>
       ) : null}

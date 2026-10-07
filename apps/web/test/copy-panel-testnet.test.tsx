@@ -15,7 +15,7 @@ import { liveCopiesMessages } from "../src/i18n/live-copies";
  * 取消設定; a running copy shows its localized stage under 狀態; a setup
  * the panel follows is never shown to another signed-in person.
  */
-const state = vi.hoisted(() => ({ identity: "owner@email", item: null as unknown, restart: vi.fn(), cancel: vi.fn(), start: vi.fn(), startPending: false,
+const state = vi.hoisted(() => ({ withdrawable: 500, openDeposit: (() => {}) as () => void, identity: "owner@email", item: null as unknown, restart: vi.fn(), cancel: vi.fn(), start: vi.fn(), startPending: false,
   deployment: { network: "testnet", available: true, sourceNetworks: ["mainnet", "testnet"], caps: null } as unknown }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh() {}, push() {} }), usePathname: () => "/zh-TW/trader", useSearchParams: () => new URLSearchParams() }));
 vi.mock("../src/lib/auth", () => ({ useAuth: () => ({ status: "signedIn", identity: state.identity, login() {} }) }));
@@ -31,7 +31,8 @@ vi.mock("../src/lib/copy-live-setup", async () => ({
   useLiveCopySetupActions: () => ({ start: { isPending: state.startPending, mutateAsync: state.start }, confirm: { isPending: false }, restart: { isPending: false, mutateAsync: state.restart }, cancel: { isPending: false, mutateAsync: state.cancel, mutate() {} } }),
 }));
 vi.mock("../src/lib/copy-live-portfolio", () => ({ useLiveCopyPortfolio: () => ({ data: { items: state.item ? [state.item] : [] } }) }));
-vi.mock("../src/lib/wallet", () => ({ useWallet: () => ({ data: { network: (state.deployment as { network: string }).network, hyperliquid: { withdrawable: 500 } } }), signErrorMessage: () => ({ rejected: false, message: "" }) }));
+vi.mock("../src/lib/wallet", () => ({ useWallet: () => ({ data: { network: (state.deployment as { network: string }).network, hyperliquid: { withdrawable: state.withdrawable } } }), signErrorMessage: () => ({ rejected: false, message: "" }) }));
+vi.mock("../src/components/wallet/wallet-modals", () => ({ useWalletModals: () => ({ openDeposit: () => state.openDeposit(), openWithdraw() {}, openExport() {} }) }));
 vi.mock("../src/lib/queries", () => ({ useSiteSettings: () => ({ data: { copyTradingEnabled: true } }) }));
 
 const leader = `0x${"ab".repeat(20)}`;
@@ -42,7 +43,7 @@ const setupOf = (stage: string, extra: object = {}) => ({ id: "0b0a6a3e-2f6b-4b7
 
 let root: Root, container: HTMLDivElement;
 beforeEach(() => {
-  vi.clearAllMocks(); state.identity = "owner@email";
+  vi.clearAllMocks(); state.identity = "owner@email"; state.withdrawable = 500;
   state.deployment = { network: "testnet", available: true, sourceNetworks: ["mainnet", "testnet"], caps: null };
   localStorage.setItem(`orbie:copy-mode:${state.identity}`, "testnet");
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
@@ -140,4 +141,22 @@ it("on a testnet deployment the actual mode is still 測試網", async () => {
   await render();
   expect(container.textContent).toContain("測試網");
   expect(container.textContent).not.toContain("正式");
+});
+
+it("正式 with an empty main wallet offers 儲值 (the deposit dialog), not a dead 餘額不足; one balance format: 可用 0 USDC（主錢包）(Stage A3)", async () => {
+  state.withdrawable = 0;
+  state.deployment = { network: "mainnet", available: true, sourceNetworks: ["mainnet"], caps: null };
+  localStorage.setItem(`orbie:copy-mode:${state.identity}`, "testnet");
+  const deposit = vi.fn();
+  state.openDeposit = deposit;
+  state.item = null;
+  await act(async () => root.render(<I18nProvider locale="zh-TW" messages={catalogs["zh-TW"]}><CopyPanel address={leader} sheet /></I18nProvider>));
+  const cta = [...container.querySelectorAll<HTMLButtonElement>('button[type="submit"]')].at(-1)!;
+  expect(cta.textContent).toBe("儲值");
+  expect(cta.disabled).toBe(false);
+  await act(async () => cta.click());
+  expect(deposit).toHaveBeenCalledTimes(1);
+  expect(container.querySelector('[data-testid="copy-available"]')!.textContent).toBe("可用 0 USDC（主錢包）");
+  // The mode toggle stays at the top of the sheet while its body scrolls.
+  expect(container.querySelector('[data-testid="copy-sheet-mode"]')!.className).toContain("sticky");
 });

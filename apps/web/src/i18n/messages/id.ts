@@ -989,6 +989,8 @@ export const id: Messages = {
     copy: {
       follow: "Ikuti",
       direction: "Arah salinan",
+      availableFrom: "{amount} USDC tersedia ({source})",
+      paperAccount: "akun simulasi",
       panel: "Copy trading",
       reverse: "Berlawanan",
       max: "Maks.",

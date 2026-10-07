@@ -554,6 +554,8 @@ export const en: Messages = {
     live: {
       title: "Testnet copies",
       hint: "Copies that trade on Hyperliquid testnet for real: each user's execution wallet, its trading agent and grant, transfers, orders still waiting for the exchange, and how fast leader fills are copied.",
+      titleMainnet: "Live copies",
+      hintMainnet: "Copies that place real orders on Hyperliquid: each user's execution wallet, agent and grant, transfers, orders awaiting the exchange's answer, and how fast traders' fills are followed.",
       latency: {
         title: "Copy latency",
         hint: "Milliseconds from the leader's fill on Hyperliquid to each step of the copy.",
@@ -1680,6 +1682,8 @@ export const en: Messages = {
     copy: {
       follow: "Follow",
       direction: "Copy direction",
+      availableFrom: "{amount} USDC available ({source})",
+      paperAccount: "paper account",
       panel: "Copy trade",
       reverse: "Counter",
       max: "Max",
@@ -1872,7 +1876,7 @@ export const en: Messages = {
         amountPerTrade: "Amount Per Trade",
         budget: "Copy funds ${amount}",
         maxLabel: "Max ${max}",
-        ratioExplanation: "Ratio mode: trade size scales with the trader's portfolio ratio. If they bet 10% of their balance, you bet 10% of your allocation.",
+        ratioExplanation: "Ratio mode: trade size scales with the trader's portfolio ratio. When they trade 10% of their balance, you trade 10% of your copy's funds.",
         fixed: "Fixed",
         ratio: "Ratio",
         save: "Save",
@@ -2356,6 +2360,7 @@ export const en: Messages = {
       audit: "Audit log",
       users: "Users",
       copyTestnet: "Testnet",
+      copyLive: "Live",
       copyRisk: "Risk",
       copyOrders: "Orders",
       copyStatus: "Status & commands",

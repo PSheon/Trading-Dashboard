@@ -19,7 +19,7 @@ import type { AdminCopyRiskView } from "@/lib/contracts";
 import { Chip } from "./shared";
 import { AdminSubTabs } from "@/components/admin/admin-shell";
 import { AdminCard } from "@/components/admin/ui";
-import { COPY_SUB_TABS } from "./status";
+import { useCopySubTabs } from "./status";
 
 type NumberField = Exclude<keyof CopyRiskLimits, "allowHip3" | "blockedCoins">;
 /** Form order: the account, sizing caps, exposure caps, execution quality. */
@@ -55,7 +55,7 @@ export function AdminCopyRisk() {
   const save = useSaveCopyRisk();
   return (
     <div className="flex flex-col gap-5">
-      <AdminSubTabs tab="copy" labels={COPY_SUB_TABS} />
+      <AdminSubTabs tab="copy" labels={useCopySubTabs()} />
       {risk.isError && !risk.data ? <AdminCard><ErrorState message={risk.error.message} onRetry={() => risk.refetch()} /></AdminCard>
         : !risk.data ? <PanelSkeleton fields={8} />
         // A saved or reloaded version starts the form over from that version.

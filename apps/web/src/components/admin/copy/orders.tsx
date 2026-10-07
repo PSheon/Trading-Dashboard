@@ -9,7 +9,7 @@ import { useI18n } from "@/i18n/provider";
 import { useAdminCopyOrders } from "@/lib/admin-copy";
 import { OrdersTable } from "./shared";
 import { AdminSubTabs } from "@/components/admin/admin-shell";
-import { COPY_SUB_TABS } from "./status";
+import { useCopySubTabs } from "./status";
 import { Select } from "@/components/ui/select";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
 
@@ -26,7 +26,7 @@ export function AdminCopyOrders() {
   const items = orders.data?.items;
   return (
     <div className="flex flex-col gap-5">
-      <AdminSubTabs tab="copy" labels={COPY_SUB_TABS} />
+      <AdminSubTabs tab="copy" labels={useCopySubTabs()} />
       <div className="flex flex-wrap items-center gap-2.5">
         <Select
           size="sm"

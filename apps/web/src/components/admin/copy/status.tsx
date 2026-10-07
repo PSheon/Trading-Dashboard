@@ -21,6 +21,8 @@ import { usePermission } from "@/lib/auth";
 import type { AdminCopyStrategyView } from "@/lib/contracts";
 import { coinLabel, signClass, truncateAddress } from "@/lib/format";
 import { useNow } from "@/lib/use-now";
+import { useLiveCopyDeployment } from "@/lib/copy-live-setup";
+import type { MessageKey } from "@/i18n/messages";
 import { ControlDialog, type ControlRequest } from "./control-dialog";
 import { Chip, ControlButtons, ControlState, StrategyStatus } from "./shared";
 import { StrategyDetailBody } from "./strategies";
@@ -31,6 +33,15 @@ export const COPY_SUB_TABS = {
   "/admin/copy/risk": "admin.sub.copyRisk",
   "/admin/copy/testnet": "admin.sub.copyTestnet",
 } as const;
+
+/** The copy tab's sub-pages as this deployment has them: the actual-copies
+ * page is 正式 on mainnet and 測試網 on testnet, and not offered where no
+ * actual copies run (a paper deployment). Stage, 2026-10-07: mainnet showed
+ * 測試網 (B9). */
+export function useCopySubTabs(): Record<string, MessageKey | null> {
+  const network = useLiveCopyDeployment()?.network ?? null;
+  return { ...COPY_SUB_TABS, "/admin/copy/testnet": network === "mainnet" ? "admin.sub.copyLive" : network === "testnet" ? "admin.sub.copyTestnet" : null };
+}
 
 const STOPS = copyControlCommandEnum.filter((c) => c !== "resume");
 /** A signal waiting this long means opens are about to go stale (the default maxSignalAgeSeconds is 120). */
@@ -112,7 +123,7 @@ export function AdminCopyStatus() {
 
   return (
     <div className="flex flex-col gap-5">
-      <AdminSubTabs tab="copy" labels={COPY_SUB_TABS} />
+      <AdminSubTabs tab="copy" labels={useCopySubTabs()} />
       {overview.isError && d ? <Notice>{t("copyAdmin.stale")}</Notice> : null}
       {platform}
 

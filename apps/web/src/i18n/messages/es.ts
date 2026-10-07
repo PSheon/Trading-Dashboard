@@ -989,6 +989,8 @@ export const es: Messages = {
     copy: {
       follow: "Seguir",
       direction: "Dirección de la copia",
+      availableFrom: "{amount} USDC disponibles ({source})",
+      paperAccount: "cuenta simulada",
       panel: "Copy trading",
       reverse: "Inverso",
       max: "Máx.",

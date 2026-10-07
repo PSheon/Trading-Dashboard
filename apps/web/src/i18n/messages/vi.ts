@@ -989,6 +989,8 @@ export const vi: Messages = {
     copy: {
       follow: "Thuận chiều",
       direction: "Hướng sao chép",
+      availableFrom: "Khả dụng {amount} USDC ({source})",
+      paperAccount: "tài khoản mô phỏng",
       panel: "Sao chép giao dịch",
       reverse: "Ngược chiều",
       max: "Tối đa",

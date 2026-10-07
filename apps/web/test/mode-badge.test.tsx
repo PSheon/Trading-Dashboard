@@ -19,7 +19,7 @@ vi.mock("@/components/shell/announcement-banner", () => ({ AnnouncementBanner: (
 vi.mock("@/components/shell/maintenance-banner", () => ({ MaintenanceBanner: () => null }));
 vi.mock("@/components/copy/copy-feed", () => ({ CopyFeed: () => null }));
 vi.mock("@/lib/queries", () => ({ useSiteSettings: () => ({ data: { copyTradingEnabled: true } }) }));
-vi.mock("@/components/wallet/wallet-modals", () => ({ WalletModalsProvider: ({ children }: { children: React.ReactNode }) => children }));
+vi.mock("@/components/wallet/wallet-modals", () => ({ WalletModalsProvider: ({ children }: { children: React.ReactNode }) => children, useWalletModals: () => ({ openDeposit() {}, openWithdraw() {}, openExport() {} }) }));
 vi.mock("@/lib/copy", () => ({
   useCopyOverview: () => ({ data: { paper: { balance: 1000 }, limits: { minAllocationUsd: 100 }, platform: { pauseNewRisk: false, reduceOnly: false }, user: { pauseNewRisk: false, reduceOnly: false } } }),
   useCopyOf: () => undefined, useStartCopy: () => ({ mutate() {}, mutateAsync: async () => ({}), isPending: false }),

@@ -989,6 +989,8 @@ export const tr: Messages = {
     copy: {
       follow: "Takip",
       direction: "Kopyalama yönü",
+      availableFrom: "Kullanılabilir {amount} USDC ({source})",
+      paperAccount: "simülasyon hesabı",
       panel: "Kopya işlem",
       reverse: "Ters",
       max: "Maks.",

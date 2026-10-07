@@ -110,13 +110,15 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 }
 
 /** A tab's sub-pages the account may open, as the dark-ink sub-tabs. */
-export function AdminSubTabs({ tab, labels }: { tab: string; labels: Record<string, MessageKey> }) {
+export function AdminSubTabs({ tab, labels }: { tab: string; labels: Record<string, MessageKey | null> }) {
   const { t } = useI18n();
   const pathname = usePathname();
   const me = useMe();
-  const pages = ADMIN_TABS.find((x) => x.key === tab)?.pages.filter((page) => hasPermission(me.data, page.permission)) ?? [];
+  // A page labelled null is not offered here (the copy tab's network page
+  // where this deployment runs no actual copies).
+  const pages = ADMIN_TABS.find((x) => x.key === tab)?.pages.filter((page) => hasPermission(me.data, page.permission) && labels[page.href] !== null) ?? [];
   if (pages.length < 2) return null;
-  return <TabLinks tone="sub" label={t(ADMIN_TABS.find((x) => x.key === tab)!.label)} items={pages.map((page) => ({ href: page.href, label: t(labels[page.href]), active: page.href === pathname }))} />;
+  return <TabLinks tone="sub" label={t(ADMIN_TABS.find((x) => x.key === tab)!.label)} items={pages.map((page) => ({ href: page.href, label: t(labels[page.href]!), active: page.href === pathname }))} />;
 }
 
 /** An admin page's content while it loads: most are a card holding a

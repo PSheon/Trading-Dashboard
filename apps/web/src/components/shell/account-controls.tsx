@@ -5,6 +5,7 @@ import { cn } from "cn";
 import { Link } from "@/i18n/navigation";
 
 import { Skeleton } from "@/components/page";
+import { CopyEquityProbes, useCopiesEquity } from "@/lib/copy-equity";
 import { useWalletModals } from "@/components/wallet/wallet-modals";
 import { Button } from "@/components/ui/button";
 import {
@@ -172,18 +173,20 @@ function AccountMenu({ children }: { children?: React.ReactNode }) {
 }
 
 /** Orbit's signed-in pill: the avatar and total value open the account
- * menu; 儲值 opens the deposit modal. The value is the main account's
- * /me/wallet total (shown from 1024px). */
+ * menu; 儲值 opens the deposit modal. The value is 我的資金's: the main
+ * account's /me/wallet total and this network's copies (shown from 1024px). */
 function AccountPill() {
   const { t, format } = useI18n();
   const wallet = useWallet();
+  const inCopies = useCopiesEquity();
   const { openDeposit } = useWalletModals();
   return (
     <div className="flex h-[52px] items-center gap-1 rounded-[26px] bg-raised p-1">
+      <CopyEquityProbes />
       <AccountMenu>
         <span className="hidden items-center gap-1.5 pr-1 lg:flex">
           {wallet.data ? (
-            <span className="num font-display text-[15px]">{format.usd(wallet.data.totalValue, { digits: 2 })}</span>
+            <span className="num font-display text-[15px]" data-testid="account-total">{format.usd(wallet.data.totalValue + inCopies, { digits: 2 })}</span>
           ) : wallet.isError ? (
             <span className="text-sm text-muted-foreground">—</span>
           ) : (

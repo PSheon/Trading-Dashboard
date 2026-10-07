@@ -989,6 +989,8 @@ export const ko: Messages = {
     copy: {
       follow: "팔로우",
       direction: "카피 방향",
+      availableFrom: "사용 가능 {amount} USDC ({source})",
+      paperAccount: "모의 계정",
       panel: "카피 트레이딩",
       reverse: "반대",
       max: "최대",

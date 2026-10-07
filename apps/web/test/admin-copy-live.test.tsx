@@ -9,9 +9,10 @@ import { catalogs } from '@/i18n/messages';
 import type { Locale } from '@/i18n/config';
 import { settleQueries } from './query-settle';
 
-const state = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), permissions: ['admin.access', 'copy.read'] as string[] }));
+const state = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), permissions: ['admin.access', 'copy.read'] as string[], network: 'testnet' as string | null }));
 vi.mock('@/lib/api', () => ({ api: { get: state.get, post: state.post } }));
 vi.mock('@/lib/auth', () => ({ usePermission: (p: string) => state.permissions.includes(p), useMe: () => ({ data: { permissions: state.permissions } }) }));
+vi.mock('@/lib/copy-live-setup', () => ({ useLiveCopyDeployment: () => (state.network ? { network: state.network } : null) }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh() {} }), usePathname: () => '/admin/copy/live' }));
 vi.mock('next/link', () => ({ default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a> }));
 
@@ -106,4 +107,20 @@ it('shows a revoke that waits for the copy\'s stop, and offers no second revoke'
   expect(submit().disabled).toBe(false);
   await act(async () => submit().click()); await settle();
   expect(state.post).toHaveBeenCalledWith('/admin/copy/live/grants/grant-1/revoke', { reason: 'stop is stuck', force: true });
+});
+
+it('names the actual-copies page by the deployment: 正式 on mainnet, 測試網 on testnet, not offered on a paper deployment (Stage B9)', async () => {
+  const { useCopySubTabs } = await import('@/components/admin/copy/status');
+  const labels: Array<ReturnType<typeof useCopySubTabs>> = [];
+  function Probe() { labels.push(useCopySubTabs()); return null; }
+  for (const network of ['mainnet', 'testnet', null]) {
+    state.network = network;
+    await act(async () => root.render(<Probe />));
+  }
+  expect(labels.map((l) => l['/admin/copy/testnet'])).toEqual(['admin.sub.copyLive', 'admin.sub.copyTestnet', null]);
+  state.network = 'mainnet';
+  await render('zh-TW');
+  expect(container.textContent).toContain('正式跟單');
+  expect(container.textContent).not.toContain('測試網跟單');
+  state.network = 'testnet';
 });

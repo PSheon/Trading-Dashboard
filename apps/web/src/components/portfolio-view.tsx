@@ -3,13 +3,14 @@
 import { ArrowUp, Bell, ChartPie, Plus, Settings, ShoppingCart, UserPlus, type LucideIcon } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { cn } from "cn";
 
 import { ActivityPanel } from "@/components/copy/activity-panel";
 import { CopyActivity } from "@/components/copy/recent-activity";
 import { CopyCards, CopyDetail, CopyListSkeleton, CopyTable, useLeaders } from "@/components/copy/copy-portfolio";
 import { LiveCopies } from "@/components/copy/live-copies";
+import { CopyEquityProbes, useCopiesEquity } from "@/lib/copy-equity";
 import { ExposurePanel, InsightsPanel, PaperSummary, PaperSummarySkeleton, PortfolioChart, PortfolioChartSkeleton } from "@/components/copy/portfolio-parts";
 import { ErrorState, Skeleton } from "@/components/page";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -155,23 +156,18 @@ function RealPortfolio() {
   const live = useLiveCopyPortfolio();
   const items = useMemo(() => live.data?.items ?? [], [live.data]);
   const leaders = useLeaders(items);
-  const [equities, setEquities] = useState<ReadonlyMap<number, number>>(new Map());
-  const onEquity = useCallback((id: number, equity: number | null) => setEquities((prev) => {
-    if (equity === null ? !prev.has(id) : prev.get(id) === equity) return prev;
-    const next = new Map(prev);
-    if (equity === null) next.delete(id); else next.set(id, equity);
-    return next;
-  }), []);
-  const inCopies = [...equities.values()].reduce((sum, v) => sum + v, 0);
+  // 我的資金 and the header's pill: one total (lib/copy-equity).
+  const inCopies = useCopiesEquity();
   const names = useMemo(() => new Map(items.map((item) => [item.strategyId, boardName(leaders.get(item.leaderAddress) ?? { address: item.leaderAddress, displayName: null })])), [items, leaders]);
   return (
     <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start lg:gap-5" data-view="real">
       <div className="flex flex-col gap-4 lg:sticky lg:top-24">
         <MyFunds wallet={wallet} inCopies={inCopies} />
+        <CopyEquityProbes />
       </div>
       {/* The right column: the copies, then their activity across the width. */}
       <div className="flex min-w-0 flex-col gap-4">
-        <LiveCopies onEquity={onEquity} empty={<NoCopies />} />
+        <LiveCopies empty={<NoCopies />} />
         <section className="orbit-card card-pad" aria-label={t("folio.copyActivity")}>
           <h2 className="text-[0.9375rem] font-extrabold">{t("folio.copyActivity")}</h2>
           <CopyActivity names={names} className="mt-1" />

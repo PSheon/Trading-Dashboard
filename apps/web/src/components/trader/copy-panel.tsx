@@ -9,6 +9,7 @@ import { LiveCopyConfirm, LiveCopyProgress, liveSetupError, useCopyTexts, useLiv
 import { LiveSettingsFields } from "@/components/copy/live-copy-settings-fields";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
+import { useWalletModals } from "@/components/wallet/wallet-modals";
 import { HedgeNotice } from "@/components/copy/portfolio-parts";
 import { ModeBadge } from "@/components/shell/mode-badge";
 import { useToast } from "@/components/ui/toast";
@@ -199,10 +200,15 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
   // that signs in.
   const empty = signedIn && balanceKnown && balance <= 0;
   const amountLocked = empty || !signedIn;
+  // 正式 with an empty main wallet: the way on is 儲值, not a dead
+  // 「餘額不足」 (Stage A3). Paper money cannot be deposited.
+  const fundFirst = testnet && empty;
+  const { openDeposit } = useWalletModals();
 
   const label =
     closed ? t("trader.copy.errors.disabled") :
     !signedIn ? t("common.signIn") :
+    fundFirst ? t("portfolio.deposit") :
     empty ? t("trader.copy.notEnoughBalance") :
     !amount || !(value > 0) ? t("trader.copy.enterAmount") :
     value < min ? t("trader.copy.minToCopy", { min: format.num(min) }) :
@@ -222,6 +228,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
       return;
     }
     if (closed) return toast.error(t("trader.copy.errors.disabled"));
+    if (fundFirst) return openDeposit();
     if (!amount || !(value > 0)) return toast.error(t("trader.copy.enterAmount"));
     if (value < min) return toast.error(t("trader.copy.errors.minAllocation", { min: format.num(min) }));
     if (max !== null && value > max) return toast.error(t("trader.copy.errors.maxAllocation", { max: format.num(max) }));
@@ -338,13 +345,16 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
     </>
   );
 
-  const modePill = liveAvailable ? (
+  const modeChoice = liveAvailable ? (
     <Segmented variant="pill" tone="sub" label={liveText.mode} value={mode} onChange={(next) => setMode(next)} className="w-full [&>button]:flex-1"
       options={[{ value: "paper", label: liveText.paper }, { value: "testnet", label: liveText.testnet }]} />
   ) : sheet ? (
     // Only 模擬 here: the phone sheet still says so (the header's badge is out of view).
     <div className="flex justify-center" data-testid="copy-mode-paper"><ModeBadge mode="paper" /></div>
   ) : null;
+  // In the phone sheet the mode stays at the top while the rest scrolls
+  // under it (Stage A3: the toggle and the % chips were cut mid-row).
+  const modePill = sheet && modeChoice ? <div className="sticky top-0 z-10 -mx-1 bg-card px-1 pb-2" data-testid="copy-sheet-mode">{modeChoice}</div> : modeChoice;
 
   const directionPill = (
     <div role="radiogroup" aria-label={t("trader.copy.direction")} className="grid grid-cols-2 gap-0.5 rounded-full bg-inset p-1">
@@ -486,7 +496,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
   return (
     <Shell sheet={sheet}>
      {/* A real form: Enter in the amount field starts the copy. */}
-     <form className="contents" noValidate onSubmit={(event) => { event.preventDefault(); if (!(start.isPending || preparing || started || closed || empty)) void submit(); }}>
+     <form className="contents" noValidate onSubmit={(event) => { event.preventDefault(); if (!(start.isPending || preparing || started || closed || (empty && !fundFirst))) void submit(); }}>
       {modePill}
       {hedgeNotice}
       {directionPill}
@@ -576,8 +586,9 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
           <div className="flex items-center gap-2.5 rounded-xl bg-inset px-3.5 py-3">
             <UsdcIcon size={26} />
             <span className="text-sm font-bold">USDC</span>
-            <span className="ml-auto text-sm">
-              <b className="num">{balanceKnown ? format.num(balance, 2) : "—"}</b> <span className="text-muted-foreground">{testnet ? liveText.testnetBalance : t("portfolio.copy.paperBalance")}</span>
+            {/* One format for both modes: 可用 0 USDC（主錢包）. */}
+            <span className="num ml-auto text-sm font-bold" data-testid="copy-available">
+              {t("trader.copy.availableFrom", { amount: balanceKnown ? format.num(balance, 2) : "—", source: testnet ? liveText.testnetBalance : t("trader.copy.paperAccount") })}
             </span>
           </div>
           <div role="group" aria-label={t("trader.copy.amount")} className="grid grid-cols-3 gap-1">
@@ -684,7 +695,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
           type="submit"
           size="cta"
           loading={start.isPending || preparing}
-          disabled={!(start.isPending || preparing) && (started || closed || empty)}
+          disabled={!(start.isPending || preparing) && (started || closed || (empty && !fundFirst))}
           className="min-h-14 w-full focus-visible:ring-offset-card disabled:cursor-not-allowed"
         >
           {started ? (
@@ -717,7 +728,7 @@ export function copyAmountBounds(live: boolean, paper: { minAllocationUsd: numbe
 function Shell({ sheet, children }: { sheet: boolean; children: React.ReactNode }) {
   const { t } = useI18n();
   return sheet ? (
-    <div className="flex flex-col gap-4 px-1 pt-9">{children}</div>
+    <div className="flex flex-col gap-4 px-1">{children}</div>
   ) : (
     <aside aria-label={t("trader.copy.panel")} className="orbit-card card-pad flex flex-col xl:sticky xl:top-[92px]">{children}</aside>
   );

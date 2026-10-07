@@ -989,6 +989,8 @@ export const ru: Messages = {
     copy: {
       follow: "Следовать",
       direction: "Направление копирования",
+      availableFrom: "Доступно {amount} USDC ({source})",
+      paperAccount: "демо-счёт",
       panel: "Копитрейдинг",
       reverse: "Против",
       max: "Макс.",

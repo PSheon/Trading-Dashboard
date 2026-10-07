@@ -989,6 +989,8 @@ export const zhCN: Messages = {
     copy: {
       follow: "顺向",
       direction: "跟单方向",
+      availableFrom: "可用 {amount} USDC（{source}）",
+      paperAccount: "模拟账户",
       panel: "跟单",
       reverse: "反向",
       max: "最大",
@@ -1181,7 +1183,7 @@ export const zhCN: Messages = {
         amountPerTrade: "每笔交易金额",
         budget: "跟单资金 ${amount}",
         maxLabel: "最大 ${max}",
-        ratioExplanation: "比例模式：交易金额根据交易员的投资组合比例调整。如果他们投注余额的 10%，你也投注分配额的 10%。",
+        ratioExplanation: "比例模式：交易金额根据交易员的投资组合比例调整。交易员用余额的 10% 下单时，你也用跟单资金的 10% 下单。",
         fixed: "固定",
         ratio: "比例",
         save: "保存",

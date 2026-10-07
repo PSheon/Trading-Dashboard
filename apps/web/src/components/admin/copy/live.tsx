@@ -17,7 +17,8 @@ import { useAdminLiveAccounts, useAdminLiveLatency, useAdminLiveOrders, useAdmin
 import { usePermission } from "@/lib/auth";
 import { Chip } from "./shared";
 import { AdminSubTabs } from "@/components/admin/admin-shell";
-import { COPY_SUB_TABS } from "./status";
+import { useCopySubTabs } from "./status";
+import { useLiveCopyDeployment } from "@/lib/copy-live-setup";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
 
 const short = (address: string | null) => (address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "—");
@@ -31,12 +32,13 @@ const ORDER_VIEWS = ["open", "unknown", "all"] as const;
  */
 export function AdminCopyLive() {
   const { t } = useI18n();
+  const mainnet = useLiveCopyDeployment()?.network === "mainnet";
   return (
     <div className="flex flex-col gap-5">
-      <AdminSubTabs tab="copy" labels={COPY_SUB_TABS} />
+      <AdminSubTabs tab="copy" labels={useCopySubTabs()} />
       <div>
-        <h2 className="type-h2">{t("copyAdmin.live.title")}</h2>
-        <p className="mt-1 max-w-3xl text-sm leading-relaxed text-muted-foreground">{t("copyAdmin.live.hint")}</p>
+        <h2 className="type-h2">{t(mainnet ? "copyAdmin.live.titleMainnet" : "copyAdmin.live.title")}</h2>
+        <p className="mt-1 max-w-3xl text-sm leading-relaxed text-muted-foreground">{t(mainnet ? "copyAdmin.live.hintMainnet" : "copyAdmin.live.hint")}</p>
       </div>
       <Latency />
       <Accounts />

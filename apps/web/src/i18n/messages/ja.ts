@@ -989,6 +989,8 @@ export const ja: Messages = {
     copy: {
       follow: "順張り",
       direction: "コピー方向",
+      availableFrom: "利用可能 {amount} USDC（{source}）",
+      paperAccount: "シミュレーション口座",
       panel: "コピートレード",
       reverse: "逆張り",
       max: "最大",

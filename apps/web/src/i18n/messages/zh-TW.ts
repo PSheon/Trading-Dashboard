@@ -557,6 +557,8 @@ export const zhTW = {
     live: {
       title: "測試網跟單",
       hint: "在 Hyperliquid 測試網實際下單的跟單：每位使用者的執行錢包、交易代理與授權、轉帳、尚待交易所確認的訂單，以及交易員成交被跟上的速度。",
+      titleMainnet: "正式跟單",
+      hintMainnet: "在 Hyperliquid 以真實資金實際下單的跟單：每位使用者的執行錢包、交易代理與授權、轉帳、尚待交易所確認的訂單，以及交易員成交被跟上的速度。",
       latency: {
         title: "跟單延遲",
         hint: "自交易員在 Hyperliquid 成交起，到跟單各步驟的毫秒數。",
@@ -1684,6 +1686,8 @@ export const zhTW = {
     copy: {
       follow: "順向",
       direction: "跟單方向",
+      availableFrom: "可用 {amount} USDC（{source}）",
+      paperAccount: "模擬帳戶",
       panel: "跟單",
       reverse: "反向",
       max: "最大",
@@ -1876,7 +1880,7 @@ export const zhTW = {
         amountPerTrade: "每筆交易金額",
         budget: "跟單資金 ${amount}",
         maxLabel: "最大 ${max}",
-        ratioExplanation: "比例模式：交易金額根據交易員的投資組合比例調整。如果他們投注餘額的 10%，你也投注分配額的 10%。",
+        ratioExplanation: "比例模式：交易金額根據交易員的投資組合比例調整。交易員用餘額的 10% 下單時，你也用跟單資金的 10% 下單。",
         fixed: "固定",
         ratio: "比例",
         save: "儲存",
@@ -2360,6 +2364,7 @@ export const zhTW = {
       audit: "稽核紀錄",
       users: "使用者",
       copyTestnet: "測試網",
+      copyLive: "正式",
       copyRisk: "風控",
       copyOrders: "訂單",
       copyStatus: "狀態與命令",

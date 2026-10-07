@@ -23,6 +23,7 @@ import { address, LiveBoundaryError } from '../live/wallet-authorization.js';
 import type { CopyLiveStopWorkerRepository, StopRow } from './copy-live-stop-worker.repository.js';
 import { CLOSE_NEVER_SENT, closeCloid, closeRetryDelayMs, type CloseAccount, type ReduceOnlyCloser } from './reduce-only-closer.js';
 import type { AutoReturn } from './copy-live-auto-return.js';
+import type { SystemStopOutcome } from '../copy-live-stop-system.js';
 
 /** A single-position close gives up after this many orders (the owner can
  * ask again, or stop the copy); a stop never does (it backs off). */
@@ -43,7 +44,15 @@ export interface StopperDependencies {
   readonly log?: (message: string) => void;
   /** A revoke-requested grant is revoked anyway after this long. */
   readonly revokeDeadlineMs?: number;
+  /** Stops copies whose agent is about to expire (CopyLiveSystemStops):
+   * an expired agent can't sign the stop's closes, stranding the positions. */
+  readonly agentExpiry?: { readonly marginMs: number; stopExpiring(marginMs: number): Promise<SystemStopOutcome> } | null;
 }
+/** A copy is stopped this long before its agent expires (one day: room for
+ * the stop's closes, retries and return while the agent still signs). */
+export const AGENT_EXPIRY_STOP_MARGIN_MS = 24 * 3_600_000;
+/** How often the expiring agents are looked for. */
+const AGENT_EXPIRY_CHECK_MS = 60_000;
 /** Default bound on a pending admin revoke (COPY_LIVE_REVOKE_DEADLINE_MINUTES). */
 export const REVOKE_DEADLINE_MS = 30 * 60_000;
 const reason = (error: unknown) => (error instanceof LiveBoundaryError ? error.code : 'stop_step_failed').replace(/[^a-z0-9_]/g, '_').slice(0, 80);
@@ -62,9 +71,20 @@ const reason = (error: unknown) => (error instanceof LiveBoundaryError ? error.c
  *    only dust): generations and strategy end, the leader is unwatched.
  */
 export class CopyLiveStopper {
+  private expiryCheckedAt = Number.NEGATIVE_INFINITY;
   constructor(private readonly deps: StopperDependencies, private readonly now: () => number = Date.now) {}
 
   async tick(): Promise<void> {
+    // A copy whose agent expires within the margin is stopped (close, then
+    // return) while the agent can still sign; its stop runs below.
+    if (this.deps.agentExpiry && this.now() - this.expiryCheckedAt >= AGENT_EXPIRY_CHECK_MS) {
+      this.expiryCheckedAt = this.now();
+      try {
+        const outcome = await this.deps.agentExpiry.stopExpiring(this.deps.agentExpiry.marginMs);
+        for (const stopped of outcome.stopped) this.deps.log?.(`copy account ${stopped.accountId} stopped before its agent expires (stop ${stopped.stopId})`);
+        for (const refused of outcome.refused) this.deps.log?.(`copy account ${refused.accountId} could not be stopped before its agent expires: ${refused.code}`);
+      } catch (error) { this.deps.log?.(`agent expiry check failed: ${reason(error)}`); }
+    }
     // A pending admin revoke is bounded: once the stop it waits for is
     // blocked or gone, or past the deadline once that stop is flat, the
     // grant is revoked (audited by the system). A stop still closing keeps it.

@@ -27,7 +27,10 @@ import { CopyLiveSettler } from './copy-live-settler.js';
 import { CopyLiveWorkerRepository } from './copy-live-worker.repository.js';
 import { WatchedMainnetSource } from './watched-mainnet-source.js';
 import { CopyLiveStopWorkerRepository } from './copy-live-stop-worker.repository.js';
-import { CopyLiveManualCloser, CopyLiveStopper, StopCanceller } from './copy-live-stopper.js';
+import { AGENT_EXPIRY_STOP_MARGIN_MS, CopyLiveManualCloser, CopyLiveStopper, StopCanceller } from './copy-live-stopper.js';
+import { CopyLiveSystemStops } from '../copy-live-stop-system.js';
+import { CopyLiveStopRepository } from '../copy-live-stop.repository.js';
+import { CopyLiveMandateRepository } from '../copy-live-mandate.repository.js';
 import { ReduceOnlyCloser } from './reduce-only-closer.js';
 import { CopyLiveAutoReturn } from './copy-live-auto-return.js';
 import { CopyFundingExchangeClient } from '../copy-funding-exchange.client.js';
@@ -89,7 +92,10 @@ export const liveEngineProvider: Provider = {
       new HyperliquidFollowerReceiptReader(network, weight => reserve(weight), walletGlobal.fetchInfo,
         Date.now, weight => { if (weight > 0) walletBudget.adjust(-weight); }));
     const closer = new ReduceOnlyCloser(network, pool, db, uow, walletConfig, walletGlobal, walletBudget, Math.max(100, live.slippageBps * 3));
+    // A copy is stopped a day before its agent expires (the stop's closes need it).
+    const systemStops = new CopyLiveSystemStops(db, uow, new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, config)), config);
     const stopper = new CopyLiveStopper({ repository: stops, closer, log: message => logger.warn(message), revokeDeadlineMs: live.revokeDeadlineMs,
+      agentExpiry: { marginMs: AGENT_EXPIRY_STOP_MARGIN_MS, stopExpiring: marginMs => systemStops.stopExpiring(marginMs) },
       canceller: new StopCanceller(network, pool, db, walletConfig, walletGlobal, walletBudget, stops, (account, key) => closer.reconcile(account, key)),
       // The stop ends once a sweep to the main wallet is credited: signed by
       // the worker under the owner's policy (CopyModule's one signer).

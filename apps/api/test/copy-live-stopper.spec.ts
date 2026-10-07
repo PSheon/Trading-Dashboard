@@ -11,7 +11,8 @@ import { CopyAdminLiveService } from '../src/copy/copy-admin-live.service.js';
 import { findCurrentWalletAuthorization } from '../src/copy/live/postgres-wallet-authorizations.js';
 import { CopyLiveCloseService } from '../src/copy/copy-live-close.service.js';
 import { CopyLiveCloseRepository } from '../src/copy/copy-live-close.repository.js';
-import { CopyLiveStopper, type StopCanceller } from '../src/copy/live-worker/copy-live-stopper.js';
+import { AGENT_EXPIRY_STOP_MARGIN_MS, CopyLiveStopper, type StopCanceller } from '../src/copy/live-worker/copy-live-stopper.js';
+import { CopyLiveSystemStops } from '../src/copy/copy-live-stop-system.js';
 import { CopyLiveAutoReturn } from '../src/copy/live-worker/copy-live-auto-return.js';
 import { CopyFundingExchangeClient } from '../src/copy/copy-funding-exchange.client.js';
 import { HyperliquidGlobalTransport } from '../src/hyperliquid/hyperliquid-global-transport.js';
@@ -288,6 +289,31 @@ describe('testnet stop execution', () => {
     expect(await stopRow()).toMatchObject({ state: 'requested', issue: 'stop_waiting_for_orders' });
     await stopper().tick(); expect(await stopRow()).toMatchObject({ state: 'closing' });
     await stopper().tick(); expect(closes.map(c => c.coin)).toEqual(['BTC']);
+  });
+
+  it('a copy whose agent expires within a day is stopped (close, then return) while the agent still signs', async () => {
+    // Undo the stop of beforeEach: the copy runs again.
+    await db.delete(schema.copyLiveStopOperations); await db.update(schema.copyStrategies).set({ status: 'active', pauseNewRisk: false, reduceOnly: false });
+    await db.update(schema.copyLiveMandates).set({ state: 'active' });
+    const system = new CopyLiveSystemStops(db, new UnitOfWork(db), new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, testConfig())), testConfig());
+    system.now = () => clock;
+    const expiring = () => new CopyLiveStopper({ repository: new CopyLiveStopWorkerRepository(db, new UnitOfWork(db), testConfig()), closer, canceller: canceller as unknown as StopCanceller,
+      swept: async () => swept, agentExpiry: { marginMs: AGENT_EXPIRY_STOP_MARGIN_MS, stopExpiring: margin => system.stopExpiring(margin) } }, () => clock);
+    await db.update(schema.copyAgentSetups).set({ expiresAt: new Date(clock + 25 * 3_600_000) });
+    await expiring().tick();
+    expect(await db.select().from(schema.copyLiveStopOperations)).toEqual([]);
+    await db.update(schema.copyAgentSetups).set({ expiresAt: new Date(clock + 23 * 3_600_000) });
+    positions = [{ coin: 'BTC', size: '0.5' }];
+    await expiring().tick();
+    const stop = await stopRow();
+    // Created and, in the same pass, moved on (nothing in flight).
+    expect(stop).toMatchObject({ state: 'closing', trackingComplete: true });
+    expect(stop.idempotencyKey).toMatch(/^agent-expiry-agent-mandate-\d+$/);
+    expect((await db.select().from(schema.copyStrategies))[0]).toMatchObject({ status: 'stopping' });
+    // Worked like any stop: its close goes out.
+    await expiring().tick();
+    expect(closes.map(c => c.seed.split(':').slice(-2).join(':'))).toEqual(['BTC:0']);
+    expect(await db.select().from(schema.copyLiveStopOperations)).toHaveLength(1);
   });
 
   it('tracked resting orders need the owner\'s cancellation consent; untracked orders block the close', async () => {

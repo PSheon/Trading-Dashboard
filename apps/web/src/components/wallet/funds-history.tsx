@@ -8,8 +8,11 @@ import { EmptyState, ErrorState, ListRowsSkeleton } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n/provider";
 import type { MessageKey } from "@/i18n/messages";
-import { useFundsHistory, mergeFunds, rowMatches, type FundsFilter, type FundsRow } from "@/lib/funds";
+import { useFundsHistory, isReturnFlow, mergeFunds, rowMatches, walletAmount, type FundsFilter, type FundsRow } from "@/lib/funds";
 import { truncateAddress } from "@/lib/format";
+import { useAuth } from "@/lib/auth";
+import { useLeaders } from "@/components/copy/copy-portfolio";
+import { boardName } from "@/components/discover/board-bits";
 import { useWalletHistory } from "@/lib/wallet";
 import { ICON, WithdrawalNotices, kindOf } from "./history-list";
 
@@ -23,12 +26,16 @@ const FILTERS: FundsFilter[] = ["all", "transfers", "copies", "fees"];
  * withdrawals Orbie submitted. Paper copies move simulated funds and say so.
  */
 export function FundsHistory({ className }: { className?: string }) {
-  const { t, format } = useI18n();
+  const { t } = useI18n();
+  const owner = useAuth().wallet?.address ?? null;
   const hub = useWalletHistory();
   const flows = useFundsHistory();
   const [filter, setFilter] = useState<FundsFilter>("all");
   const items = useMemo(() => flows.data?.pages.flatMap((p) => p.items) ?? [], [flows.data]);
-  const rows = useMemo(() => mergeFunds(hub.data?.transfers, items, !flows.hasNextPage), [hub.data, items, flows.hasNextPage]);
+  const rows = useMemo(() => mergeFunds(hub.data?.transfers, items, !flows.hasNextPage, owner), [hub.data, items, flows.hasNextPage, owner]);
+  // Each copy by its trader's name, not "#id".
+  const leaders = useLeaders(useMemo(() => items.flatMap((f) => (f.leaderAddress ? [{ leaderAddress: f.leaderAddress.toLowerCase() }] : [])), [items]));
+  const nameOf = (address: string | null) => (address ? boardName(leaders.get(address.toLowerCase()) ?? { address, displayName: null }) : "—");
   const shown = rows.filter((r) => rowMatches(r, filter));
   const loading = (!hub.data && hub.isPending) || (!flows.data && flows.isPending);
   return (
@@ -37,12 +44,11 @@ export function FundsHistory({ className }: { className?: string }) {
       <div role="radiogroup" aria-label={t("funds.title")} className="mb-3 flex flex-wrap gap-2">
         {FILTERS.map((f) => (
           <button key={f} type="button" role="radio" aria-checked={filter === f} onClick={() => setFilter(f)}
-            className={cn("h-8 rounded-full px-3 text-xs font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring", filter === f ? "bg-primary text-primary-foreground" : "bg-raised text-foreground")}>
+            className={cn("min-h-11 rounded-full px-4 text-xs font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring", filter === f ? "bg-primary text-primary-foreground" : "bg-raised text-foreground")}>
             {t(`funds.filters.${f}`)}
           </button>
         ))}
       </div>
-      {hub.data?.from && hub.data.fetchedAt ? <p className="mb-2 text-xs text-muted-foreground">{t("wallet.historyCoverage", { from: format.dateTime(hub.data.from), time: format.dateTime(hub.data.fetchedAt) })}</p> : null}
       {hub.isError ? <ErrorState onRetry={() => void hub.refetch()} /> : null}
       {flows.isError ? <ErrorState onRetry={() => void flows.refetch()} /> : null}
       {loading ? (
@@ -51,7 +57,7 @@ export function FundsHistory({ className }: { className?: string }) {
         <EmptyState icon={ReceiptText} title={t("funds.empty")} body={t("wallet.historyEmptyBody")} />
       ) : (
         <ul className="divide-y-2 divide-dotted divide-border" data-testid="funds-history">
-          {shown.map((row) => <Row key={row.id} row={row} />)}
+          {shown.map((row) => <Row key={row.id} row={row} owner={owner} nameOf={nameOf} />)}
         </ul>
       )}
       {flows.hasNextPage ? (
@@ -61,7 +67,7 @@ export function FundsHistory({ className }: { className?: string }) {
   );
 }
 
-function Row({ row }: { row: FundsRow }) {
+function Row({ row, owner, nameOf }: { row: FundsRow; owner: string | null; nameOf: (address: string | null) => string }) {
   const { t, format } = useI18n();
   if (row.source === "hub") {
     const kind = kindOf(row.transfer);
@@ -81,22 +87,24 @@ function Row({ row }: { row: FundsRow }) {
     );
   }
   const f = row.flow;
-  const id = f.strategyId ?? 0;
-  const label = t(`funds.kinds.${f.kind}` as MessageKey, { id, count: f.count ?? 0 });
-  const Icon = f.kind === "fees" || f.kind === "funding" ? Coins : f.kind === "copy_funding" || f.kind === "copy_deposit" ? ArrowLeftRight : f.amount >= 0 ? ArrowDownLeft : ArrowUpRight;
-  const route = f.kind === "copy_funding" ? t("funds.routeHubToCopy", { id }) : f.mode === "paper" && f.counterparty === "paper" ? (f.amount >= 0 ? t("funds.routePaperToCopy", { id }) : t("funds.routeCopyToPaper", { id })) : null;
+  const name = nameOf(f.leaderAddress);
+  // Signed as the owner's wallet (or paper account) sees it: in +, out −.
+  const amount = walletAmount(f, owner), back = isReturnFlow(f, owner);
+  const label = t(`funds.kinds.${back ? "copy_return" : f.kind}` as MessageKey, { name, count: f.count ?? 0 });
+  const Icon = f.kind === "fees" || f.kind === "funding" ? Coins : f.kind === "copy_funding" || f.kind === "copy_deposit" ? ArrowLeftRight : amount >= 0 ? ArrowDownLeft : ArrowUpRight;
+  const route = f.kind === "copy_funding" ? t(back ? "funds.routeCopyToHub" : "funds.routeHubToCopy", { name }) : f.mode === "paper" && f.counterparty === "paper" ? (f.amount >= 0 ? t("funds.routePaperToCopy", { name }) : t("funds.routeCopyToPaper", { name })) : null;
   return (
     <li className="flex items-center gap-3 py-3">
       <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-full", f.kind === "fees" ? "bg-raised text-muted-foreground" : "bg-tag-alert text-tag-alert-foreground")}><Icon className="size-4" /></span>
       <div className="min-w-0 flex-1">
-        <p className="flex flex-wrap items-center gap-1.5 text-sm font-semibold">{label}{f.status ? <span className="rounded-full bg-raised px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">{t(`funds.status.${f.status}` as MessageKey)}</span> : null}</p>
+        <p className="flex flex-wrap items-center gap-1.5 text-sm font-semibold">{label}{f.mode === "paper" ? <span className="rounded-full bg-tag-warning px-2 py-0.5 text-[11px] font-semibold text-tag-warning-foreground" data-testid="paper-tag">{t("mode.paper")}</span> : null}{f.status ? <span className="rounded-full bg-raised px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">{t(`funds.status.${f.status}` as MessageKey)}</span> : null}</p>
         <p className="truncate text-xs text-muted-foreground">
-          {[route, f.leaderAddress ? truncateAddress(f.leaderAddress) : null, format.dateTime(row.time)].filter(Boolean).join(" · ")}
+          {[route, format.dateTime(row.time)].filter(Boolean).join(" · ")}
         </p>
         {row.hubHash ? <p className="truncate font-mono text-[11px] text-subtle-foreground">{t("funds.receipt", { hash: truncateAddress(row.hubHash) })}</p> : null}
         {f.fee ? <p className="text-[11px] text-subtle-foreground">{t("funds.transferFee", { fee: format.usd(f.fee, { digits: 2 }) })}</p> : null}
       </div>
-      <span className={cn("num text-sm font-semibold", f.amount > 0 ? "text-positive" : "text-foreground")}>{format.usd(f.amount, { sign: true, digits: 2 })}</span>
+      <span className={cn("num text-sm font-semibold", amount > 0 ? "text-positive" : "text-foreground")}>{format.usd(amount, { sign: true, digits: 2 })}</span>
     </li>
   );
 }

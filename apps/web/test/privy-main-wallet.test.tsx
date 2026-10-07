@@ -19,7 +19,7 @@ vi.mock("../src/lib/config", () => ({ PRIVY_APP_ID: "test-app" }));
 vi.mock("../src/lib/session-queries", () => ({ SessionQueries: ({ children }: { children: React.ReactNode }) => children }));
 vi.mock("../src/lib/use-wallet-backfill", () => ({ useWalletBackfill() {} }));
 vi.mock("../src/lib/use-identity-refetch", () => ({ useIdentityRefetch() {} }));
-vi.mock("../src/i18n/provider", () => ({ useI18n: () => ({ locale: "en", setLocale() {} }) }));
+vi.mock("../src/i18n/provider", () => ({ useI18n: () => ({ locale: "en", setLocale() {}, t: (key: string) => key }) }));
 vi.mock("@tanstack/react-query", () => ({ useQuery: () => ({ data: undefined }) }));
 vi.mock("@privy-io/react-auth", () => ({
   PrivyProvider: ({ children }: { children: React.ReactNode }) => children,

@@ -35,9 +35,9 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory,
   /** Under the coins (favorites: group tags). */
   tags?: React.ReactNode;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const router = useRouter();
-  const ago = timeAgo(trader.lastTradeAt, now);
+  const ago = timeAgo(trader.lastTradeAt, now, locale);
   return (
     <Link
       href={traderHref(trader.address)}

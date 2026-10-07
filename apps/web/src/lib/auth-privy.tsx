@@ -29,6 +29,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { ARBITRUM_CHAINS } from "@/lib/hyperliquid-network";
 import type { WalletSigner } from "@/lib/wallet-signer";
 import { useTheme } from "./use-theme";
+import { useI18n } from "@/i18n/provider";
 
 /** What lib/auth.tsx needs from Privy. */
 export interface PrivySnapshot {
@@ -44,7 +45,7 @@ export interface PrivySnapshot {
 
 export default function PrivyRuntime({ appId, onChange }: { appId: string; onChange: (snapshot: PrivySnapshot | null) => void }) {
   // The sign-in modal follows the theme on screen.
-  const { theme } = useTheme();
+  const { theme } = useTheme(), { t } = useI18n();
   return (
     <PrivyProvider
       appId={appId}
@@ -54,11 +55,13 @@ export default function PrivyRuntime({ appId, onChange }: { appId: string; onCha
           // Orbit's card colours and orange accent. The logo is the lockup
           // exported from docs/Orbie Logo.html (Fredoka 600 wordmark baked
           // in; Privy didn't render a React element there), in cream on
-          // the dark card and ink on the light one. No landingHeader: the
-          // title stays Privy's "Log in or sign up", as on CopyDog.
+          // the dark card and ink on the light one. The title is in the
+          // page's language (Privy has no locale setting; the rest of its
+          // modal stays in its own words).
           theme: theme === "dark" ? "#2a2655" : "#ffffff",
           accentColor: "#ff7a45",
           logo: theme === "dark" ? "/orbie-lockup.png" : "/orbie-lockup-ink.png",
+          landingHeader: t("auth.landingHeader"),
         },
         // Every user gets an embedded wallet: their main account.
         embeddedWallets: { ethereum: { createOnLogin: "all-users" } },

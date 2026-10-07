@@ -367,16 +367,16 @@ export function usdFull(value: number | null | undefined): string {
 
 /**
  * "52m ago", "21h ago", "3d ago": the time since `time` as CopyDog tags its
- * board cards and mobile trade cards. Null when the time is missing or
- * invalid, or `now` is 0 (not known yet: useNow while hydrating).
+ * board cards and mobile trade cards; in other languages their own words
+ * ("52 分鐘前"). Null when the time is missing or invalid, or `now` is 0
+ * (not known yet: useNow while hydrating).
  */
-export function timeAgo(time: DateLike, now = Date.now()): string | null {
+export function timeAgo(time: DateLike, now = Date.now(), locale = "en"): string | null {
   if (time === null || time === undefined || now === 0) return null;
   const t = new Date(time).getTime();
   if (Number.isNaN(t)) return null;
   const s = Math.max(0, (now - t) / 1000);
-  if (s < 60) return `${Math.floor(s)}s ago`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
+  const [n, unit] = s < 60 ? [Math.floor(s), "second" as const] : s < 3600 ? [Math.floor(s / 60), "minute" as const] : s < 86400 ? [Math.floor(s / 3600), "hour" as const] : [Math.floor(s / 86400), "day" as const];
+  if (locale !== "en") return new Intl.RelativeTimeFormat(locale, { numeric: "always" }).format(-n, unit);
+  return `${n}${unit[0]} ago`;
 }

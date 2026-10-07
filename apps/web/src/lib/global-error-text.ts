@@ -8,9 +8,9 @@ import type { Locale } from "@/i18n/config";
  * test/error-boundaries.test.tsx fails if one drifts.
  */
 export const GLOBAL_ERROR_TEXT: Record<Locale, { title: string; retry: string; home: string }> = {
-  "en": { title: "Failed to load", retry: "Retry", home: "Back to Leaderboard" },
-  "zh-TW": { title: "載入失敗", retry: "重試", home: "返回排行榜" },
-  "zh-CN": { title: "加载失败", retry: "重试", home: "返回排行榜" },
+  "en": { title: "Failed to load", retry: "Retry", home: "Back to home" },
+  "zh-TW": { title: "載入失敗", retry: "重試", home: "返回首頁" },
+  "zh-CN": { title: "加载失败", retry: "重试", home: "返回首页" },
   "ko": { title: "불러오지 못했습니다", retry: "다시 시도", home: "리더보드로 돌아가기" },
   "ja": { title: "読み込みに失敗しました", retry: "再試行", home: "リーダーボードに戻る" },
   "ru": { title: "Не удалось загрузить", retry: "Повторить", home: "Вернуться к рейтингу" },

@@ -12,6 +12,13 @@ import { queryKeys } from './query-keys';
 const ROOT = '/me/copy/live';
 export type LiveCopyItem = LiveCopyPortfolioItem;
 
+/** A copy made on another network than this deployment's (Stage's testnet
+ * copies after its move to mainnet): history only. Never counted in 我的資金,
+ * never listed under 跟單中, never acted on (Stage A1, 2026-10-07). */
+export function onOtherNetwork(item: Pick<LiveCopyItem, 'network'>, deploymentNetwork: string | null | undefined): boolean {
+  return Boolean(deploymentNetwork && item.network && item.network !== deploymentNetwork);
+}
+
 function usePortfolioKey() {
   const auth = useAuth();
   return [...queryKeys.copy.all, 'live-portfolio', auth.status, auth.mode, auth.identity, sessionKey()] as const;

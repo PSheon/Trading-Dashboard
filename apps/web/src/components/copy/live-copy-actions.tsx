@@ -15,7 +15,7 @@ import { copyErrorText } from "@/lib/copy-error-text";
 import { amountInput } from "@/lib/amount-input";
 import { setupTerminal, useLiveCopyDeployment, useLiveCopySetupActions } from "@/lib/copy-live-setup";
 import { useActionToast } from "@/lib/use-action-toast";
-import type { LiveCopyItem } from "@/lib/copy-live-portfolio";
+import { onOtherNetwork, type LiveCopyItem } from "@/lib/copy-live-portfolio";
 
 /**
  * A testnet copy's one-click actions in the portfolio (plan §4 parity):
@@ -42,7 +42,7 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
   const stopped = item.setup && ["failed", "expired"].includes(item.setup.stage) ? item.setup : null;
   // A copy of another network than this deployment's (Stage's testnet copies
   // after the move to mainnet) is history: shown, never acted on here.
-  const otherNetwork = Boolean(deployment && item.network && item.network !== deployment.network);
+  const otherNetwork = onOtherNetwork(item, deployment?.network);
   const running = !otherNetwork && (item.stage === "active" || item.stage === "paused" || item.stage === "starting");
   const mandateId = item.mandate?.id ?? null;
   const busy = actions.pause.isPending || actions.resume.isPending || actions.edit.isPending || actions.renew.isPending || actions.topUp.isPending || actions.restart.isPending || actions.cancel.isPending;

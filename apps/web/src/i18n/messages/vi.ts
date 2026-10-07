@@ -1670,6 +1670,7 @@ export const vi: Messages = {
     inCopies: "Đang sao chép",
     copying: "Đang sao chép",
     ended: "Đã kết thúc ({count})",
+    previousNetwork: "Bản sao trên mạng trước ({count})",
     inviteOnly: "Sao chép thật chưa mở; hiện chỉ dành cho người được mời.",
     recent: "Hoạt động gần đây",
     seeAll: "Xem tất cả",

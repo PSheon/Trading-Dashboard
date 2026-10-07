@@ -22,6 +22,7 @@ vi.mock("@/lib/funds", async () => ({ ...(await vi.importActual<typeof import("@
   useFundsHistory: () => ({ data: { pages: [{ items: state.items, nextCursor: null }] }, hasNextPage: false, isPending: false, isError: false }) }));
 vi.mock("@/lib/wallet", () => ({ useWalletHistory: () => ({ data: { transfers: [], from: "2026-07-09T03:01:00.000Z", fetchedAt: "2026-10-07T03:01:00.000Z", network: "mainnet", address: owner }, isPending: false, isError: false }) }));
 vi.mock("@/components/wallet/history-list", () => ({ ICON: {}, WithdrawalNotices: () => null, kindOf: () => "other" }));
+vi.mock("@/lib/copy-live-setup", () => ({ useLiveCopyDeployment: () => ({ network: "mainnet" }) }));
 vi.mock("@/components/copy/copy-portfolio", () => ({ useLeaders: () => new Map([[leader, { address: leader, displayName: "Kinetiq", avatarUrl: null }]]) }));
 
 it("signs every amount from the owner's wallet, tags 模擬 rows, names the trader and drops the ledger-window line", () => {
@@ -49,4 +50,16 @@ it("walletAmount / isReturnFlow: out of the wallet −, back into it +; fees as 
   expect(walletAmount(flow({ kind: "copy_withdrawal", mode: "paper", amount: -20 }), owner)).toBe(20);
   expect(walletAmount(flow({ kind: "fees", mode: "paper", amount: -0.42 }), owner)).toBe(-0.42);
   expect(walletAmount(flow({ kind: "hub_withdrawal", amount: -20, counterparty: owner }), owner)).toBe(-20);
+});
+
+it("tags another network's rows on this deployment (testnet money on mainnet), muted, never read as this one's (Stage A1)", () => {
+  state.items = [
+    flow({ id: "old-return", mode: "testnet", amount: 79, counterparty: owner, time: "2026-10-06T00:00:00.000Z" }),
+    flow({ id: "real" }),
+  ];
+  const html = renderToStaticMarkup(<I18nProvider locale="zh-TW" messages={catalogs["zh-TW"]}><FundsHistory /></I18nProvider>);
+  const tags = [...html.matchAll(/data-testid="network-tag"[^>]*>([^<]*)</g)].map((m) => m[1]);
+  expect(tags).toEqual(["測試網"]);
+  const old = html.slice(html.indexOf("測試網"), html.indexOf("</li>", html.indexOf("測試網")));
+  expect(old).toContain("text-muted-foreground\">+$79.00");
 });

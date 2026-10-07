@@ -1670,6 +1670,7 @@ export const ko: Messages = {
     inCopies: "카피 중",
     copying: "카피 중",
     ended: "종료됨 ({count})",
+    previousNetwork: "이전 네트워크의 카피 ({count})",
     inviteOnly: "실전 카피는 아직 열리지 않았습니다. 현재는 초대 전용입니다.",
     recent: "최근 활동",
     seeAll: "전체 보기",

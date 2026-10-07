@@ -341,6 +341,9 @@ it('PnL is equity less net deposits: a 10 USDC return is not a loss, and an unkn
 
 it('a mainnet copy\'s sheet never says 測試網: its own hint, the price refusal in plain words, no setup hint (audit 2026-10-07 P0-3)', async () => {
   items = [item({ network: 'mainnet', lastRefusal: { reason: 'live_source_price_deviation', at: new Date(liveNow).toISOString() } })];
+  // On a mainnet deployment (a mainnet copy on testnet is another network's).
+  state.get.mockImplementation(async (path: string) => path === '/me/copy/live/portfolio' ? { network: 'mainnet', automaticExecution: true, items }
+    : path.startsWith('/me/funds/history') ? { items: funds, nextCursor: null } : null);
   await render('zh-TW');
   expect(detail()!.textContent).not.toContain('測試網');
   expect(detail()!.textContent).toContain('正在 Hyperliquid 以真實資金跟隨交易員的交易。');
@@ -348,6 +351,8 @@ it('a mainnet copy\'s sheet never says 測試網: its own hint, the price refusa
   // A testnet copy keeps its network's words.
   await act(async () => root.unmount()); root = createRoot(container);
   items = [item({ network: 'testnet' })];
+  state.get.mockImplementation(async (path: string) => path === '/me/copy/live/portfolio' ? { network: 'testnet', automaticExecution: true, items }
+    : path.startsWith('/me/funds/history') ? { items: funds, nextCursor: null } : null);
   await render('zh-TW');
   expect(detail()!.textContent).toContain(liveCopiesMessages['zh-TW'].hints.active);
   expect(liveCopiesMessages['zh-TW'].hints.active).toContain('測試網');
@@ -376,4 +381,26 @@ it('a refused withdrawal says why once, in the confirm sheet (no toast too), and
   expect(sheet()).toBeNull();
   expect(detail()!.textContent).not.toContain(line);
   expect(detail()!.textContent).not.toContain('發生錯誤');
+});
+
+it('keeps a copy of the previous network out of 跟單中 and 我的資金: a folded group, its network tagged, no withdraw or stop (Stage A1)', async () => {
+  // The deployment is mainnet; the old testnet copy still holds 79 USDC.
+  items = [item({ strategyId: 77, network: 'testnet', accountId: 'acct-old', accountAddress: `0x${'e0'.repeat(20)}` })];
+  state.get.mockImplementation(async (path: string) => path === '/me/copy/live/portfolio' ? { network: 'mainnet', automaticExecution: true, items }
+    : path.startsWith('/me/funds/history') ? { items: funds, nextCursor: null } : null);
+  const onEquity = vi.fn();
+  await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale="zh-TW" messages={catalogs['zh-TW']}><LiveCopies onEquity={onEquity} empty={<p data-testid="no-copies">none</p>} /></I18nProvider></QueryClientProvider>));
+  await settle();
+  expect(cards()).toHaveLength(0);
+  expect(container.querySelector('[data-testid="no-copies"]')).not.toBeNull();
+  expect(onEquity.mock.calls.filter(([id, equity]) => id === 77 && equity !== null)).toEqual([]);
+  const group = container.querySelector('[data-testid="previous-network"]')!;
+  expect(group.querySelector('summary')!.textContent).toBe('先前網路的跟單（1）');
+  const old = group.querySelector<HTMLButtonElement>('[data-testid="previous-copy-card"]')!;
+  expect(old.querySelector('[data-mode="testnet"]')!.textContent).toContain('測試網');
+  await act(async () => old.click()); await settle();
+  expect(detail()!.textContent).toContain('先前網路的跟單：僅保留紀錄');
+  expect(detail()!.querySelector('input[name="withdraw"]')).toBeNull();
+  expect(detail()!.querySelector('[data-testid="stop"]')).toBeNull();
+  expect(detail()!.textContent).not.toContain('正在 Hyperliquid 測試網跟隨');
 });

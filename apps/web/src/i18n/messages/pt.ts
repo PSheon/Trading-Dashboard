@@ -1670,6 +1670,7 @@ export const pt: Messages = {
     inCopies: "Em cópias",
     copying: "Copiando",
     ended: "Encerradas ({count})",
+    previousNetwork: "Cópias na rede anterior ({count})",
     inviteOnly: "O copy trading real ainda não está aberto: por enquanto só com convite.",
     recent: "Atividade recente",
     seeAll: "Ver tudo",

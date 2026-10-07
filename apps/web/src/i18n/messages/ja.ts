@@ -1670,6 +1670,7 @@ export const ja: Messages = {
     inCopies: "コピー中",
     copying: "コピー中",
     ended: "終了（{count}）",
+    previousNetwork: "以前のネットワークのコピー（{count}）",
     inviteOnly: "本番コピーはまだ公開されていません。現在は招待制です。",
     recent: "最近のアクティビティ",
     seeAll: "すべて表示",

@@ -1670,6 +1670,7 @@ export const tr: Messages = {
     inCopies: "Kopyalarda",
     copying: "Kopyalanıyor",
     ended: "Biten ({count})",
+    previousNetwork: "Önceki ağdaki kopyalar ({count})",
     inviteOnly: "Gerçek kopyalama henüz açık değil; şimdilik yalnızca davetle.",
     recent: "Son etkinlik",
     seeAll: "Tümünü gör",

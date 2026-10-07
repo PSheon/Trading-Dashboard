@@ -14,6 +14,7 @@ import { useAuth } from "@/lib/auth";
 import { useLeaders } from "@/components/copy/copy-portfolio";
 import { boardName } from "@/components/discover/board-bits";
 import { useWalletHistory } from "@/lib/wallet";
+import { useLiveCopyDeployment } from "@/lib/copy-live-setup";
 import { ICON, WithdrawalNotices, kindOf } from "./history-list";
 
 const FILTERS: FundsFilter[] = ["all", "transfers", "copies", "fees"];
@@ -37,6 +38,10 @@ export function FundsHistory({ className }: { className?: string }) {
   const leaders = useLeaders(useMemo(() => items.flatMap((f) => (f.leaderAddress ? [{ leaderAddress: f.leaderAddress.toLowerCase() }] : [])), [items]));
   const nameOf = (address: string | null) => (address ? boardName(leaders.get(address.toLowerCase()) ?? { address, displayName: null }) : "—");
   const shown = rows.filter((r) => rowMatches(r, filter));
+  // This deployment's network: another network's money (Stage's testnet
+  // copies after the move to mainnet) is tagged with its network, never
+  // read as this one's (Stage A1).
+  const network = useLiveCopyDeployment()?.network ?? null;
   const loading = (!hub.data && hub.isPending) || (!flows.data && flows.isPending);
   return (
     <div className={className}>
@@ -57,7 +62,7 @@ export function FundsHistory({ className }: { className?: string }) {
         <EmptyState icon={ReceiptText} title={t("funds.empty")} body={t("wallet.historyEmptyBody")} />
       ) : (
         <ul className="divide-y-2 divide-dotted divide-border" data-testid="funds-history">
-          {shown.map((row) => <Row key={row.id} row={row} owner={owner} nameOf={nameOf} />)}
+          {shown.map((row) => <Row key={row.id} row={row} owner={owner} nameOf={nameOf} network={network} />)}
         </ul>
       )}
       {flows.hasNextPage ? (
@@ -67,7 +72,7 @@ export function FundsHistory({ className }: { className?: string }) {
   );
 }
 
-function Row({ row, owner, nameOf }: { row: FundsRow; owner: string | null; nameOf: (address: string | null) => string }) {
+function Row({ row, owner, nameOf, network }: { row: FundsRow; owner: string | null; nameOf: (address: string | null) => string; network: string | null }) {
   const { t, format } = useI18n();
   if (row.source === "hub") {
     const kind = kindOf(row.transfer);
@@ -97,14 +102,15 @@ function Row({ row, owner, nameOf }: { row: FundsRow; owner: string | null; name
     <li className="flex items-center gap-3 py-3">
       <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-full", f.kind === "fees" ? "bg-raised text-muted-foreground" : "bg-tag-alert text-tag-alert-foreground")}><Icon className="size-4" /></span>
       <div className="min-w-0 flex-1">
-        <p className="flex flex-wrap items-center gap-1.5 text-sm font-semibold">{label}{f.mode === "paper" ? <span className="rounded-full bg-tag-warning px-2 py-0.5 text-[11px] font-semibold text-tag-warning-foreground" data-testid="paper-tag">{t("mode.paper")}</span> : null}{f.status ? <span className="rounded-full bg-raised px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">{t(`funds.status.${f.status}` as MessageKey)}</span> : null}</p>
+        <p className="flex flex-wrap items-center gap-1.5 text-sm font-semibold">{label}{f.mode === "paper" ? <span className="rounded-full bg-tag-warning px-2 py-0.5 text-[11px] font-semibold text-tag-warning-foreground" data-testid="paper-tag">{t("mode.paper")}</span> : null}{f.mode !== "paper" && network && f.mode !== network ? <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[11px] font-semibold text-primary-text" data-testid="network-tag">{t(f.mode === "testnet" ? "mode.testnet" : "mode.live")}</span> : null}{f.status ? <span className="rounded-full bg-raised px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">{t(`funds.status.${f.status}` as MessageKey)}</span> : null}</p>
         <p className="truncate text-xs text-muted-foreground">
           {[route, format.dateTime(row.time)].filter(Boolean).join(" · ")}
         </p>
         {row.hubHash ? <p className="truncate font-mono text-[11px] text-subtle-foreground">{t("funds.receipt", { hash: truncateAddress(row.hubHash) })}</p> : null}
         {f.fee ? <p className="text-[11px] text-subtle-foreground">{t("funds.transferFee", { fee: format.usd(f.fee, { digits: 2 }) })}</p> : null}
       </div>
-      <span className={cn("num text-sm font-semibold", amount > 0 ? "text-positive" : "text-foreground")}>{format.usd(amount, { sign: true, digits: 2 })}</span>
+      {/* Another network's amount is not this wallet's money: muted. */}
+      <span className={cn("num text-sm font-semibold", f.mode !== "paper" && network && f.mode !== network ? "text-muted-foreground" : amount > 0 ? "text-positive" : "text-foreground")}>{format.usd(amount, { sign: true, digits: 2 })}</span>
     </li>
   );
 }

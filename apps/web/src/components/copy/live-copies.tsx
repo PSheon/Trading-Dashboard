@@ -5,7 +5,9 @@ import { ChevronDown } from 'lucide-react';
 import type { CopyExecutionAccount, LiveCopyMandate } from '@trading-dashboard/shared/contracts';
 import { useI18n } from '@/i18n/provider';
 import { liveCopiesText, type LiveCopiesText } from '@/i18n/live-copies';
-import { useLiveCopyPortfolio, useLiveCopyPortfolioActions, type LiveCopyItem } from '@/lib/copy-live-portfolio';
+import { onOtherNetwork, useLiveCopyPortfolio, useLiveCopyPortfolioActions, type LiveCopyItem } from '@/lib/copy-live-portfolio';
+import { ModeBadge } from '@/components/shell/mode-badge';
+import { liveSetupMessages } from '@/i18n/live-setup';
 import { useExecutionWallets } from '@/lib/copy-execution-wallets';
 import { useCopyFollowerSnapshot } from '@/lib/copy-follower-snapshot';
 import { useLiveCopyOverview } from '@/lib/copy-live';
@@ -26,7 +28,7 @@ import { useActionToast, usePendingToast } from '@/lib/use-action-toast';
 import { useToast } from '@/components/ui/toast';
 import { ErrorState } from '@/components/page';
 import { cn } from '@/lib/utils';
-import { useCopyTexts } from '@/components/copy/live-copy-setup-dialogs';
+import { useCopyTexts, useLiveSetupText } from '@/components/copy/live-copy-setup-dialogs';
 import { copyCodeText, copyErrorText } from '@/lib/copy-error-text';
 import { useFundsHistory } from '@/lib/funds';
 import { liveNetDeposits, livePnl } from '@/lib/copy-net-deposits';
@@ -80,11 +82,19 @@ export function LiveCopies({ className, onEquity, empty = null }: { className?: 
     </section>
   );
   if (!items.length) return <>{empty}</>;
-  const running = items.filter(item => item.stage !== 'stopped'), ended = items.filter(item => item.stage === 'stopped');
+
+  // This deployment's network (the portfolio says it with its items): a
+  // copy of another network is history, apart from 跟單中 and 我的資金.
+  const network = portfolio.data?.network ?? overview.data?.network ?? null;
+  const here = items.filter(item => !onOtherNetwork(item, network)), previous = items.filter(item => onOtherNetwork(item, network));
+  const running = here.filter(item => item.stage !== 'stopped'), ended = here.filter(item => item.stage === 'stopped');
   const open = items.find(item => item.strategyId === openId) ?? null;
   const leaderOf = (item: LiveCopyItem) => leaders.get(item.leaderAddress) ?? { address: item.leaderAddress, displayName: null, avatarUrl: null };
   const card = (item: LiveCopyItem) => (
     <LiveCopyCard key={item.strategyId} item={item} leader={leaderOf(item)} account={accountOf(item, wallets.data?.accounts)} onOpen={() => setOpenId(item.strategyId)} onEquity={onEquity} />
+  );
+  const previousCard = (item: LiveCopyItem) => (
+    <LiveCopyCard key={item.strategyId} item={item} leader={leaderOf(item)} account={null} onOpen={() => setOpenId(item.strategyId)} previous />
   );
   return (
     <section className={cn('flex flex-col gap-3', className)} aria-label={t('folio.copying')}>
@@ -99,7 +109,18 @@ export function LiveCopies({ className, onEquity, empty = null }: { className?: 
           <div className="mt-2 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{ended.map(card)}</div>
         </details>
       ) : null}
-      {open ? (
+      {previous.length ? (
+        <details className="group" data-testid="previous-network">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-full text-sm font-bold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+            <ChevronDown className="size-4 transition-transform group-open:rotate-180" aria-hidden />
+            {t('folio.previousNetwork', { count: previous.length })}
+          </summary>
+          <div className="mt-2 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{previous.map(previousCard)}</div>
+        </details>
+      ) : null}
+      {open && onOtherNetwork(open, network) ? (
+        <PreviousNetworkSheet item={open} leader={leaderOf(open)} onClose={() => setOpenId(null)} />
+      ) : open ? (
         <LiveCopySheet item={open} text={liveCopiesText(locale, open.network)} leader={leaderOf(open)} account={accountOf(open, wallets.data?.accounts)}
           mandate={overview.data?.mandates.find(m => m.id === open.mandate?.id) ?? null} strategy={overview.data?.strategies?.find(s => s.id === open.strategyId) ?? null}
           onClose={() => setOpenId(null)} />
@@ -138,11 +159,21 @@ function useFigures(item: LiveCopyItem, account: CopyExecutionAccount | null) {
   return { snapshot, observed, equity, ...livePnl(equity, net) };
 }
 
-function LiveCopyCard({ item, leader, account, onOpen, onEquity }: { item: LiveCopyItem; leader: Leader; account: CopyExecutionAccount | null; onOpen: () => void; onEquity?: (strategyId: number, equity: number | null) => void }) {
+function LiveCopyCard({ item, leader, account, onOpen, onEquity, previous = false }: { item: LiveCopyItem; leader: Leader; account: CopyExecutionAccount | null; onOpen: () => void; onEquity?: (strategyId: number, equity: number | null) => void;
+  /** Another network's copy: its network's tag, no figures, never in 我的資金. */
+  previous?: boolean }) {
   const { t, format } = useI18n();
   const { equity, pnl, roi } = useFigures(item, account);
-  useEffect(() => { onEquity?.(item.strategyId, item.stage === 'stopped' ? null : equity); }, [onEquity, item.strategyId, item.stage, equity]);
+  useEffect(() => { if (!previous) onEquity?.(item.strategyId, item.stage === 'stopped' ? null : equity); }, [onEquity, previous, item.strategyId, item.stage, equity]);
   const status = cardStatus(item);
+  if (previous) return (
+    <button type="button" onClick={onOpen} data-testid="previous-copy-card" aria-haspopup="dialog"
+      className="orbit-card orbit-press flex w-full min-w-0 items-center gap-3 p-4 text-left opacity-80 outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <TraderAvatar trader={leader} size={36} />
+      <span className="min-w-0 flex-1 truncate text-[0.9375rem] font-bold">{boardName(leader)}</span>
+      <ModeBadge mode={item.network === 'testnet' ? 'testnet' : 'live'} />
+    </button>
+  );
   return (
     <button type="button" onClick={onOpen} data-testid="live-copy-card" aria-haspopup="dialog"
       className="orbit-card orbit-press flex w-full min-w-0 flex-col gap-2 p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -177,6 +208,24 @@ function LiveCopySheet({ item, text, leader, account, mandate, strategy, onClose
             <p className="mt-1 flex items-center gap-1"><span>{t('folio.account')}:</span><span className="num">{truncateAddress(item.accountAddress)}</span><CopyIconButton value={item.accountAddress} /></p>
             <p className="mt-1 flex items-center gap-1"><Link href={`/trader/${item.leaderAddress}`} className="font-semibold text-primary-text hover:underline">{truncateAddress(item.leaderAddress)}</Link></p>
           </details>
+        ) : null}
+      </div>
+    </Drawer>
+  );
+}
+
+/** Another network's copy (Stage's testnet copies after the move to
+ * mainnet): its network's tag and the one line that says it is history; no
+ * figures, no withdraw, no stop. */
+function PreviousNetworkSheet({ item, leader, onClose }: { item: LiveCopyItem; leader: Leader; onClose: () => void }) {
+  const { t } = useI18n(), text = useLiveSetupText();
+  return (
+    <Drawer open onOpenChange={(open) => { if (!open) onClose(); }} title={boardName(leader)}>
+      <div className="flex flex-col gap-4 text-sm" data-testid="live-copy-sheet" data-other-network>
+        <ModeBadge mode={item.network === 'testnet' ? 'testnet' : 'live'} className="self-start" />
+        <p className="text-xs leading-5 text-muted-foreground">{text.otherNetwork ?? liveSetupMessages.en.otherNetwork}</p>
+        {item.accountAddress ? (
+          <p className="flex items-center gap-1 text-xs text-muted-foreground"><span>{t('folio.account')}:</span><span className="num">{truncateAddress(item.accountAddress)}</span><CopyIconButton value={item.accountAddress} /></p>
         ) : null}
       </div>
     </Drawer>

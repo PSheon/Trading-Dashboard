@@ -93,7 +93,7 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
         ) : null}
         {/* No 編輯設定 on mainnet (the api answers edit_unavailable): an edit's new
             generation can't trade an account that already traded yet. */}
-        {running && strategy && !unfinished && deployment && deployment.network !== "mainnet" ? <Button size="sm" variant="secondary" disabled={busy} onClick={() => { setError(null); setEditing(true); }}>{text.edit}</Button> : null}
+        {running && strategy && !unfinished && deployment?.network !== "mainnet" ? <Button size="sm" variant="secondary" disabled={busy} onClick={() => { setError(null); setEditing(true); }}>{text.edit}</Button> : null}
         {(running || item.stage === "needs_deposit") && item.accountId && !item.pendingTransfer ? (
           <Button size="sm" variant="secondary" disabled={busy} onClick={() => { setError(null); setTopUpError(null); setToppingUp(true); }}>{text.topUp}</Button>
         ) : null}

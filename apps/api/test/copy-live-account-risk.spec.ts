@@ -334,3 +334,15 @@ it.each([
 ] as const)('refuses a mainnet identity with a testnet %s', (_name, reason, change) => {
   expect(assessLiveAccountRisk(edit(onMainnet(fixture()), change))).toEqual({ ok: false, reason });
 });
+it('admits a fixed open above the copy\'s amount only as the smallest lot reaching the minimum, within the deployment\'s maximum', () => {
+  // 0.1 at 100 is 10 USD: above a 9.5 USD amount, but its one-lot-smaller 0.09 (9 USD) is under the minimum.
+  const fixed = (size: string, fixedMaxUsd?: string) => edit(updateIntent(fixture(), { size }), v => {
+    v.strategy.settings.sizingMode = 'fixed'; v.strategy.settings.perTradeUsd = 9.5; if (fixedMaxUsd) v.strategy.fixedMaxUsd = fixedMaxUsd;
+  });
+  expect(assessLiveAccountRisk(fixed('0.1'))).toEqual({ ok: false, reason: 'fixed_trade_size' });
+  expect(assessLiveAccountRisk(fixed('0.1', '15'))).toMatchObject({ ok: true });
+  // Not the smallest lot reaching the minimum: 0.11 (11 USD) stays refused.
+  expect(assessLiveAccountRisk(fixed('0.11', '15'))).toEqual({ ok: false, reason: 'fixed_trade_size' });
+  // Above the deployment's maximum.
+  expect(assessLiveAccountRisk(fixed('0.1', '9.99'))).toEqual({ ok: false, reason: 'fixed_trade_size' });
+});

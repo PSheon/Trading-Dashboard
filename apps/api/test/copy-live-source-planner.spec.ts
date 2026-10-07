@@ -8,12 +8,12 @@ import { digest } from '../src/copy/copy-live-mandate-evidence.js';
 import { captureLivePositionBaseline } from '../src/copy/live/live-position-baseline.js';
 import { settledGenerationExample, sourceSizingExample } from './copy-live-generation-test-utils.js';
 const example=sourceSizingExample;
-function closeExample(position='90',carry='15',full=false,mode:'fixed'|'ratio'='fixed',ageMs=50):LiveSourcePlanInput{
+function closeExample(position='90',carry='15',full=false,mode:'fixed'|'ratio'='fixed',ageMs=50,leaderSize?:string):LiveSourcePlanInput{
   const e=structuredClone(example(mode)),history=settledGenerationExample(position),manifest=history.manifest as any,o=(e.sizingBasis as any).observations,b=(e.sizingBasis as any).basis;
   (e as any).now=history.now;(e as any).currentExecutionKey=history.currentExecutionKey;manifest.journals[0].provenance.settingsDigest=e.mandate.settingsDigest;
   manifest.carry[0].carry=carry;manifest.carry[0].revision=2;
   o.follower=history.snapshot;o.generationManifest=manifest;
-  const fill=parseLiveSourceFill({tid:2,oid:8,time:e.now-ageMs,coin:'BTC',side:'A',px:'100',sz:full?'4':'1',startPosition:'4'}, {network:'testnet',leaderAddress:e.mandate.leaderAddress,from:e.now-Math.max(1000,ageMs+1),to:e.now,receivedAt:e.now,kind:'fills'});
+  const fill=parseLiveSourceFill({tid:2,oid:8,time:e.now-ageMs,coin:'BTC',side:'A',px:'100',sz:leaderSize??(full?'4':'1'),startPosition:'4'}, {network:'testnet',leaderAddress:e.mandate.leaderAddress,from:e.now-Math.max(1000,ageMs+1),to:e.now,receivedAt:e.now,kind:'fills'});
   (e as any).fill=fill;(e as any).leg=canonicalLiveSourceLegs(fill)[0];
   Object.assign(b,{sourceFillId:fill.id,sourceDigest:fill.sourceDigest,leg:'close',fixedTradeClaim:false,carry:{amount:carry,revision:2}});
   if(mode==='ratio'){b.leader=null;o.leader=null;} // a close is not sized by the leader's capital
@@ -60,6 +60,25 @@ describe('actual source sizing from retained original observations',()=>{
     expect(planLiveSourceOrder(aged)).toMatchObject({order:{side:'A',size:'33.75',reduceOnly:true}});
     const open=structuredClone(example());(open as any).limits={...open.limits,maxSignalAgeSeconds:1};(open as any).now=open.fill.providerTime+1001;
     expect(()=>planLiveSourceOrder(open)).toThrow('live_source_sizing_unproven');
+  });
+  describe('the exchange\'s 10 USD order minimum (a basis binding exchangeMinimum)',()=>{
+    const bind=(e:LiveSourcePlanInput,patch:Record<string,unknown>={})=>{Object.assign((e.sizingBasis as any).basis,{exchangeMinimum:true,...patch});return e;};
+    it('rounds a fixed open up to the minimum within the deployment\'s per-trade maximum, else refuses it for good',()=>{
+      // 10 USD at a 100.5 buy limit floors to 0.09 (9.05 USD), under the minimum.
+      expect(planLiveSourceOrder(example()).order.size).toBe('0.09');
+      expect(planLiveSourceOrder(bind(example(),{fixedMaxUsd:'15'})).order).toMatchObject({size:'0.1',limitPrice:'100.5'});
+      // Without a maximum above the copy's own 10 USD, 0.1 (10.05 USD) is too much: refused, not sized at 9.05.
+      expect(()=>planLiveSourceOrder(bind(example()))).toThrow('below_min_notional');
+      expect(()=>planLiveSourceOrder(bind(example(),{fixedMaxUsd:'10.01'}))).toThrow('below_min_notional');
+    });
+    it.each([['0.05','0.05','a position under twice the minimum closes in full'],['0.3','0.11','a larger one reduces by the minimum'],
+      ['0.15','0.15','a reduction that would leave less than the minimum closes in full']])('a reduction under the minimum (position %s → %s): %s',(position,size)=>{
+      // The leader reduces by a quarter (1 of 4): 0.0125 / 0.075 / 0.0375 are each under 10 USD.
+      const e=bind(closeExample(position,'0',false,'fixed',50,'1'));
+      expect(planLiveSourceOrder(e)).toMatchObject({order:{size,reduceOnly:true},nextCarry:'0'});
+      // A basis admitted before the rule replays to its own size.
+      expect(Dec.from(planLiveSourceOrder(closeExample(position,'0',false,'fixed',50,'1')).order.size).lt(size)).toBe(true);
+    });
   });
   it('reduces only the independently reconstructed generation position, applying a fraction to quantity not already owed',()=>{
     expect(planLiveSourceOrder(closeExample())).toMatchObject({order:{side:'A',size:'33.75',reduceOnly:true},nextCarry:'0'});

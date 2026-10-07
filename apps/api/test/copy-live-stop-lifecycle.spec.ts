@@ -36,7 +36,7 @@ async function prepareActualJournal() {
     market: seed.f.market, earliestObservedAt: now, completedAt: now, sourceDigest: 'a'.repeat(64), quote: seed.f.quote,
     leverageProofs: seed.f.leverageProofs, fees: seed.f.fees } as never);
   const preparation = new PostgresLivePreparation(observer, resolver, provider,
-    { slippageBps: '50', extraRiskBufferBps: '0', restingOrderBuilderFeeCapTenthsBps: 100 }, () => clock);
+    { slippageBps: '0', extraRiskBufferBps: '0', restingOrderBuilderFeeCapTenthsBps: 100 }, () => clock);
   return new PostgresLiveRiskScope(pool, () => clock).run({ userId: 1, network: 'testnet', accountAddress: seed.consent.accountAddress,
     source: { network: 'testnet', leaderAddress: seed.consent.leaderAddress } }, (_scope, session) =>
     preparation.prepare(session, { accountId: 'account', mandateId: 'mandate', sourceFillId: seed.fill.id, leg: 'open' }));

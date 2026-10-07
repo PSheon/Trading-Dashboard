@@ -28,6 +28,7 @@ import type { LiveSourceReferenceV1 } from './copy-live-sizing-evidence.js';
 import { minOrderNotional } from '../min-order-notional.js';
 import { effectiveLeverage } from '../copy-risk.js';
 import { LiveLeverageUpdateRequired } from './live-leverage-update.js';
+import { liveDeploymentPolicy } from '../live-deployment.js';
 
 export interface LivePreparationBinding {
   readonly accountId: string; readonly mandateId: string; readonly sourceFillId: string; readonly leg: 'open' | 'close';
@@ -180,10 +181,13 @@ export class PostgresLivePreparation {
     const closeLeg = canonicalLiveSourceLegs(source.fill).find(v => v.leg === 'close'), dependsOn = binding.leg === 'open' && closeLeg ? liveSourceLegId(binding.mandateId, source.fill.id, 'close') : null;
     const dependency = dependsOn ? withCarry.journals.find(v => v.leg?.id === dependsOn) : null;
     const positionSize = projection.positions[source.fill.coin] ?? '0';
+    // A fixed open rounded up to the order minimum stays within the deployment's per-trade maximum.
+    const fixedMax = binding.leg === 'open' && local.settings.sizingMode === 'fixed' ? liveDeploymentPolicy()?.caps.fixedPerTradeUsd?.max : undefined;
     const sizing: LiveSourceSizingEnvelopeV1 = { version: 1, basis: { version: 1, mandateId: binding.mandateId, mandateRevision: local.mandate.revision,
       settingsDigest: local.consent.settingsDigest, sourceFillId: source.fill.id, sourceDigest: source.fill.sourceDigest, network, accountAddress: local.account.address!,
       coin: source.fill.coin, leg: binding.leg, direction: local.settings.direction, sizingMode: local.settings.sizingMode, budgetUsd: local.consent.budgetUsd,
-      perTradeUsd: local.settings.perTradeUsd === null ? null : Dec.from(local.settings.perTradeUsd).toString(), market,
+      perTradeUsd: local.settings.perTradeUsd === null ? null : Dec.from(local.settings.perTradeUsd).toString(),
+      ...(fixedMax !== undefined ? { fixedMaxUsd: Dec.from(String(fixedMax)).toString() } : {}), exchangeMinimum: true, market,
       quote: { midPrice: quote.quote.midPrice, slippageBps: Dec.min(Dec.from(this.options.slippageBps), Dec.from(local.limits.maxSlippageBps)).toString(), observedAt: quote.quote.observedAt, completedAt: quote.completedAt, sourceDigest: quote.quote.sourceDigest },
       follower: { network, accountAddress: follower.accountAddress, equity: follower.perpEquity, positionSize, observedAt: follower.observedAt, completedAt: follower.completedAt,
         sourceDigest: follower.sourceDigest, snapshotDigest: followerReceiptDigestV1(follower), positionsDigest: projection.positionsDigest },

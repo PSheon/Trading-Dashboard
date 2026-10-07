@@ -351,14 +351,14 @@ describe('unregistered concrete testnet execution runtime', () => {
     expect(raw.mock.calls.every(([url]) => String(url) === 'https://api.hyperliquid-testnet.xyz/info')).toBe(true);
     expect(await db.select().from(schema.copySignerNonces)).toHaveLength(1);
   });
-  it('denies a signed fixed10 budget at nonzero slippage below the provider minimum before SDK or POST', async () => {
+  it('denies a signed fixed10 budget at nonzero slippage below the provider minimum before any journal, SDK or POST', async () => {
+    // 10 USD at a 100.3 buy limit floors to 0.09 (9.03 USD); rounding up to 0.1
+    // (10.03 USD) would pass the copy's own 10 USD with no deployment maximum.
     await actualClockFixture();
     const sign = vi.spyOn(BoundaryPrivyOrderSigningClient.prototype, 'signTypedData');
     await expect(runtime().execute(request())).rejects.toThrow('below_min_notional');
     expect(sign).not.toHaveBeenCalled(); expect(raw.mock.calls.some(([url]) => String(url).endsWith('/exchange') || String(url).includes('privy.io'))).toBe(false);
-    const [journal] = await db.select().from(schema.copyLiveExecutions);
-    expect((journal!.record as unknown as { action: { orders: { s: string; p: string }[] } }).action.orders[0]).toMatchObject({ s: '0.09', p: '100.3' });
-    expect(await db.select().from(schema.copyLiveRiskReservations)).toHaveLength(0);
+    expect(await db.select().from(schema.copyLiveExecutions)).toHaveLength(0); expect(await db.select().from(schema.copySignerNonces)).toHaveLength(0);
   });
   it('holds an order on a deployment whose caps tighten the risk policy (every live one)', async () => {
     await actualClockFixture(20);
@@ -367,6 +367,16 @@ describe('unregistered concrete testnet execution runtime', () => {
       maxSourceDeviationBps: 500, slippageBps: 30, intervalMs: 3000, weightPerMin: 300 });
     try { expect(await runtime().execute(request())).toMatchObject({ state: 'filled' }); }
     finally { registerLiveDeployment(undefined); }
+  });
+  it('rounds a fixed10 budget up to the exchange minimum within the deployment\'s per-trade maximum and sends it', async () => {
+    await actualClockFixture();
+    registerLiveDeployment({ network: 'testnet', caps: { maxStrategiesPerUser: 2, fixedPerTradeUsd: { min: 10, max: 15 } }, builderFee: true, testnetSourceIntervalMs: 60_000,
+      maxSourceDeviationBps: 500, slippageBps: 30, intervalMs: 3000, weightPerMin: 300 });
+    try {
+      // 0.09 (9.03 USD at the 100.3 limit) is under the minimum; 0.1 (10.03 USD) is within 15.
+      const result = await runtime().execute(request());
+      expect(result).toMatchObject({ state: 'filled', action: { orders: [{ p: '100.3', s: '0.1' }] }, outcome: { filledSize: '0.1' } });
+    } finally { registerLiveDeployment(undefined); }
   });
   it('executes a properly signed fixed20 budget at nonzero slippage with an acknowledgement matching the prepared quantity', async () => {
     await actualClockFixture(20); const result = await runtime().execute(request());

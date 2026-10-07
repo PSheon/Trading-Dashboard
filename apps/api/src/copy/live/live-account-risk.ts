@@ -38,7 +38,10 @@ export interface LiveAccountRiskInput {
     readonly network: HyperliquidNetwork; readonly accountAddress: string; readonly checkedAt: number;
     readonly sourceDigest: string; readonly quarantined: boolean; readonly snapshot: LiveAccountSnapshot };
   readonly policy: { readonly version: number; readonly limits: CopyRiskLimits };
-  readonly strategy: { readonly version: number; readonly settings: CopyStrategySettings; readonly allocatedUsd: string };
+  /** `fixedMaxUsd`: the deployment's per-trade maximum a fixed open may be
+   * rounded up to when its lot rounding falls under the order minimum (the
+   * order's own sizing basis binds it). */
+  readonly strategy: { readonly version: number; readonly settings: CopyStrategySettings; readonly allocatedUsd: string; readonly fixedMaxUsd?: string };
   readonly controls: { readonly platform: ControlFlags; readonly user: ControlFlags; readonly strategy: ControlFlags };
   readonly quote: { readonly market: LiveMarketIdentity; readonly midPrice: string; readonly markPrice: string;
     readonly observedAt: number; readonly sourceDigest: string };
@@ -320,7 +323,11 @@ function assess(input: LiveAccountRiskInput): LiveAccountRiskAssessment {
       px.sub(mid).abs().div(mid).mul(10000).lte(limits.maxSlippageBps), 'price_moved');
     requireProof(size.mul(px).gte(minOrderNotional(limits)), 'below_min_notional');
     requireProof(notional.lte(limits.maxOrderNotionalUsd), 'max_order');
-    requireProof(settings.sizingMode !== 'fixed' || settings.perTradeUsd !== null && size.mul(px).lte(settings.perTradeUsd), 'fixed_trade_size');
+    // Above the copy's amount only as the smallest lot reaching the order
+    // minimum, within the deployment's per-trade maximum (the planner's rule).
+    const lot = Dec.from(intent.sizeDecimals ? `0.${'0'.repeat(intent.sizeDecimals - 1)}1` : '1');
+    const roundedUp = strategy.fixedMaxUsd !== undefined && size.mul(px).lte(money(strategy.fixedMaxUsd)) && size.sub(lot).mul(px).lt(minOrderNotional(limits));
+    requireProof(settings.sizingMode !== 'fixed' || settings.perTradeUsd !== null && (size.mul(px).lte(settings.perTradeUsd) || roundedUp), 'fixed_trade_size');
     requireProof(positions.every(p => p.leverage <= Math.min(limits.maxLeverage, settings.maxLeverage ?? limits.maxLeverage, p.maxLeverage)), 'live_risk_leverage');
   }
   const user = input.userExposureProof;

@@ -13,10 +13,13 @@ import { projectLiveGenerationPositions } from './copy-live-generation-projectio
 import { followerReceiptDigestV1 } from './actual-fill-accounting.js';
 import { freezeLiveReservation } from './live-risk-reservation.js';
 import { address, LiveBoundaryError } from './wallet-authorization.js';
+import { EXCHANGE_MIN_ORDER_NOTIONAL_USD, minOrderNotional } from '../min-order-notional.js';
 export interface LiveSourcePlanInput {
   readonly mandate: MandateRow; readonly settings: CopyStrategySettings; readonly fill: LiveSourceFillEvidence;
   readonly leg: CanonicalLiveSourceLeg; readonly sizingBasis: unknown; readonly now: number;
-  readonly limits: Pick<CopyRiskLimits,'maxSignalAgeSeconds'|'maxSlippageBps'>;
+  /** `minOrderNotionalUsd`: the policy's order minimum (never below the
+   * exchange's 10, min-order-notional.ts); the exchange's 10 when absent. */
+  readonly limits: Pick<CopyRiskLimits,'maxSignalAgeSeconds'|'maxSlippageBps'>&Partial<Pick<CopyRiskLimits,'minOrderNotionalUsd'>>;
   readonly currentExecutionKey: string;
   /** A merged adjustment's other legs, as persisted (copy_live_source_fills):
    * every member the basis lists besides the order's own, which the planner
@@ -46,7 +49,7 @@ const basisSchema=z.object({version:z.literal(1),mandateId:id,mandateRevision:ve
   quote:z.object({midPrice:positive,slippageBps:nonnegative,observedAt:integer,completedAt:integer,sourceDigest:hash}).strict(),
   follower:z.object({...snapshotIdentity,positionSize:decimal,positionsDigest:hash}).strict(),leader:z.object(snapshotIdentity).strict().nullable(),
   generation:z.object({mandateId:id,baselineDigest:hash,receiptManifestDigest:hash,positionsDigest:hash,positionSize:decimal}).strict(),
-  carry:z.object({amount:nonnegative,revision:version}).strict(),fixedTradeClaim:z.boolean(),settledDependency:z.object({legId:id,certificateDigest:hash}).strict().nullable(),
+  carry:z.object({amount:nonnegative,revision:version}).strict(),fixedTradeClaim:z.boolean(),fixedMaxUsd:positive.optional(),exchangeMinimum:z.literal(true).optional(),settledDependency:z.object({legId:id,certificateDigest:hash}).strict().nullable(),
   sourceReference:z.object({network,leaderAddress:addr,leaderEquity:positive.nullable(),leaderEquityObservedAt:integer.nullable(),midPrice:positive,midObservedAt:integer,maxDeviationBps:nonnegative}).strict().optional(),
   merged:z.object({members:z.array(z.object({sourceFillId:id,sourceDigest:hash,providerTime:integer,sign:z.union([z.literal(1),z.literal(-1)]),size:positive,px:positive,
     fraction:positive.refine(v=>Dec.from(v).lte(1)).nullable()}).strict()).min(2).max(MAX_MERGED_LEGS)}).strict().optional(),}).strict();
@@ -210,12 +213,39 @@ export function planLiveSourceOrder(raw: LiveSourcePlanInput): PlannedLiveSource
       else{requireSizing(leaderEquity);const notional=merged?Dec.sum(merged.map(m=>Dec.from(m.size).mul(m.px))).toString():null;
         size=rationalSize([...(notional?[notional]:[leg.size,fill.px]),Dec.min(Dec.from(b.follower.equity),Dec.from(b.budgetUsd)).toString()],[leaderEquity,b.quote.midPrice],b.market.sizeDecimals);}
     }
+    // The exchange refuses an order worth less than its minimum (10 USD at
+    // the limit price), with one exception: a reduce-only order that closes
+    // the whole position exactly (Hyperliquid: "the only exception is exactly
+    // closing a position with a reduce-only order").
+    const lot=Dec.from(b.market.sizeDecimals?`0.${'0'.repeat(b.market.sizeDecimals-1)}1`:'1'),low=Dec.min(mid,price);
+    const ceilLots=(value:Dec)=>{const floored=value.floor(b.market.sizeDecimals);return floored.lt(value)?floored.add(lot):floored;};
+    // Only a basis that binds these rules (exchangeMinimum) applies them, so an
+    // order admitted before them still replays to exactly its own size.
+    if(b.exchangeMinimum&&leg.leg==='close'){
+      const exchangeMinimum=Dec.from(EXCHANGE_MIN_ORDER_NOTIONAL_USD),held=position.abs();
+      if(size.lt(held)&&size.mul(low).lt(exchangeMinimum)){
+        // A reduction under the minimum: the smallest one at the minimum when
+        // a position at least the minimum stays; otherwise the whole position.
+        const atMinimum=ceilLots(exchangeMinimum.div(low));
+        size=atMinimum.lt(held)&&held.sub(atMinimum).mul(low).gte(exchangeMinimum)?atMinimum:held;nextCarry=Dec.ZERO;
+      }
+    }else if(b.exchangeMinimum&&settings.sizingMode==='fixed'){
+      // A fixed amount whose lot rounding falls under the order minimum is
+      // rounded up to the minimum while that stays within the deployment's
+      // per-trade maximum (or the copy's own amount); else refused for good.
+      const minimum=limits.minOrderNotionalUsd===undefined?Dec.from(EXCHANGE_MIN_ORDER_NOTIONAL_USD):minOrderNotional({minOrderNotionalUsd:limits.minOrderNotionalUsd});
+      if(size.mul(price).lt(minimum)){
+        const atMinimum=ceilLots(minimum.div(price)),ceiling=Dec.from(b.fixedMaxUsd??b.perTradeUsd!);
+        if(!atMinimum.mul(Dec.max(mid,price)).lte(ceiling))throw new LiveBoundaryError('below_min_notional');
+        size=atMinimum;
+      }
+    }
     requireSizing(size.isPositive);
     return freezeLiveReservation({plannerVersion:1,legId:liveSourceLegId(m.id,fill.id,leg.leg),sourceDigest:fill.sourceDigest,settingsDigest:consent.settingsDigest,sizingBasis:envelope,
       order:{coin:fill.coin,asset:b.market.asset,side,size:size.toString(),limitPrice:price.toString(),sizeDecimals:b.market.sizeDecimals,reduceOnly:leg.leg==='close',timeInForce:'Ioc'},nextCarry:nextCarry.toString(),fixedTradeClaim:b.fixedTradeClaim,dependsOnLegId});
   }catch(error){
     // A price refusal keeps its own reason; every other doubt is unproven sizing.
-    if(error instanceof LiveBoundaryError&&error.code==='live_source_price_deviation')throw error;
+    if(error instanceof LiveBoundaryError&&['live_source_price_deviation','below_min_notional'].includes(error.code))throw error;
     throw new LiveBoundaryError('live_source_sizing_unproven');
   }
 }

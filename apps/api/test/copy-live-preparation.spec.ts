@@ -30,7 +30,7 @@ beforeEach(async () => {
   vi.spyOn(provider, 'observe').mockResolvedValue({ network: 'testnet', accountAddress: seed.f.identity.accountAddress, coin: 'BTC', dex: '', asset: 0,
     market: seed.f.market, earliestObservedAt: now, completedAt: now, sourceDigest: 'a'.repeat(64), quote: seed.f.quote,
     leverageProofs: seed.f.leverageProofs, fees: seed.f.fees } as never);
-  preparation = new PostgresLivePreparation(observer, resolver, provider, { slippageBps: '50', extraRiskBufferBps: '0', restingOrderBuilderFeeCapTenthsBps: 100 }, () => clock);
+  preparation = new PostgresLivePreparation(observer, resolver, provider, { slippageBps: '0', extraRiskBufferBps: '0', restingOrderBuilderFeeCapTenthsBps: 100 }, () => clock);
 });
 afterAll(async () => { await pool.end(); await closeTestDb(); });
 const identity = () => ({ userId: 1, network: 'testnet' as const, accountAddress: seed.f.identity.accountAddress, source: { network: 'testnet' as const, leaderAddress: seed.consent.leaderAddress } });
@@ -73,7 +73,7 @@ describe('atomic original-session live preparation', () => {
   });
   it('reuses original concrete provider frames across preparation and financial-boundary reads without changing their clocks', async () => {
     const epoch = new LiveProviderReadEpoch(observer, resolver, provider, { extraRiskBufferBps: '0', restingOrderBuilderFeeCapTenthsBps: 100 }, () => clock);
-    preparation = new PostgresLivePreparation(observer, resolver, provider, { slippageBps: '50', extraRiskBufferBps: '0', restingOrderBuilderFeeCapTenthsBps: 100 }, () => clock, epoch);
+    preparation = new PostgresLivePreparation(observer, resolver, provider, { slippageBps: '0', extraRiskBufferBps: '0', restingOrderBuilderFeeCapTenthsBps: 100 }, () => clock, epoch);
     await scope.run(identity(), async (_s, session) => {
       const prepared = await preparation.prepare(session, binding());
       clock += 1;
@@ -126,7 +126,8 @@ describe('atomic original-session live preparation', () => {
   it('commits canonical intent, nonce, fixed source claim, baseline and original observations on one connection', async () => {
     await scope.run(identity(), async (_s, session) => {
       const result = await preparation.prepare(session, binding());
-      expect(result.intent).toMatchObject({ size: '0.09', side: 'B', reduceOnly: false, timeInForce: 'Ioc' });
+      // The fixture's fixed 10 USD at the mid (no slippage): 0.1, at the exchange minimum.
+      expect(result.intent).toMatchObject({ size: '0.1', side: 'B', reduceOnly: false, timeInForce: 'Ioc' });
       expect(await new ScopedLiveExecutionJournal(session, result.record.key).get(result.record.key)).toEqual(result.record);
       const [p] = await session.read(db => db.select().from(copyLiveIntentProvenance));
       expect(decodeLiveSourceSizingEnvelope(p!.sizingBasis).observations.follower.observedAt).toBe(now);

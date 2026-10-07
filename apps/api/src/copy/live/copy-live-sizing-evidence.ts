@@ -22,6 +22,13 @@ export interface LiveSourceSizingBasisV1 {
   readonly sizingMode: 'ratio' | 'fixed';
   readonly budgetUsd: string;
   readonly perTradeUsd: string | null;
+  /** A fixed open's ceiling when its lot rounding is rounded up to the order
+   * minimum: the deployment's per-trade maximum (COPY_LIVE_FIXED_PER_TRADE_MAX_USD). */
+  readonly fixedMaxUsd?: string;
+  /** The planner applies the exchange's order minimum (a fixed open rounded
+   * up to it, a reduction under it rounded up or closing the position);
+   * absent on orders admitted before, which replay unchanged. */
+  readonly exchangeMinimum?: true;
   readonly market: LiveMarketIdentity;
   readonly quote: {
     readonly midPrice: string;

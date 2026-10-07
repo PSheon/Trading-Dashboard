@@ -1,5 +1,8 @@
 "use client";
 import encodeQR from "@paulmillr/qr";
+import { TablePager } from "@/components/ui/table-pager";
+import { useCursorPager } from "@/components/ui/use-cursor-pager";
+import { DataList } from "@/components/ui/data-list";
 import { Link, usePathname } from "@/i18n/navigation";
 import { useSearchParams } from "next/navigation";
 import {
@@ -238,10 +241,9 @@ function ReferralView() {
     overview = useReferralOverview(),
     // The api says "testnet" for every actual copy; on a mainnet deployment that is 正式.
     liveNetwork = useLiveCopyDeployment()?.network ?? null;
-  const [friendsCursor, setFriendsCursor] = useState<string | null>(null),
-    [claimsCursor, setClaimsCursor] = useState<string | null>(null);
-  const friends = useReferralFriends(friendsCursor),
-    claims = useReferralClaims(claimsCursor),
+  const friendsPager = useCursorPager<string>(), claimsPager = useCursorPager<string>();
+  const friends = useReferralFriends(friendsPager.cursor ?? null),
+    claims = useReferralClaims(claimsPager.cursor ?? null),
     client = referralClient(overview.session.owner);
   const [code, setCode] = useState(""),
     [busy, setBusy] = useState(false),
@@ -475,7 +477,7 @@ function ReferralView() {
               copying: String(friends.data.copying),
             })}
           </p>
-          <ul className="space-y-2">
+          <DataList variant="rows">
             {friends.data.items.map((f) => (
               <li key={f.id}>
                 {f.label} ·{" "}
@@ -494,20 +496,8 @@ function ReferralView() {
                 ))}
               </li>
             ))}
-          </ul>
-          {friends.data.nextCursor ? (
-            <Button
-              variant="secondary"
-              onClick={() => setFriendsCursor(friends.data!.nextCursor)}
-            >
-              {t("referral.older")}
-            </Button>
-          ) : null}
-          {friendsCursor ? (
-            <Button variant="secondary" onClick={() => setFriendsCursor(null)}>
-              {t("referral.newest")}
-            </Button>
-          ) : null}
+          </DataList>
+
         </>
       ) : (
         <>
@@ -519,10 +509,11 @@ function ReferralView() {
           </Button>
         </>
       )}
+      <TablePager page={friendsPager.page} hasNext={!friends.isError && friends.data?.nextCursor != null} busy={friends.isFetching} onPage={(page) => friendsPager.onPage(page, friends.data?.nextCursor)} />
       <h3 className="font-semibold">{t("referral.claims")}</h3>
       {claims.data ? (
         <>
-          <ul>
+          <DataList>
             {claims.data.items.map((c) => (
               <li key={c.id}>
                 <ClaimRow
@@ -538,21 +529,9 @@ function ReferralView() {
                 />
               </li>
             ))}
-          </ul>
+          </DataList>
           {!claims.data.items.length ? <p>{t("referral.noClaims")}</p> : null}
-          {claims.data.nextCursor ? (
-            <Button
-              variant="secondary"
-              onClick={() => setClaimsCursor(claims.data!.nextCursor)}
-            >
-              {t("referral.older")}
-            </Button>
-          ) : null}
-          {claimsCursor ? (
-            <Button variant="secondary" onClick={() => setClaimsCursor(null)}>
-              {t("referral.newest")}
-            </Button>
-          ) : null}
+
         </>
       ) : (
         <>
@@ -564,6 +543,7 @@ function ReferralView() {
           </Button>
         </>
       )}
+      <TablePager page={claimsPager.page} hasNext={!claims.isError && claims.data?.nextCursor != null} busy={claims.isFetching} onPage={(page) => claimsPager.onPage(page, claims.data?.nextCursor)} />
     </section>
   );
 }

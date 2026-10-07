@@ -249,7 +249,7 @@ function BestWorst({ leaders }: { leaders: Map<string, Leader> }) {
       </SecHead>
       {list.data ? (
         list.data.items.length ? (
-          <DataList className="">{list.data.items.map((trade) => <TradeRow key={trade.id} trade={trade} leaders={leaders} />)}</DataList>
+          <DataList>{list.data.items.map((trade) => <TradeRow key={trade.id} trade={trade} leaders={leaders} />)}</DataList>
         ) : (
           <p className="py-4 text-sm text-muted-foreground">{which === "best" ? t("pf.insights.noWins") : t("pf.insights.noLosses")}</p>
         )
@@ -398,7 +398,7 @@ export function ExposurePanel({ overview, leaders, desktop }: { overview: CopyOv
   const byAsset = (
     <section>
       <SecHead title={t("pf.exposure.byAsset")} />
-      <DataList className="">
+      <DataList>
         {assets.rows.map((a) => {
           const share = e.gross > 0 ? a.grossNotional / e.gross : 0;
           const expanded = open.has(a.coin);

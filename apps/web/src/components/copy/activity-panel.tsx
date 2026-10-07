@@ -94,7 +94,7 @@ function CopiesList() {
   const items = [...events.data.items].reverse().filter((e) => describeCopyEvent(e).kind !== "other");
   if (!items.length) return <Empty title={t("feed.emptyCopies")} body={t("feed.emptyCopiesDesc")} />;
   return (
-    <DataList className="">
+    <DataList>
       {items.map((event) => {
         const d = describeCopyEvent(event);
         const who = leaderOf(event.strategyId);
@@ -145,7 +145,7 @@ function FollowingList({ onNavigate }: { onNavigate: () => void }) {
   if (!feed.data) return feed.isError ? <p className="py-8 text-center text-sm text-muted-foreground">{t("copyUpdates.activityError")}</p> : <ListRowsSkeleton />;
   if (!feed.data.length) return <Empty title={t("feed.followingEmpty")} body={t("feed.followingWaiting")} />;
   return (
-    <DataList className="">
+    <DataList>
       {feed.data.map((a) => {
         const buy = buys(a);
         const who = a.leaderLabel?.trim() || truncateAddress(a.address);
@@ -172,7 +172,7 @@ function DepositsList() {
   if (!history.data) return history.isError ? <p className="py-8 text-center text-sm text-muted-foreground">{t("copyUpdates.activityError")}</p> : <ListRowsSkeleton />;
   if (!rows.length) return <Empty title={t("feed.emptyDeposits")} />;
   return (
-    <DataList className="">
+    <DataList>
       {rows.map((x) => {
         const deposit = x.kind === "deposit";
         return (

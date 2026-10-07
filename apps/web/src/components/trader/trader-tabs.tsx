@@ -9,6 +9,7 @@ import type {
   TraderTransfer,
   TraderTwap,
 } from "@/lib/contracts";
+import { DataList } from "@/components/ui/data-list";
 import { ArrowDownRight, ArrowUpRight, Share2 } from "lucide-react";
 import { memo, useMemo, useState } from "react";
 import { cn } from "cn";
@@ -211,11 +212,11 @@ export function PositionsTab({ profile, marks }: { profile: TraderProfileRespons
   return (
     <>
       {share}
-      <ul className="flex flex-col gap-3 sm:hidden">
+      <DataList variant="cards" className="sm:hidden">
         {rows.map((p) => (
           <PositionCard key={p.coin} p={p} mark={markOf(p, marks)} onShare={setSnapshot} />
         ))}
-      </ul>
+      </DataList>
       <div className="hidden sm:block">
         {/* Nine columns in the main column (768 px at 1440): the % under the
             PnL and the distance under the liquidation price, and the share

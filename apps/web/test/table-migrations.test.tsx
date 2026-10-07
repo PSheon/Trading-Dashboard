@@ -12,11 +12,14 @@ import { BoardsView } from '@/components/explore/boards-view';
 import { MarketsTable, WalletsTable } from '@/components/insights/cohort-tables';
 import { fixtureCohort } from '@/fixtures/discovery';
 import { actionsFeed, profileFor, traderStats } from '@/fixtures/data';
+import { AdminJobs } from '@/components/admin/jobs';
+import { AdminAudit } from '@/components/admin/audit';
+import { api } from '@/lib/api';
 import { PositionsTab } from '@/components/trader/trader-tabs';
 import { settleQueries } from './query-settle';
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({refresh() {}, push() {}}), usePathname: () => '/explore', useSearchParams: () => new URLSearchParams('view=list') }));
-vi.mock('@/lib/auth', () => ({ useAuth: () => ({status: 'signedIn', mode: 'fixture', identity: 'demo', wallet: null}) }));
+vi.mock('@/lib/auth', () => ({ usePermission: () => true, hasPermission: () => true, useMe: () => ({data: {permissions: []}}), useAuth: () => ({status: 'signedIn', mode: 'fixture', identity: 'demo', wallet: null}) }));
 vi.mock('@/lib/api', async (original) => {
   const actual = await original<typeof import('@/lib/api')>();
   return { ...actual, api: {...actual.api, get: async (path: string) => {
@@ -100,4 +103,34 @@ it('shows the position sort arrow and flips the direction without changing heade
   expect(active.querySelector('button')?.className).not.toMatch(/font-(semibold|bold|extrabold)/);
   await act(async () => active.querySelector<HTMLButtonElement>('button')!.click());
   expect(active.getAttribute('aria-sort')).toBe('ascending');
+});
+
+it('pages the explore board through the shared ten-row pager', async () => {
+  await render(<BoardsView />);
+  expect(el.querySelectorAll('tbody > tr')).toHaveLength(10);
+  const pager = el.querySelector('[data-pager]')!;
+  expect(pager).not.toBeNull();
+  await act(async () => pager.querySelectorAll<HTMLButtonElement>('button')[1].click());
+  expect(pager.textContent).toContain('Page 2');
+  expect(el.querySelectorAll('tbody > tr')).toHaveLength(10);
+});
+it('pages cohort wallets and resets to page one when sorting changes', async () => {
+  const base = fixtureCohort('whale').wallets;
+  const rows = Array.from({length:23}, (_,i)=>({...base[i%base.length], address:`0x${i.toString(16).padStart(40,'0')}`}));
+  await render(<WalletsTable rows={rows} />);
+  expect(el.querySelectorAll('tbody > tr')).toHaveLength(10);
+  const pager=el.querySelector('[data-pager]')!;
+  await act(async ()=>pager.querySelectorAll<HTMLButtonElement>('button')[1].click());
+  expect(pager.textContent).toContain('Page 2');
+  await act(async ()=>el.querySelector<HTMLButtonElement>('th[aria-sort=descending] button')!.click());
+  expect(pager.textContent).toContain('Page 1');
+});
+
+it.each([['jobs', AdminJobs], ['audit', AdminAudit]] as const)('requests ten %s records and uses the shared pager', async (name, Component) => {
+  const read = vi.spyOn(api, 'get');
+  await render(<Component />);
+  expect(read.mock.calls.some(([path])=>path.startsWith(`/admin/${name}?`) && new URLSearchParams(path.split('?')[1]).get('limit') === '10')).toBe(true);
+  // Fixture audit/jobs may fit a page: the pager is hidden when no cursor remains.
+  expect(el.textContent).not.toContain('settingsOps.page');
+  read.mockRestore();
 });

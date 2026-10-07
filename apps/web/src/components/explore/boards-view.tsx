@@ -1,5 +1,7 @@
 "use client";
 
+import { DataList } from "@/components/ui/data-list";
+import { TablePager, usePaged } from "@/components/ui/table-pager";
 import { SortHead } from "@/components/ui/sort-head";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
@@ -88,7 +90,7 @@ export function BoardsView() {
 
   const query = useBoard({ market, board, sort: effectiveSort, window: r.effectiveWindow, style: style === "any" ? undefined : style });
   const data = query.data;
-  const items = data?.items ?? [];
+  const { rows: items, pager } = usePaged(data?.items ?? [], `${market}:${board}:${effectiveSort}:${r.effectiveWindow}:${style}`);
   const stocksTop = market === "stocks" && board === "top100";
   // CopyDog labels the stocks top 100 with its scope, "Stocks", in every locale.
   const scope = r.coin ? boardCoinLabel(board, t) : stocksTop ? "Stocks" : null;
@@ -226,11 +228,11 @@ export function BoardsView() {
             </div>
           ) : null}
           {view !== "grid" && desktop !== true ? (
-            <ul className="flex flex-col gap-2 md:hidden">
+            <DataList variant="cards" className="md:hidden">
               {items.map((trader) => (
                 <BoardMobileRow key={trader.address} trader={trader} />
               ))}
-            </ul>
+            </DataList>
           ) : null}
           {view === "list" && desktop !== false ? (
             <BoardTable
@@ -243,6 +245,7 @@ export function BoardsView() {
               roiHint={roiHint}
             />
           ) : null}
+          <TablePager {...pager} />
         </div>
       )}
 
@@ -490,9 +493,9 @@ function BoardSkeleton({ view }: { view: View }) {
         </div>
       )}
       {view !== "grid" ? (
-        <ul className="flex flex-col gap-2 md:hidden">
+        <DataList variant="cards" className="md:hidden">
           {Array.from({ length: 8 }, (_, i) => <BoardMobileRowSkeleton key={i} />)}
-        </ul>
+        </DataList>
       ) : null}
     </>
   );

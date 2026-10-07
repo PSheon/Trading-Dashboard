@@ -134,3 +134,9 @@ it("labels rejected and cancelled orders and never exposes unrecognized provider
   expect(html).toContain("Cancel pending orders");
   expect(html).not.toContain("secret token");
 });
+
+it("pages the copy event list instead of exposing all twenty-three rows", () => {
+  const html = renderToStaticMarkup(<I18nProvider locale="en" messages={en}><CopyActivityItems items={page(...Array.from({length:23},(_,i)=>String(i))).items} /></I18nProvider>);
+  expect(html.match(/<li /g)).toHaveLength(10);
+  expect(html).toContain('data-pager');
+});

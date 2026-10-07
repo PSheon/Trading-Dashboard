@@ -1,5 +1,6 @@
 "use client";
 
+import { PAGE_SIZE, TablePager, usePaged } from "@/components/ui/table-pager";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 import { Link } from "@/i18n/navigation";
@@ -55,6 +56,7 @@ export function CoinIndexSkeleton() {
 
 function CoinIndexContent({ query }: { query: { data: CoinIndexResponse | undefined; isError: boolean; refetch: () => void } }) {
   const { t } = useI18n();
+  const { rows, pager } = usePaged(query.data?.items ?? []);
   return (
     <Column>
       <p className="cd-label">{t("coins.markets")}</p>
@@ -76,7 +78,7 @@ function CoinIndexContent({ query }: { query: { data: CoinIndexResponse | undefi
             </TableHeader>
             <TableBody className="data-rows">
               {query.data
-                ? query.data.items.map((row) => (
+                ? rows.map((row) => (
                     <TableRow key={row.coin} className="relative">
                       <TableCell >
                         <Link
@@ -106,6 +108,7 @@ function CoinIndexContent({ query }: { query: { data: CoinIndexResponse | undefi
             </TableBody>
           </Table>
         )}
+        <TablePager {...pager} />
       </div>
     </Column>
   );
@@ -117,6 +120,7 @@ export function CoinBoardView({ coin }: { coin: string }) {
   // A name that is not a Hyperliquid market is the 404 page (the server
   // decides this first when it can reach the api; see app/coins/[coin]).
   if (coinIsUnknown(query.data) === true) notFound();
+  const { rows, pager } = usePaged(query.data?.items ?? [], coin);
   const label = coinLabel(coin);
   // A real market nobody in the pool has traded: CopyDog's page has the
   // heading, one line 「尚無市場資料。」 and no totals or table.
@@ -159,7 +163,7 @@ export function CoinBoardView({ coin }: { coin: string }) {
           <ErrorState onRetry={() => void query.refetch()} />
         ) : (
           // Phones scroll the table sideways, as CopyDog's does.
-          <div className={cn("-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0", !query.data && "ui-skeleton")}>
+          <><div className={cn("-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0", !query.data && "ui-skeleton")}>
             <Table className="w-full min-w-[560px] border-separate border-spacing-y-1.5">
               <TableHeader>
                 <TableRow>
@@ -173,9 +177,9 @@ export function CoinBoardView({ coin }: { coin: string }) {
               </TableHeader>
               <TableBody className="data-rows">
                 {query.data
-                  ? query.data.items.map((row, i) => (
+                  ? rows.map((row, i) => (
                       <TableRow key={row.address} className="relative">
-                        <TableCell className={cn("num")}>{i + 1}</TableCell>
+                        <TableCell className={cn("num")}>{pager.page * PAGE_SIZE + i + 1}</TableCell>
                         <TableCell className={cn("max-w-[260px]")}>
                           <Link
                             href={`/trader/${row.address}`}
@@ -209,6 +213,7 @@ export function CoinBoardView({ coin }: { coin: string }) {
               </TableBody>
             </Table>
           </div>
+          <TablePager {...pager} /></>
         )}
       </div>
       </>

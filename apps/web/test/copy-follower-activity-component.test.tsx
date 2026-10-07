@@ -30,8 +30,8 @@ it('shows booked signed amounts, exact fill details and financial caveats withou
 });
 it('uses before-only history and refreshes the recent page without merging stale receipts', async () => {
   await render(); const older = activityPage(); older.items = [older.items[1]]; older.hasMore = false; older.previousCursor = 'older_cursor'; state.get.mockResolvedValue(older);
-  await click('Older receipts'); expect(state.get.mock.lastCall?.[0]).toContain('before=opaque_cursor'); expect(container.textContent).not.toContain('+2.000000000000000001 USDC');
-  state.get.mockResolvedValue(activityPage()); await click('Recent receipts'); expect(state.get.mock.lastCall?.[0]).not.toContain('before='); expect(container.textContent).toContain('+2.000000000000000001 USDC');
+  expect(container.querySelector('[data-pager]')).not.toBeNull(); await click('Next'); expect(state.get.mock.lastCall?.[0]).toContain('before=opaque_cursor'); expect(container.textContent).not.toContain('+2.000000000000000001 USDC');
+  state.get.mockResolvedValue(activityPage()); await click('Previous'); expect(state.get.mock.lastCall?.[0]).not.toContain('before='); expect(container.textContent).toContain('+2.000000000000000001 USDC');
 });
 it('discards old-account late data and never shows the previous account while a new one loads', async () => {
   let finish!: (v: unknown) => void; state.get.mockImplementation((path: string) => path.includes('/account/') ? new Promise(resolve => { finish = resolve; }) : Promise.resolve(activityPage(other)));

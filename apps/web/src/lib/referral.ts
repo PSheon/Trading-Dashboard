@@ -341,7 +341,7 @@ export function useReferralFriends(cursor: string | null) {
       const start = JSON.stringify(s.owner());
       const result = referralFriendsSchema.parse(
         await api.get(
-          `${ROOT}/friends?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+          `${ROOT}/friends?limit=10${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
         ),
       );
       if (JSON.stringify(s.owner()) !== start)
@@ -362,7 +362,7 @@ export function useReferralClaims(cursor: string | null) {
       const start = JSON.stringify(s.owner());
       const result = referralClaimsSchema.parse(
         await api.get(
-          `${ROOT}/claims?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+          `${ROOT}/claims?limit=10${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
         ),
       );
       if (JSON.stringify(s.owner()) !== start)

@@ -55,3 +55,12 @@
 - 兩個新測試在舊碼失敗、新碼通過；完整 web 1117/1117、tsc、eslint clean。
 - 前後 trader 1440、768、390 截圖已確認，768 持倉表增加箭頭仍無頁面溢出。fixture 被外部 Hyperliquid WebSocket 更新成無持倉，因此截圖阻擋該外部串流以保留 fixture；應比較同一地址 0x393d…2109。
 - 截圖：`/private/tmp/codex-trading-ui/step5-{before,after}-trader-{1440,768,390}.png`。
+
+### ⑪第 6、7 步
+
+- 探索、幣種 index／明細、cohort、收藏、資金／舊錢包紀錄、舊跟單動態補 usePaged／TablePager。管理 jobs／audit、推薦好友／領取紀錄、實際跟單收據共用 useCursorPager，API 每頁 10 筆。讀取失敗仍能返回已訪問頁。
+- 手機卡片接 DataList cards（含 skeleton）；admin overview 是固定 facts／統計圖，100 筆 jobs 查詢只計數，保留其統計邏輯。
+- 9 個區域回歸在舊碼失敗；另測 private reader limit=10。資金篩選無匹配舊批次時會繼續讀直到下一頁有資料，初版只讀一次會失敗、修後通過。
+- 完整 web suite 176 檔、1126/1126；tsc 含測試、eslint src＋test、diff check clean。
+- 截圖：`/private/tmp/codex-trading-ui/step6-after-{explore,coins,coin,insights,favorites,portfolio,settings,admin,admin-jobs,admin-audit,referral}-{1440,390}.png`，對照前幾步 baseline；已目視、390 全無頁面橫向溢出。fixture provider 沒有 private referral 入口，以真元件 DOM＋API 邊界 mock 驗證實際推薦分頁。
+- 第 7 步 ruling：1440 正式（testnet）兩張卡片依現有 md 2／xl 3 欄排列，並非缺欄；活動區使用完整右欄寬度。卡片少時不補虛構內容，無需修改布局。

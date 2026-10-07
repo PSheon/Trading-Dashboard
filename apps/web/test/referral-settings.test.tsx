@@ -341,3 +341,16 @@ it("captures a referral query introduced by client navigation without remounting
   ).toBe("ABC");
   expect(state.post).not.toHaveBeenCalled();
 });
+
+it("requests ten referral friends and returns to the previous cursor through TablePager", async () => {
+  const first = { invited: 11, copying: 0, items: [{id:"10000000-0000-4000-8000-000000000001",label:"First friend",joinedAt:new Date(now).toISOString(),copying:false,copyingModes:[]}], nextCursor: "old_friends" };
+  state.get.mockImplementation(async (path: string) => path === '/me/referral' ? overview : path.includes('/friends') ? path.includes('cursor=') ? {...first,items:[],nextCursor:null} : first : {items:[],nextCursor:null});
+  await render();
+  expect(state.get.mock.calls.some(([path])=>String(path).includes('/friends?limit=10'))).toBe(true);
+  const pager = el.querySelector('[data-pager]')!;
+  expect(pager).not.toBeNull();
+  await act(async ()=>pager.querySelectorAll<HTMLButtonElement>('button')[1].click()); await settle();
+  expect(state.get.mock.lastCall?.[0]).toContain('cursor=old_friends');
+  await act(async ()=>el.querySelector<HTMLButtonElement>('[data-pager] button')!.click()); await settle();
+  expect(el.textContent).toContain('First friend');
+});

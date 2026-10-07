@@ -1,5 +1,7 @@
 "use client";
 
+import { PAGE_SIZE, TablePager } from "@/components/ui/table-pager";
+import { useCursorPager } from "@/components/ui/use-cursor-pager";
 import { DataList } from "@/components/ui/data-list";
 
 import { useSaveToast } from "@/lib/use-action-toast";
@@ -20,11 +22,11 @@ export function AdminJobs() {
   const { t } = useI18n();
   const canRetry = usePermission("jobs.retry");
   const [status, setStatus] = useState<BackfillJob["status"] | "">("");
-  const [cursors, setCursors] = useState<number[]>([]);
+  const pagination = useCursorPager<number>(status);
   const client = useQueryClient();
-  const params = new URLSearchParams({ limit: "25" });
+  const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
   if (status) params.set("status", status);
-  if (cursors.length) params.set("beforeId", String(cursors.at(-1)));
+  if (pagination.cursor !== undefined) params.set("beforeId", String(pagination.cursor));
   const qs = params.toString();
   const jobs = useQuery({
     queryKey: queryKeys.admin.jobs.list(qs),
@@ -58,7 +60,6 @@ export function AdminJobs() {
           value={status}
           onValueChange={(value) => {
             setStatus(value as typeof status);
-            setCursors([]);
             retry.reset();
           }}
           options={[{ value: "", label: t("jobs.all") }, ...(["pending", "running", "completed", "failed"] as const).map((s) => ({ value: s, label: t(`jobs.${s}`) }))]}
@@ -122,35 +123,8 @@ export function AdminJobs() {
           ))}
         </div>
       )}
-      <nav
-        aria-label={t("jobs.title")}
-        className="flex items-center justify-between gap-3"
-      >
-        <Button
-          variant="secondary"
-          disabled={cursors.length === 0 || jobs.isFetching}
-          onClick={() => {
-            setCursors((c) => c.slice(0, -1));
-            retry.reset();
-          }}
-        >
-          {t("jobs.previous")}
-        </Button>
-        <span className="text-xs text-muted-foreground">
-          {t("jobs.page", { value: cursors.length + 1 })}
-        </span>
-        <Button
-          variant="secondary"
-          disabled={!jobs.data?.nextCursor || jobs.isFetching || jobs.isError}
-          onClick={() => {
-            if (jobs.data?.nextCursor)
-              setCursors((c) => [...c, jobs.data!.nextCursor!]);
-            retry.reset();
-          }}
-        >
-          {t("jobs.next")}
-        </Button>
-      </nav>
+      <TablePager page={pagination.page} hasNext={!jobs.isError && jobs.data?.nextCursor != null} busy={jobs.isFetching}
+        onPage={(page) => { pagination.onPage(page, jobs.data?.nextCursor); retry.reset(); }} />
     </section>
   );
 }

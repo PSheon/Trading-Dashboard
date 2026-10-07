@@ -1,5 +1,6 @@
 "use client";
 
+import { TablePager, usePaged } from "@/components/ui/table-pager";
 import { DataList } from "@/components/ui/data-list";
 
 
@@ -17,9 +18,10 @@ const eventKeys = new Set(["strategy_created", "strategy_command", "funds_added"
 
 export function CopyActivityItems({ items }: { items: WireCopyEvents["items"] }) {
   const { t, format } = useI18n();
+  const { rows, pager } = usePaged([...items].reverse());
   if (!items.length) return <p className="py-6 text-center text-xs text-muted-foreground">{t("copyUpdates.activityEmpty")}</p>;
-  return <DataList as="ol" className="mt-2 ">
-    {[...items].reverse().map((event) => {
+  return <><DataList as="ol" className="mt-2 ">
+    {rows.map((event) => {
       const amount = typeof event.payload.amount === "number" || typeof event.payload.amount === "string" ? Number(event.payload.amount) : null;
       const coin = typeof event.payload.coin === "string" ? event.payload.coin : null;
       const command = typeof event.payload.command === "string" ? copyRecordLabel("commandLabels", event.payload.command, t) : null;
@@ -40,7 +42,7 @@ export function CopyActivityItems({ items }: { items: WireCopyEvents["items"] })
         <time dateTime={event.createdAt} className="num text-muted-foreground">{format.dateTime(event.createdAt)}</time>
       </li>;
     })}
-  </DataList>;
+  </DataList><TablePager {...pager} /></>;
 }
 
 /** Only owner-confirmed server events; the cursor feed is independent of

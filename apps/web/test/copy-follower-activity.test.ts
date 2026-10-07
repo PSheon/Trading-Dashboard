@@ -10,7 +10,7 @@ afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); setAccessTokenGette
 function deps() { return { snapshot: () => ({ ...owner }), currentAccount: () => current, read: vi.fn().mockResolvedValue(activityPage()) }; }
 it('reads exact account history with an encoded opaque before cursor and cancellation signal', async () => {
   const d = deps(), signal = new AbortController().signal; const page = await loadCopyFollowerActivity(account, 'old_cursor', { ...d, signal });
-  expect(page.items[0].tradingCashDelta).toBe('2.000000000000000001'); expect(d.read).toHaveBeenCalledExactlyOnceWith('/me/copy/execution-wallets/account/activity?limit=20&before=old_cursor', signal);
+  expect(page.items[0].tradingCashDelta).toBe('2.000000000000000001'); expect(d.read).toHaveBeenCalledExactlyOnceWith('/me/copy/execution-wallets/account/activity?limit=10&before=old_cursor', signal);
 });
 it.each(['identity', 'session', 'mode', 'status', 'walletAddress'] as const)('drops private late activity after %s changes', async key => {
   const d = deps(); let finish!: (v: unknown) => void; d.read.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
@@ -35,5 +35,5 @@ it('uses the real private no-store GET wrapper without putting a token in the hi
   vi.stubEnv('NEXT_PUBLIC_API_FIXTURES', '0'); setAccessTokenGetter(async () => 'test-private-token', 'owner');
   const fetcher = vi.fn<typeof fetch>(async () => Response.json({ success: true, statusCode: 200, message: 'OK', data: activityPage(), meta: { timestamp: '2026-10-03T00:00:00Z', requestId: 'id', path: '/me/copy/execution-wallets/account/activity' } })); vi.stubGlobal('fetch', fetcher);
   await loadCopyFollowerActivity(account, undefined, { ...deps(), read: (path, signal) => api.get(path, signal) });
-  expect(fetcher.mock.calls[0][0]).toBe('/api/hl/me/copy/execution-wallets/account/activity?limit=20'); expect(fetcher.mock.calls[0][1]).toMatchObject({ cache: 'no-store', method: 'GET', headers: { Authorization: 'Bearer test-private-token' } });
+  expect(fetcher.mock.calls[0][0]).toBe('/api/hl/me/copy/execution-wallets/account/activity?limit=10'); expect(fetcher.mock.calls[0][1]).toMatchObject({ cache: 'no-store', method: 'GET', headers: { Authorization: 'Bearer test-private-token' } });
 });

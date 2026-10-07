@@ -1,5 +1,6 @@
 "use client";
 
+import { TablePager, usePaged } from "@/components/ui/table-pager";
 import { DataList } from "@/components/ui/data-list";
 
 
@@ -248,6 +249,7 @@ function SavedTab({ favorites, groups, groupsLoading = false, view }: { favorite
   let items = cards.items;
   if (selected) items = items.filter((c) => selected.addresses.includes(c.address));
   if (sort) items = [...items].sort((a, b) => (b[sort] ?? -Infinity) - (a[sort] ?? -Infinity));
+  const { rows: pageItems, pager } = usePaged(items, `${active}:${sort}`);
 
   if (!favorites) return <div className="flex flex-col gap-4"><ChipsSkeleton /><SavedSkeleton view={view} /></div>;
   if (favorites.length === 0) {
@@ -277,7 +279,7 @@ function SavedTab({ favorites, groups, groupsLoading = false, view }: { favorite
         <p className="orbit-card py-12 text-center text-muted-foreground">{t("favorites.emptyGroup")}</p>
       ) : view === "grid" ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {items.map((card) => (
+          {pageItems.map((card) => (
             <BoardCard
               key={card.address}
               trader={card}
@@ -291,12 +293,13 @@ function SavedTab({ favorites, groups, groupsLoading = false, view }: { favorite
         </div>
       ) : (
         <>
-          <WatchlistTable items={items} groups={groups} sort={sort} onSort={setSort} />
-          <ul className="flex flex-col gap-2 md:hidden">
-            {items.map((card) => <MobileRow key={card.address} card={card} groups={groups} />)}
-          </ul>
+          <WatchlistTable items={pageItems} groups={groups} sort={sort} onSort={setSort} />
+          <DataList variant="cards" className="md:hidden">
+            {pageItems.map((card) => <MobileRow key={card.address} card={card} groups={groups} />)}
+          </DataList>
         </>
       )}
+      {cards.data ? <TablePager {...pager} /> : null}
     </div>
   );
 }
@@ -339,7 +342,7 @@ function SavedSkeleton({ view }: { view: "grid" | "list" }) {
           { className: WATCH_COLS[10], bar: "ml-auto w-24" },
         ]}
       />
-      <ul aria-hidden="true" className="ui-skeleton flex flex-col gap-2 md:hidden">
+      <DataList aria-hidden="true" variant="cards" className="ui-skeleton md:hidden">
         {Array.from({ length: 6 }, (_, i) => (
           <li key={i} className="orbit-card flex items-center gap-3 p-3">
             <SkelCircle className="size-10" />
@@ -351,7 +354,7 @@ function SavedSkeleton({ view }: { view: "grid" | "list" }) {
             <SkelCircle className="size-8" />
           </li>
         ))}
-      </ul>
+      </DataList>
     </>
   );
 }

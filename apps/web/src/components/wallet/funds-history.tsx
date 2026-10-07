@@ -4,11 +4,11 @@ import { DataList } from "@/components/ui/data-list";
 
 
 import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Coins, ReceiptText } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cn } from "cn";
 
 import { EmptyState, ErrorState, ListRowsSkeleton } from "@/components/page";
-import { Button } from "@/components/ui/button";
+import { PAGE_SIZE, TablePager, usePaged } from "@/components/ui/table-pager";
 import { useI18n } from "@/i18n/provider";
 import type { MessageKey } from "@/i18n/messages";
 import { useFundsHistory, isReturnFlow, mergeFunds, rowMatches, walletAmount, type FundsFilter, type FundsRow } from "@/lib/funds";
@@ -35,12 +35,17 @@ export function FundsHistory({ className }: { className?: string }) {
   const hub = useWalletHistory();
   const flows = useFundsHistory();
   const [filter, setFilter] = useState<FundsFilter>("all");
+  const ownerFilter = `${owner}:${filter}`;
+  const currentFilter = useRef(ownerFilter);
+  useLayoutEffect(() => { currentFilter.current = ownerFilter; }, [ownerFilter]);
+  const [readingOlder, setReadingOlder] = useState(false);
   const items = useMemo(() => flows.data?.pages.flatMap((p) => p.items) ?? [], [flows.data]);
   const rows = useMemo(() => mergeFunds(hub.data?.transfers, items, !flows.hasNextPage, owner), [hub.data, items, flows.hasNextPage, owner]);
   // Each copy by its trader's name, not "#id".
   const leaders = useLeaders(useMemo(() => items.flatMap((f) => (f.leaderAddress ? [{ leaderAddress: f.leaderAddress.toLowerCase() }] : [])), [items]));
   const nameOf = (address: string | null) => (address ? boardName(leaders.get(address.toLowerCase()) ?? { address, displayName: null }) : "—");
   const shown = rows.filter((r) => rowMatches(r, filter));
+  const { rows: pageRows, pager } = usePaged(shown, ownerFilter);
   // This deployment's network: another network's money (Stage's testnet
   // copies after the move to mainnet) is tagged with its network, never
   // read as this one's (Stage A1).
@@ -64,13 +69,28 @@ export function FundsHistory({ className }: { className?: string }) {
       ) : shown.length === 0 ? (
         <EmptyState icon={ReceiptText} title={t("funds.empty")} body={t("wallet.historyEmptyBody")} />
       ) : (
-        <DataList className="" data-testid="funds-history">
-          {shown.map((row) => <Row key={row.id} row={row} owner={owner} nameOf={nameOf} network={network} />)}
+        <DataList data-testid="funds-history">
+          {pageRows.map((row) => <Row key={row.id} row={row} owner={owner} nameOf={nameOf} network={network} />)}
         </DataList>
       )}
-      {flows.hasNextPage ? (
-        <Button variant="secondary" size="sm" className="mt-3" loading={flows.isFetchingNextPage} disabled={!(flows.isFetchingNextPage) && (flows.isFetchingNextPage)} onClick={() => void flows.fetchNextPage()}>{t("funds.older")}</Button>
-      ) : null}
+      <TablePager {...pager} pages={flows.hasNextPage ? undefined : pager.pages} hasNext={pager.page + 1 < pager.pages || Boolean(flows.hasNextPage && !flows.isError)} busy={readingOlder || flows.isFetchingNextPage}
+        onPage={async (next) => {
+          if (next * PAGE_SIZE < shown.length || !flows.hasNextPage) { pager.onPage(next); return; }
+          setReadingOlder(true);
+          try {
+            // A filtered API page may contain no matching rows. Continue until
+            // the requested UI page has a row, or the server has no older data.
+            let result;
+            do {
+              result = await flows.fetchNextPage({ cancelRefetch: false });
+              if (result.isFetchNextPageError || currentFilter.current !== ownerFilter) return;
+              const fetched = result.data?.pages.flatMap((p) => p.items) ?? [];
+              const count = mergeFunds(hub.data?.transfers, fetched, !result.hasNextPage, owner).filter((row) => rowMatches(row, filter)).length;
+              if (count > next * PAGE_SIZE) break;
+            } while (result.hasNextPage);
+            pager.onPage(next);
+          } finally { setReadingOlder(false); }
+        }} />
     </div>
   );
 }

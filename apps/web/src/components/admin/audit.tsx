@@ -1,4 +1,6 @@
 "use client";
+import { PAGE_SIZE, TablePager } from "@/components/ui/table-pager";
+import { useCursorPager } from "@/components/ui/use-cursor-pager";
 import { Fragment, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { auditEvents, type AuditResponse } from "@/lib/contracts";
@@ -19,17 +21,17 @@ export function AdminAudit() {
   const { t } = useI18n();
   const [filters, setFilters] = useState({ event: "", actorKind: "", actorUserId: "", target: "" });
   const [applied, setApplied] = useState(filters);
-  const [cursors, setCursors] = useState<string[]>([]);
-  const params = new URLSearchParams({ limit: "25" });
+  const pagination = useCursorPager<string>(applied);
+  const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
   for (const [key, value] of Object.entries(applied)) if (value) params.set(key, value);
-  if (cursors.length) params.set("beforeId", cursors.at(-1)!);
+  if (pagination.cursor) params.set("beforeId", pagination.cursor);
   const qs = params.toString();
   const query = useQuery({ queryKey: queryKeys.admin.audit(qs), queryFn: ({ signal }) => api.get<AuditResponse>(`/admin/audit?${qs}`, signal) });
   return <section className="flex flex-col gap-5" aria-labelledby="audit-title">
     <AdminSubTabs tab="users" labels={USERS_SUB_TABS} />
     <h2 id="audit-title" className="sr-only">{t("settingsOps.audit")}</h2>
     <p className="type-caption max-w-3xl">{t("settingsOps.auditHint")}</p>
-    <AdminCard><form className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" onSubmit={e => { e.preventDefault(); setApplied({ ...filters, target: filters.target.trim() }); setCursors([]); }}>
+    <AdminCard><form className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" onSubmit={e => { e.preventDefault(); setApplied({ ...filters, target: filters.target.trim() }); }}>
       <div className="grid gap-2"><Label htmlFor="audit-event">{t("settingsOps.event")}</Label>
         <Select id="audit-event" className="w-full" value={filters.event} onValueChange={event => setFilters({ ...filters, event })} options={[{ value: "", label: t("settingsOps.all") }, ...auditEvents.map(event => ({ value: event, label: event }))]} /></div>
       <div className="grid gap-2"><Label htmlFor="audit-actor">{t("settingsOps.actorKind")}</Label>
@@ -39,7 +41,7 @@ export function AdminAudit() {
       <div className="flex flex-wrap gap-2 sm:col-span-2 xl:col-span-4"><Button type="submit">{t("settingsOps.search")}</Button><Button type="button" variant="secondary" loading={query.isFetching} disabled={!(query.isFetching) && (query.isFetching)} onClick={() => void query.refetch()}>{t("settingsOps.refresh")}</Button></div>
     </form></AdminCard>
     {query.isError ? <Notice>{t("settingsOps.failed")}</Notice> : query.data ? <AuditEntries items={query.data.items} /> : <TableSkeleton rows={6} columns={[{ label: t("admin.audit.cols.time") }, { label: t("settingsOps.event") }, { label: t("settingsOps.actorKind") }, { label: t("settingsOps.target") }, {}]} />}
-    <div className="flex flex-wrap items-center justify-between gap-3"><Button variant="secondary" disabled={!cursors.length || query.isFetching} onClick={() => setCursors(cursors.slice(0, -1))}>{t("settingsOps.previous")}</Button><p className="num type-caption">{t("settingsOps.page", { page: cursors.length + 1 })}</p><Button variant="secondary" disabled={!query.data?.nextCursor || query.isFetching || query.isError} onClick={() => setCursors([...cursors, query.data!.nextCursor!])}>{t("settingsOps.next")}</Button></div>
+    <TablePager page={pagination.page} hasNext={!query.isError && query.data?.nextCursor != null} busy={query.isFetching} onPage={(page) => pagination.onPage(page, query.data?.nextCursor)} />
   </section>;
 }
 /** The audit ledger as data rows; 詳情 opens a row's before / after. */

@@ -49,7 +49,7 @@ it('mounts separate actual activity only for the selected master and resets both
   await render(); expect(state.activity).not.toHaveBeenCalled();
   const page = activityPage(account); page.hasMore = false; page.items[0] = { ...page.items[0], kind: 'fill', attribution: 'execution', executionKey: 'execution', oid: '7', tid: '1', side: 'B', size: '0.01', price: '100', realizedPnl: '12.5', exchangeFee: '0.000001', builderFee: '-0.25', tradingCashDelta: '12.250001' }; page.items[1] = { ...page.items[1], kind: 'funding', attribution: 'account', executionKey: null, hash: `0x${'44'.repeat(32)}`, funding: '-1', tradingCashDelta: '-1' };
   state.activity.mockResolvedValue(page); await select();
-  expect(state.activity.mock.calls[0][0]).toBe('/me/copy/execution-wallets/account/activity?limit=20'); expect(container.textContent).toContain('Actual follower statement'); expect(container.textContent).toContain('Actual follower activity'); expect(container.textContent).toContain('+12.250001 USDC');
+  expect(state.activity.mock.calls[0][0]).toBe('/me/copy/execution-wallets/account/activity?limit=10'); expect(container.textContent).toContain('Actual follower statement'); expect(container.textContent).toContain('Actual follower activity'); expect(container.textContent).toContain('+12.250001 USDC');
   state.session = 'changed'; await render(); expect(selectTrigger(container)?.hasAttribute('data-placeholder')).toBe(true); expect(container.textContent).not.toContain('+12.250001 USDC'); expect(container.textContent).not.toContain('Actual follower activity');
 });
 it('mounts exact selected-account observations separately from booked cash delta and removes them on session change', async () => {

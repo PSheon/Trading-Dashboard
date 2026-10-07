@@ -43,7 +43,7 @@ export function UnresolvedWithdrawals() {
       <AdminCard aria-labelledby="withdrawals-in-doubt" title={<span id="withdrawals-in-doubt">{t("admin.withdrawals.title")}</span>} className="shadow-[0_0_0_2px_var(--warning)]">
         <p className="type-caption">{t("admin.withdrawals.hint")}</p>
         {outcome ? <p role="status" className="text-sm font-bold text-positive">{outcome}</p> : null}
-        <DataList className="">
+        <DataList>
           {items.map((item) => {
             const open = new Date(item.resolvableAt).getTime() > now;
             return (

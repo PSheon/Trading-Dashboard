@@ -1,3 +1,6 @@
+// @vitest-environment happy-dom
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it, vi } from "vitest";
 
@@ -16,10 +19,10 @@ const owner = `0x${"11".repeat(20)}`, account = `0x${"cc".repeat(20)}`, leader =
 const flow = (over: Partial<FundsFlowView>): FundsFlowView => ({ id: Math.random().toString(36), time: "2026-10-05T01:00:00.000Z", kind: "copy_funding", mode: "mainnet", amount: 50,
   strategyId: 902, leaderAddress: leader, status: "credited", txHash: null, fee: null, counterparty: account, count: null, ...over });
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh() {}, push() {} }), usePathname: () => "/zh-TW/settings", useSearchParams: () => new URLSearchParams() }));
-const state = vi.hoisted(() => ({ items: [] as unknown[] }));
+const state = vi.hoisted(() => ({ items: [] as unknown[], more: false, fetchNextPage: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ useAuth: () => ({ status: "signedIn", wallet: { address: owner } }) }));
 vi.mock("@/lib/funds", async () => ({ ...(await vi.importActual<typeof import("@/lib/funds")>("@/lib/funds")),
-  useFundsHistory: () => ({ data: { pages: [{ items: state.items, nextCursor: null }] }, hasNextPage: false, isPending: false, isError: false }) }));
+  useFundsHistory: () => ({ data: { pages: [{ items: state.items, nextCursor: null }] }, hasNextPage: state.more, fetchNextPage: state.fetchNextPage, isPending: false, isError: false }) }));
 vi.mock("@/lib/wallet", () => ({ useWalletHistory: () => ({ data: { transfers: [], from: "2026-07-09T03:01:00.000Z", fetchedAt: "2026-10-07T03:01:00.000Z", network: "mainnet", address: owner }, isPending: false, isError: false }) }));
 vi.mock("@/components/wallet/history-list", () => ({ ICON: {}, WithdrawalNotices: () => null, kindOf: () => "other" }));
 vi.mock("@/lib/copy-live-setup", () => ({ useLiveCopyDeployment: () => ({ network: "mainnet" }) }));
@@ -63,4 +66,32 @@ it("tags another network's rows on this deployment (testnet money on mainnet), m
   expect(tags).toEqual(["測試網"]);
   const old = html.slice(html.indexOf("測試網"), html.indexOf("</li>", html.indexOf("測試網")));
   expect(old).toContain("text-muted-foreground\">+$79.00");
+});
+
+it("pages funding history at ten rows instead of rendering the entire ledger", () => {
+  state.items = Array.from({length: 23}, (_, i) => flow({id: `page-${i}`, time: new Date(Date.UTC(2026,9,7,0,i)).toISOString()}));
+  const html = renderToStaticMarkup(<I18nProvider locale="zh-TW" messages={catalogs["zh-TW"]}><FundsHistory /></I18nProvider>);
+  expect(html.match(/<li /g)).toHaveLength(10);
+  expect(html).toContain('data-pager');
+  expect(html).toContain('第 1 / 3 頁');
+});
+
+it("continues past an older server page with no matching fee rows", async () => {
+  state.more = true;
+  state.items = Array.from({length:10}, (_,i)=>flow({id:`fee-${i}`,kind:"fees",amount:-1,time:new Date(Date.UTC(2026,9,7,0,i)).toISOString()}));
+  state.fetchNextPage.mockReset().mockImplementation(async () => {
+    if (state.fetchNextPage.mock.calls.length === 1) state.items = [...state.items, flow({id:"unmatched"})];
+    else { state.items = [...state.items, flow({id:"older-fee",kind:"fees",amount:-2,time:"2026-10-01T00:00:00.000Z"})]; state.more = false; }
+    return {data:{pages:[{items:state.items}]},hasNextPage:state.more,isFetchNextPageError:false};
+  });
+  Object.assign(globalThis, {IS_REACT_ACT_ENVIRONMENT:true});
+  const el=document.createElement('div'); document.body.append(el); const root=createRoot(el);
+  try {
+    await act(async ()=>root.render(<I18nProvider locale="zh-TW" messages={catalogs["zh-TW"]}><FundsHistory /></I18nProvider>));
+    await act(async ()=>el.querySelectorAll<HTMLButtonElement>('[role=radio]')[3].click());
+    await act(async ()=>el.querySelectorAll<HTMLButtonElement>('[data-pager] button')[1].click());
+    expect(state.fetchNextPage).toHaveBeenCalledTimes(2);
+    expect(el.querySelectorAll('li')).toHaveLength(1);
+    expect(el.querySelector('[data-pager]')?.textContent).toContain('第 2 / 2 頁');
+  } finally {await act(async ()=>root.unmount());el.remove();state.more=false;}
 });

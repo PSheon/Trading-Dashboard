@@ -1,5 +1,6 @@
 "use client";
 
+import { TablePager, usePaged } from "@/components/ui/table-pager";
 import { DataList } from "@/components/ui/data-list";
 
 
@@ -68,6 +69,7 @@ export function WithdrawalNotices() {
 export function WalletHistoryList({ className }: { className?: string }) {
   const { t, format } = useI18n();
   const history = useWalletHistory();
+  const { rows, pager } = usePaged(history.data?.transfers ?? [], history.data?.address);
   const recovery = useWithdrawalRecovery({ network: history.data?.network ?? "testnet", address: history.data?.address ?? null });
   const { openWithdraw } = useWalletModals();
   const pending = recovery.data?.status === "prepared" || recovery.data?.status === "unknown" ? recovery.data : null;
@@ -102,8 +104,8 @@ export function WalletHistoryList({ className }: { className?: string }) {
       {recovery.isError ? <ErrorState onRetry={() => void recovery.refetch()} /> : null}
       {history.data.from && history.data.fetchedAt ? <p className="mb-2 text-xs text-muted-foreground">{t("wallet.historyCoverage", { from: format.dateTime(history.data.from), time: format.dateTime(history.data.fetchedAt) })}</p> : null}
       {history.data.truncated ? <p className="mb-2 text-xs text-warning">{t("wallet.historyPartial")}</p> : null}
-      {!history.data.transfers.length ? <EmptyState icon={ReceiptText} title={t("wallet.historyEmpty")} body={t("wallet.historyEmptyBody")} /> : <DataList className="">
-        {history.data.transfers.map((row) => {
+      {!history.data.transfers.length ? <EmptyState icon={ReceiptText} title={t("wallet.historyEmpty")} body={t("wallet.historyEmptyBody")} /> : <><DataList>
+        {rows.map((row) => {
           const kind = kindOf(row);
           const Icon = ICON[kind];
           const sign = row.direction === "in" ? "+" : row.direction === "out" ? "−" : "";
@@ -128,7 +130,8 @@ export function WalletHistoryList({ className }: { className?: string }) {
             </li>
           );
         })}
-      </DataList>}
+      </DataList>
+      <TablePager {...pager} /></>}
     </div>
   );
 }

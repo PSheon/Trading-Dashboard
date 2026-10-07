@@ -43,3 +43,10 @@ describe("the coin index rendered from the server's read", () => {
     expect(client.getQueryCache().findAll({ queryKey: queryKeys.discover.coins })).toHaveLength(0);
   });
 });
+
+it("limits the prefetched coin index to ten records and exposes the shared pager", () => {
+  const data = {items:Array.from({length:23},(_,i)=>({coin:`COIN${i}`,traders:2,profit:10,market:"crypto" as const})), updatedAt:new Date().toISOString(),pool:{total:23,ready:23}};
+  const html = wrap(new QueryClient(), <CoinIndexView initial={{data, fetchedAt: Date.now()}} />);
+  expect(html.match(/data-slot="table-row"/g)).toHaveLength(11);
+  expect(html).toContain('data-pager');
+});

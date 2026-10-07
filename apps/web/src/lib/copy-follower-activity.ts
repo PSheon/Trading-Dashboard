@@ -16,7 +16,7 @@ export function parseCopyFollowerActivity(value: unknown, account: CopyExecution
 export async function loadCopyFollowerActivity(account: CopyExecutionAccount, before: string | undefined, deps: FollowerStatementDependencies): Promise<CopyFollowerActivity> {
   const selected = { ...account }, owner = { ...deps.snapshot() };
   if (owner.status !== 'signedIn' || owner.mode !== 'privy' || !owner.identity) throw new Error('follower_activity_owner_unavailable');
-  const query = copyFollowerActivityQuerySchema.parse({ limit: 20, ...(before ? { before } : {}) });
+  const query = copyFollowerActivityQuerySchema.parse({ limit: 10, ...(before ? { before } : {}) });
   const guard = () => {
     deps.signal?.throwIfAborted();
     const currentOwner = deps.snapshot(), current = deps.currentAccount();

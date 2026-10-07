@@ -85,7 +85,9 @@ export class LiveLeverageUpdater {
         on conflict (network, signer_address) do update set nonce = greatest(${created}, ${copySignerNonces}.nonce + 1) returning nonce`));
       const nonce = Number(allocated.rows[0]?.nonce);
       if (!Number.isSafeInteger(nonce) || nonce < created || nonce > created + 30_000) throw new LiveBoundaryError('nonce_clock_skew');
-      const expiresAfter = nonce + 60_000;
+      // From the request's own clock, as an order's (the Privy request expiry
+      // must lie within 60 s of the signing request).
+      const expiresAfter = created + 60_000;
       await checked(tx.insert(copyLiveLeverageUpdates).values({ id, userId: target.userId, accountId: target.accountId, network: this.network, accountAddress,
         signerAddress: signer, authorizationId: target.authorizationId, coin: target.coin, asset: target.asset, fromLeverage: target.from, leverage: target.leverage,
         nonce, expiresAfter, state: 'prepared', createdAt: new Date(created), updatedAt: new Date(created) }));

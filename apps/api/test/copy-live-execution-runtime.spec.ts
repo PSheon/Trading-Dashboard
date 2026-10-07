@@ -579,6 +579,13 @@ describe('the account leverage an open needs (a fresh account sits at the exchan
     expect(journal).toMatchObject({ accountId: 'account', coin: 'BTC', asset: 0, fromLeverage: 20, leverage: 10, state: 'accepted', nonce: update.nonce, issue: null });
     expect(await db.select().from(schema.copyLiveExecutions)).toHaveLength(1);
   });
+  it('signs the update when the signer\'s nonce allocator is already ahead of the clock (expiry from the request clock)', async () => {
+    await defaultLeverageFixture({ status: 'ok', response: { type: 'default' } });
+    await db.insert(schema.copySignerNonces).values({ network: 'testnet', signerAddress: agent.address.toLowerCase(), nonce: clock + 10 });
+    expect((await runtime(config, { ...options, slippageBps: '0' }).execute(request())).state).toBe('filled');
+    const [journal] = await db.select().from(schema.copyLiveLeverageUpdates);
+    expect(journal).toMatchObject({ state: 'accepted', nonce: clock + 11, expiresAfter: clock + 60_000 });
+  });
   it('refuses permanently when the exchange rejects the update, before any order journal', async () => {
     await defaultLeverageFixture({ status: 'err', response: 'Cannot switch leverage type with open position.' });
     await expect(runtime(config, { ...options, slippageBps: '0' }).execute(request())).rejects.toThrow('live_leverage_update_rejected');

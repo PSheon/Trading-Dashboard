@@ -157,7 +157,7 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
     <section className="flex min-w-0 flex-col overflow-hidden rounded-2xl bg-raised p-3 md:p-5">
       <div className="flex min-h-11 items-center justify-between gap-3">
         <h2 className="type-h2 truncate">{title}</h2>
-        <div className="flex items-center gap-0.5 rounded-full bg-background p-1" role="radiogroup" aria-label={title}>
+        <div className="flex shrink-0 items-center gap-0.5 rounded-full bg-background p-1" role="radiogroup" aria-label={title}>
           {WINDOWS.map((w) => (
             <button
               key={w}
@@ -166,7 +166,7 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
               aria-checked={window === w}
               onClick={() => onWindow(w)}
               className={cn(
-                "num h-9 rounded-full px-3 text-[13px] outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
+                "num h-9 rounded-full px-3 text-[13px] whitespace-nowrap outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
                 window === w ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground hover:text-foreground",
               )}
             >

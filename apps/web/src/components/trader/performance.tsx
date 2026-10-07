@@ -315,7 +315,8 @@ export function KpiTiles({
           ) : tradesComputing ? (
             t("trader.kpi.computing")
           ) : tradesUnavailable ? (
-            <span role="status">
+            // Wraps (the tile's line is otherwise cut), so 重試 stays in view.
+            <span role="status" className="block whitespace-normal">
               {t("trader.analyticsUnavailable")}{" "}
               {onRetryTrades ? <button type="button" onClick={onRetryTrades} className="min-h-6 font-bold text-primary-text underline outline-none focus-visible:ring-2 focus-visible:ring-ring">{t("trader.retry")}</button> : null}
             </span>

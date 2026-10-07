@@ -1,7 +1,7 @@
 import { Pool } from 'pg';
 import { eq } from 'drizzle-orm';
 import { beforeAll, beforeEach, afterAll, describe, expect, it } from 'vitest';
-import { copyExecutionAccounts, copyExecutionWallets, copyWalletAuthorizations, copyLiveExecutions, copyLiveRiskReservations, copyLiveExecutionEvidence,
+import { copyFollowerScans, copyExecutionAccounts, copyExecutionWallets, copyWalletAuthorizations, copyLiveExecutions, copyLiveRiskReservations, copyLiveExecutionEvidence,
   copyFollowerReceipts, copyFollowerLedger, copyFollowerAccountState, copyStrategies, users } from '@trading-dashboard/shared/database';
 import { PostgresLiveSettlement } from '../src/copy/live/postgres-live-settlement.js';
 import { PostgresLiveRiskScope, type LiveRiskDatabaseSession } from '../src/copy/live/postgres-live-risk-scope.js';
@@ -213,6 +213,16 @@ describe('same-session PostgreSQL attempted order settlement', () => {
     expect((await db.select().from(copyLiveExecutionEvidence))[0]?.acknowledgement).toEqual(acknowledgement);
   });
 
+  it('settles a partial IOC whose acknowledgement was lost from the fills the account scan booked past the cancel', async () => {
+    await iocAcknowledgement(); // the IOC order, but its answer never reached the journal
+    const raw = structuredClone(f.evidence.raw) as {order:{status:string;order:{tif:string;sz:string}}}; raw.order.status='canceled'; raw.order.order.tif='Ioc';raw.order.order.sz='0.5';
+    f.evidence = structuredClone(parseLiveOrderEvidence({ record:f.record,market:f.record.market!,raw,checkedAt:base+20,completedAt:base+25,now:clock }));
+    f.receipts.rows[0]!.record.raw.sz='0.5'; await book();
+    await scopes.run(identity(),async (_scope,session)=>{await observe(session);expect(await settle(session)).toMatchObject({kind:'pending',reason:'live_settlement_quantity_unproven'});});
+    // The follower scan booked every fill to 10 s past the cancel, without an issue.
+    await db.insert(copyFollowerScans).values({ accountId: 'account', through: base + 10 + 10_000 });
+    await scopes.run(identity(),async (_scope,session)=>{await observe(session);expect(await settle(session)).toMatchObject({kind:'release',certificate:{filledSize:'0.5',acknowledgementDigest:null}});});
+  });
   it('latches the immutable partial IOC acknowledgement once and quarantines conflicting response quantities', async () => {
     const acknowledgement = await iocAcknowledgement();
     await scopes.run(identity(), async (_scope, session) => {

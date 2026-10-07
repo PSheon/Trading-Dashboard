@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assessLiveReservationSettlement, type LiveReservationSettlementInput } from '../src/copy/live/live-reservation-settlement.js';
+import { assessLiveReservationSettlement, LIVE_FILL_SCAN_MARGIN_MS, type LiveReservationSettlementInput } from '../src/copy/live/live-reservation-settlement.js';
 import { digestLiveEvidence, parseLiveOrderEvidence, parseLiveIocAcknowledgement } from '../src/copy/live/live-order-evidence.js';
 import { parseFollowerFill, followerReceiptDigestV1 } from '../src/copy/live/actual-fill-accounting.js';
 import { planLiveReservation } from '../src/copy/live/live-risk-reservation.js';
@@ -65,6 +65,20 @@ describe('pure terminal reservation settlement', () => {
   it('tolerates exact replay receipts and preserves signed fee components once', () => {
     const f = input(); f.receipts.rows.push(structuredClone(f.receipts.rows[0]!));
     expect(assessLiveReservationSettlement(f)).toMatchObject({ kind: 'release' });
+  });
+  it('settles a cancelled IOC whose acknowledgement was lost from its booked fills once the fill scan is past the cancel', () => {
+    const f = iocInput(); f.acknowledgement = null;
+    // The scan has not reached the cancel (plus the indexing margin): still unproven.
+    f.receipts.scannedThrough = base + 10 + LIVE_FILL_SCAN_MARGIN_MS - 1;
+    expect(assessLiveReservationSettlement(f)).toEqual({ kind: 'pending', reason: 'live_settlement_quantity_unproven' });
+    f.receipts.scannedThrough = base + 10 + LIVE_FILL_SCAN_MARGIN_MS;
+    expect(assessLiveReservationSettlement(f)).toMatchObject({ kind: 'release', certificate: { filledSize: '0.5', acknowledgementDigest: null } });
+    // No booked fill: an unfilled cancel settles at zero.
+    f.receipts.rows = []; expect(assessLiveReservationSettlement(f)).toMatchObject({ kind: 'release', certificate: { filledSize: '0' } });
+    // Booked fills above the order's size contradict it.
+    const over = iocInput(); over.acknowledgement = null; over.receipts.scannedThrough = base + 1_000_000;
+    over.receipts.rows[0]!.record.raw.sz = '1.5'; over.receipts.rows[0]!.record.size = '1.5'; over.receipts.rows[0]!.digest = followerReceiptDigestV1(over.receipts.rows[0]!.record.raw);
+    expect(assessLiveReservationSettlement(over).kind).toBe('quarantine');
   });
   it.each(['missing fill', 'missing ledger', 'unproven cancellation', 'stale source', 'before terminal', 'incomplete coverage', 'resting oid', 'resting cloid'])('retains liabilities with %s', kind => {
     const f = input();

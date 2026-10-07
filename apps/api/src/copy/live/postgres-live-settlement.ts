@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import { copyExecutionAccounts, copyExecutionWallets, copyWalletAuthorizations, copyLiveExecutions, copyLiveRiskReservations, copyLiveExecutionEvidence,
-  copyFollowerReceipts, copyFollowerLedger, copyFollowerAccountState, copyStrategies, users,
+  copyFollowerReceipts, copyFollowerLedger, copyFollowerAccountState, copyFollowerScans, copyStrategies, users,
   copyLiveIntentProvenance, copyLiveSignalLegs, copyLiveReductionCarry, copyLiveSourceFills, copyLiveMandates, copyLiveStrategyConfigs, copyStrategyVersions, copyRiskPolicies } from '@trading-dashboard/shared/database';
 import { ACTUAL_STRATEGY_MODE, copyStrategySettingsSchema, copyRiskLimitsSchema, isHyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { Dec } from '../../common/decimal/dec.js';
@@ -316,8 +316,12 @@ export class PostgresLiveSettlement {
       if (observation.kind !== 'order') return {kind:'pending' as const,reason:'live_settlement_terminal_unproven'};
       const manifest = await this.receiptManifest(session,tx,input.accountId,input.key,observation.oid);
       const [state] = await this.query(session,tx.select().from(copyFollowerAccountState).where(eq(copyFollowerAccountState.accountId,input.accountId)));
+      // Without the IOC's own answer, the account's fill scan horizon lets a
+      // cancelled order's booked fills prove its filled quantity.
+      const [scan] = acknowledgement ? [] : await this.query(session,tx.select({through:copyFollowerScans.through,issue:copyFollowerScans.issue}).from(copyFollowerScans).where(eq(copyFollowerScans.accountId,input.accountId)));
       const assessmentInput:LiveReservationSettlementInput = {now:this.now(),accountId:input.accountId,record,reservation,evidence:observation,acknowledgement,
-        receipts:{accountId:input.accountId,checkedAt:started,completeForOrder:true,rows:manifest},accountSource:{...input.accountSource,quarantined:state?.quarantined ?? false}};
+        receipts:{accountId:input.accountId,checkedAt:started,completeForOrder:true,rows:manifest,...(scan && scan.issue===null && scan.through!==null ? {scannedThrough:scan.through} : {})},
+        accountSource:{...input.accountSource,quarantined:state?.quarantined ?? false}};
       const decision = assessLiveReservationSettlement(assessmentInput);
       if (decision.kind === 'quarantine') return this.quarantine(session,tx,row,decision.reason);
       if (decision.kind !== 'release') return decision;

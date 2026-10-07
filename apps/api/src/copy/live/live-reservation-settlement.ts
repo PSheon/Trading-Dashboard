@@ -25,7 +25,12 @@ export interface LiveReservationSettlementInput {
   readonly evidence: LiveOrderEvidence; readonly acknowledgement: LiveIocAcknowledgement|null;
   /** Actual same-session SQL manifest, not caller/provider array authority.
    * Completeness is the bounded local order query, never global fill history. */
-  readonly receipts: { readonly accountId: string; readonly checkedAt: number; readonly completeForOrder: true; readonly rows: readonly LiveSettlementReceipt[] };
+  readonly receipts: { readonly accountId: string; readonly checkedAt: number; readonly completeForOrder: true; readonly rows: readonly LiveSettlementReceipt[];
+    /** The account's fill scan (userFillsByTime) has booked every fill up to
+     * this time without an issue: with no IOC acknowledgement, the filled
+     * quantity of a cancelled order is its booked fills once this passes the
+     * cancel by LIVE_FILL_SCAN_MARGIN_MS. */
+    readonly scannedThrough?: number };
   readonly accountSource: LiveAccountRiskInput['accountSource'];
 }
 export interface LiveReservationSettlementCertificate {
@@ -38,6 +43,9 @@ export interface LiveReservationSettlementCertificate {
 }
 export type LiveReservationSettlementDecision = Readonly<{ kind: 'pending'|'quarantine'; reason: string }> |
   Readonly<{ kind: 'release'; certificate: LiveReservationSettlementCertificate }>;
+/** How far past a cancel the fill scan must reach before its booked fills
+ * stand for an unacknowledged IOC's filled quantity (provider indexing lag). */
+export const LIVE_FILL_SCAN_MARGIN_MS = 10_000;
 class SettlementIssue extends Error { constructor(readonly kind: 'pending'|'quarantine', readonly reason: string) { super(reason); } }
 function requireProof(value: unknown, reason: string, kind: 'pending'|'quarantine' = 'pending'): asserts value {
   if (!value) throw new SettlementIssue(kind, reason);
@@ -79,7 +87,12 @@ export function assessLiveReservationSettlement(raw: LiveReservationSettlementIn
       requireProof(quantity === null || quantity.eq(ackQuantity), 'live_settlement_ack_conflict', 'quarantine');
       quantity = ackQuantity; acknowledgementDigest = a.responseDigest;
     }
-    requireProof(quantity !== null, 'live_settlement_quantity_unproven');
+    // A cancelled IOC whose acknowledgement was lost (orderStatus reads only
+    // "canceled"): its booked fills are the quantity once the account's fill
+    // scan is complete past the cancel (every fill of the order is earlier).
+    const scanned = receipts.scannedThrough, fromFills = quantity === null && evidence.classification === 'cancelled' &&
+      integer(scanned, 1) && scanned >= evidence.statusTimestamp + LIVE_FILL_SCAN_MARGIN_MS;
+    requireProof(quantity !== null || fromFills, 'live_settlement_quantity_unproven');
     requireProof(receipts.accountId === p.accountId && receipts.completeForOrder === true && Array.isArray(receipts.rows) && receipts.rows.length <= 10000,
       'live_settlement_receipt_coverage_unproven'); fresh(receipts.checkedAt, now);
     let total = Dec.ZERO, lastFillTime = evidence.placedAt;
@@ -105,6 +118,7 @@ export function assessLiveReservationSettlement(raw: LiveReservationSettlementIn
       requireProof([...expected].every(([kind, amount]) => amount.isZero || present.has(kind)), 'live_settlement_ledger_incomplete');
       total = total.add(fill.size); lastFillTime = Math.max(lastFillTime, fill.time); seen.set(row.key, { row, fill });
     }
+    if (quantity === null) { requireProof(total.lte(liveEvidenceDecimal(evidence.originalSize)), 'live_settlement_fill_overflow', 'quarantine'); quantity = total; }
     requireProof(total.lte(quantity), 'live_settlement_fill_overflow', 'quarantine');
     requireProof(total.eq(quantity), 'live_settlement_receipts_incomplete');
 

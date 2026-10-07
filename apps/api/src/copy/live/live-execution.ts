@@ -8,6 +8,10 @@ import type { LiveUnattemptedReleaseCertificate } from './live-unattempted-relea
 /** An attempted order the exchange still does not know by cloid once its
  * signed expiresAfter (plus this grace) has passed: it was never placed. */
 export const NEVER_PLACED = "exchange_order_never_placed";
+/** A prepared order whose risk hold never committed (refused, failed, or the
+ * worker stopped between the two commits): it was never signed, since signing
+ * requires the hold. Rejected terminally with its leg skipped, never sent. */
+export const UNHELD_REJECTED = "live_unheld_rejected";
 /** How long an order request may still be on its way (the transport's HTTP
  * timeout) … */
 export const LIVE_HTTP_TIMEOUT_MS = 20_000;

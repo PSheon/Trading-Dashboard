@@ -29,6 +29,8 @@ import { liveCopySettingsDigest } from '../src/copy/copy-live-mandate-consent.js
 import { PostgresLiveUnattemptedRecovery } from '../src/copy/live/postgres-live-unattempted-recovery.js';
 import { CopyWalletRepository } from '../src/copy/copy-wallet.repository.js';
 import { CopyAgentRepository } from '../src/copy/copy-agent.repository.js';
+import { UNHELD_REJECTED } from '../src/copy/live/live-execution.js';
+import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
 
 // Native network endpoints alone are replaced. Every provider decoder, private
 // quota capability, SQL authority and SDK request boundary remains concrete.
@@ -580,5 +582,43 @@ describe('the account leverage an open needs (a fresh account sits at the exchan
     await expect(runtime(config, { ...options, slippageBps: '0' }).execute(request())).rejects.toThrow('live_risk_leverage');
     expect(exchangeActions().map(body => body.action.type)).toEqual(['updateLeverage']);
     expect(await db.select().from(schema.copyLiveExecutions)).toHaveLength(0);
+  });
+});
+describe('a refusal after the journal commits (no orphan journal)', () => {
+  /** A second leader open on the fixture's stream, 100 ms after the first. */
+  async function secondFill() {
+    const fill = parseLiveSourceFill({ ...seed.fill.raw, tid: 2, oid: 3, time: clock - 900 }, { network: 'testnet', leaderAddress: seed.consent.leaderAddress,
+      from: clock - 2000, to: clock, receivedAt: clock, kind: 'fills' });
+    await db.insert(schema.copyLiveSourceFills).values({ ...fill, normalized: { ...fill.normalized }, providerTime: new Date(fill.providerTime), receivedAt: new Date(fill.receivedAt) });
+    return fill.id;
+  }
+  it('rejects the journal it prepared (never sent) and skips its leg, so the owner\'s next order is not blocked', async () => {
+    await actualClockFixture();
+    vi.spyOn(PostgresLiveReservations.prototype, 'hold').mockRejectedValueOnce(new LiveBoundaryError('available_collateral'));
+    await expect(runtime(config, { ...options, slippageBps: '0' }).execute(request())).rejects.toThrow('available_collateral');
+    const [journal] = await db.select().from(schema.copyLiveExecutions);
+    expect(journal).toMatchObject({ state: 'rejected', record: { state: 'rejected', errorCode: UNHELD_REJECTED, outcome: { state: 'rejected', reason: 'available_collateral' } } });
+    expect(await db.select().from(schema.copyLiveRiskReservations)).toHaveLength(0);
+    expect((await db.select().from(schema.copyLiveSignalLegs))[0]).toMatchObject({ state: 'skipped', executionKey: journal!.key });
+    expect(raw.mock.calls.some(([url]) => String(url).endsWith('/exchange') || String(url).endsWith('/rpc'))).toBe(false);
+    // The next leg of the same generation is neither an orphan nor an unproven generation.
+    const next = await secondFill();
+    const result = await runtime(config, { ...options, slippageBps: '0' }).execute({ ...request(), sourceFillId: next });
+    expect(result.state).toBe('filled');
+  });
+  it('recovers a crash between the journal and hold commits: rejected, never signed, on the next invocation', async () => {
+    await actualClockFixture();
+    vi.spyOn(PostgresLiveReservations.prototype, 'hold').mockRejectedValueOnce(new LiveBoundaryError('live_risk_stale'));
+    // The worker dies before it can record the refusal.
+    vi.spyOn(LiveExecutionRuntime.prototype as unknown as { rejectUnheld: () => Promise<unknown> }, 'rejectUnheld').mockRejectedValueOnce(Error('worker died'));
+    await expect(runtime(config, { ...options, slippageBps: '0' }).execute(request())).rejects.toThrow('live_risk_stale');
+    expect((await db.select().from(schema.copyLiveExecutions))[0]!.state).toBe('prepared');
+    raw.mockClear();
+    const recovered = await runtime(config, { ...options, slippageBps: '0' }).execute(request());
+    expect(recovered).toMatchObject({ state: 'rejected', errorCode: UNHELD_REJECTED, outcome: { reason: 'live_hold_missing' } });
+    expect(raw.mock.calls.some(([url]) => String(url).endsWith('/exchange') || String(url).endsWith('/rpc'))).toBe(false);
+    expect((await db.select().from(schema.copyLiveSignalLegs))[0]!.state).toBe('skipped');
+    const next = await secondFill();
+    expect((await runtime(config, { ...options, slippageBps: '0' }).execute({ ...request(), sourceFillId: next })).state).toBe('filled');
   });
 });

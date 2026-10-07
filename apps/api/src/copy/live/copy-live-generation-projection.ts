@@ -12,7 +12,7 @@ import { parseFollowerFill, parseFollowerFunding, followerReceiptDigestV1 } from
 import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceDigest, liveSourceLegId } from './copy-live-source-evidence.js';
 import { captureLiveOrderIdentity } from './live-order-evidence.js';
 import { buildOrderAction, executionKey, intentFingerprint, type LiveOrderIntent } from './live-order.js';
-import { NEVER_PLACED, type LiveExecutionRecord } from './live-execution.js';
+import { NEVER_PLACED, UNHELD_REJECTED, type LiveExecutionRecord } from './live-execution.js';
 import { decodeLiveSettlementProof } from './live-settlement-proof.js';
 import { decodeLiveUnattemptedRelease,assertLiveUnattemptedReleaseMirrors } from './live-unattempted-release.js';
 import { freezeLiveReservation, validateLiveReservationPayload, type LiveReservationStored } from './live-risk-reservation.js';
@@ -149,6 +149,12 @@ export function projectLiveGenerationPositions(raw: LiveGenerationProjectionInpu
         // change, its liability released as expired_unplaced, its leg skipped.
         requireGeneration(r&&j.state==='rejected'&&r.state==='released'&&r.releaseReason==='expired_unplaced'&&r.exchangeOrderId===null&&r.releaseEvidenceDigest&&
           leg!.state==='skipped'&&ownReceipts.length===0&&(!e||e.exchangeOrderId===null&&!e.settlementCertificate));
+        continue;
+      }
+      if(record.errorCode===UNHELD_REJECTED){
+        // A prepared order whose risk hold never committed: never signed or
+        // sent, no liability, no fill, its leg skipped.
+        requireGeneration(!r&&j.state==='rejected'&&record.state==='rejected'&&leg!.state==='skipped'&&ownReceipts.length===0&&!e);
         continue;
       }
       if(j.key===currentExecutionKey&&['prepared','submitting'].includes(j.state)){

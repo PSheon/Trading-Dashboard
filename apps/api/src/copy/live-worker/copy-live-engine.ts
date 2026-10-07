@@ -2,7 +2,7 @@ import type { HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import type { HyperliquidLiveSourceClient, LiveSourceReadResult } from '../copy-live-source.client.js';
 import type { CopyLiveSourceRepository } from '../copy-live-source.repository.js';
 import type { UnitOfWork } from '../../db/unit-of-work.js';
-import type { LiveExecutionRecord } from '../live/live-execution.js';
+import { UNHELD_REJECTED, type LiveExecutionRecord } from '../live/live-execution.js';
 import type { LiveExecutionHooks, LiveExecutionRequest } from '../live/live-execution-runtime.js';
 import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceDigest } from '../live/copy-live-source-evidence.js';
 import { liveSourceExecutionCloid } from '../live/postgres-live-preparation.js';
@@ -359,7 +359,7 @@ export class CopyLiveEngine {
       sourceNetwork: mandate.sourceNetwork, leaderAddress: mandate.leaderAddress, key: row.executionKey! });
     if (outcome.kind === 'released') await this.deps.repository.update(row, { state: 'settled', settledAt: new Date(this.now()), reason: null });
     else if (outcome.kind === 'unplaced') await this.deps.repository.update(row, { state: 'refused', reason: 'exchange_order_never_placed' });
-    else if (outcome.kind === 'quarantine') await this.deps.repository.update(row, { state: 'refused', reason: outcome.reason.slice(0, 80) });
+    else if (outcome.kind === 'quarantine' || outcome.kind === 'unsent') await this.deps.repository.update(row, { state: 'refused', reason: outcome.reason.slice(0, 80) });
     else await this.deps.repository.update(row, { reason: outcome.reason.slice(0, 80) });
   }
 
@@ -400,8 +400,9 @@ export class CopyLiveEngine {
       const record = await runtime.execute({ userId: row.userId, accountId: row.accountId, mandateId: row.mandateId, sourceFillId: row.sourceFillId, leg: row.leg,
         ...(members.length ? { members } : {}), ...(signalDeadline !== undefined ? { signalDeadline } : {}) });
       const times = { ...(timing.sentAt ? { sentAt: new Date(timing.sentAt) } : {}), ...(timing.ackedAt ? { ackedAt: new Date(timing.ackedAt) } : {}) };
-      if (record.errorCode === 'unattempted_expired') {
-        await this.deps.repository.update(row, { state: 'refused', reason: 'unattempted_expired', executionKey: record.key, firstAttemptAt: first, attempts: row.attempts + 1 }); return;
+      if (record.errorCode === 'unattempted_expired' || record.errorCode === UNHELD_REJECTED) {
+        const reason = record.errorCode === UNHELD_REJECTED ? (record.outcome?.reason ?? UNHELD_REJECTED).slice(0, 80) : 'unattempted_expired';
+        await this.deps.repository.update(row, { state: 'refused', reason, executionKey: record.key, firstAttemptAt: first, attempts: row.attempts + 1 }); return;
       }
       await this.deps.repository.update(row, { state: 'submitted', executionKey: record.key, firstAttemptAt: first, attempts: row.attempts + 1, reason: null, ...times });
       if (row.state === 'pending') this.deps.trace?.(`Copy order ${row.id}${members.length ? ` (+${members.length} merged)` : ''}: received +${row.receivedAt.getTime() - row.leaderTime.getTime()}, ` +

@@ -1,7 +1,7 @@
 import { createPrivateKey, createPublicKey } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { Pool } from 'pg';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { z } from 'zod';
 import { WALLET_NETWORKS, isHyperliquidNetwork, liveSourceNetworks, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
@@ -15,7 +15,8 @@ import { liveBudget } from '../../hyperliquid/hyperliquid-budget-wait.js';
 import { Dec } from '../../common/decimal/dec.js';
 import { decodeLiveCopyMandate } from '../copy-live-mandate-evidence.js';
 import { PostgresLivePreparation, liveSourceExecutionCloid, type LivePreparationOptions } from './postgres-live-preparation.js';
-import { LiveOrderExecutor, type LiveExecutionRecord } from './live-execution.js';
+import { LiveOrderExecutor, UNHELD_REJECTED, type LiveExecutionRecord } from './live-execution.js';
+import { errorCode } from '../../runtime/safe-error-text.js';
 import { address, LiveBoundaryError, WalletAuthorizationService, type ExchangeApprovalEvidence, type ExchangeApprovalVerifier } from './wallet-authorization.js';
 import { PostgresLiveRiskScope, type LiveRiskDatabaseSession } from './postgres-live-risk-scope.js';
 import { loadLivePreparationAuthority, riskSourceRequire } from './postgres-live-risk-authority.js';
@@ -172,6 +173,13 @@ export class LiveExecutionRuntime {
         batch: (bodies, onDispatch) => this.global.fetchInfoBatch(WALLET_NETWORKS[this.network].infoUrl, bodies, { maxWaitMs: 0, onDispatch: () => { onDispatch(); return undefined; } }) });
       try {
         const existing = await this.existing(session, request, key);
+        // Explicit recovery of a crash between the journal's commit and the
+        // hold's: never signed, so rejected and its leg skipped, never sent.
+        if (existing?.record.state === 'prepared' && !existing.reservation) {
+          const rejected = await this.rejectUnheld(session, key, 'live_hold_missing');
+          riskSourceRequire(rejected, 'live_runtime_reservation_recovery_required');
+          return rejected;
+        }
         if (existing?.record.unattemptedRelease || existing?.record.state === 'prepared' && existing.reservation) {
           const reservation = existing.reservation, checkedAt = this.now();
           riskSourceRequire(reservation && (existing.record.unattemptedRelease || reservation.state === 'held' &&
@@ -226,9 +234,19 @@ export class LiveExecutionRuntime {
           throw new LiveBoundaryError(state === 'rejected' ? 'live_leverage_update_rejected' : 'live_leverage_update_unknown');
         }
         riskSourceRequire(prepared.record.key === key, 'live_runtime_identity');
-        const input = await binding.forHold();
-        await reservations.hold(session, input);
-        await session.scope.assertHeld();
+        // Every risk and hold gate runs before anything is signed. One that
+        // refuses or fails after the journal's commit rejects that journal
+        // (never sent) and skips its leg at once, so neither recovery nor the
+        // owner's other orders (live_risk_orphan_execution) wait on it.
+        let input: Awaited<ReturnType<typeof binding.forHold>>;
+        try {
+          input = await binding.forHold();
+          await reservations.hold(session, input);
+          await session.scope.assertHeld();
+        } catch (error) {
+          await this.rejectUnheld(session, key, errorCode(error)).catch(() => undefined);
+          throw error;
+        }
         const result = await executor.execute(prepared.intent);
         // Keep the exchange's own IOC answer as settlement evidence right away:
         // for a partial fill it is the only proof of the filled quantity
@@ -255,6 +273,25 @@ export class LiveExecutionRuntime {
         provider.close(); await sockets.close();
       }
     }));
+  }
+  /** Rejects a prepared journal that holds no reservation (so was never
+   * signed) and skips its leg, in one transaction; null when it is not one. */
+  private async rejectUnheld(session: LiveRiskDatabaseSession, key: string, reason: string): Promise<LiveExecutionRecord | null> {
+    return session.transaction(async tx => {
+      const checked = async <T>(work: PromiseLike<T>) => { const value = await work; await session.scope.assertHeld(); return value; };
+      const [row] = await checked(tx.select().from(copyLiveExecutions).where(eq(copyLiveExecutions.key, key)).for('update'));
+      if (!row || row.state !== 'prepared') return null;
+      const [held] = await checked(tx.select({ key: copyLiveRiskReservations.key }).from(copyLiveRiskReservations).where(eq(copyLiveRiskReservations.key, key)).for('update'));
+      if (held) return null;
+      const record = decodeLiveExecutionRow(row), updatedAt = Math.max(this.now(), record.updatedAt);
+      const rejected: LiveExecutionRecord = { ...record, state: 'rejected', errorCode: UNHELD_REJECTED, outcome: { state: 'rejected', reason: reason.slice(0, 80) }, updatedAt };
+      const changed = await checked(tx.update(copyLiveExecutions).set({ state: 'rejected', record: rejected as unknown as Record<string, unknown>, updatedAt: new Date(updatedAt) })
+        .where(and(eq(copyLiveExecutions.key, key), eq(copyLiveExecutions.state, 'prepared'), eq(copyLiveExecutions.updatedAt, row.updatedAt))).returning({ key: copyLiveExecutions.key }));
+      riskSourceRequire(changed.length === 1, 'live_runtime_journal_changed');
+      await checked(tx.update(copyLiveSignalLegs).set({ state: 'skipped', revision: sql`${copyLiveSignalLegs.revision} + 1`, updatedAt: new Date(updatedAt) })
+        .where(and(eq(copyLiveSignalLegs.executionKey, key), eq(copyLiveSignalLegs.state, 'prepared'))));
+      return rejected;
+    });
   }
   /** The global fetch, reporting the exchange POST's start and answer times
    * and keeping a copy of the exchange's JSON answer. */

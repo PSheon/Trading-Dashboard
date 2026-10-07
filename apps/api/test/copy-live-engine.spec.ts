@@ -191,6 +191,18 @@ describe('testnet copy execution engine', () => {
     expect(runtimeCalls).toHaveLength(2);
   });
 
+  it('refuses a leg whose journal was rejected before its hold (never sent), instead of waiting on a settlement forever', async () => {
+    await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+    const fill = await leaderFill(15, now + 100, 'B', '1', '0');
+    runtimeImpl = async request => { runtimeCalls.push(request); await journal(keyOf(fill, 'open'), 'rejected'); throw new LiveBoundaryError('available_collateral'); };
+    settleImpl = async () => ({ kind: 'unsent', reason: 'available_collateral' });
+    clock = now + 1000; await engine().tick();
+    expect((await dispatches())[0]).toMatchObject({ state: 'submitted', executionKey: keyOf(fill, 'open') });
+    clock += 3000; await engine().tick();
+    expect((await dispatches())[0]).toMatchObject({ state: 'refused', reason: 'available_collateral' });
+    expect(runtimeCalls).toHaveLength(1);
+  });
+
   it('skips a close of a position this copy never opened and orders a flip: close settles before the open is sent', async () => {
     await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
     const orphanClose = await leaderFill(5, now + 100, 'A', '1', '2', 'ETH');

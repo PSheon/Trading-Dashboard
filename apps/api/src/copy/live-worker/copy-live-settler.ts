@@ -7,7 +7,7 @@ import { HyperliquidGlobalTransport } from '../../hyperliquid/hyperliquid-global
 import { RequestBudgeterService } from '../../hyperliquid/request-budgeter.service.js';
 import { reserveLive } from '../../hyperliquid/hyperliquid-budget-wait.js';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
-import { NEVER_PLACED, type LiveExecutionRecord } from '../live/live-execution.js';
+import { NEVER_PLACED, UNHELD_REJECTED, type LiveExecutionRecord } from '../live/live-execution.js';
 import { HyperliquidLiveAccountObserver } from '../live/live-account-observer.js';
 import { HyperliquidAllDexsAccountSource } from '../live/live-account-ws-source.js';
 import { boundedLiveRead, HyperliquidLiveMarketResolver } from '../live/live-market-resolver.js';
@@ -23,7 +23,9 @@ export interface LiveSettleRequest {
   readonly userId: number; readonly accountId: string; readonly accountAddress: string;
   readonly sourceNetwork: LiveSourceNetwork; readonly leaderAddress: string; readonly key: string;
 }
-export type LiveSettleOutcome = { kind: 'released' } | { kind: 'unplaced' } | { kind: 'pending' | 'quarantine'; reason: string };
+/** `unsent`: a journal rejected before its hold committed (never signed or
+ * sent, no reservation): nothing to settle; `reason` is its refusal. */
+export type LiveSettleOutcome = { kind: 'released' } | { kind: 'unplaced' } | { kind: 'pending' | 'quarantine' | 'unsent'; reason: string };
 
 /**
  * Settles one terminal order on the deployment's network (`network`): scans the account's own fills now
@@ -44,6 +46,7 @@ export class CopyLiveSettler {
     // An order of another network (a database that moved networks) is history:
     // never read or settled here.
     if (record.authorization.network !== this.network) return { kind: 'pending', reason: 'live_other_network' };
+    if (record.errorCode === UNHELD_REJECTED) return { kind: 'unsent', reason: record.outcome?.reason ?? UNHELD_REJECTED };
     // Book the account's own fills now (the scheduled scan reaches an account
     // only every two minutes). The scan also advances its proven horizon,
     // which the next order's position projection requires.

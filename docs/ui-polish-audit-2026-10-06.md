@@ -189,3 +189,25 @@ apps/web/src 全掃（`<table`、`<Table`、`divide-y-2 divide-dotted`、`grid-c
 原因：`lib/trade-card-image.tsx:27-32` 的 `CoinBadge` 刻意只畫 ticker，註解寫「no outside icon is fetched」（`f506b9d9` 引入）。但真 logo 其實就在站內：頁面的 `CoinIcon` 走 `/api/coin-icon/<coin>`（`app/api/coin-icon/[coin]/route.ts`，回 SVG、快取一天），而交易員分享卡已經有把 KOL 頭像抓成 data URI 嵌進圖的做法（`lib/share-card-data.ts:101-118 avatarDataUri`）。
 
 建議：`CoinBadge` 改為先取 `/api/coin-icon/<coin>`（server 端同一個 lookup，不必走 HTTP）轉 `data:image/svg+xml;base64` 嵌入；取不到或 SVG 含 satori 不支援的元素（`<use>`、外部字型、濾鏡）才退回現在的 ticker 圓。股票（`xyz:TSLA`）與無 logo 的幣維持 ticker 圓。要加一個測試：有 logo 的幣，卡片 PNG 與頁面 icon 來源同一個 SVG。
+
+## 十二、交易員頁左側資訊卡與右側跟單卡（2026-10-07，Paul 回報）
+
+1440 無頭實測（scratchpad `trader4/`）。
+
+| # | 問題 | 量測／原因 | 建議 |
+| --- | --- | --- | --- |
+| 1 | 左卡「收藏」「分享」鈕組靠左 | 兩顆 44px 圓鈕在 x=40、92（卡寬 280），容器 `profile-card.tsx:235` `flex items-center gap-2 px-5 pt-3` 無 `justify-center`；上方頭像＋名字也是靠左 | 鈕組加 `justify-center`。更好：整個卡頭改成置中的直排（頭像 56 → 名字 → 位址 → 鈕組），像個人檔案卡；持倉／概覽等區塊維持左對齊 |
+| 2 | 「帳戶價值」開合沒有動畫 | `profile-card.tsx:129-157`：按鈕 `aria-expanded` 切 `open`，箭頭有 `transition-transform`，但明細 `{open ? <div id="account-value-parts"> : null}` 是條件掛載，高度瞬間跳 | 明細常駐，外層 `grid` 用 `grid-template-rows: 0fr → 1fr` + `overflow-hidden` + `transition: grid-template-rows var(--dur-base) var(--ease-orbit)`（或 `interpolate-size: allow-keywords` + `height: auto` 過渡，Chromium 已支援）；內層加 `opacity` 淡入；`prefers-reduced-motion` 立即。同一個 `Collapsible` 元件給「更多設定」（跟單卡）與投資組合曝險明細共用 |
+| 3 | 右側跟單卡輸入金額時整張卡高度變動 | `copy-panel.tsx:174-196`：`amountPx` 依字數在 64→28px 之間自動縮字，`:547` 把 `<input>` 的 `height` 設成 `amountPx * 1.328`，所以打到 5、6 位數時金額列從 85px 縮到 37px，整張卡跟著縮；USDC 後綴字級也跟著變 | 金額列固定高度（64px 字的行高，約 85px），只變 `font-size`、垂直置中；或乾脆不自動縮字，超過寬度改 `text-overflow`／橫向捲動。USDC 後綴固定 18px |
+| 4 | 跟單卡元件擠 | 順向／反向 52px → 金額列 `pt-10` → 餘額 `mt-10` → 滑桿 `mt-4` → 更多設定 `mt-7` → CTA `pt-7`；卡高 472，間距 40／40／16／28／28 不成節奏，且「0 USDC」左、「最大」右，中間大片空白 | 用 Orbit 的 24／32 節奏：區塊間 32、同區塊內 16；金額列改成一個 `bg-inset` 圓角 20 的大輸入框（數字置中、USDC 在右、最大在框外右上），餘額＋滑桿合為一個「可交易餘額」小卡；更多設定用 #2 的 Collapsible |
+
+## 十三、模擬訂單與模擬帳戶歷史合併（2026-10-07，Paul 決定）
+
+資料關係已確認：帳本裡 `realized_pnl`／`fee`／`builder_fee` 三種帶 `orderId`（`copy-execution.service.ts:371-373`），`allocate`／`withdraw`／`release`／`liquidation` 不帶，`funding` 只帶 `coin`（`:540`）；成交表每列帶 `orderId`。所以可以乾淨地切成兩塊：
+
+| 新區塊 | 內容 | 來源 | 樣式 |
+| --- | --- | --- | --- |
+| **訂單** | 一列一張單（時間、幣種、買賣＋開平、數量、均價、狀態＋原因）；列可展開：該單的成交明細（數量 × 價格、時間）與該單的費用／已實現損益合計 | 訂單表 + 成交表（by orderId）+ 帳本 `realized_pnl`／`fee`／`builder_fee`（by orderId） | `ui/Table dense`，展開列用 `.row-expansion`；TablePager 每頁 10 |
+| **資金紀錄** | 資金分配、資金退回、提款、資金費（帶幣種）、清算 | 帳本中 `orderId` 為空的列 | `DataList`（時間、種類＋幣種、格式化金額、餘額變化方向）；TablePager 每頁 10 |
+
+刪除：「模擬帳戶歷史」區塊與其帳本／成交兩個子分頁、原始小數字串、`#id · 訂單 #orderId`。API 不必改：訂單展開時以 `/fills?orderId=`、`/ledger?orderId=` 取（或一次把三者 join 回傳一個 `orders?expand=1`，視 ⑩ 的方便）。

@@ -131,7 +131,8 @@ export { WALLET_NETWORK_HL, walletNetworkHyperliquid, type WalletNetworkHyperliq
       workerQuorumId: config.value.copy.agent?.workerQuorumId, authorizationPrivateKey: config.value.copy.agent?.authorizationPrivateKey }) },
     { provide: HyperliquidFollowerReceiptReader, inject: [WALLET_NETWORK_HL], useFactory: ({ budget, transport, network }: WalletNetworkHyperliquid) =>
       new HyperliquidFollowerReceiptReader(network, liveBudget(budget, { lane: "background", maxWaitMs: 5_000 }), transport.fetchInfo,
-        Date.now, weight => { if (weight > 0) budget.adjust(-weight); }) },
+        Date.now, weight => { if (weight > 0) budget.adjust(-weight); },
+        { acquire: liveBudget(budget, { lane: "background", maxWaitMs: Math.min(180_000, budget.refillMs()) }), maxWaitMs: Math.min(180_000, budget.refillMs()) + 2000 }) },
     { provide: USER_AGENT_PROVISIONER, inject: [AppConfig], useFactory: (config: AppConfig) => new PrivyUserAgentProvisioner({
       appId: config.value.auth.appId, appSecret: config.value.auth.appSecret, workerQuorumId: config.value.copy.agent?.workerQuorumId,
       authorizationPublicKey: config.value.copy.agent?.authorizationPublicKey, network: deploymentNetwork(config) }) },

@@ -1681,6 +1681,7 @@ export const vi: Messages = {
     myFunds: "Tiền của tôi",
     mainWallet: "Ví chính",
     inCopies: "Đang sao chép",
+    balancePending: "Đang xác nhận số dư",
     copying: "Đang sao chép",
     ended: "Đã kết thúc ({count})",
     previousNetwork: "Bản sao trên mạng trước ({count})",

@@ -1681,6 +1681,7 @@ export const tr: Messages = {
     myFunds: "Fonlarım",
     mainWallet: "Ana cüzdan",
     inCopies: "Kopyalarda",
+    balancePending: "Bakiye doğrulanıyor",
     copying: "Kopyalanıyor",
     ended: "Biten ({count})",
     previousNetwork: "Önceki ağdaki kopyalar ({count})",

@@ -11,8 +11,8 @@ import { reserveLive } from '../../hyperliquid/hyperliquid-budget-wait.js';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
 import { roundPx, slippedPx } from '../copy-math.js';
 import { HyperliquidAgentApprovalVerifier } from '../live/hyperliquid-agent-approval.js';
-import { HyperliquidLiveAccountObserver, type LiveAccountSnapshot } from '../live/live-account-observer.js';
-import { HyperliquidAllDexsAccountSource } from '../live/live-account-ws-source.js';
+import { HyperliquidLiveAccountObserver, OBSERVER_REST_WEIGHT, type LiveAccountSnapshot } from '../live/live-account-observer.js';
+import { HyperliquidAllDexsAccountSource, PerReadAllDexsAccountSource } from '../live/live-account-ws-source.js';
 import type { LiveExecutionGate, LiveExecutionPermit } from '../live/live-execution-gate.js';
 import { LiveOrderExecutor, type LiveExecutionRecord } from '../live/live-execution.js';
 import { boundedLiveRead, HyperliquidLiveMarketResolver } from '../live/live-market-resolver.js';
@@ -84,28 +84,46 @@ export class ReduceOnlyCloser {
     private readonly now = Date.now) {}
   private acquire = (weight: number) => reserveLive(this.budget, weight, { maxWaitMs: 5000 });
 
+  /** Reserve before evidence clocks start. Credits belong to this operation;
+   * only unsent local weights are refunded, never durable egress charges. */
+  private async prepaid<T>(weight: number, work: (acquire: (weight: number) => Promise<void>) => Promise<T>): Promise<T> {
+    await reserveLive(this.budget, weight, { maxWaitMs: Math.min(180_000, this.budget.refillMs()) });
+    let credit = weight;
+    const acquire = async (wanted: number) => {
+      const paid = Math.min(credit, wanted); credit -= paid;
+      try { if (wanted > paid) await this.acquire(wanted - paid); }
+      catch (error) { credit += paid; throw error; }
+    };
+    try { return await work(acquire); }
+    finally { if (credit > 0) this.budget.adjust(-credit); }
+  }
+
   /** A fresh all-venue observation of the account (positions and orders). */
   async observe(accountAddress: string): Promise<LiveAccountSnapshot> {
-    const sockets = new HyperliquidAllDexsAccountSource(this.now, undefined, this.network, this.global);
+    return this.prepaid(OBSERVER_REST_WEIGHT, acquire => this.readObservation(accountAddress, acquire));
+  }
+
+  private async readObservation(accountAddress: string, acquire: (weight: number) => Promise<void>): Promise<LiveAccountSnapshot> {
+    const sockets = new PerReadAllDexsAccountSource(() => new HyperliquidAllDexsAccountSource(this.now, undefined, this.network, this.global, { closeAfterRead: true }), 2);
     try {
-      const value = await new HyperliquidLiveAccountObserver(this.network, this.acquire, this.global.fetchInfo, this.now, 5000, sockets).observe(accountAddress);
+      const value = await new HyperliquidLiveAccountObserver(this.network, acquire, this.global.fetchInfo, this.now, 5000, sockets).observe(accountAddress);
       this.snapshot = { at: this.now(), value };
       return value;
     } finally { await sockets.close(); }
   }
 
-  private executor(account: CloseAccount, stillWanted: () => Promise<boolean>, purpose?: GrantPurpose) {
+  private executor(account: CloseAccount, stillWanted: () => Promise<boolean>, purpose?: GrantPurpose, acquire = this.acquire) {
     const { auth, copy } = this.config.value;
     if (!auth.appId || !auth.appSecret || !copy.agent || copy.agent.workerQuorumId !== account.workerQuorumId) throw new LiveBoundaryError('close_signing_configuration');
     const agent = copy.agent;
     const authorizations = new WalletAuthorizationService(PostgresWalletAuthorizationSource.forPurpose(this.db, purpose),
-      new HyperliquidAgentApprovalVerifier(this.network, this.acquire, this.global.fetchInfo, this.now), this.now);
+      new HyperliquidAgentApprovalVerifier(this.network, acquire, this.global.fetchInfo, this.now), this.now);
     const gate: LiveExecutionGate = { assertReady: async ({ phase, intent, record }) => {
       if (!intent.reduceOnly || intent.timeInForce !== 'Ioc' || intent.network !== this.network || address(intent.accountAddress) !== address(account.accountAddress))
         throw new LiveBoundaryError('close_gate_not_reduce_only');
       if (!await stillWanted()) throw new LiveBoundaryError('close_no_longer_requested');
       const held = this.snapshot && this.now() - this.snapshot.at <= SNAPSHOT_MAX_AGE_MS && this.snapshot.value.accountAddress === address(account.accountAddress)
-        ? this.snapshot : { at: this.now(), value: await this.observe(account.accountAddress) };
+        ? this.snapshot : { at: this.now(), value: await this.readObservation(account.accountAddress, acquire) };
       const position = held.value.positions.find(p => p.coin === intent.market?.coin);
       assertCloseWithinPosition(intent, position);
       const observedAt = held.at;
@@ -120,8 +138,8 @@ export class ReduceOnlyCloser {
       this.signingKey(agent.authorizationPrivateKey, agent.authorizationPublicKey);
       return { authorization_context: { authorization_private_keys: [agent.authorizationPrivateKey] } };
     }, gate, this.now);
-    const resolver = new HyperliquidLiveMarketResolver(this.network, this.acquire, this.global.fetchInfo, this.now);
-    const transport = new HyperliquidLiveTransport(this.network, signer, gate, fetch, 5000, this.now, { marketResolver: resolver, acquire: this.acquire, globalTransport: this.global });
+    const resolver = new HyperliquidLiveMarketResolver(this.network, acquire, this.global.fetchInfo, this.now);
+    const transport = new HyperliquidLiveTransport(this.network, signer, gate, fetch, 5000, this.now, { marketResolver: resolver, acquire, globalTransport: this.global });
     const journal = new PostgresLiveExecutionJournal(this.db, this.pool, this.uow);
     return { executor: new LiveOrderExecutor(authorizations, journal, transport, gate, this.now), resolver, journal };
   }
@@ -147,7 +165,8 @@ export class ReduceOnlyCloser {
     const { account } = request, cloid = closeCloid(request.seed), key = `${this.network}:${address(account.accountAddress)}:${cloid}`;
     // A stop's close (seed stop:…) may use a grant whose revocation was
     // requested; a single-position close may not.
-    const { executor, resolver, journal } = this.executor(account, request.stillWanted, request.seed.startsWith('stop:') ? 'stop' : undefined);
+    const purpose = request.seed.startsWith('stop:') ? 'stop' : undefined;
+    const { executor, journal } = this.executor(account, request.stillWanted, purpose);
     const existing = await journal.get(key);
     if (existing) {
       // Left prepared by a failed pass (Privy 5xx or timeout, a stale wallet
@@ -157,28 +176,35 @@ export class ReduceOnlyCloser {
       if (existing.state === 'prepared') return this.neverSent(journal, key);
       return ['submitting', 'unknown', 'resting'].includes(existing.state) ? executor.reconcile(key) : existing;
     }
-    // The caller's observation of a moment ago (same pass) is reused: every
-    // observation weighs about 350 of the minute's 1200.
-    const held = this.snapshot && this.now() - this.snapshot.at <= SNAPSHOT_MAX_AGE_MS && this.snapshot.value.accountAddress === address(account.accountAddress) ? this.snapshot.value : null;
-    const snapshot = held ?? await this.observe(account.accountAddress);
-    const position = snapshot.positions.find(p => p.coin === request.coin);
-    if (!position || Dec.from(position.size).isZero) return null;
-    const market = await resolver.resolve(request.coin);
-    if (market.asset !== position.asset || market.sizeDecimals !== position.sizeDecimals) throw new LiveBoundaryError('close_market_identity_mismatch');
-    const mid = await this.mid(market.coin, market.dex);
-    const side = Dec.from(position.size).isPositive ? 'A' as const : 'B' as const;
-    const limit = roundPx(slippedPx(mid, side, closeSlippageBps(this.slippageBps, request.attempt)), market.sizeDecimals);
-    if (!limit.isPositive) throw new LiveBoundaryError('close_price_unavailable');
-    const intent: LiveOrderIntent = { authorizationId: account.authorizationId, userId: account.userId, strategyId: account.strategyId, walletId: account.walletId,
-      network: this.network, accountAddress: address(account.accountAddress), cloid, asset: market.asset, side, size: Dec.from(position.size).abs().toString(),
-      limitPrice: limit.toString(), sizeDecimals: market.sizeDecimals, timeInForce: 'Ioc', reduceOnly: true, market };
-    try { return await executor.execute(intent); }
-    catch (error) {
-      // A failure that left the order prepared ends it now (best effort; the
-      // next pass does it otherwise), so the error is what the stop shows.
-      await this.neverSent(journal, key).catch(() => undefined);
-      throw error;
-    }
+    // One account observation, four market identity reads (40 each for a
+    // named venue), four agent approval reads, mids and one exchange POST.
+    // This upper bound grants no authority; every existing boundary still
+    // reads and validates its own fresh evidence after the wait.
+    return this.prepaid(OBSERVER_REST_WEIGHT + 4 * 40 + 4 * 20 + 3, async acquire => {
+      const { executor, resolver } = this.executor(account, request.stillWanted, purpose, acquire);
+      // Reuse the caller's observation only while it remains fresh after
+      // the quota wait; otherwise collect a complete new observation.
+      const held = this.snapshot && this.now() - this.snapshot.at <= SNAPSHOT_MAX_AGE_MS && this.snapshot.value.accountAddress === address(account.accountAddress) ? this.snapshot.value : null;
+      const snapshot = held ?? await this.readObservation(account.accountAddress, acquire);
+      const position = snapshot.positions.find(p => p.coin === request.coin);
+      if (!position || Dec.from(position.size).isZero) return null;
+      const market = await resolver.resolve(request.coin);
+      if (market.asset !== position.asset || market.sizeDecimals !== position.sizeDecimals) throw new LiveBoundaryError('close_market_identity_mismatch');
+      const mid = await this.mid(market.coin, market.dex, acquire);
+      const side = Dec.from(position.size).isPositive ? 'A' as const : 'B' as const;
+      const limit = roundPx(slippedPx(mid, side, closeSlippageBps(this.slippageBps, request.attempt)), market.sizeDecimals);
+      if (!limit.isPositive) throw new LiveBoundaryError('close_price_unavailable');
+      const intent: LiveOrderIntent = { authorizationId: account.authorizationId, userId: account.userId, strategyId: account.strategyId, walletId: account.walletId,
+        network: this.network, accountAddress: address(account.accountAddress), cloid, asset: market.asset, side, size: Dec.from(position.size).abs().toString(),
+        limitPrice: limit.toString(), sizeDecimals: market.sizeDecimals, timeInForce: 'Ioc', reduceOnly: true, market };
+      try { return await executor.execute(intent); }
+      catch (error) {
+        // A failure that left the order prepared ends it now (best effort; the
+        // next pass does it otherwise), so the error is what the stop shows.
+        await this.neverSent(journal, key).catch(() => undefined);
+        throw error;
+      }
+    });
   }
 
   /**
@@ -201,8 +227,8 @@ export class ReduceOnlyCloser {
     });
   }
 
-  private async mid(coin: string, dex: string): Promise<Dec> {
-    await boundedLiveRead(() => this.acquire(2), 5000);
+  private async mid(coin: string, dex: string, acquire: (weight: number) => Promise<void>): Promise<Dec> {
+    await boundedLiveRead(() => acquire(2), 5000);
     const response = await boundedLiveRead(() => this.global.fetchInfo(WALLET_NETWORKS[this.network].infoUrl, { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify(dex ? { type: 'allMids', dex } : { type: 'allMids' }), redirect: 'error', signal: AbortSignal.timeout(5000) }), 5000);
     if (!response.ok) throw new LiveBoundaryError('close_price_unavailable');

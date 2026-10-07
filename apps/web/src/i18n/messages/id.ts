@@ -1681,6 +1681,7 @@ export const id: Messages = {
     myFunds: "Dana saya",
     mainWallet: "Dompet utama",
     inCopies: "Dalam salinan",
+    balancePending: "Saldo belum dikonfirmasi",
     copying: "Menyalin",
     ended: "Selesai ({count})",
     previousNetwork: "Salinan di jaringan sebelumnya ({count})",

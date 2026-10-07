@@ -159,7 +159,10 @@ function useFigures(item: LiveCopyItem, account: CopyExecutionAccount | null) {
   const observed = snapshot.data?.status === 'observed' ? snapshot.data : null;
   const equity = observed ? Number(observed.metrics.perpEquity) : null;
   const net = useNetDeposits(item);
-  return { snapshot, observed, equity, ...livePnl(equity, net) };
+  // The funds ledger and account snapshot refresh independently. A transfer
+  // in progress cannot back a gain or loss from their mismatched snapshots.
+  const transferring = ['funding', 'awaiting_credit', 'stopping', 'sweeping'].includes(item.stage) || item.pendingTransfer !== null;
+  return { snapshot, observed, equity, ...livePnl(equity, transferring ? null : net) };
 }
 
 function LiveCopyCard({ item, leader, account, onOpen, onEquity, previous = false }: { item: LiveCopyItem; leader: Leader; account: CopyExecutionAccount | null; onOpen: () => void; onEquity?: (strategyId: number, equity: number | null) => void;

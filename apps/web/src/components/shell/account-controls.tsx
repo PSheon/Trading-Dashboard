@@ -211,9 +211,9 @@ function AccountPill() {
       {trading.mode !== "paper" && trading.available ? <CopyEquityProbes /> : null}
       <AccountMenu>
         <span className="hidden items-center gap-1.5 pr-1 lg:flex">
-          {total != null ? (
-            <span className="num font-display text-[15px]" data-testid="account-total">{format.usd(total + (trading.mode === "paper" ? 0 : inCopies), { digits: 2 })}</span>
-          ) : !trading.available || (trading.mode === "paper" ? paper.isError : wallet.isError) ? (
+          {total != null && (trading.mode === "paper" || inCopies !== null) ? (
+            <span className="num font-display text-[15px]" data-testid="account-total">{format.usd(total + (trading.mode === "paper" ? 0 : inCopies!), { digits: 2 })}</span>
+          ) : !trading.available || (trading.mode === "paper" ? paper.isError : wallet.isError || inCopies === null) ? (
             <span className="text-sm text-muted-foreground">—</span>
           ) : (
             <Skeleton className="h-4 w-16" />

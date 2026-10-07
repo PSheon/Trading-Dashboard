@@ -29,7 +29,7 @@ const accounts = [account("acct-41", 41, A.account), account("acct-42", 42, B.ac
 const mandates = [mandate(A.mandate, "acct-41", 41, A.account, A.leader), mandate(B.mandate, "acct-42", 42, B.account, B.leader)];
 const observed = (equity: string) => ({ status: "observed", metrics: { perpEquity: equity, withdrawable: equity, unrealizedPnl: "0" }, positions: [], restingOrders: [] });
 
-const state = vi.hoisted(() => ({ mode: "testnet" as string, deployment: null as unknown }));
+const state = vi.hoisted(() => ({ mode: "testnet" as string, deployment: null as unknown, snapshotUnknown: false, sweeping: false }));
 /** Orbie's ledger: each copy's 100 USDC deposit (their net deposits). */
 const deposit = (strategyId: number, address: string) => ({ id: `funding:${strategyId}`, time: now, kind: "copy_funding", mode: "testnet", amount: 100, strategyId, leaderAddress: null, status: "credited", txHash: null, fee: null, counterparty: address, count: null });
 vi.mock("@/lib/funds", async () => ({ ...(await vi.importActual<typeof import("@/lib/funds")>("@/lib/funds")),
@@ -44,11 +44,11 @@ vi.mock("@/components/wallet/wallet-modals", () => ({ useWalletModals: () => ({ 
 vi.mock("@/lib/copy-live-portfolio", () => {
   const idle = { mutate() {}, mutateAsync: async () => ({}), isPending: false, isError: false, variables: undefined };
   return { onOtherNetwork: (item: { network?: string | null }, network: string | null | undefined) => Boolean(network && item.network && item.network !== network),
-    useLiveCopyPortfolio: () => ({ data: { network: "testnet", automaticExecution: true, items }, enabled: true, isError: false }), useLiveCopyPortfolioActions: () => ({ transfer: idle, cancellation: idle, close: idle, cancelTransfer: idle }) };
+    useLiveCopyPortfolio: () => ({ data: { network: "testnet", automaticExecution: true, items: state.sweeping ? items.map((i, n) => n === 0 ? { ...i, stage: "sweeping" } : i) : items }, enabled: true, isError: false }), useLiveCopyPortfolioActions: () => ({ transfer: idle, cancellation: idle, close: idle, cancelTransfer: idle }) };
 });
 vi.mock("@/lib/copy-execution-wallets", () => ({ useExecutionWallets: () => ({ data: { accounts } }) }));
 vi.mock("@/lib/copy-live", () => ({ useLiveCopyOverview: () => ({ data: { mandates, strategies: [] } }) }));
-vi.mock("@/lib/copy-follower-snapshot", () => ({ useCopyFollowerSnapshot: (a: { address: string } | null) => ({ data: a ? observed(a.address === A.account ? "112.5" : "95") : undefined, refetch: async () => undefined }) }));
+vi.mock("@/lib/copy-follower-snapshot", () => ({ useCopyFollowerSnapshot: (a: { address: string } | null) => ({ data: a ? state.snapshotUnknown && a.address === A.account ? { status: "unavailable", reason: "not_observed" } : observed(a.address === A.account ? "112.5" : "95") : undefined, refetch: async () => undefined }) }));
 // The stop history holds every copy's stops: B's must never show on A's sheet.
 vi.mock("@/lib/copy-live-stop", () => ({
   canResumeLiveCopyStop: () => false,
@@ -70,7 +70,7 @@ vi.mock("@/components/copy/portfolio-parts", () => ({ PortfolioChart: () => null
 let root: Root, container: HTMLDivElement, client: QueryClient;
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-  state.mode = "testnet"; state.deployment = { available: true, network: "testnet" }; window.history.replaceState(null, "", "/portfolio");
+  state.mode = "testnet"; state.snapshotUnknown = false; state.sweeping = false; state.deployment = { available: true, network: "testnet" }; window.history.replaceState(null, "", "/portfolio");
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 });
@@ -88,6 +88,25 @@ it("我的資金 is one total (main wallet plus the copies), with 主錢包 and 
   expect(funds.textContent).toContain("$707.50"); // 500 + 112.5 + 95
   expect(funds.textContent).toContain("主錢包"); expect(funds.textContent).toContain("$500.00");
   expect(funds.textContent).toContain("跟單中"); expect(funds.textContent).toContain("$207.50");
+});
+
+it("does not present an unknown copy balance as zero or an incomplete combined total", async () => {
+  state.snapshotUnknown = true;
+  await render();
+  const funds = phone().querySelector('[data-testid="my-funds"]')!;
+  expect(funds.textContent).toContain("$500.00");
+  expect(funds.textContent).toContain("餘額待確認");
+  expect(funds.querySelector("p.num")!.textContent).toBe("—");
+  expect(funds.textContent).not.toContain("$595.00");
+});
+
+it("withholds a combined total while a copy is returning funds, even when its prior snapshot was observed", async () => {
+  state.sweeping = true;
+  await render();
+  const funds = phone().querySelector('[data-testid="my-funds"]')!;
+  expect(funds.textContent).toContain("餘額待確認");
+  expect(funds.querySelector("p.num")!.textContent).toBe("—");
+  expect(funds.textContent).not.toContain("$707.50");
 });
 
 it("a copy is a two-line card (name and status; PnL and ROI) that opens its detail sheet", async () => {

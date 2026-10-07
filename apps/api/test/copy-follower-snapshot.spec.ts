@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
-import { copyExecutionAccounts, copyFundingOperations, copyFollowerObservations, copyFollowerObservationJobs, copyFollowerObservationBudget, copyFollowerAccountState, copyStrategies, users } from '@trading-dashboard/shared/database';
+import { copyExecutionAccounts, copyFundingOperations, copyFollowerObservations, copyFollowerObservationJobs, copyFollowerObservationBudget, copyFollowerAccountState, copyStrategies, copyLiveSetups, copyLiveMandates, copyLiveDispatches, users } from '@trading-dashboard/shared/database';
 import { CopyFollowerSnapshotRepository } from '../src/copy/copy-follower-snapshot.repository.js';
 import { CopyFollowerSnapshotService, CopyFollowerSnapshotCollector } from '../src/copy/copy-follower-snapshot.service.js';
 import { BackgroundJobs } from '../src/runtime/background-jobs.service.js';
@@ -8,6 +8,7 @@ import type { LiveAccountSnapshot } from '../src/copy/live/live-account-observer
 import { fixture, now, account } from './copy-live-risk-test-utils.js';
 import { testConfig } from './config-test-utils.js';
 import { closeTestDb, getTestDb, insertUser, truncateAll, type TestDb } from './db-test-utils.js';
+import { preparationFixture } from './copy-live-preparation-test-utils.js';
 
 let db: TestDb, repository: CopyFollowerSnapshotRepository, service: CopyFollowerSnapshotService, userId: number;
 const snapshot = (): LiveAccountSnapshot => structuredClone(fixture().accountSource.snapshot);
@@ -23,6 +24,31 @@ beforeEach(async () => {
 afterEach(() => vi.restoreAllMocks()); afterAll(closeTestDb);
 async function store() { const claim = await repository.claim(); expect(claim).not.toBeNull(); await repository.save(claim!, snapshot()); return claim!; }
 describe('actual follower acquisition, isolation and retained observations', () => {
+  it('defers a funded setup still acquiring its live capabilities, but retains funds after it fails', async () => {
+    await db.insert(copyLiveSetups).values({ id: 'new-setup', userId, strategyId: 9, accountId: 'account', kind: 'start',
+      idempotencyKey: 'new-snapshot-setup-0001', stage: 'awaiting_consent', leaderAddress: `0x${'44'.repeat(20)}`,
+      sourceNetwork: 'testnet', budgetUsd: '50', settings: {} });
+    expect(await repository.claim()).toBeNull();
+    await db.update(copyLiveSetups).set({ stage: 'failed' });
+    expect(await repository.claim()).toMatchObject({ accountId: 'account' });
+  });
+  it('gives a newly active copy time for its first dispatch without hiding an idle funded account indefinitely', async () => {
+    await preparationFixture(db);
+    await db.update(copyLiveMandates).set({ createdAt: sql`statement_timestamp()`, activationCursor: sql`statement_timestamp()`,
+      nonce: sql`floor(extract(epoch from statement_timestamp()) * 1000)`, consentExpiresAt: sql`statement_timestamp() + interval '30 seconds'`,
+      expiresAt: sql`statement_timestamp() + interval '1 day'`, updatedAt: sql`statement_timestamp()` });
+    expect(await repository.claim()).toBeNull();
+    await db.update(copyLiveMandates).set({ createdAt: sql`clock_timestamp() - interval '121 seconds'` });
+    expect(await repository.claim()).toMatchObject({ accountId: 'account' });
+  });
+  it('defers reporting while a financial dispatch is pending and resumes after its terminal refusal', async () => {
+    const seed = await preparationFixture(db);
+    await db.insert(copyLiveDispatches).values({ id: 'pending-dispatch', mandateId: 'mandate', userId: 1, strategyId: 9, accountId: 'account',
+      sourceFillId: seed.fill.id, leg: 'open', coin: 'BTC', state: 'pending', leaderTime: new Date(now - 1000), receivedAt: new Date(now) });
+    expect(await repository.claim()).toBeNull();
+    await db.update(copyLiveDispatches).set({ state: 'refused', reason: 'test_refusal' });
+    expect(await repository.claim()).toMatchObject({ accountId: 'account' });
+  });
   it('returns unknown before first observation and never uses zero paper cash as account equity', async () => {
     expect(await service.get(userId, 'account')).toMatchObject({ mode: 'actual', network: 'testnet', status: 'unavailable', reason: 'not_observed', observation: null });
     expect(await db.select().from(copyFollowerObservations)).toHaveLength(0);

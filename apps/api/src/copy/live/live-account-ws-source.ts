@@ -24,7 +24,7 @@ export interface LiveAllDexsAccountEvidence {
 }
 export interface LiveAllDexsAccountSource {
   read(accountAddress: string, timeoutMs: number): Promise<LiveAllDexsStateEvidence>;
-  readOrders?(accountAddress: string, dexes: readonly string[], timeoutMs: number): Promise<LiveAllDexsOrderEvidence>;
+  readOrders?(accountAddress: string, dexes: readonly string[], timeoutMs: number, signal?: AbortSignal): Promise<LiveAllDexsOrderEvidence>;
   /** `signal`: the caller gave up (a sibling read failed). Checked before a
    * socket is reserved and before anything is subscribed, so abandoned work
    * holds no connection, subscriptions or uncertain lease. */
@@ -45,16 +45,53 @@ const note = (what: string) => (error: unknown) => { logger.warn(`${what}: ${saf
  * live_account_aggregate_unavailable (Stage 2026-10-06, three accounts).
  */
 export class PerReadAllDexsAccountSource implements LiveAllDexsAccountSource {
-  constructor(private readonly create: () => LiveAllDexsAccountSource) {}
+  constructor(private readonly create: () => LiveAllDexsAccountSource, private readonly maxOrderSockets = 1) {
+    if (![1, 2].includes(maxOrderSockets)) throw new LiveBoundaryError('live_account_invalid_observer');
+  }
   private async use<T>(work: (source: LiveAllDexsAccountSource) => Promise<T>): Promise<T> {
     const source = this.create();
     try { return await work(source); } finally { await Promise.resolve(source.close?.()).catch(note('account socket not closed cleanly')); }
   }
   read(accountAddress: string, timeoutMs: number) { return this.use(source => source.read(accountAddress, timeoutMs)); }
-  readOrders(accountAddress: string, dexes: readonly string[], timeoutMs: number) {
-    return this.use(source => source.readOrders ? source.readOrders(accountAddress, dexes, timeoutMs) : Promise.reject(new LiveBoundaryError('live_account_aggregate_unavailable')));
+  readOrders(accountAddress: string, dexes: readonly string[], timeoutMs: number, signal?: AbortSignal) {
+    return this.use(source => source.readOrders ? source.readOrders(accountAddress, dexes, timeoutMs, signal) : Promise.reject(new LiveBoundaryError('live_account_aggregate_unavailable')));
   }
-  readAccount(accountAddress: string, dexes: readonly string[], timeoutMs: number, signal?: AbortSignal) {
+  async readAccount(accountAddress: string, dexes: readonly string[], timeoutMs: number, signal?: AbortSignal) {
+    if (signal?.aborted) fail('live_account_read_abandoned');
+    if (this.maxOrderSockets === 2 && dexes.length > BATCH) {
+      const user = address(accountAddress), requested = dexList.parse([...dexes]);
+      if (new Set(requested).size !== requested.length) fail('live_account_duplicate_evidence');
+      const cut = Math.ceil(requested.length / 2), parts = [requested.slice(0, cut), requested.slice(cut)];
+      // The aggregate state is subscribed once. The order venue sets are
+      // disjoint and complete; both sockets use the caller's original context
+      // and shared quota. A failure waits for BOTH cleanups before returning.
+      const stateWork = this.use(source => source.readAccount ? source.readAccount(user, parts[0]!, timeoutMs, signal)
+        : Promise.reject(new LiveBoundaryError('live_account_aggregate_unavailable')));
+      const ordersWork = this.use(source => source.readOrders ? source.readOrders(user, parts[1]!, timeoutMs, signal)
+        : Promise.reject(new LiveBoundaryError('live_account_aggregate_unavailable')));
+      const [stateResult, ordersResult] = await Promise.allSettled([stateWork, ordersWork]);
+      if (stateResult.status === 'rejected') throw stateResult.reason;
+      if (ordersResult.status === 'rejected') throw ordersResult.reason;
+      const first = structuredClone(stateResult.value), second = structuredClone(ordersResult.value);
+      if (!first?.state || !isHyperliquidNetwork(first.state.network) || typeof first.state.accountAddress !== 'string' || first.state.accountAddress.toLowerCase() !== user)
+        fail('live_account_source_mismatch');
+      for (const [index, proof] of [first.orders, second].entries()) {
+        const expected = parts[index]!;
+        if (!proof || proof.network !== first.state.network || typeof proof.accountAddress !== 'string' || proof.accountAddress.toLowerCase() !== user ||
+            !Number.isSafeInteger(proof.observedAt) || proof.observedAt <= 0 || !Number.isSafeInteger(proof.completedAt) || proof.completedAt < proof.observedAt ||
+            !Array.isArray(proof.requestedDexes) || proof.requestedDexes.length !== expected.length || proof.requestedDexes.some((dex, i) => dex !== expected[i]) ||
+            !Array.isArray(proof.venues) || proof.venues.length !== expected.length || new Set(proof.venues.map(v => v.dex)).size !== expected.length ||
+            proof.venues.some(v => !expected.includes(v.dex) || typeof v.user !== 'string' || v.user.toLowerCase() !== user || !Number.isSafeInteger(v.observedAt) || !Number.isSafeInteger(v.receivedAt) ||
+              v.observedAt < proof.observedAt || v.receivedAt < v.observedAt || v.receivedAt > proof.completedAt)) fail('live_account_source_mismatch');
+      }
+      if (!Number.isSafeInteger(first.state.observedAt) || first.state.observedAt < first.orders.observedAt || first.state.observedAt > first.orders.completedAt)
+        fail('live_account_source_mismatch');
+      // Preserve the earliest request and latest completion, including each
+      // venue's original timestamps. No new clock or execution authority.
+      return { state: first.state, orders: { network: first.orders.network, accountAddress: user,
+        observedAt: Math.min(first.orders.observedAt, second.observedAt), completedAt: Math.max(first.orders.completedAt, second.completedAt),
+        requestedDexes: requested, venues: [...first.orders.venues, ...second.venues] } };
+    }
     return this.use(source => source.readAccount ? source.readAccount(accountAddress, dexes, timeoutMs, signal) : Promise.reject(new LiveBoundaryError('live_account_aggregate_unavailable')));
   }
   close(): void {}
@@ -211,8 +248,8 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
     }
   }
 
-  async readOrders(accountAddress: string, requestedDexes: readonly string[], timeoutMs: number): Promise<LiveAllDexsOrderEvidence> {
-    return (await this.readSnapshots(accountAddress, requestedDexes, timeoutMs, false)).orders;
+  async readOrders(accountAddress: string, requestedDexes: readonly string[], timeoutMs: number, signal?: AbortSignal): Promise<LiveAllDexsOrderEvidence> {
+    return (await this.readSnapshots(accountAddress, requestedDexes, timeoutMs, false, signal)).orders;
   }
   async readAccount(accountAddress: string, requestedDexes: readonly string[], timeoutMs: number, signal?: AbortSignal): Promise<LiveAllDexsAccountEvidence> {
     const result = await this.readSnapshots(accountAddress, requestedDexes, timeoutMs, true, signal);
@@ -238,6 +275,14 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
       // A read that ends by closing its socket (closeAfterRead, or an original
       // live-risk session) ends every subscription at once: no unsubscribes.
       const unsubscribes=!this.closesAfterRead();
+      // A disposable read already reserves every subscription and its one
+      // close in the shared meter. Send that bounded set in one wave: waiting
+      // for each batch's snapshots adds provider latency to the same 5 s proof
+      // (268 testnet venues took three serial waves). Hyperliquid's 100 inflight
+      // limit covers post requests, not subscriptions. The meter still enforces
+      // 1000 subscriptions and 2000 messages/min across every socket; reusable
+      // sockets keep the smaller batches and their unsubscribe acknowledgements.
+      const batchSize=unsubscribes?BATCH:MAX_LIVE_PERP_DEXES;
       const permit=this.global?await this.commands([...(includeState?[{type:'allDexsClearinghouseState',user}]:[]),...dexes.map(dex=>({type:'openOrders',user,dex}))],deadline,unsubscribes):undefined;
       const result = await new Promise<{ state?: LiveAllDexsStateEvidence; orders: LiveAllDexsOrderEvidence }>((resolve, reject) => {
         let offset = 0, phase: 'subscribe' | 'unsubscribe' = 'subscribe', batch: string[] = [];
@@ -261,7 +306,7 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
           if (stopped) return;
           const first = offset === 0;
           // The aggregate command occupies one of the first batch's slots.
-          batch = dexes.slice(offset, offset + BATCH - (first && includeState ? 1 : 0)); offset += batch.length; phase = 'subscribe';
+          batch = dexes.slice(offset, offset + batchSize - (first && includeState ? 1 : 0)); offset += batch.length; phase = 'subscribe';
           pending = new Set(batch); acknowledged = new Set(); batchStarted = this.now();
           if (first && includeState) sendState('subscribe');
           for (const dex of batch) send('subscribe', dex);

@@ -10,7 +10,14 @@ export const describeUnexpected = (error: unknown): string | null => {
   if (!(error instanceof Error)) return `non-error ${typeof error}`;
   const frames = (error.stack ?? '').split('\n').slice(1).map(line => line.trim()).filter(line => line.startsWith('at '))
     .map(line => line.replace(/^at\s+/, '').replace(/\(?(?:file:\/\/)?[^()]*\/(apps|node_modules|node:internal)\//, '($1/')).slice(0, 4);
-  return `${/^[A-Za-z]{1,40}$/.test(error.name) ? error.name : 'Error'}${frames.length ? ` @ ${frames.join(' | ').slice(0, 400)}` : ''}`;
+  let cause: unknown = Object.getOwnPropertyDescriptor(error, 'cause')?.value;
+  const seen = new Set<unknown>([error]); let boundary = '';
+  for (let depth = 0; depth < 8 && cause && typeof cause === 'object' && !seen.has(cause); depth++) {
+    seen.add(cause);
+    if (cause instanceof LiveBoundaryError || cause instanceof HyperliquidBudgetWait) { boundary = ` [cause: ${errorCode(cause)}]`; break; }
+    cause = Object.getOwnPropertyDescriptor(cause, 'cause')?.value;
+  }
+  return `${/^[A-Za-z]{1,40}$/.test(error.name) ? error.name : 'Error'}${frames.length ? ` @ ${frames.join(' | ').slice(0, 400)}` : ''}${boundary}`;
 };
 /** An error's boundary code (a LiveBoundaryError's, `live_budget_wait` for a
  * HyperliquidBudgetWait, or a message that is one), else `fallback`. */

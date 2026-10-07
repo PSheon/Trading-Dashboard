@@ -1681,6 +1681,7 @@ export const ja: Messages = {
     myFunds: "マイ資金",
     mainWallet: "メインウォレット",
     inCopies: "コピー中",
+    balancePending: "残高確認中",
     copying: "コピー中",
     ended: "終了（{count}）",
     previousNetwork: "以前のネットワークのコピー（{count}）",

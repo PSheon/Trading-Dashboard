@@ -15,24 +15,39 @@ import { onOtherNetwork, useLiveCopyPortfolio, type LiveCopyItem } from '@/lib/c
  * request while both are on screen); another network's copies and stopped
  * ones are left out.
  */
-const reports = new Map<string, { id: number; equity: number }>();
+const reports = new Map<string, { id: number; equity: number | null }>();
 const listeners = new Set<() => void>();
-let total = 0;
+const empty = new Map<number, number | null>();
+let published: ReadonlyMap<number, number | null> = empty;
 function publish() {
-  const byCopy = new Map<number, number>();
-  for (const { id, equity } of reports.values()) byCopy.set(id, equity);
-  total = [...byCopy.values()].reduce((sum, value) => sum + value, 0);
+  const byCopy = new Map<number, number | null>();
+  for (const { id, equity } of reports.values()) byCopy.set(id, byCopy.get(id) === null ? null : equity);
+  published = byCopy;
   listeners.forEach((listener) => listener());
 }
 function report(token: string, id: number, equity: number | null) {
-  if (equity === null) reports.delete(token); else reports.set(token, { id, equity });
+  reports.set(token, { id, equity });
   publish();
 }
 const subscribe = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };
 
-/** The equity of this network's running copies, as the probes last read it. */
-export function useCopiesEquity(): number {
-  return useSyncExternalStore(subscribe, () => total, () => 0);
+/** A total only when every counted copy has an observed balance. Unknown
+ * balances remain unknown; only an unmounted probe leaves the collection. */
+export function useCopiesEquity(): number | null {
+  const portfolio = useLiveCopyPortfolio();
+  const balances = useSyncExternalStore(subscribe, () => published, () => empty);
+  if (!portfolio.data) return portfolio.enabled ? null : 0;
+  let total = 0;
+  for (const item of countedCopies(portfolio.data.items, portfolio.data.network)) {
+    // A prior snapshot can still contain money already returning to the main
+    // wallet. Wait for transfer reconciliation before combining both accounts.
+    if (['funding', 'awaiting_credit', 'stopping', 'sweeping'].includes(item.stage)
+      || (item.pendingTransfer && ['unknown', 'accepted'].includes(item.pendingTransfer.status))) return null;
+    const equity = balances.get(item.strategyId);
+    if (equity == null) return null;
+    total += equity;
+  }
+  return total;
 }
 
 /** The copies counted in the total: this deployment's network, not stopped
@@ -54,7 +69,7 @@ function Probe({ id, account }: { id: number; account: CopyExecutionAccount | nu
   const equity = snapshot.data?.status === 'observed' ? Number(snapshot.data.metrics.perpEquity) : null;
   useEffect(() => {
     report(token, id, equity);
-    return () => report(token, id, null);
+    return () => { reports.delete(token); publish(); };
   }, [token, id, equity]);
   return null;
 }

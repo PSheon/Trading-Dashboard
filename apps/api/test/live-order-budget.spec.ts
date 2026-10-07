@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AppConfig } from "../src/config/app-config.js";
 import { validateEnvironment } from "../src/config/runtime-config.js";
-import type { HyperliquidGlobalTransport } from "../src/hyperliquid/hyperliquid-global-transport.js";
+import { HyperliquidGlobalTransport } from "../src/hyperliquid/hyperliquid-global-transport.js";
 import { PostgresHyperliquidQuota } from "../src/hyperliquid/postgres-hyperliquid-quota.js";
 import { RequestBudgeterService } from "../src/hyperliquid/request-budgeter.service.js";
 import { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
@@ -15,6 +15,7 @@ import { assertLiveEvidenceCapacity, evidenceFinalCheck, evidenceFirstWave, live
 import { LiveBoundaryError } from "../src/copy/live/wallet-authorization.js";
 import { errorCode } from "../src/runtime/safe-error-text.js";
 import { planHyperliquidQuota, type HyperliquidQuotaState } from "../src/hyperliquid/hyperliquid-global-quota.js";
+import { followerSnapshotReader } from '../src/copy/copy-worker.module.js';
 
 const base = { DATABASE_URL: "postgres://u:p@localhost:5432/db", NODE_ENV: "test", HYPERLIQUID_EGRESS_KEY: "egress", HYPERLIQUID_STARTUP_PACE_SECONDS: "0" };
 /** COPY_LIVE_WEIGHT_PER_MIN is read with COPY_TRADING_MODE=testnet (and its signing keys): set it on the parsed config. */
@@ -36,6 +37,20 @@ const users = (n: number) => Array.from({ length: n }, (_, i) => `0x${String(i +
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe("the order path's token bucket", () => {
+  it('lets a reporting observation wait for cold background weight before its evidence clock', async () => {
+    vi.useFakeTimers();
+    const wallet = orderBucket({ HYPERLIQUID_NETWORK: 'testnet' }), budget = wallet.budget;
+    const reportingTransport = Object.create(HyperliquidGlobalTransport.prototype) as HyperliquidGlobalTransport;
+    const read = vi.fn(async () => Response.json(null));
+    Object.defineProperty(reportingTransport, 'fetchInfo', { value: read });
+    await budget.acquire(900, 'live');
+    const result = followerSnapshotReader({ ...wallet, transport: reportingTransport }).observe(users(1)[0]!).catch(error => error);
+    await vi.advanceTimersByTimeAsync(12_000);
+    expect(read).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(100_000);
+    expect(read).toHaveBeenCalled();
+    await result; budget.onModuleDestroy();
+  });
   it("one order's prepaid evidence: 204 a user + 160, exactly what the epoch's two waves weigh", () => {
     for (const n of [1, 2, 3, 9]) {
       const observed = users(n);
@@ -49,14 +64,14 @@ describe("the order path's token bucket", () => {
     expect(wallet.budget.liveCapacity).toBe(500);
     for (const maxStrategiesPerUser of [1, 2, 10])
       expect(() => assertLiveEvidenceCapacity({ capacity: wallet.budget.liveCapacity, maxStrategiesPerUser, network: wallet.network, budgetPerMin: 700 }))
-        .toThrow(/weighs (568|772|1996), more than the testnet order bucket can hold \(500 at 700\/min/);
+        .toThrow(/weighs (589|793|2017), more than the testnet order bucket can hold \(500 at 700\/min/);
   });
 
   it("the testnet default (300/min, capacity 900) holds two accounts plus the leader, not three", () => {
     const wallet = orderBucket({ HYPERLIQUID_NETWORK: "testnet" });
     expect(wallet.budget.liveCapacity).toBe(900);
-    expect(assertLiveEvidenceCapacity({ capacity: 900, maxStrategiesPerUser: 2, network: "testnet", budgetPerMin: 300 })).toEqual({ users: 3, weight: 772, capacity: 900 });
-    expect(() => assertLiveEvidenceCapacity({ capacity: 900, maxStrategiesPerUser: 3, network: "testnet", budgetPerMin: 300 })).toThrow(/3 live accounts plus the leader weighs 976.*\(2 fit\)/);
+    expect(assertLiveEvidenceCapacity({ capacity: 900, maxStrategiesPerUser: 2, network: "testnet", budgetPerMin: 300 })).toEqual({ users: 3, weight: 793, capacity: 900 });
+    expect(() => assertLiveEvidenceCapacity({ capacity: 900, maxStrategiesPerUser: 3, network: "testnet", budgetPerMin: 300 })).toThrow(/3 live accounts plus the leader weighs 997.*\(2 fit\)/);
   });
 
   it("the mainnet worker's defaults (360/840) hold two accounts plus the leader, whatever the api-shaped HYPERLIQUID_WEIGHT_* say", () => {
@@ -65,7 +80,7 @@ describe("the order path's token bucket", () => {
     expect(wallet.dedicated).toBe(false);
     expect(wallet.budget.introspect()).toMatchObject({ configuredBudgetPerMin: 360, burstCapacity: 840 });
     expect(assertLiveEvidenceCapacity({ capacity: wallet.budget.liveCapacity, maxStrategiesPerUser: 2, network: "mainnet", budgetPerMin: 360 }))
-      .toEqual({ users: 3, weight: 772, capacity: 840 });
+      .toEqual({ users: 3, weight: 793, capacity: 840 });
     // Explicit worker values still win; the api keeps its own.
     expect(orderBucket({ HYPERLIQUID_NETWORK: "mainnet", IS_WORKER: "true", HYPERLIQUID_WORKER_WEIGHT_BURST: "500" }).budget.liveCapacity).toBe(500);
     expect(orderBucket({ HYPERLIQUID_NETWORK: "mainnet", HYPERLIQUID_WEIGHT_BUDGET_PER_MIN: "480" }).budget.introspect()).toMatchObject({ configuredBudgetPerMin: 480, burstCapacity: 200 });

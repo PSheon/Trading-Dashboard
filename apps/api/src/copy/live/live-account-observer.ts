@@ -118,8 +118,9 @@ export class HyperliquidLiveAccountObserver {
   private readonly aggregateSource: LiveAllDexsAccountSource;
   constructor(readonly network: HyperliquidNetwork, private readonly acquire: (weight: number) => Promise<unknown>,
     private readonly fetcher: typeof fetch = fetch, private readonly now = Date.now, private readonly maxAgeMs = 5000,
-    aggregateSource?: LiveAllDexsAccountSource) {
-    if (!isHyperliquidNetwork(network) || typeof acquire !== 'function' || !Number.isSafeInteger(maxAgeMs) || maxAgeMs < 1 || maxAgeMs > 5000)
+    aggregateSource?: LiveAllDexsAccountSource, private readonly reservationMaxWaitMs = RESERVE_BOUND_MS) {
+    if (!isHyperliquidNetwork(network) || typeof acquire !== 'function' || !Number.isSafeInteger(maxAgeMs) || maxAgeMs < 1 || maxAgeMs > 5000 ||
+      !Number.isSafeInteger(reservationMaxWaitMs) || reservationMaxWaitMs < 1 || reservationMaxWaitMs > 182_000)
       fail('live_account_invalid_observer');
     this.aggregateSource = aggregateSource ?? new HyperliquidAllDexsAccountSource(now, undefined, network);
   }
@@ -137,7 +138,7 @@ export class HyperliquidLiveAccountObserver {
       // The WebSocket reads use the socket quota. An epoch's shared reads
       // were paid by the epoch.
       const restOrders = this.aggregateSource.readAccount === undefined && !this.aggregateSource.readOrders;
-      if (!shared) await boundedLiveRead(() => this.acquire(OBSERVER_REST_WEIGHT + (restOrders ? 20 * supported.size : 0)), RESERVE_BOUND_MS);
+      if (!shared) await boundedLiveRead(() => this.acquire(OBSERVER_REST_WEIGHT + (restOrders ? 20 * supported.size : 0)), this.reservationMaxWaitMs);
       const started = shared ? shared.startedAt : this.now();
       this.fresh(started);
       const sources: unknown[] = [];

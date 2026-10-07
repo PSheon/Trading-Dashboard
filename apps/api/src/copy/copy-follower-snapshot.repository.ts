@@ -27,6 +27,18 @@ const observable = sql`(exists (select 1 from copy_live_mandates m where m.accou
   or (exists (select 1 from copy_funding_operations f where f.account_id = ${copyExecutionAccounts.id} and f.direction = 'to_account' and f.status in ('unknown', 'accepted', 'credited'))
     and not exists (select 1 from copy_follower_observations o where o.id = ${copyFollowerObservationJobs.latestObservationId}
       and coalesce(nullif(o.snapshot->>'perpEquity', ''), '0')::numeric < 0.01)))`;
+/** Reporting shares the order bucket. Defer it during capability setup and
+ * in-flight financial dispatches. A new active copy gets at most two minutes
+ * for its first terminal dispatch; an idle funded copy remains observable.
+ * Failed/cancelled setups and revoked/stopped generations never hide funds. */
+const reportingEligible = sql`not exists (select 1 from copy_live_setups s where s.account_id = ${copyExecutionAccounts.id}
+    and s.stage not in ('running', 'failed', 'expired', 'cancelled')
+    and (s.created_at > clock_timestamp() - interval '120 seconds' or s.lease_until > clock_timestamp()))
+  and not exists (select 1 from copy_live_mandates m where m.account_id = ${copyExecutionAccounts.id} and m.state = 'active'
+    and m.created_at > clock_timestamp() - interval '120 seconds'
+    and not exists (select 1 from copy_live_dispatches d where d.mandate_id = m.id and d.state in ('settled','refused')))
+  and not exists (select 1 from copy_live_dispatches d inner join copy_live_mandates m on m.id = d.mandate_id
+    where d.account_id = ${copyExecutionAccounts.id} and d.state in ('pending','submitted') and m.state in ('active','paused','stopping'))`;
 @Injectable()
 export class CopyFollowerSnapshotRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, private readonly config: AppConfig) {}
@@ -49,7 +61,7 @@ export class CopyFollowerSnapshotRepository {
         and address <> '0x0000000000000000000000000000000000000000' on conflict (account_id) do nothing`);
       const [row] = await tx.select({ account: copyExecutionAccounts }).from(copyFollowerObservationJobs)
         .innerJoin(copyExecutionAccounts, eq(copyExecutionAccounts.id, copyFollowerObservationJobs.accountId))
-        .where(and(eq(copyExecutionAccounts.network, network), sql`${copyExecutionAccounts.address} is not null and ${copyExecutionAccounts.address} <> '0x0000000000000000000000000000000000000000'`, observable, sql`${copyFollowerObservationJobs.nextRunAt} <= clock_timestamp()`))
+        .where(and(eq(copyExecutionAccounts.network, network), sql`${copyExecutionAccounts.address} is not null and ${copyExecutionAccounts.address} <> '0x0000000000000000000000000000000000000000'`, observable, reportingEligible, sql`${copyFollowerObservationJobs.nextRunAt} <= clock_timestamp()`))
         .orderBy(copyFollowerObservationJobs.nextRunAt, copyFollowerObservationJobs.accountId).limit(1).for('update', { of: copyFollowerObservationJobs, skipLocked: true });
       if (!row?.account.address) return null;
       const claimToken = randomUUID();

@@ -222,7 +222,10 @@ try {
       const r = await node("reconcile.mjs", reconcileArgs, { quiet: true, env: { HARNESS_BEARER: await follower.token(), HARNESS_DATABASE_URL: env.DATABASE_URL } });
       try { reconcile = JSON.parse(r.out); } catch { reconcile = { failures: [{ check: "reconcile_crashed", detail: r.err.trim().split("\n").slice(-3).join(" ") }] }; }
       log("reconcile_attempt", { scenario: label, attempt, code: r.code, failures: reconcile.failures?.map((f) => f.check) });
-      if (r.code === 0 || Date.now() - t0 > 240_000) break;
+      // Terminal refused legs cannot catch up. Preserve the failed reconcile
+      // immediately and proceed to ordinary stop/return cleanup.
+      const terminal = reconcile.failures?.some(f => ['refusal_not_allowed', 'signal_expired'].includes(f.check));
+      if (r.code === 0 || terminal || Date.now() - t0 > 240_000) break;
       await sleep(15_000);
     }
     writeFileSync(resolve(OUT, `${runId}-${label}-reconcile.json`), `${JSON.stringify(reconcile, null, 2)}\n`);

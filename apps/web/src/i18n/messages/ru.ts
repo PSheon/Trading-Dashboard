@@ -1681,6 +1681,7 @@ export const ru: Messages = {
     myFunds: "Мои средства",
     mainWallet: "Основной кошелёк",
     inCopies: "В копиях",
+    balancePending: "Баланс уточняется",
     copying: "Копирование",
     ended: "Завершённые ({count})",
     previousNetwork: "Копии в прежней сети ({count})",

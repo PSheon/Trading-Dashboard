@@ -136,6 +136,7 @@ export class PostgresLivePreparation {
     // The leader trades on another network than this copy executes on.
     const crossNetworkSource = local.consent.sourceNetwork !== network;
     const frames = await this.epoch.collect(session, { accountId: binding.accountId, mandateId: binding.mandateId, key, coin: source.fill.coin,
+      checkLeverage: binding.leg === 'open',
       includeLeader: !crossNetworkSource && local.settings.sizingMode === 'ratio' && binding.leg === 'open' });
     riskSourceRequire(frames.authorityDigest === riskSourceDigest(local), 'live_risk_local_changed');
     const { market, leader, target: quote } = frames, follower = frames.snapshots[local.accounts.findIndex(a => a.id === binding.accountId)]!;

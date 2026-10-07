@@ -26,6 +26,40 @@ function setup(reply: (body: Record<string, any>) => unknown = (body) => body.ty
 const input = { accountAddress: account, from, to, maxRequests: 16 };
 
 describe('bounded account follower receipt reads (offline)', () => {
+  it('waits six seconds before starting receipt evidence clocks and keeps the captured scan windows', { timeout: 15000 }, async () => {
+    const released: number[] = [], weights: number[] = [];
+    const reserve = async (weight: number) => { weights.push(weight); await new Promise(resolve => setTimeout(resolve, 6000)); released.push(Date.now()); };
+    const refund = vi.fn();
+    const fetcher = vi.fn<typeof fetch>(async (_url, options) => Response.json(JSON.parse(String(options?.body)).type === 'userFillsByTime' ? [fill()] : [funding()]));
+    const reader = new HyperliquidFollowerReceiptReader('testnet', reserve, fetcher, Date.now, refund,
+      { acquire: reserve, maxWaitMs: 10000 });
+    const result = await reader.read({ ...input, maxRequests: 2 });
+    expect(result.fills).toHaveLength(1); expect(result.funding).toHaveLength(1);
+    expect(result.unresolvedWindows).toEqual([]); expect(result.fresh).toBe(true);
+    expect(result.observedAt).toBeGreaterThanOrEqual(released[0]!);
+    expect(result.requestedWindows).toEqual([{ kind: 'fills', from, to, depth: 0 }, { kind: 'funding', from, to, depth: 0 }]);
+    expect(weights).toEqual([240]); expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it('keeps prepaid scan windows detached and refunds only the request that never started', async () => {
+    const request = { ...input, maxRequests: 2 };
+    const acquire = vi.fn(async (_weight: number) => {}), refund = vi.fn();
+    const fetcher = vi.fn<typeof fetch>(async (_url, options) => {
+      expect(JSON.parse(String(options?.body)).startTime).toBe(from);
+      return new Response('', { status: 503 });
+    });
+    const prepay = vi.fn(async (_weight: number) => { request.from = 0; request.to = 0; });
+    const reader = new HyperliquidFollowerReceiptReader('testnet', acquire, fetcher, () => now, refund, { acquire: prepay, maxWaitMs: 10000 });
+    const result = await reader.read(request);
+    expect(result).toMatchObject({ from, to }); expect(result.unresolvedWindows).toHaveLength(2);
+    expect(prepay).toHaveBeenCalledWith(240); expect(acquire).not.toHaveBeenCalled(); expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(refund.mock.calls).toEqual([[120]]);
+  });
+  it('rejects invalid historical bounds before waiting or charging a prepaid scan', async () => {
+    const acquire = vi.fn(async (_weight: number) => {}), refund = vi.fn(), fetcher = vi.fn<typeof fetch>();
+    const reader = new HyperliquidFollowerReceiptReader('testnet', acquire, fetcher, () => now, refund, { acquire, maxWaitMs: 10000 });
+    await expect(reader.read({ ...input, from: to + 1, maxRequests: 2 })).rejects.toThrow('follower_reader_invalid_request');
+    expect(acquire).not.toHaveBeenCalled(); expect(fetcher).not.toHaveBeenCalled(); expect(refund).not.toHaveBeenCalled();
+  });
   it('reads raw unaggregated fills and actual signed funding with fresh fixed source identity', async () => {
     const s = setup(), result = await s.reader.read(input);
     expect(s.bodies).toEqual([{ type: 'userFillsByTime', user: account, startTime: from, endTime: to, aggregateByTime: false },

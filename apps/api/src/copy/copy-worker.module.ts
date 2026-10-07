@@ -16,6 +16,14 @@ import { CopyLiveWorkerService } from "./live-worker/copy-live-worker.service.js
 import { liveEngineProvider } from "./live-worker/copy-live-engine.provider.js";
 import { WatcherModule } from "../watcher/watcher.module.js";
 
+export function followerSnapshotReader({ budget, transport, network }: Pick<WalletNetworkHyperliquid, 'budget' | 'transport' | 'network'>) {
+  // Reporting waits before its evidence clock, under the existing background
+  // fairness policy. Collector admission still permits one claim per minute.
+  const waitMs = Math.min(180_000, budget.refillMs());
+  return new HyperliquidLiveAccountObserver(network, liveBudget(budget, { lane: 'background', maxWaitMs: waitMs }), transport.fetchInfo, Date.now, 5000,
+    new HyperliquidAllDexsAccountSource(Date.now, undefined, network, transport), waitMs + 2000);
+}
+
 /** The copy loops: the paper copy worker, testnet copy execution (only with
  * COPY_TRADING_MODE=testnet), strategy funding confirmations, the
  * follower receipt monitor and the follower snapshot collector. Imported by
@@ -27,8 +35,6 @@ import { WatcherModule } from "../watcher/watcher.module.js";
     CopyLiveSourceRepository, CopyLiveWorkerRepository, CopyLiveStopWorkerRepository, liveEngineProvider, CopyLiveWorkerService,
     // Copy-account reads use the wallet network's own budget (copy.module.ts), not
     // the worker's mainnet budget, which the pool and archive loops keep busy.
-    { provide: FOLLOWER_SNAPSHOT_READER, inject: [WALLET_NETWORK_HL], useFactory: ({ budget, transport, network }: WalletNetworkHyperliquid) =>
-      new HyperliquidLiveAccountObserver(network, liveBudget(budget, { lane: 'background', maxWaitMs: 5000 }), transport.fetchInfo, Date.now, 5000,
-        new HyperliquidAllDexsAccountSource(Date.now, undefined, network, transport)) }],
+    { provide: FOLLOWER_SNAPSHOT_READER, inject: [WALLET_NETWORK_HL], useFactory: followerSnapshotReader }],
 })
 export class CopyWorkerModule {}

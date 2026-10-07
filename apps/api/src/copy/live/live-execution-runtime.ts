@@ -25,7 +25,7 @@ import { liveAccountExposureSql } from './live-account-exposure.js';
 import { HyperliquidAllDexsAccountSource, PerReadAllDexsAccountSource } from './live-account-ws-source.js';
 import { HyperliquidLiveAccountObserver } from './live-account-observer.js';
 import { HyperliquidLiveMarketResolver, type LiveMarketResolver } from './live-market-resolver.js';
-import { liveEvidencePrepaidWeight, type LiveSharedReads } from './live-shared-reads.js';
+import { LIVE_ORDER_BOUNDARY_WEIGHT, liveEvidencePrepaidWeight, type LiveSharedReads } from './live-shared-reads.js';
 import { HyperliquidLiveRiskProvider } from './live-risk-provider.js';
 import { LiveProviderReadEpoch } from './live-provider-read-epoch.js';
 import { PostgresLiveReservations } from './postgres-live-reservations.js';
@@ -160,7 +160,7 @@ export class LiveExecutionRuntime {
     if (!routing.journalExists) {
       riskSourceRequire(Number.isSafeInteger(routing.budgetAccounts) && routing.budgetAccounts >= 1 && routing.budgetAccounts <= 8, 'live_risk_user_coverage_unproven');
       const leader = request.leg === 'open' && routing.mandate.sourceNetwork === this.network && routing.budgetSizing === 'ratio';
-      const weight = liveEvidencePrepaidWeight(routing.budgetAccounts + Number(leader));
+      const weight = liveEvidencePrepaidWeight(routing.budgetAccounts + Number(leader)) + LIVE_ORDER_BOUNDARY_WEIGHT;
       try {
         await liveBudget(this.budget, request.signalDeadline === undefined ? {} : {
           maxWaitMs: Math.max(0, Math.min(this.budget.refillMs(), request.signalDeadline - this.now())),
@@ -187,15 +187,17 @@ export class LiveExecutionRuntime {
       // hold fails at once (live_budget_over_capacity). Initial evidence was
       // prepaid before the SQL locks, bounded by the signal deadline. Extra
       // reads inside this original scope still wait at most five seconds.
-      const acquire = liveBudget(this.budget, { maxWaitMs: 5000 });
-      const prepay = async (weight: number) => {
+      const reserve = liveBudget(this.budget, { maxWaitMs: 5000 });
+      const acquire = async (weight: number) => {
         const credit = Math.min(prepaid, weight);
-        if (weight > credit) await acquire(weight - credit);
         prepaid -= credit;
+        try { if (weight > credit) await reserve(weight - credit); }
+        catch (error) { prepaid += credit; throw error; }
       };
+      const prepay = acquire;
       // Each account read gets its own socket: the epoch observes every live
       // account of the owner at once (one shared source refused all but one).
-      const sockets = new PerReadAllDexsAccountSource(() => new HyperliquidAllDexsAccountSource(this.now, undefined, this.network, this.global));
+      const sockets = new PerReadAllDexsAccountSource(() => new HyperliquidAllDexsAccountSource(this.now, undefined, this.network, this.global), 2);
       const observer = new HyperliquidLiveAccountObserver(this.network, acquire, this.global.fetchInfo, this.now, 5000, sockets);
       const resolver = new HyperliquidLiveMarketResolver(this.network, acquire, this.global.fetchInfo, this.now);
       const provider = new HyperliquidLiveRiskProvider(this.network, acquire, this.global.fetchInfo, this.now);
@@ -301,6 +303,10 @@ export class LiveExecutionRuntime {
           completedAt >= oldest && completedAt - oldest <= 5000, 'live_risk_stale');
         return result;
       } finally {
+        // A leverage-only preview may end the epoch before its other reads.
+        // Return only prepaid weight which that private epoch never sent.
+        const shared = epoch.sharedReads(session);
+        if (shared && shared.paidWeight > shared.sentWeight) this.budget.adjust(shared.sentWeight - shared.paidWeight);
         // Await actual private transport cleanup while the original session is
         // live. This source is never reused by a successor execution scope.
         provider.close(); await sockets.close();

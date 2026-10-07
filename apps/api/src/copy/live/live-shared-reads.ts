@@ -43,6 +43,9 @@ export function liveEvidencePrepaidWeight(users: number): number {
 /** The live accounts one owner's evidence may observe (the risk authority's
  * bound, postgres-live-risk-authority.ts). */
 export const MAX_LIVE_ACCOUNTS_PER_OWNER = 8;
+/** The current agent approval (20) and the order POST (1), required after
+ * collection. Pay these before the SQL/evidence clocks as well. */
+export const LIVE_ORDER_BOUNDARY_WEIGHT = 21;
 /** The shared per-IP meter keeps this much for unlabelled work (pages, copy
  * orders) however full the background lane is: no single evidence charge
  * is larger, so a full background lane never refuses one on its own. */
@@ -61,11 +64,11 @@ const MAX_BATCH_BODIES = 16;
  */
 export function assertLiveEvidenceCapacity({ capacity, maxStrategiesPerUser, network, budgetPerMin }:
   { capacity: number; maxStrategiesPerUser: number; network: string; budgetPerMin: number }): { users: number; weight: number; capacity: number } {
-  const accounts = Math.max(1, Math.min(maxStrategiesPerUser, MAX_LIVE_ACCOUNTS_PER_OWNER)), users = accounts + 1, weight = liveEvidencePrepaidWeight(users);
+  const accounts = Math.max(1, Math.min(maxStrategiesPerUser, MAX_LIVE_ACCOUNTS_PER_OWNER)), users = accounts + 1, weight = liveEvidencePrepaidWeight(users) + LIVE_ORDER_BOUNDARY_WEIGHT;
   if (weight > capacity) throw new Error(`Live copy orders can't run: one order's evidence for an owner with ${accounts} live account${accounts === 1 ? '' : 's'} plus the leader weighs ${weight}, ` +
     `more than the ${network} order bucket can hold (${capacity} at ${budgetPerMin}/min: capacity = min(burst, 1200 − rate)). ` +
     (network === 'testnet' ? 'Lower COPY_LIVE_WEIGHT_PER_MIN (default 300: capacity 900)' : 'Set HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN / HYPERLIQUID_WORKER_WEIGHT_BURST on the worker (360 / 840: capacity 840)') +
-    `, or lower maxStrategiesPerUser in the admin copy risk policy (${Math.max(0, Math.floor((capacity - liveEvidencePrepaidWeight(1)) / (liveEvidencePrepaidWeight(2) - liveEvidencePrepaidWeight(1))))} fit).`);
+    `, or lower maxStrategiesPerUser in the admin copy risk policy (${Math.max(0, Math.floor((capacity - liveEvidencePrepaidWeight(1) - LIVE_ORDER_BOUNDARY_WEIGHT) / (liveEvidencePrepaidWeight(2) - liveEvidencePrepaidWeight(1))))} fit).`);
   return { users, weight, capacity };
 }
 

@@ -19,4 +19,18 @@ describe('the engine describes a leg failure it has no code for', () => {
     const text = describeUnexpected(new Error(`signing failed for key ${key} sig ${sig} with ${jwt}; Authorization: Bearer abc.def`))!;
     for (const secret of [key, sig, jwt, 'abc.def', 'signing failed']) expect(text).not.toContain(secret);
   });
+  it('reports a wrapped local boundary code without echoing SDK or provider messages', () => {
+    const error = new Error('sdk echoed private signature', { cause: new Error('provider echoed private token', {
+      cause: new LiveBoundaryError('privy_wallet_identity_stale'),
+    }) });
+    const text = describeUnexpected(error)!;
+    expect(text).toContain('[cause: privy_wallet_identity_stale]');
+    expect(text).not.toContain('private signature'); expect(text).not.toContain('private token');
+  });
+  it('does not evaluate an untrusted cause getter', () => {
+    const error = new Error('sdk failed'); let evaluated = false;
+    Object.defineProperty(error, 'cause', { get() { evaluated = true; throw new Error('private token'); } });
+    expect(describeUnexpected(error)).toMatch(/^Error @ /);
+    expect(evaluated).toBe(false);
+  });
 });

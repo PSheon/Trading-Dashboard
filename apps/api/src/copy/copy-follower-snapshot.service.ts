@@ -6,6 +6,7 @@ import { mapLiveAccountView } from './live/live-account-view.js';
 import type { LiveAccountSnapshot } from './live/live-account-observer.js';
 import { LiveBoundaryError } from './live/wallet-authorization.js';
 import { CopyFollowerSnapshotRepository, type FollowerSnapshotIssue } from './copy-follower-snapshot.repository.js';
+import { safeErrorText } from '../runtime/safe-error-text.js';
 
 export const FOLLOWER_SNAPSHOT_READER = Symbol('FOLLOWER_SNAPSHOT_READER');
 export interface FollowerSnapshotReader { observe(accountAddress: string): Promise<LiveAccountSnapshot>; close?(): void }
@@ -57,7 +58,7 @@ export class CopyFollowerSnapshotCollector implements OnApplicationBootstrap, On
       const issue: FollowerSnapshotIssue = code.includes('account_mode') || code.includes('unsupported_role') ? 'unsupported_mode'
         : code.includes('coverage') ? 'incomplete_coverage' : code === 'follower_snapshot_invalid' || code === 'follower_account_identity_changed' ? 'invalid_evidence' : 'source_unavailable';
       await this.repository.issue(claim, issue);
-      this.logger.warn('Actual account observation unavailable; prior evidence retained');
+      this.logger.warn(`Actual account observation unavailable (${safeErrorText(error)}); prior evidence retained`);
     }
   }
   async tick(): Promise<void> {

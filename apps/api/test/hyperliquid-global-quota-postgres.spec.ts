@@ -7,7 +7,7 @@ import {closeTestDb,getTestDb} from './db-test-utils.js';
 import {UnitOfWork,type DbTransaction} from '../src/db/unit-of-work.js';
 import {PostgresHyperliquidQuota} from '../src/hyperliquid/postgres-hyperliquid-quota.js';
 import {HyperliquidGlobalTransport} from '../src/hyperliquid/hyperliquid-global-transport.js';
-import {HyperliquidAllDexsAccountSource} from '../src/copy/live/live-account-ws-source.js';
+import {HyperliquidAllDexsAccountSource,PerReadAllDexsAccountSource} from '../src/copy/live/live-account-ws-source.js';
 import {liveSourceDigest} from '../src/copy/live/copy-live-source-evidence.js';
 import {quotaSubscription} from '../src/hyperliquid/hyperliquid-global-quota.js';
 import {PostgresLiveRiskScope} from '../src/copy/live/postgres-live-risk-scope.js';
@@ -213,20 +213,43 @@ describe('durable shared egress meter, never provider I/O',()=>{
   const row=(await db.select().from(schema.hyperliquidWsLeases))[0]!;expect(row.state).not.toBe('closed');expect(row.closedAt).toBeNull();expect(row.cleanupEvidence).toBeNull();expect(transport.close).toHaveBeenCalledWith(1000);
  });
  it('closes and flushes a complete 268-venue source before original scope exit, then permits a successor connection',async()=>{
+  let sentSubscriptions=0,subscriptionsBeforeFirstAck:number|undefined;
   const global=new HyperliquidGlobalTransport(meter,identity),scopes=new PostgresLiveRiskScope(pool),create=vi.fn((url:string,options:WebSocket.ClientOptions)=>{
    expect(options.autoPong).toBe(false);const socket=new WebSocket(url);
-   socket.send=((body:string)=>{const command=JSON.parse(body);queueMicrotask(()=>{
+   socket.send=((body:string)=>{const command=JSON.parse(body);if(command.method==='subscribe')sentSubscriptions++;queueMicrotask(()=>{
+    subscriptionsBeforeFirstAck??=sentSubscriptions;
     socket.emit('message',Buffer.from(JSON.stringify({channel:'subscriptionResponse',data:command})));
     if(command.method==='subscribe')socket.emit('message',Buffer.from(JSON.stringify(command.subscription.type==='openOrders'?{channel:'openOrders',data:{user,dex:command.subscription.dex,orders:[]}}:{channel:'allDexsClearinghouseState',data:{user,clearinghouseStates:[]}})));
    });}) as typeof socket.send;return socket;
   });
   const source=new HyperliquidAllDexsAccountSource(Date.now,create,'testnet',global),dexes=Array.from({length:268},(_,i)=>i?`venue${i}`:'');
   await scopes.run({userId:1,network:'testnet',accountAddress:user},async(_scope,session)=>global.runOriginal(session,async()=>{
-   const connect=vi.spyOn(pool,'connect');try{const result=await source.readAccount(user,dexes,5000);expect(result.orders.venues).toHaveLength(268);expect(connect).not.toHaveBeenCalled();}finally{connect.mockRestore();}
+   const connect=vi.spyOn(pool,'connect');try{const result=await source.readAccount(user,dexes,5000);expect(result.orders.venues).toHaveLength(268);expect(connect).not.toHaveBeenCalled();expect(subscriptionsBeforeFirstAck).toBe(269);}finally{connect.mockRestore();}
   }));
   expect((await db.select().from(schema.hyperliquidWsLeases))[0]!.state).toBe('closed');
   await scopes.run({userId:1,network:'testnet',accountAddress:user},async(_scope,session)=>global.runOriginal(session,async()=>{await source.read(user,5000);}));
   expect(create).toHaveBeenCalledTimes(2);expect((await db.select().from(schema.hyperliquidWsLeases)).every(row=>row.state==='closed')).toBe(true);
+ });
+
+ it('reads 268 venues through two original-session sockets, preserving all evidence and the shared meter',async()=>{
+  const global=new HyperliquidGlobalTransport(meter,identity),scopes=new PostgresLiveRiskScope(pool),sent:string[]=[];
+  const create=vi.fn((url:string)=>{
+   const socket=new WebSocket(url);
+   socket.send=((body:string)=>{const command=JSON.parse(body);sent.push(command.method);queueMicrotask(()=>{
+    socket.emit('message',Buffer.from(JSON.stringify({channel:'subscriptionResponse',data:command})));
+    if(command.method==='subscribe')socket.emit('message',Buffer.from(JSON.stringify(command.subscription.type==='openOrders'?{channel:'openOrders',data:{user,dex:command.subscription.dex,orders:[]}}:{channel:'allDexsClearinghouseState',data:{user,clearinghouseStates:[]}})));
+   });}) as typeof socket.send;return socket;
+  });
+  const source=new PerReadAllDexsAccountSource(()=>new HyperliquidAllDexsAccountSource(Date.now,create,'testnet',global),2);
+  const dexes=Array.from({length:268},(_,i)=>i?`venue${i}`:'');
+  await scopes.run({userId:1,network:'testnet',accountAddress:user},async(_scope,session)=>global.runOriginal(session,async()=>{
+   const connect=vi.spyOn(pool,'connect');try{const result=await source.readAccount(user,dexes,5000);expect(result.orders.requestedDexes).toEqual(dexes);expect(result.orders.venues.map(v=>v.dex)).toEqual(dexes);expect(result.state.accountAddress).toBe(user);expect(connect).not.toHaveBeenCalled();}finally{connect.mockRestore();}
+  }));
+  expect(create).toHaveBeenCalledTimes(2);expect(sent.filter(m=>m==='subscribe')).toHaveLength(269);expect(sent).not.toContain('unsubscribe');
+  const rows=await db.select().from(schema.hyperliquidWsLeases);expect(rows).toHaveLength(2);expect(rows.every(row=>row.state==='closed')).toBe(true);
+  const events=(await db.select().from(schema.hyperliquidEgressQuota))[0]!.events;
+  expect(events.filter(e=>e.kind==='ws_message').reduce((sum,e)=>sum+e.units,0)).toBe(271);
+  expect(events.filter(e=>e.kind==='ws_connect').reduce((sum,e)=>sum+e.units,0)).toBe(2);
  });
 
  it('a closeAfterRead source subscribes each of 268 venues once and ends its read with one prepaid close: 270 WS units, no unsubscribes, lease closed',async()=>{

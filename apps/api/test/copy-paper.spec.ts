@@ -2375,14 +2375,16 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
 
     it("cashflow-adjusted performance keeps deposits and withdrawals out of PnL", async () => {
       const { id } = await startCopy();
-      const now = Date.now();
+      const now = Math.floor(Date.now() / 60_000) * 60_000; // exercise the minute boundary deterministically
       const begin = new Date(now - 3_600_000);
       await db.update(copyStrategies).set({ createdAt: begin, cash: "1310", allocated: "1500", withdrawn: "200" }).where(eq(copyStrategies.id, id));
       await db.delete(copyEquitySnapshots).where(eq(copyEquitySnapshots.strategyId, id));
+      // Keep the last point in a different minute bucket from the preceding
+      // long observation gap; that gap deliberately marks its entire bucket missing.
       await db.insert(copyEquitySnapshots).values([
         { strategyId: id, time: begin, equity: "1000", totalPnl: "0", netDeposits: "1000", exposureUsd: "0" },
-        { strategyId: id, time: new Date(now - 60_000), equity: "1500", totalPnl: "0", netDeposits: "1500", exposureUsd: "0" },
-        { strategyId: id, time: new Date(now - 1000), equity: "1310", totalPnl: "10", netDeposits: "1300", exposureUsd: "0" },
+        { strategyId: id, time: new Date(now - 120_000), equity: "1500", totalPnl: "0", netDeposits: "1500", exposureUsd: "0" },
+        { strategyId: id, time: new Date(now - 30_000), equity: "1310", totalPnl: "10", netDeposits: "1300", exposureUsd: "0" },
       ]);
       const data = (await alice.get(`/me/copy/strategies/${id}/performance?window=1d`).expect(200)).body.data;
       expect(data.points.map((p: { totalPnl: number }) => p.totalPnl)).toContain(10);

@@ -2741,6 +2741,7 @@ export const zhTW = {
     myFunds: "我的資金",
     mainWallet: "主錢包",
     inCopies: "跟單中",
+    balancePending: "餘額待確認",
     copying: "跟單中",
     ended: "已結束（{count}）",
     previousNetwork: "先前網路的跟單（{count}）",

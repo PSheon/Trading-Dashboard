@@ -81,6 +81,15 @@ it('lists each testnet copy with its stage, balances and positions, and nothing 
   expect([...detail()!.querySelectorAll('button')].filter(b => b.textContent === 'Add funds')).toHaveLength(1);
 });
 
+it.each(['stopping', 'sweeping'])('withholds PnL during %s even if the funds ledger credited the return before the account snapshot refreshed', async (stage) => {
+  items = [item({ stage, status: 'stopping' })];
+  funds = [deposit(100), deposit(97.5, { counterparty: `0x${'11'.repeat(20)}` })];
+  await render('en', { open: false });
+  expect(cards()[0]!.textContent).not.toContain('+$95.00');
+  expect(cards()[0]!.textContent).toContain('—');
+  expect(cards()[0]!.textContent).not.toContain('3,800');
+});
+
 it('withdraws idle funds: nothing to sign, the worker signs it and the approval goes out once', async () => {
   const operation = { id: '22222222-2222-4222-8222-222222222222', accountId: liveAccount.id, strategyId: liveAccount.strategyId, network: 'testnet', address: liveAccount.address,
     destination: `0x${'11'.repeat(20)}`, amount: '12.5', nonce: liveNow, status: 'prepared', canCancel: true, transactionHash: null, creditedAmount: null, fee: null,

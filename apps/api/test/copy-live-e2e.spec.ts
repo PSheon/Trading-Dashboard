@@ -205,6 +205,22 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     expect(rows.map(r => r.state)).toEqual(['settled', 'settled']);
     expect(await db.select().from(schema.copyFollowerReceipts)).toHaveLength(2);
   });
+  it('waits six seconds for close evidence quota before observing and still sends only the fresh reduce-only position', async () => {
+    shared.position = '0.19';
+    const acquire = RequestBudgeterService.prototype.acquire.bind(budget);
+    let waited = false, marketReads = 0;
+    vi.spyOn(budget, 'acquire').mockImplementation(async (weight, ...rest) => {
+      await acquire(weight, ...rest);
+      if (weight === 20) marketReads += 1;
+      if (!waited && (marketReads === 2 || weight > 284)) { waited = true; await new Promise(resolve => setTimeout(resolve, 6000)); }
+    });
+    const closer = new ReduceOnlyCloser('testnet', pool, db, new UnitOfWork(db), config, global, budget, 100, clock);
+    const result = await closer.close({ account: { userId: 1, strategyId: 9, accountId: 'account', accountAddress: seed.f.identity.accountAddress,
+      authorizationId: 'grant', walletId: 'agent', workerQuorumId: 'worker' }, coin: 'BTC', seed: 'local-quota-close', stillWanted: async () => true });
+    expect(waited).toBe(true); expect(result?.state).toBe('filled');
+    expect(exchangeBodies).toHaveLength(1);
+    expect(exchangeBodies[0]).toMatchObject({ action: { orders: [{ b: false, s: '0.19', r: true, t: { limit: { tif: 'Ioc' } } }] } });
+  });
   it('a stop closes the copied position with one agent-signed reduce-only IOC, confirms flat and ends the copy when nothing is left', async () => {
     let e = engine(); await e.tick(); await leaderOpens(1001); await e.tick(); await new Promise(resolve => setTimeout(resolve, 5)); await e.tick();
     expect((await db.select().from(schema.copyLiveDispatches))[0]).toMatchObject({ state: 'settled' });

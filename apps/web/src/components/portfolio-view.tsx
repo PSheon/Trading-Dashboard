@@ -100,16 +100,16 @@ function usePortfolioView(): View {
 }
 
 /** 我的資金: one figure (the main wallet and the money in real copies), the two parts under it, 儲值 and 提款. */
-function MyFunds({ wallet, inCopies, className }: { wallet: ReturnType<typeof useWallet>; inCopies: number; className?: string }) {
+function MyFunds({ wallet, inCopies, className }: { wallet: ReturnType<typeof useWallet>; inCopies: number | null; className?: string }) {
   const { t, format } = useI18n();
   const main = wallet.data?.totalValue ?? null;
   return (
     <section className={cn("orbit-card card-pad flex flex-col gap-3", className)} aria-label={t("folio.myFunds")} data-testid="my-funds">
       <p className="text-[13px] font-bold text-muted-foreground">{t("folio.myFunds")}</p>
-      {main !== null ? <p className="num font-display text-[2.25rem] leading-tight">{format.usd(main + inCopies, { digits: 2 })}</p> : <TotalValue wallet={wallet} className="font-display text-[2.25rem] leading-tight" />}
+      {main !== null ? <p className="num font-display text-[2.25rem] leading-tight">{inCopies === null ? "—" : format.usd(main + inCopies, { digits: 2 })}</p> : <TotalValue wallet={wallet} className="font-display text-[2.25rem] leading-tight" />}
       <dl className="grid grid-cols-2 gap-3 text-xs">
         <div><dt className="text-muted-foreground">{t("folio.mainWallet")}</dt><dd className="num mt-0.5 text-sm font-bold">{main === null ? "—" : format.usd(main, { digits: 2 })}</dd></div>
-        <div><dt className="text-muted-foreground">{t("folio.inCopies")}</dt><dd className="num mt-0.5 text-sm font-bold">{format.usd(inCopies, { digits: 2 })}</dd></div>
+        <div><dt className="text-muted-foreground">{t("folio.inCopies")}</dt><dd className="num mt-0.5 text-sm font-bold">{inCopies === null ? t("folio.balancePending") : format.usd(inCopies, { digits: 2 })}</dd></div>
       </dl>
       {wallet.isError && !wallet.data ? <ErrorState onRetry={() => wallet.refetch()} /> : null}
       <FundButtons />

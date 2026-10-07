@@ -3,9 +3,10 @@ import type { FundsFlowView } from "@/lib/funds";
 /** The parts of a real copy its net deposits are read for. */
 export interface NetDepositsCopy { strategyId: number; accountAddress: string | null; createdAt: string }
 
-/** A copy funding still on its way (not yet accepted or refused): its amount is not settled. */
-const UNSETTLED = new Set(["prepared", "unknown"]);
-const COUNTED = new Set(["accepted", "credited"]);
+/** Acceptance is not receipt credit: the previous account snapshot may
+ * still contain the money, so no PnL is backed until reconciliation. */
+const UNSETTLED = new Set(["prepared", "unknown", "accepted"]);
+const COUNTED = new Set(["credited"]);
 
 /** Whether a copy funding row moved money back to the main wallet (a
  * withdrawal or the return after a stop) rather than into the copy: the

@@ -82,10 +82,35 @@ export class HyperliquidFollowerReceiptReader {
   /** `refund` gives back acquired weight an answer didn't use (the budget's
    * `adjust(-weight)`); the shared per-IP meter is settled the same way. */
   constructor(readonly network: HyperliquidNetwork, private readonly acquire: (weight: number) => Promise<unknown>,
-    private readonly fetcher: typeof fetch = fetch, private readonly now = Date.now, private readonly refund?: (weight: number) => void) {
+    private readonly fetcher: typeof fetch = fetch, private readonly now = Date.now, private readonly refund?: (weight: number) => void,
+    private readonly prepayment?: { readonly acquire: (weight: number) => Promise<unknown>; readonly maxWaitMs: number }) {
+    if (prepayment && (typeof prepayment.acquire !== 'function' || !Number.isSafeInteger(prepayment.maxWaitMs) || prepayment.maxWaitMs < 1 || prepayment.maxWaitMs > 182000 || typeof refund !== 'function')) fail('follower_reader_invalid_configuration');
     if (!isHyperliquidNetwork(network) || typeof acquire !== 'function') fail('follower_reader_invalid_configuration');
   }
   async read(input: FollowerReceiptReadInput): Promise<FollowerReceiptReadResult> {
+    if (!this.prepayment) return this.readCaptured(input, this.acquire);
+    // Capture and validate historical windows before waiting; no provider
+    // evidence exists yet. Their source clocks start only after admission.
+    let captured: z.infer<typeof inputSchema>;
+    try {
+      captured = inputSchema.parse(structuredClone(input)); address(captured.accountAddress);
+      const at = this.now();
+      if (!Number.isSafeInteger(at) || at < 0 || captured.from > captured.to || captured.to > at ||
+        captured.resumeWindows?.some(w => w.from < captured.from || w.to > captured.to || w.from > w.to)) fail('follower_reader_invalid_request');
+    } catch { fail('follower_reader_invalid_request'); }
+    const weight = captured.maxRequests * RESPONSE_WEIGHT;
+    await boundedLiveRead(() => this.prepayment!.acquire(weight), this.prepayment.maxWaitMs);
+    let credit = weight;
+    const acquire = async (wanted: number) => {
+      const paid = Math.min(credit, wanted); credit -= paid;
+      try { if (wanted > paid) await this.acquire(wanted - paid); }
+      catch (error) { credit += paid; throw error; }
+    };
+    try { return await this.readCaptured(captured, acquire); }
+    finally { if (credit > 0) this.refund!(credit); }
+  }
+
+  private async readCaptured(input: FollowerReceiptReadInput, acquire: (weight: number) => Promise<unknown>): Promise<FollowerReceiptReadResult> {
     let request: z.infer<typeof inputSchema>;
     let user: string;
     const started = this.now();
@@ -124,7 +149,7 @@ export class HyperliquidFollowerReceiptReader {
       try {
         // Admit a bounded worst-case surcharge before any HTTP request. Funding
         // has the same physical row bound because general docs mention blocks.
-        await boundedLiveRead(() => this.acquire(RESPONSE_WEIGHT), remaining());
+        await boundedLiveRead(() => acquire(RESPONSE_WEIGHT), remaining());
         const body = { type: window.kind === 'fills' ? 'userFillsByTime' : 'userFunding', user,
           startTime: window.from, endTime: window.to, ...(window.kind === 'fills' ? { aggregateByTime: false } : {}) };
         const response = await boundedLiveRead(() => this.fetcher(WALLET_NETWORKS[this.network].infoUrl, {

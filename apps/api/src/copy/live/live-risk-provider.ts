@@ -88,7 +88,7 @@ const contextsSchema = z
   .min(1)
   .max(10000);
 const targetContextSchema = z.object({ midPx: positive, markPx: positive });
-const activeSchema = z.object({
+export const liveActiveAssetDataSchema = z.object({
   user: z.string(),
   coin: z.string(),
   leverage: z.discriminatedUnion('type', [
@@ -309,7 +309,7 @@ export class HyperliquidLiveRiskProvider {
       const usdc = tokens.filter((v) => v.name === 'USDC' && v.isCanonical);
       if (usdc.length !== 1 || meta.collateralToken !== usdc[0]!.index)
         deny('live_risk_provider_fee_scope_unproven');
-      const active = activeSchema.parse(rawActive),
+      const active = liveActiveAssetDataSchema.parse(rawActive),
         fees = feeSchema.parse(rawFees);
       if (address(active.user) !== user || active.coin !== market.coin)
         deny('live_risk_provider_source_mismatch');

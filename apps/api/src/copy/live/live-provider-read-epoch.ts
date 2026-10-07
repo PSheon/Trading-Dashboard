@@ -1,12 +1,14 @@
 import { HyperliquidLiveAccountObserver, type LiveAccountSnapshot } from './live-account-observer.js';
 import { HyperliquidLiveMarketResolver, type LiveMarketIdentity } from './live-market-resolver.js';
-import { HyperliquidLiveRiskProvider, type LiveRiskProviderOptions, type LiveRiskProviderProof } from './live-risk-provider.js';
+import { liveActiveAssetDataSchema, HyperliquidLiveRiskProvider, type LiveRiskProviderOptions, type LiveRiskProviderProof } from './live-risk-provider.js';
 import { assertOriginalLiveRiskSession, type LiveRiskDatabaseSession } from './postgres-live-risk-scope.js';
 import { loadLivePreparationAuthority, riskSourceDigest, riskSourceRequire } from './postgres-live-risk-authority.js';
 import { freezeLiveReservation } from './live-risk-reservation.js';
 import { evidenceFinalCheck, evidenceFirstWave, liveInfoWeights, LiveSharedReads, type LiveInfoBatch } from './live-shared-reads.js';
 import type { LiveReserveOptions } from '../../hyperliquid/hyperliquid-budget-wait.js';
 import { address } from './wallet-authorization.js';
+import { effectiveLeverage } from '../copy-risk.js';
+import { LiveLeverageUpdateRequired } from './live-leverage-update.js';
 
 /** Shared provider reads for an epoch (on the readers' network): the budget the epoch pays
  * its reads from, the info fetch, and the batch transport for each wave. */
@@ -24,6 +26,9 @@ export interface LiveProviderEpochBinding {
   readonly key: string;
   readonly coin: string;
   readonly includeLeader?: boolean;
+  /** Preparation may lower excessive leverage before the other order reads.
+   * A preview never supplies authority for an order. */
+  readonly checkLeverage?: boolean;
 }
 export interface LiveProviderEpochFrames {
   readonly market: LiveMarketIdentity;
@@ -73,7 +78,8 @@ export class LiveProviderReadEpoch {
     assertOriginalLiveRiskSession(session);
     const binding = Object.freeze(structuredClone(supplied)), started = this.now();
     riskSourceRequire(binding && [binding.accountId, binding.mandateId, binding.key, binding.coin].every(v => typeof v === 'string' && v.length > 0 && v.length <= 160) &&
-      (binding.includeLeader === undefined || typeof binding.includeLeader === 'boolean'), 'live_risk_epoch_mismatch');
+      (binding.includeLeader === undefined || typeof binding.includeLeader === 'boolean') &&
+      (binding.checkLeverage === undefined || typeof binding.checkLeverage === 'boolean'), 'live_risk_epoch_mismatch');
     // includeLeader is a coverage request, never a new execution identity.
     const bindingDigest = riskSourceDigest({ accountId: binding.accountId, mandateId: binding.mandateId, key: binding.key, coin: binding.coin });
     const previous = this.#epochs.get(session);
@@ -165,6 +171,20 @@ export class LiveProviderReadEpoch {
     // Every read's weight, the final check's too, before the clock starts
     // (liveEvidencePrepaidWeight: what the startup capacity check assumes).
     await shared.pay(liveInfoWeights(first) + liveInfoWeights(finalBodies));
+    if (binding.checkLeverage) {
+      // Read only indexed market identity and configured leverage first. The
+      // same epoch memo serves these reads to the full risk proof if no update
+      // is needed. An update ends this scope; its order gets a fresh full epoch.
+      await shared.wave([{ type: 'meta', ...(dex ? { dex } : {}) },
+        ...(dex ? [{ type: 'perpDexs' }] : []), { type: 'activeAssetData', user: target, coin: binding.coin }]);
+      const market = await this.resolver.resolve(binding.coin, shared);
+      const active = liveActiveAssetDataSchema.parse(await shared.get({ type: 'activeAssetData', user: target, coin: binding.coin }));
+      await session.scope.assertHeld(); this.fresh(started);
+      riskSourceRequire(address(active.user) === target && active.coin === market.coin && active.leverage.type === 'cross' &&
+        active.leverage.value <= market.maxLeverage, 'live_risk_leverage');
+      const cap = effectiveLeverage(authority.limits, authority.settings, market.maxLeverage);
+      if (active.leverage.value > cap) throw new LiveLeverageUpdateRequired(market.coin, market.asset, active.leverage.value, cap);
+    }
     const firstWave = shared.wave(first);
     void firstWave.catch(() => {});
     // Every reader's clock is the epoch's: it starts as the first wave goes out.

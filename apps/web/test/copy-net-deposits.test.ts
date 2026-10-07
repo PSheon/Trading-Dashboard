@@ -36,3 +36,9 @@ it("is unknown (—) while a transfer is on its way, before the ledger reaches t
   expect(livePnl(49.17, null)).toEqual({ pnl: null, roi: null });
   expect(livePnl(null, 50)).toEqual({ pnl: null, roi: null });
 });
+
+it("does not turn an accepted but uncredited return into profit against the prior account snapshot", () => {
+  const net = liveNetDeposits([flow({ amount: 50 }), flow({ amount: 48.987539, counterparty: owner, status: "accepted" })], true, copy, owner);
+  expect(net).toBeNull();
+  expect(livePnl(48.987539, net)).toEqual({ pnl: null, roi: null });
+});

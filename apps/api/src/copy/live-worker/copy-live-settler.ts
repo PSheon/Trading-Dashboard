@@ -8,8 +8,8 @@ import { RequestBudgeterService } from '../../hyperliquid/request-budgeter.servi
 import { reserveLive } from '../../hyperliquid/hyperliquid-budget-wait.js';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
 import { NEVER_PLACED, UNHELD_REJECTED, type LiveExecutionRecord } from '../live/live-execution.js';
-import { HyperliquidLiveAccountObserver } from '../live/live-account-observer.js';
-import { HyperliquidAllDexsAccountSource } from '../live/live-account-ws-source.js';
+import { HyperliquidLiveAccountObserver, OBSERVER_REST_WEIGHT } from '../live/live-account-observer.js';
+import { HyperliquidAllDexsAccountSource, PerReadAllDexsAccountSource } from '../live/live-account-ws-source.js';
 import { boundedLiveRead, HyperliquidLiveMarketResolver } from '../live/live-market-resolver.js';
 import { parseLiveOrderEvidence, type LiveOrderEvidence } from '../live/live-order-evidence.js';
 import { decodeLiveExecutionRow } from '../live/postgres-live-journal.js';
@@ -38,8 +38,6 @@ export class CopyLiveSettler {
   constructor(readonly network: HyperliquidNetwork, private readonly pool: Pool, private readonly global: HyperliquidGlobalTransport, private readonly budget: RequestBudgeterService,
     private readonly scanner: { runFor(accountId: string): Promise<void> }, private readonly now = Date.now) {}
 
-  private acquire = (weight: number) => reserveLive(this.budget, weight, { maxWaitMs: 5000 });
-
   async settle(request: LiveSettleRequest): Promise<LiveSettleOutcome> {
     const record = await this.record(request.key);
     if (!record || !TERMINAL_STATES.has(record.state)) return { kind: 'pending', reason: 'live_settlement_not_terminal' };
@@ -51,15 +49,26 @@ export class CopyLiveSettler {
     // only every two minutes). The scan also advances its proven horizon,
     // which the next order's position projection requires.
     if (record.outcome?.filledSize && record.outcome.filledSize !== '0') await this.scanner.runFor(request.accountId);
+    // Routing/journal data only estimates the cost, never grants settlement
+    // authority. Pay for market identity, orderStatus and the complete account
+    // observation BEFORE taking the original locks. That scope revalidates the
+    // journal and every release proof; all provider/SQL clocks stay at 5 s.
+    let prepaid = (record.action.orders[0]!.a < 10_000 ? 20 : 40) + 2 + (record.errorCode === NEVER_PLACED ? 0 : OBSERVER_REST_WEIGHT);
+    await reserveLive(this.budget, prepaid, { maxWaitMs: Math.min(180_000, this.budget.refillMs()) });
+    const acquire = async (weight: number) => {
+      const credit = Math.min(prepaid, weight); prepaid -= credit;
+      try { if (weight > credit) await reserveLive(this.budget, weight - credit, { maxWaitMs: 5000 }); }
+      catch (error) { prepaid += credit; throw error; }
+    };
     const scope = new PostgresLiveRiskScope(this.pool, this.now);
-    return scope.run({ userId: request.userId, network: this.network, accountAddress: request.accountAddress,
+    try { return await scope.run({ userId: request.userId, network: this.network, accountAddress: request.accountAddress,
       source: { network: request.sourceNetwork, leaderAddress: request.leaderAddress } }, async (_scope, session) => this.global.runOriginal(session, async () => {
       this.global.currentQuota();
-      const sockets = new HyperliquidAllDexsAccountSource(this.now, undefined, this.network, this.global);
+      const sockets = new PerReadAllDexsAccountSource(() => new HyperliquidAllDexsAccountSource(this.now, undefined, this.network, this.global), 2);
       try {
-        const resolver = new HyperliquidLiveMarketResolver(this.network, this.acquire, this.global.fetchInfo, this.now);
+        const resolver = new HyperliquidLiveMarketResolver(this.network, acquire, this.global.fetchInfo, this.now);
         const settlement = new PostgresLiveSettlement(this.now);
-        const evidence = await this.orderEvidence(record, resolver);
+        const evidence = await this.orderEvidence(record, resolver, acquire);
         const observed = await settlement.observe(session, { accountId: request.accountId, key: request.key, evidence });
         if (observed.kind !== 'recorded') return observed;
         // Never placed (expired unknown by cloid): release, nothing to settle.
@@ -67,7 +76,7 @@ export class CopyLiveSettler {
           const released = await settlement.releaseNeverPlaced(session, { accountId: request.accountId, key: request.key });
           return released.kind === 'released' ? { kind: 'unplaced' as const } : released;
         }
-        const observer = new HyperliquidLiveAccountObserver(this.network, this.acquire, this.global.fetchInfo, this.now, 5000, sockets);
+        const observer = new HyperliquidLiveAccountObserver(this.network, acquire, this.global.fetchInfo, this.now, 5000, sockets);
         const snapshot = await observer.observe(request.accountAddress);
         const [reservation] = await session.read(db => db.select({ revision: copyLiveRiskReservations.revision, accountId: copyLiveRiskReservations.accountId,
           strategyId: copyLiveRiskReservations.strategyId }).from(copyLiveRiskReservations).where(eq(copyLiveRiskReservations.key, request.key)));
@@ -77,7 +86,7 @@ export class CopyLiveSettler {
             checkedAt: snapshot.completedAt, sourceDigest: snapshot.sourceDigest, quarantined: false, snapshot } });
         return decision.kind === 'release' ? { kind: 'released' as const } : decision;
       } finally { await sockets.close(); }
-    }));
+    })); } finally { if (prepaid > 0) this.budget.adjust(-prepaid); }
   }
 
   private async record(key: string): Promise<LiveExecutionRecord | null> {
@@ -87,7 +96,7 @@ export class CopyLiveSettler {
 
   /** Settlement-grade orderStatus by the original cloid (as the transport's
    * queryEvidence), through the shared egress quota. */
-  private async orderEvidence(record: LiveExecutionRecord, resolver: HyperliquidLiveMarketResolver): Promise<LiveOrderEvidence> {
+  private async orderEvidence(record: LiveExecutionRecord, resolver: HyperliquidLiveMarketResolver, acquire: (weight: number) => Promise<void>): Promise<LiveOrderEvidence> {
     const checkedAt = this.now(), remaining = () => {
       const now = this.now();
       if (!Number.isSafeInteger(now) || now - checkedAt > 5000) throw new LiveBoundaryError('live_boundary_evidence_expired');
@@ -95,7 +104,7 @@ export class CopyLiveSettler {
     };
     const market = await boundedLiveRead(() => resolver.resolveAsset(record.action.orders[0]!.a), remaining());
     // orderStatus weighs 2 (Hyperliquid's light reads; the shared meter's table).
-    await boundedLiveRead(() => this.acquire(2), remaining());
+    await boundedLiveRead(() => acquire(2), remaining());
     const response = await boundedLiveRead(() => this.global.fetchInfo(WALLET_NETWORKS[this.network].infoUrl, { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ type: 'orderStatus', user: record.authorization.accountAddress, oid: record.action.orders[0]!.c }),
       signal: AbortSignal.timeout(remaining()), redirect: 'error' }), remaining());

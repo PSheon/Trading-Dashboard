@@ -1681,6 +1681,7 @@ export const ko: Messages = {
     myFunds: "내 자금",
     mainWallet: "메인 지갑",
     inCopies: "카피 중",
+    balancePending: "잔액 확인 중",
     copying: "카피 중",
     ended: "종료됨 ({count})",
     previousNetwork: "이전 네트워크의 카피 ({count})",

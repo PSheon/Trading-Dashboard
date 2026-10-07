@@ -1681,6 +1681,7 @@ export const es: Messages = {
     myFunds: "Mis fondos",
     mainWallet: "Billetera principal",
     inCopies: "En copias",
+    balancePending: "Saldo por confirmar",
     copying: "Copiando",
     ended: "Finalizadas ({count})",
     previousNetwork: "Copias en la red anterior ({count})",

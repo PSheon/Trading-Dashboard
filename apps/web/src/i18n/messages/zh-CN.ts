@@ -1681,6 +1681,7 @@ export const zhCN: Messages = {
     myFunds: "我的资金",
     mainWallet: "主钱包",
     inCopies: "跟单中",
+    balancePending: "余额待确认",
     copying: "跟单中",
     ended: "已结束（{count}）",
     previousNetwork: "先前网络的跟单（{count}）",

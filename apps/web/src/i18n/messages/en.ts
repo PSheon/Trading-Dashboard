@@ -2737,6 +2737,7 @@ export const en: Messages = {
     myFunds: "My funds",
     mainWallet: "Main wallet",
     inCopies: "In copies",
+    balancePending: "Balance pending",
     copying: "Copying",
     ended: "Ended ({count})",
     previousNetwork: "Copies on the previous network ({count})",

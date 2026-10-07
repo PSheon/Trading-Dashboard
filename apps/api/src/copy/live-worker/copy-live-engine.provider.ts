@@ -90,7 +90,8 @@ export const liveEngineProvider: Provider = {
       restingOrderBuilderFeeCapTenthsBps: RESTING_BUILDER_FEE_CAP_TENTHS_BPS, maxSourceDeviationBps: String(live.maxSourceDeviationBps) };
     const scanner = new CopyFollowerReconciler(scans, ledger,
       new HyperliquidFollowerReceiptReader(network, weight => reserve(weight), walletGlobal.fetchInfo,
-        Date.now, weight => { if (weight > 0) walletBudget.adjust(-weight); }));
+        Date.now, weight => { if (weight > 0) walletBudget.adjust(-weight); },
+        { acquire: liveBudget(walletBudget, { maxWaitMs: Math.min(180_000, walletBudget.refillMs()) }), maxWaitMs: Math.min(180_000, walletBudget.refillMs()) + 2000 }));
     const closer = new ReduceOnlyCloser(network, pool, db, uow, walletConfig, walletGlobal, walletBudget, Math.max(100, live.slippageBps * 3));
     // A copy is stopped a day before its agent expires (the stop's closes
     // need it), and an admin close-all the api did not finish is resumed.

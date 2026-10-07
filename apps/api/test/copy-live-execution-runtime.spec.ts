@@ -3,7 +3,7 @@ import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '@trading-dashboard/shared/database';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { AppConfig } from '../src/config/app-config.js';
 import { validateEnvironment } from '../src/config/runtime-config.js';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
@@ -32,6 +32,9 @@ import { CopyAgentRepository } from '../src/copy/copy-agent.repository.js';
 import { UNHELD_REJECTED } from '../src/copy/live/live-execution.js';
 import { registerLiveDeployment } from '../src/copy/live-deployment.js';
 import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
+import { CopyLiveSettler } from '../src/copy/live-worker/copy-live-settler.js';
+import { PostgresLiveSettlement } from '../src/copy/live/postgres-live-settlement.js';
+import { OBSERVER_REST_WEIGHT } from '../src/copy/live/live-account-observer.js';
 
 // Native network endpoints alone are replaced. Every provider decoder, private
 // quota capability, SQL authority and SDK request boundary remains concrete.
@@ -230,6 +233,40 @@ describe('unregistered concrete testnet execution runtime', () => {
     for (const type of ['userFees', 'metaAndAssetCtxs', 'spotMeta', 'allPerpMetas', 'activeAssetData', 'meta', 'extraAgents']) expect(info.filter(b => b.type === type)).toHaveLength(1);
     expect(acquired).toBe(385);
   });
+  it('prepays agent approval before the SQL clock instead of waiting during signing', async () => {
+    await actualClockFixture();
+    const original = budget.acquire.bind(budget);
+    vi.spyOn(budget, 'acquire').mockImplementation(async (...args) => {
+      await original(...args);
+      if (args[0] === 20) { await new Promise(resolve => setTimeout(resolve, 6000)); clock = Date.now(); }
+    });
+    expect((await runtime(config, { ...options, slippageBps: '0' }).execute(request())).state).toBe('filled');
+  }, 15_000);
+  it('waits for settlement account evidence before taking the original SQL locks, without releasing unproven liabilities', async () => {
+    await actualClockFixture();const record=await runtime(config,{...options,slippageBps:'0'}).execute(request());
+    const previous=raw.getMockImplementation()!;
+    raw.mockImplementation(async(url,init)=>{
+      const body=init?.body?JSON.parse(String(init.body)):undefined;
+      if(String(url).endsWith('/info')&&body?.type==='orderStatus')return Response.json({status:'order',order:{status:'filled',statusTimestamp:record.nonce,
+        order:{coin:'BTC',oid:77,cloid:record.action.orders[0].c,side:'B',reduceOnly:false,tif:'Ioc',origSz:record.action.orders[0].s,sz:'0',limitPx:record.action.orders[0].p,timestamp:record.nonce,isTrigger:false,isPositionTpsl:false,children:[]}}});
+      return previous(url,init);
+    });
+    // Status recording is independently covered by the settlement DAL suite.
+    // Leave receipts absent: this timing test must NEVER release the hold.
+    vi.spyOn(PostgresLiveSettlement.prototype,'observe').mockResolvedValue({kind:'recorded',oid:'77',revision:1});
+    const acquire=budget.acquire.bind(budget),locks:number[]=[];
+    vi.spyOn(budget,'acquire').mockImplementation(async(...args)=>{
+      await acquire(...args);
+      if(args[0]>=OBSERVER_REST_WEIGHT){
+        const rows=await db.execute(sql`select count(*)::int as n from pg_locks where locktype='advisory' and classid=7404 and objid=1 and pid in (select pid from pg_stat_activity where datname=current_database())`);
+        locks.push(Number(rows.rows[0]?.n));await new Promise(resolve=>setTimeout(resolve,6000));clock=Date.now();
+      }
+    });
+    const settler=new CopyLiveSettler('testnet',pool,global,budget,{runFor:async()=>{}},()=>clock);
+    const outcome=await settler.settle({userId:1,accountId:'account',accountAddress:record.authorization.accountAddress,sourceNetwork:'testnet',leaderAddress:seed.consent.leaderAddress,key:record.key});
+    expect(locks).toEqual([0]);expect(outcome.kind).toBe('pending');
+    expect((await db.select().from(schema.copyLiveRiskReservations))[0]!.state).toBe('unknown');
+  },20_000);
   it('reconciles an unknown original key after revocation and strategy stop without another signature or nonce', async () => {
     await actualClockFixture();
     const previous = raw.getMockImplementation()!;
@@ -251,10 +288,18 @@ describe('unregistered concrete testnet execution runtime', () => {
   it('retains historical identity after the real agent expiry writer revokes the grant with transaction-start event time', async () => {
     await actualClockFixture(); const original = await runtime(config, { ...options, slippageBps: '0' }).execute(request());
     clock += 60001; vi.spyOn(Date, 'now').mockImplementation(() => clock);
-    await db.transaction(tx => new CopyAgentRepository(db).ensure(tx, 1, 'account', { idempotencyKey: 'runtime-replacement-agent', validForDays: 1 }, 'worker'));
+    let transactionStartedAt: Date | undefined;
+    await db.transaction(async tx => {
+      const result = await tx.execute(sql`select now() as started_at`);
+      const start = result.rows[0]!.started_at;
+      transactionStartedAt = start instanceof Date ? start : new Date(String(start));
+      await new CopyAgentRepository(db).ensure(tx, 1, 'account', { idempotencyKey: 'runtime-replacement-agent', validForDays: 1 }, 'worker');
+    });
     const [grant] = await db.select().from(schema.copyWalletAuthorizations), [event] = await db.select().from(schema.copyWalletAuthorizationEvents);
     expect(grant!.version).toBe(original.authorization.version + 1); expect(event!.version).toBe(grant!.version);
-    expect(event!.createdAt.getTime()).toBeLessThanOrEqual(grant!.revokedAt!.getTime());
+    // The database and application clocks need not order each other. Prove
+    // the event uses the transaction's actual clock, rather than a JS guess.
+    expect(event!.createdAt.getTime()).toBe(transactionStartedAt!.getTime());
     raw.mockClear(); expect(await runtime().execute(request())).toEqual(original); expect(raw).not.toHaveBeenCalled();
   });
   it.each(['missing event', 'wrong owner', 'version gap', 'changed scopes', 'changed validity', 'future event', 'future revocation',
@@ -589,6 +634,12 @@ describe('the account leverage an open needs (a fresh account sits at the exchan
     });
   }
   const exchangeActions = () => raw.mock.calls.filter(([url]) => String(url).endsWith('/exchange')).map(([, init]) => JSON.parse(String(init!.body)));
+  it('lowers fresh-account leverage before paying for the full order evidence', async () => {
+    await defaultLeverageFixture({ status: 'ok', response: { type: 'default' } });
+    expect((await runtime(config, { ...options, slippageBps: '0' }).execute(request())).state).toBe('filled');
+    const sent = raw.mock.calls.filter(([url]) => String(url).endsWith('/info')).map(([, init]) => JSON.parse(String(init!.body)));
+    expect(sent.filter(body => body.type === 'userRole')).toHaveLength(2);
+  });
   it('sets the cap (cross) with a journaled, agent-signed updateLeverage, then sends the order', async () => {
     await defaultLeverageFixture({ status: 'ok', response: { type: 'default' } });
     const result = await runtime(config, { ...options, slippageBps: '0' }).execute(request());

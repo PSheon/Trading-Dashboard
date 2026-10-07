@@ -1,5 +1,5 @@
 import type { AppConfig } from "../src/config/app-config.js";
-import { env, getIntEnv } from "../src/config/env.js";
+import { env, getIntEnv } from "./legacy-env.js";
 import { tuningConfig } from "../src/config/runtime-config.js";
 
 /** Legacy suites vary env flags within a case. Explicitly injected mutable test

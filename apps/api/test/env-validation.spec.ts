@@ -1,7 +1,7 @@
 import { generateKeyPairSync } from "node:crypto";
 import { validateEnvironment } from "../src/config/runtime-config.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { env, getBoolEnv, getIntEnv } from "../src/config/env.js";
+import { env, getBoolEnv, getIntEnv } from "./legacy-env.js";
 import { AppConfig } from "../src/config/app-config.js";
 
 afterEach(() => vi.unstubAllEnvs());

@@ -176,7 +176,6 @@
  "test/readiness.spec.ts": 0.9,
  "test/reconnect-backoff.spec.ts": 0.9,
  "test/referral-api.spec.ts": 1.5,
- "test/referral-builder-evidence.spec.ts": 1,
  "test/referral-ledger.spec.ts": 0.9,
  "test/referral-service.spec.ts": 0.9,
  "test/removed-admin-routes.spec.ts": 0.9,

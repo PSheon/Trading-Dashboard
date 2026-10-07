@@ -1,6 +1,6 @@
-import { booleanValue, databaseUrl, integerValue, servicePermissions } from "./parse-env.js";
+import { booleanValue, databaseUrl, integerValue, servicePermissions } from "../src/config/parse-env.js";
 
-/** Legacy readers retained for parser regression tests and explicit test doubles.
+/** Test-only (no production importer; moved out of src/config). Legacy readers retained for parser regression tests and explicit test doubles.
  * Production providers must use injected AppConfig, never these dynamic readers. */
 export function getEnv(key: string): string | undefined {
   return process.env[key]?.trim() || undefined;

@@ -50,4 +50,6 @@
 | 緊急停止演練 | 待 Paul（需要 admin 登入）：後台暫停平台 → 新跟單被拒 `copy_paused` → 解除 |
 | Stage 部署 `13e19217` | ✅ 03:50：主網代理授權確認、主網成交結算、確認頁網路文字、刪除舊 mandate approve 路徑、快照只觀察有效帳戶 |
 | **待 Paul 核准** | ① 網頁「停止跟單」在主網被擋（`lib/copy-live-stop.ts` 只收 testnet），修正 patch 已寫好並有測試，自動權限擋下提交；核准前只能用後台「全部平倉」。② 投資組合卡片在主網的權益／損益顯示「—」，修正 patch 已寫好，兩個舊測試待更新 |
+| Stage 部署 `31f0308d` | ✅ 13:55：⑥ 下單路徑（槓桿、孤兒 journal、平倉無年齡限制、兩筆互不阻擋）、⑦ 停止／全部平倉／測試台、⑧ UI P0+P1、⑨ 重複邏輯稽核的 bug、Paul 核准的停止與快照修正；migration 0073；部署前備份 `stage-before-0073.dump`。測試帳號登入確認：mainnet、未列名單 `actualAllowed:false`、上限 12–15／50／3x／2 |
+| 測試流程 | `docs/stage-test-flow-2026-10-07.md`：A 免費檢查 → B testnet 測試台全綠 → C 主網 |
 | 主網兩筆跟單 | 待 Paul 9:00：照 `docs/mainnet-first-copy-runbook.md`；先入 103 USDC + 0.0005 ETH（Arbitrum）到主錢包 |

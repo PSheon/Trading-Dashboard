@@ -20,7 +20,7 @@ describe('actual read-only provider dispatch consumes durable private quota',()=
  it('denies missing egress configuration before any quota/provider call',async()=>{
   const f=fixture(undefined);await expect(f.transport.fetchInfo(info,init({type:'meta'}))).rejects.toThrow('hyperliquid_quota_egress_unconfigured');expect(f.bind).not.toHaveBeenCalled();expect(f.fetcher).not.toHaveBeenCalled();
  });
- it.each([['userRole',60],['allMids',2],['orderStatus',2],['clearinghouseState',2],['spotClearinghouseState',2],['meta',20],['activeAssetData',20],['userFees',20],['extraAgents',20],['userFillsByTime',120],['userTwapSliceFills',120],['userFunding',120],['candleSnapshot',104]])('derives the conservative documented weight for %s',async(type,weight)=>{
+ it.each([['userRole',60],['allMids',2],['orderStatus',2],['clearinghouseState',2],['spotClearinghouseState',2],['meta',20],['activeAssetData',20],['userFees',20],['extraAgents',20],['openOrders',20],['userFillsByTime',120],['userTwapSliceFills',120],['userFunding',120],['candleSnapshot',104]])('derives the conservative documented weight for %s',async(type,weight)=>{
   const f=fixture();await f.transport.fetchInfo(info,init({type}));expect(f.acquire).toHaveBeenCalledWith(weight,expect.any(Number));expect(f.fetcher).toHaveBeenCalledOnce();expect(f.fetcher.mock.calls[0]![1]!.redirect).toBe('error');
  });
  it.each(['http://api.hyperliquid-testnet.xyz/info','https://api.hyperliquid-testnet.xyz/info?x=1','https://api.hyperliquid-testnet.xyz/exchange','https://foreign.test/info'])('refuses unsupported origin/path %s before admission',async(url)=>{

@@ -7,7 +7,7 @@ import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from '../cop
 import {LiveBoundaryError} from '../copy/live/wallet-authorization.js';
 const fail=(code:string):never=>{throw new LiveBoundaryError(code);};
 const cheap=new Set(['l2Book','allMids','clearinghouseState','orderStatus','spotClearinghouseState','exchangeStatus']);
-const ordinary=new Set(['meta','perpDexs','metaAndAssetCtxs','spotMeta','spotMetaAndAssetCtxs','userAbstraction','userDexAbstraction','delegatorSummary','portfolio','referral','frontendOpenOrders','allPerpMetas','activeAssetData','userFees','extraAgents','maxBuilderFee']);
+const ordinary=new Set(['meta','perpDexs','metaAndAssetCtxs','spotMeta','spotMetaAndAssetCtxs','userAbstraction','userDexAbstraction','delegatorSummary','portfolio','referral','frontendOpenOrders','openOrders','allPerpMetas','activeAssetData','userFees','extraAgents','maxBuilderFee']);
 // Prepay the provider's bounded list cap. The global meter never refunds an
 // unused surcharge; local RequestBudgeter adjustments remain scheduling only.
 /** Longest an unlabelled request waits in all for shared REST capacity: within

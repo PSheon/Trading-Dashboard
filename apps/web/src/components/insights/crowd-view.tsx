@@ -6,6 +6,7 @@ import { cn } from "cn";
 
 import { EmptyState, ErrorState, Panel, Skeleton } from "@/components/page";
 import { CoinIcon } from "@/components/traders/coin-icon";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n/provider";
 import { coinLabel } from "@/lib/format";
@@ -61,33 +62,27 @@ export function CrowdView({ onCoin }: { onCoin: (coin: string) => void }) {
       {coins.length === 0 ? (
         <EmptyState icon={Users} title={t("insights.crowdEmpty")} />
       ) : (
-        <div className="overflow-x-auto no-scrollbar">
-          <div className="min-w-[680px]">
-            <div className="grid grid-cols-[120px_minmax(0,1fr)_minmax(0,1fr)_110px_90px_110px] gap-3 px-5 pt-3 pb-2 text-[11px] font-medium text-subtle-foreground">
-              <span>{t("insights.crowdCols.coin")}</span>
-              <span className="text-right">{t("insights.crowdCols.short")}</span>
-              <span>{t("insights.crowdCols.long")}</span>
-              <span className="text-right">{t("insights.crowdCols.traders")}</span>
-              <span className="text-right">{t("insights.crowdCols.bias")}</span>
-              <span className="text-right">{t("insights.crowdCols.change")}</span>
-            </div>
-            <ul>
+        <Table className="min-w-[680px]">
+          <TableHeader><TableRow>
+            <TableHead>{t("insights.crowdCols.coin")}</TableHead>
+            <TableHead className="text-right">{t("insights.crowdCols.short")}</TableHead>
+            <TableHead>{t("insights.crowdCols.long")}</TableHead>
+            <TableHead className="text-right">{t("insights.crowdCols.traders")}</TableHead>
+            <TableHead className="text-right">{t("insights.crowdCols.bias")}</TableHead>
+            <TableHead className="text-right">{t("insights.crowdCols.change")}</TableHead>
+          </TableRow></TableHeader>
+          <TableBody>
               {shown.map((c) => {
                 // Never derive a delta from totals over potentially different cohorts.
                 const change = c.netNotionalChange24h ?? null;
                 const biasPct = Math.abs(c.netBias ?? 0);
                 return (
-                  <li key={c.coin}>
-                    <button
-                      type="button"
-                      onClick={() => onCoin(coinLabel(c.coin))}
-                      className="num grid w-full grid-cols-[120px_minmax(0,1fr)_minmax(0,1fr)_110px_90px_110px] items-center gap-3 px-5 py-2.5 text-left text-[0.8125rem] outline-none transition-colors hover:bg-raised/60 focus-visible:bg-raised"
-                    >
-                      <span className="flex min-w-0 items-center gap-2 font-semibold">
+                  <TableRow key={c.coin} onClick={() => onCoin(coinLabel(c.coin))} className="cursor-pointer">
+<TableCell><button type="button" className="rounded outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={e => {e.stopPropagation(); onCoin(coinLabel(c.coin));}}><span className="flex min-w-0 items-center gap-2 font-semibold">
                         <CoinIcon coin={c.coin} size={20} />
                         <span className="truncate">{coinLabel(c.coin)}</span>
-                      </span>
-                      <span className="flex items-center justify-end gap-2">
+                      </span></button></TableCell>
+<TableCell className="text-right"><span className="flex items-center justify-end gap-2">
                         <span className="text-[11px] text-muted-foreground">
                           {c.shortNotional === null ? "—" : format.usd(c.shortNotional, { compact: true })}
                         </span>
@@ -95,8 +90,8 @@ export function CrowdView({ onCoin }: { onCoin: (coin: string) => void }) {
                           className="h-5 rounded-l-md bg-negative/80"
                           style={{ width: `${((c.shortNotional ?? 0) / max) * 70}%` }}
                         />
-                      </span>
-                      <span className="flex items-center gap-2 border-l border-border-strong pl-0">
+                      </span></TableCell>
+<TableCell><span className="flex items-center gap-2 border-l border-border-strong pl-0">
                         <span
                           className="h-5 rounded-r-md bg-positive/80"
                           style={{ width: `${((c.longNotional ?? 0) / max) * 70}%` }}
@@ -104,13 +99,13 @@ export function CrowdView({ onCoin }: { onCoin: (coin: string) => void }) {
                         <span className="text-[11px] text-muted-foreground">
                           {c.longNotional === null ? "—" : format.usd(c.longNotional, { compact: true })}
                         </span>
-                      </span>
-                      <span className="text-right text-xs">
+                      </span></TableCell>
+<TableCell className="text-right"><span className="text-right text-xs">
                         <span className="text-positive">{t("insights.longTraders", { count: c.longTraders })}</span>
                         <span className="text-subtle-foreground"> / </span>
                         <span className="text-negative">{t("insights.shortTraders", { count: c.shortTraders })}</span>
-                      </span>
-                      <span className="text-right">
+                      </span></TableCell>
+<TableCell className="text-right"><span className="text-right">
                         <span
                           className={cn(
                             "chip-sm",
@@ -127,22 +122,19 @@ export function CrowdView({ onCoin }: { onCoin: (coin: string) => void }) {
                                 value: format.pct(biasPct, { digits: 0 }),
                               })}
                         </span>
-                      </span>
-                      <span
+                      </span></TableCell>
+<TableCell className="text-right"><span
                         className={cn(
                           "text-right font-semibold",
                           change === null ? "text-subtle-foreground" : change >= 0 ? "text-positive" : "text-negative",
                         )}
                       >
                         {change === null ? "—" : format.usd(change, { compact: true, sign: true })}
-                      </span>
-                    </button>
-                  </li>
+                      </span></TableCell>                  </TableRow>
                 );
               })}
-            </ul>
-          </div>
-        </div>
+          </TableBody>
+        </Table>
       )}
       {coins.length > COLLAPSED ? (
         <div className="border-t-2 border-dotted border-border px-5 py-3 text-center">

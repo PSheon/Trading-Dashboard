@@ -22,3 +22,12 @@
 - 已目視收藏前後 1440×900／390×844，手機無頁面橫向溢出；截圖：`/private/tmp/codex-trading-ui/{before,step1-after}-favorites-{1440,390}.png`。
 - Ruling: ActionsTable 與舊 ExecutionWalletSettings／CopyFollowerStatementSettings 沒有正式頁面入口，不建立新產品入口；以真元件與 fixture API 的 DOM 測試驗證，設定頁截圖無法展示收據表格。
 - 本機 web 字型錯誤由舊 16 GB `.next-e2e` 生成快取引起：停 PID 後移至 `/private/tmp/codex-trading-next-e2e-before-20261007`，乾淨快取啟動成功。
+
+### ⑪第 2 步
+
+- CopyTable／PositionsTable 遷移共用 Table，持倉展開在所屬列下；手機卡片保留原版面。crowd-view 改成具欄標頭的 Table，保留可用鍵盤操作的幣種按鈕。
+- 新增 2 個測試，舊碼失敗、新碼通過；相關 9/9，完整 suite 1112/1112；eslint 通過。tsc 初次發現測試用了低 target 不支援的 regex s flag，改成 [\s\S] 後通過。
+- 目視前後桌面／手機 portfolio 截圖，均無頁面橫向溢出；表格中的 sparkline 必須有明確寬度，已補 90px 容器並重拍確認。
+- 截圖：`/private/tmp/codex-trading-ui/step2-{before,after}-portfolio-{1440,390}.png`。
+- crowd-view 沒有 app 入口，只由現有元件測試使用。
+- 第 1 步已推 dev；CI run `37601660876` 正在跑。

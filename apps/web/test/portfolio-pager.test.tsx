@@ -97,6 +97,22 @@ describe("a paper copy's detail", () => {
 });
 
 describe("lists bounded by a count page only above ten", () => {
+  it("opens each copy's positions immediately below its row in a shared dense table", async () => {
+    const select = vi.fn();
+    const strategy = { ...base(), positions: [{ coin: 'BTC', size: 1, entryPx: 100, notionalUsd: 110, unrealizedPnl: 10 }] } as CopyStrategyView;
+    await render(<CopyTable strategies={[strategy]} leaders={new Map()} onSelect={select} />);
+    const table = container.querySelector('table')!;
+    expect(table?.getAttribute('data-slot')).toBe('table');
+    const toggle = table.querySelector<HTMLButtonElement>('button[aria-expanded]')!;
+    await act(async () => toggle.click());
+    expect(select).not.toHaveBeenCalled();
+    const nested = table.querySelector('.row-expansion table')!;
+    expect(nested?.getAttribute('data-slot')).toBe('table');
+    expect(nested?.closest('.table-dense')).not.toBeNull();
+    expect(nested?.textContent).toContain('BTC');
+    await act(async () => toggle.click());
+    expect(table.querySelector('.row-expansion')).toBeNull();
+  });
   it("跟單中 (desktop table and phone cards): 12 copies are 10 and a pager; 3 are 3 and none", async () => {
     await render(<CopyTable strategies={strategies(12)} leaders={new Map()} onSelect={() => {}} />);
     expect(container.querySelectorAll("button.truncate")).toHaveLength(10);

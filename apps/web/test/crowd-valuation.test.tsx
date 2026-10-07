@@ -17,3 +17,9 @@ it("renders unknown valuation and comparison as unavailable while preserving tra
   expect(html).not.toContain("NaN");
   expect(html).not.toContain("Infinity");
 });
+it('uses the shared table to align exposure columns and retains the coin control', () => {
+  const html = renderToStaticMarkup(<I18nProvider locale="en" messages={en}><CrowdView onCoin={() => {}} /></I18nProvider>);
+  expect(html).toContain('data-slot="table"');
+  expect(html).toContain('data-slot="table-head"');
+  expect(html).toMatch(/<button[^>]*>[\s\S]*BTC/);
+});

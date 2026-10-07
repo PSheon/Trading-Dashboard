@@ -491,6 +491,9 @@ function AlertsTab({ favorites }: { favorites: Favorite[] | undefined }) {
   const cards = useCards(addresses);
   const save = useSetFavoriteAlert();
   const byAddress = useMemo(() => new Map(cards.items.map((c) => [c.address, c])), [cards.items]);
+  const on = (favorites ?? []).filter((f) => f.alert.enabled), off = (favorites ?? []).filter((f) => !f.alert.enabled);
+  const { rows: onRows, pager: onPager } = usePaged(on, useAuth().identity);
+  const { rows: offRows, pager: offPager } = usePaged(off, useAuth().identity);
   if (!favorites) {
     // The alert list's card: rows of avatar, name and summary, the bell pill.
     return (
@@ -508,8 +511,6 @@ function AlertsTab({ favorites }: { favorites: Favorite[] | undefined }) {
       </DataList>
     );
   }
-  const on = favorites.filter((f) => f.alert.enabled);
-  const off = favorites.filter((f) => !f.alert.enabled);
   const card = (f: Favorite): TraderCard => byAddress.get(f.address) ?? { address: f.address, displayName: f.stats?.displayName ?? null, avatarUrl: null, xHandle: null, verified: false, kol: false, accountValue: null, pnl: null, roi: null, copyScore: null, style: null, topCoins: [], lastTradeAt: null, sparkline: [], pnl30d: null, winRate: null, sharpe: null, maxDrawdown: null, source: "none" };
   const row = (f: Favorite, withDelete: boolean) => (
     <li key={f.address} className="flex items-center gap-3 px-4 py-3">
@@ -536,12 +537,12 @@ function AlertsTab({ favorites }: { favorites: Favorite[] | undefined }) {
       {on.length === 0 ? (
         <EmptyState icon={Bell} title={t("favorites.alerts.empty")} className="orbit-card" />
       ) : (
-        <DataList className="orbit-card">{on.map((f) => row(f, true))}</DataList>
+        <><DataList className="orbit-card">{onRows.map((f) => row(f, true))}</DataList><TablePager {...onPager} /></>
       )}
       {off.length > 0 ? (
         <section className="flex flex-col gap-2">
           <h2 className="text-sm font-semibold text-muted-foreground">{t("favorites.alerts.others")}</h2>
-          <DataList className="orbit-card">{off.map((f) => row(f, false))}</DataList>
+          <DataList className="orbit-card">{offRows.map((f) => row(f, false))}</DataList><TablePager {...offPager} />
         </section>
       ) : null}
     </div>
@@ -564,6 +565,7 @@ function FeedTab({ rows, loading, highlight, favorites, hasFavorites }: {
   hasFavorites: boolean;
 }) {
   const { t, format } = useI18n();
+  const { rows: pageRows, pager } = usePaged(rows, useAuth().identity);
   const now = useNow();
   const names = useMemo(() => new Map(favorites.map((f) => [f.address, f.stats?.displayName ?? null])), [favorites]);
   const addresses = useMemo(() => [...new Set(rows.map((r) => r.address))].slice(0, 200), [rows]);
@@ -587,8 +589,8 @@ function FeedTab({ rows, loading, highlight, favorites, hasFavorites }: {
     return <EmptyState icon={Zap} title={hasFavorites ? t("favorites.feed.emptyWaiting") : t("favorites.feed.emptyNoAlerts")} className="orbit-card" />;
   }
   return (
-    <DataList className="orbit-card">
-      {rows.map((row) => {
+    <><DataList className="orbit-card">
+      {pageRows.map((row) => {
         const id = String(row.id);
         const buy = isBuy(row);
         const name = cardNames.get(row.address) ?? names.get(row.address) ?? row.leaderLabel ?? truncateAddress(row.address);
@@ -615,6 +617,6 @@ function FeedTab({ rows, loading, highlight, favorites, hasFavorites }: {
           </li>
         );
       })}
-    </DataList>
+    </DataList><TablePager {...pager} /></>
   );
 }

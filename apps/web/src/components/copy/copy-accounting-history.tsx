@@ -64,6 +64,7 @@ export function OrderFills({ strategyId, orderId }: { strategyId: number; orderI
     if (!covered && hasNextPage && !isFetchingNextPage && pages < MAX_SCAN_PAGES) void fetchNextPage();
   }, [covered, hasNextPage, isFetchingNextPage, pages, fetchNextPage]);
   const fills: Fill[] = all.filter((f) => f.orderId === orderId);
+  const { rows: fillRows, pager: fillsPager } = usePaged(fills, `${strategyId}:${orderId}`);
   if (query.isError && !query.data) return <p role="alert" className="text-xs text-negative">{t("copyUpdates.historyError")} <TextButton busy={query.isFetching} onClick={() => void query.refetch()}>{t("copyUpdates.retry")}</TextButton></p>;
   if (!covered && (query.isPending || isFetchingNextPage || hasNextPage)) return <p role="status" className="text-xs font-semibold text-muted-foreground">{t("common.loading")}</p>;
   if (!fills.length) return <p className="text-xs font-semibold text-muted-foreground">{t("portfolio.copy.detail.noFills")}</p>;
@@ -73,13 +74,14 @@ export function OrderFills({ strategyId, orderId }: { strategyId: number; orderI
     <div className="flex flex-col gap-2" data-testid="order-fills">
       <p className="type-th">{t("portfolio.copy.detail.orderFills")}</p>
       <DataList className="flex flex-col text-xs">
-        {fills.map((f) => (
+        {fillRows.map((f) => (
           <li key={f.id} className="num flex items-center justify-between gap-3 py-1.5">
             <span className="font-semibold">{format.num(Number(f.size), 5)} × {format.price(Number(f.px))}</span>
             <time dateTime={f.ts} className="text-muted-foreground">{format.dateTime(f.ts)}</time>
           </li>
         ))}
       </DataList>
+      <TablePager {...fillsPager} />
       <dl className="num flex flex-wrap gap-x-6 gap-y-1 text-xs">
         <div className="flex gap-2"><dt className="text-muted-foreground">{t("portfolio.copy.detail.orderFees")}</dt><dd className="font-semibold">{format.usd(-fees, { digits: 2 })}</dd></div>
         <div className="flex gap-2"><dt className="text-muted-foreground">{t("portfolio.copy.detail.orderRealized")}</dt><dd className={cn("font-semibold", realized > 0 ? "text-positive" : realized < 0 ? "text-negative" : "")}>{format.usd(realized, { sign: true, digits: 2 })}</dd></div>

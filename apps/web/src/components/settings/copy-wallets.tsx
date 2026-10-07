@@ -1,5 +1,6 @@
 "use client";
 
+import { TablePager, usePaged } from "@/components/ui/table-pager";
 import { DataList } from "@/components/ui/data-list";
 
 
@@ -24,6 +25,7 @@ export function CopyWalletsList() {
   const [confirming, setConfirming] = useState<string | null>(null);
   const data = wallets.data;
   const accounts = data?.accounts.filter(account => account.state === "ready" && account.address) ?? [];
+  const { rows: accountRows, pager } = usePaged(accounts);
   if (!data || (!accounts.length && !data.authorizations.length)) return null;
   return (
     <section className="orbit-card card-pad" aria-label={text.wallets}>
@@ -31,7 +33,7 @@ export function CopyWalletsList() {
       <p className="mt-2 text-xs leading-5 text-muted-foreground">{text.walletsHint}</p>
       {!accounts.length ? <p className="mt-3 text-xs text-muted-foreground">{text.walletsEmpty}</p> : null}
       <DataList className="mt-3 ">
-        {accounts.map(account => {
+        {accountRows.map(account => {
           const grants = data.authorizations.filter(grant => grant.accountAddress === account.address && grant.status !== "revoked" && grant.status !== "expired");
           return (
             <li key={account.id} className="flex flex-col gap-2 py-3 text-xs">
@@ -58,6 +60,7 @@ export function CopyWalletsList() {
           );
         })}
       </DataList>
+      <TablePager {...pager} />
       {revoke.isError ? <p role="alert" className="mt-2 text-xs text-negative">{t("executionWallets.actionError")}</p> : null}
     </section>
   );

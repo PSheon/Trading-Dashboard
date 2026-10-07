@@ -87,3 +87,15 @@ describe("資金紀錄", () => {
     expect(card.textContent).toContain("+$150.00");
   });
 });
+
+it("pages an order's fills without changing its aggregate fees", async () => {
+  pages.fills = [{ items: Array.from({ length: 23 }, (_, i) => fill(100-i, 9)), previousCursor: null, hasMore: false }];
+  await render(<OrderFills strategyId={7} orderId="9" />);
+  const box = el.querySelector('[data-testid="order-fills"]')!;
+  expect(box.querySelectorAll("li")).toHaveLength(10);
+  expect(box.textContent).toContain("手續費-$0.23");
+  await act(async () => box.querySelectorAll<HTMLButtonElement>("[data-pager] button")[1].click());
+  expect(box.querySelectorAll("li")).toHaveLength(10);
+  expect(box.textContent).toContain("第 2");
+  expect(box.textContent).toContain("手續費-$0.23");
+});

@@ -1,5 +1,6 @@
 "use client";
 
+import { TablePager, usePaged } from "@/components/ui/table-pager";
 import { DataList } from "@/components/ui/data-list";
 
 
@@ -90,12 +91,13 @@ function CopiesList() {
     const s = overview.data?.strategies.find((x) => x.id === strategyId);
     return s ? boardName(leaders.get(s.leaderAddress) ?? { address: s.leaderAddress, displayName: null }) : null;
   };
+  const items = [...(events.data?.items ?? [])].reverse().filter((e) => describeCopyEvent(e).kind !== "other");
+  const { rows: pageRows, pager } = usePaged(items, useAuth().identity);
   if (!events.data) return events.isError ? <p className="py-8 text-center text-sm text-muted-foreground">{t("copyUpdates.activityError")}</p> : <ListRowsSkeleton rows={4} />;
-  const items = [...events.data.items].reverse().filter((e) => describeCopyEvent(e).kind !== "other");
   if (!items.length) return <Empty title={t("feed.emptyCopies")} body={t("feed.emptyCopiesDesc")} />;
   return (
-    <DataList>
-      {items.map((event) => {
+    <><DataList>
+      {pageRows.map((event) => {
         const d = describeCopyEvent(event);
         const who = leaderOf(event.strategyId);
         const coin = d.coin ? coinLabel(d.coin) : "";
@@ -133,7 +135,7 @@ function CopiesList() {
           />
         );
       })}
-    </DataList>
+    </DataList><TablePager {...pager} /></>
   );
 }
 
@@ -142,11 +144,12 @@ const buys = (a: Pick<ActionFeedItem, "kind" | "side">) => (a.kind === "open" ||
 function FollowingList({ onNavigate }: { onNavigate: () => void }) {
   const { t, format } = useI18n();
   const feed = useActions({ scope: "favorites", limit: 50 }, { refetchInterval: 15_000 });
+  const { rows: pageRows, pager } = usePaged(feed.data ?? [], useAuth().identity);
   if (!feed.data) return feed.isError ? <p className="py-8 text-center text-sm text-muted-foreground">{t("copyUpdates.activityError")}</p> : <ListRowsSkeleton />;
   if (!feed.data.length) return <Empty title={t("feed.followingEmpty")} body={t("feed.followingWaiting")} />;
   return (
-    <DataList>
-      {feed.data.map((a) => {
+    <><DataList>
+      {pageRows.map((a) => {
         const buy = buys(a);
         const who = a.leaderLabel?.trim() || truncateAddress(a.address);
         return (
@@ -161,7 +164,7 @@ function FollowingList({ onNavigate }: { onNavigate: () => void }) {
           />
         );
       })}
-    </DataList>
+    </DataList><TablePager {...pager} /></>
   );
 }
 
@@ -169,11 +172,12 @@ function DepositsList() {
   const { t, format } = useI18n();
   const history = useWalletHistory();
   const rows = useMemo(() => (history.data?.transfers ?? []).filter((x) => x.kind === "deposit" || x.kind === "withdraw"), [history.data]);
+  const { rows: pageRows, pager } = usePaged(rows, history.data?.address);
   if (!history.data) return history.isError ? <p className="py-8 text-center text-sm text-muted-foreground">{t("copyUpdates.activityError")}</p> : <ListRowsSkeleton />;
   if (!rows.length) return <Empty title={t("feed.emptyDeposits")} />;
   return (
-    <DataList>
-      {rows.map((x) => {
+    <><DataList>
+      {pageRows.map((x) => {
         const deposit = x.kind === "deposit";
         return (
           <Row
@@ -188,7 +192,7 @@ function DepositsList() {
           />
         );
       })}
-    </DataList>
+    </DataList><TablePager {...pager} /></>
   );
 }
 

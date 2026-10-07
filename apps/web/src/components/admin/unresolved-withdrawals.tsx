@@ -1,5 +1,6 @@
 "use client";
 
+import { TablePager, usePaged } from "@/components/ui/table-pager";
 import { DataList } from "@/components/ui/data-list";
 
 
@@ -34,6 +35,7 @@ export function UnresolvedWithdrawals() {
   const [reason, setReason] = useState("");
   const [outcome, setOutcome] = useState<string | null>(null);
   const items = list.data?.items ?? [];
+  const { rows: pageItems, pager } = usePaged(items);
   if (!items.length && !outcome) return null;
   // "Now" is when the list was read (refreshed every minute): pure render.
   const now = list.dataUpdatedAt;
@@ -44,7 +46,7 @@ export function UnresolvedWithdrawals() {
         <p className="type-caption">{t("admin.withdrawals.hint")}</p>
         {outcome ? <p role="status" className="text-sm font-bold text-positive">{outcome}</p> : null}
         <DataList>
-          {items.map((item) => {
+          {pageItems.map((item) => {
             const open = new Date(item.resolvableAt).getTime() > now;
             return (
               <li key={item.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2.5 text-sm font-bold">
@@ -62,6 +64,7 @@ export function UnresolvedWithdrawals() {
             );
           })}
         </DataList>
+        <TablePager {...pager} />
       </AdminCard>
       <Modal open={target !== null} onOpenChange={(next) => { if (!next) close(); }} title={t("admin.withdrawals.resolve")}>
         <form className="flex flex-col gap-3" onSubmit={(event) => {

@@ -1,5 +1,6 @@
 'use client';
 
+import { TablePager, usePaged } from "@/components/ui/table-pager";
 import { DataList } from "@/components/ui/data-list";
 import { Link } from '@/i18n/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -249,6 +250,7 @@ function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; te
   const [sheet, setSheet] = useState<{ kind: 'withdraw' | 'returnAll'; amount: string } | null>(null);
   const [sheetError, setSheetError] = useState<string | null>(null);
   const observed = snapshot.data?.status === 'observed' ? snapshot.data : null;
+  const { rows: positionRows, pager: positionsPager } = usePaged(observed?.positions ?? [], `${auth.identity}:${item.accountId}`);
   const busy = actions.transfer.isPending || actions.close.isPending || actions.cancelTransfer.isPending;
   // What failed, in words (lib/copy-error-text.ts): never one line for all three.
   const texts = useCopyTexts();
@@ -310,8 +312,8 @@ function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; te
           <div>
             <p className="text-xs font-semibold">{text.positions}</p>
             {observed.positions.length === 0 ? <p className="text-xs text-muted-foreground">{text.noPositions}</p> : (
-              <DataList className="mt-1 ">
-                {observed.positions.map(p => (
+              <><DataList className="mt-1 ">
+                {positionRows.map(p => (
                   <li key={p.coin} className="flex flex-wrap items-center gap-3 py-1.5 text-xs">
                     <span className="font-semibold">{p.coin}</span>
                     <span className="num">{text.size} {p.size}</span>
@@ -325,7 +327,7 @@ function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; te
                     ) : null}
                   </li>
                 ))}
-              </DataList>
+              </DataList><TablePager {...positionsPager} /></>
             )}
           </div>
         </>

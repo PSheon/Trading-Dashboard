@@ -76,6 +76,7 @@ export function FundsHistory({ className }: { className?: string }) {
       <TablePager {...pager} pages={flows.hasNextPage ? undefined : pager.pages} hasNext={pager.page + 1 < pager.pages || Boolean(flows.hasNextPage && !flows.isError)} busy={readingOlder || flows.isFetchingNextPage}
         onPage={async (next) => {
           if (next * PAGE_SIZE < shown.length || !flows.hasNextPage) { pager.onPage(next); return; }
+          const target = shown.length < (pager.page + 1) * PAGE_SIZE ? pager.page : next;
           setReadingOlder(true);
           try {
             // A filtered API page may contain no matching rows. Continue until
@@ -86,9 +87,9 @@ export function FundsHistory({ className }: { className?: string }) {
               if (result.isFetchNextPageError || currentFilter.current !== ownerFilter) return;
               const fetched = result.data?.pages.flatMap((p) => p.items) ?? [];
               const count = mergeFunds(hub.data?.transfers, fetched, !result.hasNextPage, owner).filter((row) => rowMatches(row, filter)).length;
-              if (count > next * PAGE_SIZE) break;
+              if (count >= (target + 1) * PAGE_SIZE) break;
             } while (result.hasNextPage);
-            pager.onPage(next);
+            pager.onPage(target);
           } finally { setReadingOlder(false); }
         }} />
     </div>

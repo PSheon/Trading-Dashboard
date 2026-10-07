@@ -134,3 +134,23 @@ it.each([['jobs', AdminJobs], ['audit', AdminAudit]] as const)('requests ten %s 
   expect(el.textContent).not.toContain('settingsOps.page');
   read.mockRestore();
 });
+
+it('pages saved alerts and their live feed through the same ten-row pager', async () => {
+  const originalGet=api.get;
+  const {fixtureRequest}=await import('@/fixtures/handler');
+  const starting=await fixtureRequest('GET','/me/favorites',undefined,'fixture-token') as import('@/lib/contracts').Favorite[];
+  const favorites=Array.from({length:23},(_,i)=>({...starting[0],address:traderStats[i].address}));
+  const feed=Array.from({length:23},(_,i)=>({...actionsFeed()[0],id:String(i+1)}));
+  const read=vi.spyOn(api,'get').mockImplementation(async (path,signal)=>path==='/me/favorites'?favorites:path.startsWith('/actions?')?feed:originalGet(path,signal));
+  try {
+    await render(<FavoritesView />);
+    await act(async ()=>el.querySelectorAll<HTMLButtonElement>('[role=tab]')[1].click()); await settleQueries(client);
+    expect(el.querySelectorAll('[data-slot=data-list] > li')).toHaveLength(10);
+    expect(el.querySelector('[data-pager]')).not.toBeNull();
+    await act(async ()=>el.querySelectorAll<HTMLButtonElement>('[role=tab]')[2].click()); await settleQueries(client);
+    expect(el.querySelectorAll('[data-slot=data-list] > li')).toHaveLength(10);
+    const pager=el.querySelector('[data-pager]')!;
+    await act(async ()=>pager.querySelectorAll<HTMLButtonElement>('button')[1].click());
+    expect(pager.textContent).toContain('Page 2');
+  } finally {read.mockRestore();}
+});

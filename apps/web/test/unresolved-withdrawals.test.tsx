@@ -60,3 +60,13 @@ it("does not offer resolution inside the nonce window, nor to an operator", asyn
   expect(button(en.admin.withdrawals.windowOpen)).toBeUndefined();
   expect(button(en.admin.withdrawals.resolve)).toBeUndefined();
 });
+
+it("pages unresolved withdrawals without resolving any during navigation", async () => {
+  state.items = Array.from({length:23}, (_,i) => ({...item(0), id:`11111111-1111-4111-8111-${String(i).padStart(12,"0")}`}));
+  await render();
+  expect(container.querySelectorAll('[data-slot="data-list"] > li')).toHaveLength(10);
+  await act(async () => container.querySelectorAll<HTMLButtonElement>('[data-pager] button')[1].click());
+  expect(container.querySelectorAll('[data-slot="data-list"] > li')).toHaveLength(10);
+  expect(container.textContent).toContain('Page 2');
+  expect(state.posts).toEqual([]);
+});

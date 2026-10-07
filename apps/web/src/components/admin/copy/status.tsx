@@ -1,5 +1,6 @@
 "use client";
 
+import { TablePager, usePaged } from "@/components/ui/table-pager";
 import { DataList } from "@/components/ui/data-list";
 
 
@@ -74,6 +75,7 @@ export function AdminCopyStatus() {
   const setLedger = (id: number | null) => router.replace(id === null ? pathname : `${pathname}?strategy=${id}`, { scroll: false });
 
   const d = overview.data;
+  const { rows: stuckRows, pager: stuckPager } = usePaged(d?.stuckOrders ?? []);
   const users = useMemo(() => exposure.data?.items ?? [], [exposure.data]);
   const byUser = useMemo(() => {
     const map = new Map<number, AdminCopyStrategyView[]>();
@@ -136,7 +138,7 @@ export function AdminCopyStatus() {
           title={<span id="copy-stuck-title" className="flex items-center gap-2">{t("copyAdmin.stuck.title")}<Chip tone="bad">{format.num(d.stuckOrders!.length, 0)}</Chip></span>}>
           <p className="type-caption">{t("copyAdmin.stuck.hint", { attempts: STUCK_ORDER_ATTEMPTS })}</p>
           <DataList className="text-sm font-bold">
-            {d.stuckOrders!.map((o) => (
+            {stuckRows.map((o) => (
               <li key={o.id} className="grid gap-x-6 gap-y-1 py-2.5 sm:grid-cols-[auto_1fr_auto]">
                 <span className="num">{t("copyAdmin.stuck.order")} #{o.id} · {coinLabel(o.coin)} · {t(`copyAdmin.leg.${o.leg}`)}{o.reduceOnly ? ` · ${t("copyAdmin.stuck.reduceOnly")}` : ""}</span>
                 <span className="min-w-0 break-words text-muted-foreground">{t("copyAdmin.stuck.error")}: {o.lastError ?? "—"}</span>
@@ -147,6 +149,7 @@ export function AdminCopyStatus() {
               </li>
             ))}
           </DataList>
+          <TablePager {...stuckPager} />
         </AdminCard>
       ) : null}
 
@@ -295,14 +298,15 @@ function UserStrategies({ strategies, loading, coins, onLedger }: {
   onLedger: (id: number) => void;
 }) {
   const { t, format } = useI18n();
+  const { rows: strategyRows, pager } = usePaged(strategies ?? []);
   return (
     <div className="row-expansion mb-1.5 flex flex-col gap-2 px-4 py-3 md:px-[18px]">
       <p className="type-th">{t("admin.copy.strategiesOf")}</p>
       {loading ? <p className="text-sm font-bold text-muted-foreground">{t("admin.copy.loading")}</p>
         : !strategies?.length ? <p className="text-sm font-bold text-muted-foreground">{t("copyAdmin.strategies.empty")}</p>
         : (
-          <DataList className="flex flex-col ">
-            {strategies.map((s) => (
+          <><DataList className="flex flex-col ">
+            {strategyRows.map((s) => (
               <li key={s.id} className="grid items-center gap-x-4 gap-y-1 py-2 text-sm font-extrabold sm:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_auto_auto_auto]">
                 <span className="min-w-0 truncate">
                   {t("admin.copy.follows")} <Link href={`/trader/${s.leaderAddress}`} className="num underline-offset-4 hover:underline">{truncateAddress(s.leaderAddress)}</Link>
@@ -318,7 +322,7 @@ function UserStrategies({ strategies, loading, coins, onLedger }: {
                 </button>
               </li>
             ))}
-          </DataList>
+          </DataList><TablePager {...pager} /></>
         )}
       {coins.length ? (
         <ul className="flex flex-wrap gap-1.5">

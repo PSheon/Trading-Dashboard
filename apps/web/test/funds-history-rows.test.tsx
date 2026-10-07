@@ -95,3 +95,20 @@ it("continues past an older server page with no matching fee rows", async () => 
     expect(el.querySelector('[data-pager]')?.textContent).toContain('第 2 / 2 頁');
   } finally {await act(async ()=>root.unmount());el.remove();state.more=false;}
 });
+
+it.each([0,5])("fills an incomplete filtered page without skipping newly fetched records (%i initial)", async (initial) => {
+  state.more=true;
+  const rows=Array.from({length:20},(_,i)=>flow({id:`fee-${i}`,kind:"fees",amount:-(i+1),time:new Date(Date.UTC(2026,9,7,0,30-i)).toISOString()}));
+  state.items=rows.slice(0,initial);
+  state.fetchNextPage.mockReset().mockImplementation(async ()=>{state.items=rows;state.more=false;return {data:{pages:[{items:rows}]},hasNextPage:false,isFetchNextPageError:false};});
+  Object.assign(globalThis,{IS_REACT_ACT_ENVIRONMENT:true});
+  const el=document.createElement('div');document.body.append(el);const root=createRoot(el);
+  try {
+    await act(async ()=>root.render(<I18nProvider locale="zh-TW" messages={catalogs["zh-TW"]}><FundsHistory /></I18nProvider>));
+    await act(async ()=>el.querySelectorAll<HTMLButtonElement>('[role=radio]')[3].click());
+    await act(async ()=>el.querySelectorAll<HTMLButtonElement>('[data-pager] button')[1].click());
+    expect(el.querySelector('[data-pager]')?.textContent).toContain('第 1 / 2 頁');
+    expect(el.querySelector('li')?.textContent).toContain('-$1.00');
+    expect(el.querySelectorAll('li')).toHaveLength(10);
+  } finally {await act(async ()=>root.unmount());el.remove();state.more=false;}
+});

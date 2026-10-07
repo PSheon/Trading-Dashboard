@@ -20,6 +20,7 @@ import type { LivePosition, RoundTrip, TraderAnalyticsResponse, TraderFill, Trad
  */
 const q = vi.hoisted(() => ({
   trades: {} as Record<string, unknown>,
+  analytics: undefined as unknown,
   fills: { data: undefined as unknown, isError: false, refetch() {} },
   transfers: { data: undefined as unknown },
 }));
@@ -31,7 +32,7 @@ vi.mock("../src/components/trader/trade-share-dialog", async (importOriginal) =>
 vi.mock("../src/lib/queries", () => ({
   isComputing: () => false,
   isUnavailable: () => false,
-  useTraderAnalytics: () => ({ data: undefined, error: null, refetch() {} }),
+  useTraderAnalytics: () => ({ data: q.analytics, error: null, refetch() {} }),
   useTraderTrades: () => q.trades,
   useTraderFills: () => q.fills,
   useTraderTransfers: () => q.transfers,
@@ -46,6 +47,7 @@ beforeEach(() => {
   document.body.append(el);
   root = createRoot(el);
   history.replaceState(null, "", "/");
+  q.analytics = undefined;
 });
 afterEach(async () => {
   await act(async () => root.unmount());
@@ -78,6 +80,30 @@ describe("the tab row", () => {
     const activity = [...el.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((t) => t.textContent === "Activity")!;
     await act(async () => activity.click());
     expect(el.querySelector('[role="tabpanel"] [data-testid="activity-feed"]')).not.toBeNull();
+  });
+
+  it("each of the five tabs shows its own content in the one visible panel", async () => {
+    q.fills = { data: [], isError: false, refetch() {} };
+    q.transfers = { data: { transfers: [] } };
+    q.trades = { data: { pages: [{ items: [trip(1)], total: 1, nextCursor: null, coverage: { truncated: false, from: null } }] }, hasNextPage: false, isFetchingNextPage: false, fetchNextPage() {}, isError: false };
+    q.analytics = { summary: { best: [trip(1)], worst: [], coins: [], realizedPnl: 9, volume: 100, trades: 1, avgHoldSeconds: 86_400, winRate: 1 }, classification: null, coverage: { truncated: false, from: null } };
+    await render(<ActivityTabs profile={profileWith(2)} />);
+    const expected: Record<string, string> = {
+      Positions: '[data-testid="positions-table"]',
+      Insights: '[data-testid="mobile-insights"]',
+      Performance: '[role="radiogroup"][aria-label="Performance"]',
+      Trades: 'tr[data-status="closed"]',
+      Activity: '[data-testid="activity-feed"]',
+    };
+    for (const [name, selector] of Object.entries(expected)) {
+      const tab = [...el.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((t) => t.textContent === name)!;
+      await act(async () => tab.click());
+      const panels = [...el.querySelectorAll<HTMLElement>('[role="tabpanel"]')].filter((p) => !p.hidden && !p.hasAttribute("inert"));
+      expect(panels, name).toHaveLength(1);
+      expect(panels[0].getAttribute("aria-labelledby"), name).toBe(tab.id);
+      expect(panels[0].querySelector(selector), name).not.toBeNull();
+      for (const [other, sel] of Object.entries(expected)) if (other !== name && sel !== expected[name]) expect(panels[0].querySelector(sel), `${name} shows ${other}`).toBeNull();
+    }
   });
 
   it("表現 sits in the same shell as the other tabs (no 12 px inset) with the site's segmented switch", async () => {

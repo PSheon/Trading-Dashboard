@@ -319,7 +319,7 @@ export function MobileTraderSkeleton() {
     <div aria-hidden="true" className="flex flex-col gap-6 pb-6">
       <div className="-mx-4 -mt-4 flex items-center gap-2 bg-background px-4 pt-4 pb-2">
         <SkelCircle className="size-11 bg-raised" />
-        <SkelBar line="mx-auto h-6" className="h-4 w-28 bg-raised" />
+        <SkelBar line="min-w-0 flex-1 justify-center h-6" className="h-4 w-28 max-w-full bg-raised" />
         <span className="flex shrink-0 items-center gap-1.5">
           <SkelCircle className="size-11 bg-raised" />
           <SkelCircle className="size-11 bg-raised" />

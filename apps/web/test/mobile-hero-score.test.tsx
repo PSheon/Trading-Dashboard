@@ -45,6 +45,8 @@ it("keeps the floating copy action in the same capsule as its loading placeholde
     expect(html).toContain("phone-floating-bar");
     expect(html).not.toContain("bg-background/92");
   }
+  expect(skeleton).toContain("min-w-0 flex-1");
+  expect(skeleton).toContain("max-w-full");
 });
 
 it("gives the phone trader header the shared scrim, readable title space and 44px actions", () => {

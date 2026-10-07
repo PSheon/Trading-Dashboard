@@ -131,4 +131,4 @@
 - 手機標題改用可用flex寬度，390px的solanadoomer可完整顯示；右側三個操作改44px（原40px、窄螢幕36px），返回按鈕同為44px。
 - 兩個新增單元回歸舊碼RED、新碼GREEN，相關10/10；完整web177檔1137/1137，tsc含測試、eslint src/test/e2e通過。新增瀏覽器回歸涵蓋膠囊與首頁尺寸一致、320／390／767觸控尺寸、漸層捲動與reduced-motion、末端內容及桌機隱藏。
 - 共享瀏覽器在正常本機testnet頁面量測：首頁與跟單膠囊皆x12、y764、366×68（390×844）；三種手機寬度無橫向溢出，top-bar固定於y0、捲動後scrim opacity1／回頂0、reduced-motion transition0s；末端main底748.2 < 膠囊頂764。1440×900無手机膠囊。
-- 已目視本機明／暗、頂部／末端與1440截圖，`/private/tmp/codex-trading-ui/floating-*.png`；CI與Stage發布驗證另記後續。
+- 已目視本機明／暗、頂部／末端與1440截圖，`/private/tmp/codex-trading-ui/floating-*.png`；審查未見Critical／Important，另抓到320px skeleton標頭寬度相加會裁切右側佔位，補可縮中間wrapper與max-w-full，新增斷言舊碼RED／新碼GREEN。CI與Stage發布驗證另記後續。

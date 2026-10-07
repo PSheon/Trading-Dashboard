@@ -2,6 +2,7 @@ import { ImageResponse } from "next/og";
 
 import { BRAND, markSvgBody } from "@/components/brand/logo";
 import { APP_NAME, APP_URL } from "@/lib/config";
+import { coinIcons } from "@/lib/coin-icon-source";
 import { SHARE_FORMATS, SHARE_SCALE, type ShareFormat } from "@/lib/share-card";
 import { loadFonts } from "@/lib/share-card-image";
 import { cells, chipText, compactPnl, heroPnl, pctText, cardPrice, type TradeCardData, type TradeCardStyle } from "@/lib/trade-card";
@@ -24,9 +25,35 @@ const markUri = (variant: "dark" | "light", px: number) =>
 /** Hero size: as large as allowed, shrunk to fit `room` px (figures ~0.6 em). */
 const fit = (text: string, max: number, room: number) => Math.max(16, Math.min(max, Math.floor(room / (Math.max(1, text.length) * 0.6))));
 
-/** The coin as Orbie draws it on a card: its ticker in a planet-orange disc
- * (no outside icon is fetched). */
-function CoinBadge({ coin, size, t }: { coin: string; size: number; t: Tones }) {
+/** What satori's renderer can't draw from an embedded SVG (references,
+ * filters, text in outside fonts, nested or external images, styles):
+ * such an icon falls back to the ticker disc. */
+const UNSAFE_SVG = /<\s*(?:use|filter|text|tspan|foreignObject|image|style|script)\b|xlink:href|@font-face|url\(\s*['"]?(?:https?:|\/\/)/i;
+
+/**
+ * The coin's logo for a card: the very SVG the page's CoinIcon shows (the
+ * same server-side lookup /api/coin-icon/<coin> answers with), embedded as
+ * a data URI; null for a coin without one (stocks, new markets), when the
+ * lookup fails, or when the SVG holds what the renderer can't draw.
+ */
+export async function cardCoinIcon(coin: string, source: Pick<typeof coinIcons, "get"> = coinIcons): Promise<string | null> {
+  if (process.env.NEXT_TEST_MODE === "1") return null;
+  const icon = await source.get(coin).catch(() => null);
+  if (!icon || UNSAFE_SVG.test(icon.svg)) return null;
+  return `data:image/svg+xml;base64,${Buffer.from(icon.svg).toString("base64")}`;
+}
+
+/** The coin on a card: its logo in a round frame when it has one, else its
+ * ticker in a planet-orange disc. */
+function CoinBadge({ coin, icon, size, t }: { coin: string; icon: string | null; size: number; t: Tones }) {
+  if (icon) {
+    return (
+      <div style={{ display: "flex", width: size, height: size, borderRadius: 9999, alignItems: "center", justifyContent: "center", overflow: "hidden", border: `${Math.max(2, size * 0.04)}px solid ${t.halo}` }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img alt="" src={icon} width={size} height={size} style={{ borderRadius: 9999 }} />
+      </div>
+    );
+  }
   const ticker = (coin.includes(":") ? coin.split(":")[1]! : coin).replace(/^k(?=[A-Z])/, "").slice(0, 4);
   return (
     <div style={{ display: "flex", width: size, height: size, borderRadius: 9999, alignItems: "center", justifyContent: "center", background: `linear-gradient(150deg, #ffb38f 0%, ${BRAND.orange} 55%, #c9471a 100%)`, color: BRAND.navy, fontSize: size * (ticker.length > 3 ? 0.26 : 0.32), fontWeight: 800, letterSpacing: "-0.02em", border: `${Math.max(2, size * 0.04)}px solid ${t.halo}` }}>
@@ -76,7 +103,7 @@ function Orbit({ w, h, s, t }: { w: number; h: number; s: number; t: Tones }) {
   );
 }
 
-function Tall({ d, w, h, s, t }: { d: TradeCardData; w: number; h: number; s: number; t: Tones }) {
+function Tall({ d, icon, w, h, s, t }: { d: TradeCardData; icon: string | null; w: number; h: number; s: number; t: Tones }) {
   const hero = heroPnl(d.pnl);
   const up = (d.pnlPct ?? d.pnl) >= 0;
   return (
@@ -85,7 +112,7 @@ function Tall({ d, w, h, s, t }: { d: TradeCardData; w: number; h: number; s: nu
       {d.paper ? <PaperTag s={s} t={t} /> : null}
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
         <div style={{ display: "flex", width: 88 * s, height: 88 * s, borderRadius: 9999, background: t.halo, alignItems: "center", justifyContent: "center" }}>
-          <CoinBadge coin={d.coin} size={62 * s} t={t} />
+          <CoinBadge coin={d.coin} icon={icon} size={62 * s} t={t} />
         </div>
         <div style={{ display: "flex", marginTop: -13 * s }}><Chip text={chipText(d)} s={s} t={t} scale={1.5} /></div>
       </div>
@@ -114,7 +141,7 @@ function Tall({ d, w, h, s, t }: { d: TradeCardData; w: number; h: number; s: nu
   );
 }
 
-function Wide({ d, w, h, s, t }: { d: TradeCardData; w: number; h: number; s: number; t: Tones }) {
+function Wide({ d, icon, w, h, s, t }: { d: TradeCardData; icon: string | null; w: number; h: number; s: number; t: Tones }) {
   const hero = compactPnl(d.pnl);
   const stats: Array<[string, string]> = [
     ["ROI", d.pnlPct === null ? "—" : `${d.pnlPct >= 0 ? "+" : "-"}${pctText(d.pnlPct)}`],
@@ -126,7 +153,7 @@ function Wide({ d, w, h, s, t }: { d: TradeCardData; w: number; h: number; s: nu
       <Orbit w={w} h={h} s={s} t={t} />
       {d.paper ? <PaperTag s={s} t={t} /> : null}
       <div style={{ display: "flex", alignItems: "center", gap: 10 * s }}>
-        <CoinBadge coin={d.coin} size={48 * s} t={t} />
+        <CoinBadge coin={d.coin} icon={icon} size={48 * s} t={t} />
         <Chip text={chipText(d)} s={s} t={t} scale={1.35} />
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 * s }}>
@@ -154,5 +181,6 @@ export async function renderTradeCard(d: TradeCardData, style: TradeCardStyle, f
   const s = SHARE_SCALE;
   const t = tones(style, (d.pnlPct ?? d.pnl) >= 0);
   const Body = format === "portrait" ? Tall : Wide;
-  return new ImageResponse(<Body d={d} w={width} h={height} s={s} t={t} />, { width, height, fonts: await loadFonts(), headers: options.headers });
+  const [fonts, icon] = await Promise.all([loadFonts(), cardCoinIcon(d.coin)]);
+  return new ImageResponse(<Body d={d} icon={icon} w={width} h={height} s={s} t={t} />, { width, height, fonts, headers: options.headers });
 }

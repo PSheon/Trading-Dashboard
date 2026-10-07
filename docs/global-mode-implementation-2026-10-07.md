@@ -29,3 +29,8 @@ Paul 已要求先實作並部署。範圍採分析文件路線 A：正式／測�
 - CI `37635581744` 未通過：修正 Account 選單選擇器、英文流程誤用中文入口、手機更多操作名稱衝突與 fixture 缺少執行網路。MutationCache 通知採 React Query 同樣的排程方式，避免跨元件 render 通知；新增更多操作／fixture network 回歸修正前失敗、修正後通過。
 
 - CI `37639493666`：browser3 63 項通過，footer 探索資料載入時頁高競速改成在穩定末端量測；browser2 手機 pending copy 的入口應找固定區塊（按鈕文案會是管理），另補搜尋前等待 session ready，避免 hydration boundary remount 丟失點擊。browser1 取消前無測試失敗。
+
+- 修正後共享瀏覽器正常本機服務：390px 探索搜尋開啟且 focus，footer 底728px < 浮動導覽頂764px、sideways0；截圖 `/private/tmp/orbie-global-local-final-explore.png` 已目視。無服務重啟。
+- 最終發布包已由 `55f9197d` git archive 準備；CI `37641899355` 驗證中。發布前備份 `/private/tmp/codex-trading-stage-before-global-mode-7510ae30.dump`：29,509,282 bytes、0600、PG18 目錄714行；SHA256 `4661f82fb14dcd1d58e903b00b2d3e49afa5d2a9c14940e61a4ac50e58fdfbd5`。
+
+- CI `37641899355`：browser2、browser3 全通過，browser1 僅既有 Select 鍵盤測試失敗。原 expect.poll 反覆送 ArrowDown，與 Radix 延遲 focus 競速（量測 PnL，下一個 queued key 又移至 ROI）；改一次按鍵、等待 focus，再確認選取。跟單流程已通過。

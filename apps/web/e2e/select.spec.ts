@@ -30,14 +30,12 @@ test("explore's sort pill opens, moves and picks with the keyboard at 1440", asy
   // The current choice is checked and has focus.
   await expect(list.getByRole("option", { selected: true })).toHaveText(before);
   await expect(list.getByRole("option", { selected: true })).toBeFocused();
-  // Arrow down moves the focus off the current choice (retried: the list
-  // may still be settling its placement on a slow machine).
-  let next = before;
-  await expect.poll(async () => {
-    await page.keyboard.press("ArrowDown");
-    next = (await page.locator('[role="option"]:focus').innerText()).trim();
-    return next;
-  }, { timeout: 5000 }).not.toBe(before);
+  // Radix schedules focus asynchronously. Press once, then wait for that
+  // focus change; polling key presses can queue an extra move after reading.
+  await page.keyboard.press("ArrowDown");
+  const focused = page.locator('[role="option"]:focus');
+  await expect(focused).not.toHaveText(before);
+  const next = (await focused.innerText()).trim();
   await page.keyboard.press("Enter");
   await expect(list).toHaveCount(0);
   await expect(sort).toHaveText(next);
@@ -68,10 +66,8 @@ test("the full leaderboard's value filter works by keyboard and fits a 390 px ph
   expect(box!.x).toBeGreaterThanOrEqual(0);
   expect(box!.x + box!.width).toBeLessThanOrEqual(390);
   await expect(list.getByRole("option", { selected: true })).toBeFocused();
-  await expect.poll(async () => {
-    await page.keyboard.press("ArrowDown");
-    return (await page.locator('[role="option"]:focus').innerText()).trim();
-  }, { timeout: 5000 }).not.toBe("Any");
+  await page.keyboard.press("ArrowDown");
+  await expect(page.locator('[role="option"]:focus')).not.toHaveText("Any");
   await page.keyboard.press("Enter");
   await expect(list).toHaveCount(0);
   expect((await tier.innerText()).trim()).not.toBe(before);

@@ -147,3 +147,5 @@ Paul授予6小時完成testnet測試；開始00:20台灣時間，截止06:20。�
 ### 06:19 最後資金核對
 
 06:18:18 #37四項停止檢查全部PASS：未blocked、原生持倉flat、49.001351退款credited、copy0／主123.947026、stopped。唯讀最終核對所有actual策略stopped，openFunding／liabilities／unfinishedSetups全空，證據 `/private/tmp/codex-testnet-final-money-state.log`。06:19開始正常重啟API3100與worker3010，明確unset NODE_OPTIONS去掉所有暫時preload，web3000與共享Chrome9333保留。測試整體仍未全綠；上述資金收尾成功不覆蓋原FAIL。
+
+06:19:45收尾確認完成：本機API3100新PID93979、worker3010新PID94038均healthy，啟動明確unset NODE_OPTIONS；暫時RPC／phase preload已移除，編譯模組及profile皆恢復原內容。共享web3000／Chrome9333保留。原生受控領單無持倉、24.136165 testUSDC；主錢包123.947026、本輪跟單0，所有本輪退款credited／保留額度釋放。最終證據 `/private/tmp/codex-testnet-final-money-state.log`、`/private/tmp/codex-testnet-final-leader-state.log`。未宣稱B全綠，未開始C。

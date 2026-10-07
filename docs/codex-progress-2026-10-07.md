@@ -196,3 +196,5 @@
 B仍未全綠：4真實驗收PASS；base／3／6／7／9各有原始FAIL，8無標的正式SKIP，14未獲管理權限未執行。API3879／web1171／harness25與typecheck、lint、`95bde124`完整CI均PASS。前輪均已平倉及credited退款；最後#37已無倉、stopped、49.001351返還accepted，仍待最後credited與移除暫時preload。編譯模組／profile已恢復原內容。最新證據與未完成項目見 [testnet結果](testnet-results-2026-10-08.md)。本輪沒有手動部署Stage，C不得開始。
 
 06:19最後更新：#37退款49.001351已credited、copy0／主123.947026，四項停止全PASS；唯讀核對所有actual策略stopped、在途資金／未釋放保留額度／未完成setup全空。正在正常重啟本機API／worker移除暫時preload。B仍未全綠，未以資金收尾成功冒充交易驗收成功。
+
+06:19:45收尾確認完成：本機API3100新PID93979、worker3010新PID94038均healthy，啟動明確unset NODE_OPTIONS；暫時RPC／phase preload已移除，編譯模組及profile皆恢復原內容。共享web3000／Chrome9333保留。原生受控領單無持倉、24.136165 testUSDC；主錢包123.947026、本輪跟單0，所有本輪退款credited／保留額度釋放。最終證據 `/private/tmp/codex-testnet-final-money-state.log`、`/private/tmp/codex-testnet-final-leader-state.log`。未宣稱B全綠，未開始C。

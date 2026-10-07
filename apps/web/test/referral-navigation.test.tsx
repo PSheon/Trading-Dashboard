@@ -84,7 +84,8 @@ beforeEach(() => {
 it("mounts the explicit referral deep-link in both desktop and phone settings with accessible navigation", () => {
   const html = renderToStaticMarkup(<SettingsView />);
   expect(html).toContain('aria-current="page"');
-  expect(html).toContain('role="dialog"');
+  expect(html).not.toContain('role="dialog"');
+  expect(html).toContain('data-testid="phone-settings"');
   expect(html).toContain("private-referrals");
   expect(state.render).toHaveBeenCalledTimes(2);
 });
@@ -98,3 +99,15 @@ it.each(["fixture", "none"])(
     expect(state.render).not.toHaveBeenCalled();
   },
 );
+
+it("phone settings root is an ordinary page with back navigation, 44px rows and delete last", () => {
+  state.view = "root";
+  const html = renderToStaticMarkup(<SettingsView />);
+  const phone=html.slice(html.indexOf('data-testid="phone-settings"'));
+  expect(phone).not.toContain('aria-modal="true"');
+  expect(phone).toContain('settings.back');
+  expect(phone).toContain('size-11');
+  expect(phone).toContain('h-11');
+  for(const key of ['settings.menu.account','settings.notifications','settings.language','settings.history','referral.title','theme.label','settings.feedbackTitle','settings.privacy','settings.terms','settings.logout','deleteAccount.title']) expect(phone).toContain(key);
+  expect(phone.indexOf('settings.logout')).toBeLessThan(phone.indexOf('deleteAccount.title'));
+});

@@ -13,21 +13,24 @@ import {
   ReceiptText,
   Settings,
   User,
-  X,
+  SunMoon,
+  ShieldCheck,
+  ScrollText,
+  LogOut,
+  Trash2,
   type LucideIcon,
 } from "lucide-react";
 import { Link, usePathname, useRouter } from "@/i18n/navigation";
 import { useSearchParams } from "next/navigation";
 import { useRef, useState } from "react";
 
-import { useIsDesktop } from "@/lib/use-is-desktop";
-import { useModalFocus } from "@/lib/use-modal-focus";
 import { X_URL } from "@/lib/config";
 import { cn } from "cn";
 
 import { ThemeChoiceControl } from "@/components/shell/theme-toggle";
 
-import { Wordmark } from "@/components/brand/logo";
+import { DataList } from "@/components/ui/data-list";
+import { SwitchPanel } from "@/components/ui/switch-panel";
 import { SkelBar } from "@/components/page";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -48,7 +51,7 @@ import { OrbitSpinner } from "@/components/ui/orbit-spinner";
 import { truncateAddress } from "@/lib/format";
 
 type Tab = "account" | "funds" | "referral";
-type PhoneView = "root" | "account" | "notifications" | "language" | "history" | "referral";
+type PhoneView = "root" | "account" | "notifications" | "language" | "history" | "referral" | "theme";
 
 /** The name CopyDog shows: the display name, else the email's local part. */
 function useAccountName(): { name: string; initial: string; email: string | null } {
@@ -64,7 +67,7 @@ function useAccountName(): { name: string; initial: string; email: string | null
  * - signed out: a gear, 登入以檢視設定 and 登入;
  * - desktop: title, a left menu (帳戶 / 儲值與提款, with chevrons) and the
  *   chosen panel; the tab lives in `?tab=`;
- * - phone: a full-screen sheet (account row, 一般: 通知 / 語言 / 交易紀錄,
+ * - phone: an ordinary page (account row, 一般: 通知 / 語言 / 交易紀錄,
  *   the feedback card, 登出, legal links) whose rows open sub-views
  *   (`?view=`). It is reached from the portfolio's gear, not the tab bar.
  */
@@ -77,7 +80,7 @@ export function SettingsView() {
   return (
     <div aria-busy={loading || undefined} className="contents">
       <div className="hidden md:block">{signedIn ? <DesktopSettings /> : <SignedOut />}</div>
-      {/* The phone sheet exists signed out too (登入 on top, only 語言). */}
+      {/* The phone page exists signed out too, with public preferences. */}
       <div className="md:hidden">
         <PhoneSettings signedIn={signedIn} />
       </div>
@@ -331,19 +334,15 @@ function DesktopDeleteRow() {
 
 // --- phone -----------------------------------------------------------------------
 
-function PhoneRow({ icon: Icon, label, value, onClick }: { icon: LucideIcon; label: string; value?: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex h-[56px] w-full items-center gap-4 border-b-2 border-dotted border-border text-left outline-none last:border-b-0 focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <Icon className="size-5" strokeWidth={2.4} />
-      <span className="flex-1 text-base font-extrabold">{label}</span>
-      {value ? <span className="text-[15px] font-bold text-muted-foreground">{value}</span> : null}
-      <ChevronRight className="size-4 text-muted-foreground" />
-    </button>
-  );
+const PHONE_VIEWS = ["root", "account", "notifications", "language", "history", "referral", "theme"] as const;
+
+function PhoneRow({ icon: Icon, label, value, onClick, href, external = false, danger = false, secondary = false, busy = false }: {
+  icon: LucideIcon; label: string; value?: string; onClick?: () => void; href?: string; external?: boolean; danger?: boolean; secondary?: boolean; busy?: boolean;
+}) {
+  const className = cn("orbit-press flex h-11 w-full min-w-0 items-center gap-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring", danger ? "text-negative" : secondary ? "text-muted-foreground" : "text-foreground");
+  const content = <><Icon className="size-5 shrink-0" strokeWidth={2.4} aria-hidden /><span className="min-w-0 flex-1 truncate text-sm font-extrabold">{label}</span>{value ? <span className="max-w-[40%] truncate text-xs font-bold text-muted-foreground">{value}</span> : null}{busy ? <OrbitSpinner className="size-4" /> : <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />}</>;
+  if (href) return external ? <a href={href} target="_blank" rel="noopener noreferrer" className={className}>{content}</a> : <Link href={href} className={className}>{content}</Link>;
+  return <button type="button" className={className} onClick={onClick} disabled={busy} aria-busy={busy || undefined}>{content}</button>;
 }
 
 function PhoneSettings({ signedIn }: { signedIn: boolean }) {
@@ -352,170 +351,56 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
   const { login, status, mode } = useAuth();
   const signOut = useLogout();
   const { initial, email, name } = useAccountName();
-  const [view, setView] = useQueryParam<PhoneView>(
-    "view",
-    signedIn ? mode === "privy" ? ["root", "account", "notifications", "language", "history", "referral"] : ["root", "account", "notifications", "language", "history"] : ["root", "language"],
-    "root",
-  );
-
-  // A sub-view opened from the list is one history entry, and ← takes that
-  // entry back rather than adding a third: otherwise × (which goes back)
-  // returned to the sub-view just left, and the two buttons looped. A
-  // sub-view opened by its URL has no entry of ours: ← replaces it.
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const allowed = signedIn ? PHONE_VIEWS.filter(v => v !== "referral" || mode === "privy") : ["root", "language", "theme"] as const;
+  const [view, setView] = useQueryParam<PhoneView>("view", allowed, "root");
   const opened = useRef(0);
-  const open = (next: PhoneView) => {
-    opened.current += 1;
-    setView(next);
-  };
+  const open = (next: PhoneView) => { opened.current += 1; setView(next); };
   const back = () => {
-    if (opened.current > 0) {
-      opened.current -= 1;
-      router.back();
-    } else setView("root", "replace");
+    if (view === "root") { router.push("/portfolio"); return; }
+    if (opened.current > 0) { opened.current -= 1; router.back(); }
+    else setView("root", "replace");
   };
-  const close = () => {
-    if (typeof window !== "undefined" && window.history.length > 1) router.back();
-    else router.push("/portfolio");
-  };
-  // The panel covers the whole screen on a phone (it is not shown on
-  // desktop): focus stays in it, and Escape is × on the list, ← in a sub-view.
-  const phone = useIsDesktop() === false;
-  const focusRef = useModalFocus<HTMLDivElement>(phone, () => (view === "root" ? close() : back()));
-
+  const titles = { root: "settings.title", account: "settings.menu.account", notifications: "settings.notifications", language: "settings.language", history: "settings.history", referral: "referral.title", theme: "theme.label" } as const;
   return (
-    <div ref={focusRef} role="dialog" aria-modal="true" aria-label={t("settings.title")} className="fixed inset-0 z-50 overflow-y-auto bg-background px-5 pt-4 pb-[calc(32px+env(safe-area-inset-bottom))]">
-      {view === "root" ? (
-        <>
-          <button
-            type="button"
-            onClick={close}
-            aria-label={t("settings.close")}
-            className="flex size-10 items-center justify-center rounded-full bg-raised outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <X className="size-5" />
-          </button>
-          {signedIn ? (
-            <button
-              type="button"
-              onClick={() => open("account")}
-              className="mt-6 flex w-full items-center gap-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <Avatar initial={initial} size={52} />
-              <span className="min-w-0 flex-1 truncate text-[0.9375rem] font-semibold">{email ?? name}</span>
-              <ChevronRight className="size-4 text-muted-foreground" />
-            </button>
-          ) : (
-            <>
-              <div className="mt-6 flex items-center gap-3">
-                <span className="flex size-[52px] shrink-0 items-center justify-center rounded-full bg-raised" aria-hidden>
-                  <User className="size-5" />
-                </span>
-                <div className="min-w-0">
-                  <p role="heading" aria-level={1} className="text-base leading-6 font-semibold">{t("settings.signInTitle")}</p>
-                  <p className="mt-[3px] text-xs leading-[18px] text-muted-foreground">{t("settings.signInBody")}</p>
-                </div>
-              </div>
-              <Button size="cta" className="mt-6 w-full" onClick={login} disabled={status === "disabled"}>
-                {t("common.signIn")}
-              </Button>
-            </>
-          )}
-
-          <p className="mt-[22px] text-xs leading-[18px] font-bold text-muted-foreground">{t("settings.general")}</p>
-          <div className="mt-1 orbit-card px-4">
+    <section data-testid="phone-settings" aria-label={t("settings.title")} className="min-w-0 pb-6">
+      <div className="mb-5 flex min-w-0 items-center gap-3">
+        <button type="button" onClick={back} aria-label={t("settings.back")} className="orbit-press flex size-11 shrink-0 items-center justify-center rounded-full bg-raised outline-none focus-visible:ring-2 focus-visible:ring-ring"><ArrowLeft className="size-5" aria-hidden /></button>
+        <h1 className="min-w-0 truncate font-display text-2xl">{t(titles[view])}</h1>
+      </div>
+      <SwitchPanel value={view} order={PHONE_VIEWS}>
+        {view === "root" ? <div className="flex flex-col gap-4">
+          {!signedIn ? <div className="orbit-card card-pad">
+            <h2 className="type-h2">{t("settings.signInTitle")}</h2><p className="mt-2 text-sm text-muted-foreground">{t("settings.signInBody")}</p>
+            <Button size="cta" className="mt-4 w-full" onClick={login} disabled={status === "disabled"}>{t("common.signIn")}</Button>
+          </div> : null}
+          <DataList as="div" className="orbit-card px-4 py-1">
+            {signedIn ? <PhoneRow icon={User} label={t("settings.menu.account")} value={email ?? name} onClick={() => open("account")} /> : null}
             {signedIn ? <PhoneRow icon={Bell} label={t("settings.notifications")} onClick={() => open("notifications")} /> : null}
             <PhoneRow icon={Globe} label={t("settings.language")} value={LOCALE_NAMES[locale]} onClick={() => open("language")} />
             {signedIn ? <PhoneRow icon={History} label={t("settings.history")} onClick={() => open("history")} /> : null}
             {signedIn && mode === "privy" ? <PhoneRow icon={Gift} label={t("referral.title")} onClick={() => open("referral")} /> : null}
-          </div>
-
-          <p className="mt-[22px] mb-2 text-xs leading-[18px] font-bold text-muted-foreground">{t("theme.label")}</p>
-          <ThemeChoiceControl />
-
-          <div className="mt-6 flex items-center gap-4 orbit-card card-pad">
-            <div className="min-w-0 flex-1">
-              <p className="font-display text-xl leading-6">{t("settings.feedbackTitle")}</p>
-              <p className="mt-2 text-sm leading-[21px] text-muted-foreground">{t("settings.feedbackBody")}</p>
-              <Button asChild size="sm" className="mt-4 h-[37px] px-3.5 text-sm font-semibold">
-                <a href={X_URL} target="_blank" rel="noopener noreferrer">
-                  {t("settings.feedbackCta")}
-                </a>
-              </Button>
-            </div>
-            <MessageCircle className="size-9 shrink-0 fill-primary text-primary-text" aria-hidden />
-          </div>
-
-          {signedIn ? (
-          <button
-            type="button"
-            onClick={() => void signOut.logout()}
-            aria-busy={signOut.pending || undefined}
-            className="orbit-press mt-6 inline-flex h-[52px] w-full items-center justify-center gap-2 rounded-full bg-tag-loss text-[0.9375rem] font-extrabold text-tag-loss-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {signOut.pending ? <OrbitSpinner className="size-4" /> : null}
-            {t("settings.logout")}
-          </button>
-          ) : null}
-
-          <div className="mt-10 flex flex-col items-center gap-3 text-xs leading-[18px] text-subtle-foreground">
-            <Wordmark className="text-[1.75rem] text-subtle-foreground" />
-            <Link href="/privacy" className="underline underline-offset-2 hover:text-foreground">
-              {t("settings.privacy")}
-            </Link>
-            <Link href="/terms" className="underline underline-offset-2 hover:text-foreground">
-              {t("settings.terms")}
-            </Link>
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={back}
-              aria-label={t("settings.back")}
-              className="flex size-10 items-center justify-center rounded-full bg-raised outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <ArrowLeft className="size-5" />
-            </button>
-            <h1 className="font-display text-xl">
-              {view === "account"
-                ? t("settings.menu.account")
-                : view === "notifications"
-                  ? t("settings.notifications")
-                  : view === "language"
-                    ? t("settings.language")
-                    : view === "referral" ? t("referral.title") : t("settings.history")}
-            </h1>
-          </div>
-          <div className="mt-2">
-            {view === "account" ? (
-              <>
-                <div className="flex items-center gap-3 pt-4">
-                  <Avatar initial={initial} />
-                  <p className="truncate text-lg font-bold">{name}</p>
-                </div>
-                <ProfileAndWallet />
-                <CopyWalletsList />
-                <DeleteAccountButton className="mt-10" />
-              </>
-            ) : view === "notifications" ? (
-              <div className="pt-3">
-                <TradingBotRow className="border-b-2 border-dotted border-border" />
-                <AlertBotRow />
-              </div>
-            ) : view === "referral" ? <ReferralSettings /> : view === "language" ? (
-              <LanguageList />
-            ) : (
-              <div className="flex flex-col gap-5 pt-4">
-                <FundsSummary />
-                <FundsHistory />
-              </div>
-            )}
-          </div>
-        </>
-      )}
-    </div>
+            <PhoneRow icon={SunMoon} label={t("theme.label")} onClick={() => open("theme")} />
+          </DataList>
+          <DataList as="div" className="orbit-card px-4 py-1">
+            <PhoneRow icon={MessageCircle} label={t("settings.feedbackTitle")} href={X_URL} external />
+            <PhoneRow icon={ShieldCheck} label={t("settings.privacy")} href="/privacy" />
+            <PhoneRow icon={ScrollText} label={t("settings.terms")} href="/terms" />
+          </DataList>
+          {signedIn ? <DataList as="div" className="orbit-card px-4 py-1">
+            <PhoneRow icon={LogOut} label={t("settings.logout")} secondary busy={signOut.pending} onClick={() => void signOut.logout()} />
+            <PhoneRow icon={Trash2} label={t("deleteAccount.title")} danger onClick={() => setDeleteOpen(true)} />
+          </DataList> : null}
+        </div> : view === "account" ? <div className="flex flex-col gap-4">
+          <SettingsCard><div className="flex min-w-0 items-center gap-3"><Avatar initial={initial} /><h2 className="truncate text-lg font-bold">{name}</h2></div><ProfileAndWallet /></SettingsCard>
+          <CopyWalletsList /><DeleteAccountButton className="mt-6" />
+        </div> : view === "notifications" ? <SettingsCard><TradingBotRow className="border-b-2 border-dotted border-border" /><AlertBotRow /></SettingsCard>
+          : view === "referral" ? <ReferralSettings /> : view === "language" ? <SettingsCard><LanguageList /></SettingsCard>
+          : view === "theme" ? <SettingsCard><ThemeChoiceControl /></SettingsCard>
+          : <div className="flex flex-col gap-5"><FundsSummary /><FundsHistory /></div>}
+      </SwitchPanel>
+      <DeleteAccountDialog open={deleteOpen} onOpenChange={setDeleteOpen} />
+    </section>
   );
 }
 

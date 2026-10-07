@@ -16,10 +16,11 @@ for (const width of [1440, 390]) for (const theme of ["light", "dark"] as const)
   test(`delete account explains ${c.code} at ${width}px (${theme})`, async ({ page, context, baseURL }) => {
     await context.addCookies([{ name: "locale", value: "zh-TW", url: baseURL! }, { name: "theme", value: theme, url: baseURL! }]);
     await page.setViewportSize({ width, height: 900 });
-    await page.goto(`/zh-TW/settings?${width < 768 ? "view=account&" : "tab=account&"}deleteBlock=${c.code}`);
+    await page.goto(`/zh-TW/settings?${width < 768 ? "" : "tab=account&"}deleteBlock=${c.code}`);
     // The fixture account's demo login, in Chinese (helpers.signIn is English).
     await page.getByRole("button", { name: /^(示範登入|登入)$/ }).filter({ visible: true }).first().click();
     await page.getByRole("button", { name: "刪除帳號", exact: true }).filter({ visible: true }).first().click();
+    if (width < 768) await expect(page.getByTestId("phone-settings")).toBeVisible();
     const dialog = page.getByRole("dialog", { name: "刪除帳號" });
     await expect(dialog).toBeVisible();
     await expect(dialog).toContainText("會保留的紀錄");

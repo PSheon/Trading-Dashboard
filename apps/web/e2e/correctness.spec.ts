@@ -17,34 +17,33 @@ test.beforeEach(async ({ context, baseURL, page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
 });
 
-test("phone settings: back from a sub-view, then close, leaves settings (no loop)", async ({ page }) => {
+test("phone settings: back from a sub-view, then back to the portfolio (no loop)", async ({ page }) => {
   await page.goto("/en");
   // The Portfolio tab is there once signed in.
   await signIn(page);
   await page.getByRole("link", { name: "Portfolio" }).filter({ visible: true }).click();
   await expect(page).toHaveURL(/\/portfolio$/);
   await page.goto("/en/settings");
-  const panel = page.getByRole("dialog", { name: "Settings" });
+  const panel = page.getByTestId("phone-settings").filter({ visible: true });
   await panel.getByRole("button", { name: /Language/ }).click();
   await expect(page).toHaveURL(/view=language/);
   await panel.getByRole("button", { name: "Back", exact: true }).click();
   await expect(page).toHaveURL(/\/settings$/);
-  // Once more, to be sure the two buttons don't alternate.
+  // Returning from another sub-view also leaves the root reachable.
   await panel.getByRole("button", { name: /Language/ }).click();
   await panel.getByRole("button", { name: "Back", exact: true }).click();
   await expect(page).toHaveURL(/\/settings$/);
-  await panel.getByRole("button", { name: "Close", exact: true }).click();
-  await expect(page).not.toHaveURL(/\/settings/);
+  await panel.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(page).toHaveURL(/\/portfolio$/);
 });
 
-test("phone settings and search keep focus inside while open", async ({ page }) => {
+test("phone settings keeps navigation visible; search keeps focus inside while open", async ({ page }) => {
   await page.goto("/en/settings");
-  const panel = page.getByRole("dialog", { name: "Settings" });
+  const panel = page.getByTestId("phone-settings").filter({ visible: true });
   await expect(panel).toBeVisible();
-  for (let i = 0; i < 12; i++) {
-    await page.keyboard.press("Tab");
-    expect(await panel.evaluate((el) => el.contains(document.activeElement))).toBe(true);
-  }
+  await expect(page.getByRole("dialog", { name: "Settings" })).toHaveCount(0);
+  await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
+  await expect(panel.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
 
   await page.goto("/en");
   const open = page.getByRole("button", { name: "Search name, X handle or address" }).filter({ visible: true });

@@ -64,3 +64,19 @@
 - 完整 web suite 176 檔、1126/1126；tsc 含測試、eslint src＋test、diff check clean。
 - 截圖：`/private/tmp/codex-trading-ui/step6-after-{explore,coins,coin,insights,favorites,portfolio,settings,admin,admin-jobs,admin-audit,referral}-{1440,390}.png`，對照前幾步 baseline；已目視、390 全無頁面橫向溢出。fixture provider 沒有 private referral 入口，以真元件 DOM＋API 邊界 mock 驗證實際推薦分頁。
 - 第 7 步 ruling：1440 正式（testnet）兩張卡片依現有 md 2／xl 3 欄排列，並非缺欄；活動區使用完整右欄寬度。卡片少時不補虛構內容，無需修改布局。
+
+### ⑪最後審查補齊
+
+- 獨立審查找到資金篩選首批不足10筆時跳頁，以及 Favorites／ActivityPanel 的動態／提醒及六處巢狀資料清單未分頁。已全部修正；OrderFills 費用、損益仍以全量成交計算。
+- 新增資金0／5匹配首批、23筆提醒／動態／成交明細／未決提款回歸；舊碼失敗、新碼通過。提款翻頁不觸發寫入。
+- 最後審查無 Critical／Important；cohort 表頭在巢狀 overflow 容器中的 sticky 行為留作 Minor，10筆分頁已限制列表高度，未宣稱完成該額外行為。
+
+### ⑬三項 UI
+
+- 手機跟單 body 移除頂部 padding，sticky 模式覆蓋全寬、捲動時顯示陰影；關閉鍵仍獨立可用。
+- 底部／桌機 nav 改共用 useSlidingIndicator 測量 pill，250ms 位移動畫；reduced-motion 關閉動畫。
+- 手機設定改普通頁面，44px圖示列、主題／偏好子頁、底部導覽可見、刪除帳號置底且仍需確認；返回子頁與根頁不形成迴圈。
+- 單元回歸先 RED 後 GREEN；完整 web 177檔1135/1135，tsc含測試、eslint src/test/e2e、diff check通過。
+- Playwright相關17項：首次16通過，1項因隱藏重複節點的定位失敗；改成可見節點後單獨重跑通過。包括標頭捲動40／180／350px、nav一般／減少動態、設定返回／搜尋焦點／錢包／刪除確認。
+- 修改前後及最終1440×900、390×844截圖已檢查，無頁面横向溢出。最終圖 `/private/tmp/codex-trading-ui/ui13-final-*`；表格另有768px檢查。
+- dev `6bbcd9ec` CI run37605045958成功；本次最終提交的CI與Stage部署另記後續。

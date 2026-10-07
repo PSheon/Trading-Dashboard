@@ -5,14 +5,14 @@
 - 基準：dev `4d7b9939`，CI run `37598915844` 全綠。
 - 保留別人的 `docs/review-tracker-2026-10-07.md` 修改及未追蹤 `STRATEGY`。
 - 直接沿用 dev 共用工作目錄，依交接要求每步只提交自己的檔案。
-- ⑪步驟 1–7、⑬項目 1–3：尚未完成。
+- ⑪步驟 1–7、⑬項目 1–3：已完成，程式版本 `32891001`，CI run `37609228306` 全綠。
 - 順序：表格 1 → 2 → 3 → 清單 4 → 排序 5 → 分頁 6 → 版面 7 → ⑬。
 - 共用介面：Table（含 dense）、SortHead、DataList、TablePager；⑪先遷移 settings 子元件，⑬再改 settings 主頁。
-- Claude 已停本機服務；正恢復唯一 web 3000 及 testnet api 3100／worker 3010。
+- 本機唯一 web 3000 已還原正常 testnet 模式，api 3100／worker 3010 均健康。
 
 ## 驗證紀錄
 
-待補各步舊碼失敗／新碼通過、全 web suite、型別檢查、lint、桌面／手機截圖及 CI。
+各步舊碼失敗／新碼通過、完整 web suite、型別檢查、lint、桌面／手機截圖及 CI 如下。
 
 ### ⑪第 1 步
 
@@ -91,3 +91,12 @@
 
 - 審查留下的Minor以瀏覽器驗證為真：內層Table的overflow使表頭無法跟隨外層640px容器固定。Table新增可選containerClassName，兩cohort清單把高度限制與垂直／水平捲動合併到Table容器，移除多餘外層。
 - 新瀏覽器回歸舊碼RED、新碼GREEN；UI-polish4/4，完整177檔1135/1135、tsc、eslint、diff check通過。桌機與手機截圖 `/private/tmp/codex-trading-ui/cohort-sticky-final-{1440,390}.png` 無頁面溢出。獨立審查確認原Minor已修、無新Critical／Important。
+
+### Stage 部署與最終驗證
+
+- 程式版本 `32891001e8f73cce2d5b1d0d20c6229868be9cce`，CI [37609228306](https://github.com/PSheon/Trading-Dashboard/actions/runs/37609228306) 全綠（build、checks、三組browser及ci）；api與shared相較原Stage 8d6e294a沒有程式差異。
+- 先驗證上述備份，再以git archive乾淨版本依序部署api → worker → web；全部確認特定deployment ID的SUCCESS：api `be2fa2a4-2df8-441a-a5e8-eb499a67c98a`、worker `873a361c-d712-4bc1-b54b-816533c9a5ec`、web `1a4519e1-cc80-483c-bce4-bbbb8b18884a`。
+- Stage Playwright：探索、幣種、未登入設定1440／390回200、無頁面溢出；Privy測試帳號登入後設定1440／390無溢出，手機語言子頁返回、底部導覽可見，跟單抽屜捲動40／180／350px頂部／左右／寬度誤差皆0px，關閉可用。首次驗證腳本誤以英文定位繁中導覽而逾時，修成「主要導覽」後私有檢查全通過，非產品修正。
+- Stage API `/api/hl/health` 回200、status ok、feedConnected true。部署前後及最終截圖 `/private/tmp/codex-trading-ui/stage-*` 已目視。使用測試帳號只檢查介面，未執行跟單／提款／主網簽名。
+- 本機已還原非fixture的正常testnet web3000（HTTP200），api3100／worker3010健康；保留他人review-tracker與STRATEGY。
+- ⑪／⑬及備份、部署、Stage畫面驗證完成。下一個交接優先項為B段testnet測試台，仍須Paul補testnet USDC後再跑；C段主網每次簽名仍須當下同意。

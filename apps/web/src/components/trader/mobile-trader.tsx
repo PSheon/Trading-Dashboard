@@ -14,7 +14,8 @@ import { useModalFocus } from "@/lib/use-modal-focus";
 import { FavoriteButton, RoiPill } from "@/components/traders/bits";
 import { roiPillShort } from "@/lib/board-format";
 import { useI18n } from "@/i18n/provider";
-import { isComputing, useChartSnapshots, useTraderAnalytics } from "@/lib/queries";
+import { useChartSnapshots, useTraderAnalytics } from "@/lib/queries";
+import { useAnalyticsPatience } from "@/lib/use-analytics-patience";
 import { ChartSnapshotStrip } from "./chart-snapshot-strip";
 import { CopyScoreBar, TraderAvatar } from "@/components/discover/board-bits";
 import { truncateAddress, usdCompact, signedUsdShort, usd2 } from "@/lib/format";
@@ -121,6 +122,7 @@ export function MobileTrader({
   const { status: authStatus, login } = useAuth();
   const copying = useCopyOf(profile.address) !== undefined;
   const trades = useTraderAnalytics(profile.address, "all");
+  const tradesWait = useAnalyticsPatience(trades);
   const analytics = trades.data as TraderAnalyticsResponse | undefined;
   const winRate = analytics?.summary.winRate ?? null;
   const winTone = winRateTone(winRate);
@@ -245,9 +247,16 @@ export function MobileTrader({
         <div className="flex min-w-0 flex-col gap-[5px]">
           <dt className="text-xs leading-4 font-bold text-muted-foreground">{t("trader.kpi.winRate")}</dt>
           <dd className={cn("num flex items-center gap-2 font-display text-xl leading-[30px]", winTone ? TONE[winTone] : "")}>
-            {winRate === null ? (isComputing(trades) ? <SkelBar className="ui-skeleton h-5 w-16" /> : "—") : pct1(winRate)}
+            {winRate === null ? (tradesWait.computing ? <SkelBar className="ui-skeleton h-5 w-16" /> : "—") : pct1(winRate)}
             {winRate !== null ? <Ring value={winRate} /> : null}
           </dd>
+          {winRate === null && tradesWait.unavailable ? (
+            // Never an endless skeleton: after the busy retries (or 30 s), 「—」 and 重試.
+            <dd role="status" className="text-[11px] leading-[14px] font-bold text-muted-foreground">
+              {t("trader.analyticsUnavailable")}{" "}
+              <button type="button" onClick={tradesWait.retry} className="min-h-6 text-primary-text underline outline-none focus-visible:ring-2 focus-visible:ring-ring">{t("trader.retry")}</button>
+            </dd>
+          ) : null}
           {analytics && sampleSince !== null ? (
             <dd className="num text-[11px] leading-[14px] font-bold text-muted-foreground" title={t("trader.kpi.tradesSinceHint")}>
               {t("trader.kpi.tradesSince", { count: analytics.summary.trades, date: format.shortDate(sampleSince) })}

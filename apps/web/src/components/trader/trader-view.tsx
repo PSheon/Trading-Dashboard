@@ -10,7 +10,6 @@ import { useI18n } from "@/i18n/provider";
 import {
   type InitialRead,
   isComputing,
-  isUnavailable,
   useCopyScore,
   usePortfolio,
   useTraderActivity,
@@ -21,6 +20,7 @@ import { shareName } from "@/lib/share-card";
 import { traderIsUnknown } from "@/lib/trader-presence";
 import { useIsDesktop } from "@/lib/use-is-desktop";
 import { useLiveTrader } from "@/lib/use-live-trader";
+import { useAnalyticsPatience } from "@/lib/use-analytics-patience";
 import { ActivityTabs, ActivityTabsSkeleton } from "./activity-tabs";
 import { SectionBoundary } from "@/components/section-boundary";
 import { CopyPanel } from "./copy-panel";
@@ -200,6 +200,8 @@ function DesktopTrader({ address, profile, live, lowSample, portfolio, allTimePe
   // win-rate tile). A cold address computes on the api for a while (503
   // busy, retried).
   const tradesAll = useTraderAnalytics(address, "all");
+  // The 勝率 tile waits at most ANALYTICS_PATIENCE_MS on a busy api.
+  const tradesWait = useAnalyticsPatience(tradesAll);
   // The KPI tiles, as CopyDog's: 表現 / ROI follow their own All / 30D / 7D
   // period (perp), Sharpe, drawdown and win rate are all-time.
   const [kpiPeriod, setKpiPeriod] = useState<KpiPeriod>("allTime");
@@ -233,9 +235,9 @@ function DesktopTrader({ address, profile, live, lowSample, portfolio, allTimePe
             portfolioFailed={kpiPortfolio.isError || allTimePerp.isError}
             lowSample={lowSample}
             trades={tradesAll.data}
-            tradesComputing={isComputing(tradesAll)}
-            tradesUnavailable={isUnavailable(tradesAll)}
-            onRetryTrades={() => void tradesAll.refetch()}
+            tradesComputing={tradesWait.computing}
+            tradesUnavailable={tradesWait.unavailable}
+            onRetryTrades={tradesWait.retry}
           />
         ) : (
           <KpiTiles period={kpiPeriod} onPeriod={setKpiPeriod} periodPortfolio={undefined} allTime={undefined} trades={undefined} tradesComputing lowSample={false} />

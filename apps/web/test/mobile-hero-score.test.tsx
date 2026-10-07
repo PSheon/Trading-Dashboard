@@ -18,6 +18,7 @@ vi.mock("../src/lib/auth", () => ({ useAuth: () => ({ status: "signedOut", login
 vi.mock("../src/lib/copy", () => ({ useCopyOf: () => undefined }));
 vi.mock("../src/lib/queries", () => ({
   isComputing: () => false,
+  isUnavailable: () => false,
   useTraderAnalytics: () => ({ data: undefined, error: null, refetch() {} }),
   useChartSnapshots: () => ({ data: undefined }),
 }));

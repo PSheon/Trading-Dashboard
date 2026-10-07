@@ -31,8 +31,10 @@ export function withdrawProblem(destination: string, amount: string, withdrawabl
   if (dest && !ADDRESS.test(dest)) return { ready: false, problem: "address" };
   if (!amt || !AMOUNT.test(amt)) return { ready: false, problem: null };
   const value = Number(amt);
-  if (value <= WITHDRAW_FEE_USDC) return { ready: false, problem: "belowMin" };
+  // More than there is comes first: 0.5 from an empty account is 超過可用餘額,
+  // not "more than $1" (audit P2-16).
   if (value > withdrawable + 1e-9) return { ready: false, problem: "overAvailable" };
+  if (value <= WITHDRAW_FEE_USDC) return { ready: false, problem: "belowMin" };
   return { ready: Boolean(dest), problem: null };
 }
 

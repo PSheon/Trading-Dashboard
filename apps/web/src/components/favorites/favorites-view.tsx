@@ -101,7 +101,7 @@ function SignedOut() {
                   aria-selected={phoneTab === key}
                   aria-label={t(`favorites.tabs.${key}`)}
                   onClick={() => setPhoneTab(key)}
-                  className={cn("flex h-10 w-12 items-center justify-center rounded-full outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring", phoneTab === key ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
+                  className={cn("flex h-11 w-12 items-center justify-center rounded-full outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring", phoneTab === key ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
                 >
                   <Icon className="size-4" fill="currentColor" />
                 </button>

@@ -45,7 +45,7 @@ let nextId = 1;
 
 /**
  * CopyDog's toasts (react-toastify, theme dark): bottom-left, 320 px wide,
- * 16 px from the edges (full width, flush with the bottom on phones), a
+ * 16 px from the edges (on phones across the top, above any bottom sheet), a
  * type icon, the message in 14 px / 500, × in the corner, closing on click or
  * after 3 s (no pause on hover, no progress bar), the newest on top, at most
  * four at a time with the rest queued. Only the palette is Orbie's.
@@ -149,7 +149,10 @@ function ToastViewport({ items, onClose }: { items: ToastItem[]; onClose: (id: n
   return (
     <section aria-live="polite" aria-atomic="false" aria-relevant="additions text" aria-label={t("toast.label")}>
       {items.length ? (
-        <div className="fixed bottom-0 left-0 z-9999 flex w-screen flex-col min-[481px]:bottom-4 min-[481px]:left-4 min-[481px]:w-[320px]" data-testid="toasts">
+        // Phones: at the top, under the notch, so a toast never covers an open
+        // bottom sheet's buttons (or the tab bar); wider screens bottom-left.
+        // pointer-events-auto: a modal dialog turns them off on <body>.
+        <div className="pointer-events-auto fixed top-[env(safe-area-inset-top,0px)] left-0 z-9999 flex w-screen flex-col px-2 pt-2 min-[481px]:top-auto min-[481px]:bottom-4 min-[481px]:left-4 min-[481px]:w-[320px] min-[481px]:p-0" data-testid="toasts">
           {items.map((item) => (
             <div
               key={item.id}
@@ -175,7 +178,7 @@ function ToastViewport({ items, onClose }: { items: ToastItem[]; onClose: (id: n
                   e.stopPropagation();
                   onClose(item.id);
                 }}
-                className="absolute top-1.5 right-1.5 z-10 cursor-pointer text-subtle-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="absolute top-1.5 right-1.5 z-10 cursor-pointer text-subtle-foreground outline-none after:absolute after:-inset-3.5 after:content-[''] focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <svg aria-hidden="true" viewBox="0 0 14 16" className="h-4 w-3.5 fill-current">
                   <path fillRule="evenodd" d="M7.71 8.23l3.75 3.75-1.48 1.48-3.75-3.75-3.75 3.75L1 11.98l3.75-3.75L1 4.48 2.48 3l3.75 3.75L9.98 3l1.48 1.48-3.75 3.75z" />

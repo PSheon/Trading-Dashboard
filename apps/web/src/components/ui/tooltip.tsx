@@ -27,7 +27,11 @@ function Tooltip({
             side={side}
             sideOffset={variant === "chip" ? 6 : 8}
             className={cn(
-              "z-50 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=delayed-open]:animate-in data-[state=delayed-open]:fade-in-0",
+              // No exit animation: a closed tooltip whose fade-out never
+              // started (Chrome left it pending at 0 ms, 2026-10-07) stayed
+              // mounted as the top layer, and took the Escape meant for the
+              // dialog around it. It now leaves at once.
+              "z-50 data-[state=delayed-open]:animate-in data-[state=delayed-open]:fade-in-0",
               variant === "chip"
                 ? "rounded-md bg-foreground px-2.5 py-1 text-[11px] font-extrabold whitespace-nowrap text-background"
                 : "max-w-64 rounded-lg bg-popover px-3.5 py-2.5 text-xs leading-relaxed font-bold text-popover-foreground shadow-[0_0_0_2px_var(--card-ring),var(--shadow-pop)]"

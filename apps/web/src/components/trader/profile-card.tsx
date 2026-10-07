@@ -213,7 +213,9 @@ export function ProfileCard({
             <TraderAvatar trader={{ address: profile.address, avatarUrl: profile.kol?.avatarUrl ?? null }} size={52} />
             <div className="min-w-0 flex-1">
               <h1 id="trader-name" className="type-h1 flex min-w-0">
-                <TraderName trader={profile} className="line-clamp-2 whitespace-normal [overflow-wrap:anywhere]" />
+                {/* A name may wrap to two lines; an address stays on one,
+                    its head cut ("0xe779…6ba7"), never "0xe779… / 6ba7". */}
+                <TraderName trader={profile} className={profile.displayName?.trim() ? "line-clamp-2 whitespace-normal [overflow-wrap:anywhere]" : undefined} />
               </h1>
               <span className="flex items-center gap-1.5">
                 <button

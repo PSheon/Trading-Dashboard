@@ -90,6 +90,11 @@ describe("withdraw validation", () => {
     expect(withdrawProblem(ok, "1", 100).problem).toBe("belowMin");
     expect(withdrawProblem(ok, "100.01", 100).problem).toBe("overAvailable");
   });
+  it("says 超過可用餘額 for more than there is, even under the $1 floor (audit P2-16)", () => {
+    expect(withdrawProblem(ok, "0.5", 0).problem).toBe("overAvailable");
+    expect(withdrawProblem("", "0.5", 0.2).problem).toBe("overAvailable");
+    expect(withdrawProblem(ok, "0.5", 100).problem).toBe("belowMin");
+  });
   it("accepts a valid request up to the full balance", () => {
     expect(withdrawProblem(ok, "100", 100)).toEqual({ ready: true, problem: null });
     expect(withdrawProblem(ok, "1.5", 100)).toEqual({ ready: true, problem: null });

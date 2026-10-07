@@ -101,3 +101,11 @@ it("signed out, the amount is locked and the call to action signs in", () => {
   expect(html).toMatch(/<input[^>]*id="copy-amount"[^>]*disabled=""/);
   copy.status = "signedIn";
 });
+
+it("names the 順向 / 反向 radiogroup 跟單方向, not 跟單金額 (audit P2-18)", () => {
+  for (const sheet of [false, true]) {
+    const html = render(sheet);
+    const group = html.match(/<div role="radiogroup" aria-label="([^"]*)"[^>]*>(?:(?!<\/div>)[\s\S])*順向/);
+    expect(group?.[1]).toBe("跟單方向");
+  }
+});

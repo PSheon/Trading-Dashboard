@@ -347,7 +347,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
   ) : null;
 
   const directionPill = (
-    <div role="radiogroup" aria-label={t("trader.copy.amount")} className="grid grid-cols-2 gap-0.5 rounded-full bg-inset p-1">
+    <div role="radiogroup" aria-label={t("trader.copy.direction")} className="grid grid-cols-2 gap-0.5 rounded-full bg-inset p-1">
       {(["same", "reverse"] as const).map((d) => {
         const active = direction === d;
         const Icon = d === "same" ? ArrowUpRight : ArrowDownRight;

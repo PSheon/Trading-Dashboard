@@ -30,13 +30,14 @@ const isAppRoute = (pathname: string) => pathname === "/" || ROUTES.some((r) => 
 
 /**
  * Phone chrome differs per page (Orbit's M boards):
- * - home: the wordmark, a round search button and 登入 / the account;
+ * - home and the main browsing/personal pages: the wordmark, search and
+ *   登入 / the account, with the floating bottom navigation;
  * - about, help and the 404 page: wordmark, search and the ☰ menu, with no
  *   tab bar;
- * - every other page: no top bar at all, only the page's own title.
+ * - detail/settings pages keep their own page chrome.
  */
 function phoneChrome(pathname: string): "home" | "marketing" | "none" {
-  if (pathname === "/") return "home";
+  if (pathname === "/" || ["/explore", "/favorites", "/portfolio", "/insights"].some(r => pathname === r || pathname.startsWith(`${r}/`))) return "home";
   if (pathname === "/about" || pathname === "/help" || !isAppRoute(pathname)) return "marketing";
   return "none";
 }
@@ -150,10 +151,10 @@ export function AppShell({
           containing block of the full-screen search overlay inside it); the
           blur lives on its .bar-scrim child. */}
       {chrome !== "none" ? (
-        <header data-scrolled={scrolled} className="fixed inset-x-0 top-0 z-40 isolate flex h-[72px] items-center gap-2.5 px-4 md:hidden">
+        <header data-testid="app-phone-header" data-scrolled={scrolled} className="fixed inset-x-0 top-0 z-40 isolate flex h-[72px] items-center gap-2 px-4 max-[374px]:gap-1.5 max-[374px]:px-3 md:hidden">
           <div aria-hidden className="bar-scrim" />
-          <Link href="/" aria-label={APP_NAME} className="flex shrink-0 items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
-            <Lockup />
+          <Link href="/" aria-label={APP_NAME} className="flex h-11 min-w-11 shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <Lockup className="[&>span]:text-2xl max-[374px]:[&>span]:hidden" />
           </Link>
           <IslandBoundary><ModeBadge className="mr-auto" /></IslandBoundary>
           <IslandBoundary><AddressSearch compact /></IslandBoundary>

@@ -39,6 +39,20 @@ const header = () => container.querySelector("header.orbit-header")!;
 const linkNames = (scope: Element) => [...scope.querySelectorAll("a")].map((a) => a.getAttribute("aria-label") ?? a.textContent);
 const tabBar = () => container.querySelector("nav.phone-floating-bar")!;
 
+for (const path of ["/explore", "/favorites", "/portfolio", "/insights"]) {
+  it.each(["signedOut", "signedIn"])(`keeps the phone top bar and content clearance on ${path} while %s`, async (status) => {
+    state.pathname = path;
+    await render(status);
+    const phone = container.querySelector('[data-testid="app-phone-header"]');
+    expect(phone).not.toBeNull();
+    expect(phone!.querySelector(".bar-scrim")).not.toBeNull();
+    expect(phone!.querySelector('a[href="/en"]')).not.toBeNull();
+    expect(phone!.querySelector('a[href="/en"]')!.className).toContain("min-w-11");
+    expect(container.querySelector("main")!.parentElement!.className).toContain("pt-[64px]");
+    expect(tabBar().className).toContain("grid");
+  });
+}
+
 /** Paul, 2026-10-05: 投資組合 / 收藏 only once someone is signed in. */
 it.each(["signedOut", "loading", "disabled"])("draws no Portfolio / Saved in the header or the tab bar while %s", async (status) => {
   await render(status);

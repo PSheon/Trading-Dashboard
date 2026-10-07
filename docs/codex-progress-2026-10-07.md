@@ -136,3 +136,12 @@
 - Stage部署前備份 `/private/tmp/codex-trading-stage-before-floating-e7b73179.dump`：29,260,507 bytes、權限600、遠端PG18 pg_restore --list成功714行；排除兩張大型歷史表資料。SHA256 `70a537b2116ad7611c588607ff3520e1e53fc7c3f5388fb141b3579e1899aaf4`。只發布web，api／worker無變更；部署從git archive乾淨版本上傳。
 - Stage web deployment `c6498e14-0d97-44b0-9152-948aa05fb251` 已確認SUCCESS。Paul已登入實際帳號：390膠囊顯示「跟單中 · 管理」，位置／尺寸與首頁相同；抽屜開關通過、180px捲動sticky gap0、top-bar捲動漸層opacity1，頁末內容底748.2 < 膠囊頂764。1440手機膠囊隱藏，無橫向溢出。Stage前後1440／390截圖已目視（`floating-stage-*.png`）；未送出交易／簽名或變更跟單。
 - 結束後共享瀏覽器維持登入，停在指定交易員頁390×844；本機web3000／api3100／worker3010保留運作，沙箱外健康檢查確認api／worker均正常。保留他人review-tracker與STRATEGY。
+
+### 手機主導覽頁恢復 top-bar
+
+- 原phoneChrome規則只讓首頁／行銷頁顯示全域頁首，探索／收藏／投資組合只保留頁面標題，因此缺少搜尋、模式與帳號入口；這是舊版刻意設定，不是漸層修正造成。
+- 主導覽目的地探索／收藏／投資組合／洞察改與首頁共用top-bar及捲動漸層，沿用內容頂部預留空間與底部浮動導覽；交易員、設定等自有頁首規則維持。
+- 新頁首出現320px窄屏擁擠風險：縮短gap，窄屏只保留品牌mark，保留品牌連結aria-label與44px觸控區；一般手機保留Orbie文字。模式標示測試改按每個bar驗證，避免把DOM中隱藏桌機／手機兩份標示視為同一頁重複可見。
+- 新增8個真AppShell單元回歸：舊碼8項RED，修後相關19/19；完整177檔1145/1145、tsc含測試與eslint src/test/e2e通過。新增2個瀏覽器回歸涵蓋登入／未登入四頁、搜尋焦點與Escape、320觸控與邊界、漸層及標題避讓。
+- 共用瀏覽器正常本機testnet四頁320／390無頁面溢出、控制未超出螢幕，搜尋開關與焦點通過，捲動後漸層opacity1、header y0。1440／390截圖 `header-after-*.png` 已檢查；初次截圖腳本忘了在下一頁回到手機寬度，後續搜尋定位繁中名稱誤寫，修正腳本後正常，非產品錯誤。
+- CI與Stage發布驗證另記後續。

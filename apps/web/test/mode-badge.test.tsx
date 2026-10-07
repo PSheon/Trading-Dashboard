@@ -42,17 +42,18 @@ async function shell(pathname: string) {
 }
 const badges = (scope: ParentNode) => [...scope.querySelectorAll("[data-mode]")].map((el) => el.textContent);
 
-it("says 模擬 once, beside the wordmark, where this deployment runs no testnet copies (the public build)", async () => {
+it("says 模擬 once per bar, beside the wordmark, where this deployment runs no testnet copies (the public build)", async () => {
   state.automatic = false;
   await shell("/explore");
   expect(badges(container.querySelector("header.orbit-header")!)).toEqual(["模擬"]);
-  expect(badges(container)).toEqual(["模擬"]);
+  expect(badges(container.querySelector('[data-testid="app-phone-header"]')!)).toEqual(["模擬"]);
 });
 
 it("says 測試網 only where testnet copies run (the api's automaticExecution), never from a hostname", async () => {
   state.automatic = true;
   await shell("/explore");
-  expect(badges(container)).toEqual(["測試網"]);
+  expect(badges(container.querySelector("header.orbit-header")!)).toEqual(["測試網"]);
+  expect(badges(container.querySelector('[data-testid="app-phone-header"]')!)).toEqual(["測試網"]);
 });
 
 it("has one badge per bar on the phone home (the desktop header is hidden there)", async () => {

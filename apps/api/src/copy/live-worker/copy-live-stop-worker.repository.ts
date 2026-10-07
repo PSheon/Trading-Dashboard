@@ -141,10 +141,12 @@ export class CopyLiveStopWorkerRepository {
 
   /**
    * Revokes every grant whose admin-requested revocation is still pending
-   * when its stop can no longer end it: the deadline passed, or the
-   * account's stop is blocked or no longer open. Audited as
-   * copy.grant.revoke by the system, with the reason and that positions may
-   * remain.
+   * when its stop can no longer end it: the account's stop is blocked or no
+   * longer open, or the deadline passed once the stop is flat. A stop still
+   * closing keeps the grant past the deadline (reduce-only, for that stop
+   * alone): revoking it then would drop the positions it is closing.
+   * Audited as copy.grant.revoke by the system, with the reason and whether
+   * positions may remain.
    */
   async expirePendingRevokes(now: number, deadlineMs: number): Promise<Array<{ id: string; reason: string }>> {
     return this.uow.run(async tx => {
@@ -157,15 +159,15 @@ export class CopyLiveStopWorkerRepository {
         const accounts = await tx.selectDistinct({ id: copyLiveMandates.accountId }).from(copyLiveMandates).where(eq(copyLiveMandates.authorizationId, grant.id));
         const [stop] = accounts.length ? await tx.select({ state: copyLiveStopOperations.state }).from(copyLiveStopOperations)
           .where(and(inArray(copyLiveStopOperations.accountId, accounts.map(a => a.id)), sql`${copyLiveStopOperations.state} <> 'stopped'`)).limit(1) : [];
-        const reason = grant.revokeRequestedAt!.getTime() <= now - deadlineMs ? 'revoke_deadline_passed'
-          : !stop ? 'stop_not_open' : stop.state === 'blocked' ? 'stop_blocked' : null;
+        const reason = !stop ? 'stop_not_open' : stop.state === 'blocked' ? 'stop_blocked'
+          : stop.state === 'flat' && grant.revokeRequestedAt!.getTime() <= now - deadlineMs ? 'revoke_deadline_passed' : null;
         if (!reason) continue;
         const at = new Date(now), version = grant.version + 1;
         await tx.update(copyWalletAuthorizations).set({ revokedAt: at, version }).where(eq(copyWalletAuthorizations.id, grant.id));
         await tx.insert(copyWalletAuthorizationEvents).values({ id: randomUUID(), authorizationId: grant.id, userId: wallet.userId, version, action: 'revoked', createdAt: at });
         await recordAdminAudit(tx, null, 'copy.grant.revoke', `grant:${grant.id}`,
           { version: grant.version, revokedAt: null, revokeRequestedAt: grant.revokeRequestedAt!.toISOString(), userId: wallet.userId, strategyId: wallet.strategyId },
-          { version, revokedAt: at.toISOString(), forced: true, reason, stopState: stop?.state ?? null, positionsMayRemain: Boolean(stop) });
+          { version, revokedAt: at.toISOString(), forced: true, reason, stopState: stop?.state ?? null, positionsMayRemain: Boolean(stop) && stop!.state !== 'flat' });
         forced.push({ id: grant.id, reason });
       }
       return forced;

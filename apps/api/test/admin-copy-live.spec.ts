@@ -150,16 +150,21 @@ describe('/admin/copy/live — testnet copy operations (B16) and latency (B18)',
     expect(await db.select({ mandateId: copyLiveStopOperations.mandateId }).from(copyLiveStopOperations)).toEqual([{ mandateId: 'mandate' }]);
   });
 
-  it('a pending revoke is bounded: revoked by the worker past the deadline, when its stop is blocked, or at once on force (with positions-may-remain in the audit)', async () => {
+  it('a pending revoke is bounded: never while its stop still closes, past the deadline once the stop is flat, when its stop is blocked, or at once on force', async () => {
     const first = adminRevokedLiveGrantSchema.parse((await as('admin-token').post('/admin/copy/live/grants/grant/revoke', { reason: 'leaked agent key' }).expect(200)).body.data);
     const stops = new CopyLiveStopWorkerRepository(db, new UnitOfWork(db), testConfig());
     // Within the deadline, with its stop running: still pending.
     expect(await stops.expirePendingRevokes(now + 60_000, 30 * 60_000)).toEqual([]);
-    // Past it: revoked by the system, audited.
+    // Past it while the stop still closes: kept (revoking now would drop the positions it is closing).
+    await db.update(copyLiveStopOperations).set({ state: 'closing' });
+    expect(await stops.expirePendingRevokes(now + 31 * 60_000, 30 * 60_000)).toEqual([]);
+    expect((await db.select().from(copyWalletAuthorizations))[0]).toMatchObject({ version: 4, revokedAt: null });
+    // Once the stop is flat (nothing left to close): revoked by the system, audited.
+    await db.update(copyLiveStopOperations).set({ state: 'flat', flatCertificate: { version: 1 }, flatDigest: 'f'.repeat(64), flatVerifiedAt: new Date(now + 60_000), updatedAt: new Date(now + 60_000) });
     expect(await stops.expirePendingRevokes(now + 31 * 60_000, 30 * 60_000)).toEqual([{ id: 'grant', reason: 'revoke_deadline_passed' }]);
     expect((await db.select().from(copyWalletAuthorizations))[0]).toMatchObject({ version: 5, revokedAt: new Date(now + 31 * 60_000) });
     const audit = await db.select().from(adminAuditLogs).orderBy(adminAuditLogs.id);
-    expect(audit.at(-1)).toMatchObject({ actorKind: 'system', event: 'copy.grant.revoke', afterJson: { forced: true, reason: 'revoke_deadline_passed', stopState: 'requested', positionsMayRemain: true } });
+    expect(audit.at(-1)).toMatchObject({ actorKind: 'system', event: 'copy.grant.revoke', afterJson: { forced: true, reason: 'revoke_deadline_passed', stopState: 'flat', positionsMayRemain: false } });
     expect(first.stopId).toBeTruthy();
   });
 

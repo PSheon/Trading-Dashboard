@@ -65,11 +65,11 @@ export class CopyLiveStopper {
   constructor(private readonly deps: StopperDependencies, private readonly now: () => number = Date.now) {}
 
   async tick(): Promise<void> {
-    // A pending admin revoke never outlives its bound: past the deadline, or
-    // once the stop it waits for is blocked or gone, the grant is revoked
-    // (audited by the system, positions may remain).
+    // A pending admin revoke is bounded: once the stop it waits for is
+    // blocked or gone, or past the deadline once that stop is flat, the
+    // grant is revoked (audited by the system). A stop still closing keeps it.
     for (const forced of await this.deps.repository.expirePendingRevokes(this.now(), this.deps.revokeDeadlineMs ?? REVOKE_DEADLINE_MS)) {
-      this.deps.log?.(`grant ${forced.id} revoked without its stop ending (${forced.reason}); positions may remain on the copy account`);
+      this.deps.log?.(`grant ${forced.id} revoked without its stop ending (${forced.reason})`);
     }
     for (const stop of await this.deps.repository.open()) {
       try { await this.step(stop); }

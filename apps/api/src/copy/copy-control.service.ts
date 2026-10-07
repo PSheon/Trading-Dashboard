@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { adminCopyControlRequestSchema, type AdminCopyControlRequest, type AdminCopyControlResponse, type CopyControlCommand, type CopyStrategyCommand, type CopyStrategySettings } from "@trading-dashboard/shared/contracts";
 
 import { recordAdminAudit } from "../common/audit/admin-audit.js";
@@ -11,6 +11,7 @@ import { CopyMarketService, type Mids } from "./copy-market.service.js";
 import { CopyOrderPlanner, type Controls } from "./copy-planner.service.js";
 import { CopyRiskPolicyService, type PolicyRead } from "./copy-risk-policy.service.js";
 import { CopyRepository, type StrategyRow } from "./copy.repository.js";
+import { CopyLiveSystemStops, type RunningCopy } from "./copy-live-stop-system.js";
 
 type Target = { scope: "platform"; scopeId: 0 } | { scope: "user"; scopeId: number };
 
@@ -50,6 +51,8 @@ export class CopyControlService {
     private readonly market: CopyMarketService,
     private readonly planner: CopyOrderPlanner,
     private readonly policies: CopyRiskPolicyService,
+    /** Actual copies of this deployment (absent where there are none). */
+    @Optional() private readonly liveStops?: CopyLiveSystemStops,
   ) {}
 
   /**
@@ -69,8 +72,13 @@ export class CopyControlService {
     const target: Target = req.scope === "platform" ? { scope: "platform", scopeId: 0 } : { scope: "user", scopeId: req.userId };
     const mids = req.command === "close_positions" ? await this.market.midPrices(await this.repository.positionCoins((await this.repository.liveStrategyIdsOfUser(this.repository.reader, req.scope === "user" ? req.userId : null)).map((s) => s.id))) : null;
     const actorUserId = actor.kind === "user" ? actor.id : null;
+    // 全部平倉 also ends the actual copies in scope: a stop for each (close,
+    // then return), worked by the stop executor like an owner's stop. They
+    // are found before and started after this transaction commits (a stale
+    // revision starts none), each in its own transaction.
+    const actual: RunningCopy[] = req.command === "close_positions" && this.liveStops ? await this.liveStops.running(req.scope === "user" ? { userId: req.userId } : {}) : [];
 
-    return this.uow.run(async (tx) => {
+    const response = await this.uow.run(async (tx) => {
       if (target.scope === "user" && !(await this.repository.userExists(tx, target.scopeId))) throw new NotFoundException("User not found");
       const before = await this.repository.lockControl(tx, target.scope, target.scopeId);
       if (before.revision !== req.expectedRevision) {
@@ -88,7 +96,9 @@ export class CopyControlService {
         req.command === "resume" ? { pauseNewRisk: false, reduceOnly: false } :
         { pauseNewRisk: before.pauseNewRisk, reduceOnly: before.reduceOnly };
       const after = await this.repository.updateControl(tx, target.scope, target.scopeId, flags, actorUserId);
-      const result = await this.applyEffects(tx, req.command, locked, mids, `${target.scope}_${req.command}`);
+      const paper = await this.applyEffects(tx, req.command, locked, mids, `${target.scope}_${req.command}`);
+      // closeOrders counts the close actions: paper close orders and actual copies' stops.
+      const result = actual.length ? { ...paper, closeOrders: paper.closeOrders + actual.length, liveStops: actual.length } : paper;
       const event = await this.repository.insertControlEvent(tx, {
         scope: target.scope, scopeId: target.scopeId, command: req.command, revision: after.revision, actorUserId, reason: req.reason, result,
       });
@@ -105,6 +115,8 @@ export class CopyControlService {
         },
       };
     });
+    if (actual.length && this.liveStops) await this.liveStops.stopAll(actual, "admin_close_all", actor, `r${response.state.revision}`);
+    return response;
   }
 
   /** The owner's command on one of their strategies (404 for anyone else's). */

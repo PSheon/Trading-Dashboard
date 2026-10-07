@@ -40,7 +40,7 @@ export class CopyAdminLiveService {
    *   new one) and the grant marked revoke requested: from then on it
    *   authorises only that stop's reduce-only closes and owner-consented
    *   cancellations (effectiveGrantScopes), and it is revoked when the stop
-   *   ends, when the stop is blocked or gone, or after the deadline,
+   *   ends, when the stop is blocked or gone, or after the deadline once it is flat (never while it still closes),
    *   whichever comes first (CopyLiveStopWorkerRepository.expirePendingRevokes);
    * - asked again while pending: revoked now if the stop it waited for is
    *   blocked or no longer open, else the same pending answer.

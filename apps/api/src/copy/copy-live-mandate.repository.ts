@@ -35,17 +35,19 @@ export class CopyLiveMandateRepository {
   }
   /** Fixed sizing within the deployment's bounds, and leverage within its cap. */
   assertSettings(settings: CreateLiveCopyStrategy['settings']): void { assertLiveSettings(this.caps, settings); }
-  async owner(userId: number, db: DbExecutor = this.db) {
-    const [owner] = await db.select().from(users).where(and(eq(users.id, userId), isNull(users.disabledAt)));
+  /** `includeDisabled`: a stop the system starts (admin close-all, agent
+   * expiry) also for an owner an admin disabled. */
+  async owner(userId: number, db: DbExecutor = this.db, includeDisabled = false) {
+    const [owner] = await db.select().from(users).where(and(eq(users.id, userId), includeDisabled ? undefined : isNull(users.disabledAt)));
     if (!owner) throw new NotFoundException('Owner not found');
     return owner;
   }
-  async lock(tx: DbTransaction, userId: number) {
+  async lock(tx: DbTransaction, userId: number, includeDisabled = false) {
     await tx.execute(sql`select pg_advisory_xact_lock_shared(7403, 0)`);
     await tx.execute(sql`select pg_advisory_xact_lock_shared(7405, 0)`);
     await lockCopyUser(tx, userId);
     await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for('update');
-    return this.owner(userId, tx);
+    return this.owner(userId, tx, includeDisabled);
   }
   async preparation(db: DbExecutor) {
     // The deployment's caps (COPY_LIVE_*) apply as the stricter of the two.

@@ -18,9 +18,9 @@ const conflict = (code = 'live_stop_binding_changed'): never => { throw new Conf
 @Injectable()
 export class CopyLiveStopRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, private readonly mandates: CopyLiveMandateRepository) {}
-  async lock(tx: DbTransaction, userId: number) { return this.mandates.lock(tx, userId); }
-  private async context(tx: DbTransaction, userId: number, mandateId: string) {
-    const owner = await this.mandates.owner(userId, tx), mandate = await this.mandates.find(userId, mandateId, tx, true);
+  async lock(tx: DbTransaction, userId: number, system = false) { return this.mandates.lock(tx, userId, system); }
+  private async context(tx: DbTransaction, userId: number, mandateId: string, system = false) {
+    const owner = await this.mandates.owner(userId, tx, system), mandate = await this.mandates.find(userId, mandateId, tx, true);
     const [binding] = await tx.select({ account: copyExecutionAccounts, strategy: copyStrategies, setup: copyAgentSetups })
       .from(copyExecutionAccounts).innerJoin(copyStrategies, eq(copyStrategies.id, copyExecutionAccounts.strategyId))
       .innerJoin(copyAgentSetups, eq(copyAgentSetups.id, mandate.setupId))
@@ -82,9 +82,11 @@ export class CopyLiveStopRepository {
     }
     return { items, truncated: ids.length > 100 };
   }
-  async request(tx: DbTransaction, userId: number, mandateId: string, input: RequestLiveCopyStop, clock: () => number) {
-    await this.lock(tx, userId);
-    const context = await this.context(tx, userId, mandateId), { owner, account, strategy, mandate } = context;
+  /** `system`: a stop the system starts (CopyLiveSystemStops), which also
+   * stops the copy of an owner an admin disabled. */
+  async request(tx: DbTransaction, userId: number, mandateId: string, input: RequestLiveCopyStop, clock: () => number, system = false) {
+    await this.lock(tx, userId, system);
+    const context = await this.context(tx, userId, mandateId, system), { owner, account, strategy, mandate } = context;
     const [existing] = await tx.select().from(copyLiveStopOperations).where(and(eq(copyLiveStopOperations.userId, userId), eq(copyLiveStopOperations.idempotencyKey, input.idempotencyKey)));
     if (existing) {
       this.assertStored(existing, context);

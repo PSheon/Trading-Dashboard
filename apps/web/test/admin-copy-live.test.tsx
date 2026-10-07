@@ -109,7 +109,7 @@ it('shows a revoke that waits for the copy\'s stop, and offers no second revoke'
   expect(state.post).toHaveBeenCalledWith('/admin/copy/live/grants/grant-1/revoke', { reason: 'stop is stuck', force: true });
 });
 
-it('names the actual-copies page by the deployment: 正式 on mainnet, 測試網 on testnet, not offered on a paper deployment (Stage B9)', async () => {
+it('names the actual-copies page by the deployment: 正式 on mainnet, 測試網 otherwise (Stage B9)', async () => {
   const { useCopySubTabs } = await import('@/components/admin/copy/status');
   const labels: Array<ReturnType<typeof useCopySubTabs>> = [];
   function Probe() { labels.push(useCopySubTabs()); return null; }
@@ -117,7 +117,7 @@ it('names the actual-copies page by the deployment: 正式 on mainnet, 測試網
     state.network = network;
     await act(async () => root.render(<Probe />));
   }
-  expect(labels.map((l) => l['/admin/copy/testnet'])).toEqual(['admin.sub.copyLive', 'admin.sub.copyTestnet', null]);
+  expect(labels.map((l) => l['/admin/copy/testnet'])).toEqual(['admin.sub.copyLive', 'admin.sub.copyTestnet', 'admin.sub.copyTestnet']);
   state.network = 'mainnet';
   await render('zh-TW');
   expect(container.textContent).toContain('正式跟單');

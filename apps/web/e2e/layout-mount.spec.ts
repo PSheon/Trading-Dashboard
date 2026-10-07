@@ -13,14 +13,15 @@ test.beforeEach(async ({ context, baseURL }) => {
 test("a phone trader page has no desktop layout in the document, and a desktop one no phone layout", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(TRADER);
-  await expect(page.getByRole("radiogroup", { name: "Trading activity" })).toBeVisible();
+  // One tab row on both (2026-10-07): the layouts differ by their frame.
+  await expect(page.getByRole("tablist", { name: "Trading activity" })).toHaveCount(1);
+  await expect(page.getByRole("tablist", { name: "Trading activity" })).toBeVisible();
   await expect(page.locator(".trader-grid")).toHaveCount(0);
-  await expect(page.getByRole("tablist", { name: "Trading activity" })).toHaveCount(0);
   await expect(page.locator("h1")).toHaveCount(1);
 
   await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(page.getByRole("tablist", { name: "Trading activity" })).toHaveCount(1);
   await expect(page.getByRole("tablist", { name: "Trading activity" })).toBeVisible();
-  await expect(page.getByRole("radiogroup", { name: "Trading activity" })).toHaveCount(0);
   await expect(page.locator(".trader-grid")).toHaveCount(1);
   await expect(page.locator("h1")).toHaveCount(1);
 });

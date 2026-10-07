@@ -35,12 +35,13 @@ export const COPY_SUB_TABS = {
 } as const;
 
 /** The copy tab's sub-pages as this deployment has them: the actual-copies
- * page is 正式 on mainnet and 測試網 on testnet, and not offered where no
- * actual copies run (a paper deployment). Stage, 2026-10-07: mainnet showed
- * 測試網 (B9). */
+ * page is 正式 on mainnet (Stage, 2026-10-07: mainnet showed 測試網, B9),
+ * 測試網 otherwise. It stays offered on mainnet: it is where the real
+ * copies' wallets, grants and orders are watched. (An admin whose own
+ * account reads no deployment keeps the page under its testnet name.) */
 export function useCopySubTabs(): Record<string, MessageKey | null> {
   const network = useLiveCopyDeployment()?.network ?? null;
-  return { ...COPY_SUB_TABS, "/admin/copy/testnet": network === "mainnet" ? "admin.sub.copyLive" : network === "testnet" ? "admin.sub.copyTestnet" : null };
+  return { ...COPY_SUB_TABS, "/admin/copy/testnet": network === "mainnet" ? "admin.sub.copyLive" : "admin.sub.copyTestnet" };
 }
 
 const STOPS = copyControlCommandEnum.filter((c) => c !== "resume");

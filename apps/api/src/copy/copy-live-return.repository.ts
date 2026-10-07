@@ -47,8 +47,10 @@ export class CopyLiveReturnRepository {
   private locked<T>(userId: number, write: (tx: DbTransaction) => PromiseLike<T>): Promise<T> {
     return this.db.transaction(async tx => { await lockCopyUser(tx, userId); return write(tx); });
   }
-  async context(db: DrizzleDb | DbTransaction, userId: number, accountId: string): Promise<MasterContext> {
-    const [owner] = await db.select().from(users).where(and(eq(users.id, userId), isNull(users.disabledAt)));
+  /** `system`: the stop's automatic return, which still runs for an owner an
+   * admin disabled (the funds go back to that owner's own main wallet). */
+  async context(db: DrizzleDb | DbTransaction, userId: number, accountId: string, system = false): Promise<MasterContext> {
+    const [owner] = await db.select().from(users).where(and(eq(users.id, userId), system ? undefined : isNull(users.disabledAt)));
     const [account] = await db.select().from(copyExecutionAccounts).where(and(eq(copyExecutionAccounts.id, accountId), eq(copyExecutionAccounts.userId, userId)));
     if (!owner?.embeddedWalletAddress || !account) throw new NotFoundException('Execution account not found');
     // Only an account of the deployment's network: one of another network is
@@ -60,7 +62,7 @@ export class CopyLiveReturnRepository {
     const [stop] = await db.select().from(copyLiveStopOperations).where(and(eq(copyLiveStopOperations.accountId, account.id), ne(copyLiveStopOperations.state, 'stopped')));
     return { owner, account, strategy, stop: stop ?? null };
   }
-  contextRead(userId: number, accountId: string): Promise<MasterContext> { return this.context(this.db, userId, accountId); }
+  contextRead(userId: number, accountId: string, system = false): Promise<MasterContext> { return this.context(this.db, userId, accountId, system); }
   reader(): DrizzleDb { return this.db; }
   private async nonce(tx: DbTransaction, network: string, address: string): Promise<number> {
     const clock = await tx.execute<{ nonce: number }>(sql`select greatest(floor(extract(epoch from clock_timestamp()) * 1000)::bigint,
@@ -103,7 +105,7 @@ export class CopyLiveReturnRepository {
    */
   async reserveSystem(stop: { id: string; userId: number; accountId: string }, amount: string): Promise<ReturnRow | null> {
     return this.locked(stop.userId, async tx => {
-      const { owner, account, stop: open } = await this.context(tx, stop.userId, stop.accountId);
+      const { owner, account, stop: open } = await this.context(tx, stop.userId, stop.accountId, true);
       const key = `${SYSTEM_SWEEP_PREFIX}${stop.id}`;
       const [original] = await tx.select().from(copyFundingOperations).where(and(eq(copyFundingOperations.userId, stop.userId), eq(copyFundingOperations.idempotencyKey, key)));
       if (original) return original;
@@ -127,11 +129,11 @@ export class CopyLiveReturnRepository {
   }
   /** One attempt: prepared → unknown with its attempt time, still owned,
    * the account ready, the destination still the owner's main wallet. */
-  async begin(userId: number, id: string): Promise<ReturnRow | null> {
+  async begin(userId: number, id: string, system = false): Promise<ReturnRow | null> {
     return this.locked(userId, async tx => {
       const [row] = await tx.select().from(copyFundingOperations).where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.userId, userId), eq(copyFundingOperations.direction, 'to_main'))).for('update');
       if (!row) throw new NotFoundException('Return not found');
-      const { owner, account } = await this.context(tx, userId, row.accountId);
+      const { owner, account } = await this.context(tx, userId, row.accountId, system);
       if (owner.embeddedWalletAddress !== row.destination || account.address !== row.address) throw new ConflictException('Wallet identity changed');
       const [claimed] = await tx.update(copyFundingOperations).set({ status: 'unknown', claimedAt: new Date(), attemptedAt: new Date(), updatedAt: new Date() })
         .where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.status, 'prepared'), isNull(copyFundingOperations.attemptedAt))).returning();

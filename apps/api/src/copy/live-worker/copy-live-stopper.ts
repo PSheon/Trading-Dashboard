@@ -240,7 +240,9 @@ export class StopCanceller {
     const verifier = new HyperliquidAgentApprovalVerifier(this.network, this.acquire, this.global.fetchInfo, this.now);
     const authority: TrackedCancellationAuthority = { authorize: async (op, phase) => {
       const current = await this.repository.get(stop.id), digestNow = await currentDigest(), grant = await findCurrentWalletAuthorization(this.db, account.authorizationId, 'stop');
-      if (current?.state !== 'cancelling' || (revision !== null && current.revision !== revision) || digestNow !== consentDigest || !await this.repository.ownerEnabled(stop.userId) ||
+      // A disabled owner's stop still cancels: disabling stops new risk, not
+      // the unwinding of what is open (the grant is loaded for the stop).
+      if (current?.state !== 'cancelling' || (revision !== null && current.revision !== revision) || digestNow !== consentDigest || !await this.repository.ownerExists(stop.userId) ||
         !grant || grant.revokedAt !== null || grant.expiresAt <= this.now() || address(grant.signerAddress) !== authorization.signerAddress) throw new LiveBoundaryError('cancel_current_authority_invalid');
       const exchangeApproval = await verifier.verify(grant), checkedAt = this.now();
       return { phase, operationId: op.operationId, operationFingerprint: op.fingerprint, claimToken: op.claimToken, targetExecutionKey: op.target.record.key,

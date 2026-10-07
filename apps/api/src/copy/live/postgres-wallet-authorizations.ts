@@ -27,7 +27,8 @@ export class PostgresWalletAuthorizationSource implements WalletAuthorizationSou
 
 /** Who loads the grant for signing. Only the stop executor ('stop': the
  * stop's reduce-only closes and its owner-consented cancellations) may use a
- * grant whose revocation an admin requested. */
+ * grant whose revocation an admin requested, or of an owner an admin
+ * disabled. */
 export type GrantPurpose = 'stop';
 
 /** The scopes a grant authorises for `purpose`: all of them normally; once
@@ -57,7 +58,9 @@ export async function findCurrentWalletAuthorization(db: DbExecutor, id: string,
         eq(copyExecutionAccounts.privyWalletId, copyAgentSetups.accountWalletId), eq(copyExecutionAccounts.ownerQuorumId, copyAgentSetups.accountOwnerQuorumId)))
       .innerJoin(copyStrategies, and(eq(copyStrategies.id, copyExecutionWallets.strategyId), eq(copyStrategies.userId, users.id)))
       .where(eq(copyWalletAuthorizations.id, id));
-    if (!row || row.disabledAt !== null || row.wallet.retiredAt !== null) return null;
+    // A disabled owner's grant signs nothing new, except a stop's closes:
+    // disabling a user must not strand the positions its copies hold.
+    if (!row || (row.disabledAt !== null && purpose !== 'stop') || row.wallet.retiredAt !== null) return null;
     const { grant, wallet } = row;
     return { id: grant.id, version: grant.version, userId: wallet.userId, strategyId: wallet.strategyId, walletId: wallet.privyWalletId,
       privyOwnerId: wallet.privyOwnerId, accountAddress: address(wallet.accountAddress), signerAddress: address(wallet.signerAddress), network: wallet.network,

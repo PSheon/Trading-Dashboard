@@ -31,7 +31,8 @@ export class CopyLiveAutoReturn implements AutoReturn {
     private readonly signer: WorkerMasterSigner, private readonly now: () => number = Date.now) {}
 
   async sweep(stop: StopRow, withdrawable: string): Promise<AutoReturnOutcome> {
-    const { owner, account } = await this.returns.contextRead(stop.userId, stop.accountId);
+    // The system's context: an owner an admin disabled still gets the funds back.
+    const { owner, account } = await this.returns.contextRead(stop.userId, stop.accountId, true);
     // A signer taken off again (account deletion) returns by hand, like a legacy account.
     if (!account.masterPolicyId || !account.masterSignerQuorumId || account.signerDetachedAt || !account.sweepDestination) return 'legacy';
     // An account of another network (a database that moved networks) is
@@ -47,7 +48,7 @@ export class CopyLiveAutoReturn implements AutoReturn {
     if (row.status === 'rejected' || row.status === 'cancelled') return 'failed';
     if (row.status === 'unknown') return 'unknown';
     if (row.status !== 'prepared') return 'sent';
-    const attempt = await this.returns.begin(stop.userId, row.id);
+    const attempt = await this.returns.begin(stop.userId, row.id, true);
     // Another pass holds it (claimed and in flight): its outcome is not known here.
     if (!attempt) return 'unknown';
     const checkedAt = this.now();

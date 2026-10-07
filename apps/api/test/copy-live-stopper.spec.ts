@@ -153,6 +153,18 @@ describe('testnet stop execution', () => {
       expect(await stopRow()).toMatchObject({ state: 'stopped' });
     });
 
+    it('an owner an admin disabled: the stop still closes with the grant, and the automatic return still sends the funds back', async () => {
+      await db.update(schema.users).set({ disabledAt: new Date(clock) });
+      // Nothing new is signed for a disabled owner, but the stop's closes are.
+      expect(await findCurrentWalletAuthorization(db, 'grant')).toBeNull();
+      expect((await findCurrentWalletAuthorization(db, 'grant', 'stop'))?.id).toBe('grant');
+      await withSigner(); withdrawable = '25';
+      await auto().tick(); await auto().tick(); await auto().tick();
+      expect(await stopRow()).toMatchObject({ state: 'flat', issue: 'stop_returning_to_main_wallet' });
+      expect((await returns())[0]).toMatchObject({ amount: '25', destination: main, status: 'accepted' });
+      expect(exchange.send).toHaveBeenCalledTimes(1);
+    });
+
     it('a legacy account (no master signer) waits for the owner\'s return, as before', async () => {
       withdrawable = '25'; await auto().tick(); await auto().tick(); await auto().tick();
       expect(await stopRow()).toMatchObject({ state: 'flat', issue: 'stop_awaiting_return_to_main_wallet' });

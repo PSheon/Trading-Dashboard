@@ -197,9 +197,10 @@ export class CopyLiveStopWorkerRepository {
     const [row] = await this.db.select({ digest: copyLiveMandates.consentDigest, kind: copyLiveMandates.consentKind }).from(copyLiveMandates).where(eq(copyLiveMandates.id, mandateId));
     return row?.kind === 'setup' ? row.digest : null;
   }
-  async ownerEnabled(userId: number): Promise<boolean> {
-    const [row] = await this.db.select({ disabledAt: users.disabledAt }).from(users).where(eq(users.id, userId));
-    return Boolean(row) && row!.disabledAt === null;
+  /** The stop's owner still exists (an admin may have disabled it: its stop still runs). */
+  async ownerExists(userId: number): Promise<boolean> {
+    const [row] = await this.db.select({ id: users.id }).from(users).where(eq(users.id, userId));
+    return Boolean(row);
   }
   async attempts(stopId: string, executionKey: string) {
     return this.db.select().from(copyLiveStopCancellations).where(and(eq(copyLiveStopCancellations.stopId, stopId), eq(copyLiveStopCancellations.executionKey, executionKey)))

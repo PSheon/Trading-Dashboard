@@ -206,39 +206,38 @@ export function ProfileCard({
     <aside aria-labelledby="trader-name" className="orbit-card overflow-hidden pb-5 [&>div:first-child]:mt-0 [&>div:first-child]:border-t-0">
       {identity ? (
         <>
-          {/* C-Trader: the picture, then the name as the page's h1 (40/52,
-              up to two lines) over the address; the round actions below. */}
-          <div className="flex items-center gap-3 px-5 pt-5">
-            <TraderAvatar trader={{ address: profile.address, avatarUrl: profile.kol?.avatarUrl ?? null }} size={52} />
-            <div className="min-w-0 flex-1">
-              <h1 id="trader-name" className="type-h1 flex min-w-0">
-                {/* A name may wrap to two lines; an address stays on one,
-                    its head cut ("0xe779…6ba7"), never "0xe779… / 6ba7". */}
-                <TraderName trader={profile} className={profile.displayName?.trim() ? "line-clamp-2 whitespace-normal [overflow-wrap:anywhere]" : undefined} />
-              </h1>
-              <span className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => copy("address", profile.address)}
-                  className="num flex items-center gap-1 rounded text-[13px] leading-[18px] font-bold whitespace-nowrap text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-                  title={profile.address}
-                  aria-label={`${t("common.copy")} ${profile.address}`}
-                >
-                  {truncateAddress(profile.address)}
-                  {copied === "address" ? <Check className="size-3 text-positive" /> : <Copy className="size-3" />}
-                </button>
-                {profile.kol?.xHandle ? <XProfileLink handle={profile.kol.xHandle} className="text-[11px]" /> : null}
-              </span>
+          {/* A profile card's head, centred (audit §十二 #1): the picture,
+              the name as the page's h1 (up to two lines), the address, then
+              the round actions. The blocks below stay left-aligned. */}
+          <div className="flex flex-col items-center px-5 pt-5 text-center" data-testid="profile-header">
+            <TraderAvatar trader={{ address: profile.address, avatarUrl: profile.kol?.avatarUrl ?? null }} size={56} />
+            <h1 id="trader-name" className="type-h1 mt-3 flex max-w-full min-w-0 justify-center">
+              {/* A name may wrap to two lines; an address stays on one,
+                  its head cut ("0xe779…6ba7"), never "0xe779… / 6ba7". */}
+              <TraderName trader={profile} className={profile.displayName?.trim() ? "line-clamp-2 whitespace-normal [overflow-wrap:anywhere]" : undefined} />
+            </h1>
+            <span className="flex items-center justify-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => copy("address", profile.address)}
+                className="num flex items-center gap-1 rounded text-[13px] leading-[18px] font-bold whitespace-nowrap text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                title={profile.address}
+                aria-label={`${t("common.copy")} ${profile.address}`}
+              >
+                {truncateAddress(profile.address)}
+                {copied === "address" ? <Check className="size-3 text-positive" /> : <Copy className="size-3" />}
+              </button>
+              {profile.kol?.xHandle ? <XProfileLink handle={profile.kol.xHandle} className="text-[11px]" /> : null}
+            </span>
+            <div className="flex items-center justify-center gap-2 pt-3">
+              <FavoriteButton address={profile.address} favorite={profile.favorite} solid className="size-11 rounded-full bg-inset" />
+              <ShareButton
+                address={profile.address}
+                name={shareName({ address: profile.address, displayName: profile.displayName, kol: profile.kol })}
+                className="size-11 rounded-full bg-inset text-foreground hover:bg-raised-hover"
+                iconClassName="size-[17px]"
+              />
             </div>
-          </div>
-          <div className="flex items-center gap-2 px-5 pt-3">
-            <FavoriteButton address={profile.address} favorite={profile.favorite} solid className="size-11 rounded-full bg-inset" />
-            <ShareButton
-              address={profile.address}
-              name={shareName({ address: profile.address, displayName: profile.displayName, kol: profile.kol })}
-              className="size-11 rounded-full bg-inset text-foreground hover:bg-raised-hover"
-              iconClassName="size-[17px]"
-            />
           </div>
         </>
       ) : null}
@@ -480,16 +479,14 @@ export function ProfileCardSkeleton({ identity = true }: { identity?: boolean })
     <aside aria-hidden="true" className="orbit-card ui-skeleton overflow-hidden pb-5 [&>div:first-child]:mt-0 [&>div:first-child]:border-t-0">
       {identity ? (
         <>
-          <div className="flex items-center gap-3 px-5 pt-5">
-            <SkelCircle className="size-[52px]" />
-            <div className="min-w-0 flex-1">
-              <SkelBar line="h-[44px] md:h-[52px]" className="h-6 w-28 md:h-8" />
-              <SkelBar line="h-[18px]" className="h-2.5 w-24" />
+          <div className="flex flex-col items-center px-5 pt-5">
+            <SkelCircle className="size-14" />
+            <SkelBar line="mt-3 h-[44px] md:h-[52px]" className="h-6 w-28 md:h-8" />
+            <SkelBar line="h-[18px]" className="h-2.5 w-24" />
+            <div className="flex items-center justify-center gap-2 pt-3">
+              <SkelCircle className="size-11" />
+              <SkelCircle className="size-11" />
             </div>
-          </div>
-          <div className="flex items-center gap-2 px-5 pt-3">
-            <SkelCircle className="size-11" />
-            <SkelCircle className="size-11" />
           </div>
         </>
       ) : null}

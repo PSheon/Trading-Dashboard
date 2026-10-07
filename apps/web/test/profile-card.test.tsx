@@ -89,6 +89,20 @@ it("shows the known parts of an account value and names what is missing (audit A
   expect(complete).not.toContain("Not included");
 });
 
+it("centres the card's head: avatar, name, address and the round actions in one column (audit §十二 #1)", () => {
+  const html = renderToStaticMarkup(<I18nProvider locale="en" messages={en}><ProfileCard profile={base()} allTimeVolume={null} trades={undefined} tradesComputing={false} /></I18nProvider>);
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const head = doc.querySelector<HTMLElement>('[data-testid="profile-header"]')!;
+  expect(head.className.split(" ")).toEqual(expect.arrayContaining(["flex", "flex-col", "items-center", "text-center"]));
+  // Avatar, then the name, then the address, then the buttons, all inside it.
+  expect([...head.children].map((el) => el.tagName)).toEqual(["SPAN", "H1", "SPAN", "DIV"]);
+  expect(head.querySelector("h1")!.className).toContain("justify-center");
+  expect(head.children[2]!.className).toContain("justify-center");
+  expect(head.children[3]!.className).toContain("justify-center");
+  // The blocks below stay left-aligned.
+  expect(doc.querySelector('[data-testid="account-value"]')!.closest(".text-center")).toBeNull();
+});
+
 it("keeps the account value's parts mounted and inert while closed, so they open with their height (audit §十二 #2)", async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const container = document.createElement("div");

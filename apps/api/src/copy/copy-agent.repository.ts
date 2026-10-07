@@ -1,11 +1,12 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
-import { copyAgentSetups, copyExecutionAccounts, copyExecutionWallets, copySignerNonces, copyStrategies, copyWalletAuthorizations, copyWalletAuthorizationEvents, users } from "@trading-dashboard/shared/database";
+import { copyAgentSetups, copyExecutionAccounts, copyExecutionWallets, copyStrategies, copyWalletAuthorizations, copyWalletAuthorizationEvents, users } from "@trading-dashboard/shared/database";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
 import { lockCopyUser } from "./copy-user-lock.js";
+import { allocateSignerNonce } from "./signer-nonce.js";
 
 export type AgentSetupRow = typeof copyAgentSetups.$inferSelect;
 @Injectable()
@@ -109,11 +110,7 @@ export class CopyAgentRepository {
     if (locked.approvalAttemptedAt) throw new ConflictException("agent_approval_pending");
     if (locked.approvalNonce && locked.consentExpiresAt && locked.consentExpiresAt.getTime() > Date.now()) return locked;
     const now = Date.now();
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`live-nonce:${locked.network}:${locked.accountAddress}`}, 2))`);
-    const result = await tx.execute<{ nonce: string }>(sql`insert into ${copySignerNonces} (network, signer_address, nonce)
-      values (${locked.network}, ${locked.accountAddress}, ${now}) on conflict (network, signer_address)
-      do update set nonce = greatest(${now}, ${copySignerNonces.nonce} + 1) returning nonce`);
-    const nonce = Number(result.rows[0]?.nonce);
+    const nonce = await allocateSignerNonce(tx, locked.network, locked.accountAddress, now);
     if (!Number.isSafeInteger(nonce) || nonce > now + 30_000) throw new ConflictException("agent_nonce_clock_skew");
     return (await this.transition(locked, { approvalNonce: nonce, consentExpiresAt: new Date(nonce + 300_000), issue: null }, tx))!;
   }

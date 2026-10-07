@@ -8,6 +8,7 @@ import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
 import type { DbTransaction } from '../db/unit-of-work.js';
 import { lockCopyUser } from './copy-user-lock.js';
+import { allocateSignerNonce } from './signer-nonce.js';
 import { blockingFunding } from './funding-blocking.js';
 import { deploymentNetwork } from './live-deployment.js';
 
@@ -64,11 +65,10 @@ export class CopyLiveReturnRepository {
   }
   contextRead(userId: number, accountId: string, system = false): Promise<MasterContext> { return this.context(this.db, userId, accountId, system); }
   reader(): DrizzleDb { return this.db; }
-  private async nonce(tx: DbTransaction, network: string, address: string): Promise<number> {
-    const clock = await tx.execute<{ nonce: number }>(sql`select greatest(floor(extract(epoch from clock_timestamp()) * 1000)::bigint,
-      coalesce((select max(nonce) + 1 from copy_funding_operations where network = ${network} and address = ${address}), 0),
-      coalesce((select max(nonce) + 1 from copy_live_builder_approvals where network = ${network} and account_address = ${address}), 0))::float8 as nonce`);
-    return clock.rows[0]!.nonce;
+  /** The account's own signer: its returns and builder fee share the
+   * allocator with its account mode and agent approval (signer-nonce.ts). */
+  private nonce(tx: DbTransaction, network: string, address: string): Promise<number> {
+    return allocateSignerNonce(tx, network, address, Date.now());
   }
   /** A return of `amount` from the copy's account to the owner's main wallet.
    * A sweep (`stopId`) belongs to the account's flat stop. One wallet

@@ -9,6 +9,7 @@ import { CopyFundingExchangeClient } from '../src/copy/copy-funding-exchange.cli
 import { CopyFundingRepository } from '../src/copy/copy-funding.repository.js';
 import { CopyLiveReturnRepository } from '../src/copy/copy-live-return.repository.js';
 import { CopyLiveReturnService } from '../src/copy/copy-live-return.service.js';
+import { allocateSignerNonce } from '../src/copy/signer-nonce.js';
 import { preparationFixture } from './copy-live-preparation-test-utils.js';
 import { closeTestDb, getTestDb, type TestDb } from './db-test-utils.js';
 
@@ -126,5 +127,28 @@ describe('returning USDC from a copy account to the main wallet', () => {
     await db.update(schema.copyFundingOperations).set({ status: 'credited', attemptedAt: new Date(clock), claimedAt: new Date(clock), evidenceHash: 'e'.repeat(64),
       transactionHash: `0x${'f'.repeat(64)}`, creditedAmount: '41.123456', fee: '1' }).where(eq(schema.copyFundingOperations.id, sweep.operation.id));
     expect(await repository.swept(stop!.id)).toBe(true);
+  });
+  it("the account's returns and builder fee take their nonce from the signer's one allocator, interleaved with its mode and agent nonces: none collides or goes back", async () => {
+    const repository = new CopyLiveReturnRepository(db, testConfig());
+    // The account mode or agent approval was just handed a nonce ahead of the clock.
+    const ahead = Date.now() + 60_000;
+    await db.insert(schema.copySignerNonces).values({ network: 'testnet', signerAddress: accountAddress, nonce: ahead });
+    /** What the account mode and the agent approval allocate (their repositories call the same allocator). */
+    const modeOrAgent = () => db.transaction(tx => allocateSignerNonce(tx, 'testnet', accountAddress, Date.now()));
+    const nonceOf = async (id: string) => (await db.select().from(schema.copyFundingOperations).where(eq(schema.copyFundingOperations.id, id)))[0]!.nonce;
+    const order: number[] = [ahead];
+    order.push(await nonceOf((await service.reserve(1, 'account', { idempotencyKey: key(60), amount: '1' })).operation.id));
+    order.push(await modeOrAgent());
+    order.push((await repository.reserveBuilder(1, 'account', { idempotencyKey: key(61), builderAddress: `0x${'5'.repeat(40)}`, maxFeeTenthsBps: 10, now: Date.now() })).nonce);
+    order.push(await modeOrAgent());
+    await db.update(schema.copyFundingOperations).set({ status: 'cancelled' });
+    order.push(await nonceOf((await service.reserve(1, 'account', { idempotencyKey: key(62), amount: '2' })).operation.id));
+    // Concurrent: still distinct.
+    await db.update(schema.copyFundingOperations).set({ status: 'cancelled' });
+    const together = await Promise.all([modeOrAgent(), service.reserve(1, 'account', { idempotencyKey: key(63), amount: '3' }).then(r => nonceOf(r.operation.id)), modeOrAgent(),
+      repository.reserveBuilder(1, 'account', { idempotencyKey: key(64), builderAddress: `0x${'5'.repeat(40)}`, maxFeeTenthsBps: 10, now: Date.now() }).then(r => r.nonce)]);
+    expect(order.every((nonce, i) => i === 0 || nonce > order[i - 1]!)).toBe(true);
+    expect(new Set([...order, ...together]).size).toBe(order.length + together.length);
+    expect(Math.min(...together)).toBeGreaterThan(order.at(-1)!);
   });
 });

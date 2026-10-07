@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { verifyTypedData } from 'viem';
 import { canonicalize, createL1ActionHash, signL1Action, type AbstractViemLocalAccount } from '@nktkas/hyperliquid/signing';
 import { UpdateLeverageRequest } from '@nktkas/hyperliquid/api/exchange';
 import { WALLET_NETWORKS, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
-import { copyLiveLeverageUpdates, copySignerNonces } from '@trading-dashboard/shared/database';
+import { copyLiveLeverageUpdates } from '@trading-dashboard/shared/database';
+import { allocateSignerNonce } from '../signer-nonce.js';
 import { HyperliquidGlobalTransport } from '../../hyperliquid/hyperliquid-global-transport.js';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
 import { boundedLiveRead } from './live-market-resolver.js';
@@ -80,10 +81,7 @@ export class LiveLeverageUpdater {
     const checked = async <T>(work: PromiseLike<T>) => { const value = await work; await session.scope.assertHeld(); return value; };
     // Journal and nonce commit together before any signing request.
     const { nonce, expiresAfter } = await session.transaction(async tx => {
-      await checked(tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`live-nonce:${this.network}:${signer}`}, 2))`));
-      const allocated = await checked(tx.execute(sql`insert into ${copySignerNonces} (network, signer_address, nonce) values (${this.network}, ${signer}, ${created})
-        on conflict (network, signer_address) do update set nonce = greatest(${created}, ${copySignerNonces}.nonce + 1) returning nonce`));
-      const nonce = Number(allocated.rows[0]?.nonce);
+      const nonce = await allocateSignerNonce(tx, this.network, signer, created, checked);
       if (!Number.isSafeInteger(nonce) || nonce < created || nonce > created + 30_000) throw new LiveBoundaryError('nonce_clock_skew');
       // From the request's own clock, as an order's (the Privy request expiry
       // must lie within 60 s of the signing request).

@@ -4,8 +4,9 @@ import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { ACTUAL_STRATEGY_MODE, accountModeIntentSchema } from '@trading-dashboard/shared/contracts';
 import { AppConfig } from '../config/app-config.js';
 import { deploymentNetwork } from './live-deployment.js';
+import { allocateSignerNonce } from './signer-nonce.js';
 import { copyAccountModeOperations, copyExecutionAccounts, copyExecutionWallets, copyFundingOperations, copyLiveExecutions,
-  copySignerNonces, copyStrategies, copyWalletAuthorizations, users, walletWithdrawals } from '@trading-dashboard/shared/database';
+  copyStrategies, copyWalletAuthorizations, users, walletWithdrawals } from '@trading-dashboard/shared/database';
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
 import type { DbTransaction } from '../db/unit-of-work.js';
@@ -103,11 +104,7 @@ export class CopyAccountModeRepository {
     if (locked.submissionState !== 'prepared' || locked.attemptedAt || locked.revision !== row.revision || locked.targetState === 'supported')
       throw new ConflictException('account_mode_challenge_changed');
     if (locked.intent && locked.nonce && locked.consentExpiresAt && locked.consentExpiresAt.getTime() > Date.now() + minRemainingMs) return locked;
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`live-nonce:${locked.network}:${locked.accountAddress}`}, 2))`);
-    const now = Date.now(); assertFresh();
-    const result = await tx.execute<{ nonce: string }>(sql`insert into ${copySignerNonces} (network, signer_address, nonce) values (${locked.network}, ${locked.accountAddress}, ${now})
-      on conflict (network, signer_address) do update set nonce = greatest(${now}, ${copySignerNonces.nonce} + 1) returning nonce`);
-    const nonce = Number(result.rows[0]?.nonce);
+    const nonce = await allocateSignerNonce(tx, locked.network, locked.accountAddress, Date.now(), async query => { const value = await query; assertFresh(); return value; });
     if (!Number.isSafeInteger(nonce) || nonce > Date.now() + 30000) throw new ConflictException('account_mode_nonce_clock_skew');
     const intent = accountModeIntentSchema.parse({ operationId: locked.id, accountId: locked.accountId, strategyId: locked.strategyId,
       network: locked.network, accountAddress: locked.accountAddress, nonce, consentExpiresAt: nonce + 300000 });

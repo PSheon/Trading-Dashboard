@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { copyLiveDispatches, copyLiveExecutions, copyLiveIntentProvenance, copyLiveSignalLegs, copyLiveSourceFills, copyLiveSourceStreams,
-  copyLivePositionBaselines, copyLiveReductionCarry, copySignerNonces, copyFollowerReceipts, copyLiveRiskReservations } from '@trading-dashboard/shared/database';
+  copyLivePositionBaselines, copyLiveReductionCarry, copyFollowerReceipts, copyLiveRiskReservations } from '@trading-dashboard/shared/database';
 import type { HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import type { DbExecutor } from '../../db/unit-of-work.js';
+import { allocateSignerNonce } from '../signer-nonce.js';
 import { Dec } from '../../common/decimal/dec.js';
 import { assertOriginalLiveRiskSession, type LiveRiskDatabaseSession } from './postgres-live-risk-scope.js';
 import { loadLivePreparationAuthority, riskSourceDigest, riskSourceRequire } from './postgres-live-risk-authority.js';
@@ -245,10 +246,7 @@ export class PostgresLivePreparation {
       const [leg] = await this.checked(session, tx.select().from(copyLiveSignalLegs).where(eq(copyLiveSignalLegs.id, legId)).for('update'));
       riskSourceRequire(leg?.state === 'planned' && leg.executionKey === null && leg.mandateId === binding.mandateId && leg.sourceFillId === source.fill.id &&
         leg.tradeKey === source.leg.tradeKey && leg.sign === source.leg.sign && leg.size === source.leg.size && leg.fraction === source.leg.fraction && leg.dependsOnId === plan.dependsOnLegId, 'live_preparation_claim_conflict');
-      await this.checked(session, tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`live-nonce:${network}:${authorization.signerAddress}`}, 2))`));
-      const allocated = await this.checked(session, tx.execute(sql`insert into ${copySignerNonces} (network, signer_address, nonce) values (${network}, ${authorization.signerAddress}, ${now})
-        on conflict (network, signer_address) do update set nonce = greatest(${now}, ${copySignerNonces}.nonce + 1) returning nonce`));
-      const nonce = Number(allocated.rows[0]?.nonce);
+      const nonce = await allocateSignerNonce(tx, network, authorization.signerAddress, now, query => this.checked(session, query));
       riskSourceRequire(Number.isSafeInteger(nonce) && nonce >= now && nonce <= now + 30000, 'nonce_clock_skew');
       const saved: LiveExecutionRecord = { key, fingerprint, authorization, action, market, nonce, expiresAfter: now + 60000, state: 'prepared', createdAt: now, updatedAt: now };
       await this.checked(session, tx.insert(copyLiveExecutions).values({ key, network, accountAddress: local.account.address!, signerAddress: authorization.signerAddress,

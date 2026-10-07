@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { copyAgentSetups, copyExecutionAccounts, copyLiveDispatches, copyLiveExecutions, copyLiveIntentProvenance, copyLiveManualCloses, copyLiveMandates, copyLiveStopCancellations,
-  copyExecutionWallets, copyLiveStopConsents, copyLiveStopOperations, copySignerNonces, copyStrategies, copyWalletAuthorizationEvents, copyWalletAuthorizations, users } from '@trading-dashboard/shared/database';
+  copyExecutionWallets, copyLiveStopConsents, copyLiveStopOperations, copyStrategies, copyWalletAuthorizationEvents, copyWalletAuthorizations, users } from '@trading-dashboard/shared/database';
 import { ACTUAL_STRATEGY_MODE } from '@trading-dashboard/shared/contracts';
 import { recordAdminAudit } from '../../common/audit/admin-audit.js';
 import { AppConfig } from '../../config/app-config.js';
@@ -11,6 +11,7 @@ import { DRIZZLE_CLIENT } from '../../db/db.constants.js';
 import type { DrizzleDb } from '../../db/drizzle.provider.js';
 import { UnitOfWork } from '../../db/unit-of-work.js';
 import { lockCopyUser } from '../copy-user-lock.js';
+import { allocateSignerNonce } from '../signer-nonce.js';
 import { decodeLiveExecutionRow } from '../live/postgres-live-journal.js';
 import { liveSourceExecutionCloid } from '../live/postgres-live-preparation.js';
 import type { LiveExecutionRecord } from '../live/live-execution.js';
@@ -211,10 +212,7 @@ export class CopyLiveStopWorkerRepository {
   /** Claims the next cancel attempt and its nonce on the agent's signer. */
   async claim(input: { stopId: string; executionKey: string; attempt: number; signerAddress: string; consentDigest: string; now: number }) {
     return this.uow.run(async tx => {
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`live-nonce:${this.network}:${input.signerAddress}`}, 2))`);
-      const allocated = await tx.execute(sql`insert into ${copySignerNonces} (network, signer_address, nonce) values (${this.network}, ${input.signerAddress}, ${input.now})
-        on conflict (network, signer_address) do update set nonce = greatest(${input.now}, ${copySignerNonces}.nonce + 1) returning nonce`);
-      const nonce = Number(allocated.rows[0]?.nonce);
+      const nonce = await allocateSignerNonce(tx, this.network, input.signerAddress, input.now);
       const [row] = await tx.insert(copyLiveStopCancellations).values({ id: randomUUID(), stopId: input.stopId, executionKey: input.executionKey, attempt: input.attempt,
         state: 'claimed', claimToken: randomUUID(), nonce, expiresAfter: nonce + 55_000, consentDigest: input.consentDigest,
         createdAt: new Date(input.now), updatedAt: new Date(input.now) }).onConflictDoNothing().returning();

@@ -1,12 +1,13 @@
 import type { LiveExecutionLease } from "./live-execution-gate.js";
 import { Inject, Injectable } from "@nestjs/common";
 import { eq, sql } from "drizzle-orm";
-import { copyLiveExecutions, copySignerNonces } from "@trading-dashboard/shared/database";
+import { copyLiveExecutions } from "@trading-dashboard/shared/database";
 import type { Pool } from "pg";
 import { isDeepStrictEqual } from "node:util";
 import { DRIZZLE_CLIENT } from "../../db/db.constants.js";
 import { DATABASE_POOL, type DrizzleDb } from "../../db/drizzle.provider.js";
 import { UnitOfWork } from "../../db/unit-of-work.js";
+import { allocateSignerNonce } from "../signer-nonce.js";
 import { type LiveExecutionJournal, type LiveExecutionRecord } from "./live-execution.js";
 import { LiveBoundaryError, address } from "./wallet-authorization.js";
 import { marketIdentityKey } from './live-market-resolver.js';
@@ -96,7 +97,6 @@ export class PostgresLiveExecutionJournal implements LiveExecutionJournal {
       // Distinct lock namespace from the session execution lock: its holder uses
       // another DB connection. Also serialize cloid preparation across signer rotation.
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`live-prepare:${key}`}, 3))`);
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`live-nonce:${grant.network}:${signer}`}, 2))`);
       const [existing] = await tx.select().from(copyLiveExecutions).where(eq(copyLiveExecutions.key, key));
       if (existing) {
         const record = decodeLiveExecutionRow(existing);
@@ -106,12 +106,7 @@ export class PostgresLiveExecutionJournal implements LiveExecutionJournal {
           throw new LiveBoundaryError('persisted_order_market_mismatch');
         return record;
       }
-      const allocated = await tx.execute(sql`
-        insert into ${copySignerNonces} (network, signer_address, nonce) values (${grant.network}, ${signer}, ${now})
-        on conflict (network, signer_address) do update set nonce = greatest(${now}, ${copySignerNonces}.nonce + 1)
-        returning nonce
-      `);
-      const nonce = Number(allocated.rows[0]?.nonce);
+      const nonce = await allocateSignerNonce(tx, grant.network, signer, now);
       if (!Number.isSafeInteger(nonce) || nonce > now + 30_000) throw new LiveBoundaryError("nonce_clock_skew");
       const record: LiveExecutionRecord = { key, fingerprint, authorization: grant, action, ...(market ? { market: structuredClone(market) } : {}), nonce, expiresAfter: now + 60_000, state: "prepared", createdAt: now, updatedAt: now };
       await tx.insert(copyLiveExecutions).values({ key, network: grant.network, accountAddress: address(grant.accountAddress), signerAddress: signer,

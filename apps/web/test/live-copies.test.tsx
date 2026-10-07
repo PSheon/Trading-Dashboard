@@ -29,10 +29,16 @@ const observed = (positions: { coin: string; size: string }[]) => ({ status: 'ob
   positions: positions.map(p => ({ ...p, dex: '', asset: 0, sizeDecimals: 2, entryPrice: '100', positionValue: '19', unrealizedPnl: '0.5', marginUsed: '1.9', leverage: 10,
     leverageType: 'cross', maxLeverage: 20, fundingSinceOpen: '0', fundingSinceChange: '0' })), restingOrders: [] });
 let root: Root, container: HTMLDivElement, client: QueryClient, items: ReturnType<typeof item>[];
+/** Orbie's money-flow ledger: the copy's deposits and returns (its net deposits). */
+let funds: unknown[];
+const deposit = (amount: number, over: Record<string, unknown> = {}) => ({ id: `funding:${Math.random()}`, time: new Date(liveNow - 60_000).toISOString(), kind: 'copy_funding', mode: 'testnet', amount,
+  strategyId: liveAccount.strategyId, leaderAddress: `0x${'44'.repeat(20)}`, status: 'credited', txHash: null, fee: null, counterparty: liveAccount.address, count: null, ...over });
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   items = [item()]; state.snapshot = observed([{ coin: 'BTC', size: '0.19' }]); state.strategies = []; state.patch.mockReset();
-  state.get.mockReset().mockImplementation(async (path: string) => path === '/me/copy/live/portfolio' ? { network: 'testnet', automaticExecution: true, items } : null);
+  funds = [deposit(100)];
+  state.get.mockReset().mockImplementation(async (path: string) => path === '/me/copy/live/portfolio' ? { network: 'testnet', automaticExecution: true, items }
+    : path.startsWith('/me/funds/history') ? { items: funds, nextCursor: null } : null);
   state.post.mockReset(); state.sign.mockReset().mockResolvedValue(signature);
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
@@ -69,7 +75,7 @@ it('lists each testnet copy with its stage, balances and positions, and nothing 
   await act(async () => { (document.querySelector('[role="dialog"] button[aria-label="Close"]') as HTMLButtonElement).click(); }); await settle();
   await openCard(1);
   expect(detail()!.textContent).toContain('Needs deposit'); expect(detail()!.textContent).toContain('Deposit USDC from your main wallet');
-  expect(detail()!.textContent).toContain('testnet price too far from mainnet');
+  expect(detail()!.textContent).toContain('price too far from the trader’s fill');
   // One-click: the deposit is a silent top-up here, not the Settings forms.
   expect(document.querySelector('a[href="/en/settings?tab=account"]')).toBeNull();
   expect([...detail()!.querySelectorAll('button')].filter(b => b.textContent === 'Add funds')).toHaveLength(1);
@@ -169,6 +175,7 @@ it('says the copies could not be read, with a retry, instead of hiding the secti
   let fail = true;
   items = [item()];
   state.get.mockImplementation(async (path: string) => {
+    if (path.startsWith('/me/funds/history')) return { items: funds, nextCursor: null };
     if (path !== '/me/copy/live/portfolio') return null;
     if (fail) throw Object.assign(new Error('Service Unavailable'), { status: 503 });
     return { network: 'testnet', automaticExecution: true, items };
@@ -250,7 +257,7 @@ it("a setup left at its consent (the panel closed during a slow start, automatic
     settings: { direction: 'same', sizingMode: 'ratio', perTradeUsd: null, maxTotalExposureUsd: null, maxLeverage: null, copyStartMode: 'delta' }, stage: 'awaiting_consent', issue: null,
     consent, funding: null, mandateId: null, setupDeadline: null, createdAt: new Date(at).toISOString(), updatedAt: new Date(at).toISOString() };
   items = [item({ stage: 'setup', status: 'paused', mandate: null, setup: { id, kind: 'start', stage: 'awaiting_consent', issue: null, consent } })];
-  state.get.mockImplementation(async (path: string) => path === '/me/copy/live/portfolio' ? { network: 'testnet', automaticExecution: true, items } : path === `/me/copy/live/setups/${id}` ? setup : null);
+  state.get.mockImplementation(async (path: string) => path === '/me/copy/live/portfolio' ? { network: 'testnet', automaticExecution: true, items } : path === `/me/copy/live/setups/${id}` ? setup : path.startsWith('/me/funds/history') ? { items: funds, nextCursor: null } : null);
   state.post.mockResolvedValue({ ...setup, consent: null, stage: 'funding_submitted' });
   await render('zh-TW');
   await act(async () => button('繼續設定').click()); await settle();
@@ -281,16 +288,16 @@ it('the withdraw box shows a placeholder and the most you can withdraw, 全部 f
   await render('zh-TW');
   const input = () => document.querySelector('input[name="withdraw"]') as HTMLInputElement | null;
   expect(input()!.placeholder).toBe('輸入金額');
-  expect(detail()!.textContent).toContain('最多可提領 $80.25');
+  expect(detail()!.textContent).toContain('最多可提款 $80.25');
   await act(async () => button('全部').click());
   expect(input()!.value).toBe('80.25');
   // More than the account can withdraw: the button stays off.
   await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input(), '81'); input()!.dispatchEvent(new Event('input', { bubbles: true })); });
-  expect(button('提領閒置資金').disabled).toBe(true);
+  expect(button('提款').disabled).toBe(true);
   items = [item({ pendingTransfer: { id: '88888888-8888-4888-8888-888888888888', direction: 'to_main', status: 'accepted', amount: '12.5' } })];
   await act(async () => { await client.invalidateQueries(); }); await settle();
   expect(input()).toBeNull();
-  expect(document.querySelector('[data-testid="transfer-pending"]')!.textContent).toBe('轉帳處理中，完成後可再次提領');
+  expect(document.querySelector('[data-testid="transfer-pending"]')!.textContent).toBe('轉帳處理中，完成後可再次提款');
 });
 
 it('reads the account again once a transfer settles, so the equity moves without a reload', async () => {
@@ -317,4 +324,56 @@ it('every action ends in a toast: success, or the failure in words with no raw c
   const failed = toasts().find(t => t.type === 'error')!;
   expect(failed.text).toContain('已有一筆入金正在處理');
   expect(failed.text).not.toMatch(/funding_pending|409|Conflict/);
+});
+
+it('PnL is equity less net deposits: a 10 USDC return is not a loss, and an unknown ledger shows — (audit 2026-10-07 P0-2)', async () => {
+  funds = [deposit(100), deposit(10, { counterparty: `0x${'11'.repeat(20)}`, time: new Date(liveNow).toISOString() })];
+  await render('en', { open: false });
+  // 97.50 equity on 90 net deposits: +7.50 (+8.33%), not -2.50.
+  expect(cards()[0]!.textContent).toContain('+$7.50'); expect(cards()[0]!.textContent).toContain('8.33%');
+  expect(cards()[0]!.textContent).not.toContain('-$2.50');
+  // A transfer still on its way: no figure until it settles.
+  funds = [deposit(100), deposit(10, { counterparty: `0x${'11'.repeat(20)}`, status: 'prepared' })];
+  await act(async () => { await client.invalidateQueries(); }); await settle();
+  expect(cards()[0]!.textContent).toContain('—');
+  expect(cards()[0]!.textContent).not.toContain('$');
+});
+
+it('a mainnet copy\'s sheet never says 測試網: its own hint, the price refusal in plain words, no setup hint (audit 2026-10-07 P0-3)', async () => {
+  items = [item({ network: 'mainnet', lastRefusal: { reason: 'live_source_price_deviation', at: new Date(liveNow).toISOString() } })];
+  await render('zh-TW');
+  expect(detail()!.textContent).not.toContain('測試網');
+  expect(detail()!.textContent).toContain('正在 Hyperliquid 以真實資金跟隨交易員的交易。');
+  expect(detail()!.textContent).toContain('最近略過的訊號：價格與交易員成交價差距過大');
+  // A testnet copy keeps its network's words.
+  await act(async () => root.unmount()); root = createRoot(container);
+  items = [item({ network: 'testnet' })];
+  await render('zh-TW');
+  expect(detail()!.textContent).toContain(liveCopiesMessages['zh-TW'].hints.active);
+  expect(liveCopiesMessages['zh-TW'].hints.active).toContain('測試網');
+  // The settings' referral hint and the delete-account texts are network-free.
+  const zh = catalogs['zh-TW'];
+  for (const line of [zh.referral.copyingHint, zh.deleteAccount.keptBody, zh.deleteAccount.blockers.copies_active]) expect(line).not.toContain('測試網');
+});
+
+it('a refused withdrawal says why once, in the confirm sheet (no toast too), and closing the sheet clears it (audit 2026-10-07 P1-5)', async () => {
+  const { ToastProvider } = await import('@/components/ui/toast');
+  const { ApiError } = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
+  await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale="zh-TW" messages={catalogs['zh-TW']}><ToastProvider><LiveCopies /></ToastProvider></I18nProvider></QueryClientProvider>));
+  await settle(); await openCard(0);
+  const toasts = () => [...document.querySelectorAll('[data-testid="toasts"] [role="alert"]')].map(el => el.textContent);
+  state.post.mockRejectedValue(new ApiError(409, 'Conflict', { code: 'no_free_collateral' }));
+  await act(async () => {
+    const input = document.querySelector('input[name="withdraw"]') as HTMLInputElement;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '5'); input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => button('提款').click()); await settle();
+  await act(async () => sheetButton('確認提款')!.click()); await settle();
+  const line = '目前沒有可提款的閒置資金，資金正用於持倉保證金。';
+  expect(sheet()!.textContent).toContain(line);
+  expect(toasts().filter(text => text?.includes(line) || text?.includes('發生錯誤'))).toEqual([]);
+  await act(async () => sheetButton('取消')!.click()); await settle();
+  expect(sheet()).toBeNull();
+  expect(detail()!.textContent).not.toContain(line);
+  expect(detail()!.textContent).not.toContain('發生錯誤');
 });

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import type { CopyExecutionAccount, LiveCopyMandate } from '@trading-dashboard/shared/contracts';
 import { useI18n } from '@/i18n/provider';
-import { liveCopiesMessages, type LiveCopiesText } from '@/i18n/live-copies';
+import { liveCopiesText, type LiveCopiesText } from '@/i18n/live-copies';
 import { useLiveCopyPortfolio, useLiveCopyPortfolioActions, type LiveCopyItem } from '@/lib/copy-live-portfolio';
 import { useExecutionWallets } from '@/lib/copy-execution-wallets';
 import { useCopyFollowerSnapshot } from '@/lib/copy-follower-snapshot';
@@ -22,11 +22,14 @@ import { Button } from '@/components/ui/button';
 import { TransferConfirm } from '@/components/copy/transfer-confirm';
 import { amountInput } from '@/lib/amount-input';
 import { useAuth } from '@/lib/auth';
-import { useActionToast } from '@/lib/use-action-toast';
+import { useActionToast, usePendingToast } from '@/lib/use-action-toast';
+import { useToast } from '@/components/ui/toast';
 import { ErrorState } from '@/components/page';
 import { cn } from '@/lib/utils';
 import { useCopyTexts } from '@/components/copy/live-copy-setup-dialogs';
 import { copyCodeText, copyErrorText } from '@/lib/copy-error-text';
+import { useFundsHistory } from '@/lib/funds';
+import { liveNetDeposits, livePnl } from '@/lib/copy-net-deposits';
 
 /** The step-by-step forms, for a copy set up before one-click (lab-gated). */
 const SETTINGS = '/dev/copy';
@@ -64,7 +67,7 @@ function accountOf(item: LiveCopyItem, accounts: CopyExecutionAccount[] | undefi
  * equity up to 我的資金.
  */
 export function LiveCopies({ className, onEquity, empty = null }: { className?: string; onEquity?: (strategyId: number, equity: number | null) => void; empty?: React.ReactNode }) {
-  const { locale, t } = useI18n(), text = liveCopiesMessages[locale];
+  const { locale, t } = useI18n();
   const portfolio = useLiveCopyPortfolio(), wallets = useExecutionWallets(), overview = useLiveCopyOverview();
   const items = useMemo(() => portfolio.data?.items ?? [], [portfolio.data]);
   const leaders = useLeaders(items);
@@ -97,7 +100,7 @@ export function LiveCopies({ className, onEquity, empty = null }: { className?: 
         </details>
       ) : null}
       {open ? (
-        <LiveCopySheet item={open} text={text} leader={leaderOf(open)} account={accountOf(open, wallets.data?.accounts)}
+        <LiveCopySheet item={open} text={liveCopiesText(locale, open.network)} leader={leaderOf(open)} account={accountOf(open, wallets.data?.accounts)}
           mandate={overview.data?.mandates.find(m => m.id === open.mandate?.id) ?? null} strategy={overview.data?.strategies?.find(s => s.id === open.strategyId) ?? null}
           onClose={() => setOpenId(null)} />
       ) : null}
@@ -107,13 +110,32 @@ export function LiveCopies({ className, onEquity, empty = null }: { className?: 
 
 type Leader = { address: string; displayName: string | null; avatarUrl: string | null };
 
-/** The account's figures: equity, PnL (equity less the budget) and ROI. */
+/**
+ * The copy's net deposits (its budget and every 加碼, less every withdrawal
+ * and return to the main wallet), from Orbie's money-flow ledger. Older
+ * pages are read while the loaded ones do not reach back to the copy's
+ * start; null ("—") until it is known.
+ */
+function useNetDeposits(item: LiveCopyItem): number | null {
+  const auth = useAuth(), funds = useFundsHistory();
+  const flows = useMemo(() => funds.data?.pages.flatMap(page => page.items) ?? [], [funds.data]);
+  const complete = funds.data !== undefined && !funds.hasNextPage;
+  const net = funds.data ? liveNetDeposits(flows, complete, { strategyId: item.strategyId, accountAddress: item.accountAddress, createdAt: item.createdAt }, auth.wallet?.address) : null;
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = funds;
+  // A few older pages at most, then "—".
+  const needOlder = funds.data !== undefined && net === null && hasNextPage && funds.data.pages.length < 5;
+  useEffect(() => { if (needOlder && !isFetchingNextPage) void fetchNextPage(); }, [needOlder, isFetchingNextPage, fetchNextPage]);
+  return net;
+}
+
+/** The account's figures: equity, PnL (equity less the net deposits, so a
+ * withdrawal or return is never a loss) and ROI. */
 function useFigures(item: LiveCopyItem, account: CopyExecutionAccount | null) {
   const snapshot = useCopyFollowerSnapshot(account && item.stage !== 'setup' && item.stage !== 'stopped' ? account : null);
   const observed = snapshot.data?.status === 'observed' ? snapshot.data : null;
-  const equity = observed ? Number(observed.metrics.perpEquity) : null, budget = Number(item.budgetUsd);
-  const pnl = equity !== null && budget > 0 ? equity - budget : null;
-  return { snapshot, observed, equity, pnl, roi: pnl !== null ? pnl / budget : null };
+  const equity = observed ? Number(observed.metrics.perpEquity) : null;
+  const net = useNetDeposits(item);
+  return { snapshot, observed, equity, ...livePnl(equity, net) };
 }
 
 function LiveCopyCard({ item, leader, account, onOpen, onEquity }: { item: LiveCopyItem; leader: Leader; account: CopyExecutionAccount | null; onOpen: () => void; onEquity?: (strategyId: number, equity: number | null) => void }) {
@@ -145,13 +167,13 @@ function LiveCopySheet({ item, text, leader, account, mandate, strategy, onClose
   const { t } = useI18n();
   const running = item.stage === 'active' || item.stage === 'paused' || item.stage === 'starting';
   return (
-    <Drawer open onOpenChange={(open) => { if (!open) onClose(); }} title={boardName(leader)} description={t(`folio.status.${cardStatus(item)}`)}>
+    <Drawer open onOpenChange={(open) => { if (!open) onClose(); }} title={boardName(leader)}>
       <div className="flex flex-col gap-4" data-testid="live-copy-sheet">
         <LiveCopyRow item={item} text={text} account={account} strategy={strategy} />
         {account && mandate && (running || item.stage === 'needs_deposit' || item.stage === 'stopping') ? <LiveCopyStopAction selection={{ account, mandate }} /> : null}
         {item.accountAddress ? (
           <details className="text-xs text-muted-foreground">
-            <summary className="min-h-8 cursor-pointer font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring">{text.ui.details}</summary>
+            <summary className="flex min-h-11 cursor-pointer items-center font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring">{text.ui.details}</summary>
             <p className="mt-1 flex items-center gap-1"><span>{t('folio.account')}:</span><span className="num">{truncateAddress(item.accountAddress)}</span><CopyIconButton value={item.accountAddress} /></p>
             <p className="mt-1 flex items-center gap-1"><Link href={`/trader/${item.leaderAddress}`} className="font-semibold text-primary-text hover:underline">{truncateAddress(item.leaderAddress)}</Link></p>
           </details>
@@ -170,7 +192,7 @@ function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; te
   const { format, t } = useI18n(), auth = useAuth();
   const { snapshot } = useFigures(item, account);
   const actions = useLiveCopyPortfolioActions();
-  const track = useActionToast();
+  const track = useActionToast(), pendingToast = usePendingToast(), toast = useToast();
   const [amount, setAmount] = useState('');
   // The confirm sheet in front of a withdrawal or a return of everything.
   const [sheet, setSheet] = useState<{ kind: 'withdraw' | 'returnAll'; amount: string } | null>(null);
@@ -180,8 +202,6 @@ function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; te
   // What failed, in words (lib/copy-error-text.ts): never one line for all three.
   const texts = useCopyTexts();
   const copyError = (err: unknown) => copyErrorText(texts, err);
-  const failure = [actions.transfer, actions.close, actions.cancelTransfer].find(action => action.isError)?.error ?? null;
-  const failed = failure && !sheet ? copyErrorText(texts, failure) : null;
   const running = item.stage === 'active' || item.stage === 'paused' || item.stage === 'starting';
   const withdrawable = observed ? observed.metrics.withdrawable : null;
   const maxAmount = withdrawable !== null && Number(withdrawable) > 0 ? floorCents(withdrawable) : null;
@@ -206,23 +226,23 @@ function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; te
     if (!sheet || !item.accountId) return;
     const all = sheet.kind === 'returnAll';
     setSheetError(null);
-    void track(actions.transfer.mutateAsync({ accountId: item.accountId, amount: sheet.amount }), {
-      pending: t(all ? 'toast.copy.returning' : 'toast.copy.withdrawing'),
-      success: all ? t('toast.copy.returned') : t('toast.copy.withdrawn', { amount: format.num(Number(sheet.amount), 2) }),
-      error: copyError,
-      onSuccess: () => { setSheet(null); setAmount(''); void refetchSnapshot(); },
-      onError: (err) => setSheetError(copyError(err)),
-    });
+    // One message for a failure: in the confirm sheet, which stays open (no toast too).
+    pendingToast(actions.transfer.mutateAsync({ accountId: item.accountId, amount: sheet.amount }), t(all ? 'toast.copy.returning' : 'toast.copy.withdrawing')).then(
+      () => { toast.success(all ? t('toast.copy.returned') : t('toast.copy.withdrawn', { amount: format.num(Number(sheet.amount), 2) })); setSheet(null); setAmount(''); void refetchSnapshot(); },
+      (err: unknown) => setSheetError(copyError(err)),
+    );
   };
+  /** Closing the sheet ends what it said: no failure is left behind. */
+  const closeSheet = () => { setSheet(null); setSheetError(null); actions.transfer.reset(); };
   const sheetAmount = sheet ? (sheet.kind === 'returnAll' ? (withdrawable !== null ? text.ui.allAmount.replace('{amount}', `${format.num(Number(withdrawable), 2)} USDC`) : text.ui.all) : `${format.num(Number(sheet.amount), 2)} USDC`) : null;
   return (
     <div className="flex flex-col gap-3 text-sm">
       <div className="flex flex-wrap items-center gap-2">
         <span role="status" className={cn('chip-sm', stageTone[item.stage])}>{autoReturning ? text.autoReturning : text.stages[item.stage]}</span>
       </div>
-      {/* A one-click setup in progress has its own stages (繼續設定); the
-          old hint pointed at the Settings forms. */}
-      {!(item.stage === 'setup' && item.setup) ? <p className="text-xs leading-5 text-muted-foreground">{autoReturning ? text.autoReturningHint : text.hints[item.stage]}</p> : null}
+      {/* A setup has its own stages (繼續設定); the hint that pointed at
+          the Settings forms is gone (audit 2026-10-07). */}
+      {item.stage !== 'setup' ? <p className="text-xs leading-5 text-muted-foreground">{autoReturning ? text.autoReturningHint : text.hints[item.stage]}</p> : null}
       {item.stage === 'stopped' && item.sweep?.status === 'credited' ? <p className="num text-xs font-semibold text-positive">{text.returned.replace('{amount}', item.sweep.amount)}</p> : null}
       {reason ? <p className="text-xs text-warning">{text.refusal.replace('{reason}', reason)}</p> : null}
       {item.pendingTransfer ? <p className="text-xs">{text.transfer.replace('{direction}', text.transferDirection[item.pendingTransfer.direction]).replace('{status}', text.transferStatus[item.pendingTransfer.status]).replace('{amount}', item.pendingTransfer.amount)}</p> : null}
@@ -244,7 +264,7 @@ function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; te
                   <li key={p.coin} className="flex flex-wrap items-center gap-3 py-1.5 text-xs">
                     <span className="font-semibold">{p.coin}</span>
                     <span className="num">{text.size} {p.size}</span>
-                    <span className="num text-muted-foreground">{text.entry} {p.entryPrice}</span>
+                    <span className="num text-muted-foreground">{text.entry} {format.price(Number(p.entryPrice))}</span>
                     <span className={cn('num', Number(p.unrealizedPnl) >= 0 ? 'text-positive' : 'text-negative')}>{text.pnl} {format.usd(Number(p.unrealizedPnl), { sign: true, digits: 2 })}</span>
                     {running && item.accountId ? (
                       <Button size="sm" variant="secondary" className="ml-auto" loading={actions.close.isPending && actions.close.variables?.coin === p.coin} disabled={busy && !(actions.close.isPending && actions.close.variables?.coin === p.coin)}
@@ -273,7 +293,7 @@ function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; te
             {maxAmount !== null ? (
               <p className="flex basis-full items-center gap-2 text-xs text-muted-foreground">
                 <span className="num">{text.ui.maxWithdrawable.replace('{amount}', format.usd(Number(withdrawable), { digits: 2 }))}</span>
-                <button type="button" disabled={busy} onClick={() => setAmount(maxAmount)} className="min-h-8 rounded-full px-2 font-bold text-primary-text outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">{text.ui.all}</button>
+                <button type="button" disabled={busy} onClick={() => setAmount(maxAmount)} className="min-h-11 rounded-full px-3 font-bold text-primary-text outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">{text.ui.all}</button>
               </p>
             ) : null}
           </form>
@@ -283,9 +303,8 @@ function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; te
         ) : null}
         {busy ? <span role="status" className="text-xs text-muted-foreground">{text.busy}</span> : null}
       </div>
-      {failed ? <p role="alert" className="text-xs text-negative">{failed}</p> : null}
       <TransferConfirm kind={sheet?.kind ?? 'withdraw'} open={sheet !== null} amount={sheetAmount} destination={auth.wallet?.address ?? null} network={item.network ?? null}
-        pending={actions.transfer.isPending} error={sheetError} onConfirm={confirmTransfer} onOpenChange={(open) => { if (!open) setSheet(null); }} />
+        pending={actions.transfer.isPending} error={sheetError} onConfirm={confirmTransfer} onOpenChange={(open) => { if (!open) closeSheet(); }} />
       <LiveCopyActions item={item} strategy={strategy} />
     </div>
   );

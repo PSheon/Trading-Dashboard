@@ -30,6 +30,8 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(state.search),
 }));
 vi.mock("@/lib/auth", () => ({ useAuth: () => ({ ...state, wallet: null }) }));
+// The deployment's network only names the actual mode (正式 on mainnet); none here.
+vi.mock("@/lib/copy-live-setup", () => ({ useLiveCopyDeployment: () => null }));
 vi.mock("@/lib/api", () => ({
   api: { get: state.get, post: state.post },
   sessionKey: () => state.session,

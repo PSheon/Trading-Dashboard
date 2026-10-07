@@ -15,6 +15,7 @@ import { splitLocale } from "@/i18n/config";
 import { useI18n } from "@/i18n/provider";
 import { useToast } from "@/components/ui/toast";
 import { useAuth } from "@/lib/auth";
+import { useLiveCopyDeployment } from "@/lib/copy-live-setup";
 import { api, sessionKey } from "@/lib/api";
 import { referralCheckSchema, type ReferralClaim } from "@/lib/contracts";
 import {
@@ -234,7 +235,9 @@ function ReferralView() {
   const { t, format } = useI18n(),
     auth = useAuth(),
     capture = useReferralCaptureRecord(),
-    overview = useReferralOverview();
+    overview = useReferralOverview(),
+    // The api says "testnet" for every actual copy; on a mainnet deployment that is 正式.
+    liveNetwork = useLiveCopyDeployment()?.network ?? null;
   const [friendsCursor, setFriendsCursor] = useState<string | null>(null),
     [claimsCursor, setClaimsCursor] = useState<string | null>(null);
   const friends = useReferralFriends(friendsCursor),
@@ -485,7 +488,7 @@ function ReferralView() {
                     className="ml-2 rounded bg-raised px-2 text-xs"
                   >
                     {t(
-                      mode === "paper" ? "referral.paper" : "referral.testnet",
+                      mode === "paper" ? "referral.paper" : liveNetwork === "mainnet" ? "mode.live" : "referral.testnet",
                     )}
                   </span>
                 ))}

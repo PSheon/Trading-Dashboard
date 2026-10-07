@@ -118,6 +118,8 @@
 | 10 | 中 | `cohort.service.ts:109`、`discovery-pool.service.ts:157,194` vs `budgeter:485-510` | 兩個 consumer 用原始 `tuning.weights` 配速，budgeter 用 `capScale` 縮放後的 cap 計帳；設定一改或 scale<1 時兩邊對不上。 |
 | 11 | 低 | `copy-agent.service.ts:163-241` | agent approval 的 answer 遺失且 observe 永遠看不到 extraAgents 時沒有終止規則，也無人工 resolve（與 bug 3 同類）。 |
 
+**修正狀態（workstream ⑨，2026-10-07）**：1 已由主 session 修（`1640888a`）。2 `2657bb71`（`copy/signer-nonce.ts` 的 `allocateSignerNonce`：返還、builder fee、account mode、agent approval、下單、stop cancel、leverage 共用同一個 allocator 與 `live-nonce` 鎖）。3、11 `6700c4b3`（nonce 過期 + 交易所無效果 → builder rejected／agent blocked `agent_approval_not_executed`；看得到效果 → approved／active）。4 `283418ef`（payload digest 不同 → 409 `idempotency_conflict`；insert 在 owner 鎖內）。5 `9c2c2fb4`（close 的 dedupe key 由 control event 的 scope + revision 推導）。6 `47db5e5c`（提款 finish 也要求 `attemptedAt`，legacy import 例外）。7 `8bc5562a`。10 `154a5a10`（`pacedWeightPerMinute`）。9 `71020227`（刪 builder evidence；`env.ts` 移到 `test/legacy-env.ts`）。8（`orderStatus` 權重 2 vs 20）不在本輪範圍，未動。
+
 ## 六、建議收斂順序
 
 1. **shared primitives 與列舉**（跨層 1a、1b、2、常數）：`primitives.ts`、`enums.ts` 補齊、`HYPERLIQUID_NETWORKS` 為本；純機械替換，零行為變更，一次砍掉 105 + 35 + 數十處。
@@ -130,3 +132,20 @@
 8. 其餘（SSE base、pg-listener、digest helper、Decimal 補函式、formatter、admin、CLI）順手。
 
 每一步都該有「替換前後輸出逐 byte 相同」的測試，尤其是 digest 與 Decimal。
+
+### 執行計畫（Paul 的 mainnet 測試之後才動；本輪只修 bug，不收斂）
+
+順序依「風險低、報酬高」排；每步一個 PR、可單獨 revert，前一步 CI 綠且 Stage 跑過一輪才做下一步。
+
+| 步 | 內容 | 風險 | 必要的逐 byte／行為等價測試 |
+| --- | --- | --- | --- |
+| 1 | shared `primitives.ts`、`enums.ts`、`HYPERLIQUID_NETWORKS`；zod／db／DTO 改引用 | 低：純型別與 regex 替換；唯一風險是大小寫位址 regex（混合 39 處 vs 小寫 66 處）換錯會開始拒絕合法輸入 | 每個被替換的 schema：舊 schema 與新 schema 對同一組輸入（合法、邊界、大小寫、空白、非法）`safeParse` 結果逐一相同的 table test；db CHECK 不改（只改 TS 端） |
+| 2 | `common/http/refuse.ts` + `AllExceptionsFilter` 的 `LiveBoundaryError` 分支 | 中：HTTP 回應形狀變了，web 端「從 message 猜 code」與錯誤文案表依賴它 | 對每個現有 code：舊／新回應 body 與 status 的 snapshot；web `errorText()` 對新 code 的單元測試；`copy-live-setup.service.ts:518` 的猜 code 移除前後同一組錯誤得同一 issue |
+| 3 | A 型四個共用 `WalletOperationRepository`（claim／beginAttempt／restoreUnsent／finish／notExecuted）、`exchangePost`、`classifyUsdSendReply`、`nonceWindowExpired()` | 高：碰到錢的狀態機（提款、入金、返還、builder）；守衛差一個條件就可能重送或卡住 | 每個 repository 方法：對同一組前置列（每個 status × attemptedAt 有無 × origin）跑舊與新實作，更新後的列逐欄相同（以兩個 table 各跑一次的 parametrized test）；`classifyUsdSendReply` 對已知回覆樣本（ok／err 字串／nonce 錯誤／key 數不對／非物件）分類逐一相同；`exchangePost` 的「已送出」旗標時機在 4 種失敗點（permit、proof、dispatch 前、fetch 後）各一個測試 |
+| 4 | `advisoryLock(tx, scope, key)` + namespace 註冊表、`casUpdate` | 中高：lock key 推導一變，新舊 process 在部署交替期間會拿不同的鎖 | 註冊表裡每個 scope：新 helper 產生的 SQL 與 key 數值（`7401–7405`、`73104–73107`、`hashtextextended(…, seed)`）與現有呼叫逐 byte 相同的測試；部署必須一次換完（不能新舊混跑），PR 說明裡寫明 |
+| 5 | 前端 `useSessionQuery／useOwnerMutation／ownerEligible`、`createOwnerJournal／useIdempotencyKeys` | 中：query key 一變，快取與 session 隔離行為改變 | 每個 hook 的 query key 舊／新逐一相同（或列出刻意改的）；切帳號／新 session 不重用 key、不顯示前一帳號資料的測試（bug 7 的 `copy-live-portfolio-keys.test.tsx` 是樣板）；fixture 模式行為一致 |
+| 6 | shared mapper（`toPosition／toFill／isPerpCoin／num`） | 中：前後端帳面值 | 以 Stage 真實回應存成 fixture，舊 web mapper、舊 api mapper、新 shared mapper 三者輸出逐欄相同 |
+| 7 | 請求契約進 `httpRouteContracts`，刪 33 個 DTO | 中：驗證行為（min／max／default、型別轉換） | 每條路由：舊 DTO（class-validator）與新 zod 對同一組 query／body 的接受／拒絕與正規化結果相同的 table test；OpenAPI 文件差異人工審 |
+| 8 | 其餘（SSE base、pg-listener、digest helper、Decimal 補函式、formatter、admin、CLI） | 低到中；digest helper 例外：高 | 已持久化的 digest（actual-fill v1、live evidence、mandate／setup intent digest）：對既有 DB 列重算，新 helper 結果必須與存的值逐 byte 相同，否則不換；Decimal 新函式對舊三份實作做 property test（隨機輸入、floor／ceil 兩向） |
+
+不做：抽象 `OperationLifecycle`、live order（C 型）的 journal／lease（§四）。

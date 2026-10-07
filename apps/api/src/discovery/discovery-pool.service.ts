@@ -2,7 +2,7 @@ import { Injectable, Logger, Optional } from "@nestjs/common";
 
 import { AppConfig } from "../config/app-config.js";
 import { HyperliquidInfoClient } from "../hyperliquid/hyperliquid-info.client.js";
-import { RequestBudgeterService, UNRANKED_BASE } from "../hyperliquid/request-budgeter.service.js";
+import { pacedWeightPerMinute, RequestBudgeterService, UNRANKED_BASE } from "../hyperliquid/request-budgeter.service.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { LeaderboardIngestService } from "../traders/leaderboard-ingest.service.js";
@@ -154,7 +154,7 @@ export class DiscoveryPoolService {
     // A pool acknowledgement requires an actual membership decision. Empty
     // upstream data keeps the old pool and must not be reported as applied.
     if (this.builtForSize === discovery.candidatePoolSize) this.settings.acknowledgeDiscovery("pool", snapshot);
-    const perMinute = weights.poolPerformance;
+    const perMinute = pacedWeightPerMinute(this.budgeter, "pool.performance", weights.poolPerformance);
     if (perMinute <= 0) { this.performanceTokens = 0; this.performanceTokensAt = now; return; }
     this.performanceTokens = this.credit(this.performanceTokens, this.performanceTokensAt, perMinute, now);
     this.performanceTokensAt = now;
@@ -191,7 +191,7 @@ export class DiscoveryPoolService {
    * stale ledger first, then cold builds while no page waits on the
    * budget, then the rest. */
   async ledgerTick(now = Date.now()): Promise<void> {
-    const perMinute = this.config.value.tuning.weights.poolLedger;
+    const perMinute = pacedWeightPerMinute(this.budgeter, "pool.ledgers", this.config.value.tuning.weights.poolLedger);
     if (perMinute <= 0) { this.ledgerTokens = 0; this.ledgerTokensAt = now; return; }
     this.ledgerTokens = this.credit(this.ledgerTokens, this.ledgerTokensAt, perMinute, now);
     this.ledgerTokensAt = now;

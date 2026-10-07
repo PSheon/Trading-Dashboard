@@ -193,6 +193,23 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
     expect((await db.select({ a: discoveryTraders.address }).from(discoveryTraders)).map((r) => r.a).sort()).toEqual([addr(1), addr(2), addr(4)]);
   });
 
+  it("both loops pace themselves by the caps the budgeter accounts with (scaled to the budget), not the configured weights", async () => {
+    await db.insert(traderStats).values([stat(addr(1), 900), stat(addr(2), 800), stat(addr(3), 700)]);
+    // The budgeter scaled 240 and 100 a minute down to one portfolio read and one ledger build.
+    const caps: Record<string, number> = { "pool.performance": 20, "pool.ledgers": 1 };
+    const budgeter = { consumerCap: vi.fn((label: string) => caps[label]), backgroundFactor: () => 1, pagePressure: () => false };
+    const paced = new DiscoveryPoolService(tuned({ candidatePoolSize: 3 }, { poolLedger: 100, poolPerformance: 240 }), repository, info as unknown as HyperliquidInfoClient,
+      analytics as unknown as TradeAnalyticsService, ingest, settings, undefined, undefined, budgeter as never);
+    await paced.build(3);
+    await paced.performanceTick(Date.now() + 60_000);
+    expect(info.portfolio).toHaveBeenCalledTimes(1);
+    await paced.ledgerTick(Date.now() + 60_000);
+    expect(analytics.compute).toHaveBeenCalledTimes(1);
+    caps["pool.ledgers"] = 0;
+    await paced.ledgerTick(Date.now() + 120_000);
+    expect(analytics.compute).toHaveBeenCalledTimes(1);
+  });
+
   it("the performance loop reads new rows first, stamps the read time, and never waits on a ledger build", async () => {
     await db.insert(traderStats).values([stat(addr(1), 900), stat(addr(2), 800), stat(addr(3), 700)]);
     await pool.build(3);

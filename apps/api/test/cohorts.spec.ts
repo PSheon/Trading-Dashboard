@@ -168,6 +168,20 @@ describe("cohort job and endpoints (real Postgres)", () => {
     expect((await repository.leaderboardTopUp("unprofitable", 3, [])).map((row) => row.address)).toEqual([addr(8), addr(4), addr(9)]);
   });
 
+  it("paces its refreshes by the cap the budgeter accounts with (scaled to the budget), not the configured weight", async () => {
+    // The budgeter scaled the configured 150/min down to 30.
+    const budgeter = { consumerCap: vi.fn((label: string) => (label === "cohort" ? 30 : undefined)) };
+    const paced = new CohortService(config, { nextDue: vi.fn(async () => [{ address: addr(1) }]) } as never, info as unknown as HyperliquidInfoClient, settings, undefined,
+      discovery as unknown as DiscoveryService, budgeter as never);
+    const refresh = vi.spyOn(paced, "refreshOne").mockResolvedValue({ weight: 6, ok: true });
+    vi.spyOn(paced as unknown as { writeSnapshots: () => Promise<void> }, "writeSnapshots").mockResolvedValue(undefined);
+    const at = Date.now();
+    Object.assign(paced as unknown as { builtAt: number; tokensAt: number }, { builtAt: at, tokensAt: at });
+    await paced.tick(at + 60_000);
+    expect(config.value.tuning.weights.cohort).toBe(150);
+    expect(refresh).toHaveBeenCalledTimes(5);
+  });
+
   it("chooses members per tier from the pool, topped up from the leaderboard", async () => {
     await seed();
     expect(await service.build(2)).toMatchObject({ total: 4, added: 4 });

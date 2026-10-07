@@ -7,7 +7,7 @@ import { DiscoveryService } from "../discovery/discovery.service.js";
 import { AppConfig } from "../config/app-config.js";
 import { kolAvatarPath } from "../discovery/kol-avatar.js";
 import { HyperliquidInfoClient } from "../hyperliquid/hyperliquid-info.client.js";
-import { ESSENTIAL_RANK, PAGE_RANK } from "../hyperliquid/request-budgeter.service.js";
+import { ESSENTIAL_RANK, PAGE_RANK, pacedWeightPerMinute, RequestBudgeterService } from "../hyperliquid/request-budgeter.service.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { TtlCache } from "../traders/ttl-cache.js";
@@ -83,6 +83,7 @@ export class CohortService {
     private readonly settings: SettingsService,
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
     @Optional() private readonly discovery?: DiscoveryService,
+    @Optional() private readonly budgeter?: RequestBudgeterService,
   ) {}
 
   /** Cron entry point: one tick at a time, never in tests. */
@@ -106,7 +107,7 @@ export class CohortService {
       await this.build(discovery.cohortMembersPerTier);
       this.builtAt = now;
     }
-    const perMinute = weights.cohort;
+    const perMinute = pacedWeightPerMinute(this.budgeter, "cohort", weights.cohort);
     if (perMinute > 0) {
       const elapsedMin = Math.max(0, (now - this.tokensAt) / 60_000);
       this.tokens = Math.min(perMinute * MAX_SAVED_MINUTES, this.tokens + perMinute * Math.min(elapsedMin, MAX_SAVED_MINUTES));

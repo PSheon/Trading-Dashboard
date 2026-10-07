@@ -275,6 +275,16 @@ interface Waiter {
   queuedAt: number;
 }
 
+/**
+ * The weight per minute a self-pacing consumer (the pool and cohort loops)
+ * spends: the cap the budgeter holds `label` to now (the configured one
+ * scaled to this process's budget), so pacing and the budgeter's accounting
+ * use one value; the configured one until the budgeter has read its caps.
+ */
+export function pacedWeightPerMinute(budgeter: Pick<RequestBudgeterService, "consumerCap"> | undefined, label: string, configured: number): number {
+  return budgeter?.consumerCap(label) ?? configured;
+}
+
 /** Reads the per-minute caps of labelled consumers (the settings service,
  * injected loosely so the budgeter stays free of the settings module). */
 export interface ConsumerCapSource {

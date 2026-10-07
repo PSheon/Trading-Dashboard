@@ -92,6 +92,13 @@ export class CopyLiveStopWorkerRepository {
     const [row] = await this.db.select({ state: copyLiveExecutions.state }).from(copyLiveExecutions).where(eq(copyLiveExecutions.key, key));
     return row?.state ?? null;
   }
+  /** The state and last change of each of `keys` that exists (one query). */
+  async journalStates(keys: string[]): Promise<Map<string, { state: string; updatedAt: number }>> {
+    if (!keys.length) return new Map();
+    const rows = await this.db.select({ key: copyLiveExecutions.key, state: copyLiveExecutions.state, updatedAt: copyLiveExecutions.updatedAt }).from(copyLiveExecutions)
+      .where(inArray(copyLiveExecutions.key, keys));
+    return new Map(rows.map(row => [row.key, { state: row.state, updatedAt: row.updatedAt.getTime() }]));
+  }
   async move(stop: StopRow, to: StopState, patch: Partial<typeof copyLiveStopOperations.$inferInsert> = {}, now = Date.now()): Promise<StopRow | null> {
     const [row] = await this.db.update(copyLiveStopOperations).set({ ...patch, state: to, revision: stop.revision + 1, updatedAt: new Date(Math.max(now, stop.updatedAt.getTime())) })
       .where(and(eq(copyLiveStopOperations.id, stop.id), eq(copyLiveStopOperations.revision, stop.revision), eq(copyLiveStopOperations.state, stop.state))).returning();

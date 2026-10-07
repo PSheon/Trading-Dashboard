@@ -15,7 +15,7 @@ import { CopyLiveStopper, type StopCanceller } from '../src/copy/live-worker/cop
 import { CopyLiveAutoReturn } from '../src/copy/live-worker/copy-live-auto-return.js';
 import { CopyLiveReturnRepository, expireStaleReturns } from '../src/copy/copy-live-return.repository.js';
 import { CopyLiveStopWorkerRepository } from '../src/copy/live-worker/copy-live-stop-worker.repository.js';
-import { CLOSE_NEVER_SENT, closeCloid, type CloseRequest, type ReduceOnlyCloser } from '../src/copy/live-worker/reduce-only-closer.js';
+import { CLOSE_NEVER_SENT, closeCloid, closeRetryDelayMs, closeSlippageBps, type CloseRequest, type ReduceOnlyCloser } from '../src/copy/live-worker/reduce-only-closer.js';
 import type { LiveAccountSnapshot } from '../src/copy/live/live-account-observer.js';
 import type { LiveExecutionRecord } from '../src/copy/live/live-execution.js';
 import { preparationFixture } from './copy-live-preparation-test-utils.js';
@@ -212,7 +212,27 @@ describe('testnet stop execution', () => {
     expect(await stopRow()).toMatchObject({ state: 'closing', issue: 'stop_close_not_sent' });
     await stopper().tick();
     expect(closes.map(c => c.seed.split(':').slice(-2).join(':'))).toEqual(['BTC:0', 'BTC:1']);
-    expect(await stopRow()).toMatchObject({ state: 'closing', issue: null });
+    expect(await stopRow()).toMatchObject({ state: 'closing', issue: 'stop_close_retrying' });
+  });
+
+  it('a stop never runs out of close attempts: retries back off, go at a wider price, and the stop says it is retrying', async () => {
+    positions = [{ coin: 'BTC', size: '0.5' }];
+    await stopper().tick(); expect(await stopRow()).toMatchObject({ state: 'closing' });
+    const id = (await stopRow()).id;
+    // Ten IOCs that found nothing at their price (the old limit: exhausted, never closed again).
+    for (let n = 0; n < 10; n++) await journal(`testnet:${account()}:${closeCloid(`stop:${id}:BTC:${n}`)}`, 'cancelled');
+    await stopper().tick();
+    expect(closes).toEqual([]);
+    expect(await stopRow()).toMatchObject({ state: 'closing', issue: 'stop_close_retrying' });
+    clock += closeRetryDelayMs(10); await stopper().tick();
+    expect(closes.map(c => [c.seed.split(':').at(-1), c.attempt])).toEqual([['10', 10]]);
+    expect(await stopRow()).toMatchObject({ state: 'closing', issue: 'stop_close_retrying' });
+  });
+
+  it('close retries: no wait for the first, then 5 s doubling to 5 min; the price widens by half the slippage per attempt, within 5 %', () => {
+    expect([0, 1, 2, 3, 4, 9, 10, 50].map(closeRetryDelayMs)).toEqual([0, 0, 5000, 10_000, 20_000, 300_000, 300_000, 300_000]);
+    expect([0, 1, 2, 4, 8, 20].map(n => closeSlippageBps(100, n))).toEqual([100, 150, 200, 300, 500, 500]);
+    expect(closeSlippageBps(900, 3)).toBe(900);
   });
 
   it('tracked resting orders need the owner\'s cancellation consent; untracked orders block the close', async () => {

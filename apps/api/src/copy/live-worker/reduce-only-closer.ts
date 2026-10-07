@@ -45,11 +45,28 @@ export interface CloseRequest {
   readonly seed: string;
   /** Rechecked at both boundaries: the stop/close request is still current. */
   readonly stillWanted: () => Promise<boolean>;
+  /** The attempt's number (0 first): each retry's limit price is wider (closeSlippageBps). */
+  readonly attempt?: number;
 }
 /** A close journaled but never sent (see ReduceOnlyCloser.neverSent). */
 export const CLOSE_NEVER_SENT = 'close_never_sent';
 export const closeCloid = (seed: string): `0x${string}` => `0x${createHash('sha256').update(JSON.stringify(['live-close-v1', seed])).digest('hex').slice(0, 32)}`;
 const SNAPSHOT_MAX_AGE_MS = 4000;
+/** The widest a retried close's limit may stray from the mid (5 %), unless
+ * the configured close slippage is already wider. */
+export const MAX_CLOSE_SLIPPAGE_BPS = 500;
+/** A close's slippage for attempt n: the configured one, half of it wider at
+ * each retry (an IOC that found no liquidity at its price), up to the bound. */
+export function closeSlippageBps(baseBps: number, attempt = 0): number {
+  const n = Number.isSafeInteger(attempt) && attempt > 0 ? attempt : 0;
+  return Math.max(baseBps, Math.min(MAX_CLOSE_SLIPPAGE_BPS, Math.round(baseBps * (1 + n / 2))));
+}
+/** How long attempt n of a close waits after the previous one ended: none
+ * for the first retry, then 5 s doubling to 5 min (a stop never runs out of
+ * retries; it backs off). */
+export function closeRetryDelayMs(attempt: number): number {
+  return attempt <= 1 ? 0 : Math.min(300_000, 5000 * 2 ** Math.min(attempt - 2, 10));
+}
 
 /**
  * Reduce-only IOC closes on a dedicated copy account of the deployment's
@@ -140,7 +157,7 @@ export class ReduceOnlyCloser {
     if (market.asset !== position.asset || market.sizeDecimals !== position.sizeDecimals) throw new LiveBoundaryError('close_market_identity_mismatch');
     const mid = await this.mid(market.coin, market.dex);
     const side = Dec.from(position.size).isPositive ? 'A' as const : 'B' as const;
-    const limit = roundPx(slippedPx(mid, side, this.slippageBps), market.sizeDecimals);
+    const limit = roundPx(slippedPx(mid, side, closeSlippageBps(this.slippageBps, request.attempt)), market.sizeDecimals);
     if (!limit.isPositive) throw new LiveBoundaryError('close_price_unavailable');
     const intent: LiveOrderIntent = { authorizationId: account.authorizationId, userId: account.userId, strategyId: account.strategyId, walletId: account.walletId,
       network: this.network, accountAddress: address(account.accountAddress), cloid, asset: market.asset, side, size: Dec.from(position.size).abs().toString(),

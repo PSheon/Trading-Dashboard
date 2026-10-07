@@ -21,9 +21,11 @@ import { PrivyTrackedCancellationSigner } from '../live/privy-cancellation-signe
 import { BoundaryPrivyOrderSigningClient } from '../live/privy-order-client.js';
 import { address, LiveBoundaryError } from '../live/wallet-authorization.js';
 import type { CopyLiveStopWorkerRepository, StopRow } from './copy-live-stop-worker.repository.js';
-import { CLOSE_NEVER_SENT, closeCloid, type CloseAccount, type ReduceOnlyCloser } from './reduce-only-closer.js';
+import { CLOSE_NEVER_SENT, closeCloid, closeRetryDelayMs, type CloseAccount, type ReduceOnlyCloser } from './reduce-only-closer.js';
 import type { AutoReturn } from './copy-live-auto-return.js';
 
+/** A single-position close gives up after this many orders (the owner can
+ * ask again, or stop the copy); a stop never does (it backs off). */
 const MAX_CLOSE_ATTEMPTS = 10, MAX_CANCEL_ATTEMPTS = 3;
 const TERMINAL: ReadonlySet<string> = new Set(['filled', 'partial', 'cancelled', 'rejected']);
 /** Below this the account holds nothing worth a transfer back (USDC). */
@@ -116,21 +118,35 @@ export class CopyLiveStopper {
     let shown: string | null = null;
     for (const position of open) {
       // One new order per coin per pass: attempt n has a fixed cloid; a
-      // terminal attempt that left a remainder moves on to attempt n+1.
-      let attempt = 0;
-      for (; attempt < MAX_CLOSE_ATTEMPTS; attempt++) {
-        const seed = `stop:${stop.id}:${position.coin}:${attempt}`;
-        const state = await this.deps.repository.journalState(`${this.deps.closer.network}:${address(account.accountAddress)}:${closeCloid(seed)}`);
-        if (state !== null && TERMINAL.has(state)) continue;
-        const record = await this.deps.closer.close({ account, coin: position.coin, seed, stillWanted: async () => (await this.deps.repository.get(stop.id))?.state === 'closing' });
-        // A close that ended unsent (or was refused) is retried with a fresh
-        // order on the next pass; until then the stop says so.
-        if (record?.state === 'rejected') shown ??= record.errorCode === CLOSE_NEVER_SENT ? 'stop_close_not_sent' : 'stop_close_rejected';
-        break;
-      }
-      if (attempt >= MAX_CLOSE_ATTEMPTS) { await this.deps.repository.issue(stop, 'stop_close_attempts_exhausted'); return; }
+      // terminal attempt that left a remainder moves on to attempt n+1,
+      // after a back-off and at a wider price. A stop never runs out of
+      // attempts: it keeps closing, and says so.
+      const next = await this.nextAttempt(stop.id, account, position.coin);
+      if (next.attempt > 0) shown ??= 'stop_close_retrying';
+      if (!next.inFlight && next.previousEndedAt !== null && this.now() - next.previousEndedAt < closeRetryDelayMs(next.attempt)) continue;
+      const record = await this.deps.closer.close({ account, coin: position.coin, seed: next.seed, attempt: next.attempt,
+        stillWanted: async () => (await this.deps.repository.get(stop.id))?.state === 'closing' });
+      // A close that ended unsent (or was refused) is retried with a fresh
+      // order on the next pass; until then the stop says so.
+      if (record?.state === 'rejected') shown = record.errorCode === CLOSE_NEVER_SENT ? 'stop_close_not_sent' : 'stop_close_rejected';
     }
     await this.deps.repository.issue(stop, shown);
+  }
+
+  /** The stop's current close attempt for `coin`: the first that is not
+   * terminal (in flight, or not made yet), found 64 identities per query. */
+  private async nextAttempt(stopId: string, account: CloseAccount, coin: string): Promise<{ attempt: number; seed: string; inFlight: boolean; previousEndedAt: number | null }> {
+    let previousEndedAt: number | null = null;
+    for (let start = 0; ; start += 64) {
+      const seeds = Array.from({ length: 64 }, (_, i) => `stop:${stopId}:${coin}:${start + i}`);
+      const keyOf = (seed: string) => `${this.deps.closer.network}:${address(account.accountAddress)}:${closeCloid(seed)}`;
+      const states = await this.deps.repository.journalStates(seeds.map(keyOf));
+      for (const [i, seed] of seeds.entries()) {
+        const row = states.get(keyOf(seed));
+        if (!row || !TERMINAL.has(row.state)) return { attempt: start + i, seed, inFlight: Boolean(row), previousEndedAt };
+        previousEndedAt = row.updatedAt;
+      }
+    }
   }
 
   private async markFlat(stop: StopRow, snapshot: LiveAccountSnapshot): Promise<void> {
@@ -249,7 +265,7 @@ export class StopCanceller {
 export class CopyLiveManualCloser {
   constructor(private readonly repository: CopyLiveStopWorkerRepository, private readonly closer: ReduceOnlyCloser,
     /** Books the account's fills now, so the copy's next order sees the close. */
-    private readonly scanner: { runFor(accountId: string): Promise<void> }, private readonly log?: (message: string) => void) {}
+    private readonly scanner: { runFor(accountId: string): Promise<void> }, private readonly log?: (message: string) => void, private readonly now: () => number = Date.now) {}
   async tick(): Promise<void> {
     for (const row of await this.repository.manualCloses()) {
       try { await this.step(row); }
@@ -266,7 +282,7 @@ export class CopyLiveManualCloser {
     if (last) {
       const state = await this.repository.journalState(last);
       if (state !== null && !TERMINAL.has(state)) {
-        await this.closer.close({ account, coin: row.coin, seed: `manual:${row.id}:${row.executionKeys.length - 1}`, stillWanted }); return;
+        await this.closer.close({ account, coin: row.coin, seed: `manual:${row.id}:${row.executionKeys.length - 1}`, attempt: row.executionKeys.length - 1, stillWanted }); return;
       }
     }
     const snapshot = await this.closer.observe(account.accountAddress);
@@ -277,8 +293,12 @@ export class CopyLiveManualCloser {
       await this.repository.finishManual(row.id, 'done', null); return;
     }
     if (row.executionKeys.length >= MAX_CLOSE_ATTEMPTS) { await this.repository.finishManual(row.id, 'refused', 'close_attempts_exhausted'); return; }
-    const seed = `manual:${row.id}:${row.executionKeys.length}`, key = `${this.closer.network}:${address(account.accountAddress)}:${closeCloid(seed)}`;
-    if (!await this.repository.appendManualKey(row.id, row.executionKeys.length, key)) return;
-    await this.closer.close({ account, coin: row.coin, seed, stillWanted });
+    const attempt = row.executionKeys.length;
+    // A retry waits after the previous attempt ended, and goes at a wider price.
+    const previous = last ? (await this.repository.journalStates([last])).get(last) : undefined;
+    if (previous && this.now() - previous.updatedAt < closeRetryDelayMs(attempt)) return;
+    const seed = `manual:${row.id}:${attempt}`, key = `${this.closer.network}:${address(account.accountAddress)}:${closeCloid(seed)}`;
+    if (!await this.repository.appendManualKey(row.id, attempt, key)) return;
+    await this.closer.close({ account, coin: row.coin, seed, attempt, stillWanted });
   }
 }

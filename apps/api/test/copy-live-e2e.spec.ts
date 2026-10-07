@@ -249,9 +249,9 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     // The unsent close ended (never sent), so it can't hold the stop.
     expect((await db.select().from(schema.copyLiveExecutions)).filter(row => row.state === 'prepared')).toEqual([]);
     budget.onModuleDestroy(); budget = new RequestBudgeterService(config); e = engine('100', fresh('e2e-stop-privy-back'), true);
-    await e.tick(); // a fresh close (attempt 1) goes out
+    await e.tick(); // a fresh close (attempt 1) goes out, at a wider price (1.5 % under the mid instead of 1 %)
     expect(exchangeBodies).toHaveLength(2);
-    expect(exchangeBodies[1]).toMatchObject({ action: { type: 'order', orders: [{ a: 0, b: false, s: '0.19', r: true, t: { limit: { tif: 'Ioc' } } }] } });
+    expect(exchangeBodies[1]).toMatchObject({ action: { type: 'order', orders: [{ a: 0, b: false, p: '98.5', s: '0.19', r: true, t: { limit: { tif: 'Ioc' } } }] } });
     expect(shared.position).toBe('0');
   });
   it('the owner closes one position while copying: a reduce-only IOC by the agent, then the copy keeps mirroring the leader', async () => {

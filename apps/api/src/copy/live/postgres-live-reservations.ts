@@ -3,7 +3,9 @@ import { isDeepStrictEqual } from 'node:util';
 import { and, desc, eq, ne } from 'drizzle-orm';
 import { copyControls, copyExecutionAccounts, copyLiveExecutions, copyLiveRiskReservations, copyRiskPolicies, copyStrategies, copyStrategyVersions, users } from '@trading-dashboard/shared/database';
 import { copyAgentSetups, copyExecutionWallets, copyLiveIntentProvenance, copyLiveMandates, copyLiveSignalLegs, copyLiveStrategyConfigs } from '@trading-dashboard/shared/database';
-import { ACTUAL_STRATEGY_MODE, isHyperliquidNetwork } from '@trading-dashboard/shared/contracts';
+import { ACTUAL_STRATEGY_MODE, copyRiskLimitsSchema, isHyperliquidNetwork } from '@trading-dashboard/shared/contracts';
+import { effectiveLiveLimits } from '../copy-live-caps.js';
+import { liveDeploymentPolicy } from '../live-deployment.js';
 import { decodeLiveCopyMandate } from '../copy-live-mandate-evidence.js';
 import { liveCopySettingsDigest } from '../copy-live-mandate-consent.js';
 import type { DbExecutor } from '../../db/unit-of-work.js';
@@ -101,7 +103,11 @@ export class PostgresLiveReservations {
     if (strategy.mode === ACTUAL_STRATEGY_MODE) await this.actualBudget(session, db, account, strategy, input, record);
     else check(Dec.from(strategy.allocated).eq(input.strategy.allocatedUsd), 'live_reservation_strategy_changed');
     const [policy] = await this.sql(session, db.select().from(copyRiskPolicies).orderBy(desc(copyRiskPolicies.version)).limit(1));
-    check(policy && policy.version === input.identity.policyVersion && isDeepStrictEqual(policy.limits, input.policy.limits), 'live_reservation_policy_changed');
+    // The assessment's limits are the policy with the deployment's caps
+    // applied (postgres-live-risk-authority.ts): compare like with like, or a
+    // capped deployment (every live one) refused every hold.
+    check(policy && policy.version === input.identity.policyVersion &&
+      isDeepStrictEqual(effectiveLiveLimits(liveDeploymentPolicy()?.caps, copyRiskLimitsSchema.parse(policy.limits)), input.policy.limits), 'live_reservation_policy_changed');
     const controls = await this.sql(session, db.select().from(copyControls).where(eq(copyControls.scope, 'platform')));
     const userControls = await this.sql(session, db.select().from(copyControls).where(and(eq(copyControls.scope, 'user'), eq(copyControls.scopeId, account.userId))));
     check(controls.length === 1 && controls[0]!.scopeId === 0 && userControls.length === 1, 'live_reservation_controls_unproven');

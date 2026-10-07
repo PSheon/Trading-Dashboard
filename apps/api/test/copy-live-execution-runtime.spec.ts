@@ -30,6 +30,7 @@ import { PostgresLiveUnattemptedRecovery } from '../src/copy/live/postgres-live-
 import { CopyWalletRepository } from '../src/copy/copy-wallet.repository.js';
 import { CopyAgentRepository } from '../src/copy/copy-agent.repository.js';
 import { UNHELD_REJECTED } from '../src/copy/live/live-execution.js';
+import { registerLiveDeployment } from '../src/copy/live-deployment.js';
 import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
 
 // Native network endpoints alone are replaced. Every provider decoder, private
@@ -358,6 +359,14 @@ describe('unregistered concrete testnet execution runtime', () => {
     const [journal] = await db.select().from(schema.copyLiveExecutions);
     expect((journal!.record as unknown as { action: { orders: { s: string; p: string }[] } }).action.orders[0]).toMatchObject({ s: '0.09', p: '100.3' });
     expect(await db.select().from(schema.copyLiveRiskReservations)).toHaveLength(0);
+  });
+  it('holds an order on a deployment whose caps tighten the risk policy (every live one)', async () => {
+    await actualClockFixture(20);
+    // The fixture policy allows more copies and leverage than these caps.
+    registerLiveDeployment({ network: 'testnet', caps: { maxStrategiesPerUser: 2, maxLeverage: 10, fixedPerTradeUsd: { min: 10, max: 25 } }, builderFee: true, testnetSourceIntervalMs: 60_000,
+      maxSourceDeviationBps: 500, slippageBps: 30, intervalMs: 3000, weightPerMin: 300 });
+    try { expect(await runtime().execute(request())).toMatchObject({ state: 'filled' }); }
+    finally { registerLiveDeployment(undefined); }
   });
   it('executes a properly signed fixed20 budget at nonzero slippage with an acknowledgement matching the prepared quantity', async () => {
     await actualClockFixture(20); const result = await runtime().execute(request());

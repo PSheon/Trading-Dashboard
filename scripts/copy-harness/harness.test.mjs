@@ -162,3 +162,24 @@ test("reconcile FAILS on a follower order no leg sent (a double send), but not o
   assert.deepEqual(run({ followerFills: fills, closeCloids: new Set(["0xc9"]) }), []);
   assert.deepEqual(run({ followerFills: fills, dispatches: null }), []);
 });
+
+import { SCENARIOS, parseScenarios, refusableCoin, termsFor } from "./lib.mjs";
+test("scenarios: by name or number, deduplicated, base by default; unknown ones refused", () => {
+  assert.deepEqual(parseScenarios(undefined), ["base"]);
+  assert.deepEqual(parseScenarios("3,stop-open,6,7,8,9,14,3"), ["reduce-min", "stop-open", "close-then-stop", "worker-restart", "refused-open", "burst", "kill-switch"]);
+  assert.throws(() => parseScenarios("5"), /unknown scenario 5/);
+  assert.equal(Object.values(SCENARIOS).filter((s) => s.endsCopy).length, 4);
+});
+test("profiles: stage-caps mirrors Stage (12–15 per trade, 50 per copy, leverage 3)", () => {
+  assert.deepEqual(termsFor("stage-caps"), { ...TERMS, budgetUsd: 50, maxPerTradeUsd: 15, maxLeverage: 3, profile: "stage-caps" });
+  assert.equal(termsFor().budgetUsd, TERMS.budgetUsd);
+  assert.throws(() => termsFor("mainnet"), /unknown profile/);
+});
+test("refusableCoin picks a coin whose fixed amount falls under the minimum and can't be rounded up within the cap", () => {
+  const terms = { perTradeUsd: 12, maxPerTradeUsd: 15, minOrderUsd: 10 };
+  const markets = [{ name: "ETH", szDecimals: 4, mid: 2600 }, { name: "CHEAP", szDecimals: 0, mid: 7 }, { name: "LOT9", szDecimals: 0, mid: 8.8 }, { name: "BIG", szDecimals: 0, mid: 40 },
+    { name: "GONE", szDecimals: 0, mid: 9, delisted: true }, { name: "xyz:LOT9", szDecimals: 0, mid: 8.8 }];
+  assert.equal(refusableCoin(markets, terms, fixedOrderSize)?.name, "LOT9");
+  assert.equal(refusableCoin([markets[0], markets[1]], terms, fixedOrderSize), null);
+  assert.equal(refusableCoin([markets[3]], terms, fixedOrderSize)?.name, "BIG");
+});

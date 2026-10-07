@@ -111,3 +111,51 @@ export async function waitFor(read, done, { timeoutMs, intervalMs = 2000, onTick
     await new Promise((r) => setTimeout(r, intervalMs));
   }
 }
+
+// --- profiles and scenarios ---------------------------------------------------------------------
+
+/** The run's terms per stack profile: `default` (harness.env) or `stage-caps`
+ * (stage-caps.env over it: Stage's caps, 12–15 per trade, 50 per copy, leverage 3). */
+export function termsFor(profile = "default") {
+  if (profile === "default") return { ...TERMS, maxPerTradeUsd: TERMS.perTradeUsd, maxLeverage: 3, profile };
+  if (profile === "stage-caps") return { ...TERMS, budgetUsd: 50, maxPerTradeUsd: 15, maxLeverage: 3, profile };
+  throw new Error(`unknown profile ${profile} (default | stage-caps)`);
+}
+
+/**
+ * The scenarios run.mjs can run (`--scenarios a,b,c`, by name or number).
+ * `endsCopy`: it stops the copy, so the next scenario starts a new one.
+ */
+export const SCENARIOS = Object.freeze({
+  base: { no: "1", endsCopy: true, about: "open, add, reduce half, close, short, flip, close; withdraw 10; stop with the return credited" },
+  "reduce-min": { no: "3", endsCopy: false, about: "reduce 25 % of a 24 USD position (under the 10 USD minimum), then a full close" },
+  "stop-open": { no: "4", endsCopy: true, about: "stop while a position is open: closed flat, the return credited, shown stopped" },
+  "close-then-stop": { no: "6", endsCopy: true, about: "the owner's single-position close, then a stop within 2 s: flat and stopped, never blocked" },
+  "worker-restart": { no: "7", endsCopy: false, about: "the worker restarts between a leader trade and its fill: no double send, later legs trade" },
+  "refused-open": { no: "8", endsCopy: false, about: "an open refused under the order minimum (below_min_notional), then later legs, a close included, execute" },
+  burst: { no: "9", endsCopy: false, about: "the leader closes in 3 fills within 20 s; the follower ends flat" },
+  "kill-switch": { no: "14", endsCopy: true, about: "platform pause (opens refused, reductions mirrored), then admin close-all closes and returns" },
+});
+/** `--scenarios` → scenario names, in the given order (default: base). */
+export function parseScenarios(value) {
+  if (!value) return ["base"];
+  const names = value.split(",").map((s) => s.trim()).filter(Boolean).map((s) => {
+    const name = SCENARIOS[s] ? s : Object.entries(SCENARIOS).find(([, v]) => v.no === s)?.[0];
+    if (!name) throw new Error(`unknown scenario ${s} (${Object.entries(SCENARIOS).map(([k, v]) => `${v.no}=${k}`).join(", ")})`);
+    return name;
+  });
+  return [...new Set(names)];
+}
+
+/**
+ * A perp whose fixed amount can't be sent (scenario 8): per-trade USD at the
+ * coin's lot size falls under the exchange minimum, and the minimum's
+ * round-up exceeds the per-trade maximum, with 3 % of price room either way.
+ * `markets`: [{ name, szDecimals, mid, delisted }]. Null when none fits.
+ */
+export function refusableCoin(markets, { perTradeUsd, maxPerTradeUsd, minOrderUsd = 10 }, fixedOrderSize) {
+  const fits = (m) => [0.97, 1, 1.03].every((k) => fixedOrderSize({ perTradeUsd, maxPerTradeUsd, minOrderUsd }, m.mid * k, m.szDecimals) === null);
+  const candidates = markets.filter((m) => !m.delisted && m.mid > 0 && !m.name.includes(":") && fits(m));
+  // The cheapest lot keeps the leader's own order small.
+  return candidates.sort((a, b) => a.mid / 10 ** a.szDecimals - b.mid / 10 ** b.szDecimals)[0] ?? null;
+}

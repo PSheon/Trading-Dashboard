@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { expectNoSidewaysScroll, shot } from "./helpers";
+import { expectNoSidewaysScroll, selectTradingMode, shot } from "./helpers";
 
 /**
  * One-click testnet copy off the happy path (logic review 2026-10-06 §A),
@@ -38,8 +38,8 @@ async function openTrader(page: Page, width: number, flags = "") {
   await page.goto(`/zh-TW/portfolio?signer=fixture&wallet=funded${flags ? `&${flags}` : ""}`);
   await page.getByRole("button", { name: /^(示範登入|登入)$/ }).filter({ visible: true }).first().click();
   await page.goto(`/zh-TW/trader/${LEADER}?signer=fixture&wallet=funded${flags ? `&${flags}` : ""}`);
+  await selectTradingMode(page, "testnet", "zh-TW");
   const panel = await panelOf(page, width);
-  await panel.getByRole("radiogroup", { name: "跟單模式" }).filter({ visible: true }).getByRole("radio", { name: "測試網" }).click();
   return panel;
 }
 /** 開始跟單 $150 from the panel: the confirm sheet. */
@@ -74,7 +74,8 @@ for (const width of [1440, 390]) {
         await confirm.getByRole("button", { name: "取消", exact: true }).click();
         await expect(confirm).toHaveCount(0);
         await page.reload();
-        const panel = await panelOf(page, width);
+        await selectTradingMode(page, "testnet", "zh-TW");
+  const panel = await panelOf(page, width);
         await expect(panel.getByText("等待你確認").filter({ visible: true })).toBeVisible({ timeout: 15000 });
         await expectNoSidewaysScroll(page);
         await shot(page, `testnet-recovery-reloaded-${width}-${scheme}`);

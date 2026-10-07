@@ -3,7 +3,7 @@
 import { ArrowUp, Bell, ChartPie, Plus, Settings, ShoppingCart, UserPlus, type LucideIcon } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { useSearchParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { cn } from "cn";
 
 import { ActivityPanel } from "@/components/copy/activity-panel";
@@ -17,9 +17,8 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Tabs } from "@/components/ui/tabs";
 import { boardName } from "@/components/discover/board-bits";
 import { useLiveCopyPortfolio } from "@/lib/copy-live-portfolio";
-import { useSiteMode } from "@/lib/site-mode";
+import { useSiteMode, useTradingMode } from "@/lib/site-mode";
 import { useLiveCopyDeployment } from "@/lib/copy-live-setup";
-import { useUrlState } from "@/lib/url-state";
 import { useWalletModals } from "@/components/wallet/wallet-modals";
 import { useI18n } from "@/i18n/provider";
 import { useAuth } from "@/lib/auth";
@@ -84,25 +83,20 @@ export function PortfolioView() {
 }
 
 type View = "real" | "paper";
-const VIEWS: readonly View[] = ["real", "paper"];
-
-/**
- * Real money and paper never share a screen (Paul, 2026-10-06): a switch at
- * the top, 正式 (測試網 where testnet copies run) or 模擬, in the URL
- * (?view=paper). A deployment without real copies opens on 模擬.
- */
-function usePortfolioView(): [View, (view: View) => void] {
-  const mode = useSiteMode();
-  return useUrlState<View>("view", VIEWS, mode === "paper" ? "paper" : "real");
-}
-
-function ViewSwitch({ view, onChange, className }: { view: View; onChange: (view: View) => void; className?: string }) {
-  const { t } = useI18n();
-  const mode = useSiteMode();
-  return (
-    <Tabs value={view} onChange={onChange} label={t("folio.view")} idPrefix="portfolio-view" controls="portfolio-view-panel" className={cn("seg-track w-fit", className)}
-      items={[{ value: "real", label: mode === "paper" ? t("folio.real") : t(`mode.${mode}`) }, { value: "paper", label: t("mode.paper") }]} />
-  );
+/** All portfolio layouts follow the account menu's shared selection. */
+function usePortfolioView(): View {
+  const { mode, select, deploymentNetwork } = useTradingMode();
+  const search = useSearchParams();
+  const legacy = search.get("view");
+  useEffect(() => {
+    if (legacy !== "paper" && legacy !== "real") return;
+    const next = legacy === "paper" ? "paper" : deploymentNetwork === "mainnet" ? "live" : "testnet";
+    if (!select(next)) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("view");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [legacy, deploymentNetwork, select]);
+  return mode === "paper" ? "paper" : "real";
 }
 
 /** 我的資金: one figure (the main wallet and the money in real copies), the two parts under it, 儲值 and 提款. */
@@ -139,10 +133,12 @@ function NoCopies() {
  * funds card and no 儲值 to a copy that cannot start. */
 function RealView() {
   const { t } = useI18n();
-  if (useLiveCopyDeployment()?.inviteOnly) {
+  const deployment = useLiveCopyDeployment();
+  const mode = useSiteMode();
+  if (deployment?.inviteOnly || !deployment?.available || deployment.network !== (mode === "live" ? "mainnet" : "testnet")) {
     return (
       <div className="orbit-card card-pad flex flex-col items-center gap-2 text-center" data-view="real" data-testid="invite-only">
-        <p className="font-display text-lg">{t("folio.inviteOnly")}</p>
+        <p className="font-display text-lg">{t(deployment?.inviteOnly ? "folio.inviteOnly" : "mode.unavailable")}</p>
       </div>
     );
   }
@@ -340,14 +336,13 @@ function CopyList({ overview, phone, onSelect: select }: { overview: CopyOvervie
 
 function DesktopPortfolio() {
   const { t } = useI18n();
-  const [view, setView] = usePortfolioView();
+  const view = usePortfolioView();
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="type-h1">{t("portfolio.title")}</h1>
-        <ViewSwitch view={view} onChange={setView} />
       </div>
-      <div id="portfolio-view-panel" role="tabpanel" aria-labelledby={`portfolio-view-${view}`}>
+      <div id="portfolio-view-panel" >
         {view === "real" ? <RealView /> : <DesktopPaper />}
       </div>
     </div>
@@ -405,14 +400,11 @@ function CopySectionSkeleton() {
 
 function PhonePortfolio() {
   const [tab, setTab] = useState<Tab>("copying");
-  const [view, setView] = usePortfolioView();
+  const view = usePortfolioView();
   return (
     <div className="-mx-4 -mt-4">
       <PhoneHeader />
-      <div className="px-4 pt-3">
-        <ViewSwitch view={view} onChange={setView} className="w-full [&>button]:flex-1 [&>button]:justify-center" />
-      </div>
-      <div id="portfolio-view-panel" role="tabpanel" aria-labelledby={`portfolio-view-${view}`} className="px-4 pt-4 pb-6">
+      <div id="portfolio-view-panel"  className="px-4 pt-4 pb-6">
         {view === "real" ? <RealView /> : <PhonePaper tab={tab} setTab={setTab} />}
       </div>
     </div>

@@ -18,7 +18,7 @@ vi.mock("@/lib/wallet", () => ({ useWallet: () => ({ data: { totalValue: 0, netw
 vi.mock("@/components/wallet/wallet-modals", () => ({ useWalletModals: () => ({ openDeposit() {}, openWithdraw() {} }) }));
 vi.mock("@/components/copy/recent-activity", () => ({ CopyActivity: () => <p data-testid="copy-activity">activity</p> }));
 // The paper view (模擬) holds the paper copies; real copies have their own view.
-vi.mock("@/lib/site-mode", () => ({ useSiteMode: () => "paper" }));
+vi.mock("@/lib/site-mode", () => ({ useSiteMode: () => "paper", useTradingMode: () => ({ mode: "paper", select: () => false }) }));
 vi.mock("@/lib/copy-live-portfolio", () => ({ useLiveCopyPortfolio: () => ({ data: undefined }), onOtherNetwork: () => false }));
 // Isolate the selection boundary; the real cards/detail and responsive layouts run in Playwright.
 vi.mock("@/components/copy/copy-portfolio", () => ({

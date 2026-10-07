@@ -87,7 +87,7 @@ test.describe("activity panel", () => {
     await expect(panel.getByText("Sign in for alerts")).toBeVisible();
     await panel.getByRole("button", { name: "Close" }).click();
     await signIn(page);
-    await expect(page.getByRole("tab", { name: "Paper" }).filter({ visible: true })).toBeVisible();
+    await expect(page.locator("[data-view=paper]").filter({ visible: true })).toBeVisible();
     await page.getByRole("button", { name: "Activity" }).filter({ visible: true }).click();
     for (const chip of ["Copies", "Following", "Deposits"]) await expect(panel.getByRole("tab", { name: chip })).toBeVisible();
     await expect(panel.getByText(/^Copy Long HYPE at/)).toBeVisible();

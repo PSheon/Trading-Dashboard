@@ -1717,6 +1717,8 @@ export const ko: Messages = {
     },
   },
   mode: {
+    unavailable: en.mode.unavailable,
+    busy: en.mode.busy,
     label: "모드",
     paper: "모의",
     testnet: "테스트넷",

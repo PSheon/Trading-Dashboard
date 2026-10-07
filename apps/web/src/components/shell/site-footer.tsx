@@ -74,3 +74,18 @@ export function SiteFooter({ className }: { className?: string }) {
     </footer>
   );
 }
+
+/** Compact footer for personal and trading pages, above floating controls. */
+export function SiteLegalFooter() {
+  const { t } = useI18n();
+  return (
+    <footer className="mt-10 flex flex-wrap items-center justify-between gap-x-5 gap-y-2 border-t border-input pt-3 text-xs text-muted-foreground">
+      <span>{t("home.footer.rights")}</span>
+      <nav aria-label={t("home.footer.legal")} className="flex flex-wrap gap-x-4">
+        {([["/privacy", "privacy"], ["/terms", "terms"], ["/help", "faq"]] as const).map(([href, label]) => (
+          <Link key={href} href={href} className="flex min-h-11 items-center font-bold hover:text-primary-text">{t(`home.footer.${label}`)}</Link>
+        ))}
+      </nav>
+    </footer>
+  );
+}

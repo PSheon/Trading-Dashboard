@@ -72,3 +72,11 @@ export async function chooseOption(page: Page, trigger: Locator, value: string |
 export async function saveSettings(page: Page) {
   await page.getByRole("region", { name: "Changes on save" }).getByRole("button", { name: "Save", exact: true }).click();
 }
+
+/** The only trading-mode entry point, including the trader's phone header. */
+export async function selectTradingMode(page: Page, mode: "paper" | "testnet" | "live", locale: "en" | "zh-TW" = "en") {
+  const account = locale === "en" ? "Account" : "帳戶";
+  const labels = locale === "en" ? { paper: "Paper", testnet: "Testnet", live: "Live" } : { paper: "模擬", testnet: "測試網", live: "正式" };
+  await page.getByRole("button", { name: account, exact: true }).filter({ visible: true }).click();
+  await page.getByRole("menuitemradio", { name: labels[mode], exact: true }).click();
+}

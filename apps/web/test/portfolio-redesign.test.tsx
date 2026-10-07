@@ -38,7 +38,7 @@ vi.mock("@/lib/copy-live-setup", async () => ({ ...(await vi.importActual<typeof
 vi.mock("@/lib/auth", () => ({ useAuth: () => ({ status: "signedIn", mode: "privy", identity: "owner", userId: "did:privy:owner", wallet: { address: OWNER } }) }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/portfolio", useSearchParams: () => new URLSearchParams(window.location.search), useRouter: () => ({ replace() {}, push() {}, refresh() {} }) }));
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }: { href: string; children: ReactNode }) => <a href={href} {...rest}>{children}</a> }));
-vi.mock("@/lib/site-mode", () => ({ useSiteMode: () => state.mode }));
+vi.mock("@/lib/site-mode", () => ({ useSiteMode: () => state.mode, useTradingMode: () => ({ mode: state.mode, select: () => false }) }));
 vi.mock("@/lib/wallet", () => ({ useWallet: () => ({ data: { totalValue: 500, network: "testnet" } }), signErrorMessage: () => ({ rejected: false, message: "" }) }));
 vi.mock("@/components/wallet/wallet-modals", () => ({ useWalletModals: () => ({ openDeposit() {}, openWithdraw() {}, openExport() {} }) }));
 vi.mock("@/lib/copy-live-portfolio", () => {
@@ -70,7 +70,7 @@ vi.mock("@/components/copy/portfolio-parts", () => ({ PortfolioChart: () => null
 let root: Root, container: HTMLDivElement, client: QueryClient;
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-  state.mode = "testnet"; state.deployment = null; window.history.replaceState(null, "", "/portfolio");
+  state.mode = "testnet"; state.deployment = { available: true, network: "testnet" }; window.history.replaceState(null, "", "/portfolio");
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 });
@@ -122,9 +122,8 @@ it("paper and real money never share a screen: 模擬 is its own view", async ()
   expect(phone().textContent).toContain("我的資金");
   expect(phone().textContent).not.toContain("PAPER-ACCOUNT");
   expect(phone().textContent).not.toContain("HYPE");
-  const paper = [...phone().querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((tab) => tab.textContent === "模擬")!;
-  await act(async () => paper.click());
-  expect(window.location.search).toBe("?view=paper");
+  state.mode = "paper";
+  await render();
   expect(phone().textContent).toContain("PAPER-ACCOUNT");
   expect(phone().querySelector('[data-testid="my-funds"]')).toBeNull();
   expect(phone().querySelectorAll('[data-testid="live-copy-card"]')).toHaveLength(0);
@@ -139,7 +138,7 @@ it("a deployment without real copies (the public paper build) opens on 模擬", 
 });
 
 it("a live deployment that has not opened real copies to this user says so on 正式, with no funds card and no 儲值 (audit 2026-10-07 P1-6)", async () => {
-  state.mode = "paper";
+  state.mode = "live";
   state.deployment = { network: "mainnet", available: false, inviteOnly: true, sourceNetworks: ["mainnet"], caps: null };
   window.history.replaceState(null, "", "/portfolio?view=real");
   await render();

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { expectNoSidewaysScroll, shot, signIn } from "./helpers";
+import { expectNoSidewaysScroll, selectTradingMode, shot, signIn } from "./helpers";
 
 /**
  * One-click testnet copy (docs/one-click-copy-plan-2026-10-05.md) against
@@ -26,15 +26,15 @@ for (const width of [1440, 390]) {
       await page.goto("/en/portfolio?signer=fixture&wallet=funded");
       await signIn(page);
       await page.goto(TRADER);
-      let panel = page.locator("body");
+      await page.getByRole("button", { name: "Account", exact: true }).filter({ visible: true }).click();
+      await expect(page.getByRole("menuitemradio", { name: "Paper", exact: true })).toHaveAttribute("aria-checked", "true");
+      await page.getByRole("menuitemradio", { name: "Testnet", exact: true }).click();
+      await selectTradingMode(page, "testnet", "zh-TW");
+  let panel = page.locator("body");
       if (width < 768) {
         await action(page, "Copy").click();
         panel = page.getByRole("dialog", { name: "Copy", exact: true });
       }
-      // 模擬 by default; 測試網 shows the main wallet's testnet balance.
-      const mode = panel.getByRole("radiogroup", { name: "Copy mode" }).filter({ visible: true });
-      await expect(mode.getByRole("radio", { name: "Paper" })).toHaveAttribute("aria-checked", "true");
-      await mode.getByRole("radio", { name: "Testnet" }).click();
       await expect(panel.getByText("Main wallet (testnet)").filter({ visible: true }).first()).toBeVisible();
       await expect(panel.getByText(/1,180\.17/).filter({ visible: true }).first()).toBeVisible();
       await action(page, "Additional settings").click();
@@ -103,12 +103,12 @@ async function startCopy(page: Page, width: number, flags: string) {
   await page.goto(`/zh-TW/portfolio?signer=fixture&wallet=funded&${flags}`);
   await page.getByRole("button", { name: /^(示範登入|登入)$/ }).filter({ visible: true }).first().click();
   await page.goto(`/zh-TW/trader/0x005a09b498f2a28b54652a70d7812e63414161fe?signer=fixture&wallet=funded&${flags}`);
+  await selectTradingMode(page, "testnet", "zh-TW");
   let panel = page.locator("body");
   if (width < 768) {
     await action(page, "跟單").click();
     panel = page.getByRole("dialog", { name: "跟單", exact: true });
   }
-  await panel.getByRole("radiogroup", { name: "跟單模式" }).filter({ visible: true }).getByRole("radio", { name: "測試網" }).click();
   if (width < 768) {
     for (const key of ["1", "5", "0"]) await panel.getByRole("button", { name: key, exact: true }).click();
     await action(page, "開始跟單 $150").click();

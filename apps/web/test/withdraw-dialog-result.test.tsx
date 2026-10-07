@@ -9,17 +9,17 @@ import { en } from "../src/i18n/messages/en";
 
 const DEST = `0x${"22".repeat(20)}`;
 const state = vi.hoisted(() => ({
-  posts: [] as string[], release: null as null | (() => void), fail: null as null | Error,
+  signing: true, posts: [] as string[], release: null as null | (() => void), fail: null as null | Error,
   toasts: [] as Array<[string, string]>, currentFails: false,
 }));
 const OP = { id: "11111111-1111-4111-8111-111111111111", network: "testnet", address: `0x${"11".repeat(20)}`, destination: `0x${"22".repeat(20)}`, amount: "12.5", nonce: 1780000000000, status: "prepared", createdAt: "2026-10-03T00:00:00.000Z", updatedAt: "2026-10-03T00:00:00.000Z" };
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh() {} }) }));
-vi.mock("../src/lib/auth", () => ({ useAuth: () => ({ status: "signedIn", wallet: { address: `0x${"11".repeat(20)}`, signTypedData: async () => {
+vi.mock("../src/lib/auth", () => ({ useAuth: () => ({ status: "signedIn", wallet: state.signing ? { address: `0x${"11".repeat(20)}`, signTypedData: async () => {
   // The wallet's signing step: held until the test lets it finish.
   await new Promise<void>((resolve) => { state.release = resolve; });
   if (state.fail) throw state.fail;
   return `0x${"11".repeat(64)}1b`;
-} } }) }));
+} } : null }) }));
 vi.mock("../src/lib/api", () => ({ api: {
   get: async (path: string) => {
     if (path === "/me/wallet/withdrawals/current") { if (state.currentFails) throw Object.assign(new Error("Service Unavailable"), { status: 503 }); return null; }
@@ -68,7 +68,7 @@ const escape = () => act(async () => { document.activeElement?.dispatchEvent(new
 
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-  localStorage.clear(); state.posts = []; state.release = null; state.fail = null; state.toasts = [];
+  localStorage.clear(); state.signing = true; state.posts = []; state.release = null; state.fail = null; state.toasts = [];
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
 });
@@ -129,4 +129,16 @@ it("one failed recovery poll after a good read doesn't block withdrawals (web au
   await act(async () => { type(dest!, DEST); type(amount!, "12.5"); });
   expect(submit().disabled).toBe(false);
   state.currentFails = false;
+});
+
+it("keeps the network, destination and fee visible but blocks unavailable signing", async () => {
+  state.signing = false; await render();
+  const [dest, amount] = [...document.querySelectorAll("input")];
+  await act(async () => { type(dest!, DEST); type(amount!, "12.5"); });
+  const submit = [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === en.wallet.withdrawTitle)!;
+  expect(document.body.textContent).toContain("Testnet");
+  expect(document.body.textContent).toContain("Arbitrum Sepolia");
+  expect(document.body.textContent).toContain("$11.50");
+  expect(submit.disabled).toBe(true);
+  expect(state.posts).toEqual([]);
 });

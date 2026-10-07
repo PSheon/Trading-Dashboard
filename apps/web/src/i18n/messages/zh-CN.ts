@@ -1717,6 +1717,8 @@ export const zhCN: Messages = {
     },
   },
   mode: {
+    unavailable: "此部署尚未启用",
+    busy: "请先完成当前操作再切换模式",
     label: "模式",
     paper: "模拟",
     testnet: "测试网",

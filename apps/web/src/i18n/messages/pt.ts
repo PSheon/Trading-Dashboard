@@ -1717,6 +1717,8 @@ export const pt: Messages = {
     },
   },
   mode: {
+    unavailable: en.mode.unavailable,
+    busy: en.mode.busy,
     label: "Modo",
     paper: "Simulado",
     testnet: "Testnet",

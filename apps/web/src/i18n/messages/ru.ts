@@ -1717,6 +1717,8 @@ export const ru: Messages = {
     },
   },
   mode: {
+    unavailable: en.mode.unavailable,
+    busy: en.mode.busy,
     label: "Режим",
     paper: "Демо",
     testnet: "Тестнет",

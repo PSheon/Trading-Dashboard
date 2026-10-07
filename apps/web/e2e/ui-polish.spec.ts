@@ -26,11 +26,11 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) test(`bottom n
   await shot(page, `nav-pill-${reducedMotion}`);
 });
 
-test("copy sheet mode covers its whole scroll viewport without a top gap", async ({ page, context }) => {
+test("copy sheet direction controls cover its whole scroll viewport without a top gap", async ({ page, context }) => {
   await context.routeWebSocket(/hyperliquid/, ws => ws.close());
   await page.goto("/en/trader/0x393d0b87ed38fc779fd9611144ae649ba6082109");
   await page.getByRole("button", { name: "Copy", exact: true }).filter({ visible: true }).click();
-  const body = page.getByTestId("copy-sheet-body"), mode = page.getByTestId("copy-sheet-mode");
+  const body = page.getByTestId("copy-sheet-body"), mode = page.getByTestId("copy-sheet-direction");
   await expect(body).toBeVisible();
   expect(await body.evaluate(el => getComputedStyle(el).paddingTop)).toBe("0px");
   for (const top of [40, 180, 350]) {
@@ -40,7 +40,7 @@ test("copy sheet mode covers its whole scroll viewport without a top gap", async
     // entering, so two separate boundingBox calls compare different positions.
     await expect.poll(() => body.evaluate(el => {
       const viewport = el.getBoundingClientRect();
-      const sticky = el.querySelector('[data-testid="copy-sheet-mode"]')!.getBoundingClientRect();
+      const sticky = el.querySelector('[data-testid="copy-sheet-direction"]')!.getBoundingClientRect();
       return Math.max(Math.abs(sticky.y - viewport.y), Math.abs(sticky.x - viewport.x), Math.abs(sticky.width - viewport.width));
     })).toBeLessThan(1);
     expect(await mode.evaluate(el => getComputedStyle(el).boxShadow)).not.toBe("none");

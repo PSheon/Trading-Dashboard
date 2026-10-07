@@ -42,29 +42,38 @@ async function shell(pathname: string) {
 }
 const badges = (scope: ParentNode) => [...scope.querySelectorAll("[data-mode]")].map((el) => el.textContent);
 
-it("says 模擬 once per bar, beside the wordmark, where this deployment runs no testnet copies (the public build)", async () => {
+it("does not put a second mode label beside the wordmark on paper deployments", async () => {
   state.automatic = false;
   await shell("/explore");
-  expect(badges(container.querySelector("header.orbit-header")!)).toEqual(["模擬"]);
-  expect(badges(container.querySelector('[data-testid="app-phone-header"]')!)).toEqual(["模擬"]);
+  expect(badges(container.querySelector("header.orbit-header")!)).toEqual([]);
+  expect(badges(container.querySelector('[data-testid="app-phone-header"]')!)).toEqual([]);
 });
 
-it("says 測試網 only where testnet copies run (the api's automaticExecution), never from a hostname", async () => {
+it("does not mistake deployment capability for a selected mode in either bar", async () => {
   state.automatic = true;
   await shell("/explore");
-  expect(badges(container.querySelector("header.orbit-header")!)).toEqual(["測試網"]);
-  expect(badges(container.querySelector('[data-testid="app-phone-header"]')!)).toEqual(["測試網"]);
+  expect(badges(container.querySelector("header.orbit-header")!)).toEqual([]);
+  expect(badges(container.querySelector('[data-testid="app-phone-header"]')!)).toEqual([]);
 });
 
-it("has one badge per bar on the phone home (the desktop header is hidden there)", async () => {
+it("leaves the phone home mode indicator to the account menu", async () => {
   state.automatic = false;
   await shell("/");
   const phone = [...container.querySelectorAll("header")].find((h) => !h.className.includes("orbit-header"))!;
-  expect(badges(phone)).toEqual(["模擬"]);
+  expect(badges(phone)).toEqual([]);
 });
 
 it("the copy panel carries no mode chip of its own (the header says it)", () => {
   const html = renderToStaticMarkup(<QueryClientProvider client={client}><I18nProvider locale="zh-TW" messages={zhTW}><CopyPanel address={`0x${"ab".repeat(20)}`} /></I18nProvider></QueryClientProvider>);
   expect(html).toContain("順向");
   expect(html).not.toMatch(/>模擬</);
+});
+
+for (const pathname of ["/explore", "/portfolio", "/favorites", "/settings", "/trader/0xabc"]) it(`keeps a footer with legal and help links at ${pathname}`, async () => {
+  await shell(pathname);
+  const footer = container.querySelector("footer")!;
+  expect(footer).toBeTruthy();
+  expect(footer.className).not.toContain("hidden");
+  expect(footer.querySelector('a[href$="/privacy"]')).toBeTruthy();
+  expect(footer.querySelector('a[href$="/help"]')).toBeTruthy();
 });

@@ -1,21 +1,15 @@
 import { expect, test } from "@playwright/test";
 import { expectNoSidewaysScroll, signIn } from "./helpers";
 
-for (const width of [1440, 390]) test(`main withdrawal form displays its network and blocks unavailable signing at ${width}px`, async ({ page, context, baseURL }) => {
+for (const width of [1440, 390]) test(`an account without an available signer cannot enter actual funds at ${width}px`, async ({ page, context, baseURL }) => {
   await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
   await page.setViewportSize({ width, height: 900 });
-  // The main wallet is on the real-money view (正式); this build opens on 模擬.
   await page.goto("/en/portfolio?wallet=funded&view=real");
   await signIn(page);
-  await page.getByRole("button", { name: "Withdraw", exact: true }).filter({ visible: true }).first().click();
-  const dialog = page.getByRole("dialog");
-  await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText("Testnet");
-  await expect(dialog).toContainText("Only withdraw USDC to Arbitrum Sepolia · $1 network fee");
-  await dialog.getByLabel("Destination Address", { exact: true }).fill(`0x${"22".repeat(20)}`);
-  await dialog.getByLabel("Amount (USDC)", { exact: true }).fill("12.5");
-  await expect(dialog).toContainText("You receive $11.50");
-  await expect(dialog.getByRole("button", { name: "Withdraw", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "Account", exact: true }).filter({ visible: true }).click();
+  await expect(page.getByRole("menuitemradio", { name: /Testnet/ })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Withdraw", exact: true }).filter({ visible: true })).toHaveCount(0);
   await expectNoSidewaysScroll(page);
 });
 
@@ -41,7 +35,7 @@ for (const width of [1440, 390]) test(`a main withdrawal is signed, submitted an
 
 test("an exchange refusal says so and leaves the form for a new withdrawal", async ({ page, context, baseURL }) => {
   await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
-  await page.goto("/en/portfolio?wallet=funded&signer=fixture&withdraw=rejected");
+  await page.goto("/en/portfolio?wallet=funded&signer=fixture&withdraw=rejected&view=real");
   await signIn(page);
   await page.getByRole("button", { name: "Withdraw", exact: true }).filter({ visible: true }).first().click();
   const dialog = page.getByRole("dialog");

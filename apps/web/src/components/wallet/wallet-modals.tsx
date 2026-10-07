@@ -2,6 +2,7 @@
 
 import { createContext, use, useMemo, useState } from "react";
 
+import { useTradingMode } from "@/lib/site-mode";
 import { DepositDialog } from "./deposit-dialog";
 import { ExportKeyDialog, type ExportTarget } from "./export-key-dialog";
 import { WithdrawDialog } from "./withdraw-dialog";
@@ -26,15 +27,19 @@ export function useWalletModals(): WalletModals {
 }
 
 export function WalletModalsProvider({ children }: { children: React.ReactNode }) {
+  const trading = useTradingMode();
+  const fundsAvailable = trading.mode !== "paper" && trading.available;
+  const [previousMode, setPreviousMode] = useState(trading.mode);
   const [open, setOpen] = useState<WalletModal>(null);
   const [exportTarget, setExportTarget] = useState<ExportTarget | null>(null);
+  if (previousMode !== trading.mode) { setPreviousMode(trading.mode); setOpen(null); }
   const value = useMemo<WalletModals>(
     () => ({
-      openDeposit: () => setOpen("deposit"),
-      openWithdraw: () => setOpen("withdraw"),
+      openDeposit: () => { if (fundsAvailable) setOpen("deposit"); },
+      openWithdraw: () => { if (fundsAvailable) setOpen("withdraw"); },
       openExport: (target?: ExportTarget) => { setExportTarget(target ?? null); setOpen("export"); },
     }),
-    [],
+    [fundsAvailable],
   );
   const close = (next: boolean) => {
     if (!next) setOpen(null);
@@ -43,8 +48,8 @@ export function WalletModalsProvider({ children }: { children: React.ReactNode }
     <Context value={value}>
       {children}
       {/* A dialog that crashes takes only itself down; opening it again retries. */}
-      <IslandBoundary resetKey={open}><DepositDialog open={open === "deposit"} onOpenChange={close} /></IslandBoundary>
-      <IslandBoundary resetKey={open}><WithdrawDialog open={open === "withdraw"} onOpenChange={close} /></IslandBoundary>
+      <IslandBoundary resetKey={open}><DepositDialog open={fundsAvailable && open === "deposit"} onOpenChange={close} /></IslandBoundary>
+      <IslandBoundary resetKey={open}><WithdrawDialog open={fundsAvailable && open === "withdraw"} onOpenChange={close} /></IslandBoundary>
       <IslandBoundary resetKey={open}><ExportKeyDialog open={open === "export"} target={exportTarget} onOpenChange={(next) => setOpen(next ? "export" : null)} /></IslandBoundary>
     </Context>
   );

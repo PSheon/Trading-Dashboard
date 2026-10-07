@@ -36,7 +36,7 @@ vi.mock("@/components/copy/copy-compare", () => ({ CopyCompare: () => null }));
 vi.mock("@/components/copy/copy-accounting-history", () => ({ CopyFundsRecords: () => null, OrderFills: ({ orderId }: { orderId: string }) => <p data-testid="order-fills">fills of {orderId}</p> }));
 vi.mock("@/lib/favorite-groups", () => ({ useTraderCards: () => ({ data: { items: [] } }) }));
 vi.mock("@/components/copy/live-copy-setup-dialogs", () => ({ useCopyTexts: () => ({ live: { errors: {} }, extra: { codes: {} } }) }));
-vi.mock("@/lib/site-mode", () => ({ useSiteMode: () => "paper" }));
+vi.mock("@/lib/site-mode", () => ({ useSiteMode: () => "paper", useTradingMode: () => ({ mode: "paper", select: () => false }) }));
 
 let root: Root, container: HTMLDivElement;
 beforeEach(() => { Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true }); s.ordersCalls = []; container = document.createElement("div"); document.body.append(container); root = createRoot(container); });

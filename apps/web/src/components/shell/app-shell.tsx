@@ -14,9 +14,8 @@ import { MaintenanceBanner } from "./maintenance-banner";
 import { CopyFeed } from "@/components/copy/copy-feed";
 import { AccountControls, AuthButton } from "./account-controls";
 import { AddressSearch } from "./address-search";
-import { ModeBadge } from "./mode-badge";
 import { PhoneMenu } from "./phone-menu";
-import { SiteFooter } from "./site-footer";
+import { SiteFooter, SiteLegalFooter } from "./site-footer";
 import { WalletModalsProvider } from "@/components/wallet/wallet-modals";
 import { useAuth } from "@/lib/auth";
 import type { PublicSettings } from "@/lib/contracts";
@@ -42,17 +41,10 @@ function phoneChrome(pathname: string): "home" | "marketing" | "none" {
   return "none";
 }
 
-/**
- * Pages that end in the site footer from the shell (home, about and help
- * draw their own). Browsing pages that search engines index get it on
- * desktop and tablet; on phones their tab bar is the navigation, as on the
- * home page. The legal pages, which have no tab bar, get it everywhere. The
- * trader page and the personal pages (portfolio, favorites, settings),
- * admin and /dev end without one, as on CopyDog.
- */
-function shellFooter(pathname: string): "everywhere" | "desktop" | null {
-  if (["/privacy", "/terms", "/delete-account"].includes(pathname)) return "everywhere";
-  if (["/explore", "/insights", "/coins"].includes(pathname) || pathname.startsWith("/coins/")) return "desktop";
+/** Public pages have the full footer; personal pages keep legal/help links. */
+function shellFooter(pathname: string): "everywhere" | "compact" | null {
+  if (["/privacy", "/terms", "/delete-account", "/explore", "/insights", "/coins"].includes(pathname) || pathname.startsWith("/coins/")) return "everywhere";
+  if (["/favorites", "/portfolio", "/settings", "/trader"].some(route => pathname === route || pathname.startsWith(`${route}/`))) return "compact";
   return null;
 }
 
@@ -128,7 +120,6 @@ export function AppShell({
           >
             <Lockup />
           </Link>
-          <IslandBoundary><ModeBadge className="-ml-2" /></IslandBoundary>
           <NavCapsule label={t("nav.primary")} items={discoverNav} pathname={pathname} />
         </div>
         <div className="flex min-w-0 justify-center">
@@ -153,10 +144,9 @@ export function AppShell({
       {chrome !== "none" ? (
         <header data-testid="app-phone-header" data-scrolled={scrolled} className="fixed inset-x-0 top-0 z-40 isolate flex h-[72px] items-center gap-2 px-4 max-[374px]:gap-1 max-[374px]:px-3 md:hidden">
           <div aria-hidden className="bar-scrim" />
-          <Link href="/" aria-label={APP_NAME} className="flex h-11 min-w-11 shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <Link href="/" aria-label={APP_NAME} className="mr-auto flex h-11 min-w-11 shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <Lockup className="[&>span]:text-2xl max-[374px]:[&>span]:hidden" />
           </Link>
-          <IslandBoundary><ModeBadge className="mr-auto" /></IslandBoundary>
           <IslandBoundary><AddressSearch compact /></IslandBoundary>
           <IslandBoundary>{chrome === "marketing" ? <PhoneMenu /> : <AuthButton compact />}</IslandBoundary>
         </header>
@@ -191,7 +181,7 @@ export function AppShell({
           )}
         >
           {children}
-          {footer ? <SiteFooter className={footer === "desktop" ? "hidden md:flex" : "mt-16"} /> : null}
+          {footer === "compact" ? <SiteLegalFooter /> : footer ? <SiteFooter className="mt-16" /> : null}
         </main>
       </div>
 

@@ -8,10 +8,9 @@ import { cn } from "cn";
 import { LiveCopyConfirm, LiveCopyProgress, liveSetupError, useCopyTexts, useLiveSetupText } from "@/components/copy/live-copy-setup-dialogs";
 import { LiveSettingsFields } from "@/components/copy/live-copy-settings-fields";
 import { Button } from "@/components/ui/button";
-import { Segmented } from "@/components/ui/segmented";
 import { useWalletModals } from "@/components/wallet/wallet-modals";
 import { HedgeNotice } from "@/components/copy/portfolio-parts";
-import { ModeBadge } from "@/components/shell/mode-badge";
+import { useTradingMode, type SiteMode } from "@/lib/site-mode";
 import { useToast } from "@/components/ui/toast";
 import { usePendingToast } from "@/lib/use-action-toast";
 import { UsdcIcon } from "@/components/wallet/bits";
@@ -33,25 +32,6 @@ import { rovingFocus } from "@/lib/roving-focus";
 import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 type Direction = "same" | "reverse";
-type CopyMode = "paper" | "testnet";
-
-/** The 模擬 / 測試網 choice, remembered per signed-in user (decision 9: 模擬 by default). */
-const modeListeners = new Set<() => void>();
-// Without storage (a private window) the choice holds for this page's life.
-const modeMemory = new Map<string, CopyMode>();
-function readMode(key: string | null): CopyMode {
-  if (!key) return "paper";
-  try { return localStorage.getItem(key) === "testnet" ? "testnet" : "paper"; } catch { return modeMemory.get(key) ?? "paper"; }
-}
-function useCopyMode(identity: string | null): [CopyMode, (mode: CopyMode) => void] {
-  const key = identity ? `orbie:copy-mode:${identity}` : null;
-  const mode = useSyncExternalStore((listener) => { modeListeners.add(listener); return () => modeListeners.delete(listener); }, () => readMode(key), () => "paper" as CopyMode);
-  return [mode, (next) => {
-    if (key) { modeMemory.set(key, next); try { localStorage.setItem(key, next); } catch { /* remembered in memory only */ } }
-    modeListeners.forEach((listener) => listener());
-  }];
-}
-
 /**
  * The testnet setup this panel is confirming or following, per signed-in
  * person and trader (`<identity>#<session>:<leader>`), for the page's life:
@@ -65,8 +45,8 @@ const EMPTY_SETUP: PanelSetup = { setup: null, confirmOpen: false, progressId: n
 const panelSetups = new Map<string, PanelSetup>();
 let panelSetupScope: string | null = null;
 const panelSetupListeners = new Set<() => void>();
-export function usePanelSetup(identity: string | null, leader: string): [PanelSetup, (change: Partial<PanelSetup>) => void] {
-  const scope = liveSetupScope(identity), key = `${scope}:${leader}`;
+export function usePanelSetup(identity: string | null, leader: string, mode: SiteMode = "paper"): [PanelSetup, (change: Partial<PanelSetup>) => void] {
+  const scope = liveSetupScope(identity), key = `${scope}:${leader}:${mode}`;
   const value = useSyncExternalStore((listener) => { panelSetupListeners.add(listener); return () => panelSetupListeners.delete(listener); },
     () => (scope && scope === panelSetupScope ? panelSetups.get(key) : undefined) ?? EMPTY_SETUP, () => EMPTY_SETUP);
   return [value, (change) => {
@@ -107,7 +87,12 @@ let measureContext: CanvasRenderingContext2D | null = null;
  * `sheet` is the phone version: the amount is typed on CopyDog's keypad with
  * 25% / 50% / 75% / 最大 presets and a USDC row instead of the slider.
  */
-export function CopyPanel({ address, sheet = false, leaderPositions, traderName }: { address: string; sheet?: boolean; leaderPositions?: ReadonlyArray<{ coin: string; szi: number }>; traderName?: string }) {
+export function CopyPanel(props: React.ComponentProps<typeof CopyPanelForm>) {
+  const { mode } = useTradingMode();
+  return <CopyPanelForm key={mode} {...props} />;
+}
+
+function CopyPanelForm({ address, sheet = false, leaderPositions, traderName }: { address: string; sheet?: boolean; leaderPositions?: ReadonlyArray<{ coin: string; szi: number }>; traderName?: string }) {
   const { t, format, locale } = useI18n();
   const toast = useToast(), pending = usePendingToast();
   const { status, login, identity } = useAuth();
@@ -115,21 +100,21 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
   const existing = useCopyOf(address);
   const start = useStartCopy();
   const liveText = useLiveSetupText(), copyTexts = useCopyTexts();
-  const deployment = useLiveCopyDeployment(), liveAvailable = deployment?.available === true;
+  const deployment = useLiveCopyDeployment();
+  const trading = useTradingMode();
   // A live deployment: a fixed amount per trade only, within its bounds.
   const fixedOnly = deployment?.caps?.fixedPerTradeUsd ?? null, leverageCap = deployment?.caps?.maxLeverage ?? null;
   // A testnet deployment may copy a testnet leader (`?network=testnet`, read
   // at start); trader pages are mainnet leaders.
   const leaderNetwork = () => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("network") === "testnet"
     && deployment?.sourceNetworks.includes("testnet") ? "testnet" as const : "mainnet" as const;
-  const [chosenMode, setMode] = useCopyMode(identity);
-  const mode: CopyMode = liveAvailable ? chosenMode : "paper";
-  const testnet = mode === "testnet";
+  const mode = trading.mode;
+  const testnet = mode !== "paper";
   const wallet = useWallet();
   const live = useLiveCopySetupActions();
   const liveCopies = useLiveCopyPortfolio();
-  const liveExisting = liveCopies.data?.items.find((item) => item.leaderAddress === address.toLowerCase() && item.status !== "stopped") ?? null;
-  const [{ setup, confirmOpen, progressId, starting = false }, updateSetup] = usePanelSetup(identity, address.toLowerCase());
+  const liveExisting = liveCopies.data?.items.find((item) => item.leaderAddress === address.toLowerCase() && item.status !== "stopped" && item.network === (mode === "live" ? "mainnet" : "testnet")) ?? null;
+  const [{ setup, confirmOpen, progressId, starting = false }, updateSetup] = usePanelSetup(identity, address.toLowerCase(), mode);
   // A start prepares the copy wallet, its agent and the deposit (10-20 s on
   // Privy): pending for the whole request, also across a remount (the
   // panel store), and the confirm sheet opens whenever it answers.
@@ -160,7 +145,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
   // does not judge or clamp what was typed against a balance of zero.
   // Actual (正式 / 測試網): the main wallet's withdrawable on the deployment's network (what the
   // deposit UsdSend can move), never the paper balance.
-  const testnetBalance = deployment && wallet.data?.network === deployment.network ? wallet.data.hyperliquid?.withdrawable ?? null : null;
+  const testnetBalance = trading.available && deployment && wallet.data?.network === deployment.network ? wallet.data.hyperliquid?.withdrawable ?? null : null;
   const balanceKnown = !signedIn || (testnet ? testnetBalance !== null : overview.data !== undefined);
   const balance = (testnet ? testnetBalance : overview.data?.paper.balance) ?? 0;
   const balanceText = balanceKnown ? balance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
@@ -216,6 +201,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
   const { openDeposit } = useWalletModals();
 
   const label =
+    !trading.available ? t("mode.unavailable") :
     closed ? t("trader.copy.errors.disabled") :
     !signedIn ? t("common.signIn") :
     fundFirst ? t("portfolio.deposit") :
@@ -237,6 +223,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
       login();
       return;
     }
+    if (!trading.available) return toast.error(t("mode.unavailable"));
     if (closed) return toast.error(t("trader.copy.errors.disabled"));
     if (fundFirst) return openDeposit();
     if (!amount || !(value > 0)) return toast.error(t("trader.copy.enterAmount"));
@@ -355,17 +342,6 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
     </>
   );
 
-  const modeChoice = liveAvailable ? (
-    <Segmented variant="pill" tone="sub" label={liveText.mode} value={mode} onChange={(next) => setMode(next)} className="w-full [&>button]:flex-1"
-      options={[{ value: "paper", label: liveText.paper }, { value: "testnet", label: liveText.testnet }]} />
-  ) : sheet ? (
-    // Only 模擬 here: the phone sheet still says so (the header's badge is out of view).
-    <div className="flex justify-center" data-testid="copy-mode-paper"><ModeBadge mode="paper" /></div>
-  ) : null;
-  // In the phone sheet the mode stays at the top while the rest scrolls
-  // under it (Stage A3: the toggle and the % chips were cut mid-row).
-  const modePill = sheet && modeChoice ? <div className="sticky top-0 z-10 -mx-5 bg-card px-5 pt-1 pb-2 in-data-[scrolled=true]:shadow-[0_6px_8px_-6px_var(--border)]" data-testid="copy-sheet-mode">{modeChoice}</div> : modeChoice;
-
   const directionPill = (
     <div role="radiogroup" aria-label={t("trader.copy.direction")} className="grid grid-cols-2 gap-0.5 rounded-full bg-inset p-1">
       {(["same", "reverse"] as const).map((d) => {
@@ -409,7 +385,6 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
     const busy = live.restart.isPending || live.cancel.isPending;
     return (
       <Shell sheet={sheet}>
-        {modePill}
         <div className="flex items-center justify-between gap-2">
           <p className="text-[0.9375rem] font-bold">{lapsed ? liveText.consentLapsed : endedSetup.stage === "expired" ? liveText.expired : liveText.failed}</p>
         </div>
@@ -430,7 +405,6 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
   if (testnet && liveExisting && !started) {
     return (
       <Shell sheet={sheet}>
-        {modePill}
         <div className="flex items-center justify-between gap-2">
           <p className="text-[0.9375rem] font-bold">{settingUp ? liveText.progressTitle : liveText.copying}</p>
         </div>
@@ -467,7 +441,6 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
     const pnl = existing.totalPnl;
     return (
       <Shell sheet={sheet}>
-        {modePill}
         {hedgeNotice}
         <div className="flex items-center justify-between gap-2">
           <p className="text-[0.9375rem] font-bold">{t("trader.copy.copying")}</p>
@@ -507,13 +480,9 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
     <Shell sheet={sheet} spaced>
      {/* A real form: Enter in the amount field starts the copy. */}
      <form className="contents" noValidate onSubmit={(event) => { event.preventDefault(); if (!(start.isPending || preparing || started || closed || (empty && !fundFirst))) void submit(); }}>
-      {/* In the sheet the mode toggle sticks: a child of the whole body. */}
-      {sheet ? modePill : null}
-      <div className="flex flex-col gap-4">
-        {sheet ? null : modePill}
-        {hedgeNotice}
-        {directionPill}
-      </div>
+      {/* Direction stays above the scrolling amount controls. */}
+      {sheet ? <div className="sticky top-0 z-10 -mx-5 bg-card px-5 pt-1 pb-2 in-data-[scrolled=true]:shadow-[0_6px_8px_-6px_var(--border)]" data-testid="copy-sheet-direction">{directionPill}</div> : directionPill}
+      {hedgeNotice}
 
       <div className="flex flex-col gap-4">
       {sheet ? (
@@ -709,7 +678,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
           type="submit"
           size="cta"
           loading={start.isPending || preparing}
-          disabled={!(start.isPending || preparing) && (started || closed || (empty && !fundFirst))}
+          disabled={!(start.isPending || preparing) && (started || closed || !trading.available || (empty && !fundFirst))}
           className="min-h-14 w-full focus-visible:ring-offset-card disabled:cursor-not-allowed"
         >
           {started ? (

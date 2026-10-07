@@ -81,14 +81,14 @@ it("最大 stops at the cap, and the api's above_max_allocation names the deploy
   expect(state.toasts.at(-1)).toBe("單一跟單最多 $50");
 });
 
-it("模擬 keeps the paper limits, and the phone sheet says 模擬 when only paper runs", async () => {
+it("模擬 keeps the paper limits, and the phone sheet has no separate mode selector", async () => {
   localStorage.setItem("orbie:copy-mode:owner@email", "paper");
   await render();
   await type("80");
   expect(cta().textContent).toBe("最低 $100 才能跟單");
   state.live = false;
   await render(true);
-  expect(container.querySelector("[data-testid='copy-mode-paper']")?.textContent).toContain("模擬");
+  expect(container.querySelector("[data-testid='copy-mode-paper']")).toBeNull();
   expect(container.querySelector("button[aria-label='Backspace']")).toBeNull();
   expect(container.querySelector("button[aria-label='刪除']")).toBeTruthy();
 });
@@ -110,4 +110,15 @@ it("更多設定 is the shared Collapsible: closed it is inert and hidden from a
   expect(trigger.getAttribute("aria-expanded")).toBe("true");
   expect(panel.hasAttribute("inert")).toBe(false);
   expect(panel.hasAttribute("aria-hidden")).toBe(false);
+});
+
+it("clears an unsubmitted actual amount when the account changes to paper funds", async () => {
+  await render(); await type("40");
+  await act(async () => {
+    localStorage.setItem("orbie:trading-mode:owner@email", "paper");
+    window.dispatchEvent(new StorageEvent("storage", { key: "orbie:trading-mode:owner@email", newValue: "paper" }));
+  });
+  expect((container.querySelector("input#copy-amount") as HTMLInputElement).value).toBe("");
+  await type("80"); expect(cta().textContent).toBe("最低 $100 才能跟單");
+  expect(state.start).not.toHaveBeenCalled();
 });

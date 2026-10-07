@@ -2773,6 +2773,8 @@ export const en: Messages = {
     },
   },
   mode: {
+    unavailable: "Not enabled on this deployment",
+    busy: "Finish the current operation before switching mode",
     label: "Mode",
     paper: "Paper",
     testnet: "Testnet",

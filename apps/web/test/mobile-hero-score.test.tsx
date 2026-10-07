@@ -56,6 +56,9 @@ it("gives the phone trader header the shared scrim, readable title space and 44p
   const title = html.slice(html.indexOf("<h1"), html.indexOf("</h1>"));
   expect(title).toContain("flex-1");
   expect(title).not.toContain("absolute");
-  expect(html).toContain("[&amp;_button]:size-11");
+  expect(html).toContain("size-11 shrink-0");
   expect(html).not.toContain("[&amp;_button]:size-9");
 });
+
+vi.mock("../src/lib/site-mode", () => ({ useSiteMode: () => "paper" }));
+vi.mock("../src/lib/copy-live-portfolio", () => ({ useLiveCopyPortfolio: () => ({ data: undefined }) }));

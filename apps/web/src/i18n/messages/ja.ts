@@ -1717,6 +1717,8 @@ export const ja: Messages = {
     },
   },
   mode: {
+    unavailable: en.mode.unavailable,
+    busy: en.mode.busy,
     label: "モード",
     paper: "ペーパー",
     testnet: "テストネット",

@@ -151,8 +151,7 @@ function HomeContent({ home }: { home: { data: HomeBoardsResponse | undefined; i
             ))
           : null}
 
-      {/* The phone home ends with the last row (M-Home: no footer). */}
-      <SiteFooter className="hidden md:flex" />
+      <SiteFooter />
     </div>
   );
 }

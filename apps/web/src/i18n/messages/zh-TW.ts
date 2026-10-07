@@ -2777,6 +2777,8 @@ export const zhTW = {
     },
   },
   mode: {
+    unavailable: "此部署尚未啟用",
+    busy: "請先完成目前操作再切換模式",
     label: "模式",
     paper: "模擬",
     testnet: "測試網",

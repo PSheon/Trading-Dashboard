@@ -1,6 +1,6 @@
 "use client";
 
-import { Briefcase, ChevronDown, Globe, LogOut, Moon, Settings, ShieldCheck, Sun } from "lucide-react";
+import { Briefcase, Check, ChevronDown, Globe, LogOut, Moon, Settings, ShieldCheck, Sun } from "lucide-react";
 import { cn } from "cn";
 import { Link } from "@/i18n/navigation";
 
@@ -13,6 +13,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -23,6 +25,8 @@ import { API_FIXTURES } from "@/lib/config";
 import { LanguageMenu } from "./language-menu";
 import { ThemeToggle } from "./theme-toggle";
 import { useTheme } from "@/lib/use-theme";
+import { useCopyOverview } from "@/lib/copy";
+import { useTradingMode, type SiteMode } from "@/lib/site-mode";
 import { useWallet } from "@/lib/wallet";
 import { useLogout } from "@/lib/use-logout";
 import { OrbitSpinner } from "@/components/ui/orbit-spinner";
@@ -111,6 +115,8 @@ function Initial({ label }: { label: string }) {
 function AccountMenu({ children }: { children?: React.ReactNode }) {
   const { t } = useI18n();
   const { identity } = useAuth();
+  const trading = useTradingMode();
+  const mutating = trading.pending;
   const { logout, pending: leaving } = useLogout();
   const { data: me } = useMe();
   const isAdmin = useIsAdmin();
@@ -126,6 +132,7 @@ function AccountMenu({ children }: { children?: React.ReactNode }) {
           className="orbit-press flex h-11 shrink-0 items-center gap-2 rounded-full p-0.5 font-extrabold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-raised-hover"
         >
           <Initial label={label} />
+          <span className="pr-1 text-xs font-extrabold" data-mode={trading.mode}>{t(`mode.${trading.mode}`)}</span>
           {children}
         </button>
       </DropdownMenuTrigger>
@@ -136,6 +143,22 @@ function AccountMenu({ children }: { children?: React.ReactNode }) {
             {me?.email || identity || label}
           </span>
         </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel>{t("mode.label")}</DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={trading.mode} onValueChange={(value) => {
+          trading.select(value as SiteMode);
+        }}>
+          {(["live", "testnet", "paper"] as const).map(mode => (
+            <DropdownMenuRadioItem key={mode} value={mode} disabled={mutating > 0 || !trading.supports(mode)} className="min-h-11">
+              <span className="flex-1">
+                <span className="block">{t(`mode.${mode}`)}</span>
+                {!trading.supports(mode) ? <span className="block text-xs font-normal">{t("mode.unavailable")}</span> : null}
+              </span>
+              {trading.mode === mode ? <Check className="size-4" aria-hidden /> : null}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+        {mutating > 0 ? <p role="status" className="px-3 py-2 text-xs text-muted-foreground">{t("mode.busy")}</p> : null}
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
           <Link href="/portfolio">
@@ -177,17 +200,20 @@ function AccountMenu({ children }: { children?: React.ReactNode }) {
  * account's /me/wallet total and this network's copies (shown from 1024px). */
 function AccountPill() {
   const { t, format } = useI18n();
+  const trading = useTradingMode();
+  const paper = useCopyOverview();
   const wallet = useWallet();
+  const total = trading.mode === "paper" ? paper.data?.paper.totalValue : trading.available && wallet.data && wallet.data.network === trading.deploymentNetwork ? wallet.data.totalValue : undefined;
   const inCopies = useCopiesEquity();
   const { openDeposit } = useWalletModals();
   return (
     <div className="flex h-[52px] items-center gap-1 rounded-[26px] bg-raised p-1">
-      <CopyEquityProbes />
+      {trading.mode !== "paper" && trading.available ? <CopyEquityProbes /> : null}
       <AccountMenu>
         <span className="hidden items-center gap-1.5 pr-1 lg:flex">
-          {wallet.data ? (
-            <span className="num font-display text-[15px]" data-testid="account-total">{format.usd(wallet.data.totalValue + inCopies, { digits: 2 })}</span>
-          ) : wallet.isError ? (
+          {total != null ? (
+            <span className="num font-display text-[15px]" data-testid="account-total">{format.usd(total + (trading.mode === "paper" ? 0 : inCopies), { digits: 2 })}</span>
+          ) : !trading.available || (trading.mode === "paper" ? paper.isError : wallet.isError) ? (
             <span className="text-sm text-muted-foreground">—</span>
           ) : (
             <Skeleton className="h-4 w-16" />
@@ -195,9 +221,9 @@ function AccountPill() {
           <ChevronDown className="size-4 text-muted-foreground" strokeWidth={2.4} aria-hidden />
         </span>
       </AccountMenu>
-      <Button onClick={openDeposit}>
+      {trading.mode !== "paper" && trading.available ? <Button onClick={openDeposit}>
         {t("portfolio.deposit")}
-      </Button>
+      </Button> : null}
     </div>
   );
 }

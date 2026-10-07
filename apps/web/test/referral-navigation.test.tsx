@@ -111,3 +111,5 @@ it("phone settings root is an ordinary page with back navigation, 44px rows and 
   for(const key of ['settings.menu.account','settings.notifications','settings.language','settings.history','referral.title','theme.label','settings.feedbackTitle','settings.privacy','settings.terms','settings.logout','deleteAccount.title']) expect(phone).toContain(key);
   expect(phone.indexOf('settings.logout')).toBeLessThan(phone.indexOf('deleteAccount.title'));
 });
+
+vi.mock("@/components/shell/account-controls", () => ({ AuthButton: () => null }));

@@ -1,7 +1,7 @@
 "use client";
 
 import type { PortfolioResponse, TraderAnalyticsResponse, TraderFill, TraderProfileResponse, TraderWindow } from "@/lib/contracts";
-import { ArrowLeft, X } from "lucide-react";
+import { ArrowLeft, MoreHorizontal, X } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { cn } from "cn";
@@ -26,6 +26,10 @@ import { SectionBoundary } from "@/components/section-boundary";
 import { CopyPanel } from "./copy-panel";
 import { ShareButton } from "./share-dialog";
 import { ActivityTabs } from "./activity-tabs";
+import { AuthButton } from "@/components/shell/account-controls";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useSiteMode } from "@/lib/site-mode";
+import { useLiveCopyPortfolio } from "@/lib/copy-live-portfolio";
 import { useAuth } from "@/lib/auth";
 import { useCopyOf } from "@/lib/copy";
 import { signedPctCd, WINDOWS } from "./performance";
@@ -50,15 +54,19 @@ function TopBar({ profile }: { profile: TraderProfileResponse }) {
       <h1 className="min-w-0 flex-1 truncate text-center font-display text-lg leading-6" title={profile.address}>
         {profile.kol ? profile.displayName?.trim() || truncateAddress(profile.address) : truncateAddress(profile.address)}
       </h1>
-      <span className="flex shrink-0 items-center gap-1.5 [&_button]:size-11 [&_button]:rounded-full [&_button]:bg-raised [&_button]:text-foreground [&_svg]:size-[18px]">
-        <FavoriteButton address={profile.address} favorite={profile.favorite} size="sm" />
-        <AlertBell address={profile.address} history />
-        <ShareButton
-          address={profile.address}
-          name={shareName({ address: profile.address, displayName: profile.displayName, kol: profile.kol })}
-          icon="external"
-        />
-      </span>
+      <Popover>
+        <PopoverTrigger asChild>
+          <button type="button" aria-label={t("trader.copy.more")} className="orbit-press flex size-11 shrink-0 items-center justify-center rounded-full bg-raised outline-none focus-visible:ring-2 focus-visible:ring-ring"><MoreHorizontal className="size-5" /></button>
+        </PopoverTrigger>
+        <PopoverContent className="w-auto">
+          <div className="flex items-center gap-3 [&_button]:size-11 [&_button]:rounded-full [&_button]:bg-raised">
+            <FavoriteButton address={profile.address} favorite={profile.favorite} size="sm" />
+            <AlertBell address={profile.address} history />
+            <ShareButton address={profile.address} name={shareName({ address: profile.address, displayName: profile.displayName, kol: profile.kol })} icon="external" />
+          </div>
+        </PopoverContent>
+      </Popover>
+      <AuthButton compact />
     </header>
   );
 }
@@ -122,7 +130,10 @@ export function MobileTrader({
   const snapshots = useChartSnapshots(profile.address, window);
   const sheetRef = useModalFocus<HTMLDivElement>(sheet, () => setSheet(false));
   const { status: authStatus, login } = useAuth();
-  const copying = useCopyOf(profile.address) !== undefined;
+  const paperCopy = useCopyOf(profile.address);
+  const tradingMode = useSiteMode();
+  const actualCopies = useLiveCopyPortfolio();
+  const copying = tradingMode === "paper" ? paperCopy !== undefined : Boolean(actualCopies.data?.items.some(item => item.leaderAddress === profile.address.toLowerCase() && item.status !== "stopped" && item.network === (tradingMode === "live" ? "mainnet" : "testnet")));
   const trades = useTraderAnalytics(profile.address, "all");
   const tradesWait = useAnalyticsPatience(trades);
   const analytics = trades.data as TraderAnalyticsResponse | undefined;

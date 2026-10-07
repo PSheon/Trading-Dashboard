@@ -1717,6 +1717,8 @@ export const vi: Messages = {
     },
   },
   mode: {
+    unavailable: en.mode.unavailable,
+    busy: en.mode.busy,
     label: "Chế độ",
     paper: "Mô phỏng",
     testnet: "Testnet",

@@ -37,7 +37,7 @@ vi.mock("../src/lib/queries", () => ({ useSiteSettings: () => ({ data: { copyTra
 
 const leader = `0x${"ab".repeat(20)}`;
 const zh = liveSetupMessages["zh-TW"];
-const item = (extra: object) => ({ strategyId: 7, leaderAddress: leader, sourceNetwork: "mainnet", budgetUsd: "150", status: "paused", stage: "setup", createdAt: new Date().toISOString(),
+const item = (extra: object) => ({ strategyId: 7, network: (state.deployment as { network: string }).network, leaderAddress: leader, sourceNetwork: "mainnet", budgetUsd: "150", status: "paused", stage: "setup", createdAt: new Date().toISOString(),
   accountId: "acct", accountAddress: `0x${"22".repeat(20)}`, mandate: null, stop: null, pendingTransfer: null, lastRefusal: null, ...extra });
 const setupOf = (stage: string, extra: object = {}) => ({ id: "0b0a6a3e-2f6b-4b7a-9a65-6b7c9f1e2d3c", kind: "start", stage, issue: null, signer: null, consent: null, ...extra });
 
@@ -115,7 +115,7 @@ it("a slow start shows it is preparing for the whole request, and the confirm sh
   expect(cta().textContent).toContain(zh.preparing);
   const consent = { kind: "start", masterPolicyId: "policy", consentExpiresAt: Date.now() + 300_000, nonce: Date.now(), leaderAddress: leader, budgetUsd: "150", agentValidUntil: Date.now() + 30 * 86_400_000,
     builderAddress: null, builderMaxFeeTenthsOfBps: 0 };
-  await act(async () => { answer({ ...setupOf("awaiting_consent", { consent }), strategyId: 7, leaderAddress: leader, budgetUsd: "150", settings: { direction: "same", sizingMode: "ratio", perTradeUsd: null, maxTotalExposureUsd: null, maxLeverage: null, copyStartMode: "delta" } }); });
+  await act(async () => { answer({ ...setupOf("awaiting_consent", { consent }), strategyId: 7, network: (state.deployment as { network: string }).network, leaderAddress: leader, budgetUsd: "150", settings: { direction: "same", sizingMode: "ratio", perTradeUsd: null, maxTotalExposureUsd: null, maxLeverage: null, copyStartMode: "delta" } }); });
   expect(document.body.textContent).toContain(zh.confirmTitle);
   expect(cta().textContent).not.toContain(zh.preparing);
 });
@@ -157,8 +157,8 @@ it("正式 with an empty main wallet offers 儲值 (the deposit dialog), not a d
   await act(async () => cta.click());
   expect(deposit).toHaveBeenCalledTimes(1);
   expect(container.querySelector('[data-testid="copy-available"]')!.textContent).toBe("可用 0 USDC（主錢包）");
-  // The mode toggle stays at the top of the sheet while its body scrolls.
-  const sticky = container.querySelector('[data-testid="copy-sheet-mode"]')!;
+  // The direction controls stay at the top of the sheet while its body scrolls.
+  const sticky = container.querySelector('[data-testid="copy-sheet-direction"]')!;
   expect(sticky.className).toContain("sticky");
   expect(sticky.className).toContain("pt-1");
   expect(sticky.className).toContain("-mx-5");

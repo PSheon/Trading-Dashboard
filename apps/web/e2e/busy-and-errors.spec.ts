@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { expectNoSidewaysScroll, shot } from "./helpers";
+import { expectNoSidewaysScroll, selectTradingMode, shot } from "./helpers";
 
 /**
  * Stream 21 (Paul, 2026-10-06), against the fixture api, in zh-TW at 1440
@@ -32,12 +32,12 @@ async function testnetPanel(page: Page, width: number, flags: string) {
   await page.goto(`/zh-TW/portfolio?signer=fixture&wallet=funded&${flags}`);
   await login(page);
   await page.goto(`/zh-TW/trader/${LEADER}?signer=fixture&wallet=funded&${flags}`);
+  await selectTradingMode(page, "testnet", "zh-TW");
   let panel = page.locator("body");
   if (width < 768) {
     await action(page, "跟單").click();
     panel = page.getByRole("dialog", { name: "跟單", exact: true });
   }
-  await panel.getByRole("radiogroup", { name: "跟單模式" }).filter({ visible: true }).getByRole("radio", { name: "測試網" }).click();
   if (width < 768) for (const key of ["1", "5", "0"]) await panel.getByRole("button", { name: key, exact: true }).click();
   else await page.getByRole("textbox", { name: "跟單金額（USDC）" }).filter({ visible: true }).fill("150");
 }
@@ -103,6 +103,7 @@ for (const width of [1440, 390]) {
         await login(page);
         // A phone's Settings is a menu: 交易紀錄 opens the funds view.
         if (width < 768) await action(page, "交易紀錄").first().click();
+        await selectTradingMode(page, "testnet", "zh-TW");
         await action(page, "提款").first().click();
         const dialog = page.getByRole("dialog");
         const [destination, amount] = [dialog.locator("input").nth(0), dialog.locator("input").nth(1)];
@@ -155,8 +156,7 @@ test("an account switch in the same tab shows the new person none of the previou
   await page.getByRole("menuitem", { name: "登出" }).click();
   await page.evaluate(() => history.replaceState(null, "", `${location.pathname}${location.search}&as=second`));
   await login(page);
-  await expect(page.getByRole("radiogroup", { name: "跟單模式" }).filter({ visible: true })).toBeVisible({ timeout: 15000 });
-  await page.getByRole("radiogroup", { name: "跟單模式" }).filter({ visible: true }).getByRole("radio", { name: "測試網" }).click();
+  await selectTradingMode(page, "testnet", "zh-TW");
   await page.waitForTimeout(1500); // the portfolio poll has answered for the new person
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByTestId("live-copy-terms")).toHaveCount(0);

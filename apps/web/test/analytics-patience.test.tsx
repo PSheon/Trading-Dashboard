@@ -61,3 +61,6 @@ it("the 勝率 tile is a skeleton for at most 30 s of a busy api, then 「—」
   expect(spy).toHaveBeenCalledTimes(1);
   await act(async () => root.unmount());
 });
+
+vi.mock("../src/lib/site-mode", () => ({ useSiteMode: () => "paper" }));
+vi.mock("../src/lib/copy-live-portfolio", () => ({ useLiveCopyPortfolio: () => ({ data: undefined }) }));

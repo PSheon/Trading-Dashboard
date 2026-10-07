@@ -1717,6 +1717,8 @@ export const id: Messages = {
     },
   },
   mode: {
+    unavailable: en.mode.unavailable,
+    busy: en.mode.busy,
     label: "Mode",
     paper: "Simulasi",
     testnet: "Testnet",

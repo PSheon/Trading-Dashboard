@@ -2,7 +2,7 @@
 
 import { ChevronDown, ChartPie, Share2, UserPlus, X } from "lucide-react";
 import { Link } from "@/i18n/navigation";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { cn } from "cn";
 
 import { AreaChart } from "@/components/charts/area-chart";
@@ -11,6 +11,7 @@ import { ListRowsSkeleton, SkelBar, Skeleton } from "@/components/page";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { RoiPill } from "@/components/traders/bits";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { TablePager, usePaged } from "@/components/ui/table-pager";
 import { TradeShareDialog, copyCardSource, type TradeCardSource } from "@/components/trader/trade-share-dialog";
 import { useI18n } from "@/i18n/provider";
@@ -358,6 +359,7 @@ function Bar({ parts }: { parts: Array<[number, string]> }) {
 export function ExposurePanel({ overview, leaders, desktop }: { overview: CopyOverview; leaders: Map<string, Leader>; desktop: boolean }) {
   const { t, format } = useI18n();
   const [open, setOpen] = useState<Set<string>>(new Set());
+  const uid = useId();
   const e = exposure(overview.strategies);
   const assets = usePaged(e?.assets ?? []);
   if (!e) return <p role="status" className="py-8 text-center text-sm text-muted-foreground">{t("copyUpdates.exposureUnknown")}</p>;
@@ -397,12 +399,13 @@ export function ExposurePanel({ overview, leaders, desktop }: { overview: CopyOv
         {assets.rows.map((a) => {
           const share = e.gross > 0 ? a.grossNotional / e.gross : 0;
           const expanded = open.has(a.coin);
+          const linesId = `${uid}-lines-${a.coin.replace(/[^\w-]/g, "_")}`;
           return (
             <li key={a.coin}>
-              <button
-                type="button"
-                aria-expanded={expanded}
-                onClick={() => setOpen((cur) => { const next = new Set(cur); if (next.has(a.coin)) next.delete(a.coin); else next.add(a.coin); return next; })}
+              <CollapsibleTrigger
+                open={expanded}
+                controls={linesId}
+                onOpenChange={(next) => setOpen((cur) => { const set = new Set(cur); if (next) set.add(a.coin); else set.delete(a.coin); return set; })}
                 className="flex w-full items-center gap-3 py-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <CoinIcon coin={a.coin} size={30} />
@@ -425,8 +428,9 @@ export function ExposurePanel({ overview, leaders, desktop }: { overview: CopyOv
                   <span className={cn("num text-xs", tone(a.pnl))}>{format.usd(a.pnl, { sign: true, digits: 2 })}</span>
                 </span>
                 <ChevronDown className={cn("size-4 shrink-0 text-muted-foreground transition-transform", expanded && "rotate-180")} />
-              </button>
-              {expanded ? (
+              </CollapsibleTrigger>
+              {/* The coin's copies open with their height, not a jump. */}
+              <Collapsible open={expanded} id={linesId}>
                 <ul className="mb-2 rounded-xl bg-raised/40 px-3">
                   {a.lines.map((l) => {
                     const leader = leaderOf(leaders, l.leaderAddress);
@@ -448,7 +452,7 @@ export function ExposurePanel({ overview, leaders, desktop }: { overview: CopyOv
                     );
                   })}
                 </ul>
-              ) : null}
+              </Collapsible>
             </li>
           );
         })}

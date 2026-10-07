@@ -1,5 +1,6 @@
 "use client";
 
+import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Select } from "@/components/ui/select";
 import type { PnlTier, SizeTier, TraderAnalyticsResponse, TraderProfileResponse } from "@/lib/contracts";
 import {
@@ -127,11 +128,10 @@ function AccountValue({ profile }: { profile: TraderProfileResponse }) {
   }
   return (
     <div className="mx-4 mt-4 rounded-xl bg-inset px-4 py-3.5">
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-controls="account-value-parts"
-        onClick={() => setOpen((v) => !v)}
+      <CollapsibleTrigger
+        open={open}
+        controls="account-value-parts"
+        onOpenChange={setOpen}
         className="w-full rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <span className="mb-1 block text-[13px] font-bold text-muted-foreground">{t("trader.accountValue")}</span>
@@ -139,23 +139,22 @@ function AccountValue({ profile }: { profile: TraderProfileResponse }) {
           {value}
           <ChevronDown aria-hidden className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
         </span>
-      </button>
+      </CollapsibleTrigger>
       {note ? (
         <p role="status" className="mt-1.5 text-[11px] leading-4 text-warning" data-testid="account-value-partial">
           {note}
         </p>
       ) : null}
-      {open ? (
-        <div id="account-value-parts" className="mt-3">
-          <Row label={t("trader.accountPerp")}>
-            <span data-testid="perp-equity">{format.usd(profile.perpEquity, { digits: 2 })}</span>
-          </Row>
-          <Row label={t("trader.accountSpot")}>
-            <span data-testid="spot-value">{format.usd(freeSpot(profile), { digits: 2 })}</span>
-          </Row>
-          <Row label={t("trader.accountStaked")}>{format.usd(profile.stakedValue, { digits: 2 })}</Row>
-        </div>
-      ) : null}
+      {/* Opens with its height (audit §十二 #2), not a jump. */}
+      <Collapsible open={open} id="account-value-parts" className="pt-3">
+        <Row label={t("trader.accountPerp")}>
+          <span data-testid="perp-equity">{format.usd(profile.perpEquity, { digits: 2 })}</span>
+        </Row>
+        <Row label={t("trader.accountSpot")}>
+          <span data-testid="spot-value">{format.usd(freeSpot(profile), { digits: 2 })}</span>
+        </Row>
+        <Row label={t("trader.accountStaked")}>{format.usd(profile.stakedValue, { digits: 2 })}</Row>
+      </Collapsible>
     </div>
   );
 }

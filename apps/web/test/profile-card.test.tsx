@@ -25,7 +25,9 @@ it("does not describe an analytics outage as an unwatched trader or empty coin h
 
 it("keeps CopyDog's rows only: no badges, account breakdown, snapshot sources or extra overview rows", () => {
   const html = renderToStaticMarkup(<I18nProvider locale="zh-TW" messages={zhTW}><ProfileCard profile={base()} allTimeVolume={13_432_038.45} trades={undefined} tradesComputing={false} /></I18nProvider>);
-  for (const gone of ["最後交易", "即時", "統一帳戶", "帳戶快照", "以永續權益計算", "可提領", "持倉數", "複製評分", "perp-equity"]) expect(html).not.toContain(gone);
+  for (const gone of ["最後交易", "即時", "統一帳戶", "帳戶快照", "以永續權益計算", "可提領", "持倉數", "複製評分"]) expect(html).not.toContain(gone);
+  // The breakdown is mounted (it animates open) but closed: inert and hidden.
+  expect(html).toMatch(/id="account-value-parts" class="collapse-panel" data-open="false" inert="" aria-hidden="true"/);
   const scored = renderToStaticMarkup(<I18nProvider locale="zh-TW" messages={zhTW}><ProfileCard profile={base()} allTimeVolume={null} trades={undefined} tradesComputing={false} copyScore={94} /></I18nProvider>);
   expect(scored).toContain("複製評分");
   expect(scored).toContain(">94<");
@@ -85,4 +87,23 @@ it("shows the known parts of an account value and names what is missing (audit A
   expect(unified).not.toContain("Not included");
   const complete = renderToStaticMarkup(<I18nProvider locale="en" messages={en}><ProfileCard profile={{ ...partial, unavailableParts: null }} allTimeVolume={null} trades={undefined} tradesComputing={false} /></I18nProvider>);
   expect(complete).not.toContain("Not included");
+});
+
+it("keeps the account value's parts mounted and inert while closed, so they open with their height (audit §十二 #2)", async () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  try {
+    await act(async () => { root.render(<I18nProvider locale="zh-TW" messages={zhTW}><ProfileCard profile={base()} allTimeVolume={null} trades={undefined} tradesComputing={false} /></I18nProvider>); });
+    const toggle = container.querySelector<HTMLButtonElement>('button[aria-controls="account-value-parts"]')!;
+    const parts = container.querySelector<HTMLElement>("#account-value-parts")!;
+    expect(parts).not.toBeNull();
+    expect(parts.className).toBe("collapse-panel");
+    expect(parts.hasAttribute("inert")).toBe(true);
+    expect(parts.getAttribute("aria-hidden")).toBe("true");
+    await act(async () => { toggle.click(); });
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(parts.dataset.open).toBe("true");
+    expect(parts.hasAttribute("inert")).toBe(false);
+  } finally { await act(async () => root.unmount()); }
 });

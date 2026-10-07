@@ -162,3 +162,12 @@
 - 帳號選單設定入口可見、Escape關閉；搜尋自動焦點與Escape通過；探索捲動250px scrim opacity1、header y0；1440×900手機header隱藏、桌機無溢出。帳號選單最初誤定位dialog/link而逾時，實際為menu/menuitem，修正測試定位後通過。
 - 截圖 `/private/tmp/codex-trading-ui/main-header-stage-*.png`：修改前後、三頁390／320、1440與捲動漸層。圖片預覽工具有時漏顯示頁首，誤以為是瀏覽器繪製問題；直接讀原始PNG與在瀏覽器canvas解碼，修改後所有完整截圖品牌區橘色像素均216、修改前0，頁首元素截圖也完整。臨時transform／isolation／blur／will-change診斷均還原，沒有因預覽問題修改產品程式。
 - 本機已恢復一般web3000；api3100 `/health/ready` ready true，worker3010 `/health` feedConnected true。共享瀏覽器維持Stage登入、390px探索頁，未送出交易／簽名或變更跟單。保留他人review-tracker與STRATEGY。
+
+### 全域模式選單與手機 footer 已發布
+
+- Paul要求先實作並部署的兩項完成，採[分析文件](global-trading-mode-analysis-2026-10-07.md)路線A；[實作與驗證證據](global-mode-implementation-2026-10-07.md)。全站共用per-user模式，紙上資金／正式資金分離、mutation期間鎖定模式；手機交易員／設定有帳戶入口，六類頁面有footer且不被浮動控制遮擋。
+- 程式 `a176d5b7`、[CI 37642993754全綠](https://github.com/PSheon/Trading-Dashboard/actions/runs/37642993754)：181檔1,165單元、完整型別與lint、三組browser通過。修正測試的舊模式入口／語言選擇器、fixture network、hydration／頁高／Radix鍵盤競速；browser2安裝Chromium耗時超時後單組重跑成功。
+- 部署前Stage備份29,514,335 bytes、600，PG18目錄714行；路徑 `/private/tmp/codex-trading-stage-before-global-mode-a176d5b7.dump`，SHA256 `9ccc604cea187c7c2fb25b1010057c8cc15fb2f59b1385abe1dcd4da0de20fb6`。
+- git archive乾淨版僅發布web，deployment `47b00102-b86e-4adc-ac11-67bcac25c518`確認SUCCESS。Stage Paul帳號320／390／1440、模式跨頁、手機六頁footer、跟單抽屜開關、正式儲值唯讀視窗均通過，截圖目視；API健康正常。Stage正式＋模擬可選，測試網顯示此部署尚未啟用。
+- 恢復正式偏好、390px探索頁，保持登入；沒有轉帳、策略變更或主網簽署。本機3000／3100／3010服務未重啟。
+- 受控testnet交易員現有170測試USDC／無持倉；B段的資金前置條件已滿足、仍未執行，主網每次簽署須當下授權的規則不變。

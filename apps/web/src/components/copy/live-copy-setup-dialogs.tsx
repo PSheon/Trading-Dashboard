@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
 import { copyErrorMessages } from "@/i18n/copy-errors";
 import { useI18n } from "@/i18n/provider";
-import { fill, liveSetupText, type LiveSetupText } from "@/i18n/live-setup";
+import { fill, liveSetupMessages, liveSetupText, type LiveSetupText } from "@/i18n/live-setup";
 import { Link } from "@/i18n/navigation";
 import { copyCodeText, copyErrorText, type CopyTexts } from "@/lib/copy-error-text";
 import { setupTerminal, useLiveCopyDeployment, useLiveCopySetup, useLiveCopySetupActions } from "@/lib/copy-live-setup";
@@ -51,7 +51,14 @@ const QUIET_ISSUES = new Set(["awaiting_credit", "funding_not_submitted"]);
 export function confirmTraderLine(address: string, name?: string | null): string {
   const short = truncateAddress(address), own = name?.trim();
   if (!own || own === short || own.toLowerCase() === address.toLowerCase()) return short;
-  return `${own} · ${short}`;
+  // A named trader is their name: no address on the sheet (audit 2026-10-07).
+  return own;
+}
+
+/** The sheet's sentences joined with the language's own full stop (。 in Chinese and Japanese). */
+export function joinSentences(locale: string, parts: string[]): string {
+  const wide = /^(zh|ja)/.test(locale);
+  return parts.map(p => p.trim()).filter(Boolean).map(p => /[。．.!?！？]$/.test(p) ? p : `${p}${wide ? "。" : "."}`).join(wide ? "" : " ");
 }
 
 /**
@@ -64,7 +71,8 @@ export function LiveCopyConfirm({ setup, traderName, open, onOpenChange, onConfi
   /** What confirm is waiting for, said calmly while the button spins. */
   note?: string | null;
 }) {
-  const text = useLiveSetupText(), { format } = useI18n();
+  const text = useLiveSetupText(), { format, locale } = useI18n();
+  const en = liveSetupMessages.en;
   const consent = setup?.consent ?? null, settings = setup?.settings;
   const title = setup?.kind === "edit" ? text.editTitle : setup?.kind === "renewal" ? text.renewTitle : text.confirmTitle;
   const rows: [string, string][] = consent && settings ? [
@@ -76,7 +84,9 @@ export function LiveCopyConfirm({ setup, traderName, open, onOpenChange, onConfi
     [text.maxExposure, settings.maxTotalExposureUsd === null ? text.unlimited : `${format.num(settings.maxTotalExposureUsd, 2)} USDC`],
     [text.network, text.networkValue],
     [text.agentExpiry, format.dateTime(new Date(consent.agentValidUntil).toISOString())],
-    [text.builderFee, consent.builderAddress && consent.builderMaxFeeTenthsOfBps > 0 ? `${(consent.builderMaxFeeTenthsOfBps / 1000).toFixed(3)}% · ${truncateAddress(consent.builderAddress)}` : text.builderNone],
+    // What is charged, in plain words: Orbie's fee cap (none on a live copy) and Hyperliquid's own fees.
+    [text.fees ?? en.fees!, consent.builderAddress && consent.builderMaxFeeTenthsOfBps > 0
+      ? fill(text.feesBuilder ?? en.feesBuilder!, { pct: `${(consent.builderMaxFeeTenthsOfBps / 1000).toFixed(3)}%` }) : text.feesNone ?? en.feesNone!],
     [text.onStop, consent.masterPolicyId ? text.onStopAuto : text.onStopManual],
   ] : [];
   return (
@@ -92,7 +102,7 @@ export function LiveCopyConfirm({ setup, traderName, open, onOpenChange, onConfi
             ))}
           </dl>
         ) : <p className="text-sm text-muted-foreground">{text.preparing}</p>}
-        <p className="text-xs leading-5 text-muted-foreground">{text.testnetNote} {text.deadline}. {text.signNote}</p>
+        <p className="text-xs leading-5 text-muted-foreground">{joinSentences(locale, [text.testnetNote, text.deadline, text.signNote])}</p>
         {error ? <p role="alert" className="flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning"><TriangleAlert className="mt-px size-3.5 shrink-0" />{error}</p> : null}
         {pending && note ? <p role="status" className="text-xs leading-5 text-muted-foreground">{note}</p> : null}
         <div className="flex flex-col gap-2.5">

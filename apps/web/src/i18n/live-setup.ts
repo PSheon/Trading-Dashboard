@@ -26,6 +26,8 @@ export interface LiveSetupText {
   wallets: string; walletsHint: string; walletsEmpty: string; exportKey: string; revoke: string; revoked: string; devMoved: string; automaticReturnOn: string;
   /** A copy of another network than this deployment's: history only (no action runs on it here). */
   otherNetwork?: string;
+  /** The confirm sheet's 費用 row: what is charged, in plain words (no fee from Orbie, or its cap; Hyperliquid's own 1 USDC fees). Falls back to English. */
+  fees?: string; feesNone?: string; feesBuilder?: string;
 }
 
 const en: LiveSetupText = {
@@ -52,6 +54,8 @@ const en: LiveSetupText = {
   wallets: 'Copy wallets', walletsHint: 'A wallet made for each testnet copy, owned by you alone.', walletsEmpty: 'No copy wallets yet.', exportKey: 'Export private key', revoke: 'Revoke', revoked: 'Revoked',
   devMoved: 'The step-by-step setup forms moved to the developer tools.', automaticReturnOn: 'Automatic return on',
   otherNetwork: 'A copy from an earlier network: kept for your records. Nothing runs on it here.',
+  fees: 'Fees', feesNone: 'Orbie charges nothing. Hyperliquid charges a 1 USDC account activation fee on the first deposit, and 1 USDC for each withdrawal from Hyperliquid.',
+  feesBuilder: 'Orbie charges at most {pct} of each trade. Hyperliquid charges a 1 USDC account activation fee on the first deposit, and 1 USDC for each withdrawal from Hyperliquid.',
 };
 const zhTW: LiveSetupText = {
   mode: '跟單模式', paper: '模擬', testnet: '測試網', testnetBalance: '主錢包（測試網）', testnetNote: '使用 Hyperliquid 測試網資金，不涉及真實資產。',
@@ -76,9 +80,13 @@ const zhTW: LiveSetupText = {
   wallets: '跟單錢包', walletsHint: '為每個測試網跟單建立的錢包，只有你擁有。', walletsEmpty: '尚無跟單錢包。', exportKey: '匯出私鑰', revoke: '撤銷', revoked: '已撤銷',
   devMoved: '逐步設定表單已移至開發工具。', automaticReturnOn: '已開啟自動返還',
   otherNetwork: '先前網路的跟單：僅保留紀錄，這裡不會再執行任何操作。',
+  fees: '費用', feesNone: 'Orbie 不收取費用。首次入金時，Hyperliquid 收取 1 USDC 帳戶啟用費；每次從 Hyperliquid 提款，收取 1 USDC 手續費。',
+  feesBuilder: 'Orbie 每筆交易最多收取 {pct}。首次入金時，Hyperliquid 收取 1 USDC 帳戶啟用費；每次從 Hyperliquid 提款，收取 1 USDC 手續費。',
 };
 const zhCN: LiveSetupText = {
   ...zhTW,
+  fees: '费用', feesNone: 'Orbie 不收取费用。首次入金时，Hyperliquid 收取 1 USDC 账户激活费；每次从 Hyperliquid 提款，收取 1 USDC 手续费。',
+  feesBuilder: 'Orbie 每笔交易最多收取 {pct}。首次入金时，Hyperliquid 收取 1 USDC 账户激活费；每次从 Hyperliquid 提款，收取 1 USDC 手续费。',
   mode: '跟单模式', paper: '模拟', testnet: '测试网', testnetBalance: '主钱包（测试网）', testnetNote: '使用 Hyperliquid 测试网资金，不涉及真实资产。', adoptDisabled: '测试网只跟新交易，不复制当前持仓。',
   sizing: '跟单方式', ratio: '等比例', fixed: '固定金额', perTrade: '每笔金额（USDC）', maxExposure: '最大敞口（USDC）', maxLeverage: '最大杠杆', unlimited: '不限',
   copying: '跟单中 · 测试网', manage: '管理', preparing: '准备中…', confirmTitle: '确认跟单设置', editTitle: '确认新设置', renewTitle: '确认续期', trader: '交易员', budget: '预算', direction: '方向',

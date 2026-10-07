@@ -39,6 +39,18 @@ it('shows a trader with no name once: the page passes the short address as the n
   expect(await traderLine(shareName({ address: leader }))).toBe('0xe066…78da');
 });
 
-it('keeps a real name beside the short address', async () => {
-  expect(await traderLine('solanadoomer')).toBe('solanadoomer · 0xe066…78da');
+it('a named trader is their name alone: no address on the sheet (audit 2026-10-07 P1-11)', async () => {
+  expect(await traderLine('solanadoomer')).toBe('solanadoomer');
+});
+
+it('says what is charged in one 費用 row, no builder address, and ends its sentences with 。 (audit 2026-10-07 P1-11)', async () => {
+  await traderLine('solanadoomer');
+  const sheet = document.body.textContent!;
+  const terms = document.querySelector('[data-testid="live-copy-terms"]')!;
+  const fee = [...terms.querySelectorAll('div')].find(row => row.querySelector('dt')?.textContent === '費用')!;
+  expect(fee.querySelector('dd')!.textContent).toBe('Orbie 不收取費用。首次入金時，Hyperliquid 收取 1 USDC 帳戶啟用費；每次從 Hyperliquid 提款，收取 1 USDC 手續費。');
+  expect(sheet).not.toContain('建構者費用上限');
+  expect(sheet).not.toMatch(/0x[0-9a-f]{4}…/);
+  expect(sheet).toContain('設定會在 24 小時內完成。按下確認後');
+  expect(sheet).not.toContain('完成.');
 });

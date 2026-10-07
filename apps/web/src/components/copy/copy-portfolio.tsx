@@ -397,7 +397,7 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
       {orders.isError ? <p role="status" className="text-xs text-negative">{t("copyUpdates.historyError")} <TextButton busy={orders.isFetching} onClick={() => void orders.refetch()}>{t("copyUpdates.retry")}</TextButton></p> : null}
       <CopyAccountingHistory strategyId={s.id} />
       <StopDialog strategy={s} open={dialog === "stop"} onClose={() => setDialog(null)} />
-      <EditDialog strategy={s} balance={balance} open={dialog === "edit"} onClose={() => setDialog(null)} />
+      <EditDialog strategy={s} open={dialog === "edit"} onClose={() => setDialog(null)} />
       <FundsDialog strategy={s} balance={balance} open={dialog === "funds"} onClose={() => setDialog(null)} />
       <WithdrawDialog strategy={s} open={dialog === "withdraw"} onClose={() => setDialog(null)} />
       {card ? <TradeShareDialog source={card} onClose={() => setCard(null)} /> : null}
@@ -453,7 +453,7 @@ function AmountInput({ id, value, onChange, invalid }: { id: string; value: stri
 }
 
 /** CopyDog's 跟單交易設定: max allocation, and the amount per trade unless ratio. Saves a new version. */
-function EditDialog({ strategy: s, balance, open, onClose }: { strategy: CopyStrategyView; balance: number; open: boolean; onClose: () => void }) {
+function EditDialog({ strategy: s, open, onClose }: { strategy: CopyStrategyView; open: boolean; onClose: () => void }) {
   const { t, format } = useI18n();
   const patch = usePatchCopy();
   const toast = useToast();
@@ -477,7 +477,8 @@ function EditDialog({ strategy: s, balance, open, onClose }: { strategy: CopyStr
         <div className="flex flex-col gap-2">
           <label htmlFor="edit-max" className="flex justify-between text-sm font-semibold">
             {t("portfolio.copy.edit.maxAllocation")}
-            <span className="text-xs font-medium text-muted-foreground">{t("portfolio.copy.funds.available", { balance: format.num(balance, 2) })}</span>
+            {/* The cap on all its positions together; the copy's own money is said apart from it. */}
+            <span className="text-xs font-medium text-muted-foreground" data-testid="edit-budget">{t("portfolio.copy.edit.budget", { amount: format.num(s.allocated, 2) })}</span>
           </label>
           <AmountInput id="edit-max" value={maxAlloc} onChange={setMaxAlloc} invalid={!(max > 0)} />
         </div>

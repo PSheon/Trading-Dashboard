@@ -164,6 +164,14 @@ test("reconcile FAILS on a follower order no leg sent (a double send), but not o
 });
 
 import { SCENARIOS, parseScenarios, refusableCoin, termsFor } from "./lib.mjs";
+import * as harnessLib from './lib.mjs';
+
+test('scenario 8 has an explicit empty selection within Stage caps instead of crashing', () => {
+  const terms = { perTradeUsd: 12, maxPerTradeUsd: 15, minOrderUsd: 10 };
+  assert.equal(harnessLib.refusableMarket([{ name: 'ETH', szDecimals: 4, mid: 3000 }], terms, fixedOrderSize), null);
+  const selected = harnessLib.refusableMarket([{ name: 'LOT9', szDecimals: 0, mid: 9 }], terms, fixedOrderSize);
+  assert.deepEqual(selected, { coin: 'LOT9', szDecimals: 0, mid: 9, lotUsd: 9, terms });
+});
 test("scenarios: by name or number, deduplicated, base by default; unknown ones refused", () => {
   assert.deepEqual(parseScenarios(undefined), ["base"]);
   assert.deepEqual(parseScenarios("3,stop-open,6,7,8,9,14,3"), ["reduce-min", "stop-open", "close-then-stop", "worker-restart", "refused-open", "burst", "kill-switch"]);

@@ -147,6 +147,12 @@ export function parseScenarios(value) {
   return [...new Set(names)];
 }
 
+/** Scenario 8's selected market, or null when the deployment caps leave none. */
+export function refusableMarket(markets, terms, fixedOrderSize) {
+  const pick = refusableCoin(markets, terms, fixedOrderSize);
+  return pick ? { coin: pick.name, szDecimals: pick.szDecimals, mid: pick.mid, lotUsd: pick.mid / 10 ** pick.szDecimals, terms } : null;
+}
+
 /**
  * A perp whose fixed amount can't be sent (scenario 8): per-trade USD at the
  * coin's lot size falls under the exchange minimum, and the minimum's

@@ -392,7 +392,8 @@ try {
       const leaderScenario = ["base", "reduce-min", "burst", "refused-open"].includes(name) ? name : null;
       if (!leaderScenario) { check(`dry_run_${name}_planned`, null, `${SCENARIOS[name].about} (orchestrated live; no leader plan)`); continue; }
       const r = await node("leader.mjs", ["scenario", leaderScenario, "--dry-run", ...sizingArgs], { quiet: true });
-      check(`dry_run_${name}_planned`, r.code === 0, r.code === 0 ? r.lines.filter((l) => l.event === "trade_planned").map((l) => l.label).join(" → ") : r.err.trim().split("\n").at(-1));
+      const skipped = r.code === 0 && r.lines.some(l => l.event === "start" && l.skipped === true && l.reason === "no_refusable_market");
+      check(`dry_run_${name}_planned`, skipped ? null : r.code === 0, skipped ? "no testnet perp fits scenario 8 within the cap" : r.code === 0 ? r.lines.filter((l) => l.event === "trade_planned").map((l) => l.label).join(" → ") : r.err.trim().split("\n").at(-1));
     }
     await finish(checks.some((c) => c.ok === false) ? EXIT.failed : EXIT.green);
   }

@@ -27,7 +27,7 @@ const apiRequire = createRequire(resolve(import.meta.dirname, "../../apps/api/pa
 const load = (name) => import(pathToFileURL(apiRequire.resolve(name)).href);
 const { ExchangeClient, HttpTransport, InfoClient } = await load("@nktkas/hyperliquid");
 const { fixedOrderSize } = await import("./checks.mjs");
-const { refusableCoin } = await import("./lib.mjs");
+const { refusableMarket } = await import("./lib.mjs");
 const { privateKeyToAccount } = await load("viem/accounts");
 
 const ENV = resolve(import.meta.dirname, "../../.env.harness-leader.testnet.local");
@@ -58,9 +58,7 @@ async function refusable() {
   const [meta, mids] = await Promise.all([info.meta(), info.allMids()]);
   const markets = meta.universe.map((u) => ({ name: u.name, szDecimals: u.szDecimals, mid: Number(mids[u.name] ?? 0), delisted: Boolean(u.isDelisted) }));
   const terms = { perTradeUsd: Number(flag("per-trade", "12")), maxPerTradeUsd: Number(flag("max-per-trade", flag("per-trade", "12"))), minOrderUsd: 10 };
-  const pick = refusableCoin(markets, terms, fixedOrderSize);
-  if (!pick) throw new Error(`no testnet perp makes a ${terms.perTradeUsd} USD fixed open fall under the minimum within ${terms.maxPerTradeUsd}`);
-  return { coin: pick.name, szDecimals: pick.szDecimals, mid: pick.mid, lotUsd: pick.mid / 10 ** pick.szDecimals, terms };
+  return refusableMarket(markets, terms, fixedOrderSize);
 }
 async function position(coin) {
   const state = await info.clearinghouseState({ user: wallet.address });
@@ -121,6 +119,10 @@ if (command === "state") {
   const coin = flag("coin", "ETH"), gap = Number(flag("gap", "20")) * 1000;
   const reduce = (c, share, label) => async () => { const p = await position(c); return trade(c, { size: -p.szi * share, reduceOnly: true, label }); };
   const odd = name === "refused-open" ? await refusable() : null;
+  if (name === "refused-open" && !odd) {
+    log("start", { scenario: name, skipped: true, reason: "no_refusable_market" });
+    process.exit(0);
+  }
   /** Scenario legs: [label, run, pause after (ms)]. */
   const SCENARIO_LEGS = {
     // open → add → reduce half → close → flip (short) → close.

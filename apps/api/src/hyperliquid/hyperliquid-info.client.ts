@@ -141,9 +141,6 @@ export class HyperliquidInfoClient {
     // longer than that for its turn, and still has to run. A page load is
     // bounded by its own request's deadline (`caller`) instead.
     const queued = AbortSignal.any([this.jobs.signal, ...(caller ? [caller] : [])]);
-    await this.budgeter.acquire(weight, priority, rank, { known, signal: queued });
-    if (admission) { admission.admitted = true; admission.at = Date.now(); }
-    queued.throwIfAborted();
     // Shared per-IP window: page work may use all of it and waits briefly
     // when it is full; background work is capped below it so pages keep room.
     // A trade-analytics job (PAGE_RANK.analytics) goes to the background
@@ -153,6 +150,66 @@ export class HyperliquidInfoClient {
     const page = priority === "background" && rank !== undefined && rank <= PAGE_WORK_MAX_RANK;
     // Its own reads (a shared page read it joins stays the page's).
     const analytics = consumer === ANALYTICS_CONSUMER && !page;
+    // One analytics read at a time, in arrival order, before any budget is
+    // taken (a read waiting minutes for the lane holds no local tokens).
+    const done = analytics && priority === "background" ? await this.analyticsTurn(queued) : undefined;
+    try {
+      return await this.sendInfo<T>(body, weight, priority, rank, known, apiUrl, admission, queued, page, analytics, consumer);
+    } finally {
+      done?.();
+    }
+  }
+
+  /** The tail of this process's analytics reads (see `analyticsTurn`). */
+  private analyticsQueue: Promise<void> = Promise.resolve();
+
+  /**
+   * Waits until every trade-analytics read queued before this one has
+   * finished, and returns the release of this one's turn. Where the
+   * background lane holds one full list at a time (Stage), two cold
+   * computations racing for each freed slot let one of them take every
+   * slot while the other's read gave up (both woke at the same expiry, and
+   * the one that had just been served asked first). In order, each read
+   * waits for at most the charges ahead of it. Leaving the queue (abort)
+   * keeps the order of the rest.
+   */
+  private async analyticsTurn(signal: AbortSignal): Promise<() => void> {
+    let release!: () => void;
+    const mine = new Promise<void>((resolve) => { release = resolve; });
+    const ahead = this.analyticsQueue;
+    this.analyticsQueue = ahead.then(() => mine);
+    if (signal.aborted) { release(); throw signal.reason; }
+    let onAbort: (() => void) | undefined;
+    try {
+      await Promise.race([ahead, new Promise<never>((_, reject) => {
+        onAbort = () => reject(signal.reason);
+        signal.addEventListener("abort", onAbort, { once: true });
+      })]);
+    } catch (error) {
+      release();
+      throw error;
+    } finally {
+      if (onAbort) signal.removeEventListener("abort", onAbort);
+    }
+    return release;
+  }
+
+  private async sendInfo<T>(
+    body: HlInfoRequestBody,
+    weight: number,
+    priority: RequestPriority,
+    rank: number | undefined,
+    known: number | undefined,
+    apiUrl: string | undefined,
+    admission: { admitted: boolean; at?: number } | undefined,
+    queued: AbortSignal,
+    page: boolean,
+    analytics: boolean,
+    consumer: string,
+  ): Promise<T> {
+    await this.budgeter.acquire(weight, priority, rank, { known, signal: queued });
+    if (admission) { admission.admitted = true; admission.at = Date.now(); }
+    queued.throwIfAborted();
     // Snapshots and sweeps of watched leaders wait for room in the
     // background lane rather than fail at once (see fetchEssentialInfo).
     const essential = priority === "background" && !page && ESSENTIAL_LANE_CONSUMERS.has(consumer);

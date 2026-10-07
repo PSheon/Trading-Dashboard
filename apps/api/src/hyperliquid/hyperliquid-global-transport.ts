@@ -1,6 +1,6 @@
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {setTimeout as wait} from 'node:timers/promises';
-import {sharedRestRetryAfterMs} from './hyperliquid-capacity-error.js';
+import {REST_CHARGE_LIFETIME_MS,sharedRestRetryAfterMs} from './hyperliquid-capacity-error.js';
 import type {HyperliquidRestLane} from './hyperliquid-global-quota.js';
 import {PostgresHyperliquidQuota,type BoundHyperliquidQuota} from './postgres-hyperliquid-quota.js';
 import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from '../copy/live/postgres-live-risk-scope.js';
@@ -17,8 +17,16 @@ export const PAGE_CAPACITY_WAIT_MS=6_000;
  * the background lane (within the info client's 20 s request timeout). */
 export const ESSENTIAL_CAPACITY_WAIT_MS=15_000;
 /** Longest a trade-analytics read (a background job a page started, never
- * the page's own request) waits in all for room in the background lane. */
-export const ANALYTICS_CAPACITY_WAIT_MS=40_000;
+ * the page's own request) waits in all for room in the background lane: two
+ * charge lifetimes, so it outlasts the full page its own computation sent
+ * just before it and one more list of another process's background job.
+ * On Stage (lane 400, ~250 of the window held by live and page reads) the
+ * lane holds one full list (120) at a time: at 40 s a cold dense trader's
+ * second page could never wait out the first one's 65 s, the computation
+ * failed, and every retry of the page answered 503 busy (2026-10-07). The
+ * info client sends this process's analytics reads one at a time, so they
+ * don't race each other for that room. */
+export const ANALYTICS_CAPACITY_WAIT_MS=2*REST_CHARGE_LIFETIME_MS;
 const lists=new Set(['recentTrades','userFillsByTime','userFills','userTwapSliceFills','userTwapSliceFillsByTime','userFunding','userNonFundingLedgerUpdates']);
 /** An answered list call's settlement hook, by its response. */
 const listSettlements=new WeakMap<Response,(units:number)=>void>();

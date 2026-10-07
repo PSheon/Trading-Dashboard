@@ -18,7 +18,7 @@ import { CopyFundingRepository } from './copy-funding.repository.js';
 import { CopyFundingService, wire as fundingWire } from './copy-funding.service.js';
 import { liveCopySettingsDigest } from './copy-live-mandate-consent.js';
 import { CopyLiveMandateRepository } from './copy-live-mandate.repository.js';
-import { CopyLiveReturnRepository } from './copy-live-return.repository.js';
+import { builderOutcome, CopyLiveReturnRepository } from './copy-live-return.repository.js';
 import { CopyLiveSetupRepository, DRIVEN_STAGES, type SetupRow, type SetupStage } from './copy-live-setup.repository.js';
 import { CopyWalletRepository } from './copy-wallet.repository.js';
 import { CopyWalletService } from './copy-wallet.service.js';
@@ -647,10 +647,14 @@ export class CopyLiveSetupService {
     if (approval.state === 'rejected') throw new Fail('setup_builder_rejected');
     if (approval.state === 'unknown' || approval.state === 'accepted') {
       // Only a read: an unanswered one is looked at again on the next pass.
+      const readAt = this.now();
       const cap = await this.exchange.maxBuilderFee(intent.network, intent.accountAddress, intent.builderAddress).catch((error: unknown) => {
         this.logger.warn(`setup ${row.id} builder fee not read: ${safeErrorText(error)}`); return null;
       });
-      if (cap !== null && cap >= intent.builderMaxFeeTenthsOfBps) { await this.returns.finishBuilder(row.userId, approval.id, 'approved', digest({ cap, checkedAt: this.now() })); return this.move(row, 'builder_ready'); }
+      const outcome = cap === null ? null : builderOutcome(approval, cap, readAt);
+      if (outcome === 'approved') { await this.returns.finishBuilder(row.userId, approval.id, 'approved', digest({ cap, checkedAt: this.now() })); return this.move(row, 'builder_ready'); }
+      // Its nonce expired and the exchange shows no fee: it never executed.
+      if (outcome === 'rejected') { await this.returns.finishBuilder(row.userId, approval.id, 'rejected', digest({ reason: 'not_executed', cap, checkedAt: readAt })); throw new Fail('setup_builder_rejected'); }
       throw new Wait('builder_approval_pending', 3_000);
     }
     this.assertBeforeDeadline(row);

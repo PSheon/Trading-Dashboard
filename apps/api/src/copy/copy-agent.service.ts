@@ -11,6 +11,7 @@ import { AgentProvisioningConflict, USER_AGENT_PROVISIONER, type UserAgentProvis
 import { LiveBoundaryError } from "./live/wallet-authorization.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
 import { deploymentNetwork } from "./live-deployment.js";
+import { FUNDING_NONCE_EXPIRY_MS } from "./copy-funding-scan.js";
 
 function wire(row: AgentSetupRow): CopyAgentSetup {
   return copyAgentSetupSchema.parse({ id: row.id, strategyId: row.strategyId, accountId: row.accountId, network: row.network,
@@ -231,7 +232,14 @@ export class CopyAgentService {
     if (this.exchange.reserve) await this.exchange.reserve(AGENT_OBSERVE_WEIGHT);
     const identity = await this.assertSetup(userId, row);
     const intent = consent(row);
+    const readAt = Date.now();
     const evidence = await this.exchange.observe(intent, { prepaid: this.exchange.reserve !== undefined });
+    // Read after its nonce could no longer land, and the account lists no
+    // such agent: the approval never executed (it is not waited on forever).
+    if (evidence === null && row.state === "approval_unknown" && readAt > intent.nonce + FUNDING_NONCE_EXPIRY_MS) {
+      const ended = await this.repository.transition(row, { state: "blocked", issue: "agent_approval_not_executed" });
+      return wire(ended ?? await this.repository.find(userId, row.id));
+    }
     if (!evidence || evidence.validUntil !== intent.expiresAt || !Number.isSafeInteger(evidence.checkedAt) || evidence.checkedAt > Date.now() || Date.now() - evidence.checkedAt > 5_000) return wire(row);
     // Exchange evidence cannot reset the age of the earlier provider identity
     // reads. Carry both proofs through the transaction and its SQL lock waits.

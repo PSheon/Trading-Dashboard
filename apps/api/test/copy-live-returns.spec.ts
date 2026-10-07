@@ -9,6 +9,7 @@ import { CopyFundingExchangeClient } from '../src/copy/copy-funding-exchange.cli
 import { CopyFundingRepository } from '../src/copy/copy-funding.repository.js';
 import { CopyLiveReturnRepository } from '../src/copy/copy-live-return.repository.js';
 import { CopyLiveReturnService } from '../src/copy/copy-live-return.service.js';
+import { FUNDING_NONCE_EXPIRY_MS } from '../src/copy/copy-funding-scan.js';
 import { allocateSignerNonce } from '../src/copy/signer-nonce.js';
 import { preparationFixture } from './copy-live-preparation-test-utils.js';
 import { closeTestDb, getTestDb, type TestDb } from './db-test-utils.js';
@@ -150,5 +151,28 @@ describe('returning USDC from a copy account to the main wallet', () => {
     expect(order.every((nonce, i) => i === 0 || nonce > order[i - 1]!)).toBe(true);
     expect(new Set([...order, ...together]).size).toBe(order.length + together.length);
     expect(Math.min(...together)).toBeGreaterThan(order.at(-1)!);
+  });
+
+  it('a builder fee approval left unknown ends rejected once its nonce expired and the exchange shows no fee; with the fee it is approved; an accepted one is never rejected', async () => {
+    const repository = new CopyLiveReturnRepository(db, testConfig());
+    const builder = `0x${'5'.repeat(40)}`, expired = Date.now() - FUNDING_NONCE_EXPIRY_MS - 60_000;
+    const approval = async (n: number) => {
+      const row = await repository.reserveBuilder(1, 'account', { idempotencyKey: key(n), builderAddress: builder, maxFeeTenthsBps: 10, now: Date.now() });
+      await repository.beginBuilder(1, row.id); return row;
+    };
+    const expire = (id: string, by = 0) => db.update(schema.copyLiveBuilderApprovals).set({ nonce: expired - by }).where(eq(schema.copyLiveBuilderApprovals.id, id));
+    exchange.maxBuilderFee.mockResolvedValue(0);
+    const lost = await approval(70);
+    // Inside the nonce window nothing is proven: it stays unknown.
+    expect(await service.reconcileBuilder(1, lost.id)).toMatchObject({ state: 'unknown' });
+    await expire(lost.id);
+    expect(await service.reconcileBuilder(1, lost.id)).toMatchObject({ state: 'rejected' });
+    const answered = await approval(71);
+    await repository.finishBuilder(1, answered.id, 'accepted', 'e'.repeat(64)); await expire(answered.id, 1);
+    expect(await service.reconcileBuilder(1, answered.id)).toMatchObject({ state: 'accepted' });
+    exchange.maxBuilderFee.mockResolvedValue(10);
+    const landed = await approval(72); await expire(landed.id, 2);
+    expect(await service.reconcileBuilder(1, landed.id)).toMatchObject({ state: 'approved' });
+    expect(exchange.sendAction).not.toHaveBeenCalled();
   });
 });

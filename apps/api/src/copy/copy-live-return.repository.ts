@@ -9,6 +9,7 @@ import type { DrizzleDb } from '../db/drizzle.provider.js';
 import type { DbTransaction } from '../db/unit-of-work.js';
 import { lockCopyUser } from './copy-user-lock.js';
 import { allocateSignerNonce } from './signer-nonce.js';
+import { FUNDING_NONCE_EXPIRY_MS } from './copy-funding-scan.js';
 import { blockingFunding } from './funding-blocking.js';
 import { deploymentNetwork } from './live-deployment.js';
 
@@ -34,6 +35,19 @@ export async function expireStaleReturns(tx: DbTransaction, accountId: string): 
 }
 /** Idempotency keys of the worker's automatic returns: `sweep:<stop id>`. */
 export const SYSTEM_SWEEP_PREFIX = 'sweep:';
+
+/**
+ * What the exchange's builder-fee cap, read at `readAt` (taken before the
+ * read), proves about an approval whose outcome is unknown: approved once the
+ * cap covers the rate; not executed (rejected) once its nonce could no
+ * longer land when it was read and the cap still doesn't cover it; else
+ * still unknown (null). An approval the exchange answered ok (`accepted`)
+ * is never turned into a rejection.
+ */
+export function builderOutcome(row: Pick<BuilderApprovalRow, 'state' | 'nonce' | 'maxFeeTenthsBps'>, cap: number, readAt: number): 'approved' | 'rejected' | null {
+  if (cap >= row.maxFeeTenthsBps) return 'approved';
+  return row.state === 'unknown' && readAt > row.nonce + FUNDING_NONCE_EXPIRY_MS ? 'rejected' : null;
+}
 
 /** Account context of a master-signed action: the owner, the copy's ready
  * account and its strategy, and an unfinished stop if any. */

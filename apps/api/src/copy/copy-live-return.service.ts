@@ -7,7 +7,7 @@ import { Dec } from '../common/decimal/dec.js';
 import { safeErrorText } from '../runtime/safe-error-text.js';
 import { CopyFundingExchangeClient } from './copy-funding-exchange.client.js';
 import { wire } from './copy-funding.service.js';
-import { CopyLiveReturnRepository, RETURN_CONSENT_WINDOW_MS, type BuilderApprovalRow } from './copy-live-return.repository.js';
+import { builderOutcome, CopyLiveReturnRepository, RETURN_CONSENT_WINDOW_MS, type BuilderApprovalRow } from './copy-live-return.repository.js';
 import { WORKER_MASTER_SIGNER, type WorkerMasterSigner } from './live/privy-policy-master-signer.js';
 
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -103,12 +103,16 @@ export class CopyLiveReturnService {
     return { id: row.id, accountId: row.accountId, state: row.state, builderAddress: row.builderAddress, maxFeeTenthsBps: row.maxFeeTenthsBps,
       createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() };
   }
-  /** Approved once the exchange reports a maximum fee covering the rate. */
+  /** Approved once the exchange reports a maximum fee covering the rate;
+   * rejected once its nonce has expired with no such fee (builderOutcome). */
   private async observeBuilder(userId: number, row: BuilderApprovalRow): Promise<BuilderApprovalRow> {
     if (!['unknown', 'accepted'].includes(row.state)) return row;
     try {
+      const readAt = this.now();
       const cap = await this.exchange.maxBuilderFee(row.network, row.accountAddress, row.builderAddress);
-      if (cap >= row.maxFeeTenthsBps) return this.repository.finishBuilder(userId, row.id, 'approved', digest({ cap, checkedAt: this.now() }));
+      const outcome = builderOutcome(row, cap, readAt);
+      if (outcome === 'approved') return this.repository.finishBuilder(userId, row.id, 'approved', digest({ cap, checkedAt: this.now() }));
+      if (outcome === 'rejected') return this.repository.finishBuilder(userId, row.id, 'rejected', digest({ reason: 'not_executed', cap, checkedAt: readAt }));
     } catch (error) { this.logger.warn(`builder approval ${row.id} not read (stays pending): ${safeErrorText(error)}`); }
     return row;
   }

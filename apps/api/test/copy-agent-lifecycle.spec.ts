@@ -5,6 +5,7 @@ import { copyAgentSetups, copyExecutionAccounts, copyLiveSetups, copyExecutionWa
 import { CopyAgentRepository } from "../src/copy/copy-agent.repository.js";
 import { LiveBoundaryError } from "../src/copy/live/wallet-authorization.js";
 import { CopyAgentService } from "../src/copy/copy-agent.service.js";
+import { FUNDING_NONCE_EXPIRY_MS } from "../src/copy/copy-funding-scan.js";
 import { CopyWalletRepository } from "../src/copy/copy-wallet.repository.js";
 import { CopyWalletService } from "../src/copy/copy-wallet.service.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
@@ -133,6 +134,29 @@ describe("explicit recoverable dedicated strategy agent setup", () => {
     expect(exchange.send).toHaveBeenCalledTimes(1); expect(await db.select().from(copyWalletAuthorizations)).toHaveLength(0);
     approvalExists = true;
     expect((await service.reconcile(uid, prepared.id)).state).toBe("active");
+  });
+  it("an unknown approval read after its nonce expired, with no such agent on the account, ends not executed", async () => {
+    const expired = Date.now() - FUNDING_NONCE_EXPIRY_MS - 60_000;
+    const lost = await service.prepare(uid, accountId, { idempotencyKey: "prepare-1", validForDays: 7 });
+    await challengeOf(lost.id);
+    vi.mocked(exchange.send).mockImplementation(async () => { throw new Error("ambiguous"); });
+    expect((await approveAs(lost.id)).state).toBe("approval_unknown");
+    // Still inside the nonce window: no proof either way, it waits.
+    expect((await service.reconcile(uid, lost.id)).state).toBe("approval_unknown");
+    await db.update(copyAgentSetups).set({ approvalNonce: expired }).where(eq(copyAgentSetups.id, lost.id));
+    expect(await service.reconcile(uid, lost.id)).toMatchObject({ state: "blocked", issue: "agent_approval_not_executed" });
+    expect(await db.select().from(copyWalletAuthorizations)).toHaveLength(0);
+    expect(exchange.send).toHaveBeenCalledTimes(1);
+  });
+  it("an unknown approval read after its nonce expired that the account lists is active, not ended", async () => {
+    const expired = Date.now() - FUNDING_NONCE_EXPIRY_MS - 60_000;
+    vi.mocked(exchange.send).mockImplementation(async () => { throw new Error("ambiguous"); });
+    const landed = await service.prepare(uid, accountId, { idempotencyKey: "prepare-1", validForDays: 7 });
+    await challengeOf(landed.id);
+    expect((await approveAs(landed.id)).state).toBe("approval_unknown");
+    await db.update(copyAgentSetups).set({ approvalNonce: expired }).where(eq(copyAgentSetups.id, landed.id));
+    approvalExists = true;
+    expect((await service.reconcile(uid, landed.id)).state).toBe("active");
   });
   it("owner disablement after the worker signed blocks the exchange POST", async () => {
     const prepared = await service.prepare(uid, accountId, { idempotencyKey: "prepare-1", validForDays: 7 });

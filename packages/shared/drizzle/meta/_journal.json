@@ -512,6 +512,13 @@
       "when": 1791308232780,
       "tag": "0072_one_network_per_deployment",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1791340249626,
+      "tag": "0073_copy_live_leverage_updates",
+      "breakpoints": true
     }
   ]
 }

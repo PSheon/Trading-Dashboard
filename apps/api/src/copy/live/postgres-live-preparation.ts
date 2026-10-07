@@ -26,6 +26,8 @@ import { assertLiveSourcePrice, compareMergedLegs, MAX_MERGED_LEGS } from './cop
 import type { LiveSourceReferenceReader } from './live-source-reference.js';
 import type { LiveSourceReferenceV1 } from './copy-live-sizing-evidence.js';
 import { minOrderNotional } from '../min-order-notional.js';
+import { effectiveLeverage } from '../copy-risk.js';
+import { LiveLeverageUpdateRequired } from './live-leverage-update.js';
 
 export interface LivePreparationBinding {
   readonly accountId: string; readonly mandateId: string; readonly sourceFillId: string; readonly leg: 'open' | 'close';
@@ -136,6 +138,14 @@ export class PostgresLivePreparation {
     riskSourceRequire(frames.authorityDigest === riskSourceDigest(local), 'live_risk_local_changed');
     const { market, leader, target: quote } = frames, follower = frames.snapshots[local.accounts.findIndex(a => a.id === binding.accountId)]!;
     await session.scope.assertHeld(); this.fresh(started);
+    // An open needs the account's leverage on the coin at most the copy's cap
+    // (the risk gate refuses above it; a fresh account sits at the exchange's
+    // default 20x). Asked for here, before any journal, nonce or claim.
+    if (binding.leg === 'open') {
+      const cap = effectiveLeverage(local.limits, local.settings, market.maxLeverage), proof = quote.leverageProofs.find(p => p.coin === market.coin);
+      riskSourceRequire(proof, 'live_risk_leverage');
+      if (proof.value > cap) throw new LiveLeverageUpdateRequired(market.coin, market.asset, proof.value, cap);
+    }
     // A leader's open on another network is priced on the execution network but
     // checked against the source network's mid and sized by the leader's capital
     // there (as paper copies). A leader on the execution network needs neither.

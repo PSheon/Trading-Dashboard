@@ -82,9 +82,12 @@ export const DEFAULT_ENGINE_OPTIONS: LiveEngineOptions = { testnetSourceInterval
 export const HIP3_REFUSAL = 'live_market_hip3_unsupported';
 const isHip3 = (coin: string) => coin.includes(':');
 /** Refusals that no retry can change. Everything else is retried until the
- * leader fill is older than the policy's signal age. */
+ * leader fill is older than the policy's signal age. The account's leverage
+ * above the cap is set by the runtime before an open (live-leverage-update.ts):
+ * a refusal still saying so, or an update the exchange rejected, is final. */
 const PERMANENT = new Set(['live_source_price_deviation', 'live_budget_over_capacity', 'below_min_notional', 'live_risk_adoption_unproven', 'live_market_unknown',
-  'live_account_unsupported_role', 'live_account_unsupported_abstraction', 'unattempted_expired', 'live_risk_provider_fee_scope_unproven', HIP3_REFUSAL]);
+  'live_account_unsupported_role', 'live_account_unsupported_abstraction', 'unattempted_expired', 'live_risk_provider_fee_scope_unproven', HIP3_REFUSAL,
+  'live_risk_leverage', 'live_leverage_update_rejected']);
 /** A merged order is planned within this long after its legs are merged
  * (evidence reads ~4 s): no leg merged older than the signal age less this. */
 const PLANNING_MARGIN_MS = 15_000;

@@ -1970,6 +1970,31 @@ export const copyLiveBuilderApprovals = pgTable("copy_live_builder_approvals", {
 ]);
 
 /**
+ * A copy account's leverage set by the worker's agent before an open
+ * (`updateLeverage`, cross, at the copy's cap): a fresh account trades at the
+ * exchange's default (20x or the coin's maximum), which the order risk gate
+ * refuses. Journaled like an order: the nonce comes from the signer's shared
+ * allocator (copy_signer_nonces) and the row commits before signing. An
+ * attempted update is only ever reconciled by reading the leverage again.
+ */
+export const copyLiveLeverageUpdates = pgTable("copy_live_leverage_updates", {
+  id: text("id").primaryKey(), userId: integer("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  accountId: text("account_id").notNull().references(() => copyExecutionAccounts.id, { onDelete: "restrict" }),
+  network: text("network").$type<"testnet" | "mainnet">().notNull(), accountAddress: text("account_address").notNull(),
+  signerAddress: text("signer_address").notNull(), authorizationId: text("authorization_id").notNull(),
+  coin: text("coin").notNull(), asset: integer("asset").notNull(),
+  fromLeverage: integer("from_leverage").notNull(), leverage: integer("leverage").notNull(),
+  nonce: bigint("nonce", { mode: "number" }).notNull(), expiresAfter: bigint("expires_after", { mode: "number" }).notNull(),
+  state: text("state").$type<"prepared" | "submitting" | "unknown" | "accepted" | "rejected">().notNull().default("prepared"),
+  issue: text("issue"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}, (t) => [
+  uniqueIndex("copy_live_leverage_updates_nonce_uq").on(t.network, t.signerAddress, t.nonce),
+  index("copy_live_leverage_updates_account_idx").on(t.accountId, t.coin, t.createdAt),
+  check("copy_live_leverage_updates_check", sql`${t.network} in ('testnet','mainnet') and ${oneOf(t.state, ["prepared", "submitting", "unknown", "accepted", "rejected"])} and ${t.accountAddress} ~ '^0x[0-9a-f]{40}$' and ${t.signerAddress} ~ '^0x[0-9a-f]{40}$' and ${t.asset} >= 0 and ${t.leverage} >= 1 and ${t.fromLeverage} >= 1 and ${t.nonce} > 0 and ${t.expiresAfter} > ${t.nonce}`),
+]);
+
+/**
  * One-click testnet copy (docs/one-click-copy-plan-2026-10-05.md §3a): one
  * row per start, edit or renewal, the source of truth the worker's setup
  * driver resumes from after a crash or a closed tab. `intent` is the exact

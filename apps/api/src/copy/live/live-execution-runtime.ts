@@ -42,6 +42,7 @@ import { PostgresLiveUnattemptedRecovery } from './postgres-live-unattempted-rec
 import type { LiveSourceReferenceReader } from './live-source-reference.js';
 import { captureLiveOrderIdentity, parseLiveIocAcknowledgement } from './live-order-evidence.js';
 import { PostgresLiveSettlement } from './postgres-live-settlement.js';
+import { LiveLeverageUpdated, LiveLeverageUpdater, LiveLeverageUpdateRequired } from './live-leverage-update.js';
 
 const id = z.string().min(1).max(160).regex(/^[^\s\p{Cc}\p{Cf}]+$/u);
 const requestSchema = z.object({ userId: z.number().int().positive().max(2147483647), accountId: id,
@@ -120,6 +121,13 @@ export class LiveExecutionRuntime {
    * snapshot and permit is produced by concrete components in this invocation.
    * This method does not settle/release attempted reservations or run a worker. */
   async execute(supplied: LiveExecutionRequest): Promise<LiveExecutionRecord> {
+    // An open the account's leverage refuses sets the leverage first (in its
+    // own journaled, signed exchange action), then prepares once more on a
+    // fresh session and epoch. Once only: still above the cap is a refusal.
+    try { return await this.attempt(supplied, false); }
+    catch (error) { if (error instanceof LiveLeverageUpdated) return this.attempt(supplied, true); throw error; }
+  }
+  private async attempt(supplied: LiveExecutionRequest, leverageUpdated: boolean): Promise<LiveExecutionRecord> {
     const parsed = requestSchema.safeParse(structuredClone(supplied));
     if (!parsed.success) throw new LiveBoundaryError('live_runtime_request');
     const request = Object.freeze(parsed.data), app = this.config.value;
@@ -187,12 +195,13 @@ export class LiveExecutionRuntime {
           reusedApproval(new HyperliquidAgentApprovalVerifier(this.network, acquire, this.global.fetchInfo, this.now), this.now), this.now);
         const gate = new AccountRiskExecutionGate(binding.proofSource, this.now);
         const signingClient = new BoundaryPrivyOrderSigningClient(this.network, { appId: app.auth.appId, appSecret: app.auth.appSecret }, fetch, this.now);
-        const signer = new PrivyOrderSigner(signingClient, authorizations, async () => {
+        const signingAuthorization = async () => {
           session.scope.assertFresh();
           const authority = await session.read(db => loadLivePreparationAuthority(session, db, request, this.now()));
           this.signingConfiguration(authority.consent.workerQuorumId);
           return { authorization_context: { authorization_private_keys: [app.copy.agent!.authorizationPrivateKey] } };
-        }, gate, this.now);
+        };
+        const signer = new PrivyOrderSigner(signingClient, authorizations, signingAuthorization, gate, this.now);
         const exchange: { raw?: unknown; at?: number } = {};
         const transport = new HyperliquidLiveTransport(this.network, signer, gate, this.timedFetch(exchange), 5000, this.now,
           { marketResolver: epochMarkets(resolver, () => epoch.sharedReads(session)), acquire, globalTransport: this.global });
@@ -204,7 +213,18 @@ export class LiveExecutionRuntime {
         const authority = await session.read(db => loadLivePreparationAuthority(session, db, request, this.now()));
         this.signingConfiguration(authority.consent.workerQuorumId);
         const preparation = new PostgresLivePreparation(observer, resolver, provider, this.options, this.now, epoch, this.hooks.reference);
-        const prepared = await preparation.prepare(session, request);
+        let prepared: Awaited<ReturnType<PostgresLivePreparation['prepare']>>;
+        try { prepared = await preparation.prepare(session, request); }
+        catch (error) {
+          if (!(error instanceof LiveLeverageUpdateRequired)) throw error;
+          // Set once; still above the cap after an accepted update is permanent.
+          if (leverageUpdated) throw new LiveBoundaryError('live_risk_leverage');
+          const state = await new LiveLeverageUpdater(this.network, signingClient, authorizations, signingAuthorization, this.global, fetch, this.now)
+            .update(session, { accountId: request.accountId, userId: request.userId, strategyId: authority.strategy.id, walletId: authority.wallet.privyWalletId,
+              authorizationId: authority.grant.id, accountAddress, coin: error.coin, asset: error.asset, from: error.current, leverage: error.leverage });
+          if (state === 'accepted') throw new LiveLeverageUpdated();
+          throw new LiveBoundaryError(state === 'rejected' ? 'live_leverage_update_rejected' : 'live_leverage_update_unknown');
+        }
         riskSourceRequire(prepared.record.key === key, 'live_runtime_identity');
         const input = await binding.forHold();
         await reservations.hold(session, input);

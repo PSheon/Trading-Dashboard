@@ -537,3 +537,48 @@ describe('a testnet copy of a MAINNET leader', () => {
   });
 });
 
+describe('the account leverage an open needs (a fresh account sits at the exchange default 20x)', () => {
+  let leverage = 20;
+  /** A default 20x account: activeAssetData answers `leverage`, which an accepted updateLeverage sets when `apply`. */
+  async function defaultLeverageFixture(answer: unknown, apply = true) {
+    await actualClockFixture(); leverage = 20; const previous = raw.getMockImplementation()!;
+    raw.mockImplementation(async (url, init) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+      if (String(url).endsWith('/exchange') && body.action.type === 'updateLeverage') {
+        if (apply && (answer as { status?: string }).status === 'ok') leverage = body.action.leverage;
+        return Response.json(answer);
+      }
+      const response = await previous(url, init);
+      if (String(url).endsWith('/info') && body?.type === 'activeAssetData') return Response.json({ ...await response.json(), leverage: { type: 'cross', value: leverage } });
+      return response;
+    });
+  }
+  const exchangeActions = () => raw.mock.calls.filter(([url]) => String(url).endsWith('/exchange')).map(([, init]) => JSON.parse(String(init!.body)));
+  it('sets the cap (cross) with a journaled, agent-signed updateLeverage, then sends the order', async () => {
+    await defaultLeverageFixture({ status: 'ok', response: { type: 'default' } });
+    const result = await runtime(config, { ...options, slippageBps: '0' }).execute(request());
+    expect(result.state).toBe('filled');
+    const [update, order] = exchangeActions();
+    // The fixture copy's cap: its settings' maxLeverage 10 (policy and coin allow more).
+    expect(update.action).toEqual({ type: 'updateLeverage', asset: 0, isCross: true, leverage: 10 });
+    expect(order.action.type).toBe('order');
+    // One nonce allocator for both: the update's nonce precedes the order's.
+    expect(update.nonce).toBeLessThan(order.nonce);
+    const [journal] = await db.select().from(schema.copyLiveLeverageUpdates);
+    expect(journal).toMatchObject({ accountId: 'account', coin: 'BTC', asset: 0, fromLeverage: 20, leverage: 10, state: 'accepted', nonce: update.nonce, issue: null });
+    expect(await db.select().from(schema.copyLiveExecutions)).toHaveLength(1);
+  });
+  it('refuses permanently when the exchange rejects the update, before any order journal', async () => {
+    await defaultLeverageFixture({ status: 'err', response: 'Cannot switch leverage type with open position.' });
+    await expect(runtime(config, { ...options, slippageBps: '0' }).execute(request())).rejects.toThrow('live_leverage_update_rejected');
+    expect(exchangeActions()).toHaveLength(1);
+    const [journal] = await db.select().from(schema.copyLiveLeverageUpdates); expect(journal).toMatchObject({ state: 'rejected', issue: 'exchange_rejected_leverage' });
+    expect(await db.select().from(schema.copyLiveExecutions)).toHaveLength(0);
+  });
+  it('never loops: still above the cap after an accepted update is live_risk_leverage, with one update only', async () => {
+    await defaultLeverageFixture({ status: 'ok', response: { type: 'default' } }, false);
+    await expect(runtime(config, { ...options, slippageBps: '0' }).execute(request())).rejects.toThrow('live_risk_leverage');
+    expect(exchangeActions().map(body => body.action.type)).toEqual(['updateLeverage']);
+    expect(await db.select().from(schema.copyLiveExecutions)).toHaveLength(0);
+  });
+});

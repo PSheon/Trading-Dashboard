@@ -180,6 +180,17 @@ describe('testnet copy execution engine', () => {
     expect(runtimeCalls.filter(c => c.sourceFillId === deviating)).toHaveLength(1);
   });
 
+  it('refuses an open for good once the runtime could not bring the leverage under the cap, never retrying it', async () => {
+    await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+    const above = await leaderFill(13, now + 100, 'B', '1', '0', 'BTC'), rejected = await leaderFill(14, now + 200, 'B', '1', '0', 'ETH');
+    runtimeImpl = async request => { runtimeCalls.push(request); throw new LiveBoundaryError(request.sourceFillId === above ? 'live_risk_leverage' : 'live_leverage_update_rejected'); };
+    clock = now + 1000; await engine().tick(); clock = now + 2000; await engine().tick();
+    const rows = await dispatches();
+    expect(rows.find(r => r.sourceFillId === above)).toMatchObject({ state: 'refused', reason: 'live_risk_leverage', attempts: 1 });
+    expect(rows.find(r => r.sourceFillId === rejected)).toMatchObject({ state: 'refused', reason: 'live_leverage_update_rejected', attempts: 1 });
+    expect(runtimeCalls).toHaveLength(2);
+  });
+
   it('skips a close of a position this copy never opened and orders a flip: close settles before the open is sent', async () => {
     await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
     const orphanClose = await leaderFill(5, now + 100, 'A', '1', '2', 'ETH');

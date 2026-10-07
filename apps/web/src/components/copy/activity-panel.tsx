@@ -20,6 +20,7 @@ import { coinLabel, truncateAddress } from "@/lib/format";
 import { useActions } from "@/lib/queries";
 import { useWalletHistory } from "@/lib/wallet";
 import { SwitchPanel } from "@/components/ui/switch-panel";
+import { Tabs } from "@/components/ui/tabs";
 
 const CHIPS = ["copies", "following", "deposits"] as const;
 
@@ -206,13 +207,7 @@ export function ActivityPanel({ open, onClose }: { open: boolean; onClose: () =>
       className="top-0 left-0 h-dvh max-h-none w-screen max-w-none translate-x-0 translate-y-0 rounded-none border-0"
       bodyClassName="px-4 pt-3 pb-8"
     >
-      <div role="tablist" aria-label={t("feed.title")} className="flex gap-2">
-        {CHIPS.map((c) => (
-          <button key={c} type="button" role="tab" aria-selected={chip === c} onClick={() => setChip(c)} className={cn("h-9 rounded-full px-4 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring", chip === c ? "bg-primary text-primary-foreground" : "bg-raised text-foreground")}>
-            {t(`feed.chips.${c}`)}
-          </button>
-        ))}
-      </div>
+      <Tabs label={t("feed.title")} value={chip} onChange={setChip} items={CHIPS.map((c) => ({ value: c, label: t(`feed.chips.${c}`) }))} />
       <SwitchPanel value={chip} order={CHIPS} role="tabpanel" className="mt-2">
         {!signedIn ? (
           <div className="flex flex-col items-center px-6 py-14 text-center">

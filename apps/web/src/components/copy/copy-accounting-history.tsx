@@ -2,13 +2,15 @@
 
 import { copyRecordLabel } from "./copy-labels";
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { wireCopyLedgerSchema, wireCopyFillsSchema } from "@trading-dashboard/shared/contracts";
 import { useI18n } from "@/i18n/provider";
 import { useAuth } from "@/lib/auth";
 import { api, sessionKey } from "@/lib/api";
 import { defaultRetry } from "@/lib/query-policy";
 import { TextButton } from "@/components/ui/text-button";
+import { Tabs } from "@/components/ui/tabs";
+import { PAGE_SIZE, TablePager } from "@/components/ui/table-pager";
 
 /** The real persisted paper ledger, separate from the bounded activity
  * feed. Exact decimal strings are shown without conversion through Number. */
@@ -19,9 +21,8 @@ export function CopyAccountingHistory({ strategyId }: { strategyId: number }) {
   return <details className="orbit-card card-pad" onToggle={(e) => setOpen(e.currentTarget.open)}>
     <summary className="cursor-pointer text-sm font-semibold">{t("copyUpdates.accountingHistory")}</summary>
     {open ? <>
-      <div className="my-3 flex gap-3" role="tablist" aria-label={t("copyUpdates.accountingHistory")}>
-        {(["ledger", "fills"] as const).map((value) => <button type="button" key={value} role="tab" aria-selected={kind === value} className={`rounded px-3 py-2 text-xs ${kind === value ? "bg-raised text-primary-text" : "text-muted-foreground"}`} onClick={() => setKind(value)}>{t(`copyUpdates.${value}`)}</button>)}
-      </div>
+      <Tabs size="sm" className="my-3" label={t("copyUpdates.accountingHistory")} value={kind} onChange={setKind}
+        items={(["ledger", "fills"] as const).map((value) => ({ value, label: t(`copyUpdates.${value}`) }))} />
       <AccountingPage key={`${strategyId}:${kind}`} strategyId={strategyId} kind={kind} />
     </> : null}
   </details>;
@@ -35,10 +36,12 @@ function AccountingPage({ strategyId, kind }: { strategyId: number; kind: "ledge
   const query = useQuery({
     queryKey: ["copy", "accounting", identity, mode, sessionKey(), strategyId, kind, before],
     queryFn: async ({ signal }) => {
-      const data = await api.get<unknown>(`/me/copy/strategies/${strategyId}/${kind}?limit=50${before ? `&before=${before}` : ""}`, signal);
+      const data = await api.get<unknown>(`/me/copy/strategies/${strategyId}/${kind}?limit=${PAGE_SIZE}${before ? `&before=${before}` : ""}`, signal);
       return kind === "ledger" ? { kind: "ledger" as const, ...wireCopyLedgerSchema.parse(data) } : { kind: "fills" as const, ...wireCopyFillsSchema.parse(data) };
     },
     enabled: status === "signedIn",
+    // The page on screen stays while the next is read (the pager waits).
+    placeholderData: keepPreviousData,
     ...defaultRetry,
   });
   if (query.isError) return <p role="alert" className="py-3 text-xs text-negative">{t("copyUpdates.historyError")} <TextButton busy={query.isFetching} onClick={() => void query.refetch()}>{t("copyUpdates.retry")}</TextButton></p>;
@@ -54,9 +57,7 @@ function AccountingPage({ strategyId, kind }: { strategyId: number; kind: "ledge
         <div className="num min-w-0 break-all text-right"><p>{row.size} × {row.px}</p><p>{t("copyUpdates.fee")}: {row.fee} + {row.builderFee} USDC</p><p>PnL: {row.realizedPnl} USDC</p></div>
       </li>)}
     </ul>}
-    <div className="mt-3 flex justify-end gap-3 text-xs">
-      {pages.length ? <button type="button" disabled={query.isFetching} className="rounded px-3 py-2 text-primary-text" onClick={() => setPages((value) => value.slice(0, -1))}>{t("portfolio.copy.detail.back")}</button> : null}
-      {data.hasMore && data.previousCursor ? <button type="button" disabled={query.isFetching} className="rounded px-3 py-2 text-primary-text" onClick={() => setPages((value) => [...value, data.previousCursor!])}>{t("copyUpdates.loadOlder")}</button> : null}
-    </div>
+    <TablePager className="-mx-4 mt-3 md:-mx-[22px]" page={pages.length} hasNext={data.hasMore && Boolean(data.previousCursor)} busy={query.isPlaceholderData}
+      onPage={(next) => setPages((value) => (next < value.length ? value.slice(0, next) : data.previousCursor ? [...value, data.previousCursor] : value))} />
   </div>;
 }

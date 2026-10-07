@@ -14,6 +14,8 @@ import { TraderAvatar, boardName } from "@/components/discover/board-bits";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { RoiPill } from "@/components/traders/bits";
 import { Button } from "@/components/ui/button";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TablePager, usePaged } from "@/components/ui/table-pager";
 import { Modal } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
 import { usePendingToast } from "@/lib/use-action-toast";
@@ -71,7 +73,8 @@ function PositionLine({ p, table, onShare }: { p: CopyPositionView; table: boole
         </span>
         {onShare ? (
           <button type="button" aria-haspopup="dialog" onClick={onShare} aria-label={t("trader.sharePosition")} title={t("trader.sharePosition")}
-            className="inline-flex size-5 items-center justify-center rounded-md text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+            // 20 px drawn, 44 px to tap (the ::after reaches 12 px around it).
+            className="relative inline-flex size-5 items-center justify-center rounded-md text-muted-foreground outline-none after:absolute after:-inset-3 after:content-[''] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
             <Share2 className="size-3" />
           </button>
         ) : null}
@@ -93,6 +96,7 @@ function PositionLine({ p, table, onShare }: { p: CopyPositionView; table: boole
 export function CopyTable({ strategies, leaders, onSelect, sparklines, bare = false }: { strategies: CopyStrategyView[]; leaders: Map<string, Leader>; onSelect: (id: number) => void; sparklines?: Map<number, ReadonlyArray<number | null>>; bare?: boolean }) {
   const { t, format } = useI18n();
   const [open, setOpen] = useState<Set<number>>(new Set());
+  const { rows, pager } = usePaged(strategies);
   const cols = "grid grid-cols-[2.2fr_0.8fr_0.8fr_1.1fr_1fr_1.1fr_1.1fr_0.9fr_40px] items-center gap-3";
   return (
     <div className={cn("flex flex-col gap-2", !bare && "orbit-card p-3")}>
@@ -107,7 +111,7 @@ export function CopyTable({ strategies, leaders, onSelect, sparklines, bare = fa
         <span className="text-right">{t("portfolio.copy.cols.roi")}</span>
         <span aria-hidden />
       </div>
-      {strategies.map((s) => {
+      {rows.map((s) => {
         const leader = leaders.get(s.leaderAddress) ?? { address: s.leaderAddress, displayName: null, avatarUrl: null };
         const expanded = open.has(s.id);
         return (
@@ -163,6 +167,7 @@ export function CopyTable({ strategies, leaders, onSelect, sparklines, bare = fa
           </div>
         );
       })}
+      <TablePager {...pager} />
     </div>
   );
 }
@@ -171,9 +176,10 @@ export function CopyTable({ strategies, leaders, onSelect, sparklines, bare = fa
 export function CopyCards({ strategies, leaders, onSelect, sparklines }: { strategies: CopyStrategyView[]; leaders: Map<string, Leader>; onSelect: (id: number) => void; sparklines?: Map<number, ReadonlyArray<number | null>> }) {
   const { t, format } = useI18n();
   const [open, setOpen] = useState<number | null>(null);
+  const { rows, pager } = usePaged(strategies);
   return (
     <div className="flex flex-col gap-3">
-      {strategies.map((s) => {
+      {rows.map((s) => {
         const leader = leaders.get(s.leaderAddress) ?? { address: s.leaderAddress, displayName: null, avatarUrl: null };
         return (
           <div key={s.id} className="orbit-card">
@@ -203,9 +209,12 @@ export function CopyCards({ strategies, leaders, onSelect, sparklines }: { strat
                     aria-expanded={open === s.id}
                     aria-label={t(open === s.id ? "portfolio.copy.hidePositions" : "portfolio.copy.showPositions")}
                     onClick={() => setOpen((o) => (o === s.id ? null : s.id))}
-                    className="inline-flex size-7 items-center justify-center rounded-full bg-raised outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    // 44 px to tap; the row keeps its height.
+                    className="-my-2 -mr-2 inline-flex size-11 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    <ChevronDown className={cn("size-4 transition-transform", open === s.id && "rotate-180")} />
+                    <span className="inline-flex size-7 items-center justify-center rounded-full bg-raised">
+                      <ChevronDown className={cn("size-4 transition-transform", open === s.id && "rotate-180")} />
+                    </span>
                   </button>
                 </>
               ) : (
@@ -216,6 +225,7 @@ export function CopyCards({ strategies, leaders, onSelect, sparklines }: { strat
           </div>
         );
       })}
+      <TablePager {...pager} className="orbit-card border-t-0" />
     </div>
   );
 }
@@ -241,6 +251,7 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
   const toast = useToast();
   const [orderPages, setOrderPages] = useState<string[]>([]);
   const orders = useCopyOrders(s.id, orderPages.at(-1));
+  const positions = usePaged(s.positions);
   const [dialog, setDialog] = useState<"stop" | "edit" | "funds" | "withdraw" | null>(null);
   const [card, setCard] = useState<TradeCardSource | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -265,7 +276,7 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
-        <button type="button" onClick={onBack} aria-label={t("portfolio.copy.detail.back")} className="inline-flex size-9 items-center justify-center rounded-full bg-raised outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <button type="button" onClick={onBack} aria-label={t("portfolio.copy.detail.back")} className="inline-flex size-11 items-center justify-center rounded-full bg-raised outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <ArrowLeft className="size-4" />
         </button>
         <TraderAvatar trader={leader} size={40} />
@@ -341,7 +352,8 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
         </section>
         <section className="orbit-card">
           <h3 className="border-b-2 border-dotted border-border px-4 py-3 text-sm font-bold">{t("portfolio.copy.detail.positions")}</h3>
-          {s.positions.length ? s.positions.map((p) => <PositionLine key={p.coin} p={p} table onShare={p.unrealizedPnl === null ? undefined : () => setCard(copyCardSource("position", { strategyId: s.id, coin: p.coin }, coinLabel(p.coin)))} />) : <p className="px-4 py-6 text-center text-sm text-muted-foreground">{t("portfolio.copy.noOpenPositions")}</p>}
+          {s.positions.length ? positions.rows.map((p) => <PositionLine key={p.coin} p={p} table onShare={p.unrealizedPnl === null ? undefined : () => setCard(copyCardSource("position", { strategyId: s.id, coin: p.coin }, coinLabel(p.coin)))} />) : <p className="px-4 py-6 text-center text-sm text-muted-foreground">{t("portfolio.copy.noOpenPositions")}</p>}
+          <TablePager {...positions.pager} />
         </section>
       </div>
 
@@ -353,47 +365,53 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
             <p className="mt-1 text-xs text-muted-foreground">{t("portfolio.copy.detail.noOrdersDesc")}</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] text-[0.8125rem]">
-              <thead className="text-xs text-muted-foreground">
-                <tr className="[&>th]:px-4 [&>th]:py-2 [&>th]:text-left [&>th]:font-normal">
-                  <th>{t("portfolio.copy.order.time")}</th>
-                  <th>{t("portfolio.copy.order.coin")}</th>
-                  <th>{t("portfolio.copy.order.side")}</th>
-                  <th className="text-right!">{t("portfolio.copy.order.size")}</th>
-                  <th className="text-right!">{t("portfolio.copy.order.price")}</th>
-                  <th>{t("portfolio.copy.order.status")}</th>
-                </tr>
-              </thead>
-              <tbody>
+          <div className="cd-tables px-2">
+            <Table dense className="text-xs" data-testid="paper-orders">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>{t("portfolio.copy.order.time")}</TableHead>
+                  <TableHead>{t("portfolio.copy.order.coin")}</TableHead>
+                  <TableHead>{t("portfolio.copy.order.side")}</TableHead>
+                  <TableHead className="text-right">{t("portfolio.copy.order.size")}</TableHead>
+                  <TableHead className="text-right">{t("portfolio.copy.order.price")}</TableHead>
+                  <TableHead>{t("portfolio.copy.order.status")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {(orders.data?.items ?? []).map((o) => (
-                  <tr key={o.id} className="border-t-2 border-dotted border-border [&>td]:px-4 [&>td]:py-2">
-                    <td className="num whitespace-nowrap text-muted-foreground">{format.dateTime(o.createdAt)}</td>
-                    <td className="font-semibold">{coinLabel(o.coin)}</td>
-                    <td className="whitespace-nowrap">
+                  <TableRow key={o.id}>
+                    <TableCell className="text-muted-foreground">{format.dateTime(o.createdAt)}</TableCell>
+                    <TableCell>
+                      <span className="inline-flex items-center gap-2 align-middle font-semibold"><CoinIcon coin={o.coin} size={18} />{coinLabel(o.coin)}</span>
+                    </TableCell>
+                    <TableCell>
                       <span className={o.side === "B" ? "text-positive" : "text-negative"}>{t(o.side === "B" ? "portfolio.copy.order.buy" : "portfolio.copy.order.sell")}</span>
                       <span className="ml-1.5 text-xs text-muted-foreground">{t(`portfolio.copy.order.leg.${o.leg}` as MessageKey)}</span>
-                    </td>
-                    <td className="num text-right">{format.num(o.filledSize || o.size, 5)}</td>
-                    <td className="num text-right">{o.avgPx === null ? "—" : format.price(o.avgPx)}</td>
-                    <td>
-                      <span className={cn("font-semibold", o.status === "filled" || o.status === "partial" ? "text-positive" : o.status === "rejected" || o.status === "cancelled" ? "text-negative" : "text-muted-foreground")}>
+                    </TableCell>
+                    <TableCell className="text-right">{format.num(o.filledSize || o.size, 5)}</TableCell>
+                    <TableCell className="text-right">{o.avgPx === null ? "—" : format.price(o.avgPx)}</TableCell>
+                    <TableCell>
+                      <span className={cn(o.status === "filled" || o.status === "partial" ? "text-positive" : o.status === "rejected" || o.status === "cancelled" ? "text-negative" : "text-muted-foreground")}>
                         {t(`portfolio.copy.order.statusName.${o.status}` as MessageKey)}
                       </span>
-                      {orderReason(o) ? <span className="ml-1.5 text-xs text-muted-foreground">{orderReason(o)}</span> : null}
-                    </td>
-                  </tr>
+                      {orderReason(o) ? <span className="ml-1.5 text-xs font-semibold text-muted-foreground">{orderReason(o)}</span> : null}
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
+        {/* Ten a page from the api (cursor: the last order above), the
+            site's one pager at the card's foot. */}
+        <TablePager
+          page={orderPages.length}
+          hasNext={Boolean(orders.data?.hasMore && orders.data.previousCursor)}
+          busy={orders.isPlaceholderData}
+          onPage={(next) => setOrderPages((pages) => (next < pages.length ? pages.slice(0, next) : orders.data?.previousCursor ? [...pages, orders.data.previousCursor] : pages))}
+        />
       </section>
 
-      {(orders.data?.hasMore || orderPages.length > 0) ? <div className="flex justify-end gap-2">
-        {orderPages.length > 0 ? <Button variant="secondary" disabled={orders.isFetching} onClick={() => setOrderPages((pages) => pages.slice(0, -1))}>{t("portfolio.copy.detail.back")}</Button> : null}
-        {orders.data?.hasMore && orders.data.previousCursor ? <Button variant="secondary" disabled={orders.isFetching} onClick={() => setOrderPages((pages) => [...pages, orders.data!.previousCursor!])}>{t("copyUpdates.olderOrders")}</Button> : null}
-      </div> : null}
       {orders.isError ? <p role="status" className="text-xs text-negative">{t("copyUpdates.historyError")} <TextButton busy={orders.isFetching} onClick={() => void orders.refetch()}>{t("copyUpdates.retry")}</TextButton></p> : null}
       <CopyAccountingHistory strategyId={s.id} />
       <StopDialog strategy={s} open={dialog === "stop"} onClose={() => setDialog(null)} />
@@ -535,7 +553,7 @@ function FundsDialog({ strategy: s, balance, open, onClose }: { strategy: CopySt
         <AmountInput id="funds-amount" value={amount} onChange={setAmount} invalid={amount !== "" && invalid} />
         <div className="grid grid-cols-4 gap-2">
           {[10, 25, 50, 100].map((p) => (
-            <button key={p} type="button" onClick={() => setAmount(String(Math.floor((balance * p) / 100)))} className="h-9 rounded-full border border-border-strong bg-raised text-sm font-semibold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring">
+            <button key={p} type="button" onClick={() => setAmount(String(Math.floor((balance * p) / 100)))} className="h-11 rounded-full border border-border-strong bg-raised text-sm font-semibold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring">
               {p === 100 ? t("trader.copy.max") : `${p}%`}
             </button>
           ))}

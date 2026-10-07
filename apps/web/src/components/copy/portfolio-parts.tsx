@@ -11,6 +11,7 @@ import { ListRowsSkeleton, SkelBar, Skeleton } from "@/components/page";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { RoiPill } from "@/components/traders/bits";
 import { Button } from "@/components/ui/button";
+import { TablePager, usePaged } from "@/components/ui/table-pager";
 import { TradeShareDialog, copyCardSource, type TradeCardSource } from "@/components/trader/trade-share-dialog";
 import { useI18n } from "@/i18n/provider";
 import type { CopyOverview, CopyStrategyView } from "@/lib/contracts";
@@ -18,37 +19,16 @@ import { useCopyPortfolio, useCopyTrades, type CopyClosedTradeView } from "@/lib
 import { PORTFOLIO_WINDOWS, exposure, insightsOverview, netInvested, paperLegend, sharePct, todayChange } from "@/lib/copy-portfolio";
 import { coinLabel, usdCompact } from "@/lib/format";
 import type { CopyPerformanceWindow } from "@trading-dashboard/shared/contracts";
-import { useSlidingIndicator } from "@/lib/use-sliding-indicator";
+import { Segmented } from "@/components/ui/segmented";
 
 type Leader = { address: string; displayName: string | null; avatarUrl: string | null };
 const leaderOf = (leaders: Map<string, Leader>, address: string): Leader => leaders.get(address) ?? { address, displayName: null, avatarUrl: null };
 const tone = (v: number | null | undefined) => (v === null || v === undefined ? "" : v >= 0 ? "text-positive" : "text-negative");
 
-/** CopyDog's text segments (mono, uppercase, no pill). */
+/** The portfolio's segmented choices: the site's one segmented control
+ * (orange pill that slides, 44 px segments). */
 export function Seg<T extends string>({ value, onChange, options, label }: { value: T; onChange: (value: T) => void; options: Array<[T, React.ReactNode]>; label: string }) {
-  // The orange pill slides to the chosen option, as every segmented control's does.
-  const [trackRef, pill] = useSlidingIndicator<HTMLDivElement>(value);
-  return (
-    <div ref={trackRef} role="radiogroup" aria-label={label} className="relative flex items-center gap-0.5 rounded-full bg-(--seg-track,var(--raised)) p-1">
-      {pill ? <span aria-hidden className="absolute rounded-full bg-primary transition-[left,top,width] duration-300 ease-(--ease-orbit) motion-reduce:transition-none" style={{ left: pill.left, top: pill.top, width: pill.width, height: pill.height }} /> : null}
-      {options.map(([v, text]) => (
-        <button
-          key={v}
-          type="button"
-          role="radio"
-          data-active={v === value}
-          aria-checked={v === value}
-          onClick={() => onChange(v)}
-          className={cn(
-            "relative h-9 rounded-full px-3 text-[13px] whitespace-nowrap outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
-            v === value ? cn("font-extrabold text-primary-foreground", !pill && "bg-primary") : "font-bold text-muted-foreground hover:text-foreground",
-          )}
-        >
-          {text}
-        </button>
-      ))}
-    </div>
-  );
+  return <Segmented variant="pill" label={label} value={value} onChange={onChange} options={options.map(([v, text]) => ({ value: v, label: text }))} />;
 }
 
 /** A copy's PnL since it started (CopyDog's equity-curve column): green
@@ -176,7 +156,7 @@ export function PaperSummary({ overview, className, collapsible = false }: { ove
       <div className="flex items-center justify-between gap-2">
         <p className="num font-display text-[2.5rem] leading-tight">{p.totalValue === null ? "—" : format.usd(p.totalValue, { digits: 2 })}</p>
         {collapsible ? (
-          <button type="button" aria-expanded={open} aria-label={t("portfolio.breakdown")} onClick={() => setOpen((v) => !v)} className="inline-flex size-8 items-center justify-center rounded-full bg-raised outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <button type="button" aria-expanded={open} aria-label={t("portfolio.breakdown")} onClick={() => setOpen((v) => !v)} className="relative inline-flex size-8 items-center justify-center rounded-full bg-raised outline-none after:absolute after:-inset-1.5 after:content-[''] focus-visible:ring-2 focus-visible:ring-ring">
             <ChevronDown className={cn("size-4 transition-transform", open && "rotate-180")} />
           </button>
         ) : null}
@@ -210,20 +190,6 @@ function SecHead({ title, children }: { title: string; children?: React.ReactNod
     <div className="mb-3 flex min-h-8 items-center justify-between gap-3">
       <h3 className="type-h2">{title}</h3>
       {children}
-    </div>
-  );
-}
-
-function Pills<T extends string>({ value, onChange, options, label }: { value: T; onChange: (v: T) => void; options: Array<[T, string]>; label: string }) {
-  const [trackRef, pill] = useSlidingIndicator<HTMLDivElement>(value);
-  return (
-    <div ref={trackRef} role="radiogroup" aria-label={label} className="relative flex gap-0.5 rounded-full bg-(--seg-track,var(--raised)) p-1">
-      {pill ? <span aria-hidden className="absolute rounded-full bg-primary transition-[left,top,width] duration-300 ease-(--ease-orbit) motion-reduce:transition-none" style={{ left: pill.left, top: pill.top, width: pill.width, height: pill.height }} /> : null}
-      {options.map(([v, text]) => (
-        <button key={v} type="button" role="radio" data-active={v === value} aria-checked={v === value} onClick={() => onChange(v)} className={cn("relative h-8 rounded-full px-3 text-xs outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring", v === value ? cn("font-extrabold text-primary-foreground", !pill && "bg-primary") : "font-bold text-muted-foreground")}>
-          {text}
-        </button>
-      ))}
     </div>
   );
 }
@@ -275,7 +241,7 @@ function BestWorst({ leaders }: { leaders: Map<string, Leader> }) {
   return (
     <section>
       <SecHead title={which === "best" ? t("pf.insights.bestTrades") : t("pf.insights.worstTrades")}>
-        <Pills label={t("pf.insights.bestTrades")} value={which} onChange={setWhich} options={[["best", t("pf.insights.best")], ["worst", t("pf.insights.worst")]]} />
+        <Seg label={t("pf.insights.bestTrades")} value={which} onChange={setWhich} options={[["best", t("pf.insights.best")], ["worst", t("pf.insights.worst")]]} />
       </SecHead>
       {list.data ? (
         list.data.items.length ? (
@@ -299,13 +265,14 @@ function TraderLeague({ strategies, leaders, onSelect }: { strategies: CopyStrat
   const live = strategies.filter((s) => s.status !== "stopped");
   const deployed = Math.max(live.reduce((a, s) => a + (s.equity ?? 0), 0), 1e-4);
   const sorted = [...live].sort((a, b) => (by === "roi" ? (b.roiPct ?? -Infinity) - (a.roiPct ?? -Infinity) : (b.totalPnl ?? 0) - (a.totalPnl ?? 0)));
+  const { rows, pager } = usePaged(sorted, by);
   return (
     <section>
       <SecHead title={t("pf.insights.traders")}>
-        <Pills label={t("pf.insights.traders")} value={by} onChange={setBy} options={[["pnl", "PnL"], ["roi", "ROI"]]} />
+        <Seg label={t("pf.insights.traders")} value={by} onChange={setBy} options={[["pnl", "PnL"], ["roi", "ROI"]]} />
       </SecHead>
       <ul className="flex flex-col">
-        {sorted.map((s) => {
+        {rows.map((s) => {
           const leader = leaderOf(leaders, s.leaderAddress);
           const share = (s.equity ?? 0) / deployed;
           return (
@@ -332,6 +299,7 @@ function TraderLeague({ strategies, leaders, onSelect }: { strategies: CopyStrat
           );
         })}
       </ul>
+      <TablePager {...pager} className="px-0" />
     </section>
   );
 }
@@ -391,6 +359,7 @@ export function ExposurePanel({ overview, leaders, desktop }: { overview: CopyOv
   const { t, format } = useI18n();
   const [open, setOpen] = useState<Set<string>>(new Set());
   const e = exposure(overview.strategies);
+  const assets = usePaged(e?.assets ?? []);
   if (!e) return <p role="status" className="py-8 text-center text-sm text-muted-foreground">{t("copyUpdates.exposureUnknown")}</p>;
   if (e.assets.length === 0) return <EmptyBlock icon={UserPlus} title={t("pf.exposure.noOpenTitle")} body={t("pf.exposure.noOpenDesc")} />;
   const net = e.long - e.short;
@@ -425,7 +394,7 @@ export function ExposurePanel({ overview, leaders, desktop }: { overview: CopyOv
     <section>
       <SecHead title={t("pf.exposure.byAsset")} />
       <ul className="divide-y-2 divide-dotted divide-border">
-        {e.assets.map((a) => {
+        {assets.rows.map((a) => {
           const share = e.gross > 0 ? a.grossNotional / e.gross : 0;
           const expanded = open.has(a.coin);
           return (
@@ -484,6 +453,7 @@ export function ExposurePanel({ overview, leaders, desktop }: { overview: CopyOv
           );
         })}
       </ul>
+      <TablePager {...assets.pager} className="px-0" />
     </section>
   );
   return desktop ? (
@@ -505,7 +475,7 @@ export function HedgeNotice({ trader, coins, onDismiss }: { trader: string; coin
     <div role="status" className="rounded-xl border border-warning/40 bg-warning/10 p-3">
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-bold text-warning">{t("pf.hedge.title")}</p>
-        <button type="button" onClick={onDismiss} aria-label={t("pf.hedge.dismiss")} className="inline-flex size-6 items-center justify-center rounded-full outline-none hover:bg-raised focus-visible:ring-2 focus-visible:ring-ring">
+        <button type="button" onClick={onDismiss} aria-label={t("pf.hedge.dismiss")} className="relative inline-flex size-6 items-center justify-center rounded-full outline-none after:absolute after:-inset-2.5 after:content-[''] hover:bg-raised focus-visible:ring-2 focus-visible:ring-ring">
           <X className="size-3.5" />
         </button>
       </div>

@@ -5,6 +5,7 @@ import { cn } from "cn";
 import type { WireCopyEvents } from "@trading-dashboard/shared/contracts";
 
 import { Modal } from "@/components/ui/dialog";
+import { PAGE_SIZE, TablePager, usePaged } from "@/components/ui/table-pager";
 import { TextButton } from "@/components/ui/text-button";
 import type { MessageKey } from "@/i18n/messages";
 import { useI18n } from "@/i18n/provider";
@@ -44,6 +45,13 @@ export function RecentActivity({ names, className }: { names: Map<number, string
   const line = useEventLine();
   const [all, setAll] = useState(false);
   const mine = (query.data?.items ?? []).filter((event) => event.strategyId !== null && names.has(event.strategyId)).reverse();
+  // 查看全部: ten a page; a page past the events read asks for older ones.
+  const { rows: page, pager } = usePaged(mine);
+  const more = Boolean(query.data?.hasMore);
+  const onPage = (next: number) => {
+    if ((next + 1) * PAGE_SIZE > mine.length && more && !query.isLoadingOlder) query.loadOlder();
+    pager.onPage(next);
+  };
   const row = (event: CopyEvent) => {
     const { what, who, when } = line(event, names.get(event.strategyId!));
     return (
@@ -63,8 +71,8 @@ export function RecentActivity({ names, className }: { names: Map<number, string
         : <p className="py-4 text-sm text-muted-foreground">{query.isPending && !query.data ? t("copyUpdates.activityLoading") : t("folio.noActivity")}</p>}
       <Modal open={all} onOpenChange={setAll} title={t("folio.allActivity")}>
         <div className="px-6 pb-6">
-          <ol className="divide-y-2 divide-dotted divide-border">{mine.map(row)}</ol>
-          {query.data?.hasMore ? <TextButton busy={query.isLoadingOlder} onClick={() => query.loadOlder()} className="mt-3 text-sm">{t("folio.more")}</TextButton> : null}
+          <ol className="divide-y-2 divide-dotted divide-border">{page.map(row)}</ol>
+          <TablePager page={pager.page} hasNext={pager.page + 1 < pager.pages || more} busy={query.isLoadingOlder} onPage={onPage} className="-mx-6 mt-2 -mb-6" />
         </div>
       </Modal>
     </section>

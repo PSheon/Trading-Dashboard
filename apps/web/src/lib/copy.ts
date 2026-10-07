@@ -35,11 +35,19 @@ export function useCopyOf(leader: string): CopyStrategyView | undefined {
   return overview.data?.strategies.find((s) => s.leaderAddress === address && s.status !== "stopped");
 }
 
+/** One page of a copy's paper orders, newest first: ten (the pager's page),
+ * the next page read with `before`, the last id of the page above it. */
+export const COPY_ORDERS_PAGE = 10;
+
 export function useCopyOrders(strategyId: number | null, before?: string) {
   const { status } = useAuth();
   return useQuery({
     queryKey: [...queryKeys.copy.orders(strategyId ?? 0), before ?? "latest"],
-    queryFn: ({ signal }) => api.get<CopyOrdersView>(`/me/copy/strategies/${strategyId}/orders${before ? `?before=${before}` : ""}`, signal),
+    queryFn: ({ signal }) => api.get<CopyOrdersView>(`/me/copy/strategies/${strategyId}/orders?limit=${COPY_ORDERS_PAGE}${before ? `&before=${before}` : ""}`, signal),
+    // The page on screen stays while the next one of the same copy is read
+    // (the pager waits); another copy's orders never stand in.
+    placeholderData: (previous, previousQuery) =>
+      JSON.stringify(previousQuery?.queryKey.slice(0, -1)) === JSON.stringify(queryKeys.copy.orders(strategyId ?? 0)) ? previous : undefined,
     enabled: status === "signedIn" && strategyId !== null,
     staleTime: 5_000,
     refetchInterval: COPY_REFETCH_MS,

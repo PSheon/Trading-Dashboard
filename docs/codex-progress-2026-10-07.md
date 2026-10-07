@@ -80,3 +80,9 @@
 - Playwright相關17項：首次16通過，1項因隱藏重複節點的定位失敗；改成可見節點後單獨重跑通過。包括標頭捲動40／180／350px、nav一般／減少動態、設定返回／搜尋焦點／錢包／刪除確認。
 - 修改前後及最終1440×900、390×844截圖已檢查，無頁面横向溢出。最終圖 `/private/tmp/codex-trading-ui/ui13-final-*`；表格另有768px檢查。
 - dev `6bbcd9ec` CI run37605045958成功；本次最終提交的CI與Stage部署另記後續。
+
+### CI 幾何量測修正
+
+- run37607319991 第3組58項中57通過，sticky測試在抽屜300ms進場動畫中分兩次boundingBox取得不同影格，差13.79px。改為同一次browser evaluate量測兩個矩形，保留原本小於1px的嚴格斷言。
+- UI-polish三項連跑三次9/9通過；tsc與eslint通過。應用程式碼無變更。
+- Stage備份29,138,732bytes，PG18 pg_restore --list成功699項；排除history_fills資料但保留表結構。檔案 `/private/tmp/codex-trading-stage-before-ui-20261007.dump`，SHA256 `a9151bb61241990541f954fd10ca0cdd00bb2e90ac19c81ba6a458a8e78e0fbd`。

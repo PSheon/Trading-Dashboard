@@ -36,10 +36,13 @@ test("copy sheet mode covers its whole scroll viewport without a top gap", async
   for (const top of [40, 180, 350]) {
     await body.evaluate((el, top) => { el.scrollTop = top; }, top);
     await expect(body).toHaveAttribute("data-scrolled", "true");
-    const viewport = await body.boundingBox(), sticky = await mode.boundingBox();
-    expect(Math.abs(sticky!.y - viewport!.y)).toBeLessThan(1);
-    expect(Math.abs(sticky!.x - viewport!.x)).toBeLessThan(1);
-    expect(Math.abs(sticky!.width - viewport!.width)).toBeLessThan(1);
+    // Read both rectangles in one browser frame: the sheet can still be
+    // entering, so two separate boundingBox calls compare different positions.
+    await expect.poll(() => body.evaluate(el => {
+      const viewport = el.getBoundingClientRect();
+      const sticky = el.querySelector('[data-testid="copy-sheet-mode"]')!.getBoundingClientRect();
+      return Math.max(Math.abs(sticky.y - viewport.y), Math.abs(sticky.x - viewport.x), Math.abs(sticky.width - viewport.width));
+    })).toBeLessThan(1);
     expect(await mode.evaluate(el => getComputedStyle(el).boxShadow)).not.toBe("none");
   }
   await body.evaluate(el => { el.scrollTop = 0; });

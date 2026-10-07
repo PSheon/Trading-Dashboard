@@ -37,10 +37,14 @@ export function useLiveCopyPortfolio() {
  * action under the owner's policy.
  */
 export function useLiveCopyPortfolioActions() {
-  const client = useQueryClient(), key = usePortfolioKey();
+  const client = useQueryClient(), key = usePortfolioKey(), auth = useAuth();
+  // Keys belong to the signed-in owner and session (as copy-live-stop's
+  // journal): another account, or a new sign-in, never reuses one.
+  const owner = JSON.stringify([auth.status, auth.mode, auth.identity, sessionKey()]);
   const keys = useRef(new Map<string, string>());
-  const keyFor = (name: string) => { let value = keys.current.get(name); if (!value) { value = crypto.randomUUID(); keys.current.set(name, value); } return value; };
-  const done = (name: string) => { keys.current.delete(name); void client.invalidateQueries({ queryKey: key, exact: true }); void client.invalidateQueries({ queryKey: [...queryKeys.copy.all] }); };
+  const scoped = (name: string) => `${owner}\n${name}`;
+  const keyFor = (name: string) => { let value = keys.current.get(scoped(name)); if (!value) { value = crypto.randomUUID(); keys.current.set(scoped(name), value); } return value; };
+  const done = (name: string) => { keys.current.delete(scoped(name)); void client.invalidateQueries({ queryKey: key, exact: true }); void client.invalidateQueries({ queryKey: [...queryKeys.copy.all] }); };
 
   /** Idle funds while copying (an amount), or everything after a flat stop
    * ("all"): the worker signs it (its policy allows only the main wallet).

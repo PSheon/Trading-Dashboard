@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CopyFundingExchangeClient } from "../src/copy/copy-funding-exchange.client.js";
 import type { RequestBudgeterService } from "../src/hyperliquid/request-budgeter.service.js";
+import { HyperliquidGlobalTransport } from "../src/hyperliquid/hyperliquid-global-transport.js";
 import type { FundingRow } from "../src/copy/copy-funding.repository.js";
 
 const op: FundingRow = { id: "test", userId: 1, accountId: "account", strategyId: 1, idempotencyKey: "test-key", network: "testnet", address: `0x${"11".repeat(20)}`, destination: `0x${"22".repeat(20)}`, amount: "12.5", nonce: 1780000000000, status: "unknown", direction: "to_account", stopId: null, claimedAt: new Date(), attemptedAt: new Date(), evidenceHash: null, transactionHash: null, creditedAmount: null, fee: null, scanState: null, scanRevision: 0, liveSetupId: null, createdAt: new Date(), updatedAt: new Date() };
@@ -54,6 +55,16 @@ describe("strategy funding trusted transport", () => {
     // An answer it can't read is never "empty".
     vi.stubGlobal("fetch", answer({ assetPositions: [] }, [], { balances: [] }));
     await expect(client().transport.holdings("testnet", op.address)).rejects.toThrow("Account holdings unavailable");
+  });
+  it("checks the quota permit before the caller's last proof: a permit refused at the send is never seen as dispatched", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ status: "ok", response: { type: "default" } }))); vi.stubGlobal("fetch", fetcher);
+    const global = Object.create(HyperliquidGlobalTransport.prototype) as HyperliquidGlobalTransport;
+    const permit = { assertFresh: () => { throw new Error("hyperliquid_quota_expired"); }, dispatch: <T>(work: () => T) => work() };
+    Object.defineProperty(global, "currentQuota", { value: () => ({ acquireRest: async () => permit }) });
+    const budget = { acquire: vi.fn(async () => {}), liveCapacity: 1000, liveWaitMs: () => 0, refillMs: () => 0 };
+    let dispatched = false;
+    await expect(new CopyFundingExchangeClient(budget as unknown as RequestBudgeterService, global).send(op, signature, () => { dispatched = true; })).rejects.toThrow("funding_submission_unknown");
+    expect(dispatched).toBe(false); expect(fetcher).not.toHaveBeenCalled();
   });
   it("never retries response loss", async () => {
     const fetcher = vi.fn(async () => { throw new Error("response lost"); }); vi.stubGlobal("fetch", fetcher);

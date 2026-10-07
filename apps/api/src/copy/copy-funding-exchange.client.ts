@@ -63,7 +63,8 @@ export class CopyFundingExchangeClient {
     try {
       const request: RequestInit = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(20000) };
       const permit = this.global ? await this.global.currentQuota().acquireRest(1, Date.now() + 5000) : undefined;
-      const dispatch = () => { const result: unknown = assertFreshProof(); if (result !== undefined) { void Promise.resolve(result).catch(() => {}); throw new Error(); } permit?.assertFresh(); return fetch(WALLET_NETWORKS[network].exchangeUrl, request); };
+      // The quota permit first, the caller's proof last: once the proof passed, only the POST follows.
+      const dispatch = () => { permit?.assertFresh(); const result: unknown = assertFreshProof(); if (result !== undefined) { void Promise.resolve(result).catch(() => {}); throw new Error(); } return fetch(WALLET_NETWORKS[network].exchangeUrl, request); };
       const response = await (permit ? permit.dispatch(dispatch) : dispatch()); if (!response.ok) { await response.body?.cancel().catch(() => {}); throw new Error(); }
       return await readInfoJson(response, 'copy account action', 64 * 1024);
     } catch { throw new LiveBoundaryError('account_action_submission_unknown'); }
@@ -79,7 +80,10 @@ export class CopyFundingExchangeClient {
       const request:RequestInit={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(usdSendRequest(WALLET_NETWORKS[operation.network],operation.destination,operation.amount,operation.nonce,signature)),redirect:'error',signal:AbortSignal.timeout(20000)};
       if(this.global&&typeof assertFreshProof!=='function')throw new Error();
       const permit=this.global?await this.global.currentQuota().acquireRest(1,Date.now()+5000):undefined;
-      const dispatch=()=>{const result:unknown=assertFreshProof?.();if(result!==undefined){void Promise.resolve(result).catch(()=>{});throw new Error();}permit?.assertFresh();request.signal?.throwIfAborted();return fetch(WALLET_NETWORKS[operation.network].exchangeUrl,request);};
+      // The quota permit and the timeout first, the caller's proof last: a
+      // caller that marks the send dispatched in its proof (the automatic
+      // return) knows that only the POST follows it.
+      const dispatch=()=>{permit?.assertFresh();request.signal?.throwIfAborted();const result:unknown=assertFreshProof?.();if(result!==undefined){void Promise.resolve(result).catch(()=>{});throw new Error();}return fetch(WALLET_NETWORKS[operation.network].exchangeUrl,request);};
       const response=await (permit?permit.dispatch(dispatch):dispatch());if(!response.ok){await response.body?.cancel().catch(()=>{});throw new Error();}return await readInfoJson(response,'copy funding',64*1024);
     }catch{throw new LiveBoundaryError('funding_submission_unknown');}
   }

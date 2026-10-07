@@ -13,6 +13,9 @@ import { CopyLiveCloseService } from '../src/copy/copy-live-close.service.js';
 import { CopyLiveCloseRepository } from '../src/copy/copy-live-close.repository.js';
 import { CopyLiveStopper, type StopCanceller } from '../src/copy/live-worker/copy-live-stopper.js';
 import { CopyLiveAutoReturn } from '../src/copy/live-worker/copy-live-auto-return.js';
+import { CopyFundingExchangeClient } from '../src/copy/copy-funding-exchange.client.js';
+import { HyperliquidGlobalTransport } from '../src/hyperliquid/hyperliquid-global-transport.js';
+import type { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
 import { CopyLiveReturnRepository, expireStaleReturns } from '../src/copy/copy-live-return.repository.js';
 import { CopyLiveStopWorkerRepository } from '../src/copy/live-worker/copy-live-stop-worker.repository.js';
 import { CLOSE_NEVER_SENT, closeCloid, closeRetryDelayMs, closeSlippageBps, type CloseRequest, type ReduceOnlyCloser } from '../src/copy/live-worker/reduce-only-closer.js';
@@ -203,6 +206,22 @@ describe('testnet stop execution', () => {
       expect((await returns())[0]).toMatchObject({ status: 'unknown' });
       expect(await sweep().sweep(stop, withdrawable)).toBe('unknown');
       expect(exchange.send).toHaveBeenCalledTimes(2);
+    });
+
+    it('a sweep whose quota permit is refused at the send was not dispatched: refused (the owner returns it), never left unconfirmed', async () => {
+      await withSigner(); withdrawable = '25';
+      const stop = await auto().tick().then(() => auto().tick()).then(stopRow);
+      expect(stop.state).toBe('flat');
+      const fetcher = vi.fn(async () => Response.json({ status: 'ok', response: { type: 'default' } })); vi.stubGlobal('fetch', fetcher);
+      const global = Object.create(HyperliquidGlobalTransport.prototype) as HyperliquidGlobalTransport;
+      const permit = { assertFresh: () => { throw new Error('hyperliquid_quota_expired'); }, dispatch: <T>(work: () => T) => work() };
+      Object.defineProperty(global, 'currentQuota', { value: () => ({ acquireRest: async () => permit }) });
+      const client = new CopyFundingExchangeClient({ acquire: vi.fn(async () => {}) } as unknown as RequestBudgeterService, global);
+      try {
+        expect(await new CopyLiveAutoReturn('testnet', new CopyLiveReturnRepository(db, testConfig()), client, worker as never, () => clock).sweep(stop, withdrawable)).toBe('failed');
+      } finally { vi.unstubAllGlobals(); }
+      expect(fetcher).not.toHaveBeenCalled();
+      expect((await returns())[0]).toMatchObject({ status: 'rejected' });
     });
 
     it('a system sweep has no consent window: expireStaleReturns leaves it', async () => {

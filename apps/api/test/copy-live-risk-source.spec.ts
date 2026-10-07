@@ -148,6 +148,35 @@ describe('durable local actual source authority before remote reads',()=>{
       expect(assessLiveAccountRisk(proof)).toMatchObject({ok:true});
     });
   });
+  it('does not let another copy still in setup refuse this copy: no wallet yet, or a fresh account (role missing, default abstraction) holding nothing',async()=>{
+    const {state}=await genuineSizing();
+    const fresh=`0x${'31'.repeat(20)}`;
+    await db.insert(copyStrategies).values([{id:31,userId:1,mode:'testnet',leaderAddress:`0x${'46'.repeat(20)}`,allocated:'0',cash:'0',status:'paused',activatedAt:new Date(now)},
+      {id:32,userId:1,mode:'testnet',leaderAddress:`0x${'47'.repeat(20)}`,allocated:'0',cash:'0',status:'paused',activatedAt:new Date(now)}]);
+    await db.insert(copyExecutionAccounts).values([{id:'setup-fresh',userId:1,strategyId:31,network:'testnet',state:'ready',address:fresh,privyUserId:'did:privy:risk-source',externalId:'setup-fresh',privyWalletId:'fresh-master',ownerQuorumId:'owner'},
+      {id:'setup-creating',userId:1,strategyId:32,network:'testnet',state:'requested',privyUserId:'did:privy:risk-source',externalId:'setup-creating'}]);
+    const answer=fetcher.getMockImplementation()!;
+    fetcher.mockImplementation(async(url,options)=>{const body=JSON.parse(String(options?.body));
+      if(body.user===fresh&&body.type==='userRole')return new Response(JSON.stringify({role:'missing'}));
+      if(body.user===fresh&&body.type==='userAbstraction')return new Response(JSON.stringify('default'));
+      if(body.user===fresh&&body.type==='userDexAbstraction')return new Response(JSON.stringify(null));
+      return answer(url,options);});
+    const zero={...state,marginSummary:{accountValue:'0',totalNtlPos:'0',totalRawUsd:'0',totalMarginUsed:'0'},crossMarginSummary:{accountValue:'0',totalNtlPos:'0',totalRawUsd:'0',totalMarginUsed:'0'},withdrawable:'0'};
+    const acquire=async(_weight:number)=>{};
+    const observer=new HyperliquidLiveAccountObserver('testnet',acquire,fetcher,()=>now,5000,{read:async(user)=>({network:'testnet',accountAddress:user,observedAt:now,data:{user,clearinghouseStates:[['',user===fresh?zero:state]]}}),
+      readOrders:async(user,dexes)=>({network:'testnet',accountAddress:user,observedAt:now,completedAt:now,requestedDexes:[...dexes],venues:dexes.map(dex=>({dex,user,observedAt:now,receivedAt:now,orders:[]}))})});
+    source=new PostgresLiveRiskSource(observer,new HyperliquidLiveMarketResolver('testnet',acquire,fetcher,()=>now),new HyperliquidLiveRiskProvider('testnet',acquire,fetcher,()=>now),new PostgresLiveReservations(()=>now),{extraRiskBufferBps:'0',restingOrderBuilderFeeCapTenthsBps:100},()=>now);
+    await scopes.run(id(),async(_scope,session)=>{
+      const proof=await source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold();
+      expect(proof.userExposureProof).toMatchObject({otherAccountsExposureUsd:'0'});expect(assessLiveAccountRisk(proof)).toMatchObject({ok:true});
+    });
+    // The same fresh account holding a balance still refuses: it is no longer provably empty.
+    const funded={...zero,marginSummary:{...zero.marginSummary,accountValue:'5',totalRawUsd:'5'},crossMarginSummary:{...zero.crossMarginSummary,accountValue:'5',totalRawUsd:'5'},withdrawable:'5'};
+    const fundedObserver=new HyperliquidLiveAccountObserver('testnet',acquire,fetcher,()=>now,5000,{read:async(user)=>({network:'testnet',accountAddress:user,observedAt:now,data:{user,clearinghouseStates:[['',user===fresh?funded:state]]}}),
+      readOrders:async(user,dexes)=>({network:'testnet',accountAddress:user,observedAt:now,completedAt:now,requestedDexes:[...dexes],venues:dexes.map(dex=>({dex,user,observedAt:now,receivedAt:now,orders:[]}))})});
+    source=new PostgresLiveRiskSource(fundedObserver,new HyperliquidLiveMarketResolver('testnet',acquire,fetcher,()=>now),new HyperliquidLiveRiskProvider('testnet',acquire,fetcher,()=>now),new PostgresLiveReservations(()=>now),{extraRiskBufferBps:'0',restingOrderBuilderFeeCapTenthsBps:100},()=>now);
+    await scopes.run(id(),async(_scope,session)=>{await expect(source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold()).rejects.toThrow('live_account_unsupported_role');});
+  });
   it('holds a fresh independently observed market while preserving the original prepared market timestamp',async()=>{
     let clock=now;const {reservations}=await genuineSizing(()=>clock);clock++;
     await scopes.run(id(),async(_scope,session)=>{
@@ -298,7 +327,8 @@ describe('durable local actual source authority before remote reads',()=>{
       await db.insert(copyStrategies).values({id:10,userId:1,mode:'testnet',leaderAddress:`0x${'77'.repeat(20)}`,allocated:'0',cash:'0',status:'paused',activatedAt:new Date(now)});
       await db.insert(copyExecutionAccounts).values({id:'other',userId:1,strategyId:10,network:change==='foreignNetwork'?'mainnet':'testnet',state:'unknown',privyUserId:'did:privy:risk-source',externalId:'other-account'});reason='live_risk_user_coverage_unproven';
       // Another network's account (a database that moved networks) neither blocks nor counts: the chain goes on as the genuine one does.
-      if(change==='foreignNetwork')reason='live_risk_baseline_unproven';
+      // Nor does a copy whose wallet is still being created (no address: nothing can reach it).
+      reason='live_risk_baseline_unproven';
     }
     await scopes.run(id(),async(_scope,session)=>{await expect(source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold()).rejects.toThrow(reason);});expect(fetcher).not.toHaveBeenCalled();
   });

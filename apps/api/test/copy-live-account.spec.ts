@@ -100,6 +100,30 @@ describe('authoritative dedicated standard account observations', () => {
     await expect(setup((body, value) => body.type === 'userRole' ? { role } : value).observer.observe(account))
       .rejects.toThrow('live_account_unsupported_role');
   });
+  describe('another copy\'s account still in setup (unsetup)', () => {
+    /** A fresh account: no role yet or the exchange's default abstraction, nothing on it. */
+    const fresh = (patch: Record<string, unknown>) => (body: Record<string, unknown>, value: unknown) =>
+      String(body.type) in patch ? patch[String(body.type)] : body.type === 'clearinghouseState' ? state(false) : body.type === 'frontendOpenOrders' ? [] : value;
+    it.each([[{ userRole: { role: 'missing' }, userAbstraction: 'default', userDexAbstraction: null }, 'missing', 'default'],
+      [{ userAbstraction: 'default', userDexAbstraction: null }, 'user', 'default']] as const)('is observed as zero exposure: %j', async (patch, role, abstraction) => {
+      const snapshot = await setup(fresh(patch)).observer.observe(account, { unsetup: true });
+      expect(snapshot).toMatchObject({ role, accountAbstraction: abstraction, perpEquity: '0', exposureUsd: '0', positions: [], restingOrders: [] });
+      // Never for the account that orders.
+      await expect(setup(fresh(patch)).observer.observe(account)).rejects.toThrow(role === 'missing' ? 'live_account_unsupported_role' : 'live_account_unsupported_abstraction');
+    });
+    it('still refuses one holding anything: a position, an order or a balance', async () => {
+      const patch = { userRole: { role: 'missing' }, userAbstraction: 'default', userDexAbstraction: null };
+      await expect(setup((body, value) => String(body.type) in patch ? patch[body.type as keyof typeof patch] : value).observer.observe(account, { unsetup: true }))
+        .rejects.toThrow('live_account_unsupported_role');
+      await expect(setup((body, value) => body.type === 'frontendOpenOrders' ? (body.dex ? [] : [structuredClone(open)]) : fresh(patch)(body, value)).observer.observe(account, { unsetup: true }))
+        .rejects.toThrow('live_account_unsupported_role');
+      await expect(setup((body, value) => body.type === 'spotClearinghouseState' ? { balances: [{ coin: 'USDC', token: 7, total: '5', hold: '0' }] } : fresh({ userAbstraction: 'default', userDexAbstraction: null })(body, value))
+        .observer.observe(account, { unsetup: true })).rejects.toThrow('live_account_unsupported_abstraction');
+    });
+    it.each(['unifiedAccount', 'portfolioMargin'])('still refuses the unsupported abstraction %s', async mode => {
+      await expect(setup(fresh({ userAbstraction: mode, userDexAbstraction: null })).observer.observe(account, { unsetup: true })).rejects.toThrow('live_account_unsupported_abstraction');
+    });
+  });
   it('refuses portfolio margin even when the abstraction endpoint says disabled', async () => {
     await expect(setup((body, value) => body.type === 'spotClearinghouseState'
       ? { balances: [], portfolioMarginEnabled: true } : value).observer.observe(account)).rejects.toThrow();

@@ -84,12 +84,16 @@ export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSessi
   // after the old ones had stopped (one-click plan §3i). Only this network's
   // accounts: another network's copies (a database that moved networks) hold
   // no exposure here and never block this one's orders.
-  const accounts=await read(db.select({account:copyExecutionAccounts}).from(copyExecutionAccounts).innerJoin(copyStrategies,eq(copyStrategies.id,copyExecutionAccounts.strategyId))
+  const copies=await read(db.select({account:copyExecutionAccounts}).from(copyExecutionAccounts).innerJoin(copyStrategies,eq(copyStrategies.id,copyExecutionAccounts.strategyId))
     .where(and(eq(copyExecutionAccounts.userId,a.userId),eq(copyExecutionAccounts.network,a.network),sql`(${copyStrategies.status}<>'stopped' or exists (select 1 from copy_funding_operations f where f.account_id=${copyExecutionAccounts.id} and f.status in ('prepared','unknown','accepted')))`))
     .orderBy(copyExecutionAccounts.id).limit(9)).then(rows=>rows.map(row=>row.account));
   // This network's live copies of the owner: at most the deployment's cap.
-  riskSourceRequire(!deployment||accounts.length<=limits.maxStrategiesPerUser,'live_risk_strategy_cap');
-  riskSourceRequire(accounts.length<=8&&accounts.every(account=>account.network===a.network&&account.address&&account.privyWalletId&&account.ownerQuorumId&&account.privyUserId===o.privyUserId),'live_risk_user_coverage_unproven');
+  riskSourceRequire(!deployment||copies.length<=limits.maxStrategiesPerUser,'live_risk_strategy_cap');
+  // A copy whose wallet is still being created has no address yet: nothing can
+  // reach it, so it carries no exposure and is not observed (its setup no
+  // longer refuses the owner's other copies).
+  const accounts=copies.filter(account=>account.address!==null||account.privyWalletId!==null);
+  riskSourceRequire(copies.length<=8&&accounts.every(account=>account.network===a.network&&account.address&&account.privyWalletId&&account.ownerQuorumId&&account.privyUserId===o.privyUserId),'live_risk_user_coverage_unproven');
   const states=await read(db.select().from(copyFollowerAccountState).where(sql`${copyFollowerAccountState.accountId} in (select id from copy_execution_accounts where user_id=${a.userId} and network=${a.network})`));
   riskSourceRequire(!states.some(state=>state.quarantined),'live_risk_quarantined');
   // A transfer or mode change in flight on this account (its balance or mode

@@ -96,7 +96,7 @@ export class LiveProviderReadEpoch {
       const accountsWork = (async () => {
         // The concrete all-venue observer owns an exclusive subscription.
         for (const account of authority.accounts) {
-          snapshots.push(await this.observer.observe(account.address!));
+          snapshots.push(await this.observer.observe(account.address!, account.id === binding.accountId ? {} : { unsetup: true }));
           await session.scope.assertHeld(); this.fresh(started);
         }
         return snapshots;
@@ -170,7 +170,8 @@ export class LiveProviderReadEpoch {
     // Every reader's clock is the epoch's: it starts as the first wave goes out.
     await Promise.race([shared.begun, firstWave]);
     const snapshots: LiveAccountSnapshot[] = [];
-    const accountsWork = Promise.all(authority.accounts.map(account => this.observer.observe(account.address!, { shared })));
+    // Another copy's account still in setup counts as zero exposure (unsetup).
+    const accountsWork = Promise.all(authority.accounts.map(account => this.observer.observe(account.address!, { shared, ...(account.id === binding.accountId ? {} : { unsetup: true }) })));
     void accountsWork.catch(() => {});
     let targetWork: Promise<LiveRiskProviderProof> | undefined, otherWork: Promise<LiveRiskProviderProof[]> | undefined;
     try {

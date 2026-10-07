@@ -32,8 +32,10 @@ export interface LiveObservedDex {
   readonly crossExposureUsd: string; readonly crossMaintenanceMarginUsed: string;
 }
 export interface LiveAccountSnapshot {
-  readonly network: HyperliquidNetwork; readonly accountAddress: string; readonly role: 'user'; readonly accountMode: 'standard';
-  readonly accountAbstraction: 'disabled'; readonly observedAt: number; readonly completedAt: number;
+  /** `missing` / `default`: another copy's account not yet funded or set up
+   * (`unsetup`), observed with no balance, position or order at all. */
+  readonly network: HyperliquidNetwork; readonly accountAddress: string; readonly role: 'user' | 'missing'; readonly accountMode: 'standard';
+  readonly accountAbstraction: 'disabled' | 'default'; readonly observedAt: number; readonly completedAt: number;
   readonly sourceDigest: string; readonly collateralToken: number; readonly collateralCoin: 'USDC';
   readonly perpEquity: string; readonly totalMarginUsed: string; readonly withdrawable: string;
   readonly exposureUsd: string; readonly restingExposureUsd: string; readonly grossRestingExposureUsd: string;
@@ -48,6 +50,11 @@ export interface LiveAccountObservationOptions {
   /** The order epoch's shared reads: its caller paid their weight, its clock
    * is this observation's, and it checks the account modes once at the end. */
   shared?: LiveSharedReads;
+  /** Another copy's account of the owner (never the ordering one): one never
+   * funded or still in setup (role `missing`, or abstraction `default`) is
+   * accepted when it provably carries no exposure (no balance, position or
+   * order anywhere), instead of refusing the owner's orders. */
+  unsetup?: boolean;
 }
 /** The observer's REST reads: the account modes and dex list (before and
  * after), spot metadata and every dex's metadata. The all-venue state and
@@ -87,12 +94,21 @@ function frozen<T>(value: T): T {
   if (value && typeof value === 'object') { for (const child of Object.values(value)) frozen(child); Object.freeze(value); }
   return value;
 }
-function mode(role: unknown, abstraction: unknown, dexAbstraction: unknown, spot: unknown): z.infer<typeof spotSchema> {
-  if (z.object({ role: z.literal('user') }).safeParse(role).success === false) fail('live_account_unsupported_role');
-  if (abstraction !== 'disabled' || dexAbstraction !== false) fail('live_account_unsupported_abstraction');
+interface AccountMode { spot: z.infer<typeof spotSchema>; role: 'user' | 'missing'; abstraction: 'disabled' | 'default'; zeroOnly: boolean }
+function mode(role: unknown, abstraction: unknown, dexAbstraction: unknown, spot: unknown, unsetup = false): AccountMode {
   const parsed = spotSchema.parse(spot);
   if (parsed.portfolioMarginEnabled === true) fail('live_account_unsupported_abstraction');
-  return parsed;
+  if (z.object({ role: z.literal('user') }).safeParse(role).success && abstraction === 'disabled' && dexAbstraction === false)
+    return { spot: parsed, role: 'user', abstraction: 'disabled', zeroOnly: false };
+  // Not set up yet (no account at all, or the exchange's default abstraction
+  // before the setup disables it): acceptable for another copy only, and only
+  // with zero exposure, checked once its balances, positions and orders are read.
+  const missing = z.object({ role: z.literal('missing') }).safeParse(role).success;
+  if (!(unsetup && missing) && z.object({ role: z.literal('user') }).safeParse(role).success === false) fail('live_account_unsupported_role');
+  if (!unsetup) fail('live_account_unsupported_abstraction');
+  if (!['disabled', 'default'].includes(String(abstraction)) || ![false, null].includes(dexAbstraction as boolean | null)) fail('live_account_unsupported_abstraction');
+  if (parsed.balances.some(b => !Dec.from(b.total).isZero || !Dec.from(b.hold).isZero)) fail(missing ? 'live_account_unsupported_role' : 'live_account_unsupported_abstraction');
+  return { spot: parsed, role: missing ? 'missing' : 'user', abstraction: abstraction === 'default' ? 'default' : 'disabled', zeroOnly: true };
 }
 
 /** Read-only evidence for dedicated standard accounts on one network. Spot collateral,
@@ -155,7 +171,8 @@ export class HyperliquidLiveAccountObserver {
       const metadataRead = read('allPerpMetas', 20);
       void metadataRead.catch(() => {});
       const [initial, rawTokens] = await initialWork;
-      const spot = mode(...initial.slice(0, 4) as [unknown, unknown, unknown, unknown]);
+      const accountMode = mode(...initial.slice(0, 4) as [unknown, unknown, unknown, unknown], options.unsetup === true), spot = accountMode.spot;
+      const zeroOnly = accountMode.zeroOnly;
       const tokens = z.object({ tokens: z.array(tokenSchema).max(10_000) }).parse(rawTokens).tokens;
       unique(tokens.map((t) => t.index));
       const usdc = tokens.filter((t) => t.name === 'USDC' && t.isCanonical);
@@ -277,6 +294,7 @@ export class HyperliquidLiveAccountObserver {
         const active = Object.values(s).some((v) => !Dec.from(v).isZero) || Object.values(cross).some((v) => !Dec.from(v).isZero) ||
           !Dec.from(state.withdrawable).isZero || !Dec.from(state.crossMaintenanceMarginUsed).isZero ||
           state.assetPositions.length > 0 || pending.length > 0;
+        if (zeroOnly && active) fail(accountMode.role !== 'user' ? 'live_account_unsupported_role' : 'live_account_unsupported_abstraction');
         if (collateral.index !== usdc[0]!.index && (active || !venue.dex)) fail('live_account_unsupported_collateral');
         if (!supported.has(venue.dex) && active) fail('live_account_unsupported_dex_exposure');
         dexes.push({ dex: venue.dex, perpDexIndex: venue.index, supported: supported.has(venue.dex),
@@ -291,14 +309,14 @@ export class HyperliquidLiveAccountObserver {
       // every reader, after the last of them).
       if (!shared) {
         const final = await accountModes();
-        const finalSpot = mode(...final.slice(0, 4) as [unknown, unknown, unknown, unknown]);
-        if (JSON.stringify(dexSchema.parse(final[4])) !== JSON.stringify(list) || JSON.stringify(finalSpot) !== JSON.stringify(spot))
+        const finalMode = mode(...final.slice(0, 4) as [unknown, unknown, unknown, unknown], options.unsetup === true);
+        if (JSON.stringify(dexSchema.parse(final[4])) !== JSON.stringify(list) || JSON.stringify(finalMode) !== JSON.stringify(accountMode))
           fail('live_account_observation_changed');
       }
       this.fresh(started); for (const d of dexes) this.fresh(d.providerTime);
       const sum = (key: 'equity' | 'marginUsed' | 'withdrawable' | 'exposureUsd') => Dec.sum(dexes.map((d) => Dec.from(d[key]))).toString();
       const unobservedOrderDexes = allOrders ? [] : venues.filter((v) => !supported.has(v.dex)).map((v) => v.dex);
-      return frozen({ network: this.network, accountAddress: user, role: 'user', accountMode: 'standard', accountAbstraction: 'disabled',
+      return frozen({ network: this.network, accountAddress: user, role: accountMode.role, accountMode: 'standard', accountAbstraction: accountMode.abstraction,
         observedAt: started, completedAt: this.now(), sourceDigest: createHash('sha256').update(JSON.stringify(sources)).digest('hex'),
         collateralToken: usdc[0]!.index, collateralCoin: 'USDC', perpEquity: sum('equity'), totalMarginUsed: sum('marginUsed'),
         withdrawable: sum('withdrawable'), exposureUsd: sum('exposureUsd'),

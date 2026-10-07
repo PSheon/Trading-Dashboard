@@ -50,7 +50,7 @@ export class PostgresLiveRiskSource {
       requireProof(frames.authorityDigest===riskSourceDigest(local.preparation),'live_risk_local_changed');this.fresh(frames.oldest);
       const {market,snapshots,target,others}=frames;
       requireProof(local.intent.market&&same(marketIdentityKey(market),marketIdentityKey(local.intent.market)),'live_risk_market');
-      requireProof(snapshots.length===local.accounts.length,'live_risk_user_coverage_unproven');for(let i=0;i<snapshots.length;i++)this.validateSnapshot(snapshots[i]!,local.accounts[i]!.address!,local.identity.network);
+      requireProof(snapshots.length===local.accounts.length,'live_risk_user_coverage_unproven');for(let i=0;i<snapshots.length;i++)this.validateSnapshot(snapshots[i]!,local.accounts[i]!.address!,local.identity.network,local.accounts[i]!.id!==binding.accountId);
       const current=snapshots[local.accounts.findIndex(a=>a.id===binding.accountId)]!;
       // Provider calls finish before the uncached second SQL read.
       const final=await this.load(session,binding,started);requireProof(riskSourceDigest(local)===riskSourceDigest(final),'live_risk_local_changed');
@@ -108,8 +108,12 @@ export class PostgresLiveRiskSource {
     requireProof(projection.baselineDigest===basis.generation.baselineDigest&&projection.positionsDigest===basis.generation.positionsDigest&&projection.receiptManifestDigest===basis.generation.receiptManifestDigest&&
       (projection.positions[local.fill.coin]??'0')===basis.generation.positionSize&&carry&&carry.revision===basis.carry.revision&&carry.carry===basis.carry.amount,'live_risk_generation_unproven');
   }
-  private validateSnapshot(s:LiveAccountSnapshot,accountAddress:string,network:LiveAccountSnapshot['network']) {
-    requireProof(s.network===network&&s.accountAddress===accountAddress&&s.role==='user'&&s.accountMode==='standard'&&s.accountAbstraction==='disabled'&&s.coverage.complete&&s.coverage.balanceComplete&&s.coverage.orderComplete&&s.coverage.unobservedOrderDexes.length===0&&s.dexes.length===s.coverage.listedDexes.length&&new Set(s.dexes.map(d=>d.dex)).size===s.dexes.length&&s.coverage.listedDexes.every(d=>s.dexes.some(v=>v.dex===d)),'live_risk_user_coverage_unproven');
+  private validateSnapshot(s:LiveAccountSnapshot,accountAddress:string,network:LiveAccountSnapshot['network'],other=false) {
+    // Another copy's account not yet funded or set up: zero exposure only.
+    const unsetup=s.role!=='user'||s.accountAbstraction!=='disabled';
+    requireProof(!unsetup||other&&['user','missing'].includes(s.role)&&['disabled','default'].includes(s.accountAbstraction)&&s.positions.length===0&&s.restingOrders.length===0&&
+      s.dexes.every(d=>['equity','rawUsd','marginUsed','withdrawable','exposureUsd','crossEquity','crossMarginUsed','crossExposureUsd','crossMaintenanceMarginUsed'].every(k=>Dec.from(d[k as keyof typeof d] as string).isZero)),'live_risk_user_coverage_unproven');
+    requireProof(s.network===network&&s.accountAddress===accountAddress&&s.accountMode==='standard'&&s.coverage.complete&&s.coverage.balanceComplete&&s.coverage.orderComplete&&s.coverage.unobservedOrderDexes.length===0&&s.dexes.length===s.coverage.listedDexes.length&&new Set(s.dexes.map(d=>d.dex)).size===s.dexes.length&&s.coverage.listedDexes.every(d=>s.dexes.some(v=>v.dex===d)),'live_risk_user_coverage_unproven');
     for(const d of s.dexes)if(!d.supported)requireProof(['equity','rawUsd','marginUsed','withdrawable','exposureUsd','crossEquity','crossMarginUsed','crossExposureUsd','crossMaintenanceMarginUsed'].every(k=>Dec.from(d[k as keyof typeof d] as string).isZero)&&!s.positions.some(p=>p.dex===d.dex)&&!s.restingOrders.some(o=>o.dex===d.dex),'live_risk_user_coverage_unproven');
     this.fresh(Math.min(s.observedAt,s.completedAt,s.coverage.earliestProviderTime,...s.dexes.map(d=>d.providerTime)));
   }

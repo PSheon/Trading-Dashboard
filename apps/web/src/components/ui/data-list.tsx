@@ -1,4 +1,4 @@
-import type { ComponentProps } from "react";
+import type { HTMLAttributes } from "react";
 import { cn } from "cn";
 
 type ListTag = "ul" | "ol" | "dl" | "div";
@@ -14,17 +14,19 @@ type ListTag = "ul" | "ol" | "dl" | "div";
  * A list longer than a page goes with `usePaged` and the one `TablePager`.
  */
 export function DataList({
-  as: Tag = "ul",
+  as = "ul",
   variant = "rows",
   className,
   ...props
-}: ComponentProps<"ul"> & { as?: ListTag; variant?: "rows" | "cards" }) {
+}: HTMLAttributes<HTMLElement> & { as?: ListTag; variant?: "rows" | "cards" }) {
+  // One element type for the checker; the tag is whichever list `as` names.
+  const Tag = as as "div";
   return (
     <Tag
       data-slot="data-list"
       data-variant={variant}
       className={cn(variant === "rows" ? "divide-y-2 divide-dotted divide-border" : "flex flex-col gap-2", className)}
-      {...(props as ComponentProps<"div">)}
+      {...props}
     />
   );
 }

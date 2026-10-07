@@ -101,7 +101,7 @@ export class CopyControlService {
         req.command === "resume" ? { pauseNewRisk: false, reduceOnly: false } :
         { pauseNewRisk: before.pauseNewRisk, reduceOnly: before.reduceOnly };
       const after = await this.repository.updateControl(tx, target.scope, target.scopeId, flags, actorUserId);
-      const paper = await this.applyEffects(tx, req.command, locked, mids, `${target.scope}_${req.command}`);
+      const paper = await this.applyEffects(tx, req.command, locked, mids, `${target.scope}_${req.command}`, `${target.scope}:${target.scopeId}:r${after.revision}`);
       const result: Record<string, unknown> & typeof paper = closeAll ? { ...paper, liveCloseAll: "pending" } : paper;
       const event = await this.repository.insertControlEvent(tx, {
         scope: target.scope, scopeId: target.scopeId, command: req.command, revision: after.revision, actorUserId, reason: req.reason, result,
@@ -151,7 +151,7 @@ export class CopyControlService {
       else if (command === "resume" && strategy.status === "paused") patch.status = "active";
       const updated = await this.repository.updateStrategy(tx, strategy.id, { ...patch, controlRevision: strategy.controlRevision + 1 });
       const mapped = STRATEGY_COMMAND[command];
-      const result = await this.applyEffects(tx, mapped, [updated], mids, `strategy_${command}`);
+      const result = await this.applyEffects(tx, mapped, [updated], mids, `strategy_${command}`, `r${updated.controlRevision}`);
       await this.repository.insertControlEvent(tx, {
         scope: "strategy", scopeId: strategy.id, command: mapped, revision: updated.controlRevision, actorUserId: userId, reason: command === "stop" ? "stop" : null, result,
       });
@@ -160,7 +160,8 @@ export class CopyControlService {
     else await this.uow.run(work);
   }
 
-  private async applyEffects(tx: DbTransaction, command: CopyControlCommand, strategies: StrategyRow[], mids: Mids | null, reason: string) {
+  /** `cause`: the control event's scope revision, which keys its close orders. */
+  private async applyEffects(tx: DbTransaction, command: CopyControlCommand, strategies: StrategyRow[], mids: Mids | null, reason: string, cause: string) {
     const ids = strategies.map((s) => s.id);
     let cancelledOrders = 0;
     let closeOrders = 0;
@@ -168,14 +169,16 @@ export class CopyControlService {
     if (command === "cancel_pending") cancelledOrders = await this.repository.cancelPending(tx, ids, reason);
     if (command === "close_positions") {
       cancelledOrders = await this.repository.cancelPending(tx, ids, reason);
-      closeOrders = await this.closeAll(tx, strategies, mids);
+      closeOrders = await this.closeAll(tx, strategies, mids, cause);
     }
     return { cancelledOrders, closeOrders };
   }
 
   /** A reduce-only market close of every open position of `strategies`
-   * (skipping coins that already have a pending stop-close). */
-  private async closeAll(tx: DbTransaction, strategies: StrategyRow[], mids: Mids | null): Promise<number> {
+   * (skipping coins that already have a pending stop-close), keyed by the
+   * control event that asked for it (`cause`: its scope and revision), so
+   * the same event never makes a second close of a coin. */
+  private async closeAll(tx: DbTransaction, strategies: StrategyRow[], mids: Mids | null, cause: string): Promise<number> {
     if (strategies.length === 0) return 0;
     const positions = await this.repository.positionsOf(strategies.map((s) => s.id), tx);
     if (positions.length === 0) return 0;
@@ -192,7 +195,7 @@ export class CopyControlService {
         strategy, settings, policy, controls: noControls, mids, assets: null,
         coin: p.coin, leg: "stop_close", side: size.isPositive ? "A" : "B", size: size.abs(),
         signalPx: mids?.px.get(p.coin) ?? Dec.from(p.entryPx), signalTime: new Date(), signalTids: [],
-        dedupeKey: `stop:${strategy.id}:${p.coin}:r${strategy.controlRevision}:${Date.now()}`,
+        dedupeKey: `stop:${strategy.id}:${p.coin}:${cause}`,
       });
       if (order) n += 1;
     }

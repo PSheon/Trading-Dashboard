@@ -712,12 +712,23 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       await run();
       const res = await controls.apply({ scope: "platform", command: "close_positions", reason: "kill", expectedRevision: 0 }, admin);
       expect(res).toMatchObject({ state: { pauseNewRisk: true, revision: 1 }, event: { result: { cancelledOrders: 0, closeOrders: 1 } } });
+      // Keyed by the control event (scope and revision), not the clock.
+      expect((await orders(id)).filter((o) => o.leg === "stop_close").map((o) => o.cloid)).toEqual([cloidOf(`stop:${id}:BTC:platform:0:r1`)]);
       await execution.drain();
       expect(await position(id)).toBe(0);
       await alice.post(`/me/copy/strategies/${id}/commands`, { command: "resume" }).expect(200);
       await store([fill({ side: "B", sz: 0.5, px: 100_000, start: 0, time: activatedAt + 5_000 })]);
       await run();
       expect((await orders(id)).at(-1)).toMatchObject({ status: "rejected", reason: "platform_paused" });
+    });
+
+    it("an owner's close_positions keys its close orders by the strategy's control revision, never by the clock", async () => {
+      const { id, activatedAt } = await startCopy();
+      await store([fill({ side: "B", sz: 0.5, px: 100_000, start: 0, time: activatedAt + 1_000 })]);
+      await run();
+      await alice.post(`/me/copy/strategies/${id}/commands`, { command: "close_positions" }).expect(200);
+      const [{ controlRevision }] = await db.select().from(copyStrategies).where(eq(copyStrategies.id, id));
+      expect((await orders(id)).filter((o) => o.leg === "stop_close").map((o) => o.cloid)).toEqual([cloidOf(`stop:${id}:BTC:r${controlRevision}`)]);
     });
 
     it("admin commands: stale revision 409, the right permission, and one parsed target", async () => {

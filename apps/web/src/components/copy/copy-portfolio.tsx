@@ -2,10 +2,10 @@
 
 import { ArrowLeft, ChevronDown, Minus, Pause, Pencil, Play, Plus, Share2, Square } from "lucide-react";
 import { Link } from "@/i18n/navigation";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { cn } from "cn";
 
-import { CopyAccountingHistory } from "@/components/copy/copy-accounting-history";
+import { CopyFundsRecords, OrderFills } from "@/components/copy/copy-accounting-history";
 import { ModeBadge } from "@/components/shell/mode-badge";
 import { CopyCompare } from "@/components/copy/copy-compare";
 import { CopySparkline } from "@/components/copy/portfolio-parts";
@@ -258,6 +258,8 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
   const [orderPages, setOrderPages] = useState<string[]>([]);
   const orders = useCopyOrders(s.id, orderPages.at(-1));
   const positions = usePaged(s.positions);
+  // The order whose fills are open (one at a time).
+  const [openOrder, setOpenOrder] = useState<string | null>(null);
   const [dialog, setDialog] = useState<"stop" | "edit" | "funds" | "withdraw" | null>(null);
   const [card, setCard] = useState<TradeCardSource | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -365,7 +367,7 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
       </div>
 
       <section className="orbit-card">
-        <h3 className="border-b-2 border-dotted border-border px-4 py-3 text-sm font-bold">{t("portfolio.copy.detail.orders")}</h3>
+        <h3 className="border-b-2 border-dotted border-border px-4 py-3 text-sm font-bold">{t("portfolio.copy.detail.ordersTitle")}</h3>
         {orders.data && orders.data.items.length === 0 ? (
           <div className="px-4 py-8 text-center">
             <p className="text-sm font-bold">{t("portfolio.copy.detail.noOrders")}</p>
@@ -382,11 +384,13 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
                   <TableHead className="text-right">{t("portfolio.copy.order.size")}</TableHead>
                   <TableHead className="text-right">{t("portfolio.copy.order.price")}</TableHead>
                   <TableHead>{t("portfolio.copy.order.status")}</TableHead>
+                  <TableHead className="row-action"><span className="sr-only">{t("portfolio.copy.detail.showFills")}</span></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {(orders.data?.items ?? []).map((o) => (
-                  <TableRow key={o.id}>
+                  <Fragment key={o.id}>
+                  <TableRow data-state={openOrder === o.id ? "selected" : undefined} className="cursor-pointer" onClick={() => setOpenOrder((id) => (id === o.id ? null : o.id))}>
                     <TableCell className="text-muted-foreground">{format.dateTime(o.createdAt)}</TableCell>
                     <TableCell>
                       <span className="inline-flex items-center gap-2 align-middle font-semibold"><CoinIcon coin={o.coin} size={18} />{coinLabel(o.coin)}</span>
@@ -403,7 +407,22 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
                       </span>
                       {orderReason(o) ? <span className="ml-1.5 text-xs font-semibold text-muted-foreground">{orderReason(o)}</span> : null}
                     </TableCell>
+                    <TableCell className="row-action">
+                      <button type="button" aria-expanded={openOrder === o.id} aria-label={t("portfolio.copy.detail.showFills")}
+                        onClick={(e) => { e.stopPropagation(); setOpenOrder((id) => (id === o.id ? null : o.id)); }}
+                        className="inline-flex size-9 items-center justify-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-raised-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+                        <ChevronDown className={cn("size-4 transition-transform", openOrder === o.id && "rotate-180")} />
+                      </button>
+                    </TableCell>
                   </TableRow>
+                  {openOrder === o.id ? (
+                    <tr>
+                      <td colSpan={7} className="p-0">
+                        <div className="row-expansion mb-1.5 px-4 py-3"><OrderFills strategyId={s.id} orderId={o.id} /></div>
+                      </td>
+                    </tr>
+                  ) : null}
+                  </Fragment>
                 ))}
               </TableBody>
             </Table>
@@ -420,7 +439,7 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
       </section>
 
       {orders.isError ? <p role="status" className="text-xs text-negative">{t("copyUpdates.historyError")} <TextButton busy={orders.isFetching} onClick={() => void orders.refetch()}>{t("copyUpdates.retry")}</TextButton></p> : null}
-      <CopyAccountingHistory strategyId={s.id} />
+      <CopyFundsRecords strategyId={s.id} />
       <StopDialog strategy={s} open={dialog === "stop"} onClose={() => setDialog(null)} />
       <EditDialog strategy={s} open={dialog === "edit"} onClose={() => setDialog(null)} />
       <FundsDialog strategy={s} balance={balance} open={dialog === "funds"} onClose={() => setDialog(null)} />

@@ -1,63 +1,126 @@
 "use client";
 
 import { copyRecordLabel } from "./copy-labels";
-import { useState } from "react";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { wireCopyLedgerSchema, wireCopyFillsSchema } from "@trading-dashboard/shared/contracts";
+import { useEffect, useMemo } from "react";
+import { useInfiniteQuery } from "@tanstack/react-query";
+import { wireCopyLedgerSchema, wireCopyFillsSchema, type WireCopyFills, type WireCopyLedger } from "@trading-dashboard/shared/contracts";
+import { cn } from "cn";
+
 import { useI18n } from "@/i18n/provider";
 import { useAuth } from "@/lib/auth";
 import { api, sessionKey } from "@/lib/api";
+import { coinLabel } from "@/lib/format";
 import { defaultRetry } from "@/lib/query-policy";
 import { TextButton } from "@/components/ui/text-button";
-import { Tabs } from "@/components/ui/tabs";
-import { PAGE_SIZE, TablePager } from "@/components/ui/table-pager";
+import { PAGE_SIZE, TablePager, usePaged } from "@/components/ui/table-pager";
 
-/** The real persisted paper ledger, separate from the bounded activity
- * feed. Exact decimal strings are shown without conversion through Number. */
-export function CopyAccountingHistory({ strategyId }: { strategyId: number }) {
-  const { t } = useI18n();
-  const [open, setOpen] = useState(false);
-  const [kind, setKind] = useState<"ledger" | "fills">("ledger");
-  return <details className="orbit-card card-pad" onToggle={(e) => setOpen(e.currentTarget.open)}>
-    <summary className="cursor-pointer text-sm font-semibold">{t("copyUpdates.accountingHistory")}</summary>
-    {open ? <>
-      <Tabs size="sm" className="my-3" label={t("copyUpdates.accountingHistory")} value={kind} onChange={setKind}
-        items={(["ledger", "fills"] as const).map((value) => ({ value, label: t(`copyUpdates.${value}`) }))} />
-      <AccountingPage key={`${strategyId}:${kind}`} strategyId={strategyId} kind={kind} />
-    </> : null}
-  </details>;
-}
+/**
+ * A paper copy's history in two parts (Paul, 2026-10-07, audit §十三):
+ * 訂單 (the orders table; a row opens its fills with the order's fees and
+ * realized PnL, read here by order id) and 資金紀錄 (the ledger rows of no
+ * order: 資金分配, 資金退回, 提款, 資金費, 清算). No raw decimals, no ids.
+ *
+ * The api pages fills and the ledger newest first by id, 100 at a time;
+ * the pages needed for an order (or for a page of 資金紀錄) are read on
+ * demand. A paper copy's history is small, so this stays a few requests.
+ */
+const SCAN = 100;
+/** At most this many pages are read for one order's fills. */
+const MAX_SCAN_PAGES = 10;
 
-function AccountingPage({ strategyId, kind }: { strategyId: number; kind: "ledger" | "fills" }) {
-  const { t, format } = useI18n();
+type Fill = WireCopyFills["items"][number];
+type LedgerRow = WireCopyLedger["items"][number];
+
+function useHistoryPages<K extends "ledger" | "fills">(strategyId: number, kind: K, enabled: boolean) {
   const { status, identity, mode } = useAuth();
-  const [pages, setPages] = useState<string[]>([]);
-  const before = pages.at(-1);
-  const query = useQuery({
-    queryKey: ["copy", "accounting", identity, mode, sessionKey(), strategyId, kind, before],
-    queryFn: async ({ signal }) => {
-      const data = await api.get<unknown>(`/me/copy/strategies/${strategyId}/${kind}?limit=${PAGE_SIZE}${before ? `&before=${before}` : ""}`, signal);
-      return kind === "ledger" ? { kind: "ledger" as const, ...wireCopyLedgerSchema.parse(data) } : { kind: "fills" as const, ...wireCopyFillsSchema.parse(data) };
+  return useInfiniteQuery({
+    queryKey: ["copy", "history", identity, mode, sessionKey(), strategyId, kind],
+    queryFn: async ({ pageParam, signal }) => {
+      const data = await api.get<unknown>(`/me/copy/strategies/${strategyId}/${kind}?limit=${SCAN}${pageParam ? `&before=${pageParam}` : ""}`, signal);
+      return (kind === "ledger" ? wireCopyLedgerSchema.parse(data) : wireCopyFillsSchema.parse(data)) as K extends "ledger" ? WireCopyLedger : WireCopyFills;
     },
-    enabled: status === "signedIn",
-    // The page on screen stays while the next is read (the pager waits).
-    placeholderData: keepPreviousData,
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => (last.hasMore && last.previousCursor ? last.previousCursor : undefined),
+    enabled: enabled && status === "signedIn",
     ...defaultRetry,
   });
-  if (query.isError) return <p role="alert" className="py-3 text-xs text-negative">{t("copyUpdates.historyError")} <TextButton busy={query.isFetching} onClick={() => void query.refetch()}>{t("copyUpdates.retry")}</TextButton></p>;
-  if (!query.data) return <p role="status" className="py-3 text-xs text-muted-foreground">{t("common.loading")}</p>;
-  const data = query.data;
-  return <div role="tabpanel">
-    {data.items.length === 0 ? <p className="py-3 text-xs text-muted-foreground">{t("copyUpdates.activityEmpty")}</p> : <ul className="divide-y-2 divide-dotted divide-border">
-      {data.kind === "ledger" ? data.items.map((row) => <li key={row.id} className="flex flex-wrap justify-between gap-2 py-3 text-xs">
-        <div className="min-w-0"><p>{copyRecordLabel("ledgerKinds", row.kind, t)}{row.coin ? ` · ${row.coin}` : ""}</p><time className="text-muted-foreground" dateTime={row.createdAt}>{format.dateTime(row.createdAt)}</time><p className="text-muted-foreground">#{row.id}{row.orderId ? ` · ${t("trader.tabs.orders")} #${row.orderId}` : ""}</p></div>
-        <span className="num break-all" title={row.amount}>{row.amount} USDC</span>
-      </li>) : data.items.map((row) => <li key={row.id} className="flex flex-wrap justify-between gap-2 py-3 text-xs">
-        <div className="min-w-0"><p>{row.coin} · {t(row.side === "B" ? "portfolio.copy.order.buy" : "portfolio.copy.order.sell")}</p><time className="text-muted-foreground" dateTime={row.ts}>{format.dateTime(row.ts)}</time><p className="text-muted-foreground">#{row.id} · {t("trader.tabs.orders")} #{row.orderId}</p></div>
-        <div className="num min-w-0 break-all text-right"><p>{row.size} × {row.px}</p><p>{t("copyUpdates.fee")}: {row.fee} + {row.builderFee} USDC</p><p>PnL: {row.realizedPnl} USDC</p></div>
-      </li>)}
-    </ul>}
-    <TablePager className="-mx-4 mt-3 md:-mx-[22px]" page={pages.length} hasNext={data.hasMore && Boolean(data.previousCursor)} busy={query.isPlaceholderData}
-      onPage={(next) => setPages((value) => (next < value.length ? value.slice(0, next) : data.previousCursor ? [...value, data.previousCursor] : value))} />
-  </div>;
+}
+
+const older = (a: string, b: string) => BigInt(a) < BigInt(b);
+
+/** An order's fills, and their fees and realized PnL, as its row opens. */
+export function OrderFills({ strategyId, orderId }: { strategyId: number; orderId: string }) {
+  const { t, format } = useI18n();
+  const query = useHistoryPages(strategyId, "fills", true);
+  const all = useMemo(() => query.data?.pages.flatMap((p) => p.items) ?? [], [query.data]);
+  // Fills come newest first: past one of an older order, this one's are all in.
+  const covered = all.some((f) => older(f.orderId, orderId)) || (query.data !== undefined && !query.hasNextPage);
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = query;
+  const pages = query.data?.pages.length ?? 0;
+  useEffect(() => {
+    if (!covered && hasNextPage && !isFetchingNextPage && pages < MAX_SCAN_PAGES) void fetchNextPage();
+  }, [covered, hasNextPage, isFetchingNextPage, pages, fetchNextPage]);
+  const fills: Fill[] = all.filter((f) => f.orderId === orderId);
+  if (query.isError && !query.data) return <p role="alert" className="text-xs text-negative">{t("copyUpdates.historyError")} <TextButton busy={query.isFetching} onClick={() => void query.refetch()}>{t("copyUpdates.retry")}</TextButton></p>;
+  if (!covered && (query.isPending || isFetchingNextPage || hasNextPage)) return <p role="status" className="text-xs font-semibold text-muted-foreground">{t("common.loading")}</p>;
+  if (!fills.length) return <p className="text-xs font-semibold text-muted-foreground">{t("portfolio.copy.detail.noFills")}</p>;
+  const fees = fills.reduce((sum, f) => sum + Number(f.fee) + Number(f.builderFee), 0);
+  const realized = fills.reduce((sum, f) => sum + Number(f.realizedPnl), 0);
+  return (
+    <div className="flex flex-col gap-2" data-testid="order-fills">
+      <p className="type-th">{t("portfolio.copy.detail.orderFills")}</p>
+      <ul className="flex flex-col divide-y-2 divide-dotted divide-border text-xs">
+        {fills.map((f) => (
+          <li key={f.id} className="num flex items-center justify-between gap-3 py-1.5">
+            <span className="font-semibold">{format.num(Number(f.size), 5)} × {format.price(Number(f.px))}</span>
+            <time dateTime={f.ts} className="text-muted-foreground">{format.dateTime(f.ts)}</time>
+          </li>
+        ))}
+      </ul>
+      <dl className="num flex flex-wrap gap-x-6 gap-y-1 text-xs">
+        <div className="flex gap-2"><dt className="text-muted-foreground">{t("portfolio.copy.detail.orderFees")}</dt><dd className="font-semibold">{format.usd(-fees, { digits: 2 })}</dd></div>
+        <div className="flex gap-2"><dt className="text-muted-foreground">{t("portfolio.copy.detail.orderRealized")}</dt><dd className={cn("font-semibold", realized > 0 ? "text-positive" : realized < 0 ? "text-negative" : "")}>{format.usd(realized, { sign: true, digits: 2 })}</dd></div>
+      </dl>
+    </div>
+  );
+}
+
+/** 資金紀錄: the copy's money moves that belong to no order, ten a page. */
+export function CopyFundsRecords({ strategyId }: { strategyId: number }) {
+  const { t, format } = useI18n();
+  const query = useHistoryPages(strategyId, "ledger", true);
+  const rows: LedgerRow[] = useMemo(() => (query.data?.pages.flatMap((p) => p.items) ?? []).filter((row) => row.orderId === null), [query.data]);
+  const { rows: page, pager } = usePaged(rows);
+  const onPage = (next: number) => {
+    if ((next + 1) * PAGE_SIZE > rows.length && query.hasNextPage && !query.isFetchingNextPage) void query.fetchNextPage();
+    pager.onPage(next);
+  };
+  return (
+    <section className="orbit-card" aria-label={t("portfolio.copy.detail.fundsTitle")} data-testid="copy-funds-records">
+      <h3 className="border-b-2 border-dotted border-border px-4 py-3 text-sm font-bold">{t("portfolio.copy.detail.fundsTitle")}</h3>
+      {query.isError && !query.data ? (
+        <p role="alert" className="px-4 py-3 text-xs text-negative">{t("copyUpdates.historyError")} <TextButton busy={query.isFetching} onClick={() => void query.refetch()}>{t("copyUpdates.retry")}</TextButton></p>
+      ) : !query.data ? (
+        <p role="status" className="px-4 py-3 text-xs text-muted-foreground">{t("common.loading")}</p>
+      ) : rows.length === 0 && !query.hasNextPage ? (
+        <p className="px-4 py-6 text-center text-sm text-muted-foreground">{t("portfolio.copy.detail.noFunds")}</p>
+      ) : (
+        <ul className="flex flex-col divide-y-2 divide-dotted divide-border px-4">
+          {page.map((row) => {
+            const amount = Number(row.amount);
+            return (
+              <li key={row.id} className="flex items-center justify-between gap-3 py-3 text-sm">
+                <div className="min-w-0">
+                  <p className="font-semibold">{copyRecordLabel("ledgerKinds", row.kind, t)}{row.coin ? ` · ${coinLabel(row.coin)}` : ""}</p>
+                  <time className="text-xs text-muted-foreground" dateTime={row.createdAt}>{format.dateTime(row.createdAt)}</time>
+                </div>
+                <span className={cn("num shrink-0 font-bold", amount > 0 ? "text-positive" : "text-foreground")}>{format.usd(amount, { sign: true, digits: 2 })}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <TablePager page={pager.page} hasNext={pager.page + 1 < pager.pages || Boolean(query.hasNextPage)} busy={query.isFetchingNextPage} onPage={onPage} />
+    </section>
+  );
 }

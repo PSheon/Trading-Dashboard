@@ -33,7 +33,7 @@ vi.mock("@/lib/copy", async () => ({ ...(await vi.importActual<typeof import("@/
   useCopyEvents: () => ({ data: { items: s.events, hasMore: true }, isPending: false, loadOlder: s.loadOlder, isLoadingOlder: false }),
 }));
 vi.mock("@/components/copy/copy-compare", () => ({ CopyCompare: () => null }));
-vi.mock("@/components/copy/copy-accounting-history", () => ({ CopyAccountingHistory: () => null }));
+vi.mock("@/components/copy/copy-accounting-history", () => ({ CopyFundsRecords: () => null, OrderFills: ({ orderId }: { orderId: string }) => <p data-testid="order-fills">fills of {orderId}</p> }));
 vi.mock("@/lib/favorite-groups", () => ({ useTraderCards: () => ({ data: { items: [] } }) }));
 vi.mock("@/components/copy/live-copy-setup-dialogs", () => ({ useCopyTexts: () => ({ live: { errors: {} }, extra: { codes: {} } }) }));
 vi.mock("@/lib/site-mode", () => ({ useSiteMode: () => "paper" }));
@@ -67,6 +67,19 @@ describe("模擬訂單", () => {
     expect(button(card, "下一頁").disabled).toBe(true);
     await act(async () => button(card, "上一頁").click());
     expect(s.ordersCalls.at(-1)).toBeUndefined();
+  });
+
+  it("訂單: a row opens that order's fills in a row expansion; 模擬帳戶歷史 is gone (B9)", async () => {
+    const strategy = { ...base(), status: "active" as const } as CopyStrategyView;
+    await render(<CopyDetail strategy={strategy} leader={{ address: strategy.leaderAddress, displayName: "Kinetiq", avatarUrl: null }} balance={1000} onBack={() => {}} />);
+    const table = container.querySelector('[data-testid="paper-orders"]')!;
+    expect(table.closest("section")!.querySelector("h3")!.textContent).toBe("訂單");
+    const toggle = table.querySelector<HTMLButtonElement>('tbody button[aria-expanded="false"]')!;
+    await act(async () => toggle.click());
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    const expansion = table.querySelector(".row-expansion")!;
+    expect(expansion.textContent).toBe("fills of 100");
+    expect(container.textContent).not.toContain("模擬帳戶歷史");
   });
 });
 

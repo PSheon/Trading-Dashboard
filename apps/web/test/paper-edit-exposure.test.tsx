@@ -19,7 +19,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh() {}, push() {} 
 vi.mock("@/lib/copy", async () => ({ ...(await vi.importActual<typeof import("@/lib/copy")>("@/lib/copy")),
   useCopyCommand: () => idle, usePatchCopy: () => idle, useAddCopyFunds: () => idle, useWithdrawCopyFunds: () => ({ ...idle, pendingOperations: [] }), useCopyOrders: () => ({ data: { items: [], nextCursor: null }, isPending: false }) }));
 vi.mock("@/components/copy/copy-compare", () => ({ CopyCompare: () => null }));
-vi.mock("@/components/copy/copy-accounting-history", () => ({ CopyAccountingHistory: () => null }));
+vi.mock("@/components/copy/copy-accounting-history", () => ({ CopyFundsRecords: () => null, OrderFills: ({ orderId }: { orderId: string }) => <p data-testid="order-fills">fills of {orderId}</p> }));
 vi.mock("@/lib/favorite-groups", () => ({ useTraderCards: () => ({ data: { items: [] } }) }));
 vi.mock("@/components/copy/live-copy-setup-dialogs", () => ({ useCopyTexts: () => ({ live: { errors: {} }, extra: { codes: {} } }) }));
 vi.mock("@/lib/site-mode", () => ({ useSiteMode: () => "paper" }));

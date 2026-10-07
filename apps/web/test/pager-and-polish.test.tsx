@@ -112,20 +112,4 @@ describe("paper history reads ten at a time", () => {
     expect(calls).toContain("/me/copy/strategies/7/orders?limit=10");
     expect(calls).toContain("/me/copy/strategies/7/orders?limit=10&before=91");
   });
-
-  it("帳務紀錄 asks for limit=10 and pages with the shared pager, not 載入更早", async () => {
-    const { CopyAccountingHistory } = await import("../src/components/copy/copy-accounting-history");
-    await render(<CopyAccountingHistory strategyId={7} />, "zh-TW");
-    const details = el.querySelector("details")!;
-    await act(async () => { details.open = true; details.dispatchEvent(new Event("toggle")); });
-    await act(async () => new Promise((r) => setTimeout(r, 10)));
-    expect(calls).toContain("/me/copy/strategies/7/ledger?limit=10");
-    expect(el.querySelectorAll("li")).toHaveLength(10);
-    expect(el.querySelector("[data-pager]")!.textContent).toContain("第 1 頁");
-    expect(el.textContent).not.toContain("載入更早");
-    const next = [...el.querySelectorAll<HTMLButtonElement>("[data-pager] button")].at(-1)!;
-    await act(async () => next.click());
-    await act(async () => new Promise((r) => setTimeout(r, 10)));
-    expect(calls).toContain("/me/copy/strategies/7/ledger?limit=10&before=41");
-  });
 });

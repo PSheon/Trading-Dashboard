@@ -1,12 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { cn } from "cn";
 import type { WireCopyEvents } from "@trading-dashboard/shared/contracts";
 
-import { Modal } from "@/components/ui/dialog";
 import { PAGE_SIZE, TablePager, usePaged } from "@/components/ui/table-pager";
-import { TextButton } from "@/components/ui/text-button";
 import type { MessageKey } from "@/i18n/messages";
 import { useI18n } from "@/i18n/provider";
 import { useCopyEvents } from "@/lib/copy";
@@ -14,7 +10,6 @@ import { coinLabel } from "@/lib/format";
 
 type CopyEvent = WireCopyEvents["items"][number];
 const LABELLED = new Set(["strategy_created", "strategy_command", "funds_added", "funds_withdrawn", "funds_returned", "order_filled", "position_liquidated"]);
-const RECENT = 5;
 
 /** One event in plain words: 「ETH 買入 0.5 · 跟 solanadoomer · 23:10」. No
  * copy number, order id or code (web audit §五 4). */
@@ -34,47 +29,42 @@ export function useEventLine() {
 }
 
 /**
- * 最近活動: the last five events of one side of the portfolio (paper, or the
- * real copies), each one line in plain words, then 查看全部. `names` maps the
- * side's copies (strategy id → trader name); events of other copies are left
- * out, so paper and real money never share a list.
+ * 動態: the copy events of one side of the portfolio (paper, or the real
+ * copies), each one line in plain words, ten a page with the one pager (a
+ * page past the events read asks for older ones). `names` maps the side's
+ * copies (strategy id → trader name); events of other copies are left out,
+ * so paper and real money never share a list. Copy activity only: deposits
+ * and withdrawals are in 交易紀錄, and the empty line says so.
  */
-export function RecentActivity({ names, className }: { names: Map<number, string>; className?: string }) {
+export function CopyActivity({ names, className }: { names: Map<number, string>; className?: string }) {
   const { t } = useI18n();
   const query = useCopyEvents();
   const line = useEventLine();
-  const [all, setAll] = useState(false);
   const mine = (query.data?.items ?? []).filter((event) => event.strategyId !== null && names.has(event.strategyId)).reverse();
-  // 查看全部: ten a page; a page past the events read asks for older ones.
   const { rows: page, pager } = usePaged(mine);
   const more = Boolean(query.data?.hasMore);
   const onPage = (next: number) => {
     if ((next + 1) * PAGE_SIZE > mine.length && more && !query.isLoadingOlder) query.loadOlder();
     pager.onPage(next);
   };
-  const row = (event: CopyEvent) => {
-    const { what, who, when } = line(event, names.get(event.strategyId!));
-    return (
-      <li key={event.id} className="flex items-center gap-3 py-2.5 text-sm">
-        <span className="min-w-0 flex-1 truncate"><span className="font-semibold">{what}</span>{who ? <span className="text-muted-foreground"> · {who}</span> : null}</span>
-        <time dateTime={event.createdAt} className="num shrink-0 text-xs text-muted-foreground">{when}</time>
-      </li>
-    );
-  };
   return (
-    <section className={cn("orbit-card card-pad", className)} aria-label={t("folio.recent")}>
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-[0.9375rem] font-extrabold">{t("folio.recent")}</h2>
-        {mine.length > RECENT ? <TextButton onClick={() => setAll(true)} className="text-sm">{t("folio.seeAll")}</TextButton> : null}
-      </div>
-      {mine.length ? <ol className="mt-1 divide-y-2 divide-dotted divide-border" data-testid="recent-activity">{mine.slice(0, RECENT).map(row)}</ol>
-        : <p className="py-4 text-sm text-muted-foreground">{query.isPending && !query.data ? t("copyUpdates.activityLoading") : t("folio.noActivity")}</p>}
-      <Modal open={all} onOpenChange={setAll} title={t("folio.allActivity")}>
-        <div className="px-6 pb-6">
-          <ol className="divide-y-2 divide-dotted divide-border">{page.map(row)}</ol>
-          <TablePager page={pager.page} hasNext={pager.page + 1 < pager.pages || more} busy={query.isLoadingOlder} onPage={onPage} className="-mx-6 mt-2 -mb-6" />
-        </div>
-      </Modal>
-    </section>
+    <div className={className} data-testid="copy-activity">
+      {mine.length ? (
+        <ol className="divide-y-2 divide-dotted divide-border" data-testid="recent-activity">
+          {page.map((event) => {
+            const { what, who, when } = line(event, names.get(event.strategyId!));
+            return (
+              <li key={event.id} className="flex items-center gap-3 py-2.5 text-sm">
+                <span className="min-w-0 flex-1 truncate"><span className="font-semibold">{what}</span>{who ? <span className="text-muted-foreground"> · {who}</span> : null}</span>
+                <time dateTime={event.createdAt} className="num shrink-0 text-xs text-muted-foreground">{when}</time>
+              </li>
+            );
+          })}
+        </ol>
+      ) : (
+        <p className="py-4 text-sm text-muted-foreground">{query.isPending && !query.data ? t("copyUpdates.activityLoading") : t("folio.noCopyActivity")}</p>
+      )}
+      <TablePager page={pager.page} hasNext={pager.page + 1 < pager.pages || (more && mine.length > 0)} busy={query.isLoadingOlder} onPage={onPage} className="px-0" />
+    </div>
   );
 }

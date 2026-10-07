@@ -939,6 +939,15 @@
 .orbit-fade-in {
   animation: orbit-fade-in 0.36s var(--ease-orbit) both;
 }
+/* A copy's detail, opened from the list: its cards come in one after
+   another (Paul, 2026-10-07). */
+.detail-arrive > * {
+  animation: orbit-fade-in 0.36s var(--ease-orbit) both;
+}
+.detail-arrive > :nth-child(2) { animation-delay: 40ms; }
+.detail-arrive > :nth-child(3) { animation-delay: 80ms; }
+.detail-arrive > :nth-child(4) { animation-delay: 120ms; }
+.detail-arrive > :nth-child(n + 5) { animation-delay: 160ms; }
 @keyframes orbit-fade-in {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: none; }
@@ -1004,7 +1013,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .orbit-fade-in, .orbit-float, .chart-draw, .switch-panel { animation: none; }
+  .orbit-fade-in, .orbit-float, .chart-draw, .switch-panel, .detail-arrive > * { animation: none; }
   .collapse-panel, .collapse-panel[data-open="true"] { transition: none; }
   .orbit-press, .orbit-lift { transition-property: background-color, color, box-shadow, opacity; }
   .orbit-press:active:not(:disabled) { transform: none; }

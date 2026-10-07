@@ -16,10 +16,10 @@ vi.mock("@/lib/copy", () => ({ useCopyOverview: () => ({ data: fixtureCopyOvervi
 vi.mock("@/components/copy/portfolio-parts", () => ({ PortfolioChart: () => null, PaperSummary: () => null, InsightsPanel: () => null, ExposurePanel: () => null }));
 vi.mock("@/lib/wallet", () => ({ useWallet: () => ({ data: { totalValue: 0, network: "testnet" } }) }));
 vi.mock("@/components/wallet/wallet-modals", () => ({ useWalletModals: () => ({ openDeposit() {}, openWithdraw() {} }) }));
-vi.mock("@/components/copy/recent-activity", () => ({ RecentActivity: () => null }));
+vi.mock("@/components/copy/recent-activity", () => ({ CopyActivity: () => <p data-testid="copy-activity">activity</p> }));
 // The paper view (模擬) holds the paper copies; real copies have their own view.
 vi.mock("@/lib/site-mode", () => ({ useSiteMode: () => "paper" }));
-vi.mock("@/lib/copy-live-portfolio", () => ({ useLiveCopyPortfolio: () => ({ data: undefined }) }));
+vi.mock("@/lib/copy-live-portfolio", () => ({ useLiveCopyPortfolio: () => ({ data: undefined }), onOtherNetwork: () => false }));
 // Isolate the selection boundary; the real cards/detail and responsive layouts run in Playwright.
 vi.mock("@/components/copy/copy-portfolio", () => ({
   useLeaders: () => new Map(),
@@ -42,3 +42,25 @@ it("Back removes only copy and keeps the same path, remaining query values, frag
 });
 it("selection and Back retain the local query contract over successive renders", async () => { await render(); await click("Select desktop copy"); await render(); expect(window.location.search).toContain("copy=1"); await click("Back to copies"); await render(); expect(window.location.search).not.toContain("copy="); await click("Select mobile copy"); expect(window.location.search).toContain("copy=1"); expect(window.location.hash).toBe("#positions"); expect(state.replace).not.toHaveBeenCalled(); });
 it("preserves newer query and fragment edits made after the selection handler rendered", async () => { await render(); window.history.replaceState(null, "", "/portfolio?tag=latest&tag=second#receipt-rows"); await click("Select desktop copy"); expect(window.location.pathname + window.location.search + window.location.hash).toBe("/portfolio?tag=latest&tag=second&copy=1#receipt-rows"); expect(state.replace).not.toHaveBeenCalled(); });
+
+it("the copy section's tabs end with Activity (最近活動 as the fourth tab, no card of its own)", async () => {
+  await render();
+  const tabs = [...container.querySelectorAll('[role="tablist"] [role="tab"]')].map((tab) => tab.textContent?.replace(/\d+$/, ""));
+  expect(tabs.filter((name) => ["Copying", "Insights", "Exposure", "Activity"].includes(name ?? ""))).toEqual(["Copying", "Insights", "Exposure", "Activity", "Copying", "Insights", "Exposure", "Activity"].slice(0, tabs.filter((name) => name === "Copying").length * 4));
+  expect(container.querySelector('[data-testid="copy-activity"]')).toBeNull();
+  const activity = [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((tab) => tab.textContent === "Activity")!;
+  await act(async () => activity.click());
+  expect(container.querySelector('[data-testid="copy-activity"]')).not.toBeNull();
+});
+
+it("slides into a copy's detail from the right and back to the list from the left", async () => {
+  await render();
+  await click("Select desktop copy");
+  await render();
+  const into = [...container.querySelectorAll<HTMLElement>(".switch-panel")].find((el) => el.textContent?.includes("Back to copies"))!;
+  expect(into.style.getPropertyValue("--switch-from")).toBe("6px");
+  await click("Back to copies");
+  await render();
+  const back = [...container.querySelectorAll<HTMLElement>(".switch-panel")].find((el) => el.textContent?.includes("Select desktop copy"))!;
+  expect(back.style.getPropertyValue("--switch-from")).toBe("-6px");
+});

@@ -132,7 +132,7 @@ export function CopyTable({ strategies, leaders, onSelect, sparklines, bare = fa
                 </button>
                 <StatusBadges s={s} />
               </span>
-              <span className="num text-right">{t("portfolio.copy.daysShort", { count: copyDays(s.createdAt) })}</span>
+              <span className="num text-right">{copyAge(s.createdAt, t)}</span>
               <span className="num text-right">{s.positions.length}</span>
               <span className="num text-right font-display text-[15px]">{s.equity === null ? "—" : format.usd(s.equity, { digits: 2 })}</span>
               <span className="flex justify-end"><CopySparkline points={sparklines?.get(s.id)} /></span>
@@ -230,6 +230,12 @@ export function CopyCards({ strategies, leaders, onSelect, sparklines }: { strat
   );
 }
 
+/** How long a copy has run: 「今天開始」 on its first day, never 「0 天」. */
+export function copyAge(createdAt: string, t: ReturnType<typeof useI18n>["t"]): string {
+  const days = copyDays(createdAt);
+  return days < 1 ? t("portfolio.copy.startedToday") : t("portfolio.copy.daysShort", { count: days });
+}
+
 function orderReason(o: CopyOrderView): string | null {
   if (!o.reason || o.status === "filled") return null;
   return o.reason.replaceAll("_", " ");
@@ -274,10 +280,11 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
     </div>
   );
   return (
-    <div className="flex flex-col gap-4">
+    <div className="detail-arrive flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
-        <button type="button" onClick={onBack} aria-label={t("portfolio.copy.detail.back")} className="inline-flex size-11 items-center justify-center rounded-full bg-raised outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          <ArrowLeft className="size-4" />
+        {/* The trader page's phone back button. */}
+        <button type="button" onClick={onBack} aria-label={t("portfolio.copy.detail.back")} className="orbit-press relative inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-raised outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <ArrowLeft className="size-5" strokeWidth={2.4} />
         </button>
         <TraderAvatar trader={leader} size={40} />
         <div className="min-w-0">
@@ -294,7 +301,7 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
         {stat(t("portfolio.copy.detail.roi"), s.roiPct === null ? "—" : format.pct(s.roiPct / 100, { sign: true, digits: 2 }), tone(s.roiPct))}
         {stat(t("portfolio.copy.detail.initialCapital"), format.usd(s.allocated, { digits: 2 }))}
         {stat(t("portfolio.copy.detail.equity"), s.equity === null ? "—" : format.usd(s.equity, { digits: 2 }))}
-        {stat(t("portfolio.copy.detail.copying"), t("portfolio.copy.daysShort", { count: copyDays(s.createdAt) }))}
+        {stat(t("portfolio.copy.detail.copying"), copyAge(s.createdAt, t))}
         {stat(t("portfolio.copy.detail.direction"), t(s.settings.direction === "same" ? "portfolio.copy.detail.same" : "portfolio.copy.detail.counter"))}
       </div>
 

@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CopyCards, CopyDetail, CopyTable } from "@/components/copy/copy-portfolio";
-import { RecentActivity } from "@/components/copy/recent-activity";
+import { CopyActivity } from "@/components/copy/recent-activity";
 import { fixtureCopyOverview } from "@/fixtures/copy";
 import { I18nProvider } from "@/i18n/provider";
 import { catalogs } from "@/i18n/messages";
@@ -70,6 +70,19 @@ describe("模擬訂單", () => {
   });
 });
 
+describe("a paper copy's detail", () => {
+  it("says 今天開始 on its first day, not 0 天; the round back button; its cards come in one after another", async () => {
+    const strategy = { ...base(), status: "active" as const, createdAt: new Date(Date.now() - 3_600_000).toISOString() } as CopyStrategyView;
+    await render(<CopyDetail strategy={strategy} leader={{ address: strategy.leaderAddress, displayName: "Kinetiq", avatarUrl: null }} balance={1000} onBack={() => {}} />);
+    expect(container.textContent).toContain("跟單中今天開始");
+    expect(container.textContent).not.toContain("0 天");
+    const back = container.querySelector<HTMLButtonElement>('button[aria-label="返回"]') ?? [...container.querySelectorAll("button")][0]!;
+    expect(back.className).toContain("orbit-press");
+    expect(back.className).toContain("size-11");
+    expect(container.firstElementChild!.classList.contains("detail-arrive")).toBe(true);
+  });
+});
+
 describe("lists bounded by a count page only above ten", () => {
   it("跟單中 (desktop table and phone cards): 12 copies are 10 and a pager; 3 are 3 and none", async () => {
     await render(<CopyTable strategies={strategies(12)} leaders={new Map()} onSelect={() => {}} />);
@@ -83,18 +96,23 @@ describe("lists bounded by a count page only above ten", () => {
   });
 });
 
-describe("最近動態", () => {
-  it("查看全部 is ten a page; the page after the events read asks for older ones", async () => {
+describe("動態 (the copy section's fourth tab)", () => {
+  it("is ten a page with the pager, no card or 查看全部 modal; the page after the events read asks for older ones", async () => {
     const loadOlder = vi.fn();
     s.loadOlder = loadOlder;
     s.events = Array.from({ length: 15 }, (_, i) => ({ id: String(i + 1), type: "funds_added", strategyId: 1000, payload: { amount: 10 }, createdAt: new Date(Date.UTC(2026, 9, 7) + i * 60_000).toISOString() }));
-    await render(<RecentActivity names={new Map([[1000, "Kinetiq"]])} />);
-    const all = [...container.querySelectorAll("button")].find((b) => b.textContent === "查看全部")!;
-    await act(async () => all.click());
-    const dialog = [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].at(-1)!;
-    expect(dialog.querySelectorAll("ol > li")).toHaveLength(10);
-    await act(async () => button(dialog, "下一頁").click());
-    expect(dialog.querySelectorAll("ol > li")).toHaveLength(5);
+    await render(<CopyActivity names={new Map([[1000, "Kinetiq"]])} />);
+    expect(container.querySelectorAll("ol > li")).toHaveLength(10);
+    expect(container.textContent).not.toContain("查看全部");
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    await act(async () => button(container, "下一頁").click());
+    expect(container.querySelectorAll("ol > li")).toHaveLength(5);
     expect(loadOlder).toHaveBeenCalledTimes(1);
+  });
+
+  it("says it is copy activity only when there is none (deposits and withdrawals are in 交易紀錄)", async () => {
+    s.events = [];
+    await render(<CopyActivity names={new Map([[1000, "Kinetiq"]])} />);
+    expect(container.textContent).toContain("還沒有跟單動態。儲值與提款在交易紀錄。");
   });
 });

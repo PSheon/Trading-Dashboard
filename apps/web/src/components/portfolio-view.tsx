@@ -7,7 +7,7 @@ import { useCallback, useMemo, useState } from "react";
 import { cn } from "cn";
 
 import { ActivityPanel } from "@/components/copy/activity-panel";
-import { RecentActivity } from "@/components/copy/recent-activity";
+import { CopyActivity } from "@/components/copy/recent-activity";
 import { CopyCards, CopyDetail, CopyListSkeleton, CopyTable, useLeaders } from "@/components/copy/copy-portfolio";
 import { LiveCopies } from "@/components/copy/live-copies";
 import { ExposurePanel, InsightsPanel, PaperSummary, PaperSummarySkeleton, PortfolioChart, PortfolioChartSkeleton } from "@/components/copy/portfolio-parts";
@@ -27,8 +27,9 @@ import { useCopyOverview, useCopyPortfolio } from "@/lib/copy";
 import { useWallet } from "@/lib/wallet";
 import { SwitchPanel } from "@/components/ui/switch-panel";
 
-type Tab = "copying" | "insights" | "exposure";
-const TAB_ORDER: readonly Tab[] = ["copying", "insights", "exposure"];
+type Tab = "copying" | "insights" | "exposure" | "activity";
+/** 跟單中 / 洞察 / 曝險 / 動態 (Paul, 2026-10-07: 最近活動 is the fourth tab). */
+const TAB_ORDER: readonly Tab[] = ["copying", "insights", "exposure", "activity"];
 
 /**
  * 投資組合, as on CopyDog (`/hyperliquid/portfolio`):
@@ -149,6 +150,7 @@ function RealView() {
 
 /** 正式: 我的資金, 跟單中 (compact cards, a detail sheet each), 已結束 and 最近活動. */
 function RealPortfolio() {
+  const { t } = useI18n();
   const wallet = useWallet();
   const live = useLiveCopyPortfolio();
   const items = useMemo(() => live.data?.items ?? [], [live.data]);
@@ -166,10 +168,15 @@ function RealPortfolio() {
     <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start lg:gap-5" data-view="real">
       <div className="flex flex-col gap-4 lg:sticky lg:top-24">
         <MyFunds wallet={wallet} inCopies={inCopies} />
-        <RecentActivity names={names} className="hidden lg:block" />
       </div>
-      <LiveCopies onEquity={onEquity} empty={<NoCopies />} />
-      <RecentActivity names={names} className="lg:hidden" />
+      {/* The right column: the copies, then their activity across the width. */}
+      <div className="flex min-w-0 flex-col gap-4">
+        <LiveCopies onEquity={onEquity} empty={<NoCopies />} />
+        <section className="orbit-card card-pad" aria-label={t("folio.copyActivity")}>
+          <h2 className="text-[0.9375rem] font-extrabold">{t("folio.copyActivity")}</h2>
+          <CopyActivity names={names} className="mt-1" />
+        </section>
+      </div>
     </div>
   );
 }
@@ -286,25 +293,40 @@ function useSparklines(enabled: boolean): Map<number, ReadonlyArray<number | nul
 /** The copy list, or the selected copy, of a loaded overview. Desktop:
  * CopyDog's card with the COPYING (count) / INSIGHTS / EXPOSURE tabs. */
 function CopyingSection({ overview, phone }: { overview: CopyOverview; phone: boolean }) {
-  const { t } = useI18n();
   const [selected, select] = useSelectedCopy();
+  const strategy = overview.strategies.find((s) => s.id === selected);
+  // List ↔ detail slides (Paul, 2026-10-07): into a copy from the right,
+  // back to the list from the left; reduced motion switches at once.
+  return (
+    <SwitchPanel value={strategy ? "detail" : "list"} order={VIEW_ORDER}>
+      {strategy ? <CopyDetailOf overview={overview} strategy={strategy} onBack={() => select(null)} /> : <CopyList overview={overview} phone={phone} onSelect={select} />}
+    </SwitchPanel>
+  );
+}
+
+const VIEW_ORDER = ["list", "detail"] as const;
+
+function CopyDetailOf({ overview, strategy, onBack }: { overview: CopyOverview; strategy: CopyOverview["strategies"][number]; onBack: () => void }) {
   const leaders = useLeaders(overview.strategies);
+  return (
+    <CopyDetail
+      strategy={strategy}
+      leader={leaders.get(strategy.leaderAddress) ?? { address: strategy.leaderAddress, displayName: null, avatarUrl: null }}
+      balance={overview.paper.balance}
+      onBack={onBack}
+    />
+  );
+}
+
+function CopyList({ overview, phone, onSelect: select }: { overview: CopyOverview; phone: boolean; onSelect: (id: number) => void }) {
+  const { t } = useI18n();
+  const leaders = useLeaders(overview.strategies);
+  const names = usePaperNames(overview);
   const [tab, setTab] = useState<Tab>("copying");
   const sparklines = useSparklines(overview.strategies.length > 0);
-  const strategy = overview.strategies.find((s) => s.id === selected);
-  if (strategy) {
-    return (
-      <CopyDetail
-        strategy={strategy}
-        leader={leaders.get(strategy.leaderAddress) ?? { address: strategy.leaderAddress, displayName: null, avatarUrl: null }}
-        balance={overview.paper.balance}
-        onBack={() => select(null)}
-      />
-    );
-  }
   if (overview.strategies.length === 0) return <EmptyCopying className={phone ? undefined : "mt-14 px-6"} />;
   if (phone) return <CopyCards strategies={overview.strategies} leaders={leaders} onSelect={select} sparklines={sparklines} />;
-  const values = ["copying", "insights", "exposure"] as const;
+  const values = TAB_ORDER;
   return (
     <section>
       <Tabs value={tab} onChange={setTab} label={t("portfolio.title")} idPrefix="desktop-copy-tab" controls="desktop-copy-panel" className="mb-1"
@@ -313,7 +335,8 @@ function CopyingSection({ overview, phone }: { overview: CopyOverview; phone: bo
       <SwitchPanel value={tab} order={TAB_ORDER} id="desktop-copy-panel" role="tabpanel" aria-labelledby={`desktop-copy-tab-${tab}`}>
         {tab === "copying" ? <CopyTable strategies={overview.strategies} leaders={leaders} onSelect={select} sparklines={sparklines} bare />
           : tab === "insights" ? <InsightsPanel overview={overview} leaders={leaders} onSelect={(id) => select(id)} desktop />
-          : <ExposurePanel overview={overview} leaders={leaders} desktop />}
+          : tab === "exposure" ? <ExposurePanel overview={overview} leaders={leaders} desktop />
+          : <CopyActivity names={names} className="orbit-card card-pad" />}
       </SwitchPanel>
     </section>
   );
@@ -338,7 +361,6 @@ function DesktopPortfolio() {
 /** 模擬 on desktop: the paper account and its chart, the paper copies, their activity. */
 function DesktopPaper() {
   const copy = useCopyOverview();
-  const names = usePaperNames(copy.data);
   return (
     <div className="flex flex-col gap-5" data-view="paper">
       <div className="flex flex-wrap items-stretch gap-4">
@@ -356,7 +378,6 @@ function DesktopPaper() {
       ) : (
         <CopySectionSkeleton />
       )}
-      <RecentActivity names={names} />
     </div>
   );
 }
@@ -368,7 +389,7 @@ function CopySectionSkeleton() {
   return (
     <section aria-hidden="true">
       <div className="mb-1 flex gap-1">
-        {(["copying", "insights", "exposure"] as const).map((value) => (
+        {TAB_ORDER.map((value) => (
           <span
             key={value}
             className={cn(
@@ -455,7 +476,6 @@ function PhoneSignedOut() {
 function PhonePaper({ tab, setTab }: { tab: Tab; setTab: (tab: Tab) => void }) {
   const { t } = useI18n();
   const copy = useCopyOverview();
-  const names = usePaperNames(copy.data);
   return (
     <div className="flex flex-col gap-4" data-view="paper">
       <Tabs value={tab} onChange={setTab} label={t("portfolio.title")} size="sm" className="seg-track w-full [&>button]:flex-1 [&>button]:justify-center"
@@ -463,7 +483,6 @@ function PhonePaper({ tab, setTab }: { tab: Tab; setTab: (tab: Tab) => void }) {
       <SwitchPanel value={tab} order={TAB_ORDER} role="tabpanel" className={copy.data && copy.data.strategies.length === 0 ? "pt-4" : undefined}>
         <PhoneTab tab={tab} copy={copy} setTab={setTab} />
       </SwitchPanel>
-      <RecentActivity names={names} />
     </div>
   );
 }
@@ -471,6 +490,7 @@ function PhonePaper({ tab, setTab }: { tab: Tab; setTab: (tab: Tab) => void }) {
 function PhoneTab({ tab, copy, setTab }: { tab: Tab; copy: ReturnType<typeof useCopyOverview>; setTab: (tab: Tab) => void }) {
   const { t } = useI18n();
   const leaders = useLeaders(copy.data?.strategies ?? []);
+  const names = usePaperNames(copy.data);
   const [, select] = useSelectedCopy();
   if (!copy.data) {
     if (copy.isError) return <ErrorState onRetry={() => copy.refetch()} />;
@@ -492,6 +512,7 @@ function PhoneTab({ tab, copy, setTab }: { tab: Tab; copy: ReturnType<typeof use
       </div>
     );
   }
+  if (tab === "activity") return <CopyActivity names={names} />;
   if (tab === "insights") {
     return has ? <InsightsPanel overview={copy.data} leaders={leaders} onSelect={(id) => { select(id); setTab("copying"); }} desktop={false} /> : <TabEmpty icon={ChartPie} title={t("portfolio.insightsEmptyTitle")} body={t("portfolio.insightsEmptyBody")} />;
   }

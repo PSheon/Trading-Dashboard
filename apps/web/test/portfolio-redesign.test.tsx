@@ -43,7 +43,8 @@ vi.mock("@/lib/wallet", () => ({ useWallet: () => ({ data: { totalValue: 500, ne
 vi.mock("@/components/wallet/wallet-modals", () => ({ useWalletModals: () => ({ openDeposit() {}, openWithdraw() {}, openExport() {} }) }));
 vi.mock("@/lib/copy-live-portfolio", () => {
   const idle = { mutate() {}, mutateAsync: async () => ({}), isPending: false, isError: false, variables: undefined };
-  return { useLiveCopyPortfolio: () => ({ data: { network: "testnet", automaticExecution: true, items }, enabled: true, isError: false }), useLiveCopyPortfolioActions: () => ({ transfer: idle, cancellation: idle, close: idle, cancelTransfer: idle }) };
+  return { onOtherNetwork: (item: { network?: string | null }, network: string | null | undefined) => Boolean(network && item.network && item.network !== network),
+    useLiveCopyPortfolio: () => ({ data: { network: "testnet", automaticExecution: true, items }, enabled: true, isError: false }), useLiveCopyPortfolioActions: () => ({ transfer: idle, cancellation: idle, close: idle, cancelTransfer: idle }) };
 });
 vi.mock("@/lib/copy-execution-wallets", () => ({ useExecutionWallets: () => ({ data: { accounts } }) }));
 vi.mock("@/lib/copy-live", () => ({ useLiveCopyOverview: () => ({ data: { mandates, strategies: [] } }) }));

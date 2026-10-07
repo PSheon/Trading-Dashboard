@@ -130,5 +130,9 @@
 - 底部跟單／管理與skeleton改用首頁導覽的浮動膠囊；共用phone-floating-bar樣式，左右12px、底部12px＋safe-area、68px高、36px圓角與既有陰影。保留內容底部預留空間，最後一張持倉卡不被遮住。
 - 手機標題改用可用flex寬度，390px的solanadoomer可完整顯示；右側三個操作改44px（原40px、窄螢幕36px），返回按鈕同為44px。
 - 兩個新增單元回歸舊碼RED、新碼GREEN，相關10/10；完整web177檔1137/1137，tsc含測試、eslint src/test/e2e通過。新增瀏覽器回歸涵蓋膠囊與首頁尺寸一致、320／390／767觸控尺寸、漸層捲動與reduced-motion、末端內容及桌機隱藏。
-- 共享瀏覽器在正常本機testnet頁面量測：首頁與跟單膠囊皆x12、y764、366×68（390×844）；三種手機寬度無橫向溢出，top-bar固定於y0、捲動後scrim opacity1／回頂0、reduced-motion transition0s；末端main底748.2 < 膠囊頂764。1440×900無手机膠囊。
+- 共享瀏覽器在正常本機testnet頁面量測：首頁與跟單膠囊皆x12、y764、366×68（390×844）；三種手機寬度無橫向溢出，top-bar固定於y0、捲動後scrim opacity1／回頂0、reduced-motion transition0s；末端main底748.2 < 膠囊頂764。1440×900無手機膠囊。
 - 已目視本機明／暗、頂部／末端與1440截圖，`/private/tmp/codex-trading-ui/floating-*.png`；審查未見Critical／Important，另抓到320px skeleton標頭寬度相加會裁切右側佔位，補可縮中間wrapper與max-w-full，新增斷言舊碼RED／新碼GREEN。CI與Stage發布驗證另記後續。
+- 最終程式 `c21e53bfd0c0d9d2ab2917318177ea3a68fedbd1`，[CI 37615413112](https://github.com/PSheon/Trading-Dashboard/actions/runs/37615413112) 全綠（build、checks、三組browser、ci）；新增手機chrome回歸在第3組通過（4.1s）。收尾後完整177檔1137/1137、tsc／eslint再次通過。
+- Stage部署前備份 `/private/tmp/codex-trading-stage-before-floating-e7b73179.dump`：29,260,507 bytes、權限600、遠端PG18 pg_restore --list成功714行；排除兩張大型歷史表資料。SHA256 `70a537b2116ad7611c588607ff3520e1e53fc7c3f5388fb141b3579e1899aaf4`。只發布web，api／worker無變更；部署從git archive乾淨版本上傳。
+- Stage web deployment `c6498e14-0d97-44b0-9152-948aa05fb251` 已確認SUCCESS。Paul已登入實際帳號：390膠囊顯示「跟單中 · 管理」，位置／尺寸與首頁相同；抽屜開關通過、180px捲動sticky gap0、top-bar捲動漸層opacity1，頁末內容底748.2 < 膠囊頂764。1440手機膠囊隱藏，無橫向溢出。Stage前後1440／390截圖已目視（`floating-stage-*.png`）；未送出交易／簽名或變更跟單。
+- 結束後共享瀏覽器維持登入，停在指定交易員頁390×844；本機web3000／api3100／worker3010保留運作，沙箱外健康檢查確認api／worker均正常。保留他人review-tracker與STRATEGY。

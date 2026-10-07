@@ -153,3 +153,12 @@
 - `44e30074` CI兩個新頁首回歸皆通過（未登入9.0s／登入9.2s），第2組另有既有分享持倉下載測試失敗。trace的四個share-image皆HTTP200，下載前fixture的XRP持倉被真實Hyperliquid更新為無持倉，來源列與分享dialog一併移除。截圖確認已變成Machi實際0權益／無持倉，非頁首問題；分享測試改與既有sticky等fixture測試一樣阻擋外部Hyperliquid WebSocket，保留真PNG下載與尺寸斷言。
 
 本機共享瀏覽器實際下載驗證：公開持倉（1440px）與手機紙上跟單（390px）各完成 App Card 16:9、Poster 4:5 PNG，signature 正確、尺寸分別 1280×720 與 960×1200。完成後已恢復一般 Next 3000；API/worker 未切換。trade-share 型別與 ESLint 通過。
+
+#### 主導覽頁首發布與 Stage 驗證完成
+
+- 程式版本 `297196d4bf593ac4d51225f361c1d620b0fb40c4`，[CI 37623572916](https://github.com/PSheon/Trading-Dashboard/actions/runs/37623572916) 全綠：checks、build、三組browser與ci；web完整177檔1145項通過。第2組70/70，新頁首登入／未登入回歸6.7s／7.5s、公开持倉PNG5.3s、手機紙上跟單PNG3.1s。
+- Stage發布前備份 `/private/tmp/codex-trading-stage-before-main-header-20261007.dump`：29,337,949 bytes、600權限，PG18 pg_restore --list成功714行；排除兩張大型歷史表資料。SHA256 `81b96e7c6f80577a6f8bda5a04ccc5fbe931cf3030d52e048ba0bd498b3b3d7b`。從git archive乾淨版本只發布web，deployment `5429e343-7737-46d6-bb66-32d176bb4e9d`確認SUCCESS。
+- Paul實際登入帳號從底部主要導覽切換探索→收藏→投資組合：390×844 header均y0／h72，標題y86／84／82不被遮住；320×844三頁控制皆44×44，左右至少12px，無橫向溢出。390保留Orbie文字，320只保留品牌mark與可及名稱。
+- 帳號選單設定入口可見、Escape關閉；搜尋自動焦點與Escape通過；探索捲動250px scrim opacity1、header y0；1440×900手機header隱藏、桌機無溢出。帳號選單最初誤定位dialog/link而逾時，實際為menu/menuitem，修正測試定位後通過。
+- 截圖 `/private/tmp/codex-trading-ui/main-header-stage-*.png`：修改前後、三頁390／320、1440與捲動漸層。圖片預覽工具有時漏顯示頁首，誤以為是瀏覽器繪製問題；直接讀原始PNG與在瀏覽器canvas解碼，修改後所有完整截圖品牌區橘色像素均216、修改前0，頁首元素截圖也完整。臨時transform／isolation／blur／will-change診斷均還原，沒有因預覽問題修改產品程式。
+- 本機已恢復一般web3000；api3100 `/health/ready` ready true，worker3010 `/health` feedConnected true。共享瀏覽器維持Stage登入、390px探索頁，未送出交易／簽名或變更跟單。保留他人review-tracker與STRATEGY。

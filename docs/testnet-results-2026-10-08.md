@@ -19,10 +19,10 @@ Paul授予6小時完成testnet測試；開始00:20台灣時間，截止06:20。�
 | base | 開／加／減半／平／空／反手／平、提款10、停止返還、五方對帳 | FAIL：#33 首筆成交／結算，但整體兩次訊號過期、五次拒單；提款10、平倉與退款全PASS |
 | 3 | 低於10的減倉仍執行，平乾淨 | 首輪領單部分減倉低於10，被交易所拒絕；腳本已修為領單48，待重跑 |
 | 4 | 帶倉停止，平倉／返還／已停止 | PASS：第12輪 #32 五方對帳、平倉、歸零、48.987539返還 credited、stopped 全通過 |
-| 6 | 單一平倉與停止重疊，不卡住 | 待跑 |
-| 7 | 下單途中重啟worker，無重複、後續正常 | 待跑 |
-| 8 | 拒絕後的後續單正常；Stage上限無符合幣種時允許SKIP | 待跑 |
-| 9 | 20秒內三次平倉，最終無倉 | 待跑 |
+| 6 | 單一平倉與停止重疊，不卡住 | #35 FAIL：未跟單成交，五方對帳失敗；close後1.6秒stop已送出；無倉、49退款credited、四項停止檢查PASS |
+| 7 | 下單途中重啟worker，無重複、後續正常 | #36 FAIL：重啟及首筆跟單PASS，減倉簽署前local_changed；整體對帳FAIL，正常平倉／48.987089退款credited／四項停止PASS |
+| 8 | 拒絕後的後續單正常；Stage上限無符合幣種時允許SKIP | SKIP：06:07整合harness確認無符合12–15上限標的，沒有下單 |
+| 9 | 20秒內三次平倉，最終無倉 | FAIL：領單三平倉約14秒、跟單flat PASS；兩筆未完成派送與缺快照令五方對帳FAIL；退款49.001351 credited、四項停止PASS |
 | 14 | 暫停拒開、允許減倉、全部平倉返還、恢復 | 待權限授權 |
 
 ## 程式與證據
@@ -111,3 +111,39 @@ Paul授予6小時完成testnet測試；開始00:20台灣時間，截止06:20。�
 - 剩餘情境3／6／7／8／9從05:24重跑，間距明列120秒；情境9仍是6秒＋6秒的三次平倉，不改20秒條件。log `/private/tmp/codex-harness-stage-caps-remaining1-20261008.log`。#34入金50、實收49，05:26:24 active。
 - 情境3原腳本領單開24、減25%約6美元，被交易所最低10美元拒絕，未產生減倉訊號。改成領單開48、減25%約12美元；跟單仍採原12–15美元上限，其25%仍低於10。原失敗保留，25項harness回歸PASS，等待正常清理後重跑。
 - 同樣修正情境7領單開20再減半的尺寸陷阱：改開40，避免取整後領單半倉落到10美元以下；跟單12–15上限不變。情境3 dry-run實讀ETH行情，開48取整後47.97，證據 `/private/tmp/codex-testnet-reduce-min-fixed-dry.log`；不把dry-run當真實減倉PASS。05:32唯讀情境8標的探測沒有符合上限的市場，正式harness仍需記錄SKIP。
+
+### 05:47 接續結果
+
+- `95bde124` 已推dev；CI [37690400450](https://github.com/PSheon/Trading-Dashboard/actions/runs/37690400450) 全綠。
+- #34 第一筆跟單成交／結算／五方對帳PASS，但原領單6美元部分減倉被交易所拒絕，因此情境3整體FAIL，不用單筆對帳掩蓋失敗。05:37:04四項停止檢查全PASS，48.987081 credited，主77.971505→126.958586、copy0，領單清理PASS。修正後48美元領單版本仍未實際重跑。
+- #35 05:39:56 active；領單一筆成交，05:42:00等待跟單兩分鐘失敗。05:44:04五方對帳FAIL（refusal_not_allowed、direction_mismatch、portfolio_snapshot_unavailable），owner close請求成功，1.6秒後stop請求成功。原unknown送單保守核對至never-placed後釋放，沒有直接修改journal／保留額度；05:45:56 flat，退款仍等待。沒有實際持倉，所以不能把後續停止成功當成持倉重疊驗收通過。
+- 唯讀背景任務紀錄沒有顯示#35期間新增reporting claim，不能把跨帳戶背景讀取當成已證實根因，未套用猜测性的全域禁讀修正。
+- 為下一輪原定worker重啟，暫時在本機stage-caps profile加上只讀診斷preload；只記方法耗時、品牌錯誤碼／堆疊欄位與交易所回應結構／預設類別布林，不輸出request／signature／原始錯誤文字，不改authority比較／5秒時鐘／HTTP內容。測完恢復profile原內容並重啟去掉診斷與唯讀RPC通道；此profile暫時變更不可提交。
+
+### 05:50 最後一批
+
+- #35 05:49:12四項停止檢查全PASS：未blocked、無倉、49 credited、copy0／主125.958586、stopped；領單平倉清理PASS。
+- 原暫時批次wrapper以名字中 `_stop_` 誤判 `close_then_stop_mirrored` 為停止驗收失敗，因此保守停住，不是退款失敗。唯讀核對所有actual策略已停止、openFunding／liabilities／unfinishedSetups全空，才另外啟動7／8／9。wrapper修正只在tmp，保留原FAIL紀錄，不改harness驗收。
+- 最後批次log `/private/tmp/codex-harness-stage-caps-remaining3-20261008.log`；原120秒間距與情境9的20秒條件保持。
+
+### 06:06 最後快速平倉輪次
+
+- #36 05:52:14按原情境重啟worker74306；05:53:11跟單ETH買0.0046真實成交，05:53:14 mirror PASS。05:55:15領單減半成交，但跟單於05:55:59簽署前 `live_risk_local_changed`，不改比較來放行。
+- 05:57:17整體對帳FAIL：leader_order_without_dispatch、refusal_not_allowed、direction_mismatch。最後领單平倉到對帳僅0.6秒，且既有減倉拒單已讓harness開始正常停止；因此不能用最後派送尚未出現來單独判定常態平倉路徑故障。原始FAIL與所有欄位保留。
+- 05:59:44停止的真實reduce-only平倉成功；06:03:34四項停止檢查全PASS：flat、48.987089 credited、copy0／主124.945675、stopped、未blocked。
+- stage-caps profile暫時NODE_OPTIONS於05:54恢復原內容，未提交。只在下一輪間、前輪全flat／credited／無未釋放額度後，06:05正常重啟本機worker，增加gitignored編譯模組診斷：原authority比較前保留同一session第一份資料，只輸出變動欄位名稱與是否純陣列排序差異，不輸出值、不增SQL查詢、不改原比較／時鐘／簽署內容。所有diagnostic皆在收尾恢復。
+- 最後一輪8／9 log `/private/tmp/codex-harness-stage-caps-burst-final-20261008.log`，一般等待明列30秒，三次平倉依舊6秒＋6秒、不超過20秒；50／12–15／3x／2、五秒證據及120秒訊號期限全保留。
+
+### 06:18 六小時收尾
+
+- #37 06:07:45 active，入金50／實收49；情境8原始整合harness正式SKIP，沒有可用標的、沒有下單。
+- 情境9領單開倉與三次平倉全成交，三平倉06:08:18.495／25.526／32.651，約14.156秒，符合20秒條件。跟單開倉06:09:11送出、06:10:19結算；第一筆跟單減倉06:11:46送出、06:14:14結算並釋放原始保留額度。
+- 06:13:11五方對帳FAIL：兩筆leader_leg_without_follower_fill及portfolio_snapshot_unavailable；同時直接原生跟單持倉檢查flat PASS。正常停止使另外兩筆close變成copy_stopping，不把停止後狀態拿來冒充自然處理完成。
+- 06:17帳戶已stopped／無倉，退款49.001351 accepted，等待credited。未開新測試。原始log `/private/tmp/codex-harness-stage-caps-burst-final-20261008.log`，仍需確認最後入帳與去掉所有暫時preload。
+- 同一原始session的欄位診斷於#37没有捕捉local_changed，不能宣稱已找出#33／#36根因；没有套用猜測的排序或忽略欄位修正。06:18編譯模組已恢復診斷前原內容；profile先前已恢復。待所有退款credited後才重啟API／worker移除preload及唯讀RPC。
+- API255檔3879、web181檔1171、harness25項、API／web typecheck及lint全部PASS；`95bde124`完整CI全綠。獨立分支審查另58項PASS，沒有已證實的阻擋級發現，但不代表真實B矩陣通過。
+- 未完成：情境3修正48美元版本尚未真實重跑；base／7的live_risk_local_changed尚未修妥；6與9完整對帳未通過；14仍沒有Paul管理權限授權，未執行。B不可宣稱全綠，C主網不可開始；本輪未手動部署Stage或更改其設定／資料。
+
+### 06:19 最後資金核對
+
+06:18:18 #37四項停止檢查全部PASS：未blocked、原生持倉flat、49.001351退款credited、copy0／主123.947026、stopped。唯讀最終核對所有actual策略stopped，openFunding／liabilities／unfinishedSetups全空，證據 `/private/tmp/codex-testnet-final-money-state.log`。06:19開始正常重啟API3100與worker3010，明確unset NODE_OPTIONS去掉所有暫時preload，web3000與共享Chrome9333保留。測試整體仍未全綠；上述資金收尾成功不覆蓋原FAIL。

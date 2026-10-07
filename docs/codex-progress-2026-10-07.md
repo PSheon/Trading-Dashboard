@@ -190,3 +190,9 @@
 ### 2026-10-08 05:31 testnet狀態
 
 `685b2024` dev／CI全綠；API3879、web1171 PASS。情境4真實驗收PASS；base #33五方對帳FAIL，提款10／停止／平倉／38.973908退款credited均PASS。剩餘3／6／7／8／9以120秒間距繼續，3首輪領單部分減倉低於交易所最低金額，已修測試腳本；14仍待管理權限。暫時編譯診斷已移除，一次全分支審查完成。完整證據及限制見 [testnet結果](testnet-results-2026-10-08.md)。B未全綠、C不得開始，本輪未修改Stage。
+
+### 2026-10-08 06:18 六小時收尾
+
+B仍未全綠：4真實驗收PASS；base／3／6／7／9各有原始FAIL，8無標的正式SKIP，14未獲管理權限未執行。API3879／web1171／harness25與typecheck、lint、`95bde124`完整CI均PASS。前輪均已平倉及credited退款；最後#37已無倉、stopped、49.001351返還accepted，仍待最後credited與移除暫時preload。編譯模組／profile已恢復原內容。最新證據與未完成項目見 [testnet結果](testnet-results-2026-10-08.md)。本輪沒有手動部署Stage，C不得開始。
+
+06:19最後更新：#37退款49.001351已credited、copy0／主123.947026，四項停止全PASS；唯讀核對所有actual策略stopped、在途資金／未釋放保留額度／未完成setup全空。正在正常重啟本機API／worker移除暫時preload。B仍未全綠，未以資金收尾成功冒充交易驗收成功。

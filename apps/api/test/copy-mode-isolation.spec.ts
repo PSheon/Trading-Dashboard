@@ -9,6 +9,9 @@ import { CopyController } from '../src/copy/copy.controller.js';
 import { CopyRiskPolicyService } from '../src/copy/copy-risk-policy.service.js';
 import { CopyOrderPlanner } from '../src/copy/copy-planner.service.js';
 import { CopyControlService } from '../src/copy/copy-control.service.js';
+import { CopyLiveSystemStops } from '../src/copy/copy-live-stop-system.js';
+import { CopyLiveStopRepository } from '../src/copy/copy-live-stop.repository.js';
+import { CopyLiveMandateRepository } from '../src/copy/copy-live-mandate.repository.js';
 import { CopyExecutionService } from '../src/copy/copy-execution.service.js';
 import { CopyPerformanceService } from '../src/copy/copy-performance.service.js';
 import { CopyStreamService } from "../src/copy/copy-stream.service.js";
@@ -51,7 +54,7 @@ beforeEach(async () => {
   for (const strategyId of [paperId, liveId]) await db.insert(copyStrategyVersions).values({ strategyId, version: 1, settings, createdByUserId: uid });
   policies = new CopyRiskPolicyService(repository, uow, market, null as never);
   planner = new CopyOrderPlanner(repository);
-  controls = new CopyControlService(repository, uow, market, planner, policies);
+  controls = new CopyControlService(repository, uow, market, planner, policies, new CopyLiveSystemStops(db, uow, new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, testConfig())), testConfig()));
   service = new CopyStrategyService(testConfig(), repository, uow, market, planner, policies, controls, site as never);
   execution = new CopyExecutionService(repository, uow, market, policies, site as never);
   performance = new CopyPerformanceService(repository, uow, market);
@@ -188,7 +191,7 @@ describe('paper passes cannot consume testnet strategies or their accidental pap
     const result = await controls.apply({ scope: 'platform', command: 'close_positions', expectedRevision: 0, reason: 'mode isolation' },
       { kind: 'service', permissions: ['execution.pause'] });
     expect(result.state.pauseNewRisk).toBe(true);
-    expect(result.event.result).toEqual({ cancelledOrders: 1, closeOrders: 1 });
+    expect(result.event.result).toEqual({ cancelledOrders: 1, closeOrders: 1, liveCloseAll: 'done', liveStops: 0, liveStopping: 0, liveUnhandled: [], complete: true });
     expect((await db.select().from(copyOrders).where(eq(copyOrders.id, paper.id)))[0].status).toBe('cancelled');
     expect((await db.select().from(copyOrders).where(eq(copyOrders.id, live.id)))[0].status).toBe('risk_approved');
     expect((await db.select().from(copyReservations))[0].status).toBe('held');

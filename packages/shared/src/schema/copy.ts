@@ -325,7 +325,11 @@ export const copyControlEventSchema = z.object({
   actorUserId: z.number().int().nullable(),
   actorEmail: z.string().nullable(),
   reason: z.string().nullable(),
-  result: z.object({ cancelledOrders: z.number().int(), closeOrders: z.number().int() }),
+  result: z.object({ cancelledOrders: z.number().int(), closeOrders: z.number().int(),
+    /** close_positions on actual copies: stops started, already stopping, and
+     * every copy left unstopped with its reason (complete only when none). */
+    liveStops: z.number().int().optional(), liveStopping: z.number().int().optional(),
+    liveUnhandled: z.array(z.object({ accountId: z.string(), code: z.string() })).optional(), complete: z.boolean().optional() }),
   createdAt: z.coerce.date(),
 });
 export type CopyControlEvent = z.infer<typeof copyControlEventSchema>;

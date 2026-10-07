@@ -295,10 +295,12 @@ describe('testnet stop execution', () => {
     // Undo the stop of beforeEach: the copy runs again.
     await db.delete(schema.copyLiveStopOperations); await db.update(schema.copyStrategies).set({ status: 'active', pauseNewRisk: false, reduceOnly: false });
     await db.update(schema.copyLiveMandates).set({ state: 'active' });
-    const system = new CopyLiveSystemStops(db, new UnitOfWork(db), new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, testConfig())), testConfig());
+    // A deployment that executes actual copies (COPY_TRADING_MODE testnet).
+    const base = testConfig(), live = { get value() { return { ...base.value, copy: { ...base.value.copy, live: { network: 'testnet' } } }; } } as unknown as typeof base;
+    const system = new CopyLiveSystemStops(db, new UnitOfWork(db), new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, live)), live);
     system.now = () => clock;
     const expiring = () => new CopyLiveStopper({ repository: new CopyLiveStopWorkerRepository(db, new UnitOfWork(db), testConfig()), closer, canceller: canceller as unknown as StopCanceller,
-      swept: async () => swept, agentExpiry: { marginMs: AGENT_EXPIRY_STOP_MARGIN_MS, stopExpiring: margin => system.stopExpiring(margin) } }, () => clock);
+      swept: async () => swept, systemStops: { agentExpiryMarginMs: AGENT_EXPIRY_STOP_MARGIN_MS, stopExpiring: margin => system.stopExpiring(margin), resumePendingCloseAll: async () => [] } }, () => clock);
     await db.update(schema.copyAgentSetups).set({ expiresAt: new Date(clock + 25 * 3_600_000) });
     await expiring().tick();
     expect(await db.select().from(schema.copyLiveStopOperations)).toEqual([]);

@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from "@nestjs/common";
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { adminCopyControlRequestSchema, type AdminCopyControlRequest, type AdminCopyControlResponse, type CopyControlCommand, type CopyStrategyCommand, type CopyStrategySettings } from "@trading-dashboard/shared/contracts";
 
 import { recordAdminAudit } from "../common/audit/admin-audit.js";
@@ -11,7 +11,7 @@ import { CopyMarketService, type Mids } from "./copy-market.service.js";
 import { CopyOrderPlanner, type Controls } from "./copy-planner.service.js";
 import { CopyRiskPolicyService, type PolicyRead } from "./copy-risk-policy.service.js";
 import { CopyRepository, type StrategyRow } from "./copy.repository.js";
-import { CopyLiveSystemStops, type RunningCopy } from "./copy-live-stop-system.js";
+import { CopyLiveSystemStops } from "./copy-live-stop-system.js";
 
 type Target = { scope: "platform"; scopeId: 0 } | { scope: "user"; scopeId: number };
 
@@ -51,8 +51,8 @@ export class CopyControlService {
     private readonly market: CopyMarketService,
     private readonly planner: CopyOrderPlanner,
     private readonly policies: CopyRiskPolicyService,
-    /** Actual copies of this deployment (absent where there are none). */
-    @Optional() private readonly liveStops?: CopyLiveSystemStops,
+    /** Actual copies: 全部平倉 stops them too (required: a close-all must never skip them). */
+    private readonly liveStops: CopyLiveSystemStops,
   ) {}
 
   /**
@@ -73,12 +73,17 @@ export class CopyControlService {
     const mids = req.command === "close_positions" ? await this.market.midPrices(await this.repository.positionCoins((await this.repository.liveStrategyIdsOfUser(this.repository.reader, req.scope === "user" ? req.userId : null)).map((s) => s.id))) : null;
     const actorUserId = actor.kind === "user" ? actor.id : null;
     // 全部平倉 also ends the actual copies in scope: a stop for each (close,
-    // then return), worked by the stop executor like an owner's stop. They
-    // are found before and started after this transaction commits (a stale
-    // revision starts none), each in its own transaction.
-    const actual: RunningCopy[] = req.command === "close_positions" && this.liveStops ? await this.liveStops.running(req.scope === "user" ? { userId: req.userId } : {}) : [];
+    // then return), worked by the stop executor like an owner's stop. The
+    // control event records the intent (liveCloseAll: pending) in this
+    // transaction; the stops start after it commits (a stale revision starts
+    // none), each in its own transaction, and the event gets the outcome. If
+    // this process dies in between, the worker resumes the pending intent
+    // (CopyLiveSystemStops.resumePendingCloseAll), with the same stop keys.
+    const closeAll = req.command === "close_positions";
+    // Never a close-all that silently leaves real-funds copies out.
+    if (closeAll && !(this.liveStops instanceof CopyLiveSystemStops)) throw new ConflictException({ statusCode: 409, code: "close_all_unavailable", message: "Close-all can't reach real-funds copies here" });
 
-    const response = await this.uow.run(async (tx) => {
+    const { response, event } = await this.uow.run(async (tx) => {
       if (target.scope === "user" && !(await this.repository.userExists(tx, target.scopeId))) throw new NotFoundException("User not found");
       const before = await this.repository.lockControl(tx, target.scope, target.scopeId);
       if (before.revision !== req.expectedRevision) {
@@ -97,15 +102,14 @@ export class CopyControlService {
         { pauseNewRisk: before.pauseNewRisk, reduceOnly: before.reduceOnly };
       const after = await this.repository.updateControl(tx, target.scope, target.scopeId, flags, actorUserId);
       const paper = await this.applyEffects(tx, req.command, locked, mids, `${target.scope}_${req.command}`);
-      // closeOrders counts the close actions: paper close orders and actual copies' stops.
-      const result = actual.length ? { ...paper, closeOrders: paper.closeOrders + actual.length, liveStops: actual.length } : paper;
+      const result: Record<string, unknown> & typeof paper = closeAll ? { ...paper, liveCloseAll: "pending" } : paper;
       const event = await this.repository.insertControlEvent(tx, {
         scope: target.scope, scopeId: target.scopeId, command: req.command, revision: after.revision, actorUserId, reason: req.reason, result,
       });
       await recordAdminAudit(tx, actor, "copy.control", `${target.scope}:${target.scopeId}`,
         { pauseNewRisk: before.pauseNewRisk, reduceOnly: before.reduceOnly, revision: before.revision },
         { command: req.command, reason: req.reason, pauseNewRisk: after.pauseNewRisk, reduceOnly: after.reduceOnly, revision: after.revision, ...result });
-      return {
+      return { event, response: {
         scope: target.scope,
         scopeId: target.scopeId,
         state: { pauseNewRisk: after.pauseNewRisk, reduceOnly: after.reduceOnly, revision: after.revision },
@@ -113,10 +117,18 @@ export class CopyControlService {
           id: String(event.id), scope: target.scope, scopeId: target.scopeId, command: req.command, revision: after.revision,
           actorUserId, actorEmail: null, reason: req.reason, result, createdAt: event.createdAt,
         },
-      };
+      } };
     });
-    if (actual.length && this.liveStops) await this.liveStops.stopAll(actual, "admin_close_all", actor, `r${response.state.revision}`);
-    return response;
+    if (!closeAll) return response;
+    const live = await this.liveStops.closeAll(event, actor);
+    // closeOrders counts the close actions: paper close orders and actual copies' stops.
+    const result = { ...response.event.result, ...live, closeOrders: response.event.result.closeOrders + live.liveStops };
+    // A kill switch that left any copy unstopped is not reported as success:
+    // the pause and the stops that started stand, the rest are listed.
+    if (!live.complete) throw new ConflictException({ statusCode: 409, code: "close_all_incomplete",
+      message: `Close-all left ${live.liveUnhandled.length} real-funds cop${live.liveUnhandled.length === 1 ? "y" : "ies"} unstopped: ${live.liveUnhandled.map((u) => `${u.accountId} (${u.code})`).join(", ").slice(0, 400)}`,
+      unhandled: live.liveUnhandled, result });
+    return { ...response, event: { ...response.event, result } };
   }
 
   /** The owner's command on one of their strategies (404 for anyone else's). */

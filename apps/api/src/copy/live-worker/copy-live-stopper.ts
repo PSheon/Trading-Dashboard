@@ -44,15 +44,20 @@ export interface StopperDependencies {
   readonly log?: (message: string) => void;
   /** A revoke-requested grant is revoked anyway after this long. */
   readonly revokeDeadlineMs?: number;
-  /** Stops copies whose agent is about to expire (CopyLiveSystemStops):
-   * an expired agent can't sign the stop's closes, stranding the positions. */
-  readonly agentExpiry?: { readonly marginMs: number; stopExpiring(marginMs: number): Promise<SystemStopOutcome> } | null;
+  /** The system's stops (CopyLiveSystemStops): copies whose agent is about
+   * to expire (an expired agent can't sign the stop's closes, stranding the
+   * positions), and admin close-alls the api did not finish. */
+  readonly systemStops?: {
+    readonly agentExpiryMarginMs: number;
+    stopExpiring(marginMs: number): Promise<SystemStopOutcome>;
+    resumePendingCloseAll(): Promise<Array<{ event: string; liveStops: number; liveUnhandled: readonly { accountId: string; code: string }[] }>>;
+  } | null;
 }
 /** A copy is stopped this long before its agent expires (one day: room for
  * the stop's closes, retries and return while the agent still signs). */
 export const AGENT_EXPIRY_STOP_MARGIN_MS = 24 * 3_600_000;
-/** How often the expiring agents are looked for. */
-const AGENT_EXPIRY_CHECK_MS = 60_000;
+/** How often expiring agents and unfinished close-alls are looked for. */
+const SYSTEM_CHECK_MS = 60_000;
 /** Default bound on a pending admin revoke (COPY_LIVE_REVOKE_DEADLINE_MINUTES). */
 export const REVOKE_DEADLINE_MS = 30 * 60_000;
 const reason = (error: unknown) => (error instanceof LiveBoundaryError ? error.code : 'stop_step_failed').replace(/[^a-z0-9_]/g, '_').slice(0, 80);
@@ -71,16 +76,23 @@ const reason = (error: unknown) => (error instanceof LiveBoundaryError ? error.c
  *    only dust): generations and strategy end, the leader is unwatched.
  */
 export class CopyLiveStopper {
-  private expiryCheckedAt = Number.NEGATIVE_INFINITY;
+  private systemCheckedAt = Number.NEGATIVE_INFINITY;
   constructor(private readonly deps: StopperDependencies, private readonly now: () => number = Date.now) {}
 
   async tick(): Promise<void> {
-    // A copy whose agent expires within the margin is stopped (close, then
-    // return) while the agent can still sign; its stop runs below.
-    if (this.deps.agentExpiry && this.now() - this.expiryCheckedAt >= AGENT_EXPIRY_CHECK_MS) {
-      this.expiryCheckedAt = this.now();
+    // System stops, once a minute: an admin close-all whose stops the api
+    // never started is finished, and a copy whose agent expires within the
+    // margin is stopped (close, then return) while the agent can still sign.
+    // Their stops run below.
+    const system = this.deps.systemStops;
+    if (system && this.now() - this.systemCheckedAt >= SYSTEM_CHECK_MS) {
+      this.systemCheckedAt = this.now();
       try {
-        const outcome = await this.deps.agentExpiry.stopExpiring(this.deps.agentExpiry.marginMs);
+        for (const resumed of await system.resumePendingCloseAll())
+          this.deps.log?.(`close-all ${resumed.event} resumed: ${resumed.liveStops} stop(s) started, ${resumed.liveUnhandled.length} cop(ies) left unstopped`);
+      } catch (error) { this.deps.log?.(`close-all resume failed: ${reason(error)}`); }
+      try {
+        const outcome = await system.stopExpiring(system.agentExpiryMarginMs);
         for (const stopped of outcome.stopped) this.deps.log?.(`copy account ${stopped.accountId} stopped before its agent expires (stop ${stopped.stopId})`);
         for (const refused of outcome.refused) this.deps.log?.(`copy account ${refused.accountId} could not be stopped before its agent expires: ${refused.code}`);
       } catch (error) { this.deps.log?.(`agent expiry check failed: ${reason(error)}`); }

@@ -9,6 +9,9 @@ import { AuthService } from "../src/common/auth/auth.service.js";
 import { CopyAdminReadService } from "../src/copy/copy-admin-read.service.js";
 import { CopyAdoptionRepairService } from "../src/copy/copy-adoption-repair.service.js";
 import { CopyControlService } from "../src/copy/copy-control.service.js";
+import { CopyLiveSystemStops } from "../src/copy/copy-live-stop-system.js";
+import { CopyLiveStopRepository } from "../src/copy/copy-live-stop.repository.js";
+import { CopyLiveMandateRepository } from "../src/copy/copy-live-mandate.repository.js";
 import { CopyExecutionService } from "../src/copy/copy-execution.service.js";
 import { CopyMarketService } from "../src/copy/copy-market.service.js";
 import { CopyPerformanceService } from "../src/copy/copy-performance.service.js";
@@ -74,7 +77,7 @@ describe("GET /me/copy/stream — the owner's live copy feed over SSE (real Post
       controllers: [CopyController],
       providers: [
         CopyRepository, CopyMarketService, CopyRiskPolicyService, CopyOrderPlanner, CopySignalService, CopyExecutionService,
-        CopyControlService, CopyStrategyService, CopyPerformanceService, CopyAdminReadService, CopyAdoptionRepairService, FillSyncRepository, AccountRepository, AccountDeletionService,
+        CopyControlService, CopyLiveSystemStops, CopyLiveStopRepository, CopyLiveMandateRepository, CopyStrategyService, CopyPerformanceService, CopyAdminReadService, CopyAdoptionRepairService, FillSyncRepository, AccountRepository, AccountDeletionService,
         CopyStreamService, CopyFeedListener,
         { provide: DATABASE_POOL, useValue: (db as unknown as { $client: unknown }).$client },
         { provide: COPY_STREAM_OPTIONS, useValue: { heartbeatMs: 100, replayLimit: 5, setupTimeoutMs: 2000, authorizationTimeoutMs: 1000, maxPerIp: 10, maxTotal: 10 } },

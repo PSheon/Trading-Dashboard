@@ -37521,6 +37521,34 @@
                                   },
                                   "closeOrders": {
                                     "type": "integer"
+                                  },
+                                  "liveStops": {
+                                    "type": "integer"
+                                  },
+                                  "liveStopping": {
+                                    "type": "integer"
+                                  },
+                                  "liveUnhandled": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "accountId": {
+                                          "type": "string"
+                                        },
+                                        "code": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "accountId",
+                                        "code"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "complete": {
+                                    "type": "boolean"
                                   }
                                 },
                                 "required": [
@@ -39920,6 +39948,34 @@
                                 },
                                 "closeOrders": {
                                   "type": "integer"
+                                },
+                                "liveStops": {
+                                  "type": "integer"
+                                },
+                                "liveStopping": {
+                                  "type": "integer"
+                                },
+                                "liveUnhandled": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "accountId": {
+                                        "type": "string"
+                                      },
+                                      "code": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "accountId",
+                                      "code"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                },
+                                "complete": {
+                                  "type": "boolean"
                                 }
                               },
                               "required": [

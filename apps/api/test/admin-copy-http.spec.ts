@@ -18,6 +18,9 @@ import { AdminCopyController } from "../src/admin/admin-copy.controller.js";
 import type { AuthService } from "../src/common/auth/auth.service.js";
 import { CopyAdminReadService } from "../src/copy/copy-admin-read.service.js";
 import { CopyControlService } from "../src/copy/copy-control.service.js";
+import { CopyLiveSystemStops } from "../src/copy/copy-live-stop-system.js";
+import { CopyLiveStopRepository } from "../src/copy/copy-live-stop.repository.js";
+import { CopyLiveMandateRepository } from "../src/copy/copy-live-mandate.repository.js";
 import { CopyExecutionService } from "../src/copy/copy-execution.service.js";
 import { CopyMarketService } from "../src/copy/copy-market.service.js";
 import { CopyOrderPlanner } from "../src/copy/copy-planner.service.js";
@@ -101,7 +104,7 @@ describe("/admin/copy — the copy-trading admin API", () => {
       controllers: [AdminCopyController, CopyController],
       providers: [
         CopyRepository, CopyMarketService, CopyRiskPolicyService, CopyOrderPlanner, CopySignalService, CopyExecutionService,
-        CopyControlService, CopyStrategyService, CopyPerformanceService, CopyStreamService, CopyAdminReadService, FillSyncRepository,
+        CopyControlService, CopyLiveSystemStops, CopyLiveStopRepository, CopyLiveMandateRepository, CopyStrategyService, CopyPerformanceService, CopyStreamService, CopyAdminReadService, FillSyncRepository,
         { provide: HyperliquidInfoClient, useValue: info },
       ],
     }));

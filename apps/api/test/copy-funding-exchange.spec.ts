@@ -56,15 +56,15 @@ describe("strategy funding trusted transport", () => {
     vi.stubGlobal("fetch", answer({ assetPositions: [] }, [], { balances: [] }));
     await expect(client().transport.holdings("testnet", op.address)).rejects.toThrow("Account holdings unavailable");
   });
-  it("checks the quota permit before the caller's last proof: a permit refused at the send is never seen as dispatched", async () => {
+  it("rechecks the quota permit after the caller's proof, and reports the send dispatched only after both passed", async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({ status: "ok", response: { type: "default" } }))); vi.stubGlobal("fetch", fetcher);
     const global = Object.create(HyperliquidGlobalTransport.prototype) as HyperliquidGlobalTransport;
     const permit = { assertFresh: () => { throw new Error("hyperliquid_quota_expired"); }, dispatch: <T>(work: () => T) => work() };
     Object.defineProperty(global, "currentQuota", { value: () => ({ acquireRest: async () => permit }) });
     const budget = { acquire: vi.fn(async () => {}), liveCapacity: 1000, liveWaitMs: () => 0, refillMs: () => 0 };
-    let dispatched = false;
-    await expect(new CopyFundingExchangeClient(budget as unknown as RequestBudgeterService, global).send(op, signature, () => { dispatched = true; })).rejects.toThrow("funding_submission_unknown");
-    expect(dispatched).toBe(false); expect(fetcher).not.toHaveBeenCalled();
+    let proved = false, dispatched = false;
+    await expect(new CopyFundingExchangeClient(budget as unknown as RequestBudgeterService, global).send(op, signature, () => { proved = true; }, () => { dispatched = true; })).rejects.toThrow("funding_submission_unknown");
+    expect(proved).toBe(true); expect(dispatched).toBe(false); expect(fetcher).not.toHaveBeenCalled();
   });
   it("never retries response loss", async () => {
     const fetcher = vi.fn(async () => { throw new Error("response lost"); }); vi.stubGlobal("fetch", fetcher);

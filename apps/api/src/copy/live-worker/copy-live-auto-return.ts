@@ -62,13 +62,13 @@ export class CopyLiveAutoReturn implements AutoReturn {
       await this.returns.finish(stop.userId, row.id, 'rejected', digest({ reason: 'worker_signature_unavailable', id: row.id }));
       return 'failed';
     }
-    // The send's last check, after the quota permit (the client checks the
-    // permit first): once it passed, only the POST follows, so the sweep may
-    // have reached the exchange. A permit refused before it is not sent.
+    // Dispatched only once every check passed (this proof, then the quota
+    // permit rechecked after it), right before the POST: from then on the
+    // sweep may have reached the exchange. A refusal before it was not sent.
     let dispatched = false;
-    const fresh = () => { const at = this.now(); if (!Number.isSafeInteger(at) || at - checkedAt > 30_000) throw new Error('stale'); dispatched = true; };
+    const fresh = () => { const at = this.now(); if (!Number.isSafeInteger(at) || at - checkedAt > 30_000) throw new Error('stale'); };
     let reply: unknown;
-    try { reply = await this.exchange.send(attempt, signature, fresh); }
+    try { reply = await this.exchange.send(attempt, signature, fresh, () => { dispatched = true; }); }
     catch (error) {
       if (!dispatched) {
         // Refused before the POST (a stale proof, the meter): nothing left this process.

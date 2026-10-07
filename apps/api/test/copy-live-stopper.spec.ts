@@ -202,7 +202,7 @@ describe('testnet stop execution', () => {
       expect((await returns())[0]).toMatchObject({ status: 'rejected' });
       // Sent, its answer lost: unknown, reconciled from the main wallet's ledger, never resent.
       await db.delete(schema.copyFundingOperations);
-      exchange.send.mockImplementationOnce(async (_row: unknown, _signature: string, fresh: () => void) => { fresh(); throw new Error('socket hang up'); });
+      exchange.send.mockImplementationOnce(async (_row: unknown, _signature: string, fresh: () => void, sent: () => void) => { fresh(); sent(); throw new Error('socket hang up'); });
       expect(await sweep().sweep(stop, withdrawable)).toBe('unknown');
       expect((await returns())[0]).toMatchObject({ status: 'unknown' });
       expect(await sweep().sweep(stop, withdrawable)).toBe('unknown');

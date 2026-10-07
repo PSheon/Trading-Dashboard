@@ -76,7 +76,7 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
     <div className="flex flex-col gap-2">
       {item.expiresAt && running ? (
         <p className={item.renewalDue ? "text-xs font-semibold text-warning" : "text-xs text-muted-foreground"}>
-          {fill(text.expiresOn, { date: format.date(item.expiresAt) })}{item.renewalDue ? ` ${text.errors.renewal_unavailable}` : ""}
+          {fill(text.expiresOn, { date: format.date(item.expiresAt) })}{item.renewalDue ? <span className="mt-0.5 block">{text.errors.renewal_unavailable}</span> : null}
         </p>
       ) : null}
       {stopped ? <p role="alert" className="text-xs text-warning">{liveSetupError(texts, stopped.issue)}</p> : null}

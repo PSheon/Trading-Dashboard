@@ -13,7 +13,7 @@ export type TransferSheetKind = "withdraw" | "returnAll" | "stop";
 
 /**
  * The one confirm sheet in front of every movement of a testnet copy's
- * money: 提領閒置資金, 全部返還主錢包 and 申請停止 (whose funds come back
+ * money: 提款, 全部返還主錢包 and 申請停止 (whose funds come back
  * afterwards). It says the amount, where the money goes (your main wallet,
  * with its short address), the network and the expected time. It is the
  * same for every account: the worker signs the transfer under the account's

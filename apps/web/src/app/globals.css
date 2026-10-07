@@ -616,6 +616,10 @@
 .data-rows > tr:has([aria-expanded="true"]) > td {
   background-color: var(--raised-hover);
 }
+/* Detail rows use inset wells within the raised expansion. */
+.row-expansion .data-rows > tr > td {
+  background-color: var(--inset);
+}
 /* Inside a card the rows are wells. */
 .orbit-card .data-rows > tr > td,
 [data-slot="card"] .data-rows > tr > td {

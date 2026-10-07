@@ -3,6 +3,7 @@ import { useId, useState } from 'react';
 import type { CopyExecutionAccount } from '@trading-dashboard/shared/contracts';
 import { Select } from "@/components/ui/select";
 import { Button } from '@/components/ui/button';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useI18n } from '@/i18n/provider';
 import { useAuth } from '@/lib/auth';
 import { sessionKey } from '@/lib/api';
@@ -47,10 +48,10 @@ function StatementView({ accounts }: { accounts: readonly CopyExecutionAccount[]
       <p className="text-xs text-muted-foreground">{t('copyFollowerStatement.count', { count: data.receiptCount })}</p>
       <details className="rounded-xl bg-inset p-3.5">
         <summary className="cursor-pointer text-xs font-semibold focus-visible:outline-2 focus-visible:outline-ring">{t('copyFollowerStatement.receipts')}</summary>
-        {data.latestReceipts.length ? <div className="mt-3 overflow-x-auto"><table className="w-full text-left text-xs"><caption className="sr-only">{t('copyFollowerStatement.receipts')}</caption>
-          <thead><tr>{(['receiptTime', 'receiptCoin', 'receiptType', 'receiptAttribution'] as const).map((key) => <th key={key} scope="col" className="px-2 py-2 font-semibold text-muted-foreground">{t(`copyFollowerStatement.${key}`)}</th>)}</tr></thead>
-          <tbody>{data.latestReceipts.map((receipt) => <tr key={receipt.key} className="border-t-2 border-dotted border-border"><td className="whitespace-nowrap px-2 py-2">{format.dateTime(receipt.time)}</td><td className="px-2 py-2">{receipt.coin}</td><td className="px-2 py-2">{t(`copyFollowerStatement.${receipt.kind}`)}</td><td className="px-2 py-2">{t(`copyFollowerStatement.${receipt.attribution}`)}</td></tr>)}</tbody>
-        </table></div> : <p className="mt-3 text-xs text-muted-foreground">{t('copyFollowerStatement.emptyReceipts')}</p>}
+        {data.latestReceipts.length ? <div className="mt-3"><Table dense className="text-xs" data-testid="follower-receipts"><caption className="sr-only">{t('copyFollowerStatement.receipts')}</caption>
+          <TableHeader><TableRow className="hover:bg-transparent">{(['receiptTime', 'receiptCoin', 'receiptType', 'receiptAttribution'] as const).map((key) => <TableHead key={key} scope="col">{t(`copyFollowerStatement.${key}`)}</TableHead>)}</TableRow></TableHeader>
+          <TableBody>{data.latestReceipts.map((receipt) => <TableRow key={receipt.key}><TableCell>{format.dateTime(receipt.time)}</TableCell><TableCell>{receipt.coin}</TableCell><TableCell>{t(`copyFollowerStatement.${receipt.kind}`)}</TableCell><TableCell>{t(`copyFollowerStatement.${receipt.attribution}`)}</TableCell></TableRow>)}</TableBody>
+        </Table></div> : <p className="mt-3 text-xs text-muted-foreground">{t('copyFollowerStatement.emptyReceipts')}</p>}
       </details>
     </div> : null}
     <CopyFollowerSnapshot account={account}/>

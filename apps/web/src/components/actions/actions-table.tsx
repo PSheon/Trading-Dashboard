@@ -158,52 +158,47 @@ function FillsRow({ actionId, colSpan }: { actionId: string; colSpan: number }) 
     refetchInterval: false,
   });
 
+  // The action's fills open under its row (the paper orders' expansion),
+  // as the site's dense table; nested in an expansion its rows are wells.
   return (
-    <TableRow className="bg-background/40 hover:bg-background/40">
-      <TableCell colSpan={colSpan} className="px-5 py-3 whitespace-normal">
-        {isLoading ? <span className="text-xs text-muted-foreground">{t("actions.loadingFills")}</span> : null}
-        {data && data.length === 0 ? (
-          <span className="text-xs text-muted-foreground">{t("actions.noFills")}</span>
-        ) : null}
-        {data && data.length > 0 ? (
-          <div className="overflow-x-auto rounded-xl">
-            <table className="num w-full text-xs">
-              <thead>
-                <tr className="text-left text-subtle-foreground">
-                  <th className="px-3 py-2 font-medium">{t("actions.fills.time")}</th>
-                  <th className="px-3 py-2 font-medium">{t("actions.fills.dir")}</th>
-                  <th className="px-3 py-2 text-right font-medium">{t("actions.fills.price")}</th>
-                  <th className="px-3 py-2 text-right font-medium">{t("actions.fills.size")}</th>
-                  <th className="px-3 py-2 text-right font-medium">{t("actions.fills.fee")}</th>
-                  <th className="px-3 py-2 text-right font-medium">{t("actions.fills.closedPnl")}</th>
-                </tr>
-              </thead>
-              <tbody>
+    <tr>
+      <td colSpan={colSpan} className="p-0">
+        <div className="row-expansion mb-1.5 px-4 py-3 text-xs" data-testid="action-fills">
+          {isLoading ? <span className="text-muted-foreground">{t("actions.loadingFills")}</span> : null}
+          {data && data.length === 0 ? <span className="text-muted-foreground">{t("actions.noFills")}</span> : null}
+          {data && data.length > 0 ? (
+            <Table dense className="text-xs">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>{t("actions.fills.time")}</TableHead>
+                  <TableHead>{t("actions.fills.dir")}</TableHead>
+                  <TableHead className="text-right">{t("actions.fills.price")}</TableHead>
+                  <TableHead className="text-right">{t("actions.fills.size")}</TableHead>
+                  <TableHead className="text-right">{t("actions.fills.fee")}</TableHead>
+                  <TableHead className="text-right">{t("actions.fills.closedPnl")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {data.map((fill) => {
                   const pnl = toNumber(fill.closedPnl);
                   return (
-                    <tr key={String(fill.tid)} className="border-t border-border/60">
-                      <td className="num px-3 py-1.5 font-mono text-muted-foreground">{format.time(fill.ts)}</td>
-                      <td className="px-3 py-1.5">{fill.dir}</td>
-                      <td className="px-3 py-1.5 text-right">{format.price(fill.px)}</td>
-                      <td className="px-3 py-1.5 text-right">{format.num(fill.sz, 4)}</td>
-                      <td className="px-3 py-1.5 text-right text-muted-foreground">{format.usd(fill.fee)}</td>
-                      <td
-                        className={cn(
-                          "px-3 py-1.5 text-right",
-                          pnl ? (pnl > 0 ? "text-positive" : "text-negative") : "text-muted-foreground",
-                        )}
-                      >
+                    <TableRow key={String(fill.tid)}>
+                      <TableCell className="font-mono text-muted-foreground">{format.time(fill.ts)}</TableCell>
+                      <TableCell>{fill.dir}</TableCell>
+                      <TableCell className="text-right">{format.price(fill.px)}</TableCell>
+                      <TableCell className="text-right">{format.num(fill.sz, 4)}</TableCell>
+                      <TableCell className="text-right text-muted-foreground">{format.usd(fill.fee)}</TableCell>
+                      <TableCell className={cn("text-right", pnl ? (pnl > 0 ? "text-positive" : "text-negative") : "text-muted-foreground")}>
                         {pnl ? format.usd(pnl, { sign: true }) : "—"}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
-      </TableCell>
-    </TableRow>
+              </TableBody>
+            </Table>
+          ) : null}
+        </div>
+      </td>
+    </tr>
   );
 }

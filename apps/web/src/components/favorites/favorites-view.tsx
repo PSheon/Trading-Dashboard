@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Bookmark, ChevronDown, Send, Star, X, Zap } from "lucide-react";
+import { Bell, Bookmark, Send, Star, X, Zap } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -25,6 +25,9 @@ import { useNow } from "@/lib/use-now";
 import { GroupChips, GroupTags } from "./groups";
 import { SwitchPanel } from "@/components/ui/switch-panel";
 import { OrbitSpinner } from "@/components/ui/orbit-spinner";
+import { SortHead } from "@/components/ui/sort-head";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TableSkeleton } from "@/components/ui/table-skeleton";
 
 type Tab = "saved" | "alerts" | "feed";
 const TABS: Tab[] = ["saved", "alerts", "feed"];
@@ -322,37 +325,17 @@ function SavedSkeleton({ view }: { view: "grid" | "list" }) {
   const heads = ["copyScore", "accountValue", "totalPnl", "roi", "pnl30d", "winRate", "sharpe", "mdd"] as const;
   return (
     <>
-      <div aria-hidden="true" className="ui-skeleton hidden overflow-hidden orbit-card md:block">
-        <table className="w-full min-w-[1080px] table-fixed border-collapse">
-          <colgroup>
-            <col style={{ width: "19%" }} /><col style={{ width: "10%" }} /><col style={{ width: "9%" }} /><col style={{ width: "8%" }} /><col style={{ width: "7%" }} />
-            <col style={{ width: "8%" }} /><col style={{ width: "6%" }} /><col style={{ width: "6%" }} /><col style={{ width: "7%" }} /><col style={{ width: "8%" }} /><col style={{ width: "12%" }} />
-          </colgroup>
-          <thead className="border-b-2 border-dotted border-border">
-            <tr>
-              <th className="px-3 py-3 text-left text-[0.8125rem] font-semibold text-subtle-foreground">{t("favorites.cols.trader")}</th>
-              {heads.map((h) => <th key={h} className="px-3 py-3 text-right text-[0.8125rem] font-semibold whitespace-nowrap text-subtle-foreground">{t(`favorites.cols.${h}`)}</th>)}
-              <th className="px-3 py-3 text-center text-[0.8125rem] font-semibold whitespace-nowrap text-subtle-foreground">{t("favorites.cols.pnlChart")}</th>
-              <th className="px-3 py-3" />
-            </tr>
-          </thead>
-          <tbody>
-            {Array.from({ length: 5 }, (_, r) => (
-              <tr key={r} className="border-b-2 border-dotted border-border last:border-0">
-                <td className="px-3 py-3">
-                  <span className="flex items-center gap-3">
-                    <SkelCircle className="size-11" />
-                    <SkelBar className="h-3.5 w-28" />
-                  </span>
-                </td>
-                {heads.map((h) => <td key={h} className="px-3 py-3"><SkelBar className="ml-auto h-3 w-12" /></td>)}
-                <td className="px-3 py-3"><SkelBar className="mx-auto h-[34px] w-[76px] rounded-lg" /></td>
-                <td className="px-3 py-3"><span className="flex justify-end gap-1"><SkelCircle className="size-8" /><SkelCircle className="size-8" /></span></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <TableSkeleton
+        className="hidden md:block"
+        tableClassName="min-w-[1080px] table-fixed"
+        rows={5}
+        columns={[
+          { label: t("favorites.cols.trader"), className: WATCH_COLS[0], bar: "w-28" },
+          ...heads.map((h, i) => ({ label: t(`favorites.cols.${h}`), right: true, className: WATCH_COLS[i + 1] })),
+          { label: t("favorites.cols.pnlChart"), className: cn(WATCH_COLS[9], "text-center"), bar: "mx-auto h-[34px] w-[76px] rounded-lg" },
+          { className: WATCH_COLS[10], bar: "ml-auto w-24" },
+        ]}
+      />
       <ul aria-hidden="true" className="ui-skeleton flex flex-col gap-2 md:hidden">
         {Array.from({ length: 6 }, (_, i) => (
           <li key={i} className="orbit-card flex items-center gap-3 p-3">
@@ -414,62 +397,54 @@ function RowActions({ address }: { address: string }) {
   );
 }
 
-/** CopyDog's watchlist table (desktop list view); headers sort descending. */
+/** The watchlist's column widths (a fixed layout, so names truncate). */
+const WATCH_COLS = ["w-[19%]", "w-[10%]", "w-[9%]", "w-[8%]", "w-[7%]", "w-[8%]", "w-[6%]", "w-[6%]", "w-[7%]", "w-[8%]", "w-[12%]"];
+
+/** CopyDog's watchlist table (desktop list view): the site's data table;
+ * a header sorts descending, a second click goes back to the saved order. */
 function WatchlistTable({ items, groups, sort, onSort }: { items: TraderCard[]; groups: FavoriteGroup[]; sort: SortKey | null; onSort: (s: SortKey | null) => void }) {
   const { t, format } = useI18n();
-  const head = (key: SortKey, label: string) => (
-    <th className="px-3 py-3 text-right text-[0.8125rem] font-semibold text-subtle-foreground" aria-sort={sort === key ? "descending" : undefined}>
-      <button
-        type="button"
-        onClick={() => onSort(sort === key ? null : key)}
-        className={cn("inline-flex items-center gap-1 rounded whitespace-nowrap outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring", sort === key && "text-foreground")}
-      >
-        {label}
-        {sort === key ? <ChevronDown className="size-3" /> : null}
-      </button>
-    </th>
+  const state = { key: sort, dir: "desc" as const };
+  const head = (key: SortKey, label: string, i: number) => (
+    <SortHead label={label} col={key} sort={state} onSort={(k) => onSort(sort === k ? null : k)} className={cn("text-right", WATCH_COLS[i])} />
   );
-  const plain = (v: string) => <span className="num text-sm font-medium">{v}</span>;
+  const plain = (v: string) => <span className="num">{v}</span>;
   return (
-    <div className="hidden overflow-x-auto orbit-card md:block">
-      <table className="w-full min-w-[1080px] table-fixed border-collapse">
-        <colgroup>
-          <col style={{ width: "19%" }} /><col style={{ width: "10%" }} /><col style={{ width: "9%" }} /><col style={{ width: "8%" }} /><col style={{ width: "7%" }} />
-          <col style={{ width: "8%" }} /><col style={{ width: "6%" }} /><col style={{ width: "6%" }} /><col style={{ width: "7%" }} /><col style={{ width: "8%" }} /><col style={{ width: "12%" }} />
-        </colgroup>
-        <thead className="border-b-2 border-dotted border-border">
-          <tr>
-            <th className="px-3 py-3 text-left text-[0.8125rem] font-semibold text-subtle-foreground">{t("favorites.cols.trader")}</th>
-            {head("copyScore", t("favorites.cols.copyScore"))}
-            {head("accountValue", t("favorites.cols.accountValue"))}
-            {head("pnl", t("favorites.cols.totalPnl"))}
-            {head("roi", t("favorites.cols.roi"))}
-            {head("pnl30d", t("favorites.cols.pnl30d"))}
-            {head("winRate", t("favorites.cols.winRate"))}
-            {head("sharpe", t("favorites.cols.sharpe"))}
-            {head("maxDrawdown", t("favorites.cols.mdd"))}
-            <th className="px-3 py-3 text-center text-[0.8125rem] font-semibold whitespace-nowrap text-subtle-foreground">{t("favorites.cols.pnlChart")}</th>
-            <th className="px-3 py-3" aria-hidden />
-          </tr>
-        </thead>
-        <tbody>
+    <div className="hidden md:block" data-testid="watchlist-table">
+      <Table className="min-w-[1080px] table-fixed">
+        <TableHeader>
+          <TableRow className="hover:bg-transparent">
+            <TableHead className={WATCH_COLS[0]}>{t("favorites.cols.trader")}</TableHead>
+            {head("copyScore", t("favorites.cols.copyScore"), 1)}
+            {head("accountValue", t("favorites.cols.accountValue"), 2)}
+            {head("pnl", t("favorites.cols.totalPnl"), 3)}
+            {head("roi", t("favorites.cols.roi"), 4)}
+            {head("pnl30d", t("favorites.cols.pnl30d"), 5)}
+            {head("winRate", t("favorites.cols.winRate"), 6)}
+            {head("sharpe", t("favorites.cols.sharpe"), 7)}
+            {head("maxDrawdown", t("favorites.cols.mdd"), 8)}
+            <TableHead className={cn("text-center", WATCH_COLS[9])}>{t("favorites.cols.pnlChart")}</TableHead>
+            <TableHead className={WATCH_COLS[10]}><span className="sr-only">{t("favorites.copy")}</span></TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {items.map((c) => (
-            <tr key={c.address} className="border-b-2 border-dotted border-border transition-colors last:border-0 hover:bg-raised/50">
-              <td className="px-3 py-3"><TraderCell card={c} subtitle={<GroupTags address={c.address} groups={groups} className="mt-1.5" />} /></td>
-              <td className="px-3 py-3"><CopyScoreBar score={c.copyScore} layout="bar-first" barClassName="w-10" className="justify-end" /></td>
-              <td className="px-3 py-3 text-right">{plain(boardUsd(c.accountValue))}</td>
-              <td className={cn("num px-3 py-3 text-right text-sm font-medium", signTone(c.pnl))}>{c.pnl === null ? "—" : format.usd(c.pnl, { compact: true, sign: true })}</td>
-              <td className={cn("num px-3 py-3 text-right text-sm font-medium", signTone(c.roi))}>{boardRoi(c.roi)}</td>
-              <td className={cn("num px-3 py-3 text-right text-sm font-medium", signTone(c.pnl30d))}>{c.pnl30d === null ? "—" : format.usd(c.pnl30d, { compact: true, sign: true })}</td>
-              <td className="px-3 py-3 text-right">{plain(c.winRate === null ? "—" : format.pct(c.winRate, { digits: 1 }))}</td>
-              <td className="px-3 py-3 text-right">{plain(c.sharpe === null ? "—" : c.sharpe.toFixed(2))}</td>
-              <td className="px-3 py-3 text-right">{plain(c.maxDrawdown === null ? "—" : format.pct(c.maxDrawdown, { digits: 1 }))}</td>
-              <td className="px-3 py-3"><BoardSparkline values={c.sparkline} height={34} className="mx-auto w-[76px]" /></td>
-              <td className="px-3 py-3"><RowActions address={c.address} /></td>
-            </tr>
+            <TableRow key={c.address}>
+              <TableCell className="py-2.5"><TraderCell card={c} subtitle={<GroupTags address={c.address} groups={groups} className="mt-1.5" />} /></TableCell>
+              <TableCell><CopyScoreBar score={c.copyScore} layout="bar-first" barClassName="w-10" className="justify-end" /></TableCell>
+              <TableCell className="text-right">{plain(boardUsd(c.accountValue))}</TableCell>
+              <TableCell className={cn("text-right", signTone(c.pnl))}>{c.pnl === null ? "—" : format.usd(c.pnl, { compact: true, sign: true })}</TableCell>
+              <TableCell className={cn("text-right", signTone(c.roi))}>{boardRoi(c.roi)}</TableCell>
+              <TableCell className={cn("text-right", signTone(c.pnl30d))}>{c.pnl30d === null ? "—" : format.usd(c.pnl30d, { compact: true, sign: true })}</TableCell>
+              <TableCell className="text-right">{plain(c.winRate === null ? "—" : format.pct(c.winRate, { digits: 1 }))}</TableCell>
+              <TableCell className="text-right">{plain(c.sharpe === null ? "—" : c.sharpe.toFixed(2))}</TableCell>
+              <TableCell className="text-right">{plain(c.maxDrawdown === null ? "—" : format.pct(c.maxDrawdown, { digits: 1 }))}</TableCell>
+              <TableCell><BoardSparkline values={c.sparkline} height={34} className="mx-auto w-[76px]" /></TableCell>
+              <TableCell><RowActions address={c.address} /></TableCell>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </div>
   );
 }

@@ -37,6 +37,14 @@ it('requires account selection and displays exact booked components with financi
   expect(details.textContent).toContain('BTC'); expect(details.textContent).toContain('Attributed to an execution'); expect(details.textContent).toContain('Account receipt'); expect(details.querySelectorAll('th')).toHaveLength(4);
   const el = selectTrigger(container)!; expect(container.querySelector(`label[for="${el.id}"]`)).not.toBeNull();
 });
+it('keeps receipt columns in the shared dense scrollable table', async () => {
+  await render(); await select();
+  const table = container.querySelector('details table')!;
+  expect(table.getAttribute('data-slot')).toBe('table');
+  expect(table.parentElement?.classList.contains('table-dense')).toBe(true);
+  expect(table.querySelectorAll('[data-slot="table-row"]')).toHaveLength(3);
+  expect(table.querySelectorAll('tbody td')).toHaveLength(8);
+});
 it('mounts separate actual activity only for the selected master and resets both readers on session change', async () => {
   await render(); expect(state.activity).not.toHaveBeenCalled();
   const page = activityPage(account); page.hasMore = false; page.items[0] = { ...page.items[0], kind: 'fill', attribution: 'execution', executionKey: 'execution', oid: '7', tid: '1', side: 'B', size: '0.01', price: '100', realizedPnl: '12.5', exchangeFee: '0.000001', builderFee: '-0.25', tradingCashDelta: '12.250001' }; page.items[1] = { ...page.items[1], kind: 'funding', attribution: 'account', executionKey: null, hash: `0x${'44'.repeat(32)}`, funding: '-1', tradingCashDelta: '-1' };

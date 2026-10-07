@@ -1,7 +1,7 @@
 "use client";
 
 import type { SparklinesResponse, TraderStats, TraderWindow } from "@/lib/contracts";
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { SortHead } from "@/components/ui/sort-head";
 import { Link, useRouter } from "@/i18n/navigation";
 import { cn } from "cn";
 
@@ -52,27 +52,7 @@ export function TradersTable({
     if (!onSort || !sortState) {
       return <TableHead className={cn("text-right", className)}>{label}</TableHead>;
     }
-    const active = sortState.sort === key;
-    const Arrow = sortState.order === "desc" ? ArrowDown : ArrowUp;
-    return (
-      <TableHead
-        className={cn("text-right", className)}
-        aria-sort={active ? (sortState.order === "desc" ? "descending" : "ascending") : "none"}
-      >
-        <button
-          type="button"
-          onClick={() => onSort(key)}
-          title={t("explore.sortBy", { column: label })}
-          className={cn(
-            "inline-flex items-center gap-1 rounded-md outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
-            active && "text-foreground",
-          )}
-        >
-          {label}
-          {active ? <Arrow className="size-3 text-primary-text" /> : null}
-        </button>
-      </TableHead>
-    );
+    return <SortHead col={key} label={label} sort={{ key: sortState.sort, dir: sortState.order }} onSort={onSort} title={t("explore.sortBy", { column: label })} className={cn("text-right", className)} />;
   };
 
   return (

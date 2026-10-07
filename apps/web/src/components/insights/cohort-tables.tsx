@@ -1,9 +1,10 @@
 "use client";
 
+import { SortHead, useSorted } from "@/components/ui/sort-head";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 import { Link, useRouter } from "@/i18n/navigation";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { cn } from "cn";
 
 import { CoinStack, CopyScoreBar, signTone, TraderAvatar, VerifiedTick } from "@/components/discover/board-bits";
@@ -13,41 +14,6 @@ import { useI18n } from "@/i18n/provider";
 import type { CohortMarket, CohortWallet } from "@/lib/contracts";
 import { coinLabel, truncateAddress, usdCompact } from "@/lib/format";
 import { SentimentText, SplitBar } from "./sentiment";
-
-type Dir = "asc" | "desc";
-
-function useSort<T, K extends string>(rows: T[], keys: Record<K, (row: T) => number | string>, initial: K) {
-  const [key, setKey] = useState<K>(initial);
-  const [dir, setDir] = useState<Dir>("desc");
-  const sorted = useMemo(() => {
-    const get = keys[key];
-    return [...rows].sort((a, b) => {
-      const x = get(a);
-      const y = get(b);
-      const c = typeof x === "string" || typeof y === "string" ? String(x).localeCompare(String(y)) : (x as number) - (y as number);
-      return dir === "desc" ? -c : c;
-    });
-  }, [rows, keys, key, dir]);
-  const onSort = (next: K) => {
-    if (next === key) setDir(dir === "desc" ? "asc" : "desc");
-    else {
-      setKey(next);
-      setDir("desc");
-    }
-  };
-  return { sorted, key, dir, onSort };
-}
-
-function Th<K extends string>({ label, col, sort, align = "right" }: { label: string; col: K; sort: { key: K; dir: Dir; onSort: (k: K) => void }; align?: "left" | "right" }) {
-  const active = sort.key === col;
-  return (
-    <TableHead className={cn("px-3 py-3 text-[0.8125rem] font-medium whitespace-nowrap text-subtle-foreground", align === "left" ? "text-left" : "text-right")} aria-sort={active ? (sort.dir === "desc" ? "descending" : "ascending") : undefined}>
-      <button type="button" onClick={() => sort.onSort(col)} className={cn("inline-flex items-center gap-1 rounded outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring", active && "font-bold text-foreground")}>
-        {label}
-      </button>
-    </TableHead>
-  );
-}
 
 const money = (v: number | null, sign = false) => (v === null ? "—" : usdCompact(v, { sign, digits: 2 }));
 const pctText = (ratio: number | null) => {
@@ -74,7 +40,7 @@ const WALLET_KEYS: Record<WalletKey, (w: CohortWallet) => number | string> = {
 export function WalletsTable({ rows }: { rows: CohortWallet[] }) {
   const { t } = useI18n();
   const router = useRouter();
-  const sort = useSort<CohortWallet, WalletKey>(rows, WALLET_KEYS, "perpEquity");
+  const { sorted, sort, onSort } = useSorted<CohortWallet, WalletKey>(rows, WALLET_KEYS, { key: "perpEquity", dir: "desc" });
   if (rows.length === 0) return <p className="py-10 text-center text-sm text-muted-foreground">{t("insights.cohort.tableEmpty")}</p>;
   const c = (key: string) => t(`insights.cohort.cols.${key}` as "insights.cohort.cols.pnl");
   return (
@@ -82,20 +48,20 @@ export function WalletsTable({ rows }: { rows: CohortWallet[] }) {
       <Table className="cd-cohort-wallets w-full border-separate border-spacing-y-1.5">
         <TableHeader className="sticky top-0 z-10 bg-background">
           <TableRow>
-            <Th label={c("address")} col="address" sort={sort} align="left" />
+            <SortHead label={c("address")} col="address" sort={sort} onSort={onSort} className="text-left" />
             <TableHead className="px-3 py-3 text-left text-[0.8125rem] font-medium text-subtle-foreground">{c("assets")}</TableHead>
-            <Th label={c("pnl")} col="totalPnl" sort={sort} />
-            <Th label={c("roi")} col="roi" sort={sort} />
-            <Th label={c("perpEquity")} col="perpEquity" sort={sort} />
-            <Th label={c("copyScore")} col="copyScore" sort={sort} />
-            <Th label={c("positionValue")} col="positionValue" sort={sort} />
-            <Th label={c("leverage")} col="leverage" sort={sort} />
-            <Th label={c("upnl")} col="sumUpnl" sort={sort} />
-            <Th label={c("bias")} col="biasPct" sort={sort} />
+            <SortHead label={c("pnl")} col="totalPnl" sort={sort} onSort={onSort} className="text-right" />
+            <SortHead label={c("roi")} col="roi" sort={sort} onSort={onSort} className="text-right" />
+            <SortHead label={c("perpEquity")} col="perpEquity" sort={sort} onSort={onSort} className="text-right" />
+            <SortHead label={c("copyScore")} col="copyScore" sort={sort} onSort={onSort} className="text-right" />
+            <SortHead label={c("positionValue")} col="positionValue" sort={sort} onSort={onSort} className="text-right" />
+            <SortHead label={c("leverage")} col="leverage" sort={sort} onSort={onSort} className="text-right" />
+            <SortHead label={c("upnl")} col="sumUpnl" sort={sort} onSort={onSort} className="text-right" />
+            <SortHead label={c("bias")} col="biasPct" sort={sort} onSort={onSort} className="text-right" />
           </TableRow>
         </TableHeader>
         <TableBody className="data-rows">
-          {sort.sorted.map((w) => (
+          {sorted.map((w) => (
             <TableRow
               key={w.address}
               // CopyDog's wallet rows open the trader (the name stays a link).
@@ -166,7 +132,7 @@ function Split({ left, leftSub, right, rightSub, pos }: { left: string; leftSub:
 export function MarketsTable({ rows, filter }: { rows: CohortMarket[]; filter: "all" | "crypto" | "tradfi" }) {
   const { t } = useI18n();
   const filtered = useMemo(() => (filter === "crypto" ? rows.filter((r) => !r.coin.includes(":")) : filter === "tradfi" ? rows.filter((r) => r.coin.includes(":")) : rows), [rows, filter]);
-  const sort = useSort<CohortMarket, MarketKey>(filtered, MARKET_KEYS, "notional");
+  const { sorted, sort, onSort } = useSorted<CohortMarket, MarketKey>(filtered, MARKET_KEYS, { key: "notional", dir: "desc" });
   if (filtered.length === 0) return <p className="py-10 text-center text-sm text-muted-foreground">{t("insights.cohort.tableEmpty")}</p>;
   const c = (key: string) => t(`insights.cohort.cols.${key}` as "insights.cohort.cols.pnl");
   const long = t("insights.cohort.long");
@@ -177,15 +143,15 @@ export function MarketsTable({ rows, filter }: { rows: CohortMarket[]; filter: "
       <Table className="cd-cohort-markets w-full min-w-[1080px] border-separate border-spacing-y-1.5">
         <TableHeader className="sticky top-0 z-10 bg-background">
           <TableRow>
-            <Th label={c("market")} col="coin" sort={sort} align="left" />
-            <Th label={c("sentiment")} col="sentiment" sort={sort} align="left" />
-            <Th label={t("insights.cohort.notional")} col="notional" sort={sort} align="left" />
-            <Th label={c("traders")} col="traders" sort={sort} align="left" />
-            <Th label={c("upnl")} col="upnl" sort={sort} align="left" />
+            <SortHead label={c("market")} col="coin" sort={sort} onSort={onSort} className="text-left" />
+            <SortHead label={c("sentiment")} col="sentiment" sort={sort} onSort={onSort} className="text-left" />
+            <SortHead label={t("insights.cohort.notional")} col="notional" sort={sort} onSort={onSort} className="text-left" />
+            <SortHead label={c("traders")} col="traders" sort={sort} onSort={onSort} className="text-left" />
+            <SortHead label={c("upnl")} col="upnl" sort={sort} onSort={onSort} className="text-left" />
           </TableRow>
         </TableHeader>
         <TableBody className="data-rows">
-          {sort.sorted.map((m) => {
+          {sorted.map((m) => {
             const notional = m.notionalLong + m.notionalShort;
             const traders = m.tradersLong + m.tradersShort;
             const pnlTraders = m.tradersProfit + m.tradersLoss;

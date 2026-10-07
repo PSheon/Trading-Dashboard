@@ -665,11 +665,6 @@
 .cd-tables th button {
   font: inherit;
 }
-.cd-tables th[aria-sort="ascending"],
-.cd-tables th[aria-sort="descending"] {
-  font-weight: 800;
-  color: var(--foreground);
-}
 .cd-tables td {
   height: 60px;
   padding: 10px 6px;

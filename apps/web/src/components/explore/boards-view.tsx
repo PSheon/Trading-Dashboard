@@ -1,9 +1,10 @@
 "use client";
 
+import { SortHead } from "@/components/ui/sort-head";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 
-import { Bitcoin, ChevronDown, ChevronRight, ListFilter, Trophy, UserRound, X } from "lucide-react";
+import { Bitcoin, ChevronRight, ListFilter, Trophy, UserRound, X } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -401,23 +402,10 @@ function BoardTable({ items, sorts, sort, onSort, pnlLabel, roiLabel, roiHint }:
 }) {
   const { t } = useI18n();
   const head = (key: BoardSort, label: string, align: "left" | "right", title?: string) => {
-    const sortable = sorts.includes(key);
-    return (
-      <TableHead className={cn("px-3 pt-1 text-xs font-bold text-muted-foreground", align === "right" ? "text-right" : "text-left")} aria-sort={sort === key ? "descending" : undefined} title={title}>
-        {sortable ? (
-          <button
-            type="button"
-            onClick={() => onSort(key)}
-            className={cn("inline-flex items-center gap-1 rounded outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring", sort === key && "font-extrabold text-foreground")}
-          >
-            {label}
-            {sort === key ? <ChevronDown className="size-3" /> : null}
-          </button>
-        ) : (
-          label
-        )}
-      </TableHead>
-    );
+    const className = align === "right" ? "text-right" : "text-left";
+    return sorts.includes(key) ? (
+      <SortHead col={key} label={label} sort={{ key: sort, dir: "desc" }} onSort={onSort} className={className} title={title} />
+    ) : <TableHead className={className} title={title}>{label}</TableHead>;
   };
   return (
     <div className="hidden overflow-x-auto md:block">

@@ -28,7 +28,8 @@ import {
   shortTime,
   signedPct2,
 } from "@/lib/trade-format";
-import { Asset, Empty, LoadError, Loading, SortHead, useSorted } from "./trade-analytics";
+import { SortHead, useSorted } from "@/components/ui/sort-head";
+import { Asset, Empty, LoadError, Loading } from "./trade-analytics";
 import { TradeShareDialog, traderCardSource, type TradeCardSource } from "./trade-share-dialog";
 
 /**

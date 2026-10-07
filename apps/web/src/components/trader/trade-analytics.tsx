@@ -3,6 +3,7 @@
 import type { RoundTrip, TradeCoin, TraderAnalyticsResponse, TraderTradesResponse } from "@/lib/contracts";
 import { ArrowDown, ArrowRight, ArrowUpRight, Share2 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { SortHead, useSorted, type SortDir as Dir } from "@/components/ui/sort-head";
 import { Segmented } from "@/components/ui/segmented";
 import { PAGE_SIZE, TablePager, usePaged } from "@/components/ui/table-pager";
 import { cn } from "cn";
@@ -99,55 +100,6 @@ export function CoverageNote({ analytics, className }: { analytics: Pick<TraderA
       {coverage.truncated || coverage.backfill ? <span className="block">{t("trader.historyRetention")}</span> : null}
       {coverage.fundingThrough ? t("trader.fundingThrough", { date: format.date(coverage.fundingThrough) }) : t("trader.fundingPending")}
     </p>
-  );
-}
-
-// --- sortable headers ----------------------------------------------------------
-
-export type Dir = "asc" | "desc";
-
-export function useSorted<T, K extends string>(rows: T[], keys: Record<K, (row: T) => number | string>, initial: { key: K; dir: Dir }) {
-  const [sort, setSort] = useState(initial);
-  const sorted = useMemo(() => {
-    const get = keys[sort.key];
-    return [...rows].sort((a, b) => {
-      const x = get(a);
-      const y = get(b);
-      const cmp = typeof x === "string" ? String(x).localeCompare(String(y)) : (x as number) - (y as number);
-      return sort.dir === "asc" ? cmp : -cmp;
-    });
-  }, [rows, keys, sort]);
-  const onSort = (key: K) => setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" }));
-  return { sorted, sort, onSort };
-}
-
-export function SortHead<K extends string>({
-  label,
-  col,
-  sort,
-  onSort,
-  className,
-}: {
-  label: string;
-  col: K;
-  sort: { key: K; dir: Dir };
-  onSort: (key: K) => void;
-  className?: string;
-}) {
-  const active = sort.key === col;
-  return (
-    <TableHead className={className} aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
-      <button
-        type="button"
-        onClick={() => onSort(col)}
-        className={cn(
-          "inline-flex items-center gap-0.5 rounded outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
-          active && "font-semibold text-foreground",
-        )}
-      >
-        {label}
-      </button>
-    </TableHead>
   );
 }
 

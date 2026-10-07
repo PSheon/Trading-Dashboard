@@ -48,3 +48,10 @@
 - 重新擷取有效前後畫面，所有 390 頁面無横向溢出；截圖腳本加 HTTP ok 與 main 可見檢查，失敗頁不算驗證。
 - 截圖：`/private/tmp/codex-trading-ui/step4-{before,after}-{favorites-alerts,portfolio,settings,admin,admin-jobs,admin-settings}-{1440,390}.png`。
 - 未刪未使用元件，仍統一它們的清單，保留既有回歸測試；其餘長資料清單的分頁接線在第 6 步。
+
+### ⑪第 5 步
+
+- 六處排序全部共用 ui/SortHead，刪重複 useSorted／cohort useSort 及 sorted 800 字重 CSS。既有探索伺服器排序仍維持降冪規則。
+- 兩個新測試在舊碼失敗、新碼通過；完整 web 1117/1117、tsc、eslint clean。
+- 前後 trader 1440、768、390 截圖已確認，768 持倉表增加箭頭仍無頁面溢出。fixture 被外部 Hyperliquid WebSocket 更新成無持倉，因此截圖阻擋該外部串流以保留 fixture；應比較同一地址 0x393d…2109。
+- 截圖：`/private/tmp/codex-trading-ui/step5-{before,after}-trader-{1440,768,390}.png`。

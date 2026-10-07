@@ -11,7 +11,8 @@ import { FavoritesView } from '@/components/favorites/favorites-view';
 import { BoardsView } from '@/components/explore/boards-view';
 import { MarketsTable, WalletsTable } from '@/components/insights/cohort-tables';
 import { fixtureCohort } from '@/fixtures/discovery';
-import { actionsFeed } from '@/fixtures/data';
+import { actionsFeed, profileFor, traderStats } from '@/fixtures/data';
+import { PositionsTab } from '@/components/trader/trader-tabs';
 import { settleQueries } from './query-settle';
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({refresh() {}, push() {}}), usePathname: () => '/explore', useSearchParams: () => new URLSearchParams('view=list') }));
@@ -79,4 +80,24 @@ it('aligns cohort wallets and markets with shared table cells while keeping filt
   expect([...tables].every(table => table.getAttribute('data-slot') === 'table')).toBe(true);
   expect(tables[1].textContent).toContain('BTC');
   expect(tables[1].textContent).not.toContain('SP500');
+});
+it('marks every sortable explore and cohort column and uses an arrow for the active one', async () => {
+  await render(<BoardsView />);
+  expect(el.querySelectorAll('th[aria-sort="none"]').length).toBeGreaterThan(0);
+  const cohort = fixtureCohort('profit');
+  await render(<WalletsTable rows={cohort.wallets} />);
+  const active = el.querySelector('th[aria-sort="descending"]')!;
+  expect(active.querySelector('svg')).not.toBeNull();
+  expect(el.querySelectorAll('th[aria-sort="none"]')).toHaveLength(8);
+});
+it('shows the position sort arrow and flips the direction without changing header weight', async () => {
+  const sample = traderStats.map(row => profileFor(row.address, false)).find(profile => profile.positions.length > 0)!;
+  const profile = JSON.parse(JSON.stringify(sample));
+  await render(<PositionsTab profile={profile} marks={{}} />);
+  const active = el.querySelector('th[aria-sort="descending"]')!;
+  expect(active).not.toBeNull();
+  expect(active.querySelector('svg')).not.toBeNull();
+  expect(active.querySelector('button')?.className).not.toMatch(/font-(semibold|bold|extrabold)/);
+  await act(async () => active.querySelector<HTMLButtonElement>('button')!.click());
+  expect(active.getAttribute('aria-sort')).toBe('ascending');
 });

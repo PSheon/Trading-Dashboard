@@ -158,7 +158,11 @@ it("正式 with an empty main wallet offers 儲值 (the deposit dialog), not a d
   expect(deposit).toHaveBeenCalledTimes(1);
   expect(container.querySelector('[data-testid="copy-available"]')!.textContent).toBe("可用 0 USDC（主錢包）");
   // The mode toggle stays at the top of the sheet while its body scrolls.
-  expect(container.querySelector('[data-testid="copy-sheet-mode"]')!.className).toContain("sticky");
+  const sticky = container.querySelector('[data-testid="copy-sheet-mode"]')!;
+  expect(sticky.className).toContain("sticky");
+  expect(sticky.className).toContain("pt-1");
+  expect(sticky.className).toContain("-mx-5");
+  expect(sticky.className).toContain("in-data-[scrolled=true]");
 });
 
 it("the amount box keeps one height from 1 to 8 digits: only the figure's size changes, USDC stays 18 px (Paul, 2026-10-07)", async () => {

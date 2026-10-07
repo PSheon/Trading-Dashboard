@@ -295,7 +295,7 @@ export function MobileTrader({
                 <X className="size-5" strokeWidth={2.4} />
               </button>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-1" data-testid="copy-sheet-body">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-0" data-testid="copy-sheet-body" data-scrolled="false" onScroll={(e) => { e.currentTarget.dataset.scrolled = String(e.currentTarget.scrollTop > 0); }}>
               <SectionBoundary className="flex flex-col items-center gap-2 px-1 text-center text-sm">
                 <CopyPanel address={profile.address} sheet leaderPositions={profile.positions} traderName={shareName(profile)} />
               </SectionBoundary>

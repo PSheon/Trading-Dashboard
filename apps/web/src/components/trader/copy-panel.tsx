@@ -364,7 +364,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
   ) : null;
   // In the phone sheet the mode stays at the top while the rest scrolls
   // under it (Stage A3: the toggle and the % chips were cut mid-row).
-  const modePill = sheet && modeChoice ? <div className="sticky top-0 z-10 -mx-1 bg-card px-1 pb-2" data-testid="copy-sheet-mode">{modeChoice}</div> : modeChoice;
+  const modePill = sheet && modeChoice ? <div className="sticky top-0 z-10 -mx-5 bg-card px-5 pt-1 pb-2 in-data-[scrolled=true]:shadow-[0_6px_8px_-6px_var(--border)]" data-testid="copy-sheet-mode">{modeChoice}</div> : modeChoice;
 
   const directionPill = (
     <div role="radiogroup" aria-label={t("trader.copy.direction")} className="grid grid-cols-2 gap-0.5 rounded-full bg-inset p-1">

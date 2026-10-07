@@ -151,7 +151,7 @@ export function AppShell({
           containing block of the full-screen search overlay inside it); the
           blur lives on its .bar-scrim child. */}
       {chrome !== "none" ? (
-        <header data-testid="app-phone-header" data-scrolled={scrolled} className="fixed inset-x-0 top-0 z-40 isolate flex h-[72px] items-center gap-2 px-4 max-[374px]:gap-1.5 max-[374px]:px-3 md:hidden">
+        <header data-testid="app-phone-header" data-scrolled={scrolled} className="fixed inset-x-0 top-0 z-40 isolate flex h-[72px] items-center gap-2 px-4 max-[374px]:gap-1 max-[374px]:px-3 md:hidden">
           <div aria-hidden className="bar-scrim" />
           <Link href="/" aria-label={APP_NAME} className="flex h-11 min-w-11 shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <Lockup className="[&>span]:text-2xl max-[374px]:[&>span]:hidden" />

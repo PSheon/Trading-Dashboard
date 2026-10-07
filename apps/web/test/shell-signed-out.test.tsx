@@ -45,6 +45,7 @@ for (const path of ["/explore", "/favorites", "/portfolio", "/insights"]) {
     await render(status);
     const phone = container.querySelector('[data-testid="app-phone-header"]');
     expect(phone).not.toBeNull();
+    expect(phone!.className).toContain("max-[374px]:gap-1 ");
     expect(phone!.querySelector(".bar-scrim")).not.toBeNull();
     expect(phone!.querySelector('a[href="/en"]')).not.toBeNull();
     expect(phone!.querySelector('a[href="/en"]')!.className).toContain("min-w-11");

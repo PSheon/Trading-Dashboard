@@ -160,3 +160,21 @@ it("正式 with an empty main wallet offers 儲值 (the deposit dialog), not a d
   // The mode toggle stays at the top of the sheet while its body scrolls.
   expect(container.querySelector('[data-testid="copy-sheet-mode"]')!.className).toContain("sticky");
 });
+
+it("the amount box keeps one height from 1 to 8 digits: only the figure's size changes, USDC stays 18 px (Paul, 2026-10-07)", async () => {
+  await render();
+  const row = container.querySelector<HTMLElement>('[data-testid="copy-amount-row"]')!;
+  const input = row.querySelector<HTMLInputElement>("input")!;
+  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+  const heights = new Set<string>();
+  for (let digits = 1; digits <= 8; digits++) {
+    await act(async () => { setValue.call(input, "9".repeat(digits)); input.dispatchEvent(new Event("input", { bubbles: true })); });
+    heights.add(row.style.height);
+    expect(input.style.height).toBe("");
+    expect(row.querySelector<HTMLElement>("span.font-display")!.style.fontSize).toBe("18px");
+  }
+  expect([...heights]).toEqual(["85px"]);
+  // One bg-inset box for the amount; the balance and its slider share one small card.
+  expect(row.className).toContain("bg-inset");
+  expect(container.querySelector('[data-testid="copy-balance-card"] input[type="range"]')).not.toBeNull();
+});

@@ -82,6 +82,11 @@ const KEYPAD = [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"], ["00", "0", "
 /** CopyDog's amount type: 64px, shrinking to 28px as the amount grows. */
 const AMOUNT_MAX_PX = 64;
 const AMOUNT_MIN_PX = 28;
+/** The amount box keeps the height of 64 px text whatever the digits
+ * (Paul, 2026-10-07: the card shrank from 85 to 37 px while typing); only
+ * the figure's size changes. The USDC suffix stays 18 px. */
+export const AMOUNT_ROW_PX = Math.round(AMOUNT_MAX_PX * 1.328);
+const AMOUNT_UNIT_PX = 18;
 let measureContext: CanvasRenderingContext2D | null = null;
 
 /**
@@ -179,13 +184,17 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
       const input = field.querySelector<HTMLInputElement>("input");
       const max = field.querySelector<HTMLButtonElement>("button");
       if (!input) return;
-      const gap = Number.parseFloat(getComputedStyle(field).columnGap) || 0;
-      const room = field.clientWidth - ((max ? max.offsetWidth + gap : 0) + gap);
-      if (room <= 0) return;
+      const style = getComputedStyle(field);
+      const gap = Number.parseFloat(style.columnGap) || 0;
+      const padding = (Number.parseFloat(style.paddingLeft) || 0) + (Number.parseFloat(style.paddingRight) || 0);
       measureContext ??= document.createElement("canvas").getContext("2d");
       if (!measureContext) return;
+      measureContext.font = `700 ${AMOUNT_UNIT_PX}px ${getComputedStyle(input).fontFamily}`;
+      const unit = measureContext.measureText("USDC").width;
+      const room = field.clientWidth - padding - (max ? max.offsetWidth + gap : 0) - unit - gap;
+      if (room <= 0) return;
       measureContext.font = `700 ${AMOUNT_MAX_PX}px ${getComputedStyle(input).fontFamily}`;
-      const width = measureContext.measureText(`${amount || "0"}USDC`).width;
+      const width = measureContext.measureText(amount || "0").width;
       setAmountPx(Math.max(AMOUNT_MIN_PX, Math.min(AMOUNT_MAX_PX, Math.floor((AMOUNT_MAX_PX * (room * 0.98)) / Math.max(width, 1)))));
     };
     measure();
@@ -494,13 +503,18 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
   }
 
   return (
-    <Shell sheet={sheet}>
+    <Shell sheet={sheet} spaced>
      {/* A real form: Enter in the amount field starts the copy. */}
      <form className="contents" noValidate onSubmit={(event) => { event.preventDefault(); if (!(start.isPending || preparing || started || closed || (empty && !fundFirst))) void submit(); }}>
-      {modePill}
-      {hedgeNotice}
-      {directionPill}
+      {/* In the sheet the mode toggle sticks: a child of the whole body. */}
+      {sheet ? modePill : null}
+      <div className="flex flex-col gap-4">
+        {sheet ? null : modePill}
+        {hedgeNotice}
+        {directionPill}
+      </div>
 
+      <div className="flex flex-col gap-4">
       {sheet ? (
         <div className="flex items-center justify-center gap-3 py-3">
           <label className="sr-only" htmlFor="copy-amount-sheet">
@@ -528,7 +542,9 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
             e.preventDefault();
             fieldRef.current?.querySelector<HTMLInputElement>("input")?.focus();
           }}
-          className={cn("flex min-w-0 items-baseline gap-2.5 pt-10", amountLocked ? "cursor-not-allowed" : "cursor-text")}
+          data-testid="copy-amount-row"
+          className={cn("flex min-w-0 items-center gap-2.5 rounded-2xl bg-inset px-4", amountLocked ? "cursor-not-allowed" : "cursor-text")}
+          style={{ height: AMOUNT_ROW_PX }}
         >
           <label className="sr-only" htmlFor="copy-amount">
             {t("trader.copy.amount")}
@@ -547,15 +563,15 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
               if (amount && Number.isFinite(value) && balanceKnown) setAmount(String(Math.min(Math.floor(value), Math.floor(balance))));
             }}
             className="num min-w-[1ch] bg-transparent p-0 font-display leading-none outline-none placeholder:text-foreground disabled:cursor-not-allowed disabled:placeholder:text-muted-foreground"
-            style={{ width: `${Math.max(1, (amount || "0").length)}ch`, fontSize: amountPx, height: Math.round(amountPx * 1.328) }}
+            style={{ width: `${Math.max(1, (amount || "0").length)}ch`, fontSize: amountPx }}
           />
           {/* Orbit: the amount is the big figure, the unit a quiet suffix. */}
-          <span className="shrink-0 font-display leading-none text-muted-foreground" style={{ fontSize: Math.max(18, Math.round(amountPx * 0.38)) }}>USDC</span>
+          <span className="shrink-0 self-center pt-[0.35em] font-display leading-none text-muted-foreground" style={{ fontSize: AMOUNT_UNIT_PX }}>USDC</span>
           <button
             type="button"
             onClick={() => setFromPct(100)}
             disabled={balance <= 0}
-            className="orbit-press ml-auto shrink-0 self-center rounded-full bg-inset px-4 py-2.5 text-[13px] leading-5 font-extrabold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            className="orbit-press ml-auto shrink-0 self-center rounded-full bg-card px-4 py-2.5 text-[13px] leading-5 font-extrabold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
           >
             {t("trader.copy.max")}
           </button>
@@ -609,14 +625,14 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
           </div>
         </>
       ) : (
-        <div>
-          <div className="mt-10 flex items-center justify-between gap-3 text-sm leading-[21px]">
+        <div className="flex flex-col gap-3 rounded-2xl bg-inset px-4 py-3" data-testid="copy-balance-card">
+          <div className="flex items-center justify-between gap-3 text-sm leading-[21px]">
             <span className="flex items-center gap-2 text-muted-foreground">
               {testnet ? <span className="whitespace-nowrap">{liveText.testnetBalance}</span> : t("trader.copy.balance")}
             </span>
             <span className="num font-semibold">{balanceText} USDC</span>
           </div>
-          <div className="mt-4 flex items-center gap-3">
+          <div className="flex items-center gap-3">
             <input
               type="range"
               min={0}
@@ -634,7 +650,9 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
         </div>
       )}
 
-      <div className={sheet ? undefined : "mt-7"}>
+      </div>
+
+      <div>
         <button
           type="button"
           aria-expanded={more}
@@ -681,13 +699,13 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
       </div>
 
       {paused ? (
-        <p className={cn("flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning", !sheet && "mt-7")}>
+        <p className="flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning">
           <TriangleAlert className="mt-px size-3.5 shrink-0" />
           {t(overview.data?.platform.pauseNewRisk || overview.data?.platform.reduceOnly ? "trader.copy.platformPaused" : "trader.copy.userPaused")}
         </p>
       ) : null}
 
-      <div className={cn("flex flex-col gap-2.5", !sheet && "pt-7")}>
+      <div className="flex flex-col gap-2.5">
         {/* A start's request is pending for its whole length (a testnet start
             prepares a wallet and an agent: 10-20 s): the orbit mark, no
             second press. */}
@@ -725,11 +743,13 @@ export function copyAmountBounds(live: boolean, paper: { minAllocationUsd: numbe
   return { min: paper?.minAllocationUsd ?? DEFAULT_MIN, max: paper?.maxAllocationUsd ?? null };
 }
 
-function Shell({ sheet, children }: { sheet: boolean; children: React.ReactNode }) {
+function Shell({ sheet, spaced = false, children }: { sheet: boolean; spaced?: boolean; children: React.ReactNode }) {
   const { t } = useI18n();
   return sheet ? (
     <div className="flex flex-col gap-4 px-1">{children}</div>
   ) : (
-    <aside aria-label={t("trader.copy.panel")} className="orbit-card card-pad flex flex-col xl:sticky xl:top-[92px]">{children}</aside>
+    // The copy form: 32 px between its blocks (Paul, 2026-10-07); a block's
+    // own parts sit 16 px apart.
+    <aside aria-label={t("trader.copy.panel")} className={cn("orbit-card card-pad flex flex-col xl:sticky xl:top-[92px]", spaced && "gap-8")}>{children}</aside>
   );
 }

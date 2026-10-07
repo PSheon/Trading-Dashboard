@@ -9,7 +9,14 @@ import { CopyIconButton } from '@/components/wallet/bits';
 import { truncateAddress } from '@/lib/format';
 import { useActionToast } from '@/lib/use-action-toast';
 import { Button } from '@/components/ui/button';
+import { stopErrorText, type CopyTexts } from '@/lib/copy-error-text';
+import { copyErrorMessages } from '@/i18n/copy-errors';
+import { liveSetupText } from '@/i18n/live-setup';
+import type { Locale } from '@/i18n/config';
 import { useAuth } from '@/lib/auth';
+
+/** The copy catalogs for a stop's failure, in the account's network's words. */
+const stopTexts = (locale: Locale, network: 'testnet' | 'mainnet' | null | undefined): CopyTexts => ({ live: liveSetupText(locale, network), extra: copyErrorMessages[locale] });
 
 /** Integrate beside the selected actual mandate; no signing wallet is required. */
 export function CopyLiveStop({ selection }: { selection: LiveStopSelection | null }) {
@@ -23,7 +30,7 @@ export function CopyLiveStop({ selection }: { selection: LiveStopSelection | nul
 function AccountDetails({ address, label }: { address: string; label: string }) {
   const { locale } = useI18n(), ui = liveCopiesMessages[locale].ui;
   return <details className="text-xs text-muted-foreground">
-    <summary className="min-h-8 cursor-pointer font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring">{ui.details}</summary>
+    <summary className="flex min-h-11 cursor-pointer items-center font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring">{ui.details}</summary>
     <p className="mt-1 flex items-center gap-1"><span>{label}:</span><span className="num">{truncateAddress(address)}</span><CopyIconButton value={address} /></p>
   </details>;
 }
@@ -34,7 +41,7 @@ function OwnedCopyLiveStop({ selection }: { selection: LiveStopSelection | null 
   const user = userId ? { id: userId } : null;
   const { locale, format, t } = useI18n(), text = liveStopMessages[locale], resumeText = liveStopResumeMessages[locale], discardText = liveStopDiscardMessages[locale];
   const { enabled, history, attempts, storageError, storageReady, mutation, discard } = useLiveCopyStops(selection, user?.id ?? null);
-  const track = useActionToast();
+  const track = useActionToast(), texts = stopTexts(locale, selection?.account.network);
   const [confirming, setConfirming] = useState(false);
   const heading = useId(), hint = useId();
   // Only this copy's stops: the history and the journal hold every copy's.
@@ -43,7 +50,7 @@ function OwnedCopyLiveStop({ selection }: { selection: LiveStopSelection | null 
   const validSelection = !!selection && selection.mandate.mode === 'actual' && selection.account.network === selection.mandate.network && selection.mandate.accountId === selection.account.id && selection.mandate.accountAddress === selection.account.address && selection.mandate.strategyId === selection.account.strategyId;
   const working = mutation.isPending || discard.isPending;
   const mine = attempts.filter(attempt => !selection || attempt.accountId === selection.account.id);
-  const send = (attempt?: LiveStopAttempt) => track(mutation.mutateAsync(attempt), { pending: t('toast.copy.stopping'), success: t('toast.copy.stopRequested'), error: () => text.error });
+  const send = (attempt?: LiveStopAttempt) => track(mutation.mutateAsync(attempt), { pending: t('toast.copy.stopping'), success: t('toast.copy.stopRequested'), error: (err) => stopErrorText(texts, err, text.error) });
   return <section aria-labelledby={heading} className="min-w-0 space-y-4 rounded-lg border border-border p-4">
     <h3 id={heading} className="font-semibold">{text.title}</h3>
     <p id={hint} className="text-sm text-muted-foreground">{text.hint}</p>
@@ -56,7 +63,6 @@ function OwnedCopyLiveStop({ selection }: { selection: LiveStopSelection | null 
       <TransferConfirm kind="stop" open={confirming} amount={null} destination={wallet?.address ?? null} network={selection?.account.network ?? null} pending={mutation.isPending && mutation.variables === undefined} error={null}
         onConfirm={() => { setConfirming(false); void send(undefined); }} onOpenChange={setConfirming} />
       {storageError && <p role="alert" className="text-sm">{text.storage}</p>}
-      {mutation.isError && <p role="alert" className="text-sm">{text.error}</p>}
       {discard.isError && <p role="alert" className="text-sm">{discardText.error}</p>}
       {mine.length > 0 && <ul className="space-y-3" aria-label={text.recover}>{mine.map((attempt, index) => {
         const observed = items.some(item => item.mandateId === attempt.mandateId && item.accountId === attempt.accountId && item.originalMandateRevision === attempt.request.expectedMandateRevision);
@@ -112,11 +118,11 @@ function OwnedStopAction({ selection }: { selection: LiveStopSelection }) {
   const { userId, wallet } = useAuth();
   const { locale, t } = useI18n(), text = liveStopMessages[locale];
   const { enabled, history, attempts, storageReady, mutation } = useLiveCopyStops(selection, userId ?? null);
-  const track = useActionToast();
+  const track = useActionToast(), texts = stopTexts(locale, selection?.account.network);
   const [confirming, setConfirming] = useState(false);
   const mine = attempts.filter(attempt => attempt.accountId === selection.account.id && attempt.mandateId === selection.mandate.id);
   const requested = (history.data?.items ?? []).some(item => item.mandateId === selection.mandate.id) || ['stopping', 'stopped'].includes(selection.mandate.state);
-  const send = (attempt?: LiveStopAttempt) => track(mutation.mutateAsync(attempt), { pending: t('toast.copy.stopping'), success: t('toast.copy.stopRequested'), error: () => text.error });
+  const send = (attempt?: LiveStopAttempt) => track(mutation.mutateAsync(attempt), { pending: t('toast.copy.stopping'), success: t('toast.copy.stopRequested'), error: (err) => stopErrorText(texts, err, text.error) });
   if (!enabled) return null;
   if (requested && !mine.length) return <p role="status" className="text-xs font-semibold text-muted-foreground">{t('folio.stopRequested')}</p>;
   return <div className="flex flex-col gap-2">
@@ -125,7 +131,6 @@ function OwnedStopAction({ selection }: { selection: LiveStopSelection }) {
     ) : (
       <Button type="button" variant="destructive" className="w-full" loading={mutation.isPending} disabled={!mutation.isPending && (!storageReady || selection.mandate.state === 'prepared' || selection.mandate.activationCursor === null)} onClick={() => setConfirming(true)}>{t('folio.stop')}</Button>
     )}
-    {mutation.isError ? <p role="alert" className="text-xs text-negative">{text.error}</p> : null}
     <TransferConfirm kind="stop" open={confirming} amount={null} destination={wallet?.address ?? null} network={selection.account.network} pending={mutation.isPending} error={null}
       onConfirm={() => { setConfirming(false); void send(undefined); }} onOpenChange={setConfirming} />
   </div>;

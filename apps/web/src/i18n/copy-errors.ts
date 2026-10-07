@@ -15,7 +15,8 @@ export interface CopyErrorText {
   depositUncredited: string;
   strategyLimit: string; strategyLimitUnfinished: string;
   codes: Record<'live_stop_in_progress' | 'watch_capacity' | 'leverage_above_limit' | 'builder_fee_approval_required' | 'setup_binding_changed' | 'owner_wallet_unavailable' |
-    'live_session_changed' | 'funding_not_submitted' | 'setup_changed' | 'return_requires_flat_stop' | 'return_use_sweep' | 'setup_deposit_uncredited', string>;
+    'live_session_changed' | 'funding_not_submitted' | 'setup_changed' | 'return_requires_flat_stop' | 'return_use_sweep' | 'setup_deposit_uncredited' |
+    'no_free_collateral' | 'live_stop_pending' | 'stale_revision' | 'live_stop_binding_changed' | 'live_stop_unapproved_generation', string>;
   /** A testnet copy's skip reason that has no words of its own (the portfolio's last refusal). */
   refusal: string;
 }
@@ -30,7 +31,9 @@ const en: CopyErrorText = {
     builder_fee_approval_required: 'The fee approval is needed first.', setup_binding_changed: 'The setup changed. Start again.', owner_wallet_unavailable: 'Your main wallet isn\'t ready. Reload or sign in again.',
     live_session_changed: 'You signed in as someone else. Start again.', funding_not_submitted: 'The deposit wasn\'t sent. Confirm again.', setup_changed: 'The setup was updated. Refresh and try again.',
     return_requires_flat_stop: 'Stop the copy first; everything returns once its positions are closed.', return_use_sweep: 'The copy is stopping: return everything once its positions are closed.',
-    setup_deposit_uncredited: 'The deposit was never confirmed as arrived.' },
+    setup_deposit_uncredited: 'The deposit was never confirmed as arrived.',
+    no_free_collateral: 'There are no idle funds to withdraw right now: they back open positions.', live_stop_pending: 'This copy is already stopping.', stale_revision: 'This copy changed. Refresh and try again.', live_stop_binding_changed: 'This copy changed. Refresh and try again.',
+    live_stop_unapproved_generation: 'This copy hasn\'t started yet, so there is nothing to stop.' },
   refusal: 'another reason',
 };
 const zhTW: CopyErrorText = {
@@ -43,7 +46,9 @@ const zhTW: CopyErrorText = {
     builder_fee_approval_required: '需要先完成費用授權。', setup_binding_changed: '設定內容已變更，請重新開始。', owner_wallet_unavailable: '主錢包尚未就緒，請重新整理或重新登入。',
     live_session_changed: '登入的帳號已變更，請重新開始。', funding_not_submitted: '入金沒有送出，請再確認一次。', setup_changed: '設定已更新，請重新整理後再試。',
     return_requires_flat_stop: '請先停止跟單，平倉後即可全部返還。', return_use_sweep: '跟單正在停止，平倉後即可全部返還。',
-    setup_deposit_uncredited: '入金一直沒有確認到帳。' },
+    setup_deposit_uncredited: '入金一直沒有確認到帳。',
+    no_free_collateral: '目前沒有可提款的閒置資金，資金正用於持倉保證金。', live_stop_pending: '這個跟單已在停止中。', stale_revision: '這個跟單的狀態已更新，請重新整理後再試。', live_stop_binding_changed: '這個跟單的狀態已更新，請重新整理後再試。',
+    live_stop_unapproved_generation: '這個跟單尚未開始，沒有需要停止的交易。' },
   refusal: '其他原因',
 };
 const zhCN: CopyErrorText = {
@@ -56,7 +61,9 @@ const zhCN: CopyErrorText = {
     builder_fee_approval_required: '需要先完成费用授权。', setup_binding_changed: '设置内容已变更，请重新开始。', owner_wallet_unavailable: '主钱包尚未就绪，请刷新或重新登录。',
     live_session_changed: '登录的账号已变更，请重新开始。', funding_not_submitted: '入金没有发送，请再确认一次。', setup_changed: '设置已更新，请刷新后再试。',
     return_requires_flat_stop: '请先停止跟单，平仓后即可全部返还。', return_use_sweep: '跟单正在停止，平仓后即可全部返还。',
-    setup_deposit_uncredited: '入金一直没有确认到账。' },
+    setup_deposit_uncredited: '入金一直没有确认到账。',
+    no_free_collateral: '目前没有可提取的闲置资金，资金正用于持仓保证金。', live_stop_pending: '这个跟单已在停止中。', stale_revision: '这个跟单的状态已更新，请刷新后再试。', live_stop_binding_changed: '这个跟单的状态已更新，请刷新后再试。',
+    live_stop_unapproved_generation: '这个跟单尚未开始，没有需要停止的交易。' },
   refusal: '其他原因',
 };
 const ja: CopyErrorText = {
@@ -69,7 +76,9 @@ const ja: CopyErrorText = {
     builder_fee_approval_required: '先に手数料の承認が必要です。', setup_binding_changed: '設定内容が変わりました。もう一度始めてください。', owner_wallet_unavailable: 'メインウォレットの準備ができていません。再読み込みするか、もう一度サインインしてください。',
     live_session_changed: '別のアカウントでサインインしました。もう一度始めてください。', funding_not_submitted: '入金が送信されませんでした。もう一度確認してください。', setup_changed: '設定が更新されました。再読み込みしてからお試しください。',
     return_requires_flat_stop: '先にコピーを停止してください。ポジションが閉じたらすべて戻せます。', return_use_sweep: 'コピーは停止処理中です。ポジションが閉じたらすべて戻せます。',
-    setup_deposit_uncredited: '入金の着金が確認できませんでした。' },
+    setup_deposit_uncredited: '入金の着金が確認できませんでした。',
+    no_free_collateral: '現在出金できる余剰資金はありません。資金は保有ポジションの証拠金に使われています。', live_stop_pending: 'このコピーはすでに停止中です。', stale_revision: 'このコピーの状態が変わりました。更新してもう一度お試しください。', live_stop_binding_changed: 'このコピーの状態が変わりました。更新してもう一度お試しください。',
+    live_stop_unapproved_generation: 'このコピーはまだ開始していないため、停止するものはありません。' },
   refusal: 'その他の理由',
 };
 const ko: CopyErrorText = {
@@ -82,7 +91,9 @@ const ko: CopyErrorText = {
     builder_fee_approval_required: '먼저 수수료 승인이 필요합니다.', setup_binding_changed: '설정이 바뀌었습니다. 다시 시작하세요.', owner_wallet_unavailable: '메인 지갑이 준비되지 않았습니다. 새로고침하거나 다시 로그인하세요.',
     live_session_changed: '다른 계정으로 로그인했습니다. 다시 시작하세요.', funding_not_submitted: '입금이 전송되지 않았습니다. 다시 확인하세요.', setup_changed: '설정이 업데이트되었습니다. 새로고침 후 다시 시도하세요.',
     return_requires_flat_stop: '먼저 카피를 중지하세요. 포지션이 정리되면 모두 반환할 수 있습니다.', return_use_sweep: '카피가 중지 중입니다. 포지션이 정리되면 모두 반환할 수 있습니다.',
-    setup_deposit_uncredited: '입금이 도착한 것으로 확인되지 않았습니다.' },
+    setup_deposit_uncredited: '입금이 도착한 것으로 확인되지 않았습니다.',
+    no_free_collateral: '지금은 출금할 유휴 자금이 없습니다. 자금이 포지션 증거금으로 쓰이고 있습니다.', live_stop_pending: '이 카피는 이미 중지 중입니다.', stale_revision: '이 카피의 상태가 바뀌었습니다. 새로고침 후 다시 시도하세요.', live_stop_binding_changed: '이 카피의 상태가 바뀌었습니다. 새로고침 후 다시 시도하세요.',
+    live_stop_unapproved_generation: '이 카피는 아직 시작되지 않아 중지할 것이 없습니다.' },
   refusal: '기타 사유',
 };
 const es: CopyErrorText = {
@@ -95,7 +106,9 @@ const es: CopyErrorText = {
     builder_fee_approval_required: 'Primero hace falta aprobar la comisión.', setup_binding_changed: 'La configuración cambió. Empieza de nuevo.', owner_wallet_unavailable: 'Tu billetera principal no está lista. Recarga o inicia sesión de nuevo.',
     live_session_changed: 'Iniciaste sesión con otra cuenta. Empieza de nuevo.', funding_not_submitted: 'El depósito no se envió. Confirma de nuevo.', setup_changed: 'La configuración se actualizó. Recarga e inténtalo de nuevo.',
     return_requires_flat_stop: 'Primero detén la copia; todo vuelve cuando sus posiciones estén cerradas.', return_use_sweep: 'La copia se está deteniendo: devuelve todo cuando sus posiciones estén cerradas.',
-    setup_deposit_uncredited: 'Nunca se confirmó la llegada del depósito.' },
+    setup_deposit_uncredited: 'Nunca se confirmó la llegada del depósito.',
+    no_free_collateral: 'Ahora no hay fondos libres para retirar: respaldan posiciones abiertas.', live_stop_pending: 'Esta copia ya se está deteniendo.', stale_revision: 'Esta copia cambió. Actualiza e inténtalo de nuevo.', live_stop_binding_changed: 'Esta copia cambió. Actualiza e inténtalo de nuevo.',
+    live_stop_unapproved_generation: 'Esta copia aún no ha empezado; no hay nada que detener.' },
   refusal: 'otro motivo',
 };
 const pt: CopyErrorText = {
@@ -108,7 +121,9 @@ const pt: CopyErrorText = {
     builder_fee_approval_required: 'É preciso aprovar a taxa primeiro.', setup_binding_changed: 'A configuração mudou. Comece de novo.', owner_wallet_unavailable: 'Sua carteira principal não está pronta. Recarregue ou entre novamente.',
     live_session_changed: 'Você entrou com outra conta. Comece de novo.', funding_not_submitted: 'O depósito não foi enviado. Confirme de novo.', setup_changed: 'A configuração foi atualizada. Recarregue e tente novamente.',
     return_requires_flat_stop: 'Pare a cópia primeiro; tudo volta quando as posições forem fechadas.', return_use_sweep: 'A cópia está sendo interrompida: devolva tudo quando as posições forem fechadas.',
-    setup_deposit_uncredited: 'A chegada do depósito nunca foi confirmada.' },
+    setup_deposit_uncredited: 'A chegada do depósito nunca foi confirmada.',
+    no_free_collateral: 'Não há fundos livres para sacar agora: eles garantem posições abertas.', live_stop_pending: 'Esta cópia já está sendo parada.', stale_revision: 'Esta cópia mudou. Atualize e tente novamente.', live_stop_binding_changed: 'Esta cópia mudou. Atualize e tente novamente.',
+    live_stop_unapproved_generation: 'Esta cópia ainda não começou; não há nada para parar.' },
   refusal: 'outro motivo',
 };
 const ru: CopyErrorText = {
@@ -121,7 +136,9 @@ const ru: CopyErrorText = {
     builder_fee_approval_required: 'Сначала нужно одобрить комиссию.', setup_binding_changed: 'Настройка изменилась. Начните заново.', owner_wallet_unavailable: 'Основной кошелёк не готов. Обновите страницу или войдите снова.',
     live_session_changed: 'Вы вошли под другим аккаунтом. Начните заново.', funding_not_submitted: 'Депозит не отправлен. Подтвердите ещё раз.', setup_changed: 'Настройка обновилась. Обновите страницу и попробуйте снова.',
     return_requires_flat_stop: 'Сначала остановите копию; всё вернётся, когда позиции будут закрыты.', return_use_sweep: 'Копия останавливается: верните всё, когда позиции будут закрыты.',
-    setup_deposit_uncredited: 'Зачисление депозита так и не подтвердилось.' },
+    setup_deposit_uncredited: 'Зачисление депозита так и не подтвердилось.',
+    no_free_collateral: 'Сейчас нет свободных средств для вывода: они обеспечивают открытые позиции.', live_stop_pending: 'Эта копия уже останавливается.', stale_revision: 'Копия изменилась. Обновите страницу и попробуйте снова.', live_stop_binding_changed: 'Копия изменилась. Обновите страницу и попробуйте снова.',
+    live_stop_unapproved_generation: 'Эта копия ещё не началась — останавливать нечего.' },
   refusal: 'другая причина',
 };
 const id: CopyErrorText = {
@@ -134,7 +151,9 @@ const id: CopyErrorText = {
     builder_fee_approval_required: 'Persetujuan biaya diperlukan lebih dulu.', setup_binding_changed: 'Pengaturan berubah. Mulai lagi.', owner_wallet_unavailable: 'Dompet utama belum siap. Muat ulang atau masuk lagi.',
     live_session_changed: 'Kamu masuk dengan akun lain. Mulai lagi.', funding_not_submitted: 'Deposit tidak terkirim. Konfirmasi lagi.', setup_changed: 'Pengaturan diperbarui. Muat ulang lalu coba lagi.',
     return_requires_flat_stop: 'Hentikan copy dulu; semuanya kembali setelah posisinya ditutup.', return_use_sweep: 'Copy sedang dihentikan: kembalikan semuanya setelah posisinya ditutup.',
-    setup_deposit_uncredited: 'Masuknya deposit tidak pernah terkonfirmasi.' },
+    setup_deposit_uncredited: 'Masuknya deposit tidak pernah terkonfirmasi.',
+    no_free_collateral: 'Belum ada dana menganggur untuk ditarik: dana menjadi jaminan posisi terbuka.', live_stop_pending: 'Salinan ini sedang dihentikan.', stale_revision: 'Salinan ini berubah. Muat ulang lalu coba lagi.', live_stop_binding_changed: 'Salinan ini berubah. Muat ulang lalu coba lagi.',
+    live_stop_unapproved_generation: 'Salinan ini belum dimulai, jadi tidak ada yang perlu dihentikan.' },
   refusal: 'alasan lain',
 };
 const vi: CopyErrorText = {
@@ -147,7 +166,9 @@ const vi: CopyErrorText = {
     builder_fee_approval_required: 'Cần phê duyệt phí trước.', setup_binding_changed: 'Thiết lập đã thay đổi. Hãy bắt đầu lại.', owner_wallet_unavailable: 'Ví chính chưa sẵn sàng. Hãy tải lại hoặc đăng nhập lại.',
     live_session_changed: 'Bạn đã đăng nhập bằng tài khoản khác. Hãy bắt đầu lại.', funding_not_submitted: 'Khoản nạp chưa được gửi. Hãy xác nhận lại.', setup_changed: 'Thiết lập đã được cập nhật. Hãy tải lại rồi thử lại.',
     return_requires_flat_stop: 'Hãy dừng sao chép trước; mọi thứ sẽ về khi các vị thế đã đóng.', return_use_sweep: 'Bản sao chép đang dừng: chuyển về toàn bộ khi các vị thế đã đóng.',
-    setup_deposit_uncredited: 'Khoản nạp chưa từng được xác nhận đã đến.' },
+    setup_deposit_uncredited: 'Khoản nạp chưa từng được xác nhận đã đến.',
+    no_free_collateral: 'Hiện không có tiền nhàn rỗi để rút: tiền đang ký quỹ cho các vị thế.', live_stop_pending: 'Bản copy này đang được dừng.', stale_revision: 'Bản copy này đã thay đổi. Hãy tải lại và thử lại.', live_stop_binding_changed: 'Bản copy này đã thay đổi. Hãy tải lại và thử lại.',
+    live_stop_unapproved_generation: 'Bản copy này chưa bắt đầu nên không có gì để dừng.' },
   refusal: 'lý do khác',
 };
 const tr: CopyErrorText = {
@@ -160,7 +181,9 @@ const tr: CopyErrorText = {
     builder_fee_approval_required: 'Önce ücret onayı gerekiyor.', setup_binding_changed: 'Kurulum değişti. Yeniden başlayın.', owner_wallet_unavailable: 'Ana cüzdanınız hazır değil. Sayfayı yenileyin veya tekrar giriş yapın.',
     live_session_changed: 'Başka bir hesapla giriş yaptınız. Yeniden başlayın.', funding_not_submitted: 'Yatırma gönderilmedi. Tekrar onaylayın.', setup_changed: 'Kurulum güncellendi. Yenileyip tekrar deneyin.',
     return_requires_flat_stop: 'Önce kopyayı durdurun; pozisyonlar kapanınca her şey geri gelir.', return_use_sweep: 'Kopya durduruluyor: pozisyonlar kapanınca her şeyi geri gönderin.',
-    setup_deposit_uncredited: 'Yatırmanın ulaştığı hiç onaylanmadı.' },
+    setup_deposit_uncredited: 'Yatırmanın ulaştığı hiç onaylanmadı.',
+    no_free_collateral: 'Şu anda çekilebilecek boşta fon yok: fonlar açık pozisyonların teminatı.', live_stop_pending: 'Bu kopya zaten durduruluyor.', stale_revision: 'Bu kopya değişti. Yenileyip tekrar deneyin.', live_stop_binding_changed: 'Bu kopya değişti. Yenileyip tekrar deneyin.',
+    live_stop_unapproved_generation: 'Bu kopya henüz başlamadı; durdurulacak bir şey yok.' },
   refusal: 'başka bir neden',
 };
 

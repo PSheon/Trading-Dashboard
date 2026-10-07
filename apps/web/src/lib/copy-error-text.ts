@@ -80,3 +80,15 @@ export function copyErrorText(texts: CopyTexts, error: unknown, options: CopyErr
   if (error instanceof ApiError && (error.status === 401 || code === "authentication_required")) return texts.extra.signInAgain;
   return options.fallback ?? texts.live.errors.generic;
 }
+
+/**
+ * A stop request's failure, in one line. A definite refusal (the api
+ * answered 4xx: nothing was recorded) is said in its own words; only an
+ * outcome that may have gone through (the network, a 5xx, a timeout, a
+ * check in the browser after sending) points at the original request
+ * (`unknown`: 「…請查詢原始申請…」).
+ */
+export function stopErrorText(texts: CopyTexts, error: unknown, unknown: string): string {
+  if (error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408) return copyErrorText(texts, error);
+  return unknown;
+}

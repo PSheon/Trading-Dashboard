@@ -45,6 +45,8 @@ const closer = {
   network: 'testnet',
   observe: vi.fn(async () => snapshot()),
   close: vi.fn(async (request: CloseRequest) => { closes.push(request); const key = `testnet:${account()}:${closeCloid(request.seed)}`; await journal(key, 'submitting'); return { key, state: 'submitting' } as LiveExecutionRecord; }),
+  // Reconciles a close the stop took over: the exchange says it filled.
+  settle: vi.fn(async (_account: unknown, key: string) => { await journal(key, 'filled'); return { key, state: 'filled' } as LiveExecutionRecord; }),
 } as unknown as ReduceOnlyCloser;
 let swept = false, canceller: { cancel: ReturnType<typeof vi.fn> };
 const stopper = () => new CopyLiveStopper({ repository: new CopyLiveStopWorkerRepository(db, new UnitOfWork(db), testConfig()), closer, canceller: canceller as unknown as StopCanceller,
@@ -54,7 +56,7 @@ const stopRow = async () => (await db.select().from(schema.copyLiveStopOperation
 beforeEach(async () => {
   db = getTestDb(); seed = await preparationFixture(db); clock = now; positions = []; withdrawable = '0'; resting = []; closes.length = 0; swept = false;
   canceller = { cancel: vi.fn(async () => 'stop_cancellation_authority_missing') };
-  vi.mocked(closer.observe).mockClear(); vi.mocked(closer.close).mockClear();
+  vi.mocked(closer.observe).mockClear(); vi.mocked(closer.close).mockClear(); vi.mocked(closer.settle).mockClear();
   await db.insert(schema.leaders).values({ address: seed.consent.leaderAddress, active: true, source: 'copy' });
   await new CopyLiveStopService(new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, testConfig())), new UnitOfWork(db), () => clock)
     .request(1, 'mandate', { idempotencyKey: 'stop-request-key-0001', expectedMandateRevision: 2 });
@@ -233,6 +235,28 @@ describe('testnet stop execution', () => {
     expect([0, 1, 2, 3, 4, 9, 10, 50].map(closeRetryDelayMs)).toEqual([0, 0, 5000, 10_000, 20_000, 300_000, 300_000, 300_000]);
     expect([0, 1, 2, 4, 8, 20].map(n => closeSlippageBps(100, n))).toEqual([100, 150, 200, 300, 500, 500]);
     expect(closeSlippageBps(900, 3)).toBe(900);
+  });
+
+  it('a stop asked for while the owner\'s single-position close is in flight waits for that close and finishes it, instead of being blocked for ever', async () => {
+    // Undo the stop of beforeEach: the copy runs again.
+    await db.delete(schema.copyLiveStopOperations); await db.update(schema.copyStrategies).set({ status: 'active', pauseNewRisk: false, reduceOnly: false });
+    await db.update(schema.copyLiveMandates).set({ state: 'active' });
+    const key = `testnet:${account()}:${closeCloid('manual:close-1:0')}`;
+    await db.insert(schema.copyLiveManualCloses).values({ id: 'close-1', userId: 1, accountId: 'account', strategyId: 9, idempotencyKey: '12121212-1212-4121-8121-121212121212', coin: 'BTC',
+      executionKeys: [key], createdAt: new Date(clock), updatedAt: new Date(clock) });
+    await journal(key, 'submitting');
+    const [mandate] = await db.select().from(schema.copyLiveMandates);
+    await new CopyLiveStopService(new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, testConfig())), new UnitOfWork(db), () => clock)
+      .request(1, 'mandate', { idempotencyKey: 'stop-request-key-0002', expectedMandateRevision: mandate!.revision });
+    const stop = await stopRow();
+    expect(stop).toMatchObject({ state: 'requested', trackingComplete: true, issue: null, trackedExecutionCount: 0 });
+    expect(stop.targetManifest).toMatchObject({ ownerCloses: [{ key, state: 'submitting' }] });
+    positions = [{ coin: 'BTC', size: '0.2' }];
+    await stopper().tick();
+    expect(closer.settle).toHaveBeenCalledWith(expect.objectContaining({ accountAddress: account() }), key);
+    expect(await stopRow()).toMatchObject({ state: 'requested', issue: 'stop_waiting_for_orders' });
+    await stopper().tick(); expect(await stopRow()).toMatchObject({ state: 'closing' });
+    await stopper().tick(); expect(closes.map(c => c.coin)).toEqual(['BTC']);
   });
 
   it('tracked resting orders need the owner\'s cancellation consent; untracked orders block the close', async () => {

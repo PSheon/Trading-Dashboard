@@ -3,7 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, desc, eq, getTableColumns, inArray, isNotNull, ne, or, sql } from 'drizzle-orm';
 import { ACTUAL_STRATEGY_MODE, liveCopyStopSchema, type RequestLiveCopyStop } from '@trading-dashboard/shared/contracts';
-import { copyAgentSetups, copyExecutionAccounts, copyLiveExecutions, copyLiveIntentProvenance, copyLiveMandates,
+import { copyAgentSetups, copyExecutionAccounts, copyLiveExecutions, copyLiveIntentProvenance, copyLiveManualCloses, copyLiveMandates,
   copyLiveRiskReservations, copyLiveStopOperations, copyStrategies } from '@trading-dashboard/shared/database';
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
@@ -130,6 +130,14 @@ export class CopyLiveStopRepository {
       .where(and(ne(copyLiveRiskReservations.state, 'released'), or(eq(copyLiveRiskReservations.accountId, account.id),
         and(eq(copyLiveRiskReservations.network, account.network), eq(copyLiveRiskReservations.accountAddress, account.address!)))))
       .orderBy(asc(copyLiveRiskReservations.key)).limit(1001);
+    // The owner's single-position closes of this account: their orders carry
+    // no copy provenance, and their provenance is the close row that recorded
+    // the order's key before it existed. A reduce-only IOC the stop waits
+    // for (and finishes), never a reason to block the stop.
+    const manualKeys = new Set((await tx.select({ keys: copyLiveManualCloses.executionKeys }).from(copyLiveManualCloses)
+      .where(and(eq(copyLiveManualCloses.accountId, account.id), eq(copyLiveManualCloses.userId, userId), eq(copyLiveManualCloses.strategyId, strategy.id))))
+      .flatMap(row => row.keys));
+    const ownerCloses: Record<string, unknown>[] = [];
     let issue: string | null = generations.length > 1000 || candidates.length > 1000 || liabilities.length > 1000 ? 'stop_tracking_limit' : null;
     if (liabilities.some(row => !candidates.some(candidate => candidate.execution.key === row.key))) issue ??= 'tracked_execution_unproven';
     const generationManifest: Record<string, unknown>[] = [], targets: Record<string, unknown>[] = [];
@@ -143,6 +151,14 @@ export class CopyLiveStopRepository {
       } catch { issue ??= 'tracked_generation_unproven'; }
     }
     for (const { execution, provenance, reservation } of candidates.slice(0, 1000)) {
+      if (!provenance && !reservation && manualKeys.has(execution.key)) {
+        try {
+          const record = decodeLiveExecutionRow(execution), order = record.action.orders[0];
+          if (order.r !== true || order.t?.limit?.tif !== 'Ioc' || record.authorization.userId !== userId) throw new Error();
+          ownerCloses.push({ key: record.key, state: record.state, immutableDigest: liveSourceDigest(immutableLiveExecution(record)) });
+        } catch { issue ??= 'tracked_execution_unproven'; }
+        continue;
+      }
       try {
         if (Buffer.byteLength(JSON.stringify(execution.record)) > 16384 || !provenance || Buffer.byteLength(JSON.stringify(provenance.intent)) > 16384) throw new Error();
         const record = decodeLiveExecutionRow(execution), intent = provenance.intent as unknown as LiveOrderIntent;
@@ -169,7 +185,7 @@ export class CopyLiveStopRepository {
     }
     const manifest = { version: 1, userId, accountId: account.id, accountAddress: account.address!, strategyId: strategy.id,
       mandateId, originalMandateRevision: mandate.revision, generations: generationManifest, executions: targets,
-      trackingComplete: issue === null, checkedAt: now };
+      ...(ownerCloses.length ? { ownerCloses } : {}), trackingComplete: issue === null, checkedAt: now };
     // Every account generation shares this admission barrier. A renewed grant
     // cannot reopen risk while an older stop/unknown liability remains active.
     await tx.update(copyStrategies).set({ status: 'stopping', pauseNewRisk: true, reduceOnly: true,

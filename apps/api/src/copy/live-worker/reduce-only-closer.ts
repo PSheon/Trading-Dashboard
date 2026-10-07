@@ -131,6 +131,16 @@ export class ReduceOnlyCloser {
     return this.executor(account, async () => false).executor.reconcile(key);
   }
 
+  /** Drives a close order of this account that its own closer no longer
+   * will (a single-position close a stop took over): a prepared one ends
+   * unsent, one in flight is reconciled from the exchange (read only). */
+  async settle(account: CloseAccount, key: string): Promise<LiveExecutionRecord | null> {
+    const { executor, journal } = this.executor(account, async () => false, 'stop');
+    const record = await journal.get(key);
+    if (record?.state === 'prepared') return this.neverSent(journal, key);
+    return record && ['submitting', 'unknown', 'resting'].includes(record.state) ? executor.reconcile(key) : record;
+  }
+
   /** Places (or reconciles) the one reduce-only IOC for `request.coin`.
    * Null when the account holds no position in it. */
   async close(request: CloseRequest): Promise<LiveExecutionRecord | null> {

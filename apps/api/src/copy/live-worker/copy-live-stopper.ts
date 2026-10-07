@@ -80,14 +80,19 @@ export class CopyLiveStopper {
   async step(stop: StopRow): Promise<void> {
     const account = await this.deps.repository.closeAccount(stop);
     if (!account) { await this.deps.repository.issue(stop, 'stop_agent_unavailable'); return; }
-    if (stop.state === 'requested') return this.requested(stop);
+    if (stop.state === 'requested') return this.requested(stop, account);
     if (stop.state === 'cancelling') return this.cancelling(stop, account);
     if (stop.state === 'closing') return this.closing(stop, account);
     if (stop.state === 'flat') return this.flat(stop, account);
   }
 
-  private async requested(stop: StopRow): Promise<void> {
+  private async requested(stop: StopRow, account: CloseAccount): Promise<void> {
     const inflight = (await this.deps.repository.inflight(stop.accountAddress)).filter(row => !this.expiredPrepared(row.record));
+    // A single-position close the owner asked for before the stop (no copy
+    // provenance, a reduce-only order): its own closer stopped working it
+    // once the copy began stopping, so the stop finishes it here.
+    for (const row of inflight.filter(row => !row.intent && row.record.action.orders[0]?.r === true && row.record.state !== 'resting'))
+      await this.deps.closer.settle(account, row.record.key);
     if (inflight.some(row => row.record.state === 'resting')) { await this.deps.repository.move(stop, 'cancelling', { issue: null }, this.now()); return; }
     if (inflight.length) { await this.deps.repository.issue(stop, 'stop_waiting_for_orders'); return; }
     await this.deps.repository.move(stop, 'closing', { issue: null }, this.now());

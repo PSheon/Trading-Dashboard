@@ -30,12 +30,19 @@ export function Collapsible({
   open,
   id,
   className,
+  clipClassName,
   children,
   ...props
-}: Omit<ComponentProps<"div">, "inert" | "aria-hidden"> & { open: boolean; id: string }) {
+}: Omit<ComponentProps<"div">, "inert" | "aria-hidden"> & {
+  open: boolean;
+  id: string;
+  /** Styles the clipping child (e.g. `-m-0.5 p-0.5` so focus rings at the
+   * content's edge are not clipped). */
+  clipClassName?: string;
+}) {
   return (
     <div {...props} id={id} className="collapse-panel" data-open={open} inert={!open} aria-hidden={open ? undefined : true}>
-      <div>
+      <div className={clipClassName}>
         <div className={className}>{children}</div>
       </div>
     </div>

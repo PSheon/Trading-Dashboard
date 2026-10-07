@@ -98,3 +98,16 @@ it("bounds: live from the caps (minimum 1 without a per-trade cap), paper from t
   expect(copyAmountBounds(true, undefined, { fixedPerTradeUsd: null, maxAllocationUsd: null })).toEqual({ min: 1, max: null });
   expect(copyAmountBounds(false, { minAllocationUsd: 100, maxAllocationUsd: 5000 }, caps)).toEqual({ min: 100, max: 5000 });
 });
+
+it("更多設定 is the shared Collapsible: closed it is inert and hidden from assistive technology, opened it is neither", async () => {
+  await render();
+  const trigger = container.querySelector<HTMLButtonElement>('button[aria-controls="copy-more"]')!;
+  const panel = container.querySelector<HTMLElement>("#copy-more")!;
+  expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  expect(panel.hasAttribute("inert")).toBe(true);
+  expect(panel.getAttribute("aria-hidden")).toBe("true");
+  await act(async () => trigger.click());
+  expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  expect(panel.hasAttribute("inert")).toBe(false);
+  expect(panel.hasAttribute("aria-hidden")).toBe(false);
+});

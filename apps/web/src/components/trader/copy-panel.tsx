@@ -30,6 +30,7 @@ import { amountInput } from "@/lib/amount-input";
 import { hedgeWarning } from "@/lib/copy-portfolio";
 import { coinLabel, truncateAddress } from "@/lib/format";
 import { rovingFocus } from "@/lib/roving-focus";
+import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 type Direction = "same" | "reverse";
 type CopyMode = "paper" | "testnet";
@@ -653,20 +654,16 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
       </div>
 
       <div>
-        <button
-          type="button"
-          aria-expanded={more}
-          aria-controls={sheet ? "copy-more-sheet" : "copy-more"}
-          onClick={() => setMore((m) => !m)}
+        <CollapsibleTrigger
+          open={more}
+          controls={sheet ? "copy-more-sheet" : "copy-more"}
+          onOpenChange={setMore}
           className="flex min-h-11 w-full items-center justify-between gap-2 rounded border-t-2 border-dotted border-border pt-2 text-sm leading-5 font-extrabold text-foreground outline-none hover:text-primary-text focus-visible:ring-2 focus-visible:ring-ring"
         >
           {t("trader.copy.more")}
           <ChevronDown className={cn("size-3 transition-transform", more && "rotate-180")} />
-        </button>
-        {/* Opens with its height and opacity (globals.css .collapse-panel);
-            closed, it is hidden from focus and assistive technology. */}
-        <div id={sheet ? "copy-more-sheet" : "copy-more"} className="collapse-panel" data-open={more} inert={!more}>
-          <div className="-m-0.5 p-0.5">
+        </CollapsibleTrigger>
+        <Collapsible id={sheet ? "copy-more-sheet" : "copy-more"} open={more} clipClassName="-m-0.5 p-0.5">
             <div className="mt-3 flex items-center justify-between gap-3">
               <span id="copy-positions" className="text-[13px] font-semibold" title={t("trader.copy.copyPositionsDesc")}>
                 {t("trader.copy.copyPositions")}
@@ -694,8 +691,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
                   maxExposure={maxExposure} setMaxExposure={setMaxExposure} maxLeverage={maxLeverage} setMaxLeverage={setMaxLeverage} fixedOnly={fixedOnly} leverageCap={leverageCap} />
               </>
             ) : null}
-          </div>
-        </div>
+        </Collapsible>
       </div>
 
       {paused ? (

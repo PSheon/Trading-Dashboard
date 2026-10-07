@@ -17,6 +17,7 @@ import { Tabs } from "@/components/ui/tabs";
 import { boardName } from "@/components/discover/board-bits";
 import { useLiveCopyPortfolio } from "@/lib/copy-live-portfolio";
 import { useSiteMode } from "@/lib/site-mode";
+import { useLiveCopyDeployment } from "@/lib/copy-live-setup";
 import { useUrlState } from "@/lib/url-state";
 import { useWalletModals } from "@/components/wallet/wallet-modals";
 import { useI18n } from "@/i18n/provider";
@@ -129,6 +130,21 @@ function NoCopies() {
       <Link href="/explore" className={cn(buttonVariants(), "mt-2")}>{t("folio.find")}</Link>
     </div>
   );
+}
+
+/** 正式, or, where real copies run for invited users only and this one is
+ * not yet (`actualAllowed: false`), the one sentence that says so: no
+ * funds card and no 儲值 to a copy that cannot start. */
+function RealView() {
+  const { t } = useI18n();
+  if (useLiveCopyDeployment()?.inviteOnly) {
+    return (
+      <div className="orbit-card card-pad flex flex-col items-center gap-2 text-center" data-view="real" data-testid="invite-only">
+        <p className="font-display text-lg">{t("folio.inviteOnly")}</p>
+      </div>
+    );
+  }
+  return <RealPortfolio />;
 }
 
 /** 正式: 我的資金, 跟單中 (compact cards, a detail sheet each), 已結束 and 最近活動. */
@@ -313,7 +329,7 @@ function DesktopPortfolio() {
         <ViewSwitch view={view} onChange={setView} />
       </div>
       <div id="portfolio-view-panel" role="tabpanel" aria-labelledby={`portfolio-view-${view}`}>
-        {view === "real" ? <RealPortfolio /> : <DesktopPaper />}
+        {view === "real" ? <RealView /> : <DesktopPaper />}
       </div>
     </div>
   );
@@ -380,7 +396,7 @@ function PhonePortfolio() {
         <ViewSwitch view={view} onChange={setView} className="w-full [&>button]:flex-1 [&>button]:justify-center" />
       </div>
       <div id="portfolio-view-panel" role="tabpanel" aria-labelledby={`portfolio-view-${view}`} className="px-4 pt-4 pb-6">
-        {view === "real" ? <RealPortfolio /> : <PhonePaper tab={tab} setTab={setTab} />}
+        {view === "real" ? <RealView /> : <PhonePaper tab={tab} setTab={setTab} />}
       </div>
     </div>
   );

@@ -29,7 +29,12 @@ const accounts = [account("acct-41", 41, A.account), account("acct-42", 42, B.ac
 const mandates = [mandate(A.mandate, "acct-41", 41, A.account, A.leader), mandate(B.mandate, "acct-42", 42, B.account, B.leader)];
 const observed = (equity: string) => ({ status: "observed", metrics: { perpEquity: equity, withdrawable: equity, unrealizedPnl: "0" }, positions: [], restingOrders: [] });
 
-const state = vi.hoisted(() => ({ mode: "testnet" as string }));
+const state = vi.hoisted(() => ({ mode: "testnet" as string, deployment: null as unknown }));
+/** Orbie's ledger: each copy's 100 USDC deposit (their net deposits). */
+const deposit = (strategyId: number, address: string) => ({ id: `funding:${strategyId}`, time: now, kind: "copy_funding", mode: "testnet", amount: 100, strategyId, leaderAddress: null, status: "credited", txHash: null, fee: null, counterparty: address, count: null });
+vi.mock("@/lib/funds", async () => ({ ...(await vi.importActual<typeof import("@/lib/funds")>("@/lib/funds")),
+  useFundsHistory: () => ({ data: { pages: [{ items: [deposit(41, A.account), deposit(42, B.account)], nextCursor: null }] }, hasNextPage: false, isFetchingNextPage: false, fetchNextPage: async () => undefined }) }));
+vi.mock("@/lib/copy-live-setup", async () => ({ ...(await vi.importActual<typeof import("@/lib/copy-live-setup")>("@/lib/copy-live-setup")), useLiveCopyDeployment: () => state.deployment }));
 vi.mock("@/lib/auth", () => ({ useAuth: () => ({ status: "signedIn", mode: "privy", identity: "owner", userId: "did:privy:owner", wallet: { address: OWNER } }) }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/portfolio", useSearchParams: () => new URLSearchParams(window.location.search), useRouter: () => ({ replace() {}, push() {}, refresh() {} }) }));
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }: { href: string; children: ReactNode }) => <a href={href} {...rest}>{children}</a> }));
@@ -64,7 +69,7 @@ vi.mock("@/components/copy/portfolio-parts", () => ({ PortfolioChart: () => null
 let root: Root, container: HTMLDivElement, client: QueryClient;
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-  state.mode = "testnet"; window.history.replaceState(null, "", "/portfolio");
+  state.mode = "testnet"; state.deployment = null; window.history.replaceState(null, "", "/portfolio");
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 });
@@ -130,4 +135,15 @@ it("a deployment without real copies (the public paper build) opens on 模擬", 
   await render();
   expect(phone().textContent).toContain("PAPER-ACCOUNT");
   expect(phone().querySelector('[data-testid="my-funds"]')).toBeNull();
+});
+
+it("a live deployment that has not opened real copies to this user says so on 正式, with no funds card and no 儲值 (audit 2026-10-07 P1-6)", async () => {
+  state.mode = "paper";
+  state.deployment = { network: "mainnet", available: false, inviteOnly: true, sourceNetworks: ["mainnet"], caps: null };
+  window.history.replaceState(null, "", "/portfolio?view=real");
+  await render();
+  expect(phone().querySelector('[data-testid="invite-only"]')!.textContent).toBe("正式跟單尚未開放，目前僅限邀請。");
+  expect(phone().querySelector('[data-testid="my-funds"]')).toBeNull();
+  expect(phone().textContent).not.toContain("儲值");
+  expect(phone().textContent).not.toContain("測試網");
 });

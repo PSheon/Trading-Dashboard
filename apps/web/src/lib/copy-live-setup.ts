@@ -26,6 +26,8 @@ export function liveCopyEnabled(auth: Pick<Auth, 'status' | 'mode' | 'identity' 
 export interface LiveCopyDeployment {
   network: 'testnet' | 'mainnet'; available: boolean; sourceNetworks: ReadonlyArray<'testnet' | 'mainnet'>;
   caps: { fixedPerTradeUsd: { min: number; max: number } | null; maxAllocationUsd: number | null; maxLeverage: number | null; maxStrategiesPerUser: number } | null;
+  /** Actual copies run here, but not for this owner yet (`actualAllowed: false`: invited users only). */
+  inviteOnly?: boolean;
 }
 export function useLiveCopyDeployment(): LiveCopyDeployment | null {
   const auth = useAuth(), enabled = liveCopyEnabled(auth);
@@ -35,7 +37,8 @@ export function useLiveCopyDeployment(): LiveCopyDeployment | null {
     queryFn: async ({ signal }) => { const overview = liveCopyOverviewSchema.parse(await api.get(ROOT, signal)); return { network: overview.network, capabilities: overview.capabilities }; } });
   if (!enabled || !query.data) return null;
   const { network, capabilities } = query.data;
-  return { network, available: capabilities.automaticExecution && capabilities.actualAllowed !== false, sourceNetworks: capabilities.sourceNetworks, caps: capabilities.caps ?? null };
+  return { network, available: capabilities.automaticExecution && capabilities.actualAllowed !== false, sourceNetworks: capabilities.sourceNetworks, caps: capabilities.caps ?? null,
+    inviteOnly: capabilities.automaticExecution && capabilities.actualAllowed === false };
 }
 /** Whether this deployment runs actual copies for this owner (`capabilities.automaticExecution`
  * and, on a live deployment, `actualAllowed`). */

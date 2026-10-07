@@ -1,5 +1,7 @@
 "use client";
 
+import { useSlidingIndicator } from "@/lib/use-sliding-indicator";
+import { prefersReducedMotion } from "@/lib/motion";
 import { useEffect, useState } from "react";
 import { Link, usePathname } from "@/i18n/navigation";
 import { cn } from "cn";
@@ -87,6 +89,8 @@ export function AppShell({
     return () => window.removeEventListener("scroll", update);
   }, []);
   const signedIn = useAuth().status === "signedIn";
+  const [mobileRef, mobileBox] = useSlidingIndicator<HTMLElement>(`${pathname}:${signedIn}`);
+  const mobilePill = mobileBox?.width ? mobileBox : null;
   // Seeds the query the banners (and pages) read, before they mount.
   useSiteSettings(settings);
   // A trader page on a phone has its own top bar and a sticky 跟單 button in
@@ -197,15 +201,17 @@ export function AppShell({
       </div>
 
       <nav
+        ref={mobileRef}
         aria-label={t("nav.primary")}
         className={cn(
-          "fixed inset-x-3 bottom-[calc(12px+env(safe-area-inset-bottom))] z-30 h-[68px] gap-1 rounded-4xl bg-raised p-1.5 shadow-[0_10px_30px_-12px_rgb(21_19_43/35%)] md:hidden",
+          "fixed inset-x-3 bottom-[calc(12px+env(safe-area-inset-bottom))] z-30 isolate h-[68px] gap-1 rounded-4xl bg-raised p-1.5 shadow-[0_10px_30px_-12px_rgb(21_19_43/35%)] md:hidden",
           signedIn ? "grid-cols-4" : "grid-cols-3",
           tabBar ? "grid" : "hidden",
         )}
       >
+        <NavPill box={mobilePill} />
         {(signedIn ? mobileNav : mobileNavSignedOut).map((item) => (
-          <TabLink key={item.href} item={item} active={isActive(pathname, item.href)} />
+          <TabLink key={item.href} item={item} active={isActive(pathname, item.href)} measured={Boolean(mobilePill)} />
         ))}
       </nav>
     </div>
@@ -217,8 +223,11 @@ export function AppShell({
  * show from 1400px, icons only below (T1024 / T820 boards). */
 function NavCapsule({ label, items, pathname, className }: { label: string; items: NavItem[]; pathname: string; className?: string }) {
   const t = useT();
+  const [ref, box] = useSlidingIndicator<HTMLElement>(pathname);
+  const pill = box?.width ? box : null;
   return (
-    <nav aria-label={label} className={cn("flex shrink-0 gap-0.5 rounded-[26px] bg-raised p-1", className)}>
+    <nav ref={ref} aria-label={label} className={cn("relative isolate flex shrink-0 gap-0.5 rounded-[26px] bg-raised p-1", className)}>
+      <NavPill box={pill} />
       {items.map((item) => {
         const Icon = item.icon;
         const active = isActive(pathname, item.href);
@@ -227,12 +236,13 @@ function NavCapsule({ label, items, pathname, className }: { label: string; item
           <Link
             key={item.href}
             href={item.href}
+            data-active={active}
             aria-current={active ? "page" : undefined}
             aria-label={text}
             title={text}
             className={cn(
-              "orbit-press flex h-11 items-center gap-2 rounded-[22px] px-3.5 font-extrabold whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring min-[1400px]:px-4",
-              active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-raised-hover hover:text-foreground",
+              "orbit-press relative z-10 flex h-11 items-center gap-2 rounded-[22px] px-3.5 font-extrabold whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring min-[1400px]:px-4",
+              active ? cn("text-primary-foreground", !pill && "bg-primary") : "text-muted-foreground hover:bg-raised-hover hover:text-foreground",
             )}
           >
             <Icon className="size-[18px]" strokeWidth={2.4} aria-hidden />
@@ -244,20 +254,27 @@ function NavCapsule({ label, items, pathname, className }: { label: string; item
   );
 }
 
-function TabLink({ item, active }: { item: NavItem; active: boolean }) {
+function TabLink({ item, active, measured }: { item: NavItem; active: boolean; measured: boolean }) {
   const t = useT();
   const Icon = item.icon;
   return (
     <Link
       href={item.href}
+      data-active={active}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "orbit-press flex min-w-0 flex-col items-center justify-center gap-1 rounded-[28px] px-1 text-[11px] leading-none font-extrabold outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+        "orbit-press relative z-10 flex min-w-0 flex-col items-center justify-center gap-1 rounded-[28px] px-1 text-[11px] leading-none font-extrabold outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        active ? cn("text-primary-foreground", !measured && "bg-primary") : "text-muted-foreground hover:text-foreground",
       )}
     >
       <Icon className="size-5" strokeWidth={2.4} aria-hidden />
       <span className="max-w-full truncate">{t(item.label)}</span>
     </Link>
   );
+}
+
+function NavPill({ box }: { box: {left:number;top:number;width:number;height:number} | null }) {
+  if (!box) return null;
+  return <span aria-hidden data-nav-pill className="pointer-events-none absolute top-0 left-0 rounded-full bg-primary motion-reduce:transition-none!"
+    style={{transform:`translate3d(${box.left}px, ${box.top}px, 0)`,width:box.width,height:box.height,transition:prefersReducedMotion() ? "none" : "transform var(--dur-slow) var(--ease-orbit), width var(--dur-slow) var(--ease-orbit), height var(--dur-slow) var(--ease-orbit)"}} />;
 }

@@ -28,6 +28,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
+  vi.restoreAllMocks(); vi.unstubAllGlobals(); state.pathname="/explore";
 });
 
 async function render(status: string) {
@@ -58,4 +59,29 @@ it("keeps the header and the page in one frame", async () => {
   await render("signedOut");
   expect(header().querySelector(".page-frame")).not.toBeNull();
   expect(container.querySelector("main")!.className).toContain("page-frame");
+});
+
+function measuredLinks(reduce = false) {
+  vi.spyOn(HTMLElement.prototype, 'offsetLeft', 'get').mockImplementation(function (this: HTMLElement) { return this.tagName === 'A' ? 6 + [...this.parentElement!.querySelectorAll('a')].indexOf(this as HTMLAnchorElement) * 80 : 0; });
+  vi.spyOn(HTMLElement.prototype, 'offsetTop', 'get').mockReturnValue(6);
+  vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(80);
+  vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(56);
+  vi.stubGlobal('matchMedia', vi.fn((query: string) => ({matches: reduce && query.includes('prefers-reduced-motion'), addEventListener() {}, removeEventListener() {}})));
+}
+it('slides the bottom pill to the measured active tab after navigation', async () => {
+  measuredLinks(); await render('signedIn');
+  const pill = tabBar().querySelector<HTMLElement>('[data-nav-pill]')!;
+  expect(pill).not.toBeNull();
+  expect(pill.style.transform).toBe('translate3d(86px, 6px, 0)');
+  expect(pill.style.transition).toContain('var(--dur-slow)');
+  expect(tabBar().querySelector('[aria-current=page]')?.className).not.toContain('bg-primary');
+  state.pathname = '/portfolio'; await render('signedIn');
+  expect(pill.style.transform).toBe('translate3d(246px, 6px, 0)');
+  expect(pill.style.width).toBe('80px');
+});
+it('switches nav pills immediately when reduced motion is requested', async () => {
+  measuredLinks(true); await render('signedOut');
+  const pills=container.querySelectorAll<HTMLElement>('[data-nav-pill]');
+  expect(pills.length).toBeGreaterThan(0);
+  for (const pill of pills) expect(pill.style.transition).toBe('none');
 });

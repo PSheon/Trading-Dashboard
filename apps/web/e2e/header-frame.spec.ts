@@ -68,6 +68,9 @@ for (const signedIn of [false, true]) {
     }
     await page.goto("/en/explore");
     const header = page.getByTestId("app-phone-header");
+    // The anonymous session boundary remounts during hydration; wait for
+    // its ready account control before interacting with the search island.
+    await expect(header.getByRole("button", { name: signedIn ? "Account" : "Demo login", exact: true })).toBeVisible();
     await header.getByRole("button", { name: "Search name, X handle or address" }).click();
     const input = page.getByRole("combobox", { name: "Search name, X handle or address" }).filter({ visible: true });
     await expect(input).toBeFocused();

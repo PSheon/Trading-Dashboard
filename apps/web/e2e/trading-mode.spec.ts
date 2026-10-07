@@ -40,10 +40,17 @@ for (const path of ["/", "/explore", "/portfolio", "/favorites", "/settings", "/
   const footer = page.locator("footer").filter({ visible: true });
   await expect(footer.getByRole("link", { name: "Privacy policy", exact: true })).toBeVisible();
   await footer.scrollIntoViewIfNeeded();
-  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-  const legal = await footer.getByRole("link", { name: "Terms of use", exact: true }).boundingBox();
   const floating = page.locator(".phone-floating-bar").filter({ visible: true });
-  const bar = await floating.boundingBox();
-  expect(legal!.y + legal!.height).toBeLessThanOrEqual(bar!.y);
+  // Explore rows can finish loading after the footer is visible. Measure
+  // at the settled page end, rather than at the old skeleton's scroll end.
+  await expect.poll(async () => {
+    await page.evaluate(async () => {
+      window.scrollTo(0, document.documentElement.scrollHeight);
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    });
+    const legal = await footer.getByRole("link", { name: "Terms of use", exact: true }).boundingBox();
+    const bar = await floating.boundingBox();
+    return legal!.y + legal!.height - bar!.y;
+  }).toBeLessThanOrEqual(0);
   await expectNoSidewaysScroll(page);
 });

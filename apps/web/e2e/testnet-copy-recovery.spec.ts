@@ -30,7 +30,7 @@ function pageErrors(page: Page) {
 /** The trader's copy panel (the phone's 跟單 sheet). */
 async function panelOf(page: Page, width: number) {
   if (width >= 768) return page.locator("body");
-  await action(page, "跟單").click();
+  await page.getByTestId("trader-copy-bar").getByRole("button").click();
   return page.getByRole("dialog", { name: "跟單", exact: true });
 }
 /** Signs in and opens the trader in zh-TW with these fixture flags, in 測試網. */

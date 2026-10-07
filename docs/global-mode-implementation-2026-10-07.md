@@ -27,3 +27,5 @@ Paul 已要求先實作並部署。範圍採分析文件路線 A：正式／測�
 - 儲存空間只能讀、不能寫的瀏覽器也能用記憶體偏好；此回歸在修正前失敗。舊 portfolio URL 若遇上 mutation，待原操作完成才遷移。
 
 - CI `37635581744` 未通過：修正 Account 選單選擇器、英文流程誤用中文入口、手機更多操作名稱衝突與 fixture 缺少執行網路。MutationCache 通知採 React Query 同樣的排程方式，避免跨元件 render 通知；新增更多操作／fixture network 回歸修正前失敗、修正後通過。
+
+- CI `37639493666`：browser3 63 項通過，footer 探索資料載入時頁高競速改成在穩定末端量測；browser2 手機 pending copy 的入口應找固定區塊（按鈕文案會是管理），另補搜尋前等待 session ready，避免 hydration boundary remount 丟失點擊。browser1 取消前無測試失敗。

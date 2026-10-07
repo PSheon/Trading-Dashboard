@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { Dec } from '../../common/decimal/dec.js';
-import type { LiveExecutionRecord } from './live-execution.js';
+import { LIVE_CLOCK_SKEW_ALLOWANCE_MS, LIVE_HTTP_TIMEOUT_MS, type LiveExecutionRecord } from './live-execution.js';
 import type { LiveAccountRiskInput } from './live-account-risk.js';
 import { LIVE_DEX_NAME, LIVE_PERP_COIN, marketIdentityKey } from './live-market-resolver.js';
 import { parseFollowerFill, followerReceiptDigestV1, type ParsedFollowerFill } from './actual-fill-accounting.js';
@@ -26,10 +26,12 @@ export interface LiveReservationSettlementInput {
   /** Actual same-session SQL manifest, not caller/provider array authority.
    * Completeness is the bounded local order query, never global fill history. */
   readonly receipts: { readonly accountId: string; readonly checkedAt: number; readonly completeForOrder: true; readonly rows: readonly LiveSettlementReceipt[];
-    /** The account's fill scan (userFillsByTime) has booked every fill up to
-     * this time without an issue: with no IOC acknowledgement, the filled
-     * quantity of a cancelled order is its booked fills once this passes the
-     * cancel by LIVE_FILL_SCAN_MARGIN_MS. */
+    /** Read by the settlement DAL itself, in its own SQL session, from this
+     * account's fill-scan cursor (copy_follower_scans.through: advanced only
+     * by a scan that booked every fill to it and resolved every window; absent
+     * while the scan carries an issue), never from a caller. With no IOC
+     * acknowledgement, a cancelled order's filled quantity is its booked fills
+     * once this passes the cancel by LIVE_FILL_SCAN_MARGIN_MS. */
     readonly scannedThrough?: number };
   readonly accountSource: LiveAccountRiskInput['accountSource'];
 }
@@ -43,9 +45,15 @@ export interface LiveReservationSettlementCertificate {
 }
 export type LiveReservationSettlementDecision = Readonly<{ kind: 'pending'|'quarantine'; reason: string }> |
   Readonly<{ kind: 'release'; certificate: LiveReservationSettlementCertificate }>;
-/** How far past a cancel the fill scan must reach before its booked fills
- * stand for an unacknowledged IOC's filled quantity (provider indexing lag). */
-export const LIVE_FILL_SCAN_MARGIN_MS = 10_000;
+/** How far past a cancel the account's fill scan must reach before its
+ * booked fills stand for an unacknowledged IOC's filled quantity. The scan's
+ * horizon is this machine's clock when it asked (`to = now`), the cancel's
+ * time the exchange's: the margin covers this machine running ahead of the
+ * exchange (LIVE_CLOCK_SKEW_ALLOWANCE_MS) and a request in flight
+ * (LIVE_HTTP_TIMEOUT_MS), so every fill of the order (all before its cancel)
+ * was committed before the scan read. A fill booked to it after its release
+ * still quarantines the account (copy-follower-ledger.ts). */
+export const LIVE_FILL_SCAN_MARGIN_MS = LIVE_CLOCK_SKEW_ALLOWANCE_MS + LIVE_HTTP_TIMEOUT_MS;
 class SettlementIssue extends Error { constructor(readonly kind: 'pending'|'quarantine', readonly reason: string) { super(reason); } }
 function requireProof(value: unknown, reason: string, kind: 'pending'|'quarantine' = 'pending'): asserts value {
   if (!value) throw new SettlementIssue(kind, reason);

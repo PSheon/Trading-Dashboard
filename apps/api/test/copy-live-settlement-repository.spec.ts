@@ -7,7 +7,7 @@ import { PostgresLiveSettlement } from '../src/copy/live/postgres-live-settlemen
 import { PostgresLiveRiskScope, type LiveRiskDatabaseSession } from '../src/copy/live/postgres-live-risk-scope.js';
 import { CopyFollowerLedger } from '../src/copy/live/copy-follower-ledger.js';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
-import type { LiveReservationSettlementInput } from '../src/copy/live/live-reservation-settlement.js';
+import { LIVE_FILL_SCAN_MARGIN_MS, type LiveReservationSettlementInput } from '../src/copy/live/live-reservation-settlement.js';
 import { parseLiveOrderEvidence, parseLiveIocAcknowledgement, captureLiveOrderIdentity } from '../src/copy/live/live-order-evidence.js';
 import { parseFollowerFill, followerReceiptDigestV1 } from '../src/copy/live/actual-fill-accounting.js';
 import { buildOrderAction, intentFingerprint } from '../src/copy/live/live-order.js';
@@ -213,15 +213,40 @@ describe('same-session PostgreSQL attempted order settlement', () => {
     expect((await db.select().from(copyLiveExecutionEvidence))[0]?.acknowledgement).toEqual(acknowledgement);
   });
 
-  it('settles a partial IOC whose acknowledgement was lost from the fills the account scan booked past the cancel', async () => {
-    await iocAcknowledgement(); // the IOC order, but its answer never reached the journal
-    const raw = structuredClone(f.evidence.raw) as {order:{status:string;order:{tif:string;sz:string}}}; raw.order.status='canceled'; raw.order.order.tif='Ioc';raw.order.order.sz='0.5';
-    f.evidence = structuredClone(parseLiveOrderEvidence({ record:f.record,market:f.record.market!,raw,checkedAt:base+20,completedAt:base+25,now:clock }));
-    f.receipts.rows[0]!.record.raw.sz='0.5'; await book();
-    await scopes.run(identity(),async (_scope,session)=>{await observe(session);expect(await settle(session)).toMatchObject({kind:'pending',reason:'live_settlement_quantity_unproven'});});
-    // The follower scan booked every fill to 10 s past the cancel, without an issue.
-    await db.insert(copyFollowerScans).values({ accountId: 'account', through: base + 10 + 10_000 });
-    await scopes.run(identity(),async (_scope,session)=>{await observe(session);expect(await settle(session)).toMatchObject({kind:'release',certificate:{filledSize:'0.5',acknowledgementDigest:null}});});
+  describe('a partial IOC whose acknowledgement was lost', () => {
+    async function lostAcknowledgement() {
+      await iocAcknowledgement(); // the IOC order, but its answer never reached the journal
+      const raw = structuredClone(f.evidence.raw) as {order:{status:string;order:{tif:string;sz:string}}}; raw.order.status='canceled'; raw.order.order.tif='Ioc';raw.order.order.sz='0.5';
+      f.evidence = structuredClone(parseLiveOrderEvidence({ record:f.record,market:f.record.market!,raw,checkedAt:base+20,completedAt:base+25,now:clock }));
+      f.receipts.rows[0]!.record.raw.sz='0.5'; await book();
+    }
+    const attempt = () => scopes.run(identity(),async (_scope,session)=>{await observe(session);return settle(session);});
+    it('settles from the fills the account scan booked, once its own cursor is past the cancel by the margin', async () => {
+      await lostAcknowledgement();
+      expect(await attempt()).toMatchObject({kind:'pending',reason:'live_settlement_quantity_unproven'});
+      await db.insert(copyFollowerScans).values({ accountId: 'account', through: base + 10 + LIVE_FILL_SCAN_MARGIN_MS });
+      expect(await attempt()).toMatchObject({kind:'release',certificate:{filledSize:'0.5',acknowledgementDigest:null}});
+    });
+    it('stays pending while the scan cursor is short of the cancel plus the margin', async () => {
+      await lostAcknowledgement();
+      await db.insert(copyFollowerScans).values({ accountId: 'account', through: base + 10 + 80_000 - 1 }); // 80 s: clock skew allowance plus a request in flight
+      expect(LIVE_FILL_SCAN_MARGIN_MS).toBe(80_000);
+      expect(await attempt()).toMatchObject({kind:'pending',reason:'live_settlement_quantity_unproven'});
+      expect((await db.select().from(copyLiveRiskReservations))[0]?.state).toBe('unknown');
+    });
+    it('stays pending while the scan carries an issue, whatever its cursor says', async () => {
+      await lostAcknowledgement();
+      await db.insert(copyFollowerScans).values({ accountId: 'account', through: base + 10_000_000, issue: 'follower_scan_unavailable' });
+      expect(await attempt()).toMatchObject({kind:'pending',reason:'live_settlement_quantity_unproven'});
+    });
+    it('quarantines the account when a fill of the released order is booked late', async () => {
+      await lostAcknowledgement();
+      await db.insert(copyFollowerScans).values({ accountId: 'account', through: base + 10 + LIVE_FILL_SCAN_MARGIN_MS });
+      expect(await attempt()).toMatchObject({kind:'release'});
+      const late = { ...f.receipts.rows[0]!.record.raw, tid: 124, sz: '0.1', time: base + 6 };
+      await new CopyFollowerLedger(db, new UnitOfWork(db)).bookFill('account', late);
+      expect((await db.select().from(copyFollowerAccountState))[0]).toMatchObject({ quarantined: true, reason: 'live_settlement_late_fill' });
+    });
   });
   it('latches the immutable partial IOC acknowledgement once and quarantines conflicting response quantities', async () => {
     const acknowledgement = await iocAcknowledgement();

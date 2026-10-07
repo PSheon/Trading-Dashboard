@@ -67,6 +67,14 @@ export class CopyFollowerLedger {
         const attribution = await this.executionAttribution(tx, account, fill);
         executionKey = attribution.key;
         if (attribution.reason) await this.quarantine(tx, accountId, attribution.reason);
+        // A fill of an order already released by its settlement certificate
+        // was not in the certified quantity (a late-indexed fill, after a
+        // release from booked fills): the account's books no longer prove it.
+        if (executionKey) {
+          const [settled] = await tx.select({ key: copyLiveExecutionEvidence.key }).from(copyLiveExecutionEvidence)
+            .where(and(eq(copyLiveExecutionEvidence.key, executionKey), sql`${copyLiveExecutionEvidence.settlementCertificate} is not null`)).limit(1);
+          if (settled) await this.quarantine(tx, accountId, 'live_settlement_late_fill');
+        }
       }
       await tx.insert(copyFollowerReceipts).values({ key: receipt.key, accountId, network: account.network, accountAddress: account.address, kind,
         sourceId: kind === "fill" ? (receipt as ParsedFollowerFill).tid : (receipt as ParsedFollowerFunding).hash, coin: receipt.coin,

@@ -21,7 +21,7 @@ import { PrivyTrackedCancellationSigner } from '../live/privy-cancellation-signe
 import { BoundaryPrivyOrderSigningClient } from '../live/privy-order-client.js';
 import { address, LiveBoundaryError } from '../live/wallet-authorization.js';
 import type { CopyLiveStopWorkerRepository, StopRow } from './copy-live-stop-worker.repository.js';
-import { closeCloid, type CloseAccount, type ReduceOnlyCloser } from './reduce-only-closer.js';
+import { CLOSE_NEVER_SENT, closeCloid, type CloseAccount, type ReduceOnlyCloser } from './reduce-only-closer.js';
 import type { AutoReturn } from './copy-live-auto-return.js';
 
 const MAX_CLOSE_ATTEMPTS = 10, MAX_CANCEL_ATTEMPTS = 3;
@@ -112,6 +112,8 @@ export class CopyLiveStopper {
     if (snapshot.restingOrders.some(order => !order.cloid || !tracked.has(order.cloid))) { await this.deps.repository.issue(stop, 'stop_untracked_resting_orders'); return; }
     const open = snapshot.positions.filter(position => !Dec.from(position.size).isZero);
     if (!open.length && !snapshot.restingOrders.length) return this.markFlat(stop, snapshot);
+    // What the stop shows after this pass: null only when every close went out.
+    let shown: string | null = null;
     for (const position of open) {
       // One new order per coin per pass: attempt n has a fixed cloid; a
       // terminal attempt that left a remainder moves on to attempt n+1.
@@ -120,12 +122,15 @@ export class CopyLiveStopper {
         const seed = `stop:${stop.id}:${position.coin}:${attempt}`;
         const state = await this.deps.repository.journalState(`${this.deps.closer.network}:${address(account.accountAddress)}:${closeCloid(seed)}`);
         if (state !== null && TERMINAL.has(state)) continue;
-        await this.deps.closer.close({ account, coin: position.coin, seed, stillWanted: async () => (await this.deps.repository.get(stop.id))?.state === 'closing' });
+        const record = await this.deps.closer.close({ account, coin: position.coin, seed, stillWanted: async () => (await this.deps.repository.get(stop.id))?.state === 'closing' });
+        // A close that ended unsent (or was refused) is retried with a fresh
+        // order on the next pass; until then the stop says so.
+        if (record?.state === 'rejected') shown ??= record.errorCode === CLOSE_NEVER_SENT ? 'stop_close_not_sent' : 'stop_close_rejected';
         break;
       }
       if (attempt >= MAX_CLOSE_ATTEMPTS) { await this.deps.repository.issue(stop, 'stop_close_attempts_exhausted'); return; }
     }
-    await this.deps.repository.issue(stop, null);
+    await this.deps.repository.issue(stop, shown);
   }
 
   private async markFlat(stop: StopRow, snapshot: LiveAccountSnapshot): Promise<void> {

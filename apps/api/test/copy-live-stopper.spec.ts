@@ -15,7 +15,7 @@ import { CopyLiveStopper, type StopCanceller } from '../src/copy/live-worker/cop
 import { CopyLiveAutoReturn } from '../src/copy/live-worker/copy-live-auto-return.js';
 import { CopyLiveReturnRepository, expireStaleReturns } from '../src/copy/copy-live-return.repository.js';
 import { CopyLiveStopWorkerRepository } from '../src/copy/live-worker/copy-live-stop-worker.repository.js';
-import { closeCloid, type CloseRequest, type ReduceOnlyCloser } from '../src/copy/live-worker/reduce-only-closer.js';
+import { CLOSE_NEVER_SENT, closeCloid, type CloseRequest, type ReduceOnlyCloser } from '../src/copy/live-worker/reduce-only-closer.js';
 import type { LiveAccountSnapshot } from '../src/copy/live/live-account-observer.js';
 import type { LiveExecutionRecord } from '../src/copy/live/live-execution.js';
 import { preparationFixture } from './copy-live-preparation-test-utils.js';
@@ -198,6 +198,21 @@ describe('testnet stop execution', () => {
       await db.transaction(tx => expireStaleReturns(tx, acc!.id));
       expect((await returns())[0]).toMatchObject({ status: 'prepared' });
     });
+  });
+
+  it('a close that ended unsent is shown on the stop, and the next pass builds a fresh close (attempt n+1)', async () => {
+    positions = [{ coin: 'BTC', size: '0.5' }];
+    await stopper().tick(); expect(await stopRow()).toMatchObject({ state: 'closing' });
+    // The closer found attempt 0 still prepared (its signing failed) and ended it unsent.
+    vi.mocked(closer.close).mockImplementationOnce(async (request: CloseRequest) => {
+      closes.push(request); const key = `testnet:${account()}:${closeCloid(request.seed)}`; await journal(key, 'rejected');
+      return { key, state: 'rejected', errorCode: CLOSE_NEVER_SENT } as LiveExecutionRecord;
+    });
+    await stopper().tick();
+    expect(await stopRow()).toMatchObject({ state: 'closing', issue: 'stop_close_not_sent' });
+    await stopper().tick();
+    expect(closes.map(c => c.seed.split(':').slice(-2).join(':'))).toEqual(['BTC:0', 'BTC:1']);
+    expect(await stopRow()).toMatchObject({ state: 'closing', issue: null });
   });
 
   it('tracked resting orders need the owner\'s cancellation consent; untracked orders block the close', async () => {

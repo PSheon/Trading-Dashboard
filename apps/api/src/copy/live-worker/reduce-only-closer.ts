@@ -46,6 +46,8 @@ export interface CloseRequest {
   /** Rechecked at both boundaries: the stop/close request is still current. */
   readonly stillWanted: () => Promise<boolean>;
 }
+/** A close journaled but never sent (see ReduceOnlyCloser.neverSent). */
+export const CLOSE_NEVER_SENT = 'close_never_sent';
 export const closeCloid = (seed: string): `0x${string}` => `0x${createHash('sha256').update(JSON.stringify(['live-close-v1', seed])).digest('hex').slice(0, 32)}`;
 const SNAPSHOT_MAX_AGE_MS = 4000;
 
@@ -120,7 +122,14 @@ export class ReduceOnlyCloser {
     // requested; a single-position close may not.
     const { executor, resolver, journal } = this.executor(account, request.stillWanted, request.seed.startsWith('stop:') ? 'stop' : undefined);
     const existing = await journal.get(key);
-    if (existing) return ['submitting', 'unknown', 'resting'].includes(existing.state) ? executor.reconcile(key) : existing;
+    if (existing) {
+      // Left prepared by a failed pass (Privy 5xx or timeout, a stale wallet
+      // identity, a budget wait, close_exceeds_position while signing):
+      // never sent, so it ends here and the caller's next attempt is a
+      // fresh close. Returned unchanged it would wedge the stop for ever.
+      if (existing.state === 'prepared') return this.neverSent(journal, key);
+      return ['submitting', 'unknown', 'resting'].includes(existing.state) ? executor.reconcile(key) : existing;
+    }
     // The caller's observation of a moment ago (same pass) is reused: every
     // observation weighs about 350 of the minute's 1200.
     const held = this.snapshot && this.now() - this.snapshot.at <= SNAPSHOT_MAX_AGE_MS && this.snapshot.value.accountAddress === address(account.accountAddress) ? this.snapshot.value : null;
@@ -136,7 +145,33 @@ export class ReduceOnlyCloser {
     const intent: LiveOrderIntent = { authorizationId: account.authorizationId, userId: account.userId, strategyId: account.strategyId, walletId: account.walletId,
       network: this.network, accountAddress: address(account.accountAddress), cloid, asset: market.asset, side, size: Dec.from(position.size).abs().toString(),
       limitPrice: limit.toString(), sizeDecimals: market.sizeDecimals, timeInForce: 'Ioc', reduceOnly: true, market };
-    return executor.execute(intent);
+    try { return await executor.execute(intent); }
+    catch (error) {
+      // A failure that left the order prepared ends it now (best effort; the
+      // next pass does it otherwise), so the error is what the stop shows.
+      await this.neverSent(journal, key).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  /**
+   * A close still `prepared` was provably never sent: the executor records
+   * `submitting` before its POST, and under the order lock nobody is signing
+   * it (a pass holds that lock from preparing to the answer). It becomes a
+   * terminal rejection (CLOSE_NEVER_SENT), so the next attempt, with its
+   * own cloid, is built from a fresh observation and price. Any other state
+   * is returned as it is.
+   */
+  private async neverSent(journal: PostgresLiveExecutionJournal, key: string): Promise<LiveExecutionRecord | null> {
+    return journal.withOrderLock(key, async lease => {
+      const record = await journal.get(key);
+      if (record?.state !== 'prepared') return record;
+      await lease.assertHeld();
+      const ended: LiveExecutionRecord = { ...record, state: 'rejected', errorCode: CLOSE_NEVER_SENT, outcome: { state: 'rejected', reason: CLOSE_NEVER_SENT },
+        updatedAt: Math.max(this.now(), record.updatedAt) };
+      await journal.save(ended);
+      return ended;
+    });
   }
 
   private async mid(coin: string, dex: string): Promise<Dec> {

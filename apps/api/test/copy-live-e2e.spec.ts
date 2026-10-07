@@ -39,7 +39,7 @@ import { closeTestDb, getTestDb, type TestDb } from './db-test-utils.js';
 // Only native network endpoints are doubles (Privy, Hyperliquid REST/WS).
 // The engine, runtime, risk, journal, reservation, receipt ledger and
 // settlement are the production classes on a real database.
-const shared = vi.hoisted(() => ({ clock: 0, position: '0', withdrawable: '80' }));
+const shared = vi.hoisted(() => ({ clock: 0, position: '0', withdrawable: '80', privyDown: 0 }));
 vi.mock('ws', async () => {
   const { EventEmitter } = await import('node:events');
   return { default: class extends EventEmitter {
@@ -87,7 +87,7 @@ beforeEach(async () => {
   const original = budget.acquire.bind(budget); weights = [];
   vi.spyOn(budget, 'acquire').mockImplementation((weight, ...rest) => { weights.push(weight); return original(weight, ...rest); });
   // The actual clock, so every bound identity and consent is current.
-  shared.clock = Date.now(); shared.position = '0'; shared.withdrawable = '80'; logs = []; exchangeBodies = []; placedOrders = [];
+  shared.clock = Date.now(); shared.position = '0'; shared.withdrawable = '80'; shared.privyDown = 0; logs = []; exchangeBodies = []; placedOrders = [];
   const t = shared.clock, delta = t - now, date = (value: number) => new Date(value + delta);
   const [version] = await db.select().from(schema.copyStrategyVersions);
   const settings = { ...version!.settings, perTradeUsd: 20 };
@@ -117,6 +117,7 @@ const meta = { collateralToken: 7, universe: [{ name: 'BTC', szDecimals: 2, maxL
 async function providers(endpoint: string, body: Record<string, unknown> | undefined): Promise<Response> {
   if (endpoint === 'https://api.privy.io/v1/wallets/agent') return Response.json({ id: 'agent', chain_type: 'ethereum', address: agent.address, owner_id: 'owner', archived_at: null });
   if (endpoint === 'https://api.privy.io/v1/wallets/agent/rpc') {
+    if (shared.privyDown > 0) { shared.privyDown -= 1; return new Response('upstream unavailable', { status: 503 }); }
     const typed = (body as { params: { typed_data: Record<string, unknown> & { primary_type: string } } }).params.typed_data;
     return Response.json({ method: 'eth_signTypedData_v4', data: { encoding: 'hex', signature: await agent.signTypedData({ ...typed, primaryType: typed.primary_type } as unknown as TypedDataDefinition) } });
   }
@@ -230,6 +231,28 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     expect((await db.select().from(schema.copyLiveStopOperations))[0]).toMatchObject({ state: 'stopped' });
     expect((await db.select().from(schema.copyStrategies))[0]).toMatchObject({ status: 'stopped' });
     expect(exchangeBodies).toHaveLength(2);
+  });
+  it('a stop whose close could not be signed (Privy 5xx) is not wedged on it: the stop shows why and the next pass sends a fresh close', async () => {
+    let e = engine(); await e.tick(); await leaderOpens(1001); await e.tick(); await new Promise(resolve => setTimeout(resolve, 5)); await e.tick();
+    expect((await db.select().from(schema.copyLiveDispatches))[0]).toMatchObject({ state: 'settled' });
+    const [mandate] = await db.select().from(schema.copyLiveMandates);
+    await new CopyLiveStopService(new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, testConfig())), new UnitOfWork(db))
+      .request(1, 'mandate', { idempotencyKey: 'e2e-stop-request-0002', expectedMandateRevision: mandate!.revision });
+    const fresh = (name: string) => new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(pool, { schema }))), { egressKey: name, ownerId: name }, raw);
+    budget.onModuleDestroy(); budget = new RequestBudgeterService(config); e = engine('100', fresh('e2e-stop-privy-down'), true);
+    await e.tick(); // requested -> closing
+    shared.privyDown = 1;
+    await e.tick(); // the close's signature fails: nothing is sent
+    expect(exchangeBodies).toHaveLength(1);
+    const failed = (await db.select().from(schema.copyLiveStopOperations))[0]!;
+    expect(failed).toMatchObject({ state: 'closing' }); expect(failed.issue).not.toBeNull();
+    // The unsent close ended (never sent), so it can't hold the stop.
+    expect((await db.select().from(schema.copyLiveExecutions)).filter(row => row.state === 'prepared')).toEqual([]);
+    budget.onModuleDestroy(); budget = new RequestBudgeterService(config); e = engine('100', fresh('e2e-stop-privy-back'), true);
+    await e.tick(); // a fresh close (attempt 1) goes out
+    expect(exchangeBodies).toHaveLength(2);
+    expect(exchangeBodies[1]).toMatchObject({ action: { type: 'order', orders: [{ a: 0, b: false, s: '0.19', r: true, t: { limit: { tif: 'Ioc' } } }] } });
+    expect(shared.position).toBe('0');
   });
   it('the owner closes one position while copying: a reduce-only IOC by the agent, then the copy keeps mirroring the leader', async () => {
     let e = engine(); await e.tick(); await leaderOpens(1001); await e.tick(); await new Promise(resolve => setTimeout(resolve, 5)); await e.tick();

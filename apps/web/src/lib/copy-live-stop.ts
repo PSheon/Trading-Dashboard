@@ -8,7 +8,7 @@ import { api, sessionKey } from './api';
 import { useAuth } from './auth';
 
 export interface LiveStopSelection { account: CopyExecutionAccount; mandate: LiveCopyMandate }
-const attemptSchema = z.object({ request: requestLiveCopyStopSchema, accountId: z.string().min(1).max(128), mandateId: z.string().min(1).max(128), strategyId: z.number().int().positive(), network: z.literal('testnet'), accountAddress: z.string().regex(/^0x[0-9a-f]{40}$/), ownerId: z.string().min(1).max(128).nullable().default(null), dispatchState: z.enum(['unsent', 'possible_sent']).default('possible_sent') }).strict().refine(v => v.dispatchState !== 'unsent' || v.ownerId !== null);
+const attemptSchema = z.object({ request: requestLiveCopyStopSchema, accountId: z.string().min(1).max(128), mandateId: z.string().min(1).max(128), strategyId: z.number().int().positive(), network: z.enum(['testnet', 'mainnet']), accountAddress: z.string().regex(/^0x[0-9a-f]{40}$/), ownerId: z.string().min(1).max(128).nullable().default(null), dispatchState: z.enum(['unsent', 'possible_sent']).default('possible_sent') }).strict().refine(v => v.dispatchState !== 'unsent' || v.ownerId !== null);
 const journalSchema = z.array(attemptSchema).max(100).refine(items => new Set(items.map(i => i.mandateId)).size === items.length && new Set(items.map(i => i.request.idempotencyKey)).size === items.length);
 export type LiveStopAttempt = z.infer<typeof attemptSchema>;
 /** Only immutable recovery metadata is stored, never tokens or signatures. */
@@ -70,12 +70,12 @@ export async function recoverLiveCopyStop(attempt: LiveStopAttempt, deps: StopDe
 export function canResumeLiveCopyStop(attempt: LiveStopAttempt, selection: LiveStopSelection | null, ownerId: string | null): boolean {
   if (!selection || attempt.dispatchState !== 'unsent' || !ownerId || attempt.ownerId !== ownerId) return false;
   const { account: a, mandate: m } = selection;
-  return m.mode === 'actual' && m.network === 'testnet' && a.network === m.network && a.id === m.accountId && a.strategyId === m.strategyId && a.address === m.accountAddress && attempt.accountId === a.id && attempt.accountAddress === a.address && attempt.strategyId === m.strategyId && attempt.mandateId === m.id && attempt.request.expectedMandateRevision === m.revision && !['prepared', 'stopping', 'stopped'].includes(m.state) && m.activationCursor !== null;
+  return m.mode === 'actual' && a.network === m.network && a.id === m.accountId && a.strategyId === m.strategyId && a.address === m.accountAddress && attempt.accountId === a.id && attempt.accountAddress === a.address && attempt.strategyId === m.strategyId && attempt.mandateId === m.id && attempt.request.expectedMandateRevision === m.revision && !['prepared', 'stopping', 'stopped'].includes(m.state) && m.activationCursor !== null;
 }
 export async function requestLiveCopyStop(input: LiveStopSelection, deps: StopDeps) {
   const original = structuredClone({ account: copyExecutionAccountSchema.parse(input.account), mandate: liveCopyMandateSchema.parse(input.mandate) });
   const { account: a, mandate: m } = original, owner = ownerFence(deps);
-  if (m.mode !== 'actual' || m.network !== 'testnet' || a.network !== m.network || a.id !== m.accountId || a.strategyId !== m.strategyId || a.address !== m.accountAddress) throw new Error('stop_binding');
+  if (m.mode !== 'actual' || a.network !== m.network || a.id !== m.accountId || a.strategyId !== m.strategyId || a.address !== m.accountAddress) throw new Error('stop_binding');
   const guard = () => { owner(); const current = deps.current(); if (!current || JSON.stringify(original) !== JSON.stringify({ account: copyExecutionAccountSchema.parse(current.account), mandate: liveCopyMandateSchema.parse(current.mandate) })) throw new Error('stop_binding_changed'); }; guard();
   const previous = deps.journal.read().find(item => item.mandateId === m.id);
   if (previous) {

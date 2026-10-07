@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import type { CopyExecutionAccount } from '@trading-dashboard/shared/contracts';
+import { isHyperliquidNetwork, type CopyExecutionAccount } from '@trading-dashboard/shared/contracts';
 import { useAuth } from '@/lib/auth';
 import { sessionKey } from '@/lib/api';
 import { useCopyFollowerSnapshot } from '@/lib/copy-follower-snapshot';
@@ -39,7 +39,7 @@ function SnapshotView({ account }: { account: CopyExecutionAccount }) {
   const detail = (label: string, value: string) => <div><dt className="text-muted-foreground">{label}</dt><dd className="break-all font-mono tabular-nums">{value}</dd></div>;
   return <section className="mt-5 border-t-2 border-dotted border-border pt-5" aria-label={t('copyFollowerSnapshot.title')}>
     <h4 className="text-sm font-bold">{t('copyFollowerSnapshot.title')}</h4><p className="mt-2 text-xs leading-5 text-muted-foreground">{t('copyFollowerSnapshot.hint')}</p>
-    {account.network !== 'testnet' ? <p className="mt-3 text-xs text-muted-foreground">{t('copyFollowerSnapshot.unsupported')}</p> : <>
+    {!isHyperliquidNetwork(account.network) ? <p className="mt-3 text-xs text-muted-foreground">{t('copyFollowerSnapshot.unsupported')}</p> : <>
       {query.isPending ? <p role="status" className="mt-3 text-xs">{t('copyFollowerSnapshot.loading')}</p> : null}
       {query.isError ? <div className="mt-3"><p role="alert" className="text-xs text-warning">{t('copyFollowerSnapshot.error')}</p><Button size="sm" variant="secondary" className="mt-2" loading={query.isFetching} onClick={() => void query.refetch()}>{t('executionWallets.retry')}</Button></div> : null}
       {view?.status === 'unavailable' ? <p className="mt-3 text-xs text-muted-foreground">{t('copyFollowerSnapshot.unavailable')}</p> : null}

@@ -2,7 +2,7 @@
 import { API_FIXTURES } from './config';
 import { useLayoutEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { copyFollowerSnapshotReadSchema, type CopyExecutionAccount, type CopyFollowerSnapshotRead } from '@trading-dashboard/shared/contracts';
+import { copyFollowerSnapshotReadSchema, isHyperliquidNetwork, type CopyExecutionAccount, type CopyFollowerSnapshotRead } from '@trading-dashboard/shared/contracts';
 import type { FollowerStatementDependencies } from './copy-follower-statements';
 import { api, sessionKey } from './api';
 import { useAuth } from './auth';
@@ -15,7 +15,7 @@ function sum(v: readonly string[]) { return v.reduce((n, value) => n + units(val
 function sameSet(a: readonly string[], b: readonly string[]) { return new Set(a).size === a.length && new Set(b).size === b.length && a.length === b.length && a.every(v => b.includes(v)); }
 export function parseCopyFollowerSnapshot(value: unknown, account: CopyExecutionAccount): CopyFollowerSnapshotRead {
   const view = copyFollowerSnapshotReadSchema.parse(value);
-  if (account.network !== 'testnet' || !/^0x[0-9a-fA-F]{40}$/.test(account.address ?? '') || view.accountId !== account.id || view.strategyId !== account.strategyId || view.accountAddress !== account.address?.toLowerCase()) throw new Error('follower_snapshot_account_changed');
+  if (!isHyperliquidNetwork(account.network) || view.network !== account.network || !/^0x[0-9a-fA-F]{40}$/.test(account.address ?? '') || view.accountId !== account.id || view.strategyId !== account.strategyId || view.accountAddress !== account.address?.toLowerCase()) throw new Error('follower_snapshot_account_changed');
   if (view.status === 'unavailable') return view;
   const { asOf } = view, oldest = Math.min(asOf.observedAt, asOf.earliestProviderTime);
   if (Object.values(asOf).some(v => !Number.isFinite(new Date(v).getTime())) || asOf.observedAt > asOf.completedAt || asOf.completedAt > asOf.checkedAt || asOf.completedAt > asOf.freshUntil || asOf.freshUntil - oldest < 1 || asOf.freshUntil - oldest > 5000 ||
@@ -40,7 +40,7 @@ export function parseCopyFollowerSnapshot(value: unknown, account: CopyExecution
 export async function loadCopyFollowerSnapshot(account: CopyExecutionAccount, deps: FollowerStatementDependencies): Promise<CopyFollowerSnapshotRead> {
   const selected = { ...account }, owner = { ...deps.snapshot() };
   if (owner.status !== 'signedIn' || !ownerMode(owner.mode) || !owner.identity) throw new Error('follower_snapshot_owner_unavailable');
-  if (selected.network !== 'testnet') throw new Error('follower_snapshot_network_unsupported');
+  if (!isHyperliquidNetwork(selected.network)) throw new Error('follower_snapshot_network_unsupported');
   if (!/^0x[0-9a-fA-F]{40}$/.test(selected.address ?? '')) throw new Error('follower_snapshot_account_unavailable');
   const guard = () => {
     deps.signal?.throwIfAborted(); const currentOwner = deps.snapshot(), current = deps.currentAccount();
@@ -53,7 +53,7 @@ export function useCopyFollowerSnapshot(account: CopyExecutionAccount | null) {
   const auth = useAuth(), latest = useRef({ auth, account }), mounted = useRef(true);
   useLayoutEffect(() => { latest.current = { auth, account }; }, [auth, account]);
   useLayoutEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  const enabled = auth.status === 'signedIn' && ownerMode(auth.mode) && Boolean(auth.identity) && account?.network === 'testnet' && Boolean(account.address);
+  const enabled = auth.status === 'signedIn' && ownerMode(auth.mode) && Boolean(auth.identity) && isHyperliquidNetwork(account?.network) && Boolean(account?.address);
   const query = useQuery({ queryKey: [...queryKeys.copy.all, 'follower-snapshot', auth.status, auth.mode, auth.identity, sessionKey(), auth.wallet?.address?.toLowerCase() ?? null, ...(account ? identity(account) : [null])], enabled,
     queryFn: async ({ signal }) => {
       const startedWall = Date.now(), startedMono = performance.now();

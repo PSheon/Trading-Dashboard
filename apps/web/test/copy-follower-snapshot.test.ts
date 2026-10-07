@@ -16,8 +16,13 @@ it.each(['identity', 'session', 'mode', 'status', 'walletAddress'] as const)('re
 it.each([null, otherActivityAccount, { ...account, strategyId: 11 }, { ...account, address: otherActivityAccount.address }])('refuses a response after master selection changes', async next => {
   const d = deps(); d.read.mockImplementation(async () => { current = next; return followerSnapshot(); }); await expect(loadCopyFollowerSnapshot(account, d)).rejects.toThrow('follower_snapshot_account_changed');
 });
-it('does not call the cached snapshot route for mainnet or demo accounts', async () => {
-  const d = deps(); await expect(loadCopyFollowerSnapshot({ ...account, network: 'mainnet' }, d)).rejects.toThrow('follower_snapshot_network_unsupported'); expect(d.read).not.toHaveBeenCalled();
+it('loads a mainnet account (a mainnet deployment) and refuses a view of the other network', async () => {
+  const main = { ...account, network: 'mainnet' as const };
+  const d = deps(); current = main; d.read.mockResolvedValue({ ...followerSnapshot(), network: 'mainnet' }); await expect(loadCopyFollowerSnapshot(main, d)).resolves.toMatchObject({ network: 'mainnet', status: 'observed' });
+  d.read.mockResolvedValue(followerSnapshot()); await expect(loadCopyFollowerSnapshot(main, d)).rejects.toThrow('follower_snapshot_account_changed'); current = account;
+});
+it('does not call the cached snapshot route for an unknown network or demo accounts', async () => {
+  const d = deps(); await expect(loadCopyFollowerSnapshot({ ...account, network: 'devnet' } as unknown as typeof account, d)).rejects.toThrow('follower_snapshot_network_unsupported'); expect(d.read).not.toHaveBeenCalled();
   owner.mode = 'fixture'; await expect(loadCopyFollowerSnapshot(account, d)).rejects.toThrow(); expect(d.read).not.toHaveBeenCalled();
 });
 it.each([

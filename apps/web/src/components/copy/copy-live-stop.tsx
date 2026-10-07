@@ -40,7 +40,7 @@ function OwnedCopyLiveStop({ selection }: { selection: LiveStopSelection | null 
   // Only this copy's stops: the history and the journal hold every copy's.
   const items = (history.data?.items ?? []).filter(item => !selection || item.accountId === selection.account.id);
   const alreadyRequested = !!selection && (attempts.some(a => a.mandateId === selection.mandate.id) || items.some(i => i.mandateId === selection.mandate.id) || ['stopping', 'stopped'].includes(selection.mandate.state));
-  const validSelection = !!selection && selection.mandate.mode === 'actual' && selection.mandate.network === 'testnet' && selection.account.network === 'testnet' && selection.mandate.accountId === selection.account.id && selection.mandate.accountAddress === selection.account.address && selection.mandate.strategyId === selection.account.strategyId;
+  const validSelection = !!selection && selection.mandate.mode === 'actual' && selection.account.network === selection.mandate.network && selection.mandate.accountId === selection.account.id && selection.mandate.accountAddress === selection.account.address && selection.mandate.strategyId === selection.account.strategyId;
   const working = mutation.isPending || discard.isPending;
   const mine = attempts.filter(attempt => !selection || attempt.accountId === selection.account.id);
   const send = (attempt?: LiveStopAttempt) => track(mutation.mutateAsync(attempt), { pending: t('toast.copy.stopping'), success: t('toast.copy.stopRequested'), error: () => text.error });

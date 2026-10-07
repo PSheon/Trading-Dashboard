@@ -171,3 +171,11 @@
 - git archive乾淨版僅發布web，deployment `47b00102-b86e-4adc-ac11-67bcac25c518`確認SUCCESS。Stage Paul帳號320／390／1440、模式跨頁、手機六頁footer、跟單抽屜開關、正式儲值唯讀視窗均通過，截圖目視；API健康正常。Stage正式＋模擬可選，測試網顯示此部署尚未啟用。
 - 恢復正式偏好、390px探索頁，保持登入；沒有轉帳、策略變更或主網簽署。本機3000／3100／3010服務未重啟。
 - 受控testnet交易員現有170測試USDC／無持倉；B段的資金前置條件已滿足、仍未執行，主網每次簽署須當下授權的規則不變。
+
+### B 段啟動檢查（2026-10-08）
+
+- Paul確認已匯入170 testnet USDC；實查受控交易員權益／可提款170、無持倉。依交接 §5 重啟本機 API／worker 至 stage-caps；web3000及共享Stage登入保留。
+- 修正測試台：可透過 `HARNESS_CDP_ENDPOINT` 沿用現有Chrome，結束僅清理自己的隔離context；確認跟單改走既有 `/portfolio?view=real` 深連結，避免全域模式預設模擬而隱藏實際跟單卡。兩項回歸舊碼RED、新碼GREEN；完整腳本測試71/71通過。
+- `--dry-run --profile stage-caps --scenarios base,3,4,6,7,8,9` 通過服務健康、登入、testnet執行能力、170資金門檻，建立setup時409 `strategy_limit`；未建立新跟單、未轉出150、未下單。紀錄 `/private/tmp/codex-harness-stage-caps-dry-20261008.log`。
+- 唯讀查本機測試帳號14：所有actual策略已停止；模擬策略#3（100）與#15（150）仍active。現行risk policy上限2計入模擬＋實際，因此兩筆模擬佔滿上限。未放寬限制、未停止它們，已向Paul詢問透過正常API停止並保留歷史後續跑。
+- 情境14所需 `admin.access`／`copy.read`／`execution.pause`／`execution.resume` 權限另待Paul授權，尚未演練。B未全綠，C不得開始；Stage服務與資料未修改。

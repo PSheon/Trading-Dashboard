@@ -10,9 +10,10 @@ import { ROOT } from "./lib.mjs";
 
 const webRequire = createRequire(resolve(ROOT, "apps/web/package.json"));
 
-export async function launch({ headless = true } = {}) {
+export async function launch({ headless = true, cdpEndpoint = process.env.HARNESS_CDP_ENDPOINT } = {}) {
   const { chromium } = webRequire("@playwright/test");
-  return chromium.launch({ headless });
+  // CDP attaches to the existing shared Chrome; it does not launch another.
+  return cdpEndpoint ? chromium.connectOverCDP(cdpEndpoint) : chromium.launch({ headless });
 }
 
 /** Privy's test account for the app (email + fixed OTP). The secret stays in this process. */
@@ -135,7 +136,9 @@ export async function confirmFromPortfolio(page, { web, setupId, dryRun = false,
     seen.confirmStatus = r.status();
     try { seen.confirmBody = await r.json(); } catch { /* not json */ }
   });
-  await page.goto(`${web}/zh-TW/portfolio`, { waitUntil: "domcontentloaded" });
+  // The supported deep-link migrates through the global mode store to this
+  // deployment's actual network. The runner already verified testnet.
+  await page.goto(`${web}/zh-TW/portfolio?view=real`, { waitUntil: "domcontentloaded" });
   const cards = page.getByTestId("live-copy-card").filter({ visible: true });
   await cards.first().waitFor({ timeout: 60_000 });
   const resume = page.getByTestId("live-copy-sheet").getByRole("button", { name: "繼續設定", exact: true });

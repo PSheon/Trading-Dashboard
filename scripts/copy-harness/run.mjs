@@ -96,6 +96,8 @@ const summary = (extra = {}) => {
 };
 const finish = async (code, extra) => {
   summary(extra);
+  // Only our isolated context is owned; preserve the shared Stage login.
+  await follower?.context?.close().catch(() => {});
   await browser?.close().catch(() => {});
   process.exit(code);
 };

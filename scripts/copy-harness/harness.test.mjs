@@ -183,3 +183,35 @@ test("refusableCoin picks a coin whose fixed amount falls under the minimum and 
   assert.equal(refusableCoin([markets[0], markets[1]], terms, fixedOrderSize), null);
   assert.equal(refusableCoin([markets[3]], terms, fixedOrderSize)?.name, "BIG");
 });
+
+// Browser/network boundaries are mocked so these tests never launch Chrome
+// or sign anything. The harness must preserve the shared browser session.
+import { mock } from 'node:test';
+import { createRequire } from 'node:module';
+import { launch, confirmFromPortfolio } from './follower.mjs';
+const webRequire = createRequire(new URL('../../apps/web/package.json', import.meta.url));
+test('a supplied CDP endpoint attaches to the shared browser without starting another Chrome', async () => {
+  const { chromium } = webRequire('@playwright/test');
+  const shared = { shared: true }, fresh = { shared: false };
+  let spawned = 0;
+  const launchMock = mock.method(chromium, 'launch', async () => { spawned++; return fresh; });
+  const connectMock = mock.method(chromium, 'connectOverCDP', async endpoint => {
+    assert.equal(endpoint, 'http://127.0.0.1:9333');
+    return shared;
+  });
+  try {
+    const browser = await launch({ cdpEndpoint: 'http://127.0.0.1:9333' });
+    assert.equal(spawned, 0, 'a second browser would lose the shared session and exceed the resource limit');
+    assert.equal(browser, shared);
+  } finally { launchMock.mock.restore(); connectMock.mock.restore(); }
+});
+test('portfolio confirmation opens the actual deployment view instead of waiting for a live copy in paper mode', async () => {
+  const stop = new Error('stop before any confirmation');
+  let selected = 'paper';
+  const cards = { filter() { return this; }, first() { return this; }, async waitFor() { throw stop; } };
+  const page = { on() {}, async route() {}, async goto(url) {
+    selected = new URL(url).searchParams.get('view') === 'real' ? 'actual' : 'paper';
+  }, getByTestId() { return cards; } };
+  await assert.rejects(confirmFromPortfolio(page, { web: 'http://localhost:3000', setupId: 'test-setup' }), e => e === stop);
+  assert.equal(selected, 'actual', 'the global mode otherwise hides the pending actual copy');
+});

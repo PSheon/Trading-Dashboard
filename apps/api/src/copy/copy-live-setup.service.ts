@@ -266,6 +266,11 @@ export class CopyLiveSetupService {
   /** A new generation with new settings or budget, one silent signature (plan §4). */
   async startEdit(userId: number, strategyId: number, body: unknown): Promise<LiveCopySetup> {
     const parsed = input(editSchema, body); this.available();
+    // Refused on mainnet (2026-10-07): an edit's new generation needs a
+    // position baseline, and one is only taken on an account that never
+    // traded (postgres-live-preparation assertFirstAccount), so it could
+    // never trade and the copy would stop following. Stop and start again.
+    if (this.network === 'mainnet') refuse(409, 'edit_unavailable', 'Editing a copy with real funds is not available yet. To change its settings or budget, stop this copy and start a new one.');
     const request = { ...parsed, settings: this.liveSettings(parsed.settings) };
     const prior = await this.repository.byKey(userId, request.idempotencyKey);
     if (prior) return this.wire(prior.stage === 'awaiting_consent' ? await this.rechallengeChange(prior) : prior);

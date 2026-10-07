@@ -418,6 +418,15 @@ describe('one-click testnet copy setup', () => {
     expect(fakes.agents.reconcile).toHaveBeenCalledTimes(2);
   });
 
+  it('refuses an edit on mainnet (its new generation could never trade), before any setup row', async () => {
+    const setup = await start();
+    await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit(); later(5_000); await service.tick();
+    const before = await db.select().from(copyLiveSetups);
+    vi.spyOn(service as unknown as { network: string }, 'network', 'get').mockReturnValue('mainnet');
+    await expect(service.startEdit(uid, setup.strategyId, { idempotencyKey: 'setup-edit-key-0000001', budgetUsd: '150', settings }))
+      .rejects.toMatchObject({ response: { statusCode: 409, code: 'edit_unavailable' } });
+    expect(await db.select().from(copyLiveSetups)).toHaveLength(before.length);
+  });
   it('an edit whose sheet was closed gives way to the next edit; an ended edit can be dismissed', async () => {
     const setup = await start();
     await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit(); later(5_000); await service.tick();

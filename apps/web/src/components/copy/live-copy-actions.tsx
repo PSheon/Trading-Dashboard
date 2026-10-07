@@ -91,7 +91,9 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
         {running && mandateId && item.status === "paused" && item.mandate?.state === "paused" ? (
           <Button size="sm" variant="secondary" loading={actions.resume.isPending} disabled={busy && !actions.resume.isPending} onClick={() => void track(actions.resume.mutateAsync(mandateId), { success: t("toast.copy.resumed"), error: message, onError: fail })}>{text.resume}</Button>
         ) : null}
-        {running && strategy && !unfinished ? <Button size="sm" variant="secondary" disabled={busy} onClick={() => { setError(null); setEditing(true); }}>{text.edit}</Button> : null}
+        {/* No 編輯設定 on mainnet (the api answers edit_unavailable): an edit's new
+            generation can't trade an account that already traded yet. */}
+        {running && strategy && !unfinished && deployment && deployment.network !== "mainnet" ? <Button size="sm" variant="secondary" disabled={busy} onClick={() => { setError(null); setEditing(true); }}>{text.edit}</Button> : null}
         {(running || item.stage === "needs_deposit") && item.accountId && !item.pendingTransfer ? (
           <Button size="sm" variant="secondary" disabled={busy} onClick={() => { setError(null); setTopUpError(null); setToppingUp(true); }}>{text.topUp}</Button>
         ) : null}

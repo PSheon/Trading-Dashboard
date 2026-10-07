@@ -2,7 +2,7 @@
 
 import { useSlidingIndicator } from "@/lib/use-sliding-indicator";
 import { prefersReducedMotion } from "@/lib/motion";
-import { useEffect, useState } from "react";
+import { usePageScrolled } from "@/lib/use-page-scrolled";
 import { Link, usePathname } from "@/i18n/navigation";
 import { cn } from "cn";
 
@@ -81,13 +81,7 @@ export function AppShell({
   const pathname = usePathname();
   // At the top of the page the bars are clear; once it scrolls, their
   // frosted panel (.bar-scrim) fades in.
-  const [scrolled, setScrolled] = useState(false);
-  useEffect(() => {
-    const update = () => setScrolled(window.scrollY > 4);
-    update();
-    window.addEventListener("scroll", update, { passive: true });
-    return () => window.removeEventListener("scroll", update);
-  }, []);
+  const scrolled = usePageScrolled();
   const signedIn = useAuth().status === "signedIn";
   const [mobileRef, mobileBox] = useSlidingIndicator<HTMLElement>(`${pathname}:${signedIn}`);
   const mobilePill = mobileBox?.width ? mobileBox : null;
@@ -204,7 +198,7 @@ export function AppShell({
         ref={mobileRef}
         aria-label={t("nav.primary")}
         className={cn(
-          "fixed inset-x-3 bottom-[calc(12px+env(safe-area-inset-bottom))] z-30 isolate h-[68px] gap-1 rounded-4xl bg-raised p-1.5 shadow-[0_10px_30px_-12px_rgb(21_19_43/35%)] md:hidden",
+          "phone-floating-bar z-30 gap-1 md:hidden",
           signedIn ? "grid-cols-4" : "grid-cols-3",
           tabBar ? "grid" : "hidden",
         )}

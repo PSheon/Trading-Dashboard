@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it, vi } from "vitest";
 
-import { MobileTrader } from "../src/components/trader/mobile-trader";
+import { MobileTrader, MobileTraderSkeleton } from "../src/components/trader/mobile-trader";
 import { profileFor } from "../src/fixtures/data";
 import { I18nProvider } from "../src/i18n/provider";
 import { zhTW } from "../src/i18n/messages/zh-TW";
@@ -36,4 +36,24 @@ it("shows the phone hero's copy score only when the trader has one, as CopyDog",
   const none = render(null);
   expect(none).not.toContain("hero-copy-score");
   expect(none).not.toContain("複製評分");
+});
+
+it("keeps the floating copy action in the same capsule as its loading placeholder", () => {
+  const ready = render(null);
+  const skeleton = renderToStaticMarkup(<I18nProvider locale="zh-TW" messages={zhTW}><MobileTraderSkeleton /></I18nProvider>);
+  for (const html of [ready, skeleton]) {
+    expect(html).toContain("phone-floating-bar");
+    expect(html).not.toContain("bg-background/92");
+  }
+});
+
+it("gives the phone trader header the shared scrim, readable title space and 44px actions", () => {
+  const html = render(null);
+  expect(html).toContain('data-testid="trader-phone-header"');
+  expect(html).toContain('class="bar-scrim"');
+  const title = html.slice(html.indexOf("<h1"), html.indexOf("</h1>"));
+  expect(title).toContain("flex-1");
+  expect(title).not.toContain("absolute");
+  expect(html).toContain("[&amp;_button]:size-11");
+  expect(html).not.toContain("[&amp;_button]:size-9");
 });

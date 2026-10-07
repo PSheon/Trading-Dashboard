@@ -1007,6 +1007,21 @@
   }
 }
 
+/* The phone navigation and trader action float over the same page inset. */
+@layer components {
+  .phone-floating-bar {
+    position: fixed;
+    inset-inline: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    isolation: isolate;
+    height: 68px;
+    border-radius: var(--radius-4xl);
+    background: var(--raised);
+    padding: 6px;
+    box-shadow: 0 10px 30px -12px rgb(21 19 43 / 35%);
+  }
+}
+
 /* The top bars are solid (the page colour). Below each bar hangs a 2rem
    strip that fades from that colour to clear, with a blur that dissolves
    with it, so content scrolling under the bar melts into it instead of

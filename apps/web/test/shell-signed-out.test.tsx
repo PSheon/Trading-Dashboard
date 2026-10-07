@@ -37,7 +37,7 @@ async function render(status: string) {
 }
 const header = () => container.querySelector("header.orbit-header")!;
 const linkNames = (scope: Element) => [...scope.querySelectorAll("a")].map((a) => a.getAttribute("aria-label") ?? a.textContent);
-const tabBar = () => [...container.querySelectorAll("nav")].find((nav) => nav.className.includes("bottom-"))!;
+const tabBar = () => container.querySelector("nav.phone-floating-bar")!;
 
 /** Paul, 2026-10-05: 投資組合 / 收藏 only once someone is signed in. */
 it.each(["signedOut", "loading", "disabled"])("draws no Portfolio / Saved in the header or the tab bar while %s", async (status) => {

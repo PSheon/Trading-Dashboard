@@ -11,6 +11,7 @@ import { OrbieMark } from "@/components/brand/logo";
 import { AreaChart } from "@/components/charts/area-chart";
 import { ErrorState, SkelBar, SkelCircle, Skeleton } from "@/components/page";
 import { useModalFocus } from "@/lib/use-modal-focus";
+import { usePageScrolled } from "@/lib/use-page-scrolled";
 import { FavoriteButton, RoiPill } from "@/components/traders/bits";
 import { roiPillShort } from "@/lib/board-format";
 import { useI18n } from "@/i18n/provider";
@@ -35,8 +36,10 @@ import { Segmented } from "@/components/ui/segmented";
  * (a KOL's name and badge instead), favourite, alert and share. Replaces the app's header there. */
 function TopBar({ profile }: { profile: TraderProfileResponse }) {
   const { t } = useI18n();
+  const scrolled = usePageScrolled();
   return (
-    <div className="sticky top-[env(safe-area-inset-top,0px)] z-30 -mx-4 -mt-4 flex items-center gap-2 bg-background/95 px-4 pt-4 pb-2 backdrop-blur-[10px]">
+    <header data-testid="trader-phone-header" data-scrolled={scrolled} className="sticky top-[env(safe-area-inset-top,0px)] z-30 isolate -mx-4 -mt-4 flex items-center gap-2 px-4 pt-4 pb-2">
+      <div aria-hidden className="bar-scrim" />
       <Link
         href="/explore"
         aria-label={t("common.back")}
@@ -44,11 +47,10 @@ function TopBar({ profile }: { profile: TraderProfileResponse }) {
       >
         <ArrowLeft className="size-5" strokeWidth={2.4} />
       </Link>
-      {/* CopyDog centres the title across the bar, between 116px gutters. */}
-      <h1 className="pointer-events-none absolute inset-x-0 truncate px-[150px] text-center font-display text-xl leading-6 max-[374px]:px-[128px] max-[374px]:text-base" title={profile.address}>
+      <h1 className="min-w-0 flex-1 truncate text-center font-display text-lg leading-6" title={profile.address}>
         {profile.kol ? profile.displayName?.trim() || truncateAddress(profile.address) : truncateAddress(profile.address)}
       </h1>
-      <span className="ml-auto flex shrink-0 items-center gap-1.5 max-[374px]:gap-1 max-[374px]:[&_button]:size-9 [&_button]:size-10 [&_button]:rounded-full [&_button]:bg-raised [&_button]:text-foreground [&_svg]:size-[18px]">
+      <span className="flex shrink-0 items-center gap-1.5 [&_button]:size-11 [&_button]:rounded-full [&_button]:bg-raised [&_button]:text-foreground [&_svg]:size-[18px]">
         <FavoriteButton address={profile.address} favorite={profile.favorite} size="sm" />
         <AlertBell address={profile.address} history />
         <ShareButton
@@ -57,7 +59,7 @@ function TopBar({ profile }: { profile: TraderProfileResponse }) {
           icon="external"
         />
       </span>
-    </div>
+    </header>
   );
 }
 
@@ -271,7 +273,7 @@ export function MobileTrader({
 
       <ActivityTabs profile={profile} liveFills={liveFills} marks={marks} />
 
-      <div className="fixed inset-x-0 bottom-0 z-40 bg-background/92 px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-xl md:hidden">
+      <div data-testid="trader-copy-bar" className="phone-floating-bar z-40 md:hidden">
         <button
           type="button"
           onClick={() => (authStatus === "signedOut" ? login() : setSheet(true))}
@@ -315,13 +317,13 @@ export function MobileTraderSkeleton() {
   const figures = ["trader.accountValue", "trader.kpi.sharpe", "trader.kpi.winRate", "trader.mobile.drawdown"] as const;
   return (
     <div aria-hidden="true" className="flex flex-col gap-6 pb-6">
-      <div className="-mx-4 -mt-4 flex items-center gap-2 bg-background/95 px-4 pt-4 pb-2">
+      <div className="-mx-4 -mt-4 flex items-center gap-2 bg-background px-4 pt-4 pb-2">
         <SkelCircle className="size-11 bg-raised" />
         <SkelBar line="mx-auto h-6" className="h-4 w-28 bg-raised" />
         <span className="flex shrink-0 items-center gap-1.5">
-          <SkelCircle className="size-10 bg-raised" />
-          <SkelCircle className="size-10 bg-raised" />
-          <SkelCircle className="size-10 bg-raised" />
+          <SkelCircle className="size-11 bg-raised" />
+          <SkelCircle className="size-11 bg-raised" />
+          <SkelCircle className="size-11 bg-raised" />
         </span>
       </div>
       <section className="ui-skeleton flex flex-col gap-5 rounded-2xl bg-raised p-4 [--skel-bar:var(--border)]">
@@ -351,7 +353,7 @@ export function MobileTraderSkeleton() {
         ))}
       </div>
       {/* The sticky 跟單 bar's place. */}
-      <div className="fixed inset-x-0 bottom-0 z-40 bg-background/92 px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:hidden">
+      <div className="phone-floating-bar z-40 md:hidden">
         <div className="h-14 rounded-full bg-raised" />
       </div>
     </div>

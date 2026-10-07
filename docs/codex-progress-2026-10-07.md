@@ -123,3 +123,12 @@
 過程修正兩個測試定位：ActivityPanel的dialog無「活動」accessible name，改以可見dialog定位；DataList使用 `data-slot="data-list"` 而非data-testid，修正後才斷言10筆。共享視窗曾切往另一交易員導致逾時，與Paul確認交還操作後重跑成功；以上不是產品失敗。
 
 截圖保留於本機 `/private/tmp/codex-trading-ui/paul-*.png`，包含投資組合、儲值、正式抽屜、六個設定子頁、收藏提醒／動態、三個活動分頁及舊網路詳情。已目視重點截圖；私人帳號截圖不加入git。結束後瀏覽器維持登入、停在桌機投資組合，交還Paul操作。本輪未修改應用程式碼，無需重部署Stage。
+
+### 手機交易員 UI 一致性補修
+
+- Paul指定 `/trader/0xbf732ea04197942783e34730ed6e0f6099575d58`：獨立手機top-bar漏接共用bar-scrim，補上捲動漸層；提取usePageScrolled共用門檻與監聽清理。首頁與桌機維持原本漸層行為（捲動後才顯示）。
+- 底部跟單／管理與skeleton改用首頁導覽的浮動膠囊；共用phone-floating-bar樣式，左右12px、底部12px＋safe-area、68px高、36px圓角與既有陰影。保留內容底部預留空間，最後一張持倉卡不被遮住。
+- 手機標題改用可用flex寬度，390px的solanadoomer可完整顯示；右側三個操作改44px（原40px、窄螢幕36px），返回按鈕同為44px。
+- 兩個新增單元回歸舊碼RED、新碼GREEN，相關10/10；完整web177檔1137/1137，tsc含測試、eslint src/test/e2e通過。新增瀏覽器回歸涵蓋膠囊與首頁尺寸一致、320／390／767觸控尺寸、漸層捲動與reduced-motion、末端內容及桌機隱藏。
+- 共享瀏覽器在正常本機testnet頁面量測：首頁與跟單膠囊皆x12、y764、366×68（390×844）；三種手機寬度無橫向溢出，top-bar固定於y0、捲動後scrim opacity1／回頂0、reduced-motion transition0s；末端main底748.2 < 膠囊頂764。1440×900無手机膠囊。
+- 已目視本機明／暗、頂部／末端與1440截圖，`/private/tmp/codex-trading-ui/floating-*.png`；CI與Stage發布驗證另記後續。

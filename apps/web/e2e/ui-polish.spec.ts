@@ -62,3 +62,44 @@ test("cohort headers stick inside the table's single scrolling viewport", async 
   const gap = await viewport.evaluate(el => Math.abs(el.querySelector('thead')!.getBoundingClientRect().y - el.getBoundingClientRect().y));
   expect(gap).toBeLessThan(1);
 });
+
+test("phone trader chrome floats like the home nav and fades scrolling content under its header", async ({ page }) => {
+  await page.goto("/en");
+  const nav = page.getByRole("navigation", { name: "Main navigation" });
+  await expect(nav).toBeVisible();
+  const home = await nav.boundingBox();
+  await page.goto("/en/trader/0xbf732ea04197942783e34730ed6e0f6099575d58");
+  const bar = page.getByTestId("trader-copy-bar");
+  const header = page.getByTestId("trader-phone-header");
+  const scrim = header.locator(".bar-scrim");
+  await expect(bar).toBeVisible();
+  const bounds = await bar.boundingBox();
+  expect(bounds!.x).toBe(home!.x);
+  expect(bounds!.width).toBe(home!.width);
+  expect(bounds!.y).toBe(home!.y);
+  expect(bounds!.height).toBe(home!.height);
+  expect(await bar.evaluate(el => getComputedStyle(el).boxShadow)).not.toBe("none");
+  for (const width of [320, 390, 767]) {
+    await page.setViewportSize({ width, height: 844 });
+    for (const control of await header.locator("button,a").all()) {
+      const box = await control.boundingBox();
+      expect(box!.width).toBeGreaterThanOrEqual(44);
+      expect(box!.height).toBeGreaterThanOrEqual(44);
+    }
+    await expectNoSidewaysScroll(page);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(() => scrim.evaluate(el => getComputedStyle(el).opacity)).toBe("0");
+  await page.evaluate(() => window.scrollTo(0, 250));
+  await expect.poll(() => scrim.evaluate(el => getComputedStyle(el).opacity)).toBe("1");
+  expect(await scrim.evaluate(el => getComputedStyle(el).pointerEvents)).toBe("none");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  expect(await scrim.evaluate(el => getComputedStyle(el).transitionDuration)).toBe("0s");
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  const bottom = await page.locator("main").evaluate(el => el.getBoundingClientRect().bottom);
+  expect(bottom).toBeLessThan((await bar.boundingBox())!.y);
+  await shot(page, "trader-floating-390");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(bar).toBeHidden();
+  await expectNoSidewaysScroll(page);
+});

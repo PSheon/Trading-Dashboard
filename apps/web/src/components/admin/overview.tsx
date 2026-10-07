@@ -1,5 +1,8 @@
 "use client";
 
+import { DataList } from "@/components/ui/data-list";
+
+
 import { Link } from "@/i18n/navigation";
 import { useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
@@ -353,10 +356,10 @@ function SystemDetails({ data }: { data: AdminSystemOverview }) {
 
 function RowsSkeleton({ rows }: { rows: number }) {
   return (
-    <div aria-hidden="true" className="ui-skeleton divide-y-2 divide-dotted divide-border [--skel-bar:var(--raised)]">
+    <DataList as="div" aria-hidden="true" className="ui-skeleton [--skel-bar:var(--raised)]">
       {Array.from({ length: rows }, (_, i) => (
         <div key={i} className="flex min-h-12 items-center justify-between py-2.5"><SkelBar className="h-3 w-24" /><SkelBar className="h-3 w-20" /></div>
       ))}
-    </div>
+    </DataList>
   );
 }

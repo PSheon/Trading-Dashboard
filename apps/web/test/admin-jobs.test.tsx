@@ -44,6 +44,7 @@ it("marks expired running leases as awaiting recovery and keeps unknown fetched 
     { ...job, status: "running", leaseExpiresAt: "2026-09-30T00:01:00Z" },
     true,
   );
+  expect(html).toContain('data-slot="data-list"');
   expect(html).toContain("Lease expired; awaiting recovery");
   expect(html).toContain("Not reported");
 });

@@ -1,5 +1,8 @@
 "use client";
 
+import { DataList } from "@/components/ui/data-list";
+
+
 import type { HeartbeatResponse } from "@/lib/contracts";
 import { cn } from "cn";
 
@@ -17,7 +20,7 @@ export function WorkerHeartbeat({ data: d }: { data: HeartbeatResponse }) {
       <h2 className="type-h2">{t("admin.statusTitle")}</h2>
       <p className="mt-1 text-[0.8125rem] text-muted-foreground">{t("monitoring.feedHint")}</p>
       <div className="mt-5">
-          <dl className="num divide-y-2 divide-dotted divide-border text-[0.8125rem]">
+          <DataList as="dl" className="num text-[0.8125rem]">
             <Row label={t("admin.status.feed")}>
               <span
                 className={cn(
@@ -76,7 +79,7 @@ export function WorkerHeartbeat({ data: d }: { data: HeartbeatResponse }) {
                 {d.dryRun ? t("admin.status.dryRunOn") : t("admin.status.dryRunOff")}
               </span>
             </Row>
-          </dl>
+          </DataList>
       </div>
     </Panel>
   );

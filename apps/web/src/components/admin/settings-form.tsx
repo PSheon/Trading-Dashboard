@@ -1,5 +1,8 @@
 "use client";
 
+import { DataList } from "@/components/ui/data-list";
+
+
 import { useSaveToast } from "@/lib/use-action-toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronDown } from "lucide-react";
@@ -200,7 +203,7 @@ function Changes({ drafts, sections }: { drafts: Drafts; sections: Section[] }) 
   const { t } = useI18n();
   const show = (v: unknown) => (Array.isArray(v) ? v.join(", ") : v === null || v === undefined || v === "" ? "—" : typeof v === "object" ? JSON.stringify(v) : String(v));
   return (
-    <dl className="divide-y-2 divide-dotted divide-border" aria-label={t("admin.settings.changesTitle")}>
+    <DataList as="dl" className="" aria-label={t("admin.settings.changesTitle")}>
       {sections.flatMap((section) => changedFields(drafts[section]).map(([key, value]) => (
         <div key={`${section}.${key}`} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-2.5">
           <dt className="text-[15px] font-extrabold">{t(`settingsOps.fields.${key}` as MessageKey)}</dt>
@@ -209,7 +212,7 @@ function Changes({ drafts, sections }: { drafts: Drafts; sections: Section[] }) 
           </dd>
         </div>
       )))}
-    </dl>
+    </DataList>
   );
 }
 

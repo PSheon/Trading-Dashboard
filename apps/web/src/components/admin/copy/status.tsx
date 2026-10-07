@@ -1,5 +1,8 @@
 "use client";
 
+import { DataList } from "@/components/ui/data-list";
+
+
 import { Link, usePathname, useRouter } from "@/i18n/navigation";
 import { useSearchParams } from "next/navigation";
 import { Fragment, useMemo, useState } from "react";
@@ -132,7 +135,7 @@ export function AdminCopyStatus() {
         <AdminCard data-testid="copy-stuck-orders" aria-labelledby="copy-stuck-title" className="shadow-[0_0_0_2px_var(--negative)]"
           title={<span id="copy-stuck-title" className="flex items-center gap-2">{t("copyAdmin.stuck.title")}<Chip tone="bad">{format.num(d.stuckOrders!.length, 0)}</Chip></span>}>
           <p className="type-caption">{t("copyAdmin.stuck.hint", { attempts: STUCK_ORDER_ATTEMPTS })}</p>
-          <ul className="divide-y-2 divide-dotted divide-border text-sm font-bold">
+          <DataList className="text-sm font-bold">
             {d.stuckOrders!.map((o) => (
               <li key={o.id} className="grid gap-x-6 gap-y-1 py-2.5 sm:grid-cols-[auto_1fr_auto]">
                 <span className="num">{t("copyAdmin.stuck.order")} #{o.id} · {coinLabel(o.coin)} · {t(`copyAdmin.leg.${o.leg}`)}{o.reduceOnly ? ` · ${t("copyAdmin.stuck.reduceOnly")}` : ""}</span>
@@ -143,7 +146,7 @@ export function AdminCopyStatus() {
                 </span>
               </li>
             ))}
-          </ul>
+          </DataList>
         </AdminCard>
       ) : null}
 
@@ -298,7 +301,7 @@ function UserStrategies({ strategies, loading, coins, onLedger }: {
       {loading ? <p className="text-sm font-bold text-muted-foreground">{t("admin.copy.loading")}</p>
         : !strategies?.length ? <p className="text-sm font-bold text-muted-foreground">{t("copyAdmin.strategies.empty")}</p>
         : (
-          <ul className="flex flex-col divide-y-2 divide-dotted divide-border">
+          <DataList className="flex flex-col ">
             {strategies.map((s) => (
               <li key={s.id} className="grid items-center gap-x-4 gap-y-1 py-2 text-sm font-extrabold sm:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_auto_auto_auto]">
                 <span className="min-w-0 truncate">
@@ -315,7 +318,7 @@ function UserStrategies({ strategies, loading, coins, onLedger }: {
                 </button>
               </li>
             ))}
-          </ul>
+          </DataList>
         )}
       {coins.length ? (
         <ul className="flex flex-wrap gap-1.5">

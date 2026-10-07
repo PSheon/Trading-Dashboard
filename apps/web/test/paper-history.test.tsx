@@ -50,6 +50,7 @@ describe("訂單: an order's row opens its fills", () => {
     ];
     await render(<OrderFills strategyId={7} orderId="9" />);
     const box = el.querySelector('[data-testid="order-fills"]')!;
+    expect(box.querySelector('[data-slot="data-list"]')).not.toBeNull();
     expect(box.querySelectorAll("li")).toHaveLength(2);
     expect(box.textContent).toContain("手續費-$0.04");
     expect(box.textContent).toContain("已實現損益+$1.25");

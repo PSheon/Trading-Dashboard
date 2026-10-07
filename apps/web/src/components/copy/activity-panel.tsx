@@ -1,5 +1,8 @@
 "use client";
 
+import { DataList } from "@/components/ui/data-list";
+
+
 import { ArrowDownLeft, ArrowUpRight, Bell } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { useMemo, useState } from "react";
@@ -91,7 +94,7 @@ function CopiesList() {
   const items = [...events.data.items].reverse().filter((e) => describeCopyEvent(e).kind !== "other");
   if (!items.length) return <Empty title={t("feed.emptyCopies")} body={t("feed.emptyCopiesDesc")} />;
   return (
-    <ul className="divide-y-2 divide-dotted divide-border">
+    <DataList className="">
       {items.map((event) => {
         const d = describeCopyEvent(event);
         const who = leaderOf(event.strategyId);
@@ -130,7 +133,7 @@ function CopiesList() {
           />
         );
       })}
-    </ul>
+    </DataList>
   );
 }
 
@@ -142,7 +145,7 @@ function FollowingList({ onNavigate }: { onNavigate: () => void }) {
   if (!feed.data) return feed.isError ? <p className="py-8 text-center text-sm text-muted-foreground">{t("copyUpdates.activityError")}</p> : <ListRowsSkeleton />;
   if (!feed.data.length) return <Empty title={t("feed.followingEmpty")} body={t("feed.followingWaiting")} />;
   return (
-    <ul className="divide-y-2 divide-dotted divide-border">
+    <DataList className="">
       {feed.data.map((a) => {
         const buy = buys(a);
         const who = a.leaderLabel?.trim() || truncateAddress(a.address);
@@ -158,7 +161,7 @@ function FollowingList({ onNavigate }: { onNavigate: () => void }) {
           />
         );
       })}
-    </ul>
+    </DataList>
   );
 }
 
@@ -169,7 +172,7 @@ function DepositsList() {
   if (!history.data) return history.isError ? <p className="py-8 text-center text-sm text-muted-foreground">{t("copyUpdates.activityError")}</p> : <ListRowsSkeleton />;
   if (!rows.length) return <Empty title={t("feed.emptyDeposits")} />;
   return (
-    <ul className="divide-y-2 divide-dotted divide-border">
+    <DataList className="">
       {rows.map((x) => {
         const deposit = x.kind === "deposit";
         return (
@@ -185,7 +188,7 @@ function DepositsList() {
           />
         );
       })}
-    </ul>
+    </DataList>
   );
 }
 

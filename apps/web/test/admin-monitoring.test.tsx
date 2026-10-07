@@ -12,6 +12,7 @@ it("shows unavailable telemetry explicitly instead of reporting empty queues", (
     sampledAt: new Date().toISOString(), api: { state: "active", uptimeSeconds: 60, budget: { requestsLastMinute: 2, weightLastMinute: 20, effectiveBudgetPerMin: 240, configuredBudgetPerMin: 240, burstCapacity: 100, tokensAvailable: 80, lastRateLimitedAt: null, queued: {live: 0, background: 0} } },
     worker: { state: "standby", sample: null }, database: {state: "unavailable", latencyMs: null}, data: null, outbox: null,
   }} /></I18nProvider>);
+  expect(html).toContain('data-slot="data-list"');
   expect(html).toContain("Standby");
   expect(html).toContain("Unavailable");
   expect(html).toContain("Queue data unavailable");

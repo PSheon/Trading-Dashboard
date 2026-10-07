@@ -20,6 +20,7 @@ const render = (props: Parameters<typeof OperationalSwitchesPanel>[0]) =>
 it("lists every switch for the api and the worker side by side, read-only", () => {
   const html = render({ api, worker, archive });
   for (const name of ["IS_WORKER", "COPY_TRADING_MODE", "HYPERLIQUID_NETWORK", "TELEGRAM_DRY_RUN", "S3_ARCHIVE_ENABLED", "S3_ARCHIVE_MAX_DAILY_USD", "MAX_FAVORITES_PER_USER"]) expect(html).toContain(name);
+  expect(html).toContain('data-slot="data-list"');
   expect(html).toContain("paper");
   expect(html).toContain("testnet");
   expect(html).toContain("mainnet");

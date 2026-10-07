@@ -1,5 +1,8 @@
 "use client";
 
+import { DataList } from "@/components/ui/data-list";
+
+
 import { ChevronDown, ChartPie, Share2, UserPlus, X } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { useId, useMemo, useState } from "react";
@@ -246,7 +249,7 @@ function BestWorst({ leaders }: { leaders: Map<string, Leader> }) {
       </SecHead>
       {list.data ? (
         list.data.items.length ? (
-          <ul className="divide-y-2 divide-dotted divide-border">{list.data.items.map((trade) => <TradeRow key={trade.id} trade={trade} leaders={leaders} />)}</ul>
+          <DataList className="">{list.data.items.map((trade) => <TradeRow key={trade.id} trade={trade} leaders={leaders} />)}</DataList>
         ) : (
           <p className="py-4 text-sm text-muted-foreground">{which === "best" ? t("pf.insights.noWins") : t("pf.insights.noLosses")}</p>
         )
@@ -320,14 +323,14 @@ export function InsightsPanel({ overview, leaders, onSelect, desktop }: { overvi
   const overviewBlock = (
     <section>
       <SecHead title={t("pf.insights.overview")} />
-      <dl className="divide-y-2 divide-dotted divide-border">
+      <DataList as="dl" className="">
         {kpis.map(([k, v, c]) => (
           <div key={k} className="flex items-center justify-between gap-3 py-2.5 text-sm">
             <dt className="text-muted-foreground">{k}</dt>
             <dd className={cn("num font-semibold", c)}>{v}</dd>
           </div>
         ))}
-      </dl>
+      </DataList>
     </section>
   );
   return desktop ? (
@@ -395,7 +398,7 @@ export function ExposurePanel({ overview, leaders, desktop }: { overview: CopyOv
   const byAsset = (
     <section>
       <SecHead title={t("pf.exposure.byAsset")} />
-      <ul className="divide-y-2 divide-dotted divide-border">
+      <DataList className="">
         {assets.rows.map((a) => {
           const share = e.gross > 0 ? a.grossNotional / e.gross : 0;
           const expanded = open.has(a.coin);
@@ -456,7 +459,7 @@ export function ExposurePanel({ overview, leaders, desktop }: { overview: CopyOv
             </li>
           );
         })}
-      </ul>
+      </DataList>
       <TablePager {...assets.pager} className="px-0" />
     </section>
   );

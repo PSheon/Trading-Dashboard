@@ -1,5 +1,8 @@
 "use client";
 
+import { DataList } from "@/components/ui/data-list";
+
+
 import type { HeartbeatResponse, OperationalSwitches } from "@/lib/contracts";
 import { Panel } from "@/components/page";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -64,7 +67,7 @@ export function OperationalSwitchesPanel({ api, worker, archive }: { api?: Opera
       </Table>
       <div className="border-t-2 border-dotted border-border p-5">
         <h4 className="text-sm font-semibold">{t("adminOps.system.archiveTitle")}</h4>
-        <dl className="mt-2 divide-y-2 divide-dotted divide-border text-xs">
+        <DataList as="dl" className="mt-2 text-xs">
           <Fact label={t("adminOps.system.archiveState")} value={t(`adminOps.system.archiveStates.${state}`)} />
           {archive?.enabled ? (
             <>
@@ -80,7 +83,7 @@ export function OperationalSwitchesPanel({ api, worker, archive }: { api?: Opera
               {archive.lastError ? <Fact label={t("adminOps.system.archiveLastError")} value={archive.lastError} /> : null}
             </>
           ) : null}
-        </dl>
+        </DataList>
         {archive?.enabled ? <p className="mt-3 text-xs leading-relaxed text-muted-foreground">{t("adminOps.system.archiveCoverageHint")}</p> : null}
       </div>
     </Panel>

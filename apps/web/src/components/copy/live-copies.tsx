@@ -1,4 +1,6 @@
 'use client';
+
+import { DataList } from "@/components/ui/data-list";
 import { Link } from '@/i18n/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
@@ -308,7 +310,7 @@ function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; te
           <div>
             <p className="text-xs font-semibold">{text.positions}</p>
             {observed.positions.length === 0 ? <p className="text-xs text-muted-foreground">{text.noPositions}</p> : (
-              <ul className="mt-1 divide-y-2 divide-dotted divide-border">
+              <DataList className="mt-1 ">
                 {observed.positions.map(p => (
                   <li key={p.coin} className="flex flex-wrap items-center gap-3 py-1.5 text-xs">
                     <span className="font-semibold">{p.coin}</span>
@@ -323,7 +325,7 @@ function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; te
                     ) : null}
                   </li>
                 ))}
-              </ul>
+              </DataList>
             )}
           </div>
         </>

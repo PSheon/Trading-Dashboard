@@ -1,5 +1,8 @@
 "use client";
 
+import { DataList } from "@/components/ui/data-list";
+
+
 import { copyRecordLabel } from "./copy-labels";
 import { useEffect, useMemo } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
@@ -69,14 +72,14 @@ export function OrderFills({ strategyId, orderId }: { strategyId: number; orderI
   return (
     <div className="flex flex-col gap-2" data-testid="order-fills">
       <p className="type-th">{t("portfolio.copy.detail.orderFills")}</p>
-      <ul className="flex flex-col divide-y-2 divide-dotted divide-border text-xs">
+      <DataList className="flex flex-col text-xs">
         {fills.map((f) => (
           <li key={f.id} className="num flex items-center justify-between gap-3 py-1.5">
             <span className="font-semibold">{format.num(Number(f.size), 5)} × {format.price(Number(f.px))}</span>
             <time dateTime={f.ts} className="text-muted-foreground">{format.dateTime(f.ts)}</time>
           </li>
         ))}
-      </ul>
+      </DataList>
       <dl className="num flex flex-wrap gap-x-6 gap-y-1 text-xs">
         <div className="flex gap-2"><dt className="text-muted-foreground">{t("portfolio.copy.detail.orderFees")}</dt><dd className="font-semibold">{format.usd(-fees, { digits: 2 })}</dd></div>
         <div className="flex gap-2"><dt className="text-muted-foreground">{t("portfolio.copy.detail.orderRealized")}</dt><dd className={cn("font-semibold", realized > 0 ? "text-positive" : realized < 0 ? "text-negative" : "")}>{format.usd(realized, { sign: true, digits: 2 })}</dd></div>
@@ -105,7 +108,7 @@ export function CopyFundsRecords({ strategyId }: { strategyId: number }) {
       ) : rows.length === 0 && !query.hasNextPage ? (
         <p className="px-4 py-6 text-center text-sm text-muted-foreground">{t("portfolio.copy.detail.noFunds")}</p>
       ) : (
-        <ul className="flex flex-col divide-y-2 divide-dotted divide-border px-4">
+        <DataList className="flex flex-col px-4">
           {page.map((row) => {
             const amount = Number(row.amount);
             return (
@@ -118,7 +121,7 @@ export function CopyFundsRecords({ strategyId }: { strategyId: number }) {
               </li>
             );
           })}
-        </ul>
+        </DataList>
       )}
       <TablePager page={pager.page} hasNext={pager.page + 1 < pager.pages || Boolean(query.hasNextPage)} busy={query.isFetchingNextPage} onPage={onPage} />
     </section>

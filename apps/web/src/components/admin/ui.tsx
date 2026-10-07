@@ -1,5 +1,8 @@
 "use client";
 
+import { DataList } from "@/components/ui/data-list";
+
+
 import { Link } from "@/i18n/navigation";
 import { useId } from "react";
 import { cn } from "cn";
@@ -72,7 +75,7 @@ export function AdminCard({ title, action, children, className, id, ...rest }: {
 
 /** Key-value rows with the 2 px dotted separators of the boards. */
 export function Facts({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <dl className={cn("divide-y-2 divide-dotted divide-border", className)}>{children}</dl>;
+  return <DataList as="dl" className={cn("", className)}>{children}</DataList>;
 }
 
 export function Fact({ label, value, tone, className }: { label: React.ReactNode; value: React.ReactNode; tone?: "positive" | "negative" | "warning" | "muted"; className?: string }) {

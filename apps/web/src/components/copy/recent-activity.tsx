@@ -1,5 +1,8 @@
 "use client";
 
+import { DataList } from "@/components/ui/data-list";
+
+
 import type { WireCopyEvents } from "@trading-dashboard/shared/contracts";
 
 import { PAGE_SIZE, TablePager, usePaged } from "@/components/ui/table-pager";
@@ -50,7 +53,7 @@ export function CopyActivity({ names, className }: { names: Map<number, string>;
   return (
     <div className={className} data-testid="copy-activity">
       {mine.length ? (
-        <ol className="divide-y-2 divide-dotted divide-border" data-testid="recent-activity">
+        <DataList as="ol" className="" data-testid="recent-activity">
           {page.map((event) => {
             const { what, who, when } = line(event, names.get(event.strategyId!));
             return (
@@ -60,7 +63,7 @@ export function CopyActivity({ names, className }: { names: Map<number, string>;
               </li>
             );
           })}
-        </ol>
+        </DataList>
       ) : (
         <p className="py-4 text-sm text-muted-foreground">{query.isPending && !query.data ? t("copyUpdates.activityLoading") : t("folio.noCopyActivity")}</p>
       )}

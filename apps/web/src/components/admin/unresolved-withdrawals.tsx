@@ -1,5 +1,8 @@
 "use client";
 
+import { DataList } from "@/components/ui/data-list";
+
+
 import { useSaveToast } from "@/lib/use-action-toast";
 import { useState } from "react";
 
@@ -40,7 +43,7 @@ export function UnresolvedWithdrawals() {
       <AdminCard aria-labelledby="withdrawals-in-doubt" title={<span id="withdrawals-in-doubt">{t("admin.withdrawals.title")}</span>} className="shadow-[0_0_0_2px_var(--warning)]">
         <p className="type-caption">{t("admin.withdrawals.hint")}</p>
         {outcome ? <p role="status" className="text-sm font-bold text-positive">{outcome}</p> : null}
-        <ul className="divide-y-2 divide-dotted divide-border">
+        <DataList className="">
           {items.map((item) => {
             const open = new Date(item.resolvableAt).getTime() > now;
             return (
@@ -58,7 +61,7 @@ export function UnresolvedWithdrawals() {
               </li>
             );
           })}
-        </ul>
+        </DataList>
       </AdminCard>
       <Modal open={target !== null} onOpenChange={(next) => { if (!next) close(); }} title={t("admin.withdrawals.resolve")}>
         <form className="flex flex-col gap-3" onSubmit={(event) => {

@@ -1,5 +1,8 @@
 "use client";
 
+import { DataList } from "@/components/ui/data-list";
+
+
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useWalletModals } from "@/components/wallet/wallet-modals";
@@ -27,7 +30,7 @@ export function CopyWalletsList() {
       <h3 className="text-[0.9375rem] font-bold">{text.wallets}</h3>
       <p className="mt-2 text-xs leading-5 text-muted-foreground">{text.walletsHint}</p>
       {!accounts.length ? <p className="mt-3 text-xs text-muted-foreground">{text.walletsEmpty}</p> : null}
-      <ul className="mt-3 divide-y-2 divide-dotted divide-border">
+      <DataList className="mt-3 ">
         {accounts.map(account => {
           const grants = data.authorizations.filter(grant => grant.accountAddress === account.address && grant.status !== "revoked" && grant.status !== "expired");
           return (
@@ -54,7 +57,7 @@ export function CopyWalletsList() {
             </li>
           );
         })}
-      </ul>
+      </DataList>
       {revoke.isError ? <p role="alert" className="mt-2 text-xs text-negative">{t("executionWallets.actionError")}</p> : null}
     </section>
   );

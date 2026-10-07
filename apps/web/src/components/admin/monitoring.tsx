@@ -1,5 +1,8 @@
 "use client";
 
+import { DataList } from "@/components/ui/data-list";
+
+
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "cn";
 import { OperationalSwitchesPanel } from "./operational-switches";
@@ -38,12 +41,12 @@ export function MonitoringDetails({ data: d }: { data: AdminSystemOverview }) {
   const worker = d.worker.sample;
   const budget = (v: AdminSystemOverview["api"]["budget"] | null) => <>
     <p className="mt-4 text-xs font-semibold text-muted-foreground">{t("monitoring.budget")}</p>
-    <dl className="mt-1 divide-y-2 divide-dotted divide-border text-xs">
+    <DataList as="dl" className="mt-1 text-xs">
       <Metric label={t("monitoring.consumed")} value={v?.weightLastMinute ?? t("monitoring.unknown")} />
       <Metric label={t("monitoring.effective")} value={v ? `${v.effectiveBudgetPerMin} / ${v.configuredBudgetPerMin}` : t("monitoring.unknown")} />
       <Metric label={t("monitoring.queued")} value={v ? `${v.queued.live} / ${v.queued.background}` : t("monitoring.unknown")} />
       <Metric label={t("monitoring.last429")} value={v ? time(v.lastRateLimitedAt) : t("monitoring.unknown")} />
-    </dl>
+    </DataList>
   </>;
   return <div className="space-y-4">
     <div className="grid gap-4 lg:grid-cols-3">
@@ -56,7 +59,7 @@ export function MonitoringDetails({ data: d }: { data: AdminSystemOverview }) {
     </div>
     <div className="grid items-start gap-4 xl:grid-cols-2">
       <Panel className="card-pad"><h3 className="type-h2">{t("monitoring.data")}</h3>
-        {!d.data ? <p className="mt-4 text-sm text-muted-foreground">{t("monitoring.dataMissing")}</p> : <dl className="mt-3 divide-y-2 divide-dotted divide-border text-sm">
+        {!d.data ? <p className="mt-4 text-sm text-muted-foreground">{t("monitoring.dataMissing")}</p> : <DataList as="dl" className="mt-3 text-sm">
           <Metric label={t("monitoring.leaderboard")} value={format.num(d.data.leaderboardCount, 0)} />
           <Metric label={t("monitoring.leaderboardAt")} value={time(d.data.leaderboardUpdatedAt)} />
           <Metric label={t("monitoring.watched")} value={d.data.watched} />
@@ -70,16 +73,16 @@ export function MonitoringDetails({ data: d }: { data: AdminSystemOverview }) {
             <Metric label={t("settingsOps.portfolioStale")} value={`${d.data.freshness.portfolioStale} / ${d.data.freshness.portfolioMissing}`} />
             <Metric label={t("settingsOps.tradesStale")} value={`${d.data.freshness.tradesStale} / ${d.data.freshness.tradesMissing}`} />
           </>}
-        </dl>}<p className="mt-3 text-xs leading-relaxed text-muted-foreground">{t("monitoring.coverageHint")} {d.data?.freshness && t("settingsOps.freshnessHint")}</p>
+        </DataList>}<p className="mt-3 text-xs leading-relaxed text-muted-foreground">{t("monitoring.coverageHint")} {d.data?.freshness && t("settingsOps.freshnessHint")}</p>
       </Panel>
       <Panel className="card-pad"><h3 className="type-h2">{t("monitoring.outbox")}</h3>
         {d.outbox === null ? <p className="mt-4 text-sm text-muted-foreground">{t("monitoring.outboxMissing")}</p> : d.outbox.map(q => <div key={q.kind} className="mt-4">
           <h4 className="text-sm font-medium">{t(`monitoring.${q.kind}`)}</h4>
-          <dl className="mt-1 divide-y-2 divide-dotted divide-border text-xs">
+          <DataList as="dl" className="mt-1 text-xs">
             {(["pending", "processing", "failed", "due"] as const).map(key => <Metric key={key} label={t(`monitoring.${key}`)} value={q[key]} />)}
             <Metric label={t("monitoring.expired")} value={q.expiredLeases} />
             <Metric label={t("monitoring.oldestDue")} value={time(q.oldestDueAt)} />
-          </dl></div>)}<p className="mt-3 text-xs leading-relaxed text-muted-foreground">{t("monitoring.queueHint")}</p>
+          </DataList></div>)}<p className="mt-3 text-xs leading-relaxed text-muted-foreground">{t("monitoring.queueHint")}</p>
       </Panel>
     </div>
     {d.retention !== undefined && <RetentionPanel retention={d.retention} />}
@@ -93,20 +96,20 @@ export function RetentionPanel({ retention: r }: { retention: NonNullable<AdminS
   const time = (v: string | null) => v ? format.dateTime(v) : t("adminOps.retention.never");
   return <Panel className="card-pad" data-testid="retention-panel"><h3 className="type-h2">{t("adminOps.retention.title")}</h3>
     {r === null ? <p className="mt-4 text-sm text-muted-foreground">{t("adminOps.retention.missing")}</p> : <div className="grid items-start gap-x-8 gap-y-4 xl:grid-cols-2">
-      <dl className="mt-3 divide-y-2 divide-dotted divide-border text-sm">
+      <DataList as="dl" className="mt-3 text-sm">
         <Metric label={t("adminOps.retention.status")} value={r.running ? t("adminOps.retention.running") : r.lastStatus ? t(`adminOps.retention.statuses.${r.lastStatus}`) : t("adminOps.retention.never")} />
         <Metric label={t("adminOps.retention.lastStarted")} value={time(r.lastStartedAt)} />
         <Metric label={t("adminOps.retention.lastFinished")} value={time(r.lastFinishedAt)} />
         {r.durationMs !== null && <Metric label={t("adminOps.retention.duration")} value={t("monitoring.milliseconds", { value: format.num(r.durationMs, 0) })} />}
         {r.lastError && <Metric label={t("adminOps.retention.error")} value={r.lastError} />}
-      </dl>
+      </DataList>
       <div className="mt-3">
         <h4 className="text-sm font-medium">{t("adminOps.retention.removed")}</h4>
-        <dl className="mt-1 divide-y-2 divide-dotted divide-border text-xs">
+        <DataList as="dl" className="mt-1 text-xs">
           {RETENTION_TABLES.map((table) => <Metric key={table}
             label={<>{t(`adminOps.retention.tables.${table}`)}{r.cutoffs?.[table] ? <span className="ml-2 text-subtle-foreground">{t("adminOps.retention.keptSince", { time: format.dateTime(r.cutoffs[table]) })}</span> : null}</>}
             value={r.removed === null ? "—" : r.removed[table] === undefined ? t("adminOps.retention.notReached") : format.num(r.removed[table], 0)} />)}
-        </dl>
+        </DataList>
       </div>
     </div>}
     <p className="mt-3 text-xs leading-relaxed text-muted-foreground">{t("adminOps.retention.hint")}</p>

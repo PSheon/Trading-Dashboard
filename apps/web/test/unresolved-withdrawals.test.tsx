@@ -40,6 +40,7 @@ it("shows nothing when no withdrawal is in doubt", async () => {
 it("lets an admin resolve one whose window has passed, with a reason, and reports the ledger's answer", async () => {
   state.items = [item(Date.now() - 1000)];
   await render();
+  expect(container.querySelector('[data-slot="data-list"]')).not.toBeNull();
   expect(container.textContent).toContain("alice@example.com");
   await act(async () => button(en.admin.withdrawals.resolve)!.click());
   const input = document.querySelector<HTMLInputElement>("#withdrawal-reason")!;

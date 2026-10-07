@@ -32,6 +32,7 @@ it("signs every amount from the owner's wallet, tags 模擬 rows, names the trad
     flow({ id: "paper", kind: "copy_deposit", mode: "paper", amount: 150, counterparty: "paper", status: null, time: "2026-10-04T00:00:00.000Z" }),
   ];
   const html = renderToStaticMarkup(<I18nProvider locale="zh-TW" messages={catalogs["zh-TW"]}><FundsHistory /></I18nProvider>);
+  expect(html).toContain('data-slot="data-list"');
   expect(html).toContain("從跟單 Kinetiq 返還主錢包");
   expect(html).toContain("轉入跟單 Kinetiq 錢包");
   expect(html).toContain("加碼至跟單 Kinetiq");

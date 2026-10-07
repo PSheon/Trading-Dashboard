@@ -1,4 +1,7 @@
 "use client";
+
+import { DataList } from "@/components/ui/data-list";
+
 import { useSaveToast } from "@/lib/use-action-toast";
 import { useState } from "react";
 import { Link } from "@/i18n/navigation";
@@ -200,7 +203,7 @@ export function JobCard({
       {expired && (
         <p className="mt-3 text-xs text-warning">{t("jobs.expired")}</p>
       )}
-      <dl className="mt-3 divide-y-2 divide-dotted divide-border text-xs">
+      <DataList as="dl" className="mt-3 text-xs">
         <Metric
           label={t("jobs.attempts")}
           value={`${job.runAttempts} / 3 · ${job.attempts}`}
@@ -237,7 +240,7 @@ export function JobCard({
             value={t(`jobs.${job.lastErrorCode}`)}
           />
         )}
-      </dl>
+      </DataList>
       {canRetry && job.status === "failed" && (
         <Button
           className="mt-4"

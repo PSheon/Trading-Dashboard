@@ -39,3 +39,12 @@
 - 前後 1440／390 截圖已目視，無頁面橫向溢出；幣種詳細頁多欄在表格容器內捲動。
 - 截圖：`/private/tmp/codex-trading-ui/step3-{before,after}-{explore,coins,coin,insights}-{1440,390}.png`。
 - 補充第 2 步：實際 SVG 量測確認 sparkline 為 72×28、父容器 90px、clip-path none（`chart-check.mjs`）；部分重拍畫面在 HMR 後捕捉到動畫中途，後续截圖應等待動畫穩定。
+
+### ⑪第 4 步
+
+- 20 個檔案的 35 處虛線清單（含 skeleton、dl、div）統一到 DataList，保留元素語意與既有互動。
+- 7 個區域的真元件渲染斷言在旧碼失敗；新碼相關 27/27、完整 suite 1115/1115。
+- 完整 suite 抓到搬移 import 破壞 live-copies 單引號 use-client directive，已修正並重跑全綠；eslint 無警告，tsc 通過。
+- 重新擷取有效前後畫面，所有 390 頁面無横向溢出；截圖腳本加 HTTP ok 與 main 可見檢查，失敗頁不算驗證。
+- 截圖：`/private/tmp/codex-trading-ui/step4-{before,after}-{favorites-alerts,portfolio,settings,admin,admin-jobs,admin-settings}-{1440,390}.png`。
+- 未刪未使用元件，仍統一它們的清單，保留既有回歸測試；其餘長資料清單的分頁接線在第 6 步。

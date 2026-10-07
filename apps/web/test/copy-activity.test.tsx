@@ -85,6 +85,7 @@ it("starts from zero for another identity and does not show the previous ownerâ€
 it("renders the ownerâ€™s confirmed event details and strategy link rather than leader activity", () => {
   const items = [{ ...event("1"), type: "funds_withdrawn", payload: { mode: "paper", amount: "125.50" } }, event("2")];
   const html = renderToStaticMarkup(<I18nProvider locale="en" messages={en}><CopyActivityItems items={items} /></I18nProvider>);
+  expect(html).toContain('data-slot="data-list"');
   expect(html).toContain("Funds withdrawn");
   expect(html).toContain("$125.50");
   expect(html).toContain("/portfolio?copy=1");

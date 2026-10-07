@@ -1,5 +1,8 @@
 "use client";
 
+import { DataList } from "@/components/ui/data-list";
+
+
 import { LogIn, type LucideIcon } from "lucide-react";
 import { cn } from "cn";
 
@@ -180,7 +183,7 @@ export function SkelCircle({ className }: { className?: string }) {
  * icon or avatar disc, a title and a detail line, and a figure at the end. */
 export function ListRowsSkeleton({ rows = 3, className, rowClassName = "py-3", circle = "size-9" }: { rows?: number; className?: string; rowClassName?: string; circle?: string }) {
   return (
-    <ul aria-hidden="true" className={cn("ui-skeleton divide-y-2 divide-dotted divide-border [--skel-bar:var(--raised)]", className)}>
+    <DataList aria-hidden="true" className={cn("ui-skeleton [--skel-bar:var(--raised)]", className)}>
       {Array.from({ length: rows }, (_, i) => (
         <li key={i} className={cn("flex items-center gap-3", rowClassName)}>
           <SkelCircle className={circle} />
@@ -191,7 +194,7 @@ export function ListRowsSkeleton({ rows = 3, className, rowClassName = "py-3", c
           <SkelBar className="h-3 w-16" />
         </li>
       ))}
-    </ul>
+    </DataList>
   );
 }
 
@@ -224,14 +227,14 @@ export function PanelSkeleton({ tiles = 0, chart = 0, fields = 0, rows = 0, clas
         </div>
       ) : null}
       {rows ? (
-        <div className="flex flex-col divide-y-2 divide-dotted divide-border">
+        <DataList as="div" className="flex flex-col ">
           {Array.from({ length: rows }, (_, i) => (
             <div key={i} className="flex items-center justify-between gap-4 py-3">
               <SkelBar className={i % 2 ? "h-3 w-28" : "h-3 w-40"} />
               <SkelBar className="h-3 w-16" />
             </div>
           ))}
-        </div>
+        </DataList>
       ) : null}
     </section>
   );

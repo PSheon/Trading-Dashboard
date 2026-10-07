@@ -1,5 +1,8 @@
 "use client";
 
+import { DataList } from "@/components/ui/data-list";
+
+
 import { Bell, Bookmark, Send, Star, X, Zap } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { useSearchParams } from "next/navigation";
@@ -488,7 +491,7 @@ function AlertsTab({ favorites }: { favorites: Favorite[] | undefined }) {
   if (!favorites) {
     // The alert list's card: rows of avatar, name and summary, the bell pill.
     return (
-      <ul aria-hidden="true" className="ui-skeleton divide-y-2 divide-dotted divide-border orbit-card">
+      <DataList aria-hidden="true" className="ui-skeleton orbit-card">
         {Array.from({ length: 3 }, (_, i) => (
           <li key={i} className="flex items-center gap-3 px-4 py-3">
             <SkelCircle className="size-10" />
@@ -499,7 +502,7 @@ function AlertsTab({ favorites }: { favorites: Favorite[] | undefined }) {
             <SkelBar className="h-9 w-20" />
           </li>
         ))}
-      </ul>
+      </DataList>
     );
   }
   const on = favorites.filter((f) => f.alert.enabled);
@@ -530,12 +533,12 @@ function AlertsTab({ favorites }: { favorites: Favorite[] | undefined }) {
       {on.length === 0 ? (
         <EmptyState icon={Bell} title={t("favorites.alerts.empty")} className="orbit-card" />
       ) : (
-        <ul className="divide-y-2 divide-dotted divide-border orbit-card">{on.map((f) => row(f, true))}</ul>
+        <DataList className="orbit-card">{on.map((f) => row(f, true))}</DataList>
       )}
       {off.length > 0 ? (
         <section className="flex flex-col gap-2">
           <h2 className="text-sm font-semibold text-muted-foreground">{t("favorites.alerts.others")}</h2>
-          <ul className="divide-y-2 divide-dotted divide-border orbit-card">{off.map((f) => row(f, false))}</ul>
+          <DataList className="orbit-card">{off.map((f) => row(f, false))}</DataList>
         </section>
       ) : null}
     </div>
@@ -566,7 +569,7 @@ function FeedTab({ rows, loading, highlight, favorites, hasFavorites }: {
   if (loading) {
     // The feed's card: a coin, a sentence and the time per row.
     return (
-      <ul aria-hidden="true" className="ui-skeleton divide-y-2 divide-dotted divide-border orbit-card">
+      <DataList aria-hidden="true" className="ui-skeleton orbit-card">
         {Array.from({ length: 6 }, (_, i) => (
           <li key={i} className="flex items-center gap-3 px-4 py-3">
             <SkelCircle className="size-[26px]" />
@@ -574,14 +577,14 @@ function FeedTab({ rows, loading, highlight, favorites, hasFavorites }: {
             <SkelBar className="h-2.5 w-12" />
           </li>
         ))}
-      </ul>
+      </DataList>
     );
   }
   if (rows.length === 0) {
     return <EmptyState icon={Zap} title={hasFavorites ? t("favorites.feed.emptyWaiting") : t("favorites.feed.emptyNoAlerts")} className="orbit-card" />;
   }
   return (
-    <ul className="divide-y-2 divide-dotted divide-border orbit-card">
+    <DataList className="orbit-card">
       {rows.map((row) => {
         const id = String(row.id);
         const buy = isBuy(row);
@@ -609,6 +612,6 @@ function FeedTab({ rows, loading, highlight, favorites, hasFavorites }: {
           </li>
         );
       })}
-    </ul>
+    </DataList>
   );
 }

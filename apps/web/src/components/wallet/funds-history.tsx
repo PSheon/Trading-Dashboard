@@ -1,5 +1,8 @@
 "use client";
 
+import { DataList } from "@/components/ui/data-list";
+
+
 import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Coins, ReceiptText } from "lucide-react";
 import { useMemo, useState } from "react";
 import { cn } from "cn";
@@ -61,9 +64,9 @@ export function FundsHistory({ className }: { className?: string }) {
       ) : shown.length === 0 ? (
         <EmptyState icon={ReceiptText} title={t("funds.empty")} body={t("wallet.historyEmptyBody")} />
       ) : (
-        <ul className="divide-y-2 divide-dotted divide-border" data-testid="funds-history">
+        <DataList className="" data-testid="funds-history">
           {shown.map((row) => <Row key={row.id} row={row} owner={owner} nameOf={nameOf} network={network} />)}
-        </ul>
+        </DataList>
       )}
       {flows.hasNextPage ? (
         <Button variant="secondary" size="sm" className="mt-3" loading={flows.isFetchingNextPage} disabled={!(flows.isFetchingNextPage) && (flows.isFetchingNextPage)} onClick={() => void flows.fetchNextPage()}>{t("funds.older")}</Button>

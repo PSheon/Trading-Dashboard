@@ -12,7 +12,8 @@ import { CoinIcon } from "@/components/traders/coin-icon";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useI18n } from "@/i18n/provider";
 import { coinLabel, signedUsd2, signedUsdShort, timeAgo, usd2 } from "@/lib/format";
-import { isComputing, useTraderTrades } from "@/lib/queries";
+import { isComputing, isUnavailable, useTraderTrades } from "@/lib/queries";
+import { useNow } from "@/lib/use-now";
 import {
   duration,
   pct1,
@@ -62,11 +63,11 @@ export function Loading({ cols, left }: { cols: string[]; left?: number }) {
   return <TabTableSkeleton cols={cols} left={left} />;
 }
 
-export function LoadError({ onRetry }: { onRetry: () => void }) {
+export function LoadError({ onRetry, message }: { onRetry: () => void; message?: string }) {
   const { t } = useI18n();
   return (
-    <p className="py-12 text-center text-sm text-muted-foreground">
-      {t("trader.analyticsFailed")}{" "}
+    <p role="status" className="py-12 text-center text-sm text-muted-foreground">
+      {message ?? t("trader.analyticsFailed")}{" "}
       <button type="button" className="text-primary-text underline" onClick={onRetry}>
         {t("trader.retry")}
       </button>
@@ -220,6 +221,7 @@ function TrailShare({ trade, address, children }: { trade: RoundTrip; address: s
 /** A trade as CopyDog's mobile card: coin + side, entry → exit, "2d ago",
  * PnL and return. */
 export function TradeCard({ trade, shareAddress = null }: { trade: RoundTrip; /** The trader's address: the card opens the share dialog. */ shareAddress?: string | null }) {
+  const { locale } = useI18n(), now = useNow();
   const pnl = shownPnl(trade);
   const roi = tradeReturnPct(trade);
   return (
@@ -235,7 +237,7 @@ export function TradeCard({ trade, shareAddress = null }: { trade: RoundTrip; /*
           <ArrowRight className="size-3 shrink-0" aria-hidden />
           {trade.exitPx === null ? "—" : price(trade.exitPx)}
         </span>
-        {trade.exitTime ? <span className="num text-xs leading-[18px] text-muted-foreground">{timeAgo(trade.exitTime)}</span> : null}
+        {trade.exitTime ? <span className="num text-xs leading-[18px] text-muted-foreground">{timeAgo(trade.exitTime, now, locale)}</span> : null}
       </div>
       <TrailShare trade={trade} address={shareAddress}>
         <span className={cn("num text-[15px] leading-[23px] font-semibold", pnlTone(pnl))}>{signedUsdShort(pnl)}</span>
@@ -441,6 +443,7 @@ function CoinTable({ rows }: { rows: TradeCoin[] }) {
 export function PerformanceTab({
   analytics,
   computing,
+  unavailable = false,
   error,
   onRetry,
   view,
@@ -448,6 +451,8 @@ export function PerformanceTab({
 }: {
   analytics: TraderAnalyticsResponse | undefined;
   computing: boolean;
+  /** The api stayed busy past the page's patience: 暫時無法取得 and 重試. */
+  unavailable?: boolean;
   error: Error | null;
   onRetry: () => void;
   view: PerfView;
@@ -457,6 +462,7 @@ export function PerformanceTab({
   if (!analytics) {
     const cols = TRADE_COLS.map((k) => t(`trader.tradeCols.${k}`));
     if (computing) return <Computing cols={cols} />;
+    if (unavailable) return <LoadError onRetry={onRetry} message={t("trader.analyticsUnavailable")} />;
     if (error) return <LoadError onRetry={onRetry} />;
     return <Loading cols={cols} />;
   }
@@ -529,7 +535,8 @@ export function TradesTab({ address }: { address: string }) {
   if (query.isError && !first) body = <LoadError onRetry={() => query.refetch()} />;
   else if (!first) {
     const cols = LEDGER_COLS.map((k) => t(`trader.tradeCols.${k}`));
-    body = isComputing(query) && query.failureReason ? <Computing cols={cols} /> : <Loading cols={cols} />;
+    body = isComputing(query) && query.failureReason ? <Computing cols={cols} />
+      : isUnavailable(query) ? <LoadError onRetry={() => query.refetch()} message={t("trader.analyticsUnavailable")} /> : <Loading cols={cols} />;
   }
   else if (rows.length === 0) {
     const dense = first.coverage.truncated && first.coverage.from !== null;

@@ -10,7 +10,7 @@ import { rovingFocus } from "@/lib/roving-focus";
 import { ErrorState } from "@/components/page";
 import { useI18n } from "@/i18n/provider";
 import { mergeLiveFills } from "@/lib/live-trader";
-import { isComputing, useTraderAnalytics, useTraderFills } from "@/lib/queries";
+import { isComputing, isUnavailable, useTraderAnalytics, useTraderFills } from "@/lib/queries";
 import { Loading, PerfSwitch, PerformanceTab, TradesTab, type PerfView } from "./trade-analytics";
 import { BalancesTab, FILL_COLS, FILL_LIMIT, POSITION_COLS, FillsTab, fillsTruncated, OrdersTab, PositionsTab, TransfersTab, TwapTab } from "./trader-tabs";
 import { SwitchPanel } from "@/components/ui/switch-panel";
@@ -127,6 +127,7 @@ export function ActivityTabs({
           <PerformanceTab
             analytics={analytics.data}
             computing={isComputing(analytics)}
+            unavailable={isUnavailable(analytics)}
             error={analytics.error}
             onRetry={() => analytics.refetch()}
             view={perfView}

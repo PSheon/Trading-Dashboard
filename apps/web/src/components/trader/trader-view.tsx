@@ -10,6 +10,7 @@ import { useI18n } from "@/i18n/provider";
 import {
   type InitialRead,
   isComputing,
+  isUnavailable,
   useCopyScore,
   usePortfolio,
   useTraderActivity,
@@ -237,6 +238,8 @@ function DesktopTrader({ address, profile, live, lowSample, firstPaint, portfoli
             lowSample={lowSample}
             trades={tradesAll.data}
             tradesComputing={isComputing(tradesAll)}
+            tradesUnavailable={isUnavailable(tradesAll)}
+            onRetryTrades={() => void tradesAll.refetch()}
           />
         ) : (
           <KpiTiles period={kpiPeriod} onPeriod={setKpiPeriod} periodPortfolio={undefined} allTime={undefined} trades={undefined} tradesComputing lowSample={false} />

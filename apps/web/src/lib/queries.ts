@@ -351,6 +351,13 @@ export function isComputing(query: { data?: unknown; failureReason: Error | null
   return query.data === undefined && query.failureCount <= TRADER_RETRIES && (query.isPending || isBusy(query.failureReason));
 }
 
+/** Given up waiting: no data, and the api stayed busy past `TRADER_RETRIES`
+ * answers (or the request failed). The page says 暫時無法取得 with a 重試
+ * instead of a placeholder that never ends; a later answer still fills in. */
+export function isUnavailable(query: { data?: unknown; failureReason: Error | null; failureCount: number; isPending: boolean; isError?: boolean }): boolean {
+  return query.data === undefined && !isComputing(query) && (query.isError === true || query.failureReason !== null);
+}
+
 /** GET /traders/:address/analytics: win rate, trade count, best / worst,
  * coins and tiers, for any address (served from the api's store). */
 export function useTraderAnalytics(address: string, window: TradeWindow) {

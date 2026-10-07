@@ -30,11 +30,11 @@ describe("KPI tiles, CopyDog's", () => {
     const html = render({ period: "month", periodPortfolio: portfolio(17_295_593, 5.359733), allTime, locale: "zh-TW" });
     expect(html).toContain("+$17.30M");
     expect(html).toContain("+536%");
-    expect(html).toContain("30D");
+    expect(html).toContain("30天");
     expect(html).toContain("4.80");
     expect(html).toContain("11.9%");
     expect(html).toContain("最大回撤");
-    expect(html).toContain("1mo 交易資歷");
+    expect(html).toContain("1 個月 交易資歷");
   });
 
   it("annualises All over the history's span and warns under 90 days", () => {

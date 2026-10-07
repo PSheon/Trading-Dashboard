@@ -38,7 +38,7 @@ export const TRADE_WINDOW: Record<TraderWindow, TradeWindow> = { day: "1d", week
 
 /** The 表現 tile's periods, CopyDog's All / 30D / 7D. */
 export type KpiPeriod = "allTime" | "month" | "week";
-export const KPI_PERIODS: Array<[KpiPeriod, string]> = [["allTime", "All"], ["month", "30D"], ["week", "7D"]];
+export const KPI_PERIODS: Array<[KpiPeriod, "windows.allTime" | "windows.month" | "windows.week"]> = [["allTime", "windows.allTime"], ["month", "windows.month"], ["week", "windows.week"]];
 const PERIOD_DAYS: Record<KpiPeriod, number | null> = { allTime: null, month: 30, week: 7 };
 
 type Tone = "positive" | "negative" | "warning";
@@ -63,13 +63,21 @@ export function signedPctCd(v: number | null | undefined): string {
   return `${v >= 0 ? "+" : "-"}${n.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}%`;
 }
 
-/** CopyDog's track record: "<1d", "12d", "1mo", "2.8y" since the first trade. */
-export function trackRecord(firstMs: number, now: number): string {
+/** CopyDog's track record: "<1d", "12d", "1mo", "2.8y" since the first
+ * trade; in other languages their own units ("12 天", "5 個月", "2.8 年"). */
+export function trackRecord(firstMs: number, now: number, locale = "en"): string {
   const days = (now - firstMs) / 86_400_000;
-  if (days < 1) return "<1d";
-  if (days < 30) return `${Math.floor(days)}d`;
-  if (days < 365) return `${Math.floor(days / 30)}mo`;
-  return `${(days / 365).toFixed(1)}y`;
+  if (locale === "en") {
+    if (days < 1) return "<1d";
+    if (days < 30) return `${Math.floor(days)}d`;
+    if (days < 365) return `${Math.floor(days / 30)}mo`;
+    return `${(days / 365).toFixed(1)}y`;
+  }
+  const unit = (u: "day" | "month" | "year", n: number) => new Intl.NumberFormat(locale, { style: "unit", unit: u, unitDisplay: "narrow", maximumFractionDigits: 1 }).format(n);
+  if (days < 1) return `<${unit("day", 1)}`;
+  if (days < 30) return unit("day", Math.floor(days));
+  if (days < 365) return unit("month", Math.floor(days / 30));
+  return unit("year", Number((days / 365).toFixed(1)));
 }
 
 /** CopyDog's annualised return: (1 + ROI)^(365.25 ÷ days) − 1, days being
@@ -175,6 +183,8 @@ export function KpiTiles({
   portfolioFailed = false,
   trades,
   tradesComputing,
+  tradesUnavailable = false,
+  onRetryTrades,
   lowSample,
   now: nowProp,
 }: {
@@ -190,12 +200,15 @@ export function KpiTiles({
   trades: TraderAnalyticsResponse | undefined;
   /** The api is still reconstructing a cold address's trades. */
   tradesComputing: boolean;
+  /** It stayed busy past the page's patience: 暫時無法取得 and 重試, not "no trades". */
+  tradesUnavailable?: boolean;
+  onRetryTrades?: () => void;
   /** From the activity request; greys the returns of a low sample. */
   lowSample: boolean;
   /** Fixed time for tests; the shared ticking clock otherwise. */
   now?: number;
 }) {
-  const { t, format } = useI18n();
+  const { t, format, locale } = useI18n();
   const ticking = useNow();
   const now = nowProp ?? ticking;
   const pnl = periodPortfolio?.pnl.at(-1)?.[1] ?? null;
@@ -221,7 +234,7 @@ export function KpiTiles({
         aria-label={t("trader.kpi.period")}
         className="group inline-flex items-center gap-[3px] rounded-full px-2 py-0.5 text-xs leading-4 font-extrabold outline-none hover:bg-black/5 focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-black/5"
       >
-        {KPI_PERIODS.find(([p]) => p === period)![1]}
+        {t(KPI_PERIODS.find(([p]) => p === period)![1])}
         <ChevronDown className="size-[11px] transition-transform group-data-[state=open]:rotate-180" aria-hidden />
       </DropdownMenuTrigger>
       {/* CopyDog's period list: as narrow as the pill, dropping from it. */}
@@ -229,7 +242,7 @@ export function KpiTiles({
         <DropdownMenuRadioGroup value={period} onValueChange={(v) => onPeriod(v as KpiPeriod)}>
           {KPI_PERIODS.map(([p, label]) => (
             <DropdownMenuRadioItem key={p} value={p} className="rounded-md px-2 py-1.5 text-[11px] font-semibold">
-              {label}
+              {t(label)}
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
@@ -248,7 +261,7 @@ export function KpiTiles({
         tone={signTone(pnl)}
         muted={lowSample}
         fill={along(pnl, -1e6, 1e6)}
-        sub={first === null || !now ? "—" : t("trader.kpi.history", { value: trackRecord(first, now) })}
+        sub={first === null || !now ? "—" : t("trader.kpi.history", { value: trackRecord(first, now, locale) })}
       />
       <Tile
         accent={roi !== null && roi < 0 ? "loss" : "profit"}
@@ -301,6 +314,11 @@ export function KpiTiles({
             )
           ) : tradesComputing ? (
             t("trader.kpi.computing")
+          ) : tradesUnavailable ? (
+            <span role="status">
+              {t("trader.analyticsUnavailable")}{" "}
+              {onRetryTrades ? <button type="button" onClick={onRetryTrades} className="min-h-6 font-bold text-primary-text underline outline-none focus-visible:ring-2 focus-visible:ring-ring">{t("trader.retry")}</button> : null}
+            </span>
           ) : (
             t("trader.kpi.noTrades")
           )

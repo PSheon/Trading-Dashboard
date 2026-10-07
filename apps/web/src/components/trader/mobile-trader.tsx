@@ -15,7 +15,7 @@ import { useModalFocus } from "@/lib/use-modal-focus";
 import { FavoriteButton, RoiPill } from "@/components/traders/bits";
 import { roiPillShort } from "@/lib/board-format";
 import { useI18n } from "@/i18n/provider";
-import { isComputing, useChartSnapshots, useTraderAnalytics } from "@/lib/queries";
+import { isComputing, isUnavailable, useChartSnapshots, useTraderAnalytics } from "@/lib/queries";
 import { ChartSnapshotStrip } from "./chart-snapshot-strip";
 import { CopyScoreBar, TraderAvatar } from "@/components/discover/board-bits";
 import { truncateAddress, usdCompact, signedUsdShort, usd2 } from "@/lib/format";
@@ -336,6 +336,7 @@ export function MobileTrader({
             <PerformanceTab
               analytics={trades.data}
               computing={isComputing(trades)}
+              unavailable={isUnavailable(trades)}
               error={trades.error}
               onRetry={() => trades.refetch()}
               view={perfView}

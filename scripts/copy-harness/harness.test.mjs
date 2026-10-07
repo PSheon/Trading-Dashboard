@@ -87,3 +87,78 @@ test("an unfunded run has its own exit code", () => {
   assert.equal(EXIT.unfunded, 3);
   assert.notEqual(EXIT.unfunded, EXIT.failed);
 });
+
+// --- reconciliation rules (checks.mjs) ----------------------------------------------------------
+import { DEFAULT_ALLOWED_REFUSALS, evaluate, fixedOrderSize, parseAllowedRefusals } from "./checks.mjs";
+
+/** A clean run: the leader opens and closes ETH; the copy mirrors both at the fixed 12 USD. */
+function run(over = {}) {
+  const base = {
+    leaderFills: [{ oid: 1, tid: 11, coin: "ETH", side: "B", time: 1_000 }, { oid: 2, tid: 12, coin: "ETH", side: "A", time: 2_000 }],
+    dispatches: [
+      { id: "d1", tid: "11", leg: "open", coin: "ETH", state: "settled", reason: "", adjustmentId: "", executionState: "filled", cloid: "0xc1", orderSize: "0.004", limitPx: "3000" },
+      { id: "d2", tid: "12", leg: "close", coin: "ETH", state: "settled", reason: "", adjustmentId: "", executionState: "filled", cloid: "0xc2", orderSize: "0.004", limitPx: "2990" },
+    ],
+    followerFills: [{ cloid: "0xc1", oid: 91, coin: "ETH", side: "B", sz: "0.004", px: "2995" }, { cloid: "0xc2", oid: 92, coin: "ETH", side: "A", sz: "0.004", px: "2994" }],
+    leaderPositions: new Map([["ETH", 0]]), followerPositions: new Map([["ETH", 0]]),
+    followerLeverage: new Map([["ETH", 3]]), szDecimals: new Map([["ETH", 4], ["BTC", 5]]),
+    rules: { allowedRefusals: DEFAULT_ALLOWED_REFUSALS, sizing: { perTradeUsd: 12, maxPerTradeUsd: 15, minOrderUsd: 10 }, maxLeverage: 3 },
+  };
+  return evaluate({ ...base, ...over, rules: { ...base.rules, ...over.rules } }).failures.map((f) => f.check);
+}
+const dispatch = (i, patch) => { const d = structuredClone([
+  { id: "d1", tid: "11", leg: "open", coin: "ETH", state: "settled", reason: "", adjustmentId: "", executionState: "filled", cloid: "0xc1", orderSize: "0.004", limitPx: "3000" },
+  { id: "d2", tid: "12", leg: "close", coin: "ETH", state: "settled", reason: "", adjustmentId: "", executionState: "filled", cloid: "0xc2", orderSize: "0.004", limitPx: "2990" }]); d[i] = { ...d[i], ...patch }; return d; };
+
+test("reconcile: a clean mirrored run has no failures", () => {
+  assert.deepEqual(run(), []);
+});
+
+test("reconcile FAILS when an expected leader leg has no follower fill (an open sent but never filled)", () => {
+  const dispatches = dispatch(0, { state: "submitted", executionState: "unknown" });
+  dispatches[1] = { ...dispatches[1], state: "refused", reason: "no_follower_position", executionState: "", cloid: "" };
+  assert.deepEqual(run({ dispatches, followerFills: [] }), ["leader_leg_without_follower_fill"]);
+  // Still pending at the end of the run: the same.
+  assert.deepEqual(run({ dispatches: [{ ...dispatches[0], state: "pending", cloid: "", executionState: "" }, dispatches[1]], followerFills: [] }), ["leader_leg_without_follower_fill"]);
+});
+
+test("reconcile FAILS on a refusal outside the allowlist, and accepts an allowed one (optionally per coin)", () => {
+  const refused = (reason) => [{ ...dispatch(0, {})[0], state: "refused", reason, executionState: "", cloid: "" }, { ...dispatch(1, {})[1], state: "refused", reason: "no_follower_position", executionState: "", cloid: "" }];
+  assert.deepEqual(run({ dispatches: refused("live_risk_leverage"), followerFills: [] }), ["refusal_not_allowed"]);
+  assert.deepEqual(run({ dispatches: refused("live_market_hip3_unsupported"), followerFills: [] }), []);
+  assert.deepEqual(run({ dispatches: refused("below_min_notional"), followerFills: [] }), ["refusal_not_allowed"]);
+  assert.deepEqual(run({ dispatches: refused("below_min_notional"), followerFills: [], rules: { allowedRefusals: [...DEFAULT_ALLOWED_REFUSALS, ...parseAllowedRefusals(["below_min_notional:ETH"])] } }), []);
+  assert.deepEqual(run({ dispatches: refused("below_min_notional"), followerFills: [], rules: { allowedRefusals: [...DEFAULT_ALLOWED_REFUSALS, ...parseAllowedRefusals(["below_min_notional:SOL"])] } }), ["refusal_not_allowed"]);
+  // A merged leg is checked through its lead (which filled).
+  const merged = [...dispatch(0, {}).slice(0, 1), { ...dispatch(0, {})[0], id: "d3", tid: "13", state: "refused", reason: "merged_into_adjustment", adjustmentId: "d1", cloid: "" }, dispatch(1, {})[1]];
+  assert.deepEqual(run({ dispatches: merged, leaderFills: [{ oid: 1, tid: 11, coin: "ETH", side: "B", time: 1_000 }, { oid: 3, tid: 13, coin: "ETH", side: "B", time: 1_500 }, { oid: 2, tid: 12, coin: "ETH", side: "A", time: 2_000 }] }), []);
+});
+
+test("reconcile FAILS when the follower's fill doesn't match fixed sizing (per-trade USD / limit price at szDecimals)", () => {
+  const fills = [{ cloid: "0xc1", oid: 91, coin: "ETH", side: "B", sz: "0.008", px: "2995" }, { cloid: "0xc2", oid: 92, coin: "ETH", side: "A", sz: "0.008", px: "2994" }];
+  assert.deepEqual(run({ followerFills: fills }), ["fixed_size_mismatch"]);
+  // One lot of rounding is fine; the exchange-minimum round-up (10 USD) too.
+  assert.deepEqual(run({ followerFills: [{ ...fills[0], sz: "0.0041" }, { ...fills[1], sz: "0.0041" }] }), []);
+  assert.equal(fixedOrderSize({ perTradeUsd: 12, maxPerTradeUsd: 15, minOrderUsd: 10 }, 3000, 4), "0.004");
+  assert.equal(fixedOrderSize({ perTradeUsd: 12, maxPerTradeUsd: 15, minOrderUsd: 10 }, 9, 0), null); // 1 lot = 9 USD, 2 lots = 18 > 15: refused
+  assert.equal(fixedOrderSize({ perTradeUsd: 12, maxPerTradeUsd: 15, minOrderUsd: 10 }, 7, 0), "2"); // 1 lot = 7 USD < 10: rounded up to 14
+  // Without sizing terms the check is skipped.
+  assert.deepEqual(run({ followerFills: fills, rules: { sizing: null } }), []);
+});
+
+test("reconcile FAILS when the follower's leverage on a coin is above the cap", () => {
+  assert.deepEqual(run({ followerLeverage: new Map([["ETH", 10]]) }), ["follower_leverage_above_cap"]);
+  assert.deepEqual(run({ followerLeverage: new Map([["ETH", 10]]), rules: { maxLeverage: null } }), []);
+});
+
+test("reconcile FAILS when the leader ended flat and the follower still holds a position (any coin)", () => {
+  assert.deepEqual(run({ followerPositions: new Map([["ETH", 0], ["BTC", 0.001]]) }), ["follower_not_flat"]);
+});
+
+test("reconcile FAILS on a follower order no leg sent (a double send), but not on a stop's or owner's close", () => {
+  const extra = { cloid: "0xc9", oid: 99, coin: "ETH", side: "B", sz: "0.004", px: "2995" };
+  const fills = [...[{ cloid: "0xc1", oid: 91, coin: "ETH", side: "B", sz: "0.004", px: "2995" }, { cloid: "0xc2", oid: 92, coin: "ETH", side: "A", sz: "0.004", px: "2994" }], extra];
+  assert.deepEqual(run({ followerFills: fills }), ["follower_order_without_dispatch"]);
+  assert.deepEqual(run({ followerFills: fills, closeCloids: new Set(["0xc9"]) }), []);
+  assert.deepEqual(run({ followerFills: fills, dispatches: null }), []);
+});

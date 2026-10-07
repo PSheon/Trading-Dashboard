@@ -52,3 +52,12 @@ it("pins the current funds during a mutation, including another tab and legacy U
   await act(async () => { finish(); await operation; });
   expect(selection.mode).toBe("paper");
 });
+it("keeps a shared in-memory choice when reading storage works but writes are denied", async () => {
+  await render();
+  const write = vi.spyOn(localStorage, "setItem").mockImplementation(() => { throw new DOMException("Quota exceeded", "QuotaExceededError"); });
+  await act(async () => { expect(selection.select("live")).toBe(true); });
+  expect(write).toHaveBeenCalled();
+  expect(selection.mode).toBe("live");
+  write.mockRestore();
+  await act(async () => { selection.select("paper"); });
+});

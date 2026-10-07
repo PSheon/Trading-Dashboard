@@ -8,6 +8,7 @@ import { useLiveCopyDeployment } from "@/lib/copy-live-setup";
 export type SiteMode = "paper" | "testnet" | "live";
 const listeners = new Set<() => void>();
 const memory = new Map<string, SiteMode>();
+const failedWrites = new Set<string>();
 // A tab's query client owns its in-flight operations. All subscribers,
 // including newly mounted panels, retain the same funds until they settle.
 const retained = new WeakMap<QueryClient, Map<string, SiteMode>>();
@@ -23,12 +24,13 @@ function pinnedMode(client: QueryClient | undefined, key: string | null, next: S
 const valid = (value: string | null): value is SiteMode => value === "paper" || value === "testnet" || value === "live";
 function read(key: string | null): SiteMode | null {
   if (!key) return null;
+  if (failedWrites.has(key)) return memory.get(key) ?? null;
   try { const value = localStorage.getItem(key); return valid(value) ? value : null; }
   catch { return memory.get(key) ?? null; }
 }
 function save(key: string, mode: SiteMode) {
   memory.set(key, mode);
-  try { localStorage.setItem(key, mode); } catch { /* Private windows retain the preference in memory. */ }
+  try { localStorage.setItem(key, mode); failedWrites.delete(key); } catch { failedWrites.add(key); }
   listeners.forEach((listener) => listener());
 }
 function subscribe(listener: () => void) {

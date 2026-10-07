@@ -406,7 +406,7 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName }: 
     return (
       <Shell sheet={sheet}>
         <div className="flex items-center justify-between gap-2">
-          <p className="text-[0.9375rem] font-bold">{settingUp ? liveText.progressTitle : liveText.copying}</p>
+          <p className="text-[0.9375rem] font-bold">{settingUp ? liveText.progressTitle : liveCopiesMessages[locale].stages.active}</p>
         </div>
         <dl className="grid grid-cols-2 gap-2 rounded-xl bg-inset p-3 text-center">
           <div>

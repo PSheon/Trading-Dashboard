@@ -77,7 +77,8 @@ it("a start whose consent lapsed (the sheet closed, the page reloaded) offers th
 it("a running copy shows its stage in the page's language under 狀態, not the raw enum", async () => {
   state.item = item({ status: "active", stage: "active", mandate: { id: "m", state: "active", revision: 2 } });
   await render();
-  expect(container.textContent).toContain(zh.copying);
+  expect(container.textContent).toContain(liveCopiesMessages["zh-TW"].stages.active);
+  expect(container.textContent).not.toContain(zh.copying);
   expect(container.textContent).toContain(`${zh.status}${liveCopiesMessages["zh-TW"].stages.active}`);
   expect(container.textContent).not.toContain("部位");
   expect(container.textContent).not.toMatch(/\bactive\b/);
@@ -129,10 +130,11 @@ it("on a mainnet deployment the actual mode is 正式 and 測試網 appears nowh
   expect(container.textContent).toContain("使用 Hyperliquid 主網的真實 USDC。");
   expect(container.querySelector("[data-sizing='fixed-only']")?.textContent).toBe(zh.fixed);
   expect(container.querySelector("input[placeholder='12–15']")).toBeTruthy();
-  // A running copy: 跟單中 · 正式.
+  // The running copy does not repeat the account menu's mode.
   state.item = item({ status: "active", stage: "active", mandate: { id: "m", state: "active", revision: 2 } });
   await render();
-  expect(container.textContent).toContain("跟單中 · 正式");
+  expect(container.textContent).toContain("跟單中");
+  expect(container.textContent).not.toContain("跟單中 · 正式");
   expect(container.textContent).not.toContain("測試網");
 });
 

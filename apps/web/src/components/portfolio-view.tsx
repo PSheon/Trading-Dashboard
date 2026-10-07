@@ -85,7 +85,7 @@ export function PortfolioView() {
 type View = "real" | "paper";
 /** All portfolio layouts follow the account menu's shared selection. */
 function usePortfolioView(): View {
-  const { mode, select, deploymentNetwork } = useTradingMode();
+  const { mode, select, deploymentNetwork, pending } = useTradingMode();
   const search = useSearchParams();
   const legacy = search.get("view");
   useEffect(() => {
@@ -95,7 +95,7 @@ function usePortfolioView(): View {
     const url = new URL(window.location.href);
     url.searchParams.delete("view");
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
-  }, [legacy, deploymentNetwork, select]);
+  }, [legacy, deploymentNetwork, select, pending]);
   return mode === "paper" ? "paper" : "real";
 }
 

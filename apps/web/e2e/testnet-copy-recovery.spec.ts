@@ -138,7 +138,7 @@ for (const width of [1440, 390]) {
         await page.reload();
         const after = await panelOf(page, width);
         await expect(after.getByText("最低 $100 才能跟單").or(after.getByText("請輸入金額")).filter({ visible: true }).first()).toBeVisible({ timeout: 15000 });
-        await expect(after.getByText("跟單中 · 測試網").filter({ visible: true })).toHaveCount(0);
+        await expect(after.getByRole("link", { name: "管理", exact: true }).filter({ visible: true })).toHaveCount(0);
         await shot(page, `testnet-recovery-cancelled-panel-${width}-${scheme}`);
         await page.goto(`/zh-TW/settings?${width < 768 ? "view=account" : "tab=account"}`);
         await page.getByRole("button", { name: "刪除帳號", exact: true }).filter({ visible: true }).first().click();

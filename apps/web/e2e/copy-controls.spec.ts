@@ -102,7 +102,7 @@ for (const width of [1440, 390]) {
       await openCopy(page, "Machi is ugly dog");
       await expect(setting(page, "Mode")).toHaveText("Ratio");
       await expect(setting(page, "Per Trade")).toHaveText("—");
-      await expect(setting(page, "Max Allocation")).toHaveText("$10,000.00");
+      await expect(setting(page, "Max exposure")).toHaveText("$10,000.00");
 
       await action(page, "Edit settings").click();
       const dialog = page.getByRole("dialog", { name: "Copy Trade Settings" });
@@ -112,21 +112,21 @@ for (const width of [1440, 390]) {
       await dialog.getByRole("radio", { name: "Fixed" }).click();
       // Fixed needs its amount, no larger than the cap, and a cap above zero.
       await expect(save).toBeDisabled();
-      await dialog.getByLabel(/Max Allocation/).fill("4000");
+      await dialog.getByLabel(/Max exposure/).fill("4000");
       await dialog.getByLabel(/Amount Per Trade/).fill("5000");
       await expect(save).toBeDisabled();
       await dialog.getByLabel(/Amount Per Trade/).fill("250");
       await expect(save).toBeEnabled();
-      await dialog.getByLabel(/Max Allocation/).fill("");
+      await dialog.getByLabel(/Max exposure/).fill("");
       await expect(save).toBeDisabled();
-      await dialog.getByLabel(/Max Allocation/).fill("4000");
+      await dialog.getByLabel(/Max exposure/).fill("4000");
       await save.click();
       await expect(dialog).toHaveCount(0);
 
       await expect(visible(page, "Settings v2")).toBeVisible();
       await expect(setting(page, "Mode")).toHaveText("Fixed");
       await expect(setting(page, "Per Trade")).toHaveText("$250.00");
-      await expect(setting(page, "Max Allocation")).toHaveText("$4,000.00");
+      await expect(setting(page, "Max exposure")).toHaveText("$4,000.00");
       // Still copying, with its positions.
       await expect(action(page, "Pause copying")).toBeVisible();
       await expect(visible(page, "No open positions")).toHaveCount(0);
@@ -135,19 +135,19 @@ for (const width of [1440, 390]) {
       await action(page, "Edit settings").click();
       await expect(dialog.getByRole("radio", { name: "Fixed" })).toBeChecked();
       await expect(dialog.getByLabel(/Amount Per Trade/)).toHaveValue("250");
-      await expect(dialog.getByLabel(/Max Allocation/)).toHaveValue("4000");
+      await expect(dialog.getByLabel(/Max exposure/)).toHaveValue("4000");
       await dialog.getByRole("radio", { name: "Ratio" }).click();
       await save.click();
       await expect(dialog).toHaveCount(0);
       await expect(visible(page, "Settings v3")).toBeVisible();
       await expect(setting(page, "Mode")).toHaveText("Ratio");
       await expect(setting(page, "Per Trade")).toHaveText("—");
-      await expect(setting(page, "Max Allocation")).toHaveText("$4,000.00");
+      await expect(setting(page, "Max exposure")).toHaveText("$4,000.00");
 
       // A paused copy can be edited and stays paused.
       await action(page, "Pause copying").click();
       await action(page, "Edit settings").click();
-      await dialog.getByLabel(/Max Allocation/).fill("6000");
+      await dialog.getByLabel(/Max exposure/).fill("6000");
       await save.click();
       await expect(visible(page, "Settings v4")).toBeVisible();
       await expect(action(page, "Resume copying")).toBeVisible();
@@ -181,16 +181,16 @@ for (const width of [1440, 390]) {
       // The dialog stays open with what was typed.
       await action(page, "Edit settings").click();
       const dialog = page.getByRole("dialog", { name: "Copy Trade Settings" });
-      await dialog.getByLabel(/Max Allocation/).fill("3000");
+      await dialog.getByLabel(/Max exposure/).fill("3000");
       await failNext(page, "patch");
       await dialog.getByRole("button", { name: "Save", exact: true }).click();
       await expect(dialog.getByRole("alert")).toHaveText("Failed to update configuration");
-      await expect(dialog.getByLabel(/Max Allocation/)).toHaveValue("3000");
+      await expect(dialog.getByLabel(/Max exposure/)).toHaveValue("3000");
       await expect(visible(page, "Settings v1")).toBeVisible();
       await dialog.getByRole("button", { name: "Save", exact: true }).click();
       await expect(dialog).toHaveCount(0);
       await expect(visible(page, "Settings v2")).toBeVisible();
-      await expect(setting(page, "Max Allocation")).toHaveText("$3,000.00");
+      await expect(setting(page, "Max exposure")).toHaveText("$3,000.00");
     });
 
     test("start a copy on the trader page, pause it, resume it, then stop it", async ({ page }) => {

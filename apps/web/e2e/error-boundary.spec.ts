@@ -13,7 +13,7 @@ for (const width of [1440, 390]) {
     await expect(alert).not.toContainText("on purpose");
     // (The lab draws no shell; on a user page the boundary sits inside it.)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await alert.getByRole("link", { name: "Back to Leaderboard" }).click();
+    await alert.getByRole("link", { name: "Back to home" }).click();
     await expect(page).toHaveURL(/\/en$/);
     await expect(page.getByRole("alert").filter({ hasText: "Failed to load" })).toHaveCount(0);
   });

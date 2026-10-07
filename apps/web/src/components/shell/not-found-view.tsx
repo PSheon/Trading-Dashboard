@@ -7,7 +7,7 @@ import { Link } from "@/i18n/navigation";
 import { getLocale, getMessages } from "@/i18n/server";
 import { NOT_FOUND_HEADER } from "@/lib/page-routes";
 
-/** The 404 (C-404): the Orbie planet, a large "404", one line, and 返回排行榜
+/** The 404 (C-404): the Orbie planet, a large "404", one line, and 返回首頁
  * (home). A server component: Button keeps busy state (hooks), so the link
  * takes its look from buttonVariants. */
 export async function NotFoundView() {

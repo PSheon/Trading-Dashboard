@@ -8,7 +8,7 @@ import { expectNoSidewaysScroll, shot } from "./helpers";
  * api answer that 409.
  */
 const cases = [
-  { code: "copies_active", text: "你還有進行中的測試網跟單。先在投資組合停止跟單，並把資金轉回主錢包。", link: "前往這個跟單", href: /\/zh-TW\/portfolio\?copy=1$/ },
+  { code: "copies_active", text: "你還有進行中的跟單（模擬除外）。先在投資組合停止跟單，並把資金轉回主錢包。", link: "前往這個跟單", href: /\/zh-TW\/portfolio\?copy=1$/ },
   { code: "withdrawal_pending", text: "主錢包有一筆提領還在確認中。等它完成後再刪除。", button: "查看提領" },
 ] as const;
 

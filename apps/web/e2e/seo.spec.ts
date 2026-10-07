@@ -108,10 +108,10 @@ test("a URL that is nothing, a malformed address and a malformed coin are real 4
  * proxy's status instead (lib/page-routes.ts). */
 test("a 404 is in the served HTML, with its own title, in each language", async ({ request }) => {
   const cases = [
-    { path: "/zh-TW/zz-no-such-page", title: "找不到頁面 | Orbie", body: "此頁面不存在。", home: "返回排行榜" },
-    { path: "/en/zz-no-such-page", title: "Page not found | Orbie", body: "This page doesn&#x27;t exist.", home: "Back to Leaderboard" },
-    { path: "/zh-TW/trader/0x1234", title: "找不到頁面 | Orbie", body: "此頁面不存在。", home: "返回排行榜" },
-    { path: "/en/a/b/c", title: "Page not found | Orbie", body: "This page doesn&#x27;t exist.", home: "Back to Leaderboard" },
+    { path: "/zh-TW/zz-no-such-page", title: "找不到頁面 | Orbie", body: "此頁面不存在。", home: "返回首頁" },
+    { path: "/en/zz-no-such-page", title: "Page not found | Orbie", body: "This page doesn&#x27;t exist.", home: "Back to home" },
+    { path: "/zh-TW/trader/0x1234", title: "找不到頁面 | Orbie", body: "此頁面不存在。", home: "返回首頁" },
+    { path: "/en/a/b/c", title: "Page not found | Orbie", body: "This page doesn&#x27;t exist.", home: "Back to home" },
   ];
   for (const { path, title, body, home } of cases) {
     const response = await request.get(path, { maxRedirects: 0 });

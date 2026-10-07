@@ -63,6 +63,13 @@ describe("durable owner withdrawal metadata", () => {
     expect(claim.body.data.claimed).toBe(true);
     return op;
   }
+  /** Claimed and sent by the server, its answer lost: only such an operation can be on the ledger. */
+  async function attempted() {
+    const op = await unknown();
+    exchange.send.mockRejectedValueOnce(new Error("lost"));
+    expect((await post(`/${op.id}/submit`, { signature: await signature(op) }).expect(200)).body.data.status).toBe("unknown");
+    return op;
+  }
   async function signature(op: { nonce: number }, changes: { destination?: string; amount?: string; time?: number; chainId?: number } = {}) {
     return TEST_ACCOUNT.signTypedData({
       domain: { name: "HyperliquidSignTransaction", version: "1", chainId: changes.chainId ?? 421614, verifyingContract: "0x0000000000000000000000000000000000000000" },
@@ -192,17 +199,27 @@ describe("durable owner withdrawal metadata", () => {
   });
 
   it("correlates the live microsecond ledger nonce and exact net amount plus fee", async () => {
-    const op = await unknown();
+    const op = await attempted();
     info.userNonFundingLedgerUpdates.mockResolvedValue([{ time: op.nonce + 1, hash: `0x${"aa".repeat(32)}`, delta: { type: "withdraw", nonce: op.nonce * 1000, usdc: "11.500000", fee: "1.0" } }]);
     expect((await post(`/${op.id}/reconcile`).expect(200)).body.data.status).toBe("accepted");
   });
 
   it("accepts only correlated authoritative ledger evidence on the account's configured network", async () => {
-    const op = await unknown();
+    const op = await attempted();
     info.userNonFundingLedgerUpdates.mockResolvedValue([{ time: op.nonce + 1, hash: `0x${"aa".repeat(32)}`, delta: { type: "withdraw", nonce: op.nonce, usdc: "12.500000", fee: "1" } }]);
     expect((await post(`/${op.id}/reconcile`).expect(200)).body.data).toMatchObject({ id: op.id, nonce: op.nonce, status: "accepted" });
     expect(info.userNonFundingLedgerUpdates).toHaveBeenCalledWith(MAIN, op.nonce - 60_000, expect.any(Number), "background", expect.any(Number), "https://api.hyperliquid-testnet.xyz/info");
     expect((await post("", { ...INPUT, amount: "20" }).expect(200)).body.data.id).not.toBe(op.id);
+  });
+
+  it("a claim the server never sent can't be finished by a ledger entry with its nonce (as copy funding); an imported legacy one can", async () => {
+    const op = await unknown();
+    info.userNonFundingLedgerUpdates.mockResolvedValue([{ time: op.nonce + 1, hash: `0x${"aa".repeat(32)}`, delta: { type: "withdraw", nonce: op.nonce, usdc: "12.500000", fee: "1" } }]);
+    expect((await post(`/${op.id}/reconcile`).expect(200)).body.data.status).toBe("unknown");
+    await post(`/${op.id}/cancel`).expect(200);
+    const legacy = (await post("/import", { ...INPUT, nonce: op.nonce - 30_000 }).expect(200)).body.data;
+    info.userNonFundingLedgerUpdates.mockResolvedValue([{ time: legacy.nonce + 1, hash: `0x${"bb".repeat(32)}`, delta: { type: "withdraw", nonce: legacy.nonce, usdc: "12.500000", fee: "1" } }]);
+    expect((await post(`/${legacy.id}/reconcile`).expect(200)).body.data.status).toBe("accepted");
   });
 
   it("retains uncertainty after upstream failure and does not expose upstream diagnostics", async () => {
@@ -223,7 +240,7 @@ describe("durable owner withdrawal metadata", () => {
   });
 
   it("shows an imported older uncertain intent before newer completed history", async () => {
-    const completed = await unknown();
+    const completed = await attempted();
     info.userNonFundingLedgerUpdates.mockResolvedValue([{ time: completed.nonce, hash: `0x${"aa".repeat(32)}`, delta: { type: "withdraw", nonce: completed.nonce, usdc: "12.5", fee: "1" } }]);
     await post(`/${completed.id}/reconcile`).expect(200);
     const imported = (await post("/import", { ...INPUT, nonce: completed.nonce - 30_000 }).expect(200)).body.data;

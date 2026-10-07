@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { copyFundingOperations, users, walletWithdrawals } from "@trading-dashboard/shared/database";
 import type { WalletWithdrawalInput } from "@trading-dashboard/shared/contracts";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
@@ -110,11 +110,15 @@ export class WithdrawalRepository {
   }
 
   /** The exchange's answer to a hub withdrawal; the owner's live feed gets
-   * it once (the guarded update moves an `unknown` row only once). */
+   * it once (the guarded update moves an `unknown` row only once). Only an
+   * attempted one, as copy funding's finish: a claim never sent can't have
+   * an answer. A legacy import was sent by its browser, before attempts were
+   * recorded. */
   async finish(userId: number, id: string, status: "accepted" | "rejected", evidenceHash: string) {
     const [accepted] = await this.locked(userId, async tx => {
       const rows = await tx.update(walletWithdrawals).set({ status, evidenceHash, updatedAt: new Date() })
-        .where(and(eq(walletWithdrawals.id, id), eq(walletWithdrawals.userId, userId), eq(walletWithdrawals.status, "unknown"))).returning();
+        .where(and(eq(walletWithdrawals.id, id), eq(walletWithdrawals.userId, userId), eq(walletWithdrawals.status, "unknown"),
+          or(isNotNull(walletWithdrawals.attemptedAt), eq(walletWithdrawals.origin, "legacy")))).returning();
       const row = rows[0];
       if (row) await insertOwnerEvent(tx, userId, null, "wallet_withdrawal", { mode: "hub", network: row.network, status, amount: row.amount, destination: row.destination });
       return rows;

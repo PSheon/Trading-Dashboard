@@ -216,6 +216,19 @@ describe("durable strategy funding", () => {
     expect((await db.select().from(copyStrategies))[0]).toMatchObject({ mode: "paper", cash: "100" });
     expect((await reserve()).id).not.toBe(op.id);
   });
+  it("finish moves only an attempted operation, a copy deposit as a main-wallet withdrawal (a legacy import excepted)", async () => {
+    const deposit = await reserve(); await service.claim(userId, deposit.id);
+    expect(await repository.finish(userId, deposit.id, "accepted", "e".repeat(64))).toMatchObject({ status: "unknown" });
+    await repository.cancel(userId, deposit.id);
+    const withdrawals = new WithdrawalRepository(db), scope = { userId, network: "testnet" as const, address: MAIN };
+    const claimed = await withdrawals.reserve(scope, { destination: DEST, amount: "20" }); await withdrawals.claim(userId, claimed.id);
+    expect(await withdrawals.finish(userId, claimed.id, "accepted", "e".repeat(64))).toMatchObject({ status: "unknown" });
+    expect(await withdrawals.beginSubmit(userId, claimed.id)).toMatchObject({ status: "unknown" });
+    expect(await withdrawals.finish(userId, claimed.id, "accepted", "e".repeat(64))).toMatchObject({ status: "accepted" });
+    const legacy = await withdrawals.reserve(scope, { destination: DEST, amount: "21" }, Date.now() - 60_000);
+    expect(legacy).toMatchObject({ origin: "legacy", status: "unknown", attemptedAt: null });
+    expect(await withdrawals.finish(userId, legacy.id, "accepted", "f".repeat(64))).toMatchObject({ status: "accepted" });
+  });
   it("cannot credit an unattempted claim or query another user's account", async () => {
     const op = await reserve(); await service.claim(userId, op.id); receipt(op);
     expect((await service.reconcile(userId, op.id)).status).toBe("unknown");

@@ -72,8 +72,10 @@ export function planAdjustments(legs: readonly PendingLeg[], now: number, window
       const below = (legs: readonly PendingLeg[]) => isOpen && legs.length > 0 && (legs.every(leg => leg.belowMinimum) || belowMinimum({ legs, lastOfCoin }));
       // A leg that would wait or merge past its signal age is dropped; a
       // single leg on its own keeps the ordinary signal_expired path.
+      // A reduction has no age limit (CP-EXE-14-02): it closes what the
+      // follower holds, however late, so a close run is never dropped.
       const mergesOrWaits = all.length > 1 || below(all);
-      const run = mergesOrWaits ? all.filter(leg => now - leg.leaderTime < windowMs) : all;
+      const run = mergesOrWaits && all[0]!.leg === 'open' ? all.filter(leg => now - leg.leaderTime < windowMs) : all;
       if (mergesOrWaits) for (const leg of all) if (!run.includes(leg)) expired.add(leg.id);
       if (!run.length) return;
       if (below(run)) { for (const leg of run) (lastOfCoin ? held : refused).add(leg.id); return; }

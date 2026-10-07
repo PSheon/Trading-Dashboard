@@ -8,12 +8,12 @@ import { digest } from '../src/copy/copy-live-mandate-evidence.js';
 import { captureLivePositionBaseline } from '../src/copy/live/live-position-baseline.js';
 import { settledGenerationExample, sourceSizingExample } from './copy-live-generation-test-utils.js';
 const example=sourceSizingExample;
-function closeExample(position='90',carry='15',full=false,mode:'fixed'|'ratio'='fixed'):LiveSourcePlanInput{
+function closeExample(position='90',carry='15',full=false,mode:'fixed'|'ratio'='fixed',ageMs=50):LiveSourcePlanInput{
   const e=structuredClone(example(mode)),history=settledGenerationExample(position),manifest=history.manifest as any,o=(e.sizingBasis as any).observations,b=(e.sizingBasis as any).basis;
   (e as any).now=history.now;(e as any).currentExecutionKey=history.currentExecutionKey;manifest.journals[0].provenance.settingsDigest=e.mandate.settingsDigest;
   manifest.carry[0].carry=carry;manifest.carry[0].revision=2;
   o.follower=history.snapshot;o.generationManifest=manifest;
-  const fill=parseLiveSourceFill({tid:2,oid:8,time:e.now-50,coin:'BTC',side:'A',px:'100',sz:full?'4':'1',startPosition:'4'}, {network:'testnet',leaderAddress:e.mandate.leaderAddress,from:e.now-1000,to:e.now,receivedAt:e.now,kind:'fills'});
+  const fill=parseLiveSourceFill({tid:2,oid:8,time:e.now-ageMs,coin:'BTC',side:'A',px:'100',sz:full?'4':'1',startPosition:'4'}, {network:'testnet',leaderAddress:e.mandate.leaderAddress,from:e.now-Math.max(1000,ageMs+1),to:e.now,receivedAt:e.now,kind:'fills'});
   (e as any).fill=fill;(e as any).leg=canonicalLiveSourceLegs(fill)[0];
   Object.assign(b,{sourceFillId:fill.id,sourceDigest:fill.sourceDigest,leg:'close',fixedTradeClaim:false,carry:{amount:carry,revision:2}});
   if(mode==='ratio'){b.leader=null;o.leader=null;} // a close is not sized by the leader's capital
@@ -53,6 +53,14 @@ describe('actual source sizing from retained original observations',()=>{
     expect(()=>planLiveSourceOrder(e)).toThrow();
   });
   it('refuses compact-only scalars as sizing evidence',()=>{const e=example();(e as any).sizingBasis=(e.sizingBasis as LiveSourceSizingEnvelopeV1).basis;expect(()=>planLiveSourceOrder(e)).toThrow();});
+  it('plans a reduction however old the leader\'s close is (CP-EXE-14-02), where an open of that age is refused',()=>{
+    const e=closeExample('90','15',false,'fixed',0);
+    const aged=closeExample('90','15',false,'fixed',e.limits.maxSignalAgeSeconds*1000+60_000);
+    aged.mandate.activationCursor=new Date(aged.fill.providerTime-1); // the generation started before that close
+    expect(planLiveSourceOrder(aged)).toMatchObject({order:{side:'A',size:'33.75',reduceOnly:true}});
+    const open=structuredClone(example());(open as any).limits={...open.limits,maxSignalAgeSeconds:1};(open as any).now=open.fill.providerTime+1001;
+    expect(()=>planLiveSourceOrder(open)).toThrow('live_source_sizing_unproven');
+  });
   it('reduces only the independently reconstructed generation position, applying a fraction to quantity not already owed',()=>{
     expect(planLiveSourceOrder(closeExample())).toMatchObject({order:{side:'A',size:'33.75',reduceOnly:true},nextCarry:'0'});
   });

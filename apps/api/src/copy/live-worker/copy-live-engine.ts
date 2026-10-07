@@ -14,6 +14,7 @@ import { MAX_ACCUMULATE_MS } from '../live/copy-live-source-planner.js';
 import type { WatchedMainnetSource } from './watched-mainnet-source.js';
 import type { FastMainnetSource } from './fast-mainnet-source.js';
 import { minOrderNotional } from '../min-order-notional.js';
+import { Dec } from '../../common/decimal/dec.js';
 
 /** One source read's result, for the logs. */
 export interface IngestOutcome { fast: boolean; fills: number; kind: string; state: string; through: number | null }
@@ -91,6 +92,11 @@ const PERMANENT = new Set(['live_source_price_deviation', 'live_budget_over_capa
 /** A merged order is planned within this long after its legs are merged
  * (evidence reads ~4 s): no leg merged older than the signal age less this. */
 const PLANNING_MARGIN_MS = 15_000;
+/** A refused close whose follower had nothing (left) to close. */
+const FOLLOWER_ALREADY_FLAT = new Set(['no_follower_position', 'position_closed_by_owner', 'copy_stopping']);
+/** A close has no age limit, but one that keeps failing is refused after this
+ * many attempts (never an endless retry); a leader then flat closes the rest. */
+export const CLOSE_ATTEMPT_LIMIT = 30;
 /** A merged open the planner finds below the minimum goes back to waiting
  * only while its lead's signal has at least this long left (else refused). */
 const HOLD_MARGIN_MS = 30_000;
@@ -136,6 +142,13 @@ export class CopyLiveEngine {
       if (held.has(row.id)) continue;
       try { await this.work(row, byId.get(row.mandateId) ?? null, limit); }
       catch (error) { this.deps.log?.(`leg ${row.id} kept for the next pass: ${reasonOf(error)}`); }
+    }
+    // A leader flat on a coin whose follower may still hold some of it (an
+    // IOC close partly or not filled, or a close that could not be sent):
+    // the single-position closer (run by the stopper's pass) closes the rest.
+    for (const m of mandates.filter(row => row.activated && row.strategyStatus !== 'stopping' && row.strategyStatus !== 'stopped')) {
+      try { await this.reconcileFlat(m); }
+      catch (error) { this.deps.log?.(`flat positions of ${m.mandateId} not reconciled: ${reasonOf(error)}`); }
     }
     if (this.deps.stopper) {
       try { await this.deps.stopper.tick(); }
@@ -365,7 +378,8 @@ export class CopyLiveEngine {
 
   private async submit(row: DispatchRow, m: LiveMandateWork, signalAgeMs: number): Promise<void> {
     const now = this.now();
-    if (now - row.leaderTime.getTime() > signalAgeMs) {
+    // Only an open ages: a reduction or close is sent however late (CP-EXE-14-02).
+    if (row.leg === 'open' && now - row.leaderTime.getTime() > signalAgeMs) {
       await this.deps.repository.update(row, { state: 'refused', reason: row.reason && row.attempts > 0 ? row.reason : 'signal_expired' }); return;
     }
     if (m.strategyStatus === 'stopping' || m.strategyStatus === 'stopped') {
@@ -387,7 +401,7 @@ export class CopyLiveEngine {
     }
     // In the leader's order: an earlier leg of the coin still waiting goes first.
     if (await this.deps.repository.earlierPending(row)) return;
-    await this.execute(row, m, row.leaderTime.getTime() + signalAgeMs);
+    await this.execute(row, m, row.leg === 'open' ? row.leaderTime.getTime() + signalAgeMs : undefined);
   }
 
   /** Submits (first time) or reconciles (afterwards) the leg's one order. A
@@ -426,9 +440,36 @@ export class CopyLiveEngine {
         this.now() - row.leaderTime.getTime() < Math.max(0, signalAgeMs - HOLD_MARGIN_MS)) {
         await this.deps.repository.dissolve(row, row.attempts + 1); return;
       }
-      const permanent = row.state === 'pending' && PERMANENT.has(reason);
+      const permanent = row.state === 'pending' && (PERMANENT.has(reason) || row.leg === 'close' && row.attempts + 1 >= CLOSE_ATTEMPT_LIMIT);
       await this.deps.repository.update(row, { ...(permanent ? { state: 'refused' as const } : {}), reason, firstAttemptAt: first, attempts: row.attempts + 1, ...times });
     }
+  }
+
+  /**
+   * The leader is flat on a coin (its latest fill closed it in full, no flip)
+   * and the follower is not: its close leg was refused (never sent or not
+   * sendable), or settled still owing part of the position (the reduction
+   * carry an IOC close left unfilled). Requests a reduce-only close of what
+   * the follower holds; the closer reads the account first and does nothing
+   * if it is already flat.
+   */
+  async reconcileFlat(m: Pick<LiveMandateWork, 'mandateId'>): Promise<number> {
+    let requested = 0;
+    for (const { row, fill, carry } of await this.deps.repository.latestByCoin(m.mandateId)) {
+      if (row.leg !== 'close' || (row.state !== 'settled' && row.state !== 'refused')) continue;
+      if (row.state === 'refused' && FOLLOWER_ALREADY_FLAT.has(row.reason ?? '')) continue;
+      let legs: ReturnType<typeof canonicalLiveSourceLegs>;
+      try { legs = canonicalLiveSourceLegs(decodeLiveSourceFill(fill)); } catch { continue; }
+      const close = legs.find(leg => leg.leg === 'close');
+      if (!close?.fraction || !Dec.from(close.fraction).eq(Dec.ONE) || legs.some(leg => leg.leg === 'open')) continue; // the leader is not flat
+      if (row.state === 'settled' && !(carry !== null && Dec.from(carry).isPositive)) continue; // the close took it all
+      if (!await this.deps.repository.everOpened(row.mandateId, row.coin)) continue;
+      if (await this.deps.repository.requestFlatClose(row, new Date(this.now()))) {
+        requested++;
+        this.deps.log?.(`leader flat on ${row.coin}: closing what ${row.accountId} still holds (after ${row.id}, ${row.state}${row.reason ? ` ${row.reason}` : ''})`);
+      }
+    }
+    return requested;
   }
 
   private async mandateOf(row: DispatchRow): Promise<LiveMandateWork | null> {

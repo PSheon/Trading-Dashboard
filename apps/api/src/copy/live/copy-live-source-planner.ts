@@ -125,7 +125,10 @@ export function planLiveSourceOrder(raw: LiveSourcePlanInput): PlannedLiveSource
       Number.isFinite(limits.maxSlippageBps)&&limits.maxSlippageBps>=0&&limits.maxSlippageBps<=10000&&Dec.from(b.quote.slippageBps).lte(limits.maxSlippageBps)&&
       currentExecutionKey.startsWith(`${consent.network}:${consent.accountAddress}:`)&&/^0x[a-f0-9]{32}$/.test(currentExecutionKey.slice(`${consent.network}:${consent.accountAddress}:`.length)));
     const fill=decodeLiveSourceFill({...input.fill,normalized:{...input.fill.normalized},providerTime:new Date(input.fill.providerTime),receivedAt:new Date(input.fill.receivedAt)}),leg=canonicalLiveSourceLegs(fill).find(l=>l.leg===input.leg.leg);equal(leg,input.leg);requireSizing(leg);
-    requireSizing(fill.network===consent.sourceNetwork&&fill.leaderAddress===consent.leaderAddress&&fill.providerTime>m.activationCursor!.getTime()&&fill.providerTime<=now&&now-fill.providerTime<=limits.maxSignalAgeSeconds*1000&&fill.receivedAt<=now&&
+    // Only an open is a signal that ages (maxSignalAgeSeconds): a reduction or
+    // close mirrors the leader however late (CP-EXE-14-02 減倉／平倉不受年齡限制).
+    const ages=leg.leg==='open';
+    requireSizing(fill.network===consent.sourceNetwork&&fill.leaderAddress===consent.leaderAddress&&fill.providerTime>m.activationCursor!.getTime()&&fill.providerTime<=now&&(!ages||now-fill.providerTime<=limits.maxSignalAgeSeconds*1000)&&fill.receivedAt<=now&&
       b.mandateId===m.id&&b.mandateRevision===m.revision&&b.network===consent.network&&b.market.network===consent.network&&b.settingsDigest===consent.settingsDigest&&b.sourceFillId===fill.id&&b.sourceDigest===fill.sourceDigest&&b.accountAddress===consent.accountAddress&&
       b.coin===fill.coin&&b.leg===leg.leg&&b.direction===settings.direction&&b.sizingMode===settings.sizingMode&&b.budgetUsd===consent.budgetUsd&&b.perTradeUsd===(settings.perTradeUsd===null?null:Dec.from(settings.perTradeUsd).toString())&&
       b.market.coin===fill.coin&&b.follower.accountAddress===consent.accountAddress&&address(b.accountAddress)===b.accountAddress);
@@ -160,7 +163,7 @@ export function planLiveSourceOrder(raw: LiveSourcePlanInput): PlannedLiveSource
     if(merged){
       requireSizing(settings.sizingMode==='ratio'&&new Set(merged.map(m=>m.sourceFillId)).size===merged.length&&
         merged.every((m,i)=>i===0||compareMergedLegs(merged[i-1]!,m)<0)&&
-        merged.every(m=>m.sign===leg.sign&&(m.fraction===null)===(leg.leg==='open')&&m.providerTime>m_cursor&&m.providerTime<=fill.providerTime&&now-m.providerTime<=limits.maxSignalAgeSeconds*1000)&&
+        merged.every(m=>m.sign===leg.sign&&(m.fraction===null)===(leg.leg==='open')&&m.providerTime>m_cursor&&m.providerTime<=fill.providerTime&&(!ages||now-m.providerTime<=limits.maxSignalAgeSeconds*1000))&&
         merged.at(-1)!.sourceFillId===fill.id);
       // Every leg is the persisted fill it names: its digest, time, price and
       // canonical leg (kind, side, size, fraction), on this copy's source

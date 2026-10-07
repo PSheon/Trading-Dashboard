@@ -183,6 +183,11 @@ describe('adjustment runs (pure)', () => {
     expect(plan.merges.map(run => run.legs.map(l => l.id))).toEqual([['d1', 'd2'], ['d3', 'd4']]);
     expect(plan.held.size).toBe(0);
   });
+  it('never drops a run of reductions for its age (CP-EXE-14-02); an old open run is still dropped', () => {
+    const plan = planAdjustments([leg(1, 'close', -1), leg(2, 'close', -1)], 1_000_000, 90_000, () => false);
+    expect(plan.expired.size).toBe(0); expect(plan.merges.map(run => run.legs.map(l => l.id))).toEqual([['d1', 'd2']]);
+    expect(planAdjustments([leg(1, 'open', -1), leg(2, 'open', -1)], 1_000_000, 90_000, () => false).expired).toEqual(new Set(['d1', 'd2']));
+  });
   it('a flip\'s close and open are each their own order; the adds after it merge', () => {
     const plan = planAdjustments([leg(1, 'close', 1), leg(2, 'close', 1, true), leg(2, 'open', -1, true), leg(3, 'open', -1), leg(4, 'open', -1)], 10, 900_000, () => false);
     expect(plan.merges.map(run => run.legs.map(l => `${l.id}:${l.leg}`))).toEqual([['d3:open', 'd4:open']]);

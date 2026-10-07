@@ -9,7 +9,7 @@ import { liveSourceExecutionCloid } from '../src/copy/live/postgres-live-prepara
 import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
 import type { LiveExecutionRecord } from '../src/copy/live/live-execution.js';
 import type { LiveExecutionHooks, LiveExecutionRequest } from '../src/copy/live/live-execution-runtime.js';
-import { CopyLiveEngine, type LiveEngineDependencies } from '../src/copy/live-worker/copy-live-engine.js';
+import { CLOSE_ATTEMPT_LIMIT, CopyLiveEngine, type LiveEngineDependencies } from '../src/copy/live-worker/copy-live-engine.js';
 import { CopyLiveWorkerRepository } from '../src/copy/live-worker/copy-live-worker.repository.js';
 import { WatchedMainnetSource } from '../src/copy/live-worker/watched-mainnet-source.js';
 import type { LiveSettleOutcome, LiveSettleRequest } from '../src/copy/live-worker/copy-live-settler.js';
@@ -201,6 +201,53 @@ describe('testnet copy execution engine', () => {
     clock += 3000; await engine().tick();
     expect((await dispatches())[0]).toMatchObject({ state: 'refused', reason: 'available_collateral' });
     expect(runtimeCalls).toHaveLength(1);
+  });
+
+  it('sends a leader\'s close however late (CP-EXE-14-02), with no signal deadline, where an open that old is refused', async () => {
+    await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+    const open = await leaderFill(16, now + 100, 'B', '1', '0', 'ETH'), close = await leaderFill(17, now + 200, 'A', '1', '1', 'ETH');
+    const late = await leaderFill(18, now + 300, 'B', '1', '0', 'BTC');
+    runtimeImpl = async (request, hooks) => { if (request.sourceFillId === open) return filled(request, hooks); runtimeCalls.push(request); throw new LiveBoundaryError('live_risk_stale'); };
+    clock = now + 1000; await engine().tick(); clock += 3000; await engine().tick();
+    expect((await dispatches()).find(r => r.sourceFillId === open)).toMatchObject({ state: 'settled' });
+    runtimeCalls.length = 0; runtimeImpl = filled;
+    clock = now + 300 + 600_000; await engine().tick();
+    const rows = await dispatches();
+    expect(rows.find(r => r.sourceFillId === close)).toMatchObject({ state: 'submitted', executionKey: keyOf(close, 'close') });
+    expect(rows.find(r => r.sourceFillId === late)).toMatchObject({ state: 'refused' });
+    expect(runtimeCalls).toEqual([{ userId: 1, accountId: 'account', mandateId: 'mandate', sourceFillId: close, leg: 'close' }]);
+  });
+
+  it('refuses a close that keeps failing after CLOSE_ATTEMPT_LIMIT attempts, never retrying it for ever', async () => {
+    await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+    const open = await leaderFill(25, now + 100, 'B', '1', '0', 'ETH'), close = await leaderFill(26, now + 200, 'A', '1', '1', 'ETH');
+    runtimeImpl = async (request, hooks) => { if (request.sourceFillId === open) return filled(request, hooks); runtimeCalls.push(request); throw new LiveBoundaryError('live_risk_stale'); };
+    clock = now + 1000; await engine().tick();
+    await db.update(schema.copyLiveDispatches).set({ attempts: CLOSE_ATTEMPT_LIMIT - 1 }).where(eq(schema.copyLiveDispatches.sourceFillId, close));
+    clock = now + 1_000_000; await engine().tick();
+    expect((await dispatches()).find(r => r.sourceFillId === close)).toMatchObject({ state: 'refused', reason: 'live_risk_stale', attempts: CLOSE_ATTEMPT_LIMIT });
+  });
+
+  it('closes what the follower still holds once the leader is flat: a close settled owing part of it, or refused', async () => {
+    await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+    const btcOpen = await leaderFill(19, now + 100, 'B', '1', '0', 'BTC'), btcClose = await leaderFill(20, now + 200, 'A', '1', '1', 'BTC');
+    const ethOpen = await leaderFill(21, now + 300, 'B', '1', '0', 'ETH'), ethClose = await leaderFill(22, now + 400, 'A', '1', '1', 'ETH');
+    const solOpen = await leaderFill(23, now + 500, 'B', '1', '0', 'SOL'), solClose = await leaderFill(24, now + 600, 'A', '1', '1', 'SOL');
+    runtimeImpl = async (request, hooks) => {
+      if (request.sourceFillId === ethClose) { runtimeCalls.push(request); throw new LiveBoundaryError('below_min_notional'); }
+      clock++; return filled(request, hooks); // one nonce per journal
+    };
+    clock = now + 1000; await engine().tick(); clock += 3000; await engine().tick(); clock += 3000; await engine().tick();
+    // BTC: the IOC close left 0.4 unfilled (the settled carry); SOL: closed in full.
+    await db.insert(schema.copyLiveReductionCarry).values([{ mandateId: 'mandate', coin: 'BTC', carry: '0.4', revision: 2, updatedAt: new Date(clock) },
+      { mandateId: 'mandate', coin: 'SOL', carry: '0', revision: 2, updatedAt: new Date(clock) }]);
+    const rows = await dispatches();
+    for (const [fill, state] of [[btcOpen, 'settled'], [btcClose, 'settled'], [ethOpen, 'settled'], [ethClose, 'refused'], [solOpen, 'settled'], [solClose, 'settled']] as const)
+      expect(rows.find(r => r.sourceFillId === fill)).toMatchObject({ state });
+    clock += 3000; await engine().tick(); clock += 3000; await engine().tick();
+    const closes = await db.select().from(schema.copyLiveManualCloses);
+    expect(closes.map(c => c.coin).sort()).toEqual(['BTC', 'ETH']);
+    expect(closes.every(c => c.state === 'requested' && c.accountId === 'account' && c.idempotencyKey.startsWith('reconcile:'))).toBe(true);
   });
 
   it('skips a close of a position this copy never opened and orders a flip: close settles before the open is sent', async () => {

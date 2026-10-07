@@ -1,7 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, gt, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 import { copyControls, copyExecutionAccounts, copyFundingOperations, copyLiveManualCloses, copyLiveActivations, copyLiveDispatches, copyLiveExecutions, copyLiveMandates,
-  copyLiveSourceFills, copyLiveSourceStreams, copyLiveStopOperations, copyLiveStrategyConfigs, copyStrategies, copyStrategyVersions, copyRiskPolicies, fillCoverage, fills } from '@trading-dashboard/shared/database';
+  copyLiveReductionCarry, copyLiveSourceFills, copyLiveSourceStreams, copyLiveStopOperations, copyLiveStrategyConfigs, copyStrategies, copyStrategyVersions, copyRiskPolicies, fillCoverage, fills } from '@trading-dashboard/shared/database';
 import { ACTUAL_STRATEGY_MODE, CHAIN_DEFAULT, copyRiskLimitsSchema, copyStrategySettingsSchema, DEFAULT_COPY_RISK_LIMITS } from '@trading-dashboard/shared/contracts';
 import { AppConfig } from '../../config/app-config.js';
 import { DRIZZLE_CLIENT } from '../../db/db.constants.js';
@@ -181,6 +182,27 @@ export class CopyLiveWorkerRepository {
     });
   }
 
+  /** Each coin's latest work row of a generation (the leader's latest leg,
+   * a flip's open after its close), with its leader fill and the coin's
+   * reduction carry (what a settled close still owes the follower). */
+  async latestByCoin(mandateId: string): Promise<{ row: DispatchRow; fill: typeof copyLiveSourceFills.$inferSelect; carry: string | null }[]> {
+    const rows = await this.db.selectDistinctOn([copyLiveDispatches.coin], { row: copyLiveDispatches, fill: copyLiveSourceFills, carry: copyLiveReductionCarry.carry })
+      .from(copyLiveDispatches).innerJoin(copyLiveSourceFills, eq(copyLiveSourceFills.id, copyLiveDispatches.sourceFillId))
+      .leftJoin(copyLiveReductionCarry, and(eq(copyLiveReductionCarry.mandateId, copyLiveDispatches.mandateId), eq(copyLiveReductionCarry.coin, copyLiveDispatches.coin)))
+      .where(eq(copyLiveDispatches.mandateId, mandateId))
+      .orderBy(copyLiveDispatches.coin, sql`${copyLiveDispatches.leaderTime} desc`, sql`case when ${copyLiveDispatches.leg} = 'open' then 0 else 1 end`, sql`${copyLiveDispatches.id} desc`).limit(1024);
+    return rows.map(({ row, fill, carry }) => ({ row, fill, carry: carry ?? null }));
+  }
+  /** Asks the worker's single-position closer (copy_live_manual_closes, run
+   * after the legs by CopyLiveManualCloser) to close what the follower still
+   * holds of `row.coin` once the leader is flat: reduce-only IOCs by the
+   * approved agent until the position is gone. One request per leader close
+   * (`reconcile:<row id>`); none while a close of the coin is requested. */
+  async requestFlatClose(row: Pick<DispatchRow, 'id' | 'userId' | 'accountId' | 'strategyId' | 'coin'>, at: Date): Promise<boolean> {
+    const inserted = await this.db.insert(copyLiveManualCloses).values({ id: randomUUID(), userId: row.userId, accountId: row.accountId, strategyId: row.strategyId,
+      idempotencyKey: `reconcile:${row.id}`.slice(0, 200), coin: row.coin, createdAt: at, updatedAt: at }).onConflictDoNothing().returning({ id: copyLiveManualCloses.id });
+    return inserted.length === 1;
+  }
   /** Leader fills after the cursor that this generation has not picked up yet. */
   async newFills(m: LiveMandateWork, limit = 50) {
     const after = m.activatedAt && m.activatedAt > m.cursor ? m.activatedAt : m.cursor;

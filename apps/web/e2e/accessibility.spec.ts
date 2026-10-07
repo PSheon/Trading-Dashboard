@@ -12,7 +12,8 @@ for (const width of [1280, 390]) {
     const discovery = await (await wcag(page)).analyze();
     expect.soft(discovery.violations).toEqual([]);
     await openFirstTrader(page);
-    await expect(page.getByRole(width < 768 ? 'radiogroup' : 'tablist', { name: 'Trading activity' })).toBeVisible();
+    // One tab row on desktop and phones (2026-10-07).
+    await expect(page.getByRole('tablist', { name: 'Trading activity' })).toBeVisible();
     const profile = await (await wcag(page)).analyze();
     expect(profile.violations).toEqual([]);
   });

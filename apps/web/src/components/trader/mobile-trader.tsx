@@ -1,10 +1,9 @@
 "use client";
 
-import type { PortfolioResponse, TraderAnalyticsResponse, TraderProfileResponse, TraderWindow } from "@/lib/contracts";
+import type { PortfolioResponse, TraderAnalyticsResponse, TraderFill, TraderProfileResponse, TraderWindow } from "@/lib/contracts";
 import { ArrowLeft, X } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { useUrlState } from "@/lib/url-state";
 import { cn } from "cn";
 
 import { AlertBell } from "@/components/alerts/alert-bell";
@@ -15,7 +14,7 @@ import { useModalFocus } from "@/lib/use-modal-focus";
 import { FavoriteButton, RoiPill } from "@/components/traders/bits";
 import { roiPillShort } from "@/lib/board-format";
 import { useI18n } from "@/i18n/provider";
-import { isComputing, isUnavailable, useChartSnapshots, useTraderAnalytics } from "@/lib/queries";
+import { isComputing, useChartSnapshots, useTraderAnalytics } from "@/lib/queries";
 import { ChartSnapshotStrip } from "./chart-snapshot-strip";
 import { CopyScoreBar, TraderAvatar } from "@/components/discover/board-bits";
 import { truncateAddress, usdCompact, signedUsdShort, usd2 } from "@/lib/format";
@@ -24,58 +23,12 @@ import { shareName } from "@/lib/share-card";
 import { SectionBoundary } from "@/components/section-boundary";
 import { CopyPanel } from "./copy-panel";
 import { ShareButton } from "./share-dialog";
-import { MobileInsights } from "./mobile-insights";
+import { ActivityTabs } from "./activity-tabs";
 import { useAuth } from "@/lib/auth";
 import { useCopyOf } from "@/lib/copy";
 import { signedPctCd, WINDOWS } from "./performance";
-import { PerformanceTab, TradesTab, type PerfView } from "./trade-analytics";
-import { PositionsTab } from "./trader-tabs";
 import { unavailableNote } from "./profile-card";
-import { SwitchPanel } from "@/components/ui/switch-panel";
-import { useSlidingIndicator } from "@/lib/use-sliding-indicator";
-
-/** A row of pills, the active one filled with the brand colour (CopyDog's
- * mobile segmented controls). */
-function Pills<T extends string>({
-  value,
-  onChange,
-  options,
-  label,
-  className,
-  stretch = false,
-}: {
-  value: T;
-  onChange: (v: T) => void;
-  options: Array<[T, string]>;
-  label: string;
-  className?: string;
-  stretch?: boolean;
-}) {
-  // The orange pill slides to the chosen option, as every segmented control's does.
-  const [trackRef, pill] = useSlidingIndicator<HTMLDivElement>(value);
-  return (
-    <div ref={trackRef} role="radiogroup" aria-label={label} className={cn("relative flex items-center gap-0.5 rounded-full bg-raised p-1", className)}>
-      {pill ? <span aria-hidden className="absolute rounded-full bg-primary transition-[left,top,width] duration-300 ease-(--ease-orbit) motion-reduce:transition-none" style={{ left: pill.left, top: pill.top, width: pill.width, height: pill.height }} /> : null}
-      {options.map(([v, text]) => (
-        <button
-          key={v}
-          type="button"
-          role="radio"
-          data-active={value === v}
-          aria-checked={value === v}
-          onClick={() => onChange(v)}
-          className={cn(
-            "relative min-h-11 rounded-full px-3.5 py-2 text-sm leading-5 whitespace-nowrap outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
-            stretch && "min-w-0 flex-1",
-            value === v ? cn("font-extrabold text-primary-foreground", !pill && "bg-primary") : "font-bold text-muted-foreground",
-          )}
-        >
-          {text}
-        </button>
-      ))}
-    </div>
-  );
-}
+import { Segmented } from "@/components/ui/segmented";
 
 /** The trader page's own top bar on phones (CopyDog's): back, the address
  * (a KOL's name and badge instead), favourite, alert and share. Replaces the app's header there. */
@@ -121,20 +74,18 @@ function Ring({ value, className }: { value: number; className?: string }) {
 
 const TONE = { positive: "text-positive", warning: "text-warning", negative: "text-negative" } as const;
 
-type MobileTab = "positions" | "insights" | "performance" | "trades";
-const MOBILE_TABS: readonly MobileTab[] = ["positions", "insights", "performance", "trades"];
-
 /**
  * The trader page on phones, laid out as CopyDog's app: its own top bar,
  * the chart first (損益 / ROI), window pills, a 2×2 card (帳戶價值, 夏普,
- * 勝率 with a ring, 回撤), segmented 持倉 / 洞察 / 表現 / 交易 with cards
- * instead of tables, and a sticky 跟單 button in place of the tab bar that
+ * 勝率 with a ring, 回撤), the page's tabs (持倉 / 洞察 / 表現 / 交易 / 動態,
+ * as on desktop) with cards instead of tables, and a sticky 跟單 button in place of the tab bar that
  * opens the copy panel as a sheet. The copy score sits under the avatar
  * when the trader has one.
  */
 export function MobileTrader({
   profile,
   marks,
+  liveFills,
   portfolio,
   allTime,
   window,
@@ -146,6 +97,8 @@ export function MobileTrader({
 }: {
   profile: TraderProfileResponse;
   marks: Readonly<Record<string, number>>;
+  /** Fills seen on Hyperliquid's WebSocket (動態). */
+  liveFills?: TraderFill[];
   /** The chart's window (perp). */
   portfolio: PortfolioResponse | undefined;
   /** All time (perp): Sharpe and drawdown. */
@@ -161,8 +114,6 @@ export function MobileTrader({
 }) {
   const { t, format } = useI18n();
   const [mode, setMode] = useState<"pnl" | "roi">("pnl");
-  const [tab, setTab] = useUrlState<MobileTab>("tab", MOBILE_TABS, "positions");
-  const [perfView, setPerfView] = useState<PerfView>("best");
   const [sheet, setSheet] = useState(false);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const snapshots = useChartSnapshots(profile.address, window);
@@ -201,11 +152,13 @@ export function MobileTrader({
       <section aria-label={t("trader.chart.pnlLabel")} className="flex flex-col gap-5 rounded-2xl bg-raised p-4 [--skel-bar:var(--border)]">
         <div className="flex items-stretch justify-between gap-3">
           <div className="flex min-w-0 flex-1 flex-col items-start gap-2">
-            <Pills
+            <Segmented
+              variant="pill"
               value={mode}
               onChange={setMode}
               label={t("trader.chart.pnlLabel")}
-              options={[["pnl", t("trader.mobile.pnl")], ["roi", t("trader.mobile.roi")]]}
+              className="[--seg-track:var(--card)]"
+              options={[{ value: "pnl", label: t("trader.mobile.pnl") }, { value: "roi", label: t("trader.mobile.roi") }]}
             />
             {loading && !portfolio && !failed ? (
               <>
@@ -267,22 +220,14 @@ export function MobileTrader({
         ) : loading && !failed && snapshots.data?.coverageStart && snapshots.data.snapshots.length > 0 ? (
           <div className="min-h-9" aria-hidden />
         ) : null}
-        <div role="radiogroup" aria-label={t("trader.kpi.period")} className="flex items-center gap-0.5 rounded-full bg-card p-1">
-          {WINDOWS.map((w) => (
-            <button
-              key={w}
-              type="button"
-              role="radio"
-              aria-checked={window === w}
-              onClick={() => onWindow(w)}
-              className={cn("group inline-flex min-h-11 flex-1 items-center justify-center rounded-full outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring", window === w && "bg-primary")}
-            >
-              <span className={cn("inline-flex text-sm leading-5", window === w ? "font-extrabold text-primary-foreground" : "font-bold text-muted-foreground")}>
-                {t(`windows.${w}`)}
-              </span>
-            </button>
-          ))}
-        </div>
+        <Segmented
+          variant="pill"
+          value={window}
+          onChange={onWindow}
+          label={t("trader.kpi.period")}
+          className="w-full [--seg-track:var(--card)] [&>button]:flex-1"
+          options={WINDOWS.map((w) => ({ value: w, label: t(`windows.${w}`) }))}
+        />
       </section>
 
       <dl className="orbit-card card-pad grid grid-cols-2 gap-x-4 gap-y-5">
@@ -315,41 +260,7 @@ export function MobileTrader({
         </div>
       </dl>
 
-      <Pills
-        value={tab}
-        onChange={setTab}
-        label={t("trader.tabsLabel")}
-        stretch
-        options={[
-          ["positions", t("trader.tabs.positions")],
-          ["insights", t("trader.tabs.insights")],
-          ["performance", t("trader.tabs.performance")],
-          ["trades", t("trader.tabs.trades")],
-        ]}
-      />
-
-      <SwitchPanel value={tab} order={MOBILE_TABS} className="-mt-2">
-        {tab === "positions" ? <PositionsTab profile={profile} marks={marks} /> : null}
-        {tab === "insights" ? <MobileInsights profile={profile} trades={trades.data} computing={isComputing(trades)} /> : null}
-        {tab === "performance" ? (
-          <div>
-            <PerformanceTab
-              analytics={trades.data}
-              computing={isComputing(trades)}
-              unavailable={isUnavailable(trades)}
-              error={trades.error}
-              onRetry={() => trades.refetch()}
-              view={perfView}
-              onView={setPerfView}
-            />
-          </div>
-        ) : null}
-        {tab === "trades" ? (
-          <div>
-            <TradesTab address={profile.address} />
-          </div>
-        ) : null}
-      </SwitchPanel>
+      <ActivityTabs profile={profile} liveFills={liveFills} marks={marks} />
 
       <div className="fixed inset-x-0 bottom-0 z-40 bg-background/92 px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-xl md:hidden">
         <button

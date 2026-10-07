@@ -24,7 +24,6 @@ import { useLiveTrader } from "@/lib/use-live-trader";
 import { ActivityTabs, ActivityTabsSkeleton } from "./activity-tabs";
 import { SectionBoundary } from "@/components/section-boundary";
 import { CopyPanel } from "./copy-panel";
-import { LiveFeed } from "./live-feed";
 import { MobileTrader, MobileTraderSkeleton } from "./mobile-trader";
 import {
   KpiTiles,
@@ -146,6 +145,7 @@ function TraderLoaded({ address, initial }: { address: string; initial?: TraderI
       <MobileTrader
         profile={live.profile}
         marks={live.mids}
+        liveFills={live.fills}
         portfolio={portfolio.data}
         allTime={allTimePerp.data}
         window={window}
@@ -165,7 +165,6 @@ function TraderLoaded({ address, initial }: { address: string; initial?: TraderI
       profile={profile}
       live={live}
       lowSample={activity.data?.sample.lowSample ?? false}
-      firstPaint={firstPaint}
       portfolio={portfolio}
       allTimePerp={allTimePerp}
       copyScore={copyScore.data?.copyScore ?? null}
@@ -179,12 +178,11 @@ function TraderLoaded({ address, initial }: { address: string; initial?: TraderI
 
 /** The desktop page: profile rail | KPIs + chart + tabs | copy panel. Its
  * own reads live here, so they start only when this layout is shown. */
-function DesktopTrader({ address, profile, live, lowSample, firstPaint, portfolio, allTimePerp, copyScore, window, onWindow, market, onMarket }: {
+function DesktopTrader({ address, profile, live, lowSample, portfolio, allTimePerp, copyScore, window, onWindow, market, onMarket }: {
   address: string;
   profile: ReturnType<typeof useTraderProfile>;
   live: ReturnType<typeof useLiveTrader>;
   lowSample: boolean;
-  firstPaint: boolean;
   portfolio: ReturnType<typeof usePortfolio>;
   allTimePerp: ReturnType<typeof usePortfolio>;
   copyScore: number | null;
@@ -196,8 +194,6 @@ function DesktopTrader({ address, profile, live, lowSample, firstPaint, portfoli
   const { t } = useI18n();
   const [mode, setMode] = useState<ChartMode>("pnl");
   const [unit, setUnit] = useState<ChartUnit>("usd");
-  // CopyDog's 即時動態: the pulse in the tab bar swaps the copy panel for it.
-  const [feedOpen, setFeedOpen] = useState(false);
   // The rail's all-time volume follows the chart's market.
   const allTime = usePortfolio(address, "allTime", market);
   // Round trips for any address, all-time (the rail, the tabs and the
@@ -266,9 +262,6 @@ function DesktopTrader({ address, profile, live, lowSample, firstPaint, portfoli
             profile={live.profile}
             liveFills={live.fills}
             marks={live.mids}
-            feedOpen={feedOpen}
-            onToggleFeed={() => setFeedOpen((open) => !open)}
-            fillsReady={firstPaint}
           />
         ) : (
           <ActivityTabsSkeleton />
@@ -276,8 +269,8 @@ function DesktopTrader({ address, profile, live, lowSample, firstPaint, portfoli
       </div>
 
       <div data-area="copy">
-        <SectionBoundary key={feedOpen ? "feed" : "copy"}>
-          {feedOpen ? <LiveFeed address={address} liveFills={live.fills} onCopy={() => setFeedOpen(false)} /> : <CopyPanel address={address} leaderPositions={live.profile?.positions} traderName={live.profile ? shareName(live.profile) : undefined} />}
+        <SectionBoundary>
+          <CopyPanel address={address} leaderPositions={live.profile?.positions} traderName={live.profile ? shareName(live.profile) : undefined} />
         </SectionBoundary>
       </div>
     </div>

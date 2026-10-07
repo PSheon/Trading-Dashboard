@@ -36,11 +36,18 @@ describe("成交 rows, CopyDog's grouping", () => {
       </I18nProvider>,
     );
     const badges = [...html.matchAll(/data-testid="fill-count"[^>]*>(\d+)</g)].map((m) => Number(m[1]));
-    expect(badges).toEqual(fixture.expected.map((g) => g[2]).filter((n) => Number(n) > 1));
-    expect(html.match(/<tr/g)?.length).toBe(fixture.expected.length + 1);
-    // The oldest group (last row) is partial: size and value read "≥".
-    const last = html.slice(html.lastIndexOf("<tr"));
-    expect(last.match(/≥/g)?.length).toBe(2);
+    // The first page: ten groups (the shared pager, 2026-10-07).
+    expect(badges).toEqual(fixture.expected.slice(0, 10).map((g) => g[2]).filter((n) => Number(n) > 1));
+    expect(html.match(/<tr/g)?.length).toBe(Math.min(10, fixture.expected.length) + 1);
     expect(html).toContain("—");
+    // The oldest group (the last page's last row) is partial: size and value read "≥".
+    const oldest = groupFills(fills, true).at(-1)!;
+    expect(oldest.partial).toBe(true);
+    const last = renderToStaticMarkup(
+      <I18nProvider locale="zh-TW" messages={zhTW}>
+        <FillsTab rows={fills.filter((f) => new Date(f.ts).getTime() <= oldest.time)} truncated />
+      </I18nProvider>,
+    );
+    expect(last.slice(last.lastIndexOf("<tr")).match(/≥/g)?.length).toBe(2);
   });
 });

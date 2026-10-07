@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { FILL_ROWS_STEP, FillsTab } from "../src/components/trader/trader-tabs";
+import { FillsTab } from "../src/components/trader/trader-tabs";
 import { I18nProvider } from "../src/i18n/provider";
 import { en } from "../src/i18n/messages/en";
 import type { TraderFill } from "../src/lib/contracts";
@@ -18,56 +18,25 @@ const fills: TraderFill[] = Array.from({ length: 2000 }, (_, i) => ({
   closedPnl: 0, fee: 0, ts: new Date(now - i * 60_000).toISOString(), twapId: null, startPosition: 0, liquidation: false,
 }));
 
-let observers: Array<{ callback: IntersectionObserverCallback; target: Element | null }> = [];
-class FakeObserver {
-  entry: { callback: IntersectionObserverCallback; target: Element | null };
-  constructor(callback: IntersectionObserverCallback) {
-    this.entry = { callback, target: null };
-    observers.push(this.entry);
-  }
-  observe(target: Element) { this.entry.target = target; }
-  disconnect() { observers = observers.filter((o) => o !== this.entry); }
-  unobserve() {}
-  takeRecords() { return []; }
-}
-
-afterEach(() => { vi.unstubAllGlobals(); observers = []; document.body.replaceChildren(); });
+afterEach(() => { document.body.replaceChildren(); });
 
 const bodyRows = (el: HTMLElement) => el.querySelectorAll("tbody tr").length;
+const button = (el: HTMLElement, name: string) => [...el.querySelectorAll<HTMLButtonElement>("nav button")].find((b) => b.textContent?.includes(name))!;
 
-// Rendering 2,000 table rows in happy-dom takes 3–5 s on CI's runner (5 s
-// was the default limit; run 37274048145 timed out at it).
-describe("成交 with 2,000 rows that don't merge", { timeout: 20_000 }, () => {
-  it("puts one step of rows in the page, and the next as the end comes near, until all are there", async () => {
-    vi.stubGlobal("IntersectionObserver", FakeObserver);
+describe("成交 with 2,000 rows that don't merge", () => {
+  it("shows ten a page with the shared pager, and a new sort starts again on page 1", async () => {
     const el = document.createElement("div");
     document.body.append(el);
     const root = createRoot(el);
     await act(async () => root.render(<I18nProvider locale="en" messages={en}><FillsTab rows={fills} /></I18nProvider>));
-    expect(bodyRows(el)).toBe(FILL_ROWS_STEP);
-    const near = async () => {
-      const o = observers.at(-1)!;
-      await act(async () => o.callback([{ isIntersecting: true, target: o.target } as IntersectionObserverEntry], {} as IntersectionObserver));
-    };
-    await near();
-    expect(bodyRows(el)).toBe(2 * FILL_ROWS_STEP);
-    for (let i = 0; i < 20 && bodyRows(el) < 2000; i++) await near();
-    expect(bodyRows(el)).toBe(2000);
-    // Everything shown: no marker, nothing left to observe.
-    expect(observers).toHaveLength(0);
-    // A new sort starts again from the top.
+    expect(bodyRows(el)).toBe(10);
+    expect(el.querySelector("[data-pager]")?.textContent).toContain("Page 1 of 200");
+    expect(button(el, "Previous").disabled).toBe(true);
+    await act(async () => button(el, "Next").click());
+    expect(bodyRows(el)).toBe(10);
+    expect(el.querySelector("[data-pager]")?.textContent).toContain("Page 2 of 200");
     await act(async () => el.querySelector<HTMLButtonElement>("thead button")!.click());
-    expect(bodyRows(el)).toBe(FILL_ROWS_STEP);
-    await act(async () => root.unmount());
-  });
-
-  it("without IntersectionObserver every row is rendered", async () => {
-    vi.stubGlobal("IntersectionObserver", undefined);
-    const el = document.createElement("div");
-    document.body.append(el);
-    const root = createRoot(el);
-    await act(async () => root.render(<I18nProvider locale="en" messages={en}><FillsTab rows={fills} /></I18nProvider>));
-    expect(bodyRows(el)).toBe(2000);
+    expect(el.querySelector("[data-pager]")?.textContent).toContain("Page 1 of 200");
     await act(async () => root.unmount());
   });
 });

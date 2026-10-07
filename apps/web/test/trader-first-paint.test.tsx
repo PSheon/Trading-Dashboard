@@ -76,9 +76,9 @@ describe("the trader page asks for the fill lists after its first paint", () => 
     expect(state.activityEnabled).toEqual([true]);
   });
 
-  it("the fills tab's list waits for the first paint unless the tab is opened", () => {
-    renderToStaticMarkup(<I18nProvider locale="en" messages={en}><ActivityTabs profile={known} fillsReady={false} /></I18nProvider>);
-    renderToStaticMarkup(<I18nProvider locale="en" messages={en}><ActivityTabs profile={known} fillsReady /></I18nProvider>);
-    expect(state.fillsEnabled).toEqual([false, true]);
+  it("the tabs ask for no fill list until 動態 is opened (no fills tab any more)", () => {
+    renderToStaticMarkup(<I18nProvider locale="en" messages={en}><ActivityTabs profile={known} /></I18nProvider>);
+    render();
+    expect(state.fillsEnabled).toEqual([]);
   });
 });

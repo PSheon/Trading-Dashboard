@@ -34,18 +34,15 @@ for (const width of [1440, 390]) {
     await page.goto("/en/explore");
     await openFirstTrader(page);
     const mobile = width < 768;
-    const activity = mobile
-      ? page.getByRole("radiogroup", { name: "Trading activity" })
-      : page.getByRole("tablist", { name: "Trading activity" });
-    const select = (name: string) => activity.getByRole(mobile ? "radio" : "tab", { name, exact: true }).click();
-    // The phone shows the trading style under Insights; the desktop profile
-    // card shows it beside the tabs.
-    if (mobile) {
-      await select("Insights");
-      await expect(page.getByRole("heading", { name: "Trader Profile", exact: true })).toBeVisible();
-    } else {
-      await expect(page.getByTestId("trading-style").filter({ visible: true })).not.toHaveText("—");
-    }
+    // One tab row on desktop and phones: 持倉 / 洞察 / 表現 / 交易 / 動態.
+    const activity = page.getByRole("tablist", { name: "Trading activity" });
+    await expect(activity.getByRole("tab")).toHaveText(["Positions", "Insights", "Performance", "Trades", "Activity"]);
+    await expect(page.getByRole("button", { name: "Live activity" })).toHaveCount(0);
+    const select = (name: string) => activity.getByRole("tab", { name, exact: true }).click();
+    // Insights shows the trading style on both; the desktop profile card too.
+    await select("Insights");
+    await expect(page.getByRole("heading", { name: "Trader Profile", exact: true })).toBeVisible();
+    if (!mobile) await expect(page.getByTestId("trading-style").filter({ visible: true })).not.toHaveText("—");
     await select("Performance");
     await expect(page.getByRole("radiogroup", { name: "Performance", exact: true }).getByRole("radio", { name: "Best", exact: true })).toBeChecked();
     if (mobile) await expect(page.getByRole("main").getByRole("list").getByRole("listitem").first()).toContainText(/Long|Short/);

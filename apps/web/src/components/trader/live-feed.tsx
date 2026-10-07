@@ -4,7 +4,8 @@ import type { TraderFill, TraderTransfer } from "@/lib/contracts";
 import { useMemo } from "react";
 import { cn } from "cn";
 
-import { Skeleton } from "@/components/page";
+import { ErrorState, Skeleton } from "@/components/page";
+import { TablePager, usePaged } from "@/components/ui/table-pager";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { useI18n } from "@/i18n/provider";
 import { coinLabel, signedUsd2, usd2 } from "@/lib/format";
@@ -81,21 +82,12 @@ function TransferRow({ ev }: { ev: TraderTransfer }) {
 }
 
 /**
- * CopyDog's 即時動態 (the pulse at the right of the tab bar): the trader's
- * recent fills, grouped by order stream, and transfers since the oldest of
- * them, newest first, kept live by the page's Hyperliquid socket. It takes
- * the copy panel's place; the copy CTA collapses to a button above it.
+ * 動態, the trader page's fifth tab (CopyDog's 即時動態, which sat behind a
+ * pulse in the tab bar and took the copy panel's place): the trader's recent
+ * fills, grouped by order stream, and transfers since the oldest of them,
+ * newest first, kept live by the page's Hyperliquid socket; ten a page.
  */
-export function LiveFeed({
-  address,
-  liveFills = NO_FILLS,
-  onCopy,
-}: {
-  address: string;
-  liveFills?: TraderFill[];
-  /** The collapsed 跟單 button: back to the copy panel. */
-  onCopy: () => void;
-}) {
+export function ActivityFeed({ address, liveFills = NO_FILLS }: { address: string; liveFills?: TraderFill[] }) {
   const { t } = useI18n();
   const fills = useTraderFills(address, FILL_LIMIT);
   const transfers = useTraderTransfers(address);
@@ -110,42 +102,36 @@ export function LiveFeed({
       .sort((a, b) => (b.source === "fill" ? b.time : b.at) - (a.source === "fill" ? a.time : a.at))
       .slice(0, MAX_EVENTS);
   }, [rows, fills.data, transfers.data]);
+  // New events arrive on top while a page is read: the page stays put.
+  const { rows: page, pager } = usePaged(events);
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="orbit-card card-pad">
-        <button
-          type="button"
-          onClick={onCopy}
-          className="h-12 w-full rounded-full bg-primary text-base font-bold text-primary-foreground outline-none hover:brightness-105 focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {t("trader.copyTrade")}
-        </button>
+    <section className="overflow-hidden rounded-2xl bg-card" aria-label={t("trader.activity.title")} data-testid="activity-feed">
+      <div className="flex items-center justify-between px-4 pt-3 pb-1">
+        <h2 className="text-sm font-semibold">{t("trader.activity.title")}</h2>
+        <span className="flex items-center gap-1.5 text-xs font-semibold text-positive">
+          <span aria-hidden className="size-1.5 animate-pulse rounded-full bg-positive" />
+          {t("trader.activity.live")}
+        </span>
       </div>
-      <section className="orbit-card px-4 pt-3 pb-1" aria-label={t("trader.activity.title")}>
-        <div className="flex items-center justify-between pb-1">
-          <h2 className="text-sm font-semibold">{t("trader.activity.title")}</h2>
-          <span className="flex items-center gap-1.5 text-xs font-semibold text-positive">
-            <span aria-hidden className="size-1.5 animate-pulse rounded-full bg-positive" />
-            {t("trader.activity.live")}
-          </span>
-        </div>
-        {events.length === 0 ? (
-          !rows ? (
-            <div className="flex flex-col gap-2 py-3">
-              {Array.from({ length: 6 }, (_, i) => (
-                <Skeleton key={i} className="h-10" />
-              ))}
-            </div>
-          ) : (
-            <p className="py-8 text-center text-xs text-muted-foreground">{t("trader.activity.empty")}</p>
-          )
+      {events.length === 0 ? (
+        fills.isError && !rows ? (
+          <ErrorState onRetry={() => void fills.refetch()} />
+        ) : !rows ? (
+          <div role="status" aria-label={t("common.loading")} className="flex flex-col gap-2 px-4 py-3">
+            {Array.from({ length: 6 }, (_, i) => (
+              <Skeleton key={i} className="h-10" />
+            ))}
+          </div>
         ) : (
-          <ul className="max-h-[calc(100dvh-15rem)] overflow-y-auto">
-            {events.map((ev) => (ev.source === "fill" ? <FillRow key={ev.key} ev={ev} /> : <TransferRow key={ev.key} ev={ev} />))}
-          </ul>
-        )}
-      </section>
-    </div>
+          <p className="py-8 text-center text-xs text-muted-foreground">{t("trader.activity.empty")}</p>
+        )
+      ) : (
+        <ul className="px-4">
+          {page.map((ev) => (ev.source === "fill" ? <FillRow key={ev.key} ev={ev} /> : <TransferRow key={ev.key} ev={ev} />))}
+        </ul>
+      )}
+      <TablePager {...pager} />
+    </section>
   );
 }

@@ -165,7 +165,7 @@ const PNL_TONE: Partial<Record<PnlTier, string>> = {
 const SIZE_TONE: Partial<Record<SizeTier, string>> = { apex: "text-warning" };
 
 /**
- * The phone's 洞察 tab, CopyDog's layout (its app's insights): 總覽 (realized
+ * The 洞察 tab (phones and, since 2026-10-07, desktop), CopyDog's layout (its app's insights): 總覽 (realized
  * PnL, volume, total trades, average hold, all-time closed trades), 持倉佈局
  * (leverage, margin usage with the distance to liquidation, direction bias,
  * then the account-composition and position-mix donuts), 最佳與最差, 最常交易
@@ -256,7 +256,8 @@ export function MobileInsights({
       ) : null}
 
       <Section title={t("trader.insightsTab.positioning")}>
-        <div className="flex flex-col gap-4">
+        {/* Two columns in the desktop page's main column. */}
+        <div className="grid gap-4 sm:grid-cols-2">
           <StatCard label={t("trader.leverage")} value={pos.exposed ? `${pos.leverage.toFixed(2)}×` : "—"}>
             {pos.exposed ? (
               <>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { TAB_GROUPS } from "../src/components/trader/activity-tabs";
+import { TABS } from "../src/components/trader/activity-tabs";
 import { groupFills } from "../src/components/trader/trader-tabs";
 import type { TraderFill } from "../src/lib/contracts";
 import { feedTime, liqDistance, qty } from "../src/lib/trade-format";
@@ -11,12 +11,9 @@ const fill = (tid: number, ts: number, extra: Partial<TraderFill> = {}): TraderF
   ts: new Date(ts).toISOString(), twapId: null, startPosition: 30 - (ts / 1000) * 10, liquidation: false, ...extra,
 });
 
-describe("trader tabs, CopyDog's set and order", () => {
-  it("lists 持倉 / 表現 | 餘額 / 訂單 / 成交 / 交易 / TWAP / 轉帳 and nothing else (no 動作 / 警報)", () => {
-    expect(TAB_GROUPS).toEqual([
-      ["positions", "performance"],
-      ["balances", "orders", "fills", "trades", "twap", "transfers"],
-    ]);
+describe("trader tabs, the same five on desktop and phones (Paul, 2026-10-07)", () => {
+  it("lists 持倉 / 洞察 / 表現 / 交易 / 動態 and nothing else", () => {
+    expect(TABS).toEqual(["positions", "insights", "performance", "trades", "activity"]);
   });
 });
 

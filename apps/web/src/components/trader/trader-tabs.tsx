@@ -10,11 +10,12 @@ import type {
   TraderTwap,
 } from "@/lib/contracts";
 import { ArrowDownRight, ArrowUpRight, Share2 } from "lucide-react";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { cn } from "cn";
 
 import { CoinIcon } from "@/components/traders/coin-icon";
-import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TablePager, usePaged } from "@/components/ui/table-pager";
 import { useI18n } from "@/i18n/provider";
 import { coinLabel, signedUsd2, signedUsdShort, truncateAddress, usd2, usdFull } from "@/lib/format";
 import { useTraderOrders, useTraderTransfers, useTraderTwap } from "@/lib/queries";
@@ -86,7 +87,7 @@ function LiqCell({ p, mark }: { p: LivePosition; mark: number | null }) {
   if (!d || p.liqPx === null) return <span className="text-subtle-foreground">—</span>;
   const label = d.pct >= 100 ? ">100%" : `${d.pct.toFixed(d.pct < 10 ? 2 : 1)}%`;
   return (
-    <span className="inline-flex items-center gap-[7px] leading-tight" title={t("trader.liqTip", { pct: d.pct >= 100 ? ">100" : d.pct.toFixed(2) })}>
+    <span className="inline-flex flex-col items-end gap-0.5" title={t("trader.liqTip", { pct: d.pct >= 100 ? ">100" : d.pct.toFixed(2) })}>
       {price(p.liqPx)}
       <span className={cn("chip-sm", LIQ_TONE[d.tone])}>{label}</span>
     </span>
@@ -106,16 +107,19 @@ function LeverageChip({ p }: { p: LivePosition }) {
   );
 }
 
-function SharePosition({ p, onShare }: { p: LivePosition; mark: number | null; onShare: (coin: string) => void }) {
+/** The position's share button (its card, rendered by the server): a round
+ * icon button, always shown. In the table it sits in the row's trailing
+ * action cell (36 px); on the phone card its tap target is 44 px. */
+function SharePosition({ p, onShare, className }: { p: LivePosition; onShare: (coin: string) => void; className?: string }) {
   const { t } = useI18n();
-  return <>
+  return (
     <button type="button" aria-haspopup="dialog"
       onClick={() => onShare(p.coin)}
       aria-label={t("trader.sharePosition")} title={t("trader.sharePosition")}
-      className="ml-2 inline-flex size-5 items-center justify-center rounded-md align-middle text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
-      <Share2 className="size-3" />
+      className={cn("inline-flex items-center justify-center rounded-full align-middle text-muted-foreground outline-none transition-colors hover:bg-raised-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring", className)}>
+      <Share2 className="size-3.5" />
     </button>
-  </>;
+  );
 }
 
 /** CopyDog's mobile position card: coin, side, leverage, size; PnL and its
@@ -140,7 +144,11 @@ function PositionCard({ p, mark, onShare }: { p: LivePosition; mark: number | nu
           </span>
         </div>
         <div className="flex flex-col items-end gap-[3px]">
-          <span className={cn("num text-base leading-[23px] font-semibold", pnlTone(p.unrealizedPnl))}>{signedUsdShort(p.unrealizedPnl)}<SharePosition p={p} mark={mark} onShare={onShare} /></span>
+          <span className={cn("num inline-flex items-center text-base leading-[23px] font-semibold", pnlTone(p.unrealizedPnl))}>
+            {signedUsdShort(p.unrealizedPnl)}
+            {/* 44 px to tap, without growing the card's first line. */}
+            <SharePosition p={p} onShare={onShare} className="-my-3 -mr-3 ml-0.5 size-11" />
+          </span>
           {pct !== null ? (
             <span className={cn("num chip-sm", pct >= 0 ? BUY_BADGE : SELL_BADGE)}>
               {pct >= 0 ? <ArrowUpRight className="size-[9px]" strokeWidth={2.5} /> : <ArrowDownRight className="size-[9px]" strokeWidth={2.5} />}
@@ -194,6 +202,7 @@ export function PositionsTab({ profile, marks }: { profile: TraderProfileRespons
     [marks],
   );
   const { sorted, sort, onSort } = useSorted<LivePosition, PositionKey>(profile.positions, keys, { key: "value", dir: "desc" });
+  const { rows, pager } = usePaged(sorted, sort);
   if (profile.positions.length === 0) {
     return <><Empty title={t(profile.perpEquity === null ? "trader.positionsUnavailable" : "trader.noPositions")} />{share}</>;
   }
@@ -202,12 +211,15 @@ export function PositionsTab({ profile, marks }: { profile: TraderProfileRespons
     <>
       {share}
       <ul className="flex flex-col gap-3 sm:hidden">
-        {sorted.map((p) => (
+        {rows.map((p) => (
           <PositionCard key={p.coin} p={p} mark={markOf(p, marks)} onShare={setSnapshot} />
         ))}
       </ul>
       <div className="hidden sm:block">
-        <Table dense className="text-xs">
+        {/* Nine columns in the main column (768 px at 1440): the % under the
+            PnL and the distance under the liquidation price, and the share
+            button in its own trailing cell, so nothing scrolls sideways. */}
+        <Table dense className="text-xs" data-testid="positions-table">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <SortHead label={t("trader.cols.coin")} col="asset" {...head} />
@@ -219,10 +231,11 @@ export function PositionsTab({ profile, marks }: { profile: TraderProfileRespons
               <SortHead label={t("trader.cols.liq")} col="liquidation" className="text-right" {...head} />
               <SortHead label={t("trader.cols.margin")} col="margin" className="text-right" {...head} />
               <SortHead label={t("trader.cols.funding")} col="funding" className="text-right" {...head} />
+              <TableHead className="row-action"><span className="sr-only">{t("trader.sharePosition")}</span></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sorted.map((p) => {
+            {rows.map((p) => {
               const mark = markOf(p, marks);
               const pct = pnlPct(p);
               const funding = fundingOf(p);
@@ -231,18 +244,20 @@ export function PositionsTab({ profile, marks }: { profile: TraderProfileRespons
                   <TableCell>
                     <span className="inline-flex items-center gap-2 align-middle font-semibold">
                       <CoinIcon coin={p.coin} size={18} />
-                      {coinLabel(p.coin)}
-                      <LeverageChip p={p} />
+                      {/* The leverage under the coin, like the % under the PnL. */}
+                      <span className="flex flex-col items-start gap-0.5 leading-4">
+                        {coinLabel(p.coin)}
+                        <LeverageChip p={p} />
+                      </span>
                     </span>
                   </TableCell>
                   <TableCell className="text-right">{qty(Math.abs(p.szi))}</TableCell>
                   <TableCell className="text-right">{usd2(p.positionValue)}</TableCell>
                   <TableCell className="text-right">{price(p.entryPx)}</TableCell>
                   <TableCell className="text-right" data-testid="mark">{price(mark)}</TableCell>
-                  <TableCell className={cn("text-right whitespace-nowrap", pnlTone(p.unrealizedPnl))}>
+                  <TableCell className={cn("text-right", pnlTone(p.unrealizedPnl))} data-testid="pnl">
                     {signedUsd2(p.unrealizedPnl)}
-                    {pct !== null ? <span> ({signedPct2(pct)})</span> : null}
-                    <SharePosition p={p} mark={mark} onShare={setSnapshot} />
+                    {pct !== null ? <div className="text-[11px] leading-4">{signedPct2(pct)}</div> : null}
                   </TableCell>
                   <TableCell className="text-right">
                     <LiqCell p={p} mark={mark} />
@@ -251,12 +266,16 @@ export function PositionsTab({ profile, marks }: { profile: TraderProfileRespons
                   <TableCell className={cn("text-right", funding === null ? "text-subtle-foreground" : pnlTone(funding))}>
                     {funding === null ? "—" : signedUsd2(funding)}
                   </TableCell>
+                  <TableCell className="row-action">
+                    <SharePosition p={p} onShare={setSnapshot} className="size-9" />
+                  </TableCell>
                 </TableRow>
               );
             })}
           </TableBody>
         </Table>
       </div>
+      <TablePager {...pager} />
     </>
   );
 }
@@ -334,11 +353,13 @@ export function OrdersTab({ address }: { address: string }) {
   const query = useTraderOrders(address);
   const rows = query.data?.orders ?? [];
   const { sorted, sort, onSort } = useSorted<TraderOrder, OrderKey>(rows, ORDER_KEYS, { key: "value", dir: "desc" });
+  const { rows: page, pager } = usePaged(sorted, sort);
   if (query.isError && !query.data) return <LoadError onRetry={() => query.refetch()} />;
   if (!query.data) return <Loading cols={(["coin", "type", "orderSide", "size", "price", "value", "trigger"] as const).map((k) => t(`trader.cols.${k}`))} />;
   if (rows.length === 0) return <Empty title={t("trader.empty.ordersTitle")} body={t("trader.empty.ordersDesc")} />;
   const head = { sort, onSort };
   return (
+    <>
     <Table dense className="text-xs">
       <TableHeader>
         <TableRow className="hover:bg-transparent">
@@ -352,7 +373,7 @@ export function OrdersTab({ address }: { address: string }) {
         </TableRow>
       </TableHeader>
       <TableBody>
-        {sorted.map((o) => {
+        {page.map((o) => {
           const side = orderSide(o);
           return (
             <TableRow key={o.oid}>
@@ -376,6 +397,8 @@ export function OrdersTab({ address }: { address: string }) {
         })}
       </TableBody>
     </Table>
+    <TablePager {...pager} />
+    </>
   );
 }
 
@@ -490,8 +513,7 @@ const FILL_KEYS: Record<FillKey, (g: FillGroup) => number | string> = {
   time: (g) => g.time,
 };
 
-/** One 成交 row. Memoised: showing the next step of rows renders only the
- * new ones, not every row already in the page. */
+/** One 成交 row. */
 const FillRow = memo(function FillRow({ g, yes, no }: { g: FillGroup; yes: string; no: string }) {
   const dir = fillDirection(g);
   return (
@@ -529,39 +551,6 @@ const FillRow = memo(function FillRow({ g, yes, no }: { g: FillGroup; yes: strin
   );
 });
 
-/** Fill rows put in the page at once; more follow as the end nears. */
-export const FILL_ROWS_STEP = 200;
-
-/**
- * How many of `total` rows to render: one step, then another each time the
- * marker row after the last one comes within a screen of the viewport. The
- * list reads like CopyDog's (every row, one scroll), but a page of 2,000
- * fills that don't merge no longer builds ~27,000 nodes on open and on
- * every re-sort (measured: a 0.5 s task, 2 s on a 4× slower CPU). A new
- * sort (`reset`) starts again from the top; a refetch keeps what is shown.
- * Without IntersectionObserver every row is rendered.
- */
-function useRowWindow(total: number, reset: unknown): [number, React.RefObject<HTMLDivElement | null>] {
-  const [count, setCount] = useState(FILL_ROWS_STEP);
-  const marker = useRef<HTMLDivElement | null>(null);
-  const [lastReset, setLastReset] = useState(reset);
-  if (lastReset !== reset) {
-    setLastReset(reset);
-    setCount(FILL_ROWS_STEP);
-  }
-  useEffect(() => {
-    const el = marker.current;
-    if (!el || count >= total || typeof IntersectionObserver === "undefined") return;
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting)) setCount((n) => n + FILL_ROWS_STEP);
-    }, { rootMargin: "100% 0px" });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [count, total]);
-  const unlimited = typeof window !== "undefined" && typeof IntersectionObserver === "undefined";
-  return [unlimited ? total : Math.min(count, total), marker];
-}
-
 /** 成交: fills (perp and spot) grouped by order stream, 資產 (count) / 方向
  * / 數量 / 原持倉 / 價格 / 價值 / 損益 / 強平 / 時間, newest first. */
 /** The fills table's columns (its loading state draws the same header). */
@@ -571,7 +560,9 @@ export function FillsTab({ rows, truncated = false }: { rows: TraderFill[]; trun
   const { t } = useI18n();
   const groups = useMemo(() => groupFills(rows, truncated), [rows, truncated]);
   const { sorted, sort, onSort } = useSorted<FillGroup, FillKey>(groups, FILL_KEYS, { key: "time", dir: "desc" });
-  const [shown, marker] = useRowWindow(sorted.length, sort);
+  // Ten a page: a page of 2,000 fills that don't merge no longer builds
+  // ~27,000 nodes on open and on every re-sort.
+  const { rows: page, pager } = usePaged(sorted, sort);
   if (rows.length === 0) return <Empty title={t("trader.empty.fillsTitle")} body={t("trader.empty.fillsDesc")} />;
   const head = { sort, onSort };
   return (
@@ -591,10 +582,10 @@ export function FillsTab({ rows, truncated = false }: { rows: TraderFill[]; trun
         </TableRow>
       </TableHeader>
       <TableBody>
-        {sorted.slice(0, shown).map((g) => <FillRow key={g.key} g={g} yes={t("trader.yes")} no={t("trader.no")} />)}
+        {page.map((g) => <FillRow key={g.key} g={g} yes={t("trader.yes")} no={t("trader.no")} />)}
       </TableBody>
     </Table>
-    {shown < sorted.length ? <div ref={marker} aria-hidden className="-mt-px h-px" /> : null}
+    <TablePager {...pager} />
     </>
   );
 }

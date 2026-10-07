@@ -681,6 +681,14 @@
 .cd-tables td:last-child {
   padding-right: 18px;
 }
+/* A row's trailing action (share): as narrow as its button, no gutter
+   before it, a short one at the row's end. */
+.cd-tables th.row-action,
+.cd-tables td.row-action {
+  width: 1px;
+  padding-left: 0;
+  padding-right: 10px;
+}
 
 /* CopyDog's cohort tables (.hl-cohort-table): mono caps headers, 13px cells,
    10px gutters (14px at the row ends), fixed wallet column widths. */

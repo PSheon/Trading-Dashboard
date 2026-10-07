@@ -1,9 +1,10 @@
 "use client";
 
 import type { RoundTrip, TradeCoin, TraderAnalyticsResponse, TraderTradesResponse } from "@/lib/contracts";
-import { OrbitSpinner } from "@/components/ui/orbit-spinner";
 import { ArrowDown, ArrowRight, ArrowUpRight, Share2 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { Segmented } from "@/components/ui/segmented";
+import { PAGE_SIZE, TablePager, usePaged } from "@/components/ui/table-pager";
 import { cn } from "cn";
 
 import { TableSkeleton } from "@/components/ui/table-skeleton";
@@ -198,8 +199,8 @@ function ShareButton({ trade, address }: { trade: RoundTrip; address: string }) 
   return <>
     <button type="button" aria-haspopup="dialog" onClick={() => setSource(tradeSource(address, trade))}
       aria-label={t("trader.shareTrade")} title={t("trader.shareTrade")}
-      className="ml-1.5 inline-flex size-5 items-center justify-center rounded text-subtle-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
-      <Share2 className="size-3" />
+      className="inline-flex size-9 items-center justify-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-raised-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+      <Share2 className="size-3.5" />
     </button>
     {source ? <TradeShareDialog source={source} onClose={() => setSource(null)} /> : null}
   </>;
@@ -256,32 +257,24 @@ export function TradeCard({ trade, shareAddress = null }: { trade: RoundTrip; /*
 
 export type PerfView = "best" | "worst" | "asset";
 
-/** 最佳 / 最差 / 最常交易 switch, shown in the tab bar like CopyDog's. */
+/** 最佳 / 最差 / 最常交易: the site's segmented control, over the table on
+ * desktop (right) and across the card on phones. */
 export function PerfSwitch({ value, onChange }: { value: PerfView; onChange: (v: PerfView) => void }) {
   const { t } = useI18n();
-  const options: Array<[PerfView, string]> = [
-    ["best", t("trader.perf.best")],
-    ["worst", t("trader.perf.worst")],
-    ["asset", t("trader.perf.mostTraded")],
-  ];
   return (
-    <div role="radiogroup" aria-label={t("trader.tabs.performance")} className="mr-2.5 hidden shrink-0 items-center gap-3 sm:flex">
-      {options.map(([v, label]) => (
-        <button
-          key={v}
-          type="button"
-          role="radio"
-          aria-checked={value === v}
-          onClick={() => onChange(v)}
-          className={cn(
-            "rounded font-mono text-[11px] font-medium whitespace-nowrap outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-            value === v ? "text-primary-text" : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
+    <Segmented
+      variant="pill"
+      tone="sub"
+      label={t("trader.tabs.performance")}
+      value={value}
+      onChange={onChange}
+      className="w-full sm:w-auto [&>button]:flex-1"
+      options={[
+        { value: "best", label: t("trader.perf.best") },
+        { value: "worst", label: t("trader.perf.worst") },
+        { value: "asset", label: t("trader.perf.mostTraded") },
+      ]}
+    />
   );
 }
 
@@ -300,11 +293,13 @@ type TradeKey = keyof typeof TRADE_KEYS;
 function TradeTable({ rows, dir }: { rows: RoundTrip[]; dir: Dir }) {
   const { t } = useI18n();
   const { sorted, sort, onSort } = useSorted<RoundTrip, TradeKey>(rows, TRADE_KEYS, { key: "pnl", dir });
+  const paged = usePaged(sorted, sort);
+  const cards = usePaged(useMemo(() => sorted.filter((trade) => (dir === "desc" ? shownPnl(trade) > 0 : shownPnl(trade) < 0)), [sorted, dir]), sort);
   const head = { sort, onSort };
   return (
     <>
       <ul className="overflow-hidden rounded-2xl bg-card sm:hidden">
-        {sorted.filter((trade) => (dir === "desc" ? shownPnl(trade) > 0 : shownPnl(trade) < 0)).map((trade) => (
+        {cards.rows.map((trade) => (
           <TradeCard key={trade.id} trade={trade} />
         ))}
       </ul>
@@ -322,7 +317,7 @@ function TradeTable({ rows, dir }: { rows: RoundTrip[]; dir: Dir }) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sorted.map((trade) => (
+            {paged.rows.map((trade) => (
               <TableRow key={trade.id}>
                 <TableCell>
                   <Asset coin={trade.coin} />
@@ -343,7 +338,9 @@ function TradeTable({ rows, dir }: { rows: RoundTrip[]; dir: Dir }) {
             ))}
           </TableBody>
         </Table>
+        <TablePager {...paged.pager} />
       </div>
+      <TablePager {...cards.pager} className="sm:hidden" />
     </>
   );
 }
@@ -385,11 +382,12 @@ type CoinKey = keyof typeof COIN_KEYS;
 function CoinTable({ rows }: { rows: TradeCoin[] }) {
   const { t } = useI18n();
   const { sorted, sort, onSort } = useSorted<TradeCoin, CoinKey>(rows, COIN_KEYS, { key: "pnl", dir: "desc" });
+  const { rows: page, pager } = usePaged(sorted, sort);
   const head = { sort, onSort };
   return (
     <>
       <ul className="overflow-hidden rounded-2xl bg-card sm:hidden">
-        {sorted.map((c) => (
+        {page.map((c) => (
           <li key={c.coin} className="flex items-center gap-3 border-b-2 border-dotted border-border px-4 py-3 last:border-0">
             <CoinIcon coin={c.coin} size={26} />
             <div className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -415,7 +413,7 @@ function CoinTable({ rows }: { rows: TradeCoin[] }) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sorted.map((c) => {
+            {page.map((c) => {
               const tone = winRateTone(c.winRate);
               return (
                 <TableRow key={c.coin}>
@@ -434,6 +432,7 @@ function CoinTable({ rows }: { rows: TradeCoin[] }) {
           </TableBody>
         </Table>
       </div>
+      <TablePager {...pager} />
     </>
   );
 }
@@ -472,35 +471,13 @@ export function PerformanceTab({
     return <Empty title={t("trader.perfEmptyTitle")} body={t("trader.perfEmptyDesc")} />;
   }
   return (
-    <div>
-      {/* Below sm the switch sits here, full width, as on CopyDog's app. */}
-      <div role="radiogroup" aria-label={t("trader.tabs.performance")} className="mb-4 flex gap-0.5 rounded-full bg-card p-[3px] sm:hidden">
-        {([
-          ["best", t("trader.perf.best")],
-          ["worst", t("trader.perf.worst")],
-          ["asset", t("trader.perf.byAsset")],
-        ] as Array<[PerfView, string]>).map(([v, label]) => (
-          <button
-            key={v}
-            type="button"
-            role="radio"
-            aria-checked={view === v}
-            onClick={() => onView(v)}
-            className={cn(
-              "min-w-0 flex-1 rounded-full px-3 py-[9px] text-xs leading-[18px] font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-              view === v ? "bg-raised-hover text-foreground" : "text-foreground",
-            )}
-          >
-            {label}
-          </button>
-        ))}
+    <div className="flex flex-col gap-2">
+      <div className="flex justify-end">
+        <PerfSwitch value={view} onChange={onView} />
       </div>
-      {/* CopyDog insets these tables 12px inside the card. */}
-      <div className="sm:px-3">
-        {view === "best" ? <TradeTable rows={best} dir="desc" /> : null}
-        {view === "worst" ? <TradeTable rows={worst} dir="asc" /> : null}
-        {view === "asset" ? <CoinTable rows={summary.coins} /> : null}
-      </div>
+      {view === "best" ? <TradeTable rows={best} dir="desc" /> : null}
+      {view === "worst" ? <TradeTable rows={worst} dir="asc" /> : null}
+      {view === "asset" ? <CoinTable rows={summary.coins} /> : null}
     </div>
   );
 }
@@ -519,8 +496,8 @@ const LEDGER_KEYS = {
 };
 type LedgerKey = keyof typeof LEDGER_KEYS;
 
-/** 交易: the round-trip ledger, closed trades only, latest exit first, 50
- * at a time, as on CopyDog (its live page has no status filter). Net PnL
+/** 交易: the round-trip ledger, closed trades only, latest exit first, ten
+ * a page (the api sends 50 at a time; its live page has no status filter). Net PnL
  * includes funding, as CopyDog shows it. */
 export function TradesTab({ address }: { address: string }) {
   const { t } = useI18n();
@@ -528,7 +505,15 @@ export function TradesTab({ address }: { address: string }) {
   const rows = useMemo(() => query.data?.pages.flatMap((p) => p.items) ?? [], [query.data]);
   const first: TraderTradesResponse | undefined = query.data?.pages[0];
   const { sorted, sort, onSort } = useSorted<RoundTrip, LedgerKey>(rows, LEDGER_KEYS, { key: "exit", dir: "desc" });
+  const { rows: page, pager } = usePaged(sorted, sort);
   const head = { sort, onSort };
+  // Ten a page over everything the api has (its total); a page past the
+  // ones read asks for the next 50.
+  const pages = Math.max(pager.pages, Math.ceil((first?.total ?? 0) / PAGE_SIZE));
+  const onPage = (next: number) => {
+    if ((next + 1) * PAGE_SIZE > rows.length && query.hasNextPage && !query.isFetchingNextPage) void query.fetchNextPage();
+    pager.onPage(next);
+  };
 
   let body: React.ReactNode;
   // A failed "show more" or background refresh keeps the pages already loaded.
@@ -550,7 +535,7 @@ export function TradesTab({ address }: { address: string }) {
     body = (
       <>
         <ul className="overflow-hidden rounded-2xl bg-card sm:hidden">
-          {sorted.map((trade) => (
+          {page.map((trade) => (
             <TradeCard key={trade.id} trade={trade} shareAddress={address} />
           ))}
         </ul>
@@ -566,10 +551,11 @@ export function TradesTab({ address }: { address: string }) {
                 <SortHead label={t("trader.tradeCols.duration")} col="duration" className="text-right" {...head} />
                 <SortHead label={t("trader.tradeCols.funding")} col="funding" className="text-right" {...head} />
                 <SortHead label={t("trader.tradeCols.netPnl")} col="netPnl" className="text-right" {...head} />
+                <TableHead className="row-action"><span className="sr-only">{t("trader.shareTrade")}</span></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sorted.map((trade) => {
+              {page.map((trade) => {
                 const pnl = shownPnl(trade);
                 return (
                   <TableRow key={trade.id} data-status={trade.status}>
@@ -601,8 +587,8 @@ export function TradesTab({ address }: { address: string }) {
                     >
                       {trade.funding === null ? <span className="text-subtle-foreground">—</span> : signedUsd2(trade.funding)}
                     </TableCell>
-                    <TableCell className="text-right whitespace-nowrap">
-                      <span className={pnlTone(pnl)}>{signedUsd2(pnl)}</span>
+                    <TableCell className={cn("text-right", pnlTone(pnl))}>{signedUsd2(pnl)}</TableCell>
+                    <TableCell className="row-action">
                       <ShareButton trade={trade} address={address} />
                     </TableCell>
                   </TableRow>
@@ -611,18 +597,7 @@ export function TradesTab({ address }: { address: string }) {
             </TableBody>
           </Table>
         </div>
-        {query.hasNextPage ? (
-          <button
-            type="button"
-            aria-busy={query.isFetchingNextPage || undefined}
-            disabled={query.isFetchingNextPage}
-            onClick={() => void query.fetchNextPage()}
-            className="flex w-full items-center justify-center gap-1.5 border-t-2 border-dotted border-border py-3 text-center text-xs font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {query.isFetchingNextPage ? <OrbitSpinner className="size-3.5" /> : null}
-            {t("trader.showMore", { shown: rows.length, total: first.total })}
-          </button>
-        ) : null}
+        <TablePager page={pager.page} pages={pages} onPage={onPage} busy={query.isFetchingNextPage} />
       </>
     );
   }

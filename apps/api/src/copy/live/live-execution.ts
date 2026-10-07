@@ -127,16 +127,14 @@ export class LiveOrderExecutor {
       } catch (error) {
         // A lost session may have a successor owner; do not write from that worker.
         await lease.assertHeld();
-        await this.persist({ ...record, state: "rejected", updatedAt: this.now(), errorCode: "final_execution_check_failed" }, lease);
+        await this.persist(this.unsent(record), lease);
         throw error;
       }
       let outcome: ExchangeOutcome;
       try { outcome = await this.transport.submit(signed, structuredClone(record), structuredClone(intent), lease); }
       catch (error) {
         await lease.assertHeld();
-        if (error instanceof LiveSubmissionBlockedError) {
-          return this.persist({ ...record, state: "rejected", errorCode: "final_execution_check_failed", updatedAt: this.now() }, lease);
-        }
+        if (error instanceof LiveSubmissionBlockedError) return this.persist(this.unsent(record), lease);
         return this.persist({ ...record, state: "unknown", errorCode: "exchange_submission_ambiguous", updatedAt: this.now() }, lease);
       }
       // A persistence failure or lost lease leaves durable submitting for reconciliation.
@@ -169,6 +167,15 @@ export class LiveOrderExecutor {
       return this.persist({ ...record, state: record.state === "resting" ? "resting" : "unknown", errorCode: "exchange_order_not_yet_found", updatedAt: this.now() }, lease);
     }
     return this.persist({ ...record, state: outcome.state, outcome, errorCode: undefined, updatedAt: this.now() }, lease);
+  }
+
+  /** A definite non-submission after `submitting` (a final check refused
+   * before the POST began): recorded as never placed, so settlement releases
+   * its reservation once the exchange still does not know the cloid past
+   * expiresAfter and the grace (releaseNeverPlaced), like any order that
+   * never reached the exchange. Its reservation is never kept for ever. */
+  private unsent(record: LiveExecutionRecord): LiveExecutionRecord {
+    return { ...record, state: "rejected", errorCode: NEVER_PLACED, outcome: { state: "rejected", reason: "final_execution_check_failed" }, updatedAt: this.now() };
   }
 
   private async persist(record: LiveExecutionRecord, lease: LiveExecutionLease): Promise<LiveExecutionRecord> {

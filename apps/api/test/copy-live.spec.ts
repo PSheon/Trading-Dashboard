@@ -148,7 +148,17 @@ describe("live execution durable submission semantics (injected transport)", () 
     vi.mocked(transport.submit).mockRejectedValue(new LiveSubmissionBlockedError("risk_changed"));
     const result = await executor.execute(intent);
     expect(result.state).toBe("rejected");
-    expect(result.errorCode).toBe("final_execution_check_failed");
+    // Recorded as never placed: settlement can release its reservation.
+    expect(result.errorCode).toBe(NEVER_PLACED);
+    expect(result.outcome).toEqual({ state: "rejected", reason: "final_execution_check_failed" });
+  });
+  it("a final check refusing after submitting, before the POST, is recorded as never placed too", async () => {
+    const base = executionGateFixture();
+    const gate: LiveExecutionGate = { assertReady: async input => { if (input.phase === "submit") throw new Error("risk_changed"); return base.assertReady(input); } };
+    const { executor, transport, journal } = setup(gate);
+    await expect(executor.execute(intent)).rejects.toThrow("risk_changed");
+    expect(await journal.get(executionKey(intent))).toMatchObject({ state: "rejected", errorCode: NEVER_PLACED, outcome: { state: "rejected", reason: "final_execution_check_failed" } });
+    expect(transport.submit).not.toHaveBeenCalled();
   });
   it("never resubmits accepted-then-timeout even when orderStatus has not found the cloid", async () => {
     const { executor, transport } = setup();

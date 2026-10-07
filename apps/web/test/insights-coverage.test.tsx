@@ -80,3 +80,24 @@ it("labels surviving historical percentages when current coverage is insufficien
   expect(html).toContain("<time dateTime=");
   expect(html).toContain(zhTW.insights.cohort.retry);
 });
+
+describe("insights say what they show (audit 2026-10-07 P1-8)", () => {
+  it("a tier being built: the per-market map says so instead of an empty box, and its data shows its age", () => {
+    state.detail = { ...wireOf("rekt"), updatedAt: new Date(Date.now() - 3 * 3_600_000).toISOString() };
+    state.history = { tier: "rekt", window: "all", series: [], btc: [] };
+    const html = render();
+    const map = html.slice(html.indexOf(zhTW.insights.cohort.byMarket));
+    expect(map.slice(0, 900)).toContain(zhTW.insights.cohort.building);
+    expect(map.slice(0, 900)).not.toContain("ui-skeleton");
+    expect(html).toContain("更新於 3 小時前");
+  });
+
+  it("the window chips read 7天 / 30天 / 90天 / 全部, never 7d or all", () => {
+    state.detail = wireOf("extremely_profitable");
+    state.history = JSON.parse(JSON.stringify(cohortHistoryResponseSchema.parse(fixtureCohortHistory("extremely_profitable", "all"))));
+    const html = render();
+    for (const label of ["7天", "30天", "90天", "全部"]) expect(html).toContain(`>${label}</button>`);
+    expect(html).not.toMatch(/>(7d|30d|90d|all)<\/button>/);
+    expect(html).not.toMatch(/>all - /);
+  });
+});

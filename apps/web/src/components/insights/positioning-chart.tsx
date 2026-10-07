@@ -12,6 +12,8 @@ import { sentiment } from "./sentiment";
 
 const PAD = { l: 12, r: 52, t: 14, b: 30 };
 export const WINDOWS: CohortWindow[] = ["7d", "30d", "90d", "all"];
+/** Each window in the page's language (7天 / 30天 / 90天 / 全部). */
+export const WINDOW_LABEL = { "7d": "windows.week", "30d": "windows.month", "90d": "windows.quarter", all: "windows.allTime" } as const satisfies Record<CohortWindow, string>;
 
 interface Pt { x: number; y: number }
 
@@ -168,7 +170,7 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
                 window === w ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground hover:text-foreground",
               )}
             >
-              {w}
+              {t(WINDOW_LABEL[w])}
             </button>
           ))}
         </div>
@@ -227,7 +229,7 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
           // into the corner passes behind the figure instead of through it.
           <div className="pointer-events-none absolute top-[13px] left-3 flex flex-col items-start gap-[3px]">
             <div className="rounded-md bg-raised/90 py-[3px] pr-2 pl-1 text-[11px] leading-[15px] font-bold text-muted-foreground">
-              {window} - {t(`insights.cohort.sentiment.${tone.key}`)}
+              {t(WINDOW_LABEL[window])} - {t(`insights.cohort.sentiment.${tone.key}`)}
             </div>
             <div className={cn("num rounded-md bg-raised/90 pr-2 pl-1 font-display text-[2rem] leading-[1.2]", tone.dir > 0 ? "text-positive" : tone.dir < 0 ? "text-negative" : "text-foreground")}>
               {value.toFixed(1)}% {t("insights.cohort.long")}

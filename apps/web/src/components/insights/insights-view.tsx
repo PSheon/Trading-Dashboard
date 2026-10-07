@@ -29,8 +29,11 @@ const FILTERS = ["all", "crypto", "tradfi"] as const;
  * picker (`tierPicker`, `?tier=`) is for the /dev lab, the other tiers'
  * data stays in the api.
  */
+/** A tier's snapshot older than half an hour shows its age. */
+const stale = (updatedAt: string | Date | null | undefined) => updatedAt != null && Date.now() - new Date(updatedAt).getTime() > 30 * 60_000;
+
 export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
-  const { t } = useI18n();
+  const { t, format } = useI18n();
   const params = useSearchParams();
   const fromUrl = params.get("tier");
   const [tier, setTier] = useState<CohortTier>(tierPicker && fromUrl && (TIERS as string[]).includes(fromUrl) ? (fromUrl as CohortTier) : "extremely_profitable");
@@ -74,10 +77,14 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
           <div className="grid gap-4 md:grid-cols-[1fr_1.04fr]">
             <HeroCards data={ready ? data : undefined} />
           </div>
+          {data && ready && stale(data.updatedAt) ? (
+            <p role="status" className="text-xs font-bold text-muted-foreground" data-testid="cohort-age">{t("insights.cohort.updated", { time: format.relative(data.updatedAt!) })}</p>
+          ) : null}
           {data && !ready ? (
             <div role="status" className="rounded-xl bg-raised px-4 py-3 text-xs font-bold text-muted-foreground">
               <p>{t("insights.cohort.building")}</p>
               <p className="mt-1">{t("copyUpdates.coverage", { count: data.walletCount, total: data.memberCount })}</p>
+              {data.updatedAt ? <p className="mt-1" data-testid="cohort-age">{t("insights.cohort.updated", { time: format.relative(data.updatedAt) })}</p> : null}
               <TextButton busy={detail.isFetching} className="mt-2 text-primary-text" onClick={() => void detail.refetch()}>{t("insights.cohort.retry")}</TextButton>
             </div>
           ) : null}
@@ -99,7 +106,8 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
               emptyHint={t("insights.cohort.chartEmpty", { minutes: 15 })}
             />
             )}
-            <MarketTreemap title={t("insights.cohort.byMarket")} markets={ready ? data?.markets : undefined} loading={!ready} />
+            {/* Not an empty box while the tier is being built: it says so. */}
+            <MarketTreemap title={t("insights.cohort.byMarket")} markets={ready ? data?.markets : undefined} loading={!data} emptyText={data && !ready ? t("insights.cohort.building") : undefined} />
           </div>
           <section>
             <div className="mb-1 flex flex-wrap items-center justify-between gap-2">

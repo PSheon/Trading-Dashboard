@@ -54,7 +54,9 @@ export function squarify(items: Item[], x = 0, y = 0, w = 100, h = 100): Cell[] 
 
 /** 各市場持倉方向: the eight largest markets by notional; area = notional,
  * colour = long (green) or short (red), stronger the more one-sided. */
-export function MarketTreemap({ title, markets, loading }: { title: string; markets: CohortMarket[] | undefined; loading: boolean }) {
+export function MarketTreemap({ title, markets, loading, emptyText }: { title: string; markets: CohortMarket[] | undefined; loading: boolean;
+  /** Why there is nothing to draw (the tier is still being built), instead of 「還沒有持倉資料」. */
+  emptyText?: string }) {
   const { t } = useI18n();
   const box = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 700, h: 372 });
@@ -81,7 +83,7 @@ export function MarketTreemap({ title, markets, loading }: { title: string; mark
       <div ref={box} className="relative mt-3 h-[300px] md:h-[380px]" role="figure" aria-label={title}>
         {loading && !markets ? <Skeleton className="absolute inset-0 rounded-2xl bg-background/60" /> : null}
         {!loading && cells.length === 0 ? (
-          <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-raised/40 text-sm text-muted-foreground">{t("insights.cohort.treemapEmpty")}</div>
+          <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-raised/40 text-sm text-muted-foreground">{emptyText ?? t("insights.cohort.treemapEmpty")}</div>
         ) : null}
         {cells.map((c) => {
           const bias = c.biasPct ?? 50;

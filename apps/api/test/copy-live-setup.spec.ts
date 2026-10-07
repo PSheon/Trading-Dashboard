@@ -441,6 +441,19 @@ describe('one-click testnet copy setup', () => {
     expect((await db.select().from(copyStrategies))[0]!.status).not.toBe('stopped');
   });
 
+  it('an edit key replays only its own payload (409 idempotency_conflict otherwise); concurrent requests with one key make one setup', async () => {
+    const setup = await start();
+    await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit(); later(5_000); await service.tick();
+    const body = { idempotencyKey: 'setup-edit-key-0000009', budgetUsd: '150', settings };
+    const [first, second] = await Promise.all([service.startEdit(uid, setup.strategyId, body), service.startEdit(uid, setup.strategyId, body)]);
+    expect(second.id).toBe(first.id);
+    expect(first.stage).toBe('awaiting_consent');
+    for (const changed of [{ ...body, budgetUsd: '120' }, { ...body, settings: { ...settings, maxLeverage: 2 } }])
+      await expect(service.startEdit(uid, setup.strategyId, changed)).rejects.toMatchObject({ response: { statusCode: 409, code: 'idempotency_conflict' } });
+    expect(await service.startEdit(uid, setup.strategyId, body)).toMatchObject({ id: first.id, stage: 'awaiting_consent', budgetUsd: '150' });
+    expect((await db.select().from(copyLiveSetups)).filter(row => row.kind === 'edit')).toHaveLength(1);
+  });
+
   it('edit: one consent, the next generation replaces the current one with the new settings and budget', async () => {
     const setup = await start();
     await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit(); later(5_000); await service.tick();

@@ -63,6 +63,9 @@ function input<T>(schema: z.ZodType<T>, value: unknown): T {
 const refuse = (status: 409 | 503, code: string, message: string): never => {
   throw status === 409 ? new ConflictException({ statusCode: 409, code, message }) : new ServiceUnavailableException({ statusCode: 503, code, message });
 };
+/** What an edit request asks for (its idempotency key's payload). */
+const editPayloadDigest = (change: { kind: string; strategyId: number; budgetUsd: string; settings: unknown }) =>
+  digest({ kind: change.kind, strategyId: change.strategyId, budgetUsd: change.budgetUsd, settingsDigest: liveCopySettingsDigest(change.settings) });
 /** The UserSetAbstraction the copy account signs for this mode nonce. */
 const modeTypedData = (intent: { network: WalletNetwork; accountAddress: string; nonce: number }) =>
   userSetAbstractionTypedData(WALLET_NETWORKS[intent.network], intent.accountAddress, intent.nonce) as unknown as MasterTypedData;
@@ -248,16 +251,17 @@ export class CopyLiveSetupService {
   }
 
   // --- edit / renew -------------------------------------------------------------
-  private async running(userId: number, strategyId: number) {
+  private async running(userId: number, strategyId: number, key: string) {
     const { found, mandate, agent } = await this.repository.runningCopy(userId, strategyId, this.network);
     if (!found) throw new NotFoundException('Copy not found');
     if (['stopping', 'stopped'].includes(found.strategy.status)) throw new ConflictException({ statusCode: 409, code: 'live_stop_in_progress', message: 'A stop is in progress for this copy' });
     if (!mandate) refuse(409, 'setup_unavailable', 'This copy has no running generation to change');
     if (!agent || !agent.agentAddress || !agent.policyId || !agent.policyFingerprint) refuse(409, 'setup_unavailable', 'This copy has no active agent');
     // An edit or renewal whose consent never came (the sheet closed, its key
-    // is gone) gives way to the new one; a confirmed one still runs.
+    // is gone) gives way to the new one; a confirmed one still runs. One
+    // made with this request's own key is this request's (a concurrent retry).
     let current = await this.repository.current(strategyId);
-    if (current && current.kind !== 'start' && ['provisioning', 'awaiting_consent'].includes(current.stage)) {
+    if (current && current.kind !== 'start' && current.idempotencyKey !== key && ['provisioning', 'awaiting_consent'].includes(current.stage)) {
       const superseded = await this.repository.transition(current, { stage: 'cancelled', issue: null, nextAttemptAt: null });
       current = superseded ? null : await this.repository.current(strategyId);
     }
@@ -272,9 +276,11 @@ export class CopyLiveSetupService {
     // never trade and the copy would stop following. Stop and start again.
     if (this.network === 'mainnet') refuse(409, 'edit_unavailable', 'Editing a copy with real funds is not available yet. To change its settings or budget, stop this copy and start a new one.');
     const request = { ...parsed, settings: this.liveSettings(parsed.settings) };
+    const payload = editPayloadDigest({ kind: 'edit', strategyId, budgetUsd: request.budgetUsd, settings: request.settings });
     const prior = await this.repository.byKey(userId, request.idempotencyKey);
-    if (prior) return this.wire(prior.stage === 'awaiting_consent' ? await this.rechallengeChange(prior) : prior);
-    const state = await this.running(userId, strategyId);
+    if (prior) return this.wire(await this.replayChange(prior, payload));
+    const state = await this.running(userId, strategyId, request.idempotencyKey);
+    if (state.current?.userId === userId && state.current.idempotencyKey === request.idempotencyKey) return this.wire(await this.replayChange(state.current, payload));
     if (state.current) throw new ConflictException({ statusCode: 409, code: 'setup_unavailable', message: 'A setup for this copy is still running' });
     this.mandates.assertAllowed((await this.repository.owner(userId)).privyUserId);
     // The budget (a top-up included) within the deployment's and the policy's caps.
@@ -282,7 +288,13 @@ export class CopyLiveSetupService {
     this.mandates.checkBudget(request.budgetUsd, limits);
     this.mandates.assertSettings(request.settings);
     if (request.settings.maxLeverage !== null && request.settings.maxLeverage > limits.maxLeverage) throw new ConflictException({ statusCode: 409, code: 'leverage_above_limit', message: 'Leverage above the platform limit', limit: limits.maxLeverage });
-    return this.wire(await this.change(userId, 'edit', state, request.idempotencyKey, request.budgetUsd, request.settings));
+    return this.wire(await this.change(userId, 'edit', state, request.idempotencyKey, request.budgetUsd, request.settings, payload));
+  }
+  /** The setup an earlier request with this key made: only for the same
+   * payload (409 idempotency_conflict otherwise). */
+  private async replayChange(prior: SetupRow, payload: string): Promise<SetupRow> {
+    if (editPayloadDigest(prior) !== payload) refuse(409, 'idempotency_conflict', 'This request key was already used for a different change');
+    return prior.stage === 'awaiting_consent' ? this.rechallengeChange(prior) : prior;
   }
   /**
    * Renewal is refused for now (2026-10-07): the worker's policy binds the
@@ -293,10 +305,19 @@ export class CopyLiveSetupService {
     input(renewSchema, body);
     return refuse(409, 'renewal_unavailable', 'Renewing a copy is not available yet. Stop this copy and start a new one before it ends.');
   }
-  private async change(userId: number, kind: 'edit', state: Awaited<ReturnType<CopyLiveSetupService['running']>>, key: string, budgetUsd: string, settings: unknown): Promise<SetupRow> {
-    const row = await this.repository.insert(this.repository.reader(), { id: randomUUID(), userId, strategyId: state.strategy.id, accountId: state.mandate.accountId, kind, idempotencyKey: key,
-      leaderAddress: state.strategy.leaderAddress, sourceNetwork: state.config.sourceNetwork, budgetUsd, settings: settings as Record<string, unknown>, agentSetupId: state.agent.id });
-    return this.rechallengeChange(row);
+  /** Inserted under the owner's lock: a concurrent request with the same
+   * key replays (or conflicts) instead of failing on the unique index, and
+   * a setup started meanwhile refuses this one. */
+  private async change(userId: number, kind: 'edit', state: Awaited<ReturnType<CopyLiveSetupService['running']>>, key: string, budgetUsd: string, settings: unknown, payload: string): Promise<SetupRow> {
+    const inserted = await this.uow.run(async tx => {
+      await this.mandates.lock(tx, userId);
+      const prior = await this.repository.byKey(userId, key, tx);
+      if (prior) return { prior };
+      if (await this.repository.current(state.strategy.id, tx)) refuse(409, 'setup_unavailable', 'A setup for this copy is still running');
+      return { row: await this.repository.insert(tx, { id: randomUUID(), userId, strategyId: state.strategy.id, accountId: state.mandate.accountId, kind, idempotencyKey: key,
+        leaderAddress: state.strategy.leaderAddress, sourceNetwork: state.config.sourceNetwork, budgetUsd, settings: settings as Record<string, unknown>, agentSetupId: state.agent.id }) };
+    });
+    return inserted.prior ? this.replayChange(inserted.prior, payload) : this.rechallengeChange(inserted.row);
   }
   private async rechallengeChange(original: SetupRow): Promise<SetupRow> {
     let row = original;

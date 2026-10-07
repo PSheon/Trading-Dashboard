@@ -10,6 +10,7 @@ import { LiveSettingsFields } from "@/components/copy/live-copy-settings-fields"
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
 import { HedgeNotice } from "@/components/copy/portfolio-parts";
+import { ModeBadge } from "@/components/shell/mode-badge";
 import { useToast } from "@/components/ui/toast";
 import { usePendingToast } from "@/lib/use-action-toast";
 import { UsdcIcon } from "@/components/wallet/bits";
@@ -156,7 +157,9 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
   const balanceKnown = !signedIn || (testnet ? testnetBalance !== null : overview.data !== undefined);
   const balance = (testnet ? testnetBalance : overview.data?.paper.balance) ?? 0;
   const balanceText = balanceKnown ? balance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
-  const min = overview.data?.limits.minAllocationUsd ?? DEFAULT_MIN;
+  // 正式 / 測試網: the deployment's caps (its per-trade minimum, else 1, and
+  // its largest budget); the paper limits apply to 模擬 only.
+  const { min, max } = copyAmountBounds(testnet, overview.data?.limits, deployment?.caps);
   const value = Number.parseFloat(amount);
   const pct = balance > 0 ? Math.min(100, Math.round(((Number.isFinite(value) ? value : 0) / balance) * 100)) : 0;
   const paused = overview.data && (overview.data.platform.pauseNewRisk || overview.data.platform.reduceOnly || overview.data.user.pauseNewRisk || overview.data.user.reduceOnly);
@@ -203,11 +206,14 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
     empty ? t("trader.copy.notEnoughBalance") :
     !amount || !(value > 0) ? t("trader.copy.enterAmount") :
     value < min ? t("trader.copy.minToCopy", { min: format.num(min) }) :
+    max !== null && value > max ? t("trader.copy.maxToCopy", { max: format.num(max) }) :
     balanceKnown && value > balance ? t("trader.copy.notEnoughBalance") :
     t("trader.copy.startCopying", { amount: format.num(value, value % 1 ? 2 : 0) });
 
+  /** A share of the balance, never above the deployment's cap. */
+  const presetOf = (p: number) => balance > 0 ? String(Math.floor(Math.min((balance * p) / 100, max ?? Number.POSITIVE_INFINITY))) : "";
   function setFromPct(p: number) {
-    setAmount(balance > 0 ? String(Math.floor((balance * p) / 100)) : "");
+    setAmount(presetOf(p));
   }
 
   async function submit() {
@@ -218,6 +224,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
     if (closed) return toast.error(t("trader.copy.errors.disabled"));
     if (!amount || !(value > 0)) return toast.error(t("trader.copy.enterAmount"));
     if (value < min) return toast.error(t("trader.copy.errors.minAllocation", { min: format.num(min) }));
+    if (max !== null && value > max) return toast.error(t("trader.copy.errors.maxAllocation", { max: format.num(max) }));
     if (!balanceKnown) {
       // The balance never loaded: ask again rather than start blind.
       void overview.refetch?.();
@@ -300,7 +307,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
     if (code === "already_copying") return toast.info(t("trader.copy.errors.alreadyCopying"));
     toast.error(
       code === "below_min_allocation" ? t("trader.copy.errors.minAllocation", { min: format.num(min) }) :
-      code === "above_max_allocation" ? t("trader.copy.errors.maxAllocation", { max: format.num(limit?.maxAllocationUsd ?? 0) }) :
+      code === "above_max_allocation" ? t("trader.copy.errors.maxAllocation", { max: format.num(max ?? limit?.maxAllocationUsd ?? 0) }) :
       code === "copy_paused" ? t("trader.copy.errors.paused") :
       code === "copy_not_open" ? t("trader.copy.errors.disabled") :
       copyErrorText(copyTexts, err),
@@ -334,6 +341,9 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
   const modePill = liveAvailable ? (
     <Segmented variant="pill" tone="sub" label={liveText.mode} value={mode} onChange={(next) => setMode(next)} className="w-full [&>button]:flex-1"
       options={[{ value: "paper", label: liveText.paper }, { value: "testnet", label: liveText.testnet }]} />
+  ) : sheet ? (
+    // Only 模擬 here: the phone sheet still says so (the header's badge is out of view).
+    <div className="flex justify-center" data-testid="copy-mode-paper"><ModeBadge mode="paper" /></div>
   ) : null;
 
   const directionPill = (
@@ -546,7 +556,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
         <>
           <div className="grid grid-cols-4 gap-2">
             {[25, 50, 75, 100].map((p) => {
-              const preset = balance > 0 ? String(Math.floor((balance * p) / 100)) : "";
+              const preset = presetOf(p);
               return (
                 <button
                   key={p}
@@ -554,7 +564,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
                   disabled={balance <= 0}
                   onClick={() => setFromPct(p)}
                   className={cn(
-                    "h-10 rounded-full text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    "h-11 rounded-full text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     preset && amount === preset ? "bg-tag-alert text-tag-alert-foreground" : "bg-raised text-foreground",
                   )}
                 >
@@ -576,7 +586,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
                 key={k}
                 type="button"
                 disabled={amountLocked}
-                aria-label={k === "del" ? "Backspace" : k}
+                aria-label={k === "del" ? t("trader.copy.backspace") : k}
                 onClick={() => {
                   setAmount((a) => (k === "del" ? a.slice(0, -1) : `${a}${k}`.replace(/^0+(?=\d)/, "").slice(0, 12)));
                 }}
@@ -691,6 +701,17 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
      {liveDialogs}
     </Shell>
   );
+}
+
+/**
+ * The amount a new copy may take: 模擬 within the paper limits (CopyDog's
+ * $100 floor until they load); 正式 / 測試網 within the deployment's caps
+ * (its per-trade minimum, else 1, and its largest budget, none when unset).
+ */
+export function copyAmountBounds(live: boolean, paper: { minAllocationUsd: number; maxAllocationUsd: number } | undefined,
+  caps: { fixedPerTradeUsd: { min: number } | null; maxAllocationUsd: number | null } | null | undefined): { min: number; max: number | null } {
+  if (live) return { min: caps?.fixedPerTradeUsd?.min ?? 1, max: caps?.maxAllocationUsd ?? null };
+  return { min: paper?.minAllocationUsd ?? DEFAULT_MIN, max: paper?.maxAllocationUsd ?? null };
 }
 
 function Shell({ sheet, children }: { sheet: boolean; children: React.ReactNode }) {

@@ -135,10 +135,11 @@ if (command === "state") {
       ["flip to long", async () => { const p = await position(coin); return trade(coin, { size: -p.szi + 60 / (await market(coin)).mid, label: "flip to long" }); }],
       ["final close", reduce(coin, 1, "final close")],
     ],
-    // (3) reduce 25 % of a 24 USD position: the follower's quarter is under the
-    // 10 USD minimum (it closes all or the minimum); then the full close.
+    // (3) A 48 USD leader position makes its quarter at least 10 USD;
+    // the follower's quarter of its 12–15 USD position remains under 10 USD.
+    // A 24 USD leader position fails at the exchange before emitting a signal.
     "reduce-min": [
-      ["open 24", () => trade(coin, { usd: 24, label: "open 24" })],
+      ["open 48", () => trade(coin, { usd: 48, label: "open 48" })],
       ["reduce 25 %", reduce(coin, 0.25, "reduce 25 %")],
       ["full close", reduce(coin, 1, "full close")],
     ],

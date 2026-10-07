@@ -16,8 +16,8 @@ Paul授予6小時完成testnet測試；開始00:20台灣時間，截止06:20。�
 | 情境 | 驗收 | 結果 |
 | --- | --- | --- |
 | dry-run | 真實登入、同意／入金簽署、addSigners、餘額不足拒絕、取消且無入金 | PASS，16項通過，4項計畫SKIP |
-| base | 開／加／減半／平／空／反手／平、提款10、停止返還、五方對帳 | 早期輪次跟單拒絕；第12輪 #33 已成交／結算，七步一般流程執行中 |
-| 3 | 低於10的減倉仍執行，平乾淨 | 待跑 |
+| base | 開／加／減半／平／空／反手／平、提款10、停止返還、五方對帳 | FAIL：#33 首筆成交／結算，但整體兩次訊號過期、五次拒單；提款10、平倉與退款全PASS |
+| 3 | 低於10的減倉仍執行，平乾淨 | 首輪領單部分減倉低於10，被交易所拒絕；腳本已修為領單48，待重跑 |
 | 4 | 帶倉停止，平倉／返還／已停止 | PASS：第12輪 #32 五方對帳、平倉、歸零、48.987539返還 credited、stopped 全通過 |
 | 6 | 單一平倉與停止重疊，不卡住 | 待跑 |
 | 7 | 下單途中重啟worker，無重複、後續正常 | 待跑 |
@@ -100,3 +100,14 @@ Paul授予6小時完成testnet測試；開始00:20台灣時間，截止06:20。�
 - 05:04穩定版本API完整255檔3879項PASS，隔離DB已移除，log `/private/tmp/codex-testnet-all-api-clock-final-20261008.log`；API typecheck／lint PASS。前端完整181檔1171項PASS，log `/private/tmp/codex-testnet-all-web-final-20261008.log`。
 - 05:01 #33第二筆加倉在簽署前因 `live_risk_local_changed` 被原始安全邊界拒絕；一般流程仍FAIL／待核對，不能因單元測試全綠而宣稱B通過。05:04加入gitignored編譯產物的暫時診斷，只列不同欄位的名稱，不輸出值或更改原始比較；正常重啟worker38139，保留所有原始journal與風險額度。測完build恢復原編譯產物。
 - 新版桌機／手機實際資金畫面：主79.00、跟單49.00、合計127.99（逐項各自捨入），損益約−1.00含帳戶啟用費；無水平溢出，捲到底footer高於navigator。截圖 `/private/tmp/codex-testnet-ui/final33-{desktop,mobile,mobile-footer}.png`，此畫面不能替代第二筆加倉交易驗收。
+
+### 05:31 接續結果
+
+- `685b2024` 已推 dev；CI [37687105151](https://github.com/PSheon/Trading-Dashboard/actions/runs/37687105151) 全綠，含四組API、三組瀏覽器與build/check。Stage未部署本輪修正。
+- #33 七步領單完成；05:17:59五方對帳FAIL：兩個 `signal_expired`、五個 `refusal_not_allowed`。第二筆加倉的 `live_risk_local_changed` 根因未證實；05:04暫時worker重啟也干擾後續平倉，不能把那幾筆當乾淨的常態執行證據。未放寬原始比較／風控／期限。
+- #33 提款10於05:18:50 credited；正常停止後05:19:20無倉，05:22:41退款38.973908 credited、跟單帳戶0、主錢包127.971505，四項停止檢查全部PASS。
+- 已完成一次完整分支獨立審查，無已證實的Critical／Important阻擋問題；另跑58項相關測試PASS，報告 `/private/tmp/codex-testnet-final-review-20261008.md`。疑似無排序控制列只是一條線索，兩個真實SQL heap移位實驗均未重現，暫時測試已移除，未做猜測性修正。
+- 一般build已移除gitignored編譯產物診斷，05:24本機API53602／worker53639以乾淨HEAD重啟；只保留既有唯讀txDetails通道，無Stage資料／設定寫入。
+- 剩餘情境3／6／7／8／9從05:24重跑，間距明列120秒；情境9仍是6秒＋6秒的三次平倉，不改20秒條件。log `/private/tmp/codex-harness-stage-caps-remaining1-20261008.log`。#34入金50、實收49，05:26:24 active。
+- 情境3原腳本領單開24、減25%約6美元，被交易所最低10美元拒絕，未產生減倉訊號。改成領單開48、減25%約12美元；跟單仍採原12–15美元上限，其25%仍低於10。原失敗保留，25項harness回歸PASS，等待正常清理後重跑。
+- 同樣修正情境7領單開20再減半的尺寸陷阱：改開40，避免取整後領單半倉落到10美元以下；跟單12–15上限不變。情境3 dry-run實讀ETH行情，開48取整後47.97，證據 `/private/tmp/codex-testnet-reduce-min-fixed-dry.log`；不把dry-run當真實減倉PASS。05:32唯讀情境8標的探測沒有符合上限的市場，正式harness仍需記錄SKIP。

@@ -12,7 +12,7 @@
 //    the portfolio's 繼續設定 — it signs the consent and the deposit and calls addSigners; 5. wait for running;
 // 6. the scenarios (lib.mjs SCENARIOS; a scenario that stops the copy makes the next one start a new copy):
 //    base   (1) leader.mjs scenario, reconcile, withdraw 10 idle USDC, stop with the return credited;
-//    reduce-min (3) reduce 25 % of a 24 USD position, then a full close; reconciled;
+//    reduce-min (3) reduce 25 % of a 48 USD leader position; follower leg under 10; then close;
 //    stop-open (4) stop while a position is open: flat, the automatic return credited, shown stopped;
 //    close-then-stop (6) the owner's single-position close, then a stop within 2 s: never blocked, flat, stopped;
 //    worker-restart (7) `stack.mjs restart worker` between a leader trade and its fill: no double send, later legs trade;
@@ -314,7 +314,9 @@ try {
     },
     async "worker-restart"(copy) {
       const since = nowIso();
-      await leaderRun("worker_restart", ["open", "ETH", "20"]);
+      // Leave the leader's later half-reduction above the exchange minimum
+      // after size rounding; the follower retains the original 12–15 USD cap.
+      await leaderRun("worker_restart", ["open", "ETH", "40"]);
       // Right after the leader's trade, before the copy's fill.
       const restart = await node("stack.mjs", ["restart", "worker", ...profileArgs]);
       check("worker_restart_restarted", restart.code === 0, restart.lines.find((l) => l.event === "started") ? `worker pid ${restart.lines.find((l) => l.event === "started").pid}` : restart.err.trim().split("\n").at(-1));

@@ -55,3 +55,7 @@
 | Stage 部署 `31f0308d` | ✅ 13:55：⑥ 下單路徑（槓桿、孤兒 journal、平倉無年齡限制、兩筆互不阻擋）、⑦ 停止／全部平倉／測試台、⑧ UI P0+P1、⑨ 重複邏輯稽核的 bug、Paul 核准的停止與快照修正；migration 0073；部署前備份 `stage-before-0073.dump`。測試帳號登入確認：mainnet、未列名單 `actualAllowed:false`、上限 12–15／50／3x／2 |
 | 測試流程 | `docs/stage-test-flow-2026-10-07.md`：A 免費檢查 → B testnet 測試台全綠 → C 主網 |
 | 主網兩筆跟單 | 待 Paul 9:00：照 `docs/mainnet-first-copy-runbook.md`；先入 103 USDC + 0.0005 ETH（Arbitrum）到主錢包 |
+
+### 2026-10-08 05:31 testnet狀態
+
+`685b2024` dev／CI全綠；API3879、web1171 PASS。情境4真實驗收PASS；base #33五方對帳FAIL，提款10／停止／平倉／38.973908退款credited均PASS。剩餘3／6／7／8／9以120秒間距繼續，3首輪領單部分減倉低於交易所最低金額，已修測試腳本；14仍待管理權限。暫時編譯診斷已移除，一次全分支審查完成。完整證據及限制見 [testnet結果](testnet-results-2026-10-08.md)。B未全綠、C不得開始，本輪未修改Stage。

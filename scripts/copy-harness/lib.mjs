@@ -128,7 +128,7 @@ export function termsFor(profile = "default") {
  */
 export const SCENARIOS = Object.freeze({
   base: { no: "1", endsCopy: true, about: "open, add, reduce half, close, short, flip, close; withdraw 10; stop with the return credited" },
-  "reduce-min": { no: "3", endsCopy: false, about: "reduce 25 % of a 24 USD position (under the 10 USD minimum), then a full close" },
+  "reduce-min": { no: "3", endsCopy: false, about: "reduce 25 % of a 48 USD leader position (follower reduction under 10 USD), then a full close" },
   "stop-open": { no: "4", endsCopy: true, about: "stop while a position is open: closed flat, the return credited, shown stopped" },
   "close-then-stop": { no: "6", endsCopy: true, about: "the owner's single-position close, then a stop within 2 s: flat and stopped, never blocked" },
   "worker-restart": { no: "7", endsCopy: false, about: "the worker restarts between a leader trade and its fill: no double send, later legs trade" },

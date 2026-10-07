@@ -150,3 +150,6 @@
 
 - `1ad1b15f` CI第2組70項中69通過，新增未登入回歸抓到英文Demo login控制右緣311px，未達320px螢幕預留12px的308px界線；登入後回歸通過。非放寬測試，窄屏gap6px再減到4px，保留44px控制與12px邊距。
 - 新窄屏gap單元斷言修前8項RED；修後測試與最新CI／Stage驗證另記後續。
+- `44e30074` CI兩個新頁首回歸皆通過（未登入9.0s／登入9.2s），第2組另有既有分享持倉下載測試失敗。trace的四個share-image皆HTTP200，下載前fixture的XRP持倉被真實Hyperliquid更新為無持倉，來源列與分享dialog一併移除。截圖確認已變成Machi實際0權益／無持倉，非頁首問題；分享測試改與既有sticky等fixture測試一樣阻擋外部Hyperliquid WebSocket，保留真PNG下載與尺寸斷言。
+
+本機共享瀏覽器實際下載驗證：公開持倉（1440px）與手機紙上跟單（390px）各完成 App Card 16:9、Poster 4:5 PNG，signature 正確、尺寸分別 1280×720 與 960×1200。完成後已恢復一般 Next 3000；API/worker 未切換。trade-share 型別與 ESLint 通過。

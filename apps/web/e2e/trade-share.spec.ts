@@ -5,6 +5,9 @@ import { shot, signIn } from "./helpers";
 const address = "0x89da4baec446f35a1cbe17a9d1ee5c70b05ee43f";
 test.beforeEach(async ({ context, baseURL }) => {
   await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
+  // These cards use fixed fixture positions. A real exchange snapshot can
+  // remove the source row and its dialog between preview and download.
+  await context.routeWebSocket(/hyperliquid/, ws => ws.close());
 });
 
 /** Every style × format of the open dialog downloads a real PNG of the

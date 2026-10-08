@@ -40,8 +40,8 @@ export let adminSettings: AdminSettings = adminSettingsSchema.parse({
     announcement: {
       enabled: true,
       text: {
-        "zh-TW": "Orbie 公開測試中：跟單下單功能即將推出，現在就能收藏交易員並接收即時警報。",
-        en: "Orbie is in open beta: copy trading is coming soon. Star traders now to get live alerts.",
+        "zh-TW": "Orbie 公開測試中：探索交易員、接收提醒，並從帳戶選單選擇可用的跟單模式。",
+        en: "Orbie is in open beta: explore traders, get alerts, and choose an available copy mode from your account menu.",
       },
     },
   },

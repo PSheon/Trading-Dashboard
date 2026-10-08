@@ -10,7 +10,7 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 | 3 小額部分減倉 | #47 120秒間隔PASS；#42 20秒間隔FAIL保留 | 零倉位終止與五來源對帳已真實通過，整體延遲仍須改善 |
 | 4 持倉時停止 | #32 PASS | 保留原真實成交、空倉、返還證據 |
 | 6 手動平倉後立即停止 | #43 PASS | 真實持倉及完整收尾已驗證 |
-| 7 worker重啟 | #51 FAIL；#49 FAIL保留 | #51重啟後開倉已成交；減倉第二次檢查逾時，後筆在前筆未結算時重試；排程修正尚待新碼真實驗收 |
+| 7 worker重啟 | #56完整PASS；#51／#49 FAIL保留 | 開倉後重啟、後續跟單、五來源對帳及停止返還credited均通過；原gap120與風控不變 |
 | 8 低於最小單的開倉拒絕 | SKIP | 現有限額下未找到符合情境的市場，沒有改限額強行通過 |
 | 9 三筆快速平倉 | #55完整PASS；歷史FAIL保留 | 原20秒三次领單平倉與對帳期限內通過：4派送、2成交、2筆無剩餘倉位；報表原觀察保留、停止空倉與退款credited均PASS |
 | 14 管理者暫停／恢復／全平 | 未執行 | 管理權限仍待使用者授權 |
@@ -258,3 +258,12 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 - 17:27:26 #55在原期限內完整五來源對帳PASS（第15次正常觀察）：4領單、4派送、2跟單成交，領單三次平倉14.384秒、跟單空倉。其餘兩筆依既有規則無剩餘倉位，不宣稱三次跟單成交。隨後正常停止；退款credited與最終資金清點待結果，runner session6112仍在進行。原#54及早期FAIL全部保留。
 - 17:31:18 runner session6112 exit0／ALL GREEN：停止未阻擋、空倉、49.003213返還credited、顯示stopped四項PASS。17:31:42直接testnet核對主108.763233、#55帳戶0、領單23.494366 testUSDC，三者空倉；本機在途資金／未釋放額度／未完成設定皆0。開始unset NODE_OPTIONS恢復本機API／worker；沒有主網操作或Stage寫入。
 - 原證據 `.claude/logs/copy-harness/2026-10-08T09-17-06-023Z-summary.txt` 與同prefix burst-reconcile.json保留私人本機。實測首跟單成交延遲115.51秒，不能把此回歸PASS宣稱成交速度改善；尚待worker重啟與一般完整流程兩個可執行情境。
+
+### #56 worker重啟複驗，17:37進行中
+
+- #55收尾已還原為unset NODE_OPTIONS：API3100 PID69817、worker3010 PID70462健康。17:34再次唯讀確認前轮所有actual stopped、在途資金／未釋放保留額／未完成設定皆0；主108.763233、領單23.494366 testUSDC且空倉的#55收尾證據保留。
+- 沿用已通過完整3,902項回歸的`21acbda0`版本，原stage-caps、預算50、每單12／上限15、槓桿3及gap120不變。17:34:41 API PID72726、17:34:56 worker PID72951啟動本輪私人唯讀收據relay／拒絕後診斷；未重建程式、未操作Stage或主網、未另連CDP。
+- runner session54922、私人 `codex-restart56-run.log`。設定 `06388b9b-da86-4d79-9fda-440af53a7c8f`、跟單帳戶 `0x84bb76ce734aa48f7b57757ffd6d69374e00fff1`；17:36:00 awaiting_consent，隨後真實簽署／addSigners／confirm200完成。17:36:52仍funding_submitted／awaiting_credit，策略啟用、開倉後立即worker重啟、減倉／平倉、五來源對帳及停止返還仍待結果。瀏覽器analytics事件出現CORS錯誤，但不能據此把已成功的金融確認判定失敗。
+- 17:37:33領單40美元ETH開倉成交後立即重啟worker，17:37:37 PID75682健康；17:38:39跟單持倉確認。領單17:40:40減倉、17:42:42平倉成交並空倉。17:45:40原期限內五來源對帳PASS：3領單、4派送（2 settled／2 refused-no_follower_position）、2跟單成交，沒有重複成交；不宣稱3笔領單全部都有獨立跟單成交。首跟單成交延遲63.39秒。
+- 17:49:37 runner session54922 exit0／ALL GREEN，正常停止、空倉、48.986161退款credited、顯示stopped四項PASS。17:51:00直接testnet核對主107.749394、#56帳戶0、領單23.449935 testUSDC，三者空倉；本機在途資金／未釋放保留額／未完成設定皆0。API PID89969／worker PID90389已unset NODE_OPTIONS還原並健康，保留共用web3000／Chrome9333。
+- 原五來源對帳 `.claude/logs/copy-harness/2026-10-08T09-35-06-925Z-worker_restart-reconcile.json`、summary及私人 `codex-restart56-final-{money,balances}.jsonl`保留。Paul此期間授權A版選單及文案修改，前端HMR產生一次CSS chunk錯誤；没有中斷已完成的設定簽署、後續交易或原對帳。A版已獨立瀏覽器與完整前端測試驗證，未另連金融runner CDP。下一個可執行情境為一般完整流程；管理權限仍未授權、最小單情境仍SKIP，B段不能宣稱全面全綠。

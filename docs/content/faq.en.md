@@ -1,12 +1,12 @@
 # FAQ
 
-<!-- Draft. Each ### is one expandable question. Copy trading has paper (simulated) and Hyperliquid testnet modes (testnet uses test USDC with no real value); anything marked "planned" is not available yet. Recheck the text when copying with real funds launches. -->
+<!-- Draft. Each ### is one expandable question. Describe paper, testnet and live according to the modes available in the account menu. Live requires platform availability and account eligibility; do not imply general availability. -->
 
 ## About Orbie
 
 ### What is Orbie?
 
-Orbie (app.orbie.fun) is a trader-monitoring and copy-trading platform for Hyperliquid. You can browse the performance of every trader on Hyperliquid, dig into their positions and trade history, favorite the ones you like, and get Telegram alerts when they trade. Paper (simulated) copy trading is available now: it uses virtual funds, sends no orders to Hyperliquid, and its results are estimates. Copying with real funds is not available yet.
+Orbie (app.orbie.fun) is a trader-monitoring and copy-trading platform for Hyperliquid. You can browse the performance of every trader on Hyperliquid, dig into their positions and trade history, favorite the ones you like, and get Telegram alerts when they trade. Paper uses virtual funds and sends no orders. Testnet copies place orders on Hyperliquid testnet with test USDC. Live uses real funds and requires platform availability and account eligibility; available modes are shown in the account menu.
 
 ### What is Hyperliquid?
 
@@ -18,7 +18,7 @@ Hyperliquid only, including crypto perpetuals and perpetuals on other Hyperliqui
 
 ### Does Orbie cost anything?
 
-Browsing, search, favorites, Telegram alerts and paper copy trading are free. See "Fees" below for the fee planned for copying with real funds.
+Browsing, search, favorites, Telegram alerts and paper copy trading are free. See "Fees" below and the confirmation details before starting an actual copy.
 
 ## Data sources and update frequency
 
@@ -176,17 +176,17 @@ Portfolio lists your deposits, withdrawals and transfers, as reported by Hyperli
 
 ## Copy trading
 
-<!-- Describes paper and testnet modes as shipped. Parts marked "planned" describe copying with real funds; rewrite them against the shipped feature before launch. -->
+<!-- Available modes, fees and limits depend on platform settings and account eligibility. Supporting live mode does not imply general availability. -->
 
 ### How does copy trading work?
 
-Copy trading has two modes. **Paper** uses virtual funds, sends no order to Hyperliquid, and its results are estimates. **Testnet** places real orders for you on Hyperliquid testnet with test USDC, which has no real value. Copying with real funds (mainnet) is not available yet.
+Copy trading has three modes: **paper** uses virtual funds, sends no orders and produces estimates; **testnet** places orders on Hyperliquid testnet with test USDC that has no real value; **live** places orders on Hyperliquid mainnet with real funds. Available modes are shown in the account menu. Live requires platform availability and account eligibility.
 
-1. Choose a direction and an amount in the copy panel on a trader's page. The amount comes from your paper account, which starts with 10,000 virtual USDC.
-2. When the trader's fill is confirmed, Orbie simulates a matching order for your copy at the current market price, with an estimated trading fee and slippage.
+1. Choose a mode in the account menu, then set the direction and amount on a trader’s page. Paper accounts start with 10,000 virtual USDC; actual copies require authorization and funding confirmation.
+2. After a trader’s fill is confirmed, Orbie processes your copy according to its settings. Paper mode estimates fills, fees and slippage. Actual orders must pass risk checks and may not fill or may fill only partially.
 3. Pause or stop the copy at any time.
 
-Testnet copies: each copy has its own dedicated copy account, a wallet you own. You move test USDC into it from your main wallet and grant Orbie a restricted trading agent on Hyperliquid that **can only place and cancel orders**; Orbie then places orders for you according to your settings. Copying with real funds (planned) will work the same way.
+Testnet copies: each copy has its own dedicated copy account, a wallet you own. You move test USDC into it from your main wallet and grant Orbie a restricted trading agent on Hyperliquid that **can only place and cancel orders**; Orbie then places orders for you according to your settings. Live copies also use dedicated copy accounts, with funds and trades on mainnet.
 
 ### What's the difference between "same direction" and "reverse"?
 
@@ -197,7 +197,7 @@ Testnet copies: each copy has its own dedicated copy account, a wallet you own. 
 
 Paper copy trading does not touch your wallet at all: it uses virtual funds and sends no orders.
 
-Testnet copies (and, when they launch, copies with real funds): Orbie only receives a restricted trading permission. It is technically limited to trading actions such as placing and cancelling orders, and **cannot withdraw or send funds to any other address**. You can revoke it at any time, and you can export the copy wallet's private key in Settings.
+Actual copies (testnet or an available live mode): Orbie only receives a restricted trading permission. It is technically limited to trading actions such as placing and cancelling orders, and **the trading agent cannot withdraw or transfer funds**. Automatic returns use a separate restricted authorization that can only return this copy’s funds to its specified main wallet. You can revoke it at any time, and you can export the copy wallet's private key in Settings.
 
 ### Will I get the same price as the trader?
 
@@ -205,13 +205,13 @@ No, not exactly. Orbie acts after the trader's fill is confirmed, so there is a 
 
 ### Can I copy several traders at once?
 
-Yes. In paper mode your account gets a virtual balance of 10,000 USDC, orders are simulated and no real order is sent. In testnet mode each copy has its own copy account and budget. In both modes you copy each trader once, and you can run up to 10 copies at the same time. Each copy needs an allocation of at least 100 USDC, and a single order smaller than 10 USD is not placed. These limits may change, including when copying with real funds becomes available.
+Yes. In paper mode your account gets a virtual balance of 10,000 USDC, orders are simulated and no real order is sent. In testnet mode each copy has its own copy account and budget. Each trader has a separate copy. The number of concurrent copies, budget and per-order limits depend on the selected mode and platform risk settings; check the copy confirmation page. Orders must also meet the exchange’s minimum order requirements.
 
 ### What happens to my positions and funds when I stop copying?
 
 When you stop a copy, Orbie stops opening new positions for it, cancels its pending orders and closes its open positions at the market price. Once every position is closed, the copy's remaining balance returns to your available balance. Until then the copy shows "Stopping", and a stopping copy cannot be resumed.
 
-Paper copies use virtual positions and virtual funds: no real order is sent and your wallet is not touched. When you stop a testnet copy, Orbie cancels its orders on Hyperliquid testnet and closes its positions with reduce-only market orders; once it is flat, the copy account's funds go back to your main wallet: by themselves if you allowed the automatic return when you started the copy, otherwise after you sign once with your main wallet. Copying with real funds is not available yet; we will update this answer when it is.
+Paper copies use virtual positions and virtual funds: no real order is sent and your wallet is not touched. When you stop a testnet copy, Orbie cancels its orders on Hyperliquid testnet and closes its positions with reduce-only market orders; once it is flat, the copy account's funds go back to your main wallet: by themselves if you allowed the automatic return when you started the copy, otherwise after you sign once with your main wallet. Available live copies follow the same process on mainnet. A stopped status and a credited return are separate states; check the return record.
 
 ## Fees
 
@@ -220,7 +220,7 @@ Paper copies use virtual positions and virtual funds: no real order is sent and 
 - **Browsing, favorites, Telegram alerts:** free.
 - **Paper copy trading:** free. Simulated results include an estimated Hyperliquid trading fee, but nothing is actually charged.
 - **Testnet copy trading:** Orbie charges nothing (the builder fee is 0). If that changes, the maximum fee will be part of the copy consent you sign.
-- **Copying with real funds (planned, not available yet):** Orbie plans to charge a fee on each copied fill through Hyperliquid's builder fee mechanism. The exact rate will be shown to you before you sign the approval. It will never exceed the maximum you sign, and under Hyperliquid's rules it cannot exceed 0.1% on perpetuals. Before you start copying with real funds, you will approve this maximum rate by signing with your own wallet.
+- **Live copy trading:** platform fees are shown in the confirmation and consent you sign before starting a copy. Do not infer live fees from free paper or testnet modes. Exchange trading fees and funding payments are separate.
 - **Referral rebates:** Orbie may take part in Hyperliquid's referral program and receive rebates. These rebates do not change the fees you pay to Hyperliquid, and they do not give you a fee discount.
 
 ### What other costs are there?

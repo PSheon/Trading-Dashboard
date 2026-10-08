@@ -26,13 +26,13 @@ Every trader has a full profile: equity and PnL charts, ROI, Sharpe ratio, max d
 
 ### 3. Follow in one tap
 
-Pick a trader and set an amount and a direction (same or opposite). Today this is paper copy trading: after the trader trades, Orbie simulates matching orders with virtual funds, sends nothing to Hyperliquid, and the results are estimates. Copying with real funds is planned and not available yet.
+Pick a trader and set an amount and a direction (same or opposite). Choose an available mode from the account menu: paper uses virtual funds and sends no orders; testnet places orders on Hyperliquid testnet with test USDC that has no real value; live uses real funds and requires platform availability and account eligibility. After a trader fills an order, Orbie processes your copy according to your settings. Actual fills may differ because of delay, slippage or risk checks.
 
 ---
 
 ## Portfolio: your money at a glance
 
-Your main account balance, the amount and PnL of each paper copy, and every deposit and withdrawal, on one page. You can see here how each trader you copy is doing for you in paper mode.
+See your main wallet or paper balance, each copy’s budget and PnL, and deposits, withdrawals and returns for the selected mode. Paper funds and actual accounts are shown separately. Setup, filled orders, stopping and credited returns each have their own status.
 
 ## Alerts: know the moment they move
 
@@ -40,7 +40,7 @@ Favorite a trader and turn on the bell. Orbie's official Telegram bot, @orbie_fu
 
 ## Your funds, your control
 
-When you sign in, Privy creates a wallet just for you. That wallet is your Hyperliquid account. Its private key is protected by Privy and Orbie never sees it; you can export the key at any time and take the wallet anywhere. Paper copy trading never touches your wallet. For copying with real funds (planned), Orbie will only receive limited trading permissions and will not be able to withdraw funds or send them to another address.
+When you sign in, Privy creates a wallet just for you. That wallet is your Hyperliquid account. Its private key is protected by Privy and Orbie never sees it; you can export the key at any time and take the wallet anywhere. Paper copy trading never touches your wallet. Actual copies use dedicated wallets you own and restricted trading agents. If you authorize the automatic return when starting a copy, its remaining funds return to the specified main wallet after stopping and closing its positions; otherwise you confirm the return signature.
 
 <small>Wallets by Privy</small>
 

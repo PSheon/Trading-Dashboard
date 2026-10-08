@@ -6,7 +6,7 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 
 | 情境 | 最後完成結果 | 尚待處理 |
 |---|---|---|
-| 一般跟單、加倉、提款、停止 | #46 FAIL；提款與停止返還PASS | 已捕捉並補測登入紀錄誤判，尚待完整流程新碼驗收 |
+| 一般跟單、加倉、提款、停止 | #57對帳FAIL；提款及停止返還PASS | 七步領單成交，但跟單加倉送出前遭原5秒sizing證據期限拒絕；需修正及完整重跑 |
 | 3 小額部分減倉 | #47 120秒間隔PASS；#42 20秒間隔FAIL保留 | 零倉位終止與五來源對帳已真實通過，整體延遲仍須改善 |
 | 4 持倉時停止 | #32 PASS | 保留原真實成交、空倉、返還證據 |
 | 6 手動平倉後立即停止 | #43 PASS | 真實持倉及完整收尾已驗證 |
@@ -275,3 +275,17 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 - 設定 `cefc01e5-86df-4ae1-976e-8d2747a8209d`、策略57、跟單帳戶 `0x895ff54be3bf64a1de9a33a5c3af0990c9d8a5f4`。17:56:31 awaiting_consent，17:56:41真實兩份簽署／addSigners／confirm200 PASS（8.2秒），50入金accepted，啟用／交易／完整對帳／退款尚待結果。
 - 等待期間唯讀核對#52設定逾時來源：start會同步等待整個provider provisioning，與既有advance的受控背景drive不同；provider超過HTTP時限仍可能繼續。尚未修正，不會直接以延長HTTP時限或無生命週期保護的Promise.race代替完整修法。仍保留#52原失敗及UI/UX第42項。
 - Paul已明確回答「同意，僅本機 testnet」，授權情境14所需暫時admin.access／copy.read／execution.pause／execution.resume。此授權只允許本機testnet測暫停新風險、減倉、緊急全平／退款及恢復；不改風控、不操作Stage或主網、測完移除權限。須先等#57完整結束並確認退款及零在途，不能在目前持倉途中重啟API啟用權限。
+
+## 一般流程 #57：對帳FAIL，正常收尾進行中
+
+- 17:56真實瀏覽器確認、入金與啟用通過；領單七步（開多、加多、減半、平倉、開空、反向開多、最後平倉）均成交，原gap120／限額／風控不變。
+- 首筆跟單開多filled／settled；加倉在18:01:54最後submit核對被`live_risk_stale`拒絕。原始堆疊明確落在`PostgresLiveRiskSource.validateSizing`的原觀察時間檢查，沒有交易所POST；不能把`exchange_order_never_placed`解讀為交易所拒單，也不能認定登入稽核修正失效。唯讀核對原始sizing：最早是generationManifest.checkedAt 18:01:49.154；拒絕時已5,085ms，行情／quote約4,954ms。prepare耗時2,940ms、sign約1,267ms，再次submit檢查跨過原5秒期限85ms。這是原證據過期，沒有放寬5秒期限或替換時間戳。
+- 18:12:04原五來源對帳FAIL：`signal_expired`、不允許的拒絕及缺跟單成交。此輪未通過，不能用單元測試或領單全部成交替代。
+- 18:13:24提款10 testUSDC確認credited，主錢包約57.75→67.75。隨後正常停止進入stopping，返還尚在進行；確認credited、空倉與沒有在途資金後才啟用情境14的四項臨時本機權限。
+- 私人證據：`/private/tmp/codex-base57-run.log`、`codex-base57-add-refusal.jsonl`及本機原始harness對帳；未公開推送、未修改Stage或主網。
+
+### #57 最終收尾
+
+- 18:17:16停止不阻擋／空倉／退款credited／顯示stopped四項PASS，runner正常退出code1，唯一FAIL為base_reconcile。10與38.990286 testUSDC均已credited。
+- 18:17:37官方testnet唯讀核對：主錢包106.739680、跟單57為0、領單23.296008，三者均空倉。本機所有actual停止，openFunding／liabilities／unfinishedSetups均空；額外核對所有本機actual（不限user14）沒有運行中策略。
+- 管理API授權前唯讀驗證服務token回403。18:18起只在本機API程序加入Paul允許的四項權限；不寫.env、不更動人員角色，執行情境14後還原並重新驗證403。原API／worker風控與限額保持不變。

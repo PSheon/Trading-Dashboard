@@ -76,6 +76,24 @@ it("keeps the header and the page in one frame", async () => {
   expect(container.querySelector("main")!.className).toContain("page-frame");
 });
 
+it.each(["signedOut", "disabled"])("uses the public brand footer on the portfolio while %s", async (status) => {
+  state.pathname = "/portfolio";
+  await render(status);
+  const footer = container.querySelector("footer")!;
+  expect(container.querySelectorAll("footer")).toHaveLength(1);
+  expect(footer.querySelector('nav[aria-label="Resources"]')).not.toBeNull();
+  expect(footer.querySelector('a[href="/en/about"]')).not.toBeNull();
+  expect(footer.querySelector('a[href="/en/privacy"]')).not.toBeNull();
+});
+
+it.each(["signedIn", "loading"])("keeps the portfolio's compact footer while %s", async (status) => {
+  state.pathname = "/portfolio";
+  await render(status);
+  expect(container.querySelectorAll("footer")).toHaveLength(1);
+  expect(container.querySelector('footer nav[aria-label="Resources"]')).toBeNull();
+  expect(container.querySelector('footer a[href="/en/help"]')).not.toBeNull();
+});
+
 function measuredLinks(reduce = false) {
   vi.spyOn(HTMLElement.prototype, 'offsetLeft', 'get').mockImplementation(function (this: HTMLElement) { return this.tagName === 'A' ? 6 + [...this.parentElement!.querySelectorAll('a')].indexOf(this as HTMLAnchorElement) * 80 : 0; });
   vi.spyOn(HTMLElement.prototype, 'offsetTop', 'get').mockReturnValue(6);

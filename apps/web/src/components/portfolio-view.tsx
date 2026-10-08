@@ -61,7 +61,7 @@ export function PortfolioView() {
   if (status !== "signedIn") {
     return (
       <>
-        <div className="hidden md:block">
+        <div className="hidden md:block md:w-full">
           <SignedOut />
         </div>
         <div className="md:hidden">
@@ -184,11 +184,11 @@ function SignedOut() {
   const { t } = useI18n();
   const { status, login } = useAuth();
   return (
-    <div className="orbit-card mx-auto mt-10 flex w-full max-w-[460px] flex-col items-center gap-3 rounded-[32px]! px-8 py-10 text-center md:mt-[120px]">
-      <span className="mb-2 flex size-24 items-center justify-center rounded-full bg-raised"><ShoppingCart className="size-11 text-primary-text" strokeWidth={2} aria-hidden /></span>
-      <h1 className="type-h1">{t("portfolio.signInTitle")}</h1>
+    <div className="orbit-card mx-auto flex w-full max-w-[560px] flex-col items-center gap-3 rounded-[32px]! px-8 py-6 text-center">
+      <span className="flex size-16 items-center justify-center rounded-full bg-raised"><ShoppingCart className="size-8 text-primary-text" strokeWidth={2} aria-hidden /></span>
+      <h1 className="type-h1 md:text-[2rem] md:leading-tight">{t("portfolio.signInTitle")}</h1>
       <p className="text-base leading-6 font-bold text-muted-foreground">{t("portfolio.signInBody")}</p>
-      <Button size="cta" className="mt-5 w-[200px]" onClick={login} disabled={status === "disabled"}>
+      <Button size="cta" className="mt-3 w-[200px]" onClick={login} disabled={status === "disabled"}>
         {t("common.signIn")}
       </Button>
     </div>

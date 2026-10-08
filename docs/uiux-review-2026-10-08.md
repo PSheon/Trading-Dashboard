@@ -126,6 +126,14 @@ Claude 先前另已處理交易員表格內縮／欄寬、常駐分享按鈕、�
 
 官方[錯誤回應文件](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/error-responses)列出一般訂單10美元的最低金額；上述自動全平是本專案planner採用的處理策略，確認頁與成交明細應說明這項策略。模式不可用的提示也應使用「暫未開放」等使用者語言，避免「部署」一詞。
 
+## 七、未登入投資組合：已本機修正，尚未發布
+
+40. **未登入portfolio使用精簡條款footer，與首頁品牌樣式不一致。** 原shell依路由將所有投資組合一律歸為compact，沒有區分登入狀態。已改未登入／登入服務不可用時使用同一SiteFooter（品牌、資源、社群、法律、語言）；登入中與已登入維持原精簡footer。桌面改用最少一個視窗高度的flex排版，移除登入卡片固定120px上方留白，footer置於內容下方；以自然內容高度作下限，不裁切內容或停用捲動。
+
+- 真實Chrome匿名context已核對繁中及英文的1440×900、1366×768、1280×720：scrollHeight等於viewport高度、footer完整在畫面內、只有一個footer、沒有水平溢出。390×844手機使用共用品牌footer及正常垂直捲動、無水平溢出。
+- 相關shell／mode／portfolio回歸36項PASS，tsc（含測試）與變更檔案eslint PASS。未驗證極低高度、放大字體或額外公告出現時仍零捲動；這些狀態保留自然捲動，確保所有連結可到達。
+- 私人截圖`/private/tmp/codex-portfolio-guest/{final,en-final}-{1440,1366,1280,390}.png`，尺寸紀錄`codex-portfolio-guest-{final,en-final}.log`；保留共用Chrome及原已登入視窗，未操作金融流程或部署。
+
 ## 證據與下一步
 
 - 最新桌機／手機與footer核對：`/private/tmp/codex-testnet-ui/resume-final-{desktop,mobile}{,-footer}.png`，私人截圖保留本機；只驗收停止後空倉狀態。

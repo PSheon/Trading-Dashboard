@@ -148,8 +148,12 @@ export class PrivyMasterPolicy implements MasterPolicyPort {
     const parsed = policySchema.safeParse(await this.call(() => client.policies().get(policyId)));
     if (!parsed.success) throw new MasterPolicyConflict();
     const policy = parsed.data, rules = policy.rules.map(({ id: _id, ...rule }) => rule);
+    // Privy may reorder whole rules. Compare exact occurrences without changing
+    // nested arrays or the raw rule order used by existing fingerprints below.
+    const actualRules = addressCase(rules).map(canonical).sort();
+    const expectedRules = addressCase(masterPolicyRules(binding)).map(canonical).sort();
     if (policy.id !== policyId || policy.name !== MASTER_POLICY_NAME || policy.chain_type !== 'ethereum' ||
-      canonical(addressCase(rules)) !== canonical(addressCase(masterPolicyRules(binding)))) throw new MasterPolicyConflict();
+      actualRules.length !== expectedRules.length || actualRules.some((rule, index) => rule !== expectedRules[index])) throw new MasterPolicyConflict();
     const quorum = quorumSchema.safeParse(await this.call(() => client.keyQuorums().get(policy.owner_id)));
     if (!quorum.success || quorum.data.id !== policy.owner_id || quorum.data.authorization_threshold !== 1 || quorum.data.authorization_keys.length !== 0 ||
       quorum.data.user_ids?.length !== 1 || quorum.data.user_ids[0] !== userId || quorum.data.key_quorum_ids?.length) throw new MasterPolicyConflict();

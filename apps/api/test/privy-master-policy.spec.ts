@@ -82,6 +82,60 @@ describe("the copy account's master policy (one-click plan §2)", () => {
     await expect(privy.verify("policy-1", "did:privy:u", bound)).rejects.toThrow("master_policy_conflict");
   });
 
+  describe("provider whole-rule order preserves exact grants and original fingerprints", () => {
+    const bound = { ...binding, ownerMain, account: `0x${"12".repeat(20)}`, agent: { address: other, name: "copy7 valid_until 1" } };
+    type Rules = ReturnType<typeof masterPolicyRules>;
+    type Condition = { field: string; value: unknown; typed_data?: { types: Record<string, { name: string; type: string }[]> } };
+    const conditions = (rules: Rules, index: number) => rules[index]!.conditions as unknown as Condition[];
+    function fixture(rules: Rules) {
+      const stored = { id: "policy-order-fixture", owner_id: "owner-q", name: MASTER_POLICY_NAME, version: "1.0", chain_type: "ethereum", rules: rules.map((rule, index) => ({ id: `provider-rule-${index}`, ...rule })) };
+      const get = vi.fn(async () => stored);
+      const privy = new PrivyMasterPolicy({}, { policies: () => ({ get }), keyQuorums: () => ({ get: async () => ({ id: "owner-q", authorization_threshold: 1, authorization_keys: [], user_ids: ["did:privy:u"], key_quorum_ids: [] }) }) } as never);
+      return { privy, get };
+    }
+    const permute = (rules: Rules) => [rules[2]!, rules[3]!, rules[4]!, rules[0]!, rules[1]!, ...rules.slice(5)];
+    it.each([
+      ["testnet", "e411795c4a296cba8c6adefda8a0eb7f00ea8a17ed2498101845a30bc728e6f6", "aea8b8d3ab5a7cff3eaa8478690dca2ac4257c849a177acc3c58c86a215f8831"],
+      ["mainnet", "d1d8df516b77e9d23f8bc870346a13649ee3e4235ead6bc3d8452077f08af8af", "2b1475148ee390240d87999bc80f1927e9f0ab39990ad8bff86ab343fe3528db"],
+    ] as const)("verifies exact reordered %s rules while retaining ordered and permuted legacy raw fingerprints", async (network, orderedFingerprint, permutedFingerprint) => {
+      const b = { ...bound, network }, rules = masterPolicyRules(b);
+      await expect(fixture(rules).privy.verify("policy-order-fixture", "did:privy:u", b)).resolves.toMatchObject({ fingerprint: orderedFingerprint });
+      const reordered = permute(rules), before = structuredClone(reordered);
+      const { privy, get } = fixture(reordered);
+      await expect(privy.verify("policy-order-fixture", "did:privy:u", b)).resolves.toMatchObject({ fingerprint: permutedFingerprint });
+      expect(reordered).toEqual(before);
+      expect(get).toHaveBeenCalledOnce();
+      expect(permutedFingerprint).not.toBe(orderedFingerprint);
+    });
+    it("accepts the exact optional builder grant after whole-rule reordering, and rejects its absence or unbound presence", async () => {
+      const b = { ...bound, builder: { address: other, maxFeeRate: "0.01%" } }, rules = masterPolicyRules(b);
+      await expect(fixture(permute(rules)).privy.verify("policy-order-fixture", "did:privy:u", b)).resolves.toMatchObject({ id: "policy-order-fixture" });
+      await expect(fixture(masterPolicyRules(bound)).privy.verify("policy-order-fixture", "did:privy:u", b)).rejects.toThrow("master_policy_conflict");
+      await expect(fixture(rules).privy.verify("policy-order-fixture", "did:privy:u", bound)).rejects.toThrow("master_policy_conflict");
+      await expect(fixture(masterPolicyRules(binding)).privy.verify("policy-order-fixture", "did:privy:u", bound)).rejects.toThrow("master_policy_conflict");
+      await expect(fixture(masterPolicyRules(bound)).privy.verify("policy-order-fixture", "did:privy:u", { ...bound, agent: null })).rejects.toThrow("master_policy_conflict");
+    });
+    it.each([
+      ["destination string case", (rules: Rules) => { conditions(rules, 0).find(c => c.field === "destination")!.value = ownerMain.toUpperCase().replace("0X", "0x"); }],
+      ["foreign destination", (rules: Rules) => { conditions(rules, 0).find(c => c.field === "destination")!.value = other; }],
+      ["export deny changed", (rules: Rules) => { rules[3]!.action = "ALLOW"; }],
+      ["missing export deny", (rules: Rules) => { rules.splice(4, 1); }],
+      ["condition sequence", (rules: Rules) => { rules[0]!.conditions.reverse(); }],
+      ["typed data field sequence", (rules: Rules) => { conditions(rules, 0).find(c => c.typed_data)!.typed_data!.types.EIP712Domain!.reverse(); }],
+      ["extra duplicate", (rules: Rules) => { rules.push(structuredClone(rules[0]!)); }],
+      ["same-length duplicate replacing a grant", (rules: Rules) => { rules[0] = structuredClone(rules[1]!); }],
+      ["unknown rule", (rules: Rules) => { rules.push({ name: "extra export permission", method: "exportPrivateKey", action: "ALLOW", conditions: [] }); }],
+      ["changed agent name", (rules: Rules) => { conditions(rules, 2).find(c => c.field === "agentName")!.value = "another agent"; }],
+      ["different network domain", (rules: Rules) => { conditions(rules, 0).find(c => c.field === "chainId")!.value = "42161"; }],
+    ] as const)("refuses %s even when whole rules are reordered", async (_name, mutate) => {
+      // Generated rules share domain descriptors; mutate only the provider fixture.
+      const rules = structuredClone(masterPolicyRules(bound));
+      mutate(rules);
+      // Reverse the full array without altering nested condition or typed-data arrays.
+      await expect(fixture(rules.toReversed()).privy.verify("policy-order-fixture", "did:privy:u", bound)).rejects.toThrow("master_policy_conflict");
+    });
+  });
+
   it("account deletion checks with the app secret that no signer is left (the owner's browser removed it)", async () => {
     const wallets = { update: vi.fn(async () => ({})), get: vi.fn(async () => ({ id: "wallet-1", address: account, owner_id: "owner-q", policy_ids: [], additional_signers: [] })) };
     const privy = new PrivyMasterPolicy({}, { wallets: () => wallets } as never);

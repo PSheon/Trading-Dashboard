@@ -442,7 +442,7 @@ export class CopyLiveEngine {
         this.now() - row.leaderTime.getTime() < Math.max(0, signalAgeMs - HOLD_MARGIN_MS)) {
         await this.deps.repository.dissolve(row, row.attempts + 1); return;
       }
-      const permanent = row.state === 'pending' && (PERMANENT.has(reason) || row.leg === 'close' && row.attempts + 1 >= CLOSE_ATTEMPT_LIMIT);
+      const permanent = row.state === 'pending' && (PERMANENT.has(reason) || row.leg === 'close' && (reason === 'no_follower_position' || row.attempts + 1 >= CLOSE_ATTEMPT_LIMIT));
       await this.deps.repository.update(row, { ...(permanent ? { state: 'refused' as const } : {}), reason, firstAttemptAt: first, attempts: row.attempts + 1, ...times });
     }
   }

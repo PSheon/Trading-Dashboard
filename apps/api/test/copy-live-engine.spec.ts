@@ -228,6 +228,41 @@ describe('testnet copy execution engine', () => {
     expect((await dispatches()).find(r => r.sourceFillId === close)).toMatchObject({ state: 'refused', reason: 'live_risk_stale', attempts: CLOSE_ATTEMPT_LIMIT });
   });
 
+  it('ends a later close once fresh runtime evidence proves the follower already flat, without another retry', async () => {
+    await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+    const open = await leaderFill(60, now + 100, 'B', '1', '0', 'ETH'), close = await leaderFill(61, now + 200, 'A', '1', '1', 'ETH');
+    runtimeImpl = async (request, hooks) => {
+      if (request.sourceFillId === open) return filled(request, hooks);
+      runtimeCalls.push(request); throw new LiveBoundaryError('no_follower_position');
+    };
+    const worker = engine();
+    for (const offset of [1000, 2000, 3000]) { clock = now + offset; await worker.tick(); }
+    expect((await dispatches()).find(r => r.sourceFillId === close)).toMatchObject({ state: 'refused', reason: 'no_follower_position', attempts: 1 });
+    expect(runtimeCalls.filter(r => r.sourceFillId === close)).toHaveLength(1);
+  });
+
+  it('keeps an open with a no-position runtime reason retryable', async () => {
+    await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+    const open = await leaderFill(62, now + 100, 'B', '1', '0', 'ETH');
+    runtimeImpl = async request => { runtimeCalls.push(request); throw new LiveBoundaryError('no_follower_position'); };
+    const worker = engine();
+    for (const offset of [1000, 2000]) { clock = now + offset; await worker.tick(); }
+    expect((await dispatches()).find(r => r.sourceFillId === open)).toMatchObject({ state: 'pending', attempts: 2 });
+  });
+
+  it('keeps an attempted close journal in reconciliation despite a no-position runtime reason', async () => {
+    await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+    const open = await leaderFill(63, now + 100, 'B', '1', '0', 'ETH'), close = await leaderFill(64, now + 200, 'A', '1', '1', 'ETH');
+    runtimeImpl = async (request, hooks) => {
+      if (request.sourceFillId === open) return filled(request, hooks);
+      runtimeCalls.push(request); await journal(keyOf(close, 'close'), 'unknown');
+      throw new LiveBoundaryError('no_follower_position');
+    };
+    const worker = engine();
+    for (const offset of [1000, 2000]) { clock = now + offset; await worker.tick(); }
+    expect((await dispatches()).find(r => r.sourceFillId === close)).toMatchObject({ state: 'submitted', executionKey: keyOf(close, 'close') });
+  });
+
   it('closes what the follower still holds once the leader is flat: a close settled owing part of it, or refused', async () => {
     await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
     const btcOpen = await leaderFill(19, now + 100, 'B', '1', '0', 'BTC'), btcClose = await leaderFill(20, now + 200, 'A', '1', '1', 'BTC');

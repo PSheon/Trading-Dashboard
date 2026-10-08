@@ -192,6 +192,10 @@ export function planLiveSourceOrder(raw: LiveSourcePlanInput): PlannedLiveSource
     const price=conservativeLimit(mid,side,b.quote.slippageBps,b.market.sizeDecimals);
     let size:Dec,nextCarry=Dec.from(b.carry.amount),dependsOnLegId:string|null=null;
     if(leg.leg==='close'){
+      // Both the fresh account snapshot and the independent generation
+      // projection were verified above. An earlier minimum-size reduction
+      // may already have closed it all; this later close has nothing to send.
+      if(position.isZero&&nextCarry.isZero&&b.settledDependency===null)throw new LiveBoundaryError('no_follower_position');
       requireSizing(position.sign===sign&&position.abs().gte(nextCarry)&&leg.fraction);
       const fraction=merged?combinedCloseFraction(merged.map(m=>m.fraction!)):Dec.from(leg.fraction!);
       const reduction=reduceWithCarry(position.abs(),fraction,nextCarry,b.market.sizeDecimals);size=floorSize(reduction.size,b.market.sizeDecimals);nextCarry=reduction.carry;
@@ -244,8 +248,8 @@ export function planLiveSourceOrder(raw: LiveSourcePlanInput): PlannedLiveSource
     return freezeLiveReservation({plannerVersion:1,legId:liveSourceLegId(m.id,fill.id,leg.leg),sourceDigest:fill.sourceDigest,settingsDigest:consent.settingsDigest,sizingBasis:envelope,
       order:{coin:fill.coin,asset:b.market.asset,side,size:size.toString(),limitPrice:price.toString(),sizeDecimals:b.market.sizeDecimals,reduceOnly:leg.leg==='close',timeInForce:'Ioc'},nextCarry:nextCarry.toString(),fixedTradeClaim:b.fixedTradeClaim,dependsOnLegId});
   }catch(error){
-    // A price refusal keeps its own reason; every other doubt is unproven sizing.
-    if(error instanceof LiveBoundaryError&&['live_source_price_deviation','below_min_notional'].includes(error.code))throw error;
+    // Proven outcomes keep their reason; every other doubt is unproven sizing.
+    if(error instanceof LiveBoundaryError&&['live_source_price_deviation','below_min_notional','no_follower_position'].includes(error.code))throw error;
     throw new LiveBoundaryError('live_source_sizing_unproven');
   }
 }

@@ -22,6 +22,25 @@ function closeExample(position='90',carry='15',full=false,mode:'fixed'|'ratio'='
   return e;
 }
 describe('actual source sizing from retained original observations',()=>{
+  it('reports a proven flat generation as no follower position, while stale evidence remains unproven',()=>{
+    const e=structuredClone(example()), envelope=e.sizingBasis as LiveSourceSizingEnvelopeV1;
+    const fill=parseLiveSourceFill({tid:2,oid:8,time:e.now-50,coin:'BTC',side:'A',px:'100',sz:'4',startPosition:'4'},
+      {network:'testnet',leaderAddress:e.mandate.leaderAddress,from:e.now-1000,to:e.now,receivedAt:e.now,kind:'fills'});
+    const close={...e,fill,leg:canonicalLiveSourceLegs(fill)[0]!};
+    Object.assign(envelope.basis,{sourceFillId:fill.id,sourceDigest:fill.sourceDigest,leg:'close',fixedTradeClaim:false});
+    // The retained snapshot and independently projected generation both prove
+    // zero; no scalar override or old snapshot can grant this terminal reason.
+    expect(()=>planLiveSourceOrder(close)).toThrow('no_follower_position');
+    expect(()=>planLiveSourceOrder({...close,now:close.now+5001})).toThrow('live_source_sizing_unproven');
+    for(const kind of ['carry','dependency','snapshot','generation']){
+      const altered=structuredClone(close), retained=altered.sizingBasis as any;
+      if(kind==='carry'){retained.basis.carry.amount='1';retained.observations.generationManifest.carry[0].carry='1';}
+      if(kind==='dependency')retained.basis.settledDependency={legId:'another-close',certificateDigest:'c'.repeat(64)};
+      if(kind==='snapshot')retained.observations.follower.perpEquity='1000';
+      if(kind==='generation')retained.basis.generation.positionSize='1';
+      expect(()=>planLiveSourceOrder(altered)).toThrow('live_source_sizing_unproven');
+    }
+  });
   it.each(['fixed','ratio'] as const)('plans conservative %s IOC from actual equity and exact owner budget',mode=>{
     expect(planLiveSourceOrder(example(mode))).toMatchObject({plannerVersion:1,order:{coin:'BTC',side:'B',size:mode==='fixed'?'0.09':'0.1',limitPrice:'100.5',reduceOnly:false,timeInForce:'Ioc'}});
   });

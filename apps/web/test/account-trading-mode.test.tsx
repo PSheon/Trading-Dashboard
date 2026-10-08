@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { AccountControls } from "@/components/shell/account-controls";
+import { AccountControls, AuthButton } from "@/components/shell/account-controls";
 import { I18nProvider } from "@/i18n/provider";
 import { en } from "@/i18n/messages/en";
 const display = vi.hoisted(() => ({ desktop: true }));
@@ -73,4 +73,24 @@ it("returns desktop focus after Escape closes the account card", async () => {
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
   expect(document.querySelector('[data-testid="account-menu-card"]')).toBeNull();
   expect(document.activeElement).toBe(trigger);
+});
+
+it("keeps total value visible in the desktop trigger instead of the account card", async () => {
+  const trigger = host.querySelector("[data-mode]")!.closest("button")!;
+  expect(trigger.querySelector('[data-testid="account-total"]')?.textContent).toBe("$1,234.00");
+  expect(document.querySelector('[data-testid="account-menu-card"]')?.querySelector('[data-testid="account-total"]')).toBeNull();
+  await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+  expect(trigger.querySelector('[data-testid="account-total"]')?.textContent).toBe("$1,234.00");
+});
+it("shows total value on the actual compact phone trigger and omits it from the sheet", async () => {
+  await act(async () => root.unmount());
+  root = createRoot(host);
+  display.desktop = false;
+  await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale="en" messages={en}><AuthButton compact /></I18nProvider></QueryClientProvider>));
+  const trigger = host.querySelector("[data-mode]")!.closest("button")!;
+  expect(trigger.querySelector('[data-testid="account-total"]')?.textContent).toBe("$1,234.00");
+  await act(async () => trigger.click());
+  expect(document.querySelector('[data-testid="account-menu-card"]')?.querySelector('[data-testid="account-total"]')).toBeNull();
+  await act(async () => mode("Live").click());
+  expect(trigger.querySelector('[data-testid="account-total"]')?.textContent).toBe("$50.00");
 });

@@ -2,7 +2,7 @@
 
 import { Briefcase, Check, ChevronDown, ChevronRight, Globe, LogOut, Moon, Settings, ShieldCheck, Sun } from "lucide-react";
 import { cn } from "cn";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Dialog, Popover, RadioGroup } from "radix-ui";
 import { useIsDesktop } from "@/lib/use-is-desktop";
 import { LOCALE_NAMES } from "@/i18n/config";
@@ -106,23 +106,39 @@ function Initial({ label }: { label: string }) {
 }
 
 /** The avatar (and, in the pill, the total value) opening the account menu. */
-function AccountMenu({ children }: { children?: React.ReactNode }) {
-  const { t, locale } = useI18n();
+function AccountMenu() {
+  const { t, locale, format } = useI18n();
   const { identity } = useAuth();
   const trading = useTradingMode();
+  const paper = useCopyOverview();
+  const wallet = useWallet();
+  const total = trading.mode === "paper" ? paper.data?.paper.totalValue : trading.available && wallet.data && wallet.data.network === trading.deploymentNetwork ? wallet.data.totalValue : undefined;
+  const inCopies = useCopiesEquity();
   const { logout, pending: leaving } = useLogout();
   const { data: me } = useMe();
   const isAdmin = useIsAdmin();
   const { theme, toggle } = useTheme();
   const desktop = useIsDesktop();
   const [open, setOpen] = useState(false);
+  const totalId = useId();
   const label = me?.displayName || me?.email?.split("@")[0] || identity || t("topbar.account");
   const actual: SiteMode = trading.deploymentNetwork === "mainnet" ? "live" : "testnet";
   const row = "flex min-h-12 w-full items-center gap-3 rounded-2xl px-3 text-sm font-bold outline-none transition-colors hover:bg-raised focus-visible:ring-2 focus-visible:ring-ring";
   const trigger = (
-    <button type="button" aria-label={t("topbar.account")} className="orbit-press flex h-11 shrink-0 items-center gap-2 rounded-full p-0.5 pr-3 font-extrabold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring">
+    <button type="button" aria-label={t("topbar.account")} aria-describedby={totalId} className="orbit-press flex h-11 shrink-0 items-center gap-2 rounded-full p-0.5 pr-3 font-extrabold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring">
+      {trading.mode !== "paper" && trading.available ? <CopyEquityProbes /> : null}
       <Initial label={label} />
-      <span className="text-xs" data-mode={trading.mode}>{t(`mode.${trading.mode}`)}</span>
+      <span id={totalId} className="flex min-w-0 flex-col items-start gap-0.5 leading-none">
+        <span className="sr-only">{t("portfolio.totalValue")}</span>
+        {total != null && (trading.mode === "paper" || inCopies !== null) ? (
+          <span className="num whitespace-nowrap font-display text-[15px]" data-testid="account-total">{format.usd(total + (trading.mode === "paper" ? 0 : inCopies!), { digits: 2 })}</span>
+        ) : !trading.available || (trading.mode === "paper" ? paper.isError : wallet.isError || inCopies === null) ? (
+          <span className="text-sm text-muted-foreground">—</span>
+        ) : (
+          <Skeleton className="h-4 w-16" />
+        )}
+        <span className="text-[10px] text-muted-foreground" data-mode={trading.mode}>{t(`mode.${trading.mode}`)}</span>
+      </span>
       <ChevronDown className="size-4 text-muted-foreground" aria-hidden />
     </button>
   );
@@ -135,7 +151,6 @@ function AccountMenu({ children }: { children?: React.ReactNode }) {
           <p className="truncate text-xs text-muted-foreground">{me?.email || identity}</p>
         </div>
       </div>
-      {children ? <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl bg-raised px-4 py-3"><span className="text-xs font-bold text-muted-foreground">{t("portfolio.totalValue")}</span>{children}</div> : null}
       <RadioGroup.Root aria-label={t("mode.label")} value={trading.mode} orientation="horizontal" onValueChange={value => { trading.select(value as SiteMode); }} className="grid grid-cols-2 gap-1 rounded-full bg-raised p-1">
         {([actual, "paper"] as const).map(mode => (
           <RadioGroup.Item key={mode} value={mode} disabled={trading.pending > 0 || !trading.supports(mode)} className="flex min-h-11 items-center justify-center gap-2 rounded-full px-3 text-sm font-extrabold outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground">
@@ -177,29 +192,14 @@ function AccountMenu({ children }: { children?: React.ReactNode }) {
 
 /** Orbit's signed-in pill: the avatar and total value open the account
  * menu; 儲值 opens the deposit modal. The value is 我的資金's: the main
- * account's /me/wallet total and this network's copies (shown from 1024px). */
+ * account's /me/wallet total and this network's copies, also on the phone. */
 function AccountPill() {
-  const { t, format } = useI18n();
+  const { t } = useI18n();
   const trading = useTradingMode();
-  const paper = useCopyOverview();
-  const wallet = useWallet();
-  const total = trading.mode === "paper" ? paper.data?.paper.totalValue : trading.available && wallet.data && wallet.data.network === trading.deploymentNetwork ? wallet.data.totalValue : undefined;
-  const inCopies = useCopiesEquity();
   const { openDeposit } = useWalletModals();
   return (
     <div className="flex h-[52px] items-center gap-1 rounded-[26px] bg-raised p-1">
-      {trading.mode !== "paper" && trading.available ? <CopyEquityProbes /> : null}
-      <AccountMenu>
-        <span className="flex items-center gap-1.5">
-          {total != null && (trading.mode === "paper" || inCopies !== null) ? (
-            <span className="num font-display text-[15px]" data-testid="account-total">{format.usd(total + (trading.mode === "paper" ? 0 : inCopies!), { digits: 2 })}</span>
-          ) : !trading.available || (trading.mode === "paper" ? paper.isError : wallet.isError || inCopies === null) ? (
-            <span className="text-sm text-muted-foreground">—</span>
-          ) : (
-            <Skeleton className="h-4 w-16" />
-          )}
-        </span>
-      </AccountMenu>
+      <AccountMenu />
       {trading.mode !== "paper" && trading.available ? <Button onClick={openDeposit}>
         {t("portfolio.deposit")}
       </Button> : null}

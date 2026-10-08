@@ -209,3 +209,15 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 - #52於16:01:57在POST setups收到原20秒HTTP期限的504 deadline_exceeded，runner exit1；沒有瀏覽器簽署、沒有入金送出、沒有領單交易。API16:02:03才完成原設定並嘗試再回應，記錄ERR_HTTP_HEADERS_SENT；不能把這輪寫成快速平倉交易FAIL或新排程已驗收。
 - 唯讀查明#52 awaiting_consent、50入金prepared、風險保留0，沒有重複建立或確認。16:05:00用本人正常cancel API取消未簽署設定`c1c53cb3-6977-4cc1-839e-3d1f9515fade`，再核對所有actual stopped、在途資金／未釋放額度／未完成設定皆0。沒有直接改SQL資料或送出退款。證據`codex-generation52-{setup-timeout-money,cancel-money}.jsonl`、`codex-generation52-cancel.log`；原504保留，設定逾時後仍完成的問題尚未修正。
 - 確認#52取消及資金狀態歸零後，另啟原情境9的#53；16:07:45正常awaiting_consent（start約15秒）。設定`6116509b-fc2f-4da7-b87c-0767d03ef05c`、跟單帳戶`0xe4f4382ce5325e23f9e190202dfc785ff867184d`。真實瀏覽器兩份簽署、addSigners與confirm200於16:07:56通過，約8.2秒；50入金accepted、尚待credited與running，不把accepted當入帳或交易PASS。私人runner `codex-generation53-burst-run.log`仍在執行，未第二次CDP連線或重啟服務。
+- #53正常入金及啟用16:09:08完成。領單36美元ETH開倉16:09:10成交；跟單16:10:27 POST成交、16:11:42 settled，attempts1。POST後runtime live_risk_stale保留filled紀錄，由原對帳結算，沒有重送。
+- 領單三次平倉16:11:11.718／18.891／26.144均成交，首末約14.426秒，領單空倉；跟單第一筆減倉16:13:10 POST成交。16:13:43唯讀派送：open settled attempts1、首close submitted attempts1、後兩close pending attempts0。這些是中途狀態，不足以宣稱整輪PASS。
+- 16:14:24.468首次捕捉到真實pure projector拒絕，原raw.now=1791447264451；本機0600 artifact `codex-generation-projector-failure-86383-1791447264466-1.json`（290006bytes）。原函式與僅揭露內部stack的離線副本，在完全相同的now都拒絕live_generation_unproven，定位compiled行116（必須released且settled並有settlementProof／digest）。當次前open已filled／settled／released且有證明；前close雖filled，leg仍prepared、reservation unknown且attempted、有無proof及digest均false。這證明#53的具體條件，不能追溯稱#49也必定同因。
+- 排程缺口：目前journal分類版略過filled前筆，但filled不代表風險保留已釋放；後筆會先進入必定拒絕的generation計算。下一修正須補保留額未released的前筆排程回歸，保留原generation／authority／五秒限制，不把filled當結算證明或更改模擬門檻。診斷為離線重播，沒有重新授權或重送歷史交易。
+- 16:17:29完整對帳原240秒重試期限後FAIL（兩筆leader_leg_without_follower_fill、portfolio_snapshot_unavailable）；跟單原生flat檢查PASS。正常停止已開始，16:19已flat，16:20:05返還48.98663 accepted，正式credited及最終狀態核對仍待完成。後兩close在停止後的狀態不能冒充自然跟單處理通過。
+
+### #53 收尾確認
+
+- 16:22:15.944返還48.98663 testUSDC正式credited；停止未阻擋／空倉／返還入帳／顯示stopped四項PASS，runner exit1，保留完整交易對帳FAIL。
+- 16:22:41直接唯讀查testnet：主錢包110.780258、#53帳戶0、領單23.539485 testUSDC，三者均空倉；本機資料庫核對所有actual stopped、在途資金0、未釋放保留額0、未完成設定0。
+- unset NODE_OPTIONS還原API3100 PID3439、worker3010 PID3671，移除私人診斷與收據relay，共用web3000／Chrome9333保留。重啟途中health503為worker尚未就緒；原worker啟動程序正常完成，16:24:21 API與worker health皆成功，没有因短暫觀察失敗重啟另一份worker。
+- 私人證據`codex-generation53-{final-money,final-balances}.jsonl`、`codex-generation53-projector-offline.log`與runner日誌；純函式輸入artifact保留本機0600，未提交原始交易證據或公開推送。保留額分類的新排程修正尚未實作，不能以本次捕捉根因宣稱已修好。

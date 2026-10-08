@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
-import { copyExecutionAccounts, copyFundingOperations, copyFollowerObservations, copyFollowerObservationJobs, copyFollowerObservationBudget, copyFollowerAccountState, copyStrategies, copyLiveSetups, copyLiveMandates, copyLiveDispatches, users } from '@trading-dashboard/shared/database';
+import { copyExecutionAccounts, copyFundingOperations, copyFollowerObservations, copyFollowerObservationJobs, copyFollowerObservationBudget, copyFollowerAccountState, copyStrategies, copyLiveSetups, copyLiveMandates, copyLiveDispatches, copyLiveExecutions, users } from '@trading-dashboard/shared/database';
 import { CopyFollowerSnapshotRepository } from '../src/copy/copy-follower-snapshot.repository.js';
 import { CopyFollowerSnapshotService, CopyFollowerSnapshotCollector } from '../src/copy/copy-follower-snapshot.service.js';
 import { BackgroundJobs } from '../src/runtime/background-jobs.service.js';
@@ -24,6 +24,46 @@ beforeEach(async () => {
 afterEach(() => vi.restoreAllMocks()); afterAll(closeTestDb);
 async function store() { const claim = await repository.claim(); expect(claim).not.toBeNull(); await repository.save(claim!, snapshot()); return claim!; }
 describe('actual follower acquisition, isolation and retained observations', () => {
+  it.each([
+    { state: 'pending', network: 'testnet', stalled: false }, { state: 'submitted', network: 'testnet', stalled: false },
+    { state: 'pending', network: 'mainnet', stalled: false },
+    { state: 'pending', network: 'testnet', stalled: true }, { state: 'submitted', network: 'testnet', stalled: true },
+  ] as const)('isolates reporting from $state work on $network, stalled=$stalled, without starving retained accounts', async ({ state, network, stalled }) => {
+    const seed = await preparationFixture(db);
+    const [owner] = await db.select().from(users).where(eq(users.id, 1));
+    await db.insert(copyStrategies).values({ id: 10, userId: 1, leaderAddress: `0x${'44'.repeat(20)}`, mode: 'testnet', status: 'stopped', allocated: '0', cash: '0', activatedAt: new Date(now), stoppedAt: new Date(now + 1) });
+    await db.insert(copyExecutionAccounts).values({ id: 'residual-account', userId: 1, strategyId: 10, network: 'testnet', state: 'ready',
+      address: `0x${'77'.repeat(20)}`, privyUserId: owner!.privyUserId, externalId: 'retained-snapshot-fixture', privyWalletId: 'residual-master', ownerQuorumId: 'owner' });
+    await db.insert(copyFundingOperations).values({ id: 'residual-deposit', userId: 1, accountId: 'residual-account', strategyId: 10,
+      idempotencyKey: 'residual-snapshot-deposit-key', network: 'testnet', address: `0x${'66'.repeat(20)}`, destination: `0x${'77'.repeat(20)}`,
+      amount: '50', nonce: now, status: 'credited', evidenceHash: 'e'.repeat(64), transactionHash: `0x${'e'.repeat(64)}`, creditedAmount: '49', fee: '1' });
+    await db.insert(copyFollowerObservationJobs).values({ accountId: 'residual-account', nextRunAt: sql`clock_timestamp() - interval '60 seconds'` });
+    if (state === 'submitted') await db.insert(copyLiveExecutions).values({ key: 'testnet:submitted-snapshot-order', network: 'testnet',
+      accountAddress: account, signerAddress: `0x${'88'.repeat(20)}`, cloid: seed.f.intent.cloid, nonce: now, userId: 1, strategyId: 9,
+      state: 'unknown', record: {}, updatedAt: new Date(now) });
+    await db.insert(copyLiveDispatches).values({ id: 'active-dispatch', mandateId: 'mandate', userId: 1, strategyId: 9, accountId: 'account',
+      sourceFillId: seed.fill.id, leg: 'open', coin: 'BTC', state, executionKey: state === 'submitted' ? 'testnet:submitted-snapshot-order' : null, leaderTime: new Date(now - 1000), receivedAt: new Date(now) });
+    if (network === 'mainnet') {
+      // A retained identity from another deployment network must not block testnet reporting.
+      await db.update(copyExecutionAccounts).set({ network }).where(eq(copyExecutionAccounts.id, 'account'));
+      expect(await repository.claim()).toMatchObject({ accountId: 'residual-account' });
+      return;
+    }
+    expect(await repository.claim()).toBeNull();
+    expect((await db.select().from(copyFollowerObservationJobs).where(eq(copyFollowerObservationJobs.accountId, 'residual-account')))[0]!.claimToken).toBeNull();
+    if (stalled) {
+      if (state === 'pending') {
+        await db.update(copyLiveMandates).set({ state: 'paused' });
+        await db.update(copyLiveDispatches).set({ leg: 'close' });
+      }
+      await db.update(copyFollowerObservationBudget).set({ nextAllowedAt: sql`clock_timestamp() - interval '241 seconds'` });
+      expect(await repository.claim()).toMatchObject({ accountId: 'residual-account' });
+      expect((await db.select().from(copyLiveDispatches))[0]!.state).toBe(state);
+      return;
+    }
+    await db.update(copyLiveDispatches).set({ state: 'refused', reason: 'platform_paused' });
+    expect(await repository.claim()).toMatchObject({ accountId: 'residual-account' });
+  });
   it('does not replace a newer observation with an older in-flight provider result', async () => {
     const claim = await repository.claim(); expect(claim).not.toBeNull();
     const older = snapshot(), newer = snapshot() as { -readonly [K in keyof LiveAccountSnapshot]: LiveAccountSnapshot[K] };

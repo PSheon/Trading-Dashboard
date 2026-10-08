@@ -456,3 +456,11 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 - 原settle与replay共用同一完整released驗證，不製造accountSource、不更新歷史provider時間。replay方法使用明確必傳mode，未released一律pending；普通settle及mainnet wrapper路徑維持原行為。
 - 初修79項PASS；獨立審查指出Omit型別不能保證replay-only，新增完整有效fresh input傳入replay回歸，修前實際release為RED。改成內部explicit mode後，最終4檔80項PASS（26.43秒），owned DB移除。tsc含測試／四檔oxlint／diff check PASS，獨立複查無Critical／Important。
 - 私人證據codex-settlement-recovery-{red,green,targeted,mode-red,final,types-final,lint-final}.log。此項解決可重現中斷恢復，尚未證實造成#61延遲；原300/min配額／3秒source排程、原120秒驗收、金融caps均未改。未推送／部署、未動Stage或主網；B仍5 PASS／1 SKIP／2 FAIL，不宣稱真實兩項已通過。
+
+### 23:36 Testnet背景快照公平排程；本機來源與操作配額調整，尚未真實複驗
+
+- 原snapshot claim只避開同帳戶pending/submitted，其他舊funded/stopped帳戶仍可能每分鐘耗284，競爭同一wallet bucket。真實隔離SQL新增pending/submitted兩項，原程式均錯誤claim residual account，RED後加入testnet同網路global busy hint；不授權金融、不消耗claim allowance、不改retained observation時間。
+- 初修23 PASS；補跨部署網路歷史pending不能擋testnet，24 PASS。獨立review指出無限busy可能使其他帳戶永久stale，新增paused pending close及submitted unknown兩項公平性回歸，初修2 FAIL／3 PASS。原budget row lock下，用SQL server clock判原nextAllowedAt（last admission＋60秒）是否再過240秒；忙碌時仍每5分鐘有一次原准入機會，新row首次延期最多4分鐘。原同account eligibility不變，unknown金融狀態不改判；非保證每五分鐘完成provider觀察。
+- 最終兩檔26項PASS（7.65秒），owned DB移除；tsc含測試／兩檔oxlint／diff check PASS；獨立複查無Critical／Important。私人codex-reporting-{contention-red,contention-green,contention-final,fairness-red,fairness-final,fairness-types,fairness-lint}.log。fixture前置必填時間／策略會計零值／submitted journal外鍵補齊後，真正RED為錯誤准入，不能把fixture錯誤算成有效RED。
+- 本機harness operational設定：source interval3000→60000ms（一般poll cadence），COPY_LIVE_WEIGHT_PER_MIN default300→explicit400（burst800）。來源兩個空list最低40，原3秒需求800/min，現60秒約40/min；最重two-accounts＋leader evidence793可放入800。stage-caps金融50／12–15／lev3／max2、共享IP1200及五秒／120秒驗收皆不變，production default300未改，Stage／主網未動。此配置不保證持續兩分鐘SLA（單成功單保守732／可用360≈2.03min，未計其他工作）；真實結果須明確標示新本機配置，不將其當作原300／3秒PASS。
+- harness原38項PASS。原full API handle93461在審查後公平性修改前按自有隔離runner PID52819正常SIGTERM停止，owned DB刪除，不宣稱全綠，private codex-testnet-throughput-api-all.log。最終build、固定版完整回歸及真實base尚待啟動／確認。

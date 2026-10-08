@@ -54,9 +54,29 @@ export class CopyFollowerSnapshotRepository {
       await tx.select().from(copyFollowerObservationBudget).where(eq(copyFollowerObservationBudget.network, network)).for('update');
       // Check server time after acquiring the row: no pre-wait projection can
       // admit a second replica against the previous allowance.
-      const [budget] = await tx.select({ available: sql<boolean>`${copyFollowerObservationBudget.nextAllowedAt} <= clock_timestamp()` })
+      const [budget] = await tx.select({ available: sql<boolean>`${copyFollowerObservationBudget.nextAllowedAt} <= clock_timestamp()`,
+        // nextAllowedAt is one minute after the last admission. Four further
+        // minutes makes a five-minute busy-period allowance; a new row uses
+        // the same bounded initial deferral without changing stored evidence.
+        recentlyAdmitted: sql<boolean>`${copyFollowerObservationBudget.nextAllowedAt} > clock_timestamp() - interval '240 seconds'` })
         .from(copyFollowerObservationBudget).where(eq(copyFollowerObservationBudget.network, network));
       if (!budget?.available) return null;
+      // Testnet reporting uses the same bucket as every execution account.
+      // Deferring only the account being traded still lets an older funded
+      // account consume a full observation while another order waits. Keep
+      // retained observations unchanged. A stalled order cannot starve other
+      // accounts forever: reporting still gets one admission per five busy
+      // minutes. This hint never grants or changes financial authority.
+      if (network === 'testnet' && budget.recentlyAdmitted) {
+        const busy = await tx.execute(sql`select exists (
+          select 1 from copy_live_dispatches d
+          inner join copy_live_mandates m on m.id = d.mandate_id
+          inner join copy_execution_accounts a on a.id = d.account_id
+          where a.network = ${network} and d.state in ('pending','submitted')
+            and m.state in ('active','paused','stopping')
+        ) as busy`);
+        if (busy.rows[0]?.busy) return null;
+      }
       // Retained stopped/revoked/disabled identities can still have actual
       // balances. They remain observable; the owner GET is separately guarded.
       await tx.execute(sql`insert into copy_follower_observation_jobs (account_id)

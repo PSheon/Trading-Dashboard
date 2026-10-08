@@ -15,7 +15,7 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 | 9 三筆快速平倉 | #50 FAIL；#48設定逾時，原#37 FAIL保留 | #50領單三筆約15秒成交，跟單開倉因證據逾5秒未送出；仍須完整五來源對帳 |
 | 14 管理者暫停／恢復／全平 | 未執行 | 管理權限仍待使用者授權 |
 
-既有隔離回歸基準：登入紀錄修正版API 255檔3,893項、web 181檔1,179項、harness28項PASS。新排程版首跑API 3,893 PASS／1 FAIL；積壓情境補測後相關45項PASS，最終完整API重跑中。這些結果不能替代上述真實交易驗收；B段尚未全綠。
+既有隔離回歸基準：登入紀錄修正版API 255檔3,893項、web 181檔1,179項、harness28項PASS。新排程版首跑API 3,893 PASS／1 FAIL；積壓情境補測後相關45項PASS，最終完整API 255檔3,896項PASS。這些結果不能替代上述真實交易驗收；B段尚未全綠。
 
 登入紀錄修正後完整API已重跑255檔3,893項PASS；初跑有一項WebSocket逾時，詳見下文，沒有刪除失敗紀錄或放寬測試門檻。
 
@@ -198,3 +198,14 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 - 15:12:14直接唯讀查testnet：主錢包111.793628、跟單帳戶0、領單23.591411 testUSDC，三者均空倉；credited後本機資料庫確認所有actual stopped、在途資金0、未釋放保留額0、未完成設定0。
 - 資金清空後才build API、重啟本機API3100 PID55487／worker3010 PID55717，以unset NODE_OPTIONS移除私人診斷及RPC relay；15:15:41兩者healthy。共用web3000／Chrome9333保留。當時載入的是後來捨棄的初版排程修正；最終journal分類版仍需重新build及重啟，不能聲稱解決#49或5秒證據延遲。
 - 15:48最終journal分類版已build並載入本機API3100 PID78629／worker3010 PID78787，15:48:38確認皆healthy；unset NODE_OPTIONS、不含私人診斷或收據relay，web及共用Chrome保留。完整回歸重跑中（`codex-generation-queue-backlog-api-all.log`），尚未啟動新入金或把B列為PASS。
+- 16:00穩定版本完整API 255檔3,896項PASS（727.24秒），隔離DB已移除。修正本機提交`9d97750e`，未公開推送或部署。首跑及捨棄版本FAIL均保留；此結果不能替代真實B交易對帳。
+
+## 16:00起：最終排程版快速平倉複測，進行中
+
+- 15:55唯讀前置：所有actual stopped、在途資金／未釋放保留額／未完成設定皆0；主錢包111.793628、#51帳戶0、領單23.591411 testUSDC，三者空倉。
+- 空倉時載入本機API3100 PID86064與worker3010 PID86383，沿用原stage-caps；公開testnet收據relay僅唯讀。新Node loader只在pure projector原拒絕後記錄原raw／now及內部stack，本機0600檔供離線重播，原所有檢查與公開錯誤不變。
+- 完整API通過後啟动原情境9、gap120秒；三次領單平倉仍須20秒內完成。沒有同時用第二個CDP客戶端，保留共用Chrome，只關閉runner自己的context。最終交易及停止返還結果待後續核對。
+- 私人證據：`codex-generation52-burst-run.log`、`codex-generation-pre52-{balances,money-recheck}.jsonl`及`codex-generation-queue-backlog-api-all.log`。
+- #52於16:01:57在POST setups收到原20秒HTTP期限的504 deadline_exceeded，runner exit1；沒有瀏覽器簽署、沒有入金送出、沒有領單交易。API16:02:03才完成原設定並嘗試再回應，記錄ERR_HTTP_HEADERS_SENT；不能把這輪寫成快速平倉交易FAIL或新排程已驗收。
+- 唯讀查明#52 awaiting_consent、50入金prepared、風險保留0，沒有重複建立或確認。16:05:00用本人正常cancel API取消未簽署設定`c1c53cb3-6977-4cc1-839e-3d1f9515fade`，再核對所有actual stopped、在途資金／未釋放額度／未完成設定皆0。沒有直接改SQL資料或送出退款。證據`codex-generation52-{setup-timeout-money,cancel-money}.jsonl`、`codex-generation52-cancel.log`；原504保留，設定逾時後仍完成的問題尚未修正。
+- 確認#52取消及資金狀態歸零後，另啟原情境9的#53；16:07:45正常awaiting_consent（start約15秒）。設定`6116509b-fc2f-4da7-b87c-0767d03ef05c`、跟單帳戶`0xe4f4382ce5325e23f9e190202dfc785ff867184d`。真實瀏覽器兩份簽署、addSigners與confirm200於16:07:56通過，約8.2秒；50入金accepted、尚待credited與running，不把accepted當入帳或交易PASS。私人runner `codex-generation53-burst-run.log`仍在執行，未第二次CDP連線或重啟服務。

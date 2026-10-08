@@ -13,6 +13,7 @@ import { parseLiveOrderEvidence, type LiveOrderEvidence } from './live-order-evi
 import { HyperliquidGlobalTransport } from '../../hyperliquid/hyperliquid-global-transport.js';
 import type { HyperliquidSendPermit } from '../../hyperliquid/postgres-hyperliquid-quota.js';
 import { observeLiveExecutionFailure, type LiveExecutionDiagnosticHook, type LiveDiagnosticStage } from './live-execution-diagnostics.js';
+import { liveInfoWeight } from './live-shared-reads.js';
 
 export interface LiveTransportDependencies {
   marketResolver: LiveMarketResolver;
@@ -195,7 +196,7 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
       this.assertObservationFresh(checkedAt); return Math.max(1, 5000 - (this.now() - checkedAt));
     };
     const market = await boundedLiveRead(() => this.resolver().resolveAsset(record.action.orders[0].a), remaining());
-    await boundedLiveRead(() => this.acquire(20), remaining());
+    await boundedLiveRead(() => this.acquire(liveInfoWeight({ type: 'orderStatus' })), remaining());
     const response = await boundedLiveRead(() => this.infoFetcher()(`${this.endpoint}/info`, { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ type: 'orderStatus', user: record.authorization.accountAddress, oid: record.action.orders[0].c }),
       signal: AbortSignal.timeout(remaining()), redirect: 'error' }), remaining());
@@ -244,7 +245,7 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
   private infoFetcher(): typeof fetch { return this.dependencies?.globalTransport?.fetchInfo ?? this.fetcher; }
   private async post(path: "info" | "exchange", body: unknown, admitted = false, quotaPermit?: HyperliquidSendPermit, assertFresh?: () => void): Promise<unknown> {
     const startedAt = this.now();
-    if (!admitted) await this.acquire(path === 'exchange' ? 1 : 20);
+    if (!admitted) await this.acquire(path === 'exchange' ? 1 : liveInfoWeight(object(body)));
     const request: RequestInit = { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body), signal: AbortSignal.timeout(this.timeoutMs), redirect: 'error' };
     let began = false;

@@ -17,6 +17,8 @@ export type LiveExecutionDiagnosticHook = (event: Readonly<LiveExecutionDiagnost
 const codes = new Set(['wallet_authorization_missing', 'wallet_authorization_expired', 'wallet_authorization_revoked',
   'wallet_authorization_changed', 'wallet_owner_or_strategy_mismatch', 'wallet_network_mismatch', 'wallet_account_mismatch',
   'wallet_scope_denied', 'exchange_approval_missing', 'exchange_approval_evidence_invalid', 'exchange_approval_verifier_missing',
+  'exchange_approval_network_mismatch', 'exchange_agent_not_approved', 'exchange_agent_expired',
+  'unsupported_execution_account_role', 'exchange_approval_evidence_expired', 'exchange_approval_unavailable',
   'transport_network_mismatch', 'persisted_order_payload_mismatch', 'signed_order_payload_mismatch', 'signed_order_expired',
   'signing_order_expired', 'live_execution_gate_missing', 'live_execution_permit_invalid', 'execution_lease_missing',
   'live_risk_stale', 'market_evidence_expired', 'privy_wallet_identity_stale', 'privy_wallet_identity_mismatch',

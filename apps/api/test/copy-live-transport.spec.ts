@@ -59,6 +59,20 @@ function setup(finalGate: LiveExecutionGate = gate, approval: ExchangeApprovalVe
 }
 function reply(body: unknown) { return new Response(JSON.stringify(body), { status: 200 }); }
 describe('safe pre-POST diagnostics without changing financial refusal semantics', () => {
+  it.each(['expired', 'unavailable'] as const)('observes the actual exchange approval verifier %s failure without exposing its payload', async kind => {
+    let clock = now;
+    const approval = realApprovalFixture(() => clock), diagnostic = vi.fn();
+    const s = setup(gate, approval.verifier, () => clock, grant, diagnostic);
+    const signed = await s.transport.sign(record, intent, lease);
+    approval.fetcher.mockImplementationOnce(async () => {
+      if (kind === 'unavailable') throw Error('private provider authorization payload');
+      clock += 5001; return reply([{ address: grant.signerAddress, name: 'copy-2', validUntil: now + 100_000 }]);
+    });
+    const code = kind === 'expired' ? 'exchange_approval_evidence_expired' : 'exchange_approval_unavailable';
+    await expect(s.transport.submit(signed, record, intent, lease)).rejects.toMatchObject({ code });
+    expect(s.fetcher).not.toHaveBeenCalled();
+    expect(diagnostic.mock.calls).toEqual([[{ network: 'testnet', stage: 'transport_final_check', elapsedMs: kind === 'expired' ? 5001 : 0, errorCode: code }]]);
+  });
   it.each(['local_budget', 'shared_capacity'] as const)('observes typed %s wait before masking and never fetches', async reason => {
     let clock = now;
     const diagnostic = vi.fn();
@@ -244,6 +258,13 @@ describe('global quota at the actual financial POST boundary', () => {
 });
 
 describe('authoritative finite order-status classification', () => {
+  it.each(['query', 'queryEvidence'] as const)('meters %s using the documented orderStatus weight while retaining identity validation', async method => {
+    const s = setup(); s.fetcher.mockResolvedValue(reply(statusReply('filled', { timestamp: now, isTrigger: false, isPositionTpsl: false, children: [] })));
+    await s.transport[method]({ ...record, market });
+    expect(s.acquire.mock.calls).toEqual([[2]]);
+    expect(s.signTypedData).not.toHaveBeenCalled();
+    expect(JSON.parse(String(s.fetcher.mock.calls[0]![1]?.body))).toMatchObject({ type: 'orderStatus', user: grant.accountAddress, oid: intent.cloid });
+  });
   it('returns immutable identity-bound terminal evidence with exact source timing and raw status', async () => {
     const s = setup(); s.fetcher.mockResolvedValue(reply(statusReply('filled', { timestamp: now, isTrigger: false, isPositionTpsl: false, children: [] })));
     const evidence = await s.transport.queryEvidence({ ...record, market });
@@ -555,6 +576,7 @@ describe("testnet Hyperliquid SDK to Privy integration (offline)", () => {
     cap = 0;
     await expect(s.transport.submit(signed, builderRecord, builderIntent, lease)).rejects.toThrow('builder_fee_not_approved');
     expect(s.fetcher.mock.calls.every(([url]) => String(url).endsWith('/info'))).toBe(true);
+    expect(s.acquire.mock.calls).toEqual([[20], [20], [1], [20]]);
   });
   it('refuses production reconciliation without market resolver and request budget', async () => {
     const s = setup();

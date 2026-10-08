@@ -11,9 +11,10 @@ import { LOCALES } from '@/i18n/config';
 import { setupRequestDigest } from '@/lib/copy-live-setup-recovery';
 import { ApiError } from '@/lib/api';
 import { createLiveSetupJournal, termsFingerprint, signSetup, useLiveCopySetup, useLiveCopySetupActions } from '@/lib/copy-live-setup';
+import { createSetupAbortJournal } from '@/lib/copy-live-setup-abort-recovery';
 
 const state = vi.hoisted(() => ({ post: vi.fn(), get: vi.fn(), patch: vi.fn(), sign: vi.fn(), addSigners: vi.fn(), identity: 'owner@email', session: '1', address: `0x${'11'.repeat(20)}` as string | null }));
-vi.mock('@/lib/auth', () => ({ useAuth: () => ({ status: 'signedIn', mode: 'privy', identity: state.identity, wallet: { address: state.address, signTypedData: state.sign, addSigners: state.addSigners } }) }));
+vi.mock('@/lib/auth', () => ({ useAuth: () => ({ status: 'signedIn', mode: 'privy', identity: state.identity, userId: state.identity, wallet: { address: state.address, signTypedData: state.sign, addSigners: state.addSigners } }) }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh() {}, push() {} }), usePathname: () => '/trader', useSearchParams: () => new URLSearchParams() }));
 vi.mock('@/lib/api', async () => ({ ApiError: (await vi.importActual<typeof import('@/lib/api')>('@/lib/api')).ApiError, api: { get: state.get, post: state.post, patch: state.patch }, sessionKey: () => state.session }));
 
@@ -37,6 +38,21 @@ const probe: { current: ReturnType<typeof useLiveCopySetupActions> | null } = { 
 const progress: { current: ReturnType<typeof useLiveCopySetup> | null } = { current: null };
 function Probe() { const value = useLiveCopySetupActions(); useLayoutEffect(() => { probe.current = value; }); return null; }
 function ProgressProbe({ id }: { id: string }) { const value = useLiveCopySetup(id); useLayoutEffect(() => { progress.current = value; }); return null; }
+
+it('hydrates only the same owner, network and setup abort intent without resubmitting a lost request', async () => {
+  const original = setup();
+  createSetupAbortJournal(`privy:${state.identity}`, sessionStorage).save({ setup: { id: original.id, kind: original.kind, strategyId: original.strategyId, accountId: original.accountId },
+    network: 'testnet', request: { idempotencyKey: '33333333-3333-4333-8333-333333333333' } });
+  await renderActions();
+  expect(probe.current!.hasSavedAbortIntent(original.id, 'testnet')).toBe(true);
+  expect(probe.current!.hasSavedAbortIntent(original.id, 'mainnet')).toBe(false);
+  expect(probe.current!.hasSavedAbortIntent('44444444-4444-4444-8444-444444444444', 'testnet')).toBe(false);
+  state.session = 'new-session'; await renderActions();
+  expect(probe.current!.hasSavedAbortIntent(original.id, 'testnet')).toBe(true);
+  state.identity = 'other-owner'; await renderActions();
+  expect(probe.current!.hasSavedAbortIntent(original.id, 'testnet')).toBe(false);
+  expect(state.get).not.toHaveBeenCalled(); expect(state.post).not.toHaveBeenCalled(); expect(state.sign).not.toHaveBeenCalled();
+});
 // The idempotency keys live for the page (a module store): a fresh person per test.
 let person = 0;
 beforeEach(async () => {
@@ -582,4 +598,66 @@ it('delayed known-unsent confirmation clears uncertainty so an explicit retry us
   expect(state.post.mock.calls.map(([path]) => path)).toEqual([`/me/copy/live/setups/${setup().id}/confirm`, `/me/copy/live/setups/${setup().id}/confirm`]);
   expect(state.sign).toHaveBeenCalledTimes(4);
   expect(state.sign.mock.calls[3]![0]).toMatchObject({ message: { destination: intent().accountAddress, amount: intent().fundingAmount, time: intent().fundingNonce } });
+});
+
+function completedAbort(original: LiveCopySetup) { return { id: '11111111-1111-4111-8111-111111111111', setupId: original.id, kind: original.kind, strategyId: original.strategyId, accountId: original.accountId, network: 'testnet', state: 'completed', issue: null, deposit: null, refund: null, stop: null, createdAt: original.createdAt, updatedAt: original.updatedAt }; }
+it('explicit same-terms edit after verified abort gets a fresh preparation key without signing or deleting abort history', async () => {
+  state.patch.mockResolvedValueOnce(setup('edit'));
+  await act(async () => { await probe.current!.edit.mutateAsync({ strategyId: 7, budgetUsd: '150', settings }); });
+  const originalKey = keyOf(state.patch.mock.calls[0]!);
+  const ended = { ...setup('edit', 'cancelled'), abortRequested: true };
+  state.get.mockImplementation(async path => path.endsWith('/abort') ? completedAbort(ended) : ended);
+  state.patch.mockResolvedValueOnce({ ...setup('edit'), id: '44444444-4444-4444-8444-444444444444' });
+  sessionStorage.setItem('copy-setup-aborts:v1:original-proof', 'keep-original-history');
+  await act(async () => { await probe.current!.edit.mutateAsync({ strategyId: 7, budgetUsd: '150', settings, afterAbortedSetupId: ended.id }); });
+  expect(keyOf(state.patch.mock.calls[1]!)).not.toBe(originalKey);
+  expect(state.get).toHaveBeenCalledWith(`/me/copy/live/setups/${ended.id}`); expect(state.get).toHaveBeenCalledWith(`/me/copy/live/setups/${ended.id}/abort`);
+  expect(state.sign).not.toHaveBeenCalled(); expect(state.post).not.toHaveBeenCalled(); expect(sessionStorage.getItem('copy-setup-aborts:v1:original-proof')).toBe('keep-original-history');
+});
+it.each(['refunding', 'blocked'])('new edit cannot clear its saved key while original abort is %s', async status => {
+  const ended = { ...setup('edit', 'cancelled'), abortRequested: true };
+  state.get.mockImplementation(async path => path.endsWith('/abort') ? { ...completedAbort(ended), state: status, issue: status === 'blocked' ? 'setup_abort_pending' : null } : ended);
+  await act(async () => { await expect(probe.current!.edit.mutateAsync({ strategyId: 7, budgetUsd: '150', settings, afterAbortedSetupId: ended.id })).rejects.toThrow(); });
+  expect(state.patch).not.toHaveBeenCalled(); expect(state.sign).not.toHaveBeenCalled();
+});
+it('verified old completion does not delete a later preparation with the same terms', async () => {
+  state.patch.mockResolvedValueOnce(setup('edit'));
+  await act(async () => { await probe.current!.edit.mutateAsync({ strategyId: 7, budgetUsd: '150', settings }); });
+  const ended = { ...setup('edit', 'cancelled'), abortRequested: true };
+  state.post.mockResolvedValueOnce(ended);
+  await act(async () => { await probe.current!.cancel.mutateAsync(ended.id); });
+  const later = { ...setup('edit'), id: '44444444-4444-4444-8444-444444444444' };
+  state.patch.mockResolvedValueOnce(later);
+  await act(async () => { await probe.current!.edit.mutateAsync({ strategyId: 7, budgetUsd: '150', settings }); });
+  const laterKey = keyOf(state.patch.mock.calls[1]!);
+  state.get.mockImplementation(async path => path.endsWith('/abort') ? completedAbort(ended) : ended);
+  state.patch.mockResolvedValueOnce(later);
+  await act(async () => { await probe.current!.edit.mutateAsync({ strategyId: 7, budgetUsd: '150', settings, afterAbortedSetupId: ended.id }); });
+  expect(keyOf(state.patch.mock.calls[2]!)).toBe(laterKey);
+});
+it('an original preparation persisted across reload is retired only on explicit verified new edit', async () => {
+  const original = { ...setup('edit', 'cancelled'), abortRequested: true };
+  const name = `edit:7:${termsFingerprint({ budgetUsd: '150', settings })}`, request = await setupRequestDigest(name);
+  createLiveSetupJournal(`privy:${state.identity}`, sessionStorage).save({ request, key: 'reload-old-edit-key-0001', setupId: original.id, network: 'testnet', confirmationPending: false });
+  state.get.mockImplementation(async path => path.endsWith('/abort') ? completedAbort(original) : original);
+  state.patch.mockResolvedValueOnce({ ...setup('edit'), id: '44444444-4444-4444-8444-444444444444' });
+  await act(async () => { await probe.current!.edit.mutateAsync({ strategyId: 7, budgetUsd: '150', settings, afterAbortedSetupId: original.id }); });
+  expect(keyOf(state.patch.mock.calls[0]!)).not.toBe('reload-old-edit-key-0001');
+  expect(state.get.mock.calls.some(([path]) => path.includes('/by-key/'))).toBe(false);
+});
+it('owner switch during original completion verification neither clears new owner storage nor prepares an edit', async () => {
+  const original = { ...setup('edit', 'cancelled'), abortRequested: true };
+  const nextIdentity = 'next-completed-edit-owner@email';
+  const request = await setupRequestDigest(`edit:7:${termsFingerprint({ budgetUsd: '150', settings })}`);
+  const nextJournal = createLiveSetupJournal(`privy:${nextIdentity}`, sessionStorage);
+  nextJournal.save({ request, key: 'other-owner-edit-key-0001', setupId: original.id, network: 'testnet', confirmationPending: false });
+  state.get.mockImplementationOnce(async () => { state.identity = nextIdentity; state.session = '2'; await renderActions(); return original; });
+  await act(async () => { await expect(probe.current!.edit.mutateAsync({ strategyId: 7, budgetUsd: '150', settings, afterAbortedSetupId: original.id })).rejects.toThrow('live_session_changed'); });
+  expect(nextJournal.find(request)?.key).toBe('other-owner-edit-key-0001'); expect(state.patch).not.toHaveBeenCalled(); expect(state.sign).not.toHaveBeenCalled();
+});
+it.each([{ network: 'mainnet' }, { setupId: '44444444-4444-4444-8444-444444444444' }, { strategyId: 8 }, { accountId: 'other' }])('explicit new edit rejects mismatched completion %j before any preparation', async mismatch => {
+  const original = { ...setup('edit', 'cancelled'), abortRequested: true };
+  state.get.mockImplementation(async path => path.endsWith('/abort') ? { ...completedAbort(original), ...mismatch } : original);
+  await act(async () => { await expect(probe.current!.edit.mutateAsync({ strategyId: 7, budgetUsd: '150', settings, afterAbortedSetupId: original.id })).rejects.toThrow(); });
+  expect(state.patch).not.toHaveBeenCalled(); expect(state.sign).not.toHaveBeenCalled();
 });

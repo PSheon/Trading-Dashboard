@@ -106,6 +106,8 @@ export const liveCopySetupSchema = z.object({
   id: z.string().uuid(), kind: liveCopySetupKindSchema, strategyId: version, accountId: id.nullable(), leaderAddress: address,
   sourceNetwork: z.enum(['testnet', 'mainnet']), budgetUsd: liveCopyBudgetSchema, settings: copyStrategySettingsSchema,
   stage: liveCopySetupStageSchema, issue: z.string().max(80).nullable(),
+  /** Permanent owner-requested barrier; financial completion is separate. */
+  abortRequested: z.boolean().optional(),
   /** Set while the owner's signature is due (awaiting_consent). */
   consent: liveCopySetupIntentSchema.nullable(),
   funding: copyFundingSchema.nullable(),

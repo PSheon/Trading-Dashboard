@@ -8,6 +8,7 @@ import { useAuth } from './auth';
 import { isTransient, retryAfter } from './copy-error-text';
 import { createLiveSetupJournal, setupRequestDigest, type LiveSetupAttempt } from './copy-live-setup-recovery';
 export { createLiveSetupJournal } from './copy-live-setup-recovery';
+import { createSetupAbortJournal, validateSetupAbortProgress } from './copy-live-setup-abort-recovery';
 import { FIXTURE_WALLET_ADDRESS } from './fixture-signer';
 import { queryKeys } from './query-keys';
 import type { Eip712TypedData, WalletSigner } from './wallet-signer';
@@ -26,6 +27,8 @@ export function liveCopyEnabled(auth: Pick<Auth, 'status' | 'mode' | 'identity' 
  * start one, the leaders' networks it copies and its caps. Null until the
  * signed-in overview answered (or for a visitor). */
 export interface LiveCopyDeployment {
+  /** Explicit server capability; an older deployment does not expose abort. */
+  setupAbort?: boolean;
   network: 'testnet' | 'mainnet'; available: boolean; sourceNetworks: ReadonlyArray<'testnet' | 'mainnet'>;
   caps: { fixedPerTradeUsd: { min: number; max: number } | null; maxAllocationUsd: number | null; maxLeverage: number | null; maxStrategiesPerUser: number } | null;
   /** Actual copies run here, but not for this owner yet (`actualAllowed: false`: invited users only). */
@@ -40,6 +43,7 @@ export function useLiveCopyDeployment(): LiveCopyDeployment | null {
   if (!enabled || !query.data) return null;
   const { network, capabilities } = query.data;
   return { network, available: capabilities.automaticExecution && capabilities.actualAllowed !== false, sourceNetworks: capabilities.sourceNetworks, caps: capabilities.caps ?? null,
+    setupAbort: capabilities.setupAbort === true,
     inviteOnly: capabilities.automaticExecution && capabilities.actualAllowed === false };
 }
 /** Whether this deployment runs actual copies for this owner (`capabilities.automaticExecution`
@@ -229,8 +233,29 @@ export function useLiveCopySetupActions() {
     mutationFn: async (input: StartLiveCopyInput) => prepare(startName(input.leader, input.budgetUsd, input.settings, input.sourceNetwork ?? 'mainnet'), key => api.post(`${ROOT}/setups`, { idempotencyKey: key, leader: input.leader, sourceNetwork: input.sourceNetwork ?? 'mainnet', budgetUsd: input.budgetUsd, settings: input.settings })),
   });
   const edit = useMutation({
-    mutationFn: async ({ strategyId, budgetUsd, settings }: { strategyId: number; budgetUsd: string; settings: CopyStrategySettings }) =>
-      prepare(editName(strategyId, budgetUsd, settings), key => api.patch(`${ROOT}/strategies/${strategyId}`, { idempotencyKey: key, budgetUsd, settings })),
+    mutationFn: async ({ strategyId, budgetUsd, settings, afterAbortedSetupId }: { strategyId: number; budgetUsd: string; settings: CopyStrategySettings; afterAbortedSetupId?: string }) => {
+      if (afterAbortedSetupId) {
+        const scope = liveSetupScope(latest.current.identity);
+        assertScope(scope);
+        const original = liveCopySetupSchema.parse(await api.get(`${ROOT}/setups/${encodeURIComponent(afterAbortedSetupId)}`));
+        assertScope(scope);
+        if (original.id !== afterAbortedSetupId || original.strategyId !== strategyId || original.kind === 'start' ||
+          original.stage !== 'cancelled' || !original.abortRequested || !original.accountId) throw new Error('setup_abort_progress_changed');
+        const progress = validateSetupAbortProgress(await api.get(`${ROOT}/setups/${encodeURIComponent(original.id)}/abort`), original, 'testnet');
+        assertScope(scope);
+        if (progress.state !== 'completed') throw new Error('setup_abort_progress_changed');
+        // A new explicit edit may retire only this original operation's
+        // preparation key. A later attempt under the same terms survives.
+        const name = original.kind === 'edit' ? editName(strategyId, original.budgetUsd, original.settings) : `renew:${strategyId}`;
+        const request = await setupRequestDigest(name);
+        assertScope(scope);
+        const matches = (attempt: LiveSetupAttempt | undefined) => attempt?.setupId === original.id &&
+          (attempt.network === null || attempt.network === progress.network);
+        if (matches(journal().find(request))) journal().forget(request);
+        if (matches(keys().get(name))) keys().delete(name);
+      }
+      return prepare(editName(strategyId, budgetUsd, settings), key => api.patch(`${ROOT}/strategies/${strategyId}`, { idempotencyKey: key, budgetUsd, settings }));
+    },
   });
   const renew = useMutation({
     mutationFn: async ({ strategyId }: { strategyId: number }) => prepare(`renew:${strategyId}`, key => api.post(`${ROOT}/strategies/${strategyId}/renew`, { idempotencyKey: key })),
@@ -349,7 +374,13 @@ export function useLiveCopySetupActions() {
       assertSame(); await forget(name); refresh(); return result;
     },
   });
-  return { start, edit, renew, confirm, confirmPhase, cancel, restart, resume, pause, topUp };
+  const hasSavedAbortIntent = (setupId: string | null, network: 'testnet' | 'mainnet' | null) => {
+    const current = auth;
+    if (!setupId || !network || typeof window === 'undefined' || current.status !== 'signedIn' || current.mode !== 'privy' || !current.userId) return false;
+    try { return createSetupAbortJournal(`${current.mode}:${current.userId}`, window.sessionStorage).read().some(attempt => attempt.setup.id === setupId && attempt.network === network); }
+    catch { return true; } // An unreadable original journal cannot authorize starting another operation.
+  };
+  return { start, edit, renew, confirm, confirmPhase, cancel, restart, resume, pause, topUp, hasSavedAbortIntent };
 }
 
 /** One setup's poll, for this person and session. */

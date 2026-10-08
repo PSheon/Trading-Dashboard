@@ -2,6 +2,14 @@
 
 Paul 於台北時間 2026-10-08 23:58 前後授權再投入十小時，至 2026-10-09 09:58。接續原本機 testnet 測試，不操作主網；Stage 發布與本機驗收分開記錄。沿用 Orbie 風格，保留原 50 USDC／固定每筆 12–15／槓桿 3／最多兩筆限制及所有證據、訊號與對帳期限。
 
+## 03:30 更新（工作仍進行）
+
+- `498a885e` 同一訂單的交易授權核對，依原5秒證據窗口重用原checkedAt，保持expiry／rotation／SQL撤銷與實際POST守衛；真RED後150項相關測試PASS、型別lint及獨立審查通過。尚未載入金融runtime。
+- 完整前端200檔／1,323項 PASS。比較圖鍵盤與四捨五入說明已完成1440／390／320px真Browser GET fixture驗收，金融POST零。
+- #39後端已穩定交獨立審查；永久barrier及未知回覆reload仍不得繼續原consent／restart／加碼。正常pause／resume／stop不視作新金融generation，金融設定或身份變更仍拒絕。未實際migration或退款測試。
+- 成交後終態對帳正改由API既有400/min錢包lane處理，worker保留新單執行，shared1200不變；新服務只有唯讀核對、原DAL釋放與原receipt報告，無signer／executor。必須先完成claim／shutdown／crash／原generation／stop manifest審查與回歸，再固定新runtime重測。不得把ACK當核對完成。
+- 02:50第65輪失敗及安全收尾結果仍有效；B段沒有增加PASS，主网及Stage均未操作。
+
 ## 02:43 更新（工作仍進行）
 
 - 固定 `4b0f55bf` 的獨立 snapshot：257 API 檔／4,010 項 PASS，1,843 個 tracked blob 前後與 commit 相同，隔離 DB 已移除；同版 API build PASS。修正未實際發送 HTTP 卻扣住本機預算，以及 batch 等待忽略 abort 時越過原期限；未放寬 5 秒證據、120 秒來源時限或配額。

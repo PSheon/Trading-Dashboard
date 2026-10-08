@@ -5,6 +5,7 @@ import type { LiveCopySetup, LiveCopyStrategy } from "@trading-dashboard/shared/
 
 import { LiveCopyConfirm, LiveCopyProgress, liveSetupError, useCopyTexts, useLiveSetupText } from "@/components/copy/live-copy-setup-dialogs";
 import { LiveSettingsFields } from "@/components/copy/live-copy-settings-fields";
+import { LiveSetupAbortDialog } from "@/components/copy/live-copy-setup-abort";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
@@ -13,7 +14,9 @@ import { useI18n } from "@/i18n/provider";
 import { apiErrorCode } from "@/lib/api";
 import { copyErrorText } from "@/lib/copy-error-text";
 import { amountInput } from "@/lib/amount-input";
-import { setupTerminal, useLiveCopyDeployment, useLiveCopySetupActions } from "@/lib/copy-live-setup";
+import { setupTerminal, useLiveCopyDeployment, useLiveCopySetup, useLiveCopySetupActions } from "@/lib/copy-live-setup";
+import { useLiveSetupAbort } from "@/lib/copy-live-setup-abort";
+import { validateSetupAbortProgress } from "@/lib/copy-live-setup-abort-recovery";
 import { useActionToast } from "@/lib/use-action-toast";
 import { onOtherNetwork, type LiveCopyItem } from "@/lib/copy-live-portfolio";
 
@@ -30,9 +33,12 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
   const track = useActionToast(), toast = useToast();
   const actions = useLiveCopySetupActions(), deployment = useLiveCopyDeployment();
   const [progressId, setProgressId] = useState<string | null>(null);
+  const [abortId, setAbortId] = useState<string | null>(null);
+  const [chosenAbortId, setChosenAbortId] = useState<string | null>(null);
   const [pendingSetup, setPendingSetup] = useState<LiveCopySetup | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [afterAbortedSetupId, setAfterAbortedSetupId] = useState<string | undefined>();
   const [toppingUp, setToppingUp] = useState(false);
   const [topUpError, setTopUpError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +46,10 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
   // Waiting for a consent that can no longer be signed: 重新開始 or 取消設定.
   const lapsed = unfinished?.stage === "awaiting_consent" && item.setup?.consent === null ? unfinished : null;
   const stopped = item.setup && ["failed", "expired"].includes(item.setup.stage) ? item.setup : null;
+  const abortRequested = item.setup?.abortRequested === true || Boolean(item.setup && chosenAbortId === item.setup.id) || actions.hasSavedAbortIntent?.(item.setup?.id ?? null, deployment?.network ?? null) === true;
+  const abortCandidate = item.setup && item.setup.stage !== "running" && item.setup.stage !== "cancelled" ? item.setup : null;
+  const fundedAbort = deployment?.setupAbort === true && abortCandidate?.kind === "start" && abortCandidate.fundingStatus === "credited";
+  const legacySetupActions = !abortRequested && !fundedAbort;
   // A copy of another network than this deployment's (Stage's testnet copies
   // after the move to mainnet) is history: shown, never acted on here.
   const otherNetwork = onOtherNetwork(item, deployment?.network);
@@ -49,6 +59,7 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
   const message = (err: unknown) => copyErrorText(texts, err);
   const fail = (err: unknown) => setError(message(err));
   const review = (setup: LiveCopySetup) => {
+    if (setup.abortRequested) { setPendingSetup(null); setProgressId(setup.id); return; }
     if (setup.stage === "awaiting_consent" && setup.consent) { setConfirmError(null); setProgressId(null); setPendingSetup(setup); }
     else setProgressId(setup.id);
   };
@@ -57,7 +68,7 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
   const restart = (setup: LiveCopySetup | string) => { setError(null); void track(actions.restart.mutateAsync(setup), { success: t("toast.copy.setupRestarted"), error: message, onSuccess: review, onError: fail }); };
   const cancel = (id: string) => { setError(null); void track(actions.cancel.mutateAsync(id), { success: t("toast.copy.setupCancelled"), error: message, onError: fail }); };
   const confirm = async () => {
-    if (!pendingSetup) return;
+    if (!pendingSetup || pendingSetup.abortRequested) return;
     const kind = pendingSetup.kind;
     try {
       const done = await actions.confirm.mutateAsync(pendingSetup); setPendingSetup(null); setProgressId(done.id);
@@ -82,9 +93,11 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
       {stopped ? <p role="alert" className="text-xs text-warning">{liveSetupError(texts, stopped.issue)}</p> : null}
       {lapsed ? <p className="text-xs text-muted-foreground">{text.consentLapsedHint}</p> : null}
       <div className="flex flex-wrap items-center gap-2">
-        {unfinished && !lapsed ? <Button size="sm" onClick={() => setProgressId(unfinished.id)}>{text.continueSetup}</Button> : null}
-        {stopped || lapsed ? <Button size="sm" loading={actions.restart.isPending} disabled={busy && !actions.restart.isPending} onClick={() => restart((stopped ?? lapsed)!.id)}>{text.restart}</Button> : null}
-        {stopped || lapsed ? <Button size="sm" variant="secondary" loading={actions.cancel.isPending} disabled={busy && !actions.cancel.isPending} onClick={() => cancel((stopped ?? lapsed)!.id)}>{text.cancelSetup}</Button> : null}
+        {abortRequested && item.setup ? <Button size="sm" className="min-h-11" onClick={() => setAbortId(item.setup!.id)}>{t('liveCopyUi.abortRefresh')}</Button> : null}
+        {!abortRequested && abortCandidate && deployment?.setupAbort === true ? <Button size="sm" variant="secondary" className="min-h-11" disabled={busy} onClick={() => setAbortId(abortCandidate.id)}>{t(abortCandidate.kind === 'start' ? 'liveCopyUi.abortAction' : 'liveCopyUi.abortChange')}</Button> : null}
+        {unfinished && !lapsed && !abortRequested ? <Button size="sm" onClick={() => setProgressId(unfinished.id)}>{text.continueSetup}</Button> : null}
+        {legacySetupActions && (stopped || lapsed) ? <Button size="sm" loading={actions.restart.isPending} disabled={busy && !actions.restart.isPending} onClick={() => restart((stopped ?? lapsed)!.id)}>{text.restart}</Button> : null}
+        {legacySetupActions && (stopped || lapsed) ? <Button size="sm" variant="secondary" loading={actions.cancel.isPending} disabled={busy && !actions.cancel.isPending} onClick={() => cancel((stopped ?? lapsed)!.id)}>{text.cancelSetup}</Button> : null}
         {running && mandateId && item.status === "active" ? (
           <Button size="sm" variant="secondary" loading={actions.pause.isPending} disabled={busy && !actions.pause.isPending} onClick={() => void track(actions.pause.mutateAsync(mandateId), { success: t("toast.copy.paused"), error: message, onError: fail })}>{text.pause}</Button>
         ) : null}
@@ -93,17 +106,23 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
         ) : null}
         {/* No 編輯設定 on mainnet (the api answers edit_unavailable): an edit's new
             generation can't trade an account that already traded yet. */}
-        {running && strategy && !unfinished && deployment?.network !== "mainnet" ? <Button size="sm" variant="secondary" disabled={busy} onClick={() => { setError(null); setEditing(true); }}>{text.edit}</Button> : null}
-        {(running || item.stage === "needs_deposit") && item.accountId && !item.pendingTransfer ? (
+        {running && strategy && !unfinished && !abortRequested && deployment?.network !== "mainnet" ? <Button size="sm" variant="secondary" disabled={busy} onClick={() => { setError(null); setAfterAbortedSetupId(undefined); setEditing(true); }}>{text.edit}</Button> : null}
+        {!abortRequested && !fundedAbort && (running || item.stage === "needs_deposit") && item.accountId && !item.pendingTransfer ? (
           <Button size="sm" variant="secondary" disabled={busy} onClick={() => { setError(null); setTopUpError(null); setToppingUp(true); }}>{text.topUp}</Button>
         ) : null}
+        {abortRequested && item.setup && item.setup.kind !== "start" && item.setup.stage === "cancelled" &&
+          ["active", "paused"].includes(item.stage) && ["active", "paused"].includes(item.status) && strategy && item.accountId &&
+          deployment?.network === "testnet" ? <CompletedChangeActions setupId={item.setup.id} kind={item.setup.kind}
+            strategyId={item.strategyId} accountId={item.accountId} pendingTransfer={Boolean(item.pendingTransfer)} busy={busy}
+            onEdit={() => { setError(null); setAfterAbortedSetupId(item.setup!.id); setEditing(true); }}
+            onTopUp={() => { setError(null); setTopUpError(null); setToppingUp(true); }} /> : null}
         {/* No 續期 until renewal is rebuilt (the api answers renewal_unavailable): stop and start a new copy. */}
       </div>
       {/* While editing, the dialog shows its own failure (it sits on top). */}
       {error && !editing ? <p role="alert" className="text-xs text-negative">{error}</p> : null}
       {editing && strategy ? (
         <EditDialog strategy={strategy} onClose={() => { setEditing(false); setError(null); }} pending={actions.edit.isPending} error={error}
-          onSave={(budgetUsd, settings) => { setError(null); void track(actions.edit.mutateAsync({ strategyId: item.strategyId, budgetUsd, settings }), { error: message, onSuccess: (setup) => { setEditing(false); review(setup); }, onError: fail }); }} />
+          onSave={(budgetUsd, settings) => { setError(null); void track(actions.edit.mutateAsync({ strategyId: item.strategyId, budgetUsd, settings, ...(afterAbortedSetupId ? { afterAbortedSetupId } : {}) }), { error: message, onSuccess: (setup) => { setEditing(false); review(setup); }, onError: fail }); }} />
       ) : null}
       {toppingUp && item.accountId ? (
         <TopUpDialog pending={actions.topUp.isPending} error={topUpError} onClose={() => setToppingUp(false)}
@@ -113,9 +132,41 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
         onConfirm={() => void confirm()} pending={actions.confirm.isPending || actions.restart.isPending} error={confirmError}
         note={actions.confirmPhase === "wallet" ? text.errors.wallet_not_ready : actions.confirmPhase === "attaching" ? text.attachingSigner : null} />
       <LiveCopyProgress setupId={progressId} open={progressId !== null} onOpenChange={(open) => { if (!open) setProgressId(null); }}
+        onAbortRequested={setup => setChosenAbortId(setup.id)}
         onConsent={review} onRetry={(setup) => { setProgressId(null); restart(setup); }} />
+      {item.setup && abortId === item.setup.id ? <PortfolioAbortDialog setupId={abortId} onRequested={() => setChosenAbortId(abortId)} onClose={() => setAbortId(null)} /> : null}
     </div>
   );
+}
+
+
+/** A summary cannot authorize new actions. Read the original owner-scoped
+ * setup, then its verified completion; the original barrier stays permanent. */
+function CompletedChangeActions(props: { setupId: string; kind: 'edit' | 'renewal'; strategyId: number; accountId: string;
+  pendingTransfer: boolean; busy: boolean; onEdit(): void; onTopUp(): void }) {
+  const query = useLiveCopySetup(props.setupId), original = query.data;
+  if (query.error || query.isPending || !original || original.id !== props.setupId || original.kind !== props.kind ||
+    original.strategyId !== props.strategyId || original.accountId !== props.accountId || original.stage !== 'cancelled' || !original.abortRequested) return null;
+  return <CompletedChangeControls {...props} original={original} />;
+}
+function CompletedChangeControls({ original, busy, pendingTransfer, onEdit, onTopUp }: {
+  original: LiveCopySetup; busy: boolean; pendingTransfer: boolean; onEdit(): void; onTopUp(): void;
+}) {
+  const abort = useLiveSetupAbort(original), text = useLiveSetupText();
+  if (abort.loading || abort.error || !abort.progress) return null;
+  try {
+    if (validateSetupAbortProgress(abort.progress, original, 'testnet').state !== 'completed') return null;
+  } catch { return null; }
+  return <><Button size="sm" variant="secondary" disabled={busy} onClick={onEdit}>{text.edit}</Button>
+    {!pendingTransfer ? <Button size="sm" variant="secondary" disabled={busy} onClick={onTopUp}>{text.topUp}</Button> : null}</>;
+}
+
+function PortfolioAbortDialog({ setupId, onClose, onRequested }: { setupId: string; onClose(): void; onRequested(): void }) {
+  const query = useLiveCopySetup(setupId);
+  // The card carries only a summary. Load the original owner-scoped setup;
+  // do not manufacture missing account/network/funding bindings from it.
+  return query.data?.id === setupId ? <LiveSetupAbortDialog setup={query.data} open onRequested={onRequested} onOpenChange={open => { if (!open) onClose(); }} />
+    : <LiveCopyProgress setupId={setupId} open onOpenChange={open => { if (!open) onClose(); }} />;
 }
 
 function EditDialog({ strategy, onClose, onSave, pending, error }: { strategy: LiveCopyStrategy; onClose: () => void; onSave: (budgetUsd: string, settings: LiveCopyStrategy["settings"]) => void; pending: boolean; error: string | null }) {

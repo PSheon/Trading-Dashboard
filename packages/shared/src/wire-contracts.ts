@@ -16,6 +16,7 @@ import { copyFollowerStatementSchema } from "./copy-follower-contracts.js";
 import { copyFollowerActivitySchema } from "./copy-follower-activity-contracts.js";
 import { copyFollowerSnapshotReadSchema } from "./copy-follower-view-contracts.js";
 import { liveCopySetupSchema, liveCopySetupsSchema } from "./copy-live-setup-contracts.js";
+import { liveCopySetupAbortSchema } from "./copy-live-setup-abort-contracts.js";
 import { liveCopyOverviewSchema, liveCopyMandateSchema, liveCopyPortfolioSchema, liveManualCloseSchema, liveManualClosesSchema } from "./copy-live-mandate-contracts.js";
 import { liveCopyStopSchema, liveCopyStopsSchema } from './copy-live-stop-contracts.js';
 import { adminLiveAccountsSchema, adminLiveTransfersSchema, adminLiveOrdersSchema, adminLiveLatencySchema, adminRevokedLiveGrantSchema } from './admin-copy-live-contracts.js';
@@ -229,6 +230,7 @@ export const copyErrorCodes = [
   "copy_not_open", "copy_paused", "watch_capacity", "insufficient_main_balance", "funding_pending",
   "builder_fee_approval_required", "live_stop_in_progress",
   "consent_expired", "invalid_consent", "setup_unavailable", "setup_wallet_conflict", "setup_funding_rejected",
+  "setup_abort_unavailable", "setup_abort_key_conflict", "setup_abort_wallet_conflict", "setup_abort_generation_conflict", "setup_already_applied",
   "setup_account_mode_failed", "setup_agent_rejected", "setup_builder_rejected", "setup_expired", "worker_signer_missing", "renewal_unavailable",
   "live_not_allowed", "live_fixed_sizing_required", "live_per_trade_out_of_range", "live_source_network_unsupported",
 ] as const;
@@ -362,6 +364,9 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/me/copy/live/setups", status: 200, auth: "user (owner); read only", response: liveCopySetupsSchema },
   { method: "GET", path: "/me/copy/live/setups/by-key/:key", status: 200, auth: "user (owner); read-only original request recovery on this deployment network", response: liveCopySetupSchema },
   { method: "GET", path: "/me/copy/live/setups/:id", status: 200, auth: "user (owner); read only", response: liveCopySetupSchema },
+  { method: "GET", path: "/me/copy/live/setups/:id/abort", status: 200, auth: "user (owner); deployment capability; read-only original setup abort progress", response: liveCopySetupAbortSchema },
+  { method: "POST", path: "/me/copy/live/setups/:id/abort", status: 200, auth: "user (owner); deployment capability; durable original setup barrier and proof-bound return, no client amount, destination or signature", response: liveCopySetupAbortSchema, errors: ["setup_abort_unavailable", "setup_abort_key_conflict", "setup_abort_wallet_conflict", "setup_abort_generation_conflict", "setup_already_applied"] },
+  { method: "GET", path: "/me/copy/live/setup-aborts/:id", status: 200, auth: "user (owner); read-only original setup abort progress", response: liveCopySetupAbortSchema },
   { method: "POST", path: "/me/copy/live/setups/:id/confirm", status: 200, auth: "user (owner); the worker signer the browser added, the setup consent, the deposit signature and a fresh session; one deposit attempt", response: liveCopySetupSchema, errors: ["consent_expired", "invalid_consent", "worker_signer_missing", "setup_unavailable", "setup_wallet_conflict", "setup_builder_rejected", "insufficient_main_balance"] },
   { method: "POST", path: "/me/copy/live/setups/:id/advance", status: 200, auth: "user (owner); drives the setup now, signed by the worker; no body; attempted steps are only reconciled", response: liveCopySetupSchema },
   { method: "POST", path: "/me/copy/live/setups/:id/cancel", status: 200, auth: "user (owner); before the consent, or once the setup failed or expired", response: liveCopySetupSchema, errors: ["funding_pending"] },

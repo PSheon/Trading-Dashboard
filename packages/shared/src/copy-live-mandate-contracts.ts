@@ -58,6 +58,8 @@ export const liveCopyOverviewSchema = z.object({
     /** This owner may start an actual copy on this deployment (a live
      * deployment allows listed owners only: COPY_LIVE_ALLOWED_PRIVY_USER_IDS). */
     actualAllowed: z.boolean().optional(),
+    /** Absent on older deployments: the client treats this as unavailable. */
+    setupAbort: z.boolean().optional(),
     /** The deployment's caps on a new actual copy: fixed sizing within these
      * per-trade bounds (null: any sizing), the largest budget and leverage. */
     caps: z.object({ fixedPerTradeUsd: z.object({ min: z.number(), max: z.number() }).strict().nullable(), maxAllocationUsd: z.number().nullable(),
@@ -100,6 +102,8 @@ export const liveCopyPortfolioItemSchema = z.object({
   setup: z.object({ id: z.string().uuid(), kind: z.enum(['start', 'edit', 'renewal']),
     stage: z.enum(['provisioning', 'awaiting_consent', 'consented', 'funding_submitted', 'funded', 'mode_set', 'agent_active', 'builder_ready', 'running', 'failed', 'expired', 'cancelled']),
     issue: z.string().nullable(),
+    abortRequested: z.boolean().optional(),
+    fundingStatus: z.enum(['prepared', 'unknown', 'accepted', 'credited', 'rejected', 'cancelled']).nullable().optional(),
     /** The consent to sign while it is due (awaiting_consent, not expired): 繼續設定 opens the confirm sheet with it. */
     consent: liveCopySetupIntentSchema.nullable().optional() }).strict().nullable().optional(),
   /** When the current generation ends (30 days); 續期 is offered in its last three days. */

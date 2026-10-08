@@ -7,6 +7,7 @@ import type { LiveCopySetup, LiveCopySetupStage } from "@trading-dashboard/share
 
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
+import { LiveSetupAbortDialog } from "@/components/copy/live-copy-setup-abort";
 import { copyErrorMessages } from "@/i18n/copy-errors";
 import { useI18n } from "@/i18n/provider";
 import { fill, liveSetupMessages, liveSetupText, type LiveSetupText } from "@/i18n/live-setup";
@@ -143,12 +144,17 @@ export function liveSetupRows(setup: Pick<LiveCopySetup, "kind" | "stage">, reac
  * (a start that never ran stops; a deposit that arrived is returned from
  * the portfolio).
  */
-export function LiveCopyProgress({ setupId, open, onOpenChange, onRetry, onConsent }: {
+export function LiveCopyProgress({ setupId, open, onOpenChange, onRetry, onConsent, onAbortRequested }: {
   setupId: string | null; open: boolean; onOpenChange: (open: boolean) => void; onRetry?: (setup: LiveCopySetup) => void; onConsent?: (setup: LiveCopySetup) => void;
+  onAbortRequested?: (setup: LiveCopySetup) => void;
 }) {
   const text = useLiveSetupText(), texts = useCopyTexts(), { t, format } = useI18n();
   const query = useLiveCopySetup(open ? setupId : null), setup = query.data;
   const actions = useLiveCopySetupActions();
+  const deployment = useLiveCopyDeployment();
+  const [abortState, setAbortState] = useState({ id: null as string | null, open: false, chosen: false });
+  const abortOpen = abortState.id === setupId && abortState.open;
+  const abortChosen = (abortState.id === setupId && abortState.chosen) || actions.hasSavedAbortIntent?.(setupId, deployment?.network ?? null) === true;
   const [now, setNow] = useState(() => Date.now());
   const clockRunning = Boolean(open && setup && !setupTerminal(setup));
   useEffect(() => {
@@ -161,11 +167,11 @@ export function LiveCopyProgress({ setupId, open, onOpenChange, onRetry, onConse
   // Handed back to the confirm sheet (once per setup and consent).
   const handed = useRef<string | null>(null);
   useEffect(() => {
-    if (!open || !consentDue || !onConsent) return;
+    if (!open || !consentDue || !onConsent || abortOpen || abortChosen || setup?.abortRequested) return;
     const mark = `${consentDue.id}:${consentDue.consent!.nonce}`;
     if (handed.current === mark) return;
     handed.current = mark; onConsent(consentDue);
-  }, [open, consentDue, onConsent]);
+  }, [open, consentDue, onConsent, abortOpen, abortChosen, setup?.abortRequested]);
   const finished = setup?.stage === "running", stopped = setup && ["failed", "expired", "cancelled"].includes(setup.stage);
   const consentLapsed = setup?.stage === "awaiting_consent" && !setup.consent;
   const ended = setup && ["failed", "expired"].includes(setup.stage);
@@ -177,6 +183,7 @@ export function LiveCopyProgress({ setupId, open, onOpenChange, onRetry, onConse
     : issue && !QUIET_ISSUES.has(issue) && setup?.stage !== "awaiting_consent" ? texts.extra.stepRetrying : null;
   const rows = setup ? liveSetupRows(setup, stopped ? STOPPED_AT[setup.issue ?? ""] ?? 2 : RANK[setup.stage]) : [];
   const deposited = setup?.kind === "start" && setup.funding?.status === "credited";
+  const legacySetupActions = !(deposited && deployment?.setupAbort === true);
   // updatedAt can advance on retries too: it is a state update, not proof
   // that the next step completed. Elapsed time starts with this setup.
   const elapsed = setup ? now - Date.parse(setup.createdAt) : Number.NaN;
@@ -188,6 +195,8 @@ export function LiveCopyProgress({ setupId, open, onOpenChange, onRetry, onConse
     actions.cancel.mutate(setup.id, { onError: (error) => setCancelError(copyErrorText(texts, error)) });
   };
   const title = finished ? text.done : consentLapsed ? text.consentLapsed : stopped ? (setup.stage === "expired" ? text.expired : setup.stage === "cancelled" ? text.cancelled : text.failed) : text.progressTitle;
+  if (setup && (setup.abortRequested || abortOpen || abortChosen)) return <LiveSetupAbortDialog setup={setup} open={open} onRequested={() => { setAbortState({ id: setup.id, open: true, chosen: true }); onAbortRequested?.(setup); }}
+    onOpenChange={next => { if (!next && !setup.abortRequested && !abortChosen) setAbortState({ id: setup.id, open: false, chosen: false }); else onOpenChange(next); }} />;
   return (
     <Modal open={open} onOpenChange={onOpenChange} title={title}>
       <div className="flex flex-col gap-4 px-6 pt-3 pb-6" aria-live="polite">
@@ -222,10 +231,12 @@ export function LiveCopyProgress({ setupId, open, onOpenChange, onRetry, onConse
         {cancelError ? <p role="alert" className="text-xs text-negative">{cancelError}</p> : null}
         {!finished && !stopped && !consentLapsed && !provisioning ? <p className="text-xs leading-5 text-muted-foreground">{text.closeSafeWorker}</p> : null}
         <div className="flex flex-col gap-2.5">
+          {setup && !finished && deployment?.setupAbort === true ? <Button type="button" variant="secondary" className="min-h-11 w-full" onClick={() => setAbortState({ id: setup.id, open: true, chosen: false })}>{t(setup.kind === 'start' ? 'liveCopyUi.abortAction' : 'liveCopyUi.abortChange')}</Button> : null}
+          {deposited && !finished && deployment?.setupAbort !== true ? <p className="text-xs leading-5 text-muted-foreground">{t('liveCopyUi.abortUnavailable')}</p> : null}
           {setup && !setupTerminal(setup) ? <Link href={`/portfolio?view=real&setupId=${encodeURIComponent(setup.id)}`} onClick={() => onOpenChange(false)} className="flex min-h-11 items-center justify-center rounded-full px-3 text-sm font-bold text-primary-text outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">{t('liveCopyUi.resumeProgress')}</Link> : null}
           {finished ? <Link href="/portfolio" onClick={() => onOpenChange(false)} className="orbit-press flex min-h-12 w-full items-center justify-center rounded-full bg-primary px-6 font-display text-base text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">{text.portfolio}</Link> : null}
-          {(ended || consentLapsed || provisioning) && onRetry ? <Button type="button" size="cta" className="w-full" disabled={actions.cancel.isPending} onClick={() => onRetry(setup!)}>{text.restart}</Button> : null}
-          {ended || consentLapsed || provisioning ? <Button type="button" variant="secondary" className="w-full" loading={actions.cancel.isPending} onClick={cancel}>{text.cancelSetup}</Button> : null}
+          {legacySetupActions && (ended || consentLapsed || provisioning) && onRetry ? <Button type="button" size="cta" className="w-full" disabled={actions.cancel.isPending} onClick={() => onRetry(setup!)}>{text.restart}</Button> : null}
+          {legacySetupActions && (ended || consentLapsed || provisioning) ? <Button type="button" variant="secondary" className="w-full" loading={actions.cancel.isPending} onClick={cancel}>{text.cancelSetup}</Button> : null}
           <button type="button" onClick={() => onOpenChange(false)} className="min-h-11 rounded-full text-sm font-bold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">{text.close}</button>
         </div>
       </div>

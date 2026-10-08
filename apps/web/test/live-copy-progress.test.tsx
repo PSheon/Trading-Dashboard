@@ -16,14 +16,15 @@ import { ApiError } from '@/lib/api';
  * whose consent lapsed, or that failed or expired, offers 重新開始 and
  * 取消設定 instead of spinning forever.
  */
-const state = vi.hoisted(() => ({ setup: undefined as unknown, cancel: vi.fn(), retrying: false, failure: null as unknown }));
+const state = vi.hoisted(() => ({ setup: undefined as unknown, cancel: vi.fn(), retrying: false, failure: null as unknown, setupAbort: false }));
 vi.mock('@/lib/copy-live-setup', async () => ({
   ...(await vi.importActual<typeof import('@/lib/copy-live-setup')>('@/lib/copy-live-setup')),
   useLiveCopySetup: () => ({ data: state.setup, isError: Boolean(state.failure), walletError: null, retrying: state.retrying, failure: state.failure }),
   useLiveCopySetupActions: () => ({ cancel: { mutate: state.cancel, isPending: false } }),
-  useLiveCopyDeployment: () => null,
+  useLiveCopyDeployment: () => state.setupAbort ? { network: 'testnet', setupAbort: true } : null,
 }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh() {}, push() {} }), usePathname: () => '/zh-TW/trader', useSearchParams: () => new URLSearchParams() }));
+vi.mock('@/components/copy/live-copy-setup-abort', () => ({ LiveSetupAbortDialog: () => <div data-testid="saved-abort-progress">Original abort progress</div> }));
 
 const zh = liveSetupMessages['zh-TW'];
 const now = Date.now();
@@ -35,7 +36,7 @@ function setup(stage: LiveCopySetup['stage'], extra: Partial<LiveCopySetup> = {}
 }
 
 let root: Root, container: HTMLDivElement;
-beforeEach(() => { vi.clearAllMocks(); state.retrying = false; state.failure = null; container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
+beforeEach(() => { vi.clearAllMocks(); state.setupAbort = false; state.retrying = false; state.failure = null; container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
 async function open(props: { onRetry?: (setup: LiveCopySetup) => void; onConsent?: (setup: LiveCopySetup) => void } = {}) {
   await act(async () => root.render(<I18nProvider locale="zh-TW" messages={catalogs['zh-TW']}><LiveCopyProgress setupId="0b0a6a3e-2f6b-4b7a-9a65-6b7c9f1e2d3c" open onOpenChange={() => {}} {...props} /></I18nProvider>));
@@ -48,6 +49,32 @@ it('a setup still waiting for its consent is handed back to the confirm sheet, o
   await open({ onConsent });
   await open({ onConsent });
   expect(onConsent).toHaveBeenCalledExactlyOnceWith(state.setup);
+});
+
+it('after reload a permanent abort barrier opens the original progress and never hands a stale consent back to signing', async () => {
+  const onConsent = vi.fn(), onRetry = vi.fn();
+  state.setup = setup('awaiting_consent', { consent, abortRequested: true });
+  await open({ onConsent, onRetry });
+  await open({ onConsent, onRetry });
+  expect(document.querySelector('[data-testid="saved-abort-progress"]')).toBeTruthy();
+  expect(document.querySelector('[data-testid="live-copy-stages"]')).toBeNull();
+  expect(button(zh.restart)).toBeUndefined();
+  expect(button(zh.cancelSetup)).toBeUndefined();
+  expect(onConsent).not.toHaveBeenCalled();
+  expect(onRetry).not.toHaveBeenCalled();
+  expect(state.cancel).not.toHaveBeenCalled();
+});
+
+it.each(['failed', 'expired'] as const)('a funded %s setup offers safe ending without starting another setup or the legacy cancellation', async stage => {
+  state.setupAbort = true;
+  state.setup = setup(stage, { funding: { status: 'credited' } as LiveCopySetup['funding'] });
+  const onRetry = vi.fn();
+  await open({ onRetry });
+  expect(button(catalogs['zh-TW'].liveCopyUi.abortAction)).toBeTruthy();
+  expect(button(zh.restart)).toBeUndefined();
+  expect(button(zh.cancelSetup)).toBeUndefined();
+  expect(onRetry).not.toHaveBeenCalled();
+  expect(state.cancel).not.toHaveBeenCalled();
 });
 
 it('a consent that lapsed offers 重新開始 and 取消設定, and no spinner', async () => {

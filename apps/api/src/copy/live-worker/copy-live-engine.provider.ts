@@ -39,6 +39,7 @@ import { CopyLiveSetupService } from '../copy-live-setup.service.js';
 import { HyperliquidInfoClient, twapSliceToFill } from '../../hyperliquid/hyperliquid-info.client.js';
 import { TradeFeedService } from '../../watcher/trade-feed.service.js';
 import { FastMainnetSource } from './fast-mainnet-source.js';
+import { CopyFollowerSnapshotRepository } from '../copy-follower-snapshot.repository.js';
 
 export const LIVE_ENGINE = Symbol('LIVE_ENGINE');
 /** Risk inputs the runtime requires besides slippage and the price check. */
@@ -62,10 +63,10 @@ export const liveEngineProvider: Provider = {
   provide: LIVE_ENGINE,
   inject: [AppConfig, DATABASE_POOL, DRIZZLE_CLIENT, UnitOfWork, CopyMarketService, CopyFollowerLedger,
     CopyLiveSourceRepository, CopyLiveWorkerRepository, CopyFollowerScanRepository, CopyLiveStopWorkerRepository, CopyLiveReturnRepository, CopyLiveSetupService, WALLET_NETWORK_HL,
-    HyperliquidInfoClient, WORKER_MASTER_SIGNER, { token: TradeFeedService, optional: true }],
+    HyperliquidInfoClient, WORKER_MASTER_SIGNER, CopyFollowerSnapshotRepository, { token: TradeFeedService, optional: true }],
   useFactory: async (config: AppConfig, pool: Pool, db: DrizzleDb, uow: UnitOfWork,
     market: CopyMarketService, ledger: CopyFollowerLedger, sources: CopyLiveSourceRepository, repository: CopyLiveWorkerRepository, scans: CopyFollowerScanRepository, stops: CopyLiveStopWorkerRepository, returns: CopyLiveReturnRepository, setups: CopyLiveSetupService, wallet: WalletNetworkHyperliquid,
-    info: HyperliquidInfoClient, workerSigner: WorkerMasterSigner, feed?: TradeFeedService): Promise<CopyLiveEngine | null> => {
+    info: HyperliquidInfoClient, workerSigner: WorkerMasterSigner, snapshots: CopyFollowerSnapshotRepository, feed?: TradeFeedService): Promise<CopyLiveEngine | null> => {
     const live = config.value.copy.live;
     if (!live) return null;
     const network = live.network;
@@ -123,6 +124,7 @@ export const liveEngineProvider: Provider = {
         Date.now, weight => { if (weight > 0) walletBudget.adjust(-weight); }),
       runtime: hooks => new LiveExecutionRuntime(network, pool, walletConfig, walletGlobal, walletBudget, options, Date.now, { ...hooks, reference }),
       settler: new CopyLiveSettler(network, pool, walletGlobal, walletBudget, scanner),
+      settlementObservation: key => snapshots.saveSettlement(key),
       log: message => logger.warn(message),
       trace: message => logger.log(message),
       // The paper copier's cached leader capital: holds an open too small for

@@ -2,7 +2,8 @@ import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { and, eq, isNull, sql } from 'drizzle-orm';
-import { copyExecutionAccounts, copyFollowerObservationBudget, copyFollowerObservationJobs, copyFollowerObservations, copyFollowerAccountState, users } from '@trading-dashboard/shared/database';
+import { copyExecutionAccounts, copyFollowerObservationBudget, copyFollowerObservationJobs, copyFollowerObservations, copyFollowerAccountState,
+  copyLiveExecutions, copyLiveRiskReservations, copyLiveExecutionEvidence, users } from '@trading-dashboard/shared/database';
 import { AppConfig } from '../config/app-config.js';
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
@@ -11,6 +12,8 @@ import { mapLiveAccountView } from './live/live-account-view.js';
 import { LiveBoundaryError } from './live/wallet-authorization.js';
 import { lockCopyUser } from './copy-user-lock.js';
 import { deploymentNetwork } from './live-deployment.js';
+import type { DbExecutor } from '../db/unit-of-work.js';
+import { decodeLiveSettlementProof } from './live/live-settlement-proof.js';
 
 export type FollowerSnapshotClaim = Readonly<{ accountId: string; userId: number; strategyId: number; accountAddress: string; accountRevision: number; ownerPrivyUserId: string; claimToken: string }>;
 export type FollowerSnapshotIssue = NonNullable<typeof copyFollowerObservationJobs.$inferSelect['issue']>;
@@ -87,6 +90,57 @@ export class CopyFollowerSnapshotRepository {
         throw new LiveBoundaryError('follower_account_identity_changed');
       const [job] = await tx.select().from(copyFollowerObservationJobs).where(eq(copyFollowerObservationJobs.accountId, claim.accountId)).for('update');
       if (!job || job.claimToken !== claim.claimToken) return false;
+      return this.persist(tx, claim, snapshot, job);
+    });
+  }
+
+  /** Reporting only, after the financial scope has committed. The retained
+   * settlement input supplies the observation; this never reads the exchange,
+   * grants a financial permit, or advances any original source timestamp. */
+  async saveSettlement(key: string, now = Date.now()): Promise<boolean> {
+    return this.db.transaction(async tx => {
+      const [stored] = await tx.select({ reservation: copyLiveRiskReservations, evidence: copyLiveExecutionEvidence, journal: copyLiveExecutions })
+        .from(copyLiveRiskReservations).innerJoin(copyLiveExecutionEvidence, eq(copyLiveExecutionEvidence.key, copyLiveRiskReservations.key))
+        .innerJoin(copyLiveExecutions, eq(copyLiveExecutions.key, copyLiveRiskReservations.key))
+        .where(and(eq(copyLiveRiskReservations.key, key), eq(copyLiveRiskReservations.network, this.network)));
+      if (!stored || stored.reservation.state !== 'released' || stored.reservation.releaseReason !== 'verified_settlement' ||
+          !stored.evidence.settlementProof || !stored.evidence.settlementProofDigest) return false;
+      const { reservation: r, evidence: e, journal: j } = stored;
+      const proof = decodeLiveSettlementProof(e.settlementProof, e.settlementProofDigest!), cert = proof.certificate, source = proof.input.accountSource;
+      const valid = cert.key === key && cert.accountId === r.accountId && r.revision === cert.reservationRevision + 1 &&
+        r.exchangeOrderId === cert.oid && r.releaseEvidenceDigest === cert.digest && e.settlementDigest === cert.digest &&
+        isDeepStrictEqual(e.settlementCertificate, cert) && isDeepStrictEqual(r.payload, proof.input.reservation.payload) &&
+        isDeepStrictEqual(e.statusObservation, proof.input.evidence) && e.statusDigest === proof.input.evidence.sourceDigest &&
+        source.accountId === r.accountId && source.userId === r.userId && source.strategyId === r.strategyId &&
+        source.network === r.network && source.accountAddress === r.accountAddress && source.sourceDigest === source.snapshot.sourceDigest &&
+        j.userId === r.userId && j.strategyId === r.strategyId && j.network === r.network && j.accountAddress === r.accountAddress &&
+        ['key', 'fingerprint', 'authorization', 'action', 'market', 'nonce', 'expiresAfter', 'createdAt'].every(field =>
+          isDeepStrictEqual(j.record[field], proof.input.record[field as keyof typeof proof.input.record]));
+      if (!valid) throw new LiveBoundaryError('follower_snapshot_identity_mismatch');
+      await lockCopyUser(tx, r.userId);
+      const [owned] = await tx.select({ account: copyExecutionAccounts }).from(copyExecutionAccounts)
+        .innerJoin(users, and(eq(users.id, copyExecutionAccounts.userId), eq(users.privyUserId, copyExecutionAccounts.privyUserId)))
+        .where(and(eq(copyExecutionAccounts.id, r.accountId), eq(copyExecutionAccounts.userId, r.userId), eq(copyExecutionAccounts.strategyId, r.strategyId),
+          eq(copyExecutionAccounts.network, r.network), eq(copyExecutionAccounts.address, r.accountAddress))).for('share', { of: copyExecutionAccounts });
+      if (!owned?.account.address) throw new LiveBoundaryError('follower_account_identity_changed');
+      const identity = { accountId: r.accountId, userId: r.userId, strategyId: r.strategyId, accountAddress: owned.account.address,
+        accountRevision: owned.account.revision, ownerPrivyUserId: owned.account.privyUserId };
+      mapLiveAccountView({ ...identity, network: this.network }, source.snapshot, { blocked: false, reason: null }, now, 5000);
+      await tx.insert(copyFollowerObservationJobs).values({ accountId: r.accountId }).onConflictDoNothing();
+      const [job] = await tx.select().from(copyFollowerObservationJobs).where(eq(copyFollowerObservationJobs.accountId, r.accountId)).for('update');
+      return this.persist(tx, identity, source.snapshot, job!, true);
+    });
+  }
+
+  /** Both acquisition and committed-settlement reporting use this one store.
+   * An older in-flight provider read cannot replace a newer observation. */
+  private async persist(tx: DbExecutor, claim: Omit<FollowerSnapshotClaim, 'claimToken'>, snapshot: LiveAccountSnapshot,
+    job: typeof copyFollowerObservationJobs.$inferSelect, invalidateClaim = false): Promise<boolean> {
+      const network = this.network;
+      const [latest] = job.latestObservationId ? await tx.select().from(copyFollowerObservations)
+        .where(eq(copyFollowerObservations.id, job.latestObservationId)) : [];
+      if (latest && (latest.observedAt.getTime() > snapshot.observedAt || latest.completedAt.getTime() > snapshot.completedAt ||
+          latest.earliestProviderTime.getTime() > snapshot.coverage.earliestProviderTime)) return false;
       const id = randomUUID();
       const [saved] = await tx.insert(copyFollowerObservations).values({ id, accountId: claim.accountId, userId: claim.userId, strategyId: claim.strategyId,
         network, accountAddress: claim.accountAddress, sourceDigest: snapshot.sourceDigest,
@@ -96,10 +150,13 @@ export class CopyFollowerSnapshotRepository {
       if (!saved && (!existing || existing.accountAddress !== claim.accountAddress || existing.network !== network ||
           existing.userId !== claim.userId || existing.strategyId !== claim.strategyId || !isDeepStrictEqual(existing.snapshot, snapshot)))
         throw new LiveBoundaryError('follower_snapshot_identity_mismatch');
-      await tx.update(copyFollowerObservationJobs).set({ latestObservationId: saved?.id ?? existing!.id, issue: null, updatedAt: sql`clock_timestamp()` })
-        .where(and(eq(copyFollowerObservationJobs.accountId, claim.accountId), eq(copyFollowerObservationJobs.claimToken, claim.claimToken)));
+      if (job.latestObservationId === (saved?.id ?? existing!.id)) return true;
+      await tx.update(copyFollowerObservationJobs).set({ latestObservationId: saved?.id ?? existing!.id, issue: null, updatedAt: sql`clock_timestamp()`,
+        // Supersede the old reader's token while retaining its real attempt
+        // time and the original schedule/global allowance (no new read).
+        ...(invalidateClaim && job.claimToken ? { claimToken: randomUUID() } : {}) })
+        .where(eq(copyFollowerObservationJobs.accountId, claim.accountId));
       return true;
-    });
   }
 
   async issue(rawClaim: FollowerSnapshotClaim, issue: FollowerSnapshotIssue): Promise<void> {

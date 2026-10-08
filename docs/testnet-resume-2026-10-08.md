@@ -243,3 +243,14 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 - 16:50:35 runner exit1，正常停止／空倉／返還credited／顯示stopped四項PASS。16:51公開testnet核對主109.76002、#54帳戶0、領單23.521159 testUSDC，三者空倉；本機在途資金／未釋放保留額／未完成設定皆0。開始unset NODE_OPTIONS恢復本機API／worker；共用web3000與Chrome9333保留。
 - 私人證據`codex-reservation54-{dispatch-close,dispatch-released,reporting-state,final-money,final-balances}.jsonl`及runner。第一份觀察晚到的原因仍需進一步定位，不能把純排程修正當成B段已通過。
 - 收尾已完成：API3100 PID30239、worker3010 PID31136均以unset NODE_OPTIONS啟動，16:54:43 health皆成功。未保留私人診斷或收據relay、未另起Next／瀏覽器。下一步檢查已驗證的結算觀察是否可透過共用報表寫入流程保留，避免重複讀取；必須保留原scope、觀察時間、完整性與身分核對，報表資料不得變成金融授權，方案尚未實作。
+
+### 結算觀察報表修正與 #55 並行複驗，17:17 進行中
+
+- 已實作本機報表修正：金融結算提交、dispatch settled 後保留原證據內的觀察，報表失敗不影響金融提交或造成重送；保留原 digest／時間與五秒判定，報表不建立金融許可。共用寫入流程防止較舊觀察覆蓋，首次發布旋轉既有 claim token，讓舊背景 reader 不能覆寫新結果，保留原排程額度與 attemptedAt。
+- RED／GREEN：原 engine 未發布觀察、舊 claim 可覆寫、原 repository 可用舊觀察取代新觀察皆有失敗證據。中途清空 claim token 違反既有 SQL 約束，已改為旋轉 token，未放寬 schema。最新聚焦回歸 8 檔 128 項 PASS，含測試型別、lint、build PASS；完整隔離 API 回歸仍進行中，不能宣稱全量已通過。私人日誌 `codex-settlement-report-{red,race-red,old-order-red,final-green2,final-types2,api-all,build}.log`。
+- 獨立唯讀 code review 未確認 Critical／Important 阻擋；報表路徑未完整重作金融 replay 的所有 SQL mirrors／目前 receipt manifest，且同 digest 重放早退不旋轉 claim，均屬已記錄的審查邊界，未證實正常路徑觸發。此審查不替代實際交易驗收。
+- 17:15:57 唯讀確認所有 actual stopped，在途資金／未釋放保留額／未完成設定皆0，#54退款 credited。編譯後啟動 API3100 PID54410、worker3010 PID54691，保留 stage-caps 與私人唯讀 relay／原拒絕診斷；共用 web3000／Chrome9333保留。
+- 17:17 啟動 #55 快速三次平倉複驗（scenario9、gap120，原風控／時限），與獨立 DB 的全量 API 回歸並行；同一錢包金融操作仍依序、只有一個 CDP runner。啟動時領單23.521159 testUSDC且空倉，設定／交易／五來源對帳／停止退款待結果。私人 runner `codex-report55-burst-run.log`，程序 session6112；隔離回歸 session19163。六個程式／測試檔仍為本機未提交變更，未公開推送或部署 Stage。
+- 17:23:21 完整隔離 API 回歸 255檔3,902項PASS（742.90秒），session19163 exit0、隔離資料庫已移除。此結果驗證新報表版本全部 API 測試，不代替真實 B 段交易驗收。
+- #55 設定 `698bedce-8340-4a7a-a862-007895ed01b7`、跟單帳戶 `0x185c14338bab86b226ab54aaef2a39c784c7414a`；17:18:02 真實簽署／addSigners／confirm200 PASS（7.2秒），17:19:23正常啟用。領單36美元ETH開倉成交，跟單17:20:39 filled、17:21:54 settled，attempts1。
+- 領單三次平倉17:21:26.791／33.993／41.175全成交，首末14.384秒、領單空倉。17:23:37唯讀SQL比對開倉：保留額released／verified_settlement，報表觀察與已提交proof的sourceDigest相同，observedAt皆17:21:51.648，沒有延後原時效；首次平倉已submitted attempts1，其保留額unknown，後續结算／完整對帳／返還尚待結果。私人證據 `codex-report55-proof-reporting-open.jsonl`。

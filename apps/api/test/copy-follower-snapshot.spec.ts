@@ -24,6 +24,20 @@ beforeEach(async () => {
 afterEach(() => vi.restoreAllMocks()); afterAll(closeTestDb);
 async function store() { const claim = await repository.claim(); expect(claim).not.toBeNull(); await repository.save(claim!, snapshot()); return claim!; }
 describe('actual follower acquisition, isolation and retained observations', () => {
+  it('does not replace a newer observation with an older in-flight provider result', async () => {
+    const claim = await repository.claim(); expect(claim).not.toBeNull();
+    const older = snapshot(), newer = snapshot() as { -readonly [K in keyof LiveAccountSnapshot]: LiveAccountSnapshot[K] };
+    newer.observedAt += 1000; newer.completedAt += 1000;
+    newer.coverage = { ...newer.coverage, earliestProviderTime: newer.coverage.earliestProviderTime + 1000 };
+    newer.dexes = newer.dexes.map(d => ({ ...d, providerTime: d.providerTime + 1000 }));
+    newer.sourceDigest = 'b'.repeat(64);
+    vi.mocked(Date.now).mockReturnValue(now + 1000);
+    expect(await repository.save(claim!, newer)).toBe(true);
+    expect(await repository.save(claim!, older)).toBe(false);
+    expect(await service.get(userId, 'account')).toMatchObject({ status: 'observed', sourceDigest: newer.sourceDigest,
+      asOf: { observedAt: now + 1000, completedAt: now + 1000, earliestProviderTime: now + 1000 } });
+  });
+
   it('defers a funded setup still acquiring its live capabilities, but retains funds after it fails', async () => {
     await db.insert(copyLiveSetups).values({ id: 'new-setup', userId, strategyId: 9, accountId: 'account', kind: 'start',
       idempotencyKey: 'new-snapshot-setup-0001', stage: 'awaiting_consent', leaderAddress: `0x${'44'.repeat(20)}`,

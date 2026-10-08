@@ -1,7 +1,7 @@
 import { Pool } from 'pg';
 import { eq } from 'drizzle-orm';
 import { beforeAll, beforeEach, afterAll, describe, expect, it } from 'vitest';
-import { copyFollowerScans, copyExecutionAccounts, copyExecutionWallets, copyWalletAuthorizations, copyLiveExecutions, copyLiveRiskReservations, copyLiveExecutionEvidence,
+import { copyFollowerScans, copyExecutionAccounts, copyExecutionWallets, copyWalletAuthorizations, copyLiveExecutions, copyLiveRiskReservations, copyLiveExecutionEvidence, copyFundingOperations,
   copyFollowerReceipts, copyFollowerLedger, copyFollowerAccountState, copyStrategies, users } from '@trading-dashboard/shared/database';
 import { PostgresLiveSettlement } from '../src/copy/live/postgres-live-settlement.js';
 import { PostgresLiveRiskScope, type LiveRiskDatabaseSession } from '../src/copy/live/postgres-live-risk-scope.js';
@@ -13,6 +13,9 @@ import { parseFollowerFill, followerReceiptDigestV1 } from '../src/copy/live/act
 import { buildOrderAction, intentFingerprint } from '../src/copy/live/live-order.js';
 import { planLiveReservation } from '../src/copy/live/live-risk-reservation.js';
 import { decodeLiveSettlementProof } from '../src/copy/live/live-settlement-proof.js';
+import { CopyFollowerSnapshotRepository } from '../src/copy/copy-follower-snapshot.repository.js';
+import { CopyFollowerSnapshotService } from '../src/copy/copy-follower-snapshot.service.js';
+import { testConfig } from './config-test-utils.js';
 import { fixture, now as base } from './copy-live-risk-test-utils.js';
 import { closeTestDb, getTestDb, insertUser, truncateAll, type TestDb } from './db-test-utils.js';
 type Mutable<T> = T extends object ? { -readonly [K in keyof T]: Mutable<T[K]> } : T;
@@ -83,6 +86,46 @@ async function iocAcknowledgement() {
   return acknowledgement;
 }
 describe('same-session PostgreSQL attempted order settlement', () => {
+  it('does not publish an unreleased order or a proof whose release mirrors changed', async () => {
+    const snapshots = new CopyFollowerSnapshotRepository(db, testConfig());
+    expect(await snapshots.saveSettlement(f.record.key, clock)).toBe(false);
+    await book();
+    await scopes.run(identity(), async (_scope, session) => { await observe(session); expect((await settle(session)).kind).toBe('release'); });
+    await db.update(copyLiveExecutionEvidence).set({ settlementDigest: 'b'.repeat(64) });
+    await expect(snapshots.saveSettlement(f.record.key, clock)).rejects.toThrow('follower_snapshot_identity_mismatch');
+    expect(await new CopyFollowerSnapshotService(snapshots).get(1, 'account')).toMatchObject({ status: 'unavailable' });
+  });
+
+  it('invalidates an older reporting claim after publishing the committed settlement observation', async () => {
+    await db.insert(copyFundingOperations).values({ id: 'reporting-deposit', userId: 1, accountId: 'account', strategyId: 9,
+      idempotencyKey: 'settlement-observation-deposit', network: 'testnet', address: `0x${'66'.repeat(20)}`,
+      destination: f.record.authorization.accountAddress, amount: '50', nonce: base, status: 'credited',
+      evidenceHash: 'e'.repeat(64), transactionHash: `0x${'e'.repeat(64)}`, creditedAmount: '49', fee: '1' });
+    const snapshots = new CopyFollowerSnapshotRepository(db, testConfig()), claim = await snapshots.claim();
+    expect(claim).not.toBeNull();
+    await book();
+    await scopes.run(identity(), async (_scope, session) => { await observe(session); expect((await settle(session)).kind).toBe('release'); });
+    expect(await snapshots.saveSettlement(f.record.key, clock)).toBe(true);
+    await snapshots.issue(claim!, 'source_unavailable');
+    expect(await snapshots.save(claim!, f.accountSource.snapshot, clock)).toBe(false);
+    expect(await new CopyFollowerSnapshotService(snapshots).get(1, 'account')).toMatchObject({ status: 'observed', lastReadIssue: null });
+  });
+
+  it('retains the committed settlement observation for portfolio reads with its original timestamps', async () => {
+    await book();
+    await scopes.run(identity(), async (_scope, session) => { await observe(session); expect((await settle(session)).kind).toBe('release'); });
+    const snapshots = new CopyFollowerSnapshotRepository(db, testConfig());
+    await snapshots.saveSettlement(f.record.key, clock);
+    const service = new CopyFollowerSnapshotService(snapshots);
+    const result = await service.get(1, 'account');
+    expect(result).toMatchObject({ status: 'observed', metrics: { perpEquity: f.accountSource.snapshot.perpEquity },
+      sourceDigest: f.accountSource.snapshot.sourceDigest, asOf: { observedAt: base + 30, completedAt: base + 50, earliestProviderTime: base + 40 } });
+    // Replay of the original observation does not mint a newer source time.
+    await snapshots.saveSettlement(f.record.key, clock + 100000);
+    expect((await service.get(1, 'account'))).toMatchObject({ status: 'observed',
+      asOf: { observedAt: base + 30, completedAt: base + 50, earliestProviderTime: base + 40 } });
+    expect((await db.select().from(copyLiveRiskReservations))[0]).toMatchObject({ state: 'released', revision: 3 });
+  });
   it('persists a replayable original settlement proof using canonical SQL receipt fields', async () => {
     await book(); await scopes.run(identity(), async (_scope, session) => { await observe(session); expect((await settle(session)).kind).toBe('release'); });
     const [e] = await db.select().from(copyLiveExecutionEvidence);

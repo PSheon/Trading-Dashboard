@@ -37,6 +37,8 @@ export interface LiveEngineDependencies {
   readonly testnetSource: HyperliquidLiveSourceClient;
   readonly runtime: (hooks: Pick<LiveExecutionHooks, 'onExchange'>) => LiveExecutor;
   readonly settler: { settle(request: LiveSettleRequest): Promise<LiveSettleOutcome> };
+  /** Retain a committed settlement observation for reporting; never a permit. */
+  readonly settlementObservation?: (key: string) => Promise<unknown>;
   /** One-click setups (credit → mode → agent → builder → generation), before
    * funded generations start, so a generation made now starts this pass. */
   readonly setups?: { tick(): Promise<number> };
@@ -371,7 +373,11 @@ export class CopyLiveEngine {
     if (!TERMINAL_STATES.has(state)) { await this.execute(row, mandate); return; }
     const outcome = await this.deps.settler.settle({ userId: row.userId, accountId: row.accountId, accountAddress: mandate.accountAddress,
       sourceNetwork: mandate.sourceNetwork, leaderAddress: mandate.leaderAddress, key: row.executionKey! });
-    if (outcome.kind === 'released') await this.deps.repository.update(row, { state: 'settled', settledAt: new Date(this.now()), reason: null });
+    if (outcome.kind === 'released') {
+      await this.deps.repository.update(row, { state: 'settled', settledAt: new Date(this.now()), reason: null });
+      try { await this.deps.settlementObservation?.(row.executionKey!); }
+      catch { this.deps.log?.('Committed settlement observation could not be retained; scheduled reporting will retry'); }
+    }
     else if (outcome.kind === 'unplaced') await this.deps.repository.update(row, { state: 'refused', reason: 'exchange_order_never_placed' });
     else if (outcome.kind === 'quarantine' || outcome.kind === 'unsent') await this.deps.repository.update(row, { state: 'refused', reason: outcome.reason.slice(0, 80) });
     else await this.deps.repository.update(row, { reason: outcome.reason.slice(0, 80) });

@@ -85,6 +85,25 @@ beforeEach(async () => {
 afterAll(async () => { await closeTestDb(); });
 
 describe('testnet copy execution engine', () => {
+  it('publishes an observation only after settlement, without reverting settled work when reporting fails', async () => {
+    const published = vi.fn(async (_key: string) => { throw new Error('reporting unavailable'); });
+    const run = engine({ settlementObservation: published } as Partial<LiveEngineDependencies>);
+    await credit(); await coverage(now - 10_000, now + 5000); await run.tick();
+    const first = await leaderFill(25, now + 100, 'B', '1', '0');
+    clock = now + 1000; await run.tick();
+    expect(published).not.toHaveBeenCalled();
+    settleImpl = async () => ({ kind: 'pending', reason: 'live_settlement_terminal_unproven' });
+    clock = now + 2000; await run.tick();
+    expect(published).not.toHaveBeenCalled();
+    settleImpl = async () => ({ kind: 'released' });
+    clock = now + 3000; await run.tick();
+    expect(published).toHaveBeenCalledExactlyOnceWith(keyOf(first, 'open'));
+    expect((await dispatches())[0]).toMatchObject({ state: 'settled', attempts: 1, reason: null });
+    clock = now + 4000; await run.tick();
+    expect(runtimeCalls).toHaveLength(1);
+    expect(published).toHaveBeenCalledTimes(1);
+  });
+
   it('starts a generation only once it is funded, and never copies fills from before the start', async () => {
     await coverage(now - 10_000, now); await leaderFill(1, now - 500, 'B', '1', '0');
     await engine().tick();

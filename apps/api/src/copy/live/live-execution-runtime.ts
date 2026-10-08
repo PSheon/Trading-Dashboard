@@ -18,7 +18,9 @@ import { decodeLiveCopyMandate } from '../copy-live-mandate-evidence.js';
 import { PostgresLivePreparation, liveSourceExecutionCloid, type LivePreparationOptions } from './postgres-live-preparation.js';
 import { LiveOrderExecutor, UNHELD_REJECTED, type LiveExecutionRecord } from './live-execution.js';
 import { errorCode } from '../../runtime/safe-error-text.js';
-import { address, LiveBoundaryError, WalletAuthorizationService, type ExchangeApprovalEvidence, type ExchangeApprovalVerifier } from './wallet-authorization.js';
+import { address, LiveBoundaryError, WalletAuthorizationService } from './wallet-authorization.js';
+import { orderApproval } from './live-order-approval.js';
+export { APPROVAL_REUSE_MS } from './live-order-approval.js';
 import { PostgresLiveRiskScope, type LiveRiskDatabaseSession } from './postgres-live-risk-scope.js';
 import { loadLivePreparationAuthority, riskSourceRequire } from './postgres-live-risk-authority.js';
 import { liveAccountExposureSql } from './live-account-exposure.js';
@@ -76,24 +78,6 @@ export interface LiveExecutionRequest {
    * as expired after it): the evidence's budget wait never outlasts it, so a
    * full bucket can't hold the worker's pass longer than the signal lives. */
   readonly signalDeadline?: number;
-}
-/** An exchange approval observed this recently is reused within one order
- * (prepare, sign and the final pre-POST check each verify it): its own
- * `checkedAt` still bounds it to 5 s everywhere it is checked, and the local
- * grant (revocation, expiry, rotation) is re-read from SQL every time. */
-export const APPROVAL_REUSE_MS = 1000;
-function reusedApproval(verifier: ExchangeApprovalVerifier, now: () => number): ExchangeApprovalVerifier {
-  let last: { key: string; evidence: Promise<ExchangeApprovalEvidence> } | undefined;
-  return { verify: async grant => {
-    const key = JSON.stringify([grant.network, grant.accountAddress, grant.signerAddress, grant.id, grant.version]);
-    if (last?.key === key) {
-      const evidence = await last.evidence.catch(() => undefined);
-      if (evidence && now() - evidence.checkedAt <= APPROVAL_REUSE_MS) return structuredClone(evidence);
-    }
-    const evidence = verifier.verify(grant);
-    last = { key, evidence };
-    return evidence;
-  } };
 }
 /** The exchange boundary's market checks read the order epoch's metadata
  * (same reads, same clock) when its epoch is still fresh, else their own. */
@@ -273,7 +257,7 @@ export class LiveExecutionRuntime {
         const binding = source.bind(session, { accountId: request.accountId, key });
         const authorizations = new WalletAuthorizationService(new ScopedWalletAuthorizationSource(session,
           existing?.record.authorization.id ?? routing.mandate.authorizationId),
-          reusedApproval(new HyperliquidAgentApprovalVerifier(this.network, acquire, this.global.fetchInfo, this.now), this.now), this.now);
+          orderApproval(new HyperliquidAgentApprovalVerifier(this.network, acquire, this.global.fetchInfo, this.now), this.now), this.now);
         const gate = new AccountRiskExecutionGate(binding.proofSource, this.now);
         const signingAuthorization = async () => {
           session.scope.assertFresh();

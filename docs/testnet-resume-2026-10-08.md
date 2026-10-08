@@ -11,9 +11,9 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 | 4 持倉時停止 | #32 PASS | 保留原真實成交、空倉、返還證據 |
 | 6 手動平倉後立即停止 | #43 PASS | 真實持倉及完整收尾已驗證 |
 | 7 worker重啟 | #56完整PASS；#51／#49 FAIL保留 | 開倉後重啟、後續跟單、五來源對帳及停止返還credited均通過；原gap120與風控不變 |
-| 8 低於最小單的開倉拒絕 | SKIP | 現有限額下未找到符合情境的市場，沒有改限額強行通過 |
+| 8 低於最小單的開倉拒絕 | SKIP；18:55重新查市場仍無標的 | 最新dry-run明確no_refusable_market；原12–15限額不變，無簽署／下單 |
 | 9 三筆快速平倉 | #55完整PASS；歷史FAIL保留 | 原20秒三次领單平倉與對帳期限內通過：4派送、2成交、2筆無剩餘倉位；報表原觀察保留、停止空倉與退款credited均PASS |
-| 14 管理者暫停／恢復／全平 | #58減倉／對帳FAIL；帶倉全平退款及恢復PASS | 加倉預算積壓、後續減倉逾時，須修正重跑；48.966880已credited、resume及臨時權限移除403均確認 |
+| 14 管理者暫停／恢復／全平 | #59拒開正確；減倉期限／對帳FAIL | platform_paused單次終止已驗證；減倉晚到成交不能改列PASS。48.947499退款credited、resume及權限移除403均確認；#58帶倉全平證據保留 |
 
 既有隔離回歸基準：登入紀錄修正版API 255檔3,893項、web 181檔1,179項、harness28項PASS。新排程版首跑API 3,893 PASS／1 FAIL；積壓情境補測後相關45項PASS，最終完整API 255檔3,896項PASS。這些結果不能替代上述真實交易驗收；B段尚未全綠。
 
@@ -323,3 +323,37 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 - requesting-code-review獨立唯讀審查沒有Critical／Important。可補的覆蓋為routing至preflight間出現journal的競態、pause下unknown/resting歷史journal；本次新增歷史回歸驗證terminal原單保留，未宣稱所有競態實測。
 - 完整API隔離回歸正在執行，私人日誌`/private/tmp/codex-paused-admission-api-all.log`；完整PASS與真實情境14重跑尚未完成。一般流程#57的原證據5秒期限失敗也尚待修正，B段仍未全綠。
 - 相關私人日誌`codex-paused-admission-{red,green,final-tests,types-final,lint-final,build}.log`。沒有公開推送、部署、Stage或主網操作。
+
+## 完整回歸等待期間的範圍重驗
+
+- 原B段清單為base／3／4／6／7／8／9／14，五來源對帳及限額／槓桿／空倉／拒絕原因／不重複下單均保留。交接已指定接續情境採120秒間隔；這些功能PASS不能替代20秒間隔或延遲指標驗收，原短間隔FAIL與等待UX問題仍保留。
+- 18:55:13按原每單12、上限15重新查最新testnet市場，情境8 dry-run回`skipped:true/reason:no_refusable_market`，exit0。沒有簽署／下單，沒有調高限額選出標的；證據`/private/tmp/codex-refused-open-current-plan.log`。
+- 原完整API測試handle仍在運行，繼續等待原程序，沒有因觀察期間沒有summary重啟或取消。尚未載入金融服務或開始新入金；準備的情境14私人觀察腳本只增加全平前官方持倉讀取紀錄，不更改原判斷／額度／流程。
+
+### 19:01 完整API回歸PASS，準備情境14複驗
+
+- 暫停提早拒開修正93fbe37a完整API 255檔3,918項PASS，734.79秒，原程序正常exit0；一次性隔離DB已移除。未改原風控／訊號／對帳期限或交易限額。
+- 複驗前再次唯讀確認所有本機actual停止、openFunding／liabilities／unfinishedSetups為0，管理overview回403。接續依原授權在本機程序暫時加入四項權限、載入修正版，不能把完整API通過當成真實14已通過。
+- 私人證據`codex-paused-admission-api-all.log`、`codex-admin14-rerun-{preflight-money,platform-preflight,before-permissions}.jsonl`，Stage／主網未操作。
+
+### 19:10 情境14修正版真實複驗啟動（未有最終結果）
+
+- 本機API PID45614、worker PID48414載入93fbe37a。依原授權暫時啟用四項管理權限；開始前overview200，pauseNewRisk／reduceOnly皆false，revision3。測完仍須移除權限及私人觀察preload。
+- 新策略59、setup `2af954fe-92c7-4e3f-8ac0-6e476ebd1cbd`、copy account `0x57a30c69eeb9749f4aa28bb485a4aeb9b7be5d10`。兩次瀏覽器簽署與addSigners均確認成功，confirm200；19:09:40已running，領單ETH20開倉成交。此階段不能稱情境14PASS。
+- 保留原120秒持倉／減倉等待及完整五來源對帳。私人runner只增加admin全平前官方持倉紀錄；日誌`/private/tmp/codex-admin14-rerun.log`，原程序繼續運行，不重啟有資金的服務。
+
+### 19:16 情境14 #59減倉逾時，清理尚在原程序內
+
+- 19:10:57跟單實際持倉0.0047 ETH，暫停後加倉dispatch於19:12:56終止為`platform_paused`、attempts1；新提前拒開沒有重試補開，與#58的`live_budget_wait`有別。
+- 領單half-reduce於19:11:31成交；原120秒持倉檢查19:13:32仍0.0047，`kill_switch_reduction_mirrored` FAIL。後續跟單close journal19:13:38 filled；19:15:05官方copy59已flat、餘額48.947499。晚到成交不能改寫原期限FAIL。
+- 五來源對帳仍回`leader_leg_without_follower_fill`及`direction_mismatch`，需在完整清理後核对實際dispatch／填單与驗證器的小額減倉全平規則，尚未定論或修改驗收規則。原runner51277繼續對帳／全平退款／恢復；四項權限尚未移除，不能稱已完成清理。
+- 私人證據`codex-admin14-rerun-dispatch-{observation,after-timeout}.jsonl`、`codex-admin14-rerun-observed-balances.jsonl`。一般流程base與14仍未通過，B段未全綠。
+
+### 19:23 #59清理與權限移除確認完成
+
+- 原runner51277正常exit1，兩個失敗：減倉120秒逾時及對帳direction_mismatch。完整對帳末次已沒有缺失填單，但方向檢查仍FAIL，未改驗收規則。
+- 19:21:25停止四項檢查PASS，48.947499 testUSDC已credited；管理全平前copy已flat，所以本輪不稱「帶倉緊急全平」。#58真實帶倉全平證據另外保留。
+- 19:21:52官方查詢main104.654059／copy59為0／leader22.993842，三者positions皆空。DB所有本機使用者14actual皆stopped，openFunding／liabilities／unfinishedSetups皆空。19:21:53平台pauseNewRisk及reduceOnly皆false、revision6。
+- API以unset AUTH_SERVICE_PERMISSIONS與NODE_OPTIONS重啟，PID58626 healthy；worker同樣unset重啟，PID58763 healthy。19:22:29管理overview403，四項臨時權限及私人preload已移除；共享web／Chrome保留。
+- 原phase記錄顯示此次close準備約2623ms、executor約2514ms，11:13:38完成filled；執行前的來源／額度等待需另查，不能僅以快簽署推論延遲已解決。證據`codex-admin14-rerun-phases.jsonl`63項，沒有單一phase超過5秒。
+- 私人日誌`codex-admin14-rerun-{final-money,final-balances,platform-resumed,after-permissions}.jsonl`、`codex-admin14-rerun-{api,worker}-restored.log`及原五來源reconcile／summary。未公開推送／部署、未改Stage或主網；B仍5 PASS／1 SKIP／2 FAIL。

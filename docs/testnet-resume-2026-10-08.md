@@ -10,7 +10,7 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 | 3 小額部分減倉 | #47 120秒間隔PASS；#42 20秒間隔FAIL保留 | 零倉位終止與五來源對帳已真實通過，整體延遲仍須改善 |
 | 4 持倉時停止 | #32 PASS | 保留原真實成交、空倉、返還證據 |
 | 6 手動平倉後立即停止 | #43 PASS | 真實持倉及完整收尾已驗證 |
-| 7 worker重啟 | #47 FAIL | 新worker已簽署，但未向交易所送出成功；不能單歸因額度等待 |
+| 7 worker重啟 | #49 FAIL | 重啟後開倉已成交；減倉在傳送層被live_generation_unproven擋下，仍須定位具體證據條件 |
 | 8 低於最小單的開倉拒絕 | SKIP | 現有限額下未找到符合情境的市場，沒有改限額強行通過 |
 | 9 三筆快速平倉 | 原#37 FAIL；#48設定逾時，未進交易情境 | 仍須完整五來源對帳，原三筆14.156秒證據保留 |
 | 14 管理者暫停／恢復／全平 | 未執行 | 管理權限仍待使用者授權 |
@@ -142,3 +142,21 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 - 14:04:57還原完成：API3100 PID7654、worker3010 PID7774皆healthy，無NODE_OPTIONS診斷或RPC relay；編譯檔無local-authority-paths。
 - 14:05以正確`?view=real`重新登入截圖1440×900／390×844，總額及主錢包均114.87、跟單中0.00。兩尺寸測試網標籤／footer存在、無水平溢出、無載入中；手機捲到底footer條款在浮動導覽上方。只證明已停止空倉UI，不延伸為退款中或簽署等待畫面驗收。私人證據`codex-resume-final-capture.log`與`codex-testnet-ui/resume-final-{desktop,mobile}{,-footer}.png`。
 - 本輪新增修正及此收尾紀錄僅在本機。公開GitHub push先前被automatic approval review拒絕（需明確授權公開該批payload），授權問題尚未回答，未繞過拒絕、未新增Railway部署。
+
+## 14:18起：重啟複測 #49，FAIL
+
+- Goal接續前重新唯讀核對：API3100／worker3010 healthy，非stopped策略、在途資金、未釋放額度、未完成設定皆0。沒有新主網操作、Stage資料／設定寫入或部署。
+- 只加入本機executor與gate原函式的階段／typed code觀測。函式仍使用原arguments與permit、回傳或拋出原結果；沒有放寬5秒證據期限、訊號期限、限額或授權。私有公開testnet收據讀取通道只查txDetails，收尾後移除。
+- #49真實瀏覽器簽署、addSigners、confirm通過（約8.3秒），50入金／49 credited、正常啟用。14:20:59領單40美元ETH開倉成交；14:21:28重啟worker19474 healthy。
+- 14:21:35跟單開倉POST成功，journal filled；14:21:37持倉0.0046 ETH檢查PASS；14:22:04開倉派送settled、attempts1。POST後runtime有live_risk_stale，已成交journal保留，由原只讀對帳完成，沒有重送。這是既有明確設計，已有runtime回歸涵蓋；不能以開倉成功判整輪PASS。
+- 14:23:39領單減半成交。14:24:52.373跟單簽署成功；14:24:52.700第一個submit gate通過。14:24:52.919傳送層再次核對時，gate在projectLiveGenerationPositions拒絕live_generation_unproven，沒有減倉POST；transport轉為確定未送出，executor保留rejected／exchange_order_never_placed。
+- 這次確定的是#49該次generation證據拒絕，尚未定位純函式內的具體條件。不能追溯說#47首筆完全同因，亦不能因第一個gate通過而略過第二個檢查。
+- 14:25:41領單最後平倉成交。完整五來源對帳重試後FAIL（缺少後續跟單成交／direction mismatch）；14:29:43正常停止開始，14:32:02停止平倉POST成功。空倉與返還credited仍須確認後續記錄。
+- 下一步診斷已準備於私人preload：只在受控user14／testnet的generation原函式已拒絕後，保存當次projection輸入與時間區間到0600本機檔案供離線重播；不保存env、私鑰或簽章，不把歷史證據用來授權新交易。尚未載入或執行這項捕捉，不能當成已找到根因。
+- 私人證據`codex-continuation-worker-run.log`、`codex-continuation49-dispatch.jsonl`及worker階段紀錄。
+
+- 14:33:34返還48.942043一度unknown，保留原操作；14:33:49accepted，14:35:00確認credited。停止未阻擋／空倉／返還入帳／顯示stopped四項PASS，runner exit1（唯一失敗check為完整交易對帳）。
+- 14:33:58直接查testnet：主錢包113.809753、#49帳戶0、領單23.659072 testUSDC，三個帳戶均空倉。credited後資料庫唯讀核對所有actual stopped、在途資金0、未釋放額度0、未完成設定0。
+- 私人最終證據`codex-continuation49-money-final.jsonl`、`codex-continuation49-balances.jsonl`、`codex-continuation49-dispatch-final.jsonl`。原歷史FAIL未刪除；沒有新程式修正可宣稱generation問題已解決，B段仍未全綠。
+
+- 14:36:39還原服務確認：API3100 PID29128、worker3010 PID29306皆healthy；以unset NODE_OPTIONS啟動，未載入私人診斷或公開收據relay。共用web3000／Chrome9333保留。最終派送：open settled attempts1；減倉close refused／exchange_order_never_placed attempts1；最後close因正常停止接管而refused／copy_stopping attempts4。停止平倉journal filled，不能將其算成領單平倉跟單成功。

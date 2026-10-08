@@ -57,7 +57,8 @@ export class PostgresLivePreparation {
   private readonly epoch: LiveProviderReadEpoch;
   constructor(private readonly observer: HyperliquidLiveAccountObserver, private readonly resolver: HyperliquidLiveMarketResolver,
     private readonly provider: HyperliquidLiveRiskProvider, options: LivePreparationOptions, private readonly now = Date.now, epoch?: LiveProviderReadEpoch,
-    private readonly reference?: LiveSourceReferenceReader) {
+    private readonly reference?: LiveSourceReferenceReader,
+    private readonly beforeProviderRead?: (walletId: string) => void) {
     this.options = Object.freeze(structuredClone(options));
     riskSourceRequire(Dec.from(options.slippageBps).gte(0) && Dec.from(options.slippageBps).lte(10000), 'live_preparation_options');
     this.epoch = epoch ?? new LiveProviderReadEpoch(observer, resolver, provider, options, now);
@@ -133,6 +134,9 @@ export class PostgresLivePreparation {
     });
     if (!baselineExists) await session.read(db => this.assertFirstAccount(session, db, local.account.id, network, local.account.address!));
     const manifest = baselineExists ? await session.read(db => loadLiveGenerationManifest(session, db, local, { currentExecutionKey: key, now: started })) : null;
+    // Optional request-owned metadata work starts only after current local
+    // authority, canonical source and original generation have been checked.
+    this.beforeProviderRead?.(local.wallet.privyWalletId);
     // The leader trades on another network than this copy executes on.
     const crossNetworkSource = local.consent.sourceNetwork !== network;
     const frames = await this.epoch.collect(session, { accountId: binding.accountId, mandateId: binding.mandateId, key, coin: source.fill.coin,

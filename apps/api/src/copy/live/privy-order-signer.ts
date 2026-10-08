@@ -13,6 +13,8 @@ export type PrivyOrderSignInput = Parameters<ReturnType<ReturnType<PrivyClient["
 export type PrivySigningAuthorization = Pick<PrivyOrderSignInput, "authorization_context">;
 export interface PrivyOrderSigningClient {
   getWallet(walletId: string): Promise<{ id: string; chain_type: string; address: string; owner_id: string | null; archived_at?: number | null }>;
+  /** Adapter-owned original observation, never a timestamp from SDK JSON. */
+  getWalletObserved?(walletId: string): Promise<{ wallet: Awaited<ReturnType<PrivyOrderSigningClient['getWallet']>>; checkedAt: number }>;
   /** The implementation must invoke this synchronous guard at the actual RPC
    * fetch boundary, after all SDK authorization/request preparation awaits. */
   signTypedData(walletId: string, input: PrivyOrderSignInput, assertFresh: () => void): Promise<{ encoding: string; signature: string }>;
@@ -80,8 +82,10 @@ export class PrivyOrderSigner {
         }
         const grant = await this.authorizations.authorizeLocal(intent);
         assertSameAuthorization(record.authorization, grant);
-        const walletCheckedAt = this.now();
-        const wallet = await this.client.getWallet(grant.walletId);
+        const originalWalletCheck = this.now();
+        const observation = this.client.getWalletObserved ? await this.client.getWalletObserved(grant.walletId)
+          : { wallet: await this.client.getWallet(grant.walletId), checkedAt: originalWalletCheck };
+        const { wallet, checkedAt: walletCheckedAt } = observation;
         if (wallet.id !== grant.walletId || wallet.chain_type !== "ethereum" || address(wallet.address) !== grant.signerAddress ||
             wallet.owner_id !== grant.privyOwnerId || wallet.archived_at != null) throw new LiveBoundaryError("privy_wallet_identity_mismatch");
         if (record.expiresAfter <= this.now()) throw new LiveBoundaryError("signing_order_expired");

@@ -148,6 +148,41 @@ async function actualClockFixture(perTradeUsd: number | null = 10, accountRevisi
   });
 }
 describe('unregistered concrete testnet execution runtime', () => {
+  it('starts authorized wallet metadata before financial preparation provider reads', async () => {
+    await actualClockFixture();
+    const previous = raw.getMockImplementation()!;
+    const order: string[] = [];
+    raw.mockImplementation(async (url, init) => {
+      const endpoint = String(url);
+      if (endpoint === 'https://api.privy.io/v1/wallets/agent') order.push('wallet');
+      if (endpoint === 'https://api.hyperliquid-testnet.xyz/info') order.push('evidence');
+      return previous(url, init);
+    });
+    expect((await runtime(config, { ...options, slippageBps: '0' }).execute(request())).state).toBe('filled');
+    expect(order[0]).toBe('wallet');
+    expect(order.filter(value => value === 'wallet')).toHaveLength(1);
+    expect(order).toContain('evidence');
+  });
+  it('drains unused wallet metadata after releasing financial SQL locks on preparation refusal', async () => {
+    await actualClockFixture();
+    const previous = raw.getMockImplementation()!;
+    let locksAtCleanup: number | undefined, canceled = false;
+    raw.mockImplementation(async (url, init) => {
+      if (String(url) !== 'https://api.privy.io/v1/wallets/agent') return previous(url, init);
+      return new Promise((_resolve, reject) => init!.signal!.addEventListener('abort', () => {
+        setTimeout(() => {
+          void db.execute(sql`select count(*)::int as n from pg_locks where locktype='advisory' and classid=7404 and objid=1
+            and pid in (select pid from pg_stat_activity where datname=current_database())`)
+            .then(rows => { locksAtCleanup = Number(rows.rows[0]!.n); canceled = true; reject(new Error('metadata canceled')); }, reject);
+        }, 40);
+      }, { once: true }));
+    });
+    // The original 10 USD + slippage fixture is below the required notional:
+    // preparation must refuse, never create an order or retain its locks.
+    await expect(runtime().execute(request())).rejects.toThrow('below_min_notional');
+    expect(canceled).toBe(true); expect(locksAtCleanup).toBe(0);
+    expect(raw.mock.calls.some(([url]) => String(url).endsWith('/rpc') || String(url).endsWith('/exchange'))).toBe(false);
+  });
   it.each(['platform', 'user', 'strategy'] as const)('rejects a %s-paused new open before evidence quota or provider work', async scope => {
     if (scope === 'strategy') await db.update(schema.copyStrategies).set({ pauseNewRisk: true });
     else await db.update(schema.copyControls).set({ pauseNewRisk: true }).where(eq(schema.copyControls.scope, scope));
@@ -464,13 +499,14 @@ describe('unregistered concrete testnet execution runtime', () => {
     expect(raw.mock.calls.every(([url]) => String(url) === 'https://api.hyperliquid-testnet.xyz/info')).toBe(true);
     expect(await db.select().from(schema.copySignerNonces)).toHaveLength(1);
   });
-  it('denies a signed fixed10 budget at nonzero slippage below the provider minimum before any journal, SDK or POST', async () => {
+  it('denies a signed fixed10 budget at nonzero slippage before any journal, signing RPC or financial POST', async () => {
     // 10 USD at a 100.3 buy limit floors to 0.09 (9.03 USD); rounding up to 0.1
     // (10.03 USD) would pass the copy's own 10 USD with no deployment maximum.
     await actualClockFixture();
     const sign = vi.spyOn(BoundaryPrivyOrderSigningClient.prototype, 'signTypedData');
     await expect(runtime().execute(request())).rejects.toThrow('below_min_notional');
-    expect(sign).not.toHaveBeenCalled(); expect(raw.mock.calls.some(([url]) => String(url).endsWith('/exchange') || String(url).includes('privy.io'))).toBe(false);
+    expect(sign).not.toHaveBeenCalled(); expect(raw.mock.calls.some(([url]) => String(url).endsWith('/exchange') || String(url).endsWith('/rpc'))).toBe(false);
+    expect(raw.mock.calls.filter(([url]) => String(url) === 'https://api.privy.io/v1/wallets/agent')).toHaveLength(1);
     expect(await db.select().from(schema.copyLiveExecutions)).toHaveLength(0); expect(await db.select().from(schema.copySignerNonces)).toHaveLength(0);
   });
   it('holds an order on a deployment whose caps tighten the risk policy (every live one)', async () => {

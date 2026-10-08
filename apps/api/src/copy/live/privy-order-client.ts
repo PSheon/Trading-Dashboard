@@ -58,12 +58,39 @@ async function readSdkBody(response: Response, remaining: () => number, signal: 
  * retries are refused. No client/key-exchange cache survives an invocation. */
 export class BoundaryPrivyOrderSigningClient implements PrivyOrderSigningClient {
   private readonly credentials: Readonly<{ appId: string; appSecret: string }> | null;
+  private walletPrefetch?: { id: string; controller: AbortController; work: Promise<{ wallet: Awaited<ReturnType<PrivyOrderSigningClient['getWallet']>>; checkedAt: number }> };
   constructor(readonly network: HyperliquidNetwork, config: { appId?: string; appSecret?: string }, private readonly fetcher: typeof fetch = fetch, private readonly now = Date.now) {
     if (!isHyperliquidNetwork(network)) fail('privy_order_signing_unavailable');
     this.credentials = config.appId && config.appSecret ? Object.freeze({ appId: config.appId, appSecret: config.appSecret }) : null;
   }
-  async getWallet(id: string): ReturnType<PrivyOrderSigningClient['getWallet']> {
+  prefetchWallet(id: string): void {
+    if (this.walletPrefetch) fail('privy_order_wallet_unavailable');
+    const controller = new AbortController(), checkedAt = this.now();
+    const work = this.readWallet(id, controller.signal).then(wallet => ({ wallet, checkedAt }));
+    void work.catch(() => undefined);
+    this.walletPrefetch = { id, controller, work };
+  }
+  async getWalletObserved(id: string): Promise<{ wallet: Awaited<ReturnType<PrivyOrderSigningClient['getWallet']>>; checkedAt: number }> {
+    if (this.walletPrefetch?.id === id) {
+      const pending = this.walletPrefetch;
+      this.walletPrefetch = undefined;
+      return pending.work;
+    }
+    const checkedAt = this.now();
+    return { wallet: await this.getWallet(id), checkedAt };
+  }
+  async disposeWalletPrefetch(): Promise<void> {
+    const pending = this.walletPrefetch;
+    this.walletPrefetch = undefined;
+    if (pending) { pending.controller.abort(); await pending.work.catch(() => undefined); }
+  }
+  cancelWalletPrefetch(): void { this.walletPrefetch?.controller.abort(); }
+  async getWallet(id: string): ReturnType<PrivyOrderSigningClient['getWallet']> { return this.readWallet(id); }
+  private async readWallet(id: string, signal?: AbortSignal): ReturnType<PrivyOrderSigningClient['getWallet']> {
     const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 10_000);
+    const abort = () => controller.abort();
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) controller.abort();
     timer.unref();
     try {
       walletId(id); if (!this.credentials) throw new Error();
@@ -77,6 +104,7 @@ export class BoundaryPrivyOrderSigningClient implements PrivyOrderSigningClient 
         const url = new URL(input instanceof Request ? input.url : String(input));
         if (url.origin !== 'https://api.privy.io' || url.pathname !== `/v1/wallets/${id}` || url.search || url.hash ||
             (init?.method ?? (input instanceof Request ? input.method : 'GET')) !== 'GET') throw new Error();
+        remaining();
         const responseWork = this.fetcher(input, { ...init, redirect: 'error', signal: AbortSignal.any([
           controller.signal, ...(init?.signal ? [init.signal] : []),
         ]) });
@@ -88,8 +116,11 @@ export class BoundaryPrivyOrderSigningClient implements PrivyOrderSigningClient 
         })();
       } });
       return await boundedLiveRead(() => client.wallets().get(id), 10_000);
-    } catch { fail('privy_order_wallet_unavailable'); }
-    finally { clearTimeout(timer); controller.abort(); }
+    } catch { return fail('privy_order_wallet_unavailable'); }
+    finally {
+      clearTimeout(timer); signal?.removeEventListener('abort', abort);
+      controller.abort();
+    }
   }
   async signTypedData(id: string, rawInput: PrivyOrderSignInput, guard: () => void): Promise<{ encoding: string; signature: string }> {
     const controller = new AbortController(); let timer: NodeJS.Timeout | undefined;

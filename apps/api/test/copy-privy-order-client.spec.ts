@@ -25,6 +25,59 @@ function setup() {
     client: new BoundaryPrivyOrderSigningClient('testnet', { appId: 'fixture-app', appSecret: 'fixture-secret' }, fetcher, () => now) };
 }
 describe('real SDK order RPC boundary (HTTP replaced)', () => {
+  it('overlaps a one-use wallet read and preserves its original observation time', async () => {
+    const s = setup();
+    const wallet = { id: 'agent', chain_type: 'ethereum', address: input().address, owner_id: 'owner', archived_at: null };
+    s.fetcher.mockResolvedValue(Response.json(wallet));
+    s.client.prefetchWallet('agent');
+    s.advance(2900);
+    expect(await s.client.getWalletObserved('agent')).toEqual({ wallet, checkedAt: time });
+    expect(s.fetcher).toHaveBeenCalledTimes(1);
+    s.fetcher.mockResolvedValue(Response.json(wallet));
+    expect((await s.client.getWalletObserved('agent')).checkedAt).toBe(time + 2900);
+    expect(s.fetcher).toHaveBeenCalledTimes(2);
+  });
+  it('does not reuse another wallet or a prefetch for ordinary recovery reads', async () => {
+    const s = setup();
+    s.fetcher.mockImplementation(async url => Response.json({ id: String(url).split('/').at(-1), chain_type: 'ethereum', address: input().address, owner_id: 'owner' }));
+    s.client.prefetchWallet('agent');
+    s.advance(500);
+    expect((await s.client.getWalletObserved('different')).wallet.id).toBe('different');
+    expect((await s.client.getWallet('agent')).id).toBe('agent');
+    expect(s.fetcher).toHaveBeenCalledTimes(3);
+    await s.client.disposeWalletPrefetch();
+  });
+  it('aborts an unused metadata read on preparation refusal without signing', async () => {
+    const s = setup(); let signal: AbortSignal | undefined;
+    s.fetcher.mockImplementation(async (_url, init) => {
+      signal = init!.signal!;
+      return new Promise((_resolve, reject) => signal!.addEventListener('abort', () => reject(new Error('aborted')), { once: true }));
+    });
+    s.client.prefetchWallet('agent');
+    await vi.waitFor(() => expect(signal).toBeDefined());
+    await s.client.disposeWalletPrefetch();
+    expect(signal!.aborted).toBe(true);
+    expect(s.fetcher).toHaveBeenCalledTimes(1);
+  });
+  it('waits for delayed transport cancellation before declaring prefetch disposed', async () => {
+    const s = setup(); let entered = false, canceled = false;
+    s.fetcher.mockImplementation(async (_url, init) => {
+      entered = true;
+      return new Promise((_resolve, reject) => init!.signal!.addEventListener('abort', () => {
+        setTimeout(() => { canceled = true; reject(new Error('cancellation finished')); }, 30);
+      }, { once: true }));
+    });
+    s.client.prefetchWallet('agent');
+    await vi.waitFor(() => expect(entered).toBe(true));
+    await s.client.disposeWalletPrefetch();
+    expect(canceled).toBe(true);
+  });
+  it('never dispatches a wallet GET after cancellation during SDK preparation', async () => {
+    const s = setup();
+    s.client.prefetchWallet('agent');
+    await s.client.disposeWalletPrefetch();
+    expect(s.fetcher).not.toHaveBeenCalled();
+  });
   it('sends one exact authorized testnet agent request with an SDK generated signature header', async () => {
     const s = setup(), guard = vi.fn(() => undefined);
     expect(await s.client.signTypedData('agent', input(), guard)).toEqual({ encoding: 'hex', signature });

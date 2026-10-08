@@ -13,7 +13,7 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 | 7 worker重啟 | #56完整PASS；#51／#49 FAIL保留 | 開倉後重啟、後續跟單、五來源對帳及停止返還credited均通過；原gap120與風控不變 |
 | 8 低於最小單的開倉拒絕 | SKIP；18:55重新查市場仍無標的 | 最新dry-run明確no_refusable_market；原12–15限額不變，無簽署／下單 |
 | 9 三筆快速平倉 | #55完整PASS；歷史FAIL保留 | 原20秒三次领單平倉與對帳期限內通過：4派送、2成交、2筆無剩餘倉位；報表原觀察保留、停止空倉與退款credited均PASS |
-| 14 管理者暫停／恢復／全平 | #59拒開正確；減倉期限／對帳FAIL | platform_paused單次終止已驗證；減倉晚到成交不能改列PASS。48.947499退款credited、resume及權限移除403均確認；#58帶倉全平證據保留 |
+| 14 管理者暫停／恢復／全平 | #60減倉127.95秒超過120秒FAIL；瀏覽器中斷 | 拒開單次終止正確；48.975634已退款、三錢包空倉、零在途與負債，平台恢復、權限移除403均確認；來源與結算共用額度仍待修正，#58帶倉全平證據保留 |
 
 既有隔離回歸基準：登入紀錄修正版API 255檔3,893項、web 181檔1,179項、harness28項PASS。新排程版首跑API 3,893 PASS／1 FAIL；積壓情境補測後相關45項PASS，最終完整API 255檔3,896項PASS。這些結果不能替代上述真實交易驗收；B段尚未全綠。
 
@@ -385,3 +385,30 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 - 新RED1 FAIL／37 PASS；補時間／snapshot／微小反向及缺派送邊界皆先RED，再修正。最終harness38 PASS、syntax／diff check PASS。獨立審查最後確認沒有Critical／Important，並自行重跑38 PASS。
 - 限定證據重驗的updatedFailures為空，原始reconcile文件不修改；原120秒減倉FAIL及#59整輪FAIL仍保留。證據`/private/tmp/codex-admin59-verifier-replay.jsonl`、原始fields私人`codex-admin59-verifier-replay-evidence.json`、`codex-minimum-close-source-{chunks-red,chunks-green,consistency-red,sign-red,dispatch-red}.log`。
 - 完整API原handle仍運行，不因等待重啟；金融服務尚未載入新碼／入金。下一步仍須完整API通過後真實重跑14，並修正base原5秒風控證據期限失敗；Stage／主網未操作。
+
+### 19:55 完整3925 PASS，情境14來源排程修正版複驗啟動
+
+- 原完整API handle正常exit0：255檔3925項PASS，717.87秒，隔離DB已移除。來源排程e85222a4與先前暫停拒開修正均在本次API驗證範圍；harness同訂單分筆證據修正b11c366e另有38項及原成交唯讀重驗。
+- 19:54:24重新唯讀核對所有本機actual active=[]、openFunding／liabilities／unfinishedSetups為0。依原授權暫時啟用四權限；API81660／worker81867 healthy，保持原stage-caps与風控。19:55:02overview200，pauseNewRisk及reduceOnly為false、revision6。
+- 情境14原觀察runner已啟動，私人日誌`/private/tmp/codex-admin14-next.log`，handle72074。尚未有最終結果；入金後不重啟或改編譯API，需完成原退款／恢復與權限及preload移除。共享Chrome登入保留，未修改Stage或主網。
+- 證據`codex-testnet-source-api-all.log`、`codex-admin14-next-{platform-preflight,preflight-money,before-permissions,platform-start}.jsonl`及`codex-admin14-next-{api,worker}-enable.log`。base候選只存在私人唯讀設計筆記，尚未實作，不把此輪稱B全綠。
+
+### 22:15 情境14 #60 FAIL，瀏覽器中斷後已完成原停止退款及權限移除
+
+- 策略60、setup d288b509-5945-4420-a62a-f8a4c4c6e4db，跟單帳戶0x6869b68026deef6c5b8ced5b83bc62e90fe8918c。19:56原兩份簽署／confirm200、50入金／49 credited；19:57:26 active，19:58:46確認真實持倉0.0047 ETH。暫停後加倉platform_paused只拒絕一次，30秒內持倉未增加。
+- 領單19:59:19.698減半；跟單20:01:27.643成交，約127.95秒，原120秒驗收FAIL。獨立testnet來源poll仍因同一live額度隊列live_budget_wait，e85222a4未證實解決真實減倉延遲。保留原期限與限額，不能把晚到成交算PASS。
+- runner在完整對帳讀取瀏覽器token時收到Target page/context/browser closed，20:02:12 exit1；原finally恢復平台並平領單，但未完成原退款與完整五來源對帳。瀏覽器關閉來源尚未證實。22:06官方INFO三個錢包空倉，copy60仍48.975634；SQL未釋放保留額1，原策略active。
+- 22:07:46按既有僅本機testnet情境14授权，以原admin controls close_positions建立停止，response201 complete；當時已空倉，不當成帶倉緊急全平證據。22:10:17確認worker監聽PID不存在，恢復缺失worker94534，繼續原journal與停止結算，未重新開倉／改金融資料。
+- 22:14:04.029原退款48.975634 credited。22:15:10 SQL策略60 stopped；openFunding／liabilities／unfinishedSetups均0。官方INFO主錢包103.629693、copy60為0、領單22.925927 testUSDC，三者positions=[]。22:15:09原controls resume201，平台恢復。
+- 零在途後移除四項臨時管理權限及所有私人preload，API98247／worker98450原stage-caps healthy；22:15:45管理overview403。先前sandbox內health=false不等同服務死亡，恢復worker前用監聽PID缺失判定。Stage／主網未操作。
+- 本轮只補原中斷清理，不改寫#60 FAIL；B仍5 PASS／1 SKIP／2 FAIL。下一步可在空倉下修正base5秒風控期限內的串行讀取耗時，以及來源與結算共用額度造成的延遲，再完整複驗。
+
+### 22:27 Base #57候選：僅testnet的request-scoped錢包metadata並行讀取
+
+- 原#57 generation checkedAt至最後檢查5085ms FAIL不改寫。將原約620ms的Privy wallet GET與provider準備並行，沒有改任何原時間戳、5秒期限、限額、簽署或POST gate。只在原prepare current authority、canonical source、baseline／generation檢查完成後啟動；disabled owner仍完全不發network。
+- 每attempt建立自己的BoundaryPrivyOrderSigningClient；same-wallet一次消費原GET開始時間的observation，SDK JSON不能帶入timestamp。普通getWallet、leverage及historical仍維持原fresh GET；mainnet不啟用預讀。signer仍檢查id／owner／address／chain／archive、所有local／exchange／lease／proof及actualRPC freshness，超過原5秒拒簽，不能重蓋時間。
+- 原prefetch adapter三項RED後GREEN，signer原觀察stale／identity／成功六項RED後GREEN。runtime首RED測試fixture需沿用既有零滑價才能成交，修正fixture後確定RED為實際evidence先於wallet，整合後GREEN。
+- 獨立review抓到abort wrapper提前完成；延遲transport取消回歸RED canceled=false後修正GREEN。inner finally同步abort，outer finally在原scope釋放SQL鎖之後等待原bounded SDK/header/body鏈收尾；真實SQL回歸驗證metadata延遲40ms清理時advisory locks=0。仍保留原10秒read deadline，不能宣稱不合作transport任意時長皆可完整drain。
+- 首完整相關177項175 PASS／2 FAIL：disabled owner之前metadata過早已移至prepare檢查後並保留完全零network；below-minimum舊測試禁止全部SDK，依此唯讀並行需求改為明確驗證1次metadata GET、零journal／nonce／signing RPC／financial POST，不放寬原金融拒絕。
+- 最終相關4檔195項PASS（96.45秒），tsc含測試／7檔oxlint／build／diff check PASS，獨立adapter／signer／runtime／prepare review無Critical或Important。隔離DB已移除。私人log codex-wallet-prefetch-{runtime-red,runtime-green,admission,targeted,targeted-final}.log。
+- 22:27完整API新handle已啟動，私人log codex-wallet-prefetch-api-all.log，尚未有最終結果；本機金融runtime仍沿用前版本、零在途，未載入新碼或入金，Stage／主網未操作。完整通過後才真實base複驗；目前B仍5 PASS／1 SKIP／2 FAIL，不能將候選列成效能已修。

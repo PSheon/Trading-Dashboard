@@ -206,6 +206,7 @@ export class LiveExecutionRuntime {
     let prepaid = credit.weight;
     credit.weight = 0;
     const scope = new PostgresLiveRiskScope(this.pool, this.now);
+    let metadataClient: BoundaryPrivyOrderSigningClient | undefined;
     try { return await scope.run({ userId: request.userId, network: this.network, accountAddress,
       source: { network: routing.mandate.sourceNetwork, leaderAddress } }, async (_scope, session) => this.global.runOriginal(session, async () => {
       // Resolve global configuration against the original private context before
@@ -236,6 +237,8 @@ export class LiveExecutionRuntime {
       // and the risk providers, and each wave goes out as one meter charge.
       const epoch = new LiveProviderReadEpoch(observer, resolver, provider, this.options, this.now, { acquire: prepay, fetcher: this.global.fetchInfo,
         batch: (bodies, onDispatch) => this.global.fetchInfoBatch(WALLET_NETWORKS[this.network].infoUrl, bodies, { maxWaitMs: 0, onDispatch: () => { onDispatch(); return undefined; } }) });
+      const signingClient = new BoundaryPrivyOrderSigningClient(this.network, { appId: app.auth.appId, appSecret: app.auth.appSecret }, fetch, this.now);
+      metadataClient = signingClient;
       try {
         const existing = await this.existing(session, request, key);
         // Explicit recovery of a crash between the journal's commit and the
@@ -267,7 +270,6 @@ export class LiveExecutionRuntime {
           existing?.record.authorization.id ?? routing.mandate.authorizationId),
           reusedApproval(new HyperliquidAgentApprovalVerifier(this.network, acquire, this.global.fetchInfo, this.now), this.now), this.now);
         const gate = new AccountRiskExecutionGate(binding.proofSource, this.now);
-        const signingClient = new BoundaryPrivyOrderSigningClient(this.network, { appId: app.auth.appId, appSecret: app.auth.appSecret }, fetch, this.now);
         const signingAuthorization = async () => {
           session.scope.assertFresh();
           const authority = await session.read(db => loadLivePreparationAuthority(session, db, request, this.now()));
@@ -285,7 +287,11 @@ export class LiveExecutionRuntime {
         }
         const authority = await session.read(db => loadLivePreparationAuthority(session, db, request, this.now()));
         this.signingConfiguration(authority.consent.workerQuorumId);
-        const preparation = new PostgresLivePreparation(observer, resolver, provider, this.options, this.now, epoch, this.hooks.reference);
+        // Only metadata: original local and exchange authorization, wallet
+        // identity and final five-second RPC guards still run at signing.
+        // A fresh invocation owns this one-use read and its original timestamp.
+        const preparation = new PostgresLivePreparation(observer, resolver, provider, this.options, this.now, epoch, this.hooks.reference,
+          this.network === 'testnet' && !existing ? walletId => signingClient.prefetchWallet(walletId) : undefined);
         let prepared: Awaited<ReturnType<PostgresLivePreparation['prepare']>>;
         try { prepared = await preparation.prepare(session, request); }
         catch (error) {
@@ -334,6 +340,7 @@ export class LiveExecutionRuntime {
           completedAt >= oldest && completedAt - oldest <= 5000, 'live_risk_stale');
         return result;
       } finally {
+        signingClient.cancelWalletPrefetch();
         // A leverage-only preview may end the epoch before its other reads.
         // Return only prepaid weight which that private epoch never sent.
         const shared = epoch.sharedReads(session);
@@ -342,7 +349,12 @@ export class LiveExecutionRuntime {
         // live. This source is never reused by a successor execution scope.
         provider.close(); await sockets.close();
       }
-    })); } finally { credit.weight += prepaid; }
+    })); } finally {
+      credit.weight += prepaid;
+      // The original scope has closed before any unused read drains. A slow
+      // provider cancellation cannot keep financial SQL locks or sign later.
+      await metadataClient?.disposeWalletPrefetch();
+    }
   }
   /** Rejects a prepared journal that holds no reservation (so was never
    * signed) and skips its leg, in one transaction; null when it is not one. */

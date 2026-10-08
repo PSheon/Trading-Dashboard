@@ -52,10 +52,31 @@ function setup(finalGate: LiveExecutionGate = gate, approval: ExchangeApprovalVe
   const resolver = { network: 'testnet' as const, resolve: async () => ({ ...market, observedAt: clock() }),
     resolveAsset: async () => ({ ...market, observedAt: clock() }) };
   const acquire = vi.fn(async (_weight: number) => {});
-  return { wallet, get, signTypedData, signer, fetcher, auth, acquire, resolver,
+  return { client, wallet, get, signTypedData, signer, fetcher, auth, acquire, resolver,
     transport: new HyperliquidLiveTransport("testnet", signer, finalGate, fetcher, 10_000, clock, { marketResolver: resolver, acquire }) };
 }
 function reply(body: unknown) { return new Response(JSON.stringify(body), { status: 200 }); }
+describe('prefetched wallet identity at the real signer boundary', () => {
+  it('rejects the original observation older than five seconds instead of restamping it', async () => {
+    const s = setup();
+    s.client.getWalletObserved = async () => ({ wallet: s.wallet, checkedAt: now - 5001 });
+    await expect(s.transport.sign(record, intent, lease)).rejects.toMatchObject({ cause: { code: 'privy_wallet_identity_stale' } });
+    expect(s.signTypedData).not.toHaveBeenCalled();
+  });
+  it.each([{ id: 'foreign' }, { owner_id: 'foreign' }, { address: `0x${'33'.repeat(20)}` }, { archived_at: now }])('refuses changed prefetched identity %j before RPC', async override => {
+    const s = setup();
+    s.client.getWalletObserved = async () => ({ wallet: { ...s.wallet, ...override }, checkedAt: now - 3000 });
+    await expect(s.transport.sign(record, intent, lease)).rejects.toMatchObject({ cause: { code: 'privy_wallet_identity_mismatch' } });
+    expect(s.signTypedData).not.toHaveBeenCalled();
+  });
+  it('signs with fresh original prefetched identity while retaining local and exchange authorization', async () => {
+    const s = setup();
+    s.client.getWalletObserved = async () => ({ wallet: s.wallet, checkedAt: now - 3000 });
+    await s.transport.sign(record, intent, lease);
+    expect(s.get).not.toHaveBeenCalled();
+    expect(s.signTypedData).toHaveBeenCalledTimes(1);
+  });
+});
 function statusReply(status = "open", overrides = {}) {
   return { status: "order", order: { status, statusTimestamp: now, order: { coin: 'BTC', reduceOnly: false, tif: 'Ioc', cloid: intent.cloid, side: "B", origSz: "0.01", sz: "0.01", limitPx: "65000", oid: 10, ...overrides } } };
 }

@@ -6,7 +6,14 @@ Paul 已確認沿用 Orbie 風格。14:05本機重新登入，以正確 `?view=r
 
 狀態以最後一次驗證為準：手機介面與全域模式已發布 Stage；10/08 資金數字修正已進 dev，本輪未手動部署 Stage。CI 通過不代表 testnet 交易驗收全通過。Claude 舊稽核中未重新驗證的項目另列，避免混入目前確定仍存在的問題。
 
-## 10/09 01:52 最新狀態
+## 10/09 02:43 最新狀態（優先於下列歷史紀錄）
+
+- 通知 close／手機 touch dismiss 已在真實 hydrated Browser 通過；Sonner 與原 Dialog／Drawer 可各自正常操作，hover、背景與 Escape 已驗證。證據：`.claude/screenshots/ui-toast-radix-2026-10-09/browser-report.json`。
+- 手機 paper 訂單狀態、cohort 排序／明細、footer 與浮動導航間距、settings 操作區、chart 期間44px／鍵盤控制，已完成390／320px實際畫面驗證；fixture 與真實 paper 資料分開記錄。
+- #39 已入金設定安全中止仍在開發／測試，不能列已解決；全域跨網路路由仍有部署架構限制。最新 UI 變更未公開推送／部署。
+- 固定 `4b0f55bf` API257檔4,010項 PASS；第65輪領單七步已成交，但跟單仍遇串行 settlement＋預算等待，整輪尚未完成。保留原B段5 PASS／1 SKIP／2 FAIL。
+
+## 10/09 01:52 狀態紀錄
 
 以下旧檢視與失敗紀錄保留作比較；本段優先於舊統計。`78433e6f` 與 `8117cc13` 已在本機 dev 提交，尚未推送／部署。完整前端193檔1,263項 PASS；固定 `5a864335` API255檔3,975項 PASS。這些數字不替代交易實測。
 

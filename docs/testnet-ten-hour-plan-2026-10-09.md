@@ -2,6 +2,21 @@
 
 Paul 於台北時間 2026-10-08 23:58 前後授權再投入十小時，至 2026-10-09 09:58。接續原本機 testnet 測試，不操作主網；Stage 發布與本機驗收分開記錄。沿用 Orbie 風格，保留原 50 USDC／固定每筆 12–15／槓桿 3／最多兩筆限制及所有證據、訊號與對帳期限。
 
+## 02:43 更新（工作仍進行）
+
+- 固定 `4b0f55bf` 的獨立 snapshot：257 API 檔／4,010 項 PASS，1,843 個 tracked blob 前後與 commit 相同，隔離 DB 已移除；同版 API build PASS。修正未實際發送 HTTP 卻扣住本機預算，以及 batch 等待忽略 abort 時越過原期限；未放寬 5 秒證據、120 秒來源時限或配額。
+- 第65輪正使用該固定 runtime；七步領單均已成交，領單最後平倉後無倉。跟單端核對、提款與停止退款尚未完成，不能列 PASS。首筆來源在領單後約25.5秒讀到，POST約66.6秒、ACK約67.4秒、settlement約117.3秒；同時的第二筆 fill 才開始，剩餘時限不足以等待本機預算，未 POST 而遭拒。正在分析 settlement 串行與背景查詢耗用，保留原失敗。
+- `0c49fc6d` 通知修正已完成真正 hydrated Browser 驗收：桌機 close 與手機 touch dismiss 均不關閉原 Dialog／Drawer，hover 保留、背景點擊與 Escape 正常；金融 POST 為零。手機 paper／cohort、footer、settings、390／320px 邊界驗收通過；`a89675a1` cohort chart 使用共用44px與鍵盤期間控制，測試 fixture 型別補正已通過。
+- #39 安全中止尚未完成：前後端已補永久原設定 barrier、原入金／唯一返還與 reload 讀回進度；持久 worker、HTTP／DI 與實際情境仍在補測。未套用實際 DB migration，也未混入第65輪 runtime。portfolio 不再對已中止設定提供舊 restart／cancel／top-up，parent 整合14項 PASS。
+- 本輪仍未推送或部署；原B段5 PASS／1 SKIP／2 FAIL，不能用單元測試或領單成交數取代。
+
+## 02:50 第65輪收尾
+
+- 領單七步 PASS，跟單對帳 FAIL（缺 dispatch、兩筆不允許拒絕、倉位／資產不符）。原提款10於35秒左右確認 credited；原停止四項全 PASS，返還39.042829已 credited，未延長驗收期限、未使用手動 receipt 補救。
+- 02:46:49–52 獨立唯讀：全部 actual 已停止、在途資金／未釋放額度／未完成設定零；main98.727773、copy65零、leader22.026635，三者無倉；admin403。證據 `/private/tmp/codex-base65-final-{money.jsonl,balances.jsonl,admin.log}`。
+- 同 coin 後筆除了 FIFO，也受原 generation projection「前筆 reservation 已釋放、settled leg、完整 settlement proof」約束。不能只拿掉排隊或把 ACK 當完成。首筆正常查詢／送單／核對約731 weight，兩 fill 約1462，尚未包含 source 與 reporting；400/min 的吞吐仍須減少重複查詢。
+- 這次失敗前的6305ms final-check已有明確診斷 `exchange_approval_unavailable`，後 journal 被收斂為 `exchange_order_never_placed`；仍不能從總時間推斷 budget／HTTP 各占多久。正在修同一訂單內、原5秒證據窗口的授權讀取重用，保留原 checkedAt、SQL撤銷／expiry／rotation檢查及真正POST前 freshness。後台唯讀查詢優先序另行回歸。
+
 ## 起點
 
 - 第62輪一般流程失敗：領單只執行兩步後因終止失敗提前中止，不能算完整七步。首筆跟單於領單後73.64秒成交；另一成交訊號過期，後續加倉遇配額等待。

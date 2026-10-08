@@ -14,7 +14,7 @@ it('changes the cohort chart period with one named keyboard tab stop', async () 
   const root = createRoot(container);
   function Chart() {
     const [window, setWindow] = useState<CohortWindow>('7d');
-    return <I18nProvider locale="en" messages={catalogs.en}><PositioningChart title="Positioning" series={[]} btc={[]} window={window} onWindow={setWindow} /><output>{window}</output></I18nProvider>;
+    return <I18nProvider locale="en" messages={catalogs.en}><PositioningChart title="Positioning" series={[]} btc={[]} window={window} onWindow={setWindow} loading={false} latest={null} emptyHint="No positioning data" /><output>{window}</output></I18nProvider>;
   }
   try {
     await act(async () => root.render(<Chart />));

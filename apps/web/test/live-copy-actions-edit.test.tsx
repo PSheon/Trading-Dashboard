@@ -60,7 +60,7 @@ it.each([false, true])('keeps an aborted setup read-only even when rollout capab
 const originalChange = { id: '11111111-1111-4111-8111-111111111111', kind: 'edit', strategyId: 7, accountId: 'acct', stage: 'cancelled', abortRequested: true };
 it('after explicitly requesting an abort, closing before a server refresh never offers another deposit', async () => {
   state.network = 'testnet'; state.setupAbort = true;
-  const original = { ...originalChange, kind: 'start', stage: 'provisioning', abortRequested: false, fundingStatus: null };
+  const original = { ...originalChange, kind: 'start', stage: 'provisioning', abortRequested: false, fundingStatus: 'prepared' };
   await act(async () => root.render(<I18nProvider locale="en" messages={catalogs.en}><LiveCopyActions item={{ ...(item as object), network: 'testnet', stage: 'needs_deposit', setup: original } as never} strategy={null} /></I18nProvider>));
   const find = (label: string) => [...container.querySelectorAll('button')].find(button => button.textContent === label);
   expect(find(liveSetupMessages.en.topUp)).toBeTruthy();

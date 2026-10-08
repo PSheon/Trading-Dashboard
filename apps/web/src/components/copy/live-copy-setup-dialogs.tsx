@@ -1,5 +1,7 @@
 "use client";
 
+import { canRequestSetupAbort } from '@/lib/live-setup-abort-eligibility';
+
 import { Check, Circle, LoaderCircle, TriangleAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "cn";
@@ -231,7 +233,7 @@ export function LiveCopyProgress({ setupId, open, onOpenChange, onRetry, onConse
         {cancelError ? <p role="alert" className="text-xs text-negative">{cancelError}</p> : null}
         {!finished && !stopped && !consentLapsed && !provisioning ? <p className="text-xs leading-5 text-muted-foreground">{text.closeSafeWorker}</p> : null}
         <div className="flex flex-col gap-2.5">
-          {setup && !finished && deployment?.setupAbort === true ? <Button type="button" variant="secondary" className="min-h-11 w-full" onClick={() => setAbortState({ id: setup.id, open: true, chosen: false })}>{t(setup.kind === 'start' ? 'liveCopyUi.abortAction' : 'liveCopyUi.abortChange')}</Button> : null}
+          {setup && !finished && canRequestSetupAbort(setup) && deployment?.setupAbort === true ? <Button type="button" variant="secondary" className="min-h-11 w-full" onClick={() => setAbortState({ id: setup.id, open: true, chosen: false })}>{t(setup.kind === 'start' ? 'liveCopyUi.abortAction' : 'liveCopyUi.abortChange')}</Button> : null}
           {deposited && !finished && deployment?.setupAbort !== true ? <p className="text-xs leading-5 text-muted-foreground">{t('liveCopyUi.abortUnavailable')}</p> : null}
           {setup && !setupTerminal(setup) ? <Link href={`/portfolio?view=real&setupId=${encodeURIComponent(setup.id)}`} onClick={() => onOpenChange(false)} className="flex min-h-11 items-center justify-center rounded-full px-3 text-sm font-bold text-primary-text outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">{t('liveCopyUi.resumeProgress')}</Link> : null}
           {finished ? <Link href="/portfolio" onClick={() => onOpenChange(false)} className="orbit-press flex min-h-12 w-full items-center justify-center rounded-full bg-primary px-6 font-display text-base text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">{text.portfolio}</Link> : null}

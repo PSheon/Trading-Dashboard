@@ -1,5 +1,7 @@
 "use client";
 
+import { canRequestSetupAbort } from '@/lib/live-setup-abort-eligibility';
+
 import { useState } from "react";
 import type { LiveCopySetup, LiveCopyStrategy } from "@trading-dashboard/shared/contracts";
 
@@ -94,7 +96,7 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
       {lapsed ? <p className="text-xs text-muted-foreground">{text.consentLapsedHint}</p> : null}
       <div className="flex flex-wrap items-center gap-2">
         {abortRequested && item.setup ? <Button size="sm" className="min-h-11" onClick={() => setAbortId(item.setup!.id)}>{t('liveCopyUi.abortRefresh')}</Button> : null}
-        {!abortRequested && abortCandidate && deployment?.setupAbort === true ? <Button size="sm" variant="secondary" className="min-h-11" disabled={busy} onClick={() => setAbortId(abortCandidate.id)}>{t(abortCandidate.kind === 'start' ? 'liveCopyUi.abortAction' : 'liveCopyUi.abortChange')}</Button> : null}
+        {!abortRequested && abortCandidate && canRequestSetupAbort(abortCandidate) && deployment?.setupAbort === true ? <Button size="sm" variant="secondary" className="min-h-11" disabled={busy} onClick={() => setAbortId(abortCandidate.id)}>{t(abortCandidate.kind === 'start' ? 'liveCopyUi.abortAction' : 'liveCopyUi.abortChange')}</Button> : null}
         {unfinished && !lapsed && !abortRequested ? <Button size="sm" onClick={() => setProgressId(unfinished.id)}>{text.continueSetup}</Button> : null}
         {legacySetupActions && (stopped || lapsed) ? <Button size="sm" loading={actions.restart.isPending} disabled={busy && !actions.restart.isPending} onClick={() => restart((stopped ?? lapsed)!.id)}>{text.restart}</Button> : null}
         {legacySetupActions && (stopped || lapsed) ? <Button size="sm" variant="secondary" loading={actions.cancel.isPending} disabled={busy && !actions.cancel.isPending} onClick={() => cancel((stopped ?? lapsed)!.id)}>{text.cancelSetup}</Button> : null}

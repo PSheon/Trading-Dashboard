@@ -25,7 +25,7 @@ import { liveAccountExposureSql } from './live-account-exposure.js';
 import { HyperliquidAllDexsAccountSource, PerReadAllDexsAccountSource } from './live-account-ws-source.js';
 import { HyperliquidLiveAccountObserver } from './live-account-observer.js';
 import { HyperliquidLiveMarketResolver, type LiveMarketResolver } from './live-market-resolver.js';
-import { LIVE_ORDER_BOUNDARY_WEIGHT, liveEvidencePrepaidWeight, type LiveSharedReads } from './live-shared-reads.js';
+import { LIVE_ORDER_BOUNDARY_WEIGHT, liveEvidencePrepaidWeight, type LiveSharedReads, type LiveInfoBatch } from './live-shared-reads.js';
 import { HyperliquidLiveRiskProvider } from './live-risk-provider.js';
 import { LiveProviderReadEpoch } from './live-provider-read-epoch.js';
 import { PostgresLiveReservations } from './postgres-live-reservations.js';
@@ -106,6 +106,10 @@ function epochMarkets(resolver: HyperliquidLiveMarketResolver, shared: () => Liv
     catch (error) { if (error instanceof LiveBoundaryError && ['live_risk_stale', 'market_evidence_expired'].includes(error.code)) return work(); throw error; }
   };
   return { network: resolver.network, resolve: coin => fallback(value => resolver.resolve(coin, value)), resolveAsset: asset => fallback(value => resolver.resolveAsset(asset, value)) };
+}
+export function originalLiveInfoBatch(network: HyperliquidNetwork, global: HyperliquidGlobalTransport, assertFresh: () => void): LiveInfoBatch {
+  return (bodies, onDispatch, signal) => global.fetchInfoBatch(WALLET_NETWORKS[network].infoUrl, bodies,
+    { maxWaitMs: 0, signal, onDispatch: () => { assertFresh(); onDispatch(); return signal; } });
 }
 /** One copy order on the deployment's network (HYPERLIQUID_NETWORK): every
  * read, signature and order of this runtime is on `network`, and it refuses an
@@ -237,7 +241,7 @@ export class LiveExecutionRuntime {
       // One order's evidence reads are shared by the observer, the resolver
       // and the risk providers, and each wave goes out as one meter charge.
       const epoch = new LiveProviderReadEpoch(observer, resolver, provider, this.options, this.now, { acquire: prepay, fetcher: this.global.fetchInfo,
-        batch: (bodies, onDispatch) => this.global.fetchInfoBatch(WALLET_NETWORKS[this.network].infoUrl, bodies, { maxWaitMs: 0, onDispatch: () => { onDispatch(); return undefined; } }) });
+        batch: originalLiveInfoBatch(this.network, this.global, () => session.scope.assertFresh()) });
       const signingClient = new BoundaryPrivyOrderSigningClient(this.network, { appId: app.auth.appId, appSecret: app.auth.appSecret }, fetch, this.now);
       metadataClient = signingClient;
       try {

@@ -15,7 +15,7 @@ export function liveInfoWeight(body: Readonly<Record<string, unknown>>): number 
 export const liveInfoWeights = (bodies: readonly Readonly<Record<string, unknown>>[]) => bodies.reduce((sum, body) => sum + liveInfoWeight(body), 0);
 /** Several reads sent together under ONE shared-meter charge
  * (`HyperliquidGlobalTransport.fetchInfoBatch`); `onDispatch` runs as they go out. */
-export type LiveInfoBatch = (bodies: readonly Readonly<Record<string, unknown>>[], onDispatch: () => void) => Promise<Response[]>;
+export type LiveInfoBatch = (bodies: readonly Readonly<Record<string, unknown>>[], onDispatch: () => void, signal: AbortSignal) => Promise<Response[]>;
 /** A body's identity, whatever its key order. */
 const keyOf = (body: Readonly<Record<string, unknown>>) => JSON.stringify(Object.keys(body).sort().map(key => [key, body[key]]));
 /** The account-mode reads a dedicated standard account is proven by. */
@@ -111,7 +111,6 @@ export class LiveSharedReads {
   /** Each send is paid from what was paid ahead, or acquired now: inside the
    * clock, waiting no longer than the evidence has left. */
   private async spend(weight: number): Promise<void> {
-    this.sentWeight += weight;
     const short = weight - this.#credit;
     this.#credit = Math.max(0, this.#credit - weight);
     if (short > 0) await this.pay(short, this.#startedAt === undefined ? undefined : { maxWaitMs: this.fresh() }).then(() => { this.#credit -= short; });
@@ -127,12 +126,60 @@ export class LiveSharedReads {
       if (!last || last.length >= MAX_BATCH_BODIES || weight + w > MAX_EVIDENCE_CHARGE) { chunks.push([body]); weight = w; }
       else { last.push(body); weight += w; }
     }
-    return Promise.all(chunks.map(chunk => {
-      if (this.batch && chunk.length > 1) return this.batch(chunk, onDispatch);
+    const controller = new AbortController(), signal = controller.signal;
+    const deadline = (this.#startedAt ?? this.now()) + this.maxAgeMs;
+    const timeout = new LiveBoundaryError('live_read_deadline_exceeded');
+    let closed = false;
+    const timer = setTimeout(() => controller.abort(timeout), Math.max(1, deadline - this.now()));
+    timer.unref?.();
+    // A canceled operation settles even if a native provider ignores its
+    // signal. Its dispatch callback remains fenced, so a late quota permit
+    // cannot send after the caller has refunded unused weight.
+    const bounded = <T>(start: () => Promise<T>): Promise<T> => new Promise((resolve, reject) => {
+      const abort = () => { signal.removeEventListener('abort', abort); reject(signal.reason); };
+      signal.addEventListener('abort', abort, { once: true });
+      if (signal.aborted) { abort(); return; }
+      let work: Promise<T>;
+      try { work = start(); } catch (error) { work = Promise.reject(error); }
+      void work.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
+    });
+    const dispatched = (weight: number) => {
+      signal.throwIfAborted();
+      if (closed) throw new LiveBoundaryError('live_risk_stale');
+      if (this.now() >= deadline) { controller.abort(timeout); signal.throwIfAborted(); }
+      if (this.#startedAt !== undefined) this.fresh();
       onDispatch();
-      return Promise.all(chunk.map(body => boundedLiveRead(() => this.fetcher(this.#endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(this.fresh()) }), this.fresh())));
-    })).then(lists => lists.flat());
+      this.fresh();
+      this.sentWeight += weight;
+    };
+    let firstFailure: { reason: unknown } | undefined;
+    const work = chunks.map(async chunk => {
+      if (this.batch) return bounded(() => this.batch!(chunk, () => dispatched(liveInfoWeights(chunk)), signal));
+      return Promise.all(chunk.map(body => {
+        // Start the first-wave clock before deriving this request's deadline.
+        // Record its weight only at the call boundary, after serialization.
+        const serialized = JSON.stringify(body);
+        return bounded(() => {
+          dispatched(liveInfoWeight(body));
+          return this.fetcher(this.#endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: serialized, redirect: 'error', signal });
+        });
+      }));
+    }).map(work => work.catch(reason => {
+      firstFailure ??= { reason };
+      throw reason;
+    }));
+    // A refused chunk must not let the caller refund a sibling that can still
+    // dispatch. Every chunk settles before sentWeight becomes final for refund.
+    return Promise.allSettled(work).then(results => {
+      if (firstFailure) throw firstFailure.reason;
+      return results.flatMap(result => result.status === 'fulfilled' ? result.value : []);
+    }).finally(() => {
+      closed = true;
+      if (firstFailure) { clearTimeout(timer); controller.abort(firstFailure.reason); }
+      // Successful HTTP headers may precede their response bodies. Keep the
+      // same deadline signal alive for decoding; never refresh that deadline.
+    });
   }
   /** The epoch clock: every reader's evidence is no older than this. */
   get startedAt(): number {

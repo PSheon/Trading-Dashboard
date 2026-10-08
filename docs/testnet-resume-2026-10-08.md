@@ -367,3 +367,12 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 - 此為驗證器與回歸修正，不修改#59原始reconcile或120秒減倉FAIL；尚未據此重跑真實情境，B仍未全綠。
 
 獨立審查最終確認無剩餘Critical／Important，並自行核對37項PASS；多筆成交或同毫秒證據不明時保守保留direction_mismatch，不將原#59改列PASS。
+
+### 19:42 testnet來源排程修正，完整回歸開始
+
+- #59的來源讀取與前一筆對帳額度等待串行，領單加倉／減倉晚進來源。新增僅testnet、worker已啟動且有order pass在執行時的獨立來源輪詢，仍用原間隔、原來源客戶端與額度。只讀／保存來源證據；不啟動策略、不enqueue、不執行／簽署／送單／結算。原交易pass維持串行、新鮮身份與風控。
+- worker輪詢以單一in-flight旗標避免重疊，由BackgroundJobs追蹤退出；同一testnet來源在一般pass與旁路共用in-flight防護、finally釋放。mainnet保留原CAS保護的feed讀取，不走新路徑。
+- 初始worker2 FAIL／6 PASS，修正後加真實SQL身份、失敗重試、不重複來源讀取、停止／主網限制等回歸。首輪39 PASS；獨立審查抓到共享游標安全問題，已用真實SQL先RED再修正：以active策略選streams，但傳入所有未到期mandates做最早游標計算，保留paused策略需要的區段。最終2檔40 PASS；隔離DB皆刪除。TypeScript含測試、4檔oxlint、build及diff check PASS。
+- 獨立審查最終無Critical／Important，但指出來源與收據仍共用原live額度隊列；並行嘗試不能保證預算不足時取得額度，因此真實14複驗仍必要，不能把單元PASS當修好120秒減倉。
+- 完整API隔離回歸已開始，日誌`/private/tmp/codex-testnet-source-api-all.log`，尚未完成。所有原碼風控5秒、簽署／對帳期限與12–15每單限額不變；金融服務尚未載入新碼或重新入金。本輪前已驗證退款、空倉、平台resume與臨時四權限移除403。
+- 私人證據`codex-testnet-source-{concurrency-red,concurrency-final,cursor-red,cursor-sql-red,types,lint,build}.log`。未公開推送或部署，Stage及主網未操作；B仍5 PASS／1 SKIP／2 FAIL。

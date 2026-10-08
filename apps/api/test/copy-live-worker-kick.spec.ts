@@ -7,7 +7,7 @@ import { testConfig } from './config-test-utils.js';
 const T0 = 1_790_000_000_000, leader = `0x${'44'.repeat(20)}`, G = 2000;
 afterEach(() => { vi.useRealTimers(); });
 
-function setup() {
+function setup(network?: 'testnet' | 'mainnet') {
   const log: string[] = [];
   let releasePass: (() => void) | undefined, followUp: number | null = null;
   const engine = {
@@ -16,14 +16,55 @@ function setup() {
     signal: vi.fn(async (who: string) => { log.push(`signal ${who} @${Date.now() - T0}`); return true; }),
     workLeader: vi.fn(async (who: string) => { log.push(`kick ${who} @${Date.now() - T0}`); }),
     audit: vi.fn(async (who: string) => { log.push(`audit ${who}`); return []; }),
+    pollTestnetSources: vi.fn(async () => {}),
     tick: vi.fn(async () => { log.push(`pass start @${Date.now() - T0}`); await new Promise<void>(resolve => { releasePass = resolve; }); log.push('pass end'); }),
   };
-  const service = new CopyLiveWorkerService(testConfig(), new BackgroundJobs(), engine as unknown as CopyLiveEngine);
+  const original = testConfig();
+  const config = network ? { value: { ...original.value, copy: { ...original.value.copy, live: { network } } } } as unknown as typeof original : original;
+  const service = new CopyLiveWorkerService(config, new BackgroundJobs(), engine as unknown as CopyLiveEngine);
   service.start(3_600_000);
   return { service, engine, log, releasePass: () => releasePass?.(), setFollowUp: (at: number) => { followUp = at; } };
 }
 
 describe('copy live worker: realtime kicks', () => {
+  it('keeps testnet source reads moving during a blocked order pass without overlapping order passes', async () => {
+    vi.useFakeTimers({ now: T0 });
+    const { service, engine, releasePass } = setup('testnet');
+    const pass = service.tick();
+    await Promise.resolve();
+    await service.tick();
+    expect(engine.pollTestnetSources).toHaveBeenCalledTimes(1);
+    expect(engine.tick).toHaveBeenCalledTimes(1);
+    service.onModuleDestroy();
+    engine.tick.mockResolvedValue(undefined);
+    releasePass(); await pass;
+  });
+
+  it('does not overlap testnet polls and never starts a poll after shutdown', async () => {
+    vi.useFakeTimers({ now: T0 });
+    const { service, engine, releasePass } = setup('testnet');
+    let releasePoll!: () => void;
+    engine.pollTestnetSources.mockImplementation(() => new Promise<void>(resolve => { releasePoll = resolve; }));
+    const pass = service.tick(); await Promise.resolve();
+    const poll = service.tick(); await Promise.resolve();
+    await service.tick();
+    expect(engine.pollTestnetSources).toHaveBeenCalledTimes(1);
+    service.onModuleDestroy();
+    releasePoll(); await poll;
+    await service.tick();
+    expect(engine.pollTestnetSources).toHaveBeenCalledTimes(1);
+    engine.tick.mockResolvedValue(undefined);
+    releasePass(); await pass;
+  });
+
+  it('keeps mainnet source scheduling on its existing feed path', async () => {
+    vi.useFakeTimers({ now: T0 });
+    const { service, engine, releasePass } = setup('mainnet');
+    const pass = service.tick(); await Promise.resolve(); await service.tick();
+    expect(engine.pollTestnetSources).not.toHaveBeenCalled();
+    service.onModuleDestroy(); engine.tick.mockResolvedValue(undefined);
+    releasePass(); await pass;
+  });
   it('reads a leader once its feed trade is G old, even during a pass; its orders wait for the pass', async () => {
     vi.useFakeTimers({ now: T0 });
     const { service, engine, log, releasePass } = setup();

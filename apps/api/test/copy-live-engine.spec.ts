@@ -42,7 +42,7 @@ const filled: Runtime = async (request, hooks) => {
   return { key, state: 'filled' } as LiveExecutionRecord;
 };
 
-function engine(extra: Partial<LiveEngineDependencies> = {}) {
+function engine(extra: Partial<LiveEngineDependencies> = {}, testnetSourceIntervalMs = 60_000) {
   return new CopyLiveEngine({
     network: 'testnet', repository: new CopyLiveWorkerRepository(db, new UnitOfWork(db), testConfig()), sources: new CopyLiveSourceRepository(db), uow: new UnitOfWork(db),
     watched: new WatchedMainnetSource(db, () => clock),
@@ -50,7 +50,7 @@ function engine(extra: Partial<LiveEngineDependencies> = {}) {
     runtime: hooks => ({ execute: request => runtimeImpl(request, hooks) }),
     settler: { settle: async request => { settleCalls.push(request); return settleImpl(request); } },
     ...extra,
-  }, { testnetSourceIntervalMs: 60_000, sourceLagMs: 0, passBudgetMs: 60_000 }, () => clock);
+  }, { testnetSourceIntervalMs, sourceLagMs: 0, passBudgetMs: 60_000 }, () => clock);
 }
 /** The leader's REST-confirmed mainnet fill, as the market watcher stores it. */
 async function leaderFill(tid: number, time: number, side: 'B' | 'A', sz: string, startPosition: string, coin = 'BTC') {
@@ -85,6 +85,72 @@ beforeEach(async () => {
 afterAll(async () => { await closeTestDb(); });
 
 describe('testnet copy execution engine', () => {
+  async function activeTestnetSource() {
+    await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+    await db.update(schema.copyLiveStrategyConfigs).set({ sourceNetwork: 'testnet' });
+    await db.update(schema.copyLiveMandates).set({ sourceNetwork: 'testnet', intent: seed.consent, intentDigest: mandateDigest(seed.consent) });
+  }
+
+  it('polls active testnet source evidence without executing, settling, activating or driving setups', async () => {
+    await activeTestnetSource();
+    const read = vi.fn(async () => null);
+    const setups = { tick: vi.fn(async () => 0) }, stopper = { tick: vi.fn(async () => {}) };
+    const run = engine({ testnetSource: { read } as never, setups, stopper });
+    await run.pollTestnetSources();
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(runtimeCalls).toHaveLength(0); expect(settleCalls).toHaveLength(0);
+    expect(setups.tick).not.toHaveBeenCalled(); expect(stopper.tick).not.toHaveBeenCalled();
+    expect(await dispatches()).toHaveLength(0);
+  });
+
+  it('shares a testnet stream in-flight guard between the source poll and ordinary ingestion, releasing it after failure', async () => {
+    await activeTestnetSource();
+    let rejectRead!: (error: Error) => void;
+    const read = vi.fn(() => new Promise<never>((_, reject) => { rejectRead = reject; }));
+    const run = engine({ testnetSource: { read } as never }, 3000);
+    const pending = run.pollTestnetSources();
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+    const repository = new CopyLiveWorkerRepository(db, new UnitOfWork(db), testConfig());
+    const mandates = await repository.mandates(clock);
+    const stream = repository.streams(mandates).find(s => s.network === 'testnet')!;
+    expect(await run.ingest(stream, mandates)).toBeNull();
+    await run.pollTestnetSources();
+    expect(read).toHaveBeenCalledTimes(1);
+    rejectRead(new LiveBoundaryError('live_source_read_unavailable')); await pending;
+    clock += 3001;
+    read.mockImplementation(async () => null as never);
+    await run.pollTestnetSources();
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(runtimeCalls).toHaveLength(0);
+  });
+
+  it('does not poll a mainnet leader or an inactive mandate through the separate testnet path', async () => {
+    const read = vi.fn(async () => null);
+    const run = engine({ testnetSource: { read } as never });
+    await run.pollTestnetSources();
+    expect(read).not.toHaveBeenCalled();
+    await activeTestnetSource();
+    await db.update(schema.copyStrategies).set({ status: 'stopping' });
+    await run.pollTestnetSources();
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it('keeps paused generations in shared-source cursor accounting while selecting only active streams', async () => {
+    await activeTestnetSource();
+    const repository = new CopyLiveWorkerRepository(db, new UnitOfWork(db), testConfig());
+    const [active] = await repository.mandates(clock);
+    const paused = { ...active!, mandateId: 'paused-generation', strategyStatus: 'paused', cursor: new Date(now - 60_000) };
+    vi.spyOn(repository, 'mandates').mockResolvedValue([active!, paused]);
+    await db.insert(schema.copyLiveSourceStreams).values({ id: `testnet:${leader}`, network: 'testnet', leaderAddress: leader,
+      state: 'ready', coverageFrom: new Date(now - 60_000), coverageThrough: new Date(now - 40_000), coverageDigest: 'a'.repeat(64) });
+    const read = vi.fn(async (_request: { from: number }) => null);
+    const run = engine({ repository, testnetSource: { read } as never });
+    await run.pollTestnetSources();
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(read.mock.calls[0]![0].from).toBe(now - 40_000 + 1);
+    const [stream] = await db.select().from(schema.copyLiveSourceStreams).where(eq(schema.copyLiveSourceStreams.id, `testnet:${leader}`));
+    expect(stream!.coverageThrough!.getTime()).toBe(now - 40_000);
+  });
   it.each(['platform_paused', 'user_paused', 'strategy_paused', 'platform_reduce_only', 'user_reduce_only', 'strategy_reduce_only'])('terminates an unsent %s open once and permits the following reduction', async reason => {
     const run = engine(); await credit(); await coverage(now - 10_000, now + 5000); await run.tick();
     const initial = await leaderFill(901, now + 100, 'B', '1', '0');

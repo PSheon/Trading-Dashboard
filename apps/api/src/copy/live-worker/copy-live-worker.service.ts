@@ -23,6 +23,7 @@ export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDe
   private readonly logger = new Logger(CopyLiveWorkerService.name);
   private timer: ReturnType<typeof setInterval> | undefined;
   private running = false;
+  private testnetPolling = false;
   private started = false;
   /** The regular pass was asked for (its interval came round) and not run yet. */
   private passDue = false;
@@ -121,6 +122,14 @@ export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDe
   async tick(): Promise<void> {
     if (this.jobs.stopping || !this.engine) return;
     this.passDue = true;
+    // A long order/receipt quota wait must not stop collecting later testnet
+    // signals. Only evidence ingestion overlaps; all order passes stay serial.
+    if (this.started && this.running && !this.testnetPolling && this.config.value.copy.live?.network === 'testnet') {
+      this.testnetPolling = true;
+      try { await this.jobs.run(() => this.engine!.pollTestnetSources()); }
+      catch (error) { this.logger.error(`Testnet source poll failed: ${safeErrorText(error)}`); }
+      finally { this.testnetPolling = false; }
+    }
     await this.drain();
   }
 

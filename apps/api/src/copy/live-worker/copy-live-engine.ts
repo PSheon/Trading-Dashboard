@@ -122,8 +122,25 @@ const reasonOf = (error: unknown) => errorCode(error);
 export class CopyLiveEngine {
   private readonly lastTestnetRead = new Map<string, number>();
   private readonly lastFastRead = new Map<string, number>();
+  private readonly ingesting = new Set<string>();
   constructor(private readonly deps: LiveEngineDependencies, private readonly options: LiveEngineOptions = DEFAULT_ENGINE_OPTIONS,
     private readonly now: () => number = Date.now) {}
+
+  /** Source evidence only, beside a blocked order/settlement pass. No setup,
+   * activation, dispatch work, signing or settlement authority runs here.
+   * The ordinary pass still enqueues and executes with fresh original risk. */
+  async pollTestnetSources(): Promise<void> {
+    if (this.deps.network !== 'testnet') return;
+    const mandates = await this.deps.repository.mandates(this.now());
+    const eligible = mandates.filter(m =>
+      m.sourceNetwork === 'testnet' && m.activated && m.strategyStatus === 'active');
+    // Select active streams, but preserve every unexpired generation's
+    // required cursor when deciding whether shared coverage can restart.
+    for (const stream of this.deps.repository.streams(eligible)) {
+      try { await this.ingest(stream, mandates); }
+      catch (error) { this.deps.log?.(`source ${stream.network}:${stream.leaderAddress} not read: ${reasonOf(error)}`); }
+    }
+  }
 
   async tick(): Promise<void> {
     const started = this.now();
@@ -263,6 +280,16 @@ export class CopyLiveEngine {
   /** Extends one leader stream's proven coverage up to (almost) now; with
    * `fast`, from the fast source (the watched one when it has nothing). */
   async ingest(stream: LiveStreamWork, mandates: readonly LiveMandateWork[], fast = false): Promise<IngestOutcome | null> {
+    // Mainnet retains its existing CAS-protected feed/poll concurrency.
+    if (stream.network !== 'testnet') return this.ingestOriginal(stream, mandates, fast);
+    const key = `${stream.network}:${stream.leaderAddress}`;
+    if (this.ingesting.has(key)) return null;
+    this.ingesting.add(key);
+    try { return await this.ingestOriginal(stream, mandates, fast); }
+    finally { this.ingesting.delete(key); }
+  }
+
+  private async ingestOriginal(stream: LiveStreamWork, mandates: readonly LiveMandateWork[], fast: boolean): Promise<IngestOutcome | null> {
     const { network, leaderAddress } = stream, key = `${network}:${leaderAddress}`, now = this.now();
     if (network === 'testnet' && now - (this.lastTestnetRead.get(key) ?? 0) < this.options.testnetSourceIntervalMs) return null;
     let current = await this.deps.uow.run(tx => this.deps.sources.ensure(tx, leaderAddress, network));

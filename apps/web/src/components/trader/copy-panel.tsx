@@ -336,7 +336,7 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName }: 
     <>
       <LiveCopyConfirm setup={setup} traderName={traderName} open={confirmOpen} onOpenChange={(open) => { if (!live.confirm.isPending) setConfirmOpen(open); }}
         onConfirm={() => void confirmTestnet()} pending={live.confirm.isPending || live.start.isPending || live.restart.isPending} error={confirmError}
-        note={live.confirmPhase === "attaching" ? liveText.attachingSigner : null} />
+        note={live.confirmPhase === "wallet" ? liveText.errors.wallet_not_ready : live.confirmPhase === "attaching" ? liveText.attachingSigner : null} />
       <LiveCopyProgress setupId={progressId} open={progressId !== null} onOpenChange={(open) => { if (!open) setProgressId(null); }}
         onConsent={reviewSetup} onRetry={(ended) => void restartTestnet(ended)} />
     </>

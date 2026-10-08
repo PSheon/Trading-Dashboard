@@ -197,6 +197,57 @@ test("refusableCoin picks a coin whose fixed amount falls under the minimum and 
 import { mock } from 'node:test';
 import { createRequire } from 'node:module';
 import { launch, confirmFromPortfolio } from './follower.mjs';
+
+function confirmationPage(alerts, completeAt) {
+  const responses = [];
+  let ticks = 0, clicks = 0;
+  const action = { waitFor: async () => {}, isVisible: async () => true, click: async () => { clicks++; } };
+  const confirm = {
+    getByTestId: () => ({ waitFor: async () => {}, innerText: async () => 'testnet · 50 USDC' }),
+    getByRole: role => role === 'alert' ? { count: async () => alerts[ticks - 1] ? 1 : 0, innerText: async () => alerts[ticks - 1] } : action,
+  };
+  const cards = { first: () => action, count: async () => 1, nth: () => action, filter() { return this; } };
+  const page = {
+    on: (event, handler) => { if (event === 'response') responses.push(handler); }, off: () => {},
+    route: async () => {}, unroute: async () => {}, goto: async () => {},
+    getByTestId: name => name === 'live-copy-card' ? cards : { waitFor: async () => {}, getByRole: () => action },
+    getByRole: () => confirm,
+    waitForTimeout: async () => {
+      ticks++;
+      if (ticks === completeAt) for (const handler of responses) await handler({
+        url: () => 'http://localhost:3100/me/copy/live/setups/test-setup/confirm', status: () => 200,
+        json: async () => ({ data: { stage: 'funding_submitted' } }),
+      });
+    },
+  };
+  return { page, ticks: () => ticks, clicks: () => clicks };
+}
+
+test('confirmation waits for the response without repeating the confirm action', async () => {
+  const browser = confirmationPage([], 3);
+  const result = await confirmFromPortfolio(browser.page, { web: 'http://localhost:3000', setupId: 'test-setup' });
+  assert.equal(result.outcome, 'confirmed');
+  assert.equal(result.confirmStatus, 200);
+  assert.equal(browser.ticks(), 3);
+  // Card, resume and confirm each once; never a second signing/deposit click.
+  assert.equal(browser.clicks(), 3);
+});
+
+test('confirmation still fails immediately for a terminal signing alert', async () => {
+  const browser = confirmationPage(['已取消簽署。'], 3);
+  const result = await confirmFromPortfolio(browser.page, { web: 'http://localhost:3000', setupId: 'test-setup' });
+  assert.equal(result.outcome, 'alert');
+  assert.equal(result.alert, '已取消簽署。');
+  assert.equal(browser.ticks(), 1);
+});
+
+test('confirmation does not conceal a wallet readiness error as successful waiting', async () => {
+  const browser = confirmationPage(['錢包仍在載入，準備好後設定會自動繼續。'], 3);
+  const result = await confirmFromPortfolio(browser.page, { web: 'http://localhost:3000', setupId: 'test-setup' });
+  assert.equal(result.outcome, 'alert');
+  assert.equal(result.confirmStatus, null);
+  assert.equal(browser.ticks(), 1);
+});
 const webRequire = createRequire(new URL('../../apps/web/package.json', import.meta.url));
 test('a supplied CDP endpoint attaches to the shared browser without starting another Chrome', async () => {
   const { chromium } = webRequire('@playwright/test');

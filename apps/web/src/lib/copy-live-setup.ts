@@ -142,6 +142,8 @@ export function useLiveCopySetupActions() {
   // The session as it is now (a sign-in or account switch mid-flow aborts).
   const latest = useRef(auth);
   useLayoutEffect(() => { latest.current = auth; });
+  const mounted = useRef(true);
+  useLayoutEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const keys = () => scopedKeys(liveSetupScope(latest.current.identity));
   const keyFor = (name: string) => { const map = keys(); let value = map.get(name); if (!value) { value = crypto.randomUUID(); map.set(name, value); } return value; };
   const forget = (name: string) => keys().delete(name);
@@ -157,7 +159,7 @@ export function useLiveCopySetupActions() {
   const owner = () => {
     const current = latest.current, wallet = current.wallet, identity = current.identity, session = sessionKey();
     if (!wallet || !liveCopyEnabled(current)) throw new Error('owner_wallet_unavailable');
-    return { wallet, assertSame: () => { if (latest.current.identity !== identity || latest.current.wallet?.address !== wallet.address || sessionKey() !== session) throw new Error('live_session_changed'); } };
+    return { wallet, assertSame: () => { if (!mounted.current || !liveCopyEnabled(latest.current) || latest.current.identity !== identity || latest.current.wallet?.address !== wallet.address || sessionKey() !== session) throw new Error('live_session_changed'); } };
   };
   /** Preparation is idempotent: while the wallet or agent is still being
    * made, the same request is sent again (a few seconds at most). */
@@ -180,11 +182,27 @@ export function useLiveCopySetupActions() {
     mutationFn: async ({ strategyId }: { strategyId: number }) => prepare(`renew:${strategyId}`, key => api.post(`${ROOT}/strategies/${strategyId}/renew`, { idempotencyKey: key })),
   });
   /** What confirm is waiting for, for the sheet to say (adding the worker signer can take a while). */
-  const [confirmPhase, setConfirmPhase] = useState<'attaching' | null>(null);
+  const [confirmPhase, setConfirmPhase] = useState<'wallet' | 'attaching' | null>(null);
+  const readyOwner = async (setup: LiveCopySetup) => {
+    const identity = latest.current.identity, session = sessionKey(), deadline = Date.now() + 30_000;
+    for (;;) {
+      const current = latest.current;
+      if (!mounted.current || current.identity !== identity || sessionKey() !== session || !liveCopyEnabled(current)) throw new Error('live_session_changed');
+      if (current.wallet?.address) {
+        if (!setup.consent || current.wallet.address.toLowerCase() !== setup.consent.ownerAddress.toLowerCase()) throw new Error('live_session_changed');
+        return owner();
+      }
+      if (Date.now() >= deadline) throw new Error('owner_wallet_unavailable');
+      setConfirmPhase('wallet');
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  };
   const confirm = useMutation({
     mutationFn: async (setup: LiveCopySetup) => {
-      const { wallet, assertSame } = owner();
-      const body = await signSetup(setup, (data, options) => wallet.signTypedData(data, options));
+      let ready: ReturnType<typeof owner>;
+      try { ready = await readyOwner(setup); } finally { setConfirmPhase(null); }
+      const { wallet, assertSame } = ready;
+      const body = await signSetup(setup, (data, options) => { assertSame(); return wallet.signTypedData(data, options); });
       assertSame();
       setConfirmPhase('attaching');
       // Declined or timed out: throws, so no /confirm is sent and nothing is deposited.

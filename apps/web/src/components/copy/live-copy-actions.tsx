@@ -111,7 +111,7 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
       ) : null}
       <LiveCopyConfirm setup={pendingSetup} open={pendingSetup !== null} onOpenChange={(open) => { if (!open && !actions.confirm.isPending) setPendingSetup(null); }}
         onConfirm={() => void confirm()} pending={actions.confirm.isPending || actions.restart.isPending} error={confirmError}
-        note={actions.confirmPhase === "attaching" ? text.attachingSigner : null} />
+        note={actions.confirmPhase === "wallet" ? text.errors.wallet_not_ready : actions.confirmPhase === "attaching" ? text.attachingSigner : null} />
       <LiveCopyProgress setupId={progressId} open={progressId !== null} onOpenChange={(open) => { if (!open) setProgressId(null); }}
         onConsent={review} onRetry={(setup) => { setProgressId(null); restart(setup); }} />
     </div>

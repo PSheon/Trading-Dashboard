@@ -10,8 +10,8 @@ import { liveSetupMessages } from '@/i18n/live-setup';
 import { LOCALES } from '@/i18n/config';
 import { signSetup, useLiveCopySetup, useLiveCopySetupActions } from '@/lib/copy-live-setup';
 
-const state = vi.hoisted(() => ({ post: vi.fn(), get: vi.fn(), patch: vi.fn(), sign: vi.fn(), addSigners: vi.fn(), identity: 'owner@email', session: '1' }));
-vi.mock('@/lib/auth', () => ({ useAuth: () => ({ status: 'signedIn', mode: 'privy', identity: state.identity, wallet: { address: `0x${'11'.repeat(20)}`, signTypedData: state.sign, addSigners: state.addSigners } }) }));
+const state = vi.hoisted(() => ({ post: vi.fn(), get: vi.fn(), patch: vi.fn(), sign: vi.fn(), addSigners: vi.fn(), identity: 'owner@email', session: '1', address: `0x${'11'.repeat(20)}` as string | null }));
+vi.mock('@/lib/auth', () => ({ useAuth: () => ({ status: 'signedIn', mode: 'privy', identity: state.identity, wallet: { address: state.address, signTypedData: state.sign, addSigners: state.addSigners } }) }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh() {}, push() {} }), usePathname: () => '/trader', useSearchParams: () => new URLSearchParams() }));
 vi.mock('@/lib/api', async () => ({ ApiError: (await vi.importActual<typeof import('@/lib/api')>('@/lib/api')).ApiError, api: { get: state.get, post: state.post, patch: state.patch }, sessionKey: () => state.session }));
 
@@ -38,7 +38,7 @@ function ProgressProbe({ id }: { id: string }) { const value = useLiveCopySetup(
 // The idempotency keys live for the page (a module store): a fresh person per test.
 let person = 0;
 beforeEach(async () => {
-  vi.clearAllMocks(); state.identity = `owner-${++person}@email`; state.session = '1';
+  vi.clearAllMocks(); state.identity = `owner-${++person}@email`; state.session = '1'; state.address = `0x${'11'.repeat(20)}`;
   state.sign.mockImplementation(async () => `0x${'ab'.repeat(65)}`);
   state.addSigners.mockImplementation(async () => undefined);
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
@@ -46,6 +46,107 @@ beforeEach(async () => {
   await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale="en" messages={catalogs.en}><Probe /></I18nProvider></QueryClientProvider>));
 });
 afterEach(async () => { await act(async () => root.unmount()); client.clear(); container.remove(); });
+
+async function renderActions() {
+  await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale="en" messages={catalogs.en}><Probe /></I18nProvider></QueryClientProvider>));
+}
+
+it('waits for the original owner wallet before signing exactly one confirmation', async () => {
+  state.address = null; await renderActions();
+  state.post.mockResolvedValue(setup('start', 'funding_submitted'));
+  let done: Promise<unknown>;
+  await act(async () => { done = probe.current!.confirm.mutateAsync(setup()).catch(error => error); await new Promise(resolve => setTimeout(resolve, 20)); });
+  const earlySignCount = state.sign.mock.calls.length;
+  state.address = `0x${'11'.repeat(20)}`; await renderActions();
+  let result: unknown;
+  await act(async () => { result = await done!; });
+  expect(earlySignCount).toBe(0);
+  expect(result).toMatchObject({ stage: 'funding_submitted' });
+  expect(state.sign).toHaveBeenCalledTimes(2);
+  expect(state.addSigners).toHaveBeenCalledTimes(1);
+  expect(state.post).toHaveBeenCalledTimes(1);
+});
+
+it('aborts wallet readiness waiting when the login session changes', async () => {
+  state.address = null; await renderActions();
+  state.post.mockResolvedValue(setup('start', 'funding_submitted'));
+  let done: Promise<unknown>;
+  await act(async () => { done = probe.current!.confirm.mutateAsync(setup()).catch(error => error); await new Promise(resolve => setTimeout(resolve, 20)); });
+  state.session = 'replacement'; state.address = `0x${'11'.repeat(20)}`; await renderActions();
+  let result: unknown;
+  await act(async () => { result = await done!; });
+  expect(result).toBeInstanceOf(Error);
+  expect((result as Error).message).toBe('live_session_changed');
+  expect(state.sign).not.toHaveBeenCalled();
+  expect(state.addSigners).not.toHaveBeenCalled();
+  expect(state.post).not.toHaveBeenCalled();
+});
+
+it('never confirms with a ready wallet different from the consented owner', async () => {
+  state.address = `0x${'99'.repeat(20)}`; await renderActions();
+  await act(async () => { await expect(probe.current!.confirm.mutateAsync(setup())).rejects.toThrow('live_session_changed'); });
+  expect(state.sign).not.toHaveBeenCalled();
+  expect(state.addSigners).not.toHaveBeenCalled();
+  expect(state.post).not.toHaveBeenCalled();
+});
+
+it('wallet readiness has a bounded wait and cannot sign after the component leaves', async () => {
+  state.address = null; await renderActions();
+  let done: Promise<unknown>;
+  await act(async () => { done = probe.current!.confirm.mutateAsync(setup()).catch(error => error); await new Promise(resolve => setTimeout(resolve, 20)); });
+  await act(async () => root.render(null));
+  state.address = `0x${'11'.repeat(20)}`;
+  let result: unknown;
+  await act(async () => { result = await done!; });
+  expect((result as Error).message).toBe('live_session_changed');
+  expect(state.sign).not.toHaveBeenCalled();
+  expect(state.post).not.toHaveBeenCalled();
+});
+
+it('wallet readiness times out without signatures or a deposit request', async () => {
+  vi.useFakeTimers();
+  try {
+    state.address = null; await renderActions();
+    let done: Promise<unknown>;
+    await act(async () => { done = probe.current!.confirm.mutateAsync(setup()).catch(error => error); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_001); });
+    expect((await done! as Error).message).toBe('owner_wallet_unavailable');
+    expect(state.sign).not.toHaveBeenCalled();
+    expect(state.addSigners).not.toHaveBeenCalled();
+    expect(state.post).not.toHaveBeenCalled();
+  } finally { vi.useRealTimers(); }
+});
+
+it.each(['unmount', 'session'] as const)('does not sign the deposit after %s during the consent signature', async change => {
+  let finishSign!: (signature: string) => void;
+  state.sign.mockImplementationOnce(() => new Promise<string>(resolve => { finishSign = resolve; }));
+  state.post.mockResolvedValue(setup('start', 'funding_submitted'));
+  let done: Promise<unknown>;
+  await act(async () => { done = probe.current!.confirm.mutateAsync(setup()).catch(error => error); await new Promise(resolve => setTimeout(resolve, 20)); });
+  expect(state.sign).toHaveBeenCalledTimes(1);
+  if (change === 'unmount') await act(async () => root.render(null));
+  else { state.session = 'replacement'; await renderActions(); }
+  let result: unknown;
+  await act(async () => { finishSign(`0x${'ab'.repeat(65)}`); result = await done!; });
+  expect((result as Error).message).toBe('live_session_changed');
+  expect(state.sign).toHaveBeenCalledTimes(1);
+  expect(state.addSigners).not.toHaveBeenCalled();
+  expect(state.post).not.toHaveBeenCalled();
+});
+
+it('does not submit confirmation after unmount during addSigners', async () => {
+  let finishAttach!: () => void;
+  state.addSigners.mockImplementationOnce(() => new Promise<void>(resolve => { finishAttach = resolve; }));
+  state.post.mockResolvedValue(setup('start', 'funding_submitted'));
+  let done: Promise<unknown>;
+  await act(async () => { done = probe.current!.confirm.mutateAsync(setup()).catch(error => error); await new Promise(resolve => setTimeout(resolve, 20)); });
+  expect(state.addSigners).toHaveBeenCalledTimes(1);
+  await act(async () => root.render(null));
+  let result: unknown;
+  await act(async () => { finishAttach(); result = await done!; });
+  expect((result as Error).message).toBe('live_session_changed');
+  expect(state.post).not.toHaveBeenCalled();
+});
 
 it('signs the setup consent and the deposit without Privy’s modal, and only those two', async () => {
   const sign = vi.fn(async () => `0x${'ab'.repeat(65)}`);

@@ -292,10 +292,16 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     expect(exchangeBodies[2]).toMatchObject({ action: { orders: [{ b: true, s: '0.19', r: false }] } });
     expect((await db.select().from(schema.copyStrategies))[0]).toMatchObject({ status: 'active' });
   });
-  it('refuses the open when the testnet mid strays from mainnet beyond the threshold; nothing is signed or sent', async () => {
+  it('refuses excessive cross-network price deviation before signing RPC, nonce, journal or financial POST', async () => {
     const e = engine('120'); await e.tick(); await leaderOpens(); await e.tick();
     expect(exchangeBodies).toHaveLength(0);
     expect((await db.select().from(schema.copyLiveDispatches))[0]).toMatchObject({ state: 'refused', reason: 'live_source_price_deviation' });
-    expect(raw.mock.calls.some(([url]) => String(url).includes('privy.io'))).toBe(false);
+    const privy = raw.mock.calls.filter(([url]) => String(url).includes('privy.io'));
+    expect(privy).toHaveLength(1);
+    expect(String(privy[0]![0])).toBe('https://api.privy.io/v1/wallets/agent');
+    expect(privy[0]![1]?.method).toBe('GET');
+    expect(await db.select().from(schema.copySignerNonces)).toHaveLength(0);
+    expect(await db.select().from(schema.copyLiveExecutions)).toHaveLength(0);
+    expect(await db.select().from(schema.copyLiveRiskReservations)).toHaveLength(0);
   });
 });

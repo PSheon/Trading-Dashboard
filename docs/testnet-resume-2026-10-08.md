@@ -412,3 +412,10 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 - 首完整相關177項175 PASS／2 FAIL：disabled owner之前metadata過早已移至prepare檢查後並保留完全零network；below-minimum舊測試禁止全部SDK，依此唯讀並行需求改為明確驗證1次metadata GET、零journal／nonce／signing RPC／financial POST，不放寬原金融拒絕。
 - 最終相關4檔195項PASS（96.45秒），tsc含測試／7檔oxlint／build／diff check PASS，獨立adapter／signer／runtime／prepare review無Critical或Important。隔離DB已移除。私人log codex-wallet-prefetch-{runtime-red,runtime-green,admission,targeted,targeted-final}.log。
 - 22:27完整API新handle已啟動，私人log codex-wallet-prefetch-api-all.log，尚未有最終結果；本機金融runtime仍沿用前版本、零在途，未載入新碼或入金，Stage／主網未操作。完整通過後才真實base複驗；目前B仍5 PASS／1 SKIP／2 FAIL，不能將候選列成效能已修。
+
+### 22:43 完整API首跑3937 PASS／1 FAIL，e2e metadata預期修正後7 PASS
+
+- 原handle78352正常exit1，255檔254 PASS／1 FAIL、3938項3937 PASS／1 FAIL（732.29秒），隔離DB已移除。唯一失敗copy-live-e2e原price deviation案例禁止所有Privy讀取；原dispatch refused/live_source_price_deviation及零金融POST均已通過。保留本次FAIL，不稱原完整run綠。
+- 僅更新該測試：同一price deviation觸發及原門檻不變，只允許一次exact wallet endpoint GET，任何RPC／額外Privy請求／不同method仍失敗；保留零exchangeBodies，加強零nonce／journal／risk reservation。無production改動、未放寬任何風控。
+- 單獨完整e2e7項PASS（16.62秒），獨立review確認未掩蓋price deviation bypass、無Critical／Important，tsc含測試及該檔lint通過。證據codex-wallet-prefetch-api-all.log、codex-wallet-prefetch-e2e-green.log。22:43開始第二次完整API，codex-wallet-prefetch-api-all-final.log；結果仍待確認，新碼尚未載入金融服務／未入金。
+- 22:32情境8原12–15限額dry-run明確no_refusable_market，仍SKIP；22:33:22真實CDP自有context登入user14、network testnet、automaticExecution=true／actualAllowed=true、active=[]。context已關閉（CDP pages=[]），只讀script因CDP socket保留而未退出，核對後僅終止自有script PID11086，沒有關閉共用Chrome或金融服務。

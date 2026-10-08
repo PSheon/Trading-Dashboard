@@ -2,7 +2,7 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const ru: Messages = {
-  liveCopyUi: en.liveCopyUi,
+  liveCopyUi: { ...en.liveCopyUi, fixedTradeAlreadyClaimed: "Для этой исходной сделки лидера уже есть запрос на копирование. Этот запрос не продублирует её; результат исполнения подтверждается фактическими записями." },
   referral: {
     policyInactive: "Политика наград неактивна. Показанные условия не дают текущего права на награды.",
     invalidCode: "Код приглашения недоступен",

@@ -38,7 +38,7 @@ function ActivityView({ account }: { account: CopyExecutionAccount }) {
         <div className="flex flex-wrap justify-between gap-2"><span className="font-semibold">{item.coin} · {t(`copyFollowerStatement.${item.kind}`)}</span><time dateTime={item.time} className="text-muted-foreground">{format.dateTime(item.time)}</time></div>
         <p className="mt-2 break-all font-mono font-semibold tabular-nums">{formatFollowerAmount(item.tradingCashDelta)}</p>
         <p className="mt-1 text-muted-foreground">{t('copyFollowerStatement.tradingCashDelta')} · {t(`copyFollowerStatement.${item.attribution}`)}</p>
-        <details className="mt-3"><summary className="cursor-pointer font-semibold focus-visible:outline-2 focus-visible:outline-ring">{t('copyFollowerActivity.details')}</summary>
+        <details className="mt-3"><summary className="min-h-11 cursor-pointer py-3 font-semibold focus-visible:outline-2 focus-visible:outline-ring">{t('copyFollowerActivity.details')}</summary>
           <dl className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
             {item.kind === 'fill' ? <>
               <div><dt className="text-muted-foreground">{t('copyFollowerStatement.fill')}</dt><dd>{t(`copyFollowerActivity.${item.side === 'B' ? 'buy' : 'sell'}`)}</dd></div>

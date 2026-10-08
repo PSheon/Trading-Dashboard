@@ -2,6 +2,7 @@ import type { Messages } from "./index";
 
 export const en: Messages = {
   liveCopyUi: {
+    "fixedTradeAlreadyClaimed": "This original leader trade already has a copy request. This request will not duplicate it; the fill outcome is confirmed by actual receipts.",
     abortTitle: "Safely end this setup",
     abortAction: "End setup and return funds",
     abortChange: "Cancel this change",

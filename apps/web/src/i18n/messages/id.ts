@@ -2,7 +2,7 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const id: Messages = {
-  liveCopyUi: en.liveCopyUi,
+  liveCopyUi: { ...en.liveCopyUi, fixedTradeAlreadyClaimed: "Transaksi asli trader ini sudah punya permintaan copy. Permintaan ini tidak akan menggandakannya; hasil pengisian dikonfirmasi lewat catatan aktual." },
   referral: {
     policyInactive: "Kebijakan hadiah tidak aktif. Ketentuan yang ditampilkan tidak memberikan kelayakan memperoleh hadiah saat ini.",
     invalidCode: "Kode undangan tidak tersedia",

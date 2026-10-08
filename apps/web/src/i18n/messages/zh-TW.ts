@@ -5,6 +5,7 @@
  */
 export const zhTW = {
   liveCopyUi: {
+    "fixedTradeAlreadyClaimed": "這筆原始領單成交已有跟單請求，這次不重複跟單；成交結果以實際收據為準。",
     abortTitle: "安全中止這份設定",
     abortAction: "中止設定並返還資金",
     abortChange: "取消這次變更",

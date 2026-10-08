@@ -2,7 +2,7 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const tr: Messages = {
-  liveCopyUi: en.liveCopyUi,
+  liveCopyUi: { ...en.liveCopyUi, fixedTradeAlreadyClaimed: "Bu ilk lider işlemi için zaten bir kopyalama talebi var. Bu talep işlemi tekrarlamaz; gerçekleşme sonucu gerçek kayıtlardan doğrulanır." },
   referral: {
     policyInactive: "Ödül politikası etkin değil. Gösterilen koşullar şu anda ödül kazanma hakkı vermez.",
     invalidCode: "Davet kodu kullanılamıyor",

@@ -17,6 +17,7 @@ import { useExecutionWallets } from '@/lib/copy-execution-wallets';
 import { useCopyFollowerSnapshot } from '@/lib/copy-follower-snapshot';
 import { useLiveCopyOverview } from '@/lib/copy-live';
 import { CopyIconButton } from '@/components/wallet/bits';
+import { CopyFollowerActivity } from '@/components/copy/copy-follower-activity';
 import { LiveCopyStopAction } from '@/components/copy/copy-live-stop';
 import { useLeaders } from '@/components/copy/copy-portfolio';
 import { TraderAvatar, boardName } from '@/components/discover/board-bits';
@@ -34,7 +35,8 @@ import { useToast } from '@/components/ui/toast';
 import { ErrorState } from '@/components/page';
 import { cn } from '@/lib/utils';
 import { LiveCopyProgress, useCopyTexts, useLiveSetupText } from '@/components/copy/live-copy-setup-dialogs';
-import { copyCodeText, copyErrorText } from '@/lib/copy-error-text';
+import { copyDispatchReasonText } from '@/lib/copy-dispatch-reason';
+import { copyErrorText } from '@/lib/copy-error-text';
 import { useFundsHistory } from '@/lib/funds';
 import { isCopyReturn, liveNetDeposits, livePnl } from '@/lib/copy-net-deposits';
 
@@ -259,6 +261,10 @@ function LiveCopyCard({ item, leader, account, onOpen, onEquity, previous = fals
 function LiveCopySheet({ item, text, leader, account, mandate, strategy, onClose }: { item: LiveCopyItem; text: LiveCopiesText; leader: Leader; account: CopyExecutionAccount | null; mandate: LiveCopyMandate | null; strategy: LiveCopyStrategy | null; onClose: () => void }) {
   const { t } = useI18n(), auth = useAuth();
   const running = item.stage === 'active' || item.stage === 'paused' || item.stage === 'starting';
+  // Load receipt history only for this drawer's exact owned-account binding.
+  const historyAccount = account && account.id === item.accountId && account.strategyId === item.strategyId &&
+    account.network === item.network && /^0x[0-9a-fA-F]{40}$/.test(account.address ?? '') &&
+    account.address?.toLowerCase() === item.accountAddress?.toLowerCase() ? account : null;
   return (
     <Drawer open onOpenChange={(open) => { if (!open) onClose(); }} title={boardName(leader)}>
       <div className="flex flex-col gap-4" data-testid="live-copy-sheet">
@@ -272,6 +278,7 @@ function LiveCopySheet({ item, text, leader, account, mandate, strategy, onClose
             <p className="mt-1 flex flex-wrap items-center gap-1"><span>{t(item.sourceNetwork === 'testnet' && item.network === 'testnet' && item.leaderAddress.toLowerCase() === '0xb56719305c461afd0de51b9e5b7146fe045553e1' ? 'liveCopyUi.testLeaderWallet' : 'liveCopyUi.leaderWallet')}:</span><Link href={`/trader/${item.leaderAddress}`} className="font-semibold text-primary-text hover:underline">{truncateAddress(item.leaderAddress)}</Link><CopyIconButton value={item.leaderAddress} /></p>
           </details>
         ) : null}
+        {historyAccount ? <CopyFollowerActivity account={historyAccount} /> : null}
       </div>
     </Drawer>
   );
@@ -320,7 +327,7 @@ function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; te
   const maxAmount = withdrawable !== null && Number(withdrawable) > 0 ? floorCents(withdrawable) : null;
   const validAmount = AMOUNT.test(amount) && Number(amount) > 0 && (maxAmount === null || Number(amount) <= Number(withdrawable));
   // A refusal code is never shown as is: its own words, else a plain line.
-  const reason = item.lastRefusal ? (item.lastRefusal.reason === 'live_source_price_deviation' ? text.priceDeviation : copyCodeText(texts, item.lastRefusal.reason) ?? texts.extra.refusal) : null;
+  const reason = item.lastRefusal ? (item.lastRefusal.reason === 'live_source_price_deviation' ? text.priceDeviation : copyDispatchReasonText(texts, item.lastRefusal.reason, t)) : null;
   // The worker returns this account's funds by itself after a stop (no
   // signature): 自動返還中 instead of the 全部返還主錢包 button. A copy
   // that ended before it ever ran (a start that failed after its deposit)

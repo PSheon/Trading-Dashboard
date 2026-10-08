@@ -2,7 +2,7 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const vi: Messages = {
-  liveCopyUi: en.liveCopyUi,
+  liveCopyUi: { ...en.liveCopyUi, fixedTradeAlreadyClaimed: "Giao dịch gốc này của trader đã có yêu cầu sao chép. Yêu cầu này sẽ không sao chép trùng; kết quả khớp được xác nhận bằng bản ghi thực tế." },
   referral: {
     policyInactive: "Chính sách thưởng chưa hoạt động. Điều khoản hiển thị không cấp quyền nhận thưởng hiện tại.",
     invalidCode: "Mã lời mời không khả dụng",

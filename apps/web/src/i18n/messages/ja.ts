@@ -2,7 +2,7 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const ja: Messages = {
-  liveCopyUi: en.liveCopyUi,
+  liveCopyUi: { ...en.liveCopyUi, fixedTradeAlreadyClaimed: "この元のリーダー取引にはすでにコピー依頼があります。今回は重複してコピーしません。約定結果は実際の約定記録で確認できます。" },
   referral: {
     policyInactive: "報酬ポリシーは無効です。表示された条件は現在の報酬獲得資格を与えるものではありません。",
     invalidCode: "招待コードは利用できません",

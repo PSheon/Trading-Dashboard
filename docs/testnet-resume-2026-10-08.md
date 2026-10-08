@@ -12,7 +12,7 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 | 6 手動平倉後立即停止 | #43 PASS | 真實持倉及完整收尾已驗證 |
 | 7 worker重啟 | #51 FAIL；#49 FAIL保留 | #51重啟後開倉已成交；減倉第二次檢查逾時，後筆在前筆未結算時重試；排程修正尚待新碼真實驗收 |
 | 8 低於最小單的開倉拒絕 | SKIP | 現有限額下未找到符合情境的市場，沒有改限額強行通過 |
-| 9 三筆快速平倉 | #53 FAIL；#52設定逾時，#50／#37 FAIL保留 | #53領單三筆14.426秒成交，跟單首close成交但未結算時後筆进入generation計算；保留額排程修正回歸通過，仍須真實五來源對帳 |
+| 9 三筆快速平倉 | #54 FAIL僅快照；#53／#50／#37 FAIL保留 | #54四筆派送：兩筆settled、兩筆no_follower_position各一次；跟單空倉，原generation排程問題未重現，但portfolio快照未趕上原對帳期限 |
 | 14 管理者暫停／恢復／全平 | 未執行 | 管理權限仍待使用者授權 |
 
 既有隔離回歸基準：登入紀錄修正版API 255檔3,893項、web 181檔1,179項、harness28項PASS。新排程版首跑API 3,893 PASS／1 FAIL；積壓情境補測後相關45項PASS，最終完整API 255檔3,896項PASS。這些結果不能替代上述真實交易驗收；B段尚未全綠。
@@ -237,3 +237,9 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 - 16:44新保留額排程版完整API 255檔3,897項PASS（736.66秒），程序exit0、隔離DB已移除；型別（含測試）／lint／build均PASS，沒有放寬任何原測試門檻。此結果不替代#54交易驗收。
 - #54正常啟用16:37:52；領單開36美元ETH16:37:54成交，跟單16:39:13 POST成交、16:40:28 settled，attempts1。領單三次平倉16:39:55.237／16:40:02.406／09.529全成交，首末約14.292秒，領單空倉。
 - 跟單首close16:41:56成交、16:43:11 settled，attempts1；其未結算期間後兩close維持pending／attempts0，沒有新generation拒絕或重送成交單。第二close16:44:27按原planner返回no_follower_position，最後一筆、完整五来源對帳及返還仍待結果。原post後live_risk_stale保留filled並結算，沒有改五秒新鮮度檢查。
+- 保留額排程修正與回歸本機提交`633247a9`，未公開推送。最後close16:45:40按原planner返回no_follower_position；4派送為2 settled／2 refused-no_follower_position，各attempts1，2跟單成交，ETH槓桿3、領單及跟單空倉。依既有最低單規則首close全部平倉，不能宣稱三筆跟單平倉皆成交。
+- 16:46:12原240秒對帳期限後仍FAIL，僅portfolio_snapshot_unavailable（HTTP200、source_unavailable）；領單／派送／跟單成交／原生持倉四方已無其他失敗。原對帳檔`.claude/logs/copy-harness/2026-10-08T08-35-51-408Z-burst-reconcile.json`保留，不延長期限、忽略快照或用停止後資料改成PASS。
+- 16:47唯讀快照排程核對：#54 latest claim16:45:49（最後派送後），第一份保留觀察16:46:57、equity48.979762，晚於對帳截止。其他已返還帳戶的最新觀察均0，沒有證據支持「大量舊帳戶排隊」的猜測。快照更新仍須修正；尚未實作觀察重用或更改報表限流。
+- 16:50:35 runner exit1，正常停止／空倉／返還credited／顯示stopped四項PASS。16:51公開testnet核對主109.76002、#54帳戶0、領單23.521159 testUSDC，三者空倉；本機在途資金／未釋放保留額／未完成設定皆0。開始unset NODE_OPTIONS恢復本機API／worker；共用web3000與Chrome9333保留。
+- 私人證據`codex-reservation54-{dispatch-close,dispatch-released,reporting-state,final-money,final-balances}.jsonl`及runner。第一份觀察晚到的原因仍需進一步定位，不能把純排程修正當成B段已通過。
+- 收尾已完成：API3100 PID30239、worker3010 PID31136均以unset NODE_OPTIONS啟動，16:54:43 health皆成功。未保留私人診斷或收據relay、未另起Next／瀏覽器。下一步檢查已驗證的結算觀察是否可透過共用報表寫入流程保留，避免重複讀取；必須保留原scope、觀察時間、完整性與身分核對，報表資料不得變成金融授權，方案尚未實作。

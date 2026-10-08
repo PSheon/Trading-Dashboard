@@ -1,3 +1,4 @@
+import { apiSettlementProvider } from './live-worker/copy-live-api-settlement.provider.js';
 import { Module } from "@nestjs/common";
 
 import { AuthModule } from "../common/auth/auth.module.js";
@@ -89,6 +90,10 @@ import { CopyLiveSetupController } from "./copy-live-setup.controller.js";
 import { CopyLiveSetupRepository } from "./copy-live-setup.repository.js";
 import { deploymentNetwork } from "./live-deployment.js";
 import { CopyLiveSetupService } from "./copy-live-setup.service.js";
+import { CopyLiveSetupAbortRepository } from './copy-live-setup-abort.repository.js';
+import { CopyLiveSetupAbortReturnRepository } from './copy-live-setup-abort-return.repository.js';
+import { CopyLiveSetupAbortService, SETUP_ABORT_OBSERVER } from './copy-live-setup-abort.service.js';
+import { HyperliquidLiveAccountObserver } from './live/live-account-observer.js';
 // The wallet network's budget, transport and info client: one per process,
 // provided by HyperliquidModule (re-exported here for existing imports).
 export { WALLET_NETWORK_HL, walletNetworkHyperliquid, type WalletNetworkHyperliquid } from "../hyperliquid/wallet-network-hyperliquid.js";
@@ -97,7 +102,7 @@ export { WALLET_NETWORK_HL, walletNetworkHyperliquid, type WalletNetworkHyperliq
   // NotifyModule: the operator's system message when an order keeps failing.
   imports: [AuthModule, HyperliquidModule, NotifyModule],
   controllers: [CopyController, CopyFundsController, CopyWalletController, CopyFundingController, CopyAgentController, CopyFollowerController, CopyAccountModeController, CopyFollowerSnapshotController, CopyLiveMandateController, CopyLiveStopController, CopyLiveReturnController, CopyLivePortfolioController, CopyLiveCloseController, CopyLiveSetupController],
-  providers: [CopyAdminLiveRepository, CopyAdminLiveService,
+  providers: [apiSettlementProvider, CopyAdminLiveRepository, CopyAdminLiveService,
     CopyRepository, CopyMarketService, CopyRiskPolicyService, CopyOrderPlanner, CopySignalService, CopyExecutionService,
     CopyControlService, CopyStrategyService, CopyAdminReadService, CopyAdoptionRepairService, CopyPerformanceService, CopyStreamService, CopyFundsService, CopyFundsRepository,
     PostgresLiveExecutionJournal, PostgresWalletAuthorizationSource,
@@ -127,6 +132,10 @@ export { WALLET_NETWORK_HL, walletNetworkHyperliquid, type WalletNetworkHyperliq
     CopyFollowerActivityRepository, CopyFollowerActivityService,
     CopyFollowerSnapshotRepository, CopyFollowerSnapshotService,
     CopyLiveMandateRepository, CopyLiveMandateService, CopyLiveStopRepository, CopyLiveStopService, CopyLiveSystemStops, CopyLiveReturnRepository, CopyLiveReturnService, CopyLivePortfolioRepository, CopyLiveCloseService, CopyLiveCloseRepository, CopyLiveSetupRepository, CopyLiveSetupService,
+    CopyLiveSetupAbortRepository, CopyLiveSetupAbortReturnRepository, CopyLiveSetupAbortService,
+    { provide: SETUP_ABORT_OBSERVER, inject: [WALLET_NETWORK_HL], useFactory: ({ budget, transport, network }: WalletNetworkHyperliquid) =>
+      new HyperliquidLiveAccountObserver(network, liveBudget(budget, { lane: 'background', maxWaitMs: LIVE_RESERVE_WAIT_MS }), transport.fetchInfo, Date.now, 5000,
+        new HyperliquidAllDexsAccountSource(Date.now, undefined, network, transport, { closeAfterRead: true })) },
     { provide: WORKER_MASTER_SIGNER, inject: [AppConfig], useFactory: (config: AppConfig) => new PrivyPolicyMasterSigner({ appId: config.value.auth.appId, appSecret: config.value.auth.appSecret,
       workerQuorumId: config.value.copy.agent?.workerQuorumId, authorizationPrivateKey: config.value.copy.agent?.authorizationPrivateKey }) },
     { provide: HyperliquidFollowerReceiptReader, inject: [WALLET_NETWORK_HL], useFactory: ({ budget, transport, network }: WalletNetworkHyperliquid) =>

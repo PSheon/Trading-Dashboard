@@ -56,6 +56,10 @@ export interface LiveAccountObservationOptions {
    * order anywhere), instead of refusing the owner's orders. */
   unsetup?: boolean;
 }
+/** Purpose-bound evidence; deliberately lacks the trading account-mode marker. */
+export interface SetupAbortFlatObservation {
+  readonly purpose: 'setup-abort-return'; readonly snapshot: Omit<LiveAccountSnapshot, 'accountMode'>;
+}
 /** The observer's REST reads: the account modes and dex list (before and
  * after), spot metadata and every dex's metadata. The all-venue state and
  * orders come over WebSocket (the socket quota, not REST weight). */
@@ -95,15 +99,21 @@ function frozen<T>(value: T): T {
   return value;
 }
 interface AccountMode { spot: z.infer<typeof spotSchema>; role: 'user' | 'missing'; abstraction: 'disabled' | 'default'; zeroOnly: boolean }
-function mode(role: unknown, abstraction: unknown, dexAbstraction: unknown, spot: unknown, unsetup = false): AccountMode {
+function mode(role: unknown, abstraction: unknown, dexAbstraction: unknown, spot: unknown, unsetup = false, setupAbort = false): AccountMode {
   const parsed = spotSchema.parse(spot);
   if (parsed.portfolioMarginEnabled === true) fail('live_account_unsupported_abstraction');
+  if (setupAbort && parsed.balances.some(b => !Dec.from(b.total).isZero || !Dec.from(b.hold).isZero)) fail('live_account_unsupported_abstraction');
+  if (setupAbort && z.object({ role: z.literal('user') }).safeParse(role).success && abstraction === 'default' && dexAbstraction === false)
+    return { spot: parsed, role: 'user', abstraction: 'default', zeroOnly: false };
   if (z.object({ role: z.literal('user') }).safeParse(role).success && abstraction === 'disabled' && dexAbstraction === false)
     return { spot: parsed, role: 'user', abstraction: 'disabled', zeroOnly: false };
   // Not set up yet (no account at all, or the exchange's default abstraction
   // before the setup disables it): acceptable for another copy only, and only
   // with zero exposure, checked once its balances, positions and orders are read.
   const missing = z.object({ role: z.literal('missing') }).safeParse(role).success;
+  // The abort path may finish an original never-funded account only with
+  // the same all-zero evidence as unsetup. It gains no trading permission.
+  if (setupAbort && missing) unsetup = true;
   if (!(unsetup && missing) && z.object({ role: z.literal('user') }).safeParse(role).success === false) fail('live_account_unsupported_role');
   if (!unsetup) fail('live_account_unsupported_abstraction');
   if (!['disabled', 'default'].includes(String(abstraction)) || ![false, null].includes(dexAbstraction as boolean | null)) fail('live_account_unsupported_abstraction');
@@ -125,6 +135,26 @@ export class HyperliquidLiveAccountObserver {
     this.aggregateSource = aggregateSource ?? new HyperliquidAllDexsAccountSource(now, undefined, network);
   }
   async observe(accountAddress: string, options: LiveAccountObservationOptions = {}): Promise<LiveAccountSnapshot> {
+    return this.observeInternal(accountAddress, options, false);
+  }
+  /** Only pre-generation refunds may inspect funded default abstraction.
+   * Every venue and order must be observed, with primary USDC fully withdrawable.
+   * This result cannot authorize a trade or reuse the unsetup allocation path. */
+  async observeSetupAbortFlat(accountAddress: string): Promise<SetupAbortFlatObservation> {
+    const snapshot = await this.observeInternal(accountAddress, {}, true);
+    const zero = (v: string) => Dec.from(v).isZero;
+    if (!snapshot.coverage.complete || !snapshot.coverage.orderComplete ||
+      snapshot.positions.length || snapshot.restingOrders.length || !zero(snapshot.totalMarginUsed) || !zero(snapshot.exposureUsd) ||
+      !zero(snapshot.grossRestingExposureUsd) || snapshot.dexes.some(d => !zero(d.marginUsed) || !zero(d.exposureUsd) || !zero(d.crossMarginUsed) ||
+        !zero(d.crossExposureUsd) || !zero(d.crossMaintenanceMarginUsed) || (d.dex !== '' && (!zero(d.equity) || !zero(d.rawUsd) || !zero(d.withdrawable)))))
+      fail('live_account_setup_abort_not_flat');
+    const primary = snapshot.dexes.find(d => d.dex === '');
+    if (!primary || primary.collateralCoin !== 'USDC' || !Dec.from(primary.equity).eq(primary.withdrawable) ||
+      !Dec.from(primary.rawUsd).eq(primary.withdrawable) || !Dec.from(primary.crossEquity).eq(primary.withdrawable)) fail('live_account_setup_abort_not_withdrawable');
+    const { accountMode: _accountMode, ...evidence } = snapshot;
+    return frozen({ purpose: 'setup-abort-return', snapshot: evidence });
+  }
+  private async observeInternal(accountAddress: string, options: LiveAccountObservationOptions, setupAbort: boolean): Promise<LiveAccountSnapshot> {
     try {
       const user = address(accountAddress), shared = options.shared;
       if (shared && shared.network !== this.network) fail('live_account_source_mismatch');
@@ -172,7 +202,7 @@ export class HyperliquidLiveAccountObserver {
       const metadataRead = read('allPerpMetas', 20);
       void metadataRead.catch(() => {});
       const [initial, rawTokens] = await initialWork;
-      const accountMode = mode(...initial.slice(0, 4) as [unknown, unknown, unknown, unknown], options.unsetup === true), spot = accountMode.spot;
+      const accountMode = mode(...initial.slice(0, 4) as [unknown, unknown, unknown, unknown], options.unsetup === true, setupAbort), spot = accountMode.spot;
       const zeroOnly = accountMode.zeroOnly;
       const tokens = z.object({ tokens: z.array(tokenSchema).max(10_000) }).parse(rawTokens).tokens;
       unique(tokens.map((t) => t.index));
@@ -310,7 +340,7 @@ export class HyperliquidLiveAccountObserver {
       // every reader, after the last of them).
       if (!shared) {
         const final = await accountModes();
-        const finalMode = mode(...final.slice(0, 4) as [unknown, unknown, unknown, unknown], options.unsetup === true);
+        const finalMode = mode(...final.slice(0, 4) as [unknown, unknown, unknown, unknown], options.unsetup === true, setupAbort);
         if (JSON.stringify(dexSchema.parse(final[4])) !== JSON.stringify(list) || JSON.stringify(finalMode) !== JSON.stringify(accountMode))
           fail('live_account_observation_changed');
       }

@@ -143,6 +143,7 @@ function database(intent: LiveCopySetupIntent, setupId: string) {
     },
   };
   const setupRepository = {
+    aborted: async () => io(false),
     find: async () => io(rows.setup), get: async () => io(rows.setup), owner: async () => io({ id: 1 }),
     open: async (at: Date) => io([rows.setup].filter(r => ['funded', 'mode_set', 'agent_active', 'builder_ready'].includes(r.stage) && (!r.nextAttemptAt || r.nextAttemptAt <= at))),
     lease: async (_id: string, ms: number) => { await sleep(4); if (rows.setup.leaseUntil && rows.setup.leaseUntil.getTime() > Date.now()) return null; rows.setup = { ...rows.setup, leaseUntil: new Date(Date.now() + ms) }; return structuredClone(rows.setup); },

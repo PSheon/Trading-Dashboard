@@ -146,7 +146,7 @@ describe('dedicated testnet preparation', () => {
   it('disabled deployment advertises preparationfalse and never automatic execution', async () => {
     const old = process.env.COPY_TRADING_MODE; process.env.COPY_TRADING_MODE = 'disabled';
     try {
-      expect(liveCopyOverviewSchema.parse(await service.overview(uid)).capabilities).toEqual({ strategyPreparation: false, automaticExecution: false, sourceNetworks: ['mainnet', 'testnet'], actualAllowed: false });
+      expect(liveCopyOverviewSchema.parse(await service.overview(uid)).capabilities).toEqual({ strategyPreparation: false, automaticExecution: false, setupAbort: false, sourceNetworks: ['mainnet', 'testnet'], actualAllowed: false });
     } finally { if (old === undefined) delete process.env.COPY_TRADING_MODE; else process.env.COPY_TRADING_MODE = old; }
   });
 });

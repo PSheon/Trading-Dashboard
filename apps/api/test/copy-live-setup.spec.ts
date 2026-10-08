@@ -5,7 +5,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { verifyTypedData, type TypedDataDefinition } from 'viem';
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { adminSettingsSchema, DEFAULT_COPY_RISK_LIMITS, findHttpContract, liveCopySetupConsentTypedData, liveCopySetupSchema, usdSendTypedData, WALLET_NETWORKS, type LiveCopySetupIntent } from '@trading-dashboard/shared/contracts';
+import { adminSettingsSchema, DEFAULT_COPY_RISK_LIMITS, findHttpContract, liveCopySetupConsentTypedData, liveCopySetupSchema, liveCopySetupAbortSchema, usdSendTypedData, WALLET_NETWORKS, type LiveCopySetupIntent } from '@trading-dashboard/shared/contracts';
 import { appSettings, copyAgentSetups, copyControls, copyExecutionAccounts, copyExecutionWallets, copyFundingOperations, copyLiveActivations, copyLiveMandates, copyLiveSetups,
   copyLiveStrategyConfigs, copyRiskPolicies, copyStrategies, copyWalletAuthorizations, leaders } from '@trading-dashboard/shared/database';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
@@ -14,6 +14,12 @@ import { wire as fundingWire } from '../src/copy/copy-funding.service.js';
 import { CopyLiveMandateRepository } from '../src/copy/copy-live-mandate.repository.js';
 import { CopyLiveSetupRepository } from '../src/copy/copy-live-setup.repository.js';
 import { CopyLiveSetupService } from '../src/copy/copy-live-setup.service.js';
+import { CopyLiveSetupAbortRepository } from '../src/copy/copy-live-setup-abort.repository.js';
+import { CopyLiveStopRepository } from '../src/copy/copy-live-stop.repository.js';
+import { CopyLiveSetupAbortReturnRepository } from '../src/copy/copy-live-setup-abort-return.repository.js';
+import { CopyLiveReturnRepository } from '../src/copy/copy-live-return.repository.js';
+import type { SetupAbortFlatObservation } from '../src/copy/live/live-account-observer.js';
+import { CopyLiveSetupAbortService } from '../src/copy/copy-live-setup-abort.service.js';
 import { BackgroundJobs } from '../src/runtime/background-jobs.service.js';
 import { requestContext } from '../src/runtime/request-middleware.js';
 import { CopyLiveSetupController } from '../src/copy/copy-live-setup.controller.js';
@@ -121,7 +127,8 @@ function build() {
     }),
   };
   const funding = {
-    reserve: vi.fn(async (userId: number, accountId: string, input: { idempotencyKey: string; amount: string }) => fundingWire(await fundingRows.reserve(userId, accountId, 'testnet', input))),
+    reserve: vi.fn(async (userId: number, accountId: string, input: { idempotencyKey: string; amount: string }, internal?: { liveSetupId: string }) =>
+      fundingWire(await fundingRows.reserve(userId, accountId, 'testnet', input, undefined, internal?.liveSetupId))),
     claim: vi.fn(async (userId: number, id: string) => fundingRows.claim(userId, id)),
     submit: vi.fn(async (userId: number, id: string, signature: string) => {
       const row = await fundingRows.find(userId, id);
@@ -562,6 +569,240 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+it('safe abort: a driver waiting to activate cannot create a generation after the durable barrier', async () => {
+  const setup = await start();
+  await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit();
+  const entered = deferred<void>(), release = deferred<void>();
+  const original = CopyLiveMandateRepository.prototype.prepareFromSetup;
+  const spy = vi.spyOn(CopyLiveMandateRepository.prototype, 'prepareFromSetup').mockImplementation(async function (this: CopyLiveMandateRepository, ...args) {
+    entered.resolve(); await release.promise; return original.apply(this, args);
+  });
+  later(5_000); const driving = service.tick(); await entered.promise;
+  const mandates = new CopyLiveMandateRepository(db, testConfig());
+  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(db, mandates));
+  await aborts.request(uid, setup.id, 'abort-before-generation-key', () => clock);
+  release.resolve(); await driving; spy.mockRestore();
+  expect(await db.select().from(copyLiveMandates)).toHaveLength(0);
+  expect((await service.get(uid, setup.id)).stage).not.toBe('running');
+});
+
+it('safe abort: reload reads the permanent abort authority and no longer offers the old consent', async () => {
+  const setup = await start();
+  const mandates = new CopyLiveMandateRepository(db, testConfig());
+  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(db, mandates));
+  await aborts.request(uid, setup.id, 'abort-reload-original-key', () => clock);
+  expect(await service.get(uid, setup.id)).toMatchObject({ abortRequested: true, consent: null, stage: 'awaiting_consent' });
+  expect(await service.recover(uid, 'setup-start-key-000001')).toMatchObject({ abortRequested: true, consent: null });
+  expect(await service.confirm(uid, setup.id, await sign(setup.consent!))).toMatchObject({ abortRequested: true, consent: null });
+  expect(fakes.funding.submit).not.toHaveBeenCalled();
+});
+
+it('safe abort: verified consent is durable before the original deposit attempt without pretending confirmation finished', async () => {
+  const setup = await start(), signatures = await sign(setup.consent!);
+  const entered = deferred<void>(), release = deferred<void>(), original = fakes.funding.submit.getMockImplementation()!;
+  fakes.funding.submit.mockImplementationOnce(async (...args) => {
+    entered.resolve(); await release.promise; return original(...args);
+  });
+  const confirming = service.confirm(uid, setup.id, signatures); await entered.promise;
+  const [row] = await db.select().from(copyLiveSetups).where(eq(copyLiveSetups.id, setup.id));
+  release.resolve(); await confirming;
+  expect(row).toMatchObject({ consentDigest: createHash('sha256').update(JSON.stringify(signatures.consentSignature.toLowerCase())).digest('hex'),
+    confirmedAt: null, stage: 'awaiting_consent', fundingOperationId: setup.consent!.fundingOperationId });
+});
+
+it('safe abort: a reserved deposit belongs to the original setup before its parent can record the returned child id', async () => {
+  let reservationParent: string | null | undefined;
+  const reserve = fakes.funding.reserve.getMockImplementation()!;
+  fakes.funding.reserve.mockImplementationOnce(async (...args) => {
+    const wire = await reserve(...args);
+    reservationParent = (await db.select().from(copyFundingOperations).where(eq(copyFundingOperations.id, wire.id)))[0]!.liveSetupId;
+    return wire;
+  });
+  const setup = await start();
+  expect(reservationParent).toBe(setup.id);
+});
+
+function flatAbortProof(): SetupAbortFlatObservation {
+  return { purpose: 'setup-abort-return', snapshot: { network: 'testnet', accountAddress, role: 'user', accountAbstraction: 'default',
+    observedAt: clock, completedAt: clock, sourceDigest: 'd'.repeat(64), collateralToken: 0, collateralCoin: 'USDC', perpEquity: '100', totalMarginUsed: '0',
+    withdrawable: '100', exposureUsd: '0', restingExposureUsd: '0', grossRestingExposureUsd: '0', positions: [], restingOrders: [],
+    dexes: [{ dex: '', perpDexIndex: 0, supported: true, collateralToken: 0, collateralCoin: 'USDC', providerTime: clock, equity: '100', rawUsd: '100',
+      marginUsed: '0', withdrawable: '100', exposureUsd: '0', crossEquity: '100', crossMarginUsed: '0', crossExposureUsd: '0', crossMaintenanceMarginUsed: '0' }],
+    coverage: { complete: true, balanceComplete: true, orderComplete: true, listedDexes: [''], observedOrderDexes: [''], unobservedOrderDexes: [], earliestProviderTime: clock } } };
+}
+
+it('safe abort: zero balance alone cannot complete while the original deposit is still accepted', async () => {
+  const setup = await start(); await service.confirm(uid, setup.id, await sign(setup.consent!));
+  const mandates = new CopyLiveMandateRepository(db, testConfig()), returns = new CopyLiveReturnRepository(db, testConfig());
+  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(db, mandates));
+  const requested = await aborts.request(uid, setup.id, 'abort-zero-pending-deposit-key', () => clock), authority = (await aborts.lease(requested.id))!;
+  const refunds = new CopyLiveSetupAbortReturnRepository(db, testConfig(), mandates, returns), proof = flatAbortProof();
+  Object.assign(proof.snapshot, { withdrawable: '0', perpEquity: '0' });
+  Object.assign(proof.snapshot.dexes[0]!, { equity: '0', rawUsd: '0', withdrawable: '0', crossEquity: '0' });
+  expect(await refunds.complete(authority, proof, () => clock)).toBe(false);
+  expect((await aborts.find(uid, authority.id)).state).not.toBe('done');
+  // A late credit belongs to this original operation, never to a new deposit.
+  await credit();
+  expect(await refunds.complete(authority, flatAbortProof(), () => clock)).toBe(false);
+  expect((await refunds.reserve(authority, flatAbortProof(), () => clock))!.setupAbortId).toBe(authority.id);
+});
+
+it('safe abort: proven zero with the original deposit resolved can complete without inventing a return or stop', async () => {
+  const setup = await start(); await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit();
+  const mandates = new CopyLiveMandateRepository(db, testConfig()), returns = new CopyLiveReturnRepository(db, testConfig());
+  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(db, mandates));
+  const requested = await aborts.request(uid, setup.id, 'abort-already-zero-original-key', () => clock), authority = (await aborts.lease(requested.id))!;
+  const refunds = new CopyLiveSetupAbortReturnRepository(db, testConfig(), mandates, returns), proof = flatAbortProof();
+  Object.assign(proof.snapshot, { withdrawable: '0', perpEquity: '0' });
+  Object.assign(proof.snapshot.dexes[0]!, { equity: '0', rawUsd: '0', withdrawable: '0', crossEquity: '0' });
+  expect(await refunds.complete(authority, proof, () => clock)).toBe(true);
+  expect(await aborts.find(uid, authority.id)).toMatchObject({ state: 'done', returnOperationId: null, stopId: null });
+  expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'cancelled', abortRequested: true });
+});
+
+it.each(['policy_unknown', 'wallet_unknown'] as const)('safe abort: expired driver plus fresh zero cannot clear an unresolved %s SDK child', async state => {
+  const setup = await start(); await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit();
+  const mandates = new CopyLiveMandateRepository(db, testConfig()), returns = new CopyLiveReturnRepository(db, testConfig());
+  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(db, mandates));
+  await db.update(copyLiveSetups).set({ leaseToken: 'paused-original-driver', leaseUntil: new Date(Date.now() - 1) }).where(eq(copyLiveSetups.id, setup.id));
+  await db.update(copyAgentSetups).set({ state }).where(eq(copyAgentSetups.liveSetupId, setup.id));
+  const requested = await aborts.request(uid, setup.id, 'abort-sdk-unknown-original-key', () => clock), authority = (await aborts.lease(requested.id))!;
+  const refunds = new CopyLiveSetupAbortReturnRepository(db, testConfig(), mandates, returns), proof = flatAbortProof();
+  Object.assign(proof.snapshot, { withdrawable: '0', perpEquity: '0' });
+  Object.assign(proof.snapshot.dexes[0]!, { equity: '0', rawUsd: '0', withdrawable: '0', crossEquity: '0' });
+  expect(await refunds.complete(authority, proof, () => clock)).toBe(false);
+  expect((await new CopyLiveSetupRepository(db).find(uid, setup.id)).leaseToken).toBe('paused-original-driver');
+  expect((await aborts.find(uid, authority.id)).state).not.toBe('done');
+});
+
+it('safe abort: a never-attempted original deposit can cancel with fresh zero proof but cannot authorize a refund without genuine consent', async () => {
+  const setup = await start();
+  const mandates = new CopyLiveMandateRepository(db, testConfig()), returns = new CopyLiveReturnRepository(db, testConfig());
+  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(db, mandates));
+  const requested = await aborts.request(uid, setup.id, 'abort-unfunded-original-key', () => clock), authority = (await aborts.lease(requested.id))!;
+  await new CopyFundingRepository(db).cancel(uid, setup.consent!.fundingOperationId);
+  const refunds = new CopyLiveSetupAbortReturnRepository(db, testConfig(), mandates, returns), proof = flatAbortProof();
+  Object.assign(proof.snapshot, { withdrawable: '0', perpEquity: '0' });
+  Object.assign(proof.snapshot.dexes[0]!, { equity: '0', rawUsd: '0', withdrawable: '0', crossEquity: '0' });
+  await expect(refunds.reserve(authority, flatAbortProof(), () => clock)).rejects.toMatchObject({ response: { code: 'setup_abort_binding_unknown' } });
+  expect(await refunds.complete(authority, proof, () => clock)).toBe(true);
+  expect((await service.get(uid, setup.id)).stage).toBe('cancelled');
+  expect((await db.select().from(copyFundingOperations)).filter(row => row.direction === 'to_main')).toHaveLength(0);
+});
+
+it('safe abort: lost answers and concurrent passes preserve one original proof-bound refund and one attempt', async () => {
+  const setup = await start(); await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit();
+  const mandates = new CopyLiveMandateRepository(db, testConfig()), returns = new CopyLiveReturnRepository(db, testConfig());
+  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(db, mandates));
+  const requested = await aborts.request(uid, setup.id, 'abort-refund-original-key', () => clock), authority = (await aborts.lease(requested.id))!;
+  const refunds = new CopyLiveSetupAbortReturnRepository(db, testConfig(), mandates, returns);
+  const [first, second] = await Promise.all([refunds.reserve(authority, flatAbortProof(), () => clock), refunds.reserve(authority, flatAbortProof(), () => clock)]);
+  expect(first).not.toBeNull(); expect(second!.id).toBe(first!.id);
+  expect(first).toMatchObject({ direction: 'to_main', setupAbortId: authority.id, stopId: null, destination: owner.address.toLowerCase(), amount: '100' });
+  const current = await aborts.find(uid, authority.id);
+  const restarted = new CopyLiveSetupAbortReturnRepository(db, testConfig(), mandates, returns);
+  expect((await restarted.reserve(current, flatAbortProof(), () => clock))!.id).toBe(first!.id);
+  const attempts = await Promise.all([refunds.begin(current, first!.id, flatAbortProof(), () => clock), restarted.begin(current, first!.id, flatAbortProof(), () => clock)]);
+  expect(attempts.filter(Boolean)).toHaveLength(1);
+  expect((await db.select().from(copyFundingOperations)).filter(row => row.setupAbortId === authority.id)).toHaveLength(1);
+  // The ordinary owner approval endpoint cannot bypass this dedicated proof.
+  await expect(returns.begin(uid, first!.id)).rejects.toMatchObject({ response: { code: 'setup_abort_return_requires_proof' } });
+});
+
+it('safe abort: a proof that ages before refund admission never creates a transfer attempt', async () => {
+  const setup = await start(); await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit();
+  const mandates = new CopyLiveMandateRepository(db, testConfig()), returns = new CopyLiveReturnRepository(db, testConfig());
+  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(db, mandates));
+  const requested = await aborts.request(uid, setup.id, 'abort-refund-stale-proof-key', () => clock), authority = (await aborts.lease(requested.id))!;
+  const refunds = new CopyLiveSetupAbortReturnRepository(db, testConfig(), mandates, returns), proof = flatAbortProof();
+  const row = (await refunds.reserve(authority, proof, () => clock))!;
+  later(5_001);
+  await expect(refunds.begin(await aborts.find(uid, authority.id), row.id, proof, () => clock)).rejects.toMatchObject({ response: { code: 'setup_abort_proof_stale' } });
+  expect((await returns.find(uid, row.id)).attemptedAt).toBeNull();
+});
+
+it.each(['late-credit', 'prepared-deposit', 'claimed-deposit', 'prepared-return'] as const)('safe abort: worker restart seals original driver and the unattempted ordinary %s before one verified refund', async ordinaryKind => {
+  const setup = await start(); await service.confirm(uid, setup.id, await sign(setup.consent!));
+  const mandates = new CopyLiveMandateRepository(db, testConfig()), returns = new CopyLiveReturnRepository(db, testConfig());
+  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(db, mandates));
+  const refunds = new CopyLiveSetupAbortReturnRepository(db, testConfig(), mandates, returns);
+  const observer = { observeSetupAbortFlat: vi.fn(async () => flatAbortProof()) };
+  const exchange = { acquire: vi.fn(async () => undefined), send: vi.fn(async (_op: unknown, _sig: string, fresh: () => void, dispatched: () => void) => {
+    fresh(); dispatched(); return { status: 'ok', response: { type: 'default' } };
+  }) };
+  const signer = { available: true, sign: vi.fn(async () => 'test-worker-signature') };
+  const createWorker = () => new CopyLiveSetupAbortService(config(), aborts, refunds, new CopyLiveSetupRepository(db), new CopyFundingRepository(db),
+    fakes.funding as never, fakes.agents as never, fakes.modes as never, {} as never, returns, exchange as never, signer as never, observer as never, new BackgroundJobs(), () => clock);
+  const oldDriver = (await new CopyLiveSetupRepository(db).lease(setup.id, 60_000))!;
+  await db.update(copyLiveSetups).set({ leaseUntil: new Date(Date.now() - 1) }).where(eq(copyLiveSetups.id, setup.id));
+  const parent = await new CopyLiveSetupRepository(db).find(uid, setup.id), direction = ordinaryKind === 'prepared-return' ? 'to_main' : 'to_account';
+  const fundingRows = new CopyFundingRepository(db);
+  let ordinary: Awaited<ReturnType<CopyFundingRepository['find']>> | null = null;
+  if (ordinaryKind !== 'late-credit') {
+    await credit();
+    // Admit the actual ordinary operation BEFORE the barrier, using the same
+    // production repository and account-wide pending guards as the UI.
+    ordinary = direction === 'to_account'
+      ? await fundingRows.reserve(uid, parent.accountId!, 'testnet', { idempotencyKey: 'ordinary-never-attempted-transfer-key', amount: '1' })
+      : await returns.reserve(uid, parent.accountId!, { idempotencyKey: 'ordinary-never-attempted-transfer-key', amount: '1', sweep: false });
+    if (ordinaryKind === 'claimed-deposit') ordinary = (await fundingRows.claim(uid, ordinary.id)).row;
+  }
+  const requested = await createWorker().request(uid, setup.id, { idempotencyKey: 'abort-worker-original-key' });
+  if (ordinary) {
+    const holder = (await aborts.lease(requested.id))!;
+    // A stale worker or a differently bound child cannot use the sealing
+    // authority, even when the presented transfer has no attempt timestamp.
+    expect(await aborts.sealOrdinaryFunding({ ...holder, leaseToken: 'stale-holder' }, ordinary)).toBe(false);
+    expect(await aborts.sealOrdinaryFunding(holder, { ...ordinary, liveSetupId: setup.id })).toBe(false);
+    expect(await aborts.sealOrdinaryFunding(holder, { ...ordinary, attemptedAt: new Date(clock) })).toBe(false);
+    expect(await aborts.sealOrdinaryFunding(holder, { ...ordinary, destination: '0x' + '9'.repeat(40) })).toBe(false);
+    expect((await fundingRows.find(uid, ordinary.id)).status).toBe(ordinary.status);
+    await aborts.release(holder);
+  }
+  if (ordinaryKind === 'late-credit') {
+    await createWorker().process(requested.id);
+    expect((await aborts.find(uid, requested.id)).state).toBe('waiting_credit');
+    expect(exchange.send).not.toHaveBeenCalled(); expect(observer.observeSetupAbortFlat).not.toHaveBeenCalled();
+    await credit();
+  }
+  // A due pass after process restart reads the original credit and authority.
+  await createWorker().process(requested.id);
+  if (ordinary) expect(await fundingRows.find(uid, ordinary.id)).toMatchObject({ status: 'cancelled', attemptedAt: null });
+  const authority = await aborts.find(uid, requested.id), refund = await returns.find(uid, authority.returnOperationId!);
+  expect(refund.status).toBe('accepted'); expect(exchange.send).toHaveBeenCalledTimes(1);
+  if (ordinary && direction === 'to_account') await expect(fundingRows.beginSubmit(uid, ordinary.id)).rejects.toMatchObject({ response: { code: 'setup_abort_requested' } });
+  else if (ordinary) await expect(returns.begin(uid, ordinary.id)).rejects.toMatchObject({ response: { code: 'setup_abort_requested' } });
+  expect((await new CopyLiveSetupRepository(db).find(uid, setup.id)).leaseToken).toBe(oldDriver.leaseToken);
+  await createWorker().process(requested.id);
+  expect(exchange.send).toHaveBeenCalledTimes(1);
+  expect((await aborts.find(uid, requested.id)).state).not.toBe('done');
+  await db.update(copyFundingOperations).set({ status: 'credited', transactionHash: `0x${'b'.repeat(64)}`, creditedAmount: '100', fee: '0', evidenceHash: 'e'.repeat(64) })
+    .where(eq(copyFundingOperations.id, refund.id));
+  observer.observeSetupAbortFlat.mockImplementation(async () => {
+    const proof = flatAbortProof(); Object.assign(proof.snapshot, { withdrawable: '0', perpEquity: '0' });
+    Object.assign(proof.snapshot.dexes[0]!, { equity: '0', rawUsd: '0', withdrawable: '0', crossEquity: '0' }); return proof;
+  });
+  // An ordinary top-up had already crossed its SDK attempt boundary. Its
+  // receipt must be reconciled too; neither zero nor the original refund's
+  // receipt seals another unresolved transfer on this account.
+  await db.insert(copyFundingOperations).values({ id: 'plain-delayed-topup', userId: uid, accountId: authority.accountId!, strategyId: authority.strategyId,
+    network: authority.network, address: authority.destination, destination: authority.accountAddress!, direction: 'to_account', amount: '1',
+    idempotencyKey: 'plain-delayed-topup-original-key', nonce: clock + 100, status: 'accepted', attemptedAt: new Date(clock), claimedAt: new Date(clock), evidenceHash: 'a'.repeat(64) });
+  await createWorker().process(requested.id);
+  expect((await aborts.find(uid, requested.id)).state).not.toBe('done');
+  expect(fakes.funding.reconcile).toHaveBeenCalledWith(uid, 'plain-delayed-topup');
+  expect(exchange.send).toHaveBeenCalledTimes(1);
+  await db.update(copyFundingOperations).set({ status: 'credited', transactionHash: `0x${'c'.repeat(64)}`, creditedAmount: '1', fee: '0', evidenceHash: 'e'.repeat(64) })
+    .where(eq(copyFundingOperations.id, 'plain-delayed-topup'));
+  await createWorker().process(requested.id);
+  expect((await aborts.find(uid, requested.id)).state).toBe('done');
+  expect(await new CopyLiveSetupRepository(db).find(uid, setup.id)).toMatchObject({ stage: 'cancelled', leaseToken: null, leaseUntil: null });
+  expect(await new CopyLiveSetupRepository(db).transition(oldDriver, { stage: 'funded' })).toBeNull();
+  expect(fakes.funding.submit).toHaveBeenCalledTimes(1);
+  expect(exchange.send).toHaveBeenCalledTimes(1);
+  expect(await db.select().from(copyLiveMandates)).toHaveLength(0);
+});
+
 // These tests pause provider work, not SQL. The HTTP answer must settle
 // before its 20-second deadline while the same durable operation survives.
 it('request recovery: slow provisioning answers with its admitted original id before the HTTP deadline', async () => {
@@ -672,6 +913,34 @@ it('request recovery: HTTP recovery is no-store, owner-only and strictly read-on
     await request(app.getHttpServer()).get('/me/copy/live/setups/by-key/short').set('Authorization', 'Bearer alice').expect(400);
     expect(await db.select().from(copyLiveSetups)).toEqual(before);
     expect(fakes.wallets.prepare).toHaveBeenCalledTimes(1);
+    expect(fakes.funding.submit).not.toHaveBeenCalled();
+  } finally { await app.close(); }
+});
+
+it('safe abort: HTTP establishes one original authority without signatures, provider work or client-selected refund fields', async () => {
+  const prepared = await start(), mandates = new CopyLiveMandateRepository(db, testConfig()), returns = new CopyLiveReturnRepository(db, testConfig());
+  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(db, mandates));
+  const observer = { observeSetupAbortFlat: vi.fn(async () => flatAbortProof()) }, exchange = { acquire: vi.fn(), send: vi.fn() }, signer = { available: true, sign: vi.fn() };
+  const worker = new CopyLiveSetupAbortService(config(), aborts, new CopyLiveSetupAbortReturnRepository(db, testConfig(), mandates, returns), new CopyLiveSetupRepository(db),
+    new CopyFundingRepository(db), fakes.funding as never, fakes.agents as never, fakes.modes as never, {} as never, returns, exchange as never, signer as never, observer, new BackgroundJobs(), () => clock);
+  await insertUser(db, { privyUserId: 'did:privy:abort-other' });
+  const { app } = await createAuthedApp({ db, privy: stubPrivy({ alice: { privyUserId: 'did:privy:setup-owner' }, bob: { privyUserId: 'did:privy:abort-other' } }),
+    controllers: [CopyLiveSetupController], providers: [{ provide: CopyLiveSetupService, useValue: service }, { provide: CopyLiveSetupAbortService, useValue: worker }] });
+  const path = `/me/copy/live/setups/${prepared.id}/abort`, body = { idempotencyKey: 'abort-http-original-key' };
+  try {
+    const first = await request(app.getHttpServer()).post(path).set('Authorization', 'Bearer alice').send(body).expect(200).expect('Cache-Control', 'no-store');
+    const saved = liveCopySetupAbortSchema.parse(first.body.data);
+    expect(saved).toMatchObject({ setupId: prepared.id, state: 'requested', refund: null, stop: null });
+    const second = await request(app.getHttpServer()).post(path).set('Authorization', 'Bearer alice').send(body).expect(200);
+    expect(second.body.data.id).toBe(saved.id);
+    const read = await request(app.getHttpServer()).get(path).set('Authorization', 'Bearer alice').expect(200).expect('Cache-Control', 'no-store');
+    expect(read.body.data.id).toBe(saved.id);
+    await request(app.getHttpServer()).post(path).set('Authorization', 'Bearer alice').send({ ...body, destination: owner.address }).expect(400);
+    await request(app.getHttpServer()).post(path).set('Authorization', 'Bearer alice').send({ ...body, amount: '100' }).expect(400);
+    await request(app.getHttpServer()).post(path).set('Authorization', 'Bearer bob').send(body).expect(404);
+    await request(app.getHttpServer()).get(path).set('Authorization', 'Bearer bob').expect(404);
+    await request(app.getHttpServer()).get(path).expect(401);
+    expect(observer.observeSetupAbortFlat).not.toHaveBeenCalled(); expect(signer.sign).not.toHaveBeenCalled(); expect(exchange.send).not.toHaveBeenCalled();
     expect(fakes.funding.submit).not.toHaveBeenCalled();
   } finally { await app.close(); }
 });

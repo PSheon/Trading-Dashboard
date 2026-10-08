@@ -43,3 +43,27 @@ Keep current contract/architecture documentation and the execution ledger in syn
 4. Deploy. The migration's `IF NOT EXISTS` finds the index and returns at once. On a fresh or small database (tests, local) it simply builds it.
 
 `apps/api/scripts/migrate.test.mjs` fails CI when a migration after `0060` adds an index on one of these tables without `IF NOT EXISTS`, or uses `CONCURRENTLY` inside a migration. Add a table to its `LARGE_TABLES` list when it grows past a few hundred MB.
+
+### Testnet terminal settlement in the API process
+
+When actual testnet copying is enabled, the API has one narrow background exception:
+`CopyLiveApiSettlementService` recovers durable submitted dispatches whose journal is
+already terminal. It shares that API process's existing wallet-network budget and the
+existing cross-process egress meter. It has no signing, order execution, source polling,
+funding, or new HTTP route. The testnet worker hands off only terminal settlement;
+pending orders and uncertain order reconciliation remain in the worker. Mainnet keeps
+its existing worker settlement path.
+
+Per-execution PostgreSQL session claims prevent healthy API replicas from duplicating
+paid settlement work. Claim loss fences later provider dispatches, SQL and saves;
+in-flight HTTP/SQL cannot be physically undone. Crash recovery may repeat reads, but
+release still requires the original locked DAL and immutable verified settlement proof.
+Old generations and stopped accounts remain recoverable. Terminal journals alone do
+not release reservations or permit stop refunds. Small/busy pools skip admission;
+queued connections have bounded waits and late connections are returned safely.
+
+Deploy the testnet worker handoff before enabling the new API process version.
+While the API is unavailable, terminal dispatches remain submitted. An older worker
+version does not participate in the new scheduling claim; running it beside the new
+API may duplicate reads, even though the original settlement DAL still prevents an
+unverified or duplicate release.

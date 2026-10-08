@@ -36,6 +36,7 @@ export interface LiveEngineDependencies {
   /** Testnet leaders only (a testnet copy of a testnet address). */
   readonly testnetSource: HyperliquidLiveSourceClient;
   readonly runtime: (hooks: Pick<LiveExecutionHooks, 'onExchange'>) => LiveExecutor;
+  readonly apiTerminalSettlement?: boolean;
   readonly settler: { settle(request: LiveSettleRequest): Promise<LiveSettleOutcome> };
   /** Retain a committed settlement observation for reporting; never a permit. */
   readonly settlementObservation?: (key: string) => Promise<unknown>;
@@ -420,6 +421,8 @@ export class CopyLiveEngine {
     const state = row.executionKey ? await this.deps.repository.journalState(row.executionKey) : null;
     if (state === null) return;
     if (!TERMINAL_STATES.has(state)) { await this.execute(row, mandate); return; }
+    // API owns only durable terminal testnet work; offline leaves this row submitted.
+    if (this.deps.network === 'testnet' && this.deps.apiTerminalSettlement) return;
     const outcome = await this.deps.settler.settle({ userId: row.userId, accountId: row.accountId, accountAddress: mandate.accountAddress,
       sourceNetwork: mandate.sourceNetwork, leaderAddress: mandate.leaderAddress, key: row.executionKey! });
     if (outcome.kind === 'released') {

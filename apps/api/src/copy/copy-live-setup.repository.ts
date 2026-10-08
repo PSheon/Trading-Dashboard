@@ -1,7 +1,7 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
-import { copyAgentSetups, copyFundingOperations, copyLiveActivations, copyLiveMandates, copyLiveSetups, copyLiveStrategyConfigs, copyStrategies, copyStrategyVersions, users } from '@trading-dashboard/shared/database';
+import { copyAgentSetups, copyFundingOperations, copyLiveActivations, copyLiveMandates, copyLiveSetups, copyLiveSetupAborts, copyLiveStrategyConfigs, copyStrategies, copyStrategyVersions, users } from '@trading-dashboard/shared/database';
 import { ACTUAL_STRATEGY_MODE, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
@@ -56,15 +56,20 @@ export class CopyLiveSetupRepository {
   /** Compare-and-set on the revision: a concurrent step wins, this one rereads. */
   async transition(row: SetupRow, changes: Partial<typeof copyLiveSetups.$inferInsert>, tx: DbExecutor = this.db): Promise<SetupRow | null> {
     const [next] = await tx.update(copyLiveSetups).set({ ...changes, revision: row.revision + 1, updatedAt: new Date() })
-      .where(and(eq(copyLiveSetups.id, row.id), eq(copyLiveSetups.revision, row.revision))).returning();
+      .where(and(eq(copyLiveSetups.id, row.id), eq(copyLiveSetups.revision, row.revision), sql`not exists (select 1 from ${copyLiveSetupAborts} a where a.setup_id = ${copyLiveSetups.id})`)).returning();
     return next ?? null;
+  }
+  async aborted(userId: number, setupId: string): Promise<boolean> {
+    const [row] = await this.db.select({ id: copyLiveSetupAborts.id }).from(copyLiveSetupAborts)
+      .where(and(eq(copyLiveSetupAborts.userId, userId), eq(copyLiveSetupAborts.setupId, setupId))).limit(1);
+    return Boolean(row);
   }
   /** One driver (the worker's pass or the owner's open dialog) works a
    * setup at a time; a crashed holder's lease lapses after `ms`. The row's
    * `leaseToken` names the holder. */
   async lease(id: string, ms: number): Promise<SetupRow | null> {
     const [row] = await this.db.update(copyLiveSetups).set({ leaseUntil: sql`clock_timestamp() + ${`${ms} milliseconds`}::interval`, leaseToken: randomUUID() })
-      .where(and(eq(copyLiveSetups.id, id), or(isNull(copyLiveSetups.leaseUntil), lte(copyLiveSetups.leaseUntil, sql`clock_timestamp()`)))).returning();
+      .where(and(eq(copyLiveSetups.id, id), or(isNull(copyLiveSetups.leaseUntil), lte(copyLiveSetups.leaseUntil, sql`clock_timestamp()`)), sql`not exists (select 1 from ${copyLiveSetupAborts} a where a.setup_id = ${copyLiveSetups.id})`)).returning();
     return row ?? null;
   }
   /** Ends this holder's lease only: a drive that outlived its lease (another
@@ -79,6 +84,7 @@ export class CopyLiveSetupRepository {
   open(now: Date, network: HyperliquidNetwork, limit = 20) {
     return this.db.select().from(copyLiveSetups).where(and(or(inArray(copyLiveSetups.stage, [...DRIVEN_STAGES]), and(eq(copyLiveSetups.stage, 'provisioning'), eq(copyLiveSetups.kind, 'start'))),
       or(isNull(copyLiveSetups.nextAttemptAt), lte(copyLiveSetups.nextAttemptAt, now)),
+      sql`not exists (select 1 from ${copyLiveSetupAborts} a where a.setup_id = ${copyLiveSetups.id})`,
       sql`exists (select 1 from ${copyStrategies} s where s.id = ${copyLiveSetups.strategyId} and s.network = ${network})`)).orderBy(asc(copyLiveSetups.updatedAt)).limit(limit);
   }
   async activation(mandateId: string) {

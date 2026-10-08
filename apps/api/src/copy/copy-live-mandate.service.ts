@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { liveSourceNetworks, liveCopyOverviewSchema } from '@trading-dashboard/shared/contracts';
 import { z } from 'zod';
 import { AppConfig } from '../config/app-config.js';
@@ -6,6 +6,7 @@ import { UnitOfWork } from '../db/unit-of-work.js';
 import { CopyLiveMandateRepository } from './copy-live-mandate.repository.js';
 import { effectiveLiveLimits } from './copy-live-caps.js';
 import { deploymentNetwork, liveExecutionEnabled } from './live-deployment.js';
+import { CopyLiveSetupAbortService } from './copy-live-setup-abort.service.js';
 
 function input<T>(schema: z.ZodType<T>, value: unknown): T {
   const parsed = schema.safeParse(value);
@@ -15,7 +16,8 @@ function input<T>(schema: z.ZodType<T>, value: unknown): T {
 @Injectable()
 export class CopyLiveMandateService {
   constructor(private readonly config: AppConfig, private readonly repository: CopyLiveMandateRepository,
-    private readonly uow: UnitOfWork, @Optional() private readonly now: () => number = Date.now) {}
+    private readonly uow: UnitOfWork, @Optional() private readonly now: () => number = Date.now,
+    @Optional() @Inject(CopyLiveSetupAbortService) private readonly setupAborts: CopyLiveSetupAbortService | null = null) {}
   private available() { if (this.config.value.copy.mode === 'disabled') throw new ServiceUnavailableException('Live preparation unavailable'); }
   /** The deployment's network, what this owner may start on it, and its
    * caps (the stricter of COPY_LIVE_* and the risk policy). */
@@ -27,7 +29,7 @@ export class CopyLiveMandateService {
     const limits = live ? await this.repository.preparation(this.repository.reader()).catch(() => null) : null;
     const capped = limits ? effectiveLiveLimits(live?.caps, limits) : null;
     return liveCopyOverviewSchema.parse({ mode: 'actual', network, capabilities: { strategyPreparation: this.config.value.copy.mode !== 'disabled',
-      automaticExecution: liveExecutionEnabled(this.config), sourceNetworks: [...liveSourceNetworks(network)], actualAllowed,
+      automaticExecution: liveExecutionEnabled(this.config), sourceNetworks: [...liveSourceNetworks(network)], actualAllowed, setupAbort: this.setupAborts?.available === true,
       ...(live ? { caps: { fixedPerTradeUsd: live.caps.fixedPerTradeUsd ?? null, maxAllocationUsd: capped?.maxAllocationUsd ?? live.caps.maxAllocationUsd ?? null,
         maxLeverage: capped?.maxLeverage ?? live.caps.maxLeverage ?? null, maxStrategiesPerUser: capped?.maxStrategiesPerUser ?? live.caps.maxStrategiesPerUser } } : {}) }, ...data });
   }

@@ -1,3 +1,4 @@
+import { assertSetupAdmission, assertAccountAbortAdmission } from './copy-live-setup-barrier.js';
 import { randomUUID } from "node:crypto";
 import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { and, desc, eq, inArray, isNull, sql, or } from "drizzle-orm";
@@ -44,7 +45,7 @@ export class CopyFundingRepository {
    * (sent or pending, less credited returns) inside the reservation's lock,
    * and throws to refuse it (the deployment's allowlist and allocation cap). */
   async reserve(userId: number, accountId: string, network: FundingRow["network"], rawInput: CopyFundingInput,
-    guard?: (context: { privyUserId: string; depositedUsd: string; policyMaxAllocationUsd: number | null }) => void) {
+    guard?: (context: { privyUserId: string; depositedUsd: string; policyMaxAllocationUsd: number | null }) => void, liveSetupId?: string) {
     const input = structuredClone(rawInput);
     return this.locked(userId, async (tx) => {
       const [user] = await tx.select().from(users).where(and(eq(users.id, userId), isNull(users.disabledAt))).for("update");
@@ -52,9 +53,12 @@ export class CopyFundingRepository {
       const [account] = await tx.select().from(copyExecutionAccounts).where(and(eq(copyExecutionAccounts.id, accountId), eq(copyExecutionAccounts.userId, userId))).for("share");
       if (!account || account.privyUserId !== user.privyUserId) throw new NotFoundException("Execution account not found");
       if (account.state !== "ready" || !account.address || account.network !== network || account.address === user.embeddedWalletAddress) throw new ConflictException("Execution account is not ready");
+      await assertAccountAbortAdmission(tx, userId, accountId, network);
+      const setup = await assertSetupAdmission(tx, userId, liveSetupId);
+      if (setup && (setup.accountId !== accountId || setup.strategyId !== account.strategyId)) throw new ConflictException('Setup account changed');
       const [original] = await tx.select().from(copyFundingOperations).where(and(eq(copyFundingOperations.userId, userId), eq(copyFundingOperations.idempotencyKey, input.idempotencyKey)));
       if (original) {
-        if (original.accountId !== accountId || original.network !== network || original.amount !== input.amount || original.address !== user.embeddedWalletAddress || original.destination !== account.address) throw new ConflictException("Idempotency payload changed");
+        if (original.accountId !== accountId || original.network !== network || original.amount !== input.amount || original.address !== user.embeddedWalletAddress || original.destination !== account.address || (liveSetupId && original.liveSetupId !== liveSetupId)) throw new ConflictException("Idempotency payload changed");
         return original;
       }
       const [strategy] = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.id, account.strategyId), eq(copyStrategies.userId, userId))).for("share");
@@ -77,7 +81,7 @@ export class CopyFundingRepository {
         coalesce((select max(nonce) + 1 from copy_funding_operations where network = ${network} and address = ${user.embeddedWalletAddress}), 0),
         coalesce((select max(nonce) + 1 from wallet_withdrawals where network = ${network} and address = ${user.embeddedWalletAddress}), 0))::float8 as nonce`);
       const [row] = await tx.insert(copyFundingOperations).values({ id: randomUUID(), userId, accountId, strategyId: account.strategyId,
-        ...input, network, address: user.embeddedWalletAddress, destination: account.address, nonce: clock.rows[0]!.nonce }).returning();
+        ...input, network, liveSetupId: liveSetupId ?? null, address: user.embeddedWalletAddress, destination: account.address, nonce: clock.rows[0]!.nonce }).returning();
       return row!;
     });
   }
@@ -99,6 +103,10 @@ export class CopyFundingRepository {
       const [user] = await tx.select().from(users).where(and(eq(users.id, userId), isNull(users.disabledAt))).for("share");
       const [row] = await tx.select().from(copyFundingOperations).where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.userId, userId)));
       if (!row) throw new NotFoundException("Funding operation not found");
+      if (!row.attemptedAt) {
+        await assertAccountAbortAdmission(tx, userId, row.accountId, row.network);
+        await assertSetupAdmission(tx, userId, row.liveSetupId);
+      }
       if (!user || user.embeddedWalletAddress !== row.address) throw new ConflictException("Wallet identity changed");
       const [account] = await tx.select().from(copyExecutionAccounts).where(and(eq(copyExecutionAccounts.id, row.accountId), eq(copyExecutionAccounts.userId, userId))).for("share");
       const [strategy] = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.id, row.strategyId), eq(copyStrategies.userId, userId))).for("share");

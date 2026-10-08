@@ -9,6 +9,7 @@ import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
 import type { DbExecutor, DbTransaction } from '../db/unit-of-work.js';
 import { lockCopyUser } from './copy-user-lock.js';
+import { assertSetupAdmission, assertAccountAbortAdmission } from './copy-live-setup-barrier.js';
 import { liveCopySettingsDigest } from './copy-live-mandate-consent.js';
 import { Dec } from '../common/decimal/dec.js';
 import { assertLiveSettings, effectiveLiveLimits } from './copy-live-caps.js';
@@ -237,6 +238,8 @@ export class CopyLiveMandateRepository {
     // A listed owner on this deployment's network only (security review).
     this.assertAllowed(row.ownerPrivyUserId);
     if (row.network !== this.network) conflict();
+    await assertAccountAbortAdmission(tx, row.userId, row.accountId, row.network);
+    await assertSetupAdmission(tx, row.userId, consent.liveSetupId);
     await tx.update(copyStrategies).set({ status: 'paused', pauseNewRisk: true }).where(and(eq(copyStrategies.id, row.strategyId), eq(copyStrategies.userId, row.userId), eq(copyStrategies.mode, ACTUAL_STRATEGY_MODE)));
     const kind = { consentDigest: consent.consentDigest, consentKind: 'setup' as const, liveSetupId: consent.liveSetupId };
     // Never before the row's own created_at (the activation check): a caller
@@ -265,6 +268,9 @@ export class CopyLiveMandateRepository {
     // A listed owner's own setup, on this deployment's network (security review).
     this.assertAllowed(owner.privyUserId);
     if (intent.network !== this.network || intent.ownerPrivyUserId !== owner.privyUserId) conflict();
+    const parent = await assertSetupAdmission(tx, userId, setup.id);
+    if (!parent || parent.kind !== setup.kind || parent.accountId !== intent.accountId || parent.strategyId !== intent.strategyId ||
+      parent.intentDigest !== digest(intent) || parent.consentDigest !== setup.consentDigest) conflict();
     const [existing] = await tx.select().from(copyLiveMandates).where(and(eq(copyLiveMandates.userId, userId), eq(copyLiveMandates.idempotencyKey, key)));
     if (existing) return existing;
     if (intent.setupId !== setup.id || intent.userId !== userId) conflict();

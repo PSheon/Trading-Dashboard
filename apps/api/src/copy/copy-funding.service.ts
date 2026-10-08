@@ -51,12 +51,12 @@ export class CopyFundingService {
     if (account.state !== "ready" || !account.address || account.network !== this.config.value.hyperliquid.wallet.network) throw new ConflictException("Execution wallet verification is pending");
     return account;
   }
-  async reserve(userId: number, accountId: string, body: unknown) {
+  async reserve(userId: number, accountId: string, body: unknown, internal?: { liveSetupId: string }) {
     this.assertAvailable();
     const parsed = copyFundingInputSchema.safeParse(body);
     if (!parsed.success) throw new BadRequestException("Invalid funding request");
     await this.verified(userId, accountId);
-    return wire(await this.repository.reserve(userId, accountId, this.config.value.hyperliquid.wallet.network, parsed.data, this.liveGuard(parsed.data.amount)));
+    return wire(await this.repository.reserve(userId, accountId, this.config.value.hyperliquid.wallet.network, parsed.data, this.liveGuard(parsed.data.amount), internal?.liveSetupId));
   }
   /** A deposit or top-up into an actual copy on a deployment with caps: a
    * listed owner only, and the account's deposits stay within the stricter of

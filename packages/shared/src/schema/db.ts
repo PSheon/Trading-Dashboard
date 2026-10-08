@@ -1477,9 +1477,13 @@ export const copyFundingOperations = pgTable("copy_funding_operations", {
   stopId: text("stop_id").references((): AnyPgColumn => copyLiveStopOperations.id, { onDelete: "restrict" }),
   /** The one-click setup this deposit belongs to (its consent binds it). */
   liveSetupId: text("live_setup_id").references((): AnyPgColumn => copyLiveSetups.id, { onDelete: "restrict" }),
+  /** A pre-generation setup abort return; never masquerades as a flat stop. */
+  setupAbortId: text("setup_abort_id").references((): AnyPgColumn => copyLiveSetupAborts.id, { onDelete: "restrict" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   check("copy_funding_direction_check", sql`${oneOf(t.direction, ["to_account", "to_main"])} and (${t.stopId} is null or ${t.direction} = 'to_main')`),
+  check("copy_funding_setup_abort_check", sql`${t.setupAbortId} is null or (${t.direction} = 'to_main' and ${t.stopId} is null and ${t.liveSetupId} is null)`),
+  uniqueIndex("copy_funding_setup_abort_uq").on(t.setupAbortId).where(sql`${t.setupAbortId} is not null`),
   uniqueIndex("copy_funding_key_uq").on(t.userId, t.idempotencyKey),
   uniqueIndex("copy_funding_nonce_uq").on(t.network, t.address, t.nonce),
   uniqueIndex("copy_funding_pending_uq").on(t.network, t.address).where(sql`${t.status} in ('prepared', 'unknown', 'accepted')`),
@@ -2034,6 +2038,39 @@ export const copyLiveSetups = pgTable("copy_live_setups", {
   check("copy_live_setups_consent_check", sql`${t.stage} in ('provisioning', 'awaiting_consent', 'failed', 'expired', 'cancelled') or (${t.consentDigest} ~ '^[0-9a-f]{64}$' and ${t.intentDigest} ~ '^[0-9a-f]{64}$' and ${t.confirmedAt} is not null and ${t.setupDeadline} is not null)`),
 ]);
 
+/** Durable authority to end one setup and reconcile its original children.
+ * A requested abort is a permanent admission barrier, including after done.
+ * Returning requires separate fresh all-account proof; this row is no proof of flatness. */
+export const copyLiveSetupAborts = pgTable("copy_live_setup_aborts", {
+  id: text("id").primaryKey(), userId: integer("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  setupId: text("setup_id").notNull().references(() => copyLiveSetups.id, { onDelete: "restrict" }),
+  strategyId: integer("strategy_id").notNull().references(() => copyStrategies.id, { onDelete: "restrict" }),
+  accountId: text("account_id").references(() => copyExecutionAccounts.id, { onDelete: "restrict" }),
+  network: text("network").$type<"testnet" | "mainnet">().notNull(),
+  kind: text("kind").$type<"start" | "edit" | "renewal">().notNull(),
+  idempotencyKey: text("idempotency_key").notNull(), ownerPrivyUserId: text("owner_privy_user_id").notNull(),
+  ownerAddress: text("owner_address").notNull(), accountAddress: text("account_address"), destination: text("destination").notNull(),
+  intentDigest: text("intent_digest"), consentDigest: text("consent_digest"),
+  fundingOperationId: text("funding_operation_id").references((): AnyPgColumn => copyFundingOperations.id, { onDelete: "restrict" }),
+  mandateId: text("mandate_id").references(() => copyLiveMandates.id, { onDelete: "restrict" }),
+  stopId: text("stop_id").references(() => copyLiveStopOperations.id, { onDelete: "restrict" }),
+  returnOperationId: text("return_operation_id").references((): AnyPgColumn => copyFundingOperations.id, { onDelete: "restrict" }),
+  state: text("state").$type<"requested" | "draining" | "waiting_credit" | "proving" | "returning" | "delegated" | "done" | "blocked">().notNull().default("requested"),
+  generationDigest: text("generation_digest"),
+  issue: text("issue"), proofDigest: text("proof_digest"), proofReadAt: timestamp("proof_read_at", { withTimezone: true }),
+  revision: integer("revision").notNull().default(1), nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+  leaseToken: text("lease_token"), leaseUntil: timestamp("lease_until", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [
+  uniqueIndex("copy_live_setup_aborts_setup_uq").on(t.setupId),
+  uniqueIndex("copy_live_setup_aborts_key_uq").on(t.userId, t.idempotencyKey),
+  index("copy_live_setup_aborts_open_idx").on(t.state, t.nextAttemptAt),
+  check("copy_live_setup_aborts_state_check", oneOf(t.state, ["requested", "draining", "waiting_credit", "proving", "returning", "delegated", "done", "blocked"])),
+  check("copy_live_setup_aborts_binding_check", sql`${t.network} in ('testnet','mainnet') and ${t.kind} in ('start','edit','renewal') and ${t.ownerAddress} ~ '^0x[0-9a-f]{40}$' and ${t.destination} = ${t.ownerAddress} and (${t.accountAddress} is null or (${t.accountAddress} ~ '^0x[0-9a-f]{40}$' and ${t.accountAddress} <> ${t.ownerAddress})) and length(${t.ownerPrivyUserId}) > 0 and ${t.idempotencyKey} ~ '^[A-Za-z0-9_-]{16,128}$' and ${t.revision} >= 1`),
+  check("copy_live_setup_aborts_digest_check", sql`(${t.generationDigest} is null or ${t.generationDigest} ~ '^[0-9a-f]{64}$') and (${t.intentDigest} is null or ${t.intentDigest} ~ '^[0-9a-f]{64}$') and (${t.consentDigest} is null or (${t.consentDigest} ~ '^[0-9a-f]{64}$' and ${t.intentDigest} is not null)) and (${t.proofDigest} is null or (${t.proofDigest} ~ '^[0-9a-f]{64}$' and ${t.proofReadAt} is not null))`),
+  check("copy_live_setup_aborts_delegation_check", sql`(${t.stopId} is null or (${t.kind} = 'start' and ${t.mandateId} is not null)) and (${t.state} <> 'delegated' or ${t.stopId} is not null) and (${t.returnOperationId} is null or (${t.kind} = 'start' and ${t.stopId} is null and ${t.proofDigest} is not null))`),
+]);
+
 /** The owner's request to close one position of a running testnet copy
  * (CopyDog's close-position), executed by the worker as reduce-only IOC
  * orders signed by the approved agent; every attempt's order key is kept so
@@ -2186,6 +2223,10 @@ export const copyFollowerObservations = pgTable("copy_follower_observations", {
 export const copyFollowerObservationBudget = pgTable("copy_follower_observation_budget", {
   network: text("network").$type<"testnet" | "mainnet">().primaryKey(),
   nextAllowedAt: timestamp("next_allowed_at", { withTimezone: true }).notNull(),
+  /** Independent busy-period receipt fairness; ordinary 60/120 s scans are unchanged. */
+  nextReceiptAllowedAt: timestamp("next_receipt_allowed_at", { withTimezone: true }),
+  /** Ordinary snapshot fairness is independent of recovery's global admission. */
+  nextSnapshotAllowedAt: timestamp("next_snapshot_allowed_at", { withTimezone: true }),
 }, (t) => [check("copy_follower_observation_budget_network_check", sql`${t.network} in ('testnet','mainnet')`)]);
 
 export const copyFollowerObservationJobs = pgTable("copy_follower_observation_jobs", {

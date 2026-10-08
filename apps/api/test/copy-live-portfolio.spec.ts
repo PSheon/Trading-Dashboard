@@ -80,6 +80,22 @@ describe('owner-scoped current-generation execution summary', () => {
   });
 });
 
+it('portfolio reload carries permanent abort authority and original funding status even after the setup ends', async () => {
+  const id = '99999999-9999-4999-8999-999999999998', operation = '88888888-8888-4888-8888-888888888887';
+  await db.insert(schema.copyLiveSetups).values({ id, userId: 1, strategyId: 9, accountId: 'account', kind: 'start', idempotencyKey: 'portfolio-abort-original-key',
+    stage: 'funding_submitted', leaderAddress: `0x${'44'.repeat(20)}`, sourceNetwork: 'testnet', budgetUsd: '50', settings: {}, fundingOperationId: operation,
+    consentDigest: 'c'.repeat(64), intentDigest: 'd'.repeat(64), confirmedAt: new Date(now), setupDeadline: new Date(now + 86_400_000) });
+  await funding('accepted', operation, { liveSetupId: id });
+  await db.insert(schema.copyLiveSetupAborts).values({ id: '77777777-7777-4777-8777-777777777776', userId: 1, setupId: id, strategyId: 9,
+    accountId: 'account', kind: 'start', network: 'testnet', idempotencyKey: 'portfolio-abort-saved-key', ownerPrivyUserId: seed.consent.ownerPrivyUserId,
+    ownerAddress: seed.consent.ownerAddress, accountAddress: seed.consent.accountAddress, destination: seed.consent.ownerAddress, fundingOperationId: operation });
+  expect((await stage()).setup).toMatchObject({ id, abortRequested: true, fundingStatus: 'accepted', consent: null });
+  await db.update(schema.copyLiveSetups).set({ stage: 'cancelled' }).where(eq(schema.copyLiveSetups.id, id));
+  expect((await stage()).setup).toMatchObject({ id, stage: 'cancelled', abortRequested: true, fundingStatus: 'accepted', consent: null });
+  // A different owner cannot receive this original funding/abort summary.
+  expect(await new CopyLivePortfolioRepository(db).items(999)).toEqual([]);
+});
+
 describe('testnet copy stages for the portfolio', () => {
   it('follows setup → needs_deposit → funding → awaiting_credit → starting → active', async () => {
     await db.update(schema.copyLiveMandates).set({ state: 'prepared' });

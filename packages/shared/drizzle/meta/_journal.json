@@ -519,6 +519,34 @@
       "when": 1791340249626,
       "tag": "0073_copy_live_leverage_updates",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1791480907588,
+      "tag": "0074_copy_live_setup_aborts",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1791483831427,
+      "tag": "0075_copy_live_setup_abort_return_guard",
+      "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1791486070412,
+      "tag": "0076_copy_live_setup_abort_generation_pin",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1791486124325,
+      "tag": "0077_copy_follower_receipt_fairness",
+      "breakpoints": true
     }
   ]
 }

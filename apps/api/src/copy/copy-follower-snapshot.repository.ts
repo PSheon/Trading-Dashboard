@@ -14,6 +14,7 @@ import { lockCopyUser } from './copy-user-lock.js';
 import { deploymentNetwork } from './live-deployment.js';
 import type { DbExecutor } from '../db/unit-of-work.js';
 import { decodeLiveSettlementProof } from './live/live-settlement-proof.js';
+import { followerForegroundReadEligible, followerRecoveryAccount, followerFreshForeground, followerAccountFreshForeground } from './copy-foreground-read-priority.js';
 
 export type FollowerSnapshotClaim = Readonly<{ accountId: string; userId: number; strategyId: number; accountAddress: string; accountRevision: number; ownerPrivyUserId: string; claimToken: string }>;
 export type FollowerSnapshotIssue = NonNullable<typeof copyFollowerObservationJobs.$inferSelect['issue']>;
@@ -40,8 +41,9 @@ const reportingEligible = sql`not exists (select 1 from copy_live_setups s where
   and not exists (select 1 from copy_live_mandates m where m.account_id = ${copyExecutionAccounts.id} and m.state = 'active'
     and m.created_at > clock_timestamp() - interval '120 seconds'
     and not exists (select 1 from copy_live_dispatches d where d.mandate_id = m.id and d.state in ('settled','refused')))
-  and not exists (select 1 from copy_live_dispatches d inner join copy_live_mandates m on m.id = d.mandate_id
-    where d.account_id = ${copyExecutionAccounts.id} and d.state in ('pending','submitted') and m.state in ('active','paused','stopping'))`;
+  and ((${copyExecutionAccounts.network} = 'testnet' and (${followerRecoveryAccount} or not ${followerAccountFreshForeground}))
+    or (${copyExecutionAccounts.network} <> 'testnet' and not exists (select 1 from copy_live_dispatches d inner join copy_live_mandates m on m.id = d.mandate_id
+      where d.account_id = ${copyExecutionAccounts.id} and d.state in ('pending','submitted') and m.state in ('active','paused','stopping'))))`;
 @Injectable()
 export class CopyFollowerSnapshotRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, private readonly config: AppConfig) {}
@@ -52,13 +54,17 @@ export class CopyFollowerSnapshotRepository {
     return this.db.transaction(async tx => {
       await tx.insert(copyFollowerObservationBudget).values({ network, nextAllowedAt: sql`clock_timestamp()` }).onConflictDoNothing();
       await tx.select().from(copyFollowerObservationBudget).where(eq(copyFollowerObservationBudget.network, network)).for('update');
+      const busy = network === 'testnet' && (await tx.execute<{ busy: boolean }>(sql`select ${followerFreshForeground} as busy`)).rows[0]?.busy === true;
+      if (busy) {
+        // Initialize once. Recovery admissions and null claims cannot postpone
+        // an ordinary account's bounded turn across process restarts.
+        await tx.update(copyFollowerObservationBudget).set({ nextSnapshotAllowedAt: sql`coalesce(${copyFollowerObservationBudget.nextSnapshotAllowedAt}, clock_timestamp() + interval '300 seconds')` })
+          .where(eq(copyFollowerObservationBudget.network, network));
+      }
       // Check server time after acquiring the row: no pre-wait projection can
       // admit a second replica against the previous allowance.
       const [budget] = await tx.select({ available: sql<boolean>`${copyFollowerObservationBudget.nextAllowedAt} <= clock_timestamp()`,
-        // nextAllowedAt is one minute after the last admission. Four further
-        // minutes makes a five-minute busy-period allowance; a new row uses
-        // the same bounded initial deferral without changing stored evidence.
-        recentlyAdmitted: sql<boolean>`${copyFollowerObservationBudget.nextAllowedAt} > clock_timestamp() - interval '240 seconds'` })
+        ordinaryDue: sql<boolean>`coalesce(${copyFollowerObservationBudget.nextSnapshotAllowedAt} <= clock_timestamp(), false)` })
         .from(copyFollowerObservationBudget).where(eq(copyFollowerObservationBudget.network, network));
       if (!budget?.available) return null;
       // Testnet reporting uses the same bucket as every execution account.
@@ -67,32 +73,31 @@ export class CopyFollowerSnapshotRepository {
       // retained observations unchanged. A stalled order cannot starve other
       // accounts forever: reporting still gets one admission per five busy
       // minutes. This hint never grants or changes financial authority.
-      if (network === 'testnet' && budget.recentlyAdmitted) {
-        const busy = await tx.execute(sql`select exists (
-          select 1 from copy_live_dispatches d
-          inner join copy_live_mandates m on m.id = d.mandate_id
-          inner join copy_execution_accounts a on a.id = d.account_id
-          where a.network = ${network} and d.state in ('pending','submitted')
-            and m.state in ('active','paused','stopping')
-        ) as busy`);
-        if (busy.rows[0]?.busy) return null;
+      if (busy && !budget.ordinaryDue) {
+        const recovery = await tx.select({ id: copyExecutionAccounts.id }).from(copyExecutionAccounts)
+          .where(and(eq(copyExecutionAccounts.network, network), followerRecoveryAccount)).limit(1);
+        if (!recovery.length) return null;
       }
       // Retained stopped/revoked/disabled identities can still have actual
       // balances. They remain observable; the owner GET is separately guarded.
       await tx.execute(sql`insert into copy_follower_observation_jobs (account_id)
         select id from copy_execution_accounts where network = ${network} and address is not null
         and address <> '0x0000000000000000000000000000000000000000' on conflict (account_id) do nothing`);
-      const [row] = await tx.select({ account: copyExecutionAccounts }).from(copyFollowerObservationJobs)
+      const [row] = await tx.select({ account: copyExecutionAccounts, recovery: sql<boolean>`${followerRecoveryAccount}` }).from(copyFollowerObservationJobs)
         .innerJoin(copyExecutionAccounts, eq(copyExecutionAccounts.id, copyFollowerObservationJobs.accountId))
-        .where(and(eq(copyExecutionAccounts.network, network), sql`${copyExecutionAccounts.address} is not null and ${copyExecutionAccounts.address} <> '0x0000000000000000000000000000000000000000'`, observable, reportingEligible, sql`${copyFollowerObservationJobs.nextRunAt} <= clock_timestamp()`))
-        .orderBy(copyFollowerObservationJobs.nextRunAt, copyFollowerObservationJobs.accountId).limit(1).for('update', { of: copyFollowerObservationJobs, skipLocked: true });
+        .where(and(eq(copyExecutionAccounts.network, network), sql`${copyExecutionAccounts.address} is not null and ${copyExecutionAccounts.address} <> '0x0000000000000000000000000000000000000000'`, observable, reportingEligible, followerForegroundReadEligible(budget.ordinaryDue), sql`${copyFollowerObservationJobs.nextRunAt} <= clock_timestamp()`))
+        // Give the elapsed ordinary allowance to its oldest due account even
+        // if a repeatedly due recovery account has an older scheduling time.
+        .orderBy(sql`case when ${busy && budget.ordinaryDue} and ${followerRecoveryAccount} then 1 else 0 end`, copyFollowerObservationJobs.nextRunAt, copyFollowerObservationJobs.accountId).limit(1).for('update', { of: copyFollowerObservationJobs, skipLocked: true });
       if (!row?.account.address) return null;
       const claimToken = randomUUID();
       await tx.update(copyFollowerObservationJobs).set({ claimToken, attemptedAt: sql`clock_timestamp()`, nextRunAt: sql`clock_timestamp() + interval '120 seconds'`, updatedAt: sql`clock_timestamp()` })
         .where(eq(copyFollowerObservationJobs.accountId, row.account.id));
       // Consume before provider work. A crash or failed read does not restore
       // the global allowance, including after another process restarts.
-      await tx.update(copyFollowerObservationBudget).set({ nextAllowedAt: sql`clock_timestamp() + interval '60 seconds'` }).where(eq(copyFollowerObservationBudget.network, network));
+      await tx.update(copyFollowerObservationBudget).set({ nextAllowedAt: sql`clock_timestamp() + interval '60 seconds'`,
+        ...(network === 'testnet' && !row.recovery ? { nextSnapshotAllowedAt: sql`clock_timestamp() + interval '300 seconds'` } : {}) })
+        .where(eq(copyFollowerObservationBudget.network, network));
       return { accountId: row.account.id, userId: row.account.userId, strategyId: row.account.strategyId,
         accountAddress: row.account.address, accountRevision: row.account.revision, ownerPrivyUserId: row.account.privyUserId, claimToken };
     });

@@ -3,7 +3,7 @@ import { RETURN_CONSENT_WINDOW_MS } from './copy-live-return.repository.js';
 import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { MERGED_REASON } from './live-worker/copy-live-worker.repository.js';
 import { copyAgentSetups, copyExecutionAccounts, copyFundingOperations, copyLiveActivations, copyLiveDispatches, copyLiveMandates, copyLiveStopOperations,
-  copyLiveSetups, copyLiveStrategyConfigs, copyStrategies, copyLiveRiskReservations, copyLiveSourceStreams } from '@trading-dashboard/shared/database';
+  copyLiveSetups, copyLiveSetupAborts, copyLiveStrategyConfigs, copyStrategies, copyLiveRiskReservations, copyLiveSourceStreams } from '@trading-dashboard/shared/database';
 import { ACTUAL_STRATEGY_MODE, liveCopySetupIntentSchema, type LiveCopyPortfolioItem, type LiveCopyStage } from '@trading-dashboard/shared/contracts';
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
@@ -27,7 +27,7 @@ export class CopyLivePortfolioRepository {
       .where(and(eq(copyStrategies.userId, userId), eq(copyStrategies.mode, ACTUAL_STRATEGY_MODE))).orderBy(desc(copyStrategies.createdAt)).limit(50);
     if (!strategies.length) return [];
     const ids = strategies.map(row => row.strategy.id);
-    const [accounts, setups, mandates, activations, stops, transfers, liveSetups] = await Promise.all([
+    const [accounts, setups, mandates, activations, stops, transfers, liveSetups, setupAborts] = await Promise.all([
       this.db.select().from(copyExecutionAccounts).where(and(eq(copyExecutionAccounts.userId, userId), inArray(copyExecutionAccounts.strategyId, ids))),
       this.db.select().from(copyAgentSetups).where(and(eq(copyAgentSetups.userId, userId), eq(copyAgentSetups.state, 'active'))),
       this.db.select().from(copyLiveMandates).where(and(eq(copyLiveMandates.userId, userId), inArray(copyLiveMandates.strategyId, ids))).orderBy(desc(copyLiveMandates.createdAt)),
@@ -35,6 +35,8 @@ export class CopyLivePortfolioRepository {
       this.db.select().from(copyLiveStopOperations).where(and(eq(copyLiveStopOperations.userId, userId), inArray(copyLiveStopOperations.strategyId, ids))).orderBy(desc(copyLiveStopOperations.createdAt)),
       this.db.select().from(copyFundingOperations).where(and(eq(copyFundingOperations.userId, userId), inArray(copyFundingOperations.strategyId, ids))).orderBy(desc(copyFundingOperations.createdAt)),
       this.db.select().from(copyLiveSetups).where(and(eq(copyLiveSetups.userId, userId), inArray(copyLiveSetups.strategyId, ids))).orderBy(desc(copyLiveSetups.createdAt)),
+      this.db.select({ setupId: copyLiveSetupAborts.setupId, strategyId: copyLiveSetupAborts.strategyId, network: copyLiveSetupAborts.network }).from(copyLiveSetupAborts)
+        .where(and(eq(copyLiveSetupAborts.userId, userId), inArray(copyLiveSetupAborts.strategyId, ids))),
     ]);
     const now = Date.now();
     // Select the current generation only after binding the owner's execution
@@ -104,7 +106,11 @@ export class CopyLivePortfolioRepository {
         : s.status === 'stopped' ? ops.find(t => t.direction === 'to_main' && !t.stopId) ?? null : null;
       // The latest setup, shown while unfinished or when a start never finished.
       const latest = liveSetups.find(row => row.strategyId === s.id) ?? null;
-      const liveSetup = latest && (latest.stage !== 'running' && latest.stage !== 'cancelled') && !(latest.kind !== 'start' && ['failed', 'expired'].includes(latest.stage) && latest.updatedAt.getTime() < now - 86_400_000) ? latest : null;
+      const abortRequested = Boolean(latest && setupAborts.some(a => a.setupId === latest.id && a.strategyId === s.id && a.network === s.network));
+      const liveSetup = latest && (abortRequested || (latest.stage !== 'running' && latest.stage !== 'cancelled' &&
+        !(latest.kind !== 'start' && ['failed', 'expired'].includes(latest.stage) && latest.updatedAt.getTime() < now - 86_400_000))) ? latest : null;
+      const originalFunding = liveSetup ? ops.find(op => op.direction === 'to_account' && op.network === s.network && op.accountId === liveSetup.accountId &&
+        (liveSetup.fundingOperationId ? op.id === liveSetup.fundingOperationId : op.liveSetupId === liveSetup.id)) : null;
       const settingUp = liveSetup && !['failed', 'expired'].includes(liveSetup.stage) && liveSetup.kind === 'start';
       let stage: LiveCopyStage;
       if (s.status === 'stopped') stage = !latestStop && (pending?.direction === 'to_main' || (stranded && !pending)) ? 'sweeping' : 'stopped';
@@ -125,7 +131,8 @@ export class CopyLivePortfolioRepository {
         lastRefusal: refusal ? { reason: refusal.reason!, at: refusal.at.toISOString() } : null,
         executionSummary,
         automaticReturn: Boolean(account?.masterPolicyId && !account.signerDetachedAt), sweep: sweep ? { amount: sweep.creditedAmount ?? sweep.amount, status: sweep.status } : null,
-        setup: liveSetup ? { id: liveSetup.id, kind: liveSetup.kind, stage: liveSetup.stage, issue: liveSetup.issue?.slice(0, 80) ?? null, consent: consentOf(liveSetup, now) } : null,
+        setup: liveSetup ? { id: liveSetup.id, kind: liveSetup.kind, stage: liveSetup.stage, issue: liveSetup.issue?.slice(0, 80) ?? null,
+          abortRequested, fundingStatus: originalFunding?.status ?? null, consent: abortRequested ? null : consentOf(liveSetup, now) } : null,
         expiresAt: mandate && ['active', 'paused'].includes(mandate.state) ? mandate.expiresAt.toISOString() : null,
         oneClick: mandate?.consentKind === 'setup',
         renewalDue: Boolean(mandate && ['active', 'paused'].includes(mandate.state) && mandate.expiresAt.getTime() - now <= 3 * 86_400_000 && s.status !== 'stopping' && s.status !== 'stopped') };

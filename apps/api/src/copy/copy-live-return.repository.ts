@@ -1,3 +1,4 @@
+import { assertSetupAdmission, assertAccountAbortAdmission } from './copy-live-setup-barrier.js';
 import { randomUUID } from 'node:crypto';
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
@@ -29,7 +30,7 @@ export const RETURN_CONSENT_WINDOW_MS = 300_000;
 export async function expireStaleReturns(tx: DbTransaction, accountId: string): Promise<void> {
   await tx.update(copyFundingOperations).set({ status: 'cancelled', updatedAt: new Date() })
     .where(and(eq(copyFundingOperations.accountId, accountId), eq(copyFundingOperations.direction, 'to_main'), eq(copyFundingOperations.status, 'prepared'),
-      isNull(copyFundingOperations.attemptedAt), sql`${copyFundingOperations.createdAt} < now() - make_interval(secs => ${RETURN_CONSENT_WINDOW_MS / 1000})`,
+      isNull(copyFundingOperations.setupAbortId), isNull(copyFundingOperations.attemptedAt), sql`${copyFundingOperations.createdAt} < now() - make_interval(secs => ${RETURN_CONSENT_WINDOW_MS / 1000})`,
       // The worker's own sweep has no consent window: it waits for its turn.
       sql`${copyFundingOperations.idempotencyKey} not like ${SYSTEM_SWEEP_PREFIX + '%'}`));
 }
@@ -90,6 +91,7 @@ export class CopyLiveReturnRepository {
   async reserve(userId: number, accountId: string, input: { idempotencyKey: string; amount: string; sweep: boolean }): Promise<ReturnRow> {
     return this.locked(userId, async tx => {
       const { owner, account, strategy, stop } = await this.context(tx, userId, accountId);
+      await assertAccountAbortAdmission(tx, userId, accountId, account.network);
       const [original] = await tx.select().from(copyFundingOperations).where(and(eq(copyFundingOperations.userId, userId), eq(copyFundingOperations.idempotencyKey, input.idempotencyKey)));
       if (original) {
         if (original.direction !== 'to_main' || original.accountId !== accountId || original.address !== account.address || original.destination !== owner.embeddedWalletAddress ||
@@ -147,7 +149,9 @@ export class CopyLiveReturnRepository {
     return this.locked(userId, async tx => {
       const [row] = await tx.select().from(copyFundingOperations).where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.userId, userId), eq(copyFundingOperations.direction, 'to_main'))).for('update');
       if (!row) throw new NotFoundException('Return not found');
+      if (row.setupAbortId) throw new ConflictException({ statusCode: 409, code: 'setup_abort_return_requires_proof', message: 'This return belongs to the saved setup abort' });
       const { owner, account } = await this.context(tx, userId, row.accountId, system);
+      if (!row.attemptedAt) await assertAccountAbortAdmission(tx, userId, row.accountId, row.network, row.stopId, system && Boolean(row.stopId));
       if (owner.embeddedWalletAddress !== row.destination || account.address !== row.address) throw new ConflictException('Wallet identity changed');
       const [claimed] = await tx.update(copyFundingOperations).set({ status: 'unknown', claimedAt: new Date(), attemptedAt: new Date(), updatedAt: new Date() })
         .where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.status, 'prepared'), isNull(copyFundingOperations.attemptedAt))).returning();
@@ -167,15 +171,18 @@ export class CopyLiveReturnRepository {
   }
 
   // --- builder fee approval ---------------------------------------------------
-  async reserveBuilder(userId: number, accountId: string, input: { idempotencyKey: string; builderAddress: string; maxFeeTenthsBps: number; now: number }): Promise<BuilderApprovalRow> {
+  async reserveBuilder(userId: number, accountId: string, input: { idempotencyKey: string; builderAddress: string; maxFeeTenthsBps: number; now: number; liveSetupId?: string }): Promise<BuilderApprovalRow> {
     return this.locked(userId, async tx => {
       const { account } = await this.context(tx, userId, accountId);
+      await assertAccountAbortAdmission(tx, userId, accountId, account.network);
+      const setup = await assertSetupAdmission(tx, userId, input.liveSetupId);
+      if (setup && (setup.accountId !== accountId || setup.strategyId !== account.strategyId)) throw new ConflictException('Setup account changed');
       const [original] = await tx.select().from(copyLiveBuilderApprovals).where(and(eq(copyLiveBuilderApprovals.userId, userId), eq(copyLiveBuilderApprovals.idempotencyKey, input.idempotencyKey)));
       if (original) {
-        if (original.accountId !== accountId || original.builderAddress !== input.builderAddress || original.maxFeeTenthsBps !== input.maxFeeTenthsBps) throw new ConflictException('Idempotency payload changed');
+        if (original.accountId !== accountId || original.builderAddress !== input.builderAddress || original.maxFeeTenthsBps !== input.maxFeeTenthsBps || (input.liveSetupId && original.liveSetupId !== input.liveSetupId)) throw new ConflictException('Idempotency payload changed');
         return original;
       }
-      const [row] = await tx.insert(copyLiveBuilderApprovals).values({ id: randomUUID(), userId, accountId, idempotencyKey: input.idempotencyKey, network: account.network,
+      const [row] = await tx.insert(copyLiveBuilderApprovals).values({ id: randomUUID(), userId, accountId, idempotencyKey: input.idempotencyKey, network: account.network, liveSetupId: input.liveSetupId ?? null,
         accountAddress: account.address!, builderAddress: input.builderAddress, maxFeeTenthsBps: input.maxFeeTenthsBps, nonce: await this.nonce(tx, account.network, account.address!),
         createdAt: new Date(input.now), updatedAt: new Date(input.now) }).returning();
       return row!;
@@ -187,8 +194,16 @@ export class CopyLiveReturnRepository {
     return row;
   }
   async beginBuilder(userId: number, id: string): Promise<BuilderApprovalRow | null> {
-    const [row] = await this.locked(userId, tx => tx.update(copyLiveBuilderApprovals).set({ state: 'unknown', attemptedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(copyLiveBuilderApprovals.id, id), eq(copyLiveBuilderApprovals.userId, userId), eq(copyLiveBuilderApprovals.state, 'prepared'))).returning());
+    const [row] = await this.locked(userId, async tx => {
+      const [current] = await tx.select().from(copyLiveBuilderApprovals).where(and(eq(copyLiveBuilderApprovals.id, id), eq(copyLiveBuilderApprovals.userId, userId))).for('update');
+      if (!current) throw new NotFoundException('Approval not found');
+      if (!current.attemptedAt) {
+        await assertAccountAbortAdmission(tx, userId, current.accountId, current.network);
+        await assertSetupAdmission(tx, userId, current.liveSetupId);
+      }
+      return tx.update(copyLiveBuilderApprovals).set({ state: 'unknown', attemptedAt: new Date(), updatedAt: new Date() })
+        .where(and(eq(copyLiveBuilderApprovals.id, id), eq(copyLiveBuilderApprovals.userId, userId), eq(copyLiveBuilderApprovals.state, 'prepared'))).returning();
+    });
     return row ?? null;
   }
   async finishBuilder(userId: number, id: string, state: 'accepted' | 'rejected' | 'approved', evidenceDigest: string | null): Promise<BuilderApprovalRow> {

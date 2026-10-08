@@ -64,6 +64,49 @@ function setup(override?: (body: Record<string, unknown>, value: unknown) => unk
   return { observer, reads, acquire, fetcher, aggregateRead, ordersRead, setClock: (value: number) => { clock = value; } };
 }
 
+describe('setup abort return evidence is separate from trading authority', () => {
+  const flatFunded = (body: Record<string, unknown>, value: unknown): unknown => {
+    if (body.type === 'userAbstraction') return 'default';
+    if (body.type === 'frontendOpenOrders') return [];
+    if (body.type === 'clearinghouseState') {
+      const flat = state(false);
+      if (!body.dex) { flat.marginSummary.accountValue = '100'; flat.marginSummary.totalRawUsd = '100';
+        flat.crossMarginSummary.accountValue = '100'; flat.crossMarginSummary.totalRawUsd = '100'; flat.withdrawable = '100'; }
+      return flat;
+    }
+    return value;
+  };
+  it('observes a funded default account only for a full-flat primary USDC return, never for trading or unsetup allocation', async () => {
+    const s = setup(flatFunded);
+    await expect(s.observer.observe(account)).rejects.toMatchObject({ code: 'live_account_unsupported_abstraction' });
+    await expect(s.observer.observe(account, { unsetup: true })).rejects.toMatchObject({ code: 'live_account_unsupported_abstraction' });
+    const proof = await s.observer.observeSetupAbortFlat(account);
+    expect(proof).toMatchObject({ purpose: 'setup-abort-return', snapshot: { network: 'testnet', accountAddress: account, accountAbstraction: 'default',
+      withdrawable: '100', positions: [], restingOrders: [], coverage: { complete: true, orderComplete: true, balanceComplete: true } } });
+    expect(proof.snapshot).not.toHaveProperty('accountMode');
+  });
+  it('proves a never-funded missing account only when every venue and spot balance is zero', async () => {
+    const s = setup((body, value) => body.type === 'userRole' ? { role: 'missing' } : body.type === 'userAbstraction' ? 'default' :
+      body.type === 'clearinghouseState' ? state(false) : body.type === 'frontendOpenOrders' ? [] : value);
+    await expect(s.observer.observe(account)).rejects.toBeDefined();
+    expect(await s.observer.observeSetupAbortFlat(account)).toMatchObject({ purpose: 'setup-abort-return', snapshot: { role: 'missing', withdrawable: '0',
+      positions: [], restingOrders: [], coverage: { complete: true, orderComplete: true } } });
+  });
+  it.each(['position', 'order', 'other_dex_balance', 'incomplete_orders', 'stale', 'spot_balance', 'portfolio_margin'])('refuses %s rather than converting incomplete evidence into a refund proof', async reason => {
+    const s = setup((body, value) => {
+      const flat = flatFunded(body, value);
+      if (reason === 'position' && body.type === 'clearinghouseState' && !body.dex) return state(true);
+      if (reason === 'order' && body.type === 'frontendOpenOrders' && !body.dex) return [open];
+      if (reason === 'other_dex_balance' && body.type === 'clearinghouseState' && body.dex) return { ...state(false), withdrawable: '1', marginSummary: { ...state(false).marginSummary, accountValue: '1', totalRawUsd: '1' } };
+      if (reason === 'stale' && body.type === 'clearinghouseState') return { ...(flat as object), time: now - 5_001 };
+      if (reason === 'spot_balance' && body.type === 'spotClearinghouseState') return { balances: [{ coin: 'USDC', token: 7, total: '1', hold: '0' }] };
+      if (reason === 'portfolio_margin' && body.type === 'spotClearinghouseState') return { balances: [], portfolioMarginEnabled: true };
+      return flat;
+    }, reason !== 'incomplete_orders');
+    await expect(s.observer.observeSetupAbortFlat(account)).rejects.toBeDefined();
+  });
+});
+
 describe('authoritative dedicated standard account observations', () => {
   it('observes more than 32 listed dexes in bounded aggregate reads and exposes unknown unsupported orders', async () => {
     const s = setup((body, value) => body.type === 'perpDexs' ? [null, ...Array.from({ length: 267 }, (_, i) => ({ name: `dex${i + 1}` }))] : value, false);

@@ -1,16 +1,22 @@
-import { Body, Controller, Get, Header, HttpCode, Param, Patch, Post, UseFilters } from '@nestjs/common';
+import { Body, Controller, Get, Header, HttpCode, Inject, Optional, Param, Patch, Post, ServiceUnavailableException, UseFilters } from '@nestjs/common';
 import { CurrentUser, requireUserId, type RequestUser } from '../common/auth/current-user.js';
 import { ApiDoc } from '../common/decorators/http.decorator.js';
 import { BusyFilter } from '../traders/busy.js';
 import { CopyStrategyParamsDto } from './dto/copy.dto.js';
 import { AdvanceLiveCopySetupDto, ConfirmLiveCopySetupDto, EditLiveCopyDto, LiveSetupIdDto, LiveSetupKeyDto, RenewLiveCopyDto, StartLiveCopyDto } from './dto/copy-live-setup.dto.js';
 import { CopyLiveSetupService } from './copy-live-setup.service.js';
+import { CopyLiveSetupAbortService } from './copy-live-setup-abort.service.js';
+import { RequestLiveCopySetupAbortDto } from './dto/copy-live-setup-abort.dto.js';
 
 /** One-click testnet copy (docs/one-click-copy-plan-2026-10-05.md §3a). */
 @Controller('me/copy/live')
 @UseFilters(BusyFilter)
 export class CopyLiveSetupController {
-  constructor(private readonly setups: CopyLiveSetupService) {}
+  constructor(private readonly setups: CopyLiveSetupService, @Optional() @Inject(CopyLiveSetupAbortService) private readonly aborts: CopyLiveSetupAbortService | null = null) {}
+  private abortService() {
+    if (!this.aborts) throw new ServiceUnavailableException({ statusCode: 503, code: 'setup_abort_unavailable', message: 'Saved setup aborts are unavailable' });
+    return this.aborts;
+  }
   @Post('setups') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Start a one-click testnet copy', 'Idempotent by key: admits one original setup and prepares its paused strategy, wallet, agent and deposit in tracked background work. Quick preparation returns the consent; slow preparation returns its original id within ten seconds for read-only polling. No exchange call before confirmation.')
   start(@CurrentUser() user: RequestUser | null, @Body() body: StartLiveCopyDto) { return this.setups.start(requireUserId(user), body); }
   @Get('setups') @Header('Cache-Control', 'no-store') @ApiDoc('List my one-click setups')
@@ -19,6 +25,12 @@ export class CopyLiveSetupController {
   recover(@CurrentUser() user: RequestUser | null, @Param() params: LiveSetupKeyDto) { return this.setups.recover(requireUserId(user), params.key); }
   @Get('setups/:id') @Header('Cache-Control', 'no-store') @ApiDoc('Read one setup (the progress dialog polls it)')
   get(@CurrentUser() user: RequestUser | null, @Param() params: LiveSetupIdDto) { return this.setups.get(requireUserId(user), params.id); }
+  @Post('setups/:id/abort') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Safely abort my original setup', 'Establishes one durable original setup barrier. No provider work in this request, no new deposit, no client amount, destination or signature. Original attempted operations are reconciled; a pre-generation refund needs fresh full-flat evidence. An applied edit cannot stop its old generation.')
+  abort(@CurrentUser() user: RequestUser | null, @Param() params: LiveSetupIdDto, @Body() body: RequestLiveCopySetupAbortDto) {
+    return this.abortService().request(requireUserId(user), params.id, body);
+  }
+  @Get('setups/:id/abort') @Header('Cache-Control', 'no-store') @ApiDoc('Read my saved setup abort', 'Owner- and deployment-scoped, read-only recovery of the permanent original authority and its original children.')
+  readAbort(@CurrentUser() user: RequestUser | null, @Param() params: LiveSetupIdDto) { return this.abortService().get(requireUserId(user), params.id); }
   @Post('setups/:id/confirm') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Confirm with the setup consent and the deposit signature', "Records the worker signer my browser added to the copy account (Privy addSigners), verifies the consent once, submits the deposit once, then runs what it can. Without the worker signer nothing is deposited: 409 worker_signer_missing (confirm again once it is added, while the consent lasts).")
   confirm(@CurrentUser() user: RequestUser | null, @Param() params: LiveSetupIdDto, @Body() body: ConfirmLiveCopySetupDto) {
     const userId = requireUserId(user); return this.setups.confirm(userId, params.id, body);

@@ -1,3 +1,4 @@
+import { assertSetupAdmission, assertAccountAbortAdmission } from './copy-live-setup-barrier.js';
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
@@ -85,13 +86,20 @@ export class CopyAccountModeRepository {
         !owner.embeddedWalletAddress || owner.embeddedWalletAddress === account.address) throw new ConflictException('account_mode_account_not_ready');
     if ((await tx.select({ id: copyAccountModeOperations.id }).from(copyAccountModeOperations).where(eq(copyAccountModeOperations.accountId, accountId))).length)
       throw new ConflictException('account_mode_setup_exists');
+    await assertAccountAbortAdmission(tx, userId, accountId, account.network);
+    await assertSetupAdmission(tx, userId, liveSetupId);
     const [row] = await tx.insert(copyAccountModeOperations).values({ id: randomUUID(), userId, accountId, strategyId: account.strategyId,
       network: account.network, idempotencyKey, accountAddress: account.address, accountWalletId: account.privyWalletId,
       accountOwnerQuorumId: account.ownerQuorumId, ownerPrivyUserId: owner.privyUserId, ownerAddress: owner.embeddedWalletAddress, liveSetupId }).returning();
     await this.assertCurrent(userId, row!, tx); return row!;
   }
   forAccount(tx: Executor, accountId: string) { return tx.select().from(copyAccountModeOperations).where(eq(copyAccountModeOperations.accountId, accountId)).limit(1); }
-  async transition(row: AccountModeRow, changes: Partial<typeof copyAccountModeOperations.$inferInsert>, tx: Executor = this.db) {
+  async transition(row: AccountModeRow, changes: Partial<typeof copyAccountModeOperations.$inferInsert>, tx: Executor = this.db): Promise<AccountModeRow | null> {
+    if (!row.attemptedAt && (changes.submissionState === 'signing' || changes.attemptedAt)) {
+      if (tx === this.db) return this.db.transaction(inner => this.transition(row, changes, inner));
+      await assertAccountAbortAdmission(tx as DbTransaction, row.userId, row.accountId, row.network);
+      await assertSetupAdmission(tx as DbTransaction, row.userId, row.liveSetupId);
+    }
     const [next] = await tx.update(copyAccountModeOperations).set({ ...changes, revision: row.revision + 1, updatedAt: new Date() })
       .where(and(eq(copyAccountModeOperations.id, row.id), eq(copyAccountModeOperations.revision, row.revision), eq(copyAccountModeOperations.submissionState, row.submissionState))).returning();
     return next ?? null;
@@ -100,6 +108,7 @@ export class CopyAccountModeRepository {
    * `minRemainingMs` of its five-minute window left. */
   async challenge(tx: DbTransaction, userId: number, row: AccountModeRow, assertFresh: () => void, minRemainingMs = 0) {
     await this.assertCurrent(userId, row, tx, true);
+    await assertSetupAdmission(tx, userId, row.liveSetupId);
     const locked = await this.find(userId, row.id, tx, true); assertFresh();
     if (locked.submissionState !== 'prepared' || locked.attemptedAt || locked.revision !== row.revision || locked.targetState === 'supported')
       throw new ConflictException('account_mode_challenge_changed');

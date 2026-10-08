@@ -1,4 +1,4 @@
-import { Logger, type Provider } from '@nestjs/common';
+import { Logger, type FactoryProvider } from '@nestjs/common';
 import type { Pool } from 'pg';
 import { AppConfig } from '../../config/app-config.js';
 import type { LiveCopyCaps } from '../../config/runtime-config.js';
@@ -59,7 +59,7 @@ export async function liveMaxStrategiesPerUser(db: DrizzleDb, caps: LiveCopyCaps
  * (whose prerequisites startup already checked).
  * Refuses startup when one order's evidence can't fit the order bucket
  * (assertLiveEvidenceCapacity). */
-export const liveEngineProvider: Provider = {
+export const liveEngineProvider: FactoryProvider<CopyLiveEngine | null> = {
   provide: LIVE_ENGINE,
   inject: [AppConfig, DATABASE_POOL, DRIZZLE_CLIENT, UnitOfWork, CopyMarketService, CopyFollowerLedger,
     CopyLiveSourceRepository, CopyLiveWorkerRepository, CopyFollowerScanRepository, CopyLiveStopWorkerRepository, CopyLiveReturnRepository, CopyLiveSetupService, WALLET_NETWORK_HL,
@@ -117,7 +117,7 @@ export const liveEngineProvider: Provider = {
       // No feed (or a socket down): the pass polls the fast leaders instead.
       feedUp: () => { const status = feed?.status(); return !!status && status.socketsTotal > 0 && status.disconnectedSince === null; },
     } : undefined;
-    return new CopyLiveEngine({ network, setups, stopper: { tick: async () => { await stopper.tick(); await manual.tick(); } },
+    return new CopyLiveEngine({ network, apiTerminalSettlement: network === 'testnet', setups, stopper: { tick: async () => { await stopper.tick(); await manual.tick(); } },
       repository, sources, uow, watched: new WatchedMainnetSource(db),
       // Testnet leaders (a testnet deployment only: a mainnet one copies mainnet leaders).
       testnetSource: new HyperliquidLiveSourceClient('testnet', weight => reserve(weight), walletGlobal.fetchInfo,

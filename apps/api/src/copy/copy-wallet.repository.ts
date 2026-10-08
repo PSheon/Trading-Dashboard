@@ -1,6 +1,6 @@
 import { ConflictException, Inject, Injectable } from "@nestjs/common";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
-import { copyExecutionAccounts, copyExecutionWallets, copyLiveSetups, copyStrategies, copyWalletAuthorizations, copyWalletAuthorizationEvents, users } from "@trading-dashboard/shared/database";
+import { copyExecutionAccounts, copyExecutionWallets, copyLiveSetups, copyLiveSetupAborts, copyStrategies, copyWalletAuthorizations, copyWalletAuthorizationEvents, users } from "@trading-dashboard/shared/database";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
@@ -64,8 +64,15 @@ export class CopyWalletRepository {
     return { id: intent.masterPolicyId, fingerprint: intent.masterPolicyFingerprint, agentAddress: intent.agentAddress, strategyId: intent.strategyId, agentValidUntil: intent.agentValidUntil };
   }
   async claimCreation(id: string) {
-    return this.withLockedAccount(id, async tx => (await tx.update(copyExecutionAccounts).set({ state: "unknown", issue: "verification_pending", updatedAt: new Date(), revision: sql`${copyExecutionAccounts.revision} + 1` })
-      .where(and(eq(copyExecutionAccounts.id, id), eq(copyExecutionAccounts.state, "requested"))).returning())[0]);
+    return this.withLockedAccount(id, async tx => {
+      const [account] = await tx.select().from(copyExecutionAccounts).where(eq(copyExecutionAccounts.id, id));
+      const [barrier] = account ? await tx.select({ id: copyLiveSetupAborts.id }).from(copyLiveSetupAborts)
+        .where(and(eq(copyLiveSetupAborts.userId, account.userId), eq(copyLiveSetupAborts.strategyId, account.strategyId),
+          eq(copyLiveSetupAborts.network, account.network), eq(copyLiveSetupAborts.kind, 'start'))).limit(1) : [];
+      if (barrier) throw new ConflictException({ statusCode: 409, code: 'setup_abort_requested', message: 'The setup is being safely ended' });
+      return (await tx.update(copyExecutionAccounts).set({ state: "unknown", issue: "verification_pending", updatedAt: new Date(), revision: sql`${copyExecutionAccounts.revision} + 1` })
+        .where(and(eq(copyExecutionAccounts.id, id), eq(copyExecutionAccounts.state, "requested"))).returning())[0];
+    });
   }
   /** The wallet Privy shows is this account's. Only a change (first seen,
    * or ready again after a failed check) moves the revision that consents

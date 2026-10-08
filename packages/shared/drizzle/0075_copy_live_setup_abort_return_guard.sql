@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX "copy_funding_setup_abort_uq" ON "copy_funding_operations" USING btree ("setup_abort_id") WHERE "copy_funding_operations"."setup_abort_id" is not null;--> statement-breakpoint
+ALTER TABLE "copy_funding_operations" ADD CONSTRAINT "copy_funding_setup_abort_check" CHECK ("copy_funding_operations"."setup_abort_id" is null or ("copy_funding_operations"."direction" = 'to_main' and "copy_funding_operations"."stop_id" is null and "copy_funding_operations"."live_setup_id" is null));

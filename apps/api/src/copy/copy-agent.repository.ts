@@ -1,3 +1,4 @@
+import { assertSetupAdmission, assertAccountAbortAdmission } from './copy-live-setup-barrier.js';
 import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
@@ -66,6 +67,8 @@ export class CopyAgentRepository {
       if (prior.accountId !== accountId || prior.validForDays !== input.validForDays || prior.workerQuorumId !== workerQuorumId) throw new ConflictException("agent_idempotency_conflict");
       return prior;
     }
+    await assertAccountAbortAdmission(tx, userId, accountId, network);
+    await assertSetupAdmission(tx, userId, setup?.liveSetupId);
     if (account.state !== "ready" || account.privyUserId !== owner.privyUserId || !account.address || !account.privyWalletId || !account.ownerQuorumId || account.network !== network) throw new ConflictException("agent_account_not_ready");
     const currents = await tx.select().from(copyAgentSetups).where(and(eq(copyAgentSetups.accountId, accountId), sql`${copyAgentSetups.state} not in ('blocked', 'revoked')`));
     if (setup?.renewal) {
@@ -96,6 +99,12 @@ export class CopyAgentRepository {
     const row = structuredClone(rawRow), changes = structuredClone(rawChanges);
     if (!tx) return this.db.transaction(inner => this.transition(row, changes, inner));
     await lockCopyUser(tx, row.userId);
+    if ((row.state === "policy_prepared" && changes.state === "policy_unknown") ||
+      (row.state === "wallet_prepared" && changes.state === "wallet_unknown") ||
+      (!row.approvalAttemptedAt && (changes.state === "approval_signing" || changes.state === "approval_unknown"))) {
+      await assertAccountAbortAdmission(tx, row.userId, row.accountId, row.network);
+      await assertSetupAdmission(tx, row.userId, row.liveSetupId);
+    }
     const [next] = await tx.update(copyAgentSetups).set({ ...changes, revision: row.revision + 1, updatedAt: new Date() })
       .where(and(eq(copyAgentSetups.id, row.id), eq(copyAgentSetups.userId, row.userId), eq(copyAgentSetups.revision, row.revision), eq(copyAgentSetups.state, row.state))).returning();
     return next ?? null;
@@ -103,6 +112,7 @@ export class CopyAgentRepository {
   async challenge(tx: DbTransaction, userId: number, id: string) {
     const current = await this.find(userId, id, tx);
     await this.assertCurrent(userId, current, tx);
+    await assertSetupAdmission(tx, userId, current.liveSetupId);
     const [locked] = await tx.select().from(copyAgentSetups).where(and(eq(copyAgentSetups.id, id), eq(copyAgentSetups.userId, userId))).for("update");
     if (!locked) throw new NotFoundException("Agent setup not found");
     await this.assertCurrent(userId, locked, tx);

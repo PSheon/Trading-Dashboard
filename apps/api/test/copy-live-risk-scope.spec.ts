@@ -262,3 +262,30 @@ describe('distributed user and account risk serialization', () => {
     } finally { connect.mockRestore(); }
   });
 });
+
+describe('external settlement claim is a restrictive original-scope fence', () => {
+  it('bounds the additional risk connection wait and returns late admission without retaining locks', async () => {
+    const held = await Promise.all(Array.from({ length: 4 }, () => pool.connect()));
+    let ran = false;
+    const fence = { assertFresh: () => {}, signal: new AbortController().signal };
+    try {
+      const scope = new PostgresLiveRiskScope(pool, Date.now, fence);
+      await expect(scope.run(identity, async () => { ran = true; })).rejects.toThrow('live_settlement_pool_busy');
+      expect(ran).toBe(false);
+      held.pop()!.release();
+      await new Promise(resolve => setTimeout(resolve, 10));
+      expect(pool.idleCount).toBe(1);
+    } finally { held.forEach(client => client.release()); }
+  });
+  it('rolls back when claim is lost inside an otherwise valid original SQL transaction', async () => {
+    await pool.query('create table if not exists live_scope_claim_probe(id text primary key)');
+    await pool.query('delete from live_scope_claim_probe');
+    let lost = false;
+    const scope = new PostgresLiveRiskScope(pool, Date.now, { assertFresh: () => { if (lost) throw new Error('claim_lost'); }, signal: new AbortController().signal } as never);
+    await expect(scope.run(identity, async (_scope, session) => session.transaction(async tx => {
+      await tx.execute(sql`insert into live_scope_claim_probe values ('lost')`);
+      lost = true;
+    }))).rejects.toThrow('claim_lost');
+    expect((await pool.query('select * from live_scope_claim_probe')).rows).toEqual([]);
+  });
+});

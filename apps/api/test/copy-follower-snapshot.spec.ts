@@ -42,7 +42,7 @@ describe('actual follower acquisition, isolation and retained observations', () 
       accountAddress: account, signerAddress: `0x${'88'.repeat(20)}`, cloid: seed.f.intent.cloid, nonce: now, userId: 1, strategyId: 9,
       state: 'unknown', record: {}, updatedAt: new Date(now) });
     await db.insert(copyLiveDispatches).values({ id: 'active-dispatch', mandateId: 'mandate', userId: 1, strategyId: 9, accountId: 'account',
-      sourceFillId: seed.fill.id, leg: 'open', coin: 'BTC', state, executionKey: state === 'submitted' ? 'testnet:submitted-snapshot-order' : null, leaderTime: new Date(now - 1000), receivedAt: new Date(now) });
+      sourceFillId: seed.fill.id, leg: 'open', coin: 'BTC', state, executionKey: state === 'submitted' ? 'testnet:submitted-snapshot-order' : null, leaderTime: sql`clock_timestamp() - interval '1 second'`, receivedAt: new Date(now) });
     if (network === 'mainnet') {
       // A retained identity from another deployment network must not block testnet reporting.
       await db.update(copyExecutionAccounts).set({ network }).where(eq(copyExecutionAccounts.id, 'account'));
@@ -56,7 +56,7 @@ describe('actual follower acquisition, isolation and retained observations', () 
         await db.update(copyLiveMandates).set({ state: 'paused' });
         await db.update(copyLiveDispatches).set({ leg: 'close' });
       }
-      await db.update(copyFollowerObservationBudget).set({ nextAllowedAt: sql`clock_timestamp() - interval '241 seconds'` });
+      await db.update(copyFollowerObservationBudget).set({ nextAllowedAt: sql`clock_timestamp() - interval '1 second'`, nextSnapshotAllowedAt: sql`clock_timestamp() - interval '1 second'` });
       expect(await repository.claim()).toMatchObject({ accountId: 'residual-account' });
       expect((await db.select().from(copyLiveDispatches))[0]!.state).toBe(state);
       return;
@@ -98,7 +98,7 @@ describe('actual follower acquisition, isolation and retained observations', () 
   it('defers reporting while a financial dispatch is pending and resumes after its terminal refusal', async () => {
     const seed = await preparationFixture(db);
     await db.insert(copyLiveDispatches).values({ id: 'pending-dispatch', mandateId: 'mandate', userId: 1, strategyId: 9, accountId: 'account',
-      sourceFillId: seed.fill.id, leg: 'open', coin: 'BTC', state: 'pending', leaderTime: new Date(now - 1000), receivedAt: new Date(now) });
+      sourceFillId: seed.fill.id, leg: 'open', coin: 'BTC', state: 'pending', leaderTime: sql`clock_timestamp() - interval '1 second'`, receivedAt: new Date(now) });
     expect(await repository.claim()).toBeNull();
     await db.update(copyLiveDispatches).set({ state: 'refused', reason: 'test_refusal' });
     expect(await repository.claim()).toMatchObject({ accountId: 'account' });

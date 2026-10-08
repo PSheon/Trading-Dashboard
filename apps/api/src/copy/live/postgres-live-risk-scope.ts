@@ -1,4 +1,5 @@
 import type { Pool } from 'pg';
+import { acquireSettlementConnection, type SettlementClaim } from '../live-worker/copy-live-settlement-claim.js';
 import * as schema from '@trading-dashboard/shared/database';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { sql } from 'drizzle-orm';
@@ -56,7 +57,7 @@ function capture(value: LiveRiskIdentity): Readonly<LiveRiskIdentity> {
  * provider calls. This primitive does not grant consent or fabricate risk data;
  * a proof producer must still load current ownership and complete liabilities. */
 export class PostgresLiveRiskScope {
-  constructor(private readonly pool: Pool, private readonly now = Date.now) {}
+  constructor(private readonly pool: Pool, private readonly now = Date.now, private readonly externalFence?: Pick<SettlementClaim, 'assertFresh' | 'signal'>) {}
   async run<T>(rawIdentity: LiveRiskIdentity, work: (scope: LiveRiskScope, session: LiveRiskDatabaseSession) => Promise<T>): Promise<T> {
     const identity = capture(rawIdentity);
     // Match the existing transaction writer locks exactly. User limits and
@@ -70,7 +71,8 @@ export class PostgresLiveRiskScope {
       { acquire: 'select pg_try_advisory_lock(hashtextextended($1, 7)) as locked', release: 'select pg_advisory_unlock(hashtextextended($1, 7)) as unlocked', values: [accountKey] },
       ...(sourceKey ? [{ acquire: 'select pg_try_advisory_lock_shared(hashtextextended($1, 8)) as locked', release: 'select pg_advisory_unlock_shared(hashtextextended($1, 8)) as unlocked', values: [sourceKey] }] : []),
     ];
-    const client = await this.pool.connect();
+    this.externalFence?.assertFresh();
+    const client = this.externalFence ? await acquireSettlementConnection(this.pool, this.externalFence.signal) : await this.pool.connect();
     const acquired: typeof locks = [];
     let held = false, lost = false, checkedAt = NaN;
     let databaseBusy = false, activeOperation: Promise<unknown> | undefined;
@@ -78,12 +80,14 @@ export class PostgresLiveRiskScope {
     client.on('error', onError);
     client.on('end', onError);
     const assertFresh = () => {
+      this.externalFence?.assertFresh();
       if (!held || lost) fail('live_risk_serialization_lost');
       const now = this.now();
       if (!Number.isSafeInteger(now) || now <= 0 || !Number.isSafeInteger(checkedAt) ||
           now < checkedAt || now - checkedAt > 5000) fail('live_risk_serialization_stale');
     };
     const scope: LiveRiskScope = Object.freeze({ identity, assertFresh, assertHeld: async () => {
+      this.externalFence?.assertFresh();
       if (!held || lost) fail('live_risk_serialization_lost');
       const started = this.now();
       try {
@@ -154,7 +158,9 @@ export class PostgresLiveRiskScope {
       // Stable policy -> platform -> user -> account order. Try rather than wait: no provider budget
       // or prepared order can be consumed by a concurrent owner of this scope.
       for (const lock of locks) {
+        this.externalFence?.assertFresh();
         const result = await client.query<{ locked: boolean }>(lock.acquire, lock.values);
+        this.externalFence?.assertFresh();
         if (lost || result.rows[0]?.locked !== true) fail('live_risk_busy');
         acquired.push(lock);
       }
@@ -170,6 +176,7 @@ export class PostgresLiveRiskScope {
       held = false;
       originalSessions.delete(session);
       let discard = lost || client.getTransactionStatus() !== 'I';
+      if (this.externalFence) { try { this.externalFence.assertFresh(); } catch { discard = true; } }
       if (activeOperation) {
         let timer: ReturnType<typeof setTimeout> | undefined;
         try {

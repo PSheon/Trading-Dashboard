@@ -1,3 +1,6 @@
+import { CopyLiveApiSettlementRepository } from '../src/copy/live-worker/copy-live-api-settlement.repository.js';
+import { apiSettlementProvider } from '../src/copy/live-worker/copy-live-api-settlement.provider.js';
+import { BackgroundJobs } from '../src/runtime/background-jobs.service.js';
 import { testConfig } from './config-test-utils.js';
 import { generateKeyPairSync } from 'node:crypto';
 import { Pool } from 'pg';
@@ -144,7 +147,7 @@ async function providers(endpoint: string, body: Record<string, unknown> | undef
   if (!(String(body!.type) in values)) throw Error(`Unsupported offline INFO ${String(body!.type)}`);
   return Response.json(values[String(body!.type)]);
 }
-function engine(midPrice = '100', egress = global, withStopper = false) {
+function engine(midPrice = '100', egress = global, withStopper = false, apiTerminalSettlement = false) {
   // Settlement right after the order (scan 240 + status + account ~630): an
   // order and its settlement exceed one minute's 1200 testnet weight, so in
   // production settlement waits for a later pass; here it gets its own room.
@@ -157,7 +160,7 @@ function engine(midPrice = '100', egress = global, withStopper = false) {
   const manual = new CopyLiveManualCloser(stops, closer, new CopyFollowerReconciler(new CopyFollowerScanRepository(db, testConfig()), new CopyFollowerLedger(db, new UnitOfWork(db)),
     new HyperliquidFollowerReceiptReader('testnet', weight => budget.acquire(weight, 'live', undefined, { signal: AbortSignal.timeout(5000) }), egress.fetchInfo, clock)), message => logs.push(message));
   const stopper = withStopper ? { tick: async () => { await stopOnly.tick(); await manual.tick(); } } : undefined;
-  return new CopyLiveEngine({ stopper,
+  return new CopyLiveEngine({ stopper, apiTerminalSettlement,
     network: 'testnet', repository: new CopyLiveWorkerRepository(db, new UnitOfWork(db), testConfig()), sources: new CopyLiveSourceRepository(db), uow: new UnitOfWork(db),
     watched: new WatchedMainnetSource(db, clock), testnetSource: { read: vi.fn() } as never,
     runtime: hooks => new LiveExecutionRuntime('testnet', pool, config, egress, budget, options, clock, { ...hooks, reference }),
@@ -191,6 +194,63 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     expect(await db.select().from(schema.copyFollowerReceipts)).toHaveLength(1);
     // Later passes neither sign nor send again.
     await e.tick(); expect(exchangeBodies).toHaveLength(1);
+  });
+  it.each([false, true])('API terminal settlement uses its existing wallet budget, books receipts and replays after a crash (stopped old generation %s)', async stopped => {
+    const e = engine('100', global, false, true);
+    await e.tick(); await leaderOpens(); await e.tick(); await e.tick();
+    expect((await db.select().from(schema.copyLiveDispatches))[0]).toMatchObject({ state: 'submitted' });
+    const [heldReservation] = await db.select().from(schema.copyLiveRiskReservations);
+    await db.update(schema.copyLiveRiskReservations).set({ network: 'mainnet' }).where(eq(schema.copyLiveRiskReservations.key, heldReservation!.key));
+    await expect(new CopyLiveApiSettlementRepository(db).load(heldReservation!.key)).rejects.toThrow('live_settlement_claim_identity');
+    await db.update(schema.copyLiveRiskReservations).set({ network: 'testnet' }).where(eq(schema.copyLiveRiskReservations.key, heldReservation!.key));
+    if (stopped) {
+      const [m] = await db.select().from(schema.copyLiveMandates);
+      const stopService = new CopyLiveStopService(new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, testConfig())), new UnitOfWork(db));
+      await stopService.request(1, 'mandate', { idempotencyKey: 'terminal-held-stop-key', expectedMandateRevision: m!.revision });
+      const [barrier] = await db.select().from(schema.copyLiveStopOperations);
+      expect(barrier!.targetManifest.executions).toEqual(expect.arrayContaining([expect.objectContaining({ state: 'filled', reservationState: 'unknown' })]));
+      expect((await db.select().from(schema.copyLiveRiskReservations))[0]!.state).not.toBe('released');
+      await db.update(schema.copyLiveMandates).set({ state: 'expired' });
+      await db.update(schema.copyStrategies).set({ status: 'stopped', stoppedAt: new Date() });
+    }
+    const apiPool = new Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 4 });
+    const apiConfig = new AppConfig({ ...config.value, hyperliquid: { ...config.value.hyperliquid, budgetPerMin: 400, burst: 800 } });
+    const apiBudget = new RequestBudgeterService(apiConfig), jobs = new BackgroundJobs();
+    const apiTransport = new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(apiPool, { schema }))),
+      { egressKey: 'e2e-shared-egress', ownerId: 'e2e-api' }, raw);
+    const api = await apiSettlementProvider.useFactory(apiConfig, apiPool, { network: 'testnet', budget: apiBudget, transport: apiTransport, config: apiConfig }, jobs);
+    try {
+      const before = exchangeBodies.length, nonces = await db.select().from(schema.copySignerNonces);
+      raw.mockClear();
+      const provider = raw.getMockImplementation()!;
+      let entered!: () => void, unblock!: () => void;
+      const observed = new Promise<void>(resolve => { entered = resolve; }), held = new Promise<void>(resolve => { unblock = resolve; });
+      let paused = false;
+      raw.mockImplementation(async (url, init) => {
+        const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+        if (!paused && body?.type === 'userFillsByTime') { paused = true; entered(); await held; }
+        return provider(url, init);
+      });
+      const first = api.tick(); await observed;
+      const paid = raw.mock.calls.length;
+      const replica = await apiSettlementProvider.useFactory(apiConfig, apiPool, { network: 'testnet', budget: apiBudget, transport: apiTransport, config: apiConfig }, jobs);
+      await replica.tick(); replica.onModuleDestroy();
+      expect(raw.mock.calls.length).toBe(paid);
+      unblock(); await first;
+      const [dispatch] = await db.select().from(schema.copyLiveDispatches);
+      expect(dispatch).toMatchObject({ state: 'settled', attempts: 1 });
+      expect((await db.select().from(schema.copyLiveRiskReservations))[0]).toMatchObject({ state: 'released', releaseReason: 'verified_settlement' });
+      expect(await db.select().from(schema.copyFollowerReceipts)).toHaveLength(1);
+      expect(await db.select().from(schema.copyFollowerObservations)).toHaveLength(1);
+      expect(raw.mock.calls.every(([url]) => String(url).endsWith('/info'))).toBe(true);
+      expect(exchangeBodies).toHaveLength(before);
+      expect(await db.select().from(schema.copySignerNonces)).toEqual(nonces);
+      await db.update(schema.copyLiveDispatches).set({ state: 'submitted' }).where(eq(schema.copyLiveDispatches.id, dispatch!.id));
+      raw.mockClear(); await api.tick();
+      expect((await db.select().from(schema.copyLiveDispatches))[0]).toMatchObject({ state: 'settled', attempts: 1 });
+      expect(raw).not.toHaveBeenCalled();
+      expect(await db.select().from(schema.copySignerNonces)).toEqual(nonces);
+    } finally { api.onModuleDestroy(); apiBudget.onModuleDestroy(); await apiPool.end(); }
   });
   it('recovers a dispatch interrupted after committed settlement without provider reads or another order', async () => {
     const e = engine(); await e.tick(); await leaderOpens(); await e.tick();

@@ -1,4 +1,6 @@
 import { eq } from 'drizzle-orm';
+import type { SettlementClaim } from './copy-live-settlement-claim.js';
+import { settlementFencedPool } from './copy-live-settlement-fenced-pool.js';
 import { Pool } from 'pg';
 import { WALLET_NETWORKS, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { drizzle } from 'drizzle-orm/node-postgres';
@@ -38,8 +40,15 @@ export class CopyLiveSettler {
   constructor(readonly network: HyperliquidNetwork, private readonly pool: Pool, private readonly global: HyperliquidGlobalTransport, private readonly budget: RequestBudgeterService,
     private readonly scanner: { runFor(accountId: string): Promise<void> }, private readonly now = Date.now) {}
 
-  async settle(request: LiveSettleRequest): Promise<LiveSettleOutcome> {
-    const record = await this.record(request.key);
+  async settle(request: LiveSettleRequest, claim?: SettlementClaim): Promise<LiveSettleOutcome> {
+    if (claim) await claim.assertHeld();
+    const fetchInfo: typeof fetch = claim ? async (input, init) => {
+      await claim.assertHeld();
+      const response = await this.global.fetchInfo(input, { ...init, signal: init?.signal ? AbortSignal.any([claim.signal, init.signal]) : claim.signal });
+      await claim.assertHeld();
+      return response;
+    } : this.global.fetchInfo;
+    const record = await this.record(request.key, claim);
     if (!record || !TERMINAL_STATES.has(record.state)) return { kind: 'pending', reason: 'live_settlement_not_terminal' };
     // An order of another network (a database that moved networks) is history:
     // never read or settled here.
@@ -49,10 +58,10 @@ export class CopyLiveSettler {
     // This SQL hint only chooses a path: the original locked DAL must replay
     // every certificate, journal, source and receipt proof before completion.
     if (this.network === 'testnet') {
-      const [hint] = await drizzle(this.pool).select({ state: copyLiveRiskReservations.state, revision: copyLiveRiskReservations.revision,
+      const [hint] = await drizzle(claim ? settlementFencedPool(this.pool, claim) : this.pool).select({ state: copyLiveRiskReservations.state, revision: copyLiveRiskReservations.revision,
         releaseReason: copyLiveRiskReservations.releaseReason }).from(copyLiveRiskReservations).where(eq(copyLiveRiskReservations.key, request.key));
       if (hint?.state === 'released' && hint.releaseReason === 'verified_settlement') {
-        const scope = new PostgresLiveRiskScope(this.pool, this.now);
+        const scope = new PostgresLiveRiskScope(this.pool, this.now, claim);
         return scope.run({ userId: request.userId, network: this.network, accountAddress: request.accountAddress,
           source: { network: request.sourceNetwork, leaderAddress: request.leaderAddress } }, async (_scope, session) => {
           const decision = await new PostgresLiveSettlement(this.now).replaySettlement(session, { accountId: request.accountId, key: request.key,
@@ -64,27 +73,32 @@ export class CopyLiveSettler {
     // Book the account's own fills now (the scheduled scan reaches an account
     // only every two minutes). The scan also advances its proven horizon,
     // which the next order's position projection requires.
-    if (record.outcome?.filledSize && record.outcome.filledSize !== '0') await this.scanner.runFor(request.accountId);
+    if (record.outcome?.filledSize && record.outcome.filledSize !== '0') {
+      if (claim) await claim.assertHeld();
+      await this.scanner.runFor(request.accountId);
+      if (claim) await claim.assertHeld();
+    }
     // Routing/journal data only estimates the cost, never grants settlement
     // authority. Pay for market identity, orderStatus and the complete account
     // observation BEFORE taking the original locks. That scope revalidates the
     // journal and every release proof; all provider/SQL clocks stay at 5 s.
     let prepaid = (record.action.orders[0]!.a < 10_000 ? 20 : 40) + 2 + (record.errorCode === NEVER_PLACED ? 0 : OBSERVER_REST_WEIGHT);
-    await reserveLive(this.budget, prepaid, { maxWaitMs: Math.min(180_000, this.budget.refillMs()) });
+    await reserveLive(this.budget, prepaid, { maxWaitMs: Math.min(180_000, this.budget.refillMs()), ...(claim ? { signal: claim.signal } : {}) });
     const acquire = async (weight: number) => {
+      claim?.assertFresh();
       const credit = Math.min(prepaid, weight); prepaid -= credit;
-      try { if (weight > credit) await reserveLive(this.budget, weight - credit, { maxWaitMs: 5000 }); }
+      try { if (weight > credit) await reserveLive(this.budget, weight - credit, { maxWaitMs: 5000, ...(claim ? { signal: claim.signal } : {}) }); }
       catch (error) { prepaid += credit; throw error; }
     };
-    const scope = new PostgresLiveRiskScope(this.pool, this.now);
+    const scope = new PostgresLiveRiskScope(this.pool, this.now, claim);
     try { return await scope.run({ userId: request.userId, network: this.network, accountAddress: request.accountAddress,
       source: { network: request.sourceNetwork, leaderAddress: request.leaderAddress } }, async (_scope, session) => this.global.runOriginal(session, async () => {
       this.global.currentQuota();
       const sockets = new PerReadAllDexsAccountSource(() => new HyperliquidAllDexsAccountSource(this.now, undefined, this.network, this.global), 2);
       try {
-        const resolver = new HyperliquidLiveMarketResolver(this.network, acquire, this.global.fetchInfo, this.now);
+        const resolver = new HyperliquidLiveMarketResolver(this.network, acquire, fetchInfo, this.now);
         const settlement = new PostgresLiveSettlement(this.now);
-        const evidence = await this.orderEvidence(record, resolver, acquire);
+        const evidence = await this.orderEvidence(record, resolver, acquire, fetchInfo, claim);
         const observed = await settlement.observe(session, { accountId: request.accountId, key: request.key, evidence });
         if (observed.kind !== 'recorded') return observed;
         // Never placed (expired unknown by cloid): release, nothing to settle.
@@ -92,7 +106,7 @@ export class CopyLiveSettler {
           const released = await settlement.releaseNeverPlaced(session, { accountId: request.accountId, key: request.key });
           return released.kind === 'released' ? { kind: 'unplaced' as const } : released;
         }
-        const observer = new HyperliquidLiveAccountObserver(this.network, acquire, this.global.fetchInfo, this.now, 5000, sockets);
+        const observer = new HyperliquidLiveAccountObserver(this.network, acquire, fetchInfo, this.now, 5000, sockets);
         const snapshot = await observer.observe(request.accountAddress);
         const [reservation] = await session.read(db => db.select({ revision: copyLiveRiskReservations.revision, accountId: copyLiveRiskReservations.accountId,
           strategyId: copyLiveRiskReservations.strategyId }).from(copyLiveRiskReservations).where(eq(copyLiveRiskReservations.key, request.key)));
@@ -105,14 +119,14 @@ export class CopyLiveSettler {
     })); } finally { if (prepaid > 0) this.budget.adjust(-prepaid); }
   }
 
-  private async record(key: string): Promise<LiveExecutionRecord | null> {
-    const [row] = await drizzle(this.pool).select().from(copyLiveExecutions).where(eq(copyLiveExecutions.key, key));
+  private async record(key: string, claim?: SettlementClaim): Promise<LiveExecutionRecord | null> {
+    const [row] = await drizzle(claim ? settlementFencedPool(this.pool, claim) : this.pool).select().from(copyLiveExecutions).where(eq(copyLiveExecutions.key, key));
     return row ? decodeLiveExecutionRow(row) : null;
   }
 
   /** Settlement-grade orderStatus by the original cloid (as the transport's
    * queryEvidence), through the shared egress quota. */
-  private async orderEvidence(record: LiveExecutionRecord, resolver: HyperliquidLiveMarketResolver, acquire: (weight: number) => Promise<void>): Promise<LiveOrderEvidence> {
+  private async orderEvidence(record: LiveExecutionRecord, resolver: HyperliquidLiveMarketResolver, acquire: (weight: number) => Promise<void>, fetchInfo: typeof fetch, claim?: SettlementClaim): Promise<LiveOrderEvidence> {
     const checkedAt = this.now(), remaining = () => {
       const now = this.now();
       if (!Number.isSafeInteger(now) || now - checkedAt > 5000) throw new LiveBoundaryError('live_boundary_evidence_expired');
@@ -121,9 +135,9 @@ export class CopyLiveSettler {
     const market = await boundedLiveRead(() => resolver.resolveAsset(record.action.orders[0]!.a), remaining());
     // orderStatus weighs 2 (Hyperliquid's light reads; the shared meter's table).
     await boundedLiveRead(() => acquire(2), remaining());
-    const response = await boundedLiveRead(() => this.global.fetchInfo(WALLET_NETWORKS[this.network].infoUrl, { method: 'POST', headers: { 'content-type': 'application/json' },
+    const response = await boundedLiveRead(() => fetchInfo(WALLET_NETWORKS[this.network].infoUrl, { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ type: 'orderStatus', user: record.authorization.accountAddress, oid: record.action.orders[0]!.c }),
-      signal: AbortSignal.timeout(remaining()), redirect: 'error' }), remaining());
+      signal: claim ? AbortSignal.any([claim.signal, AbortSignal.timeout(remaining())]) : AbortSignal.timeout(remaining()), redirect: 'error' }), remaining());
     if (!response.ok) throw new LiveBoundaryError('exchange_http_failure');
     const raw = await boundedLiveRead(() => readInfoJson(response, 'live order evidence', 256 * 1024), remaining());
     const completedAt = this.now();

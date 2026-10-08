@@ -18,6 +18,8 @@ import { CopyFundingRepository } from './copy-funding.repository.js';
 import { CopyFundingService, wire as fundingWire } from './copy-funding.service.js';
 import { liveCopySettingsDigest } from './copy-live-mandate-consent.js';
 import { CopyLiveMandateRepository } from './copy-live-mandate.repository.js';
+import { assertSetupAdmission } from './copy-live-setup-barrier.js';
+import { CopyLiveSetupAbortService } from './copy-live-setup-abort.service.js';
 import { builderOutcome, CopyLiveReturnRepository } from './copy-live-return.repository.js';
 import { CopyLiveSetupRepository, DRIVEN_STAGES, type SetupRow, type SetupStage } from './copy-live-setup.repository.js';
 import { CopyWalletRepository } from './copy-wallet.repository.js';
@@ -94,7 +96,8 @@ export class CopyLiveSetupService {
     private readonly returns: CopyLiveReturnRepository, private readonly exchange: CopyFundingExchangeClient,
     @Optional() @Inject(WORKER_MASTER_SIGNER) private readonly workerSigner: WorkerMasterSigner | null = null,
     @Optional() private readonly now: () => number = Date.now,
-    @Optional() private readonly jobs: BackgroundJobs | null = null) {}
+    @Optional() private readonly jobs: BackgroundJobs | null = null,
+    @Optional() @Inject(CopyLiveSetupAbortService) private readonly aborts: CopyLiveSetupAbortService | null = null) {}
 
   private available() {
     if (!liveExecutionEnabled(this.config) || !this.agents.available || !this.modes.available || !this.wallets.workerPolicyEnabled || !this.workerSigner?.available)
@@ -110,12 +113,13 @@ export class CopyLiveSetupService {
 
   // --- read -------------------------------------------------------------------
   async wire(row: SetupRow): Promise<LiveCopySetup> {
+    const abortRequested = await this.repository.aborted(row.userId, row.id);
     const fundingRow = row.fundingOperationId ? await this.fundingRows.find(row.userId, row.fundingOperationId).catch((error: unknown) => {
       this.logger.warn(`setup ${row.id} deposit not read: ${safeErrorText(error)}`); return null;
     }) : null;
-    const awaiting = row.stage === 'awaiting_consent' && row.intent && row.consentExpiresAt && row.consentExpiresAt.getTime() > this.now();
+    const awaiting = !abortRequested && row.stage === 'awaiting_consent' && row.intent && row.consentExpiresAt && row.consentExpiresAt.getTime() > this.now();
     return liveCopySetupSchema.parse({ id: row.id, kind: row.kind, strategyId: row.strategyId, accountId: row.accountId, leaderAddress: row.leaderAddress,
-      sourceNetwork: row.sourceNetwork, budgetUsd: row.budgetUsd, settings: row.settings, stage: row.stage, issue: row.issue?.slice(0, 80) ?? null,
+      sourceNetwork: row.sourceNetwork, budgetUsd: row.budgetUsd, settings: row.settings, stage: row.stage, issue: row.issue?.slice(0, 80) ?? null, abortRequested,
       consent: awaiting ? row.intent : null, funding: fundingRow ? fundingWire(fundingRow) : null, mandateId: row.mandateId,
       setupDeadline: row.setupDeadline?.toISOString() ?? null, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() });
   }
@@ -217,8 +221,7 @@ export class CopyLiveSetupService {
       // A reserved deposit's nonce stays valid for two days: reserve a new one before that.
       if (deposit && this.now() - deposit.nonce > 86_400_000) { await this.fundingRows.cancel(userId, deposit.id); deposit = null; }
       if (!deposit) {
-        const reserved = await this.funding.reserve(userId, row.accountId!, { idempotencyKey: randomUUID(), amount: row.budgetUsd });
-        await this.repository.tagFunding(reserved.id, row.id);
+        const reserved = await this.funding.reserve(userId, row.accountId!, { idempotencyKey: randomUUID(), amount: row.budgetUsd }, { liveSetupId: row.id });
         deposit = await this.fundingRows.find(userId, reserved.id);
         if (!await step({ fundingOperationId: deposit.id })) return row;
       }
@@ -419,6 +422,16 @@ export class CopyLiveSetupService {
       // No worker signer, no deposit: the copy could never run its steps.
       if (!attached) refuse(409, 'worker_signer_missing', WORKER_SIGNER_MISSING);
       if (!request.fundingSignature) throw new BadRequestException('The deposit signature is required');
+      // Preserve the genuine owner's consent before any deposit attempt.
+      // This records evidence only: confirmation/stage still follow the
+      // original child outcome, and abort shares this admission's user lock.
+      const evidenced = await this.uow.run(async tx => {
+        await this.mandates.lock(tx, userId);
+        await assertSetupAdmission(tx, userId, id);
+        return this.repository.transition(row, { consentDigest }, tx);
+      });
+      if (!evidenced) return this.repository.find(userId, id);
+      row = evidenced;
       await this.funding.claim(userId, intent.fundingOperationId);
       const submitted = await this.funding.submit(userId, intent.fundingOperationId, request.fundingSignature);
       const deposit = await this.fundingRows.find(userId, submitted.id);
@@ -525,6 +538,9 @@ export class CopyLiveSetupService {
   }
   /** The worker's pass: every confirmed, unfinished setup that is due. */
   async tick(): Promise<number> {
+    // Admission is quick; each persistent abort runs as a tracked worker
+    // job so slow ledger/proof reads do not block unrelated copy execution.
+    await this.aborts?.tick();
     let worked = 0;
     for (const row of await this.repository.open(new Date(this.now()), this.network)) {
       try { if (row.stage === 'provisioning') await this.provisionLeased(row.id); else await this.drive(row.id, await this.workerPolicySigner(row)); worked++; }
@@ -709,7 +725,7 @@ export class CopyLiveSetupService {
     let approval = row.builderApprovalId ? await this.returns.builder(row.userId, row.builderApprovalId) : null;
     if (!approval) {
       this.assertBeforeDeadline(row);
-      approval = await this.returns.reserveBuilder(row.userId, intent.accountId, { idempotencyKey: row.id, builderAddress: intent.builderAddress, maxFeeTenthsBps: intent.builderMaxFeeTenthsOfBps, now: this.now() });
+      approval = await this.returns.reserveBuilder(row.userId, intent.accountId, { idempotencyKey: row.id, builderAddress: intent.builderAddress, maxFeeTenthsBps: intent.builderMaxFeeTenthsOfBps, now: this.now(), liveSetupId: row.id });
       row = (await this.repository.transition(row, { builderApprovalId: approval.id })) ?? await this.repository.find(row.userId, row.id);
     }
     if (approval.state === 'approved') return this.move(row, 'builder_ready');

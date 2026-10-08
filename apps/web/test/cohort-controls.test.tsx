@@ -50,3 +50,30 @@ it("changes market filtering with radio arrow keys and keeps only its active cho
   expect(radios[2].getAttribute("aria-checked")).toBe("true");
   expect(container.querySelector("table")!.textContent).not.toContain("BTC");
 });
+
+it('keeps the five market sorting controls named and focusable with 44px targets while sorting the real table rows', async () => {
+  await render();
+  await act(async () => container.querySelectorAll<HTMLButtonElement>('[role="tab"]')[1].click());
+  await act(async () => container.querySelectorAll<HTMLButtonElement>('[role="radio"]')[1].click());
+  const table = container.querySelector<HTMLTableElement>('table')!;
+  const heads = [...table.querySelectorAll<HTMLTableCellElement>('thead th[aria-sort]')];
+  expect(heads).toHaveLength(5);
+  for (const head of heads) {
+    const button = head.querySelector<HTMLButtonElement>('button')!;
+    expect(button.textContent?.trim()).toBeTruthy();
+    button.focus(); expect(document.activeElement).toBe(button);
+    // Target sizes belong to the actual interactive descendant, not the
+    // padded header cell. Browser acceptance measures the compiled CSS.
+    expect(head.classList.contains('[&>button]:min-h-11')).toBe(true);
+    expect(head.classList.contains('[&>button]:min-w-11')).toBe(true);
+  }
+  const market = heads[0], button = market.querySelector<HTMLButtonElement>('button')!;
+  const coins = () => [...table.querySelectorAll('tbody tr')].map(row => row.querySelector('td')!.textContent!.trim());
+  await act(async () => button.click());
+  expect(market.getAttribute('aria-sort')).toBe('descending');
+  expect(coins()).toEqual([...coins()].sort((a, b) => b.localeCompare(a)));
+  await act(async () => button.click());
+  expect(market.getAttribute('aria-sort')).toBe('ascending');
+  expect(coins()).toEqual([...coins()].sort((a, b) => a.localeCompare(b)));
+  expect(table.classList.contains('min-w-[1080px]')).toBe(true);
+});

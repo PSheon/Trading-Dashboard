@@ -1836,7 +1836,7 @@ export const zhTW = {
     spot: "現貨 USDC",
     arbitrum: "Arbitrum 待轉入",
     tabs: {
-      copying: "跟單中",
+      copying: "我的跟單",
       insights: "洞察",
       exposure: "曝險",
       activity: "動態",

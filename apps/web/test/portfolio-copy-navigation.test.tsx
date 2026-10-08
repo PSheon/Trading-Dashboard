@@ -46,7 +46,7 @@ it("preserves newer query and fragment edits made after the selection handler re
 it("the copy section's tabs end with Activity (最近活動 as the fourth tab, no card of its own)", async () => {
   await render();
   const tabs = [...container.querySelectorAll('[role="tablist"] [role="tab"]')].map((tab) => tab.textContent?.replace(/\d+$/, ""));
-  expect(tabs.filter((name) => ["Copying", "Insights", "Exposure", "Activity"].includes(name ?? ""))).toEqual(["Copying", "Insights", "Exposure", "Activity", "Copying", "Insights", "Exposure", "Activity"].slice(0, tabs.filter((name) => name === "Copying").length * 4));
+  expect(tabs.filter((name) => ["My copies", "Insights", "Exposure", "Activity"].includes(name ?? ""))).toEqual(["My copies", "Insights", "Exposure", "Activity", "My copies", "Insights", "Exposure", "Activity"].slice(0, tabs.filter((name) => name === "My copies").length * 4));
   expect(container.querySelector('[data-testid="copy-activity"]')).toBeNull();
   const activity = [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((tab) => tab.textContent === "Activity")!;
   await act(async () => activity.click());

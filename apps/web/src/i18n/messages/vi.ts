@@ -1080,7 +1080,7 @@ export const vi: Messages = {
     spot: "USDC Spot",
     arbitrum: "Trên Arbitrum, chưa chuyển cầu",
     tabs: {
-      copying: "Đang sao chép",
+      copying: "Sao chép của tôi",
       insights: "Phân tích",
       exposure: "Mức tiếp xúc",
       activity: "Hoạt động",

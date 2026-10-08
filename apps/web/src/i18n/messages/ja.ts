@@ -1080,7 +1080,7 @@ export const ja: Messages = {
     spot: "現物 USDC",
     arbitrum: "Arbitrum 上（未ブリッジ）",
     tabs: {
-      copying: "コピー中",
+      copying: "マイコピー",
       insights: "インサイト",
       exposure: "エクスポージャー",
       activity: "アクティビティ",

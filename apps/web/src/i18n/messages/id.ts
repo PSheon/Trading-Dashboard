@@ -1080,7 +1080,7 @@ export const id: Messages = {
     spot: "USDC Spot",
     arbitrum: "Di Arbitrum, belum di-bridge",
     tabs: {
-      copying: "Menyalin",
+      copying: "Salinan saya",
       insights: "Wawasan",
       exposure: "Eksposur",
       activity: "Aktivitas",

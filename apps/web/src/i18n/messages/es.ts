@@ -1080,7 +1080,7 @@ export const es: Messages = {
     spot: "USDC spot",
     arbitrum: "En Arbitrum, sin puentear",
     tabs: {
-      copying: "Copiando",
+      copying: "Mis copias",
       insights: "Analíticas",
       exposure: "Exposición",
       activity: "Actividad",

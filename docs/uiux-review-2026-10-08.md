@@ -6,7 +6,14 @@ Paul 已確認沿用 Orbie 風格。14:05本機重新登入，以正確 `?view=r
 
 狀態以最後一次驗證為準：手機介面與全域模式已發布 Stage；10/08 資金數字修正已進 dev，本輪未手動部署 Stage。CI 通過不代表 testnet 交易驗收全通過。Claude 舊稽核中未重新驗證的項目另列，避免混入目前確定仍存在的問題。
 
-## 10/09 03:30 最新狀態（優先於下列歷史紀錄）
+## 10/09 04:32 最新狀態（優先於下列歷史紀錄）
+
+- 完整web200檔／1,325項PASS；手機市場表五個排序鈕真Browser390／320均至少44px，升降排序與容器內橫向捲動PASS。證據 `/private/tmp/ui-market-touch-actual/records.json`，資料為明確GET fixture，沒有金融寫入。
+- 真正新context OTP登入在1440／390／320皆無登入後guest反覆；前景桌機導覽opacity為1。證據 `/private/tmp/codex-initial-login-observed-{1440,390,320}.json`；未宣稱其他登入提供者已全部驗收。
+- 新發現45：模擬歷史全部已停止，頁籤仍稱「跟單中」。11語系改中性「我的跟單／My copies」，保留全部紀錄、數量與每筆停止狀態；真實parent測試PASS。
+- 固定`b06ff36a` API264檔／4,142項與建置PASS，已在資金靜止且完成備份／migration後切換本機。#39的實際資金驗證、一般流程與14重測仍待完成；#38逐筆原比例／改全平原因正在補唯讀原始證據，不使用目前價格／倉位猜測。最新變更未公開推送／部署。
+
+## 10/09 03:30 狀態紀錄
 
 - 完整前端200檔／1,323項 PASS；前端／shared型別與scoped lint通過。固定`d0beb2c8` production build亦PASS，1,857個tracked blob前後相同、無私密env。安全中止的重新整理按鈕補上真實查詢忙碌狀態後重跑全套；這不是鏈上驗收。
 - 比較圖的44px／鍵盤操作及四捨五入說明，已補1440／390／320px Browser截圖。四捨五入使用明確標記的 GET fixture：149.008 顯示149.01，分項100.00＋49.00，說明可見；未送金融POST。證據 `/private/tmp/ui-compare-rounding-proof/records.json`。

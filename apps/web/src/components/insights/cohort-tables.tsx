@@ -189,11 +189,11 @@ export function MarketsTable({ rows, filter }: { rows: CohortMarket[]; filter: "
       <Table containerClassName="max-h-[640px] overflow-auto" className="cd-cohort-markets w-full min-w-[1080px] border-separate border-spacing-y-1.5">
         <TableHeader className="sticky top-0 z-10 bg-background">
           <TableRow>
-            <SortHead label={c("market")} col="coin" sort={sort} onSort={onSort} className="text-left" />
-            <SortHead label={c("sentiment")} col="sentiment" sort={sort} onSort={onSort} className="text-left" />
-            <SortHead label={t("insights.cohort.notional")} col="notional" sort={sort} onSort={onSort} className="text-left" />
-            <SortHead label={c("traders")} col="traders" sort={sort} onSort={onSort} className="text-left" />
-            <SortHead label={c("upnl")} col="upnl" sort={sort} onSort={onSort} className="text-left" />
+            <SortHead label={c("market")} col="coin" sort={sort} onSort={onSort} className="text-left [&>button]:min-h-11 [&>button]:min-w-11" />
+            <SortHead label={c("sentiment")} col="sentiment" sort={sort} onSort={onSort} className="text-left [&>button]:min-h-11 [&>button]:min-w-11" />
+            <SortHead label={t("insights.cohort.notional")} col="notional" sort={sort} onSort={onSort} className="text-left [&>button]:min-h-11 [&>button]:min-w-11" />
+            <SortHead label={c("traders")} col="traders" sort={sort} onSort={onSort} className="text-left [&>button]:min-h-11 [&>button]:min-w-11" />
+            <SortHead label={c("upnl")} col="upnl" sort={sort} onSort={onSort} className="text-left [&>button]:min-h-11 [&>button]:min-w-11" />
           </TableRow>
         </TableHeader>
         <TableBody className="data-rows">

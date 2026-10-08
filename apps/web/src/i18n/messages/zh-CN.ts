@@ -1080,7 +1080,7 @@ export const zhCN: Messages = {
     spot: "现货 USDC",
     arbitrum: "Arbitrum 待转入",
     tabs: {
-      copying: "跟单",
+      copying: "我的跟单",
       insights: "洞察",
       exposure: "敞口",
       activity: "动态",

@@ -1080,7 +1080,7 @@ export const ko: Messages = {
     spot: "현물 USDC",
     arbitrum: "Arbitrum에 있음, 브리지 전",
     tabs: {
-      copying: "카피 중",
+      copying: "내 카피",
       insights: "인사이트",
       exposure: "익스포저",
       activity: "활동",

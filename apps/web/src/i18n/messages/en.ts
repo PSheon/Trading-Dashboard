@@ -1832,7 +1832,7 @@ export const en: Messages = {
     spot: "Spot USDC",
     arbitrum: "On Arbitrum, not bridged",
     tabs: {
-      copying: "Copying",
+      copying: "My copies",
       insights: "Insights",
       exposure: "Exposure",
       activity: "Activity",

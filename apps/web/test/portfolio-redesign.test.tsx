@@ -29,7 +29,7 @@ const accounts = [account("acct-41", 41, A.account), account("acct-42", 42, B.ac
 const mandates = [mandate(A.mandate, "acct-41", 41, A.account, A.leader), mandate(B.mandate, "acct-42", 42, B.account, B.leader)];
 const observed = (equity: string) => ({ status: "observed", metrics: { perpEquity: equity, withdrawable: equity, unrealizedPnl: "0" }, positions: [], restingOrders: [] });
 
-const state = vi.hoisted(() => ({ mode: "testnet" as string, deployment: null as unknown, snapshotUnknown: false, sweeping: false }));
+const state = vi.hoisted(() => ({ mode: "testnet" as string, deployment: null as unknown, snapshotUnknown: false, sweeping: false, paperStopped: false }));
 /** Orbie's ledger: each copy's 100 USDC deposit (their net deposits). */
 const deposit = (strategyId: number, address: string) => ({ id: `funding:${strategyId}`, time: now, kind: "copy_funding", mode: "testnet", amount: 100, strategyId, leaderAddress: null, status: "credited", txHash: null, fee: null, counterparty: address, count: null });
 vi.mock("@/lib/funds", async () => ({ ...(await vi.importActual<typeof import("@/lib/funds")>("@/lib/funds")),
@@ -59,7 +59,10 @@ vi.mock("@/components/copy/live-copy-actions", () => ({ LiveCopyActions: () => <
 vi.mock("@/lib/favorite-groups", () => ({ useTraderCards: () => ({ data: { items: [{ address: A.leader, displayName: "solanadoomer", avatarUrl: null }, { address: B.leader, displayName: "whalehunter", avatarUrl: null }] } }) }));
 vi.mock("@/lib/copy", async () => ({
   ...(await vi.importActual<typeof import("@/lib/copy")>("@/lib/copy")),
-  useCopyOverview: () => ({ data: fixtureCopyOverview() }), useCopyPortfolio: () => ({ data: undefined }),
+  useCopyOverview: () => {
+    const overview = fixtureCopyOverview();
+    return { data: state.paperStopped ? { ...overview, strategies: overview.strategies.map(strategy => ({ ...strategy, status: 'stopped', positions: [] })) } : overview };
+  }, useCopyPortfolio: () => ({ data: undefined }),
   useCopyEvents: () => ({ data: { items: [
     { id: "1", strategyId: 41, type: "order_filled", createdAt: now, payload: { mode: "testnet", coin: "ETH", side: "B", size: "0.5", orderId: "104" } },
     { id: "2", strategyId: 1, type: "order_filled", createdAt: now, payload: { mode: "paper", coin: "HYPE", side: "B", size: "38.5", orderId: "7" } },
@@ -70,7 +73,7 @@ vi.mock("@/components/copy/portfolio-parts", () => ({ PortfolioChart: () => null
 let root: Root, container: HTMLDivElement, client: QueryClient;
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-  state.mode = "testnet"; state.snapshotUnknown = false; state.sweeping = false; state.deployment = { available: true, network: "testnet" }; window.history.replaceState(null, "", "/portfolio");
+  state.mode = "testnet"; state.snapshotUnknown = false; state.sweeping = false; state.paperStopped = false; state.deployment = { available: true, network: "testnet" }; window.history.replaceState(null, "", "/portfolio");
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 });
@@ -81,6 +84,20 @@ async function render() {
 /** The phone layout (the desktop one renders the same views beside it, hidden by CSS). */
 const phone = () => container.querySelector(".md\\:hidden") as HTMLElement;
 const cards = () => [...phone().querySelectorAll<HTMLButtonElement>('[data-testid="live-copy-card"]')];
+
+it('a stopped-only paper portfolio names all copies neutrally while retaining the history count and each stopped status', async () => {
+  state.mode = 'paper'; state.paperStopped = true;
+  await render();
+  const desktopTab = container.querySelector('#desktop-copy-tab-copying')!;
+  expect(desktopTab.textContent).toBe('我的跟單2');
+  expect([...phone().querySelectorAll('[role="tab"]')].some(tab => tab.textContent === '我的跟單')).toBe(true);
+  const desktopRows = container.querySelectorAll('#desktop-copy-panel tbody tr');
+  expect(desktopRows).toHaveLength(2);
+  for (const row of desktopRows) expect(row.textContent).toContain('已停止');
+  const mobileCards = phone().querySelectorAll('.orbit-card > button.w-full');
+  expect(mobileCards).toHaveLength(2);
+  for (const card of mobileCards) expect(card.textContent).toContain('已停止');
+});
 
 it("我的資金 is one total (main wallet plus the copies), with 主錢包 and 跟單中 under it", async () => {
   await render();

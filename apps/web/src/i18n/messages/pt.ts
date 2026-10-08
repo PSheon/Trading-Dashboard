@@ -1080,7 +1080,7 @@ export const pt: Messages = {
     spot: "USDC spot",
     arbitrum: "Na Arbitrum, sem bridge",
     tabs: {
-      copying: "Copiando",
+      copying: "Minhas cópias",
       insights: "Análises",
       exposure: "Exposição",
       activity: "Atividade",

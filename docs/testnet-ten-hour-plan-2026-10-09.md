@@ -2,6 +2,14 @@
 
 Paul 於台北時間 2026-10-08 23:58 前後授權再投入十小時，至 2026-10-09 09:58。接續原本機 testnet 測試，不操作主網；Stage 發布與本機驗收分開記錄。沿用 Orbie 風格，保留原 50 USDC／固定每筆 12–15／槓桿 3／最多兩筆限制及所有證據、訊號與對帳期限。
 
+## 04:32 固定版本完成回歸並切換本機
+
+- `b06ff36a` 完整 API264檔／4,142項 PASS，隔離測試DB已移除；固定版建置PASS，1,882個tracked blob測試與建置後均相同。前端production build亦PASS；後續手機市場排序44px與中性「我的跟單」修正，再跑完整web200檔／1,325項PASS。
+- 04:28全本機testnet owner唯讀檢查：active策略／mandate、資金在途、風險保留、待設定均零。辨識舊4b API／worker後依序停止，建立0600本機備份，再套用新增0074–0077；migration journal78筆與新表已核對，既有0064歷史drift原樣保留。
+- 新worker PID80560／API PID80843均使用同一固定`b06ff36a` snapshot。原stage-caps保留：50／12–15／槓桿3／最多2、來源60000ms、worker1000ms、400/min與原800 burst／1200 shared。管理入口04:31仍403。
+- 桌機／390／320真正新context OTP登入皆無登入後guest反覆；市場表五個排序鈕在390／320真Browser均至少44px，保留排序與1080px容器內捲動。GET fixture與真實交易證據分開。
+- 尚未把新版本列為鏈上驗收通過：B段原5 PASS／1 SKIP／2 FAIL保留，接續一般流程、14及39真實資金驗證。未公開推送或部署。
+
 ## 04:00 完整回歸抓到整合缺口
 
 - 固定`a4e7d029` API264檔：260 PASS／4 FAIL；4,131項PASS／8 FAIL。原snapshot所有tracked blob前後相同，隔離DB已移除，保留真實RED。

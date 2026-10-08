@@ -1080,7 +1080,7 @@ export const tr: Messages = {
     spot: "Spot USDC",
     arbitrum: "Arbitrum'da, köprülenmedi",
     tabs: {
-      copying: "Kopyalanan",
+      copying: "Kopyalarım",
       insights: "İçgörüler",
       exposure: "Maruziyet",
       activity: "Aktivite",

@@ -1080,7 +1080,7 @@ export const ru: Messages = {
     spot: "Спот USDC",
     arbitrum: "На Arbitrum, ещё не в Hyperliquid",
     tabs: {
-      copying: "Копирование",
+      copying: "Мои копирования",
       insights: "Инсайты",
       exposure: "Экспозиция",
       activity: "Активность",

@@ -85,6 +85,22 @@ beforeEach(async () => {
 afterAll(async () => { await closeTestDb(); });
 
 describe('testnet copy execution engine', () => {
+  it.each(['platform_paused', 'user_paused', 'strategy_paused', 'platform_reduce_only', 'user_reduce_only', 'strategy_reduce_only'])('terminates an unsent %s open once and permits the following reduction', async reason => {
+    const run = engine(); await credit(); await coverage(now - 10_000, now + 5000); await run.tick();
+    const initial = await leaderFill(901, now + 100, 'B', '1', '0');
+    clock = now + 1000; await run.tick(); clock = now + 1500; await run.tick();
+    expect((await dispatches()).find(r => r.sourceFillId === initial)?.state).toBe('settled');
+    const add = await leaderFill(902, now + 1600, 'B', '1', '1');
+    const reduce = await leaderFill(903, now + 1700, 'A', '0.5', '2');
+    runtimeImpl = async (request, hooks) => {
+      if (request.sourceFillId === add) { runtimeCalls.push(request); throw new LiveBoundaryError(reason); }
+      return filled(request, hooks);
+    };
+    clock = now + 2000; await run.tick(); clock = now + 3000; await run.tick();
+    expect((await dispatches()).find(r => r.sourceFillId === add)).toMatchObject({ state: 'refused', reason, attempts: 1 });
+    expect(runtimeCalls.filter(r => r.sourceFillId === add)).toHaveLength(1);
+    expect(runtimeCalls.some(r => r.sourceFillId === reduce && r.leg === 'close')).toBe(true);
+  });
   it('publishes an observation only after settlement, without reverting settled work when reporting fails', async () => {
     const published = vi.fn(async (_key: string) => { throw new Error('reporting unavailable'); });
     const run = engine({ settlementObservation: published } as Partial<LiveEngineDependencies>);

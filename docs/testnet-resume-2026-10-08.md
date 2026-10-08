@@ -312,3 +312,14 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 - 18:32:33 API3100 PID24725、18:32:57 worker3010 PID24905，均用原stage-caps啟動並移除AUTH_SERVICE_PERMISSIONS及NODE_OPTIONS私人preload；健康確認PASS。18:32:59服務token管理overview恢復403，四項临時權限確實移除。沒有改.env／使用者角色、沒有Stage或主網寫入。
 - 原完整對帳與摘要：`.claude/logs/copy-harness/2026-10-08T10-18-40-293Z-{kill_switch-reconcile.json,summary.txt}`。私人唯讀收尾證據：`codex-admin14-final-money.jsonl`、`codex-admin14-final-balances.jsonl`、`codex-admin14-platform-resumed.jsonl`、`codex-admin14-after-permissions.jsonl`。
 - 尚待修正及真實重跑：一般流程#57的原sizing證據期限、情境14的預算積壓／減倉及拒絕分類。B段未全綠，C未開始；本機HTTP設定20秒deadline問題42也仍開放。
+
+## 情境14修正：暫停中的新開倉不先等待交易證據額度
+
+- 修正前再次唯讀核對：所有本機actual停止，openFunding／liabilities／unfinishedSetups為0。臨時管理權限已移除，沒有重新授權或開始新金融輪次。
+- 根因位置：runtime在bootstrap估算後先預付完整證據額度，pause_new_risk／reduce_only直到後面原風控才判斷；engine又把控制拒絕當可重試，會阻擋同幣後續減倉。Stage4控制規格要求尚未送出的新增風險立即取消、減倉照跟；不能等解除暫停後補開旧單。
+- 新碼只在open、routing尚無journal、控制hint為blocked時，用新鮮原始SQL lock session與read-only transaction重新讀journal及完整current preparation authority。當前scope證實pause／reduce_only即以原六種控制原因拒絕，不花交易證據額度、不provider I/O、不建journal／reservation／nonce、不簽署。routing hint本身不授權；恢復後仍走正常完整準備與风控。已有journal不走此新路徑，恢復及對帳保持原責任；close也不走此提前拒開檢查。
+- engine沿用原pending／journal-aware例外路徑，把六種控制拒絕設為終止，避免重試舊open擋減倉；沒有略過既有journal或釋放額度。原風控5秒、訊號期限、預算與交易限額不變。
+- 原碼12 FAIL／87 PASS；修正後首輪99 PASS，補恢復競態、停用owner、真實close路由邊界後2檔102 PASS。兩次測試皆用新隔離DB，完成後刪除；不在金融DB跑測試。TypeScript含測試、4檔oxlint、build及diff check PASS。
+- requesting-code-review獨立唯讀審查沒有Critical／Important。可補的覆蓋為routing至preflight間出現journal的競態、pause下unknown/resting歷史journal；本次新增歷史回歸驗證terminal原單保留，未宣稱所有競態實測。
+- 完整API隔離回歸正在執行，私人日誌`/private/tmp/codex-paused-admission-api-all.log`；完整PASS與真實情境14重跑尚未完成。一般流程#57的原證據5秒期限失敗也尚待修正，B段仍未全綠。
+- 相關私人日誌`codex-paused-admission-{red,green,final-tests,types-final,lint-final,build}.log`。沒有公開推送、部署、Stage或主網操作。

@@ -148,6 +148,59 @@ async function actualClockFixture(perTradeUsd: number | null = 10, accountRevisi
   });
 }
 describe('unregistered concrete testnet execution runtime', () => {
+  it.each(['platform', 'user', 'strategy'] as const)('rejects a %s-paused new open before evidence quota or provider work', async scope => {
+    if (scope === 'strategy') await db.update(schema.copyStrategies).set({ pauseNewRisk: true });
+    else await db.update(schema.copyControls).set({ pauseNewRisk: true }).where(eq(schema.copyControls.scope, scope));
+    const acquire = vi.spyOn(budget, 'acquire').mockRejectedValue(new Error('quota unavailable before pause admission'));
+    await expect(runtime().execute(request())).rejects.toThrow(`${scope}_paused`);
+    expect(acquire).not.toHaveBeenCalled(); expect(raw).not.toHaveBeenCalled();
+    expect(await db.select().from(schema.copyLiveExecutions)).toHaveLength(0);
+    expect(await db.select().from(schema.copyLiveRiskReservations)).toHaveLength(0);
+    expect(await db.select().from(schema.copySignerNonces)).toHaveLength(0);
+  });
+  it.each(['platform', 'user', 'strategy'] as const)('rejects a %s-reduce-only new open before evidence quota', async scope => {
+    if (scope === 'strategy') await db.update(schema.copyStrategies).set({ reduceOnly: true });
+    else await db.update(schema.copyControls).set({ reduceOnly: true }).where(eq(schema.copyControls.scope, scope));
+    const acquire = vi.spyOn(budget, 'acquire').mockRejectedValue(new Error('quota unavailable before reduce-only admission'));
+    await expect(runtime().execute(request())).rejects.toThrow(`${scope}_reduce_only`);
+    expect(acquire).not.toHaveBeenCalled(); expect(raw).not.toHaveBeenCalled();
+    expect(await db.select().from(schema.copyLiveExecutions)).toHaveLength(0);
+  });
+  it('revalidates current pause under locks instead of rejecting a resumed routing hint', async () => {
+    await db.update(schema.copyControls).set({ pauseNewRisk: true }).where(eq(schema.copyControls.scope, 'platform'));
+    const run = PostgresLiveRiskScope.prototype.run;
+    vi.spyOn(PostgresLiveRiskScope.prototype, 'run').mockImplementationOnce(async function(this: PostgresLiveRiskScope, identity, work) {
+      await db.update(schema.copyControls).set({ pauseNewRisk: false }).where(eq(schema.copyControls.scope, 'platform'));
+      return run.call(this, identity, work);
+    });
+    const acquire = vi.spyOn(budget, 'acquire').mockRejectedValue(new Error('resumed open waits for real quota'));
+    await expect(runtime().execute(request())).rejects.toThrow('resumed open waits for real quota');
+    expect(acquire).toHaveBeenCalledOnce(); expect(raw).not.toHaveBeenCalled();
+  });
+  it('does not treat a paused routing hint as authority for a disabled owner', async () => {
+    await db.update(schema.copyControls).set({ pauseNewRisk: true }).where(eq(schema.copyControls.scope, 'platform'));
+    await db.update(schema.users).set({ disabledAt: new Date(now) }).where(eq(schema.users.id, 1));
+    const acquire = vi.spyOn(budget, 'acquire');
+    await expect(runtime().execute(request())).rejects.toThrow('live_risk_identity');
+    expect(acquire).not.toHaveBeenCalled(); expect(raw).not.toHaveBeenCalled();
+  });
+  it('keeps a real close out of opening-only admission even when paused', async () => {
+    const fill = parseLiveSourceFill({ ...seed.fill.raw, side: 'A', dir: 'Close Long', startPosition: '1' },
+      { network: 'testnet', leaderAddress: seed.consent.leaderAddress, from: now - 2000, to: now, receivedAt: now, kind: 'fills' });
+    await db.delete(schema.copyLiveSourceFills);
+    await db.insert(schema.copyLiveSourceFills).values({ ...fill, normalized: { ...fill.normalized }, providerTime: new Date(fill.providerTime), receivedAt: new Date(fill.receivedAt) });
+    await db.update(schema.copyControls).set({ pauseNewRisk: true }).where(eq(schema.copyControls.scope, 'platform'));
+    const acquire = vi.spyOn(budget, 'acquire').mockRejectedValue(new Error('reduction uses ordinary evidence quota'));
+    await expect(runtime().execute({ ...request(), sourceFillId: fill.id, leg: 'close' })).rejects.toThrow('reduction uses ordinary evidence quota');
+    expect(acquire).toHaveBeenCalledOnce(); expect(raw).not.toHaveBeenCalled();
+  });
+  it('retains an original terminal order under pause without reserving new evidence or signing again', async () => {
+    await actualClockFixture(); const original = await runtime(config, { ...options, slippageBps: '0' }).execute(request());
+    await db.update(schema.copyControls).set({ pauseNewRisk: true }).where(eq(schema.copyControls.scope, 'platform'));
+    raw.mockClear(); const acquire = vi.spyOn(budget, 'acquire').mockRejectedValue(new Error('no new quota'));
+    expect(await runtime().execute(request())).toEqual(original);
+    expect(acquire).not.toHaveBeenCalled(); expect(raw).not.toHaveBeenCalled();
+  });
   it('denies an unconfigured project egress before routing SQL or provider work', async () => {
     config = configuration({ HYPERLIQUID_EGRESS_KEY: undefined });
     const connect = vi.spyOn(pool, 'connect');

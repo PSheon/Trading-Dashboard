@@ -91,7 +91,10 @@ const isHip3 = (coin: string) => coin.includes(':');
  * a refusal still saying so, or an update the exchange rejected, is final. */
 const PERMANENT = new Set(['live_source_price_deviation', 'live_budget_over_capacity', 'below_min_notional', 'live_risk_adoption_unproven', 'live_market_unknown',
   'live_account_unsupported_role', 'live_account_unsupported_abstraction', 'unattempted_expired', 'live_risk_provider_fee_scope_unproven', HIP3_REFUSAL,
-  'live_risk_leverage', 'live_leverage_update_rejected']);
+  'live_risk_leverage', 'live_leverage_update_rejected',
+  // A control-refused unsent open must never queue ahead of reductions or
+  // catch up after resume. Historical journals remain on settlement instead.
+  'platform_paused', 'user_paused', 'strategy_paused', 'platform_reduce_only', 'user_reduce_only', 'strategy_reduce_only']);
 /** A merged order is planned within this long after its legs are merged
  * (evidence reads ~4 s): no leg merged older than the signal age less this. */
 const PLANNING_MARGIN_MS = 15_000;

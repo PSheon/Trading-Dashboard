@@ -149,6 +149,8 @@ export class LiveExecutionRuntime {
         and ${liveAccountExposureSql(sql`a.id`, sql`s.mode`, sql`s.status`)})`,
       budgetSizing: sql<string | null>`(select settings->>'sizingMode' from copy_strategy_versions where strategy_id=${copyLiveMandates.strategyId} and version=${copyLiveMandates.strategyVersion})`,
       journalExists: sql<boolean>`exists(select 1 from copy_live_executions where key=${this.network} || ':' || ${copyExecutionAccounts.address} || ':' || ${cloid})`,
+      blockedOpenHint: sql<boolean>`exists(select 1 from copy_strategies s where s.id=${copyLiveMandates.strategyId} and (s.pause_new_risk or s.reduce_only))
+        or exists(select 1 from copy_controls c where ((c.scope='platform' and c.scope_id=0) or (c.scope='user' and c.scope_id=${request.userId})) and (c.pause_new_risk or c.reduce_only))`,
     }).from(copyExecutionAccounts)
       .innerJoin(copyLiveMandates, eq(copyLiveMandates.id, request.mandateId))
       .where(and(eq(copyExecutionAccounts.id, request.accountId), eq(copyExecutionAccounts.userId, request.userId)));
@@ -156,6 +158,25 @@ export class LiveExecutionRuntime {
       routing.mandate.userId === request.userId && routing.mandate.network === this.network && liveSourceNetworks(this.network).includes(routing.mandate.sourceNetwork), 'live_runtime_identity');
     const accountAddress = address(routing.account.address), leaderAddress = address(routing.mandate.leaderAddress);
     const key = `${this.network}:${accountAddress}:${cloid}`;
+    // A routing hint can only request an early, SQL-only rejection. Re-read
+    // current authority under the original locks; a resumed hint grants
+    // nothing, and an existing journal always stays on historical recovery.
+    if (request.leg === 'open' && !routing.journalExists && routing.blockedOpenHint) {
+      await new PostgresLiveRiskScope(this.pool, this.now).run({ userId: request.userId, network: this.network, accountAddress,
+        source: { network: routing.mandate.sourceNetwork, leaderAddress } }, async (_scope, session) => {
+        await session.read(async db => {
+          const [existing] = await db.select({ key: copyLiveExecutions.key }).from(copyLiveExecutions).where(eq(copyLiveExecutions.key, key));
+          await session.scope.assertHeld();
+          if (existing) return;
+          const authority = await loadLivePreparationAuthority(session, db, request, this.now());
+          await session.scope.assertHeld();
+          for (const scope of ['platform', 'user', 'strategy'] as const) {
+            riskSourceRequire(!authority.controls[scope].pauseNewRisk, `${scope}_paused`);
+            riskSourceRequire(!authority.controls[scope].reduceOnly, `${scope}_reduce_only`);
+          }
+        });
+      });
+    }
     // These routing estimates grant no authority. Wait for initial evidence
     // weight before taking the original SQL locks and their five-second clock.
     // Every identity, live account and setting is reloaded inside that scope.

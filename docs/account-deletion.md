@@ -21,7 +21,7 @@
 | `last_admin` | 唯一啟用中的管理員 | 先指派另一位管理員 |
 | `copies_active` | 測試網跟單沒停（或其授權仍是 active / paused / stopping） | 在投資組合停止跟單並把資金轉回主錢包 |
 | `stop_in_progress` | 停止流程（撤單、平倉、sweep）還沒到 `stopped` | 等它完成 |
-| `setup_in_progress` | 一鍵跟單設定中且入金已送出（`copy_live_setups` 非終態） | 等它完成或失敗 |
+| `setup_in_progress` | 一鍵跟單設定尚未結束，或安全中止尚未完成；原設定已取消也可能仍在核對晚到入金或退款 | 查看原設定／中止進度，等安全中止完成 |
 | `transfer_pending` | 入金／轉回主錢包已送出但未入帳（`prepared/unknown/accepted`） | 等它到帳 |
 | `execution_pending` | 訂單還在確認或掛著（`copy_live_executions` 非終態） | 稍後再試 |
 | `copy_account_not_empty` | 交易所上跟單帳戶還有 USDC（永續或現貨，≥ $0.01）、持倉或掛單 | 在投資組合把資金轉回主錢包 |
@@ -51,6 +51,7 @@
 
 - 錢包地址：`copy_funding_operations.address`／`destination`、`wallet_withdrawals.address`／`destination`、`copy_execution_accounts.address`、`copy_agent_setups` 與 `copy_execution_wallets` 的帳戶與代理地址、mandate 與停止的 `owner_address`、`account_address`。
 - Privy 編號：`copy_execution_accounts.privy_user_id`、`privy_wallet_id`，`copy_execution_wallets.privy_wallet_id`，mandate 與停止的 `owner_privy_user_id`。
+- 已完成安全中止的原擁有者與證據：`copy_live_setup_aborts` 的 `owner_privy_user_id`、`owner_address`、`account_address`、`destination`、原 intent／consent／proof digest，以及原入金與退款關聯。只把 `user_id` 改指向墓碑，不改寫金融授權內容。未完成的中止禁止刪帳號。
 - 簽署過的 intent JSON（mandate、停止撤單同意、一鍵設定的 consent `copy_live_setups.intent`）：裡面有本人的主錢包地址、Privy 使用者編號與跟單帳戶地址。
 
 不保留：email、顯示名稱、語言、Telegram chat id 與使用者名稱、登入用的 Privy ID 在 `users` 上（墓碑是 `deleted:<uuid>`）。
@@ -63,6 +64,8 @@
 文案（隱私權政策、刪除帳號頁）因此改成「不再連到你的帳號、email、名字或 Telegram；仍保留錢包地址與擁有跟單錢包的 Privy 帳號編號」，不再說「沒有任何個人資料」。
 
 ### 墓碑設計（migration 0065）
+
+安全中止與其退款紀錄有雙向外鍵。保留期間不解除關聯；只有刪除時間超過保留期限的墓碑，才在同一個清除 transaction 內解除已完成中止的已結束退款 `setup_abort_id`，接著先刪中止、再刪原入金／退款與設定。一般使用者與未到期墓碑不會被解除關聯；任一刪除失敗會回滾整個清除。
 
 選擇最小的 schema 變更：在 `users` 本身建一列「墓碑」，而不是另開 `deleted_users` 表或把 25 張表的 `user_id` 改成可為 null。理由：所有 RESTRICT 外鍵都指向 `users(id)`，改指向同一張表的另一列，不必改任何外鍵、型別或讀取程式；每次刪除一個墓碑，所以 `(user_id, idempotency_key)` 之類的唯一鍵不會互撞。
 

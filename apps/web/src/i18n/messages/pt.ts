@@ -1610,7 +1610,7 @@ export const pt: Messages = {
     blockers: {
       copies_active: "Você ainda tem uma cópia na testnet em andamento. Pare-a no seu Portfólio e devolva os fundos para a sua carteira principal primeiro.",
       stop_in_progress: "Uma cópia ainda está parando (cancelando ordens, fechando posições, devolvendo fundos). Exclua a conta quando terminar.",
-      setup_in_progress: "Uma cópia em um clique ainda está sendo configurada e o depósito já foi enviado. Aguarde até que termine ou falhe.",
+      setup_in_progress: "A configuração da cópia, o cancelamento seguro ou a devolução de fundos ainda está em andamento. Aguarde a conclusão antes de excluir sua conta.",
       transfer_pending: "Um depósito ou uma devolução para a sua carteira principal ainda está sendo confirmado. Aguarde a chegada.",
       execution_pending: "Uma ordem ainda está sendo confirmada; isso costuma levar alguns minutos. Tente de novo em instantes.",
       copy_account_not_empty: "Uma conta de cópia ainda tem fundos, posições ou ordens. Devolva os fundos para a sua carteira principal no seu Portfólio primeiro.",

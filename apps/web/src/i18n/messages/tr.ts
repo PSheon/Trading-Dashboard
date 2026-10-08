@@ -1610,7 +1610,7 @@ export const tr: Messages = {
     blockers: {
       copies_active: "Hâlâ çalışan bir testnet kopyanız var. Önce Portföy'de durdurun ve fonlarını ana cüzdanınıza geri gönderin.",
       stop_in_progress: "Bir kopya hâlâ duruyor (emirler iptal ediliyor, pozisyonlar kapatılıyor, fonlar iade ediliyor). Bittiğinde hesabınızı silin.",
-      setup_in_progress: "Tek tıkla kopya hâlâ kuruluyor ve yatırma gönderildi. Tamamlanmasını ya da başarısız olmasını bekleyin.",
+      setup_in_progress: "Kopya işlem kurulumu, güvenli iptal veya fonların iadesi hâlâ devam ediyor. Hesabınızı silmeden önce işlemin tamamlanmasını bekleyin.",
       transfer_pending: "Bir yatırma veya ana cüzdana iade hâlâ onaylanıyor. Ulaşmasını bekleyin.",
       execution_pending: "Bir emir hâlâ onaylanıyor; bu genellikle birkaç dakika sürer. Biraz sonra tekrar deneyin.",
       copy_account_not_empty: "Bir kopya hesabında hâlâ fon, pozisyon veya emir var. Önce Portföy'de fonları ana cüzdanınıza geri gönderin.",

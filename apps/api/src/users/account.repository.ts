@@ -116,7 +116,8 @@ export class AccountRepository {
     if (copies.rows.length) found.push(["copies_active", ids(copies.rows)]);
     const stops = await tx.execute<{ strategy_id: number }>(sql`select strategy_id from copy_live_stop_operations where user_id = ${userId} and state <> 'stopped'`);
     if (stops.rows.length) found.push(["stop_in_progress", ids(stops.rows)]);
-    const setups = await tx.execute<{ strategy_id: number }>(sql`select strategy_id from copy_live_setups where user_id = ${userId} and stage not in ('running', 'failed', 'expired', 'cancelled')`);
+    const setups = await tx.execute<{ strategy_id: number }>(sql`select strategy_id from copy_live_setups where user_id = ${userId} and stage not in ('running', 'failed', 'expired', 'cancelled')
+      union select strategy_id from copy_live_setup_aborts where user_id = ${userId} and state <> 'done'`);
     if (setups.rows.length) found.push(["setup_in_progress", ids(setups.rows)]);
     // A setup's deposit whose credit was never seen once the setup ended at
     // its deadline doesn't hold the account: what arrived is checked on the

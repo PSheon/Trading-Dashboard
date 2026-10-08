@@ -2729,7 +2729,7 @@ export const zhTW = {
     blockers: {
       copies_active: "你還有進行中的跟單（模擬除外）。先在投資組合停止跟單，並把資金轉回主錢包。",
       stop_in_progress: "跟單正在停止（撤單、平倉、轉回資金）。等它完成後再刪除。",
-      setup_in_progress: "一鍵跟單正在設定，入金已經送出。等它完成或失敗後再刪除。",
+      setup_in_progress: "跟單設定、安全中止或資金返還仍在處理，請等處理完成後再刪除帳戶。",
       transfer_pending: "有一筆入金或轉回主錢包還在確認中。等它到帳後再刪除。",
       execution_pending: "還有訂單在確認中，通常幾分鐘內就會完成。稍後再試。",
       copy_account_not_empty: "跟單帳戶裡還有資金、持倉或掛單。先在投資組合把資金轉回主錢包。",

@@ -2725,7 +2725,7 @@ export const en: Messages = {
     blockers: {
       copies_active: "You still have a copy running (paper aside). Stop it in your Portfolio and return its funds to your main wallet first.",
       stop_in_progress: "A copy is still stopping (cancelling orders, closing positions, returning funds). Delete your account once it has finished.",
-      setup_in_progress: "A one-click copy is still being set up and its deposit was sent. Wait until it finishes or fails.",
+      setup_in_progress: "Copy setup, safe abort or returning funds is still in progress. Wait for it to complete before deleting your account.",
       transfer_pending: "A deposit or a return to your main wallet is still being confirmed. Wait until it arrives.",
       execution_pending: "An order is still being confirmed; this usually takes a few minutes. Try again shortly.",
       copy_account_not_empty: "A copy account still holds funds, positions or orders. Return its funds to your main wallet in your Portfolio first.",

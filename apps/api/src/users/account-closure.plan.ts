@@ -58,6 +58,7 @@ export const USER_REFERENCES = {
   "copy_live_leverage_updates.user_id": "tombstone",
   "copy_live_manual_closes.user_id": "tombstone",
   "copy_live_setups.user_id": "tombstone",
+  "copy_live_setup_aborts.user_id": "tombstone",
   "copy_follower_observations.user_id": "tombstone",
   // Main-wallet withdrawals.
   "wallet_withdrawals.user_id": "tombstone",
@@ -99,7 +100,7 @@ export function deletedBeforeUser(userId: number): Record<string, SQL> {
 export const STRATEGY_RECORD_TABLES = [
   "copy_execution_accounts", "copy_funding_operations", "copy_agent_setups", "copy_account_mode_operations", "copy_live_risk_reservations",
   "copy_live_strategy_configs", "copy_live_execution_evidence", "copy_follower_observations", "copy_live_position_baselines",
-  "copy_live_activations", "copy_live_dispatches", "copy_live_manual_closes", "copy_live_setups",
+  "copy_live_activations", "copy_live_dispatches", "copy_live_manual_closes", "copy_live_setups", "copy_live_setup_aborts",
 ] as const;
 
 /** A strategy that is kept (re-pointed to the tombstone): every testnet
@@ -142,6 +143,18 @@ export function repointStatements(userId: number, tombstoneId: number): Array<{ 
  * foreign key is listed, and that each comes before the tables it points at.
  * Shared rows (leader fills and streams, policies) are never touched.
  */
+/** Break the funding/abort FK cycle only when purging an expired tombstone.
+ * Owner bindings and funding markers remain intact throughout retention.
+ * The enclosing purge transaction rolls this back on any failed deletion. */
+export function purgeDetachedReferences(tombstoneId: number, cutoff: Date): Record<string, SQL> {
+  return {
+    "copy_funding_operations.setup_abort_id": sql`update copy_funding_operations f set setup_abort_id = null
+      where f.user_id = ${tombstoneId} and f.status in ('credited','rejected','cancelled')
+        and exists (select 1 from users u where u.id = ${tombstoneId} and u.deleted_at < ${cutoff} and u.disabled_at is not null)
+        and exists (select 1 from copy_live_setup_aborts a where a.id = f.setup_abort_id and a.user_id = ${tombstoneId} and a.state = 'done')`,
+  };
+}
+
 export function purgeStatements(tombstoneId: number): Array<{ table: string; statement: SQL }> {
   const t = tombstoneId;
   const accounts = sql`(select id from copy_execution_accounts where user_id = ${t})`;
@@ -170,6 +183,7 @@ export function purgeStatements(tombstoneId: number): Array<{ table: string; sta
     ["copy_live_risk_reservations", sql`user_id = ${t} or key in ${executions} or account_id in ${accounts}`],
     ["copy_live_execution_evidence", sql`user_id = ${t} or key in ${executions} or account_id in ${accounts}`],
     ["copy_live_manual_closes", sql`user_id = ${t} or account_id in ${accounts}`],
+    ["copy_live_setup_aborts", sql`user_id = ${t}`],
     ["copy_funding_operations", sql`user_id = ${t} or account_id in ${accounts}`],
     ["copy_live_stop_operations", sql`user_id = ${t}`],
     ["copy_live_mandates", sql`user_id = ${t}`],

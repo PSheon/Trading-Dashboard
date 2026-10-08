@@ -1610,7 +1610,7 @@ export const es: Messages = {
     blockers: {
       copies_active: "Todavía tienes una copia en testnet en marcha. Detenla en tu Portafolio y devuelve sus fondos a tu wallet principal primero.",
       stop_in_progress: "Una copia todavía se está deteniendo (cancelando órdenes, cerrando posiciones, devolviendo fondos). Elimina tu cuenta cuando termine.",
-      setup_in_progress: "Una copia en un clic todavía se está configurando y su depósito ya se envió. Espera a que termine o falle.",
+      setup_in_progress: "La configuración de la copia, la cancelación segura o la devolución de fondos sigue en curso. Espera a que termine antes de eliminar tu cuenta.",
       transfer_pending: "Un depósito o una devolución a tu wallet principal todavía se está confirmando. Espera a que llegue.",
       execution_pending: "Una orden todavía se está confirmando; suele tardar unos minutos. Inténtalo de nuevo en breve.",
       copy_account_not_empty: "Una cuenta de copia todavía tiene fondos, posiciones u órdenes. Devuelve sus fondos a tu wallet principal en tu Portafolio primero.",

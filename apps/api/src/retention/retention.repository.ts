@@ -6,7 +6,7 @@ import { and, asc, eq, isNotNull, isNull, lt, or, sql, type SQL } from "drizzle-
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
-import { purgeStatements } from "../users/account-closure.plan.js";
+import { purgeDetachedReferences, purgeStatements } from "../users/account-closure.plan.js";
 
 export interface RetentionOutcome {
   status: "ok" | "partial" | "failed";
@@ -92,6 +92,7 @@ export class RetentionRepository {
     for (const { id } of due) {
       try {
         await this.db.transaction(async (tx) => {
+          for (const statement of Object.values(purgeDetachedReferences(id, cutoff))) await tx.execute(statement);
           for (const { statement } of purgeStatements(id)) await tx.execute(statement);
         });
         purged++;

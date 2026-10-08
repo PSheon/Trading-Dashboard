@@ -1610,7 +1610,7 @@ export const id: Messages = {
     blockers: {
       copies_active: "Kamu masih punya salinan testnet yang berjalan. Hentikan di Portofolio dan kembalikan dananya ke dompet utama terlebih dahulu.",
       stop_in_progress: "Sebuah salinan masih dihentikan (membatalkan order, menutup posisi, mengembalikan dana). Hapus akun setelah selesai.",
-      setup_in_progress: "Salinan sekali klik masih disiapkan dan setorannya sudah dikirim. Tunggu sampai selesai atau gagal.",
+      setup_in_progress: "Pengaturan salinan transaksi, pembatalan aman, atau pengembalian dana masih berlangsung. Tunggu hingga selesai sebelum menghapus akunmu.",
       transfer_pending: "Setoran atau pengembalian ke dompet utama masih dikonfirmasi. Tunggu sampai masuk.",
       execution_pending: "Sebuah order masih dikonfirmasi; biasanya hanya beberapa menit. Coba lagi sebentar lagi.",
       copy_account_not_empty: "Akun salinan masih menyimpan dana, posisi, atau order. Kembalikan dananya ke dompet utama di Portofolio terlebih dahulu.",

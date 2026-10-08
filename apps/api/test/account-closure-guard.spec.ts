@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 
-import { deletedBeforeUser, purgeStatements, STRATEGY_RECORD_TABLES, USER_REFERENCES } from "../src/users/account-closure.plan.js";
+import { deletedBeforeUser, purgeDetachedReferences, purgeStatements, STRATEGY_RECORD_TABLES, USER_REFERENCES } from "../src/users/account-closure.plan.js";
 import { closeTestDb, getTestDb } from "./db-test-utils.js";
 
 /**
@@ -77,6 +77,14 @@ describe("account deletion handles every reference to a user", () => {
     const plan = purgeStatements(1).map((s) => s.table);
     expect(new Set(plan).size).toBe(plan.length);
     const order = new Map(plan.map((table, i) => [table, i]));
+    const detached = new Set(Object.keys(purgeDetachedReferences(1, new Date())));
+    for (const reference of detached) {
+      expect(fks.some(fk => `${fk.child}.${fk.column}` === reference && !cascades(fk.action))).toBe(true);
+      const [table, column] = reference.split('.');
+      const { rows } = await db.execute<{ nullable: string }>(sql`select is_nullable as nullable from information_schema.columns
+        where table_schema = 'public' and table_name = ${table!} and column_name = ${column!}`);
+      expect(rows[0]?.nullable, `${reference} must allow purge-time detachment`).toBe('YES');
+    }
     // The kept records: tombstoned columns' tables, then whatever points at them.
     const kept = new Set<string>(["copy_strategies"]);
     for (const fk of fks) if (fk.parent === "users" && (USER_REFERENCES as Record<string, string>)[`${fk.child}.${fk.column}`] === "tombstone") kept.add(fk.child);
@@ -86,7 +94,7 @@ describe("account deletion handles every reference to a user", () => {
     }
     for (const table of kept) expect(order.has(table), `${table} holds records kept under a tombstone but the purge never deletes it`).toBe(true);
     for (const fk of fks) {
-      if (fk.child === fk.parent || cascades(fk.action) || !order.has(fk.child) || !order.has(fk.parent)) continue;
+      if (fk.child === fk.parent || cascades(fk.action) || detached.has(`${fk.child}.${fk.column}`) || !order.has(fk.child) || !order.has(fk.parent)) continue;
       expect(order.get(fk.child)!, `${fk.child} must be purged before ${fk.parent}`).toBeLessThan(order.get(fk.parent)!);
     }
     expect(plan.at(-1)).toBe("users");

@@ -1,7 +1,7 @@
 import type { INestApplication } from "@nestjs/common";
 import {
   accountDeletionMarkers, adminAuditLogs, copyAgentSetups, copyExecutionAccounts, copyFollowerLedger, copyFollowerReceipts, copyFundingOperations, copyLiveDispatches, copyLiveExecutions,
-  copyLiveMandates, copyLiveSetups, copyLiveSourceFills, copyLiveStopOperations, copyStrategies, copyWalletAuthorizationEvents, copyWalletAuthorizations,
+  copyLiveMandates, copyLiveSetups, copyLiveSetupAborts, copyLiveSourceFills, copyLiveStopOperations, copyStrategies, copyWalletAuthorizationEvents, copyWalletAuthorizations,
   favoriteGroups, notificationChannels, paperAccounts, referralAttributions, referralClaims, referralCodes, referralPolicies, userFavorites, users, walletWithdrawals,
 } from "@trading-dashboard/shared/database";
 import { eq, isNotNull, sql } from "drizzle-orm";
@@ -15,7 +15,7 @@ import { RetentionService } from "../src/retention/retention.service.js";
 import type { SettingsService } from "../src/settings/settings.service.js";
 import { AccountDeletionService } from "../src/users/account-deletion.service.js";
 import { COPY_ACCOUNT_CLOSURE, CopySignerAttached } from "../src/users/account-closure.port.js";
-import { purgeStatements, USER_REFERENCES } from "../src/users/account-closure.plan.js";
+import { purgeDetachedReferences, purgeStatements, repointStatements, USER_REFERENCES } from "../src/users/account-closure.plan.js";
 import { AccountRepository } from "../src/users/account.repository.js";
 import { AppConfig } from "../src/config/app-config.js";
 import { ReferralRepository } from "../src/referral/referral.repository.js";
@@ -68,6 +68,23 @@ const credited = (hash: string) => ({ status: "credited" as const, claimedAt: ne
 const setup = (id: string, stage: string, overrides: Partial<typeof copyLiveSetups.$inferInsert> = {}) => ({ id, userId: 1, strategyId: 9, accountId: "account", kind: "start" as const,
   idempotencyKey: `setup-${id}-000000000000`.slice(0, 32), stage: stage as never, leaderAddress: `0x${"44".repeat(20)}`, sourceNetwork: "testnet" as const, budgetUsd: "100", settings: {}, ...overrides });
 const consented = { intentDigest: "a".repeat(64), consentDigest: "b".repeat(64), confirmedAt: new Date(now), setupDeadline: new Date(now + 600_000) };
+
+const ABORT = '99999999-9999-4999-8999-999999999999';
+async function savedAbort(state: 'done' | 'blocked' = 'done') {
+  await db.insert(copyLiveSetups).values(setup('aborted-original', 'cancelled', consented));
+  await db.insert(copyLiveSetupAborts).values({ id: ABORT, userId: 1, setupId: 'aborted-original', strategyId: 9, accountId: 'account',
+    kind: 'start', network: 'testnet', idempotencyKey: 'retained-abort-original-key', ownerPrivyUserId: 'did:privy:risk-source', ownerAddress: OWNER_MAIN,
+    accountAddress: account(), destination: OWNER_MAIN, intentDigest: consented.intentDigest, consentDigest: consented.consentDigest,
+    fundingOperationId: '22222222-2222-4222-8222-222222222222', state, issue: state === 'blocked' ? 'setup_abort_child_pending' : null,
+    proofDigest: 'e'.repeat(64), proofReadAt: new Date(now) }).returning();
+  if (state === 'done') {
+    const refundId = '77777777-7777-4777-8777-777777777777';
+    await db.insert(copyFundingOperations).values(funding(refundId, { ...credited('f'), nonce: now + 21, direction: 'to_main', address: account(), destination: OWNER_MAIN,
+      setupAbortId: ABORT, idempotencyKey: 'abort-original-refund-key' }));
+    await db.update(copyLiveSetupAborts).set({ returnOperationId: refundId }).where(eq(copyLiveSetupAborts.id, ABORT));
+  }
+  return (await db.select().from(copyLiveSetupAborts).where(eq(copyLiveSetupAborts.id, ABORT)))[0]!;
+}
 
 /** The owner's copy is over and only history is left: a stopped testnet copy
  * with its stop, deposit, sweep, order, fill, setup and a finished main-wallet
@@ -142,6 +159,15 @@ describe("DELETE /me — only in-flight state blocks", () => {
     expect(await tombstones()).toHaveLength(0);
   });
 
+  it('an unfinished abort blocks deletion even when its original setup is cancelled and the exchange is empty', async () => {
+    await history(); const original = await savedAbort('blocked');
+    const response = await deleteMe().expect(409);
+    expect(response.body.error.code).toBe('setup_in_progress');
+    expect((await db.select().from(copyLiveSetupAborts))[0]).toEqual(original);
+    expect(await tombstones()).toHaveLength(0);
+    expect(closure.isEmpty).not.toHaveBeenCalled();
+  });
+
   it("a start that failed after its deposit arrived (no generation ever) stops with the deletion: only funds left on the exchange block it", async () => {
     await history();
     const ABANDONED = `0x${"88".repeat(20)}`;
@@ -174,8 +200,22 @@ describe("DELETE /me — only in-flight state blocks", () => {
 });
 
 describe("DELETE /me — a user with only history", () => {
+  it('the abort user FK prevents loss of its original owner even after every other kept reference is repointed', async () => {
+    await history(); const original = await savedAbort();
+    await expect(db.transaction(async tx => {
+      const tombstone = await new AccountRepository(db).createTombstone(tx, new Date(now));
+      for (const { reference, statement } of repointStatements(1, tombstone)) {
+        if (reference !== 'copy_live_setup_aborts.user_id') await tx.execute(statement);
+      }
+      await new AccountRepository(db).deleteUser(tx, 1);
+    })).rejects.toMatchObject({ cause: { code: '23503', constraint: 'copy_live_setup_aborts_user_id_users_id_fk' } });
+    expect((await db.select().from(copyLiveSetupAborts))[0]).toMatchObject(original);
+    expect(await tombstones()).toHaveLength(0);
+  });
+
   it("deletes cleanly: personal data is gone, kept records point at an anonymous tombstone, grants are revoked and the signer is detached", async () => {
     await history();
+    const abortBefore = await savedAbort();
     await db.update(copyExecutionAccounts).set({ masterPolicyId: "policy-1", masterPolicyFingerprint: "c".repeat(64), masterSignerQuorumId: "worker", sweepDestination: OWNER_MAIN, signerAttachedAt: new Date(now) });
 
     await deleteMe().expect(204);
@@ -205,10 +245,12 @@ describe("DELETE /me — a user with only history", () => {
     // Financial records are kept under the tombstone.
     expect((await db.select().from(copyExecutionAccounts))[0]).toMatchObject({ userId: t, signerDetachedAt: expect.any(Date) });
     expect((await db.select().from(copyLiveMandates))[0]!.userId).toBe(t);
-    expect((await db.select().from(copyFundingOperations)).map((f) => f.userId)).toEqual([t, t]);
+    expect((await db.select().from(copyFundingOperations)).map((f) => f.userId)).toEqual([t, t, t]);
     expect((await db.select().from(copyLiveExecutions))[0]!.userId).toBe(t);
     expect((await db.select().from(copyLiveStopOperations))[0]!.userId).toBe(t);
     expect((await db.select().from(copyLiveSetups))[0]!.userId).toBe(t);
+    expect((await db.select().from(copyLiveSetupAborts))[0]).toMatchObject({ ...abortBefore, userId: t, returnOperationId: '77777777-7777-4777-8777-777777777777' });
+    expect((await db.select().from(copyFundingOperations)).find(row => row.setupAbortId === ABORT)).toMatchObject({ userId: t, status: 'credited' });
     expect((await db.select().from(walletWithdrawals))[0]!.userId).toBe(t);
     expect(await db.select().from(copyFollowerReceipts)).toHaveLength(1);
     // Invites: both sides see "a deleted user"; the code an invite used is
@@ -229,7 +271,8 @@ describe("DELETE /me — a user with only history", () => {
     const [audit] = await db.select().from(adminAuditLogs).where(eq(adminAuditLogs.event, "user.delete"));
     expect(audit).toMatchObject({ actorUserId: t, target: "user:1", beforeJson: { favorites: 1, groups: 1, telegramLinked: true },
       afterJson: expect.objectContaining({ tombstoneUserId: t, signersDetached: 1, revoked: { grants: 1, agents: 1 } }) });
-    expect((audit!.afterJson as { kept: Record<string, number> }).kept).toMatchObject({ "copy_strategies.user_id": 1, "copy_funding_operations.user_id": 2, "wallet_withdrawals.user_id": 1 });
+    expect((audit!.afterJson as { kept: Record<string, number> }).kept).toMatchObject({ "copy_strategies.user_id": 1, "copy_funding_operations.user_id": 3,
+      "copy_live_setup_aborts.user_id": 1, "wallet_withdrawals.user_id": 1 });
     expect(JSON.stringify([audit!.beforeJson, audit!.afterJson, audit!.target])).not.toMatch(/owner@example\.com|risk-source|0x5555/);
 
     // The same session can't reach the account (or the tombstone) any more.
@@ -249,8 +292,20 @@ describe("DELETE /me — a user with only history", () => {
 });
 
 describe("retention purges a deleted account's kept records after 365 days", () => {
+  it('purge-time unlinking cannot alter an active owner or an unexpired tombstone', async () => {
+    await history(); await savedAbort();
+    for (const statement of Object.values(purgeDetachedReferences(1, new Date(Date.now() + 400 * 86_400_000)))) await db.execute(statement);
+    expect((await db.select().from(copyFundingOperations)).find(row => row.setupAbortId === ABORT)).toBeDefined();
+    await deleteMe().expect(204);
+    const t = (await tombstones())[0]!.id;
+    for (const statement of Object.values(purgeDetachedReferences(t, new Date(Date.now() - 86_400_000)))) await db.execute(statement);
+    expect((await db.select().from(copyFundingOperations)).find(row => row.setupAbortId === ABORT)).toMatchObject({ userId: t });
+    expect((await db.select().from(copyLiveSetupAborts))[0]).toMatchObject({ ownerPrivyUserId: 'did:privy:risk-source', destination: OWNER_MAIN });
+  });
+
   it("nothing before the period ends; then the tombstone and every record under it, never shared rows", async () => {
     await history();
+    await savedAbort();
     await deleteMe().expect(204);
     const t = (await tombstones())[0]!.id;
     const service = new RetentionService(new RetentionRepository(db), settings, new UnitOfWork(db));
@@ -258,6 +313,9 @@ describe("retention purges a deleted account's kept records after 365 days", () 
     const early = await service.run(new Date(Date.now() + 364 * day), true);
     expect(early).toMatchObject({ ran: true, status: "ok", removed: { deleted_accounts: 0 } });
     expect(await tombstones()).toHaveLength(1);
+    expect((await db.select().from(copyLiveSetupAborts))[0]).toMatchObject({ userId: t, ownerPrivyUserId: 'did:privy:risk-source', destination: OWNER_MAIN,
+      returnOperationId: '77777777-7777-4777-8777-777777777777' });
+    expect((await db.select().from(copyFundingOperations)).find(row => row.setupAbortId === ABORT)).toMatchObject({ status: 'credited', userId: t });
 
     const late = await service.run(new Date(Date.now() + 366 * day), true);
     expect(late).toMatchObject({ ran: true, status: "ok", removed: { deleted_accounts: 1 } });

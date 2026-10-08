@@ -1610,7 +1610,7 @@ export const zhCN: Messages = {
     blockers: {
       copies_active: "你还有进行中的跟单（模拟除外）。请先在投资组合停止跟单，并把资金转回主钱包。",
       stop_in_progress: "跟单正在停止（撤单、平仓、转回资金）。完成后再删除。",
-      setup_in_progress: "一键跟单正在设置，入金已经发出。等它完成或失败后再删除。",
+      setup_in_progress: "跟单设置、安全中止或资金返还仍在处理中，请等处理完成后再删除账户。",
       transfer_pending: "有一笔入金或转回主钱包仍在确认中。到账后再删除。",
       execution_pending: "还有订单在确认中，通常几分钟内就会完成。请稍后再试。",
       copy_account_not_empty: "跟单账户里还有资金、持仓或挂单。请先在投资组合把资金转回主钱包。",

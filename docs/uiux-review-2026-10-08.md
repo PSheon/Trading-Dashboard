@@ -10,7 +10,7 @@ Paul 已確認沿用 Orbie 風格。14:05本機重新登入，以正確 `?view=r
 
 - 完整前端200檔／1,323項 PASS；前端／shared型別與scoped lint通過。固定`d0beb2c8` production build亦PASS，1,857個tracked blob前後相同、無私密env。安全中止的重新整理按鈕補上真實查詢忙碌狀態後重跑全套；這不是鏈上驗收。
 - 比較圖的44px／鍵盤操作及四捨五入說明，已補1440／390／320px Browser截圖。四捨五入使用明確標記的 GET fixture：149.008 顯示149.01，分項100.00＋49.00，說明可見；未送金融POST。證據 `/private/tmp/ui-compare-rounding-proof/records.json`。
-- #39安全中止前端已補真實parent整合、未知POST回覆後reload保留原中止意圖、原owner／network／setup隔離及新的編輯入口。後端獨立審查與實際資金測試仍未完成，不能列已解決。
+- #39安全中止前端已補真實parent整合、未知POST回覆後reload保留原中止意圖、原owner／network／setup隔離及新的編輯入口。前後端獨立審查已通過，固定版API完整回歸及實際資金測試仍未完成，不能列已解決。
 - 第65輪已安全收尾：七步領單PASS，跟單對帳FAIL；原提款10、停止四項與39.042829退款PASS。全部actual停止、資金在途及風險保留零，三個錢包無倉。B段仍5 PASS／1 SKIP／2 FAIL。
 - 後續「尚待改善」列表及23/40評分是原始檢視紀錄，不能當作目前未修項數；通知、手機列表、footer、費用／錢包用途／未知值及精度說明均已有後續修正與證據。最新變更未公開推送／部署，三模式同部署跨網路路由仍受架構限制。
 

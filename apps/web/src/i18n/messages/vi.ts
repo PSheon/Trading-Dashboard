@@ -1610,7 +1610,7 @@ export const vi: Messages = {
     blockers: {
       copies_active: "Bạn vẫn còn một bản sao testnet đang chạy. Hãy dừng nó trong Danh mục và chuyển tiền về ví chính trước.",
       stop_in_progress: "Một bản sao vẫn đang dừng (hủy lệnh, đóng vị thế, hoàn tiền). Hãy xóa tài khoản sau khi hoàn tất.",
-      setup_in_progress: "Một bản sao một chạm vẫn đang được thiết lập và khoản nạp đã được gửi. Hãy chờ đến khi hoàn tất hoặc thất bại.",
+      setup_in_progress: "Việc thiết lập sao chép giao dịch, hủy an toàn hoặc hoàn trả tiền vẫn đang được xử lý. Hãy chờ xử lý xong trước khi xóa tài khoản.",
       transfer_pending: "Một khoản nạp hoặc hoàn tiền về ví chính vẫn đang được xác nhận. Hãy chờ đến khi tiền về.",
       execution_pending: "Một lệnh vẫn đang được xác nhận; thường mất vài phút. Hãy thử lại sau ít phút.",
       copy_account_not_empty: "Tài khoản sao chép vẫn còn tiền, vị thế hoặc lệnh. Hãy chuyển tiền về ví chính trong Danh mục trước.",

@@ -2,6 +2,20 @@
 
 Paul 於台北時間 2026-10-08 23:58 前後授權再投入十小時，至 2026-10-09 09:58。接續原本機 testnet 測試，不操作主網；Stage 發布與本機驗收分開記錄。沿用 Orbie 風格，保留原 50 USDC／固定每筆 12–15／槓桿 3／最多兩筆限制及所有證據、訊號與對帳期限。
 
+## 04:00 完整回歸抓到整合缺口
+
+- 固定`a4e7d029` API264檔：260 PASS／4 FAIL；4,131項PASS／8 FAIL。原snapshot所有tracked blob前後相同，隔離DB已移除，保留真實RED。
+- 四項失敗是共用路由清單多列尚未實作的`GET /me/copy/live/setup-aborts/:id`。產品實際只使用原setupId的GET／POST abort；移除多餘契約後，http-contract／OpenAPI／Swagger三檔17PASS，隔離DB已移除。
+- 另四項是新中止資料表未納入帳戶關閉、金融資料匿名保留與到期purge。正在補完整雙向FK處理、pending abort阻擋刪除、completed abort匿名保留與到期SQL回歸；不能只更新guard名單冒充修正。
+- 因此尚未切換runtime／套用0074–0077；B段5 PASS／1 SKIP／2 FAIL不變。修正後需重新凍結並跑完整API。
+
+## 03:50 更新（工作仍進行）
+
+- 固定 `a4e7d029` 已凍結所有本機來源，三份manifest57個不重複檔案hash一致。#39中止封存、API終態對帳、背景讀取公平性均已獨立審查，無剩餘Critical／Important；新完整API回歸在獨立snapshot／可刪除DB進行。
+- 審查補修兩個liveness缺口：START中止可exact-CAS封存確定尚未送出的原普通轉帳；已attempted仍只原receipt核對。snapshot一般更新使用獨立持久5分鐘marker，recovery不重設；原global60秒保留，持續fresh＋recovery時仍能給最老一般帳號更新機會。
+- 固定 `d0beb2c8` Web production build PASS，1,857個tracked blob前後一致、無私密env；完整web200檔1,323項、web/shared型別與scoped lint PASS。
+- 03:37本機所有testnet owner唯讀核對：進行中策略／mandate、在途資金、風險保留與未完成設定均零。實際金融runtime仍4b，0074–0077尚未套用；第66輪未開始，B段仍5 PASS／1 SKIP／2 FAIL。
+
 ## 03:30 更新（工作仍進行）
 
 - `498a885e` 同一訂單的交易授權核對，依原5秒證據窗口重用原checkedAt，保持expiry／rotation／SQL撤銷與實際POST守衛；真RED後150項相關測試PASS、型別lint及獨立審查通過。尚未載入金融runtime。

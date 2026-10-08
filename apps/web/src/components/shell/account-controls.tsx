@@ -1,23 +1,17 @@
 "use client";
 
-import { Briefcase, Check, ChevronDown, Globe, LogOut, Moon, Settings, ShieldCheck, Sun } from "lucide-react";
+import { Briefcase, Check, ChevronDown, ChevronRight, Globe, LogOut, Moon, Settings, ShieldCheck, Sun } from "lucide-react";
 import { cn } from "cn";
+import { useState } from "react";
+import { Dialog, Popover, RadioGroup } from "radix-ui";
+import { useIsDesktop } from "@/lib/use-is-desktop";
+import { LOCALE_NAMES } from "@/i18n/config";
 import { Link } from "@/i18n/navigation";
 
 import { Skeleton } from "@/components/page";
 import { CopyEquityProbes, useCopiesEquity } from "@/lib/copy-equity";
 import { useWalletModals } from "@/components/wallet/wallet-modals";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useI18n } from "@/i18n/provider";
 import { useAuth, useIsAdmin, useMe } from "@/lib/auth";
@@ -113,85 +107,71 @@ function Initial({ label }: { label: string }) {
 
 /** The avatar (and, in the pill, the total value) opening the account menu. */
 function AccountMenu({ children }: { children?: React.ReactNode }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { identity } = useAuth();
   const trading = useTradingMode();
-  const mutating = trading.pending;
   const { logout, pending: leaving } = useLogout();
   const { data: me } = useMe();
   const isAdmin = useIsAdmin();
   const { theme, toggle } = useTheme();
+  const desktop = useIsDesktop();
+  const [open, setOpen] = useState(false);
   const label = me?.displayName || me?.email?.split("@")[0] || identity || t("topbar.account");
-
+  const actual: SiteMode = trading.deploymentNetwork === "mainnet" ? "live" : "testnet";
+  const row = "flex min-h-12 w-full items-center gap-3 rounded-2xl px-3 text-sm font-bold outline-none transition-colors hover:bg-raised focus-visible:ring-2 focus-visible:ring-ring";
+  const trigger = (
+    <button type="button" aria-label={t("topbar.account")} className="orbit-press flex h-11 shrink-0 items-center gap-2 rounded-full p-0.5 pr-3 font-extrabold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring">
+      <Initial label={label} />
+      <span className="text-xs" data-mode={trading.mode}>{t(`mode.${trading.mode}`)}</span>
+      <ChevronDown className="size-4 text-muted-foreground" aria-hidden />
+    </button>
+  );
+  const body = (
+    <div data-testid="account-menu-card">
+      <div className="flex items-center gap-3 px-3 pt-2 pb-4">
+        <Initial label={label} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-display text-lg font-bold">{label}</p>
+          <p className="truncate text-xs text-muted-foreground">{me?.email || identity}</p>
+        </div>
+      </div>
+      {children ? <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl bg-raised px-4 py-3"><span className="text-xs font-bold text-muted-foreground">{t("portfolio.totalValue")}</span>{children}</div> : null}
+      <RadioGroup.Root aria-label={t("mode.label")} value={trading.mode} orientation="horizontal" onValueChange={value => { trading.select(value as SiteMode); }} className="grid grid-cols-2 gap-1 rounded-full bg-raised p-1">
+        {([actual, "paper"] as const).map(mode => (
+          <RadioGroup.Item key={mode} value={mode} disabled={trading.pending > 0 || !trading.supports(mode)} className="flex min-h-11 items-center justify-center gap-2 rounded-full px-3 text-sm font-extrabold outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground">
+            <RadioGroup.Indicator><Check className="size-4" aria-hidden /></RadioGroup.Indicator>
+            {t(`mode.${mode}`)}
+          </RadioGroup.Item>
+        ))}
+      </RadioGroup.Root>
+      {trading.pending > 0 ? <p role="status" className="px-3 pt-2 text-xs text-muted-foreground">{t("mode.busy")}</p> : !trading.available || !trading.supports(actual) ? <p role="status" className="px-3 pt-2 text-xs text-muted-foreground">{t("mode.unavailable")}</p> : null}
+      <div className="my-3 h-px bg-border" />
+      <Link href="/portfolio" onClick={() => setOpen(false)} className={row}><Briefcase className="size-[18px]" aria-hidden />{t("nav.portfolio")}<ChevronRight className="ml-auto size-4 text-muted-foreground" aria-hidden /></Link>
+      <Link href="/settings" onClick={() => setOpen(false)} className={row}><Settings className="size-[18px]" aria-hidden />{t("nav.settings")}<ChevronRight className="ml-auto size-4 text-muted-foreground" aria-hidden /></Link>
+      {isAdmin ? <Link href="/admin" onClick={() => setOpen(false)} className={row}><ShieldCheck className="size-[18px]" aria-hidden />{t("nav.admin")}<ChevronRight className="ml-auto size-4 text-muted-foreground" aria-hidden /></Link> : null}
+      <LanguageMenu trigger={<button type="button" className={row}><Globe className="size-[18px]" aria-hidden />{t("topbar.language")}<span className="ml-auto text-xs font-medium text-muted-foreground">{LOCALE_NAMES[locale]}</span><ChevronRight className="size-4 text-muted-foreground" aria-hidden /></button>} />
+      <button type="button" onClick={toggle} aria-label={t("theme.switchTo", { theme: theme === "dark" ? t("theme.light") : t("theme.dark") })} className={row}>{theme === "dark" ? <Moon className="size-[18px]" aria-hidden /> : <Sun className="size-[18px]" aria-hidden />}{t("theme.label")}<span className="ml-auto text-xs font-medium text-muted-foreground">{t(theme === "dark" ? "theme.dark" : "theme.light")}</span></button>
+      <div className="my-3 h-px bg-border" />
+      <button type="button" disabled={leaving} aria-busy={leaving || undefined} onClick={() => { void logout(); }} className={cn(row, "text-muted-foreground disabled:opacity-50")}>{leaving ? <OrbitSpinner /> : <LogOut className="size-[18px]" aria-hidden />}{t("topbar.logout")}</button>
+    </div>
+  );
+  if (desktop === false) return (
+    <Dialog.Root open={open} onOpenChange={setOpen}>
+      <Dialog.Trigger asChild>{trigger}</Dialog.Trigger>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-overlay backdrop-blur-[2px]" />
+        <Dialog.Content aria-describedby={undefined} className="fixed inset-x-0 bottom-0 z-50 max-h-[92dvh] overflow-y-auto rounded-t-3xl bg-background px-5 pt-4 pb-[calc(24px+env(safe-area-inset-bottom))] shadow-[var(--shadow-pop)] outline-none">
+          <div className="mb-2 flex items-center justify-between"><Dialog.Title className="text-sm font-bold text-muted-foreground">{t("topbar.account")}</Dialog.Title><Dialog.Close className="flex min-h-11 items-center rounded-full bg-raised px-4 text-sm font-bold outline-none focus-visible:ring-2 focus-visible:ring-ring">{t("settings.close")}</Dialog.Close></div>
+          {body}
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          aria-label={t("topbar.account")}
-          className="orbit-press flex h-11 shrink-0 items-center gap-2 rounded-full p-0.5 font-extrabold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-raised-hover"
-        >
-          <Initial label={label} />
-          <span className="pr-1 text-xs font-extrabold" data-mode={trading.mode}>{t(`mode.${trading.mode}`)}</span>
-          {children}
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-60">
-        <DropdownMenuLabel>
-          <span className="block">{t("topbar.signedInAs")}</span>
-          <span className="mt-0.5 block truncate text-sm font-medium text-foreground">
-            {me?.email || identity || label}
-          </span>
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <DropdownMenuLabel>{t("mode.label")}</DropdownMenuLabel>
-        <DropdownMenuRadioGroup value={trading.mode} onValueChange={(value) => {
-          trading.select(value as SiteMode);
-        }}>
-          {(["live", "testnet", "paper"] as const).map(mode => (
-            <DropdownMenuRadioItem key={mode} value={mode} disabled={mutating > 0 || !trading.supports(mode)} className="min-h-11">
-              <span className="flex-1">
-                <span className="block">{t(`mode.${mode}`)}</span>
-                {!trading.supports(mode) ? <span className="block text-xs font-normal">{t("mode.unavailable")}</span> : null}
-              </span>
-              {trading.mode === mode ? <Check className="size-4" aria-hidden /> : null}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-        {mutating > 0 ? <p role="status" className="px-3 py-2 text-xs text-muted-foreground">{t("mode.busy")}</p> : null}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem asChild>
-          <Link href="/portfolio">
-            <Briefcase />
-            {t("nav.portfolio")}
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link href="/settings">
-            <Settings />
-            {t("nav.settings")}
-          </Link>
-        </DropdownMenuItem>
-        {isAdmin ? (
-          <DropdownMenuItem asChild>
-            <Link href="/admin">
-              <ShieldCheck />
-              {t("nav.admin")}
-            </Link>
-          </DropdownMenuItem>
-        ) : null}
-        <DropdownMenuItem onSelect={(event) => { event.preventDefault(); toggle(); }}>
-          {theme === "dark" ? <Sun /> : <Moon />}
-          {t("theme.switchTo", { theme: theme === "dark" ? t("theme.light") : t("theme.dark") })}
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        {/* Stays open while it signs out: the item shows it is busy. */}
-        <DropdownMenuItem aria-busy={leaving || undefined} onSelect={(event) => { event.preventDefault(); void logout(); }}>
-          {leaving ? <OrbitSpinner /> : <LogOut />}
-          {t("topbar.logout")}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger asChild>{trigger}</Popover.Trigger>
+      <Popover.Portal><Popover.Content aria-label={t("topbar.account")} align="end" sideOffset={10} collisionPadding={12} className="z-50 max-h-[calc(100dvh-100px)] w-[320px] max-w-[calc(100vw-24px)] overflow-y-auto rounded-3xl bg-popover p-3 text-popover-foreground shadow-[0_0_0_2px_var(--card-ring),var(--shadow-pop)] outline-none">{body}</Popover.Content></Popover.Portal>
+    </Popover.Root>
   );
 }
 
@@ -210,7 +190,7 @@ function AccountPill() {
     <div className="flex h-[52px] items-center gap-1 rounded-[26px] bg-raised p-1">
       {trading.mode !== "paper" && trading.available ? <CopyEquityProbes /> : null}
       <AccountMenu>
-        <span className="hidden items-center gap-1.5 pr-1 lg:flex">
+        <span className="flex items-center gap-1.5">
           {total != null && (trading.mode === "paper" || inCopies !== null) ? (
             <span className="num font-display text-[15px]" data-testid="account-total">{format.usd(total + (trading.mode === "paper" ? 0 : inCopies!), { digits: 2 })}</span>
           ) : !trading.available || (trading.mode === "paper" ? paper.isError : wallet.isError || inCopies === null) ? (
@@ -218,7 +198,6 @@ function AccountPill() {
           ) : (
             <Skeleton className="h-4 w-16" />
           )}
-          <ChevronDown className="size-4 text-muted-foreground" strokeWidth={2.4} aria-hidden />
         </span>
       </AccountMenu>
       {trading.mode !== "paper" && trading.available ? <Button onClick={openDeposit}>

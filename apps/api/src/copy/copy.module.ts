@@ -134,7 +134,8 @@ export { WALLET_NETWORK_HL, walletNetworkHyperliquid, type WalletNetworkHyperliq
     CopyLiveMandateRepository, CopyLiveMandateService, CopyLiveStopRepository, CopyLiveStopService, CopyLiveSystemStops, CopyLiveReturnRepository, CopyLiveReturnService, CopyLivePortfolioRepository, CopyLiveCloseService, CopyLiveCloseRepository, CopyLiveSetupRepository, CopyLiveSetupService,
     CopyLiveSetupAbortRepository, CopyLiveSetupAbortReturnRepository, CopyLiveSetupAbortService,
     { provide: SETUP_ABORT_OBSERVER, inject: [WALLET_NETWORK_HL], useFactory: ({ budget, transport, network }: WalletNetworkHyperliquid) =>
-      new HyperliquidLiveAccountObserver(network, liveBudget(budget, { lane: 'background', maxWaitMs: LIVE_RESERVE_WAIT_MS }), transport.fetchInfo, Date.now, 5000,
+      // Original refund proofs discharge a financial liability, using the existing live reserve.
+      new HyperliquidLiveAccountObserver(network, liveBudget(budget, { maxWaitMs: LIVE_RESERVE_WAIT_MS }), transport.fetchInfo, Date.now, 5000,
         new HyperliquidAllDexsAccountSource(Date.now, undefined, network, transport, { closeAfterRead: true })) },
     { provide: WORKER_MASTER_SIGNER, inject: [AppConfig], useFactory: (config: AppConfig) => new PrivyPolicyMasterSigner({ appId: config.value.auth.appId, appSecret: config.value.auth.appSecret,
       workerQuorumId: config.value.copy.agent?.workerQuorumId, authorizationPrivateKey: config.value.copy.agent?.authorizationPrivateKey }) },

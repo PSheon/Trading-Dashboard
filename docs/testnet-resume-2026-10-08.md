@@ -12,7 +12,7 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 | 6 手動平倉後立即停止 | #43 PASS | 真實持倉及完整收尾已驗證 |
 | 7 worker重啟 | #51 FAIL；#49 FAIL保留 | #51重啟後開倉已成交；減倉第二次檢查逾時，後筆在前筆未結算時重試；排程修正尚待新碼真實驗收 |
 | 8 低於最小單的開倉拒絕 | SKIP | 現有限額下未找到符合情境的市場，沒有改限額強行通過 |
-| 9 三筆快速平倉 | #54 FAIL僅快照；#53／#50／#37 FAIL保留 | #54四筆派送：兩筆settled、兩筆no_follower_position各一次；跟單空倉，原generation排程問題未重現，但portfolio快照未趕上原對帳期限 |
+| 9 三筆快速平倉 | #55完整PASS；歷史FAIL保留 | 原20秒三次领單平倉與對帳期限內通過：4派送、2成交、2筆無剩餘倉位；報表原觀察保留、停止空倉與退款credited均PASS |
 | 14 管理者暫停／恢復／全平 | 未執行 | 管理權限仍待使用者授權 |
 
 既有隔離回歸基準：登入紀錄修正版API 255檔3,893項、web 181檔1,179項、harness28項PASS。新排程版首跑API 3,893 PASS／1 FAIL；積壓情境補測後相關45項PASS，最終完整API 255檔3,896項PASS。這些結果不能替代上述真實交易驗收；B段尚未全綠。
@@ -254,3 +254,7 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 - 17:23:21 完整隔離 API 回歸 255檔3,902項PASS（742.90秒），session19163 exit0、隔離資料庫已移除。此結果驗證新報表版本全部 API 測試，不代替真實 B 段交易驗收。
 - #55 設定 `698bedce-8340-4a7a-a862-007895ed01b7`、跟單帳戶 `0x185c14338bab86b226ab54aaef2a39c784c7414a`；17:18:02 真實簽署／addSigners／confirm200 PASS（7.2秒），17:19:23正常啟用。領單36美元ETH開倉成交，跟單17:20:39 filled、17:21:54 settled，attempts1。
 - 領單三次平倉17:21:26.791／33.993／41.175全成交，首末14.384秒、領單空倉。17:23:37唯讀SQL比對開倉：保留額released／verified_settlement，報表觀察與已提交proof的sourceDigest相同，observedAt皆17:21:51.648，沒有延後原時效；首次平倉已submitted attempts1，其保留額unknown，後續结算／完整對帳／返還尚待結果。私人證據 `codex-report55-proof-reporting-open.jsonl`。
+- 報表修正及全量回歸紀錄本機提交 `21acbda0`。首次平倉17:24:37 settled，attempts1、保留額released；原proof與報表sourceDigest相同、觀察時間均17:24:34.526（私人 `codex-report55-proof-reporting-close.jsonl`）。未更新原時效，未把尚未結算的證據發布為新觀察。
+- 17:27:26 #55在原期限內完整五來源對帳PASS（第15次正常觀察）：4領單、4派送、2跟單成交，領單三次平倉14.384秒、跟單空倉。其餘兩筆依既有規則無剩餘倉位，不宣稱三次跟單成交。隨後正常停止；退款credited與最終資金清點待結果，runner session6112仍在進行。原#54及早期FAIL全部保留。
+- 17:31:18 runner session6112 exit0／ALL GREEN：停止未阻擋、空倉、49.003213返還credited、顯示stopped四項PASS。17:31:42直接testnet核對主108.763233、#55帳戶0、領單23.494366 testUSDC，三者空倉；本機在途資金／未釋放額度／未完成設定皆0。開始unset NODE_OPTIONS恢復本機API／worker；沒有主網操作或Stage寫入。
+- 原證據 `.claude/logs/copy-harness/2026-10-08T09-17-06-023Z-summary.txt` 與同prefix burst-reconcile.json保留私人本機。實測首跟單成交延遲115.51秒，不能把此回歸PASS宣稱成交速度改善；尚待worker重啟與一般完整流程兩個可執行情境。

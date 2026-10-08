@@ -19,3 +19,11 @@ Paul 於台北時間 2026-10-08 23:58 前後授權再投入十小時，至 2026-
 7. 前端以1440×900、390×844實際截圖驗收並補320px邊界；標註fixture與真實資料。金融runner與UI截圖分時使用唯一共用Chrome，最多兩條重工作。
 
 每項保留舊碼RED、新碼GREEN、型別含測試、相關檢查及實際證據。提交只含本次檔案；其他session的review tracker與STRATEGY不納入。最後報告通過、未通過、未能執行及尚未發布的項目，不能把本機修好說成線上已更新。
+
+## 01:20 接續驗證
+
+- 固定 `5a864335` 的獨立 source snapshot：255 API檔／3,975項 PASS，exit0；前後1,826個tracked blob均與commit相同，隔離DB已移除。這只驗證該固定版，未包含尚未提交的設定恢復、UI與executionSummary。
+- 第63輪七步仍FAIL，停止與全部返還PASS；01:18再次唯讀確認全部actual已停止、在途資金／未釋放額度／未完成設定皆零。主100.626273、copy63零、leader22.124925，三者無倉。
+- executionSummary SQL觀察只讀目前owner／network／account／consent generation；filled ACK仍待確認，唯verified settlement reservation release與settledAt能顯示最近核對完成。API10項PASS；卡片與catalog3檔53項PASS、portfolio整合8项PASS。獨立審查未見新的Critical／Important，手機實際畫面尚待驗收。
+- 設定HTTP恢復獨立審查抓到真實reload的session generation歸零、cancel被late provisioning復活、delayed funding_not_submitted後Confirm卡住，正在補真RED修正。不能把最初41／49項通過當作上述情境已解決。
+- 手機paper訂單狀態原在390／320px出屏，現DataList呈現狀態／原因與44px展開明細；4檔24項PASS、型別lint通過，修正後實際截圖仍待補。

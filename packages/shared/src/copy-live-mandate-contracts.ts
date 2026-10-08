@@ -82,6 +82,12 @@ export const liveCopyPortfolioItemSchema = z.object({
   pendingTransfer: z.object({ id: z.string().uuid(), direction: z.enum(['to_account', 'to_main']), status: z.enum(['prepared', 'unknown', 'accepted']), amount: z.string() }).strict().nullable(),
   /** The latest leg the worker refused, with its reason (e.g. a price deviation). */
   lastRefusal: z.object({ reason: z.string(), at: z.string().datetime() }).strict().nullable(),
+  /** SQL observations of this consent generation. A filled exchange ACK is
+   * still confirming until its reservation has a verified settlement release.
+   * sourceThrough is source coverage, not a promise of execution latency. */
+  executionSummary: z.object({ pending: z.number().int().nonnegative(), confirming: z.number().int().nonnegative(),
+    oldestPendingAt: z.string().datetime().nullable(), lastCompletedAt: z.string().datetime().nullable(),
+    sourceThrough: z.string().datetime().nullable(), observedAt: z.string().datetime() }).strict().nullable().optional(),
   /** The account's funds return to the main wallet by themselves after a
    * stop (the worker's policy-bound signer); idle withdrawals need no
    * signature. Optional while older APIs roll out. */

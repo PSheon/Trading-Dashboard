@@ -4,6 +4,8 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { CopyLivePortfolioRepository } from '../src/copy/copy-live-portfolio.repository.js';
 import { preparationFixture } from './copy-live-preparation-test-utils.js';
 import { now } from './copy-live-risk-test-utils.js';
+import { buildOrderAction } from '../src/copy/live/live-order.js';
+import { planLiveReservation } from '../src/copy/live/live-risk-reservation.js';
 import { closeTestDb, getTestDb, type TestDb } from './db-test-utils.js';
 
 let db: TestDb, seed: Awaited<ReturnType<typeof preparationFixture>>;
@@ -16,6 +18,67 @@ const funding = (status: 'prepared' | 'unknown' | 'accepted' | 'credited', id = 
 
 beforeEach(async () => { db = getTestDb(); seed = await preparationFixture(db); await db.update(schema.copyStrategies).set({ status: 'paused', pauseNewRisk: true }); });
 afterAll(async () => { await closeTestDb(); });
+
+describe('owner-scoped current-generation execution summary', () => {
+  const summary = async () => (await stage() as unknown as { executionSummary?: {
+    pending: number; confirming: number; oldestPendingAt: string | null; lastCompletedAt: string | null;
+    sourceThrough: string | null; observedAt: string;
+  } | null }).executionSummary;
+  const dispatch = (id: string, state: 'pending' | 'submitted' | 'settled' | 'refused', extra = {}) => db.insert(schema.copyLiveDispatches).values({
+    id, mandateId: 'mandate', userId: 1, strategyId: 9, accountId: 'account', sourceFillId: seed.fill.id,
+    leg: 'open', coin: 'BTC', state, leaderTime: new Date(now - 1000), receivedAt: new Date(now),
+    createdAt: new Date(now), updatedAt: new Date(now), ...extra,
+  });
+  const execution = async () => {
+    const f = seed.f, intent = f.intent;
+    const payload = planLiveReservation({ now, identity: f.identity, localSource: f.localSource, intent,
+      action: buildOrderAction(intent), market: f.market, quote: f.quote, leverage: f.leverageProofs[0]!, fees: f.fees,
+      policy: f.policy, expiresAt: now + 60_000 });
+    await db.insert(schema.copyLiveExecutions).values({ key: payload.key, network: 'testnet', accountAddress: f.identity.accountAddress,
+      signerAddress: `0x${'33'.repeat(20)}`, cloid: intent.cloid, nonce: now, userId: 1, strategyId: 9,
+      state: 'filled', record: { key: payload.key }, updatedAt: new Date(now) });
+    return payload;
+  };
+  it('shows pending and confirming separately; a filled ACK is not a completed settlement', async () => {
+    const payload = await execution();
+    await dispatch('queued', 'pending');
+    await dispatch('acknowledged', 'submitted', { leg: 'close', executionKey: payload.key, ackedAt: new Date(now) });
+    expect(await summary()).toMatchObject({ pending: 1, confirming: 1, oldestPendingAt: new Date(now - 1000).toISOString(), lastCompletedAt: null,
+      sourceThrough: new Date(now).toISOString() });
+    expect(Number.isFinite(Date.parse((await summary())!.observedAt))).toBe(true);
+  });
+  it('only shows completion after the original verified settlement releases its reservation', async () => {
+    const payload = await execution(), intent = seed.f.intent;
+    await dispatch('terminal', 'settled', { executionKey: payload.key, settledAt: new Date(now + 1000) });
+    expect(await summary()).toMatchObject({ lastCompletedAt: null, confirming: 1 });
+    await db.insert(schema.copyLiveRiskReservations).values({ ...payload, cloid: intent.cloid, coin: intent.market!.coin,
+      dex: intent.market!.dex, asset: intent.asset, payload: payload as unknown as Record<string, unknown>,
+      state: 'released', attemptedAt: new Date(now), releaseReason: 'verified_settlement', releaseEvidenceDigest: 'a'.repeat(64),
+      createdAt: new Date(payload.createdAt), expiresAt: new Date(payload.expiresAt), updatedAt: new Date(now + 1000) });
+    expect(await summary()).toMatchObject({ lastCompletedAt: new Date(now + 1000).toISOString(), confirming: 0 });
+  });
+  it('excludes prior consent generations from current pending work and refusal alerts', async () => {
+    const [current] = await db.select().from(schema.copyLiveMandates);
+    await db.insert(schema.copyLiveMandates).values({ ...current!, id: 'previous', idempotencyKey: 'previous-mandate-0001', state: 'stopped',
+      intent: { ...current!.intent, mandateId: 'previous' }, nonce: now - 60_000, createdAt: new Date(now - 60_000) });
+    await dispatch('previous-queued', 'pending', { mandateId: 'previous' });
+    await dispatch('previous-refused', 'refused', { mandateId: 'previous', leg: 'close', reason: 'stale_signal' });
+    expect(await summary()).toMatchObject({ pending: 0, confirming: 0, oldestPendingAt: null });
+    expect((await stage()).lastRefusal).toBeNull();
+    expect(await new CopyLivePortfolioRepository(db).items(2)).toEqual([]);
+  });
+  it('returns unknown without a current consent generation rather than inventing zero pending work', async () => {
+    await db.delete(schema.copyLiveMandates);
+    expect(await summary()).toBeNull();
+  });
+  it('does not import another account into this consent generation summary', async () => {
+    await db.insert(schema.copyStrategies).values({ id: 10, userId: 1, mode: 'testnet', leaderAddress: `0x${'77'.repeat(20)}`, allocated: '0', cash: '0', activatedAt: new Date(now) });
+    await db.insert(schema.copyExecutionAccounts).values({ id: 'other-account', userId: 1, strategyId: 10, network: 'testnet', state: 'requested',
+      privyUserId: 'did:privy:risk-source', externalId: 'other-external' });
+    await dispatch('foreign-account', 'pending', { accountId: 'other-account' });
+    expect(await summary()).toMatchObject({ pending: 0, confirming: 0 });
+  });
+});
 
 describe('testnet copy stages for the portfolio', () => {
   it('follows setup → needs_deposit → funding → awaiting_credit → starting → active', async () => {

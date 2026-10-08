@@ -3,7 +3,7 @@ import { LiveSubmissionBlockedError, type LiveExecutionGate, type LiveExecutionL
 import { describe, expect, it, vi } from "vitest";
 import { LiveOrderExecutor, NEVER_PLACED, NEVER_PLACED_GRACE_MS, type LiveExecutionJournal, type LiveExecutionRecord, type LiveExchangeTransport } from "../src/copy/live/live-execution.js";
 import { buildOrderAction, executionKey, wireDecimal, type LiveOrderIntent } from "../src/copy/live/live-order.js";
-import { assertWalletAuthorization, WalletAuthorizationService, type WalletAuthorization } from "../src/copy/live/wallet-authorization.js";
+import { LiveBoundaryError, assertWalletAuthorization, WalletAuthorizationService, type WalletAuthorization } from "../src/copy/live/wallet-authorization.js";
 
 const now = 1_790_000_000_000;
 export const grant: WalletAuthorization = { id: "grant", version: 1, userId: 1, strategyId: 2, walletId: "wallet", privyOwnerId: "quorum",
@@ -36,7 +36,7 @@ class Journal implements LiveExecutionJournal {
   async save(record: LiveExecutionRecord) { this.rows.set(record.key, record); }
 }
 
-function setup(gate: LiveExecutionGate = executionGateFixture()) {
+function setup(gate: LiveExecutionGate = executionGateFixture(), onDiagnostic = vi.fn()) {
   let current = structuredClone(grant);
   const journal = new Journal();
   const auth = new WalletAuthorizationService({ find: async () => current }, exchangeApprovalFixture(() => now), () => now);
@@ -44,8 +44,29 @@ function setup(gate: LiveExecutionGate = executionGateFixture()) {
     sign: vi.fn<LiveExchangeTransport["sign"]>(async (record) => ({ action: record.action, nonce: record.nonce, expiresAfter: record.expiresAfter, signature: { r: "0x01", s: "0x02", v: 27 } })),
     submit: vi.fn<LiveExchangeTransport["submit"]>(async () => ({ state: "filled", exchangeOrderId: "10", filledSize: "0.01", averagePrice: "65000" })),
     query: vi.fn<LiveExchangeTransport["query"]>(async () => null) };
-  return { journal, transport, executor: new LiveOrderExecutor(auth, journal, transport, gate, () => now), revoke: () => { current = { ...current, revokedAt: now }; } };
+  return { journal, transport, executor: new LiveOrderExecutor(auth, journal, transport, gate, () => now, onDiagnostic), revoke: () => { current = { ...current, revokedAt: now }; } };
 }
+
+describe('executor diagnostic observation preserves journal outcomes', () => {
+  it('observes the original final-check code before unsent persistence while a throwing hook cannot alter it', async () => {
+    const diagnostic = vi.fn(() => { throw Error('observer failure'); });
+    const base = executionGateFixture();
+    const gate: LiveExecutionGate = { assertReady: async input => { if (input.phase === 'submit') throw new LiveBoundaryError('wallet_authorization_revoked'); return base.assertReady(input); } };
+    const s = setup(gate, diagnostic);
+    await expect(s.executor.execute(intent)).rejects.toMatchObject({ code: 'wallet_authorization_revoked' });
+    expect(s.transport.submit).not.toHaveBeenCalled();
+    expect(await s.journal.get(executionKey(intent))).toMatchObject({ state: 'rejected', errorCode: NEVER_PLACED, outcome: { state: 'rejected', reason: 'final_execution_check_failed' } });
+    expect(diagnostic.mock.calls).toEqual([[{ network: 'testnet', stage: 'executor_final_check', elapsedMs: 0, errorCode: 'wallet_authorization_revoked' }]]);
+  });
+  it.each([true, false])('diagnoses blocked=%s while preserving never-placed versus POST uncertainty', async blocked => {
+    const diagnostic = vi.fn(() => { throw Error('observer failure'); });
+    const s = setup(executionGateFixture(), diagnostic);
+    vi.mocked(s.transport.submit).mockRejectedValueOnce(blocked ? new LiveSubmissionBlockedError('signed_order_expired') : new LiveBoundaryError('exchange_submission_ambiguous'));
+    const result = await s.executor.execute(intent);
+    expect(result).toMatchObject(blocked ? { state: 'rejected', errorCode: NEVER_PLACED, outcome: { state: 'rejected', reason: 'final_execution_check_failed' } } : { state: 'unknown', errorCode: 'exchange_submission_ambiguous' });
+    expect(diagnostic.mock.calls).toEqual([[{ network: 'testnet', stage: 'executor_submit', elapsedMs: 0, errorCode: blocked ? 'signed_order_expired' : 'exchange_submission_ambiguous' }]]);
+  });
+});
 
 describe("live execution authorization and exact wire boundary", () => {
   it("accepts indexed HIP-3 markets and rejects a substituted asset", () => {

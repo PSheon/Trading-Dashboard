@@ -12,11 +12,13 @@ import { boundedLiveRead, marketIdentityKey, type LiveMarketIdentity, type LiveM
 import { parseLiveOrderEvidence, type LiveOrderEvidence } from './live-order-evidence.js';
 import { HyperliquidGlobalTransport } from '../../hyperliquid/hyperliquid-global-transport.js';
 import type { HyperliquidSendPermit } from '../../hyperliquid/postgres-hyperliquid-quota.js';
+import { observeLiveExecutionFailure, type LiveExecutionDiagnosticHook, type LiveDiagnosticStage } from './live-execution-diagnostics.js';
 
 export interface LiveTransportDependencies {
   marketResolver: LiveMarketResolver;
   acquire: (weight: number) => Promise<unknown>;
   globalTransport?: HyperliquidGlobalTransport;
+  onDiagnostic?: LiveExecutionDiagnosticHook;
 }
 
 // Protocol statuses, not suffix guesses. Unknown future statuses retain
@@ -89,6 +91,8 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
   }
 
   async submit(order: SignedLiveOrder, record: LiveExecutionRecord, intent: LiveOrderIntent, lease: LiveExecutionLease): Promise<ExchangeOutcome> {
+    const startedAt = this.now();
+    let diagnosticStage: LiveDiagnosticStage = 'transport_final_check';
     let quotaPermit: HyperliquidSendPermit | undefined;
     let assertPostFresh!: () => void;
     try {
@@ -100,11 +104,14 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
       // Detach from caller-owned objects before asynchronous final checks.
       order = structuredClone(order);
       assertSignedOrderMatches(order, record);
+      diagnosticStage = 'transport_local_budget';
       await this.acquire(1);
       // SQL admission precedes the final current authority/risk checks. An
       // asynchronous fetch wrapper after those checks would open a new gap.
+      diagnosticStage = 'transport_shared_quota';
       if (this.dependencies?.globalTransport) quotaPermit = await this.dependencies.globalTransport.currentQuota()
         .acquireRest(1, Math.min(this.now() + 5000, record.expiresAfter));
+      diagnosticStage = 'transport_final_check';
       const permit = await assertLiveExecutionReady(this.gate, lease, "submit", intent, record);
       const market = await this.verifyMarket(intent, record);
       const builder = await this.verifyBuilder(record);
@@ -121,6 +128,7 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
       };
       assertPostFresh();
     } catch (error) {
+      observeLiveExecutionFailure(this.dependencies?.onDiagnostic, this.network, diagnosticStage, startedAt, this.now, error);
       throw new LiveSubmissionBlockedError(error instanceof LiveBoundaryError ? error.code : "final_execution_check_failed");
     }
     const body = object(await this.post("exchange", order, true, quotaPermit, assertPostFresh));
@@ -235,6 +243,7 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
   }
   private infoFetcher(): typeof fetch { return this.dependencies?.globalTransport?.fetchInfo ?? this.fetcher; }
   private async post(path: "info" | "exchange", body: unknown, admitted = false, quotaPermit?: HyperliquidSendPermit, assertFresh?: () => void): Promise<unknown> {
+    const startedAt = this.now();
     if (!admitted) await this.acquire(path === 'exchange' ? 1 : 20);
     const request: RequestInit = { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body), signal: AbortSignal.timeout(this.timeoutMs), redirect: 'error' };
@@ -249,6 +258,7 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
     let pending: Promise<Response>;
     try { pending = quotaPermit ? quotaPermit.dispatch(dispatch) : dispatch(); }
     catch (error) {
+      if (path === 'exchange' && !began) observeLiveExecutionFailure(this.dependencies?.onDiagnostic, this.network, 'transport_dispatch', startedAt, this.now, error);
       if (path === 'exchange' && !began) throw new LiveSubmissionBlockedError(error instanceof LiveBoundaryError ? error.code : 'final_execution_check_failed');
       if (path === 'exchange' && error instanceof LiveSubmissionBlockedError) throw new LiveBoundaryError('exchange_submission_ambiguous');
       throw error;

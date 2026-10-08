@@ -6,7 +6,9 @@ import { createL1ActionHash, signL1Action } from "@nktkas/hyperliquid/signing";
 import { HyperliquidLiveTransport } from "../src/copy/live/hyperliquid-live-transport.js";
 import { PrivyOrderSigner, type PrivyOrderSigningClient } from "../src/copy/live/privy-order-signer.js";
 import { buildOrderAction, executionKey, intentFingerprint, type LiveOrderIntent } from "../src/copy/live/live-order.js";
-import { WalletAuthorizationService, type WalletAuthorization } from "../src/copy/live/wallet-authorization.js";
+import { LiveBoundaryError, WalletAuthorizationService, type WalletAuthorization } from "../src/copy/live/wallet-authorization.js";
+import { HyperliquidBudgetWait } from '../src/hyperliquid/hyperliquid-budget-wait.js';
+import type { LiveExecutionDiagnosticHook } from '../src/copy/live/live-execution-diagnostics.js';
 import { HyperliquidAgentApprovalVerifier } from "../src/copy/live/hyperliquid-agent-approval.js";
 import type { ExchangeApprovalVerifier } from "../src/copy/live/wallet-authorization.js";
 import { LiveOrderExecutor, type LiveExecutionJournal } from "../src/copy/live/live-execution.js";
@@ -35,7 +37,7 @@ const intent: LiveOrderIntent = { authorizationId: "grant", userId: 1, strategyI
 const action = buildOrderAction(intent);
 const record: LiveExecutionRecord = { key: executionKey(intent), fingerprint: intentFingerprint(intent, action), action, authorization: grant,
   nonce: now, expiresAfter: now + 60_000, state: "prepared", createdAt: now, updatedAt: now };
-function setup(finalGate: LiveExecutionGate = gate, approval: ExchangeApprovalVerifier = exchangeApprovalFixture(() => now), clock = () => now, localGrant = grant) {
+function setup(finalGate: LiveExecutionGate = gate, approval: ExchangeApprovalVerifier = exchangeApprovalFixture(() => now), clock = () => now, localGrant = grant, onDiagnostic: LiveExecutionDiagnosticHook = vi.fn()) {
   const wallet = { id: grant.walletId, chain_type: "ethereum", address: grant.signerAddress, owner_id: grant.privyOwnerId, archived_at: null };
   const get = vi.fn(async () => wallet);
   const signTypedData = vi.fn(async (_walletId: string, input: Record<string, unknown>) => {
@@ -53,9 +55,76 @@ function setup(finalGate: LiveExecutionGate = gate, approval: ExchangeApprovalVe
     resolveAsset: async () => ({ ...market, observedAt: clock() }) };
   const acquire = vi.fn(async (_weight: number) => {});
   return { client, wallet, get, signTypedData, signer, fetcher, auth, acquire, resolver,
-    transport: new HyperliquidLiveTransport("testnet", signer, finalGate, fetcher, 10_000, clock, { marketResolver: resolver, acquire }) };
+    transport: new HyperliquidLiveTransport("testnet", signer, finalGate, fetcher, 10_000, clock, { marketResolver: resolver, acquire, onDiagnostic }) };
 }
 function reply(body: unknown) { return new Response(JSON.stringify(body), { status: 200 }); }
+describe('safe pre-POST diagnostics without changing financial refusal semantics', () => {
+  it.each(['local_budget', 'shared_capacity'] as const)('observes typed %s wait before masking and never fetches', async reason => {
+    let clock = now;
+    const diagnostic = vi.fn();
+    const s = setup(gate, exchangeApprovalFixture(() => clock), () => clock, grant, diagnostic);
+    const signed = await s.transport.sign(record, intent, lease);
+    s.acquire.mockImplementationOnce(async () => { clock += 12; throw new HyperliquidBudgetWait(65000, reason); });
+    await expect(s.transport.submit(signed, record, intent, lease)).rejects.toMatchObject({ code: 'final_execution_check_failed' });
+    expect(s.fetcher).not.toHaveBeenCalled();
+    expect(diagnostic.mock.calls).toEqual([[{ network: 'testnet', stage: 'transport_local_budget', elapsedMs: 12,
+      errorCode: 'hyperliquid_busy', budgetReason: reason, retryMs: 65000 }]]);
+  });
+  it.each(['wallet_authorization_revoked', 'signed_order_expired', 'live_risk_stale', 'live_risk_serialization_stale',
+    'live_market_proof_invalid', 'builder_approval_proof_invalid', 'live_risk_platform_disabled', 'stale_signal'] as const)('keeps authority/expiry/stale code %s distinct without weakening guards', async code => {
+    const diagnostic = vi.fn(); let clock = now;
+    const base = executionGateFixture();
+    const finalGate: LiveExecutionGate = { assertReady: async input => { if (input.phase === 'submit') { clock += code === 'live_risk_stale' ? 5001 : 1; throw new LiveBoundaryError(code); } return base.assertReady(input); } };
+    const s = setup(finalGate, exchangeApprovalFixture(() => clock), () => clock, grant, diagnostic);
+    const signed = await s.transport.sign(record, intent, lease);
+    await expect(s.transport.submit(signed, record, intent, lease)).rejects.toMatchObject({ code });
+    expect(s.fetcher).not.toHaveBeenCalled();
+    expect(diagnostic.mock.calls).toEqual([[{ network: 'testnet', stage: 'transport_final_check', elapsedMs: code === 'live_risk_stale' ? 5001 : 1, errorCode: code }]]);
+  });
+  it.each(['live_boundary_evidence_expired', 'live_market_identity_mismatch'] as const)('observes actual market verification refusal %s', async code => {
+    const diagnostic = vi.fn();
+    const s = setup(gate, exchangeApprovalFixture(() => now), () => now, grant, diagnostic);
+    const signed = await s.transport.sign(record, intent, lease);
+    s.resolver.resolve = async () => ({ ...market, ...(code === 'live_boundary_evidence_expired' ? { observedAt: now - 5001 } : { asset: 1, universeIndex: 1 }) });
+    await expect(s.transport.submit(signed, record, intent, lease)).rejects.toMatchObject({ code });
+    expect(s.fetcher).not.toHaveBeenCalled();
+    expect(diagnostic.mock.calls).toEqual([[{ network: 'testnet', stage: 'transport_final_check', elapsedMs: 0, errorCode: code }]]);
+  });
+  it('whitelists codes and swallows a diagnostic hook failure without changing the refusal', async () => {
+    const diagnostic = vi.fn(() => { throw Error('observer failure'); });
+    const s = setup(gate, exchangeApprovalFixture(() => now), () => now, grant, diagnostic);
+    const signed = await s.transport.sign(record, intent, lease);
+    s.acquire.mockRejectedValueOnce(new LiveBoundaryError('secret signature bearer body'));
+    await expect(s.transport.submit(signed, record, intent, lease)).rejects.toMatchObject({ code: 'secret signature bearer body' });
+    expect(s.fetcher).not.toHaveBeenCalled();
+    expect(diagnostic.mock.calls).toEqual([[{ network: 'testnet', stage: 'transport_local_budget', elapsedMs: 0, errorCode: 'unclassified_error' }]]);
+  });
+  it('does not log mutated budget metadata or non-finite retry delays', async () => {
+    const diagnostic = vi.fn();
+    const s = setup(gate, exchangeApprovalFixture(() => now), () => now, grant, diagnostic);
+    const signed = await s.transport.sign(record, intent, lease);
+    const error = Object.assign(new HyperliquidBudgetWait(Infinity, 'local_budget'), { reason: 'private-signature' });
+    s.acquire.mockRejectedValueOnce(error);
+    await expect(s.transport.submit(signed, record, intent, lease)).rejects.toMatchObject({ code: 'final_execution_check_failed' });
+    expect(s.fetcher).not.toHaveBeenCalled();
+    expect(diagnostic.mock.calls).toEqual([[{ network: 'testnet', stage: 'transport_local_budget', elapsedMs: 0, errorCode: 'hyperliquid_busy' }]]);
+  });
+  it('contains async diagnostic rejection without changing the financial refusal or emitting unhandledRejection', async () => {
+    const unhandled: unknown[] = [];
+    const collect = (error: unknown) => { unhandled.push(error); };
+    process.on('unhandledRejection', collect);
+    try {
+      const diagnostic = async () => { throw Error('async observer failure'); };
+      const s = setup(gate, exchangeApprovalFixture(() => now), () => now, grant, diagnostic);
+      const signed = await s.transport.sign(record, intent, lease);
+      s.acquire.mockRejectedValueOnce(new HyperliquidBudgetWait(65000, 'local_budget'));
+      await expect(s.transport.submit(signed, record, intent, lease)).rejects.toMatchObject({ code: 'final_execution_check_failed' });
+      expect(s.fetcher).not.toHaveBeenCalled();
+      await new Promise(resolve => setImmediate(resolve));
+      expect(unhandled).toEqual([]);
+    } finally { process.off('unhandledRejection', collect); }
+  });
+});
 describe('prefetched wallet identity at the real signer boundary', () => {
   it('rejects the original observation older than five seconds instead of restamping it', async () => {
     const s = setup();
@@ -82,7 +151,7 @@ function statusReply(status = "open", overrides = {}) {
 }
 
 describe('global quota at the actual financial POST boundary', () => {
-  function metered(finalGate: LiveExecutionGate = gate, clock = () => now) {
+  function metered(finalGate: LiveExecutionGate = gate, clock = () => now, onDiagnostic = vi.fn()) {
     const s = setup(finalGate, exchangeApprovalFixture(clock), clock);
     const quota = new PostgresHyperliquidQuota(new UnitOfWork({} as DrizzleDb));
     const acquire = vi.fn(async () => { let used = false; return { assertFresh: () => {}, dispatch: <T>(work: () => T): T => {
@@ -91,8 +160,19 @@ describe('global quota at the actual financial POST boundary', () => {
     vi.spyOn(quota, 'bindUnscoped').mockReturnValue({ acquireRest: acquire, reserveSocket: vi.fn() });
     const globalTransport = new HyperliquidGlobalTransport(quota, { egressKey: 'test-shared-egress', ownerId: 'test-worker' }, s.fetcher, clock);
     return { ...s, acquireGlobal: acquire, transport: new HyperliquidLiveTransport('testnet', s.signer, finalGate, s.fetcher, 10000, clock,
-      { marketResolver: s.resolver, acquire: s.acquire, globalTransport }) };
+      { marketResolver: s.resolver, acquire: s.acquire, globalTransport, onDiagnostic }) };
   }
+  it('observes a typed wait from shared SQL admission before masking it, without dispatch', async () => {
+    const diagnostic = vi.fn();
+    const s = metered(gate, () => now, diagnostic);
+    s.acquireGlobal.mockRejectedValueOnce(new HyperliquidBudgetWait(65000, 'shared_capacity'));
+    const signed = { action, nonce: record.nonce, expiresAfter: record.expiresAfter,
+      signature: { r: `0x${'aa'.repeat(32)}` as `0x${string}`, s: `0x${'bb'.repeat(32)}` as `0x${string}`, v: 27 } };
+    await expect(s.transport.submit(signed, record, intent, lease)).rejects.toMatchObject({ code: 'final_execution_check_failed' });
+    expect(s.fetcher).not.toHaveBeenCalled();
+    expect(diagnostic.mock.calls).toEqual([[{ network: 'testnet', stage: 'transport_shared_quota', elapsedMs: 0,
+      errorCode: 'hyperliquid_busy', budgetReason: 'shared_capacity', retryMs: 65000 }]]);
+  });
   it('precharges a finite permit before the final gate and dispatches the exact captured order once', async () => {
     let charged = false;
     const finalGate = executionGateFixture(async () => { if (!charged) throw Error('not charged before gate'); });
@@ -131,19 +211,22 @@ describe('global quota at the actual financial POST boundary', () => {
   });
   it('rechecks older risk evidence after JSON request construction even while the newer quota permit remains valid', async () => {
     let clock = now + 4999;
+    const diagnostic = vi.fn();
     const finalGate: LiveExecutionGate = { assertReady: async ({ phase, record }) => ({ phase, key: record.key, fingerprint: record.fingerprint,
-      assertFresh: () => { if (clock - now > 5000) throw Error('older risk expired'); } }) };
-    const s = metered(finalGate, () => clock);
+      assertFresh: () => { if (clock - now > 5000) throw new LiveBoundaryError('live_risk_stale'); } }) };
+    const s = metered(finalGate, () => clock, diagnostic);
     const signed = { action, nonce: record.nonce, expiresAfter: record.expiresAfter,
       signature: { r: `0x${'aa'.repeat(32)}` as `0x${string}`, s: `0x${'bb'.repeat(32)}` as `0x${string}`, v: 27 } };
     const stringify = JSON.stringify;
     const serialization = vi.spyOn(JSON, 'stringify').mockImplementation((value, ...rest) => {
-      if (value?.signature && value?.action && value?.nonce === now) clock += 3;
+      if (value?.signature && value?.action && value?.nonce === now) clock += 2;
       return stringify(value, ...rest);
     });
     try {
       await expect(s.transport.submit(signed, { ...record, state: 'submitting' }, intent, lease)).rejects.toBeInstanceOf(LiveSubmissionBlockedError);
       expect(s.acquireGlobal).toHaveBeenCalledWith(1, now + 9999); expect(s.fetcher).not.toHaveBeenCalled();
+      expect(clock - now).toBe(5001);
+      expect(diagnostic.mock.calls).toEqual([[{ network: 'testnet', stage: 'transport_dispatch', elapsedMs: 2, errorCode: 'live_risk_stale' }]]);
     } finally { serialization.mockRestore(); }
   });
   it.each(['sync', 'async'] as const)('a %s fetch failure after entry cannot forge a definite non-submission', async kind => {

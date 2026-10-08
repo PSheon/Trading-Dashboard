@@ -46,6 +46,7 @@ import type { LiveSourceReferenceReader } from './live-source-reference.js';
 import { captureLiveOrderIdentity, parseLiveIocAcknowledgement } from './live-order-evidence.js';
 import { PostgresLiveSettlement } from './postgres-live-settlement.js';
 import { LiveLeverageUpdated, LiveLeverageUpdater, LiveLeverageUpdateRequired } from './live-leverage-update.js';
+import type { LiveExecutionDiagnosticHook } from './live-execution-diagnostics.js';
 
 const id = z.string().min(1).max(160).regex(/^[^\s\p{Cc}\p{Cf}]+$/u);
 const requestSchema = z.object({ userId: z.number().int().positive().max(2147483647), accountId: id,
@@ -278,9 +279,12 @@ export class LiveExecutionRuntime {
         };
         const signer = new PrivyOrderSigner(signingClient, authorizations, signingAuthorization, gate, this.now);
         const exchange: { raw?: unknown; at?: number } = {};
+        const onDiagnostic: LiveExecutionDiagnosticHook = event => new Logger('LiveExecutionRuntime').warn({
+          event: 'live_execution_boundary_failure', ...event,
+        });
         const transport = new HyperliquidLiveTransport(this.network, signer, gate, this.timedFetch(exchange), 5000, this.now,
-          { marketResolver: epochMarkets(resolver, () => epoch.sharedReads(session)), acquire, globalTransport: this.global });
-        const executor = new LiveOrderExecutor(authorizations, new ScopedLiveExecutionJournal(session, key), transport, gate, this.now);
+          { marketResolver: epochMarkets(resolver, () => epoch.sharedReads(session)), acquire, globalTransport: this.global, onDiagnostic });
+        const executor = new LiveOrderExecutor(authorizations, new ScopedLiveExecutionJournal(session, key), transport, gate, this.now, onDiagnostic);
         if (existing && existing.record.state !== 'prepared') {
           // No prepare/hold/current grant admission/sign on historical recovery.
           return await executor.reconcile(key);

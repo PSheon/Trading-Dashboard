@@ -486,3 +486,13 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 - API56159／worker56374同1a91d44a，23:38:04健康、admin403；原stage-caps金融設定、本機400／60秒操作設定，無preload與管理權。原base runner handle37822，codex-base62-run.log，gap120。
 - 策略62，setup5e721794-e377-4997-a59c-5da6229d9c12，account16f4e96a-ac59-474b-bccb-77aade05177f／0xd127c3a426933ea7c7d469a425e7ed51c4610f64。23:39:13原兩份browser簽署及addSigners／confirm200，8.3秒，50入金accepted；尚待credited、running、原七步／五來源對帳／10提款／停止退款。入金後不重啟或改編譯金融服務，未操作Stage／主網。
 - 23:42:11原handle37822仍確認活著；setup已funded，但能力設定issue hyperliquid_busy，尚未running或開始領單交易。仍在原600秒setup期限內，未重入金、未重啟或改金融碼。完整API handle33766亦活著，結果待確認；不能因觀察尚未回覆重開任一run。
+
+### 00:35–00:45 第63輪完整七步仍FAIL，安全收尾完成
+
+- 第63輪原runner正常exit1：領單七步均執行；`base_reconcile` FAIL（送出前守衛拒絕、後續訊號過期／缺成交／方向不符），`base_withdraw_10_credited` 在原180秒內仍accepted而FAIL。保留原驗收期限與歷史結果。
+- 原提款10實際主錢包收到，但背景紀錄未credited；00:33:50正常owner API對同一operation作唯讀交易所receipt核對後credited，不重送、不追加管理權限。這不改寫原提款期限FAIL。
+- 原停止600秒流程四項皆PASS：停止未被阻擋、執行帳戶平倉、39.035101返還credited、畫面API顯示stopped。停止返還亦只核對原operation，沒有再發資金動作。原summary：`.claude/logs/copy-harness/2026-10-08T16-09-47-080Z-summary.txt`。
+- 00:42官方testnet INFO：main100.626273、copy63=0、leader22.124925，三者均無倉；本機SQL全部actual策略stopped、在途資金／未釋放額度／未完成設定皆零，臨時管理權限403。證據`/private/tmp/codex-base63-final-money.json`、原runner及官方查詢。
+- 來源重試版`c209515a`完整API255檔3,956項PASS；真實B段仍5 PASS／1 SKIP／2 FAIL。來源延遲改善不能當作完整跟單已通過。
+- 送單拒絕在transport與executor兩層被轉為generic，原DB不能判定是哪個安全守衛。先補不影響金融結果的白名單診斷，再依實際原因修正；不靠放寬5秒／120秒期限換PASS。提款背景log多次`live_budget_wait`，支持配額等待造成核對延遲；不將其當作尚無原始證據的平倉原因。
+- 新UI第一輪完整188檔1,222 PASS／4 FAIL：1個Activity retry缺忙碌行為、3個舊toast斷言。已真RED修正retry及更新實際Sonner驗收，通知獨立審查另外發現owner切換殘留及formatter例外卡pending，各真RED→GREEN。00:45完整web189檔1,235項PASS，實際1440／390／320畫面驗收仍在進行；未公開推送／部署，Stage／主網未修改。

@@ -267,3 +267,10 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 - 17:37:33領單40美元ETH開倉成交後立即重啟worker，17:37:37 PID75682健康；17:38:39跟單持倉確認。領單17:40:40減倉、17:42:42平倉成交並空倉。17:45:40原期限內五來源對帳PASS：3領單、4派送（2 settled／2 refused-no_follower_position）、2跟單成交，沒有重複成交；不宣稱3笔領單全部都有獨立跟單成交。首跟單成交延遲63.39秒。
 - 17:49:37 runner session54922 exit0／ALL GREEN，正常停止、空倉、48.986161退款credited、顯示stopped四項PASS。17:51:00直接testnet核對主107.749394、#56帳戶0、領單23.449935 testUSDC，三者空倉；本機在途資金／未釋放保留額／未完成設定皆0。API PID89969／worker PID90389已unset NODE_OPTIONS還原並健康，保留共用web3000／Chrome9333。
 - 原五來源對帳 `.claude/logs/copy-harness/2026-10-08T09-35-06-925Z-worker_restart-reconcile.json`、summary及私人 `codex-restart56-final-{money,balances}.jsonl`保留。Paul此期間授權A版選單及文案修改，前端HMR產生一次CSS chunk錯誤；没有中斷已完成的設定簽署、後續交易或原對帳。A版已獨立瀏覽器與完整前端測試驗證，未另連金融runner CDP。下一個可執行情境為一般完整流程；管理權限仍未授權、最小單情境仍SKIP，B段不能宣稱全面全綠。
+
+### #57 一般完整流程複驗，17:58進行中
+
+- 17:54再次唯讀確認前輪所有actual stopped、在途資金／未釋放保留額／未完成設定皆0；本機API89969／worker90389健康，前輪主107.749394、領單23.449935 testUSDC空倉的資金證據保留。
+- API93476、worker94003以原stage-caps及私人唯讀relay／原拒絕後診斷啟動；沿用API已驗證版本，未改五秒風控、限額或對帳期限，不更動Stage／主網。runner session57936，私人 `codex-base57-run.log`，完整七個領單動作包含long開倉、加倉、減半、平倉、short開倉、翻為long、最後平倉，gap120沿用本輪既有設定；之後驗10USDC部分提款與停止返還。
+- 設定 `cefc01e5-86df-4ae1-976e-8d2747a8209d`、策略57、跟單帳戶 `0x895ff54be3bf64a1de9a33a5c3af0990c9d8a5f4`。17:56:31 awaiting_consent，17:56:41真實兩份簽署／addSigners／confirm200 PASS（8.2秒），50入金accepted，啟用／交易／完整對帳／退款尚待結果。
+- 等待期間唯讀核對#52設定逾時來源：start會同步等待整個provider provisioning，與既有advance的受控背景drive不同；provider超過HTTP時限仍可能繼續。尚未修正，不會直接以延長HTTP時限或無生命週期保護的Promise.race代替完整修法。仍保留#52原失敗及UI/UX第42項。

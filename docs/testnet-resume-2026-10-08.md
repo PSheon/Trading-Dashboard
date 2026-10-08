@@ -13,7 +13,7 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 | 7 worker重啟 | #56完整PASS；#51／#49 FAIL保留 | 開倉後重啟、後續跟單、五來源對帳及停止返還credited均通過；原gap120與風控不變 |
 | 8 低於最小單的開倉拒絕 | SKIP | 現有限額下未找到符合情境的市場，沒有改限額強行通過 |
 | 9 三筆快速平倉 | #55完整PASS；歷史FAIL保留 | 原20秒三次领單平倉與對帳期限內通過：4派送、2成交、2筆無剩餘倉位；報表原觀察保留、停止空倉與退款credited均PASS |
-| 14 管理者暫停／恢復／全平 | 未執行 | 管理權限仍待使用者授權 |
+| 14 管理者暫停／恢復／全平 | 已獲本機testnet授權，待執行 | Paul允許暫時admin.access／copy.read／execution.pause／execution.resume；先等一般流程完成及退款，再執行並移除權限 |
 
 既有隔離回歸基準：登入紀錄修正版API 255檔3,893項、web 181檔1,179項、harness28項PASS。新排程版首跑API 3,893 PASS／1 FAIL；積壓情境補測後相關45項PASS，最終完整API 255檔3,896項PASS。這些結果不能替代上述真實交易驗收；B段尚未全綠。
 
@@ -274,3 +274,4 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 - API93476、worker94003以原stage-caps及私人唯讀relay／原拒絕後診斷啟動；沿用API已驗證版本，未改五秒風控、限額或對帳期限，不更動Stage／主網。runner session57936，私人 `codex-base57-run.log`，完整七個領單動作包含long開倉、加倉、減半、平倉、short開倉、翻為long、最後平倉，gap120沿用本輪既有設定；之後驗10USDC部分提款與停止返還。
 - 設定 `cefc01e5-86df-4ae1-976e-8d2747a8209d`、策略57、跟單帳戶 `0x895ff54be3bf64a1de9a33a5c3af0990c9d8a5f4`。17:56:31 awaiting_consent，17:56:41真實兩份簽署／addSigners／confirm200 PASS（8.2秒），50入金accepted，啟用／交易／完整對帳／退款尚待結果。
 - 等待期間唯讀核對#52設定逾時來源：start會同步等待整個provider provisioning，與既有advance的受控背景drive不同；provider超過HTTP時限仍可能繼續。尚未修正，不會直接以延長HTTP時限或無生命週期保護的Promise.race代替完整修法。仍保留#52原失敗及UI/UX第42項。
+- Paul已明確回答「同意，僅本機 testnet」，授權情境14所需暫時admin.access／copy.read／execution.pause／execution.resume。此授權只允許本機testnet測暫停新風險、減倉、緊急全平／退款及恢復；不改風控、不操作Stage或主網、測完移除權限。須先等#57完整結束並確認退款及零在途，不能在目前持倉途中重啟API啟用權限。

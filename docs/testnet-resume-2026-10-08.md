@@ -419,3 +419,40 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 - 僅更新該測試：同一price deviation觸發及原門檻不變，只允許一次exact wallet endpoint GET，任何RPC／額外Privy請求／不同method仍失敗；保留零exchangeBodies，加強零nonce／journal／risk reservation。無production改動、未放寬任何風控。
 - 單獨完整e2e7項PASS（16.62秒），獨立review確認未掩蓋price deviation bypass、無Critical／Important，tsc含測試及該檔lint通過。證據codex-wallet-prefetch-api-all.log、codex-wallet-prefetch-e2e-green.log。22:43開始第二次完整API，codex-wallet-prefetch-api-all-final.log；結果仍待確認，新碼尚未載入金融服務／未入金。
 - 22:32情境8原12–15限額dry-run明確no_refusable_market，仍SKIP；22:33:22真實CDP自有context登入user14、network testnet、automaticExecution=true／actualAllowed=true、active=[]。context已關閉（CDP pages=[]），只讀script因CDP socket保留而未退出，核對後僅終止自有script PID11086，沒有關閉共用Chrome或金融服務。
+
+### 22:46 Base #61 真實複驗與最終完整回歸並行，進行中
+
+- 生產碼在完整首跑中3937項PASS，唯一metadata斷言更新後完整e2e7 PASS且獨立review通過；剩餘完整重跑只有測試檔修改。因此在相互獨立的DB下，改為真實base與完整API並行，減少重複等待，沒有降低任何風控或驗收門檻。完整第二次handle49028仍活著，不能稱第二次完整綠。
+- 22:45:28原金融前置：actual active=[]，openFunding／liabilities／unfinishedSetups皆0，主103.629693／前copy60為0／領單22.925927 testUSDC，三者空倉，管理403。載入API20006／worker20190，同91e5035c编译碼，原stage-caps／唯讀收據relay／原失敗診斷，未授管理權。
+- 原harness runner handle16459，codex-base61-run.log，profile stage-caps、scenarios base、gap120。22:47:10登入user14；setup20a62774-759a-4194-91a2-cb7b08d7f863，策略61，account7086afbb-4549-4889-a26b-7a46cecdd0e5／0x43d05263a7c3f4730e2de9c2cd2c3bae0ba1c023。原兩份browser簽署／addSigners／confirm200、8.2秒；50入金accepted，22:48:51 running／active（78秒）。
+- 22:48:52領單第一open long成交；22:50:08原跟單journalfilled，dispatch submitted/live_risk_stale，尚待原結算與後續五來源對帳。不能把ACK後已filled的journal當成新送單前拒絕或已全部PASS。22:50:53領單add long成交，實際跟單加倉／後五步／提款／退款未完成；入金後未重啟或重編譯金融服務。
+- 原base領單尺寸固定60USD open／30USD add（與#57相同），20USD leaderScenarioUsd是fundingGate最低可動餘額，不能誤寫所有base領單單筆20USD；跟單仍每筆12／上限15、budget50、leverage3。
+
+### 22:56 最終完整API3938 PASS；Base61加倉已成交與結算
+
+- 原完整重跑handle49028正常exit0，255檔3938項PASS，733.44秒，隔離DB已移除。此結果涵蓋91e5035c金融碼及4695577c測試斷言更新；首跑FAIL保留，不混稱同一run。
+- Base61實際加倉journalfilled22:52:50.973、settled22:54:54.898／派送settled attempts1。第一open settled22:51:23.530、attempts1。兩者ACK後曾dispatch submitted/live_risk_stale，但原journal始終filled，原結算完成後reason清為null；不當成重送或送單前拒絕。官方INFO22:53:07持倉0.0094 ETH（先前0.0047），證明本次真實加倉成功，尚未代表完整base通過。
+- 領單22:52:54減半、22:54:56平倉成交；來源22:55:40讀入後各有3／2筆close dispatch pending attempts0，交易所分筆需依原證據執行，不當作重複送單。後三步及原對帳／提款／退款仍未完成；未重啟金融服務、未改Stage／主網。
+
+### 23:09 Base61仍FAIL；配額與結算恢復路徑根因，停止退款中
+
+- 原base七個領單步驟23:02:59完成，23:05:21原五來源對帳遇到signal_expired，判定FAIL，不延長期限或改允許拒絕清單。跟單開倉／加倉及兩筆減倉journal已filled／settled；後續開空與反向開倉訊號逾期，不能以加倉成功宣稱base整輪通過。
+- 23:08:24原10USD提款驗收FAIL：180秒內operation仍accepted，官方主錢包已53.629693→63.629693。實際已收款不等於原journal credited驗收通過。原runner續走停止，23:08:34 stage sweeping／stop flat；最終退款與零在途尚待確認。
+- 唯讀架構審查：一筆成功單的保守provider預付成本約385 execution＋284 observation＋22 market/status＋41 receipts＝732；原300/min下即使沒有source成本也至少2.44min／單。source每3秒空poll兩個list仍需約40，理想800/min，與共用300/min預算不相容。尚未變更配額、poll間隔、金融caps、五秒檢查或120秒驗收。
+- 另發現獨立恢復缺陷：settlement已commit但dispatch更新前crash，重試observe遇到已有certificate會pending，無法到達DAL既有完整certificate replay分支。尚未證實造成本次延遲；修正須重播原完整證明，不能信任released布林或放寬風控。退款前不修改／重啟金融程式。
+
+### 23:18 Base61原runner結束：兩項FAIL，停止與全部退款PASS
+
+- 原handle16459正常exit1。base_reconcile／base_withdraw_10_credited兩項FAIL保留；停止未被阻擋、空倉、退款credited、顯示stopped四項原檢查皆PASS。setup及七筆領單執行PASS。原summary `.claude/logs/copy-harness/2026-10-08T14-46-34-966Z-summary.txt`。
+- 來源訊號接收p50 378.07秒／max499.35秒；實際跟單首次成交p50 208.08秒／max411.21秒。不能把本輪改稱原120秒要求通過。
+- 原10USD已收到但長時間accepted；worker多次live_budget_wait，23:15:05以user14重查既有收據亦因relay十秒AbortError失敗。23:15公開同hash探測直連200／約199ms、既有relay200／約2913ms，沒有變更relay或捏造證據。23:16:33同一user14原reconcile端點200 credited10；23:17:05原停止自動建立38.97316退款；23:17:48同一原收據查證端點200 credited38.97316。未重簽／重送、未直接改金融資料、未啟用管理權。
+- 23:18:21全實際策略皆stopped，openFunding／liabilities／unfinishedSetups均0；官方主102.602853／跟單61為0／領單22.618683 testUSDC，三者空倉。已著手移除preloads並恢復同編譯碼API／worker，待健康及管理403確認。
+- 新隔離回歸已確實RED：copy-live-e2e「recovers a dispatch interrupted after committed settlement」模擬已commit但dispatch留submitted，下一輪仍submitted；原reservation／certificate／receipt需保留、禁止任何provider讀取或新單。private codex-settlement-recovery-red.log，owned DB已移除。尚未修程式；B仍5 PASS／1 SKIP／2 FAIL。
+
+### 23:23 結算中斷恢復修正：80項相關回歸PASS，尚待吞吐修正與真實複驗
+
+- 清理完成後才修改金融source；API42440／worker42766仍跑原4695577c前編譯碼，未載入新修正。23:19:59兩者健康、admin403；所有臨時preloads與管理權設定已移除。
+- settler僅testnet先查released／verified_settlement SQL hint，再於原SQL scope調用完整DAL proof replay。hint不授權；DAL重讀原account／reservation／journal／evidence，保留全部certificate、immutable identity、source-plan、receipt／ledger、revision與原SQL五秒檢查。成功才完成dispatch，不需新provider observation、簽署或新nonce。
+- 原settle与replay共用同一完整released驗證，不製造accountSource、不更新歷史provider時間。replay方法使用明確必傳mode，未released一律pending；普通settle及mainnet wrapper路徑維持原行為。
+- 初修79項PASS；獨立審查指出Omit型別不能保證replay-only，新增完整有效fresh input傳入replay回歸，修前實際release為RED。改成內部explicit mode後，最終4檔80項PASS（26.43秒），owned DB移除。tsc含測試／四檔oxlint／diff check PASS，獨立複查無Critical／Important。
+- 私人證據codex-settlement-recovery-{red,green,targeted,mode-red,final,types-final,lint-final}.log。此項解決可重現中斷恢復，尚未證實造成#61延遲；原300/min配額／3秒source排程、原120秒驗收、金融caps均未改。未推送／部署、未動Stage或主網；B仍5 PASS／1 SKIP／2 FAIL，不宣稱真實兩項已通過。

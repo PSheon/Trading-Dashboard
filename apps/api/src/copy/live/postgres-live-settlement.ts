@@ -271,6 +271,14 @@ export class PostgresLiveSettlement {
     return {...original,state,updatedAt:this.now(),outcome:{state,exchangeOrderId:oid,filledSize:filled}};
   }
   async settle(session: LiveRiskDatabaseSession, raw: LiveSettlementReconcileInput): Promise<LiveReservationSettlementDecision> {
+    return this.reconcile(session, raw, false);
+  }
+  /** Retry a committed release using its complete retained proof under the
+   * original scope. No new provider observation or release is authorized. */
+  async replaySettlement(session: LiveRiskDatabaseSession, raw: Omit<LiveSettlementReconcileInput, 'accountSource'>): Promise<LiveReservationSettlementDecision> {
+    return this.reconcile(session, raw, true);
+  }
+  private async reconcile(session: LiveRiskDatabaseSession, raw: LiveSettlementReconcileInput | Omit<LiveSettlementReconcileInput, 'accountSource'>, replayOnly: boolean): Promise<LiveReservationSettlementDecision> {
     const input = structuredClone(raw), started = this.now(); session.scope.assertFresh();
     let validUntil = NaN;
     const result = await session.transaction(async tx => {
@@ -295,6 +303,7 @@ export class PostgresLiveSettlement {
         check(isDeepStrictEqual(current,retained),'live_settlement_replay_changed');
         validUntil = started+5000; session.scope.assertFresh(); this.fresh(started); return {kind:'release' as const,certificate:cert};
       }
+      if (replayOnly || !('accountSource' in input)) return {kind:'pending' as const,reason:'live_settlement_not_released'};
       check(reservation.revision === input.expectedReservationRevision,'live_settlement_revision_changed');
       if (reservation.state === 'quarantined') return {kind:'quarantine' as const,reason:'live_settlement_quarantined'};
       if (!evidence?.statusObservation) return {kind:'pending' as const,reason:'live_settlement_terminal_unproven'};

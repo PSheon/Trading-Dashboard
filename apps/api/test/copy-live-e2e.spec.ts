@@ -2,6 +2,7 @@ import { testConfig } from './config-test-utils.js';
 import { generateKeyPairSync } from 'node:crypto';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
+import { eq } from 'drizzle-orm';
 import * as schema from '@trading-dashboard/shared/database';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -190,6 +191,26 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     expect(await db.select().from(schema.copyFollowerReceipts)).toHaveLength(1);
     // Later passes neither sign nor send again.
     await e.tick(); expect(exchangeBodies).toHaveLength(1);
+  });
+  it('recovers a dispatch interrupted after committed settlement without provider reads or another order', async () => {
+    const e = engine(); await e.tick(); await leaderOpens(); await e.tick();
+    await new Promise(resolve => setTimeout(resolve, 5)); await e.tick();
+    const [dispatch] = await db.select().from(schema.copyLiveDispatches);
+    expect(dispatch).toMatchObject({ state: 'settled', attempts: 1 });
+    const reservations = await db.select().from(schema.copyLiveRiskReservations);
+    const evidence = await db.select().from(schema.copyLiveExecutionEvidence);
+    const receipts = await db.select().from(schema.copyFollowerReceipts);
+    await db.update(schema.copyLiveDispatches).set({ state: 'submitted' }).where(eq(schema.copyLiveDispatches.id, dispatch!.id));
+    raw.mockClear();
+    raw.mockImplementation(async () => { throw new Error('released settlement recovery must not access providers'); });
+    await e.tick();
+    expect((await db.select().from(schema.copyLiveDispatches))[0]).toMatchObject({ state: 'settled', reason: null, attempts: 1 });
+    expect(raw).not.toHaveBeenCalled();
+    expect(await db.select().from(schema.copyLiveRiskReservations)).toEqual(reservations);
+    expect(await db.select().from(schema.copyLiveExecutionEvidence)).toEqual(evidence);
+    expect(await db.select().from(schema.copyFollowerReceipts)).toEqual(receipts);
+    expect(exchangeBodies).toHaveLength(1);
+    expect(await db.select().from(schema.copySignerNonces)).toHaveLength(1);
   });
   it('after a settled order the next leader open is sized from the projected position and also settles', async () => {
     let e = engine(); await e.tick(); await leaderOpens(1001); await e.tick(); await new Promise(resolve => setTimeout(resolve, 5)); await e.tick();

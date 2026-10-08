@@ -45,6 +45,22 @@ export class CopyLiveSettler {
     // never read or settled here.
     if (record.authorization.network !== this.network) return { kind: 'pending', reason: 'live_other_network' };
     if (record.errorCode === UNHELD_REJECTED) return { kind: 'unsent', reason: record.outcome?.reason ?? UNHELD_REJECTED };
+    // A crash can leave the dispatch submitted after the release committed.
+    // This SQL hint only chooses a path: the original locked DAL must replay
+    // every certificate, journal, source and receipt proof before completion.
+    if (this.network === 'testnet') {
+      const [hint] = await drizzle(this.pool).select({ state: copyLiveRiskReservations.state, revision: copyLiveRiskReservations.revision,
+        releaseReason: copyLiveRiskReservations.releaseReason }).from(copyLiveRiskReservations).where(eq(copyLiveRiskReservations.key, request.key));
+      if (hint?.state === 'released' && hint.releaseReason === 'verified_settlement') {
+        const scope = new PostgresLiveRiskScope(this.pool, this.now);
+        return scope.run({ userId: request.userId, network: this.network, accountAddress: request.accountAddress,
+          source: { network: request.sourceNetwork, leaderAddress: request.leaderAddress } }, async (_scope, session) => {
+          const decision = await new PostgresLiveSettlement(this.now).replaySettlement(session, { accountId: request.accountId, key: request.key,
+            expectedReservationRevision: hint.revision });
+          return decision.kind === 'release' ? { kind: 'released' as const } : decision;
+        });
+      }
+    }
     // Book the account's own fills now (the scheduled scan reaches an account
     // only every two minutes). The scan also advances its proven horizon,
     // which the next order's position projection requires.

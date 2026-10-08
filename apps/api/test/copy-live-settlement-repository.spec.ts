@@ -138,6 +138,42 @@ describe('same-session PostgreSQL attempted order settlement', () => {
     const changed = structuredClone(e!.settlementProof!); (changed.input as {receipts:{rows:{ledger:{amount:string}[]}[]}}).receipts.rows[0]!.ledger[0]!.amount = '-999';
     expect(() => decodeLiveSettlementProof(changed,e!.settlementProofDigest!)).toThrow();
   });
+  it('replays committed settlement without a new account observation or changed evidence times', async () => {
+    await book(); await scopes.run(identity(), async (_scope, session) => { await observe(session); expect((await settle(session)).kind).toBe('release'); });
+    const reservations = await db.select().from(copyLiveRiskReservations), evidence = await db.select().from(copyLiveExecutionEvidence);
+    clock = base + 100000;
+    await scopes.run(identity(), async (_scope, session) => {
+      expect(await repository.replaySettlement(session, { accountId: 'account', key: f.record.key, expectedReservationRevision: 3 })).toMatchObject({ kind: 'release' });
+    });
+    expect(await db.select().from(copyLiveRiskReservations)).toEqual(reservations);
+    expect(await db.select().from(copyLiveExecutionEvidence)).toEqual(evidence);
+  });
+  it('cannot release an unsettled reservation through the replay-only path', async () => {
+    await book();
+    await scopes.run(identity(), async (_scope, session) => {
+      await observe(session);
+      expect(await repository.replaySettlement(session, { accountId: 'account', key: f.record.key, expectedReservationRevision: 2 })).toEqual({ kind: 'pending', reason: 'live_settlement_not_released' });
+    });
+    expect((await db.select().from(copyLiveRiskReservations))[0]).toMatchObject({ state: 'unknown', revision: 2 });
+  });
+  it('cannot authorize a new release when a structurally compatible full input reaches replay', async () => {
+    await book();
+    const fullInput = { accountId: 'account', key: f.record.key, expectedReservationRevision: 2, accountSource: f.accountSource };
+    await scopes.run(identity(), async (_scope, session) => {
+      await observe(session);
+      expect(await repository.replaySettlement(session, fullInput)).toEqual({ kind: 'pending', reason: 'live_settlement_not_released' });
+    });
+    expect((await db.select().from(copyLiveRiskReservations))[0]).toMatchObject({ state: 'unknown', revision: 2 });
+  });
+  it.each(['proof', 'ledger', 'revision'])('rejects committed replay when the retained %s changes', async changed => {
+    await book(); await scopes.run(identity(), async (_scope, session) => { await observe(session); expect((await settle(session)).kind).toBe('release'); });
+    if (changed === 'proof') await db.update(copyLiveExecutionEvidence).set({ settlementProofDigest: '0'.repeat(64) });
+    if (changed === 'ledger') await db.update(copyFollowerLedger).set({ amount: '-999' }).where(eq(copyFollowerLedger.component, 'builder_fee'));
+    await expect(scopes.run(identity(), async (_scope, session) => repository.replaySettlement(session, {
+      accountId: 'account', key: f.record.key, expectedReservationRevision: changed === 'revision' ? 99 : 3,
+    }))).rejects.toThrow();
+    expect((await db.select().from(copyLiveRiskReservations))[0]).toMatchObject({ state: 'released', revision: 3 });
+  });
   it('uses actual booked receipt components and atomically releases with a certificate after disable/stop/revocation', async () => {
     await book(); await db.update(users).set({ disabledAt: new Date(base + 90) }).where(eq(users.id, 1));
     await scopes.run(identity(), async (_scope, session) => {

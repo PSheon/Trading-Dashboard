@@ -13,7 +13,7 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 | 7 worker重啟 | #56完整PASS；#51／#49 FAIL保留 | 開倉後重啟、後續跟單、五來源對帳及停止返還credited均通過；原gap120與風控不變 |
 | 8 低於最小單的開倉拒絕 | SKIP | 現有限額下未找到符合情境的市場，沒有改限額強行通過 |
 | 9 三筆快速平倉 | #55完整PASS；歷史FAIL保留 | 原20秒三次领單平倉與對帳期限內通過：4派送、2成交、2筆無剩餘倉位；報表原觀察保留、停止空倉與退款credited均PASS |
-| 14 管理者暫停／恢復／全平 | 已獲本機testnet授權，待執行 | Paul允許暫時admin.access／copy.read／execution.pause／execution.resume；先等一般流程完成及退款，再執行並移除權限 |
+| 14 管理者暫停／恢復／全平 | #58減倉／對帳FAIL；帶倉全平退款及恢復PASS | 加倉預算積壓、後續減倉逾時，須修正重跑；48.966880已credited、resume及臨時權限移除403均確認 |
 
 既有隔離回歸基準：登入紀錄修正版API 255檔3,893項、web 181檔1,179項、harness28項PASS。新排程版首跑API 3,893 PASS／1 FAIL；積壓情境補測後相關45項PASS，最終完整API 255檔3,896項PASS。這些結果不能替代上述真實交易驗收；B段尚未全綠。
 
@@ -289,3 +289,26 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 - 18:17:16停止不阻擋／空倉／退款credited／顯示stopped四項PASS，runner正常退出code1，唯一FAIL為base_reconcile。10與38.990286 testUSDC均已credited。
 - 18:17:37官方testnet唯讀核對：主錢包106.739680、跟單57為0、領單23.296008，三者均空倉。本機所有actual停止，openFunding／liabilities／unfinishedSetups均空；額外核對所有本機actual（不限user14）沒有運行中策略。
 - 管理API授權前唯讀驗證服務token回403。18:18起只在本機API程序加入Paul允許的四項權限；不寫.env、不更動人員角色，執行情境14後還原並重新驗證403。原API／worker風控與限額保持不變。
+
+## 情境14 #58 啟動
+
+- 授權前管理overview回403，僅本機API程序加入指定四項權限後回200；API3100 PID15118健康，worker原風控版本保持不變。沒有更改.env或使用者角色，沒有授予users.manage／settings.write。
+- 18:19:27建立setup awaiting_consent；18:19:37原真實瀏覽器兩份簽署、addSigners、confirm200均PASS，約7.3秒，50 testUSDC入金accepted，等待credited及啟用。原50／12–15／3倍／2策略限額與情境14劇本不變。
+- 尚未測完，不能計為PASS。私人runner `/private/tmp/codex-admin14-run.log`；測完必須確認全平退款、resume，移除程序臨時權限並核對管理overview回403。
+
+### #58 減倉／對帳FAIL，帶倉全平收尾中
+
+- 18:20:55策略active；領單20美元ETH成交，18:22:37確認跟單持倉0.0046 ETH。platform pauseNewRisk revision1為true，領單再開20美元後30秒跟單未增加，但這個觀察不能獨自證明正確拒絕。
+- 18:23:11領單半減倉成交；18:25:14原120秒內跟單仍0.0046 ETH，減倉FAIL，完整對帳立即FAIL（缺成交、不允許拒絕）。
+- 派送唯讀證據：原open settled；加倉10次嘗試後refused/live_budget_wait，並非platform_paused；減倉隨後refused/copy_stopping。worker 18:24:36預付證據權重385、可用201、300/min，engine原依前筆順序等待。不能為通過測試改理由或放寬期限。
+- 18:25:15管理close_positions接受，result complete=true/liveStops=1。當時跟單仍真實持倉，確實觸發带倉全平，但要等平倉／退款credited後才能列該部分PASS。暫時不需額外空倉全平補測；私人帶倉補測腳本已準備但沒有執行。
+- 新增UI/UX問題44，並更正問題概覽中的舊交易結果；這輪沒有部署，沒有主網或Stage寫入。
+
+### #58 最終結果與授權還原（18:33台北）
+
+- runner正常退出code1，兩項FAIL為kill_switch_reduction_mirrored與kill_switch_reconcile。原啟用／簽署及其餘檢查仍逐項保留，沒有將整輪改為PASS。
+- 管理者全平確實從0.0046 ETH持倉開始，18:28已空倉；18:31:52停止不阻擋／空倉／48.966880 testUSDC退款credited／顯示stopped四項PASS。
+- 18:32:09管理overview確認pauseNewRisk=false、reduceOnly=false、revision3，對应18:31:52.643的resume。18:32:11官方testnet讀取主錢包105.706560、跟單58為0、領單23.246848，三者均空倉；本機所有actual停止、在途資金／未釋放保留額／未完成設定皆空。
+- 18:32:33 API3100 PID24725、18:32:57 worker3010 PID24905，均用原stage-caps啟動並移除AUTH_SERVICE_PERMISSIONS及NODE_OPTIONS私人preload；健康確認PASS。18:32:59服務token管理overview恢復403，四項临時權限確實移除。沒有改.env／使用者角色、沒有Stage或主網寫入。
+- 原完整對帳與摘要：`.claude/logs/copy-harness/2026-10-08T10-18-40-293Z-{kill_switch-reconcile.json,summary.txt}`。私人唯讀收尾證據：`codex-admin14-final-money.jsonl`、`codex-admin14-final-balances.jsonl`、`codex-admin14-platform-resumed.jsonl`、`codex-admin14-after-permissions.jsonl`。
+- 尚待修正及真實重跑：一般流程#57的原sizing證據期限、情境14的預算積壓／減倉及拒絕分類。B段未全綠，C未開始；本機HTTP設定20秒deadline問題42也仍開放。

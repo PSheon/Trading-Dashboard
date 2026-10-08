@@ -2,6 +2,7 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const ko: Messages = {
+  liveCopyUi: en.liveCopyUi,
   referral: {
     policyInactive: "보상 정책이 비활성 상태입니다. 표시된 조건은 현재 보상 자격을 부여하지 않습니다.",
     invalidCode: "초대 코드 사용 불가",
@@ -859,6 +860,7 @@ export const ko: Messages = {
       computing: "계산 중…",
     },
     chart: {
+      unitLabel: "표시 단위",
       perp: "무기한",
       all: "무기한 & 현물",
       pnl: "손익",
@@ -939,6 +941,7 @@ export const ko: Messages = {
     transfersWindow: "최근 90일",
     transfersTruncated: "거래가 많은 계정: {date} 이후 최신 {count}건",
     activity: {
+      partialData: "일부 활동을 불러오지 못했습니다. 확인된 기록은 계속 표시됩니다.",
       title: "최근 활동",
       live: "실시간",
       pulse: "실시간 활동",
@@ -1207,6 +1210,9 @@ export const ko: Messages = {
         failed: "자금을 추가하지 못했습니다",
       },
       order: {
+        riskRefused: "위험 관리로 미실행",
+        unknownReason: "사유 확인 전",
+        smallCloseHint: "실제 복사 거래에서 최소 주문 금액 미만의 축소는 확대되거나 전량 청산될 수 있습니다. 실제 체결 수량을 확인하세요.",
         time: "시간",
         coin: "코인",
         side: "방향",
@@ -1327,6 +1333,8 @@ export const ko: Messages = {
   insights: {
     title: "인사이트",
     cohort: {
+      sortAscending: "오름차순 정렬",
+      sortDescending: "내림차순 정렬",
       membershipChanged: "차트의 간격은 그룹 구성원 변경을 나타냅니다.",
       bannerTitle: "Hyperliquid 스마트 머니 포지셔닝",
       tierLabel: "티어",

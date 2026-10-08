@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TablePager } from "../src/components/ui/table-pager";
 import { ToastProvider, useToast } from "../src/components/ui/toast";
+import { Modal } from "../src/components/ui/dialog";
 import { Tooltip } from "../src/components/ui/tooltip";
 import { ProfileCard } from "../src/components/trader/profile-card";
 import { profileFor } from "../src/fixtures/data";
@@ -37,7 +38,7 @@ vi.mock("../src/lib/api", async (original) => {
 let root: Root;
 let el: HTMLDivElement;
 beforeEach(() => { calls.length = 0; el = document.createElement("div"); document.body.append(el); root = createRoot(el); });
-afterEach(async () => { await act(async () => root.unmount()); document.body.replaceChildren(); });
+afterEach(async () => { await act(async () => root.unmount()); document.body.replaceChildren(); vi.restoreAllMocks(); vi.useRealTimers(); });
 const render = (node: React.ReactNode, locale: "en" | "zh-TW" = "en") =>
   act(async () => root.render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><I18nProvider locale={locale} messages={locale === "en" ? en : zhTW}>{node}</I18nProvider></QueryClientProvider>));
 
@@ -69,15 +70,82 @@ describe("TablePager", () => {
 });
 
 describe("toasts on phones", () => {
-  it("sit at the top, under the notch, so an open bottom sheet's buttons stay clear; clickable over a modal", async () => {
-    function Fire() { const toast = useToast(); return <button type="button" onClick={() => toast.error("x")}>fire</button>; }
-    await render(<ToastProvider><Fire /></ToastProvider>);
-    await act(async () => el.querySelector("button")!.click());
-    const box = el.querySelector('[data-testid="toasts"]')!;
-    expect(box.className).toContain("top-[env(safe-area-inset-top,0px)]");
-    expect(box.className).not.toMatch(/(^|\s)bottom-0(\s|$)/);
-    expect(box.className).toContain("min-[481px]:bottom-4");
-    expect(box.className).toContain("pointer-events-auto");
+  it.each([
+    [390, "top", "center"], [480, "top", "center"],
+    [481, "bottom", "left"], [1440, "bottom", "left"],
+  ])("positions notifications for a %ipx viewport and keeps modal close controls usable", async (width, vertical, horizontal) => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame"] });
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
+      matches: query === "(max-width: 480px)" && width <= 480,
+      media: query, onchange: null, addListener() {}, removeListener() {},
+      addEventListener() {}, removeEventListener() {}, dispatchEvent: () => true,
+    }));
+    function Fire() { const toast = useToast(); return <button type="button" onClick={() => toast.error("操作失敗", { autoClose: false })}>fire</button>; }
+    await render(<ToastProvider><Modal open onOpenChange={() => {}} title="設定"><Fire /></Modal></ToastProvider>, "zh-TW");
+    const fire = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((button) => button.textContent === "fire")!;
+    await act(async () => fire.click());
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    const box = el.querySelector<HTMLOListElement>('[data-sonner-toaster]')!;
+    expect(box.dataset.yPosition).toBe(vertical);
+    expect(box.dataset.xPosition).toBe(horizontal);
+    if (width <= 480) {
+      expect(box.style.getPropertyValue("--mobile-offset-top")).toBe("calc(env(safe-area-inset-top, 0px) + 8px)");
+      expect(box.style.getPropertyValue("--mobile-offset-left")).toBe("8px");
+      expect(box.style.getPropertyValue("--mobile-offset-right")).toBe("8px");
+    } else {
+      expect(box.style.getPropertyValue("--offset-bottom")).toBe("16px");
+      expect(box.style.getPropertyValue("--offset-left")).toBe("16px");
+    }
+    const notice = box.querySelector<HTMLElement>('[role="status"]')!;
+    expect(notice.dataset.type).toBe("error");
+    expect(notice.textContent).toBe("操作失敗");
+    expect(notice.closest('section')?.getAttribute("aria-live")).toBe("polite");
+    expect(notice.closest('[aria-hidden="true"]')).toBeNull();
+    expect(document.querySelector('[role="dialog"]')).toBeTruthy();
+    await act(async () => notice.querySelector<HTMLButtonElement>('button[aria-label="關閉"]')!.click());
+    await act(async () => { await vi.advanceTimersByTimeAsync(32); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    expect(el.querySelector('[data-sonner-toast]')).toBeNull();
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("設定");
+  });
+});
+
+describe("notification pointer interactions above a modal", () => {
+  it.each(["body", "close"])("a pointer on notification %s closes only the notice and leaves normal modal dismissal usable", async (target) => {
+    function Fixture() {
+      const [open, setOpen] = useState(false);
+      const toast = useToast();
+      return <><button type="button" onClick={() => setOpen(true)}>open deposit</button>
+        <Modal open={open} onOpenChange={setOpen} title="Deposit">
+          <button type="button" onClick={() => toast.success("Address copied", { autoClose: false })}>copy address</button>
+        </Modal></>;
+    }
+    await render(<ToastProvider><Fixture /></ToastProvider>);
+    const opener = [...el.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "open deposit")!;
+    await act(async () => { opener.focus(); opener.click(); });
+    await act(async () => new Promise(resolve => setTimeout(resolve, 1)));
+    const copy = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(button => button.textContent === "copy address")!;
+    await act(async () => copy.click());
+    await act(async () => new Promise(resolve => setTimeout(resolve, 1)));
+    const notice = document.querySelector<HTMLElement>('[role="status"]')!;
+    const close = target === "close" ? notice.querySelector<HTMLButtonElement>('button[aria-label="Close"]')! : notice;
+    await act(async () => {
+      close.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "mouse", button: 0 }));
+      close.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerType: "mouse", button: 0 }));
+      close.click();
+    });
+    await act(async () => new Promise(resolve => setTimeout(resolve, 260)));
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Deposit");
+    await vi.waitFor(() => expect(document.querySelector('[data-sonner-toast]')).toBeNull());
+    expect(document.querySelector('[role="dialog"]')!.contains(document.activeElement)).toBe(true);
+    // A real pointer on the ordinary modal backdrop still dismisses it.
+    const backdrop = document.querySelector<HTMLElement>('div[data-state="open"].bg-overlay')!;
+    await act(async () => {
+      backdrop.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "mouse", button: 0 }));
+      backdrop.click();
+    });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+
   });
 });
 

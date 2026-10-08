@@ -30,10 +30,18 @@ export class CopyLiveSetupRepository {
     const [row] = await tx.select().from(copyLiveSetups).where(and(eq(copyLiveSetups.userId, userId), eq(copyLiveSetups.idempotencyKey, key)));
     return row ?? null;
   }
-  async find(userId: number, id: string): Promise<SetupRow> {
-    const [row] = await this.db.select().from(copyLiveSetups).where(and(eq(copyLiveSetups.userId, userId), eq(copyLiveSetups.id, id)));
+  async find(userId: number, id: string, tx: DbExecutor = this.db): Promise<SetupRow> {
+    const query = tx.select().from(copyLiveSetups).where(and(eq(copyLiveSetups.userId, userId), eq(copyLiveSetups.id, id)));
+    const [row] = await (tx === this.db ? query : query.for('update'));
     if (!row) throw new NotFoundException('Setup not found');
     return row;
+  }
+  /** Read only under the user's admission lock: a sent deposit cannot be cancelled. */
+  async fundingAttempted(userId: number, id: string, tx: DbExecutor): Promise<boolean> {
+    const [row] = await tx.select({ attemptedAt: copyFundingOperations.attemptedAt }).from(copyFundingOperations)
+      .where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.userId, userId)));
+    if (!row) throw new NotFoundException('Funding operation not found');
+    return row.attemptedAt !== null;
   }
   async get(id: string): Promise<SetupRow | null> {
     const [row] = await this.db.select().from(copyLiveSetups).where(eq(copyLiveSetups.id, id));
@@ -65,11 +73,11 @@ export class CopyLiveSetupRepository {
     if (!token) return;
     await this.db.update(copyLiveSetups).set({ leaseUntil: null, leaseToken: null }).where(and(eq(copyLiveSetups.id, id), eq(copyLiveSetups.leaseToken, token)));
   }
-  /** Confirmed, unfinished setups of copies on `network` (the deployment's)
+  /** Admitted provisioning and confirmed, unfinished setups on `network` (the deployment's)
    * whose next attempt is due, oldest first. Another network's setups are
    * never driven here. */
   open(now: Date, network: HyperliquidNetwork, limit = 20) {
-    return this.db.select().from(copyLiveSetups).where(and(inArray(copyLiveSetups.stage, [...DRIVEN_STAGES]),
+    return this.db.select().from(copyLiveSetups).where(and(or(inArray(copyLiveSetups.stage, [...DRIVEN_STAGES]), and(eq(copyLiveSetups.stage, 'provisioning'), eq(copyLiveSetups.kind, 'start'))),
       or(isNull(copyLiveSetups.nextAttemptAt), lte(copyLiveSetups.nextAttemptAt, now)),
       sql`exists (select 1 from ${copyStrategies} s where s.id = ${copyLiveSetups.strategyId} and s.network = ${network})`)).orderBy(asc(copyLiveSetups.updatedAt)).limit(limit);
   }

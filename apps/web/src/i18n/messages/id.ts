@@ -2,6 +2,7 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const id: Messages = {
+  liveCopyUi: en.liveCopyUi,
   referral: {
     policyInactive: "Kebijakan hadiah tidak aktif. Ketentuan yang ditampilkan tidak memberikan kelayakan memperoleh hadiah saat ini.",
     invalidCode: "Kode undangan tidak tersedia",
@@ -859,6 +860,7 @@ export const id: Messages = {
       computing: "Menghitung…",
     },
     chart: {
+      unitLabel: "Unit tampilan",
       perp: "Perp",
       all: "Perp & Spot",
       pnl: "PnL",
@@ -939,6 +941,7 @@ export const id: Messages = {
     transfersWindow: "90 hari terakhir",
     transfersTruncated: "Akun sibuk: {count} terbaru sejak {date}",
     activity: {
+      partialData: "Sebagian aktivitas tidak dapat dimuat. Peristiwa yang diketahui tetap terlihat.",
       title: "Aktivitas Terbaru",
       live: "Langsung",
       pulse: "Aktivitas langsung",
@@ -1207,6 +1210,9 @@ export const id: Messages = {
         failed: "Gagal menambah dana",
       },
       order: {
+        riskRefused: "Tidak dieksekusi: kontrol risiko",
+        unknownReason: "Alasan belum dikonfirmasi",
+        smallCloseHint: "Pada penyalinan nyata, pengurangan di bawah minimum order dapat diperbesar atau menutup seluruh posisi. Periksa jumlah yang terisi.",
         time: "Waktu",
         coin: "Koin",
         side: "Sisi",
@@ -1327,6 +1333,8 @@ export const id: Messages = {
   insights: {
     title: "Wawasan",
     cohort: {
+      sortAscending: "Urutkan menaik",
+      sortDescending: "Urutkan menurun",
       membershipChanged: "Celah menandai perubahan anggota kelompok.",
       bannerTitle: "Posisi Uang Pintar Hyperliquid",
       tierLabel: "Tingkat",

@@ -6,6 +6,7 @@ import { Fragment, useMemo, useState } from "react";
 import { cn } from "cn";
 
 import { CopyFundsRecords, OrderFills } from "@/components/copy/copy-accounting-history";
+import { copyOrderPresentation } from "@/components/copy/copy-order-labels";
 import { ModeBadge } from "@/components/shell/mode-badge";
 import { CopyCompare } from "@/components/copy/copy-compare";
 import { CopySparkline } from "@/components/copy/portfolio-parts";
@@ -13,6 +14,8 @@ import { SkelBar, SkelCircle } from "@/components/page";
 import { TraderAvatar, boardName } from "@/components/discover/board-bits";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { RoiPill } from "@/components/traders/bits";
+import { DataList } from "@/components/ui/data-list";
+import { useIsDesktop } from "@/lib/use-is-desktop";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TablePager, usePaged } from "@/components/ui/table-pager";
@@ -27,7 +30,7 @@ import { amountInput } from "@/lib/amount-input";
 import { apiErrorCode } from "@/lib/api";
 import { copyErrorText } from "@/lib/copy-error-text";
 import { useCopyTexts } from "@/components/copy/live-copy-setup-dialogs";
-import type { CopyOrderView, CopyPositionView, CopyStrategyView } from "@/lib/contracts";
+import type { CopyPositionView, CopyStrategyView } from "@/lib/contracts";
 import { copyDays, useAddCopyFunds, useCopyCommand, useCopyOrders, usePatchCopy, useWithdrawCopyFunds } from "@/lib/copy";
 import { useTraderCards } from "@/lib/favorite-groups";
 import { coinLabel, truncateAddress } from "@/lib/format";
@@ -295,11 +298,6 @@ export function copyAge(createdAt: string, t: ReturnType<typeof useI18n>["t"]): 
   return days < 1 ? t("portfolio.copy.startedToday") : t("portfolio.copy.daysShort", { count: days });
 }
 
-function orderReason(o: CopyOrderView): string | null {
-  if (!o.reason || o.status === "filled") return null;
-  return o.reason.replaceAll("_", " ");
-}
-
 /** A paper copy command's failure in words (copyErrorText): the paper
  * codes' own text, busy or rate limited, else `fallback` (never one line for
  * every action). */
@@ -316,6 +314,7 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
   const toast = useToast();
   const [orderPages, setOrderPages] = useState<string[]>([]);
   const orders = useCopyOrders(s.id, orderPages.at(-1));
+  const desktop = useIsDesktop();
   const positions = usePaged(s.positions);
   // The order whose fills are open (one at a time).
   const [openOrder, setOpenOrder] = useState<string | null>(null);
@@ -432,6 +431,40 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
             <p className="text-sm font-bold">{t("portfolio.copy.detail.noOrders")}</p>
             <p className="mt-1 text-xs text-muted-foreground">{t("portfolio.copy.detail.noOrdersDesc")}</p>
           </div>
+        ) : desktop === false ? (
+          <DataList data-testid="paper-orders-mobile" className="px-4">
+            {(orders.data?.items ?? []).map((o) => {
+              const presentation = copyOrderPresentation(o, t);
+              const expanded = openOrder === o.id;
+              return <li key={o.id} className="py-3 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-2 font-semibold"><CoinIcon coin={o.coin} size={18} />{coinLabel(o.coin)}</span>
+                  <span>
+                    <span className={o.side === "B" ? "text-positive" : "text-negative"}>{t(o.side === "B" ? "portfolio.copy.order.buy" : "portfolio.copy.order.sell")}</span>
+                    <span className="ml-1.5 text-muted-foreground">{t(`portfolio.copy.order.leg.${o.leg}` as MessageKey)}</span>
+                  </span>
+                </div>
+                <p className={cn("mt-2 font-semibold", presentation.tone)}>{presentation.status}</p>
+                {presentation.reason ? <p className="mt-1 break-words text-muted-foreground">{presentation.reason}</p> : null}
+                <button type="button" aria-expanded={expanded} aria-controls={`paper-order-${o.id}-details`}
+                  onClick={() => setOpenOrder((id) => id === o.id ? null : o.id)}
+                  className="mt-2 inline-flex min-h-11 items-center gap-2 rounded-full px-3 font-semibold outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring">
+                  {t("portfolio.copy.detail.showFills")}
+                  <ChevronDown className={cn("size-4 transition-transform", expanded && "rotate-180")} />
+                </button>
+                {expanded ? <div id={`paper-order-${o.id}-details`} className="row-expansion mt-2 px-3 py-3">
+                  <dl className="mb-3 grid gap-2">
+                    {[
+                      [t("portfolio.copy.order.time"), format.dateTime(o.createdAt)],
+                      [t("portfolio.copy.order.size"), format.num(o.filledSize || o.size, 5)],
+                      [t("portfolio.copy.order.price"), o.avgPx === null ? "—" : format.price(o.avgPx)],
+                    ].map(([label, value]) => <div key={label} className="flex flex-wrap justify-between gap-2"><dt className="text-muted-foreground">{label}</dt><dd className="num font-semibold">{value}</dd></div>)}
+                  </dl>
+                  <OrderFills strategyId={s.id} orderId={o.id} />
+                </div> : null}
+              </li>;
+            })}
+          </DataList>
         ) : (
           <div className="cd-tables px-2">
             <Table dense className="text-xs" data-testid="paper-orders">
@@ -447,7 +480,9 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(orders.data?.items ?? []).map((o) => (
+                {(orders.data?.items ?? []).map((o) => {
+                  const presentation = copyOrderPresentation(o, t);
+                  return (
                   <Fragment key={o.id}>
                   <TableRow data-state={openOrder === o.id ? "selected" : undefined} className="cursor-pointer" onClick={() => setOpenOrder((id) => (id === o.id ? null : o.id))}>
                     <TableCell className="text-muted-foreground">{format.dateTime(o.createdAt)}</TableCell>
@@ -461,10 +496,10 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
                     <TableCell className="text-right">{format.num(o.filledSize || o.size, 5)}</TableCell>
                     <TableCell className="text-right">{o.avgPx === null ? "—" : format.price(o.avgPx)}</TableCell>
                     <TableCell>
-                      <span className={cn(o.status === "filled" || o.status === "partial" ? "text-positive" : o.status === "rejected" || o.status === "cancelled" ? "text-negative" : "text-muted-foreground")}>
-                        {t(`portfolio.copy.order.statusName.${o.status}` as MessageKey)}
+                      <span className={presentation.tone}>
+                        {presentation.status}
                       </span>
-                      {orderReason(o) ? <span className="ml-1.5 text-xs font-semibold text-muted-foreground">{orderReason(o)}</span> : null}
+                      {presentation.reason ? <span className="mt-0.5 block text-xs text-muted-foreground">{presentation.reason}</span> : null}
                     </TableCell>
                     <TableCell className="row-action">
                       <button type="button" aria-expanded={openOrder === o.id} aria-label={t("portfolio.copy.detail.showFills")}
@@ -482,7 +517,8 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
                     </tr>
                   ) : null}
                   </Fragment>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           </div>

@@ -2,6 +2,7 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const tr: Messages = {
+  liveCopyUi: en.liveCopyUi,
   referral: {
     policyInactive: "Ödül politikası etkin değil. Gösterilen koşullar şu anda ödül kazanma hakkı vermez.",
     invalidCode: "Davet kodu kullanılamıyor",
@@ -859,6 +860,7 @@ export const tr: Messages = {
       computing: "Hesaplanıyor…",
     },
     chart: {
+      unitLabel: "Gösterim birimi",
       perp: "Vadesiz",
       all: "Vadesiz ve Spot",
       pnl: "K/Z",
@@ -939,6 +941,7 @@ export const tr: Messages = {
     transfersWindow: "Son 90 gün",
     transfersTruncated: "Yoğun hesap: {date} tarihinden bu yana en yeni {count} kayıt",
     activity: {
+      partialData: "Bazı etkinlikler yüklenemedi. Bilinen olaylar görünür kalır.",
       title: "Son Etkinlik",
       live: "Canlı",
       pulse: "Canlı işlem akışı",
@@ -1207,6 +1210,9 @@ export const tr: Messages = {
         failed: "Bakiye eklenemedi",
       },
       order: {
+        riskRefused: "Risk kontrolü nedeniyle gerçekleşmedi",
+        unknownReason: "Neden henüz doğrulanmadı",
+        smallCloseHint: "Gerçek kopyalarda minimum emrin altındaki azaltma büyütülebilir veya tüm pozisyonu kapatabilir. Gerçekleşen miktarı kontrol edin.",
         time: "Zaman",
         coin: "Coin",
         side: "Yön",
@@ -1327,6 +1333,8 @@ export const tr: Messages = {
   insights: {
     title: "İçgörüler",
     cohort: {
+      sortAscending: "Artan sırala",
+      sortDescending: "Azalan sırala",
       membershipChanged: "Boşluklar grup üyelerindeki değişiklikleri gösterir.",
       bannerTitle: "Hyperliquid'de Akıllı Paranın Konumlanması",
       tierLabel: "Grup",

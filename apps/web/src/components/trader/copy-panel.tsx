@@ -303,7 +303,6 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName }: 
         try { const again = await live.start.mutateAsync({ leader: setup.leaderAddress, budgetUsd: setup.budgetUsd, settings: setup.settings, sourceNetwork: setup.sourceNetwork }); setSetup(again); } catch { /* shown below */ }
       }
       setConfirmError(copyErrorText(copyTexts, err));
-      toast.error(copyErrorText(copyTexts, err));
     }
   }
   function liveError(err: unknown) {

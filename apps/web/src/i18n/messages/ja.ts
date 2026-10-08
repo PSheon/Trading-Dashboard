@@ -2,6 +2,7 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const ja: Messages = {
+  liveCopyUi: en.liveCopyUi,
   referral: {
     policyInactive: "報酬ポリシーは無効です。表示された条件は現在の報酬獲得資格を与えるものではありません。",
     invalidCode: "招待コードは利用できません",
@@ -859,6 +860,7 @@ export const ja: Messages = {
       computing: "計算中…",
     },
     chart: {
+      unitLabel: "表示単位",
       perp: "無期限",
       all: "無期限＆現物",
       pnl: "損益",
@@ -939,6 +941,7 @@ export const ja: Messages = {
     transfersWindow: "過去 90 日",
     transfersTruncated: "高頻度アカウント：{date} 以降の最新 {count} 件",
     activity: {
+      partialData: "一部のアクティビティを読み込めませんでした。取得済みの履歴は引き続き表示されます。",
       title: "最近のアクティビティ",
       live: "ライブ",
       pulse: "ライブアクティビティ",
@@ -1207,6 +1210,9 @@ export const ja: Messages = {
         failed: "資金を追加できませんでした",
       },
       order: {
+        riskRefused: "リスク管理により未実行",
+        unknownReason: "理由は未確認",
+        smallCloseHint: "実際のコピーでは、最小注文額を下回る縮小が拡大されたり、全決済になったりする場合があります。実際の約定数量を確認してください。",
         time: "時刻",
         coin: "銘柄",
         side: "方向",
@@ -1327,6 +1333,8 @@ export const ja: Messages = {
   insights: {
     title: "インサイト",
     cohort: {
+      sortAscending: "昇順で並べ替え",
+      sortDescending: "降順で並べ替え",
       membershipChanged: "グラフの空白はグループの構成員の変更を示します。",
       bannerTitle: "Hyperliquid スマートマネーのポジション",
       tierLabel: "ティア",

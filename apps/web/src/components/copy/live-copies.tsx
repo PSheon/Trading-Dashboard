@@ -5,9 +5,11 @@ import { DataList } from "@/components/ui/data-list";
 import { Link } from '@/i18n/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
 import type { CopyExecutionAccount, LiveCopyMandate } from '@trading-dashboard/shared/contracts';
 import { useI18n } from '@/i18n/provider';
 import { liveCopiesText, type LiveCopiesText } from '@/i18n/live-copies';
+import type { MessageKey } from '@/i18n/messages';
 import { onOtherNetwork, useLiveCopyPortfolio, useLiveCopyPortfolioActions, type LiveCopyItem } from '@/lib/copy-live-portfolio';
 import { ModeBadge } from '@/components/shell/mode-badge';
 import { liveSetupMessages } from '@/i18n/live-setup';
@@ -31,10 +33,10 @@ import { useActionToast, usePendingToast } from '@/lib/use-action-toast';
 import { useToast } from '@/components/ui/toast';
 import { ErrorState } from '@/components/page';
 import { cn } from '@/lib/utils';
-import { useCopyTexts, useLiveSetupText } from '@/components/copy/live-copy-setup-dialogs';
+import { LiveCopyProgress, useCopyTexts, useLiveSetupText } from '@/components/copy/live-copy-setup-dialogs';
 import { copyCodeText, copyErrorText } from '@/lib/copy-error-text';
 import { useFundsHistory } from '@/lib/funds';
-import { liveNetDeposits, livePnl } from '@/lib/copy-net-deposits';
+import { isCopyReturn, liveNetDeposits, livePnl } from '@/lib/copy-net-deposits';
 
 /** The step-by-step forms, for a copy set up before one-click (lab-gated). */
 const SETTINGS = '/dev/copy';
@@ -77,14 +79,24 @@ export function LiveCopies({ className, onEquity, empty = null }: { className?: 
   const items = useMemo(() => portfolio.data?.items ?? [], [portfolio.data]);
   const leaders = useLeaders(items);
   const [openId, setOpenId] = useState<number | null>(null);
+  const search = useSearchParams(), setupId = search.get('setupId');
+  const validSetupId = setupId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(setupId) ? setupId : null;
+  const [resuming, setResuming] = useState(false);
+  // Read the original owner-scoped setup only: never confirm, restart or
+  // deposit. The explicit button also works after a reload or empty list.
+  const resume = validSetupId ? <>
+    <Button variant="secondary" className="self-start" onClick={() => setResuming(true)}>{t('liveCopyUi.resumeProgress')}</Button>
+    <LiveCopyProgress setupId={validSetupId} open={resuming} onOpenChange={setResuming} />
+  </> : null;
   // The read failed: say so, with a retry, instead of hiding the section.
   if (portfolio.enabled && portfolio.isError && !items.length) return (
     <section className={cn('orbit-card', className)} aria-label={t('folio.copying')}>
       <h2 className="px-4 pt-4 text-[0.9375rem] font-extrabold">{t('folio.copying')}</h2>
       <ErrorState onRetry={() => void portfolio.refetch()} />
+      {resume}
     </section>
   );
-  if (!items.length) return <>{empty}</>;
+  if (!items.length) return <>{resume}{empty}</>;
 
   // This deployment's network (the portfolio says it with its items): a
   // copy of another network is history, apart from 跟單中 and 我的資金.
@@ -101,6 +113,7 @@ export function LiveCopies({ className, onEquity, empty = null }: { className?: 
   );
   return (
     <section className={cn('flex flex-col gap-3', className)} aria-label={t('folio.copying')}>
+      {resume}
       <h2 className="text-[0.9375rem] font-extrabold">{t('folio.copying')}</h2>
       {running.length ? <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{running.map(card)}</div> : empty}
       {ended.length ? (
@@ -140,7 +153,7 @@ type Leader = { address: string; displayName: string | null; avatarUrl: string |
  * pages are read while the loaded ones do not reach back to the copy's
  * start; null ("—") until it is known.
  */
-function useNetDeposits(item: LiveCopyItem): number | null {
+function useNetDeposits(item: LiveCopyItem): { net: number | null; fundingFees: number | null } {
   const auth = useAuth(), funds = useFundsHistory();
   const flows = useMemo(() => funds.data?.pages.flatMap(page => page.items) ?? [], [funds.data]);
   const complete = funds.data !== undefined && !funds.hasNextPage;
@@ -149,7 +162,11 @@ function useNetDeposits(item: LiveCopyItem): number | null {
   // A few older pages at most, then "—".
   const needOlder = funds.data !== undefined && net === null && hasNextPage && funds.data.pages.length < 5;
   useEffect(() => { if (needOlder && !isFetchingNextPage) void fetchNextPage(); }, [needOlder, isFetchingNextPage, fetchNextPage]);
-  return net;
+  const deposits = flows.filter(flow => flow.kind === 'copy_funding' && flow.strategyId === item.strategyId && flow.status === 'credited'
+    && isCopyReturn(flow, item.accountAddress, auth.wallet?.address) === false);
+  const fundingFees = net !== null && deposits.length > 0 && deposits.every(flow => flow.fee !== null && Number.isFinite(flow.fee) && flow.fee >= 0)
+    ? deposits.reduce((total, flow) => total + flow.fee!, 0) : null;
+  return { net, fundingFees };
 }
 
 /** The account's figures: equity, PnL (equity less the net deposits, so a
@@ -157,19 +174,54 @@ function useNetDeposits(item: LiveCopyItem): number | null {
 function useFigures(item: LiveCopyItem, account: CopyExecutionAccount | null) {
   const snapshot = useCopyFollowerSnapshot(account && item.stage !== 'setup' && item.stage !== 'stopped' ? account : null);
   const observed = snapshot.data?.status === 'observed' ? snapshot.data : null;
+  const observedAt = observed?.asOf?.observedAt;
+  const observedTime = observedAt !== undefined && Number.isFinite(observedAt) && observedAt >= 0 && observedAt <= 8.64e15 ? new Date(observedAt).toISOString() : null;
   const equity = observed ? Number(observed.metrics.perpEquity) : null;
-  const net = useNetDeposits(item);
+  const { net, fundingFees } = useNetDeposits(item);
   // The funds ledger and account snapshot refresh independently. A transfer
   // in progress cannot back a gain or loss from their mismatched snapshots.
   const transferring = ['funding', 'awaiting_credit', 'stopping', 'sweeping'].includes(item.stage) || item.pendingTransfer !== null;
-  return { snapshot, observed, equity, ...livePnl(equity, transferring ? null : net) };
+  const unknownReason: MessageKey = item.stage === 'stopping' ? 'liveCopyUi.unknownStopping' : item.stage === 'sweeping' ? 'liveCopyUi.unknownReturn'
+    : item.stage === 'funding' || item.stage === 'awaiting_credit' ? 'liveCopyUi.unknownFunding'
+    : item.pendingTransfer ? 'liveCopyUi.unknownTransfer' : item.stage === 'stopped' ? 'liveCopyUi.unknownStopped'
+    : !observed ? 'liveCopyUi.unknownObservation' : 'liveCopyUi.unknownHistory';
+  return { snapshot, observed, observedTime, equity, fundingFees, unknownReason, ...livePnl(equity, transferring ? null : net) };
+}
+
+/** A stopped strategy is not proof of return credit. Only the sweep's
+ * credited receipt supports that wording, including in the summary. */
+function lifecycleLabel(item: LiveCopyItem, t: ReturnType<typeof useI18n>['t']): string | null {
+  if (item.stop?.state === 'closing') return t('liveCopyUi.closing');
+  if (!['stopping', 'sweeping', 'stopped'].includes(item.stage)) return null;
+  if (item.sweep?.status === 'credited') return t('liveCopyUi.returned');
+  if (item.sweep?.status === 'rejected' || item.sweep?.status === 'cancelled') return t('liveCopyUi.returnAttention');
+  if (item.sweep?.status === 'accepted' || item.sweep?.status === 'unknown' || item.pendingTransfer?.direction === 'to_main' && item.pendingTransfer.status !== 'prepared') return t('liveCopyUi.returning');
+  if (item.stage === 'sweeping' || item.sweep?.status === 'prepared') return t('liveCopyUi.preparingReturn');
+  return null;
+}
+
+function ExecutionObservation({ item, detailed = false }: { item: LiveCopyItem; detailed?: boolean }) {
+  const { t, format } = useI18n();
+  if (!['active', 'paused', 'starting', 'stopping'].includes(item.stage)) return null;
+  const summary = item.executionSummary;
+  if (!summary) return <span className="text-xs leading-5 text-muted-foreground">{t('liveCopyUi.executionUnknown')}</span>;
+  const date = (at: string) => <time dateTime={at}>{format.dateTime(at)}</time>;
+  return <span className="flex min-w-0 flex-col gap-1 text-xs leading-5 text-muted-foreground">
+    <span className={summary.pending || summary.confirming ? 'font-semibold text-warning' : undefined}>
+      {t('liveCopyUi.pendingCount', { count: summary.pending })} · {t('liveCopyUi.confirmingCount', { count: summary.confirming })}
+    </span>
+    {summary.oldestPendingAt ? <span>{t('liveCopyUi.oldestPending')} · {date(summary.oldestPendingAt)}</span> : null}
+    {summary.lastCompletedAt ? <span>{t('liveCopyUi.lastCompleted')} · {date(summary.lastCompletedAt)}</span> : null}
+    {detailed && summary.sourceThrough ? <span>{t('liveCopyUi.sourceThrough')} · {date(summary.sourceThrough)}</span> : null}
+    <span>{t('liveCopyUi.executionObservation')} · {date(summary.observedAt)}</span>
+  </span>;
 }
 
 function LiveCopyCard({ item, leader, account, onOpen, onEquity, previous = false }: { item: LiveCopyItem; leader: Leader; account: CopyExecutionAccount | null; onOpen: () => void; onEquity?: (strategyId: number, equity: number | null) => void;
   /** Another network's copy: its network's tag, no figures, never in 我的資金. */
   previous?: boolean }) {
   const { t, format } = useI18n();
-  const { equity, pnl, roi } = useFigures(item, account);
+  const { equity, pnl, roi, unknownReason, observedTime } = useFigures(item, account);
   useEffect(() => { if (!previous) onEquity?.(item.strategyId, item.stage === 'stopped' ? null : equity); }, [onEquity, previous, item.strategyId, item.stage, equity]);
   const status = cardStatus(item);
   if (previous) return (
@@ -187,9 +239,13 @@ function LiveCopyCard({ item, leader, account, onOpen, onEquity, previous = fals
         <TraderAvatar trader={leader} size={36} />
         <span className="min-w-0 flex-1 truncate text-[0.9375rem] font-bold">{boardName(leader)}</span>
         <span className="flex shrink-0 items-center gap-1.5 text-xs font-bold text-muted-foreground">
-          <span aria-hidden className={cn('size-2 rounded-full', DOT[status])} />{t(`folio.status.${status}`)}
+          <span aria-hidden className={cn('size-2 rounded-full', DOT[status])} />{lifecycleLabel(item, t) ?? (status === 'running' ? t('liveCopyUi.enabled') : t(`folio.status.${status}`))}
         </span>
       </span>
+      {pnl === null ? <span className="pl-12 text-[11px] leading-4 text-muted-foreground">{t(unknownReason)}</span> : null}
+      {pnl === null && observedTime ? <span className="pl-12 text-[11px] leading-4 text-muted-foreground">{t('liveCopyUi.latestObservation')} · <time dateTime={observedTime}>{format.dateTime(observedTime)}</time></span> : null}
+      {item.lastRefusal ? <span className="pl-12 text-[11px] leading-4 text-warning">{t('liveCopyUi.riskAttention')} · <time dateTime={item.lastRefusal.at}>{format.dateTime(item.lastRefusal.at)}</time></span> : null}
+      <span className="min-w-0 pl-12"><ExecutionObservation item={item} /></span>
       <span className="flex min-w-0 items-center gap-2 pl-12">
         <span className="text-xs text-muted-foreground">{t('folio.pnl')}</span>
         <span className={cn('num text-[0.9375rem] font-bold', pnl === null ? 'text-muted-foreground' : pnl >= 0 ? 'text-positive' : 'text-negative')}>{pnl === null ? '—' : format.usd(pnl, { sign: true, digits: 2 })}</span>
@@ -201,7 +257,7 @@ function LiveCopyCard({ item, leader, account, onOpen, onEquity, previous = fals
 
 /** The copy's detail sheet (a bottom sheet on phones, a side panel on desktop). */
 function LiveCopySheet({ item, text, leader, account, mandate, strategy, onClose }: { item: LiveCopyItem; text: LiveCopiesText; leader: Leader; account: CopyExecutionAccount | null; mandate: LiveCopyMandate | null; strategy: LiveCopyStrategy | null; onClose: () => void }) {
-  const { t } = useI18n();
+  const { t } = useI18n(), auth = useAuth();
   const running = item.stage === 'active' || item.stage === 'paused' || item.stage === 'starting';
   return (
     <Drawer open onOpenChange={(open) => { if (!open) onClose(); }} title={boardName(leader)}>
@@ -211,8 +267,9 @@ function LiveCopySheet({ item, text, leader, account, mandate, strategy, onClose
         {item.accountAddress ? (
           <details className="text-xs text-muted-foreground">
             <summary className="flex min-h-11 cursor-pointer items-center font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring">{text.ui.details}</summary>
-            <p className="mt-1 flex items-center gap-1"><span>{t('folio.account')}:</span><span className="num">{truncateAddress(item.accountAddress)}</span><CopyIconButton value={item.accountAddress} /></p>
-            <p className="mt-1 flex items-center gap-1"><Link href={`/trader/${item.leaderAddress}`} className="font-semibold text-primary-text hover:underline">{truncateAddress(item.leaderAddress)}</Link></p>
+            <p className="mt-1 flex flex-wrap items-center gap-1"><span>{t('liveCopyUi.executionWallet')}:</span><span className="num">{truncateAddress(item.accountAddress)}</span><CopyIconButton value={item.accountAddress} /></p>
+            {auth.wallet?.address ? <p className="mt-1 flex flex-wrap items-center gap-1"><span>{t('liveCopyUi.mainWallet')}:</span><span className="num">{truncateAddress(auth.wallet.address)}</span><CopyIconButton value={auth.wallet.address} /></p> : null}
+            <p className="mt-1 flex flex-wrap items-center gap-1"><span>{t(item.sourceNetwork === 'testnet' && item.network === 'testnet' && item.leaderAddress.toLowerCase() === '0xb56719305c461afd0de51b9e5b7146fe045553e1' ? 'liveCopyUi.testLeaderWallet' : 'liveCopyUi.leaderWallet')}:</span><Link href={`/trader/${item.leaderAddress}`} className="font-semibold text-primary-text hover:underline">{truncateAddress(item.leaderAddress)}</Link><CopyIconButton value={item.leaderAddress} /></p>
           </details>
         ) : null}
       </div>
@@ -245,7 +302,7 @@ const floorCents = (value: string) => { const [whole, fraction = ''] = value.spl
 
 function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; text: LiveCopiesText; account: CopyExecutionAccount | null; strategy: LiveCopyStrategy | null }) {
   const { format, t } = useI18n(), auth = useAuth();
-  const { snapshot } = useFigures(item, account);
+  const { snapshot, fundingFees, observedTime } = useFigures(item, account);
   const actions = useLiveCopyPortfolioActions();
   const track = useActionToast(), pendingToast = usePendingToast(), toast = useToast();
   const [amount, setAmount] = useState('');
@@ -294,13 +351,17 @@ function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; te
   return (
     <div className="flex flex-col gap-3 text-sm">
       <div className="flex flex-wrap items-center gap-2">
-        <span role="status" className={cn('chip-sm', stageTone[item.stage])}>{autoReturning ? text.autoReturning : text.stages[item.stage]}</span>
+        <span role="status" className={cn('chip-sm', stageTone[item.stage])}>{autoReturning ? text.autoReturning : item.stage === 'active' ? t('liveCopyUi.enabled') : text.stages[item.stage]}</span>
+        {lifecycleLabel(item, t) ? <span className="text-xs font-semibold text-muted-foreground">{lifecycleLabel(item, t)}</span> : null}
       </div>
+      <ExecutionObservation item={item} detailed />
       {/* A setup has its own stages (繼續設定); the hint that pointed at
           the Settings forms is gone (audit 2026-10-07). */}
-      {item.stage !== 'setup' ? <p className="text-xs leading-5 text-muted-foreground">{autoReturning ? text.autoReturningHint : text.hints[item.stage]}</p> : null}
+      {item.stage !== 'setup' ? <p className="text-xs leading-5 text-muted-foreground">{autoReturning ? text.autoReturningHint : item.stage === 'active' ? t('liveCopyUi.enabledHint') : text.hints[item.stage]}</p> : null}
       {item.stage === 'stopped' && item.sweep?.status === 'credited' ? <p className="num text-xs font-semibold text-positive">{text.returned.replace('{amount}', item.sweep.amount)}</p> : null}
       {reason ? <p className="text-xs text-warning">{text.refusal.replace('{reason}', reason)}</p> : null}
+      {running ? <p className="text-xs leading-5 text-muted-foreground">{t('portfolio.copy.order.smallCloseHint')}</p> : null}
+      {fundingFees !== null && fundingFees > 0 ? <div className="rounded-xl bg-inset px-3 py-2 text-xs"><p>{t('liveCopyUi.fundingFees')}: <span className="num font-semibold">{format.num(fundingFees, 2)} USDC</span></p><p className="mt-1 text-muted-foreground">{t('liveCopyUi.feeIncluded')}</p></div> : null}
       {item.pendingTransfer ? <p className="text-xs">{text.transfer.replace('{direction}', text.transferDirection[item.pendingTransfer.direction]).replace('{status}', text.transferStatus[item.pendingTransfer.status]).replace('{amount}', item.pendingTransfer.amount)}</p> : null}
       {item.pendingTransfer?.direction === 'to_main' && item.pendingTransfer.status === 'prepared' && !autoReturning ? (
         <Button size="sm" variant="secondary" className="self-start" loading={actions.cancelTransfer.isPending} disabled={busy && !actions.cancelTransfer.isPending}
@@ -308,6 +369,7 @@ function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; te
       ) : null}
       {observed ? (
         <>
+          {observedTime ? <p className="text-xs text-muted-foreground">{t('liveCopyUi.latestObservation')}: <time dateTime={observedTime}>{format.dateTime(observedTime)}</time></p> : null}
           <dl className="grid grid-cols-2 gap-2 text-xs">
             <div><dt className="text-muted-foreground">{text.equity}</dt><dd className="num font-semibold">{format.usd(Number(observed.metrics.perpEquity), { digits: 2 })}</dd></div>
             <div><dt className="text-muted-foreground">{text.withdrawable}</dt><dd className="num font-semibold">{format.usd(Number(observed.metrics.withdrawable), { digits: 2 })}</dd></div>

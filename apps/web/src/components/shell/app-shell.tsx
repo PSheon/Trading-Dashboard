@@ -41,10 +41,12 @@ function phoneChrome(pathname: string): "home" | "marketing" | "none" {
   return "none";
 }
 
-/** Public pages have the full footer; personal pages keep legal/help links. */
+/** Public pages and the portfolio share the brand footer; other personal
+ * pages keep legal/help links. */
 function shellFooter(pathname: string): "everywhere" | "compact" | null {
+  if (pathname === "/portfolio" || pathname.startsWith("/portfolio/")) return "everywhere";
   if (["/privacy", "/terms", "/delete-account", "/explore", "/insights", "/coins"].includes(pathname) || pathname.startsWith("/coins/")) return "everywhere";
-  if (["/favorites", "/portfolio", "/settings", "/trader"].some(route => pathname === route || pathname.startsWith(`${route}/`))) return "compact";
+  if (["/favorites", "/settings", "/trader"].some(route => pathname === route || pathname.startsWith(`${route}/`))) return "compact";
   return null;
 }
 
@@ -89,7 +91,7 @@ export function AppShell({
   // page and its breadcrumb.
   const barePhonePage = pathname === "/coins" || pathname.startsWith("/coins/");
   const chrome = phoneChrome(pathname);
-  const footer = guestPortfolio ? "everywhere" : shellFooter(pathname);
+  const footer = shellFooter(pathname);
 
   // The design lab owns its frame; the production shell stays unchanged.
   if (pathname === "/dev" || pathname.startsWith("/dev/")) return <>{children}</>;

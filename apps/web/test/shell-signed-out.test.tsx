@@ -76,7 +76,7 @@ it("keeps the header and the page in one frame", async () => {
   expect(container.querySelector("main")!.className).toContain("page-frame");
 });
 
-it.each(["signedOut", "disabled"])("uses the public brand footer on the portfolio while %s", async (status) => {
+it.each(["signedOut", "disabled", "signedIn", "loading"])("uses the public brand footer on the portfolio while %s", async (status) => {
   state.pathname = "/portfolio";
   await render(status);
   const footer = container.querySelector("footer")!;
@@ -84,13 +84,30 @@ it.each(["signedOut", "disabled"])("uses the public brand footer on the portfoli
   expect(footer.querySelector('nav[aria-label="Resources"]')).not.toBeNull();
   expect(footer.querySelector('a[href="/en/about"]')).not.toBeNull();
   expect(footer.querySelector('a[href="/en/privacy"]')).not.toBeNull();
+  expect(footer.querySelector('nav[aria-label="Community"]')).not.toBeNull();
+  expect(footer.querySelector('button[aria-label="Language"]')).not.toBeNull();
 });
 
-it.each(["signedIn", "loading"])("keeps the portfolio's compact footer while %s", async (status) => {
+it("retains one complete brand footer while the portfolio resolves and changes its login state", async () => {
   state.pathname = "/portfolio";
-  await render(status);
+  for (const status of ["loading", "signedIn", "signedOut", "signedIn"]) {
+    await render(status);
+    expect(container.querySelectorAll("footer")).toHaveLength(1);
+    expect(container.querySelector('footer nav[aria-label="Resources"]')).not.toBeNull();
+    expect(container.querySelector('footer a[href="/en/about"]')).not.toBeNull();
+    expect(container.querySelector('footer a[href="/en/help"]')).not.toBeNull();
+    expect(container.querySelector('footer a[href="/en/terms"]')).not.toBeNull();
+    expect(container.querySelector("main")!.textContent).toContain("page");
+  }
+});
+
+it.each(["/favorites", "/settings", "/trader/0xabc"])("retains the compact legal and help footer on %s", async (pathname) => {
+  state.pathname = pathname;
+  await render("signedIn");
   expect(container.querySelectorAll("footer")).toHaveLength(1);
   expect(container.querySelector('footer nav[aria-label="Resources"]')).toBeNull();
+  expect(container.querySelector('footer a[href="/en/privacy"]')).not.toBeNull();
+  expect(container.querySelector('footer a[href="/en/terms"]')).not.toBeNull();
   expect(container.querySelector('footer a[href="/en/help"]')).not.toBeNull();
 });
 

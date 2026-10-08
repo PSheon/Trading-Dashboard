@@ -1,29 +1,20 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useId, useLayoutEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { Toaster, toast as sonner } from "sonner";
 import { cn } from "cn";
+import "./toast.css";
 
 import { useT } from "@/i18n/provider";
 
 export type ToastType = "success" | "error" | "info" | "warning";
-
 export type ToastOptions = {
-  /** Milliseconds before the toast closes itself; `false` keeps it. */
+  /** Milliseconds before closing; false keeps the notification until dismissed. */
   autoClose?: number | false;
-  /** `false` hides the type icon (CopyDog's "Withdrawing…" notice). */
   icon?: boolean;
+  /** Update an existing notification without creating a second one. */
+  id?: number;
 };
-
-type ToastItem = {
-  id: number;
-  type: ToastType;
-  message: string;
-  autoClose: number | false;
-  icon: boolean;
-  /** Set while the exit animation plays. */
-  closing: boolean;
-};
-
 export type Toast = {
   (message: string, options?: ToastOptions): number;
   success: (message: string, options?: ToastOptions) => number;
@@ -32,167 +23,186 @@ export type Toast = {
   warning: (message: string, options?: ToastOptions) => number;
   dismiss: (id?: number) => void;
 };
-
-/** CopyDog's Toastify settings: 3 s, at most 4 on screen, newest on top. */
 export const TOAST_AUTO_CLOSE_MS = 3000;
 export const TOAST_LIMIT = 4;
-/** Toastify's bounce-out, after which the toast leaves the DOM. */
-const EXIT_MS = 500;
-
 const ToastContext = createContext<Toast | null>(null);
-
 let nextId = 1;
+type Notice = { id: number; type: ToastType; message: string; options?: ToastOptions; scope: symbol | null };
+const ToastEngineContext = createContext<ReturnType<typeof createToastEngine> | null>(null);
 
-/**
- * CopyDog's toasts (react-toastify, theme dark): bottom-left, 320 px wide,
- * 16 px from the edges (on phones across the top, above any bottom sheet), a
- * type icon, the message in 14 px / 500, × in the corner, closing on click or
- * after 3 s (no pause on hover, no progress bar), the newest on top, at most
- * four at a time with the rest queued. Only the palette is Orbie's.
- */
+/** One Sonner renderer/timer engine; admission only preserves the four-slot queue. */
 export function ToastProvider({ children }: { children: React.ReactNode }) {
-  const [items, setItems] = useState<ToastItem[]>([]);
-  const queue = useRef<ToastItem[]>([]);
-  const timers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
-
-  const remove = useCallback((id: number) => {
-    const t = timers.current.get(id);
-    if (t) clearTimeout(t);
-    timers.current.delete(id);
-    setItems((list) => {
-      const rest = list.filter((item) => item.id !== id);
-      const next = queue.current.shift();
-      return next ? [next, ...rest] : rest;
-    });
-  }, []);
-
-  const close = useCallback(
-    (id: number) => {
-      const t = timers.current.get(id);
-      if (t) clearTimeout(t);
-      timers.current.set(id, setTimeout(() => remove(id), EXIT_MS));
-      setItems((list) => list.map((item) => (item.id === id && !item.closing ? { ...item, closing: true } : item)));
-    },
-    [remove],
-  );
-
-  // Queued toasts start their timer when they reach the screen.
+  const providerId = useId();
+  const t = useT();
+  const [mobile, setMobile] = useState(false);
   useEffect(() => {
-    for (const item of items) {
-      if (item.closing || item.autoClose === false || timers.current.has(item.id)) continue;
-      timers.current.set(item.id, setTimeout(() => close(item.id), item.autoClose));
-    }
-  }, [items, close]);
-
-  useEffect(() => {
-    const active = timers.current;
-    return () => {
-      for (const t of active.values()) clearTimeout(t);
-      active.clear();
-    };
+    const media = window.matchMedia("(max-width: 480px)");
+    const update = () => setMobile(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
   }, []);
-
-  const toast = useMemo<Toast>(() => {
-    const push = (type: ToastType, message: string, options?: ToastOptions): number => {
-      const item: ToastItem = { id: nextId++, type, message, autoClose: options?.autoClose ?? TOAST_AUTO_CLOSE_MS, icon: options?.icon ?? true, closing: false };
-      setItems((list) => {
-        if (list.filter((i) => !i.closing).length >= TOAST_LIMIT) {
-          queue.current.push(item);
-          return list;
-        }
-        return [item, ...list];
-      });
-      return item.id;
-    };
-    const fn = ((message: string, options?: ToastOptions) => push("info", message, options)) as Toast;
-    fn.success = (m, o) => push("success", m, o);
-    fn.error = (m, o) => push("error", m, o);
-    fn.info = (m, o) => push("info", m, o);
-    fn.warning = (m, o) => push("warning", m, o);
-    fn.dismiss = (id) => {
-      if (id === undefined) {
-        queue.current = [];
-        setItems((list) => {
-          for (const item of list) close(item.id);
-          return list;
-        });
-      } else close(id);
-    };
-    return fn;
-  }, [close]);
-
+  const engine = useMemo(() => createToastEngine(providerId), [providerId]);
+  useLayoutEffect(() => { engine.mount(); return engine.unmount; }, [engine]);
   return (
-    <ToastContext.Provider value={toast}>
+    <ToastEngineContext.Provider value={engine}>
+    <ToastContext.Provider value={engine.toast}>
       {children}
-      <ToastViewport items={items} onClose={close} />
+      <div data-testid="toasts" onPointerDown={(event) => {
+        // Sonner handles capture/swiping first. Keep its pointer interaction
+        // from reaching Radix's document listener as a modal backdrop click.
+        // Native-only propagation preserves Sonner's React ancestor handlers.
+        event.nativeEvent.stopPropagation();
+      }}>
+        <Toaster id={providerId} position={mobile ? "top-center" : "bottom-left"} visibleToasts={TOAST_LIMIT} expand
+          duration={TOAST_AUTO_CLOSE_MS} gap={10} offset={16}
+          mobileOffset={{ top: "calc(env(safe-area-inset-top, 0px) + 8px)", left: 8, right: 8 }}
+          customAriaLabel={t("toast.label")} className="orbie-toaster"
+          style={{ "--width": "320px", zIndex: 9999 } as React.CSSProperties} />
+      </div>
     </ToastContext.Provider>
+    </ToastEngineContext.Provider>
   );
+}
+/** The existing AuthProvider SessionQueries key remounts this capability on
+ * every real identity generation. It shares the outer renderer and timers. */
+export function ToastSessionBoundary({ children }: { children: React.ReactNode }) {
+  const engine = useContext(ToastEngineContext);
+  const [scope] = useState(() => Symbol("toast-session"));
+  const toast = useMemo(() => engine?.createHandle(scope) ?? noop, [engine, scope]);
+  useLayoutEffect(() => {
+    engine?.activate(scope);
+    return () => engine?.retire(scope);
+  }, [engine, scope]);
+  return <ToastContext.Provider value={toast}>{children}</ToastContext.Provider>;
+}
+
+function createToastEngine(providerId: string) {
+  const active = new Map<number, Notice>();
+  const queue: Notice[] = [];
+  const scopeListeners = new Set<() => void>();
+  const subscribeScope = (listener: () => void) => {
+    scopeListeners.add(listener);
+    return () => { scopeListeners.delete(listener); };
+  };
+  const notifyScope = () => { for (const listener of scopeListeners) listener(); };
+  let mounted = true;
+  let activeSession: symbol | null = null;
+  const allowed = (scope: symbol | null) => mounted && (scope === null || activeSession === scope);
+  const release = (id: number) => {
+    if (!active.delete(id) || !mounted) return;
+    const next = queue.shift();
+    if (next) show(next);
+  };
+  const clearScope = (scope: symbol | null) => {
+    for (let index = queue.length - 1; index >= 0; index--) {
+      if (queue[index].scope === scope) queue.splice(index, 1);
+    }
+    for (const [id, notice] of active) {
+      if (notice.scope === scope) { sonner.dismiss(id); active.delete(id); }
+    }
+    while (mounted && active.size < TOAST_LIMIT && queue.length) show(queue.shift()!);
+  };
+  const dismiss = (scope: symbol | null, id?: number) => {
+    if (!allowed(scope)) return;
+    if (id === undefined) clearScope(scope);
+    else {
+      const queued = queue.findIndex((item) => item.id === id && item.scope === scope);
+      if (queued >= 0) queue.splice(queued, 1);
+      if (active.get(id)?.scope === scope) { sonner.dismiss(id); release(id); }
+    }
+  };
+  const show = (notice: Notice) => {
+    active.set(notice.id, notice);
+    sonner.custom(() => <ToastContent notice={notice} onClose={() => dismiss(notice.scope, notice.id)} scopeState={{
+      subscribe: subscribeScope,
+      isCurrent: () => notice.scope === null || activeSession === notice.scope,
+    }} />, {
+      id: notice.id,
+      toasterId: providerId,
+      duration: notice.options?.autoClose === false ? Infinity : notice.options?.autoClose ?? TOAST_AUTO_CLOSE_MS,
+      onAutoClose: () => release(notice.id),
+      onDismiss: () => release(notice.id),
+    });
+  };
+  const createHandle = (scope: symbol | null): Toast => {
+    const push = (type: ToastType, message: string, options?: ToastOptions): number => {
+      if (!allowed(scope)) return 0;
+      const requestedId = options?.id;
+      const queued = queue.findIndex((item) => item.id === requestedId && item.scope === scope);
+      const id = requestedId !== undefined && (active.get(requestedId)?.scope === scope || queued >= 0) ? requestedId : nextId++;
+      const notice = { id, type, message, options, scope };
+      if (queued >= 0) queue[queued] = notice;
+      else if (active.has(id) || active.size < TOAST_LIMIT) show(notice);
+      else queue.push(notice);
+      return id;
+    };
+    const toast = ((message: string, options?: ToastOptions) => push("info", message, options)) as Toast;
+    toast.success = (m, o) => push("success", m, o);
+    toast.error = (m, o) => push("error", m, o);
+    toast.info = (m, o) => push("info", m, o);
+    toast.warning = (m, o) => push("warning", m, o);
+    toast.dismiss = (id) => dismiss(scope, id);
+    return toast;
+  };
+  return {
+    // Ancestors of the session boundary (AuthProvider's SDK failures) use the
+    // system capability; page actions receive the session capability instead.
+    toast: createHandle(null), createHandle,
+    activate: (scope: symbol) => {
+      const previous = activeSession;
+      activeSession = scope;
+      notifyScope();
+      if (previous !== null && previous !== scope) clearScope(previous);
+    },
+    retire: (scope: symbol) => {
+      if (activeSession === scope) activeSession = null;
+      notifyScope();
+      queueMicrotask(() => { if (activeSession !== scope) clearScope(scope); });
+    },
+    mount: () => { mounted = true; },
+    unmount: () => {
+      mounted = false;
+      // StrictMode replays setup synchronously; real disposal clears only
+      // this renderer's notices and ignores late callbacks immediately.
+      queueMicrotask(() => {
+        if (mounted) return;
+        queue.length = 0;
+        for (const id of active.keys()) sonner.dismiss(id);
+        active.clear();
+      });
+    },
+  };
 }
 
 const noop: Toast = Object.assign(() => 0, { success: () => 0, error: () => 0, info: () => 0, warning: () => 0, dismiss: () => undefined });
-
-/** `toast.success("…")`, `toast.error("…")`, …; see ToastProvider. Outside
- * a provider (static renders, isolated tests) the calls are no-ops. */
-export function useToast(): Toast {
-  return useContext(ToastContext) ?? noop;
-}
-
+/** Calls outside the app provider remain harmless in static renders and isolated tests. */
+export function useToast(): Toast { return useContext(ToastContext) ?? noop; }
 const ICON_COLOR: Record<ToastType, string> = {
-  success: "fill-positive",
-  error: "fill-negative",
-  info: "fill-primary",
-  warning: "fill-warning",
+  success: "fill-positive", error: "fill-negative", info: "fill-primary", warning: "fill-warning",
 };
-
-function ToastViewport({ items, onClose }: { items: ToastItem[]; onClose: (id: number) => void }) {
+function ToastContent({ notice, onClose, scopeState }: {
+  notice: Notice;
+  onClose: () => void;
+  scopeState: { subscribe: (listener: () => void) => () => void; isCurrent: () => boolean };
+}) {
   const t = useT();
-  return (
-    <section aria-live="polite" aria-atomic="false" aria-relevant="additions text" aria-label={t("toast.label")}>
-      {items.length ? (
-        // Phones: at the top, under the notch, so a toast never covers an open
-        // bottom sheet's buttons (or the tab bar); wider screens bottom-left.
-        // pointer-events-auto: a modal dialog turns them off on <body>.
-        <div className="pointer-events-auto fixed top-[env(safe-area-inset-top,0px)] left-0 z-9999 flex w-screen flex-col px-2 pt-2 min-[481px]:top-auto min-[481px]:bottom-4 min-[481px]:left-4 min-[481px]:w-[320px] min-[481px]:p-0" data-testid="toasts">
-          {items.map((item) => (
-            <div
-              key={item.id}
-              role="alert"
-              data-type={item.type}
-              data-closing={item.closing || undefined}
-              onClick={() => onClose(item.id)}
-              className={cn(
-                "toast-item relative mb-2.5 flex w-full cursor-pointer items-center rounded-xl bg-popover p-4 text-sm leading-[1.4] font-bold text-popover-foreground shadow-[0_0_0_2px_var(--card-ring),var(--shadow-pop)] [word-break:break-word]",
-                item.closing ? "toast-exit" : "toast-enter",
-              )}
-            >
-              {item.icon ? (
-                <span className="toast-icon mr-2.5 flex w-5.5 shrink-0" aria-hidden="true">
-                  <ToastIcon type={item.type} className={cn("size-5.5", ICON_COLOR[item.type])} />
-                </span>
-              ) : null}
-              <span className="min-w-0 flex-1 pr-4">{item.message}</span>
-              <button
-                type="button"
-                aria-label={t("settings.close")}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onClose(item.id);
-                }}
-                className="absolute top-1.5 right-1.5 z-10 cursor-pointer text-subtle-foreground outline-none after:absolute after:-inset-3.5 after:content-[''] focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <svg aria-hidden="true" viewBox="0 0 14 16" className="h-4 w-3.5 fill-current">
-                  <path fillRule="evenodd" d="M7.71 8.23l3.75 3.75-1.48 1.48-3.75-3.75-3.75 3.75L1 11.98l3.75-3.75L1 4.48 2.48 3l3.75 3.75L9.98 3l1.48 1.48-3.75 3.75z" />
-                </svg>
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </section>
-  );
+  // Sonner animates its shell out asynchronously. Owner-specific text and
+  // live-region semantics disappear in the identity change's commit.
+  const current = useSyncExternalStore(scopeState.subscribe, scopeState.isCurrent, () => true);
+  if (!current) return null;
+  return <div role="status" data-type={notice.type} onClick={onClose}
+    className="pointer-events-auto relative flex w-full cursor-pointer items-center rounded-xl bg-popover p-4 text-sm leading-[1.4] font-bold text-popover-foreground shadow-[0_0_0_2px_var(--card-ring),var(--shadow-pop)] [overflow-wrap:anywhere]">
+    {notice.options?.icon !== false ? <span className="mr-2.5 flex w-5.5 shrink-0" aria-hidden="true"><ToastIcon type={notice.type} className={cn("size-5.5", ICON_COLOR[notice.type])} /></span> : null}
+    <span className="min-w-0 flex-1 pr-4">{notice.message}</span>
+    <button type="button" aria-label={t("settings.close")} onClick={(event) => { event.stopPropagation(); onClose(); }}
+      className="absolute top-1.5 right-1.5 z-10 cursor-pointer text-subtle-foreground outline-none after:absolute after:-inset-3.5 after:content-[''] focus-visible:ring-2 focus-visible:ring-ring">
+      <svg aria-hidden="true" viewBox="0 0 14 16" className="h-4 w-3.5 fill-current"><path fillRule="evenodd" d="M7.71 8.23l3.75 3.75-1.48 1.48-3.75-3.75-3.75 3.75L1 11.98l3.75-3.75L1 4.48 2.48 3l3.75 3.75L9.98 3l1.48 1.48-3.75 3.75z" /></svg>
+    </button>
+  </div>;
 }
 
-/** Toastify's type icons. */
+/** Orbie notification icons. */
 function ToastIcon({ type, className }: { type: ToastType; className?: string }) {
   const path =
     type === "success"

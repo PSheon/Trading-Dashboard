@@ -48,7 +48,9 @@ export async function login(browser, { web, api, env, log = () => {} }) {
   page.on("pageerror", (e) => log("web_page_error", { message: e.message.slice(0, 300) }));
   const cred = await privyTestCredentials(env);
   await page.goto(`${web}/zh-TW/portfolio`, { waitUntil: "domcontentloaded" });
-  const signIn = page.locator("button", { hasText: /^(登入|Sign in)$/ }).first();
+  // Desktop and mobile shells both mount an entry; use the visible one so
+  // an inactive responsive layout cannot consume the SDK initialization wait.
+  const signIn = page.locator("button:visible", { hasText: /^(登入|Sign in)$/ }).first();
   await signIn.waitFor({ timeout: 60_000 });
   // Privy's SDK loads after hydration: the button may need a moment to answer.
   for (let i = 0; i < 20; i++) {

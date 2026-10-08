@@ -1,10 +1,11 @@
 "use client";
 
 import type { TraderFill, TraderTransfer } from "@/lib/contracts";
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import { cn } from "cn";
 
 import { ErrorState, Skeleton } from "@/components/page";
+import { Button } from "@/components/ui/button";
 import { TablePager, usePaged } from "@/components/ui/table-pager";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { useI18n } from "@/i18n/provider";
@@ -104,20 +105,35 @@ export function ActivityFeed({ address, liveFills = NO_FILLS }: { address: strin
   }, [rows, fills.data, transfers.data]);
   // New events arrive on top while a page is read: the page stays put.
   const { rows: page, pager } = usePaged(events);
+  const failed = fills.isError || transfers.isError;
+  const waiting = (!rows && !fills.isError) || (!transfers.data && !transfers.isError);
+  const retryGuard = useRef(false);
+  const [retryPending, setRetryPending] = useState(false);
+  const retrying = retryPending || (fills.isError && fills.isFetching) || (transfers.isError && transfers.isFetching);
+  const retryFailed = async () => {
+    if (retryGuard.current || retrying) return;
+    retryGuard.current = true;
+    setRetryPending(true);
+    try {
+      await Promise.allSettled([
+        ...(fills.isError ? [fills.refetch()] : []),
+        ...(transfers.isError ? [transfers.refetch()] : []),
+      ]);
+    } finally {
+      retryGuard.current = false;
+      setRetryPending(false);
+    }
+  };
 
   return (
     <section className="overflow-hidden rounded-2xl bg-card" aria-label={t("trader.activity.title")} data-testid="activity-feed">
       <div className="flex items-center justify-between px-4 pt-3 pb-1">
         <h2 className="text-sm font-semibold">{t("trader.activity.title")}</h2>
-        <span className="flex items-center gap-1.5 text-xs font-semibold text-positive">
-          <span aria-hidden className="size-1.5 animate-pulse rounded-full bg-positive" />
-          {t("trader.activity.live")}
-        </span>
       </div>
       {events.length === 0 ? (
-        fills.isError && !rows ? (
-          <ErrorState onRetry={() => void fills.refetch()} />
-        ) : !rows ? (
+        failed || retryPending ? (
+          <ErrorState message={t("trader.activity.partialData")} onRetry={retryFailed} retrying={retrying} />
+        ) : waiting ? (
           <div role="status" aria-label={t("common.loading")} className="flex flex-col gap-2 px-4 py-3">
             {Array.from({ length: 6 }, (_, i) => (
               <Skeleton key={i} className="h-10" />
@@ -131,6 +147,14 @@ export function ActivityFeed({ address, liveFills = NO_FILLS }: { address: strin
           {page.map((ev) => (ev.source === "fill" ? <FillRow key={ev.key} ev={ev} /> : <TransferRow key={ev.key} ev={ev} />))}
         </ul>
       )}
+      {events.length > 0 && (failed || retryPending) ? (
+        <div role="status" className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm text-muted-foreground">
+          <p>{t("trader.activity.partialData")}</p>
+          <Button variant="secondary" size="sm" className="min-h-11 md:min-h-9" loading={retrying} onClick={retryFailed}>{t("common.retry")}</Button>
+        </div>
+      ) : events.length > 0 && waiting ? (
+        <p role="status" className="px-4 py-3 text-sm text-muted-foreground">{t("common.loading")}</p>
+      ) : null}
       <TablePager {...pager} />
     </section>
   );

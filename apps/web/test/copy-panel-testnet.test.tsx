@@ -8,6 +8,7 @@ import { I18nProvider } from "../src/i18n/provider";
 import { catalogs } from "../src/i18n/messages";
 import { liveSetupMessages } from "../src/i18n/live-setup";
 import { liveCopiesMessages } from "../src/i18n/live-copies";
+import { ToastProvider } from "../src/components/ui/toast";
 
 /**
  * The trader panel's 測試網 card (logic review 2026-10-06 §A, §C): a start
@@ -15,7 +16,7 @@ import { liveCopiesMessages } from "../src/i18n/live-copies";
  * 取消設定; a running copy shows its localized stage under 狀態; a setup
  * the panel follows is never shown to another signed-in person.
  */
-const state = vi.hoisted(() => ({ withdrawable: 500, openDeposit: (() => {}) as () => void, identity: "owner@email", item: null as unknown, restart: vi.fn(), cancel: vi.fn(), start: vi.fn(), startPending: false,
+const state = vi.hoisted(() => ({ withdrawable: 500, openDeposit: (() => {}) as () => void, identity: "owner@email", item: null as unknown, restart: vi.fn(), cancel: vi.fn(), start: vi.fn(), confirm: vi.fn(), startPending: false,
   deployment: { network: "testnet", available: true, sourceNetworks: ["mainnet", "testnet"], caps: null } as unknown }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh() {}, push() {} }), usePathname: () => "/zh-TW/trader", useSearchParams: () => new URLSearchParams() }));
 vi.mock("../src/lib/auth", () => ({ useAuth: () => ({ status: "signedIn", identity: state.identity, login() {} }) }));
@@ -28,7 +29,7 @@ vi.mock("../src/lib/copy-live-setup", async () => ({
   ...(await vi.importActual<typeof import("../src/lib/copy-live-setup")>("../src/lib/copy-live-setup")),
   useLiveCopyAvailable: () => true, useLiveCopyDeployment: () => state.deployment,
   useLiveCopySetup: () => ({ data: undefined, isError: false, walletError: null }),
-  useLiveCopySetupActions: () => ({ start: { isPending: state.startPending, mutateAsync: state.start }, confirm: { isPending: false }, restart: { isPending: false, mutateAsync: state.restart }, cancel: { isPending: false, mutateAsync: state.cancel, mutate() {} } }),
+  useLiveCopySetupActions: () => ({ start: { isPending: state.startPending, mutateAsync: state.start }, confirm: { isPending: false, mutateAsync: state.confirm }, restart: { isPending: false, mutateAsync: state.restart }, cancel: { isPending: false, mutateAsync: state.cancel, mutate() {} } }),
 }));
 vi.mock("../src/lib/copy-live-portfolio", () => ({ useLiveCopyPortfolio: () => ({ data: { items: state.item ? [state.item] : [] } }) }));
 vi.mock("../src/lib/wallet", () => ({ useWallet: () => ({ data: { network: (state.deployment as { network: string }).network, hyperliquid: { withdrawable: state.withdrawable } } }), signErrorMessage: () => ({ rejected: false, message: "" }) }));
@@ -43,6 +44,7 @@ const setupOf = (stage: string, extra: object = {}) => ({ id: "0b0a6a3e-2f6b-4b7
 
 let root: Root, container: HTMLDivElement;
 beforeEach(() => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   vi.clearAllMocks(); state.identity = "owner@email"; state.withdrawable = 500;
   state.deployment = { network: "testnet", available: true, sourceNetworks: ["mainnet", "testnet"], caps: null };
   localStorage.setItem(`orbie:copy-mode:${state.identity}`, "testnet");
@@ -53,6 +55,25 @@ async function render() {
   await act(async () => root.render(<I18nProvider locale="zh-TW" messages={catalogs["zh-TW"]}><CopyPanel address={leader} /></I18nProvider>));
 }
 const button = (label: string) => [...container.querySelectorAll("button")].find(b => b.textContent === label);
+
+it("keeps confirmation failures in the open consent dialog without repeating them as a toast", async () => {
+  state.item = null;
+  state.confirm.mockRejectedValueOnce(new Error("confirmation failed"));
+  let update!: ReturnType<typeof usePanelSetup>[1];
+  function Probe() {
+    const [, set] = usePanelSetup(state.identity, leader, "testnet");
+    useLayoutEffect(() => { update = set; }, [set]);
+    return null;
+  }
+  await act(async () => root.render(<I18nProvider locale="zh-TW" messages={catalogs["zh-TW"]}><ToastProvider><Probe /><CopyPanel address={leader} /></ToastProvider></I18nProvider>));
+  const consent = { kind: "start", masterPolicyId: "policy", consentExpiresAt: Date.now() + 300_000, nonce: Date.now(), leaderAddress: leader, budgetUsd: "150", agentValidUntil: Date.now() + 30 * 86_400_000, builderAddress: null, builderMaxFeeTenthsOfBps: 0 };
+  await act(async () => update({ confirmOpen: true, setup: { ...setupOf("awaiting_consent", { consent }), strategyId: 7, network: "testnet", leaderAddress: leader, budgetUsd: "150", settings: { direction: "same", sizingMode: "ratio", perTradeUsd: null, maxTotalExposureUsd: null, maxLeverage: null, copyStartMode: "delta" } } as never }));
+  const confirm = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((node) => node.textContent === zh.confirm)!;
+  await act(async () => confirm.click());
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
+  expect(document.querySelector('[role="dialog"] [role="alert"]')?.textContent).toBe(zh.errors.generic);
+  expect(document.querySelector('[data-testid="toasts"] [data-type="error"]')).toBeNull();
+});
 
 it("a start that failed after its deposit is not 跟單中: 重新開始 restarts it, 取消設定 ends it", async () => {
   state.item = item({ setup: setupOf("failed", { issue: "setup_account_mode_failed" }) });

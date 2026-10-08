@@ -1,11 +1,16 @@
 "use client";
 
+import { DataList } from "@/components/ui/data-list";
+import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
+import { useIsDesktop } from "@/lib/use-is-desktop";
+import { ArrowDown, ArrowUp, ChevronDown } from "lucide-react";
 import { TablePager, usePaged } from "@/components/ui/table-pager";
 import { SortHead, useSorted } from "@/components/ui/sort-head";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 import { Link, useRouter } from "@/i18n/navigation";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { cn } from "cn";
 
 import { CoinStack, CopyScoreBar, signTone, TraderAvatar, VerifiedTick } from "@/components/discover/board-bits";
@@ -41,13 +46,51 @@ const WALLET_KEYS: Record<WalletKey, (w: CohortWallet) => number | string> = {
 export function WalletsTable({ rows }: { rows: CohortWallet[] }) {
   const { t } = useI18n();
   const router = useRouter();
+  const desktop = useIsDesktop();
+  const [openWallet, setOpenWallet] = useState<string | null>(null);
   const { sorted, sort, onSort } = useSorted<CohortWallet, WalletKey>(rows, WALLET_KEYS, { key: "perpEquity", dir: "desc" });
   const { rows: pageRows, pager } = usePaged(sorted, `${sort.key}:${sort.dir}`);
   if (rows.length === 0) return <p className="py-10 text-center text-sm text-muted-foreground">{t("insights.cohort.tableEmpty")}</p>;
   const c = (key: string) => t(`insights.cohort.cols.${key}` as "insights.cohort.cols.pnl");
+  const sortColumns: Record<WalletKey, string> = { address: "address", totalPnl: "pnl", roi: "roi", perpEquity: "perpEquity", copyScore: "copyScore", positionValue: "positionValue", leverage: "leverage", sumUpnl: "upnl", biasPct: "bias" };
   return (
     <>
-      <Table containerClassName="max-h-[640px] overflow-auto" className="cd-cohort-wallets w-full border-separate border-spacing-y-1.5">
+      {desktop === false ? <>
+        <div className="mb-3 flex items-center gap-2">
+          <Select size="sm" label={t("discover.sortBy")} className="min-w-0 flex-1" value={sort.key}
+            onValueChange={(key) => { if (key !== sort.key) onSort(key); }}
+            options={(Object.keys(sortColumns) as WalletKey[]).map((key) => ({ value: key, label: c(sortColumns[key]) }))} />
+          <Button variant="secondary" size="icon" aria-label={t(sort.dir === "desc" ? "insights.cohort.sortAscending" : "insights.cohort.sortDescending")}
+            onClick={() => onSort(sort.key)}>{sort.dir === "asc" ? <ArrowUp className="size-4" aria-hidden /> : <ArrowDown className="size-4" aria-hidden />}</Button>
+        </div>
+        <DataList data-testid="cohort-wallets-mobile">
+          {pageRows.map((w) => {
+            const expanded = openWallet === w.address;
+            return <li key={w.address} className="py-3 text-sm">
+              <Link href={`/trader/${w.address}`} className="flex min-h-11 min-w-0 items-center gap-2 rounded font-semibold outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
+                <TraderAvatar trader={w} size={32} /><span className="min-w-0 truncate">{w.displayName ?? truncateAddress(w.address)}</span>{w.verified ? <VerifiedTick className="size-3.5 shrink-0" /> : null}
+              </Link>
+              <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2">
+                <div><dt className="text-muted-foreground">{c("pnl")}</dt><dd className={cn("num mt-1 font-semibold", signTone(w.totalPnl))}>{money(w.totalPnl, true)}</dd></div>
+                <div><dt className="text-muted-foreground">{c("roi")}</dt><dd className={cn("num mt-1 font-semibold", signTone(w.roi))}>{pctText(w.roi)}</dd></div>
+                <div className="col-span-2"><dt className="text-muted-foreground">{c("perpEquity")}</dt><dd className="num mt-1 font-semibold">{money(w.perpEquity)}</dd></div>
+              </dl>
+              <button type="button" aria-expanded={expanded} aria-controls={`cohort-wallet-${w.address}`} onClick={() => setOpenWallet(expanded ? null : w.address)}
+                className="mt-2 inline-flex min-h-11 items-center gap-2 rounded-full px-3 font-semibold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring">
+                {t(expanded ? "common.collapse" : "common.expand")}<ChevronDown className={cn("size-4 transition-transform", expanded && "rotate-180")} aria-hidden />
+              </button>
+              {expanded ? <dl id={`cohort-wallet-${w.address}`} data-wallet-details className="mt-2 grid gap-3 rounded-xl bg-raised p-3">
+                <div><dt className="text-muted-foreground">{c("assets")}</dt><dd className="mt-1"><CoinStack coins={w.topAssets} size={20} dash /></dd></div>
+                <div><dt className="text-muted-foreground">{c("copyScore")}</dt><dd className="mt-1"><CopyScoreBar score={w.copyScore} layout="number-first" className="flex items-center gap-2.5" barClassName="w-16" /></dd></div>
+                <div><dt className="text-muted-foreground">{c("positionValue")}</dt><dd className="num mt-1 font-semibold">{money(w.positionValue)}</dd></div>
+                <div><dt className="text-muted-foreground">{c("leverage")}</dt><dd className="num mt-1 font-semibold">{w.positionValue > 0 && w.leverage !== null ? `${w.leverage.toFixed(2)}×` : "—"}</dd></div>
+                <div><dt className="text-muted-foreground">{c("upnl")}</dt><dd className={cn("num mt-1 font-semibold", signTone(w.sumUpnl))}>{money(w.sumUpnl, true)}</dd></div>
+                <div><dt className="text-muted-foreground">{c("bias")}</dt><dd className="mt-1">{w.biasPct === null ? "—" : <SentimentText pctLong={w.biasPct} />}</dd></div>
+              </dl> : null}
+            </li>;
+          })}
+        </DataList>
+      </> : <Table containerClassName="max-h-[640px] overflow-auto" className="cd-cohort-wallets w-full border-separate border-spacing-y-1.5">
         <TableHeader className="sticky top-0 z-10 bg-background">
           <TableRow>
             <SortHead label={c("address")} col="address" sort={sort} onSort={onSort} className="text-left" />
@@ -97,7 +140,7 @@ export function WalletsTable({ rows }: { rows: CohortWallet[] }) {
             </TableRow>
           ))}
         </TableBody>
-      </Table>
+      </Table>}
     <TablePager {...pager} /></>
   );
 }

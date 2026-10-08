@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import { cn } from "cn";
 
 import { ErrorState, SkelBar } from "@/components/page";
+import { Tabs } from "@/components/ui/tabs";
+import { Segmented } from "@/components/ui/segmented";
 import { Select } from "@/components/ui/select";
 
 import { useI18n } from "@/i18n/provider";
@@ -111,47 +113,22 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
           </div>
           <section>
             <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex gap-0.5 rounded-[26px] bg-raised p-1" role="tablist">
-                {(["wallets", "markets"] as const).map((key) => (
-                  <button
-                    key={key}
-                    type="button"
-                    role="tab"
-                    aria-selected={tab === key}
-                    onClick={() => setTab(key)}
-                    className={cn(
-                      "h-11 rounded-[22px] px-5 text-[15px] outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
-                      tab === key ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    {t(`insights.cohort.${key}`)}
-                  </button>
-                ))}
-              </div>
+              <Tabs label={`${t("insights.cohort.wallets")} / ${t("insights.cohort.markets")}`} value={tab} onChange={setTab} idPrefix="cohort-tab" controls="cohort-table-panel"
+                className="rounded-full bg-raised p-1" items={(["wallets", "markets"] as const).map((value) => ({ value, label: t(`insights.cohort.${value}`) }))} />
               {tab === "markets" ? (
-                <div className="flex gap-2" role="radiogroup" aria-label={t("insights.cohort.markets")}>
-                  {FILTERS.map((f) => (
-                    <button
-                      key={f}
-                      type="button"
-                      role="radio"
-                      aria-checked={filter === f}
-                      onClick={() => setFilter(f)}
-                      className={cn("orbit-press h-11 rounded-full border-2 px-[18px] text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring", filter === f ? "border-primary bg-primary font-extrabold text-primary-foreground" : "border-input font-bold text-muted-foreground hover:bg-raised hover:text-foreground")}
-                    >
-                      {t(`insights.cohort.filter.${f}`)}
-                    </button>
-                  ))}
-                </div>
+                <Segmented label={t("insights.cohort.markets")} variant="pill" value={filter} onChange={setFilter}
+                  options={FILTERS.map((value) => ({ value, label: t(`insights.cohort.filter.${value}`) }))} />
               ) : null}
             </div>
-            {!data ? (
-              <WalletsTableSkeleton />
-            ) : tab === "wallets" ? (
-              <WalletsTable rows={data.wallets} />
-            ) : (
-              <MarketsTable rows={data.markets} filter={filter} />
-            )}
+            <div id="cohort-table-panel" role="tabpanel" aria-labelledby={`cohort-tab-${tab}`}>
+              {!data ? (
+                <WalletsTableSkeleton />
+              ) : tab === "wallets" ? (
+                <WalletsTable rows={data.wallets} />
+              ) : (
+                <MarketsTable rows={data.markets} filter={filter} />
+              )}
+            </div>
           </section>
         </>
       )}

@@ -111,6 +111,7 @@ function MyFunds({ wallet, inCopies, className }: { wallet: ReturnType<typeof us
         <div><dt className="text-muted-foreground">{t("folio.mainWallet")}</dt><dd className="num mt-0.5 text-sm font-bold">{main === null ? "—" : format.usd(main, { digits: 2 })}</dd></div>
         <div><dt className="text-muted-foreground">{t("folio.inCopies")}</dt><dd className="num mt-0.5 text-sm font-bold">{inCopies === null ? t("folio.balancePending") : format.usd(inCopies, { digits: 2 })}</dd></div>
       </dl>
+      {main !== null && inCopies !== null && inCopies !== 0 ? <p className="text-xs leading-5 text-muted-foreground">{t("liveCopyUi.roundingHint")}</p> : null}
       {wallet.isError && !wallet.data ? <ErrorState onRetry={() => wallet.refetch()} /> : null}
       <FundButtons />
     </section>
@@ -466,7 +467,7 @@ function PhonePaper({ tab, setTab }: { tab: Tab; setTab: (tab: Tab) => void }) {
   const copy = useCopyOverview();
   return (
     <div className="flex flex-col gap-4" data-view="paper">
-      <Tabs value={tab} onChange={setTab} label={t("portfolio.title")} size="sm" className="seg-track w-full [&>button]:flex-1 [&>button]:justify-center"
+      <Tabs value={tab} onChange={setTab} label={t("portfolio.title")} className="seg-track w-full [&>button]:flex-1 [&>button]:justify-center"
         items={TAB_ORDER.map((value) => ({ value, label: t(`portfolio.tabs.${value}`) }))} />
       <SwitchPanel value={tab} order={TAB_ORDER} role="tabpanel" className={copy.data && copy.data.strategies.length === 0 ? "pt-4" : undefined}>
         <PhoneTab tab={tab} copy={copy} setTab={setTab} />

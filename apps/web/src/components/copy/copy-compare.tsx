@@ -68,13 +68,8 @@ export function CopyCompare({ strategy: s, traderName }: { strategy: CopyStrateg
   return (
     <section className="orbit-card">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-dotted border-border p-3">
-        <div role="radiogroup" aria-label={t("pf.detail.switchAria")} className="grid grid-cols-2 rounded-full border border-border bg-raised p-0.5">
-          {(["yours", "trader"] as const).map((v) => (
-            <button key={v} type="button" role="radio" aria-checked={view === v} onClick={() => setView(v)} className={cn("h-8 rounded-full px-4 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring", view === v ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
-              {v === "yours" ? t("pf.detail.yourCopy") : t("pf.detail.trader")}
-            </button>
-          ))}
-        </div>
+        <Seg label={t("pf.detail.switchAria")} value={view} onChange={setView}
+          options={[["yours", t("pf.detail.yourCopy")], ["trader", t("pf.detail.trader")]]} />
         <div className="flex flex-wrap items-center gap-4">
           <Seg label={t("pf.chart.metric")} value={metric} onChange={setMetric} options={[["pnl", t("pf.chart.pnl")], ["roi", t("pf.chart.roi")]]} />
           <Seg label={t("copyUpdates.historyWindow")} value={window} onChange={setWindow} options={PORTFOLIO_WINDOWS.map(([w, key]) => [w, t(`windows.${key}`)])} />

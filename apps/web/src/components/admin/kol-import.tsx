@@ -5,6 +5,7 @@ import { useMutation } from "@tanstack/react-query";
 import type { KolPreview, KolInput } from "@/lib/contracts";
 import { api, type ApiError } from "@/lib/api";
 import { useImportKols } from "@/lib/admin-kols";
+import { apiErrorKey } from "@/lib/api-error-text";
 import { useI18n } from "@/i18n/provider";
 import { Panel } from "@/components/page";
 import { Input } from "@/components/ui/input";
@@ -120,6 +121,7 @@ export function KolImportPanel({
             commit.mutate(
               { csv: csv!, replace },
               saved({
+                error: false,
                 onSuccess: () => {
                   preview.reset();
                   setConfirmRemoval(false);
@@ -160,7 +162,7 @@ export function KolImportPanel({
       )}
       {commit.isError && (
         <p role="alert" className="text-sm text-negative">
-          {commit.error.message}
+          {t(apiErrorKey(commit.error))}
         </p>
       )}
       {commit.data && (

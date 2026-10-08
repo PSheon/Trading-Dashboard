@@ -6,6 +6,8 @@ import { liveCopyMandateSchema, liveCopyOverviewSchema, liveCopySetupConsentType
 import { api, ApiError, sessionKey } from './api';
 import { useAuth } from './auth';
 import { isTransient, retryAfter } from './copy-error-text';
+import { createLiveSetupJournal, setupRequestDigest, type LiveSetupAttempt } from './copy-live-setup-recovery';
+export { createLiveSetupJournal } from './copy-live-setup-recovery';
 import { FIXTURE_WALLET_ADDRESS } from './fixture-signer';
 import { queryKeys } from './query-keys';
 import type { Eip712TypedData, WalletSigner } from './wallet-signer';
@@ -109,15 +111,16 @@ export function termsFingerprint(value: unknown): string {
 
 /**
  * The idempotency key of each attempt (`start:<leader>:<terms>`,
- * `edit:<id>:<terms>`, `renew:<id>`, `topup:…`), for the page's life: a
+ * `edit:<id>:<terms>`, `renew:<id>`, `topup:…`), for the tab and identity generation: a
  * remounted panel or row retries the same terms with the same key and the
  * server answers with the same setup; changed terms (the sheet dismissed,
  * the amount changed) are a new attempt with a new key, never a 409
  * "payload changed" or the old setup's terms on the sheet.
- * Scoped to the signed-in identity and session; another session never
- * reuses them (they are dropped when it changes).
+ * Opaque recovery identifiers survive reload in sessionStorage. Scoped to
+ * stable auth mode and owner for reload recovery. Runtime session generation
+ * still fences every in-flight handle; recovered operations are read first.
  */
-const setupKeys = new Map<string, string>();
+const setupKeys = new Map<string, LiveSetupAttempt>();
 let setupKeysScope: string | null = null;
 export function liveSetupScope(identity: string | null): string | null {
   return identity ? `${identity}#${sessionKey()}` : null;
@@ -145,12 +148,28 @@ export function useLiveCopySetupActions() {
   const mounted = useRef(true);
   useLayoutEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const keys = () => scopedKeys(liveSetupScope(latest.current.identity));
-  const keyFor = (name: string) => { const map = keys(); let value = map.get(name); if (!value) { value = crypto.randomUUID(); map.set(name, value); } return value; };
-  const forget = (name: string) => keys().delete(name);
+  const journal = () => {
+    const scope = liveSetupScope(latest.current.identity);
+    if (!scope || !liveCopyEnabled(latest.current)) throw new Error('live_session_changed');
+    return createLiveSetupJournal(`${latest.current.mode}:${latest.current.identity}`, window.sessionStorage);
+  };
+  const keyFor = async (name: string) => {
+    const scope = liveSetupScope(latest.current.identity), request = await setupRequestDigest(name);
+    if (!mounted.current || liveSetupScope(latest.current.identity) !== scope) throw new Error('live_session_changed');
+    const map = keys(), inMemory = map.get(name), stored = journal().find(request);
+    const attempt = inMemory ?? stored ?? { request, key: crypto.randomUUID(), setupId: null, network: null, confirmationPending: false };
+    journal().save(attempt); map.set(name, attempt);
+    return { attempt, restored: !inMemory && Boolean(stored) };
+  };
+  const forget = async (name: string) => {
+    const scope = liveSetupScope(latest.current.identity), request = await setupRequestDigest(name);
+    assertScope(scope);
+    journal().forget(request); keys().delete(name);
+  };
   /** The attempt names a setup was made under (exact names only). */
-  const startName = (leader: string, budgetUsd: string, settings: unknown) => `start:${leader}:${termsFingerprint({ budgetUsd, settings })}`;
+  const startName = (leader: string, budgetUsd: string, settings: unknown, sourceNetwork: 'testnet' | 'mainnet' = 'mainnet') => `start:${leader}:${termsFingerprint({ budgetUsd, settings, sourceNetwork })}`;
   const editName = (strategyId: number, budgetUsd: string, settings: unknown) => `edit:${strategyId}:${termsFingerprint({ budgetUsd, settings })}`;
-  const namesOf = (setup: Pick<LiveCopySetup, 'kind' | 'strategyId' | 'leaderAddress' | 'budgetUsd' | 'settings'>) => setup.kind === 'start' ? [startName(setup.leaderAddress, setup.budgetUsd, setup.settings)]
+  const namesOf = (setup: Pick<LiveCopySetup, 'kind' | 'strategyId' | 'leaderAddress' | 'budgetUsd' | 'settings' | 'sourceNetwork'>) => setup.kind === 'start' ? [startName(setup.leaderAddress, setup.budgetUsd, setup.settings, setup.sourceNetwork)]
     : [editName(setup.strategyId, setup.budgetUsd, setup.settings), `renew:${setup.strategyId}`];
   const refresh = () => { void client.invalidateQueries({ queryKey: [...queryKeys.copy.all] }); };
   /** The progress dialog opens on what the server just answered: a first
@@ -161,18 +180,53 @@ export function useLiveCopySetupActions() {
     if (!wallet || !liveCopyEnabled(current)) throw new Error('owner_wallet_unavailable');
     return { wallet, assertSame: () => { if (!mounted.current || !liveCopyEnabled(latest.current) || latest.current.identity !== identity || latest.current.wallet?.address !== wallet.address || sessionKey() !== session) throw new Error('live_session_changed'); } };
   };
-  /** Preparation is idempotent: while the wallet or agent is still being
-   * made, the same request is sent again (a few seconds at most). */
+  const assertScope = (scope: string | null) => {
+    if (!mounted.current || liveSetupScope(latest.current.identity) !== scope || !liveCopyEnabled(latest.current)) throw new Error('live_session_changed');
+  };
+  const uncertainResponse = (error: unknown) => isTransient(error) || error instanceof ApiError && error.status >= 500;
+  const assertRecovery = (attempt: LiveSetupAttempt, setup: LiveCopySetup) => {
+    if (attempt.setupId && setup.id !== attempt.setupId) throw new Error('setup_identity_mismatch');
+    const observed = setup.consent?.network ?? setup.funding?.network;
+    if (attempt.network && observed && observed !== attempt.network) throw new Error('setup_identity_mismatch');
+  };
+  const remember = (name: string, attempt: LiveSetupAttempt, setup: LiveCopySetup) => {
+    if (attempt.setupId && attempt.setupId !== setup.id) throw new Error('setup_identity_mismatch');
+    const network = setup.consent?.network ?? setup.funding?.network ?? attempt.network;
+    if (attempt.network && network !== attempt.network) throw new Error('setup_identity_mismatch');
+    const updated = { ...attempt, setupId: setup.id, network };
+    journal().save(updated); keys().set(name, updated);
+    return seed(setup);
+  };
+  /** The server owns provisioning after admission. A lost answer is read
+   * back by the original key; it never authorizes a new attempt or signature. */
   const prepare = async (name: string, send: (key: string) => Promise<unknown>) => {
-    const key = keyFor(name);
-    for (let attempt = 0; ; attempt++) {
-      const setup = seed(liveCopySetupSchema.parse(await send(key)));
-      if (setup.stage !== 'provisioning' || attempt >= 8) return setup;
-      await new Promise(resolve => setTimeout(resolve, 1500));
+    const scope = liveSetupScope(latest.current.identity);
+    const { attempt, restored } = await keyFor(name);
+    const recover = async () => {
+      const result = liveCopySetupSchema.parse(await api.get(`${ROOT}/setups/by-key/${encodeURIComponent(attempt.key)}`));
+      assertScope(scope);
+      if (!namesOf(result).includes(name)) throw new Error('setup_identity_mismatch');
+      return remember(name, attempt, result);
+    };
+    if (restored) {
+      try { return await recover(); }
+      catch (error) { if (!(error instanceof ApiError && error.status === 404)) throw error; }
+      // An explicit retry after a confirmed missing admission retains its
+      // old key. Never issue a fresh key because a response was lost.
+    }
+    assertScope(scope);
+    try {
+      const result = liveCopySetupSchema.parse(await send(attempt.key));
+      assertScope(scope); return remember(name, attempt, result);
+    } catch (error) {
+      assertScope(scope);
+      if (!uncertainResponse(error)) throw error;
+      try { return await recover(); }
+      catch { assertScope(scope); throw error; }
     }
   };
   const start = useMutation({
-    mutationFn: async (input: StartLiveCopyInput) => prepare(startName(input.leader, input.budgetUsd, input.settings), key => api.post(`${ROOT}/setups`, { idempotencyKey: key, leader: input.leader, sourceNetwork: input.sourceNetwork ?? 'mainnet', budgetUsd: input.budgetUsd, settings: input.settings })),
+    mutationFn: async (input: StartLiveCopyInput) => prepare(startName(input.leader, input.budgetUsd, input.settings, input.sourceNetwork ?? 'mainnet'), key => api.post(`${ROOT}/setups`, { idempotencyKey: key, leader: input.leader, sourceNetwork: input.sourceNetwork ?? 'mainnet', budgetUsd: input.budgetUsd, settings: input.settings })),
   });
   const edit = useMutation({
     mutationFn: async ({ strategyId, budgetUsd, settings }: { strategyId: number; budgetUsd: string; settings: CopyStrategySettings }) =>
@@ -199,6 +253,16 @@ export function useLiveCopySetupActions() {
   };
   const confirm = useMutation({
     mutationFn: async (setup: LiveCopySetup) => {
+      const scope = liveSetupScope(latest.current.identity), request = await setupRequestDigest(`confirm:${setup.id}`);
+      assertScope(scope);
+      const original = journal().find(request);
+      if (original?.confirmationPending) {
+        const recovered = liveCopySetupSchema.parse(await api.get(`${ROOT}/setups/${encodeURIComponent(setup.id)}`));
+        assertScope(scope);
+        assertRecovery(original, recovered);
+        if (recovered.stage !== 'awaiting_consent' || recovered.issue === 'funding_not_submitted') journal().forget(request);
+        return seed(recovered);
+      }
       let ready: ReturnType<typeof owner>;
       try { ready = await readyOwner(setup); } finally { setConfirmPhase(null); }
       const { wallet, assertSame } = ready;
@@ -211,8 +275,22 @@ export function useLiveCopySetupActions() {
           accountId => void api.post(`/me/copy/execution-wallets/${encodeURIComponent(accountId)}/reconcile`, {}).catch(() => undefined));
       } finally { setConfirmPhase(null); }
       assertSame();
-      const result = seed(liveCopySetupSchema.parse(await api.post(`${ROOT}/setups/${encodeURIComponent(setup.id)}/confirm`, body)));
-      for (const name of namesOf(setup)) forget(name);
+      const attempt: LiveSetupAttempt = { request, key: original?.key ?? crypto.randomUUID(), setupId: setup.id,
+        network: setup.consent?.network ?? setup.funding?.network ?? null, confirmationPending: true };
+      journal().save(attempt);
+      let result: LiveCopySetup;
+      try { result = liveCopySetupSchema.parse(await api.post(`${ROOT}/setups/${encodeURIComponent(setup.id)}/confirm`, body)); }
+      catch (error) {
+        assertSame();
+        if (!uncertainResponse(error)) { journal().forget(request); throw error; }
+        try { result = liveCopySetupSchema.parse(await api.get(`${ROOT}/setups/${encodeURIComponent(setup.id)}`)); }
+        catch { assertSame(); throw error; }
+      }
+      assertSame();
+      assertRecovery(attempt, result);
+      if (result.stage !== 'awaiting_consent' || result.issue === 'funding_not_submitted') journal().forget(request);
+      seed(result);
+      if (result.stage !== 'awaiting_consent' && result.stage !== 'provisioning') for (const name of namesOf(setup)) await forget(name);
       refresh(); return result;
     },
   });
@@ -220,16 +298,20 @@ export function useLiveCopySetupActions() {
    * ran stops; a deposit that arrived is returned from the portfolio). */
   const cancel = useMutation({
     mutationFn: async (id: string) => {
+      const scope = liveSetupScope(latest.current.identity);
       const result = liveCopySetupSchema.parse(await api.post(`${ROOT}/setups/${encodeURIComponent(id)}/cancel`, {}));
-      for (const name of namesOf(result)) forget(name);
+      assertScope(scope);
+      for (const name of namesOf(result)) await forget(name);
       refresh(); return result;
     },
   });
   /** The same terms again under a new key: a fresh consent challenge. */
   const restart = useMutation({
     mutationFn: async (setupOrId: LiveCopySetup | string) => {
+      const scope = liveSetupScope(latest.current.identity);
       const setup = typeof setupOrId === 'string' ? liveCopySetupSchema.parse(await api.get(`${ROOT}/setups/${encodeURIComponent(setupOrId)}`)) : setupOrId;
-      for (const name of namesOf(setup)) forget(name);
+      assertScope(scope);
+      for (const name of namesOf(setup)) await forget(name);
       const next = setup.kind === 'start' ? await start.mutateAsync({ leader: setup.leaderAddress, budgetUsd: setup.budgetUsd, settings: setup.settings, sourceNetwork: setup.sourceNetwork })
         : setup.kind === 'edit' ? await edit.mutateAsync({ strategyId: setup.strategyId, budgetUsd: setup.budgetUsd, settings: setup.settings })
         : await renew.mutateAsync({ strategyId: setup.strategyId });
@@ -248,10 +330,13 @@ export function useLiveCopySetupActions() {
   const topUp = useMutation({
     mutationFn: async ({ accountId, amount }: { accountId: string; amount: string }) => {
       const { wallet, assertSame } = owner(), name = `topup:${accountId}:${amount}`;
-      const reserved = await api.post<{ id: string; network: 'testnet' | 'mainnet'; destination: string; amount: string; nonce: number; status: string }>(`/me/copy/execution-wallets/${encodeURIComponent(accountId)}/funding`, { idempotencyKey: keyFor(name), amount });
+      const { attempt } = await keyFor(name);
+      assertSame();
+      const reserved = await api.post<{ id: string; network: 'testnet' | 'mainnet'; destination: string; amount: string; nonce: number; status: string }>(`/me/copy/execution-wallets/${encodeURIComponent(accountId)}/funding`, { idempotencyKey: attempt.key, amount });
+      assertSame();
       // The same attempt again (this key): already sent, or refused (an error, not a quiet close).
       if (reserved.status !== 'prepared') {
-        forget(name); refresh();
+        await forget(name); refresh();
         if (reserved.status === 'rejected' || reserved.status === 'cancelled') throw new ApiError(409, 'The deposit was refused', { code: 'setup_funding_rejected' });
         return reserved;
       }
@@ -261,7 +346,7 @@ export function useLiveCopySetupActions() {
       assertSame();
       await api.post(`/me/copy/funding/${encodeURIComponent(reserved.id)}/broadcast`, {});
       const result = await api.post(`/me/copy/funding/${encodeURIComponent(reserved.id)}/submit`, { signature });
-      forget(name); refresh(); return result;
+      assertSame(); await forget(name); refresh(); return result;
     },
   });
   return { start, edit, renew, confirm, confirmPhase, cancel, restart, resume, pause, topUp };

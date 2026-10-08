@@ -145,7 +145,7 @@ function SettingsEditor({ snapshot, stale }: { snapshot: AdminSettingsSnapshot; 
       return;
     }
     setAsking(null);
-    save.mutate(body, saved());
+    save.mutate(body, saved({ error: false }));
   }
 
   const disabled = !canSave || save.isPending || reload.isPending;

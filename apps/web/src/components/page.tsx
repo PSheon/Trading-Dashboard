@@ -77,14 +77,14 @@ export function EmptyState({
   );
 }
 
-export function ErrorState({ message, onRetry }: { message?: string; onRetry?: () => void }) {
+export function ErrorState({ message, onRetry, retrying = false }: { message?: string; onRetry?: () => void; retrying?: boolean }) {
   const t = useT();
   return (
     <div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
       <p className="text-sm text-negative">{t("common.error")}</p>
       {message ? <p className="max-w-md font-mono text-xs break-all text-subtle-foreground">{message}</p> : null}
       {onRetry ? (
-        <Button variant="secondary" size="sm" onClick={onRetry}>
+        <Button variant="secondary" size="sm" loading={retrying} onClick={onRetry}>
           {t("common.retry")}
         </Button>
       ) : null}

@@ -22,6 +22,9 @@ async function mount() {
 }
 const image = () => document.querySelector<HTMLImageElement>('[data-testid="share-image"]')!;
 const button = (text: string) => [...document.querySelectorAll("button")].find((b) => b.textContent?.replace("𝕏", "").trim() === text)!;
+const notification = () => document.querySelector<HTMLElement>('[data-testid="toasts"] [role="status"]');
+const outsideNotifications = () => [...document.querySelectorAll('[role="status"], [role="alert"]')].filter((node) => !node.closest('[data-testid="toasts"]'));
+const flushNotifications = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -68,11 +71,13 @@ describe("分享交易員主頁, CopyDog's share flow", () => {
     expect(fetchMock).toHaveBeenCalledWith(`/trader/${A}/share-image?period=allTime&format=landscape`);
     expect(clicks).toEqual(["orbie-solanadoomer-all-landscape.png"]);
     // CopyDog says nothing after a download that worked.
-    expect(document.querySelector('[role="alert"]')).toBeNull();
+    await flushNotifications();
+    expect(notification()).toBeNull();
+    expect(document.querySelector('[data-testid="toasts"] [data-sonner-toast]')).toBeNull();
     await act(async () => root.unmount());
   });
 
-  it("confirms a copy with CopyDog's toast, inline text nowhere", async () => {
+  it("confirms a copy with a polite success notification, inline text nowhere", async () => {
     const blob = new Blob([new Uint8Array([137, 80, 78, 71])], { type: "image/png" });
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(blob));
     const write = vi.fn().mockResolvedValue(undefined);
@@ -80,11 +85,13 @@ describe("分享交易員主頁, CopyDog's share flow", () => {
     (globalThis as { ClipboardItem?: unknown }).ClipboardItem = class { constructor(public items: unknown) {} };
     const { root } = await mount();
     await act(async () => button("複製").click());
+    await flushNotifications();
     expect(write).toHaveBeenCalledTimes(1);
-    const alert = document.querySelector('[role="alert"]')!;
-    expect(alert.textContent).toContain("圖片已複製到剪貼簿");
-    expect(alert.closest("section")?.getAttribute("aria-live")).toBe("polite");
-    expect(document.querySelector('[role="status"]')?.textContent ?? "").not.toContain("圖片已複製到剪貼簿");
+    const notice = notification()!;
+    expect(notice.dataset.type).toBe("success");
+    expect(notice.textContent).toContain("圖片已複製到剪貼簿");
+    expect(notice.closest("section")?.getAttribute("aria-live")).toBe("polite");
+    expect(outsideNotifications().map((node) => node.textContent).join(" ")).not.toContain("圖片已複製到剪貼簿");
     await act(async () => root.unmount());
   });
 
@@ -95,9 +102,12 @@ describe("分享交易員主頁, CopyDog's share flow", () => {
     (globalThis as { ClipboardItem?: unknown }).ClipboardItem = class { constructor(public items: unknown) {} };
     const { root } = await mount();
     await act(async () => button("複製").click());
-    const alert = document.querySelector<HTMLElement>('[role="alert"]')!;
-    expect(alert.dataset.type).toBe("error");
-    expect(alert.textContent).toContain("無法複製圖片");
+    await flushNotifications();
+    const notice = notification()!;
+    expect(notice.dataset.type).toBe("error");
+    expect(notice.textContent).toContain("無法複製圖片");
+    expect(notice.closest("section")?.getAttribute("aria-live")).toBe("polite");
+    expect(outsideNotifications().map((node) => node.textContent).join(" ")).not.toContain("無法複製圖片");
     await act(async () => root.unmount());
   });
 });

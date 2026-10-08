@@ -1,9 +1,11 @@
+import { setTimeout as yieldIo } from 'node:timers/promises';
 import { createHash } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { privateKeyToAccount } from 'viem/accounts';
 import { verifyTypedData, type TypedDataDefinition } from 'viem';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { adminSettingsSchema, DEFAULT_COPY_RISK_LIMITS, liveCopySetupConsentTypedData, liveCopySetupSchema, usdSendTypedData, WALLET_NETWORKS, type LiveCopySetupIntent } from '@trading-dashboard/shared/contracts';
+import request from 'supertest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { adminSettingsSchema, DEFAULT_COPY_RISK_LIMITS, findHttpContract, liveCopySetupConsentTypedData, liveCopySetupSchema, usdSendTypedData, WALLET_NETWORKS, type LiveCopySetupIntent } from '@trading-dashboard/shared/contracts';
 import { appSettings, copyAgentSetups, copyControls, copyExecutionAccounts, copyExecutionWallets, copyFundingOperations, copyLiveActivations, copyLiveMandates, copyLiveSetups,
   copyLiveStrategyConfigs, copyRiskPolicies, copyStrategies, copyWalletAuthorizations, leaders } from '@trading-dashboard/shared/database';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
@@ -12,6 +14,11 @@ import { wire as fundingWire } from '../src/copy/copy-funding.service.js';
 import { CopyLiveMandateRepository } from '../src/copy/copy-live-mandate.repository.js';
 import { CopyLiveSetupRepository } from '../src/copy/copy-live-setup.repository.js';
 import { CopyLiveSetupService } from '../src/copy/copy-live-setup.service.js';
+import { BackgroundJobs } from '../src/runtime/background-jobs.service.js';
+import { requestContext } from '../src/runtime/request-middleware.js';
+import { CopyLiveSetupController } from '../src/copy/copy-live-setup.controller.js';
+import { createAuthedApp, stubPrivy } from './auth-test-utils.js';
+import { currentRequestSignal, withRequestSignal } from '../src/runtime/request-context.js';
 import { HyperliquidBudgetWait } from '../src/hyperliquid/hyperliquid-budget-wait.js';
 import { CopyWalletRepository } from '../src/copy/copy-wallet.repository.js';
 import type { AgentConsentIntent } from '../src/copy/copy-agent-consent.js';
@@ -44,6 +51,7 @@ function config(): AppConfig {
     live: { network: 'testnet', caps: { maxStrategiesPerUser: 10 }, builderFee: true, testnetSourceIntervalMs: 60_000, maxSourceDeviationBps: 500, slippageBps: 30, intervalMs: 3000, weightPerMin: 300 } } } as never; } } as AppConfig;
 }
 function build() {
+  const jobs = new BackgroundJobs();
   const fundingRows = new CopyFundingRepository(db), walletRows = new CopyWalletRepository(db);
   const wallets = {
     get workerPolicyEnabled() { return flags.worker; },
@@ -125,8 +133,8 @@ function build() {
     reconcile: vi.fn(async () => undefined),
   };
   service = new CopyLiveSetupService(config(), new CopyLiveSetupRepository(db), new UnitOfWork(db), new CopyLiveMandateRepository(db, testConfig()), wallets as never, walletRows,
-    agents as never, modes as never, funding as never, fundingRows, {} as never, {} as never, { available: true, sign: workerSign } as never, () => flags.ticking ? ++clock : clock);
-  return { wallets, agents, modes, funding };
+    agents as never, modes as never, funding as never, fundingRows, {} as never, {} as never, { available: true, sign: workerSign } as never, () => flags.ticking ? ++clock : clock, jobs);
+  return { wallets, agents, modes, funding, jobs };
 }
 let fakes: ReturnType<typeof build>;
 const start = (key = 'setup-start-key-000001', extra: object = {}) => service.start(uid, { idempotencyKey: key, leader, budgetUsd: '100', settings, ...extra });
@@ -149,6 +157,7 @@ beforeEach(async () => {
   await db.insert(copyRiskPolicies).values({ limits: { ...DEFAULT_COPY_RISK_LIMITS }, reason: 'seeded defaults', createdByUserId: uid });
   fakes = build();
 });
+afterEach(async () => { vi.useRealTimers(); await fakes?.jobs.drain(1000); });
 afterAll(closeTestDb);
 
 describe('one-click testnet copy setup', () => {
@@ -544,4 +553,251 @@ describe('one-click testnet copy setup', () => {
     await repository.release(setup.id, next!.leaseToken);
     expect((await db.select().from(copyLiveSetups).where(eq(copyLiveSetups.id, setup.id)))[0]).toMatchObject({ leaseUntil: null, leaseToken: null });
   });
+});
+
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(done => { resolve = done; });
+  return { promise, resolve };
+}
+
+// These tests pause provider work, not SQL. The HTTP answer must settle
+// before its 20-second deadline while the same durable operation survives.
+it('request recovery: slow provisioning answers with its admitted original id before the HTTP deadline', async () => {
+  const entered = deferred<void>(), release = deferred<void>();
+  const prepare = fakes.wallets.prepare.getMockImplementation()!;
+  let providerSignal: AbortSignal | undefined;
+  fakes.wallets.prepare.mockImplementationOnce(async (...args) => {
+    providerSignal = currentRequestSignal(); entered.resolve(); await release.promise; return prepare(...args);
+  });
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const request = new AbortController();
+  let answer: Awaited<ReturnType<typeof start>> | undefined;
+  const pending = withRequestSignal(request.signal, () => start().then(value => { answer = value; return value; }));
+  await entered.promise;
+  await vi.advanceTimersByTimeAsync(10_001);
+  for (let i = 0; i < 50 && !answer; i++) await yieldIo(10);
+  // Capture before releasing the provider: awaiting an inline handler would
+  // otherwise hide the precise regression.
+  const early = answer;
+  const rows = await db.select().from(copyLiveSetups);
+  request.abort(); release.resolve();
+  await pending; vi.useRealTimers();
+  await vi.waitFor(async () => expect((await service.get(uid, rows[0]!.id)).stage).toBe('awaiting_consent'));
+  expect(early).toMatchObject({ id: rows[0]!.id, stage: 'provisioning', consent: null });
+  expect(providerSignal).toBeUndefined();
+  expect(await db.select().from(copyLiveSetups)).toHaveLength(1);
+  expect(await db.select().from(copyFundingOperations)).toHaveLength(1);
+});
+
+it('request recovery: slow confirmation answers with the original id and submits its deposit only once', async () => {
+  const prepared = await start(), signatures = await sign(prepared.consent!);
+  const entered = deferred<void>(), release = deferred<void>();
+  const submit = fakes.funding.submit.getMockImplementation()!;
+  fakes.funding.submit.mockImplementationOnce(async (...args) => {
+    entered.resolve(); await release.promise; return submit(...args);
+  });
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  let answer: Awaited<ReturnType<typeof start>> | undefined;
+  const pending = service.confirm(uid, prepared.id, signatures).then(value => { answer = value; return value; });
+  await entered.promise; await vi.advanceTimersByTimeAsync(10_001);
+  for (let i = 0; i < 50 && !answer; i++) await yieldIo(10);
+  const early = answer;
+  release.resolve(); await pending; vi.useRealTimers();
+  await vi.waitFor(async () => expect((await service.get(uid, prepared.id)).stage).toBe('funding_submitted'));
+  const retry = await service.confirm(uid, prepared.id, signatures);
+  expect(early).toMatchObject({ id: prepared.id });
+  expect(retry).toMatchObject({ id: prepared.id, stage: 'funding_submitted' });
+  expect(fakes.funding.submit).toHaveBeenCalledTimes(1);
+  expect(await db.select().from(copyFundingOperations)).toHaveLength(1);
+});
+
+it('request recovery: advance bounds deposit reconciliation as well as its driver', async () => {
+  const prepared = await start(); await service.confirm(uid, prepared.id, await sign(prepared.consent!));
+  const entered = deferred<void>(), release = deferred<void>();
+  fakes.funding.reconcile.mockImplementationOnce(async () => { entered.resolve(); await release.promise; });
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  let answer: Awaited<ReturnType<typeof start>> | undefined;
+  const pending = service.advance(uid, prepared.id).then(value => { answer = value; return value; });
+  await entered.promise; await vi.advanceTimersByTimeAsync(10_001);
+  for (let i = 0; i < 50 && !answer; i++) await yieldIo(10);
+  const early = answer;
+  release.resolve(); await pending; vi.useRealTimers();
+  expect(early).toMatchObject({ id: prepared.id, stage: 'funding_submitted' });
+  expect(fakes.funding.submit).toHaveBeenCalledTimes(1);
+});
+
+it('request recovery: original-key lookup is read-only and scoped to the owner and deployment network', async () => {
+  const prepared = await start();
+  const before = await db.select().from(copyLiveSetups);
+  expect(await service.recover(uid, 'setup-start-key-000001')).toEqual(await service.get(uid, prepared.id));
+  const other = (await insertUser(db, { privyUserId: 'did:privy:other-setup-owner' })).id;
+  await expect(service.recover(other, 'setup-start-key-000001')).rejects.toMatchObject({ status: 404 });
+  await db.update(copyStrategies).set({ network: 'mainnet' }).where(eq(copyStrategies.id, prepared.strategyId));
+  await expect(service.recover(uid, 'setup-start-key-000001')).rejects.toMatchObject({ status: 404 });
+  expect(await db.select().from(copyLiveSetups)).toEqual(before);
+  expect(fakes.funding.submit).not.toHaveBeenCalled();
+});
+
+it('request recovery: the public wire contract validates the original setup recovery answer', async () => {
+  const prepared = await start();
+  const contract = findHttpContract('GET', '/me/copy/live/setups/by-key/setup-start-key-000001');
+  expect(contract).toBeDefined();
+  expect(contract!.response.parse(prepared)).toEqual(prepared);
+});
+
+it('request recovery: retrying a key admitted on another deployment cannot provision or replace it', async () => {
+  const prepared = await start();
+  await db.update(copyStrategies).set({ network: 'mainnet' }).where(eq(copyStrategies.id, prepared.strategyId));
+  await expect(start()).rejects.toMatchObject({ status: 404 });
+  expect(await db.select().from(copyLiveSetups)).toHaveLength(1);
+  expect(fakes.wallets.prepare).toHaveBeenCalledTimes(1);
+  expect(fakes.funding.submit).not.toHaveBeenCalled();
+});
+
+it('request recovery: HTTP recovery is no-store, owner-only and strictly read-only', async () => {
+  const prepared = await start();
+  await insertUser(db, { privyUserId: 'did:privy:recovery-other' });
+  const { app } = await createAuthedApp({ db,
+    privy: stubPrivy({ alice: { privyUserId: 'did:privy:setup-owner' }, bob: { privyUserId: 'did:privy:recovery-other' } }),
+    controllers: [CopyLiveSetupController], providers: [{ provide: CopyLiveSetupService, useValue: service }] });
+  const path = '/me/copy/live/setups/by-key/setup-start-key-000001';
+  const before = await db.select().from(copyLiveSetups);
+  try {
+    const response = await request(app.getHttpServer()).get(path).set('Authorization', 'Bearer alice').expect(200).expect('Cache-Control', 'no-store');
+    expect(liveCopySetupSchema.parse(response.body.data)).toEqual(prepared);
+    await request(app.getHttpServer()).get(path).expect(401);
+    await request(app.getHttpServer()).get(path).set('Authorization', 'Bearer bob').expect(404);
+    await request(app.getHttpServer()).get('/me/copy/live/setups/by-key/short').set('Authorization', 'Bearer alice').expect(400);
+    expect(await db.select().from(copyLiveSetups)).toEqual(before);
+    expect(fakes.wallets.prepare).toHaveBeenCalledTimes(1);
+    expect(fakes.funding.submit).not.toHaveBeenCalled();
+  } finally { await app.close(); }
+});
+
+it('request recovery: HTTP sends one bounded answer while slow preparation survives the original request deadline', async () => {
+  const entered = deferred<void>(), release = deferred<void>();
+  const prepare = fakes.wallets.prepare.getMockImplementation()!;
+  fakes.wallets.prepare.mockImplementationOnce(async (...args) => { entered.resolve(); await release.promise; return prepare(...args); });
+  const { app } = await createAuthedApp({ db, privy: stubPrivy({ alice: { privyUserId: 'did:privy:setup-owner' } }),
+    controllers: [CopyLiveSetupController], providers: [{ provide: CopyLiveSetupService, useValue: service }],
+    beforeListen: app => app.use(requestContext(fakes.jobs)) });
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  let answer: { status: number; body: { data: unknown } } | undefined;
+  const pending = request(app.getHttpServer()).post('/me/copy/live/setups').set('Authorization', 'Bearer alice')
+    .send({ idempotencyKey: 'http-original-request-0001', leader, budgetUsd: '100', settings })
+    .then(response => { answer = response; return response; });
+  try {
+    await entered.promise; await vi.advanceTimersByTimeAsync(10_001);
+    for (let i = 0; i < 50 && !answer; i++) await yieldIo(10);
+    const early = answer;
+    await vi.advanceTimersByTimeAsync(20_000);
+    release.resolve(); await pending; vi.useRealTimers();
+    const row = (await db.select().from(copyLiveSetups))[0]!;
+    await vi.waitFor(async () => expect((await service.get(uid, row.id)).stage).toBe('awaiting_consent'));
+    expect(early?.status).toBe(200);
+    expect(liveCopySetupSchema.parse(early?.body.data)).toMatchObject({ id: row.id, stage: 'provisioning' });
+    expect(await db.select().from(copyLiveSetups)).toHaveLength(1);
+    expect(fakes.funding.submit).not.toHaveBeenCalled();
+  } finally { release.resolve(); vi.useRealTimers(); await pending; await fakes.jobs.drain(1000); await app.close(); }
+});
+
+it('request recovery: concurrent original-key retries share the provisioning lease', async () => {
+  const entered = deferred<void>(), release = deferred<void>();
+  const prepare = fakes.wallets.prepare.getMockImplementation()!;
+  fakes.wallets.prepare.mockImplementationOnce(async (...args) => { entered.resolve(); await release.promise; return prepare(...args); });
+  const first = start(); await entered.promise;
+  const retry = await start();
+  release.resolve(); await first;
+  expect(fakes.wallets.prepare).toHaveBeenCalledTimes(1);
+  expect(retry.stage).toBe('provisioning');
+  expect(await db.select().from(copyLiveSetups)).toHaveLength(1);
+  expect(await db.select().from(copyFundingOperations)).toHaveLength(1);
+});
+
+it('request recovery: a restarted worker resumes admitted provisioning without another request or deposit', async () => {
+  fakes.wallets.prepareSetupPolicy.mockResolvedValueOnce(null);
+  const admitted = await start();
+  expect(admitted).toMatchObject({ stage: 'provisioning', issue: 'worker_policy_pending', consent: null });
+  await fakes.jobs.drain(1000);
+  fakes = build();
+  await service.tick();
+  expect((await service.recover(uid, 'setup-start-key-000001')).id).toBe(admitted.id);
+  expect((await service.get(uid, admitted.id)).stage).toBe('awaiting_consent');
+  expect(await db.select().from(copyLiveSetups)).toHaveLength(1);
+  expect(await db.select().from(copyFundingOperations)).toHaveLength(1);
+  expect(fakes.wallets.prepare).not.toHaveBeenCalled();
+  expect(fakes.funding.submit).not.toHaveBeenCalled();
+});
+
+it('request recovery review: cancellation stops deferred provisioning before any new child preparation', async () => {
+  const entered = deferred<void>(), release = deferred<void>();
+  const prepare = fakes.wallets.prepare.getMockImplementation()!;
+  fakes.wallets.prepare.mockImplementationOnce(async (...args) => { entered.resolve(); await release.promise; return prepare(...args); });
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const pending = start(); await entered.promise; await vi.advanceTimersByTimeAsync(10_001);
+  const admitted = await pending;
+  await service.cancel(uid, admitted.id);
+  release.resolve(); vi.useRealTimers(); await fakes.jobs.drain(1000);
+  expect(await service.get(uid, admitted.id)).toMatchObject({ stage: 'cancelled', consent: null, issue: null });
+  expect(fakes.agents.prepareForSetup).not.toHaveBeenCalled();
+  expect(fakes.funding.reserve).not.toHaveBeenCalled();
+});
+
+it('request recovery review: an old driver failure cannot overwrite an already cancelled terminal setup', async () => {
+  const prepared = await start(); await service.confirm(uid, prepared.id, await sign(prepared.consent!)); await credit(); later(5000);
+  const entered = deferred<void>(), release = deferred<void>();
+  fakes.modes.submit.mockImplementationOnce(async () => { entered.resolve(); await release.promise; return { ...mode, submissionState: 'rejected' }; });
+  const old = service.tick(); await entered.promise;
+  await db.update(copyLiveSetups).set({ leaseUntil: new Date(Date.now() - 1000) }).where(eq(copyLiveSetups.id, prepared.id));
+  later(86_400_000); await service.tick();
+  expect((await service.get(uid, prepared.id)).stage).toBe('expired');
+  await service.cancel(uid, prepared.id);
+  release.resolve(); await old;
+  expect((await service.get(uid, prepared.id)).stage).toBe('cancelled');
+});
+
+it('request recovery review: cancel checks deposit admission under the same user lock as beginSubmit', async () => {
+  const prepared = await start(), fundingRows = new CopyFundingRepository(db);
+  const entered = deferred<void>(), release = deferred<void>();
+  const original = CopyLiveMandateRepository.prototype.lock;
+  const spy = vi.spyOn(CopyLiveMandateRepository.prototype, 'lock').mockImplementationOnce(async function(this: CopyLiveMandateRepository, ...args: Parameters<typeof original>) {
+    entered.resolve(); await release.promise; return original.call(this, ...args);
+  });
+  const cancelling = service.cancel(uid, prepared.id).catch(error => error);
+  await entered.promise;
+  await fundingRows.claim(uid, prepared.consent!.fundingOperationId);
+  await fundingRows.beginSubmit(uid, prepared.consent!.fundingOperationId);
+  release.resolve(); const result = await cancelling; spy.mockRestore();
+  expect(result).toMatchObject({ status: 409, response: { code: 'funding_pending' } });
+  expect((await service.get(uid, prepared.id)).stage).toBe('awaiting_consent');
+  expect(fakes.funding.submit).not.toHaveBeenCalled();
+});
+
+
+it('request recovery review: a slow explicit retry cannot reuse the previous unsent funding evidence', async () => {
+  const prepared = await start(), signatures = await sign(prepared.consent!);
+  const rows = new CopyFundingRepository(db);
+  const submit = fakes.funding.submit.getMockImplementation()!;
+  fakes.funding.submit.mockImplementationOnce(async (userId, id) => {
+    await rows.restoreUnsent(userId, id);
+    return fundingWire(await rows.find(userId, id));
+  });
+  expect(await service.confirm(uid, prepared.id, signatures)).toMatchObject({ stage: 'awaiting_consent', issue: 'funding_not_submitted' });
+  const entered = deferred<void>(), release = deferred<void>();
+  fakes.funding.submit.mockImplementationOnce(async (...args) => {
+    entered.resolve(); await release.promise; return submit(...args);
+  });
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  let answer: Awaited<ReturnType<typeof start>> | undefined;
+  const pending = service.confirm(uid, prepared.id, signatures).then(value => { answer = value; return value; });
+  await entered.promise; await vi.advanceTimersByTimeAsync(10_001);
+  for (let i = 0; i < 50 && !answer; i++) await yieldIo(10);
+  const early = answer;
+  release.resolve(); await pending; vi.useRealTimers();
+  await vi.waitFor(async () => expect((await service.get(uid, prepared.id)).stage).toBe('funding_submitted'));
+  expect(early).toMatchObject({ id: prepared.id, stage: 'awaiting_consent', issue: null });
+  expect(await db.select().from(copyFundingOperations)).toHaveLength(1);
+  expect(fakes.funding.submit).toHaveBeenCalledTimes(2);
 });

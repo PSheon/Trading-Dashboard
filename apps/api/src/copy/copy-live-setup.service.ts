@@ -31,8 +31,8 @@ const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(va
 const LEASE_MS = 60_000;
 /** How long after its setup ended an approval left unknown is still looked at. */
 const ABANDONED_APPROVAL_WINDOW_MS = 3 * 86_400_000;
-/** How long /advance waits for its drive before answering with the row. */
-const ADVANCE_ANSWER_MS = 10_000;
+/** Long setup work answers with its durable row before the HTTP deadline. */
+const SETUP_ANSWER_MS = 10_000;
 const THROTTLED_STAGES: readonly SetupStage[] = ['funded', 'mode_set', 'agent_active'];
 /** Every step after confirm is signed by the worker under the owner's Privy
  * policy (the one signing model, 2026-10-07), with exactly the payload the
@@ -120,6 +120,15 @@ export class CopyLiveSetupService {
       setupDeadline: row.setupDeadline?.toISOString() ?? null, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() });
   }
   async get(userId: number, id: string) { await this.repository.owner(userId); return this.wire(await this.repository.find(userId, id)); }
+  /** Read the original admission only: never provisions, renews consent or signs. */
+  async recover(userId: number, key: string) {
+    input(copyIdempotencyKeySchema, key);
+    await this.repository.owner(userId);
+    const row = await this.repository.byKey(userId, key);
+    const strategy = row ? await this.repository.strategy(row.strategyId) : null;
+    if (!row || !strategy || strategy.userId !== userId || strategy.network !== this.network) throw new NotFoundException('Setup not found');
+    return this.wire(row);
+  }
   async list(userId: number) {
     await this.repository.owner(userId);
     return { items: await Promise.all((await this.repository.list(userId)).map(row => this.wire(row))) };
@@ -151,9 +160,11 @@ export class CopyLiveSetupService {
           leaderAddress: request.leader, sourceNetwork: request.sourceNetwork, budgetUsd: request.budgetUsd, settings: request.settings });
       });
     }
+    const strategy = await this.repository.strategy(row.strategyId);
+    if (!strategy || strategy.userId !== userId || strategy.network !== this.network) throw new NotFoundException('Setup not found');
     if (row.kind !== 'start' || row.leaderAddress !== request.leader || row.budgetUsd !== request.budgetUsd || row.sourceNetwork !== request.sourceNetwork ||
       liveCopySettingsDigest(row.settings) !== liveCopySettingsDigest(request.settings)) throw new ConflictException('Idempotency payload changed');
-    if (row.stage === 'provisioning' || row.stage === 'awaiting_consent') row = await this.provision(row);
+    if (row.stage === 'provisioning' || row.stage === 'awaiting_consent') return this.answer(row, () => this.provisionLeased(row!.id));
     return this.wire(row);
   }
 
@@ -161,16 +172,30 @@ export class CopyLiveSetupService {
    * wallet, the agent (policy + wallet, ready), the deposit reservation and
    * the worker's policy; then the consent challenge. No challenge without the
    * policy: the worker signs every step after confirm. */
+  private async provisionLeased(id: string): Promise<SetupRow> {
+    const row = await this.repository.lease(id, LEASE_MS);
+    if (!row) return (await this.repository.get(id))!;
+    try {
+      if (row.kind !== 'start' || !['provisioning', 'awaiting_consent'].includes(row.stage)) return row;
+      return await this.provision(row);
+    } finally { await this.repository.release(id, row.leaseToken); }
+  }
   private async provision(original: SetupRow): Promise<SetupRow> {
     let row = original;
     const userId = row.userId;
     if (row.stage === 'awaiting_consent' && row.consentExpiresAt && row.consentExpiresAt.getTime() > this.now() + 30_000) return row;
-    const step = async (changes: Partial<SetupRow>) => { row = (await this.repository.transition(row, changes)) ?? await this.repository.find(userId, row.id); };
+    const step = async (changes: Partial<SetupRow>) => {
+      const next = await this.repository.transition(row, changes);
+      row = next ?? await this.repository.find(userId, row.id);
+      // A cancelled/superseded revision is never adopted as authority to
+      // prepare another child or renew its consent challenge.
+      return Boolean(next);
+    };
     try {
       // 1. The copy wallet (one per strategy).
       if (!row.accountId) {
         const account = await this.wallets.prepare(userId, row.strategyId, { network: this.network });
-        await step({ accountId: account.id });
+        if (!await step({ accountId: account.id })) return row;
       }
       const account = await this.wallets.reconcile(userId, row.accountId!);
       if (account.state === 'blocked') throw new Fail('setup_wallet_conflict');
@@ -178,7 +203,7 @@ export class CopyLiveSetupService {
       // 2. The agent, ready to approve (no exchange call).
       if (!row.agentSetupId) {
         const agent = await this.agents.prepareForSetup(userId, row.accountId!, `setup:${row.id}`, row.id, LIVE_SETUP_VALID_DAYS);
-        await step({ agentSetupId: agent.id });
+        if (!await step({ agentSetupId: agent.id })) return row;
       }
       let agent = await this.agents.row(userId, row.agentSetupId!);
       if (agent.state !== 'ready') { await this.agents.reconcile(userId, agent.id); agent = await this.agents.row(userId, agent.id); }
@@ -195,7 +220,7 @@ export class CopyLiveSetupService {
         const reserved = await this.funding.reserve(userId, row.accountId!, { idempotencyKey: randomUUID(), amount: row.budgetUsd });
         await this.repository.tagFunding(reserved.id, row.id);
         deposit = await this.fundingRows.find(userId, reserved.id);
-        await step({ fundingOperationId: deposit.id });
+        if (!await step({ fundingOperationId: deposit.id })) return row;
       }
       // 4. The worker's policy (owned by the owner), bound into the consent.
       const agentBinding = { address: agent.agentAddress, name: liveSetupAgentName({ strategyId: row.strategyId, agentValidUntil: agent.expiresAt.getTime() }) };
@@ -211,7 +236,7 @@ export class CopyLiveSetupService {
       if (error instanceof Fail) { await step({ stage: 'failed', issue: error.issue }); return row; }
       if (error instanceof HttpException) {
         const response = error.getResponse(), code = typeof response === 'object' && response && 'code' in response && typeof response.code === 'string' ? response.code : null;
-        await step({ issue: code ?? 'setup_preparation_pending' });
+        if (!await step({ issue: code ?? 'setup_preparation_pending' })) return row;
         throw error;
       }
       this.logger.warn(`setup ${row.id} preparation kept for a retry: ${safeErrorText(error)}`);
@@ -347,10 +372,29 @@ export class CopyLiveSetupService {
    * its consent lasts. */
   async confirm(userId: number, id: string, body: unknown): Promise<LiveCopySetup> {
     const request = input(confirmLiveCopySetupSchema, body); this.available();
-    // Only a listed owner confirms (and deposits into) an actual copy (security review).
+    // Admission stays authenticated; only provider work leaves the request.
     this.mandates.assertAllowed((await this.repository.owner(userId)).privyUserId);
-    let row = await this.repository.find(userId, id);
-    if (row.stage !== 'awaiting_consent') return this.wire(row);
+    const original = await this.repository.find(userId, id);
+    if (original.stage !== 'awaiting_consent') return this.wire(original);
+    return this.answer(original, async () => {
+      const leased = await this.repository.lease(id, LEASE_MS);
+      if (!leased) return this.repository.find(userId, id);
+      let row: SetupRow;
+      try { row = leased.stage === 'awaiting_consent' ? await this.confirmLeased(leased, request) : leased; }
+      finally { await this.repository.release(id, leased.leaseToken); }
+      return this.drive(row.id, await this.workerPolicySigner(row));
+    });
+  }
+  private async confirmLeased(original: SetupRow, request: z.infer<typeof confirmLiveCopySetupSchema>): Promise<SetupRow> {
+    const userId = original.userId, id = original.id;
+    let row = original;
+    // A new explicit confirmation has its own uncertain outcome. Previous
+    // evidence that nothing was sent must not describe this in-flight attempt.
+    if (row.issue === 'funding_not_submitted') {
+      const admitted = await this.repository.transition(row, { issue: null });
+      if (!admitted) return this.repository.find(userId, id);
+      row = admitted;
+    }
     const parsed = liveCopySetupIntentSchema.safeParse(row.intent);
     if (!parsed.success || digest(parsed.data) !== row.intentDigest) throw new ConflictException('Setup binding changed');
     const intent = parsed.data, now = this.now();
@@ -380,14 +424,14 @@ export class CopyLiveSetupService {
       const deposit = await this.fundingRows.find(userId, submitted.id);
       if (!deposit.attemptedAt) {
         // Not sent (busy or refused before the POST): the consent stays due.
-        return this.wire((await this.repository.transition(row, { issue: 'funding_not_submitted' })) ?? row);
+        return (await this.repository.transition(row, { issue: 'funding_not_submitted' })) ?? row;
       }
       row = (await this.repository.transition(row, { ...confirmed, stage: deposit.status === 'rejected' ? 'failed' : 'funding_submitted', ...(deposit.status === 'rejected' ? { issue: 'setup_funding_rejected' } : {}) }))
         ?? await this.repository.find(userId, id);
     } else {
       row = (await this.repository.transition(row, { ...confirmed, stage: 'consented' })) ?? await this.repository.find(userId, id);
     }
-    return this.wire(await this.drive(row.id, await this.workerPolicySigner(row)));
+    return row;
   }
   /** Everything the consent bound is still what the rows say. */
   private async assertBinding(row: SetupRow, intent: LiveCopySetupIntent) {
@@ -415,24 +459,26 @@ export class CopyLiveSetupService {
   async advance(userId: number, id: string, body: unknown = {}): Promise<LiveCopySetup> {
     if (!advanceSchema.safeParse(body ?? {}).success) throw new BadRequestException({ statusCode: 400, code: 'setup_advance_takes_no_signature', message: 'The worker signs every step; send no body' });
     const row = await this.repository.find(userId, id);
-    if (row.fundingOperationId && row.stage === 'funding_submitted') {
-      // Only a read: a failed look leaves the deposit for the monitor's next one.
-      await this.funding.reconcile(userId, row.fundingOperationId).catch((error: unknown) => this.logger.warn(`setup ${row.id} deposit not reconciled: ${safeErrorText(error)}`));
-    }
     if (!DRIVEN_STAGES.includes(row.stage)) return this.wire(row);
-    // A step that said when to come back (a pending observation, a busy
-    // Hyperliquid budget) is not run sooner.
-    if (THROTTLED_STAGES.includes(row.stage) && row.nextAttemptAt && row.nextAttemptAt.getTime() > this.now()) return this.wire(row);
-    // The drive runs outside this request (its lease keeps it single): a
-    // step can outlast the 20 s request deadline (budget waits, a POST and
-    // its reconcile), and must neither be cut off by the deadline nor answer
-    // with a 504 while it goes on. The caller gets the drive's result when
-    // it is quick, else the row as it is, and polls.
-    const driving = this.detached(async () => this.drive(row.id, await this.workerPolicySigner(row)));
+    return this.answer(row, async () => {
+      if (row.fundingOperationId && row.stage === 'funding_submitted') {
+        // Reconciliation can wait for provider budget too: it belongs to
+        // the detached lifecycle, not the request's deadline.
+        await this.funding.reconcile(userId, row.fundingOperationId).catch((error: unknown) => this.logger.warn(`setup ${row.id} deposit not reconciled: ${safeErrorText(error)}`));
+      }
+      if (THROTTLED_STAGES.includes(row.stage) && row.nextAttemptAt && row.nextAttemptAt.getTime() > this.now()) return row;
+      return this.drive(row.id, await this.workerPolicySigner(row));
+    });
+  }
+  /** Quick work returns its result; slow work keeps the same id outside the
+   * request and answers once with its current row. Fast validation errors
+   * retain their existing HTTP contract. */
+  private async answer(row: SetupRow, work: () => Promise<SetupRow>): Promise<LiveCopySetup> {
+    const running = this.detached(work);
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const driven = await Promise.race([driving.catch(() => null),
-      new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), ADVANCE_ANSWER_MS); })]).finally(() => clearTimeout(timer));
-    return this.wire(driven ?? await this.repository.find(userId, id));
+    const result = await Promise.race([running,
+      new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), SETUP_ANSWER_MS); })]).finally(() => clearTimeout(timer));
+    return this.wire(result ?? await this.repository.find(row.userId, row.id));
   }
   /** Work that outlives the request that started it (drained on shutdown). */
   private detached<T>(work: () => Promise<T>): Promise<T> {
@@ -449,16 +495,15 @@ export class CopyLiveSetupService {
    * (the deposit sent, a step in flight) can't be cancelled.
    */
   async cancel(userId: number, id: string): Promise<LiveCopySetup> {
-    const row = await this.repository.find(userId, id);
-    if (row.stage === 'cancelled') return this.wire(row);
-    const unconfirmed = ['provisioning', 'awaiting_consent'].includes(row.stage), ended = ['failed', 'expired'].includes(row.stage);
-    if (!unconfirmed && !ended) throw new ConflictException({ statusCode: 409, code: 'funding_pending', message: 'The deposit was already sent' });
-    if (unconfirmed && row.fundingOperationId) {
-      const deposit = await this.fundingRows.find(userId, row.fundingOperationId);
-      if (deposit.attemptedAt) throw new ConflictException({ statusCode: 409, code: 'funding_pending', message: 'The deposit was already sent' });
-    }
     const next = await this.uow.run(async tx => {
-      if (row.kind === 'start') await this.mandates.lock(tx, userId);
+      // The same fence as funding.beginSubmit: check attempt admission after
+      // acquiring it, not on a stale row before waiting for the lock.
+      await this.mandates.lock(tx, userId);
+      const row = await this.repository.find(userId, id, tx);
+      if (row.stage === 'cancelled') return row;
+      const unconfirmed = ['provisioning', 'awaiting_consent'].includes(row.stage), ended = ['failed', 'expired'].includes(row.stage);
+      if (!unconfirmed && !ended || unconfirmed && row.fundingOperationId && await this.repository.fundingAttempted(userId, row.fundingOperationId, tx))
+        throw new ConflictException({ statusCode: 409, code: 'funding_pending', message: 'The deposit was already sent' });
       const updated = await this.repository.transition(row, { stage: 'cancelled', nextAttemptAt: null, ...(unconfirmed ? { issue: null } : {}) }, tx);
       if (!updated) throw new ConflictException({ statusCode: 409, code: 'setup_changed', message: 'The setup changed; refresh it' });
       if (row.kind === 'start') await this.repository.endStart(tx, userId, row);
@@ -482,7 +527,7 @@ export class CopyLiveSetupService {
   async tick(): Promise<number> {
     let worked = 0;
     for (const row of await this.repository.open(new Date(this.now()), this.network)) {
-      try { await this.drive(row.id, await this.workerPolicySigner(row)); worked++; }
+      try { if (row.stage === 'provisioning') await this.provisionLeased(row.id); else await this.drive(row.id, await this.workerPolicySigner(row)); worked++; }
       catch (error) { this.logger.warn(`setup ${row.id} kept for the next pass: ${safeErrorText(error)}`); }
     }
     await this.reconcileAbandonedApprovals();
@@ -528,6 +573,9 @@ export class CopyLiveSetupService {
         catch (error) {
           // A step may have recorded a child id on the row: work on the latest.
           row = (await this.repository.get(id)) ?? row;
+          // Another driver/cancellation may have ended it while I/O was in
+          // flight. A late failure cannot overwrite that terminal outcome.
+          if (!DRIVEN_STAGES.includes(row.stage)) break;
           if (error instanceof Wait) { row = (await this.repository.transition(row, { issue: error.issue, nextAttemptAt: new Date(this.now() + error.retryMs) })) ?? row; break; }
           // Hyperliquid weight not available yet: nothing was read or sent.
           // Come back when it is (the shared per-IP window: no sooner than 65 s).

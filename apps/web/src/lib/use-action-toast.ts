@@ -36,23 +36,29 @@ export function useActionToast() {
   const toast = useToast(), t = useT();
   return useCallback(<T,>(work: Promise<T>, options: ActionToastOptions<T> = {}): Promise<T | undefined> => {
     let pendingId: number | null = null;
+    let replacedPending = false;
     const timer = setTimeout(() => { pendingId = toast.info(options.pending ?? t("toast.working"), { autoClose: false, icon: false }); }, ACTION_PENDING_AFTER_MS);
-    const settle = () => { clearTimeout(timer); if (pendingId !== null) toast.dismiss(pendingId); };
+    const settle = () => { clearTimeout(timer); };
     return work.then(
       (result) => {
         settle();
         const line = typeof options.success === "function" ? options.success(result) : options.success;
-        if (line) toast.success(line);
+        if (line) { toast.success(line, pendingId === null ? undefined : { id: pendingId }); replacedPending = true; }
         options.onSuccess?.(result);
         return result;
       },
       (error: unknown) => {
         settle();
-        toast.error(options.error ? options.error(error) : t(apiErrorKey(error as { status?: number })));
+        toast.error(options.error ? options.error(error) : t(apiErrorKey(error as { status?: number })), pendingId === null ? undefined : { id: pendingId });
+        replacedPending = true;
         options.onError?.(error);
         return undefined;
       },
-    );
+    ).finally(() => {
+      // A formatter/callback exception remains a programming error; it must
+      // neither invent an operation failure nor strand an infinite notice.
+      if (pendingId !== null && !replacedPending) toast.dismiss(pendingId);
+    });
   }, [toast, t]);
 }
 
@@ -79,8 +85,14 @@ export function usePendingToast() {
  */
 export function useSaveToast() {
   const toast = useToast(), t = useT();
-  return useCallback(<T,>(extra: { onSuccess?: (data: T) => void; onError?: (error: unknown) => void; success?: string } = {}) => ({
+  return useCallback(<T,>(extra: {
+    onSuccess?: (data: T) => void;
+    onError?: (error: unknown) => void;
+    success?: string;
+    /** The form already presents a recoverable inline error. */
+    error?: false;
+  } = {}) => ({
     onSuccess: (data: T) => { toast.success(extra.success ?? t("toast.saved")); extra.onSuccess?.(data); },
-    onError: (error: unknown) => { toast.error(t(apiErrorKey(error as { status?: number }))); extra.onError?.(error); },
+    onError: (error: unknown) => { if (extra.error !== false) toast.error(t(apiErrorKey(error as { status?: number }))); extra.onError?.(error); },
   }), [toast, t]);
 }

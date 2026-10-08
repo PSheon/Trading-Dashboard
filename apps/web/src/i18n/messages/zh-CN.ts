@@ -2,6 +2,7 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const zhCN: Messages = {
+  liveCopyUi: en.liveCopyUi,
   referral: {
     policyInactive: "奖励政策未启用。显示的条款不代表目前有获得奖励的资格。",
     invalidCode: "邀请码无法使用",
@@ -859,6 +860,7 @@ export const zhCN: Messages = {
       computing: "计算中…",
     },
     chart: {
+      unitLabel: "显示单位",
       perp: "永续",
       all: "永续+现货",
       pnl: "盈亏",
@@ -939,6 +941,7 @@ export const zhCN: Messages = {
     transfersWindow: "近 90 天",
     transfersTruncated: "高频账户：仅显示 {date} 以来最新 {count} 笔",
     activity: {
+      partialData: "部分动态无法加载，已取得的记录仍会保留。",
       title: "近期动态",
       live: "实时",
       pulse: "实时动态",
@@ -1207,6 +1210,9 @@ export const zhCN: Messages = {
         failed: "加仓失败",
       },
       order: {
+        riskRefused: "风控未执行",
+        unknownReason: "原因尚未确认",
+        smallCloseHint: "实际跟单：减仓金额低于最小下单金额时，可能扩大减仓或改为全平仓。请以实际成交数量为准。",
         time: "时间",
         coin: "币种",
         side: "方向",
@@ -1327,6 +1333,8 @@ export const zhCN: Messages = {
   insights: {
     title: "洞察",
     cohort: {
+      sortAscending: "按升序排序",
+      sortDescending: "按降序排序",
       membershipChanged: "图表空隙表示群组成员已变更。",
       bannerTitle: "Hyperliquid 聪明钱的多空配置",
       tierLabel: "分层",
@@ -1719,7 +1727,7 @@ export const zhCN: Messages = {
     },
   },
   mode: {
-    unavailable: "此部署尚未启用",
+    unavailable: "此模式暂未开放",
     busy: "请先完成当前操作再切换模式",
     label: "模式",
     paper: "模拟",

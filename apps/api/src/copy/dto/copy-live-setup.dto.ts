@@ -7,6 +7,9 @@ export class LiveSetupIdDto {
   @ApiProperty({ type: String, format: 'uuid', description: 'Setup id' })
   @IsUUID() declare id: string;
 }
+export class LiveSetupKeyDto {
+  @ApiProperty({ type: String, minLength: 16, maxLength: 128 }) @IsString() @Matches(/^[A-Za-z0-9_-]{16,128}$/) declare key: string;
+}
 export class StartLiveCopyDto {
   @ApiProperty({ type: String, minLength: 16, maxLength: 128 }) @IsString() @Matches(/^[A-Za-z0-9_-]{16,128}$/) declare idempotencyKey: string;
   @ApiProperty({ type: String, pattern: '^0x[0-9a-f]{40}$' }) @IsString() @Matches(/^0x[0-9a-f]{40}$/) declare leader: string;

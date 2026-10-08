@@ -1,0 +1,20 @@
+/* Match Orbie's 480px phone breakpoint rather than Sonner's 600px default. */
+.orbie-toaster[data-sonner-toaster] {
+  width: 320px;
+  pointer-events: auto;
+}
+.orbie-toaster[data-sonner-toaster] [data-sonner-toast] {
+  width: 100%;
+}
+@media (min-width: 481px) and (max-width: 600px) {
+  .orbie-toaster[data-sonner-toaster] {
+    left: 16px;
+    right: auto;
+    bottom: 16px;
+  }
+}
+@media (max-width: 480px) {
+  .orbie-toaster[data-sonner-toaster] {
+    width: calc(100vw - 16px);
+  }
+}

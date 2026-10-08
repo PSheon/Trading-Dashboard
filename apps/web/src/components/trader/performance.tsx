@@ -232,7 +232,7 @@ export function KpiTiles({
     <DropdownMenu>
       <DropdownMenuTrigger
         aria-label={t("trader.kpi.period")}
-        className="group inline-flex items-center gap-[3px] rounded-full px-2 py-0.5 text-xs leading-4 font-extrabold outline-none hover:bg-black/5 focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-black/5"
+        className="group inline-flex min-h-11 items-center gap-[3px] rounded-full px-2 py-0.5 text-sm leading-4 font-extrabold outline-none hover:bg-black/5 focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-black/5 md:min-h-0 md:text-xs"
       >
         {t(KPI_PERIODS.find(([p]) => p === period)![1])}
         <ChevronDown className="size-[11px] transition-transform group-data-[state=open]:rotate-180" aria-hidden />
@@ -241,7 +241,7 @@ export function KpiTiles({
       <DropdownMenuContent sideOffset={4} className="min-w-[var(--radix-dropdown-menu-trigger-width)] rounded-lg p-1">
         <DropdownMenuRadioGroup value={period} onValueChange={(v) => onPeriod(v as KpiPeriod)}>
           {KPI_PERIODS.map(([p, label]) => (
-            <DropdownMenuRadioItem key={p} value={p} className="rounded-md px-2 py-1.5 text-[11px] font-semibold">
+            <DropdownMenuRadioItem key={p} value={p} className="min-h-11 rounded-md px-2 py-1.5 text-sm font-semibold md:min-h-0 md:text-[13px]">
               {t(label)}
             </DropdownMenuRadioItem>
           ))}
@@ -331,10 +331,10 @@ export function KpiTiles({
 
 /** Orbit's capsule toggle inside the raised chart panel: a page-coloured
  * track, the active choice the orange pill. */
-function TextSeg<T extends string>({ value, onChange, options }: { value: T; onChange: (value: T) => void; options: Array<{ value: T; label: React.ReactNode }> }) {
+function TextSeg<T extends string>({ label, value, onChange, options }: { label: string; value: T; onChange: (value: T) => void; options: Array<{ value: T; label: React.ReactNode }> }) {
   const [trackRef, pill] = useSlidingIndicator<HTMLDivElement>(value);
   return (
-    <div ref={trackRef} role="radiogroup" className="relative flex items-center gap-0.5 rounded-full bg-background p-1">
+    <div ref={trackRef} role="radiogroup" aria-label={label} className="relative flex items-center gap-0.5 rounded-full bg-background p-1">
       {pill ? (
         <span aria-hidden className="absolute rounded-full bg-primary transition-[left,top,width] duration-300 ease-(--ease-orbit) motion-reduce:transition-none" style={{ left: pill.left, top: pill.top, width: pill.width, height: pill.height }} />
       ) : null}
@@ -351,7 +351,7 @@ function TextSeg<T extends string>({ value, onChange, options }: { value: T; onC
             onKeyDown={rovingFocus}
             onClick={() => onChange(option.value)}
             className={cn(
-              "relative h-9 rounded-full px-3 text-[13px] whitespace-nowrap outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
+              "relative h-11 rounded-full px-3 text-sm whitespace-nowrap outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring md:h-9 md:text-[13px]",
               active ? cn("font-extrabold text-primary-foreground", !pill && "bg-primary") : "font-bold text-muted-foreground hover:text-foreground",
             )}
           >
@@ -457,7 +457,7 @@ export function PerformanceChart({
                 }}
                 aria-pressed={active}
                 className={cn(
-                  "h-10 rounded-full px-3.5 text-sm whitespace-nowrap outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
+                  "h-11 rounded-full px-3.5 text-sm whitespace-nowrap outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring md:h-10",
                   active ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground hover:text-foreground",
                 )}
               >
@@ -468,6 +468,7 @@ export function PerformanceChart({
         </div>
         {calendar ? (
           <TextSeg
+            label={t("trader.chart.unitLabel")}
             value={calendarUnit}
             onChange={setCalendarUnit}
             options={[
@@ -478,6 +479,7 @@ export function PerformanceChart({
         ) : (
           <div className="flex flex-wrap items-center gap-2">
             <TextSeg
+              label={t("pf.chart.metric")}
               value={mode}
               onChange={onMode}
               options={[
@@ -486,11 +488,13 @@ export function PerformanceChart({
               ]}
             />
             <TextSeg
+              label={t("trader.kpi.period")}
               value={window}
               onChange={onWindow}
               options={WINDOWS.map((w) => ({ value: w, label: t(`windows.${w}`) }))}
             />
             <TextSeg
+              label={t("trader.chart.unitLabel")}
               value={unit}
               onChange={onUnit}
               options={[

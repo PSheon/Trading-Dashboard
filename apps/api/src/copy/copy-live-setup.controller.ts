@@ -3,7 +3,7 @@ import { CurrentUser, requireUserId, type RequestUser } from '../common/auth/cur
 import { ApiDoc } from '../common/decorators/http.decorator.js';
 import { BusyFilter } from '../traders/busy.js';
 import { CopyStrategyParamsDto } from './dto/copy.dto.js';
-import { AdvanceLiveCopySetupDto, ConfirmLiveCopySetupDto, EditLiveCopyDto, LiveSetupIdDto, RenewLiveCopyDto, StartLiveCopyDto } from './dto/copy-live-setup.dto.js';
+import { AdvanceLiveCopySetupDto, ConfirmLiveCopySetupDto, EditLiveCopyDto, LiveSetupIdDto, LiveSetupKeyDto, RenewLiveCopyDto, StartLiveCopyDto } from './dto/copy-live-setup.dto.js';
 import { CopyLiveSetupService } from './copy-live-setup.service.js';
 
 /** One-click testnet copy (docs/one-click-copy-plan-2026-10-05.md §3a). */
@@ -11,10 +11,12 @@ import { CopyLiveSetupService } from './copy-live-setup.service.js';
 @UseFilters(BusyFilter)
 export class CopyLiveSetupController {
   constructor(private readonly setups: CopyLiveSetupService) {}
-  @Post('setups') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Start a one-click testnet copy', 'Idempotent by key: prepares the paused strategy, copy wallet, agent and deposit with no exchange call, then returns the one consent challenge. A retry continues preparation and renews an expired challenge.')
+  @Post('setups') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Start a one-click testnet copy', 'Idempotent by key: admits one original setup and prepares its paused strategy, wallet, agent and deposit in tracked background work. Quick preparation returns the consent; slow preparation returns its original id within ten seconds for read-only polling. No exchange call before confirmation.')
   start(@CurrentUser() user: RequestUser | null, @Body() body: StartLiveCopyDto) { return this.setups.start(requireUserId(user), body); }
   @Get('setups') @Header('Cache-Control', 'no-store') @ApiDoc('List my one-click setups')
   list(@CurrentUser() user: RequestUser | null) { return this.setups.list(requireUserId(user)); }
+  @Get('setups/by-key/:key') @Header('Cache-Control', 'no-store') @ApiDoc('Recover an original setup request', 'Read-only lookup by the original request key, scoped to its owner and this deployment network; never renews consent or submits funds.')
+  recover(@CurrentUser() user: RequestUser | null, @Param() params: LiveSetupKeyDto) { return this.setups.recover(requireUserId(user), params.key); }
   @Get('setups/:id') @Header('Cache-Control', 'no-store') @ApiDoc('Read one setup (the progress dialog polls it)')
   get(@CurrentUser() user: RequestUser | null, @Param() params: LiveSetupIdDto) { return this.setups.get(requireUserId(user), params.id); }
   @Post('setups/:id/confirm') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Confirm with the setup consent and the deposit signature', "Records the worker signer my browser added to the copy account (Privy addSigners), verifies the consent once, submits the deposit once, then runs what it can. Without the worker signer nothing is deposited: 409 worker_signer_missing (confirm again once it is added, while the consent lasts).")

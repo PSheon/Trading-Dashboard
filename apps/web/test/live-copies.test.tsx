@@ -68,10 +68,10 @@ it('lists each testnet copy with its stage, balances and positions, and nothing 
   await act(async () => { await client.invalidateQueries(); }); await settle();
   // Two lines per card: name and status; PnL (equity less the budget) and ROI.
   expect(cards()).toHaveLength(2);
-  expect(cards()[0]!.textContent).toContain('Copying'); expect(cards()[0]!.textContent).toContain('-$2.50'); expect(cards()[0]!.textContent).toContain('2.5%');
+  expect(cards()[0]!.textContent).toContain('Strategy enabled'); expect(cards()[0]!.textContent).toContain('-$2.50'); expect(cards()[0]!.textContent).toContain('2.5%');
   expect(cards()[1]!.textContent).toContain('Setting up');
   await openCard(0);
-  expect(detail()!.textContent).toContain('Active'); expect(detail()!.textContent).toContain('$97.50'); expect(detail()!.textContent).toContain('BTC');
+  expect(detail()!.textContent).toContain('Strategy enabled'); expect(detail()!.textContent).toContain('$97.50'); expect(detail()!.textContent).toContain('BTC');
   await act(async () => { (document.querySelector('[role="dialog"] button[aria-label="Close"]') as HTMLButtonElement).click(); }); await settle();
   await openCard(1);
   expect(detail()!.textContent).toContain('Needs deposit'); expect(detail()!.textContent).toContain('Deposit USDC from your main wallet');
@@ -175,7 +175,7 @@ it.each(LOCALES)('renders every stage in %s', async locale => {
   expect(container.textContent).toContain(catalogs[locale].folio.ended.replace('{count}', '1'));
   for (const [i, key] of keys.entries()) {
     await openCard(i);
-    expect(detail()!.textContent, key).toContain(stages[key]);
+    expect(detail()!.textContent, key).toContain(key === 'active' ? catalogs[locale].liveCopyUi.enabled : stages[key]);
     await act(async () => { (document.querySelector('[role="dialog"] button[aria-label]') as HTMLButtonElement).click(); }); await settle();
   }
 });
@@ -323,7 +323,7 @@ it('every action ends in a toast: success, or the failure in words with no raw c
   const { ApiError } = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
   await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale="zh-TW" messages={catalogs['zh-TW']}><ToastProvider><LiveCopies /></ToastProvider></I18nProvider></QueryClientProvider>));
   await settle(); await openCard(0);
-  const toasts = () => [...document.querySelectorAll('[data-testid="toasts"] [role="alert"]')].map(el => ({ type: el.getAttribute('data-type'), text: el.textContent }));
+  const toasts = () => [...document.querySelectorAll('[data-testid="toasts"] [role="status"][data-type]')].map(el => ({ type: el.getAttribute('data-type'), text: el.textContent }));
   state.post.mockResolvedValueOnce({ id: '33333333-3333-4333-8333-333333333333', accountId: liveAccount.id, strategyId: liveAccount.strategyId, coin: 'BTC', state: 'requested', reason: null, orders: 0,
     createdAt: new Date(liveNow).toISOString(), updatedAt: new Date(liveNow).toISOString() });
   await act(async () => button('平倉').click()); await settle();
@@ -355,16 +355,16 @@ it('a mainnet copy\'s sheet never says 測試網: its own hint, the price refusa
     : path.startsWith('/me/funds/history') ? { items: funds, nextCursor: null } : null);
   await render('zh-TW');
   expect(detail()!.textContent).not.toContain('測試網');
-  expect(detail()!.textContent).toContain('正在 Hyperliquid 以真實資金跟隨交易員的交易。');
+  expect(detail()!.textContent).toContain(catalogs['zh-TW'].liveCopyUi.enabledHint);
   expect(detail()!.textContent).toContain('最近略過的訊號：價格與交易員成交價差距過大');
-  // A testnet copy keeps its network's words.
+  // A testnet copy also distinguishes authorization from verified execution.
   await act(async () => root.unmount()); root = createRoot(container);
   items = [item({ network: 'testnet' })];
   state.get.mockImplementation(async (path: string) => path === '/me/copy/live/portfolio' ? { network: 'testnet', automaticExecution: true, items }
     : path.startsWith('/me/funds/history') ? { items: funds, nextCursor: null } : null);
   await render('zh-TW');
-  expect(detail()!.textContent).toContain(liveCopiesMessages['zh-TW'].hints.active);
-  expect(liveCopiesMessages['zh-TW'].hints.active).toContain('測試網');
+  expect(detail()!.textContent).toContain(catalogs['zh-TW'].liveCopyUi.enabledHint);
+  expect(detail()!.textContent).toContain(catalogs['zh-TW'].liveCopyUi.executionUnknown);
   // The settings' referral hint and the delete-account texts are network-free.
   const zh = catalogs['zh-TW'];
   for (const line of [zh.referral.copyingHint, zh.deleteAccount.keptBody, zh.deleteAccount.blockers.copies_active]) expect(line).not.toContain('測試網');
@@ -375,7 +375,7 @@ it('a refused withdrawal says why once, in the confirm sheet (no toast too), and
   const { ApiError } = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
   await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale="zh-TW" messages={catalogs['zh-TW']}><ToastProvider><LiveCopies /></ToastProvider></I18nProvider></QueryClientProvider>));
   await settle(); await openCard(0);
-  const toasts = () => [...document.querySelectorAll('[data-testid="toasts"] [role="alert"]')].map(el => el.textContent);
+  const toasts = () => [...document.querySelectorAll('[data-testid="toasts"] [role="status"][data-type]')].map(el => el.textContent);
   state.post.mockRejectedValue(new ApiError(409, 'Conflict', { code: 'no_free_collateral' }));
   await act(async () => {
     const input = document.querySelector('input[name="withdraw"]') as HTMLInputElement;

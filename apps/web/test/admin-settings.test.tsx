@@ -6,6 +6,7 @@ import { expect, it, vi } from "vitest";
 import { adminSettingsSchema, type AdminSettingsSnapshot } from "@trading-dashboard/shared/contracts";
 import { ApiError, api } from "../src/lib/api";
 import { AdminSettingsForm } from "../src/components/admin/settings-form";
+import { ToastProvider } from "../src/components/ui/toast";
 import { settleQueries } from "./query-settle";
 vi.mock("@/lib/auth", () => ({ usePermission: () => true, useMe: () => ({ data: undefined }) }));
 vi.mock("@/i18n/provider", () => ({ useT: () => (key: string) => key, useI18n: () => ({ t: (key: string) => key, format: { num: String } }) }));
@@ -40,7 +41,7 @@ it("lists every pending change in one card, saves the touched sections together 
   const button = (text: string) => [...container.querySelectorAll("button")].find((b) => b.textContent === text)!;
   const changes = () => container.querySelector('[aria-label="admin.settings.changesTitle"]')?.textContent ?? "";
   try {
-    await act(async () => root.render(<QueryClientProvider client={client}><AdminSettingsForm /></QueryClientProvider>));
+    await act(async () => root.render(<QueryClientProvider client={client}><ToastProvider><AdminSettingsForm /></ToastProvider></QueryClientProvider>));
     // Deploy-time since 2026-10-05: no inputs for the pool size, weights or retention.
     expect(container.querySelector("#candidate-pool-size")).toBeNull();
     expect(container.querySelector("#pool-weight")).toBeNull();
@@ -72,6 +73,8 @@ it("lists every pending change in one card, saves the touched sections together 
     await flush();
     expect(patch.mock.calls[1]?.[1]).toEqual({ discovery: { hideVaults: false }, expectedRevisions: { discovery: rev(0) } });
     expect(container.textContent).toContain("admin.settings.conflict");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("admin.settings.conflict");
+    expect(container.querySelector('[data-testid="toasts"] [data-type="error"]')).toBeNull();
     expect(container.querySelector('[aria-label="admin.settings.discovery.hideVaults"]')?.getAttribute("aria-checked")).toBe("false");
     latest = { ...latest, discovery: { ...latest.discovery, lowSampleThreshold: 99 }, revisions: { ...latest.revisions, discovery: rev(2) } };
     await act(async () => button("admin.settings.reload").click());

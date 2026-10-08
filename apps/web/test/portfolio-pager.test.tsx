@@ -17,10 +17,12 @@ import type { CopyStrategyView } from "@/lib/contracts";
  */
 const idle = { mutate() {}, mutateAsync: async () => ({}), isPending: false, isError: false };
 const s = vi.hoisted(() => ({
+  desktop: true,
   ordersCalls: [] as Array<string | undefined>,
   events: [] as unknown[],
   loadOlder: (() => {}) as () => void,
 }));
+vi.mock("@/lib/use-is-desktop", () => ({ useIsDesktop: () => s.desktop }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh() {}, push() {} }), usePathname: () => "/zh-TW/portfolio", useSearchParams: () => new URLSearchParams() }));
 vi.mock("@/lib/copy", async () => ({ ...(await vi.importActual<typeof import("@/lib/copy")>("@/lib/copy")),
   useCopyCommand: () => idle, usePatchCopy: () => idle, useAddCopyFunds: () => idle, useWithdrawCopyFunds: () => ({ ...idle, pendingOperations: [] }),
@@ -39,7 +41,7 @@ vi.mock("@/components/copy/live-copy-setup-dialogs", () => ({ useCopyTexts: () =
 vi.mock("@/lib/site-mode", () => ({ useSiteMode: () => "paper", useTradingMode: () => ({ mode: "paper", select: () => false }) }));
 
 let root: Root, container: HTMLDivElement;
-beforeEach(() => { Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true }); s.ordersCalls = []; container = document.createElement("div"); document.body.append(container); root = createRoot(container); });
+beforeEach(() => { Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true }); s.desktop = true; s.ordersCalls = []; container = document.createElement("div"); document.body.append(container); root = createRoot(container); });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); document.body.replaceChildren(); });
 const render = (node: React.ReactNode) => act(async () => root.render(<I18nProvider locale="zh-TW" messages={catalogs["zh-TW"]}>{node}</I18nProvider>));
 const button = (scope: ParentNode, name: string) => [...scope.querySelectorAll<HTMLButtonElement>("[data-pager] button")].find((b) => b.textContent?.includes(name))!;
@@ -67,6 +69,26 @@ describe("模擬訂單", () => {
     expect(button(card, "下一頁").disabled).toBe(true);
     await act(async () => button(card, "上一頁").click());
     expect(s.ordersCalls.at(-1)).toBeUndefined();
+  });
+
+  it("keeps the same cursor page when mobile orders switch to the desktop table", async () => {
+    s.desktop = false;
+    const strategy = { ...base(), status: "active" as const } as CopyStrategyView;
+    const detail = <CopyDetail strategy={strategy} leader={{ address: strategy.leaderAddress, displayName: "Kinetiq", avatarUrl: null }} balance={1000} onBack={() => {}} />;
+    await render(detail);
+    const list = container.querySelector('[data-testid="paper-orders-mobile"]')!;
+    expect(list.querySelectorAll("li")).toHaveLength(10);
+    const card = list.closest("section")!;
+    await act(async () => button(card, "下一頁").click());
+    expect(s.ordersCalls.at(-1)).toBe("91");
+    expect(card.querySelector("[data-pager]")!.textContent).toContain("第 2 頁");
+    s.desktop = true;
+    await render(<CopyDetail strategy={strategy} leader={{ address: strategy.leaderAddress, displayName: "Kinetiq", avatarUrl: null }} balance={1000} onBack={() => {}} />);
+    expect(container.querySelector('[data-testid="paper-orders-mobile"]')).toBeNull();
+    const table = container.querySelector('[data-testid="paper-orders"]')!;
+    expect(table.querySelectorAll("tbody.data-rows tr")).toHaveLength(10);
+    expect(table.closest("section")!.querySelector("[data-pager]")!.textContent).toContain("第 2 頁");
+    expect(s.ordersCalls.at(-1)).toBe("91");
   });
 
   it("訂單: a row opens that order's fills in a row expansion; 模擬帳戶歷史 is gone (B9)", async () => {

@@ -2,6 +2,7 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const vi: Messages = {
+  liveCopyUi: en.liveCopyUi,
   referral: {
     policyInactive: "Chính sách thưởng chưa hoạt động. Điều khoản hiển thị không cấp quyền nhận thưởng hiện tại.",
     invalidCode: "Mã lời mời không khả dụng",
@@ -859,6 +860,7 @@ export const vi: Messages = {
       computing: "Đang tính…",
     },
     chart: {
+      unitLabel: "Đơn vị hiển thị",
       perp: "Vĩnh cửu",
       all: "Vĩnh cửu & Spot",
       pnl: "PnL",
@@ -939,6 +941,7 @@ export const vi: Messages = {
     transfersWindow: "90 ngày qua",
     transfersTruncated: "Tài khoản bận: {count} mục mới nhất từ {date}",
     activity: {
+      partialData: "Không tải được một phần hoạt động. Các sự kiện đã biết vẫn được hiển thị.",
       title: "Hoạt động gần đây",
       live: "Trực tiếp",
       pulse: "Hoạt động trực tiếp",
@@ -1207,6 +1210,9 @@ export const vi: Messages = {
         failed: "Không thể thêm vốn",
       },
       order: {
+        riskRefused: "Không thực hiện do kiểm soát rủi ro",
+        unknownReason: "Chưa xác nhận lý do",
+        smallCloseHint: "Với sao chép thực tế, giảm vị thế dưới mức lệnh tối thiểu có thể được tăng lên hoặc đóng toàn bộ vị thế. Kiểm tra khối lượng khớp thực tế.",
         time: "Thời gian",
         coin: "Coin",
         side: "Chiều",
@@ -1327,6 +1333,8 @@ export const vi: Messages = {
   insights: {
     title: "Phân tích",
     cohort: {
+      sortAscending: "Sắp xếp tăng dần",
+      sortDescending: "Sắp xếp giảm dần",
       membershipChanged: "Khoảng trống biểu thị thay đổi thành viên nhóm.",
       bannerTitle: "Vị thế của dòng tiền thông minh trên Hyperliquid",
       tierLabel: "Cấp",

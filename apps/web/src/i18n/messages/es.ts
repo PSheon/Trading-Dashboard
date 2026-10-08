@@ -2,6 +2,7 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const es: Messages = {
+  liveCopyUi: en.liveCopyUi,
   referral: {
     policyInactive: "La política de recompensas está inactiva. Los términos mostrados no otorgan elegibilidad actual.",
     invalidCode: "Código de invitación no disponible",
@@ -859,6 +860,7 @@ export const es: Messages = {
       computing: "Calculando…",
     },
     chart: {
+      unitLabel: "Unidad de visualización",
       perp: "Perpetuos",
       all: "Perpetuos y spot",
       pnl: "PnL",
@@ -939,6 +941,7 @@ export const es: Messages = {
     transfersWindow: "Últimos 90 días",
     transfersTruncated: "Cuenta muy activa: las {count} más recientes desde el {date}",
     activity: {
+      partialData: "No se pudo cargar parte de la actividad. Los eventos conocidos siguen visibles.",
       title: "Actividad reciente",
       live: "En vivo",
       pulse: "Actividad en vivo",
@@ -1207,6 +1210,9 @@ export const es: Messages = {
         failed: "No se pudieron añadir fondos",
       },
       order: {
+        riskRefused: "No ejecutada por control de riesgo",
+        unknownReason: "Motivo aún sin confirmar",
+        smallCloseHint: "En copias reales, una reducción inferior al mínimo puede ampliarse o cerrar toda la posición. Comprueba la cantidad ejecutada.",
         time: "Hora",
         coin: "Moneda",
         side: "Lado",
@@ -1327,6 +1333,8 @@ export const es: Messages = {
   insights: {
     title: "Perspectivas",
     cohort: {
+      sortAscending: "Orden ascendente",
+      sortDescending: "Orden descendente",
       membershipChanged: "Los espacios indican cambios en los miembros del grupo.",
       bannerTitle: "Posicionamiento del dinero inteligente de Hyperliquid",
       tierLabel: "Nivel",

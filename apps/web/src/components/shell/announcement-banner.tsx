@@ -53,7 +53,7 @@ export function AnnouncementBanner({ dismissed: initialDismissed = null }: { dis
           type="button"
           onClick={dismiss}
           aria-label={t("common.dismiss")}
-          className="-m-1 flex size-8 items-center justify-center rounded-full outline-none hover:bg-black/5 focus-visible:ring-2 focus-visible:ring-ring"
+          className="-m-1 flex size-11 shrink-0 items-center justify-center rounded-full outline-none hover:bg-black/5 focus-visible:ring-2 focus-visible:ring-ring"
         >
           <X className="size-4" strokeWidth={2.6} />
         </button>

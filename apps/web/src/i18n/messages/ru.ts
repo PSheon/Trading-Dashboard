@@ -2,6 +2,7 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const ru: Messages = {
+  liveCopyUi: en.liveCopyUi,
   referral: {
     policyInactive: "Политика наград неактивна. Показанные условия не дают текущего права на награды.",
     invalidCode: "Код приглашения недоступен",
@@ -859,6 +860,7 @@ export const ru: Messages = {
       computing: "Расчёт…",
     },
     chart: {
+      unitLabel: "Единица отображения",
       perp: "Бессрочные",
       all: "Бессрочные и спот",
       pnl: "PnL",
@@ -939,6 +941,7 @@ export const ru: Messages = {
     transfersWindow: "Последние 90 дней",
     transfersTruncated: "Активный счёт: последние записи ({count}) с {date}",
     activity: {
+      partialData: "Часть активности не удалось загрузить. Известные события остаются видимыми.",
       title: "Недавняя активность",
       live: "В эфире",
       pulse: "Активность в реальном времени",
@@ -1207,6 +1210,9 @@ export const ru: Messages = {
         failed: "Не удалось пополнить",
       },
       order: {
+        riskRefused: "Не исполнено: контроль риска",
+        unknownReason: "Причина пока не подтверждена",
+        smallCloseHint: "В реальном копировании сокращение ниже минимального ордера может быть увеличено или закрыть всю позицию. Проверьте исполненный объём.",
         time: "Время",
         coin: "Монета",
         side: "Сторона",
@@ -1327,6 +1333,8 @@ export const ru: Messages = {
   insights: {
     title: "Инсайты",
     cohort: {
+      sortAscending: "По возрастанию",
+      sortDescending: "По убыванию",
       membershipChanged: "Разрывы отмечают изменения состава группы.",
       bannerTitle: "Позиции умных денег Hyperliquid",
       tierLabel: "Уровень",

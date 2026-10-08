@@ -8,7 +8,9 @@ import { I18nProvider } from '@/i18n/provider';
 import { catalogs } from '@/i18n/messages';
 import { liveSetupMessages } from '@/i18n/live-setup';
 import { LOCALES } from '@/i18n/config';
-import { signSetup, useLiveCopySetup, useLiveCopySetupActions } from '@/lib/copy-live-setup';
+import { setupRequestDigest } from '@/lib/copy-live-setup-recovery';
+import { ApiError } from '@/lib/api';
+import { createLiveSetupJournal, termsFingerprint, signSetup, useLiveCopySetup, useLiveCopySetupActions } from '@/lib/copy-live-setup';
 
 const state = vi.hoisted(() => ({ post: vi.fn(), get: vi.fn(), patch: vi.fn(), sign: vi.fn(), addSigners: vi.fn(), identity: 'owner@email', session: '1', address: `0x${'11'.repeat(20)}` as string | null }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ status: 'signedIn', mode: 'privy', identity: state.identity, wallet: { address: state.address, signTypedData: state.sign, addSigners: state.addSigners } }) }));
@@ -38,7 +40,9 @@ function ProgressProbe({ id }: { id: string }) { const value = useLiveCopySetup(
 // The idempotency keys live for the page (a module store): a fresh person per test.
 let person = 0;
 beforeEach(async () => {
-  vi.clearAllMocks(); state.identity = `owner-${++person}@email`; state.session = '1'; state.address = `0x${'11'.repeat(20)}`;
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  probe.current = null; progress.current = null;
+  vi.resetAllMocks(); state.identity = `owner-${++person}@email`; state.session = '1'; state.address = `0x${'11'.repeat(20)}`;
   state.sign.mockImplementation(async () => `0x${'ab'.repeat(65)}`);
   state.addSigners.mockImplementation(async () => undefined);
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
@@ -240,15 +244,17 @@ async function remount() {
   await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale="en" messages={catalogs.en}><Probe /></I18nProvider></QueryClientProvider>));
 }
 
-it('a remounted panel retries its start with the same key (the server answers with the same setup, not already_copying); another session never reuses it', async () => {
+it('a remounted panel reuses its request; a new runtime session recovers it read-only before any new admission', async () => {
   state.post.mockResolvedValue(setup());
   await act(async () => { await probe.current!.start.mutateAsync({ leader, budgetUsd: '150', settings }); });
   await remount();
   await act(async () => { await probe.current!.start.mutateAsync({ leader, budgetUsd: '150', settings }); });
   expect(keyOf(state.post.mock.calls[1]!)).toBe(keyOf(state.post.mock.calls[0]!));
   state.session = '2'; await remount();
+  state.get.mockResolvedValueOnce(setup());
   await act(async () => { await probe.current!.start.mutateAsync({ leader, budgetUsd: '150', settings }); });
-  expect(keyOf(state.post.mock.calls[2]!)).not.toBe(keyOf(state.post.mock.calls[0]!));
+  expect(state.get).toHaveBeenCalledWith(`/me/copy/live/setups/by-key/${keyOf(state.post.mock.calls[0]!)}`);
+  expect(state.post).toHaveBeenCalledTimes(2);
 });
 
 it("confirming one setup forgets exactly its own key: copy 12's confirm keeps copy 112's edit and another trader's start", async () => {
@@ -301,10 +307,12 @@ it('stops polling a setup the api refuses for good (signed out, not found), and 
 it("Privy never answering the signer request can't hold confirm: after 20 s it stops with worker_signer_missing, nothing sent, and the sheet can say what it waits for", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   try {
-    state.addSigners.mockImplementation(() => new Promise(() => undefined));
+    let attaching!: () => void;
+    const attached = new Promise<void>(resolve => { attaching = resolve; });
+    state.addSigners.mockImplementation(() => { attaching(); return new Promise(() => undefined); });
     state.post.mockResolvedValue(setup('start', 'funding_submitted'));
-    let error: unknown;
-    const confirming = act(async () => { await probe.current!.confirm.mutateAsync(setup()).catch(e => { error = e; }); });
+    let error: unknown, confirming!: Promise<unknown>;
+    await act(async () => { confirming = probe.current!.confirm.mutateAsync(setup()).catch(e => { error = e; }); await attached; });
     await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
     expect(probe.current!.confirmPhase).toBe('attaching');
     expect(state.post).not.toHaveBeenCalled();
@@ -319,10 +327,12 @@ it("Privy never answering the signer request can't hold confirm: after 20 s it s
 it("the signer landing after confirm gave up is recorded at once: the browser asks the api to reconcile the copy wallet, so confirming again finds it", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   try {
-    let land!: () => void;
-    state.addSigners.mockImplementation(() => new Promise<void>(resolve => { land = resolve; }));
+    let land!: () => void, attaching!: () => void;
+    const attached = new Promise<void>(resolve => { attaching = resolve; });
+    state.addSigners.mockImplementation(() => { attaching(); return new Promise<void>(resolve => { land = resolve; }); });
     state.post.mockResolvedValue(setup('start', 'funding_submitted'));
-    const confirming = act(async () => { await probe.current!.confirm.mutateAsync(setup()).catch(() => undefined); });
+    let confirming!: Promise<unknown>;
+    await act(async () => { confirming = probe.current!.confirm.mutateAsync(setup()).catch(() => undefined); await attached; });
     await act(async () => { await vi.advanceTimersByTimeAsync(21_000); });
     await confirming;
     expect(state.post).not.toHaveBeenCalled();
@@ -338,6 +348,7 @@ it("a signer added in time, or refused, asks for no extra reconcile", async () =
   await act(async () => { await probe.current!.confirm.mutateAsync(setup()); });
   state.addSigners.mockRejectedValueOnce(new Error('declined'));
   state.identity = `owner-${++person}@email`;
+  await renderActions();
   await act(async () => { await probe.current!.confirm.mutateAsync(setup()).catch(() => undefined); });
   expect(state.post.mock.calls.map(([path]) => path).filter(path => String(path).endsWith('/reconcile'))).toEqual([]);
 });
@@ -390,9 +401,11 @@ it('a start or edit with changed terms is a new attempt with its own key; the sa
 it("a silent signature that never comes ends confirm with signing_timeout after 90 s (the sheet can close again)", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   try {
-    state.sign.mockImplementation(() => new Promise(() => undefined));
-    let failure: unknown = null;
-    const confirming = act(async () => { await probe.current!.confirm.mutateAsync(setup()).catch((error: unknown) => { failure = error; }); });
+    let signing!: () => void;
+    const signed = new Promise<void>(resolve => { signing = resolve; });
+    state.sign.mockImplementation(() => { signing(); return new Promise(() => undefined); });
+    let failure: unknown = null, confirming!: Promise<unknown>;
+    await act(async () => { confirming = probe.current!.confirm.mutateAsync(setup()).catch((error: unknown) => { failure = error; }); await signed; });
     await act(async () => { await vi.advanceTimersByTimeAsync(89_000); });
     expect(failure).toBeNull();
     await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
@@ -414,4 +427,159 @@ it("the progress dialog opens on the setup confirm just answered: a first poll t
   expect(progress.current!.data?.stage).toBe('funding_submitted');
   expect(progress.current!.retrying).toBe(true);
   expect(progress.current!.failure).toBeNull();
+});
+
+
+it('recovers the admitted setup by its original request key after a lost start response, without another POST or signatures', async () => {
+  state.post.mockRejectedValueOnce(new ApiError(504, 'Request timed out', { code: 'deadline_exceeded' }));
+  state.get.mockResolvedValueOnce(setup('start', 'provisioning'));
+  let result: unknown;
+  await act(async () => { result = await probe.current!.start.mutateAsync({ leader, budgetUsd: '150', settings }).catch(error => error); });
+  expect(result).toMatchObject({ id: setup().id, stage: 'provisioning' });
+  const key = keyOf(state.post.mock.calls[0]!);
+  expect(state.get).toHaveBeenCalledWith(`/me/copy/live/setups/by-key/${key}`);
+  expect(state.post).toHaveBeenCalledTimes(1);
+  expect(state.sign).not.toHaveBeenCalled();
+  expect(state.addSigners).not.toHaveBeenCalled();
+});
+
+it('recovers the original confirmed setup after a lost confirmation response without signing or depositing again', async () => {
+  state.post.mockRejectedValueOnce(new ApiError(504, 'Request timed out', { code: 'deadline_exceeded' }));
+  state.get.mockResolvedValueOnce(setup('start', 'funding_submitted'));
+  let result: unknown;
+  await act(async () => { result = await probe.current!.confirm.mutateAsync(setup()).catch(error => error); });
+  expect(result).toMatchObject({ id: setup().id, stage: 'funding_submitted' });
+  expect(state.get).toHaveBeenCalledWith(`/me/copy/live/setups/${setup().id}`);
+  expect(state.post).toHaveBeenCalledTimes(1);
+  expect(state.sign).toHaveBeenCalledTimes(2);
+  expect(state.addSigners).toHaveBeenCalledTimes(1);
+});
+
+
+it('changing the leader source network names a separate attempt rather than reusing consent for the other source', async () => {
+  state.post.mockResolvedValue(setup());
+  await act(async () => { await probe.current!.start.mutateAsync({ leader, budgetUsd: '150', settings, sourceNetwork: 'mainnet' }); });
+  await act(async () => { await probe.current!.start.mutateAsync({ leader, budgetUsd: '150', settings, sourceNetwork: 'testnet' }); });
+  expect(keyOf(state.post.mock.calls[1]!)).not.toBe(keyOf(state.post.mock.calls[0]!));
+});
+
+it('a reloaded action restores the original request from tab storage using only GET', async () => {
+  const request = await setupRequestDigest(`start:${leader}:${termsFingerprint({ budgetUsd: '150', settings, sourceNetwork: 'mainnet' })}`);
+  // Request fingerprints are generated by the same documented attempt name;
+  // the essential independent assertion is that the original key survives.
+  createLiveSetupJournal(`privy:${state.identity}`, sessionStorage).save({ request, key: 'reload-original-key-0001', setupId: null, network: null, confirmationPending: false });
+  state.get.mockResolvedValue(setup());
+  state.post.mockResolvedValue(setup());
+  let result: unknown;
+  await act(async () => { result = await probe.current!.start.mutateAsync({ leader, budgetUsd: '150', settings }); });
+  expect(result).toMatchObject({ id: setup().id });
+  expect(state.get).toHaveBeenCalledWith('/me/copy/live/setups/by-key/reload-original-key-0001');
+  expect(state.post).not.toHaveBeenCalled();
+  expect(state.sign).not.toHaveBeenCalled();
+});
+
+it('a reloaded uncertain confirmation reads its original setup before asking for any signature', async () => {
+  const request = await setupRequestDigest(`confirm:${setup().id}`);
+  createLiveSetupJournal(`privy:${state.identity}`, sessionStorage).save({ request, key: 'reload-confirm-key-0001', setupId: setup().id, network: 'testnet', confirmationPending: true });
+  state.get.mockResolvedValue(setup('start', 'funding_submitted'));
+  let result: unknown;
+  await act(async () => { result = await probe.current!.confirm.mutateAsync(setup()); });
+  expect(result).toMatchObject({ id: setup().id, stage: 'funding_submitted' });
+  expect(state.get).toHaveBeenCalledWith(`/me/copy/live/setups/${setup().id}`);
+  expect(state.sign).not.toHaveBeenCalled();
+  expect(state.addSigners).not.toHaveBeenCalled();
+  expect(state.post).not.toHaveBeenCalled();
+});
+
+it('a bounded confirmation that still awaits consent retains the original start key while its outcome is unknown', async () => {
+  state.post.mockResolvedValueOnce(setup());
+  await act(async () => { await probe.current!.start.mutateAsync({ leader, budgetUsd: '150', settings }); });
+  state.post.mockRejectedValueOnce(new ApiError(504, 'timed out', { code: 'deadline_exceeded' }));
+  state.get.mockResolvedValueOnce(setup());
+  await act(async () => { await probe.current!.confirm.mutateAsync(setup()); });
+  state.post.mockResolvedValueOnce(setup());
+  await act(async () => { await probe.current!.start.mutateAsync({ leader, budgetUsd: '150', settings }); });
+  expect(keyOf(state.post.mock.calls[2]!)).toBe(keyOf(state.post.mock.calls[0]!));
+});
+it('a server error after confirmation may have admitted the operation and is recovered without another signature', async () => {
+  state.post.mockRejectedValueOnce(new ApiError(500, 'server error', { code: 'internal_error' }));
+  state.get.mockResolvedValueOnce(setup('start', 'funding_submitted'));
+  let result: unknown;
+  await act(async () => { result = await probe.current!.confirm.mutateAsync(setup()).catch(error => error); });
+  expect(result).toMatchObject({ id: setup().id, stage: 'funding_submitted' });
+  expect(state.post).toHaveBeenCalledTimes(1);
+  expect(state.sign).toHaveBeenCalledTimes(2);
+});
+it('a recovered confirmation on another network cannot replace the original journal or start signing', async () => {
+  const request = await setupRequestDigest(`confirm:${setup().id}`);
+  createLiveSetupJournal(`privy:${state.identity}`, sessionStorage).save({ request, key: 'reload-confirm-key-0001', setupId: setup().id, network: 'testnet', confirmationPending: true });
+  state.get.mockResolvedValueOnce({ ...setup(), consent: { ...intent(), network: 'mainnet' } });
+  let result: unknown;
+  await act(async () => { result = await probe.current!.confirm.mutateAsync(setup()).catch(error => error); });
+  expect((result as Error).message).toBe('setup_identity_mismatch');
+  expect(state.sign).not.toHaveBeenCalled();
+  expect(state.post).not.toHaveBeenCalled();
+});
+
+it('top-up retains a plain original UUID key after setup recovery becomes asynchronous', async () => {
+  state.post.mockResolvedValueOnce({ id: '6f1c1d2e-3a4b-4c5d-8e9f-0a1b2c3d4e5f', network: 'testnet', destination: `0x${'22'.repeat(20)}`, amount: '150', nonce: now, status: 'accepted' });
+  await act(async () => { await probe.current!.topUp.mutateAsync({ accountId: 'acct', amount: '150' }); });
+  expect(typeof (state.post.mock.calls[0]![1] as { idempotencyKey: unknown }).idempotencyKey).toBe('string');
+  expect((state.post.mock.calls[0]![1] as { idempotencyKey: string }).idempotencyKey).toMatch(/^[a-f0-9-]{36}$/);
+  expect(state.sign).not.toHaveBeenCalled();
+});
+
+it('late key cleanup after cancellation cannot delete the new owner’s recovery attempt', async () => {
+  const nextOwner = `owner-next-${person}@email`;
+  const request = await setupRequestDigest(`start:${leader}:${termsFingerprint({ budgetUsd: '150', settings, sourceNetwork: 'mainnet' })}`);
+  const otherJournal = createLiveSetupJournal(`privy:${nextOwner}`, sessionStorage);
+  otherJournal.save({ request, key: 'other-owner-original-0001', setupId: setup().id, network: 'testnet', confirmationPending: false });
+  const digest = crypto.subtle.digest.bind(crypto.subtle);
+  let release!: () => void, entered!: () => void;
+  const waiting = new Promise<void>(resolve => { release = resolve; });
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const spy = vi.spyOn(crypto.subtle, 'digest').mockImplementationOnce(async (...args) => { entered(); await waiting; return digest(...args); });
+  state.post.mockResolvedValueOnce(setup('start', 'cancelled'));
+  let done!: Promise<unknown>;
+  await act(async () => { done = probe.current!.cancel.mutateAsync(setup().id).catch(error => error); await started; });
+  state.identity = nextOwner; await renderActions();
+  let result: unknown;
+  await act(async () => { release(); result = await done; });
+  spy.mockRestore();
+  expect((result as Error).message).toBe('live_session_changed');
+  expect(otherJournal.find(request)?.key).toBe('other-owner-original-0001');
+});
+
+it('real api module lifetimes recover a manual-login request after authenticated reload resets generation', async () => {
+  const firstApi = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
+  firstApi.setAccessTokenGetter(null, 'anonymous');
+  firstApi.setAccessTokenGetter(async () => null, state.identity);
+  state.session = firstApi.sessionKey(); await renderActions();
+  state.post.mockResolvedValueOnce(setup());
+  await act(async () => { await probe.current!.start.mutateAsync({ leader, budgetUsd: '150', settings }); });
+  const original = keyOf(state.post.mock.calls[0]!);
+  vi.resetModules();
+  const reloadedApi = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
+  reloadedApi.setAccessTokenGetter(async () => null, state.identity);
+  expect(reloadedApi.sessionKey()).not.toBe(firstApi.sessionKey());
+  state.session = reloadedApi.sessionKey(); await renderActions();
+  state.get.mockResolvedValueOnce(setup()); state.post.mockResolvedValueOnce(setup());
+  await act(async () => { await probe.current!.start.mutateAsync({ leader, budgetUsd: '150', settings }); });
+  expect(state.get).toHaveBeenCalledWith(`/me/copy/live/setups/by-key/${original}`);
+  expect(state.post).toHaveBeenCalledTimes(1);
+  expect(state.sign).not.toHaveBeenCalled();
+});
+
+it('delayed known-unsent confirmation clears uncertainty so an explicit retry uses the same setup and funding intent', async () => {
+  state.post.mockResolvedValueOnce(setup());
+  await act(async () => { await probe.current!.confirm.mutateAsync(setup()); });
+  state.get.mockResolvedValue({ ...setup(), issue: 'funding_not_submitted' });
+  await act(async () => { await probe.current!.confirm.mutateAsync(setup()); });
+  state.post.mockResolvedValueOnce(setup('start', 'funding_submitted'));
+  let result: unknown;
+  await act(async () => { result = await probe.current!.confirm.mutateAsync(setup()); });
+  expect(result).toMatchObject({ id: setup().id, stage: 'funding_submitted' });
+  expect(state.post.mock.calls.map(([path]) => path)).toEqual([`/me/copy/live/setups/${setup().id}/confirm`, `/me/copy/live/setups/${setup().id}/confirm`]);
+  expect(state.sign).toHaveBeenCalledTimes(4);
+  expect(state.sign.mock.calls[3]![0]).toMatchObject({ message: { destination: intent().accountAddress, amount: intent().fundingAmount, time: intent().fundingNonce } });
 });

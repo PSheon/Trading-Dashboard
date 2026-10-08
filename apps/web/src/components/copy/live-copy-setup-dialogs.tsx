@@ -71,7 +71,7 @@ export function LiveCopyConfirm({ setup, traderName, open, onOpenChange, onConfi
   /** What confirm is waiting for, said calmly while the button spins. */
   note?: string | null;
 }) {
-  const text = useLiveSetupText(), { format, locale } = useI18n();
+  const text = useLiveSetupText(), { format, locale, t } = useI18n();
   const en = liveSetupMessages.en;
   const consent = setup?.consent ?? null, settings = setup?.settings;
   const title = setup?.kind === "edit" ? text.editTitle : setup?.kind === "renewal" ? text.renewTitle : text.confirmTitle;
@@ -103,6 +103,7 @@ export function LiveCopyConfirm({ setup, traderName, open, onOpenChange, onConfi
           </dl>
         ) : <p className="text-sm text-muted-foreground">{text.preparing}</p>}
         <p className="text-xs leading-5 text-muted-foreground">{joinSentences(locale, [text.testnetNote, text.deadline, text.signNote])}</p>
+        {setup ? <p className="text-xs leading-5 text-muted-foreground">{t('portfolio.copy.order.smallCloseHint')}</p> : null}
         {error ? <p role="alert" className="flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning"><TriangleAlert className="mt-px size-3.5 shrink-0" />{error}</p> : null}
         {pending && note ? <p role="status" className="text-xs leading-5 text-muted-foreground">{note}</p> : null}
         <div className="flex flex-col gap-2.5">
@@ -145,9 +146,16 @@ export function liveSetupRows(setup: Pick<LiveCopySetup, "kind" | "stage">, reac
 export function LiveCopyProgress({ setupId, open, onOpenChange, onRetry, onConsent }: {
   setupId: string | null; open: boolean; onOpenChange: (open: boolean) => void; onRetry?: (setup: LiveCopySetup) => void; onConsent?: (setup: LiveCopySetup) => void;
 }) {
-  const text = useLiveSetupText(), texts = useCopyTexts();
+  const text = useLiveSetupText(), texts = useCopyTexts(), { t, format } = useI18n();
   const query = useLiveCopySetup(open ? setupId : null), setup = query.data;
   const actions = useLiveCopySetupActions();
+  const [now, setNow] = useState(() => Date.now());
+  const clockRunning = Boolean(open && setup && !setupTerminal(setup));
+  useEffect(() => {
+    if (!clockRunning) return;
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, [clockRunning, setupId]);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const consentDue = setup?.stage === "awaiting_consent" && setup.consent ? setup : null;
   // Handed back to the confirm sheet (once per setup and consent).
@@ -169,6 +177,11 @@ export function LiveCopyProgress({ setupId, open, onOpenChange, onRetry, onConse
     : issue && !QUIET_ISSUES.has(issue) && setup?.stage !== "awaiting_consent" ? texts.extra.stepRetrying : null;
   const rows = setup ? liveSetupRows(setup, stopped ? STOPPED_AT[setup.issue ?? ""] ?? 2 : RANK[setup.stage]) : [];
   const deposited = setup?.kind === "start" && setup.funding?.status === "credited";
+  // updatedAt can advance on retries too: it is a state update, not proof
+  // that the next step completed. Elapsed time starts with this setup.
+  const elapsed = setup ? now - Date.parse(setup.createdAt) : Number.NaN;
+  const fee = deposited && setup?.funding?.fee !== null && setup?.funding?.fee !== undefined ? Number(setup.funding.fee) : null;
+  const creditedAmount = deposited && setup?.funding?.creditedAmount !== null && setup?.funding?.creditedAmount !== undefined ? Number(setup.funding.creditedAmount) : null;
   const cancel = () => {
     if (!setup) return;
     setCancelError(null);
@@ -184,10 +197,19 @@ export function LiveCopyProgress({ setupId, open, onOpenChange, onRetry, onConse
               {row.state === "done" ? <span className="grid size-6 place-items-center rounded-full bg-positive/15 text-positive"><Check className="size-3.5" strokeWidth={3} aria-hidden /></span>
                 : row.state === "current" && !stopped && !consentLapsed ? <LoaderCircle className="size-6 animate-spin text-primary-text" aria-hidden />
                 : <Circle className="size-6 text-border-strong" aria-hidden />}
-              <span className={cn(row.state === "current" && "font-bold")}>{text.stages[row.key]}</span>
+              <span className={cn(row.state === "current" && "font-bold")}>{row.key === 'credited' && row.state !== 'done' ? t(row.state === 'current' ? 'liveCopyUi.waitingCredit' : 'liveCopyUi.confirmCredit') : text.stages[row.key]}</span>
             </li>
           ))}
         </ol>
+        {setup ? <div className="rounded-xl bg-inset px-3 py-2 text-xs text-muted-foreground" data-testid="setup-timing">
+          {!setupTerminal(setup) && Number.isFinite(elapsed) && elapsed >= 0 ? <p>{t(elapsed < 60_000 ? 'liveCopyUi.elapsedLessMinute' : 'liveCopyUi.elapsedMinutes', { minutes: Math.floor(elapsed / 60_000) })}</p> : null}
+          <p>{t('liveCopyUi.latestState')}: <time dateTime={setup.updatedAt}>{format.dateTime(setup.updatedAt)}</time></p>
+        </div> : null}
+        {deposited && (creditedAmount !== null || fee !== null) ? <dl className="grid grid-cols-2 gap-3 text-xs" data-testid="setup-funding-breakdown">
+          {creditedAmount !== null && Number.isFinite(creditedAmount) && creditedAmount >= 0 ? <div><dt className="text-muted-foreground">{t('liveCopyUi.creditedAmount')}</dt><dd className="num mt-1 font-semibold">{format.num(creditedAmount, 2)} USDC</dd></div> : null}
+          {fee !== null && Number.isFinite(fee) && fee >= 0 ? <div><dt className="text-muted-foreground">{t('liveCopyUi.fundingFee')}</dt><dd className="num mt-1 font-semibold">{format.num(fee, 2)} USDC</dd></div> : null}
+        </dl> : null}
+        {deposited && !setupTerminal(setup) ? <p className="text-xs leading-5 text-muted-foreground">{t('liveCopyUi.fundedContinuing')}</p> : null}
         {setup && !setupTerminal(setup) && setup.issue === "awaiting_credit" ? <p className="text-xs text-muted-foreground">{text.waitingCredit}</p> : null}
         {consentLapsed ? <p className="text-xs leading-5 text-muted-foreground">{text.consentLapsedHint}</p> : null}
         {/* A passing failure (busy, 5xx, the network) or a step that waits:
@@ -200,6 +222,7 @@ export function LiveCopyProgress({ setupId, open, onOpenChange, onRetry, onConse
         {cancelError ? <p role="alert" className="text-xs text-negative">{cancelError}</p> : null}
         {!finished && !stopped && !consentLapsed && !provisioning ? <p className="text-xs leading-5 text-muted-foreground">{text.closeSafeWorker}</p> : null}
         <div className="flex flex-col gap-2.5">
+          {setup && !setupTerminal(setup) ? <Link href={`/portfolio?view=real&setupId=${encodeURIComponent(setup.id)}`} onClick={() => onOpenChange(false)} className="flex min-h-11 items-center justify-center rounded-full px-3 text-sm font-bold text-primary-text outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">{t('liveCopyUi.resumeProgress')}</Link> : null}
           {finished ? <Link href="/portfolio" onClick={() => onOpenChange(false)} className="orbit-press flex min-h-12 w-full items-center justify-center rounded-full bg-primary px-6 font-display text-base text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">{text.portfolio}</Link> : null}
           {(ended || consentLapsed || provisioning) && onRetry ? <Button type="button" size="cta" className="w-full" disabled={actions.cancel.isPending} onClick={() => onRetry(setup!)}>{text.restart}</Button> : null}
           {ended || consentLapsed || provisioning ? <Button type="button" variant="secondary" className="w-full" loading={actions.cancel.isPending} onClick={cancel}>{text.cancelSetup}</Button> : null}

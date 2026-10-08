@@ -357,3 +357,13 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 - API以unset AUTH_SERVICE_PERMISSIONS與NODE_OPTIONS重啟，PID58626 healthy；worker同樣unset重啟，PID58763 healthy。19:22:29管理overview403，四項臨時權限及私人preload已移除；共享web／Chrome保留。
 - 原phase記錄顯示此次close準備約2623ms、executor約2514ms，11:13:38完成filled；執行前的來源／額度等待需另查，不能僅以快簽署推論延遲已解決。證據`codex-admin14-rerun-phases.jsonl`63項，沒有單一phase超過5秒。
 - 私人日誌`codex-admin14-rerun-{final-money,final-balances,platform-resumed,after-permissions}.jsonl`、`codex-admin14-rerun-{api,worker}-restored.log`及原五來源reconcile／summary。未公開推送／部署、未改Stage或主網；B仍5 PASS／1 SKIP／2 FAIL。
+
+### #59後續根因與驗證器回歸（未重新執行金融情境）
+
+- 原worker日誌顯示來源讀取多次`live_budget_wait`；engine的來源讀取、runtime執行與settler皆串行。#59首次filled至settled跨約75秒，期间下一批領單訊號仍待本機testnet輪詢；需改善這段排隊而非延長120秒驗收。尚未修改交易服務或聲稱已修好延遲。
+- 另外確認既有`copy-live-source-planner.ts`的小額減倉規則：比例減倉及剩餘倉位都低於交易所固定10 USD時，改為reduce-only全平。原方向驗證器把領單仍持倉、跟單因此空倉一律視作方向不符，與既有規則不一致。
+- 驗證器新增受證據限制的例外：唯一最新原始來源fill必須是部分減倉且與當前領單方向一致；唯一最新跟單fill必須有原始startPosition、完整平倉數量、匹配已settled的reduce-only close journal cloid；按來源比例計算的减倉與餘倉均低於固定10 USD。同毫秒多筆無法證明先後時不採用例外。未放寬缺單、拒絕原因、反向、槓桿、大小與空倉檢查。
+- 初始RED1 FAIL／30 PASS，首修33 PASS；獨立審查發現CLI最小金額與領單snapshot方向兩個缺口，各先RED再修正；另補同毫秒先後不明RED。另補原始減倉餘倉與當前snapshot數量不一致、浮點恰好10 USD邊界兩個RED，修正採保守邊界與數量一致驗證。再補多筆成交同一close cloid不能以最後餘倉推論原持倉的RED，例外僅接受單筆完整成交。最終harness37項PASS，JS syntax與diff check PASS。私人`codex-minimum-close-verifier-{red,green,review-red,link-red,tie-red,numeric-red,chunks-red,final}.log`。
+- 此為驗證器與回歸修正，不修改#59原始reconcile或120秒減倉FAIL；尚未據此重跑真實情境，B仍未全綠。
+
+獨立審查最終確認無剩餘Critical／Important，並自行核對37項PASS；多筆成交或同毫秒證據不明時保守保留direction_mismatch，不將原#59改列PASS。

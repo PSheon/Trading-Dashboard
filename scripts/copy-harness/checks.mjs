@@ -46,6 +46,45 @@ export function fixedOrderSize({ perTradeUsd, maxPerTradeUsd, minOrderUsd = 10 }
   return atMinimum * limitPx <= (maxPerTradeUsd ?? perTradeUsd) + 1e-9 ? fmt(atMinimum, szDecimals) : null;
 }
 
+/** Match the existing planner's minimum-size reduction rule using the
+ * original source fill, settled reduce-only order and exchange full-close
+ * fill. A flat position alone never proves this exception. */
+function minimumReductionClosed(coin, input) {
+  if (!input.dispatches || !input.rules?.sizing) return false;
+  const latest = (fills) => {
+    const rows = fills.filter(f => f.coin === coin);
+    if (!rows.length || rows.some(f => !Number.isFinite(f.time))) return null;
+    const last = rows.reduce((latest, fill) => fill.time > latest.time ? fill : latest);
+    return rows.filter(fill => fill.time === last.time).length === 1 ? last : null;
+  };
+  const leader = latest(input.leaderFills), follower = latest(input.followerFills);
+  if (!leader || !follower || follower.time < leader.time) return false;
+  const held = Number(leader.startPosition), reduced = Number(leader.sz);
+  if (!Number.isFinite(held) || !Number.isFinite(reduced) || reduced <= 0 || reduced >= Math.abs(held) ||
+      Math.sign(input.leaderPositions.get(coin) ?? 0) !== Math.sign(held) ||
+      Math.abs(Math.abs(input.leaderPositions.get(coin) ?? 0) - (Math.abs(held) - reduced)) > 1e-12 ||
+      !((held > 0 && leader.side === 'A') || (held < 0 && leader.side === 'B'))) return false;
+  const close = input.dispatches.find(d => d.coin === coin && d.tid === String(leader.tid) && d.leg === 'close' &&
+    d.state === 'settled' && d.reduceOnly === true && d.cloid && d.cloid.toLowerCase() === follower.cloid?.toLowerCase());
+  if (!close || follower.side !== leader.side) return false;
+  // A final chunk's startPosition describes only the last residual, not
+  // the whole order's original holding. This exception needs one full fill.
+  if (input.followerFills.filter(f => f.cloid?.toLowerCase() === close.cloid.toLowerCase()).length !== 1) return false;
+  const start = Number(follower.startPosition), size = Number(follower.sz);
+  const price = Math.max(Number(follower.px), Number(close.limitPx));
+  // The production close planner uses the exchange's fixed 10 USD rule,
+  // independent of configurable sizing terms for openings.
+  const minimum = 10;
+  if (![start, size, price, minimum].every(Number.isFinite) || size <= 0 || price <= 0 || minimum <= 0 ||
+      Math.sign(start) !== Math.sign(held) || Math.abs(Math.abs(start) - size) > 1e-12) return false;
+  // Both the proportional close and the remainder fall below the minimum;
+  // the planner therefore sends the whole position instead of that fraction.
+  const fraction = reduced / Math.abs(held);
+  // Near the boundary floating-point products cannot prove strictly below;
+  // reject the exception rather than rounding an exact 10 USD order down.
+  return Math.abs(start) * fraction * price < minimum - 1e-9 && Math.abs(start) * (1 - fraction) * price < minimum - 1e-9;
+}
+
 export function evaluate(input) {
   const { leaderFills, dispatches, followerFills, leaderPositions, followerPositions, followerLeverage = new Map(), szDecimals = new Map(), rules = {}, closeCloids = new Set() } = input;
   const allowList = rules.allowedRefusals ?? DEFAULT_ALLOWED_REFUSALS;
@@ -98,7 +137,9 @@ export function evaluate(input) {
 
   for (const coin of new Set([...leaderPositions.keys(), ...followerPositions.keys()])) {
     const l = Math.sign(leaderPositions.get(coin) ?? 0), c = Math.sign(followerPositions.get(coin) ?? 0);
-    if ((!db || rows.some((d) => d.coin === coin)) && l !== c) fail("direction_mismatch", { coin, leader: leaderPositions.get(coin) ?? 0, follower: followerPositions.get(coin) ?? 0 });
+    if ((!db || rows.some((d) => d.coin === coin)) && l !== c &&
+        !(l !== 0 && c === 0 && minimumReductionClosed(coin, input)))
+      fail("direction_mismatch", { coin, leader: leaderPositions.get(coin) ?? 0, follower: followerPositions.get(coin) ?? 0 });
   }
   const leaderFlat = [...leaderPositions.values()].every((v) => !v);
   if (leaderFlat) for (const [coin, size] of followerPositions) if (size && !failures.some((f) => f.check === "direction_mismatch" && f.coin === coin)) fail("follower_not_flat", { coin, follower: size });

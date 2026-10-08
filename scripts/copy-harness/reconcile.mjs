@@ -93,11 +93,11 @@ const leaderOrders = new Set(leaderFills.map((f) => f.oid));
 // D — dispatches of copies of this leader into this follower account.
 const dispatches = (await query(`select d.id, d.source_fill_id, d.leg, d.coin, d.state, coalesce(d.reason,''), coalesce(d.execution_key,''),
   extract(epoch from d.leader_time)*1000, extract(epoch from d.received_at)*1000, coalesce(extract(epoch from d.sent_at)*1000,0), coalesce(d.adjustment_id,''), coalesce(e.state,''), coalesce(e.cloid,''),
-  coalesce(e.record->'action'->'orders'->0->>'s',''), coalesce(e.record->'action'->'orders'->0->>'p','')
+  coalesce(e.record->'action'->'orders'->0->>'s',''), coalesce(e.record->'action'->'orders'->0->>'p',''), coalesce(e.record->'action'->'orders'->0->>'r','false')
   from copy_live_dispatches d join copy_live_mandates m on m.id = d.mandate_id left join copy_live_executions e on e.key = d.execution_key
   where lower(m.leader_address) = ${quote(leader)} and lower(m.account_address) = ${quote(follower)} and d.leader_time >= to_timestamp(${since / 1000})`))
-  .map(([id, sourceFillId, leg, coin, state, reason, executionKey, leaderTime, receivedAt, sentAt, adjustmentId, executionState, cloid, orderSize, limitPx]) =>
-    ({ id, tid: sourceFillId.split(":").at(-1), leg, coin, state, reason, executionKey, leaderTime: Number(leaderTime), receivedAt: Number(receivedAt), sentAt: Number(sentAt), adjustmentId, executionState, cloid, orderSize, limitPx }));
+  .map(([id, sourceFillId, leg, coin, state, reason, executionKey, leaderTime, receivedAt, sentAt, adjustmentId, executionState, cloid, orderSize, limitPx, reduceOnly]) =>
+    ({ id, tid: sourceFillId.split(":").at(-1), leg, coin, state, reason, executionKey, leaderTime: Number(leaderTime), receivedAt: Number(receivedAt), sentAt: Number(sentAt), adjustmentId, executionState, cloid, orderSize, limitPx, reduceOnly: reduceOnly === 'true' }));
 // The account's reduce-only closes that are not copy legs: a stop's or the owner's single-position close.
 const closeCloids = new Set((await query(`select lower(e.cloid) from copy_live_executions e where lower(e.account_address) = ${quote(follower)} and e.network = ${quote(net)}
   and (e.record->'action'->'orders'->0->>'r')::boolean and not exists (select 1 from copy_live_dispatches d where d.execution_key = e.key)`)).map(([cloid]) => cloid));

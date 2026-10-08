@@ -155,6 +155,88 @@ test("reconcile FAILS when the leader ended flat and the follower still holds a 
   assert.deepEqual(run({ followerPositions: new Map([["ETH", 0], ["BTC", 0.001]]) }), ["follower_not_flat"]);
 });
 
+function minimumReduction(over = {}) {
+  return run({
+    leaderFills: [{ oid: 1, tid: 11, coin: "ETH", side: "B", time: 1000 },
+      { oid: 2, tid: 12, coin: "ETH", side: "A", time: 2000, startPosition: "0.008", sz: "0.004" }],
+    leaderPositions: new Map([["ETH", 0.004]]),
+    dispatches: dispatch(1, { reduceOnly: true }),
+    followerFills: [{ cloid: "0xc1", oid: 91, coin: "ETH", side: "B", sz: "0.004", px: "2995", time: 1500 },
+      { cloid: "0xc2", oid: 92, coin: "ETH", side: "A", sz: "0.004", startPosition: "0.004", px: "2994", time: 2500 }],
+    ...over,
+  });
+}
+
+test("reconcile accepts a proven minimum-size reduction closing the entire follower while the leader stays long", () => {
+  assert.deepEqual(minimumReduction(), []);
+});
+
+test("reconcile keeps a flat-follower mismatch without reduce-only full-close evidence", () => {
+  assert.ok(minimumReduction({ dispatches: dispatch(1, {}) }).includes("direction_mismatch"));
+  assert.ok(minimumReduction({ followerFills: [] }).includes("direction_mismatch"));
+  assert.ok(minimumReduction({ dispatches: dispatch(1, { reduceOnly: true, state: "submitted" }) }).includes("direction_mismatch"));
+});
+
+test("reconcile does not accept a minimum-close exception for an opposite position or an ordinary leader open", () => {
+  assert.ok(minimumReduction({ followerPositions: new Map([["ETH", -0.004]]) }).includes("direction_mismatch"));
+  assert.ok(minimumReduction({ leaderPositions: new Map([["ETH", -0.004]]) }).includes("direction_mismatch"));
+  assert.ok(minimumReduction({ leaderPositions: new Map([["ETH", 0.008]]) }).includes("direction_mismatch"));
+  assert.ok(minimumReduction({ leaderFills: [{ oid: 2, tid: 12, coin: "ETH", side: "B", time: 2000, startPosition: "0.004", sz: "0.004" }] }).includes("direction_mismatch"));
+});
+
+test("reconcile requires a small reduction and a small remainder, plus original full-close metadata", () => {
+  const close = { cloid: "0xc2", oid: 92, coin: "ETH", side: "A", sz: "0.004", startPosition: "0.004", px: "2994", time: 2500 };
+  const open = { cloid: "0xc1", oid: 91, coin: "ETH", side: "B", sz: "0.004", px: "2995", time: 1500 };
+  for (const patch of [{ startPosition: undefined }, { startPosition: "0.005" }, { time: undefined }, { px: "6000" }, { px: "NaN" }]) {
+    assert.ok(minimumReduction({ followerFills: [open, { ...close, ...patch }] }).includes("direction_mismatch"));
+  }
+});
+
+test("reconcile cannot raise the planner's fixed 10 USD close minimum through CLI sizing terms", () => {
+  assert.ok(minimumReduction({
+    followerFills: [{ cloid: "0xc1", oid: 91, coin: "ETH", side: "B", sz: "0.004", px: "2995", time: 1500 },
+      { cloid: "0xc2", oid: 92, coin: "ETH", side: "A", sz: "0.004", startPosition: "0.004", px: "6000", time: 2500 }],
+    rules: { sizing: { perTradeUsd: 12, maxPerTradeUsd: 15, minOrderUsd: 20 } },
+  }).includes("direction_mismatch"));
+});
+
+test("reconcile refuses ambiguous latest source fills at the same millisecond", () => {
+  assert.ok(minimumReduction({ leaderFills: [
+    { oid: 1, tid: 11, coin: "ETH", side: "B", time: 1000 },
+    { oid: 2, tid: 12, coin: "ETH", side: "A", time: 2000, startPosition: "0.008", sz: "0.004" },
+    { oid: 3, tid: 13, coin: "ETH", side: "B", time: 2000, startPosition: "0.004", sz: "0.004" },
+  ] }).includes("direction_mismatch"));
+});
+
+test("reconcile does not round an exactly 10 USD proportional reduction below the minimum", () => {
+  assert.ok(minimumReduction({
+    leaderPositions: new Map([["ETH", 0.001]]),
+    leaderFills: [{ oid: 1, tid: 11, coin: "ETH", side: "B", time: 1000 },
+      { oid: 2, tid: 12, coin: "ETH", side: "A", time: 2000, startPosition: "0.003", sz: "0.002" }],
+    dispatches: dispatch(1, { reduceOnly: true, limitPx: "1000" }),
+    followerFills: [{ cloid: "0xc1", oid: 91, coin: "ETH", side: "B", sz: "0.004", px: "2995", time: 1500 },
+      { cloid: "0xc2", oid: 92, coin: "ETH", side: "A", sz: "0.015", startPosition: "0.015", px: "1000", time: 2500 }],
+  }).includes("direction_mismatch"));
+});
+
+test("reconcile cannot use the last chunk of a multi-fill close as the original held position", () => {
+  assert.ok(minimumReduction({ followerFills: [
+    { cloid: "0xc1", oid: 91, coin: "ETH", side: "B", sz: "0.004", px: "2995", time: 1500 },
+    { cloid: "0xc2", oid: 92, coin: "ETH", side: "A", sz: "0.004", startPosition: "0.008", px: "2994", time: 2400 },
+    { cloid: "0xc2", oid: 92, coin: "ETH", side: "A", sz: "0.004", startPosition: "0.004", px: "2994", time: 2500 },
+  ] }).includes("direction_mismatch"));
+});
+
+test("reconcile accepts the same proven minimum reduction for a short position", () => {
+  assert.deepEqual(minimumReduction({
+    leaderPositions: new Map([["ETH", -0.004]]),
+    leaderFills: [{ oid: 1, tid: 11, coin: "ETH", side: "A", time: 1000 },
+      { oid: 2, tid: 12, coin: "ETH", side: "B", time: 2000, startPosition: "-0.008", sz: "0.004" }],
+    followerFills: [{ cloid: "0xc1", oid: 91, coin: "ETH", side: "A", sz: "0.004", px: "2995", time: 1500 },
+      { cloid: "0xc2", oid: 92, coin: "ETH", side: "B", sz: "0.004", startPosition: "-0.004", px: "2994", time: 2500 }],
+  }), []);
+});
+
 test("reconcile FAILS on a follower order no leg sent (a double send), but not on a stop's or owner's close", () => {
   const extra = { cloid: "0xc9", oid: 99, coin: "ETH", side: "B", sz: "0.004", px: "2995" };
   const fills = [...[{ cloid: "0xc1", oid: 91, coin: "ETH", side: "B", sz: "0.004", px: "2995" }, { cloid: "0xc2", oid: 92, coin: "ETH", side: "A", sz: "0.004", px: "2994" }], extra];

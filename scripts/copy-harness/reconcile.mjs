@@ -34,6 +34,9 @@
 // Rules: --per-trade-usd N [--max-per-trade-usd N] [--min-order-usd 10] [--max-leverage N]
 //   [--allow-refusal reason[:COIN]]… (repeatable; a scenario's expected refusal).
 //   node scripts/copy-harness/reconcile.mjs --stage --leader 0x… --follower 0x… --since 2026-10-07T01:00:00Z
+// Exact fixed-trade duplicate proof requires --profile stage-caps,
+// --proof-runtime <approved local snapshot root> and --proof-runtime-manifest <reviewed SHA artifact>.
+// It reuses F and reads bounded original SQL evidence; it never authorizes a transaction.
 // The portfolio needs HARNESS_BEARER (the follower's Privy access token) in the environment;
 // the portfolio holds no balances, so P is the copy's account snapshot
 // (GET …/me/copy/execution-wallets/:id/snapshot, the figures the portfolio page shows).
@@ -41,6 +44,8 @@ import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import {loadProofRuntime} from './proof-runtime.mjs';
+import {fixedClaimEvidenceQuery,hydrateFixedClaimEvidence} from './fixed-claim-proof.mjs';
 import { DEFAULT_ALLOWED_REFUSALS, evaluate, parseAllowedRefusals } from "./checks.mjs";
 
 const args = process.argv.slice(2);
@@ -59,6 +64,11 @@ if (!["testnet", "mainnet"].includes(leaderNet) || !["testnet", "mainnet"].inclu
 if (!/^0x[0-9a-f]{40}$/.test(leader ?? "") || !/^0x[0-9a-f]{40}$/.test(follower ?? "") || !Number.isFinite(since)) {
   console.error("usage: --leader 0x… --follower 0x… --since <ISO> [--leader-network mainnet|testnet] [--network testnet|mainnet] [--db ssh|<url>]");
   process.exit(2);
+}
+const proofRuntime=flag('proof-runtime'), proofManifest=flag('proof-runtime-manifest');
+let pinnedProof=null;
+if(proofRuntime||proofManifest){
+ pinnedProof=await loadProofRuntime({root:proofRuntime,manifestPath:proofManifest,repositoryRoot:resolve(import.meta.dirname,'../..'),profile:flag('profile'),network:net,leaderNetwork:leaderNet,db,perTradeUsd,maxPerTradeUsd,maxLeverage});
 }
 const INFO = { mainnet: "https://api.hyperliquid.xyz/info", testnet: "https://api.hyperliquid-testnet.xyz/info" };
 const info = async (network, body) => { const r = await fetch(INFO[network], { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); if (!r.ok) throw new Error(`${network} ${body.type} ${r.status}`); return r.json(); };
@@ -93,11 +103,11 @@ const leaderOrders = new Set(leaderFills.map((f) => f.oid));
 // D — dispatches of copies of this leader into this follower account.
 const dispatches = (await query(`select d.id, d.source_fill_id, d.leg, d.coin, d.state, coalesce(d.reason,''), coalesce(d.execution_key,''),
   extract(epoch from d.leader_time)*1000, extract(epoch from d.received_at)*1000, coalesce(extract(epoch from d.sent_at)*1000,0), coalesce(d.adjustment_id,''), coalesce(e.state,''), coalesce(e.cloid,''),
-  coalesce(e.record->'action'->'orders'->0->>'s',''), coalesce(e.record->'action'->'orders'->0->>'p',''), coalesce(e.record->'action'->'orders'->0->>'r','false')
+  coalesce(e.record->'action'->'orders'->0->>'s',''), coalesce(e.record->'action'->'orders'->0->>'p',''), coalesce(e.record->'action'->'orders'->0->>'r','false'), d.mandate_id,d.user_id,d.strategy_id,d.account_id
   from copy_live_dispatches d join copy_live_mandates m on m.id = d.mandate_id left join copy_live_executions e on e.key = d.execution_key
-  where lower(m.leader_address) = ${quote(leader)} and lower(m.account_address) = ${quote(follower)} and d.leader_time >= to_timestamp(${since / 1000})`))
-  .map(([id, sourceFillId, leg, coin, state, reason, executionKey, leaderTime, receivedAt, sentAt, adjustmentId, executionState, cloid, orderSize, limitPx, reduceOnly]) =>
-    ({ id, tid: sourceFillId.split(":").at(-1), leg, coin, state, reason, executionKey, leaderTime: Number(leaderTime), receivedAt: Number(receivedAt), sentAt: Number(sentAt), adjustmentId, executionState, cloid, orderSize, limitPx, reduceOnly: reduceOnly === 'true' }));
+  where m.network = ${quote(net)} and m.source_network = ${quote(leaderNet)} and lower(m.leader_address) = ${quote(leader)} and lower(m.account_address) = ${quote(follower)} and d.leader_time >= to_timestamp(${since / 1000})`))
+  .map(([id, sourceFillId, leg, coin, state, reason, executionKey, leaderTime, receivedAt, sentAt, adjustmentId, executionState, cloid, orderSize, limitPx, reduceOnly, mandateId, userId, strategyId, accountId]) =>
+    ({ id, sourceFillId, mandateId, userId:Number(userId),strategyId:Number(strategyId),accountId, tid: sourceFillId.split(":").at(-1), leg, coin, state, reason, executionKey:executionKey||null, leaderTime: Number(leaderTime), receivedAt: Number(receivedAt), sentAt: Number(sentAt), adjustmentId, executionState, cloid, orderSize, limitPx, reduceOnly: reduceOnly === 'true' }));
 // The account's reduce-only closes that are not copy legs: a stop's or the owner's single-position close.
 const closeCloids = new Set((await query(`select lower(e.cloid) from copy_live_executions e where lower(e.account_address) = ${quote(follower)} and e.network = ${quote(net)}
   and (e.record->'action'->'orders'->0->>'r')::boolean and not exists (select 1 from copy_live_dispatches d where d.execution_key = e.key)`)).map(([cloid]) => cloid));
@@ -117,7 +127,19 @@ for (const coin of new Set([...followerFills.map((f) => f.coin), ...C.keys()].fi
 }
 
 // The rules (checks.mjs).
-const evaluated = evaluate({ leaderFills, dispatches: db === "none" ? null : dispatches, followerFills, leaderPositions: L, followerPositions: C, followerLeverage, szDecimals, rules, closeCloids });
+const fixedClaimEvidence=new Map();
+if(pinnedProof){
+ const candidates=dispatches.filter(d=>d.reason==='fixed_trade_already_claimed'&&d.state==='refused'&&d.leg==='open');
+ if(candidates.length>32)throw Error('Unbounded fixed claim refusal candidates');
+ for(const candidate of candidates){
+  const sql=fixedClaimEvidenceQuery(candidate,{network:net,leaderNetwork:leaderNet,leader,follower});
+  if(!sql)continue;
+  const rows=await query(sql);
+  if(rows.length!==1)throw Error('Missing exact fixed claim evidence');
+  fixedClaimEvidence.set(candidate.id,hydrateFixedClaimEvidence(rows[0][0],{candidate,dispatches,network:net,accountAddress:follower,fills:followerFills,tools:pinnedProof.tools,now:Date.now()}));
+ }
+}
+const evaluated = evaluate({ fixedClaimTools:pinnedProof?.tools,fixedClaimEvidence,leaderFills, dispatches: db === "none" ? null : dispatches, followerFills, leaderPositions: L, followerPositions: C, followerLeverage, szDecimals, rules, closeCloids });
 for (const f of evaluated.failures) failures.push(f);
 const { fillsByCloid } = evaluated;
 
@@ -158,6 +180,7 @@ const report = {
   leader: { address: leader, network: leaderNet, orders: leaderOrders.size, fills: leaderFills.length, positions: Object.fromEntries(L) },
   follower: { address: follower, network: net, fills: followerFills.length, equity: followerState.marginSummary.accountValue, withdrawable: followerState.withdrawable, positions: Object.fromEntries(C),
     leverage: Object.fromEntries(followerLeverage) },
+  fixedClaimProofRuntime:pinnedProof?.attestation??null,
   rules: { allowedRefusals: rules.allowedRefusals.map((a) => (a.coin ? `${a.reason}:${a.coin}` : a.reason)), sizing: rules.sizing ?? "skipped (no --per-trade-usd)", maxLeverage: rules.maxLeverage ?? "skipped (no --max-leverage)" },
   dispatches: db === "none" ? { skipped: "--db none: the dispatch checks (1-4, 7) need Orbie's database" } : { count: dispatches.length, byStateReason: reasons },
   latencySeconds: { received: { p50: pct(received, 0.5), p95: pct(received, 0.95), max: pct(received, 1) }, sent: { p50: pct(sent, 0.5), p95: pct(sent, 0.95), max: pct(sent, 1) },

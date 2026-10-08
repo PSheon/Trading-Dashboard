@@ -1,3 +1,4 @@
+import {createFixedClaimValidator} from './fixed-claim-proof.mjs';
 // Copy harness — the reconciliation rules (pure; reconcile.mjs gathers the
 // sources, harness.test.mjs feeds fixtures). Nothing here reads the network.
 //
@@ -107,6 +108,7 @@ function minimumReductionClosed(coin, input) {
 }
 
 export function evaluate(input) {
+  const fixedClaimValidator = input.fixedClaimTools ? createFixedClaimValidator(input.fixedClaimTools) : null;
   const { leaderFills, dispatches, followerFills, leaderPositions, followerPositions, followerLeverage = new Map(), szDecimals = new Map(), rules = {}, closeCloids = new Set() } = input;
   const allowList = rules.allowedRefusals ?? DEFAULT_ALLOWED_REFUSALS;
   const failures = [];
@@ -128,6 +130,13 @@ export function evaluate(input) {
     // that is judged itself, or followed by the follower's fill.
     if (d.state === "refused") {
       if (d.reason === "merged_into_adjustment") { if (!rows.some((x) => x.id === d.adjustmentId)) fail("refusal_not_allowed", { dispatch: d.id, reason: d.reason, detail: "lead missing" }); }
+      else if (d.reason === 'fixed_trade_already_claimed') {
+        const proof = input.fixedClaimEvidence?.get(d.id);
+        const originalDispatch = rows.find(x => x.id === proof?.originalDispatch?.id);
+        if (!fixedClaimValidator || !proof || !fixedClaimValidator({ ...proof, candidate: d, originalDispatch }))
+          fail('refusal_not_allowed', { dispatch: d.id, coin: d.coin, leg: d.leg, reason: d.reason, detail: 'verified original claim missing' });
+        // The original dispatch still undergoes ordinary sizing/fill checks.
+      }
       else if (!/signal_expired/.test(d.reason) && !allowed(allowList, d.reason, d.coin)) fail("refusal_not_allowed", { dispatch: d.id, coin: d.coin, leg: d.leg, reason: d.reason });
       continue;
     }

@@ -134,9 +134,10 @@ export { WALLET_NETWORK_HL, walletNetworkHyperliquid, type WalletNetworkHyperliq
     CopyLiveMandateRepository, CopyLiveMandateService, CopyLiveStopRepository, CopyLiveStopService, CopyLiveSystemStops, CopyLiveReturnRepository, CopyLiveReturnService, CopyLivePortfolioRepository, CopyLiveCloseService, CopyLiveCloseRepository, CopyLiveSetupRepository, CopyLiveSetupService,
     CopyLiveSetupAbortRepository, CopyLiveSetupAbortReturnRepository, CopyLiveSetupAbortService,
     { provide: SETUP_ABORT_OBSERVER, inject: [WALLET_NETWORK_HL], useFactory: ({ budget, transport, network }: WalletNetworkHyperliquid) =>
-      // Original refund proofs discharge a financial liability, using the existing live reserve.
-      new HyperliquidLiveAccountObserver(network, liveBudget(budget, { maxWaitMs: LIVE_RESERVE_WAIT_MS }), transport.fetchInfo, Date.now, 5000,
-        new HyperliquidAllDexsAccountSource(Date.now, undefined, network, transport, { closeAfterRead: true })) },
+      // Original refund proofs may queue before their evidence clock, within the
+      // existing 120s abort lease. This preserves the live reserve and 5s proof.
+      new HyperliquidLiveAccountObserver(network, liveBudget(budget, { maxWaitMs: 50_000 }), transport.fetchInfo, Date.now, 5000,
+        new HyperliquidAllDexsAccountSource(Date.now, undefined, network, transport, { closeAfterRead: true }), 52_000) },
     { provide: WORKER_MASTER_SIGNER, inject: [AppConfig], useFactory: (config: AppConfig) => new PrivyPolicyMasterSigner({ appId: config.value.auth.appId, appSecret: config.value.auth.appSecret,
       workerQuorumId: config.value.copy.agent?.workerQuorumId, authorizationPrivateKey: config.value.copy.agent?.authorizationPrivateKey }) },
     { provide: HyperliquidFollowerReceiptReader, inject: [WALLET_NETWORK_HL], useFactory: ({ budget, transport, network }: WalletNetworkHyperliquid) =>

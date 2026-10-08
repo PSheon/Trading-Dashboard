@@ -72,7 +72,7 @@ it('the registered abort factory admits two distinct fresh refund proofs from ex
   } finally { budget.onModuleDestroy(); }
 });
 
-it('abort proofs still refuse an exhausted live bucket before any native read', async () => {
+it('abort proofs still refuse an exhausted live bucket behind prior original work before any native read', async () => {
   vi.useFakeTimers();
   const c = testConfig().value, config = new AppConfig({ ...c, hyperliquid: { ...c.hyperliquid, budgetPerMin: 400, burst: 800, startupPaceSeconds: 0 } });
   const budget = new RequestBudgeterService(config), { observer, fetcher, native } = composedObserver(budget, config);
@@ -80,6 +80,7 @@ it('abort proofs still refuse an exhausted live bucket before any native read', 
     const exhausted = budget.acquire(800, 'live');
     await vi.advanceTimersByTimeAsync(0);
     await exhausted;
+    void budget.acquire(800, 'live').catch(() => undefined); // Ahead of this proof; cannot fit its bounded wait.
     await expect(observer.observeSetupAbortFlat(address)).rejects.toMatchObject({
       code: 'live_account_observation_unavailable',
     });
@@ -175,13 +176,39 @@ it('failed prepared recovery retries let the real bucket refill without paying a
   vi.useFakeTimers();const c = testConfig().value, config = new AppConfig({ ...c, hyperliquid: { ...c.hyperliquid, budgetPerMin: 400, burst: 800, startupPaceSeconds: 0 } });
   const budget = new RequestBudgeterService(config), { observer, native } = composedObserver(budget, config);
   try {
-    await budget.acquire(799, 'live');const pass = recoveryPass(config, budget, observer);
+    await budget.acquire(799, 'live');const prior = new AbortController();
+    void budget.acquire(800, 'live', 0, { signal: prior.signal }).catch(() => undefined);
+    const pass = recoveryPass(config, budget, observer);
     await pass.service.process('original-abort');expect(native).not.toHaveBeenCalled();expect(pass.exchange.send).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(30_000);await pass.service.process('original-abort');
     expect(native).not.toHaveBeenCalled();expect(pass.exchange.send).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(15_000);await pass.service.process('original-abort');
+    await vi.advanceTimersByTimeAsync(15_000);prior.abort();await pass.service.process('original-abort');
     expect(native).toHaveBeenCalledTimes(1);expect(pass.exchange.send).toHaveBeenCalledTimes(1);
     expect(pass.exchange.send.mock.calls[0]![0]).toMatchObject({ id: 'original-refund', nonce: 123 });
     expect(pass.refunds.reserve).not.toHaveBeenCalled();expect(pass.repository.release).toHaveBeenCalledTimes(3);
+  } finally { budget.onModuleDestroy(); }
+});
+
+it('the registered abort observer queues its full original proof before its evidence clock while ordinary background calls compete', async () => {
+  vi.useFakeTimers();const c = testConfig().value, config = new AppConfig({ ...c, hyperliquid: { ...c.hyperliquid, budgetPerMin: 400, burst: 800, startupPaceSeconds: 0 } });
+  const budget = new RequestBudgeterService(config), { observer, native } = composedObserver(budget, config);
+  try {
+    await budget.acquire(700, 'live');
+    // Small real background waiters consume their permitted main share; their
+    // fairness turn remains enabled while the large original live proof waits.
+    const competitors = Array.from({ length: 500 }, () => budget.acquire(2, 'background').catch(() => undefined));
+    const requestedAt = Date.now();let proof: Awaited<ReturnType<typeof observer.observeSetupAbortFlat>> | undefined;
+    const work = observer.observeSetupAbortFlat(address).then(p => { proof = p; }).catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(native).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(49_000);
+    expect(native).toHaveBeenCalledTimes(1);
+    expect(proof).toBeDefined();await work;
+    expect(proof!.snapshot.observedAt).toBeGreaterThan(requestedAt + 8000);
+    expect(proof!.snapshot.completedAt - proof!.snapshot.observedAt).toBeLessThanOrEqual(5000);
+    expect(proof!.snapshot.coverage.earliestProviderTime).toBe(proof!.snapshot.observedAt);
+    expect(budget.introspect()).toMatchObject({ configuredBudgetPerMin: 400, effectiveBudgetPerMin: 400, burstCapacity: 800 });
+    expect(budget.introspect().consumers.other).toBeGreaterThan(68); // Ordinary fairness was not suspended.
+    void Promise.all(competitors);
   } finally { budget.onModuleDestroy(); }
 });

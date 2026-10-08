@@ -123,17 +123,22 @@ export class CopyLiveSetupAbortService {
       // Pay local attempt weight before the evidence clock. The global
       // transport still rechecks its own quota and this <=5s proof at POST.
       await this.exchange.acquire();
-      let proof = await this.observer.observeSetupAbortFlat(row.accountAddress);
-      if (await this.refunds.complete(row, proof, this.now)) return;
-      if (refund?.status === 'credited') { await wait('blocked', 'setup_abort_residual_balance'); return; }
-      if (!this.available) { await wait('blocked', 'setup_abort_unavailable'); return; }
-      refund = await this.refunds.reserve(row, proof, this.now);
+      const originalPrepared = refund?.status === 'prepared' && refund.attemptedAt === null;
+      if (!originalPrepared) {
+        const reservationProof = await this.observer.observeSetupAbortFlat(row.accountAddress);
+        if (await this.refunds.complete(row, reservationProof, this.now)) return;
+        if (refund?.status === 'credited') { await wait('blocked', 'setup_abort_residual_balance'); return; }
+        if (!this.available) { await wait('blocked', 'setup_abort_unavailable'); return; }
+        refund = await this.refunds.reserve(row, reservationProof, this.now);
+      } else if (!this.available) { await wait('blocked', 'setup_abort_unavailable'); return; }
       if (!refund) { await wait('draining', 'setup_abort_child_pending'); return; }
       row = await this.repository.find(row.userId, row.id);
       if (refund.status !== 'prepared') { await wait('returning', 'setup_abort_refund_pending'); return; }
-      // Reservation may have waited for the user lock: obtain fresh evidence
-      // for this one original transfer instead of extending its clock.
-      proof = await this.observer.observeSetupAbortFlat(row.accountAddress!);
+      // A stored unattempted original refund cannot complete yet, and reserve
+      // would return that same child. Read once for its locked begin instead
+      // of spending another full proof on every retry. A new reservation still
+      // gets this independent post-lock proof; no earlier clock is reused.
+      const proof = await this.observer.observeSetupAbortFlat(row.accountAddress!);
       const attempt = await this.refunds.begin(row, refund.id, proof, this.now);
       if (!attempt) { await wait('draining', 'setup_abort_child_pending'); return; }
       const context = await this.returns.contextRead(row.userId, row.accountId!, true), account = context.account;

@@ -2,6 +2,20 @@
 
 Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題概覽」。本輪接續本機 B 段；不操作主網、不修改 Stage。原輪結果保留於 [六小時結果](testnet-results-2026-10-08.md)，不以重跑覆蓋原始 FAIL。
 
+**10/09 接續：Paul 再授權十小時完成 testnet 與 UI/UX；截止台北09:58。** 範圍與驗收見 [十小時收尾](testnet-ten-hour-plan-2026-10-09.md)。
+
+## 23:53–00:09 最新結果與來源重試修正
+
+- 第62輪原runner正常結束：一般流程FAIL，領單兩步後因已確認訊號過期提前中止，非七步通過；10 testUSDC提款PASS。停止空倉、38.988319剩餘返還credited、顯示stopped皆PASS。00:09官方INFO核對主錢包101.591172、跟單0、領單22.569568，三者均空倉；23:58全部actual已停止，在途資金／未釋放額度／未完成設定皆零。
+- `1a91d44a` 完整API隔離回歸255檔3,950項PASS，765.69秒，原handle exit0及隔離DB清除確認。這不代表第62輪通過。
+- 確認來源初始240權重拒絕發生在provider讀取之前，engine卻預先更新poll時間，導致再等60秒；共享容量拒絕反而只按60秒，沒有保留65秒退避。
+- 真實來源client＋SQL的回歸舊碼兩项RED；測試有效期最初過短造成的fixture失敗不當成bug證據。補齊有效期後確認local等待過長／shared提前讀取兩個真實錯誤。修正只對初始HyperliquidBudgetWait指定下一重試時間；local至少1秒、shared至少65秒。成功及已讀provider失敗仍原60秒、原coverage cursor／雙channel／5秒證據窗口不變。
+- 最終相關4檔72項PASS、tsc含測試／lint／build PASS；獨立審查無Critical／Important。新的完整API回歸正在執行，尚未記成PASS。
+- 00:08純本機API79295／worker79504載入新來源排程，原400權重/min／60秒正常poll及交易限制不變；健康且admin403，無preload或臨時權限。00:09開始原一般流程真實複驗，仍待結果。
+- 00:19來源重試版完整API：255檔3,956項PASS、763.58秒；原handle exit0、一次性隔離DB已移除。第63輪建立84秒、首訊號26.24秒收到、首送單68.16秒；開倉／加倉已成交並settled，但完整七步與五來源／退款驗收尚待完成，不先記PASS。
+
+證據：`/private/tmp/codex-base62-run.log`、`codex-post62-money.json`、`codex-source-admission-{red-final,final,types,lint,build,api-all}.log`、`codex-base63-run.log`。本機修正與線上發布分開記錄。
+
 ## 驗收概覽（接續收尾）
 
 | 情境 | 最後完成結果 | 尚待處理 |
@@ -464,3 +478,11 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 - 最終兩檔26項PASS（7.65秒），owned DB移除；tsc含測試／兩檔oxlint／diff check PASS；獨立複查無Critical／Important。私人codex-reporting-{contention-red,contention-green,contention-final,fairness-red,fairness-final,fairness-types,fairness-lint}.log。fixture前置必填時間／策略會計零值／submitted journal外鍵補齊後，真正RED為錯誤准入，不能把fixture錯誤算成有效RED。
 - 本機harness operational設定：source interval3000→60000ms（一般poll cadence），COPY_LIVE_WEIGHT_PER_MIN default300→explicit400（burst800）。來源兩個空list最低40，原3秒需求800/min，現60秒約40/min；最重two-accounts＋leader evidence793可放入800。stage-caps金融50／12–15／lev3／max2、共享IP1200及五秒／120秒驗收皆不變，production default300未改，Stage／主網未動。此配置不保證持續兩分鐘SLA（單成功單保守732／可用360≈2.03min，未計其他工作）；真實結果須明確標示新本機配置，不將其當作原300／3秒PASS。
 - harness原38項PASS。原full API handle93461在審查後公平性修改前按自有隔離runner PID52819正常SIGTERM停止，owned DB刪除，不宣稱全綠，private codex-testnet-throughput-api-all.log。最終build、固定版完整回歸及真實base尚待啟動／確認。
+
+### 23:39 固定版完整回歸與Base62真實複驗並行，已入金待確認
+
+- 已提交1a91d44a，build PASS；實際compiled assertLiveEvidenceCapacity回傳users3／weight793／capacity800。23:36:45前置所有actual策略stopped，openFunding／liabilities／unfinishedSetups皆0，官方主102.602853／跟單61為0／領單22.618683且三者空倉。
+- 最新固定版完整API隔離run handle33766，codex-testnet-throughput-api-all-final.log，owned DB orbie_b613332fc584470a84296dbf4ae6b00f_test；尚未結果，不稱全綠。金融相關先行80項及快照26項、harness38項、型別／lint／build與獨立審查皆通過，故再次於獨立DB下並行真實驗證，沒有降低驗收。
+- API56159／worker56374同1a91d44a，23:38:04健康、admin403；原stage-caps金融設定、本機400／60秒操作設定，無preload與管理權。原base runner handle37822，codex-base62-run.log，gap120。
+- 策略62，setup5e721794-e377-4997-a59c-5da6229d9c12，account16f4e96a-ac59-474b-bccb-77aade05177f／0xd127c3a426933ea7c7d469a425e7ed51c4610f64。23:39:13原兩份browser簽署及addSigners／confirm200，8.3秒，50入金accepted；尚待credited、running、原七步／五來源對帳／10提款／停止退款。入金後不重啟或改編譯金融服務，未操作Stage／主網。
+- 23:42:11原handle37822仍確認活著；setup已funded，但能力設定issue hyperliquid_busy，尚未running或開始領單交易。仍在原600秒setup期限內，未重入金、未重啟或改金融碼。完整API handle33766亦活著，結果待確認；不能因觀察尚未回覆重開任一run。

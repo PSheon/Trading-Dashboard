@@ -5,6 +5,8 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
 import { digest as mandateDigest } from '../src/copy/copy-live-mandate-evidence.js';
 import { CopyLiveSourceRepository } from '../src/copy/copy-live-source.repository.js';
+import { HyperliquidLiveSourceClient } from '../src/copy/copy-live-source.client.js';
+import { HyperliquidBudgetWait } from '../src/hyperliquid/hyperliquid-budget-wait.js';
 import { liveSourceExecutionCloid } from '../src/copy/live/postgres-live-preparation.js';
 import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
 import { NEVER_PLACED, type LiveExecutionRecord } from '../src/copy/live/live-execution.js';
@@ -85,11 +87,86 @@ beforeEach(async () => {
 afterAll(async () => { await closeTestDb(); });
 
 describe('testnet copy execution engine', () => {
-  async function activeTestnetSource() {
+  async function activeTestnetSource(longLived = false) {
     await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
     await db.update(schema.copyLiveStrategyConfigs).set({ sourceNetwork: 'testnet' });
-    await db.update(schema.copyLiveMandates).set({ sourceNetwork: 'testnet', intent: seed.consent, intentDigest: mandateDigest(seed.consent) });
+    const consent = longLived ? { ...seed.consent, expiresAt: now + 300_000 } : seed.consent;
+    await db.update(schema.copyLiveMandates).set({ sourceNetwork: 'testnet', intent: consent, intentDigest: mandateDigest(consent), expiresAt: new Date(consent.expiresAt) });
+    if (longLived) {
+      await db.update(schema.copyWalletAuthorizations).set({ expiresAt: new Date(consent.expiresAt) });
+      await db.update(schema.copyAgentSetups).set({ expiresAt: new Date(consent.expiresAt) });
+    }
   }
+
+  it.each([
+    { reason: 'local_budget' as const, retryMs: 1500, dueMs: 1500 },
+    { reason: 'local_budget' as const, retryMs: 0, dueMs: 1000 },
+    { reason: 'shared_capacity' as const, retryMs: 65_000, dueMs: 65_000 },
+    { reason: 'shared_capacity' as const, retryMs: 1500, dueMs: 65_000 },
+  ])('retries a zero-read $reason admission ($retryMs ms) at its safe deadline, then retains the successful poll cadence', async ({ reason, retryMs, dueMs }) => {
+    await activeTestnetSource(true);
+    let firstAdmission = true;
+    const budget = async () => {
+      if (firstAdmission) { firstAdmission = false; throw new HyperliquidBudgetWait(retryMs, reason); }
+    };
+    const fetcher = vi.fn(async (_url: unknown, _init?: RequestInit) => Response.json([]));
+    const source = new HyperliquidLiveSourceClient('testnet', budget, fetcher as typeof fetch, () => clock);
+    const run = engine({ testnetSource: source });
+    await run.pollTestnetSources();
+    expect(fetcher).not.toHaveBeenCalled();
+    const sourceRow = async () => (await db.select().from(schema.copyLiveSourceStreams).where(eq(schema.copyLiveSourceStreams.id, `testnet:${leader}`)))[0]!;
+    expect((await sourceRow()).coverageThrough).toBeNull();
+    clock += dueMs - 1;
+    await run.pollTestnetSources();
+    expect(fetcher).not.toHaveBeenCalled();
+    clock++;
+    await run.pollTestnetSources();
+    expect((await sourceRow()).coverageThrough?.getTime()).toBe(now + dueMs);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    const requests = fetcher.mock.calls.map(([, init]) => JSON.parse(String(init?.body)));
+    expect(requests.map(r => r.type)).toEqual(['userFillsByTime', 'userTwapSliceFillsByTime']);
+    expect(requests.every(r => r.user === leader && r.endTime === now + dueMs)).toBe(true);
+    clock += 59_999;
+    await run.pollTestnetSources();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    clock++;
+    await run.pollTestnetSources();
+    expect((await sourceRow()).coverageThrough?.getTime()).toBe(now + dueMs + 60_000);
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    expect(runtimeCalls).toHaveLength(0);
+  });
+
+  it('retains the full poll cadence after a provider read fails', async () => {
+    await activeTestnetSource(true);
+    const fetcher = vi.fn(async () => Response.json({}, { status: 503 }));
+    const source = new HyperliquidLiveSourceClient('testnet', async () => {}, fetcher as typeof fetch, () => clock);
+    const run = engine({ testnetSource: source });
+    await run.pollTestnetSources();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    clock += 1500;
+    await run.pollTestnetSources();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    clock += 58_500;
+    await run.pollTestnetSources();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('clears an admission retry override when its next provider read fails', async () => {
+    await activeTestnetSource(true);
+    let firstAdmission = true;
+    const source = new HyperliquidLiveSourceClient('testnet', async () => {
+      if (firstAdmission) { firstAdmission = false; throw new HyperliquidBudgetWait(1500, 'local_budget'); }
+    }, (async () => Response.json({}, { status: 503 })) as typeof fetch, () => clock);
+    const read = vi.spyOn(source, 'read');
+    const run = engine({ testnetSource: source });
+    await run.pollTestnetSources();
+    clock += 1500; await run.pollTestnetSources();
+    expect(read).toHaveBeenCalledTimes(2);
+    clock += 59_999; await run.pollTestnetSources();
+    expect(read).toHaveBeenCalledTimes(2);
+    clock++; await run.pollTestnetSources();
+    expect(read).toHaveBeenCalledTimes(3);
+  });
 
   it('polls active testnet source evidence without executing, settling, activating or driving setups', async () => {
     await activeTestnetSource();

@@ -15,7 +15,7 @@ import type { WatchedMainnetSource } from './watched-mainnet-source.js';
 import type { FastMainnetSource } from './fast-mainnet-source.js';
 import { minOrderNotional } from '../min-order-notional.js';
 import { Dec } from '../../common/decimal/dec.js';
-import { HyperliquidBudgetWait } from '../../hyperliquid/hyperliquid-budget-wait.js';
+import { HyperliquidBudgetWait, SHARED_CAPACITY_RETRY_MS } from '../../hyperliquid/hyperliquid-budget-wait.js';
 
 /** One source read's result, for the logs. */
 export interface IngestOutcome { fast: boolean; fills: number; kind: string; state: string; through: number | null }
@@ -121,6 +121,7 @@ const reasonOf = (error: unknown) => errorCode(error);
  */
 export class CopyLiveEngine {
   private readonly lastTestnetRead = new Map<string, number>();
+  private readonly testnetSourceRetryAt = new Map<string, number>();
   private readonly lastFastRead = new Map<string, number>();
   private readonly ingesting = new Set<string>();
   constructor(private readonly deps: LiveEngineDependencies, private readonly options: LiveEngineOptions = DEFAULT_ENGINE_OPTIONS,
@@ -291,7 +292,8 @@ export class CopyLiveEngine {
 
   private async ingestOriginal(stream: LiveStreamWork, mandates: readonly LiveMandateWork[], fast: boolean): Promise<IngestOutcome | null> {
     const { network, leaderAddress } = stream, key = `${network}:${leaderAddress}`, now = this.now();
-    if (network === 'testnet' && now - (this.lastTestnetRead.get(key) ?? 0) < this.options.testnetSourceIntervalMs) return null;
+    if (network === 'testnet' && now < (this.testnetSourceRetryAt.get(key)
+      ?? (this.lastTestnetRead.get(key) ?? 0) + this.options.testnetSourceIntervalMs)) return null;
     let current = await this.deps.uow.run(tx => this.deps.sources.ensure(tx, leaderAddress, network));
     if (current.state === 'quarantined') return null;
     const earliest = mandates.filter(m => m.sourceNetwork === network && m.leaderAddress === leaderAddress).reduce((min, m) => Math.min(min, m.cursor.getTime()), Infinity);
@@ -305,15 +307,32 @@ export class CopyLiveEngine {
     const from = current.coverageThrough ? current.coverageThrough.getTime() + 1 : earliest;
     const to = Math.min(now - this.options.sourceLagMs, from + 10 * 60_000);
     if (!Number.isFinite(from) || to < from) return null;
-    if (network === 'testnet') this.lastTestnetRead.set(key, now);
+    if (network === 'testnet') {
+      this.lastTestnetRead.set(key, now);
+      this.testnetSourceRetryAt.delete(key);
+    }
     let result: LiveSourceReadResult | null = null, viaFast = false;
     if (fast && this.fastLeader(stream)) {
       this.lastFastRead.set(leaderAddress, now);
       try { result = await this.deps.fast!.source.read(leaderAddress, from); viaFast = result !== null; }
       catch (error) { this.deps.log?.(`fast source ${leaderAddress} not read: ${reasonOf(error)}`); }
     }
-    result ??= network === 'mainnet' ? await this.deps.watched.read(leaderAddress, from, to)
-      : await this.deps.testnetSource.read({ leaderAddress, from, to, maxRequests: 8 });
+    if (!result) {
+      if (network === 'mainnet') result = await this.deps.watched.read(leaderAddress, from, to);
+      else {
+        try { result = await this.deps.testnetSource.read({ leaderAddress, from, to, maxRequests: 8 }); }
+        catch (error) {
+          // Only the initial admission can propagate this wait: the source
+          // client catches subsequent channel failures as incomplete reads.
+          // No provider evidence exists yet; retry the unchanged coverage
+          // cursor after admission permits, retaining the shared-IP backoff.
+          if (error instanceof HyperliquidBudgetWait && Number.isFinite(error.retryMs))
+            this.testnetSourceRetryAt.set(key, this.now() + Math.max(error.retryMs,
+              error.reason === 'shared_capacity' ? SHARED_CAPACITY_RETRY_MS : 1000));
+          throw error;
+        }
+      }
+    }
     if (!result) return null; // The watcher has not proven this span yet.
     const read = result, applied = await this.deps.uow.run(tx => this.deps.sources.apply(tx, current.revision, read, this.now()));
     if (applied.stream.state === 'gap' && applied.stream.lastIssue !== current.lastIssue)

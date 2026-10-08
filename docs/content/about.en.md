@@ -26,7 +26,7 @@ Every trader has a full profile: equity and PnL charts, ROI, Sharpe ratio, max d
 
 ### 3. Follow in one tap
 
-Pick a trader and set an amount and a direction (same or opposite). Choose an available mode from the account menu: paper uses virtual funds and sends no orders; testnet places orders on Hyperliquid testnet with test USDC that has no real value; live uses real funds and requires platform availability and account eligibility. After a trader fills an order, Orbie processes your copy according to your settings. Actual fills may differ because of delay, slippage or risk checks.
+Pick a trader and set an amount and a direction (same or opposite). Choose actual or paper copying from the account menu. Paper uses virtual funds and sends no orders. Actual copying uses the network shown in Orbie, which is configured by the platform: testnet uses test USDC that has no real value; mainnet uses real funds and requires platform availability and account eligibility. After a trader fills an order, Orbie processes your copy according to your settings. Actual fills may differ because of delay, slippage or risk checks.
 
 ---
 

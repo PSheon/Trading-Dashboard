@@ -1,12 +1,12 @@
 # FAQ
 
-<!-- Draft. Each ### is one expandable question. Describe paper, testnet and live according to the modes available in the account menu. Live requires platform availability and account eligibility; do not imply general availability. -->
+<!-- Draft. Each ### is one expandable question. The account menu selects actual or paper; the platform configures the actual network shown in the interface. Live requires platform availability and account eligibility; do not imply general availability. -->
 
 ## About Orbie
 
 ### What is Orbie?
 
-Orbie (app.orbie.fun) is a trader-monitoring and copy-trading platform for Hyperliquid. You can browse the performance of every trader on Hyperliquid, dig into their positions and trade history, favorite the ones you like, and get Telegram alerts when they trade. Paper uses virtual funds and sends no orders. Testnet copies place orders on Hyperliquid testnet with test USDC. Live uses real funds and requires platform availability and account eligibility; available modes are shown in the account menu.
+Orbie (app.orbie.fun) is a trader-monitoring and copy-trading platform for Hyperliquid. You can browse the performance of every trader on Hyperliquid, dig into their positions and trade history, favorite the ones you like, and get Telegram alerts when they trade. Paper uses virtual funds and sends no orders. Testnet copies place orders on Hyperliquid testnet with test USDC. Mainnet copying uses real funds and requires platform availability and account eligibility. The account menu selects actual or paper; the network for actual copying is configured by the platform and shown in Orbie.
 
 ### What is Hyperliquid?
 
@@ -180,9 +180,9 @@ Portfolio lists your deposits, withdrawals and transfers, as reported by Hyperli
 
 ### How does copy trading work?
 
-Copy trading has three modes: **paper** uses virtual funds, sends no orders and produces estimates; **testnet** places orders on Hyperliquid testnet with test USDC that has no real value; **live** places orders on Hyperliquid mainnet with real funds. Available modes are shown in the account menu. Live requires platform availability and account eligibility.
+The account menu selects **actual** or **paper** copying. Paper uses virtual funds, sends no orders and produces estimates. Actual copying uses the network shown in Orbie, which is configured by the platform: **testnet** places orders with test USDC that has no real value; **mainnet** places orders with real funds and requires platform availability and account eligibility. The account menu does not switch networks.
 
-1. Choose a mode in the account menu, then set the direction and amount on a trader’s page. Paper accounts start with 10,000 virtual USDC; actual copies require authorization and funding confirmation.
+1. Choose actual or paper in the account menu, then set the direction and amount on a trader’s page. For actual copying, check the network shown before confirming. Paper accounts start with 10,000 virtual USDC; actual copies require authorization and funding confirmation.
 2. After a trader’s fill is confirmed, Orbie processes your copy according to its settings. Paper mode estimates fills, fees and slippage. Actual orders must pass risk checks and may not fill or may fill only partially.
 3. Pause or stop the copy at any time.
 

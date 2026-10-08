@@ -4,6 +4,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { cn } from "cn";
 
 import { SkelBar, Skeleton } from "@/components/page";
+import { Segmented } from "@/components/ui/segmented";
 import { TIME_ZONE } from "@/i18n/config";
 import { useI18n } from "@/i18n/provider";
 import type { CohortWindow } from "@/lib/contracts";
@@ -155,25 +156,10 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
 
   return (
     <section className="flex min-w-0 flex-col overflow-hidden rounded-2xl bg-raised p-3 md:p-5">
-      <div className="flex min-h-11 items-center justify-between gap-3">
+      <div className="flex min-h-11 flex-wrap items-center justify-between gap-3">
         <h2 className="type-h2 truncate">{title}</h2>
-        <div className="flex shrink-0 items-center gap-0.5 rounded-full bg-background p-1" role="radiogroup" aria-label={title}>
-          {WINDOWS.map((w) => (
-            <button
-              key={w}
-              type="button"
-              role="radio"
-              aria-checked={window === w}
-              onClick={() => onWindow(w)}
-              className={cn(
-                "num h-9 rounded-full px-3 text-[13px] whitespace-nowrap outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
-                window === w ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {t(WINDOW_LABEL[w])}
-            </button>
-          ))}
-        </div>
+        <Segmented variant="pill" label={title} value={window} onChange={onWindow} className="shrink-0 bg-background"
+          options={WINDOWS.map(w => ({ value: w, label: t(WINDOW_LABEL[w]) }))} />
       </div>
       {shown ? (
         <p className="px-3 pt-2 text-[11px] leading-4 text-muted-foreground">{t("copyUpdates.historical")} · <time dateTime={new Date(shown.x).toISOString()}>{stamp.format(new Date(shown.x))}</time></p>

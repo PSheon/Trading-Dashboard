@@ -8,6 +8,8 @@ import { CopyLiveSourceRepository } from '../src/copy/copy-live-source.repositor
 import { liveSourceExecutionCloid } from '../src/copy/live/postgres-live-preparation.js';
 import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
 import { NEVER_PLACED, type LiveExecutionRecord } from '../src/copy/live/live-execution.js';
+import { buildOrderAction } from '../src/copy/live/live-order.js';
+import { planLiveReservation } from '../src/copy/live/live-risk-reservation.js';
 import type { LiveExecutionHooks, LiveExecutionRequest } from '../src/copy/live/live-execution-runtime.js';
 import { CLOSE_ATTEMPT_LIMIT, CopyLiveEngine, type LiveEngineDependencies } from '../src/copy/live-worker/copy-live-engine.js';
 import { CopyLiveWorkerRepository } from '../src/copy/live-worker/copy-live-worker.repository.js';
@@ -187,6 +189,35 @@ describe('testnet copy execution engine', () => {
     clock = now + 3000; await engine().tick();
     expect(runtimeCalls.map(c => c.sourceFillId)).toEqual([first, other, next]);
     expect((await dispatches()).find(r => r.sourceFillId === first)).toMatchObject({ state: 'refused', reason: NEVER_PLACED });
+    expect((await dispatches()).find(r => r.sourceFillId === next)).toMatchObject({ state: 'submitted', attempts: 1 });
+  });
+
+  it('waits for a filled prior order whose risk reservation is still unknown before attempting the next same-coin leg', async () => {
+    await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+    const first = await leaderFill(23, now + 100, 'B', '1', '0');
+    clock = now + 1000; await engine().tick();
+    const f = seed.f, intent = { ...f.intent, cloid: liveSourceExecutionCloid('mandate', first, 'open') };
+    const payload = planLiveReservation({ now: clock, identity: f.identity, localSource: f.localSource, intent,
+      action: buildOrderAction(intent), market: f.market, quote: f.quote, leverage: f.leverageProofs[0]!, fees: f.fees,
+      policy: f.policy, expiresAt: clock + 60_000 });
+    await db.insert(schema.copyLiveRiskReservations).values({ ...payload, cloid: intent.cloid, coin: intent.market!.coin,
+      dex: intent.market!.dex, asset: intent.asset, payload: payload as unknown as Record<string, unknown>, state: 'unknown',
+      attemptedAt: new Date(clock), createdAt: new Date(payload.createdAt), expiresAt: new Date(payload.expiresAt), updatedAt: new Date(clock) });
+    const next = await leaderFill(24, now + 1100, 'A', '0.5', '1');
+    settleImpl = async () => ({ kind: 'pending', reason: 'live_settlement_terminal_unproven' });
+    clock = now + 2000; await engine().tick();
+    expect(runtimeCalls.map(c => c.sourceFillId)).toEqual([first]);
+    expect((await dispatches()).find(r => r.sourceFillId === next)).toMatchObject({ state: 'pending', attempts: 0, reason: null });
+    expect(settleCalls.map(c => c.key)).toContain(keyOf(first, 'open'));
+    // This isolated SQL test doubles settlement; actual release proof is tested by the settler suites.
+    settleImpl = async () => {
+      await db.update(schema.copyLiveRiskReservations).set({ state: 'released', releaseReason: 'verified_settlement',
+        releaseEvidenceDigest: 'a'.repeat(64), revision: 2, updatedAt: new Date(clock) }).where(eq(schema.copyLiveRiskReservations.key, payload.key));
+      return { kind: 'released' };
+    };
+    clock = now + 3000; await engine().tick();
+    expect(runtimeCalls.map(c => c.sourceFillId)).toEqual([first, next]);
+    expect((await dispatches()).find(r => r.sourceFillId === first)).toMatchObject({ state: 'settled', attempts: 1 });
     expect((await dispatches()).find(r => r.sourceFillId === next)).toMatchObject({ state: 'submitted', attempts: 1 });
   });
 

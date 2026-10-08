@@ -12,7 +12,7 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 | 6 手動平倉後立即停止 | #43 PASS | 真實持倉及完整收尾已驗證 |
 | 7 worker重啟 | #51 FAIL；#49 FAIL保留 | #51重啟後開倉已成交；減倉第二次檢查逾時，後筆在前筆未結算時重試；排程修正尚待新碼真實驗收 |
 | 8 低於最小單的開倉拒絕 | SKIP | 現有限額下未找到符合情境的市場，沒有改限額強行通過 |
-| 9 三筆快速平倉 | #50 FAIL；#48設定逾時，原#37 FAIL保留 | #50領單三筆約15秒成交，跟單開倉因證據逾5秒未送出；仍須完整五來源對帳 |
+| 9 三筆快速平倉 | #53 FAIL；#52設定逾時，#50／#37 FAIL保留 | #53領單三筆14.426秒成交，跟單首close成交但未結算時後筆进入generation計算；保留額排程修正回歸通過，仍須真實五來源對帳 |
 | 14 管理者暫停／恢復／全平 | 未執行 | 管理權限仍待使用者授權 |
 
 既有隔離回歸基準：登入紀錄修正版API 255檔3,893項、web 181檔1,179項、harness28項PASS。新排程版首跑API 3,893 PASS／1 FAIL；積壓情境補測後相關45項PASS，最終完整API 255檔3,896項PASS。這些結果不能替代上述真實交易驗收；B段尚未全綠。
@@ -221,3 +221,19 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 - 16:22:41直接唯讀查testnet：主錢包110.780258、#53帳戶0、領單23.539485 testUSDC，三者均空倉；本機資料庫核對所有actual stopped、在途資金0、未釋放保留額0、未完成設定0。
 - unset NODE_OPTIONS還原API3100 PID3439、worker3010 PID3671，移除私人診斷與收據relay，共用web3000／Chrome9333保留。重啟途中health503為worker尚未就緒；原worker啟動程序正常完成，16:24:21 API與worker health皆成功，没有因短暫觀察失敗重啟另一份worker。
 - 私人證據`codex-generation53-{final-money,final-balances}.jsonl`、`codex-generation53-projector-offline.log`與runner日誌；純函式輸入artifact保留本機0600，未提交原始交易證據或公開推送。保留額分類的新排程修正尚未實作，不能以本次捕捉根因宣稱已修好。
+
+## 16:30起：並行回歸與保留額排程修正
+
+- Paul要求並行測試。前端設定、資產數字、portfolio查詢鍵與模式選單5檔41項，與獨立SQL資料庫的API回歸同時執行，前端全PASS；實際送單仍依序使用原領單帳戶，避免部位與資金互相影響。遵守同時最多兩條重工作、共用Chrome不另開金融診斷連線。
+- 新真實SQL回歸模擬filled journal／unknown attempted reservation及下一同幣種close；舊碼1 FAIL／20 PASS，後筆確實提早進入runtime。修正以未released reservation判斷尚待結算的前筆，優先結算且後筆保持pending／attempts0；settler釋放後才進入後筆。此测试的settler／runtime為double，不能當作真實成交或結算證明。
+- 新碼8檔141項PASS，包含引擎、原吞吐量模擬、積壓排序、adjustments、generation與三組結算測試；原期限、風控、證據與吞吐量門檻未更改。型別檢查涵蓋測試檔、變更檔案lint及diff檢查PASS。完整API正在獨立資料庫重跑，未宣稱本次全套或B段已通過；真實#54尚未啟動。
+- 私人日誌：`codex-reservation-queue-red.log`、`codex-reservation-queue-green.log`、`codex-parallel-web-financial.log`、`codex-reservation-queue-types-final.log`及`codex-reservation-queue-api-all.log`。未公開推送或手動部署Stage。
+
+### #54 真實快速平倉複驗，進行中
+
+- 16:34前置唯讀確認所有actual stopped、在途資金／未釋放額度／未完成設定皆0；主錢包110.780258、前#53帳戶0、領單23.539485 testUSDC，三者空倉。編譯PASS後載入API3100 PID13584、worker3010 PID13954，保留原stage-caps，沿用僅唯讀收據relay及拒絕後離線證據診斷。
+- 完整隔離API回歸與本輪真實交易並行，使用不同資料庫；金融runner只有一條，期間不另連線CDP、不更改程式或重啟服務。原三次領單平倉20秒條件及gap120不變。
+- #54設定`0350cc40-6a1f-444c-8d37-311d702ccb3d`、跟單帳戶`0x3335520c3745a2ccd7786207d7e41b742edd62d1`。16:36:38正常awaiting_consent（start約11.5秒），16:36:48真實兩份簽署／addSigners／confirm200 PASS，約8.3秒；50入金accepted後16:37:25設定顯示funded，交易啟用／完整對帳／停止返還仍待結果。私人runner`codex-reservation54-burst-run.log`。
+- 16:44新保留額排程版完整API 255檔3,897項PASS（736.66秒），程序exit0、隔離DB已移除；型別（含測試）／lint／build均PASS，沒有放寬任何原測試門檻。此結果不替代#54交易驗收。
+- #54正常啟用16:37:52；領單開36美元ETH16:37:54成交，跟單16:39:13 POST成交、16:40:28 settled，attempts1。領單三次平倉16:39:55.237／16:40:02.406／09.529全成交，首末約14.292秒，領單空倉。
+- 跟單首close16:41:56成交、16:43:11 settled，attempts1；其未結算期間後兩close維持pending／attempts0，沒有新generation拒絕或重送成交單。第二close16:44:27按原planner返回no_follower_position，最後一筆、完整五来源對帳及返還仍待結果。原post後live_risk_stale保留filled並結算，沒有改五秒新鮮度檢查。

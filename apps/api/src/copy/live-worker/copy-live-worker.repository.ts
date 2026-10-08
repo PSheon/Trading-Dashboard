@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, gt, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 import { copyControls, copyExecutionAccounts, copyFundingOperations, copyLiveManualCloses, copyLiveActivations, copyLiveDispatches, copyLiveExecutions, copyLiveMandates,
-  copyLiveReductionCarry, copyLiveSourceFills, copyLiveSourceStreams, copyLiveStopOperations, copyLiveStrategyConfigs, copyStrategies, copyStrategyVersions, copyRiskPolicies, fillCoverage, fills } from '@trading-dashboard/shared/database';
+  copyLiveReductionCarry, copyLiveRiskReservations, copyLiveSourceFills, copyLiveSourceStreams, copyLiveStopOperations, copyLiveStrategyConfigs, copyStrategies, copyStrategyVersions, copyRiskPolicies, fillCoverage, fills } from '@trading-dashboard/shared/database';
 import { ACTUAL_STRATEGY_MODE, CHAIN_DEFAULT, copyRiskLimitsSchema, copyStrategySettingsSchema, DEFAULT_COPY_RISK_LIMITS } from '@trading-dashboard/shared/contracts';
 import { AppConfig } from '../../config/app-config.js';
 import { DRIZZLE_CLIENT } from '../../db/db.constants.js';
@@ -13,11 +13,12 @@ import { deploymentNetwork } from '../live-deployment.js';
 import type { LiveSourceNetwork } from '../live/copy-live-source-evidence.js';
 import { NEVER_PLACED } from '../live/live-execution.js';
 
-// A dispatch label alone cannot distinguish a definite fill from an unknown
-// exchange outcome or an unsent order still awaiting its release proof.
+// A fill can still have an unsettled risk reservation. Prioritize its settlement
+// before another same-coin leg; a terminal journal alone is not a release proof.
 const unresolvedExecution = sql`exists (select 1 from ${copyLiveExecutions} j where j.key = ${copyLiveDispatches.executionKey}
   and (j.state in ('prepared', 'submitting', 'unknown', 'resting')
-    or (j.state = 'rejected' and j.record->>'errorCode' = ${NEVER_PLACED})))`;
+    or (j.state = 'rejected' and j.record->>'errorCode' = ${NEVER_PLACED})
+    or exists (select 1 from ${copyLiveRiskReservations} r where r.key = j.key and r.state <> 'released')))`;
 
 export type DispatchRow = typeof copyLiveDispatches.$inferSelect;
 export interface LiveMandateWork {

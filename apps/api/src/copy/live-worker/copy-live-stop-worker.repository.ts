@@ -120,7 +120,7 @@ export class CopyLiveStopWorkerRepository {
       const [current] = await tx.select().from(copyLiveStopOperations).where(eq(copyLiveStopOperations.id, stop.id)).for('update');
       if (!current || current.state !== 'flat' || current.revision !== stop.revision) return false;
       const at = new Date(Math.max(now, current.updatedAt.getTime()));
-      await tx.update(copyLiveStopOperations).set({ state: 'stopped', revision: current.revision + 1, updatedAt: at }).where(eq(copyLiveStopOperations.id, stop.id));
+      await tx.update(copyLiveStopOperations).set({ state: 'stopped', issue: null, revision: current.revision + 1, updatedAt: at }).where(eq(copyLiveStopOperations.id, stop.id));
       await tx.update(copyLiveMandates).set({ state: 'stopped', revision: sql`${copyLiveMandates.revision} + 1`, updatedAt: at })
         .where(and(eq(copyLiveMandates.accountId, stop.accountId), eq(copyLiveMandates.state, 'stopping')));
       const [strategy] = await tx.update(copyStrategies).set({ status: 'stopped', stoppedAt: at, pauseNewRisk: true })

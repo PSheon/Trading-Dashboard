@@ -120,7 +120,7 @@ describe('testnet stop execution', () => {
     await stopper().tick();
     expect(await stopRow()).toMatchObject({ state: 'flat', issue: 'stop_awaiting_return_to_main_wallet' });
     swept = true; await stopper().tick();
-    expect(await stopRow()).toMatchObject({ state: 'stopped' });
+    expect(await stopRow()).toMatchObject({ state: 'stopped', issue: null });
   });
 
   describe('the automatic return (one-click plan §3c)', () => {
@@ -358,4 +358,3 @@ describe('testnet stop execution', () => {
     expect((await closes.list(2, 'account')).items).toHaveLength(0);
   });
 });
-

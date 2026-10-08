@@ -57,15 +57,36 @@ function minimumReductionClosed(coin, input) {
     const last = rows.reduce((latest, fill) => fill.time > latest.time ? fill : latest);
     return rows.filter(fill => fill.time === last.time).length === 1 ? last : null;
   };
-  const leader = latest(input.leaderFills), follower = latest(input.followerFills);
-  if (!leader || !follower || follower.time < leader.time) return false;
-  const held = Number(leader.startPosition), reduced = Number(leader.sz);
-  if (!Number.isFinite(held) || !Number.isFinite(reduced) || reduced <= 0 || reduced >= Math.abs(held) ||
-      Math.sign(input.leaderPositions.get(coin) ?? 0) !== Math.sign(held) ||
-      Math.abs(Math.abs(input.leaderPositions.get(coin) ?? 0) - (Math.abs(held) - reduced)) > 1e-12 ||
-      !((held > 0 && leader.side === 'A') || (held < 0 && leader.side === 'B'))) return false;
-  const close = input.dispatches.find(d => d.coin === coin && d.tid === String(leader.tid) && d.leg === 'close' &&
+  const follower = latest(input.followerFills), source = input.leaderFills.filter(f => f.coin === coin);
+  if (!follower || !source.length || source.some(f => !Number.isFinite(f.time))) return false;
+  const at = Math.max(...source.map(f => f.time));
+  const latestOrders = new Set(source.filter(f => f.time === at).map(f => f.oid));
+  if (latestOrders.size !== 1 || follower.time < at) return false;
+  const [oid] = latestOrders;
+  if (!Number.isSafeInteger(oid) || oid <= 0) return false;
+  // Same-order chunks can be ordered by their original decreasing holdings,
+  // but only when every end position exactly matches the next start. This
+  // establishes order without guessing from array order or a tied timestamp.
+  const chunks = source.filter(f => f.oid === oid).sort((a, b) => Math.abs(Number(b.startPosition)) - Math.abs(Number(a.startPosition)));
+  if (chunks.some(f => !input.dispatches.some(d => d.coin === coin && d.leg === 'close' && d.tid === String(f.tid)))) return false;
+  const sign = Math.sign(Number(chunks[0].startPosition));
+  let remaining, previousTime;
+  for (const chunk of chunks) {
+    const start = Number(chunk.startPosition), size = Number(chunk.sz);
+    if (!Number.isFinite(start) || !Number.isFinite(size) || size <= 0 || size >= Math.abs(start) ||
+        Math.sign(start) !== sign || chunk.side !== (sign > 0 ? 'A' : 'B') ||
+        (previousTime !== undefined && chunk.time < previousTime) ||
+        (remaining !== undefined && Math.abs(start - remaining) > 1e-12)) return false;
+    remaining = sign * (Math.abs(start) - size);
+    previousTime = chunk.time;
+  }
+  const current = input.leaderPositions.get(coin) ?? 0;
+  if (!Number.isFinite(current) || Math.sign(current) !== sign || Math.abs(current - remaining) > 1e-12) return false;
+  const close = input.dispatches.find(d => d.coin === coin && chunks.some(f => d.tid === String(f.tid)) && d.leg === 'close' &&
     d.state === 'settled' && d.reduceOnly === true && d.cloid && d.cloid.toLowerCase() === follower.cloid?.toLowerCase());
+  const leader = close && chunks.find(f => String(f.tid) === close.tid);
+  if (!leader) return false;
+  const held = Number(leader.startPosition), reduced = Number(leader.sz);
   if (!close || follower.side !== leader.side) return false;
   // A final chunk's startPosition describes only the last residual, not
   // the whole order's original holding. This exception needs one full fill.

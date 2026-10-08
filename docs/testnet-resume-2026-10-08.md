@@ -376,3 +376,12 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 - 獨立審查最終無Critical／Important，但指出來源與收據仍共用原live額度隊列；並行嘗試不能保證預算不足時取得額度，因此真實14複驗仍必要，不能把單元PASS當修好120秒減倉。
 - 完整API隔離回歸已開始，日誌`/private/tmp/codex-testnet-source-api-all.log`，尚未完成。所有原碼風控5秒、簽署／對帳期限與12–15每單限額不變；金融服務尚未載入新碼或重新入金。本輪前已驗證退款、空倉、平台resume與臨時四權限移除403。
 - 私人證據`codex-testnet-source-{concurrency-red,concurrency-final,cursor-red,cursor-sql-red,types,lint,build}.log`。未公開推送或部署，Stage及主網未操作；B仍5 PASS／1 SKIP／2 FAIL。
+
+### 19:51 原#59分筆來源成交與方向檢查重驗
+
+- 按原19:09:39–19:17:33時間窗唯讀取官方領單4 fills、跟單2 fills與本機4 dispatch。每個dispatch updatedAt都未晚於原觀察終點，持倉採原reconcile保存的leader0.0079 ETH／follower0，不用後續全平狀態代替當時情境。此為pure verifier證據重驗，不是新金融輪次或重新取得五來源驗收。
+- 原同OID62157445255的減倉為兩筆、同毫秒：0.0158減0.0033至0.0125，再減0.0046至0.0079。跟單第一close為完整0.0047 ETH、settled reduce-only；第二close因已空倉終止no_follower_position。先前保守拒絕所有同毫秒來源的例外因此仍誤判此真實ケース。
+- 新回歸僅在最新來源為單一OID、原startPosition連續遞減、時間不倒退、當前領單餘倉及方向一致、每個原tid均有對應close dispatch時接受順序證據；仍匹配實際有完整fill的那個source chunk計算原比例，仍要求跟單close只有單筆完整成交。不同OID同毫秒、數量不連續、缺派送、NaN／反向、浮點門檻與未知拒絕均維持失敗。
+- 新RED1 FAIL／37 PASS；補時間／snapshot／微小反向及缺派送邊界皆先RED，再修正。最終harness38 PASS、syntax／diff check PASS。獨立審查最後確認沒有Critical／Important，並自行重跑38 PASS。
+- 限定證據重驗的updatedFailures為空，原始reconcile文件不修改；原120秒減倉FAIL及#59整輪FAIL仍保留。證據`/private/tmp/codex-admin59-verifier-replay.jsonl`、原始fields私人`codex-admin59-verifier-replay-evidence.json`、`codex-minimum-close-source-{chunks-red,chunks-green,consistency-red,sign-red,dispatch-red}.log`。
+- 完整API原handle仍運行，不因等待重啟；金融服務尚未載入新碼／入金。下一步仍須完整API通過後真實重跑14，並修正base原5秒風控證據期限失敗；Stage／主網未操作。

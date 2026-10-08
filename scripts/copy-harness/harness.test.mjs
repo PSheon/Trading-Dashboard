@@ -180,6 +180,10 @@ test("reconcile keeps a flat-follower mismatch without reduce-only full-close ev
 test("reconcile does not accept a minimum-close exception for an opposite position or an ordinary leader open", () => {
   assert.ok(minimumReduction({ followerPositions: new Map([["ETH", -0.004]]) }).includes("direction_mismatch"));
   assert.ok(minimumReduction({ leaderPositions: new Map([["ETH", -0.004]]) }).includes("direction_mismatch"));
+  assert.ok(minimumReduction({ leaderPositions: new Map([["ETH", -1e-13]]), leaderFills: [
+    { oid: 1, tid: 11, coin: "ETH", side: "B", time: 1000 },
+    { oid: 2, tid: 12, coin: "ETH", side: "A", time: 2000, startPosition: "0.0000000000002", sz: "0.0000000000001" },
+  ] }).includes("direction_mismatch"));
   assert.ok(minimumReduction({ leaderPositions: new Map([["ETH", 0.008]]) }).includes("direction_mismatch"));
   assert.ok(minimumReduction({ leaderFills: [{ oid: 2, tid: 12, coin: "ETH", side: "B", time: 2000, startPosition: "0.004", sz: "0.004" }] }).includes("direction_mismatch"));
 });
@@ -225,6 +229,22 @@ test("reconcile cannot use the last chunk of a multi-fill close as the original 
     { cloid: "0xc2", oid: 92, coin: "ETH", side: "A", sz: "0.004", startPosition: "0.008", px: "2994", time: 2400 },
     { cloid: "0xc2", oid: 92, coin: "ETH", side: "A", sz: "0.004", startPosition: "0.004", px: "2994", time: 2500 },
   ] }).includes("direction_mismatch"));
+});
+
+test("reconcile proves same-order leader reduction chunks by their contiguous original positions", () => {
+  const fills = [
+    { oid: 1, tid: 11, coin: "ETH", side: "B", time: 1000 },
+    { oid: 2, tid: 12, coin: "ETH", side: "A", time: 2000, startPosition: "0.008", sz: "0.002" },
+    { oid: 2, tid: 13, coin: "ETH", side: "A", time: 2000, startPosition: "0.006", sz: "0.002" },
+  ];
+  const dispatches = [...dispatch(1, { reduceOnly: true }),
+    { id: 'd3', tid: '13', coin: 'ETH', leg: 'close', state: 'refused', reason: 'no_follower_position', cloid: '' }];
+  assert.deepEqual(minimumReduction({ leaderFills: fills, dispatches }), []);
+  assert.deepEqual(minimumReduction({ leaderFills: [fills[0], fills[2], fills[1]], dispatches }), []);
+  assert.ok(minimumReduction({ leaderFills: fills, dispatches: dispatches.slice(0, 2) }).includes('direction_mismatch'));
+  assert.ok(minimumReduction({ leaderFills: [fills[0], fills[1], { ...fills[2], startPosition: '0.007' }], dispatches }).includes('direction_mismatch'));
+  assert.ok(minimumReduction({ leaderFills: [fills[0], fills[1], { ...fills[2], time: 1900 }], dispatches }).includes('direction_mismatch'));
+  assert.ok(minimumReduction({ leaderFills: fills, dispatches, leaderPositions: new Map([['ETH', NaN]]) }).includes('direction_mismatch'));
 });
 
 test("reconcile accepts the same proven minimum reduction for a short position", () => {

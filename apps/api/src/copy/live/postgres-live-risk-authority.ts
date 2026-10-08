@@ -109,7 +109,11 @@ export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSessi
   riskSourceRequire(sourceStream&&sourceStream.state==='ready'&&sourceStream.coverageFrom&&sourceStream.coverageThrough&&sourceStream.coverageDigest&&sourceStream.coverageFrom.getTime()<=m.activationCursor!.getTime(),'live_risk_source_changed');
   const identity={accountId:a.id,userId:a.userId,strategyId:s.id,strategyVersion:s.version,policyVersion:policy.version,authorizationVersion:g.version,
     authorizationId:g.id,walletId:w.privyWalletId,network:a.network,accountAddress:a.address,dedicated:true as const};
-  return {...row,consent,settings,currentAuthorization,identity,policy:{version:policy.version,limits},limits,builder,platform,user,
+  // Authentication refreshes this audit timestamp independently of orders.
+  // Keep every owner authorization field in the original authority digest;
+  // an incidental login must not invalidate otherwise unchanged evidence.
+  const {lastLoginAt:_lastLoginAt,...ownerAuthority}=o;
+  return {...row,owner:ownerAuthority,consent,settings,currentAuthorization,identity,policy:{version:policy.version,limits},limits,builder,platform,user,
     controls:{platform:{pauseNewRisk:platform.pauseNewRisk,reduceOnly:platform.reduceOnly},user:{pauseNewRisk:user.pauseNewRisk,reduceOnly:user.reduceOnly},strategy:{pauseNewRisk:s.pauseNewRisk,reduceOnly:s.reduceOnly}},
     sourceStream,accounts,states,general,revenue,controlsRows:controls};
 }

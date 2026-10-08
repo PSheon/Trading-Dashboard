@@ -222,6 +222,49 @@ describe('durable local actual source authority before remote reads',()=>{
       expect(()=>evidence.assertHeld()).not.toThrow();clock++;expect(()=>evidence.assertHeld()).toThrow('live_risk_stale');
     });
   });
+  it('collects original fresh evidence while login metadata is updated during provider reads',async()=>{
+    await genuineSizing();const original=fetcher.getMockImplementation()!;
+    fetcher.mockImplementationOnce(async(...args:Parameters<typeof fetcher>)=>{
+      await db.update(users).set({lastLoginAt:new Date(now+1)}).where(eq(users.id,1));
+      return original(...args);
+    });
+    await scopes.run(id(),async(_scope,session)=>{
+      const proof=await source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold();
+      expect(assessLiveAccountRisk(proof)).toMatchObject({ok:true});
+    });
+  });
+  it('keeps original risk evidence through login timestamp updates at sign and submit',async()=>{
+    const {reservations}=await genuineSizing();await scopes.run(id(),async(_scope,session)=>{
+      const bound=source.bind(session,{accountId:'account',key:f.reservations.own.key});await reservations.hold(session,await bound.forHold());
+      const calls=fetcher.mock.calls.length;
+      await session.transaction(tx=>tx.update(users).set({lastLoginAt:new Date(now+1)}).where(eq(users.id,1)));
+      let [row]=await session.read(sql=>sql.select().from(copyLiveExecutions));
+      const signed=await bound.proofSource.read({phase:'sign',intent:f.intent,record:row!.record as unknown as LiveExecutionRecord});
+      expect(()=>signed.assertHeld()).not.toThrow();
+      await session.transaction(async tx=>{
+        await tx.update(copyLiveExecutions).set({state:'submitting',record:{...row!.record,state:'submitting'}});
+        await tx.update(users).set({lastLoginAt:new Date(now+2)}).where(eq(users.id,1));
+      });
+      [row]=await session.read(sql=>sql.select().from(copyLiveExecutions));
+      const submitted=await bound.proofSource.read({phase:'submit',intent:f.intent,record:row!.record as unknown as LiveExecutionRecord});
+      expect(()=>submitted.assertHeld()).not.toThrow();expect(fetcher).toHaveBeenCalledTimes(calls);
+    });
+  });
+  it.each([
+    {disabledAt:new Date(now)},
+    {privyUserId:'changed-owner'},
+    {embeddedWalletAddress:`0x${'77'.repeat(20)}`},
+    {role:'admin' as const},
+  ])('still refuses owner authorization changes after evidence collection: %j',async patch=>{
+    const {reservations}=await genuineSizing();await scopes.run(id(),async(_scope,session)=>{
+      const bound=source.bind(session,{accountId:'account',key:f.reservations.own.key});await reservations.hold(session,await bound.forHold());
+      const calls=fetcher.mock.calls.length;
+      await session.transaction(tx=>tx.update(users).set(patch).where(eq(users.id,1)));
+      const [row]=await session.read(sql=>sql.select().from(copyLiveExecutions));
+      await expect(bound.proofSource.read({phase:'sign',intent:f.intent,record:row!.record as unknown as LiveExecutionRecord})).rejects.toThrow();
+      expect(fetcher).toHaveBeenCalledTimes(calls);
+    });
+  });
   it('does not reuse retained frames to bypass a newly changed SQL control',async()=>{
     const {reservations}=await genuineSizing();await scopes.run(id(),async(_scope,session)=>{
       const bound=source.bind(session,{accountId:'account',key:f.reservations.own.key});await reservations.hold(session,await bound.forHold());

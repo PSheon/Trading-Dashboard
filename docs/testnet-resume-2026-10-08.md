@@ -12,7 +12,7 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 | 6 手動平倉後立即停止 | #43 PASS | 真實持倉及完整收尾已驗證 |
 | 7 worker重啟 | #49 FAIL | 重啟後開倉已成交；減倉在傳送層被live_generation_unproven擋下，仍須定位具體證據條件 |
 | 8 低於最小單的開倉拒絕 | SKIP | 現有限額下未找到符合情境的市場，沒有改限額強行通過 |
-| 9 三筆快速平倉 | 原#37 FAIL；#48設定逾時，未進交易情境 | 仍須完整五來源對帳，原三筆14.156秒證據保留 |
+| 9 三筆快速平倉 | #50 FAIL；#48設定逾時，原#37 FAIL保留 | #50領單三筆約15秒成交，跟單開倉因證據逾5秒未送出；仍須完整五來源對帳 |
 | 14 管理者暫停／恢復／全平 | 未執行 | 管理權限仍待使用者授權 |
 
 隔離回歸：API 255檔3,893項、web 181檔1,179項、harness28項PASS。這些結果不能替代上述真實交易驗收；B段尚未全綠。
@@ -160,3 +160,19 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 - 私人最終證據`codex-continuation49-money-final.jsonl`、`codex-continuation49-balances.jsonl`、`codex-continuation49-dispatch-final.jsonl`。原歷史FAIL未刪除；沒有新程式修正可宣稱generation問題已解決，B段仍未全綠。
 
 - 14:36:39還原服務確認：API3100 PID29128、worker3010 PID29306皆healthy；以unset NODE_OPTIONS啟動，未載入私人診斷或公開收據relay。共用web3000／Chrome9333保留。最終派送：open settled attempts1；減倉close refused／exchange_order_never_placed attempts1；最後close因正常停止接管而refused／copy_stopping attempts4。停止平倉journal filled，不能將其算成領單平倉跟單成功。
+
+## 14:39起：快速平倉 #50，FAIL
+
+- 原stage-caps限額不變（預算50、每單12／上限15、槓桿3），真實瀏覽器確認通過，50入金／49 credited、14:41:41正常啟用。私人preload只在原generation檢查拒絕後保留證據；原參數、回傳與錯誤皆不改，未更動Stage。
+- 14:41:43領單開倉36美元ETH；14:43:44／51／58三次平倉成交，首筆到末筆約14.6秒，領單最後空倉。原開倉後120秒間隔、平倉間隔6000ms均不改。
+- 14:43:34.314跟單建單；市場／報價觀測為14:43:30.770，建單時已約3.544秒。14:43:35.835簽署完成；14:43:35.959安全檢查在validateSizing拒絕live_risk_stale（原市場證據約5.189秒），沒有開倉POST。保留rejected／exchange_order_never_placed；這次不是#49的generation拒絕，不合併宣稱同因。
+- provider epoch實際3.509秒，帳戶觀測3.054秒；簽署流程1.083秒。此為延遲定位證據，尚未修正或放寬5秒有效期，也沒有以重簽／重送跳過原證據。
+- 14:46完整對帳FAIL：三筆領單沒有派送、拒絕理由不允許、portfolio_snapshot_unavailable。跟單空倉檢查PASS，不能代替成功跟單成交。尚未捕捉到generation拒絕的私人證據檔，#49純函式拒絕條件仍待定位。
+- 未送出單的風險保留额在到期與grace後，經交易所missing證據正常released／expired_unplaced；不是永久對帳卡住。14:46:00正常停止，14:46:15flat，14:47:11返還49一度unknown，保留原操作後14:47:16accepted；尚待正式credited與最終收尾核對。
+- 私人證據：`/private/tmp/codex-generation-burst-run.log`、`codex-generation50-state.mjs`及worker階段診斷。沒有公開推送、沒有主網操作、沒有SQL改寫交易或設定紀錄。
+
+### #50 收尾確認
+
+- 14:49:21 runner確認49 testUSDC正式credited，停止未阻擋／空倉／返還入帳／顯示stopped四項PASS；runner exit1，保留交易對帳FAIL。
+- 14:48:50直接唯讀查testnet：主錢包112.809753、跟單帳戶0、領單23.649210 testUSDC，三者皆空倉。14:49 credited後本機資料庫唯讀再查：所有actual stopped、在途資金0、未釋放保留額0、未完成設定0；#50 return credited_amount=49。
+- 14:50還原本機服務：API3100 PID39007、worker3010 PID39186，以unset NODE_OPTIONS啟動，移除私人診斷與RPC relay；共用web3000／Chrome9333保留。本輪未改產品程式碼，尚未解決5秒內完成讀取與簽署的延遲，也未定位#49的generation具體拒絕條件。

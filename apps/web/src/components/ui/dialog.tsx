@@ -5,6 +5,7 @@ import { Dialog as Primitive } from "radix-ui";
 import { cn } from "cn";
 
 import { useT } from "@/i18n/provider";
+import { keepPanelOpenForNotification } from "./notification-interaction";
 
 /**
  * CopyDog's modal: a ~464 px panel over a dimmed page with a title row, a
@@ -39,6 +40,7 @@ export function Modal({
       <Primitive.Portal>
         <Primitive.Overlay className="fixed inset-0 z-50 bg-overlay backdrop-blur-[2px] data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
         <Primitive.Content
+          onPointerDownOutside={keepPanelOpenForNotification}
           aria-describedby={undefined}
           tabIndex={-1}
           // Focus the panel, not its first control: that may be a badge whose

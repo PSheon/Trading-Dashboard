@@ -5,6 +5,7 @@ import { Dialog as Primitive } from "radix-ui";
 import { cn } from "cn";
 
 import { useT } from "@/i18n/provider";
+import { keepPanelOpenForNotification } from "./notification-interaction";
 
 /**
  * A side panel over the page: from the right on desktop (32 px corners on
@@ -33,6 +34,7 @@ export function Drawer({
       <Primitive.Portal>
         <Primitive.Overlay className="fixed inset-0 z-50 bg-overlay backdrop-blur-[2px] data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
         <Primitive.Content
+          onPointerDownOutside={keepPanelOpenForNotification}
           {...(description ? {} : { "aria-describedby": undefined })}
           className={cn(
             "fixed z-50 flex flex-col overflow-hidden bg-background text-foreground shadow-[var(--shadow-pop)] outline-none",

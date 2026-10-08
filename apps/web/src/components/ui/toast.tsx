@@ -48,12 +48,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     <ToastEngineContext.Provider value={engine}>
     <ToastContext.Provider value={engine.toast}>
       {children}
-      <div data-testid="toasts" onPointerDown={(event) => {
-        // Sonner handles capture/swiping first. Keep its pointer interaction
-        // from reaching Radix's document listener as a modal backdrop click.
-        // Native-only propagation preserves Sonner's React ancestor handlers.
-        event.nativeEvent.stopPropagation();
-      }}>
+      <div data-testid="toasts" data-app-toaster>
         <Toaster id={providerId} position={mobile ? "top-center" : "bottom-left"} visibleToasts={TOAST_LIMIT} expand
           duration={TOAST_AUTO_CLOSE_MS} gap={10} offset={16}
           mobileOffset={{ top: "calc(env(safe-area-inset-top, 0px) + 8px)", left: 8, right: 8 }}

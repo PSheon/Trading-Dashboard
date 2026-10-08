@@ -24,6 +24,7 @@ import { copyRiskLimitsSchema, copyStrategySettingsSchema } from '@trading-dashb
 import { HyperliquidLiveAccountObserver } from '../src/copy/live/live-account-observer.js';
 import { LiveProviderReadEpoch } from '../src/copy/live/live-provider-read-epoch.js';
 import { PostgresLiveReservations } from '../src/copy/live/postgres-live-reservations.js';
+import { PostgresLiveRiskScope } from '../src/copy/live/postgres-live-risk-scope.js';
 import { BoundaryPrivyOrderSigningClient } from '../src/copy/live/privy-order-client.js';
 import { liveCopySettingsDigest } from '../src/copy/copy-live-mandate-consent.js';
 import { PostgresLiveUnattemptedRecovery } from '../src/copy/live/postgres-live-unattempted-recovery.js';
@@ -639,6 +640,58 @@ describe('the account leverage an open needs (a fresh account sits at the exchan
     expect((await runtime(config, { ...options, slippageBps: '0' }).execute(request())).state).toBe('filled');
     const sent = raw.mock.calls.filter(([url]) => String(url).endsWith('/info')).map(([, init]) => JSON.parse(String(init!.body)));
     expect(sent.filter(body => body.type === 'userRole')).toHaveLength(2);
+  });
+  it('reuses unused prepaid evidence after lowering leverage when a second full budget reservation is unavailable', async () => {
+    await defaultLeverageFixture({ status: 'ok', response: { type: 'default' } });
+    const original = budget.acquire.bind(budget), reservations: number[] = [];
+    vi.spyOn(budget, 'acquire').mockImplementation(async (...args) => {
+      reservations.push(args[0]);
+      // The first preview sent 40 of its prepaid evidence and the approval
+      // sent 20, followed by its 1-weight action. Only spent weight needs
+      // refilling for the fresh epoch;
+      // competing reporting work cannot supply another full 385 reservation.
+      if (leverage === 10 && args[0] > 61) throw new Error('second full evidence budget unavailable');
+      return original(...args);
+    });
+    expect((await runtime(config, { ...options, slippageBps: '0' }).execute(request())).state).toBe('filled');
+    expect(exchangeActions().map(body => body.action.type)).toEqual(['updateLeverage', 'order']);
+    expect(reservations.reduce((sum, weight) => sum + weight, 0)).toBe(446);
+  });
+  it('returns unused prepaid weight when the leverage update is rejected, counting the action actually sent', async () => {
+    await defaultLeverageFixture({ status: 'err', response: 'Cannot switch leverage type with open position.' });
+    const acquire = vi.spyOn(budget, 'acquire'), adjust = vi.spyOn(budget, 'adjust');
+    await expect(runtime(config, { ...options, slippageBps: '0' }).execute(request())).rejects.toThrow('live_leverage_update_rejected');
+    const net = acquire.mock.calls.reduce((sum, [weight]) => sum + weight, 0) + adjust.mock.calls.reduce((sum, [delta]) => sum + delta, 0);
+    // Preview meta + activeAssetData (40), approval (20), updateLeverage (1).
+    expect(net).toBe(61);
+    expect(exchangeActions().map(body => body.action.type)).toEqual(['updateLeverage']);
+    expect(await db.select().from(schema.copyLiveExecutions)).toHaveLength(0);
+  });
+  it('returns retained weight when the retry cannot acquire its top-up', async () => {
+    await defaultLeverageFixture({ status: 'ok', response: { type: 'default' } });
+    const original = budget.acquire.bind(budget), acquired: number[] = [];
+    vi.spyOn(budget, 'acquire').mockImplementation(async (...args) => {
+      if (leverage === 10) throw new Error('retry budget unavailable');
+      await original(...args); acquired.push(args[0]);
+    });
+    const adjust = vi.spyOn(budget, 'adjust');
+    await expect(runtime(config, { ...options, slippageBps: '0' }).execute(request())).rejects.toThrow('retry budget unavailable');
+    expect(acquired.reduce((sum, weight) => sum + weight, 0) + adjust.mock.calls.reduce((sum, [delta]) => sum + delta, 0)).toBe(61);
+    expect(exchangeActions().map(body => body.action.type)).toEqual(['updateLeverage']);
+    expect(await db.select().from(schema.copyLiveExecutions)).toHaveLength(0);
+  });
+  it('returns retained and topped-up weight when the retry cannot enter its SQL scope', async () => {
+    await defaultLeverageFixture({ status: 'ok', response: { type: 'default' } });
+    const original = PostgresLiveRiskScope.prototype.run;
+    vi.spyOn(PostgresLiveRiskScope.prototype, 'run').mockImplementation(function (this: PostgresLiveRiskScope, ...args) {
+      if (leverage === 10) return Promise.reject(new Error('retry scope unavailable'));
+      return original.apply(this, args);
+    });
+    const acquire = vi.spyOn(budget, 'acquire'), adjust = vi.spyOn(budget, 'adjust');
+    await expect(runtime(config, { ...options, slippageBps: '0' }).execute(request())).rejects.toThrow('retry scope unavailable');
+    expect(acquire.mock.calls.reduce((sum, [weight]) => sum + weight, 0) + adjust.mock.calls.reduce((sum, [delta]) => sum + delta, 0)).toBe(61);
+    expect(exchangeActions().map(body => body.action.type)).toEqual(['updateLeverage']);
+    expect(await db.select().from(schema.copyLiveExecutions)).toHaveLength(0);
   });
   it('sets the cap (cross) with a journaled, agent-signed updateLeverage, then sends the order', async () => {
     await defaultLeverageFixture({ status: 'ok', response: { type: 'default' } });

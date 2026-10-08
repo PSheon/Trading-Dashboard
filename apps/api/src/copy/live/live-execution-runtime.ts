@@ -127,10 +127,13 @@ export class LiveExecutionRuntime {
     // An open the account's leverage refuses sets the leverage first (in its
     // own journaled, signed exchange action), then prepares once more on a
     // fresh session and epoch. Once only: still above the cap is a refusal.
-    try { return await this.attempt(supplied, false); }
-    catch (error) { if (error instanceof LiveLeverageUpdated) return this.attempt(supplied, true); throw error; }
+    const credit = { weight: 0 };
+    try {
+      try { return await this.attempt(supplied, false, credit); }
+      catch (error) { if (error instanceof LiveLeverageUpdated) return await this.attempt(supplied, true, credit); throw error; }
+    } finally { if (credit.weight > 0) this.budget.adjust(-credit.weight); }
   }
-  private async attempt(supplied: LiveExecutionRequest, leverageUpdated: boolean): Promise<LiveExecutionRecord> {
+  private async attempt(supplied: LiveExecutionRequest, leverageUpdated: boolean, credit: { weight: number }): Promise<LiveExecutionRecord> {
     const parsed = requestSchema.safeParse(structuredClone(supplied));
     if (!parsed.success) throw new LiveBoundaryError('live_runtime_request');
     const request = Object.freeze(parsed.data), app = this.config.value;
@@ -156,15 +159,19 @@ export class LiveExecutionRuntime {
     // These routing estimates grant no authority. Wait for initial evidence
     // weight before taking the original SQL locks and their five-second clock.
     // Every identity, live account and setting is reloaded inside that scope.
-    let prepaid = 0;
     if (!routing.journalExists) {
       riskSourceRequire(Number.isSafeInteger(routing.budgetAccounts) && routing.budgetAccounts >= 1 && routing.budgetAccounts <= 8, 'live_risk_user_coverage_unproven');
       const leader = request.leg === 'open' && routing.mandate.sourceNetwork === this.network && routing.budgetSizing === 'ratio';
       const weight = liveEvidencePrepaidWeight(routing.budgetAccounts + Number(leader)) + LIVE_ORDER_BOUNDARY_WEIGHT;
+      // Only meter credit survives a leverage-only preview. Its SQL session,
+      // provider frames and signing authority never survive into the retry.
+      // Refunding and reacquiring here lets background reporting consume the
+      // already-paid allowance before this same order can finish its setup.
+      const missing = Math.max(0, weight - credit.weight);
       try {
-        await liveBudget(this.budget, request.signalDeadline === undefined ? {} : {
+        if (missing > 0) await liveBudget(this.budget, request.signalDeadline === undefined ? {} : {
           maxWaitMs: Math.max(0, Math.min(this.budget.refillMs(), request.signalDeadline - this.now())),
-        })(weight);
+        })(missing);
       } catch (error) {
         if (error instanceof HyperliquidBudgetWait) {
           const state = this.budget.introspect(), queued = this.budget.queued();
@@ -173,8 +180,10 @@ export class LiveExecutionRuntime {
         }
         throw error;
       }
-      prepaid = weight;
+      credit.weight += missing;
     }
+    let prepaid = credit.weight;
+    credit.weight = 0;
     const scope = new PostgresLiveRiskScope(this.pool, this.now);
     try { return await scope.run({ userId: request.userId, network: this.network, accountAddress,
       source: { network: routing.mandate.sourceNetwork, leaderAddress } }, async (_scope, session) => this.global.runOriginal(session, async () => {
@@ -262,6 +271,7 @@ export class LiveExecutionRuntime {
           if (!(error instanceof LiveLeverageUpdateRequired)) throw error;
           // Set once; still above the cap after an accepted update is permanent.
           if (leverageUpdated) throw new LiveBoundaryError('live_risk_leverage');
+          await acquire(1); // The leverage exchange action spends its own weight.
           const state = await new LiveLeverageUpdater(this.network, signingClient, authorizations, signingAuthorization, this.global, fetch, this.now)
             .update(session, { accountId: request.accountId, userId: request.userId, strategyId: authority.strategy.id, walletId: authority.wallet.privyWalletId,
               authorizationId: authority.grant.id, accountAddress, coin: error.coin, asset: error.asset, from: error.current, leverage: error.leverage });
@@ -306,12 +316,12 @@ export class LiveExecutionRuntime {
         // A leverage-only preview may end the epoch before its other reads.
         // Return only prepaid weight which that private epoch never sent.
         const shared = epoch.sharedReads(session);
-        if (shared && shared.paidWeight > shared.sentWeight) this.budget.adjust(shared.sentWeight - shared.paidWeight);
+        if (shared && shared.paidWeight > shared.sentWeight) prepaid += shared.paidWeight - shared.sentWeight;
         // Await actual private transport cleanup while the original session is
         // live. This source is never reused by a successor execution scope.
         provider.close(); await sockets.close();
       }
-    })); } finally { if (prepaid > 0) this.budget.adjust(-prepaid); }
+    })); } finally { credit.weight += prepaid; }
   }
   /** Rejects a prepared journal that holds no reservation (so was never
    * signed) and skips its leg, in one transaction; null when it is not one. */

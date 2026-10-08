@@ -195,6 +195,33 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     // Later passes neither sign nor send again.
     await e.tick(); expect(exchangeBodies).toHaveLength(1);
   });
+  it('admits original terminal receipt proof from protected live weight while ordinary reads exhaust the main bucket', async () => {
+    const e = engine('100', global, false, true);
+    await e.tick(); await leaderOpens(); await e.tick(); await e.tick();
+    expect((await db.select().from(schema.copyLiveDispatches))[0]).toMatchObject({ state: 'submitted' });
+    const apiPool = new Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 4 });
+    const apiConfig = new AppConfig({ ...config.value, hyperliquid: { ...config.value.hyperliquid, budgetPerMin: 400, burst: 800 } });
+    const apiBudget = new RequestBudgeterService(apiConfig), jobs = new BackgroundJobs();
+    const apiTransport = new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(apiPool, { schema }))),
+      { egressKey: 'e2e-shared-egress', ownerId: 'e2e-api-priority' }, raw);
+    const api = await apiSettlementProvider.useFactory(apiConfig, apiPool, { network: 'testnet', budget: apiBudget, transport: apiTransport, config: apiConfig }, jobs);
+    let running: Promise<void> | undefined;
+    try {
+      // A reporting pass has consumed the background allowance. The protected
+      // live reserve still has enough for the original terminal receipt pass.
+      await apiBudget.acquire(288, 'background');
+      const before = exchangeBodies.length, nonces = await db.select().from(schema.copySignerNonces);
+      raw.mockClear(); running = api.tick();
+      await vi.waitFor(() => expect(raw.mock.calls.some(([, init]) =>
+        init?.body && JSON.parse(String(init.body)).type === 'userFillsByTime')).toBe(true), { timeout: 1500, interval: 10 });
+      await running;
+      expect((await db.select().from(schema.copyLiveDispatches))[0]).toMatchObject({ state: 'settled', attempts: 1 });
+      expect((await db.select().from(schema.copyLiveRiskReservations))[0]).toMatchObject({ state: 'released', releaseReason: 'verified_settlement' });
+      expect(await db.select().from(schema.copyFollowerReceipts)).toHaveLength(1);
+      expect(exchangeBodies).toHaveLength(before);
+      expect(await db.select().from(schema.copySignerNonces)).toEqual(nonces);
+    } finally { api.onModuleDestroy(); await running; apiBudget.onModuleDestroy(); await apiPool.end(); }
+  });
   it.each([false, true])('API terminal settlement uses its existing wallet budget, books receipts and replays after a crash (stopped old generation %s)', async stopped => {
     const e = engine('100', global, false, true);
     await e.tick(); await leaderOpens(); await e.tick(); await e.tick();

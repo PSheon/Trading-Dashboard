@@ -27,7 +27,12 @@ export const apiSettlementProvider: FactoryProvider<CopyLiveApiSettlementService
     return new CopyLiveApiSettlementService(config, jobs, plain, new CopyLiveSettlementClaims(pool), claim => {
       const db = drizzle(settlementFencedPool(pool, claim), { schema });
       const { budget, transport, network } = wallet;
-      const reserve = liveBudget(budget, { lane: 'background', maxWaitMs: 5000, signal: claim.signal });
+      // This scanner is reached only after the original terminal execution and
+      // reservation identity were loaded under this settlement claim. Its
+      // receipts are financial release evidence, not ordinary reporting.
+      // Use the existing live reserve; caps and the bucket's forced ordinary
+      // fairness remain unchanged. Scheduled account scans stay background.
+      const reserve = liveBudget(budget, { maxWaitMs: 5000, signal: claim.signal });
       const fetcher: typeof fetch = async (input, init) => {
         await claim.assertHeld();
         const result = await transport.fetchInfo(input, { ...init, signal: init?.signal ? AbortSignal.any([claim.signal, init.signal]) : claim.signal });
@@ -35,7 +40,7 @@ export const apiSettlementProvider: FactoryProvider<CopyLiveApiSettlementService
       };
       const scanner = new CopyFollowerReconciler(new CopyFollowerScanRepository(db, config), new CopyFollowerLedger(db, new UnitOfWork(db)),
         new HyperliquidFollowerReceiptReader(network, reserve, fetcher, Date.now, weight => { if (weight > 0) budget.adjust(-weight); },
-          { acquire: liveBudget(budget, { lane: 'background', maxWaitMs: Math.min(180000, budget.refillMs()), signal: claim.signal }), maxWaitMs: Math.min(180000, budget.refillMs()) + 2000 }));
+          { acquire: liveBudget(budget, { maxWaitMs: Math.min(180000, budget.refillMs()), signal: claim.signal }), maxWaitMs: Math.min(180000, budget.refillMs()) + 2000 }));
       const settler = new CopyLiveSettler(network, pool, transport, budget, scanner);
       return { repository: new CopyLiveApiSettlementRepository(db), settle: request => settler.settle(request, claim),
         saveSettlement: key => new CopyFollowerSnapshotRepository(db, config).saveSettlement(key) };

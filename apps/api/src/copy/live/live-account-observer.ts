@@ -103,7 +103,10 @@ function mode(role: unknown, abstraction: unknown, dexAbstraction: unknown, spot
   const parsed = spotSchema.parse(spot);
   if (parsed.portfolioMarginEnabled === true) fail('live_account_unsupported_abstraction');
   if (setupAbort && parsed.balances.some(b => !Dec.from(b.total).isZero || !Dec.from(b.hold).isZero)) fail('live_account_unsupported_abstraction');
-  if (setupAbort && z.object({ role: z.literal('user') }).safeParse(role).success && abstraction === 'default' && dexAbstraction === false)
+  // A newly funded default account can still report an unset dex preference
+  // (null), as the unsetup path already observes. Only the separate refund
+  // purpose accepts it; all-venue flatness, empty spot and fresh proof remain.
+  if (setupAbort && z.object({ role: z.literal('user') }).safeParse(role).success && abstraction === 'default' && (dexAbstraction === false || dexAbstraction === null))
     return { spot: parsed, role: 'user', abstraction: 'default', zeroOnly: false };
   if (z.object({ role: z.literal('user') }).safeParse(role).success && abstraction === 'disabled' && dexAbstraction === false)
     return { spot: parsed, role: 'user', abstraction: 'disabled', zeroOnly: false };

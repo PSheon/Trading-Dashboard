@@ -219,3 +219,92 @@ it('retains stopping-account reporting even when its last dispatch remains submi
   // Stopping is recovery, not foreground admission; reporting must remain available.
   expect(await reports.claim()).toMatchObject({ accountId: 'account' });
 });
+
+
+async function originalUnreleasedTerminal() {
+  const at = new Date(Date.now() - 180_000), cloid = `0x${'02'.repeat(16)}`, accountAddress = `0x${'22'.repeat(20)}`;
+  const key = `testnet:${accountAddress}:${cloid}`;
+  await db.insert(copyLiveExecutions).values({ key, network: 'testnet', accountAddress, signerAddress: `0x${'33'.repeat(20)}`,
+    cloid, nonce: at.getTime(), userId: 1, strategyId: 9, state: 'filled', record: {}, updatedAt: at });
+  await db.insert(copyLiveRiskReservations).values({ key, accountId: 'account', userId: 1, strategyId: 9, network: 'testnet', accountAddress,
+    cloid, fingerprint: 'b'.repeat(64), walletId: 'agent', authorizationId: 'grant', strategyVersion: 2, policyVersion: 3, authorizationVersion: 4,
+    coin: 'BTC', dex: '', asset: 0, notionalUsd: '10', marginUsd: '1', feeBufferUsd: '0.1', payload: { intent: {}, action: {} }, sourceDigest: 'c'.repeat(64),
+    revision: 1, state: 'unknown', exchangeOrderId: '1', attemptedAt: at, expiresAt: new Date(at.getTime() + 120_000), createdAt: at, updatedAt: at });
+  await db.update(copyLiveDispatches).set({ state: 'submitted', executionKey: key, leaderTime: sql`clock_timestamp() - interval '180 seconds'` });
+  return key;
+}
+
+it.each(['filled', 'partial', 'cancelled', 'rejected'] as const)('keeps exact attempted %s liabilities ahead of ordinary reads after source and reservation expiry', async state => {
+  const key = await originalUnreleasedTerminal();
+  await db.update(copyLiveExecutions).set({ state }).where(eq(copyLiveExecutions.key, key));
+  expect(await scans.claim()).toBeNull();
+  expect(await reports.claim()).toBeNull();
+  // Recovery reads use the original account, independent of ordinary schedule.
+  expect(await scans.claimAccount('account')).toMatchObject({ accountId: 'account' });
+  expect((await db.select().from(copyLiveDispatches))[0]).toMatchObject({ state: 'submitted', executionKey: key });
+  expect((await db.select().from(copyLiveRiskReservations))[0]).toMatchObject({ state: 'unknown', releaseReason: null });
+  await db.update(copyLiveRiskReservations).set({ state: 'released', releaseReason: 'verified_settlement', releaseEvidenceDigest: 'd'.repeat(64) }).where(eq(copyLiveRiskReservations.key, key));
+  expect(await reports.claim()).toMatchObject({ accountId: 'account' });
+});
+
+it('protects an expired terminal liability while admitting another account only at the independent fairness ceilings', async () => {
+  await originalUnreleasedTerminal();
+  await retainedAccount();
+  await db.insert(copyFollowerObservationBudget).values({ network: 'testnet', nextAllowedAt: sql`clock_timestamp() - interval '1 second'`,
+    nextSnapshotAllowedAt: sql`clock_timestamp() + interval '300 seconds'`, nextReceiptAllowedAt: sql`clock_timestamp() + interval '300 seconds'` });
+  expect(await reports.claim()).toBeNull();
+  expect(await scans.claim()).toBeNull();
+  await db.update(copyFollowerObservationBudget).set({ nextSnapshotAllowedAt: sql`clock_timestamp() - interval '1 second'`, nextReceiptAllowedAt: sql`clock_timestamp() - interval '1 second'` });
+  expect(await reports.claim()).toMatchObject({ accountId: 'residual' });
+  expect(await scans.claim()).toMatchObject({ accountId: 'residual' });
+  expect(await reports.claim()).toBeNull();
+  expect(await scans.claim()).toBeNull();
+  expect((await db.select().from(copyLiveDispatches))[0].state).toBe('submitted');
+});
+
+it.each(['account', 'network', 'strategy', 'cloid', 'unattempted', 'nonterminal'] as const)(
+  'does not extend expired source priority for a %s original liability mismatch', async kind => {
+    const key = await originalUnreleasedTerminal();
+    if (kind === 'account') { await retainedAccount(); await db.update(copyLiveRiskReservations).set({ accountId: 'residual' }).where(eq(copyLiveRiskReservations.key, key)); }
+    if (kind === 'network') await db.update(copyLiveRiskReservations).set({ network: 'mainnet' }).where(eq(copyLiveRiskReservations.key, key));
+    if (kind === 'strategy') { await retainedAccount(); await db.update(copyLiveRiskReservations).set({ strategyId: 10 }).where(eq(copyLiveRiskReservations.key, key)); }
+    if (kind === 'cloid') await db.update(copyLiveRiskReservations).set({ cloid: `0x${'03'.repeat(16)}` }).where(eq(copyLiveRiskReservations.key, key));
+    if (kind === 'unattempted') await db.update(copyLiveRiskReservations).set({ state: 'held', attemptedAt: null, exchangeOrderId: null }).where(eq(copyLiveRiskReservations.key, key));
+    if (kind === 'nonterminal') await db.update(copyLiveExecutions).set({ state: 'unknown' }).where(eq(copyLiveExecutions.key, key));
+    expect(await scans.claim()).not.toBeNull();
+    expect(await reports.claim()).not.toBeNull();
+  },
+);
+
+
+it.each(['active', 'paused', 'expired', 'revoked', 'stopped'] as const)(
+  'retains original terminal proof priority after the generation becomes %s, without a new execution permit', async state => {
+    const key = await originalUnreleasedTerminal();
+    await db.insert(copyFundingOperations).values({ id: 'original-credited', userId: 1, accountId: 'account', strategyId: 9,
+      idempotencyKey: 'original-credited-deposit', network: 'testnet', direction: 'to_account', address: `0x${'55'.repeat(20)}`, destination: `0x${'22'.repeat(20)}`,
+      amount: '50', nonce: Date.now(), status: 'credited', claimedAt: new Date(), attemptedAt: new Date(), evidenceHash: 'e'.repeat(64),
+      transactionHash: `0x${'e'.repeat(64)}`, creditedAmount: '50', fee: '0' });
+    await db.update(copyLiveMandates).set({ state }).where(eq(copyLiveMandates.id, 'mandate'));
+    expect(await scans.claim()).toBeNull();
+    expect(await reports.claim()).toBeNull();
+    expect((await db.select().from(copyLiveDispatches))[0]).toMatchObject({ state: 'submitted', executionKey: key });
+    expect((await db.select().from(copyLiveRiskReservations))[0].state).toBe('unknown');
+    await db.update(copyLiveRiskReservations).set({ state: 'released', releaseReason: 'verified_settlement', releaseEvidenceDigest: 'd'.repeat(64) }).where(eq(copyLiveRiskReservations.key, key));
+    expect(await reports.claim()).toMatchObject({ accountId: 'account' });
+  },
+);
+
+it('does not protect an expired-generation dispatch with no original journal or stale owner identity', async () => {
+  const key = await originalUnreleasedTerminal();
+  await retainedAccount();
+  await db.update(copyLiveMandates).set({ state: 'expired', ownerPrivyUserId: 'did:foreign' });
+  expect(await reports.claim()).not.toBeNull();
+  await db.update(copyFollowerObservationBudget).set({ nextAllowedAt: sql`clock_timestamp() - interval '1 second'` });
+  await db.update(copyFollowerObservationJobs).set({ nextRunAt: sql`clock_timestamp() - interval '1 second'` });
+  await db.update(copyLiveMandates).set({ ownerPrivyUserId: 'did:privy:risk-source' });
+  // The real FK/state checks forbid submitted rows without a journal.
+  // An expired pending source with no linked execution grants no proof priority.
+  await db.update(copyLiveDispatches).set({ state: 'pending', executionKey: null });
+  expect(await reports.claim()).not.toBeNull();
+  expect((await db.select().from(copyLiveRiskReservations))[0]).toMatchObject({ key, state: 'unknown' });
+});

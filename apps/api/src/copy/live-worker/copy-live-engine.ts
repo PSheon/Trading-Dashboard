@@ -436,6 +436,11 @@ export class CopyLiveEngine {
   }
 
   private async submit(row: DispatchRow, m: LiveMandateWork, signalAgeMs: number): Promise<void> {
+    // Existing fixed claims are once per exchange trade, even across partial
+    // batches. This is only a refusal: the original journal still reconciles.
+    if (row.leg === 'open' && await this.deps.repository.knownFixedOpenClaim(row, m)) {
+      await this.deps.repository.update(row, { state: 'refused', reason: 'fixed_trade_already_claimed' }); return;
+    }
     const now = this.now();
     // Only an open ages: a reduction or close is sent however late (CP-EXE-14-02).
     if (row.leg === 'open' && now - row.leaderTime.getTime() > signalAgeMs) {

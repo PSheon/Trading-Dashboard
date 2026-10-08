@@ -76,8 +76,8 @@ describe('setup abort return evidence is separate from trading authority', () =>
     }
     return value;
   };
-  it('observes a funded default account only for a full-flat primary USDC return, never for trading or unsetup allocation', async () => {
-    const s = setup(flatFunded);
+  it.each([false, null])('observes a funded default account with dex abstraction %s only for a full-flat primary USDC return, never for trading or unsetup allocation', async dexAbstraction => {
+    const s = setup((body, value) => body.type === 'userDexAbstraction' ? dexAbstraction : flatFunded(body, value));
     await expect(s.observer.observe(account)).rejects.toMatchObject({ code: 'live_account_unsupported_abstraction' });
     await expect(s.observer.observe(account, { unsetup: true })).rejects.toMatchObject({ code: 'live_account_unsupported_abstraction' });
     const proof = await s.observer.observeSetupAbortFlat(account);
@@ -92,8 +92,9 @@ describe('setup abort return evidence is separate from trading authority', () =>
     expect(await s.observer.observeSetupAbortFlat(account)).toMatchObject({ purpose: 'setup-abort-return', snapshot: { role: 'missing', withdrawable: '0',
       positions: [], restingOrders: [], coverage: { complete: true, orderComplete: true } } });
   });
-  it.each(['position', 'order', 'other_dex_balance', 'incomplete_orders', 'stale', 'spot_balance', 'portfolio_margin'])('refuses %s rather than converting incomplete evidence into a refund proof', async reason => {
+  it.each([false, null].flatMap(dexAbstraction => ['position', 'order', 'other_dex_balance', 'incomplete_orders', 'stale', 'spot_balance', 'portfolio_margin'].map(reason => ({ dexAbstraction, reason }))))('refuses $reason with dex abstraction $dexAbstraction rather than converting incomplete evidence into a refund proof', async ({ dexAbstraction, reason }) => {
     const s = setup((body, value) => {
+      if (body.type === 'userDexAbstraction') return dexAbstraction;
       const flat = flatFunded(body, value);
       if (reason === 'position' && body.type === 'clearinghouseState' && !body.dex) return state(true);
       if (reason === 'order' && body.type === 'frontendOpenOrders' && !body.dex) return [open];
@@ -103,6 +104,10 @@ describe('setup abort return evidence is separate from trading authority', () =>
       if (reason === 'portfolio_margin' && body.type === 'spotClearinghouseState') return { balances: [], portfolioMarginEnabled: true };
       return flat;
     }, reason !== 'incomplete_orders');
+    await expect(s.observer.observeSetupAbortFlat(account)).rejects.toBeDefined();
+  });
+  it.each([true, 'false', {}, undefined])('refuses unsupported dex abstraction %j for a funded default return', async dexAbstraction => {
+    const s = setup((body, value) => body.type === 'userDexAbstraction' ? dexAbstraction : flatFunded(body, value));
     await expect(s.observer.observeSetupAbortFlat(account)).rejects.toBeDefined();
   });
 });

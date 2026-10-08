@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, gt, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 import { copyControls, copyExecutionAccounts, copyFundingOperations, copyLiveManualCloses, copyLiveActivations, copyLiveDispatches, copyLiveExecutions, copyLiveMandates,
-  copyLiveReductionCarry, copyLiveRiskReservations, copyLiveSourceFills, copyLiveSourceStreams, copyLiveStopOperations, copyLiveStrategyConfigs, copyStrategies, copyStrategyVersions, copyRiskPolicies, fillCoverage, fills } from '@trading-dashboard/shared/database';
+  copyLiveReductionCarry, copyLiveRiskReservations, copyLiveSignalLegs, copyLiveIntentProvenance, copyLiveSourceFills, copyLiveSourceStreams, copyLiveStopOperations, copyLiveStrategyConfigs, copyStrategies, copyStrategyVersions, copyRiskPolicies, fillCoverage, fills, users } from '@trading-dashboard/shared/database';
 import { ACTUAL_STRATEGY_MODE, CHAIN_DEFAULT, copyRiskLimitsSchema, copyStrategySettingsSchema, DEFAULT_COPY_RISK_LIMITS } from '@trading-dashboard/shared/contracts';
 import { AppConfig } from '../../config/app-config.js';
 import { DRIZZLE_CLIENT } from '../../db/db.constants.js';
@@ -12,6 +12,10 @@ import { lockCopyUser } from '../copy-user-lock.js';
 import { deploymentNetwork } from '../live-deployment.js';
 import type { LiveSourceNetwork } from '../live/copy-live-source-evidence.js';
 import { NEVER_PLACED } from '../live/live-execution.js';
+import { decodeLiveCopyMandate } from '../copy-live-mandate-evidence.js';
+import { liveCopySettingsDigest } from '../copy-live-mandate-consent.js';
+import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceLegId } from '../live/copy-live-source-evidence.js';
+import { liveSourceExecutionCloid } from '../live/postgres-live-preparation.js';
 
 // A fill can still have an unsettled risk reservation. Prioritize its settlement
 // before another same-coin leg; a terminal journal alone is not a release proof.
@@ -276,6 +280,56 @@ export class CopyLiveWorkerRepository {
   async journalState(key: string): Promise<string | null> {
     const [row] = await this.db.select({ state: copyLiveExecutions.state }).from(copyLiveExecutions).where(eq(copyLiveExecutions.key, key));
     return row?.state ?? null;
+  }
+  /** A negative admission hint only. A prior fixed claim already prevents a
+   * second spend through the final SQL unique index, including failed claims.
+   * Check its immutable source and original journal before costly provider reads.
+   * This never releases a claim or proves that its order settled. */
+  async knownFixedOpenClaim(row: DispatchRow, work: LiveMandateWork): Promise<boolean> {
+    if (row.leg !== 'open' || row.state !== 'pending' || work.sizingMode !== 'fixed' || row.mandateId !== work.mandateId || row.userId !== work.userId || row.strategyId !== work.strategyId || row.accountId !== work.accountId) return false;
+    const [binding] = await this.db.select({ dispatch: copyLiveDispatches, mandate: copyLiveMandates, account: copyExecutionAccounts,
+      strategy: copyStrategies, version: copyStrategyVersions, source: copyLiveSourceFills, owner: users })
+      .from(copyLiveDispatches)
+      .innerJoin(copyLiveMandates, eq(copyLiveMandates.id, copyLiveDispatches.mandateId))
+      .innerJoin(copyExecutionAccounts, eq(copyExecutionAccounts.id, copyLiveMandates.accountId))
+      .innerJoin(copyStrategies, eq(copyStrategies.id, copyLiveMandates.strategyId))
+      .innerJoin(copyStrategyVersions, and(eq(copyStrategyVersions.strategyId, copyLiveMandates.strategyId), eq(copyStrategyVersions.version, copyLiveMandates.strategyVersion)))
+      .innerJoin(copyLiveSourceFills, eq(copyLiveSourceFills.id, copyLiveDispatches.sourceFillId))
+      .innerJoin(users, eq(users.id, copyLiveMandates.userId))
+      .where(and(eq(copyLiveDispatches.id, row.id), eq(copyLiveMandates.network, this.network))).limit(1);
+    if (!binding) return false;
+    let fill: ReturnType<typeof decodeLiveSourceFill>, consent: ReturnType<typeof decodeLiveCopyMandate>;
+    try {
+      fill = decodeLiveSourceFill(binding.source); consent = decodeLiveCopyMandate(binding.mandate);
+      const settings = copyStrategySettingsSchema.parse(binding.version.settings);
+      const d = binding.dispatch, a = binding.account, s = binding.strategy, m = binding.mandate;
+      if (settings.sizingMode !== 'fixed' || liveCopySettingsDigest(settings) !== consent.settingsDigest || !m.consentDigest || !m.activationCursor ||
+        m.id !== work.mandateId || m.userId !== work.userId || m.strategyId !== work.strategyId || m.accountId !== work.accountId || m.accountAddress !== work.accountAddress ||
+        m.sourceNetwork !== work.sourceNetwork || m.leaderAddress !== work.leaderAddress || m.activationCursor.getTime() !== work.cursor.getTime() ||
+        d.mandateId !== m.id || d.userId !== m.userId || d.strategyId !== m.strategyId || d.accountId !== m.accountId || d.state !== 'pending' || d.leg !== 'open' || d.executionKey !== null ||
+        d.sourceFillId !== row.sourceFillId || d.coin !== row.coin || d.leaderTime.getTime() !== row.leaderTime.getTime() || d.coin !== fill.coin || d.leaderTime.getTime() !== fill.providerTime ||
+        a.userId !== m.userId || a.strategyId !== m.strategyId || a.network !== m.network || a.address !== m.accountAddress || a.privyUserId !== consent.ownerPrivyUserId ||
+        binding.owner.privyUserId !== consent.ownerPrivyUserId || binding.owner.embeddedWalletAddress !== consent.ownerAddress ||
+        s.userId !== m.userId || s.network !== m.network || s.mode !== ACTUAL_STRATEGY_MODE || s.version !== m.strategyVersion ||
+        fill.network !== consent.sourceNetwork || fill.leaderAddress !== consent.leaderAddress || fill.providerTime <= m.activationCursor.getTime() ||
+        !canonicalLiveSourceLegs(fill).some(leg => leg.leg === 'open')) return false;
+    } catch { return false; }
+    const [claim] = await this.db.select({ leg: copyLiveSignalLegs, source: copyLiveSourceFills, journal: copyLiveExecutions, provenance: copyLiveIntentProvenance })
+      .from(copyLiveSignalLegs)
+      .innerJoin(copyLiveSourceFills, eq(copyLiveSourceFills.id, copyLiveSignalLegs.sourceFillId))
+      .innerJoin(copyLiveExecutions, eq(copyLiveExecutions.key, copyLiveSignalLegs.executionKey))
+      .innerJoin(copyLiveIntentProvenance, and(eq(copyLiveIntentProvenance.key, copyLiveExecutions.key), eq(copyLiveIntentProvenance.legId, copyLiveSignalLegs.id), eq(copyLiveIntentProvenance.mandateId, copyLiveSignalLegs.mandateId)))
+      .where(and(eq(copyLiveSignalLegs.mandateId, work.mandateId), eq(copyLiveSignalLegs.tradeKey, fill.tradeKey), eq(copyLiveSignalLegs.leg, 'open'), eq(copyLiveSignalLegs.fixedTradeClaim, true), ne(copyLiveSignalLegs.sourceFillId, fill.id))).limit(1);
+    if (!claim) return false;
+    try {
+      const original = decodeLiveSourceFill(claim.source), leg = canonicalLiveSourceLegs(original).find(value => value.leg === 'open');
+      const cloid = liveSourceExecutionCloid(work.mandateId, original.id, 'open'), key = `${this.network}:${work.accountAddress}:${cloid}`;
+      return !!leg && original.network === fill.network && original.leaderAddress === fill.leaderAddress && original.streamId === fill.streamId && original.coin === fill.coin &&
+        original.tradeKey === fill.tradeKey && original.providerTime > binding.mandate.activationCursor!.getTime() &&
+        claim.leg.id === liveSourceLegId(work.mandateId, original.id, 'open') && claim.leg.tradeKey === leg.tradeKey && claim.leg.sign === leg.sign && claim.leg.size === leg.size && claim.leg.fraction === leg.fraction &&
+        claim.leg.executionKey === key && claim.journal.key === key && claim.journal.network === this.network && claim.journal.userId === work.userId && claim.journal.strategyId === work.strategyId && claim.journal.accountAddress === work.accountAddress && claim.journal.cloid === cloid &&
+        claim.journal.record.key === key && claim.journal.record.fingerprint === claim.provenance.fingerprint && claim.provenance.sourceDigest === original.sourceDigest && claim.provenance.settingsDigest === consent.settingsDigest;
+    } catch { return false; }
   }
   /** Whether this generation ever opened `coin`: a close of a position the
    * copy never held (opened before the cursor) has nothing to reduce. */

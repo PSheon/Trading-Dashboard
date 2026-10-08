@@ -166,25 +166,30 @@ describe('realtime copy signal (fast mainnet source)', () => {
     expect(await db.select().from(schema.copyLiveSourceFills)).toHaveLength(2);
   });
 
-  it('runs fresh pending legs ahead of 100 older submitted ones', async () => {
+  it.each([
+    { state: 'filled' as const, freshCoin: 'BTC', first: 'fresh' },
+    { state: 'unknown' as const, freshCoin: 'ETH', first: 'fresh' },
+    { state: 'unknown' as const, freshCoin: 'BTC', first: 'old-1' },
+  ])('prioritizes $first with 100 older $state executions and fresh $freshCoin work', async ({ state, freshCoin, first }) => {
     const repository = new CopyLiveWorkerRepository(db, new UnitOfWork(db), testConfig());
     await db.insert(schema.copyLiveSourceStreams).values({ id: `mainnet:${leader}`, network: 'mainnet', leaderAddress: leader });
-    const fill = async (tid: number, time: number) => {
-      const raw = rest(tid, time), id = `mainnet:${leader}:${tid}`;
+    const fill = async (tid: number, time: number, coin = 'BTC') => {
+      const raw = rest(tid, time, { coin }), id = `mainnet:${leader}:${tid}`;
       await db.insert(schema.copyLiveSourceFills).values({ id, streamId: `mainnet:${leader}`, network: 'mainnet', leaderAddress: leader, tid: String(tid), providerTime: new Date(time),
-        receivedAt: new Date(time), coin: 'BTC', oid: String(raw.oid), tradeKey: `oid:${raw.oid}`, px: '100', sz: '1', side: 'B', startPosition: '0', normalized: {}, raw: {}, sourceDigest: 'a'.repeat(64) });
+        receivedAt: new Date(time), coin, oid: String(raw.oid), tradeKey: `oid:${raw.oid}`, px: '100', sz: '1', side: 'B', startPosition: '0', normalized: {}, raw: {}, sourceDigest: 'a'.repeat(64) });
       return id;
     };
     const base = { mandateId: 'mandate', userId: 1, strategyId: 9, accountId: 'account', coin: 'BTC', leg: 'open' as const };
     for (let i = 1; i <= 100; i++) {
       const id = await fill(i, now - 100_000 + i), key = `testnet:${seed.f.identity.accountAddress}:0x${i.toString(16).padStart(32, '0')}`;
       await db.insert(schema.copyLiveExecutions).values({ key, network: 'testnet', accountAddress: seed.f.identity.accountAddress, signerAddress: `0x${'33'.repeat(20)}`,
-        cloid: key.split(':').at(-1)!, nonce: i, userId: 1, strategyId: 9, state: 'unknown', record: { key }, updatedAt: new Date(now) });
+        cloid: key.split(':').at(-1)!, nonce: i, userId: 1, strategyId: 9, state, record: { key }, updatedAt: new Date(now) });
       await db.insert(schema.copyLiveDispatches).values({ ...base, id: `old-${i}`, sourceFillId: id, state: 'submitted', executionKey: key, leaderTime: new Date(now - 100_000 + i), receivedAt: new Date(now) });
     }
-    await db.insert(schema.copyLiveDispatches).values({ ...base, id: 'fresh', sourceFillId: await fill(500, now), leaderTime: new Date(now), receivedAt: new Date(now) });
+    await db.insert(schema.copyLiveDispatches).values({ ...base, coin: freshCoin, id: 'fresh', sourceFillId: await fill(500, now, freshCoin), leaderTime: new Date(now), receivedAt: new Date(now) });
     const open = await repository.open();
-    expect(open).toHaveLength(100); expect(open[0]!.id).toBe('fresh');
+    expect(open).toHaveLength(100); expect(open[0]!.id).toBe(first);
+    expect(open.some(row => row.id === 'fresh')).toBe(first === 'fresh');
     expect((await repository.open(100, ['other'])).length).toBe(0);
   });
 

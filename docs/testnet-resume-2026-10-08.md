@@ -10,12 +10,12 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 | 3 小額部分減倉 | #47 120秒間隔PASS；#42 20秒間隔FAIL保留 | 零倉位終止與五來源對帳已真實通過，整體延遲仍須改善 |
 | 4 持倉時停止 | #32 PASS | 保留原真實成交、空倉、返還證據 |
 | 6 手動平倉後立即停止 | #43 PASS | 真實持倉及完整收尾已驗證 |
-| 7 worker重啟 | #49 FAIL | 重啟後開倉已成交；減倉在傳送層被live_generation_unproven擋下，仍須定位具體證據條件 |
+| 7 worker重啟 | #51 FAIL；#49 FAIL保留 | #51重啟後開倉已成交；減倉第二次檢查逾時，後筆在前筆未結算時重試；排程修正尚待新碼真實驗收 |
 | 8 低於最小單的開倉拒絕 | SKIP | 現有限額下未找到符合情境的市場，沒有改限額強行通過 |
 | 9 三筆快速平倉 | #50 FAIL；#48設定逾時，原#37 FAIL保留 | #50領單三筆約15秒成交，跟單開倉因證據逾5秒未送出；仍須完整五來源對帳 |
 | 14 管理者暫停／恢復／全平 | 未執行 | 管理權限仍待使用者授權 |
 
-隔離回歸：API 255檔3,893項、web 181檔1,179項、harness28項PASS。這些結果不能替代上述真實交易驗收；B段尚未全綠。
+既有隔離回歸基準：登入紀錄修正版API 255檔3,893項、web 181檔1,179項、harness28項PASS。新排程版首跑API 3,893 PASS／1 FAIL；積壓情境補測後相關45項PASS，最終完整API重跑中。這些結果不能替代上述真實交易驗收；B段尚未全綠。
 
 登入紀錄修正後完整API已重跑255檔3,893項PASS；初跑有一項WebSocket逾時，詳見下文，沒有刪除失敗紀錄或放寬測試門檻。
 
@@ -168,7 +168,7 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 - 14:43:34.314跟單建單；市場／報價觀測為14:43:30.770，建單時已約3.544秒。14:43:35.835簽署完成；14:43:35.959安全檢查在validateSizing拒絕live_risk_stale（原市場證據約5.189秒），沒有開倉POST。保留rejected／exchange_order_never_placed；這次不是#49的generation拒絕，不合併宣稱同因。
 - provider epoch實際3.509秒，帳戶觀測3.054秒；簽署流程1.083秒。此為延遲定位證據，尚未修正或放寬5秒有效期，也沒有以重簽／重送跳過原證據。
 - 14:46完整對帳FAIL：三筆領單沒有派送、拒絕理由不允許、portfolio_snapshot_unavailable。跟單空倉檢查PASS，不能代替成功跟單成交。尚未捕捉到generation拒絕的私人證據檔，#49純函式拒絕條件仍待定位。
-- 未送出單的風險保留额在到期與grace後，經交易所missing證據正常released／expired_unplaced；不是永久對帳卡住。14:46:00正常停止，14:46:15flat，14:47:11返還49一度unknown，保留原操作後14:47:16accepted；尚待正式credited與最終收尾核對。
+- 未送出單的風險保留額在到期與grace後，經交易所missing證據正常released／expired_unplaced；不是永久對帳卡住。14:46:00正常停止，14:46:15flat，14:47:11返還49一度unknown，保留原操作後14:47:16accepted；尚待正式credited與最終收尾核對。
 - 私人證據：`/private/tmp/codex-generation-burst-run.log`、`codex-generation50-state.mjs`及worker階段診斷。沒有公開推送、沒有主網操作、沒有SQL改寫交易或設定紀錄。
 
 ### #50 收尾確認
@@ -176,3 +176,25 @@ Paul 在六小時收尾後明確要求「接著測試，然後給我 uiux 問題
 - 14:49:21 runner確認49 testUSDC正式credited，停止未阻擋／空倉／返還入帳／顯示stopped四項PASS；runner exit1，保留交易對帳FAIL。
 - 14:48:50直接唯讀查testnet：主錢包112.809753、跟單帳戶0、領單23.649210 testUSDC，三者皆空倉。14:49 credited後本機資料庫唯讀再查：所有actual stopped、在途資金0、未釋放保留額0、未完成設定0；#50 return credited_amount=49。
 - 14:50還原本機服務：API3100 PID39007、worker3010 PID39186，以unset NODE_OPTIONS啟動，移除私人診斷與RPC relay；共用web3000／Chrome9333保留。本輪未改產品程式碼，尚未解決5秒內完成讀取與簽署的延遲，也未定位#49的generation具體拒絕條件。
+
+## 14:53起：重啟 #51，FAIL與排程回歸
+
+- 前置唯讀核對所有actual stopped、在途資金／保留額／未完成設定皆0。沿用原stage-caps與120秒一般間隔；50入金／49 credited、14:56:07 running，14:56:09領單40美元ETH開倉成交。按原情境重啟worker41214→43314，14:56:38 healthy。
+- 14:56:50跟單開倉POST成交，持倉0.0046 ETH檢查PASS；POST後的live_risk_stale保留已成交journal，14:57:57正常settled。派送attempts2不能冒稱1；本輪該開倉POST只觀測到一次。
+- 14:58:52領單減半成交。15:00:36.470跟單簽署完成，15:00:36.784第一個submit gate通過；15:00:37.008第二個gate在風險證據最後fresh檢查拒絕live_risk_stale，沒有減倉POST。這次不是#49的pure generation拒絕。
+- 事後核對原階段日誌：該筆provider epoch 2489ms、account observer 2182ms，prepare 2721ms；Privy getWallet 624ms、簽署RPC 254ms，整個transport sign 1319ms。原generation checkedAt為15:00:31.964，第二submit gate拒絕時已5044ms；市場／報價15:00:32.053在同一刻為4955ms，不能誤稱該筆市場時鐘也已過期。重複本機授權／風險核對各約200–262ms，所有原檢查仍保留。這些耗時能說明該次期限不足，不能據此單獨宣稱移除某個檢查或提前重用身分證據就安全。
+- 領單15:00:54最後平倉；跟單後筆在15:02:17／15:03:31建單階段拒絕live_generation_unproven。當時前筆rejected／exchange_order_never_placed的reservation仍unknown，missing觀測15:01:35早於expiresAfter加80秒grace（約15:02:54）；不能略過負債證明直接接單，也不能把原5秒檢查放寬。
+- 15:05:00完整對帳FAIL（兩筆缺跟單成交、direction_mismatch），原流程停止並自動平倉，15:08:11 flat；48.983875返還accepted，正式credited及最終核對待補。
+- 定位並補測的排程問題：earlierPending只查pending，使同幣種submitted前筆的執行結果仍未知、或確定未送出但尚待釋放證明時，後筆先進入昂貴建單並耗費重試次數。最終修正依journal狀態識別prepared／submitting／unknown／resting及rejected／NEVER_PLACED，讓後筆等待、優先對帳其阻塞前筆；明確已成交的前筆保留原排程，其他幣種保持獨立。所有risk／authority／grant／provider時鐘維持原檢查。修正尚未真實交易驗收，不會改寫#51的FAIL。
+- 初版將所有submitted前筆都阻塞，完整API回歸3 FAIL／3891 PASS，包含模擬吞吐低於原門檻；第二版仍廣泛優先對帳，相關測試121 PASS／1 FAIL（0.9333 orders/min，原要求至少1）。這是每分鐘訂單數，不是成交率。兩版已捨棄，原情境測試的時序及功能斷言已恢復，未降低吞吐門檻或延長訊號期限。
+- 最終真實SQL回歸驗證同幣種NEVER_PLACED前筆待釋放時後筆attempts維持0、其他幣種仍可執行；取得正常unplaced結算後才執行後筆。還原舊碼重現1 FAIL／19 PASS；最終修正相關5檔122 PASS，含原模擬、反手及adjustments測試。API型別（含測試）與lint PASS，最終完整API另行執行，不能沿用捨棄版本的結果。
+- 最終journal分類版完整API首跑3893 PASS／1 FAIL（255檔、719秒）：既有fast-source測試要求100筆同幣種unknown前筆之後的fresh先排，與本次等待不明前筆的規則直接衝突。沒有修改產品程式來略過unknown；該測試改為三個各有100筆積壓的情境：filled前筆／不同幣種unknown仍讓fresh優先，同幣種unknown則先對帳old-1，並核對原limit100與mandate篩選。相關fast-source／engine／adjustments／simulation四檔45 PASS，原模擬吞吐及時間門檻不變；型別、lint與build PASS。穩定版本再跑全套，原1 FAIL報告保留於`codex-generation-queue-journal-api-all.log`。
+- 新私人診斷以Node loader在pure projector拒絕後保存原raw輸入與原now，涵蓋建單及送單階段，原判定和公開錯誤不變。純函式合成拒絕已驗證擷取與離線定位；該合成artifact不是實際交易證據。本輪服務未中途更換此診斷。
+- 私人證據：`/private/tmp/codex-generation-restart-run.log`、`codex-generation51-state.mjs`、`codex-generation51-dispatch-progress.jsonl`、`codex-generation-queue-{red,green,green2,api-all}.log`。仍未操作主網、未改Stage、未公開推送。
+
+### #51 收尾確認
+
+- 15:11:27 runner確認48.983875 testUSDC正式credited；停止未阻擋／空倉／返還入帳／顯示stopped四項PASS，runner exit1，保留交易對帳FAIL。
+- 15:12:14直接唯讀查testnet：主錢包111.793628、跟單帳戶0、領單23.591411 testUSDC，三者均空倉；credited後本機資料庫確認所有actual stopped、在途資金0、未釋放保留額0、未完成設定0。
+- 資金清空後才build API、重啟本機API3100 PID55487／worker3010 PID55717，以unset NODE_OPTIONS移除私人診斷及RPC relay；15:15:41兩者healthy。共用web3000／Chrome9333保留。當時載入的是後來捨棄的初版排程修正；最終journal分類版仍需重新build及重啟，不能聲稱解決#49或5秒證據延遲。
+- 15:48最終journal分類版已build並載入本機API3100 PID78629／worker3010 PID78787，15:48:38確認皆healthy；unset NODE_OPTIONS、不含私人診斷或收據relay，web及共用Chrome保留。完整回歸重跑中（`codex-generation-queue-backlog-api-all.log`），尚未啟動新入金或把B列為PASS。

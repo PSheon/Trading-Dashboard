@@ -11,6 +11,13 @@ import { UnitOfWork } from '../../db/unit-of-work.js';
 import { lockCopyUser } from '../copy-user-lock.js';
 import { deploymentNetwork } from '../live-deployment.js';
 import type { LiveSourceNetwork } from '../live/copy-live-source-evidence.js';
+import { NEVER_PLACED } from '../live/live-execution.js';
+
+// A dispatch label alone cannot distinguish a definite fill from an unknown
+// exchange outcome or an unsent order still awaiting its release proof.
+const unresolvedExecution = sql`exists (select 1 from ${copyLiveExecutions} j where j.key = ${copyLiveDispatches.executionKey}
+  and (j.state in ('prepared', 'submitting', 'unknown', 'resting')
+    or (j.state = 'rejected' and j.record->>'errorCode' = ${NEVER_PLACED})))`;
 
 export type DispatchRow = typeof copyLiveDispatches.$inferSelect;
 export interface LiveMandateWork {
@@ -153,12 +160,13 @@ export class CopyLiveWorkerRepository {
     await this.db.update(copyLiveDispatches).set({ state: 'refused', reason, updatedAt: new Date() })
       .where(and(inArray(copyLiveDispatches.id, [...ids]), eq(copyLiveDispatches.state, 'pending'), isNull(copyLiveDispatches.adjustmentId)));
   }
-  /** Whether an earlier leg of this copy's coin is still waiting to be sent:
-   * a later leg waits for it, so the follower trades in the leader's order
-   * (the adds after a flip wait for the flip's open). */
+  /** Keep later same-coin legs behind uncertain execution outcomes and
+   * never-placed orders still awaiting release. Definite fills continue
+   * through the original generation and settlement proof checks. */
   async earlierPending(row: Pick<DispatchRow, 'id' | 'mandateId' | 'coin' | 'leaderTime'>): Promise<boolean> {
     const [earlier] = await this.db.select({ id: copyLiveDispatches.id }).from(copyLiveDispatches)
-      .where(and(eq(copyLiveDispatches.mandateId, row.mandateId), eq(copyLiveDispatches.coin, row.coin), eq(copyLiveDispatches.state, 'pending'), ne(copyLiveDispatches.id, row.id),
+      .where(and(eq(copyLiveDispatches.mandateId, row.mandateId), eq(copyLiveDispatches.coin, row.coin),
+        sql`(${copyLiveDispatches.state} = 'pending' or (${copyLiveDispatches.state} = 'submitted' and ${unresolvedExecution}))`, ne(copyLiveDispatches.id, row.id),
         sql`(${copyLiveDispatches.leaderTime}, ${copyLiveDispatches.id}) < (${row.leaderTime}, ${row.id})`)).limit(1);
     return earlier !== undefined;
   }
@@ -214,15 +222,16 @@ export class CopyLiveWorkerRepository {
   async record(rows: (typeof copyLiveDispatches.$inferInsert)[]): Promise<void> {
     if (rows.length) await this.db.insert(copyLiveDispatches).values(rows).onConflictDoNothing();
   }
-  /** Open work: pending legs first (a fresh signal must not wait behind
-   * reconciliation, which has no deadline), with the submitted close of a
-   * flip whose open is pending (the open goes once it settles); then the
-   * other submitted legs not yet settled; oldest first within each, a
-   * fill's close before its open. `mandateIds` narrows it to those copies. */
+  /** Reconcile uncertain predecessors that block fresh same-coin work first.
+   * Otherwise preserve fresh-signal priority, including a flip's close when
+   * its open is pending, followed by unrelated reconciliation. */
   async open(limit = 100, mandateIds?: readonly string[]): Promise<DispatchRow[]> {
     if (mandateIds && !mandateIds.length) return [];
-    const fresh = sql`case when ${copyLiveDispatches.state} = 'pending' or exists (select 1 from ${copyLiveDispatches} p where p.mandate_id = ${copyLiveDispatches.mandateId}
-      and p.source_fill_id = ${copyLiveDispatches.sourceFillId} and p.state = 'pending') then 0 else 1 end`;
+    const fresh = sql`case when ${copyLiveDispatches.state} = 'submitted' and ${unresolvedExecution} and exists (select 1 from ${copyLiveDispatches} p where p.mandate_id = ${copyLiveDispatches.mandateId}
+      and p.coin = ${copyLiveDispatches.coin} and p.state = 'pending'
+      and (${copyLiveDispatches.leaderTime}, ${copyLiveDispatches.id}) < (p.leader_time, p.id)) then 0
+      when ${copyLiveDispatches.state} = 'pending' or exists (select 1 from ${copyLiveDispatches} p where p.mandate_id = ${copyLiveDispatches.mandateId}
+        and p.source_fill_id = ${copyLiveDispatches.sourceFillId} and p.state = 'pending') then 1 else 2 end`;
     return this.db.select().from(copyLiveDispatches)
       .where(and(inArray(copyLiveDispatches.state, ['pending', 'submitted']), this.ownNetwork(), mandateIds ? inArray(copyLiveDispatches.mandateId, [...mandateIds]) : undefined))
       .orderBy(fresh, asc(copyLiveDispatches.leaderTime), asc(copyLiveDispatches.id)).limit(limit);

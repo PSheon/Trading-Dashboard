@@ -7,7 +7,7 @@ import { digest as mandateDigest } from '../src/copy/copy-live-mandate-evidence.
 import { CopyLiveSourceRepository } from '../src/copy/copy-live-source.repository.js';
 import { liveSourceExecutionCloid } from '../src/copy/live/postgres-live-preparation.js';
 import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
-import type { LiveExecutionRecord } from '../src/copy/live/live-execution.js';
+import { NEVER_PLACED, type LiveExecutionRecord } from '../src/copy/live/live-execution.js';
 import type { LiveExecutionHooks, LiveExecutionRequest } from '../src/copy/live/live-execution-runtime.js';
 import { CLOSE_ATTEMPT_LIMIT, CopyLiveEngine, type LiveEngineDependencies } from '../src/copy/live-worker/copy-live-engine.js';
 import { CopyLiveWorkerRepository } from '../src/copy/live-worker/copy-live-worker.repository.js';
@@ -162,6 +162,32 @@ describe('testnet copy execution engine', () => {
     expect((await dispatches())[0]).toMatchObject({ state: 'settled' }); expect(settleCalls).toHaveLength(1);
     clock += 3000; await engine().tick();
     expect(runtimeCalls).toHaveLength(1); expect(settleCalls).toHaveLength(1);
+  });
+
+  it('waits for a prior same-coin never-placed release without blocking another coin or spending a new attempt', async () => {
+    await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+    const first = await leaderFill(20, now + 100, 'B', '1', '0');
+    runtimeImpl = async (request, hooks) => {
+      if (request.sourceFillId !== first) return filled(request, hooks);
+      runtimeCalls.push(request);
+      const key = keyOf(first, 'open');
+      await journal(key, 'rejected');
+      await db.update(schema.copyLiveExecutions).set({ record: { key, state: 'rejected', errorCode: NEVER_PLACED } }).where(eq(schema.copyLiveExecutions.key, key));
+      return { key, state: 'rejected', errorCode: NEVER_PLACED } as LiveExecutionRecord;
+    };
+    clock = now + 1000; await engine().tick();
+    const next = await leaderFill(21, now + 1100, 'B', '1', '1');
+    const other = await leaderFill(22, now + 1200, 'B', '1', '0', 'ETH');
+    settleImpl = async () => ({ kind: 'pending', reason: 'live_settlement_terminal_unproven' });
+    clock = now + 2000; await engine().tick();
+    expect(runtimeCalls.map(c => c.sourceFillId)).toEqual([first, other]);
+    expect((await dispatches()).find(r => r.sourceFillId === next)).toMatchObject({ state: 'pending', attempts: 0, reason: null });
+    expect(settleCalls.map(c => c.key)).toContain(keyOf(first, 'open'));
+    settleImpl = async request => request.key === keyOf(first, 'open') ? { kind: 'unplaced' } : { kind: 'released' };
+    clock = now + 3000; await engine().tick();
+    expect(runtimeCalls.map(c => c.sourceFillId)).toEqual([first, other, next]);
+    expect((await dispatches()).find(r => r.sourceFillId === first)).toMatchObject({ state: 'refused', reason: NEVER_PLACED });
+    expect((await dispatches()).find(r => r.sourceFillId === next)).toMatchObject({ state: 'submitted', attempts: 1 });
   });
 
   it('refuses a price-deviation open for good but retries a transient refusal until the signal is too old', async () => {

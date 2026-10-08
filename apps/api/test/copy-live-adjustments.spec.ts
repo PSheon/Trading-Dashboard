@@ -101,7 +101,6 @@ describe('same-coin leader legs become one follower adjustment', () => {
     const adds = [await leaderFill(22, now + 500, 'A', '1', '-1'), await leaderFill(23, now + 600, 'A', '1', '-2')];
     settle = 'pending';
     await coverage(now - 10_000, now + 700); clock = now + 800; await engine().tick();
-    // The adds go now; the flip's open waits for its close to settle.
     // The flip's open waits for its close to settle, and the adds after it wait for the open.
     expect(calls.map(c => [c.sourceFillId, c.leg, c.members ?? []])).toEqual([[open, 'open', []], [flip, 'close', []]]);
     settle = 'released'; clock += 3000; await engine().tick(); clock += 3000; await engine().tick();

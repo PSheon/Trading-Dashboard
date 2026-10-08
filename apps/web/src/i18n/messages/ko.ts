@@ -84,6 +84,12 @@ export const ko: Messages = {
       "unsupportedVenue": "지원되지 않는 거래 장소가 비어 있음을 관측"
   },
   copyFollowerActivity: {
+    "adjustmentReason": "거래소의 최소 주문 금액 규칙에 따라 원래 부분 청산 요청이 전체 청산으로 계획되었습니다.",
+    "requestedFraction": "원래 요청한 청산 비율",
+    "requestedSize": "원래 요청 수량 (이전 잔량과 수량 단위 조정 포함)",
+    "plannedCloseSize": "전체 청산 계획 수량",
+    "admittedAt": "원래 주문 생성 시간",
+    "plannedNotFilled": "계획 수량입니다. 이 내역의 실제 체결 수량은 위에 별도로 표시됩니다.",
       "quarantine": "계정이 격리되었습니다. 기록된 영수증은 볼 수 있지만 불완전할 수 있습니다.",
       "title": "실제 팔로워 활동",
       "hint": "이 전용 마스터 지갑에 기록된 거래소 영수증입니다. 가상 페이퍼 활동과 별개입니다.",

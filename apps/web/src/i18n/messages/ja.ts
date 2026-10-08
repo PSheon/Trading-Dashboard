@@ -84,6 +84,12 @@ export const ja: Messages = {
       "unsupportedVenue": "非対応会場は空として観測済み"
   },
   copyFollowerActivity: {
+    "adjustmentReason": "取引所の最低注文額のルールにより、当初の部分決済は全決済として計画されました。",
+    "requestedFraction": "当初の決済割合",
+    "requestedSize": "当初の依頼数量（前回の端数と数量の丸めを含む）",
+    "plannedCloseSize": "全決済の予定数量",
+    "admittedAt": "元の注文の作成日時",
+    "plannedNotFilled": "これは予定数量です。この記録の実際の約定数量は上に別途表示しています。",
       "quarantine": "アカウントは隔離されています。記帳済みレシートは表示されますが、不完全な可能性があります。",
       "title": "実際のコピー取引履歴",
       "hint": "この専用マスターウォレットの記帳済み取引所レシートです。仮想ペーパー取引とは別です。",

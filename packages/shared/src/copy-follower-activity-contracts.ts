@@ -6,14 +6,21 @@ const id = z.string().regex(/^(?:0|[1-9]\d{0,19})$/).refine(v => BigInt(v) <= 18
 const coin = z.string().min(1).max(80).regex(/^(?:[^:\s/@\p{Cc}\p{Cf}]{1,40}:)?[^:\s/@\p{Cc}\p{Cf}]{1,80}$/u);
 function units(v: string): bigint { const neg = v.startsWith('-'), [whole, fraction = ''] = (neg ? v.slice(1) : v).split('.'); return BigInt(whole + fraction.padEnd(18, '0')) * (neg ? -1n : 1n); }
 const common = { key: z.string().min(1).max(350), coin, time: z.string().datetime(), tradingCashDelta: decimal };
+const adjustment = z.object({ requestedFraction: decimal.refine(v => units(v) > 0 && units(v) < 10n ** 18n),
+  // Original requested follower reduction after carry and lot rounding; the
+  // planned full close is independent of how much the receipt actually filled.
+  requestedSize: decimal.refine(v => units(v) >= 0), plannedSize: decimal.refine(v => units(v) > 0),
+  reason: z.literal('minimum_reduce_full_close'), admittedAt: z.string().datetime() }).strict()
+  .refine(v => units(v.requestedSize) < units(v.plannedSize));
 const fill = z.object({ ...common, kind: z.literal('fill'), attribution: z.enum(['execution', 'account']), executionKey: z.string().min(1).max(350).nullable(),
   oid: id, tid: id, side: z.enum(['B', 'A']), size: decimal.refine(v => units(v) > 0), price: decimal.refine(v => units(v) > 0),
-  realizedPnl: decimal, exchangeFee: decimal, builderFee: decimal.refine(v => units(v) <= 0) }).strict();
+  realizedPnl: decimal, exchangeFee: decimal, builderFee: decimal.refine(v => units(v) <= 0), adjustment: adjustment.nullable().optional() }).strict();
 const funding = z.object({ ...common, kind: z.literal('funding'), attribution: z.literal('account'), executionKey: z.null(),
   hash: z.string().regex(/^0x[0-9a-f]{64}$/), funding: decimal }).strict();
 export const copyFollowerActivityItemSchema = z.discriminatedUnion('kind', [fill, funding]).superRefine((item, ctx) => {
   const sum = item.kind === 'fill' ? units(item.realizedPnl) + units(item.exchangeFee) + units(item.builderFee) : units(item.funding);
   if (sum !== units(item.tradingCashDelta)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Inconsistent booked cash delta' });
+  if (item.kind === 'fill' && item.adjustment && item.attribution !== 'execution') ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Unbound original adjustment' });
   if (item.kind === 'fill' && (item.attribution === 'execution') !== (item.executionKey !== null)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Invalid execution attribution' });
 });
 export const copyFollowerActivityQuerySchema = z.object({ before: z.string().min(1).max(2048).regex(/^[A-Za-z0-9_-]+$/).optional(), limit: z.coerce.number().int().min(1).max(50).default(20) }).strict();

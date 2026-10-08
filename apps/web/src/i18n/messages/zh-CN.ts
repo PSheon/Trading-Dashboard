@@ -84,6 +84,12 @@ export const zhCN: Messages = {
       "unsupportedVenue": "不支持的交易场已观测为空"
   },
   copyFollowerActivity: {
+    "adjustmentReason": "原本部分减仓因交易所最低下单金额，规划改为全平仓。",
+    "requestedFraction": "原请求减仓比例",
+    "requestedSize": "原请求数量（含前次余量与取整）",
+    "plannedCloseSize": "规划全平仓数量",
+    "admittedAt": "原订单创建时间",
+    "plannedNotFilled": "此为规划数量；这笔收据的实际成交数量另列于上方。",
       "quarantine": "账户已隔离。已入账收据仍可查看，但可能不完整。",
       "title": "实际跟单活动",
       "hint": "此独立主钱包的交易所入账收据，与虚拟 paper 活动分开。",

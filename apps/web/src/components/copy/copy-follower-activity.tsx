@@ -6,6 +6,7 @@ import type { CopyExecutionAccount } from '@trading-dashboard/shared/contracts';
 import { useAuth } from '@/lib/auth';
 import { sessionKey } from '@/lib/api';
 import { useCopyFollowerActivity } from '@/lib/copy-follower-activity';
+import { formatOriginalReductionPercent } from '@/lib/copy-follower-adjustment';
 import { formatFollowerAmount } from '@/lib/copy-follower-statements';
 import { useI18n } from '@/i18n/provider';
 import { Button } from '@/components/ui/button';
@@ -48,6 +49,16 @@ function ActivityView({ account }: { account: CopyExecutionAccount }) {
             </> : <div><dt className="text-muted-foreground">{t('copyFollowerStatement.funding')}</dt><dd className="break-all font-mono tabular-nums">{formatFollowerAmount(item.funding)}</dd></div>}
             <div className="sm:col-span-2"><dt className="text-muted-foreground">{t('copyFollowerActivity.details')}</dt><dd className="break-all font-mono text-muted-foreground">{item.key}</dd></div>
           </dl>
+          {item.kind === 'fill' && item.adjustment ? <div className="mt-3 rounded-lg border border-border p-3">
+            <p className="leading-5">{t('copyFollowerActivity.adjustmentReason')}</p>
+            <dl className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div><dt className="text-muted-foreground">{t('copyFollowerActivity.requestedFraction')}</dt><dd className="break-all font-mono">{formatOriginalReductionPercent(item.adjustment.requestedFraction)}</dd></div>
+              <div><dt className="text-muted-foreground">{t('copyFollowerActivity.requestedSize')}</dt><dd className="break-all font-mono">{item.adjustment.requestedSize} {item.coin}</dd></div>
+              <div><dt className="text-muted-foreground">{t('copyFollowerActivity.plannedCloseSize')}</dt><dd className="break-all font-mono">{item.adjustment.plannedSize} {item.coin}</dd></div>
+              <div><dt className="text-muted-foreground">{t('copyFollowerActivity.admittedAt')}</dt><dd><time dateTime={item.adjustment.admittedAt}>{format.dateTime(item.adjustment.admittedAt)}</time></dd></div>
+            </dl>
+            <p className="mt-3 leading-5 text-muted-foreground">{t('copyFollowerActivity.plannedNotFilled')}</p>
+          </div> : null}
         </details>
       </li>)}</DataList>}
       <Button size="sm" variant="secondary" loading={query.isFetching} onClick={() => void query.refetch()}>{t('copyFollowerActivity.refresh')}</Button>

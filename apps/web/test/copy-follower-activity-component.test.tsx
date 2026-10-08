@@ -52,3 +52,33 @@ it('hides prior financial rows after a failed read and supports a safe manual re
 });
 it.each([{ status: 'signedOut' }, { mode: 'fixture' }])('hides actual activity for %j', async change => { Object.assign(state, change); await render(); expect(container.querySelector('section')).toBeNull(); expect(state.get).not.toHaveBeenCalled(); });
 it.each(LOCALES)('renders localized activity and uncertainty in %s', async locale => { await render(account, locale); expect(container.textContent).not.toContain('copyFollowerActivity.'); expect(container.textContent).not.toContain('copyFollowerStatement.'); expect(container.querySelector('section')?.getAttribute('aria-label')).toBeTruthy(); });
+function adjustedActivity() {
+ const page=activityPage(),fill=page.items[0];
+ if(fill.kind!=='fill')throw Error('expected fill fixture');
+ fill.size='0.004';fill.adjustment={requestedFraction:'0.25',requestedSize:'0.03',plannedSize:'0.12',reason:'minimum_reduce_full_close',admittedAt:'2026-10-02T23:59:00Z'};
+ return page;
+}
+it('explains the verified original partial request and planned close without claiming this receipt filled the whole plan',async()=>{
+ state.get.mockResolvedValue(adjustedActivity());await render();
+ const detail=container.querySelector('details')!;
+ expect(detail.textContent).toContain('exchange minimum');
+ expect(detail.textContent).toContain('25%');
+ const values=new Map([...detail.querySelectorAll('dt')].map(dt=>[dt.textContent,dt.nextElementSibling?.textContent]));
+ expect(values.get('Filled quantity')).toBe('0.004 BTC');
+ expect(values.get('Original requested quantity (includes previous remainder and rounding)')).toBe('0.03 BTC');
+ expect(values.get('Planned full-close quantity')).toBe('0.12 BTC');
+ expect(detail.textContent).toContain("This receipt's filled quantity is shown separately.");
+ expect(detail.querySelector('time[datetime="2026-10-02T23:59:00Z"]')).not.toBeNull();
+});
+it.each(LOCALES)('renders the original adjustment locally in %s without adding it to unproven history',async locale=>{
+ state.get.mockResolvedValue(adjustedActivity());await render(account,locale);
+ expect(container.textContent).toContain('25%');expect(container.textContent).toContain('0.03 BTC');expect(container.textContent).toContain('0.12 BTC');
+ expect(container.textContent).not.toContain('copyFollowerActivity.');
+ state.get.mockResolvedValue(activityPage());await act(async()=>{await client.invalidateQueries();});await settle();
+ expect(container.textContent).not.toContain('25%');expect(container.textContent).not.toContain('0.12 BTC');
+});
+it.each([null, undefined])('keeps %s original history unexplained instead of inferring a close from receipt size',async adjustment=>{
+ const page=adjustedActivity(),fill=page.items[0];if(fill.kind!=='fill')throw Error('expected fill');fill.adjustment=adjustment;
+ state.get.mockResolvedValue(page);await render();
+ expect(container.textContent).toContain('0.004 BTC');expect(container.textContent).not.toContain('exchange minimum');expect(container.textContent).not.toContain('Planned full-close quantity');
+});

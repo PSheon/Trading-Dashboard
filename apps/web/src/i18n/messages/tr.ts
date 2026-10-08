@@ -84,6 +84,12 @@ export const tr: Messages = {
       "unsupportedVenue": "Desteklenmeyen piyasa boş gözlendi"
   },
   copyFollowerActivity: {
+    "adjustmentReason": "Borsanın minimum emir tutarı kuralı nedeniyle ilk kısmi azaltma, tam kapatma olarak planlandı.",
+    "requestedFraction": "İlk talep edilen azaltma oranı",
+    "requestedSize": "İlk talep edilen miktar (önceki kalan ve yuvarlama dahil)",
+    "plannedCloseSize": "Planlanan tam kapatma miktarı",
+    "admittedAt": "İlk emrin oluşturulma zamanı",
+    "plannedNotFilled": "Bu planlanan miktardır. Bu kayıtta gerçekleşen miktar yukarıda ayrı gösterilir.",
       "quarantine": "Hesap karantinada. Kaydedilmiş makbuzlar görünür kalır ancak eksik olabilir.",
       "title": "Gerçek takipçi etkinliği",
       "hint": "Bu özel ana cüzdanın kaydedilmiş borsa makbuzları, sanal paper etkinliğinden ayrıdır.",

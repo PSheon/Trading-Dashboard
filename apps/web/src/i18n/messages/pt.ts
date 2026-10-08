@@ -84,6 +84,12 @@ export const pt: Messages = {
       "unsupportedVenue": "Mercado sem suporte observado vazio"
   },
   copyFollowerActivity: {
+    "adjustmentReason": "Devido à regra de valor mínimo de ordem da corretora, a redução parcial original foi planejada como um fechamento total.",
+    "requestedFraction": "Redução solicitada originalmente",
+    "requestedSize": "Quantidade solicitada originalmente (inclui o restante anterior e o arredondamento)",
+    "plannedCloseSize": "Quantidade planejada para o fechamento total",
+    "admittedAt": "Criação da ordem original",
+    "plannedNotFilled": "Esta é a quantidade planejada. A quantidade executada neste registro aparece separadamente acima.",
       "quarantine": "Conta em quarentena. Os recibos contabilizados continuam visíveis, mas podem estar incompletos.",
       "title": "Atividade real do seguidor",
       "hint": "Recibos contabilizados da corretora para esta carteira mestre dedicada, separados da atividade virtual paper.",

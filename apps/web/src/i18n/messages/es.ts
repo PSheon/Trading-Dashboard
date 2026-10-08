@@ -84,6 +84,12 @@ export const es: Messages = {
       "unsupportedVenue": "Mercado no compatible observado vacío"
   },
   copyFollowerActivity: {
+    "adjustmentReason": "Por la regla de importe mínimo de la bolsa, la reducción parcial original se planificó como un cierre completo.",
+    "requestedFraction": "Reducción solicitada originalmente",
+    "requestedSize": "Cantidad solicitada originalmente (incluye el resto anterior y el redondeo)",
+    "plannedCloseSize": "Cantidad prevista para el cierre completo",
+    "admittedAt": "Creación de la orden original",
+    "plannedNotFilled": "Esta es la cantidad prevista. La cantidad ejecutada en este registro se muestra por separado arriba.",
       "quarantine": "Cuenta en cuarentena. Los recibos contabilizados siguen visibles, pero pueden estar incompletos.",
       "title": "Actividad real del seguidor",
       "hint": "Recibos contabilizados del exchange para esta cartera maestra dedicada, separados de la actividad virtual paper.",

@@ -145,6 +145,12 @@ export const zhTW = {
       "unsupportedVenue": "不支援的交易場已觀測為空"
   },
   copyFollowerActivity: {
+    "adjustmentReason": "原本部分減倉因交易所最低下單金額，規劃改為全平倉。",
+    "requestedFraction": "原請求減倉比例",
+    "requestedSize": "原請求數量（含前次餘量與取整）",
+    "plannedCloseSize": "規劃全平倉數量",
+    "admittedAt": "原訂單建立時間",
+    "plannedNotFilled": "此為規劃數量；這筆收據的實際成交數量另列於上方。",
       "quarantine": "帳戶已隔離。已入帳收據仍可查看，但可能不完整。",
       "title": "實際跟單活動",
       "hint": "此獨立主錢包的交易所入帳收據，與虛擬 paper 活動分開。",

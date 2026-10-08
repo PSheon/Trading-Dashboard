@@ -142,6 +142,12 @@ export const en: Messages = {
       "unsupportedVenue": "Unsupported venue observed empty"
   },
   copyFollowerActivity: {
+    "adjustmentReason": "Because of the exchange minimum-order rule, the original partial reduction was planned as a full close.",
+    "requestedFraction": "Original requested reduction",
+    "requestedSize": "Original requested quantity (includes previous remainder and rounding)",
+    "plannedCloseSize": "Planned full-close quantity",
+    "admittedAt": "Original order created",
+    "plannedNotFilled": "This is the planned quantity. This receipt's filled quantity is shown separately.",
       "quarantine": "Account quarantined. These booked receipts remain visible but may be incomplete.",
       "title": "Actual follower activity",
       "hint": "Booked exchange receipts for this dedicated master, separate from virtual paper activity.",

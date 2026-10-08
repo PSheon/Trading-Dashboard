@@ -1,6 +1,7 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { copyFollowerActivityQuerySchema, copyFollowerActivitySchema, type CopyFollowerActivity, type CopyFollowerActivityItem } from '@trading-dashboard/shared/contracts';
 import { CopyFollowerActivityRepository, followerActivityCursor } from './copy-follower-activity.repository.js';
+import { originalFollowerAdjustment } from './copy-follower-adjustment.js';
 import { parseOr400 } from '../common/http/validation.js';
 import { Dec } from '../common/decimal/dec.js';
 import { followerReceiptDigestV1, parseFollowerFill, parseFollowerFunding } from './live/actual-fill-accounting.js';
@@ -31,7 +32,7 @@ export class CopyFollowerActivityService {
         }
         const common = { key: row.key, coin: row.coin, time: row.providerTime.toISOString(), tradingCashDelta: entries.reduce((sum, e) => sum.add(e.amount), Dec.ZERO).toString() };
         if ('tid' in parsed) return { ...common, kind: 'fill', attribution: row.attribution, executionKey: row.executionKey, tid: parsed.tid, oid: parsed.oid, side: parsed.side,
-          size: parsed.size, price: parsed.price, realizedPnl: expected.realized_pnl!, exchangeFee: expected.exchange_fee!, builderFee: expected.builder_fee! };
+          adjustment: originalFollowerAdjustment({userId,account:page.account,receipt:{key:row.key,digest:row.digest,executionKey:row.executionKey,oid:parsed.oid,coin:row.coin,side:parsed.side}},page.adjustmentEvidence?.find(e => e.journal.key === row.executionKey)), size: parsed.size, price: parsed.price, realizedPnl: expected.realized_pnl!, exchangeFee: expected.exchange_fee!, builderFee: expected.builder_fee! };
         return { ...common, kind: 'funding', attribution: row.attribution, executionKey: row.executionKey, hash: parsed.hash, funding: parsed.amount } as CopyFollowerActivityItem;
       });
       const { scan, state } = page, pending = scan?.scanState && typeof scan.scanState === 'object' && 'pending' in scan.scanState && Array.isArray(scan.scanState.pending) ? scan.scanState.pending.length : null;

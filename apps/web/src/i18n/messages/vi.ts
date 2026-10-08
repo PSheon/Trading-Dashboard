@@ -84,6 +84,12 @@ export const vi: Messages = {
       "unsupportedVenue": "Thị trường không hỗ trợ được quan sát là trống"
   },
   copyFollowerActivity: {
+    "adjustmentReason": "Do quy định giá trị lệnh tối thiểu của sàn, yêu cầu giảm một phần ban đầu được lên kế hoạch đóng toàn bộ.",
+    "requestedFraction": "Tỷ lệ giảm yêu cầu ban đầu",
+    "requestedSize": "Số lượng yêu cầu ban đầu (gồm phần dư trước đó và làm tròn)",
+    "plannedCloseSize": "Số lượng dự kiến đóng toàn bộ",
+    "admittedAt": "Thời điểm tạo lệnh ban đầu",
+    "plannedNotFilled": "Đây là số lượng dự kiến. Số lượng khớp thực tế trong bản ghi này được hiển thị riêng ở trên.",
       "quarantine": "Tài khoản bị cách ly. Biên nhận đã ghi sổ vẫn hiển thị nhưng có thể chưa đầy đủ.",
       "title": "Hoạt động thực tế của tài khoản theo dõi",
       "hint": "Biên nhận giao dịch đã ghi sổ của ví chủ riêng này, tách biệt với hoạt động paper ảo.",

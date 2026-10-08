@@ -84,6 +84,12 @@ export const id: Messages = {
       "unsupportedVenue": "Pasar tidak didukung diamati kosong"
   },
   copyFollowerActivity: {
+    "adjustmentReason": "Karena aturan nilai pesanan minimum bursa, pengurangan sebagian awal direncanakan menjadi penutupan penuh.",
+    "requestedFraction": "Proporsi pengurangan yang diminta awalnya",
+    "requestedSize": "Jumlah yang diminta awalnya (termasuk sisa sebelumnya dan pembulatan)",
+    "plannedCloseSize": "Jumlah penutupan penuh yang direncanakan",
+    "admittedAt": "Waktu pesanan awal dibuat",
+    "plannedNotFilled": "Ini jumlah yang direncanakan. Jumlah yang benar-benar terisi dalam catatan ini ditampilkan terpisah di atas.",
       "quarantine": "Akun dikarantina. Bukti yang tercatat tetap terlihat, tetapi mungkin tidak lengkap.",
       "title": "Aktivitas pengikut aktual",
       "hint": "Bukti transaksi bursa yang tercatat untuk dompet master khusus ini, terpisah dari aktivitas paper virtual.",

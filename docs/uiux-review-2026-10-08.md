@@ -318,3 +318,5 @@ Claude 先前另已處理交易員表格內縮／欄寬、常駐分享按鈕、�
 
 - `fc697e3d`補齊實際跟單繼續、重啟、取消、暫停／恢復、編輯／加碼及完成變更後操作的44px點擊高度，並同步編輯方向及金額輸入、共用設定欄位；原small36px已修正。19既有回歸、type及lint PASS。本節當時未重新Browser或部署，不標成線上驗收PASS。
 - 固定b701新版完整268檔／4262項PASS，金融runtime仍原bce；情境3、4、6真交易與原停止退款已PASS，7／8／9進行中。#2一般BASE時效問題仍待新版actual，原79 FAIL保留；#43一般BASE結算可靠性不以管理流程或前三情境代替。
+
+09:57交付補記：最後44px修正提交 `73383b56`，既有三檔87項PASS；Railway skill已提交精確458檔Stage WEB payload，部署 `74033843-29cb-4bd8-b70d-86e8e8f63b57`。CLI上傳成功不等於正式SUCCESS，尚待建置及登入Browser驗收。先前fc697e3d為最後已確認SUCCESS版本。本機原bce worker已於01:56:09UTC恢復PID17646；未啟動新的金融情境。

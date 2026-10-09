@@ -288,3 +288,5 @@ Paul 於台北時間 2026-10-08 23:58 前後授權再投入十小時，至 2026-
 - 收尾observer只把讀取前配額等待從預設10秒對齊原外層50秒；讀取開始後5000ms、全268、400/800配額未改。此前將20秒失敗耗時誤寫成預設等待，已更正。
 - 3bcb2135修正original fixed-claim proof user DID與agent owner quorum身分對應，原setup/wallet/account corroboration全部保留；88項回歸、51項harness/runtime、APItype/lint PASS。不補造獨立SDK證據、不改原BASE結果。
 - 最後另補取消返還、手動平倉、全部返還、活動重試／刷新、snapshot重試及模擬編輯radio的44px觸控高度。既有三檔87項PASS、WEB typecheck PASS；尚無新的登入Browser幾何驗證，部署狀態另以官方結果為準。
+
+09:57交付補記：最後44px修正提交 `73383b56`，既有三檔87項PASS；Railway skill已提交精確458檔Stage WEB payload，部署 `74033843-29cb-4bd8-b70d-86e8e8f63b57`。CLI上傳成功不等於正式SUCCESS，尚待建置及登入Browser驗收。先前fc697e3d為最後已確認SUCCESS版本。本機原bce worker已於01:56:09UTC恢復PID17646；未啟動新的金融情境。

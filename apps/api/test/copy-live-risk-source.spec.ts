@@ -253,6 +253,20 @@ describe('durable local actual source authority before remote reads',()=>{
       expect(decode).toHaveBeenCalledTimes(1);
     } finally { decode.mockRestore(); }
   });
+  it('hashes complete original and fresh authority once each per risk read',async()=>{
+    await genuineSizing();
+    const hash=vi.spyOn(authority,'riskSourceDigest');
+    try {
+      await scopes.run(id(),async(_scope,session)=>{
+        const proof=await source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold();
+        expect(assessLiveAccountRisk(proof)).toMatchObject({ok:true});
+        const complete=hash.mock.calls.map(([value],index)=>({value,index})).filter(({value})=>
+          value!==null&&typeof value==='object'&&'provenance' in value&&'preparation' in value&&'generation' in value);
+        expect(complete).toHaveLength(2);
+        for(const {index} of complete)expect(hash.mock.results[index]!.value).toBe(proof.localSource.sourceDigest);
+      });
+    } finally { hash.mockRestore(); }
+  });
   it('revalidates freshly read sizing after original provenance changes between hold and sign',async()=>{
     const {reservations}=await genuineSizing();
     await scopes.run(id(),async(_scope,session)=>{

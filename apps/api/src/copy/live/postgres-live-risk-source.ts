@@ -54,10 +54,10 @@ export class PostgresLiveRiskSource {
       requireProof(snapshots.length===local.accounts.length,'live_risk_user_coverage_unproven');for(let i=0;i<snapshots.length;i++)this.validateSnapshot(snapshots[i]!,local.accounts[i]!.address!,local.identity.network,local.accounts[i]!.id!==binding.accountId);
       const current=snapshots[local.accounts.findIndex(a=>a.id===binding.accountId)]!;
       // Provider calls finish before the uncached second SQL read.
-      const final=await this.load(session,binding,started);requireProof(riskSourceDigest(local)===riskSourceDigest(final),'live_risk_local_changed');
+      const final=await this.load(session,binding,started),localDigest=riskSourceDigest(local);requireProof(localDigest===riskSourceDigest(final),'live_risk_local_changed');
       this.validateGeneration(local,current,sizing.envelope.basis,owned?.own);
       const localSource={checkedAt:Math.min(started,sizing.oldest,frames.oldest,market.observedAt,target.earliestObservedAt,...others.map(p=>p.earliestObservedAt),
-        ...snapshots.flatMap(s=>[s.observedAt,s.completedAt,s.coverage.earliestProviderTime,...s.dexes.map(d=>d.providerTime)])),sourceDigest:riskSourceDigest(local)},
+        ...snapshots.flatMap(s=>[s.observedAt,s.completedAt,s.coverage.earliestProviderTime,...s.dexes.map(d=>d.providerTime)])),sourceDigest:localDigest},
         intent=freezeLiveReservation({...local.intent,market}),action=buildOrderAction(intent),checkedAt=this.now();
       const leverageProofs=[...target.leverageProofs,...others.flatMap(p=>p.leverageProofs)];
       const base={now:checkedAt,identity:local.identity,localSource,intent,action,market,accountSource:{accountId:binding.accountId,userId:local.identity.userId,strategyId:local.identity.strategyId,network:local.identity.network,accountAddress:local.identity.accountAddress,checkedAt,sourceDigest:current.sourceDigest,quarantined:false,snapshot:current},policy:local.policy,strategy:{version:local.identity.strategyVersion,settings:local.settings,allocatedUsd:local.consent.budgetUsd,...(sizing.envelope.basis.fixedMaxUsd!==undefined&&sizing.envelope.basis.exchangeMinimum?{fixedMaxUsd:sizing.envelope.basis.fixedMaxUsd}:{})},controls:local.controls,quote:target.quote,leverageProofs,fees:target.fees,signal:{kind:'fill' as const,leaderSide:local.fill.side,price:local.fill.px,at:local.fill.providerTime},userExposureProof:this.userExposure(local,snapshots,market.coin,Dec.max(Dec.from(target.quote.midPrice),Dec.from(target.quote.markPrice),Dec.from(intent.limitPrice)),started,owned?.own)};

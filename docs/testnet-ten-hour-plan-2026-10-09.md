@@ -311,3 +311,9 @@ Paul 於台北時間 2026-10-08 23:58 前後授權再投入十小時，至 2026-
 v5只讀官方結果 closuresVerified=true：原80／81／82跟單帳戶全部268場域，倉位／掛單／可提餘額0；主帳戶83.518733、領單21.071997 USDC，全268無倉位／掛單。每份證據年齡約3.832–3.927秒，全部小於原5000ms。原三筆credited收據唯一性與原stop/setup/account/owner全部核對，八項pending0、platformr16 restored。CLI仍依設計exit1，因remainingSixPassed／overallPassed永久false：BASE79與burst9原FAIL沒有改寫。證據 /private/tmp/orbie-failed-remaining6-bce5b82f-final-official-v5-paced-actual.jsonl。
 
 補修紙上訂單UTC標示：桌機表頭及手機展開明細，WEB型別／paper-order-clarity與paper-history兩檔10項PASS、figures6項PASS。這是本機修改，未另部署或主網操作，尚無新Browser截圖。
+
+### 10:13 — burst原時間線與逐次失敗診斷
+
+原82 open兩個source fill均01:33:21.078UTC、received01:33:43.036（約22秒）、firstAttempt01:33:43.127；後一次live_budget_wait於01:35:22.135，此時源年齡121秒。不能將119秒都說成source晚到；第一次拒絕原因被後一次更新覆寫，現存log不足以恢復它。原其他close後續no_follower_position／copy_stopping，沒有成交仍不是PASS。精確只讀證據 /private/tmp/orbie-burst82-source-timing-readonly-actual.jsonl。
+
+已補每次execute失敗的安全code／attempt／本次耗時／原leader age／exchange-started bool，保留覆寫前原因；不輸出error或provider body，不改執行、配額、風控或重試。真RED1→GREEN含安全與budgeter三檔24項PASS，API type/lint PASS，獨立source review CLEAR。尚未建置／切換本機金融runtime，不宣稱兩項交易FAIL已修好。

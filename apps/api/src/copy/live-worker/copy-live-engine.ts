@@ -471,7 +471,8 @@ export class CopyLiveEngine {
   /** Submits (first time) or reconciles (afterwards) the leg's one order. A
    * first submission's budget wait never outlasts the signal (`signalDeadline`). */
   private async execute(row: DispatchRow, m: LiveMandateWork, signalDeadline?: number): Promise<void> {
-    const timing: { sentAt?: number; ackedAt?: number } = {}, first = row.firstAttemptAt ?? new Date(this.now());
+    const attemptedAt = this.now();
+    const timing: { sentAt?: number; ackedAt?: number } = {}, first = row.firstAttemptAt ?? new Date(attemptedAt);
     const runtime = this.deps.runtime({ onExchange: event => { if (event.phase === 'request') timing.sentAt ??= event.at; else timing.ackedAt ??= event.at; } });
     try {
       const members = row.adjustmentId === row.id ? await this.deps.repository.members(row.id) : [];
@@ -487,6 +488,12 @@ export class CopyLiveEngine {
         `first attempt +${first.getTime() - row.leaderTime.getTime()}, sent ${times.sentAt ? `+${times.sentAt.getTime() - row.leaderTime.getTime()}` : '-'} ms after the leader`);
     } catch (error) {
       const reason = reasonOf(error);
+      // The mutable dispatch row retains only the latest refusal. Keep each
+      // attempt's safe code and timing so a later budget wait cannot hide an
+      // earlier evidence failure. Never serialize the error or provider body.
+      this.deps.log?.(`leg ${row.id} attempt ${row.attempts + 1} failed: ${reason}; ` +
+        `elapsed ${Math.max(0, this.now() - attemptedAt)} ms, source age ${Math.max(0, this.now() - row.leaderTime.getTime())} ms, ` +
+        `exchange started ${timing.sentAt !== undefined}`);
       if (error instanceof HyperliquidBudgetWait) this.deps.log?.(`leg ${row.id} budget unavailable: ${error.reason}, retry ${error.retryMs} ms`);
       // Stored as live_execution_failed: say what it really was (Stage 2026-10-06).
       const unexpected = describeUnexpected(error);

@@ -608,7 +608,7 @@ function EditDialog({ strategy: s, open, onClose }: { strategy: CopyStrategyView
       <div className="flex flex-col gap-5 p-5">
         <div role="radiogroup" className="grid grid-cols-2 gap-1 rounded-full border border-border-strong bg-raised p-1">
           {(["fixed", "ratio"] as const).map((m) => (
-            <button key={m} type="button" role="radio" aria-checked={mode === m} onClick={() => setMode(m)} className={cn("h-9 rounded-full text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring", mode === m ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
+            <button key={m} type="button" role="radio" aria-checked={mode === m} onClick={() => setMode(m)} className={cn("min-h-11 rounded-full text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring", mode === m ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
               {t(m === "fixed" ? "portfolio.copy.edit.fixed" : "portfolio.copy.edit.ratio")}
             </button>
           ))}

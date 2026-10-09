@@ -87,7 +87,7 @@ export function LiveCopies({ className, onEquity, empty = null }: { className?: 
   // Read the original owner-scoped setup only: never confirm, restart or
   // deposit. The explicit button also works after a reload or empty list.
   const resume = validSetupId ? <>
-    <Button variant="secondary" className="self-start" onClick={() => setResuming(true)}>{t('liveCopyUi.resumeProgress')}</Button>
+    <Button variant="secondary" className="min-h-11 self-start" onClick={() => setResuming(true)}>{t('liveCopyUi.resumeProgress')}</Button>
     <LiveCopyProgress setupId={validSetupId} open={resuming} onOpenChange={setResuming} />
   </> : null;
   // The read failed: say so, with a retry, instead of hiding the section.
@@ -292,7 +292,7 @@ function PreviousNetworkSheet({ item, leader, onClose }: { item: LiveCopyItem; l
   return (
     <Drawer open onOpenChange={(open) => { if (!open) onClose(); }} title={boardName(leader)}>
       <div className="flex flex-col gap-4 text-sm" data-testid="live-copy-sheet" data-other-network>
-        <ModeBadge mode={item.network === 'testnet' ? 'testnet' : 'live'} className="self-start" />
+        <ModeBadge mode={item.network === 'testnet' ? 'testnet' : 'live'} className="min-h-11 self-start" />
         <p className="text-xs leading-5 text-muted-foreground">{text.otherNetwork ?? liveSetupMessages.en.otherNetwork}</p>
         {item.accountAddress ? (
           <p className="flex items-center gap-1 text-xs text-muted-foreground"><span>{t('folio.account')}:</span><span className="num">{truncateAddress(item.accountAddress)}</span><CopyIconButton value={item.accountAddress} /></p>
@@ -371,7 +371,7 @@ function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; te
       {fundingFees !== null && fundingFees > 0 ? <div className="rounded-xl bg-inset px-3 py-2 text-xs"><p>{t('liveCopyUi.fundingFees')}: <span className="num font-semibold">{format.num(fundingFees, 2)} USDC</span></p><p className="mt-1 text-muted-foreground">{t('liveCopyUi.feeIncluded')}</p></div> : null}
       {item.pendingTransfer ? <p className="text-xs">{text.transfer.replace('{direction}', text.transferDirection[item.pendingTransfer.direction]).replace('{status}', text.transferStatus[item.pendingTransfer.status]).replace('{amount}', item.pendingTransfer.amount)}</p> : null}
       {item.pendingTransfer?.direction === 'to_main' && item.pendingTransfer.status === 'prepared' && !autoReturning ? (
-        <Button size="sm" variant="secondary" className="self-start" loading={actions.cancelTransfer.isPending} disabled={busy && !actions.cancelTransfer.isPending}
+        <Button size="sm" variant="secondary" className="min-h-11 self-start" loading={actions.cancelTransfer.isPending} disabled={busy && !actions.cancelTransfer.isPending}
           onClick={() => void track(actions.cancelTransfer.mutateAsync({ operationId: item.pendingTransfer!.id }), { success: t('toast.copy.returnCancelled'), error: copyError })}>{text.cancelReturn}</Button>
       ) : null}
       {observed ? (
@@ -392,7 +392,7 @@ function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; te
                     <span className="num text-muted-foreground">{text.entry} {format.price(Number(p.entryPrice))}</span>
                     <span className={cn('num', Number(p.unrealizedPnl) >= 0 ? 'text-positive' : 'text-negative')}>{text.pnl} {format.usd(Number(p.unrealizedPnl), { sign: true, digits: 2 })}</span>
                     {running && item.accountId ? (
-                      <Button size="sm" variant="secondary" className="ml-auto" loading={actions.close.isPending && actions.close.variables?.coin === p.coin} disabled={busy && !(actions.close.isPending && actions.close.variables?.coin === p.coin)}
+                      <Button size="sm" variant="secondary" className="min-h-11 ml-auto" loading={actions.close.isPending && actions.close.variables?.coin === p.coin} disabled={busy && !(actions.close.isPending && actions.close.variables?.coin === p.coin)}
                         onClick={() => void track(actions.close.mutateAsync({ accountId: item.accountId!, coin: p.coin }), { pending: t('toast.copy.closing', { coin: p.coin }), success: t('toast.copy.closed', { coin: p.coin }), error: copyError })}>
                         {actions.close.isPending && actions.close.variables?.coin === p.coin ? text.closing : text.close}
                       </Button>
@@ -424,7 +424,7 @@ function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; te
           </form>
         ) : null}
         {item.stage === 'sweeping' && item.accountId && !item.pendingTransfer && !autoReturning ? (
-          <Button size="sm" loading={actions.transfer.isPending && actions.transfer.variables?.amount === 'all'} disabled={busy && !(actions.transfer.isPending && actions.transfer.variables?.amount === 'all')} onClick={() => { setSheetError(null); setSheet({ kind: 'returnAll', amount: 'all' }); }}>{text.returnAll}</Button>
+          <Button size="sm" className="min-h-11" loading={actions.transfer.isPending && actions.transfer.variables?.amount === 'all'} disabled={busy && !(actions.transfer.isPending && actions.transfer.variables?.amount === 'all')} onClick={() => { setSheetError(null); setSheet({ kind: 'returnAll', amount: 'all' }); }}>{text.returnAll}</Button>
         ) : null}
         {busy ? <span role="status" className="text-xs text-muted-foreground">{text.busy}</span> : null}
       </div>

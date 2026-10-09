@@ -1,12 +1,97 @@
 # UI/UX 問題清單 — 2026-10-08
 
-供 Paul 檢閱。整理親眼檢查的桌機／手機畫面、實際帳號操作及 testnet 測試紀錄，並納入接續測試的新發現；本輪未部署 Stage。
+供 Paul 檢閱。整理親眼檢查的桌機／手機畫面、實際帳號操作及 testnet 測試紀錄，並納入接續測試的新發現；10/09最新前端已部署 Stage web，金融服務未隨本次發布更新。
+
+沿用 Orbie 風格。以下最新狀態與45項概覽優先，後面的日期段落是保留的歷史紀錄；舊金額、失敗數及部署狀態不代表目前狀態。
+
+## 10/09 09:56 最新狀態（優先於下列歷史紀錄）
+
+- **已部署前端**：Stage WEB `fc697e3d`、部署 `f9133e92-243d-418f-9a12-df7fe02efb56` 官方 SUCCESS，`/portfolio` 語系導向後 HTTP200。保留 Orbie 風格，footer、手機共同頁首／漸層、漂浮導航、user menu總價值、模式、通知及過時跟單文案均包含在版本內。前版頁首/footer九頁73項、About/FAQ十二頁126項線上Browser證據的來源未改；新44px跟單控制只經19項既有回歸/type/lint，此時尚未單獨Browser重測。
+- **後端完整回歸**：固定 `b701324c` 268檔／4,262項PASS，隔離DB刪除、來源與539compiled核對；只省同次讀取的重複decode/hash，沒有放寬風控時效、配額或交易上限。此時金融runtime仍bce，不能把自動suite當真交易驗收。
+- **仍待解決的核心問題**：一般BASE原79對帳FAIL，原第五筆送單前風控證據5100ms超原5000ms；不是已證實「testnet一定錯」或Privy單一根因。原七領單全平、10提款及38.960016原退款credited，獨立268場域全平／8項pending0；清理成功不改寫FAIL。新版BASE尚未執行。
+- **獨立實際情境**：3小額減倉、4持倉停止、6手動平倉後立即停止已PASS，後兩者原退款48.976408／48.974977入帳；7worker重啟亦PASS；8無符合原限制市場而SKIP，9burst因live_budget_wait／signal_expired FAIL，零followers；原82最後48.983097退款已入帳。14暫停新風險、減倉與帶倉緊急全平已PASS，平台恢復、臨時管理權限撤除、正常admin overview403。
+- **其他金融驗收**：#38原73減倉的請求0.0024、規劃／實際全平0.0048 ETH五來源PASS；#39原case06回覆遺失後只查原GET、236.668秒內原49退款credited、268場域與8項pending0；取消未簽編輯及已入金開始亦有真實PASS。renewal明確409 `renewal_unavailable`，尚未提供，不能列成已測功能。
+- **版本界限**：Stage API／worker仍舊mainnet/live版本，未做主網交易。截圖中`orbiecrypto@gmail.com`的歷史拒絕尚未與確切環境／帳戶綁定，不能歸因本機管理測試；相關原因與查詢限制保留在歷史段落。
+
+獨立最後收尾仍未完整通過：三個跟單帳戶全268場域均零倉位／掛單／可提餘額；主帳戶讀取失敗、領單帳戶尚無此輪完整觀察。原停止及退款入帳證據不因此改成交易PASS。最後另外補44px返還／平倉／重試／刷新及模擬radio，87項既有回歸與WEB型別通過，尚無新登入Browser驗收；Stage已確認部署仍是fc697e3d。
+
+## 目前45項問題概覽
+
+下表區分真實金融、線上匿名畫面、GET fixture與回歸測試；未具備條件的支線另註，不用單元測試或示意資料代替實測。
+
+| # | 問題 | 目前狀態 | 證據／限制 |
+|---|---|---|---|
+| 1 | 策略啟用≠交易健康 | 已實作／Browser fixture | live-copies ExecutionObservation＋原 consent pending/confirming/released 時間；真交易可靠性另見2/44 |
+| 2 | 領跟單延遲 | 管理流程實測PASS；一般流程FAIL待修 | 73／75跟單在原120秒內成交；77／78前四腿結算PASS，第五開空超原5000ms、整輪對帳FAIL；78原證據對時5105ms，bce5b82f最小SQL改善165回歸PASS、79真交易5100ms再FAIL；後六四PASS／一SKIP／一FAIL（burst）；延遲／核對狀態已呈現 |
+| 3 | 設定等待資訊 | 已實作／Browser fixture | 等待分钟/latestState/費用/背景查詢與原進度入口；真實等待仍可能數分鐘；未提供離站通知 |
+| 4 | 未入帳卻寫已入帳 | 已實作／Browser fixture | live-copy-setup-dialogs credited current/pending/done 使用不同文字 |
+| 5 | 平倉／返還／入帳 | 已修正／多項實測PASS | credited-only；69／73／75停止與返還實際入帳及官方全平，停止與入帳分開顯示 |
+| 6 | 總額四捨五入 | 已實作／Browser fixture | 真总額保留＋分項精度說明，compare三尺寸149.008 fixture |
+| 7 | 啟用費誤作損益 | 已實作／Browser fixture | card/sheet/setup funding breakdown，49credited/fee1分列；未知fee不推造 |
+| 8 | 錢包角色 | 已實作／Browser fixture | main/execution/leader/test leader就近名稱、複製功能保留 |
+| 9 | 使用者模式／網路責任 | 符合最新需求 | user menu實際／模擬；部署網路由admin管；單部署不跨網路是事實，並非待修三選項UI |
+| 10 | 未知數字原因 | 已實作／Browser fixture | unknownStopping/Return/Funding/Observation/History原因＋原觀察time |
+| 11 | 未知跟單資金算零 | 已實作／回歸 | null保留；已知main保留。完整活躍金融UI不是單元測試可替代 |
+| 12 | 移轉重複加總 | 已實作／回歸 | 不拼接不一致觀察；owner/network/account集合scope隔離 |
+| 13 | 未credited假ROI | 已實作／回歸 | credited-only cashflow，transfer/stopping未知PnL/ROI保守 |
+| 14 | 手機頁首漸層 | 已修正／線上Browser PASS | Stage390／320真實捲動漸層，無overflow |
+| 15 | 手機共用頁首 | 已修正／線上Browser PASS | Stageportfolio／explore／favorites共用頁首，三尺寸PASS |
+| 16 | 手機浮動跟單列 | 已實作／既有Browser | Orbie capsule＋safe-area與頁底空間 |
+| 17 | 手機footer | 已修正／線上Browser PASS | Stage390／320品牌與條款可到達，浮動nav至少36px间隙 |
+| 18 | 模式入口／餘額隔離 | 已實作／Browser | AccountControls/site-mode＋金融操作鎖定；範圍依最新9 |
+| 19 | 抽屜sticky空隙 | 已實作／既有Browser | 原40/180/350px量測0gap；未冒充本輪每個抽屜重測 |
+| 20 | 導航pill動畫 | 已實作／既有Browser | 250ms indicator＋reduced-motion |
+| 21 | 手機settings導航 | 已實作／Browser | 一般頁面／返回／底部nav，刪除需確認 |
+| 22 | 姓名／觸控區 | 已實作／既有Browser | 390完整姓名、44px；320 skeleton保留修正 |
+| 23 | 320頁首擁擠 | 已實作／Browser | 窄屏lockup／間距、可及名稱及44px |
+| 24 | 表格排序分頁 | 已實作／Browser | 共用Table/DataList/SortHead/Pager；Markets5sort真390/320至少44px |
+| 25 | cohort sticky | 已實作／Browser | 單一scrollcontainer及sticky，既有捲動證據 |
+| 26 | 圖表y軸重疊 | 已觀察Browser PASS | 1440/390/320指定chart未重疊；非全站圖表保証 |
+| 27 | 手機cohort多欄 | 已實作／Browser | DataList＋details＋sorting，翻頁resize保留狀態 |
+| 28 | 橫向卡片提示 | 已觀察Browser PASS | 390/320可見下一張局部；文件無水平溢出 |
+| 29 | 表現filters一致性 | 已實作／Browser | Segmented控制／44px／鍵盤與可及名稱 |
+| 30 | 其他controls／touch | 已實作／範圍Browser | portfolio/cohort/chart/settings/compare/Markets控制驗收；非全站無障礙清冊 |
+| 31 | 格式與精度 | 已實作／範圍Browser | 已觀察數字／地址／precision一致；未宣稱完整全站formatter清冊 |
+| 32 | 標題間距／圖示 | 已觀察Browser PASS | 指定home/cohort/portfolio/settings主標28px無overflow；沒有全站icon清冊 |
+| 33 | loading／empty／error | 已實作／Browser | ActivityFeed分來源partial/error/retry；compare有資料時不持續skeleton |
+| 34 | 手機資訊密度／設定權重 | 已實作／Browser | 公告close44px／paperstatus／settingslogout低權重，delete分隔 |
+| 35 | 登入閃爍／可及名稱 | 已實作／真正OTP Browser | 全新context1440/390/320 bounces[]；前景opacity1；其他登入provider未全面驗收 |
+| 36 | 錢包ready提示 | 已實作／實際簽署 | 最多30s真wait後才sign；後續freshcase真正confirm亦走正常UI |
+| 37 | 卸載／換身份後續SDK | 已實作／回歸 | mounted/owner/session逐step檢查；已dispatch本身不可撤回，後續不得開始 |
+| 38 | 部分減倉改全平原始說明 | 已修正／真實API及GUI fixture PASS | 原73實際GET驗證50%／請求0.0024／規劃0.0048／成交0.0048 ETH；三尺寸production入口GET fixture標註保留 |
+| 39 | 已入金安全中止 | 已修正／可執行分支實測PASS | 68已入金start、69未確認edit、71／76真實遺失回覆與reload及退款PASS；未入金start入口100回歸PASS。續期API明確不開放，舊renewal中止支線不冒稱實測；旧67／70FAIL保留 |
+| 40 | guestportfolio品牌footer | 已修正／線上Browser PASS | Stage桌機1440×900頁高900、footer底876；低高度／放大字體自然scroll |
+| 41 | 通知一致性／modal | 已實作／hydrated Browser | 同一Sonner engine；close/touch保DialogDrawer、hover/backdrop/Escape；非每個金融toast入口皆測 |
+| 42 | setup請求逾時恢復 | 已實作／API+web回歸 | 10s admission原id背景lease、stable owner/network requestkey reload、未送可明確retry、cancel latewrite barrier；歷史504專項Browser未覆蓋 |
+| 43 | 結算後資產快照缺失 | 已修正／管理流程實測PASS | 73／75嚴格五來源對帳PASS，原proof保存、舊觀察防覆寫；77／78前四腿已settled，但一般BASE對帳FAIL，不能宣稱一般流程全部解決 |
+| 44 | pause後減倉遲到 | 已修正／實測PASS | 原73pause禁open、reduce在原期限內執行；75帶倉緊急全平亦PASS，平台已恢复／撤權；歷史FAIL保留 |
+| 45 | 全停止history叫跟單中 | 已實作／parent回歸 | 11locale中性My copies／我的跟單；保留history/count/stoppedstatus，未隱藏資料 |
+
+
+## 10/08 14:05 舊畫面紀錄
 
 Paul 已確認沿用 Orbie 風格。14:05本機重新登入，以正確 `?view=real` 核對1440×900與390×844：桌機／手機頁首均顯示「測試網」，主錢包與總額均為114.87、跟單中0.00，沒有水平溢出或載入中。手機捲到底後footer與條款可見，位於浮動導覽上方。這是已停止的空倉画面，不能證明成交、錢包等待或退款中的畫面已完成驗收。截圖保留於 `/private/tmp/codex-testnet-ui/resume-final-{desktop,mobile}{,-footer}.png`；先前11:34的121.95截圖只代表當時餘額，沒有覆蓋或刪除。
 
 狀態以最後一次驗證為準：手機介面與全域模式已發布 Stage；10/08 資金數字修正已進 dev，本輪未手動部署 Stage。CI 通過不代表 testnet 交易驗收全通過。Claude 舊稽核中未重新驗證的項目另列，避免混入目前確定仍存在的問題。
 
-## 10/09 04:32 最新狀態（優先於下列歷史紀錄）
+## 10/09 06:57 狀態紀錄
+
+- 最新前端`db8597e5`已僅部署Railway Stage web，精確deployment `3f8bdce9-a2a7-4459-8bb2-2b06f091eadb`官方SUCCESS，域名`https://stage.orbie.fun`。原API與worker不隨本次部署更新；Stage為mainnet/live，本機testnet結果不代表Stage金融版本。
+- 線上匿名真Browser：1440×900、390×844、320×480三尺寸×portfolio/explore/favorites，共9頁、73項幾何檢查PASS、23截圖。桌機guest portfolio頁高900、品牌footer底876，符合一頁高度；手機品牌footer、條款44px、頁首／漸層／浮動導覽、無橫向溢出均PASS。沒有派送金融或登入POST、無pageerror／5xx。root已親看桌機portfolio、手機footer、320探索漸層；完整證據`/private/tmp/stage-guest-ui-db8597e5-actual/`。此為匿名畫面驗收，不代表登入後資金或跟單操作已在線上主網驗收。
+
+- 最新固定前端`db8597e5`完整203檔／1,372項與production build PASS；固定API`651d47b6`完整268檔／4,241項與建置PASS。來源及驗證log已由root獨立核對，未把自動測試數量當作交易驗收。
+- #39已完成真實pending edit取消、已入金start取消，以及case04「唯一abort送達但回覆遺失，reload只GET原操作」；case04原600秒內約230.956秒完成、唯一49退款credited。未入金start的無效退款入口已修正，两個真實parent入口與既有資金／恢復分支100項PASS。最新651排隊修正正以全新case05重測；原600秒超時的歷史案例仍保留FAIL。
+- 情境14 observed策略73全綠：暫停新開倉、減倉仍執行、五來源對帳、停止與退款48.981261已credited；官方全場域無持倉或掛單、平台已恢復、全8項未結清計數0。仍須補確實帶倉的緊急全平及一般流程；沒有宣稱全部testnet完成。
+- 手機top-bar／漸層、浮動跟單操作區、共用footer、A版user menu trigger總額、統一Sonner、列表與44px觸控、過時跟單文案等修正與畫面證據，詳見下列逐項紀錄。網路由admin部署設定，user menu選實際／模擬，不以三個選項冒充跨網路支援。
+- Railway Stage目前實際為mainnet／live，既有API部署10/07；目前正審查僅前端的私有發布相容性，不重啟金融服務或做主網交易。本輪最新版本尚未部署。
+
+## 10/09 05:21 狀態紀錄
+
+- #38唯讀原始證據與正式投資組合抽屜入口已提交至`8c355353`。原始證據完整且結算已驗證時，收據明細顯示原始減倉比例、含前次餘量與取整的原請求數量、因交易所最小單規則改全平的規劃數量及原訂單時間；實際成交數量另列。缺失或無效證據保持空值，不用目前價格或倉位重建歷史。相關API純測試108項／隔離SQL11項、前端9檔146項及型別／lint通過，前後端獨立審查通過。
+- #38正式入口已在真實Chrome1440×900、390×844、320×480通過明確標記的GET fixture驗收：原比例25%、原請求0.03 BTC、規劃全平0.12 BTC、實際該收據成交0.004 BTC清楚分開；手機44px真實觸控、抽屜捲動與關閉、無水平溢出皆PASS。九張截圖與報告位於`.claude/screenshots/ui-adjustment38-2026-10-09/`，完整來源／截圖雜湊紀錄`/private/tmp/copy-follower-adjustment-browser-evidence.json`；金融寫入嘗試與送出均0。這是介面fixture證據，尚未以真實有效metadata驗收新API歷史回應。
+- #39原始已入帳49的安全中止案例仍為actual FAIL：原600秒驗收期限失敗保留；原策略67的唯一49退款已credited，最終全場域無倉；原600秒驗收FAIL仍保留。固定ad62的新案例68已actual PASS：安全中止51.367秒、唯一49退款credited、完整268場域無倉，主錢包95.700836、費用1，所有在途資金／未釋放額度／未完成設定均0。新案例證據`/private/tmp/orbie-actual39-ad62-case01-summary.json`、`/private/tmp/orbie-actual39-ad62-case01-final-official.jsonl`、`/private/tmp/orbie-actual39-ad62-case01-final-quiescence.jsonl`。前端遺失回覆恢復仍待驗證，不能將單一資金案例PASS列為#39全部完成。證據`/private/tmp/orbie-actual39-first-run.log`、`/private/tmp/orbie-actual39-original-get-recovery.log`及[十小時計畫05:21紀錄](testnet-ten-hour-plan-2026-10-09.md)。不得以#38介面fixture或背景返還進展宣稱#39／全部UIUX已解決。最新變更未公開推送／部署。
+
+## 10/09 04:32 狀態紀錄
 
 - 完整web200檔／1,325項PASS；手機市場表五個排序鈕真Browser390／320均至少44px，升降排序與容器內橫向捲動PASS。證據 `/private/tmp/ui-market-touch-actual/records.json`，資料為明確GET fixture，沒有金融寫入。
 - 真正新context OTP登入在1440／390／320皆無登入後guest反覆；前景桌機導覽opacity為1。證據 `/private/tmp/codex-initial-login-observed-{1440,390,320}.json`；未宣稱其他登入提供者已全部驗收。
@@ -100,7 +185,7 @@ Paul 已確認沿用 Orbie 的親和風格，強化清楚、安心與可信；�
 
 ### 模式與資訊呈現
 
-9. **三模式選單已統一，但尚未做到同一部署三種模式皆可用。** Stage 可選正式／模擬，測試顯示「此部署尚未啟用」；本機 testnet 則不支援正式。現有選擇不會自動切换到另一套網路 API。這是功能範圍限制，若要完整符合使用者期待，需要多網路服務路由與帳戶／資金隔離，不能只啟用 radio。
+9. **模式入口與網路責任已依後續要求分開。** 最初「正式／測試／模擬」三選項的紀錄屬舊方案。依使用者後續「正式網、測試網應該是在admin頁面設定」的指示，目前user menu A統一選「實際／模擬」，實際模式標示部署的正式網或測試網；網路設定與權限由管理端／部署負責，使用者選單不切換資金所在網路。單一部署尚無多網路API路由與帳戶隔離，這仍是架構事實，但不應把原三選項方案當成最新待修UI要求。
 10. **「—」比假零正確，但原因需要更貼近數字。** 停止／移轉中與缺少有效觀察時，金額或損益會保守顯示「—」。總額已有等待餘額文案，明細也有狀態說明；卡片上的「損益 —」仍不易直接判斷是同步中、返還中或歷史資料不足。建議就近給出原因，並顯示最近更新時間。不同原因的實際呈現仍需專項驗收。
 
 ## 二、已修正到 dev：本輪尚未手動發布 Stage
@@ -167,7 +252,7 @@ Claude 先前另已處理交易員表格內縮／欄寬、常駐分享按鈕、�
 
 ## 六、最新實測：尚待改善
 
-38. **小額部分減倉可能改為全平倉，確認頁與成交資訊需說明這個例外。** 策略44領單減25%，跟單原倉0.0046 ETH約12美元；按照既有交易所最小單規則，約3美元的部分減倉改為全平倉0.0046 ETH。這是目前planner的明確規則，不能把實際全平倉寫成部分減倉成功。使用者需要知道原跟隨比例、實際執行數量與調整原因；不必在所有卡片重複技術文字。後來領單全平倉時已無倉可平，原後端卻以未知sizing重試，導致#44對帳FAIL；分類修正已在#47真實對帳PASS（3領單、3派送、2跟單成交、最後close無倉位且只試一次），尚未發布。這個後端修正沒有補上UI例外說明，該UX問題仍待處理。
+38. **小額部分減倉可能改為全平倉，確認頁與成交資訊需說明這個例外。** 策略44領單減25%，跟單原倉0.0046 ETH約12美元；按照既有交易所最小單規則，約3美元的部分減倉改為全平倉0.0046 ETH。這是目前planner的明確規則，不能把實際全平倉寫成部分減倉成功。使用者需要知道原跟隨比例、實際執行數量與調整原因；不必在所有卡片重複技術文字。後來領單全平倉時已無倉可平，原後端卻以未知sizing重試，導致#44對帳FAIL；分類修正已在#47真實對帳PASS（3領單、3派送、2跟單成交、最後close無倉位且只試一次），尚未發布。這個後端修正當時沒有補上UI例外說明。10/09更新：`8c355353`已在正式投資組合抽屜的實際跟單活動／收據明細補上原比例、原請求數量、規劃全平數量及最小單調整原因，與實際成交數量分開；1440／390／320px GET fixture驗收PASS，證據及真實API歷史驗收限制見本文最新狀態。歷史無效或缺失原始證據時不顯示推測說明。
 
 39. **已入金的設定長時間卡住，使用者缺少取消與取回資金入口。** #48入金49已credited，但設定超過runner的603秒期限，情境9尚未開始即FAIL。confirmed設定仍進行時，取消API回funding_pending；產品設定期限為24小時，不能把測試腳本逾時當成設定已取消。該筆後來正常啟用，已改走正常停止／返還，不修改資料庫或提前改期限。尚在設定中但有可提閒置金額時，後端支援指定金額返還，這不等於使用者已有易懂的「安全中止並取回資金」流程。應說明背景設定是否仍在進行、可用處置與資金位置，並以可靠的併發控制實作中止，避免新授權或入金繼續發生。
 
@@ -181,13 +266,15 @@ Claude 先前另已處理交易員表格內縮／欄寬、常駐分享按鈕、�
 - 相關shell／mode／portfolio回歸36項PASS，tsc（含測試）與變更檔案eslint PASS。未驗證極低高度、放大字體或額外公告出現時仍零捲動；這些狀態保留自然捲動，確保所有連結可到達。
 - 私人截圖`/private/tmp/codex-portfolio-guest/{final,en-final}-{1440,1366,1280,390}.png`，尺寸紀錄`codex-portfolio-guest-{final,en-final}.log`；保留共用Chrome及原已登入視窗，未操作金融流程或部署。
 
-## 八、通知一致性：已本機整併，真實互動仍在修正
+## 八、通知一致性：已本機整併並完成互動複驗
 
 41. **先前自製toast與元件內錯誤呈現不一致。** `78433e6f` 已安裝 Sonner 2.0.8，原 `useToast`／操作／儲存 hooks 轉接同一引擎，保留 Orbie 外觀、可及名稱及持續金融進度。短暫回饋集中；表單欄位錯誤仍就近呈現；accepted 與 credited 文案分開。
 
 - 真實1440／390／320px通知位置、抽屜同時顯示及hover延長已有截圖。完整web1,263項 PASS。
 - 真Chrome關閉通知仍可能同時關閉入金抽屜，native pointerdown修正未通過此次Browser複驗，正在追查focus／capture事件。手機正確向上手勢尚未完成；不能以happy-dom通過宣稱已修好。
 - 未部署，亦未宣稱每個通知入口都已有真實操作驗收。
+
+    10/09更新：上述連帶關閉抽屜及手機手勢的早期FAIL已由 `0c49fc6d` 修正並在hydrated真Chrome複驗。桌機關閉及手機touch dismiss均保留原Dialog／Drawer，hover延長、背景點擊與Escape正常，金融POST零；見十小時計畫的既有Browser證據。早期失敗保留，未將個別入口驗收泛化為所有金融情境。最新版 `e0f16cb7` 完整web203檔／1,360項及production build通過；尚未部署Railway最新版本。
 
 ## 九、設定逾時後的恢復：已本機修正，保留原實測失敗
 
@@ -214,3 +301,20 @@ Claude 先前另已處理交易員表格內縮／欄寬、常駐分享按鈕、�
 - [Claude 原始 UI 稽核](ui-polish-audit-2026-10-06.md)
 
 建議順序：先驗收資金正確性與執行狀態，再改善等待／返還流程，接著決定多網路模式範圍，最後補查視覺一致性。此清單沒有啟動新的部署或主網操作。
+
+### 10/09 05:49補充：未確認編輯取消
+
+#39的未確認編輯取消分支已實際通過：原策略69的11個身份／設定／資金區段前後完全一致，2.082秒完成取消，未新增入金或停止原跟單。斷線後原請求GET恢復分支仍在接續實測；原策略69正常停止退款尚待核對。APIad62完整268檔／4,233項PASS，web e0完整203檔／1,360項與正式建置PASS，均為本機固定版本證據，未代表Railway已部署或所有實際金融情境已通過。
+
+### 10/09 06:12 最新實測狀態
+
+原策略69已正常停止，49 testUSDC退款credited／fee0，官方268場域無持倉掛單且全8項在途計數0。原策略70的回覆遺失／reload GET-only UI流程PASS，但原600秒金融期限FAIL保留；d02修正版回收原49退款後，官方查驗全場域無倉／掛單、主錢包93.700836。新的case04正在固定d02版本重新實測，尚未宣稱#39全部完成。新的完整API suite在隔離資料庫執行；Web1,360項及正式建置已PASS。
+
+最新需求已依「網路由admin設定、使用者選實際／模擬」驗證，不把未要求的跨網路部署路由列為待改UI。最新程式仍未部署Railway，現有Stage SUCCESS不能當成本輪版本已上線。
+
+06:22：新case04真實回覆遺失／reload原GET-only在230.956秒內完成退款，原49 credited／fee0、官方268場域無倉／掛單及全8項未結清計數0；原case03超時FAIL仍保留。#39三個已實測分支為：未確認pending edit取消、未啟用已入金設定的持久中止、前端回覆遺失恢復，均有新PASS。固定d02完整API4,240項PASS。更嚴格的競爭背景排隊情境另已重現，正在補局部排隊改善；一般交易及14仍待新實測，最新版本未部署Railway。
+
+### 10/09 09:23 最後補充
+
+- `fc697e3d`補齊實際跟單繼續、重啟、取消、暫停／恢復、編輯／加碼及完成變更後操作的44px點擊高度，並同步編輯方向及金額輸入、共用設定欄位；原small36px已修正。19既有回歸、type及lint PASS。本節當時未重新Browser或部署，不標成線上驗收PASS。
+- 固定b701新版完整268檔／4262項PASS，金融runtime仍原bce；情境3、4、6真交易與原停止退款已PASS，7／8／9進行中。#2一般BASE時效問題仍待新版actual，原79 FAIL保留；#43一般BASE結算可靠性不以管理流程或前三情境代替。

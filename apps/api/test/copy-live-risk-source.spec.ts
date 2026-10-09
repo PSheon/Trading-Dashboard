@@ -17,6 +17,7 @@ import { loadLiveGenerationManifest } from '../src/copy/live/postgres-live-gener
 import { liveSourceDigest } from '../src/copy/live/copy-live-source-evidence.js';
 import { followerReceiptDigestV1 } from '../src/copy/live/actual-fill-accounting.js';
 import { planLiveSourceOrder } from '../src/copy/live/copy-live-source-planner.js';
+import * as sourcePlanner from '../src/copy/live/copy-live-source-planner.js';
 import { canonicalLiveSourceLegs,decodeLiveSourceFill } from '../src/copy/live/copy-live-source-evidence.js';
 import type { LiveSourceSizingEnvelopeV1 } from '../src/copy/live/copy-live-sizing-evidence.js';
 import { assessLiveAccountRisk } from '../src/copy/live/live-account-risk.js';
@@ -229,6 +230,45 @@ describe('durable local actual source authority before remote reads',()=>{
   it('denies substitution of retained original sizing equity rather than granting a larger canonical order',async()=>{
     await genuineSizing();const [p]=await db.select().from(copyLiveIntentProvenance),envelope=structuredClone(p!.sizingBasis) as unknown as {basis:{follower:{equity:string}}};envelope.basis.follower.equity='99999';
     await db.update(copyLiveIntentProvenance).set({sizingBasis:envelope as never});await scopes.run(id(),async(_scope,session)=>{await expect(source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold()).rejects.toThrow('live_risk_generation_unproven');});expect(fetcher).not.toHaveBeenCalled();
+  });
+  it.each(['envelope','basis','observations'] as const)('rejects unknown current sizing fields in %s before producing risk evidence',async location=>{
+    await genuineSizing();
+    const [original]=await db.select().from(copyLiveIntentProvenance);
+    const retained=structuredClone(original!.sizingBasis) as unknown as Record<string,unknown>;
+    const target=location==='envelope'?retained:retained[location] as Record<string,unknown>;
+    target.unconsentedField=true;
+    await db.update(copyLiveIntentProvenance).set({sizingBasis:retained}).where(eq(copyLiveIntentProvenance.key,original!.key));
+    await scopes.run(id(),async(_scope,session)=>{
+      await expect(source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold()).rejects.toThrow('live_risk_generation_unproven');
+    });
+  });
+  it('decodes current sizing once directly in the risk source while preserving assessable evidence',async()=>{
+    await genuineSizing();
+    const decode=vi.spyOn(sourcePlanner,'decodeLiveSourceSizingEnvelope');
+    try {
+      await scopes.run(id(),async(_scope,session)=>{
+        const proof=await source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold();
+        expect(assessLiveAccountRisk(proof)).toMatchObject({ok:true});
+      });
+      expect(decode).toHaveBeenCalledTimes(1);
+    } finally { decode.mockRestore(); }
+  });
+  it('revalidates freshly read sizing after original provenance changes between hold and sign',async()=>{
+    const {reservations}=await genuineSizing();
+    await scopes.run(id(),async(_scope,session)=>{
+      const bound=source.bind(session,{accountId:'account',key:f.reservations.own.key});
+      const proof=await bound.forHold();
+      expect(assessLiveAccountRisk(proof)).toMatchObject({ok:true});
+      await reservations.hold(session,proof);
+      const [execution]=await session.read(tx=>tx.select().from(copyLiveExecutions));
+      await session.transaction(async tx=>{
+        const [original]=await tx.select().from(copyLiveIntentProvenance);
+        const retained=structuredClone(original!.sizingBasis) as unknown as {basis:{follower:{equity:string}}};
+        retained.basis.follower.equity='99999';
+        await tx.update(copyLiveIntentProvenance).set({sizingBasis:retained as never}).where(eq(copyLiveIntentProvenance.key,original!.key));
+      });
+      await expect(bound.proofSource.read({phase:'sign',intent:f.intent,record:execution!.record as unknown as LiveExecutionRecord})).rejects.toThrow('live_risk_generation_unproven');
+    });
   });
   it('refuses actual current holdings not reconstructed by the original generation receipt chain',async()=>{
     const {state}=await genuineSizing();state.marginSummary.totalNtlPos='100';state.marginSummary.totalMarginUsed='10';state.crossMarginSummary.totalNtlPos='100';state.crossMarginSummary.totalMarginUsed='10';state.withdrawable='90';

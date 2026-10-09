@@ -17,6 +17,7 @@ import { calculateLiveExternalExposure } from './live-external-exposure.js';
 import { loadLiveGenerationManifest } from './postgres-live-generation-manifest.js';
 import { projectLiveGenerationPositions,type LiveGenerationManifestV1 } from './copy-live-generation-projection.js';
 import { decodeLiveSourceSizingEnvelope,planLiveSourceOrder } from './copy-live-source-planner.js';
+import type { LiveSourceSizingBasisV1 } from './copy-live-sizing-evidence.js';
 import { canonicalLiveSourceLegs, type LiveSourceFillEvidence } from './copy-live-source-evidence.js';
 import { loadMergedMembers } from './copy-live-merged-members.js';
 import type { LiveReservationStored } from './live-risk-reservation.js';
@@ -54,7 +55,7 @@ export class PostgresLiveRiskSource {
       const current=snapshots[local.accounts.findIndex(a=>a.id===binding.accountId)]!;
       // Provider calls finish before the uncached second SQL read.
       const final=await this.load(session,binding,started);requireProof(riskSourceDigest(local)===riskSourceDigest(final),'live_risk_local_changed');
-      this.validateGeneration(local,current,owned?.own);
+      this.validateGeneration(local,current,sizing.envelope.basis,owned?.own);
       const localSource={checkedAt:Math.min(started,sizing.oldest,frames.oldest,market.observedAt,target.earliestObservedAt,...others.map(p=>p.earliestObservedAt),
         ...snapshots.flatMap(s=>[s.observedAt,s.completedAt,s.coverage.earliestProviderTime,...s.dexes.map(d=>d.providerTime)])),sourceDigest:riskSourceDigest(local)},
         intent=freezeLiveReservation({...local.intent,market}),action=buildOrderAction(intent),checkedAt=this.now();
@@ -93,8 +94,7 @@ export class PostgresLiveRiskSource {
       return {envelope,oldest};
     }catch(error){if(error instanceof LiveBoundaryError&&error.code==='live_risk_stale')throw error;throw new LiveBoundaryError('live_risk_generation_unproven');}
   }
-  private validateGeneration(local:CollectedAuthority,snapshot:LiveAccountSnapshot,owned?:LiveRiskReservation) {
-    const basis=decodeLiveSourceSizingEnvelope(local.provenance.sizingBasis).basis;
+  private validateGeneration(local:CollectedAuthority,snapshot:LiveAccountSnapshot,basis:LiveSourceSizingBasisV1,owned?:LiveRiskReservation) {
     let held:LiveReservationStored|undefined;
     if(local.record.state==='submitting'){
       const row=local.liabilities.find(entry=>entry.reservation.key===local.binding.key)?.reservation;

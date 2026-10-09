@@ -14,7 +14,7 @@ export function LiveSettingsFields({ text, sizing, setSizing, perTrade, setPerTr
   /** The deployment's leverage cap (the copy uses it when none is set). */
   leverageCap?: number | null;
 }) {
-  const field = "num h-10 w-28 rounded-xl bg-inset px-3 text-right text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  const field = "num h-11 w-28 rounded-xl bg-inset px-3 text-right text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring";
   return (
     <div className="mt-3 flex flex-col gap-2.5 text-[13px] font-semibold">
       {fixedOnly ? (

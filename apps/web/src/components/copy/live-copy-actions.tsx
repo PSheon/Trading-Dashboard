@@ -97,20 +97,20 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
       <div className="flex flex-wrap items-center gap-2">
         {abortRequested && item.setup ? <Button size="sm" className="min-h-11" onClick={() => setAbortId(item.setup!.id)}>{t('liveCopyUi.abortRefresh')}</Button> : null}
         {!abortRequested && abortCandidate && canRequestSetupAbort(abortCandidate) && deployment?.setupAbort === true ? <Button size="sm" variant="secondary" className="min-h-11" disabled={busy} onClick={() => setAbortId(abortCandidate.id)}>{t(abortCandidate.kind === 'start' ? 'liveCopyUi.abortAction' : 'liveCopyUi.abortChange')}</Button> : null}
-        {unfinished && !lapsed && !abortRequested ? <Button size="sm" onClick={() => setProgressId(unfinished.id)}>{text.continueSetup}</Button> : null}
-        {legacySetupActions && (stopped || lapsed) ? <Button size="sm" loading={actions.restart.isPending} disabled={busy && !actions.restart.isPending} onClick={() => restart((stopped ?? lapsed)!.id)}>{text.restart}</Button> : null}
-        {legacySetupActions && (stopped || lapsed) ? <Button size="sm" variant="secondary" loading={actions.cancel.isPending} disabled={busy && !actions.cancel.isPending} onClick={() => cancel((stopped ?? lapsed)!.id)}>{text.cancelSetup}</Button> : null}
+        {unfinished && !lapsed && !abortRequested ? <Button size="sm" className="min-h-11" onClick={() => setProgressId(unfinished.id)}>{text.continueSetup}</Button> : null}
+        {legacySetupActions && (stopped || lapsed) ? <Button size="sm" className="min-h-11" loading={actions.restart.isPending} disabled={busy && !actions.restart.isPending} onClick={() => restart((stopped ?? lapsed)!.id)}>{text.restart}</Button> : null}
+        {legacySetupActions && (stopped || lapsed) ? <Button size="sm" variant="secondary" className="min-h-11" loading={actions.cancel.isPending} disabled={busy && !actions.cancel.isPending} onClick={() => cancel((stopped ?? lapsed)!.id)}>{text.cancelSetup}</Button> : null}
         {running && mandateId && item.status === "active" ? (
-          <Button size="sm" variant="secondary" loading={actions.pause.isPending} disabled={busy && !actions.pause.isPending} onClick={() => void track(actions.pause.mutateAsync(mandateId), { success: t("toast.copy.paused"), error: message, onError: fail })}>{text.pause}</Button>
+          <Button size="sm" variant="secondary" className="min-h-11" loading={actions.pause.isPending} disabled={busy && !actions.pause.isPending} onClick={() => void track(actions.pause.mutateAsync(mandateId), { success: t("toast.copy.paused"), error: message, onError: fail })}>{text.pause}</Button>
         ) : null}
         {running && mandateId && item.status === "paused" && item.mandate?.state === "paused" ? (
-          <Button size="sm" variant="secondary" loading={actions.resume.isPending} disabled={busy && !actions.resume.isPending} onClick={() => void track(actions.resume.mutateAsync(mandateId), { success: t("toast.copy.resumed"), error: message, onError: fail })}>{text.resume}</Button>
+          <Button size="sm" variant="secondary" className="min-h-11" loading={actions.resume.isPending} disabled={busy && !actions.resume.isPending} onClick={() => void track(actions.resume.mutateAsync(mandateId), { success: t("toast.copy.resumed"), error: message, onError: fail })}>{text.resume}</Button>
         ) : null}
         {/* No 編輯設定 on mainnet (the api answers edit_unavailable): an edit's new
             generation can't trade an account that already traded yet. */}
-        {running && strategy && !unfinished && !abortRequested && deployment?.network !== "mainnet" ? <Button size="sm" variant="secondary" disabled={busy} onClick={() => { setError(null); setAfterAbortedSetupId(undefined); setEditing(true); }}>{text.edit}</Button> : null}
+        {running && strategy && !unfinished && !abortRequested && deployment?.network !== "mainnet" ? <Button size="sm" variant="secondary" className="min-h-11" disabled={busy} onClick={() => { setError(null); setAfterAbortedSetupId(undefined); setEditing(true); }}>{text.edit}</Button> : null}
         {!abortRequested && !fundedAbort && (running || item.stage === "needs_deposit") && item.accountId && !item.pendingTransfer ? (
-          <Button size="sm" variant="secondary" disabled={busy} onClick={() => { setError(null); setTopUpError(null); setToppingUp(true); }}>{text.topUp}</Button>
+          <Button size="sm" variant="secondary" className="min-h-11" disabled={busy} onClick={() => { setError(null); setTopUpError(null); setToppingUp(true); }}>{text.topUp}</Button>
         ) : null}
         {abortRequested && item.setup && item.setup.kind !== "start" && item.setup.stage === "cancelled" &&
           ["active", "paused"].includes(item.stage) && ["active", "paused"].includes(item.status) && strategy && item.accountId &&
@@ -159,8 +159,8 @@ function CompletedChangeControls({ original, busy, pendingTransfer, onEdit, onTo
   try {
     if (validateSetupAbortProgress(abort.progress, original, 'testnet').state !== 'completed') return null;
   } catch { return null; }
-  return <><Button size="sm" variant="secondary" disabled={busy} onClick={onEdit}>{text.edit}</Button>
-    {!pendingTransfer ? <Button size="sm" variant="secondary" disabled={busy} onClick={onTopUp}>{text.topUp}</Button> : null}</>;
+  return <><Button size="sm" variant="secondary" className="min-h-11" disabled={busy} onClick={onEdit}>{text.edit}</Button>
+    {!pendingTransfer ? <Button size="sm" variant="secondary" className="min-h-11" disabled={busy} onClick={onTopUp}>{text.topUp}</Button> : null}</>;
 }
 
 function PortfolioAbortDialog({ setupId, onClose, onRequested }: { setupId: string; onClose(): void; onRequested(): void }) {
@@ -191,14 +191,14 @@ function EditDialog({ strategy, onClose, onSave, pending, error }: { strategy: L
         onSave(budget, { direction, sizingMode: sizing, perTradeUsd: per, maxTotalExposureUsd: exposure > 0 ? exposure : null, maxLeverage: leverage >= 1 ? Math.min(50, leverage) : null, copyStartMode: "delta" });
       }}>
         <label className="flex items-center justify-between gap-3 text-[13px] font-semibold">{text.budget}
-          <input inputMode="decimal" value={budget} onChange={(e) => setBudget(amountInput(e.target.value, budget).slice(0, 12))} className="num h-10 w-28 rounded-xl bg-inset px-3 text-right text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+          <input inputMode="decimal" value={budget} onChange={(e) => setBudget(amountInput(e.target.value, budget).slice(0, 12))} className="num h-11 w-28 rounded-xl bg-inset px-3 text-right text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring" />
         </label>
         <div className="flex items-center justify-between gap-3 text-[13px] font-semibold">
           <span>{text.direction}</span>
           <div role="radiogroup" aria-label={text.direction} className="flex gap-1 rounded-full bg-inset p-1">
             {(["same", "reverse"] as const).map((d) => (
               <button key={d} type="button" role="radio" aria-checked={direction === d} onClick={() => setDirection(d)}
-                className={direction === d ? "min-h-9 rounded-full bg-primary px-3 text-xs font-extrabold text-primary-foreground" : "min-h-9 rounded-full px-3 text-xs font-extrabold text-muted-foreground"}>{d === "same" ? text.same : text.reverse}</button>
+                className={direction === d ? "min-h-11 rounded-full bg-primary px-3 text-xs font-extrabold text-primary-foreground" : "min-h-11 rounded-full px-3 text-xs font-extrabold text-muted-foreground"}>{d === "same" ? text.same : text.reverse}</button>
             ))}
           </div>
         </div>
@@ -219,7 +219,7 @@ function TopUpDialog({ onClose, onConfirm, pending, error }: { onClose: () => vo
     <Modal open onOpenChange={(open) => { if (!open && !pending) onClose(); }} title={text.topUp}>
       <form className="flex flex-col gap-3 px-6 pt-3 pb-6" onSubmit={(event) => { event.preventDefault(); if (valid) onConfirm(amount); }}>
         <label className="flex items-center justify-between gap-3 text-[13px] font-semibold">USDC
-          <input inputMode="decimal" autoFocus value={amount} onChange={(e) => setAmount(amountInput(e.target.value, amount).slice(0, 12))} className="num h-10 w-32 rounded-xl bg-inset px-3 text-right text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring" placeholder="0" />
+          <input inputMode="decimal" autoFocus value={amount} onChange={(e) => setAmount(amountInput(e.target.value, amount).slice(0, 12))} className="num h-11 w-32 rounded-xl bg-inset px-3 text-right text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring" placeholder="0" />
         </label>
         <p className="text-xs leading-5 text-muted-foreground">{text.testnetNote} {text.signNote}</p>
         {error ? <p role="alert" className="text-xs text-negative">{error}</p> : null}

@@ -1,0 +1,6 @@
+import{it,expect}from'vitest';import{example,proofTools,validateFixedClaimRefusal as validate}from'./copy-fixed-claim-proof-test-utils.js';
+it('strict immutable mandate decoder contains user DID but no owner quorum field',()=>{const c=proofTools.decodeLiveCopyMandate(example().mandate);expect(c.ownerPrivyUserId).toBe('did:owner');expect(Object.hasOwn(c,'agentOwnerQuorumId')).toBe(false)});
+it('legacy same-DID synthetic authorization without independent quorum binding denies',()=>{const x=example();(x as any).authorizationBinding=null;x.generation.manifest.journals[0].journal.record.authorization.privyOwnerId='did:owner';expect(validate(x)).toBeNull()});
+it('unsigned quorum property added to raw mandate cannot replace missing bound SQL evidence',()=>{const x=example();(x.mandate as any).agentOwnerQuorumId='quorum:agent-owner';(x as any).authorizationBinding=null;expect(proofTools.decodeLiveCopyMandate(x.mandate)).not.toHaveProperty('agentOwnerQuorumId');expect(validate(x)).toBeNull()});
+it('exact original quorum still requires independent SDK follower fill',()=>{const x=example();x.sdk.fills=[];expect(validate(x)).toBeNull()});
+it('different owner DID remains denied even when all quorum strings match',()=>{const x=example();x.authorizationBinding.account.privyUserId='did:foreign';expect(validate(x)).toBeNull()});

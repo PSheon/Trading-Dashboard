@@ -5,6 +5,18 @@ export function createFixedClaimValidator(tools) {
  const names=["decodeLiveCopyMandate","liveCopySettingsDigest","canonicalLiveSourceLegs","decodeLiveSourceFill","liveSourceLegId","buildOrderAction","executionKey","intentFingerprint","decodeLiveSettlementProof","liveSourceExecutionCloid","parseFollowerFill","followerReceiptDigestV1"];
  if (!tools || names.some(name => typeof tools[name] !== 'function')) throw Error('Missing pinned proof decoder');
  const {decodeLiveCopyMandate,liveCopySettingsDigest,canonicalLiveSourceLegs,decodeLiveSourceFill,liveSourceLegId,buildOrderAction,executionKey,intentFingerprint,decodeLiveSettlementProof,liveSourceExecutionCloid,parseFollowerFill,followerReceiptDigestV1}=tools;
+
+// Exact historical generation corroboration; no current grant or trading permit.
+function originalAgentOwnerQuorum(binding, consent) {
+ const {setup:s,wallet:w,account:a}=binding??{};
+ if(!s||!w||!a||typeof w.privyOwnerId!=='string'||!w.privyOwnerId||typeof a.ownerQuorumId!=='string'||!a.ownerQuorumId)return null;
+ for(const entity of [s,w,a])for(const field of ['userId','strategyId','network'])if(entity[field]!==consent[field])return null;
+ if(a.id!==consent.accountId||a.address!==consent.accountAddress||a.privyUserId!==consent.ownerPrivyUserId||!a.privyWalletId||
+ s.id!==consent.setupId||s.revision!==consent.setupRevision||s.accountId!==a.id||s.accountAddress!==a.address||s.accountWalletId!==a.privyWalletId||s.accountOwnerQuorumId!==a.ownerQuorumId||
+ s.agentWalletId!==consent.agentWalletId||s.agentAddress!==consent.agentAddress||s.agentOwnerQuorumId!==w.privyOwnerId||s.authorizationId!==consent.authorizationId||s.policyId!==consent.policyId||s.policyFingerprint!==consent.policyFingerprint||s.workerQuorumId!==consent.workerQuorumId||
+ w.id!==consent.executionWalletId||w.accountAddress!==a.address||w.privyWalletId!==consent.agentWalletId||w.signerAddress!==consent.agentAddress||w.privyOwnerId!==a.ownerQuorumId)return null;
+ return w.privyOwnerId;
+}
 // Historical execution evidence only: no fetch, permits, timestamp rewriting or writes.
 // Producer must supply an exact scoped SQL generation manifest and an independent
 // SDK userFills read made on the declared network/account. HTTP input cannot
@@ -15,6 +27,7 @@ function validateFixedClaimRefusal(input) {
         if (!input || Buffer.byteLength(JSON.stringify(input)) > 8 * 1024 * 1024)
             return null;
         const { mandate: m, settings, candidate: d, generation: g, sdk } = input, consent = decodeLiveCopyMandate(m);
+        const ownerQuorum=originalAgentOwnerQuorum(input.authorizationBinding,consent);if(!ownerQuorum)return null;
         if (settings.sizingMode !== 'fixed' || settings.copyStartMode !== 'delta' || liveCopySettingsDigest(settings) !== consent.settingsDigest || !m.consentDigest || !m.activationCursor)
             return null;
         const source = (raw) => decodeLiveSourceFill({ ...raw, providerTime: new Date(raw.providerTime), receivedAt: new Date(raw.receivedAt) });
@@ -55,7 +68,7 @@ function validateFixedClaimRefusal(input) {
             same(entity.accountId, consent.accountId);
         if (p.mandateId !== m.id || p.legId !== e.leg.id || p.key !== key || p.sourceDigest !== original.sourceDigest || p.settingsDigest !== consent.settingsDigest || p.plannerVersion !== 1 || (!Number.isSafeInteger(p.mandateRevision) || p.mandateRevision < 1 || p.mandateRevision > g.identity.mandateRevision) || !/^([a-f0-9]{64})$/.test(p.sizingBasisDigest) || !Number.isSafeInteger(ms(p.admittedAt)))
             return null;
-        if (record.key !== key || record.state !== j.state || record.updatedAt !== ms(j.updatedAt) || record.nonce !== j.nonce || record.authorization.id !== consent.authorizationId || record.authorization.version !== consent.authorizationVersion || record.authorization.walletId !== consent.agentWalletId || record.authorization.signerAddress !== consent.agentAddress || record.authorization.privyOwnerId !== consent.ownerPrivyUserId || record.authorization.userId !== consent.userId || record.authorization.strategyId !== consent.strategyId || record.authorization.network !== consent.network || record.authorization.accountAddress !== consent.accountAddress || record.authorization.signerAddress !== j.signerAddress)
+        if (record.key !== key || record.state !== j.state || record.updatedAt !== ms(j.updatedAt) || record.nonce !== j.nonce || record.authorization.id !== consent.authorizationId || record.authorization.version !== consent.authorizationVersion || record.authorization.walletId !== consent.agentWalletId || record.authorization.signerAddress !== consent.agentAddress || record.authorization.privyOwnerId !== ownerQuorum || record.authorization.userId !== consent.userId || record.authorization.strategyId !== consent.strategyId || record.authorization.network !== consent.network || record.authorization.accountAddress !== consent.accountAddress || record.authorization.signerAddress !== j.signerAddress)
             return null;
         const action = buildOrderAction(p.intent);
         same(action, record.action);
@@ -106,11 +119,13 @@ const sqlQuote=value=>`'${String(value).replace(/'/g,"''")}'`;
 export function fixedClaimEvidenceQuery(d,{network,leaderNetwork,leader,follower}) {
  if(d.reason!=='fixed_trade_already_claimed'||d.state!=='refused'||d.leg!=='open'||network!=='testnet'||leaderNetwork!=='testnet'||d.userId!==14||!d.id||!d.mandateId)return null;
  return `with target as (
- select m, v.settings, f from copy_live_dispatches d
+ select m, v.settings, f, a, ag, w from copy_live_dispatches d
  join copy_live_mandates m on m.id=d.mandate_id
  join copy_strategy_versions v on v.strategy_id=m.strategy_id and v.version=m.strategy_version
  join copy_live_source_fills f on f.id=d.source_fill_id
  join copy_execution_accounts a on a.id=m.account_id and a.user_id=m.user_id and a.strategy_id=m.strategy_id and a.network=m.network and a.address=m.account_address and a.privy_user_id=m.owner_privy_user_id
+ join copy_agent_setups ag on ag.id=m.setup_id and ag.revision=m.setup_revision and ag.user_id=m.user_id and ag.strategy_id=m.strategy_id and ag.network=m.network and ag.account_id=a.id and ag.account_address=a.address
+ join copy_execution_wallets w on w.id=m.execution_wallet_id and w.user_id=m.user_id and w.strategy_id=m.strategy_id and w.network=m.network and w.account_address=a.address
  join users u on u.id=m.user_id and u.privy_user_id=m.owner_privy_user_id and u.embedded_wallet_address=m.owner_address
  where d.id=${sqlQuote(d.id)} and d.mandate_id=${sqlQuote(d.mandateId)} and d.source_fill_id=${sqlQuote(d.sourceFillId)}
  and d.user_id=m.user_id and d.strategy_id=m.strategy_id and d.account_id=m.account_id and m.user_id=14
@@ -128,6 +143,7 @@ export function fixedClaimEvidenceQuery(d,{network,leaderNetwork,leader,follower
  and r.account_id=(t.m).account_id and e.account_id=(t.m).account_id
  limit 2
  ), data as (select jsonb_build_object('mandate',to_jsonb(t.m),'settings',t.settings,'fill',to_jsonb(t.f),
+ 'authorizationBinding',jsonb_build_object('setup',to_jsonb(t.ag),'wallet',to_jsonb(t.w),'account',to_jsonb(t.a)),
  'entries',(select coalesce(jsonb_agg(jsonb_build_object('leg',to_jsonb(o.l),'journal',to_jsonb(o.j),'provenance',to_jsonb(o.p),'fill',to_jsonb(o.s),'reservation',to_jsonb(o.r),'evidence',to_jsonb(o.e))),'[]'::jsonb) from originals o),
  'receipts',(select coalesce(jsonb_agg(to_jsonb(q)),'[]'::jsonb) from (select x.* from copy_follower_receipts x join originals o on x.execution_key=(o.j).key where x.account_id=(t.m).account_id and x.network=${sqlQuote(network)} and x.account_address=${sqlQuote(follower)} limit 10001) q),
  'ledger',(select coalesce(jsonb_agg(to_jsonb(q)),'[]'::jsonb) from (select x.receipt_key,x.component,x.amount::text as amount,x.token,x.created_at from copy_follower_ledger x join copy_follower_receipts c on c.key=x.receipt_key join originals o on c.execution_key=(o.j).key where c.account_id=(t.m).account_id and c.network=${sqlQuote(network)} and c.account_address=${sqlQuote(follower)} limit 30001) q)) value from target t)
@@ -142,7 +158,7 @@ export function hydrateFixedClaimEvidence(raw,{candidate,dispatches,network,acco
  const entry=Object.fromEntries(Object.entries(value.entries[0]).map(([key,row])=>[key,camelRow(row)]));
  entry.provenance.sizingBasisDigest=tools.liveSourceDigest(entry.provenance.sizingBasis);
  const originalDispatch=dispatches.find(row=>row.mandateId===m.id&&row.sourceFillId===entry.fill.id&&row.executionKey===entry.journal.key);
- return {mandate:m,settings:value.settings,candidate,fill:camelRow(value.fill),originalDispatch,
+ return {authorizationBinding:value.authorizationBinding?Object.fromEntries(Object.entries(value.authorizationBinding).map(([key,row])=>[key,camelRow(row)])):null,mandate:m,settings:value.settings,candidate,fill:camelRow(value.fill),originalDispatch,
  generation:{identity:{...m.intent,mandateRevision:m.revision,direction:value.settings.direction},now,manifest:{journals:[entry],receipts:value.receipts.map(camelRow),ledger:value.ledger.map(camelRow)}},
  sdk:{network,accountAddress,fills}};
 }

@@ -168,7 +168,7 @@ export async function loadLiveRiskAuthority(session: LiveRiskDatabaseSession, db
     for(const field of ['mandateId','accountId','strategyId','network','accountAddress','firstExecutionKey','sourceDigest','snapshotDigest','baselineDigest','producerVersion'] as const)
       riskSourceRequire(baselineRow[field]===baseline[field],'live_risk_baseline_unproven');
     riskSourceRequire(baselineRow.observedAt.getTime()===baseline.observedAt&&baselineRow.completedAt.getTime()===baseline.completedAt&&baselineRow.createdAt.getTime()===baseline.createdAt,'live_risk_baseline_unproven');
-    const [first]=await read(db.select({journal:copyLiveExecutions,provenance:copyLiveIntentProvenance}).from(copyLiveExecutions).innerJoin(copyLiveIntentProvenance,eq(copyLiveIntentProvenance.key,copyLiveExecutions.key)).where(eq(copyLiveExecutions.key,baseline.firstExecutionKey)));
+    const [first]=await read(db.select({journal:copyLiveExecutions,provenance:{mandateId:copyLiveIntentProvenance.mandateId,admittedAt:copyLiveIntentProvenance.admittedAt}}).from(copyLiveExecutions).innerJoin(copyLiveIntentProvenance,eq(copyLiveIntentProvenance.key,copyLiveExecutions.key)).where(eq(copyLiveExecutions.key,baseline.firstExecutionKey)));
     const firstRecord=first?.journal.record as unknown as LiveExecutionRecord;
     riskSourceRequire(first&&first.provenance.mandateId===m.id&&first.journal.network===a.network&&first.journal.accountAddress===a.address&&first.journal.userId===a.userId&&first.journal.strategyId===s.id&&
       firstRecord.key===baseline.firstExecutionKey&&firstRecord.createdAt>=baseline.createdAt&&first.provenance.admittedAt.getTime()>=baseline.createdAt,'live_risk_baseline_unproven');

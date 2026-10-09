@@ -118,6 +118,27 @@ describe('unregistered original-session trusted risk producer',()=>{
 
 describe('durable local actual source authority before remote reads',()=>{
   beforeEach(fullAuthority);
+  it('checks the first baseline execution without loading its unused historical sizing payload again',async()=>{
+    await genuineSizing();
+    const [original]=await db.select().from(copyLiveIntentProvenance);
+    const sizingBasis={...original!.sizingBasis,unusedHistoricalPayload:'x'.repeat(650000)};
+    await db.update(copyLiveIntentProvenance).set({sizingBasis}).where(eq(copyLiveIntentProvenance.key,original!.key));
+    await scopes.run(id(),async(_scope,session)=>session.read(async tx=>{
+      // Observe SQL compiled by the real Drizzle loader, without replacing
+      // query results or the original session's lock/freshness checks.
+      const sqlSession=(tx as unknown as {session:{prepareQuery(query:{sql:string;params:unknown[]},...args:unknown[]):unknown}}).session;
+      const compiled=vi.spyOn(sqlSession,'prepareQuery');
+      try {
+        const loaded=await authority.loadLiveRiskAuthority(session,tx,{accountId:'account',key:f.reservations.own.key},now);
+        expect(loaded.provenance.sizingBasis).toEqual(sizingBasis);
+        expect(loaded.baseline?.firstExecutionKey).toBe(f.reservations.own.key);
+        const firstBaselineQueries=compiled.mock.calls.map(([query])=>query.sql).filter(query=>
+          query.includes('from "copy_live_executions"')&&query.includes('inner join "copy_live_intent_provenance"'));
+        expect(firstBaselineQueries).toHaveLength(1);
+        expect(firstBaselineQueries[0]).not.toContain('"sizing_basis"');
+      } finally { compiled.mockRestore(); }
+    }));
+  });
   it('produces an assessable actual forHold candidate from persisted genuine sizing and fresh concrete reads',async()=>{
     await genuineSizing();await scopes.run(id(),async(_scope,session)=>{
       const proof=await source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold();

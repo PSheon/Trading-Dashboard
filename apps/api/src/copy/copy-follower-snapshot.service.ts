@@ -5,11 +5,11 @@ import { BackgroundJobs } from '../runtime/background-jobs.service.js';
 import { mapLiveAccountView } from './live/live-account-view.js';
 import type { LiveAccountSnapshot } from './live/live-account-observer.js';
 import { LiveBoundaryError } from './live/wallet-authorization.js';
-import { CopyFollowerSnapshotRepository, type FollowerSnapshotIssue } from './copy-follower-snapshot.repository.js';
+import { CopyFollowerSnapshotRepository, FollowerSnapshotDeferred, type FollowerSnapshotIssue } from './copy-follower-snapshot.repository.js';
 import { safeErrorText } from '../runtime/safe-error-text.js';
 
 export const FOLLOWER_SNAPSHOT_READER = Symbol('FOLLOWER_SNAPSHOT_READER');
-export interface FollowerSnapshotReader { observe(accountAddress: string): Promise<LiveAccountSnapshot>; close?(): void }
+export interface FollowerSnapshotReader { observe(accountAddress: string, beforeRead?: () => Promise<void>): Promise<LiveAccountSnapshot>; close?(): void }
 
 /** Provider-free owner reads. Original evidence times survive every HTTP poll. */
 @Injectable()
@@ -51,9 +51,10 @@ export class CopyFollowerSnapshotCollector implements OnApplicationBootstrap, On
     const claim = await this.repository.claim(); if (!claim) return;
     try {
       // A provider wait is never inside a SQL transaction.
-      const snapshot = await this.reader.observe(claim.accountAddress);
+      const snapshot = await this.reader.observe(claim.accountAddress, () => this.repository.assertReadEligible(claim));
       await this.repository.save(claim, snapshot);
     } catch (error) {
+      if (error instanceof FollowerSnapshotDeferred) return; // Preserve prior issue/evidence and original allowances.
       const code = error instanceof LiveBoundaryError ? error.code : '';
       const issue: FollowerSnapshotIssue = code.includes('account_mode') || code.includes('unsupported_role') ? 'unsupported_mode'
         : code.includes('coverage') ? 'incomplete_coverage' : code === 'follower_snapshot_invalid' || code === 'follower_account_identity_changed' ? 'invalid_evidence' : 'source_unavailable';

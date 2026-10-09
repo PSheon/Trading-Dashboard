@@ -317,3 +317,21 @@ v5只讀官方結果 closuresVerified=true：原80／81／82跟單帳戶全部26
 原82 open兩個source fill均01:33:21.078UTC、received01:33:43.036（約22秒）、firstAttempt01:33:43.127；後一次live_budget_wait於01:35:22.135，此時源年齡121秒。不能將119秒都說成source晚到；第一次拒絕原因被後一次更新覆寫，現存log不足以恢復它。原其他close後續no_follower_position／copy_stopping，沒有成交仍不是PASS。精確只讀證據 /private/tmp/orbie-burst82-source-timing-readonly-actual.jsonl。
 
 已補每次execute失敗的安全code／attempt／本次耗時／原leader age／exchange-started bool，保留覆寫前原因；不輸出error或provider body，不改執行、配額、風控或重試。真RED1→GREEN含安全與budgeter三檔24項PASS，API type/lint PASS，獨立source review CLEAR。尚未建置／切換本機金融runtime，不宣稱兩項交易FAIL已修好。
+
+10:15補驗：e36f4b3f診斷patch已在新建owned local DB跑engine／attempt diagnostics／unexpected／foreground priority四檔85項PASS，原資料庫未遷移或truncate；ownedDB orbie_0e251512ce7d49fe9d5e7de2dd7c4b88_test 已移除。證據 /private/tmp/orbie-e36f4b3f-engine-regression-actual.log。
+
+背景snapshot排程仍有實際缺口：SQLclaim只核對一次foreground，後續284背景權重等待沒有新claim eligibility fence；可在交易到達後才開始HTTP。原01:35:11unsupported_abstraction只記完成時間，未知是ordinary／recovery／fairness，不能直接認定該讀取造成burst。正在以queued ordinary claim→fresh dispatch→reserve解鎖的真SQL／400/800bucket回歸補證據；原recovery／300秒boundedfairness、60秒global allowance與已發出HTTP的計費必須保留。
+
+### 排隊背景讀取修正：隔離回歸完成，真交易尚待重跑
+
+舊碼真SQL／400每分鐘、800 burst回歸6 FAIL／2 PASS：ordinary snapshot在等候284權重期間遇到新foreground，仍送出7個HTTP；原token／owner／revision／network／address變更亦未阻止讀取。偽造fairness目的另有真RED1 FAIL。修正讓原claim與目的不可變且限同repository原發出物件，取得配額後、證據時計與第一個HTTP之前重查完整身份及fresh SQL scheduling；此時不再合資格則返還全部未使用權重，保留原issue／觀察與60／300秒排程標記。已開始HTTP的費用不返還，recovery／原bounded fairness及mainnet行為維持。
+
+最終四檔92項PASS、API source及test noEmit、scoped lint與diff check通過；ownedDB orbie_60ffb0eedc9840828d9d81665b06436b_test 已刪。證據 /private/tmp/orbie-snapshot-queue-stable-manifest.json 與 /private/tmp/orbie-snapshot-queue-final-green.log。此修正證實關閉排隊race，尚不能證明它是原82 burst唯一原因或已修復真交易；獨立review、固定快照完整build／suite與原限制下交易重跑仍待完成。
+
+独立審查補記：第一版92 PASS仍有Important，SQL gate與原reservation共用deadline；quota接近deadline才取得時，SQL延遲可讓observer先退出、未使用284權重漏退款或提前改寫priorissue。因此第一版尚不可提交／切换runtime；正在補接近deadline後SQL成功／拒絕的真RED及可判定phase修正。保留92項結果作第一版歷史，不冒充此race已驗證。
+
+### 排隊讀取最終修正：97項回歸與獨立審查通過
+
+第一版deadline真RED兩條均FAIL，最終改成原background reserve完成後另做獨立2000ms SQL gate，通過才啟動原5000ms observer。gate逾時／close以typed scheduling deferral保留priorissue；單一outer finally只返還未發出HTTP的284權重，late SQL成功／拒絕不能續起HTTP或重複退款。非法address於扣配額前拒絕，queued close不扣配額、gate close只返還一次亦有回歸。原maxWait／400每分鐘、800burst、recovery／fairness／60與300秒標記不变。
+
+最終四檔97 PASS，source及test noEmit／scoped lint／diff check均exit0，ownedDB orbie_5dd437b6f3204cdfb2035a73b3d668a9_test 已移除。ROOT全讀並核對4檔／6logs／diff SHA256全部相符，獨立review CLEAR無Critical／Important。證據 /private/tmp/orbie-snapshot-deadline-stable-manifest.json、/private/tmp/orbie-snapshot-deadline-final-green.log。尚待固定提交快照完整build／未篩選suite、切換與真資金BASE／burst重跑，不改寫原FAIL。

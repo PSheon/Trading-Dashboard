@@ -16,7 +16,10 @@ import type { DbExecutor } from '../db/unit-of-work.js';
 import { decodeLiveSettlementProof } from './live/live-settlement-proof.js';
 import { followerForegroundReadEligible, followerRecoveryAccount, followerFreshForeground, followerAccountFreshForeground } from './copy-foreground-read-priority.js';
 
-export type FollowerSnapshotClaim = Readonly<{ accountId: string; userId: number; strategyId: number; accountAddress: string; accountRevision: number; ownerPrivyUserId: string; claimToken: string }>;
+export type FollowerSnapshotClaim = Readonly<{ accountId: string; userId: number; strategyId: number; accountAddress: string; accountRevision: number; ownerPrivyUserId: string; claimToken: string; admission: 'ordinary' | 'recovery' | 'fairness' }>;
+export class FollowerSnapshotDeferred extends LiveBoundaryError {
+  constructor() { super('live_account_snapshot_scheduling_deferred'); }
+}
 export type FollowerSnapshotIssue = NonNullable<typeof copyFollowerObservationJobs.$inferSelect['issue']>;
 /** Observations of the deployment's network's copy accounts only (another
  * network's accounts keep their last observation as history). */
@@ -46,6 +49,8 @@ const reportingEligible = sql`not exists (select 1 from copy_live_setups s where
       where d.account_id = ${copyExecutionAccounts.id} and d.state in ('pending','submitted') and m.state in ('active','paused','stopping'))))`;
 @Injectable()
 export class CopyFollowerSnapshotRepository {
+  // A copied/unknown hint cannot invent recovery or an elapsed fairness turn.
+  private readonly admissions = new WeakMap<FollowerSnapshotClaim, FollowerSnapshotClaim['admission']>();
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, private readonly config: AppConfig) {}
   private get network() { return deploymentNetwork(this.config); }
 
@@ -98,9 +103,28 @@ export class CopyFollowerSnapshotRepository {
       await tx.update(copyFollowerObservationBudget).set({ nextAllowedAt: sql`clock_timestamp() + interval '60 seconds'`,
         ...(network === 'testnet' && !row.recovery ? { nextSnapshotAllowedAt: sql`clock_timestamp() + interval '300 seconds'` } : {}) })
         .where(eq(copyFollowerObservationBudget.network, network));
-      return { accountId: row.account.id, userId: row.account.userId, strategyId: row.account.strategyId,
-        accountAddress: row.account.address, accountRevision: row.account.revision, ownerPrivyUserId: row.account.privyUserId, claimToken };
+      const claim: FollowerSnapshotClaim = Object.freeze({ accountId: row.account.id, userId: row.account.userId, strategyId: row.account.strategyId,
+        accountAddress: row.account.address, accountRevision: row.account.revision, ownerPrivyUserId: row.account.privyUserId, claimToken,
+        admission: row.recovery ? 'recovery' : busy && budget.ordinaryDue ? 'fairness' : 'ordinary' });
+      this.admissions.set(claim, claim.admission);
+      return claim;
     });
+  }
+
+  /** Scheduling only: recheck the original claim after local budget waiting,
+   * before any provider read or evidence clock. A prior fairness turn remains
+   * bounded; recovery must still belong to this exact original identity. */
+  async assertReadEligible(claim: FollowerSnapshotClaim): Promise<void> {
+    if (!this.admissions.has(claim) || this.admissions.get(claim) !== claim.admission) throw new FollowerSnapshotDeferred();
+    const [owned] = await this.db.select({ id: copyExecutionAccounts.id }).from(copyFollowerObservationJobs)
+      .innerJoin(copyExecutionAccounts, eq(copyExecutionAccounts.id, copyFollowerObservationJobs.accountId))
+      .innerJoin(users, and(eq(users.id, copyExecutionAccounts.userId), eq(users.privyUserId, copyExecutionAccounts.privyUserId)))
+      .where(and(eq(copyExecutionAccounts.id, claim.accountId), eq(copyExecutionAccounts.userId, claim.userId),
+        eq(copyExecutionAccounts.strategyId, claim.strategyId), eq(copyExecutionAccounts.network, this.network),
+        eq(copyExecutionAccounts.address, claim.accountAddress), eq(copyExecutionAccounts.revision, claim.accountRevision),
+        eq(copyExecutionAccounts.privyUserId, claim.ownerPrivyUserId), eq(copyFollowerObservationJobs.claimToken, claim.claimToken),
+        observable, reportingEligible, followerForegroundReadEligible(claim.admission === 'fairness'))).limit(1);
+    if (!owned) throw new FollowerSnapshotDeferred();
   }
 
   async save(rawClaim: FollowerSnapshotClaim, rawSnapshot: LiveAccountSnapshot, now = Date.now()): Promise<boolean> {
@@ -159,7 +183,7 @@ export class CopyFollowerSnapshotRepository {
 
   /** Both acquisition and committed-settlement reporting use this one store.
    * An older in-flight provider read cannot replace a newer observation. */
-  private async persist(tx: DbExecutor, claim: Omit<FollowerSnapshotClaim, 'claimToken'>, snapshot: LiveAccountSnapshot,
+  private async persist(tx: DbExecutor, claim: Omit<FollowerSnapshotClaim, 'claimToken' | 'admission'>, snapshot: LiveAccountSnapshot,
     job: typeof copyFollowerObservationJobs.$inferSelect, invalidateClaim = false): Promise<boolean> {
       const network = this.network;
       const [latest] = job.latestObservationId ? await tx.select().from(copyFollowerObservations)

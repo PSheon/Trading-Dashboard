@@ -455,7 +455,7 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
                 {expanded ? <div id={`paper-order-${o.id}-details`} className="row-expansion mt-2 px-3 py-3">
                   <dl className="mb-3 grid gap-2">
                     {[
-                      [t("portfolio.copy.order.time"), format.dateTime(o.createdAt)],
+                      [`${t("portfolio.copy.order.time")} (UTC)`, format.dateTime(o.createdAt)],
                       [t("portfolio.copy.order.size"), format.num(o.filledSize || o.size, 5)],
                       [t("portfolio.copy.order.price"), o.avgPx === null ? "—" : format.price(o.avgPx)],
                     ].map(([label, value]) => <div key={label} className="flex flex-wrap justify-between gap-2"><dt className="text-muted-foreground">{label}</dt><dd className="num font-semibold">{value}</dd></div>)}
@@ -470,7 +470,7 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
             <Table dense className="text-xs" data-testid="paper-orders">
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
-                  <TableHead>{t("portfolio.copy.order.time")}</TableHead>
+                  <TableHead>{`${t("portfolio.copy.order.time")} (UTC)`}</TableHead>
                   <TableHead>{t("portfolio.copy.order.coin")}</TableHead>
                   <TableHead>{t("portfolio.copy.order.side")}</TableHead>
                   <TableHead className="text-right">{t("portfolio.copy.order.size")}</TableHead>

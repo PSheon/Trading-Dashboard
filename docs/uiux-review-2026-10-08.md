@@ -2,7 +2,7 @@
 
 供 Paul 檢閱。整理親眼檢查的桌機／手機畫面、實際帳號操作及 testnet 測試紀錄，並納入接續測試的新發現；10/09最新前端已部署 Stage web，金融服務未隨本次發布更新。
 
-沿用 Orbie 風格。以下最新狀態與45項概覽優先，後面的日期段落是保留的歷史紀錄；舊金額、失敗數及部署狀態不代表目前狀態。
+沿用 Orbie 風格。以下最新狀態與46項概覽優先，後面的日期段落是保留的歷史紀錄；舊金額、失敗數及部署狀態不代表目前狀態。
 
 ## 10/09 09:56 最新狀態（優先於下列歷史紀錄）
 
@@ -11,11 +11,11 @@
 - **仍待解決的核心問題**：一般BASE原79對帳FAIL，原第五筆送單前風控證據5100ms超原5000ms；不是已證實「testnet一定錯」或Privy單一根因。原七領單全平、10提款及38.960016原退款credited，獨立268場域全平／8項pending0；清理成功不改寫FAIL。新版BASE尚未執行。
 - **獨立實際情境**：3小額減倉、4持倉停止、6手動平倉後立即停止已PASS，後兩者原退款48.976408／48.974977入帳；7worker重啟亦PASS；8無符合原限制市場而SKIP，9burst因live_budget_wait／signal_expired FAIL，零followers；原82最後48.983097退款已入帳。14暫停新風險、減倉與帶倉緊急全平已PASS，平台恢復、臨時管理權限撤除、正常admin overview403。
 - **其他金融驗收**：#38原73減倉的請求0.0024、規劃／實際全平0.0048 ETH五來源PASS；#39原case06回覆遺失後只查原GET、236.668秒內原49退款credited、268場域與8項pending0；取消未簽編輯及已入金開始亦有真實PASS。renewal明確409 `renewal_unavailable`，尚未提供，不能列成已測功能。
-- **版本界限**：Stage API／worker仍舊mainnet/live版本，未做主網交易。截圖中`orbiecrypto@gmail.com`的歷史拒絕尚未與確切環境／帳戶綁定，不能歸因本機管理測試；相關原因與查詢限制保留在歷史段落。
+- **版本界限**：Stage API／worker仍舊mainnet/live版本，未做主網交易。使用者補充截圖來自localhost:3000後，已精確匹配本機paper策略2七筆訂單；platform_paused確實受到本機管理演練共用控制影響，stale_signal是恢复後處理26分50秒前訊號，詳見文末來源更正。
 
-獨立最後收尾仍未完整通過：三個跟單帳戶全268場域均零倉位／掛單／可提餘額；主帳戶讀取失敗、領單帳戶尚無此輪完整觀察。原停止及退款入帳證據不因此改成交易PASS。最後另外補44px返還／平倉／重試／刷新及模擬radio，87項既有回歸與WEB型別通過，尚無新登入Browser驗收；Stage已確認部署仍是fc697e3d。
+獨立最後收尾已在10:06完整通過：三個跟單帳戶、主帳戶及領單帳戶全268場域無倉位／掛單，三個跟單可提餘額0、主83.518733及領單21.071997 USDC，八項pending0。此前配額失敗紀錄仍保留。原停止及退款入帳證據不因此改成交易PASS。最後另外補44px返還／平倉／重試／刷新及模擬radio，87項既有回歸與WEB型別通過，尚無新登入Browser驗收；Stage已確認部署仍是fc697e3d。
 
-## 目前45項問題概覽
+## 目前46項問題概覽
 
 下表區分真實金融、線上匿名畫面、GET fixture與回歸測試；未具備條件的支線另註，不用單元測試或示意資料代替實測。
 
@@ -66,6 +66,7 @@
 | 43 | 結算後資產快照缺失 | 已修正／管理流程實測PASS | 73／75嚴格五來源對帳PASS，原proof保存、舊觀察防覆寫；77／78前四腿已settled，但一般BASE對帳FAIL，不能宣稱一般流程全部解決 |
 | 44 | pause後減倉遲到 | 已修正／實測PASS | 原73pause禁open、reduce在原期限內執行；75帶倉緊急全平亦PASS，平台已恢复／撤權；歷史FAIL保留 |
 | 45 | 全停止history叫跟單中 | 已實作／parent回歸 | 11locale中性My copies／我的跟單；保留history/count/stoppedstatus，未隱藏資料 |
+| 46 | 訂單時間缺時區標示 | 本機已修／待Browser與部署 | 全專案formatter原為UTC；paper桌機表頭／手機明細補UTC，避免把截圖14:15當台北時間 |
 
 
 ## 10/08 14:05 舊畫面紀錄
@@ -320,3 +321,24 @@ Claude 先前另已處理交易員表格內縮／欄寬、常駐分享按鈕、�
 - 固定b701新版完整268檔／4262項PASS，金融runtime仍原bce；情境3、4、6真交易與原停止退款已PASS，7／8／9進行中。#2一般BASE時效問題仍待新版actual，原79 FAIL保留；#43一般BASE結算可靠性不以管理流程或前三情境代替。
 
 09:57交付補記：最後44px修正提交 `73383b56`，既有三檔87項PASS；Railway skill已提交精確458檔Stage WEB payload，部署 `74033843-29cb-4bd8-b70d-86e8e8f63b57`。CLI上傳成功不等於正式SUCCESS，尚待建置及登入Browser驗收。先前fc697e3d為最後已確認SUCCESS版本。本機原bce worker已於01:56:09UTC恢復PID17646；未啟動新的金融情境。
+
+### 截圖來源更正：localhost:3000（使用者補充後已核對）
+
+本機唯讀資料已精確匹配截圖七筆：strategy2／user10／mode paper，訂單779、780、782、786、787、788的BTC0.00074、SOL2.04／1.58／0.29、BTC0.00394、SOL0.17均為platform_paused；790 SOL1.79為stale_signal。這是模擬訂單，不能当作實際testnet成交失敗。
+
+原UTC14:07:46平台close_positions revision9（Codex authorized local testnet scenario14 interrupted browser cleanup）直到14:15:09.360 resume revision10；六筆紙上訂單14:15:08–09.111沿revision9被拒。SOL1.79於14:15:09.612沿revision10處理，原訊號13:48:19.287，約26分50秒前，恢復後仍被過期防護拒絕。截圖時間顯示14:15與資料UTC一致，不能直接將其解讀為台北14:15。
+
+結論：本機管理演練確實影響共用平台開關下的既有paper策略；不是testnet必然出錯。尚待修正測試隔離／控制作用範圍與長時間訊號積壓來源；不得清除歷史或補送過期訊號。精確email→user10尚未獨立驗證，但截圖訂單已可唯一匹配。唯讀證據 /private/tmp/orbie-local-screenshot-orders-readonly-actual.jsonl。
+
+### 10:04 — 補充只讀根因證據
+
+- 截圖七筆原signal/outbox以chain＋leader＋所有signalTids核對：同一批於14:14:58.369UTC入庫，約10–12秒內消費完；原fill分別在13:19至13:48，延遲主要在入庫之前，不能把26分50秒都說成consumer排隊。尚未證實是provider延遲、worker停機或補抓調度中的單一因素。
+- 最後五帳戶closure v4取得主帳戶明確錯誤：live_account_observation_unavailable，內部log hyperliquid_quota_exhausted；不是已取得主帳戶殘留倉位的證據。全域八項pending於02:02:40UTC仍0／platformr16 normal。
+- v5只增加每個read開始前30秒間隔，暫停已核對的idle worker背景讀取；每份觀察全268／5000ms／400/800及global quota不變。正在只讀驗證，不啟動新金融actor，不改原BASE／burst FAIL。
+- 平台控制原設計涵蓋paper與實際策略；修復測試隔離時必須保留正式平台緊急停止的完整作用範圍，不能以排除paper／特定帳戶偷偷縮減安全開關來讓情境14通過。
+
+### 10:06 — 最後五帳戶收尾已全部通過（交易FAIL仍保留）
+
+v5只讀官方結果 closuresVerified=true：原80／81／82跟單帳戶全部268場域，倉位／掛單／可提餘額0；主帳戶83.518733、領單21.071997 USDC，全268無倉位／掛單。每份證據年齡約3.832–3.927秒，全部小於原5000ms。原三筆credited收據唯一性與原stop/setup/account/owner全部核對，八項pending0、platformr16 restored。CLI仍依設計exit1，因remainingSixPassed／overallPassed永久false：BASE79與burst9原FAIL沒有改寫。證據 /private/tmp/orbie-failed-remaining6-bce5b82f-final-official-v5-paced-actual.jsonl。
+
+補修紙上訂單UTC標示：桌機表頭及手機展開明細，WEB型別／paper-order-clarity與paper-history兩檔10項PASS、figures6項PASS。這是本機修改，未另部署或主網操作，尚無新Browser截圖。

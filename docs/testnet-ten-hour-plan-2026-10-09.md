@@ -290,3 +290,24 @@ Paul 於台北時間 2026-10-08 23:58 前後授權再投入十小時，至 2026-
 - 最後另補取消返還、手動平倉、全部返還、活動重試／刷新、snapshot重試及模擬編輯radio的44px觸控高度。既有三檔87項PASS、WEB typecheck PASS；尚無新的登入Browser幾何驗證，部署狀態另以官方結果為準。
 
 09:57交付補記：最後44px修正提交 `73383b56`，既有三檔87項PASS；Railway skill已提交精確458檔Stage WEB payload，部署 `74033843-29cb-4bd8-b70d-86e8e8f63b57`。CLI上傳成功不等於正式SUCCESS，尚待建置及登入Browser驗收。先前fc697e3d為最後已確認SUCCESS版本。本機原bce worker已於01:56:09UTC恢復PID17646；未啟動新的金融情境。
+
+### 截圖來源更正：localhost:3000（使用者補充後已核對）
+
+本機唯讀資料已精確匹配截圖七筆：strategy2／user10／mode paper，訂單779、780、782、786、787、788的BTC0.00074、SOL2.04／1.58／0.29、BTC0.00394、SOL0.17均為platform_paused；790 SOL1.79為stale_signal。這是模擬訂單，不能当作實際testnet成交失敗。
+
+原UTC14:07:46平台close_positions revision9（Codex authorized local testnet scenario14 interrupted browser cleanup）直到14:15:09.360 resume revision10；六筆紙上訂單14:15:08–09.111沿revision9被拒。SOL1.79於14:15:09.612沿revision10處理，原訊號13:48:19.287，約26分50秒前，恢復後仍被過期防護拒絕。截圖時間顯示14:15與資料UTC一致，不能直接將其解讀為台北14:15。
+
+結論：本機管理演練確實影響共用平台開關下的既有paper策略；不是testnet必然出錯。尚待修正測試隔離／控制作用範圍與長時間訊號積壓來源；不得清除歷史或補送過期訊號。精確email→user10尚未獨立驗證，但截圖訂單已可唯一匹配。唯讀證據 /private/tmp/orbie-local-screenshot-orders-readonly-actual.jsonl。
+
+### 10:04 — 補充只讀根因證據
+
+- 截圖七筆原signal/outbox以chain＋leader＋所有signalTids核對：同一批於14:14:58.369UTC入庫，約10–12秒內消費完；原fill分別在13:19至13:48，延遲主要在入庫之前，不能把26分50秒都說成consumer排隊。尚未證實是provider延遲、worker停機或補抓調度中的單一因素。
+- 最後五帳戶closure v4取得主帳戶明確錯誤：live_account_observation_unavailable，內部log hyperliquid_quota_exhausted；不是已取得主帳戶殘留倉位的證據。全域八項pending於02:02:40UTC仍0／platformr16 normal。
+- v5只增加每個read開始前30秒間隔，暫停已核對的idle worker背景讀取；每份觀察全268／5000ms／400/800及global quota不變。正在只讀驗證，不啟動新金融actor，不改原BASE／burst FAIL。
+- 平台控制原設計涵蓋paper與實際策略；修復測試隔離時必須保留正式平台緊急停止的完整作用範圍，不能以排除paper／特定帳戶偷偷縮減安全開關來讓情境14通過。
+
+### 10:06 — 最後五帳戶收尾已全部通過（交易FAIL仍保留）
+
+v5只讀官方結果 closuresVerified=true：原80／81／82跟單帳戶全部268場域，倉位／掛單／可提餘額0；主帳戶83.518733、領單21.071997 USDC，全268無倉位／掛單。每份證據年齡約3.832–3.927秒，全部小於原5000ms。原三筆credited收據唯一性與原stop/setup/account/owner全部核對，八項pending0、platformr16 restored。CLI仍依設計exit1，因remainingSixPassed／overallPassed永久false：BASE79與burst9原FAIL沒有改寫。證據 /private/tmp/orbie-failed-remaining6-bce5b82f-final-official-v5-paced-actual.jsonl。
+
+補修紙上訂單UTC標示：桌機表頭及手機展開明細，WEB型別／paper-order-clarity與paper-history兩檔10項PASS、figures6項PASS。這是本機修改，未另部署或主網操作，尚無新Browser截圖。

@@ -335,3 +335,45 @@ v5只讀官方結果 closuresVerified=true：原80／81／82跟單帳戶全部26
 第一版deadline真RED兩條均FAIL，最終改成原background reserve完成後另做獨立2000ms SQL gate，通過才啟動原5000ms observer。gate逾時／close以typed scheduling deferral保留priorissue；單一outer finally只返還未發出HTTP的284權重，late SQL成功／拒絕不能續起HTTP或重複退款。非法address於扣配額前拒絕，queued close不扣配額、gate close只返還一次亦有回歸。原maxWait／400每分鐘、800burst、recovery／fairness／60與300秒標記不变。
 
 最終四檔97 PASS，source及test noEmit／scoped lint／diff check均exit0，ownedDB orbie_5dd437b6f3204cdfb2035a73b3d668a9_test 已移除。ROOT全讀並核對4檔／6logs／diff SHA256全部相符，獨立review CLEAR無Critical／Important。證據 /private/tmp/orbie-snapshot-deadline-stable-manifest.json、/private/tmp/orbie-snapshot-deadline-final-green.log。尚待固定提交快照完整build／未篩選suite、切換與真資金BASE／burst重跑，不改寫原FAIL。
+
+固定驗證進度：修正已本機提交6f37e4e08b9aac9fa5aa073dd07637499ba68665；/private/tmp/codex-api-6f37e4e0-R636F 1905 tracked blobs核對、own shared及API build實際exit0，539 compiled與b701差異只含snapshot repository/service、worker module、逐次診斷engine四檔。完整未篩選suite已啟動（session87889，ownedDB orbie_ab7813402edc438d8c11341eea43f214_test），仍執行中，不能宣稱完整PASS或DB已清理。provisional manifest仍reviewed:false；新literal launcher/proof runner已備妥但未執行。金融runtime仍原bce，沒有新金融actor／Stage／主網操作。
+
+### 環境中斷恢復：原完整suite不列PASS
+
+session87889失效後先查原vitest PID44883仍在、父程序已退出；後續再次中斷後本機API／worker／WEB／CDP及/private/tmp整批驗證資料皆消失。6f37e4e0 git提交與工作區仍存在。原完整suite缺actual exit與finally cleanup，沒有TEST-EVIDENCE，不列PASS。已確認本機td-dev-pg恢復；持久READ ONLY核對八項未結清全0、platform revision16正常。原ownedDB orbie_ab7813402edc438d8c11341eea43f214_test 殘留且0連線，僅移除此隨機測試DB、未用FORCE／未碰開發DB。
+
+恢復證據轉放不進git的 .claude/codex-verification/recovery/：post-interruption-audit.jsonl、old-owned-database-cleanup.jsonl。精確b701與6f37來源重新archive到同目錄snapshots，ownshared依賴及source blobs核對；prepare實際exit0。新完整suite將採獨立detached supervisor並寫持久finished/TEST-EVIDENCE；仍須等actual child exit及ownedDB DROP才能通過。此前tmp路徑只作原歷史紀錄，現在無法直接重讀，不補造失去的證據。尚未恢復交易runtime或啟动金融actor，Stage／主網未操作。
+
+### 11:28 — 持久完整suite通過，恢復本機並開始原限制重測
+
+新固定6f37完整未篩選API suite實際exit0：274檔／4369項PASS；ownedDB orbie_1bc87b21b5964374a8cabd7944c07cd6_test 已移除。ROOT核對1905來源blobs、539編譯檔、原build child exits及suite log SHA256；相對b701編譯差異仍僅四檔。原raw build證據保留，兼容manifest欄位由實際結果衍生，不改來源或編譯bytes。reviewed manifest SHA256 2f7b51bf18ee0bac22e930b9c2f99e11241a7e8f7abf3e122e1078fc9ac407d1；持久證據 suite-finished.json、snapshots/6f37e4e0/TEST-EVIDENCE.json、VERIFY-EVIDENCE.json。另canonical harness/runtime純測試51 PASS。
+
+03:26UTC再查八項pending全0、platform revision16正常後，已啟動approved6f本機API22769／worker22863；API /health200且feedConnected true。最新本機WEB22936在localhost3000、真portfolio GET200，fixtures與test mode設定關閉。沒有Stage／主網操作或管理權限。
+
+單一金融actor23436於03:27UTC開始原base＋burst重跑，gap120／stage-caps／配置50USDC、單筆12–15USDC、槓桿3与原時限全部保留。原leader餘額21.071997且無倉位；正常user14及admin GET403 guard在任何金融寫入前。持久supervisor23435將保存實際退出狀態；目前執行中，不能列交易PASS，原BASE79與burst82 FAIL不改寫。證據 .claude/codex-verification/recovery/base-burst-rerun.log 及相應 started／actor／finished JSON。
+
+### 11:45 — 新版BASE83仍FAIL，已精確定位送單前最終檢查
+
+原七領單完成並全平；新BASE83對帳兩项refusal_not_allowed（exchange_order_never_placed／flip_close_not_settled），前四筆跟單均settled。先前partial-fill fixed_trade_already_claimed證據缺口本輪未再列失敗。第五開空沒有exchange POST：逐次診斷exchange started false，LiveExecutionRuntime stage transport_final_check／executor_submit各335ms且live_risk_stale；原generation checkedAt1791517161918、拒絕1791517167060，相差5142ms，超原5000ms。排隊snapshot修正不能當作一般BASE已修好。
+
+原第五journal rejected／exchange_order_never_placed、reservation unknown，依原expiresAfter＋grace與獨立absence證據程序收斂，不能手動刪reservation或補送過期訊號。已完成原10USDC提款credited（9bfbf48d-cf8e-4032-8f1f-1a446684f94b），正在原stop平倉與退款。完整actual exit／退款尚待，獨立burst未開始，不把BASE失败改寫。
+
+結構問題需分開處理：背景排隊的foreground fence已修；管理演練需隔離既有paper策略而保留正式平台全域緊急停止；一般交易完整歷史證據／重複fresh SQL及送單檢查的延遲仍未解決。本輪原sizing envelope由192247／311467／429203／547353增至668641bytes，loadLiveGenerationManifest每次讀完整歷史及原provenance後再產生digest；成本隨歷史增加是程式結構事實，但尚未完成分段量測，不能只凭資料量宣稱是5142ms的唯一原因。修法不得刷新原時計、縮小場域、借舊financial proof或放寬上限。
+
+11:48收尾：原BASE83唯一38.981991退款credited、跟單帳戶flat／餘額0，stop四項PASS；主錢包82.500724USDC，原runner實際exit1／signal null。03:48:42UTC八項pending全0、platform r16正常。持久 base-burst-rerun-finished.json 保存false；獨立burst supervisor33895已啟動、原9／gap120／stage-caps，不覆寫BASE FAIL，沒有並行金融actor。
+
+### 12:03 — burst84實際PASS，前端完整回歸通過
+
+burst84於03:59:01UTC第10次strict reconcile PASS（原240秒內），4leader／4dispatch／2followers；領單36USD開倉後在約15秒內三次close，跟單依原最小平倉規則先全平，後續無倉位拒絕有五來源核對。首開跟單112.013秒送出／112.62秒首成交，延遲仍偏長，不能宣稱速度問題完全解決。原48.992661退款credited，停止四項PASS，04:02:28UTC實際exit0／signal null。證據 burst-only-rerun-finished.json、2026-10-09T03-48-50-171Z-summary.txt／burst-reconcile.json。原burst82 FAIL保留。
+
+原B段核心8項目前6 PASS（3／4／6／7／9／14）、1 SKIP（8市場條件）、1 FAIL（BASE83）；不能宣稱所有testnet通過。最新前端完整203檔／1372項及tsc --noEmit實際exit0，本輪未改source或部署。最後另用approved6f canonical observer、原400/800、5000ms及全場域覆蓋重查83／84／主／領單錢包；不暫停共用worker，避免再干擾paper來源。此核對仍在執行中，登入後UI另待驗證。
+
+純歷史成本補量測：實際策略83原資料在同固定compiled版本只讀3次，完整envelope decoder由約2.6ms增至7.1–7.7ms、四份原settlement certificate replay約15.7–15.9ms。合計約23ms一次，不能單靠此數字解釋整個335ms最終檢查；仍需分段SQL／重複全歷史與邊界授權量測，不將局部優化宣稱完整根因。證據 historical-proof-benchmark.json；零provider／金融寫入、原時計不改。
+
+12:05官方收尾：approved6f canonical observer實際exit0，83／84／主／領單四個帳戶每份全268場域、complete且無倉位／掛單，原證據年齡3923–4027ms；兩跟單所有場域equity與withdrawable0，主81.493385、領單20.843181USDC。兩個原stop／原refund唯一性與owner／network／destination核對，八項pending前後皆0、platformr16 normal。沒有暫停worker或金融寫入（僅原global quota meter記帳）。closure-finished.json明確cleanupVerified true／burstPassed true／basePassed false／overallPassed false。不是用清理成功冒充BASE通過。正常user14三尺寸選單UI驗證已啟動，business/provider writes在login前攔截、無fixtures。
+
+### 12:11 — 登入後 portfolio 一頁高度與手機 footer 已實測修正
+
+正常 user14（admin GET403）在1440×900、390×844、320×480三尺寸驗證：總價值 $81.49 位於 trigger，選單未重複顯示總價值，選單操作高度至少44px。初次实測登入後空倉桌面 documentHeight927，仍多27px捲動；AppShell將 portfolio 全頁採桌面 flex 撐滿、調整內容與 footer 間距後，收合歷史 documentHeight900、footer bottom876。展開50筆已結束歷史 documentHeight3658，保留自然捲動與 footer。手機 footer bottom728／363.5，浮動導覽 top764／400，皆保留至少36px空隙且無水平溢出。
+
+修正後完整 WEB 203檔／1372項、tsc --noEmit、AppShell scoped lint均實際exit0；原shell23項亦PASS。持久證據 ui-authenticated-fit/records.json、三尺寸 portfolio／menu／footer及桌面 expanded-history PNG、web-portfolio-fit-full-suite.log／typecheck.log／lint.log。驗證在登入前攔截所有金融／provider寫入，僅允許必要Privy登入，businessWrites／providerWrites均0。此頁面修正僅本機，未部署或改 Stage；API／交易邏輯未變，核心B段仍6 PASS／1 SKIP／1 FAIL，BASE送單前證據過期尚未修復。

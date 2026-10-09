@@ -79,7 +79,8 @@ export function AppShell({
   const scrolled = usePageScrolled();
   const authStatus = useAuth().status;
   const signedIn = authStatus === "signedIn";
-  const guestPortfolio = pathname === "/portfolio" && (authStatus === "signedOut" || authStatus === "disabled");
+  const portfolioPage = pathname === "/portfolio";
+  const guestPortfolio = portfolioPage && (authStatus === "signedOut" || authStatus === "disabled");
   const [mobileRef, mobileBox] = useSlidingIndicator<HTMLElement>(`${pathname}:${signedIn}`);
   const mobilePill = mobileBox?.width ? mobileBox : null;
   // Seeds the query the banners (and pages) read, before they mount.
@@ -100,7 +101,7 @@ export function AppShell({
 
   return (
     <WalletModalsProvider>
-    <div className={cn("min-h-dvh", guestPortfolio && "md:flex md:flex-col")}>
+    <div className={cn("min-h-dvh", portfolioPage && "md:flex md:flex-col")}>
       <a
         href="#main"
         className="sr-only z-50 rounded-full bg-primary px-4 py-2 font-extrabold text-primary-foreground focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
@@ -168,7 +169,7 @@ export function AppShell({
                   ? "pt-[64px] pb-[calc(100px+env(safe-area-inset-bottom))]"
                   : "pt-0 pb-[calc(100px+env(safe-area-inset-bottom))]",
           "md:pt-0 md:pb-0",
-          guestPortfolio && "md:flex md:flex-1 md:flex-col",
+          portfolioPage && "md:flex md:flex-1 md:flex-col",
         )}
       >
         {/* Each island of the shell fails on its own (web audit H5). */}
@@ -183,11 +184,11 @@ export function AppShell({
             // row; without the clip they add a few px of page scroll.
             "page-frame overflow-x-clip py-4 outline-none md:pt-2 md:pb-10",
             traderPage && "md:pb-14",
-            guestPortfolio && "md:flex md:flex-1 md:flex-col md:pb-6",
+            portfolioPage && "md:flex md:flex-1 md:flex-col md:pb-6",
           )}
         >
-          {guestPortfolio ? <div className="md:flex md:flex-1 md:items-center md:justify-center md:py-3">{children}</div> : children}
-          {footer === "compact" ? <SiteLegalFooter /> : footer ? <SiteFooter className={guestPortfolio ? "mt-10 md:mt-0 md:shrink-0" : "mt-16"} /> : null}
+          {guestPortfolio ? <div className="md:flex md:flex-1 md:items-center md:justify-center md:py-3">{children}</div> : portfolioPage ? <div className="md:flex-1">{children}</div> : children}
+          {footer === "compact" ? <SiteLegalFooter /> : footer ? <SiteFooter className={guestPortfolio ? "mt-10 md:mt-0 md:shrink-0" : portfolioPage ? "mt-10 md:mt-8 md:shrink-0" : "mt-16"} /> : null}
         </main>
       </div>
 

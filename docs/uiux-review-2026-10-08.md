@@ -19,6 +19,14 @@
 
 一般BASE與burst仍待固定新版實測。排隊snapshot的新SQL fence第一版92項PASS後，獨立審查找出慢SQL deadline競態；最終已分離reserve／2000ms SQL gate／原5000ms observer，97項回歸、型別與獨立審查CLEAR。尚待固定快照完整build／suite與真交易重跑；自動測試通過仍不代表兩個交易FAIL已解決。
 
+11:28更新：恢復後固定6f37版本已完整build與未篩選API suite通過274檔／4369項，actual exit0、隔離DB移除、1905來源與539編譯檔核對完成。最新版本機localhost3000已恢復，API／worker使用同已驗證版本；正常user14在admin GET403後開始單一BASE／burst金融重測。尚在執行中，原FAIL保留，未操作Stage或主網。本機截圖與最新版匿名手機／桌機UI另做独立只讀驗證，不混用舊截圖。
+
+本機匿名portfolio新Browser驗證已完成：1440×900文件高度900、品牌footer底876；390／320底部footer與浮動導航分別保留36.5／36px空間，三尺寸無水平溢出、可見控制至少44px、頁首及linear-gradient實際存在。ROOT親看1440與390新截圖；實際GET200、pageerror0，未登入、未用fixtures，所有business/provider寫入攔截。證據 .claude/codex-verification/recovery/ui-guest/manifest.json、records.json。這僅更新匿名畫面驗證，不代表登入操作及paper UTC已通過。
+
+11:45補驗：明暗主題explore／favorites／指定trader三尺寸，加dark portfolio，21views與4fresh recheck，全部實際GET200、無水平溢出；trader漂浮跟單bar高68px、button56px、底部12px，footer可達。320頁首缺失候選經ROOT與單張PNG像素複核已撤回，實際星球／返回／搜尋／登入存在，不因此盲改CSS。未登入／無fixtures／business與provider writes0；證據 .claude/codex-verification/recovery/ui-guest-extended/manifest.json。登入後 controls／UTC尚待驗證。金融BASE83最新仍FAIL，transport_final_check證據5142ms超原5000ms、第五單未送出，前四跟單已結算；停止退款尚在執行，不列全部修復。
+
+12:05：burst84新五來源對帳PASS，4領單／4派送／2跟單，48.992661原退款credited、actual exit0；一般BASE83仍FAIL，原38.981991退款credited、actual exit1。四個帳戶canonical全268場域收尾均PASS、pending全0且未暫停worker；主81.493385／leader20.843181、跟單餘額0。前端完整203檔1372項及型別檢查PASS。首跟單112.62秒仍偏長，不能把burstPASS寫成延遲問題全部修復；一般流程的5秒證據預算與歷史重驗成本仍需改善。
+
 ## 目前46項問題概覽
 
 下表區分真實金融、線上匿名畫面、GET fixture與回歸測試；未具備條件的支線另註，不用單元測試或示意資料代替實測。
@@ -346,3 +354,9 @@ Claude 先前另已處理交易員表格內縮／欄寬、常駐分享按鈕、�
 v5只讀官方結果 closuresVerified=true：原80／81／82跟單帳戶全部268場域，倉位／掛單／可提餘額0；主帳戶83.518733、領單21.071997 USDC，全268無倉位／掛單。每份證據年齡約3.832–3.927秒，全部小於原5000ms。原三筆credited收據唯一性與原stop/setup/account/owner全部核對，八項pending0、platformr16 restored。CLI仍依設計exit1，因remainingSixPassed／overallPassed永久false：BASE79與burst9原FAIL沒有改寫。證據 /private/tmp/orbie-failed-remaining6-bce5b82f-final-official-v5-paced-actual.jsonl。
 
 補修紙上訂單UTC標示：桌機表頭及手機展開明細，WEB型別／paper-order-clarity與paper-history兩檔10項PASS、figures6項PASS。這是本機修改，未另部署或主網操作，尚無新Browser截圖。
+
+### 12:11 — 最新 localhost 登入後 footer 驗證
+
+登入後空倉 portfolio 桌面仍有27px多餘捲動，已修正共用AppShell的桌面flex高度與內容／footer間距。正常user14、無fixtures、金融／provider寫入全攔截的實際Browser驗證：1440×900收合歷史頁面高度900、footer bottom876；展開50筆歷史頁面高度3658，仍可自然捲動。390與320手機footer和浮動navigator之間至少36px，沒有遮擋或水平溢出。三尺寸總價值仍只在trigger、選單操作至少44px，沿用Orbie風格。
+
+最新完整WEB 203檔／1372項、型別與scoped lint均實際exit0。證據 .claude/codex-verification/recovery/ui-authenticated-fit/records.json及同目錄PNG。此修正僅本機，未部署。Testnet核心B段目前6 PASS／1 SKIP／1 FAIL：新版burst84通過並退款，全268場域四帳戶收尾通過；BASE83仍因送單前原證據超過5000ms失敗。不能將前端回歸或退款成功當作所有交易測試完成。

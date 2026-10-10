@@ -69,6 +69,7 @@ it("shows the actual metrics timestamp on homepage cards instead of treating a n
   const html = render({ home: { data: home, fetchedAt: Date.now() } });
   expect(html).toContain('dateTime="2026-09-30T21:03:32.429Z"');
   expect(html).toContain("Metrics updated");
+  expect(html).toMatch(/<time[^>]*title="[^"]*\(UTC\)"/);
 });
 
 it("also exposes the metrics observation date in the mobile exploration list", async () => {
@@ -77,4 +78,5 @@ it("also exposes the metrics observation date in the mobile exploration list", a
   const html = renderToString(<QueryClientProvider client={new QueryClient()}><I18nProvider locale="en" messages={en}><ul><BoardMobileRow trader={trader} /></ul></I18nProvider></QueryClientProvider>);
   expect(html).toContain('dateTime="2026-09-30T21:03:32.429Z"');
   expect(html).toContain("Metrics updated");
+  expect(html).toMatch(/<time[^>]*title="[^"]*\(UTC\)"/);
 });

@@ -284,3 +284,7 @@ Stage 尚未部署本輪版本；等待安全修補的精確版本 CI 及正式 
 新worker 18:36 UTC後至18:55的READ ONLY觀察：139位已嘗試、134成功、5容量等待、其他新錯誤0、全場域掃描3次成功。各群組尚未補齊；不降低80% headline／95% history門檻，也不把attemptedAt當freshness。主網wallet GET200、USDC／ETH／Hyperliquid餘額仍0，未簽署或派送主網交易。
 
 本日重新核對[Hyperliquid USDC官方文件](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/usdc)：本專案native Arbitrum USDC／Bridge2／最低5USDC仍與列出的legacy流程相符；官方已標示legacy bridge deprecated，CCTP為建議路徑。CCTP遷移屬獨立入金整合工作，不能把現有testnet驗證當作它的驗收。
+
+### 03:02 精確資料時間的時區
+
+Stage探索手機已實際呈現10筆metricsUpdatedAt與相對更新時間、無overflow；推薦region僅1，手機H1高32／內H2實際1px且clipPath隱藏，重複視覺標題已解決。人工核對發現精確日期提示未寫時區，已把shared MetricsStamp絕對時間與title加上UTC，compact相對時間仍保留。舊版2項timestamp回歸FAIL／3PASS，新版完整206檔1414PASS；同窄版持倉修正一併待新前端CI與Stage發布。未變動金融API來源。

@@ -241,7 +241,7 @@ function MetricsStamp({ at, now, compact = false }: { at?: string | null; now?: 
   if (!at) return null;
   const outdated = clock > 0 && clock - Date.parse(at) >= 24 * 60 * 60 * 1000;
   return <span className={cn("text-[10px] leading-4 text-muted-foreground", outdated && "text-tag-alert-foreground")}>
-    {t("discover.metricsUpdated")} · <time dateTime={at} title={format.dateTime(at)}>{compact && clock > 0 ? timeAgo(at, clock, locale) : format.dateTime(at)}</time>
+    {t("discover.metricsUpdated")} · <time dateTime={at} title={`${format.dateTime(at)} (UTC)`}>{compact && clock > 0 ? timeAgo(at, clock, locale) : `${format.dateTime(at)} (UTC)`}</time>
     {outdated ? <span className="block">{t("discover.metricsStale")}</span> : null}
   </span>;
 }

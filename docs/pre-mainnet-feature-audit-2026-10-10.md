@@ -185,3 +185,12 @@ Paul 指出先前檢查不足，本輪新增真實瀏覽器操作，沒有用 AP
 Railway 原生雲端備份：`c967f938-ff7b-4ae8-a37c-4af654f08ceb`，`pre-release-ui-referral-20261010`，2026-10-10T14:36:01.401Z；備份列表已有 external snapshot id。沒有下載本機資料庫、沒有還原／修改 Stage 資料。真實返佣 adapter 仍不存在且付款停用；這項產品能力不隨本次跟單復原與 UI 修正啟用。
 
 當次 Stage 管理監控顯示 worker active、排行榜 fresh，portfolio 1133／1135、stale0；成交歷史 ready363、missing772且既有 ready 項目皆超過24小時。這解釋 stocks／coin board 指標落後；不能把 portfolio 更新正常說成所有歷史資料已補齊。共享預算 360/min 分配後 pool performance cap89、ledger37、cohort55，archive已達每日2美元原上限；不自行提高網路／商業成本限制。
+
+## 22:52 完整回歸與新增安全阻擋
+
+- 隔離 API 全套：280 檔／4487 PASS，861.17 秒；runner 已移除其自行建立的 `*_test` 資料庫，沒有使用開發或 Stage 資料庫。
+- 選單動畫 state 修正後：完整前端 204 檔／1398 PASS。首次 pre-push 捕捉 HTTP 文件落後及 render 讀取 ref 的 lint 問題，均修正並重新通過所有 hooks，沒有跳過檢查。
+- `75d104a7` 的遠端 CI 安全 audit 阻擋了 Next.js 16.3.6；官方 [16.3.8 修補公告](https://github.com/vercel/next.js/releases/tag/v16.3.8) 涵蓋這次 SSRF／快取／資訊洩漏公告。更新 Next 與 eslint-config-next 至 16.3.8 並更新 lockfile；沒有新增 advisory 例外。修後 audit exit0，仍如實列出既有 braces 高風險公告由已安裝修補及原例外處理；四項依賴相容／exploit 測試 PASS。更新後完整前端仍 204 檔／1398 PASS。
+- Stage 唯讀資料庫：必要四欄位及 abort table 都存在；mainnet funding、withdrawal、未解除 liability、stop、abort、setup 在途數均0（2026-10-10T14:50:56Z）。這不等於資金已入帳，也不是金融 E2E。
+
+Stage 尚未部署本輪版本；等待安全修補的精確版本 CI 及正式 build／browser checks 通過。

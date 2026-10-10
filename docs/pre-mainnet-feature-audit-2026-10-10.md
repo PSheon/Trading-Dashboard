@@ -222,3 +222,9 @@ Stage 尚未部署本輪版本；等待安全修補的精確版本 CI 及正式 
 進一步核對发现：API capability 已支援部署網路，但前端 `useLiveSetupAbort` 仍以 testnet 硬編碼限制取消入口。新增主網回歸先重現兩項 FAIL，修正後 hook 在 mainnet＋正式模式＋server setupAbort capability 時可唯讀顯示原取消進度，切到模擬／錯網仍不讀不送。原取消完成後的新編輯驗證改以所屬策略 network 比對，不假設 testnet；錯網完成證據仍拒絕，尚未支援的主網編輯 UI 保持關閉。
 
 相關5檔84 PASS；最新全前端204檔1402 PASS。本機3000已以Next16.3.8重新啟動，原16.3.6程序確切PID退出，沒有第二個Next server。此輪仍沒有真錢簽署與資料庫修改。
+
+## 23:48 正式建置字型阻擋
+
+`4d3cf0e5` CI production build 在 Next16.3.8 Turbopack 的 Google 字型 synthetic import 解析失敗：15個錯誤、`next/font/google queries have exactly one entry`。保留原始 build log，不回退安全修补，也不把它判為業務測試網問題。正式 build 改為 [Next.js 支援的 `next build --webpack`](https://nextjs.org/docs/app/api-reference/cli/next#next-build-options)，Railway 與 CI 均走 workspace build script。
+
+隔離、無 `.env` 快照完整 webpack production build exit0，包含 route 產物與所有 OpenGraph prerender。第一次隔離執行因 sandbox DNS 限制失敗；第二次 network 可用但 runner cwd 在 monorepo root，OG font 路徑失敗；改以真正 web workspace cwd 後通過。這兩次是驗證工具失敗，並未為通過而改 OG 路徑／關閉 prerender 或型別檢查。最終待發布快照會重新由新提交白名單建立，不上傳此編譯用快照或 node_modules symlink。

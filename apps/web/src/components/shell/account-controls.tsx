@@ -124,13 +124,14 @@ function AccountMenu({ compact = false }: { compact?: boolean }) {
   const desktop = useIsDesktop();
   const [open, setOpen] = useState(false);
   const [panel, setPanel] = useState<"root" | "language" | "theme">("root");
+  const [sliding, setSliding] = useState(false);
   const languageTrigger = useRef<HTMLButtonElement>(null), themeTrigger = useRef<HTMLButtonElement>(null), backButton = useRef<HTMLButtonElement>(null);
   const returnTo = useRef<"language" | "theme" | null>(null);
   const changeOpen = (next: boolean) => {
     setOpen(next);
-    if (!next) { setPanel("root"); returnTo.current = null; }
+    if (!next) { setPanel("root"); setSliding(false); returnTo.current = null; }
   };
-  const back = () => { if (panel !== "root") returnTo.current = panel; setPanel("root"); };
+  const back = () => { if (panel !== "root") returnTo.current = panel; setSliding(true); setPanel("root"); };
   useEffect(() => {
     if (!open) return;
     if (panel !== "root") backButton.current?.focus();
@@ -164,7 +165,7 @@ function AccountMenu({ compact = false }: { compact?: boolean }) {
   );
   const body = (
     <div data-testid="account-menu-card" className="overflow-x-hidden">
-      <div key={panel} data-account-panel={panel} className={cn("account-menu-panel", (panel !== "root" || returnTo.current) && "account-menu-panel-slide")} style={{ "--account-panel-from": panel === "root" ? "-24px" : "24px" } as React.CSSProperties}>
+      <div key={panel} data-account-panel={panel} className={cn("account-menu-panel", sliding && "account-menu-panel-slide")} style={{ "--account-panel-from": panel === "root" ? "-24px" : "24px" } as React.CSSProperties}>
       {panel === "root" ? <>
       <div className="flex items-center gap-3 px-3 pt-2 pb-4">
         <Initial label={label} />
@@ -186,8 +187,8 @@ function AccountMenu({ compact = false }: { compact?: boolean }) {
       <Link href="/portfolio" onClick={() => setOpen(false)} className={row}><Briefcase className="size-[18px]" aria-hidden />{t("nav.portfolio")}<ChevronRight className="ml-auto size-4 text-muted-foreground" aria-hidden /></Link>
       <Link href="/settings" onClick={() => setOpen(false)} className={row}><Settings className="size-[18px]" aria-hidden />{t("nav.settings")}<ChevronRight className="ml-auto size-4 text-muted-foreground" aria-hidden /></Link>
       {isAdmin ? <Link href="/admin" onClick={() => setOpen(false)} className={row}><ShieldCheck className="size-[18px]" aria-hidden />{t("nav.admin")}<ChevronRight className="ml-auto size-4 text-muted-foreground" aria-hidden /></Link> : null}
-      <button ref={languageTrigger} type="button" onClick={() => setPanel("language")} className={row}><Globe className="size-[18px]" aria-hidden />{t("topbar.language")}<span className="ml-auto text-xs font-medium text-muted-foreground">{LOCALE_NAMES[locale]}</span><ChevronRight className="size-4 text-muted-foreground" aria-hidden /></button>
-      <button ref={themeTrigger} type="button" onClick={() => setPanel("theme")} className={row}>{theme === "dark" ? <Moon className="size-[18px]" aria-hidden /> : <Sun className="size-[18px]" aria-hidden />}{t("theme.label")}<span className="ml-auto text-xs font-medium text-muted-foreground">{t(`theme.${choice}`)}</span><ChevronRight className="size-4 text-muted-foreground" aria-hidden /></button>
+      <button ref={languageTrigger} type="button" onClick={() => { setSliding(true); setPanel("language"); }} className={row}><Globe className="size-[18px]" aria-hidden />{t("topbar.language")}<span className="ml-auto text-xs font-medium text-muted-foreground">{LOCALE_NAMES[locale]}</span><ChevronRight className="size-4 text-muted-foreground" aria-hidden /></button>
+      <button ref={themeTrigger} type="button" onClick={() => { setSliding(true); setPanel("theme"); }} className={row}>{theme === "dark" ? <Moon className="size-[18px]" aria-hidden /> : <Sun className="size-[18px]" aria-hidden />}{t("theme.label")}<span className="ml-auto text-xs font-medium text-muted-foreground">{t(`theme.${choice}`)}</span><ChevronRight className="size-4 text-muted-foreground" aria-hidden /></button>
       <div className="my-3 h-px bg-border" />
       <button type="button" disabled={leaving} aria-busy={leaving || undefined} onClick={() => { void logout(); }} className={cn(row, "text-muted-foreground hover:bg-negative-soft hover:text-destructive focus-visible:bg-negative-soft focus-visible:text-destructive disabled:opacity-50")}>{leaving ? <OrbitSpinner /> : <LogOut className="size-[18px]" aria-hidden />}{t("topbar.logout")}</button>
       </> : <>

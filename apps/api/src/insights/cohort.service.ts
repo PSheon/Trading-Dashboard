@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
+import { Injectable, Logger, NotFoundException, Optional, type OnModuleDestroy } from "@nestjs/common";
 import { CHAIN_DEFAULT, cohortHeadlineReady, cohortTierSchema, type CohortDetailResponse, type CohortHistoryResponse, type CohortTier, type CohortWindow } from "@trading-dashboard/shared/contracts";
 
 import { pnlTier } from "../analytics/trade-metrics.js";
@@ -7,7 +7,7 @@ import { DiscoveryService } from "../discovery/discovery.service.js";
 import { AppConfig } from "../config/app-config.js";
 import { kolAvatarPath } from "../discovery/kol-avatar.js";
 import { HyperliquidInfoClient } from "../hyperliquid/hyperliquid-info.client.js";
-import { BudgetWaitError, ESSENTIAL_RANK, PAGE_RANK, pacedWeightPerMinute, RequestBudgeterService } from "../hyperliquid/request-budgeter.service.js";
+import { budgetConsumer, BudgetWaitError, ESSENTIAL_RANK, PAGE_RANK, pacedWeightPerMinute, RequestBudgeterService } from "../hyperliquid/request-budgeter.service.js";
 import { sharedCapacityWait, SHARED_CAPACITY_RETRY_MS } from "../hyperliquid/hyperliquid-budget-wait.js";
 import { sharedRestRetryAfterMs } from "../hyperliquid/hyperliquid-capacity-error.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
@@ -67,13 +67,15 @@ export interface CohortRefreshLog {
  * new one. Calls rank behind page loads.
  */
 @Injectable()
-export class CohortService {
+export class CohortService implements OnModuleDestroy {
   private readonly logger = new Logger(CohortService.name);
   private running: Promise<void> | undefined;
   private builtAt = 0;
   private tokens = 0;
   private tokensAt = Date.now();
   private capacityRetryAt = 0;
+  private retryTimer: ReturnType<typeof setTimeout> | undefined;
+  private destroyed = false;
   private lastSnapshot: Map<string, Date> | null = null;
   readonly log: CohortRefreshLog[] = [];
   readonly detailCache = new TtlCache<CohortDetailResponse>(DETAIL_TTL_MS);
@@ -94,14 +96,33 @@ export class CohortService {
 
   /** Cron entry point: one tick at a time, never in tests. */
   onTick(): Promise<void> {
-    if (this.config.value.app.nodeEnv === "test" || this.jobs.stopping) return Promise.resolve();
+    clearTimeout(this.retryTimer);
+    this.retryTimer = undefined;
+    if (this.config.value.app.nodeEnv === "test" || this.jobs.stopping || this.destroyed) return Promise.resolve();
     this.running ??= this.jobs
-      .run(() => this.tick())
+      .run(() => budgetConsumer("cohort", () => this.tick(), { queueMs: 2 * 60_000 }))
       .catch((error: Error) => this.logger.error(`Cohort tick failed: ${error.message}`))
       .finally(() => {
         this.running = undefined;
+        // A validated release between cron ticks must not leave capacity
+        // idle for the rest of the minute. This starts the same paced,
+        // single-flight job; it never bypasses the failed member cooldown.
+        if (!this.destroyed && !this.jobs.stopping && this.capacityRetryAt > 0
+          && pacedWeightPerMinute(this.budgeter, "cohort", this.config.value.tuning.weights.cohort) > 0) {
+          this.retryTimer = setTimeout(() => {
+            this.retryTimer = undefined;
+            void this.onTick();
+          }, Math.max(1, this.capacityRetryAt - Date.now()));
+          this.retryTimer.unref();
+        }
       });
     return this.running;
+  }
+
+  onModuleDestroy(): void {
+    this.destroyed = true;
+    clearTimeout(this.retryTimer);
+    this.retryTimer = undefined;
   }
 
   /** Rebuilds membership when due, refreshes members within the
@@ -115,6 +136,7 @@ export class CohortService {
     }
     const perMinute = pacedWeightPerMinute(this.budgeter, "cohort", weights.cohort);
     if (perMinute > 0 && now >= this.capacityRetryAt) {
+      this.capacityRetryAt = 0;
       const elapsedMin = Math.max(0, (now - this.tokensAt) / 60_000);
       this.tokens = Math.min(perMinute * MAX_SAVED_MINUTES, this.tokens + perMinute * Math.min(elapsedMin, MAX_SAVED_MINUTES));
       this.tokensAt = now;

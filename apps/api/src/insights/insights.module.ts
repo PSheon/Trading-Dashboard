@@ -3,7 +3,6 @@ import { Cron, CronExpression } from "@nestjs/schedule";
 
 import { DiscoveryModule } from "../discovery/discovery.module.js";
 import { HyperliquidModule } from "../hyperliquid/hyperliquid.module.js";
-import { budgetConsumer } from "../hyperliquid/request-budgeter.service.js";
 import { CohortRepository } from "./cohort.repository.js";
 import { CohortService } from "./cohort.service.js";
 import { InsightsController } from "./insights.controller.js";
@@ -24,9 +23,9 @@ export class InsightsModule {}
 @Injectable()
 class CohortWorker {
   constructor(private readonly cohorts: CohortService) {}
-  @Cron(CronExpression.EVERY_MINUTE) cohortTick() { return budgetConsumer("cohort", () => this.cohorts.onTick(), { queueMs: 2 * 60_000 }); }
+  @Cron(CronExpression.EVERY_MINUTE) cohortTick() { return this.cohorts.onTick(); }
 }
 
-/** The cohort refresh schedule (one tick a minute; none in tests). */
+/** The cohort cron (once a minute); the service also wakes after capacity releases. */
 @Module({ imports: [InsightsModule], providers: [CohortWorker] })
 export class InsightsWorkerModule {}

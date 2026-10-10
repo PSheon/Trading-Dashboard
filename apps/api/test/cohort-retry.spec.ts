@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CohortService } from '../src/insights/cohort.service.js';
 import type { CohortMemberRow, CohortRepository } from '../src/insights/cohort.repository.js';
 import { HyperliquidRestCapacityError } from '../src/hyperliquid/hyperliquid-capacity-error.js';
-import { BudgetWaitError } from '../src/hyperliquid/request-budgeter.service.js';
+import { BudgetWaitError, currentBudgetConsumer } from '../src/hyperliquid/request-budgeter.service.js';
+import { BackgroundJobs } from '../src/runtime/background-jobs.service.js';
 import type { HyperliquidInfoClient } from '../src/hyperliquid/hyperliquid-info.client.js';
 import { testConfig } from './config-test-utils.js';
 
@@ -13,7 +14,7 @@ function member(address: string, rank: number): CohortMemberRow {
     sweptAt: new Date(at), attemptedAt: null, lastError: null };
 }
 
-function setup(fail: (address: string) => unknown) {
+function setup(fail: (address: string) => unknown, worker = false) {
   const rows = [member('bad', 1), member('healthy', 2)];
   const repository = {
     nextDue: async (_limit: number, before: Date, retries?: { failureBefore: Date; capacityBefore: Date }) => rows.filter(row => {
@@ -25,7 +26,7 @@ function setup(fail: (address: string) => unknown) {
     membersOf: async () => [], identities: async () => [], lastSnapshotAt: async () => new Map(),
   };
   const base = testConfig().value;
-  const config = { value: { ...base, tuning: { ...base.tuning, discovery: { ...base.tuning.discovery, cohortRefreshMinutes: 40 } } } };
+  const config = { value: { ...base, app: { ...base.app, nodeEnv: worker ? 'production' : base.app.nodeEnv }, tuning: { ...base.tuning, discovery: { ...base.tuning.discovery, cohortRefreshMinutes: 40 } } } };
   const info = {
     clearinghouseStates: async (address: string, dexes: readonly string[], _rank: number, onDispatch: () => void): Promise<{assetPositions: never[]; marginSummary: {accountValue: string}}[]> => {
       onDispatch();
@@ -38,12 +39,13 @@ function setup(fail: (address: string) => unknown) {
       return { assetPositions: [], marginSummary: { accountValue: '100' } };
     },
   };
-  const service = new CohortService(config as never, repository as unknown as CohortRepository, info as unknown as HyperliquidInfoClient, {} as never);
+  const jobs = new BackgroundJobs();
+  const service = new CohortService(config as never, repository as unknown as CohortRepository, info as unknown as HyperliquidInfoClient, {} as never, jobs);
   Object.assign(service, { builtAt: at, tokensAt: at - 60_000 });
-  return { service, rows, info };
+  return { service, rows, info, jobs };
 }
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
 describe('cohort refresh retry scheduling', () => {
   it.each([1, 1_000, 10_000, 65_000])('resumes other members after the validated %s ms pre-dispatch hint, retaining the failed member cooldown', async (hint) => {
     vi.useFakeTimers(); vi.setSystemTime(at);
@@ -129,5 +131,99 @@ describe('cohort refresh retry scheduling', () => {
     expect(rows[1].fetchedAt?.getTime()).toBe(at + 41 * 60_000);
     expect(service.log.at(-1)?.address).toBe('healthy');
     expect(rows[0].fetchedAt?.getTime()).toBe(at - 4 * 3_600_000);
+  });
+});
+
+// Exercise the real worker entry point: a cron-only retry leaves released
+// capacity idle until the next minute, even with a validated shorter hint.
+describe('cohort worker capacity wakeup', () => {
+  function worker(hint: number, trusted = true) {
+    vi.useFakeTimers(); vi.setSystemTime(at);
+    const f = setup(() => undefined, true);
+    const send = f.info.clearinghouseStates;
+    const labels: Array<string | undefined> = [];
+    let busy = true;
+    f.info.clearinghouseStates = async (...args) => {
+      labels.push(currentBudgetConsumer());
+      if (busy) throw trusted ? new HyperliquidRestCapacityError(hint)
+        : Object.assign(new Error('Hyperliquid queue is full'), { retryAfterMs: hint });
+      return send(...args);
+    };
+    return { ...f, labels, release: () => { busy = false; } };
+  }
+
+  it.each([1_000, 10_000])('wakes at the validated %s ms release without a second cron, preserving member cooldown and consumer cap context', async (hint) => {
+    const f = worker(hint);
+    await f.service.onTick(); f.release();
+    await vi.advanceTimersByTimeAsync(hint - 1);
+    expect(f.rows[1].attemptedAt).toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(f.rows[1].fetchedAt?.getTime()).toBe(at + hint);
+    expect(f.rows[0].fetchedAt?.getTime()).toBe(at - 4 * 3_600_000);
+    expect(f.rows[0].lastError).toMatch(/^capacity: /);
+    expect(f.labels).toEqual(['cohort', 'cohort']);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('a cron before release cannot cancel the pending capacity wakeup or start early', async () => {
+    const f = worker(10_000);
+    await f.service.onTick(); f.release();
+    await vi.advanceTimersByTimeAsync(5_000); await f.service.onTick();
+    expect(f.rows[1].attemptedAt).toBeNull();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(f.rows[1].fetchedAt?.getTime()).toBe(at + 10_000);
+    expect(f.labels).toHaveLength(2);
+  });
+
+  it('module destruction cancels the wakeup and refuses later cron admission', async () => {
+    const f = worker(1_000);
+    await f.service.onTick(); f.release();
+    expect(vi.getTimerCount()).toBe(1);
+    f.service.onModuleDestroy();
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(120_000); await f.service.onTick();
+    expect(f.rows[1].attemptedAt).toBeNull();
+    expect(f.labels).toHaveLength(1);
+  });
+
+  it('a stopping BackgroundJobs cannot dispatch the scheduled read', async () => {
+    const f = worker(1_000);
+    await f.service.onTick(); f.release(); f.jobs.stop();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(f.rows[1].attemptedAt).toBeNull();
+    expect(f.labels).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('untrusted retry properties retain the entire conservative pause', async () => {
+    const f = worker(1, false);
+    await f.service.onTick(); f.release();
+    await vi.advanceTimersByTimeAsync(64_999);
+    expect(f.rows[1].attemptedAt).toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(f.rows[1].fetchedAt?.getTime()).toBe(at + 65_000);
+    expect(f.rows[0].lastError).toMatch(/^capacity: /);
+  });
+
+  it('ordinary test environment never starts a worker or arms a timer', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(at);
+    const f = setup(() => undefined);
+    await f.service.onTick(); await vi.advanceTimersByTimeAsync(120_000);
+    expect(f.service.log).toHaveLength(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('concurrent entries share one flight, including shutdown before it settles', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(at);
+    const f = setup(() => undefined, true);
+    let release!: () => void;
+    const tick = vi.spyOn(f.service, 'tick').mockImplementation(() => new Promise<void>(resolve => { release = resolve; }));
+    const first = f.service.onTick(), second = f.service.onTick();
+    expect(second).toBe(first);
+    await Promise.resolve();
+    f.service.onModuleDestroy(); release(); await first;
+    await vi.advanceTimersByTimeAsync(120_000); await f.service.onTick();
+    expect(tick).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

@@ -71,3 +71,7 @@ Stage 已部署 `0a703cfd` API／worker／web 且三者 SUCCESS；實際已知�
 來源：[cohort refresh](../apps/api/src/insights/cohort.service.ts)、[排程選擇](../apps/api/src/insights/cohort.repository.ts)、[95% 歷史門檻](../apps/api/src/insights/cohorts.ts)、[80% 摘要門檻](../packages/shared/src/schema/zod.ts)、[budget scaling](../apps/api/src/hyperliquid/request-budgeter.service.ts)、[共享配額](../apps/api/src/hyperliquid/hyperliquid-global-quota.ts)、[請求通道](../apps/api/src/hyperliquid/hyperliquid-info.client.ts)。
 
 本次已修 icon 回應並驗證本機；Stage 補資料的排程／配額問題尚未修正或部署，不能標示已恢復。
+
+## 10/11 02:12 排程等待補修
+
+整批background讀取原仍在共享容量即將釋放時立即拒絕，再跳過下一cron。沿用已存在15秒essential等待上限，在相同background cap內等待typed容量釋放；不能超過上限、不能shutdown後派送、不能送部分市場。舊版回歸1 FAIL／13 PASS，修後含原金融batch守門五檔75 PASS，新的完整API回歸進行中。未部署前仍不宣稱Stage資料補齊。

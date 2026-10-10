@@ -3,6 +3,7 @@ import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import { HomeSkeleton, HomeView } from "@/components/home/home-view";
+import { BoardMobileRow } from "@/components/discover/board-card";
 import { fixtureRequest } from "@/fixtures/handler";
 import { I18nProvider } from "@/i18n/provider";
 import { en } from "@/i18n/messages/en";
@@ -66,6 +67,14 @@ it("shows the actual metrics timestamp on homepage cards instead of treating a n
   const home = JSON.parse(JSON.stringify(await fixtureRequest("GET", "/discover/home", undefined, null)));
   home.featured[0].metricsUpdatedAt = "2026-09-30T21:03:32.429Z";
   const html = render({ home: { data: home, fetchedAt: Date.now() } });
+  expect(html).toContain('dateTime="2026-09-30T21:03:32.429Z"');
+  expect(html).toContain("Metrics updated");
+});
+
+it("also exposes the metrics observation date in the mobile exploration list", async () => {
+  const home = JSON.parse(JSON.stringify(await fixtureRequest("GET", "/discover/home", undefined, null)));
+  const trader = { ...home.featured[0], metricsUpdatedAt: "2026-09-30T21:03:32.429Z" };
+  const html = renderToString(<QueryClientProvider client={new QueryClient()}><I18nProvider locale="en" messages={en}><ul><BoardMobileRow trader={trader} /></ul></I18nProvider></QueryClientProvider>);
   expect(html).toContain('dateTime="2026-09-30T21:03:32.429Z"');
   expect(html).toContain("Metrics updated");
 });

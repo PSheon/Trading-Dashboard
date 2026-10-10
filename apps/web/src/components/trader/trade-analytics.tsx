@@ -2,14 +2,15 @@
 
 import type { RoundTrip, TradeCoin, TraderAnalyticsResponse, TraderTradesResponse } from "@/lib/contracts";
 import { ArrowDown, ArrowRight, ArrowUpRight, Share2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { SortHead, useSorted, type SortDir as Dir } from "@/components/ui/sort-head";
 import { Segmented } from "@/components/ui/segmented";
 import { PAGE_SIZE, TablePager, usePaged } from "@/components/ui/table-pager";
 import { cn } from "cn";
 
 import { TableSkeleton } from "@/components/ui/table-skeleton";
-import { TradeShareDialog, traderCardSource, type TradeCardSource } from "./trade-share-dialog";
+import { traderCardSource, type TradeCardSource } from "./trade-share-dialog";
+import { TraderShareScope, useTraderShareFlow } from "./trader-share-flow";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useI18n } from "@/i18n/provider";
@@ -146,29 +147,35 @@ function tradeSource(address: string, trade: RoundTrip): TradeCardSource {
 }
 
 function ShareButton({ trade, address }: { trade: RoundTrip; address: string }) {
+  return <TraderShareScope><ShareTradeButton trade={trade} address={address} /></TraderShareScope>;
+}
+
+function ShareTradeButton({ trade, address }: { trade: RoundTrip; address: string }) {
   const { t } = useI18n();
-  const [source, setSource] = useState<TradeCardSource | null>(null);
-  return <>
+  const setSource = useTraderShareFlow();
+  return (
     <button type="button" aria-haspopup="dialog" onClick={() => setSource(tradeSource(address, trade))}
       aria-label={t("trader.shareTrade")} title={t("trader.shareTrade")}
       className="inline-flex size-9 items-center justify-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-raised-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
       <Share2 className="size-3.5" />
     </button>
-    {source ? <TradeShareDialog source={source} onClose={() => setSource(null)} /> : null}
-  </>;
+  );
 }
 
 function TrailShare({ trade, address, children }: { trade: RoundTrip; address: string | null; children: React.ReactNode }) {
+  return <TraderShareScope><TrailShareButton trade={trade} address={address}>{children}</TrailShareButton></TraderShareScope>;
+}
+
+function TrailShareButton({ trade, address, children }: { trade: RoundTrip; address: string | null; children: React.ReactNode }) {
   const { t } = useI18n();
-  const [source, setSource] = useState<TradeCardSource | null>(null);
+  const setSource = useTraderShareFlow();
   const className = "flex shrink-0 flex-col items-end gap-1 pl-2";
   if (!address) return <div className={className}>{children}</div>;
-  return <>
+  return (
     <button type="button" className={cn(className, "rounded outline-none focus-visible:ring-2 focus-visible:ring-ring")}
       aria-haspopup="dialog" aria-label={t("trader.shareTrade")}
       onClick={() => setSource(tradeSource(address, trade))}>{children}</button>
-    {source ? <TradeShareDialog source={source} onClose={() => setSource(null)} /> : null}
-  </>;
+  );
 }
 
 /** A trade as CopyDog's mobile card: coin + side, entry → exit, "2d ago",

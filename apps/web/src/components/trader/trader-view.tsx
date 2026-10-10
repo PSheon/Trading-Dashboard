@@ -25,6 +25,7 @@ import { ActivityTabs, ActivityTabsSkeleton } from "./activity-tabs";
 import { SectionBoundary } from "@/components/section-boundary";
 import { CopyPanel } from "./copy-panel";
 import { TraderCopyFlow } from "./trader-copy-flow";
+import { TraderShareFlow } from "./trader-share-flow";
 import { MobileTrader, MobileTraderSkeleton } from "./mobile-trader";
 import {
   KpiTiles,
@@ -49,7 +50,7 @@ export interface TraderInitial {
 /** Trader page: profile | KPIs + chart + tabs | copy panel (Stage 2 §6). */
 export function TraderView({ address, initial }: { address: string; initial?: TraderInitial }) {
   const leader = address.toLowerCase();
-  return <TraderCopyFlow key={leader}><TraderLoaded address={leader} initial={initial} /></TraderCopyFlow>;
+  return <TraderCopyFlow key={leader}><TraderShareFlow><TraderLoaded address={leader} initial={initial} /></TraderShareFlow></TraderCopyFlow>;
 }
 
 /** Before the width is known (the server's HTML and hydration). With the

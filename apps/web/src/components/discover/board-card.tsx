@@ -218,6 +218,7 @@ export function BoardMobileRow({ trader }: { trader: BoardTrader }) {
             {trader.verified ? <VerifiedTick className="size-3.5" /> : null}
           </span>
           <CoinStack coins={trader.topCoins.slice(0, 3)} size={14} />
+          <MetricsStamp at={trader.metricsUpdatedAt} compact />
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
           <span className={cn("num font-display text-[1.0625rem] leading-5", signTone(trader.pnl))}>{format.usd(trader.pnl, { compact: true, sign: true })}</span>
@@ -234,13 +235,13 @@ export function BoardMobileRow({ trader }: { trader: BoardTrader }) {
 
 
 /** Age refers to the metrics read, never the browser's most recent fetch. */
-function MetricsStamp({ at, now }: { at?: string | null; now?: number }) {
-  const { t, format } = useI18n();
+function MetricsStamp({ at, now, compact = false }: { at?: string | null; now?: number; compact?: boolean }) {
+  const { t, format, locale } = useI18n();
   const ticking = useNow(), clock = now ?? ticking;
   if (!at) return null;
   const outdated = clock > 0 && clock - Date.parse(at) >= 24 * 60 * 60 * 1000;
   return <span className={cn("text-[10px] leading-4 text-muted-foreground", outdated && "text-tag-alert-foreground")}>
-    {t("discover.metricsUpdated")} · <time dateTime={at}>{format.dateTime(at)}</time>
+    {t("discover.metricsUpdated")} · <time dateTime={at} title={format.dateTime(at)}>{compact && clock > 0 ? timeAgo(at, clock, locale) : format.dateTime(at)}</time>
     {outdated ? <span className="block">{t("discover.metricsStale")}</span> : null}
   </span>;
 }

@@ -31,7 +31,8 @@ import {
 } from "@/lib/trade-format";
 import { SortHead, useSorted } from "@/components/ui/sort-head";
 import { Asset, Empty, LoadError, Loading } from "./trade-analytics";
-import { TradeShareDialog, traderCardSource, type TradeCardSource } from "./trade-share-dialog";
+import { traderCardSource } from "./trade-share-dialog";
+import { TraderShareScope, useTraderShareFlow } from "./trader-share-flow";
 
 /**
  * CopyDog's trader-page tabs beyond the trade analytics: 持倉, 餘額, 訂單,
@@ -185,9 +186,12 @@ type PositionKey = "asset" | "size" | "value" | "entry" | "mark" | "pnl" | "liqu
 export const POSITION_COLS = ["coin", "size", "value", "entry", "mark", "pnl", "liq", "margin", "funding"] as const;
 
 export function PositionsTab({ profile, marks }: { profile: TraderProfileResponse; marks: Readonly<Record<string, number>> }) {
+  return <TraderShareScope><PositionsContent profile={profile} marks={marks} /></TraderShareScope>;
+}
+
+function PositionsContent({ profile, marks }: { profile: TraderProfileResponse; marks: Readonly<Record<string, number>> }) {
   const { t } = useI18n();
-  const [source, setSource] = useState<TradeCardSource | null>(null);
-  const share = source ? <TradeShareDialog source={source} onClose={() => setSource(null)} /> : null;
+  const setSource = useTraderShareFlow();
   const setSnapshot = (coin: string) => setSource(traderCardSource(profile.address, "position", coin, coinLabel(coin)));
   const keys = useMemo<Record<PositionKey, (p: LivePosition) => number | string>>(
     () => ({
@@ -206,12 +210,11 @@ export function PositionsTab({ profile, marks }: { profile: TraderProfileRespons
   const { sorted, sort, onSort } = useSorted<LivePosition, PositionKey>(profile.positions, keys, { key: "value", dir: "desc" });
   const { rows, pager } = usePaged(sorted, sort);
   if (profile.positions.length === 0) {
-    return <><Empty title={t(profile.perpEquity === null ? "trader.positionsUnavailable" : "trader.noPositions")} />{share}</>;
+    return <Empty title={t(profile.perpEquity === null ? "trader.positionsUnavailable" : "trader.noPositions")} />;
   }
   const head = { sort, onSort };
   return (
     <>
-      {share}
       <DataList variant="cards" className="sm:hidden">
         {rows.map((p) => (
           <PositionCard key={p.coin} p={p} mark={markOf(p, marks)} onShare={setSnapshot} />

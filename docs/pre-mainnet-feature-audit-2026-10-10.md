@@ -262,3 +262,13 @@ Stage 尚未部署本輪版本；等待安全修補的精確版本 CI 及正式 
 `c5d6a128` CI：全部 API、安全／型別／lint、正式建置、smoke 及 browser2／3 通過。browser1 為 65 PASS／1 FAIL；四種桌面／手機明暗慢速跟單都通過，原兩個跟單失敗已解決，但整體仍 FAIL。唯一失敗是手機搜尋：第二次完整導航回首頁後，按鈕在 hydration 尚未解析 viewport 時可按，點擊後沒有 combobox。trace 顯示 HMR connected 與點擊僅相隔約22ms，不能把「已載入文件」當互動已就緒。
 
 搜尋按鈕沿用既有 `useIsDesktop` 的 hydration 就緒訊號，undefined 時 disabled，手機版面確定後才接受點擊。SSR／未就緒點擊／就緒開啟／Escape 關閉與焦點回復的回歸先在舊程式失敗、修正後通過；完整 Web 205檔、1,412 PASS。保留本輪原 FAIL，不增加 timeout 或重試測試。本機正常設定的首次 Webpack 編譯超過 browser goto 原30秒，仍待實際頁面驗證，沒有算成通過。
+
+### 10/11 02:10：完整回歸、Stage分享失敗與後續修正
+
+`ae0521d6`本機完整API281檔4,500 PASS、隔離庫已移除；完整Web205檔1,412 PASS。local API89349／worker89404已載入此版，8項金融範圍quiet、一般admin403、無臨時權限。但精確CI38073704013整體FAIL：全部API、checks/build/smokes及browser1/3通過，browser2為70 PASS／1 FAIL，公開持倉分享第二個格式截圖後dialog消失，Download無法觸發。因此未部署此版。
+
+以真實Radix dialog重現responsive layout replacement會丟分享狀態，舊程式回歸FAIL（dialog收到null）；修正為按leader鍵控的頁面分享controller，持倉與公開交易分享共用，桌面／手機替換保留原dialog及選擇格式，換leader仍關閉。standalone表格亦使用同一controller，沒有第二個renderer。完整Web206檔1,414 PASS，CI與實際PNG下載尚待補驗。
+
+背景整批准入再補上現有15秒essential等待上限；原立即拒絕即將釋放配額的回歸1 FAIL／13 PASS，修後含永久不足與shutdown不派送，5檔75 PASS。沒有提高配額、放寬品質門檻或延長金融證據時效；新API完整suite仍在執行。手機探索列表也補上真實metrics觀察時間與24h過期提示；舊版回歸FAIL，修後通過，不以page fetch時間代替觀察時間。
+
+02:12 補驗：同一共用Chromium的隔離fixture context、CI相同Turbopack，公開持倉App Card16:9／Poster4:5在full-page截圖後仍各下載真正PNG；signature與尺寸1280×720／960×1200已核對，ROOT親看截圖。手機探索新指標時間390／320無溢出，實際呈現原觀察datetime与相對年齡，不使用重新fetch時間。這是fixture驗證，Stage原Paul登入不變，沒有金融操作。

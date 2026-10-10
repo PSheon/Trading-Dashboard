@@ -1,5 +1,13 @@
 # User menu、通知與設定複雜度檢查 — 2026-10-10
 
+## 10/11 02:02 實際 Stage 驗收更新
+
+本頁下方是10/10原始分析，當時「本輪未部署／金融測試未完成」已由本節取代。testnet B依Paul同意以7 PASS／⑧ SKIP結案，保留逾時。`0a703cfd`精確CI全綠、201瀏覽器PASS且Stage三服務SUCCESS。
+
+Stage真人帳號1440／390／320已逐項驗證選單動畫方向、登出error hover、語言實際切英文／繁中且query保留、深色／系統、Escape焦點、reduced-motion、模擬儲值inert／disabled／寬0、正式儲值展開、邀請複製／QR、政策申領停用、Arbitrum地址及Sonner複製提示。資金紀錄分頁與篩選呈現真正paper／testnet歷史標籤；正式零餘額提款的最大／送出皆disabled。沒有金融POST或真錢簽署。
+
+整批cohort更新准入的新修正`ae0521d6`完整API281檔4,500 PASS、Web205檔1,412 PASS，pre-push build／type／lint均PASS，CI／Stage後續發布仍待完成。下方通知佇列、設定語義及未支援產品能力是明確的條件性風險／後續設計，沒有虛稱本次全部實作或以調高交易門檻／成本限制代替修正。
+
 本次範圍：四項 UI 修改、通知設計檢查，以及設定重複／優化分析。修改已在 localhost:3000 驗證；本輪未部署 Railway、未操作主網或測試網資金。前端通過不代表先前尚未完成的 testnet 情境已完成；金融結論仍以 [兩小時結案報告](testnet-two-hour-result-2026-10-10.md) 為準。
 
 ## 本次完成

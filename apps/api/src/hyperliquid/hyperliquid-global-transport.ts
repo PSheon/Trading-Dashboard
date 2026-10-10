@@ -126,9 +126,10 @@ export class HyperliquidGlobalTransport {
   return this.#sendInfoBatch(url,bodies,{maxWaitMs,signal,onDispatch},undefined,16);
  }
  /** Complete background snapshots keep the capped background lane. A denial
-  * happens before any venue is sent; this never borrows live/page capacity. */
+  * happens before any venue is sent; this never borrows live/page capacity.
+  * An imminent release may be awaited within the existing essential bound. */
  async fetchBackgroundInfoBatch(url:string,bodies:readonly Readonly<Record<string,unknown>>[],{signal,onDispatch}:{signal?:AbortSignal;onDispatch?:()=>AbortSignal|undefined}={}):Promise<Response[]>{
-  return this.#sendInfoBatch(url,bodies,{maxWaitMs:0,signal,onDispatch},'background',64);
+  return this.#sendInfoBatch(url,bodies,{maxWaitMs:ESSENTIAL_CAPACITY_WAIT_MS,signal,onDispatch},'background',64);
  }
  async #sendInfoBatch(url:string,bodies:readonly Readonly<Record<string,unknown>>[],{maxWaitMs,signal,onDispatch}:{maxWaitMs:number;signal?:AbortSignal;onDispatch?:()=>AbortSignal|undefined},lane:HyperliquidRestLane|undefined,limit:number):Promise<Response[]>{
   const budget=this.currentQuota();

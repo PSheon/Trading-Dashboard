@@ -234,3 +234,11 @@ Stage 尚未部署本輪版本；等待安全修補的精確版本 CI 及正式 
 
 新增使用真實 Radix dialog 的回歸測試，確認 portfolio 輪詢讓輸入表單切換為待確認卡片時，未帶 key 的 dialog Fragment 會改變子節點位置並重掛載。修正為穩定 key 後，同一個確認 dialog DOM 節點在切換前後保留，原同意內容不消失。回歸測試先失敗再通過，完整 Web 測試為 204 檔、1,403 項通過；慢速桌面端仍須以新的完整瀏覽器 CI 驗證，不增加 timeout、retry 或跳過測試。
 
+
+### 2026-10-11 00:47：已確認的響應式控制器生命週期根因
+
+`4972dad7` CI 的其餘關卡全部通過，但桌面亮色案例未開啟確認，暗色案例確認後未進入進度，仍不能部署。用同一個 localhost:3000、同一個共用 Chromium 的隔離 fixture context 重現；保留原 Stage 登入分頁、不操作真實資金。Webpack 的部分嘗試可通過，切換為 CI 相同 Turbopack 後重現：全頁截圖期间 media query 短暫由 desktop=true 變成 false，再變 true，`CopyPanelForm` 因桌機／手機元件樹替換而卸載。舊操作的 mounted guard 正確拒絕，但 controller 放在響應式表現層導致同 owner 操作被錯誤中斷。
+
+修正：由按交易員 address 鍵控的 `TraderCopyFlow` 持有操作控制器，桌機卡片與手機抽屜共用；離開頁面、換交易員及真實 owner／session 變更仍停止後續簽署。未取消 mounted／owner／network 守門。確認 dialog 保留穩定 key，確認錯誤與進度保留在原 owner/session/mode 的狀態；舊 owner 的延遲回呼不能重新啟用旧 scope、清掉新 owner 的進度。桌面 hydration 完成但 profile 尚未回覆時也只呈現骨架，不提供跟單操作。
+
+新增的 controller 回歸先重現兩項 `live_session_changed` 失敗，再通過：準備中換版面、簽同意時換版面；另測换交易員／owner／離開頁面均拒絕後續 deposit signature 及 confirm POST。舊 owner 清掉新進度、確認錯誤於 remount 消失，以及 profile 尚未載入可操作三項也各先失敗再修正。完整 Web：204 檔、1,411 PASS。固定程式版本、停止修改程式後的真實 Chromium 慢速亮色流程已驗證 busy、確認、重試文案與「跟單已開始」；fixture 只簽原同意與 UsdSend 各一次、addSigners 一次。這些都是 fixture 證據，不是真實 testnet 或 mainnet 入金。

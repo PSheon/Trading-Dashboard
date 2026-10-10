@@ -14,14 +14,19 @@ import type { TraderProfileResponse } from "../src/lib/contracts";
  */
 const state = vi.hoisted(() => ({
   profile: undefined as unknown,
+  desktop: undefined as boolean | undefined,
   portfolio: { data: undefined as unknown, errorUpdateCount: 0, isPending: true },
   activityEnabled: [] as boolean[],
   fillsEnabled: [] as boolean[],
 }));
+vi.mock("../src/lib/use-is-desktop", () => ({ useIsDesktop: () => state.desktop }));
+vi.mock("../src/components/section-boundary", () => ({ SectionBoundary: ({ children }: { children: React.ReactNode }) => children }));
+vi.mock("../src/components/trader/performance", () => ({ KpiTiles: () => null, PerformanceChart: () => null, windowRoi: () => null }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh() {} }), notFound: () => { throw new Error("notFound"); } }));
 vi.mock("../src/lib/queries", () => ({
   useTraderProfile: () => ({ data: state.profile, errorUpdateCount: 0, refetch() {} }),
   isComputing: () => false,
+  isUnavailable: () => false,
   useTraderAnalytics: () => ({ data: undefined }),
   useTraderActivity: (_address: string, _initial: unknown, options: { enabled?: boolean } = {}) => {
     state.activityEnabled.push(options.enabled ?? true);
@@ -39,6 +44,7 @@ vi.mock("../src/lib/queries", () => ({
 vi.mock("../src/lib/use-live-trader", () => ({ useLiveTrader: (_a: string, profile: unknown) => ({ profile, fills: [], mids: {} }) }));
 vi.mock("../src/components/trader/profile-card", () => ({ ProfileCard: () => null, ProfileCardSkeleton: () => null }));
 vi.mock("../src/components/trader/copy-panel", () => ({ CopyPanel: () => <button data-testid="start-copy">Start copying</button> }));
+vi.mock("../src/components/trader/trader-copy-flow", () => ({ TraderCopyFlow: ({ children }: { children: React.ReactNode }) => children }));
 
 const address = `0x${"ab".repeat(20)}`;
 const known = { address, stats: { displayName: null }, positions: [], spotBalances: [], kol: null, analytics: null, isVault: false, tracked: false,
@@ -47,6 +53,7 @@ const blank = { ...known, stats: null, accountValue: 0 } as unknown as TraderPro
 const render = () => renderToStaticMarkup(<I18nProvider locale="en" messages={en}><TraderView address={address} /></I18nProvider>);
 
 beforeEach(() => {
+  state.desktop = undefined;
   state.activityEnabled = [];
   state.fillsEnabled = [];
   state.portfolio = { data: undefined, errorUpdateCount: 0, isPending: true };
@@ -87,5 +94,11 @@ it("does not admit a copy from the loading layout that will be replaced after hy
   state.profile = undefined;
   expect(render()).not.toContain("start-copy");
   state.profile = known;
+  expect(render()).not.toContain("start-copy");
+});
+
+it("keeps copy admission unavailable after desktop hydration until the leader profile has answered", () => {
+  state.desktop = true;
+  state.profile = undefined;
   expect(render()).not.toContain("start-copy");
 });

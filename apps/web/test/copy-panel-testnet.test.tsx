@@ -226,3 +226,37 @@ it("keeps the same consent dialog mounted when a portfolio poll changes the form
   expect(document.querySelector('[role="dialog"]')).toBe(original);
   expect(document.querySelector('[data-testid="live-copy-terms"]')?.textContent).toContain("150 USDC");
 });
+
+it("ignores the previous owner's late completion without erasing the current owner's progress", async () => {
+  const seen: { current: ReturnType<typeof usePanelSetup> | null } = { current: null };
+  function Probe({ identity }: { identity: string }) {
+    const value = usePanelSetup(identity, leader, "testnet");
+    useLayoutEffect(() => { seen.current = value; });
+    return null;
+  }
+  await act(async () => root.render(<Probe identity="old-owner" />));
+  const oldUpdate = seen.current![1];
+  await act(async () => oldUpdate({ starting: true }));
+  await act(async () => root.render(<Probe identity="current-owner" />));
+  await act(async () => seen.current![1]({ confirmOpen: true, progressId: "current-operation" }));
+  await act(async () => oldUpdate({ starting: false, confirmOpen: false, progressId: null }));
+  expect(seen.current![0]).toMatchObject({ confirmOpen: true, progressId: "current-operation" });
+});
+
+it("preserves the confirmation error when the same owner returns to a replaced responsive panel", async () => {
+  state.item = null;
+  let update!: ReturnType<typeof usePanelSetup>[1];
+  function Probe() {
+    const [, set] = usePanelSetup(state.identity, leader, "testnet");
+    useLayoutEffect(() => { update = set; }, [set]);
+    return null;
+  }
+  const renderWithProbe = () => act(async () => root.render(<I18nProvider locale="zh-TW" messages={catalogs["zh-TW"]}><Probe /><CopyPanel address={leader} /></I18nProvider>));
+  await renderWithProbe();
+  const consent = { kind: "start", masterPolicyId: "policy", consentExpiresAt: Date.now() + 300_000, nonce: Date.now(), leaderAddress: leader, budgetUsd: "150", agentValidUntil: Date.now() + 30 * 86_400_000, builderAddress: null, builderMaxFeeTenthsOfBps: 0 };
+  const prepared = { ...setupOf("awaiting_consent", { consent }), leaderAddress: leader, budgetUsd: "150", settings: { direction: "same", sizingMode: "ratio", perTradeUsd: null, maxTotalExposureUsd: null, maxLeverage: null, copyStartMode: "delta" } };
+  await act(async () => update({ setup: prepared, confirmOpen: true, confirmError: zh.errors.generic } as never));
+  await act(async () => root.unmount()); root = createRoot(container);
+  await renderWithProbe();
+  expect(document.querySelector('[role="dialog"] [role="alert"]')?.textContent).toContain(zh.errors.generic);
+});

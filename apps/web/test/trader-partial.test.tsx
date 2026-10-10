@@ -16,6 +16,7 @@ vi.mock("../src/lib/queries", () => ({
 vi.mock("../src/lib/use-live-trader", () => ({ useLiveTrader: () => ({ profile: undefined, fills: [], mids: {} }) }));
 vi.mock("../src/components/trader/profile-card", () => ({ ProfileCard: () => null }));
 vi.mock("../src/components/trader/copy-panel", () => ({ CopyPanel: () => null }));
+vi.mock("../src/components/trader/trader-copy-flow", () => ({ TraderCopyFlow: ({ children }: { children: React.ReactNode }) => children }));
 vi.mock("../src/components/trader/activity-tabs", () => ({ ActivityTabs: () => null }));
 vi.mock("../src/components/trader/performance", () => ({ KpiTiles: () => null, windowRoi: () => null,
   TRADE_WINDOW: { day: "1d", week: "7d", month: "30d", allTime: "all" },

@@ -10,6 +10,7 @@ import { liveSetupMessages } from '@/i18n/live-setup';
 import { LOCALES } from '@/i18n/config';
 import { setupRequestDigest } from '@/lib/copy-live-setup-recovery';
 import { ApiError } from '@/lib/api';
+import { TraderCopyFlow, useTraderCopyFlow } from '@/components/trader/trader-copy-flow';
 import { createLiveSetupJournal, termsFingerprint, signSetup, useLiveCopySetup, useLiveCopySetupActions } from '@/lib/copy-live-setup';
 import { createSetupAbortJournal } from '@/lib/copy-live-setup-abort-recovery';
 
@@ -677,4 +678,66 @@ it('rejects a testnet completion for a mainnet strategy before any new edit or s
   state.get.mockImplementation(async path => path.endsWith('/abort') ? completedAbort(original) : original);
   await act(async () => { await expect(probe.current!.edit.mutateAsync({ strategyId: 7, budgetUsd: '150', settings, afterAbortedSetupId: original.id, afterAbortedSetupNetwork: 'mainnet' })).rejects.toThrow('setup_abort_progress_changed'); });
   expect(state.patch).not.toHaveBeenCalled(); expect(state.sign).not.toHaveBeenCalled();
+});
+
+function FlowConsumer() {
+  const actions = useTraderCopyFlow();
+  return actions ? <SharedFlowProbe actions={actions} /> : <Probe />;
+}
+function SharedFlowProbe({ actions }: { actions: ReturnType<typeof useLiveCopySetupActions> }) {
+  useLayoutEffect(() => { probe.current = actions; });
+  return null;
+}
+async function renderFlow(layout: "desktop" | "phone", leader = "original") {
+  await act(async () => root.render(<QueryClientProvider client={client}><TraderCopyFlow key={leader}>
+    {layout === "desktop" ? <aside><FlowConsumer /></aside> : <section><FlowConsumer /></section>}
+  </TraderCopyFlow></QueryClientProvider>));
+}
+
+it("keeps the original admitted setup when the viewport replaces the desktop copy panel with the phone layout", async () => {
+  let finish!: (value: LiveCopySetup) => void;
+  state.post.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  await renderFlow("desktop");
+  let done!: Promise<unknown>;
+  await act(async () => { done = probe.current!.start.mutateAsync({ leader: setup().leaderAddress, budgetUsd: "150", settings }).catch(error => error); await new Promise(resolve => setTimeout(resolve, 20)); });
+  await renderFlow("phone");
+  let result: unknown;
+  await act(async () => { finish(setup()); result = await done; });
+  expect(result).toMatchObject({ id: setup().id, stage: "awaiting_consent", budgetUsd: "150" });
+  expect(state.post).toHaveBeenCalledTimes(1);
+});
+
+it("keeps one confirmation through a responsive layout change during the owner's consent signature", async () => {
+  let finishSign!: (signature: string) => void;
+  state.sign.mockImplementationOnce(() => new Promise(resolve => { finishSign = resolve; }));
+  state.post.mockResolvedValue(setup("start", "funding_submitted"));
+  await renderFlow("desktop");
+  let done!: Promise<unknown>;
+  await act(async () => { done = probe.current!.confirm.mutateAsync(setup()).catch(error => error); await new Promise(resolve => setTimeout(resolve, 20)); });
+  await renderFlow("phone");
+  let result: unknown;
+  await act(async () => { finishSign(`0x${"ab".repeat(65)}`); result = await done; });
+  expect(result).toMatchObject({ stage: "funding_submitted" });
+  expect(state.sign).toHaveBeenCalledTimes(2);
+  expect(state.addSigners).toHaveBeenCalledTimes(1);
+  expect(state.post).toHaveBeenCalledTimes(1);
+});
+
+it.each(["leader", "owner", "page"] as const)("still stops signing after the page-owned flow changes %s", async change => {
+  let finishSign!: (signature: string) => void;
+  state.sign.mockImplementationOnce(() => new Promise(resolve => { finishSign = resolve; }));
+  await renderFlow("desktop");
+  let done!: Promise<unknown>;
+  await act(async () => { done = probe.current!.confirm.mutateAsync(setup()).catch(error => error); await new Promise(resolve => setTimeout(resolve, 20)); });
+  if (change === "page") await act(async () => root.render(null));
+  else {
+    if (change === "owner") state.identity = "replacement-owner";
+    await renderFlow("phone", change === "leader" ? "another-leader" : "original");
+  }
+  let result: unknown;
+  await act(async () => { finishSign(`0x${"ab".repeat(65)}`); result = await done; });
+  expect((result as Error).message).toBe("live_session_changed");
+  expect(state.sign).toHaveBeenCalledTimes(1);
+  expect(state.addSigners).not.toHaveBeenCalled();
+  expect(state.post).not.toHaveBeenCalled();
 });

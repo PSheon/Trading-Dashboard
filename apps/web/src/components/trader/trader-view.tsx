@@ -24,6 +24,7 @@ import { useAnalyticsPatience } from "@/lib/use-analytics-patience";
 import { ActivityTabs, ActivityTabsSkeleton } from "./activity-tabs";
 import { SectionBoundary } from "@/components/section-boundary";
 import { CopyPanel } from "./copy-panel";
+import { TraderCopyFlow } from "./trader-copy-flow";
 import { MobileTrader, MobileTraderSkeleton } from "./mobile-trader";
 import {
   KpiTiles,
@@ -47,7 +48,8 @@ export interface TraderInitial {
 
 /** Trader page: profile | KPIs + chart + tabs | copy panel (Stage 2 §6). */
 export function TraderView({ address, initial }: { address: string; initial?: TraderInitial }) {
-  return <TraderLoaded address={address.toLowerCase()} initial={initial} />;
+  const leader = address.toLowerCase();
+  return <TraderCopyFlow key={leader}><TraderLoaded address={leader} initial={initial} /></TraderCopyFlow>;
 }
 
 /** Before the width is known (the server's HTML and hydration). With the
@@ -148,7 +150,7 @@ function TraderLoaded({ address, initial }: { address: string; initial?: TraderI
 
   // The width is known once the page has hydrated; until then only what
   // the server read (the profile) is drawn.
-  if (desktop === undefined) return <TraderLoading address={address} profile={live.profile} />;
+  if (desktop === undefined || !live.profile) return <TraderLoading address={address} profile={live.profile} />;
   if (!desktop) {
     // Phones: CopyDog's app layout (chart first, 2×2 card, segmented tabs).
     return live.profile ? (

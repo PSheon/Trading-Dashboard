@@ -30,6 +30,7 @@ import { hedgeWarning } from "@/lib/copy-portfolio";
 import { coinLabel, truncateAddress } from "@/lib/format";
 import { rovingFocus } from "@/lib/roving-focus";
 import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { useTraderCopyFlow } from "./trader-copy-flow";
 
 type Direction = "same" | "reverse";
 /**
@@ -40,7 +41,7 @@ type Direction = "same" | "reverse";
  * with it. Another session (signing out, switching accounts in the tab)
  * never sees them: they are dropped when it changes.
  */
-interface PanelSetup { setup: LiveCopySetup | null; confirmOpen: boolean; progressId: string | null; starting?: boolean }
+interface PanelSetup { setup: LiveCopySetup | null; confirmOpen: boolean; progressId: string | null; starting?: boolean; confirmError?: string | null }
 const EMPTY_SETUP: PanelSetup = { setup: null, confirmOpen: false, progressId: null };
 const panelSetups = new Map<string, PanelSetup>();
 let panelSetupScope: string | null = null;
@@ -49,9 +50,15 @@ export function usePanelSetup(identity: string | null, leader: string, mode: Sit
   const scope = liveSetupScope(identity), key = `${scope}:${leader}:${mode}`;
   const value = useSyncExternalStore((listener) => { panelSetupListeners.add(listener); return () => panelSetupListeners.delete(listener); },
     () => (scope && scope === panelSetupScope ? panelSetups.get(key) : undefined) ?? EMPTY_SETUP, () => EMPTY_SETUP);
+  useLayoutEffect(() => {
+    if (scope === panelSetupScope) return;
+    panelSetups.clear(); panelSetupScope = scope;
+    panelSetupListeners.forEach((listener) => listener());
+  }, [scope]);
   return [value, (change) => {
-    if (!scope) return;
-    if (scope !== panelSetupScope) { panelSetups.clear(); panelSetupScope = scope; }
+    // A late callback belongs to its original owner/session. It must not
+    // reactivate that scope or erase the current owner's operation.
+    if (!scope || scope !== panelSetupScope || liveSetupScope(identity) !== scope) return;
     panelSetups.set(key, { ...(panelSetups.get(key) ?? EMPTY_SETUP), ...change });
     panelSetupListeners.forEach((listener) => listener());
   }];
@@ -87,12 +94,19 @@ let measureContext: CanvasRenderingContext2D | null = null;
  * `sheet` is the phone version: the amount is typed on CopyDog's keypad with
  * 25% / 50% / 75% / 最大 presets and a USDC row instead of the slider.
  */
-export function CopyPanel(props: React.ComponentProps<typeof CopyPanelForm>) {
+type CopyPanelProps = Omit<React.ComponentProps<typeof CopyPanelForm>, "live">;
+export function CopyPanel(props: CopyPanelProps) {
   const { mode } = useTradingMode();
-  return <CopyPanelForm key={mode} {...props} />;
+  const flow = useTraderCopyFlow();
+  return flow ? <CopyPanelForm key={mode} live={flow} {...props} /> : <StandaloneCopyPanel key={mode} {...props} />;
 }
 
-function CopyPanelForm({ address, sheet = false, leaderPositions, traderName }: { address: string; sheet?: boolean; leaderPositions?: ReadonlyArray<{ coin: string; szi: number }>; traderName?: string }) {
+function StandaloneCopyPanel(props: CopyPanelProps) {
+  const live = useLiveCopySetupActions();
+  return <CopyPanelForm live={live} {...props} />;
+}
+
+function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, live }: { address: string; sheet?: boolean; leaderPositions?: ReadonlyArray<{ coin: string; szi: number }>; traderName?: string; live: ReturnType<typeof useLiveCopySetupActions> }) {
   const { t, format, locale } = useI18n();
   const toast = useToast(), pending = usePendingToast();
   const { status, login, identity } = useAuth();
@@ -111,10 +125,9 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName }: 
   const mode = trading.mode;
   const testnet = mode !== "paper";
   const wallet = useWallet();
-  const live = useLiveCopySetupActions();
   const liveCopies = useLiveCopyPortfolio();
   const liveExisting = liveCopies.data?.items.find((item) => item.leaderAddress === address.toLowerCase() && item.status !== "stopped" && item.network === (mode === "live" ? "mainnet" : "testnet")) ?? null;
-  const [{ setup, confirmOpen, progressId, starting = false }, updateSetup] = usePanelSetup(identity, address.toLowerCase(), mode);
+  const [{ setup, confirmOpen, progressId, starting = false, confirmError = null }, updateSetup] = usePanelSetup(identity, address.toLowerCase(), mode);
   // A start prepares the copy wallet, its agent and the deposit (10-20 s on
   // Privy): pending for the whole request, also across a remount (the
   // panel store), and the confirm sheet opens whenever it answers.
@@ -122,7 +135,7 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName }: 
   const setSetup = (next: LiveCopySetup | null) => updateSetup({ setup: next });
   const setConfirmOpen = (open: boolean) => updateSetup({ confirmOpen: open });
   const setProgressId = (id: string | null) => updateSetup({ progressId: id });
-  const [confirmError, setConfirmError] = useState<string | null>(null);
+  const setConfirmError = (error: string | null) => updateSetup({ confirmError: error });
   const [sizing, setSizing] = useState<"ratio" | "fixed">("ratio");
   const [perTrade, setPerTrade] = useState("");
   const [maxExposure, setMaxExposure] = useState("");

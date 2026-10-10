@@ -360,7 +360,7 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: 'POST', path: '/me/copy/live/mandates/:id/stop', status: 200, auth: 'user (owner); durable local risk barrier; no financial execution', response: liveCopyStopSchema },
   { method: 'POST', path: '/me/copy/live/execution-wallets/:id/positions/close', status: 200, auth: 'user (owner); one position of a running testnet copy; executed by the worker', response: liveManualCloseSchema },
   { method: 'GET', path: '/me/copy/live/execution-wallets/:id/closes', status: 200, auth: 'user (owner); read only', response: liveManualClosesSchema },
-  { method: "POST", path: "/me/copy/live/setups", status: 200, auth: "user (owner); testnet; prepares strategy, wallet, agent and deposit, no exchange call; one consent challenge", response: liveCopySetupSchema, errors: [...liveStrategyErrors, "setup_unavailable", "setup_wallet_conflict", "funding_pending"] },
+  { method: "POST", path: "/me/copy/live/setups", status: 200, auth: "user (owner); deployment network; prepares strategy, wallet, agent and deposit, no exchange call; one consent challenge", response: liveCopySetupSchema, errors: [...liveStrategyErrors, "setup_unavailable", "setup_wallet_conflict", "funding_pending"] },
   { method: "GET", path: "/me/copy/live/setups", status: 200, auth: "user (owner); read only", response: liveCopySetupsSchema },
   { method: "GET", path: "/me/copy/live/setups/by-key/:key", status: 200, auth: "user (owner); read-only original request recovery on this deployment network", response: liveCopySetupSchema },
   { method: "GET", path: "/me/copy/live/setups/:id", status: 200, auth: "user (owner); read only", response: liveCopySetupSchema },

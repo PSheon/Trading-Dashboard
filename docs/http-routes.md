@@ -108,9 +108,12 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | POST | `/me/copy/live/mandates/:id/stop` | 200 | user (owner); durable local risk barrier; no financial execution |
 | POST | `/me/copy/live/execution-wallets/:id/positions/close` | 200 | user (owner); one position of a running testnet copy; executed by the worker |
 | GET | `/me/copy/live/execution-wallets/:id/closes` | 200 | user (owner); read only |
-| POST | `/me/copy/live/setups` | 200 | user (owner); testnet; prepares strategy, wallet, agent and deposit, no exchange call; one consent challenge |
+| POST | `/me/copy/live/setups` | 200 | user (owner); deployment network; prepares strategy, wallet, agent and deposit, no exchange call; one consent challenge |
 | GET | `/me/copy/live/setups` | 200 | user (owner); read only |
+| GET | `/me/copy/live/setups/by-key/:key` | 200 | user (owner); read-only original request recovery on this deployment network |
 | GET | `/me/copy/live/setups/:id` | 200 | user (owner); read only |
+| GET | `/me/copy/live/setups/:id/abort` | 200 | user (owner); deployment capability; read-only original setup abort progress |
+| POST | `/me/copy/live/setups/:id/abort` | 200 | user (owner); deployment capability; durable original setup barrier and proof-bound return, no client amount, destination or signature |
 | POST | `/me/copy/live/setups/:id/confirm` | 200 | user (owner); the worker signer the browser added, the setup consent, the deposit signature and a fresh session; one deposit attempt |
 | POST | `/me/copy/live/setups/:id/advance` | 200 | user (owner); drives the setup now, signed by the worker; no body; attempted steps are only reconciled |
 | POST | `/me/copy/live/setups/:id/cancel` | 200 | user (owner); before the consent, or once the setup failed or expired |

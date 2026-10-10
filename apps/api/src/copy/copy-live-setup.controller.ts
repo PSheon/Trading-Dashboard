@@ -17,7 +17,7 @@ export class CopyLiveSetupController {
     if (!this.aborts) throw new ServiceUnavailableException({ statusCode: 503, code: 'setup_abort_unavailable', message: 'Saved setup aborts are unavailable' });
     return this.aborts;
   }
-  @Post('setups') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Start a one-click testnet copy', 'Idempotent by key: admits one original setup and prepares its paused strategy, wallet, agent and deposit in tracked background work. Quick preparation returns the consent; slow preparation returns its original id within ten seconds for read-only polling. No exchange call before confirmation.')
+  @Post('setups') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Start a one-click actual copy', 'Idempotent by key: admits one original setup and prepares its paused strategy, wallet, agent and deposit in tracked background work. Quick preparation returns the consent; slow preparation returns its original id within ten seconds for read-only polling. No exchange call before confirmation.')
   start(@CurrentUser() user: RequestUser | null, @Body() body: StartLiveCopyDto) { return this.setups.start(requireUserId(user), body); }
   @Get('setups') @Header('Cache-Control', 'no-store') @ApiDoc('List my one-click setups')
   list(@CurrentUser() user: RequestUser | null) { return this.setups.list(requireUserId(user)); }

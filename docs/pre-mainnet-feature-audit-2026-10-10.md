@@ -272,3 +272,15 @@ Stage 尚未部署本輪版本；等待安全修補的精確版本 CI 及正式 
 背景整批准入再補上現有15秒essential等待上限；原立即拒絕即將釋放配額的回歸1 FAIL／13 PASS，修後含永久不足與shutdown不派送，5檔75 PASS。沒有提高配額、放寬品質門檻或延長金融證據時效；新API完整suite仍在執行。手機探索列表也補上真實metrics觀察時間與24h過期提示；舊版回歸FAIL，修後通過，不以page fetch時間代替觀察時間。
 
 02:12 補驗：同一共用Chromium的隔離fixture context、CI相同Turbopack，公開持倉App Card16:9／Poster4:5在full-page截圖後仍各下載真正PNG；signature與尺寸1280×720／960×1200已核對，ROOT親看截圖。手機探索新指標時間390／320無溢出，實際呈現原觀察datetime与相對年齡，不使用重新fetch時間。這是fixture驗證，Stage原Paul登入不變，沒有金融操作。
+
+## 2026-10-11 02:58 發布與新增窄版持倉問題
+
+`0b5aa20a` 精確 CI 38074898555 已全綠：四組 API、201項Browser（66／71／64）、production build、compiled bootstrap、runtime image與migration/readiness。首次production build在next/font/google解析網址失敗；原始證據保留，同一版本重跑建置通過，沒有改timeout、skip或重試失敗的瀏覽器案例。本機API281檔／4503項、Web206檔／1414項PASS。Stage API `b4581e28-40b1-4f42-9e7f-160632bd2343`、worker `fcf04bf3-7f7f-4afe-80f5-68ad84345886`、web `fde93b9b-0abd-4e8e-b5f5-72d0ced8d76c`均官方SUCCESS，發布前Railway原生備份75e97e5a-b4ef-4977-bf01-217106801993可列出兩次；未匯出或還原資料库。
+
+新版Stage實際1440／390／320：portfolio、favorites、settings、推薦頁header及品牌footer、無水平溢出；手機footer bottom728、nav top764。menu動畫、登出hover、reduced-motion、焦點恢復與正式儲值展開通過；1440／390語言English→繁中與query保留通過，重複父region已移除。推薦複製、QR、短碼檢核、停用申領、主網入金地址與Sonner提示通過，沒有派送金融／推薦寫入。trader insights footer0、手機fixed跟單top764／bottom832；guest portfolio1440×900文件高900、footer底876。
+
+人工複核另發現320px持倉卡槓桿標籤與大額PnL重疊、四欄完整價格被截斷。原樣本10張卡重現12個標籤碰撞與11個價格截斷；已讓名稱與標籤換行、固定損益欄、480px以下價格改兩欄。共用Chromium同一資料320／390／480各10卡，碰撞與價格截斷全0、無overflow，完整Web1414及typecheckPASS。新增真幾何E2E回歸；這項修正尚待新CI／前端發布，不能冒稱已在Stage解決。localhost已恢復正常設定。
+
+新worker 18:36 UTC後至18:55的READ ONLY觀察：139位已嘗試、134成功、5容量等待、其他新錯誤0、全場域掃描3次成功。各群組尚未補齊；不降低80% headline／95% history門檻，也不把attemptedAt當freshness。主網wallet GET200、USDC／ETH／Hyperliquid餘額仍0，未簽署或派送主網交易。
+
+本日重新核對[Hyperliquid USDC官方文件](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/usdc)：本專案native Arbitrum USDC／Bridge2／最低5USDC仍與列出的legacy流程相符；官方已標示legacy bridge deprecated，CCTP為建議路徑。CCTP遷移屬獨立入金整合工作，不能把現有testnet驗證當作它的驗收。

@@ -11,7 +11,7 @@ import type {
 } from "@/lib/contracts";
 import { DataList } from "@/components/ui/data-list";
 import { ArrowDownRight, ArrowUpRight, Share2 } from "lucide-react";
-import { memo, useMemo, useState } from "react";
+import { memo, useMemo } from "react";
 import { cn } from "cn";
 
 import { CoinIcon } from "@/components/traders/coin-icon";
@@ -135,18 +135,18 @@ function PositionCard({ p, mark, onShare }: { p: LivePosition; mark: number | nu
       <div className="flex items-start gap-2">
         <CoinIcon coin={p.coin} size={30} />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <span className="flex min-w-0 items-center gap-1.5 text-base leading-6 font-semibold">
-            {coinLabel(p.coin)}
+          <span className="flex min-w-0 flex-wrap items-center gap-1.5 text-base leading-6 font-semibold">
+            <span className="max-w-full break-all">{coinLabel(p.coin)}</span>
             <span className={cn("chip-sm", p.side === "long" ? BUY_BADGE : SELL_BADGE)}>
               {t(p.side === "long" ? "trader.sideLong" : "trader.sideShort")}
             </span>
             <LeverageChip p={p} />
           </span>
-          <span className="num text-xs leading-[18px] text-muted-foreground">
+          <span className="num break-words text-xs leading-[18px] text-muted-foreground">
             {qty(Math.abs(p.szi))} {coinLabel(p.coin)}
           </span>
         </div>
-        <div className="flex flex-col items-end gap-[3px]">
+        <div className="flex shrink-0 flex-col items-end gap-[3px]">
           <span className={cn("num inline-flex items-center text-base leading-[23px] font-semibold", pnlTone(p.unrealizedPnl))}>
             {signedUsdShort(p.unrealizedPnl)}
             {/* 44 px to tap, without growing the card's first line. */}
@@ -160,7 +160,7 @@ function PositionCard({ p, mark, onShare }: { p: LivePosition; mark: number | nu
           ) : null}
         </div>
       </div>
-      <dl className="num grid grid-cols-4 gap-2 border-t-2 border-dotted border-border pt-3">
+      <dl className="num grid grid-cols-2 gap-2 border-t-2 border-dotted border-border pt-3 min-[480px]:grid-cols-4">
         {[
           [t("trader.cols.value"), usd2(p.positionValue), ""],
           [t("trader.cols.entry"), price(p.entryPx), ""],

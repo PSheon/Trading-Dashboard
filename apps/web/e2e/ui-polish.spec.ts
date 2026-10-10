@@ -63,6 +63,34 @@ test("cohort headers stick inside the table's single scrolling viewport", async 
   expect(gap).toBeLessThan(1);
 });
 
+test("phone position labels and prices stay readable beside large PnL figures", async ({ page, context }) => {
+  await context.routeWebSocket(/hyperliquid/, ws => ws.close());
+  // The unranked fixture retains the real sample's large stock positions.
+  await page.goto("/en/trader/0x1111111111111111111111111111111111111111");
+  const cards = page.locator('main [data-slot="data-list"][data-variant="cards"] > li').filter({ visible: true });
+  await expect(cards.first()).toBeVisible();
+  for (const width of [320, 390, 480]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expect.poll(() => cards.evaluateAll(elements => elements.flatMap(card => {
+      const row = card.firstElementChild!;
+      const identity = row.children[1].firstElementChild!;
+      const pnl = row.children[2].firstElementChild!.getBoundingClientRect();
+      const boxes = [...identity.children].map(el => el.getBoundingClientRect());
+      for (const node of identity.childNodes) if (node.nodeType === Node.TEXT_NODE && node.textContent?.trim()) {
+        const range = document.createRange(); range.selectNode(node); boxes.push(range.getBoundingClientRect());
+      }
+      return boxes.filter(box => box.width > 0 && box.bottom > pnl.top && box.top < pnl.bottom && box.right > pnl.left - 4)
+        .map(() => card.textContent?.trim());
+    }))).toEqual([]);
+    await expect.poll(() => cards.evaluateAll(elements => elements.flatMap(card => {
+      return [...card.querySelectorAll('dd')].filter(el => el.scrollWidth > el.clientWidth)
+        .map(el => el.textContent);
+    }))).toEqual([]);
+    await expectNoSidewaysScroll(page);
+    await shot(page, `position-card-large-pnl-${width}`);
+  }
+});
+
 test("phone trader chrome floats like the home nav and fades scrolling content under its header", async ({ page }) => {
   await page.goto("/en");
   const nav = page.getByRole("navigation", { name: "Main navigation" });

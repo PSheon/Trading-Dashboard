@@ -52,7 +52,7 @@
 
 12:05：burst84新五來源對帳PASS，4領單／4派送／2跟單，48.992661原退款credited、actual exit0；一般BASE83仍FAIL，原38.981991退款credited、actual exit1。四個帳戶canonical全268場域收尾均PASS、pending全0且未暫停worker；主81.493385／leader20.843181、跟單餘額0。前端完整203檔1372項及型別檢查PASS。首跟單112.62秒仍偏長，不能把burstPASS寫成延遲問題全部修復；一般流程的5秒證據預算與歷史重驗成本仍需改善。
 
-## 目前46項問題概覽
+## 目前48項問題概覽
 
 下表區分真實金融、線上匿名畫面、GET fixture與回歸測試；未具備條件的支線另註，不用單元測試或示意資料代替實測。
 
@@ -103,7 +103,9 @@
 | 43 | 結算後資產快照缺失 | 已修正／管理流程實測PASS | 73／75嚴格五來源對帳PASS，原proof保存、舊觀察防覆寫；77／78前四腿已settled，但一般BASE對帳FAIL，不能宣稱一般流程全部解決 |
 | 44 | pause後減倉遲到 | 已修正／實測PASS | 原73pause禁open、reduce在原期限內執行；75帶倉緊急全平亦PASS，平台已恢复／撤權；歷史FAIL保留 |
 | 45 | 全停止history叫跟單中 | 已實作／parent回歸 | 11locale中性My copies／我的跟單；保留history/count/stoppedstatus，未隱藏資料 |
-| 46 | 訂單時間缺時區標示 | 本機已修／待Browser與部署 | 全專案formatter原為UTC；paper桌機表頭／手機明細補UTC，避免把截圖14:15當台北時間 |
+| 46 | 訂單時間缺時區標示 | 已部署／Stage登入Browser PASS | Stage模擬訂單1440表頭與390展開明細均明示UTC；原截圖14:15不能解讀為台北時間 |
+| 47 | 窄版持倉標籤碰撞大額PnL | 本機已修／待新CI與Stage前端發布 | 原320真Stage NEAR重疊；10卡fixture重現12個碰撞，修正後320／390／480全0，無橫向溢出 |
+| 48 | 窄版進場／強平價格截斷 | 本機已修／待新CI與Stage前端發布 | 原320 fixture有11個完整價格截斷；480px以下改兩欄，同10卡320／390／480全部完整顯示，Web1414／typecheckPASS |
 
 
 ## 10/08 14:05 舊畫面紀錄
@@ -385,3 +387,7 @@ v5只讀官方結果 closuresVerified=true：原80／81／82跟單帳戶全部26
 登入後空倉 portfolio 桌面仍有27px多餘捲動，已修正共用AppShell的桌面flex高度與內容／footer間距。正常user14、無fixtures、金融／provider寫入全攔截的實際Browser驗證：1440×900收合歷史頁面高度900、footer bottom876；展開50筆歷史頁面高度3658，仍可自然捲動。390與320手機footer和浮動navigator之間至少36px，沒有遮擋或水平溢出。三尺寸總價值仍只在trigger、選單操作至少44px，沿用Orbie風格。
 
 最新完整WEB 203檔／1372項、型別與scoped lint均實際exit0。證據 .claude/codex-verification/recovery/ui-authenticated-fit/records.json及同目錄PNG。此修正僅本機，未部署。Testnet核心B段目前6 PASS／1 SKIP／1 FAIL：新版burst84通過並退款，全268場域四帳戶收尾通過；BASE83仍因送單前原證據超過5000ms失敗。不能將前端回歸或退款成功當作所有交易測試完成。
+
+## 2026-10-11 02:58 新版Stage與窄版持倉收尾
+
+`0b5aa20a`三服務均已發布SUCCESS、CI38074898555全綠／201Browser PASS。實際1440／390／320四頁header/footer、menu、推薦、trader浮動控制、guest一頁高度通過；最新證據為stage-0b系列。人工截圖複核另抓到47／48內部碰撞及價格截斷，已修正並完成RED→GREEN／完整Web1414／typecheck，正在發布新前端。這兩项未完成前不宣告全部UI完成。洞察資料覆蓋尚未完成。

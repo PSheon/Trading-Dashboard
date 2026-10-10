@@ -26,7 +26,7 @@ for (const width of [1440, 390]) {
       await page.goto("/en/portfolio?signer=fixture&wallet=funded");
       await signIn(page);
       await page.goto(TRADER);
-      await page.getByRole("button", { name: "Account", exact: true }).filter({ visible: true }).click();
+      await page.getByRole("button", { name: "Account", exact: true }).and(page.locator('[aria-haspopup="dialog"]')).filter({ visible: true }).click();
       await expect(page.getByRole("radio", { name: "Paper", exact: true })).toHaveAttribute("aria-checked", "true");
       await page.getByRole("radio", { name: "Testnet", exact: true }).click();
       await page.keyboard.press("Escape");
@@ -69,16 +69,17 @@ for (const width of [1440, 390]) {
       await expect(page).toHaveURL(/\/en\/portfolio/);
       // A copy is a card (name, status; PnL and ROI) that opens its detail sheet.
       const card = page.getByTestId("live-copy-card").filter({ visible: true }).first();
-      await expect(card).toContainText("Copying");
+      await expect(card).toContainText("Strategy enabled");
+      await expect(card).toContainText("Account observation unconfirmed");
       await card.click();
       const copies = page.getByTestId("live-copy-sheet");
-      await expect(copies).toContainText("Active");
+      await expect(copies).toContainText("Strategy enabled");
       await expect(copies).toContainText(/Runs until/);
       // Pause and resume need no signature.
       await copies.getByRole("button", { name: "Pause", exact: true }).click();
       await expect(copies).toContainText("Paused");
       await copies.getByRole("button", { name: "Resume", exact: true }).click();
-      await expect(copies).toContainText("Active");
+      await expect(copies).toContainText("Strategy enabled");
       // Edit: one consent, a new generation.
       await copies.getByRole("button", { name: "Edit settings", exact: true }).click();
       const edit = page.getByRole("dialog", { name: "Edit settings" });

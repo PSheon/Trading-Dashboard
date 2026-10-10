@@ -12,7 +12,7 @@ test("anonymous admin gate, demo login and logout clear private UI", async ({ pa
   await expect(page.getByRole("table")).toHaveCount(0);
   await signIn(page);
   await expect(page.getByRole("table")).toBeVisible();
-  await page.getByRole("button", { name: "Account", exact: true }).click();
+  await page.getByRole("button", { name: "Account", exact: true }).and(page.locator('[aria-haspopup="dialog"]')).click();
   await page.getByRole("button", { name: "Logout", exact: true }).click();
   await expect(page.getByRole("table")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Demo login", exact: true })).toBeVisible();
@@ -31,7 +31,7 @@ for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto("/en/settings?tab=referral&view=referral");
     await signIn(page);
-    const trigger = page.getByRole("button", { name: "Account", exact: true }).filter({ visible: true }).first();
+    const trigger = page.getByRole("button", { name: "Account", exact: true }).and(page.locator('[aria-haspopup="dialog"]')).filter({ visible: true }).first();
     await trigger.click();
     const menu = page.getByTestId("account-menu-card");
     const surface = page.locator(width < 768 ? ".account-menu-sheet" : ".account-menu-popover");

@@ -152,8 +152,8 @@ test("an account switch in the same tab shows the new person none of the previou
   await expect(page.getByText("等待你確認").filter({ visible: true }).first()).toBeVisible({ timeout: 15000 });
   // Sign out and in as someone else, in the same tab (no reload: the
   // page's in-memory stores survive, so this is what they must not leak).
-  await page.getByRole("button", { name: "帳戶", exact: true }).filter({ visible: true }).first().click();
-  await page.getByRole("menuitem", { name: "登出" }).click();
+  await page.getByRole("button", { name: "帳戶", exact: true }).and(page.locator('[aria-haspopup="dialog"]')).filter({ visible: true }).first().click();
+  await page.getByRole("button", { name: "登出", exact: true }).click();
   await page.evaluate(() => history.replaceState(null, "", `${location.pathname}${location.search}&as=second`));
   await login(page);
   await selectTradingMode(page, "testnet", "zh-TW");

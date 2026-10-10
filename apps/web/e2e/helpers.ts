@@ -77,7 +77,7 @@ export async function saveSettings(page: Page) {
 export async function selectTradingMode(page: Page, mode: "paper" | "testnet" | "live", locale: "en" | "zh-TW" = "en") {
   const account = locale === "en" ? "Account" : "帳戶";
   const labels = locale === "en" ? { paper: "Paper", testnet: "Testnet", live: "Live" } : { paper: "模擬", testnet: "測試網", live: "正式" };
-  await page.getByRole("button", { name: account, exact: true }).filter({ visible: true }).click();
+  await page.getByRole("button", { name: account, exact: true }).and(page.locator('[aria-haspopup="dialog"]')).filter({ visible: true }).click();
   await page.getByRole("radio", { name: labels[mode], exact: true }).click();
   await page.keyboard.press("Escape");
 }

@@ -36,6 +36,7 @@ import {
 } from "./performance";
 import { ProfileCard, ProfileCardSkeleton } from "./profile-card";
 import { TextButton } from "@/components/ui/text-button";
+import { SkelBar } from "@/components/page";
 
 /** What the page read on the server (`prefetchTrader`); either is null when
  * the api did not answer in time, and the browser reads it as before. */
@@ -63,7 +64,16 @@ function TraderLoading({ address, profile }: { address: string; profile?: Trader
           {profile ? <ProfileCard profile={profile} allTimeVolume={null} trades={undefined} tradesComputing /> : <ProfileCardSkeleton />}
         </div>
         <div data-area="main" className="flex min-w-0 flex-col gap-4"><TraderMainSkeleton address={address} /></div>
-        <div data-area="copy"><CopyPanel address={address} /></div>
+        {/* This layout is replaced once the profile/viewport resolves. A live
+         * start here would lose its mounted owner guard during that replacement. */}
+        <div data-area="copy">
+          <aside aria-hidden="true" className="orbit-card card-pad ui-skeleton flex flex-col gap-8">
+            <SkelBar className="h-11 w-full" />
+            <SkelBar className="h-[85px] w-full" />
+            <SkelBar className="h-5 w-2/3" />
+            <SkelBar className="h-14 w-full" />
+          </aside>
+        </div>
       </div>
     </>
   );

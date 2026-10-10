@@ -38,7 +38,7 @@ vi.mock("../src/lib/queries", () => ({
 }));
 vi.mock("../src/lib/use-live-trader", () => ({ useLiveTrader: (_a: string, profile: unknown) => ({ profile, fills: [], mids: {} }) }));
 vi.mock("../src/components/trader/profile-card", () => ({ ProfileCard: () => null, ProfileCardSkeleton: () => null }));
-vi.mock("../src/components/trader/copy-panel", () => ({ CopyPanel: () => null }));
+vi.mock("../src/components/trader/copy-panel", () => ({ CopyPanel: () => <button data-testid="start-copy">Start copying</button> }));
 
 const address = `0x${"ab".repeat(20)}`;
 const known = { address, stats: { displayName: null }, positions: [], spotBalances: [], kol: null, analytics: null, isVault: false, tracked: false,
@@ -81,4 +81,11 @@ describe("the trader page asks for the fill lists after its first paint", () => 
     render();
     expect(state.fillsEnabled).toEqual([]);
   });
+});
+
+it("does not admit a copy from the loading layout that will be replaced after hydration", () => {
+  state.profile = undefined;
+  expect(render()).not.toContain("start-copy");
+  state.profile = known;
+  expect(render()).not.toContain("start-copy");
 });

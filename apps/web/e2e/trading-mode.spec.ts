@@ -6,7 +6,7 @@ for (const width of [1440, 390, 320]) test(`account mode controls funds, portfol
   await context.addInitScript(() => localStorage.setItem("fixture-signed-in", "1"));
   await page.setViewportSize({ width, height: 844 });
   await page.goto("/en/portfolio?signer=fixture&wallet=funded");
-  const account = page.getByRole("button", { name: "Account", exact: true }).filter({ visible: true });
+  const account = page.getByRole("button", { name: "Account", exact: true }).and(page.locator('[aria-haspopup="dialog"]')).filter({ visible: true });
   await expect(account).toContainText("Paper");
   await expect(page.locator('[data-view="paper"]').filter({ visible: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Deposit", exact: true }).filter({ visible: true })).toHaveCount(0);
@@ -22,7 +22,7 @@ for (const width of [1440, 390, 320]) test(`account mode controls funds, portfol
   await expect(page.locator('[data-testid="my-funds"]').filter({ visible: true })).toBeVisible();
   await expect(page.getByRole("tab", { name: /^(Paper|Live|Testnet)$/ })).toHaveCount(0);
   await page.goto("/en/trader/0xbf732ea04197942783e34730ed6e0f6099575d58");
-  const traderAccount = page.getByRole("button", { name: "Account", exact: true }).filter({ visible: true });
+  const traderAccount = page.getByRole("button", { name: "Account", exact: true }).and(page.locator('[aria-haspopup="dialog"]')).filter({ visible: true });
   await expect(traderAccount).toContainText("Testnet");
   await traderAccount.click();
   await page.getByRole("radio", { name: "Paper", exact: true }).click();

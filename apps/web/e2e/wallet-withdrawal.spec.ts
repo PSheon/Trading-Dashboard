@@ -6,7 +6,7 @@ for (const width of [1440, 390]) test(`an account without an available signer ca
   await page.setViewportSize({ width, height: 900 });
   await page.goto("/en/portfolio?wallet=funded&view=real");
   await signIn(page);
-  await page.getByRole("button", { name: "Account", exact: true }).filter({ visible: true }).click();
+  await page.getByRole("button", { name: "Account", exact: true }).and(page.locator('[aria-haspopup="dialog"]')).filter({ visible: true }).click();
   await expect(page.getByRole("radio", { name: /Testnet/ })).toBeDisabled();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "Withdraw", exact: true }).filter({ visible: true })).toHaveCount(0);

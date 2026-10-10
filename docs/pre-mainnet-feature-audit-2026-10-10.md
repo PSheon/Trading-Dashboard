@@ -206,3 +206,13 @@ Stage 尚未部署本輪版本；等待安全修補的精確版本 CI 及正式 
 - 新增桌面及手機真實瀏覽器驗收：主選單上下方向、二級水平動畫、Escape返回與焦點恢复、主題切換及恢复、登出error hover色、reduced-motion。尚待下一輪 CI 實際驗收，沒有冒充 PASS。
 
 取消與首次失敗保留在忽略的原始 CI logs；沒有增加 timeout、retry 或跳過失敗測試，也沒有為跑本機 fixture 關掉登入中的 Stage 瀏覽器／再開第二個 Next server。
+
+## 23:35 第二輪瀏覽器回歸與載入競態
+
+`1fe487ce` CI 整體 FAIL：build、checks、四個 API shard、migration／backup smokes 都 PASS；browser1 58 PASS／8 FAIL、browser2 67 PASS／4 FAIL、browser3 63 PASS／1 FAIL。新增桌面／手機帳戶動畫與焦點／主題／登出顏色驗收已 PASS。
+
+- 桌面 Settings 的帳戶導航與 top-bar 帳戶 trigger 同名；trace 證明舊 helper 點了導航。現在以實際 `aria-haspopup=dialog` 限定共享選單，不增加等待或盲點擊。
+- 跟單卡與詳情已區分「策略已啟用」與「帳戶觀察尚未確認」，恢復測試仍期待舊「跟單中／停止中」。更新測試核對新狀態及觀察未確認提示；登出按鈕改用實際 button role。
+- busy desktop light 的確認視窗消失是實際載入競態：trace 顯示先在 TraderLoading 的可操作表單開始，再於 screenshot 期間切入正式 DesktopTrader。準備回覆因原元件卸載而遭 owner guard 拒絕，伺服器的 awaiting_consent 仍留在 portfolio。載入版改成無操作的骨架，只讓正式畫面提供跟單，保留全部簽署／帳號切換 guard；新增渲染測試先重現 FAIL，修後相關四檔23 PASS。這不是因為測試網一定失敗，也沒有移除 unmount 的安全檢查。
+
+目前仍等待修正後精確版本 CI；Stage 尚未部署此輪，不宣稱發布完成。

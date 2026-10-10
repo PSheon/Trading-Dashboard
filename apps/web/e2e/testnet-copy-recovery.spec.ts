@@ -109,10 +109,12 @@ for (const width of [1440, 390]) {
         await expect(page.getByRole("dialog", { name: "跟單已開始" })).toBeVisible({ timeout: 30000 });
         await page.getByRole("link", { name: "前往投資組合" }).click();
         await expect(page).toHaveURL(/\/zh-TW\/portfolio/);
-        // Two cards for the same trader: the new copy (跟單中) and the old account (停止中), whose sheet offers the return.
+        // The new strategy is enabled, but absent observations must not imply confirmed execution or P&L.
+        // The previous account is preparing its return, not already credited.
         const cards = page.getByTestId("live-copy-card").filter({ visible: true });
-        await expect(cards.filter({ hasText: "跟單中" })).toBeVisible();
-        await cards.filter({ hasText: "停止中" }).click();
+        await expect(cards.filter({ hasText: "策略已啟用" })).toBeVisible();
+        await expect(cards.filter({ hasText: "策略已啟用" })).toContainText("帳戶觀察尚未確認");
+        await cards.filter({ hasText: "準備返還" }).click();
         const copies = page.getByTestId("live-copy-sheet");
         await expect(copies).toContainText("資金返還中");
         await expect(copies.getByRole("button", { name: "全部返還主錢包" })).toBeVisible();

@@ -1,5 +1,13 @@
 # UI/UX 問題清單 — 2026-10-08
 
+## 2026-10-11 01:55 最新驗收
+
+本機 testnet B 已依 Paul 同意以7 PASS／⑧ SKIP結案，保留逾時；下方 BASE90／91 FAIL 是歷史，不代表仍未結案。`0a703cfd` CI 全綠（含201項瀏覽器），Stage API／worker／web三者均SUCCESS。
+
+真人登入 Stage 桌面1440、手機390／320逐頁實測：portfolio、favorites、settings、推薦頁 header／品牌footer／無溢出；手機真捲底 footer bottom728、浮動nav top764；未登入桌面portfolio一頁900px。menu桌面向下／手機向上、二級向右、主題、語言切換、Escape焦點、reduced-motion、登出hover、正式儲值展開／模擬inert均通過。推薦複製／QR、停用申領、儲值address／Sonner提示通過；trader insights不顯示footer、手機fixed跟單top764/bottom832通過。
+
+實際另發現推薦頁手機標題重複、桌面父子region英文同名；正在發布隱藏手機重複視覺標題並保留可存取名稱、移除父region重複標籤。完整Web1,412 PASS，尚待新版本部署後截图。洞察資料覆蓋仍不足，是本輪未結案問題；404缺圖修正已在Stage回204。返佣仍無實際費用與支付整合且停用；主網零資金尚未做真錢端到端，不能當成已測。詳見主網前功能檢查的最新狀態。
+
 供 Paul 檢閱。整理親眼檢查的桌機／手機畫面、實際帳號操作及 testnet 測試紀錄，並納入接續測試的新發現；10/09最新前端已部署 Stage web，金融服務未隨本次發布更新。
 
 沿用 Orbie 風格。以下最新狀態與46項概覽優先，後面的日期段落是保留的歷史紀錄；舊金額、失敗數及部署狀態不代表目前狀態。

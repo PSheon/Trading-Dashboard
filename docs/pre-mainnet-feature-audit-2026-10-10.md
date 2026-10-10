@@ -1,5 +1,18 @@
 # 主網前功能與推薦系統檢查（2026-10-10）
 
+## 2026-10-11 01:53 當前狀態（優先於下列歷史紀錄）
+
+- `0a703cfd` 精確 CI `38070483007` 全綠；瀏覽器三分片合計 201 PASS，含桌面／手機明暗慢速跟單。完整 Web 205 檔／1,412 PASS；API 原版本 280 檔／4,487 PASS。testnet B 維持使用者接受的 7 PASS、⑧ SKIP，保留逾時，不改寫歷史失敗。
+- Stage 同版本 API `fef73243-9c22-4785-a4ac-16470e6e8644`、worker `1d3edb7a-4524-4df5-9c71-c57680d0246e`、web `ea46af13-9d12-4001-bcb0-239557238b51` 均官方 SUCCESS。雲端備份 `c967f938-ff7b-4ae8-a37c-4af654f08ceb` 已核對；沒有本機資料匯出。
+- Stage 登入帳號實測 1440×900、390×844、320×844：portfolio／favorites／settings／推薦頁 header、品牌 footer、無橫向溢出；手機 footer bottom≈728、浮動導覽 top764。未登入桌面 portfolio documentHeight900、footer bottom876，符合一頁。
+- user menu 桌面向下／手機向上、二級向右動畫；語言實際切英文與繁中且保留 query；深色／系統主題、Escape 焦點復原、reduced-motion、登出 error hover 均通過。模擬模式儲值寬度0且 inert／disabled；正式模式正常展開。沒有按登出。
+- 推薦邀請複製、QR、短碼拒絕、政策／獎勵申領停用、正式 Arbitrum 儲值地址及單一 Sonner 複製提示通過；沒有改碼、綁定、申領或金融 POST。好友真實返佣的費用歸屬／treasury／支付 adapter 仍未完成且停用，不列為完整返佣。
+- 交易員 insights 無 footer、其餘頁籤保留；手機跟單 fixed 區 top764／bottom832，儲值入口可見，無溢出。正常設定的本機手機搜尋實際已通過；第一次冷編譯30秒導航 timeout 保留，不當 PASS。
+- Stage `/me/copy/live` 當次主網 capability：actualAllowed／automaticExecution／setupAbort 均 true；schema 與 migration 已唯讀核對。零資金帳號尚未做真實主網入金、簽署、成交或退款，不得稱主網端到端已完成。
+- Stage 洞察 API 均200、已知缺圖204；資料仍未完整補齊：01:49 只有 break_even 達 headlineReady，其餘六層不足，extremely_profitable 歷史仍停在10/6。已開始修正整批多市場配額准入，72 項針對回歸 PASS；新版完整 API／CI／部署尚待完成，不能把這項宣稱已解決。
+
+實際瀏覽器證據位於忽略目錄 `.claude/codex-verification/recovery/stage-acceptance-0a703cfd.json` 與對應截圖。兩次手機 footer 驗證曾在資料載入前捲底造成 FAIL；等內容實際載入並重新捲至真底後幾何通過。語言腳本曾遇英文父子 region 同名的 strict selector 錯誤；實際切換功能通過，另修移除重複 region 標籤及手機重複標題，完整 Web 仍1,412 PASS；這兩項新修正尚未部署。
+
 ## 放行判斷
 
 本機 testnet B 已依使用者同意結案：7 PASS、⑧依原規則 SKIP，逾時紀錄保留。不需要因本次產品檢查重新執行整套金融測試。

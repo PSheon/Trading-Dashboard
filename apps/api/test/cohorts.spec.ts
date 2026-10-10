@@ -99,6 +99,10 @@ describe("cohort job and endpoints (real Postgres)", () => {
   const settingsValue = discoverySettingsSchema.parse({});
   const settings = { get: vi.fn(async () => settingsValue) } as unknown as SettingsService;
   const info = {
+    clearinghouseStates: vi.fn(async (address: string, dexes: readonly string[], _rank: number, onDispatch: () => void): Promise<ReturnType<typeof state>[]> => {
+      onDispatch();
+      return Promise.all(dexes.map(dex => info.clearinghouseState(address, dex || undefined)));
+    }),
     perpDexs: vi.fn(async () => [null, { name: "xyz" }, { name: "flx" }]),
     clearinghouseState: vi.fn(async (address: string, dex?: string) =>
       dex === "xyz" ? state(100, [["xyz:TSLA", 1, 500, 5]]) : dex ? state(0, []) : state(address === addr(1) ? 10_000 : 2_000, [["BTC", address === addr(1) ? 1 : -1, 20_000, address === addr(1) ? 100 : -40]])),

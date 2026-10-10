@@ -199,11 +199,11 @@ export class CohortService {
       // within a day).
       swept = member.sweptAt === null || now - member.sweptAt.getTime() >= SWEEP_MS;
       const dexes = swept ? all : member.dexes.filter((d) => all.includes(d));
-      const states = await Promise.all(["", ...dexes].map((dex) => {
-        weight += WEIGHT_STATE;
-        calls += 1;
-        return this.info.clearinghouseState(member.address, dex || undefined, "background", COHORT_RANK);
-      }));
+      const venues = ["", ...dexes];
+      const states = await this.info.clearinghouseStates(member.address, venues, COHORT_RANK, () => {
+        weight = WEIGHT_STATE * venues.length;
+        calls = venues.length;
+      });
       const { positions, equity } = positionsFrom(states);
       // Keep querying dexes the member traded; add any it now holds.
       const held = positions.map((p) => dexOf(p.coin)).filter(Boolean);

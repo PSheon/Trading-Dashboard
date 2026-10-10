@@ -27,6 +27,10 @@ function setup(fail: (address: string) => unknown) {
   const base = testConfig().value;
   const config = { value: { ...base, tuning: { ...base.tuning, discovery: { ...base.tuning.discovery, cohortRefreshMinutes: 40 } } } };
   const info = {
+    clearinghouseStates: async (address: string, dexes: readonly string[], _rank: number, onDispatch: () => void): Promise<{assetPositions: never[]; marginSummary: {accountValue: string}}[]> => {
+      onDispatch();
+      return Promise.all(dexes.map(() => info.clearinghouseState(address)));
+    },
     perpDexs: async () => [],
     clearinghouseState: async (address: string) => {
       const error = fail(address);

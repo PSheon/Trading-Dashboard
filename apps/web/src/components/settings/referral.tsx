@@ -294,7 +294,7 @@ function ReferralView() {
     : null;
   return (
     <section aria-label={t("referral.title")} className="space-y-5 pt-5 pb-8">
-      <h2 className="text-lg font-bold">{t("referral.title")}</h2>
+      <h2 className="sr-only text-lg font-bold md:not-sr-only">{t("referral.title")}</h2>
       <p className="text-sm text-muted-foreground">
         {t("referral.payoutUnavailable")}
       </p>

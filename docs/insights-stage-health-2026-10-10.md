@@ -1,5 +1,14 @@
 # 洞察頁 404 與 Stage 資料健康檢查 — 2026-10-10
 
+## 10/11 01:53 更新（優先於原始檢查）
+
+Stage 已部署 `0a703cfd` API／worker／web 且三者 SUCCESS；實際已知缺圖 NATGAS 回204，七層 detail／history 均200。資料品質仍未通過：01:49 extremely_profitable 82/383、very_profitable121/191、profitable79/109、break_even60/72、unprofitable26/157、very_unprofitable20/124、rekt39/91；只有 break_even headlineReady=true。extremely_profitable 歷史最後點仍10/6，不把 HTTP200 當正常補齊。
+
+找到另一個結構性浪費：每市場分別准入，剩4 weight但完整成員需要6時，原程式送出2個市場後拒絕第3個，既耗配額又沒有完整快照。新增以真實 InfoClient／global transport 驗證的回歸，舊版2 FAIL／1 PASS；修後整批先採用 background lane，完整重量一次准入後才送任何讀取，針對性5檔72 PASS。全市場回覆完成且 schema 有效才存快照；派送後 timeout／429／malformed不退款，只有未派送的本機排程重量可回補；共享已使用配額不退款、不提高上限、不占 page／live 保留量。原金融 batch 上限16保持，背景 sweep有界64。
+
+原配額拒絕65秒／provider失敗5分鐘 retry、公平 attemptedAt 排序仍保留。新版完整 API 回歸／CI／部署與更新成效尚待完成。不得降低80% headline／95%歷史品質門檻、延長 freshness、補造歷史或調高成本上限來假裝解決。
+
+
 檢查時間：台北 2026-10-10 01:27 前後。Stage 與資料庫均唯讀；未改 Railway 設定、未重啟、未部署或操作資金。
 
 ## 結論

@@ -1,5 +1,7 @@
 # 主網第一筆跟單操作手冊（Paul，2026-10-07 09:00）
 
+> **歷史手冊，2026-10-11 註記：** 以下10/7的停止能力限制、候選交易員活動、資金103USDC範例與待部署版本已過期，不是目前執行／入金／簽署授權。最新Stage為0a703cfd且主網setupAbort capability已true；實際C段尚未開始。請以[主網前功能檢查](pre-mainnet-feature-audit-2026-10-10.md)與[主網測試狀態](mainnet-test-status-2026-10-09.md)核對當次版本、資金、有效風控，再逐筆取得Paul當下确认；不得照舊候選／金額自動操作。
+
 Stage：<https://web-staging-9f98.up.railway.app>。上限：每筆跟單預算 ≤ 50 USDC、固定金額每筆 12–15 USDC、槓桿 ≤ 3x、最多 2 筆。
 
 ## 0. 開始前（主 session 確認）

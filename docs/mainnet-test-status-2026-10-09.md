@@ -1,5 +1,13 @@
 # 2026-10-09 主網驗收進度
 
+## 2026-10-11 01:55 最新狀態（下方為歷史）
+
+- testnet B依使用者同意結案：7 PASS、⑧ SKIP，保留逾時；沒有將舊FAIL改寫或重新清理資金。
+- `0a703cfd`精確CI全綠，瀏覽器201 PASS。Stage API `fef73243-9c22-4785-a4ac-16470e6e8644`／worker `1d3edb7a-4524-4df5-9c71-c57680d0246e`／web `ea46af13-9d12-4001-bcb0-239557238b51`均SUCCESS；雲端备份`c967f938-ff7b-4ae8-a37c-4af654f08ceb`已核對。
+- 真人Stage desktop1440、phone390／320的header/footer、menu、推薦唯讀、儲值顯示、trader漂浮UI已通過；正式overview的setupAbort現在true，不再套用歷史false限制。
+- 洞察資料未補齊，整批多市場background配額准入修正72項針對回歸PASS，完整API／CI／部署正在完成；未降低資料品質／成本門檻。
+- 主網最後資金唯讀為0，沒有真錢簽署／入金／成交／退款，C段未開始。每次真錢動作需Paul當下確認。好友返佣尚無實際費用歸屬與支付adapter，保持停用，不放行完整返佣。
+
 Paul 最新指示：今天開始主網測試、優先找出問題。已開始 Stage／主網唯讀驗收，不再把主網準備排在所有 testnet 項目之後；尚未提交真錢交易或簽名。原真錢逐次確認與資金上限仍保留。
 
 ## 已驗證

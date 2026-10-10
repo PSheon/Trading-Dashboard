@@ -163,6 +163,41 @@ export class HyperliquidInfoClient {
   /** The tail of this process's analytics reads (see `analyticsTurn`). */
   private analyticsQueue: Promise<void> = Promise.resolve();
 
+  /** A member's complete perp snapshot: one local admission and one capped
+   * shared admission for every venue, before any provider read is sent. */
+  async clearinghouseStates(address: string, dexes: readonly string[], rank?: number, onDispatch?: () => void): Promise<HlClearinghouseStateResponse[]> {
+    if (!(this.globalTransport instanceof HyperliquidGlobalTransport)) throw new LiveBoundaryError('hyperliquid_quota_egress_unconfigured');
+    if (!/^0x[0-9a-fA-F]{40}$/.test(address) || !Array.isArray(dexes) || dexes.length < 1 || dexes.length > 64 || dexes[0] !== ''
+      || rank !== undefined && (!Number.isSafeInteger(rank) || rank <= PAGE_WORK_MAX_RANK)
+      || new Set(dexes).size !== dexes.length || dexes.some(dex => typeof dex !== 'string' || dex.length > 256 || /[\p{Cc}\p{Cf}]/u.test(dex))) throw new Error('Invalid complete perp snapshot');
+    const caller = currentRequestSignal();
+    const queued = AbortSignal.any([this.jobs.signal, ...(caller ? [caller] : [])]);
+    const weight = WEIGHT_CLEARINGHOUSE_STATE * dexes.length;
+    await this.budgeter.acquire(weight, 'background', rank, { signal: queued });
+    let dispatched = false;
+    try {
+      const bodies = dexes.map(dex => ({ type: 'clearinghouseState', user: address, ...(dex ? { dex } : {}) }));
+      const signal = AbortSignal.any([queued, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]);
+      const responses = await this.globalTransport.fetchBackgroundInfoBatch(this.config.value.hyperliquid.apiUrl, bodies, {
+        signal, onDispatch: () => { dispatched = true; onDispatch?.(); return signal; },
+      });
+      if (responses.some(response => response.status === 429)) {
+        this.budgeter.onRateLimited();
+        throw new Error('Hyperliquid info request failed: 429');
+      }
+      const failure = responses.find(response => !response.ok);
+      if (failure) throw new Error(`Hyperliquid info request failed: ${failure.status}`);
+      const states = await Promise.all(responses.map(async response => validateInfoResponse('clearinghouseState', await readInfoJson(response, 'clearinghouseState')) as HlClearinghouseStateResponse));
+      this.budgeter.onSuccess();
+      return states;
+    } catch (error) {
+      // This refunds only local scheduling, only when the permit never
+      // dispatched. Shared quota and any dispatched work stay charged.
+      if (!dispatched) this.budgeter.adjust(-weight);
+      throw error;
+    }
+  }
+
   /**
    * Waits until every trade-analytics read queued before this one has
    * finished, and returns the release of this one's turn. Where the

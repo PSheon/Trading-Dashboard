@@ -278,7 +278,7 @@ function DesktopSettings() {
           <MenuItem icon={ReceiptText} label={t("settings.menu.funds")} active={tab === "funds"} onClick={() => setTab("funds")} />
           {mode === "privy" ? <MenuItem icon={Gift} label={t("referral.title")} active={tab === "referral"} onClick={() => setTab("referral")} /> : null}
         </nav>
-        <section className="flex min-w-0 flex-col gap-4" aria-label={tab === "account" ? t("settings.menu.account") : tab === "referral" ? t("referral.title") : t("settings.menu.funds")}>
+        <section className="flex min-w-0 flex-col gap-4" aria-label={tab === "account" ? t("settings.menu.account") : tab === "referral" ? undefined : t("settings.menu.funds")}>
           {tab === "account" ? (
             <>
               <SettingsCard>

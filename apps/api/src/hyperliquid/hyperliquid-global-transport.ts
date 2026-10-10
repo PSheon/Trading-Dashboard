@@ -123,12 +123,20 @@ export class HyperliquidGlobalTransport {
   * afterwards) are not accepted here.
   */
  async fetchInfoBatch(url:string,bodies:readonly Readonly<Record<string,unknown>>[],{maxWaitMs,signal,onDispatch}:{maxWaitMs:number;signal?:AbortSignal;onDispatch?:()=>AbortSignal|undefined}):Promise<Response[]>{
+  return this.#sendInfoBatch(url,bodies,{maxWaitMs,signal,onDispatch},undefined,16);
+ }
+ /** Complete background snapshots keep the capped background lane. A denial
+  * happens before any venue is sent; this never borrows live/page capacity. */
+ async fetchBackgroundInfoBatch(url:string,bodies:readonly Readonly<Record<string,unknown>>[],{signal,onDispatch}:{signal?:AbortSignal;onDispatch?:()=>AbortSignal|undefined}={}):Promise<Response[]>{
+  return this.#sendInfoBatch(url,bodies,{maxWaitMs:0,signal,onDispatch},'background',64);
+ }
+ async #sendInfoBatch(url:string,bodies:readonly Readonly<Record<string,unknown>>[],{maxWaitMs,signal,onDispatch}:{maxWaitMs:number;signal?:AbortSignal;onDispatch?:()=>AbortSignal|undefined},lane:HyperliquidRestLane|undefined,limit:number):Promise<Response[]>{
   const budget=this.currentQuota();
-  if(!Array.isArray(bodies)||bodies.length<1||bodies.length>16||!Number.isSafeInteger(maxWaitMs)||maxWaitMs<0||maxWaitMs>ESSENTIAL_CAPACITY_WAIT_MS)return fail('hyperliquid_quota_request_invalid');
+  if(!Array.isArray(bodies)||bodies.length<1||bodies.length>limit||!Number.isSafeInteger(maxWaitMs)||maxWaitMs<0||maxWaitMs>ESSENTIAL_CAPACITY_WAIT_MS)return fail('hyperliquid_quota_request_invalid');
   const requests=bodies.map(body=>this.#infoRequest(url,{method:'POST',body:JSON.stringify(body)}));
   if(requests.some(r=>lists.has(r.type)))fail('hyperliquid_quota_request_invalid');
   const weight=requests.reduce((sum,r)=>sum+r.weight,0);
-  signal?.throwIfAborted();const permit=await this.#acquire(budget,weight,undefined,maxWaitMs>0,signal,maxWaitMs);signal?.throwIfAborted();
+  signal?.throwIfAborted();const permit=await this.#acquire(budget,weight,lane,maxWaitMs>0,signal,maxWaitMs);signal?.throwIfAborted();
   return permit.dispatch(()=>{
    signal?.throwIfAborted();const bound=onDispatch?.(),signals=[signal,bound].filter((s):s is AbortSignal=>s!==undefined);
    const shared=signals.length>1?AbortSignal.any(signals):signals[0];

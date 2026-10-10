@@ -40,11 +40,48 @@ function setup(fail: (address: string) => unknown) {
   };
   const service = new CohortService(config as never, repository as unknown as CohortRepository, info as unknown as HyperliquidInfoClient, {} as never);
   Object.assign(service, { builtAt: at, tokensAt: at - 60_000 });
-  return { service, rows };
+  return { service, rows, info };
 }
 
 afterEach(() => vi.useRealTimers());
 describe('cohort refresh retry scheduling', () => {
+  it.each([1, 1_000, 10_000, 65_000])('resumes other members after the validated %s ms pre-dispatch hint, retaining the failed member cooldown', async (hint) => {
+    vi.useFakeTimers(); vi.setSystemTime(at);
+    const { service, rows, info } = setup(() => undefined);
+    const send = info.clearinghouseStates;
+    let busy = true;
+    info.clearinghouseStates = async (...args) => {
+      if (busy) throw new HyperliquidRestCapacityError(hint);
+      return send(...args);
+    };
+    await service.tick(at);
+    expect(service.log[0]).toMatchObject({ calls: 0, weight: 0, ok: false });
+    busy = false;
+    const retryAt = at + Math.max(1_000, hint);
+    vi.setSystemTime(retryAt - 1); await service.tick(Date.now());
+    expect(rows[1].attemptedAt).toBeNull();
+    vi.setSystemTime(retryAt); await service.tick(Date.now());
+    expect(rows[1].fetchedAt?.getTime()).toBe(retryAt);
+    expect(rows[0].fetchedAt?.getTime()).toBe(at - 4 * 3_600_000);
+    expect(rows[0].lastError).toMatch(/^capacity: /);
+  });
+
+  it('does not trust arbitrary retry fields on a local queue error', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(at);
+    let busy = true;
+    const { service, rows, info } = setup(() => undefined);
+    const send = info.clearinghouseStates;
+    info.clearinghouseStates = async (...args) => {
+      if (busy) throw Object.assign(new Error('Hyperliquid queue is full'), { retryAfterMs: 1 });
+      return send(...args);
+    };
+    await service.tick(at); busy = false;
+    vi.setSystemTime(at + 60_000); await service.tick(Date.now());
+    expect(rows[1].attemptedAt).toBeNull();
+    vi.setSystemTime(at + 120_000); await service.tick(Date.now());
+    expect(rows[1].fetchedAt?.getTime()).toBe(at + 120_000);
+  });
+
   it.each([
     ['shared quota', new HyperliquidRestCapacityError(10_000)],
     ['local budget deadline', new BudgetWaitError('cohort', 50_000)],

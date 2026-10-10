@@ -9,6 +9,7 @@ import { kolAvatarPath } from "../discovery/kol-avatar.js";
 import { HyperliquidInfoClient } from "../hyperliquid/hyperliquid-info.client.js";
 import { BudgetWaitError, ESSENTIAL_RANK, PAGE_RANK, pacedWeightPerMinute, RequestBudgeterService } from "../hyperliquid/request-budgeter.service.js";
 import { sharedCapacityWait, SHARED_CAPACITY_RETRY_MS } from "../hyperliquid/hyperliquid-budget-wait.js";
+import { sharedRestRetryAfterMs } from "../hyperliquid/hyperliquid-capacity-error.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { TtlCache } from "../traders/ttl-cache.js";
@@ -34,8 +35,8 @@ const MAX_POINTS = 400;
 const COHORT_RANK = ESSENTIAL_RANK.cohort;
 /** The perp dex list changes rarely. */
 const DEX_LIST_TTL_MS = 60 * 60_000;
-/** Provider/account failures retry slowly; capacity refuses the whole job
- * until the shared REST accounting window has cleared. */
+/** Provider/account failures retry slowly; capacity pauses the whole job
+ * until its validated release hint, or the conservative accounting window. */
 const FAILURE_RETRY_MS = 5 * 60_000;
 
 /** One refresh's cost, kept for the docs and the admin view. */
@@ -127,7 +128,7 @@ export class CohortService {
         const result = await this.refreshOne(next);
         this.tokens -= result.weight;
         if (result.capacityLimited) {
-          this.capacityRetryAt = Date.now() + SHARED_CAPACITY_RETRY_MS;
+          this.capacityRetryAt = Date.now() + (result.retryAfterMs ?? SHARED_CAPACITY_RETRY_MS);
           break;
         }
       }
@@ -187,7 +188,7 @@ export class CohortService {
    * dex when its daily sweep is due. Returns the weight spent. A failure
    * keeps the previous snapshot and records the error.
    */
-  async refreshOne(member: CohortMemberRow, now = Date.now()): Promise<{ weight: number; ok: boolean; capacityLimited?: boolean }> {
+  async refreshOne(member: CohortMemberRow, now = Date.now()): Promise<{ weight: number; ok: boolean; capacityLimited?: boolean; retryAfterMs?: number }> {
     const started = Date.now();
     let weight = 0;
     let calls = 0;
@@ -217,11 +218,18 @@ export class CohortService {
     } catch (error) {
       const capacityLimited = Boolean(sharedCapacityWait(error)) || error instanceof BudgetWaitError
         || error instanceof Error && error.message === "Hyperliquid queue is full";
+      // Only the typed meter refusal before any member read can shorten the
+      // global pause. Each failed member retains its separate 65 s cooldown;
+      // dispatched/unknown work and local queue failures stay conservative.
+      const retryHint = weight === 0 && calls === 0 ? sharedRestRetryAfterMs(error) : undefined;
       const message = (error as Error).message;
       await this.repository.saveFailure(member.address, new Date(now), `${capacityLimited ? "capacity: " : ""}${message}`.slice(0, 300));
       this.record({ address: member.address, tier: member.tier, weight, calls, swept, ms: Date.now() - started, ok: false, at: new Date() });
       this.logger.warn(`Cohort refresh ${member.address} failed: ${(error as Error).message}`);
-      return { weight: Math.max(weight, WEIGHT_STATE), ok: false, ...(capacityLimited ? { capacityLimited: true } : {}) };
+      return { weight: Math.max(weight, WEIGHT_STATE), ok: false, ...(capacityLimited ? {
+        capacityLimited: true,
+        ...(retryHint === undefined ? {} : { retryAfterMs: Math.max(1_000, retryHint) }),
+      } : {}) };
     }
   }
 

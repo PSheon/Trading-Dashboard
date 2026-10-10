@@ -75,3 +75,9 @@ Stage 已部署 `0a703cfd` API／worker／web 且三者 SUCCESS；實際已知�
 ## 10/11 02:12 排程等待補修
 
 整批background讀取原仍在共享容量即將釋放時立即拒絕，再跳過下一cron。沿用已存在15秒essential等待上限，在相同background cap內等待typed容量釋放；不能超過上限、不能shutdown後派送、不能送部分市場。舊版回歸1 FAIL／13 PASS，修後含原金融batch守門五檔75 PASS，新的完整API回歸進行中。未部署前仍不宣稱Stage資料補齊。
+
+## 2026-10-11 03:10 背景全域停頓的排程修正
+
+Stage0b worker截至19:05UTC，172位已嘗試／162成功／10容量等待／其他新錯誤0／全場域掃描3；各群組仍未全部恢復，history沒有新點。檢查找到預讀取的typed容量拒絕後，全服務仍固定等待65s，常會跳過下一分鐘cron，與單一會員65s cooldown混在一起。
+
+已只對「typed bounded REST hint且會員reads calls/weight均0」使用至少1000ms的驗證恢復時間；原會員65s冷卻、legacy未知／已派送／local queue保守65s、provider5分鐘及整批完整snapshot條件不變。旧碼3FAIL／7PASS，修正後四檔70PASS／APItypecheckPASS，含不可提早retry、65s上界、不得採信任意retry欄位、已派送保守等待。完整API／新CI及Stage發布仍待完成；不提高配額、不弱化freshness或coverage。

@@ -7,7 +7,8 @@ import { DiscoveryService } from "../discovery/discovery.service.js";
 import { AppConfig } from "../config/app-config.js";
 import { kolAvatarPath } from "../discovery/kol-avatar.js";
 import { HyperliquidInfoClient } from "../hyperliquid/hyperliquid-info.client.js";
-import { ESSENTIAL_RANK, PAGE_RANK, pacedWeightPerMinute, RequestBudgeterService } from "../hyperliquid/request-budgeter.service.js";
+import { BudgetWaitError, ESSENTIAL_RANK, PAGE_RANK, pacedWeightPerMinute, RequestBudgeterService } from "../hyperliquid/request-budgeter.service.js";
+import { sharedCapacityWait, SHARED_CAPACITY_RETRY_MS } from "../hyperliquid/hyperliquid-budget-wait.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { TtlCache } from "../traders/ttl-cache.js";
@@ -33,6 +34,9 @@ const MAX_POINTS = 400;
 const COHORT_RANK = ESSENTIAL_RANK.cohort;
 /** The perp dex list changes rarely. */
 const DEX_LIST_TTL_MS = 60 * 60_000;
+/** Provider/account failures retry slowly; capacity refuses the whole job
+ * until the shared REST accounting window has cleared. */
+const FAILURE_RETRY_MS = 5 * 60_000;
 
 /** One refresh's cost, kept for the docs and the admin view. */
 export interface CohortRefreshLog {
@@ -68,6 +72,7 @@ export class CohortService {
   private builtAt = 0;
   private tokens = 0;
   private tokensAt = Date.now();
+  private capacityRetryAt = 0;
   private lastSnapshot: Map<string, Date> | null = null;
   readonly log: CohortRefreshLog[] = [];
   readonly detailCache = new TtlCache<CohortDetailResponse>(DETAIL_TTL_MS);
@@ -108,15 +113,23 @@ export class CohortService {
       this.builtAt = now;
     }
     const perMinute = pacedWeightPerMinute(this.budgeter, "cohort", weights.cohort);
-    if (perMinute > 0) {
+    if (perMinute > 0 && now >= this.capacityRetryAt) {
       const elapsedMin = Math.max(0, (now - this.tokensAt) / 60_000);
       this.tokens = Math.min(perMinute * MAX_SAVED_MINUTES, this.tokens + perMinute * Math.min(elapsedMin, MAX_SAVED_MINUTES));
       this.tokensAt = now;
       const until = Date.now() + TICK_WORK_MS;
       while (this.tokens > 0 && Date.now() < until && !this.jobs.stopping) {
-        const [next] = await this.repository.nextDue(1, new Date(Date.now() - intervalMs));
+        const at = Date.now();
+        const [next] = await this.repository.nextDue(1, new Date(at - intervalMs), {
+          failureBefore: new Date(at - FAILURE_RETRY_MS), capacityBefore: new Date(at - SHARED_CAPACITY_RETRY_MS),
+        });
         if (!next) break;
-        this.tokens -= (await this.refreshOne(next)).weight;
+        const result = await this.refreshOne(next);
+        this.tokens -= result.weight;
+        if (result.capacityLimited) {
+          this.capacityRetryAt = Date.now() + SHARED_CAPACITY_RETRY_MS;
+          break;
+        }
       }
     }
     await this.writeSnapshots(intervalMs, new Date(now));
@@ -174,7 +187,7 @@ export class CohortService {
    * dex when its daily sweep is due. Returns the weight spent. A failure
    * keeps the previous snapshot and records the error.
    */
-  async refreshOne(member: CohortMemberRow, now = Date.now()): Promise<{ weight: number; ok: boolean }> {
+  async refreshOne(member: CohortMemberRow, now = Date.now()): Promise<{ weight: number; ok: boolean; capacityLimited?: boolean }> {
     const started = Date.now();
     let weight = 0;
     let calls = 0;
@@ -202,10 +215,13 @@ export class CohortService {
       this.record({ address: member.address, tier: member.tier, weight, calls, swept, ms: Date.now() - started, ok: true, at: new Date() });
       return { weight, ok: true };
     } catch (error) {
-      await this.repository.saveFailure(member.address, new Date(now), (error as Error).message.slice(0, 300));
+      const capacityLimited = Boolean(sharedCapacityWait(error)) || error instanceof BudgetWaitError
+        || error instanceof Error && error.message === "Hyperliquid queue is full";
+      const message = (error as Error).message;
+      await this.repository.saveFailure(member.address, new Date(now), `${capacityLimited ? "capacity: " : ""}${message}`.slice(0, 300));
       this.record({ address: member.address, tier: member.tier, weight, calls, swept, ms: Date.now() - started, ok: false, at: new Date() });
       this.logger.warn(`Cohort refresh ${member.address} failed: ${(error as Error).message}`);
-      return { weight: Math.max(weight, WEIGHT_STATE), ok: false };
+      return { weight: Math.max(weight, WEIGHT_STATE), ok: false, ...(capacityLimited ? { capacityLimited: true } : {}) };
     }
   }
 

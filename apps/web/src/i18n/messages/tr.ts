@@ -577,7 +577,7 @@ export const tr: Messages = {
     heroInvest: "30 gün önce yatırsaydınız",
     heroToday: "Bugün elinizde olurdu",
     heroFollowing: "Kopyalanan",
-    heroNote: "Son 30 günlük getiriye göre hesaplanır. Geçmiş performans gelecek için bir vaat değildir.",
+    heroNote: "Yatırımcının mevcut tüm dönem getirisine dayalı bir örnektir; grafik girilen tutara göre ölçeklenir. İşlem bazında bir kopya işlem geriye dönük testi değildir; ücretler, kayma ve işlem gecikmeleri dahil değildir. Geçmiş performans gelecekteki sonuçları garanti etmez.",
     markets: {
       top100: "İlk 100",
       btc: "BTC",
@@ -625,6 +625,8 @@ export const tr: Messages = {
     },
   },
   discover: {
+    metricsUpdated: "Metrik güncellemesi",
+    metricsStale: "Metrikler 24 saatten eski",
     title: "Keşfet",
     crypto: "Kripto",
     stocks: "Hisseler",

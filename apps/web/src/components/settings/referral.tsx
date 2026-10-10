@@ -18,7 +18,6 @@ import { splitLocale } from "@/i18n/config";
 import { useI18n } from "@/i18n/provider";
 import { useToast } from "@/components/ui/toast";
 import { useAuth } from "@/lib/auth";
-import { useLiveCopyDeployment } from "@/lib/copy-live-setup";
 import { api, sessionKey } from "@/lib/api";
 import { referralCheckSchema, type ReferralClaim } from "@/lib/contracts";
 import {
@@ -27,6 +26,8 @@ import {
   pendingReferral,
   pinReferral,
   referralClient,
+  referralOwnerKey,
+  referralCaptureBelongsTo,
   referralUnits,
   useReferralClaims,
   useReferralCaptureRecord,
@@ -64,7 +65,7 @@ export function ReferralCapture({
   const capture = useReferralCaptureRecord(),
     belongsToOwner =
       !capture?.owner ||
-      capture.owner === JSON.stringify([auth.mode, auth.identity]);
+      referralCaptureBelongsTo(auth, capture.owner);
   const overview = useReferralOverview(pending && belongsToOwner),
     owner = overview.session.owner,
     refetch = overview.refetch;
@@ -123,6 +124,7 @@ export function ReferralCapture({
     };
   }, [pending, auth.status, auth.mode, auth.identity, owner]);
   useEffect(() => {
+    let active = true;
     if (
       !pending ||
       !overview.data ||
@@ -134,12 +136,13 @@ export function ReferralCapture({
     void client
       .bind(overview.data)
       .then((result) => {
-        if (result) {
+        if (result && active) {
           setPending(false);
           void refetch();
         }
       })
-      .catch(() => undefined);
+      .catch(() => { if (active) setState("error"); });
+    return () => { active = false; };
   }, [
     pending,
     overview.data,
@@ -205,7 +208,7 @@ export function ReferralSettings() {
   const auth = useAuth();
   if (auth.status !== "signedIn" || auth.mode !== "privy" || !auth.identity)
     return null;
-  return <ReferralView key={JSON.stringify([auth.identity, sessionKey()])} />;
+  return <ReferralView key={JSON.stringify([referralOwnerKey(auth), sessionKey()])} />;
 }
 function LinkQr({ value, label }: { value: string; label: string }) {
   const grid = useMemo(
@@ -238,9 +241,8 @@ function ReferralView() {
   const { t, format } = useI18n(),
     auth = useAuth(),
     capture = useReferralCaptureRecord(),
-    overview = useReferralOverview(),
-    // The api says "testnet" for every actual copy; on a mainnet deployment that is 正式.
-    liveNetwork = useLiveCopyDeployment()?.network ?? null;
+    overview = useReferralOverview();
+
   const friendsPager = useCursorPager<string>(), claimsPager = useCursorPager<string>();
   const friends = useReferralFriends(friendsPager.cursor ?? null),
     claims = useReferralClaims(claimsPager.cursor ?? null),
@@ -427,7 +429,7 @@ function ReferralView() {
         </>
       )}
       {capture?.attempted &&
-      capture.owner === JSON.stringify([auth.mode, auth.identity]) &&
+      referralCaptureBelongsTo(auth, capture.owner) &&
       data &&
       !data.referred ? (
         <div>
@@ -490,7 +492,7 @@ function ReferralView() {
                     className="ml-2 rounded bg-raised px-2 text-xs"
                   >
                     {t(
-                      mode === "paper" ? "referral.paper" : liveNetwork === "mainnet" ? "mode.live" : "referral.testnet",
+                      mode === "paper" ? "referral.paper" : mode === "mainnet" ? "mode.live" : "referral.testnet",
                     )}
                   </span>
                 ))}

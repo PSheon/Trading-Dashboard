@@ -6,6 +6,46 @@ const req = () => ({ leaderAddress: leader, from: 1000, to: 2000, maxRequests: 6
 const acquire = () => vi.fn(async (_weight: number) => undefined);
 function client(fetcher: typeof fetch, now: () => number = () => 2100, budget: (weight: number) => Promise<unknown> = acquire()) { return new HyperliquidLiveSourceClient('testnet', budget, fetcher, now); }
 describe('bounded fixed-network source reads', () => {
+  it('reads both mandatory slow channels together within the original five-second source clock', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(2100);
+    try {
+      const refund = vi.fn(), budget = acquire();
+      const fetcher = vi.fn(async () => { await new Promise(resolve => setTimeout(resolve, 3000)); return Response.json([]); });
+      const reading = new HyperliquidLiveSourceClient('testnet', budget, fetcher as typeof fetch, Date.now, refund).read(req());
+      await vi.advanceTimersByTimeAsync(7000);
+      const result = await reading;
+      expect(result).toMatchObject({ complete: true, fresh: true, requestsUsed: 2, unresolved: [] });
+      expect(result.completedAt - result.observedAt).toBe(3000);
+      expect(budget.mock.calls).toEqual([[240]]);
+      expect(refund.mock.calls).toEqual([[100], [100]]);
+    } finally { vi.useRealTimers(); }
+  });
+  it('keeps coverage incomplete if one parallel channel fails and refunds only the successful answer surcharge', async () => {
+    const refund = vi.fn(), budget = acquire();
+    const fetcher = vi.fn(async (_url: unknown, init?: RequestInit) =>
+      Response.json([], { status: JSON.parse(String(init?.body)).type === 'userFillsByTime' ? 503 : 200 }));
+    const result = await new HyperliquidLiveSourceClient('testnet', budget, fetcher as typeof fetch, () => 2100, refund).read(req());
+    expect(result.complete).toBe(false);
+    expect(result.requestsUsed).toBe(2);
+    expect(result.unresolved).toHaveLength(2);
+    expect(refund.mock.calls).toEqual([[100]]);
+  });
+  it('never accepts a parallel mandatory channel past the original deadline', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(2100);
+    try {
+      const fetcher = vi.fn(async (_url: unknown, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body));
+        await new Promise(resolve => setTimeout(resolve, body.type === 'userFillsByTime' ? 1000 : 5100));
+        return Response.json([]);
+      });
+      const reading = new HyperliquidLiveSourceClient('testnet', acquire(), fetcher as typeof fetch, Date.now).read(req());
+      await vi.advanceTimersByTimeAsync(7000);
+      const result = await reading;
+      expect(result).toMatchObject({ complete: false, fresh: false, requestsUsed: 2 });
+      expect(result.unresolved.every(window => window.reason === 'evidence_expired')).toBe(true);
+    } finally { vi.useRealTimers(); }
+  });
+
   it('reserves both mandatory channels before the provider evidence clock starts', async () => {
     let now = 2100;
     const budget = vi.fn(async () => { now += 4000; });
@@ -21,12 +61,12 @@ describe('bounded fixed-network source reads', () => {
     await expect(client(fetcher as typeof fetch, undefined, budget).read(req())).rejects.toThrow('budget unavailable');
     expect(fetcher).not.toHaveBeenCalled();
   });
-  it('refunds only the prepaid channel that was never sent after a failed first response', async () => {
+  it('retains the charges of both dispatched channels after both responses fail', async () => {
     const refund = vi.fn(), budget = acquire();
     const result = await new HyperliquidLiveSourceClient('testnet', budget, (async () => Response.json({}, { status: 500 })) as typeof fetch, () => 2100, refund).read(req());
     expect(result.complete).toBe(false);
     expect(budget.mock.calls).toEqual([[240]]);
-    expect(refund.mock.calls).toEqual([[120]]);
+    expect(refund.mock.calls).toEqual([]);
   });
   it('reads both ordinary and TWAP sources at only the official testnet origin, without aggregation', async () => {
     const fetcher = vi.fn(async (_url: unknown, init?: RequestInit) => {

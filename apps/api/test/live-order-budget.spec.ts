@@ -42,7 +42,7 @@ describe("the order path's token bucket", () => {
     const wallet = orderBucket({ HYPERLIQUID_NETWORK: 'testnet' }), budget = wallet.budget;
     const reportingTransport = Object.create(HyperliquidGlobalTransport.prototype) as HyperliquidGlobalTransport;
     const read = vi.fn(async () => Response.json(null));
-    Object.defineProperty(reportingTransport, 'fetchInfo', { value: read });
+    Object.defineProperty(reportingTransport, 'fetchBackgroundInfo', { value: read });
     await budget.acquire(900, 'live');
     const result = followerSnapshotReader({ ...wallet, transport: reportingTransport }).observe(users(1)[0]!).catch(error => error);
     await vi.advanceTimersByTimeAsync(12_000);

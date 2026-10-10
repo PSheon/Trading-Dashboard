@@ -10,6 +10,8 @@ import { CopyAgentRepository } from '../src/copy/copy-agent.repository.js';
 import { CopyLiveSetupRepository } from '../src/copy/copy-live-setup.repository.js';
 import { CopyFundingRepository } from '../src/copy/copy-funding.repository.js';
 import { CopyLiveReturnRepository } from '../src/copy/copy-live-return.repository.js';
+import { CopyLiveSetupAbortRepository } from '../src/copy/copy-live-setup-abort.repository.js';
+import { CopyLiveSetupAbortService } from '../src/copy/copy-live-setup-abort.service.js';
 import { preparationFixture } from './copy-live-preparation-test-utils.js';
 import { testConfig } from './config-test-utils.js';
 import { closeTestDb, getTestDb, type TestDb } from './db-test-utils.js';
@@ -19,6 +21,30 @@ const setupId = '00000000-0000-4000-8000-000000000001';
 const abortId = '00000000-0000-4000-8000-000000000002';
 beforeEach(async () => { db = getTestDb(); seed = await preparationFixture(db); });
 afterAll(closeTestDb);
+
+it.each(['accepted', 'credited'] as const)('the owner reads the original delegated stop %s refund, including after an old completed parent', async status => {
+  const config = testConfig(), mandates = new CopyLiveMandateRepository(db, config), stops = new CopyLiveStopRepository(db, mandates);
+  const original = (await db.select().from(copyLiveMandates))[0]!;
+  const stop = await db.transaction(tx => stops.request(tx, 1, original.id,
+    { idempotencyKey: 'delegated-refund-stop-key', expectedMandateRevision: original.revision }, Date.now));
+  await installAbort();
+  const flatAt = new Date();
+  await db.update(copyLiveStopOperations).set({ state: 'stopped', flatCertificate: { positions: [], restingOrders: [] },
+    flatDigest: 'f'.repeat(64), flatVerifiedAt: flatAt, updatedAt: flatAt }).where(eq(copyLiveStopOperations.id, stop.id));
+  await db.update(copyLiveSetupAborts).set({ stopId: stop.id, mandateId: original.id, state: 'done' }).where(eq(copyLiveSetupAborts.id, abortId));
+  const refundId = '00000000-0000-4000-8000-000000000099';
+  await db.insert(copyFundingOperations).values({ id: refundId, userId: 1, strategyId: 9, accountId: 'account', network: 'testnet',
+    address: seed.consent.accountAddress, destination: seed.consent.ownerAddress, direction: 'to_main', amount: '49', stopId: stop.id,
+    idempotencyKey: 'delegated-refund-key', nonce: Date.now(), status, evidenceHash: 'e'.repeat(64), transactionHash: `0x${'a'.repeat(64)}`,
+    creditedAmount: status === 'credited' ? '49' : null, fee: status === 'credited' ? '0' : null });
+  const repository = new CopyLiveSetupAbortRepository(db, config, mandates, stops), row = await repository.find(1, abortId);
+  expect((await repository.children(row)).funding.map(f => f.id)).toContain(refundId);
+  const args = [config, repository, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, Date.now] as unknown as ConstructorParameters<typeof CopyLiveSetupAbortService>;
+  const wire = await new CopyLiveSetupAbortService(...args).wire(row);
+  expect(wire).toMatchObject({ state: status === 'credited' ? 'completed' : 'delegated',
+    refund: { id: refundId, status, creditedAmount: status === 'credited' ? '49' : null }, stop: { id: stop.id, state: 'stopped' } });
+  expect(wire.issue).toBe(status === 'credited' ? null : 'setup_abort_refund_pending');
+});
 
 async function installAbort() {
   await db.insert(copyLiveSetups).values({ id: setupId, userId: 1, strategyId: 9, accountId: 'account', kind: 'start', idempotencyKey: 'abort-original-start-key',

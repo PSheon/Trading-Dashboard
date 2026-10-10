@@ -23,6 +23,7 @@ export interface ReferralOwner {
   status: string;
   mode: string;
   identity: string | null;
+  userId?: string | null;
   session: string;
 }
 const ROOT = "/me/referral",
@@ -39,8 +40,34 @@ interface Capture {
 function storage() {
   return typeof window === "undefined" ? null : window.localStorage;
 }
-function ownerKey(o: ReferralOwner) {
-  return JSON.stringify([o.mode, o.identity]);
+export function referralOwnerKey(o: Pick<ReferralOwner, "mode" | "identity" | "userId">) {
+  return JSON.stringify([o.mode, o.userId ?? o.identity]);
+}
+const ownerKey = referralOwnerKey;
+export function referralCaptureBelongsTo(owner: Pick<ReferralOwner, "mode" | "identity" | "userId">, pinned: string | null) {
+  return pinned === null || pinned === ownerKey(owner) || pinned === JSON.stringify([owner.mode, owner.identity]);
+}
+/** Legacy journals remain readable until their exact original record is resolved.
+ * Never overwrite a conflicting intent during identity-key migration. */
+function journalKeys(kind: "claim" | "code", owner: ReferralOwner) {
+  return [...new Set([ownerKey(owner), JSON.stringify([owner.mode, owner.identity])])]
+    .map(key => `orbie.referral.${kind}.v1:${key}`);
+}
+function readJournal(kind: "claim" | "code", owner: ReferralOwner) {
+  const keys = journalKeys(kind, owner);
+  const values = keys.map(key => storage()?.getItem(key)).filter((v): v is string => !!v);
+  const value = JSON.parse(values[0] ?? "null");
+  if (value !== null && eligible(owner) && !storage()?.getItem(keys[0]!)) {
+    // Copy metadata only. Recovery still checks the server-side owner; the
+    // legacy key remains until the exact original request is resolved.
+    write(keys[0]!, value);
+  }
+  return value;
+}
+function clearJournal(kind: "claim" | "code", owner: ReferralOwner, resolved: string) {
+  for (const key of journalKeys(kind, owner)) {
+    if (storage()?.getItem(key) === JSON.stringify(resolved)) storage()?.removeItem(key);
+  }
 }
 function eligible(o: ReferralOwner) {
   return o.status === "signedIn" && o.mode === "privy" && !!o.identity;
@@ -99,8 +126,8 @@ export function useReferralCaptureRecord() {
 export function pinReferral(owner: ReferralOwner): Capture | null {
   const capture = pendingReferral();
   if (!capture || !eligible(owner)) return null;
-  if (capture.owner !== null)
-    return capture.owner === ownerKey(owner) ? capture : null;
+  if (capture.owner !== null && !referralCaptureBelongsTo(owner, capture.owner)) return null;
+  if (capture.owner === ownerKey(owner)) return capture;
   const pinned = { ...capture, owner: ownerKey(owner) };
   write(CAPTURE, pinned);
   return pinned;
@@ -131,7 +158,7 @@ export function claimJournal(o: ReferralOwner) {
   return {
     read(): string | null {
       try {
-        const v = JSON.parse(storage()?.getItem(key) ?? "null");
+        const v = readJournal("claim", o);
         return typeof v === "string" && UUID.test(v) ? v : null;
       } catch {
         return null;
@@ -156,7 +183,7 @@ export function referralClient(current: () => ReferralOwner) {
   return {
     async setCode(raw: string) {
       assert();
-      if (this.pendingCode()) throw new Error("referral_request_pending");
+      if (journalKeys("code", start).some(key => storage()?.getItem(key) != null)) throw new Error("referral_request_pending");
       const code = referralCodeSchema.parse({ code: raw.toUpperCase() }).code;
       const key = `orbie.referral.code.v1:${ownerKey(start)}`;
       write(key, code);
@@ -166,7 +193,7 @@ export function referralClient(current: () => ReferralOwner) {
         );
         assert();
         if (result.code !== code) throw new Error("referral_record_mismatch");
-        storage()?.removeItem(key);
+        clearJournal("code", start, code);
         return result;
       } catch (error) {
         assert(); // Only a definitive HTTP refusal releases the original request.
@@ -177,16 +204,13 @@ export function referralClient(current: () => ReferralOwner) {
           error.status !== 408 &&
           error.status !== 429
         )
-          storage()?.removeItem(key);
+          clearJournal("code", start, code);
         throw error;
       }
     },
     pendingCode(): string | null {
       try {
-        const v = JSON.parse(
-          storage()?.getItem(`orbie.referral.code.v1:${ownerKey(start)}`) ??
-            "null",
-        );
+        const v = readJournal("code", start);
         return referralCodeSchema.parse({ code: v }).code;
       } catch {
         return null;
@@ -196,8 +220,7 @@ export function referralClient(current: () => ReferralOwner) {
       assert();
       const result = referralOverviewSchema.parse(await api.get(ROOT));
       assert();
-      const key = `orbie.referral.code.v1:${ownerKey(start)}`;
-      if (result.code === this.pendingCode()) storage()?.removeItem(key);
+      if (result.code === this.pendingCode()) clearJournal("code", start, result.code);
       return result;
     },
     async bind(input: ReferralOverview) {
@@ -207,7 +230,7 @@ export function referralClient(current: () => ReferralOwner) {
       if (
         !capture ||
         capture.attempted ||
-        (capture.owner !== null && capture.owner !== ownerKey(start)) ||
+        !referralCaptureBelongsTo(start, capture.owner) ||
         overview.referred ||
         capture.code === overview.code ||
         !overview.bindOpenUntil ||
@@ -287,13 +310,14 @@ export function useReferralSession() {
       status: mounted.current ? a.status : "disposed",
       mode: a.mode,
       identity: a.identity,
+      userId: a.userId,
       session: sessionKey(),
     };
   }, []);
   const scope = JSON.stringify([
     auth.status,
     auth.mode,
-    auth.identity,
+    auth.userId ?? auth.identity,
     sessionKey(),
   ]);
   useEffect(

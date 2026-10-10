@@ -41,10 +41,10 @@ import { LOCALE_NAMES, LOCALES, isLocale } from "@/i18n/config";
 import { useI18n } from "@/i18n/provider";
 import { useTradingMode } from "@/lib/site-mode";
 import { useCopyOverview } from "@/lib/copy";
-import { AuthButton } from "@/components/shell/account-controls";
 import { useAuth, useMe } from "@/lib/auth";
 import { useChangeLocale } from "@/lib/use-change-locale";
 import { useWallet, useWalletAddress } from "@/lib/wallet";
+import { walletTotalValue } from "@/lib/wallet-value";
 import { AlertBotRow, TradingBotRow } from "./bot-rows";
 import { DeleteAccountButton, DeleteAccountDialog } from "./delete-account";
 import { ReferralSettings } from "./referral";
@@ -197,7 +197,7 @@ function FundsSummary() {
   const paper = useCopyOverview();
   const trading = useTradingMode();
   const actual = trading.mode !== "paper" && trading.available && wallet.data?.network === trading.deploymentNetwork;
-  const total = trading.mode === "paper" ? paper.data?.paper.totalValue : actual ? wallet.data?.totalValue : null;
+  const total = trading.mode === "paper" ? paper.data?.paper.totalValue : actual ? walletTotalValue(wallet.data) : null;
   const { openDeposit, openWithdraw } = useWalletModals();
   return (
     <div className="flex flex-wrap items-end justify-between gap-4 orbit-card card-pad">
@@ -205,6 +205,8 @@ function FundsSummary() {
         <p className="text-xs text-muted-foreground">{t("portfolio.totalValue")}</p>
         {total != null ? (
           <p className="num mt-1 font-display text-[2.125rem] leading-[1.2]">{format.usd(total, { digits: 2 })}</p>
+        ) : actual && wallet.data ? (
+          <p role="status" className="mt-1 text-sm text-muted-foreground">{t("folio.balancePending")}</p>
         ) : (
           <p aria-hidden="true" className="num mt-1 flex h-[1.2em] items-center font-display text-[2.125rem]">
             <span className="ui-skeleton block h-[0.75em] w-[4.5em] rounded-full bg-raised" />
@@ -374,7 +376,6 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
       <div className="mb-5 flex min-w-0 items-center gap-3">
         <button type="button" onClick={back} aria-label={t("settings.back")} className="orbit-press flex size-11 shrink-0 items-center justify-center rounded-full bg-raised outline-none focus-visible:ring-2 focus-visible:ring-ring"><ArrowLeft className="size-5" aria-hidden /></button>
         <h1 className="min-w-0 flex-1 truncate font-display text-2xl">{t(titles[view])}</h1>
-        <AuthButton compact />
       </div>
       <SwitchPanel value={view} order={PHONE_VIEWS}>
         {view === "root" ? <div className="flex flex-col gap-4">

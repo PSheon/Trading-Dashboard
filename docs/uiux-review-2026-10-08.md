@@ -4,6 +4,23 @@
 
 沿用 Orbie 風格。以下最新狀態與46項概覽優先，後面的日期段落是保留的歷史紀錄；舊金額、失敗數及部署狀態不代表目前狀態。
 
+## 10/10 00:54 本輪更新（優先於歷史部署／測試數字）
+
+本輪只在localhost修改與驗證，沒有更新Railway／Stage，也沒有主網交易。沿用Orbie風格。不能把先前46項的功能／fixture／歷史紀錄誤當最新版本全部操作都通過。
+
+| 項目 | 本輪實際狀態 | 限制／剩餘問題 |
+| --- | --- | --- |
+| 桌面未登入portfolio一頁高度／共用footer | 匿名1440×900，pageHeight900、footer bottom876；登入及手機portfolio／settings／favorites共用footer | 長內容仍正常捲動；本輪未部署 |
+| 手機共同top-bar／漸層／儲值 | trader320／390／430驗證無橫向溢出、儲值44px；portfolio／settings／favorites保留共同header及footer | 本輪是本機Browser |
+| A版user menu | 總值在trigger、登出hover error色；11語言與3主題子頁滑入、Esc返回／關閉與焦點恢復 | 網路仍由部署／admin管理，不支援同部署三網互換 |
+| 交易員跟單右欄／手機漂浮操作 | 摘要與操作分開、手機控制浮在內容上方，320／390／430無溢出 | 跟單啟用不代表每筆已成交；金融延遲仍未解決 |
+| 不完整餘額 | 新共用walletTotalValue：任一來源未知時顯示「—／餘額待確認」，trigger／portfolio／settings／儲值一起套用；實際GET契約fixture手機390及桌面1440驗證、保留儲值入口 | API仍可能回傳partial numeric total；資產口徑需後續統一 |
+| 通知 | 既有Sonner統一引擎與真Browser toast／Radix互動證據保留 | 未將每個金融通知入口都算成本輪真操作驗收 |
+| 首頁歷史試算 | 11語言明示全部期間示意、非逐筆回測／不含費用；越南文trader術語修正 | 未實作真實逐筆跟單回測 |
+| 中止完成／原退款狀態 | 新實際case91發現abort completed但退款accepted、GET退款null；已修原stop-linked funding讀取、未credited保留返還／拒絕狀態，57項相關PASS；完整後端4415項PASS、17個source核對與build通過 | 完整4415項回歸／build已PASS；01:03載入本機、正常user14實際GET退款49 credited，尚未部署 |
+
+最新前端1,385項完整PASS、webpack production build actual exit0；預設Turbopack環境失敗保留。最新金融驗證BASE91設定超時FAIL（約609秒才running，未交易）；上一完整BASE90五方對帳FAIL，首筆漏跟、翻倉逾時。這些仍屬P0／P1使用者體驗與可靠性問題，不能用版面修正或自動回歸宣告全部解決。推薦資料新鮮度、總值資產範圍、主網中止能力、返傭支付未接通等業務差距見business-logic-review與copydog-current-parity-review。
+
 ## 10/09 09:56 最新狀態（優先於下列歷史紀錄）
 
 - **已部署前端**：Stage WEB `fc697e3d`、部署 `f9133e92-243d-418f-9a12-df7fe02efb56` 官方 SUCCESS，`/portfolio` 語系導向後 HTTP200。保留 Orbie 風格，footer、手機共同頁首／漸層、漂浮導航、user menu總價值、模式、通知及過時跟單文案均包含在版本內。前版頁首/footer九頁73項、About/FAQ十二頁126項線上Browser證據的來源未改；新44px跟單控制只經19項既有回歸/type/lint，此時尚未單獨Browser重測。

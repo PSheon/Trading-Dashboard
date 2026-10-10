@@ -134,6 +134,21 @@ describe('dedicated testnet standard-mode principal provider', () => {
     expect(budget.mock.calls.map(c => c[0])).toEqual([102]);
     expect(requests).toHaveLength(4); expect(requests.every(r => r.url === 'https://api.hyperliquid-testnet.xyz/info' && r.body!.user === master.address && r.redirect === 'error')).toBe(true);
   });
+  it('consumes prepaid weight at transport dispatch even when the observation fails', async () => {
+    let spent = 0;
+    failurePath = '/info';
+    await expect(client(false).observe(intent, { prepaid: true, consume: weight => { spent += weight; } })).rejects.toThrow('account_mode_observation_unavailable');
+    expect(spent).toBe(102);
+  });
+  it('retains the POST charge for an unknown submission and consumes none when the proof refuses dispatch', async () => {
+    let spent = 0;
+    const consume = (weight: number) => { spent += weight; };
+    const provider = new PrivyAccountModeClient({}, budget, async () => { throw new Error('response lost'); }, () => now);
+    await expect(provider.send(intent, signature, () => { throw new Error('proof expired'); }, consume)).rejects.toThrow('account_mode_not_dispatched');
+    expect(spent).toBe(0);
+    await expect(provider.send(intent, signature, () => undefined, consume)).rejects.toThrow('account_mode_submission_unknown');
+    expect(spent).toBe(1);
+  });
   it.each([
     { abstraction: 'default', dex: null, status: 'unproven', issue: 'account_mode_standard_unproven' },
     { abstraction: 'disabled', dex: null, status: 'unproven', issue: 'account_mode_legacy_state_unproven' },

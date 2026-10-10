@@ -71,7 +71,7 @@ describe('safe pre-POST diagnostics without changing financial refusal semantics
     const code = kind === 'expired' ? 'exchange_approval_evidence_expired' : 'exchange_approval_unavailable';
     await expect(s.transport.submit(signed, record, intent, lease)).rejects.toMatchObject({ code });
     expect(s.fetcher).not.toHaveBeenCalled();
-    expect(diagnostic.mock.calls).toEqual([[{ network: 'testnet', stage: 'transport_final_check', elapsedMs: kind === 'expired' ? 5001 : 0, errorCode: code }]]);
+    expect(diagnostic.mock.calls).toEqual([[{ network: 'testnet', stage: 'transport_approval_check', elapsedMs: kind === 'expired' ? 5001 : 0, errorCode: code }]]);
   });
   it.each(['local_budget', 'shared_capacity'] as const)('observes typed %s wait before masking and never fetches', async reason => {
     let clock = now;
@@ -93,7 +93,7 @@ describe('safe pre-POST diagnostics without changing financial refusal semantics
     const signed = await s.transport.sign(record, intent, lease);
     await expect(s.transport.submit(signed, record, intent, lease)).rejects.toMatchObject({ code });
     expect(s.fetcher).not.toHaveBeenCalled();
-    expect(diagnostic.mock.calls).toEqual([[{ network: 'testnet', stage: 'transport_final_check', elapsedMs: code === 'live_risk_stale' ? 5001 : 1, errorCode: code }]]);
+    expect(diagnostic.mock.calls).toEqual([[{ network: 'testnet', stage: 'transport_risk_check', elapsedMs: code === 'live_risk_stale' ? 5001 : 1, errorCode: code }]]);
   });
   it.each(['live_boundary_evidence_expired', 'live_market_identity_mismatch'] as const)('observes actual market verification refusal %s', async code => {
     const diagnostic = vi.fn();
@@ -102,7 +102,7 @@ describe('safe pre-POST diagnostics without changing financial refusal semantics
     s.resolver.resolve = async () => ({ ...market, ...(code === 'live_boundary_evidence_expired' ? { observedAt: now - 5001 } : { asset: 1, universeIndex: 1 }) });
     await expect(s.transport.submit(signed, record, intent, lease)).rejects.toMatchObject({ code });
     expect(s.fetcher).not.toHaveBeenCalled();
-    expect(diagnostic.mock.calls).toEqual([[{ network: 'testnet', stage: 'transport_final_check', elapsedMs: 0, errorCode: code }]]);
+    expect(diagnostic.mock.calls).toEqual([[{ network: 'testnet', stage: 'transport_market_check', elapsedMs: 0, errorCode: code }]]);
   });
   it('whitelists codes and swallows a diagnostic hook failure without changing the refusal', async () => {
     const diagnostic = vi.fn(() => { throw Error('observer failure'); });
@@ -112,6 +112,26 @@ describe('safe pre-POST diagnostics without changing financial refusal semantics
     await expect(s.transport.submit(signed, record, intent, lease)).rejects.toMatchObject({ code: 'secret signature bearer body' });
     expect(s.fetcher).not.toHaveBeenCalled();
     expect(diagnostic.mock.calls).toEqual([[{ network: 'testnet', stage: 'transport_local_budget', elapsedMs: 0, errorCode: 'unclassified_error' }]]);
+  });
+  it('distinguishes proof expiry after exchange approval from the initial risk read', async () => {
+    const diagnostic = vi.fn(); let expired = false;
+    const base = executionGateFixture();
+    const finalGate: LiveExecutionGate = { assertReady: async input => {
+      const permit = await base.assertReady(input);
+      return { ...permit, assertFresh: () => {
+        if (input.phase === 'submit' && expired) throw new LiveBoundaryError('live_risk_stale');
+        permit.assertFresh();
+      } };
+    } };
+    const s = setup(finalGate, exchangeApprovalFixture(() => now), () => now, grant, diagnostic);
+    const signed = await s.transport.sign(record, intent, lease);
+    const original = s.signer.assertAuthorization.bind(s.signer);
+    vi.spyOn(s.signer, 'assertAuthorization').mockImplementation(async (...args) => {
+      const verified = await original(...args); expired = true; return verified;
+    });
+    await expect(s.transport.submit(signed, record, intent, lease)).rejects.toMatchObject({ code: 'live_risk_stale' });
+    expect(s.fetcher).not.toHaveBeenCalled();
+    expect(diagnostic.mock.calls).toEqual([[{ network: 'testnet', stage: 'transport_final_check', elapsedMs: 0, errorCode: 'live_risk_stale' }]]);
   });
   it('does not log mutated budget metadata or non-finite retry delays', async () => {
     const diagnostic = vi.fn();

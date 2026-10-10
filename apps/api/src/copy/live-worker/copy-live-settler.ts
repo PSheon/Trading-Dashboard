@@ -1,15 +1,15 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { SettlementClaim } from './copy-live-settlement-claim.js';
 import { settlementFencedPool } from './copy-live-settlement-fenced-pool.js';
 import { Pool } from 'pg';
 import { WALLET_NETWORKS, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { drizzle } from 'drizzle-orm/node-postgres';
-import { copyLiveExecutions, copyLiveRiskReservations } from '@trading-dashboard/shared/database';
+import { copyLiveExecutions, copyLiveRiskReservations, copyLiveExecutionEvidence, copyFollowerReceipts } from '@trading-dashboard/shared/database';
 import { HyperliquidGlobalTransport } from '../../hyperliquid/hyperliquid-global-transport.js';
 import { RequestBudgeterService } from '../../hyperliquid/request-budgeter.service.js';
 import { reserveLive } from '../../hyperliquid/hyperliquid-budget-wait.js';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
-import { NEVER_PLACED, UNHELD_REJECTED, type LiveExecutionRecord } from '../live/live-execution.js';
+import { NEVER_PLACED, NEVER_PLACED_GRACE_MS, UNHELD_REJECTED, type LiveExecutionRecord } from '../live/live-execution.js';
 import { HyperliquidLiveAccountObserver, OBSERVER_REST_WEIGHT } from '../live/live-account-observer.js';
 import { HyperliquidAllDexsAccountSource, PerReadAllDexsAccountSource } from '../live/live-account-ws-source.js';
 import { boundedLiveRead, HyperliquidLiveMarketResolver } from '../live/live-market-resolver.js';
@@ -18,6 +18,7 @@ import { decodeLiveExecutionRow } from '../live/postgres-live-journal.js';
 import { PostgresLiveRiskScope } from '../live/postgres-live-risk-scope.js';
 import { PostgresLiveSettlement } from '../live/postgres-live-settlement.js';
 import { LiveBoundaryError } from '../live/wallet-authorization.js';
+import { LiveSharedReads } from '../live/live-shared-reads.js';
 import type { LiveSourceNetwork } from '../live/copy-live-source-evidence.js';
 
 export const TERMINAL_STATES: ReadonlySet<string> = new Set(['filled', 'partial', 'cancelled', 'rejected']);
@@ -54,6 +55,27 @@ export class CopyLiveSettler {
     // never read or settled here.
     if (record.authorization.network !== this.network) return { kind: 'pending', reason: 'live_other_network' };
     if (record.errorCode === UNHELD_REJECTED) return { kind: 'unsent', reason: record.outcome?.reason ?? UNHELD_REJECTED };
+    // This is a routing wait, never missing-order or release evidence. Before
+    // the unchanged signed expiry plus grace, releaseNeverPlaced cannot pass.
+    // Skip provider/quota/scanner work only when current local SQL has no
+    // positive fill/order evidence; all later proof/CAS paths remain intact.
+    const waitStarted=this.now(),deadline=record.expiresAfter+NEVER_PLACED_GRACE_MS;
+    const mayWait=(at:number)=>record.state==='rejected'&&record.errorCode===NEVER_PLACED&&
+      (record.outcome?.filledSize===undefined||record.outcome.filledSize==='0')&&record.outcome?.exchangeOrderId===undefined&&
+      Number.isSafeInteger(at)&&Number.isSafeInteger(deadline)&&at>=record.createdAt&&at>=record.updatedAt&&at<=deadline;
+    if(mayWait(waitStarted)) {
+      const [local]=await drizzle(claim?settlementFencedPool(this.pool,claim):this.pool).select({
+        hasReceipt:sql<boolean>`exists(select 1 from ${copyFollowerReceipts} where ${copyFollowerReceipts.executionKey}=${request.key})`,
+        hasReservationOid:sql<boolean>`exists(select 1 from ${copyLiveRiskReservations} where ${copyLiveRiskReservations.key}=${request.key} and ${copyLiveRiskReservations.exchangeOrderId} is not null)`,
+        hasEvidenceOid:sql<boolean>`exists(select 1 from ${copyLiveExecutionEvidence} where ${copyLiveExecutionEvidence.key}=${request.key} and ${copyLiveExecutionEvidence.exchangeOrderId} is not null)`,
+      }).from(copyLiveExecutions).where(and(eq(copyLiveExecutions.key,request.key),eq(copyLiveExecutions.state,'rejected'),
+        eq(copyLiveExecutions.updatedAt,new Date(record.updatedAt)),sql`${copyLiveExecutions.record}->>'errorCode'=${NEVER_PLACED}`,
+        sql`${copyLiveExecutions.record}=${JSON.stringify(record)}::jsonb`));
+      if(claim)await claim.assertHeld();
+      const checkedNow=this.now();
+      if(checkedNow>=waitStarted&&mayWait(checkedNow)&&local?.hasReceipt===false&&local.hasReservationOid===false&&local.hasEvidenceOid===false)
+        return {kind:'pending',reason:'live_settlement_never_placed_grace'};
+    }
     // A crash can leave the dispatch submitted after the release committed.
     // This SQL hint only chooses a path: the original locked DAL must replay
     // every certificate, journal, source and receipt proof before completion.
@@ -127,6 +149,29 @@ export class CopyLiveSettler {
   /** Settlement-grade orderStatus by the original cloid (as the transport's
    * queryEvidence), through the shared egress quota. */
   private async orderEvidence(record: LiveExecutionRecord, resolver: HyperliquidLiveMarketResolver, acquire: (weight: number) => Promise<void>, fetchInfo: typeof fetch, claim?: SettlementClaim): Promise<LiveOrderEvidence> {
+    // Default-dex metadata and cloid status are independent provider reads.
+    // One original-scope quota charge sends them together; SQL retention and
+    // the later account proof remain sequential. Named dex resolution keeps
+    // its required index lookup path.
+    if (record.action.orders[0]!.a < 10_000) {
+      const status = { type: 'orderStatus', user: record.authorization.accountAddress, oid: record.action.orders[0]!.c };
+      const shared = new LiveSharedReads(this.network, fetchInfo, (bodies, onDispatch, signal) =>
+        this.global.fetchInfoBatch(WALLET_NETWORKS[this.network].infoUrl, bodies, {
+          maxWaitMs: 0, signal: claim ? AbortSignal.any([claim.signal, signal]) : signal,
+          onDispatch: () => { claim?.assertFresh(); onDispatch(); return signal; },
+        }), this.now, 5000, acquire);
+      try {
+        await shared.pay(22);
+        await shared.wave([{ type: 'meta' }, status]);
+        const market = await resolver.resolveAsset(record.action.orders[0]!.a, shared);
+        const raw = await shared.get(status), completedAt = this.now();
+        return parseLiveOrderEvidence({ record, market, raw, checkedAt: shared.startedAt, completedAt, now: completedAt });
+      } finally {
+        // Only weight never dispatched is returned; rejected provider replies
+        // still consumed their original shared and local quota.
+        if (shared.paidWeight > shared.sentWeight) this.budget.adjust(-(shared.paidWeight - shared.sentWeight));
+      }
+    }
     const checkedAt = this.now(), remaining = () => {
       const now = this.now();
       if (!Number.isSafeInteger(now) || now - checkedAt > 5000) throw new LiveBoundaryError('live_boundary_evidence_expired');

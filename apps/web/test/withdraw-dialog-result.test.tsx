@@ -10,7 +10,7 @@ import { en } from "../src/i18n/messages/en";
 const DEST = `0x${"22".repeat(20)}`;
 const state = vi.hoisted(() => ({
   signing: true, posts: [] as string[], release: null as null | (() => void), fail: null as null | Error,
-  toasts: [] as Array<[string, string]>, currentFails: false,
+  toasts: [] as Array<[string, string]>, pendingOptions: undefined as undefined | { autoClose?: number | false }, currentFails: false,
 }));
 const OP = { id: "11111111-1111-4111-8111-111111111111", network: "testnet", address: `0x${"11".repeat(20)}`, destination: `0x${"22".repeat(20)}`, amount: "12.5", nonce: 1780000000000, status: "prepared", createdAt: "2026-10-03T00:00:00.000Z", updatedAt: "2026-10-03T00:00:00.000Z" };
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh() {} }) }));
@@ -35,7 +35,7 @@ vi.mock("../src/lib/api", () => ({ api: {
   },
 }, sessionKey: () => "alice", apiErrorCode: () => undefined, isBusy: () => false }));
 vi.mock("../src/components/ui/toast", () => ({ useToast: () => ({
-  info: (m: string) => { state.toasts.push(["info", m]); return 7; },
+  info: (m: string, options?: { autoClose?: number | false }) => { state.pendingOptions = options; state.toasts.push(["info", m]); return 7; },
   dismiss() {}, success: (m: string) => state.toasts.push(["success", m]), error: (m: string) => state.toasts.push(["error", m]),
 }) }));
 
@@ -68,7 +68,7 @@ const escape = () => act(async () => { document.activeElement?.dispatchEvent(new
 
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-  localStorage.clear(); state.signing = true; state.posts = []; state.release = null; state.fail = null; state.toasts = [];
+  localStorage.clear(); state.signing = true; state.posts = []; state.release = null; state.fail = null; state.toasts = []; state.pendingOptions = undefined;
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
 });
@@ -77,6 +77,7 @@ afterEach(async () => { await act(async () => root.unmount()); client.clear(); c
 it("stays open while the withdrawal is being signed and sent, then shows the result", async () => {
   await render();
   await startSigning();
+  expect(state.pendingOptions?.autoClose).toBe(false);
   await escape();
   expect(document.querySelector('[role="dialog"]')).not.toBeNull();
   await act(async () => state.release!()); await settle();

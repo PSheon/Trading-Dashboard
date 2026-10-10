@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Injectable,Optional } from "@nestjs/common";
 import { WALLET_NETWORKS, usdSendRequest, withdrawalUnits } from "@trading-dashboard/shared/contracts";
 import { RequestBudgeterService } from "../hyperliquid/request-budgeter.service.js";
@@ -7,12 +8,37 @@ import {HyperliquidGlobalTransport} from '../hyperliquid/hyperliquid-global-tran
 import {LiveBoundaryError} from './live/wallet-authorization.js';
 import type { FundingRow } from "./copy-funding.repository.js";
 
+/** Process-local evidence only. Never infer dispatch from a serialized code,
+ * a balance, a quota charge or a historical operation. The exact private error
+ * object is bound to the exact attempt captured by this transport invocation. */
+const notDispatched = new WeakMap<object, string>();
+const attemptDigest = (row: FundingRow) => createHash('sha256').update(JSON.stringify(
+  Object.fromEntries(Object.entries(row).sort(([a], [b]) => a.localeCompare(b))),
+)).digest('hex');
+export function isFundingNotDispatched(error: unknown, attempt: FundingRow): boolean {
+  return error instanceof LiveBoundaryError && error.code === 'funding_not_dispatched' &&
+    notDispatched.get(error) === attemptDigest(attempt);
+}
+/** One-use original evidence: a failed CAS must never turn into authority to
+ * reset a later attempt, even if a test/frozen clock repeats its timestamps. */
+export function consumeFundingNotDispatched(error: unknown, attempt: FundingRow): boolean {
+  if (!isFundingNotDispatched(error, attempt)) return false;
+  notDispatched.delete(error as object);
+  return true;
+}
+
 @Injectable()
 export class CopyFundingExchangeClient {
   constructor(private readonly budget: RequestBudgeterService,@Optional() private readonly global?:HyperliquidGlobalTransport) {if(global!==undefined&&!(global instanceof HyperliquidGlobalTransport))throw new LiveBoundaryError("funding_client_invalid");}
   acquire() { return reserveLive(this.budget, 1, { maxWaitMs: 10_000 }); }
-  private async read(url: string, body: Record<string, unknown>, weight: number): Promise<unknown> {
-    await reserveLive(this.budget, weight, { maxWaitMs: 10_000 });
+  private async read(url: string, body: Record<string, unknown>, weight: number, receipt = false): Promise<unknown> {
+    // A durable receipt lookup has no quote/proof clock yet. Keep its place
+    // behind admitted order evidence for one bucket refill (at most 120 s),
+    // rather than repeatedly abandoning the queue on a 10 s estimate. HTTP
+    // remains bounded to 10 s AFTER admission; balances and sends keep their
+    // original short wait. This grants no submission or credit authority.
+    const maxWaitMs = receipt ? Math.min(120_000, Math.max(10_000, this.budget.refillMs())) : 10_000;
+    await reserveLive(this.budget, weight, { maxWaitMs });
     const fetcher=this.global?(url.endsWith("/explorer")?this.global.fetchExplorer:this.global.fetchInfo):fetch;
     const response = await fetcher(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), redirect: "error", signal: AbortSignal.timeout(10_000) });
     if (!response.ok) { await response.body?.cancel().catch(() => undefined); throw new Error("Funding evidence unavailable"); }
@@ -79,17 +105,23 @@ export class CopyFundingExchangeClient {
    * the send dispatched there, never in its proof. */
   async send(rawOperation:FundingRow,signature:string,assertFreshProof?:()=>void,onDispatch?:()=>void):Promise<unknown>{
     const operation=Object.freeze(structuredClone(rawOperation));
+    let dispatched=false;
     try{
       const request:RequestInit={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(usdSendRequest(WALLET_NETWORKS[operation.network],operation.destination,operation.amount,operation.nonce,signature)),redirect:'error',signal:AbortSignal.timeout(20000)};
       if(this.global&&typeof assertFreshProof!=='function')throw new Error();
       const permit=this.global?await this.global.currentQuota().acquireRest(1,Date.now()+5000):undefined;
-      const dispatch=()=>{const result:unknown=assertFreshProof?.();if(result!==undefined){void Promise.resolve(result).catch(()=>{});throw new Error();}permit?.assertFresh();request.signal?.throwIfAborted();onDispatch?.();return fetch(WALLET_NETWORKS[operation.network].exchangeUrl,request);};
+      const dispatch=()=>{const result:unknown=assertFreshProof?.();if(result!==undefined){void Promise.resolve(result).catch(()=>{});throw new Error();}permit?.assertFresh();request.signal?.throwIfAborted();dispatched=true;onDispatch?.();return fetch(WALLET_NETWORKS[operation.network].exchangeUrl,request);};
       const response=await (permit?permit.dispatch(dispatch):dispatch());if(!response.ok){await response.body?.cancel().catch(()=>{});throw new Error();}return await readInfoJson(response,'copy funding',64*1024);
-    }catch{throw new LiveBoundaryError('funding_submission_unknown');}
+    }catch{
+      if(dispatched)throw new LiveBoundaryError('funding_submission_unknown');
+      const error=new LiveBoundaryError('funding_not_dispatched');
+      notDispatched.set(error,attemptDigest(operation));
+      throw error;
+    }
   }
   txDetails(network: FundingRow["network"], hash: string) {
     if (!/^0x[0-9a-f]{64}$/.test(hash)) throw new Error("Invalid funding evidence");
     const url = network === "mainnet" ? "https://rpc.hyperliquid.xyz/explorer" : "https://rpc.hyperliquid-testnet.xyz/explorer";
-    return this.read(url, { type: "txDetails", hash }, 40);
+    return this.read(url, { type: "txDetails", hash }, 40, true);
   }
 }

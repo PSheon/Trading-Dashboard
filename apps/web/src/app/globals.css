@@ -941,6 +941,40 @@
   from { opacity: 0; transform: translate3d(var(--switch-from, 6px), 0, 0); }
 }
 
+/* Account subpages enter from the right; Back reverses the direction. */
+.account-menu-panel-slide {
+  animation: account-menu-panel var(--dur-base) var(--ease-orbit) backwards;
+}
+@keyframes account-menu-panel {
+  from { opacity: 0; transform: translate3d(var(--account-panel-from, 24px), 0, 0); }
+}
+
+/* Primary surfaces follow their physical origin; subpages move horizontally. */
+.account-menu-popover[data-state="open"] { animation: account-menu-down var(--dur-base) var(--ease-orbit) both; }
+.account-menu-popover[data-state="closed"] { animation: account-menu-down var(--dur-fast) var(--ease-orbit) reverse both; }
+.account-menu-sheet[data-state="open"] { animation: account-menu-up var(--dur-base) var(--ease-orbit) both; }
+.account-menu-sheet[data-state="closed"] { animation: account-menu-up var(--dur-fast) var(--ease-orbit) reverse both; }
+.account-menu-overlay[data-state="open"] { animation: account-menu-fade var(--dur-base) ease-out both; }
+.account-menu-overlay[data-state="closed"] { animation: account-menu-fade var(--dur-fast) ease-out reverse both; }
+@keyframes account-menu-down { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes account-menu-up { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes account-menu-fade { from { opacity: 0; } to { opacity: 1; } }
+.account-funds {
+  display: grid;
+  grid-template-columns: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  transition: grid-template-columns var(--dur-base) var(--ease-orbit), opacity var(--dur-base) var(--ease-orbit), visibility 0s linear var(--dur-base);
+}
+.account-funds[data-open="true"] {
+  grid-template-columns: 1fr;
+  opacity: 1;
+  visibility: visible;
+  transition: grid-template-columns var(--dur-base) var(--ease-orbit), opacity var(--dur-base) var(--ease-orbit), visibility 0s;
+}
+.account-funds > div { min-width: 0; overflow: hidden; }
+.account-funds button { margin-left: 4px; }
+
 /* A collapsible (更多設定): height and opacity together. The panel is a
    one-row grid whose row grows from 0fr to 1fr; its child clips. */
 .collapse-panel {
@@ -979,8 +1013,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .orbit-fade-in, .orbit-float, .chart-draw, .switch-panel, .detail-arrive > * { animation: none; }
+  .orbit-fade-in, .orbit-float, .chart-draw, .switch-panel, .account-menu-panel-slide, .account-menu-popover[data-state], .account-menu-sheet[data-state], .account-menu-overlay[data-state], .detail-arrive > * { animation: none; }
   .collapse-panel, .collapse-panel[data-open="true"] { transition: none; }
+  .account-funds, .account-funds[data-open="true"] { transition: none; }
   .orbit-press, .orbit-lift { transition-property: background-color, color, box-shadow, opacity; }
   .orbit-press:active:not(:disabled) { transform: none; }
   .orbit-lift:hover { transform: none; }

@@ -1,3 +1,4 @@
+import { consumeFundingNotDispatched } from './copy-funding-exchange.client.js';
 import { assertSetupAdmission, assertAccountAbortAdmission } from './copy-live-setup-barrier.js';
 import { randomUUID } from "node:crypto";
 import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
@@ -119,6 +120,40 @@ export class CopyFundingRepository {
   async restoreUnsent(userId: number, id: string) {
     await this.locked(userId, tx => tx.update(copyFundingOperations).set({ status: "prepared", claimedAt: null, updatedAt: new Date() })
       .where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.userId, userId), eq(copyFundingOperations.status, "unknown"), isNull(copyFundingOperations.attemptedAt))));
+  }
+  /** Only this process's original transport can prove no POST was handed
+   * over. A crash, serialized error or unrelated attempt has no such proof.
+   * Any concurrent reconciliation or identity/state change wins this CAS. */
+  async restoreNotDispatched(userId: number, original: FundingRow, error: unknown) {
+    const operation = structuredClone(original);
+    if (operation.userId !== userId || operation.direction !== 'to_account' ||
+        operation.status !== 'unknown' || !operation.claimedAt || !operation.attemptedAt ||
+        operation.scanState !== null || operation.evidenceHash !== null || operation.transactionHash !== null ||
+        operation.creditedAmount !== null || operation.fee !== null || !consumeFundingNotDispatched(error, operation)) return null;
+    return this.locked(userId, async tx => {
+      const [owner] = await tx.select().from(users).where(and(eq(users.id, userId), isNull(users.disabledAt))).for('share');
+      const [account] = await tx.select().from(copyExecutionAccounts).where(and(eq(copyExecutionAccounts.id, operation.accountId), eq(copyExecutionAccounts.userId, userId))).for('share');
+      const [strategy] = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.id, operation.strategyId), eq(copyStrategies.userId, userId))).for('share');
+      if (!owner || owner.embeddedWalletAddress !== operation.address || !account || account.privyUserId !== owner.privyUserId ||
+          account.strategyId !== operation.strategyId || account.network !== operation.network || account.address !== operation.destination ||
+          account.state !== 'ready' || !strategy || ['stopping', 'stopped'].includes(strategy.status)) return null;
+      const nullable = <T>(column: Parameters<typeof isNull>[0], value: T | null) => value === null ? isNull(column) : sql`${column} = ${value}`;
+      const [restored] = await tx.update(copyFundingOperations).set({ status: 'prepared', claimedAt: null, attemptedAt: null, updatedAt: new Date() })
+        .where(and(eq(copyFundingOperations.id, operation.id), eq(copyFundingOperations.userId, userId),
+          eq(copyFundingOperations.accountId, operation.accountId), eq(copyFundingOperations.strategyId, operation.strategyId),
+          eq(copyFundingOperations.idempotencyKey, operation.idempotencyKey), eq(copyFundingOperations.network, operation.network),
+          eq(copyFundingOperations.address, operation.address), eq(copyFundingOperations.destination, operation.destination),
+          eq(copyFundingOperations.amount, operation.amount), eq(copyFundingOperations.nonce, operation.nonce),
+          eq(copyFundingOperations.direction, 'to_account'), eq(copyFundingOperations.status, 'unknown'),
+          nullable(copyFundingOperations.liveSetupId, operation.liveSetupId), nullable(copyFundingOperations.stopId, operation.stopId),
+          nullable(copyFundingOperations.setupAbortId, operation.setupAbortId),
+          eq(copyFundingOperations.claimedAt, operation.claimedAt!), eq(copyFundingOperations.attemptedAt, operation.attemptedAt!),
+          sql`date_trunc('milliseconds', ${copyFundingOperations.createdAt}) = ${operation.createdAt.toISOString()}::timestamptz`, eq(copyFundingOperations.updatedAt, operation.updatedAt),
+          eq(copyFundingOperations.scanRevision, operation.scanRevision), isNull(copyFundingOperations.scanState),
+          isNull(copyFundingOperations.evidenceHash), isNull(copyFundingOperations.transactionHash),
+          isNull(copyFundingOperations.creditedAmount), isNull(copyFundingOperations.fee))).returning();
+      return restored ?? null;
+    });
   }
   async finish(userId: number, id: string, status: "accepted" | "rejected", evidenceHash: string) {
     const [row] = await this.locked(userId, tx => tx.update(copyFundingOperations).set({ status, evidenceHash, updatedAt: new Date() })

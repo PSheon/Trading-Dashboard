@@ -577,7 +577,7 @@ export const zhCN: Messages = {
     heroInvest: "如果你 30 天前投入",
     heroToday: "今天你会有",
     heroFollowing: "跟单",
-    heroNote: "按过去 30 天回报率试算，不代表未来表现。",
+    heroNote: "按交易员目前可获取的全部期间收益率估算，曲线按输入金额缩放；并非逐笔跟单回测，未计入费用、滑点和执行延迟。过去表现不保证未来结果。",
     markets: {
       top100: "Top 100",
       btc: "BTC",
@@ -625,6 +625,8 @@ export const zhCN: Messages = {
     },
   },
   discover: {
+    metricsUpdated: "指标更新",
+    metricsStale: "指标已超过 24 小时",
     title: "探索",
     crypto: "加密货币",
     stocks: "股票",

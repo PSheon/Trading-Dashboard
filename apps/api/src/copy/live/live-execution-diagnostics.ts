@@ -2,6 +2,7 @@ import { HyperliquidBudgetWait } from '../../hyperliquid/hyperliquid-budget-wait
 import { LiveBoundaryError, type LiveNetwork } from './wallet-authorization.js';
 
 export type LiveDiagnosticStage = 'transport_local_budget' | 'transport_shared_quota' | 'transport_final_check' |
+  'transport_risk_check' | 'transport_market_check' | 'transport_builder_check' | 'transport_approval_check' | 'transport_lease_check' |
   'transport_dispatch' | 'executor_final_check' | 'executor_submit';
 export interface LiveExecutionDiagnostic {
   readonly network: LiveNetwork;
@@ -12,6 +13,49 @@ export interface LiveExecutionDiagnostic {
   readonly retryMs?: number;
 }
 export type LiveExecutionDiagnosticHook = (event: Readonly<LiveExecutionDiagnostic>) => void;
+
+export type LiveTimingStage = 'risk_local_read' | 'risk_sizing_validation' | 'risk_provider_epoch' |
+  'risk_final_local_read' | 'risk_generation_projection' | 'risk_proof_build' |
+  'executor_prepare' | 'executor_sign_gate' | 'executor_sign' | 'executor_persist_submitting' | 'executor_submit_gate' |
+  'executor_submit' | 'runtime_prepare' | 'runtime_hold' |
+  'preparation_local_authority' | 'preparation_existing_identity' | 'preparation_canonical_source' |
+  'preparation_generation_manifest' | 'preparation_provider_collection' | 'preparation_sizing_plan' | 'preparation_journal_transaction' |
+  'epoch_local_authority' | 'epoch_budget' | 'epoch_leverage_preview' | 'epoch_first_wave' |
+  'epoch_account_snapshots' | 'epoch_other_markets' | 'epoch_final_modes' | 'epoch_final_authority' |
+  'signer_wallet_identity' | 'signer_local_authorization' | 'signer_risk_gate' | 'signer_approval' |
+  'signer_rpc' | 'signer_signature_verify';
+export interface LiveExecutionTiming {
+  readonly network: LiveNetwork;
+  readonly phase: 'hold' | 'sign' | 'submit' | 'execute' | 'prepare' | 'collect';
+  readonly stage: LiveTimingStage;
+  readonly elapsedMs: number;
+  readonly totalMs: number;
+  readonly clockValid: boolean;
+}
+export type LiveExecutionTimingHook = (event: Readonly<LiveExecutionTiming>) => void;
+
+/** Numeric observations only. Never supplies or retimes financial evidence,
+ * awaits an observer, or lets an observer exception change execution. */
+export function beginLiveExecutionTiming(network: LiveNetwork, phase: LiveExecutionTiming['phase'],
+  now: () => number, hook?: LiveExecutionTimingHook): (stage: LiveTimingStage) => void {
+  if (!hook) return () => {};
+  let started: number;
+  try { started = now(); } catch { return () => {}; }
+  let previous = started;
+  return stage => {
+    try {
+      const completed = now();
+      const clockValid = Number.isSafeInteger(started) && started >= 0 && Number.isSafeInteger(previous) &&
+        Number.isSafeInteger(completed) && completed >= previous && previous >= started;
+      const event: LiveExecutionTiming = { network, phase, stage,
+        elapsedMs: clockValid ? completed - previous : 0, totalMs: clockValid ? completed - started : 0, clockValid };
+      previous = completed;
+      const result: unknown = hook(Object.freeze(event));
+      if (result && typeof (result as { then?: unknown }).then === 'function')
+        void Promise.resolve(result).catch(() => undefined);
+    } catch { /* observation cannot veto or retry a financial action */ }
+  };
+}
 // Exact reviewed codes only. Even a typed boundary error can carry an
 // unreviewed adapter string; neither its message nor arbitrary code is logged.
 const codes = new Set(['wallet_authorization_missing', 'wallet_authorization_expired', 'wallet_authorization_revoked',

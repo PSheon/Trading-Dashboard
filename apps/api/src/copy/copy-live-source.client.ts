@@ -85,30 +85,48 @@ export class HyperliquidLiveSourceClient {
     const rest = (window: LiveSourceWindow, reason: LiveSourceReadResult['unresolved'][number]['reason']) => {
       unresolved.push(...[window, ...queue].map(w => ({ ...w, reason }))); queue.length = 0;
     };
+    const loadWindow = async (window: LiveSourceWindow) => {
+      const observedAt = this.now(); let rows: unknown;
+      const prepaidWindow = prepaid > 0;
+      if (!prepaidWindow) await boundedLiveRead(() => this.acquire(SOURCE_READ_WORST_WEIGHT), remaining());
+      remaining();
+      requestsUsed++;
+      const body = { type: window.kind === 'fills' ? 'userFillsByTime' : 'userTwapSliceFillsByTime', user: request.leaderAddress,
+        startTime: window.from, endTime: window.to, ...(window.kind === 'fills' ? { aggregateByTime: false } : {}) };
+      const response = await boundedLiveRead(() => {
+        if (prepaidWindow) prepaid--;
+        return this.fetcher(ENDPOINTS[this.network], { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body), redirect: 'error', signal: controller.signal });
+      }, remaining());
+      if (!response.ok) { void response.body?.cancel().catch(() => undefined); fail('live_source_read_unavailable'); }
+      rows = await json(response, remaining, controller.signal);
+      if (Array.isArray(rows)) {
+        settleListAnswer(response, rows.length);
+        try { this.refund?.(SOURCE_READ_WORST_WEIGHT - listWeight(rows.length)); } catch { /* accounting only */ }
+      }
+      remaining();
+      return { observedAt, rows };
+    };
     try {
+      // Both mandatory initial channels use the same captured window and
+      // prepaid allowance. Acquire each provider permit normally, then read
+      // independent responses together within the unchanged five-second clock.
+      const initial = new Map<LiveSourceWindow, PromiseSettledResult<{ observedAt: number; rows: unknown }>>();
+      if (request.maxRequests >= 2) {
+        const windows = [...queue];
+        const results = await Promise.allSettled(windows.map(loadWindow));
+        windows.forEach((window, index) => initial.set(window, results[index]!));
+      }
       while (queue.length) {
         const window = queue.shift()!;
         if (!fresh()) { rest(window, 'evidence_expired'); break; }
-        if (requestsUsed >= request.maxRequests) { rest(window, 'request_budget'); break; }
-        requestsUsed++;
-        const observedAt = this.now(); let rows: unknown;
+        const captured = initial.get(window);
+        if (!captured && requestsUsed >= request.maxRequests) { rest(window, 'request_budget'); break; }
+        let observedAt: number; let rows: unknown;
         try {
-          const prepaidWindow = prepaid > 0;
-          if (!prepaidWindow) await boundedLiveRead(() => this.acquire(SOURCE_READ_WORST_WEIGHT), remaining());
-          remaining();
-          const body = { type: window.kind === 'fills' ? 'userFillsByTime' : 'userTwapSliceFillsByTime', user: request.leaderAddress,
-            startTime: window.from, endTime: window.to, ...(window.kind === 'fills' ? { aggregateByTime: false } : {}) };
-          const response = await boundedLiveRead(() => {
-            if (prepaidWindow) prepaid--;
-            return this.fetcher(ENDPOINTS[this.network], { method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(body), redirect: 'error', signal: controller.signal });
-          }, remaining());
-          if (!response.ok) { void response.body?.cancel().catch(() => undefined); fail('live_source_read_unavailable'); }
-          rows = await json(response, remaining, controller.signal);
-          if (Array.isArray(rows)) {
-            settleListAnswer(response, rows.length);
-            try { this.refund?.(SOURCE_READ_WORST_WEIGHT - listWeight(rows.length)); } catch { /* accounting only */ }
-          }
+          if (captured?.status === 'rejected') throw captured.reason;
+          const result = captured?.status === 'fulfilled' ? captured.value : await loadWindow(window);
+          observedAt = result.observedAt; rows = result.rows;
           remaining();
         } catch { rest(window, fresh() ? 'read_unavailable' : 'evidence_expired'); break; }
         if (!Array.isArray(rows) || rows.length > ROW_CAP) fail('live_source_response_invalid');

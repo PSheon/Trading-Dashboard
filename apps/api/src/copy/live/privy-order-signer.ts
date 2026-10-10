@@ -8,6 +8,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { verifyTypedData } from 'viem';
 import { marketIdentityKey, type LiveMarketIdentity } from './live-market-resolver.js';
 import type { LiveNetwork } from './wallet-authorization.js';
+import { beginLiveExecutionTiming, type LiveExecutionTimingHook } from './live-execution-diagnostics.js';
 
 export type PrivyOrderSignInput = Parameters<ReturnType<ReturnType<PrivyClient["wallets"]>["ethereum"]>["signTypedData"]>[1];
 export type PrivySigningAuthorization = Pick<PrivyOrderSignInput, "authorization_context">;
@@ -50,7 +51,7 @@ const agentFields = [{ name: "source", type: "string" }, { name: "connectionId",
 export class PrivyOrderSigner {
   constructor(private readonly client: PrivyOrderSigningClient, private readonly authorizations: WalletAuthorizationService,
     private readonly signingAuthorization: () => Promise<PrivySigningAuthorization>, private readonly gate: LiveExecutionGate, private readonly now = Date.now,
-    private readonly boundaryVerifier?: LiveSigningBoundaryVerifier) {}
+    private readonly boundaryVerifier?: LiveSigningBoundaryVerifier, private readonly onTiming?: LiveExecutionTimingHook) {}
 
   async assertAuthorization(record: LiveExecutionRecord, intent: LiveOrderIntent): Promise<VerifiedWalletAuthorization> {
     const verified = await this.authorizations.authorizeWithEvidence(intent);
@@ -70,6 +71,7 @@ export class PrivyOrderSigner {
     return {
       address: record.authorization.signerAddress,
       signTypedData: async (data) => {
+        const mark = beginLiveExecutionTiming(intent.network, 'sign', this.now, this.onTiming);
         // Detach caller-owned objects synchronously before any provider await.
         // Validation and the eventual SDK request use this same captured payload.
         data = structuredClone(data);
@@ -88,12 +90,15 @@ export class PrivyOrderSigner {
         const { wallet, checkedAt: walletCheckedAt } = observation;
         if (wallet.id !== grant.walletId || wallet.chain_type !== "ethereum" || address(wallet.address) !== grant.signerAddress ||
             wallet.owner_id !== grant.privyOwnerId || wallet.archived_at != null) throw new LiveBoundaryError("privy_wallet_identity_mismatch");
+        mark('signer_wallet_identity');
         if (record.expiresAfter <= this.now()) throw new LiveBoundaryError("signing_order_expired");
         const authorization = await this.signingAuthorization();
         // Recheck after remote identity/authorization reads; never trust the initial snapshot.
         const fresh = await this.authorizations.authorizeLocal(intent);
         assertSameAuthorization(grant, fresh);
+        mark('signer_local_authorization');
         const permit = await assertLiveExecutionReady(this.gate, lease, "sign", intent, record);
+        mark('signer_risk_gate');
         const verified = await this.assertAuthorization(record, intent);
         if (record.action.builder && !boundaryVerifier) throw new LiveBoundaryError('builder_approval_verifier_missing');
         const proof = boundaryVerifier ? await boundaryVerifier(structuredClone(record), structuredClone(intent)) : {};
@@ -105,6 +110,7 @@ export class PrivyOrderSigner {
         this.assertAuthorizationFresh(finalAuthorization, intent);
         if (boundaryVerifier) assertLiveSigningBoundaryProof(proof, record, intent, this.now());
         if (record.expiresAfter <= this.now()) throw new LiveBoundaryError("signing_order_expired");
+        mark('signer_approval');
         const assertRpcFresh = () => {
           assertLiveExecutionPermit(permit, 'sign', intent, record);
           this.assertAuthorizationFresh(finalAuthorization, intent);
@@ -114,11 +120,12 @@ export class PrivyOrderSigner {
             throw new LiveBoundaryError('privy_wallet_identity_stale');
           if (record.expiresAfter <= now) throw new LiveBoundaryError('signing_order_expired');
         };
-        const response = await this.client.signTypedData(grant.walletId, {
+        let response: Awaited<ReturnType<PrivyOrderSigningClient['signTypedData']>>;
+        try { response = await this.client.signTypedData(grant.walletId, {
           ...authorization, request_expiry: record.expiresAfter, address: grant.signerAddress,
           params: { typed_data: { domain: data.domain, types: { EIP712Domain: domainFields, Agent: agentFields },
             primary_type: "Agent", message: { source: data.message.source, connectionId: data.message.connectionId } } },
-        }, assertRpcFresh);
+        }, assertRpcFresh); } finally { mark('signer_rpc'); }
         if (response.encoding !== "hex" || !/^0x[0-9a-fA-F]{128}(?:00|01|1b|1c)$/i.test(response.signature)) throw new LiveBoundaryError("invalid_privy_signature");
         let validSignature = false;
         try {
@@ -128,6 +135,7 @@ export class PrivyOrderSigner {
             message: { source: record.authorization.network === 'testnet' ? 'b' : 'a', connectionId: expectedHash },
             signature: response.signature as `0x${string}` });
         } catch { /* Never expose provider signatures through crypto errors. */ }
+        mark('signer_signature_verify');
         if (!validSignature) throw new LiveBoundaryError('privy_signature_scope_mismatch');
         return response.signature as `0x${string}`;
       },

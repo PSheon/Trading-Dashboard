@@ -927,6 +927,22 @@ export class RequestBudgeterService {
     this.rearm();
   }
 
+  /** Return only never-dispatched weight from a live admission reservation.
+   * Live admissions spend both buckets; unlike a page estimate settlement,
+   * their refund must not discard unused reserve weight at the main cap. */
+  refundLive(weight: number): void {
+    if (!Number.isSafeInteger(weight) || weight < 1) throw new Error("Invalid live refund");
+    const now = Date.now();
+    this.refill(now);
+    const toMain = Math.min(weight, Math.max(0, this.mainCapacity - this.tokens));
+    this.tokens += toMain;
+    this.reserve = Math.min(this.reserveCapacity, this.reserve + weight - toMain);
+    const consumer = this.consumerOf("live");
+    this.chargeCap(consumer, -weight);
+    this.record(now, -weight, false, consumer);
+    this.rearm();
+  }
+
   /** Call after a successful (non-429) response, for gradual recovery. */
   onSuccess(): void {
     this.consecutiveSuccesses += 1;

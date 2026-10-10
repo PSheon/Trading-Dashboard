@@ -40,7 +40,7 @@ export class CopyLiveSetupAbortService {
     @Inject(SETUP_ABORT_OBSERVER) private readonly observer: SetupAbortObserver, private readonly jobs: BackgroundJobs,
     @Optional() private readonly now: () => number = Date.now) {}
 
-  get available() { return deploymentNetwork(this.config) === 'testnet' && liveExecutionEnabled(this.config) && this.signer.available; }
+  get available() { return liveExecutionEnabled(this.config) && this.config.value.copy.live?.network === deploymentNetwork(this.config) && this.signer.available; }
   async request(userId: number, setupId: string, body: unknown): Promise<LiveCopySetupAbort> {
     if (!this.available) throw new ServiceUnavailableException({ statusCode: 503, code: 'setup_abort_unavailable', message: 'Check the saved setup progress on its original network' });
     const parsed = requestLiveCopySetupAbortSchema.safeParse(body);
@@ -49,9 +49,15 @@ export class CopyLiveSetupAbortService {
   }
   async get(userId: number, setupId: string) { await this.setups.owner(userId); return this.wire(await this.repository.forSetup(userId, setupId)); }
   async wire(row: SetupAbortRow): Promise<LiveCopySetupAbort> {
-    const children = await this.repository.children(row), deposit = children.funding.find(op => op.id === row.fundingOperationId), refund = children.funding.find(op => op.id === row.returnOperationId);
+    const children = await this.repository.children(row), deposit = children.funding.find(op => op.id === row.fundingOperationId),
+      refund = children.funding.find(op => op.id === row.returnOperationId || row.stopId !== null && op.stopId === row.stopId && op.direction === 'to_main');
+    // Old parents may have finished when the stop accepted its sweep. Preserve
+    // the original funding outcome instead of presenting acceptance as credit.
+    const pendingRefund = row.state === 'done' && refund && refund.status !== 'credited';
+    const rejectedRefund = pendingRefund && ['rejected', 'cancelled'].includes(refund.status);
     return liveCopySetupAbortSchema.parse({ id: row.id, setupId: row.setupId, strategyId: row.strategyId, accountId: row.accountId, kind: row.kind, network: row.network,
-      state: states[row.state], issue: issue(row.issue), deposit: deposit ? { ...fundingWire(deposit), direction: deposit.direction } : null,
+      state: pendingRefund ? rejectedRefund ? 'blocked' : 'delegated' : states[row.state],
+      issue: pendingRefund ? rejectedRefund ? 'setup_abort_refund_not_completed' : 'setup_abort_refund_pending' : issue(row.issue), deposit: deposit ? { ...fundingWire(deposit), direction: deposit.direction } : null,
       refund: refund ? { ...fundingWire(refund), direction: refund.direction } : null,
       stop: children.stop ? { id: children.stop.id, state: children.stop.state, issue: issue(children.stop.issue) } : null,
       createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() });
@@ -82,6 +88,9 @@ export class CopyLiveSetupAbortService {
           await wait('blocked', 'setup_abort_generation_conflict'); return;
         }
         const deposit = children.funding.find(op => op.id === row!.fundingOperationId);
+        const returns = children.funding.filter(op => op.stopId === row!.stopId && op.direction === 'to_main');
+        if (returns.some(op => ['rejected', 'cancelled'].includes(op.status))) { await wait('blocked', 'setup_abort_refund_not_completed'); return; }
+        if (returns.some(op => op.status !== 'credited')) { await wait('delegated', 'setup_abort_refund_pending'); return; }
         if (children.stop.state === 'stopped' && (!deposit || !['prepared','unknown','accepted'].includes(deposit.status))) await wait('done', null);
         else await wait('delegated', issue(children.stop.issue));
         return;

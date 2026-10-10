@@ -46,11 +46,29 @@ async function queuedReader(network: 'testnet' | 'mainnet' = 'testnet') {
   const fetchInfo: typeof fetch = async () => { http++; return new Response('{}', { status: 503 }); };
   const transport = new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(db)), { egressKey: 'snapshot-queue-test', ownerId: 'test-worker' }, fetchInfo);
   // Only the external transport boundary is replaced. Claim and local queue remain real.
-  vi.spyOn(transport, 'fetchInfo').mockImplementation(fetchInfo);
+  vi.spyOn(transport, 'fetchBackgroundInfo').mockImplementation(fetchInfo);
   const reader = followerSnapshotReader({ budget, network, transport } as Pick<WalletNetworkHyperliquid, 'budget' | 'network' | 'transport'>);
   return { reader, count: () => http };
 }
 async function waitQueued() { for (let i = 0; i < 200 && budget!.queued().background === 0; i++) await realDelay(5); expect(budget!.queued().background).toBe(1); }
+
+it('keeps scheduled reporting out of the shared foreground reserve even when its local background credit is available', async () => {
+  budget = new RequestBudgeterService(testConfig());
+  const quota = new PostgresHyperliquidQuota(new UnitOfWork(db));
+  const binding = { egressKey: 'snapshot-shared-background-test', ownerId: 'snapshot-worker' };
+  // Background work has filled its shared lane; the remaining 360 is for
+  // foreground reads. This deliberately leaves the local bucket available.
+  await quota.bindUnscoped(binding).acquireRest(840, Date.now() + 5000);
+  const http = vi.fn<typeof fetch>(async () => new Response('{}', { status: 503 }));
+  const transport = new HyperliquidGlobalTransport(quota, binding, http);
+  const reader = followerSnapshotReader({ budget, network: 'testnet', transport });
+  try {
+    await expect(reader.observe(`0x${'77'.repeat(20)}`)).rejects.toThrow();
+    expect(http).not.toHaveBeenCalled();
+    const rows = await db.execute(sql`select events from hyperliquid_egress_quota where egress_key = ${binding.egressKey}`);
+    expect(rows.rows[0]!.events).toHaveLength(1);
+  } finally { reader.close(); }
+});
 
 it('cancels a real SQL idle snapshot queued before a fresh fill and refunds all unused 284 weight without HTTP', async () => {
   const saved = { ...structuredClone(fixture().accountSource.snapshot), accountAddress: `0x${'77'.repeat(20)}` };

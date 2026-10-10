@@ -30,6 +30,7 @@ import { minOrderNotional } from '../min-order-notional.js';
 import { effectiveLeverage } from '../copy-risk.js';
 import { LiveLeverageUpdateRequired } from './live-leverage-update.js';
 import { liveDeploymentPolicy } from '../live-deployment.js';
+import { beginLiveExecutionTiming, type LiveExecutionTimingHook } from './live-execution-diagnostics.js';
 
 export interface LivePreparationBinding {
   readonly accountId: string; readonly mandateId: string; readonly sourceFillId: string; readonly leg: 'open' | 'close';
@@ -58,7 +59,8 @@ export class PostgresLivePreparation {
   constructor(private readonly observer: HyperliquidLiveAccountObserver, private readonly resolver: HyperliquidLiveMarketResolver,
     private readonly provider: HyperliquidLiveRiskProvider, options: LivePreparationOptions, private readonly now = Date.now, epoch?: LiveProviderReadEpoch,
     private readonly reference?: LiveSourceReferenceReader,
-    private readonly beforeProviderRead?: (walletId: string) => void) {
+    private readonly beforeProviderRead?: (walletId: string) => void,
+    private readonly onTiming?: LiveExecutionTimingHook) {
     this.options = Object.freeze(structuredClone(options));
     riskSourceRequire(Dec.from(options.slippageBps).gte(0) && Dec.from(options.slippageBps).lte(10000), 'live_preparation_options');
     this.epoch = epoch ?? new LiveProviderReadEpoch(observer, resolver, provider, options, now);
@@ -74,10 +76,12 @@ export class PostgresLivePreparation {
   async prepare(session: LiveRiskDatabaseSession, supplied: LivePreparationBinding): Promise<{ intent: LiveOrderIntent; record: LiveExecutionRecord }> {
     assertOriginalLiveRiskSession(session);
     const binding = Object.freeze(structuredClone(supplied)), started = this.now();
+    const mark = beginLiveExecutionTiming(this.observer.network, 'prepare', this.now, this.onTiming);
     riskSourceRequire(binding && ['open', 'close'].includes(binding.leg) && [binding.accountId, binding.mandateId, binding.sourceFillId].every(v => typeof v === 'string' && v.length > 0 && v.length <= 160) &&
       (binding.members === undefined || Array.isArray(binding.members) && binding.members.length >= 1 && binding.members.length < MAX_MERGED_LEGS &&
         binding.members.every(v => typeof v === 'string' && v.length > 0 && v.length <= 160 && v !== binding.sourceFillId) && new Set(binding.members).size === binding.members.length), 'live_preparation_binding');
     const local = await session.read(db => loadLivePreparationAuthority(session, db, binding, started));
+    mark('preparation_local_authority');
     // The execution network: the account's (the authority binds it to the scope).
     const network = local.account.network;
     const cloid = liveSourceExecutionCloid(binding.mandateId, binding.sourceFillId, binding.leg), key = executionKey({ network, accountAddress: address(local.account.address!), cloid });
@@ -91,6 +95,7 @@ export class PostgresLivePreparation {
       await session.scope.assertHeld();
       return { intent, record };
     });
+    mark('preparation_existing_identity');
     // An original attempted/expired identity is retained, never re-priced or
     // given another nonce. The executor's reconciliation owns its next step.
     if (existing) return existing;
@@ -128,12 +133,14 @@ export class PostgresLivePreparation {
       }
       return { fill, leg, stream, members };
     });
+    mark('preparation_canonical_source');
     const baselineExists = await session.read(async db => {
       const rows = await this.checked(session, db.select().from(copyLivePositionBaselines).where(eq(copyLivePositionBaselines.mandateId, binding.mandateId)));
       return rows.length > 0;
     });
     if (!baselineExists) await session.read(db => this.assertFirstAccount(session, db, local.account.id, network, local.account.address!));
     const manifest = baselineExists ? await session.read(db => loadLiveGenerationManifest(session, db, local, { currentExecutionKey: key, now: started })) : null;
+    mark('preparation_generation_manifest');
     // Optional request-owned metadata work starts only after current local
     // authority, canonical source and original generation have been checked.
     this.beforeProviderRead?.(local.wallet.privyWalletId);
@@ -142,6 +149,7 @@ export class PostgresLivePreparation {
     const frames = await this.epoch.collect(session, { accountId: binding.accountId, mandateId: binding.mandateId, key, coin: source.fill.coin,
       checkLeverage: binding.leg === 'open',
       includeLeader: !crossNetworkSource && local.settings.sizingMode === 'ratio' && binding.leg === 'open' });
+    mark('preparation_provider_collection');
     riskSourceRequire(frames.authorityDigest === riskSourceDigest(local), 'live_risk_local_changed');
     const { market, leader, target: quote } = frames, follower = frames.snapshots[local.accounts.findIndex(a => a.id === binding.accountId)]!;
     await session.scope.assertHeld(); this.fresh(started);
@@ -221,6 +229,7 @@ export class PostgresLivePreparation {
       // A zero fee attaches no builder code (nothing to approve or collect).
       ...(local.consent.builderAddress && local.consent.builderMaxFeeTenthsOfBps > 0 ? { builder: { address: local.consent.builderAddress, feeTenthsBps: local.consent.builderMaxFeeTenthsOfBps, approvedMaxFeeTenthsBps: local.consent.builderMaxFeeTenthsOfBps } } : {}) };
     const action = buildOrderAction(intent), fingerprint = intentFingerprint(intent, action);
+    mark('preparation_sizing_plan');
     const record = await session.transaction(async tx => {
       const current = await loadLivePreparationAuthority(session, tx, binding, this.now());
       riskSourceRequire(riskSourceDigest(current) === riskSourceDigest(local), 'live_risk_local_changed');
@@ -269,6 +278,7 @@ export class PostgresLivePreparation {
       this.fresh(oldest);
       return saved;
     });
+    mark('preparation_journal_transaction');
     session.scope.assertFresh();
     this.fresh(started); this.fresh(oldest);
     return { intent: structuredClone(intent), record: structuredClone(record) };

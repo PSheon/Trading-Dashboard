@@ -17,6 +17,15 @@ function render(roi: number | null, sparkline = [10, 20, 30]) {
 }
 
 describe("home historical illustration", () => {
+  it("explains the illustrated period and costs beside the input", () => {
+    const html = render(0.2);
+    expect(html).toContain('aria-describedby="calc-note"');
+    expect(html).toContain('id="calc-note"');
+    expect(html).toContain("available all-time ROI");
+    expect(html).toContain("not a trade-by-trade copy backtest");
+    expect(html).toContain("excludes fees, slippage and execution delays");
+    expect(html).not.toContain("trailing 30-day return");
+  });
   it("does not present missing ROI as a flat investment return", () => {
     const html = render(null);
     expect(html).not.toContain("$1,000");

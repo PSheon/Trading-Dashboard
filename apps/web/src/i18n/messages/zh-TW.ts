@@ -1334,7 +1334,7 @@ export const zhTW = {
     heroInvest: "如果你 30 天前投入",
     heroToday: "今天你會有",
     heroFollowing: "跟單",
-    heroNote: "依過去 30 天報酬率試算，不代表未來績效",
+    heroNote: "依交易員目前可取得的全部期間報酬率試算，曲線按輸入金額縮放；非逐筆跟單回測，未計入費用、滑價與執行延遲。過去績效不保證未來結果。",
     markets: {
       top100: "Top 100",
       btc: "BTC",
@@ -1382,6 +1382,8 @@ export const zhTW = {
     },
   },
   discover: {
+    metricsUpdated: "指標更新",
+    metricsStale: "指標已超過 24 小時",
     title: "探索",
     crypto: "加密貨幣",
     stocks: "股票",

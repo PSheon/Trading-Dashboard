@@ -21,6 +21,7 @@ vi.mock("@/components/wallet/wallet-modals", () => ({ WalletModalsProvider: ({ c
 let root: Root, container: HTMLDivElement;
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  history.replaceState(null, "", "/");
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -101,7 +102,18 @@ it("retains one complete brand footer while the portfolio resolves and changes i
   }
 });
 
-it.each(["/favorites", "/settings", "/trader/0xabc"])("retains the compact legal and help footer on %s", async (pathname) => {
+it.each(["/favorites", "/settings", "/settings/account", "/settings/language", "/r/INVITE"])("uses one complete brand footer on %s regardless of login state", async (pathname) => {
+  state.pathname = pathname;
+  for (const status of ["signedOut", "signedIn", "loading"]) {
+    await render(status);
+    expect(container.querySelectorAll("footer")).toHaveLength(1);
+    expect(container.querySelector('footer nav[aria-label="Resources"]')).not.toBeNull();
+    expect(container.querySelector('footer nav[aria-label="Community"]')).not.toBeNull();
+    expect(container.querySelector('footer a[href="/en/about"]')).not.toBeNull();
+  }
+});
+
+it.each(["/trader/0xabc"])("retains the compact legal and help footer on %s", async (pathname) => {
   state.pathname = pathname;
   await render("signedIn");
   expect(container.querySelectorAll("footer")).toHaveLength(1);
@@ -109,6 +121,14 @@ it.each(["/favorites", "/settings", "/trader/0xabc"])("retains the compact legal
   expect(container.querySelector('footer a[href="/en/privacy"]')).not.toBeNull();
   expect(container.querySelector('footer a[href="/en/terms"]')).not.toBeNull();
   expect(container.querySelector('footer a[href="/en/help"]')).not.toBeNull();
+});
+
+it.each(["signedIn", "signedOut"])("keeps the shared phone header on settings while %s", async (status) => {
+  state.pathname = "/settings";
+  await render(status);
+  const header = container.querySelector('[data-testid="app-phone-header"]');
+  expect(header).not.toBeNull();
+  expect(header?.querySelector('a[href="/en"]')).not.toBeNull();
 });
 
 function measuredLinks(reduce = false) {
@@ -134,4 +154,21 @@ it('switches nav pills immediately when reduced motion is requested', async () =
   const pills=container.querySelectorAll<HTMLElement>('[data-nav-pill]');
   expect(pills.length).toBeGreaterThan(0);
   for (const pill of pills) expect(pill.style.transition).toBe('none');
+});
+
+
+it("omits only the trader insights footer and restores it when the tab changes", async () => {
+  state.pathname = "/trader/0xabc";
+  history.replaceState(null, "", "/trader/0xabc?tab=insights");
+  await render("signedIn");
+  expect(container.querySelector("footer")).toBeNull();
+  await act(async () => {
+    history.replaceState(null, "", "/trader/0xabc?tab=trades");
+    globalThis.dispatchEvent(new PopStateEvent("popstate"));
+  });
+  expect(container.querySelectorAll("footer")).toHaveLength(1);
+  state.pathname = "/insights";
+  history.replaceState(null, "", "/insights?tab=insights");
+  await render("signedIn");
+  expect(container.querySelector('footer nav[aria-label="Resources"]')).not.toBeNull();
 });

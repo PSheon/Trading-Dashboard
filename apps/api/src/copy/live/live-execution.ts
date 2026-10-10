@@ -4,7 +4,7 @@ import { isDeepStrictEqual } from "node:util";
 import { LiveBoundaryError, WalletAuthorizationService, assertSameAuthorization, type LiveNetwork, type WalletAuthorization } from "./wallet-authorization.js";
 import type { LiveMarketIdentity } from './live-market-resolver.js';
 import type { LiveUnattemptedReleaseCertificate } from './live-unattempted-release.js';
-import { observeLiveExecutionFailure, type LiveExecutionDiagnosticHook } from './live-execution-diagnostics.js';
+import { beginLiveExecutionTiming, observeLiveExecutionFailure, type LiveExecutionDiagnosticHook, type LiveExecutionTimingHook } from './live-execution-diagnostics.js';
 
 /** An attempted order the exchange still does not know by cloid once its
  * signed expiresAfter (plus this grace) has passed: it was never placed. */
@@ -84,7 +84,7 @@ export interface LiveExchangeTransport {
 export class LiveOrderExecutor {
   constructor(private readonly authorizations: WalletAuthorizationService, private readonly journal: LiveExecutionJournal,
     private readonly transport: LiveExchangeTransport, private readonly gate: LiveExecutionGate, private readonly now = Date.now,
-    private readonly onDiagnostic?: LiveExecutionDiagnosticHook) {}
+    private readonly onDiagnostic?: LiveExecutionDiagnosticHook, private readonly onTiming?: LiveExecutionTimingHook) {}
 
   async execute(intent: LiveOrderIntent): Promise<LiveExecutionRecord> {
     if (intent.network !== this.transport.network) throw new LiveBoundaryError("transport_network_mismatch");
@@ -92,6 +92,7 @@ export class LiveOrderExecutor {
     const key = executionKey(intent);
     const fingerprint = intentFingerprint(intent, action);
     return this.journal.withOrderLock(key, async (lease) => {
+      const mark = beginLiveExecutionTiming(intent.network, 'execute', this.now, this.onTiming);
       let record = await this.journal.get(key);
       if (record && record.fingerprint !== fingerprint) throw new LiveBoundaryError("cloid_payload_conflict");
       if (record && !isDeepStrictEqual(record.action, action)) throw new LiveBoundaryError("persisted_order_payload_mismatch");
@@ -108,15 +109,19 @@ export class LiveOrderExecutor {
         return this.persist({ ...record, state: "rejected", errorCode: "prepared_order_expired", updatedAt: this.now() }, lease);
       }
       // Signing failures are definitely before submission and leave the order prepared.
+      mark('executor_prepare');
       const signingPermit = await assertLiveExecutionReady(this.gate, lease, "sign", intent, record);
       assertLiveExecutionPermit(signingPermit, 'sign', intent, record);
+      mark('executor_sign_gate');
       const signed = structuredClone(await this.transport.sign(structuredClone(record), structuredClone(intent), lease));
+      mark('executor_sign');
       assertSignedOrderMatches(signed, record);
       const fresh = await this.authorizations.authorizeLocal(intent);
       assertSameAuthorization(authorization, fresh);
       if (record.expiresAfter <= this.now()) throw new LiveBoundaryError("signed_order_expired");
       await lease.assertHeld();
       record = await this.persist({ ...record, state: "submitting", updatedAt: this.now(), errorCode: undefined }, lease);
+      mark('executor_persist_submitting');
       // Persistence can block long enough for controls or the lock to change.
       // Any failure before POST is a definite non-submission, never an unknown fill.
       const finalCheckStartedAt = this.now();
@@ -127,6 +132,7 @@ export class LiveOrderExecutor {
         if (record.expiresAfter <= this.now()) throw new LiveBoundaryError("signed_order_expired");
         assertSignedOrderMatches(signed, record);
         assertLiveExecutionPermit(submissionPermit, 'submit', intent, record);
+        mark('executor_submit_gate');
       } catch (error) {
         observeLiveExecutionFailure(this.onDiagnostic, intent.network, 'executor_final_check', finalCheckStartedAt, this.now, error);
         // A lost session may have a successor owner; do not write from that worker.
@@ -136,7 +142,10 @@ export class LiveOrderExecutor {
       }
       let outcome: ExchangeOutcome;
       const submitStartedAt = this.now();
-      try { outcome = await this.transport.submit(signed, structuredClone(record), structuredClone(intent), lease); }
+      try {
+        try { outcome = await this.transport.submit(signed, structuredClone(record), structuredClone(intent), lease); }
+        finally { mark('executor_submit'); }
+      }
       catch (error) {
         observeLiveExecutionFailure(this.onDiagnostic, intent.network, 'executor_submit', submitStartedAt, this.now, error);
         await lease.assertHeld();

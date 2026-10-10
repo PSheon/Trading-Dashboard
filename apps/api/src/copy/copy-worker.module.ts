@@ -60,7 +60,10 @@ export function followerSnapshotReader({ budget, transport, network }: Pick<Wall
         }, (input, init) => {
           shutdown.signal.throwIfAborted();
           issued = true;
-          return transport.fetchInfo(input, init);
+          // Scheduled reporting must honor both the local background queue
+          // and the shared background cap; it cannot spend the foreground
+          // reserve needed by an order in another process.
+          return transport.fetchBackgroundInfo(input, init);
         }, Date.now, 5000, source, waitMs + 2000);
         return await observer.observe(account);
       } finally {

@@ -13,6 +13,7 @@ import { boardPnl, boardRoi, roiPillShort, roiPillWhole } from "@/lib/board-form
 import type { BoardTrader } from "@/lib/contracts";
 import { BoardSparkline, boardName, CoinStack, ScoreRing, signTone, TraderAvatar, VerifiedTick } from "./board-bits";
 import { timeAgo } from "@/lib/format";
+import { useNow } from "@/lib/use-now";
 
 const traderHref = (address: string) => `/trader/${address}`;
 
@@ -83,6 +84,7 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory,
           </Tooltip>
         ) : null}
       </div>
+      <MetricsStamp at={trader.metricsUpdatedAt} now={now} />
       <button
         type="button"
         onClick={(e) => {
@@ -161,6 +163,7 @@ export function HomeCard({ trader }: { trader: BoardTrader }) {
         {format.usd(trader.pnl, { compact: true, sign: true })}
       </span>
       {pill}
+      <MetricsStamp at={trader.metricsUpdatedAt} />
     </Link>
   );
 }
@@ -229,3 +232,15 @@ export function BoardMobileRow({ trader }: { trader: BoardTrader }) {
   );
 }
 
+
+/** Age refers to the metrics read, never the browser's most recent fetch. */
+function MetricsStamp({ at, now }: { at?: string | null; now?: number }) {
+  const { t, format } = useI18n();
+  const ticking = useNow(), clock = now ?? ticking;
+  if (!at) return null;
+  const outdated = clock > 0 && clock - Date.parse(at) >= 24 * 60 * 60 * 1000;
+  return <span className={cn("text-[10px] leading-4 text-muted-foreground", outdated && "text-tag-alert-foreground")}>
+    {t("discover.metricsUpdated")} · <time dateTime={at}>{format.dateTime(at)}</time>
+    {outdated ? <span className="block">{t("discover.metricsStale")}</span> : null}
+  </span>;
+}

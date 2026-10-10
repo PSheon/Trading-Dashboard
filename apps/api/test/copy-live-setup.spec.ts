@@ -30,7 +30,7 @@ import { CopyWalletRepository } from '../src/copy/copy-wallet.repository.js';
 import type { AgentConsentIntent } from '../src/copy/copy-agent-consent.js';
 import type { AppConfig } from '../src/config/app-config.js';
 import { AccountRepository } from '../src/users/account.repository.js';
-import { testConfig } from './config-test-utils.js';
+import { testConfig as baseTestConfig } from './config-test-utils.js';
 import { closeTestDb, getTestDb, insertUser, openCopyTrading, truncateAll, type TestDb } from './db-test-utils.js';
 
 // The setup service and its SQL are real (Postgres); the providers behind the
@@ -41,11 +41,17 @@ const owner = privateKeyToAccount(`0x${'01'.repeat(32)}`), stranger = privateKey
 const copyAccount = privateKeyToAccount(`0x${'03'.repeat(32)}`);
 const leader = `0x${'44'.repeat(20)}`, accountAddress = copyAccount.address.toLowerCase(), agentAddress = `0x${'33'.repeat(20)}`;
 const settings = { direction: 'same' as const, sizingMode: 'ratio' as const, perTradeUsd: null, maxTotalExposureUsd: null, maxLeverage: 5, copyStartMode: 'delta' as const };
+let testNetwork: 'testnet' | 'mainnet' = 'testnet';
+function testConfig(): AppConfig {
+  const base = baseTestConfig();
+  return { get value() { const value = base.value; return { ...value, hyperliquid: { ...value.hyperliquid,
+    wallet: { ...value.hyperliquid.wallet, network: testNetwork, infoUrl: WALLET_NETWORKS[testNetwork].infoUrl } } }; } } as AppConfig;
+}
 const flags = { worker: true, attach: true, ticking: false };
 let db: TestDb, uid: number, clock: number, service: CopyLiveSetupService;
 let mode: { id: string; targetState: string; submissionState: string; submits: number };
 /** The mode and agent nonces the fakes allocated (as their services keep them). */
-let modeIntent: { operationId: string; accountId: string; strategyId: number; network: 'testnet'; accountAddress: string; nonce: number; consentExpiresAt: number } | null;
+let modeIntent: { operationId: string; accountId: string; strategyId: number; network: 'testnet' | 'mainnet'; accountAddress: string; nonce: number; consentExpiresAt: number } | null;
 let agentIntent: AgentConsentIntent | null;
 /** What each fake submission's sign callback returned. */
 let signed: string[];
@@ -54,7 +60,7 @@ const workerSign = vi.fn(async (..._args: unknown[]) => `0x${'cd'.repeat(65)}`);
 function config(): AppConfig {
   const base = testConfig();
   return { get value() { return { ...base.value, copy: { mode: 'testnet', workerIntervalMs: 2000, agent: { workerQuorumId: 'worker-quorum', authorizationPrivateKey: 'k', authorizationPublicKey: 'p' },
-    live: { network: 'testnet', caps: { maxStrategiesPerUser: 10 }, builderFee: true, testnetSourceIntervalMs: 60_000, maxSourceDeviationBps: 500, slippageBps: 30, intervalMs: 3000, weightPerMin: 300 } } } as never; } } as AppConfig;
+    live: { network: testNetwork, caps: { maxStrategiesPerUser: 10 }, builderFee: true, testnetSourceIntervalMs: 60_000, maxSourceDeviationBps: 500, slippageBps: 30, intervalMs: 3000, weightPerMin: 300 } } } as never; } } as AppConfig;
 }
 function build() {
   const jobs = new BackgroundJobs();
@@ -63,7 +69,7 @@ function build() {
     get workerPolicyEnabled() { return flags.worker; },
     prepare: vi.fn(async (userId: number, strategyId: number) => {
       const id = `acct-${strategyId}`, address = strategyId === 1 ? accountAddress : `0x${'66'.repeat(19)}${String(strategyId).padStart(2, '0')}`;
-      await db.insert(copyExecutionAccounts).values({ id, userId, strategyId, network: 'testnet', privyUserId: 'did:privy:setup-owner', externalId: `ext-${id}`, state: 'ready',
+      await db.insert(copyExecutionAccounts).values({ id, userId, strategyId, network: testNetwork, privyUserId: 'did:privy:setup-owner', externalId: `ext-${id}`, state: 'ready',
         address, privyWalletId: `master-wallet${strategyId === 1 ? '' : strategyId}`, ownerQuorumId: 'owner-quorum' }).onConflictDoNothing();
       return { id, state: 'ready', address };
     }),
@@ -81,7 +87,7 @@ function build() {
     prepareForSetup: vi.fn(async (userId: number, accountId: string, key: string, liveSetupId: string, days: number) => {
       const [account] = await db.select().from(copyExecutionAccounts).where(eq(copyExecutionAccounts.id, accountId));
       const id = `agent-${liveSetupId.slice(0, 8)}`;
-      await db.insert(copyAgentSetups).values({ id, userId, strategyId: account!.strategyId, accountId, network: 'testnet', idempotencyKey: key, validForDays: days, externalId: `agent-ext-${id}`,
+      await db.insert(copyAgentSetups).values({ id, userId, strategyId: account!.strategyId, accountId, network: testNetwork, idempotencyKey: key, validForDays: days, externalId: `agent-ext-${id}`,
         policyAttemptId: `attempt-${id}`, workerQuorumId: 'worker-quorum', policyId: 'agent-policy', policyFingerprint: 'a'.repeat(64), agentWalletId: `agent-wallet-${id}`, agentOwnerQuorumId: 'owner-quorum',
         agentAddress, accountAddress: account!.address!, accountWalletId: account!.privyWalletId!, accountOwnerQuorumId: 'owner-quorum', state: 'ready', liveSetupId, expiresAt: new Date(Date.now() + days * 86_400_000) }).onConflictDoNothing();
       return (await db.select().from(copyAgentSetups).where(eq(copyAgentSetups.id, id)))[0]!;
@@ -91,20 +97,20 @@ function build() {
     // As the service does: the current nonce while it lasts, else a new one.
     challengeRow: vi.fn(async (_userId: number, id: string) => {
       const [row] = await db.select().from(copyAgentSetups).where(eq(copyAgentSetups.id, id));
-      if (!agentIntent || agentIntent.id !== id || agentIntent.consentExpiresAt <= clock) agentIntent = { id, strategyId: row!.strategyId, network: 'testnet', accountAddress, agentAddress,
+      if (!agentIntent || agentIntent.id !== id || agentIntent.consentExpiresAt <= clock) agentIntent = { id, strategyId: row!.strategyId, network: testNetwork, accountAddress, agentAddress,
         policyId: 'agent-policy', workerQuorumId: 'worker-quorum', nonce: clock, expiresAt: row!.expiresAt.getTime(), consentExpiresAt: clock + 300_000 };
       return agentIntent;
     }),
     submit: vi.fn(async (_userId: number, id: string, authority: { kind: string; consentDigest: string; sign: (master: unknown, intent: AgentConsentIntent, fresh: () => void) => Promise<string> }) => {
       const [row] = await db.select().from(copyAgentSetups).where(eq(copyAgentSetups.id, id));
       const now = Date.now();
-      signed.push(await authority.sign({ walletId: 'master-wallet', address: accountAddress, ownerQuorumId: 'owner-quorum' }, agentIntent ?? { id, strategyId: row!.strategyId, network: 'testnet', accountAddress, agentAddress,
+      signed.push(await authority.sign({ walletId: 'master-wallet', address: accountAddress, ownerQuorumId: 'owner-quorum' }, agentIntent ?? { id, strategyId: row!.strategyId, network: testNetwork, accountAddress, agentAddress,
         policyId: 'agent-policy', workerQuorumId: 'worker-quorum', nonce: clock, expiresAt: row!.expiresAt.getTime(), consentExpiresAt: clock + 300_000 }, () => undefined));
       // As activate does: the grant, then the setup active.
       await db.update(copyAgentSetups).set({ state: 'revoked' }).where(and(eq(copyAgentSetups.accountId, row!.accountId), eq(copyAgentSetups.state, 'active')));
       const walletId = `wallet-${id}`, grantId = `grant-${id}`;
       await db.update(copyExecutionWallets).set({ retiredAt: new Date() }).where(eq(copyExecutionWallets.accountAddress, accountAddress));
-      await db.insert(copyExecutionWallets).values({ id: walletId, userId: row!.userId, strategyId: row!.strategyId, network: 'testnet', accountAddress, privyWalletId: row!.agentWalletId!, privyOwnerId: 'owner-quorum', signerAddress: agentAddress });
+      await db.insert(copyExecutionWallets).values({ id: walletId, userId: row!.userId, strategyId: row!.strategyId, network: testNetwork, accountAddress, privyWalletId: row!.agentWalletId!, privyOwnerId: 'owner-quorum', signerAddress: agentAddress });
       await db.insert(copyWalletAuthorizations).values({ id: grantId, walletId, version: 1, scopes: ['copy:trade', 'copy:reduce'], validFrom: new Date(now - 1000), expiresAt: row!.expiresAt, exchangeApprovedAt: new Date(now - 1000) });
       await db.update(copyAgentSetups).set({ state: 'active', authorizationId: grantId, consentDigest: authority.consentDigest, approvalAttemptedAt: new Date(), approvalNonce: now, consentExpiresAt: new Date(now + 300_000) }).where(eq(copyAgentSetups.id, id));
       return { state: 'active' };
@@ -115,12 +121,12 @@ function build() {
     ensureForSetup: vi.fn(async () => mode), row: vi.fn(async () => mode), reconcile: vi.fn(async () => mode),
     // As the service does: the current nonce while it keeps the minimum left, else a new one.
     setupNonce: vi.fn(async (_userId: number, _id: string, minRemainingMs: number) => {
-      if (!modeIntent || modeIntent.consentExpiresAt <= clock + minRemainingMs) modeIntent = { operationId: 'mode-op', accountId: 'a', strategyId: 1, network: 'testnet', accountAddress, nonce: clock, consentExpiresAt: clock + 300_000 };
+      if (!modeIntent || modeIntent.consentExpiresAt <= clock + minRemainingMs) modeIntent = { operationId: 'mode-op', accountId: 'a', strategyId: 1, network: testNetwork, accountAddress, nonce: clock, consentExpiresAt: clock + 300_000 };
       return modeIntent;
     }),
     submit: vi.fn(async (_userId: number, _id: string, authority: { sign: (master: unknown, intent: unknown, fresh: () => void) => Promise<string> }) => {
       mode.submits++;
-      if (!modeIntent || modeIntent.consentExpiresAt <= clock + 60_000) modeIntent = { operationId: 'mode-op', accountId: 'a', strategyId: 1, network: 'testnet', accountAddress, nonce: clock, consentExpiresAt: clock + 300_000 };
+      if (!modeIntent || modeIntent.consentExpiresAt <= clock + 60_000) modeIntent = { operationId: 'mode-op', accountId: 'a', strategyId: 1, network: testNetwork, accountAddress, nonce: clock, consentExpiresAt: clock + 300_000 };
       signed.push(await authority.sign({ walletId: 'master-wallet', address: accountAddress, ownerQuorumId: 'owner-quorum' }, modeIntent, () => undefined));
       mode.targetState = 'supported'; mode.submissionState = 'accepted';
       return mode;
@@ -128,11 +134,11 @@ function build() {
   };
   const funding = {
     reserve: vi.fn(async (userId: number, accountId: string, input: { idempotencyKey: string; amount: string }, internal?: { liveSetupId: string }) =>
-      fundingWire(await fundingRows.reserve(userId, accountId, 'testnet', input, undefined, internal?.liveSetupId))),
+      fundingWire(await fundingRows.reserve(userId, accountId, testNetwork, input, undefined, internal?.liveSetupId))),
     claim: vi.fn(async (userId: number, id: string) => fundingRows.claim(userId, id)),
     submit: vi.fn(async (userId: number, id: string, signature: string) => {
       const row = await fundingRows.find(userId, id);
-      const valid = await verifyTypedData({ ...(usdSendTypedData(WALLET_NETWORKS.testnet, row.destination, row.amount, row.nonce) as unknown as TypedDataDefinition), address: row.address as `0x${string}`, signature: signature as `0x${string}` });
+      const valid = await verifyTypedData({ ...(usdSendTypedData(WALLET_NETWORKS[testNetwork], row.destination, row.amount, row.nonce) as unknown as TypedDataDefinition), address: row.address as `0x${string}`, signature: signature as `0x${string}` });
       if (!valid) throw new Error('Invalid funding signature');
       await fundingRows.beginSubmit(userId, id);
       return fundingWire(await fundingRows.finish(userId, id, 'accepted', 'e'.repeat(64)));
@@ -147,7 +153,7 @@ let fakes: ReturnType<typeof build>;
 const start = (key = 'setup-start-key-000001', extra: object = {}) => service.start(uid, { idempotencyKey: key, leader, budgetUsd: '100', settings, ...extra });
 async function sign(intent: LiveCopySetupIntent, signer = owner) {
   return { consentSignature: await signer.signTypedData(liveCopySetupConsentTypedData(intent) as never),
-    fundingSignature: intent.kind === 'start' ? await signer.signTypedData(usdSendTypedData(WALLET_NETWORKS.testnet, intent.accountAddress, intent.fundingAmount, intent.fundingNonce)) : undefined };
+    fundingSignature: intent.kind === 'start' ? await signer.signTypedData(usdSendTypedData(WALLET_NETWORKS[testNetwork], intent.accountAddress, intent.fundingAmount, intent.fundingNonce)) : undefined };
 }
 async function credit() {
   await db.update(copyFundingOperations).set({ status: 'credited', transactionHash: `0x${'f'.repeat(64)}`, creditedAmount: '100', fee: '0', evidenceHash: 'd'.repeat(64) }).where(eq(copyFundingOperations.direction, 'to_account'));
@@ -155,6 +161,7 @@ async function credit() {
 const later = (ms: number) => { clock += ms; };
 beforeAll(() => { db = getTestDb(); });
 beforeEach(async () => {
+  testNetwork = 'testnet';
   await truncateAll(db); vi.clearAllMocks(); flags.worker = true; flags.attach = true; flags.ticking = false; clock = Date.now();
   mode = { id: 'mode-op', targetState: 'unknown', submissionState: 'prepared', submits: 0 }; modeIntent = null; agentIntent = null; signed = [];
   uid = (await insertUser(db, { privyUserId: 'did:privy:setup-owner', embeddedWalletAddress: owner.address.toLowerCase() })).id;
@@ -222,9 +229,9 @@ describe('one-click testnet copy setup', () => {
     expect(modeCall[1]).toMatchObject({ primaryType: 'HyperliquidTransaction:UserSetAbstraction', message: { user: accountAddress, abstraction: 'disabled', hyperliquidChain: 'Testnet' } });
     expect(Object.keys(modeCall[1].message).sort()).toEqual(['abstraction', 'hyperliquidChain', 'nonce', 'user']);
     expect(modeCall[0]).toMatchObject({ workerQuorumId: 'worker-quorum', policyId: 'master-policy' });
-    expect(modeCall[2]).toEqual({ network: 'testnet', account: accountAddress });
+    expect(modeCall[2]).toEqual({ network: testNetwork, account: accountAddress });
     expect(agentCall[1]).toMatchObject({ primaryType: 'HyperliquidTransaction:ApproveAgent', message: { agentAddress, agentName: `copy${setup.strategyId} valid_until ${setup.consent!.agentValidUntil}` } });
-    expect(agentCall[2]).toEqual({ network: 'testnet', agent: { address: agentAddress, name: `copy${setup.strategyId} valid_until ${setup.consent!.agentValidUntil}` } });
+    expect(agentCall[2]).toEqual({ network: testNetwork, agent: { address: agentAddress, name: `copy${setup.strategyId} valid_until ${setup.consent!.agentValidUntil}` } });
     // The approval's own nonce was allocated first (the agent service's submit needs it).
     expect(fakes.agents.challengeRow).toHaveBeenCalledTimes(1);
     expect(agentCall[1].message.nonce).toBe(agentIntent!.nonce);
@@ -623,7 +630,7 @@ it('safe abort: a reserved deposit belongs to the original setup before its pare
 });
 
 function flatAbortProof(): SetupAbortFlatObservation {
-  return { purpose: 'setup-abort-return', snapshot: { network: 'testnet', accountAddress, role: 'user', accountAbstraction: 'default',
+  return { purpose: 'setup-abort-return', snapshot: { network: testNetwork, accountAddress, role: 'user', accountAbstraction: 'default',
     observedAt: clock, completedAt: clock, sourceDigest: 'd'.repeat(64), collateralToken: 0, collateralCoin: 'USDC', perpEquity: '100', totalMarginUsed: '0',
     withdrawable: '100', exposureUsd: '0', restingExposureUsd: '0', grossRestingExposureUsd: '0', positions: [], restingOrders: [],
     dexes: [{ dex: '', perpDexIndex: 0, supported: true, collateralToken: 0, collateralCoin: 'USDC', providerTime: clock, equity: '100', rawUsd: '100',
@@ -743,7 +750,7 @@ it.each(['late-credit', 'prepared-deposit', 'claimed-deposit', 'prepared-return'
     // Admit the actual ordinary operation BEFORE the barrier, using the same
     // production repository and account-wide pending guards as the UI.
     ordinary = direction === 'to_account'
-      ? await fundingRows.reserve(uid, parent.accountId!, 'testnet', { idempotencyKey: 'ordinary-never-attempted-transfer-key', amount: '1' })
+      ? await fundingRows.reserve(uid, parent.accountId!, testNetwork, { idempotencyKey: 'ordinary-never-attempted-transfer-key', amount: '1' })
       : await returns.reserve(uid, parent.accountId!, { idempotencyKey: 'ordinary-never-attempted-transfer-key', amount: '1', sweep: false });
     if (ordinaryKind === 'claimed-deposit') ordinary = (await fundingRows.claim(uid, ordinary.id)).row;
   }
@@ -1069,4 +1076,39 @@ it('request recovery review: a slow explicit retry cannot reuse the previous uns
   expect(early).toMatchObject({ id: prepared.id, stage: 'awaiting_consent', issue: null });
   expect(await db.select().from(copyFundingOperations)).toHaveLength(1);
   expect(fakes.funding.submit).toHaveBeenCalledTimes(2);
+});
+
+
+it('mainnet recovery fences setup, reserves one original refund, and rejects wrong-network or stale proof before signing', async () => {
+  testNetwork = 'mainnet';
+  const setup = await start();
+  expect(setup.consent!.network).toBe('mainnet');
+  await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit();
+  const mandates = new CopyLiveMandateRepository(db, testConfig()), returns = new CopyLiveReturnRepository(db, testConfig());
+  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(db, mandates));
+  const requested = await aborts.request(uid, setup.id, 'mainnet-abort-original-key', () => clock), authority = (await aborts.lease(requested.id))!;
+  expect(authority.network).toBe('mainnet');
+  const refunds = new CopyLiveSetupAbortReturnRepository(db, testConfig(), mandates, returns);
+  const good = flatAbortProof(), wrong: SetupAbortFlatObservation = { ...good, snapshot: { ...good.snapshot, network: 'testnet' } };
+  await expect(refunds.reserve(authority, wrong, () => clock)).rejects.toThrow();
+  const first = (await refunds.reserve(authority, flatAbortProof(), () => clock))!;
+  expect(first).toMatchObject({ network: 'mainnet', destination: owner.address.toLowerCase(), amount: '100', setupAbortId: authority.id });
+  const current = await aborts.find(uid, authority.id);
+  expect((await refunds.reserve(current, flatAbortProof(), () => clock))!.id).toBe(first.id);
+  const stale = flatAbortProof(); later(5001);
+  await expect(refunds.begin(current, first.id, stale, () => clock)).rejects.toThrow();
+  expect((await returns.find(uid, first.id)).attemptedAt).toBeNull();
+  const [one, two] = await Promise.all([refunds.begin(current, first.id, flatAbortProof(), () => clock), refunds.begin(current, first.id, flatAbortProof(), () => clock)]);
+  expect([one, two].filter(Boolean)).toHaveLength(1);
+  expect((await db.select().from(copyFundingOperations)).filter(row => row.direction === 'to_main')).toHaveLength(1);
+  expect((await db.select().from(copyFundingOperations)).filter(row => row.direction === 'to_account')).toHaveLength(1);
+});
+
+it('mainnet advertises abort only when execution and the policy signer are available', () => {
+  testNetwork = 'mainnet';
+  const signer = { available: true };
+  const args = [config(), {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, signer, {}, new BackgroundJobs()] as unknown as ConstructorParameters<typeof CopyLiveSetupAbortService>;
+  expect(new CopyLiveSetupAbortService(...args).available).toBe(true);
+  signer.available = false;
+  expect(new CopyLiveSetupAbortService(...args).available).toBe(false);
 });

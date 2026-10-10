@@ -53,6 +53,11 @@ export class ReferralRepository {
     }
     throw new ServiceUnavailableException('Unable to allocate referral code');
   }
+  private async hasActualCopy(tx: DbTransaction, userId: number) {
+    const [row] = await tx.select({ id: copyStrategies.id }).from(copyStrategies)
+      .where(and(eq(copyStrategies.userId, userId), eq(copyStrategies.mode, 'testnet'))).limit(1);
+    return Boolean(row);
+  }
   async overview(userId: number) {
     return this.db.transaction(async tx => {
       const user = await this.lock(tx, userId), code = await this.ensureCode(tx, userId), policy = await this.policy(tx);
@@ -67,7 +72,7 @@ export class ReferralRepository {
       }
       // An identity that deleted an account within the retention window can't
       // bind again (docs/account-deletion.md): no window to show either.
-      const returning = !attribution && await isReturningIdentity(tx, user, this.config);
+      const returning = !attribution && (await isReturningIdentity(tx, user, this.config) || await this.hasActualCopy(tx, userId));
       return { code: code.code, referred: Boolean(attribution), bindOpenUntil: attribution || returning ? null : new Date(user.createdAt.getTime() + policy.bindWindowSeconds * 1000).toISOString(),
         hasWallet: Boolean(user.embeddedWalletAddress), policy: { version: policy.version, enabled: policy.enabled, rewardBps: policy.rewardBps,
           minClaimUnits: policy.minClaimUnits, bindWindowSeconds: policy.bindWindowSeconds }, balances };
@@ -95,6 +100,10 @@ export class ReferralRepository {
   }
   async bind(userId: number, code: string) {
     return this.db.transaction(async tx => {
+      // Serialize graph mutations before acquiring any owner locks. Pairwise
+      // owner locks alone cannot prevent a concurrent three-or-more-user cycle.
+      // This short transaction performs only local SQL, never provider I/O.
+      await tx.execute(sql`select pg_advisory_xact_lock(7410, 0)`);
       const [target] = await tx.select().from(referralCodes).where(eq(referralCodes.code, code));
       if (!target) throw new NotFoundException('Referral code not found');
       if (target.userId === userId) throw conflict('referral_self', 'You cannot refer yourself');
@@ -107,6 +116,16 @@ export class ReferralRepository {
         if (original.referrerUserId !== target.userId) throw conflict('referral_already_bound', 'Your referrer is already bound');
         return { bound: true as const, boundAt: original.boundAt.toISOString() };
       }
+      const ancestors = await tx.execute<{ id: number }>(sql`
+        with recursive ancestors(id) as (
+          select ${target.userId}::integer
+          union
+          select r.referrer_user_id from referral_attributions r
+          join ancestors a on r.referred_user_id = a.id
+        ) select id from ancestors where id = ${userId}`);
+      if (ancestors.rows.length) throw conflict('referral_cycle', 'Referral relationships cannot form a cycle');
+      if (await this.hasActualCopy(tx, userId))
+        throw conflict('referral_copy_started', 'Bind an invitation before starting actual copy trading');
       const policy = await this.policy(tx);
       const nowResult = await tx.execute<{ now: Date }>(sql`select clock_timestamp() as now`);
       const now = new Date(nowResult.rows[0]!.now), user = locked.get(userId)!;
@@ -126,7 +145,7 @@ export class ReferralRepository {
     const before = page.cursor ? or(lt(referralAttributions.boundAt, page.cursor.at), and(eq(referralAttributions.boundAt, page.cursor.at), lt(referralAttributions.id, page.cursor.id))) : undefined;
     const [stats] = await this.db.select({ invited: sql<number>`count(*)::int`, copying: sql<number>`count(*) filter(where ${copying})::int` }).from(referralAttributions).where(where);
     const rows = await this.db.select({ id: referralAttributions.id, joinedAt: users.createdAt, boundAt: referralAttributions.boundAt, copying,
-      copyingModes: sql<Array<'paper' | 'testnet'>>`array(select distinct ${copyStrategies.mode} from ${copyStrategies} where ${copyStrategies.userId} = ${referralAttributions.referredUserId} and ${copyStrategies.status} <> 'stopped')` })
+      copyingModes: sql<Array<'paper' | 'testnet' | 'mainnet'>>`array(select distinct case when ${copyStrategies.mode} = 'paper' then 'paper' else ${copyStrategies.network} end from ${copyStrategies} where ${copyStrategies.userId} = ${referralAttributions.referredUserId} and ${copyStrategies.status} <> 'stopped')` })
       .from(referralAttributions).innerJoin(users, eq(users.id, referralAttributions.referredUserId)).where(and(where, before))
       .orderBy(desc(referralAttributions.boundAt), desc(referralAttributions.id)).limit(page.limit + 1);
     const items = rows.slice(0, page.limit), last = items.at(-1);

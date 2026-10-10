@@ -30,7 +30,7 @@ export class CopyLiveSetupAbortReturnRepository {
     await this.mandates.lock(tx, expected.userId, true);
     const [abort] = await tx.select().from(copyLiveSetupAborts).where(and(eq(copyLiveSetupAborts.id, expected.id), eq(copyLiveSetupAborts.userId, expected.userId))).for('update');
     if (!abort || !expected.leaseToken || abort.leaseToken !== expected.leaseToken || !abort.leaseUntil || abort.leaseUntil.getTime() <= Date.now()) refuse('setup_abort_lease_changed');
-    if (abort.state === 'done' || abort.kind !== 'start' || abort.stopId || abort.mandateId || !abort.accountId || abort.network !== deploymentNetwork(this.config) || abort.network !== 'testnet') refuse('setup_abort_binding_unknown');
+    if (abort.state === 'done' || abort.kind !== 'start' || abort.stopId || abort.mandateId || !abort.accountId || abort.network !== deploymentNetwork(this.config)) refuse('setup_abort_binding_unknown');
     const context = await this.returns.context(tx, abort.userId, abort.accountId, true), { account, owner, strategy } = context;
     const [setup] = await tx.select().from(copyLiveSetups).where(and(eq(copyLiveSetups.id, abort.setupId), eq(copyLiveSetups.userId, abort.userId))).for('update');
     const parsed = liveCopySetupIntentSchema.safeParse(setup?.intent);

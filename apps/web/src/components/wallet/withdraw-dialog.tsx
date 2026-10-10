@@ -149,7 +149,7 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
         if ((!ready && !recovering) || withdraw.isPending || cancel.isPending || recovery.isPending || recoveryBlocked) return;
         // CopyDog's three toasts: "Withdrawing $X…" (no icon) while signing,
         // then the submitted confirmation (and the modal closes) or the error.
-        const pending = toast.info(checking ? t("wallet.checkWithdrawal") : t("wallet.withdrawSubmitting", { amount: format.usd(Number(amount), { digits: 2 }) }), { icon: false });
+        const pending = toast.info(checking ? t("wallet.checkWithdrawal") : t("wallet.withdrawSubmitting", { amount: format.usd(Number(amount), { digits: 2 }) }), { icon: false, autoClose: false });
         withdraw.mutate({ summary, destination: destination.trim(), amount: amount.trim(), operationId: pendingOperation?.id, toastId: pending });
       }}
     >

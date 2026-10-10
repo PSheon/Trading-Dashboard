@@ -138,17 +138,20 @@ describe('testnet copy execution engine', () => {
 
   it('retains the full poll cadence after a provider read fails', async () => {
     await activeTestnetSource(true);
-    const fetcher = vi.fn(async () => Response.json({}, { status: 503 }));
+    const fetcher = vi.fn(async (_url: unknown, _init?: RequestInit) => Response.json({}, { status: 503 }));
     const source = new HyperliquidLiveSourceClient('testnet', async () => {}, fetcher as typeof fetch, () => clock);
     const run = engine({ testnetSource: source });
     await run.pollTestnetSources();
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls.map(([, init]) => JSON.parse(String(init?.body)).type))
+      .toEqual(['userFillsByTime', 'userTwapSliceFillsByTime']);
     clock += 1500;
     await run.pollTestnetSources();
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledTimes(2);
     clock += 58_500;
     await run.pollTestnetSources();
-    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    expect(runtimeCalls).toHaveLength(0);
   });
 
   it('clears an admission retry override when its next provider read fails', async () => {

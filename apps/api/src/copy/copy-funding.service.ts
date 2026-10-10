@@ -1,3 +1,4 @@
+import { isFundingNotDispatched } from './copy-funding-exchange.client.js';
 import { BadGatewayException, BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from "@nestjs/common";
 import { Dec } from "../common/decimal/dec.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
@@ -15,7 +16,7 @@ import { CopyWalletService } from "./copy-wallet.service.js";
 import { CopyFundingRepository, type FundingRow } from "./copy-funding.repository.js";
 import { CopyFundingExchangeClient } from "./copy-funding-exchange.client.js";
 import { fundingCreditEvidence } from "./copy-funding-evidence.js";
-import { FUNDING_NONCE_SKEW_MS, FUNDING_NONCE_EXPIRY_MS, fundingScanSchema, type FundingScan } from "./copy-funding-scan.js";
+import { FUNDING_NONCE_SKEW_MS, FUNDING_NONCE_EXPIRY_MS, fundingScanSchema, fundingDetailBatch, type FundingScan } from "./copy-funding-scan.js";
 
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 export const wire = (row: FundingRow): CopyFunding => ({ id: row.id, accountId: row.accountId, strategyId: row.strategyId,
@@ -115,6 +116,10 @@ export class CopyFundingService {
         account.id !== attempt.accountId || account.address !== attempt.destination || account.network !== attempt.network ||
         attempt.network !== this.config.value.hyperliquid.wallet.network) throw new ConflictException("funding_identity_evidence_expired");
     }); } catch (error) {
+      if (isFundingNotDispatched(error, attempt)) {
+        const restored = await this.repository.restoreNotDispatched(userId, attempt, error);
+        return wire(restored ?? await this.repository.find(userId, id));
+      }
       // Its outcome is unknown: confirmed from the ledger, never resent.
       this.logger.warn(`deposit ${id} outcome unknown: ${safeErrorText(error)}`);
       return wire(await this.repository.find(userId, id));
@@ -151,36 +156,50 @@ export class CopyFundingService {
         const start = Math.max(0, operation.nonce - FUNDING_NONCE_SKEW_MS);
         const cycleEnd = Math.max(start, Date.now());
         const scan: FundingScan = parsed.success ? parsed.data : { version: 1, windows: [{ start, end: cycleEnd }], receipts: [], cycleEnd };
-        if (!scan.windows.length) {
+        let current = operation;
+        if (!scan.windows.length && !scan.pendingDetails?.length) {
           if (scan.receipts.length === 1) return wire(await this.repository.credit(userId, id, scan.receipts[0]!, digest(scan.receipts[0]), operation.scanRevision));
           return wire(await this.repository.find(userId, id)); // Ambiguous evidence stays pending.
         }
-        const window = scan.windows[0]!, url = WALLET_NETWORKS[operation.network].infoUrl;
-        // A copy account's ledger is on the wallet network: its own budget, so
-        // a testnet 429 never halves the mainnet budget.
-        const info = operation.network === this.config.value.hyperliquid.wallet.network ? this.walletNetwork?.info ?? this.info : this.info;
-        const rows = await info.userNonFundingLedgerUpdates(operation.destination, window.start, window.end, "live", PAGE_RANK.fills, url);
-        if (rows.length >= MAX_LIST_ITEMS) {
-          // Temporal subdivision works whether the provider caps earliest or
-          // latest records. Never infer completeness from a capped response.
-          if (window.start === window.end || scan.windows.length >= 64) return wire(await this.repository.find(userId, id));
-          const mid = Math.floor(window.start + (window.end - window.start) / 2);
-          scan.windows.splice(0, 1, { start: mid + 1, end: window.end }, { start: window.start, end: mid });
-          await this.repository.saveScan(operation, scan);
-          return wire(await this.repository.find(userId, id));
+        if (!scan.pendingDetails?.length) {
+          const window = scan.windows[0]!, url = WALLET_NETWORKS[operation.network].infoUrl;
+          // A copy account's ledger is on the wallet network: its own budget, so
+          // a testnet 429 never halves the mainnet budget.
+          const info = operation.network === this.config.value.hyperliquid.wallet.network ? this.walletNetwork?.info ?? this.info : this.info;
+          const rows = await info.userNonFundingLedgerUpdates(operation.destination, window.start, window.end, "live", PAGE_RANK.fills, url);
+          if (rows.length >= MAX_LIST_ITEMS) {
+            // Temporal subdivision works whether the provider caps earliest or
+            // latest records. Never infer completeness from a capped response.
+            if (window.start === window.end || scan.windows.length >= 64) return wire(await this.repository.find(userId, id));
+            const mid = Math.floor(window.start + (window.end - window.start) / 2);
+            scan.windows.splice(0, 1, { start: mid + 1, end: window.end }, { start: window.start, end: mid });
+            await this.repository.saveScan(operation, scan);
+            return wire(await this.repository.find(userId, id));
+          }
+          const candidates = [...new Set(rows.filter((row) => row.delta.type === "internalTransfer" && typeof row.delta.user === "string" && row.delta.user.toLowerCase() === operation.address && typeof row.delta.destination === "string" && row.delta.destination.toLowerCase() === operation.destination && /^0x[0-9a-f]{64}$/.test(row.hash)).map((row) => row.hash))].sort().filter((hash) => !window.afterHash || hash > window.afterHash);
+          // Counted before any proof: a matching transfer whose details could
+          // not be proven still rules out "never executed".
+          scan.seen = (scan.seen ?? 0) + candidates.length;
+          const hashes = candidates.slice(0, 5);
+          scan.pendingDetails = fundingDetailBatch(hashes, rows);
+          if (candidates.length > hashes.length) window.afterHash = hashes.at(-1)!;
+          else scan.windows.shift();
+          // Commit the original ledger evidence before a separately budgeted
+          // explorer read can fail. CAS loss grants no right to continue.
+          const checkpoint = await this.repository.saveScan(current, scan);
+          if (!checkpoint) return wire(await this.repository.find(userId, id));
+          current = checkpoint;
         }
-        const candidates = [...new Set(rows.filter((row) => row.delta.type === "internalTransfer" && typeof row.delta.user === "string" && row.delta.user.toLowerCase() === operation.address && typeof row.delta.destination === "string" && row.delta.destination.toLowerCase() === operation.destination && /^0x[0-9a-f]{64}$/.test(row.hash)).map((row) => row.hash))].sort().filter((hash) => !window.afterHash || hash > window.afterHash);
-        // Counted before any proof: a matching transfer whose details could
-        // not be proven still rules out "never executed".
-        scan.seen = (scan.seen ?? 0) + candidates.length;
-        const hashes = candidates.slice(0, 5);
-        for (const hash of hashes) {
-          const details = await this.exchange.txDetails(operation.network, hash);
-          const proof = fundingCreditEvidence(operation, hash, details, rows);
+        while (scan.pendingDetails?.length) {
+          const pending = scan.pendingDetails[0]!;
+          const details = await this.exchange.txDetails(operation.network, pending.hash);
+          const proof = fundingCreditEvidence(operation, pending.hash, details, pending.ledger);
           if (proof && !scan.receipts.some((receipt) => digest(receipt) === digest(proof)) && scan.receipts.length < 2) scan.receipts.push(proof);
+          scan.pendingDetails.shift();
+          const checkpoint = await this.repository.saveScan(current, scan);
+          if (!checkpoint) return wire(await this.repository.find(userId, id));
+          current = checkpoint;
         }
-        if (candidates.length > hashes.length) window.afterHash = hashes.at(-1)!;
-        else scan.windows.shift();
         // A transfer still unknown whose nonce expired before this cycle's
         // read ended, and whose complete read (every window answered, none
         // capped; a failed read throws above) shows no transfer at all from
@@ -191,9 +210,9 @@ export class CopyFundingService {
         // credit) wins.
         if (!scan.windows.length && !scan.receipts.length && !scan.seen && operation.status === "unknown" && scan.cycleEnd !== undefined && scan.cycleEnd >= operation.nonce + FUNDING_NONCE_EXPIRY_MS) {
           const evidence = digest({ source: "ledger_absent_after_nonce_expiry", destination: operation.destination, nonce: operation.nonce, ledgerFrom: start, ledgerTo: scan.cycleEnd });
-          return wire(await this.repository.notExecuted(operation, evidence) ?? await this.repository.find(userId, id));
+          return wire(await this.repository.notExecuted(current, evidence) ?? await this.repository.find(userId, id));
         }
-        const saved = await this.repository.saveScan(operation, !scan.windows.length && !scan.receipts.length ? null : scan);
+        const saved = await this.repository.saveScan(current, !scan.windows.length && !scan.receipts.length ? null : scan);
         if (saved && !scan.windows.length && scan.receipts.length === 1) return wire(await this.repository.credit(userId, id, scan.receipts[0]!, digest(scan.receipts[0]), saved.scanRevision));
         return wire(await this.repository.find(userId, id));
       });

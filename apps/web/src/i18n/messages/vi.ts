@@ -577,7 +577,7 @@ export const vi: Messages = {
     heroInvest: "Nếu bạn đã đầu tư từ 30 ngày trước",
     heroToday: "Hôm nay bạn sẽ có",
     heroFollowing: "Sao chép",
-    heroNote: "Dựa trên lợi nhuận 30 ngày gần nhất. Hiệu suất quá khứ không phải là lời hứa.",
+    heroNote: "Minh họa dựa trên ROI toàn kỳ hiện có của trader; đường cong được điều chỉnh theo số tiền nhập. Đây không phải kiểm thử sao chép từng giao dịch và chưa tính phí, trượt giá hay độ trễ thực thi. Kết quả quá khứ không đảm bảo kết quả tương lai.",
     markets: {
       top100: "Top 100",
       btc: "BTC",
@@ -625,6 +625,8 @@ export const vi: Messages = {
     },
   },
   discover: {
+    metricsUpdated: "Cập nhật chỉ số",
+    metricsStale: "Chỉ số đã quá 24 giờ",
     title: "Khám phá",
     crypto: "Crypto",
     stocks: "Cổ phiếu",

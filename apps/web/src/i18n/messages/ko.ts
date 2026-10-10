@@ -577,7 +577,7 @@ export const ko: Messages = {
     heroInvest: "30일 전에 투자했다면",
     heroToday: "오늘 이만큼이 됩니다",
     heroFollowing: "팔로잉",
-    heroNote: "최근 30일 수익률 기준입니다. 과거 성과가 미래 수익을 보장하지 않습니다.",
+    heroNote: "거래자의 확인 가능한 전체 기간 수익률을 바탕으로 한 예시이며, 그래프는 입력 금액에 맞춰 조정됩니다. 거래별 카피트레이딩 백테스트가 아니며 수수료, 슬리피지, 실행 지연은 반영하지 않습니다. 과거 성과가 미래 결과를 보장하지 않습니다.",
     markets: {
       top100: "상위 100",
       btc: "BTC",
@@ -625,6 +625,8 @@ export const ko: Messages = {
     },
   },
   discover: {
+    metricsUpdated: "지표 업데이트",
+    metricsStale: "24시간 이상 지난 지표",
     title: "탐색",
     crypto: "크립토",
     stocks: "주식",

@@ -46,7 +46,7 @@ const note = (what: string) => (error: unknown) => { logger.warn(`${what}: ${saf
  */
 export class PerReadAllDexsAccountSource implements LiveAllDexsAccountSource {
   constructor(private readonly create: () => LiveAllDexsAccountSource, private readonly maxOrderSockets = 1) {
-    if (![1, 2].includes(maxOrderSockets)) throw new LiveBoundaryError('live_account_invalid_observer');
+    if (![1, 2, 3].includes(maxOrderSockets)) throw new LiveBoundaryError('live_account_invalid_observer');
   }
   private async use<T>(work: (source: LiveAllDexsAccountSource) => Promise<T>): Promise<T> {
     const source = this.create();
@@ -58,24 +58,31 @@ export class PerReadAllDexsAccountSource implements LiveAllDexsAccountSource {
   }
   async readAccount(accountAddress: string, dexes: readonly string[], timeoutMs: number, signal?: AbortSignal) {
     if (signal?.aborted) fail('live_account_read_abandoned');
-    if (this.maxOrderSockets === 2 && dexes.length > BATCH) {
+    if (this.maxOrderSockets > 1 && dexes.length > BATCH) {
       const user = address(accountAddress), requested = dexList.parse([...dexes]);
       if (new Set(requested).size !== requested.length) fail('live_account_duplicate_evidence');
-      const cut = Math.ceil(requested.length / 2), parts = [requested.slice(0, cut), requested.slice(cut)];
+      const cut = Math.ceil(requested.length / this.maxOrderSockets);
+      const parts = Array.from({ length: this.maxOrderSockets }, (_, index) => requested.slice(index * cut, (index + 1) * cut));
       // The aggregate state is subscribed once. The order venue sets are
       // disjoint and complete; both sockets use the caller's original context
-      // and shared quota. A failure waits for BOTH cleanups before returning.
+      // and shared quota. A failure waits for every cleanup before returning.
       const stateWork = this.use(source => source.readAccount ? source.readAccount(user, parts[0]!, timeoutMs, signal)
         : Promise.reject(new LiveBoundaryError('live_account_aggregate_unavailable')));
-      const ordersWork = this.use(source => source.readOrders ? source.readOrders(user, parts[1]!, timeoutMs, signal)
-        : Promise.reject(new LiveBoundaryError('live_account_aggregate_unavailable')));
-      const [stateResult, ordersResult] = await Promise.allSettled([stateWork, ordersWork]);
-      if (stateResult.status === 'rejected') throw stateResult.reason;
-      if (ordersResult.status === 'rejected') throw ordersResult.reason;
-      const first = structuredClone(stateResult.value), second = structuredClone(ordersResult.value);
+      const ordersWork = parts.slice(1).map(part => this.use(source => source.readOrders ? source.readOrders(user, part, timeoutMs, signal)
+        : Promise.reject(new LiveBoundaryError('live_account_aggregate_unavailable'))));
+      const [stateResult, ordersResults] = await Promise.all([Promise.allSettled([stateWork]), Promise.allSettled(ordersWork)]);
+      const originalState = stateResult[0]!;
+      if (originalState.status === 'rejected') throw originalState.reason;
+      const otherProofs: LiveAllDexsOrderEvidence[] = [];
+      for (const result of ordersResults) {
+        if (result.status === 'rejected') throw result.reason;
+        otherProofs.push(structuredClone(result.value));
+      }
+      const first = structuredClone(originalState.value);
       if (!first?.state || !isHyperliquidNetwork(first.state.network) || typeof first.state.accountAddress !== 'string' || first.state.accountAddress.toLowerCase() !== user)
         fail('live_account_source_mismatch');
-      for (const [index, proof] of [first.orders, second].entries()) {
+      const proofs = [first.orders, ...otherProofs];
+      for (const [index, proof] of proofs.entries()) {
         const expected = parts[index]!;
         if (!proof || proof.network !== first.state.network || typeof proof.accountAddress !== 'string' || proof.accountAddress.toLowerCase() !== user ||
             !Number.isSafeInteger(proof.observedAt) || proof.observedAt <= 0 || !Number.isSafeInteger(proof.completedAt) || proof.completedAt < proof.observedAt ||
@@ -89,8 +96,8 @@ export class PerReadAllDexsAccountSource implements LiveAllDexsAccountSource {
       // Preserve the earliest request and latest completion, including each
       // venue's original timestamps. No new clock or execution authority.
       return { state: first.state, orders: { network: first.orders.network, accountAddress: user,
-        observedAt: Math.min(first.orders.observedAt, second.observedAt), completedAt: Math.max(first.orders.completedAt, second.completedAt),
-        requestedDexes: requested, venues: [...first.orders.venues, ...second.venues] } };
+        observedAt: Math.min(...proofs.map(proof => proof.observedAt)), completedAt: Math.max(...proofs.map(proof => proof.completedAt)),
+        requestedDexes: requested, venues: proofs.flatMap(proof => proof.venues) } };
     }
     return this.use(source => source.readAccount ? source.readAccount(accountAddress, dexes, timeoutMs, signal) : Promise.reject(new LiveBoundaryError('live_account_aggregate_unavailable')));
   }

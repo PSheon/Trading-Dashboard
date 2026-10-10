@@ -1330,7 +1330,7 @@ export const en: Messages = {
     heroInvest: "If you had put in, 30 days ago",
     heroToday: "Today you'd have",
     heroFollowing: "Following",
-    heroNote: "Based on the trailing 30-day return. Past performance isn't a promise.",
+    heroNote: "Illustration based on the trader’s available all-time ROI; the chart is scaled to the entered amount. This is not a trade-by-trade copy backtest and excludes fees, slippage and execution delays. Past performance does not guarantee future results.",
     markets: {
       top100: "Top 100",
       btc: "BTC",
@@ -1378,6 +1378,8 @@ export const en: Messages = {
     },
   },
   discover: {
+    metricsUpdated: "Metrics updated",
+    metricsStale: "Metrics over 24h old",
     title: "Explore",
     crypto: "Crypto",
     stocks: "Stocks",

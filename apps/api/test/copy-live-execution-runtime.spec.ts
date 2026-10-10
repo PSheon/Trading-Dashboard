@@ -1,4 +1,5 @@
 import { generateKeyPairSync } from 'node:crypto';
+import { Logger } from '@nestjs/common';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '@trading-dashboard/shared/database';
@@ -291,6 +292,181 @@ describe('unregistered concrete testnet execution runtime', () => {
     expect(evidence).toMatchObject({ exchangeOrderId: '77', statusObservation: null, settlementCertificate: null });
     expect(evidence!.acknowledgement).toMatchObject({ oid: '77', totalSz: '0.1' });
   });
+  it('records the real sign/submit phases but emits timing only after the financial boundary closes', async () => {
+    await actualClockFixture();
+    // This test advances the execution clock at the RPC boundary. Quota
+    // admission and dispatch must share it, so a fast machine cannot mistake
+    // the subsequent 5 s deadline for one more than 5 s in its own future.
+    global = new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(pool, { schema })), () => clock),
+      { egressKey: config.value.hyperliquid.egressKey, ownerId: 'runtime-test' }, raw, () => clock);
+    const original = raw.getMockImplementation()!;
+    const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
+    const originalCollect = LiveProviderReadEpoch.prototype.collect;
+    vi.spyOn(LiveProviderReadEpoch.prototype, 'collect').mockImplementation(async function (this: LiveProviderReadEpoch, ...args) {
+      const firstCollection = !this.hasCompleted(args[0]);
+      const result = await originalCollect.apply(this, args);
+      // Retain the original provider timestamps. The collection's real wait
+      // consumes freshness; diagnostics must measure it without retiming it.
+      if (firstCollection) clock += 125;
+      return result;
+    });
+    raw.mockImplementation(async (url, init) => {
+      if (String(url).endsWith('/exchange'))
+        expect(log.mock.calls.some(([event]) => typeof event === 'object' && event?.event === 'live_execution_timing')).toBe(false);
+      const response = await original(url, init);
+      if (String(url).endsWith('/rpc')) clock += 650;
+      return response;
+    });
+    const result = await runtime(config, { ...options, slippageBps: '0' }).execute(request());
+    expect(result.state, JSON.stringify({ state: result.state, errorCode: result.errorCode, outcome: result.outcome })).toBe('filled');
+    const events = log.mock.calls.map(([event]) => event).filter(event => typeof event === 'object' && event?.event === 'live_execution_timing');
+    expect(events).toHaveLength(1);
+    const timings = events[0].timings;
+    expect(timings).toContainEqual(expect.objectContaining({ phase: 'prepare', stage: 'preparation_provider_collection', elapsedMs: 125, clockValid: true }));
+    for (const stage of ['preparation_local_authority', 'preparation_existing_identity', 'preparation_canonical_source',
+      'preparation_generation_manifest', 'preparation_sizing_plan', 'preparation_journal_transaction'])
+      expect(timings).toContainEqual(expect.objectContaining({ phase: 'prepare', stage }));
+    for (const stage of ['epoch_local_authority', 'epoch_budget', 'epoch_leverage_preview', 'epoch_first_wave',
+      'epoch_account_snapshots', 'epoch_other_markets', 'epoch_final_modes', 'epoch_final_authority'])
+      expect(timings).toContainEqual(expect.objectContaining({ phase: 'collect', stage }));
+    expect(timings).toContainEqual(expect.objectContaining({ phase: 'execute', stage: 'executor_sign', elapsedMs: 650, clockValid: true }));
+    expect(timings).toContainEqual(expect.objectContaining({ phase: 'sign', stage: 'signer_rpc', elapsedMs: 650, clockValid: true }));
+    for (const phase of ['hold', 'sign', 'submit'])
+      expect(timings).toContainEqual(expect.objectContaining({ phase, stage: 'risk_final_local_read' }));
+    expect(timings).toContainEqual(expect.objectContaining({ stage: 'executor_submit' }));
+    expect(timings.length).toBeLessThanOrEqual(128);
+    const text = JSON.stringify(events);
+    for (const timing of timings)
+      expect(Object.keys(timing)).toEqual(['network', 'phase', 'stage', 'elapsedMs', 'totalMs', 'clockValid']);
+    expect(text).not.toContain('"signature":');
+    expect(text).not.toContain('"authorization":');
+    expect(text).not.toContain(authorizationKey);
+    expect(text).not.toContain(agent.address);
+    expect(raw.mock.calls.filter(([url]) => String(url).endsWith('/exchange'))).toHaveLength(1);
+    expect(raw.mock.calls.filter(([url]) => String(url).endsWith('/rpc'))).toHaveLength(1);
+  });
+  it('keeps the actual filled journal when timing log output throws after execution', async () => {
+    await actualClockFixture();
+    vi.spyOn(Logger.prototype, 'log').mockImplementation(() => { throw Error('log output unavailable'); });
+    const result = await runtime(config, { ...options, slippageBps: '0' }).execute(request());
+    expect(result.state).toBe('filled');
+    const [journal] = await db.select().from(schema.copyLiveExecutions);
+    expect(journal?.state).toBe('filled');
+    expect(raw.mock.calls.filter(([url]) => String(url).endsWith('/exchange'))).toHaveLength(1);
+  });
+  it('measures a slow signing response while still refusing expired evidence before exchange POST', async () => {
+    await actualClockFixture();
+    const original = raw.getMockImplementation()!;
+    const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
+    raw.mockImplementation(async (url, init) => {
+      const response = await original(url, init);
+      if (String(url).endsWith('/rpc')) clock += 5001;
+      return response;
+    });
+    await expect(runtime(config, { ...options, slippageBps: '0' }).execute(request())).rejects.toThrow(/live_risk_(serialization_)?stale/);
+    expect(raw.mock.calls.filter(([url]) => String(url).endsWith('/exchange'))).toHaveLength(0);
+    expect(raw.mock.calls.filter(([url]) => String(url).endsWith('/rpc'))).toHaveLength(1);
+    const event = log.mock.calls.map(([value]) => value).find(value => typeof value === 'object' && value?.event === 'live_execution_timing');
+    expect(event.timings).toContainEqual(expect.objectContaining({ phase: 'sign', stage: 'signer_rpc', elapsedMs: 5001 }));
+    const [journal] = await db.select().from(schema.copyLiveExecutions);
+    expect(journal?.state).not.toBe('filled');
+  });
+  it.each([false, true])('preserves a committed fill after slow ACK, with completion logging failure=%s', async loggingFails => {
+    await actualClockFixture();
+    const originalClock = clock;
+    global = new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(pool, { schema })), () => clock),
+      { egressKey: config.value.hyperliquid.egressKey, ownerId: 'runtime-test' }, raw, () => clock);
+    const original = raw.getMockImplementation()!;
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {
+      if (loggingFails) throw Error('completion logging unavailable');
+    });
+    raw.mockImplementation(async (url, init) => {
+      const response = await original(url, init);
+      if (String(url).endsWith('/rpc')) clock += 650;
+      // The last pre-POST scope proof is still within 5 s. The oldest
+      // preparation proof exceeds 5 s only after the genuine POST response.
+      if (String(url).endsWith('/exchange')) clock += 4500;
+      return response;
+    });
+    const result = await runtime(config, { ...options, slippageBps: '0' }).execute(request());
+    expect(result.state).toBe('filled');
+    const [journal] = await db.select().from(schema.copyLiveExecutions);
+    expect(journal?.state).toBe('filled');
+    expect(raw.mock.calls.filter(([url]) => String(url).endsWith('/exchange'))).toHaveLength(1);
+    expect(raw.mock.calls.filter(([url]) => String(url).endsWith('/rpc'))).toHaveLength(1);
+    const diagnostics = warn.mock.calls.map(([event]) => event).filter(event =>
+      typeof event === 'object' && event?.event === 'live_execution_completion_stale');
+    expect(diagnostics).toEqual([expect.objectContaining({ oldestCheckedAt: originalClock,
+      completedAt: originalClock + 5150, evidenceAgeMs: 5150, freshnessLimitMs: 5000 })]);
+    const locks = await db.execute(sql`select count(*)::int as n from pg_locks where locktype='advisory' and classid=7404 and objid=1
+      and pid in (select pid from pg_stat_activity where datname=current_database())`);
+    expect(Number(locks.rows[0]?.n)).toBe(0);
+  });
+  it('preserves an unknown slow exchange acknowledgement without inventing a fill or resending', async () => {
+    await actualClockFixture();
+    global = new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(pool, { schema })), () => clock),
+      { egressKey: config.value.hyperliquid.egressKey, ownerId: 'runtime-test' }, raw, () => clock);
+    const previous = raw.getMockImplementation()!;
+    raw.mockImplementation(async (url, init) => {
+      const response = String(url).endsWith('/exchange') ? Response.json({ status: 'err', response: 'Nonce already used' }) : await previous(url, init);
+      if (String(url).endsWith('/rpc')) clock += 650;
+      if (String(url).endsWith('/exchange')) clock += 4500;
+      return response;
+    });
+    const result = await runtime(config, { ...options, slippageBps: '0' }).execute(request());
+    expect(result.state).toBe('unknown');
+    expect((await db.select().from(schema.copyLiveExecutions))[0]?.state).toBe('unknown');
+    expect(await db.select().from(schema.copyLiveExecutionEvidence)).toHaveLength(0);
+    expect(raw.mock.calls.filter(([url]) => String(url).endsWith('/exchange'))).toHaveLength(1);
+    expect(raw.mock.calls.filter(([url]) => String(url).endsWith('/rpc'))).toHaveLength(1);
+    expect((await db.select().from(schema.copyLiveRiskReservations))[0]?.state).not.toBe('released');
+  });
+  it('waits for original never-placed expiry plus grace without provider quota or journal mutation', async () => {
+    await actualClockFixture();
+    const previous = raw.getMockImplementation()!;
+    raw.mockImplementation(async (url, init) => {
+      const response = await previous(url, init);
+      if (String(url).endsWith('/rpc')) clock += 5001;
+      return response;
+    });
+    await expect(runtime(config, { ...options, slippageBps: '0' }).execute(request())).rejects.toThrow(/live_risk_(serialization_)?stale/);
+    // Seed the terminal routing state from the real prepared journal in this
+    // isolated database; a signing refusal itself correctly leaves prepared.
+    const [prepared] = await db.select().from(schema.copyLiveExecutions);
+    const terminal = { ...prepared!.record, state: 'rejected' as const, errorCode: 'exchange_order_never_placed',
+      outcome: { state: 'rejected' as const, reason: 'final_execution_check_failed' }, updatedAt: clock };
+    await db.update(schema.copyLiveExecutions).set({ state: 'rejected', record: terminal, updatedAt: new Date(clock) });
+    const before = await db.select().from(schema.copyLiveExecutions);
+    expect(before[0]?.record).toMatchObject({ state: 'rejected', errorCode: 'exchange_order_never_placed' });
+    const acquire = vi.spyOn(budget, 'acquire'), scan = vi.fn(async () => {});
+    raw.mockClear(); acquire.mockClear();
+    const settler = new CopyLiveSettler('testnet', pool, global, budget, { runFor: scan }, () => clock);
+    const record = before[0]!.record as unknown as import('../src/copy/live/live-execution.js').LiveExecutionRecord;
+    const result = await settler.settle({ userId: 1, accountId: 'account', accountAddress: record.authorization.accountAddress,
+      sourceNetwork: 'testnet', leaderAddress: seed.consent.leaderAddress, key: record.key });
+    expect(result).toEqual({ kind: 'pending', reason: 'live_settlement_never_placed_grace' });
+    expect(raw).not.toHaveBeenCalled(); expect(acquire).not.toHaveBeenCalled(); expect(scan).not.toHaveBeenCalled();
+    expect(await db.select().from(schema.copyLiveExecutions)).toEqual(before);
+    expect(await db.select().from(schema.copyLiveExecutionEvidence)).toHaveLength(0);
+    expect((await db.select().from(schema.copyLiveRiskReservations))[0]?.state).not.toBe('released');
+  });
+  it.each(['expired grace', 'evidence oid', 'reservation oid'] as const)('retains full settlement path for %s', async boundary => {
+    await actualClockFixture();
+    const completed = await runtime(config, { ...options, slippageBps: '0' }).execute(request());
+    const terminal = { ...completed, state: 'rejected' as const, errorCode: 'exchange_order_never_placed',
+      outcome: { state: 'rejected' as const, reason: 'final_execution_check_failed' }, updatedAt: clock };
+    await db.update(schema.copyLiveExecutions).set({ state: 'rejected', record: terminal, updatedAt: new Date(clock) });
+    if (boundary !== 'evidence oid') await db.delete(schema.copyLiveExecutionEvidence);
+    if (boundary === 'reservation oid') await db.update(schema.copyLiveRiskReservations).set({ exchangeOrderId: '77' });
+    if (boundary === 'expired grace') clock = completed.expiresAfter + 80_001;
+    const refill = vi.spyOn(budget, 'refillMs').mockImplementation(() => { throw Error('original settlement path'); });
+    raw.mockClear();
+    const settler = new CopyLiveSettler('testnet', pool, global, budget, { runFor: async () => {} }, () => clock);
+    await expect(settler.settle({ userId: 1, accountId: 'account', accountAddress: completed.authorization.accountAddress,
+      sourceNetwork: 'testnet', leaderAddress: seed.consent.leaderAddress, key: completed.key })).rejects.toThrow('original settlement path');
+    expect(refill).toHaveBeenCalledOnce(); expect(raw).not.toHaveBeenCalled();
+    expect((await db.select().from(schema.copyLiveRiskReservations))[0]?.state).not.toBe('released');
+  });
   it('waits for initial evidence weight before acquiring the original SQL lock session', async () => {
     await actualClockFixture();
     const connect = vi.spyOn(pool, 'connect'), original = budget.acquire.bind(budget);
@@ -434,10 +610,10 @@ describe('unregistered concrete testnet execution runtime', () => {
     await expect(runtime().execute(request())).rejects.toThrow('live_runtime_reservation_recovery_required');
     expect(raw).not.toHaveBeenCalled(); expect(await db.select().from(schema.copySignerNonces)).toHaveLength(1);
   });
-  it('refuses a completed response after the original epoch expires while preserving its terminal journal for read-only recovery', async () => {
+  it('returns the terminal journal after a slow completed response and keeps subsequent recovery read-only', async () => {
     await actualClockFixture(); const previous = raw.getMockImplementation()!;
     raw.mockImplementation(async (url, init) => { const response = await previous(url, init); if (String(url).endsWith('/exchange')) clock += 5001; return response; });
-    await expect(runtime(config, { ...options, slippageBps: '0' }).execute(request())).rejects.toThrow('live_risk_stale');
+    expect((await runtime(config, { ...options, slippageBps: '0' }).execute(request())).state).toBe('filled');
     const [journal] = await db.select().from(schema.copyLiveExecutions); expect(journal?.state).toBe('filled');
     raw.mockClear(); const recovered = await runtime().execute(request()); expect(recovered.state).toBe('filled'); expect(raw).not.toHaveBeenCalled();
   });

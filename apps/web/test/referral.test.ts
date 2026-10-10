@@ -240,3 +240,33 @@ it("refuses to replace an original claim journal with another request key", () =
   );
   expect(journal.read()).toBe(claim.idempotencyKey);
 });
+
+it("keeps an unknown claim recoverable after a display identity changes under the same DID", () => {
+  const original = { ...owner(), userId: "did:privy:stable" };
+  claimJournal(original).save(claim.idempotencyKey);
+  expect(claimJournal({ ...original, identity: "new-email" }).read()).toBe(claim.idempotencyKey);
+  expect(claimJournal({ ...original, userId: "did:privy:another" }).read()).toBeNull();
+});
+it("preserves a legacy unknown claim when adopting a stable DID", async () => {
+  claimJournal(owner()).save(claim.idempotencyKey);
+  vi.spyOn(api, "get").mockResolvedValue(claim);
+  const post = vi.spyOn(api, "post");
+  expect(await referralClient(() => ({ ...owner(), userId: "did:privy:stable" })).recoverClaim()).toEqual(claim);
+  expect(post).not.toHaveBeenCalled();
+});
+
+it("cannot send a new code when stable and legacy unresolved journals disagree", async () => {
+  const account = { ...owner(), userId: "did:privy:stable" };
+  localStorage.setItem('orbie.referral.code.v1:["privy","alice"]', JSON.stringify("OLDUNKNOWN"));
+  localStorage.setItem('orbie.referral.code.v1:["privy","did:privy:stable"]', JSON.stringify("NEWUNKNOWN"));
+  const post = vi.spyOn(api, "post").mockResolvedValue({ code: "THIRDCODE" });
+  await expect(referralClient(() => account).setCode("THIRDCODE")).rejects.toThrow("referral_request_pending");
+  expect(post).not.toHaveBeenCalled();
+});
+
+it("adopts a legacy journal once so subsequent email changes keep its unknown claim", () => {
+  claimJournal(owner()).save(claim.idempotencyKey);
+  const stable = { ...owner(), userId: "did:privy:stable" };
+  expect(claimJournal(stable).read()).toBe(claim.idempotencyKey);
+  expect(claimJournal({ ...stable, identity: "changed-email" }).read()).toBe(claim.idempotencyKey);
+});

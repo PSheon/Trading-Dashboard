@@ -261,7 +261,7 @@ function CalculatorSkeleton() {
   );
 }
 
-/** "If you invested $1,000 … you would have today": six traders, all-time ROI. */
+/** Illustrates the available all-time ROI; does not replay copy trades. */
 export function Calculator({ traders }: { traders: BoardTrader[] }) {
   const { t } = useI18n();
   const [index, setIndex] = useState(0);
@@ -321,6 +321,7 @@ export function Calculator({ traders }: { traders: BoardTrader[] }) {
             <span className="font-display text-[22px] text-muted-foreground">$</span>
             <input
               id="calc-amount"
+              aria-describedby="calc-note"
               inputMode="numeric"
               value={amount.toLocaleString("en-US")}
               onChange={(e) => { setAmount(Math.min(1_000_000, Number(e.target.value.replace(/[^0-9]/g, "")) || 0)); setHover(null); }}
@@ -342,6 +343,7 @@ export function Calculator({ traders }: { traders: BoardTrader[] }) {
           <HoverChartOrEmpty series={series} animateKey={trader.address} hover={hover} onHover={setHover} missingRoi={simulation === null} />
         </div>
       </div>
+      <p id="calc-note" className="text-xs leading-relaxed text-muted-foreground">{t("home.heroNote")}</p>
     </section>
   );
 }

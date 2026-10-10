@@ -8,7 +8,7 @@ import { readInfoJson } from '../../hyperliquid/response-validation.js';
 import { boundedLiveRead } from './live-market-resolver.js';
 import {HyperliquidGlobalTransport} from '../../hyperliquid/hyperliquid-global-transport.js';
 import { LiveBoundaryError } from './wallet-authorization.js';
-import { LIVE_RESERVE_WAIT_MS, sharedCapacityWait, type LiveBudget, type LiveReserveOptions } from '../../hyperliquid/hyperliquid-budget-wait.js';
+import { LIVE_RESERVE_WAIT_MS, sharedCapacityWait, type LiveBudget, type LiveReserveOptions, type LiveBudgetReservation } from '../../hyperliquid/hyperliquid-budget-wait.js';
 
 export interface AccountModeIntent {
   readonly operationId: string; readonly accountId: string; readonly strategyId: number;
@@ -19,6 +19,7 @@ export interface AccountModeOwnedMaster { readonly walletId: string; readonly ad
  * userDexAbstraction 20, spotClearinghouseState 2. */
 export const ACCOUNT_MODE_OBSERVE_WEIGHT = 102;
 export interface AccountModeObserveOptions {
+  readonly consume?: (weight: number) => void;
   /** The caller already took the weight from the budget (a preflight). */
   readonly prepaid?: boolean;
   /** Longest wait for the local budget (not prepaid). */
@@ -104,7 +105,7 @@ export class PrivyAccountModeClient {
   }
   /** Exactly one POST per call. Caller must persist attempted/unknown first;
    * neither success acknowledgment nor timeout grants authority to resubmit. */
-  async send(rawIntent: AccountModeIntent, signature: string, assertFreshProof?: () => void): Promise<unknown> {
+  async send(rawIntent: AccountModeIntent, signature: string, assertFreshProof?: () => void, consume?: (weight: number) => void): Promise<unknown> {
     const intent = capture(rawIntent), data = accountModeTypedData(intent);
     live(intent, this.now()); validSignature(signature);
     const body = JSON.stringify({ action: data.message, nonce: intent.nonce, signature: splitSignature(signature) });
@@ -118,7 +119,7 @@ export class PrivyAccountModeClient {
       live(intent, this.now()); remaining();
       // Complete request construction first, then check captured caller proof.
       // No await or further clock-dependent preparation precedes actual POST.
-      const dispatch=()=>{synchronousProof(assertFreshProof);permit?.assertFresh();live(intent,this.now());remaining();dispatched=true;return this.fetcher(WALLET_NETWORKS[intent.network].exchangeUrl,request);};
+      const dispatch=()=>{synchronousProof(assertFreshProof);permit?.assertFresh();live(intent,this.now());remaining();consume?.(1);dispatched=true;return this.fetcher(WALLET_NETWORKS[intent.network].exchangeUrl,request);};
       const work=permit?permit.dispatch(dispatch):dispatch();void Promise.resolve(work).catch(()=>undefined);
       const response = await boundedLiveRead(() => work, remaining());
       if (!response.ok) { await response.body?.cancel().catch(() => undefined); throw new Error(); }
@@ -133,8 +134,9 @@ export class PrivyAccountModeClient {
   /** Takes `weight` from this client's Hyperliquid budget, before any
    * evidence clock starts (`HyperliquidBudgetWait` when it isn't available
    * within `maxWaitMs`). A preflight pays for all of its reads at once. */
-  async reserve(weight: number, options: LiveReserveOptions = {}): Promise<void> {
+  async reserve(weight: number, options: LiveReserveOptions = {}): Promise<LiveBudgetReservation | void> {
     if (!Number.isSafeInteger(weight) || weight < 1 || weight > 1200) fail('account_mode_invalid_client');
+    if (this.budget.reserve) return this.budget.reserve(weight, options);
     await this.budget(weight, options);
   }
   /** Read-only recovery intentionally permits an expired original consent.
@@ -152,7 +154,7 @@ export class PrivyAccountModeClient {
       trace.push(`budget ${this.now() - t0}ms`);
       const bodies = (['userRole', 'userAbstraction', 'userDexAbstraction', 'spotClearinghouseState'] as const).map(type => ({ type, user: intent.accountAddress }));
       let started = 0;
-      const startClock = () => { signal?.throwIfAborted(); started = this.now(); validTime(started); return AbortSignal.timeout(5000); };
+      const startClock = () => { signal?.throwIfAborted(); started = this.now(); validTime(started); const bound = AbortSignal.timeout(5000); options.consume?.(ACCOUNT_MODE_OBSERVE_WEIGHT); return bound; };
       const meterWaitMs = options.meterWaitMs ?? (options.prepaid ? 0 : LIVE_RESERVE_WAIT_MS);
       const t1 = this.now();
       const global = this.global;

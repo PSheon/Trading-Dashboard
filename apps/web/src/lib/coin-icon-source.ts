@@ -106,6 +106,10 @@ export function createCoinIconSource({ fetchImpl = fetch, now = Date.now, market
   }
 
   return {
+    /** Distinguish an optional missing logo from an unknown market. */
+    isKnownMarket(coin: string): Promise<boolean> {
+      return isCoinName(coin) ? isKnown(coin) : Promise.resolve(false);
+    },
     /** The coin's icon, or null when it has none, the name is not a coin's, or upstream failed. */
     get(coin: string): Promise<CoinIcon> {
       if (!isCoinName(coin)) return Promise.resolve(null);

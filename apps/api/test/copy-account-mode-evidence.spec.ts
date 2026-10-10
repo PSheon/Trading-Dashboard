@@ -28,6 +28,12 @@ function setup() {
     setDexes: (d: typeof dexes) => { dexes = d; }, patch: (fn: NonNullable<typeof patch>) => { patch = fn; } };
 }
 describe('all-venue mode-bootstrap absence proof', () => {
+  it('charges only dispatched stages when the first REST evidence is rejected', async () => {
+    const s = setup(); let spent = 0;
+    s.fetcher.mockImplementation(async () => Response.json({}, { status: 500 }));
+    await expect(s.reader.prove(user, { prepaid: true, consume: weight => { spent += weight; } })).rejects.toThrow('account_mode_absence_unproven');
+    expect(spent).toBe(42);
+  });
   it('proves only absence across every indexed venue, retaining opaque names and null holes', async () => {
     const s = setup(); s.setDexes([null, null, { name: 'i<3fl' }, ...Array.from({ length: 265 }, (_, i) => ({ name: `dex${i}` }))]);
     const result = await s.reader.prove(user); expect(result).toMatchObject({ network: 'testnet', accountAddress: user, complete: true, empty: true, observedAt: time });
@@ -72,10 +78,13 @@ describe('all-venue mode-bootstrap absence proof', () => {
     await expect(s.reader.prove(user)).resolves.toMatchObject({ complete: true }); expect(s.budget).toHaveBeenCalledTimes(1);
   });
   it('prepaid by its caller, it takes no weight; abandoned, it reserves no socket and subscribes nothing', async () => {
-    const s = setup();
-    await s.reader.prove(user, { prepaid: true }); expect(s.budget).not.toHaveBeenCalled();
+    const s = setup(); let spent = 0;
+    const consume = (weight: number) => { spent += weight; };
+    await s.reader.prove(user, { prepaid: true, consume }); expect(s.budget).not.toHaveBeenCalled();
+    expect(spent).toBe(102);
     const abandon = new AbortController(); abandon.abort();
-    await expect(s.reader.prove(user, { prepaid: true, signal: abandon.signal })).rejects.toThrow();
+    await expect(s.reader.prove(user, { prepaid: true, signal: abandon.signal, consume })).rejects.toThrow();
+    expect(spent).toBe(102);
     expect(s.readAccount).toHaveBeenCalledTimes(1);
   });
   it('waits for its turn on the shared all-venue source instead of being refused', async () => {

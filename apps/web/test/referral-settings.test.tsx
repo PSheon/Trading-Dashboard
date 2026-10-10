@@ -354,3 +354,23 @@ it("requests ten referral friends and returns to the previous cursor through Tab
   await act(async ()=>el.querySelector<HTMLButtonElement>('[data-pager] button')!.click()); await settle();
   expect(el.textContent).toContain('First friend');
 });
+
+it("shows automatic attribution failure on the invitation instead of reporting only a valid link", async () => {
+  state.post.mockRejectedValue(new Error("unknown"));
+  await render(<ReferralCapture code="ABC" display />);
+  expect(el.textContent).toContain(catalogs.en.referral.error);
+  expect(state.post).toHaveBeenCalledTimes(1);
+});
+
+it("renders mixed actual network labels independently of the current deployment", async () => {
+  const existing = state.get.getMockImplementation()!;
+  state.get.mockImplementation(async (path: string) => {
+    const value = await existing(path);
+    if (path.includes("/friends")) value.items[0].copyingModes = ["paper", "testnet", "mainnet"];
+    return value;
+  });
+  await render();
+  expect(el.textContent).toContain("Friend 10000000");
+  expect(el.textContent).toContain("Live");
+  expect(el.textContent).toContain("Testnet");
+});

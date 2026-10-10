@@ -21,7 +21,14 @@ export async function loadLiveGenerationManifest(session:LiveRiskDatabaseSession
   assertOriginalLiveRiskSession(session);session.scope.assertFresh();const input=structuredClone(raw),{account:a,mandate:m}=authority;
   check(a.userId===session.scope.identity.userId&&a.network===session.scope.identity.network&&a.address===session.scope.identity.accountAddress&&typeof input.currentExecutionKey==='string'&&input.currentExecutionKey.length>0&&Number.isSafeInteger(input.now)&&input.now>0,'live_risk_identity');
   const read=async<T>(work:PromiseLike<T>):Promise<T>=>{const result=await work;await session.scope.assertHeld();return result;};
-  const [row]=await read(db.select().from(copyLivePositionBaselines).where(eq(copyLivePositionBaselines.mandateId,m.id)));
+  // All three lookups are unique-key reads of this original account/mandate.
+  // Keep typed Drizzle column decoders (including Date), the same SQL snapshot,
+  // and the original post-query held-lock fence; never refresh input.now.
+  const [baseRows]=await read(db.select({baseline:copyLivePositionBaselines,scan:copyFollowerScans,accountState:copyFollowerAccountState})
+    .from(copyLivePositionBaselines).leftJoin(copyFollowerScans,eq(copyFollowerScans.accountId,a.id))
+    .leftJoin(copyFollowerAccountState,eq(copyFollowerAccountState.accountId,a.id))
+    .where(eq(copyLivePositionBaselines.mandateId,m.id)));
+  const row=baseRows?.baseline,scan=baseRows?.scan,accountState=baseRows?.accountState;
   check(row&&Buffer.byteLength(JSON.stringify(row.record))<=2*1024*1024,'live_risk_baseline_unproven');
   const baseline=decodeLivePositionBaseline({mandateId:m.id,accountId:a.id,strategyId:a.strategyId,network:a.network,accountAddress:a.address!,firstExecutionKey:row.firstExecutionKey},row.record);
   for(const field of ['mandateId','accountId','strategyId','network','accountAddress','firstExecutionKey','sourceDigest','snapshotDigest','baselineDigest','producerVersion'] as const)check(row[field]===baseline[field],'live_risk_baseline_unproven');
@@ -36,9 +43,7 @@ export async function loadLiveGenerationManifest(session:LiveRiskDatabaseSession
   check(first&&first.provenance?.mandateId===m.id&&first.journal.network===a.network&&first.journal.accountAddress===a.address&&first.journal.userId===a.userId&&first.journal.strategyId===a.strategyId&&firstRecord.key===baseline.firstExecutionKey&&firstRecord.createdAt>=baseline.createdAt&&first.provenance.admittedAt.getTime()>=baseline.createdAt,'live_risk_baseline_unproven');
   const receipts=await read(db.select().from(copyFollowerReceipts).where(or(eq(copyFollowerReceipts.accountId,a.id),eq(copyFollowerReceipts.accountAddress,a.address!))).orderBy(copyFollowerReceipts.key).limit(10001));
   const ledger=await read(db.select().from(copyFollowerLedger).where(sql`${copyFollowerLedger.receiptKey} in (select key from copy_follower_receipts where account_id=${a.id} or account_address=${a.address})`).orderBy(copyFollowerLedger.receiptKey,copyFollowerLedger.component).limit(30001));
-  const [scan]=await read(db.select().from(copyFollowerScans).where(eq(copyFollowerScans.accountId,a.id)));
   const conflicts=await read(db.select().from(copyFollowerReceiptConflicts).where(sql`${copyFollowerReceiptConflicts.receiptKey} in (select key from copy_follower_receipts where account_id=${a.id} or account_address=${a.address})`).limit(1));
-  const [accountState]=await read(db.select().from(copyFollowerAccountState).where(eq(copyFollowerAccountState.accountId,a.id)));
   const carry=await read(db.select().from(copyLiveReductionCarry).where(eq(copyLiveReductionCarry.mandateId,m.id)).orderBy(copyLiveReductionCarry.coin).limit(1025));
   const manual=await read(db.select({keys:copyLiveManualCloses.executionKeys}).from(copyLiveManualCloses).where(eq(copyLiveManualCloses.accountId,a.id)).limit(1001));
   check(manual.length<=1000,'live_risk_generation_unbounded');const manualCloses=[...new Set(manual.flatMap(row=>row.keys))].sort();
@@ -51,11 +56,15 @@ export async function loadLiveGenerationManifest(session:LiveRiskDatabaseSession
       // Do not infer original carry from a self-hash or mutable current row.
       // Reconstruct the original plan from its full retained SQL observations.
       const envelope=decodeLiveSourceSizingEnvelope(provenance.sizingBasis),record=entry.journal.record as unknown as LiveExecutionRecord;
-      const [historical]=await read(db.select().from(copyLiveMandates).where(eq(copyLiveMandates.id,provenance.mandateId)));
+      const [history]=await read(db.select({historical:copyLiveMandates,version:copyStrategyVersions,policy:copyRiskPolicies})
+        .from(copyLiveMandates).leftJoin(copyStrategyVersions,and(eq(copyStrategyVersions.strategyId,entry.journal.strategyId),eq(copyStrategyVersions.version,copyLiveMandates.strategyVersion)))
+        .leftJoin(copyRiskPolicies,eq(copyRiskPolicies.version,entry.reservation.policyVersion))
+        .where(eq(copyLiveMandates.id,provenance.mandateId)));
+      const historical=history?.historical,version=history?.version,policy=history?.policy;
+      // The exact decoder must still prove the joined row.strategyVersion
+      // equals the signed immutable consent, before any plan is accepted.
       check(historical,'live_risk_generation_unproven');const consent=decodeLiveCopyMandate(historical);
-      const [version]=await read(db.select().from(copyStrategyVersions).where(and(eq(copyStrategyVersions.strategyId,entry.journal.strategyId),eq(copyStrategyVersions.version,consent.strategyVersion)))),
-        [policy]=await read(db.select().from(copyRiskPolicies).where(eq(copyRiskPolicies.version,entry.reservation.policyVersion)));
-      check(version&&policy&&provenance.admittedAt.getTime()===record.createdAt&&envelope.basis.mandateRevision===provenance.mandateRevision&&envelope.basis.settingsDigest===provenance.settingsDigest,'live_risk_generation_unproven');
+      check(version&&policy&&version.version===consent.strategyVersion&&provenance.admittedAt.getTime()===record.createdAt&&envelope.basis.mandateRevision===provenance.mandateRevision&&envelope.basis.settingsDigest===provenance.settingsDigest,'live_risk_generation_unproven');
       const fill=decodeLiveSourceFill(entry.fill),leg=canonicalLiveSourceLegs(fill).find(l=>l.leg===entry.leg!.leg);check(leg,'live_risk_generation_unproven');
       const members=await loadMergedMembers(envelope,fill.id,ids=>read(db.select().from(copyLiveSourceFills).where(inArray(copyLiveSourceFills.id,ids))));
       const plan=planLiveSourceOrder({mandate:{...historical,state:'active',revision:provenance.mandateRevision},settings:copyStrategySettingsSchema.strict().parse(version.settings),fill,leg,sizingBasis:envelope,now:record.createdAt,limits:copyRiskLimitsSchema.parse(policy.limits),currentExecutionKey:record.key,...(members?{members}:{})}),intent=provenance.intent as unknown as LiveOrderIntent;

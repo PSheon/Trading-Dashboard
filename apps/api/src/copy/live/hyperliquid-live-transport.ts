@@ -112,14 +112,19 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
       diagnosticStage = 'transport_shared_quota';
       if (this.dependencies?.globalTransport) quotaPermit = await this.dependencies.globalTransport.currentQuota()
         .acquireRest(1, Math.min(this.now() + 5000, record.expiresAfter));
-      diagnosticStage = 'transport_final_check';
+      diagnosticStage = 'transport_risk_check';
       const permit = await assertLiveExecutionReady(this.gate, lease, "submit", intent, record);
+      diagnosticStage = 'transport_market_check';
       const market = await this.verifyMarket(intent, record);
+      diagnosticStage = 'transport_builder_check';
       const builder = await this.verifyBuilder(record);
       // The risk adapter can perform remote reads. Verify exchange approval
       // after it too, immediately before starting the exchange POST.
+      diagnosticStage = 'transport_approval_check';
       const verified = await this.signer.assertAuthorization(record, intent);
+      diagnosticStage = 'transport_lease_check';
       await lease.assertHeld();
+      diagnosticStage = 'transport_final_check';
       assertPostFresh = () => {
         assertLiveExecutionPermit(permit, 'submit', intent, record);
         quotaPermit?.assertFresh();

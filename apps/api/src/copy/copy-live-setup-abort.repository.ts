@@ -67,7 +67,9 @@ export class CopyLiveSetupAbortRepository {
     if (!setup) throw new NotFoundException('Setup not found');
     const funding = await this.db.select().from(copyFundingOperations).where(and(eq(copyFundingOperations.userId, row.userId),
       or(eq(copyFundingOperations.liveSetupId, row.setupId), row.fundingOperationId ? eq(copyFundingOperations.id, row.fundingOperationId) : undefined,
-        eq(copyFundingOperations.setupAbortId, row.id))));
+        eq(copyFundingOperations.setupAbortId, row.id), row.stopId ? and(eq(copyFundingOperations.stopId, row.stopId),
+          eq(copyFundingOperations.network, row.network), eq(copyFundingOperations.strategyId, row.strategyId),
+          row.accountId ? eq(copyFundingOperations.accountId, row.accountId) : sql`false`) : undefined)));
     const otherFunding = row.kind === 'start' && row.accountId ? await this.db.select().from(copyFundingOperations)
       .where(and(eq(copyFundingOperations.userId, row.userId), eq(copyFundingOperations.accountId, row.accountId), eq(copyFundingOperations.network, row.network),
         sql`${copyFundingOperations.status} in ('prepared','unknown','accepted')`, sql`${copyFundingOperations.setupAbortId} is distinct from ${row.id}`,
@@ -169,7 +171,7 @@ export class CopyLiveSetupAbortRepository {
       if (!setup) throw new NotFoundException('Setup not found');
       const [strategy] = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.id, setup.strategyId), eq(copyStrategies.userId, userId))).for('update');
       const network = deploymentNetwork(this.config);
-      if (!strategy || strategy.network !== network || strategy.mode !== 'testnet' || network !== 'testnet') throw new NotFoundException('Setup not found');
+      if (!strategy || strategy.network !== network || strategy.mode !== 'testnet') throw new NotFoundException('Setup not found');
       if (!owner.embeddedWalletAddress) throw conflict('setup_abort_wallet_conflict');
       const [byKey] = await tx.select().from(copyLiveSetupAborts).where(and(eq(copyLiveSetupAborts.userId, userId), eq(copyLiveSetupAborts.idempotencyKey, key)));
       if (byKey && byKey.setupId !== setupId) throw conflict('setup_abort_key_conflict');

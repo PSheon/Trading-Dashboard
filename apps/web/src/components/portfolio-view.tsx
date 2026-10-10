@@ -25,6 +25,7 @@ import { useAuth } from "@/lib/auth";
 import type { CopyOverview } from "@/lib/contracts";
 import { useCopyOverview, useCopyPortfolio } from "@/lib/copy";
 import { useWallet } from "@/lib/wallet";
+import { walletTotalValue } from "@/lib/wallet-value";
 import { SwitchPanel } from "@/components/ui/switch-panel";
 
 type Tab = "copying" | "insights" | "exposure" | "activity";
@@ -102,7 +103,7 @@ function usePortfolioView(): View {
 /** 我的資金: one figure (the main wallet and the money in real copies), the two parts under it, 儲值 and 提款. */
 function MyFunds({ wallet, inCopies, className }: { wallet: ReturnType<typeof useWallet>; inCopies: number | null; className?: string }) {
   const { t, format } = useI18n();
-  const main = wallet.data?.totalValue ?? null;
+  const main = walletTotalValue(wallet.data);
   return (
     <section className={cn("orbit-card card-pad flex flex-col gap-3", className)} aria-label={t("folio.myFunds")} data-testid="my-funds">
       <p className="text-[13px] font-bold text-muted-foreground">{t("folio.myFunds")}</p>
@@ -113,6 +114,7 @@ function MyFunds({ wallet, inCopies, className }: { wallet: ReturnType<typeof us
       </dl>
       {main !== null && inCopies !== null && inCopies !== 0 ? <p className="text-xs leading-5 text-muted-foreground">{t("liveCopyUi.roundingHint")}</p> : null}
       {wallet.isError && !wallet.data ? <ErrorState onRetry={() => wallet.refetch()} /> : null}
+      {wallet.data && main === null ? <p role="status" className="text-xs text-muted-foreground">{t("folio.balancePending")}</p> : null}
       <FundButtons />
     </section>
   );
@@ -199,7 +201,8 @@ function SignedOut() {
 function TotalValue({ wallet, className }: { wallet: ReturnType<typeof useWallet>; className?: string }) {
   const { format } = useI18n();
   if (wallet.data) {
-    return <p className={cn("num font-extrabold", className)}>{format.usd(wallet.data.totalValue, { digits: 2 })}</p>;
+    const total = walletTotalValue(wallet.data);
+    return <p className={cn("num font-extrabold", className)}>{total === null ? "—" : format.usd(total, { digits: 2 })}</p>;
   }
   if (wallet.isError) return <p className={cn("num font-extrabold text-muted-foreground", className)}>—</p>;
   // A bar on the figure's own line (same font size and leading).

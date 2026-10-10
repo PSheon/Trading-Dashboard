@@ -577,7 +577,7 @@ export const ja: Messages = {
     heroInvest: "30 日前に投資していたら",
     heroToday: "今日の評価額",
     heroFollowing: "コピー対象",
-    heroNote: "過去 30 日の収益率に基づく試算です。過去の実績は将来を約束するものではありません。",
+    heroNote: "取得可能な全期間の収益率に基づく参考試算で、グラフは入力額に合わせて拡大・縮小されます。取引ごとのコピートレード検証ではなく、手数料・スリッページ・執行遅延は含みません。過去の実績は将来の成果を保証しません。",
     markets: {
       top100: "トップ100",
       btc: "BTC",
@@ -625,6 +625,8 @@ export const ja: Messages = {
     },
   },
   discover: {
+    metricsUpdated: "指標更新",
+    metricsStale: "指標は24時間以上前",
     title: "探索",
     crypto: "クリプト",
     stocks: "株式",

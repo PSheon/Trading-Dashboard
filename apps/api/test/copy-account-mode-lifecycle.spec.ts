@@ -11,6 +11,8 @@ import type { UserWalletProvisioner } from '../src/copy/live/privy-wallet-provis
 import type { AccountModeClient, AccountModeAbsenceReader, AccountModeAbsenceProof } from '../src/copy/copy-account-mode.service.js';
 import { closeTestDb, getTestDb, insertUser, truncateAll, type TestDb } from './db-test-utils.js';
 import { testConfig } from './config-test-utils.js';
+import { liveBudget } from '../src/hyperliquid/hyperliquid-budget-wait.js';
+import type { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
 
 const owner = privateKeyToAccount(`0x${'01'.repeat(32)}`), master = privateKeyToAccount(`0x${'02'.repeat(32)}`), foreign = privateKeyToAccount(`0x${'03'.repeat(32)}`);
 const address = master.address.toLowerCase(), accountId = 'mode-account', key = 'mode-preparation-key-001';
@@ -218,6 +220,38 @@ describe('durable owned-master standard-mode operation', () => {
     // The whole attempt (both preflights and the POST) is paid before the first clock.
     expect(seen?.aborted).toBe(true); expect(vi.mocked(exchange.reserve!).mock.calls).toEqual([[ATTEMPT_WEIGHT]]);
     expect(ATTEMPT_WEIGHT).toBe(2 * PREFLIGHT_WEIGHT + 1);
+  });
+  it('refunds undispatched later reads after a failed preflight while retaining dispatched failure weight', async () => {
+    const prepared = await prepare(); let available = 800;
+    const budget = liveBudget({ liveCapacity: 800, liveWaitMs: () => 0, refillMs: () => 120000,
+      acquire: async (weight: number) => { available -= weight; }, refundLive: (weight: number) => { available += weight; },
+    } as unknown as RequestBudgeterService);
+    exchange.reserve = async weight => budget.reserve!(weight);
+    exchange.observe = async (_intent, options) => { options?.consume?.(102); throw new Error('dispatched observation failed'); };
+    absence.prove = async (_account, options) => {
+      options?.consume?.(42);
+      await new Promise(resolve => setTimeout(resolve, 20));
+      options?.signal?.throwIfAborted();
+      throw new Error('unexpected continued proof');
+    };
+    await expect(submit(prepared.id)).rejects.toThrow('dispatched observation failed');
+    expect(available).toBe(656); // 800 - the dispatched 102 + 42
+    expect(exchange.send).not.toHaveBeenCalled();
+    expect(await repository.find(uid, prepared.id)).toMatchObject({ submissionState: 'prepared', attemptedAt: null });
+  });
+  it('releases unused attempt admission before a supported baseline reserves its reconcile weight', async () => {
+    const prepared = await prepare(); configured = true; let available = 613;
+    const budget = liveBudget({ liveCapacity: 800, liveWaitMs: () => 0, refillMs: () => 120000,
+      acquire: async (weight: number) => { if (available < weight) throw new Error('unreleased admission blocks reconcile'); available -= weight; },
+      refundLive: (weight: number) => { available += weight; },
+    } as unknown as RequestBudgeterService);
+    exchange.reserve = async weight => budget.reserve!(weight);
+    exchange.observe = async (intent, options) => { options?.consume?.(102); return observation(intent); };
+    const prove = absence.prove;
+    absence.prove = async (account, options) => { options?.consume?.(102); return prove(account); };
+    expect(await submit(prepared.id)).toMatchObject({ targetState: 'supported', submissionState: 'prepared' });
+    expect(available).toBe(205); // 613 - one preflight (306) - reconcile (102)
+    expect(exchange.send).not.toHaveBeenCalled();
   });
   it('puts an attempt back to prepared when its POST never reached the transport, and a retry may send it', async () => {
     // Before: the attempt stayed unknown with nothing ever sent and nothing to observe.

@@ -1,3 +1,6 @@
+import { CopyFundingExchangeClient } from '../src/copy/copy-funding-exchange.client.js';
+import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
+import type { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { privateKeyToAccount } from "viem/accounts";
@@ -33,7 +36,7 @@ beforeEach(async () => {
   provider.findOwned.mockResolvedValue({ id: "provider-wallet", address: DEST, externalId: "copy_funding_test", ownerQuorumId: "quorum" });
 });
 afterAll(closeTestDb);
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const reserve = (amount = "12.500000", idempotencyKey = randomUUID()) => service.reserve(userId, "test-account", { amount, idempotencyKey });
 async function signature(op: Awaited<ReturnType<typeof reserve>>) {
   // Independent vector: don't derive expected signing fields from the production builder.
@@ -89,6 +92,66 @@ describe("durable strategy funding", () => {
     await expect(reserve()).rejects.toThrow("stopped");
     await db.update(users).set({ disabledAt: new Date() }).where(eq(users.id, userId));
     await expect(reserve()).rejects.toThrow("not found");
+  });
+  it('restores only a genuinely never-dispatched attempt and retains its original nonce', async () => {
+    const op = await reserve(); await service.claim(userId, op.id);
+    const transport = new CopyFundingExchangeClient({} as RequestBudgeterService);
+    const fetcher = vi.fn(); vi.stubGlobal('fetch', fetcher);
+    exchange.send.mockImplementation((attempt, sig) => transport.send(attempt, sig, () => { throw Error('expired proof'); }));
+    expect(await service.submit(userId, op.id, await signature(op))).toMatchObject({ status: 'prepared', canCancel: true });
+    expect(await repository.find(userId, op.id)).toMatchObject({ nonce: op.nonce, attemptedAt: null, claimedAt: null });
+    expect(fetcher).not.toHaveBeenCalled();
+    await service.claim(userId, op.id);
+    exchange.send.mockResolvedValue({ status: 'ok', response: { type: 'default' } });
+    expect(await service.submit(userId, op.id, await signature(op))).toMatchObject({ status: 'accepted' });
+  });
+  it('a forged pre-dispatch error cannot reset durable attempted state', async () => {
+    exchange.send.mockRejectedValue(new LiveBoundaryError('funding_not_dispatched'));
+    const op = await attempted();
+    expect(op.status).toBe('unknown');
+    expect((await repository.find(userId, op.id)).attemptedAt).not.toBeNull();
+    await service.submit(userId, op.id, await signature(op));
+    expect(exchange.send).toHaveBeenCalledTimes(1);
+  });
+  it('a concurrent scan revision wins over original never-dispatched evidence', async () => {
+    const op = await reserve(); await service.claim(userId, op.id);
+    const transport = new CopyFundingExchangeClient({} as RequestBudgeterService);
+    const fetcher = vi.fn(); vi.stubGlobal('fetch', fetcher);
+    exchange.send.mockImplementation(async (attempt, sig) => {
+      await db.update(copyFundingOperations).set({ scanRevision: attempt.scanRevision + 1 }).where(eq(copyFundingOperations.id, op.id));
+      return transport.send(attempt, sig, () => { throw Error('expired proof'); });
+    });
+    expect(await service.submit(userId, op.id, await signature(op))).toMatchObject({ status: 'unknown' });
+    expect((await repository.find(userId, op.id)).attemptedAt).not.toBeNull();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it.each(['nonce', 'amount', 'attemptedAt', 'updatedAt', 'accepted', 'receipt', 'owner'] as const)('never resets a concurrently changed %s from an original pre-dispatch proof', async change => {
+    const op = await reserve(); await service.claim(userId, op.id);
+    const transport = new CopyFundingExchangeClient({} as RequestBudgeterService);
+    const fetcher = vi.fn(); vi.stubGlobal('fetch', fetcher);
+    exchange.send.mockImplementation(async (attempt, sig) => {
+      if (change === 'owner') await db.update(users).set({ embeddedWalletAddress: DEST }).where(eq(users.id, userId));
+      else {
+        const changed = change === 'nonce' ? { nonce: attempt.nonce + 1 }
+          : change === 'amount' ? { amount: '13' }
+          : change === 'attemptedAt' ? { attemptedAt: new Date(attempt.attemptedAt!.getTime() + 1) }
+          : change === 'updatedAt' ? { updatedAt: new Date(attempt.updatedAt.getTime() + 1) }
+          : change === 'accepted' ? { status: 'accepted' as const, evidenceHash: 'e'.repeat(64) }
+          : { transactionHash: HASH };
+        await db.update(copyFundingOperations).set(changed).where(eq(copyFundingOperations.id, op.id));
+      }
+      return transport.send(attempt, sig, () => { throw Error('expired proof'); });
+    });
+    expect(await service.submit(userId, op.id, await signature(op))).toMatchObject({ status: change === 'accepted' ? 'accepted' : 'unknown' });
+    expect((await repository.find(userId, op.id)).attemptedAt).not.toBeNull();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it('a crash after persisting an attempt supplies no reset proof and never resends', async () => {
+    const op = await reserve(); await service.claim(userId, op.id);
+    expect(await repository.beginSubmit(userId, op.id)).not.toBeNull();
+    expect(await service.submit(userId, op.id, await signature(op))).toMatchObject({ status: 'unknown' });
+    expect(exchange.send).not.toHaveBeenCalled();
+    expect((await repository.find(userId, op.id)).attemptedAt).not.toBeNull();
   });
   it("submits one verified user signature across concurrent callers", async () => {
     const op = await reserve(), sig = await signature(op);
@@ -243,6 +306,19 @@ describe("durable strategy funding", () => {
     expect(await restarted.reconcilePending()).toBe(1);
     expect((await repository.find(userId, op.id)).status).toBe("credited");
     expect(exchange.send).toHaveBeenCalledTimes(1); expect(provider.create).not.toHaveBeenCalled();
+  });
+  it("persists the recipient ledger before an explorer quota failure and resumes only the original receipt after restart", async () => {
+    const op = await attempted(); receipt(op);
+    exchange.txDetails.mockRejectedValueOnce(new Error("live_budget_wait"));
+    await expect(service.reconcile(userId, op.id)).rejects.toThrow("Funding confirmation unavailable");
+    expect((await repository.find(userId, op.id)).scanState).toMatchObject({ pendingDetails: [{ hash: HASH }] });
+    const wallets = new CopyWalletService(new CopyWalletRepository(db), new UnitOfWork(db), testConfig(), provider);
+    const restarted = new CopyFundingService(testConfig(), repository, wallets, exchange as never, info as never);
+    expect((await restarted.reconcile(userId, op.id)).status).toBe("credited");
+    expect(info.userNonFundingLedgerUpdates).toHaveBeenCalledTimes(1);
+    expect(exchange.txDetails).toHaveBeenCalledTimes(2);
+    expect(exchange.send).toHaveBeenCalledTimes(1);
+    expect(provider.create).not.toHaveBeenCalled();
   });
   it("leases pending evidence checks across replicas without releasing transfer exclusion", async () => {
     const op = await attempted();

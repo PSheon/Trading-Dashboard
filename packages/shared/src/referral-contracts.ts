@@ -19,7 +19,7 @@ export const referralOverviewSchema = z.object({
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Invalid referral ownership or balances' });
 });
 export const referralFriendsSchema = z.object({ invited: z.number().int().nonnegative(), copying: z.number().int().nonnegative(), items: z.array(z.object({
-  id: z.string().uuid(), label: z.string().min(1).max(100), joinedAt: timestamp, copying: z.boolean(), copyingModes: z.array(z.enum(['paper', 'testnet'])).max(2),
+  id: z.string().uuid(), label: z.string().min(1).max(100), joinedAt: timestamp, copying: z.boolean(), copyingModes: z.array(z.enum(['paper', 'testnet', 'mainnet'])).max(3),
 }).strict()).max(100), nextCursor: cursor }).strict().refine(v => v.copying <= v.invited);
 export const referralClaimSchema = z.object({ id: z.string().uuid(), idempotencyKey: z.string().uuid(), amountUnits: units.refine(v => BigInt(v) > 0n),
   destination: z.string().regex(/^0x[0-9a-f]{40}$/).refine(v => v !== `0x${'0'.repeat(40)}`), network: z.literal('mainnet'), token: z.literal('USDC'),

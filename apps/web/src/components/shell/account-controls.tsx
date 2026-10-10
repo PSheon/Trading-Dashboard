@@ -1,11 +1,11 @@
 "use client";
 
-import { Briefcase, Check, ChevronDown, ChevronRight, Globe, LogOut, Moon, Settings, ShieldCheck, Sun } from "lucide-react";
+import { ArrowLeft, Briefcase, Check, ChevronDown, ChevronRight, Globe, LogOut, Monitor, Moon, Settings, ShieldCheck, Sun, Wallet } from "lucide-react";
 import { cn } from "cn";
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Dialog, Popover, RadioGroup } from "radix-ui";
 import { useIsDesktop } from "@/lib/use-is-desktop";
-import { LOCALE_NAMES } from "@/i18n/config";
+import { LOCALES, LOCALE_NAMES, isLocale } from "@/i18n/config";
 import { Link } from "@/i18n/navigation";
 
 import { Skeleton } from "@/components/page";
@@ -22,8 +22,10 @@ import { useTheme } from "@/lib/use-theme";
 import { useCopyOverview } from "@/lib/copy";
 import { useTradingMode, type SiteMode } from "@/lib/site-mode";
 import { useWallet } from "@/lib/wallet";
+import { walletTotalValue } from "@/lib/wallet-value";
 import { useLogout } from "@/lib/use-logout";
 import { OrbitSpinner } from "@/components/ui/orbit-spinner";
+import { useChangeLocale } from "@/lib/use-change-locale";
 
 /** Header right (Orbit): signed out → language, theme and 登入; signed in →
  * the account pill (avatar menu, total value, 儲值). Plus the demo badge in
@@ -94,7 +96,7 @@ export function AuthButton({ compact = false }: { compact?: boolean }) {
     );
   }
 
-  return <AccountMenu />;
+  return compact ? <AccountPill compact /> : <AccountMenu />;
 }
 
 function Initial({ label }: { label: string }) {
@@ -106,44 +108,64 @@ function Initial({ label }: { label: string }) {
 }
 
 /** The avatar (and, in the pill, the total value) opening the account menu. */
-function AccountMenu() {
+function AccountMenu({ compact = false }: { compact?: boolean }) {
   const { t, locale, format } = useI18n();
   const { identity } = useAuth();
   const trading = useTradingMode();
   const paper = useCopyOverview();
   const wallet = useWallet();
-  const total = trading.mode === "paper" ? paper.data?.paper.totalValue : trading.available && wallet.data && wallet.data.network === trading.deploymentNetwork ? wallet.data.totalValue : undefined;
+  const total = trading.mode === "paper" ? paper.data?.paper.totalValue : trading.available && wallet.data && wallet.data.network === trading.deploymentNetwork ? walletTotalValue(wallet.data) : undefined;
   const inCopies = useCopiesEquity();
   const { logout, pending: leaving } = useLogout();
   const { data: me } = useMe();
   const isAdmin = useIsAdmin();
-  const { theme, toggle } = useTheme();
+  const { choice, theme, setChoice } = useTheme();
+  const changeLocale = useChangeLocale();
   const desktop = useIsDesktop();
   const [open, setOpen] = useState(false);
+  const [panel, setPanel] = useState<"root" | "language" | "theme">("root");
+  const languageTrigger = useRef<HTMLButtonElement>(null), themeTrigger = useRef<HTMLButtonElement>(null), backButton = useRef<HTMLButtonElement>(null);
+  const returnTo = useRef<"language" | "theme" | null>(null);
+  const changeOpen = (next: boolean) => {
+    setOpen(next);
+    if (!next) { setPanel("root"); returnTo.current = null; }
+  };
+  const back = () => { if (panel !== "root") returnTo.current = panel; setPanel("root"); };
+  useEffect(() => {
+    if (!open) return;
+    if (panel !== "root") backButton.current?.focus();
+    else if (returnTo.current) {
+      (returnTo.current === "language" ? languageTrigger : themeTrigger).current?.focus();
+      returnTo.current = null;
+    }
+  }, [panel, open]);
+  const escapePanel = (event: KeyboardEvent) => { if (panel !== "root") { event.preventDefault(); back(); } };
   const totalId = useId();
   const label = me?.displayName || me?.email?.split("@")[0] || identity || t("topbar.account");
   const actual: SiteMode = trading.deploymentNetwork === "mainnet" ? "live" : "testnet";
   const row = "flex min-h-12 w-full items-center gap-3 rounded-2xl px-3 text-sm font-bold outline-none transition-colors hover:bg-raised focus-visible:ring-2 focus-visible:ring-ring";
   const trigger = (
-    <button type="button" aria-label={t("topbar.account")} aria-describedby={totalId} className="orbit-press flex h-11 shrink-0 items-center gap-2 rounded-full p-0.5 pr-3 font-extrabold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring">
+    <button type="button" aria-label={t("topbar.account")} aria-describedby={totalId} className={cn("orbit-press flex h-11 shrink-0 items-center rounded-full p-0.5 font-extrabold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring", compact ? "gap-1 pr-1 [&>span:first-of-type]:size-8" : "gap-2 pr-3")}>
       {trading.mode !== "paper" && trading.available ? <CopyEquityProbes /> : null}
       <Initial label={label} />
       <span id={totalId} className="flex min-w-0 flex-col items-start gap-0.5 leading-none">
         <span className="sr-only">{t("portfolio.totalValue")}</span>
         {total != null && (trading.mode === "paper" || inCopies !== null) ? (
-          <span className="num whitespace-nowrap font-display text-[15px]" data-testid="account-total">{format.usd(total + (trading.mode === "paper" ? 0 : inCopies!), { digits: 2 })}</span>
-        ) : !trading.available || (trading.mode === "paper" ? paper.isError : wallet.isError || inCopies === null) ? (
+          <span className={cn("num whitespace-nowrap font-display text-[15px]", compact && "max-w-[100px] truncate")} data-testid="account-total">{format.usd(total + (trading.mode === "paper" ? 0 : inCopies!), { digits: 2 })}</span>
+        ) : !trading.available || (trading.mode === "paper" ? paper.isError : wallet.isError || inCopies === null || (wallet.data && total === null)) ? (
           <span className="text-sm text-muted-foreground">—</span>
         ) : (
           <Skeleton className="h-4 w-16" />
         )}
         <span className="text-[10px] text-muted-foreground" data-mode={trading.mode}>{t(`mode.${trading.mode}`)}</span>
       </span>
-      <ChevronDown className="size-4 text-muted-foreground" aria-hidden />
+      {compact ? null : <ChevronDown className="size-4 text-muted-foreground" aria-hidden />}
     </button>
   );
   const body = (
-    <div data-testid="account-menu-card">
+    <div data-testid="account-menu-card" className="overflow-x-hidden">
+      <div key={panel} data-account-panel={panel} className={cn("account-menu-panel", (panel !== "root" || returnTo.current) && "account-menu-panel-slide")} style={{ "--account-panel-from": panel === "root" ? "-24px" : "24px" } as React.CSSProperties}>
+      {panel === "root" ? <>
       <div className="flex items-center gap-3 px-3 pt-2 pb-4">
         <Initial label={label} />
         <div className="min-w-0 flex-1">
@@ -164,18 +186,34 @@ function AccountMenu() {
       <Link href="/portfolio" onClick={() => setOpen(false)} className={row}><Briefcase className="size-[18px]" aria-hidden />{t("nav.portfolio")}<ChevronRight className="ml-auto size-4 text-muted-foreground" aria-hidden /></Link>
       <Link href="/settings" onClick={() => setOpen(false)} className={row}><Settings className="size-[18px]" aria-hidden />{t("nav.settings")}<ChevronRight className="ml-auto size-4 text-muted-foreground" aria-hidden /></Link>
       {isAdmin ? <Link href="/admin" onClick={() => setOpen(false)} className={row}><ShieldCheck className="size-[18px]" aria-hidden />{t("nav.admin")}<ChevronRight className="ml-auto size-4 text-muted-foreground" aria-hidden /></Link> : null}
-      <LanguageMenu trigger={<button type="button" className={row}><Globe className="size-[18px]" aria-hidden />{t("topbar.language")}<span className="ml-auto text-xs font-medium text-muted-foreground">{LOCALE_NAMES[locale]}</span><ChevronRight className="size-4 text-muted-foreground" aria-hidden /></button>} />
-      <button type="button" onClick={toggle} aria-label={t("theme.switchTo", { theme: theme === "dark" ? t("theme.light") : t("theme.dark") })} className={row}>{theme === "dark" ? <Moon className="size-[18px]" aria-hidden /> : <Sun className="size-[18px]" aria-hidden />}{t("theme.label")}<span className="ml-auto text-xs font-medium text-muted-foreground">{t(theme === "dark" ? "theme.dark" : "theme.light")}</span></button>
+      <button ref={languageTrigger} type="button" onClick={() => setPanel("language")} className={row}><Globe className="size-[18px]" aria-hidden />{t("topbar.language")}<span className="ml-auto text-xs font-medium text-muted-foreground">{LOCALE_NAMES[locale]}</span><ChevronRight className="size-4 text-muted-foreground" aria-hidden /></button>
+      <button ref={themeTrigger} type="button" onClick={() => setPanel("theme")} className={row}>{theme === "dark" ? <Moon className="size-[18px]" aria-hidden /> : <Sun className="size-[18px]" aria-hidden />}{t("theme.label")}<span className="ml-auto text-xs font-medium text-muted-foreground">{t(`theme.${choice}`)}</span><ChevronRight className="size-4 text-muted-foreground" aria-hidden /></button>
       <div className="my-3 h-px bg-border" />
-      <button type="button" disabled={leaving} aria-busy={leaving || undefined} onClick={() => { void logout(); }} className={cn(row, "text-muted-foreground disabled:opacity-50")}>{leaving ? <OrbitSpinner /> : <LogOut className="size-[18px]" aria-hidden />}{t("topbar.logout")}</button>
+      <button type="button" disabled={leaving} aria-busy={leaving || undefined} onClick={() => { void logout(); }} className={cn(row, "text-muted-foreground hover:bg-negative-soft hover:text-destructive focus-visible:bg-negative-soft focus-visible:text-destructive disabled:opacity-50")}>{leaving ? <OrbitSpinner /> : <LogOut className="size-[18px]" aria-hidden />}{t("topbar.logout")}</button>
+      </> : <>
+        <div className="mb-3 flex min-h-12 items-center gap-2 border-b border-border pb-3">
+          <button ref={backButton} type="button" onClick={back} aria-label={t("settings.back")} className="orbit-press flex size-11 shrink-0 items-center justify-center rounded-full bg-raised outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"><ArrowLeft className="size-5" aria-hidden /></button>
+          <h2 className="font-display text-lg font-bold">{t(panel === "language" ? "topbar.language" : "theme.label")}</h2>
+        </div>
+        {panel === "language" ? <RadioGroup.Root aria-label={t("topbar.language")} value={locale} onValueChange={value => { if (isLocale(value)) changeLocale(value); }} className="flex flex-col gap-1">
+          {LOCALES.map(value => <RadioGroup.Item key={value} value={value} lang={value} className={cn(row, "text-left data-[state=checked]:bg-raised")}>
+            {LOCALE_NAMES[value]}<RadioGroup.Indicator className="ml-auto"><Check className="size-4 text-primary-text" aria-hidden /></RadioGroup.Indicator>
+          </RadioGroup.Item>)}
+        </RadioGroup.Root> : <RadioGroup.Root aria-label={t("theme.label")} value={choice} onValueChange={value => { if (value === "light" || value === "dark" || value === "system") setChoice(value); }} className="flex flex-col gap-1">
+          {([ ["light", Sun], ["dark", Moon], ["system", Monitor] ] as const).map(([value, Icon]) => <RadioGroup.Item key={value} value={value} className={cn(row, "text-left data-[state=checked]:bg-raised")}>
+            <Icon className="size-[18px]" aria-hidden />{t(`theme.${value}`)}<RadioGroup.Indicator className="ml-auto"><Check className="size-4 text-primary-text" aria-hidden /></RadioGroup.Indicator>
+          </RadioGroup.Item>)}
+        </RadioGroup.Root>}
+      </>}
+      </div>
     </div>
   );
   if (desktop === false) return (
-    <Dialog.Root open={open} onOpenChange={setOpen}>
+    <Dialog.Root open={open} onOpenChange={changeOpen}>
       <Dialog.Trigger asChild>{trigger}</Dialog.Trigger>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-overlay backdrop-blur-[2px]" />
-        <Dialog.Content aria-describedby={undefined} className="fixed inset-x-0 bottom-0 z-50 max-h-[92dvh] overflow-y-auto rounded-t-3xl bg-background px-5 pt-4 pb-[calc(24px+env(safe-area-inset-bottom))] shadow-[var(--shadow-pop)] outline-none">
+        <Dialog.Overlay className="account-menu-overlay fixed inset-0 z-50 bg-overlay backdrop-blur-[2px]" />
+        <Dialog.Content aria-describedby={undefined} onEscapeKeyDown={escapePanel} className="account-menu-sheet fixed inset-x-0 bottom-0 z-50 max-h-[92dvh] overflow-y-auto rounded-t-3xl bg-background px-5 pt-4 pb-[calc(24px+env(safe-area-inset-bottom))] shadow-[var(--shadow-pop)] outline-none">
           <div className="mb-2 flex items-center justify-between"><Dialog.Title className="text-sm font-bold text-muted-foreground">{t("topbar.account")}</Dialog.Title><Dialog.Close className="flex min-h-11 items-center rounded-full bg-raised px-4 text-sm font-bold outline-none focus-visible:ring-2 focus-visible:ring-ring">{t("settings.close")}</Dialog.Close></div>
           {body}
         </Dialog.Content>
@@ -183,9 +221,9 @@ function AccountMenu() {
     </Dialog.Root>
   );
   return (
-    <Popover.Root open={open} onOpenChange={setOpen}>
+    <Popover.Root open={open} onOpenChange={changeOpen}>
       <Popover.Trigger asChild>{trigger}</Popover.Trigger>
-      <Popover.Portal><Popover.Content aria-label={t("topbar.account")} align="end" sideOffset={10} collisionPadding={12} className="z-50 max-h-[calc(100dvh-100px)] w-[320px] max-w-[calc(100vw-24px)] overflow-y-auto rounded-3xl bg-popover p-3 text-popover-foreground shadow-[0_0_0_2px_var(--card-ring),var(--shadow-pop)] outline-none">{body}</Popover.Content></Popover.Portal>
+      <Popover.Portal><Popover.Content aria-label={t("topbar.account")} onEscapeKeyDown={escapePanel} align="end" sideOffset={10} collisionPadding={12} className="account-menu-popover z-50 max-h-[calc(100dvh-100px)] w-[320px] max-w-[calc(100vw-24px)] overflow-y-auto rounded-3xl bg-popover p-3 text-popover-foreground shadow-[0_0_0_2px_var(--card-ring),var(--shadow-pop)] outline-none">{body}</Popover.Content></Popover.Portal>
     </Popover.Root>
   );
 }
@@ -193,16 +231,17 @@ function AccountMenu() {
 /** Orbit's signed-in pill: the avatar and total value open the account
  * menu; 儲值 opens the deposit modal. The value is 我的資金's: the main
  * account's /me/wallet total and this network's copies, also on the phone. */
-function AccountPill() {
+function AccountPill({ compact = false }: { compact?: boolean }) {
   const { t } = useI18n();
   const trading = useTradingMode();
   const { openDeposit } = useWalletModals();
+  const canDeposit = trading.mode !== "paper" && trading.available;
   return (
-    <div className="flex h-[52px] items-center gap-1 rounded-[26px] bg-raised p-1">
-      <AccountMenu />
-      {trading.mode !== "paper" && trading.available ? <Button onClick={openDeposit}>
-        {t("portfolio.deposit")}
-      </Button> : null}
+    <div className="flex h-[52px] items-center rounded-[26px] bg-raised p-1">
+      <AccountMenu compact={compact} />
+      <div className="account-funds" data-open={canDeposit} aria-hidden={!canDeposit} inert={!canDeposit}><div><Button disabled={!canDeposit} tabIndex={canDeposit ? undefined : -1} onClick={openDeposit} aria-label={t("portfolio.deposit")} title={t("portfolio.deposit")} className={compact ? "shrink-0 whitespace-nowrap px-3 max-[374px]:w-11 max-[374px]:px-0" : "whitespace-nowrap"}>
+        {compact ? <><Wallet className="size-5 min-[375px]:hidden" aria-hidden /><span className="max-[374px]:hidden">{t("portfolio.deposit")}</span></> : t("portfolio.deposit")}
+      </Button></div></div>
     </div>
   );
 }

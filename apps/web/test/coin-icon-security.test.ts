@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { createCoinIconSource } from "../src/lib/coin-icon-source";
+import { coinIcons, createCoinIconSource } from "../src/lib/coin-icon-source";
 import { ICONS_PER_MINUTE, iconRetryAfter, imageRetryAfter, resetImageLimiter } from "../src/lib/client-address";
 import { GET as icon } from "../src/app/api/coin-icon/[coin]/route";
 
 beforeEach(() => resetImageLimiter());
-afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 const svg = () => new Response("<svg></svg>", { headers: { "content-type": "image/svg+xml" } });
 
@@ -16,9 +16,29 @@ it("fetches an icon upstream only for a market apps/api's catalog lists (audit C
   // Well-formed but no market: no request to app.hyperliquid.xyz.
   expect(await icons.get("NOTAMARKET1")).toBeNull();
   expect(await icons.get("zz:FAKE")).toBeNull();
+  expect(await icons.isKnownMarket("zz:FAKE")).toBe(false);
+  expect(await icons.isKnownMarket("BTC")).toBe(true);
   expect(upstream.mock.calls.map(([url]) => String(url))).toEqual(["https://app.hyperliquid.xyz/coins/BTC.svg"]);
   // The list is read once, not per icon.
   expect(markets).toHaveBeenCalledTimes(1);
+});
+
+it("returns no content for a known market without a logo so the client can draw its glyph", async () => {
+  vi.stubEnv("NEXT_TEST_MODE", "0");
+  vi.spyOn(coinIcons, "get").mockResolvedValue(null);
+  vi.spyOn(coinIcons, "isKnownMarket").mockResolvedValue(true);
+  const res = await icon(new Request("http://web.test/api/coin-icon/xyz%3ANATGAS"), { params: Promise.resolve({ coin: "xyz:NATGAS" }) } as never);
+  expect(res.status).toBe(204);
+  expect(await res.text()).toBe("");
+  expect(res.headers.get("cache-control")).toBe("public, max-age=60");
+});
+
+it("preserves 404 for an unknown market", async () => {
+  vi.stubEnv("NEXT_TEST_MODE", "0");
+  vi.spyOn(coinIcons, "get").mockResolvedValue(null);
+  vi.spyOn(coinIcons, "isKnownMarket").mockResolvedValue(false);
+  const res = await icon(new Request("http://web.test/api/coin-icon/FAKE"), { params: Promise.resolve({ coin: "FAKE" }) } as never);
+  expect(res.status).toBe(404);
 });
 
 it("refuses every uncached icon while the market list cannot be read", async () => {

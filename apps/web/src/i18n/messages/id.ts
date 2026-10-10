@@ -577,7 +577,7 @@ export const id: Messages = {
     heroInvest: "Jika kamu berinvestasi 30 hari lalu",
     heroToday: "Hari ini kamu akan punya",
     heroFollowing: "Mengikuti",
-    heroNote: "Berdasarkan imbal hasil 30 hari terakhir. Performa masa lalu bukan jaminan.",
+    heroNote: "Ilustrasi berdasarkan ROI seluruh periode yang tersedia dari trader; grafik disesuaikan dengan jumlah yang dimasukkan. Ini bukan backtest penyalinan per transaksi dan tidak mencakup biaya, slippage, atau keterlambatan eksekusi. Kinerja masa lalu tidak menjamin hasil mendatang.",
     markets: {
       top100: "Top 100",
       btc: "BTC",
@@ -625,6 +625,8 @@ export const id: Messages = {
     },
   },
   discover: {
+    metricsUpdated: "Pembaruan metrik",
+    metricsStale: "Metrik lebih dari 24 jam",
     title: "Jelajahi",
     crypto: "Kripto",
     stocks: "Saham",

@@ -476,7 +476,7 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName }: 
   }
 
   return (
-    <Shell sheet={sheet} spaced>
+    <Shell sheet={sheet} form>
      {/* A real form: Enter in the amount field starts the copy. */}
      <form className="contents" noValidate onSubmit={(event) => { event.preventDefault(); if (!(start.isPending || preparing || started || closed || (empty && !fundFirst))) void submit(); }}>
       {/* Direction stays above the scrolling amount controls. */}
@@ -707,13 +707,13 @@ export function copyAmountBounds(live: boolean, paper: { minAllocationUsd: numbe
   return { min: paper?.minAllocationUsd ?? DEFAULT_MIN, max: paper?.maxAllocationUsd ?? null };
 }
 
-function Shell({ sheet, spaced = false, children }: { sheet: boolean; spaced?: boolean; children: React.ReactNode }) {
+function Shell({ sheet, form = false, children }: { sheet: boolean; form?: boolean; children: React.ReactNode }) {
   const { t } = useI18n();
   return sheet ? (
     <div className="flex flex-col gap-4 px-1">{children}</div>
   ) : (
-    // The copy form: 32 px between its blocks (Paul, 2026-10-07); a block's
-    // own parts sit 16 px apart.
-    <aside aria-label={t("trader.copy.panel")} className={cn("orbit-card card-pad flex flex-col xl:sticky xl:top-[92px]", spaced && "gap-8")}>{children}</aside>
+    // Status cards separate their heading, metrics and action by 16 px;
+    // the copy form keeps 32 px between its larger control groups.
+    <aside aria-label={t("trader.copy.panel")} className={cn("orbit-card card-pad flex flex-col xl:sticky xl:top-[92px]", form ? "gap-8" : "gap-4")}>{children}</aside>
   );
 }

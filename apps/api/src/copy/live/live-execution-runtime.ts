@@ -48,7 +48,7 @@ import type { LiveSourceReferenceReader } from './live-source-reference.js';
 import { captureLiveOrderIdentity, parseLiveIocAcknowledgement } from './live-order-evidence.js';
 import { PostgresLiveSettlement } from './postgres-live-settlement.js';
 import { LiveLeverageUpdated, LiveLeverageUpdater, LiveLeverageUpdateRequired } from './live-leverage-update.js';
-import type { LiveExecutionDiagnosticHook } from './live-execution-diagnostics.js';
+import { beginLiveExecutionTiming, type LiveExecutionTiming, type LiveExecutionTimingHook, type LiveExecutionDiagnosticHook } from './live-execution-diagnostics.js';
 
 const id = z.string().min(1).max(160).regex(/^[^\s\p{Cc}\p{Cf}]+$/u);
 const requestSchema = z.object({ userId: z.number().int().positive().max(2147483647), accountId: id,
@@ -196,6 +196,10 @@ export class LiveExecutionRuntime {
     credit.weight = 0;
     const scope = new PostgresLiveRiskScope(this.pool, this.now);
     let metadataClient: BoundaryPrivyOrderSigningClient | undefined;
+    const timings: Readonly<LiveExecutionTiming>[] = [];
+    let completionDiagnostic: Readonly<{ event: 'live_execution_completion_stale'; network: HyperliquidNetwork;
+      oldestCheckedAt: number; completedAt: number; evidenceAgeMs: number; freshnessLimitMs: 5000 }> | undefined;
+    const onTiming: LiveExecutionTimingHook = event => { if (timings.length < 128) timings.push(event); };
     try { return await scope.run({ userId: request.userId, network: this.network, accountAddress,
       source: { network: routing.mandate.sourceNetwork, leaderAddress } }, async (_scope, session) => this.global.runOriginal(session, async () => {
       // Resolve global configuration against the original private context before
@@ -215,19 +219,11 @@ export class LiveExecutionRuntime {
         catch (error) { prepaid += credit; throw error; }
       };
       const prepay = acquire;
-      // Each account read gets its own socket: the epoch observes every live
-      // account of the owner at once (one shared source refused all but one).
-      const sockets = new PerReadAllDexsAccountSource(() => new HyperliquidAllDexsAccountSource(this.now, undefined, this.network, this.global), 2);
-      const observer = new HyperliquidLiveAccountObserver(this.network, acquire, this.global.fetchInfo, this.now, 5000, sockets);
-      const resolver = new HyperliquidLiveMarketResolver(this.network, acquire, this.global.fetchInfo, this.now);
-      const provider = new HyperliquidLiveRiskProvider(this.network, acquire, this.global.fetchInfo, this.now);
-      const reservations = new PostgresLiveReservations(this.now);
-      // One order's evidence reads are shared by the observer, the resolver
-      // and the risk providers, and each wave goes out as one meter charge.
-      const epoch = new LiveProviderReadEpoch(observer, resolver, provider, this.options, this.now, { acquire: prepay, fetcher: this.global.fetchInfo,
-        batch: originalLiveInfoBatch(this.network, this.global, () => session.scope.assertFresh()) });
       const signingClient = new BoundaryPrivyOrderSigningClient(this.network, { appId: app.auth.appId, appSecret: app.auth.appSecret }, fetch, this.now);
       metadataClient = signingClient;
+      let sockets: PerReadAllDexsAccountSource | undefined;
+      let provider: HyperliquidLiveRiskProvider | undefined;
+      let epoch: LiveProviderReadEpoch | undefined;
       try {
         const existing = await this.existing(session, request, key);
         // Explicit recovery of a crash between the journal's commit and the
@@ -253,7 +249,24 @@ export class LiveExecutionRuntime {
             'live_runtime_reservation_recovery_required');
           return released;
         }
-        const source = new PostgresLiveRiskSource(observer, resolver, provider, reservations, this.options, this.now, epoch);
+        // Current locked authority selects resources only. Historical recovery
+        // still loads no current grant. A single live account can use three
+        // smaller venue sets; owners with several retain their existing bound.
+        const authority = existing && existing.record.state !== 'prepared' ? null
+          : await session.read(db => loadLivePreparationAuthority(session, db, request, this.now()));
+        if (authority) this.signingConfiguration(authority.consent.workerQuorumId);
+        // Each account read gets its own socket: the epoch observes every live
+        // account of the owner at once (one shared source refused all but one).
+        sockets = new PerReadAllDexsAccountSource(() => new HyperliquidAllDexsAccountSource(this.now, undefined, this.network, this.global), authority?.accounts.length === 1 ? 3 : 2);
+        const observer = new HyperliquidLiveAccountObserver(this.network, acquire, this.global.fetchInfo, this.now, 5000, sockets);
+        const resolver = new HyperliquidLiveMarketResolver(this.network, acquire, this.global.fetchInfo, this.now);
+        provider = new HyperliquidLiveRiskProvider(this.network, acquire, this.global.fetchInfo, this.now);
+        const reservations = new PostgresLiveReservations(this.now);
+        // One order's evidence reads are shared by the observer, the resolver
+        // and the risk providers, and each wave goes out as one meter charge.
+        epoch = new LiveProviderReadEpoch(observer, resolver, provider, this.options, this.now, { acquire: prepay, fetcher: this.global.fetchInfo,
+          batch: originalLiveInfoBatch(this.network, this.global, () => session.scope.assertFresh()) }, onTiming);
+        const source = new PostgresLiveRiskSource(observer, resolver, provider, reservations, this.options, this.now, epoch, onTiming);
         const binding = source.bind(session, { accountId: request.accountId, key });
         const authorizations = new WalletAuthorizationService(new ScopedWalletAuthorizationSource(session,
           existing?.record.authorization.id ?? routing.mandate.authorizationId),
@@ -265,25 +278,25 @@ export class LiveExecutionRuntime {
           this.signingConfiguration(authority.consent.workerQuorumId);
           return { authorization_context: { authorization_private_keys: [app.copy.agent!.authorizationPrivateKey] } };
         };
-        const signer = new PrivyOrderSigner(signingClient, authorizations, signingAuthorization, gate, this.now);
+        const signer = new PrivyOrderSigner(signingClient, authorizations, signingAuthorization, gate, this.now, undefined, onTiming);
         const exchange: { raw?: unknown; at?: number } = {};
         const onDiagnostic: LiveExecutionDiagnosticHook = event => new Logger('LiveExecutionRuntime').warn({
           event: 'live_execution_boundary_failure', ...event,
         });
         const transport = new HyperliquidLiveTransport(this.network, signer, gate, this.timedFetch(exchange), 5000, this.now,
-          { marketResolver: epochMarkets(resolver, () => epoch.sharedReads(session)), acquire, globalTransport: this.global, onDiagnostic });
-        const executor = new LiveOrderExecutor(authorizations, new ScopedLiveExecutionJournal(session, key), transport, gate, this.now, onDiagnostic);
+          { marketResolver: epochMarkets(resolver, () => epoch!.sharedReads(session)), acquire, globalTransport: this.global, onDiagnostic });
+        const executor = new LiveOrderExecutor(authorizations, new ScopedLiveExecutionJournal(session, key), transport, gate, this.now, onDiagnostic, onTiming);
         if (existing && existing.record.state !== 'prepared') {
           // No prepare/hold/current grant admission/sign on historical recovery.
           return await executor.reconcile(key);
         }
-        const authority = await session.read(db => loadLivePreparationAuthority(session, db, request, this.now()));
-        this.signingConfiguration(authority.consent.workerQuorumId);
+        riskSourceRequire(authority, 'live_runtime_identity');
         // Only metadata: original local and exchange authorization, wallet
         // identity and final five-second RPC guards still run at signing.
         // A fresh invocation owns this one-use read and its original timestamp.
         const preparation = new PostgresLivePreparation(observer, resolver, provider, this.options, this.now, epoch, this.hooks.reference,
-          this.network === 'testnet' && !existing ? walletId => signingClient.prefetchWallet(walletId) : undefined);
+          this.network === 'testnet' && !existing ? walletId => signingClient.prefetchWallet(walletId) : undefined, onTiming);
+        const preparationMark = beginLiveExecutionTiming(this.network, 'execute', this.now, onTiming);
         let prepared: Awaited<ReturnType<PostgresLivePreparation['prepare']>>;
         try { prepared = await preparation.prepare(session, request); }
         catch (error) {
@@ -297,6 +310,7 @@ export class LiveExecutionRuntime {
           if (state === 'accepted') throw new LiveLeverageUpdated();
           throw new LiveBoundaryError(state === 'rejected' ? 'live_leverage_update_rejected' : 'live_leverage_update_unknown');
         }
+        preparationMark('runtime_prepare');
         riskSourceRequire(prepared.record.key === key, 'live_runtime_identity');
         // Every risk and hold gate runs before anything is signed. One that
         // refuses or fails after the journal's commit rejects that journal
@@ -307,6 +321,7 @@ export class LiveExecutionRuntime {
           input = await binding.forHold();
           await reservations.hold(session, input);
           await session.scope.assertHeld();
+          preparationMark('runtime_hold');
         } catch (error) {
           await this.rejectUnheld(session, key, errorCode(error)).catch(() => undefined);
           throw error;
@@ -324,28 +339,43 @@ export class LiveExecutionRuntime {
         }
         await sockets.close();
         session.scope.assertFresh();
-        // The concrete source binds checkedAt to its oldest original sizing,
-        // SQL and all-owner/provider frames. A slow ACK/COMMIT cannot refresh
-        // that proof. The durable journal survives an uncertain completion.
+        // The executor has committed its outcome, and IOC evidence was offered
+        // above under the original session. No financial work follows this
+        // completion observation. Retain the original proof timestamp and report
+        // a slow completion without replacing the committed outcome with failure.
         const completedAt = this.now(), oldest = input.localSource.checkedAt;
         riskSourceRequire(Number.isSafeInteger(completedAt) && Number.isSafeInteger(oldest) && oldest > 0 &&
-          completedAt >= oldest && completedAt - oldest <= 5000, 'live_risk_stale');
+          completedAt >= oldest, 'live_risk_stale');
+        if (completedAt - oldest > 5000) completionDiagnostic = Object.freeze({
+          event: 'live_execution_completion_stale', network: this.network, oldestCheckedAt: oldest,
+          completedAt, evidenceAgeMs: completedAt - oldest, freshnessLimitMs: 5000,
+        });
         return result;
       } finally {
         signingClient.cancelWalletPrefetch();
         // A leverage-only preview may end the epoch before its other reads.
         // Return only prepaid weight which that private epoch never sent.
-        const shared = epoch.sharedReads(session);
+        const shared = epoch?.sharedReads(session);
         if (shared && shared.paidWeight > shared.sentWeight) prepaid += shared.paidWeight - shared.sentWeight;
         // Await actual private transport cleanup while the original session is
         // live. This source is never reused by a successor execution scope.
-        provider.close(); await sockets.close();
+        provider?.close(); await sockets?.close();
       }
     })); } finally {
       credit.weight += prepaid;
       // The original scope has closed before any unused read drains. A slow
       // provider cancellation cannot keep financial SQL locks or sign later.
       await metadataClient?.disposeWalletPrefetch();
+      // Emit after original SQL locks and all financial boundaries have closed.
+      // No payload, signatures, credentials or provider bodies enter this log.
+      if (completionDiagnostic) {
+        try { new Logger('LiveExecutionRuntime').warn(completionDiagnostic); }
+        catch { /* completion observation cannot change the committed result */ }
+      }
+      if (timings.length) {
+        try { new Logger('LiveExecutionRuntime').log({ event: 'live_execution_timing', timings }); }
+        catch { /* a logging failure cannot change the original execution result */ }
+      }
     }
   }
   /** Rejects a prepared journal that holds no reservation (so was never

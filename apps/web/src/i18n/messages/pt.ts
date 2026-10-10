@@ -577,7 +577,7 @@ export const pt: Messages = {
     heroInvest: "Se você tivesse investido há 30 dias",
     heroToday: "Hoje você teria",
     heroFollowing: "Seguindo",
-    heroNote: "Com base no retorno dos últimos 30 dias. Desempenho passado não é garantia.",
+    heroNote: "Estimativa baseada no ROI histórico disponível do trader; a curva é ajustada ao valor informado. Não é um backtest de copy trading operação por operação e não inclui taxas, slippage nem atrasos de execução. O desempenho passado não garante resultados futuros.",
     markets: {
       top100: "Top 100",
       btc: "BTC",
@@ -625,6 +625,8 @@ export const pt: Messages = {
     },
   },
   discover: {
+    metricsUpdated: "Indicadores atualizados",
+    metricsStale: "Indicadores há mais de 24 h",
     title: "Explorar",
     crypto: "Cripto",
     stocks: "Ações",

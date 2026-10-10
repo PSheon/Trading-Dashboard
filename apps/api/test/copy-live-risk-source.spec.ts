@@ -4,10 +4,12 @@ import { eq } from 'drizzle-orm';
 import { liveCopyMandateIntentSchema } from '@trading-dashboard/shared/contracts';
 import { copyExecutionAccounts,copyStrategies,copyLiveExecutions,copyAgentSetups,copyExecutionWallets,copyWalletAuthorizations,copyLiveMandates,copyLiveStrategyConfigs,copyStrategyVersions,copyLiveIntentProvenance,copyLiveSignalLegs,copyLiveSourceStreams,copyLiveSourceFills,copyLivePositionBaselines,copyLiveReductionCarry,copyLiveRiskReservations,copyRiskPolicies,copyControls,users,appSettings,copyFundingOperations } from '@trading-dashboard/shared/database';
 import { PostgresLiveRiskSource } from '../src/copy/live/postgres-live-risk-source.js';
+import type { LiveExecutionTiming, LiveExecutionTimingHook } from '../src/copy/live/live-execution-diagnostics.js';
 import { PostgresLiveRiskScope } from '../src/copy/live/postgres-live-risk-scope.js';
 import { HyperliquidLiveAccountObserver } from '../src/copy/live/live-account-observer.js';
 import { HyperliquidLiveMarketResolver } from '../src/copy/live/live-market-resolver.js';
 import { HyperliquidLiveRiskProvider } from '../src/copy/live/live-risk-provider.js';
+import { LiveProviderReadEpoch } from '../src/copy/live/live-provider-read-epoch.js';
 import { PostgresLiveReservations } from '../src/copy/live/postgres-live-reservations.js';
 import { captureLivePositionBaseline } from '../src/copy/live/live-position-baseline.js';
 import * as authority from '../src/copy/live/postgres-live-risk-authority.js';
@@ -44,7 +46,7 @@ beforeEach(async()=>{
 });
 afterAll(async()=>{await pool?.end();await closeTestDb();});
 const id=()=>({userId:f.identity.userId,network:'testnet' as const,accountAddress:f.identity.accountAddress,source:{network:'testnet' as const,leaderAddress:`0x${'44'.repeat(20)}`}});
-async function genuineSizing(clock=()=>now) {
+async function genuineSizing(clock=()=>now,onTiming?:LiveExecutionTimingHook) {
   const [mandate]=await db.select().from(copyLiveMandates),[provenance]=await db.select().from(copyLiveIntentProvenance),[fillRow]=await db.select().from(copyLiveSourceFills),[version]=await db.select().from(copyStrategyVersions);
   const intent={...f.intent,timeInForce:'Ioc' as const};f={...f,intent,action:buildOrderAction(intent)};const fingerprint=intentFingerprint(f.intent,f.action);
   const [journal]=await db.select().from(copyLiveExecutions);
@@ -69,8 +71,10 @@ async function genuineSizing(clock=()=>now) {
   const state={marginSummary:{accountValue:'100',totalNtlPos:'0',totalRawUsd:'100',totalMarginUsed:'0'},crossMarginSummary:{accountValue:'100',totalNtlPos:'0',totalRawUsd:'100',totalMarginUsed:'0'},crossMaintenanceMarginUsed:'0',withdrawable:'100',time:now,assetPositions:[] as unknown[]};
   const observer=new HyperliquidLiveAccountObserver('testnet',acquire,fetcher,clock,5000,{read:async(user)=>({network:'testnet',accountAddress:user,observedAt:clock(),data:{user,clearinghouseStates:[['',state]]}}),readOrders:async(user,dexes)=>({network:'testnet',accountAddress:user,observedAt:clock(),completedAt:clock(),requestedDexes:[...dexes],venues:dexes.map(dex=>({dex,user,observedAt:clock(),receivedAt:clock(),orders:[]}))})});
   const reservations=new PostgresLiveReservations(clock);
-  source=new PostgresLiveRiskSource(observer,new HyperliquidLiveMarketResolver('testnet',acquire,fetcher,clock),new HyperliquidLiveRiskProvider('testnet',acquire,fetcher,clock),reservations,{extraRiskBufferBps:'0',restingOrderBuilderFeeCapTenthsBps:100},clock);
-  return {reservations,state};
+  const resolver=new HyperliquidLiveMarketResolver('testnet',acquire,fetcher,clock),provider=new HyperliquidLiveRiskProvider('testnet',acquire,fetcher,clock),options={extraRiskBufferBps:'0',restingOrderBuilderFeeCapTenthsBps:100};
+  const epoch=new LiveProviderReadEpoch(observer,resolver,provider,options,clock);
+  source=new PostgresLiveRiskSource(observer,resolver,provider,reservations,options,clock,epoch,onTiming);
+  return {reservations,state,epoch};
 }
 async function fullAuthority() {
   const ownerAddress=`0x${'55'.repeat(20)}`,settings={...f.strategy.settings,copyStartMode:'delta' as const};
@@ -119,6 +123,33 @@ describe('unregistered original-session trusted risk producer',()=>{
 
 describe('durable local actual source authority before remote reads',()=>{
   beforeEach(fullAuthority);
+  it('retains all current SQL/provider proof checks when timing observation throws',async()=>{
+    const events:Readonly<LiveExecutionTiming>[]=[];
+    await genuineSizing(()=>now,event=>{events.push(event);throw Error('observer unavailable');});
+    await scopes.run(id(),async(_scope,session)=>{
+      const proof=await source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold();
+      expect(assessLiveAccountRisk(proof)).toMatchObject({ok:true});
+      expect(proof.localSource.checkedAt).toBe(now);
+    });
+    expect(events.map(event=>event.stage)).toEqual(['risk_local_read','risk_sizing_validation','risk_provider_epoch',
+      'risk_final_local_read','risk_generation_projection','risk_proof_build']);
+    expect(events.every(event=>event.phase==='hold'&&Object.isFrozen(event))).toBe(true);
+  });
+  it('reports where expired original sizing refuses signing without renewing provider frames',async()=>{
+    let clock=now;
+    const events:Readonly<LiveExecutionTiming>[]=[];
+    const {reservations}=await genuineSizing(()=>clock,event=>{events.push(event);});
+    await scopes.run(id(),async(_scope,session)=>{
+      const bound=source.bind(session,{accountId:'account',key:f.reservations.own.key});
+      await reservations.hold(session,await bound.forHold());
+      const calls=fetcher.mock.calls.length;
+      const [row]=await session.read(tx=>tx.select().from(copyLiveExecutions));
+      clock+=5001;
+      await expect(bound.proofSource.read({phase:'sign',intent:f.intent,record:row!.record as unknown as LiveExecutionRecord})).rejects.toThrow('live_risk_stale');
+      expect(fetcher).toHaveBeenCalledTimes(calls);
+      expect(events.at(-1)).toMatchObject({phase:'sign',stage:'risk_sizing_validation'});
+    });
+  });
   it('checks the first baseline execution without loading its unused historical sizing payload again',async()=>{
     await genuineSizing();
     const [original]=await db.select().from(copyLiveIntentProvenance);
@@ -134,7 +165,7 @@ describe('durable local actual source authority before remote reads',()=>{
         expect(loaded.provenance.sizingBasis).toEqual(sizingBasis);
         expect(loaded.baseline?.firstExecutionKey).toBe(f.reservations.own.key);
         const firstBaselineQueries=compiled.mock.calls.map(([query])=>query.sql).filter(query=>
-          query.includes('from "copy_live_executions"')&&query.includes('inner join "copy_live_intent_provenance"'));
+          query.includes('from "copy_live_position_baselines"')&&query.includes('left join "copy_live_executions"')&&query.includes('left join "copy_live_intent_provenance"'));
         expect(firstBaselineQueries).toHaveLength(1);
         expect(firstBaselineQueries[0]).not.toContain('"sizing_basis"');
       } finally { compiled.mockRestore(); }
@@ -295,6 +326,35 @@ describe('durable local actual source authority before remote reads',()=>{
       const bound=source.bind(session,{accountId:'account',key:f.reservations.own.key});await reservations.hold(session,await bound.forHold());
       const [row]=await session.read(sql=>sql.select().from(copyLiveExecutions));const evidence=await bound.proofSource.read({phase:'sign',intent:f.intent,record:row!.record as unknown as LiveExecutionRecord});
       expect(()=>evidence.assertHeld()).not.toThrow();clock++;expect(()=>evidence.assertHeld()).toThrow('live_risk_stale');
+    });
+  });
+  it.each(['hold','sign','submit'] as const)('admits a still-fresh %s boundary without repeating a full SQL read after a completed provider epoch',async phase=>{
+    let clock=now;const {reservations,epoch}=await genuineSizing(()=>clock);
+    await scopes.run(id(),async(_scope,session)=>{
+      const bound=source.bind(session,{accountId:'account',key:f.reservations.own.key});
+      if(phase==='hold')await epoch.collect(session,{accountId:'account',mandateId:'mandate',key:f.reservations.own.key,coin:'BTC'});
+      else await reservations.hold(session,await bound.forHold());
+      let [row]=await session.read(sql=>sql.select().from(copyLiveExecutions));
+      if(phase==='submit'){
+        await session.transaction(tx=>tx.update(copyLiveExecutions).set({state:'submitting',record:{...row!.record,state:'submitting'}}));
+        [row]=await session.read(sql=>sql.select().from(copyLiveExecutions));
+      }
+      const original=authority.loadLiveRiskAuthority;
+      const load=vi.spyOn(authority,'loadLiveRiskAuthority').mockImplementation(async(...args)=>{
+        const result=await original(...args);clock+=75;return result;
+      });
+      try {
+        clock=now+4900;
+        const evidence=phase==='hold'?undefined:await bound.proofSource.read({phase,intent:f.intent,record:row!.record as unknown as LiveExecutionRecord});
+        const proof=evidence?.proof??await bound.forHold();
+        expect(proof.localSource.checkedAt).toBe(now);
+        expect(proof.accountSource.snapshot.observedAt).toBe(now);
+        expect(assessLiveAccountRisk(proof)).toMatchObject({ok:true});
+        if(evidence)expect(()=>evidence.assertHeld()).not.toThrow();
+        clock=now+5001;
+        if(evidence)expect(()=>evidence.assertHeld()).toThrow('live_risk_stale');
+        expect(assessLiveAccountRisk({...proof,now:clock})).toMatchObject({ok:false,reason:'live_risk_stale'});
+      } finally {load.mockRestore();}
     });
   });
   it('collects original fresh evidence while login metadata is updated during provider reads',async()=>{

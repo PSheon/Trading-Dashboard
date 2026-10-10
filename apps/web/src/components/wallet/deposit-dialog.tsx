@@ -107,6 +107,9 @@ function PendingBridge({ summary }: { summary: WalletSummary }) {
     onSuccess: () => toast.success(t("toast.wallet.deposited")),
     onError: (err) => toast.error(signErrorMessage(err).rejected ? t("wallet.rejected") : `${t("common.errors.failed")}${needsSponsor ? ` ${t("wallet.noGas", { chain: network.chainLabel })}` : ""}`),
   });
+  if (summary.arbitrum === null) {
+    return <p role="status" className="text-xs text-muted-foreground">{t("folio.balancePending")}</p>;
+  }
   if (usdc <= 0) return null;
   const belowMin = usdc < MIN_BRIDGE_USDC;
 

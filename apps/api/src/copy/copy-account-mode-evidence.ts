@@ -80,7 +80,7 @@ export class HyperliquidAccountModeAbsenceReader implements AccountModeAbsenceRe
       if (!options.prepaid) await this.acquire(ACCOUNT_MODE_ABSENCE_WEIGHT, { signal });
       turn ??= await this.turn({ signal });
       let started = 0;
-      const startClock = () => { signal?.throwIfAborted(); started = this.now(); fresh(started, started); return AbortSignal.timeout(5000); };
+      const startClock = () => { signal?.throwIfAborted(); started = this.now(); fresh(started, started); const bound = AbortSignal.timeout(5000); options.consume?.(42); return bound; };
       const remaining = () => { fresh(started, this.now()); return Math.max(1, 5000 - (this.now() - started)); };
       const check = (value: unknown) => {
         fresh(started, this.now());
@@ -92,7 +92,7 @@ export class HyperliquidAccountModeAbsenceReader implements AccountModeAbsenceRe
       };
       const send = (bodies: readonly Record<string, unknown>[], meterWaitMs: number, bound: () => AbortSignal) => this.global
         ? this.global.fetchInfoBatch(WALLET_NETWORKS[this.network].infoUrl, bodies, { maxWaitMs: meterWaitMs, signal, onDispatch: bound })
-        : (() => { const timeout = bound(); return Promise.all(bodies.map(body => this.fetcher(WALLET_NETWORKS[this.network].infoUrl, { method: 'POST',
+        : (() => { signal?.throwIfAborted(); const timeout = bound(); return Promise.all(bodies.map(body => this.fetcher(WALLET_NETWORKS[this.network].infoUrl, { method: 'POST',
           headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), redirect: 'error', signal: signal ? AbortSignal.any([signal, timeout]) : timeout }))); })();
       const answers = async (responses: Response[]) => Promise.all(responses.map(async response => {
         if (!response.ok) { await response.body?.cancel().catch(() => undefined); fail(); }
@@ -115,7 +115,8 @@ export class HyperliquidAccountModeAbsenceReader implements AccountModeAbsenceRe
       signal?.throwIfAborted();
       this.lastReadAt = this.now();
       const proof = structuredClone(await boundedLiveRead(() => {
-        reading = readAccount.call(this.source, user, dexes, remaining(), signal); return reading;
+        const timeout = remaining(); signal?.throwIfAborted(); options.consume?.(40);
+        reading = readAccount.call(this.source, user, dexes, timeout, signal); return reading;
       }, remaining));
       if (proof.state.network !== this.network || address(proof.state.accountAddress) !== user || proof.orders.network !== this.network || address(proof.orders.accountAddress) !== user) fail();
       for (const at of [proof.state.observedAt, proof.orders.observedAt, proof.orders.completedAt]) fresh(at, this.now());
@@ -138,7 +139,7 @@ export class HyperliquidAccountModeAbsenceReader implements AccountModeAbsenceRe
         if (address(venue.user) !== user || venue.receivedAt < venue.observedAt || venue.observedAt < proof.orders.observedAt || venue.receivedAt > proof.orders.completedAt) fail();
         fresh(venue.observedAt, this.now()); fresh(venue.receivedAt, this.now());
       }
-      const [finalRaw] = await answers(await boundedLiveRead(() => send([{ type: 'perpDexs' }], Math.max(0, Math.min(LIVE_RESERVE_WAIT_MS, remaining() - 2_000)), () => AbortSignal.timeout(remaining())), remaining));
+      const [finalRaw] = await answers(await boundedLiveRead(() => send([{ type: 'perpDexs' }], Math.max(0, Math.min(LIVE_RESERVE_WAIT_MS, remaining() - 2_000)), () => { const bound = AbortSignal.timeout(remaining()); options.consume?.(20); return bound; }), remaining));
       const finalDexes = dexSchema.parse(finalRaw);
       if (JSON.stringify(finalDexes) !== JSON.stringify(list)) fail();
       const observedAt = Math.min(started, proof.state.observedAt, proof.orders.observedAt, ...aggregate.clearinghouseStates.map(([, s]) => s.time)), completedAt = this.now();

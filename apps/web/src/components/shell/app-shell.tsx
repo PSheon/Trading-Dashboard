@@ -2,6 +2,7 @@
 
 import { useSlidingIndicator } from "@/lib/use-sliding-indicator";
 import { prefersReducedMotion } from "@/lib/motion";
+import { useUrlState } from "@/lib/url-state";
 import { usePageScrolled } from "@/lib/use-page-scrolled";
 import { Link, usePathname } from "@/i18n/navigation";
 import { cn } from "cn";
@@ -33,20 +34,21 @@ const isAppRoute = (pathname: string) => pathname === "/" || ROUTES.some((r) => 
  *   登入 / the account, with the floating bottom navigation;
  * - about, help and the 404 page: wordmark, search and the ☰ menu, with no
  *   tab bar;
- * - detail/settings pages keep their own page chrome.
+ * - detail pages keep their own page chrome; settings shares the app header.
  */
 function phoneChrome(pathname: string): "home" | "marketing" | "none" {
-  if (pathname === "/" || ["/explore", "/favorites", "/portfolio", "/insights"].some(r => pathname === r || pathname.startsWith(`${r}/`))) return "home";
+  if (pathname === "/" || ["/explore", "/favorites", "/portfolio", "/insights", "/settings"].some(r => pathname === r || pathname.startsWith(`${r}/`))) return "home";
   if (pathname === "/about" || pathname === "/help" || !isAppRoute(pathname)) return "marketing";
   return "none";
 }
 
-/** Public pages and the portfolio share the brand footer; other personal
- * pages keep legal/help links. */
+/** Public pages, portfolio, favorites and settings share the brand footer;
+ * trader details keep legal/help links. */
 function shellFooter(pathname: string): "everywhere" | "compact" | null {
-  if (pathname === "/portfolio" || pathname.startsWith("/portfolio/")) return "everywhere";
+  if (pathname.startsWith("/r/")) return "everywhere";
+  if (["/portfolio", "/favorites", "/settings"].some(route => pathname === route || pathname.startsWith(`${route}/`))) return "everywhere";
   if (["/privacy", "/terms", "/delete-account", "/explore", "/insights", "/coins"].includes(pathname) || pathname.startsWith("/coins/")) return "everywhere";
-  if (["/favorites", "/settings", "/trader"].some(route => pathname === route || pathname.startsWith(`${route}/`))) return "compact";
+  if (["/trader"].some(route => pathname === route || pathname.startsWith(`${route}/`))) return "compact";
   return null;
 }
 
@@ -92,7 +94,8 @@ export function AppShell({
   // page and its breadcrumb.
   const barePhonePage = pathname === "/coins" || pathname.startsWith("/coins/");
   const chrome = phoneChrome(pathname);
-  const footer = shellFooter(pathname);
+  const [traderTab] = useUrlState("tab", ["positions", "insights"], "positions");
+  const footer = traderPage && traderTab === "insights" ? null : shellFooter(pathname);
 
   // The design lab owns its frame; the production shell stays unchanged.
   if (pathname === "/dev" || pathname.startsWith("/dev/")) return <>{children}</>;
@@ -150,7 +153,7 @@ export function AppShell({
         <header data-testid="app-phone-header" data-scrolled={scrolled} className="fixed inset-x-0 top-0 z-40 isolate flex h-[72px] items-center gap-2 px-4 max-[374px]:gap-1 max-[374px]:px-3 md:hidden">
           <div aria-hidden className="bar-scrim" />
           <Link href="/" aria-label={APP_NAME} className="mr-auto flex h-11 min-w-11 shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
-            <Lockup className="[&>span]:text-2xl max-[374px]:[&>span]:hidden" />
+            <Lockup className="[&>span]:text-2xl max-[479px]:[&>span]:hidden" />
           </Link>
           <IslandBoundary><AddressSearch compact /></IslandBoundary>
           <IslandBoundary>{chrome === "marketing" ? <PhoneMenu /> : <AuthButton compact />}</IslandBoundary>

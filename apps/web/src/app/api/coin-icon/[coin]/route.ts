@@ -7,8 +7,9 @@ const DAY_S = 24 * 60 * 60;
  * GET /api/coin-icon/<coin> → the market's icon (Hyperliquid's own SVG),
  * served from this origin and cached, instead of the browser hot-linking
  * app.hyperliquid.xyz: that host answers 200 text/html for a market without
- * an icon, which the browser blocks (ORB) and logs. No icon is a 404, and
- * the page draws its own glyph.
+ * an icon, which the browser blocks (ORB) and logs. A known market without
+ * a logo returns 204; the image's onError draws the page's own glyph.
+ * Unknown markets remain 404, without an upstream icon request.
  *
  * The SVG is someone else's file on our origin: it is only ever used as an
  * <img> (where scripts don't run), and opened directly it is sandboxed
@@ -24,7 +25,12 @@ export async function GET(request: Request, ctx: RouteContext<"/api/coin-icon/[c
   if (wait) return new Response("Too many requests", { status: 429, headers: { "Retry-After": String(wait), "Cache-Control": "no-store" } });
   // The test server makes no outside requests.
   const icon = process.env.NEXT_TEST_MODE === "1" ? null : await coinIcons.get(coin);
-  if (!icon) return new Response("Not found", { status: 404, headers: { "Cache-Control": "public, max-age=3600" } });
+  if (!icon) {
+    if (process.env.NEXT_TEST_MODE !== "1" && await coinIcons.isKnownMarket(coin)) {
+      return new Response(null, { status: 204, headers: { "Cache-Control": "public, max-age=60" } });
+    }
+    return new Response("Not found", { status: 404, headers: { "Cache-Control": "public, max-age=60" } });
+  }
   return new Response(icon.svg, {
     headers: {
       "Content-Type": "image/svg+xml",

@@ -26,6 +26,7 @@ import { digest as mandateDigest } from '../src/copy/copy-live-mandate-evidence.
 import { liveCopySettingsDigest } from '../src/copy/copy-live-mandate-consent.js';
 import { CopyLiveEngine } from '../src/copy/live-worker/copy-live-engine.js';
 import { CopyLiveSettler } from '../src/copy/live-worker/copy-live-settler.js';
+import { HyperliquidLiveAccountObserver } from '../src/copy/live/live-account-observer.js';
 import { CopyLiveWorkerRepository } from '../src/copy/live-worker/copy-live-worker.repository.js';
 import { WatchedMainnetSource } from '../src/copy/live-worker/watched-mainnet-source.js';
 import { CopyLiveManualCloser, CopyLiveStopper } from '../src/copy/live-worker/copy-live-stopper.js';
@@ -176,6 +177,51 @@ async function leaderOpens(tid = 1001) {
 }
 
 describe('testnet copy of a mainnet leader, end to end against provider doubles', { timeout: 30_000 }, () => {
+  it('settles terminal proof within five seconds despite slow independent metadata and status reads', async () => {
+    const e = engine();
+    await e.tick(); await leaderOpens(); await e.tick();
+    expect((await db.select().from(schema.copyLiveDispatches))[0]).toMatchObject({ state: 'submitted' });
+    raw.mockImplementation(async (url, init) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+      if (body?.type === 'meta' || body?.type === 'orderStatus') await new Promise(resolve => setTimeout(resolve, 1700));
+      return providers(String(url), body);
+    });
+    const account = HyperliquidLiveAccountObserver.prototype.observe;
+    vi.spyOn(HyperliquidLiveAccountObserver.prototype, 'observe').mockImplementation(async function (this: HyperliquidLiveAccountObserver, ...args) {
+      await new Promise(resolve => setTimeout(resolve, 2100));
+      return account.apply(this, args);
+    });
+    await e.tick();
+    expect((await db.select().from(schema.copyLiveDispatches))[0]).toMatchObject({ state: 'settled', reason: null });
+    expect((await db.select().from(schema.copyLiveRiskReservations))[0]).toMatchObject({ state: 'released', releaseReason: 'verified_settlement' });
+    expect(exchangeBodies).toHaveLength(1);
+  });
+  it('retains the original liability when batched terminal metadata is unavailable', async () => {
+    const e = engine();
+    await e.tick(); await leaderOpens(); await e.tick();
+    raw.mockImplementation(async (url, init) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+      return body?.type === 'meta' ? new Response('offline unavailable', { status: 503 }) : providers(String(url), body);
+    });
+    await e.tick();
+    expect((await db.select().from(schema.copyLiveDispatches))[0]).toMatchObject({ state: 'submitted' });
+    expect((await db.select().from(schema.copyLiveRiskReservations))[0]?.state).not.toBe('released');
+    expect(exchangeBodies).toHaveLength(1);
+  });
+  it('does not release or resend when a batched terminal provider read exceeds five seconds', async () => {
+    const e = engine();
+    await e.tick(); await leaderOpens(); await e.tick();
+    raw.mockImplementation(async (url, init) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+      if (body?.type === 'orderStatus') await new Promise(resolve => setTimeout(resolve, 5100));
+      return providers(String(url), body);
+    });
+    await e.tick();
+    expect((await db.select().from(schema.copyLiveDispatches))[0]).toMatchObject({ state: 'submitted' });
+    expect((await db.select().from(schema.copyLiveRiskReservations))[0]?.state).not.toBe('released');
+    expect(exchangeBodies).toHaveLength(1);
+    await new Promise(resolve => setTimeout(resolve, 200));
+  });
   it('a funded copy mirrors the leader open with one signed IOC on testnet, books the actual fill and settles the leg', async () => {
     const e = engine();
     await e.tick(); // activation and the first (empty) coverage window

@@ -58,7 +58,15 @@ export interface LiveReserveOptions {
   readonly lane?: RequestPriority;
 }
 /** Weight taken from a token bucket before a read starts its clock. */
-export type LiveBudget = (weight: number, options?: LiveReserveOptions) => Promise<unknown>;
+export interface LiveBudgetReservation {
+  /** Conservative dispatch boundary: once consumed, even unknown outcomes stay charged. */
+  consume(weight: number): void;
+  /** Refund only weight never consumed; idempotent. */
+  release(): void;
+}
+export type LiveBudget = ((weight: number, options?: LiveReserveOptions) => Promise<unknown>) & {
+  reserve?(weight: number, options?: LiveReserveOptions): Promise<LiveBudgetReservation>;
+};
 
 /**
  * THE way copy and wallet code takes Hyperliquid weight from a token bucket
@@ -94,8 +102,28 @@ export async function reserveLive(budget: RequestBudgeterService, weight: number
 }
 
 /** Binds `reserveLive` to one bucket, with defaults a caller's options override. */
-export const liveBudget = (budget: RequestBudgeterService, defaults: LiveReserveOptions = {}): LiveBudget =>
-  (weight, options) => reserveLive(budget, weight, { ...defaults, ...options });
+export const liveBudget = (budget: RequestBudgeterService, defaults: LiveReserveOptions = {}): LiveBudget => {
+  const acquire: LiveBudget = (weight, options) => reserveLive(budget, weight, { ...defaults, ...options });
+  acquire.reserve = async (weight, options) => {
+    // Background reservations have page bookkeeping and remain conventional.
+    if ((options?.lane ?? defaults.lane ?? 'live') !== 'live') throw new Error('Tracked reservation requires live lane');
+    await acquire(weight, options);
+    let unused = weight, released = false;
+    return {
+      consume(cost) {
+        if (released || !Number.isSafeInteger(cost) || cost < 1 || cost > unused) throw new Error('Invalid reservation consumption');
+        unused -= cost;
+      },
+      release() {
+        if (released) return;
+        released = true;
+        if (unused > 0) budget.refundLive(unused);
+        unused = 0;
+      },
+    };
+  };
+  return acquire;
+};
 
 /**
  * Startup check: `budget` can ever hold `weight` (its live capacity), or

@@ -3,6 +3,7 @@ import { AccountRiskExecutionGate } from '../src/copy/live/account-risk-executio
 import type { LiveExecutionRecord } from '../src/copy/live/live-execution.js';
 import { fixture, now } from './copy-live-risk-test-utils.js';
 import { assertLiveExecutionReady, assertLiveExecutionPermit, type LiveExecutionPermit } from '../src/copy/live/live-execution-gate.js';
+import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
 
 function setup() {
   let clock = now;
@@ -55,6 +56,17 @@ it('retains the original serialization lease at the final pure boundary', async 
   const permit = await s.gate.assertReady({ phase: 'sign', intent: s.proof.intent, record: s.record });
   s.assertHeld.mockImplementation(() => { throw new Error('original_scope_lost'); });
   expect(() => permit.assertFresh()).toThrow('live_risk_serialization_lost');
+});
+it.each(['live_risk_stale', 'live_risk_serialization_stale'])( 'preserves %s from the original held callback without permitting execution', async code => {
+  const s = setup();
+  const permit = await s.gate.assertReady({ phase: 'sign', intent: s.proof.intent, record: s.record });
+  s.assertHeld.mockImplementation(() => { throw new LiveBoundaryError(code); });
+  expect(() => permit.assertFresh()).toThrow(code);
+});
+it('does not expose arbitrary boundary codes from the serialization callback', async () => {
+  const s = setup();
+  s.assertHeld.mockImplementation(() => { throw new LiveBoundaryError('private_adapter_detail'); });
+  await expect(s.gate.assertReady({ phase: 'sign', intent: s.proof.intent, record: s.record })).rejects.toThrow('live_risk_serialization_lost');
 });
 it('rechecks a shorter consent expiry even when all market evidence is fresh', async () => {
   const s = setup(); s.record.authorization.expiresAt = now + 1000;
@@ -111,4 +123,33 @@ it('rejects proof that expires during synchronous assessment rather than treatin
   let calls = 0;
   const gate = new AccountRiskExecutionGate({ read: s.read }, () => ++calls === 1 ? now + 5000 : now + 5001);
   await expect(gate.assertReady({ phase: 'sign', intent: s.proof.intent, record: s.record })).rejects.toThrow('live_risk_stale');
+});
+it('refuses a clock rollback after the private proof was validated even when its oldest observation is earlier', async () => {
+  const s = setup(); s.advance(1000);
+  const permit = await s.gate.assertReady({ phase: 'sign', intent: s.proof.intent, record: s.record });
+  s.advance(-1);
+  expect(() => permit.assertFresh()).toThrow('live_risk_stale');
+});
+it('continues checking held-reservation expiry after repeated successful boundary checks', async () => {
+  const s = setup(); Object.assign(s.proof.reservations.own, { expiresAt: now + 1000 });
+  const permit = await s.gate.assertReady({ phase: 'sign', intent: s.proof.intent, record: s.record });
+  s.advance(999); permit.assertFresh();
+  s.advance(1);
+  expect(() => permit.assertFresh()).toThrow('live_risk_reservation');
+});
+it('continues checking the original signal deadline without refreshing it to the permit clock', async () => {
+  const s = setup(); Object.assign(s.proof.signal!, { at: now - 119000 });
+  Object.assign(s.proof.policy.limits, { maxSignalAgeSeconds: 120 });
+  const permit = await s.gate.assertReady({ phase: 'sign', intent: s.proof.intent, record: s.record });
+  s.advance(1000); permit.assertFresh();
+  s.advance(1);
+  expect(() => permit.assertFresh()).toThrow('stale_signal');
+});
+it('loads current authority again for a new permit instead of retaining a previous successful assessment', async () => {
+  const s = setup();
+  const permit = await s.gate.assertReady({ phase: 'sign', intent: s.proof.intent, record: s.record });
+  permit.assertFresh();
+  Object.assign(s.proof.accountSource, { quarantined: true });
+  await expect(s.gate.assertReady({ phase: 'sign', intent: s.proof.intent, record: s.record })).rejects.toThrow('live_risk_quarantined');
+  expect(s.read).toHaveBeenCalledTimes(2);
 });

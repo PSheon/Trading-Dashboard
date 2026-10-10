@@ -22,6 +22,7 @@ import { canonicalLiveSourceLegs, type LiveSourceFillEvidence } from './copy-liv
 import { loadMergedMembers } from './copy-live-merged-members.js';
 import type { LiveReservationStored } from './live-risk-reservation.js';
 import {LiveProviderReadEpoch} from './live-provider-read-epoch.js';
+import { beginLiveExecutionTiming, type LiveExecutionTimingHook, type LiveTimingStage } from './live-execution-diagnostics.js';
 type CollectedAuthority=LiveRiskAuthority&{generation:LiveGenerationManifestV1;members?:LiveSourceFillEvidence[]};
 export interface BoundPostgresLiveRiskSource { readonly proofSource:LiveAccountRiskProofSource; forHold():Promise<LiveAccountRiskInput>; }
 export interface LiveRiskSourceBinding { readonly accountId:string; readonly key:string; }
@@ -31,7 +32,7 @@ const same=(a:unknown,b:unknown)=>isDeepStrictEqual(JSON.parse(JSON.stringify(a)
 export class PostgresLiveRiskSource {
   private readonly epoch:LiveProviderReadEpoch;
   constructor(observer:HyperliquidLiveAccountObserver,resolver:HyperliquidLiveMarketResolver,
-    remote:HyperliquidLiveRiskProvider,private readonly reservations:PostgresLiveReservations,options:LiveRiskProviderOptions,private readonly now=Date.now,epoch?:LiveProviderReadEpoch) {
+    remote:HyperliquidLiveRiskProvider,private readonly reservations:PostgresLiveReservations,options:LiveRiskProviderOptions,private readonly now=Date.now,epoch?:LiveProviderReadEpoch,private readonly onTiming?:LiveExecutionTimingHook) {
     requireProof(observer instanceof HyperliquidLiveAccountObserver&&resolver instanceof HyperliquidLiveMarketResolver&&remote instanceof HyperliquidLiveRiskProvider&&reservations instanceof PostgresLiveReservations,'live_risk_source_unavailable');
     requireProof(epoch===undefined||epoch instanceof LiveProviderReadEpoch,'live_risk_source_unavailable');
     this.epoch=epoch??new LiveProviderReadEpoch(observer,resolver,remote,options,now);
@@ -41,21 +42,31 @@ export class PostgresLiveRiskSource {
     assertOriginalLiveRiskSession(session);
     const binding=Object.freeze(structuredClone(raw));requireProof(binding&&typeof binding.accountId==='string'&&binding.accountId.length>0&&typeof binding.key==='string'&&binding.key.length>0,'live_risk_identity');
     const read=async(supplied?:Parameters<LiveAccountRiskProofSource['read']>[0]):Promise<LiveAccountRiskInput>=>{
+      const mark=beginLiveExecutionTiming(session.scope.identity.network,supplied?.phase??'hold',this.now,this.onTiming);
+      let stage:LiveTimingStage='risk_local_read';
+      try {
       session.scope.assertFresh();const started=this.now(),input=supplied?structuredClone(supplied):undefined;
-      const local=await this.load(session,binding,started);this.fresh(started);
+      const local=await this.load(session,binding,started);this.fresh(started);mark(stage);stage='risk_sizing_validation';
       if(input) requireProof(['sign','submit'].includes(input.phase)&&(input.phase==='sign'?local.record.state==='prepared':local.record.state==='submitting')&&same(input.record,local.record)&&executionKey(input.intent)===binding.key&&intentFingerprint(input.intent,buildOrderAction(input.intent))===local.record.fingerprint,'live_risk_record_mismatch');
       else requireProof(local.record.state==='prepared','live_risk_record_mismatch');
       const owned=input?await this.reservations.read(session,{accountId:binding.accountId,ownKey:binding.key}):undefined;
-      const sizing=this.validateSizing(local);
+      const sizing=this.validateSizing(local);mark(stage);stage='risk_provider_epoch';
+      const reusedProviderEpoch=this.epoch.hasCompleted(session);
       const frames=await this.epoch.collect(session,{accountId:binding.accountId,mandateId:local.row.mandate.id,key:binding.key,coin:local.fill.coin});await session.scope.assertHeld();
       requireProof(frames.authorityDigest===riskSourceDigest(local.preparation),'live_risk_local_changed');this.fresh(frames.oldest);
+      mark(stage);stage='risk_final_local_read';
       const {market,snapshots,target,others}=frames;
       requireProof(local.intent.market&&same(marketIdentityKey(market),marketIdentityKey(local.intent.market)),'live_risk_market');
       requireProof(snapshots.length===local.accounts.length,'live_risk_user_coverage_unproven');for(let i=0;i<snapshots.length;i++)this.validateSnapshot(snapshots[i]!,local.accounts[i]!.address!,local.identity.network,local.accounts[i]!.id!==binding.accountId);
       const current=snapshots[local.accounts.findIndex(a=>a.id===binding.accountId)]!;
-      // Provider calls finish before the uncached second SQL read.
-      const final=await this.load(session,binding,started),localDigest=riskSourceDigest(local);requireProof(localDigest===riskSourceDigest(final),'live_risk_local_changed');
-      this.validateGeneration(local,current,sizing.envelope.basis,owned?.own);
+      // New provider calls require an uncached second full SQL read. A settled
+      // epoch issues no provider calls: the full current authority above and
+      // collect's fresh preparation digest check already follow its original
+      // observations under the same held locks. Never cache SQL authority.
+      const localDigest=riskSourceDigest(local);
+      if(!reusedProviderEpoch){const final=await this.load(session,binding,started);requireProof(localDigest===riskSourceDigest(final),'live_risk_local_changed');}
+      mark(stage);stage='risk_generation_projection';
+      this.validateGeneration(local,current,sizing.envelope.basis,owned?.own);mark(stage);stage='risk_proof_build';
       const localSource={checkedAt:Math.min(started,sizing.oldest,frames.oldest,market.observedAt,target.earliestObservedAt,...others.map(p=>p.earliestObservedAt),
         ...snapshots.flatMap(s=>[s.observedAt,s.completedAt,s.coverage.earliestProviderTime,...s.dexes.map(d=>d.providerTime)])),sourceDigest:localDigest},
         intent=freezeLiveReservation({...local.intent,market}),action=buildOrderAction(intent),checkedAt=this.now();
@@ -69,7 +80,8 @@ export class PostgresLiveRiskSource {
         reservations={accountId:binding.accountId,userId:local.identity.userId,network:local.identity.network,accountAddress:local.identity.accountAddress,checkedAt:started,sourceDigest:riskSourceDigest({candidate,liabilities,started}),complete:true,own:{...candidate,state:'held',exchangeOrderId:null},others:liabilities};
       }
       const proof=freezeLiveReservation({...base,reservations});session.scope.assertFresh();this.fresh(localSource.checkedAt);
-      this.fresh(Math.min(...snapshots.flatMap(s=>[s.observedAt,s.completedAt,s.coverage.earliestProviderTime,...s.dexes.map(d=>d.providerTime)]),market.observedAt,target.earliestObservedAt,...others.map(p=>p.earliestObservedAt)));return proof;
+      this.fresh(Math.min(...snapshots.flatMap(s=>[s.observedAt,s.completedAt,s.coverage.earliestProviderTime,...s.dexes.map(d=>d.providerTime)]),market.observedAt,target.earliestObservedAt,...others.map(p=>p.earliestObservedAt)));mark(stage);return proof;
+      } catch(error) {mark(stage);throw error;}
     };
     return Object.freeze({forHold:()=>read(),proofSource:Object.freeze({read:async (input:Parameters<LiveAccountRiskProofSource['read']>[0])=>{const proof=await read(input);return Object.freeze({proof,assertHeld:()=>{session.scope.assertFresh();this.fresh(proof.localSource.checkedAt);}});}})});
   }

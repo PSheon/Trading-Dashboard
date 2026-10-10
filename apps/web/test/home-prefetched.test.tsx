@@ -61,3 +61,11 @@ describe("依市場瀏覽 tiles", () => {
     expect([...plain.matchAll(/href="\/en\/explore\?board=([^"&]+)/g)].map((m) => m[1])).toEqual(["BTC", "ETH", "SOL", "HYPE", "DOGE"]);
   });
 });
+
+it("shows the actual metrics timestamp on homepage cards instead of treating a new page fetch as fresh metrics", async () => {
+  const home = JSON.parse(JSON.stringify(await fixtureRequest("GET", "/discover/home", undefined, null)));
+  home.featured[0].metricsUpdatedAt = "2026-09-30T21:03:32.429Z";
+  const html = render({ home: { data: home, fetchedAt: Date.now() } });
+  expect(html).toContain('dateTime="2026-09-30T21:03:32.429Z"');
+  expect(html).toContain("Metrics updated");
+});

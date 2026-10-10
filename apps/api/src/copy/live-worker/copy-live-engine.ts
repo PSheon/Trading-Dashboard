@@ -16,6 +16,7 @@ import type { FastMainnetSource } from './fast-mainnet-source.js';
 import { minOrderNotional } from '../min-order-notional.js';
 import { Dec } from '../../common/decimal/dec.js';
 import { HyperliquidBudgetWait, SHARED_CAPACITY_RETRY_MS } from '../../hyperliquid/hyperliquid-budget-wait.js';
+import { LiveReadComparisonError } from '../live/live-shared-reads.js';
 
 /** One source read's result, for the logs. */
 export interface IngestOutcome { fast: boolean; fills: number; kind: string; state: string; through: number | null }
@@ -493,7 +494,8 @@ export class CopyLiveEngine {
       // earlier evidence failure. Never serialize the error or provider body.
       this.deps.log?.(`leg ${row.id} attempt ${row.attempts + 1} failed: ${reason}; ` +
         `elapsed ${Math.max(0, this.now() - attemptedAt)} ms, source age ${Math.max(0, this.now() - row.leaderTime.getTime())} ms, ` +
-        `exchange started ${timing.sentAt !== undefined}`);
+        `exchange started ${timing.sentAt !== undefined}` +
+        (error instanceof LiveReadComparisonError ? `, changed reads ${error.changedReads.join(',')}` : ''));
       if (error instanceof HyperliquidBudgetWait) this.deps.log?.(`leg ${row.id} budget unavailable: ${error.reason}, retry ${error.retryMs} ms`);
       // Stored as live_execution_failed: say what it really was (Stage 2026-10-06).
       const unexpected = describeUnexpected(error);

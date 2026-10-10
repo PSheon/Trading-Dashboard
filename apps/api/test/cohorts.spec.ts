@@ -383,6 +383,23 @@ describe("cohort job and endpoints (real Postgres)", () => {
     expect((await repository.nextDue(5, new Date(Date.now() - 60_000))).map((r) => r.address)).not.toContain(m.address);
   });
 
+  it("retries capacity and provider failures before the success interval, ordered fairly by last attempt", async () => {
+    const now = Date.now();
+    await db.insert(cohortMembers).values([
+      { address: addr(1), tier: "profitable", source: "pool", rank: 1, attemptedAt: new Date(now - 2 * 60_000), lastError: "capacity: hyperliquid_quota_exhausted" },
+      { address: addr(2), tier: "profitable", source: "pool", rank: 2, attemptedAt: new Date(now - 6 * 60_000), lastError: "provider unavailable" },
+      { address: addr(3), tier: "profitable", source: "pool", rank: 3, attemptedAt: new Date(now - 41 * 60_000), lastError: null },
+      { address: addr(4), tier: "profitable", source: "pool", rank: 4, attemptedAt: new Date(now - 60_000), lastError: "capacity: hyperliquid_quota_exhausted" },
+      { address: addr(5), tier: "profitable", source: "pool", rank: 5, attemptedAt: new Date(now - 4 * 60_000), lastError: "provider unavailable" },
+      { address: addr(6), tier: "profitable", source: "pool", rank: 6, attemptedAt: new Date(now - 6 * 60_000), lastError: null },
+    ]);
+    const due = await repository.nextDue(10, new Date(now - 40 * 60_000), {
+      failureBefore: new Date(now - 5 * 60_000), capacityBefore: new Date(now - 65_000),
+    });
+    expect(due.map(row => row.address)).toEqual([addr(3), addr(2), addr(1)]);
+    expect(due.every(row => row.fetchedAt === null)).toBe(true);
+  });
+
   describe("HTTP", () => {
     let app: INestApplication;
     beforeAll(async () => {

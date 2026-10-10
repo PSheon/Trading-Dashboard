@@ -117,10 +117,31 @@ function recoveryPass(config: AppConfig, budget: RequestBudgeterService, observe
   const exchange = { acquire: () => nativeExchange.acquire(), send: vi.fn(async (_attempt: unknown, _signature: unknown, fresh: () => void, dispatched: () => void) => {
     fresh(); dispatched(); return { status: 'ok', response: { type: 'default' } };
   }) };
-  const serviceConfig = new AppConfig({ ...config.value, copy: { ...config.value.copy, live: {} } } as never);
+  const serviceConfig = new AppConfig({ ...config.value, copy: { ...config.value.copy, live: { network: config.value.hyperliquid.wallet.network } } } as never);
   const args = [serviceConfig, repository, refunds, {}, {}, {}, {}, {}, {}, returns, exchange, signer, observer, {}, Date.now] as unknown as ConstructorParameters<typeof CopyLiveSetupAbortService>;
   return { service: new CopyLiveSetupAbortService(...args), repository, refunds, exchange, signer, refund };
 }
+
+it.each(['accepted', 'credited', 'rejected'] as const)('a delegated stopped generation retains its original %s refund outcome', async status => {
+  const config = testConfig(), budget = new RequestBudgeterService(config);
+  const observer = { observeSetupAbortFlat: vi.fn() };
+  try {
+    const pass = recoveryPass(config, budget, observer as unknown as HyperliquidLiveAccountObserver);
+    const row = await pass.repository.lease();
+    Object.assign(row, { stopId: 'original-stop', mandateId: 'original-mandate' });
+    const children = await pass.repository.children();
+    Object.assign(children, { stop: { id: 'original-stop', mandateId: 'original-mandate', accountId: 'account', network: 'testnet', state: 'stopped', issue: null } });
+    children.funding.splice(1, 1, { ...pass.refund, setupAbortId: null, stopId: 'original-stop', status } as unknown as typeof children.funding[number]);
+    await pass.service.process(row.id);
+    expect(pass.repository.transition).toHaveBeenCalledWith(expect.anything(), expect.objectContaining(
+      status === 'credited' ? { state: 'done', issue: null } : status === 'accepted'
+        ? { state: 'delegated', issue: 'setup_abort_refund_pending' }
+        : { state: 'blocked', issue: 'setup_abort_refund_not_completed' }));
+    expect(pass.exchange.send).not.toHaveBeenCalled();
+    expect(pass.signer.sign).not.toHaveBeenCalled();
+    expect(observer.observeSetupAbortFlat).not.toHaveBeenCalled();
+  } finally { budget.onModuleDestroy(); }
+});
 
 it('a warmed 400/min bucket submits its original prepared refund with one fresh proof and the same nonce', async () => {
   vi.useFakeTimers();

@@ -9,7 +9,7 @@ import { CopyAccountModeRepository, accountModeDigest, type AccountModeRow } fro
 import { USER_WALLET_PROVISIONER, type UserWalletProvisioner } from './live/privy-wallet-provisioner.js';
 import { ACCOUNT_MODE_OBSERVE_WEIGHT, accountModeTypedData, type AccountModeObservation, type AccountModeObserveOptions, type AccountModeOwnedMaster } from './live/privy-account-mode-client.js';
 import { ACCOUNT_MODE_ABSENCE_WEIGHT } from './copy-account-mode-evidence.js';
-import { HyperliquidBudgetWait, type LiveReserveOptions } from '../hyperliquid/hyperliquid-budget-wait.js';
+import { HyperliquidBudgetWait, type LiveReserveOptions, type LiveBudgetReservation } from '../hyperliquid/hyperliquid-budget-wait.js';
 import { LiveBoundaryError } from './live/wallet-authorization.js';
 import { safeErrorText } from '../runtime/safe-error-text.js';
 import { deploymentNetwork } from './live-deployment.js';
@@ -21,8 +21,8 @@ export interface AccountModeClient {
   /** Takes Hyperliquid weight before any evidence clock starts; throws
    * `HyperliquidBudgetWait` when it isn't available soon. (Test doubles
    * without a budget may omit it.) */
-  reserve?(weight: number, options?: LiveReserveOptions): Promise<void>;
-  send(intent: AccountModeIntent, signature: string, assertFreshProof: () => void): Promise<unknown>;
+  reserve?(weight: number, options?: LiveReserveOptions): Promise<LiveBudgetReservation | void>;
+  send(intent: AccountModeIntent, signature: string, assertFreshProof: () => void, consume?: (weight: number) => void): Promise<unknown>;
   observe(intent: AccountModeIntent, options?: AccountModeObserveOptions): Promise<Readonly<AccountModeObservation>>;
 }
 export interface AccountModeAbsenceProof {
@@ -32,6 +32,7 @@ export interface AccountModeAbsenceProof {
 /** This process's all-venue source, held for one proof (see `turn`). */
 export interface AccountModeAbsenceTurn { release(): void }
 export interface AccountModeAbsenceOptions {
+  readonly consume?: (weight: number) => void;
   /** The caller already took the proof's weight from the budget. */
   readonly prepaid?: boolean;
   /** A turn the caller waited for before its clock started. */
@@ -144,22 +145,25 @@ export class CopyAccountModeService {
    * drained bucket turned every attempt into stale evidence). When one read
    * fails the others are abandoned (nothing more reserved or subscribed).
    */
-  private async preflight(userId: number, row: AccountModeRow, { prepaid = false }: { prepaid?: boolean } = {}) {
+  private async preflight(userId: number, row: AccountModeRow, { prepaid = false, consume }: { prepaid?: boolean; consume?: (weight: number) => void } = {}) {
     const readable = readIntent(row);
     if (!prepaid) await this.exchange.reserve?.(PREFLIGHT_WEIGHT);
     const turn = await this.absence.turn?.();
     const abandon = new AbortController();
     const settle = <T>(work: Promise<T>) => work.catch((error: unknown) => { abandon.abort(); throw error; });
     const started = Date.now();
-    const proving = settle(this.absence.prove(row.accountAddress, { prepaid: true, turn, signal: abandon.signal }));
-    const [identity, observation, absence] = await Promise.all([settle(this.identity(userId, row, true)),
-      settle(this.exchange.observe(readable, { prepaid: true, signal: abandon.signal, meterWaitMs: IN_WINDOW_METER_WAIT_MS })), proving]);
+    const proving = settle(this.absence.prove(row.accountAddress, { prepaid: true, turn, signal: abandon.signal, consume }));
+    const work = [settle(this.identity(userId, row, true)),
+      settle(this.exchange.observe(readable, { prepaid: true, signal: abandon.signal, meterWaitMs: IN_WINDOW_METER_WAIT_MS, consume })), proving] as const;
+    // A failed sibling aborts further dispatch. Wait for their bounded readers
+    // to finish before the caller releases prepaid weight.
+    const [identity, observation, absence] = await Promise.all(work).catch(async error => { await Promise.allSettled(work); throw error; });
     this.assertObservation(row, observation); baseline(observation);
     if (absence.network !== row.network || absence.accountAddress !== row.accountAddress || absence.complete !== true || absence.empty !== true ||
         !/^[0-9a-f]{64}$/.test(absence.sourceDigest) || !Array.isArray(absence.dexes) || !absence.dexes.includes('') || new Set(absence.dexes).size !== absence.dexes.length || absence.completedAt < absence.observedAt)
       throw new ConflictException('account_mode_absence_unproven');
     fresh(absence.observedAt); fresh(absence.completedAt); fresh(identity.checkedAt); fresh(started);
-    const finalMode = await this.exchange.observe(readIntent(row), { prepaid: true, meterWaitMs: IN_WINDOW_METER_WAIT_MS }); this.assertObservation(row, finalMode); baseline(finalMode);
+    const finalMode = await this.exchange.observe(readIntent(row), { prepaid: true, meterWaitMs: IN_WINDOW_METER_WAIT_MS, consume }); this.assertObservation(row, finalMode); baseline(finalMode);
     const oldestObservedAt = Math.min(started, identity.checkedAt, absence.observedAt, finalMode.earliestObservedAt);
     const assertCompletion = (now: number) => fresh(oldestObservedAt, now);
     const assertFresh = () => {
@@ -174,9 +178,12 @@ export class CopyAccountModeService {
    * the `HyperliquidBudgetWait` is passed on, for a driver to come back). */
   async reconcile(userId: number, id: string, { busy = 'keep' }: { busy?: 'keep' | 'throw' } = {}): Promise<CopyAccountModeOperation> {
     let row = await this.repository.find(userId, id);
+    let reservation: LiveBudgetReservation | void = undefined;
     try {
-      await this.exchange.reserve?.(ACCOUNT_MODE_OBSERVE_WEIGHT);
-      const [identity, proof] = await Promise.all([this.identity(userId, row), this.exchange.observe(readIntent(row), { prepaid: true, meterWaitMs: IN_WINDOW_METER_WAIT_MS })]);
+      reservation = await this.exchange.reserve?.(ACCOUNT_MODE_OBSERVE_WEIGHT);
+      const consume = reservation ? (weight: number) => reservation!.consume(weight) : undefined;
+      const work = [this.identity(userId, row), this.exchange.observe(readIntent(row), { prepaid: true, meterWaitMs: IN_WINDOW_METER_WAIT_MS, consume })] as const;
+      const [identity, proof] = await Promise.all(work).catch(async error => { await Promise.allSettled(work); throw error; });
       this.assertObservation(row, proof); fresh(identity.checkedAt);
       const supported = proof.role === 'user' && proof.abstraction === 'disabled' && proof.dexAbstraction === false && proof.portfolioMarginEnabled === false;
       const unsupported = proof.role !== 'user' || proof.portfolioMarginEnabled || proof.abstraction === 'unifiedAccount' || proof.abstraction === 'portfolioMargin' || proof.dexAbstraction === true;
@@ -195,7 +202,7 @@ export class CopyAccountModeService {
       if (error instanceof HyperliquidBudgetWait) { if (busy === 'throw') throw error; return wire(row); }
       this.logger.warn(`account mode ${row.id} not observed: ${safeErrorText(error)}`);
       row = (await this.repository.transition(row, { targetState: 'unknown', issue: 'account_mode_observation_pending' })) ?? await this.repository.find(userId, id);
-    }
+    } finally { reservation?.release(); }
     return wire(row);
   }
   /** One attempt of the exact prepared operation; the attempt is durable
@@ -212,65 +219,68 @@ export class CopyAccountModeService {
     if (row.submissionState !== 'prepared' || row.attemptedAt || row.targetState === 'supported') return this.reconcile(userId, id);
     // The whole attempt is paid before its first clock starts: the preflight
     // before signing, the one before the POST, and the POST.
-    await this.exchange.reserve?.(ATTEMPT_WEIGHT);
-    const first = await this.preflight(userId, row, { prepaid: true });
-    if (baseline(first.observation) === 'supported') return this.reconcile(userId, id);
-    // A setup's consent bound the account to "disabled", not a nonce: the
-    // nonce is allocated here, under this preflight (no separate challenge
-    // preflight), with time left in its window to sign and send.
-    row = await this.uow.run(tx => this.repository.challenge(tx, userId, row, first.assertFresh, SETUP_NONCE_MIN_REMAINING_MS));
-    const original = intent(row); liveConsent(original);
-    if (!/^[0-9a-f]{64}$/.test(authority.consentDigest) || typeof authority.sign !== 'function') throw new BadRequestException('invalid_account_mode_consent');
-    const consentDigest = authority.consentDigest;
-    const claimed = await this.uow.run(async tx => {
-      await this.repository.assertCurrent(userId, row, tx, true); first.assertFresh(); liveConsent(original);
-      const next = await this.repository.transition(row, { submissionState: 'signing', claimToken: randomUUID(), signingStartedAt: new Date(), consentDigest, issue: null }, tx);
-      first.assertFresh(); liveConsent(original); return next;
-    });
-    if (!claimed) return this.reconcile(userId, id); row = claimed;
-    let signature: string, final: Awaited<ReturnType<CopyAccountModeService['preflight']>>;
+    const reservation = await this.exchange.reserve?.(ATTEMPT_WEIGHT);
+    const consume = reservation ? (weight: number) => reservation.consume(weight) : undefined;
     try {
-      first.assertFresh(); liveConsent(original);
-      const master = { walletId: row.accountWalletId, address: row.accountAddress, ownerQuorumId: row.accountOwnerQuorumId };
-      signature = await authority.sign(master, original, completionGuard(original, first));
-      if (!/^0x[0-9a-fA-F]{130}$/.test(signature) || !await verifyTypedData({ address: row.accountAddress as `0x${string}`, ...accountModeTypedData(original), signature: signature as `0x${string}` }))
-        throw new BadRequestException('account_mode_master_signature_invalid');
-      final = await this.preflight(userId, row, { prepaid: true });
-      if (baseline(final.observation) === 'supported') {
-        await this.repository.transition(row, { submissionState: 'prepared', claimToken: null, signingStartedAt: null, consentDigest: null });
-        return this.reconcile(userId, id);
-      }
-      row = await this.uow.run(async tx => {
-        await this.repository.assertCurrent(userId, row, tx, true); final.assertFresh(); liveConsent(original); answered();
-        const locked = await this.repository.find(userId, row.id, tx, true); final.assertFresh(); liveConsent(original);
-        if (locked.revision !== row.revision || locked.claimToken !== row.claimToken || locked.submissionState !== 'signing' || locked.attemptedAt || accountModeDigest(intent(locked)) !== accountModeDigest(original))
-          throw new ConflictException('account_mode_attempt_changed');
-        const next = await this.repository.transition(locked, { submissionState: 'unknown', attemptedAt: new Date(),
-          attemptProof: { identityCheckedAt: final.identity.checkedAt, observation: { ...final.observation }, absence: { ...final.absence } }, issue: 'account_mode_submission_unknown' }, tx);
-        final.assertFresh(); liveConsent(original); if (!next) throw new ConflictException('account_mode_attempt_changed'); return next;
+      const first = await this.preflight(userId, row, { prepaid: true, consume });
+      if (baseline(first.observation) === 'supported') return this.reconcile(userId, id);
+      // A setup's consent bound the account to "disabled", not a nonce: the
+      // nonce is allocated here, under this preflight (no separate challenge
+      // preflight), with time left in its window to sign and send.
+      row = await this.uow.run(tx => this.repository.challenge(tx, userId, row, first.assertFresh, SETUP_NONCE_MIN_REMAINING_MS));
+      const original = intent(row); liveConsent(original);
+      if (!/^[0-9a-f]{64}$/.test(authority.consentDigest) || typeof authority.sign !== 'function') throw new BadRequestException('invalid_account_mode_consent');
+      const consentDigest = authority.consentDigest;
+      const claimed = await this.uow.run(async tx => {
+        await this.repository.assertCurrent(userId, row, tx, true); first.assertFresh(); liveConsent(original);
+        const next = await this.repository.transition(row, { submissionState: 'signing', claimToken: randomUUID(), signingStartedAt: new Date(), consentDigest, issue: null }, tx);
+        first.assertFresh(); liveConsent(original); return next;
       });
-    } catch (error) {
-      if (!row.attemptedAt) await this.repository.transition(row, { submissionState: 'prepared', claimToken: null, signingStartedAt: null, consentDigest: null, issue: 'account_mode_not_submitted' });
-      throw error;
-    }
-    // No await follows these pure checks before initiating the one POST.
-    try { final.assertFresh(); liveConsent(original); } catch { return this.notDispatched(userId, row); }
-    try {
-      const guard = completionGuard(original, final);
-      const response = await this.exchange.send(original, signature, () => { answered(); guard(); });
-      if (response && typeof response === 'object' && 'status' in response && 'response' in response &&
-          (response.status === 'ok' && response.response && typeof response.response === 'object' && 'type' in response.response && response.response.type === 'default' || response.status === 'err' && typeof response.response === 'string' && !/nonce/i.test(response.response))) {
-        row = (await this.repository.transition(row, { submissionState: response.status === 'ok' ? 'accepted' : 'rejected', acknowledgmentDigest: accountModeDigest(response), issue: response.status === 'ok' ? null : 'account_mode_submission_rejected' })) ?? await this.repository.find(userId, id);
+      if (!claimed) return this.reconcile(userId, id); row = claimed;
+      let signature: string, final: Awaited<ReturnType<CopyAccountModeService['preflight']>>;
+      try {
+        first.assertFresh(); liveConsent(original);
+        const master = { walletId: row.accountWalletId, address: row.accountAddress, ownerQuorumId: row.accountOwnerQuorumId };
+        signature = await authority.sign(master, original, completionGuard(original, first));
+        if (!/^0x[0-9a-fA-F]{130}$/.test(signature) || !await verifyTypedData({ address: row.accountAddress as `0x${string}`, ...accountModeTypedData(original), signature: signature as `0x${string}` }))
+          throw new BadRequestException('account_mode_master_signature_invalid');
+        final = await this.preflight(userId, row, { prepaid: true, consume });
+        if (baseline(final.observation) === 'supported') {
+          await this.repository.transition(row, { submissionState: 'prepared', claimToken: null, signingStartedAt: null, consentDigest: null });
+          return this.reconcile(userId, id);
+        }
+        row = await this.uow.run(async tx => {
+          await this.repository.assertCurrent(userId, row, tx, true); final.assertFresh(); liveConsent(original); answered();
+          const locked = await this.repository.find(userId, row.id, tx, true); final.assertFresh(); liveConsent(original);
+          if (locked.revision !== row.revision || locked.claimToken !== row.claimToken || locked.submissionState !== 'signing' || locked.attemptedAt || accountModeDigest(intent(locked)) !== accountModeDigest(original))
+            throw new ConflictException('account_mode_attempt_changed');
+          const next = await this.repository.transition(locked, { submissionState: 'unknown', attemptedAt: new Date(),
+            attemptProof: { identityCheckedAt: final.identity.checkedAt, observation: { ...final.observation }, absence: { ...final.absence } }, issue: 'account_mode_submission_unknown' }, tx);
+          final.assertFresh(); liveConsent(original); if (!next) throw new ConflictException('account_mode_attempt_changed'); return next;
+        });
+      } catch (error) {
+        if (!row.attemptedAt) await this.repository.transition(row, { submissionState: 'prepared', claimToken: null, signingStartedAt: null, consentDigest: null, issue: 'account_mode_not_submitted' });
+        throw error;
       }
-    } catch (error) {
-      if (error instanceof LiveBoundaryError && error.code === 'account_mode_not_dispatched') return this.notDispatched(userId, row);
-      // Sent, its answer lost: reconciled from the exchange, never resent.
-      this.logger.warn(`account mode ${row.id} outcome unknown: ${safeErrorText(error)}`);
-      return wire(row);
-    }
-    // Paid for separately (the attempt's own weight is spent): when the
-    // budget is busy the operation is left for the next reconcile.
-    return this.reconcile(userId, row.id);
+      // No await follows these pure checks before initiating the one POST.
+      try { final.assertFresh(); liveConsent(original); } catch { return this.notDispatched(userId, row); }
+      try {
+        const guard = completionGuard(original, final);
+        const response = await this.exchange.send(original, signature, () => { answered(); guard(); }, consume);
+        if (response && typeof response === 'object' && 'status' in response && 'response' in response &&
+            (response.status === 'ok' && response.response && typeof response.response === 'object' && 'type' in response.response && response.response.type === 'default' || response.status === 'err' && typeof response.response === 'string' && !/nonce/i.test(response.response))) {
+          row = (await this.repository.transition(row, { submissionState: response.status === 'ok' ? 'accepted' : 'rejected', acknowledgmentDigest: accountModeDigest(response), issue: response.status === 'ok' ? null : 'account_mode_submission_rejected' })) ?? await this.repository.find(userId, id);
+        }
+      } catch (error) {
+        if (error instanceof LiveBoundaryError && error.code === 'account_mode_not_dispatched') return this.notDispatched(userId, row);
+        // Sent, its answer lost: reconciled from the exchange, never resent.
+        this.logger.warn(`account mode ${row.id} outcome unknown: ${safeErrorText(error)}`);
+        return wire(row);
+      }
+      // Paid for separately (the attempt's own weight is spent): when the
+      // budget is busy the operation is left for the next reconcile.
+      return this.reconcile(userId, row.id);
+    } finally { reservation?.release(); }
   }
   /** The attempt was persisted but the POST was never handed to the
    * transport (a refused meter permit, a stale final proof, the clock): no

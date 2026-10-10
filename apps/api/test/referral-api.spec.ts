@@ -3,7 +3,7 @@ import request from 'supertest';
 import type { INestApplication } from '@nestjs/common';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { referralAttributions, referralClaims, referralCodes, referralLedger, referralPolicies, users } from '@trading-dashboard/shared/database';
+import { copyStrategies, referralAttributions, referralClaims, referralCodes, referralLedger, referralPolicies, users } from '@trading-dashboard/shared/database';
 import { ReferralController, ReferralPublicController } from '../src/referral/referral.controller.js';
 import { ReferralService } from '../src/referral/referral.service.js';
 import { ReferralRepository } from '../src/referral/referral.repository.js';
@@ -116,4 +116,42 @@ it("does not let a disabled owner's code refer anyone (lock() refuses a disabled
   const fresh = await insertUser(db, { privyUserId: `did:privy:ref-fresh-${randomUUID()}` });
   await expect(repository.bind(fresh.id, 'GONEOWNER')).rejects.toThrow('Referral owner not found');
   expect(await db.select().from(referralAttributions).where(eq(referralAttributions.referredUserId, fresh.id))).toEqual([]);
+});
+
+
+it('rejects a reverse referral edge while retaining the original binding', async () => {
+  const x = await insertUser(db), y = await insertUser(db);
+  const xc = (await repository.overview(x.id)).code, yc = (await repository.overview(y.id)).code;
+  const first = await repository.bind(x.id, yc);
+  await expect(repository.bind(y.id, xc)).rejects.toThrow('Referral relationships cannot form a cycle');
+  expect(await repository.bind(x.id, yc)).toEqual(first);
+  expect(await db.select().from(referralAttributions).where(eq(referralAttributions.referredUserId, y.id))).toEqual([]);
+});
+
+it('serializes three concurrent edges so the persisted referral graph remains acyclic', async () => {
+  const owners = await Promise.all([insertUser(db), insertUser(db), insertUser(db)]);
+  const codes = await Promise.all(owners.map(async owner => (await repository.overview(owner.id)).code));
+  const results = await Promise.allSettled(owners.map((owner, i) => repository.bind(owner.id, codes[(i + 1) % 3]!)));
+  expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(2);
+  expect(results.filter(r => r.status === 'rejected')).toHaveLength(1);
+});
+
+it.each(['active', 'stopped'] as const)('closes new attribution after an actual %s strategy, without excluding paper-only users', async status => {
+  const owner = await insertUser(db);
+  const [strategy] = await db.insert(copyStrategies).values({ userId: owner.id, leaderAddress: addr, mode: 'testnet', network: 'mainnet',
+    status, stoppedAt: status === 'stopped' ? new Date() : null, allocated: '0', cash: '0', activatedAt: new Date() }).returning();
+  await expect(repository.bind(owner.id, 'NEWLINK')).rejects.toThrow('Bind an invitation before starting actual copy trading');
+  expect((await repository.overview(owner.id)).bindOpenUntil).toBeNull();
+  await db.delete(copyStrategies).where(eq(copyStrategies.id, strategy!.id));
+  await db.insert(copyStrategies).values({ userId: owner.id, leaderAddress: addr, mode: 'paper', allocated: '100', cash: '100', activatedAt: new Date() });
+  expect((await repository.bind(owner.id, 'NEWLINK')).bound).toBe(true);
+});
+
+it('reports actual friend networks from persisted strategies rather than the deployment label', async () => {
+  const inviter = await insertUser(db), friend = await insertUser(db);
+  await repository.bind(friend.id, (await repository.overview(inviter.id)).code);
+  for (const network of ['testnet', 'mainnet'] as const) await db.insert(copyStrategies).values({ userId: friend.id, leaderAddress: addr,
+    mode: 'testnet', network, allocated: '0', cash: '0', activatedAt: new Date() });
+  const page = await repository.friends(inviter.id, { cursor: null, limit: 10 });
+  expect(page.items[0]!.copyingModes.sort()).toEqual(['mainnet', 'testnet']);
 });

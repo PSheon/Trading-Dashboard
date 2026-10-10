@@ -231,7 +231,7 @@ describe('durable shared egress meter, never provider I/O',()=>{
   expect(create).toHaveBeenCalledTimes(2);expect((await db.select().from(schema.hyperliquidWsLeases)).every(row=>row.state==='closed')).toBe(true);
  });
 
- it('reads 268 venues through two original-session sockets, preserving all evidence and the shared meter',async()=>{
+ it.each([2,3])('reads 268 venues through %s original-session sockets, preserving all evidence and the shared meter',async(maxSockets)=>{
   const global=new HyperliquidGlobalTransport(meter,identity),scopes=new PostgresLiveRiskScope(pool),sent:string[]=[];
   const create=vi.fn((url:string)=>{
    const socket=new WebSocket(url);
@@ -240,16 +240,16 @@ describe('durable shared egress meter, never provider I/O',()=>{
     if(command.method==='subscribe')socket.emit('message',Buffer.from(JSON.stringify(command.subscription.type==='openOrders'?{channel:'openOrders',data:{user,dex:command.subscription.dex,orders:[]}}:{channel:'allDexsClearinghouseState',data:{user,clearinghouseStates:[]}})));
    });}) as typeof socket.send;return socket;
   });
-  const source=new PerReadAllDexsAccountSource(()=>new HyperliquidAllDexsAccountSource(Date.now,create,'testnet',global),2);
+  const source=new PerReadAllDexsAccountSource(()=>new HyperliquidAllDexsAccountSource(Date.now,create,'testnet',global),maxSockets);
   const dexes=Array.from({length:268},(_,i)=>i?`venue${i}`:'');
   await scopes.run({userId:1,network:'testnet',accountAddress:user},async(_scope,session)=>global.runOriginal(session,async()=>{
    const connect=vi.spyOn(pool,'connect');try{const result=await source.readAccount(user,dexes,5000);expect(result.orders.requestedDexes).toEqual(dexes);expect(result.orders.venues.map(v=>v.dex)).toEqual(dexes);expect(result.state.accountAddress).toBe(user);expect(connect).not.toHaveBeenCalled();}finally{connect.mockRestore();}
   }));
-  expect(create).toHaveBeenCalledTimes(2);expect(sent.filter(m=>m==='subscribe')).toHaveLength(269);expect(sent).not.toContain('unsubscribe');
-  const rows=await db.select().from(schema.hyperliquidWsLeases);expect(rows).toHaveLength(2);expect(rows.every(row=>row.state==='closed')).toBe(true);
+  expect(create).toHaveBeenCalledTimes(maxSockets);expect(sent.filter(m=>m==='subscribe')).toHaveLength(269);expect(sent).not.toContain('unsubscribe');
+  const rows=await db.select().from(schema.hyperliquidWsLeases);expect(rows).toHaveLength(maxSockets);expect(rows.every(row=>row.state==='closed')).toBe(true);
   const events=(await db.select().from(schema.hyperliquidEgressQuota))[0]!.events;
-  expect(events.filter(e=>e.kind==='ws_message').reduce((sum,e)=>sum+e.units,0)).toBe(271);
-  expect(events.filter(e=>e.kind==='ws_connect').reduce((sum,e)=>sum+e.units,0)).toBe(2);
+  expect(events.filter(e=>e.kind==='ws_message').reduce((sum,e)=>sum+e.units,0)).toBe(269+maxSockets);
+  expect(events.filter(e=>e.kind==='ws_connect').reduce((sum,e)=>sum+e.units,0)).toBe(maxSockets);
  });
 
  it('a closeAfterRead source subscribes each of 268 venues once and ends its read with one prepaid close: 270 WS units, no unsubscribes, lease closed',async()=>{

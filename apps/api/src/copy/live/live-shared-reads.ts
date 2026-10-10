@@ -18,6 +18,17 @@ export const liveInfoWeights = (bodies: readonly Readonly<Record<string, unknown
 export type LiveInfoBatch = (bodies: readonly Readonly<Record<string, unknown>>[], onDispatch: () => void, signal: AbortSignal) => Promise<Response[]>;
 /** A body's identity, whatever its key order. */
 const keyOf = (body: Readonly<Record<string, unknown>>) => JSON.stringify(Object.keys(body).sort().map(key => [key, body[key]]));
+const comparisonTypes = new Set(['userRole', 'userAbstraction', 'userDexAbstraction', 'spotClearinghouseState', 'perpDexs']);
+/** Safe categories only: no request user, response payload or differing value.
+ * This retains the original refusal code and full raw equality requirement. */
+export class LiveReadComparisonError extends LiveBoundaryError {
+  readonly changedReads: readonly string[];
+  constructor(code: string, types: readonly string[]) {
+    super(code);
+    this.changedReads = Object.freeze([...new Set(types.map(type => comparisonTypes.has(type) ? type : 'unclassified'))]);
+    Object.freeze(this);
+  }
+}
 /** The account-mode reads a dedicated standard account is proven by. */
 export const accountModeBodies = (user: string) => [{ type: 'userRole', user }, { type: 'userAbstraction', user },
   { type: 'userDexAbstraction', user }, { type: 'spotClearinghouseState', user }];
@@ -227,6 +238,8 @@ export class LiveSharedReads {
     await this.spend(liveInfoWeights(bodies));
     const responses = await this.send(bodies, () => undefined);
     const after = await Promise.all(responses.map((response, index) => this.decode(response, String(bodies[index]!.type))));
-    if (after.length !== before.length || after.some((value, index) => !isDeepStrictEqual(value, before[index]))) throw new LiveBoundaryError(code);
+    if (after.length !== before.length) throw new LiveBoundaryError(code);
+    const changed = after.flatMap((value, index) => isDeepStrictEqual(value, before[index]) ? [] : [String(bodies[index]!.type)]);
+    if (changed.length) throw new LiveReadComparisonError(code, changed);
   }
 }

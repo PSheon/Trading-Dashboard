@@ -46,16 +46,33 @@ export class AccountRiskExecutionGate implements LiveExecutionGate {
         ...proof.reservations.others.filter(r => r.state === 'held').map(r => r.expiresAt));
       const signalUntil = !intent.reduceOnly && proof.signal?.kind === 'fill'
         ? proof.signal.at + proof.policy.limits.maxSignalAgeSeconds * 1000 : Infinity;
+      let validatedAt: number | undefined;
       const assertFresh = () => {
-        try { if (held() !== undefined) throw new Error(); } catch { throw new LiveBoundaryError('live_risk_serialization_lost'); }
+        try { if (held() !== undefined) throw new Error(); }
+        catch (error) {
+          // The original callback also checks evidence age. Preserve its
+          // reviewed expiry codes so an expired proof is not reported as a
+          // vanished SQL session. Every case still refuses the boundary.
+          if (error instanceof LiveBoundaryError &&
+              ['live_risk_stale', 'live_risk_serialization_stale'].includes(error.code)) throw error;
+          throw new LiveBoundaryError('live_risk_serialization_lost');
+        }
         const now = this.now();
+        if (!Number.isSafeInteger(now) || (validatedAt !== undefined && now < validatedAt))
+          throw new LiveBoundaryError('live_risk_stale');
         if (!Number.isSafeInteger(record.expiresAfter) || record.expiresAfter <= now)
           throw new LiveBoundaryError('signing_order_expired');
         assertWalletAuthorization(record.authorization, intent, now);
-        const result = assessLiveAccountRisk({ ...proof, now });
-        if (!result.ok) throw new LiveBoundaryError(result.reason);
-        if (result.key !== record.key || result.fingerprint !== record.fingerprint)
-          throw new LiveBoundaryError('live_risk_record_mismatch');
+        // This closure owns a detached proof; no caller can mutate it. Validate
+        // its full coverage, economics and bindings once per source read, then
+        // recheck every time-dependent condition and the original held scope
+        // at each boundary. A new assertReady still reloads current authority.
+        if (validatedAt === undefined) {
+          const result = assessLiveAccountRisk({ ...proof, now });
+          if (!result.ok) throw new LiveBoundaryError(result.reason);
+          if (result.key !== record.key || result.fingerprint !== record.fingerprint)
+            throw new LiveBoundaryError('live_risk_record_mismatch');
+        }
         // Assessment can itself consume the last millisecond of a valid proof.
         // This final constant-time check uses the completion clock, not the
         // earlier time supplied to the pure assessor.
@@ -66,6 +83,7 @@ export class AccountRiskExecutionGate implements LiveExecutionGate {
         if (record.authorization.expiresAt <= completed) throw new LiveBoundaryError('wallet_authorization_expired');
         if (heldUntil <= completed) throw new LiveBoundaryError('live_risk_reservation');
         if (signalUntil < completed) throw new LiveBoundaryError('stale_signal');
+        validatedAt = completed;
       };
       assertFresh();
       return Object.freeze({ phase, key: record.key, fingerprint: record.fingerprint, assertFresh });

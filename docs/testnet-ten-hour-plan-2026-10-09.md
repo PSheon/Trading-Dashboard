@@ -379,3 +379,147 @@ burst84於03:59:01UTC第10次strict reconcile PASS（原240秒內），4leader�
 修正後完整 WEB 203檔／1372項、tsc --noEmit、AppShell scoped lint均實際exit0；原shell23項亦PASS。持久證據 ui-authenticated-fit/records.json、三尺寸 portfolio／menu／footer及桌面 expanded-history PNG、web-portfolio-fit-full-suite.log／typecheck.log／lint.log。驗證在登入前攔截所有金融／provider寫入，僅允許必要Privy登入，businessWrites／providerWrites均0。此頁面修正僅本機，未部署或改 Stage；API／交易邏輯未變，核心B段仍6 PASS／1 SKIP／1 FAIL，BASE送單前證據過期尚未修復。
 
 12:17分段只讀補證：原6f37 compiled DAL在原PostgresLiveRiskScope、唯讀本機SQL讀取已停止83完整歷史，3次manifestLoad55.3–78.8ms，每次9個data reads約21.7–32.5ms、13次lock fence約6.7–7.1ms、4次transaction statements約1.1–1.3ms。原五journals manifest530231bytes。獨立歷史joined DTO約2394589bytes，讀取24.4–40.4ms、原provenance digest14.0–19.1ms；該DTO使用row_to_json，不能當作正式Drizzle wire bytes或完整submit重現。持久 generation-scope-benchmark.json／generation-read-benchmark.json。這兩份皆零provider與金融寫入、未刷新原證據時計或發出送單permit。歷史成本確實存在，但完整5142ms／transport335ms仍需要在真submit按風控讀取、簽名、授權分段量測；不能將停止後benchmark推算冒充根因已修復。
+
+### 14:59 — 接續 BASE 超時診斷，尚未新增金融輪次
+
+核對本機 API3100／worker3010 均有監聽程序，最新原始 summary 仍為 BASE83 FAIL、burst84 PASS；沒有用舊 resume 文件較早的結果替代最新證據。上一目標回合只是狀態說明，屬於 no progress；本輪已修改可驗證的診斷程式與回歸。
+
+送單前診斷原本把風控重驗、市場與 builder 驗證、交易所授權、lease 與最終同步 freshness 都記為 transport_final_check。本輪新增各檢查的精確 stage；原累計 elapsedMs、原錯誤碼白名單與不可干預執行的 hook 行為保留。沒有修改時計、5秒期限、120秒訊號要求、查詢順序、風控內容或送單／退款結果。
+
+原分類回歸先實際 12 FAIL／88 PASS，修改後連同 executor 與逐次診斷 3檔139項 PASS。新增案例確認授權檢查完成後 permit 才過期時，仍以 transport_final_check／live_risk_stale 拒絕且 exchange fetch 為零；與初始 transport_risk_check 的拒絕區分。API tsc --noEmit、三檔 oxlint、git diff --check 均 exit0。
+
+此為補診斷，沒有證明 BASE 延遲已修。金融服務尚未載入本輪新碼、未新入金或開始真實重跑；Stage／主網未操作。B 維持6 PASS／1 SKIP／1 FAIL，目標保持 active。下一步需在新版本的本機重跑中採集精確 failure stage，再依證據修正與完整複驗。
+
+### 15:03–15:32 — BASE85 實際重跑 FAIL，原資金及完整場域收尾完成
+
+重跑前 SQL 八項在途計數全為0，platform r16 normal。API build exit0；比對539個compiled JS與已驗證6f37版本，僅 hyperliquid-live-transport.js 的診斷 stage 字串變更，其餘538檔一致（型別聯集被編譯器移除）。未修改舊 pinned proof manifest 或 proof kernel；新服務的編譯差異明確記在 diagnostic-runtime-build-comparison-20261009.json，不冒稱服務二進位完全未變。
+
+本機 API26859／worker27000 載入診斷版，原400/min、800 burst、60秒來源 cadence 與50／12–15／3x／2、5秒／120秒期限保留。runner session81698正常結束exit1／signal null，策略85、原setup923b634d-6051-4d1f-aa43-bb7f7a9bacbc、跟單帳戶0x0d7d5451529806cb00e4c2ae69623197ff00a541。瀏覽器兩份簽署／addSigners／confirm200及50入金（49 credited、1啟用費）、七筆領單均完成；首次跟單成交68.68秒，單次派單／filled／settled確認。
+
+一般對帳FAIL：缺派單、訊號過期、非允許拒絕、缺跟單成交、方向不符。加倉首次在signTypedData拒絕，exchange started=false，安全cause為 live_risk_serialization_lost；原 generation checkedAt1791529713568 到失敗1791529718679 約5111ms。這個時間差只證明原證據已超5秒，尚不能區分原SQL scope真的失去與proof freshness回呼被統一包成lost。既有prepared／held原操作依原期限恢復為unattempted_expired，61次本機恢復嘗試不是61次交易所下單，沒有補送。兩次close於executor_final_check拒絕live_risk_stale，該檢查173／179ms，原generation到拒絕5211／5009ms；兩者journal exchange_order_never_placed，沒有POST。失敗比BASE83更早出現，不稱穩定性已修好。
+
+10USDC提款原180秒驗收FAIL：主錢包已收到，journal仍accepted。正常user14、exact Testnet network／wallet／strategy／operation／amount核對後，僅呼叫同一原operation f0cd41ec-0db8-49b9-a9e1-d570d906139f 的正常 reconcile API，200 credited10；無新簽署、無broadcast／submit／新transfer、不直接改DB，也不重寫原FAIL。原正常stop成功平倉，39.009465返還operation070285e5-80f9-4a15-84ed-394ae9ab3691亦用原收據核對200 credited，四項原停止檢查PASS。
+
+15:29 SQL八項在途全0、platformr16正常。完整場域收尾session74011實際exit0，approved6f canonical observer對copy85／main／leader各268場域均complete、無持倉／掛單，原證據年齡4188／4298／4281ms；copy全部場域equity及withdrawable0，main80.50285、leader20.667971 testUSDC。沒有暫停worker、沒有新增管理權限或preload、没有修改Stage／主網。
+
+持久證據：base-diagnostic-rerun-20261009.log、base85-observations.jsonl、base85-final-result.json、base85-closure-{actual.jsonl,finished.json}；原summary及reconcile為 .claude/logs/copy-harness/2026-10-09T07-03-17-184Z-*。本輪兩項FAIL保留，B仍6 PASS／1 SKIP／1 FAIL，目標active而非complete；既有六小時時限已超過，不能稱如期完成。下一步需量測並改善prepare／sign／executor間重驗成本及背景提款收據排程，保留完整證明與期限；不在沒有修正時再花一輪資金重跑相同版本。
+
+### 15:47 — 收據確認保留限流前進度，風控錯誤分類修正
+
+本輪重新核對原 BASE85 worker 日誌：原10USDC operation 在07:21:30、07:22:28、07:24:00、07:25:28 UTC皆確認失敗 live_budget_wait。來源程式在ledger之後才讀txDetails，直到全部明細讀完才保存scan；明細讀取被限流時，已讀ledger及先前完成的明細皆未保存，重試再次消耗查詢額度。這是可重現的恢復流程問題，不能只歸因測試網本身。
+
+CopyFundingService現在先以原scanRevision CAS保存bounded pendingDetails與ledger必要欄位，每份明細完成後再保存剩餘工作；重啟可跳過已讀ledger及完成的明細。原nonce／network／source／destination／amount＋交易明細＋收款帳本驗證仍完整，重複hash保留至少兩列、無效欄位保留null，不將省略欄位變成正向credit；revision失效立即停止，不送新transfer、不補簽名、不以餘額差認列。schema仍兼容舊version1，無資料庫migration。這改善查詢恢復，不保證原180秒提款deadline已達成；總配額飢餓仍須實測。
+
+AccountRiskExecutionGate原held callback同時會驗serialization與proof freshness，之前所有exception都被包成serialization_lost。現在只保留已審查的live_risk_stale／live_risk_serialization_stale，未知code仍封裝為lost，所有失敗仍拒絕執行，不修改5秒或原證據時計。不是聲稱跟單超時已解決。
+
+新增checkpoint回歸原版3 FAIL／1 PASS；修正後加真實Postgres重啟恢復案例，隔離DB六檔89項PASS、實際exit0且owned DB orbie_2e3b7b1e1d904eb8a15521236f0170bb_test已刪除。另transport／executor／engine diagnostics／純account-risk／gate五檔255项PASS，部分與89項重疊，不加總冒充獨立測試數。型別與scoped lint通過。持久證據 recovery/funding-checkpoint-tests.log、funding-checkpoint-tests-finished.json。
+
+15:47:50唯讀SQL八項在途全0、platformr16 normal。本輪未載入服務新碼、未新增金融輪次，Stage／主網未操作，原BASE85 FAIL保留、B仍6 PASS／1 SKIP／1 FAIL，goal active。手機top-bar儲值入口另完成本機UI修正與35項回歸、320–430px實際瀏覽器驗證；不以此替代交易驗收。下一步是跟單5秒成本修正與新版完整交易／收據驗收。
+
+### 15:52 — 私有風控證據省去重複純計算，完整API回歸執行中
+
+上一目標回合為progress：已改提款收據checkpoint、增加真實Postgres重啟案例並取得89項actual PASS與刪除owned DB。此次查AccountRiskExecutionGate，同一permit每次assertFresh都structuredClone及重算全場域風險，雖然proof已與source／caller隔離且不可被外部修改。本輪只把這份私有proof的完整純評估保留在第一次檢查；每次仍執行原held callback、WalletAuthorization、原oldest五秒期限、completion clock、reservation expiry、signal expiry。每次新assertReady仍重新讀取source及完整計算，沒有保留SQL authority或更新原provider timestamps。新增單調clock，時鐘倒退也拒絕；不改額度、來源、行情覆蓋或交易期限。
+
+風控新增四項案例，原版clock rollback測試1 FAIL／25 PASS，修改後含transport／executor／engine diagnostics／account-risk五檔259項PASS，型別與scoped lint實際exit0。合成268場域、25次量測：十次assertFresh中位17.6487ms降至0.0099ms，初次完整計算約1.97／2.29ms；這是synthetic局部成本，不能拿來宣稱完整5秒失敗已修復。證據recovery/risk-permit-benchmark-before.json與after.json。
+
+完整未篩選API suite使用原pinned migration的隨機owned本機測試DB，session63811／parent45921／vitest45935，risk-permit-full-suite.log。已實際poll原session為running並確認後續test child持續更換；不是僅依started檔推測。未取得actual exit／cleanup前不能列PASS。完成後需讀risk-permit-full-suite-finished.json、原完整summary與ownedDB移除證據；不要重啟相同job或覆寫證據。目前服務仍舊diagnostic版本，沒有新金融輪次或Stage操作，B仍6 PASS／1 SKIP／1 FAIL，goal active。
+
+### 16:07–16:12 — 完整回歸4382項PASS，新版BASE86已啟動
+
+原完整suite session63811於08:07:08UTC实际exit0／signal null，275檔4382項全部PASS、無篩選。三個本輪source前後SHA256一致，隨機owned DB orbie_4c147719cd9c42db84e5f69cac895d9c_test已移除。原summary與finished JSON已讀取核對；上一目標回合為progress＋verified wait，本輪先poll同一handle確認terminal，沒有因觀察timeout重啟測試。
+
+新版API build exit0，與原reviewed6f的539個compiled JS比較僅四檔預期變更：funding-scan、funding.service、account-risk-execution-gate、先前diagnostic transport；沒有修改原immutable proof runtime／manifest。16:07:51SQL八項在途全0、platformr16 normal後，重啟本機API51799／worker51920，兩者health200／feedConnected true。原stage-caps、400/min／800 burst、60秒來源、50／12–15／3x／2及原5秒／120秒限制保留；NODE_OPTIONS／AUTH_SERVICE_PERMISSIONS／HARNESS_ADMIN_TOKEN明確unset，無新增管理權限。
+
+單一金融actor52411由base-risk-permit-supervisor.mjs啟動，原session46098仍running；啟動時核對fullsuite已通過且cleanup完成、三個source hashes與全部539 compiled hashes。新raw log／started／finished獨立命名base-risk-permit-rerun-20261009，不覆寫BASE85。仍用原approved6f canonical proof verifier，服務是明確記錄四檔差異的當前worktree，不冒稱服務二進位仍是6f。
+
+新strategy86／setup9f27dc9f-7533-4342-bfb1-7d5b3f9fd616／accountb63ad32f-2a41-4835-9ba4-3819a2f77155／0x94d67d11c19143cebccc8b7fbace9d24ccfeb213。原正常user14、主錢包0x3864abe55953419c1298800276af55fd8c5e23f4，主80.50285、領單20.667971testUSDC；兩份瀏覽器簽署、addSigners／confirm200完成8.24秒，50USDC原operation0b74b155-b9ad-481d-bd45-52facae9010b已funded，仍在啟動階段。未完成一般對帳、提款180秒deadline或停止退款，不列PASS，B仍6 PASS／1 SKIP／1 FAIL。不要在actor仍live時改程式或重啟服務；下一步poll原session46098，讀原run結果並完成原資金與canonical全場域收尾。Stage／主網未操作。
+
+16:12:43原runner已確認setup running與portfolio active，16:12:44第一筆領單ETH開多0.0241已成交，開始原120秒間距七步流程。16:12:55只讀SQL確認入金49 credited／啟用費1；當時尚無follower dispatch／journal（來源輪詢待到），沒有停止操作。本輪仍live、不列整體PASS；原session46098可接續poll。
+
+### 16:29–16:32 — BASE86 原交易對帳與提款 deadline 仍 FAIL，正常停止退款進行中
+
+同一原session46098已實際poll為running。七筆領單全部完成並最終平倉；只讀SQL與journal確認前四筆跟單單次成交／settled。第五筆開空首次於08:21:55UTC拒絕live_account_observation_changed（exchange started false），重試於08:22:50拒絕live_source_sizing_unproven，source age121870ms超過原120秒；未建journal／未POST。後續flip open拒絕flip_close_not_settled、close拒絕no_follower_position。08:26:53原對帳actual exit1，refusal_not_allowed及三項leader_leg_without_follower_fill；不列BASE PASS。
+
+原10USDC提款f85c6042-5b4c-4fa5-b8cf-acd83e879a21在原180秒deadline仍accepted，主錢包30.50→40.50，原檢查FAIL保留。worker08:27:56／08:28:37／08:29:22均live_budget_wait；新版checkpoint不能單獨保證配額排程deadline。08:30:16背景監控自行credited10、fee0，16:31瀏覽器只讀正常user14／Testnet／原strategy86與source-copy／destination-main收據核對確認，未呼叫reconcile、沒有重送或直接改DB。原正常stop已requested→closing→flat，08:31:17原38.967457退款accepted；尚未確認credited或canonical完整場域收尾。
+
+正在查首次observation_changed：共享epoch最後比較整份raw DTO，而具體account observer以解析後account mode及dex name/index比較。perpDexs包含assetToStreamingOiCap等額外欄位，spot raw亦可能包含非mode欄位；目前日誌未記錄差異是哪個body，因此只能列為待證假設，不直接放寬比較或宣稱根因已修復。planner目前把開倉訊號過期合併成live_source_sizing_unproven，需改善診斷，保留原120秒與所有identity／proof checks。原金融actor仍live時不改runtime、不重啟服務。B仍6 PASS／1 SKIP／1 FAIL；Stage與主網未操作。
+
+### 16:33–16:38 — BASE86 actual terminal FAIL，完整收尾 PASS；新增安全差異診斷
+
+原session46098實際terminal exit1／signal null，raw log SHA256 c81e9f3fcfa234acca2e0d5731fe01d70a204ab5fbe4b85a7c73105cd349a14d。原四項停止檢查皆PASS，退款01ddfb8a-30a0-454a-bfa3-d75d6f4c9991已credited38.967457／fee0。正常背景監控自行完成兩筆原收據，本輪未人工reconcile、不重送任何transfer。對帳与180秒提款FAIL保留。
+
+原canonical closure session28423 actual exit0：copy86／main／leader各268場域complete且無倉位／掛單，原proof age3977／3905／3850ms，copy equity0，main79.470307、leader20.393568 testUSDC。前後SQL八項在途全0、platformr16 normal，沒有worker pause；base86-closure-finished.json明確overallPassed=false／cleanupVerified=true。原main起80.50285，差1.032543包含帳戶啟用費1與本輪交易淨損益／費用，不把它稱為退款遺失。
+
+金融actor完全terminal後，新增LiveReadComparisonError安全診斷：仍對原raw DTO做deep strict comparison，任何差異仍拒絕原code；僅攜帶immutable、去重且allowlist過的read type，不含user地址／provider payload／差異值，未知type變unclassified。engine原每次拒絕日誌追加changed reads類別；拒絕狀態、重試、風控與期限未改。新增測試原3 FAIL／1 PASS，engine整合新增原1 FAIL／1 PASS，修正後五檔74項PASS、API tsc與scoped oxlint actual exit0、git diff --check通過。此前4382完整suite是新增診斷前的版本；此處只宣稱最新變更的74項相關驗證，不冒稱新版本已有4382全回歸或已載入服務。
+
+額外唯讀pair audit original400/min／800burst及shared quota，對原copy86兩波account-mode／dex讀取合計244 weight、3542ms，五種raw responses全部相等、dex268且names相等；observation-pair-audit-result.json為diagnosticOnly，不是風控proof，也不能證明第五步失敗的具體body。因此沒有以「忽略額外欄位」放寬證據，也沒有在缺乏行為修正時再花資金啟動相同完整base。下一步需將已驗證診斷載入本機後取得真正差異；另查收據10秒budget admission／30秒claim間隔的公平性，保留原180秒驗收要求。B仍6 PASS／1 SKIP／1 FAIL，goal active；六小時已超時，Stage與主網未操作。
+
+### 16:41–16:45 — 收據 budget admission 排隊恢復修正，最新完整回歸執行中
+
+上一目標回合為progress：BASE86 actual FAIL與全場域收尾、74項安全差異診斷驗證皆完成。本輪用真實RequestBudgeterService及原400/min／800burst重現：先耗盡800、排入568權重order evidence，再讀40權重txDetails；舊版因估計大於10秒直接拒絕，receipt連queue位置都没有，原測試1 FAIL／9 PASS（修正測試cleanup以觀察queued promise後取得乾淨相同FAIL）。這證明可重現的admission問題，不聲稱已解釋第五筆開空差異。
+
+CopyFundingExchangeClient僅txDetails改為原bucket refill的有界等待，上限120秒，下限原10秒；等待發生於HTTP前，HTTP仍10秒，原budget／shared quota未改。餘額、發送與其他read保持原10秒，沒有加匯款／重試submission／以餘額認列credit，也不改原180秒驗收。新增bounds測試：12秒estimate的balance仍拒絕、120001ms receipt estimate在兩分鐘上限前仍拒絕，無provider call。真實budget案例已能排隊並於100秒內完成單次txDetails；四檔29項PASS、API tsc及scoped oxlint exit0。
+
+最新未篩選API suite以新owned隨機本機DB執行，原session63796實際poll仍running；receipt-admission-full-suite.mjs／.log，finished未確認。七個runtime source hashes在前後比對，測試DB結束後刪除。此時服務仍BASE86版本，未重啟或啟動新金融actor，未宣稱新變更完整回歸／交易驗收通過。下一步poll同一63796 actual terminal，讀完整summary與DB清除證據，再build／核對539 compiled中預期7檔差異、quiet audit後載入新版進行原base scope與180秒提款驗收。舊proof runtime／manifest保持不可修改，BASE86兩項FAIL保留；B仍6 PASS／1 SKIP／1 FAIL，Stage及主網未操作。
+
+### 16:57–16:59 — 最新完整回歸4390項PASS，修正版資金驗收已啟動
+
+原session63796 actual terminal exit0／signal null，276檔4390項未篩選PASS，833.40秒；receipt-admission-full-suite-finished.json核對七個source前後hash一致。owned DB orbie_b1c046ae1bc241dca67e6bffc39bee22_test的durable ledger於08:57:17UTC removed，完整suite已結束，不再poll舊session。
+
+API build session60837 exit0。receipt-admission-build-check.mjs比對原reviewed proof539檔，恰有7個預期compiled差異、missing[]、其他532檔一致；新comparison另存receipt-admission-runtime-build-comparison.json，原proof manifest／snapshot沒有改寫。08:57:52再次SQL audit八項在途全0、platformr16正常。先核對原API51799／worker51920 PID與本專案cwd／log，再依序以同一原stage-caps重啟API70648、worker70772；health皆200。NODE_OPTIONS／AUTH_SERVICE_PERMISSIONS／HARNESS_ADMIN_TOKEN在重啟及新actor皆unset，無新增權限。
+
+新base-receipt-admission-supervisor.mjs核對完整suite actual PASS／DB cleanup、七個source與全部539個compiled hashes後，啟動單一金融actor70967，原session78545 running。原gap120、50／12–15／3x／2、400/min／800burst、60秒source、5秒evidence及120秒signal／180秒withdrawal期限保留。新started／raw log／finished前綴base-receipt-admission-rerun-20261009，不覆寫BASE86失敗紀錄。此時尚未取得新交易／提款／退款結果，不能列為新BASE PASS；B仍6 PASS／1 SKIP／1 FAIL。接續poll同一78545，actor live期間不改runtime、不重啟服務，最終仍需原資金退款與canonical全場域收尾。Stage及主網未操作。
+
+17:00:15原瀏覽器confirm200，兩份簽署與addSigners均PASS、7.341秒；新strategy87／setup18aa1b6b-bb81-4281-8400-8b646d352361／account771c1c90-30ba-4198-ba80-661d14d15b62／copy0xf627cfbf801c5688e921d7e26c7777fb38324e91。原50入金operation0d0affe4-ed94-48ba-92f7-043269f7504b；17:00:55只讀SQL仍accepted、未有dispatch／journal／stop。原main79.470307、leader20.393568 testUSDC，無額外150補款。新base87-observe.mjs唯讀原scope，base87-closure.mjs僅offline readiness通過、尚未執行canonical金融收尾；不能以此當作收尾PASS。session78545仍running。
+
+17:01:00原setup funded；17:03:43只讀原收據確認credited49／fee1，無dispatch／journal。帳戶模式曾account_mode_absence_unproven→hyperliquid_busy，17:03:30已mode_set；17:04:16原setup running／portfolio active（confirm後241秒），17:04:17第一筆領單ETH開多0.0241已filled2491.3。此時原七步流程已開始、首筆跟單結果尚未取得；session78545 actual poll仍running，不把setup啟用或領單成交當作BASE PASS。
+
+### 17:06–17:09 — BASE87 前兩筆實際成交，送出後逾時由原訂單對帳恢复
+
+原session78545 actual poll仍running。17:06:21只讀原scope確認首筆open单次sent09:05:42.850UTC、settled09:05:46.815，journal filled；第一筆領單09:04:17已成交。第二筆加倉領單09:06:18成交，跟單原單sent09:07:30.874、settled09:07:34.966，attempts1／journal filled／error null。
+
+第二筆worker09:07:31.752曾記live_risk_stale，exchange started=true；17:08:45 SQL已證明原journal與dispatch都成功，不能把這則送出後warning當成拒單或據此補送。原generation checkedAt1791536846338至sent約4536ms；到warning則已超过5秒。這只證明原證據期限與恢復時間，不把它當成整體延遲或所有時計已穩定。沒有重啟服務／改runtime／重送金融請求。第三筆領單09:08:19減半已filled，跟單結果尚待核對，整體base與180秒提款／停止退款未完成，B保持6 PASS／1 SKIP／1 FAIL。
+
+### 17:22–17:25 — BASE87實際結束：提款修正通過，一般流程仍FAIL；全場域收尾通過
+
+原session78545 actual terminal exit1／signal null，raw log SHA256 f00f0db0ee44f9d69a6058254a7979633ac608d82915fbd4acfcd53bb5e586b1。七筆領單完成，前四筆跟單filled／settled且各attempts1；第五開空09:13:47UTC在transport_risk_check耗時344ms後live_risk_stale，generation1791537222485至拒絕5043ms，exchange started=false。最後journal rejected exchange_order_never_placed、dispatch refused；之後反手close因no_follower_position拒絕，open依賴flip_close_not_settled拒絕，最後close無倉可平。原五方對帳base_reconcile FAIL兩項refusal_not_allowed，不能列為整輪PASS。
+
+原10提款4aada8df-e86f-46e4-ba95-65335442d63f於原180秒期限內credited10／fee0，主錢包29.47→39.47，最新收據queue修正有實際提款通過證據。原stop11f61e51-38c2-4c16-a1d8-a80d01b65099及refund36557a30-6d17-406b-9529-7008bc220089 credited38.981853／fee0，停止四項PASS。
+
+base87-closure.mjs --execute 原session54624 actual exit0，17:24:26UTC cleanupVerified=true／overallPassed=false。原reviewed6f verifier及manifest不變，原400/min／800burst，未pause worker，copy／main／leader各268市場均complete／flat、age3984／3914／3897ms，copy餘額0，main78.45216、leader20.105638；前後八项在途0、platformr16 normal。沒有新增下單／補款／reconcile重送。
+
+收尾後三個base87歷史benchmark實際exit0，financialWrites0/providerCalls0/clockRetiming0：SQL原wire約2.39MB、讀取26–41ms、basis digest15–19ms；完整原scope historical manifest58–83ms、13個fence約8ms；第五basis約607KB decode7.3–7.6ms、4certificate replay16–18ms。這是離線歷史成本而非當時submit proof，不足以證明344ms整段或此前4.7秒的單一根因。接著量測完整prepare／sign／submit的原始阶段，保持5秒證據／120秒signal／原quota及完整SQL重驗。B仍6歷史PASS／1允許SKIP／1FAIL；最新版本未將六項全部重跑，goal active，Stage／主網未操作。
+
+### 17:29–17:40 — 新增金融流程分階段計時，最新完整回歸running
+
+上一回合為progress：BASE87 actual FAIL／提款PASS與canonical全268場域收尾完成，三個唯讀historical成本量測已取得。這輪新增beginLiveExecutionTiming及純數值read-only events：clock-invalid有clockValid=false，無hook不讀clock，hook throw／async rejection被吞，所有金融checkedAt原樣保留。初始8測試RED（缺helper），實作後8PASS。
+
+RiskSource讀取依序記risk_local_read／sizing／provider／final uncached SQL／generation projection／proof build，失敗保留原exception並記最後階段。Executor與Privy signer記prepare／sign gate／sign／submit及wallet／RPC／verify時間。Runtime最多128事件，原scope與financial boundary結束後才Logger輸出，避免I/O進入原5秒期限；未知provider資料、簽署內容或credentials不進log。沒有改原5秒／signal120／withdraw180／配額／SQL authority／held checks順序或放寬refusal。
+
+第一版8檔407PASS、104.64秒、11source hashes前後一致，owned orbie_c2e74a9165674a38bd2bc731cb1244bc_test實際刪除。加入signer獨立RPC計時與5001ms拒單案例後，8檔408項407PASS／1FAIL；唯一fail是測試字串not.toContain signature誤判固定階段signer_signature_verify（authorization亦會誤判stage name），原artifact exit1保存。修正測試為keys固定allowlist與實際payload／測試private key／address洩漏檢查，無runtime行為改動。三個actual runtime focused案例3PASS／76其餘skip、4.14秒，5001msRPC仍原stale拒絕且無exchange POST，650msRPC正確分階段且僅原一次RPC／POST，logger throw不改filled journal。兩次owned DB durable ledger均removed。最新API tsc原session82914 exit0、scoped oxlint exit0。
+
+最新execution-timing-full-suite.mjs未篩選啟動，原session35354 running，owned DB orbie_578d1f295ba0405a8b5c7a5ec172dcc3_test；12個runtime source前後hash、complete summary及DB cleanup尚未取得。actor沒有重啟，服務仍BASE87版本，沒有新增金融操作。execution-timing-build-check與新base-execution-timing-supervisor只準備在latest full actual PASS／cleanup／source unchanged後核對原539 compiled恰12預期差異，原reviewed manifest不改；未執行build／服務重啟／新actor。B仍6歷史PASS／1SKIP／1FAIL，goal active，Stage／主網未操作。下一步poll同一35354，不因工具觀察逾時重啟；取得實際證據後續實測分段耗時，再對真正瓶頸修正。
+
+### 17:46–17:49 — 同一完整回歸持續live，彙整器已準備
+
+上一回合為verified wait：原session35354每次poll皆返回running，未重啟測試。這輪同一handle仍live，raw suite log持續追加Archive／Funding／FillSync等具體測試輸出，尚無actual terminal或完整summary，不能宣稱完整PASS。API70648及worker70772於09:46:40UTC唯讀status均healthy，未載入新timing code，沒有金融actor。
+
+新增ignored execution-timing-observe.mjs（語法check及offline actual exit0）。只有取得原base-execution-timing-rerun started、精確testnet／stage-caps／base scope後才能讀worker log；以原started／finished timestamp界定，64MiB log／100個event／每event128span上限，僅允許固定phase／stage及非負整數耗時，輸出逐事件與min／median／max數值。未呼叫provider、未寫金融DB、未更改證據時鐘。此工具尚無新金融run資料，不能當已取得真實耗時。build-check與supervisor node --check通過；最新source diff --check通過。
+
+重新核對原B全部base／3／4／6／7／8／9／14、五方對帳與許可SKIP規則；scenario14使用者既有四scope本機授權有效，並未重新要求同意或授予權限。一般流程的當前原call graph包含forHold、executor sign gate、signer sign gate、executor submit gate、transport submit gate共五次risk read，每次有原uncached second SQL；这是靜態成本風險，不是已證明5043ms根因，需新實際trace才做優化。原scope／SQL／expires／freshness不得用省略檢查換成PASS。服務、Stage及主網均未改；接續poll同一35354實際terminal，full PASS及owned DB cleanup後才build／載入本機。
+
+### 17:54–17:57 — 最新完整4403項PASS，原七步計時實測啟動
+
+原session35354 actual terminal exit0／signal null，277檔4403項未篩選PASS、840.44秒。execution-timing-full-suite-finished.json核對12source hashes前後一致，owned DB orbie_578d1f295ba0405a8b5c7a5ec172dcc3_test durable ledger09:54:40.976UTC removed，沒有把scoped 407／focused3當成完整回歸。API build原session85758 actual exit0。execution-timing-build-check比對reviewed539 compiled恰12預期差異（七個既有修正及五個timing檔），missing[]，其他527一致，原proof runtime／manifest不可改寫。
+
+09:55:16.985SQL audit八項在途0、platform pause=false/reduce=false/r16 normal。lsof確認舊API70648／worker70772 cwd均本專案apps/api後，順序restart api原session46897 exit0、新PID92179；restart worker原session1588 exit0、新PID92279；09:56:29 status兩者healthy=true。原stage-caps保持400/min／800burst、60秒source、50／12–15／3x／2；env明確unset NODE_OPTIONS／AUTH_SERVICE_PERMISSIONS／HARNESS_ADMIN_TOKEN，無新增管理權限。
+
+base-execution-timing-supervisor.mjs核對actual full suite／cleanup／12source及539compiled hashes後，原session66426啟動單一金融actor92542（09:56:33UTC）。09:57:09實際登入原正常user14／main0x3864...23f4，API network=testnet／automaticExecution true／actualAllowed true；leader20.105638且flat、main78.45216、cleanup_previous_copies無待清理、leader150補款SKIP。原base七步／gap120／50budget、5秒evidence／120秒signal／180秒withdraw驗收不變。尚未取得new setup／follower交易結果，不能claim base PASS。新raw log／started／finished使用base-execution-timing-rerun-20261009，不覆寫BASE87。服務載入timing版本後actor live期間不改runtime／restart；接續poll同一66426、唯讀觀察timing，等待原提款與停止退款，最後canonical全268場域收尾。B仍6歷史PASS／1SKIP／1FAIL，goal active，Stage及主網未操作。
+
+17:59唯讀SQL確認新strategy88／setupa19121d1-8c60-4010-be5c-fe98b69e9ae9／account5f5cf61d-f800-4f4a-bedf-20a9c4c03d54／copy0x037d8d63e7af314303ebb402a5e1ff1a10453cb8。原入金698b322f-2504-482b-b7ee-e57beb8858ec已credited49／fee1，無dispatch／journal／stop。原瀏覽器兩份signature及addSigners實際PASS，confirm200，7.231秒；17:58:16 setup mode_set，17:58:34 portfolio active；第一筆領單ETH買0.0241實際filled2491.2，跟單結果尚待確認。base88-observe唯讀原scope已執行；base88-closure僅offline readiness，不能當canonical收尾PASS。execution-timing-observe實際唯讀log，events0（尚未交易），不代表交易timing已取得。原actor92542／session66426仍live，不修改runtime或重啟服務。
+
+## 2026-10-09 18:58 最新續行結果
+
+背景快照 shared lane 缺陷已真實 RED/GREEN 重現並修正；最新完整雙分片 API 回歸277檔/4404项PASS（原session97633 exit0、兩DB清除、全部檔案覆蓋及hash穩定核對），型別、lint、build與原539compiled僅13預期差異通過。已僅本機載入API15848／worker15992，health通過、管理scope明確留空、八項在途0／platformr16正常。詳細原始證據索引見 testnet-b-verification-2026-10-09.md。
+
+BASE88基本跟單仍FAIL；原10提款及38.988581停止退款、三帳戶各269市場平倉/無掛單/跟單餘額0的canonical結案PASS。修正版尚無新金融run，leader最新唯讀19.902166、原fundingGate最低20，已請使用者補至少1 testnet USDC且尚無入款證據。新base和其餘B重跑不可用unit/API綠色取代。主網／Stage未操作，原6小時/後續10小時期限已逾，不宣稱如期完成。

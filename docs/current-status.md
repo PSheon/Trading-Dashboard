@@ -1,6 +1,6 @@
 # 最新驗證與發布狀態
 
-更新：2026-10-11 06:58（Asia/Taipei）。本頁優先於其他報告內有日期的歷史紀錄；歷史 FAIL、逾時及舊發布 ID 保留，不改寫成最新 PASS。
+更新：2026-10-11 07:11（Asia/Taipei）。本頁優先於其他報告內有日期的歷史紀錄；歷史 FAIL、逾時及舊發布 ID 保留，不改寫成最新 PASS。
 
 ## 已完成的測試與發布
 
@@ -78,4 +78,10 @@ worker的有效cohort上限約55/min，配置150/min不等於保證吞吐。已�
 
 本機新增四項回歸：真實Postgres的過期優先／精確120分鐘邊界／同組最久未嘗試公平性／原冷卻守門，以及worker依40／10分鐘政策傳入120／60分鐘freshness界線。舊碼4 FAIL／36 PASS；修正後相關三檔56 PASS，含測試的API型別與lint通過。新排序先處理已過冷卻的過期快照，同組仍按最久未嘗試排序；失敗一次仍回冷卻，健康成員可繼續。未改95%門檻、freshness、額度、clock fence或任何策略／金融操作。
 
-完整API回歸、精確CI與發布尚在處理；這項新排序尚未部署Stage，不能把本機結果當成Stage通過。新版Web另外在12個真實登入畫面重驗top-bar／footer，user menu兩尺寸與推薦複製／QR／短碼／停用申領／Arbitrum儲值地址及Sonner通知皆PASS，無金融寫入。
+排序修正 `37f6de0e` 完整API **282檔／4,522 PASS**（814.04秒），實際exit0且隔離資料庫已移除；[CI 38093374595](https://github.com/PSheon/Trading-Dashboard/actions/runs/38093374595) 的四API分片、build、smokes均PASS，但checks中的前端測試48 FAIL，整體FAIL，不能宣稱CI全綠或部署。新版Web另外在12個真實登入畫面重驗top-bar／footer，user menu兩尺寸與推薦複製／QR／短碼／停用申領／Arbitrum儲值地址及Sonner通知皆PASS，無金融寫入。
+
+## CI阻擋：原生雜湊與假時間的測試競態
+
+CI的第一項失敗是跟單設定錢包等待測試逾時，後續React act未完成使probe為null，連鎖48 FAIL；不是48種新的金融故障。原生SHA-256不受fake timer控制，測試可能在雜湊完成、錢包30秒期限建立之前就先推進時間，之後等待仍未到期的promise。
+
+以可控的原生雜湊延遲重現單項timeout（1 FAIL／54按filter SKIP），修正為確認wallet phase真正開始後再測原30秒期限；還驗證雜湊被延遲時沒有簽署。設定55項、完整前端206檔／1,421 PASS及型別通過，沒有改正式簽署／入金原始碼、延長期限或提高全域測試timeout。原失敗CI保留，新精確CI與發布仍待完成，七組資料尚未結案。

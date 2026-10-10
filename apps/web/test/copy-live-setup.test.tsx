@@ -125,17 +125,34 @@ it('wallet readiness has a bounded wait and cannot sign after the component leav
 });
 
 it('wallet readiness times out without signatures or a deposit request', async () => {
+  const digest = crypto.subtle.digest.bind(crypto.subtle);
+  let release!: () => void, entered!: () => void;
+  const waiting = new Promise<void>(resolve => { release = resolve; });
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const spy = vi.spyOn(crypto.subtle, 'digest').mockImplementationOnce(async (...args) => {
+    entered(); await waiting; return digest(...args);
+  });
   vi.useFakeTimers();
   try {
     state.address = null; await renderActions();
     let done: Promise<unknown>;
-    await act(async () => { done = probe.current!.confirm.mutateAsync(setup()).catch(error => error); });
+    await act(async () => { done = probe.current!.confirm.mutateAsync(setup()).catch(error => error); await started; });
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_001); });
+    expect(probe.current!.confirmPhase).toBeNull();
+    expect(state.sign).not.toHaveBeenCalled();
+    release();
+    // Native WebCrypto is not controlled by fake timers. Start measuring
+    // the wallet deadline only after the real hash and React phase settle.
+    await vi.waitFor(async () => {
+      await act(async () => {});
+      expect(probe.current!.confirmPhase).toBe('wallet');
+    });
     await act(async () => { await vi.advanceTimersByTimeAsync(30_001); });
     expect((await done! as Error).message).toBe('owner_wallet_unavailable');
     expect(state.sign).not.toHaveBeenCalled();
     expect(state.addSigners).not.toHaveBeenCalled();
     expect(state.post).not.toHaveBeenCalled();
-  } finally { vi.useRealTimers(); }
+  } finally { release(); spy.mockRestore(); vi.useRealTimers(); }
 });
 
 it.each(['unmount', 'session'] as const)('does not sign the deposit after %s during the consent signature', async change => {

@@ -240,7 +240,7 @@ export function MobileTrader({
           value={window}
           onChange={onWindow}
           label={t("trader.kpi.period")}
-          className="w-full [--seg-track:var(--card)] [&>button]:flex-1"
+          className="w-full [--seg-track:var(--card)] [&>button]:min-w-0 [&>button]:flex-1 [&>button]:px-1 [&>button]:leading-tight [&>button]:whitespace-normal"
           options={WINDOWS.map((w) => ({ value: w, label: t(`windows.${w}`) }))}
         />
       </section>

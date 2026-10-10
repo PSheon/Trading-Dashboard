@@ -91,6 +91,34 @@ test("phone position labels and prices stay readable beside large PnL figures", 
   }
 });
 
+test("phone chart periods stay inside their track with readable full-size targets", async ({ page, context }) => {
+  await context.routeWebSocket(/hyperliquid/, ws => ws.close());
+  for (const locale of ["en", "zh-TW", "ru"]) {
+    await page.goto(`/${locale}/trader/0x1111111111111111111111111111111111111111`);
+    const track = page.locator('main section.bg-raised > [role="radiogroup"]').filter({ visible: true });
+    await expect(track).toHaveCount(1);
+    await expect(track.getByRole("radio")).toHaveCount(4);
+    for (const width of [320, 390, 480]) {
+      await page.setViewportSize({ width, height: 844 });
+      await expect.poll(() => track.evaluate(el => {
+        const box = el.getBoundingClientRect();
+        return [...el.querySelectorAll('button[role="radio"]')].flatMap(button => {
+          const b = button.getBoundingClientRect();
+          const target = button as HTMLElement;
+          return b.left < box.left + 3 || b.right > box.right - 3 || b.width < 44 || b.height < 44
+            || target.scrollWidth > target.clientWidth || target.scrollHeight > target.clientHeight
+            ? [button.textContent] : [];
+        });
+      })).toEqual([]);
+      await track.getByRole("radio").last().click();
+      await expect(track.getByRole("radio").last()).toHaveAttribute("aria-checked", "true");
+      await track.getByRole("radio").last().press("Home");
+      await expect(track.getByRole("radio").first()).toBeFocused();
+      await expectNoSidewaysScroll(page);
+    }
+  }
+});
+
 test("a returning visitor never loads CJK CSS from an earlier deployment", async ({ page, context, baseURL }) => {
   for (const extra of [{}, { build: "previous-deployment" }]) {
     await context.addCookies([{ name: "cjk-font", url: baseURL!, value: encodeURIComponent(JSON.stringify({

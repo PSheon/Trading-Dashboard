@@ -1,5 +1,7 @@
 # UI/UX 問題清單 — 2026-10-08
 
+> 最新發布、資料健康與主網驗收範圍以 [最新狀態](current-status.md) 為準；下列歷史紀錄保留。
+
 ## 2026-10-11 03:42 當前狀態（下方日期段落保留歷史）
 
 `f8f52db8` 精確CI [38078740826](https://github.com/PSheon/Trading-Dashboard/actions/runs/38078740826)全綠：API281檔4508 PASS、Web206檔1414 PASS、Browser202 PASS（66／72／64）。Stage API `7c09baa1-4b85-487e-b123-36181471df8e`／worker `0dca96e7-0c05-4830-bb8a-cf9acc95e5d6`／web `cfd15546-6992-46b8-85ab-442291184520`均SUCCESS。新版1440／390／320頁首、footer、menu、推薦唯讀、正式儲值、trader洞察footer例外及漂浮跟單均通過；47／48另以真實Stage卡320／390／480驗證無碰撞或截斷。
@@ -58,7 +60,7 @@ B段仍以Paul接受的7 PASS／⑧ SKIP結案、保留逾時與舊FAIL。新發
 
 12:05：burst84新五來源對帳PASS，4領單／4派送／2跟單，48.992661原退款credited、actual exit0；一般BASE83仍FAIL，原38.981991退款credited、actual exit1。四個帳戶canonical全268場域收尾均PASS、pending全0且未暫停worker；主81.493385／leader20.843181、跟單餘額0。前端完整203檔1372項及型別檢查PASS。首跟單112.62秒仍偏長，不能把burstPASS寫成延遲問題全部修復；一般流程的5秒證據預算與歷史重驗成本仍需改善。
 
-## 目前49項問題概覽
+## 目前50項問題概覽
 
 下表區分真實金融、線上匿名畫面、GET fixture與回歸測試；未具備條件的支線另註，不用單元測試或示意資料代替實測。
 
@@ -112,7 +114,9 @@ B段仍以Paul接受的7 PASS／⑧ SKIP結案、保留逾時與舊FAIL。新發
 | 46 | 訂單時間缺時區標示 | 已部署／Stage登入Browser PASS | Stage模擬訂單1440表頭與390展開明細均明示UTC；原截圖14:15不能解讀為台北時間 |
 | 47 | 窄版持倉標籤碰撞大額PnL | 已部署／Stage Browser PASS | f8f52db8實際Stage NEAR卡320／390／480碰撞0；10卡fixture原12碰撞亦全0，無橫向溢出 |
 | 48 | 窄版進場／強平價格截斷 | 已部署／Stage Browser PASS | f8f52db8實際Stage320／390／480價格完整；480px以下兩欄，原10卡11處截斷全部修正，CI202Browser PASS |
-| 49 | 發布後 CJK 字型 cookie 載入退役 CSS／字型404 | 本機已修／待新CI及web發布 | 真人Stage舊cookie插入Turbopack退役CSS；新context無錯。cookie限定當次建置，舊碼2 FAIL／4 PASS，修後完整Web1416 PASS及正常localhost兩種旧cookie無退役請求 |
+| 49 | 發布後 CJK 字型 cookie 載入退役 CSS／字型404 | 已部署／Stage 原登入 Browser PASS | d30 CI203 Browser／完整Web1416 PASS。原登入舊cookie自動遷移、當次建置SSR往返、前次建置cookie拒絕皆PASS；退役請求0、字型與CSS均200，未手動清除cookie |
+
+| 50 | 320px 圖表時間選項超出底座 | 本機正常 Browser PASS／待CI及web發布 | Stage舊碼「全部」右緣305、底座右緣288，外層clip掩蓋17px內部溢出；修正自身min-width、內距與長文換行，英文／繁中／俄文×320／390／480無內部溢出或截斷，按鈕44px、選取／鍵盤PASS |
 
 
 ## 10/08 14:05 舊畫面紀錄

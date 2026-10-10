@@ -1,5 +1,7 @@
 # 洞察頁 404 與 Stage 資料健康檢查 — 2026-10-10
 
+> 最新發布、測試與未完成範圍以 [最新狀態](current-status.md) 為準。下方有日期的紀錄保留其當時狀態，不能代替最新部署或主網驗收證據。
+
 ## 10/11 01:53 更新（優先於原始檢查）
 
 Stage 已部署 `0a703cfd` API／worker／web 且三者 SUCCESS；實際已知缺圖 NATGAS 回204，七層 detail／history 均200。資料品質仍未通過：01:49 extremely_profitable 82/383、very_profitable121/191、profitable79/109、break_even60/72、unprofitable26/157、very_unprofitable20/124、rekt39/91；只有 break_even headlineReady=true。extremely_profitable 歷史最後點仍10/6，不把 HTTP200 當正常補齊。

@@ -33,12 +33,24 @@ it("links the cached stylesheet only for a cookie the warm-up wrote", () => {
   const css = ["/_next/static/chunks/2drf8omfxyj3z.css"];
   const family = "'Noto Sans TC', 'Noto Sans TC Fallback'";
   expect(parseCjkFont(encodeCjkFont({ css, family }))).toEqual({ css, family });
-  expect(parseCjkFont(JSON.stringify({ css, family }))).toEqual({ css, family });
+  expect(parseCjkFont(decodeURIComponent(encodeCjkFont({ css, family })))).toEqual({ css, family });
   expect(parseCjkFont(undefined)).toBeNull();
   expect(parseCjkFont("1")).toBeNull();
   expect(parseCjkFont(encodeCjkFont({ css: ["https://evil.example/x.css"], family }))).toBeNull();
   expect(parseCjkFont(encodeCjkFont({ css: ["/_next/static/../../x.css"], family }))).toBeNull();
   expect(parseCjkFont(encodeCjkFont({ css, family: "x</style><script>" }))).toBeNull();
+});
+
+it("never replays an unversioned stylesheet cookie after a deployment", () => {
+  const legacy = JSON.stringify({ css: ["/_next/static/chunks/old.css"], family: "'Noto Sans TC'" });
+  expect(parseCjkFont(legacy, "current-build")).toBeNull();
+});
+
+it("accepts only the stylesheet cookie from the current build", () => {
+  const value = { css: ["/_next/static/chunks/noto.css"], family: "'Noto Sans TC'" };
+  const previous = encodeCjkFont(value, "previous-build");
+  expect(parseCjkFont(previous, "current-build")).toBeNull();
+  expect(parseCjkFont(encodeCjkFont(value, "current-build"), "current-build")).toEqual(value);
 });
 
 let root: Root, container: HTMLDivElement;

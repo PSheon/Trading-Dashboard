@@ -1,5 +1,11 @@
 # UI/UX 問題清單 — 2026-10-08
 
+## 2026-10-11 03:42 當前狀態（下方日期段落保留歷史）
+
+`f8f52db8` 精確CI [38078740826](https://github.com/PSheon/Trading-Dashboard/actions/runs/38078740826)全綠：API281檔4508 PASS、Web206檔1414 PASS、Browser202 PASS（66／72／64）。Stage API `7c09baa1-4b85-487e-b123-36181471df8e`／worker `0dca96e7-0c05-4830-bb8a-cf9acc95e5d6`／web `cfd15546-6992-46b8-85ab-442291184520`均SUCCESS。新版1440／390／320頁首、footer、menu、推薦唯讀、正式儲值、trader洞察footer例外及漂浮跟單均通過；47／48另以真實Stage卡320／390／480驗證無碰撞或截斷。
+
+B段仍以Paul接受的7 PASS／⑧ SKIP結案、保留逾時與舊FAIL。新發現49：CJK一年cookie跨發布重播舊CSS，已本機修正及1416項完整前端回歸，待新web发布。洞察資料覆蓋／新歷史點仍在驗證，不能宣稱全部問題完成。主網C段未開始、餘額仍0；真實返佣停用且支付整合未完成。
+
 ## 2026-10-11 01:55 最新驗收
 
 本機 testnet B 已依 Paul 同意以7 PASS／⑧ SKIP結案，保留逾時；下方 BASE90／91 FAIL 是歷史，不代表仍未結案。`0a703cfd` CI 全綠（含201項瀏覽器），Stage API／worker／web三者均SUCCESS。
@@ -10,7 +16,7 @@
 
 供 Paul 檢閱。整理親眼檢查的桌機／手機畫面、實際帳號操作及 testnet 測試紀錄，並納入接續測試的新發現；10/09最新前端已部署 Stage web，金融服務未隨本次發布更新。
 
-沿用 Orbie 風格。以下最新狀態與46項概覽優先，後面的日期段落是保留的歷史紀錄；舊金額、失敗數及部署狀態不代表目前狀態。
+沿用 Orbie 風格。以下最新狀態與49項概覽優先，後面的日期段落是保留的歷史紀錄；舊金額、失敗數及部署狀態不代表目前狀態。
 
 ## 10/10 00:54 本輪更新（優先於歷史部署／測試數字）
 
@@ -52,14 +58,14 @@
 
 12:05：burst84新五來源對帳PASS，4領單／4派送／2跟單，48.992661原退款credited、actual exit0；一般BASE83仍FAIL，原38.981991退款credited、actual exit1。四個帳戶canonical全268場域收尾均PASS、pending全0且未暫停worker；主81.493385／leader20.843181、跟單餘額0。前端完整203檔1372項及型別檢查PASS。首跟單112.62秒仍偏長，不能把burstPASS寫成延遲問題全部修復；一般流程的5秒證據預算與歷史重驗成本仍需改善。
 
-## 目前48項問題概覽
+## 目前49項問題概覽
 
 下表區分真實金融、線上匿名畫面、GET fixture與回歸測試；未具備條件的支線另註，不用單元測試或示意資料代替實測。
 
 | # | 問題 | 目前狀態 | 證據／限制 |
 |---|---|---|---|
 | 1 | 策略啟用≠交易健康 | 已實作／Browser fixture | live-copies ExecutionObservation＋原 consent pending/confirming/released 時間；真交易可靠性另見2/44 |
-| 2 | 領跟單延遲 | 管理流程實測PASS；一般流程FAIL待修 | 73／75跟單在原120秒內成交；77／78前四腿結算PASS，第五開空超原5000ms、整輪對帳FAIL；78原證據對時5105ms，bce5b82f最小SQL改善165回歸PASS、79真交易5100ms再FAIL；後六四PASS／一SKIP／一FAIL（burst）；延遲／核對狀態已呈現 |
+| 2 | 領跟單延遲 | 本機 B 最新實測PASS；逾時保留 | 73／75跟單在原120秒內成交；77／78前四腿結算PASS，第五開空超原5000ms、整輪對帳FAIL；78原證據對時5105ms，bce5b82f最小SQL改善165回歸PASS、79真交易5100ms再FAIL；後六四PASS／一SKIP／一FAIL（burst）；延遲／核對狀態已呈現 |
 | 3 | 設定等待資訊 | 已實作／Browser fixture | 等待分钟/latestState/費用/背景查詢與原進度入口；真實等待仍可能數分鐘；未提供離站通知 |
 | 4 | 未入帳卻寫已入帳 | 已實作／Browser fixture | live-copy-setup-dialogs credited current/pending/done 使用不同文字 |
 | 5 | 平倉／返還／入帳 | 已修正／多項實測PASS | credited-only；69／73／75停止與返還實際入帳及官方全平，停止與入帳分開顯示 |
@@ -100,12 +106,13 @@
 | 40 | guestportfolio品牌footer | 已修正／線上Browser PASS | Stage桌機1440×900頁高900、footer底876；低高度／放大字體自然scroll |
 | 41 | 通知一致性／modal | 已實作／hydrated Browser | 同一Sonner engine；close/touch保DialogDrawer、hover/backdrop/Escape；非每個金融toast入口皆測 |
 | 42 | setup請求逾時恢復 | 已實作／API+web回歸 | 10s admission原id背景lease、stable owner/network requestkey reload、未送可明確retry、cancel latewrite barrier；歷史504專項Browser未覆蓋 |
-| 43 | 結算後資產快照缺失 | 已修正／管理流程實測PASS | 73／75嚴格五來源對帳PASS，原proof保存、舊觀察防覆寫；77／78前四腿已settled，但一般BASE對帳FAIL，不能宣稱一般流程全部解決 |
+| 43 | 結算後資產快照缺失 | 已修正／本機B最新實測PASS | 73／75嚴格五來源對帳PASS，原proof保存、舊觀察防覆寫；最新BASE95嚴格五來源對帳PASS，B段7 PASS／⑧ SKIP已依Paul同意結案；原77／78 FAIL保留，尚非主網驗收 |
 | 44 | pause後減倉遲到 | 已修正／實測PASS | 原73pause禁open、reduce在原期限內執行；75帶倉緊急全平亦PASS，平台已恢复／撤權；歷史FAIL保留 |
 | 45 | 全停止history叫跟單中 | 已實作／parent回歸 | 11locale中性My copies／我的跟單；保留history/count/stoppedstatus，未隱藏資料 |
 | 46 | 訂單時間缺時區標示 | 已部署／Stage登入Browser PASS | Stage模擬訂單1440表頭與390展開明細均明示UTC；原截圖14:15不能解讀為台北時間 |
-| 47 | 窄版持倉標籤碰撞大額PnL | 本機已修／待新CI與Stage前端發布 | 原320真Stage NEAR重疊；10卡fixture重現12個碰撞，修正後320／390／480全0，無橫向溢出 |
-| 48 | 窄版進場／強平價格截斷 | 本機已修／待新CI與Stage前端發布 | 原320 fixture有11個完整價格截斷；480px以下改兩欄，同10卡320／390／480全部完整顯示，Web1414／typecheckPASS |
+| 47 | 窄版持倉標籤碰撞大額PnL | 已部署／Stage Browser PASS | f8f52db8實際Stage NEAR卡320／390／480碰撞0；10卡fixture原12碰撞亦全0，無橫向溢出 |
+| 48 | 窄版進場／強平價格截斷 | 已部署／Stage Browser PASS | f8f52db8實際Stage320／390／480價格完整；480px以下兩欄，原10卡11處截斷全部修正，CI202Browser PASS |
+| 49 | 發布後 CJK 字型 cookie 載入退役 CSS／字型404 | 本機已修／待新CI及web發布 | 真人Stage舊cookie插入Turbopack退役CSS；新context無錯。cookie限定當次建置，舊碼2 FAIL／4 PASS，修後完整Web1416 PASS及正常localhost兩種旧cookie無退役請求 |
 
 
 ## 10/08 14:05 舊畫面紀錄

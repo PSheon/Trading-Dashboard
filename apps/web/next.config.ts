@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseEnv } from "node:util";
+import { randomUUID } from "node:crypto";
 
 import type { NextConfig } from "next";
 import { PHASE_PRODUCTION_BUILD, PHASE_PRODUCTION_SERVER } from "next/constants";
@@ -21,6 +22,9 @@ const fixtures = process.env.NEXT_PUBLIC_API_FIXTURES === "1";
 const testServer = process.env.NEXT_TEST_MODE === "1";
 
 const nextConfig: NextConfig = {
+  // A public cache generation, inlined into both server and client code.
+  // CSS/font paths from an older deployment must never be replayed.
+  env: { NEXT_PUBLIC_CJK_FONT_BUILD: randomUUID() },
   distDir: testServer ? ".next-e2e" : ".next",
   // The test server compiles each route once (e2e/global-setup.ts) and keeps
   // it: by default a dev server drops routes idle for a minute and a browser

@@ -91,6 +91,26 @@ test("phone position labels and prices stay readable beside large PnL figures", 
   }
 });
 
+test("a returning visitor never loads CJK CSS from an earlier deployment", async ({ page, context, baseURL }) => {
+  for (const extra of [{}, { build: "previous-deployment" }]) {
+    await context.addCookies([{ name: "cjk-font", url: baseURL!, value: encodeURIComponent(JSON.stringify({
+      css: ["/_next/static/chunks/retired-cjk-font.css"], family: "'Noto Sans TC'", ...extra,
+    })) }]);
+    const retired: string[] = [];
+    const record = (request: import("@playwright/test").Request) => {
+      if (request.url().includes("retired-cjk-font.css")) retired.push(request.url());
+    };
+    page.on("request", record);
+    try {
+      await page.goto("/zh-TW/portfolio");
+      await expect(page.locator("main")).toBeVisible();
+      await expect(page.locator('link[data-precedence="cjk-font"]')).toHaveCount(0);
+      await expect(page.locator("html")).not.toHaveClass(/cjk-web/);
+      expect(retired).toEqual([]);
+    } finally { page.off("request", record); }
+  }
+});
+
 test("phone trader chrome floats like the home nav and fades scrolling content under its header", async ({ page }) => {
   await page.goto("/en");
   const nav = page.getByRole("navigation", { name: "Main navigation" });

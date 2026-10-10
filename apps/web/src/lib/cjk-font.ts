@@ -6,6 +6,8 @@
  * client" module. */
 export const CJK_FONT_COOKIE = "cjk-font";
 export const CJK_FONT_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
+/** next.config inlines the same public generation into both bundles. */
+const CJK_FONT_BUILD = process.env.NEXT_PUBLIC_CJK_FONT_BUILD ?? "local-test";
 
 export interface CjkFont {
   /** Same-origin paths of the CSS chunk(s) with the @font-face rules. */
@@ -18,17 +20,18 @@ export interface CjkFont {
 const CSS_PATH = /^\/_next\/static\/[A-Za-z0-9_.%\-/]+\.css$/;
 const FAMILY = /^[A-Za-z0-9 ,'"_-]{1,120}$/;
 
-export function encodeCjkFont(value: CjkFont): string {
-  return encodeURIComponent(JSON.stringify(value));
+export function encodeCjkFont(value: CjkFont, build = CJK_FONT_BUILD): string {
+  return encodeURIComponent(JSON.stringify({ ...value, build }));
 }
 
 /** The cookie's value, or null when it is missing or not exactly what the
  * warm-up writes (it is rendered into the page's head). */
-export function parseCjkFont(raw: string | undefined): CjkFont | null {
+export function parseCjkFont(raw: string | undefined, build = CJK_FONT_BUILD): CjkFont | null {
   if (!raw) return null;
   try {
     // Next hands cookie values over decoded; a raw header value is not.
-    const value = JSON.parse(raw.startsWith("{") ? raw : decodeURIComponent(raw)) as Partial<CjkFont>;
+    const value = JSON.parse(raw.startsWith("{") ? raw : decodeURIComponent(raw)) as Partial<CjkFont> & { build?: unknown };
+    if (value.build !== build) return null;
     if (!Array.isArray(value.css) || value.css.length === 0 || value.css.length > 3) return null;
     if (!value.css.every((href) => typeof href === "string" && CSS_PATH.test(href) && !href.includes(".."))) return null;
     if (typeof value.family !== "string" || !FAMILY.test(value.family)) return null;

@@ -1385,7 +1385,7 @@ export const vi: Messages = {
       },
       tableEmpty: "Chưa có ví nào với ảnh chụp mới.",
       treemapEmpty: "Chưa có vị thế",
-      chartEmpty: "Dữ liệu định vị được tích lũy từ khi bắt đầu thu thập, mỗi {minutes} phút một điểm.",
+      chartEmpty: "Lịch sử vị thế được tích lũy khi có đủ dữ liệu.",
       loadError: "Không tải được dữ liệu.",
       retry: "Thử lại",
       coverage: "{wallets} / {members} ví có ảnh chụp mới",

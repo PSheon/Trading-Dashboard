@@ -1385,7 +1385,7 @@ export const zhCN: Messages = {
       },
       tableEmpty: "暂无拥有最新快照的钱包。",
       treemapEmpty: "暂无持仓数据",
-      chartEmpty: "仓位倾向从开始收集数据时累积，每 {minutes} 分钟一个数据点。",
+      chartEmpty: "历史数据会在数据足够后逐步累积。",
       loadError: "无法加载数据。",
       retry: "重试",
       coverage: "{wallets} / {members} 个钱包有最新快照",

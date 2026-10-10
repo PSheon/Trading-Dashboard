@@ -1385,7 +1385,7 @@ export const ko: Messages = {
       },
       tableEmpty: "아직 최신 스냅샷이 있는 지갑이 없습니다.",
       treemapEmpty: "아직 포지션이 없습니다",
-      chartEmpty: "포지셔닝은 수집을 시작한 시점부터 {minutes}분마다 한 포인트씩 쌓입니다.",
+      chartEmpty: "충분한 데이터가 모이면 포지션 추세 기록이 쌓입니다.",
       loadError: "데이터를 불러올 수 없습니다.",
       retry: "다시 시도",
       coverage: "지갑 {members}개 중 {wallets}개 최신 스냅샷 보유",

@@ -110,7 +110,7 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
               onWindow={setWindow}
               loading={!history.data}
               latest={ready ? (data?.hero.longPct ?? null) : null}
-              emptyHint={t("insights.cohort.chartEmpty", { minutes: 15 })}
+              emptyHint={t("insights.cohort.chartEmpty")}
             />
             )}
             {/* Not an empty box while the tier is being built: it says so. */}

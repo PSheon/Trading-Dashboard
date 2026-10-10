@@ -1385,7 +1385,7 @@ export const tr: Messages = {
       },
       tableEmpty: "Henüz güncel anlık görüntüsü olan cüzdan yok.",
       treemapEmpty: "Henüz pozisyon yok",
-      chartEmpty: "Konumlanma, veri toplama başladığından itibaren her {minutes} dakikada bir nokta olarak birikir.",
+      chartEmpty: "Yeterli veri elde edildikçe pozisyon geçmişi birikir.",
       loadError: "Veri yüklenemedi.",
       retry: "Tekrar dene",
       coverage: "Güncel anlık görüntüsü olan cüzdan: {wallets} / {members}",

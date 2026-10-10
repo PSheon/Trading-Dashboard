@@ -1385,7 +1385,7 @@ export const id: Messages = {
       },
       tableEmpty: "Belum ada dompet dengan snapshot terbaru.",
       treemapEmpty: "Belum ada posisi",
-      chartEmpty: "Positioning terakumulasi sejak pengumpulan data dimulai, satu titik setiap {minutes} menit.",
+      chartEmpty: "Riwayat posisi terakumulasi saat data yang tersedia sudah mencukupi.",
       loadError: "Data tidak dapat dimuat.",
       retry: "Coba lagi",
       coverage: "{wallets} / {members} dompet dengan snapshot terbaru",

@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { InsightsView } from "../src/components/insights/insights-view";
 import { fixtureCohort, fixtureCohortHistory } from "../src/fixtures/discovery";
 import { zhTW } from "../src/i18n/messages/zh-TW";
+import { catalogs } from "../src/i18n/messages";
 import { I18nProvider } from "../src/i18n/provider";
 
 const state = vi.hoisted(() => ({ detail: undefined as unknown, history: undefined as unknown }));
@@ -97,6 +98,21 @@ it("labels surviving historical percentages when current coverage is insufficien
 });
 
 describe("insights say what they show (audit 2026-10-07 P1-8)", () => {
+  it("an empty history explains the data requirement without promising a fixed refresh time", () => {
+    state.detail = wireOf("rekt");
+    state.history = { tier: "rekt", window: "all", series: [], btc: [] };
+    const html = render();
+    expect(html).toContain("歷史資料會在資料足夠後逐步累積。");
+    expect(html).not.toContain("每 15 分鐘");
+    expect(html).not.toContain("每 40 分鐘");
+  });
+
+  it("every language avoids the unsupported fixed-cadence promise in the empty history", () => {
+    for (const [locale, catalog] of Object.entries(catalogs)) {
+      expect(catalog.insights.cohort.chartEmpty, locale).not.toMatch(/\{minutes\}|\b\d+\b/);
+    }
+  });
+
   it("a tier being built: the per-market map says so instead of an empty box, and its data shows its age", () => {
     state.detail = { ...wireOf("rekt"), updatedAt: new Date(Date.now() - 3 * 3_600_000).toISOString() };
     state.history = { tier: "rekt", window: "all", series: [], btc: [] };

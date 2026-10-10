@@ -1385,7 +1385,7 @@ export const es: Messages = {
       },
       tableEmpty: "Aún no hay carteras con una instantánea reciente.",
       treemapEmpty: "Aún no hay posiciones",
-      chartEmpty: "El posicionamiento se acumula desde que empezó la recopilación, con un punto cada {minutes} minutos.",
+      chartEmpty: "El historial de posicionamiento se acumula a medida que hay suficientes datos.",
       loadError: "No se pudieron cargar los datos.",
       retry: "Reintentar",
       coverage: "{wallets} / {members} carteras con instantánea reciente",

@@ -36,6 +36,8 @@ for (const width of [1440, 390]) {
     await expect(page.getByText("此分層的持倉資料尚未完整，背景持續更新中。").first()).toBeVisible();
     await expect(page.getByRole("heading", { level: 2, name: "名目金額", exact: true })).toHaveCount(0);
     await expect(page.getByText("7% 做多")).toHaveCount(0);
+    await expect(page.getByText("歷史資料會在資料足夠後逐步累積。", { exact: true })).toBeVisible();
+    await expect(page.getByText(/每 15 分鐘/)).toHaveCount(0);
     // What was read is still listed.
     if (width < 768) {
       const wallets = page.getByRole("main").getByRole("list").first();

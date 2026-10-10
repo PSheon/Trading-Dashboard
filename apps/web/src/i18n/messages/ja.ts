@@ -1385,7 +1385,7 @@ export const ja: Messages = {
       },
       tableEmpty: "最新スナップショットのあるウォレットはまだありません。",
       treemapEmpty: "ポジションはまだありません",
-      chartEmpty: "ポジショニングは収集開始時点から {minutes} 分ごとに 1 点ずつ蓄積されます。",
+      chartEmpty: "十分なデータが集まり次第、ポジション傾向の履歴が蓄積されます。",
       loadError: "データを読み込めませんでした。",
       retry: "再試行",
       coverage: "最新スナップショットのあるウォレット {wallets} / {members}",

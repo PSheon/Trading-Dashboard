@@ -2138,7 +2138,7 @@ export const en: Messages = {
       },
       tableEmpty: "No wallets with a fresh snapshot yet.",
       treemapEmpty: "No positions yet",
-      chartEmpty: "Positioning builds up from when collection started, one point every {minutes} minutes.",
+      chartEmpty: "Positioning history builds up as enough data becomes available.",
       loadError: "Couldn't load data.",
       retry: "Retry",
       coverage: "{wallets} / {members} wallets with a fresh snapshot",

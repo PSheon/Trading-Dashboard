@@ -2142,7 +2142,7 @@ export const zhTW = {
       },
       tableEmpty: "尚無擁有最新快照的錢包。",
       treemapEmpty: "還沒有持倉資料",
-      chartEmpty: "倉位傾向從資料開始收集時累積，每 {minutes} 分鐘一筆。",
+      chartEmpty: "歷史資料會在資料足夠後逐步累積。",
       loadError: "無法載入資料。",
       retry: "重試",
       coverage: "{wallets} / {members} 個錢包有最新快照",

@@ -1385,7 +1385,7 @@ export const pt: Messages = {
       },
       tableEmpty: "Ainda não há carteiras com snapshot recente.",
       treemapEmpty: "Ainda não há posições",
-      chartEmpty: "O posicionamento é acumulado desde o início da coleta, um ponto a cada {minutes} minutos.",
+      chartEmpty: "O histórico de posicionamento é acumulado à medida que há dados suficientes.",
       loadError: "Não foi possível carregar os dados.",
       retry: "Tentar de novo",
       coverage: "{wallets} / {members} carteiras com snapshot recente",

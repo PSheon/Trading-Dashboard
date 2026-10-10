@@ -211,6 +211,7 @@ export function AddressSearch({ compact = false, buttonClassName }: {
         ref={buttonRef}
         type="button"
         aria-label={t("topbar.searchLabel")}
+        disabled={wide === undefined}
         onClick={() => setOpen(true)}
         className={cn("orbit-press flex size-11 shrink-0 items-center justify-center rounded-full bg-raised outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring", buttonClassName)}
       >

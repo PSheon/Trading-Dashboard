@@ -242,3 +242,10 @@ Stage 尚未部署本輪版本；等待安全修補的精確版本 CI 及正式 
 修正：由按交易員 address 鍵控的 `TraderCopyFlow` 持有操作控制器，桌機卡片與手機抽屜共用；離開頁面、換交易員及真實 owner／session 變更仍停止後續簽署。未取消 mounted／owner／network 守門。確認 dialog 保留穩定 key，確認錯誤與進度保留在原 owner/session/mode 的狀態；舊 owner 的延遲回呼不能重新啟用旧 scope、清掉新 owner 的進度。桌面 hydration 完成但 profile 尚未回覆時也只呈現骨架，不提供跟單操作。
 
 新增的 controller 回歸先重現兩項 `live_session_changed` 失敗，再通過：準備中換版面、簽同意時換版面；另測换交易員／owner／離開頁面均拒絕後續 deposit signature 及 confirm POST。舊 owner 清掉新進度、確認錯誤於 remount 消失，以及 profile 尚未載入可操作三項也各先失敗再修正。完整 Web：204 檔、1,411 PASS。固定程式版本、停止修改程式後的真實 Chromium 慢速亮色流程已驗證 busy、確認、重試文案與「跟單已開始」；fixture 只簽原同意與 UsdSend 各一次、addSigners 一次。這些都是 fixture 證據，不是真實 testnet 或 mainnet 入金。
+
+
+### 2026-10-11 01:07：跟單瀏覽器回歸通過，手機搜尋首次載入競態
+
+`c5d6a128` CI：全部 API、安全／型別／lint、正式建置、smoke 及 browser2／3 通過。browser1 為 65 PASS／1 FAIL；四種桌面／手機明暗慢速跟單都通過，原兩個跟單失敗已解決，但整體仍 FAIL。唯一失敗是手機搜尋：第二次完整導航回首頁後，按鈕在 hydration 尚未解析 viewport 時可按，點擊後沒有 combobox。trace 顯示 HMR connected 與點擊僅相隔約22ms，不能把「已載入文件」當互動已就緒。
+
+搜尋按鈕沿用既有 `useIsDesktop` 的 hydration 就緒訊號，undefined 時 disabled，手機版面確定後才接受點擊。SSR／未就緒點擊／就緒開啟／Escape 關閉與焦點回復的回歸先在舊程式失敗、修正後通過；完整 Web 205檔、1,412 PASS。保留本輪原 FAIL，不增加 timeout 或重試測試。本機正常設定的首次 Webpack 編譯超過 browser goto 原30秒，仍待實際頁面驗證，沒有算成通過。

@@ -91,18 +91,22 @@ test("phone position labels and prices stay readable beside large PnL figures", 
   }
 });
 
-test("phone chart periods stay inside their track with readable full-size targets", async ({ page, context }) => {
+for (const chartPage of ["trader", "insights"] as const) test(`${chartPage} phone chart periods stay inside their card and track with readable full-size targets`, async ({ page, context }) => {
   test.setTimeout(60_000);
   await context.routeWebSocket(/hyperliquid/, ws => ws.close());
   for (const locale of ["en", "zh-TW", "zh-CN", "ko", "ja", "ru", "tr", "vi", "es", "pt", "id"]) {
-    await page.goto(`/${locale}/trader/0x1111111111111111111111111111111111111111`);
-    const track = page.locator('main section.bg-raised > [role="radiogroup"]').filter({ visible: true });
+    await page.goto(chartPage === "trader" ? `/${locale}/trader/0x1111111111111111111111111111111111111111` : `/${locale}/insights`);
+    const track = page.locator(chartPage === "trader" ? 'main section.bg-raised > [role="radiogroup"]' : 'main section > div > [role="radiogroup"]').filter({ visible: true });
     await expect(track).toHaveCount(1);
     await expect(track.getByRole("radio")).toHaveCount(4);
     for (const width of [320, 390, 480]) {
       await page.setViewportSize({ width, height: 844 });
       await expect.poll(() => track.evaluate(el => {
         const box = el.getBoundingClientRect();
+        const card = el.closest("section")!;
+        const outer = card.getBoundingClientRect();
+        const style = getComputedStyle(card);
+        if (box.left < outer.left + parseFloat(style.paddingLeft) - 1 || box.right > outer.right - parseFloat(style.paddingRight) + 1) return ["track clipped by card"];
         return [...el.querySelectorAll('button[role="radio"]')].flatMap(button => {
           const b = button.getBoundingClientRect();
           const target = button as HTMLElement;

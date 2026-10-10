@@ -158,7 +158,8 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
     <section className="flex min-w-0 flex-col overflow-hidden rounded-2xl bg-raised p-3 md:p-5">
       <div className="flex min-h-11 flex-wrap items-center justify-between gap-3">
         <h2 className="type-h2 truncate">{title}</h2>
-        <Segmented variant="pill" label={title} value={window} onChange={onWindow} className="shrink-0 bg-background"
+        <Segmented variant="pill" label={title} value={window} onChange={onWindow}
+          className="shrink-0 bg-background max-md:w-full max-md:min-w-0 max-md:[&>button]:min-w-0 max-md:[&>button]:flex-1 max-md:[&>button]:px-1 max-md:[&>button]:leading-tight max-md:[&>button]:whitespace-normal max-md:[&>button]:[overflow-wrap:anywhere]"
           options={WINDOWS.map(w => ({ value: w, label: t(WINDOW_LABEL[w]) }))} />
       </div>
       {shown ? (

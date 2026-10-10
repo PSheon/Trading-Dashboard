@@ -233,15 +233,16 @@ export function useLiveCopySetupActions() {
     mutationFn: async (input: StartLiveCopyInput) => prepare(startName(input.leader, input.budgetUsd, input.settings, input.sourceNetwork ?? 'mainnet'), key => api.post(`${ROOT}/setups`, { idempotencyKey: key, leader: input.leader, sourceNetwork: input.sourceNetwork ?? 'mainnet', budgetUsd: input.budgetUsd, settings: input.settings })),
   });
   const edit = useMutation({
-    mutationFn: async ({ strategyId, budgetUsd, settings, afterAbortedSetupId }: { strategyId: number; budgetUsd: string; settings: CopyStrategySettings; afterAbortedSetupId?: string }) => {
+    mutationFn: async ({ strategyId, budgetUsd, settings, afterAbortedSetupId, afterAbortedSetupNetwork }: { strategyId: number; budgetUsd: string; settings: CopyStrategySettings; afterAbortedSetupId?: string; afterAbortedSetupNetwork?: 'testnet' | 'mainnet' }) => {
       if (afterAbortedSetupId) {
+        if (!afterAbortedSetupNetwork) throw new Error('setup_abort_progress_changed');
         const scope = liveSetupScope(latest.current.identity);
         assertScope(scope);
         const original = liveCopySetupSchema.parse(await api.get(`${ROOT}/setups/${encodeURIComponent(afterAbortedSetupId)}`));
         assertScope(scope);
         if (original.id !== afterAbortedSetupId || original.strategyId !== strategyId || original.kind === 'start' ||
           original.stage !== 'cancelled' || !original.abortRequested || !original.accountId) throw new Error('setup_abort_progress_changed');
-        const progress = validateSetupAbortProgress(await api.get(`${ROOT}/setups/${encodeURIComponent(original.id)}/abort`), original, 'testnet');
+        const progress = validateSetupAbortProgress(await api.get(`${ROOT}/setups/${encodeURIComponent(original.id)}/abort`), original, afterAbortedSetupNetwork);
         assertScope(scope);
         if (progress.state !== 'completed') throw new Error('setup_abort_progress_changed');
         // A new explicit edit may retire only this original operation's

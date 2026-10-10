@@ -216,3 +216,9 @@ Stage 尚未部署本輪版本；等待安全修補的精確版本 CI 及正式 
 - busy desktop light 的確認視窗消失是實際載入競態：trace 顯示先在 TraderLoading 的可操作表單開始，再於 screenshot 期間切入正式 DesktopTrader。準備回覆因原元件卸載而遭 owner guard 拒絕，伺服器的 awaiting_consent 仍留在 portfolio。載入版改成無操作的骨架，只讓正式畫面提供跟單，保留全部簽署／帳號切換 guard；新增渲染測試先重現 FAIL，修後相關四檔23 PASS。這不是因為測試網一定失敗，也沒有移除 unmount 的安全檢查。
 
 目前仍等待修正後精確版本 CI；Stage 尚未部署此輪，不宣稱發布完成。
+
+## 23:41 主網前端復原能力一致性
+
+進一步核對发现：API capability 已支援部署網路，但前端 `useLiveSetupAbort` 仍以 testnet 硬編碼限制取消入口。新增主網回歸先重現兩項 FAIL，修正後 hook 在 mainnet＋正式模式＋server setupAbort capability 時可唯讀顯示原取消進度，切到模擬／錯網仍不讀不送。原取消完成後的新編輯驗證改以所屬策略 network 比對，不假設 testnet；錯網完成證據仍拒絕，尚未支援的主網編輯 UI 保持關閉。
+
+相關5檔84 PASS；最新全前端204檔1402 PASS。本機3000已以Next16.3.8重新啟動，原16.3.6程序確切PID退出，沒有第二個Next server。此輪仍沒有真錢簽署與資料庫修改。

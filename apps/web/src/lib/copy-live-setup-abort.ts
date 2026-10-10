@@ -12,7 +12,7 @@ import { createSetupAbortJournal, requestSetupAbort, setupAbortFence, validateSe
  * confirmation button and requests the same durable local abort barrier. */
 export function useLiveSetupAbort(setup: LiveCopySetup) {
   const auth = useAuth(), deployment = useLiveCopyDeployment(), mode = useSiteMode(), client = useQueryClient();
-  const available = deployment?.setupAbort === true && deployment.network === 'testnet';
+  const available = deployment?.setupAbort === true;
   const readable = available || setup.abortRequested === true;
   const owner: SetupAbortOwner = { status: auth.status, mode: auth.mode, userId: auth.userId ?? null, identity: auth.identity,
     session: sessionKey(), siteMode: mode, network: deployment?.network ?? null, available };

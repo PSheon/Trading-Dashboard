@@ -124,7 +124,7 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
       {error && !editing ? <p role="alert" className="text-xs text-negative">{error}</p> : null}
       {editing && strategy ? (
         <EditDialog strategy={strategy} onClose={() => { setEditing(false); setError(null); }} pending={actions.edit.isPending} error={error}
-          onSave={(budgetUsd, settings) => { setError(null); void track(actions.edit.mutateAsync({ strategyId: item.strategyId, budgetUsd, settings, ...(afterAbortedSetupId ? { afterAbortedSetupId } : {}) }), { error: message, onSuccess: (setup) => { setEditing(false); review(setup); }, onError: fail }); }} />
+          onSave={(budgetUsd, settings) => { setError(null); void track(actions.edit.mutateAsync({ strategyId: item.strategyId, budgetUsd, settings, ...(afterAbortedSetupId ? { afterAbortedSetupId, afterAbortedSetupNetwork: item.network } : {}) }), { error: message, onSuccess: (setup) => { setEditing(false); review(setup); }, onError: fail }); }} />
       ) : null}
       {toppingUp && item.accountId ? (
         <TopUpDialog pending={actions.topUp.isPending} error={topUpError} onClose={() => setToppingUp(false)}

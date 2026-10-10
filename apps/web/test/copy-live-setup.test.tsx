@@ -609,7 +609,7 @@ it('explicit same-terms edit after verified abort gets a fresh preparation key w
   state.get.mockImplementation(async path => path.endsWith('/abort') ? completedAbort(ended) : ended);
   state.patch.mockResolvedValueOnce({ ...setup('edit'), id: '44444444-4444-4444-8444-444444444444' });
   sessionStorage.setItem('copy-setup-aborts:v1:original-proof', 'keep-original-history');
-  await act(async () => { await probe.current!.edit.mutateAsync({ strategyId: 7, budgetUsd: '150', settings, afterAbortedSetupId: ended.id }); });
+  await act(async () => { await probe.current!.edit.mutateAsync({ strategyId: 7, budgetUsd: '150', settings, afterAbortedSetupId: ended.id, afterAbortedSetupNetwork: 'testnet' }); });
   expect(keyOf(state.patch.mock.calls[1]!)).not.toBe(originalKey);
   expect(state.get).toHaveBeenCalledWith(`/me/copy/live/setups/${ended.id}`); expect(state.get).toHaveBeenCalledWith(`/me/copy/live/setups/${ended.id}/abort`);
   expect(state.sign).not.toHaveBeenCalled(); expect(state.post).not.toHaveBeenCalled(); expect(sessionStorage.getItem('copy-setup-aborts:v1:original-proof')).toBe('keep-original-history');
@@ -617,7 +617,7 @@ it('explicit same-terms edit after verified abort gets a fresh preparation key w
 it.each(['refunding', 'blocked'])('new edit cannot clear its saved key while original abort is %s', async status => {
   const ended = { ...setup('edit', 'cancelled'), abortRequested: true };
   state.get.mockImplementation(async path => path.endsWith('/abort') ? { ...completedAbort(ended), state: status, issue: status === 'blocked' ? 'setup_abort_pending' : null } : ended);
-  await act(async () => { await expect(probe.current!.edit.mutateAsync({ strategyId: 7, budgetUsd: '150', settings, afterAbortedSetupId: ended.id })).rejects.toThrow(); });
+  await act(async () => { await expect(probe.current!.edit.mutateAsync({ strategyId: 7, budgetUsd: '150', settings, afterAbortedSetupId: ended.id, afterAbortedSetupNetwork: 'testnet' })).rejects.toThrow(); });
   expect(state.patch).not.toHaveBeenCalled(); expect(state.sign).not.toHaveBeenCalled();
 });
 it('verified old completion does not delete a later preparation with the same terms', async () => {
@@ -632,7 +632,7 @@ it('verified old completion does not delete a later preparation with the same te
   const laterKey = keyOf(state.patch.mock.calls[1]!);
   state.get.mockImplementation(async path => path.endsWith('/abort') ? completedAbort(ended) : ended);
   state.patch.mockResolvedValueOnce(later);
-  await act(async () => { await probe.current!.edit.mutateAsync({ strategyId: 7, budgetUsd: '150', settings, afterAbortedSetupId: ended.id }); });
+  await act(async () => { await probe.current!.edit.mutateAsync({ strategyId: 7, budgetUsd: '150', settings, afterAbortedSetupId: ended.id, afterAbortedSetupNetwork: 'testnet' }); });
   expect(keyOf(state.patch.mock.calls[2]!)).toBe(laterKey);
 });
 it('an original preparation persisted across reload is retired only on explicit verified new edit', async () => {
@@ -641,7 +641,7 @@ it('an original preparation persisted across reload is retired only on explicit 
   createLiveSetupJournal(`privy:${state.identity}`, sessionStorage).save({ request, key: 'reload-old-edit-key-0001', setupId: original.id, network: 'testnet', confirmationPending: false });
   state.get.mockImplementation(async path => path.endsWith('/abort') ? completedAbort(original) : original);
   state.patch.mockResolvedValueOnce({ ...setup('edit'), id: '44444444-4444-4444-8444-444444444444' });
-  await act(async () => { await probe.current!.edit.mutateAsync({ strategyId: 7, budgetUsd: '150', settings, afterAbortedSetupId: original.id }); });
+  await act(async () => { await probe.current!.edit.mutateAsync({ strategyId: 7, budgetUsd: '150', settings, afterAbortedSetupId: original.id, afterAbortedSetupNetwork: 'testnet' }); });
   expect(keyOf(state.patch.mock.calls[0]!)).not.toBe('reload-old-edit-key-0001');
   expect(state.get.mock.calls.some(([path]) => path.includes('/by-key/'))).toBe(false);
 });
@@ -652,12 +652,29 @@ it('owner switch during original completion verification neither clears new owne
   const nextJournal = createLiveSetupJournal(`privy:${nextIdentity}`, sessionStorage);
   nextJournal.save({ request, key: 'other-owner-edit-key-0001', setupId: original.id, network: 'testnet', confirmationPending: false });
   state.get.mockImplementationOnce(async () => { state.identity = nextIdentity; state.session = '2'; await renderActions(); return original; });
-  await act(async () => { await expect(probe.current!.edit.mutateAsync({ strategyId: 7, budgetUsd: '150', settings, afterAbortedSetupId: original.id })).rejects.toThrow('live_session_changed'); });
+  await act(async () => { await expect(probe.current!.edit.mutateAsync({ strategyId: 7, budgetUsd: '150', settings, afterAbortedSetupId: original.id, afterAbortedSetupNetwork: 'testnet' })).rejects.toThrow('live_session_changed'); });
   expect(nextJournal.find(request)?.key).toBe('other-owner-edit-key-0001'); expect(state.patch).not.toHaveBeenCalled(); expect(state.sign).not.toHaveBeenCalled();
 });
 it.each([{ network: 'mainnet' }, { setupId: '44444444-4444-4444-8444-444444444444' }, { strategyId: 8 }, { accountId: 'other' }])('explicit new edit rejects mismatched completion %j before any preparation', async mismatch => {
   const original = { ...setup('edit', 'cancelled'), abortRequested: true };
   state.get.mockImplementation(async path => path.endsWith('/abort') ? { ...completedAbort(original), ...mismatch } : original);
-  await act(async () => { await expect(probe.current!.edit.mutateAsync({ strategyId: 7, budgetUsd: '150', settings, afterAbortedSetupId: original.id })).rejects.toThrow(); });
+  await act(async () => { await expect(probe.current!.edit.mutateAsync({ strategyId: 7, budgetUsd: '150', settings, afterAbortedSetupId: original.id, afterAbortedSetupNetwork: 'testnet' })).rejects.toThrow(); });
+  expect(state.patch).not.toHaveBeenCalled(); expect(state.sign).not.toHaveBeenCalled();
+});
+
+it('permits a verified mainnet abort completion to prepare a new edit without any signature', async () => {
+  const original = { ...setup('edit', 'cancelled'), abortRequested: true };
+  state.get.mockImplementation(async path => path.endsWith('/abort') ? { ...completedAbort(original), network: 'mainnet' } : original);
+  state.patch.mockResolvedValueOnce({ ...setup('edit'), consent: { ...intent('edit'), network: 'mainnet' } });
+  await act(async () => { await probe.current!.edit.mutateAsync({ strategyId: 7, budgetUsd: '150', settings, afterAbortedSetupId: original.id, afterAbortedSetupNetwork: 'mainnet' }); });
+  expect(state.patch).toHaveBeenCalledTimes(1);
+  expect(state.sign).not.toHaveBeenCalled();
+  expect(state.post).not.toHaveBeenCalled();
+});
+
+it('rejects a testnet completion for a mainnet strategy before any new edit or signature', async () => {
+  const original = { ...setup('edit', 'cancelled'), abortRequested: true };
+  state.get.mockImplementation(async path => path.endsWith('/abort') ? completedAbort(original) : original);
+  await act(async () => { await expect(probe.current!.edit.mutateAsync({ strategyId: 7, budgetUsd: '150', settings, afterAbortedSetupId: original.id, afterAbortedSetupNetwork: 'mainnet' })).rejects.toThrow('setup_abort_progress_changed'); });
   expect(state.patch).not.toHaveBeenCalled(); expect(state.sign).not.toHaveBeenCalled();
 });

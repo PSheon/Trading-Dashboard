@@ -87,11 +87,12 @@ export function fixtureCoinBoard(coin: string) {
 }
 
 /** GET /insights/cohorts/:tier. 極度盈利 is fully read (150 of 150 members);
+ * `very_profitable` is usable but partial (120 of 150);
  * `rekt` is a tier the worker has only started on (33 of 150): its headline
  * is not the tier's yet, and the page withholds it. */
 export function fixtureCohort(tier: string) {
   const members = 150;
-  const fresh = tier === "rekt" ? 33 : 150;
+  const fresh = tier === "rekt" ? 33 : tier === "very_profitable" ? 120 : 150;
   const traders = traderStats.filter((t) => !t.isVault).slice(0, Math.min(fresh, 40));
   const wallets = traders.map((trader, i) => {
     const long = i % 4 !== 0;

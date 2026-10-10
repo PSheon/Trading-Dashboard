@@ -79,6 +79,11 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
           <div className="grid gap-4 md:grid-cols-[1fr_1.04fr]">
             <HeroCards data={ready ? data : undefined} />
           </div>
+          {data && ready && data.walletCount < data.memberCount ? (
+            <p role="status" className="text-xs font-bold text-muted-foreground" data-testid="cohort-coverage">
+              {t("insights.cohort.coverage", { wallets: data.walletCount, members: data.memberCount })}
+            </p>
+          ) : null}
           {data && ready && stale(data.updatedAt) ? (
             <p role="status" className="text-xs font-bold text-muted-foreground" data-testid="cohort-age">{t("insights.cohort.updated", { time: format.relative(data.updatedAt!) })}</p>
           ) : null}

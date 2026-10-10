@@ -5,6 +5,17 @@ import { expectNoSidewaysScroll, shot } from "./helpers";
  * its members were read. The fixtures serve 極度盈利 fully read and, for the
  * lab's tier picker, a tier read to 33 of 150. */
 for (const width of [1440, 390]) {
+  test(`insights identifies a usable partial summary at ${width}px`, async ({ page, context, baseURL }) => {
+    await context.addCookies([{ name: "locale", value: "zh-TW", url: baseURL! }]);
+    await page.setViewportSize({ width, height: width < 768 ? 844 : 900 });
+    await page.goto("/zh-TW/dev/wealth/insights?tier=very_profitable");
+    await expect(page.getByTestId("cohort-coverage")).toHaveText("120 / 150 個錢包有最新快照", { timeout: 20000 });
+    await expect(page.getByRole("heading", { level: 2, name: "名目金額", exact: true })).toBeVisible();
+    await expect(page.getByText("此分層的持倉資料尚未完整，背景持續更新中。")).toHaveCount(0);
+    await expectNoSidewaysScroll(page);
+    await shot(page, `insights-partial-${width}`);
+  });
+
   test(`insights shows the headline of a fully read tier, and withholds it for a tier still being read, at ${width}px`, async ({ page, context, baseURL }) => {
     await context.addCookies([{ name: "locale", value: "zh-TW", url: baseURL! }]);
     await page.setViewportSize({ width, height: 900 });

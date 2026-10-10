@@ -20,6 +20,9 @@ const render = () => renderToStaticMarkup(<I18nProvider locale="zh-TW" messages=
 
 /** Review finding 52: on Stage 33 of 150 members gave "極度看空 6.9% 做多" where the full tier read 41.8 %. */
 describe("the insights headline waits for the tier to be read", () => {
+  it("the lab includes a usable partial tier between the headline and complete coverage gates", () => {
+    expect(fixtureCohort("very_profitable")).toMatchObject({ memberCount: 150, walletCount: 120, headlineReady: true });
+  });
   it("the rule: four fifths of the members must have a fresh snapshot", () => {
     expect(COHORT_HEADLINE_MIN_COVERAGE).toBe(0.8);
     expect(cohortHeadlineReady(33, 150)).toBe(false);
@@ -39,6 +42,18 @@ describe("the insights headline waits for the tier to be read", () => {
     expect(html).toContain(zhTW.insights.cohort.notional);
     // Nothing CopyDog's page lacks: no "x / y wallets" line.
     expect(html).not.toMatch(/個錢包有最新快照/);
+  });
+
+  it.each([true, false])("discloses a partial current summary above the 80 percent gate (explicit readiness: %s)", (explicit) => {
+    const partial: Record<string, unknown> = { ...wireOf("extremely_profitable"), walletCount: 120, memberCount: 150, headlineReady: true, updatedAt: null };
+    if (!explicit) delete partial.headlineReady;
+    state.detail = partial;
+    state.history = undefined;
+    const html = render();
+    expect(html).toContain("68.9%");
+    expect(html).not.toContain(zhTW.insights.cohort.building);
+    expect(html).toContain("120 / 150 個錢包有最新快照");
+    expect(html).toContain('data-testid="cohort-coverage"');
   });
 
   it("a tier read to 33 of 150 shows no headline figure: the cards are placeholders and the page says it is building", () => {

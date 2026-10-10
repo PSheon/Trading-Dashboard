@@ -1,6 +1,6 @@
 # Terms of Use
 
-Last updated: 2026-10-05
+Last updated: 2026-10-11
 
 These are the rules for using Orbie, kept as simple as we could. By using Orbie (the website and the Telegram bot @orbie_fun_bot), you agree to these terms and to our [Privacy Policy](/privacy). If you don't agree, please don't use it. "We" means the Orbie team.
 
@@ -13,7 +13,7 @@ Orbie is a trader-analytics and copy-trading tool for Hyperliquid. You can:
 - use the embedded wallet Privy creates for you to deposit, withdraw or export your key;
 - copy traders, either as **paper copies** with virtual funds or as **testnet copies**, which place real orders on the Hyperliquid testnet with test funds.
 
-Copying with real funds (mainnet) isn't available.
+**Mainnet copies** use real USDC on Hyperliquid mainnet. They are available only when the deployment enables them and your account is eligible. Check the mode and execution network shown before approving a copy.
 
 Orbie is not an exchange, a broker or an investment adviser. Real trades happen on Hyperliquid and follow Hyperliquid's rules.
 
@@ -35,11 +35,11 @@ Rankings, scores, performance numbers, featured traders and alerts on Orbie are 
 - A trader who made money in the past won't necessarily make money in the future.
 - Only put in what you can afford to lose.
 
-## Paper and testnet
+## Paper, testnet and mainnet
 
 - **Paper copies** use virtual USDC and never send a real order. The profit and loss you see is an estimate, and virtual funds are worth nothing.
 - **Testnet copies** place real orders on the Hyperliquid testnet, using test funds that have no real value either. The testnet itself can reset, slow down or go offline.
-- Before a testnet copy starts, you sign an authorization for an agent and choose how long it lasts. From then on, our servers place orders for you automatically, following the trader, amounts and limits you set, without asking you about each one. You can stop a copy at any time.
+- Before a testnet or mainnet copy starts, you sign an authorization for an agent and choose how long it lasts. From then on, our servers place orders for you automatically, following the trader, amounts and limits you set, without asking you about each one. You can stop a copy at any time.
 - To manage risk, we may reject, delay, shrink or pause some copy orders, or pause copying altogether.
 
 ## Your wallet is your responsibility
@@ -53,10 +53,10 @@ Rankings, scores, performance numbers, featured traders and alerts on Orbie are 
 ## Fees
 
 - Browsing, favorites, Telegram alerts, paper copies and testnet copies currently cost you no real money.
-- Paper or testnet copies may show a builder fee in their accounting. It only ever comes out of virtual or test funds.
+- Paper or testnet copies may show a builder fee in their accounting; those copies use only virtual or test funds. Mainnet trades use real funds, including Hyperliquid trading and funding fees.
 - If a copy carries a builder fee, its maximum is shown to you before you sign the copy approval, and it only applies once you sign. If the rate is raised later, the old approval stops placing orders until you approve again.
 - Hyperliquid's own trading fees, funding and withdrawal fee are separate.
-- If we ever charge for copying with real funds, we'll spell out the rate before you start copying. No hidden fees.
+- Any Orbie builder fee enabled for a mainnet copy must be shown before you approve it. A builder fee is not charged when the deployment disables it. Check the approval and your transaction records for the applicable fees.
 
 ## Invites
 

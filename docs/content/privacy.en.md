@@ -1,6 +1,6 @@
 # Privacy Policy
 
-Last updated: 2026-10-06
+Last updated: 2026-10-11
 
 Orbie is a trader-analytics and copy-trading tool for Hyperliquid, run by a small team. This page explains, in plain words, what we collect, why, how long we keep it and what you can do about it. "We" means the Orbie team.
 
@@ -27,7 +27,7 @@ We never get your password, your email login codes, or any private key or seed p
 
 - **Favorites and groups:** the trader addresses you favorite, the groups you make, and your alert settings for each trader (on or off, buys or sells, minimum size). Favorited addresses join our watch list so we can send alerts in real time.
 - **Copies:** the copies you set up, with their orders, fills, positions and accounting. Paper copies use virtual USDC and never send a real order.
-- **Testnet copies:** these place real orders on the Hyperliquid testnet with test funds, so we also keep each copy's dedicated wallet address, its authorization status, and its transfers and orders.
+- **Testnet and mainnet copies:** these place real orders on the configured Hyperliquid network, using test funds on testnet or real USDC on mainnet. We also keep each copy's dedicated wallet address, its authorization status, and its transfers and orders.
 - **Invites:** your invite code. If you joined through someone's invite link, we record who invited you, which code was used and when it was linked. Your inviter's friends list shows only an ID, the join time and copy status, never your email.
 - **Withdrawals:** when you withdraw from your main wallet, we record the amount, the destination address and the status, so we can track whether it arrived.
 
@@ -47,10 +47,10 @@ Every alert sent leaves a delivery record with the chat ID and the message text.
 ## Wallets: what's yours and what we can do
 
 - **Your main (embedded) wallet** is created by Privy when you sign in, and it is your Hyperliquid account. Privy holds the private key, and you can export it in Settings. Orbie's servers can't get that key and can't move the money in your main wallet. Deposits and withdrawals are signed by you, in your browser.
-- **Testnet copy wallets:** each testnet copy gets its own wallet. Privy creates it, you're the only owner, and you can export its key too.
-- **The copy agent:** before a testnet copy starts, you sign an authorization for an "agent" that lasts 1 to 30 days (you choose). Until then, our servers can use the agent to place orders, close positions and cancel orders for that copy's wallet. Under Hyperliquid's rules, an agent can't transfer or withdraw funds. The agent's key also lives with Privy and is set so it can't be exported.
+- **Testnet and mainnet copy wallets:** each testnet or mainnet copy gets its own wallet. Privy creates it, you're the only owner, and you can export its key too.
+- **The copy agent:** before a testnet or mainnet copy starts, you sign an authorization for an "agent" that lasts 1 to 30 days (you choose). Until then, our servers can use the agent to place orders, close positions and cancel orders for that copy's wallet. Under Hyperliquid's rules, an agent can't transfer or withdraw funds. The agent's key also lives with Privy and is set so it can't be exported.
 - **Getting money back:** when a copy stops, the money in its wallet can only go back to your own main wallet, never to another address. If you allowed the automatic return when you started the copy, Orbie's server sends it back for you, and it can't send it anywhere else; otherwise the return needs your signature.
-- Copying with real funds (mainnet) isn't available.
+- Mainnet copying uses real funds and requires both an enabled deployment and an eligible account.
 
 ## Cookies and browser storage
 
@@ -65,7 +65,7 @@ Your browser's local storage (localStorage and sessionStorage) also holds:
 
 - addresses you searched recently, and your share-card style;
 - an invite code from a link you opened, kept for 30 days until you sign in;
-- notes about steps in progress (invites, copies, deposits), so they can finish after a dropped connection. Some of these are named with your email or wallet address. They stay in your browser and are cleared when you sign out or close the tab.
+- notes about steps in progress (invites, copies, deposits), so they can finish after a dropped connection. Some of these are named with your email or wallet address. Some records use sessionStorage and end with the tab; financial recovery records use localStorage and can survive closing the tab or signing out. They contain operation metadata, not private keys or signatures, and are removed by their recovery flow or when you clear browser storage. Keep unresolved records until the operation has been reconciled to avoid accidentally submitting it again.
 
 Privy also stores sign-in data in your browser (cookies or localStorage) to keep you signed in.
 
@@ -105,7 +105,7 @@ Beyond that, we only hand over data when the law requires it. Each of these serv
 - **Trader position and equity snapshots:** deleted automatically after 90 days. This is public trader data.
 - **Admin activity log:** deleted automatically after 1 year.
 - **Account deletion records:** deleted automatically after 1 year. Each one holds only an account number, the time and a few counts (such as how many favorites), never an email or address.
-- **Testnet copy, withdrawal and invite records:** kept while you have an account; once you delete it, kept anonymously and deleted automatically after 1 year (see "Deleting your account" below).
+- **Testnet and mainnet copy, withdrawal and invite records:** kept while you have an account; once you delete it, kept anonymously and deleted automatically after 1 year (see "Deleting your account" below).
 - **Keyed hashes of a deleted identity:** kept for 1 year after you delete your account, then deleted automatically (see below).
 - **Public fills of watched addresses:** kept long term to calculate performance.
 - **Server logs and backups:** kept according to our host Railway's settings. We haven't set a period of our own.
@@ -114,9 +114,9 @@ Beyond that, we only hand over data when the law requires it. Each of these serv
 
 Go to Settings → Account → Delete account; the steps are on [Delete your Orbie account](/delete-account). A few things to know first:
 
-- **Only things still in progress stop you:** a testnet copy that's running or paused, a copy that's stopping, a one-click setup whose deposit was sent, a deposit, return, withdrawal or referral reward claim still being confirmed, an order still being confirmed, or a copy account that still holds money, positions or orders. Having used testnet copies, withdrawn or invited people never stops you. Paper copies are simply deleted with the account; anything never sent is cancelled automatically.
+- **Only things still in progress stop you:** a testnet or mainnet copy that's running or paused, a copy that's stopping, a one-click setup whose deposit was sent, a deposit, return, withdrawal or referral reward claim still being confirmed, an order still being confirmed, or a copy account that still holds money, positions or orders. Having used testnet or mainnet copies, withdrawn or invited people never stops you. Paper copies are simply deleted with the account; anything never sent is cancelled automatically.
 - **What gets deleted:** your account details (email, wallet addresses, display name, language, Privy account ID), favorites and groups, alert settings, Telegram link and delivery records, paper copies, and invite codes nobody signed up with.
-- **Financial records kept anonymously for 1 year:** testnet copies, orders and fills, deposits and returns, main-wallet withdrawals, invite relations and authorization records. They involve money and must be kept for legal and reconciliation reasons, so on deletion they're moved under an anonymous number and no longer point to your account, email, name or Telegram. They still hold what the money movements need: the wallet addresses involved (public on Hyperliquid anyway) and the Privy account ID that owns your copy wallets, so funds that arrive late can still be traced and returned. They're deleted together with that number after 1 year.
+- **Financial records kept anonymously for 1 year:** testnet and mainnet copies, orders and fills, deposits and returns, main-wallet withdrawals, invite relations and authorization records. They involve money and must be kept for legal and reconciliation reasons, so on deletion they're moved under an anonymous number and no longer point to your account, email, name or Telegram. They still hold what the money movements need: the wallet addresses involved (public on Hyperliquid anyway) and the Privy account ID that owns your copy wallets, so funds that arrive late can still be traced and returned. They're deleted together with that number after 1 year.
 - **Keyed hashes kept for 1 year:** one hash each of your Privy account ID, email and wallet addresses, made with a key only our server holds. They can't be reversed and can't identify you directly; they're only used to recognise the same identity signing up again within the year. The new account works normally but can't bind an invite code, so nobody can farm invite rewards by deleting and signing up again. They're deleted automatically after 1 year.
 - **What also stays:** the deletion record above (1 year), and your trades on Hyperliquid (public on-chain data that nobody can delete).
 - **Your sign-in at Privy, your embedded wallet and your copy-account wallets stay too,** because your money is in them. Orbie's signing permission on those wallets (the automatic return) is removed when you delete, and no funds are moved. If you sign in the same way later, you'll get the same wallet back with a brand-new Orbie account. We recommend withdrawing or exporting your key before you delete.

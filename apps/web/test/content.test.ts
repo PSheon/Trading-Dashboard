@@ -6,8 +6,30 @@ import { contentBlocks, contentLocale, splitTitle } from "@/lib/content";
 import { inlineText, parseInline, parseMarkdown } from "@/lib/markdown";
 import { renderContentModule } from "../scripts/sync-content.mjs";
 import { readFileSync } from "node:fs";
+import { liveSetupText } from "@/i18n/live-setup";
+import { createWithdrawalJournal } from "@/lib/withdrawal-operation";
 
 describe("long-form content", () => {
+  it("public disclosures cover the same real-fund network as the mainnet setup", () => {
+    expect(liveSetupText("en", "mainnet").testnetNote).toMatch(/real/i);
+    for (const page of ["privacy", "terms", "deleteAccount"] as const) {
+      expect(CONTENT_PAGES[page].en, page).toMatch(/mainnet/i);
+      expect(CONTENT_PAGES[page]["zh-TW"], page).toContain("主網");
+      expect(CONTENT_PAGES[page].en, page).not.toContain("Copying with real funds (mainnet) isn't available");
+      expect(CONTENT_PAGES[page]["zh-TW"], page).not.toContain("真實資金（主網）跟單目前沒有開放");
+    }
+  });
+
+  it("privacy does not promise that closing a tab erases a recoverable financial journal", () => {
+    const values = new Map<string, string>();
+    const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); }, removeItem: (key: string) => { values.delete(key); } };
+    const address = `0x${"11".repeat(20)}`;
+    const pending = { destination: `0x${"22".repeat(20)}`, amount: "1", nonce: 123, status: "unknown" as const };
+    createWithdrawalJournal(storage, "mainnet", address).write(pending);
+    expect(createWithdrawalJournal(storage, "mainnet", address).read()).toEqual(pending);
+    expect(CONTENT_PAGES.privacy.en).not.toContain("cleared when you sign out or close the tab");
+    expect(CONTENT_PAGES.privacy["zh-TW"]).not.toContain("登出或關閉分頁時會清掉");
+  });
   it("the app's copy matches docs/content (run content:sync after editing docs)", () => {
     const generated = readFileSync(new URL("../src/content/pages.generated.ts", import.meta.url), "utf8");
     expect(generated).toBe(renderContentModule());
@@ -95,7 +117,7 @@ describe("long-form content", () => {
         expect(CONTENT_PAGES[page][locale], `${page}.${locale}`).toContain("https://x.com/orbie_fun");
         // The date is the first paragraph, which LegalDocument shows under the title.
         const { rest } = splitTitle(contentBlocks(page, locale));
-        const date = page === "privacy" ? "2026-10-06" : "2026-10-05";
+        const date = "2026-10-11";
         expect(rest[0], `${page}.${locale}`).toEqual({ type: "paragraph", text: locale === "zh-TW" ? `最後更新：${date}` : `Last updated: ${date}` });
       }
       // The "numbers you can see" section (Orbie-only, shown on /dev) links the FAQ.

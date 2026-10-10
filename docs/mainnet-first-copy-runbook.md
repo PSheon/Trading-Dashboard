@@ -2,7 +2,9 @@
 
 > 最新發布、測試與未完成範圍以 [最新狀態](current-status.md) 為準。下方有日期的紀錄保留其當時狀態，不能代替最新部署或主網驗收證據。
 
-> **歷史手冊，2026-10-11 註記：** 以下10/7的停止能力限制、候選交易員活動、資金103USDC範例與待部署版本已過期，不是目前執行／入金／簽署授權。最新Stage為0a703cfd且主網setupAbort capability已true；實際C段尚未開始。請以[主網前功能檢查](pre-mainnet-feature-audit-2026-10-10.md)與[主網測試狀態](mainnet-test-status-2026-10-09.md)核對當次版本、資金、有效風控，再逐筆取得Paul當下确认；不得照舊候選／金額自動操作。
+> 現行受控流程：[Stage主網驗證手冊](mainnet-current-verification-runbook.md)。下列操作範例保留歷史，不得直接執行。
+
+> **歷史手冊，2026-10-11 註記：** 以下10/7的停止能力限制、候選交易員活動、資金103USDC範例與待部署版本已過期，不是目前執行／入金／簽署授權。當時Stage為0a703cfd且主網setupAbort capability已true；最新版本見current-status；實際C段尚未開始。請以[主網前功能檢查](pre-mainnet-feature-audit-2026-10-10.md)與[主網測試狀態](mainnet-test-status-2026-10-09.md)核對當次版本、資金、有效風控，再逐筆取得Paul當下确认；不得照舊候選／金額自動操作。
 
 Stage：<https://web-staging-9f98.up.railway.app>。上限：每筆跟單預算 ≤ 50 USDC、固定金額每筆 12–15 USDC、槓桿 ≤ 3x、最多 2 筆。
 

@@ -20,7 +20,7 @@
 - trader 的 insights 不顯示 footer，其他頁籤保留。手機跟單區漂浮；实际 NEAR 持倉卡在 320／390／480 的標籤碰撞與價格截斷均為 0。相對時間與 UTC 原始時間一致。
 - 字型的實際缺陷：一年有效的舊 `cjk-font` cookie 會在新發布後重新插入已退役 CSS 與字型，造成 404。d30 已限制為同次建置；舊版回歸 2 FAIL／4 PASS，新版完整 Web 通過。原登入瀏覽器保留舊 cookie 的自動遷移、新 cookie 真實 SSR 往返及前次建置 cookie 拒絕均已實測 PASS；所有捕捉的 CSS／字型回應 200，退役請求 0，沒有手動清除 cookie。
 
-人工檢視新字型截圖再找到 #50：320px 圖表時間 radio 超出自身底座17px，外層clip令整頁 overflow 檢查看不出來。已在正常 localhost 修正並驗證三種語言×三種寬度、觸控44px、點選與鍵盤；完整Web／CI及新Web發布仍待完成。新Browser回歸直接檢查內部radio邊界，避免只檢查整頁寬度。
+人工檢視新字型截圖再找到 #50：320px 圖表時間 radio 超出自身底座17px，外層clip令整頁 overflow 檢查看不出來。已在正常 localhost 修正並驗證十一語言×三種寬度（33組）、觸控44px、點選與鍵盤；完整Web1416 PASS／型別通過，擴大的CI及新Web發布仍待完成。新Browser回歸直接檢查內部radio邊界，避免只檢查整頁寬度。
 
 ## 仍在處理：洞察補資料
 

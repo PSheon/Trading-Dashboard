@@ -116,7 +116,7 @@ B段仍以Paul接受的7 PASS／⑧ SKIP結案、保留逾時與舊FAIL。新發
 | 48 | 窄版進場／強平價格截斷 | 已部署／Stage Browser PASS | f8f52db8實際Stage320／390／480價格完整；480px以下兩欄，原10卡11處截斷全部修正，CI202Browser PASS |
 | 49 | 發布後 CJK 字型 cookie 載入退役 CSS／字型404 | 已部署／Stage 原登入 Browser PASS | d30 CI203 Browser／完整Web1416 PASS。原登入舊cookie自動遷移、當次建置SSR往返、前次建置cookie拒絕皆PASS；退役請求0、字型與CSS均200，未手動清除cookie |
 
-| 50 | 320px 圖表時間選項超出底座 | 本機正常 Browser PASS／待CI及web發布 | Stage舊碼「全部」右緣305、底座右緣288，外層clip掩蓋17px內部溢出；修正自身min-width、內距與長文換行，英文／繁中／俄文×320／390／480無內部溢出或截斷，按鈕44px、選取／鍵盤PASS |
+| 50 | 320px 圖表時間選項超出底座 | 本機正常 Browser PASS／待CI及web發布 | Stage舊碼「全部」右緣305、底座右緣288，外層clip掩蓋17px內部溢出；修正自身min-width、內距與長文換行，十一語言×320／390／480共33組無內部溢出或截斷；西文長詞換行亦驗證，按鈕44px、選取／鍵盤PASS |
 
 
 ## 10/08 14:05 舊畫面紀錄

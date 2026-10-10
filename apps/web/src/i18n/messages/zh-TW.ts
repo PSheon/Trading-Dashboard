@@ -2147,7 +2147,7 @@ export const zhTW = {
       retry: "重試",
       coverage: "{wallets} / {members} 個錢包有最新快照",
       updated: "更新於 {time}",
-      building: "此分層的持倉資料建立中，第一次刷新約需數分鐘。",
+      building: "此分層的持倉資料尚未完整，背景持續更新中。",
     },
     subtitle: "所有監控中的地址的即時動作，最新的在最上面，發生當下就會出現。",
     coin: "幣種（例如 BTC）",

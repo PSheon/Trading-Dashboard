@@ -1390,7 +1390,7 @@ export const pt: Messages = {
       retry: "Tentar de novo",
       coverage: "{wallets} / {members} carteiras com snapshot recente",
       updated: "Atualizado {time}",
-      building: "As posições deste nível estão sendo coletadas; a primeira atualização leva alguns minutos.",
+      building: "Os dados de posições deste nível estão incompletos. As atualizações continuam em segundo plano.",
     },
     subtitle: "Ações ao vivo de todos os endereços monitorados, das mais recentes para as mais antigas, no momento em que acontecem.",
     coin: "Moeda (ex.: BTC)",

@@ -65,7 +65,7 @@ function ControlForm({ request, onClose }: { request: ControlRequest; onClose: (
         if (!armed || control.isPending) return;
         control.mutate(
           { target: request.target, command: request.command, reason: reason.trim(), expectedRevision: request.revision },
-          saved({ onSuccess: onClose }),
+          saved({ onSuccess: onClose, error: false }),
         );
       }}
     >

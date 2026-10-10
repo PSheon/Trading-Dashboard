@@ -101,7 +101,7 @@ function RiskForm({ policy, save, onReload, reloading }: { policy: AdminCopyRisk
         onSubmit={(event) => {
           event.preventDefault();
           if (!ready || !parsed.success) return;
-          save.mutate({ limits: parsed.data, reason: reason.trim(), expectedVersion: policy.version }, saved());
+          save.mutate({ limits: parsed.data, reason: reason.trim(), expectedVersion: policy.version }, saved({ error: false }));
         }}
       >
         <AdminCard

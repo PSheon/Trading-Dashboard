@@ -90,6 +90,8 @@ describe("insights say what they show (audit 2026-10-07 P1-8)", () => {
     expect(map.slice(0, 900)).toContain(zhTW.insights.cohort.building);
     expect(map.slice(0, 900)).not.toContain("ui-skeleton");
     expect(html).toContain("更新於 3 小時前");
+    expect(html).toContain("此分層的持倉資料尚未完整，背景持續更新中。");
+    expect(html).not.toContain("第一次刷新約需數分鐘");
   });
 
   it("the window chips read 7天 / 30天 / 90天 / 全部, never 7d or all", () => {

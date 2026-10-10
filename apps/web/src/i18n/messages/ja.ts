@@ -1390,7 +1390,7 @@ export const ja: Messages = {
       retry: "再試行",
       coverage: "最新スナップショットのあるウォレット {wallets} / {members}",
       updated: "{time} 更新",
-      building: "このティアのポジションを収集中です。初回の更新には数分かかります。",
+      building: "このティアのポジションデータはまだ不完全です。バックグラウンドで更新を続けています。",
     },
     subtitle: "監視中の全アドレスのリアルタイムの動きを、発生した瞬間に新しい順で表示します。",
     coin: "銘柄（例: BTC）",

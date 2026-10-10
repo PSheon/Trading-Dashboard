@@ -245,6 +245,7 @@ for (const width of [1440, 390]) {
       await armStale(page, "risk");
       await save.click();
       await expect(page.getByRole("alert").filter({ hasText: "Someone else saved a newer policy" })).toBeVisible();
+      await expect(page.getByTestId("toasts").getByText("That didn't work. Please try again.", { exact: true })).toHaveCount(0);
       await page.getByRole("button", { name: "Reload", exact: true }).click();
       await expect(page.getByText("Current v3", { exact: true })).toBeVisible();
       await page.getByRole("button", { name: "Advanced" }).click();
@@ -253,7 +254,7 @@ for (const width of [1440, 390]) {
       await page.getByLabel("Max leverage (×)").fill("5");
       await page.getByLabel("Reason for this change (required)").fill("Tighter before testnet");
       await page.getByRole("button", { name: "Save as v4", exact: true }).click();
-      await expect(page.getByRole("status")).toContainText("Saved as v4");
+      await expect(page.getByRole("status").filter({ hasText: "Saved as v4" })).toBeVisible();
       await expect(page.getByText("Current v4", { exact: true })).toBeVisible();
       await page.getByRole("button", { name: "Advanced" }).click();
       await expect(page.getByLabel("Max leverage (×)")).toHaveValue("5");

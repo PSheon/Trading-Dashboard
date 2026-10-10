@@ -1390,7 +1390,7 @@ export const vi: Messages = {
       retry: "Thử lại",
       coverage: "{wallets} / {members} ví có ảnh chụp mới",
       updated: "Cập nhật {time}",
-      building: "Đang thu thập vị thế cho cấp này; lần làm mới đầu tiên mất vài phút.",
+      building: "Dữ liệu vị thế của cấp này chưa đầy đủ. Quá trình cập nhật vẫn tiếp tục trong nền.",
     },
     subtitle: "Hành động trực tiếp từ mọi địa chỉ đang theo dõi, mới nhất ở trên, ngay khi xảy ra.",
     coin: "Coin (vd. BTC)",

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { expectNoSidewaysScroll, signIn } from "./helpers";
+import { expectNoSidewaysScroll, selectTradingMode, signIn } from "./helpers";
 
 for (const width of [1440, 390]) test(`an account without an available signer cannot enter actual funds at ${width}px`, async ({ page, context, baseURL }) => {
   await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
@@ -7,7 +7,7 @@ for (const width of [1440, 390]) test(`an account without an available signer ca
   await page.goto("/en/portfolio?wallet=funded&view=real");
   await signIn(page);
   await page.getByRole("button", { name: "Account", exact: true }).filter({ visible: true }).click();
-  await expect(page.getByRole("menuitemradio", { name: /Testnet/ })).toBeDisabled();
+  await expect(page.getByRole("radio", { name: /Testnet/ })).toBeDisabled();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "Withdraw", exact: true }).filter({ visible: true })).toHaveCount(0);
   await expectNoSidewaysScroll(page);
@@ -21,6 +21,7 @@ for (const width of [1440, 390]) test(`a main withdrawal is signed, submitted an
   await page.setViewportSize({ width, height: 900 });
   await page.goto("/en/portfolio?wallet=funded&signer=fixture&view=real");
   await signIn(page);
+  await selectTradingMode(page, "testnet");
   await page.getByRole("button", { name: "Withdraw", exact: true }).filter({ visible: true }).first().click();
   const dialog = page.getByRole("dialog");
   await dialog.getByLabel("Destination Address", { exact: true }).fill(`0x${"22".repeat(20)}`);
@@ -37,6 +38,7 @@ test("an exchange refusal says so and leaves the form for a new withdrawal", asy
   await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
   await page.goto("/en/portfolio?wallet=funded&signer=fixture&withdraw=rejected&view=real");
   await signIn(page);
+  await selectTradingMode(page, "testnet");
   await page.getByRole("button", { name: "Withdraw", exact: true }).filter({ visible: true }).first().click();
   const dialog = page.getByRole("dialog");
   await dialog.getByLabel("Destination Address", { exact: true }).fill(`0x${"22".repeat(20)}`);

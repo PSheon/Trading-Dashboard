@@ -13,7 +13,7 @@ test("anonymous admin gate, demo login and logout clear private UI", async ({ pa
   await signIn(page);
   await expect(page.getByRole("table")).toBeVisible();
   await page.getByRole("button", { name: "Account", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Logout", exact: true }).click();
+  await page.getByRole("button", { name: "Logout", exact: true }).click();
   await expect(page.getByRole("table")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Demo login", exact: true })).toBeVisible();
   expect(errors).toEqual([]);
@@ -25,6 +25,58 @@ test("public discovery navigates to a trader with activity without signing in", 
   await openFirstTrader(page);
   await expect(page.getByRole("tablist", { name: "Trading activity" })).toBeVisible();
 });
+
+for (const width of [1440, 390]) {
+  test(`account preferences animate, restore keyboard focus and respect reduced motion at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/en/settings?tab=referral&view=referral");
+    await signIn(page);
+    const trigger = page.getByRole("button", { name: "Account", exact: true }).filter({ visible: true }).first();
+    await trigger.click();
+    const menu = page.getByTestId("account-menu-card");
+    const surface = page.locator(width < 768 ? ".account-menu-sheet" : ".account-menu-popover");
+    await expect(menu).toBeVisible();
+    expect(await surface.evaluate(el => getComputedStyle(el).animationName)).toBe(width < 768 ? "account-menu-up" : "account-menu-down");
+
+    await menu.getByRole("button", { name: /^Language/ }).click();
+    const panel = menu.locator('[data-account-panel="language"]');
+    await expect(panel).toBeVisible();
+    expect(await panel.evaluate(el => getComputedStyle(el).animationName)).toBe("account-menu-panel");
+    await expect(panel.getByRole("radio", { name: "English", exact: true })).toBeChecked();
+    await expect(panel.getByRole("button", { name: "Back", exact: true })).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(menu.getByRole("button", { name: /^Language/ })).toBeFocused();
+
+    await menu.getByRole("button", { name: /^Theme/ }).click();
+    const theme = menu.getByRole("radiogroup", { name: "Theme", exact: true });
+    await theme.getByRole("radio", { name: "Dark", exact: true }).click();
+    await expect(page.locator("html")).toHaveClass(/\bdark\b/);
+    await theme.getByRole("radio", { name: "System", exact: true }).click();
+    await page.keyboard.press("Escape");
+    await expect(menu.getByRole("button", { name: /^Theme/ })).toBeFocused();
+
+    const logout = menu.getByRole("button", { name: "Logout", exact: true });
+    await logout.hover();
+    await expect.poll(() => logout.evaluate(el => {
+      const probe = document.createElement("span");
+      probe.style.color = "var(--destructive)";
+      el.append(probe);
+      const result = { actual: getComputedStyle(el).color, expected: getComputedStyle(probe).color };
+      probe.remove();
+      return result.actual === result.expected;
+    })).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+    await expect(trigger).toBeFocused();
+
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await trigger.click();
+    await expect(menu).toBeVisible();
+    expect(await surface.evaluate(el => getComputedStyle(el).animationName)).toBe("none");
+    await menu.getByRole("button", { name: /^Language/ }).click();
+    expect(await menu.locator('[data-account-panel="language"]').evaluate(el => getComputedStyle(el).animationName)).toBe("none");
+  });
+}
 
 for (const width of [1440, 390]) {
   test(`trader analytics and trade ledger work at ${width}px`, async ({ page }) => {

@@ -21,12 +21,16 @@ for (const width of [1440, 390]) {
     // The lab's tier picker reaches the other tiers: this one has 33 of 150 members read.
     await page.goto("/zh-TW/dev/wealth/insights?tier=rekt");
     // Said in the status line and in the per-market map (no empty box there).
-    await expect(page.getByText("此分層的持倉資料建立中，第一次刷新約需數分鐘。")).toHaveCount(2, { timeout: 20000 });
-    await expect(page.getByText("此分層的持倉資料建立中，第一次刷新約需數分鐘。").first()).toBeVisible();
+    await expect(page.getByText("此分層的持倉資料尚未完整，背景持續更新中。")).toHaveCount(2, { timeout: 20000 });
+    await expect(page.getByText("此分層的持倉資料尚未完整，背景持續更新中。").first()).toBeVisible();
     await expect(page.getByRole("heading", { level: 2, name: "名目金額", exact: true })).toHaveCount(0);
     await expect(page.getByText("7% 做多")).toHaveCount(0);
     // What was read is still listed.
-    await expect(page.getByRole("table").first()).toBeVisible();
+    if (width < 768) {
+      const wallets = page.getByRole("main").getByRole("list").first();
+      await expect(wallets).toBeVisible();
+      await expect(wallets.getByRole("listitem").first()).toBeVisible();
+    } else await expect(page.getByRole("table").first()).toBeVisible();
     await shot(page, `insights-building-${width}`);
   });
 }

@@ -194,3 +194,15 @@ Railway 原生雲端備份：`c967f938-ff7b-4ae8-a37c-4af654f08ceb`，`pre-relea
 - Stage 唯讀資料庫：必要四欄位及 abort table 都存在；mainnet funding、withdrawal、未解除 liability、stop、abort、setup 在途數均0（2026-10-10T14:50:56Z）。這不等於資金已入帳，也不是金融 E2E。
 
 Stage 尚未部署本輪版本；等待安全修補的精確版本 CI 及正式 build／browser checks 通過。
+
+## 23:11 瀏覽器回歸修正
+
+`85e7ea39` 遠端：正式 build、安全／型別／lint／文件／Web checks、四個 API shard 及 migration／backup smokes 都 PASS；browser3 有7項 FAIL，browser1／2 因舊模式選擇定位等待而達15分鐘取消，整體 CI **FAIL**，沒有部署紅燈版本。fixture 截圖／DOM 顯示：
+
+- 帳戶選單已改為 Popover／Dialog 內 RadioGroup，舊 `aria-haspopup=menu`／`menuitemradio` 定位失效；共用切換 helper 更新為實際帳戶與 radio，選擇後關閉視窗才繼續操作。actual 資金測試不再靠舊 `view=real` query，明确使用全域模式選擇。
+- 投資組合頁籤已改為 My copies，手機洞察錢包已改為清單；測試仍驗證選中狀態、兩項跟單及實際可讀的 listitem，而不是刪掉驗收。手機 target size 只檢查可及的可見控制，不把模擬模式中 inert／aria-hidden 的儲值控制當成操作入口。
+- 管理風控原本同時顯示可恢复 inline stale 提示與泛用 error toast；三個有具體 inline error 的管理表單採用已有 `useSaveToast({error:false})`，保留成功通知及持久錯誤，避免叫人盲目重試。E2E 明確檢查 stale 的 generic toast 不出現，成功版本回覆仍須可見。相關四檔30 PASS，完整 Web 204檔1398 PASS。
+- 洞察不足資料不再承諾「首次幾分鐘完成」；11語系改為資料尚未完整、背景持續更新。渲染測試先重現 FAIL，修後 PASS，80%／95%品質門檻保持。
+- 新增桌面及手機真實瀏覽器驗收：主選單上下方向、二級水平動畫、Escape返回與焦點恢复、主題切換及恢复、登出error hover色、reduced-motion。尚待下一輪 CI 實際驗收，沒有冒充 PASS。
+
+取消與首次失敗保留在忽略的原始 CI logs；沒有增加 timeout、retry 或跳過失敗測試，也沒有為跑本機 fixture 關掉登入中的 Stage 瀏覽器／再開第二個 Next server。

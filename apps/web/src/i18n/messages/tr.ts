@@ -1390,7 +1390,7 @@ export const tr: Messages = {
       retry: "Tekrar dene",
       coverage: "Güncel anlık görüntüsü olan cüzdan: {wallets} / {members}",
       updated: "Güncellendi: {time}",
-      building: "Bu grubun pozisyonları toplanıyor; ilk yenileme birkaç dakika sürer.",
+      building: "Bu grubun pozisyon verileri henüz eksik. Güncellemeler arka planda devam ediyor.",
     },
     subtitle: "İzlenen tüm adreslerin canlı hareketleri; en yenisi üstte, gerçekleştiği anda.",
     coin: "Coin (ör. BTC)",

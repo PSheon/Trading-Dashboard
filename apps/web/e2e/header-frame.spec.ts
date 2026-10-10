@@ -57,7 +57,7 @@ for (const signedIn of [false, true]) {
       await expect(page.getByRole("navigation", { name: "Main navigation" }).filter({ visible: true })).toBeVisible();
       await expectNoSidewaysScroll(page);
       await page.setViewportSize({ width: 320, height: 844 });
-      const narrowControls = await header.locator("a,button").evaluateAll(elements => elements.map(el => ({ left: el.getBoundingClientRect().left, right: el.getBoundingClientRect().right, width: el.getBoundingClientRect().width, height: el.getBoundingClientRect().height })));
+      const narrowControls = await header.getByRole("button").or(header.getByRole("link")).filter({ visible: true }).evaluateAll(elements => elements.map(el => ({ left: el.getBoundingClientRect().left, right: el.getBoundingClientRect().right, width: el.getBoundingClientRect().width, height: el.getBoundingClientRect().height })));
       for (const bounds of narrowControls) {
         expect(bounds.left).toBeGreaterThanOrEqual(12);
         expect(bounds.right).toBeLessThanOrEqual(308);

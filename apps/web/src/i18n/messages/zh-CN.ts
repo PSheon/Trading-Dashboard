@@ -1390,7 +1390,7 @@ export const zhCN: Messages = {
       retry: "重试",
       coverage: "{wallets} / {members} 个钱包有最新快照",
       updated: "更新于 {time}",
-      building: "该分层的持仓数据正在收集，首次刷新约需几分钟。",
+      building: "该分层的持仓数据尚未完整，后台持续更新中。",
     },
     subtitle: "所有监控中地址的实时动作，最新的在最上面，发生的当下就会出现。",
     coin: "币种（例如 BTC）",

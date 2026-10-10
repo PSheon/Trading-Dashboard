@@ -20,7 +20,7 @@ test.describe("portfolio parity", () => {
     await expect(chart.getByText(/%$/).first()).toBeVisible();
     await expect(page.getByTestId("paper-today").filter({ visible: true })).toContainText("Today (UTC)");
     for (const label of ["Available", "Copied", "Unrealized P&L"]) await expect(page.getByText(label, { exact: true }).filter({ visible: true }).first()).toBeVisible();
-    const copying = page.getByRole("tab", { name: /Copying\s*2/ }).filter({ visible: true });
+    const copying = page.getByRole("tab", { name: /My copies\s*2/ }).filter({ visible: true });
     await expect(copying).toHaveAttribute("aria-selected", "true");
     // The equity-curve column draws each copy's curve, not "—".
     // The page's 正式 / 模擬 switch has its own tabpanel around everything: the copy list is #desktop-copy-panel.
@@ -42,7 +42,7 @@ test.describe("portfolio parity", () => {
     await expectNoSidewaysScroll(page);
 
     // One copy: your copy vs the trader over the same window.
-    await page.getByRole("tab", { name: /Copying/ }).filter({ visible: true }).click();
+    await page.getByRole("tab", { name: /My copies/ }).filter({ visible: true }).click();
     await page.locator('#desktop-copy-panel button').filter({ visible: true }).first().click();
     await expect(page).toHaveURL(/copy=\d+/);
     const compare = page.getByTestId("copy-compare").filter({ visible: true });

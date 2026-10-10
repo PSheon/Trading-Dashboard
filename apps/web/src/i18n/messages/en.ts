@@ -2143,7 +2143,7 @@ export const en: Messages = {
       retry: "Retry",
       coverage: "{wallets} / {members} wallets with a fresh snapshot",
       updated: "Updated {time}",
-      building: "Positions for this tier are being collected; the first refresh takes a few minutes.",
+      building: "Position data for this tier is incomplete. Updates continue in the background.",
     },
     subtitle: "Live actions from every watched address, newest first, as they happen.",
     coin: "Coin (e.g. BTC)",

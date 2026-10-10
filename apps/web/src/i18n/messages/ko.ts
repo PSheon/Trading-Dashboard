@@ -1390,7 +1390,7 @@ export const ko: Messages = {
       retry: "다시 시도",
       coverage: "지갑 {members}개 중 {wallets}개 최신 스냅샷 보유",
       updated: "{time} 업데이트",
-      building: "이 티어의 포지션을 수집 중입니다. 첫 갱신까지 몇 분 걸립니다.",
+      building: "이 티어의 포지션 데이터가 아직 완전하지 않습니다. 백그라운드에서 계속 업데이트하고 있습니다.",
     },
     subtitle: "추적 중인 모든 주소의 실시간 동작을 발생 즉시 최신순으로 표시합니다.",
     coin: "코인(예: BTC)",

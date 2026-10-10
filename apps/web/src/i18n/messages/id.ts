@@ -1390,7 +1390,7 @@ export const id: Messages = {
       retry: "Coba lagi",
       coverage: "{wallets} / {members} dompet dengan snapshot terbaru",
       updated: "Diperbarui {time}",
-      building: "Posisi untuk tingkat ini sedang dikumpulkan; pembaruan pertama butuh beberapa menit.",
+      building: "Data posisi untuk tingkat ini belum lengkap. Pembaruan terus berjalan di latar belakang.",
     },
     subtitle: "Aksi langsung dari setiap alamat yang dipantau, terbaru di atas, saat itu juga.",
     coin: "Koin (mis. BTC)",

@@ -179,7 +179,7 @@ function RevokeForm({ grant, force, onClose }: { grant: NonNullable<AdminLiveAcc
   return (
     <form className="flex flex-col gap-4" onSubmit={(event) => {
       event.preventDefault();
-      if (ok && !revoke.isPending) revoke.mutate({ id: grant.id, reason: reason.trim(), force }, saved({ onSuccess: onClose }));
+      if (ok && !revoke.isPending) revoke.mutate({ id: grant.id, reason: reason.trim(), force }, saved({ onSuccess: onClose, error: false }));
     }}>
       <p className="text-sm leading-relaxed text-muted-foreground">{t(force ? "copyAdmin.live.revoke.forceHelp" : "copyAdmin.live.revoke.help")}</p>
       <p className="num rounded-xl bg-raised p-3 text-xs font-semibold">{t("copyAdmin.live.revoke.target", { id: grant.id, version: grant.version })}</p>

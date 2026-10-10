@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, asc, eq, gte, inArray, lte, sql } from "drizzle-orm";
-import { actions, copyLiveStrategyConfigs, copyStrategies, fillCoverage, fills, leaders, type FillCoverageBreak } from "@trading-dashboard/shared/database";
+import { actions, copyStrategies, fillCoverage, fills, leaders, type FillCoverageBreak } from "@trading-dashboard/shared/database";
 import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
@@ -12,6 +12,9 @@ import { actionsCovering, chunks, draftToRow, insertActions, lockActions, stored
 import { toFillRow } from "./fill-row.js";
 import { lastMillisecondPerCoin, SPAN_PAGE_FILLS, storedFillPages } from "./stored-fill-pages.js";
 import { LIVE_STRATEGY_STATUSES, enqueueCopySignals, lockCopyLeader } from "../copy/copy-outbox.js";
+import { AppConfig } from "../config/app-config.js";
+import { deploymentNetwork } from "../copy/live-deployment.js";
+import { copySourceEligibility } from "./copy-source-eligibility.js";
 
 export type { ActionRow } from "./action-store.js";
 export type FillCoverageRow = typeof fillCoverage.$inferSelect;
@@ -20,16 +23,16 @@ const covered = (address: string) => and(eq(fillCoverage.chain, CHAIN_DEFAULT), 
 /** Raw fills may commit before derivation; replay under the shared action lock repairs gaps. */
 @Injectable()
 export class FillSyncRepository {
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, private readonly config: AppConfig) {}
   /** Fills per page of a full continuity check; settable for tests. */
   spanPageFills = SPAN_PAGE_FILLS;
 
-  /** Whether a live copy follows `address`: its stored fills become copy
-   * signals (paper), or the source of a testnet copy of a mainnet leader. */
+  /** Whether this deployment needs prioritized mainnet fills for a paper
+   * or actual copy. Other execution networks do not grant live priority. */
   async isCopied(address: string): Promise<boolean> {
     const [row] = await this.db.select({ id: copyStrategies.id }).from(copyStrategies)
       .where(and(eq(copyStrategies.chain, CHAIN_DEFAULT), eq(copyStrategies.leaderAddress, address), inArray(copyStrategies.status, [...LIVE_STRATEGY_STATUSES]),
-        sql`(${copyStrategies.mode} = 'paper' or exists (select 1 from ${copyLiveStrategyConfigs} c where c.strategy_id = ${copyStrategies.id} and c.source_network = 'mainnet'))`)).limit(1);
+        copySourceEligibility(deploymentNetwork(this.config)))).limit(1);
     return row !== undefined;
   }
 

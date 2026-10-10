@@ -212,8 +212,8 @@ describe('paper passes cannot consume testnet strategies or their accidental pap
   let awaitedStrategy: Awaited<ReturnType<typeof strategy>>;
   beforeEach(async () => { awaitedStrategy = await strategy(liveId); });
   it('generic fill watcher and paper signal cursor ignore testnet-only leaders', async () => {
-    expect(await new FillSyncRepository(db).isCopied(liveLeader)).toBe(false);
-    expect(await new FillSyncRepository(db).isCopied(paperLeader)).toBe(true);
+    expect(await new FillSyncRepository(db, testConfig()).isCopied(liveLeader)).toBe(false);
+    expect(await new FillSyncRepository(db, testConfig()).isCopied(paperLeader)).toBe(true);
     expect(await uow.run(tx => enqueueCopySignals(tx, liveLeader, [{ tid: 1n, ts: new Date() }]))).toBe(0);
     expect(await db.select().from(copySignalOutbox)).toEqual([]);
   });

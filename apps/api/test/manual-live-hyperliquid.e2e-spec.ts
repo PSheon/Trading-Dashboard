@@ -181,7 +181,7 @@ describe.skipIf(process.env.E2E_RUN_LIVE !== '1')(
           const fillSync = new FillSyncService(
             testConfig(),
             info,
-            new FillSyncRepository(db),
+            new FillSyncRepository(db, testConfig()),
             new UnitOfWork(db),
             accounts,
             tagged('slow'),
@@ -201,7 +201,7 @@ describe.skipIf(process.env.E2E_RUN_LIVE !== '1')(
             fillSync,
             accounts,
             feedActions,
-            new WatcherRepository(db),
+            new WatcherRepository(db, testConfig()),
           );
           activeWatcher = watcher;
 

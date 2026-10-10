@@ -49,7 +49,7 @@ describe("WatcherService", () => {
       { sync, catchUp, getLastFillAt: () => null, getFastPathStats: () => ({ verified: 0, corrected: 0 }) } as unknown as FillSyncService,
       { getEquityUsd: () => null, dropBooks } as unknown as AccountStateService,
       { process: fastPath } as unknown as FeedActionsService,
-      new WatcherRepository(db),
+      new WatcherRepository(db, testConfig()),
     );
   });
 

@@ -61,7 +61,7 @@ describe("verified fill coverage — real Postgres, fake Hyperliquid", () => {
     await truncateAll(db);
     upstream = [];
     upstreamTwap = [];
-    repository = new FillSyncRepository(db);
+    repository = new FillSyncRepository(db, testConfig());
     info = {
       userFillsByTime: vi.fn(async (_address: string, start: number, end?: number) => page(upstream, (f) => f.time, start, end)),
       userTwapSliceFillsByTime: vi.fn(async (_address: string, start: number, end?: number) => page(upstreamTwap, (s) => s.fill.time, start, end)),
@@ -143,7 +143,7 @@ describe("verified fill coverage — real Postgres, fake Hyperliquid", () => {
 
     const restarted = service();
     const watcher = new WatcherService(testConfig(), {} as TradeFeedService, restarted,
-      {} as AccountStateService, {} as FeedActionsService, new WatcherRepository(db));
+      {} as AccountStateService, {} as FeedActionsService, new WatcherRepository(db, testConfig()));
     const result = await watcher.sweep();
     expect(result).toMatchObject({ addresses: 1, failed: 0, inserted: upstream.length + 1 });
     expect(new Set(await storedTids())).toEqual(new Set([...upstream, upstreamTwap[0].fill].map((f) => f.tid)));

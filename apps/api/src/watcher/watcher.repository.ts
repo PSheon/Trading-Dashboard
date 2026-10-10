@@ -1,16 +1,19 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, inArray, sql } from "drizzle-orm";
-import { copyLiveStrategyConfigs, copyStrategies, leaders } from "@trading-dashboard/shared/database";
+import { and, eq, inArray } from "drizzle-orm";
+import { copyStrategies, leaders } from "@trading-dashboard/shared/database";
 import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import { LIVE_STRATEGY_STATUSES } from "../copy/copy-outbox.js";
+import { AppConfig } from "../config/app-config.js";
+import { deploymentNetwork } from "../copy/live-deployment.js";
+import { copySourceEligibility } from "./copy-source-eligibility.js";
 
 /** Read watch eligibility; subscriptions, sweeps and lifecycle belong to WatcherService. */
 @Injectable()
 export class WatcherRepository {
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, private readonly config: AppConfig) {}
 
   /** Read active addresses on the configured chain without caching their eligibility. */
   async activeAddresses(): Promise<string[]> {
@@ -21,18 +24,17 @@ export class WatcherRepository {
     return rows.map((r) => r.address);
   }
 
-  /** Leaders a live copy follows (as `FillSyncRepository.isCopied`): every
-   * one (`copied`), and those a testnet copy follows on mainnet (`mainnet`). */
+  /** Eligible copy sources (as `FillSyncRepository.isCopied`), and the
+   * actual copies whose mainnet fills trigger this deployment's engine. */
   async copiedAddresses(): Promise<{ copied: Set<string>; mainnet: Set<string> }> {
     const rows = await this.db
-      .select({ address: copyStrategies.leaderAddress, mode: copyStrategies.mode, network: copyLiveStrategyConfigs.sourceNetwork })
+      .select({ address: copyStrategies.leaderAddress, mode: copyStrategies.mode })
       .from(copyStrategies)
-      .leftJoin(copyLiveStrategyConfigs, eq(copyLiveStrategyConfigs.strategyId, copyStrategies.id))
       .where(and(eq(copyStrategies.chain, CHAIN_DEFAULT), inArray(copyStrategies.status, [...LIVE_STRATEGY_STATUSES]),
-        sql`(${copyStrategies.mode} = 'paper' or ${copyLiveStrategyConfigs.sourceNetwork} = 'mainnet')`));
+        copySourceEligibility(deploymentNetwork(this.config))));
     return {
       copied: new Set(rows.map((r) => r.address)),
-      mainnet: new Set(rows.filter((r) => r.mode !== "paper" && r.network === "mainnet").map((r) => r.address)),
+      mainnet: new Set(rows.filter((r) => r.mode !== "paper").map((r) => r.address)),
     };
   }
 }

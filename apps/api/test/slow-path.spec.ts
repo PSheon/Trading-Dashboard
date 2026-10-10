@@ -65,7 +65,7 @@ describe("Slow path: FillSyncService after the fast path — real Postgres, fake
     corrected = [];
     events.on(ACTION_CORRECTED_EVENT, (event) => corrected.push(event));
     fast = new FeedActionsService(testConfig(), new FeedActionsRepository(), new UnitOfWork(db), accounts, events);
-    sync = new FillSyncService(testConfig(), client, new FillSyncRepository(db), new UnitOfWork(db), accounts, events);
+    sync = new FillSyncService(testConfig(), client, new FillSyncRepository(db, testConfig()), new UnitOfWork(db), accounts, events);
   });
 
   afterAll(async () => {
@@ -258,7 +258,7 @@ describe("Slow path: FillSyncService after the fast path — real Postgres, fake
         sync,
         new AccountStateService(info as unknown as HyperliquidInfoClient, new AccountStateRepository(db)),
         fast,
-        new WatcherRepository(db),
+        new WatcherRepository(db, testConfig()),
       );
       try {
         const t = Date.now();

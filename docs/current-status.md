@@ -44,6 +44,14 @@ worker的有效cohort上限約55/min，配置150/min不等於保證吞吐。已�
 
 台北04:42的成員最近狀態有3項clock-skew拒絕；這是每個帳戶最近一次狀態，不是完整累計HTTP操作數。worker直接五次時鐘抽樣皆符合原1000ms門檻，未證實持續時鐘漂移。資源統計未顯示觸及Railway配置上限，仍不能排除事件迴圈或SQL延遲，根因未定；不放寬防護。API冷啟動曾有12秒期限的503，後續正式錢包API恢復200；原失敗證據保留。
 
+## 新發現：跨執行網路的資料監控優先級
+
+台北05:29 Stage唯讀量測：兩筆活躍paper策略、四個一般監控交易員，另有一筆執行網路為testnet／來源為mainnet的舊活躍策略。主網金融執行器已排除另一網路；但watcher copiedAddresses與FillSync isCopied僅看來源網路，仍給舊策略的交易員live讀取優先級及catch-up。這是資料排程隔離缺陷，不是已證實跨網送單或資金操作。
+
+本機修正共用來源資格，actual只包含本部署執行網路，paper來源、paused／stopping的本網策略、一般leader監控及舊歷史均保留；不改額度、安全時效、平台控制或策略。兩個網路的真實隔離Postgres回歸先2 FAIL，修正後相關7檔101 PASS，含測試型別檢查通過。**待完整API回歸、精確CI與Stage部署／實際量測，不能列已部署或保證七層補齊。**
+
+90秒額度抽樣18點中16點已達背景上限400；停止切頁後亦見常駐負載再次達上限。數字是讀取預扣／已結算權重，不是交易筆數。修正會移除錯誤的資料優先級，不調高共享400或總額度。
+
 ## 主網與停用能力的界線
 
 台北03:30最後驗證的正式錢包 `0xfa82a7b2fce8017b0043eed5140805d55cfc7c06`：ArbitrumUSDC／ETH、Hyperliquid永續／現貨皆0；新一輪操作前要重查。正式能力曾驗證 actualAllowed／automaticExecution／setupAbort=true，Stage小額試單上限保持。Stage worker實際COPY_TRADING_MODE=live／network=mainnet／builderFee=false，與已驗證來源一致；不把builder帳戶資金門檻列為本輪主網阻擋。

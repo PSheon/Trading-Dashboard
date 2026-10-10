@@ -148,18 +148,24 @@ export class CohortRepository {
 
   /** The next members to refresh: never attempted first (in tier order,
    * then rank), then those attempted longest ago before `before`. */
-  nextDue(limit: number, before: Date, retries?: { failureBefore: Date; capacityBefore: Date }): Promise<CohortMemberRow[]> {
+  nextDue(limit: number, before: Date, retries?: { failureBefore: Date; capacityBefore: Date; staleBefore?: Date }): Promise<CohortMemberRow[]> {
     // attemptedAt is scheduling evidence, never snapshot freshness. Failed
     // reads have a shorter, bounded cooldown while retaining oldest-first
     // ordering so a persistently failing account cannot own every turn.
     const dueBefore = retries
       ? sql`case when ${cohortMembers.lastError} like 'capacity: %' then ${retries.capacityBefore}::timestamptz when ${cohortMembers.lastError} is not null then ${retries.failureBefore}::timestamptz else ${before}::timestamptz end`
       : sql`${before}::timestamptz`;
+    // A failed read must not move an expired snapshot behind a whole cycle
+    // of still-fresh reads. Preserve oldest-attempt fairness within each
+    // freshness group; the existing cooldown still determines eligibility.
+    const freshnessOrder = retries?.staleBefore
+      ? [sql`${cohortMembers.fetchedAt} is not null and ${cohortMembers.fetchedAt} >= ${retries.staleBefore}::timestamptz`]
+      : [];
     return this.db
       .select()
       .from(cohortMembers)
       .where(and(mine, sql`(${cohortMembers.attemptedAt} is null or ${cohortMembers.attemptedAt} < ${dueBefore})`))
-      .orderBy(sql`${cohortMembers.attemptedAt} is not null`, asc(cohortMembers.attemptedAt), tierOrder, asc(cohortMembers.rank))
+      .orderBy(...freshnessOrder, sql`${cohortMembers.attemptedAt} is not null`, asc(cohortMembers.attemptedAt), tierOrder, asc(cohortMembers.rank))
       .limit(limit);
   }
 

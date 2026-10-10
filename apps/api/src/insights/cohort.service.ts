@@ -145,6 +145,7 @@ export class CohortService implements OnModuleDestroy {
         const at = Date.now();
         const [next] = await this.repository.nextDue(1, new Date(at - intervalMs), {
           failureBefore: new Date(at - FAILURE_RETRY_MS), capacityBefore: new Date(at - SHARED_CAPACITY_RETRY_MS),
+          staleBefore: this.freshSince(intervalMs, new Date(at)),
         });
         if (!next) break;
         const result = await this.refreshOne(next);

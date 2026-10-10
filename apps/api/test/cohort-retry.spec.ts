@@ -42,11 +42,22 @@ function setup(fail: (address: string) => unknown, worker = false) {
   const jobs = new BackgroundJobs();
   const service = new CohortService(config as never, repository as unknown as CohortRepository, info as unknown as HyperliquidInfoClient, {} as never, jobs);
   Object.assign(service, { builtAt: at, tokensAt: at - 60_000 });
-  return { service, rows, info, jobs };
+  return { service, rows, info, jobs, repository, config };
 }
 
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
 describe('cohort refresh retry scheduling', () => {
+  it.each([[40, 120], [10, 60]])('passes the %s minute policy\'s exact %s minute freshness cutoff to the real refresh queue', async (interval, freshness) => {
+    vi.useFakeTimers(); vi.setSystemTime(at);
+    const f = setup(() => undefined);
+    f.config.value.tuning.discovery.cohortRefreshMinutes = interval;
+    const next = vi.spyOn(f.repository, 'nextDue');
+    await f.service.tick(at);
+    expect(next).toHaveBeenCalledWith(1, new Date(at - interval * 60_000), expect.objectContaining({
+      staleBefore: new Date(at - freshness * 60_000),
+    }));
+  });
+
   it.each([1, 1_000, 10_000, 65_000])('resumes other members after the validated %s ms pre-dispatch hint, retaining the failed member cooldown', async (hint) => {
     vi.useFakeTimers(); vi.setSystemTime(at);
     const { service, rows, info } = setup(() => undefined);

@@ -228,3 +228,9 @@ Stage 尚未部署本輪版本；等待安全修補的精確版本 CI 及正式 
 `4d3cf0e5` CI production build 在 Next16.3.8 Turbopack 的 Google 字型 synthetic import 解析失敗：15個錯誤、`next/font/google queries have exactly one entry`。保留原始 build log，不回退安全修补，也不把它判為業務測試網問題。正式 build 改為 [Next.js 支援的 `next build --webpack`](https://nextjs.org/docs/app/api-reference/cli/next#next-build-options)，Railway 與 CI 均走 workspace build script。
 
 隔離、無 `.env` 快照完整 webpack production build exit0，包含 route 產物與所有 OpenGraph prerender。第一次隔離執行因 sandbox DNS 限制失敗；第二次 network 可用但 runner cwd 在 monorepo root，OG font 路徑失敗；改以真正 web workspace cwd 後通過。這兩次是驗證工具失敗，並未為通過而改 OG 路徑／關閉 prerender 或型別檢查。最終待發布快照會重新由新提交白名單建立，不上傳此編譯用快照或 node_modules symlink。
+### 2026-10-11 00:10：慢速桌面確認視窗的第二個生命週期問題
+
+`5006fff6` 的 CI 已通過安全、型別、lint、正式建置、API 四個分片、smoke，以及瀏覽器第 2、3 分片；第 1 分片仍有兩個桌面慢速跟單案例失敗，不能視為完成或部署依據。先前移除載入骨架中的互動式跟單元件只修正第一層重掛載，未完整解決此情境。
+
+新增使用真實 Radix dialog 的回歸測試，確認 portfolio 輪詢讓輸入表單切換為待確認卡片時，未帶 key 的 dialog Fragment 會改變子節點位置並重掛載。修正為穩定 key 後，同一個確認 dialog DOM 節點在切換前後保留，原同意內容不消失。回歸測試先失敗再通過，完整 Web 測試為 204 檔、1,403 項通過；慢速桌面端仍須以新的完整瀏覽器 CI 驗證，不增加 timeout、retry 或跳過測試。
+

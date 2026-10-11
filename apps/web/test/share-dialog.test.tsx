@@ -111,3 +111,16 @@ describe("分享交易員主頁, CopyDog's share flow", () => {
     await act(async () => root.unmount());
   });
 });
+
+describe("one inset for every row of the share dialog (CopyDog's alignment)", () => {
+  it("insets the style row, the preview and the actions like the modal's title row", async () => {
+    const { root } = await mount();
+    const panel = document.querySelector<HTMLElement>('[role="dialog"]')!;
+    const title = panel.querySelector("h2")!.parentElement!;
+    const inset = (el: Element) => [...el.classList].filter((c) => /^(?:px|p)-\d/.test(c)).map((c) => c.replace(/^p-/, "px-"));
+    const rows = [panel.querySelector('[role="radiogroup"]')!.parentElement!, image().closest(".items-center.justify-center")!, button("下載").closest(".border-t-2")!];
+    expect(inset(title)).toContain("px-6");
+    for (const row of rows) expect(inset(row), row.className).toContain("px-6");
+    await act(async () => root.unmount());
+  });
+});

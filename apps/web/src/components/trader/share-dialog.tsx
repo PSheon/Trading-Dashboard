@@ -5,7 +5,7 @@ import { Copy, Download, Share2, SquareArrowOutUpRight } from "lucide-react";
 import { useState } from "react";
 import { cn } from "cn";
 
-import { Modal } from "@/components/ui/dialog";
+import { MODAL_INSET, Modal } from "@/components/ui/dialog";
 import { Segmented } from "@/components/ui/segmented";
 import { useToast } from "@/components/ui/toast";
 import { useI18n } from "@/i18n/provider";
@@ -94,7 +94,7 @@ export function ShareDialog({ open, onOpenChange, address, name }: { open: boole
 
   return (
     <Modal open={open} onOpenChange={onOpenChange} title={t("trader.share.title")} className="max-w-[680px]" bodyClassName="p-0">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-dotted border-border px-5 py-3">
+      <div className={cn("flex flex-wrap items-center justify-between gap-3 border-b-2 border-dotted border-border py-3", MODAL_INSET)}>
         <div role="radiogroup" aria-label={t("trader.share.style")} className="flex items-center gap-2">
           {(Object.keys(SHARE_FORMATS) as ShareFormat[]).map((f) => {
             const d = SHARE_FORMATS[f];
@@ -128,7 +128,7 @@ export function ShareDialog({ open, onOpenChange, address, name }: { open: boole
         />
       </div>
 
-      <div className="flex min-h-[499px] items-center justify-center bg-background md:min-h-[596px] bg-[radial-gradient(circle,var(--border)_1px,transparent_1px)] [background-size:16px_16px] p-5">
+      <div className={cn("flex min-h-[499px] items-center justify-center bg-background md:min-h-[596px] bg-[radial-gradient(circle,var(--border)_1px,transparent_1px)] [background-size:16px_16px] py-5", MODAL_INSET)}>
         <div className="relative w-full" style={{ maxWidth: format === "landscape" ? 640 : Math.min(480, (size.w / size.h) * 440) }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -149,7 +149,7 @@ export function ShareDialog({ open, onOpenChange, address, name }: { open: boole
         </div>
       </div>
 
-      <div className="flex flex-col gap-2 border-t-2 border-dotted border-border px-5 py-4">
+      <div className={cn("flex flex-col gap-2 border-t-2 border-dotted border-border py-4", MODAL_INSET)}>
         <div className="grid grid-cols-2 gap-2.5">
           <button
             type="button"

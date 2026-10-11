@@ -15,7 +15,7 @@ import {
   sparklinePaths,
 } from "../src/lib/share-card";
 import { apiTarget, loadShareCard, loadTraderName } from "../src/lib/share-card-data";
-import { renderShareCard } from "../src/lib/share-card-image";
+import { portraitFrame, renderShareCard } from "../src/lib/share-card-image";
 
 const A = "0xbf732ea04197942783e34730ed6e0f6099575d58";
 const DAY = 86_400_000;
@@ -49,6 +49,17 @@ describe("share card data, CopyDog's", () => {
     const p = sparklinePaths([0, 10, 5], 100, 50)!;
     expect(p.line).toBe("M0.0 50.0 L50.0 0.0 L100.0 25.0");
     expect(p.area.endsWith("L100 50 L0 50 Z")).toBe(true);
+  });
+
+  it("keeps the 4:5 card's PnL line inside its rounded frame, never across the frame's edge", () => {
+    for (const s of [1, 2]) {
+      const { frame, line } = portraitFrame(480 * s, 600 * s, s);
+      expect(line.left).toBe(frame.left);
+      expect(line.width).toBe(frame.width);
+      expect(line.top).toBeGreaterThanOrEqual(frame.top);
+      expect(line.top + line.height).toBe(frame.top + frame.height);
+      expect(frame.left).toBeGreaterThan(0);
+    }
   });
 
   it("names files and paths, and accepts only known periods and formats", () => {

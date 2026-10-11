@@ -115,6 +115,15 @@ export function heroSize(text: string, max: number, room: number): number {
   return Math.min(max, room / (Math.max(text.length, 1) * 0.62));
 }
 
+/** The 4:5 card's framed area (its inset, rounded frame), and the PnL line's
+ * box inside it: the line stays within the frame, never across its edge. */
+export function portraitFrame(w: number, h: number, s: number) {
+  const inset = 18 * s;
+  const frame = { left: inset, top: inset, width: w - 2 * inset, height: h - 2 * inset, radius: 20 * s };
+  const lineHeight = h * 0.4 - inset;
+  return { frame, line: { left: frame.left, top: frame.top + frame.height - lineHeight, width: frame.width, height: lineHeight } };
+}
+
 /** The period's PnL line, faint, filling the card's lower half. */
 function Line({ data, w, h, s }: { data: ShareCardData; w: number; h: number; s: number }) {
   const paths = sparklinePaths(data.line, w, h);
@@ -158,11 +167,14 @@ function Card({ data, format, w, h, s }: { data: ShareCardData; format: ShareFor
   );
 
   if (format === "portrait") {
+    const framed = portraitFrame(w, h, s);
     return (
       <div style={{ ...base, alignItems: "center", padding: `${36 * s}px ${32 * s}px` }}>
         <Dots w={w} h={h} s={s} />
-        <Line data={data} w={w} h={h * 0.4} s={s} />
-        <div style={{ position: "absolute", top: 18 * s, left: 18 * s, right: 18 * s, bottom: 18 * s, border: `1px solid rgba(255,122,69,0.4)`, borderRadius: 20 * s, display: "flex" }} />
+        {/* The line is clipped to the frame's rounded corners, inside it. */}
+        <div style={{ position: "absolute", left: framed.frame.left, top: framed.frame.top, width: framed.frame.width, height: framed.frame.height, border: `1px solid rgba(255,122,69,0.4)`, borderRadius: framed.frame.radius, overflow: "hidden", display: "flex" }}>
+          <Line data={data} w={framed.line.width} h={framed.line.height} s={s} />
+        </div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 15 * s }}>
           <Avatar data={data} size={116 * s} />
           <div style={{ fontSize: 31 * s, fontWeight: 800, letterSpacing: "-0.04em", lineHeight: 1, maxWidth: 416 * s, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{data.name}</div>

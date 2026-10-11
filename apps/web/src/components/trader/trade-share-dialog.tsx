@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Copy, Download } from "lucide-react";
 import { cn } from "cn";
 
-import { Modal } from "@/components/ui/dialog";
+import { MODAL_INSET, Modal } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
 import { useI18n } from "@/i18n/provider";
 import { fetchAsSession } from "@/lib/api";
@@ -136,13 +136,13 @@ export function TradeShareDialog({ source, onClose }: { source: TradeCardSource;
 
   return (
     <Modal open onOpenChange={(open) => { if (!open) onClose(); }} title={t(source.kind === "trade" ? "shareCard.tradeTitle" : "shareCard.positionTitle")} className="max-w-[680px]" bodyClassName="p-0">
-      <div className="flex flex-wrap items-center gap-2 border-b-2 border-dotted border-border px-5 py-3" role="radiogroup" aria-label={t("trader.share.style")}>
+      <div className={cn("flex flex-wrap items-center gap-2 border-b-2 border-dotted border-border py-3", MODAL_INSET)} role="radiogroup" aria-label={t("trader.share.style")}>
         {(["landscape", "portrait"] as const).flatMap((format) => TRADE_CARD_STYLES.map(({ key }) => (
           <Thumb key={`${key}-${format}`} source={source} style={key} format={format} active={choice.style === key && choice.format === format}
             label={`${styleLabel(key)} · ${SHARE_FORMATS[format].label}`} onPick={() => pick(key, format)} />
         )))}
       </div>
-      <div className="flex min-h-[420px] items-center justify-center bg-background bg-[radial-gradient(circle,var(--border)_1px,transparent_1px)] [background-size:16px_16px] p-5 md:min-h-[560px]">
+      <div className={cn("flex min-h-[420px] items-center justify-center bg-background bg-[radial-gradient(circle,var(--border)_1px,transparent_1px)] [background-size:16px_16px] py-5 md:min-h-[560px]", MODAL_INSET)}>
         <div className="relative w-full" style={{ maxWidth: choice.format === "landscape" ? 640 : Math.min(480, (size.w / size.h) * 440) }}>
           {image.src ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -164,7 +164,7 @@ export function TradeShareDialog({ source, onClose }: { source: TradeCardSource;
           ) : null}
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-2.5 border-t-2 border-dotted border-border px-5 py-4">
+      <div className={cn("grid grid-cols-2 gap-2.5 border-t-2 border-dotted border-border py-4", MODAL_INSET)}>
         <button type="button" onClick={copy} aria-busy={busy === "copy" || undefined} disabled={(busy !== null && busy !== "copy") || !ready}
           className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-raised text-sm font-semibold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60">
           {busy === "copy" ? <OrbitSpinner className="size-4" /> : <Copy className="size-4" />}{busy === "copy" ? t("trader.share.copying") : t("trader.share.copy")}

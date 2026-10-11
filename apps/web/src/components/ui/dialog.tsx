@@ -12,6 +12,10 @@ import { keepPanelOpenForNotification } from "./notification-interaction";
  * hairline under it and the body below; × / Escape / the backdrop close it.
  * Radix traps focus and restores it to the trigger on close.
  */
+/** The modal's horizontal inset: its title row's, and every full-width row a
+ * body draws itself (bodyClassName="p-0"), so they all line up. */
+export const MODAL_INSET = "px-6";
+
 export function Modal({
   open,
   onOpenChange,
@@ -54,19 +58,19 @@ export function Modal({
             className,
           )}
         >
-          <div className={bare ? "absolute top-3 right-3" : "flex items-center justify-between gap-3 px-6 pt-5 pb-1"}>
+          <div className={bare ? "absolute top-3 right-3" : `flex items-center justify-between gap-3 ${MODAL_INSET} pt-5 pb-1`}>
             <Primitive.Title className={bare ? "sr-only" : "type-h2 flex items-center gap-2"}>
               {title}
               {badge}
             </Primitive.Title>
             <Primitive.Close
-              className="-mr-1 flex size-11 items-center justify-center rounded-full bg-inset text-foreground outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex size-11 items-center justify-center rounded-full bg-inset text-foreground outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
               aria-label={t("settings.close")}
             >
               <X className="size-[18px]" />
             </Primitive.Close>
           </div>
-          <div className={cn("px-6 pt-4 pb-6", bodyClassName)}>{children}</div>
+          <div className={cn(MODAL_INSET, "pt-4 pb-6", bodyClassName)}>{children}</div>
         </Primitive.Content>
       </Primitive.Portal>
     </Primitive.Root>

@@ -292,9 +292,9 @@ function LiveCopySheet({ item, text, leader, account, mandate, strategy, onClose
  * The paper detail's comparison and exposure, the same components, from what
  * an actual copy has (parity review D13/D14): the trader's Hyperliquid
  * portfolio (only a mainnet trader: the trader pages read mainnet), and the
- * copy account's observed equity and positions. No equity history is
- * recorded for an actual copy (copy_equity_snapshots holds paper copies), so
- * its own curve and period figures stay empty and "—".
+ * copy account's observed equity and positions. Its own curve is the
+ * history recorded from those observations and its credited transfers
+ * (copy_equity_snapshots); none yet stays empty and "—".
  */
 function LiveCopyPerformance({ item, leader, account }: { item: LiveCopyItem; leader: Leader; account: CopyExecutionAccount | null }) {
   const snapshot = useCopyFollowerSnapshot(account && item.stage !== 'setup' && item.stage !== 'stopped' ? account : null);
@@ -306,7 +306,7 @@ function LiveCopyPerformance({ item, leader, account }: { item: LiveCopyItem; le
   } : null;
   return <>
     <CopyCompare strategy={{ id: item.strategyId, leaderAddress: item.leaderAddress, createdAt: item.createdAt }} traderName={boardName(leader)}
-      history={false} leaderHistory={item.sourceNetwork === 'mainnet'} />
+      leaderHistory={item.sourceNetwork === 'mainnet'} />
     {copy ? <ExposurePanel overview={{ strategies: [copy] }} leaders={leaders} desktop={false} /> : null}
   </>;
 }

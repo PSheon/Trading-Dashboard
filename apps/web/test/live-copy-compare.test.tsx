@@ -36,13 +36,18 @@ const observed = { status: 'observed', metrics: { perpEquity: '97.5', withdrawab
 // The leader's perp account around the copy's start: +$5 on $100 of net deposits.
 const leaderPortfolio = { pnl: [[liveNow - 3_600_000, 0], [liveNow + 3_600_000, 5]], accountValue: [[liveNow - 3_600_000, 100], [liveNow + 3_600_000, 105]],
   cumulativeReturn: [[liveNow - 3_600_000, 0], [liveNow + 3_600_000, 0.05]] };
+// The copy's own recorded history (copy_equity_snapshots of an actual copy): +$2 on $100 deposited.
+const performance = (points: unknown[]) => ({ strategyId: liveAccount.strategyId, mode: 'actual', network: 'testnet', window: '7d', from: new Date(liveNow - 7 * 86_400_000).toISOString(),
+  to: new Date(liveNow + 3_600_000).toISOString(), points, todayPnl: null, coverage: { firstSnapshotAt: null, lastSnapshotAt: null, complete: false } });
+let mine: unknown[] = [];
 let root: Root, container: HTMLDivElement, client: QueryClient, items: ReturnType<typeof item>[];
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-  items = [item()]; state.snapshot = observed;
+  items = [item()]; state.snapshot = observed; mine = [];
   state.get.mockReset().mockImplementation(async (path: string) => path === '/me/copy/live/portfolio' ? { network: 'testnet', automaticExecution: true, items }
     : path.startsWith('/me/funds/history') ? { items: [], nextCursor: null }
-    : path.startsWith(`/traders/${leader}/portfolio`) ? leaderPortfolio : null);
+    : path.startsWith(`/traders/${leader}/portfolio`) ? leaderPortfolio
+    : path.startsWith(`/me/copy/strategies/${liveAccount.strategyId}/performance`) ? performance(mine) : null);
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
 });
@@ -56,21 +61,28 @@ async function open() {
 }
 const asked = (prefix: string) => state.get.mock.calls.filter(([path]) => String(path).startsWith(prefix));
 
-it("compares an actual copy with its trader over the same period: the trader's real figures, the copy's unrecorded history as —", async () => {
+it("compares an actual copy with its trader over the same period: the trader's real figures, the copy's own recorded history", async () => {
+  mine = [{ time: new Date(liveNow + 60_000).toISOString(), equity: 100, totalPnl: 0, netDeposits: 100, exposureUsd: 0 },
+    { time: new Date(liveNow + 3_600_000).toISOString(), equity: 102, totalPnl: 2, netDeposits: 100, exposureUsd: 19 }];
   const sheet = await open();
   const compare = sheet.querySelector('[data-testid="copy-compare"]');
   expect(compare).not.toBeNull();
   // The leader's Hyperliquid perp portfolio (mainnet source), its change since the copy started.
   expect(asked(`/traders/${leader}/portfolio`).length).toBeGreaterThan(0);
+  expect(asked(`/me/copy/strategies/${liveAccount.strategyId}/performance`).length).toBeGreaterThan(0);
   const [yours, theirs] = [...compare!.querySelectorAll('dl > div')];
   expect(theirs!.textContent).toContain('+5%');
   expect(theirs!.textContent).toContain('+$5.00');
-  // No equity history is recorded for an actual copy: unknown, never 0.
+  expect(yours!.textContent).toContain('+$2.00');
+  expect(sheet.textContent).not.toContain('No chart data yet');
+});
+
+it("an actual copy with no recorded history yet says —, never 0", async () => {
+  const sheet = await open();
+  const [yours] = [...sheet.querySelector('[data-testid="copy-compare"]')!.querySelectorAll('dl > div')];
   expect(yours!.textContent).toContain('—');
   expect(yours!.textContent).not.toContain('$0.00');
   expect(sheet.textContent).toContain('No chart data yet');
-  // The paper-only performance endpoint (404 for an actual copy) is never asked.
-  expect(asked('/me/copy/strategies/')).toHaveLength(0);
 });
 
 it("shows the copy account's exposure from its observed positions (the paper detail's panel)", async () => {

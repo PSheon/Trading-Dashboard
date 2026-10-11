@@ -1,8 +1,8 @@
 import type { Metadata, Viewport } from "next";
-import { Fredoka, Nunito } from "next/font/google";
 import { cookies, headers } from "next/headers";
 import { notFound } from "next/navigation";
 import "../globals.css";
+import "../orbie-fonts.css";
 
 import { AppProviders } from "@/components/app-providers";
 import { AppShell } from "@/components/shell/app-shell";
@@ -20,22 +20,14 @@ import { NOT_FOUND_HEADER } from "@/lib/page-routes";
 import { localeAlternates, siteJsonLd } from "@/lib/seo";
 import { THEME_COLOR, THEME_COOKIE, parseThemeChoice, themeClass } from "@/lib/theme";
 
-/** Orbit's faces, self-hosted at build time with size-adjusted fallbacks so
- * the swap does not move the layout. Nunito: body and UI. */
-const nunito = Nunito({
-  variable: "--font-nunito",
-  subsets: ["latin"],
-  weight: ["500", "700", "800"],
-  display: "swap",
-});
-
-/** Fredoka: numbers, headings and the wordmark. */
-const fredoka = Fredoka({
-  variable: "--font-fredoka",
-  subsets: ["latin"],
-  weight: ["500", "600"],
-  display: "swap",
-});
+/** Brand font files and their original fallback metrics are fixed in the
+ * repository; builds never depend on Google Fonts response parsing. */
+const nunito = { variable: "orbie-font-nunito" };
+const fredoka = { variable: "orbie-font-fredoka" };
+const brandLatinFonts = [
+  "/fonts/nunito/20fc9b6fc618e7c3c68d3ac750a2a5dfbceb8521675458d2cea580b5693e4798.woff2",
+  "/fonts/fredoka/27d49d7c8362279bf81267c615481f4be9548d7568d58889aeb1a6395dd6c070.woff2",
+];
 
 export async function generateMetadata(): Promise<Metadata> {
   const locale = await getLocale();
@@ -119,11 +111,10 @@ export default async function RootLayout({ children, params }: LayoutProps<"/[lo
       className={`${themeClass(themeChoice)} ${nunito.variable} ${fredoka.variable}${cjkFont ? " cjk-web" : ""} h-full antialiased`.trim()}
       style={cjkFont ? ({ "--font-noto-tc": cjkFont.family } as React.CSSProperties) : undefined}
     >
-      {cjkFont ? (
-        <head>
-          {cjkFont.css.map((href) => <link key={href} rel="stylesheet" href={href} precedence="cjk-font" />)}
-        </head>
-      ) : null}
+      <head>
+        {brandLatinFonts.map(href => <link key={href} rel="preload" as="font" type="font/woff2" href={href} crossOrigin="anonymous" />)}
+        {cjkFont?.css.map((href) => <link key={href} rel="stylesheet" href={href} precedence="cjk-font" />)}
+      </head>
       <body className="min-h-full bg-background text-foreground">
         <JsonLd data={siteJsonLd(locale, messages)} />
         <AppProviders locale={locale} messages={messages} themeChoice={themeChoice}>

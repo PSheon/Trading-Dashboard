@@ -26,7 +26,11 @@ it("names the web font in no first-paint font stack, only under .cjk-web", () =>
   // Not in the layout's module graph at all (its @font-face rules would be
   // in the first paint's CSS); never preloaded, and optional.
   expect(layout).not.toMatch(/Noto_Sans_TC|from "@\/components\/shell\/noto-font"/);
-  expect(notoModule).toMatch(/Noto_Sans_TC\(\{[^}]*display: "optional",[^}]*preload: false/);
+  expect(notoModule).toContain('import "./noto-font.css"');
+  const fontCss = readFileSync(resolve(process.cwd(), "src/components/shell/noto-font.css"), "utf8");
+  expect(fontCss).toContain("font-display:optional");
+  expect(fontCss).not.toContain("font-display:swap");
+  expect(layout).not.toMatch(/rel="preload"[^\n]*noto-sans-tc/);
 });
 
 it("links the cached stylesheet only for a cookie the warm-up wrote", () => {

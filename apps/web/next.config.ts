@@ -50,6 +50,9 @@ const nextConfig: NextConfig = {
       { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
       ...(process.env.NODE_ENV === "production" ? [{ key: "Strict-Transport-Security", value: "max-age=15552000" }] : []),
     ] }, {
+      source: "/fonts/:family/:hash.woff2",
+      headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+    }, {
       // The skeleton gallery's frames (a development tool) are framed by
       // the gallery, on this origin (src/proxy.ts sets frame-ancestors).
       source: "/:locale/dev/skeletons/:item",

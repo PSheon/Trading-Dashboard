@@ -245,7 +245,8 @@ export function BoardsView() {
               roiHint={roiHint}
             />
           ) : null}
-          <TablePager {...pager} />
+          {/* Room above the pager's divider: the board is cards, not a table card. */}
+          <TablePager {...pager} className="mt-6" />
         </div>
       )}
 

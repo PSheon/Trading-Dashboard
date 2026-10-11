@@ -113,6 +113,8 @@ it('pages the explore board through the shared ten-row pager', async () => {
   await act(async () => pager.querySelectorAll<HTMLButtonElement>('button')[1].click());
   expect(pager.textContent).toContain('Page 2');
   expect(el.querySelectorAll('tbody > tr')).toHaveLength(10);
+  // The board's cards, rows or table end above the pager, not on its divider (Paul, 2026-10-11).
+  expect(pager.className).toMatch(/\bmt-6\b/);
 });
 it('pages cohort wallets and resets to page one when sorting changes', async () => {
   const base = fixtureCohort('whale').wallets;

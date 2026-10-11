@@ -1021,6 +1021,7 @@ export const pt: Messages = {
         sample: "Amostra: negociações {from} – {to} (UTC). Não inclui PnL posterior, limites nem validade do sinal; vale o histórico de ordens.",
         unknownEquity: "Não foi possível ler o valor da conta do trader, então os tamanhos proporcionais não podem ser estimados.",
         noOpens: "O trader não tem aberturas recentes para estimar.",
+        unavailable: "Agora não é possível ler as negociações recentes do trader, então não dá para estimar.",
       },
       backspace: "Apagar",
       maxToCopy: "Máximo de ${max}",

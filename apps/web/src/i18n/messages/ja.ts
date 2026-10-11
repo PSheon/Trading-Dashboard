@@ -1021,6 +1021,7 @@ export const ja: Messages = {
         sample: "サンプル：{from} – {to}（UTC）の約定。その後の損益・上限・シグナル有効時間は含まず、実際は注文履歴が基準です。",
         unknownEquity: "トレーダーの口座価値を取得できないため、比率コピーの注文額を見積もれません。",
         noOpens: "見積もりに使える最近の新規建てがありません。",
+        unavailable: "現在トレーダーの最近の約定を取得できないため、見積もれません。",
       },
       backspace: "削除",
       maxToCopy: "上限 ${max}",

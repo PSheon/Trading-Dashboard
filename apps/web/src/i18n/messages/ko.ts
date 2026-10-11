@@ -1021,6 +1021,7 @@ export const ko: Messages = {
         sample: "표본: {from} – {to}(UTC) 체결. 이후 손익, 한도, 신호 유효 시간은 반영되지 않으며 실제 결과는 주문 내역 기준입니다.",
         unknownEquity: "트레이더의 계정 가치를 읽을 수 없어 비율 주문 금액을 추정할 수 없습니다.",
         noOpens: "추정할 수 있는 최근 진입이 없습니다.",
+        unavailable: "지금은 트레이더의 최근 체결을 읽을 수 없어 추정할 수 없습니다.",
       },
       backspace: "삭제",
       maxToCopy: "최대 ${max}",

@@ -1789,6 +1789,7 @@ export const en: Messages = {
         sample: "Sample: fills {from} – {to} (UTC). Later PnL, caps and signal age are not included; the order history is what counts.",
         unknownEquity: "The trader's account value can't be read, so ratio order sizes can't be estimated.",
         noOpens: "The trader has no recent opens to estimate from.",
+        unavailable: "The trader's recent fills can't be read right now, so this can't be estimated.",
       },
       backspace: "Delete",
       maxToCopy: "Up to ${max}",

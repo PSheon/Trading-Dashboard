@@ -1021,6 +1021,7 @@ export const vi: Messages = {
         sample: "Mẫu: giao dịch {from} – {to} (UTC). Chưa tính PnL sau đó, hạn mức và thời hiệu tín hiệu; kết quả thực tế theo lịch sử lệnh.",
         unknownEquity: "Không đọc được giá trị tài khoản của trader nên không thể ước tính quy mô lệnh theo tỷ lệ.",
         noOpens: "Trader không có lệnh mở gần đây để ước tính.",
+        unavailable: "Hiện không đọc được giao dịch gần đây của trader nên chưa thể ước tính.",
       },
       backspace: "Xóa",
       maxToCopy: "Tối đa ${max}",

@@ -1021,6 +1021,7 @@ export const tr: Messages = {
         sample: "Örnek: {from} – {to} (UTC) işlemleri. Sonraki PnL, limitler ve sinyal süresi dahil değildir; esas olan emir geçmişidir.",
         unknownEquity: "Trader'ın hesap değeri okunamadığı için oransal emir tutarları tahmin edilemiyor.",
         noOpens: "Tahmin için yakın zamanda açılış yok.",
+        unavailable: "Trader'ın son işlemleri şu anda okunamıyor, bu yüzden tahmin edilemiyor.",
       },
       backspace: "Sil",
       maxToCopy: "En fazla ${max}",

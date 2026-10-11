@@ -1021,6 +1021,7 @@ export const zhCN: Messages = {
         sample: "样本 {from} – {to}（UTC）的成交。估算不含之后的盈亏、上限与信号时效，实际以订单记录为准。",
         unknownEquity: "读不到交易员账户价值，无法估算比例跟单的单笔金额。",
         noOpens: "交易员近期没有可估算的开仓。",
+        unavailable: "暂时读不到交易员的近期成交，无法估算。",
       },
       backspace: "删除",
       maxToCopy: "上限 ${max}",

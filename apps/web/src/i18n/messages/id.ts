@@ -1021,6 +1021,7 @@ export const id: Messages = {
         sample: "Sampel: transaksi {from} – {to} (UTC). Belum termasuk PnL selanjutnya, batas, dan masa berlaku sinyal; yang berlaku adalah riwayat order.",
         unknownEquity: "Nilai akun trader tidak dapat dibaca, jadi ukuran order rasio tidak dapat diperkirakan.",
         noOpens: "Trader tidak memiliki pembukaan terbaru untuk diperkirakan.",
+        unavailable: "Transaksi terbaru trader belum dapat dibaca, jadi belum bisa diperkirakan.",
       },
       backspace: "Hapus",
       maxToCopy: "Maksimal ${max}",

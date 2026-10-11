@@ -5,10 +5,10 @@ import { zhTW } from "../src/i18n/messages/zh-TW";
 import { I18nProvider } from "../src/i18n/provider";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh() {} }) }));
-const read = vi.hoisted(() => ({ accountValue: 100_000 as number | null, fills: [] as unknown[] | undefined }));
+const read = vi.hoisted(() => ({ accountValue: 100_000 as number | null, fills: [] as unknown[] | undefined, fillsError: false }));
 vi.mock("../src/lib/queries", () => ({
   useTraderProfile: () => ({ data: { accountValue: read.accountValue } }),
-  useTraderFills: () => ({ data: read.fills }),
+  useTraderFills: () => ({ data: read.fills, isError: read.fillsError }),
 }));
 
 import { CopyFitSummary } from "../src/components/trader/copy-fit-summary";
@@ -19,6 +19,7 @@ const render = (allocation: number) => renderToStaticMarkup(<I18nProvider locale
 
 beforeEach(() => {
   read.accountValue = 100_000;
+  read.fillsError = false;
   read.fills = [fill("NEAR", 5.3864, 1000, 1), fill("BTC", 100_000, 0.2, 2), fill("xyz:MU", 100, 10, 3)];
 });
 
@@ -41,4 +42,11 @@ it("says when every open fits, and shows nothing before an amount is typed", () 
 it("does not guess without the leader's account value", () => {
   read.accountValue = null;
   expect(render(100)).toContain("讀不到交易員帳戶價值");
+});
+
+it("says the fills could not be read instead of showing nothing", () => {
+  read.fills = undefined;
+  expect(render(100)).toBe("");
+  read.fillsError = true;
+  expect(render(100)).toContain("暫時讀不到交易員的近期成交");
 });

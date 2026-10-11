@@ -17,7 +17,9 @@ export function CopyFitSummary({ address, allocation }: { address: string; alloc
   const profile = useTraderProfile(address);
   const fills = useTraderFills(address, FILL_LIMIT, { enabled: allocation > 0 });
   const fit = estimateCopyFit({ fills: fills.data, leaderEquity: profile.data?.accountValue, allocation });
-  if (fit.status === "loading" || fit.status === "no_amount") return null;
+  if (fit.status === "no_amount") return null;
+  // A failed read (Hyperliquid's budget, 503) is said, not shown as a silent gap.
+  if (fit.status === "loading") return fills.isError || profile.isError ? <Shell warn={false}>{t("trader.copy.fit.unavailable")}</Shell> : null;
   if (fit.status !== "ok") return <Shell warn={false}>{t(fit.status === "unknown_equity" ? "trader.copy.fit.unknownEquity" : "trader.copy.fit.noOpens")}</Shell>;
   return (
     <Shell warn={fit.belowMin + fit.hip3 > 0}>

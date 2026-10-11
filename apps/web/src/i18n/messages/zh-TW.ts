@@ -1793,6 +1793,7 @@ export const zhTW = {
         sample: "樣本 {from} – {to}（UTC）的成交。估算不含之後的損益、上限與訊號時效，實際以訂單紀錄為準。",
         unknownEquity: "讀不到交易員帳戶價值，無法估算比例跟單的單筆金額。",
         noOpens: "交易員近期沒有可估算的開倉。",
+        unavailable: "暫時讀不到交易員的近期成交，無法估算。",
       },
       backspace: "刪除",
       maxToCopy: "上限 ${max}",

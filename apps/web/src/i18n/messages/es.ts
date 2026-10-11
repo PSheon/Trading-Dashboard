@@ -1021,6 +1021,7 @@ export const es: Messages = {
         sample: "Muestra: operaciones {from} – {to} (UTC). No incluye PnL posterior, límites ni vigencia de señales; cuenta el historial de órdenes.",
         unknownEquity: "No se puede leer el valor de la cuenta del trader, así que no se pueden estimar los tamaños por proporción.",
         noOpens: "El trader no tiene aperturas recientes para estimar.",
+        unavailable: "Ahora no se pueden leer las operaciones recientes del trader, así que no se puede estimar.",
       },
       backspace: "Borrar",
       maxToCopy: "Máximo ${max}",

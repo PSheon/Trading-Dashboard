@@ -99,6 +99,17 @@ describe("actual copy notifications", () => {
     expect(texts()[1]).toContain("Realized P&L +$49");
   });
 
+  it("says a close refused after Hyperliquid liquidated the copy as a liquidation, not a rejected order (CP-EXE-16)", async () => {
+    await link.setCopyAlerts(1, true);
+    await dispatch("leg-liquidated", { leg: "close", state: "refused", reason: "position_liquidated", updatedAt: at() });
+    await service().deliverAction();
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(texts()[0]).not.toContain("Order not executed");
+    const [event] = await db.select().from(copyEvents);
+    expect(event!.type).toBe("position_liquidated");
+    expect(event!.payload).toEqual({ mode: "testnet", liveSource: "dispatch:leg-liquidated", coin: "BTC" });
+  });
+
   it("sends a refused leg with its public reason only, never internal bookkeeping refusals or a settled leg that did not fill", async () => {
     await link.setCopyAlerts(1, true);
     await dispatch("leg-refused", { state: "refused", reason: "live_source_price_deviation", updatedAt: at() });

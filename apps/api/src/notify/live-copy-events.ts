@@ -47,6 +47,7 @@ export function liveCopyPayload(row: LiveCopySource): Record<string, unknown> {
     const action = row.sides === 1 ? liveFillAction(row.side, row.size, row.start) : null;
     return { ...base, coin: row.coin, ...fill, ...(action ? { action } : {}), realizedPnl: row.pnl, fee: row.fee };
   }
+  if (row.type === "position_liquidated") return { ...base, coin: row.coin };
   if (row.type === "funds_returned" || row.type === "funds_withdrawn") return { ...base, amount: row.amount };
   return base;
 }

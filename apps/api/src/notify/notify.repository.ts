@@ -72,7 +72,9 @@ export class NotifyRepository {
             from copy_follower_receipts r where r.execution_key = d.execution_key and r.kind = 'fill' and r.attribution = 'execution') f
           where d.state = 'settled' and ${recent(sql`d.settled_at`)} and f.size > 0 and f.invalid = 0
           union all
-          select 'dispatch:' || d.id, d.user_id, d.strategy_id, s.network, d.updated_at, 'order_rejected', d.coin, d.reason, null, null, null, null, null, null, null, null
+          select 'dispatch:' || d.id, d.user_id, d.strategy_id, s.network, d.updated_at,
+            -- Hyperliquid liquidated the copy (CP-EXE-16): said as the liquidation, not as an order lost.
+            case when d.reason = 'position_liquidated' then 'position_liquidated' else 'order_rejected' end, d.coin, d.reason, null, null, null, null, null, null, null, null
           from copy_live_dispatches d join o on o.user_id = d.user_id join copy_strategies s on s.id = d.strategy_id and s.user_id = d.user_id and s.mode = 'testnet'
           where d.state = 'refused' and d.reason is not null and d.reason not in (${sql.join(SILENT_LIVE_REFUSALS.map(reason => sql`${reason}`), sql`, `)}) and ${recent(sql`d.updated_at`)}
           union all

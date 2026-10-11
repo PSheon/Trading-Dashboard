@@ -26,11 +26,11 @@ async function render() {
 }
 // Waits for the preference read and the save to answer, then lets React commit.
 const settle = () => settleQueries(client, { ms: 10 });
-it("requires a linked enabled channel and labels notifications as paper", async () => {
+it("requires a linked enabled channel and says it covers simulated and actual copies", async () => {
   state.get.mockResolvedValue({ ...linked, linked: false, enabled: false });
   await render();
   expect(container.querySelector<HTMLButtonElement>('[role="switch"]')?.disabled).toBe(true);
-  expect(container.textContent).toContain("paper-copy");
+  expect(container.textContent).toContain("simulated and actual copies");
   expect(state.patch).not.toHaveBeenCalled();
 });
 it("saves opt-in only on explicit action and retains the confirmed preference on failure", async () => {

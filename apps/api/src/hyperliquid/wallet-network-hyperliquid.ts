@@ -21,9 +21,10 @@ import { RequestBudgeterService } from './request-budgeter.service.js';
  * transport and client; with it (COPY_TRADING_MODE=live) a bucket of its own
  * (COPY_LIVE_WEIGHT_PER_MIN) on the same transport. */
 export const WALLET_NETWORK_HL = Symbol('WALLET_NETWORK_HL');
-/** Share of a wallet-network bucket only real-money work may spend: an
- * order's evidence (589) and a setup's account mode (613) fit 80 % of an
- * 800 (testnet) or 900 (mainnet live) burst whatever background work does. */
+/** Share of a wallet-network bucket kept for real-money work (its reserve,
+ * refilled first, never spent by background work): an order's evidence
+ * (589) and a setup's account mode (613) fit 80 % of an 800 (testnet) or
+ * 900 (mainnet live) burst whatever receipts and snapshots do. */
 export const LIVE_HEADROOM_SHARE = 0.8;
 export interface WalletNetworkHyperliquid {
   /** The network the users' wallets and copy accounts live on. */

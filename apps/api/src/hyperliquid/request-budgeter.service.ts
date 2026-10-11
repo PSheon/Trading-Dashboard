@@ -307,6 +307,9 @@ export class RequestBudgeterService {
   private readonly mainCapacity: number;
   readonly reserveCapacity: number;
   private readonly liveReserve: number;
+  /** A real-money bucket: its reserve (`liveHeadroomShare` of the burst)
+   * refills before the main bucket, whatever background work waits. */
+  private readonly liveFirst: boolean;
   /** Share of the rate the reserve keeps refilling at while page work is
    * over its share of the minute. */
   readonly pageReserveShare: number;
@@ -359,16 +362,13 @@ export class RequestBudgeterService {
     this.capacity = Math.max(1, Math.min(hl.burst, HARD_LIMIT_PER_MIN - this.configuredBudgetPerMin));
     // The main bucket keeps at least one token of burst, so a tiny burst
     // (tests) still paces instead of dispatching into endless debt.
-    this.mainCapacity = Math.max(1, this.capacity - Math.round(this.capacity * PAGE_RESERVE_CAPACITY_SHARE));
+    // A real-money bucket (liveHeadroomShare, the wallet network's) keeps
+    // that share of its burst as the reserve: background work (receipts,
+    // snapshots) never spends it, and it refills first (see refill).
+    this.liveFirst = hl.liveHeadroomShare !== undefined;
+    this.mainCapacity = Math.max(1, this.capacity - Math.round(this.capacity * (hl.liveHeadroomShare ?? PAGE_RESERVE_CAPACITY_SHARE)));
     this.reserveCapacity = this.capacity - this.mainCapacity;
-    // A bucket for real-money work (the wallet network's) keeps at least
-    // `liveHeadroomShare` of its burst for `live`: an order's evidence (589)
-    // or a setup's account mode (613) must fit while background work
-    // (receipts, snapshots) keeps spending the rest. With the default 10 %
-    // they never fitted a busy 800 or 900 bucket (local testnet, 2026-10-12).
-    const headroom = hl.liveHeadroomShare;
-    this.liveReserve = headroom === undefined ? Math.floor(this.mainCapacity * LIVE_RESERVE_SHARE)
-      : Math.min(this.mainCapacity, Math.max(Math.floor(this.mainCapacity * LIVE_RESERVE_SHARE), Math.ceil(this.capacity * headroom) - this.reserveCapacity));
+    this.liveReserve = Math.floor(this.mainCapacity * LIVE_RESERVE_SHARE);
     this.pageReserveShare = hl.pageReserveShare;
     this.lastRefillAt = Date.now();
     const paced = hl.startupPaceSeconds > 0;
@@ -414,7 +414,7 @@ export class RequestBudgeterService {
     // always queued behind a cold page, a second cold page's profile waited
     // three times as long as the budget needed (Stage, 2026-10-05).
     const background = this.queues.background;
-    const share = this.pageHeld(now) ? this.pageReserveShare
+    const share = this.liveFirst ? 1 : this.pageHeld(now) ? this.pageReserveShare
       : background.some((w) => w.interactive) || !background.some((w) => !w.interactive) ? 1 : RESERVE_REFILL_SPLIT;
     const toReserve = Math.min(delta * share, Math.max(0, this.reserveCapacity - this.reserve));
     this.reserve += toReserve;

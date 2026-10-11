@@ -43,11 +43,14 @@ describe("the order path's token bucket", () => {
     const reportingTransport = Object.create(HyperliquidGlobalTransport.prototype) as HyperliquidGlobalTransport;
     const read = vi.fn(async () => Response.json(null));
     Object.defineProperty(reportingTransport, 'fetchBackgroundInfo', { value: read });
-    await budget.acquire(900, 'live');
+    // Real-money work spent most of the bucket: its reserve (720 of 900) is empty.
+    await budget.acquire(800, 'live');
     const result = followerSnapshotReader({ ...wallet, transport: reportingTransport }).observe(users(1)[0]!).catch(error => error);
     await vi.advanceTimersByTimeAsync(12_000);
     expect(read).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(100_000);
+    // That reserve refills first (144 s at 300/min), then the main bucket
+    // gives the read its share: within the reader's 180 s wait.
+    await vi.advanceTimersByTimeAsync(160_000);
     expect(read).toHaveBeenCalled();
     await result; budget.onModuleDestroy();
   });

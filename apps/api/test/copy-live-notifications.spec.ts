@@ -101,7 +101,8 @@ describe("actual copy notifications", () => {
 
   it("says a close refused after Hyperliquid liquidated the copy as a liquidation, not a rejected order (CP-EXE-16)", async () => {
     await link.setCopyAlerts(1, true);
-    await dispatch("leg-liquidated", { leg: "close", state: "refused", reason: "position_liquidated", updatedAt: at() });
+    // 1 s ahead: copyAlertsSince is the database clock, the row the test clock.
+    await dispatch("leg-liquidated", { leg: "close", state: "refused", reason: "position_liquidated", updatedAt: at(1_000) });
     await service().deliverAction();
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(texts()[0]).not.toContain("Order not executed");
@@ -112,7 +113,7 @@ describe("actual copy notifications", () => {
 
   it("sends a refused leg with its public reason only, never internal bookkeeping refusals or a settled leg that did not fill", async () => {
     await link.setCopyAlerts(1, true);
-    await dispatch("leg-refused", { state: "refused", reason: "live_source_price_deviation", updatedAt: at() });
+    await dispatch("leg-refused", { state: "refused", reason: "live_source_price_deviation", updatedAt: at(1_000) });
     await dispatch("leg-merged", { leg: "close", state: "refused", reason: "merged_into_adjustment", updatedAt: at() });
     await dispatch("leg-owner", { leg: "close", state: "refused", reason: "position_closed_by_owner", updatedAt: at() });
     await service().deliverAction();

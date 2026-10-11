@@ -60,4 +60,18 @@ describe("the wallet network's Hyperliquid budget", () => {
     await expect(liveBudget(wallet.budget, { maxWaitMs: LIVE_RESERVE_WAIT_MS })(ATTEMPT_WEIGHT)).resolves.toBeUndefined();
     main.onModuleDestroy(); wallet.budget.onModuleDestroy();
   });
+
+  it("background work can never spend a wallet bucket below what one live order's evidence (589) or a setup's account mode (613) needs (local testnet 2026-10-12)", async () => {
+    const cfg = config({ HYPERLIQUID_NETWORK: "testnet", HYPERLIQUID_STARTUP_PACE_SECONDS: "0" });
+    const main = new RequestBudgeterService(cfg), wallet = walletNetworkHyperliquid(cfg, main, transport, quota, new HyperliquidInfoClient(cfg, main));
+    // Receipts and snapshots take everything background may take, 10 at a time.
+    for (;;) {
+      try { await wallet.budget.acquire(10, "background", undefined, { signal: AbortSignal.timeout(20) }); }
+      catch { break; }
+    }
+    expect(wallet.budget.liveWaitMs(589)).toBe(0);
+    expect(wallet.budget.liveWaitMs(ATTEMPT_WEIGHT)).toBe(0);
+    main.onModuleDestroy(); wallet.budget.onModuleDestroy();
+  });
 });
+

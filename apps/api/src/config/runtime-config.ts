@@ -432,6 +432,10 @@ export function validateEnvironment(source: Environment = process.env) {
     /** Share of the budget rate the page reserve keeps refilling at while
      * page work is over its share of the minute: the floor pages always get. */
     pageReserveShare: decimalValue("HYPERLIQUID_PAGE_RESERVE_SHARE", source.HYPERLIQUID_PAGE_RESERVE_SHARE, 0.25, 0.05, 0.9),
+    /** Share of the burst only `live` may spend (the page reserve plus the
+     * main bucket's live reserve); unset: the page reserve plus 10 % of the
+     * main bucket. Set by the wallet network's own bucket only, never env. */
+    ...({} as { liveHeadroomShare?: number }),
     /** A new process sends at a reduced rate, from empty buckets, for this
      * long: during a redeploy the instance it replaces is still spending
      * the same IP limit. 0: full rate and a full burst at once. */

@@ -361,7 +361,14 @@ export class RequestBudgeterService {
     // (tests) still paces instead of dispatching into endless debt.
     this.mainCapacity = Math.max(1, this.capacity - Math.round(this.capacity * PAGE_RESERVE_CAPACITY_SHARE));
     this.reserveCapacity = this.capacity - this.mainCapacity;
-    this.liveReserve = Math.floor(this.mainCapacity * LIVE_RESERVE_SHARE);
+    // A bucket for real-money work (the wallet network's) keeps at least
+    // `liveHeadroomShare` of its burst for `live`: an order's evidence (589)
+    // or a setup's account mode (613) must fit while background work
+    // (receipts, snapshots) keeps spending the rest. With the default 10 %
+    // they never fitted a busy 800 or 900 bucket (local testnet, 2026-10-12).
+    const headroom = hl.liveHeadroomShare;
+    this.liveReserve = headroom === undefined ? Math.floor(this.mainCapacity * LIVE_RESERVE_SHARE)
+      : Math.min(this.mainCapacity, Math.max(Math.floor(this.mainCapacity * LIVE_RESERVE_SHARE), Math.ceil(this.capacity * headroom) - this.reserveCapacity));
     this.pageReserveShare = hl.pageReserveShare;
     this.lastRefillAt = Date.now();
     const paced = hl.startupPaceSeconds > 0;

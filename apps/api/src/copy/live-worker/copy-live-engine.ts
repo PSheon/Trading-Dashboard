@@ -92,6 +92,8 @@ const isHip3 = (coin: string) => coin.includes(':');
  * leader fill is older than the policy's signal age. The account's leverage
  * above the cap is set by the runtime before an open (live-leverage-update.ts):
  * a refusal still saying so, or an update the exchange rejected, is final. */
+/** Reads of an unsupported account mode before its refusal is final. */
+const ABSTRACTION_ATTEMPT_LIMIT = 3;
 const PERMANENT = new Set(['live_source_price_deviation', 'live_budget_over_capacity', 'below_min_notional', 'live_risk_adoption_unproven', 'live_market_unknown',
   'live_account_unsupported_role', 'live_account_unsupported_abstraction', 'unattempted_expired', 'live_risk_provider_fee_scope_unproven', HIP3_REFUSAL,
   'live_risk_leverage', 'live_leverage_update_rejected',
@@ -522,7 +524,10 @@ export class CopyLiveEngine {
         this.now() - row.leaderTime.getTime() < Math.max(0, signalAgeMs - HOLD_MARGIN_MS)) {
         await this.deps.repository.dissolve(row, row.attempts + 1); return;
       }
-      const permanent = row.state === 'pending' && (PERMANENT.has(reason) || row.leg === 'close' && (reason === 'no_follower_position' || row.attempts + 1 >= CLOSE_ATTEMPT_LIMIT));
+      // An unsupported account mode read once right after a setup (testnet,
+      // 2026-10-12) may be the exchange catching up: final on its third read.
+      const transient = reason === 'live_account_unsupported_abstraction' && row.attempts + 1 < ABSTRACTION_ATTEMPT_LIMIT;
+      const permanent = row.state === 'pending' && !transient && (PERMANENT.has(reason) || row.leg === 'close' && (reason === 'no_follower_position' || row.attempts + 1 >= CLOSE_ATTEMPT_LIMIT));
       await this.deps.repository.update(row, { ...(permanent ? { state: 'refused' as const } : {}), reason, firstAttemptAt: first, attempts: row.attempts + 1, ...times });
     }
   }

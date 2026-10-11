@@ -21,6 +21,10 @@ import { RequestBudgeterService } from './request-budgeter.service.js';
  * transport and client; with it (COPY_TRADING_MODE=live) a bucket of its own
  * (COPY_LIVE_WEIGHT_PER_MIN) on the same transport. */
 export const WALLET_NETWORK_HL = Symbol('WALLET_NETWORK_HL');
+/** Share of a wallet-network bucket only real-money work may spend: an
+ * order's evidence (589) and a setup's account mode (613) fit 80 % of an
+ * 800 (testnet) or 900 (mainnet live) burst whatever background work does. */
+export const LIVE_HEADROOM_SHARE = 0.8;
 export interface WalletNetworkHyperliquid {
   /** The network the users' wallets and copy accounts live on. */
   readonly network: 'mainnet' | 'testnet';
@@ -51,12 +55,12 @@ export function walletNetworkHyperliquid(config: AppConfig, budget: RequestBudge
     // it near empty and a copy setup waited on its account-mode step for
     // hours (Stage, 2026-10-11). Wallet page reads stay on the main budget.
     const weightPerMin = live.weightPerMin;
-    const liveConfig = new AppConfig({ ...config.value, hyperliquid: { ...hl, budgetPerMin: weightPerMin, burst: 1200 - weightPerMin, startupPaceSeconds: 0 } });
+    const liveConfig = new AppConfig({ ...config.value, hyperliquid: { ...hl, budgetPerMin: weightPerMin, burst: 1200 - weightPerMin, startupPaceSeconds: 0, liveHeadroomShare: LIVE_HEADROOM_SHARE } });
     return { network, budget: new RequestBudgeterService(liveConfig), transport, info: mainInfo(), config: liveConfig, dedicated: true };
   }
   if (network !== 'testnet' || !hl.egressKey) return { network, budget, transport, info: mainInfo(), config, dedicated: false };
   const weightPerMin = config.value.copy.live?.weightPerMin ?? 300, egressKey = `${hl.egressKey}:testnet`;
-  const testnetConfig = new AppConfig({ ...config.value, hyperliquid: { ...hl, egressKey, budgetPerMin: weightPerMin, burst: 1200 - weightPerMin, startupPaceSeconds: 0 } });
+  const testnetConfig = new AppConfig({ ...config.value, hyperliquid: { ...hl, egressKey, budgetPerMin: weightPerMin, burst: 1200 - weightPerMin, startupPaceSeconds: 0, liveHeadroomShare: LIVE_HEADROOM_SHARE } });
   const testnetBudget = new RequestBudgeterService(testnetConfig), testnetTransport = new HyperliquidGlobalTransport(quota, { egressKey, ownerId: randomUUID() });
   return { network, budget: testnetBudget, transport: testnetTransport, info: new HyperliquidInfoClient(testnetConfig, testnetBudget, jobs, testnetTransport), config: testnetConfig, dedicated: true };
 }

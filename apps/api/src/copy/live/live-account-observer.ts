@@ -205,7 +205,16 @@ export class HyperliquidLiveAccountObserver {
       const metadataRead = read('allPerpMetas', 20);
       void metadataRead.catch(() => {});
       const [initial, rawTokens] = await initialWork;
-      const accountMode = mode(...initial.slice(0, 4) as [unknown, unknown, unknown, unknown], options.unsetup === true, setupAbort), spot = accountMode.spot;
+      let accountMode: AccountMode;
+      try { accountMode = mode(...initial.slice(0, 4) as [unknown, unknown, unknown, unknown], options.unsetup === true, setupAbort); }
+      catch (error) {
+        // What the exchange said, for the refusal's log (a copy's first open was
+        // refused once on testnet right after its setup, 2026-10-12): no amounts.
+        if (error instanceof LiveBoundaryError) new Logger('LiveAccountObserver').warn(`${error.code} for ${user}: ` + JSON.stringify({ role: initial[0], abstraction: initial[1],
+          dexAbstraction: initial[2], portfolioMargin: (initial[3] as { portfolioMarginEnabled?: unknown } | null)?.portfolioMarginEnabled ?? null, unsetup: options.unsetup === true, setupAbort }));
+        throw error;
+      }
+      const spot = accountMode.spot;
       const zeroOnly = accountMode.zeroOnly;
       const tokens = z.object({ tokens: z.array(tokenSchema).max(10_000) }).parse(rawTokens).tokens;
       unique(tokens.map((t) => t.index));

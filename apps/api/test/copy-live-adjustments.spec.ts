@@ -120,6 +120,21 @@ describe('same-coin leader legs become one follower adjustment', () => {
     expect(calls).toEqual([expect.objectContaining({ sourceFillId: more[2], leg: 'open', members: [...first, more[0], more[1]] })]);
   });
 
+  it('an unsupported account mode read once is retried, not final at once; its third read is final (local testnet 2026-10-12)', async () => {
+    const big = await leaderFill(37, now + 100, 'B', '2', '0');
+    let reads = 0;
+    runtimeImpl = async (request, hooks) => { if (++reads === 1) throw new LiveBoundaryError('live_account_unsupported_abstraction'); return filled(request, hooks); };
+    await coverage(now - 10_000, now + 200); clock = now + 300; await engine().tick();
+    expect(await dispatches()).toEqual([expect.objectContaining({ sourceFillId: big, state: 'pending', reason: 'live_account_unsupported_abstraction', attempts: 1 })]);
+    clock = now + 3_300; await engine().tick();
+    expect(calls).toEqual([expect.objectContaining({ sourceFillId: big, leg: 'open' })]);
+    // Read unsupported on every attempt: final on the third.
+    const other = await leaderFill(38, now + 4_000, 'B', '2', '2');
+    runtimeImpl = async () => { throw new LiveBoundaryError('live_account_unsupported_abstraction'); };
+    for (const at of [4_300, 7_300, 10_300]) { await coverage(now - 10_000, now + at - 100); clock = now + at; await engine().tick(); }
+    expect((await dispatches()).find(d => d.sourceFillId === other)).toMatchObject({ state: 'refused', reason: 'live_account_unsupported_abstraction', attempts: 3 });
+  });
+
   it('TEST ONLY: with COPY_LIVE_TEST_MIN_FLOOR_MAX_USD a small open is not held: it goes at once, for the planner to raise to the minimum (Paul 2026-10-11)', async () => {
     const leaderEquity = vi.fn(async () => '1000');
     registerLiveDeployment({ network: 'testnet', caps: { maxStrategiesPerUser: 2, testMinFloorMaxUsd: 15 }, builderFee: true, testnetSourceIntervalMs: 60_000,

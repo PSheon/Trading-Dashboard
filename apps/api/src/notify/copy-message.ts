@@ -15,8 +15,15 @@ import { formatPrice, formatUsd, safeDisplayName, shortAddress } from "./message
 export const COPY_NOTIFICATION_TYPES = ["order_rejected", "order_cancelled", "order_filled", "position_liquidated", "strategy_stopped", "funds_added", "funds_withdrawn", "funds_returned"] as const;
 export const copyDeliveryPayloadSchema = z.object({
   version: z.literal(2), kind: z.literal("copy"), text: z.string(), chatId: z.string(),
-  eventId: z.string().regex(/^\d+$/), mode: z.literal("paper"),
+  eventId: z.string().regex(/^\d+$/), mode: z.enum(["paper", "testnet", "live"]),
 });
+/** The mode of an owner event the trade bot may send: a paper copy's, or an
+ * actual copy's projected from its live rows (`liveSource`; see
+ * NotifyRepository.projectLiveCopyEvents). Anything else is never sent. */
+export function notifiableCopyMode(payload: Record<string, unknown>): "paper" | "testnet" | "live" | null {
+  if (payload.mode === "paper") return "paper";
+  return (payload.mode === "testnet" || payload.mode === "live") && typeof payload.liveSource === "string" ? payload.mode : null;
+}
 
 type Reasons = TelegramMessages["copy"]["reasons"];
 /** A public order-reason code as one of the localized groups. */

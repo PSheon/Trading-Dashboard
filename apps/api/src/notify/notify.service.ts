@@ -9,7 +9,7 @@ import { UnitOfWork, type DbTransaction } from "../db/unit-of-work.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { forEachConcurrent } from "../runtime/concurrency.js";
 import { DELIVERY_BATCH, NotifyRepository, type DeliveryRow } from "./notify.repository.js";
-import { copyDeliveryPayloadSchema, renderCopyMessage, COPY_NOTIFICATION_TYPES } from "./copy-message.js";
+import { copyDeliveryPayloadSchema, notifiableCopyMode, renderCopyMessage, COPY_NOTIFICATION_TYPES } from "./copy-message.js";
 import type { AlertContext } from "./notify.types.js";
 import { renderAlertMessage, renderTestMessage, tradeSideOf } from "./message-template.js";
 import { TelegramApiError, TelegramHttpClient } from "./telegram-http.client.js";
@@ -149,8 +149,11 @@ export class NotifyService {
    */
   async deliverAction(actionId?: bigint): Promise<void> {
     if (actionId === undefined) {
+      // A failed projection of actual copies never holds up paper ones.
+      try { await this.repository.projectLiveCopyEvents(ALERT_MAX_AGE_MS); }
+      catch (error) { this.logger.error(`Actual copy notifications not projected: ${errorText(error)}`); }
       for (const { event, chatId, locale, leaderAddress } of await this.repository.copyCandidates(ALERT_MAX_AGE_MS)) {
-        const payload = copyDeliveryPayloadSchema.parse({ version: 2, kind: "copy", mode: "paper", eventId: String(event.id), chatId,
+        const payload = copyDeliveryPayloadSchema.parse({ version: 2, kind: "copy", mode: notifiableCopyMode(event.payload), eventId: String(event.id), chatId,
           text: renderCopyMessage(event, this.config.value.telegram.linkBaseUrl, locale, leaderAddress) });
         await this.unitOfWork.run(tx => this.repository.enqueueCopy(event.id, event.userId, payload, tx));
       }
@@ -220,7 +223,7 @@ export class NotifyService {
           this.repository.copyEvent(row.copyEventId!, row.userId), this.repository.notificationSettings(),
         ]);
         return Boolean(recipient && channel?.copyAlertsEnabled && channel.copyAlertsSince && event
-          && String(event.id) === payload.eventId && event.payload.mode === "paper"
+          && String(event.id) === payload.eventId && notifiableCopyMode(event.payload) === payload.mode
           && (COPY_NOTIFICATION_TYPES as readonly string[]).includes(event.type)
           && event.createdAt >= channel.copyAlertsSince && Date.now() - event.createdAt.getTime() <= ALERT_MAX_AGE_MS
           && recoverSettingsSection("notifications", settings ? settings.value : {}, Boolean(settings)).value.alertsEnabled);

@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lte, or, sql, type SQL } from "drizzle-orm";
 import {
   actions, alerts, copyEvents, copyStrategies, notificationOutbox, notificationChannels, userFavorites, appSettings, users,
 } from "@trading-dashboard/shared/database";
@@ -7,7 +7,9 @@ import {
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
+import { insertOwnerEvent } from "../copy/copy-runtime.repository.js";
 import { COPY_NOTIFICATION_TYPES } from "./copy-message.js";
+import { liveCopyPayload, SILENT_LIVE_REFUSALS, type LiveCopySource } from "./live-copy-events.js";
 import type { AlertContext } from "./notify.types.js";
 
 export type DeliveryRow = typeof notificationOutbox.$inferSelect;
@@ -30,8 +32,66 @@ export class NotifyRepository {
       .leftJoin(copyStrategies, eq(copyStrategies.id, copyEvents.strategyId))
       .where(and(isNull(copyEvents.notificationQueuedAt), eq(notificationChannels.enabled, true), eq(notificationChannels.copyAlertsEnabled, true),
         gte(copyEvents.createdAt, notificationChannels.copyAlertsSince), sql`${copyEvents.createdAt} >= now() - make_interval(secs => ${maxAgeMs / 1000})`,
-        inArray(copyEvents.type, [...COPY_NOTIFICATION_TYPES]), sql`${copyEvents.payload}->>'mode' = 'paper'`))
+        inArray(copyEvents.type, [...COPY_NOTIFICATION_TYPES]),
+        // Paper, or an actual copy's event projected from its live rows (never one merely labelled live).
+        sql`(${copyEvents.payload}->>'mode' = 'paper' or (${copyEvents.payload}->>'mode' in ('testnet', 'live')
+          and jsonb_typeof(${copyEvents.payload}->'liveSource') = 'string' and ${copyStrategies.mode} = 'testnet'))`))
       .orderBy(copyEvents.id).limit(DELIVERY_BATCH);
+  }
+
+  /**
+   * Actual copies write no owner events: their activity is the live rows.
+   * Each terminal one the trade bot sends — a settled leg that filled
+   * (`order_filled`, from its order's own fills), a refused leg
+   * (`order_rejected`, but not SILENT_LIVE_REFUSALS), a finished stop
+   * (`strategy_stopped`) and a credited return to the main wallet
+   * (`funds_returned` for a stop's sweep or an aborted setup's refund,
+   * else `funds_withdrawn`) — becomes one owner event keyed by
+   * `payload.liveSource`, which copyCandidates then queues like a paper one.
+   * Only for owners with copy alerts on, rows since the opt-in and at most
+   * `maxAgeMs` old (as copyCandidates): never a backfill of history. One
+   * projector at a time (transaction lock), so a row is never projected twice.
+   */
+  async projectLiveCopyEvents(maxAgeMs: number): Promise<number> {
+    return this.db.transaction(async tx => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended('copy-live-notify', 0))`);
+      const recent = (at: SQL) => sql`${at} >= o.since and ${at} >= now() - make_interval(secs => ${maxAgeMs / 1000})`;
+      const num = (field: string) => sql`(case when r.record->>${field} ~ '^-?[0-9]+(\.[0-9]+)?$' then (r.record->>${field})::numeric end)`;
+      const { rows } = await tx.execute<LiveCopySource>(sql`
+        with o as (
+          select c.user_id, c.copy_alerts_since as since from notification_channels c join users u on u.id = c.user_id and u.disabled_at is null
+          where c.kind = 'telegram' and c.enabled and c.copy_alerts_enabled and c.copy_alerts_since is not null
+        ), x as (
+          select 'dispatch:' || d.id as source, d.user_id, d.strategy_id, s.network, d.settled_at as at, 'order_filled' as type, d.coin, null::text as reason, null::text as amount,
+            f.size::text as size, round(f.notional / f.size, 10)::text as px, f.side, f.sides, f.pnl::text as pnl, f.fee::text as fee, f.start
+          from copy_live_dispatches d join o on o.user_id = d.user_id join copy_strategies s on s.id = d.strategy_id and s.user_id = d.user_id and s.mode = 'testnet'
+          cross join lateral (select sum(${num("size")}) as size, sum(${num("size")} * ${num("price")}) as notional, min(r.record->>'side') as side,
+              count(distinct r.record->>'side')::int as sides, sum(${num("closedPnl")}) as pnl, sum(${num("totalFee")}) as fee,
+              (array_agg(r.record->'raw'->>'startPosition' order by r.provider_time, r.key))[1] as start,
+              count(*) filter (where ${num("size")} is null or ${num("price")} is null) as invalid
+            from copy_follower_receipts r where r.execution_key = d.execution_key and r.kind = 'fill' and r.attribution = 'execution') f
+          where d.state = 'settled' and ${recent(sql`d.settled_at`)} and f.size > 0 and f.invalid = 0
+          union all
+          select 'dispatch:' || d.id, d.user_id, d.strategy_id, s.network, d.updated_at, 'order_rejected', d.coin, d.reason, null, null, null, null, null, null, null, null
+          from copy_live_dispatches d join o on o.user_id = d.user_id join copy_strategies s on s.id = d.strategy_id and s.user_id = d.user_id and s.mode = 'testnet'
+          where d.state = 'refused' and d.reason is not null and d.reason not in (${sql.join(SILENT_LIVE_REFUSALS.map(reason => sql`${reason}`), sql`, `)}) and ${recent(sql`d.updated_at`)}
+          union all
+          select 'stop:' || t.id, t.user_id, t.strategy_id, t.network, t.updated_at, 'strategy_stopped', null, null, null, null, null, null, null, null, null, null
+          from copy_live_stop_operations t join o on o.user_id = t.user_id join copy_strategies s on s.id = t.strategy_id and s.user_id = t.user_id and s.mode = 'testnet'
+          where t.state = 'stopped' and ${recent(sql`t.updated_at`)}
+          union all
+          select 'funding:' || fo.id, fo.user_id, fo.strategy_id, fo.network, fo.updated_at,
+            case when fo.stop_id is not null or fo.setup_abort_id is not null then 'funds_returned' else 'funds_withdrawn' end, null, null, fo.credited_amount, null, null, null, null, null, null, null
+          from copy_funding_operations fo join o on o.user_id = fo.user_id join copy_strategies s on s.id = fo.strategy_id and s.user_id = fo.user_id and s.mode = 'testnet'
+          where fo.direction = 'to_main' and fo.status = 'credited' and ${recent(sql`fo.updated_at`)}
+        )
+        select source, user_id as "userId", strategy_id as "strategyId", network, at, type, coin, reason, amount, size, px, side, sides, pnl, fee, start from x
+        -- Projected ones were written after their row's time (an hour covers clock skew).
+        where not exists (select 1 from copy_events e where e.user_id = x.user_id and e.created_at >= x.at - interval '1 hour' and e.payload->>'liveSource' = x.source)
+        order by x.at, x.source limit ${DELIVERY_BATCH}`);
+      for (const row of rows) await insertOwnerEvent(tx, row.userId, row.strategyId, row.type, liveCopyPayload(row));
+      return rows.length;
+    });
   }
 
   async enqueueCopy(eventId: bigint, userId: number, payloadJson: Record<string, unknown>, tx: DbTransaction): Promise<void> {

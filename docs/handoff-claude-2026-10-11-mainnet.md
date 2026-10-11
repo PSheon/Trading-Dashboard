@@ -43,6 +43,18 @@ Telegram 已正式啟用（保留）：兩服務 `TELEGRAM_BOT_USERNAME=orbie_fu
 5. 降低查證讀取量（改 WS 推送）、背景與真錢分開 egress IP（架構，排後）。
 6. 其他已記錄：運行中加碼、複製目前持倉、HIP-3（排後）。
 
+### 4a. 進度（22:10）
+
+| # | 狀態 | commit |
+|---|---|---|
+| 1 獨立額度 | 已修：`COPY_TRADING_MODE=live` 時錢包網路用自己的 bucket（`COPY_LIVE_WEIGHT_PER_MIN` 300，容量 900），同 transport／egress key；錢包頁讀取仍走主 budget | `8824e51a` |
+| 2 一次跑完 | 已修：API confirm 遇 worker 持有 lease 最多等 30 s（中止不等）；瀏覽器在伺服器仍處理時輪詢最多 2 分鐘，不再彈回確認視窗 | `89273f0a` |
+| 3 比例跟單 | 已做：`COPY_LIVE_RATIO_SIZING=true` 才開（預設關，行為不變）；固定金額仍限 12–15；低於最小額照舊略過並記錄。開不開、最小額政策待 Paul 決定 | `35f0086f` |
+| 4 自動跨鏈 | 未做：涉及主錢包授權 signer，需 Paul 先確認設計 | — |
+| 6 小項 | USDC:0 圖示 404 為設計行為（spot id 無圖，畫 glyph），不改 | — |
+
+部署後：卡住的 setup 下次 65 s 重試會用新 bucket，預期自動走完 mode_set → agent_active → running。
+
 ## 5. 工具與權限
 
 - 在途守門（唯讀）：`node .claude/codex-verification/recovery/stage-predeploy-inflight-1fe487ce.mjs --execute`

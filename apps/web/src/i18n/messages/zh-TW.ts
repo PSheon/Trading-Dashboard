@@ -370,10 +370,10 @@ export const zhTW = {
     loadOlder: "載入較早紀錄",
 
     olderOrders: "較早訂單",
-    alertHint: "將後續已確認的模擬跟單成交、清算、資金轉移與停止通知傳至已連結的 Telegram。",
+    alertHint: "將後續已確認的跟單成交、清算、資金轉移與停止通知（模擬與正式跟單）傳至已連結的 Telegram。",
     alertOn: "開啟",
     alertOff: "關閉",
-    alertLink: "請先在下方連結並啟用 Telegram，以接收模擬跟單通知。",
+    alertLink: "請先在下方連結並啟用 Telegram，以接收跟單通知。",
     alertError: "無法儲存通知偏好，請重試。",
 
     events: {"strategy_created": "已建立跟單", "strategy_command": "跟單指令", "funds_added": "已加碼", "funds_withdrawn": "已提領", "funds_returned": "資金已退回", "order_filled": "訂單已成交", "position_liquidated": "部位已清算"},

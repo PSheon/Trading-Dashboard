@@ -308,10 +308,10 @@ export const pt: Messages = {
     loadOlder: "Carregar registros anteriores",
 
     olderOrders: "Ordens anteriores",
-    alertHint: "Receba futuros eventos confirmados de cópias simuladas: execuções, liquidações, transferências e paradas, no Telegram vinculado.",
+    alertHint: "Receba futuros eventos confirmados das suas cópias (simuladas e reais): execuções, liquidações, transferências e paradas, no Telegram vinculado.",
     alertOn: "Ativado",
     alertOff: "Desativado",
-    alertLink: "Vincule e ative o Telegram abaixo para receber avisos de cópias simuladas.",
+    alertLink: "Vincule e ative o Telegram abaixo para receber avisos das suas cópias.",
     alertError: "Não foi possível salvar as preferências. Tente novamente.",
 
     events: {"strategy_created": "Cópia criada", "strategy_command": "Comando de cópia", "funds_added": "Fundos adicionados", "funds_withdrawn": "Fundos sacados", "funds_returned": "Fundos devolvidos", "order_filled": "Ordem executada", "position_liquidated": "Posição liquidada"},

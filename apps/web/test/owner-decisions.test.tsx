@@ -158,3 +158,11 @@ describe("/coins/<market>", () => {
     expect(coinIndexResponseSchema.parse(fixtureCoinIndex()).items.length).toBeGreaterThan(3);
   });
 });
+
+describe("copy notifications cover actual copies too (Paul, 2026-10-11)", () => {
+  it("the trade bot setting no longer says it is for simulated copies only", () => {
+    expect(catalogs.en.copyUpdates.alertHint).toMatch(/simulated and actual/);
+    expect(catalogs["zh-TW"].copyUpdates.alertHint).toContain("模擬與正式跟單");
+    for (const locale of LOCALES) expect(catalogs[locale].copyUpdates.alertLink, locale).not.toMatch(/模擬|模拟|paper|デモ|모의|simulad|демо|simulasi|mô phỏng|sanal/i);
+  });
+});

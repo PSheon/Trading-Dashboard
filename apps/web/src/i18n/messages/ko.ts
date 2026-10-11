@@ -308,10 +308,10 @@ export const ko: Messages = {
     loadOlder: "이전 내역 불러오기",
 
     olderOrders: "이전 주문",
-    alertHint: "앞으로 확인되는 모의 카피 체결, 청산, 자금 이동 및 중단을 연결된 Telegram으로 알립니다.",
+    alertHint: "앞으로 확인되는 카피 체결, 청산, 자금 이동 및 중단(모의·실거래)을 연결된 Telegram으로 알립니다.",
     alertOn: "켜짐",
     alertOff: "꺼짐",
-    alertLink: "모의 거래 알림을 받으려면 아래에서 Telegram을 연결하고 활성화하세요.",
+    alertLink: "카피 알림을 받으려면 아래에서 Telegram을 연결하고 활성화하세요.",
     alertError: "알림 설정을 저장하지 못했습니다. 다시 시도하세요.",
 
     events: {"strategy_created": "카피 생성", "strategy_command": "카피 명령", "funds_added": "자금 추가", "funds_withdrawn": "자금 출금", "funds_returned": "자금 반환", "order_filled": "주문 체결", "position_liquidated": "포지션 청산"},

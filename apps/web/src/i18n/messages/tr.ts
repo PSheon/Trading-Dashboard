@@ -308,10 +308,10 @@ export const tr: Messages = {
     loadOlder: "Önceki kayıtları yükle",
 
     olderOrders: "Önceki emirler",
-    alertHint: "Gelecekte onaylanan sanal kopya işlemleri, tasfiyeler, para transferleri ve durdurmalar bağlı Telegram sohbetine gönderilir.",
+    alertHint: "Gelecekte onaylanan kopya işlemleri, tasfiyeler, para transferleri ve durdurmalar (sanal ve gerçek) bağlı Telegram sohbetine gönderilir.",
     alertOn: "Açık",
     alertOff: "Kapalı",
-    alertLink: "Sanal kopya bildirimleri için aşağıdan Telegram bağlantısını kurup etkinleştirin.",
+    alertLink: "Kopya bildirimleri için aşağıdan Telegram bağlantısını kurup etkinleştirin.",
     alertError: "Bildirim tercihleri kaydedilemedi. Tekrar deneyin.",
 
     events: {"strategy_created": "Kopya oluşturuldu", "strategy_command": "Kopyalama komutu", "funds_added": "Para eklendi", "funds_withdrawn": "Para çekildi", "funds_returned": "Para iade edildi", "order_filled": "Emir gerçekleşti", "position_liquidated": "Pozisyon tasfiye edildi"},

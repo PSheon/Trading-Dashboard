@@ -367,10 +367,10 @@ export const en: Messages = {
     loadOlder: "Load older records",
 
     olderOrders: "Older orders",
-    alertHint: "Future confirmed paper-copy fills, liquidations, funding transfers and stops, sent to your linked Telegram chat.",
+    alertHint: "Future confirmed copy fills, liquidations, funding transfers and stops (simulated and actual copies), sent to your linked Telegram chat.",
     alertOn: "On",
     alertOff: "Off",
-    alertLink: "Link and enable Telegram below to receive paper-copy notifications.",
+    alertLink: "Link and enable Telegram below to receive copy notifications.",
     alertError: "Could not save notification preferences. Please try again.",
 
     events: {"strategy_created": "Copy created", "strategy_command": "Copy command", "funds_added": "Funds added", "funds_withdrawn": "Funds withdrawn", "funds_returned": "Funds returned", "order_filled": "Order filled", "position_liquidated": "Position liquidated"},

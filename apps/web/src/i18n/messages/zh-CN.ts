@@ -308,10 +308,10 @@ export const zhCN: Messages = {
     loadOlder: "加载更早记录",
 
     olderOrders: "更早订单",
-    alertHint: "将后续已确认的模拟跟单成交、清算、资金转移和停止通知发送到已连接的 Telegram。",
+    alertHint: "将后续已确认的跟单成交、清算、资金转移和停止通知（模拟与正式跟单）发送到已连接的 Telegram。",
     alertOn: "开启",
     alertOff: "关闭",
-    alertLink: "请先在下方连接并启用 Telegram，以接收模拟跟单通知。",
+    alertLink: "请先在下方连接并启用 Telegram，以接收跟单通知。",
     alertError: "无法保存通知偏好，请重试。",
 
     events: {"strategy_created": "已创建跟单", "strategy_command": "跟单指令", "funds_added": "已追加资金", "funds_withdrawn": "已提款", "funds_returned": "资金已退回", "order_filled": "订单已成交", "position_liquidated": "仓位已清算"},

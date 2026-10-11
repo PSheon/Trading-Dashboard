@@ -308,10 +308,10 @@ export const vi: Messages = {
     loadOlder: "Tải bản ghi cũ hơn",
 
     olderOrders: "Lệnh cũ hơn",
-    alertHint: "Gửi các giao dịch khớp, thanh lý, chuyển tiền và dừng sao chép mô phỏng được xác nhận trong tương lai đến Telegram đã liên kết.",
+    alertHint: "Gửi các giao dịch khớp, thanh lý, chuyển tiền và dừng sao chép (mô phỏng và thật) được xác nhận trong tương lai đến Telegram đã liên kết.",
     alertOn: "Bật",
     alertOff: "Tắt",
-    alertLink: "Liên kết và bật Telegram bên dưới để nhận thông báo sao chép mô phỏng.",
+    alertLink: "Liên kết và bật Telegram bên dưới để nhận thông báo sao chép.",
     alertError: "Không thể lưu tùy chọn thông báo. Vui lòng thử lại.",
 
     events: {"strategy_created": "Đã tạo sao chép", "strategy_command": "Lệnh sao chép", "funds_added": "Đã thêm tiền", "funds_withdrawn": "Đã rút tiền", "funds_returned": "Đã hoàn tiền", "order_filled": "Lệnh đã khớp", "position_liquidated": "Vị thế đã thanh lý"},

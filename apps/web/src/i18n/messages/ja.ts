@@ -308,10 +308,10 @@ export const ja: Messages = {
     loadOlder: "以前の記録を読み込む",
 
     olderOrders: "以前の注文",
-    alertHint: "今後確定したデモコピーの約定、清算、資金移動、停止を連携済み Telegram に通知します。",
+    alertHint: "今後確定したコピーの約定、清算、資金移動、停止（デモと実取引）を連携済み Telegram に通知します。",
     alertOn: "オン",
     alertOff: "オフ",
-    alertLink: "下で Telegram を連携・有効化してデモ取引通知を受信してください。",
+    alertLink: "下で Telegram を連携・有効化してコピー通知を受信してください。",
     alertError: "通知設定を保存できません。再試行してください。",
 
     events: {"strategy_created": "コピーを作成", "strategy_command": "コピー操作", "funds_added": "資金を追加", "funds_withdrawn": "資金を出金", "funds_returned": "資金を返還", "order_filled": "注文約定", "position_liquidated": "ポジション清算"},

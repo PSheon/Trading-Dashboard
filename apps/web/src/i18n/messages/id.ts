@@ -308,10 +308,10 @@ export const id: Messages = {
     loadOlder: "Muat catatan sebelumnya",
 
     olderOrders: "Order sebelumnya",
-    alertHint: "Kirim notifikasi eksekusi, likuidasi, transfer dana, dan penghentian salin simulasi yang dikonfirmasi berikutnya ke Telegram tertaut.",
+    alertHint: "Kirim notifikasi eksekusi, likuidasi, transfer dana, dan penghentian salin (simulasi dan nyata) yang dikonfirmasi berikutnya ke Telegram tertaut.",
     alertOn: "Aktif",
     alertOff: "Nonaktif",
-    alertLink: "Tautkan dan aktifkan Telegram di bawah untuk menerima notifikasi salin simulasi.",
+    alertLink: "Tautkan dan aktifkan Telegram di bawah untuk menerima notifikasi salin.",
     alertError: "Tidak dapat menyimpan preferensi notifikasi. Coba lagi.",
 
     events: {"strategy_created": "Salinan dibuat", "strategy_command": "Perintah salin", "funds_added": "Dana ditambahkan", "funds_withdrawn": "Dana ditarik", "funds_returned": "Dana dikembalikan", "order_filled": "Order terisi", "position_liquidated": "Posisi dilikuidasi"},

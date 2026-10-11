@@ -53,6 +53,10 @@ Telegram 已正式啟用（保留）：兩服務 `TELEGRAM_BOT_USERNAME=orbie_fu
 | 4 自動跨鏈 | 未做：涉及主錢包授權 signer，需 Paul 先確認設計 | — |
 | 6 小項 | USDC:0 圖示 404 為設計行為（spot id 無圖，畫 glyph），不改 | — |
 
+本機完整測試（22:00，commit `15860db0`）：API 隔離全套 284 檔／4546 項通過；Web vitest 214 檔／1495 項通過；API／Web typecheck＋lint 通過；新測試皆先在舊程式上確認失敗。本機 API／worker 已重建重啟（stage-caps profile）。畫面（1440／390）：交易員頁全站 chrome 與詳情列分開、動態表格統一樣式與時間格式、探索分頁間距、資金紀錄依模式（模擬只顯示模擬、測試網只顯示正式）均正常；API 剛重啟的 60 s 內 Hyperliquid 讀取回 503，頁面正確顯示部分資料提示並自動重試。
+
+尚未部署 Stage：部署 API／worker 後卡住的主網 setup 會自動續跑帳戶模式與代理授權（真錢步驟），需 Paul 確認後再部署。
+
 部署後：卡住的 setup 下次 65 s 重試會用新 bucket，預期自動走完 mode_set → agent_active → running。
 
 ## 5. 工具與權限

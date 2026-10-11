@@ -249,7 +249,12 @@ export class CohortService implements OnModuleDestroy {
       await this.repository.saveFailure(member.address, new Date(now), `${capacityLimited ? "capacity: " : ""}${message}`.slice(0, 300));
       this.record({ address: member.address, tier: member.tier, weight, calls, swept, ms: Date.now() - started, ok: false, at: new Date() });
       this.logger.warn(`Cohort refresh ${member.address} failed: ${(error as Error).message}`);
-      return { weight: Math.max(weight, WEIGHT_STATE), ok: false, ...(capacityLimited ? {
+      // A typed pre-dispatch meter refusal spent no read weight. The
+      // validated global pause and member cooldown already bound retries;
+      // charging a phantom read would consume the producer's allowance.
+      // Dispatched work and unproven/local failures keep their full charge.
+      const chargedWeight = retryHint === undefined ? Math.max(weight, WEIGHT_STATE) : 0;
+      return { weight: chargedWeight, ok: false, ...(capacityLimited ? {
         capacityLimited: true,
         ...(retryHint === undefined ? {} : { retryAfterMs: Math.max(1_000, retryHint) }),
       } : {}) };

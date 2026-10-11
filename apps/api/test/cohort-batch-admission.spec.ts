@@ -31,7 +31,7 @@ function fixture(capacity=6, answer:()=>Promise<Response>=async()=>Response.json
 }
 it('refuses the whole member when only two of three venues fit; sends no partial reads',async()=>{
   const f=fixture(4); const result=await f.service.refreshOne(f.member);
-  expect(result).toMatchObject({ok:false,capacityLimited:true});
+  expect(result).toMatchObject({ok:false,capacityLimited:true,weight:0,retryAfterMs:20_000});
   expect(f.fetcher).not.toHaveBeenCalled();
   expect(f.repository.saveSnapshot).not.toHaveBeenCalled();
   expect(f.q.acquire).toHaveBeenCalledExactlyOnceWith(6,expect.any(Number),'background');
@@ -86,6 +86,14 @@ it('charges all venues once in the background lane and only then saves their com
 it('does not refund dispatched work or save a snapshot after a provider read fails',async()=>{
   const f=fixture(6,async()=>{throw Error('provider timeout');});
   expect(await f.service.refreshOne(f.member)).toMatchObject({ok:false});
+  expect(f.fetcher).toHaveBeenCalledTimes(3);
+  expect(f.budget.adjust).not.toHaveBeenCalled();
+  expect(f.repository.saveSnapshot).not.toHaveBeenCalled();
+  expect(f.service.log[0]).toMatchObject({weight:6,calls:3,ok:false});
+});
+it('keeps the entire dispatched charge even when a later failure has the shared capacity error type',async()=>{
+  const f=fixture(6,async()=>{throw new HyperliquidRestCapacityError(1_000);});
+  expect(await f.service.refreshOne(f.member)).toMatchObject({ok:false,weight:6,capacityLimited:true});
   expect(f.fetcher).toHaveBeenCalledTimes(3);
   expect(f.budget.adjust).not.toHaveBeenCalled();
   expect(f.repository.saveSnapshot).not.toHaveBeenCalled();

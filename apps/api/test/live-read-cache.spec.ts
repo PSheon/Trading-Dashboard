@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { LiveReadCache } from '../src/copy/live/live-read-cache.js';
-import { evidenceFinalCheck, evidenceFirstWave, liveEvidencePrepaidWeight, liveEvidenceWarmWeight, liveInfoWeights, LiveSharedReads } from '../src/copy/live/live-shared-reads.js';
+import { evidenceFinalCheck, evidenceFirstWave, liveEvidencePrepaidWeight, liveEvidenceWarmWeight, liveEvidenceWeight, liveInfoWeights, LiveSharedReads } from '../src/copy/live/live-shared-reads.js';
 
 /**
  * The cross-order read cache (2026-10-12): an order's evidence read 589 weight,
@@ -92,5 +92,17 @@ describe('a standalone account observation (snapshots, closes, settlements)', ()
     expect(observerRestWeight(user, cache)).toBe(4);
     // A default-mode account keeps paying for its modes.
     expect(observerRestWeight(leader, cache)).toBe(4 + 2 * (60 + 20 + 20));
+  });
+});
+
+describe('a copied leader in the evidence (ratio from its own network)', () => {
+  it('reads only its spot state, cold or warm: its role and modes are never read', () => {
+    const cache = new LiveReadCache(() => 0);
+    expect(evidenceFirstWave([user], user, 'BTC', [leader]).filter(b => (b as { user?: string }).user === leader)).toEqual([{ type: 'spotClearinghouseState', user: leader }]);
+    expect(evidenceFinalCheck([user], [leader]).filter(b => (b as { user?: string }).user === leader)).toEqual([{ type: 'spotClearinghouseState', user: leader }]);
+    expect(liveEvidenceWeight([user], 0, cache, [leader])).toBe(liveEvidencePrepaidWeight(1) + 4);
+    for (const [body, v] of [[{ type: 'userRole', user }, { role: 'user' }], [{ type: 'userAbstraction', user }, 'disabled'], [{ type: 'userDexAbstraction', user }, false],
+      [{ type: 'perpDexs' }, [null]], [{ type: 'spotMeta' }, {}], [{ type: 'allPerpMetas' }, []], [{ type: 'meta' }, {}], [{ type: 'userFees', user }, {}]] as const) cache.put(body, v);
+    expect(liveEvidenceWeight([user], 0, cache, [leader])).toBe(48);
   });
 });

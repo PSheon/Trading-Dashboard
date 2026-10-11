@@ -231,8 +231,9 @@ export class HyperliquidLiveAccountObserver {
         }
         sources.push({ body, value }); return value;
       };
-      const accountModes = () => Promise.all([read('userRole', 60, { user }), read('userAbstraction', 20, { user }),
-        read('userDexAbstraction', 20, { user }), read('spotClearinghouseState', 2, { user }), read('perpDexs', 20)]);
+      // A copied leader's role and modes are its own choice: not read (leaderBodies).
+      const accountModes = () => Promise.all(options.leader ? [null, null, null, read('spotClearinghouseState', 2, { user }), read('perpDexs', 20)]
+        : [read('userRole', 60, { user }), read('userAbstraction', 20, { user }), read('userDexAbstraction', 20, { user }), read('spotClearinghouseState', 2, { user }), read('perpDexs', 20)]);
       const initialWork = Promise.all([accountModes(), read('spotMeta', 20)]);
       // Independent public metadata starts in the first HTTP wave. It remains
       // bounded even if an early account mode rejection prevents its use.

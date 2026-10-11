@@ -176,7 +176,7 @@ export class LiveExecutionRuntime {
       // What the evidence will read, all paid here before the SQL locks: the
       // cross-order cache's values are not read (live-read-cache.ts); the
       // owner's other accounts count as uncached, their unused weight returned.
-      const weight = liveEvidenceWeight([accountAddress, ...(leader ? [leaderAddress] : [])], routing.budgetAccounts - 1, liveReadCache(this.network)) + LIVE_ORDER_BOUNDARY_WEIGHT;
+      const weight = liveEvidenceWeight([accountAddress], routing.budgetAccounts - 1, liveReadCache(this.network), leader ? [leaderAddress] : []) + LIVE_ORDER_BOUNDARY_WEIGHT;
       // Only meter credit survives a leverage-only preview. Its SQL session,
       // provider frames and signing authority never survive into the retry.
       // Refunding and reacquiring here lets background reporting consume the

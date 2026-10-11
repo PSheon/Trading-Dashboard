@@ -34,16 +34,20 @@ export class LiveReadComparisonError extends LiveBoundaryError {
 export const accountModeBodies = (user: string) => [{ type: 'userRole', user }, { type: 'userAbstraction', user },
   { type: 'userDexAbstraction', user }, { type: 'spotClearinghouseState', user }];
 
+/** A copied leader's reads (ratio sizing from its own network): its spot state
+ * alone. Its role and modes are its own choice, never read (2026-10-12). */
+export const leaderBodies = (leader: string) => [{ type: 'spotClearinghouseState', user: leader }];
 /** An order evidence epoch's first wave: every observed user's account modes,
  * the dex list, spot and perp metadata, the order dex's metadata and
  * contexts, the target's leverage for the coin and its fees. */
-export function evidenceFirstWave(users: readonly string[], target: string, coin: string): Record<string, unknown>[] {
+export function evidenceFirstWave(users: readonly string[], target: string, coin: string, leaders: readonly string[] = []): Record<string, unknown>[] {
   const dex = coin.includes(':') ? coin.split(':')[0]! : '';
-  return [...users.flatMap(accountModeBodies), { type: 'perpDexs' }, { type: 'spotMeta' }, { type: 'allPerpMetas' },
+  return [...users.flatMap(accountModeBodies), ...leaders.flatMap(leaderBodies), { type: 'perpDexs' }, { type: 'spotMeta' }, { type: 'allPerpMetas' },
     { type: 'meta', ...(dex ? { dex } : {}) }, { type: 'metaAndAssetCtxs', dex }, { type: 'activeAssetData', user: target, coin }, { type: 'userFees', user: target }];
 }
 /** Its final check: the account modes and the dex list once more. */
-export const evidenceFinalCheck = (users: readonly string[]): Record<string, unknown>[] => [...users.flatMap(accountModeBodies), { type: 'perpDexs' }];
+export const evidenceFinalCheck = (users: readonly string[], leaders: readonly string[] = []): Record<string, unknown>[] =>
+  [...users.flatMap(accountModeBodies), ...leaders.flatMap(leaderBodies), { type: 'perpDexs' }];
 /** What an order's evidence pays before its clock starts, for `users`
  * observed accounts (the owner's live accounts, plus the leader for a
  * cross-network ratio open): 204 a user + 160 (568 for two accounts, 772 with the
@@ -56,11 +60,11 @@ export function liveEvidencePrepaidWeight(users: number): number {
  * of `known` accounts the cache doesn't hold now (read once and checked once),
  * every read of `unknown` other accounts (assumed cold: their unused weight
  * is returned), and the shared reads it doesn't hold. */
-export function liveEvidenceWeight(known: readonly string[], unknown: number, cache: LiveReadCache | undefined): number {
+export function liveEvidenceWeight(known: readonly string[], unknown: number, cache: LiveReadCache | undefined, leaders: readonly string[] = []): number {
   const placeholders = Array.from({ length: unknown }, (_, index) => `0x${'f'.repeat(30)}${index.toString(16).padStart(10, '0')}`);
   const users = [...known, ...placeholders], held = (body: Readonly<Record<string, unknown>>) => cache !== undefined && LiveReadCache.cacheable(body) && cache.get(body) !== undefined;
   const pay = (bodies: readonly Readonly<Record<string, unknown>>[]) => liveInfoWeights(bodies.filter(body => !held(body)));
-  return pay(evidenceFirstWave(users, users[0] ?? '0x', 'BTC')) + pay(evidenceFinalCheck(users));
+  return pay(evidenceFirstWave(users, users[0] ?? '0x', 'BTC', leaders)) + pay(evidenceFinalCheck(users, leaders));
 }
 /** The same evidence while the read cache holds what it keeps (live-read-cache.ts):
  * each account's spot state twice, the dex's contexts and the coin's leverage

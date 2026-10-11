@@ -13,6 +13,7 @@ import { closeTestDb, getTestDb, insertUser, truncateAll, type TestDb } from './
 import { testConfig } from './config-test-utils.js';
 import { liveBudget } from '../src/hyperliquid/hyperliquid-budget-wait.js';
 import type { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
+import { liveReadCache, resetLiveReadCaches } from '../src/copy/live/live-read-cache.js';
 
 const owner = privateKeyToAccount(`0x${'01'.repeat(32)}`), master = privateKeyToAccount(`0x${'02'.repeat(32)}`), foreign = privateKeyToAccount(`0x${'03'.repeat(32)}`);
 const address = master.address.toLowerCase(), accountId = 'mode-account', key = 'mode-preparation-key-001';
@@ -61,8 +62,12 @@ describe('durable owned-master standard-mode operation', () => {
   }
   it('sets a fresh dormant paused testnet strategy\'s account to standard mode', async () => {
     await freshActual();
+    resetLiveReadCaches();
     expect(await approve()).toMatchObject({ strategyId, network: 'testnet', accountAddress: address, submissionState: 'accepted', targetState: 'supported' });
     expect(exchange.send).toHaveBeenCalledTimes(1);
+    // The proven mode warms the cross-order read cache: the copy's first order doesn't pay 200 for it again.
+    const user = address.toLowerCase(), cache = liveReadCache('testnet');
+    expect([cache.get({ type: 'userRole', user }), cache.get({ type: 'userAbstraction', user }), cache.get({ type: 'userDexAbstraction', user })]).toEqual([{ role: 'user' }, 'disabled', false]);
   });
   it('refuses actual strategies that are active or lack the new-risk pause barrier', async () => {
     await freshActual('active'); await expect(approve()).rejects.toThrow('account_mode_strategy_not_dormant');

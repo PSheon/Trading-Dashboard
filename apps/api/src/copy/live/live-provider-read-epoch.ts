@@ -182,10 +182,10 @@ export class LiveProviderReadEpoch {
   private async collectShared(session: LiveRiskDatabaseSession, binding: LiveProviderEpochBinding, authority: Awaited<ReturnType<typeof loadLivePreparationAuthority>>,
     authorityDigest: string, started: number, sharing: LiveEpochSharing, shared: LiveSharedReads,
     mark: (stage: LiveTimingStage) => void): Promise<LiveProviderEpochFrames> {
-    const target = address(authority.account.address!), users = [...new Set([...authority.accounts.map(a => address(a.address!)),
-      ...(binding.includeLeader ? [address(authority.consent.leaderAddress)] : [])])];
+    const target = address(authority.account.address!), users = [...new Set(authority.accounts.map(a => address(a.address!)))],
+      leaders = binding.includeLeader ? [address(authority.consent.leaderAddress)] : [];
     const dex = binding.coin.includes(':') ? binding.coin.split(':')[0]! : '';
-    const finalBodies = evidenceFinalCheck(users), first = evidenceFirstWave(users, target, binding.coin);
+    const finalBodies = evidenceFinalCheck(users, leaders), first = evidenceFirstWave(users, target, binding.coin, leaders);
     // What the cross-order cache holds is served from it; the rest is read.
     shared.pin([...first, ...finalBodies]);
     // Every read's weight, the final check's too, before the clock starts

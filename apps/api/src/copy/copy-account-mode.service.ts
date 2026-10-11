@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { verifyTypedData } from 'viem';
-import { WALLET_NETWORKS, accountModeIntentSchema, copyAccountModeOperationSchema, prepareCopyAccountModeSchema, type CopyAccountModeOperation, type AccountModeIntent, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
+import { WALLET_NETWORKS, accountModeIntentSchema, isHyperliquidNetwork, copyAccountModeOperationSchema, prepareCopyAccountModeSchema, type CopyAccountModeOperation, type AccountModeIntent, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { AppConfig } from '../config/app-config.js';
 import { UnitOfWork } from '../db/unit-of-work.js';
 import { currentRequestSignal } from '../runtime/request-context.js';
@@ -13,6 +13,7 @@ import { HyperliquidBudgetWait, type LiveReserveOptions, type LiveBudgetReservat
 import { LiveBoundaryError } from './live/wallet-authorization.js';
 import { safeErrorText } from '../runtime/safe-error-text.js';
 import { deploymentNetwork } from './live-deployment.js';
+import { liveReadCache } from './live/live-read-cache.js';
 
 export const ACCOUNT_MODE_CLIENT = Symbol('ACCOUNT_MODE_CLIENT');
 export const ACCOUNT_MODE_ABSENCE_READER = Symbol('ACCOUNT_MODE_ABSENCE_READER');
@@ -188,6 +189,14 @@ export class CopyAccountModeService {
       const supported = proof.role === 'user' && proof.abstraction === 'disabled' && proof.dexAbstraction === false && proof.portfolioMarginEnabled === false;
       const unsupported = proof.role !== 'user' || proof.portfolioMarginEnabled || proof.abstraction === 'unifiedAccount' || proof.abstraction === 'portfolioMargin' || proof.dexAbstraction === true;
       const targetState = supported ? 'supported' as const : unsupported ? 'unsupported' as const : 'unproven' as const;
+      // The setup just proved the account's mode: its first order reads it from
+      // the cross-order cache instead of paying 200 for it again (2026-10-12).
+      if (supported && isHyperliquidNetwork(row.network)) {
+        const cache = liveReadCache(row.network), user = row.accountAddress;
+        cache.put({ type: 'userRole', user }, { role: 'user' });
+        cache.put({ type: 'userAbstraction', user }, 'disabled');
+        cache.put({ type: 'userDexAbstraction', user }, false);
+      }
       const updated = await this.uow.run(async tx => {
         await this.repository.assertCurrent(userId, row, tx); fresh(identity.checkedAt); this.assertObservation(row, proof);
         const current = await this.repository.find(userId, row.id, tx, true);

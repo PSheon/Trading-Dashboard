@@ -201,8 +201,8 @@ function HeroCards({ data }: { data: CohortDetail | undefined }) {
       <HeroCard
         title={t("insights.cohort.unrealizedPnl")}
         pos={h.upnlProfitPct}
-        left={<><span className="num font-semibold text-positive">{pct(h.upnlProfitPct)}</span> {dot} <span>{inProfit === null ? "—" : `${100 - inProfit}% ${t("insights.cohort.inLoss")}`}</span></>}
-        right={<><span>{inProfit === null ? "—" : `${inProfit}% ${t("insights.cohort.inProfit")}`}</span> {dot} <span className="num font-semibold text-negative">{h.upnlProfitPct === null ? "—" : pct(100 - h.upnlProfitPct)}</span></>}
+        left={<><span className="num font-semibold text-positive">{pct(h.upnlProfitPct)}</span> {dot} <span>{inProfit === null ? "—" : `${inProfit}% ${t("insights.cohort.inProfit")}`}</span></>}
+        right={<><span>{inProfit === null ? "—" : `${100 - inProfit}% ${t("insights.cohort.inLoss")}`}</span> {dot} <span className="num font-semibold text-negative">{h.upnlProfitPct === null ? "—" : pct(100 - h.upnlProfitPct)}</span></>}
       />
       <HeroCard
         title={t("insights.cohort.notional")}

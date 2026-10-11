@@ -18,7 +18,7 @@ B段仍以Paul接受的7 PASS／⑧ SKIP結案、保留逾時與舊FAIL。新發
 
 供 Paul 檢閱。整理親眼檢查的桌機／手機畫面、實際帳號操作及 testnet 測試紀錄，並納入接續測試的新發現；10/09最新前端已部署 Stage web，金融服務未隨本次發布更新。
 
-沿用 Orbie 風格。以下最新狀態與56項概覽優先，後面的日期段落是保留的歷史紀錄；舊金額、失敗數及部署狀態不代表目前狀態。
+沿用 Orbie 風格。以下最新狀態與57項概覽優先，後面的日期段落是保留的歷史紀錄；舊金額、失敗數及部署狀態不代表目前狀態。
 
 ## 10/10 00:54 本輪更新（優先於歷史部署／測試數字）
 
@@ -60,7 +60,7 @@ B段仍以Paul接受的7 PASS／⑧ SKIP結案、保留逾時與舊FAIL。新發
 
 12:05：burst84新五來源對帳PASS，4領單／4派送／2跟單，48.992661原退款credited、actual exit0；一般BASE83仍FAIL，原38.981991退款credited、actual exit1。四個帳戶canonical全268場域收尾均PASS、pending全0且未暫停worker；主81.493385／leader20.843181、跟單餘額0。前端完整203檔1372項及型別檢查PASS。首跟單112.62秒仍偏長，不能把burstPASS寫成延遲問題全部修復；一般流程的5秒證據預算與歷史重驗成本仍需改善。
 
-## 目前56項問題概覽
+## 目前57項問題概覽
 
 下表區分真實金融、線上匿名畫面、GET fixture與回歸測試；未具備條件的支線另註，不用單元測試或示意資料代替實測。
 
@@ -122,6 +122,7 @@ B段仍以Paul接受的7 PASS／⑧ SKIP結案、保留逾時與舊FAIL。新發
 | 54 | 空洞察圖宣稱每15分鐘一筆，與Stage40分鐘及品質守門不一致 | 已修正／精確CI與Stage受控空圖PASS | 十一語言改為資料足夠後逐步累積，不改排程或品質門檻。舊兩项FAIL；完整Web1423及Browser207無重試PASS。350版Stage Web SUCCESS，1440／390受控空歷史畫面新提示、無溢出；原登入CJK cookie自然遷移93a38建置、CSS／字型全200且退役請求0。截圖已人工檢視；受控空圖不是Stage歷史補齊證據。 |
 | 55 | 多空比例各自四捨五入，55.5%／44.5%顯示56%＋45%＝101% | 已修正／精確CI與Stage受控畫面PASS | 洞察與投資組合均補修，原三項FAIL保留；Web1427、Browser207無重試PASS。ef169530 Stage Web SUCCESS，原登入CJK遷移b41建置、CSS／字型與九項帳戶GET200、退役請求及pageerror0；1440／390受控55.5%與111／89USD顯示56%＋44%，美元未變、無溢出，截圖人工複核。不是實際資金或七組補齊證據。 |
 | 56 | CI通過但Turbopack產生大量Google字型URL解析錯誤，建置可間歇失敗 | 已修正／精確CI及真實Stage驗收PASS | 原87.6MB錯誤與207 PASS並存的歷史保留。116個原WOFF2、官方OFL及SHA256清單固定於專案，保留240個font-face完整規則；舊兩項FAIL、新相關8 PASS、Web207檔1429 PASS、型別／eslint／獨立Webpack build exit0。fc93d60a精確CI38100094883全綠、Browser207無重試且三組無字型編譯錯誤；Stage原部署cb5939f8 SUCCESS。116資產HTTP／雜湊／大小／MIME／immutable快取全通過；1440／390真實guest首次僅兩個Latin品牌字型、CJK自然延後與cookie生效、可見header／footer各一、無溢出及新錯誤。Paul原登入cookie自然遷移fe46新建置、九項帳戶GET200；截圖人工複核。字型／shell驗收工具兩次header計數錯誤（隱藏responsive header／頁內section header）保留，改為共用且可見header量測，未改產品配合工具。 |
+| 57 | 盈虧綠側旁為虧損錢包比例、紅側旁為獲利比例，容易誤讀 | 已修正／本機截圖PASS；精確CI與Stage待發布 | 真實Stage1440／390截圖再現；舊碼2 FAIL／15 PASS、新相關17 PASS、Web207檔1431、型別／eslint／正式Webpack build exit0。只對回左右文案及錢包比例，不改金額占比；受控兩尺寸72／28錢包與61／39金額均對齊，截圖人工複核，無溢出或寫入。兩個既有Browser案例新增側邊檢查，尚待新Stage驗收。初始SSR工具未提供DOM容器、local字型工具誤等當頁CJK啟用的錯誤保留；工具修正後舊版失敗、新版通過，不改產品配合工具。 |
 
 
 ## 10/08 14:05 舊畫面紀錄

@@ -1,5 +1,6 @@
 import { COHORT_HEADLINE_MIN_COVERAGE, cohortDetailResponseSchema, cohortHeadlineReady, cohortHistoryResponseSchema, wireCohortDetailSchema } from "@trading-dashboard/shared/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
+import { Window } from "happy-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import { InsightsView } from "../src/components/insights/insights-view";
@@ -98,6 +99,24 @@ it("labels surviving historical percentages when current coverage is insufficien
 });
 
 describe("insights say what they show (audit 2026-10-07 P1-8)", () => {
+  it.each([[72, 28], [1, 99]])("aligns profitable and losing wallet proportions with their respective PnL sides (%s/%s wallets)", (walletsInProfit, walletsInLoss) => {
+    const full = wireOf("extremely_profitable");
+    state.detail = { ...full, hero: { ...full.hero, walletsInProfit, walletsInLoss, upnlProfitPct: 61 } };
+    state.history = undefined;
+    const root = new Window().document.createElement("div");
+    root.innerHTML = render();
+    const card = [...root.querySelectorAll("h2")].find(node => node.textContent === zhTW.insights.cohort.unrealizedPnl)!.closest("section")!;
+    const [left, right] = card.querySelector(".cd-bar")!.nextElementSibling!.children;
+    const profit = Math.round(100 * walletsInProfit / (walletsInProfit + walletsInLoss));
+    expect(left.textContent).toContain(`${profit}% ${zhTW.insights.cohort.inProfit}`);
+    expect(left.textContent).not.toContain(zhTW.insights.cohort.inLoss);
+    expect(right.textContent).toContain(`${100 - profit}% ${zhTW.insights.cohort.inLoss}`);
+    expect(right.textContent).not.toContain(zhTW.insights.cohort.inProfit);
+    // Money shares and wallet shares have different denominators.
+    expect(left.querySelector(".text-positive")!.textContent).toBe("61.0%");
+    expect(right.querySelector(".text-negative")!.textContent).toBe("39.0%");
+  });
+
   it.each([55.5, 99.5])("the displayed whole-percent notional split still sums to 100 at %s percent long", (longPct) => {
     const full = wireOf("extremely_profitable");
     state.detail = { ...full, hero: { ...full.hero, longPct } };

@@ -30,6 +30,9 @@ for (const width of [1440, 390]) {
     await expect(page.getByText("此分層的持倉資料建立中")).toHaveCount(0);
     // As on CopyDog: no coverage label.
     await expect(page.getByText(/個錢包有最新快照/)).toHaveCount(0);
+    const pnlLegend = page.getByRole("heading", { level: 2, name: "未實現盈虧", exact: true }).locator("..").locator(".cd-bar + div > span");
+    await expect(pnlLegend.nth(0)).toContainText("60% 獲利中");
+    await expect(pnlLegend.nth(1)).toContainText("40% 虧損中");
     await expectNoSidewaysScroll(page);
     await shot(page, `insights-ready-${width}`);
 

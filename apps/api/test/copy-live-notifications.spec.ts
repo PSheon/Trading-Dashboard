@@ -22,6 +22,10 @@ describe("actual copy notifications", () => {
   let seed: Awaited<ReturnType<typeof preparationFixture>>;
   const texts = () => sendMessage.mock.calls.map(call => call[1]);
   const at = (offsetMs = 0) => new Date(Date.now() + offsetMs);
+  // Opt in on the test's clock: setCopyAlerts stamps copyAlertsSince with the
+  // database's now() (microseconds); a row the test stamps in the same
+  // millisecond (a Date has none finer) would fall before it and not be sent.
+  const optIn = async () => { await link.setCopyAlerts(1, true); await db.update(notificationChannels).set({ copyAlertsSince: at(-1_000) }); };
   let nonce = fixtureNow;
   const execution = async (key: string) => {
     nonce += 1;
@@ -66,7 +70,7 @@ describe("actual copy notifications", () => {
   afterAll(closeTestDb);
 
   it("sends a settled leg's actual fill once (size, average price, what it did), even across concurrent and repeated ticks", async () => {
-    await link.setCopyAlerts(1, true);
+    await optIn();
     await settledLeg("leg-open", "open", [
       { side: "B", size: "0.04", price: "50000", raw: { startPosition: "0" } },
       { side: "B", size: "0.06", price: "50100", raw: { startPosition: "0.04" } },
@@ -87,7 +91,7 @@ describe("actual copy notifications", () => {
   });
 
   it("says a close closed (P&L after fees), a partial one reduced, and names the network of a mainnet copy", async () => {
-    await link.setCopyAlerts(1, true);
+    await optIn();
     await db.update(copyStrategies).set({ network: "mainnet" });
     await settledLeg("leg-close", "close", [{ side: "A", size: "0.1", price: "51000", closedPnl: "100", totalFee: "2.5", raw: { startPosition: "0.1" } }]);
     await service().deliverAction();
@@ -100,9 +104,8 @@ describe("actual copy notifications", () => {
   });
 
   it("says a close refused after Hyperliquid liquidated the copy as a liquidation, not a rejected order (CP-EXE-16)", async () => {
-    await link.setCopyAlerts(1, true);
-    // 1 s ahead: copyAlertsSince is the database clock, the row the test clock.
-    await dispatch("leg-liquidated", { leg: "close", state: "refused", reason: "position_liquidated", updatedAt: at(1_000) });
+    await optIn();
+    await dispatch("leg-liquidated", { leg: "close", state: "refused", reason: "position_liquidated", updatedAt: at() });
     await service().deliverAction();
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(texts()[0]).not.toContain("Order not executed");
@@ -112,8 +115,8 @@ describe("actual copy notifications", () => {
   });
 
   it("sends a refused leg with its public reason only, never internal bookkeeping refusals or a settled leg that did not fill", async () => {
-    await link.setCopyAlerts(1, true);
-    await dispatch("leg-refused", { state: "refused", reason: "live_source_price_deviation", updatedAt: at(1_000) });
+    await optIn();
+    await dispatch("leg-refused", { state: "refused", reason: "live_source_price_deviation", updatedAt: at() });
     await dispatch("leg-merged", { leg: "close", state: "refused", reason: "merged_into_adjustment", updatedAt: at() });
     await dispatch("leg-owner", { leg: "close", state: "refused", reason: "position_closed_by_owner", updatedAt: at() });
     await service().deliverAction();
@@ -130,7 +133,7 @@ describe("actual copy notifications", () => {
   });
 
   it("sends a finished stop and a credited return once, never a stop still closing or a return only accepted", async () => {
-    await link.setCopyAlerts(1, true);
+    await optIn();
     await stop("closing");
     await funding("22222222-2222-4222-8222-222222222222", "accepted");
     await service().deliverAction();
@@ -150,7 +153,7 @@ describe("actual copy notifications", () => {
     await stop("stopped", at(-1000));
     await service().deliverAction(); // copy alerts off
     expect(await db.select().from(copyEvents)).toEqual([]);
-    await link.setCopyAlerts(1, true);
+    await optIn();
     await db.update(notificationChannels).set({ copyAlertsSince: at(-500) });
     await service().deliverAction(); // before the opt-in
     expect(await db.select().from(copyEvents)).toEqual([]);

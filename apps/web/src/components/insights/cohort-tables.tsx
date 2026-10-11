@@ -90,11 +90,11 @@ export function WalletsTable({ rows }: { rows: CohortWallet[] }) {
             </li>;
           })}
         </DataList>
-      </> : <Table containerClassName="max-h-[640px] overflow-auto" className="cd-cohort-wallets w-full border-separate border-spacing-y-1.5">
+      </> : <Table containerClassName="max-h-[640px] overflow-auto" className="cd-cohort-wallets">
         <TableHeader className="sticky top-0 z-10 bg-background">
           <TableRow>
             <SortHead label={c("address")} col="address" sort={sort} onSort={onSort} className="text-left" />
-            <TableHead className="px-3 py-3 text-left text-[0.8125rem] font-medium text-subtle-foreground">{c("assets")}</TableHead>
+            <TableHead>{c("assets")}</TableHead>
             <SortHead label={c("pnl")} col="totalPnl" sort={sort} onSort={onSort} className="text-right" />
             <SortHead label={c("roi")} col="roi" sort={sort} onSort={onSort} className="text-right" />
             <SortHead label={c("perpEquity")} col="perpEquity" sort={sort} onSort={onSort} className="text-right" />
@@ -105,7 +105,7 @@ export function WalletsTable({ rows }: { rows: CohortWallet[] }) {
             <SortHead label={c("bias")} col="biasPct" sort={sort} onSort={onSort} className="text-right" />
           </TableRow>
         </TableHeader>
-        <TableBody className="data-rows">
+        <TableBody>
           {pageRows.map((w) => (
             <TableRow
               key={w.address}
@@ -116,7 +116,7 @@ export function WalletsTable({ rows }: { rows: CohortWallet[] }) {
               }}
               className="cursor-pointer"
             >
-              <TableCell className="px-3 py-3">
+              <TableCell>
                 <Link href={`/trader/${w.address}`} className="flex min-w-0 items-center gap-[9px] rounded outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
                   <TraderAvatar trader={w} size={22} />
                   {/* CopyDog's .hl-cohort-addr: a bare address is mono 12.5px. */}
@@ -128,15 +128,15 @@ export function WalletsTable({ rows }: { rows: CohortWallet[] }) {
                   {w.verified ? <VerifiedTick className="size-3.5" /> : null}
                 </Link>
               </TableCell>
-              <TableCell className="px-3 py-3"><CoinStack coins={w.topAssets} size={16} dash /></TableCell>
-              <TableCell className={cn("num px-3 py-3 text-right", signTone(w.totalPnl))}>{money(w.totalPnl, true)}</TableCell>
-              <TableCell className={cn("num px-3 py-3 text-right", signTone(w.roi))}>{pctText(w.roi)}</TableCell>
-              <TableCell className="num px-3 py-3 text-right">{money(w.perpEquity)}</TableCell>
-              <TableCell className="px-3 py-3"><CopyScoreBar score={w.copyScore} layout="number-first" className="flex justify-end gap-2.5" barClassName="w-16" /></TableCell>
-              <TableCell className="num px-3 py-3 text-right">{money(w.positionValue)}</TableCell>
-              <TableCell className="num px-3 py-3 text-right">{w.positionValue > 0 && w.leverage !== null ? `${w.leverage.toFixed(2)}×` : "—"}</TableCell>
-              <TableCell className={cn("num px-3 py-3 text-right", signTone(w.sumUpnl))}>{money(w.sumUpnl, true)}</TableCell>
-              <TableCell className="px-3 py-3 text-right">{w.biasPct === null ? "—" : <SentimentText pctLong={w.biasPct} />}</TableCell>
+              <TableCell><CoinStack coins={w.topAssets} size={16} dash /></TableCell>
+              <TableCell className={cn("num text-right", signTone(w.totalPnl))}>{money(w.totalPnl, true)}</TableCell>
+              <TableCell className={cn("num text-right", signTone(w.roi))}>{pctText(w.roi)}</TableCell>
+              <TableCell className="num text-right">{money(w.perpEquity)}</TableCell>
+              <TableCell><CopyScoreBar score={w.copyScore} layout="number-first" className="flex justify-end gap-2.5" barClassName="w-16" /></TableCell>
+              <TableCell className="num text-right">{money(w.positionValue)}</TableCell>
+              <TableCell className="num text-right">{w.positionValue > 0 && w.leverage !== null ? `${w.leverage.toFixed(2)}×` : "—"}</TableCell>
+              <TableCell className={cn("num text-right", signTone(w.sumUpnl))}>{money(w.sumUpnl, true)}</TableCell>
+              <TableCell className="text-right">{w.biasPct === null ? "—" : <SentimentText pctLong={w.biasPct} />}</TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -186,7 +186,7 @@ export function MarketsTable({ rows, filter }: { rows: CohortMarket[]; filter: "
   const share = (part: number, whole: number) => (whole > 0 ? Math.round((100 * part) / whole) : 0);
   return (
     <>
-      <Table containerClassName="max-h-[640px] overflow-auto" className="cd-cohort-markets w-full min-w-[1080px] border-separate border-spacing-y-1.5">
+      <Table containerClassName="max-h-[640px] overflow-auto" className="cd-cohort-markets min-w-[1080px]">
         <TableHeader className="sticky top-0 z-10 bg-background">
           <TableRow>
             <SortHead label={c("market")} col="coin" sort={sort} onSort={onSort} className="text-left [&>button]:min-h-11 [&>button]:min-w-11" />
@@ -196,24 +196,24 @@ export function MarketsTable({ rows, filter }: { rows: CohortMarket[]; filter: "
             <SortHead label={c("upnl")} col="upnl" sort={sort} onSort={onSort} className="text-left [&>button]:min-h-11 [&>button]:min-w-11" />
           </TableRow>
         </TableHeader>
-        <TableBody className="data-rows">
+        <TableBody>
           {pageRows.map((m) => {
             const notional = m.notionalLong + m.notionalShort;
             const traders = m.tradersLong + m.tradersShort;
             const pnlTraders = m.tradersProfit + m.tradersLoss;
             return (
               <TableRow key={m.coin}>
-                <TableCell className="px-3 py-3">
+                <TableCell>
                   <span className="flex items-center gap-2 font-semibold"><CoinIcon coin={m.coin} size={18} />{coinLabel(m.coin)}</span>
                 </TableCell>
-                <TableCell className="px-3 py-3"><SentimentText pctLong={m.biasPct} /></TableCell>
-                <TableCell className="px-3 py-3">
+                <TableCell><SentimentText pctLong={m.biasPct} /></TableCell>
+                <TableCell>
                   <Split left={usdCompact(m.notionalLong, { digits: 2 })} leftSub={`${share(m.notionalLong, notional)}% ${long}`} right={usdCompact(m.notionalShort, { digits: 2 })} rightSub={`${share(m.notionalShort, notional)}% ${short}`} pos={notional > 0 ? (100 * m.notionalLong) / notional : null} />
                 </TableCell>
-                <TableCell className="px-3 py-3">
+                <TableCell>
                   <Split left={String(m.tradersLong)} leftSub={`${share(m.tradersLong, traders)}% ${long}`} right={String(m.tradersShort)} rightSub={`${share(m.tradersShort, traders)}% ${short}`} pos={traders > 0 ? (100 * m.tradersLong) / traders : null} />
                 </TableCell>
-                <TableCell className="px-3 py-3">
+                <TableCell>
                   <Split left={String(m.tradersProfit)} leftSub={`${share(m.tradersProfit, pnlTraders)}% ${t("insights.cohort.profit")}`} right={String(m.tradersLoss)} rightSub={`${share(m.tradersLoss, pnlTraders)}% ${t("insights.cohort.loss")}`} pos={pnlTraders > 0 ? (100 * m.tradersProfit) / pnlTraders : null} />
                 </TableCell>
               </TableRow>
@@ -225,33 +225,33 @@ export function MarketsTable({ rows, filter }: { rows: CohortMarket[]; filter: "
   );
 }
 
-/** 錢包 while the tier loads: the same table (header, raised rows, cells'
- * padding) with an avatar and bars in each row. */
+/** 錢包 while the tier loads: the same table (header, raised rows, cells)
+ * with an avatar and bars in each row. */
 export function WalletsTableSkeleton({ rows = 8 }: { rows?: number }) {
   const { t } = useI18n();
   const c = (key: string) => t(`insights.cohort.cols.${key}` as "insights.cohort.cols.pnl");
   const right = ["pnl", "roi", "perpEquity", "copyScore", "positionValue", "leverage", "upnl", "bias"] as const;
   return (
     <div aria-hidden="true" className="ui-skeleton max-h-[640px] overflow-hidden [--skel-bar:var(--border)]">
-      <Table className="cd-cohort-wallets w-full border-separate border-spacing-y-1.5">
+      <Table focusable={false} className="cd-cohort-wallets">
         <TableHeader>
           <TableRow>
-            <TableHead className="px-3 py-3 text-left text-[0.8125rem] font-medium whitespace-nowrap text-subtle-foreground">{c("address")}</TableHead>
-            <TableHead className="px-3 py-3 text-left text-[0.8125rem] font-medium text-subtle-foreground">{c("assets")}</TableHead>
-            {right.map((k) => <TableHead key={k} className="px-3 py-3 text-right text-[0.8125rem] font-medium whitespace-nowrap text-subtle-foreground">{c(k)}</TableHead>)}
+            <TableHead>{c("address")}</TableHead>
+            <TableHead>{c("assets")}</TableHead>
+            {right.map((k) => <TableHead key={k} className="text-right">{c(k)}</TableHead>)}
           </TableRow>
         </TableHeader>
-        <TableBody className="data-rows">
+        <TableBody>
           {Array.from({ length: rows }, (_, r) => (
             <TableRow key={r}>
-              <TableCell className="px-3 py-3">
+              <TableCell>
                 <span className="flex items-center gap-[9px]">
                   <SkelCircle className="size-[22px]" />
                   <SkelBar line="h-5" className="h-3 w-24" />
                 </span>
               </TableCell>
-              <TableCell className="px-3 py-3"><SkelBar className="h-4 w-12" /></TableCell>
-              {right.map((k) => <TableCell key={k} className="px-3 py-3"><SkelBar className="ml-auto h-3 w-12" /></TableCell>)}
+              <TableCell><SkelBar className="h-4 w-12" /></TableCell>
+              {right.map((k) => <TableCell key={k}><SkelBar className="ml-auto h-3 w-12" /></TableCell>)}
             </TableRow>
           ))}
         </TableBody>

@@ -647,30 +647,19 @@
   font-size: 12px;
 }
 
-/* The trader page's tab tables: bold muted headers, 60px data rows. */
-.cd-tables table {
-  font-size: 14px;
-  border-collapse: separate;
-  border-spacing: 0 6px;
-}
+/* The trader page's tab tables and the paper orders: `Table dense` (60 px
+   rows 6 px apart, 12 / 700 muted headers, 6 px gutters) plus only what
+   differs — a short header row, 14 / 20 cells over the tables' `text-xs`,
+   and 18 px row ends instead of .table-dense's 14 (it must come after it). */
 .cd-tables th {
   height: auto;
-  padding: 4px 6px 0;
-  font-family: var(--font-sans);
-  font-size: 12px;
-  line-height: 16px;
-  font-weight: 700;
-  color: var(--muted-foreground);
-}
-.cd-tables th button {
-  font: inherit;
+  padding-top: 4px;
 }
 .cd-tables td {
-  height: 60px;
-  padding: 10px 6px;
+  padding-top: 10px;
+  padding-bottom: 10px;
   font-size: 14px;
   line-height: 20px;
-  font-weight: 700;
 }
 .cd-tables th:first-child,
 .cd-tables td:first-child {
@@ -693,10 +682,6 @@
   table-layout: fixed;
   min-width: 1120px;
 }
-/* Data rows are 60 px (C-Styles). */
-.cd-cohort-wallets td {
-  height: 60px;
-}
 .cd-cohort-wallets th:nth-child(1) { width: 15%; }
 .cd-cohort-wallets th:nth-child(2) { width: 8%; }
 .cd-cohort-wallets th:nth-child(3) { width: 11%; }
@@ -707,8 +692,7 @@
 .cd-cohort-wallets th:nth-child(8) { width: 7%; }
 .cd-cohort-wallets th:nth-child(9) { width: 9%; }
 .cd-cohort-wallets th:nth-child(10) { width: 10%; }
-/* 市場: CopyDog's header is 38px (11/10/10 padding) and its columns
-   210 | 158 | 317 | 312 | 317 of 1314. */
+/* 市場: columns 210 | 158 | 317 | 312 | 317 of 1314 (CopyDog). */
 .cd-cohort-markets { table-layout: fixed; }
 .cd-cohort-markets th:nth-child(1) { width: 16%; }
 .cd-cohort-markets th:nth-child(2) { width: 12%; }

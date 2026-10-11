@@ -10,13 +10,17 @@ function Table({
   className,
   dense = false,
   containerClassName,
+  focusable = true,
   ...props
 }: React.ComponentProps<"table"> & {
-  /** CopyDog's trader-page tables: 6 px cell gutters (12 px at the row
-   * ends) and 11 px headers, so eight columns fit the main column. */
+  /** CopyDog's trader-page tables: 6 px cell gutters (14 px at the row
+   * ends; 18 px under `.cd-tables`), so eight columns fit the main column. */
   dense?: boolean
   /** Constrain the same viewport on both axes, keeping sticky headers inside it. */
   containerClassName?: string
+  /** Whether the scroll box takes keyboard focus; false for an aria-hidden
+   * copy (a loading skeleton). */
+  focusable?: boolean
 }) {
   return (
     // A horizontal scroll container with a visible thin scrollbar: when the
@@ -24,7 +28,7 @@ function Table({
     // its card instead of being clipped by it.
     <div
       data-slot="table-container"
-      tabIndex={0}
+      tabIndex={focusable ? 0 : undefined}
       className={cn(
         "table-scroll relative w-full overflow-x-auto outline-none focus-visible:ring-2 focus-visible:ring-ring",
         dense && "table-dense",

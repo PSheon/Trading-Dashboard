@@ -80,6 +80,15 @@ describe('actual source sizing from retained original observations',()=>{
     const open=structuredClone(example());(open as any).limits={...open.limits,maxSignalAgeSeconds:1};(open as any).now=open.fill.providerTime+1001;
     expect(()=>planLiveSourceOrder(open)).toThrow('live_source_sizing_unproven');
   });
+  it('sizes a ratio open from a leader in the exchange\'s default account mode (local testnet 2026-10-12)',()=>{
+    const e=example('ratio') as any,o=e.sizingBasis.observations,b=e.sizingBasis.basis;
+    o.leader.accountAbstraction='default';b.leader.snapshotDigest=followerReceiptDigestV1(o.leader);
+    expect(planLiveSourceOrder(e).order.size).toBe('0.1');
+    // The follower's own snapshot in the default mode is still refused.
+    const f=example('ratio') as any,fo=f.sizingBasis.observations,fb=f.sizingBasis.basis;
+    fo.follower.accountAbstraction='default';fb.follower.snapshotDigest=followerReceiptDigestV1(fo.follower);
+    expect(()=>planLiveSourceOrder(f)).toThrow('live_source_sizing_unproven');
+  });
   describe('the exchange\'s 10 USD order minimum (a basis binding exchangeMinimum)',()=>{
     const bind=(e:LiveSourcePlanInput,patch:Record<string,unknown>={})=>{Object.assign((e.sizingBasis as any).basis,{exchangeMinimum:true,...patch});return e;};
     it('rounds a fixed open up to the minimum within the deployment\'s per-trade maximum, else refuses it for good',()=>{

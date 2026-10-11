@@ -387,6 +387,17 @@ export const heartbeatResponseSchema = z.object({
      * setting, scaled so that all caps fit the effective budget. */
     caps: z.record(z.number()).optional(),
   }).optional(),
+  /** The wallet network's own bucket (real-money copy work), when it has
+   * one: its trailing-minute spend per consumer and what it holds. Additive. */
+  walletBudget: z.object({
+    network: z.enum(["mainnet", "testnet"]),
+    effectivePerMin: z.number(),
+    weightLastMinute: z.number(),
+    tokensAvailable: z.number(),
+    reserveTokens: z.number(),
+    queued: z.object({ live: z.number().int(), background: z.number().int() }),
+    consumers: z.record(z.number()),
+  }).optional(),
   /** Age of the discovery pool's stored performance figures: the rows the
    * boards and home rows show (`visible`) and the whole pool. Additive. */
   discovery: z.object({

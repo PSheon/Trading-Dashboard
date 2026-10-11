@@ -1,10 +1,11 @@
-import { Injectable, Optional } from "@nestjs/common";
+import { Inject, Injectable, Optional } from "@nestjs/common";
 import type { HeartbeatResponse } from "@trading-dashboard/shared/contracts";
 
 import { AppConfig } from "../config/app-config.js";
 import { DiscoveryPoolService } from "../discovery/discovery-pool.service.js";
 import { ArchiveIngestService } from "../ingest/archive-ingest.service.js";
 import { RequestBudgeterService } from "../hyperliquid/request-budgeter.service.js";
+import { WALLET_NETWORK_HL, type WalletNetworkHyperliquid } from "../hyperliquid/wallet-network-hyperliquid.js";
 import { SchedulerService } from "../scheduler/scheduler.service.js";
 import { WatcherService } from "../watcher/watcher.service.js";
 
@@ -20,6 +21,7 @@ export class WorkerHeartbeatService {
     private readonly budgeter: RequestBudgeterService,
     @Optional() private readonly archive?: ArchiveIngestService,
     @Optional() private readonly pool?: DiscoveryPoolService,
+    @Optional() @Inject(WALLET_NETWORK_HL) private readonly wallet?: WalletNetworkHyperliquid,
   ) {}
 
   async heartbeat(): Promise<HeartbeatResponse> {
@@ -49,6 +51,10 @@ export class WorkerHeartbeatService {
         consumers: budget.consumers,
         caps: budget.consumerCaps,
       },
+      // The real-money bucket: who spends it (local testnet, 2026-10-12, where no copy order fitted).
+      walletBudget: this.wallet?.dedicated ? (() => { const w = this.wallet!.budget.introspect(); return {
+        network: this.wallet!.network, effectivePerMin: w.effectiveBudgetPerMin, weightLastMinute: w.weightLastMinute, tokensAvailable: Math.round(w.tokensAvailable),
+        reserveTokens: Math.round(w.reserveTokens), queued: this.wallet!.budget.queued(), consumers: w.consumers }; })() : undefined,
       // Age of the boards' and home rows' figures; a failed read must not fail the heartbeat.
       discovery: await this.pool?.freshness().then((f) => ({
         visibleRows: f.visible.rows, medianVisibleAgeSeconds: f.visible.medianAgeSeconds, oldestVisibleAgeSeconds: f.visible.oldestAgeSeconds,

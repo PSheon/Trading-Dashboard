@@ -16,6 +16,7 @@ import type { FastMainnetSource } from './fast-mainnet-source.js';
 import { minOrderNotional } from '../min-order-notional.js';
 import { Dec } from '../../common/decimal/dec.js';
 import { HyperliquidBudgetWait, SHARED_CAPACITY_RETRY_MS } from '../../hyperliquid/hyperliquid-budget-wait.js';
+import { budgetConsumer } from '../../hyperliquid/request-budgeter.service.js';
 import { LiveReadComparisonError } from '../live/live-shared-reads.js';
 import { liveDeploymentPolicy } from '../live-deployment.js';
 
@@ -151,7 +152,7 @@ export class CopyLiveEngine {
   async tick(): Promise<void> {
     const started = this.now();
     if (this.deps.setups) {
-      try { await this.deps.setups.tick(); }
+      try { await budgetConsumer('copy.setup', () => this.deps.setups!.tick()); }
       catch (error) { this.deps.log?.(`setups kept for the next pass: ${reasonOf(error)}`); }
     }
     let mandates = await this.deps.repository.mandates(started);
@@ -160,7 +161,7 @@ export class CopyLiveEngine {
       // Without kicks (feed down), a fast-source leader is polled.
       const poll = this.fastLeader(stream) && this.deps.fast!.feedUp?.() === false &&
         started - (this.lastFastRead.get(stream.leaderAddress) ?? 0) >= (this.options.fastPollMs ?? 7_500);
-      try { await this.ingest(stream, mandates, poll); }
+      try { await budgetConsumer('copy.source', () => this.ingest(stream, mandates, poll)); }
       catch (error) { this.deps.log?.(`source ${stream.network}:${stream.leaderAddress} not read: ${reasonOf(error)}`); }
     }
     const limit = await this.deps.repository.signalAgeLimitMs();
@@ -169,18 +170,18 @@ export class CopyLiveEngine {
     for (const row of await this.deps.repository.open()) {
       if (this.now() - started > this.options.passBudgetMs) break;
       if (held.has(row.id)) continue;
-      try { await this.work(row, byId.get(row.mandateId) ?? null, limit); }
+      try { await budgetConsumer('copy.order', () => this.work(row, byId.get(row.mandateId) ?? null, limit)); }
       catch (error) { this.deps.log?.(`leg ${row.id} kept for the next pass: ${reasonOf(error)}`); }
     }
     // A leader flat on a coin whose follower may still hold some of it (an
     // IOC close partly or not filled, or a close that could not be sent):
     // the single-position closer (run by the stopper's pass) closes the rest.
     for (const m of mandates.filter(row => row.activated && row.strategyStatus !== 'stopping' && row.strategyStatus !== 'stopped')) {
-      try { await this.reconcileFlat(m); }
+      try { await budgetConsumer('copy.flat', () => this.reconcileFlat(m)); }
       catch (error) { this.deps.log?.(`flat positions of ${m.mandateId} not reconciled: ${reasonOf(error)}`); }
     }
     if (this.deps.stopper) {
-      try { await this.deps.stopper.tick(); }
+      try { await budgetConsumer('copy.stop', () => this.deps.stopper!.tick()); }
       catch (error) { this.deps.log?.(`stops kept for the next pass: ${reasonOf(error)}`); }
     }
   }
@@ -278,7 +279,7 @@ export class CopyLiveEngine {
       // A kick works this leader's fresh legs, briefly: the rest waits for the pass.
       if (this.now() - started > (this.options.kickBudgetMs ?? 8_000)) break;
       if (held.has(row.id)) continue;
-      try { await this.work(row, byId.get(row.mandateId) ?? null, limit); }
+      try { await budgetConsumer('copy.order', () => this.work(row, byId.get(row.mandateId) ?? null, limit)); }
       catch (error) { this.deps.log?.(`leg ${row.id} kept for the next pass: ${reasonOf(error)}`); }
     }
   }

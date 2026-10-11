@@ -97,8 +97,12 @@ export function decodeLiveSourceSizingEnvelope(raw: unknown): LiveSourceSizingEn
     return freezeLiveReservation({...envelope,basis});
   }catch{throw new LiveBoundaryError('live_source_sizing_unproven');}
 }
-function snapshotMirror(snapshot:LiveSourceSizingEnvelopeV1['observations']['follower'],expected:LiveSourceSizingBasisV1['leader'],now:number,id:{accountId:string;strategyId:number},network:HyperliquidNetwork){
-  requireSizing(expected&&expected.network===network);const view=mapLiveAccountView({accountId:id.accountId,strategyId:id.strategyId,network,accountAddress:expected.accountAddress},snapshot,{blocked:false,reason:null},now,5000);
+function snapshotMirror(snapshot:LiveSourceSizingEnvelopeV1['observations']['follower'],expected:LiveSourceSizingBasisV1['leader'],now:number,id:{accountId:string;strategyId:number},network:HyperliquidNetwork,leader=false){
+  requireSizing(expected&&expected.network===network);
+  // A leader's own account mode is its choice (read with { leader: true }); every
+  // freshness, coverage and sum check of the view still applies to its snapshot.
+  // The follower's must be the disabled mode its setup set.
+  const view=mapLiveAccountView({accountId:id.accountId,strategyId:id.strategyId,network,accountAddress:expected.accountAddress},leader?{...snapshot,accountAbstraction:'disabled'}:snapshot,{blocked:false,reason:null},now,5000);
   requireSizing(view.freshness==='fresh'&&view.coverage.complete&&view.coverage.balanceComplete&&view.coverage.orderComplete);
   equal({network:snapshot.network,accountAddress:snapshot.accountAddress,equity:snapshot.perpEquity,observedAt:snapshot.observedAt,completedAt:snapshot.completedAt,sourceDigest:snapshot.sourceDigest,snapshotDigest:followerReceiptDigestV1(snapshot)},expected);
 }
@@ -185,7 +189,7 @@ export function planLiveSourceOrder(raw: LiveSourcePlanInput): PlannedLiveSource
     if(leg.leg==='open'&&settings.sizingMode==='ratio'&&reference){
       requireSizing(b.leader===null&&o.leader===null);leaderEquity=reference.leaderEquity;
     }else if(leg.leg==='open'&&settings.sizingMode==='ratio'){
-      requireSizing(b.leader&&o.leader&&b.leader.accountAddress===consent.leaderAddress);snapshotMirror(o.leader!,b.leader,now,{accountId:'leader',strategyId:consent.strategyId},consent.network);requireSizing(Dec.from(b.leader!.equity).isPositive);
+      requireSizing(b.leader&&o.leader&&b.leader.accountAddress===consent.leaderAddress);snapshotMirror(o.leader!,b.leader,now,{accountId:'leader',strategyId:consent.strategyId},consent.network,true);requireSizing(Dec.from(b.leader!.equity).isPositive);
       leaderEquity=b.leader!.equity;
     }else requireSizing(b.leader===null&&o.leader===null);
     const sign=followerSign(leg.sign,settings.direction),position=Dec.from(b.generation.positionSize),mid=Dec.from(b.quote.midPrice),side=leg.leg==='close'?(sign>0?'A':'B'):(sign>0?'B':'A');

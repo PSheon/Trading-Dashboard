@@ -7,6 +7,7 @@ import type { LiveAccountSnapshot } from './live/live-account-observer.js';
 import { LiveBoundaryError } from './live/wallet-authorization.js';
 import { CopyFollowerSnapshotRepository, FollowerSnapshotDeferred, type FollowerSnapshotIssue } from './copy-follower-snapshot.repository.js';
 import { safeErrorText } from '../runtime/safe-error-text.js';
+import { budgetConsumer } from '../hyperliquid/request-budgeter.service.js';
 
 export const FOLLOWER_SNAPSHOT_READER = Symbol('FOLLOWER_SNAPSHOT_READER');
 export interface FollowerSnapshotReader { observe(accountAddress: string, beforeRead?: () => Promise<void>): Promise<LiveAccountSnapshot>; close?(): void }
@@ -65,7 +66,7 @@ export class CopyFollowerSnapshotCollector implements OnApplicationBootstrap, On
   async tick(): Promise<void> {
     if (this.running || this.jobs.stopping) return;
     this.running = true;
-    try { await this.jobs.run(() => this.runOnce()); }
+    try { await this.jobs.run(() => budgetConsumer('copy.snapshots', () => this.runOnce())); }
     catch { this.logger.warn('Actual account observation acquisition pending'); }
     finally { this.running = false; }
   }

@@ -66,3 +66,12 @@ it("distinguishes trader actions from the copy form's additional settings", () =
   expect(render(null)).toContain('aria-label="更多操作"');
   expect(render(null)).not.toContain('aria-label="更多設定"');
 });
+
+it("keeps the trader's own bar to back, name and its actions: the account is in the shared header above it (Paul, 2026-10-11)", () => {
+  const html = render(null);
+  const bar = html.slice(html.indexOf('data-testid="trader-phone-header"'), html.indexOf("</header>", html.indexOf('data-testid="trader-phone-header"')));
+  expect(bar).toContain("<h1");
+  expect(bar).not.toContain(zhTW.common.signIn);
+  // Sticks under the 72px shared header, not over it.
+  expect(bar).toContain("top-[72px]");
+});

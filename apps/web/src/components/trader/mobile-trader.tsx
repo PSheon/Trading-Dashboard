@@ -26,7 +26,6 @@ import { SectionBoundary } from "@/components/section-boundary";
 import { CopyPanel } from "./copy-panel";
 import { ShareButton } from "./share-dialog";
 import { ActivityTabs } from "./activity-tabs";
-import { AuthButton } from "@/components/shell/account-controls";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useSiteMode } from "@/lib/site-mode";
 import { useLiveCopyPortfolio } from "@/lib/copy-live-portfolio";
@@ -42,7 +41,7 @@ function TopBar({ profile }: { profile: TraderProfileResponse }) {
   const { t } = useI18n();
   const scrolled = usePageScrolled();
   return (
-    <header data-testid="trader-phone-header" data-scrolled={scrolled} className="sticky top-[env(safe-area-inset-top,0px)] z-30 isolate -mx-4 -mt-4 flex items-center gap-2 px-4 pt-4 pb-2">
+    <header data-testid="trader-phone-header" data-scrolled={scrolled} className="sticky top-[72px] z-30 isolate -mx-4 -mt-4 flex items-center gap-2 px-4 pt-2 pb-2">
       <div aria-hidden className="bar-scrim" />
       <Link
         href="/explore"
@@ -66,7 +65,6 @@ function TopBar({ profile }: { profile: TraderProfileResponse }) {
           </div>
         </PopoverContent>
       </Popover>
-      <AuthButton compact />
     </header>
   );
 }

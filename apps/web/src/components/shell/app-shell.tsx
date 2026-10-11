@@ -16,7 +16,7 @@ import { CopyFeed } from "@/components/copy/copy-feed";
 import { AccountControls, AuthButton } from "./account-controls";
 import { AddressSearch } from "./address-search";
 import { PhoneMenu } from "./phone-menu";
-import { SiteFooter, SiteLegalFooter } from "./site-footer";
+import { SiteFooter } from "./site-footer";
 import { WalletModalsProvider } from "@/components/wallet/wallet-modals";
 import { useAuth } from "@/lib/auth";
 import type { PublicSettings } from "@/lib/contracts";
@@ -34,21 +34,24 @@ const isAppRoute = (pathname: string) => pathname === "/" || ROUTES.some((r) => 
  *   登入 / the account, with the floating bottom navigation;
  * - about, help and the 404 page: wordmark, search and the ☰ menu, with no
  *   tab bar;
- * - detail pages keep their own page chrome; settings shares the app header.
+ * - a trader's page: the same app header, its own back / name / actions bar
+ *   below it, and its sticky 跟單 button in place of the tab bar;
+ * - other detail pages keep their own page chrome; settings shares the app header.
  */
-function phoneChrome(pathname: string): "home" | "marketing" | "none" {
+function phoneChrome(pathname: string): "home" | "detail" | "marketing" | "none" {
   if (pathname === "/" || ["/explore", "/favorites", "/portfolio", "/insights", "/settings"].some(r => pathname === r || pathname.startsWith(`${r}/`))) return "home";
+  if (pathname.startsWith("/trader/")) return "detail";
   if (pathname === "/about" || pathname === "/help" || !isAppRoute(pathname)) return "marketing";
   return "none";
 }
 
-/** Public pages, portfolio, favorites and settings share the brand footer;
- * trader details keep legal/help links. */
-function shellFooter(pathname: string): "everywhere" | "compact" | null {
+/** Every app page shares the one brand footer (a trader's included, Paul
+ * 2026-10-11); a trader's insights tab has none (see AppShell). */
+function shellFooter(pathname: string): "everywhere" | null {
   if (pathname.startsWith("/r/")) return "everywhere";
   if (["/portfolio", "/favorites", "/settings"].some(route => pathname === route || pathname.startsWith(`${route}/`))) return "everywhere";
   if (["/privacy", "/terms", "/delete-account", "/explore", "/insights", "/coins"].includes(pathname) || pathname.startsWith("/coins/")) return "everywhere";
-  if (["/trader"].some(route => pathname === route || pathname.startsWith(`${route}/`))) return "compact";
+  if (pathname.startsWith("/trader/")) return "everywhere";
   return null;
 }
 
@@ -87,8 +90,8 @@ export function AppShell({
   const mobilePill = mobileBox?.width ? mobileBox : null;
   // Seeds the query the banners (and pages) read, before they mount.
   useSiteSettings(settings);
-  // A trader page on a phone has its own top bar and a sticky 跟單 button in
-  // place of the header and the tab bar.
+  // A trader page on a phone has the app header, its own bar under it and a
+  // sticky 跟單 button in place of the tab bar.
   const traderPage = pathname.startsWith("/trader/");
   // The 市場 pages are bare on a phone: no top bar and no tab bar, only the
   // page and its breadcrumb.
@@ -163,7 +166,7 @@ export function AppShell({
       <div
         className={cn(
           traderPage
-            ? "pt-0 pb-[calc(96px+env(safe-area-inset-bottom))]"
+            ? "pt-[72px] pb-[calc(96px+env(safe-area-inset-bottom))]"
             : barePhonePage
               ? "pt-4 pb-10"
               : chrome === "marketing"
@@ -191,7 +194,7 @@ export function AppShell({
           )}
         >
           {guestPortfolio ? <div className="md:flex md:flex-1 md:items-center md:justify-center md:py-3">{children}</div> : portfolioPage ? <div className="md:flex-1">{children}</div> : children}
-          {footer === "compact" ? <SiteLegalFooter /> : footer ? <SiteFooter className={guestPortfolio ? "mt-10 md:mt-0 md:shrink-0" : portfolioPage ? "mt-10 md:mt-8 md:shrink-0" : "mt-16"} /> : null}
+          {footer ? <SiteFooter className={guestPortfolio ? "mt-10 md:mt-0 md:shrink-0" : portfolioPage ? "mt-10 md:mt-8 md:shrink-0" : "mt-16"} /> : null}
         </main>
       </div>
 

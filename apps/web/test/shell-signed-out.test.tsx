@@ -113,14 +113,22 @@ it.each(["/favorites", "/settings", "/settings/account", "/settings/language", "
   }
 });
 
-it.each(["/trader/0xabc"])("retains the compact legal and help footer on %s", async (pathname) => {
+it.each(["/trader/0xabc"])("uses the one complete brand footer on %s, like every other page (Paul, 2026-10-11)", async (pathname) => {
   state.pathname = pathname;
   await render("signedIn");
   expect(container.querySelectorAll("footer")).toHaveLength(1);
-  expect(container.querySelector('footer nav[aria-label="Resources"]')).toBeNull();
+  expect(container.querySelector('footer nav[aria-label="Resources"]')).not.toBeNull();
+  expect(container.querySelector('footer nav[aria-label="Community"]')).not.toBeNull();
   expect(container.querySelector('footer a[href="/en/privacy"]')).not.toBeNull();
-  expect(container.querySelector('footer a[href="/en/terms"]')).not.toBeNull();
-  expect(container.querySelector('footer a[href="/en/help"]')).not.toBeNull();
+});
+
+it("gives a trader page the shared phone header (wordmark, search, account) but no tab bar: its 跟單 button sits there", async () => {
+  state.pathname = "/trader/0xabc";
+  await render("signedIn");
+  const header = container.querySelector('[data-testid="app-phone-header"]');
+  expect(header).not.toBeNull();
+  expect(header?.querySelector('a[href="/en"]')).not.toBeNull();
+  expect(tabBar().className).toContain("hidden");
 });
 
 it.each(["signedIn", "signedOut"])("keeps the shared phone header on settings while %s", async (status) => {

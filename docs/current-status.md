@@ -4,6 +4,13 @@
 
 ## 本輪最新結果
 
+### 台北14:40 Claude：開始前跟單適配估算（§6.3）發布Stage Web
+
+- `321fc990`＋`6e37aa7b`：比例跟單（模擬，或未強制固定額的實際部署）開始前，跟單面板以交易員頁同一份近期成交（FILL_LIMIT，不增加請求）與帳戶總值，估算輸入金額下有多少開倉會低於最低下單額（至少10USD）、多少是HIP-3市場；同一訂單同時間成交合併、反手只計開倉部分；讀不到帳戶價值、沒有開倉、成交讀取失敗（503）都明說，不猜。固定每筆金額不顯示，不替使用者改金額或模式。11語言。
+- Web **210檔／1,447 PASS**、typecheck、eslint；[CI38117414536](https://github.com/PSheon/Trading-Dashboard/actions/runs/38117414536)全綠（321fc990）。Stage Web `7d4b84b5-a22d-4b1c-8c53-63eac0233c28`（321fc990）→ `c374d80f-2db0-489e-8f03-d534ffb2822c`（6e37aa7b，[CI38118594276](https://github.com/PSheon/Trading-Dashboard/actions/runs/38118594276)全綠）SUCCESS（發布集合＋2個新來源檔），API／worker仍38da／52ea。
+- 驗收：Stage原Paul session 1440／390（交易員0xa4de…：最近7筆開倉皆達最低額）、本機1440／390（solanadoomer：投入100時估算138筆中132筆低於最低額，Stage實際策略1紀錄為441開倉中348筆below_min，方向一致、估算偏保守）；無溢出；未按開始跟單、無金融寫入。Stage／本機帳戶模式已還原（正式／測試網）。拒絕原因修正（124daff1）Stage 1440／390亦已親眼看。
+- 七類在途SSH唯讀守門：Paul已口頭授權，但工具權限分類器仍阻擋「生產讀取」，需在Claude Code設定加允許規則後才能執行。
+
 ### 台北13:40 Claude：拒絕原因說明補齊並發布Stage Web（§5問題3、問題2部分）
 
 - `124daff1`：前端補齊後端`publicOrderReason`放行的全部原因碼（`below_min_after_rounding`、`risk_cap_*`、`strategy_stopping/stopped`、`stale_price`、`max_per_trade`、`opposite_position`等），保留「送出前／成交前複核」階段；最低額、取整、上限收緊歸為風控未執行；計畫數量取整為0的拒絕顯示「—」而非0；曾部分成交仍顯示原狀態與已成交量；未知碼（含`order_not_executed`）維持「原因尚未確認」。

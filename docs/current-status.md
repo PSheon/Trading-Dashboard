@@ -1,17 +1,30 @@
 # 最新驗證與發布狀態
 
-更新：2026-10-11 08:52（Asia/Taipei）。本頁優先於其他報告內有日期的歷史紀錄；歷史 FAIL、逾時及舊發布 ID 保留，不改寫成最新 PASS。
+更新：2026-10-11 09:34（Asia/Taipei）。本頁優先於其他報告內有日期的歷史紀錄；歷史 FAIL、逾時及舊發布 ID 保留，不改寫成最新 PASS。
 
 ## 本輪最新結果
 
-### 台北08:52最新狀態（優先於下列歷史快照）
+### 台北09:34目前狀態
+
+- **前端已發布並實際驗收：** `fc93d60af5d1daf3707fa99df4a90ea5e28ee7c3`，[精確 CI 38100094883](https://github.com/PSheon/Trading-Dashboard/actions/runs/38100094883) 全綠；Browser **66＋75＋66＝207 PASS**，無重試／flaky，三組原始日誌沒有舊字型解析或編譯失敗。完整 Web **207檔／1429 PASS**，型別與eslint通過；獨立正式Webpack build actual exit0。原 optional Privy SDK／metadata警告保留，不宣稱零警告。
+- Stage Web 唯一原部署 `cb5939f8-a5a4-4a7b-b065-24a79f55e103` SUCCESS；API／worker仍為已核對八個編譯檔的061版，未重部署後端或改設定。依既有雲端checkpoint與七項零進行中資金guard發布。
+- **#56完成：** 116個Stage靜態WOFF2全部HTTP200、SHA256與位元組數一致、正確MIME與一年immutable快取；1440／390真實未登入settings初次只讀兩個Latin品牌字型、CJK自然延後，下次SSR生效，visible header／footer各一、無overflow／HTTP及pageerror／金融寫入。原Paul登入cookie自然由b41遷移至 `fe46d03f-bb51-4894-91b9-bb2ac194f7dc`，九項帳戶GET200，CSS／字型200。截圖已人工檢視。
+- 新字型版本真實guest `/portfolio`／`/settings`／`/favorites` ×1440／390六頁全部200，共用可見header／footer各一、無橫向溢出及新錯誤。桌面portfolio頁高900、footer底876；手機三頁在真底footer底728、floating nav頂764，間隙約36px；六張截圖已人工檢視。驗收工具兩次header計數錯誤（含隱藏responsive header／頁內section header）保留，修正為只選取共用且可見header，未改產品配合工具。
+- #55在新字型版本重驗1440／390受控55.5%與111／89USD，顯示56%＋44%，美元未變、無溢出／HTTP錯誤／金融寫入。受控回覆只驗顯示，不替代真實資料品質。
+- **洞察仍未完成：** 061原120分鐘觀察窗cutoff台北08:27:16；09:34量測2／7雙95%品質通過、3組部署後真實新歷史，仍需七組全部通過且連續两次。沒有降低品質／延長freshness／改配額，舊窗逾時保留。
+- 常態背景額度方案已完成原狀唯讀核對與有效cap計算：cohort150→240（約55→89/min）、backfill120→30（約44→11/min），sum730／worker360／共享背景400不變。原兩環境變數皆未設定，可恢復原absence；舊歷史回補會變慢，新歷史／候選池額度不變。**等待Paul明確授權，尚未套用**；先前暫時提額方案亦未套用，不把暫時加速當作正常配置驗收。
+- 推薦防循環（含並行圖變更）、開始實際跟單後禁止綁定、DID穩定journal、綁定錯誤呈現及好友實際network標籤已在目前後端／前端；完整API／Web回歸涵蓋其修正。Stage邀請複製／QR與停用申領已有真人唯讀操作證據。費用歸屬／treasury／付款adapter仍未實作且停用，沒有冒稱完整返佣；OTP真人登入不代表所有登入供應商／跨裝置／JWKS輪替皆實測。
+- **主網僅唯讀：** 台北09:14原Paul主網策略／執行帳戶與pending funding／risk liability／stop皆0；平台未暫停／非reduce-only。預設場域無倉位／掛單／可用資金（不是所有場域證明），stage.orbie.fun portfolio／health／settings HTTP200；09:15 Arbitrum同區塊USDC與ETH皆0。09:33原Paul正常頁面讀取主網capabilities HTTP200，actualAllowed／automaticExecution／setupAbort皆true，上限每筆12–15USDC／配置50USDC／3x／兩策略維持；四筆overview項目包含歷史，不等於四筆活躍主網策略。未入金／簽署／派單，付費推薦仍停用。
+
+
+### 台北08:52歷史快照（以09:34狀態為準）
 
 - 061 API與worker均SUCCESS：API `98f448cf-1be9-49c5-9b98-388e241ec391`、worker `a347c87c-6d34-4219-945f-ce1f258dad36`。worker台北08:27:16核對八個編譯檔、原部署ID、mainnet／live與ready200；本機testnet已重載同版、資金靜止及admin403。完整API282檔4523與精確CI38097314588通過。
 - Web `ef169530a358867861a1d541e1af63e80802aa3f` 精確 [CI 38098436838](https://github.com/PSheon/Trading-Dashboard/actions/runs/38098436838) 全綠，Browser **66＋75＋66＝207 PASS**、沒有重試或flaky；API／smokes依範圍略過。Stage唯一原部署 `02bfd3b8-b3b6-4742-9ec8-1586ae000485` SUCCESS，台北08:50原登入cookie自然遷移b41建置、CSS／字型及九項帳戶GET200、退役請求及pageerror0；08:51兩尺寸受控比例與美元驗收PASS，截圖人工複核，不當成真實資料補齊。
 - **新問題#56仍待發布：** ef第一Browser分片雖66 PASS，原始日誌仍有87.6MB Turbopack Google字型URL解析錯誤；原PASS與錯誤並存，不能稱編譯日誌乾淨。已把三款既有字型的116個未修改WOFF2及官方OFL放進專案，保留240個font-face的原字重、Unicode分片、顯示與fallback尺寸，移除建置時Google回覆依賴。兩項旧版FAIL、新相關8 PASS、完整Web **207檔／1429 PASS**、型別及eslint通過；正常localhost首次僅兩個Latin品牌字型，CJK延後讀取／下次cookie生效，字型200、390px無溢出。正式建置、精確新CI與Stage仍待驗收。
 - **資料仍未完成：** 061原120分鐘觀察窗cutoff台北08:27:16；08:49量測0／7品質通過、0組部署後新歷史。一批旧快照到期，服務持續刷新但未達原95%雙門檻；沒有放寬時效／品質或變更配額設定。台北08:41只讀最新成員列估算：14.21分鐘72位成功，其中19位每日全場域掃描，估計628權重；不是完整HTTP操作日誌。舊f8／dc／88逾時保留，ab原窗仍依原期限，不把061的後續效果冒算ab單獨通過。
 
-### 台北08:28目前狀態（優先於下列歷史發布紀錄）
+### 台北08:28歷史快照（以09:34狀態為準）
 
 - 後端 `0615ffde1fa923691bb10df985272d3d55f61c1f` 完整隔離API **282檔／4,523 PASS**，829.65秒、原程序exit0、隔離資料庫已移除；精確 [CI 38097314588](https://github.com/PSheon/Trading-Dashboard/actions/runs/38097314588) checks／build／smokes／四個API分片／ci通過，Browser因前端未改略過。修正已證實的零成員派送卻扣producer額度，保留冷卻、全域等待、總額度與品質門檻。
 - Stage API唯一原部署 `98f448cf-1be9-49c5-9b98-388e241ec391` SUCCESS；台北08:24:31核對八個編譯檔、原部署ID、mainnet／live與ready200。worker唯一原部署 `a347c87c-6d34-4219-945f-ce1f258dad36` 正在建置，尚不能宣稱新版七組通過。本機testnet已重載061、八項靜止與admin403核對通過，未重做金融B。

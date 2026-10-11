@@ -8,7 +8,7 @@
 
 B段仍以Paul接受的7 PASS／⑧ SKIP結案、保留逾時與舊FAIL。新發現49：CJK一年cookie跨發布重播舊CSS，已本機修正及1416項完整前端回歸，待新web发布。洞察資料覆蓋／新歷史點仍在驗證，不能宣稱全部問題完成。主網C段未開始、餘額仍0；真實返佣停用且支付整合未完成。
 
-## 2026-10-11 01:55 最新驗收
+## 2026-10-11 01:55 歷史驗收（最新以current-status為準）
 
 本機 testnet B 已依 Paul 同意以7 PASS／⑧ SKIP結案，保留逾時；下方 BASE90／91 FAIL 是歷史，不代表仍未結案。`0a703cfd` CI 全綠（含201項瀏覽器），Stage API／worker／web三者均SUCCESS。
 
@@ -121,7 +121,7 @@ B段仍以Paul接受的7 PASS／⑧ SKIP結案、保留逾時與舊FAIL。新發
 | 53 | 洞察摘要超過80%卻未揭露部分成員缺快照 | 已修正／CI與真實Stage PASS | 保留80%／95%門檻，兩項舊版FAIL保留；Web1421、Browser207無重試PASS。Stage b09 SUCCESS，1440／390真實顯示347／383、top-bar與單一footer正常、無溢出或新API／字型錯誤，穩定截圖已人工複核；不是七組歷史補齊的證據。 |
 | 54 | 空洞察圖宣稱每15分鐘一筆，與Stage40分鐘及品質守門不一致 | 已修正／精確CI與Stage受控空圖PASS | 十一語言改為資料足夠後逐步累積，不改排程或品質門檻。舊兩项FAIL；完整Web1423及Browser207無重試PASS。350版Stage Web SUCCESS，1440／390受控空歷史畫面新提示、無溢出；原登入CJK cookie自然遷移93a38建置、CSS／字型全200且退役請求0。截圖已人工檢視；受控空圖不是Stage歷史補齊證據。 |
 | 55 | 多空比例各自四捨五入，55.5%／44.5%顯示56%＋45%＝101% | 已修正／精確CI與Stage受控畫面PASS | 洞察與投資組合均補修，原三項FAIL保留；Web1427、Browser207無重試PASS。ef169530 Stage Web SUCCESS，原登入CJK遷移b41建置、CSS／字型與九項帳戶GET200、退役請求及pageerror0；1440／390受控55.5%與111／89USD顯示56%＋44%，美元未變、無溢出，截圖人工複核。不是實際資金或七組補齊證據。 |
-| 56 | CI通過但Turbopack產生大量Google字型URL解析錯誤，未來建置仍可間歇失敗 | 本機修正／新版CI與Stage待驗收 | ef第一Browser分片原87.6MB錯誤日誌保留，三分片207 PASS不改寫。改用原建置的116個未修改WOFF2、官方OFL授權與SHA256清單，移除三款字型的建置期Google依賴；原240個font-face的字重／unicode-range／display／fallback尺寸規則全部相同。舊兩項回歸FAIL、新相關8 PASS、完整Web207檔1429 PASS、型別與eslint通過；正常localhost初次只載入兩個品牌Latin字型，隨後CJK分片200與cookie生效、390px無溢出。尚待正式建置、新版精確CI與Stage驗收。 |
+| 56 | CI通過但Turbopack產生大量Google字型URL解析錯誤，建置可間歇失敗 | 已修正／精確CI及真實Stage驗收PASS | 原87.6MB錯誤與207 PASS並存的歷史保留。116個原WOFF2、官方OFL及SHA256清單固定於專案，保留240個font-face完整規則；舊兩項FAIL、新相關8 PASS、Web207檔1429 PASS、型別／eslint／獨立Webpack build exit0。fc93d60a精確CI38100094883全綠、Browser207無重試且三組無字型編譯錯誤；Stage原部署cb5939f8 SUCCESS。116資產HTTP／雜湊／大小／MIME／immutable快取全通過；1440／390真實guest首次僅兩個Latin品牌字型、CJK自然延後與cookie生效、可見header／footer各一、無溢出及新錯誤。Paul原登入cookie自然遷移fe46新建置、九項帳戶GET200；截圖人工複核。字型／shell驗收工具兩次header計數錯誤（隱藏responsive header／頁內section header）保留，改為共用且可見header量測，未改產品配合工具。 |
 
 
 ## 10/08 14:05 舊畫面紀錄

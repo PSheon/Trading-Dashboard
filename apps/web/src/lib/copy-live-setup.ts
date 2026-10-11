@@ -104,6 +104,9 @@ export async function attachWorker(setup: LiveCopySetup, wallet: Pick<WalletSign
 }
 /** How long confirm waits for Privy to add the worker signer. */
 export const ATTACH_WORKER_TIMEOUT_MS = 20_000;
+/** How long a confirmation the server still runs is followed before the
+ * sheet comes back, and how often it is read meanwhile. */
+export const confirmSettle = { ms: 120_000, pollMs: 2_000 };
 
 /** A payload's fingerprint for its attempt name: keys sorted, so the terms
  * the server echoes back (jsonb reorders keys) name the same attempt. */
@@ -277,14 +280,30 @@ export function useLiveCopySetupActions() {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
   };
+  /** A confirmation the server still runs (its answer comes back after 10 s
+   * while the funding and signer steps go on): keep reading the setup until
+   * it moves on, instead of handing the owner the confirm sheet again (on
+   * Stage on 2026-10-11 each such answer cost another press, and a
+   * signature or Privy prompt more). */
+  const settled = async (id: string, result: LiveCopySetup, scope: ReturnType<typeof liveSetupScope>): Promise<LiveCopySetup> => {
+    const deadline = Date.now() + confirmSettle.ms;
+    while (result.stage === 'awaiting_consent' && !result.issue && Date.now() < deadline && mounted.current) {
+      await new Promise(resolve => setTimeout(resolve, confirmSettle.pollMs));
+      result = liveCopySetupSchema.parse(await api.get(`${ROOT}/setups/${encodeURIComponent(id)}`));
+      assertScope(scope);
+    }
+    return result;
+  };
   const confirm = useMutation({
     mutationFn: async (setup: LiveCopySetup) => {
       const scope = liveSetupScope(latest.current.identity), request = await setupRequestDigest(`confirm:${setup.id}`);
       assertScope(scope);
       const original = journal().find(request);
       if (original?.confirmationPending) {
-        const recovered = liveCopySetupSchema.parse(await api.get(`${ROOT}/setups/${encodeURIComponent(setup.id)}`));
+        let recovered = liveCopySetupSchema.parse(await api.get(`${ROOT}/setups/${encodeURIComponent(setup.id)}`));
         assertScope(scope);
+        assertRecovery(original, recovered);
+        recovered = await settled(setup.id, recovered, scope);
         assertRecovery(original, recovered);
         if (recovered.stage !== 'awaiting_consent' || recovered.issue === 'funding_not_submitted') journal().forget(request);
         return seed(recovered);
@@ -312,6 +331,9 @@ export function useLiveCopySetupActions() {
         try { result = liveCopySetupSchema.parse(await api.get(`${ROOT}/setups/${encodeURIComponent(setup.id)}`)); }
         catch { assertSame(); throw error; }
       }
+      assertSame();
+      assertRecovery(attempt, result);
+      result = await settled(setup.id, result, scope);
       assertSame();
       assertRecovery(attempt, result);
       if (result.stage !== 'awaiting_consent' || result.issue === 'funding_not_submitted') journal().forget(request);

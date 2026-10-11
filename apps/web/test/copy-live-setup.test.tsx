@@ -11,7 +11,7 @@ import { LOCALES } from '@/i18n/config';
 import { setupRequestDigest } from '@/lib/copy-live-setup-recovery';
 import { ApiError } from '@/lib/api';
 import { TraderCopyFlow, useTraderCopyFlow } from '@/components/trader/trader-copy-flow';
-import { createLiveSetupJournal, termsFingerprint, signSetup, useLiveCopySetup, useLiveCopySetupActions } from '@/lib/copy-live-setup';
+import { confirmSettle, createLiveSetupJournal, termsFingerprint, signSetup, useLiveCopySetup, useLiveCopySetupActions } from '@/lib/copy-live-setup';
 import { createSetupAbortJournal } from '@/lib/copy-live-setup-abort-recovery';
 
 const state = vi.hoisted(() => ({ post: vi.fn(), get: vi.fn(), patch: vi.fn(), sign: vi.fn(), addSigners: vi.fn(), identity: 'owner@email', session: '1', address: `0x${'11'.repeat(20)}` as string | null }));
@@ -59,6 +59,8 @@ let person = 0;
 beforeEach(async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   probe.current = null; progress.current = null;
+  // Unless a test follows a running confirmation, its answer is taken as it is.
+  confirmSettle.ms = 0; confirmSettle.pollMs = 5;
   vi.resetAllMocks(); state.identity = `owner-${++person}@email`; state.session = '1'; state.address = `0x${'11'.repeat(20)}`;
   state.sign.mockImplementation(async () => `0x${'ab'.repeat(65)}`);
   state.addSigners.mockImplementation(async () => undefined);
@@ -534,6 +536,18 @@ it('a bounded confirmation that still awaits consent retains the original start 
   state.post.mockResolvedValueOnce(setup());
   await act(async () => { await probe.current!.start.mutateAsync({ leader, budgetUsd: '150', settings }); });
   expect(keyOf(state.post.mock.calls[2]!)).toBe(keyOf(state.post.mock.calls[0]!));
+});
+it('a confirmation the server still runs is followed until it moves on: one press, two signatures, no second sheet (Stage 2026-10-11)', async () => {
+  confirmSettle.ms = 5_000;
+  state.post.mockResolvedValueOnce(setup());
+  state.get.mockResolvedValueOnce(setup()).mockResolvedValueOnce(setup('start', 'funding_submitted'));
+  let result: unknown;
+  await act(async () => { result = await probe.current!.confirm.mutateAsync(setup()); });
+  expect(result).toMatchObject({ id: setup().id, stage: 'funding_submitted' });
+  expect(state.post).toHaveBeenCalledTimes(1);
+  expect(state.get).toHaveBeenCalledTimes(2);
+  expect(state.sign).toHaveBeenCalledTimes(2);
+  expect(state.addSigners).toHaveBeenCalledTimes(1);
 });
 it('a server error after confirmation may have admitted the operation and is recovered without another signature', async () => {
   state.post.mockRejectedValueOnce(new ApiError(500, 'server error', { code: 'internal_error' }));

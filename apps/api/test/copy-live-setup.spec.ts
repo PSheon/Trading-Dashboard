@@ -242,6 +242,15 @@ describe('one-click testnet copy setup', () => {
     expect(done.mandateId).toBe(mandate!.id);
   });
 
+  it("a confirm that finds the worker's driver holding the setup waits for it, instead of dropping the owner's signatures (Stage 2026-10-11)", async () => {
+    const setup = await start();
+    const repository = new CopyLiveSetupRepository(db), driver = (await repository.lease(setup.id, 60_000))!;
+    const released = new Promise<void>(resolve => setTimeout(() => void repository.release(setup.id, driver.leaseToken).then(() => resolve()), 1_500));
+    expect(await service.confirm(uid, setup.id, await sign(setup.consent!))).toMatchObject({ stage: 'funding_submitted' });
+    await released;
+    expect(fakes.funding.submit).toHaveBeenCalledTimes(1);
+  });
+
   it('a signer the browser added is recorded even when the consent itself is then refused (never left unrecorded on the wallet)', async () => {
     const setup = await start();
     later(301_000);

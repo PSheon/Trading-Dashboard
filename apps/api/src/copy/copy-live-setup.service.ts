@@ -35,6 +35,8 @@ const LEASE_MS = 60_000;
 const ABANDONED_APPROVAL_WINDOW_MS = 3 * 86_400_000;
 /** Long setup work answers with its durable row before the HTTP deadline. */
 const SETUP_ANSWER_MS = 10_000;
+/** How long a confirmation waits for the worker to let go of its setup. */
+const CONFIRM_LEASE_WAIT_MS = 30_000;
 const THROTTLED_STAGES: readonly SetupStage[] = ['funded', 'mode_set', 'agent_active'];
 /** Every step after confirm is signed by the worker under the owner's Privy
  * policy (the one signing model, 2026-10-07), with exactly the payload the
@@ -380,7 +382,17 @@ export class CopyLiveSetupService {
     const original = await this.repository.find(userId, id);
     if (original.stage !== 'awaiting_consent') return this.wire(original);
     return this.answer(original, async () => {
-      const leased = await this.repository.lease(id, LEASE_MS);
+      // The worker's driver may hold the row for a moment: wait for it
+      // rather than drop the owner's signatures (each dropped confirm cost
+      // the owner another press and signature, Stage 2026-10-11).
+      // Only a held lease is waited for (an abort's hold is final).
+      let leased = await this.repository.lease(id, LEASE_MS);
+      for (const until = Date.now() + CONFIRM_LEASE_WAIT_MS; !leased && Date.now() < until;) {
+        const current = await this.repository.find(userId, id);
+        if (current.stage !== 'awaiting_consent' || !current.leaseToken) return current;
+        await new Promise(resolve => setTimeout(resolve, 500));
+        leased = await this.repository.lease(id, LEASE_MS);
+      }
       if (!leased) return this.repository.find(userId, id);
       let row: SetupRow;
       try { row = leased.stage === 'awaiting_consent' ? await this.confirmLeased(leased, request) : leased; }

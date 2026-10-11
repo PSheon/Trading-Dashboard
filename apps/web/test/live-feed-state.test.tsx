@@ -86,3 +86,22 @@ it("handles fills failing independently, retrying both sources only when both fa
   expect(reads.fills.refetch).toHaveBeenCalledOnce();
   expect(reads.transfers.refetch).toHaveBeenCalledOnce();
 });
+
+it("shows activity in the trades tab's table on wider screens, with its 24-hour UTC time (Paul, 2026-10-11)", async () => {
+  reads.fills.data = [{ ...fill, ts: "2026-09-23T13:12:00Z", dir: "Close Short", side: "buy", closedPnl: -0.87, px: 4.657, sz: 1, notionalUsd: 4.657, coin: "NEAR" }];
+  reads.transfers.data = emptyTransfers;
+  await render();
+  const table = el.querySelector("table");
+  expect(table).not.toBeNull();
+  // The same dense capsule table as 交易 (Table dense): its body text size and gutters.
+  expect(table!.className).toContain("text-xs");
+  expect(table!.closest(".table-dense")).not.toBeNull();
+  expect([...table!.querySelectorAll("th")].map((th) => th.textContent)).toEqual(["Time (UTC)", "Event", "Size", "Price", "PnL"]);
+  const cells = [...table!.querySelectorAll("tbody tr td")].map((td) => td.textContent);
+  expect(cells[0]).toBe("Sep 23, 13:12");
+  expect(cells[2]).toBe("1 NEAR");
+  expect(cells[3]).toBe("$4.657");
+  expect(cells[4]).toBe("-$0.87");
+  // The phone list writes the same time, not the old 12-hour "1:12PM".
+  expect(el.textContent).not.toContain("1:12PM");
+});

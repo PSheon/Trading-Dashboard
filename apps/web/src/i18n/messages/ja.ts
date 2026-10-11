@@ -949,6 +949,7 @@ export const ja: Messages = {
     transfersWindow: "過去 90 日",
     transfersTruncated: "高頻度アカウント：{date} 以降の最新 {count} 件",
     activity: {
+      cols: { time: "時間 (UTC)", event: "イベント", size: "数量", price: "価格", pnl: "損益" },
       partialData: "一部のアクティビティを読み込めませんでした。取得済みの履歴は引き続き表示されます。",
       title: "最近のアクティビティ",
       live: "ライブ",

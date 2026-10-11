@@ -949,6 +949,7 @@ export const vi: Messages = {
     transfersWindow: "90 ngày qua",
     transfersTruncated: "Tài khoản bận: {count} mục mới nhất từ {date}",
     activity: {
+      cols: { time: "Thời gian (UTC)", event: "Sự kiện", size: "Khối lượng", price: "Giá", pnl: "Lãi/lỗ" },
       partialData: "Không tải được một phần hoạt động. Các sự kiện đã biết vẫn được hiển thị.",
       title: "Hoạt động gần đây",
       live: "Trực tiếp",

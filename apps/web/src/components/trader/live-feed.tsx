@@ -6,13 +6,14 @@ import { cn } from "cn";
 
 import { ErrorState, Skeleton } from "@/components/page";
 import { Button } from "@/components/ui/button";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TablePager, usePaged } from "@/components/ui/table-pager";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { useI18n } from "@/i18n/provider";
 import { coinLabel, signedUsd2, usd2 } from "@/lib/format";
 import { mergeLiveFills } from "@/lib/live-trader";
 import { useTraderFills, useTraderTransfers } from "@/lib/queries";
-import { feedTime, price, qty } from "@/lib/trade-format";
+import { price, qty, shortTime } from "@/lib/trade-format";
 import { FILL_LIMIT, fillsTruncated, groupFills, type FillGroup } from "./trader-tabs";
 
 const NO_FILLS: TraderFill[] = [];
@@ -38,19 +39,27 @@ function eventKey(g: FillGroup): EvtKey | null {
 
 type FeedEvent = ({ source: "fill" } & FillGroup) | ({ source: "xfer"; key: string; at: number } & TraderTransfer);
 
+function useFillHeadline() {
+  const { t } = useI18n();
+  return (ev: FillGroup) => {
+    const coin = coinLabel(ev.coin);
+    const value = `${ev.partial ? "≥" : ""}${usd2(ev.value)}`;
+    const key = eventKey(ev);
+    return key ? t(`trader.activity.evt.${key}`, { value, coin }) : t("trader.activity.evt.other", { value, coin, dir: ev.dir });
+  };
+}
+
 function FillRow({ ev }: { ev: FillGroup }) {
   const { t } = useI18n();
   const coin = coinLabel(ev.coin);
-  const value = `${ev.partial ? "≥" : ""}${usd2(ev.value)}`;
-  const key = eventKey(ev);
-  const headline = key ? t(`trader.activity.evt.${key}`, { value, coin }) : t("trader.activity.evt.other", { value, coin, dir: ev.dir });
+  const headline = useFillHeadline()(ev);
   return (
     <li className="flex gap-3 border-b-2 border-dotted border-border py-3 last:border-0" title={ev.partial ? t("trader.activity.partial") : undefined}>
       <CoinIcon coin={ev.coin} size={22} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex items-baseline justify-between gap-2">
           <span className={cn("truncate text-[13px] font-semibold", ev.liquidation && "text-negative")}>{headline}</span>
-          <span className="num shrink-0 font-mono text-[10px] text-subtle-foreground">{feedTime(ev.time)}</span>
+          <span className="num shrink-0 font-mono text-[10px] text-subtle-foreground">{shortTime(ev.time)}</span>
         </div>
         <div className="num font-mono text-[11px] text-muted-foreground">
           {ev.partial ? "≥" : ""}
@@ -72,13 +81,58 @@ function TransferRow({ ev }: { ev: TraderTransfer }) {
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex items-baseline justify-between gap-2">
           <span className="truncate text-[13px] font-semibold">{t(`trader.activity.xfer.${ev.kind}`, { asset: ev.token })}</span>
-          <span className="num shrink-0 font-mono text-[10px] text-subtle-foreground">{feedTime(ev.time)}</span>
+          <span className="num shrink-0 font-mono text-[10px] text-subtle-foreground">{shortTime(ev.time)}</span>
         </div>
         {ev.amount > 0 ? (
           <div className="num font-mono text-[11px] text-muted-foreground">{ev.usd ? usd2(ev.amount) : `${qty(ev.amount)} ${ev.token}`}</div>
         ) : null}
       </div>
     </li>
+  );
+}
+
+/** 動態 on wider screens: the 交易 tab's dense table (same rows, gutters and
+ * 24-hour UTC time), one event a row. */
+function ActivityTable({ events }: { events: FeedEvent[] }) {
+  const { t } = useI18n();
+  const headline = useFillHeadline();
+  return (
+    <Table dense className="text-xs">
+      <TableHeader>
+        <TableRow className="hover:bg-transparent">
+          <TableHead>{t("trader.activity.cols.time")}</TableHead>
+          <TableHead>{t("trader.activity.cols.event")}</TableHead>
+          <TableHead className="text-right">{t("trader.activity.cols.size")}</TableHead>
+          <TableHead className="text-right">{t("trader.activity.cols.price")}</TableHead>
+          <TableHead className="text-right">{t("trader.activity.cols.pnl")}</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {events.map((ev) => ev.source === "fill" ? (
+          <TableRow key={ev.key} title={ev.partial ? t("trader.activity.partial") : undefined}>
+            <TableCell className="text-muted-foreground">{shortTime(ev.time)}</TableCell>
+            <TableCell>
+              <span className={cn("inline-flex items-center gap-2", ev.liquidation && "text-negative")}><CoinIcon coin={ev.coin} size={18} />{headline(ev)}</span>
+            </TableCell>
+            <TableCell className="text-right">{ev.partial ? "≥" : ""}{qty(ev.size)} {coinLabel(ev.coin)}</TableCell>
+            <TableCell className="text-right">{price(ev.price)}</TableCell>
+            <TableCell className={cn("text-right", Math.abs(ev.pnl) >= 0.005 ? (ev.pnl >= 0 ? "text-positive" : "text-negative") : "text-subtle-foreground")}>
+              {Math.abs(ev.pnl) >= 0.005 ? signedUsd2(ev.pnl) : "—"}
+            </TableCell>
+          </TableRow>
+        ) : (
+          <TableRow key={ev.key}>
+            <TableCell className="text-muted-foreground">{shortTime(ev.time)}</TableCell>
+            <TableCell>
+              <span className="inline-flex items-center gap-2"><CoinIcon coin={ev.token} size={18} />{t(`trader.activity.xfer.${ev.kind}`, { asset: ev.token })}</span>
+            </TableCell>
+            <TableCell className="text-right">{ev.amount > 0 ? (ev.usd ? usd2(ev.amount) : `${qty(ev.amount)} ${ev.token}`) : "—"}</TableCell>
+            <TableCell className="text-right text-subtle-foreground">—</TableCell>
+            <TableCell className="text-right text-subtle-foreground">—</TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 }
 
@@ -126,8 +180,8 @@ export function ActivityFeed({ address, liveFills = NO_FILLS }: { address: strin
   };
 
   return (
-    <section className="overflow-hidden rounded-2xl bg-card" aria-label={t("trader.activity.title")} data-testid="activity-feed">
-      <div className="flex items-center justify-between px-4 pt-3 pb-1">
+    <section className="overflow-hidden rounded-2xl bg-card sm:overflow-visible sm:rounded-none sm:bg-transparent" aria-label={t("trader.activity.title")} data-testid="activity-feed">
+      <div className="flex items-center justify-between px-4 pt-3 pb-1 sm:sr-only">
         <h2 className="text-sm font-semibold">{t("trader.activity.title")}</h2>
       </div>
       {events.length === 0 ? (
@@ -143,9 +197,14 @@ export function ActivityFeed({ address, liveFills = NO_FILLS }: { address: strin
           <p className="py-8 text-center text-xs text-muted-foreground">{t("trader.activity.empty")}</p>
         )
       ) : (
-        <ul className="px-4">
-          {page.map((ev) => (ev.source === "fill" ? <FillRow key={ev.key} ev={ev} /> : <TransferRow key={ev.key} ev={ev} />))}
-        </ul>
+        <>
+          <ul className="px-4 sm:hidden">
+            {page.map((ev) => (ev.source === "fill" ? <FillRow key={ev.key} ev={ev} /> : <TransferRow key={ev.key} ev={ev} />))}
+          </ul>
+          <div className="hidden sm:block">
+            <ActivityTable events={page} />
+          </div>
+        </>
       )}
       {events.length > 0 && (failed || retryPending) ? (
         <div role="status" className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm text-muted-foreground">

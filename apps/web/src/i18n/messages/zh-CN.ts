@@ -949,6 +949,7 @@ export const zhCN: Messages = {
     transfersWindow: "近 90 天",
     transfersTruncated: "高频账户：仅显示 {date} 以来最新 {count} 笔",
     activity: {
+      cols: { time: "时间 (UTC)", event: "事件", size: "数量", price: "价格", pnl: "盈亏" },
       partialData: "部分动态无法加载，已取得的记录仍会保留。",
       title: "近期动态",
       live: "实时",

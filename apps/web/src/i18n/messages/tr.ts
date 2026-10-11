@@ -949,6 +949,7 @@ export const tr: Messages = {
     transfersWindow: "Son 90 gün",
     transfersTruncated: "Yoğun hesap: {date} tarihinden bu yana en yeni {count} kayıt",
     activity: {
+      cols: { time: "Zaman (UTC)", event: "Olay", size: "Miktar", price: "Fiyat", pnl: "K/Z" },
       partialData: "Bazı etkinlikler yüklenemedi. Bilinen olaylar görünür kalır.",
       title: "Son Etkinlik",
       live: "Canlı",

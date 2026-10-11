@@ -949,6 +949,7 @@ export const id: Messages = {
     transfersWindow: "90 hari terakhir",
     transfersTruncated: "Akun sibuk: {count} terbaru sejak {date}",
     activity: {
+      cols: { time: "Waktu (UTC)", event: "Peristiwa", size: "Ukuran", price: "Harga", pnl: "PnL" },
       partialData: "Sebagian aktivitas tidak dapat dimuat. Peristiwa yang diketahui tetap terlihat.",
       title: "Aktivitas Terbaru",
       live: "Langsung",

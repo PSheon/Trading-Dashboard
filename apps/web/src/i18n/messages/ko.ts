@@ -949,6 +949,7 @@ export const ko: Messages = {
     transfersWindow: "최근 90일",
     transfersTruncated: "거래가 많은 계정: {date} 이후 최신 {count}건",
     activity: {
+      cols: { time: "시간 (UTC)", event: "이벤트", size: "수량", price: "가격", pnl: "손익" },
       partialData: "일부 활동을 불러오지 못했습니다. 확인된 기록은 계속 표시됩니다.",
       title: "최근 활동",
       live: "실시간",

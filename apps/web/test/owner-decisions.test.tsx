@@ -12,7 +12,7 @@ import { I18nProvider } from "../src/i18n/provider";
 import { coinIsUnknown } from "../src/lib/coin-presence";
 import { createFormatter } from "../src/lib/format";
 import { pnlCalendar } from "../src/lib/pnl-calendar";
-import { feedTime, shortTime } from "../src/lib/trade-format";
+import { shortTime } from "../src/lib/trade-format";
 
 /** Owner's decisions of 2026-10-02: one form of address and one word for
  * trader; a real market without data is a page, not a 404; every time is UTC. */
@@ -72,7 +72,6 @@ describe("times are UTC", () => {
 
   it("every formatter writes the UTC clock, in every language", () => {
     expect(shortTime(at)).toBe("Sep 18, 22:52");
-    expect(feedTime(at)).toBe("Sep 18 10:52PM");
     for (const locale of LOCALES) {
       const f = createFormatter(locale);
       expect(f.time(at), locale).toMatch(/22.52.30/);

@@ -1717,6 +1717,7 @@ export const en: Messages = {
     transfersWindow: "Last 90 days",
     transfersTruncated: "Busy account: the newest {count} since {date}",
     activity: {
+      cols: { time: "Time (UTC)", event: "Event", size: "Size", price: "Price", pnl: "PnL" },
       partialData: "Some activity could not be loaded. Known events remain visible.",
       title: "Recent Activity",
       live: "Live",

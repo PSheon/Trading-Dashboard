@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { TABS } from "../src/components/trader/activity-tabs";
 import { groupFills } from "../src/components/trader/trader-tabs";
 import type { TraderFill } from "../src/lib/contracts";
-import { feedTime, liqDistance, qty } from "../src/lib/trade-format";
+import { liqDistance, qty } from "../src/lib/trade-format";
 import { usd0, usd2 } from "../src/lib/format";
 
 const fill = (tid: number, ts: number, extra: Partial<TraderFill> = {}): TraderFill => ({
@@ -58,8 +58,4 @@ describe("CopyDog's number formats", () => {
     expect([usd0(0), usd0(469.6), usd0(183_400), usd0(13_600_000), usd0(1_234_000_000)]).toEqual(["$0", "$470", "$183K", "$14M", "$1.2B"]);
   });
 
-  it("the live feed's time stamp", () => {
-    // 05:32 the next morning in Taipei: the stamp is the UTC clock.
-    expect(feedTime(new Date(Date.UTC(2026, 8, 27, 21, 32)))).toBe("Sep 27 9:32PM");
-  });
 });

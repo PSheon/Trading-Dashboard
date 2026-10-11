@@ -70,15 +70,6 @@ export function signedPct2(value: number | null | undefined): string {
   return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 
-/** "Sep 27 9:32PM": the live feed's time stamp. */
-export function feedTime(value: string | number | Date | null | undefined): string {
-  if (!value) return "";
-  const d = new Date(value);
-  const day = d.toLocaleString("en-US", { month: "short", day: "numeric", timeZone: TIME_ZONE });
-  const time = d.toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: TIME_ZONE }).replace(" ", "");
-  return `${day} ${time}`;
-}
-
 /**
  * Distance from the mark to the liquidation price, % of the mark, and
  * CopyDog's tone for it: ≤ 2% critical, ≤ 5% danger, ≤ 15% warn, else safe.

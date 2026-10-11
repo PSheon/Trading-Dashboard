@@ -949,6 +949,7 @@ export const ru: Messages = {
     transfersWindow: "Последние 90 дней",
     transfersTruncated: "Активный счёт: последние записи ({count}) с {date}",
     activity: {
+      cols: { time: "Время (UTC)", event: "Событие", size: "Объём", price: "Цена", pnl: "PnL" },
       partialData: "Часть активности не удалось загрузить. Известные события остаются видимыми.",
       title: "Недавняя активность",
       live: "В эфире",

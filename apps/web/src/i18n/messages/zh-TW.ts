@@ -1721,6 +1721,7 @@ export const zhTW = {
     transfersWindow: "近 90 天",
     transfersTruncated: "高頻帳戶：僅顯示 {date} 以來最新 {count} 筆",
     activity: {
+      cols: { time: "時間 (UTC)", event: "事件", size: "數量", price: "價格", pnl: "損益" },
       partialData: "部分動態無法載入，已取得的紀錄仍會保留。",
       title: "近期動態",
       live: "即時",

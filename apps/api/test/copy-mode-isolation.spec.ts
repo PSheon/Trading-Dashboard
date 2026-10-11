@@ -57,7 +57,7 @@ beforeEach(async () => {
   controls = new CopyControlService(repository, uow, market, planner, policies, new CopyLiveSystemStops(db, uow, new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, testConfig())), testConfig()));
   service = new CopyStrategyService(testConfig(), repository, uow, market, planner, policies, controls, site as never);
   execution = new CopyExecutionService(repository, uow, market, policies, site as never);
-  performance = new CopyPerformanceService(repository, uow, market);
+  performance = new CopyPerformanceService(repository, uow, market, testConfig());
   admin = new CopyAdminReadService(testConfig(), repository, market, policies);
 });
 afterAll(closeTestDb);
@@ -103,7 +103,7 @@ describe('paper strategy and read model isolation', () => {
       expect((await admin.overview()).mode).toBe('disabled');
     } finally { if (previous === undefined) delete process.env.COPY_TRADING_MODE; else process.env.COPY_TRADING_MODE = previous; }
   });
-  it.each(['patch', 'addFunds', 'withdrawFunds', 'pause', 'stop', 'orders', 'fills', 'ledger', 'performance', 'admin'] as const)(
+  it.each(['patch', 'addFunds', 'withdrawFunds', 'pause', 'stop', 'orders', 'fills', 'ledger', 'admin'] as const)(
     'rejects testnet id on paper %s path without altering it', async path => {
       const before = await strategy(liveId);
       const call = path === 'patch' ? service.patch(uid, liveId, { maxLeverage: 3 }) :
@@ -111,7 +111,7 @@ describe('paper strategy and read model isolation', () => {
         path === 'withdrawFunds' ? service.withdrawFunds(uid, liveId, { amountUsd: 100 }) :
         path === 'pause' || path === 'stop' ? service.command(uid, liveId, path) :
         path === 'orders' ? service.orders(uid, liveId) : path === 'fills' ? service.fills(uid, liveId) :
-        path === 'ledger' ? service.ledger(uid, liveId) : path === 'performance' ? performance.history(uid, liveId, { window: '1d' }) : admin.strategy(liveId);
+        path === 'ledger' ? service.ledger(uid, liveId) : admin.strategy(liveId);
       await expect(call).rejects.toMatchObject({ status: 404 });
       await unchangedLive(before);
       expect(await db.select().from(paperAccounts)).toEqual([]);
@@ -139,7 +139,9 @@ describe('paper strategy and read model isolation', () => {
       await request(http).post(`${base}/funds`).set('Authorization', token).send({ amountUsd: 100 }).expect(404);
       await request(http).post(`${base}/withdraw-funds`).set('Authorization', token).send({ amountUsd: 100 }).expect(404);
       await request(http).post(`${base}/commands`).set('Authorization', token).send({ command: 'stop' }).expect(404);
-      for (const route of ['orders', 'fills', 'ledger', 'performance']) await request(http).get(`${base}/${route}`).set('Authorization', token).expect(404);
+      for (const route of ['orders', 'fills', 'ledger']) await request(http).get(`${base}/${route}`).set('Authorization', token).expect(404);
+      // The owner's actual copy history is served (read-only, marked actual).
+      expect((await request(http).get(`${base}/performance`).set('Authorization', token).expect(200)).body.data).toMatchObject({ strategyId: liveId, mode: 'actual', network: 'testnet', points: [] });
       await unchangedLive(before);
       expect(await db.select().from(paperAccounts)).toEqual([]);
     } finally { await app.close(); }

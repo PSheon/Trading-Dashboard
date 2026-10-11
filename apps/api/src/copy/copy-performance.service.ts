@@ -1,8 +1,13 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { copyEventsQuerySchema, copyPerformanceQuerySchema, copyPortfolioQuerySchema, copyTradesQuerySchema, type CopyEventsResponse, type CopyPerformanceResponse, type CopyPerformanceWindow, type CopyPortfolioResponse, type CopyTradesResponse } from "@trading-dashboard/shared/contracts";
 import { Dec } from "../common/decimal/dec.js";
 import { parseOr400 } from "../common/http/validation.js";
+import { AppConfig } from "../config/app-config.js";
 import { UnitOfWork } from "../db/unit-of-work.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
+import { deploymentNetwork } from "./live-deployment.js";
+import type { LiveAccountSnapshot } from "./live/live-account-observer.js";
+import { mapLiveAccountView } from "./live/live-account-view.js";
 import { CopyMarketService, MIDS_TTL_MS } from "./copy-market.service.js";
 import { wire } from "./copy.mappers.js";
 import { strategyValue } from "./copy-planner.service.js";
@@ -10,18 +15,80 @@ import { CopyRepository } from "./copy.repository.js";
 
 export const COPY_SNAPSHOT_INTERVAL_MS = 60_000;
 const FRESH_MS = 2 * COPY_SNAPSHOT_INTERVAL_MS;
+/** An actual copy is valued at each stored observation of its account, which
+ * the follower collector takes at most every two minutes per account (five
+ * while testnet orders are busy), not every minute: a gap up to this is not a
+ * hole in its history. */
+export const ACTUAL_FRESH_MS = 6 * COPY_SNAPSHOT_INTERVAL_MS;
 /** The portfolio chart's resolution: about this many intervals per window. */
 export const PORTFOLIO_POINTS = 120;
 export const SPARKLINE_POINTS = 48;
 const WINDOW_MS: Record<Exclude<CopyPerformanceWindow, "all">, number> = { "1d": 86_400_000, "7d": 7 * 86_400_000, "30d": 30 * 86_400_000 };
 
+type ActualTransfer = { direction: "to_account" | "to_main"; status: string; amount: string; creditedAmount: string | null;
+  attemptedAt: Date | null; createdAt: Date; updatedAt: Date };
+
+/**
+ * What the owner had put into an actual copy's account as of `at`: deposits
+ * credited minus returns credited (a return takes its whole amount, fee
+ * included, from the account). Null when that is unknown at `at`: a transfer
+ * was sent by then but not yet recorded as credited by then. Transfers not
+ * sent by `at` (never attempted, cancelled, rejected, or attempted later)
+ * have not moved money the observation could show.
+ */
+export function actualNetDeposits(transfers: readonly ActualTransfer[], at: number): Dec | null {
+  let net = Dec.from(0);
+  for (const t of transfers) {
+    if (t.status === "cancelled" || t.status === "rejected" || !t.attemptedAt || t.attemptedAt.getTime() > at || t.createdAt.getTime() > at) continue;
+    if (t.status !== "credited" || t.updatedAt.getTime() > at || !t.creditedAmount) return null;
+    net = t.direction === "to_account" ? net.add(t.creditedAmount) : net.sub(t.amount);
+  }
+  return net;
+}
+
 @Injectable()
 export class CopyPerformanceService {
-  constructor(private readonly repository: CopyRepository, private readonly uow: UnitOfWork, private readonly market: CopyMarketService) {}
+  private readonly logger = new Logger(CopyPerformanceService.name);
+  constructor(private readonly repository: CopyRepository, private readonly uow: UnitOfWork, private readonly market: CopyMarketService,
+    private readonly config: AppConfig) {}
+
+  async capture(): Promise<void> {
+    await this.capturePaper();
+    await this.captureActual();
+  }
+
+  /**
+   * Actual copies of this deployment's network: one valuation per stored
+   * follower observation, at its own time (the collector's reads only; none
+   * here). Equity is the observed account value; exposure the observed
+   * positions' value. Nothing is written without a valid observation or
+   * while net deposits are unknown (never a zero or a guess).
+   */
+  private async captureActual(): Promise<void> {
+    const network = deploymentNetwork(this.config);
+    for (const row of await this.repository.runtime.actualSnapshotInputs(network)) {
+      try {
+        const o = row.observation, snapshot = o.snapshot as unknown as LiveAccountSnapshot;
+        if (!row.account.address || snapshot.sourceDigest !== o.sourceDigest || snapshot.observedAt !== o.observedAt.getTime() ||
+            snapshot.completedAt !== o.completedAt.getTime() || snapshot.coverage.earliestProviderTime !== o.earliestProviderTime.getTime()) continue;
+        // Valid and fresh as of its own completion (the snapshot GET's rules).
+        const view = mapLiveAccountView({ accountId: row.account.id, strategyId: row.strategyId, network, accountAddress: row.account.address },
+          snapshot, { blocked: false, reason: null }, snapshot.completedAt, 5000);
+        const netDeposits = actualNetDeposits(row.transfers, snapshot.observedAt);
+        if (!netDeposits) continue;
+        const equity = Dec.from(view.metrics.perpEquity);
+        await this.repository.runtime.actualSnapshot({ strategyId: row.strategyId, time: new Date(snapshot.observedAt), equity: equity.toString(),
+          totalPnl: equity.sub(netDeposits).toString(), netDeposits: netDeposits.toString(),
+          exposureUsd: Dec.sum(view.positions.map((p) => Dec.from(p.positionValue).abs())).toString() });
+      } catch (error) {
+        this.logger.warn(`Actual copy ${row.strategyId} valuation skipped (${safeErrorText(error)})`);
+      }
+    }
+  }
 
   /** Each strategy commits an exact internally consistent valuation. Network
    * reads are outside the transaction; absent prices are persisted as null. */
-  async capture(): Promise<void> {
+  private async capturePaper(): Promise<void> {
     const rows = await this.repository.runtime.activeStrategies();
     if (rows.length === 0) return;
     const coins = await this.repository.positionCoins(rows.map((r) => r.id));
@@ -47,9 +114,11 @@ export class CopyPerformanceService {
 
   async history(userId: number, strategyId: number, query: unknown): Promise<CopyPerformanceResponse> {
     const { window } = parseOr400(copyPerformanceQuerySchema, query);
-    const row = await this.repository.strategyWithSettings(strategyId);
-    if (!row || row.strategy.userId !== userId) throw new NotFoundException("Copy not found");
-    const strategy = row.strategy;
+    const strategy = await this.repository.runtime.performanceStrategy(strategyId);
+    if (!strategy || strategy.userId !== userId) throw new NotFoundException("Copy not found");
+    const actual = strategy.mode !== "paper";
+    // An actual copy of another network is shown as its stored history.
+    const freshMs = actual ? ACTUAL_FRESH_MS : FRESH_MS, stepMs = actual ? ACTUAL_FRESH_MS : COPY_SNAPSHOT_INTERVAL_MS;
     const to = strategy.stoppedAt ?? new Date();
     const duration = window === "1d" ? 86_400_000 : window === "7d" ? 7 * 86_400_000 : window === "30d" ? 30 * 86_400_000 : to.getTime() - strategy.createdAt.getTime();
     const from = new Date(Math.max(strategy.createdAt.getTime(), to.getTime() - duration));
@@ -57,19 +126,19 @@ export class CopyPerformanceService {
     const bucketMs = Math.max(60_000, Math.ceil((to.getTime() - from.getTime()) / 1000 / 60_000) * 60_000);
     const today = new Date(); today.setUTCHours(0, 0, 0, 0);
     const baselineTime = new Date(Math.max(today.getTime(), strategy.createdAt.getTime()));
-    const { sampled, first, last, windowFirst, maxGap, baseline } = await this.repository.runtime.performance(strategyId, from, to, baselineTime, bucketMs, FRESH_MS);
+    const { sampled, first, last, windowFirst, maxGap, baseline } = await this.repository.runtime.performance(strategyId, from, to, baselineTime, bucketMs, freshMs);
     const points = sampled.map((r) => ({
       time: new Date(r.time as string | Date), equity: r.missing || r.equity === null ? null : wire(r.equity as string),
       totalPnl: r.missing || r.total_pnl === null ? null : wire(r.total_pnl as string),
       netDeposits: wire(r.net_deposits as string), exposureUsd: r.missing || r.exposure_usd === null ? null : wire(r.exposure_usd as string),
     }));
-    const baselineValid = baseline && baselineTime.getTime() - baseline.time.getTime() <= FRESH_MS;
-    const fresh = last && to.getTime() - last.time.getTime() <= FRESH_MS;
+    const baselineValid = baseline && baselineTime.getTime() - baseline.time.getTime() <= freshMs;
+    const fresh = last && to.getTime() - last.time.getTime() <= freshMs;
     const todayPnl = strategy.stoppedAt && strategy.stoppedAt.getTime() < today.getTime() ? 0 : baselineValid && fresh && baseline.totalPnl !== null && last.totalPnl !== null
       ? wire(Dec.from(last.totalPnl).sub(baseline.totalPnl)) : null;
-    const complete = Boolean(first && windowFirst && fresh && windowFirst.time.getTime() <= from.getTime() + COPY_SNAPSHOT_INTERVAL_MS
-      && maxGap <= FRESH_MS && points.every((p) => p.equity !== null));
-    return { strategyId, mode: "paper", window, from, to, points, todayPnl,
+    const complete = Boolean(first && windowFirst && fresh && windowFirst.time.getTime() <= from.getTime() + stepMs
+      && maxGap <= freshMs && points.every((p) => p.equity !== null));
+    return { strategyId, mode: actual ? "actual" : "paper", ...(actual ? { network: strategy.network } : {}), window, from, to, points, todayPnl,
       coverage: { firstSnapshotAt: first?.time ?? null, lastSnapshotAt: last?.time ?? null, complete } };
   }
 

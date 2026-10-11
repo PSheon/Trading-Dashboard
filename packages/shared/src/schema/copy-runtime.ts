@@ -8,7 +8,9 @@ export const copyPerformancePointSchema = z.object({
   netDeposits: z.number(), exposureUsd: z.number().nullable(),
 });
 export const copyPerformanceResponseSchema = z.object({
-  strategyId: z.number().int(), mode: z.literal("paper"), window: copyPerformanceWindowSchema,
+  /** `actual`: a testnet/mainnet copy (`network`), valued from its account's
+   * observations and credited transfers; `paper`: the simulated copy. */
+  strategyId: z.number().int(), mode: z.enum(["paper", "actual"]), network: z.enum(["testnet", "mainnet"]).optional(), window: copyPerformanceWindowSchema,
   from: z.coerce.date(), to: z.coerce.date(), points: z.array(copyPerformancePointSchema), todayPnl: z.number().nullable(),
   coverage: z.object({ firstSnapshotAt: z.coerce.date().nullable(), lastSnapshotAt: z.coerce.date().nullable(), complete: z.boolean() }),
 });

@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 import { ConflictException, Inject, Injectable } from "@nestjs/common";
-import { and, asc, desc, eq, gt, gte, lt, lte, sql } from "drizzle-orm";
-import { copyEquitySnapshots, copyEvents, copyOperations, copyPaperFills, copyStrategies } from "@trading-dashboard/shared/database";
+import { and, asc, desc, eq, gt, gte, inArray, lt, lte, ne, sql } from "drizzle-orm";
+import { copyEquitySnapshots, copyEvents, copyExecutionAccounts, copyFollowerObservationJobs, copyFollowerObservations, copyFundingOperations, copyOperations,
+  copyPaperFills, copyStrategies } from "@trading-dashboard/shared/database";
+import { ACTUAL_STRATEGY_MODE, type HyperliquidNetwork } from "@trading-dashboard/shared/contracts";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
@@ -81,6 +83,31 @@ export class CopyRuntimeRepository {
   activeStrategies() {
     return this.db.select({ id: copyStrategies.id }).from(copyStrategies)
       .where(and(eq(copyStrategies.mode, "paper"), sql`${copyStrategies.status} <> 'stopped'`)).orderBy(asc(copyStrategies.id));
+  }
+
+  /**
+   * Each non-stopped actual copy of `network` with its account's latest
+   * stored observation (bound exactly as the owner's snapshot GET binds it)
+   * and that account's transfers. SQL only: no exchange read.
+   */
+  async actualSnapshotInputs(network: HyperliquidNetwork) {
+    const s = copyStrategies, a = copyExecutionAccounts, j = copyFollowerObservationJobs, o = copyFollowerObservations, f = copyFundingOperations;
+    const rows = await this.db.select({ strategyId: s.id, userId: s.userId, account: a, observation: o }).from(s)
+      .innerJoin(a, and(eq(a.strategyId, s.id), eq(a.userId, s.userId), eq(a.network, s.network)))
+      .innerJoin(j, eq(j.accountId, a.id))
+      .innerJoin(o, and(eq(o.id, j.latestObservationId), eq(o.accountId, a.id), eq(o.accountAddress, a.address), eq(o.network, a.network),
+        eq(o.userId, s.userId), eq(o.strategyId, s.id)))
+      .where(and(eq(s.mode, ACTUAL_STRATEGY_MODE), eq(s.network, network), ne(s.status, "stopped"))).orderBy(asc(s.id));
+    const transfers = rows.length ? await this.db.select({ accountId: f.accountId, strategyId: f.strategyId, direction: f.direction, status: f.status,
+      amount: f.amount, creditedAmount: f.creditedAmount, attemptedAt: f.attemptedAt, createdAt: f.createdAt, updatedAt: f.updatedAt }).from(f)
+      .where(and(inArray(f.accountId, rows.map((r) => r.account.id)), eq(f.network, network))) : [];
+    return rows.map((r) => ({ ...r, transfers: transfers.filter((t) => t.accountId === r.account.id && t.strategyId === r.strategyId) }));
+  }
+
+  /** The strategy behind an owner's performance read, any mode. */
+  async performanceStrategy(id: number) {
+    const [row] = await this.db.select().from(copyStrategies).where(eq(copyStrategies.id, id));
+    return row;
   }
 
   async performance(strategyId: number, from: Date, to: Date, baselineTime: Date, bucketMs: number, freshMs: number) {
@@ -251,6 +278,17 @@ export class CopyRuntimeRepository {
     const input = structuredClone(row);
     await this.requirePaper(tx, input.strategyId);
     await tx.insert(copyEquitySnapshots).values(input).onConflictDoNothing();
+  }
+
+  /** An actual copy's valuation (see CopyPerformanceService.captureActual). */
+  async actualSnapshot(row: typeof copyEquitySnapshots.$inferInsert): Promise<void> {
+    const input = structuredClone(row);
+    await this.db.transaction(async (tx) => {
+      const [strategy] = await tx.select({ id: copyStrategies.id }).from(copyStrategies)
+        .where(and(eq(copyStrategies.id, input.strategyId), eq(copyStrategies.mode, ACTUAL_STRATEGY_MODE))).for("share");
+      if (!strategy) throw new Error("actual_strategy_required");
+      await tx.insert(copyEquitySnapshots).values(input).onConflictDoNothing();
+    });
   }
 
   private async requirePaper(tx: DbTransaction, strategyId: number, userId?: number): Promise<void> {

@@ -40,6 +40,7 @@ import { CopyLiveMandateRepository } from '../src/copy/copy-live-mandate.reposit
 import { preparationFixture } from './copy-live-preparation-test-utils.js';
 import { now } from './copy-live-risk-test-utils.js';
 import { closeTestDb, getTestDb, type TestDb } from './db-test-utils.js';
+import { resetLiveReadCaches } from '../src/copy/live/live-read-cache.js';
 
 // Only native network endpoints are doubles (Privy, Hyperliquid REST/WS).
 // The engine, runtime, risk, journal, reservation, receipt ledger and
@@ -360,6 +361,8 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     expect(await db.select().from(schema.copyFollowerReceipts)).toHaveLength(2);
   });
   it('waits six seconds for close evidence quota before observing and still sends only the fresh reduce-only position', async () => {
+    // A cold cross-order read cache: the close pays its full observation (> 284).
+    resetLiveReadCaches();
     shared.position = '0.19';
     const acquire = RequestBudgeterService.prototype.acquire.bind(budget);
     let waited = false, marketReads = 0;

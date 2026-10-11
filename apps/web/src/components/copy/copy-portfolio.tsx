@@ -244,7 +244,7 @@ export function CopyCards({ strategies, leaders, onSelect, sparklines }: { strat
       {rows.map((s) => {
         const leader = leaders.get(s.leaderAddress) ?? { address: s.leaderAddress, displayName: null, avatarUrl: null };
         return (
-          <div key={s.id} className="orbit-card">
+          <DataList as="div" key={s.id} className="orbit-card">
             <button type="button" onClick={() => onSelect(s.id)} className="flex w-full items-center gap-3 p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <TraderAvatar trader={leader} size={44} />
               <span className="flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -260,7 +260,7 @@ export function CopyCards({ strategies, leaders, onSelect, sparklines }: { strat
                 {s.roiPct === null ? null : <RoiPill value={s.roiPct / 100} />}
               </span>
             </button>
-            <div className="flex items-center gap-2 border-t-2 border-dotted border-border px-4 py-2.5 text-xs">
+            <div className="flex items-center gap-2 px-4 py-2.5 text-xs">
               {s.positions.length ? (
                 <>
                   <span className="text-muted-foreground">{t("portfolio.copy.cols.upnl")}</span>
@@ -283,8 +283,8 @@ export function CopyCards({ strategies, leaders, onSelect, sparklines }: { strat
                 <span className="text-muted-foreground">{t("portfolio.copy.noOpenPositions")}</span>
               )}
             </div>
-            {open === s.id ? <div className="border-t-2 border-dotted border-border px-4">{s.positions.map((p) => <PositionLine key={p.coin} p={p} />)}</div> : null}
-          </div>
+            {open === s.id ? <div className="px-4">{s.positions.map((p) => <PositionLine key={p.coin} p={p} />)}</div> : null}
+          </DataList>
         );
       })}
       <TablePager {...pager} className="orbit-card border-t-0" />
@@ -749,7 +749,7 @@ export function CopyListSkeleton({ phone = false, rows = 2 }: { phone?: boolean;
     return (
       <div aria-hidden="true" className="ui-skeleton flex flex-col gap-3">
         {Array.from({ length: rows }, (_, i) => (
-          <div key={i} className="orbit-card">
+          <DataList as="div" key={i} className="orbit-card">
             <div className="flex items-center gap-3 p-4">
               <SkelCircle className="size-11" />
               <span className="flex min-w-0 flex-1 flex-col gap-1">
@@ -761,10 +761,10 @@ export function CopyListSkeleton({ phone = false, rows = 2 }: { phone?: boolean;
                 <SkelBar className="h-[22px] w-14 rounded-xl" />
               </span>
             </div>
-            <div className="flex h-[38px] items-center gap-2 border-t-2 border-dotted border-border px-4">
+            <div className="flex h-[38px] items-center gap-2 px-4">
               <SkelBar className="h-2.5 w-24" />
             </div>
-          </div>
+          </DataList>
         ))}
       </div>
     );

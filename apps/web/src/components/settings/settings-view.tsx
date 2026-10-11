@@ -169,24 +169,26 @@ function ProfileAndWallet() {
   return (
     <>
       <SectionTitle className="pt-3">{t("settings.profile")}</SectionTitle>
-      <Row label={t("settings.email")} value={email ?? t("settings.noEmail")} className="border-b-2 border-dotted border-border" />
-      <Row
-        label={t("settings.wallet")}
-        value={
-          address ? (
-            <span className="font-mono">{truncateAddress(address)}</span>
-          ) : wallet.isPending ? (
-            <SkelBar line="h-4" className="ui-skeleton h-2.5 w-28" />
-          ) : (
-            t("settings.walletPending")
-          )
-        }
-        action={
-          <Button variant="secondary" className="h-11 bg-inset px-5" onClick={() => openExport()} disabled={!address}>
-            {t("settings.exportKey")}
-          </Button>
-        }
-      />
+      <DataList as="div">
+        <Row label={t("settings.email")} value={email ?? t("settings.noEmail")} />
+        <Row
+          label={t("settings.wallet")}
+          value={
+            address ? (
+              <span className="font-mono">{truncateAddress(address)}</span>
+            ) : wallet.isPending ? (
+              <SkelBar line="h-4" className="ui-skeleton h-2.5 w-28" />
+            ) : (
+              t("settings.walletPending")
+            )
+          }
+          action={
+            <Button variant="secondary" className="h-11 bg-inset px-5" onClick={() => openExport()} disabled={!address}>
+              {t("settings.exportKey")}
+            </Button>
+          }
+        />
+      </DataList>
     </>
   );
 }
@@ -291,16 +293,20 @@ function DesktopSettings() {
               <CopyWalletsList />
               <SettingsCard>
                 <SectionTitle>{t("settings.language")}</SectionTitle>
-                <Row label={t("settings.language")} value={t("settings.languageHint")} action={<LanguageSelect />} />
-                <div className="flex flex-wrap items-center justify-between gap-3 border-t-2 border-dotted border-border pt-3.5 pb-1">
-                  <p className="text-[0.875rem] font-extrabold">{t("theme.label")}</p>
-                  <ThemeChoiceControl className="w-full max-w-[420px] [&_button]:bg-inset [&_button[aria-checked=true]]:bg-primary" />
-                </div>
+                <DataList as="div">
+                  <Row label={t("settings.language")} value={t("settings.languageHint")} action={<LanguageSelect />} />
+                  <div className="flex flex-wrap items-center justify-between gap-3 pt-3.5 pb-1">
+                    <p className="text-[0.875rem] font-extrabold">{t("theme.label")}</p>
+                    <ThemeChoiceControl className="w-full max-w-[420px] [&_button]:bg-inset [&_button[aria-checked=true]]:bg-primary" />
+                  </div>
+                </DataList>
               </SettingsCard>
               <SettingsCard>
                 <SectionTitle>{t("settings.notifications")}</SectionTitle>
-                <TradingBotRow className="border-b-2 border-dotted border-border" />
-                <AlertBotRow />
+                <DataList as="div">
+                  <TradingBotRow />
+                  <AlertBotRow />
+                </DataList>
               </SettingsCard>
               <DesktopDeleteRow />
             </>
@@ -403,7 +409,7 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
         </div> : view === "account" ? <div className="flex flex-col gap-4">
           <SettingsCard><div className="flex min-w-0 items-center gap-3"><Avatar initial={initial} /><h2 className="truncate text-lg font-bold">{name}</h2></div><ProfileAndWallet /></SettingsCard>
           <CopyWalletsList /><DeleteAccountButton className="mt-6" />
-        </div> : view === "notifications" ? <SettingsCard><TradingBotRow className="border-b-2 border-dotted border-border" /><AlertBotRow /></SettingsCard>
+        </div> : view === "notifications" ? <SettingsCard><DataList as="div"><TradingBotRow /><AlertBotRow /></DataList></SettingsCard>
           : view === "referral" ? <ReferralSettings /> : view === "language" ? <SettingsCard><LanguageList /></SettingsCard>
           : view === "theme" ? <SettingsCard><ThemeChoiceControl /></SettingsCard>
           : <div className="flex flex-col gap-5"><FundsSummary /><FundsHistory /></div>}
@@ -417,7 +423,7 @@ function LanguageList() {
   const { t, locale } = useI18n();
   const changeLocale = useChangeLocale();
   return (
-    <div className="pt-3" role="radiogroup" aria-label={t("settings.language")}>
+    <DataList as="div" className="pt-3" role="radiogroup" aria-label={t("settings.language")}>
       {LOCALES.map((l) => (
         <button
           key={l}
@@ -425,12 +431,12 @@ function LanguageList() {
           role="radio"
           aria-checked={l === locale}
           onClick={() => changeLocale(l)}
-          className="flex h-[54px] w-full items-center border-b-2 border-dotted border-border text-left text-base font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex h-[54px] w-full items-center text-left text-base font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <span className="flex-1">{LOCALE_NAMES[l]}</span>
           {l === locale ? <span className="size-2.5 rounded-full bg-primary" /> : null}
         </button>
       ))}
-    </div>
+    </DataList>
   );
 }

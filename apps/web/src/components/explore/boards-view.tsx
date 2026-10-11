@@ -540,9 +540,9 @@ function FilterSheet({ sorts, windowed, sort, window, style, onClose, onApply }:
             <X className="size-5" strokeWidth={2.4} />
           </button>
         </div>
-        <div className="overflow-y-auto px-5">
+        <DataList as="div" className="overflow-y-auto px-5">
           {rows.map((row) => (
-            <div key={row.key} className="border-b-2 border-dotted border-border">
+            <div key={row.key}>
               <button
                 type="button"
                 aria-expanded={open === row.key}
@@ -575,7 +575,7 @@ function FilterSheet({ sorts, windowed, sort, window, style, onClose, onApply }:
               ) : null}
             </div>
           ))}
-        </div>
+        </DataList>
         <div className="grid grid-cols-2 gap-3 px-5 py-4">
           <button
             type="button"

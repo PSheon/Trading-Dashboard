@@ -5,6 +5,7 @@ import { ArrowDown, ArrowRight, ArrowUpRight, Share2 } from "lucide-react";
 import { useMemo } from "react";
 import { SortHead, useSorted, type SortDir as Dir } from "@/components/ui/sort-head";
 import { Segmented } from "@/components/ui/segmented";
+import { DataList } from "@/components/ui/data-list";
 import { PAGE_SIZE, TablePager, usePaged } from "@/components/ui/table-pager";
 import { cn } from "cn";
 
@@ -185,7 +186,7 @@ export function TradeCard({ trade, shareAddress = null }: { trade: RoundTrip; /*
   const pnl = shownPnl(trade);
   const roi = tradeReturnPct(trade);
   return (
-    <li className="flex items-start gap-3 border-b-2 border-dotted border-border px-4 py-3 last:border-0">
+    <li className="flex items-start gap-3 px-4 py-3">
       <span className="mt-px shrink-0"><CoinIcon coin={trade.coin} size={26} /></span>
       <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
         <span className="flex min-w-0 items-center gap-1.5 text-[15px] leading-[23px] font-semibold">
@@ -257,11 +258,11 @@ function TradeTable({ rows, dir }: { rows: RoundTrip[]; dir: Dir }) {
   const head = { sort, onSort };
   return (
     <>
-      <ul className="overflow-hidden rounded-2xl bg-card sm:hidden">
+      <DataList className="overflow-hidden rounded-2xl bg-card sm:hidden">
         {cards.rows.map((trade) => (
           <TradeCard key={trade.id} trade={trade} />
         ))}
-      </ul>
+      </DataList>
       <div className="hidden sm:block">
         <Table dense className="text-xs">
           <TableHeader>
@@ -345,9 +346,9 @@ function CoinTable({ rows }: { rows: TradeCoin[] }) {
   const head = { sort, onSort };
   return (
     <>
-      <ul className="overflow-hidden rounded-2xl bg-card sm:hidden">
+      <DataList className="overflow-hidden rounded-2xl bg-card sm:hidden">
         {page.map((c) => (
-          <li key={c.coin} className="flex items-center gap-3 border-b-2 border-dotted border-border px-4 py-3 last:border-0">
+          <li key={c.coin} className="flex items-center gap-3 px-4 py-3">
             <CoinIcon coin={c.coin} size={26} />
             <div className="flex min-w-0 flex-1 flex-col gap-0.5">
               <span className="text-sm font-semibold">{coinLabel(c.coin)}</span>
@@ -359,7 +360,7 @@ function CoinTable({ rows }: { rows: TradeCoin[] }) {
             </div>
           </li>
         ))}
-      </ul>
+      </DataList>
       <div className="hidden sm:block">
         <Table dense className="text-xs">
           <TableHeader>
@@ -493,11 +494,11 @@ export function TradesTab({ address }: { address: string }) {
   } else {
     body = (
       <>
-        <ul className="overflow-hidden rounded-2xl bg-card sm:hidden">
+        <DataList className="overflow-hidden rounded-2xl bg-card sm:hidden">
           {page.map((trade) => (
             <TradeCard key={trade.id} trade={trade} shareAddress={address} />
           ))}
-        </ul>
+        </DataList>
         <div className="hidden sm:block">
           <Table dense className="text-xs">
             <TableHeader>

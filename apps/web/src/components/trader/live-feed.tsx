@@ -6,6 +6,7 @@ import { cn } from "cn";
 
 import { ErrorState, Skeleton } from "@/components/page";
 import { Button } from "@/components/ui/button";
+import { DataList } from "@/components/ui/data-list";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TablePager, usePaged } from "@/components/ui/table-pager";
 import { CoinIcon } from "@/components/traders/coin-icon";
@@ -54,7 +55,7 @@ function FillRow({ ev }: { ev: FillGroup }) {
   const coin = coinLabel(ev.coin);
   const headline = useFillHeadline()(ev);
   return (
-    <li className="flex gap-3 border-b-2 border-dotted border-border py-3 last:border-0" title={ev.partial ? t("trader.activity.partial") : undefined}>
+    <li className="flex gap-3 py-3" title={ev.partial ? t("trader.activity.partial") : undefined}>
       <CoinIcon coin={ev.coin} size={22} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex items-baseline justify-between gap-2">
@@ -76,7 +77,7 @@ function FillRow({ ev }: { ev: FillGroup }) {
 function TransferRow({ ev }: { ev: TraderTransfer }) {
   const { t } = useI18n();
   return (
-    <li className="flex gap-3 border-b-2 border-dotted border-border py-3 last:border-0">
+    <li className="flex gap-3 py-3">
       <CoinIcon coin={ev.token} size={22} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex items-baseline justify-between gap-2">
@@ -198,9 +199,9 @@ export function ActivityFeed({ address, liveFills = NO_FILLS }: { address: strin
         )
       ) : (
         <>
-          <ul className="px-4 sm:hidden">
+          <DataList className="px-4 sm:hidden">
             {page.map((ev) => (ev.source === "fill" ? <FillRow key={ev.key} ev={ev} /> : <TransferRow key={ev.key} ev={ev} />))}
-          </ul>
+          </DataList>
           <div className="hidden sm:block">
             <ActivityTable events={page} />
           </div>

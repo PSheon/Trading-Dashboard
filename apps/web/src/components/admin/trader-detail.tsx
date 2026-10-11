@@ -7,6 +7,7 @@ import { useI18n } from "@/i18n/provider";
 import { usePermission } from "@/lib/auth";
 import { ErrorState, Panel, PanelSkeleton } from "@/components/page";
 import { Button } from "@/components/ui/button";
+import { DataList } from "@/components/ui/data-list";
 import {
   Table,
   TableHeader,
@@ -241,11 +242,11 @@ function TraderEvidence({
           {t("adminTrader.importHint")}
         </p>
         {d.imports.items.length ? (
-          <ul className="space-y-2">
+          <DataList>
             {d.imports.items.map((i) => (
               <li
                 key={i.id}
-                className="flex flex-wrap gap-x-4 gap-y-1 border-b-2 border-dotted border-border py-2 text-sm"
+                className="flex flex-wrap gap-x-4 gap-y-1 py-2 text-sm"
               >
                 <span>#{i.id}</span>
                 <span className="break-all">{i.source}</span>
@@ -257,7 +258,7 @@ function TraderEvidence({
                 </span>
               </li>
             ))}
-          </ul>
+          </DataList>
         ) : (
           <p className="text-sm">{t("adminTrader.missing")}</p>
         )}

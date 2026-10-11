@@ -405,7 +405,8 @@ function AdvancedCard() {
       ) : <p className="type-caption">{system.isError ? t("monitoring.unavailable") : t("admin.settings.tuning.loading")}</p>}
       <div id="settings-advanced" hidden={!open}>
         {tuning ? (
-          <dl className="grid gap-x-6 sm:grid-cols-2">
+          // Two columns from sm up: the second fact sits beside the first, so it drops its rule.
+          <DataList as="dl" className="sm:grid sm:grid-cols-2 sm:gap-x-6 sm:[&>:nth-child(2)]:border-t-0">
             {([
               ["HYPERLIQUID_POOL_LEDGER_WEIGHT_PER_MIN", tuning.weights.poolLedger], ["HYPERLIQUID_POOL_PERFORMANCE_WEIGHT_PER_MIN", tuning.weights.poolPerformance],
               ["HYPERLIQUID_HISTORY_WEIGHT_PER_MIN", tuning.weights.history], ["HYPERLIQUID_BACKFILL_WEIGHT_PER_MIN", tuning.weights.backfill],
@@ -416,12 +417,12 @@ function AdvancedCard() {
               ["RETENTION_ACCOUNT_DELETION_DAYS", tuning.retention.accountDeletionDays], ["RETENTION_QUEUE_DAYS", tuning.retention.queueDays],
               ["RETENTION_ALERT_DAYS", tuning.retention.alertDays],
             ] as const).map(([name, v]) => (
-              <div key={name} className="flex items-center justify-between gap-3 border-b-2 border-dotted border-border py-2 text-sm">
+              <div key={name} className="flex items-center justify-between gap-3 py-2 text-sm">
                 <dt className="min-w-0 truncate font-mono text-xs font-bold text-muted-foreground" title={name}>{name}</dt>
                 <dd className="num font-extrabold">{v}</dd>
               </div>
             ))}
-          </dl>
+          </DataList>
         ) : null}
       </div>
       <p className="type-caption">{t("admin.settings.advancedHint")}</p>

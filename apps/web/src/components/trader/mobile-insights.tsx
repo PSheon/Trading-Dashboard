@@ -8,6 +8,7 @@ import { cn } from "cn";
 import { Skeleton } from "@/components/page";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { Segmented } from "@/components/ui/segmented";
+import { DataList } from "@/components/ui/data-list";
 import { useI18n } from "@/i18n/provider";
 import { coinLabel, signedUsd2, signedUsdShort, usd2 } from "@/lib/format";
 import { duration, pnlTone } from "@/lib/trade-format";
@@ -358,11 +359,11 @@ export function MobileInsights({
         {pending ? (
           <Skeleton className="h-40 rounded-2xl" />
         ) : shown.length > 0 ? (
-          <ul className="overflow-hidden rounded-2xl bg-card">
+          <DataList className="overflow-hidden rounded-2xl bg-card">
             {shown.map((trade) => (
               <TradeCard key={trade.id} trade={trade} />
             ))}
-          </ul>
+          </DataList>
         ) : (
           <Sub>{t(view === "best" ? "trader.insightsTab.noWins" : "trader.insightsTab.noLosses")}</Sub>
         )}
@@ -372,9 +373,9 @@ export function MobileInsights({
         {pending ? (
           <Skeleton className="h-40 rounded-2xl" />
         ) : mostTraded.length > 0 ? (
-          <ul className="overflow-hidden rounded-2xl bg-card">
+          <DataList className="overflow-hidden rounded-2xl bg-card">
             {mostTraded.map((coin) => (
-              <li key={coin.coin} className="flex items-center gap-3 border-b-2 border-dotted border-border px-4 py-3 last:border-0">
+              <li key={coin.coin} className="flex items-center gap-3 px-4 py-3">
                 <CoinIcon coin={coin.coin} size={26} />
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <span className="text-sm font-semibold">{coinLabel(coin.coin)}</span>
@@ -386,7 +387,7 @@ export function MobileInsights({
                 </div>
               </li>
             ))}
-          </ul>
+          </DataList>
         ) : (
           <Sub>{t("trader.noClosedTrades")}</Sub>
         )}

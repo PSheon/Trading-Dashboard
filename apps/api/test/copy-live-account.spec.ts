@@ -144,6 +144,10 @@ describe('authoritative dedicated standard account observations', () => {
     await expect(setup((body, value) => body.type === 'userAbstraction' ? mode : value).observer.observe(account))
       .rejects.toThrow('live_account_unsupported_abstraction');
   });
+  it.each(['unifiedAccount', 'portfolioMargin', 'dexAbstraction', 'default', null])('reads a copied leader in any account mode (%s) for its equity: the leader\'s choice never refuses the follower (local testnet 2026-10-12)', async (mode) => {
+    const snapshot = await setup((body, value) => body.type === 'userAbstraction' ? mode : body.type === 'userDexAbstraction' ? null : value).observer.observe(account, { leader: true });
+    expect(snapshot).toMatchObject({ accountAddress: account, perpEquity: '990' });
+  });
   it.each(['agent', 'vault', 'missing', 'subAccount'])('refuses unsupported account role %s', async (role) => {
     await expect(setup((body, value) => body.type === 'userRole' ? { role } : value).observer.observe(account))
       .rejects.toThrow('live_account_unsupported_role');

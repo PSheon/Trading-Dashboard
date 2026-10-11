@@ -55,6 +55,10 @@ export interface LiveAccountObservationOptions {
    * accepted when it provably carries no exposure (no balance, position or
    * order anywhere), instead of refusing the owner's orders. */
   unsetup?: boolean;
+  /** The copied leader's account, read for its equity (ratio sizing from a
+   * testnet source): any role and account mode is the leader's own choice,
+   * never a reason to refuse the follower's order (local testnet, 2026-10-12). */
+  leader?: boolean;
 }
 /** Purpose-bound evidence; deliberately lacks the trading account-mode marker. */
 export interface SetupAbortFlatObservation {
@@ -99,8 +103,9 @@ function frozen<T>(value: T): T {
   return value;
 }
 interface AccountMode { spot: z.infer<typeof spotSchema>; role: 'user' | 'missing'; abstraction: 'disabled' | 'default'; zeroOnly: boolean }
-function mode(role: unknown, abstraction: unknown, dexAbstraction: unknown, spot: unknown, unsetup = false, setupAbort = false): AccountMode {
+function mode(role: unknown, abstraction: unknown, dexAbstraction: unknown, spot: unknown, unsetup = false, setupAbort = false, leader = false): AccountMode {
   const parsed = spotSchema.parse(spot);
+  if (leader) return { spot: parsed, role: 'user', abstraction: abstraction === 'disabled' ? 'disabled' : 'default', zeroOnly: false };
   if (parsed.portfolioMarginEnabled === true) fail('live_account_unsupported_abstraction');
   if (setupAbort && parsed.balances.some(b => !Dec.from(b.total).isZero || !Dec.from(b.hold).isZero)) fail('live_account_unsupported_abstraction');
   // A newly funded default account can still report an unset dex preference
@@ -206,7 +211,7 @@ export class HyperliquidLiveAccountObserver {
       void metadataRead.catch(() => {});
       const [initial, rawTokens] = await initialWork;
       let accountMode: AccountMode;
-      try { accountMode = mode(...initial.slice(0, 4) as [unknown, unknown, unknown, unknown], options.unsetup === true, setupAbort); }
+      try { accountMode = mode(...initial.slice(0, 4) as [unknown, unknown, unknown, unknown], options.unsetup === true, setupAbort, options.leader === true); }
       catch (error) {
         // What the exchange said, for the refusal's log (a copy's first open was
         // refused once on testnet right after its setup, 2026-10-12): no amounts.
@@ -352,7 +357,7 @@ export class HyperliquidLiveAccountObserver {
       // every reader, after the last of them).
       if (!shared) {
         const final = await accountModes();
-        const finalMode = mode(...final.slice(0, 4) as [unknown, unknown, unknown, unknown], options.unsetup === true, setupAbort);
+        const finalMode = mode(...final.slice(0, 4) as [unknown, unknown, unknown, unknown], options.unsetup === true, setupAbort, options.leader === true);
         if (JSON.stringify(dexSchema.parse(final[4])) !== JSON.stringify(list) || JSON.stringify(finalMode) !== JSON.stringify(accountMode))
           fail('live_account_observation_changed');
       }

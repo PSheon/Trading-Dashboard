@@ -131,7 +131,7 @@ export class LiveProviderReadEpoch {
       await accountsWork;
       const current = snapshots[authority.accounts.findIndex(a => a.id === binding.accountId)];
       riskSourceRequire(current, 'live_risk_user_coverage_unproven');
-      const leader = binding.includeLeader ? await this.observer.observe(authority.consent.leaderAddress) : null;
+      const leader = binding.includeLeader ? await this.observer.observe(authority.consent.leaderAddress, { leader: true }) : null;
       await session.scope.assertHeld(); this.fresh(started);
       const target = await targetWork;
       await session.scope.assertHeld(); this.fresh(started);
@@ -223,7 +223,7 @@ export class LiveProviderReadEpoch {
       await session.scope.assertHeld(); this.fresh(started);
       const current = snapshots[authority.accounts.findIndex(a => a.id === binding.accountId)];
       riskSourceRequire(current, 'live_risk_user_coverage_unproven');
-      const leader = binding.includeLeader ? await this.observer.observe(authority.consent.leaderAddress, { shared }) : null;
+      const leader = binding.includeLeader ? await this.observer.observe(authority.consent.leaderAddress, { shared, leader: true }) : null;
       await session.scope.assertHeld(); this.fresh(started);
       mark('epoch_account_snapshots');
       const coins = [...new Set([...current.positions.map(p => p.coin), ...current.restingOrders.map(o => o.coin), market.coin])];

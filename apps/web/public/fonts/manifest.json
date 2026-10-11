@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "provenance": "Unmodified WOFF2 assets from the verified ef169530 production build, originally retrieved by next/font/google; preserve unicode slices, weights, display and fallback metrics.",
+  "provenance": "Unmodified WOFF2 assets captured from existing local Next production output during ef169530 verification, originally retrieved by next/font/google. This identifies the capture source, not a claim that ef169530 pre-push rebuilt Web. Preserve unicode slices, weights, display and fallback metrics.",
   "assets": [
     {
       "family": "Noto Sans TC",

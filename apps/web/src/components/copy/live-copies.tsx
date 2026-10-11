@@ -20,6 +20,9 @@ import { CopyIconButton } from '@/components/wallet/bits';
 import { CopyFollowerActivity } from '@/components/copy/copy-follower-activity';
 import { LiveCopyStopAction } from '@/components/copy/copy-live-stop';
 import { useLeaders } from '@/components/copy/copy-portfolio';
+import { CopyCompare } from '@/components/copy/copy-compare';
+import { ExposurePanel } from '@/components/copy/portfolio-parts';
+import type { ExposureCopy } from '@/lib/copy-portfolio';
 import { TraderAvatar, boardName } from '@/components/discover/board-bits';
 import { RoiPill } from '@/components/traders/bits';
 import { Drawer } from '@/components/ui/drawer';
@@ -278,10 +281,34 @@ function LiveCopySheet({ item, text, leader, account, mandate, strategy, onClose
             <p className="mt-1 flex flex-wrap items-center gap-1"><span>{t(item.sourceNetwork === 'testnet' && item.network === 'testnet' && item.leaderAddress.toLowerCase() === '0xb56719305c461afd0de51b9e5b7146fe045553e1' ? 'liveCopyUi.testLeaderWallet' : 'liveCopyUi.leaderWallet')}:</span><Link href={`/trader/${item.leaderAddress}`} className="font-semibold text-primary-text hover:underline">{truncateAddress(item.leaderAddress)}</Link><CopyIconButton value={item.leaderAddress} /></p>
           </details>
         ) : null}
+        {item.stage !== 'setup' ? <LiveCopyPerformance item={item} leader={leader} account={account} /> : null}
         {historyAccount ? <CopyFollowerActivity account={historyAccount} /> : null}
       </div>
     </Drawer>
   );
+}
+
+/**
+ * The paper detail's comparison and exposure, the same components, from what
+ * an actual copy has (parity review D13/D14): the trader's Hyperliquid
+ * portfolio (only a mainnet trader: the trader pages read mainnet), and the
+ * copy account's observed equity and positions. No equity history is
+ * recorded for an actual copy (copy_equity_snapshots holds paper copies), so
+ * its own curve and period figures stay empty and "—".
+ */
+function LiveCopyPerformance({ item, leader, account }: { item: LiveCopyItem; leader: Leader; account: CopyExecutionAccount | null }) {
+  const snapshot = useCopyFollowerSnapshot(account && item.stage !== 'setup' && item.stage !== 'stopped' ? account : null);
+  const observed = snapshot.data?.status === 'observed' ? snapshot.data : null;
+  const leaders = useMemo(() => new Map([[item.leaderAddress, leader]]), [item.leaderAddress, leader]);
+  const copy: ExposureCopy | null = observed ? {
+    id: item.strategyId, leaderAddress: item.leaderAddress, status: 'active', equity: Number(observed.metrics.perpEquity),
+    positions: observed.positions.map(p => ({ coin: p.coin, size: Number(p.size), notionalUsd: Number(p.positionValue), unrealizedPnl: Number(p.unrealizedPnl), entryPx: Number(p.entryPrice) })),
+  } : null;
+  return <>
+    <CopyCompare strategy={{ id: item.strategyId, leaderAddress: item.leaderAddress, createdAt: item.createdAt }} traderName={boardName(leader)}
+      history={false} leaderHistory={item.sourceNetwork === 'mainnet'} />
+    {copy ? <ExposurePanel overview={{ strategies: [copy] }} leaders={leaders} desktop={false} /> : null}
+  </>;
 }
 
 /** Another network's copy (Stage's testnet copies after the move to

@@ -322,8 +322,9 @@ export function useChartSnapshots(address: string, window: TraderWindow) {
   });
 }
 
-export function usePortfolio(address: string, window: TraderWindow, market: "all" | "perp") {
+export function usePortfolio(address: string, window: TraderWindow, market: "all" | "perp", enabled = true) {
   return useQuery({
+    enabled,
     queryKey: queryKeys.trader.portfolio(address, window, market),
     queryFn: ({ signal }) =>
       api.get<PortfolioResponse>(`/traders/${address}/portfolio?window=${window}&market=${market}`, signal),

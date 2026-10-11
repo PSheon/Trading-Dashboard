@@ -59,6 +59,12 @@ export function netInvested(strategies: CopyStrategyView[]): number {
   return insightsOverview(strategies).invested;
 }
 
+/** What exposure reads of a copy: a paper copy as it is, or an actual
+ * copy's observed account (its equity and positions). */
+export type ExposureCopy = Pick<CopyStrategyView, "id" | "leaderAddress" | "status" | "equity"> & {
+  positions: ReadonlyArray<Pick<CopyStrategyView["positions"][number], "coin" | "size" | "notionalUsd" | "unrealizedPnl" | "entryPx">>;
+};
+
 export interface AssetLine {
   strategyId: number;
   leaderAddress: string;
@@ -85,7 +91,7 @@ export interface AssetExposure {
  * = gross notional ÷ the copies' equity. Null when a price is missing: an
  * unpriced position is never counted as 0.
  */
-export function exposure(strategies: CopyStrategyView[]): {
+export function exposure(strategies: readonly ExposureCopy[]): {
   assets: AssetExposure[];
   long: number;
   short: number;

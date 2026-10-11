@@ -139,12 +139,14 @@ export function useWithdrawCopyFunds() {
 export type { CopyPerformanceWindow };
 export type CopyPerformanceView = WireCopyPerformance;
 
-export function useCopyPerformance(strategyId: number, window: CopyPerformanceWindow = "7d") {
+/** A paper copy's recorded equity history (`enabled` false: the copy has
+ * none, as an actual copy, and nothing is asked). */
+export function useCopyPerformance(strategyId: number, window: CopyPerformanceWindow = "7d", enabled = true) {
   const { status } = useAuth();
   return useQuery({
     queryKey: [...queryKeys.copy.all, "performance", strategyId, window],
     queryFn: ({ signal }) => api.get<CopyPerformanceView>(`/me/copy/strategies/${strategyId}/performance?window=${window}`, signal),
-    enabled: status === "signedIn",
+    enabled: enabled && status === "signedIn",
     staleTime: 30_000,
     refetchInterval: 60_000,
     ...defaultRetry,

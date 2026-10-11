@@ -27,6 +27,7 @@ vi.mock('@/lib/funds', () => ({ useFundsHistory: () => ({ data: { pages: [{ item
 vi.mock('@/components/copy/copy-portfolio', () => ({ useLeaders: () => new Map() }));
 vi.mock('@/components/copy/copy-live-stop', () => ({ LiveCopyStopAction: () => null }));
 vi.mock('@/components/copy/live-copy-actions', () => ({ LiveCopyActions: () => null }));
+vi.mock('@/components/copy/copy-compare', () => ({ CopyCompare: () => null }));
 // The real activity child and its query provider are covered by live-copy-activity-entry.test.tsx.
 vi.mock('@/components/copy/copy-follower-activity', () => ({ CopyFollowerActivity: () => null }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh() {}, push() {} }), usePathname: () => '/zh-TW/portfolio', useSearchParams: () => new URLSearchParams(state.search) }));

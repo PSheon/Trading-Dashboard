@@ -69,6 +69,7 @@ vi.mock("@/lib/copy", async () => ({
   ], hasMore: false }, isPending: false }),
 }));
 vi.mock("@/components/copy/portfolio-parts", () => ({ PortfolioChart: () => null, PaperSummary: () => <p>PAPER-ACCOUNT</p>, PaperSummarySkeleton: () => null, PortfolioChartSkeleton: () => null, InsightsPanel: () => null, ExposurePanel: () => null, CopySparkline: () => null }));
+vi.mock("@/components/copy/copy-compare", () => ({ CopyCompare: () => null }));
 
 let root: Root, container: HTMLDivElement, client: QueryClient;
 beforeEach(() => {

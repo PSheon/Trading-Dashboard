@@ -20,7 +20,7 @@ import { TradeShareDialog, copyCardSource, type TradeCardSource } from "@/compon
 import { useI18n } from "@/i18n/provider";
 import type { CopyOverview, CopyStrategyView } from "@/lib/contracts";
 import { useCopyPortfolio, useCopyTrades, type CopyClosedTradeView } from "@/lib/copy";
-import { PORTFOLIO_WINDOWS, exposure, insightsOverview, netInvested, paperLegend, sharePct, todayChange } from "@/lib/copy-portfolio";
+import { PORTFOLIO_WINDOWS, exposure, insightsOverview, netInvested, paperLegend, sharePct, todayChange, type ExposureCopy } from "@/lib/copy-portfolio";
 import { coinLabel, usdCompact } from "@/lib/format";
 import type { CopyPerformanceWindow } from "@trading-dashboard/shared/contracts";
 import { Segmented } from "@/components/ui/segmented";
@@ -359,7 +359,7 @@ function Bar({ parts }: { parts: Array<[number, string]> }) {
 
 /** Exposure: Direction, Leverage and By Asset (CopyDog), with the hedged
  * coins marked and each coin's copies listed when opened. */
-export function ExposurePanel({ overview, leaders, desktop }: { overview: CopyOverview; leaders: Map<string, Leader>; desktop: boolean }) {
+export function ExposurePanel({ overview, leaders, desktop }: { overview: { strategies: readonly ExposureCopy[] }; leaders: Map<string, Leader>; desktop: boolean }) {
   const { t, format } = useI18n();
   const [open, setOpen] = useState<Set<string>>(new Set());
   const uid = useId();

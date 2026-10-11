@@ -25,15 +25,22 @@ const tone = (v: number | null | undefined) => (v === null || v === undefined ? 
  * window's start and the copy's start, PnL change ÷ the period's highest
  * net deposits (the trader page's ROI definition; the trader's perp
  * account).
+ *
+ * An actual copy shows the same card: `history` false (no equity history is
+ * recorded for it, so 你的跟單 is "—" and nothing is asked), and
+ * `leaderHistory` false when its trader is not on the network the trader
+ * pages read (a testnet trader): the trader's side is "—" too.
  */
-export function CopyCompare({ strategy: s, traderName }: { strategy: CopyStrategyView; traderName: string }) {
+export function CopyCompare({ strategy: s, traderName, history = true, leaderHistory = true }: {
+  strategy: Pick<CopyStrategyView, "id" | "leaderAddress" | "createdAt">; traderName: string; history?: boolean; leaderHistory?: boolean;
+}) {
   const { t, format } = useI18n();
   const [view, setView] = useState<"yours" | "trader">("yours");
   const [window, setWindow] = useState<CopyPerformanceWindow>("7d");
   const [metric, setMetric] = useState<"pnl" | "roi">("pnl");
   const traderWindow = PORTFOLIO_WINDOWS.find(([w]) => w === window)![1];
-  const mine = useCopyPerformance(s.id, window);
-  const leader = usePortfolio(s.leaderAddress, traderWindow, "perp");
+  const mine = useCopyPerformance(s.id, window, history);
+  const leader = usePortfolio(s.leaderAddress, traderWindow, "perp", leaderHistory);
 
   const mineSeries = useMemo(() => {
     const pts = (mine.data?.points ?? []).filter((p) => p.totalPnl !== null && p.equity !== null);
@@ -59,6 +66,8 @@ export function CopyCompare({ strategy: s, traderName }: { strategy: CopyStrateg
   const active = view === "yours" ? mineSeries : traderSeries;
   const series = metric === "roi" ? active.roi : active.pnl;
   const query = view === "yours" ? mine : leader;
+  // A query never asked (no such history) is not loading: its empty state shows.
+  const loading = (view === "yours" ? history : leaderHistory) && query.isPending;
   const last = series.at(-1);
   const pnlLast = active.pnl.at(-1);
   const roiLast = active.roi.at(-1);
@@ -78,7 +87,7 @@ export function CopyCompare({ strategy: s, traderName }: { strategy: CopyStrateg
       <div className="flex items-start justify-between gap-3 px-3 pt-3">
         <div className="flex flex-col items-start gap-2">
           <p className="text-xs text-muted-foreground">{view === "yours" ? t("pf.detail.yourCopy") : traderName}</p>
-          {query.isPending && !query.data ? (
+          {loading && !query.data ? (
             <>
               <SkelBar line="h-[28.6px]" className="ui-skeleton h-6 w-40 bg-raised" />
               {metric === "pnl" ? <SkelBar className="ui-skeleton h-[26px] w-20 bg-raised" /> : null}
@@ -111,7 +120,7 @@ export function CopyCompare({ strategy: s, traderName }: { strategy: CopyStrateg
             formatAxisTime={(ts) => format.axisDate(ts, span)}
             ariaLabel={view === "yours" ? t("pf.detail.yourChart") : t("pf.detail.traderChart")}
           />
-        ) : query.isPending ? <Skeleton className="h-[200px]" /> : (
+        ) : loading ? <Skeleton className="h-[200px]" /> : (
           <div className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">{query.isError ? t("copyUpdates.historyError") : t("pf.chart.noData")}</div>
         )}
         {view === "yours" && mine.data ? (

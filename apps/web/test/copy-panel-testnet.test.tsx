@@ -34,7 +34,7 @@ vi.mock("../src/lib/copy-live-setup", async () => ({
 vi.mock("../src/lib/copy-live-portfolio", () => ({ useLiveCopyPortfolio: () => ({ data: { items: state.item ? [state.item] : [] } }) }));
 vi.mock("../src/lib/wallet", () => ({ useWallet: () => ({ data: { network: (state.deployment as { network: string }).network, hyperliquid: { withdrawable: state.withdrawable } } }), signErrorMessage: () => ({ rejected: false, message: "" }) }));
 vi.mock("../src/components/wallet/wallet-modals", () => ({ useWalletModals: () => ({ openDeposit: () => state.openDeposit(), openWithdraw() {}, openExport() {} }) }));
-vi.mock("../src/lib/queries", () => ({ useSiteSettings: () => ({ data: { copyTradingEnabled: true } }) }));
+vi.mock("../src/lib/queries", () => ({ useTraderProfile: () => ({ data: undefined }), useTraderFills: () => ({ data: undefined }), useSiteSettings: () => ({ data: { copyTradingEnabled: true } }) }));
 
 const leader = `0x${"ab".repeat(20)}`;
 const zh = liveSetupMessages["zh-TW"];

@@ -19,7 +19,7 @@ vi.mock("../src/lib/copy-live-setup", () => ({ useLiveCopyAvailable: () => false
 vi.mock("../src/lib/copy-live-portfolio", () => ({ useLiveCopyPortfolio: () => ({ data: undefined }) }));
 vi.mock("../src/lib/wallet", () => ({ useWallet: () => ({ data: undefined }), signErrorMessage: () => ({ rejected: false, message: "" }) }));
 // The site settings still carry a referral code; the panel must not show it.
-vi.mock("../src/lib/queries", () => ({ useSiteSettings: () => ({ data: { referralCode: "ORBIE", copyTradingEnabled: copy.enabled } }) }));
+vi.mock("../src/lib/queries", () => ({ useTraderProfile: () => ({ data: undefined }), useTraderFills: () => ({ data: undefined }), useSiteSettings: () => ({ data: { referralCode: "ORBIE", copyTradingEnabled: copy.enabled } }) }));
 
 it("has no referral box, as CopyDog's copy panel has none", () => {
   for (const sheet of [false, true]) {

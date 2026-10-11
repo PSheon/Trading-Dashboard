@@ -31,6 +31,7 @@ import { coinLabel, truncateAddress } from "@/lib/format";
 import { rovingFocus } from "@/lib/roving-focus";
 import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useTraderCopyFlow } from "./trader-copy-flow";
+import { CopyFitSummary } from "./copy-fit-summary";
 
 type Direction = "same" | "reverse";
 /**
@@ -674,6 +675,9 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
             ) : null}
         </Collapsible>
       </div>
+
+      {/* Ratio sizing only: a fixed amount per trade is checked against the minimum by its own field. */}
+      {!testnet || (!fixedOnly && sizing === "ratio") ? <CopyFitSummary address={address} allocation={Number.isFinite(value) ? value : 0} /> : null}
 
       {paused ? (
         <p className="flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning">

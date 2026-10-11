@@ -145,22 +145,32 @@ const REASONS = [
   "platform_paused", "platform_reduce_only", "user_paused", "user_reduce_only", "strategy_paused", "strategy_reduce_only",
   "symbol_not_allowed", "symbol_blocked", "stale_signal", "no_price", "price_moved", "frequency", "zero_size", "below_min_notional",
   "leader_equity_unknown", "no_asset_info", "no_per_trade_amount", "nothing_to_reduce", "superseded", "reduce_only_no_position", "reduce_only_clamped", "liquidated",
+  "below_min_after_rounding", "user_disabled", "risk_policy_invalid", "strategy_settings_invalid", "strategy_settings_changed", "strategy_stopping", "strategy_stopped",
+  "stale_price", "opposite_position", "missing_reservation", "max_per_trade",
 ] as const;
 const CAPS = ["max_order", "max_coin_exposure", "max_user_exposure", "max_strategy_exposure", "available_funds"] as const;
 const SCOPES = ["platform", "user", "strategy"] as const;
+const RISK_CAP = new RegExp(`^risk_cap_(?:${CAPS.join("|")})(?:_(?:${CAPS.join("|")}))*$`);
 
 /**
  * An order's reason code as a sentence. Codes come in four shapes: a fixed
  * code; `below_min_after_<cap>` (clamped under the minimum order);
  * `<scope>_paused_before_submit` / `<scope>_reduce_only_before_submit`
  * (stopped between approval and submission); `<scope>_<command>` (cancelled
- * by that stop command). A code this build does not know is shown as it is.
+ * by that stop command). `risk_cap_<cap>[_<cap>...]` is a cap that tightened
+ * after approval, and any known code may carry `_before_submit` /
+ * `_before_fill` (the recheck that refused it). A code this build does not
+ * know is shown as it is.
  */
 export function copyReasonText(code: string | null, t: Translate): string {
   if (!code) return "—";
   if ((REASONS as readonly string[]).includes(code)) return t(`copyAdmin.reasons.${code}` as MessageKey);
   const cap = CAPS.find((c) => code === `below_min_after_${c}`);
   if (cap) return t("copyAdmin.reasons.belowMinAfter", { cap: t(`copyAdmin.reasons.caps.${cap}`) });
+  if (RISK_CAP.test(code)) {
+    const caps = code.slice("risk_cap_".length).match(new RegExp(CAPS.join("|"), "g")) ?? [];
+    return t("copyAdmin.reasons.capTightened", { caps: caps.map((c) => t(`copyAdmin.reasons.caps.${c as (typeof CAPS)[number]}`)).join(t("copyAdmin.reasons.capSeparator")) });
+  }
   // "liquidated:equity 45.25 < maintenance 50.63": the figures stay as the api wrote them.
   if (code.startsWith("liquidated:")) return t("copyAdmin.reasons.liquidation", { detail: code.slice("liquidated:".length) });
   for (const scope of SCOPES) {
@@ -169,7 +179,12 @@ export function copyReasonText(code: string | null, t: Translate): string {
     const level = t(`copyAdmin.scope.${scope}`);
     if (rest === "paused_before_submit" || rest === "reduce_only_before_submit") return t("copyAdmin.reasons.beforeSubmit", { scope: level });
     if (rest === "pause" || rest === "stop") return t("copyAdmin.reasons.cancelledBy", { scope: level, command: t(`copyAdmin.commands.${rest === "pause" ? "pause_new_risk" : "close_positions"}`) });
-    if (rest in CONTROL_CONFIRM_WORD) return t("copyAdmin.reasons.cancelledBy", { scope: level, command: t(`copyAdmin.commands.${rest as CopyControlCommand}`) });
+    if (Object.hasOwn(CONTROL_CONFIRM_WORD, rest)) return t("copyAdmin.reasons.cancelledBy", { scope: level, command: t(`copyAdmin.commands.${rest as CopyControlCommand}`) });
+  }
+  const recheck = /^(.+)_before_(submit|fill)$/.exec(code);
+  if (recheck) {
+    const reason = copyReasonText(recheck[1], t);
+    if (reason !== recheck[1]) return t(recheck[2] === "submit" ? "copyAdmin.reasons.recheckSubmit" : "copyAdmin.reasons.recheckFill", { reason });
   }
   return code;
 }

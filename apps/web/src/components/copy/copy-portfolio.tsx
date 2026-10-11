@@ -456,7 +456,7 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
                   <dl className="mb-3 grid gap-2">
                     {[
                       [`${t("portfolio.copy.order.time")} (UTC)`, format.dateTime(o.createdAt)],
-                      [t("portfolio.copy.order.size"), format.num(o.filledSize || o.size, 5)],
+                      [t("portfolio.copy.order.size"), presentation.size === null ? "—" : format.num(presentation.size, 5)],
                       [t("portfolio.copy.order.price"), o.avgPx === null ? "—" : format.price(o.avgPx)],
                     ].map(([label, value]) => <div key={label} className="flex flex-wrap justify-between gap-2"><dt className="text-muted-foreground">{label}</dt><dd className="num font-semibold">{value}</dd></div>)}
                   </dl>
@@ -493,7 +493,7 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
                       <span className={o.side === "B" ? "text-positive" : "text-negative"}>{t(o.side === "B" ? "portfolio.copy.order.buy" : "portfolio.copy.order.sell")}</span>
                       <span className="ml-1.5 text-xs text-muted-foreground">{t(`portfolio.copy.order.leg.${o.leg}` as MessageKey)}</span>
                     </TableCell>
-                    <TableCell className="text-right">{format.num(o.filledSize || o.size, 5)}</TableCell>
+                    <TableCell className="text-right">{presentation.size === null ? "—" : format.num(presentation.size, 5)}</TableCell>
                     <TableCell className="text-right">{o.avgPx === null ? "—" : format.price(o.avgPx)}</TableCell>
                     <TableCell>
                       <span className={presentation.tone}>

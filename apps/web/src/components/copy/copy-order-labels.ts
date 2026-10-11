@@ -5,23 +5,31 @@ import { copyReasonText } from "@/lib/admin-copy";
 const policyReasons = new Set([
   "platform_paused", "platform_reduce_only", "user_paused", "user_reduce_only", "strategy_paused", "strategy_reduce_only",
   "symbol_blocked", "symbol_not_allowed", "stale_signal", "price_moved", "frequency", "zero_size", "below_min_notional", "reduce_only_no_position",
+  "below_min_after_rounding", "stale_price", "max_per_trade",
 ]);
+const caps = "(?:max_order|max_coin_exposure|max_user_exposure|max_strategy_exposure|available_funds)";
+const capped = new RegExp(`^(?:below_min_after_${caps}|risk_cap_${caps}(?:_${caps})*)$`);
 
 /** A reason describes the remainder too: never erase evidence of a prior fill.
  * Policy refusal is not evidence that an exchange order was never submitted. */
-export function copyOrderPresentation(order: Pick<CopyOrderView, "status" | "reason" | "filledSize">, t: Translate) {
+export function copyOrderPresentation(order: Pick<CopyOrderView, "status" | "reason" | "filledSize"> & Partial<Pick<CopyOrderView, "size">>, t: Translate) {
   const terminal = order.status === "rejected" || order.status === "cancelled";
   const base = order.reason?.replace(/_before_(?:submit|fill)$/, "") ?? "";
-  const policy = terminal && (policyReasons.has(base) || /^below_min_after_(?:max_order|max_coin_exposure|max_user_exposure|max_strategy_exposure|available_funds)$/.test(base));
+  const policy = terminal && (policyReasons.has(base) || capped.test(base));
   const refused = policy && order.filledSize === 0;
   // The admin formatter also accepts scoped commands; only send actual command
   // names to that path so object prototype names cannot become catalog keys.
   const unknownControl = /^(?:platform|user|strategy)_/.test(base)
-    && !/^(?:platform|user|strategy)_(?:paused|reduce_only|pause|stop|pause_new_risk|cancel_pending|close_positions|resume)$/.test(base);
-  const translated = base && !unknownControl ? copyReasonText(base, t) : base;
+    && !/^(?:platform|user|strategy)_(?:paused|reduce_only|pause|stop|pause_new_risk|cancel_pending|close_positions|resume)$/.test(base)
+    && !/^(?:user_disabled|strategy_(?:stopping|stopped|settings_invalid|settings_changed))$/.test(base);
+  // The full code keeps the recheck stage ("before submission") in the sentence.
+  const reason = order.reason ?? "";
+  const translated = base && !unknownControl ? copyReasonText(reason, t) : reason;
   return {
     status: refused ? t("portfolio.copy.order.riskRefused") : t(`portfolio.copy.order.statusName.${order.status}`),
     tone: order.status === "filled" || order.status === "partial" ? "text-positive" : policy ? "text-warning" : terminal ? "text-negative" : "text-muted-foreground",
-    reason: order.status === "filled" || !order.reason ? null : translated !== base ? translated : t("portfolio.copy.order.unknownReason"),
+    reason: order.status === "filled" || !order.reason ? null : translated !== reason ? translated : t("portfolio.copy.order.unknownReason"),
+    // A refusal can round the planned size to 0; that is no size, not a 0-size order.
+    size: order.filledSize || order.size || null,
   };
 }

@@ -59,6 +59,12 @@ Telegram 已正式啟用（保留）：兩服務 `TELEGRAM_BOT_USERNAME=orbie_fu
 
 部署後：卡住的 setup 下次 65 s 重試會用新 bucket，預期自動走完 mode_set → agent_active → running。
 
+### 4b. 22:05 更新
+
+- Paul 決定先退回：setup 已安全中止，14:02 UTC 跟單帳戶 49 USDC 退回主錢包（fee 0，hash 0x4561a498ac…）；主錢包 HL 57.8 USDC，跟單帳戶 0、無持倉。總成本 1 USDC 新帳戶費。Stage 在途守門全 0。
+- Paul 同意比例跟單方案：主網改比例（`COPY_LIVE_RATIO_SIZING=true`）、低於 10 USDC 的單略過並記錄（不補到 10）、最低跟單資金照 CopyDog 100 USDC。注意：目前 `COPY_LIVE_MAX_ALLOCATION_USD=50` 與最低 100 衝突，開啟前要一起調整上限，Paul 主錢包也需 ≥100 USDC。
+- 修正 commit `1d7cce7a`（CI 通過）尚未部署 Stage：部署需 Paul 明確同意（權限）。
+
 ## 5. 工具與權限
 
 - 在途守門（唯讀）：`node .claude/codex-verification/recovery/stage-predeploy-inflight-1fe487ce.mjs --execute`

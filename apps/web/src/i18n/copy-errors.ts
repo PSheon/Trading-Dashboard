@@ -16,7 +16,7 @@ export interface CopyErrorText {
   strategyLimit: string; strategyLimitUnfinished: string;
   codes: Record<'live_stop_in_progress' | 'watch_capacity' | 'leverage_above_limit' | 'builder_fee_approval_required' | 'setup_binding_changed' | 'owner_wallet_unavailable' |
     'live_session_changed' | 'funding_not_submitted' | 'setup_changed' | 'return_requires_flat_stop' | 'return_use_sweep' | 'setup_deposit_uncredited' |
-    'no_free_collateral' | 'live_stop_pending' | 'stale_revision' | 'live_stop_binding_changed' | 'live_stop_unapproved_generation', string>;
+    'no_free_collateral' | 'live_stop_pending' | 'stale_revision' | 'live_stop_binding_changed' | 'live_stop_unapproved_generation' | 'position_liquidated', string>;
   /** A testnet copy's skip reason that has no words of its own (the portfolio's last refusal). */
   refusal: string;
 }
@@ -33,7 +33,7 @@ const en: CopyErrorText = {
     return_requires_flat_stop: 'Stop the copy first; everything returns once its positions are closed.', return_use_sweep: 'The copy is stopping: return everything once its positions are closed.',
     setup_deposit_uncredited: 'The deposit was never confirmed as arrived.',
     no_free_collateral: 'There are no idle funds to withdraw right now: they back open positions.', live_stop_pending: 'This copy is already stopping.', stale_revision: 'This copy changed. Refresh and try again.', live_stop_binding_changed: 'This copy changed. Refresh and try again.',
-    live_stop_unapproved_generation: 'This copy hasn\'t started yet, so there is nothing to stop.' },
+    live_stop_unapproved_generation: 'This copy hasn\'t started yet, so there is nothing to stop.', position_liquidated: 'Hyperliquid liquidated this copy\'s position, so the trader\'s close was not copied.'  },
   refusal: 'another reason',
 };
 const zhTW: CopyErrorText = {
@@ -48,7 +48,7 @@ const zhTW: CopyErrorText = {
     return_requires_flat_stop: '請先停止跟單，平倉後即可全部返還。', return_use_sweep: '跟單正在停止，平倉後即可全部返還。',
     setup_deposit_uncredited: '入金一直沒有確認到帳。',
     no_free_collateral: '目前沒有可提款的閒置資金，資金正用於持倉保證金。', live_stop_pending: '這個跟單已在停止中。', stale_revision: '這個跟單的狀態已更新，請重新整理後再試。', live_stop_binding_changed: '這個跟單的狀態已更新，請重新整理後再試。',
-    live_stop_unapproved_generation: '這個跟單尚未開始，沒有需要停止的交易。' },
+    live_stop_unapproved_generation: '這個跟單尚未開始，沒有需要停止的交易。', position_liquidated: '這個跟單的部位已被 Hyperliquid 強制平倉，因此交易員的平倉沒有再跟單。'  },
   refusal: '其他原因',
 };
 const zhCN: CopyErrorText = {
@@ -63,7 +63,7 @@ const zhCN: CopyErrorText = {
     return_requires_flat_stop: '请先停止跟单，平仓后即可全部返还。', return_use_sweep: '跟单正在停止，平仓后即可全部返还。',
     setup_deposit_uncredited: '入金一直没有确认到账。',
     no_free_collateral: '目前没有可提取的闲置资金，资金正用于持仓保证金。', live_stop_pending: '这个跟单已在停止中。', stale_revision: '这个跟单的状态已更新，请刷新后再试。', live_stop_binding_changed: '这个跟单的状态已更新，请刷新后再试。',
-    live_stop_unapproved_generation: '这个跟单尚未开始，没有需要停止的交易。' },
+    live_stop_unapproved_generation: '这个跟单尚未开始，没有需要停止的交易。', position_liquidated: '这个跟单的仓位已被 Hyperliquid 强制平仓，因此交易员的平仓没有再跟单。'  },
   refusal: '其他原因',
 };
 const ja: CopyErrorText = {
@@ -78,7 +78,7 @@ const ja: CopyErrorText = {
     return_requires_flat_stop: '先にコピーを停止してください。ポジションが閉じたらすべて戻せます。', return_use_sweep: 'コピーは停止処理中です。ポジションが閉じたらすべて戻せます。',
     setup_deposit_uncredited: '入金の着金が確認できませんでした。',
     no_free_collateral: '現在出金できる余剰資金はありません。資金は保有ポジションの証拠金に使われています。', live_stop_pending: 'このコピーはすでに停止中です。', stale_revision: 'このコピーの状態が変わりました。更新してもう一度お試しください。', live_stop_binding_changed: 'このコピーの状態が変わりました。更新してもう一度お試しください。',
-    live_stop_unapproved_generation: 'このコピーはまだ開始していないため、停止するものはありません。' },
+    live_stop_unapproved_generation: 'このコピーはまだ開始していないため、停止するものはありません。', position_liquidated: 'このコピーのポジションは Hyperliquid で強制清算されたため、トレーダーの決済はコピーされませんでした。'  },
   refusal: 'その他の理由',
 };
 const ko: CopyErrorText = {
@@ -93,7 +93,7 @@ const ko: CopyErrorText = {
     return_requires_flat_stop: '먼저 카피를 중지하세요. 포지션이 정리되면 모두 반환할 수 있습니다.', return_use_sweep: '카피가 중지 중입니다. 포지션이 정리되면 모두 반환할 수 있습니다.',
     setup_deposit_uncredited: '입금이 도착한 것으로 확인되지 않았습니다.',
     no_free_collateral: '지금은 출금할 유휴 자금이 없습니다. 자금이 포지션 증거금으로 쓰이고 있습니다.', live_stop_pending: '이 카피는 이미 중지 중입니다.', stale_revision: '이 카피의 상태가 바뀌었습니다. 새로고침 후 다시 시도하세요.', live_stop_binding_changed: '이 카피의 상태가 바뀌었습니다. 새로고침 후 다시 시도하세요.',
-    live_stop_unapproved_generation: '이 카피는 아직 시작되지 않아 중지할 것이 없습니다.' },
+    live_stop_unapproved_generation: '이 카피는 아직 시작되지 않아 중지할 것이 없습니다.', position_liquidated: '이 카피의 포지션이 Hyperliquid에서 강제 청산되어 트레이더의 청산은 카피되지 않았습니다.'  },
   refusal: '기타 사유',
 };
 const es: CopyErrorText = {
@@ -108,7 +108,7 @@ const es: CopyErrorText = {
     return_requires_flat_stop: 'Primero detén la copia; todo vuelve cuando sus posiciones estén cerradas.', return_use_sweep: 'La copia se está deteniendo: devuelve todo cuando sus posiciones estén cerradas.',
     setup_deposit_uncredited: 'Nunca se confirmó la llegada del depósito.',
     no_free_collateral: 'Ahora no hay fondos libres para retirar: respaldan posiciones abiertas.', live_stop_pending: 'Esta copia ya se está deteniendo.', stale_revision: 'Esta copia cambió. Actualiza e inténtalo de nuevo.', live_stop_binding_changed: 'Esta copia cambió. Actualiza e inténtalo de nuevo.',
-    live_stop_unapproved_generation: 'Esta copia aún no ha empezado; no hay nada que detener.' },
+    live_stop_unapproved_generation: 'Esta copia aún no ha empezado; no hay nada que detener.', position_liquidated: 'Hyperliquid liquidó la posición de esta copia, así que el cierre del trader no se copió.'  },
   refusal: 'otro motivo',
 };
 const pt: CopyErrorText = {
@@ -123,7 +123,7 @@ const pt: CopyErrorText = {
     return_requires_flat_stop: 'Pare a cópia primeiro; tudo volta quando as posições forem fechadas.', return_use_sweep: 'A cópia está sendo interrompida: devolva tudo quando as posições forem fechadas.',
     setup_deposit_uncredited: 'A chegada do depósito nunca foi confirmada.',
     no_free_collateral: 'Não há fundos livres para sacar agora: eles garantem posições abertas.', live_stop_pending: 'Esta cópia já está sendo parada.', stale_revision: 'Esta cópia mudou. Atualize e tente novamente.', live_stop_binding_changed: 'Esta cópia mudou. Atualize e tente novamente.',
-    live_stop_unapproved_generation: 'Esta cópia ainda não começou; não há nada para parar.' },
+    live_stop_unapproved_generation: 'Esta cópia ainda não começou; não há nada para parar.', position_liquidated: 'A Hyperliquid liquidou a posição desta cópia, então o fechamento do trader não foi copiado.'  },
   refusal: 'outro motivo',
 };
 const ru: CopyErrorText = {
@@ -138,7 +138,7 @@ const ru: CopyErrorText = {
     return_requires_flat_stop: 'Сначала остановите копию; всё вернётся, когда позиции будут закрыты.', return_use_sweep: 'Копия останавливается: верните всё, когда позиции будут закрыты.',
     setup_deposit_uncredited: 'Зачисление депозита так и не подтвердилось.',
     no_free_collateral: 'Сейчас нет свободных средств для вывода: они обеспечивают открытые позиции.', live_stop_pending: 'Эта копия уже останавливается.', stale_revision: 'Копия изменилась. Обновите страницу и попробуйте снова.', live_stop_binding_changed: 'Копия изменилась. Обновите страницу и попробуйте снова.',
-    live_stop_unapproved_generation: 'Эта копия ещё не началась — останавливать нечего.' },
+    live_stop_unapproved_generation: 'Эта копия ещё не началась — останавливать нечего.', position_liquidated: 'Hyperliquid ликвидировал позицию этой копии, поэтому закрытие трейдера не скопировано.'  },
   refusal: 'другая причина',
 };
 const id: CopyErrorText = {
@@ -153,7 +153,7 @@ const id: CopyErrorText = {
     return_requires_flat_stop: 'Hentikan copy dulu; semuanya kembali setelah posisinya ditutup.', return_use_sweep: 'Copy sedang dihentikan: kembalikan semuanya setelah posisinya ditutup.',
     setup_deposit_uncredited: 'Masuknya deposit tidak pernah terkonfirmasi.',
     no_free_collateral: 'Belum ada dana menganggur untuk ditarik: dana menjadi jaminan posisi terbuka.', live_stop_pending: 'Salinan ini sedang dihentikan.', stale_revision: 'Salinan ini berubah. Muat ulang lalu coba lagi.', live_stop_binding_changed: 'Salinan ini berubah. Muat ulang lalu coba lagi.',
-    live_stop_unapproved_generation: 'Salinan ini belum dimulai, jadi tidak ada yang perlu dihentikan.' },
+    live_stop_unapproved_generation: 'Salinan ini belum dimulai, jadi tidak ada yang perlu dihentikan.', position_liquidated: 'Hyperliquid melikuidasi posisi salinan ini, jadi penutupan trader tidak disalin.'  },
   refusal: 'alasan lain',
 };
 const vi: CopyErrorText = {
@@ -168,7 +168,7 @@ const vi: CopyErrorText = {
     return_requires_flat_stop: 'Hãy dừng sao chép trước; mọi thứ sẽ về khi các vị thế đã đóng.', return_use_sweep: 'Bản sao chép đang dừng: chuyển về toàn bộ khi các vị thế đã đóng.',
     setup_deposit_uncredited: 'Khoản nạp chưa từng được xác nhận đã đến.',
     no_free_collateral: 'Hiện không có tiền nhàn rỗi để rút: tiền đang ký quỹ cho các vị thế.', live_stop_pending: 'Bản copy này đang được dừng.', stale_revision: 'Bản copy này đã thay đổi. Hãy tải lại và thử lại.', live_stop_binding_changed: 'Bản copy này đã thay đổi. Hãy tải lại và thử lại.',
-    live_stop_unapproved_generation: 'Bản copy này chưa bắt đầu nên không có gì để dừng.' },
+    live_stop_unapproved_generation: 'Bản copy này chưa bắt đầu nên không có gì để dừng.', position_liquidated: 'Hyperliquid đã thanh lý vị thế của bản sao này, nên lệnh đóng của trader không được sao chép.'  },
   refusal: 'lý do khác',
 };
 const tr: CopyErrorText = {
@@ -183,7 +183,7 @@ const tr: CopyErrorText = {
     return_requires_flat_stop: 'Önce kopyayı durdurun; pozisyonlar kapanınca her şey geri gelir.', return_use_sweep: 'Kopya durduruluyor: pozisyonlar kapanınca her şeyi geri gönderin.',
     setup_deposit_uncredited: 'Yatırmanın ulaştığı hiç onaylanmadı.',
     no_free_collateral: 'Şu anda çekilebilecek boşta fon yok: fonlar açık pozisyonların teminatı.', live_stop_pending: 'Bu kopya zaten durduruluyor.', stale_revision: 'Bu kopya değişti. Yenileyip tekrar deneyin.', live_stop_binding_changed: 'Bu kopya değişti. Yenileyip tekrar deneyin.',
-    live_stop_unapproved_generation: 'Bu kopya henüz başlamadı; durdurulacak bir şey yok.' },
+    live_stop_unapproved_generation: 'Bu kopya henüz başlamadı; durdurulacak bir şey yok.', position_liquidated: 'Hyperliquid bu kopyanın pozisyonunu likide etti, bu yüzden trader\'ın kapanışı kopyalanmadı.'  },
   refusal: 'başka bir neden',
 };
 

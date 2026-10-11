@@ -40,3 +40,10 @@ it.each(LOCALES)(
     ).toBe(texts.live.errors.generic);
   },
 );
+
+it.each(LOCALES)("explains a close refused after Hyperliquid liquidated the copy in %s (CP-EXE-16)", (locale) => {
+  const texts = { live: liveSetupMessages[locale], extra: copyErrorMessages[locale] };
+  const t = (key: MessageKey) => key;
+  expect(copyDispatchReasonText(texts, "position_liquidated", t)).toBe(texts.extra.codes.position_liquidated);
+  expect(copyDispatchReasonText(texts, "position_liquidated", t)).not.toBe(texts.extra.refusal);
+});

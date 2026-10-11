@@ -1080,6 +1080,17 @@ header:has(> .bar-scrim) {
   transition: opacity 300ms ease-out;
 }
 [data-scrolled="true"] > .bar-scrim { opacity: 1; }
+/* Moving to another section: the page content fades out quickly and the new
+   one rises in (AppShell's PageTransition); the bars stay live underneath. */
+:root { view-transition-name: none; }
+::view-transition-group(.page-swap) { animation-duration: var(--dur-slow); animation-timing-function: var(--ease-orbit); }
+::view-transition-old(.page-swap) { animation: var(--dur-fast) ease-in both page-swap-out; }
+::view-transition-new(.page-swap) { animation: var(--dur-slow) var(--ease-orbit) both page-swap-in; }
+@keyframes page-swap-out { to { opacity: 0; } }
+@keyframes page-swap-in { from { opacity: 0; transform: translateY(8px); } }
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(.page-swap), ::view-transition-old(.page-swap), ::view-transition-new(.page-swap) { animation: none; }
+}
 @media (prefers-reduced-motion: reduce) {
   .bar-scrim { transition: none; }
 }

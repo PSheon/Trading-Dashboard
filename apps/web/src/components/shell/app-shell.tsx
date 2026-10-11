@@ -6,6 +6,7 @@ import { useUrlState } from "@/lib/url-state";
 import { usePageScrolled } from "@/lib/use-page-scrolled";
 import { Link, usePathname } from "@/i18n/navigation";
 import { cn } from "cn";
+import * as React from "react";
 
 import { Lockup } from "@/components/brand/logo";
 import { useT } from "@/i18n/provider";
@@ -23,6 +24,20 @@ import type { PublicSettings } from "@/lib/contracts";
 import { type InitialRead, useSiteSettings } from "@/lib/queries";
 import { discoverNav, isActive, mineNav, mobileNav, mobileNavSignedOut, type NavItem } from "./nav";
 import { IslandBoundary } from "@/components/island-boundary";
+
+/** React's <ViewTransition>: in the App Router's bundled React, absent from
+ * the plain react package (tests) and in browsers without view transitions,
+ * where the page simply changes without motion. */
+const ReactViewTransition = (React as unknown as { ViewTransition?: React.ComponentType<{ name?: string; share?: string; enter?: string; exit?: string; default?: string; children: React.ReactNode }> }).ViewTransition;
+
+/** The page content, faded in when the visitor moves to another section
+ * (探索 → 收藏, a trader → 投資組合): keyed by the first path segment, so tabs
+ * and sub-pages of one section change in place. The header, tab bar and
+ * footer stay still (they are outside it). */
+function PageTransition({ children }: { children: React.ReactNode }) {
+  if (!ReactViewTransition) return <>{children}</>;
+  return <ReactViewTransition name="page-content" share="page-swap" enter="page-swap" exit="page-swap" default="none">{children}</ReactViewTransition>;
+}
 
 /** Every route the app serves; anything else is the 404 page. */
 const ROUTES = ["/explore", "/favorites", "/insights", "/portfolio", "/settings", "/coins", "/trader", "/admin", "/about", "/help", "/dev"];
@@ -193,7 +208,9 @@ export function AppShell({
             portfolioPage && "md:flex md:flex-1 md:flex-col md:pb-6",
           )}
         >
-          {guestPortfolio ? <div className="md:flex md:flex-1 md:items-center md:justify-center md:py-3">{children}</div> : portfolioPage ? <div className="md:flex-1">{children}</div> : children}
+          <PageTransition key={pathname.split("/")[1] ?? ""}>
+            {guestPortfolio ? <div className="md:flex md:flex-1 md:items-center md:justify-center md:py-3">{children}</div> : portfolioPage ? <div className="md:flex-1">{children}</div> : children}
+          </PageTransition>
           {footer ? <SiteFooter className={guestPortfolio ? "mt-10 md:mt-0 md:shrink-0" : portfolioPage ? "mt-10 md:mt-8 md:shrink-0" : "mt-16"} /> : null}
         </main>
       </div>

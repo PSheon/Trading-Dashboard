@@ -148,6 +148,10 @@ describe('authoritative dedicated standard account observations', () => {
     const snapshot = await setup((body, value) => body.type === 'userAbstraction' ? mode : body.type === 'userDexAbstraction' ? null : value).observer.observe(account, { leader: true });
     expect(snapshot).toMatchObject({ accountAddress: account, perpEquity: '990' });
   });
+  it('still refuses a portfolio-margin leader (its equity means something else)', async () => {
+    await expect(setup((body, value) => body.type === 'spotClearinghouseState' ? { ...(value as object), portfolioMarginEnabled: true } : value).observer.observe(account, { leader: true }))
+      .rejects.toThrow('live_account_unsupported_abstraction');
+  });
   it.each(['agent', 'vault', 'missing', 'subAccount'])('refuses unsupported account role %s', async (role) => {
     await expect(setup((body, value) => body.type === 'userRole' ? { role } : value).observer.observe(account))
       .rejects.toThrow('live_account_unsupported_role');

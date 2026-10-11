@@ -105,8 +105,10 @@ function frozen<T>(value: T): T {
 interface AccountMode { spot: z.infer<typeof spotSchema>; role: 'user' | 'missing'; abstraction: 'disabled' | 'default'; zeroOnly: boolean }
 function mode(role: unknown, abstraction: unknown, dexAbstraction: unknown, spot: unknown, unsetup = false, setupAbort = false, leader = false): AccountMode {
   const parsed = spotSchema.parse(spot);
-  if (leader) return { spot: parsed, role: 'user', abstraction: abstraction === 'disabled' ? 'disabled' : 'default', zeroOnly: false };
+  // Portfolio margin changes what equity means: refused for a leader too.
   if (parsed.portfolioMarginEnabled === true) fail('live_account_unsupported_abstraction');
+  // A leader is read for its equity only; its account mode is its own choice.
+  if (leader) return { spot: parsed, role: 'user', abstraction: abstraction === 'disabled' ? 'disabled' : 'default', zeroOnly: false };
   if (setupAbort && parsed.balances.some(b => !Dec.from(b.total).isZero || !Dec.from(b.hold).isZero)) fail('live_account_unsupported_abstraction');
   // A newly funded default account can still report an unset dex preference
   // (null), as the unsetup path already observes. Only the separate refund

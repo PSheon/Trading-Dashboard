@@ -13174,6 +13174,62 @@
                                               ],
                                               "additionalProperties": false
                                             },
+                                            "walletBudget": {
+                                              "type": "object",
+                                              "properties": {
+                                                "network": {
+                                                  "type": "string",
+                                                  "enum": [
+                                                    "mainnet",
+                                                    "testnet"
+                                                  ]
+                                                },
+                                                "effectivePerMin": {
+                                                  "type": "number"
+                                                },
+                                                "weightLastMinute": {
+                                                  "type": "number"
+                                                },
+                                                "tokensAvailable": {
+                                                  "type": "number"
+                                                },
+                                                "reserveTokens": {
+                                                  "type": "number"
+                                                },
+                                                "queued": {
+                                                  "type": "object",
+                                                  "properties": {
+                                                    "live": {
+                                                      "type": "integer"
+                                                    },
+                                                    "background": {
+                                                      "type": "integer"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "live",
+                                                    "background"
+                                                  ],
+                                                  "additionalProperties": false
+                                                },
+                                                "consumers": {
+                                                  "type": "object",
+                                                  "additionalProperties": {
+                                                    "type": "number"
+                                                  }
+                                                }
+                                              },
+                                              "required": [
+                                                "network",
+                                                "effectivePerMin",
+                                                "weightLastMinute",
+                                                "tokensAvailable",
+                                                "reserveTokens",
+                                                "queued",
+                                                "consumers"
+                                              ],
+                                              "additionalProperties": false
+                                            },
                                             "discovery": {
                                               "type": "object",
                                               "properties": {

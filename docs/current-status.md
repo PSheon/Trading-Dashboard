@@ -1,10 +1,20 @@
 # 最新驗證與發布狀態
 
-更新：2026-10-11 10:24（Asia/Taipei）。本頁優先於其他報告內有日期的歷史紀錄；歷史 FAIL、逾時及舊發布 ID 保留，不改寫成最新 PASS。
+更新：2026-10-11 11:01（Asia/Taipei）。本頁優先於其他報告內有日期的歷史紀錄；歷史 FAIL、逾時及舊發布 ID 保留，不改寫成最新 PASS。
 
 ## 本輪最新結果
 
-### 台北10:24後端已發布；前端新標籤待發布
+### 台北11:01本輪已知修正完成驗收
+
+- **目前 Stage：** Web `1d1d5c12547d0f63288c47fc0577a43b1f3974fd`，唯一原部署 `a787f09d-7212-497a-9778-d36f71c49418` SUCCESS；API／worker為 `0e9ebf8bd3f05db187bd1269dd0c3f9bb8a89c08`，原部署 `38da5e19-3a49-40ce-aa8b-5191ec3aa0a5`／`52eaee8e-8cd4-4e03-bfd5-c2fc1650686b` SUCCESS，各八個編譯檔、mainnet／live及ready200已核對。來源白名單、原有Railway雲端checkpoint與七項在途金融全0守門均通過；沒有手動SQL寫入、額度、環境或schema變更。localhost3000已恢復正常testnet API3100、單一Webpack開發伺服器。
+- **回歸及CI：** API **282檔／4,526 PASS**（原程序exit0、隔離DB已移除），後端精確 [CI38104079120](https://github.com/PSheon/Trading-Dashboard/actions/runs/38104079120) 全綠。Web **207檔／1,431 PASS**、含測試型別及eslint、正式Webpack build exit0；前端精確 [CI38105213688](https://github.com/PSheon/Trading-Dashboard/actions/runs/38105213688) 全綠，Browser **66＋75＋66＝207 PASS**。三份原始Browser日誌無retry／flaky／字型解析或編譯錯誤；既有optional SDK／metadata警告保留。API／Browser在各自未改範圍的CI略過，不混稱同一次全部重跑。
+- **新版洞察正常配置通過：** 本版worker來源核對cutoff10:24:12後另開獨立120分鐘窗口，七組真實新歷史、成員及已知非負權益各95%門檻、最新點小於45分鐘連續兩次相鄰120秒量測全部通過，第二次台北11:01:29，原觀察程序19143 exit0。在原期限內完成，沒有提高配額、延長freshness、降低品質、提前寫入或補造歷史。原061通過與較早四個FAIL／逾時窗口各自保留，不借用或改寫。後續公開七組detail／7d history共14個GET200，非平坦群組最新真實點均晚於本版cutoff；break_even無持倉比例NULL，有真實DB快照但不捏造0%圖點。
+- **#57線上驗收完成：** 真實原Paul session、沒有GET fixture，Stage1440×900／390×844，獲利164／虧損137錢包依錢包總數分母顯示綠側54%獲利／紅側46%虧損，原金額59.3%／40.7%不變；多空54%＋46%=100%。381／381全員摘要，真實124個歷史點及52個BTC點，可見共用top-bar／footer各一，無溢出、HTTP或pageerror與金融寫入。兩張截圖已人工檢視；數字是10:48實際快照，不承諾之後不變。原登入CJK cookie自然從fe46建置遷移至 `1c8717be-9536-421b-9619-80bd46595a22`，九項帳戶GET200、CSS／字型200，未清除登入或手改cookie。
+- **選單／推薦／通知再驗：** 新Web1440／390實測桌面主選單向下、手機向上、語言二級向右、Escape焦點、深色／系統與reduced-motion、登出error hover；模擬儲值寬0且inert／disabled，正式展開72／60px均在viewport內。推薦邀請複製／QR／短碼拒絕、停用申領、Arbitrum正式地址與單一Sonner複製提示皆PASS，無金融／推薦寫入或新錯誤，兩張截圖人工複核。其他已修正項目與不同證據界線見57項清單；不冒稱每個供應商或每項金融toast真人重跑。
+- **testnet已接受結案：** B段維持Paul接受的 **7 PASS／⑧依原規則SKIP**，保留逾時與舊FAIL、退款／清場／撤權證據；不把本輪資料或UI回歸冒充重跑金融B。
+- **尚未執行的產品／金融範圍：** 台北10:49唯讀正式錢包Arbitrum同區塊USDC／ETH均0，Hyperliquid預設venue資金／持倉／掛單0（不是全venue證明），原Paul主網策略／執行帳戶均空；10:51七類主網在途金融全0、平台正常。10:50正常應用帶認證GET200，mainnet／actual、actualAllowed／automaticExecution／setupAbort=true，原12–15USD每筆、50USD配置、3x、兩策略上限維持；overview四筆含歷史，不是四筆活躍主網策略。**主網C仍未入金／簽署／成交／退款，每次真錢操作須當下確認。** 付費推薦的可信費用歸屬、treasury、正式政策與支付adapter尚未整合，返佣維持停用；OTP實測不代表全登入供應商或資安認證。未答覆的常態cohort240／backfill30取捨仍未套用，原額度已通過，是可選性能方案而非本輪阻擋。通知佇列、設定索引等後續建議與已觀察且已修正缺陷分開記載。
+
+### 台北10:24歷史快照（最新以上方完成驗收為準）
 
 - 後端 `0e9ebf8bd3f05db187bd1269dd0c3f9bb8a89c08` 完整隔離API **282檔／4,526 PASS**、原程序exit0、隔離DB已移除；精確 [CI38104079120](https://github.com/PSheon/Trading-Dashboard/actions/runs/38104079120) checks／build／smokes／四個API分片／ci全綠，Browser因前端未改略過。Stage API原部署 `38da5e19-3a49-40ce-aa8b-5191ec3aa0a5` 與worker原部署 `52eaee8e-8cd4-4e03-bfd5-c2fc1650686b` SUCCESS，各核對八個編譯檔、mainnet／live及ready200，台北10:20:53／10:24:12。依雲端checkpoint／七項在途金融全0與來源檢查依序發布，沒有配置／額度／schema／金融操作變更。本機testnet也重載此版，清場狀態及admin403通過，未重做已接受的金融B。
 - **原061資料窗口已真實通過：** 台北10:08:50與10:10:51兩次相鄰120秒量測，七組成員及已知非負權益各95%門檻、七組cutoff後新歷史及最新點小於45分鐘皆PASS；第二次所有成員／權益皆100%。在原120分鐘期限內、後端換版前完成，未改cohort額度、freshness或品質門檻，舊逾時保留。

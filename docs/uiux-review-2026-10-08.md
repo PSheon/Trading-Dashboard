@@ -2,6 +2,10 @@
 
 > 最新發布、資料健康與主網驗收範圍以 [最新狀態](current-status.md) 為準；下列歷史紀錄保留。
 
+## 2026-10-11 11:01本輪驗收完成
+
+本輪列出的57項已知缺陷修正及其證據已記錄，最新Web1d／後端0e9在Stage驗收完成。七組洞察正常配置的獨立95%雙門檻、新歷史與相鄰兩次量測PASS；#57真實桌面／手機左右文案、數值、歷史與頁首／footerPASS，新Web選單／推薦／通知亦重驗。完整API4526、Web1431、Browser207及兩份精確CI通過。不是所有登入供應商、停用返佣或主網真錢端到端的完成聲明；testnet B保留7 PASS／⑧ SKIP與逾時。來源、原部署ID與條件界線見[current-status](current-status.md)，較早FAIL保留。
+
 ## 2026-10-11 03:42 歷史快照（最新以current-status為準）
 
 `f8f52db8` 精確CI [38078740826](https://github.com/PSheon/Trading-Dashboard/actions/runs/38078740826)全綠：API281檔4508 PASS、Web206檔1414 PASS、Browser202 PASS（66／72／64）。Stage API `7c09baa1-4b85-487e-b123-36181471df8e`／worker `0dca96e7-0c05-4830-bb8a-cf9acc95e5d6`／web `cfd15546-6992-46b8-85ab-442291184520`均SUCCESS。新版1440／390／320頁首、footer、menu、推薦唯讀、正式儲值、trader洞察footer例外及漂浮跟單均通過；47／48另以真實Stage卡320／390／480驗證無碰撞或截斷。
@@ -122,7 +126,7 @@ B段仍以Paul接受的7 PASS／⑧ SKIP結案、保留逾時與舊FAIL。新發
 | 54 | 空洞察圖宣稱每15分鐘一筆，與Stage40分鐘及品質守門不一致 | 已修正／精確CI與Stage受控空圖PASS | 十一語言改為資料足夠後逐步累積，不改排程或品質門檻。舊兩项FAIL；完整Web1423及Browser207無重試PASS。350版Stage Web SUCCESS，1440／390受控空歷史畫面新提示、無溢出；原登入CJK cookie自然遷移93a38建置、CSS／字型全200且退役請求0。截圖已人工檢視；受控空圖不是Stage歷史補齊證據。 |
 | 55 | 多空比例各自四捨五入，55.5%／44.5%顯示56%＋45%＝101% | 已修正／精確CI與Stage受控畫面PASS | 洞察與投資組合均補修，原三項FAIL保留；Web1427、Browser207無重試PASS。ef169530 Stage Web SUCCESS，原登入CJK遷移b41建置、CSS／字型與九項帳戶GET200、退役請求及pageerror0；1440／390受控55.5%與111／89USD顯示56%＋44%，美元未變、無溢出，截圖人工複核。不是實際資金或七組補齊證據。 |
 | 56 | CI通過但Turbopack產生大量Google字型URL解析錯誤，建置可間歇失敗 | 已修正／精確CI及真實Stage驗收PASS | 原87.6MB錯誤與207 PASS並存的歷史保留。116個原WOFF2、官方OFL及SHA256清單固定於專案，保留240個font-face完整規則；舊兩項FAIL、新相關8 PASS、Web207檔1429 PASS、型別／eslint／獨立Webpack build exit0。fc93d60a精確CI38100094883全綠、Browser207無重試且三組無字型編譯錯誤；Stage原部署cb5939f8 SUCCESS。116資產HTTP／雜湊／大小／MIME／immutable快取全通過；1440／390真實guest首次僅兩個Latin品牌字型、CJK自然延後與cookie生效、可見header／footer各一、無溢出及新錯誤。Paul原登入cookie自然遷移fe46新建置、九項帳戶GET200；截圖人工複核。字型／shell驗收工具兩次header計數錯誤（隱藏responsive header／頁內section header）保留，改為共用且可見header量測，未改產品配合工具。 |
-| 57 | 盈虧綠側旁為虧損錢包比例、紅側旁為獲利比例，容易誤讀 | 已修正／本機截圖PASS；精確CI與Stage待發布 | 真實Stage1440／390截圖再現；舊碼2 FAIL／15 PASS、新相關17 PASS、Web207檔1431、型別／eslint／正式Webpack build exit0。只對回左右文案及錢包比例，不改金額占比；受控兩尺寸72／28錢包與61／39金額均對齊，截圖人工複核，無溢出或寫入。兩個既有Browser案例新增側邊檢查，尚待新Stage驗收。初始SSR工具未提供DOM容器、local字型工具誤等當頁CJK啟用的錯誤保留；工具修正後舊版失敗、新版通過，不改產品配合工具。 |
+| 57 | 盈虧綠側旁為虧損錢包比例、紅側旁為獲利比例，容易誤讀 | 已修正／精確CI及真實Stage桌面與手機PASS | 真實Stage1440／390截圖再現；舊碼2 FAIL／15 PASS、新相關17 PASS、Web207檔1431、型別／eslint／正式Webpack build exit0。只對回左右文案及錢包比例，不改金額占比；受控兩尺寸72／28錢包與61／39金額均對齊，截圖人工複核，無溢出或寫入。兩個既有Browser案例新增側邊檢查，精確CI38105213688的207Browser均PASS且無retry／flaky／字型編譯錯誤。原Web部署a787f09d SUCCESS；真實原登入Stage1440／390獲利164／虧損137→綠側54%獲利／紅側46%虧損，原金額59.3%／40.7%不變，381／381、真實歷史124／BTC52、共用header／footer、無溢出／HTTP或pageerror／金融寫入，截圖已人工複核；cookie自然遷移1c8717be、九項帳戶GET200。初始SSR工具未提供DOM容器、local字型工具誤等當頁CJK啟用的錯誤保留；工具修正後舊版失敗、新版通過，不改產品配合工具。 |
 
 
 ## 10/08 14:05 舊畫面紀錄

@@ -479,6 +479,21 @@ describe('testnet copy execution engine', () => {
     expect(runtimeCalls.filter(r => r.sourceFillId === close)).toHaveLength(1);
   });
 
+  it('refuses a leader close as position_liquidated, never sending it, once Hyperliquid liquidated the copy (CP-EXE-16)', async () => {
+    await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+    const open = await leaderFill(65, now + 100, 'B', '1', '0', 'ETH'), close = await leaderFill(66, now + 300, 'A', '1', '1', 'ETH');
+    // Between the copy's open and the leader's close, the exchange liquidated the copy's ETH.
+    const address = seed.f.identity.accountAddress;
+    await db.insert(schema.copyFollowerReceipts).values({ key: `testnet:${address}:900`, accountId: 'account', network: 'testnet', accountAddress: address, kind: 'fill',
+      sourceId: '900', coin: 'ETH', providerTime: new Date(now + 200), digest: 'b'.repeat(64), attribution: 'account',
+      record: { tid: '900', coin: 'ETH', raw: { tid: 900, coin: 'ETH', side: 'A', liquidation: { liquidatedUser: address, markPx: '1900', method: 'market' } } } });
+    runtimeImpl = filled;
+    clock = now + 1000; await engine().tick(); clock += 3000; await engine().tick(); clock += 3000; await engine().tick();
+    expect((await dispatches()).find(r => r.sourceFillId === open)).toMatchObject({ state: 'settled' });
+    expect((await dispatches()).find(r => r.sourceFillId === close)).toMatchObject({ state: 'refused', reason: 'position_liquidated', attempts: 0 });
+    expect(runtimeCalls.filter(r => r.sourceFillId === close)).toHaveLength(0);
+  });
+
   it('keeps an open with a no-position runtime reason retryable', async () => {
     await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
     const open = await leaderFill(62, now + 100, 'B', '1', '0', 'ETH');

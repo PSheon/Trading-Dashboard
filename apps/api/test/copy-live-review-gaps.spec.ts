@@ -60,6 +60,22 @@ describe('a leader reduction after the owner closed the position by hand', () =>
     await db.insert(schema.copyLiveManualCloses).values(close('BTC', 'done', now - 4_000));
     expect(await repo.closedByOwner('mandate', 'account', 'BTC')).toBe(true);
   });
+  // CP-EXE-16: Hyperliquid liquidated the copy account (its own fill marker).
+  const receipt = (tid: number, coin: string, at: number, liquidatedUser: string | null) => ({ key: `testnet:${seed.f.identity.accountAddress}:${tid}`, accountId: 'account', network: 'testnet' as const,
+    accountAddress: seed.f.identity.accountAddress, kind: 'fill' as const, sourceId: String(tid), coin, providerTime: new Date(at), digest: 'a'.repeat(64), attribution: 'account' as const,
+    record: { tid: String(tid), coin, raw: { tid, coin, ...(liquidatedUser ? { liquidation: { liquidatedUser, markPx: '1', method: 'market' } } : {}) } } });
+  it('is position_liquidated only for the exchange liquidating this account on that coin after the latest open', async () => {
+    const repo = new CopyLiveWorkerRepository(db, new UnitOfWork(db), testConfig());
+    const self = seed.f.identity.accountAddress.toUpperCase().replace('0X', '0x');
+    await db.insert(schema.copyFollowerReceipts).values(receipt(1, 'BTC', now - 5_000, self));
+    expect(await repo.liquidatedSinceOpen('mandate', 'account', 'BTC')).toBe(false); // never opened
+    await db.insert(schema.copyLiveDispatches).values(dispatch(now - 4_000));
+    expect(await repo.liquidatedSinceOpen('mandate', 'account', 'BTC')).toBe(false); // before the open
+    await db.insert(schema.copyFollowerReceipts).values([receipt(2, 'ETH', now - 3_000, self), receipt(3, 'BTC', now - 3_000, null), receipt(4, 'BTC', now - 3_000, `0x${'99'.repeat(20)}`)]);
+    expect(await repo.liquidatedSinceOpen('mandate', 'account', 'BTC')).toBe(false); // another coin, a plain fill, another user's liquidation
+    await db.insert(schema.copyFollowerReceipts).values(receipt(5, 'BTC', now - 2_000, self));
+    expect(await repo.liquidatedSinceOpen('mandate', 'account', 'BTC')).toBe(true);
+  });
   it('is not, once the copy opened the coin again after that close', async () => {
     const repo = new CopyLiveWorkerRepository(db, new UnitOfWork(db), testConfig());
     await db.insert(schema.copyLiveDispatches).values(dispatch(now - 10_000));

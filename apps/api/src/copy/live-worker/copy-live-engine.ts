@@ -455,6 +455,11 @@ export class CopyLiveEngine {
     if (row.leg === 'close' && await this.deps.repository.closedByOwner(row.mandateId, row.accountId, row.coin)) {
       await this.deps.repository.update(row, { state: 'refused', reason: 'position_closed_by_owner' }); return;
     }
+    // Hyperliquid liquidated the copy's position itself (CP-EXE-16): the account
+    // is quarantined (follower_liquidated), so nothing of this close is sent.
+    if (row.leg === 'close' && await this.deps.repository.liquidatedSinceOpen(row.mandateId, row.accountId, row.coin)) {
+      await this.deps.repository.update(row, { state: 'refused', reason: 'position_liquidated' }); return;
+    }
     if (row.leg === 'close' && !await this.deps.repository.everOpened(row.mandateId, row.coin)) {
       await this.deps.repository.update(row, { state: 'refused', reason: 'no_follower_position' }); return;
     }

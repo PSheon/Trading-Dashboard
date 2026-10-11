@@ -76,6 +76,15 @@ export function parseFollowerFill(value: unknown, expected: FollowerReceiptConte
     exchangeFee: fee.sub(builderFee).toString(), builderFee: builderFee.toString(), feeToken: 'USDC', cashDelta: closedPnl.sub(fee).toString() };
 }
 
+/** Whether Hyperliquid's own `liquidation` marker on a fill names this account
+ * as the liquidated user (CP-EXE-16). Never inferred from price or direction:
+ * the liquidator's side of the same trade carries the marker too, naming us not. */
+export function liquidatesFollower(raw: unknown, accountAddress: string): boolean {
+  const liquidation = raw && typeof raw === 'object' ? (raw as Record<string, unknown>).liquidation : undefined;
+  const user = liquidation && typeof liquidation === 'object' ? (liquidation as Record<string, unknown>).liquidatedUser : undefined;
+  return typeof user === 'string' && user.toLowerCase() === accountAddress.toLowerCase();
+}
+
 /** Funding is actual signed collateral movement, not rate × position × hours. */
 export function parseFollowerFunding(value: unknown, expected: FollowerReceiptContext): ParsedFollowerFunding {
   const row = object(value), delta = object(row.delta), ctx = identity({ ...row, coin: delta.coin }, expected);

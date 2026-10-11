@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, gt, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm';
-import { copyControls, copyExecutionAccounts, copyFundingOperations, copyLiveManualCloses, copyLiveActivations, copyLiveDispatches, copyLiveExecutions, copyLiveMandates,
+import { copyControls, copyFollowerReceipts, copyExecutionAccounts, copyFundingOperations, copyLiveManualCloses, copyLiveActivations, copyLiveDispatches, copyLiveExecutions, copyLiveMandates,
   copyLiveReductionCarry, copyLiveRiskReservations, copyLiveSignalLegs, copyLiveIntentProvenance, copyLiveSourceFills, copyLiveSourceStreams, copyLiveStopOperations, copyLiveStrategyConfigs, copyStrategies, copyStrategyVersions, copyRiskPolicies, fillCoverage, fills, users } from '@trading-dashboard/shared/database';
 import { ACTUAL_STRATEGY_MODE, CHAIN_DEFAULT, copyRiskLimitsSchema, copyStrategySettingsSchema, DEFAULT_COPY_RISK_LIMITS } from '@trading-dashboard/shared/contracts';
 import { AppConfig } from '../../config/app-config.js';
@@ -348,6 +348,21 @@ export class CopyLiveWorkerRepository {
     const [closed] = await this.db.select({ id: copyLiveManualCloses.id }).from(copyLiveManualCloses)
       .where(and(eq(copyLiveManualCloses.accountId, accountId), eq(copyLiveManualCloses.coin, coin), eq(copyLiveManualCloses.state, 'done'), gt(copyLiveManualCloses.updatedAt, open.at))).limit(1);
     return closed !== undefined;
+  }
+  /** Whether Hyperliquid liquidated this account's `coin` after this
+   * generation's latest open of it (CP-EXE-16): a booked fill whose own
+   * `liquidation` marker names the account. Compared on exchange time (the
+   * leader's fill), never on our clock or on price. */
+  async liquidatedSinceOpen(mandateId: string, accountId: string, coin: string): Promise<boolean> {
+    const [open] = await this.db.select({ at: copyLiveDispatches.leaderTime }).from(copyLiveDispatches)
+      .where(and(eq(copyLiveDispatches.mandateId, mandateId), eq(copyLiveDispatches.coin, coin), eq(copyLiveDispatches.leg, 'open'), inArray(copyLiveDispatches.state, ['submitted', 'settled'])))
+      .orderBy(sql`${copyLiveDispatches.leaderTime} desc`).limit(1);
+    if (!open) return false;
+    const r = copyFollowerReceipts;
+    const [liquidated] = await this.db.select({ key: r.key }).from(r)
+      .where(and(eq(r.accountId, accountId), eq(r.coin, coin), eq(r.kind, 'fill'), gt(r.providerTime, open.at),
+        sql`lower(${r.record}->'raw'->'liquidation'->>'liquidatedUser') = ${r.accountAddress}`)).limit(1);
+    return liquidated !== undefined;
   }
   async sourceNetwork(strategyId: number): Promise<LiveSourceNetwork | null> {
     const [row] = await this.db.select({ network: copyLiveStrategyConfigs.sourceNetwork }).from(copyLiveStrategyConfigs).where(eq(copyLiveStrategyConfigs.strategyId, strategyId));

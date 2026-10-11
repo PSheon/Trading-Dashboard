@@ -174,6 +174,24 @@ describe("actual follower receipt ledger", () => {
     expect(await ledger.bookFill(accountId, fill())).toEqual({ inserted: true, quarantined: true });
     expect((await db.select().from(copyFollowerReceipts))[0]).toMatchObject({ executionKey: null, attribution: "account" });
   });
+  // CP-EXE-16: Hyperliquid liquidated the copy account itself (not our order).
+  const liquidation = (liquidatedUser: string) => fill({ side: "A", closedPnl: "-40", fee: "0.5", builderFee: undefined,
+    liquidation: { liquidatedUser, markPx: "19600", method: "market" } });
+  it("explains the exchange's liquidation of this account as follower_liquidated, booking its actual pnl and fee", async () => {
+    expect(await ledger.bookFill(accountId, liquidation(accountAddress))).toEqual({ inserted: true, quarantined: true });
+    expect((await db.select().from(copyFollowerAccountState))[0]).toMatchObject({ quarantined: true, reason: "follower_liquidated" });
+    expect((await db.select().from(copyFollowerReceipts))[0]).toMatchObject({ executionKey: null, attribution: "account" });
+    expect((await db.select().from(copyFollowerLedger)).map(r => [r.component, r.amount]).sort()).toEqual([["exchange_fee", "-0.5"], ["realized_pnl", "-40"]]);
+  });
+  it("is an unattributed trade, not a liquidation, when the marker names another user", async () => {
+    await ledger.bookFill(accountId, liquidation(`0x${"99".repeat(20)}`));
+    expect((await db.select().from(copyFollowerAccountState))[0].reason).toBe("follower_unattributed_trade");
+  });
+  it("never replaces an earlier, unexplained quarantine with the liquidation", async () => {
+    await ledger.bookFill(accountId, fill({ tid: 2 }));
+    await ledger.bookFill(accountId, liquidation(accountAddress));
+    expect((await db.select().from(copyFollowerAccountState))[0].reason).toBe("follower_unattributed_trade");
+  });
   it("wrong market for an oid is never attributed to a valid execution", async () => {
     await execution("ETH");
     expect(await ledger.bookFill(accountId, fill())).toEqual({ inserted: true, quarantined: true });

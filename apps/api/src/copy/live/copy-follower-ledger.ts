@@ -8,7 +8,7 @@ import { DRIZZLE_CLIENT } from "../../db/db.constants.js";
 import type { DrizzleDb } from "../../db/drizzle.provider.js";
 import { UnitOfWork, type DbTransaction } from "../../db/unit-of-work.js";
 import { Dec } from "../../common/decimal/dec.js";
-import { followerReceiptKey, followerReceiptDigestV1, parseFollowerFill, parseFollowerFunding, type ParsedFollowerFill, type ParsedFollowerFunding } from "./actual-fill-accounting.js";
+import { followerReceiptKey, followerReceiptDigestV1, liquidatesFollower, parseFollowerFill, parseFollowerFunding, type ParsedFollowerFill, type ParsedFollowerFunding } from "./actual-fill-accounting.js";
 import type { LiveExecutionRecord } from "./live-execution.js";
 import { captureLiveOrderIdentity, liveOrderIdentityBinding, parseLiveOrderEvidence, parseLiveIocAcknowledgement, type LiveOrderEvidence, type LiveIocAcknowledgement } from "./live-order-evidence.js";
 import { LiveBoundaryError } from "./wallet-authorization.js";
@@ -66,7 +66,11 @@ export class CopyFollowerLedger {
         const fill = receipt as ParsedFollowerFill;
         const attribution = await this.executionAttribution(tx, account, fill);
         executionKey = attribution.key;
-        if (attribution.reason) await this.quarantine(tx, accountId, attribution.reason);
+        // Hyperliquid liquidated this account (its own fill marker, CP-EXE-16):
+        // still outside the worker's books, so the account stays quarantined, but
+        // with its explanation. An earlier, unexplained quarantine keeps its reason.
+        if (attribution.reason === 'follower_unattributed_trade' && liquidatesFollower(raw, account.address)) await this.quarantine(tx, accountId, 'follower_liquidated', true);
+        else if (attribution.reason) await this.quarantine(tx, accountId, attribution.reason);
         // A fill of an order already released by its settlement certificate
         // was not in the certified quantity (a late-indexed fill, after a
         // release from booked fills): the account's books no longer prove it.
@@ -154,9 +158,10 @@ export class CopyFollowerLedger {
       return {key:row.key,reason:null};
     } catch { return mismatch; }
   }
-  private quarantine(tx: DbTransaction, accountId: string, reason: string) {
+  private quarantine(tx: DbTransaction, accountId: string, reason: string, keepEarlier = false) {
     return tx.insert(copyFollowerAccountState).values({ accountId, quarantined: true, reason })
-      .onConflictDoUpdate({ target: copyFollowerAccountState.accountId, set: { quarantined: true, reason, updatedAt: new Date() } });
+      .onConflictDoUpdate({ target: copyFollowerAccountState.accountId, set: { quarantined: true, reason, updatedAt: new Date() },
+        ...(keepEarlier ? { setWhere: sql`not ${copyFollowerAccountState.quarantined}` } : {}) });
   }
   private async lockedAccount(tx: DbTransaction, accountId: string) {
     const [lookup] = await tx.select({ userId: copyExecutionAccounts.userId }).from(copyExecutionAccounts).where(eq(copyExecutionAccounts.id, accountId));

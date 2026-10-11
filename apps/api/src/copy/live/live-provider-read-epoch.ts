@@ -4,7 +4,8 @@ import { liveActiveAssetDataSchema, HyperliquidLiveRiskProvider, type LiveRiskPr
 import { assertOriginalLiveRiskSession, type LiveRiskDatabaseSession } from './postgres-live-risk-scope.js';
 import { loadLivePreparationAuthority, riskSourceDigest, riskSourceRequire } from './postgres-live-risk-authority.js';
 import { freezeLiveReservation } from './live-risk-reservation.js';
-import { evidenceFinalCheck, evidenceFirstWave, liveInfoWeights, LiveSharedReads, type LiveInfoBatch } from './live-shared-reads.js';
+import { evidenceFinalCheck, evidenceFirstWave, LiveSharedReads, type LiveInfoBatch } from './live-shared-reads.js';
+import type { LiveReadCache } from './live-read-cache.js';
 import type { LiveReserveOptions } from '../../hyperliquid/hyperliquid-budget-wait.js';
 import { address } from './wallet-authorization.js';
 import { effectiveLeverage } from '../copy-risk.js';
@@ -19,6 +20,8 @@ export interface LiveEpochSharing {
   readonly acquire: (weight: number, options?: LiveReserveOptions) => Promise<unknown>;
   readonly fetcher: typeof fetch;
   readonly batch?: LiveInfoBatch;
+  /** Reads kept across orders (live-read-cache.ts); none: every read is sent. */
+  readonly cache?: LiveReadCache;
 }
 
 export interface LiveProviderEpochBinding {
@@ -108,7 +111,7 @@ export class LiveProviderReadEpoch {
       riskSourceRequire(!binding.includeLeader || frames.leader !== null, 'live_risk_epoch_mismatch');
       return frames;
     }
-    const shared = this.sharing ? new LiveSharedReads(this.resolver.network, this.sharing.fetcher, this.sharing.batch, this.now, 5000, this.sharing.acquire) : undefined;
+    const shared = this.sharing ? new LiveSharedReads(this.resolver.network, this.sharing.fetcher, this.sharing.batch, this.now, 5000, this.sharing.acquire, this.sharing.cache) : undefined;
     const frames = this.sharing ? this.collectShared(session, binding, authority, authorityDigest, started, this.sharing, shared!, mark) : (async (): Promise<LiveProviderEpochFrames> => {
       const snapshots: LiveAccountSnapshot[] = [];
       const accountsWork = (async () => {
@@ -183,9 +186,11 @@ export class LiveProviderReadEpoch {
       ...(binding.includeLeader ? [address(authority.consent.leaderAddress)] : [])])];
     const dex = binding.coin.includes(':') ? binding.coin.split(':')[0]! : '';
     const finalBodies = evidenceFinalCheck(users), first = evidenceFirstWave(users, target, binding.coin);
+    // What the cross-order cache holds is served from it; the rest is read.
+    shared.pin([...first, ...finalBodies]);
     // Every read's weight, the final check's too, before the clock starts
-    // (liveEvidencePrepaidWeight: what the startup capacity check assumes).
-    await shared.pay(liveInfoWeights(first) + liveInfoWeights(finalBodies));
+    // (liveEvidencePrepaidWeight, all of it: what the startup capacity check assumes).
+    await shared.pay(shared.weightOf(first) + shared.checkWeightOf(finalBodies));
     mark('epoch_budget');
     if (binding.checkLeverage) {
       // Read only indexed market identity and configured leverage first. The

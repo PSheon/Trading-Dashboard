@@ -11,7 +11,7 @@ import { reserveLive } from '../../hyperliquid/hyperliquid-budget-wait.js';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
 import { roundPx, slippedPx } from '../copy-math.js';
 import { HyperliquidAgentApprovalVerifier } from '../live/hyperliquid-agent-approval.js';
-import { HyperliquidLiveAccountObserver, OBSERVER_REST_WEIGHT, type LiveAccountSnapshot } from '../live/live-account-observer.js';
+import { HyperliquidLiveAccountObserver, observerRestWeight, type LiveAccountSnapshot } from '../live/live-account-observer.js';
 import { HyperliquidAllDexsAccountSource, PerReadAllDexsAccountSource } from '../live/live-account-ws-source.js';
 import type { LiveExecutionGate, LiveExecutionPermit } from '../live/live-execution-gate.js';
 import { LiveOrderExecutor, type LiveExecutionRecord } from '../live/live-execution.js';
@@ -23,6 +23,7 @@ import { PostgresWalletAuthorizationSource, type GrantPurpose } from '../live/po
 import { BoundaryPrivyOrderSigningClient } from '../live/privy-order-client.js';
 import { PrivyOrderSigner } from '../live/privy-order-signer.js';
 import { address, LiveBoundaryError, WalletAuthorizationService } from '../live/wallet-authorization.js';
+import { liveReadCache } from '../live/live-read-cache.js';
 
 /** A close must reduce the observed position: opposite side, no larger
  * than it (never open, enlarge or flip). */
@@ -100,13 +101,13 @@ export class ReduceOnlyCloser {
 
   /** A fresh all-venue observation of the account (positions and orders). */
   async observe(accountAddress: string): Promise<LiveAccountSnapshot> {
-    return this.prepaid(OBSERVER_REST_WEIGHT, acquire => this.readObservation(accountAddress, acquire));
+    return this.prepaid(observerRestWeight(accountAddress, liveReadCache(this.network)), acquire => this.readObservation(accountAddress, acquire));
   }
 
   private async readObservation(accountAddress: string, acquire: (weight: number) => Promise<void>): Promise<LiveAccountSnapshot> {
     const sockets = new PerReadAllDexsAccountSource(() => new HyperliquidAllDexsAccountSource(this.now, undefined, this.network, this.global, { closeAfterRead: true }), 2);
     try {
-      const value = await new HyperliquidLiveAccountObserver(this.network, acquire, this.global.fetchInfo, this.now, 5000, sockets).observe(accountAddress);
+      const value = await new HyperliquidLiveAccountObserver(this.network, acquire, this.global.fetchInfo, this.now, 5000, sockets, undefined, liveReadCache(this.network)).observe(accountAddress);
       this.snapshot = { at: this.now(), value };
       return value;
     } finally { await sockets.close(); }
@@ -180,7 +181,7 @@ export class ReduceOnlyCloser {
     // named venue), four agent approval reads, mids and one exchange POST.
     // This upper bound grants no authority; every existing boundary still
     // reads and validates its own fresh evidence after the wait.
-    return this.prepaid(OBSERVER_REST_WEIGHT + 4 * 40 + 4 * 20 + 3, async acquire => {
+    return this.prepaid(observerRestWeight(account.accountAddress, liveReadCache(this.network)) + 4 * 40 + 4 * 20 + 3, async acquire => {
       const { executor, resolver } = this.executor(account, request.stillWanted, purpose, acquire);
       // Reuse the caller's observation only while it remains fresh after
       // the quota wait; otherwise collect a complete new observation.

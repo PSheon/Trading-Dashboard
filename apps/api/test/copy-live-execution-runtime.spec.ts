@@ -24,6 +24,7 @@ import { planLiveSourceOrder } from '../src/copy/live/copy-live-source-planner.j
 import { copyRiskLimitsSchema, copyStrategySettingsSchema } from '@trading-dashboard/shared/contracts';
 import { HyperliquidLiveAccountObserver } from '../src/copy/live/live-account-observer.js';
 import { LiveProviderReadEpoch } from '../src/copy/live/live-provider-read-epoch.js';
+import { resetLiveReadCaches } from '../src/copy/live/live-read-cache.js';
 import { PostgresLiveReservations } from '../src/copy/live/postgres-live-reservations.js';
 import { PostgresLiveRiskScope } from '../src/copy/live/postgres-live-risk-scope.js';
 import { BoundaryPrivyOrderSigningClient } from '../src/copy/live/privy-order-client.js';
@@ -36,7 +37,6 @@ import { registerLiveDeployment } from '../src/copy/live-deployment.js';
 import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
 import { CopyLiveSettler } from '../src/copy/live-worker/copy-live-settler.js';
 import { PostgresLiveSettlement } from '../src/copy/live/postgres-live-settlement.js';
-import { OBSERVER_REST_WEIGHT } from '../src/copy/live/live-account-observer.js';
 
 // Native network endpoints alone are replaced. Every provider decoder, private
 // quota capability, SQL authority and SDK request boundary remains concrete.
@@ -96,6 +96,8 @@ async function revokeHistoricalGrant() {
 }
 beforeAll(() => { db = getTestDb(); pool = new Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 1 }); });
 beforeEach(async () => {
+  // Every test's evidence starts from an empty cross-order cache.
+  resetLiveReadCaches();
   seed = await preparationFixture(db); await db.delete(schema.hyperliquidWsLeases); await db.delete(schema.hyperliquidEgressQuota);
   clock = now; config = configuration(); budget = new RequestBudgeterService(config);
   raw = vi.fn<typeof fetch>(async () => { throw Error('Unexpected real provider boundary'); });
@@ -519,10 +521,12 @@ describe('unregistered concrete testnet execution runtime', () => {
     // Status recording is independently covered by the settlement DAL suite.
     // Leave receipts absent: this timing test must NEVER release the hold.
     vi.spyOn(PostgresLiveSettlement.prototype,'observe').mockResolvedValue({kind:'recorded',oid:'77',revision:1});
-    const acquire=budget.acquire.bind(budget),locks:number[]=[];
+    // The settlement's prepayment (its first acquire: market identity, orderStatus
+    // and the account observation less what the cross-order read cache holds).
+    const acquire=budget.acquire.bind(budget),locks:number[]=[];let first=true;
     vi.spyOn(budget,'acquire').mockImplementation(async(...args)=>{
       await acquire(...args);
-      if(args[0]>=OBSERVER_REST_WEIGHT){
+      if(first){first=false;
         const rows=await db.execute(sql`select count(*)::int as n from pg_locks where locktype='advisory' and classid=7404 and objid=1 and pid in (select pid from pg_stat_activity where datname=current_database())`);
         locks.push(Number(rows.rows[0]?.n));await new Promise(resolve=>setTimeout(resolve,6000));clock=Date.now();
       }
@@ -920,7 +924,9 @@ describe('the account leverage an open needs (a fresh account sits at the exchan
     });
     expect((await runtime(config, { ...options, slippageBps: '0' }).execute(request())).state).toBe('filled');
     expect(exchangeActions().map(body => body.action.type)).toEqual(['updateLeverage', 'order']);
-    expect(reservations.reduce((sum, weight) => sum + weight, 0)).toBe(446);
+    // 446 before the cross-order read cache: the fresh epoch's market meta (20)
+    // now comes from the cache the preview filled.
+    expect(reservations.reduce((sum, weight) => sum + weight, 0)).toBe(426);
   });
   it('returns unused prepaid weight when the leverage update is rejected, counting the action actually sent', async () => {
     await defaultLeverageFixture({ status: 'err', response: 'Cannot switch leverage type with open position.' });

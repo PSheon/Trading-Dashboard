@@ -27,7 +27,8 @@ import { liveAccountExposureSql } from './live-account-exposure.js';
 import { HyperliquidAllDexsAccountSource, PerReadAllDexsAccountSource } from './live-account-ws-source.js';
 import { HyperliquidLiveAccountObserver } from './live-account-observer.js';
 import { HyperliquidLiveMarketResolver, type LiveMarketResolver } from './live-market-resolver.js';
-import { LIVE_ORDER_BOUNDARY_WEIGHT, liveEvidencePrepaidWeight, type LiveSharedReads, type LiveInfoBatch } from './live-shared-reads.js';
+import { LIVE_ORDER_BOUNDARY_WEIGHT, liveEvidenceWeight, type LiveSharedReads, type LiveInfoBatch } from './live-shared-reads.js';
+import { liveReadCache } from './live-read-cache.js';
 import { HyperliquidLiveRiskProvider } from './live-risk-provider.js';
 import { LiveProviderReadEpoch } from './live-provider-read-epoch.js';
 import { PostgresLiveReservations } from './postgres-live-reservations.js';
@@ -172,7 +173,10 @@ export class LiveExecutionRuntime {
     if (!routing.journalExists) {
       riskSourceRequire(Number.isSafeInteger(routing.budgetAccounts) && routing.budgetAccounts >= 1 && routing.budgetAccounts <= 8, 'live_risk_user_coverage_unproven');
       const leader = request.leg === 'open' && routing.mandate.sourceNetwork === this.network && routing.budgetSizing === 'ratio';
-      const weight = liveEvidencePrepaidWeight(routing.budgetAccounts + Number(leader)) + LIVE_ORDER_BOUNDARY_WEIGHT;
+      // What the evidence will read, all paid here before the SQL locks: the
+      // cross-order cache's values are not read (live-read-cache.ts); the
+      // owner's other accounts count as uncached, their unused weight returned.
+      const weight = liveEvidenceWeight([accountAddress, ...(leader ? [leaderAddress] : [])], routing.budgetAccounts - 1, liveReadCache(this.network)) + LIVE_ORDER_BOUNDARY_WEIGHT;
       // Only meter credit survives a leverage-only preview. Its SQL session,
       // provider frames and signing authority never survive into the retry.
       // Refunding and reacquiring here lets background reporting consume the
@@ -265,7 +269,7 @@ export class LiveExecutionRuntime {
         // One order's evidence reads are shared by the observer, the resolver
         // and the risk providers, and each wave goes out as one meter charge.
         epoch = new LiveProviderReadEpoch(observer, resolver, provider, this.options, this.now, { acquire: prepay, fetcher: this.global.fetchInfo,
-          batch: originalLiveInfoBatch(this.network, this.global, () => session.scope.assertFresh()) }, onTiming);
+          batch: originalLiveInfoBatch(this.network, this.global, () => session.scope.assertFresh()), cache: liveReadCache(this.network) }, onTiming);
         const source = new PostgresLiveRiskSource(observer, resolver, provider, reservations, this.options, this.now, epoch, onTiming);
         const binding = source.bind(session, { accountId: request.accountId, key });
         const authorizations = new WalletAuthorizationService(new ScopedWalletAuthorizationSource(session,

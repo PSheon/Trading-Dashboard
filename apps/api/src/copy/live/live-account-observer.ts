@@ -10,6 +10,7 @@ import { readInfoJson } from '../../hyperliquid/response-validation.js';
 import { boundedLiveRead, MAX_LIVE_PERP_DEXES, LIVE_DEX_NAME, LIVE_PERP_COIN, RESERVE_BOUND_MS } from './live-market-resolver.js';
 import { address, LiveBoundaryError } from './wallet-authorization.js';
 import { accountModeBodies, liveInfoWeights, type LiveSharedReads } from './live-shared-reads.js';
+import { LiveReadCache } from './live-read-cache.js';
 
 export interface LiveObservedPosition {
   readonly coin: string; readonly dex: string; readonly asset: number; readonly sizeDecimals: number;
@@ -69,6 +70,25 @@ export interface SetupAbortFlatObservation {
  * orders come over WebSocket (the socket quota, not REST weight). */
 const observerBodies = (user: string) => [...accountModeBodies(user), { type: 'perpDexs' }];
 export const OBSERVER_REST_WEIGHT = 2 * liveInfoWeights(observerBodies('0x')) + liveInfoWeights([{ type: 'spotMeta' }, { type: 'allPerpMetas' }]);
+const bodyKey = (body: Readonly<Record<string, unknown>>) => JSON.stringify(Object.keys(body).sort().map(key => [key, body[key]]));
+/** The reads a standalone observation of `user` serves from the cross-order
+ * cache now (live-read-cache.ts), by body. */
+function pinnedReads(user: string, cache: LiveReadCache | undefined): Map<string, unknown> {
+  const pinned = new Map<string, unknown>();
+  if (!cache) return pinned;
+  for (const body of [...observerBodies(user), { type: 'spotMeta' }, { type: 'allPerpMetas' }]) {
+    if (!LiveReadCache.cacheable(body)) continue;
+    const value = cache.get(body);
+    if (value !== undefined) pinned.set(bodyKey(body), value);
+  }
+  return pinned;
+}
+/** The REST weight a standalone observation of `user` sends: OBSERVER_REST_WEIGHT
+ * less what the cross-order cache holds (each kept read is neither read nor re-checked). */
+export function observerRestWeight(user: string, cache?: LiveReadCache, pinned = pinnedReads(address(user), cache)): number {
+  const u = address(user), sent = (bodies: readonly Readonly<Record<string, unknown>>[]) => liveInfoWeights(bodies.filter(body => !pinned.has(bodyKey(body))));
+  return 2 * sent(observerBodies(u)) + sent([{ type: 'spotMeta' }, { type: 'allPerpMetas' }]);
+}
 const integer = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const decimal = z.string().max(80).regex(/^-?(?:0|[1-9]\d*)(?:\.\d{1,18})?$/).transform((v) => Dec.from(v).toString());
 const nonnegative = decimal.refine((v) => Dec.from(v).gte(0));
@@ -138,7 +158,9 @@ export class HyperliquidLiveAccountObserver {
   private readonly aggregateSource: LiveAllDexsAccountSource;
   constructor(readonly network: HyperliquidNetwork, private readonly acquire: (weight: number) => Promise<unknown>,
     private readonly fetcher: typeof fetch = fetch, private readonly now = Date.now, private readonly maxAgeMs = 5000,
-    aggregateSource?: LiveAllDexsAccountSource, private readonly reservationMaxWaitMs = RESERVE_BOUND_MS) {
+    aggregateSource?: LiveAllDexsAccountSource, private readonly reservationMaxWaitMs = RESERVE_BOUND_MS,
+    /** Reads kept across observations and orders (live-read-cache.ts); none: every read is sent. */
+    private readonly cache?: LiveReadCache) {
     if (!isHyperliquidNetwork(network) || typeof acquire !== 'function' || !Number.isSafeInteger(maxAgeMs) || maxAgeMs < 1 || maxAgeMs > 5000 ||
       !Number.isSafeInteger(reservationMaxWaitMs) || reservationMaxWaitMs < 1 || reservationMaxWaitMs > 182_000)
       fail('live_account_invalid_observer');
@@ -178,7 +200,10 @@ export class HyperliquidLiveAccountObserver {
       // The WebSocket reads use the socket quota. An epoch's shared reads
       // were paid by the epoch.
       const restOrders = this.aggregateSource.readAccount === undefined && !this.aggregateSource.readOrders;
-      if (!shared) await boundedLiveRead(() => this.acquire(OBSERVER_REST_WEIGHT + (restOrders ? 20 * supported.size : 0)), this.reservationMaxWaitMs);
+      // What the cross-order cache holds now is this observation's for its whole
+      // run (read nor re-checked); only the rest is paid and read.
+      const pinned = shared ? new Map<string, unknown>() : pinnedReads(user, this.cache);
+      if (!shared) await boundedLiveRead(() => this.acquire(observerRestWeight(user, this.cache, pinned) + (restOrders ? 20 * supported.size : 0)), this.reservationMaxWaitMs);
       const started = shared ? shared.startedAt : this.now();
       this.fresh(started);
       const sources: unknown[] = [];
@@ -188,6 +213,7 @@ export class HyperliquidLiveAccountObserver {
         void weight; // paid for before the clock
         let value: unknown;
         if (shared) value = await boundedLiveRead(() => shared.get(body), remaining());
+        else if (pinned.has(bodyKey(body))) value = structuredClone(pinned.get(bodyKey(body)));
         else {
           const response = await boundedLiveRead(() => this.fetcher(WALLET_NETWORKS[this.network].infoUrl, {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -195,6 +221,7 @@ export class HyperliquidLiveAccountObserver {
           }), remaining());
           if (!response.ok) fail('live_account_observation_unavailable');
           value = await boundedLiveRead(() => readInfoJson(response, type, (type === 'allPerpMetas' ? 8 : 2) * 1024 * 1024), remaining());
+          this.cache?.put(body, value);
         }
         this.fresh(started);
         if (value && typeof value === 'object' && !Array.isArray(value)) {

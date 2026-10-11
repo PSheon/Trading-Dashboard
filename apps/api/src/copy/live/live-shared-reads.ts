@@ -5,6 +5,7 @@ import { boundedLiveRead } from './live-market-resolver.js';
 import { LiveBoundaryError } from './wallet-authorization.js';
 import { HYPERLIQUID_BACKGROUND_REST_CAP, HYPERLIQUID_REST_CAP } from '../../hyperliquid/hyperliquid-global-quota.js';
 import type { LiveReserveOptions } from '../../hyperliquid/hyperliquid-budget-wait.js';
+import { LiveReadCache } from './live-read-cache.js';
 
 /** Hyperliquid's info weights for the reads evidence uses (the shared meter's
  * table, hyperliquid-global-transport.ts): 2 for the cheap reads, 60 for
@@ -51,6 +52,25 @@ export function liveEvidencePrepaidWeight(users: number): number {
   const addresses = Array.from({ length: users }, (_, index) => `0x${index.toString(16).padStart(40, '0')}`);
   return liveInfoWeights(evidenceFirstWave(addresses, addresses[0] ?? '0x', 'BTC')) + liveInfoWeights(evidenceFinalCheck(addresses));
 }
+/** What an order's evidence will pay, paid before its SQL clock: every read
+ * of `known` accounts the cache doesn't hold now (read once and checked once),
+ * every read of `unknown` other accounts (assumed cold: their unused weight
+ * is returned), and the shared reads it doesn't hold. */
+export function liveEvidenceWeight(known: readonly string[], unknown: number, cache: LiveReadCache | undefined): number {
+  const placeholders = Array.from({ length: unknown }, (_, index) => `0x${'f'.repeat(30)}${index.toString(16).padStart(10, '0')}`);
+  const users = [...known, ...placeholders], held = (body: Readonly<Record<string, unknown>>) => cache !== undefined && LiveReadCache.cacheable(body) && cache.get(body) !== undefined;
+  const pay = (bodies: readonly Readonly<Record<string, unknown>>[]) => liveInfoWeights(bodies.filter(body => !held(body)));
+  return pay(evidenceFirstWave(users, users[0] ?? '0x', 'BTC')) + pay(evidenceFinalCheck(users));
+}
+/** The same evidence while the read cache holds what it keeps (live-read-cache.ts):
+ * each account's spot state twice, the dex's contexts and the coin's leverage
+ * (4 a user + 40; 48 for two accounts). A cold cache's reads are paid on top,
+ * before the clock, as the epoch finds them missing. */
+export function liveEvidenceWarmWeight(users: number): number {
+  const addresses = Array.from({ length: users }, (_, index) => `0x${index.toString(16).padStart(40, '0')}`);
+  const uncached = (bodies: readonly Readonly<Record<string, unknown>>[]) => liveInfoWeights(bodies.filter(body => !LiveReadCache.cacheable(body)));
+  return uncached(evidenceFirstWave(addresses, addresses[0] ?? '0x', 'BTC')) + uncached(evidenceFinalCheck(addresses));
+}
 /** The live accounts one owner's evidence may observe (the risk authority's
  * bound, postgres-live-risk-authority.ts). */
 export const MAX_LIVE_ACCOUNTS_PER_OWNER = 8;
@@ -96,6 +116,8 @@ export function assertLiveEvidenceCapacity({ capacity, maxStrategiesPerUser, net
  */
 export class LiveSharedReads {
   readonly #memo = new Map<string, Promise<unknown>>();
+  /** Reads served from the cross-order cache (never re-read by `unchanged`). */
+  readonly #pinned = new Set<string>();
   #startedAt: number | undefined;
   #begin!: () => void;
   /** Settles once the first wave went out (the clock started). */
@@ -107,9 +129,31 @@ export class LiveSharedReads {
   readonly #endpoint: string;
   /** `network`: the execution network every reader of this epoch observes; `batch` must send to the same network. */
   constructor(readonly network: HyperliquidNetwork, private readonly fetcher: typeof fetch, private readonly batch: LiveInfoBatch | undefined, private readonly now: () => number,
-    private readonly maxAgeMs = 5000, private readonly acquire?: (weight: number, options?: LiveReserveOptions) => Promise<unknown>) {
+    private readonly maxAgeMs = 5000, private readonly acquire?: (weight: number, options?: LiveReserveOptions) => Promise<unknown>,
+    private readonly cache?: LiveReadCache) {
     if (!isHyperliquidNetwork(network)) throw new LiveBoundaryError('invalid_market_resolver');
     this.#endpoint = WALLET_NETWORKS[network].infoUrl;
+  }
+  /** Serves `bodies` the cache holds from it for this whole epoch (before the
+   * clock: a value kept across orders is older than it by design, see
+   * live-read-cache.ts). Call before `pay`, so only the rest is paid. */
+  pin(bodies: readonly Readonly<Record<string, unknown>>[]): void {
+    if (!this.cache) return;
+    for (const body of bodies) {
+      const key = keyOf(body);
+      if (this.#memo.has(key) || !LiveReadCache.cacheable(body)) continue;
+      const value = this.cache.get(body);
+      if (value === undefined) continue;
+      this.#memo.set(key, Promise.resolve(value)); this.#pinned.add(key);
+    }
+  }
+  /** The weight of `bodies` this epoch still has to send (its first reads). */
+  weightOf(bodies: readonly Readonly<Record<string, unknown>>[]): number {
+    return liveInfoWeights([...new Map(bodies.map(body => [keyOf(body), body])).entries()].filter(([key]) => !this.#memo.has(key)).map(([, body]) => body));
+  }
+  /** The weight `unchanged(bodies)` will send: every read not served from the cache. */
+  checkWeightOf(bodies: readonly Readonly<Record<string, unknown>>[]): number {
+    return liveInfoWeights(bodies.filter(body => !this.#pinned.has(keyOf(body))));
   }
   /** Pays for reads ahead (before the clock starts): no budget wait later.
    * The budget bounds the wait itself (reserveLive: the bucket's refill
@@ -217,7 +261,7 @@ export class LiveSharedReads {
     const responses = this.spend(liveInfoWeights(fresh.map(([, body]) => body))).then(() => this.send(fresh.map(([, body]) => body), begin));
     const settled = responses.then(list => { if (list.length !== fresh.length) throw new LiveBoundaryError('live_risk_provider_unavailable'); return list; });
     fresh.forEach(([key, body], index) => {
-      const value = settled.then(list => this.decode(list[index]!, String(body.type)));
+      const value = settled.then(list => this.decode(list[index]!, String(body.type))).then(decoded => { this.cache?.put(body, decoded); return decoded; });
       void value.catch(() => undefined);
       this.#memo.set(key, value);
     });
@@ -233,7 +277,10 @@ export class LiveSharedReads {
   }
   /** Reads `bodies` anew (never from the memo) and requires each to equal
    * this epoch's first read of it: nothing changed while it was observed. */
-  async unchanged(bodies: readonly Readonly<Record<string, unknown>>[], code: string): Promise<void> {
+  async unchanged(all: readonly Readonly<Record<string, unknown>>[], code: string): Promise<void> {
+    // A read served from the cache is what the order goes on by design: not re-read.
+    const bodies = all.filter(body => !this.#pinned.has(keyOf(body)));
+    if (!bodies.length) return;
     const before = await Promise.all(bodies.map(body => this.get(body)));
     await this.spend(liveInfoWeights(bodies));
     const responses = await this.send(bodies, () => undefined);

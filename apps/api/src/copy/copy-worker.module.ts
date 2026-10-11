@@ -6,7 +6,8 @@ import { CopyFollowerSnapshotCollector, FOLLOWER_SNAPSHOT_READER } from "./copy-
 import { CopyFundingMonitor } from "./copy-funding-monitor.service.js";
 import { CopyWorkerService } from "./copy-worker.service.js";
 import { CopyModule, WALLET_NETWORK_HL, type WalletNetworkHyperliquid } from "./copy.module.js";
-import { HyperliquidLiveAccountObserver, OBSERVER_REST_WEIGHT } from "./live/live-account-observer.js";
+import { HyperliquidLiveAccountObserver, observerRestWeight } from "./live/live-account-observer.js";
+import { liveReadCache } from "./live/live-read-cache.js";
 import { HyperliquidAllDexsAccountSource } from "./live/live-account-ws-source.js";
 import { liveBudget } from "../hyperliquid/hyperliquid-budget-wait.js";
 import { address, LiveBoundaryError } from './live/wallet-authorization.js';
@@ -24,14 +25,17 @@ export function followerSnapshotReader({ budget, transport, network }: Pick<Wall
   const waitMs = Math.min(180_000, budget.refillMs());
   const acquire = liveBudget(budget, { lane: 'background', maxWaitMs: waitMs });
   const source = new HyperliquidAllDexsAccountSource(Date.now, undefined, network, transport);
-  const shutdown = new AbortController();
+  const shutdown = new AbortController(), cache = liveReadCache(network);
   return {
     async observe(accountAddress: string, beforeRead?: () => Promise<void>) {
       // Keep the original decoder before charging anything. Each read owns
       // its credit; neither SQL nor a late continuation owns a provider call.
       const account = address(accountAddress);
-      await acquire(OBSERVER_REST_WEIGHT, { signal: shutdown.signal });
-      let issued = false;
+      // What the cross-order cache doesn't hold (live-read-cache.ts): 4 for a
+      // warm standard account instead of OBSERVER_REST_WEIGHT (284).
+      const paid = observerRestWeight(account, cache);
+      await acquire(paid, { signal: shutdown.signal });
+      let issued = false, refunded = 0;
       try {
         shutdown.signal.throwIfAborted();
         let timer: ReturnType<typeof setTimeout> | undefined;
@@ -54,9 +58,11 @@ export function followerSnapshotReader({ budget, transport, network }: Pick<Wall
         shutdown.signal.throwIfAborted();
         let consumed = false;
         const observer = new HyperliquidLiveAccountObserver(network, async weight => {
-          if (consumed || weight !== OBSERVER_REST_WEIGHT) throw new LiveBoundaryError('live_account_invalid_observer');
+          // The cache may have lost a value since: never more than was paid.
+          if (consumed || weight > paid) throw new LiveBoundaryError('live_account_invalid_observer');
           shutdown.signal.throwIfAborted();
           consumed = true; // Consume this read's already acquired credit exactly once.
+          if (weight < paid) { budget.adjust(weight - paid); refunded = paid - weight; }
         }, (input, init) => {
           shutdown.signal.throwIfAborted();
           issued = true;
@@ -64,12 +70,12 @@ export function followerSnapshotReader({ budget, transport, network }: Pick<Wall
           // and the shared background cap; it cannot spend the foreground
           // reserve needed by an order in another process.
           return transport.fetchBackgroundInfo(input, init);
-        }, Date.now, 5000, source, waitMs + 2000);
+        }, Date.now, 5000, source, waitMs + 2000, cache);
         return await observer.observe(account);
       } finally {
         // Only this outer phase refunds. A failed/late SQL check and close
         // have issued nothing; once a transport read starts its charge stays.
-        if (!issued) budget.adjust(-OBSERVER_REST_WEIGHT);
+        if (!issued) budget.adjust(refunded - paid);
       }
     },
     close() { shutdown.abort(new FollowerSnapshotDeferred()); void source.close?.(); },

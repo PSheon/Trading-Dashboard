@@ -21,10 +21,10 @@ import { ROOT, parseEnv } from "./lib.mjs";
 
 const ROLES = { api: { port: 3100, env: { IS_WORKER: "false" } }, worker: { port: 3010, env: { IS_WORKER: "true" } } };
 const PROFILE = resolve(import.meta.dirname, "harness.env");
-const PROFILES = { "stage-caps": resolve(import.meta.dirname, "stage-caps.env") };
+const PROFILES = { "stage-caps": resolve(import.meta.dirname, "stage-caps.env"), "ratio-floor": resolve(import.meta.dirname, "ratio-floor.env") };
 const args = process.argv.slice(2), [command, role] = args, dry = args.includes("--dry-run");
 const profileName = args.includes("--profile") ? args[args.indexOf("--profile") + 1] : null;
-if (profileName && !PROFILES[profileName]) { console.error(`unknown --profile ${profileName} (stage-caps)`); process.exit(2); }
+if (profileName && !PROFILES[profileName]) { console.error(`unknown --profile ${profileName} (stage-caps | ratio-floor)`); process.exit(2); }
 const log = (event, data = {}) => console.log(JSON.stringify({ at: new Date().toISOString(), event, ...data }));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

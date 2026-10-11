@@ -45,7 +45,7 @@ export function settledGenerationExample(size='1'):LiveGenerationProjectionInput
   return {identity,snapshot:current,currentExecutionKey:record.key.replace('abab','cdcd'),now,manifest:{version:1,accountId:'account',mandateId:'mandate',checkedAt:now,baseline,journals:[entry],receipts:[{...receipt,providerTime:iso(fill.time),createdAt:iso(now)}],ledger:ledger.map(l=>({...l,createdAt:iso(now)})),carry:[{mandateId:'mandate',coin:'BTC',carry:'0',revision:1,updatedAt:iso(now)}],scan:{accountId:'account',through:base+5,issue:null},conflicts:[],accountState:null}};
 }
 
-export function sourceSizingExample(mode:'fixed'|'ratio'='fixed',direction:'same'|'reverse'='same'):LiveSourcePlanInput {
+export function sourceSizingExample(mode:'fixed'|'ratio'='fixed',direction:'same'|'reverse'='same',leaderEquity='1000'):LiveSourcePlanInput {
   const f=fixture(),now=f.now,settings={...f.strategy.settings,direction,copyStartMode:'delta' as const,sizingMode:mode,perTradeUsd:mode==='fixed'?10:null};
   const intent:LiveCopyMandateIntent={mandateId:'mandate',accountId:'account',userId:1,strategyId:9,strategyVersion:2,network:'testnet',sourceNetwork:'testnet',leaderAddress:`0x${'44'.repeat(20)}`,
     accountAddress:f.identity.accountAddress,accountRevision:1,ownerAddress:`0x${'11'.repeat(20)}`,ownerPrivyUserId:'did:owner',setupId:'setup',setupRevision:1,executionWalletId:'local-agent',agentWalletId:'agent',agentAddress:`0x${'33'.repeat(20)}`,
@@ -54,7 +54,7 @@ export function sourceSizingExample(mode:'fixed'|'ratio'='fixed',direction:'same
   const mandate={...intent,id:intent.mandateId,idempotencyKey:'generation-operation-key',intent:{...intent},intentDigest:digest(intent),consentDigest:'b'.repeat(64),state:'active',revision:2,activationCursor:new Date(now-1000),
     consentExpiresAt:new Date(intent.consentExpiresAt),expiresAt:new Date(intent.expiresAt),createdAt:new Date(now-60000),updatedAt:new Date(now),consentKind:'mandate',liveSetupId:null} as MandateRow;
   const fill=parseLiveSourceFill({tid:1,oid:7,time:now-500,coin:'BTC',side:'B',px:'100',sz:'1',startPosition:'0'}, {network:'testnet',leaderAddress:intent.leaderAddress,from:now-1000,to:now,receivedAt:now,kind:'fills'}),leg=canonicalLiveSourceLegs(fill)[0]!;
-  const follower=f.accountSource.snapshot,leader=mode==='ratio'?structuredClone({...follower,accountAddress:intent.leaderAddress,perpEquity:'1000',withdrawable:'1000',dexes:follower.dexes.map(d=>({...d,equity:'1000',rawUsd:'1000',crossEquity:'1000',withdrawable:'1000'}))}):null;
+  const follower=f.accountSource.snapshot,leader=mode==='ratio'?structuredClone({...follower,accountAddress:intent.leaderAddress,perpEquity:leaderEquity,withdrawable:leaderEquity,dexes:follower.dexes.map(d=>({...d,equity:leaderEquity,rawUsd:leaderEquity,crossEquity:leaderEquity,withdrawable:leaderEquity}))}):null;
   const key=f.reservations.own.key,baseline=captureLivePositionBaseline({mandateId:'mandate',accountId:'account',strategyId:9,firstExecutionKey:key,network:'testnet',accountAddress:follower.accountAddress},follower,now);
   const sizingBasis:LiveSourceSizingEnvelopeV1={version:1,basis:{version:1,mandateId:'mandate',mandateRevision:2,settingsDigest:intent.settingsDigest,sourceFillId:fill.id,sourceDigest:fill.sourceDigest,network:'testnet',accountAddress:follower.accountAddress,
     coin:'BTC',leg:'open',direction,sizingMode:mode,budgetUsd:'100',perTradeUsd:mode==='fixed'?'10':null,market:f.market,quote:{midPrice:'100',slippageBps:'50',observedAt:now,completedAt:now,sourceDigest:f.quote.sourceDigest},

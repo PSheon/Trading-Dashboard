@@ -119,7 +119,9 @@ export async function waitFor(read, done, { timeoutMs, intervalMs = 2000, onTick
 export function termsFor(profile = "default") {
   if (profile === "default") return { ...TERMS, maxPerTradeUsd: TERMS.perTradeUsd, maxLeverage: 3, profile };
   if (profile === "stage-caps") return { ...TERMS, budgetUsd: 50, maxPerTradeUsd: 15, maxLeverage: 3, profile };
-  throw new Error(`unknown profile ${profile} (default | stage-caps)`);
+  // The planned mainnet functional test: ratio sizing with the TEST ONLY minimum floor (ratio-floor.env).
+  if (profile === "ratio-floor") return { ...TERMS, budgetUsd: 50, sizingMode: "ratio", ratioFloorMaxUsd: 15, maxPerTradeUsd: 15, maxLeverage: 3, profile };
+  throw new Error(`unknown profile ${profile} (default | stage-caps | ratio-floor)`);
 }
 
 /**

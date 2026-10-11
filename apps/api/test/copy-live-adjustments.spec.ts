@@ -14,6 +14,7 @@ import { WatchedMainnetSource } from '../src/copy/live-worker/watched-mainnet-so
 import { planAdjustments, type PendingLeg } from '../src/copy/live-worker/copy-live-adjustments.js';
 import { liveCopySettingsDigest } from '../src/copy/copy-live-mandate-consent.js';
 import { preparationFixture } from './copy-live-preparation-test-utils.js';
+import { registerLiveDeployment } from '../src/copy/live-deployment.js';
 import { now } from './copy-live-risk-test-utils.js';
 import { closeTestDb, getTestDb, type TestDb } from './db-test-utils.js';
 
@@ -117,6 +118,17 @@ describe('same-coin leader legs become one follower adjustment', () => {
     const more = [await leaderFill(32, now + 500, 'A', '0.3', '-0.6'), await leaderFill(33, now + 600, 'A', '0.3', '-0.9'), await leaderFill(34, now + 700, 'A', '0.3', '-1.2')];
     await coverage(now - 10_000, now + 800); clock = now + 900; await engine({ leaderEquity }).tick();
     expect(calls).toEqual([expect.objectContaining({ sourceFillId: more[2], leg: 'open', members: [...first, more[0], more[1]] })]);
+  });
+
+  it('TEST ONLY: with COPY_LIVE_TEST_MIN_FLOOR_MAX_USD a small open is not held: it goes at once, for the planner to raise to the minimum (Paul 2026-10-11)', async () => {
+    const leaderEquity = vi.fn(async () => '1000');
+    registerLiveDeployment({ network: 'testnet', caps: { maxStrategiesPerUser: 2, testMinFloorMaxUsd: 15 }, builderFee: true, testnetSourceIntervalMs: 60_000,
+      maxSourceDeviationBps: 500, slippageBps: 30, intervalMs: 3000, weightPerMin: 300, revokeDeadlineMs: 1_800_000 });
+    try {
+      const small = await leaderFill(36, now + 100, 'A', '0.3', '0');
+      await coverage(now - 10_000, now + 200); clock = now + 300; await engine({ leaderEquity }).tick();
+      expect(calls).toEqual([expect.objectContaining({ sourceFillId: small, leg: 'open' })]);
+    } finally { registerLiveDeployment(undefined); }
   });
 
   it('held only while its signal is fresh: past the policy\'s signal age (less 15 s) it is dropped, never sent', async () => {

@@ -49,7 +49,7 @@ const basisSchema=z.object({version:z.literal(1),mandateId:id,mandateRevision:ve
   quote:z.object({midPrice:positive,slippageBps:nonnegative,observedAt:integer,completedAt:integer,sourceDigest:hash}).strict(),
   follower:z.object({...snapshotIdentity,positionSize:decimal,positionsDigest:hash}).strict(),leader:z.object(snapshotIdentity).strict().nullable(),
   generation:z.object({mandateId:id,baselineDigest:hash,receiptManifestDigest:hash,positionsDigest:hash,positionSize:decimal}).strict(),
-  carry:z.object({amount:nonnegative,revision:version}).strict(),fixedTradeClaim:z.boolean(),fixedMaxUsd:positive.optional(),exchangeMinimum:z.literal(true).optional(),settledDependency:z.object({legId:id,certificateDigest:hash}).strict().nullable(),
+  carry:z.object({amount:nonnegative,revision:version}).strict(),fixedTradeClaim:z.boolean(),fixedMaxUsd:positive.optional(),ratioFloorMaxUsd:positive.optional(),exchangeMinimum:z.literal(true).optional(),settledDependency:z.object({legId:id,certificateDigest:hash}).strict().nullable(),
   sourceReference:z.object({network,leaderAddress:addr,leaderEquity:positive.nullable(),leaderEquityObservedAt:integer.nullable(),midPrice:positive,midObservedAt:integer,maxDeviationBps:nonnegative}).strict().optional(),
   merged:z.object({members:z.array(z.object({sourceFillId:id,sourceDigest:hash,providerTime:integer,sign:z.union([z.literal(1),z.literal(-1)]),size:positive,px:positive,
     fraction:positive.refine(v=>Dec.from(v).lte(1)).nullable()}).strict()).min(2).max(MAX_MERGED_LEGS)}).strict().optional(),}).strict();
@@ -241,6 +241,15 @@ export function planLiveSourceOrder(raw: LiveSourcePlanInput): PlannedLiveSource
       if(size.mul(price).lt(minimum)){
         const atMinimum=ceilLots(minimum.div(price)),ceiling=Dec.from(b.fixedMaxUsd??b.perTradeUsd!);
         if(!atMinimum.mul(Dec.max(mid,price)).lte(ceiling))throw new LiveBoundaryError('below_min_notional');
+        size=atMinimum;
+      }
+    }else if(b.exchangeMinimum&&b.ratioFloorMaxUsd&&leg.leg==='open'){
+      // TEST ONLY (COPY_LIVE_TEST_MIN_FLOOR_MAX_USD): a ratio open under the
+      // minimum is raised to it within the ceiling, not skipped.
+      const minimum=limits.minOrderNotionalUsd===undefined?Dec.from(EXCHANGE_MIN_ORDER_NOTIONAL_USD):minOrderNotional({minOrderNotionalUsd:limits.minOrderNotionalUsd});
+      if(size.mul(price).lt(minimum)){
+        const atMinimum=ceilLots(minimum.div(price));
+        if(!atMinimum.mul(Dec.max(mid,price)).lte(Dec.from(b.ratioFloorMaxUsd)))throw new LiveBoundaryError('below_min_notional');
         size=atMinimum;
       }
     }

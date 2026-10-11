@@ -158,7 +158,8 @@ try {
   } else if (!DRY) check("leader_sent_150", null, `not needed: main wallet holds ${mainBefore.total.toFixed(2)}`);
 
   // --- 4–5. a running one-click copy ------------------------------------------------------------------
-  const settings = { direction: "same", sizingMode: "fixed", perTradeUsd: TERMS.perTradeUsd, maxTotalExposureUsd: null, maxLeverage: TERMS.maxLeverage, copyStartMode: "delta" };
+  const ratio = TERMS.sizingMode === "ratio";
+  const settings = { direction: "same", sizingMode: ratio ? "ratio" : "fixed", perTradeUsd: ratio ? null : TERMS.perTradeUsd, maxTotalExposureUsd: null, maxLeverage: TERMS.maxLeverage, copyStartMode: "delta" };
   /** Prepares a copy, confirms it in the browser and waits until it runs. Dry run: stops after the consent. */
   async function startCopy(label) {
     const startBody = { idempotencyKey: `harness-${randomUUID()}`, leader: HARNESS_LEADER, sourceNetwork: "testnet", budgetUsd: String(TERMS.budgetUsd), settings };
@@ -214,7 +215,8 @@ try {
   /** reconcile.mjs over [since, now] with the profile's rules, retried while the copy catches up. */
   async function reconcileCheck(label, copy, since, allow = []) {
     const reconcileArgs = ["--leader", HARNESS_LEADER, "--leader-network", "testnet", "--follower", copy.account, "--network", "testnet", "--since", since, "--db", "env",
-      "--portfolio-url", `${API}/me/copy/live/portfolio`, "--per-trade-usd", String(TERMS.perTradeUsd), "--max-per-trade-usd", String(TERMS.maxPerTradeUsd),
+      "--portfolio-url", `${API}/me/copy/live/portfolio`,
+      ...(TERMS.sizingMode === "ratio" ? ["--ratio-floor-max-usd", String(TERMS.ratioFloorMaxUsd)] : ["--per-trade-usd", String(TERMS.perTradeUsd), "--max-per-trade-usd", String(TERMS.maxPerTradeUsd)]),
       "--max-leverage", String(TERMS.maxLeverage), ...allow.flatMap((a) => ["--allow-refusal", a])];
     let reconcile = null;
     const t0 = Date.now();
@@ -254,7 +256,7 @@ try {
     } catch (error) { check(`${label}_stop_shown_stopped`, false, error.message); }
   }
   const nowIso = () => new Date(Date.now() - 1000).toISOString();
-  const profileArgs = TERMS.profile === "stage-caps" ? ["--profile", "stage-caps"] : [];
+  const profileArgs = TERMS.profile !== "default" ? ["--profile", TERMS.profile] : [];
   const sizingArgs = ["--per-trade", String(TERMS.perTradeUsd), "--max-per-trade", String(TERMS.maxPerTradeUsd)];
   /** An admin client (kill switch): HARNESS_ADMIN_TOKEN, else the api's service token; never printed. */
   const adminToken = process.env.HARNESS_ADMIN_TOKEN || env.AUTH_SERVICE_TOKEN || null;

@@ -65,6 +65,13 @@ Telegram 已正式啟用（保留）：兩服務 `TELEGRAM_BOT_USERNAME=orbie_fu
 - Paul 同意比例跟單方案：主網改比例（`COPY_LIVE_RATIO_SIZING=true`）、低於 10 USDC 的單略過並記錄（不補到 10）、最低跟單資金照 CopyDog 100 USDC。注意：目前 `COPY_LIVE_MAX_ALLOCATION_USD=50` 與最低 100 衝突，開啟前要一起調整上限，Paul 主錢包也需 ≥100 USDC。
 - 修正 commit `1d7cce7a`（CI 通過）尚未部署 Stage：部署需 Paul 明確同意（權限）。
 
+### 4c. 22:45 更新：主網只用比例跟單
+
+- Paul：主網只要比例模式（兩種模式太複雜），不設全域最低 100。`167c6d34`：live 部署拒絕固定金額（`live_ratio_sizing_required`，下單時風控也擋）；Stage 殘留的 `COPY_LIVE_FIXED_PER_TRADE_*` 被忽略不影響開機；面板只顯示「等比例」；適配估算顯示「建議最低資金」（約 8 成近期開倉 ≥10 USDC 的金額；solanadoomer 約 200，50 時 0%）。取代 `35f0086f` 的開關。
+- 測試：API 全套 4546、Web 1498 通過；CI 通過。
+- 部署腳本：`.claude/codex-verification/recovery/deploy-stage-167c6d34.sh`（自動權限擋 Stage 部署，需 Paul 自己跑或加權限）。
+- 下一次主網測試前：`COPY_LIVE_MAX_ALLOCATION_USD` 50 要依交易員建議資金調高（Paul 決定），主錢包資金也要足夠。
+
 ## 5. 工具與權限
 
 - 在途守門（唯讀）：`node .claude/codex-verification/recovery/stage-predeploy-inflight-1fe487ce.mjs --execute`

@@ -116,11 +116,11 @@ export { WALLET_NETWORK_HL, walletNetworkHyperliquid, type WalletNetworkHyperliq
     CopyFundingRepository, CopyFundingService, {provide:CopyFundingExchangeClient,inject:[WALLET_NETWORK_HL],useFactory:({budget,transport}:WalletNetworkHyperliquid)=>new CopyFundingExchangeClient(budget,transport)},
     CopyAgentRepository, CopyAgentService,
     CopyAccountModeRepository, CopyAccountModeService,
-    { provide: ACCOUNT_MODE_CLIENT, inject: [AppConfig, WALLET_NETWORK_HL], useFactory: (config: AppConfig, { budget, transport, network }: WalletNetworkHyperliquid) => {
+    { provide: ACCOUNT_MODE_CLIENT, inject: [AppConfig, WALLET_NETWORK_HL], useFactory: (config: AppConfig, { budget, transport }: WalletNetworkHyperliquid) => {
       // A copy setup's account-mode attempt is reserved at once (613): a
       // bucket that can never hold it would fail every setup at that step.
-      if (config.value.copy.live) assertBucketHolds(budget, ATTEMPT_WEIGHT, "A copy setup's account-mode attempt",
-        network === 'testnet' ? 'Lower COPY_LIVE_WEIGHT_PER_MIN (at most 587).' : 'Raise this process\'s burst (HYPERLIQUID_WEIGHT_BURST on the api, e.g. 480 / 720).');
+      // With live copy the wallet network has its own bucket on both networks.
+      if (config.value.copy.live) assertBucketHolds(budget, ATTEMPT_WEIGHT, "A copy setup's account-mode attempt", 'Lower COPY_LIVE_WEIGHT_PER_MIN (at most 587).');
       // Weight is reserved before any evidence clock starts (reserveLive):
       // a busy bucket answers HyperliquidBudgetWait instead of stale evidence.
       // Setup steps wait at most LIVE_RESERVE_WAIT_MS (their driver's lease).

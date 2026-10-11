@@ -17,7 +17,9 @@ import { RequestBudgeterService } from './request-budgeter.service.js';
  * rate + burst against the shared per-IP meter. The meter
  * (postgres-hyperliquid-quota) stays the only cross-process limit: a charge
  * it refuses is a wait before any evidence clock starts (HyperliquidBudgetWait).
- * On mainnet it is the process's own mainnet budget, transport and client. */
+ * On mainnet without real-money copy it is the process's own mainnet budget,
+ * transport and client; with it (COPY_TRADING_MODE=live) a bucket of its own
+ * (COPY_LIVE_WEIGHT_PER_MIN) on the same transport. */
 export const WALLET_NETWORK_HL = Symbol('WALLET_NETWORK_HL');
 export interface WalletNetworkHyperliquid {
   /** The network the users' wallets and copy accounts live on. */
@@ -32,13 +34,27 @@ export interface WalletNetworkHyperliquid {
   /** The configuration `budget` was built from (its rate, burst and egress
    * key): what the network's runtime clients are constructed with. */
   readonly config: AppConfig;
-  /** True when these are the testnet's own (not the mainnet ones). */
+  /** True when the budget is the wallet network's own (testnet, or mainnet
+   * real-money copy), not the process's main one. */
   readonly dedicated: boolean;
 }
 export function walletNetworkHyperliquid(config: AppConfig, budget: RequestBudgeterService, transport: HyperliquidGlobalTransport, quota: PostgresHyperliquidQuota,
   info?: HyperliquidInfoClient, jobs: BackgroundJobs = new BackgroundJobs()): WalletNetworkHyperliquid {
   const hl = config.value.hyperliquid, network = hl.wallet.network;
-  if (network !== 'testnet' || !hl.egressKey) return { network, budget, transport, info: info ?? new HyperliquidInfoClient(config, budget, jobs, transport), config, dedicated: false };
+  const mainInfo = () => info ?? new HyperliquidInfoClient(config, budget, jobs, transport);
+  const live = config.value.copy.live;
+  if (network === 'mainnet' && live && hl.egressKey) {
+    // Real-money copy on mainnet: setup steps (account mode 613, agent
+    // approval), orders, returns and stops get their own bucket on the same
+    // host, IP and egress key (the shared meter still counts both). On the
+    // process's main bucket the worker's snapshots, analytics and sweeps kept
+    // it near empty and a copy setup waited on its account-mode step for
+    // hours (Stage, 2026-10-11). Wallet page reads stay on the main budget.
+    const weightPerMin = live.weightPerMin;
+    const liveConfig = new AppConfig({ ...config.value, hyperliquid: { ...hl, budgetPerMin: weightPerMin, burst: 1200 - weightPerMin, startupPaceSeconds: 0 } });
+    return { network, budget: new RequestBudgeterService(liveConfig), transport, info: mainInfo(), config: liveConfig, dedicated: true };
+  }
+  if (network !== 'testnet' || !hl.egressKey) return { network, budget, transport, info: mainInfo(), config, dedicated: false };
   const weightPerMin = config.value.copy.live?.weightPerMin ?? 300, egressKey = `${hl.egressKey}:testnet`;
   const testnetConfig = new AppConfig({ ...config.value, hyperliquid: { ...hl, egressKey, budgetPerMin: weightPerMin, burst: 1200 - weightPerMin, startupPaceSeconds: 0 } });
   const testnetBudget = new RequestBudgeterService(testnetConfig), testnetTransport = new HyperliquidGlobalTransport(quota, { egressKey, ownerId: randomUUID() });

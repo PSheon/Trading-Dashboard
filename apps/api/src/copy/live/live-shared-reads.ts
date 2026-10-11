@@ -78,7 +78,7 @@ export function assertLiveEvidenceCapacity({ capacity, maxStrategiesPerUser, net
   const accounts = Math.max(1, Math.min(maxStrategiesPerUser, MAX_LIVE_ACCOUNTS_PER_OWNER)), users = accounts + 1, weight = liveEvidencePrepaidWeight(users) + LIVE_ORDER_BOUNDARY_WEIGHT;
   if (weight > capacity) throw new Error(`Live copy orders can't run: one order's evidence for an owner with ${accounts} live account${accounts === 1 ? '' : 's'} plus the leader weighs ${weight}, ` +
     `more than the ${network} order bucket can hold (${capacity} at ${budgetPerMin}/min: capacity = min(burst, 1200 − rate)). ` +
-    (network === 'testnet' ? 'Lower COPY_LIVE_WEIGHT_PER_MIN (default 300: capacity 900)' : 'Set HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN / HYPERLIQUID_WORKER_WEIGHT_BURST on the worker (360 / 840: capacity 840)') +
+    'Lower COPY_LIVE_WEIGHT_PER_MIN (default 300: capacity 900)' +
     `, or lower maxStrategiesPerUser in the admin copy risk policy (${Math.max(0, Math.floor((capacity - liveEvidencePrepaidWeight(1) - LIVE_ORDER_BOUNDARY_WEIGHT) / (liveEvidencePrepaidWeight(2) - liveEvidencePrepaidWeight(1))))} fit).`);
   return { users, weight, capacity };
 }

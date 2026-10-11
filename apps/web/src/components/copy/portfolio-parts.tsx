@@ -368,6 +368,7 @@ export function ExposurePanel({ overview, leaders, desktop }: { overview: CopyOv
   if (!e) return <p role="status" className="py-8 text-center text-sm text-muted-foreground">{t("copyUpdates.exposureUnknown")}</p>;
   if (e.assets.length === 0) return <EmptyBlock icon={UserPlus} title={t("pf.exposure.noOpenTitle")} body={t("pf.exposure.noOpenDesc")} />;
   const net = e.long - e.short;
+  const roundedLong = Math.round(e.longPct);
   const direction = (
     <section>
       <SecHead title={t("pf.exposure.direction")} />
@@ -375,8 +376,8 @@ export function ExposurePanel({ overview, leaders, desktop }: { overview: CopyOv
       {e.assets.some((a) => a.hedged) ? <p className="mt-1 text-xs text-warning">{t("copyUpdates.hedgeHint")}</p> : null}
       <div className="mt-3"><Bar parts={[[e.longPct, "bg-positive"], [e.shortPct, "bg-negative"]]} /></div>
       <dl className="mt-3 grid gap-2 text-sm">
-        <div className="flex justify-between gap-3"><dt className="flex items-center gap-2 text-muted-foreground"><span className="size-2 rounded-full bg-positive" />{t("pf.exposure.long")} {Math.round(e.longPct)}%</dt><dd className="num font-semibold">{format.usd(e.long, { digits: 2 })}</dd></div>
-        <div className="flex justify-between gap-3"><dt className="flex items-center gap-2 text-muted-foreground"><span className="size-2 rounded-full bg-negative" />{t("pf.exposure.short")} {Math.round(e.shortPct)}%</dt><dd className="num font-semibold">{format.usd(e.short, { digits: 2 })}</dd></div>
+        <div className="flex justify-between gap-3"><dt className="flex items-center gap-2 text-muted-foreground"><span className="size-2 rounded-full bg-positive" />{t("pf.exposure.long")} {roundedLong}%</dt><dd className="num font-semibold">{format.usd(e.long, { digits: 2 })}</dd></div>
+        <div className="flex justify-between gap-3"><dt className="flex items-center gap-2 text-muted-foreground"><span className="size-2 rounded-full bg-negative" />{t("pf.exposure.short")} {100 - roundedLong}%</dt><dd className="num font-semibold">{format.usd(e.short, { digits: 2 })}</dd></div>
         <div className="flex justify-between gap-3 border-t-2 border-dotted border-border pt-2"><dt className="text-muted-foreground">{t("copyUpdates.exposureLabels.netExposure")}</dt><dd className="num font-semibold">{format.usd(Math.abs(net), { digits: 2 })}</dd></div>
         <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{t("copyUpdates.exposureLabels.signedNet")}</dt><dd className="num font-semibold">{format.usd(net, { sign: true, digits: 2 })}</dd></div>
       </dl>

@@ -11,6 +11,10 @@ for (const width of [1440, 390]) {
     await page.goto("/zh-TW/dev/wealth/insights?tier=very_profitable");
     await expect(page.getByTestId("cohort-coverage")).toHaveText("120 / 150 個錢包有最新快照", { timeout: 20000 });
     await expect(page.getByRole("heading", { level: 2, name: "名目金額", exact: true })).toBeVisible();
+    const notional = await page.getByRole("heading", { level: 2, name: "名目金額", exact: true }).locator("..").innerText();
+    const long = Number(notional.match(/(\d+)% 做多/)?.[1]);
+    const short = Number(notional.match(/(\d+)% 做空/)?.[1]);
+    expect(long + short).toBe(100);
     await expect(page.getByText("此分層的持倉資料尚未完整，背景持續更新中。")).toHaveCount(0);
     await expectNoSidewaysScroll(page);
     await shot(page, `insights-partial-${width}`);

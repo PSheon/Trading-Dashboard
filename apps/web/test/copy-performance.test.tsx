@@ -150,3 +150,17 @@ it("distinguishes gross and net opposing exposure and retains signed direction",
   expect(render()).toContain("Exposure valuation unavailable");
   expect(render()).not.toContain("$0.00");
 });
+
+it("keeps rounded long and short exposure complementary without changing the dollar valuations", () => {
+  const overview: CopyOverview = JSON.parse(JSON.stringify(fixtureCopyOverview()));
+  const position = overview.strategies[0].positions[0];
+  overview.strategies = overview.strategies.slice(0, 2).map((s, i) => ({ ...s, status: "active", equity: 100,
+    positions: [{ ...position, size: i ? -1 : 1, notionalUsd: i ? 89 : 111, unrealizedPnl: 0 }] }));
+  const html = renderToStaticMarkup(<I18nProvider locale="en" messages={en}><ExposurePanel overview={overview} leaders={new Map()} desktop /></I18nProvider>);
+  const long = Number(html.match(/Long (\d+)%<\/dt>/)?.[1]);
+  const short = Number(html.match(/Short (\d+)%<\/dt>/)?.[1]);
+  expect(long + short).toBe(100);
+  expect(Math.abs(long - 55.5)).toBeLessThanOrEqual(0.5);
+  expect(html).toMatch(/Long \d+%<\/dt><dd[^>]*>\$111.00/);
+  expect(html).toMatch(/Short \d+%<\/dt><dd[^>]*>\$89.00/);
+});

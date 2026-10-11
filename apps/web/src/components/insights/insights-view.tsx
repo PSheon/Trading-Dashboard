@@ -193,6 +193,7 @@ function HeroCards({ data }: { data: CohortDetail | undefined }) {
   const h = data.hero;
   const wallets = h.walletsInProfit + h.walletsInLoss;
   const inProfit = wallets > 0 ? Math.round((100 * h.walletsInProfit) / wallets) : null;
+  const inLong = h.longPct === null ? null : Math.round(h.longPct);
   const pct = (v: number | null, digits = 1) => (v === null ? "—" : `${v.toFixed(digits)}%`);
   const dot = <span className="text-subtle-foreground">▪</span>;
   return (
@@ -206,8 +207,8 @@ function HeroCards({ data }: { data: CohortDetail | undefined }) {
       <HeroCard
         title={t("insights.cohort.notional")}
         pos={h.longPct}
-        left={<><span className="num font-semibold text-positive">{usdCompact(h.notionalLong, { digits: 2 })}</span> {dot} <span>{h.longPct === null ? "—" : `${Math.round(h.longPct)}% ${t("insights.cohort.long")}`}</span></>}
-        right={<><span>{h.longPct === null ? "—" : `${Math.round(100 - h.longPct)}% ${t("insights.cohort.short")}`}</span> {dot} <span className="num font-semibold text-negative">{usdCompact(h.notionalShort, { digits: 2 })}</span></>}
+        left={<><span className="num font-semibold text-positive">{usdCompact(h.notionalLong, { digits: 2 })}</span> {dot} <span>{inLong === null ? "—" : `${inLong}% ${t("insights.cohort.long")}`}</span></>}
+        right={<><span>{inLong === null ? "—" : `${100 - inLong}% ${t("insights.cohort.short")}`}</span> {dot} <span className="num font-semibold text-negative">{usdCompact(h.notionalShort, { digits: 2 })}</span></>}
       />
     </>
   );

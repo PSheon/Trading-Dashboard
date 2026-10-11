@@ -98,6 +98,30 @@ it("labels surviving historical percentages when current coverage is insufficien
 });
 
 describe("insights say what they show (audit 2026-10-07 P1-8)", () => {
+  it.each([55.5, 99.5])("the displayed whole-percent notional split still sums to 100 at %s percent long", (longPct) => {
+    const full = wireOf("extremely_profitable");
+    state.detail = { ...full, hero: { ...full.hero, longPct } };
+    state.history = undefined;
+    const html = render();
+    const start = html.indexOf(">名目金額</h2>");
+    const card = html.slice(start, html.indexOf("</section>", start));
+    const displayedLong = Number(card.match(/(\d+)% 做多/)?.[1]);
+    const displayedShort = Number(card.match(/(\d+)% 做空/)?.[1]);
+    expect(displayedLong + displayedShort).toBe(100);
+    expect(Math.abs(displayedLong - longPct)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(displayedShort - (100 - longPct))).toBeLessThanOrEqual(0.5);
+  });
+
+  it("an unknown notional split does not invent complementary percentages", () => {
+    const full = wireOf("extremely_profitable");
+    state.detail = { ...full, hero: { ...full.hero, longPct: null } };
+    state.history = undefined;
+    const html = render();
+    const start = html.indexOf(">名目金額</h2>");
+    const card = html.slice(start, html.indexOf("</section>", start));
+    expect(card).not.toMatch(/\d+% 做(?:多|空)/);
+  });
+
   it("an empty history explains the data requirement without promising a fixed refresh time", () => {
     state.detail = wireOf("rekt");
     state.history = { tier: "rekt", window: "all", series: [], btc: [] };

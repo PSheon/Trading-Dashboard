@@ -31396,7 +31396,17 @@
                         },
                         "mode": {
                           "type": "string",
-                          "const": "paper"
+                          "enum": [
+                            "paper",
+                            "actual"
+                          ]
+                        },
+                        "network": {
+                          "type": "string",
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
                         },
                         "window": {
                           "type": "string",

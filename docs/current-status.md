@@ -4,6 +4,14 @@
 
 ## 本輪最新結果
 
+### 台北18:50 Claude：補齊正式跟單缺口並發布Stage三服務（4a8ee9de）
+
+- 新增：正式／測試網跟單Telegram通知（成交、拒絕、停止、credited退款／提款；部署只補發最近10分鐘、無schema變更）；跟單帳戶被Hyperliquid強制平倉的明確結果（只認成交自帶`liquidation.liquidatedUser`，之後交易員平倉以`position_liquidated`拒絕並發強平通知，帳戶仍維持隔離待人工處理）；正式跟單權益快照與明細的權益曲線、與交易員同期比較、曝險面板；分享視窗與4:5卡對齊；交易員頁手機版改為全站top-bar＋自身列、全站footer。
+- 未做（刻意延後）：主網運行中修改設定／加碼（需改持倉基準與資金核算語義）、代理30天續期（新簽署流程）。
+- 驗證：本機API **284檔／4,543**中1項通知測試偶發失敗→以失敗快照確認為測試在opt-in同一毫秒寫入的精度競態（since為Postgres微秒、列為JS毫秒），改以測試時鐘opt-in後shard4連跑5次全過；Web **212檔／1,468 PASS**、typecheck、lint；精確[CI38131923096](https://github.com/PSheon/Trading-Dashboard/actions/runs/38131923096)全綠（API四分片、Browser三分片、build、smokes）。前一次CI 38130834409 Browser一次手機keypad首鍵遺失（測試在切換模式後180ms按鍵），本次未重現，保留紀錄。
+- 發布：在途守門唯讀SSH（七類全0、0寫入，台北18:38）、雲端checkpoint `75e97e5a`存在、原部署ID核對後，依序API `cb719cf1-a50e-4768-9323-093b2be35b42`、worker `710aef9a-9f8e-42da-ade0-7df3bd8e61c4`、Web `ea6cd1a4-c6da-43f0-9daf-f6edb24cc96c` 皆SUCCESS；API ready200，worker啟動log正常（mainnet copy execution、outbox enabled）。Stage原Paul session 1440／390親眼驗收交易員頁版面、全站footer、分享視窗邊界（404／1036）。
+- Stage資料新鮮度（台北18:26唯讀）：探索前10名指標更新0.5–5.4小時內、無超過24小時標示；抽查兩位交易員最新成交與Hyperliquid直接查詢一致；成交讀取偶有503（Hyperliquid額度忙碌，重試即恢復）。
+
 ### 台北14:40 Claude：開始前跟單適配估算（§6.3）發布Stage Web
 
 - `321fc990`＋`6e37aa7b`：比例跟單（模擬，或未強制固定額的實際部署）開始前，跟單面板以交易員頁同一份近期成交（FILL_LIMIT，不增加請求）與帳戶總值，估算輸入金額下有多少開倉會低於最低下單額（至少10USD）、多少是HIP-3市場；同一訂單同時間成交合併、反手只計開倉部分；讀不到帳戶價值、沒有開倉、成交讀取失敗（503）都明說，不猜。固定每筆金額不顯示，不替使用者改金額或模式。11語言。

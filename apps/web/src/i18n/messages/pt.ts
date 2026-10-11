@@ -1542,6 +1542,7 @@ export const pt: Messages = {
     historyTitle: "Depósitos e saques",
     historyEmpty: "Ainda não há depósitos ou saques",
     historyEmptyBody: "Deposite USDC na sua carteira e o histórico aparecerá aqui.",
+    historyEmptyPaperBody: "Comece uma cópia simulada e o histórico da conta simulada aparecerá aqui.",
     historyKinds: {
       deposit: "Depósito",
       withdraw: "Saque",

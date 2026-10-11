@@ -19,16 +19,18 @@ const owner = `0x${"11".repeat(20)}`, account = `0x${"cc".repeat(20)}`, leader =
 const flow = (over: Partial<FundsFlowView>): FundsFlowView => ({ id: Math.random().toString(36), time: "2026-10-05T01:00:00.000Z", kind: "copy_funding", mode: "mainnet", amount: 50,
   strategyId: 902, leaderAddress: leader, status: "credited", txHash: null, fee: null, counterparty: account, count: null, ...over });
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh() {}, push() {} }), usePathname: () => "/zh-TW/settings", useSearchParams: () => new URLSearchParams() }));
-const state = vi.hoisted(() => ({ items: [] as unknown[], more: false, fetchNextPage: vi.fn() }));
+const state = vi.hoisted(() => ({ items: [] as unknown[], more: false, fetchNextPage: vi.fn(), mode: "live" as "paper" | "testnet" | "live", asked: [] as (string | undefined)[] }));
+vi.mock("@/lib/site-mode", () => ({ useTradingMode: () => ({ mode: state.mode }) }));
 vi.mock("@/lib/auth", () => ({ useAuth: () => ({ status: "signedIn", wallet: { address: owner } }) }));
 vi.mock("@/lib/funds", async () => ({ ...(await vi.importActual<typeof import("@/lib/funds")>("@/lib/funds")),
-  useFundsHistory: () => ({ data: { pages: [{ items: state.items, nextCursor: null }] }, hasNextPage: state.more, fetchNextPage: state.fetchNextPage, isPending: false, isError: false }) }));
+  useFundsHistory: (mode?: string) => (state.asked.push(mode), { data: { pages: [{ items: state.items, nextCursor: null }] }, hasNextPage: state.more, fetchNextPage: state.fetchNextPage, isPending: false, isError: false }) }));
 vi.mock("@/lib/wallet", () => ({ useWalletHistory: () => ({ data: { transfers: [], from: "2026-07-09T03:01:00.000Z", fetchedAt: "2026-10-07T03:01:00.000Z", network: "mainnet", address: owner }, isPending: false, isError: false }) }));
 vi.mock("@/components/wallet/history-list", () => ({ ICON: {}, WithdrawalNotices: () => null, kindOf: () => "other" }));
 vi.mock("@/lib/copy-live-setup", () => ({ useLiveCopyDeployment: () => ({ network: "mainnet" }) }));
 vi.mock("@/components/copy/copy-portfolio", () => ({ useLeaders: () => new Map([[leader, { address: leader, displayName: "Kinetiq", avatarUrl: null }]]) }));
 
-it("signs every amount from the owner's wallet, tags 模擬 rows, names the trader and drops the ledger-window line", () => {
+it("signs every amount from the owner's wallet, names the trader and drops the ledger-window line; 正式 lists no simulated row", () => {
+  state.mode = "live";
   state.items = [
     flow({ id: "return", amount: 10, counterparty: owner, time: "2026-10-06T00:00:00.000Z" }),
     flow({ id: "deposit" }),
@@ -38,13 +40,23 @@ it("signs every amount from the owner's wallet, tags 模擬 rows, names the trad
   expect(html).toContain('data-slot="data-list"');
   expect(html).toContain("從跟單 Kinetiq 返還主錢包");
   expect(html).toContain("轉入跟單 Kinetiq 錢包");
-  expect(html).toContain("加碼至跟單 Kinetiq");
   expect(html).not.toMatch(/#902|#\d/);
   expect(html).toContain("+$10.00");
   expect(html).toContain("-$50.00");
+  // The simulated top-up is not real money (Paul, 2026-10-11).
+  expect(html).not.toContain("加碼至跟單 Kinetiq");
+  expect(html).not.toContain('data-testid="paper-tag"');
+  expect(html).not.toContain("帳本查詢起點");
+});
+
+it("模擬 lists the simulated account's rows only, tagged", () => {
+  state.mode = "paper";
+  const html = renderToStaticMarkup(<I18nProvider locale="zh-TW" messages={catalogs["zh-TW"]}><FundsHistory /></I18nProvider>);
+  expect(html).toContain("加碼至跟單 Kinetiq");
   expect(html).toContain("-$150.00");
   expect(html.match(/data-testid="paper-tag"/g)).toHaveLength(1);
-  expect(html).not.toContain("帳本查詢起點");
+  expect(html).not.toContain("從跟單 Kinetiq 返還主錢包");
+  state.mode = "live";
 });
 
 it("walletAmount / isReturnFlow: out of the wallet −, back into it +; fees as recorded", () => {
@@ -111,4 +123,16 @@ it.each([0,5])("fills an incomplete filtered page without skipping newly fetched
     expect(el.querySelector('li')?.textContent).toContain('-$1.00');
     expect(el.querySelectorAll('li')).toHaveLength(10);
   } finally {await act(async ()=>root.unmount());el.remove();state.more=false;}
+});
+
+it("asks the server for one mode's flows: 正式 actual, 模擬 paper, and says where a simulated history comes from", () => {
+  state.items = [];
+  state.mode = "paper";
+  const paperHtml = renderToStaticMarkup(<I18nProvider locale="zh-TW" messages={catalogs["zh-TW"]}><FundsHistory /></I18nProvider>);
+  expect(paperHtml).toContain("開始模擬跟單後");
+  expect(state.asked).toContain("paper");
+  state.mode = "live";
+  const liveHtml = renderToStaticMarkup(<I18nProvider locale="zh-TW" messages={catalogs["zh-TW"]}><FundsHistory /></I18nProvider>);
+  expect(liveHtml).toContain("儲值 USDC 到你的錢包後");
+  expect(state.asked.at(-1)).toBe("actual");
 });

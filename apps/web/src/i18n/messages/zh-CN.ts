@@ -1542,6 +1542,7 @@ export const zhCN: Messages = {
     historyTitle: "充值与提款",
     historyEmpty: "暂无充值或提款记录",
     historyEmptyBody: "向你的钱包充值 USDC 后，记录会显示在这里。",
+    historyEmptyPaperBody: "开始模拟跟单后，模拟账户的资金记录会出现在这里。",
     historyKinds: {
       deposit: "充值",
       withdraw: "提款",

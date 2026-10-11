@@ -2314,6 +2314,7 @@ export const zhTW = {
     historyTitle: "儲值與提款",
     historyEmpty: "還沒有儲值或提款紀錄",
     historyEmptyBody: "儲值 USDC 到你的錢包後，紀錄會出現在這裡。",
+    historyEmptyPaperBody: "開始模擬跟單後，模擬帳戶的資金紀錄會出現在這裡。",
     historyKinds: {
       deposit: "儲值",
       withdraw: "提款",

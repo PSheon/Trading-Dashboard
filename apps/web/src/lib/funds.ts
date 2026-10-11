@@ -11,11 +11,13 @@ import { defaultRetry } from "@/lib/query-policy";
 export type FundsFlowView = WireFundsHistory["items"][number];
 
 /** GET /me/funds/history, page by page (older on demand). */
-export function useFundsHistory() {
+/** `mode`: one mode's flows only (the account menu's 模擬 / 正式), so a page
+ * is never filled by the other mode's rows; both when absent. */
+export function useFundsHistory(mode?: "paper" | "actual") {
   const { status } = useAuth();
   return useInfiniteQuery({
-    queryKey: ["funds", "history"],
-    queryFn: ({ pageParam, signal }) => api.get<WireFundsHistory>(`/me/funds/history?limit=50${pageParam ? `&before=${pageParam}` : ""}`, signal),
+    queryKey: ["funds", "history", mode ?? "all"],
+    queryFn: ({ pageParam, signal }) => api.get<WireFundsHistory>(`/me/funds/history?limit=50${mode ? `&mode=${mode}` : ""}${pageParam ? `&before=${pageParam}` : ""}`, signal),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.nextCursor,
     enabled: status === "signedIn",
@@ -69,6 +71,15 @@ export function mergeFunds(hub: TraderTransfer[] | undefined, flows: FundsFlowVi
   const oldest = flows.length ? Math.min(...flows.map((f) => Date.parse(String(f.time)))) : Infinity;
   const hubShown = hubRows.filter((h) => !used.has(h.id) && (complete || h.time >= oldest));
   return [...orbie, ...hubShown].sort((a, b) => b.time - a.time);
+}
+
+/** Whether `row` belongs to the account menu's mode: 模擬 is the simulated
+ * account alone; 正式 / 測試網 are real money — the wallet's own ledger and
+ * actual copies (another network's stay, tagged with it) — never a
+ * simulated copy's. */
+export function rowInMode(row: FundsRow, mode: "paper" | "testnet" | "live"): boolean {
+  if (row.source === "hub") return mode !== "paper";
+  return mode === "paper" ? row.flow.mode === "paper" : row.flow.mode !== "paper";
 }
 
 export function rowMatches(row: FundsRow, filter: FundsFilter): boolean {

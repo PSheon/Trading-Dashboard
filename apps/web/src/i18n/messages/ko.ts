@@ -1542,6 +1542,7 @@ export const ko: Messages = {
     historyTitle: "입출금",
     historyEmpty: "아직 입출금 내역이 없습니다",
     historyEmptyBody: "지갑에 USDC를 입금하면 내역이 여기에 표시됩니다.",
+    historyEmptyPaperBody: "모의 카피를 시작하면 모의 계좌의 자금 내역이 여기에 표시됩니다.",
     historyKinds: {
       deposit: "입금",
       withdraw: "출금",

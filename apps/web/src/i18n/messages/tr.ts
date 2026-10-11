@@ -1542,6 +1542,7 @@ export const tr: Messages = {
     historyTitle: "Yatırma ve Çekme",
     historyEmpty: "Henüz yatırma veya çekme yok",
     historyEmptyBody: "Cüzdanınıza USDC yatırın, geçmiş burada görünsün.",
+    historyEmptyPaperBody: "Sanal bir kopya başlatın; sanal hesabın para geçmişi burada görünür.",
     historyKinds: {
       deposit: "Yatırma",
       withdraw: "Çekme",

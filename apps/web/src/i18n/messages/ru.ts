@@ -1542,6 +1542,7 @@ export const ru: Messages = {
     historyTitle: "Пополнения и выводы",
     historyEmpty: "Пополнений и выводов пока нет",
     historyEmptyBody: "Пополните кошелёк на USDC — история появится здесь.",
+    historyEmptyPaperBody: "Начните демо-копирование, и история средств демо-счёта появится здесь.",
     historyKinds: {
       deposit: "Пополнение",
       withdraw: "Вывод",

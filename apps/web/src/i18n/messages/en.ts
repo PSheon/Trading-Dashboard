@@ -2310,6 +2310,7 @@ export const en: Messages = {
     historyTitle: "Deposits & Withdrawal",
     historyEmpty: "No deposits or withdrawals yet",
     historyEmptyBody: "Deposit USDC to your wallet and the history shows up here.",
+    historyEmptyPaperBody: "Start a paper copy and the simulated account's money history shows up here.",
     historyKinds: {
       deposit: "Deposit",
       withdraw: "Withdrawal",

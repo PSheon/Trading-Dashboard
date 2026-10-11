@@ -666,7 +666,7 @@ export async function fixtureRequest<T>(
       return wire(copyStrategySchema, fixtureWithdrawFunds(Number(parts[3]), body as Record<string, unknown>));
     case "GET /me/funds/history":
       requireUser(token);
-      return wire(fundsHistoryResponseSchema, fixtureFundsHistory());
+      return wire(fundsHistoryResponseSchema, fixtureFundsHistory(search.get("mode")));
     case "GET /me/copy/portfolio":
       requireUser(token);
       return wire(copyPortfolioResponseSchema, fixtureCopyPortfolio(copyPortfolioQuerySchema.parse({ window: search.get("window") ?? undefined }).window));

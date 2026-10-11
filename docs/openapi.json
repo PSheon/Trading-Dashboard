@@ -25,6 +25,19 @@
               "default": 50,
               "type": "integer"
             }
+          },
+          {
+            "name": "mode",
+            "required": false,
+            "in": "query",
+            "description": "One mode only: paper (the simulated account) or actual (real money); both when absent",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "paper",
+                "actual"
+              ]
+            }
           }
         ],
         "responses": {

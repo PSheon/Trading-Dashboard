@@ -1542,6 +1542,7 @@ export const vi: Messages = {
     historyTitle: "Nạp & Rút",
     historyEmpty: "Chưa có khoản nạp hoặc rút nào",
     historyEmptyBody: "Nạp USDC vào ví và lịch sử sẽ hiển thị tại đây.",
+    historyEmptyPaperBody: "Bắt đầu sao chép mô phỏng và lịch sử tiền của tài khoản mô phỏng sẽ xuất hiện ở đây.",
     historyKinds: {
       deposit: "Nạp tiền",
       withdraw: "Rút tiền",

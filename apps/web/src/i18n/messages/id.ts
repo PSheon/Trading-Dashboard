@@ -1542,6 +1542,7 @@ export const id: Messages = {
     historyTitle: "Deposit & Penarikan",
     historyEmpty: "Belum ada deposit atau penarikan",
     historyEmptyBody: "Deposit USDC ke dompetmu dan riwayatnya akan muncul di sini.",
+    historyEmptyPaperBody: "Mulai salin simulasi dan riwayat dana akun simulasi akan muncul di sini.",
     historyKinds: {
       deposit: "Deposit",
       withdraw: "Penarikan",

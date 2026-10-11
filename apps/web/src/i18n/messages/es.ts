@@ -1542,6 +1542,7 @@ export const es: Messages = {
     historyTitle: "Depósitos y retiros",
     historyEmpty: "Aún no hay depósitos ni retiros",
     historyEmptyBody: "Deposita USDC en tu wallet y el historial aparecerá aquí.",
+    historyEmptyPaperBody: "Empieza una copia simulada y el historial de la cuenta simulada aparecerá aquí.",
     historyKinds: {
       deposit: "Depósito",
       withdraw: "Retiro",

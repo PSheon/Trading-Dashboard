@@ -1542,6 +1542,7 @@ export const ja: Messages = {
     historyTitle: "入出金",
     historyEmpty: "入出金の履歴はまだありません",
     historyEmptyBody: "ウォレットに USDC を入金すると、履歴がここに表示されます。",
+    historyEmptyPaperBody: "デモコピーを始めると、デモ口座の資金履歴がここに表示されます。",
     historyKinds: {
       deposit: "入金",
       withdraw: "出金",

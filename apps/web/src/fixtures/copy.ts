@@ -397,7 +397,8 @@ export function fixtureCopyTrades(sort: "best" | "worst" | "recent", limit: numb
 
 /** GET /me/funds/history in fixture mode: each seeded copy's allocation and
  * its orders' fees per UTC day. */
-export function fixtureFundsHistory() {
+/** `mode` as the api: "paper" or "actual" (fixture copies are all paper). */
+export function fixtureFundsHistory(mode: string | null = null) {
   const items = strategies.flatMap((s) => {
     const deposit = { id: `ledger:alloc-${s.id}`, time: s.createdAt, kind: "copy_deposit" as const, mode: "paper" as const, amount: s.allocated, strategyId: s.id, leaderAddress: s.leaderAddress, status: null, txHash: null, fee: null, counterparty: "paper", count: null };
     const byDay = new Map<string, { time: Date; amount: number; count: number }>();
@@ -410,5 +411,5 @@ export function fixtureFundsHistory() {
     const fees = [...byDay.entries()].map(([day, v]) => ({ id: `fees:${s.id}:${day}`, time: v.time, kind: "fees" as const, mode: "paper" as const, amount: Math.round(v.amount * 100) / 100, strategyId: s.id, leaderAddress: s.leaderAddress, status: null, txHash: null, fee: null, counterparty: null, count: v.count }));
     return [deposit, ...fees];
   }).sort((a, b) => b.time.getTime() - a.time.getTime());
-  return { items, nextCursor: null };
+  return { items: mode === "actual" ? [] : items, nextCursor: null };
 }

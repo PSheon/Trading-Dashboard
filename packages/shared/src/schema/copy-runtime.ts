@@ -87,6 +87,9 @@ export type CopyTradesResponse = z.infer<typeof copyTradesResponseSchema>;
 export const fundsHistoryQuerySchema = z.object({
   before: z.string().regex(/^\d{1,16}$/).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
+  /** One mode at a time, as the account menu shows them: `paper` the
+   * simulated account's ledger, `actual` real money; both when absent. */
+  mode: z.enum(["paper", "actual"]).optional(),
 }).strict();
 export const fundsFlowKindSchema = z.enum(["copy_deposit", "copy_withdrawal", "copy_sweep", "copy_write_off", "fees", "funding", "copy_funding", "hub_withdrawal"]);
 export const fundsFlowSchema = z.object({

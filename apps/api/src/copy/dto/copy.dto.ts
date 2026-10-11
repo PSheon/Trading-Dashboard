@@ -98,4 +98,6 @@ export class FundsHistoryQueryDto {
   @Optional() @Matches(/^\d{1,16}$/) declare before?: string;
   @ApiPropertyOptional({ type: "integer", minimum: 1, maximum: 100, default: 50 })
   @Optional() @ToNumber() @IsInt() @Min(1) @Max(100) declare limit?: number;
+  @ApiPropertyOptional({ type: String, enum: ["paper", "actual"], description: "One mode only: paper (the simulated account) or actual (real money); both when absent" })
+  @Optional() @IsIn(["paper", "actual"]) declare mode?: "paper" | "actual";
 }

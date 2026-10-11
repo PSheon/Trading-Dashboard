@@ -11,7 +11,8 @@ import { EmptyState, ErrorState, ListRowsSkeleton } from "@/components/page";
 import { PAGE_SIZE, TablePager, usePaged } from "@/components/ui/table-pager";
 import { useI18n } from "@/i18n/provider";
 import type { MessageKey } from "@/i18n/messages";
-import { useFundsHistory, isReturnFlow, mergeFunds, rowMatches, walletAmount, type FundsFilter, type FundsRow } from "@/lib/funds";
+import { useFundsHistory, isReturnFlow, mergeFunds, rowInMode, rowMatches, walletAmount, type FundsFilter, type FundsRow } from "@/lib/funds";
+import { useTradingMode } from "@/lib/site-mode";
 import { truncateAddress } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import { useLeaders } from "@/components/copy/copy-portfolio";
@@ -33,9 +34,12 @@ export function FundsHistory({ className }: { className?: string }) {
   const { t } = useI18n();
   const owner = useAuth().wallet?.address ?? null;
   const hub = useWalletHistory();
-  const flows = useFundsHistory();
+  // The account menu's mode: 正式 shows no simulated rows, 模擬 no real ones;
+  // the server pages one mode's flows, so neither fills the other's pages.
+  const mode = useTradingMode().mode;
+  const flows = useFundsHistory(mode === "paper" ? "paper" : "actual");
   const [filter, setFilter] = useState<FundsFilter>("all");
-  const ownerFilter = `${owner}:${filter}`;
+  const ownerFilter = `${owner}:${mode}:${filter}`;
   const currentFilter = useRef(ownerFilter);
   useLayoutEffect(() => { currentFilter.current = ownerFilter; }, [ownerFilter]);
   const [readingOlder, setReadingOlder] = useState(false);
@@ -44,7 +48,7 @@ export function FundsHistory({ className }: { className?: string }) {
   // Each copy by its trader's name, not "#id".
   const leaders = useLeaders(useMemo(() => items.flatMap((f) => (f.leaderAddress ? [{ leaderAddress: f.leaderAddress.toLowerCase() }] : [])), [items]));
   const nameOf = (address: string | null) => (address ? boardName(leaders.get(address.toLowerCase()) ?? { address, displayName: null }) : "—");
-  const shown = rows.filter((r) => rowMatches(r, filter));
+  const shown = rows.filter((r) => rowInMode(r, mode) && rowMatches(r, filter));
   const { rows: pageRows, pager } = usePaged(shown, ownerFilter);
   // This deployment's network: another network's money (Stage's testnet
   // copies after the move to mainnet) is tagged with its network, never
@@ -67,7 +71,7 @@ export function FundsHistory({ className }: { className?: string }) {
       {loading ? (
         <ListRowsSkeleton />
       ) : shown.length === 0 ? (
-        <EmptyState icon={ReceiptText} title={t("funds.empty")} body={t("wallet.historyEmptyBody")} />
+        <EmptyState icon={ReceiptText} title={t("funds.empty")} body={t(mode === "paper" ? "wallet.historyEmptyPaperBody" : "wallet.historyEmptyBody")} />
       ) : (
         <DataList data-testid="funds-history">
           {pageRows.map((row) => <Row key={row.id} row={row} owner={owner} nameOf={nameOf} network={network} />)}

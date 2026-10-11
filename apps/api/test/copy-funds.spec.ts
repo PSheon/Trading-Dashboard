@@ -97,5 +97,20 @@ describe("GET /me/funds/history: one money-flow history of copies, fees, funding
     expect((await get("/me/funds/history", "bob-token").expect(200)).body.data.items.map((i: { amount: number }) => i.amount)).toEqual([500]);
     await get("/me/funds/history?limit=0", "alice-token").expect(400);
     await get("/me/funds/history?before=abc", "alice-token").expect(400);
+
+    // One mode at a time (the account menu's 模擬 / 正式): a page is never
+    // filled by the other mode's rows (Paul, 2026-10-11).
+    const kinds = async (mode: string) => (await get(`/me/funds/history?mode=${mode}`, "alice-token").expect(200)).body.data.items.map((i: { kind: string; mode: string }) => `${i.kind}:${i.mode}`);
+    expect(await kinds("paper")).toEqual(["copy_sweep:paper", "copy_write_off:paper", "copy_withdrawal:paper", "fees:paper", "funding:paper", "fees:paper", "copy_deposit:paper"]);
+    expect(await kinds("actual")).toEqual(["hub_withdrawal:testnet", "copy_funding:testnet"]);
+    const paged: string[] = [];
+    let next: string | null = null;
+    do {
+      const body: { items: Array<{ id: string }>; nextCursor: string | null } = (await get(`/me/funds/history?mode=paper&limit=2${next ? `&before=${next}` : ""}`, "alice-token").expect(200)).body.data;
+      paged.push(...body.items.map((i) => i.id));
+      next = body.nextCursor;
+    } while (next);
+    expect(paged).toHaveLength(7);
+    await get("/me/funds/history?mode=live", "alice-token").expect(400);
   });
 });

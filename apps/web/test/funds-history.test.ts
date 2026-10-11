@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { mergeFunds, rowMatches, type FundsFlowView } from "@/lib/funds";
+import { mergeFunds, rowInMode, rowMatches, type FundsFlowView } from "@/lib/funds";
 import type { TraderTransfer } from "@/lib/contracts";
 
 const COPY_WALLET = "0x" + "d4".repeat(20);
@@ -46,5 +46,21 @@ describe("one money-flow history: the hub ledger and Orbie's flows", () => {
     expect(ids("transfers")).toEqual(["e", "d", "hub"]);
     expect(ids("copies")).toEqual(["d", "a"]);
     expect(ids("fees")).toEqual(["c", "b"]);
+  });
+});
+
+describe("the history follows the account menu's mode (Paul, 2026-10-11)", () => {
+  const rows = mergeFunds([hub({ time: "2026-10-01T00:00:00Z", kind: "deposit", direction: "in" })], [
+    flow({ id: "paper", time: "2026-10-02T00:00:00Z", kind: "copy_deposit", mode: "paper" }),
+    flow({ id: "main", time: "2026-10-02T00:00:01Z", kind: "copy_funding", mode: "mainnet" }),
+    flow({ id: "test", time: "2026-10-02T00:00:02Z", kind: "copy_funding", mode: "testnet" }),
+  ], true);
+  const ids = (mode: "paper" | "testnet" | "live") => rows.filter((r) => rowInMode(r, mode)).map((r) => r.source === "hub" ? "hub" : r.id);
+  it("正式 and 測試網 list real money only: the wallet's own ledger and actual copies, never a simulated one", () => {
+    expect(ids("live")).toEqual(["test", "main", "hub"]);
+    expect(ids("testnet")).toEqual(["test", "main", "hub"]);
+  });
+  it("模擬 lists the simulated account only, not the real wallet's ledger", () => {
+    expect(ids("paper")).toEqual(["paper"]);
   });
 });

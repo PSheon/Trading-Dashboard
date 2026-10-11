@@ -20,14 +20,16 @@ export class CopyFundsService {
   constructor(private readonly repository: CopyFundsRepository) {}
 
   async history(userId: number, query: unknown): Promise<FundsHistoryResponse> {
-    const { before, limit } = parseOr400(fundsHistoryQuerySchema, query);
+    const { before, limit, mode } = parseOr400(fundsHistoryQuerySchema, query);
     const cut = before ? new Date(Number(before)) : new Date(8_640_000_000_000_000);
     const take = limit + 1;
+    // A mode reads only its own sources, so its pages are never filled by the other's rows.
+    const paper = mode !== "actual", actual = mode !== "paper";
     const [ledger, daily, funding, withdrawals] = await Promise.all([
-      this.repository.ledgerTransfers(userId, cut, take),
-      this.repository.dailyCosts(userId, cut, take),
-      this.repository.copyFundings(userId, cut, take),
-      this.repository.hubWithdrawals(userId, cut, take),
+      paper ? this.repository.ledgerTransfers(userId, cut, take) : [],
+      paper ? this.repository.dailyCosts(userId, cut, take) : [],
+      actual ? this.repository.copyFundings(userId, cut, take) : [],
+      actual ? this.repository.hubWithdrawals(userId, cut, take) : [],
     ]);
     const kinds: Record<string, FundsFlow["kind"]> = { allocate: "copy_deposit", withdraw: "copy_withdrawal", release: "copy_sweep", liquidation: "copy_write_off" };
     const items: FundsFlow[] = [

@@ -19,6 +19,14 @@ describe("one money-flow history: the hub ledger and Orbie's flows", () => {
     expect(rows.some((r) => r.source === "hub" && r.transfer === sent)).toBe(false);
   });
 
+  it("folds the internal transfer that carried a deposit (a generic move, not a send) into its funding: one row, not two (Stage 2026-10-11)", () => {
+    const moved = hub({ time: "2026-10-11T12:44:24Z", kind: "generic", direction: "move", to: COPY_WALLET, amount: 50, hash: "0x6ad7" });
+    const funding = flow({ id: "funding:9", time: "2026-10-11T12:43:00Z", kind: "copy_funding", mode: "mainnet", amount: -50, counterparty: COPY_WALLET, status: "credited" });
+    const rows = mergeFunds([moved], [funding], true);
+    expect(rows.map((r) => r.id)).toEqual(["funding:9"]);
+    expect(rows[0]).toMatchObject({ hubHash: "0x6ad7" });
+  });
+
   it("shows an accepted hub withdrawal once (the ledger's), but keeps one still pending or rejected", () => {
     const ledger = hub({ time: "2026-10-03T10:05:00Z", kind: "withdraw", amount: 24 });
     const accepted = flow({ id: "withdrawal:a", time: "2026-10-03T10:00:00Z", kind: "hub_withdrawal", mode: "testnet", amount: -25, status: "accepted" });

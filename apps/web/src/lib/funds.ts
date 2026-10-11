@@ -57,7 +57,9 @@ export function mergeFunds(hub: TraderTransfer[] | undefined, flows: FundsFlowVi
       return [{ source: "orbie" as const, id: flow.id, time, flow, hubHash: match?.transfer.hash ?? flow.txHash }];
     }
     if (flow.kind === "copy_funding" && wallet) {
-      const match = hubRows.find((h) => !used.has(h.id) && h.transfer.direction === "out" && h.transfer.to === wallet
+      // A deposit made by usdSend is "sent"; one made by an internal transfer is a
+      // "generic" move (Stage 2026-10-11, shown twice): either is this funding.
+      const match = hubRows.find((h) => !used.has(h.id) && (h.transfer.direction === "out" || h.transfer.kind === "generic") && h.transfer.to === wallet
         && near(h.transfer.amount, Math.abs(flow.amount), 0.01) && near(h.time, time, 86_400_000));
       if (match) used.add(match.id);
       return [{ source: "orbie" as const, id: flow.id, time, flow, hubHash: match?.transfer.hash ?? flow.txHash }];

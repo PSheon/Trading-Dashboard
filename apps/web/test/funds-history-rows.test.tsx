@@ -68,16 +68,15 @@ it("walletAmount / isReturnFlow: out of the wallet −, back into it +; fees as 
   expect(walletAmount(flow({ kind: "hub_withdrawal", amount: -20, counterparty: owner }), owner)).toBe(-20);
 });
 
-it("tags another network's rows on this deployment (testnet money on mainnet), muted, never read as this one's (Stage A1)", () => {
+it("leaves another network's rows out on this deployment (testnet money on mainnet, Paul 2026-10-11)", () => {
   state.items = [
     flow({ id: "old-return", mode: "testnet", amount: 79, counterparty: owner, time: "2026-10-06T00:00:00.000Z" }),
     flow({ id: "real" }),
   ];
   const html = renderToStaticMarkup(<I18nProvider locale="zh-TW" messages={catalogs["zh-TW"]}><FundsHistory /></I18nProvider>);
-  const tags = [...html.matchAll(/data-testid="network-tag"[^>]*>([^<]*)</g)].map((m) => m[1]);
-  expect(tags).toEqual(["測試網"]);
-  const old = html.slice(html.indexOf("測試網"), html.indexOf("</li>", html.indexOf("測試網")));
-  expect(old).toContain("text-muted-foreground\">+$79.00");
+  expect(html).not.toContain("測試網");
+  expect(html).not.toContain("+$79.00");
+  expect(html.match(/<li /g)).toHaveLength(1);
 });
 
 it("pages funding history at ten rows instead of rendering the entire ledger", () => {

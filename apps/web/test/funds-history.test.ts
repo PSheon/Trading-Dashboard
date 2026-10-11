@@ -56,9 +56,9 @@ describe("the history follows the account menu's mode (Paul, 2026-10-11)", () =>
     flow({ id: "test", time: "2026-10-02T00:00:02Z", kind: "copy_funding", mode: "testnet" }),
   ], true);
   const ids = (mode: "paper" | "testnet" | "live") => rows.filter((r) => rowInMode(r, mode)).map((r) => r.source === "hub" ? "hub" : r.id);
-  it("正式 and 測試網 list real money only: the wallet's own ledger and actual copies, never a simulated one", () => {
-    expect(ids("live")).toEqual(["test", "main", "hub"]);
-    expect(ids("testnet")).toEqual(["test", "main", "hub"]);
+  it("正式 and 測試網 list real money on their own network only: the wallet's own ledger and that network's copies", () => {
+    expect(ids("live")).toEqual(["main", "hub"]);
+    expect(ids("testnet")).toEqual(["test", "hub"]);
   });
   it("模擬 lists the simulated account only, not the real wallet's ledger", () => {
     expect(ids("paper")).toEqual(["paper"]);

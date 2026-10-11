@@ -1713,7 +1713,6 @@ export const tr: Messages = {
     balancePending: "Bakiye doğrulanıyor",
     copying: "Kopyalanıyor",
     ended: "Biten ({count})",
-    previousNetwork: "Önceki ağdaki kopyalar ({count})",
     inviteOnly: "Gerçek kopyalama henüz açık değil; şimdilik yalnızca davetle.",
     recent: "Son etkinlik",
     seeAll: "Tümünü gör",

@@ -1713,7 +1713,6 @@ export const vi: Messages = {
     balancePending: "Đang xác nhận số dư",
     copying: "Đang sao chép",
     ended: "Đã kết thúc ({count})",
-    previousNetwork: "Bản sao trên mạng trước ({count})",
     inviteOnly: "Sao chép thật chưa mở; hiện chỉ dành cho người được mời.",
     recent: "Hoạt động gần đây",
     seeAll: "Xem tất cả",

@@ -1713,7 +1713,6 @@ export const zhCN: Messages = {
     balancePending: "余额待确认",
     copying: "跟单中",
     ended: "已结束（{count}）",
-    previousNetwork: "先前网络的跟单（{count}）",
     inviteOnly: "正式跟单尚未开放，目前仅限邀请。",
     recent: "最近活动",
     seeAll: "查看全部",

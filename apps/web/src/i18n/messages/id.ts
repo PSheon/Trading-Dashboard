@@ -1713,7 +1713,6 @@ export const id: Messages = {
     balancePending: "Saldo belum dikonfirmasi",
     copying: "Menyalin",
     ended: "Selesai ({count})",
-    previousNetwork: "Salinan di jaringan sebelumnya ({count})",
     inviteOnly: "Copy trading nyata belum dibuka; saat ini hanya dengan undangan.",
     recent: "Aktivitas terbaru",
     seeAll: "Lihat semua",

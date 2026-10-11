@@ -2844,7 +2844,6 @@ export const en: Messages = {
     balancePending: "Balance pending",
     copying: "Copying",
     ended: "Ended ({count})",
-    previousNetwork: "Copies on the previous network ({count})",
     inviteOnly: "Live copy trading isn't open yet. It's invite-only for now.",
     recent: "Recent activity",
     seeAll: "See all",

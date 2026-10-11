@@ -1713,7 +1713,6 @@ export const ru: Messages = {
     balancePending: "Баланс уточняется",
     copying: "Копирование",
     ended: "Завершённые ({count})",
-    previousNetwork: "Копии в прежней сети ({count})",
     inviteOnly: "Реальное копирование ещё не открыто: пока только по приглашениям.",
     recent: "Недавние действия",
     seeAll: "Показать всё",

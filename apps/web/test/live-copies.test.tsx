@@ -392,8 +392,8 @@ it('a refused withdrawal says why once, in the confirm sheet (no toast too), and
   expect(detail()!.textContent).not.toContain('發生錯誤');
 });
 
-it('keeps a copy of the previous network out of 跟單中 and 我的資金: a folded group, its network tagged, no withdraw or stop (Stage A1)', async () => {
-  // The deployment is mainnet; the old testnet copy still holds 79 USDC.
+it('hides a copy of the previous network entirely: not in 跟單中, 我的資金 or anywhere on the page (Paul 2026-10-11)', async () => {
+  // The deployment is mainnet; Stage's old testnet copy is still in the database.
   items = [item({ strategyId: 77, network: 'testnet', accountId: 'acct-old', accountAddress: `0x${'e0'.repeat(20)}` })];
   state.get.mockImplementation(async (path: string) => path === '/me/copy/live/portfolio' ? { network: 'mainnet', automaticExecution: true, items }
     : path.startsWith('/me/funds/history') ? { items: funds, nextCursor: null } : null);
@@ -403,13 +403,6 @@ it('keeps a copy of the previous network out of 跟單中 and 我的資金: a fo
   expect(cards()).toHaveLength(0);
   expect(container.querySelector('[data-testid="no-copies"]')).not.toBeNull();
   expect(onEquity.mock.calls.filter(([id, equity]) => id === 77 && equity !== null)).toEqual([]);
-  const group = container.querySelector('[data-testid="previous-network"]')!;
-  expect(group.querySelector('summary')!.textContent).toBe('先前網路的跟單（1）');
-  const old = group.querySelector<HTMLButtonElement>('[data-testid="previous-copy-card"]')!;
-  expect(old.querySelector('[data-mode="testnet"]')!.textContent).toContain('測試網');
-  await act(async () => old.click()); await settle();
-  expect(detail()!.textContent).toContain('先前網路的跟單：僅保留紀錄');
-  expect(detail()!.querySelector('input[name="withdraw"]')).toBeNull();
-  expect(detail()!.querySelector('[data-testid="stop"]')).toBeNull();
-  expect(detail()!.textContent).not.toContain('正在 Hyperliquid 測試網跟隨');
+  expect(container.textContent).not.toContain('先前網路');
+  expect(container.textContent).not.toContain('測試網');
 });

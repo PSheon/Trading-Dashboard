@@ -74,12 +74,13 @@ export function mergeFunds(hub: TraderTransfer[] | undefined, flows: FundsFlowVi
 }
 
 /** Whether `row` belongs to the account menu's mode: 模擬 is the simulated
- * account alone; 正式 / 測試網 are real money — the wallet's own ledger and
- * actual copies (another network's stay, tagged with it) — never a
- * simulated copy's. */
+ * account alone; 正式 (mainnet) / 測試網 are real money on that network — the
+ * wallet's own ledger and that network's actual copies. Another network's
+ * (Stage's testnet copies after the move to mainnet) are not shown (Paul,
+ * 2026-10-11), and never a simulated copy's. */
 export function rowInMode(row: FundsRow, mode: "paper" | "testnet" | "live"): boolean {
   if (row.source === "hub") return mode !== "paper";
-  return mode === "paper" ? row.flow.mode === "paper" : row.flow.mode !== "paper";
+  return row.flow.mode === (mode === "live" ? "mainnet" : mode);
 }
 
 export function rowMatches(row: FundsRow, filter: FundsFilter): boolean {

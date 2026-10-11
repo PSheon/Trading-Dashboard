@@ -1713,7 +1713,6 @@ export const pt: Messages = {
     balancePending: "Saldo a confirmar",
     copying: "Copiando",
     ended: "Encerradas ({count})",
-    previousNetwork: "Cópias na rede anterior ({count})",
     inviteOnly: "O copy trading real ainda não está aberto: por enquanto só com convite.",
     recent: "Atividade recente",
     seeAll: "Ver tudo",

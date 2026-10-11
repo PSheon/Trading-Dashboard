@@ -30,7 +30,7 @@ export class CopyLiveMandateService {
     const capped = limits ? effectiveLiveLimits(live?.caps, limits) : null;
     return liveCopyOverviewSchema.parse({ mode: 'actual', network, capabilities: { strategyPreparation: this.config.value.copy.mode !== 'disabled',
       automaticExecution: liveExecutionEnabled(this.config), sourceNetworks: [...liveSourceNetworks(network)], actualAllowed, setupAbort: this.setupAborts?.available === true,
-      ...(live ? { caps: { fixedPerTradeUsd: live.caps.fixedPerTradeUsd ?? null, maxAllocationUsd: capped?.maxAllocationUsd ?? live.caps.maxAllocationUsd ?? null,
+      ...(live ? { caps: { fixedPerTradeUsd: live.caps.ratioSizing ? null : live.caps.fixedPerTradeUsd ?? null, maxAllocationUsd: capped?.maxAllocationUsd ?? live.caps.maxAllocationUsd ?? null,
         maxLeverage: capped?.maxLeverage ?? live.caps.maxLeverage ?? null, maxStrategiesPerUser: capped?.maxStrategiesPerUser ?? live.caps.maxStrategiesPerUser } } : {}) }, ...data });
   }
   async pause(userId: number, id: string, value: unknown = {}) {

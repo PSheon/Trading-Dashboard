@@ -77,6 +77,10 @@ export interface LiveCopyCaps {
    * (COPY_LIVE_FIXED_PER_TRADE_MIN_USD / _MAX_USD; default 12 / 15 on a
    * `live` deployment, unset on testnet unless both are set). */
   fixedPerTradeUsd?: { min: number; max: number };
+  /** Ratio sizing allowed too (COPY_LIVE_RATIO_SIZING, default false): a
+   * fixed amount still keeps inside `fixedPerTradeUsd`; a ratio order the
+   * exchange's 10 USDC minimum rounds to nothing is skipped and recorded. */
+  ratioSizing?: boolean;
   /** Highest leverage a copy may use (COPY_LIVE_MAX_LEVERAGE; default 3 on a
    * `live` deployment, unset on testnet: the risk policy's alone). */
   maxLeverage?: number;
@@ -159,6 +163,7 @@ function liveCaps(source: Environment, mode: "testnet" | "live"): LiveCopyCaps {
     maxStrategiesPerUser: integerValue("COPY_LIVE_MAX_STRATEGIES_PER_USER", source.COPY_LIVE_MAX_STRATEGIES_PER_USER, 2, 1, 50),
     ...(maxAllocation ? { maxAllocationUsd: decimalValue("COPY_LIVE_MAX_ALLOCATION_USD", maxAllocation, 0, 1, 10_000_000) } : {}),
     ...(fixedPerTradeUsd ? { fixedPerTradeUsd } : {}),
+    ...(booleanValue("COPY_LIVE_RATIO_SIZING", source.COPY_LIVE_RATIO_SIZING, false) ? { ratioSizing: true } : {}),
     ...(live || maxLeverage ? { maxLeverage: integerValue("COPY_LIVE_MAX_LEVERAGE", maxLeverage, 3, 1, 50) } : {}),
   };
 }

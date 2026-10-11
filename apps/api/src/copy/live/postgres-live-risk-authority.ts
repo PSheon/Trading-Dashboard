@@ -72,7 +72,7 @@ export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSessi
   const limits=effectiveLiveLimits(deployment?.caps,copyRiskLimitsSchema.parse(policy.limits));
   riskSourceRequire(Dec.from(c.budgetUsd).lte(String(limits.maxAllocationUsd)),'live_risk_budget_above_cap');
   const fixed=deployment?.caps.fixedPerTradeUsd;
-  riskSourceRequire(!fixed||(settings.sizingMode==='fixed'&&settings.perTradeUsd!==null&&settings.perTradeUsd>=fixed.min&&settings.perTradeUsd<=fixed.max),'live_risk_sizing_above_cap');
+  riskSourceRequire(!fixed||(settings.sizingMode==='fixed'?settings.perTradeUsd!==null&&settings.perTradeUsd>=fixed.min&&settings.perTradeUsd<=fixed.max:deployment?.caps.ratioSizing===true),'live_risk_sizing_above_cap');
   riskSourceRequire(settings.maxLeverage===null||settings.maxLeverage<=limits.maxLeverage,'live_risk_leverage_above_cap');
   const controls=await read(db.select().from(copyControls).where(sql`${copyControls.scope}='platform' or (${copyControls.scope}='user' and ${copyControls.scopeId}=${a.userId})`));
   const platform=controls.find(c=>c.scope==='platform'&&c.scopeId===0),user=controls.find(c=>c.scope==='user'&&c.scopeId===a.userId);

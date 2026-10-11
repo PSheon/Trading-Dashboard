@@ -100,6 +100,9 @@ describe("startup environment", () => {
       expect(validateEnvironment({ ...live, COPY_LIVE_MAX_ALLOCATION_USD: "50", COPY_LIVE_MAX_STRATEGIES_PER_USER: "1", COPY_LIVE_MAX_LEVERAGE: "2",
         COPY_LIVE_FIXED_PER_TRADE_MIN_USD: "13", COPY_LIVE_FIXED_PER_TRADE_MAX_USD: "14" }).copy.live?.caps)
         .toEqual({ maxStrategiesPerUser: 1, maxAllocationUsd: 50, maxLeverage: 2, fixedPerTradeUsd: { min: 13, max: 14 } });
+      // Ratio sizing stays off unless COPY_LIVE_RATIO_SIZING=true; the fixed bounds remain for fixed amounts.
+      expect(copy.live?.caps.ratioSizing).toBeUndefined();
+      expect(validateEnvironment({ ...live, COPY_LIVE_RATIO_SIZING: "true" }).copy.live?.caps).toMatchObject({ ratioSizing: true, fixedPerTradeUsd: { min: 12, max: 15 } });
     });
     it("refuses to boot without the allowlist, on testnet, or with bad caps", () => {
       expect(() => validateEnvironment({ ...live, COPY_LIVE_ALLOWED_PRIVY_USER_IDS: undefined })).toThrow("COPY_LIVE_ALLOWED_PRIVY_USER_IDS");

@@ -73,6 +73,13 @@ describe('deployment caps on actual copies', () => {
     await expect(create(config, 1, { settings: { perTradeUsd: 15 } })).resolves.toMatchObject({ settings: expect.objectContaining({ sizingMode: 'fixed', perTradeUsd: 15 }) });
   });
 
+  it('COPY_LIVE_RATIO_SIZING: a mainnet copy may size by ratio, a fixed amount still keeps inside 12–15', async () => {
+    const config = deployment(live({ ratioSizing: true }));
+    await expect(create(config, 1, { settings: { sizingMode: 'ratio', perTradeUsd: null } })).resolves.toMatchObject({ settings: expect.objectContaining({ sizingMode: 'ratio' }) });
+    await expect(create(config, 2, { settings: { perTradeUsd: 5 } })).rejects.toMatchObject(refusal('live_per_trade_out_of_range'));
+    await expect(create(config, 2, { settings: { sizingMode: 'ratio', perTradeUsd: null, maxLeverage: 5 } })).rejects.toMatchObject(refusal('leverage_above_limit'));
+  });
+
   it('refuses an owner outside COPY_LIVE_ALLOWED_PRIVY_USER_IDS, and a testnet leader on a mainnet deployment', async () => {
     const other = (await insertUser(db, { privyUserId: 'did:privy:someone-else', embeddedWalletAddress: `0x${'66'.repeat(20)}` })).id;
     await db.insert(copyControls).values({ scope: 'user', scopeId: other });

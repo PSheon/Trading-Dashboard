@@ -32,7 +32,7 @@ export function effectiveLiveLimits<T extends Pick<CopyRiskLimits, 'maxStrategie
 /**
  * Settings an actual copy may use on this deployment: with fixed bounds
  * (COPY_LIVE_FIXED_PER_TRADE_MIN_USD / _MAX_USD; always on a live deployment)
- * only fixed sizing, with the per-trade amount inside them (12–15 USDC by
+ * only fixed sizing (ratio too with COPY_LIVE_RATIO_SIZING), with the per-trade amount inside them (12–15 USDC by
  * default: above the exchange's 10 USDC minimum with rounding room); and a
  * leverage no higher than the cap. Refusals the UI names
  * (wire-contracts `copyErrorCodes`).
@@ -41,12 +41,14 @@ export function assertLiveSettings(caps: LiveCopyCaps | undefined, settings: Pic
   if (!caps) return;
   const fixed = caps.fixedPerTradeUsd;
   if (fixed) {
+    // COPY_LIVE_RATIO_SIZING: ratio sizing allowed too; the bounds hold fixed amounts only.
     if (settings.sizingMode !== 'fixed') {
-      throw new ConflictException({ statusCode: 409, code: 'live_fixed_sizing_required', message: 'Real-fund copies use a fixed amount per trade', min: fixed.min, max: fixed.max });
-    }
-    const amount = settings.perTradeUsd;
-    if (amount === null || Dec.from(String(amount)).lt(String(fixed.min)) || Dec.from(String(amount)).gt(String(fixed.max))) {
-      throw new ConflictException({ statusCode: 409, code: 'live_per_trade_out_of_range', message: `The amount per trade must be between ${fixed.min} and ${fixed.max} USDC`, min: fixed.min, max: fixed.max });
+      if (!caps.ratioSizing) throw new ConflictException({ statusCode: 409, code: 'live_fixed_sizing_required', message: 'Real-fund copies use a fixed amount per trade', min: fixed.min, max: fixed.max });
+    } else {
+      const amount = settings.perTradeUsd;
+      if (amount === null || Dec.from(String(amount)).lt(String(fixed.min)) || Dec.from(String(amount)).gt(String(fixed.max))) {
+        throw new ConflictException({ statusCode: 409, code: 'live_per_trade_out_of_range', message: `The amount per trade must be between ${fixed.min} and ${fixed.max} USDC`, min: fixed.min, max: fixed.max });
+      }
     }
   }
   if (caps.maxLeverage !== undefined && settings.maxLeverage !== null && settings.maxLeverage > caps.maxLeverage) {

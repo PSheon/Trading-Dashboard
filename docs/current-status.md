@@ -4,6 +4,13 @@
 
 ## 本輪最新結果
 
+### 台北13:40 Claude：拒絕原因說明補齊並發布Stage Web（§5問題3、問題2部分）
+
+- `124daff1`：前端補齊後端`publicOrderReason`放行的全部原因碼（`below_min_after_rounding`、`risk_cap_*`、`strategy_stopping/stopped`、`stale_price`、`max_per_trade`、`opposite_position`等），保留「送出前／成交前複核」階段；最低額、取整、上限收緊歸為風控未執行；計畫數量取整為0的拒絕顯示「—」而非0；曾部分成交仍顯示原狀態與已成交量；未知碼（含`order_not_executed`）維持「原因尚未確認」。
+- 新測試舊碼 **4 FAIL／1 PASS**，新碼Web **208檔／1,437 PASS**、typecheck（含測試）與eslint通過；精確 [CI38112878788](https://github.com/PSheon/Trading-Dashboard/actions/runs/38112878788) checks／build／Browser三分片／ci全綠，API／smokes依範圍略過。
+- Stage Web `6c6d2975-6e42-48ed-b370-aec122b872c9` SUCCESS（與上一版1,250檔發布集合相同，只差5個來源檔）；發布前核對Web a787／API 38da／worker 52ea仍為原部署、雲端checkpoint `75e97e5a`存在。**七類在途唯讀SSH守門本輪被權限工具擋下未執行**；本次只換Web、不碰後端與資料庫。線上chunk已含新文案；**真人登入兩尺寸截圖尚未完成**（共用Chromium仍被Codex的playwright-mcp佔用）。
+- 未做：開始前適配／健康摘要（§6.3）、12筆歷史延遲分段（§6.4）、跨批次累積設計（§6.5）。實際／主網部署強制固定每筆金額，ratio不足最低額問題只影響模擬跟單。
+
 ### 台北12:43交由Claude接手；新跟單問題尚未實作
 
 Paul已要求Claude接手，詳見[Codex→Claude交接](handoff-codex-to-claude-2026-10-11.md)。目前程式及Stage版本維持下方11:01已驗收版本，交接只更新文件、不部署；交接前dev文件提交16f5a622精確CI38107101516全綠，changes／checks／ci通過，build／API／Browser／smokes依文件範圍略過，沒有冒稱又重跑應用測試。

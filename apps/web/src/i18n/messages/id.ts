@@ -1018,6 +1018,7 @@ export const id: Messages = {
         title: "Perkiraan kecocokan salin",
         belowMin: "Jika diskalakan sesuai rasio, sekitar {below} dari {opens} pembukaan terakhir ({pct}%) berada di bawah order minimum ${min} dan tidak dieksekusi.",
         allFit: "Jika diskalakan sesuai rasio, semua {opens} pembukaan terakhir mencapai order minimum ${min}.",
+        suggested: "Agar sekitar {pct}% dieksekusi, salin dengan minimal ${amount}.",
         hip3: "{count} lainnya adalah pasar HIP-3 yang mungkin tidak disalin menurut kebijakan risiko platform.",
         sample: "Sampel: transaksi {from} – {to} (UTC). Belum termasuk PnL selanjutnya, batas, dan masa berlaku sinyal; yang berlaku adalah riwayat order.",
         unknownEquity: "Nilai akun trader tidak dapat dibaca, jadi ukuran order rasio tidak dapat diperkirakan.",

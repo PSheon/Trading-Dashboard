@@ -94,15 +94,14 @@ describe("startup environment", () => {
     it("boots with the allowlist, on mainnet only, with the default caps and no builder fee", () => {
       const copy = validateEnvironment(live).copy;
       expect(copy).toMatchObject({ mode: "live", live: { network: "mainnet", builderFee: false, testnetSourceIntervalMs: 60_000,
-        caps: { maxStrategiesPerUser: 2, fixedPerTradeUsd: { min: 12, max: 15 }, maxLeverage: 3 } } });
+        caps: { maxStrategiesPerUser: 2, ratioOnly: true, maxLeverage: 3 } } });
+      expect(copy.live?.caps.fixedPerTradeUsd).toBeUndefined();
       expect(copy.live?.allowedPrivyUserIds).toEqual(new Set(["did:privy:paul", "did:privy:other"]));
       expect(copy.live?.caps.maxAllocationUsd).toBeUndefined();
       expect(validateEnvironment({ ...live, COPY_LIVE_MAX_ALLOCATION_USD: "50", COPY_LIVE_MAX_STRATEGIES_PER_USER: "1", COPY_LIVE_MAX_LEVERAGE: "2",
         COPY_LIVE_FIXED_PER_TRADE_MIN_USD: "13", COPY_LIVE_FIXED_PER_TRADE_MAX_USD: "14" }).copy.live?.caps)
-        .toEqual({ maxStrategiesPerUser: 1, maxAllocationUsd: 50, maxLeverage: 2, fixedPerTradeUsd: { min: 13, max: 14 } });
-      // Ratio sizing stays off unless COPY_LIVE_RATIO_SIZING=true; the fixed bounds remain for fixed amounts.
-      expect(copy.live?.caps.ratioSizing).toBeUndefined();
-      expect(validateEnvironment({ ...live, COPY_LIVE_RATIO_SIZING: "true" }).copy.live?.caps).toMatchObject({ ratioSizing: true, fixedPerTradeUsd: { min: 12, max: 15 } });
+        // Real-money copies size by ratio only: Stage's leftover fixed bounds are ignored, not a boot failure.
+        .toEqual({ maxStrategiesPerUser: 1, maxAllocationUsd: 50, maxLeverage: 2, ratioOnly: true });
     });
     it("refuses to boot without the allowlist, on testnet, or with bad caps", () => {
       expect(() => validateEnvironment({ ...live, COPY_LIVE_ALLOWED_PRIVY_USER_IDS: undefined })).toThrow("COPY_LIVE_ALLOWED_PRIVY_USER_IDS");
@@ -111,9 +110,6 @@ describe("startup environment", () => {
       expect(() => validateEnvironment({ ...live, HYPERLIQUID_NETWORK: "testnet" })).toThrow("HYPERLIQUID_NETWORK=mainnet");
       expect(() => validateEnvironment({ ...live, COPY_TRADING_MODE: "testnet" })).toThrow("HYPERLIQUID_NETWORK=testnet");
       expect(() => validateEnvironment({ ...live, PRIVY_AGENT_AUTHORIZATION_KEY: undefined, PRIVY_AGENT_WORKER_QUORUM_ID: undefined })).toThrow("PRIVY_AGENT_AUTHORIZATION_KEY");
-      // At least 11 USDC a trade (the exchange's 10 USDC minimum with rounding room), min ≤ max.
-      expect(() => validateEnvironment({ ...live, COPY_LIVE_FIXED_PER_TRADE_MIN_USD: "10" })).toThrow("COPY_LIVE_FIXED_PER_TRADE_MIN_USD");
-      expect(() => validateEnvironment({ ...live, COPY_LIVE_FIXED_PER_TRADE_MIN_USD: "16" })).toThrow("must not exceed");
       expect(() => validateEnvironment({ ...live, COPY_LIVE_MAX_STRATEGIES_PER_USER: "0" })).toThrow("COPY_LIVE_MAX_STRATEGIES_PER_USER");
     });
     it("leaves a testnet deployment's caps as they were unless set, and its testnet source interval configurable", () => {
@@ -123,6 +119,10 @@ describe("startup environment", () => {
       expect(validateEnvironment(testnet).copy.live?.allowedPrivyUserIds).toBeUndefined();
       expect(validateEnvironment({ ...testnet, COPY_LIVE_TESTNET_SOURCE_INTERVAL_MS: "3000" }).copy.live?.testnetSourceIntervalMs).toBe(3000);
       expect(() => validateEnvironment({ ...testnet, COPY_LIVE_FIXED_PER_TRADE_MIN_USD: "12" })).toThrow("set together");
+      // At least 11 USDC a trade (the exchange's 10 USDC minimum with rounding room), min ≤ max.
+      expect(validateEnvironment({ ...testnet, COPY_LIVE_FIXED_PER_TRADE_MIN_USD: "12", COPY_LIVE_FIXED_PER_TRADE_MAX_USD: "15" }).copy.live?.caps.fixedPerTradeUsd).toEqual({ min: 12, max: 15 });
+      expect(() => validateEnvironment({ ...testnet, COPY_LIVE_FIXED_PER_TRADE_MIN_USD: "10", COPY_LIVE_FIXED_PER_TRADE_MAX_USD: "15" })).toThrow("COPY_LIVE_FIXED_PER_TRADE_MIN_USD");
+      expect(() => validateEnvironment({ ...testnet, COPY_LIVE_FIXED_PER_TRADE_MIN_USD: "16", COPY_LIVE_FIXED_PER_TRADE_MAX_USD: "15" })).toThrow("must not exceed");
     });
   });
 

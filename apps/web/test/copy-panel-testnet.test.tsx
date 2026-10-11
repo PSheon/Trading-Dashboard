@@ -142,15 +142,15 @@ it("a slow start shows it is preparing for the whole request, and the confirm sh
   expect(cta().textContent).not.toContain(zh.preparing);
 });
 
-it("on a mainnet deployment the actual mode is 正式 and 測試網 appears nowhere; a fixed 12–15 USDC a trade is the only sizing", async () => {
-  state.deployment = { network: "mainnet", available: true, sourceNetworks: ["mainnet"], caps: { fixedPerTradeUsd: { min: 12, max: 15 }, maxAllocationUsd: 50, maxLeverage: 3, maxStrategiesPerUser: 2 } };
+it("on a mainnet deployment the actual mode is 正式 and 測試網 appears nowhere; ratio is the only sizing (Paul 2026-10-11)", async () => {
+  state.deployment = { network: "mainnet", available: true, sourceNetworks: ["mainnet"], caps: { fixedPerTradeUsd: null, maxAllocationUsd: 50, maxLeverage: 3, maxStrategiesPerUser: 2 } };
   state.item = null;
   await render();
   expect(container.textContent).not.toContain("測試網");
   expect(container.textContent).toContain("正式");
   expect(container.textContent).toContain("使用 Hyperliquid 主網的真實 USDC。");
-  expect(container.querySelector("[data-sizing='fixed-only']")?.textContent).toBe(zh.fixed);
-  expect(container.querySelector("input[placeholder='12–15']")).toBeTruthy();
+  expect(container.querySelector("[data-sizing='ratio-only']")?.textContent).toBe(zh.ratio);
+  expect(container.querySelector("[data-sizing='fixed-only']")).toBeNull();
   // The running copy does not repeat the account menu's mode.
   state.item = item({ status: "active", stage: "active", mandate: { id: "m", state: "active", revision: 2 } });
   await render();

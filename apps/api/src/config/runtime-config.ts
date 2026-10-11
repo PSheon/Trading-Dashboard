@@ -74,13 +74,13 @@ export interface LiveCopyCaps {
    * (COPY_LIVE_MAX_ALLOCATION_USD; unset: the risk policy's alone). */
   maxAllocationUsd?: number;
   /** Fixed sizing only, with the per-trade amount inside these bounds
-   * (COPY_LIVE_FIXED_PER_TRADE_MIN_USD / _MAX_USD; default 12 / 15 on a
-   * `live` deployment, unset on testnet unless both are set). */
+   * (COPY_LIVE_FIXED_PER_TRADE_MIN_USD / _MAX_USD; testnet only, unset
+   * unless both are set). */
   fixedPerTradeUsd?: { min: number; max: number };
-  /** Ratio sizing allowed too (COPY_LIVE_RATIO_SIZING, default false): a
-   * fixed amount still keeps inside `fixedPerTradeUsd`; a ratio order the
-   * exchange's 10 USDC minimum rounds to nothing is skipped and recorded. */
-  ratioSizing?: boolean;
+  /** Ratio sizing only (always on a `live` deployment, Paul 2026-10-11):
+   * one way to size real-money copies, as CopyDog; an order the exchange's
+   * 10 USDC minimum rounds to nothing is skipped and recorded. */
+  ratioOnly?: boolean;
   /** Highest leverage a copy may use (COPY_LIVE_MAX_LEVERAGE; default 3 on a
    * `live` deployment, unset on testnet: the risk policy's alone). */
   maxLeverage?: number;
@@ -152,7 +152,9 @@ function liveCaps(source: Environment, mode: "testnet" | "live"): LiveCopyCaps {
   const live = mode === "live";
   const fixedMin = optional(source.COPY_LIVE_FIXED_PER_TRADE_MIN_USD), fixedMax = optional(source.COPY_LIVE_FIXED_PER_TRADE_MAX_USD);
   if (!live && Boolean(fixedMin) !== Boolean(fixedMax)) throw new Error("COPY_LIVE_FIXED_PER_TRADE_MIN_USD and COPY_LIVE_FIXED_PER_TRADE_MAX_USD must be set together");
-  const fixedPerTradeUsd = live || fixedMin ? {
+  // Real-money copies size by ratio only: the fixed bounds (still set on
+  // Stage from the fixed-amount trial) no longer apply there.
+  const fixedPerTradeUsd = !live && fixedMin ? {
     // At least 11 (Hyperliquid's 10 USDC minimum with rounding room).
     min: decimalValue("COPY_LIVE_FIXED_PER_TRADE_MIN_USD", fixedMin, 12, 11, 1_000_000),
     max: decimalValue("COPY_LIVE_FIXED_PER_TRADE_MAX_USD", fixedMax, 15, 11, 1_000_000),
@@ -163,7 +165,7 @@ function liveCaps(source: Environment, mode: "testnet" | "live"): LiveCopyCaps {
     maxStrategiesPerUser: integerValue("COPY_LIVE_MAX_STRATEGIES_PER_USER", source.COPY_LIVE_MAX_STRATEGIES_PER_USER, 2, 1, 50),
     ...(maxAllocation ? { maxAllocationUsd: decimalValue("COPY_LIVE_MAX_ALLOCATION_USD", maxAllocation, 0, 1, 10_000_000) } : {}),
     ...(fixedPerTradeUsd ? { fixedPerTradeUsd } : {}),
-    ...(booleanValue("COPY_LIVE_RATIO_SIZING", source.COPY_LIVE_RATIO_SIZING, false) ? { ratioSizing: true } : {}),
+    ...(live ? { ratioOnly: true } : {}),
     ...(live || maxLeverage ? { maxLeverage: integerValue("COPY_LIVE_MAX_LEVERAGE", maxLeverage, 3, 1, 50) } : {}),
   };
 }

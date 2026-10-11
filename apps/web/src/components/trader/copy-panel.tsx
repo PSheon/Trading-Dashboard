@@ -117,8 +117,10 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
   const liveText = useLiveSetupText(), copyTexts = useCopyTexts();
   const deployment = useLiveCopyDeployment();
   const trading = useTradingMode();
-  // A live deployment: a fixed amount per trade only, within its bounds.
-  const fixedOnly = deployment?.caps?.fixedPerTradeUsd ?? null, leverageCap = deployment?.caps?.maxLeverage ?? null;
+  // Real-money copies (mainnet) size by ratio only, as CopyDog; a testnet
+  // deployment may hold fixed bounds (a fixed amount per trade only).
+  const ratioOnly = deployment?.network === "mainnet";
+  const fixedOnly = ratioOnly ? null : deployment?.caps?.fixedPerTradeUsd ?? null, leverageCap = deployment?.caps?.maxLeverage ?? null;
   // A testnet deployment may copy a testnet leader (`?network=testnet`, read
   // at start); trader pages are mainnet leaders.
   const leaderNetwork = () => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("network") === "testnet"
@@ -284,7 +286,7 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
   }
 
   async function startTestnet() {
-    const sizingMode = fixedOnly ? "fixed" : sizing;
+    const sizingMode = ratioOnly ? "ratio" : fixedOnly ? "fixed" : sizing;
     const fixed = sizingMode === "fixed" ? Number.parseFloat(perTrade) : null;
     if (sizingMode === "fixed" && !(fixed && fixed > 0)) return toast.error(t("trader.copy.enterAmount"));
     if (fixedOnly && fixed !== null && (fixed < fixedOnly.min || fixed > fixedOnly.max)) return toast.error(`${liveText.perTrade}: ${fixedOnly.min}–${fixedOnly.max}`);
@@ -669,7 +671,7 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
             {testnet ? (
               <>
                 <p id="copy-positions-note" className="mt-1.5 text-xs leading-5 text-muted-foreground">{liveText.adoptDisabled}</p>
-                <LiveSettingsFields text={liveText} sizing={fixedOnly ? "fixed" : sizing} setSizing={setSizing} perTrade={perTrade} setPerTrade={setPerTrade}
+                <LiveSettingsFields text={liveText} sizing={ratioOnly ? "ratio" : fixedOnly ? "fixed" : sizing} ratioOnly={ratioOnly} setSizing={setSizing} perTrade={perTrade} setPerTrade={setPerTrade}
                   maxExposure={maxExposure} setMaxExposure={setMaxExposure} maxLeverage={maxLeverage} setMaxLeverage={setMaxLeverage} fixedOnly={fixedOnly} leverageCap={leverageCap} />
               </>
             ) : null}

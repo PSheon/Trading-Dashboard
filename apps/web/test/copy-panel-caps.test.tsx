@@ -74,7 +74,6 @@ it("最大 stops at the cap, and the api's above_max_allocation names the deploy
   const max = [...container.querySelectorAll("button")].find((b) => b.textContent === "最大")!;
   await act(async () => max.click());
   expect((container.querySelector("input#copy-amount") as HTMLInputElement).value).toBe("50");
-  await type("12", "input[placeholder='11–15']");
   state.start.mockRejectedValue(new ApiError(409, "Refused", { code: "above_max_allocation" }));
   await act(async () => cta().click());
   expect(state.start).toHaveBeenCalledOnce();
@@ -121,4 +120,18 @@ it("clears an unsubmitted actual amount when the account changes to paper funds"
   expect((container.querySelector("input#copy-amount") as HTMLInputElement).value).toBe("");
   await type("80"); expect(cta().textContent).toBe("最低 $100 才能跟單");
   expect(state.start).not.toHaveBeenCalled();
+});
+
+it("正式 on mainnet sizes by ratio only (Paul 2026-10-11): no sizing choice, no per-trade amount, and the start asks for ratio", async () => {
+  state.start.mockResolvedValue({ id: "s", stage: "provisioning" });
+  await render();
+  const more = container.querySelector<HTMLElement>("#copy-more")!;
+  expect(more.querySelector('[data-sizing="ratio-only"]')?.textContent).toBe("等比例");
+  expect(more.querySelector('[data-sizing="fixed-only"]')).toBeNull();
+  expect(more.querySelector('[role="radiogroup"]')).toBeNull();
+  expect(more.querySelectorAll("input")).toHaveLength(2);
+  await type("40");
+  await act(async () => cta().click());
+  expect(state.start).toHaveBeenCalledTimes(1);
+  expect(state.start.mock.calls[0]![0]).toMatchObject({ budgetUsd: "40", settings: { sizingMode: "ratio", perTradeUsd: null } });
 });

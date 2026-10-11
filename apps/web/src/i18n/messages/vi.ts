@@ -1018,6 +1018,7 @@ export const vi: Messages = {
         title: "Ước tính mức phù hợp khi sao chép",
         belowMin: "Khi quy đổi theo tỷ lệ, khoảng {below} trong {opens} lệnh mở gần nhất ({pct}%) sẽ dưới mức lệnh tối thiểu ${min} và không được thực hiện.",
         allFit: "Khi quy đổi theo tỷ lệ, cả {opens} lệnh mở gần nhất đều đạt mức lệnh tối thiểu ${min}.",
+        suggested: "Để khoảng {pct}% lệnh được thực hiện, hãy sao chép với ít nhất ${amount}.",
         hip3: "Ngoài ra {count} lệnh thuộc thị trường HIP-3, có thể không được sao chép theo chính sách rủi ro của nền tảng.",
         sample: "Mẫu: giao dịch {from} – {to} (UTC). Chưa tính PnL sau đó, hạn mức và thời hiệu tín hiệu; kết quả thực tế theo lịch sử lệnh.",
         unknownEquity: "Không đọc được giá trị tài khoản của trader nên không thể ước tính quy mô lệnh theo tỷ lệ.",

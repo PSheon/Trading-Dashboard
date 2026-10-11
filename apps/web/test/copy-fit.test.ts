@@ -61,4 +61,17 @@ describe("estimateCopyFit", () => {
     expect(estimateCopyFit({ fills: [fill({ coin: "ETH", dir: "Close Long", px: 4000, sz: 1 })], leaderEquity: 1000, allocation: 100 }).status).toBe("no_opens");
     expect(estimateCopyFit({ fills: opens, leaderEquity: 1000, allocation: 0 }).status).toBe("no_amount");
   });
+
+  it("suggests the smallest allocation, in tens, at which about 80% of the opens reach the minimum (Paul 2026-10-11)", () => {
+    // Leader 1,000,000; opens of 1k…10k. The 20% quantile (smallest first) is 3,000:
+    // 10 × 1,000,000 / 3,000 = 3,333.3 → 3,340; at that amount 8 of 10 place.
+    const fills = Array.from({ length: 10 }, (_, i) => fill({ coin: "BTC", dir: "Open Long", px: 1000, sz: i + 1, ts: at(i) }));
+    const fit = estimateCopyFit({ fills, leaderEquity: 1_000_000, allocation: 50 });
+    expect(fit).toMatchObject({ status: "ok", opens: 10, belowMin: 10, suggested: 3340 });
+    expect(estimateCopyFit({ fills, leaderEquity: 1_000_000, allocation: 3340 })).toMatchObject({ belowMin: 2 });
+    // Only HIP-3 opens: nothing the copy could place, no suggestion.
+    expect(estimateCopyFit({ fills: [fill({ coin: "xyz:TSLA", dir: "Open Long", px: 100, sz: 100, ts: at(20) })], leaderEquity: 1_000_000, allocation: 50 }))
+      .toMatchObject({ hip3: 1, suggested: null });
+  });
 });
+

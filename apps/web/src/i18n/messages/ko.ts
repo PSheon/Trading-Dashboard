@@ -1018,6 +1018,7 @@ export const ko: Messages = {
         title: "카피 적합도 추정",
         belowMin: "비율로 환산하면 최근 {opens}건의 진입 중 약 {below}건({pct}%)이 최소 주문 ${min} 미만이라 실행되지 않습니다.",
         allFit: "비율로 환산해도 최근 {opens}건의 진입 모두 최소 주문 ${min} 이상입니다.",
+        suggested: "약 {pct}%를 실행하려면 최소 ${amount}로 카피하는 것을 권장합니다.",
         hip3: "그 외 {count}건은 HIP-3 마켓으로, 플랫폼 리스크 정책상 카피되지 않을 수 있습니다.",
         sample: "표본: {from} – {to}(UTC) 체결. 이후 손익, 한도, 신호 유효 시간은 반영되지 않으며 실제 결과는 주문 내역 기준입니다.",
         unknownEquity: "트레이더의 계정 가치를 읽을 수 없어 비율 주문 금액을 추정할 수 없습니다.",

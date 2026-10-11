@@ -1018,6 +1018,7 @@ export const zhCN: Messages = {
         title: "跟单适配估算",
         belowMin: "按比例缩放，最近 {opens} 笔开仓中约 {below} 笔（{pct}%）会低于最低下单额 ${min}，不会执行。",
         allFit: "最近 {opens} 笔开仓按比例缩放后都达到最低下单额 ${min}。",
+        suggested: "想让约 {pct}% 的单能下出，跟单资金建议至少 ${amount}。",
         hip3: "另有 {count} 笔是 HIP-3 市场，可能因平台风控不跟单。",
         sample: "样本 {from} – {to}（UTC）的成交。估算不含之后的盈亏、上限与信号时效，实际以订单记录为准。",
         unknownEquity: "读不到交易员账户价值，无法估算比例跟单的单笔金额。",

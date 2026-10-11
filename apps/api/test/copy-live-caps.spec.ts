@@ -20,14 +20,14 @@ let db: TestDb, uid: number;
 const paul = 'did:privy:paul-mainnet';
 const live = (caps: Partial<LiveCopyConfig['caps']> = {}): LiveCopyConfig => ({ network: 'mainnet', allowedPrivyUserIds: new Set([paul]), builderFee: false, testnetSourceIntervalMs: 60_000,
   maxSourceDeviationBps: 500, slippageBps: 30, intervalMs: 3000, weightPerMin: 300,
-  caps: { maxStrategiesPerUser: 2, maxAllocationUsd: 50, fixedPerTradeUsd: { min: 12, max: 15 }, maxLeverage: 3, ...caps } });
+  caps: { maxStrategiesPerUser: 2, maxAllocationUsd: 50, ratioOnly: true, maxLeverage: 3, ...caps } });
 /** A deployment on `network`, with these live settings (none: paper, today's behaviour). */
 const deployment = (settings: LiveCopyConfig | undefined, network: 'testnet' | 'mainnet' = settings?.network ?? 'testnet'): AppConfig => {
   const base = testConfig();
   return { get value() { const v = base.value; return { ...v, hyperliquid: { ...v.hyperliquid, wallet: { ...v.hyperliquid.wallet, network } },
     copy: { ...v.copy, ...(settings ? { mode: settings.network === 'mainnet' ? 'live' : 'testnet', live: settings } : {}) } }; } } as unknown as AppConfig;
 };
-const settings = (patch: Record<string, unknown> = {}) => ({ direction: 'same' as const, sizingMode: 'fixed' as const, perTradeUsd: 12, maxTotalExposureUsd: null, maxLeverage: 3,
+const settings = (patch: Record<string, unknown> = {}) => ({ direction: 'same' as const, sizingMode: 'ratio' as const, perTradeUsd: null, maxTotalExposureUsd: null, maxLeverage: 3,
   copyStartMode: 'delta' as const, ...patch });
 const leader = (n: number) => `0x${n.toString(16).padStart(2, '0').repeat(20)}`;
 const create = (config: AppConfig, n: number, patch: { budgetUsd?: string; settings?: Record<string, unknown>; sourceNetwork?: 'testnet' | 'mainnet' } = {}, userId = uid) =>
@@ -65,19 +65,18 @@ describe('deployment caps on actual copies', () => {
     await expect(create(config, 1, { budgetUsd: '50' })).resolves.toMatchObject({ budgetUsd: '50', network: 'mainnet' });
   });
 
-  it('fixed sizing only, 12–15 USDC a trade, leverage at most 3', async () => {
+  it('real-money copies size by ratio only (Paul 2026-10-11), with leverage at most 3', async () => {
     const config = deployment(live());
-    for (const perTradeUsd of [11, 15.5, 100]) await expect(create(config, 1, { settings: { perTradeUsd } })).rejects.toMatchObject(refusal('live_per_trade_out_of_range'));
-    await expect(create(config, 1, { settings: { sizingMode: 'ratio', perTradeUsd: null } })).rejects.toMatchObject(refusal('live_fixed_sizing_required'));
+    for (const perTradeUsd of [12, 15]) await expect(create(config, 1, { settings: { sizingMode: 'fixed', perTradeUsd } })).rejects.toMatchObject(refusal('live_ratio_sizing_required'));
     await expect(create(config, 1, { settings: { maxLeverage: 5 } })).rejects.toMatchObject(refusal('leverage_above_limit'));
-    await expect(create(config, 1, { settings: { perTradeUsd: 15 } })).resolves.toMatchObject({ settings: expect.objectContaining({ sizingMode: 'fixed', perTradeUsd: 15 }) });
+    await expect(create(config, 1)).resolves.toMatchObject({ settings: expect.objectContaining({ sizingMode: 'ratio', perTradeUsd: null }) });
   });
 
-  it('COPY_LIVE_RATIO_SIZING: a mainnet copy may size by ratio, a fixed amount still keeps inside 12–15', async () => {
-    const config = deployment(live({ ratioSizing: true }));
-    await expect(create(config, 1, { settings: { sizingMode: 'ratio', perTradeUsd: null } })).resolves.toMatchObject({ settings: expect.objectContaining({ sizingMode: 'ratio' }) });
-    await expect(create(config, 2, { settings: { perTradeUsd: 5 } })).rejects.toMatchObject(refusal('live_per_trade_out_of_range'));
-    await expect(create(config, 2, { settings: { sizingMode: 'ratio', perTradeUsd: null, maxLeverage: 5 } })).rejects.toMatchObject(refusal('leverage_above_limit'));
+  it('a testnet deployment with fixed bounds: fixed sizing only, 12–15 USDC a trade', async () => {
+    const config = deployment({ ...live({ ratioOnly: undefined, fixedPerTradeUsd: { min: 12, max: 15 } }), network: 'testnet', allowedPrivyUserIds: undefined }, 'testnet');
+    for (const perTradeUsd of [11, 15.5, 100]) await expect(create(config, 1, { sourceNetwork: 'testnet', settings: { sizingMode: 'fixed', perTradeUsd } })).rejects.toMatchObject(refusal('live_per_trade_out_of_range'));
+    await expect(create(config, 1, { sourceNetwork: 'testnet' })).rejects.toMatchObject(refusal('live_fixed_sizing_required'));
+    await expect(create(config, 1, { sourceNetwork: 'testnet', settings: { sizingMode: 'fixed', perTradeUsd: 15 } })).resolves.toMatchObject({ settings: expect.objectContaining({ sizingMode: 'fixed', perTradeUsd: 15 }) });
   });
 
   it('refuses an owner outside COPY_LIVE_ALLOWED_PRIVY_USER_IDS, and a testnet leader on a mainnet deployment', async () => {

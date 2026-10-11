@@ -225,7 +225,7 @@
     },
     "/me/copy/live/setups": {
       "post": {
-        "description": "Idempotent by key: admits one original setup and prepares its paused strategy, wallet, agent and deposit in tracked background work. Quick preparation returns the consent; slow preparation returns its original id within ten seconds for read-only polling. No exchange call before confirmation.\n\nAccess: user (owner); deployment network; prepares strategy, wallet, agent and deposit, no exchange call; one consent challenge\n\nError codes: copy_not_open, copy_paused, strategy_limit, already_copying, below_min_allocation, above_max_allocation, leverage_above_limit, watch_capacity, live_not_allowed, live_fixed_sizing_required, live_per_trade_out_of_range, live_source_network_unsupported, setup_unavailable, setup_wallet_conflict, funding_pending",
+        "description": "Idempotent by key: admits one original setup and prepares its paused strategy, wallet, agent and deposit in tracked background work. Quick preparation returns the consent; slow preparation returns its original id within ten seconds for read-only polling. No exchange call before confirmation.\n\nAccess: user (owner); deployment network; prepares strategy, wallet, agent and deposit, no exchange call; one consent challenge\n\nError codes: copy_not_open, copy_paused, strategy_limit, already_copying, below_min_allocation, above_max_allocation, leverage_above_limit, watch_capacity, live_not_allowed, live_fixed_sizing_required, live_ratio_sizing_required, live_per_trade_out_of_range, live_source_network_unsupported, setup_unavailable, setup_wallet_conflict, funding_pending",
         "operationId": "CopyLiveSetupController_start",
         "parameters": [],
         "requestBody": {
@@ -849,6 +849,7 @@
           "watch_capacity",
           "live_not_allowed",
           "live_fixed_sizing_required",
+          "live_ratio_sizing_required",
           "live_per_trade_out_of_range",
           "live_source_network_unsupported",
           "setup_unavailable",

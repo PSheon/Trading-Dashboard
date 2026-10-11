@@ -6,7 +6,14 @@ const EXCHANGE_MIN_NOTIONAL = 10;
 
 export type CopyFit =
   | { status: "loading" | "no_amount" | "unknown_equity" | "no_opens" }
-  | { status: "ok"; opens: number; belowMin: number; hip3: number; minNotional: number; from: Date; to: Date };
+  | { status: "ok"; opens: number; belowMin: number; hip3: number; minNotional: number; from: Date; to: Date;
+      /** The smallest allocation (rounded up to 10 USDC) at which about
+       * `SUGGESTED_SHARE` of these opens would reach the minimum order; null
+       * without any open the copy could place (HIP-3 only). */
+      suggested: number | null };
+
+/** The share of the leader's opens a suggested allocation should place. */
+export const SUGGESTED_SHARE = 0.8;
 
 /** The opening size of a fill, in coins: all of an open, the part of a flip
  * past zero, nothing for a close, a spot trade or a flip whose start is unknown. */
@@ -47,11 +54,18 @@ export function estimateCopyFit({ fills, leaderEquity, allocation, minNotional =
   if (orders.size === 0) return { status: "no_opens" };
   const scale = allocation / leaderEquity;
   let belowMin = 0, hip3 = 0, from = Infinity, to = -Infinity;
+  const placeable: number[] = [];
   for (const order of orders.values()) {
     from = Math.min(from, order.at);
     to = Math.max(to, order.at);
-    if (order.hip3) hip3 += 1;
-    else if (order.notional * scale < min) belowMin += 1;
+    if (order.hip3) { hip3 += 1; continue; }
+    placeable.push(order.notional);
+    if (order.notional * scale < min) belowMin += 1;
   }
-  return { status: "ok", opens: orders.size, belowMin, hip3, minNotional: min, from: new Date(from), to: new Date(to) };
+  // The open at the (1 − share) quantile, smallest first: an allocation that
+  // scales it to the minimum places it and every larger one.
+  placeable.sort((a, b) => a - b);
+  const pivot = placeable[Math.floor(placeable.length * (1 - SUGGESTED_SHARE) + 1e-9)];
+  const suggested = pivot && pivot > 0 ? Math.ceil((min * leaderEquity) / pivot / 10) * 10 : null;
+  return { status: "ok", opens: orders.size, belowMin, hip3, minNotional: min, from: new Date(from), to: new Date(to), suggested };
 }

@@ -468,8 +468,11 @@ describe('durable local actual source authority before remote reads',()=>{
       registerLiveDeployment(live({allowedPrivyUserIds:new Set(['did:privy:someone-else'])}));await hold('live_risk_owner_not_allowed');
       // A per-trade amount outside the fixed bounds, and a leverage above the cap.
       registerLiveDeployment(live({caps:{maxStrategiesPerUser:2,fixedPerTradeUsd:{min:500,max:600}}}));await hold('live_risk_sizing_above_cap');
-      registerLiveDeployment(live({caps:{maxStrategiesPerUser:2,maxLeverage:1}}));
       const [version]=await db.select().from(copyStrategyVersions);
+      // A real-money deployment sizes by ratio only: this ratio copy passes that check (the sizing
+      // check runs first) and is held only by the leverage cap below.
+      expect((version!.settings as {sizingMode:string}).sizingMode).toBe('ratio');
+      registerLiveDeployment(live({caps:{maxStrategiesPerUser:2,maxLeverage:1,ratioOnly:true}}));
       if(((version!.settings as {maxLeverage:number|null}).maxLeverage??0)>1)await hold('live_risk_leverage_above_cap');
       // A mainnet deployment's policy never runs a testnet copy's order.
       registerLiveDeployment(live({network:'mainnet'}));await hold('live_risk_deployment_unproven');

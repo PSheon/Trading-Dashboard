@@ -80,6 +80,17 @@ Telegram 已正式啟用（保留）：兩服務 `TELEGRAM_BOT_USERNAME=orbie_fu
 - 擬跟交易員：`0x010461c14e146ac35fe42271bdc1134ee31c703a`（帳戶約 320 萬、歷史獲利約 4600 萬、回撤約 18%、槓桿 1.3x、30 天約 935 次開倉、無 HIP-3）。
 - 下一步：本機 ratio-floor 端到端（base、reduce-min、stop-open、burst）全綠 → API 全套 → CI → Stage 設 `COPY_LIVE_TEST_MIN_FLOOR_MAX_USD=15` 並部署 → Paul 開始跟單（真錢需他確認）。測完要刪掉這個變數。
 
+### 4e. 04:15 更新：架構修正（證據讀取快取）
+
+- 根因：每筆單的證據重讀所有帳戶的 role／abstraction／dexAbstraction、dex 清單與市場 metadata，589 weight／單；300/min 的真錢桶全平台每 2 分鐘才 1 單，兩位使用者就排隊過期。
+- 已做（`0a051b45`、`6dd5eec7` 及後續）：
+  - `live-read-cache.ts`：跨單快取只存可下單的值（role user 30 分、abstraction disabled／dex false 5 分、metadata 60 秒、fees 5 分）；異常值不存。持倉、餘額、價格、槓桿、spot 每單 5 秒內照讀。暖快取每單 589 → 44；獨立觀察（快照／平倉／結算）284 → 4。
+  - 預付在 SQL 鎖前依快取計算；交易員只讀 spot（不讀 role／mode）；設定證明模式後即預熱快取。
+  - 真錢桶 80% 為 reserve、先補滿，背景不可用；worker heartbeat 顯示 `walletBudget` 各 consumer 用量。
+  - 另修：交易員帳戶以任何模式讀取（保留 portfolio margin 拒絕）、帳戶模式暫時錯誤可重試 3 次、測試用最低額開關。
+- 本機 ratio-floor（Stage 同額度 300/min）base 情境：**跟單單子首次送出並成交**（開倉、加倉合併、減半、平倉、開空、反向平倉）；剩反向開倉一筆 `live_risk_stale`（證據 5.08 s > 5 s，帳戶快照 2.7 s，測試網交易員全量 WS 讀取延遲；主網交易員走快取不經此路）。
+- API 全套 4562 通過（cache 變更後）。尚未部署 Stage。
+
 ## 5. 工具與權限
 
 - 在途守門（唯讀）：`node .claude/codex-verification/recovery/stage-predeploy-inflight-1fe487ce.mjs --execute`

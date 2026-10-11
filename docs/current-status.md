@@ -1,17 +1,25 @@
 # 最新驗證與發布狀態
 
-更新：2026-10-11 09:34（Asia/Taipei）。本頁優先於其他報告內有日期的歷史紀錄；歷史 FAIL、逾時及舊發布 ID 保留，不改寫成最新 PASS。
+更新：2026-10-11 10:00（Asia/Taipei）。本頁優先於其他報告內有日期的歷史紀錄；歷史 FAIL、逾時及舊發布 ID 保留，不改寫成最新 PASS。
 
 ## 本輪最新結果
 
-### 台北09:34目前狀態
+### 台北10:00新增修正與驗收
+
+- **再現另一個過期資料排序缺陷：** 09:52 Stage只讀量測，重要且已過冷卻的舊快照排在第39／44／53位；最近失敗的嘗試時間會令已過期176–229分鐘的資料落到新近過期資料後方。新排序比較「資料到期、重試可執行」兩個時間中較晚者：兩者都已等待越久者優先；剛解除冷卻的失敗帳戶不搶走已等候健康帳戶的機會。未改65秒／5分鐘冷卻、40分鐘政策、120分鐘freshness、95%門檻或額度。
+- 真實隔離Postgres舊碼 **1 FAIL／22 PASS**；新相關三檔 **60 PASS**，含測試型別與API oxlint通過。Stage只讀反事實排序第39→6／44→12／53→21，僅證明排序差異，不能當成實際派送成功；新SELECT EXPLAIN execution 0.844ms只是一筆抽樣，不是負載保證。完整隔離API **282檔／4,526 PASS**（813.16秒）、原程序exit0、隔離資料庫已移除；新精確CI與部署尚待完成，**新排序尚未部署**。
+- 前端仍為fc93／唯一Web部署cb593，後端仍061／原API98f448與worker a347c8。09:59原登入Stage再驗1440／390：主選單桌面向下、手機向上、二級向右、Escape焦點、主題／reduced-motion、登出error hover、模擬儲值寬0且不可操作、正式展開72／60px均通過；推薦複製／QR／短碼拒絕／停用申領與主網Arbitrum地址／單一Sonner複製提示通過，無API錯誤、pageerror或金融／推薦寫入。兩張截圖已人工檢視；首次工具5秒帳戶就緒逾時與錯誤的CJK／meta假設保留，修正驗收工具等待及selector，沒有改產品來配合工具。
+- 09:58原061觀察窗 **5／7** 雙95%品質通過、5組部署後真實新歷史；rekt及very_unprofitable仍缺重要權益快照。全七組及兩次相鄰量測尚未通過，不結案；原窗口期限及舊ab逾時紀錄不變。常態cohort／backfill額度分配仍等待明確授權，**未套用**。
+- 主網金融C仍未入金或簽署；付費推薦adapter／可信費用歸屬仍停用。已接受的testnet B結案與逾時紀錄保留，不用新資料排序測試冒充重跑金融B。
+
+### 台北09:34歷史快照（以10:00狀態為準）
 
 - **前端已發布並實際驗收：** `fc93d60af5d1daf3707fa99df4a90ea5e28ee7c3`，[精確 CI 38100094883](https://github.com/PSheon/Trading-Dashboard/actions/runs/38100094883) 全綠；Browser **66＋75＋66＝207 PASS**，無重試／flaky，三組原始日誌沒有舊字型解析或編譯失敗。完整 Web **207檔／1429 PASS**，型別與eslint通過；獨立正式Webpack build actual exit0。原 optional Privy SDK／metadata警告保留，不宣稱零警告。
 - Stage Web 唯一原部署 `cb5939f8-a5a4-4a7b-b065-24a79f55e103` SUCCESS；API／worker仍為已核對八個編譯檔的061版，未重部署後端或改設定。依既有雲端checkpoint與七項零進行中資金guard發布。
 - **#56完成：** 116個Stage靜態WOFF2全部HTTP200、SHA256與位元組數一致、正確MIME與一年immutable快取；1440／390真實未登入settings初次只讀兩個Latin品牌字型、CJK自然延後，下次SSR生效，visible header／footer各一、無overflow／HTTP及pageerror／金融寫入。原Paul登入cookie自然由b41遷移至 `fe46d03f-bb51-4894-91b9-bb2ac194f7dc`，九項帳戶GET200，CSS／字型200。截圖已人工檢視。
 - 新字型版本真實guest `/portfolio`／`/settings`／`/favorites` ×1440／390六頁全部200，共用可見header／footer各一、無橫向溢出及新錯誤。桌面portfolio頁高900、footer底876；手機三頁在真底footer底728、floating nav頂764，間隙約36px；六張截圖已人工檢視。驗收工具兩次header計數錯誤（含隱藏responsive header／頁內section header）保留，修正為只選取共用且可見header，未改產品配合工具。
 - #55在新字型版本重驗1440／390受控55.5%與111／89USD，顯示56%＋44%，美元未變、無溢出／HTTP錯誤／金融寫入。受控回覆只驗顯示，不替代真實資料品質。
-- **洞察仍未完成：** 061原120分鐘觀察窗cutoff台北08:27:16；09:34量測2／7雙95%品質通過、3組部署後真實新歷史，仍需七組全部通過且連續两次。沒有降低品質／延長freshness／改配額，舊窗逾時保留。
+- **洞察仍未完成：** 061原120分鐘觀察窗cutoff台北08:27:16；09:34量測2／7雙95%品質通過、3組部署後真實新歷史，仍需七組全部通過且連續兩次。沒有降低品質／延長freshness／改配額，舊窗逾時保留。
 - 常態背景額度方案已完成原狀唯讀核對與有效cap計算：cohort150→240（約55→89/min）、backfill120→30（約44→11/min），sum730／worker360／共享背景400不變。原兩環境變數皆未設定，可恢復原absence；舊歷史回補會變慢，新歷史／候選池額度不變。**等待Paul明確授權，尚未套用**；先前暫時提額方案亦未套用，不把暫時加速當作正常配置驗收。
 - 推薦防循環（含並行圖變更）、開始實際跟單後禁止綁定、DID穩定journal、綁定錯誤呈現及好友實際network標籤已在目前後端／前端；完整API／Web回歸涵蓋其修正。Stage邀請複製／QR與停用申領已有真人唯讀操作證據。費用歸屬／treasury／付款adapter仍未實作且停用，沒有冒稱完整返佣；OTP真人登入不代表所有登入供應商／跨裝置／JWKS輪替皆實測。
 - **主網僅唯讀：** 台北09:14原Paul主網策略／執行帳戶與pending funding／risk liability／stop皆0；平台未暫停／非reduce-only。預設場域無倉位／掛單／可用資金（不是所有場域證明），stage.orbie.fun portfolio／health／settings HTTP200；09:15 Arbitrum同區塊USDC與ETH皆0。09:33原Paul正常頁面讀取主網capabilities HTTP200，actualAllowed／automaticExecution／setupAbort皆true，上限每筆12–15USDC／配置50USDC／3x／兩策略維持；四筆overview項目包含歷史，不等於四筆活躍主網策略。未入金／簽署／派單，付費推薦仍停用。
@@ -41,7 +49,7 @@
 - **七組資料仍在驗收，不能結案。** ab原始worker確認後另開120分鐘唯讀觀察窗，以台北07:34:45之後的真實新歷史、全部七組精確95%門檻、兩次相鄰120秒量測及歷史年齡小於45分鐘為準。07:36:58只有 **4／7** 品質通過，部署後新歷史 **0／7**；維持40分鐘原寫入節奏，沒有補造或提前寫入。舊f8逾時及dc／88觀察窗保留。
 - 台北07:35:23唯讀重查Paul正式錢包：Hyperliquid預設永續venue權益／持倉／掛單與現貨USDC均0；這不是全venue資金證明。07:36:24同一Arbitrum區塊的USDC／ETH均0。07:36:56原登入頁面實際帶認證的GET兩次200，actualAllowed／automaticExecution／setupAbort=true，caps仍為每筆12–15USD、配置最多50USD、槓桿最多3、每人最多2策略，新API錯誤0。主網金融C仍未簽署或入金。
 
-以下保留先前發布與驗證紀錄，最新執行版本以上列ab為準。
+以下保留先前發布與驗證紀錄，最新執行版本以上方「本輪最新結果」為準。
 
 ### 台北07:47新增文案修正（尚待發布）
 

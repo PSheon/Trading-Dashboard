@@ -423,7 +423,45 @@ describe("cohort job and endpoints (real Postgres)", () => {
     expect((await repository.nextDue(1, new Date(now - 40 * 60_000), retries))[0].address).toBe(addr(1));
   });
 
-  it("uses the exact freshness boundary and preserves oldest-attempt fairness among expired snapshots", async () => {
+  it("recovers the oldest expired observations before newly expired ones after eligible failed attempts", async () => {
+    const now = Date.now();
+    await db.insert(cohortMembers).values([
+      { address: addr(1), tier: "profitable", source: "pool", rank: 1, fetchedAt: new Date(now - 121 * 60_000), attemptedAt: new Date(now - 121 * 60_000) },
+      { address: addr(2), tier: "profitable", source: "pool", rank: 2, fetchedAt: new Date(now - 220 * 60_000), attemptedAt: new Date(now - 90 * 60_000), lastError: "capacity: hyperliquid_quota_exhausted" },
+      { address: addr(3), tier: "profitable", source: "pool", rank: 3, fetchedAt: new Date(now - 198 * 60_000), attemptedAt: new Date(now - 51 * 60_000), lastError: "provider unavailable" },
+      { address: addr(4), tier: "profitable", source: "pool", rank: 4, fetchedAt: new Date(now - 166 * 60_000), attemptedAt: new Date(now - 22 * 60_000), lastError: "capacity: hyperliquid_quota_exhausted" },
+    ]);
+    const due = await repository.nextDue(10, new Date(now - 40 * 60_000), {
+      failureBefore: new Date(now - 5 * 60_000), capacityBefore: new Date(now - 65_000), staleBefore: new Date(now - 120 * 60_000),
+    });
+    expect(due.map(row => row.address)).toEqual([addr(2), addr(3), addr(4), addr(1)]);
+  });
+
+  it.each([
+    ["capacity", 65_000, "capacity: hyperliquid_quota_exhausted"],
+    ["provider", 5 * 60_000, "provider unavailable"],
+  ] as const)("keeps the %s cooldown and gives already-overdue healthy observations a turn before a newly eligible failure", async (_kind, cooldown, error) => {
+    const now = Date.now(), oldest = new Date(now - 220 * 60_000);
+    await db.insert(cohortMembers).values([
+      { address: addr(1), tier: "profitable", source: "pool", rank: 1, fetchedAt: new Date(now - 123 * 60_000), attemptedAt: new Date(now - 123 * 60_000) },
+      { address: addr(2), tier: "profitable", source: "pool", rank: 2, fetchedAt: new Date(now - 122 * 60_000), attemptedAt: new Date(now - 122 * 60_000) },
+      { address: addr(3), tier: "profitable", source: "pool", rank: 3, fetchedAt: oldest, attemptedAt: oldest },
+    ]);
+    await repository.saveFailure(addr(3), new Date(now - cooldown + 5_000), error);
+    const dueAt = (at: number) => repository.nextDue(10, new Date(at - 40 * 60_000), {
+      failureBefore: new Date(at - 5 * 60_000), capacityBefore: new Date(at - 65_000), staleBefore: new Date(at - 120 * 60_000),
+    });
+    expect((await dueAt(now)).map(row => row.address)).toEqual([addr(1), addr(2)]);
+    await repository.saveSnapshot(addr(1), { positions: [], perpEquity: 1, dexes: [], fetchedAt: new Date(now) });
+    expect((await dueAt(now + 6_000)).map(row => row.address)).toEqual([addr(2), addr(3)]);
+    await repository.saveSnapshot(addr(2), { positions: [], perpEquity: 1, dexes: [], fetchedAt: new Date(now + 6_000) });
+    const recovered = await dueAt(now + 6_000);
+    expect(recovered.map(row => row.address)).toEqual([addr(3)]);
+    expect(recovered[0].fetchedAt).toEqual(oldest);
+    expect(recovered[0].lastError).toBe(error);
+  });
+
+  it("uses the exact freshness boundary and preserves oldest-attempt fairness for equally old expired observations", async () => {
     const now = Date.now(), cutoff = now - 120 * 60_000;
     await db.insert(cohortMembers).values([
       { address: addr(1), tier: "profitable", source: "pool", rank: 1, fetchedAt: new Date(cutoff), attemptedAt: new Date(now - 121 * 60_000) },

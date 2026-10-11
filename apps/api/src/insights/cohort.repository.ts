@@ -146,8 +146,8 @@ export class CohortRepository {
     });
   }
 
-  /** The next members to refresh: never attempted first (in tier order,
-   * then rank), then those attempted longest ago before `before`. */
+  /** The next members to refresh: expired observations first when a
+   * freshness cutoff is supplied; otherwise oldest attempts as before. */
   nextDue(limit: number, before: Date, retries?: { failureBefore: Date; capacityBefore: Date; staleBefore?: Date }): Promise<CohortMemberRow[]> {
     // attemptedAt is scheduling evidence, never snapshot freshness. Failed
     // reads have a shorter, bounded cooldown while retaining oldest-first
@@ -155,11 +155,16 @@ export class CohortRepository {
     const dueBefore = retries
       ? sql`case when ${cohortMembers.lastError} like 'capacity: %' then ${retries.capacityBefore}::timestamptz when ${cohortMembers.lastError} is not null then ${retries.failureBefore}::timestamptz else ${before}::timestamptz end`
       : sql`${before}::timestamptz`;
-    // A failed read must not move an expired snapshot behind a whole cycle
-    // of still-fresh reads. Preserve oldest-attempt fairness within each
-    // freshness group; the existing cooldown still determines eligibility.
+    // A failed read does not renew the data's expiry. Order expired members
+    // by how long BOTH expiry and retry eligibility have been overdue:
+    // recently failed accounts cannot displace already-waiting healthy
+    // members, while older overdue retries outrank newly expired data.
+    // Cooldowns and oldest-attempt tie fairness remain unchanged.
     const freshnessOrder = retries?.staleBefore
-      ? [sql`${cohortMembers.fetchedAt} is not null and ${cohortMembers.fetchedAt} >= ${retries.staleBefore}::timestamptz`]
+      ? [
+        sql`${cohortMembers.fetchedAt} is not null and ${cohortMembers.fetchedAt} >= ${retries.staleBefore}::timestamptz`,
+        sql`case when ${cohortMembers.fetchedAt} is null or ${cohortMembers.fetchedAt} < ${retries.staleBefore}::timestamptz then greatest(${cohortMembers.fetchedAt} - ${retries.staleBefore}::timestamptz, ${cohortMembers.attemptedAt} - ${dueBefore}) end asc nulls first`,
+      ]
       : [];
     return this.db
       .select()

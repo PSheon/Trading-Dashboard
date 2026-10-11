@@ -80,9 +80,16 @@ describe("times are UTC", () => {
       expect(f.axisDate(at, "hours"), locale).toMatch(/^22.52$/);
     }
     expect(createFormatter("en").date(at)).toBe("September 18, 2026");
-    expect(createFormatter("zh-TW").dateTime(at)).toBe("2026/09/18 22:52");
-    // CI's ICU puts a thin space (U+2009) between date and time; the formatter
-    // makes it one plain space, so this exact string holds on both.
+  });
+
+  it("tables and lists write one stamp: 'Sep 18, 22:52' in every language, with the year only when it is not this year (Paul, 2026-10-11)", () => {
+    const now = Date.parse("2026-10-11T00:00:00Z");
+    for (const locale of LOCALES) {
+      expect(createFormatter(locale).dateTime(at, now), locale).toBe("Sep 18, 22:52");
+      expect(createFormatter(locale).dateTime("2025-12-31T23:05:00Z", now), locale).toBe("Dec 31, 2025, 23:05");
+    }
+    expect(shortTime(at, now)).toBe("Sep 18, 22:52");
+    expect(shortTime("2025-12-31T23:05:00Z", now)).toBe("Dec 31, 2025, 23:05");
   });
 
   it("the PnL calendar's months are UTC months", () => {

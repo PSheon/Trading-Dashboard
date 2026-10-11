@@ -28,7 +28,7 @@ it("warns how many recent opens a small ratio copy would leave under the minimum
   expect(html).toContain("跟單適配估算");
   expect(html).toContain("最近 3 筆開倉中約 1 筆（33%）會低於最低下單額 $10");
   expect(html).toContain("另有 1 筆是 HIP-3 市場");
-  expect(html).toContain("2026/10/10 01:01 – 2026/10/10 01:03");
+  expect(html).toContain("Oct 10, 01:01 – Oct 10, 01:03");
   expect(html).toContain("bg-warning/10");
 });
 

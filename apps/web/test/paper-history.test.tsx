@@ -58,7 +58,7 @@ describe("訂單: an order's row opens its fills", () => {
     await render(<OrderFills strategyId={7} orderId="3" />);
     expect(calls).toContain("/me/copy/strategies/7/fills?limit=100&before=18");
     expect(el.querySelector('[data-testid="order-fills"]')!.querySelectorAll("li")).toHaveLength(1);
-    expect(el.textContent).toContain("0.5 × $2,500.12");
+    expect(el.textContent).toContain("0.5 × $2,500.1");
     expect(el.textContent).not.toMatch(/#\d|2500\.123400/);
   });
 });

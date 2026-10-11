@@ -25,11 +25,11 @@ it("shows the retention job's last run and the rows it removed per table (review
   expect(html).toContain("Data retention");
   expect(html).toContain("Complete");
   // UTC, like every time on the site.
-  expect(html).toContain("10/01/2026, 18:07");
+  expect(html).toContain("Oct 1, 18:07");
   expect(html).toContain("Position snapshots");
   expect(html).toContain("15,604");
   expect(html).toContain("Alert delivery records");
-  expect(html).toContain("kept since 09/01/2026, 18:07");
+  expect(html).toContain("kept since Sep 1, 18:07");
 
   const zh = renderToStaticMarkup(<I18nProvider locale="zh-TW" messages={zhTW}><RetentionPanel retention={{ ...retention!, lastStatus: "partial", removed: { position_snapshots: 500_000 } }} /></I18nProvider>);
   expect(zh).toContain("已達單次上限，下次接續");

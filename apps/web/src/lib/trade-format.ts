@@ -1,4 +1,4 @@
-import { TIME_ZONE } from "@/i18n/config";
+import { tableStamp } from "@/lib/format";
 /**
  * Number and time formats of CopyDog's trader-page trade views (its JS
  * bundle), used by Orbie's win-rate tile, rail trade sections and the 表現 /
@@ -29,9 +29,9 @@ export function winRateTone(value: number | null | undefined): "positive" | "war
 /** "Sep 19, 06:52" (en-US, 24 h), in the site's one time zone — the same
  * zone every other time on the page is written in (lib/format), so a trade
  * table and the chart beside it never disagree by the viewer's offset. */
-export function shortTime(value: string | number | Date | null | undefined): string {
+export function shortTime(value: string | number | Date | null | undefined, now?: number): string {
   if (!value) return "-";
-  return new Date(value).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: TIME_ZONE });
+  return tableStamp(new Date(value), now);
 }
 
 /** "20d 17h", "21h 12m", "55m", "19s". */

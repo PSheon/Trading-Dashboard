@@ -20,7 +20,7 @@ import { useI18n } from "@/i18n/provider";
 import { useAuth } from "@/lib/auth";
 import type { ActionFeedItem } from "@/lib/contracts";
 import { useCopyEvents, useCopyOverview } from "@/lib/copy";
-import { coinLabel, truncateAddress } from "@/lib/format";
+import { coinLabel, timeAgo, truncateAddress } from "@/lib/format";
 import { useActions } from "@/lib/queries";
 import { useWalletHistory } from "@/lib/wallet";
 import { SwitchPanel } from "@/components/ui/switch-panel";
@@ -30,13 +30,11 @@ const CHIPS = ["copies", "following", "deposits"] as const;
 
 type Chip = "copies" | "following" | "deposits";
 
-/** "Just now", "5m", "3h", "2d" (CopyDog's activity times). */
-export function shortAgo(value: string | number | Date, t: (key: "feed.justNow") => string, now = Date.now()): string {
-  const s = Math.max(0, Math.round((now - new Date(value).getTime()) / 1000));
-  if (s < 60) return t("feed.justNow");
-  if (s < 3600) return `${Math.floor(s / 60)}m`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h`;
-  return `${Math.floor(s / 86400)}d`;
+/** "Just now" under a minute, else the site's one relative time
+ * (timeAgo: "5m ago", "5 分鐘前"). */
+export function shortAgo(value: string | number | Date, t: (key: "feed.justNow") => string, now = Date.now(), locale = "en"): string {
+  if (now - new Date(value).getTime() < 60_000) return t("feed.justNow");
+  return timeAgo(value, now, locale) ?? t("feed.justNow");
 }
 
 function Row({ icon, title, subtitle, trail, href, onNavigate }: { icon: React.ReactNode; title: React.ReactNode; subtitle?: React.ReactNode; trail?: React.ReactNode; href?: string; onNavigate?: () => void }) {
@@ -83,7 +81,7 @@ function Empty({ title, body }: { title: string; body?: string }) {
 }
 
 function CopiesList() {
-  const { t, format } = useI18n();
+  const { t, format, locale } = useI18n();
   const events = useCopyEvents();
   const overview = useCopyOverview();
   const leaders = useLeaders(overview.data?.strategies ?? []);
@@ -103,7 +101,7 @@ function CopiesList() {
         const coin = d.coin ? coinLabel(d.coin) : "";
         const side = d.long === null ? "" : t(d.long ? "feed.long" : "feed.short");
         const at = d.px !== null ? ` ${t("feed.atPrice", { px: format.price(d.px) })}` : "";
-        const time = shortAgo(event.createdAt, t);
+        const time = shortAgo(event.createdAt, t, undefined, locale);
         if (d.coin && (d.kind === "open" || d.kind === "increase" || d.kind === "decrease" || d.kind === "close" || d.kind === "liquidation")) {
           const verb = t(`feed.verb.${d.kind}`);
           const down = d.kind === "decrease" || d.kind === "close" || d.kind === "liquidation";
@@ -142,7 +140,7 @@ function CopiesList() {
 const buys = (a: Pick<ActionFeedItem, "kind" | "side">) => (a.kind === "open" || a.kind === "add" || a.kind === "flip" ? a.side === "long" : a.side !== "long");
 
 function FollowingList({ onNavigate }: { onNavigate: () => void }) {
-  const { t, format } = useI18n();
+  const { t, format, locale } = useI18n();
   const feed = useActions({ scope: "favorites", limit: 50 }, { refetchInterval: 15_000 });
   const { rows: pageRows, pager } = usePaged(feed.data ?? [], useAuth().identity);
   if (!feed.data) return feed.isError ? <p className="py-8 text-center text-sm text-muted-foreground">{t("copyUpdates.activityError")}</p> : <ListRowsSkeleton />;
@@ -160,7 +158,7 @@ function FollowingList({ onNavigate }: { onNavigate: () => void }) {
             icon={<CoinBadge coin={a.coin} down={!buy} />}
             title={t(buy ? "feed.bought" : "feed.sold", { who, coin: coinLabel(a.coin) })}
             subtitle={`${format.usd(Number(a.notionalUsd), { digits: 0 })} @ ${format.price(Number(a.avgPx))}`}
-            trail={<span className="text-muted-foreground">{shortAgo(a.ts, t)}</span>}
+            trail={<span className="text-muted-foreground">{shortAgo(a.ts, t, undefined, locale)}</span>}
           />
         );
       })}
@@ -169,7 +167,7 @@ function FollowingList({ onNavigate }: { onNavigate: () => void }) {
 }
 
 function DepositsList() {
-  const { t, format } = useI18n();
+  const { t, format, locale } = useI18n();
   const history = useWalletHistory();
   const rows = useMemo(() => (history.data?.transfers ?? []).filter((x) => x.kind === "deposit" || x.kind === "withdraw"), [history.data]);
   const { rows: pageRows, pager } = usePaged(rows, history.data?.address);
@@ -184,7 +182,7 @@ function DepositsList() {
             key={`${x.hash}-${String(x.time)}`}
             icon={<span className={cn("flex size-10 shrink-0 items-center justify-center rounded-full", deposit ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>{deposit ? <ArrowDownLeft className="size-4" /> : <ArrowUpRight className="size-4" />}</span>}
             title={t(deposit ? "feed.deposit" : "feed.withdrawal")}
-            subtitle={shortAgo(x.time, t)}
+            subtitle={shortAgo(x.time, t, undefined, locale)}
             trail={<>
               <span className={cn("num font-semibold", deposit ? "text-positive" : "text-negative")}>{deposit ? "+" : "−"}{format.usd(x.amount, { digits: 2 })}</span>
               <span className="text-positive">{t("feed.completed")}</span>

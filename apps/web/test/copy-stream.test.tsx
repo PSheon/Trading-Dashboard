@@ -55,10 +55,12 @@ describe("what a copy event says (activity rows and toasts)", () => {
   it("short times as CopyDog's activity panel shows them", () => {
     const now = Date.UTC(2026, 9, 4, 12);
     const t = () => "Just now";
+    // The site's one relative time (timeAgo), as the board cards write it (Paul, 2026-10-11).
     expect(shortAgo(now - 30_000, t, now)).toBe("Just now");
-    expect(shortAgo(now - 5 * 60_000, t, now)).toBe("5m");
-    expect(shortAgo(now - 3 * 3_600_000, t, now)).toBe("3h");
-    expect(shortAgo(now - 2 * 86_400_000, t, now)).toBe("2d");
+    expect(shortAgo(now - 5 * 60_000, t, now)).toBe("5m ago");
+    expect(shortAgo(now - 3 * 3_600_000, t, now)).toBe("3h ago");
+    expect(shortAgo(now - 2 * 86_400_000, t, now)).toBe("2d ago");
+    expect(shortAgo(now - 5 * 60_000, t, now, "zh-TW")).toBe("5 分鐘前");
   });
 
   it("merging a pushed event is idempotent and keeps id order", () => {

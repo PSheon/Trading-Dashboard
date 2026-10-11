@@ -16,6 +16,17 @@ export function toNumber(value: Numeric): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** "Sep 18, 22:52" in the site's zone (UTC, 24 h); the year only when it is
+ * not the current one ("Dec 31, 2025, 23:05"). English month names in every
+ * language, as the trader tables have always written them. */
+const STAMP_DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: TIME_ZONE });
+const STAMP_DAY_YEAR = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: TIME_ZONE });
+const STAMP_TIME = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: TIME_ZONE });
+export function tableStamp(d: Date, now = Date.now()): string {
+  const sameYear = d.getUTCFullYear() === new Date(now).getUTCFullYear();
+  return `${(sameYear ? STAMP_DAY : STAMP_DAY_YEAR).format(d)}, ${STAMP_TIME.format(d)}`;
+}
+
 function toDate(value: DateLike): Date | null {
   if (value === null || value === undefined) return null;
   const d = value instanceof Date ? value : new Date(value);
@@ -39,7 +50,9 @@ export interface Formatter {
   compactNum(value: Numeric): string;
   /** Price with sensible precision for its magnitude. */
   price(value: Numeric): string;
-  dateTime(value: DateLike): string;
+  /** "Sep 18, 22:52" (24 h, UTC), "Dec 31, 2025, 23:05" outside this year:
+   * the one stamp of every table and list, in every language. */
+  dateTime(value: DateLike, now?: number): string;
   /** CopyDog's chart stamp: long date, comma, 2-digit time
    * ("2026年10月1日, 上午02:29"). */
   stamp(value: DateLike): string;
@@ -174,19 +187,9 @@ export function createFormatter(locale: Locale): Formatter {
       }).format(n);
     },
 
-    dateTime(value) {
+    dateTime(value, now) {
       const d = toDate(value);
-      if (!d) return DASH;
-      return df("dt", {
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-        // ICU versions differ on the gap between date and time (a thin space
-        // in newer ones); one plain space reads the same on every browser.
-      }).format(d).replace(/[\u2009\u202f]/g, " ");
+      return d ? tableStamp(d, now) : DASH;
     },
 
     stamp(value) {

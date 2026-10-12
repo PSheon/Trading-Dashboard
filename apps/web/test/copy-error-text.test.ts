@@ -60,3 +60,14 @@ describe('copyErrorText', () => {
     }
   });
 });
+
+describe('never-sent money operations (money audit 2026-10-12)', () => {
+  it.each(LOCALES)('say in %s that nothing was sent, not a generic error', (locale) => {
+    const texts = { live: liveSetupMessages[locale], extra: copyErrorMessages[locale] };
+    for (const code of ['return_not_sent', 'builder_approval_not_signed', 'account_action_not_dispatched']) {
+      const text = copyErrorText(texts, new ApiError(503, 'Service Unavailable', { code }));
+      expect(text).toBe(texts.extra.codes[code as keyof typeof texts.extra.codes]);
+      expect(text).not.toContain(code);
+    }
+  });
+});

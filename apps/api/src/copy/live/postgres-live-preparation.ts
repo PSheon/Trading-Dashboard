@@ -12,7 +12,7 @@ import { loadLiveGenerationManifest } from './postgres-live-generation-manifest.
 import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceLegId } from './copy-live-source-evidence.js';
 import { planLiveSourceOrder } from './copy-live-source-planner.js';
 import type { LiveSourceSizingEnvelopeV1 } from './copy-live-sizing-evidence.js';
-import { compactLiveGenerationManifest, liveSettlementProofsOf, LiveGenerationProjectionMemo, projectLiveGenerationPositions, type LiveGenerationManifestV1 } from './copy-live-generation-projection.js';
+import { compactLiveGenerationManifest, liveGenerationProofsByDigest, liveSettlementProofsOf, LiveGenerationProjectionMemo, projectLiveGenerationPositions, type LiveGenerationManifestV1 } from './copy-live-generation-projection.js';
 import { freezeLiveReservation } from './live-risk-reservation.js';
 import { captureLivePositionBaseline } from './live-position-baseline.js';
 import { followerReceiptDigestV1 } from './actual-fill-accounting.js';
@@ -214,7 +214,7 @@ export class PostgresLivePreparation {
     const seeded: LiveGenerationManifestV1 = { ...currentManifest, carry: seedCarry ? [...currentManifest.carry, carry] : currentManifest.carry };
     const projection = projectLiveGenerationPositions({ identity: { mandateId: binding.mandateId, mandateRevision: local.mandate.revision, accountId: local.account.id, userId: local.account.userId,
       strategyId: local.strategy.id, network, accountAddress: local.account.address!, authorizationId: local.grant.id, settingsDigest: local.consent.settingsDigest,
-      leaderAddress: local.consent.leaderAddress, direction: local.settings.direction }, manifest: seeded, snapshot: follower, currentExecutionKey: key, now: planningAt });
+      leaderAddress: local.consent.leaderAddress, direction: local.settings.direction }, ...liveGenerationProofsByDigest(seeded), snapshot: follower, currentExecutionKey: key, now: planningAt });
     const positionSize = projection.positions[source.fill.coin] ?? '0';
     // O10b: an open of a coin the generation proves flat while its carry still
     // owes something (a close emptied it without resetting it: reconcile,

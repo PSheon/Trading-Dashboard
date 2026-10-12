@@ -15,7 +15,7 @@ import { freezeLiveReservation, planLiveReservation, validateLiveReservationPayl
 import { Dec } from '../../common/decimal/dec.js';
 import { calculateLiveExternalExposure } from './live-external-exposure.js';
 import { loadLiveGenerationManifest } from './postgres-live-generation-manifest.js';
-import { projectLiveGenerationPositions,type LiveGenerationManifestV1,type LiveSettlementProofs } from './copy-live-generation-projection.js';
+import { liveGenerationProofsByDigest,projectLiveGenerationPositions,type LiveGenerationManifestV1,type LiveSettlementProofs } from './copy-live-generation-projection.js';
 import { loadLiveSettlementProofs } from './copy-live-settlement-proofs.js';
 import { decodeLiveSourceSizingEnvelope,planLiveSourceOrder } from './copy-live-source-planner.js';
 import type { LiveSourceSizingBasisV1 } from './copy-live-sizing-evidence.js';
@@ -131,7 +131,7 @@ export class PostgresLiveRiskSource {
     }
     const projection=projectLiveGenerationPositions({identity:{mandateId:local.row.mandate.id,mandateRevision:local.row.mandate.revision,accountId:local.identity.accountId,userId:local.identity.userId,
       strategyId:local.identity.strategyId,network:local.identity.network,accountAddress:local.identity.accountAddress,authorizationId:local.identity.authorizationId,settingsDigest:local.consent.settingsDigest,
-      leaderAddress:local.consent.leaderAddress,direction:local.settings.direction},manifest:local.generation,snapshot,currentExecutionKey:local.binding.key,now:this.now(),...(held?{ownSubmittingReservation:held}:{})});
+      leaderAddress:local.consent.leaderAddress,direction:local.settings.direction},...liveGenerationProofsByDigest(local.generation),snapshot,currentExecutionKey:local.binding.key,now:this.now(),...(held?{ownSubmittingReservation:held}:{})});
     const carry=local.generation.carry.find(c=>c.coin===local.fill.coin);
     requireProof(projection.baselineDigest===basis.generation.baselineDigest&&projection.positionsDigest===basis.generation.positionsDigest&&projection.receiptManifestDigest===basis.generation.receiptManifestDigest&&
       (projection.positions[local.fill.coin]??'0')===basis.generation.positionSize&&carry&&carry.revision===basis.carry.revision&&carry.carry===basis.carry.amount,'live_risk_generation_unproven');

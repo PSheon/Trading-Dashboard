@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fixture } from './copy-live-risk-test-utils.js';
 import { captureLivePositionBaseline } from '../src/copy/live/live-position-baseline.js';
-import { compactLiveGenerationManifest, liveSettlementProofsOf, LiveGenerationProjectionMemo, projectLiveGenerationPositions, retainedSettlementProofRefs, type LiveGenerationProjectionInput, type LiveGenerationManifestV1 } from '../src/copy/live/copy-live-generation-projection.js';
+import { compactLiveGenerationManifest, liveGenerationProofsByDigest, liveSettlementProofsOf, LiveGenerationProjectionMemo, projectLiveGenerationPositions, retainedSettlementProofRefs, type LiveGenerationProjectionInput, type LiveGenerationManifestV1 } from '../src/copy/live/copy-live-generation-projection.js';
 import { freezeLiveReservation } from '../src/copy/live/live-risk-reservation.js';
 import { settledGenerationExample } from './copy-live-generation-test-utils.js';
 import { parseFollowerFunding, followerReceiptDigestV1 } from '../src/copy/live/actual-fill-accounting.js';
@@ -108,6 +108,18 @@ describe('a retained manifest names settled proofs by digest (sizing envelopes, 
     // Proofs supplied for an inline manifest are never consulted.
     expect(projectLiveGenerationPositions({...e,settlementProofs:{}})).toEqual(inline);
     expect(retainedSettlementProofRefs(compact)).toEqual([{key:m.journals[0]!.journal.key,digest}]);expect(retainedSettlementProofRefs(m)).toEqual([]);
+  });
+  it('a manifest read with its proofs inline is projected by digest without copying them, and refused the same when a proof is altered',()=>{
+    const {e,m}=settled(),digest=m.journals[0]!.evidence!.settlementProofDigest!,byDigest=liveGenerationProofsByDigest(m);
+    expect(byDigest.manifest).toEqual(compactLiveGenerationManifest(m));expect(byDigest.settlementProofs).toEqual({[digest]:m.journals[0]!.evidence!.settlementProof});
+    expect(byDigest.settlementProofs![digest]).toBe(m.journals[0]!.evidence!.settlementProof);
+    expect(projectLiveGenerationPositions({...e,...byDigest})).toEqual(projectLiveGenerationPositions(e));
+    const altered=structuredClone(m) as LiveGenerationManifestV1,proof=altered.journals[0]!.evidence!.settlementProof as {certificate:{filledSize:string}};proof.certificate.filledSize='2';
+    expect(()=>projectLiveGenerationPositions({...e,...liveGenerationProofsByDigest(altered)})).toThrow('live_generation_unproven');
+    // Two journals naming one digest, or no inline proof: the manifest as read.
+    const twice:LiveGenerationManifestV1={...m,journals:[m.journals[0]!,{...m.journals[0]!,journal:{...m.journals[0]!.journal,key:'other'}}]};
+    expect(liveGenerationProofsByDigest(twice)).toEqual({manifest:twice});expect(liveGenerationProofsByDigest(twice).manifest).toBe(twice);
+    const compact=compactLiveGenerationManifest(m);expect(liveGenerationProofsByDigest(compact).manifest).toBe(compact);
   });
   it.each(['missing','altered','other_digest','null_inline'] as const)('refuses a compact manifest whose proof is %s',kind=>{
     const {e,m,compact,proofs}=settled(),digest=m.journals[0]!.evidence!.settlementProofDigest!;

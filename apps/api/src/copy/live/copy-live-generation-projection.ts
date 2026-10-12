@@ -96,6 +96,14 @@ export function liveSettlementProofsOf(manifest: LiveGenerationManifestV1): Live
   for (const { evidence: e } of manifest.journals) if (e?.settlementProofDigest && e.settlementProof !== undefined && e.settlementProof !== null) proofs[e.settlementProofDigest] = e.settlementProof;
   return proofs;
 }
+/** A manifest read with its proofs inline, as a retained one and its proofs by
+ * digest: the projection is the same (it verifies each proof against its
+ * digest either way) but no longer copies every proof with the manifest.
+ * Inline as read when two journals name one digest. */
+export function liveGenerationProofsByDigest(manifest: LiveGenerationManifestV1): { manifest: LiveGenerationManifestV1; settlementProofs?: LiveSettlementProofs } {
+  const settlementProofs = liveSettlementProofsOf(manifest), inline = manifest.journals.filter(({ evidence: e }) => e?.settlementProofDigest && e.settlementProof !== undefined && e.settlementProof !== null).length;
+  return inline && Object.keys(settlementProofs).length === inline ? { manifest: compactLiveGenerationManifest(manifest), settlementProofs } : { manifest };
+}
 /** The journal keys and proof digests a retained manifest names without the proof. */
 export function retainedSettlementProofRefs(manifest: unknown): { key: string; digest: string }[] {
   const journals = (manifest as LiveGenerationManifestV1 | undefined)?.journals;

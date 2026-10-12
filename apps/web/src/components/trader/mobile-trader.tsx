@@ -1,8 +1,7 @@
 "use client";
 
 import type { PortfolioResponse, TraderAnalyticsResponse, TraderFill, TraderProfileResponse, TraderWindow } from "@/lib/contracts";
-import { ArrowLeft, MoreHorizontal, X } from "lucide-react";
-import { Link } from "@/i18n/navigation";
+import { MoreHorizontal, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { cn } from "cn";
 
@@ -34,6 +33,7 @@ import { useCopyOf } from "@/lib/copy";
 import { signedPctCd, WINDOWS } from "./performance";
 import { unavailableNote } from "./profile-card";
 import { Segmented } from "@/components/ui/segmented";
+import { BackButton } from "@/components/ui/back-button";
 
 /** The trader page's own top bar on phones (CopyDog's): back, the address
  * (a KOL's name and badge instead), favourite, alert and share. Replaces the app's header there. */
@@ -43,13 +43,7 @@ function TopBar({ profile }: { profile: TraderProfileResponse }) {
   return (
     <header data-testid="trader-phone-header" data-scrolled={scrolled} className="sticky top-[72px] z-30 isolate -mx-4 -mt-4 flex items-center gap-2 px-4 pt-2 pb-2">
       <div aria-hidden className="bar-scrim" />
-      <Link
-        href="/explore"
-        aria-label={t("common.back")}
-        className="orbit-press relative inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-raised outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <ArrowLeft className="size-5" strokeWidth={2.4} />
-      </Link>
+      <BackButton href="/explore" label={t("common.back")} />
       <h1 className="min-w-0 flex-1 truncate text-center font-display text-lg leading-6" title={profile.address}>
         {profile.kol ? profile.displayName?.trim() || truncateAddress(profile.address) : truncateAddress(profile.address)}
       </h1>

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, ChevronDown, Minus, Pause, Pencil, Play, Plus, Share2, Square } from "lucide-react";
+import { ChevronDown, Minus, Pause, Pencil, Play, Plus, Share2, Square } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { Fragment, useMemo, useState } from "react";
 import { cn } from "cn";
@@ -35,6 +35,7 @@ import { copyDays, useAddCopyFunds, useCopyCommand, useCopyOrders, usePatchCopy,
 import { useTraderCards } from "@/lib/favorite-groups";
 import { coinLabel, truncateAddress } from "@/lib/format";
 import { TextButton } from "@/components/ui/text-button";
+import { BackButton } from "@/components/ui/back-button";
 
 type Leader = { address: string; displayName: string | null; avatarUrl: string | null };
 
@@ -343,9 +344,7 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
     <div className="detail-arrive flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
         {/* The trader page's phone back button. */}
-        <button type="button" onClick={onBack} aria-label={t("portfolio.copy.detail.back")} className="orbit-press relative inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-raised outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          <ArrowLeft className="size-5" strokeWidth={2.4} />
-        </button>
+        <BackButton onClick={onBack} label={t("portfolio.copy.detail.back")} />
         <TraderAvatar trader={leader} size={40} />
         <div className="min-w-0">
           <Link href={`/trader/${s.leaderAddress}`} className="flex items-center gap-2 text-base font-bold hover:underline">

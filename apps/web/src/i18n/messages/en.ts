@@ -61,6 +61,7 @@ export const en: Messages = {
     unconfirmed: "Unconfirmed",
     riskAttention: "Latest refusal record",
     latestObservation: "Latest account observation",
+    lastUpdatedRetrying: "Last updated {time} · retrying",
     fundingFees: "Confirmed funding transfer fees",
     feeIncluded: "This fee is already included in total PnL; it is not all trading loss.",
   },

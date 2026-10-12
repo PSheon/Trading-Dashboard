@@ -2,7 +2,7 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const zhCN: Messages = {
-  liveCopyUi: { ...en.liveCopyUi, unknownStale: "账户观察已过时，盈亏待确认", fixedTradeAlreadyClaimed: "这笔原始领单成交已有跟单请求，这次不重复跟单；成交结果以实际收据为准。" },
+  liveCopyUi: { ...en.liveCopyUi, lastUpdatedRetrying: "最后更新 {time} · 重试中", unknownStale: "账户观察已过时，盈亏待确认", fixedTradeAlreadyClaimed: "这笔原始领单成交已有跟单请求，这次不重复跟单；成交结果以实际收据为准。" },
   referral: {
     policyInactive: "奖励政策未启用。显示的条款不代表目前有获得奖励的资格。",
     invalidCode: "邀请码无法使用",

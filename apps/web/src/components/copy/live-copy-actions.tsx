@@ -30,7 +30,9 @@ import { onOtherNetwork, type LiveCopyItem } from "@/lib/copy-live-portfolio";
  * signature), 編輯設定 and 續期 (one silent signature behind Orbie's confirm
  * sheet), and 加碼 (a silent UsdSend from the main wallet).
  */
-export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strategy: LiveCopyStrategy | null }) {
+/** `held`: the copies' read is failing and their last answer is shown (the
+ * line that says so): no top-up is started from it. */
+export function LiveCopyActions({ item, strategy, held = null }: { item: LiveCopyItem; strategy: LiveCopyStrategy | null; held?: string | null }) {
   const text = useLiveSetupText(), texts = useCopyTexts(), { format, t } = useI18n();
   const track = useActionToast(), toast = useToast();
   const actions = useLiveCopySetupActions(), deployment = useLiveCopyDeployment();
@@ -110,12 +112,12 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
             generation can't trade an account that already traded yet. */}
         {running && strategy && !unfinished && !abortRequested && deployment?.network !== "mainnet" ? <Button size="sm" variant="secondary" className="min-h-11" disabled={busy} onClick={() => { setError(null); setAfterAbortedSetupId(undefined); setEditing(true); }}>{text.edit}</Button> : null}
         {!abortRequested && !fundedAbort && (running || item.stage === "needs_deposit") && item.accountId && !item.pendingTransfer ? (
-          <Button size="sm" variant="secondary" className="min-h-11" disabled={busy} onClick={() => { setError(null); setTopUpError(null); setToppingUp(true); }}>{text.topUp}</Button>
+          <Button size="sm" variant="secondary" className="min-h-11" disabled={busy || held !== null} onClick={() => { setError(null); setTopUpError(null); setToppingUp(true); }}>{text.topUp}</Button>
         ) : null}
         {abortRequested && item.setup && item.setup.kind !== "start" && item.setup.stage === "cancelled" &&
           ["active", "paused"].includes(item.stage) && ["active", "paused"].includes(item.status) && strategy && item.accountId &&
           deployment?.network === "testnet" ? <CompletedChangeActions setupId={item.setup.id} kind={item.setup.kind}
-            strategyId={item.strategyId} accountId={item.accountId} pendingTransfer={Boolean(item.pendingTransfer)} busy={busy}
+            strategyId={item.strategyId} accountId={item.accountId} pendingTransfer={Boolean(item.pendingTransfer)} busy={busy} held={held !== null}
             onEdit={() => { setError(null); setAfterAbortedSetupId(item.setup!.id); setEditing(true); }}
             onTopUp={() => { setError(null); setTopUpError(null); setToppingUp(true); }} /> : null}
         {/* No 續期 until renewal is rebuilt (the api answers renewal_unavailable): stop and start a new copy. */}
@@ -128,7 +130,7 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
       ) : null}
       {toppingUp && item.accountId ? (
         <TopUpDialog pending={actions.topUp.isPending} error={topUpError} onClose={() => setToppingUp(false)}
-          onConfirm={(amount) => { setTopUpError(null); void track(actions.topUp.mutateAsync({ accountId: item.accountId!, amount }), { success: t("toast.copy.toppedUp", { amount: format.num(Number(amount), 2) }), error: message, onSuccess: () => setToppingUp(false), onError: (err) => setTopUpError(message(err)) }); }} />
+          onConfirm={(amount) => { if (held) { setTopUpError(held); return; } setTopUpError(null); void track(actions.topUp.mutateAsync({ accountId: item.accountId!, amount }), { success: t("toast.copy.toppedUp", { amount: format.num(Number(amount), 2) }), error: message, onSuccess: () => setToppingUp(false), onError: (err) => setTopUpError(message(err)) }); }} />
       ) : null}
       <LiveCopyConfirm setup={pendingSetup} open={pendingSetup !== null} onOpenChange={(open) => { if (!open && !actions.confirm.isPending) setPendingSetup(null); }}
         onConfirm={() => void confirm()} pending={actions.confirm.isPending || actions.restart.isPending} error={confirmError}
@@ -145,14 +147,14 @@ export function LiveCopyActions({ item, strategy }: { item: LiveCopyItem; strate
 /** A summary cannot authorize new actions. Read the original owner-scoped
  * setup, then its verified completion; the original barrier stays permanent. */
 function CompletedChangeActions(props: { setupId: string; kind: 'edit' | 'renewal'; strategyId: number; accountId: string;
-  pendingTransfer: boolean; busy: boolean; onEdit(): void; onTopUp(): void }) {
+  pendingTransfer: boolean; busy: boolean; held: boolean; onEdit(): void; onTopUp(): void }) {
   const query = useLiveCopySetup(props.setupId), original = query.data;
   if (query.error || query.isPending || !original || original.id !== props.setupId || original.kind !== props.kind ||
     original.strategyId !== props.strategyId || original.accountId !== props.accountId || original.stage !== 'cancelled' || !original.abortRequested) return null;
   return <CompletedChangeControls {...props} original={original} />;
 }
-function CompletedChangeControls({ original, busy, pendingTransfer, onEdit, onTopUp }: {
-  original: LiveCopySetup; busy: boolean; pendingTransfer: boolean; onEdit(): void; onTopUp(): void;
+function CompletedChangeControls({ original, busy, held, pendingTransfer, onEdit, onTopUp }: {
+  original: LiveCopySetup; busy: boolean; held: boolean; pendingTransfer: boolean; onEdit(): void; onTopUp(): void;
 }) {
   const abort = useLiveSetupAbort(original), text = useLiveSetupText();
   if (abort.loading || abort.error || !abort.progress) return null;
@@ -160,7 +162,7 @@ function CompletedChangeControls({ original, busy, pendingTransfer, onEdit, onTo
     if (validateSetupAbortProgress(abort.progress, original, 'testnet').state !== 'completed') return null;
   } catch { return null; }
   return <><Button size="sm" variant="secondary" className="min-h-11" disabled={busy} onClick={onEdit}>{text.edit}</Button>
-    {!pendingTransfer ? <Button size="sm" variant="secondary" className="min-h-11" disabled={busy} onClick={onTopUp}>{text.topUp}</Button> : null}</>;
+    {!pendingTransfer ? <Button size="sm" variant="secondary" className="min-h-11" disabled={busy || held} onClick={onTopUp}>{text.topUp}</Button> : null}</>;
 }
 
 function PortfolioAbortDialog({ setupId, onClose, onRequested }: { setupId: string; onClose(): void; onRequested(): void }) {

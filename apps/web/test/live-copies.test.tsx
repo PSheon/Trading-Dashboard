@@ -11,11 +11,11 @@ import { LOCALES, type Locale } from '@/i18n/config';
 import { liveAccount, liveMandate, liveNow } from './copy-live-fixtures';
 import { settleQueries } from './query-settle';
 
-const state = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), sign: vi.fn(), addSigners: vi.fn(async () => undefined), snapshot: null as unknown, strategies: [] as unknown[], refetch: vi.fn(async () => undefined) }));
+const state = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), sign: vi.fn(), addSigners: vi.fn(async () => undefined), snapshot: null as unknown, strategies: [] as unknown[], refetch: vi.fn(async () => undefined), outageAt: null as number | null }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ status: 'signedIn', mode: 'privy', identity: 'owner@email', wallet: { address: `0x${'11'.repeat(20)}`, signTypedData: state.sign, addSigners: state.addSigners } }) }));
 vi.mock('@/lib/api', async () => ({ ...(await vi.importActual<typeof import('@/lib/api')>('@/lib/api')), api: { get: state.get, patch: state.patch, post: (...args: unknown[]) => Promise.resolve((state.post as (...a: unknown[]) => unknown)(...args)) }, sessionKey: () => '1' }));
 vi.mock('@/lib/copy-execution-wallets', () => ({ useExecutionWallets: () => ({ data: { accounts: [liveAccount] } }) }));
-vi.mock('@/lib/copy-live', () => ({ useLiveCopyOverview: () => ({ data: { mandates: [{ ...liveMandate, state: 'active' }], strategies: state.strategies } }) }));
+vi.mock('@/lib/copy-live', () => ({ useLiveCopyOverview: () => ({ data: { mandates: [{ ...liveMandate, state: 'active' }], strategies: state.strategies }, isError: state.outageAt !== null, dataUpdatedAt: state.outageAt ?? 0 }) }));
 vi.mock('@/lib/copy-follower-snapshot', () => ({ useCopyFollowerSnapshot: () => ({ data: state.snapshot, refetch: state.refetch }) }));
 vi.mock('@/components/copy/copy-live-stop', () => ({ CopyLiveStop: () => <div data-testid="stop">stop</div>, LiveCopyStopAction: () => <div data-testid="stop">stop</div> }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh() {}, push() {} }), usePathname: () => '/portfolio', useSearchParams: () => new URLSearchParams() }));
@@ -35,7 +35,7 @@ const deposit = (amount: number, over: Record<string, unknown> = {}) => ({ id: `
   strategyId: liveAccount.strategyId, leaderAddress: `0x${'44'.repeat(20)}`, status: 'credited', txHash: null, fee: null, counterparty: liveAccount.address, count: null, ...over });
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-  items = [item()]; state.snapshot = observed([{ coin: 'BTC', size: '0.19' }]); state.strategies = []; state.patch.mockReset();
+  items = [item()]; state.snapshot = observed([{ coin: 'BTC', size: '0.19' }]); state.strategies = []; state.outageAt = null; state.patch.mockReset();
   funds = [deposit(100)];
   state.get.mockReset().mockImplementation(async (path: string) => path === '/me/copy/live/portfolio' ? { network: 'testnet', automaticExecution: true, items }
     : path.startsWith('/me/funds/history') ? { items: funds, nextCursor: null } : null);
@@ -405,4 +405,27 @@ it('hides a copy of the previous network entirely: not in 跟單中, 我的資�
   expect(onEquity.mock.calls.filter(([id, equity]) => id === 77 && equity !== null)).toEqual([]);
   expect(container.textContent).not.toContain('先前網路');
   expect(container.textContent).not.toContain('測試網');
+});
+
+it('while a read of the copies fails, the kept answer says when it was read and no withdrawal, return or top-up starts from it', async () => {
+  state.outageAt = liveNow - 60_000;
+  await render();
+  const line = container.querySelector('[data-testid="live-copy-outage"]')!;
+  expect(line.textContent).toMatch(/^Last updated \S.* · retrying$/);
+  expect(detail()!.querySelector('[data-testid="live-copy-outage"]')!.textContent).toBe(line.textContent);
+  expect((document.querySelector('input[name="withdraw"]') as HTMLInputElement).disabled).toBe(true);
+  expect(button('Withdraw idle funds').disabled).toBe(true);
+  expect(detail()!.textContent).not.toContain('Up to');
+  expect(button('Add funds').disabled).toBe(true);
+  items = [item({ stage: 'sweeping', status: 'stopped', mandate: null, stop: null, sweep: null })];
+  await act(async () => { await client.invalidateQueries(); }); await settle();
+  expect(button('Return all to main wallet').disabled).toBe(true);
+  // The read answers again: the line goes and the actions are back.
+  state.outageAt = null; items = [item()];
+  await act(async () => { await client.invalidateQueries(); }); await settle();
+  expect(container.querySelector('[data-testid="live-copy-outage"]')).toBeNull();
+  expect(button('Add funds').disabled).toBe(false);
+  expect((document.querySelector('input[name="withdraw"]') as HTMLInputElement).disabled).toBe(false);
+  expect(detail()!.textContent).toContain('Up to');
+  expect(state.post).not.toHaveBeenCalled();
 });

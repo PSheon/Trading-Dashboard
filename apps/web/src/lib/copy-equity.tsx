@@ -38,6 +38,9 @@ export function useCopiesEquity(): number | null {
   const portfolio = useLiveCopyPortfolio();
   const balances = useSyncExternalStore(subscribe, () => published, () => empty);
   if (!portfolio.data) return portfolio.enabled ? null : 0;
+  // The copies' read is failing and their last list is kept: which copies
+  // hold money (a stop, a return) may have changed since. The total waits.
+  if (portfolio.isError) return null;
   let total = 0;
   for (const item of countedCopies(portfolio.data.items, portfolio.data.network)) {
     // A prior snapshot can still contain money already returning to the main

@@ -2,7 +2,7 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const ko: Messages = {
-  liveCopyUi: { ...en.liveCopyUi, unknownStale: "계정 관측이 오래되었습니다. 손익 미확인", fixedTradeAlreadyClaimed: "이 원래 리더 거래에는 이미 카피 요청이 있습니다. 이번 요청은 중복 카피하지 않으며, 체결 결과는 실제 체결 내역으로 확인됩니다." },
+  liveCopyUi: { ...en.liveCopyUi, lastUpdatedRetrying: "마지막 업데이트 {time} · 재시도 중", unknownStale: "계정 관측이 오래되었습니다. 손익 미확인", fixedTradeAlreadyClaimed: "이 원래 리더 거래에는 이미 카피 요청이 있습니다. 이번 요청은 중복 카피하지 않으며, 체결 결과는 실제 체결 내역으로 확인됩니다." },
   referral: {
     policyInactive: "보상 정책이 비활성 상태입니다. 표시된 조건은 현재 보상 자격을 부여하지 않습니다.",
     invalidCode: "초대 코드 사용 불가",

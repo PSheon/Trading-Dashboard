@@ -10,7 +10,7 @@ import { CopyEquityProbes, useCopiesEquity } from "../src/lib/copy-equity";
  * $79.00. Both now read one total: this network's running copies, each by
  * its account snapshot; another network's copy and a stopped one are out.
  */
-const state = vi.hoisted(() => ({ empty: false }));
+const state = vi.hoisted(() => ({ empty: false, error: false }));
 const items = [
   { strategyId: 1, network: "mainnet", stage: "active", accountId: "a1" },
   { strategyId: 2, network: "testnet", stage: "active", accountId: "a2" },
@@ -20,7 +20,7 @@ const items = [
 const equity: Record<string, string | null> = { a1: "40.5", a2: "79", a3: "12", a4: "9.5" };
 vi.mock("../src/lib/copy-live-portfolio", async (original) => ({
   ...(await original<typeof import("../src/lib/copy-live-portfolio")>()),
-  useLiveCopyPortfolio: () => ({ data: { network: "mainnet", automaticExecution: true, items: state.empty ? [] : items }, enabled: true }),
+  useLiveCopyPortfolio: () => ({ data: { network: "mainnet", automaticExecution: true, items: state.empty ? [] : items }, isError: state.error, enabled: true }),
 }));
 vi.mock("../src/lib/copy-execution-wallets", () => ({ useExecutionWallets: () => ({ data: { accounts: items.map((i) => ({ id: i.accountId, network: i.network })) } }) }));
 const stale = new Set<string>();
@@ -57,6 +57,19 @@ it("never counts a stale observation as current money in the total", async () =>
     await act(async () => root.render(<><CopyEquityProbes /><Pill /></>));
     expect(el.textContent).toBe("50");
   } finally { stale.clear(); await act(async () => root.unmount()); el.remove(); }
+});
+
+it("waits while the copies' read fails and only their last list is kept", async () => {
+  const el = document.createElement("div"); document.body.append(el); const root = createRoot(el);
+  function Pill() { const total = useCopiesEquity(); return <span>{total === null ? "pending" : total}</span>; }
+  try {
+    state.error = true;
+    await act(async () => root.render(<><CopyEquityProbes /><Pill /></>));
+    expect(el.textContent).toBe("pending");
+    state.error = false;
+    await act(async () => root.render(<><CopyEquityProbes /><Pill /></>));
+    expect(el.textContent).toBe("50");
+  } finally { state.error = false; await act(async () => root.unmount()); el.remove(); }
 });
 
 it("keeps an unobserved copy unknown while distinguishing a genuinely observed zero balance", async () => {

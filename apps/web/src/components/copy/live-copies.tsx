@@ -82,6 +82,7 @@ export function LiveCopies({ className, onEquity, empty = null }: { className?: 
   const portfolio = useLiveCopyPortfolio(), wallets = useExecutionWallets(), overview = useLiveCopyOverview();
   const items = useMemo(() => portfolio.data?.items ?? [], [portfolio.data]);
   const leaders = useLeaders(items);
+  const outageAt = liveOutageAt(portfolio, overview);
   const [openId, setOpenId] = useState<number | null>(null);
   const search = useSearchParams(), setupId = search.get('setupId');
   const validSetupId = setupId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(setupId) ? setupId : null;
@@ -117,6 +118,7 @@ export function LiveCopies({ className, onEquity, empty = null }: { className?: 
     <section className={cn('flex flex-col gap-3', className)} aria-label={t('folio.copying')}>
       {resume}
       <h2 className="text-[0.9375rem] font-extrabold">{t('folio.copying')}</h2>
+      {outageAt !== null ? <OutageLine at={outageAt} /> : null}
       {running.length ? <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{running.map(card)}</div> : empty}
       {ended.length ? (
         <details className="group">
@@ -130,13 +132,27 @@ export function LiveCopies({ className, onEquity, empty = null }: { className?: 
       {open ? (
         <LiveCopySheet item={open} text={liveCopiesText(locale, open.network)} leader={leaderOf(open)} account={accountOf(open, wallets.data?.accounts)}
           mandate={overview.data?.mandates.find(m => m.id === open.mandate?.id) ?? null} strategy={overview.data?.strategies?.find(s => s.id === open.strategyId) ?? null}
-          onClose={() => setOpenId(null)} />
+          outageAt={outageAt} onClose={() => setOpenId(null)} />
       ) : null}
     </section>
   );
 }
 
 type Leader = { address: string; displayName: string | null; avatarUrl: string | null };
+
+/** When a read of the copies failed for a moment (busy, 5xx, the network)
+ * and the last answer is still shown: that answer's time, else null. */
+type KeptRead = { isError: boolean; data: unknown; dataUpdatedAt: number };
+export function liveOutageAt(...reads: KeptRead[]): number | null {
+  const kept = reads.filter(read => read.isError && read.data !== undefined).map(read => read.dataUpdatedAt);
+  return kept.length ? Math.min(...kept) : null;
+}
+
+/** One line while the last answer is shown during a failed read: its time and that it is retried. */
+function OutageLine({ at }: { at: number }) {
+  const { t, format } = useI18n();
+  return <p role="status" data-testid="live-copy-outage" className="text-xs text-muted-foreground">{t('liveCopyUi.lastUpdatedRetrying', { time: format.clock(at) })}</p>;
+}
 
 /**
  * The copy's net deposits (its budget and every 加碼, less every withdrawal
@@ -244,7 +260,7 @@ function LiveCopyCard({ item, leader, account, onOpen, onEquity }: { item: LiveC
 }
 
 /** The copy's detail sheet (a bottom sheet on phones, a side panel on desktop). */
-function LiveCopySheet({ item, text, leader, account, mandate, strategy, onClose }: { item: LiveCopyItem; text: LiveCopiesText; leader: Leader; account: CopyExecutionAccount | null; mandate: LiveCopyMandate | null; strategy: LiveCopyStrategy | null; onClose: () => void }) {
+function LiveCopySheet({ item, text, leader, account, mandate, strategy, outageAt, onClose }: { item: LiveCopyItem; text: LiveCopiesText; leader: Leader; account: CopyExecutionAccount | null; mandate: LiveCopyMandate | null; strategy: LiveCopyStrategy | null; outageAt: number | null; onClose: () => void }) {
   const { t } = useI18n(), auth = useAuth();
   const running = item.stage === 'active' || item.stage === 'paused' || item.stage === 'starting';
   // Load receipt history only for this drawer's exact owned-account binding.
@@ -254,7 +270,8 @@ function LiveCopySheet({ item, text, leader, account, mandate, strategy, onClose
   return (
     <Drawer open onOpenChange={(open) => { if (!open) onClose(); }} title={boardName(leader)}>
       <div className="flex flex-col gap-4" data-testid="live-copy-sheet">
-        <LiveCopyRow item={item} text={text} account={account} strategy={strategy} />
+        {outageAt !== null ? <OutageLine at={outageAt} /> : null}
+        <LiveCopyRow item={item} text={text} account={account} strategy={strategy} outageAt={outageAt} />
         {account && mandate && (running || item.stage === 'needs_deposit' || item.stage === 'stopping') ? <LiveCopyStopAction selection={{ account, mandate }} /> : null}
         {item.accountAddress ? (
           <details className="text-xs text-muted-foreground">
@@ -299,7 +316,7 @@ function LiveCopyPerformance({ item, leader, account }: { item: LiveCopyItem; le
 const AMOUNT = /^\d+(?:\.\d{1,6})?$/;
 const floorCents = (value: string) => { const [whole, fraction = ''] = value.split('.'); return fraction ? `${whole}.${fraction.slice(0, 2).padEnd(2, '0')}` : whole!; };
 
-function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; text: LiveCopiesText; account: CopyExecutionAccount | null; strategy: LiveCopyStrategy | null }) {
+function LiveCopyRow({ item, text, account, strategy, outageAt }: { item: LiveCopyItem; text: LiveCopiesText; account: CopyExecutionAccount | null; strategy: LiveCopyStrategy | null; outageAt: number | null }) {
   const { format, t } = useI18n(), auth = useAuth();
   const { snapshot, current, fundingFees, observedTime, pnl, unknownReason } = useFigures(item, account);
   const actions = useLiveCopyPortfolioActions();
@@ -311,6 +328,10 @@ function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; te
   const observed = snapshot.data?.status === 'observed' ? snapshot.data : null;
   const { rows: positionRows, pager: positionsPager } = usePaged(observed?.positions ?? [], `${auth.identity}:${item.accountId}`);
   const busy = actions.transfer.isPending || actions.close.isPending || actions.cancelTransfer.isPending;
+  // While the copies' read fails, the shown state may be old: no withdrawal
+  // or return is started from it (the line above says when it was read).
+  const held = outageAt !== null;
+  const heldText = outageAt !== null ? t('liveCopyUi.lastUpdatedRetrying', { time: format.clock(outageAt) }) : null;
   // What failed, in words (lib/copy-error-text.ts): never one line for all three.
   const texts = useCopyTexts();
   const copyError = (err: unknown) => copyErrorText(texts, err);
@@ -337,6 +358,7 @@ function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; te
   }, [transferId, refetchSnapshot]);
   const confirmTransfer = () => {
     if (!sheet || !item.accountId) return;
+    if (heldText) { setSheetError(heldText); return; }
     const all = sheet.kind === 'returnAll';
     setSheetError(null);
     // One message for a failure: in the confirm sheet, which stays open (no toast too).
@@ -404,14 +426,14 @@ function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; te
         {item.stage === 'setup' && !item.setup ? <Link href={SETTINGS} className="text-xs font-semibold text-primary-text underline">{text.setup}</Link> : null}
         {running && item.accountId && item.pendingTransfer ? <p role="status" className="text-xs text-muted-foreground" data-testid="transfer-pending">{text.ui.transferPending}</p> : null}
         {running && item.accountId && !item.pendingTransfer ? (
-          <form className="flex flex-wrap items-end gap-2" onSubmit={event => { event.preventDefault(); if (validAmount) { setSheetError(null); setSheet({ kind: 'withdraw', amount }); } }}>
+          <form className="flex flex-wrap items-end gap-2" onSubmit={event => { event.preventDefault(); if (validAmount && !held) { setSheetError(null); setSheet({ kind: 'withdraw', amount }); } }}>
             <label className="text-xs">{text.amount}
-              <input name="withdraw" inputMode="decimal" value={amount} onChange={e => setAmount(amountInput(e.target.value, amount).slice(0, 14))} disabled={busy}
+              <input name="withdraw" inputMode="decimal" value={amount} onChange={e => setAmount(amountInput(e.target.value, amount).slice(0, 14))} disabled={busy || held}
                 placeholder={text.ui.amountPlaceholder}
                 className="num mt-1 block h-11 w-36 rounded-xl bg-inset px-3 text-sm font-semibold outline-none placeholder:font-normal placeholder:text-subtle-foreground focus-visible:ring-2 focus-visible:ring-ring" autoComplete="off" />
             </label>
-            <Button type="submit" variant="secondary" loading={actions.transfer.isPending && actions.transfer.variables?.amount !== 'all'} disabled={!(actions.transfer.isPending && actions.transfer.variables?.amount !== 'all') && (busy || !validAmount)}>{text.withdraw}</Button>
-            {maxAmount !== null ? (
+            <Button type="submit" variant="secondary" loading={actions.transfer.isPending && actions.transfer.variables?.amount !== 'all'} disabled={!(actions.transfer.isPending && actions.transfer.variables?.amount !== 'all') && (busy || held || !validAmount)}>{text.withdraw}</Button>
+            {maxAmount !== null && !held ? (
               <p className="flex basis-full items-center gap-2 text-xs text-muted-foreground">
                 <span className="num">{text.ui.maxWithdrawable.replace('{amount}', format.usd(Number(withdrawable), { digits: 2 }))}</span>
                 <button type="button" disabled={busy} onClick={() => setAmount(maxAmount)} className="min-h-11 rounded-full px-3 font-bold text-primary-text outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">{text.ui.all}</button>
@@ -420,13 +442,13 @@ function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; te
           </form>
         ) : null}
         {item.stage === 'sweeping' && item.accountId && !item.pendingTransfer && !autoReturning ? (
-          <Button size="sm" className="min-h-11" loading={actions.transfer.isPending && actions.transfer.variables?.amount === 'all'} disabled={busy && !(actions.transfer.isPending && actions.transfer.variables?.amount === 'all')} onClick={() => { setSheetError(null); setSheet({ kind: 'returnAll', amount: 'all' }); }}>{text.returnAll}</Button>
+          <Button size="sm" className="min-h-11" loading={actions.transfer.isPending && actions.transfer.variables?.amount === 'all'} disabled={held || busy && !(actions.transfer.isPending && actions.transfer.variables?.amount === 'all')} onClick={() => { setSheetError(null); setSheet({ kind: 'returnAll', amount: 'all' }); }}>{text.returnAll}</Button>
         ) : null}
         {busy ? <span role="status" className="text-xs text-muted-foreground">{text.busy}</span> : null}
       </div>
       <TransferConfirm kind={sheet?.kind ?? 'withdraw'} open={sheet !== null} amount={sheetAmount} destination={auth.wallet?.address ?? null} network={item.network ?? null}
         pending={actions.transfer.isPending} error={sheetError} onConfirm={confirmTransfer} onOpenChange={(open) => { if (!open) closeSheet(); }} />
-      <LiveCopyActions item={item} strategy={strategy} />
+      <LiveCopyActions item={item} strategy={strategy} held={heldText} />
     </div>
   );
 }

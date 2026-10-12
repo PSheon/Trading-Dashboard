@@ -64,6 +64,7 @@ export const zhTW = {
     unconfirmed: "待確認",
     riskAttention: "最近未執行紀錄",
     latestObservation: "最新帳戶觀察",
+    lastUpdatedRetrying: "最後更新 {time} · 重試中",
     fundingFees: "已確認入金轉帳費",
     feeIncluded: "此費用已包含在總損益中；不能全視為交易虧損。",
   },

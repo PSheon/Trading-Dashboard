@@ -2,7 +2,7 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const es: Messages = {
-  liveCopyUi: { ...en.liveCopyUi, unknownStale: "La observación de la cuenta está desactualizada; PnL sin confirmar", fixedTradeAlreadyClaimed: "Esta operación original del trader ya tiene una solicitud de copia. Esta solicitud no la duplicará; los registros reales confirman el resultado de ejecución." },
+  liveCopyUi: { ...en.liveCopyUi, lastUpdatedRetrying: "Última actualización {time} · reintentando", unknownStale: "La observación de la cuenta está desactualizada; PnL sin confirmar", fixedTradeAlreadyClaimed: "Esta operación original del trader ya tiene una solicitud de copia. Esta solicitud no la duplicará; los registros reales confirman el resultado de ejecución." },
   referral: {
     policyInactive: "La política de recompensas está inactiva. Los términos mostrados no otorgan elegibilidad actual.",
     invalidCode: "Código de invitación no disponible",

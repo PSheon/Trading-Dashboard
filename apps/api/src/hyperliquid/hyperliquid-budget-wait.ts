@@ -22,8 +22,12 @@ export interface BudgetWaitDetail {
 }
 /** The detail of a wait on `budget` for `weight` (read when it is refused). */
 const waitDetail = (budget: RequestBudgeterService, weight: number, lane: RequestPriority, bucket?: string): BudgetWaitDetail => {
-  const queued = budget.queued();
-  return { weight, lane, ...(bucket ? { bucket } : {}), tokens: Math.floor(budget.introspect().tokensAvailable), queued: queued.live + queued.background };
+  const detail: BudgetWaitDetail = { weight, lane, ...(bucket ? { bucket } : {}) };
+  // Diagnostics only: a budget that can't say more never turns the wait into a crash.
+  try {
+    const queued = budget.queued();
+    return { ...detail, tokens: Math.floor(budget.introspect().tokensAvailable), queued: queued.live + queued.background };
+  } catch { return detail; }
 };
 
 /**

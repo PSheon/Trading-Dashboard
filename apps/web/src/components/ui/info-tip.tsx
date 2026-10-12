@@ -60,7 +60,7 @@ function InfoTip({
           aria-expanded={open}
           data-state={open ? "open" : "closed"}
           className={cn(
-            "inline-flex size-5 shrink-0 cursor-help items-center justify-center rounded-full align-middle text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:text-foreground",
+            "inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-full align-middle text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:text-foreground",
             className
           )}
           onPointerEnter={(e) => { if (e.pointerType === "mouse") setOpen(true) }}

@@ -9,7 +9,9 @@ for (const width of [1440, 390]) {
     await context.addCookies([{ name: "locale", value: "zh-TW", url: baseURL! }]);
     await page.setViewportSize({ width, height: width < 768 ? 844 : 900 });
     await page.goto("/zh-TW/dev/wealth/insights?tier=very_profitable");
-    await expect(page.getByTestId("cohort-coverage")).toHaveText("120 / 150 個錢包有最新快照", { timeout: 20000 });
+    // The coverage is one pill by the title (UI text density review, F3).
+    await expect(page.getByTestId("cohort-coverage")).toContainText("120/150", { timeout: 20000 });
+    await expect(page.getByTestId("cohort-coverage")).toHaveAttribute("aria-label", "120 / 150 個錢包有最新快照");
     await expect(page.getByRole("heading", { level: 2, name: "名目金額", exact: true })).toBeVisible();
     const notional = await page.getByRole("heading", { level: 2, name: "名目金額", exact: true }).locator("..").innerText();
     const long = Number(notional.match(/(\d+)% 做多/)?.[1]);
@@ -38,8 +40,8 @@ for (const width of [1440, 390]) {
 
     // The lab's tier picker reaches the other tiers: this one has 33 of 150 members read.
     await page.goto("/zh-TW/dev/wealth/insights?tier=rekt");
-    // Said in the status line and in the per-market map (no empty box there).
-    await expect(page.getByText("此分層的持倉資料尚未完整，背景持續更新中。")).toHaveCount(2, { timeout: 20000 });
+    // Said once, in the per-market map (no empty box there); the title's pill holds the rest.
+    await expect(page.getByText("此分層的持倉資料尚未完整，背景持續更新中。")).toHaveCount(1, { timeout: 20000 });
     await expect(page.getByText("此分層的持倉資料尚未完整，背景持續更新中。").first()).toBeVisible();
     await expect(page.getByRole("heading", { level: 2, name: "名目金額", exact: true })).toHaveCount(0);
     await expect(page.getByText("7% 做多")).toHaveCount(0);

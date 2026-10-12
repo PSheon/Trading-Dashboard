@@ -38,7 +38,7 @@ The digest is `liveSourceDigest(body)`.
 | `positions`, `positionsDigest` | the fill fold, including the reduce-only intermediate checks (`projection.ts:229-243`) |
 | `receiptChainDigest`, `maxReceiptProviderTime` | `receiptManifestDigest` over the full lists, and the coverage checks (`projection.ts:227-228, 247`) |
 | `coins` | the carry-missing check (`postgres-live-preparation.ts:188`) |
-| `carryFloor[coin]` | "carry is never rewound" (`live-unattempted-release.ts:86-87`) |
+| `carryFloor[coin]` = `(revision, updatedAt)` of the carry row, never its amount (settlement and the 2c-B flat reset lower the amount; only revision/updatedAt never go back) | "carry is never rewound" (`live-unattempted-release.ts:86-87`) |
 | `settledLegs[legId]` (flip closes only, pruned after the max signal age of 86 400 s) | the flip-dependency lookups (`copy-live-source-planner.ts:215-221`) |
 | `counts` | lifetime observability |
 
@@ -62,7 +62,7 @@ A cut at T is valid only if all of these hold:
    - every tail journal has `createdAt > T`, and a folded journal that reappears in the tail is refused;
    - every tail fill receipt has `providerTime > T` and is certified by a tail journal;
    - funding receipts may be older than T, because funding does not move positions;
-   - carry rows are at or above `carryFloor`.
+   - carry rows have `(revision, updatedAt)` at or above `carryFloor`.
 5. **Pinning.** The loader takes `form: 'full' | {seq, digest} | 'latest'`.
    - Preparation uses `latest`.
    - The risk gate uses the form the envelope names, and refuses if a newer checkpoint exists. That cannot happen while the order's own journal is non-terminal.
@@ -141,3 +141,5 @@ Adopted. Where these differ from §2–§8, they override them.
 8. **Product sign-off (§5 / §8.4) is bundled with an admin un-quarantine endpoint, with audit, in the same release.** No admin path exists today (architecture review §D), and the new rule makes quarantine more likely.
 
 **Gate:** implementation starts only after Paul signs off on item 8.
+9. **`carryFloor` is defined by `(revision, updatedAt)`, not the amount** (§2.2 updated, 2026-10-13). Settlement and the 2c-B flat reset (7643f05d) lower the amount legitimately.
+10. **E6 stuck detector** alerts on a close that has stayed `requested` for more than N minutes. A quarantined reservation keeps the 2c-B reset guard failing forever.

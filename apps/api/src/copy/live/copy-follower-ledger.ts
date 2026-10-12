@@ -12,6 +12,7 @@ import { followerReceiptKey, followerReceiptDigestV1, liquidatesFollower, parseF
 import type { LiveExecutionRecord } from "./live-execution.js";
 import { captureLiveOrderIdentity, liveOrderIdentityBinding, parseLiveOrderEvidence, parseLiveIocAcknowledgement, type LiveOrderEvidence, type LiveIocAcknowledgement } from "./live-order-evidence.js";
 import { LiveBoundaryError } from "./wallet-authorization.js";
+import { PROVIDER_CLOCK_SKEW_MS } from "./clock-skew.js";
 import { lockCopyUser } from "../copy-user-lock.js";
 
 type Booking = { inserted: boolean; quarantined: boolean };
@@ -118,7 +119,7 @@ export class CopyFollowerLedger {
         row.userId !== account.userId || row.strategyId !== account.strategyId || record.authorization.userId !== account.userId || record.authorization.strategyId !== account.strategyId ||
         row.nonce !== record.nonce || row.signerAddress !== record.authorization.signerAddress || row.state !== record.state || row.state === 'prepared' ||
         row.cloid !== record.action.orders[0].c || row.updatedAt.getTime() !== record.updatedAt || !Number.isSafeInteger(record.createdAt) || record.createdAt <= 0 ||
-        record.updatedAt < record.createdAt || !Number.isSafeInteger(record.expiresAfter) || record.expiresAfter <= record.createdAt || record.expiresAfter > record.createdAt+60000 || fill.time < record.createdAt ||
+        record.updatedAt < record.createdAt || !Number.isSafeInteger(record.expiresAfter) || record.expiresAfter <= record.createdAt || record.expiresAfter > record.createdAt+60000 || fill.time < record.createdAt - PROVIDER_CLOCK_SKEW_MS ||
         record.market.coin !== fill.coin || (record.action.orders[0].b ? 'B':'A') !== fill.side || Dec.from(fill.size).gt(record.action.orders[0].s) ||
         record.outcome?.exchangeOrderId && record.outcome.exchangeOrderId !== fill.oid) return mismatch;
       const identity = captureLiveOrderIdentity(record,record.market);

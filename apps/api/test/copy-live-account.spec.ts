@@ -154,10 +154,11 @@ describe('authoritative dedicated standard account observations', () => {
   });
   describe('a copied leader is read for its equity only: its orders and venues never refuse the follower', () => {
     // A position TP/SL (size 0: the whole position), a trigger, and an order
-    // stamped a few ms past our clock: each refused every ratio open before.
+    // stamped past our clock (beyond the 2 s skew tolerance, which a follower
+    // still refuses): each refused every ratio open before.
     const tpsl = { ...open, oid: 12, sz: '0.0', origSz: '0.0', reduceOnly: true, isTrigger: true, isPositionTpsl: true, cloid: null };
     const trigger = { ...open, oid: 13, isTrigger: true };
-    const ahead = { ...open, oid: 14, timestamp: now + 3 };
+    const ahead = { ...open, oid: 14, timestamp: now + 2001 };
     // A HIP-3 position on a venue whose collateral is USDE (token 9).
     const hip3 = (body: Record<string, unknown>, value: unknown) => body.type === 'clearinghouseState' && body.dex ? { ...state(false),
       marginSummary: { accountValue: '50', totalRawUsd: '30', totalNtlPos: '20', totalMarginUsed: '2' }, crossMarginSummary: { accountValue: '50', totalRawUsd: '30', totalNtlPos: '20', totalMarginUsed: '2' },
@@ -224,6 +225,13 @@ describe('authoritative dedicated standard account observations', () => {
       ? { ...state(), assetPositions: [{ ...mainPosition, position: { ...mainPosition.position, leverage: { type: 'cross', value: 50 } } }] } : value)
       .observer.observe(account);
     expect(snapshot.positions[0]).toMatchObject({ coin: 'BTC', leverage: 50, maxLeverage: 40 });
+  });
+  it('accepts Hyperliquid times up to 2 s ahead of our clock, and refuses beyond (O9)', async () => {
+    const ahead = (ms: number) => setup((body, value) => body.type === 'clearinghouseState' && !body.dex ? { ...(value as object), time: now + ms }
+      : body.type === 'frontendOpenOrders' && !body.dex ? [{ ...open, timestamp: now + ms }] : value).observer.observe(account);
+    expect((await ahead(1500)).dexes[0]).toMatchObject({ providerTime: now + 1500 });
+    expect((await ahead(1500)).restingOrders[0]).toMatchObject({ timestamp: now + 1500 });
+    await expect(ahead(2500)).rejects.toThrow();
   });
   it('refuses a negative position margin instead of inferring used collateral', async () => {
     await expect(setup((body, value) => body.type === 'clearinghouseState' && !body.dex

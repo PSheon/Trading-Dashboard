@@ -44,6 +44,11 @@ function iocInput() {
     raw: { status: 'ok', response: { type: 'order', data: { statuses: [{ filled: { oid: 10, totalSz: '0.5', avgPx: '100' } }] } } } })) as Mutable<NonNullable<typeof f.acknowledgement>>;
   return f;
 }
+it('settles with a Hyperliquid account time up to 2 s ahead of our clock, not beyond (O9)',()=>{
+  const ahead=(ms:number)=>{const f=input();f.accountSource.snapshot.dexes[0]!.providerTime=f.now+ms;f.accountSource.snapshot.coverage.earliestProviderTime=f.now+ms;return f;};
+  expect(assessLiveReservationSettlement(ahead(1500)).kind).toBe('release');
+  expect(assessLiveReservationSettlement(ahead(2500)).kind).not.toBe('release');
+});
 it('captures an immutable JSONB-replayable original settlement proof',()=>{
   const original=input(),decision=assessLiveReservationSettlement(original);expect(decision.kind).toBe('release');if(decision.kind!=='release')throw Error();
   const result=captureLiveSettlementProof(original,decision.certificate);

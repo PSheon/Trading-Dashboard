@@ -9,6 +9,7 @@ import { digestLiveEvidence, liveEvidenceDecimal, liveEvidenceOid, liveOrderIden
   type LiveOrderEvidence, type LiveIocAcknowledgement } from './live-order-evidence.js';
 import { freezeLiveReservation, validateLiveReservationPayload, type LiveReservationStored } from './live-risk-reservation.js';
 import { address } from './wallet-authorization.js';
+import { providerTimeNotAfter } from './clock-skew.js';
 
 export interface LiveSettlementLedgerComponent {
   readonly receiptKey: string; readonly component: string; readonly token: string; readonly amount: string;
@@ -60,6 +61,8 @@ function requireProof(value: unknown, reason: string, kind: 'pending'|'quarantin
 }
 function integer(value: unknown, min = 0): value is number { return Number.isSafeInteger(value) && (value as number) >= min; }
 function fresh(at: number, now: number) { requireProof(integer(at) && at <= now && now - at <= 5000, 'live_settlement_stale'); }
+/** Hyperliquid's own time: as `fresh`, up to PROVIDER_CLOCK_SKEW_MS ahead of ours. */
+function freshProvider(at: number, now: number) { requireProof(integer(at) && providerTimeNotAfter(at, now) && now - at <= 5000, 'live_settlement_stale'); }
 function digest(value: unknown) { requireProof(typeof value === 'string' && /^[0-9a-f]{64}$/.test(value), 'live_settlement_source_unproven'); }
 function decimal(value: unknown, signed = false): Dec {
   requireProof(typeof value === 'string' && value.length <= 80 && /^-?(?:0|[1-9]\d*)(?:\.\d{1,18})?$/.test(value), 'live_settlement_account_invalid');
@@ -136,7 +139,8 @@ export function assessLiveReservationSettlement(raw: LiveReservationSettlementIn
     requireProof(source.quarantined === false && snapshot.role === 'user' && snapshot.accountMode === 'standard' && snapshot.accountAbstraction === 'disabled' &&
       snapshot.collateralCoin === 'USDC' && integer(snapshot.collateralToken), 'live_settlement_account_unproven');
     digest(source.sourceDigest); requireProof(source.sourceDigest === snapshot.sourceDigest, 'live_settlement_source_unproven');
-    for (const at of [source.checkedAt, snapshot.observedAt, snapshot.completedAt, coverage.earliestProviderTime]) fresh(at, now);
+    for (const at of [source.checkedAt, snapshot.observedAt, snapshot.completedAt]) fresh(at, now);
+    freshProvider(coverage.earliestProviderTime, now);
     requireProof(snapshot.observedAt >= evidence.completedAt && snapshot.completedAt >= snapshot.observedAt && source.checkedAt >= snapshot.completedAt,
       'live_settlement_account_before_terminal');
     requireProof(coverage.complete === true && coverage.balanceComplete === true && coverage.orderComplete === true && coverage.unobservedOrderDexes.length === 0 &&
@@ -175,7 +179,7 @@ export function assessLiveReservationSettlement(raw: LiveReservationSettlementIn
     for (const dex of snapshot.dexes) {
       requireProof((dex.dex === '' || LIVE_DEX_NAME.test(dex.dex)) && integer(dex.perpDexIndex) && dex.perpDexIndex < 1000 && typeof dex.supported === 'boolean' && typeof dex.collateralCoin === 'string' &&
         dex.collateralCoin.length > 0 && dex.collateralCoin.length <= 80 && integer(dex.collateralToken) &&
-        (!dex.supported || dex.collateralCoin === 'USDC' && dex.collateralToken === snapshot.collateralToken) && (dex.dex === '' ? dex.perpDexIndex === 0 : dex.perpDexIndex > 0), 'live_settlement_account_unproven'); fresh(dex.providerTime, now);
+        (!dex.supported || dex.collateralCoin === 'USDC' && dex.collateralToken === snapshot.collateralToken) && (dex.dex === '' ? dex.perpDexIndex === 0 : dex.perpDexIndex > 0), 'live_settlement_account_unproven'); freshProvider(dex.providerTime, now);
       decimal(dex.rawUsd, true); decimal(dex.crossMaintenanceMarginUsed);
       const positions = snapshot.positions.filter(p => p.dex === dex.dex), cross = positions.filter(p => p.leverageType === 'cross');
       requireProof(Dec.sum(positions.map(p => decimal(p.positionValue))).eq(dex.exposureUsd) && Dec.sum(positions.map(p => decimal(p.marginUsed))).eq(dex.marginUsed) &&

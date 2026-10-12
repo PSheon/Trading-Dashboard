@@ -323,6 +323,14 @@ it('closes a position above its coin\'s since-lowered maximum leverage, and refu
   expect(assessLiveAccountRisk(updateIntent(f, { reduceOnly: false, side: 'B' }))).toEqual({ ok: false, reason: 'live_risk_leverage' });
 });
 
+it('accepts Hyperliquid account and order times up to 2 s ahead of our clock, not beyond (O9)', () => {
+  const ahead = (ms: number) => edit(withResting(fixture(), true, '0.5'), v => {
+    const s = v.accountSource.snapshot; s.dexes[0].providerTime = now + ms; s.coverage.earliestProviderTime = now + ms; s.restingOrders[0].timestamp = now + ms;
+  });
+  expect(assessLiveAccountRisk(ahead(1500))).toMatchObject({ ok: true });
+  expect(assessLiveAccountRisk(ahead(2500))).toMatchObject({ ok: false });
+});
+
 /** The same proof for a mainnet deployment: every piece observed on mainnet. */
 function onMainnet(f: LiveAccountRiskInput): LiveAccountRiskInput {
   const value = JSON.parse(JSON.stringify(f), (key, v) => key === 'network' && v === 'testnet' ? 'mainnet' : v) as LiveAccountRiskInput;

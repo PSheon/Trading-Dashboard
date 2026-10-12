@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import { safeErrorText } from '../../runtime/safe-error-text.js';
+import { clockSkew, providerTimeNotAfter } from './clock-skew.js';
 import { z } from 'zod';
 import { isHyperliquidNetwork, WALLET_NETWORKS, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { HyperliquidAllDexsAccountSource, type LiveAllDexsAccountSource, type LiveAllDexsOrderEvidence } from './live-account-ws-source.js';
@@ -343,7 +344,8 @@ export class HyperliquidLiveAccountObserver {
         if (!meta || !state) fail('live_account_unobserved_dex');
         const pending = leader ? [] : allOrders ? ordersSchema.parse(allOrders.get(venue.dex))
           : supported.has(venue.dex) ? ordersSchema.parse(await read('frontendOpenOrders', 20, { user, ...scope })) : [];
-        this.fresh(state.time);
+        // Hyperliquid's own time: within PROVIDER_CLOCK_SKEW_MS ahead of ours.
+        this.freshProvider(state.time); clockSkew.observe(state.time, this.now());
         unique(meta.universe.map((m) => m.name)); unique(state.assetPositions.map((p) => p.position.coin));
         const collateral = tokens.find((t) => t.index === meta.collateralToken);
         if (!collateral) fail('live_account_unsupported_collateral');
@@ -369,7 +371,7 @@ export class HyperliquidLiveAccountObserver {
         }
         for (const o of pending) {
           const identity = market(o.coin);
-          if (o.isTrigger || o.isPositionTpsl || Dec.from(o.sz).gt(o.origSz) || o.timestamp > this.now() ||
+          if (o.isTrigger || o.isPositionTpsl || Dec.from(o.sz).gt(o.origSz) || !providerTimeNotAfter(o.timestamp, this.now()) ||
               !Dec.from(o.sz).eq(Dec.from(o.sz).floor(identity.sizeDecimals))) fail('live_account_unsupported_resting_order');
           orders.push({ coin: o.coin, dex: venue.dex, asset: identity.asset, oid: String(o.oid), side: o.side,
             limitPrice: o.limitPx, remainingSize: o.sz, originalSize: o.origSz,
@@ -421,7 +423,7 @@ export class HyperliquidLiveAccountObserver {
         if (JSON.stringify(dexSchema.parse(final[4])) !== JSON.stringify(list) || JSON.stringify(finalMode) !== JSON.stringify(accountMode))
           fail('live_account_observation_changed');
       }
-      this.fresh(started); for (const d of dexes) this.fresh(d.providerTime);
+      this.fresh(started); for (const d of dexes) this.freshProvider(d.providerTime);
       const sum = (key: 'equity' | 'marginUsed' | 'withdrawable' | 'exposureUsd') => Dec.sum(dexes.map((d) => Dec.from(d[key]))).toString();
       const unobservedOrderDexes = allOrders ? [] : venues.filter((v) => !counted(v.dex)).map((v) => v.dex);
       return frozen({ network: this.network, accountAddress: user, role: accountMode.role, accountMode: 'standard', accountAbstraction: accountMode.abstraction,
@@ -448,6 +450,13 @@ export class HyperliquidLiveAccountObserver {
   private fresh(at: number): void {
     const now = this.now();
     if (!Number.isSafeInteger(at) || !Number.isSafeInteger(now) || at < 0 || now < at || now - at > this.maxAgeMs)
+      fail('live_account_evidence_expired');
+  }
+  /** A provider timestamp: as `fresh`, but it may be up to
+   * PROVIDER_CLOCK_SKEW_MS ahead of our clock (ours runs behind). */
+  private freshProvider(at: number): void {
+    const now = this.now();
+    if (!Number.isSafeInteger(at) || !Number.isSafeInteger(now) || at < 0 || !providerTimeNotAfter(at, now) || now - at > this.maxAgeMs)
       fail('live_account_evidence_expired');
   }
 }

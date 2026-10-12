@@ -21,6 +21,11 @@ it('marks last observations stale using the oldest local/provider evidence rathe
   const view = mapLiveAccountView(identity, s, quarantine, now + 4801, 5000);
   expect(view.freshness).toBe('stale'); expect(view.asOf.freshUntil).toBe(now + 4800); expect(view.asOf.observedAt).toBe(now - 100);
 });
+it('maps Hyperliquid times up to 2 s ahead of our clock, not beyond (O9)', () => {
+  const ahead = (ms: number) => { const s = snapshot(); s.dexes[0].providerTime = now + ms; s.coverage.earliestProviderTime = now + ms; return s; };
+  expect(mapLiveAccountView(identity, ahead(1500), quarantine, now, 5000).asOf.earliestProviderTime).toBe(now + 1500);
+  expect(() => mapLiveAccountView(identity, ahead(2500), quarantine, now, 5000)).toThrow('follower_snapshot_invalid');
+});
 it('keeps exact signed tiny position PnL and remaining reduce-only order quantity without adding it to positions', () => {
   const s = snapshot();
   s.positions = [{ coin: 'BTC', dex: '', asset: 0, sizeDecimals: 2, size: '-1', entryPrice: '100', positionValue: '100', unrealizedPnl: '-0.000000000000000001',

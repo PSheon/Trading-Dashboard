@@ -71,7 +71,9 @@ export class FastMainnetSource {
   /** The last read's clock per leader (asked, left, answered): timing logs. */
   readonly lastTiming = new Map<string, { asked: number; sentAt: number; answeredAt: number }>();
   constructor(private readonly reader: FastSourceReader, readonly graceMs: number, private readonly now: () => number = Date.now,
-    private readonly log?: (message: string) => void) {
+    private readonly log?: (message: string) => void,
+    /** How far our clock runs ahead of Hyperliquid's (ClockSkewMonitor), or null when unknown. */
+    private readonly clockAheadMs: () => number | null = () => null) {
     if (!Number.isSafeInteger(graceMs) || graceMs < 0) throw new LiveBoundaryError('live_source_configuration_invalid');
   }
 
@@ -137,7 +139,10 @@ export class FastMainnetSource {
     }
     const rows = [...byTid.values()].filter(row => Number.isSafeInteger(row.time) && row.time >= from)
       .sort((a, b) => a.time - b.time || (BigInt(a.tid) < BigInt(b.tid) ? -1 : 1));
-    let to = Math.min(observedAt - this.graceMs, Math.min(...state.witnessed.values()) - 1);
+    // G is on Hyperliquid's clock: when ours runs ahead, `observedAt` is that
+    // much later than the exchange's now, so the bound moves back by it (the
+    // measured skew includes the answer's latency: never less than the truth).
+    let to = Math.min(observedAt - this.graceMs - Math.max(0, this.clockAheadMs() ?? 0), Math.min(...state.witnessed.values()) - 1);
     // A full page may stop mid-millisecond; a window must stay unsaturated.
     if (regular.length >= PAGE_ROWS) to = Math.min(to, regular[regular.length - 1]!.time - 1);
     const inWindow = () => rows.filter(row => row.time <= to);

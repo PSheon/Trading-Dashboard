@@ -54,6 +54,12 @@ describe("actual follower receipt ledger", () => {
     expect(await ledger.bookFill(accountId,fill({sz:'0.005'}))).toEqual({inserted:true,quarantined:false});
     expect((await db.select().from(copyFollowerReceipts))[0]).toMatchObject({executionKey:record.key,attribution:'execution'});
   });
+  it('attributes a fill whose exchange time is up to 2 s before the journal on our clock (ours runs ahead), not beyond (O9)', async () => {
+    const record = await execution();
+    expect(await ledger.bookFill(accountId,fill({sz:'0.005',time:record.createdAt-1500}))).toEqual({inserted:true,quarantined:false});
+    expect((await db.select().from(copyFollowerReceipts))[0]).toMatchObject({executionKey:record.key,attribution:'execution'});
+    expect(await ledger.bookFill(accountId,fill({tid:2,sz:'0.005',time:record.createdAt-2500}))).toMatchObject({quarantined:true});
+  });
   it('validates durable status-only OID binding independently of current source freshness', async () => {
     const {record} = await evidenceOnly(60000); const at=record.createdAt+1500;
     const observation = parseLiveOrderEvidence({record,market:record.market!,checkedAt:at,completedAt:at,now:at,raw:{status:'order',order:{status:'filled',statusTimestamp:at,

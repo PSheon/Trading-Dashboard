@@ -8,6 +8,7 @@ import { RequestBudgeterService } from "../hyperliquid/request-budgeter.service.
 import { WALLET_NETWORK_HL, type WalletNetworkHyperliquid } from "../hyperliquid/wallet-network-hyperliquid.js";
 import { SchedulerService } from "../scheduler/scheduler.service.js";
 import { WatcherService } from "../watcher/watcher.service.js";
+import { clockSkew } from "../copy/live/clock-skew.js";
 
 /** §8 可觀測: the worker's own heartbeat (feed, snapshots, sweeps, budget,
  * discovery and archive progress), served on its health port and read by
@@ -55,6 +56,8 @@ export class WorkerHeartbeatService {
       walletBudget: this.wallet?.dedicated ? (() => { const w = this.wallet!.budget.introspect(); return {
         network: this.wallet!.network, effectivePerMin: w.effectiveBudgetPerMin, weightLastMinute: w.weightLastMinute, tokensAvailable: Math.round(w.tokensAvailable),
         reserveTokens: Math.round(w.reserveTokens), queued: this.wallet!.budget.queued(), consumers: w.consumers }; })() : undefined,
+      // Our clock against Hyperliquid's (warns above 1 s; comparisons tolerate 2 s).
+      clockSkew: clockSkew.status(),
       // Age of the boards' and home rows' figures; a failed read must not fail the heartbeat.
       discovery: await this.pool?.freshness().then((f) => ({
         visibleRows: f.visible.rows, medianVisibleAgeSeconds: f.visible.medianAgeSeconds, oldestVisibleAgeSeconds: f.visible.oldestAgeSeconds,

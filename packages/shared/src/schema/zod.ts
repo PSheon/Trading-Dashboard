@@ -398,6 +398,10 @@ export const heartbeatResponseSchema = z.object({
     queued: z.object({ live: z.number().int(), background: z.number().int() }),
     consumers: z.record(z.number()),
   }).optional(),
+  /** Our clock against Hyperliquid's, from account state times this process
+   * read: the recent smallest (ours − theirs) in ms (positive: ours runs
+   * ahead), and a warning above 1 s. Additive. */
+  clockSkew: z.object({ aheadMs: z.number().nullable(), samples: z.number().int(), warning: z.boolean() }).optional(),
   /** Age of the discovery pool's stored performance figures: the rows the
    * boards and home rows show (`visible`) and the whole pool. Additive. */
   discovery: z.object({

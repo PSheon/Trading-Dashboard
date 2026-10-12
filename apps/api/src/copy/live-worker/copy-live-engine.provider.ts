@@ -40,6 +40,7 @@ import { CopyLiveSetupService } from '../copy-live-setup.service.js';
 import { HyperliquidInfoClient, twapSliceToFill } from '../../hyperliquid/hyperliquid-info.client.js';
 import { TradeFeedService } from '../../watcher/trade-feed.service.js';
 import { FastMainnetSource } from './fast-mainnet-source.js';
+import { clockSkew } from '../live/clock-skew.js';
 import { CopyFollowerSnapshotRepository } from '../copy-follower-snapshot.repository.js';
 
 export const LIVE_ENGINE = Symbol('LIVE_ENGINE');
@@ -114,7 +115,7 @@ export const liveEngineProvider: FactoryProvider<CopyLiveEngine | null> = {
       source: new FastMainnetSource({
         fills: (leader, from) => info.userFillsSince(leader, from, 'live'),
         twapSlices: async (leader, from) => (await info.userTwapSliceFillsByTime(leader, from, undefined, 'live')).map(twapSliceToFill),
-      }, live.fastSource.graceMs, Date.now, message => logger.warn(message)),
+      }, live.fastSource.graceMs, Date.now, message => logger.warn(message), () => clockSkew.aheadMs()),
       leaders: live.fastSource.leaders,
       // No feed (or a socket down): the pass polls the fast leaders instead.
       feedUp: () => { const status = feed?.status(); return !!status && status.socketsTotal > 0 && status.disconnectedSince === null; },

@@ -138,6 +138,13 @@ describe('realtime copy signal (fast mainnet source)', () => {
     expect(fast.followUp(leader)).toBeNull();
   });
 
+  it('certifies that much less when our clock runs ahead of Hyperliquid\'s (O9)', async () => {
+    const { read } = reader(() => [rest(1, 1000)]);
+    clock = 10_000; expect((await new FastMainnetSource(read, G, () => clock).read(leader, 500))!.to).toBe(8000);
+    expect((await new FastMainnetSource(read, G, () => clock, undefined, () => 1500).read(leader, 500))!.to).toBe(6500);
+    // Behind (negative) never certifies more than G allows.
+    expect((await new FastMainnetSource(read, G, () => clock, undefined, () => -1500).read(leader, 500))!.to).toBe(8000);
+  });
   it('a spot fill in the mainnet answer is skipped, not a failed read', async () => {
     const spot = rest(3, 2000, { coin: '@107', dir: 'Buy' } as Partial<HlUserFill>), perp = rest(4, 2500);
     const { read } = reader(() => [spot, perp]), fast = new FastMainnetSource(read, G, () => clock);

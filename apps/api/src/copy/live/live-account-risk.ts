@@ -8,6 +8,7 @@ import { effectiveLeverage, strategyExposureCap, symbolRefusal, type ControlFlag
 import { address, LiveBoundaryError } from './wallet-authorization.js';
 import { ceilDecimalProduct } from './live-risk-rounding.js';
 import { minOrderNotional } from '../min-order-notional.js';
+import { providerTimeNotAfter } from './clock-skew.js';
 
 export interface LiveRiskIdentity {
   readonly accountId: string; readonly userId: number; readonly strategyId: number;
@@ -79,6 +80,10 @@ function digest(value: unknown): void { requireProof(typeof value === 'string' &
 function fresh(at: unknown, now: number): void {
   requireProof(integer(at, 0) && (at as number) <= now && now - (at as number) <= 5000, 'live_risk_stale');
 }
+/** Hyperliquid's own time: as `fresh`, up to PROVIDER_CLOCK_SKEW_MS ahead of ours. */
+function freshProvider(at: unknown, now: number): void {
+  requireProof(integer(at, 0) && providerTimeNotAfter(at as number, now) && now - (at as number) <= 5000, 'live_risk_stale');
+}
 function unique(values: readonly (string | number)[], reason: string): void {
   requireProof(new Set(values).size === values.length, reason);
 }
@@ -135,7 +140,7 @@ function assess(input: LiveAccountRiskInput): LiveAccountRiskAssessment {
     coverage.observedOrderDexes.every(d => coverage.listedDexes.includes(d)), 'live_risk_coverage_incomplete');
   unique(coverage.listedDexes, 'live_risk_coverage_incomplete'); unique(coverage.observedOrderDexes, 'live_risk_coverage_incomplete');
   unique(snapshot.dexes.map(d => d.dex), 'live_risk_coverage_incomplete'); unique(snapshot.dexes.map(d => d.perpDexIndex), 'live_risk_coverage_incomplete');
-  fresh(coverage.earliestProviderTime, now);
+  freshProvider(coverage.earliestProviderTime, now);
   requireProof(coverage.earliestProviderTime === Math.min(...snapshot.dexes.map(d => d.providerTime)), 'live_risk_source');
   requireProof(snapshot.collateralCoin === 'USDC' && integer(snapshot.collateralToken, 0) && snapshot.positions.length <= 10000 && snapshot.restingOrders.length <= 5000,
     'live_risk_evidence_invalid');
@@ -187,11 +192,11 @@ function assess(input: LiveAccountRiskInput): LiveAccountRiskAssessment {
     requireProof(remaining.isPositive && original.gte(remaining) && price.isPositive && remaining.mul(price).eq(money(o.notionalUsd)) &&
       ['B', 'A'].includes(o.side) && typeof o.reduceOnly === 'boolean' && typeof o.oid === 'string' && /^\d+$/.test(o.oid) &&
       (o.cloid === null || /^0x[0-9a-f]{32}$/.test(o.cloid)), 'live_risk_account_totals');
-    requireProof(integer(o.timestamp, 0) && o.timestamp <= now, 'live_risk_account_totals');
+    requireProof(integer(o.timestamp, 0) && providerTimeNotAfter(o.timestamp, now), 'live_risk_account_totals');
   }
   const totalPosition = Dec.sum(positions.map(p => money(p.positionValue))), totalMargin = Dec.sum(positions.map(p => money(p.marginUsed)));
   for (const d of snapshot.dexes) {
-    fresh(d.providerTime, now);
+    freshProvider(d.providerTime, now);
     requireProof(integer(d.perpDexIndex, 0) && d.perpDexIndex < 1000 && (d.dex === '' ? d.perpDexIndex === 0 : LIVE_DEX_NAME.test(d.dex) && d.perpDexIndex > 0) &&
       typeof d.supported === 'boolean' && integer(d.collateralToken, 0) && typeof d.collateralCoin === 'string' &&
       (!d.supported || d.collateralCoin === 'USDC' && d.collateralToken === snapshot.collateralToken), 'live_risk_market');

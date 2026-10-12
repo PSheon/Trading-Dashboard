@@ -457,6 +457,9 @@ export const ja: Messages = {
     fixtureLogin: "デモログイン",
     fixtureBadge: "デモデータ",
     announcement: "お知らせ",
+    announcementLabel: "公開ベータ",
+    announcementMore: "詳しく見る",
+    announcementClose: "お知らせを閉じる",
   },
   common: {
     moreActions: en.common.moreActions,

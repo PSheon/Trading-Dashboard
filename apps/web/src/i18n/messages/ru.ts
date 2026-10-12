@@ -457,6 +457,9 @@ export const ru: Messages = {
     fixtureLogin: "Демо-вход",
     fixtureBadge: "Демо-данные",
     announcement: "Объявление",
+    announcementLabel: "Открытая бета",
+    announcementMore: "Подробнее",
+    announcementClose: "Закрыть объявление",
   },
   common: {
     moreActions: en.common.moreActions,

@@ -130,7 +130,7 @@ describe("long-form content", () => {
   it("groups the FAQ into sections of questions", () => {
     const sections = faqSections(contentBlocks("faq", "zh-TW"));
     expect(sections.length).toBeGreaterThan(5);
-    expect(sections.reduce((n, s) => n + s.questions.length, 0)).toBe(43);
+    expect(sections.reduce((n, s) => n + s.questions.length, 0)).toBe(44);
     expect(sections[0].questions[0].question).toBe("Orbie 是什麼？");
     expect(sections[0].questions[0].answer.length).toBeGreaterThan(0);
   });

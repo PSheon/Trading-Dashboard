@@ -21,6 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { TIME_ZONE_LABEL } from "@/i18n/config";
 import type { MessageKey } from "@/i18n/messages";
 import { useI18n } from "@/i18n/provider";
+import { ANNOUNCEMENT_DEFAULT_HREF } from "@/lib/announcement";
 import { api, type ApiError } from "@/lib/api";
 import { usePermission } from "@/lib/auth";
 import {
@@ -265,19 +266,39 @@ function GeneralCard({ draft, set }: { draft: Drafts["general"]; set: (patch: Pa
   const { t } = useI18n();
   const value = draft.value;
   const setAnnouncement = (patch: Partial<AdminSettings["general"]["announcement"]>) => set({ announcement: { ...value.announcement, ...patch } });
+  // A stored announcement from before label/summary edits its `text` as the phrase.
+  const announcement = {
+    label: value.announcement.label ?? { "zh-TW": "", en: "" },
+    summary: value.announcement.summary ?? value.announcement.text,
+  };
   const setMaintenance = (patch: Partial<AdminSettings["general"]["maintenance"]>) => set({ maintenance: { ...value.maintenance, ...patch } });
   return (
     <AdminCard id="general" className="scroll-mt-24" title={t("admin.settings.general.title")}>
       <Toggle label={t("admin.settings.general.announcement")} checked={value.announcement.enabled} onChange={(enabled) => setAnnouncement({ enabled })} />
       <div className="grid gap-3 sm:grid-cols-2">
         {(["zh-TW", "en"] as const).map((l) => (
-          <Field key={l} id={`announcement-${l}`} label={t(l === "zh-TW" ? "admin.settings.general.announcementZh" : "admin.settings.general.announcementEn")}
-            hint={<span className="num">{value.announcement.text[l].length}/280</span>}>
-            <Textarea id={`announcement-${l}`} rows={2} maxLength={280} value={value.announcement.text[l]} className="font-sans text-sm"
-              onChange={(e) => setAnnouncement({ text: { ...value.announcement.text, [l]: e.target.value } })} />
-          </Field>
+          <div key={l} className="flex min-w-0 flex-col gap-3">
+            <Field id={`announcement-label-${l}`} label={t(l === "zh-TW" ? "admin.settings.general.announcementLabelZh" : "admin.settings.general.announcementLabelEn")}
+              hint={t("admin.settings.general.announcementLabelHint")}>
+              <Input id={`announcement-label-${l}`} maxLength={40} value={announcement.label[l]} placeholder={l === "zh-TW" ? "公開測試" : "Public beta"}
+                onChange={(e) => setAnnouncement({ label: { ...announcement.label, [l]: e.target.value } })} />
+            </Field>
+            {/* The phrase is also saved as `text`, what webs before label/summary show. */}
+            <Field id={`announcement-${l}`} label={t(l === "zh-TW" ? "admin.settings.general.announcementZh" : "admin.settings.general.announcementEn")}
+              hint={<>{t("admin.settings.general.announcementSummaryHint")} · <span className="num">{announcement.summary[l].length}/280</span></>}>
+              <Textarea id={`announcement-${l}`} rows={2} maxLength={280} value={announcement.summary[l]} className="font-sans text-sm"
+                onChange={(e) => {
+                  const summary = { ...announcement.summary, [l]: e.target.value };
+                  setAnnouncement({ summary, text: summary });
+                }} />
+            </Field>
+          </div>
         ))}
       </div>
+      <Field id="announcement-href" label={t("admin.settings.general.announcementHref")} hint={t("admin.settings.general.announcementHrefHint")}>
+        <Input id="announcement-href" maxLength={200} value={value.announcement.href ?? ""} placeholder={ANNOUNCEMENT_DEFAULT_HREF}
+          onChange={(e) => setAnnouncement({ href: e.target.value.trim() || undefined })} />
+      </Field>
       <Toggle label={t("admin.settings.general.signupsOpen")} hint={t("admin.settings.general.signupsHint")} checked={value.signupsOpen} onChange={(signupsOpen) => set({ signupsOpen })} />
       <Toggle label={t("admin.settings.general.copyTrading")} hint={t("admin.settings.general.copyTradingHint")} checked={value.copyTradingEnabled} onChange={(copyTradingEnabled) => set({ copyTradingEnabled })} />
       <Toggle label={t("adminOps.maintenance.toggle")} hint={t("adminOps.maintenance.hint")} checked={value.maintenance.enabled} onChange={(enabled) => setMaintenance({ enabled })} />

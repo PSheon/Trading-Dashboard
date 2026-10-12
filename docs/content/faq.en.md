@@ -8,6 +8,10 @@
 
 Orbie (app.orbie.fun) is a trader-monitoring and copy-trading platform for Hyperliquid. You can browse the performance of every trader on Hyperliquid, dig into their positions and trade history, favorite the ones you like, and get Telegram alerts when they trade. Paper uses virtual funds and sends no orders. Testnet copies place orders on Hyperliquid testnet with test USDC. Mainnet copying uses real funds and requires platform availability and account eligibility. The account menu selects actual or paper; the network for actual copying is configured by the platform and shown in Orbie.
 
+### What does "public beta" mean?
+
+Orbie is in open beta: explore traders, get alerts, and choose an available copy mode from your account menu. Features and wording may still change during the beta.
+
 ### What is Hyperliquid?
 
 Hyperliquid is a high-performance on-chain exchange for perpetual futures and spot trading. Every fill and position is recorded on-chain and publicly visible, which is why Orbie can analyze any trader.

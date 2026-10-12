@@ -457,6 +457,9 @@ export const zhCN: Messages = {
     fixtureLogin: "演示登录",
     fixtureBadge: "演示数据",
     announcement: "公告",
+    announcementLabel: "公开测试",
+    announcementMore: "了解更多",
+    announcementClose: "关闭公告",
   },
   common: {
     moreActions: "更多操作",

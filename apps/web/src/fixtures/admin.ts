@@ -39,10 +39,11 @@ export let adminSettings: AdminSettings = adminSettingsSchema.parse({
     copyTradingEnabled: true,
     announcement: {
       enabled: true,
-      text: {
-        "zh-TW": "Orbie 公開測試中：探索交易員、接收提醒，並從帳戶選單選擇可用的跟單模式。",
-        en: "Orbie is in open beta: explore traders, get alerts, and choose an available copy mode from your account menu.",
-      },
+      // The full sentence is on the help page ("What does open beta mean?").
+      label: { "zh-TW": "公開測試", en: "Public beta" },
+      summary: { "zh-TW": "探索交易員、接收提醒、選擇跟單模式。", en: "Explore traders, get alerts, choose a copy mode." },
+      text: { "zh-TW": "探索交易員、接收提醒、選擇跟單模式。", en: "Explore traders, get alerts, choose a copy mode." },
+      href: "/help",
     },
   },
   discovery: {

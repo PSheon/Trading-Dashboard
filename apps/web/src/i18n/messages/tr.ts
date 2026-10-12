@@ -457,6 +457,9 @@ export const tr: Messages = {
     fixtureLogin: "Demo giriş",
     fixtureBadge: "Demo veri",
     announcement: "Duyuru",
+    announcementLabel: "Açık beta",
+    announcementMore: "Daha fazla bilgi",
+    announcementClose: "Duyuruyu kapat",
   },
   common: {
     moreActions: en.common.moreActions,

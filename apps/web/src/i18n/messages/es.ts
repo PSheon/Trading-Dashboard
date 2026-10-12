@@ -457,6 +457,9 @@ export const es: Messages = {
     fixtureLogin: "Acceso demo",
     fixtureBadge: "Datos demo",
     announcement: "Anuncio",
+    announcementLabel: "Beta pública",
+    announcementMore: "Más información",
+    announcementClose: "Cerrar anuncio",
   },
   common: {
     moreActions: en.common.moreActions,

@@ -457,6 +457,9 @@ export const vi: Messages = {
     fixtureLogin: "Đăng nhập demo",
     fixtureBadge: "Dữ liệu demo",
     announcement: "Thông báo",
+    announcementLabel: "Thử nghiệm công khai",
+    announcementMore: "Tìm hiểu thêm",
+    announcementClose: "Đóng thông báo",
   },
   common: {
     moreActions: en.common.moreActions,

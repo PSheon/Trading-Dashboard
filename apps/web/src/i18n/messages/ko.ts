@@ -457,6 +457,9 @@ export const ko: Messages = {
     fixtureLogin: "데모 로그인",
     fixtureBadge: "데모 데이터",
     announcement: "공지",
+    announcementLabel: "공개 베타",
+    announcementMore: "자세히 보기",
+    announcementClose: "공지 닫기",
   },
   common: {
     moreActions: en.common.moreActions,

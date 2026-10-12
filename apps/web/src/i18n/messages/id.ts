@@ -457,6 +457,9 @@ export const id: Messages = {
     fixtureLogin: "Masuk demo",
     fixtureBadge: "Data demo",
     announcement: "Pengumuman",
+    announcementLabel: "Beta publik",
+    announcementMore: "Pelajari lebih lanjut",
+    announcementClose: "Tutup pengumuman",
   },
   common: {
     moreActions: en.common.moreActions,

@@ -103,6 +103,19 @@ describe('realtime copy signal (fast mainnet source)', () => {
     expect(runtimeCalls).toHaveLength(1);
   });
 
+  it('a leader open waits while a close of that coin is requested on the account, then goes (O4)', async () => {
+    await credit(); await engine().tick();
+    await db.insert(schema.copyLiveManualCloses).values({ id: 'held', userId: 1, accountId: 'account', strategyId: 9, idempotencyKey: 'reconcile:earlier-close', coin: 'BTC',
+      createdAt: new Date(now), updatedAt: new Date(now) });
+    const fills: HlUserFill[] = [], { read } = reader(() => fills), fast = new FastMainnetSource(read, G, () => clock);
+    clock = now + 5000; fills.push(rest(1, clock - 2000));
+    await engine(fast).kick(leader);
+    expect(await dispatches()).toEqual([expect.objectContaining({ leg: 'open', state: 'pending', attempts: 0 })]); expect(runtimeCalls).toHaveLength(0);
+    await db.update(schema.copyLiveManualCloses).set({ state: 'refused', reason: 'leader_reopened' });
+    await engine(fast).workLeader(leader);
+    expect(await dispatches()).toEqual([expect.objectContaining({ leg: 'open', state: 'submitted', attempts: 1 })]); expect(runtimeCalls).toHaveLength(1);
+  });
+
   it('a pass without a kick leaves a fast leader on the watched source while the feed is up', async () => {
     await credit(); await engine().tick();
     const { read, calls } = reader(() => [rest(1, now + 3000)]), fast = new FastMainnetSource(read, G, () => clock);

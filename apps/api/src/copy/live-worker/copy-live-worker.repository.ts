@@ -348,15 +348,27 @@ export class CopyLiveWorkerRepository {
     return row !== undefined;
   }
   /** Whether the owner closed `coin` by hand after this generation's latest
-   * open of it: the leader's later reductions have nothing left to reduce. */
+   * open of it: the leader's later reductions have nothing left to reduce.
+   * Only a close requested after that open settled (both on our clock) saw
+   * the open's position, and only one that placed an order closed anything;
+   * an open still in flight is never counted as closed. */
   async closedByOwner(mandateId: string, accountId: string, coin: string): Promise<boolean> {
-    const [open] = await this.db.select({ at: copyLiveDispatches.createdAt }).from(copyLiveDispatches)
+    const [open] = await this.db.select({ settledAt: copyLiveDispatches.settledAt }).from(copyLiveDispatches)
       .where(and(eq(copyLiveDispatches.mandateId, mandateId), eq(copyLiveDispatches.coin, coin), eq(copyLiveDispatches.leg, 'open'), inArray(copyLiveDispatches.state, ['submitted', 'settled'])))
       .orderBy(sql`${copyLiveDispatches.createdAt} desc`).limit(1);
-    if (!open) return false;
+    if (!open?.settledAt) return false;
     const [closed] = await this.db.select({ id: copyLiveManualCloses.id }).from(copyLiveManualCloses)
-      .where(and(eq(copyLiveManualCloses.accountId, accountId), eq(copyLiveManualCloses.coin, coin), eq(copyLiveManualCloses.state, 'done'), gt(copyLiveManualCloses.updatedAt, open.at))).limit(1);
+      .where(and(eq(copyLiveManualCloses.accountId, accountId), eq(copyLiveManualCloses.coin, coin), eq(copyLiveManualCloses.state, 'done'), gt(copyLiveManualCloses.createdAt, open.settledAt),
+        sql`jsonb_array_length(${copyLiveManualCloses.executionKeys}) > 0`)).limit(1);
     return closed !== undefined;
+  }
+  /** Whether a single-position close of `coin` (the owner's, or one after the
+   * leader went flat) is still requested on this account: a new open of the
+   * coin waits for it, or the closer would close the fresh open as well. */
+  async closeRequested(accountId: string, coin: string): Promise<boolean> {
+    const [row] = await this.db.select({ id: copyLiveManualCloses.id }).from(copyLiveManualCloses)
+      .where(and(eq(copyLiveManualCloses.accountId, accountId), eq(copyLiveManualCloses.coin, coin), eq(copyLiveManualCloses.state, 'requested'))).limit(1);
+    return row !== undefined;
   }
   /** Whether Hyperliquid liquidated this account's `coin` after this
    * generation's latest open of it (CP-EXE-16): a booked fill whose own

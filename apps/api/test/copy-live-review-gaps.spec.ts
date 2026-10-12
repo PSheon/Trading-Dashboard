@@ -41,13 +41,14 @@ describe('a leader reduction after the owner closed the position by hand', () =>
   beforeEach(async () => { db = getTestDb(); seed = await preparationFixture(db); });
   afterAll(async () => { await closeTestDb(); });
   const dispatch = (createdAt: number) => ({ id: `leg-${createdAt}`, mandateId: 'mandate', userId: 1, strategyId: 9, accountId: 'account', sourceFillId: seed.fill.id, leg: 'open' as const,
-    coin: 'BTC', state: 'settled' as const, executionKey: 'exec-open', leaderTime: new Date(createdAt), receivedAt: new Date(createdAt), createdAt: new Date(createdAt), updatedAt: new Date(createdAt) });
+    coin: 'BTC', state: 'settled' as const, executionKey: 'exec-open', leaderTime: new Date(createdAt), receivedAt: new Date(createdAt), createdAt: new Date(createdAt), updatedAt: new Date(createdAt),
+    settledAt: new Date(createdAt + 100) });
   beforeEach(async () => {
     await db.insert(schema.copyLiveExecutions).values({ key: 'exec-open', network: 'testnet', accountAddress: seed.f.identity.accountAddress, signerAddress: `0x${'33'.repeat(20)}`,
       cloid: `0x${'ee'.repeat(16)}`, nonce: now, userId: 1, strategyId: 9, state: 'filled', updatedAt: new Date(now), record: { key: 'exec-open', state: 'filled' } });
   });
   const close = (coin: string, state: 'requested' | 'done', updatedAt: number) => ({ id: `close-${coin}-${updatedAt}`, userId: 1, accountId: 'account', strategyId: 9, idempotencyKey: `close-key-${coin}-${updatedAt}`,
-    coin, state, executionKeys: [], createdAt: new Date(updatedAt - 1000), updatedAt: new Date(updatedAt) });
+    coin, state, executionKeys: [`testnet:close:${coin}-${updatedAt}`], createdAt: new Date(updatedAt - 1000), updatedAt: new Date(updatedAt) });
   it('is position_closed_by_owner only for a finished close of that coin after the latest open', async () => {
     const repo = new CopyLiveWorkerRepository(db, new UnitOfWork(db), testConfig());
     expect(await repo.closedByOwner('mandate', 'account', 'BTC')).toBe(false); // never opened
@@ -82,7 +83,7 @@ describe('a leader reduction after the owner closed the position by hand', () =>
     await db.insert(schema.copyLiveManualCloses).values(close('BTC', 'done', now - 8_000));
     expect(await repo.closedByOwner('mandate', 'account', 'BTC')).toBe(true);
     // The latest open of the coin is now after that close.
-    await db.update(schema.copyLiveDispatches).set({ createdAt: new Date(now - 2_000) });
+    await db.update(schema.copyLiveDispatches).set({ createdAt: new Date(now - 2_000), settledAt: new Date(now - 1_900) });
     expect(await repo.closedByOwner('mandate', 'account', 'BTC')).toBe(false);
   });
 });

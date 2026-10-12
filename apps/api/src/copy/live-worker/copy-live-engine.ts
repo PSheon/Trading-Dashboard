@@ -501,6 +501,9 @@ export class CopyLiveEngine {
     if (row.leg === 'close' && !await this.deps.repository.everOpened(row.mandateId, row.coin)) {
       await this.deps.repository.update(row, { state: 'refused', reason: 'no_follower_position' }); return;
     }
+    // A close of the coin still requested (the owner's, or one after the
+    // leader went flat) would close this open too: it waits for that close.
+    if (row.leg === 'open' && await this.deps.repository.closeRequested(row.accountId, row.coin)) return;
     if (row.leg === 'open') {
       // A flip opens only after its close leg settled (the planner proves it),
       // or when the follower had nothing to close (the leader's old side was

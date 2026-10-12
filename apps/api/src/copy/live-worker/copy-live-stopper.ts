@@ -333,13 +333,21 @@ export class CopyLiveManualCloser {
     if (status === 'stopping' || status === 'stopped') { await this.repository.finishManual(row.id, 'refused', 'copy_stopping'); return; }
     const account = await this.repository.closeAccountOf(row);
     if (!account) { await this.repository.finishManual(row.id, 'refused', 'agent_unavailable'); return; }
-    const stillWanted = async () => (await this.repository.manualClose(row.id))?.state === 'requested' && !['stopping', 'stopped'].includes(await this.repository.strategyStatus(row.strategyId) ?? 'stopped');
+    // A close after the leader went flat ends once the leader opens the coin
+    // again: what the follower then holds includes the new open's mirror.
+    const stillWanted = async () => (await this.repository.manualClose(row.id))?.state === 'requested' && !['stopping', 'stopped'].includes(await this.repository.strategyStatus(row.strategyId) ?? 'stopped') &&
+      !await this.repository.leaderReopened(row.idempotencyKey);
     const last = row.executionKeys.at(-1);
     if (last) {
       const state = await this.repository.journalState(last);
       if (state !== null && !TERMINAL.has(state)) {
         await this.closer.close({ account, coin: row.coin, seed: `manual:${row.id}:${row.executionKeys.length - 1}`, attempt: row.executionKeys.length - 1, stillWanted }); return;
       }
+    }
+    if (await this.repository.leaderReopened(row.idempotencyKey)) {
+      this.log?.(`close ${row.id} of ${row.coin} cancelled: the leader opened it again`);
+      if (row.executionKeys.length) await this.scanner.runFor(row.accountId);
+      await this.repository.finishManual(row.id, 'refused', 'leader_reopened'); return;
     }
     const snapshot = await this.closer.observe(account.accountAddress);
     const position = snapshot.positions.find(p => p.coin === row.coin && !Dec.from(p.size).isZero);

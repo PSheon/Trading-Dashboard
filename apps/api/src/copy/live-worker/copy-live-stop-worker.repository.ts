@@ -67,6 +67,18 @@ export class CopyLiveStopWorkerRepository {
     const [row] = await this.db.select().from(copyLiveManualCloses).where(eq(copyLiveManualCloses.id, id));
     return row ?? null;
   }
+  /** For a close requested after the leader went flat (`reconcile:<leg>`):
+   * whether the leader opened that coin again since, a later leader fill
+   * (exchange time, then tid) with an open leg of the same copy. */
+  async leaderReopened(idempotencyKey: string): Promise<boolean> {
+    if (!idempotencyKey.startsWith('reconcile:')) return false;
+    const found = await this.db.execute<{ reopened: boolean }>(sql`select exists (
+      select 1 from ${copyLiveDispatches} d join copy_live_source_fills f on f.id = d.source_fill_id
+        join ${copyLiveDispatches} o on o.mandate_id = d.mandate_id and o.coin = d.coin and o.leg = 'open'
+        join copy_live_source_fills g on g.id = o.source_fill_id
+      where d.id = ${idempotencyKey.slice('reconcile:'.length)} and (g.provider_time, g.tid::numeric) > (f.provider_time, f.tid::numeric)) as reopened`);
+    return found.rows[0]?.reopened === true;
+  }
   async strategyStatus(id: number): Promise<string | null> {
     const [row] = await this.db.select({ status: copyStrategies.status }).from(copyStrategies).where(eq(copyStrategies.id, id));
     return row?.status ?? null;

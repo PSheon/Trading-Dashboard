@@ -215,6 +215,10 @@ export class LiveProviderReadEpoch {
     // Another copy's account still in setup counts as zero exposure (unsetup).
     const accountsWork = Promise.all(authority.accounts.map(account => this.observer.observe(account.address!, { shared, ...(account.id === binding.accountId ? {} : { unsetup: true }) })));
     void accountsWork.catch(() => {});
+    // The leader's equity is read alongside the accounts, not after them: one
+    // all-venue read less in the 5 s clock (a flip's open went stale at 5.08 s, 2026-10-12).
+    const leaderWork = binding.includeLeader ? this.observer.observe(authority.consent.leaderAddress, { shared, leader: true }) : Promise.resolve(null);
+    void leaderWork.catch(() => {});
     let targetWork: Promise<LiveRiskProviderProof> | undefined, otherWork: Promise<LiveRiskProviderProof[]> | undefined;
     try {
       await firstWave;
@@ -228,7 +232,7 @@ export class LiveProviderReadEpoch {
       await session.scope.assertHeld(); this.fresh(started);
       const current = snapshots[authority.accounts.findIndex(a => a.id === binding.accountId)];
       riskSourceRequire(current, 'live_risk_user_coverage_unproven');
-      const leader = binding.includeLeader ? await this.observer.observe(authority.consent.leaderAddress, { shared, leader: true }) : null;
+      const leader = await leaderWork;
       await session.scope.assertHeld(); this.fresh(started);
       mark('epoch_account_snapshots');
       const coins = [...new Set([...current.positions.map(p => p.coin), ...current.restingOrders.map(o => o.coin), market.coin])];
@@ -260,7 +264,7 @@ export class LiveProviderReadEpoch {
       assertOriginalLiveRiskSession(session); this.fresh(oldest);
       return freezeLiveReservation(structuredClone({ market, snapshots, target: target_, others, leader, oldest, authorityDigest }));
     } finally {
-      await Promise.allSettled([accountsWork, ...(targetWork ? [targetWork] : []), ...(otherWork ? [otherWork] : [])]);
+      await Promise.allSettled([accountsWork, leaderWork, ...(targetWork ? [targetWork] : []), ...(otherWork ? [otherWork] : [])]);
     }
   }
 }

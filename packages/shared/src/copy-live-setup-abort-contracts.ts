@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { copyIdempotencyKeySchema } from './schema/copy.js';
 import { copyFundingSchema } from './copy-funding-contracts.js';
+import { networkSchema } from './networks.js';
+import { isoUtcSchema } from './primitives.js';
 
 const identifier = z.string().min(1).max(128).regex(/^[^\s\p{Cc}\p{Cf}]+$/u);
 const issue = z.string().regex(/^[a-z][a-z0-9_]{0,79}$/).nullable();
@@ -10,11 +12,11 @@ export type RequestLiveCopySetupAbort = z.infer<typeof requestLiveCopySetupAbort
  * request never supplies a destination, amount, consent or new signature. */
 export const liveCopySetupAbortSchema = z.object({
   id: z.string().uuid(), setupId: identifier, kind: z.enum(['start', 'edit', 'renewal']),
-  strategyId: z.number().int().positive(), accountId: identifier.nullable(), network: z.enum(['testnet', 'mainnet']),
+  strategyId: z.number().int().positive(), accountId: identifier.nullable(), network: networkSchema,
   state: z.enum(['requested', 'reconciling', 'refunding', 'delegated', 'blocked', 'completed']), issue,
   deposit: copyFundingSchema.nullable(), refund: copyFundingSchema.nullable(),
   stop: z.object({ id: z.string().uuid(), state: z.enum(['requested', 'cancelling', 'closing', 'blocked', 'flat', 'stopped']), issue }).strict().nullable(),
-  createdAt: z.string().datetime(), updatedAt: z.string().datetime(),
+  createdAt: isoUtcSchema, updatedAt: isoUtcSchema,
 }).strict().superRefine((value, ctx) => {
   const invalid = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message });
   for (const [operation, direction] of [[value.deposit, 'to_account'], [value.refund, 'to_main']] as const) {

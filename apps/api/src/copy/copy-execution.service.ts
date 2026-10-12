@@ -11,6 +11,7 @@ import { evaluateRisk, symbolRefusal } from "./copy-risk.js";
 import { strategyValue } from "./copy-planner.service.js";
 import { CopyRiskPolicyService } from "./copy-risk-policy.service.js";
 import { CopyRepository, type OrderRow, type PositionRow, type StrategyRow } from "./copy.repository.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** Orders the executor handles per pass. */
 export const EXECUTION_BATCH = 100;
@@ -115,7 +116,7 @@ export class CopyExecutionService {
       } catch (error) {
         held.add(order.strategyId);
         const message = (error as Error).message;
-        this.logger.error(`Copy order ${order.id} (strategy ${order.strategyId}) failed; the strategy's later orders wait for it: ${message}`);
+        this.logger.error(`Copy order ${order.id} (strategy ${order.strategyId}) failed; the strategy's later orders wait for it: ${safeErrorText(error)}`);
         await this.reportFailure(order, message);
       }
     };
@@ -150,7 +151,7 @@ export class CopyExecutionService {
         `⚠️ Copy order ${order.id} (strategy ${order.strategyId}) has failed ${attempts} times: ${message.slice(0, 200)}. The strategy's later orders wait for it. See /admin/copy.`,
       );
     } catch (error) {
-      this.logger.error(`Could not record the failure of copy order ${order.id}: ${(error as Error).message}`);
+      this.logger.error(`Could not record the failure of copy order ${order.id}: ${safeErrorText(error)}`);
     }
   }
 
@@ -422,7 +423,7 @@ export class CopyExecutionService {
       try {
         if (await this.liquidateStrategy(strategyId, held[0]!.userId, mids, assets)) liquidated += 1;
       } catch (error) {
-        this.logger.error(`Liquidation of strategy ${strategyId} failed: ${(error as Error).message}`);
+        this.logger.error(`Liquidation of strategy ${strategyId} failed: ${safeErrorText(error)}`);
       }
     }
     return liquidated;

@@ -10,6 +10,7 @@ import { AccountStateService } from "./account-state.service.js";
 import { classifyFills, fromScaled, toScaled, type ActionDraft } from "./action-classifier.js";
 import { emitRecent } from "./action-store.js";
 import { dexOf, type BookTrade } from "./position-book.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** `dir` of a fill built from the feed (the feed has none; only spot dirs
  * mean anything to the classifier). */
@@ -75,7 +76,7 @@ export class FeedActionsService {
           await this.accounts.refreshDexes(address, new Set(unlevered.map((d) => dexOf(d.coin))), "live", rank);
           drafts = this.classify(address, burst);
         } catch (error) {
-          this.logger.warn(`Leverage refresh failed for ${address}: ${(error as Error).message}`);
+          this.logger.warn(`Leverage refresh failed for ${address}: ${safeErrorText(error)}`);
         }
       }
 

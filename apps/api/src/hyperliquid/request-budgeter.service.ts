@@ -3,6 +3,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { AppConfig } from "../config/app-config.js";
 import { Injectable, Logger } from "@nestjs/common";
 import { currentRequestAnswered, currentRequestClient } from "../runtime/request-context.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 
 /**
@@ -505,7 +506,7 @@ export class RequestBudgeterService {
     this.capsReadAt = now;
     this.capsReading = this.capsSource.consumerCaps()
       .then((caps) => this.setConsumerCaps(caps))
-      .catch((error: Error) => this.logger.warn(`Consumer caps unavailable: ${error.message}`))
+      .catch((error: Error) => this.logger.warn(`Consumer caps unavailable: ${safeErrorText(error)}`))
       .finally(() => { this.capsReading = undefined; });
   }
 

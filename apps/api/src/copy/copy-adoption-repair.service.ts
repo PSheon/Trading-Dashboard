@@ -10,6 +10,7 @@ import { pricedCoins, symbolRefusal } from "./copy-risk.js";
 import { CopyRiskPolicyService } from "./copy-risk-policy.service.js";
 import { CopyRepository } from "./copy.repository.js";
 import { wire } from "./copy.mappers.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** Rejection reasons that, before market-data gaps were retried, could mean
  * "the read failed" rather than a fact about the coin. */
@@ -98,7 +99,7 @@ export class CopyAdoptionRepairService {
         snapshots.set(address, await this.market.leaderSnapshot(address));
         equities.set(address, await this.market.leaderEquity(address));
       } catch (error) {
-        this.logger.warn(`Leader snapshot for ${address} failed: ${(error as Error).message}`);
+        this.logger.warn(`Leader snapshot for ${address} failed: ${safeErrorText(error)}`);
         snapshots.set(address, null);
       }
     }

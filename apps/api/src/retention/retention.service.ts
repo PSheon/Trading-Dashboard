@@ -6,6 +6,7 @@ import { RETENTION_TABLES, type RetentionSettings, type RetentionTable } from "@
 import { recordAdminAudit } from "../common/audit/admin-audit.js";
 import { UnitOfWork } from "../db/unit-of-work.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { RetentionRepository, type RetentionOutcome } from "./retention.repository.js";
 
@@ -137,7 +138,7 @@ export class RetentionService {
     } catch (cause) {
       status = "failed";
       error = (cause as Error).message.slice(0, 300);
-      this.logger.error(`Retention failed: ${error}`);
+      this.logger.error(`Retention failed: ${safeErrorText(cause)}`);
     }
     const outcome: RetentionOutcome = {
       status, removed, error, durationMs: Date.now() - started,

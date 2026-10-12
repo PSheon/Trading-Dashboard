@@ -5,6 +5,7 @@ import { AnalysisHistoryService } from "./analysis-history.service.js";
 import { TradeAnalyticsService } from "./trade-analytics.service.js";
 import { budgetConsumer, UNRANKED_BASE } from "../hyperliquid/request-budgeter.service.js";
 import { TradersModule } from "./traders.module.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** The leaderboard import (at startup and every minute), the analysis
  * history job and the watched traders' analytics refresh: the worker
@@ -25,7 +26,7 @@ export class TradersWorker implements OnApplicationBootstrap {
   /** Watched traders' trade analytics, kept within STALE_MS of their fills
    * (nothing else refreshes them: a page read only serves the stored row). */
   @Cron(CronExpression.EVERY_MINUTE) trackedTick() {
-    return budgetConsumer("tracked", () => this.analytics.refreshTracked(), { queueMs: 2 * 60_000 }).catch((error: Error) => this.logger.warn(`Tracked analytics turn failed: ${error.message}`));
+    return budgetConsumer("tracked", () => this.analytics.refreshTracked(), { queueMs: 2 * 60_000 }).catch((error: Error) => this.logger.warn(`Tracked analytics turn failed: ${safeErrorText(error)}`));
   }
 }
 @Module({ imports: [TradersModule], providers: [TradersWorker] })

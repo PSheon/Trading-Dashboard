@@ -10,6 +10,7 @@ import {
 } from "../notify/telegram-http.client.js";
 import { botMessages } from "./bot-messages.js";
 import { TelegramLinkService } from "./telegram-link.service.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** Long-poll wait per getUpdates call (Telegram allows up to 50 s). */
 const LONG_POLL_S = 30;
@@ -28,10 +29,6 @@ const LINK_CALLBACK = /^link:(ok|no):([A-Za-z0-9_-]{16,55})$/;
 const CONFLICT_BACKOFF_MS = { first: 5_000, max: 60_000 };
 /** Network errors, 429, 5xx. */
 const ERROR_BACKOFF_MS = { first: 1_000, max: 30_000 };
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 /**
  * The official bot's side of the conversation: receives updates by long
@@ -103,7 +100,7 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
     this.logger.log("Telegram bot polling for updates");
     // Fire and forget, but never an unhandled rejection.
     this.loopDone = this.loop()
-      .catch((error) => this.logger.error(`Telegram poll loop crashed: ${errorText(error)}`))
+      .catch((error) => this.logger.error(`Telegram poll loop crashed: ${safeErrorText(error)}`))
       .finally(() => {
         this.running = false;
       });
@@ -145,7 +142,7 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
           errors += 1;
           const retryAfterMs = error instanceof TelegramApiError && error.retryAfterS ? error.retryAfterS * 1000 : 0;
           const delay = Math.max(retryAfterMs, backoff(ERROR_BACKOFF_MS, errors));
-          this.logger.warn(`Telegram getUpdates failed: ${errorText(error)}. Retrying in ${delay / 1000}s.`);
+          this.logger.warn(`Telegram getUpdates failed: ${safeErrorText(error)}. Retrying in ${delay / 1000}s.`);
           await this.wait(delay);
         }
       }
@@ -170,7 +167,7 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
       try {
         await this.handleUpdate(update);
       } catch (error) {
-        this.logger.error(`Telegram update ${update.update_id} failed: ${errorText(error)}`);
+        this.logger.error(`Telegram update ${update.update_id} failed: ${safeErrorText(error)}`);
       }
     }
     return updates.length;
@@ -199,7 +196,7 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
     const match = LINK_CALLBACK.exec(query.data ?? "");
     const chat = query.message?.chat;
     // Acknowledge first so the button stops spinning, whatever happens next.
-    await this.telegram.answerCallbackQuery(query.id).catch((error) => this.logger.warn(`answerCallbackQuery failed: ${errorText(error)}`));
+    await this.telegram.answerCallbackQuery(query.id).catch((error) => this.logger.warn(`answerCallbackQuery failed: ${safeErrorText(error)}`));
     if (!match || !chat || !query.message) return;
     const chatId = String(chat.id);
     if (chat.type !== "private") {
@@ -207,7 +204,7 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
       return;
     }
     // One answer per prompt: the buttons go away.
-    await this.telegram.removeKeyboard(chatId, query.message.message_id).catch((error) => this.logger.warn(`Removing the link buttons failed: ${errorText(error)}`));
+    await this.telegram.removeKeyboard(chatId, query.message.message_id).catch((error) => this.logger.warn(`Removing the link buttons failed: ${safeErrorText(error)}`));
     const [, action, token] = match;
     if (action === "no") {
       await this.link.cancelStartToken(token);

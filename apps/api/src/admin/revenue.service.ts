@@ -14,6 +14,7 @@ import {
   utcDayStart,
   type RevenueRange,
 } from "./revenue-daily.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 export type SnapshotResult =
   | { status: "skipped"; reason: "no_address" }
@@ -46,7 +47,7 @@ export class RevenueService {
     this.snapshot().catch((error: unknown) => {
       // `snapshot()` already catches; this guards against a bug there
       // becoming an unhandled rejection that kills the process.
-      this.logger.error(`Revenue snapshot crashed: ${(error as Error)?.message ?? String(error)}`);
+      this.logger.error(`Revenue snapshot crashed: ${safeErrorText(error)}`);
     });
   }
 
@@ -72,7 +73,7 @@ export class RevenueService {
       return { status: "written", address, takenAt };
     } catch (error) {
       const message = (error as Error)?.message ?? String(error);
-      this.logger.error(`Revenue snapshot failed: ${message}`);
+      this.logger.error(`Revenue snapshot failed: ${safeErrorText(error)}`);
       return { status: "failed", error: message };
     }
   }

@@ -13,6 +13,7 @@ import { copyDeliveryPayloadSchema, notifiableCopyMode, renderCopyMessage, COPY_
 import type { AlertContext } from "./notify.types.js";
 import { renderAlertMessage, renderTestMessage, tradeSideOf } from "./message-template.js";
 import { TelegramApiError, TelegramHttpClient } from "./telegram-http.client.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 export type { AlertContext, AlertRecipient } from "./notify.types.js";
 
@@ -66,10 +67,6 @@ function delay(ms: number, signal: AbortSignal): Promise<void> {
     const timer = setTimeout(() => { signal.removeEventListener("abort", abort); resolve(); }, ms);
     signal.addEventListener("abort", abort, { once: true });
   });
-}
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 /**
@@ -151,7 +148,7 @@ export class NotifyService {
     if (actionId === undefined) {
       // A failed projection of actual copies never holds up paper ones.
       try { await this.repository.projectLiveCopyEvents(ALERT_MAX_AGE_MS); }
-      catch (error) { this.logger.error(`Actual copy notifications not projected: ${errorText(error)}`); }
+      catch (error) { this.logger.error(`Actual copy notifications not projected: ${safeErrorText(error)}`); }
       for (const { event, chatId, locale, leaderAddress } of await this.repository.copyCandidates(ALERT_MAX_AGE_MS)) {
         const payload = copyDeliveryPayloadSchema.parse({ version: 2, kind: "copy", mode: notifiableCopyMode(event.payload), eventId: String(event.id), chatId,
           text: renderCopyMessage(event, this.config.value.telegram.linkBaseUrl, locale, leaderAddress) });
@@ -202,7 +199,7 @@ export class NotifyService {
       }
     } catch (error) {
       reason = "delivery failed";
-      this.logger.error(`Delivery ${id} failed: ${errorText(error)}`);
+      this.logger.error(`Delivery ${id} failed: ${safeErrorText(error)}`);
     }
     const pending = status === "failed" && !retry.permanent && row.attempts < 5;
     await this.unitOfWork.run((tx) => this.repository.recordDelivery(tx, row, leaseToken, {
@@ -238,7 +235,7 @@ export class NotifyService {
     } catch (error) {
       reason = "copy delivery failed";
       if (error instanceof Error && error.name === "ZodError") retry.permanent = true;
-      this.logger.error(`Copy delivery ${row.id} failed: ${errorText(error)}`);
+      this.logger.error(`Copy delivery ${row.id} failed: ${safeErrorText(error)}`);
     }
     await this.unitOfWork.run(tx => this.repository.recordDelivery(tx, row, leaseToken, {
       status, pending: status === "failed" && !retry.permanent && row.attempts < 5,
@@ -285,7 +282,7 @@ export class NotifyService {
       await this.telegram.sendMessage(chatId, text);
       return { sent: true, dryRun: false };
     } catch (error) {
-      this.logger.warn(`Test message failed: ${errorText(error)}`);
+      this.logger.warn(`Test message failed: ${safeErrorText(error)}`);
       return { sent: false, dryRun: false };
     }
   }
@@ -321,7 +318,7 @@ export class NotifyService {
         return true;
       } catch (error) {
         this.logger.error(
-          `Telegram send attempt ${attempt + 1}/${RETRY_DELAYS_MS.length + 1} failed: ${errorText(error)}`,
+          `Telegram send attempt ${attempt + 1}/${RETRY_DELAYS_MS.length + 1} failed: ${safeErrorText(error)}`,
         );
         if (guard && started) {
           // A timeout or a connection cut after the request was sent: Telegram

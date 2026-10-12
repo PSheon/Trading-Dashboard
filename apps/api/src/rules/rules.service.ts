@@ -11,6 +11,7 @@ import { AccountStateService } from "../watcher/account-state.service.js";
 import { ACTION_CREATED_EVENT, type ActionCreatedEvent } from "../watcher/action-created.event.js";
 import { ruleMatches } from "./rule-policy.js";
 import { RulesRepository, type AlertRuleRow, type LeaderRow } from "./rules.repository.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** Address-scope rule kinds that are evaluated. R4/R5 are real PRD kinds
  * but not implemented; ruleMatches rejects them. */
@@ -62,7 +63,7 @@ export class RulesService {
     try {
       await this.evaluateAction(action);
     } catch (error) {
-      this.logger.error(`Alert evaluation failed for ${action.address} / ${action.coin}: ${errorText(error)}`);
+      this.logger.error(`Alert evaluation failed for ${action.address} / ${action.coin}: ${safeErrorText(error)}`);
     }
   }
 
@@ -167,7 +168,7 @@ export class RulesService {
         return ruleMatches(rule, action, equityUsd);
       } catch (error) {
         this.logger.error(
-          `Rule evaluation failed for rule ${rule.id} (${rule.kind}) / ${action.address} / ${action.coin}: ${errorText(error)}`,
+          `Rule evaluation failed for rule ${rule.id} (${rule.kind}) / ${action.address} / ${action.coin}: ${safeErrorText(error)}`,
         );
         return false;
       }
@@ -207,8 +208,4 @@ export class RulesService {
     const rows = await this.repository.enabledDefaultRules(db);
     return rows.filter((r) => ADDRESS_SCOPE_KINDS_IN_SCOPE.includes(r.kind) && r.tiers.includes(tier));
   }
-}
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

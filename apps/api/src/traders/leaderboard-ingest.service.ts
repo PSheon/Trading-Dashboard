@@ -12,6 +12,7 @@ import {
   VAULTS_URL,
   type TraderStatsInsert,
 } from "./leaderboard.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** The payloads are ≈38 MB and ≈14 MB; allow a slow link, never hang. */
 const FETCH_TIMEOUT_MS = 120_000;
@@ -62,7 +63,7 @@ export class LeaderboardIngestService {
   start(): void {
     if (this.config.value.app.nodeEnv === "test") return;
     this.bootstrap()
-      .catch((error: unknown) => this.logger.error(`Startup leaderboard import failed: ${(error as Error).message}`));
+      .catch((error: unknown) => this.logger.error(`Startup leaderboard import failed: ${safeErrorText(error)}`));
   }
 
   private async bootstrap(): Promise<void> {
@@ -74,7 +75,7 @@ export class LeaderboardIngestService {
     try {
       await this.refreshIfStale();
     } catch (error) {
-      this.logger.error(`Leaderboard import failed: ${(error as Error).message}`);
+      this.logger.error(`Leaderboard import failed: ${safeErrorText(error)}`);
     }
   }
 
@@ -124,7 +125,7 @@ export class LeaderboardIngestService {
     const fetchMs = Date.now() - started;
     let vaults: Set<string> | null = null;
     if (vaultList.status === "fulfilled") vaults = vaultList.value;
-    else this.logger.warn(`Vault list failed, keeping previous vault flags: ${(vaultList.reason as Error).message}`);
+    else this.logger.warn(`Vault list failed, keeping previous vault flags: ${safeErrorText(vaultList.reason)}`);
 
     const importedAt = new Date();
     // Without a fresh list, new rows use the last list this process fetched;

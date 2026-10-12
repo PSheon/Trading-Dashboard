@@ -15,6 +15,7 @@ import { SettingsService } from "../settings/settings.service.js";
 import { TtlCache } from "../traders/ttl-cache.js";
 import { COHORT_TIERS, aggregate, candleInterval, cohortEligible, cohortHistoryReady, dexOf, positionsFrom, WINDOW_MS, type MemberSnapshot } from "./cohorts.js";
 import { CohortRepository, type CohortCandidate, type CohortMemberRow } from "./cohort.repository.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** Weight of one `clearinghouseState` (per dex). */
 const WEIGHT_STATE = 2;
@@ -101,7 +102,7 @@ export class CohortService implements OnModuleDestroy {
     if (this.config.value.app.nodeEnv === "test" || this.jobs.stopping || this.destroyed) return Promise.resolve();
     this.running ??= this.jobs
       .run(() => budgetConsumer("cohort", () => this.tick(), { queueMs: 2 * 60_000 }))
-      .catch((error: Error) => this.logger.error(`Cohort tick failed: ${error.message}`))
+      .catch((error: Error) => this.logger.error(`Cohort tick failed: ${safeErrorText(error)}`))
       .finally(() => {
         this.running = undefined;
         // A validated release between cron ticks must not leave capacity
@@ -248,7 +249,7 @@ export class CohortService implements OnModuleDestroy {
       const message = (error as Error).message;
       await this.repository.saveFailure(member.address, new Date(now), `${capacityLimited ? "capacity: " : ""}${message}`.slice(0, 300));
       this.record({ address: member.address, tier: member.tier, weight, calls, swept, ms: Date.now() - started, ok: false, at: new Date() });
-      this.logger.warn(`Cohort refresh ${member.address} failed: ${(error as Error).message}`);
+      this.logger.warn(`Cohort refresh ${member.address} failed: ${safeErrorText(error)}`);
       // A typed pre-dispatch meter refusal spent no read weight. The
       // validated global pause and member cooldown already bound retries;
       // charging a phantom read would consume the producer's allowance.
@@ -346,7 +347,7 @@ export class CohortService implements OnModuleDestroy {
     try {
       return await this.discovery.copyScoreMap();
     } catch (error) {
-      this.logger.warn(`Cohort copy scores unavailable: ${(error as Error).message}`);
+      this.logger.warn(`Cohort copy scores unavailable: ${safeErrorText(error)}`);
       return new Map();
     }
   }
@@ -388,7 +389,7 @@ export class CohortService implements OnModuleDestroy {
         // Hyperliquid busy (the shared per-IP budget): draw the last candles
         // read at this size, cut to the window, instead of no BTC line.
         btc = (this.lastBtc.get(interval) ?? []).filter(([t]) => t >= from);
-        this.logger.warn(`BTC candles unavailable${btc.length > 0 ? " (serving the last read)" : ""}: ${(error as Error).message}`);
+        this.logger.warn(`BTC candles unavailable${btc.length > 0 ? " (serving the last read)" : ""}: ${safeErrorText(error)}`);
       }
     }
     return { tier: parsed, window, series, btc };

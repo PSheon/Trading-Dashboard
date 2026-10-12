@@ -13,6 +13,7 @@ import { positionBreaks } from "../analytics/fill-integrity.js";
 import { ACTION_CORRECTED_EVENT, type ActionCorrectedEvent } from "./action-created.event.js";
 import { emitRecent } from "./action-store.js";
 import { FillSyncRepository, type ActionRow, type FillCoverageBreak } from "./fill-sync.repository.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** Hyperliquid's per-call cap on `userFillsByTime` (and TWAP slice) rows. */
 export const PAGE_SIZE = 2000;
@@ -319,7 +320,7 @@ export class FillSyncService {
       if (through > start) {
         await this.repository.extend(address, true, start, through, requestedAt - BACKFILL_LOOKBACK_MS);
         if (dense.length > 0) await this.repository.patchCoverage(address, { lastError: "dense_millisecond" }).catch(() => undefined);
-        await this.checkContinuity(address, false, rank, priority).catch((error: Error) => this.logger.warn(`Continuity check for ${address} failed: ${error.message}`));
+        await this.checkContinuity(address, false, rank, priority).catch((error: Error) => this.logger.warn(`Continuity check for ${address} failed: ${safeErrorText(error)}`));
       }
       return { ...stored, complete: regular.complete && twap.complete, through: Math.max(through, start) };
     });
@@ -370,7 +371,7 @@ export class FillSyncService {
       // Stopped short of the one-year floor because REST holds nothing older.
       const reached = retained > spanFrom || (status === "complete" && from > Date.now() - BACKFILL_LOOKBACK_MS + 86_400_000) ? "retention" : status;
       await this.repository.patchCoverage(address, { verifiedFrom: new Date(from), backfillStatus: reached, revisedAt: new Date() });
-      await this.checkContinuity(address, true, rank).catch((error: Error) => this.logger.warn(`Continuity check for ${address} failed: ${error.message}`));
+      await this.checkContinuity(address, true, rank).catch((error: Error) => this.logger.warn(`Continuity check for ${address} failed: ${safeErrorText(error)}`));
       this.events?.emit(FILLS_REVISED_EVENT, { address });
       return { status: reached, inserted: 0 };
     };
@@ -543,7 +544,7 @@ export class FillSyncService {
         // The fills stored so far still become actions below (they are
         // stored now, so no later sync would see them as new); what is
         // still missing is looked for again by the caller's retry.
-        this.logger.warn(`TWAP slice fills for ${address} failed: ${(error as Error).message}`);
+        this.logger.warn(`TWAP slice fills for ${address} failed: ${safeErrorText(error)}`);
       }
       if (slices > 0) this.twapSeenAt.set(address, Date.now());
       missingTids = expected.filter((tid) => !fetchedTids.has(tid));
@@ -611,7 +612,7 @@ export class FillSyncService {
       try {
         await this.accounts.refresh(address, "live", new Set(newFills.map((f) => dexOf(f.coin))), rank);
       } catch (error) {
-        this.logger.warn(`Account refresh failed for ${address}: ${(error as Error).message}`);
+        this.logger.warn(`Account refresh failed for ${address}: ${safeErrorText(error)}`);
       }
     }
 

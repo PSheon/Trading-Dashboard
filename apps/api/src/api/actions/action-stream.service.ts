@@ -18,6 +18,7 @@ import {
   type ActionCreatedEvent,
 } from "../../watcher/action-created.event.js";
 import { ActionsService, type ActionsFeedFilter } from "./actions.service.js";
+import { safeErrorText } from "../../runtime/safe-error-text.js";
 
 export const ACTION_STREAM_OPTIONS = Symbol("ACTION_STREAM_OPTIONS");
 
@@ -253,7 +254,7 @@ export class ActionStreamService implements OnModuleDestroy {
         this.write(sub, queued.frame);
       }
     } catch (error) {
-      this.logger.warn(`Stream setup failed: ${(error as Error).message}`);
+      this.logger.warn(`Stream setup failed: ${safeErrorText(error)}`);
       sub.close();
     }
   }
@@ -292,7 +293,7 @@ export class ActionStreamService implements OnModuleDestroy {
       const favorites = await this.actions.favoriteAddresses(event.userId);
       for (const sub of affected) sub.favorites = favorites;
     } catch (error) {
-      this.logger.warn(`Reloading favorites for streams failed: ${(error as Error).message}`);
+      this.logger.warn(`Reloading favorites for streams failed: ${safeErrorText(error)}`);
     }
   }
 
@@ -312,7 +313,7 @@ export class ActionStreamService implements OnModuleDestroy {
       // A failed flush is logged and the chain continues; otherwise every
       // later flush would be skipped behind one rejected promise.
       this.flushing = this.flushing.then(() => this.flush()).catch((error: unknown) => {
-        this.logger.warn(`Action stream flush failed: ${error instanceof Error ? error.message.slice(0, 160) : "unknown"}`);
+        this.logger.warn(`Action stream flush failed: ${safeErrorText(error)}`);
       });
     });
   }
@@ -328,7 +329,7 @@ export class ActionStreamService implements OnModuleDestroy {
       items = await this.actions.findByIds([...new Set([...created, ...updated])]);
     } catch (error) {
       // Pages still poll; the next resume replays what they missed.
-      this.logger.warn(`Stream lookup failed: ${(error as Error).message}`);
+      this.logger.warn(`Stream lookup failed: ${safeErrorText(error)}`);
       return;
     }
     for (const item of items) {

@@ -9,6 +9,7 @@ import { coinDex } from "@trading-dashboard/shared/contracts";
 
 import { Dec } from "../common/decimal/dec.js";
 import { CopyRepository } from "./copy.repository.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** Mid prices are shared by every caller for this long (allMids, weight 2). */
 export const MIDS_TTL_MS = 3_000;
@@ -124,7 +125,7 @@ export class CopyMarketService {
           this.midsByDex.set(dex, { at: Date.now(), px });
           return true;
         } catch (error) {
-          this.logger.warn(`allMids${dex ? ` (${dex})` : ""} failed: ${(error as Error).message}`);
+          this.logger.warn(`allMids${dex ? ` (${dex})` : ""} failed: ${safeErrorText(error)}`);
           const stale = this.midsByDex.get(dex);
           return stale !== undefined && Date.now() - stale.at < MIDS_STALE_OK_MS;
         } finally {
@@ -177,7 +178,7 @@ export class CopyMarketService {
           this.assetsByDex.set(dex, { at: Date.now(), byCoin });
           return true;
         } catch (error) {
-          this.logger.warn(`metaAndAssetCtxs${dex ? ` (${dex})` : ""} failed: ${(error as Error).message}`);
+          this.logger.warn(`metaAndAssetCtxs${dex ? ` (${dex})` : ""} failed: ${safeErrorText(error)}`);
           return this.assetsByDex.has(dex);
         } finally {
           this.assetsInflight.delete(dex);
@@ -240,7 +241,7 @@ export class CopyMarketService {
           this.equityCache.set(address, { at: Date.now(), value: ok });
           return toLeaderEquity(ok);
         } catch (error) {
-          this.logger.warn(`Leader equity for ${address} failed: ${(error as Error).message}`);
+          this.logger.warn(`Leader equity for ${address} failed: ${safeErrorText(error)}`);
           return { state: "failed" };
         } finally {
           this.equityInflight.delete(address);

@@ -11,6 +11,7 @@ import { COPY_FEED_DISCONNECTED_EVENT, COPY_FEED_EVENT, type CopyFeedEvent } fro
 import { releaseRequestDeadline } from "../runtime/request-middleware.js";
 import type { CopyRuntimeRepository } from "./copy-runtime.repository.js";
 import { CopyRepository } from "./copy.repository.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 export const COPY_STREAM_OPTIONS = Symbol("COPY_STREAM_OPTIONS");
 /** Rows read per delivery query. */
@@ -133,7 +134,7 @@ export class CopyStreamService implements OnModuleDestroy {
       // Anything committed while the replay ran.
       this.deliver(sub);
     } catch (error) {
-      this.logger.warn(`Copy stream setup failed: ${(error as Error).message}`);
+      this.logger.warn(`Copy stream setup failed: ${safeErrorText(error)}`);
       sub.close();
     }
   }
@@ -166,7 +167,7 @@ export class CopyStreamService implements OnModuleDestroy {
       } while (sub.again && !sub.closed);
     })().catch((error: unknown) => {
       // The browser reconnects and replays from its last id.
-      this.logger.warn(`Copy stream delivery failed: ${(error as Error).message}`);
+      this.logger.warn(`Copy stream delivery failed: ${safeErrorText(error)}`);
       sub.close();
     }).finally(() => {
       sub.delivering = undefined;

@@ -12,6 +12,7 @@ import { AccountStateService, MAIN_DEX, type AccountState } from "../watcher/acc
 import { FillSyncService } from "../watcher/fill-sync.service.js";
 import { TradeFeedService } from "../watcher/trade-feed.service.js";
 import { WatcherService } from "../watcher/watcher.service.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** §8: feed down this long → Telegram self-alert. */
 const FEED_DOWN_ALERT_MS = 10 * 60_000;
@@ -67,7 +68,7 @@ export class SchedulerService {
     try {
       addresses = await this.watcher.activeAddresses();
     } catch (error) {
-      this.logger.error(`Snapshot could not read leaders: ${(error as Error).message}`);
+      this.logger.error(`Snapshot could not read leaders: ${safeErrorText(error)}`);
       this.lastSnapshotFailureAt = new Date();
       return { written: 0, reconciled: 0, failed: 1 };
     }
@@ -83,7 +84,7 @@ export class SchedulerService {
           if (previous && (await this.reconcile(address, previous, state))) reconciled += 1;
         } catch (error) {
           failed += 1;
-          this.logger.error(`Snapshot failed for ${address}: ${(error as Error).message}`);
+          this.logger.error(`Snapshot failed for ${address}: ${safeErrorText(error)}`);
         }
       }, this.jobs.signal);
     if (written > 0) this.lastSnapshotAt = new Date();
@@ -98,7 +99,7 @@ export class SchedulerService {
     try {
       await this.feed.refreshMarkets();
     } catch (error) {
-      this.logger.error(`Market refresh failed: ${(error as Error).message}`);
+      this.logger.error(`Market refresh failed: ${safeErrorText(error)}`);
     }
     const result = await budgetConsumer("sweep", () => this.watcher.sweep(), { queueMs: SWEEP_QUEUE_MS });
     this.logger.log(`Hourly sweep: ${result.addresses} addresses, ${result.inserted} new fills, ${result.failed} failed`);
@@ -119,7 +120,7 @@ export class SchedulerService {
       await budgetConsumer("backfill", () => this.fillSync.backfillTick());
     } catch (error) {
       // Progress is in fill_coverage; the next minute retries the same window.
-      this.logger.warn(`Backfill window failed: ${(error as Error).message}`);
+      this.logger.warn(`Backfill window failed: ${safeErrorText(error)}`);
     }
   }
 
@@ -129,7 +130,7 @@ export class SchedulerService {
     try {
       await this.checkFeedOnce(now);
     } catch (error) {
-      this.logger.error(`Feed check failed: ${(error as Error).message}`);
+      this.logger.error(`Feed check failed: ${safeErrorText(error)}`);
     }
   }
 

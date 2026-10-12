@@ -13,6 +13,7 @@ import { sharedRestRetryAfterMs } from "../hyperliquid/hyperliquid-capacity-erro
 import { TradeAnalyticsService } from "./trade-analytics.service.js";
 import { currentRequestClient } from "../runtime/request-context.js";
 import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS, isBusyError } from "./traders.controller.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** Addresses one client may have computing (or waiting to) at once. A cold
  * address runs for many seconds after its 503, so without this one client
@@ -98,7 +99,7 @@ export class TradeAnalyticsController {
       }
       if (error instanceof HttpException) throw error;
       if (isBusyError(error)) throw new BusyException(sharedRestRetryAfterMs(error) ?? BUSY_RETRY_AFTER_MS);
-      this.logger.error(`Trade analytics ${address}: ${(error as Error).message}`);
+      this.logger.error(`Trade analytics ${address}: ${safeErrorText(error)}`);
       throw new BadGatewayException("Upstream request failed");
     } finally {
       clearTimeout(timer);

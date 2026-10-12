@@ -3,6 +3,7 @@ import { Injectable, Logger, Optional, type OnApplicationBootstrap, type OnModul
 import { AppConfig } from "../config/app-config.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { RulesSeedRepository, type SeedRow } from "./rules-seed.repository.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** R1/R2/R3 defaults per §1 of the M2 task ("Seed defaults"). Applies to
  * every tier initially — the PRD doesn't set a narrower M2 default. */
@@ -63,7 +64,7 @@ export class RulesSeedService implements OnApplicationBootstrap, OnModuleDestroy
       if (this.stopped || this.jobs.stopping) return;
       await this.jobs.run(() => this.seedDefaultRules());
     } catch (error) {
-      this.logger.error(`Seeding default rules failed, retrying in 30s: ${(error as Error).message}`);
+      this.logger.error(`Seeding default rules failed, retrying in 30s: ${safeErrorText(error)}`);
       if (!this.stopped && !this.jobs.stopping) this.retryTimer = setTimeout(() => void this.seedWithRetry(), 30_000);
     }
   }

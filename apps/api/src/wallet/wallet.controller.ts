@@ -6,6 +6,7 @@ import { ApiDoc } from "../common/decorators/http.decorator.js";
 import { BusyException, BusyFilter } from "../traders/busy.js";
 import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS, isBusyError } from "../traders/traders.controller.js";
 import { WalletService } from "./wallet.service.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /**
  * The signed-in user's main account (Stage 4 step 2). Not @Public: 401
@@ -49,7 +50,7 @@ export class WalletController {
       if (error instanceof HttpException) throw error;
       // The page budget refused or dropped the work: not now, not failed.
       if (isBusyError(error)) throw new BusyException(BUSY_RETRY_AFTER_MS);
-      this.logger.error(`Wallet read failed: ${(error as Error).message}`);
+      this.logger.error(`Wallet read failed: ${safeErrorText(error)}`);
       throw new BadGatewayException("Upstream request failed");
     } finally {
       clearTimeout(timer);

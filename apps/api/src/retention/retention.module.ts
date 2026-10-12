@@ -3,6 +3,7 @@ import { Cron } from "@nestjs/schedule";
 
 import { RetentionRepository } from "./retention.repository.js";
 import { RetentionService } from "./retention.service.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** The retention capability (repository and service); schedules nothing. */
 @Module({ providers: [RetentionRepository, RetentionService], exports: [RetentionService, RetentionRepository] })
@@ -21,7 +22,7 @@ class RetentionWorker {
     try {
       await this.retention.tick();
     } catch (error) {
-      this.logger.error(`Retention tick failed: ${(error as Error).message}`);
+      this.logger.error(`Retention tick failed: ${safeErrorText(error)}`);
     }
   }
 }

@@ -25,6 +25,7 @@ import { AvatarQueryDto, BoardQueryDto, CoinParamsDto, KolImportDto, KolInputDto
 import { AVATAR_MAX_AGE_S, avatarVersion } from "./kol-avatar.js";
 import { KolAvatarService } from "./kol-avatar.service.js";
 import { KolService } from "./kol.service.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** Explore boards and home rows (Stage 3). Public; served from the
  * discovery pool table. No Hyperliquid call per request: the coin page's
@@ -104,7 +105,7 @@ export class CopyScoreController {
       if (error instanceof HttpException) throw error;
       // The page budget refused or dropped the work: not now, not failed.
       if (isBusyError(error)) throw new BusyException(BUSY_RETRY_AFTER_MS);
-      this.logger.error(`Copy score ${params.address}: ${(error as Error).message}`);
+      this.logger.error(`Copy score ${params.address}: ${safeErrorText(error)}`);
       throw new BadGatewayException("Upstream request failed");
     } finally {
       clearTimeout(timer);

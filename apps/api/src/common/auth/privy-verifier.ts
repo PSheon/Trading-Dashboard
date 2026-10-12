@@ -2,6 +2,7 @@ import { AppConfig } from "../../config/app-config.js";
 import { Injectable, Logger } from "@nestjs/common";
 import { PrivyClient, type LinkedAccount } from "@privy-io/node";
 import { isPrivyWallet, primaryEmbeddedWalletAddress, type EmbeddedWalletIdentity } from "@trading-dashboard/shared/contracts";
+import { safeErrorText } from "../../runtime/safe-error-text.js";
 
 
 /** A Privy access token that passed signature, issuer, audience and expiry
@@ -120,7 +121,7 @@ export class SdkPrivyVerifier implements PrivyVerifier {
       const user = await this.client.users()._get(privyUserId);
       return profileFromLinkedAccounts(user.linked_accounts);
     } catch (error) {
-      this.logger.warn(`Could not fetch Privy profile for ${privyUserId}: ${(error as Error).message}`);
+      this.logger.warn(`Could not fetch Privy profile for ${privyUserId}: ${safeErrorText(error)}`);
       return null;
     }
   }

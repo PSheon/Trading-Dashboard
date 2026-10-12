@@ -10,6 +10,7 @@ import { CopyOrderPlanner, marketDataGap, strategyValue, type CopyDataGap } from
 import { pricedCoins, symbolRefusal } from "./copy-risk.js";
 import { CopyRiskPolicyService, type PolicyRead } from "./copy-risk-policy.service.js";
 import { CopyRepository, type OutboxRow } from "./copy.repository.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** Outbox rows per consumer pass. */
 export const SIGNAL_BATCH = 200;
@@ -131,7 +132,7 @@ export class CopySignalService {
           total.failed += 1;
           continue;
         }
-        this.logger.warn(`Copy signals of ${address} failed as a group (${(error as Error).message}); retrying its ${rows.length} rows one at a time`);
+        this.logger.warn(`Copy signals of ${address} failed as a group (${safeErrorText(error)}); retrying its ${rows.length} rows one at a time`);
       }
       // Find the row that fails: each row on its own, in arrival order.
       for (const row of rows) {
@@ -148,7 +149,7 @@ export class CopySignalService {
 
   private async fail(row: OutboxRow, error: unknown): Promise<void> {
     const message = (error as Error).message;
-    this.logger.error(`Copy signal ${row.id} (${row.address}, tid ${row.tid}) failed: ${message}`);
+    this.logger.error(`Copy signal ${row.id} (${row.address}, tid ${row.tid}) failed: ${safeErrorText(error)}`);
     await this.repository.failOutbox([row.id], message, MAX_SIGNAL_ATTEMPTS);
   }
 

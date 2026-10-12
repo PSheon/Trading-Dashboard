@@ -10,6 +10,7 @@ import { LiveBoundaryError } from '../copy/live/wallet-authorization.js';
 import { ReconnectBackoff } from '../runtime/reconnect-backoff.js';
 import { LIVE_PERP_COIN, MAX_LIVE_PERP_DEXES } from '../copy/live/live-market-resolver.js';
 import type { HlWsIncomingMessage, HlWsTrade } from "../hyperliquid/types.js";
+import { safeErrorText } from '../runtime/safe-error-text.js';
 
 /** Headroom under the documented 1000 subscriptions per IP, spread over a
  * few sockets so one slow socket doesn't stall every market. */
@@ -221,7 +222,7 @@ export class TradeFeedService {
       clearInterval(shard.pingTimer);shard.pingTimer=setInterval(()=>{void this.beat(shard);},PING_INTERVAL_MS);
     })().catch(()=>{void this.closeShard(shard);});});
     socket.on('ping',payload=>{void this.beat(shard,payload);});
-    socket.on('message',data=>{shard.lastMessageAt=Date.now();try{this.handleMessage(data.toString());}catch(error){this.logger.warn(`Trade feed message skipped: ${error instanceof Error?error.message.slice(0,160):'unknown'}`);}});
+    socket.on('message',data=>{shard.lastMessageAt=Date.now();try{this.handleMessage(data.toString());}catch(error){this.logger.warn(`Trade feed message skipped: ${safeErrorText(error)}`);}});
     socket.on('error',()=>{this.logger.error('Trade feed socket unavailable');});
     socket.on('close',()=>{
       clearInterval(shard.pingTimer);if(this.stopped||shard.socket!==socket)return;

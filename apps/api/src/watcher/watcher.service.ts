@@ -13,6 +13,7 @@ import { FeedActionsService } from "./feed-actions.service.js";
 import { FillSyncService, type FastPathStats } from "./fill-sync.service.js";
 import { TradeFeedService, type TradeFeedStatus } from "./trade-feed.service.js";
 import { COPY_LEADER_TRADED_EVENT, COPY_LEADER_VERIFIED_EVENT, type CopyLeaderTradedEvent, type CopyLeaderVerifiedEvent } from "./copy-leader-events.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** The fill index usually has a feed trade within 1.5 s (measured live
  * 2026-09-29: p50 0.6 s, p90 1.5 s); the first confirm waits this long. */
@@ -154,7 +155,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
 
   /** Closing the feed's sockets finishes in the background. */
   private stopFeed(): void {
-    void this.feed.stop().catch((error: unknown) => this.logger.warn(`Trade feed stop failed: ${(error as Error).message}`));
+    void this.feed.stop().catch((error: unknown) => this.logger.warn(`Trade feed stop failed: ${safeErrorText(error)}`));
   }
 
   private later(ms: number, fn: () => void): void {
@@ -173,7 +174,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
         onGap: (since) => this.onGap(since),
       });
     } catch (error) {
-      this.logger.error(`Trade feed failed to start, retrying in 30s: ${(error as Error).message}`);
+      this.logger.error(`Trade feed failed to start, retrying in 30s: ${safeErrorText(error)}`);
       this.stopFeed();
       if (this.running) this.feedRetryTimer = setTimeout(() => void this.startFeed(), FEED_START_RETRY_MS);
     }
@@ -189,7 +190,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
       this.feed.setWatched(addresses);
       this.watched = new Set(addresses);
     } catch (error) {
-      this.logger.error(`Watch list refresh failed: ${(error as Error).message}`);
+      this.logger.error(`Watch list refresh failed: ${safeErrorText(error)}`);
     }
     await this.refreshCopied();
   }
@@ -201,7 +202,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
       this.copied = copied;
       this.copiedMainnet = mainnet;
     } catch (error) {
-      this.logger.error(`Copied leader refresh failed: ${(error as Error).message}`);
+      this.logger.error(`Copied leader refresh failed: ${safeErrorText(error)}`);
     }
   }
 
@@ -213,7 +214,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
       try {
         this.events?.emit(COPY_LEADER_TRADED_EVENT, { address, time: trade.time, tid: trade.tid } satisfies CopyLeaderTradedEvent);
       } catch (error) {
-        this.logger.warn(`Copy trigger for ${address} failed: ${(error as Error).message}`);
+        this.logger.warn(`Copy trigger for ${address} failed: ${safeErrorText(error)}`);
       }
     }
     const burst = this.pending.get(address) ?? new Map<number, HlWsTrade>();
@@ -254,7 +255,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
       await this.feedActions.process(address, trades, rank);
     } catch (error) {
       // The confirm below still stores the fills and makes their actions.
-      this.logger.warn(`Fast path failed for ${address}: ${(error as Error).message}`);
+      this.logger.warn(`Fast path failed for ${address}: ${safeErrorText(error)}`);
     }
     this.expect(
       address,
@@ -304,7 +305,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
       missing = result.missingTids;
       if (result.latestFillTime !== null) this.readThrough.set(address, Math.max(read ?? 0, result.latestFillTime));
     } catch (error) {
-      this.logger.warn(`Confirm failed for ${address}: ${(error as Error).message}`);
+      this.logger.warn(`Confirm failed for ${address}: ${safeErrorText(error)}`);
     }
 
     if (missing.length === 0) this.fillsUnavailable.delete(address);
@@ -369,7 +370,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
       addresses = await this.activeAddresses();
     } catch (error) {
       // Callers fire this without awaiting; it must never reject.
-      this.logger.error(`Sweep could not read leaders: ${(error as Error).message}`);
+      this.logger.error(`Sweep could not read leaders: ${safeErrorText(error)}`);
       return { addresses: 0, inserted: 0, failed: 0 };
     }
     let inserted = 0;
@@ -389,7 +390,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
         } catch (error) {
           // The cursor did not move: the next sweep reads from the same place.
           failed += 1;
-          this.logger.warn(`Sweep failed for ${address}: ${(error as Error).message}`);
+          this.logger.warn(`Sweep failed for ${address}: ${safeErrorText(error)}`);
         }
       }, this.jobs.signal);
     if (addresses.length > 0 && failed < addresses.length) this.lastSweepAt = new Date();
@@ -401,7 +402,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
     try {
       this.events?.emit(COPY_LEADER_VERIFIED_EVENT, { address } satisfies CopyLeaderVerifiedEvent);
     } catch (error) {
-      this.logger.warn(`Copy audit trigger for ${address} failed: ${(error as Error).message}`);
+      this.logger.warn(`Copy audit trigger for ${address} failed: ${safeErrorText(error)}`);
     }
   }
 
@@ -417,7 +418,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
           }
           this.verified(address);
         } catch (error) {
-          this.logger.warn(`Copied leader catch-up failed for ${address}: ${(error as Error).message}`);
+          this.logger.warn(`Copied leader catch-up failed for ${address}: ${safeErrorText(error)}`);
         }
       }, this.jobs.signal);
     }).catch(() => undefined).finally(() => { this.copiedFlight = undefined; });

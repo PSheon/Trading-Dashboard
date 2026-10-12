@@ -24,6 +24,7 @@ import { BusyException, BusyFilter } from "./busy.js";
 import { sharedRestRetryAfterMs } from "../hyperliquid/hyperliquid-capacity-error.js";
 import { TradersService } from "./traders.service.js";
 import { LiveBoundaryError } from '../copy/live/wallet-authorization.js';
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 export const DEFAULT_FILLS_LIMIT = 50;
 /** CopyDog's 成交 tab reads up to 2,000 fills (one `userFills` page). */
@@ -181,7 +182,7 @@ export class TradersController {
       }
       if (error instanceof HttpException) throw error;
       if (isBusyError(error)) throw new BusyException(sharedRestRetryAfterMs(error) ?? BUSY_RETRY_AFTER_MS);
-      this.logger.error(`Trader ${address}: ${(error as Error).message}`);
+      this.logger.error(`Trader ${address}: ${safeErrorText(error)}`);
       throw new BadGatewayException("Upstream request failed");
     } finally {
       clearTimeout(timer);

@@ -51,6 +51,7 @@ import { TtlCache } from "./ttl-cache.js";
 import { LeaderActivityService } from "./leader-activity.service.js";
 import { kolAvatarPath } from "../discovery/kol-avatar.js";
 import { KolAvatarRepository } from "../discovery/kol-avatar.repository.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /**
  * Page loads go ahead of backfill and sweeps (lower rank first within the
@@ -234,8 +235,7 @@ export class TradersService {
       } catch (error) {
         if (!optional) throw error;
         sources[key] = { status: "unavailable", asOf: null, stale: false, maxAgeMs };
-        const reason = error instanceof LiveBoundaryError ? error.code : (error as Error).message;
-        this.logger.warn(`Profile source unavailable: ${key} (${reason})`);
+        this.logger.warn(`Profile source unavailable: ${key} (${safeErrorText(error)})`);
         return null;
       } finally { clearTimeout(timer); }
     };
@@ -486,7 +486,7 @@ export class TradersService {
           // loading, not failed. Left out, so the client asks again.
           const name = (error as Error | undefined)?.name;
           if (name === "TimeoutError" || name === "AbortError" || name === "PageBusyError") return;
-          this.logger.warn(`Sparkline for ${address} failed: ${(error as Error).message}`);
+          this.logger.warn(`Sparkline for ${address} failed: ${safeErrorText(error)}`);
           ready[address] = [];
         }
       }),
@@ -552,7 +552,7 @@ export class TradersService {
       upstream = [...regular, ...twap].map(hlFillToTraderFill);
     } catch (error) {
       if (stored.length === 0) throw error;
-      this.logger.warn(`Fills of ${address}: Hyperliquid unavailable (${(error as Error).message}); serving ${stored.length} stored fills`);
+      this.logger.warn(`Fills of ${address}: Hyperliquid unavailable (${safeErrorText(error)}); serving ${stored.length} stored fills`);
       return stored;
     }
     // One row per trade: Hyperliquid's copy wins (it is the same fill).

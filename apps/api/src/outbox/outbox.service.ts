@@ -5,6 +5,7 @@ import { OutboxRepository } from "./outbox.repository.js";
 import { RulesService } from "../rules/rules.service.js";
 import { ALERT_MAX_AGE_MS, NotifyService } from "../notify/notify.service.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** Recover interrupted action evaluation and drain durable notification
  * deliveries, every 5 s: the worker process only (OutboxWorkerModule). */
@@ -23,7 +24,7 @@ export class OutboxService implements OnApplicationBootstrap {
   async drain(): Promise<void> {
     if (this.jobs.stopping) return;
     this.running ??= this.jobs.run(() => this.process()).catch((error: unknown) => {
-      this.logger.error(`Outbox drain failed: ${(error as Error).message}`);
+      this.logger.error(`Outbox drain failed: ${safeErrorText(error)}`);
     }).finally(() => { this.running = undefined; });
     return this.running;
   }

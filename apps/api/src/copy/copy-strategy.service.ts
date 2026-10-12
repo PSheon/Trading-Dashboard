@@ -31,6 +31,7 @@ import { CopyOrderPlanner, marketDataGap } from "./copy-planner.service.js";
 import { pricedCoins, symbolRefusal } from "./copy-risk.js";
 import { CopyRiskPolicyService } from "./copy-risk-policy.service.js";
 import { CopyRepository } from "./copy.repository.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 const conflict = (code: string, message: string, extra: Record<string, unknown> = {}) => new ConflictException({ statusCode: 409, code, message, ...extra });
 
@@ -142,7 +143,7 @@ export class CopyStrategyService {
       try {
         snapshot = await this.market.leaderSnapshot(req.leader);
       } catch (error) {
-        this.logger.warn(`Leader snapshot for ${req.leader} failed: ${(error as Error).message}`);
+        this.logger.warn(`Leader snapshot for ${req.leader} failed: ${safeErrorText(error)}`);
         throw new ServiceUnavailableException({ statusCode: 503, code: "leader_unavailable", message: "Couldn't read the trader's positions; try again" });
       }
     }

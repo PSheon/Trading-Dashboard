@@ -6,6 +6,7 @@ import { AppConfig } from "../config/app-config.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { AVATAR_MAX_BYTES, AVATAR_REFRESH_MS, allowedImageUrl, avatarEtag, avatarSource, isPublicAddress, pinnedGet, sniffImageType } from "./kol-avatar.js";
 import { KolAvatarRepository, type AvatarCandidate, type StoredAvatar } from "./kol-avatar.repository.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** Where an 𝕏 profile picture comes from. unavatar.io is the primary; its
  * anonymous quota is 25 a day per IP, so once it answers 429 the job asks
@@ -107,7 +108,7 @@ export class KolAvatarService {
     if (this.config.value.app.nodeEnv === "test" || this.jobs.stopping) return Promise.resolve();
     this.running ??= this.jobs
       .run(() => this.tick())
-      .catch((error: Error) => this.logger.error(`KOL avatar tick failed: ${error.message}`))
+      .catch((error: Error) => this.logger.error(`KOL avatar tick failed: ${safeErrorText(error)}`))
       .finally(() => {
         this.running = undefined;
       });

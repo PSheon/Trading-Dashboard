@@ -5,6 +5,7 @@ import type { RequestPriority } from "../hyperliquid/request-budgeter.service.js
 import type { HlAllMidsResponse, HlSpotBalance } from "../hyperliquid/types.js";
 import { buildSpotPriceBook, valueSpotBalances, type SpotPriceBook, type SpotValuation } from "./spot-prices.js";
 import { TtlCache } from "./ttl-cache.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** One price book for the whole app, refreshed at most every 30 s. */
 export const SPOT_PRICE_TTL_MS = 30_000;
@@ -29,7 +30,7 @@ export class SpotPriceService {
         this.info.spotMetaAndAssetCtxs(priority, rank),
         // Only outcome tokens need it; without it they count as 0.
         this.info.allMids(priority, rank).catch((error: Error): HlAllMidsResponse => {
-          this.logger.warn(`allMids failed, outcome tokens valued at 0: ${error.message}`);
+          this.logger.warn(`allMids failed, outcome tokens valued at 0: ${safeErrorText(error)}`);
           return {};
         }),
       ]);

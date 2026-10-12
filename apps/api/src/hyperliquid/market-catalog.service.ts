@@ -2,6 +2,7 @@ import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 
 import { outsideRequest } from "../runtime/request-context.js";
 import { HyperliquidInfoClient } from "./hyperliquid-info.client.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** The catalog is re-read this often (listings change a few times a week). */
 export const MARKET_CATALOG_TTL_MS = 60 * 60_000;
@@ -92,7 +93,7 @@ export class MarketCatalogService implements OnModuleInit {
         this.trendingList = { coins, volumes, at: this.now() };
         return coins;
       }).catch((error: unknown) => {
-        this.logger.warn(`Trending market read failed: ${(error as Error).message}`);
+        this.logger.warn(`Trending market read failed: ${safeErrorText(error)}`);
         return [];
       }).finally(() => { this.trendingLoading = null; });
     }
@@ -120,7 +121,7 @@ export class MarketCatalogService implements OnModuleInit {
       })
       .catch((error: unknown) => {
         this.failedAt = this.now();
-        this.logger.warn(`Market catalog read failed: ${(error as Error).message}`);
+        this.logger.warn(`Market catalog read failed: ${safeErrorText(error)}`);
         return this.list?.coins ?? null;
       })
       .finally(() => { this.loading = null; });

@@ -10,6 +10,7 @@ import { TradeAnalyticsService } from "../traders/trade-analytics.service.js";
 import { portfolioFigures, tradeFigures } from "./discovery-figures.js";
 import { DiscoveryRepository, type DiscoveryFigures, type PoolQueueRow } from "./discovery.repository.js";
 import { DiscoveryService } from "./discovery.service.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** Budgeter rank of the performance loop's calls: behind every page rank
  * (0–3), ahead of the ledger loop and of every unranked background call. */
@@ -121,7 +122,7 @@ export class DiscoveryPoolService {
     if (this.config.value.app.nodeEnv === "test" || this.jobs.stopping) return Promise.resolve();
     this.performanceRunning ??= this.jobs
       .run(() => this.performanceTick())
-      .catch((error: Error) => this.logger.error(`Discovery performance tick failed: ${error.message}`))
+      .catch((error: Error) => this.logger.error(`Discovery performance tick failed: ${safeErrorText(error)}`))
       .finally(() => {
         this.performanceRunning = undefined;
       });
@@ -132,7 +133,7 @@ export class DiscoveryPoolService {
     if (this.config.value.app.nodeEnv === "test" || this.jobs.stopping) return Promise.resolve();
     this.ledgerRunning ??= this.jobs
       .run(() => this.ledgerTick())
-      .catch((error: Error) => this.logger.error(`Discovery ledger tick failed: ${error.message}`))
+      .catch((error: Error) => this.logger.error(`Discovery ledger tick failed: ${safeErrorText(error)}`))
       .finally(() => {
         this.ledgerRunning = undefined;
       });
@@ -328,7 +329,7 @@ export class DiscoveryPoolService {
     }
     await this.repository.save(address, { ...figures, lastError: error ? error.message.slice(0, 500) : null });
     this.record({ address, kind: "portfolio", weight: WEIGHT_PORTFOLIO, calls: 1, ms: Date.now() - started, ok: error === null, at: new Date() });
-    if (error) this.logger.warn(`Discovery performance refresh ${address} failed: ${error.message}`);
+    if (error) this.logger.warn(`Discovery performance refresh ${address} failed: ${safeErrorText(error)}`);
     return { weight: WEIGHT_PORTFOLIO, ok: error === null };
   }
 
@@ -367,7 +368,7 @@ export class DiscoveryPoolService {
     }
     await this.repository.save(address, { ...figures, lastError: error ? error.message.slice(0, 500) : null });
     this.record({ address, kind, weight, calls, ms: Date.now() - started, ok: error === null, at: new Date() });
-    if (error) this.logger.warn(`Discovery ledger refresh ${address} failed after weight ${weight}: ${error.message}`);
+    if (error) this.logger.warn(`Discovery ledger refresh ${address} failed after weight ${weight}: ${safeErrorText(error)}`);
     // A joined or failed computation still costs the loop something, so a
     // broken row can't spin the tick.
     return { weight: Math.max(weight, WEIGHT_PORTFOLIO), ok: error === null };

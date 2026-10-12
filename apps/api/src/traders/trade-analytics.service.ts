@@ -39,6 +39,7 @@ import { lastMillisecondPerCoin } from "../watcher/stored-fill-pages.js";
 import { TradeAnalyticsRepository, type AnalyticsInsert, type AnalyticsRow, type FillCoverage, type TradeAnalyticsTx } from "./trade-analytics.repository.js";
 import { portfolioSeries } from "./traders.mappers.js";
 import { FILLS_TTL_MS, TradersService } from "./traders.service.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** Served from the store for this long; older answers are still served
  * while a refresh runs in the background. */
@@ -294,7 +295,7 @@ export class TradeAnalyticsService {
         const failures = (this.trackedBackoff.get(address)?.failures ?? 0) + 1;
         const waitMs = Math.min(TRACKED_BACKOFF_MAX_MS, TRACKED_BACKOFF_BASE_MS * 2 ** (failures - 1));
         this.trackedBackoff.set(address, { failures, retryAt: now + waitMs });
-        this.logger.warn(`Tracked analytics for ${address} failed (${failures} in a row, next try in ${Math.round(waitMs / 60_000)} min): ${(error as Error).message}`);
+        this.logger.warn(`Tracked analytics for ${address} failed (${failures} in a row, next try in ${Math.round(waitMs / 60_000)} min): ${safeErrorText(error)}`);
       }
     }
     return done;
@@ -334,7 +335,7 @@ export class TradeAnalyticsService {
     promise
       .then(() => funding ? this.fundingTurn(address) : undefined)
       .catch((error: Error) => {
-        if (!(error instanceof BusyException)) this.logger.warn(`Trade analytics for ${address} failed: ${error.message}`);
+        if (!(error instanceof BusyException)) this.logger.warn(`Trade analytics for ${address} failed: ${safeErrorText(error)}`);
       })
       .finally(() => {
         if (this.inflight.get(address) === promise) this.inflight.delete(address);
@@ -864,7 +865,7 @@ export class TradeAnalyticsService {
     const parsed = previous === undefined ? undefined : traderClassificationSchema.safeParse(previous);
     const kept = parsed?.success ? parsed.data : undefined;
     const raw = await this.portfolio(address, cost).catch((error: Error) => {
-      this.logger.warn(`Portfolio for ${address} failed: ${error.message}`);
+      this.logger.warn(`Portfolio for ${address} failed: ${safeErrorText(error)}`);
       return null;
     });
     const allTimePnl = raw ? (portfolioSeries(raw, "allTime", "perp").pnl.at(-1)?.[1] ?? null) : (kept?.allTimePnl ?? null);
@@ -927,7 +928,7 @@ export class TradeAnalyticsService {
         perpAccountValue: states.reduce((sum, state) => sum + (Number(state.marginSummary?.accountValue) || 0), 0),
       };
     } catch (error) {
-      this.logger.warn(`Account state for ${address} failed: ${(error as Error).message}`);
+      this.logger.warn(`Account state for ${address} failed: ${safeErrorText(error)}`);
       return null;
     }
   }

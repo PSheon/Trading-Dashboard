@@ -15,6 +15,7 @@ import { ROLES_KEY, type RequestUser } from "./current-user.js";
 import { requiredPermissions } from "./permissions.js";
 import { IS_PUBLIC_KEY } from "./public.decorator.js";
 import { preferredLocale } from "./request-locale.js";
+import { safeErrorText } from "../../runtime/safe-error-text.js";
 
 function bearerToken(request: Request): string | undefined {
   const header = request.headers["authorization"];
@@ -62,7 +63,7 @@ export class AuthGuard implements CanActivate {
         // Only infrastructure failures get here (e.g. the database is down
         // while signing a user in). Public data stays reachable.
         if (!open) throw error;
-        this.logger.warn(`Treating caller as anonymous on a public route: ${(error as Error).message}`);
+        this.logger.warn(`Treating caller as anonymous on a public route: ${safeErrorText(error)}`);
       }
     }
     const user = outcome.status === "user" ? outcome.user : null;

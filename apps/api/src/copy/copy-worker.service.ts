@@ -5,6 +5,7 @@ import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { CopyExecutionService } from "./copy-execution.service.js";
 import { CopySignalService } from "./copy-signal.service.js";
 import { COPY_SNAPSHOT_INTERVAL_MS, CopyPerformanceService } from "./copy-performance.service.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** Consumer passes per tick before yielding (each pass ≤ SIGNAL_BATCH rows). */
 const MAX_PASSES = 5;
@@ -70,7 +71,7 @@ export class CopyWorkerService implements OnApplicationBootstrap, OnModuleDestro
         }
       });
     } catch (error) {
-      this.logger.error(`Copy worker tick failed: ${(error as Error).message}`);
+      this.logger.error(`Copy worker tick failed: ${safeErrorText(error)}`);
     } finally {
       this.running = false;
     }

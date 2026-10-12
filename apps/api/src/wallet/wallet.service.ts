@@ -15,6 +15,7 @@ import { TRANSFERS_MAX_ROWS, TRANSFERS_WINDOW_MS } from "../traders/traders.serv
 import { TtlCache } from "../traders/ttl-cache.js";
 import { ArbitrumBalanceClient } from "./arbitrum-balance.client.js";
 import { WalletRepository } from "./wallet.repository.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** Balances: short enough that a deposit shows up within a poll or two
  * (Bridge2 credits in under a minute), long enough that a page's header
@@ -98,7 +99,7 @@ export class WalletService {
         this.walletInfo.clearinghouseState(address, undefined, "background", PAGE_RANK.profile, url),
         this.walletInfo.spotClearinghouseState(address, "background", PAGE_RANK.profile, url),
         this.arbitrum.balances(address, WALLET_NETWORKS[network].usdc).catch((error: Error) => {
-          this.logger.warn(`Arbitrum balance for ${address}: ${error.message}`);
+          this.logger.warn(`Arbitrum balance for ${address}: ${safeErrorText(error)}`);
           return null;
         }),
       ]);

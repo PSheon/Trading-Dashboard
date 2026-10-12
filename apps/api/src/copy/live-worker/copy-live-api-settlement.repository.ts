@@ -3,9 +3,9 @@ import { copyLiveDispatches, copyLiveExecutions, copyLiveMandates, copyExecution
 import type { DrizzleDb } from '../../db/drizzle.provider.js';
 import { UNHELD_REJECTED } from '../live/live-execution.js';
 import { decodeLiveExecutionRow } from '../live/postgres-live-journal.js';
-import { liveSourceExecutionCloid } from '../live/postgres-live-preparation.js';
+import { liveSourceExecutionAttempt } from '../live/copy-live-leg-attempt.js';
 import { LiveBoundaryError } from '../live/wallet-authorization.js';
-import type { DispatchRow } from './copy-live-worker.repository.js';
+import { UNSENT_RELEASED, type DispatchRow } from './copy-live-worker.repository.js';
 import { TERMINAL_STATES, type LiveSettleOutcome, type LiveSettleRequest } from './copy-live-settler.js';
 
 export class CopyLiveApiSettlementRepository {
@@ -27,6 +27,8 @@ export class CopyLiveApiSettlementRepository {
             eq(copyLiveRiskReservations.strategyId, copyLiveDispatches.strategyId), eq(copyLiveRiskReservations.accountId, copyLiveDispatches.accountId),
             eq(copyLiveRiskReservations.accountAddress, copyExecutionAccounts.address), eq(copyLiveRiskReservations.cloid, copyLiveExecutions.cloid))),
         eq(copyLiveDispatches.state, 'submitted'), eq(copyLiveExecutions.network, 'testnet'),
+        // Released as never sent: the worker decides its next attempt.
+        sql`${copyLiveDispatches.reason} is distinct from ${UNSENT_RELEASED}`,
         inArray(copyLiveExecutions.state, [...TERMINAL_STATES])))
       .orderBy(asc(copyLiveDispatches.updatedAt), asc(copyLiveDispatches.id)).limit(20);
     return rows.map(r => r.key);
@@ -46,7 +48,9 @@ export class CopyLiveApiSettlementRepository {
     if (!r) return null;
     const { row, journal, mandate: m, account: a, owner, reservation } = r;
     const record = decodeLiveExecutionRow(journal);
-    const cloid = liveSourceExecutionCloid(m.id, row.sourceFillId, row.leg);
+    // Any attempt of the dispatch's leg (copy-live-leg-attempt.ts).
+    const cloid = journal.cloid;
+    if (liveSourceExecutionAttempt(m.id, row.sourceFillId, row.leg, cloid) === null) throw new LiveBoundaryError('live_settlement_claim_identity');
     if ((!reservation && record.errorCode !== UNHELD_REJECTED) || reservation && (reservation.userId !== row.userId || reservation.strategyId !== row.strategyId ||
       reservation.accountId !== row.accountId || reservation.network !== 'testnet' || reservation.accountAddress !== a.address ||
       reservation.cloid !== cloid || reservation.fingerprint !== record.fingerprint || reservation.walletId !== record.authorization.walletId ||
@@ -65,6 +69,9 @@ export class CopyLiveApiSettlementRepository {
       const [current] = await tx.select().from(copyLiveDispatches).where(eq(copyLiveDispatches.id, read.id)).for('update');
       if (!current || current.state !== 'submitted' || current.executionKey !== read.executionKey || current.attempts !== read.attempts || current.reason !== read.reason) return;
       const patch = outcome.kind === 'released' ? { state: 'settled' as const, settledAt: new Date(), reason: null }
+        // Released as never sent: left submitted for the worker, which plans
+        // the leg's next attempt or refuses it (CopyLiveEngine.afterUnsent).
+        : outcome.kind === 'unplaced' && outcome.unsent ? { reason: UNSENT_RELEASED }
         : outcome.kind === 'unplaced' ? { state: 'refused' as const, reason: 'exchange_order_never_placed' }
         : outcome.kind === 'quarantine' || outcome.kind === 'unsent' ? { state: 'refused' as const, reason: outcome.reason.slice(0, 80) }
         : { reason: outcome.reason.slice(0, 80) };

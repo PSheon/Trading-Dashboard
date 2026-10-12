@@ -8,6 +8,8 @@ import { CopyLiveSourceRepository } from '../src/copy/copy-live-source.repositor
 import { HyperliquidLiveSourceClient } from '../src/copy/copy-live-source.client.js';
 import { HyperliquidBudgetWait } from '../src/hyperliquid/hyperliquid-budget-wait.js';
 import { liveSourceExecutionCloid } from '../src/copy/live/postgres-live-preparation.js';
+import { MAX_LIVE_LEG_ATTEMPTS } from '../src/copy/live/copy-live-leg-attempt.js';
+import { CopyLiveApiSettlementRepository } from '../src/copy/live-worker/copy-live-api-settlement.repository.js';
 import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
 import { NEVER_PLACED, type LiveExecutionRecord } from '../src/copy/live/live-execution.js';
 import { buildOrderAction } from '../src/copy/live/live-order.js';
@@ -371,6 +373,82 @@ describe('testnet copy execution engine', () => {
     expect(runtimeCalls.map(c => c.sourceFillId)).toEqual([first, other, next]);
     expect((await dispatches()).find(r => r.sourceFillId === first)).toMatchObject({ state: 'refused', reason: NEVER_PLACED });
     expect((await dispatches()).find(r => r.sourceFillId === next)).toMatchObject({ state: 'submitted', attempts: 1 });
+  });
+
+  describe('a leg whose order was released as never sent (its request never began)', () => {
+    const keyAt = (fill: string, attempt: number) => `testnet:${seed.f.identity.accountAddress}:${liveSourceExecutionCloid('mandate', fill, 'open', attempt)}`;
+    /** The runtime double: the attempts in `unsent` end rejected, never sent; the others fill. */
+    function attempts(unsent: ReadonlySet<number>): Runtime {
+      return async (request, hooks) => {
+        const attempt = request.attempt ?? 0;
+        if (!unsent.has(attempt)) {
+          runtimeCalls.push(request);
+          hooks.onExchange?.({ phase: 'request', at: clock + 10 });
+          await journal(keyAt(request.sourceFillId, attempt), 'filled');
+          return { key: keyAt(request.sourceFillId, attempt), state: 'filled' } as LiveExecutionRecord;
+        }
+        runtimeCalls.push(request);
+        const key = keyAt(request.sourceFillId, attempt), record = { key, state: 'rejected', errorCode: NEVER_PLACED, unsent: 'request_never_began' };
+        await journal(key, 'rejected');
+        await db.update(schema.copyLiveExecutions).set({ record }).where(eq(schema.copyLiveExecutions.key, key));
+        return record as LiveExecutionRecord;
+      };
+    }
+    const unsentSettle = async (): Promise<LiveSettleOutcome> => ({ kind: 'unplaced', unsent: true });
+    it('plans the leg again under the next attempt key at once, and that order is placed', async () => {
+      await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+      const fill = await leaderFill(30, now + 100, 'B', '1', '0');
+      runtimeImpl = attempts(new Set([0]));
+      settleImpl = async request => request.key === keyAt(fill, 0) ? unsentSettle() : { kind: 'released' };
+      clock = now + 1000; await engine().tick();
+      expect((await dispatches())[0]).toMatchObject({ state: 'submitted', executionKey: keyAt(fill, 0) });
+      // The next pass settles it (released at once) and plans attempt 1.
+      clock = now + 1500; await engine().tick();
+      expect((await dispatches())[0]).toMatchObject({ state: 'pending', executionKey: keyAt(fill, 0), reason: 'unsent_retry' });
+      clock = now + 2000; await engine().tick();
+      expect(runtimeCalls.map(c => c.attempt)).toEqual([undefined, 1]);
+      expect(runtimeCalls[1]).toMatchObject({ sourceFillId: fill, leg: 'open', attempt: 1, signalDeadline: expect.any(Number) });
+      expect((await dispatches())[0]).toMatchObject({ state: 'submitted', executionKey: keyAt(fill, 1), reason: null });
+      clock = now + 2500; await engine().tick();
+      expect((await dispatches())[0]).toMatchObject({ state: 'settled', executionKey: keyAt(fill, 1) });
+      expect(settleCalls.map(c => c.key)).toEqual([keyAt(fill, 0), keyAt(fill, 1)]);
+    });
+    it(`makes at most ${MAX_LIVE_LEG_ATTEMPTS} attempts, then refuses the leg as before`, async () => {
+      await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+      const fill = await leaderFill(31, now + 100, 'B', '1', '0');
+      runtimeImpl = attempts(new Set([0, 1, 2, 3]));
+      settleImpl = unsentSettle;
+      for (let at = now + 1000; at <= now + 9000; at += 500) { clock = at; await engine().tick(); }
+      expect(runtimeCalls.map(c => c.attempt)).toEqual([undefined, 1, 2]);
+      expect((await dispatches())[0]).toMatchObject({ state: 'refused', reason: NEVER_PLACED, executionKey: keyAt(fill, MAX_LIVE_LEG_ATTEMPTS - 1) });
+    });
+    it('plans the next attempt after the API\'s testnet settlement released the order as never sent', async () => {
+      await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+      const fill = await leaderFill(33, now + 100, 'B', '1', '0');
+      runtimeImpl = attempts(new Set([0]));
+      const api = () => engine({ apiTerminalSettlement: true });
+      clock = now + 1000; await api().tick();
+      clock = now + 1500; await api().tick();
+      expect((await dispatches())[0]).toMatchObject({ state: 'submitted', executionKey: keyAt(fill, 0), reason: null });
+      await new CopyLiveApiSettlementRepository(db).finish((await dispatches())[0]!, { kind: 'unplaced', unsent: true });
+      expect((await dispatches())[0]).toMatchObject({ state: 'submitted', reason: 'unsent_released' });
+      clock = now + 2000; await api().tick();
+      clock = now + 2500; await api().tick();
+      expect(settleCalls).toHaveLength(0);
+      expect(runtimeCalls.map(c => c.attempt)).toEqual([undefined, 1]);
+      expect((await dispatches())[0]).toMatchObject({ state: 'submitted', executionKey: keyAt(fill, 1) });
+    });
+    it('does not plan an open again once its signal is older than the policy allows', async () => {
+      await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+      const fill = await leaderFill(32, now + 100, 'B', '1', '0');
+      runtimeImpl = attempts(new Set([0])); settleImpl = unsentSettle;
+      clock = now + 1000; await engine().tick();
+      const limit = await new CopyLiveWorkerRepository(db, new UnitOfWork(db), testConfig()).signalAgeLimitMs();
+      clock = now + 100 + limit + 1; await engine().tick();
+      expect((await dispatches())[0]).toMatchObject({ state: 'refused', reason: NEVER_PLACED });
+      expect(runtimeCalls.map(c => c.attempt)).toEqual([undefined]);
+      expect(fill).toBeDefined();
+    });
   });
 
   it('waits for a filled prior order whose risk reservation is still unknown before attempting the next same-coin leg', async () => {

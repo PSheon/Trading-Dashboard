@@ -15,7 +15,7 @@ import { NEVER_PLACED } from '../live/live-execution.js';
 import { decodeLiveCopyMandate } from '../copy-live-mandate-evidence.js';
 import { liveCopySettingsDigest } from '../copy-live-mandate-consent.js';
 import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceLegId } from '../live/copy-live-source-evidence.js';
-import { liveSourceExecutionCloid } from '../live/postgres-live-preparation.js';
+import { liveSourceExecutionAttempt } from '../live/copy-live-leg-attempt.js';
 
 // A fill can still have an unsettled risk reservation. Prioritize its settlement
 // before another same-coin leg; a terminal journal alone is not a release proof.
@@ -39,6 +39,12 @@ export interface LiveMandateWork {
 }
 /** A merged leg: never sent on its own; its lead row's order carries it. */
 export const MERGED_REASON = 'merged_into_adjustment';
+/** A submitted leg whose order was released as never sent (its request never
+ * began) by the API's testnet settlement: the worker decides its next attempt. */
+export const UNSENT_RELEASED = 'unsent_released';
+/** A pending leg to be planned again after its previous attempt (the row's
+ * executionKey) was released as never sent. */
+export const UNSENT_RETRY = 'unsent_retry';
 export interface LiveStreamWork { network: LiveSourceNetwork; leaderAddress: string; earliestCursor: Date }
 
 /** SQL for the live worker. Short transactions only; no provider I/O here.
@@ -332,7 +338,9 @@ export class CopyLiveWorkerRepository {
     if (!claim) return false;
     try {
       const original = decodeLiveSourceFill(claim.source), leg = canonicalLiveSourceLegs(original).find(value => value.leg === 'open');
-      const cloid = liveSourceExecutionCloid(work.mandateId, original.id, 'open'), key = `${this.network}:${work.accountAddress}:${cloid}`;
+      // The claim's current order: any attempt of that leg (copy-live-leg-attempt.ts).
+      const cloid = claim.journal.cloid, key = `${this.network}:${work.accountAddress}:${cloid}`;
+      if (liveSourceExecutionAttempt(work.mandateId, original.id, 'open', cloid) === null) return false;
       return !!leg && original.network === fill.network && original.leaderAddress === fill.leaderAddress && original.streamId === fill.streamId && original.coin === fill.coin &&
         original.tradeKey === fill.tradeKey && original.providerTime > binding.mandate.activationCursor!.getTime() &&
         claim.leg.id === liveSourceLegId(work.mandateId, original.id, 'open') && claim.leg.tradeKey === leg.tradeKey && claim.leg.sign === leg.sign && claim.leg.size === leg.size && claim.leg.fraction === leg.fraction &&

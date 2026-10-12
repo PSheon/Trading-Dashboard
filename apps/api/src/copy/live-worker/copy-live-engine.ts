@@ -5,10 +5,10 @@ import type { UnitOfWork } from '../../db/unit-of-work.js';
 import { UNHELD_REJECTED, type LiveExecutionRecord } from '../live/live-execution.js';
 import type { LiveExecutionHooks, LiveExecutionRequest } from '../live/live-execution-runtime.js';
 import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceDigest } from '../live/copy-live-source-evidence.js';
-import { liveSourceExecutionCloid } from '../live/postgres-live-preparation.js';
+import { liveSourceExecutionAttempt, liveSourceExecutionCloid, MAX_LIVE_LEG_ATTEMPTS } from '../live/copy-live-leg-attempt.js';
 import { describeUnexpected, errorCode } from '../../runtime/safe-error-text.js';
 import { TERMINAL_STATES, type LiveSettleOutcome, type LiveSettleRequest } from './copy-live-settler.js';
-import type { CopyLiveWorkerRepository, DispatchRow, LiveMandateWork, LiveStreamWork } from './copy-live-worker.repository.js';
+import { UNSENT_RELEASED, UNSENT_RETRY, type CopyLiveWorkerRepository, type DispatchRow, type LiveMandateWork, type LiveStreamWork } from './copy-live-worker.repository.js';
 import { openNotionalCeiling, planAdjustments, type PendingLeg } from './copy-live-adjustments.js';
 import { MAX_ACCUMULATE_MS } from '../live/copy-live-source-planner.js';
 import type { WatchedMainnetSource } from './watched-mainnet-source.js';
@@ -441,19 +441,31 @@ export class CopyLiveEngine {
   async work(row: DispatchRow, m: LiveMandateWork | null, signalAgeMs: number): Promise<void> {
     const mandate = m ?? await this.mandateOf(row);
     if (!mandate) return;
-    const key = `${this.deps.network}:${mandate.accountAddress}:${liveSourceExecutionCloid(row.mandateId, row.sourceFillId, row.leg)}`;
     if (row.state === 'pending') {
+      // The leg's next order: its original one, or the attempt after the one
+      // released as never sent (the row's executionKey, copy-live-leg-attempt.ts).
+      const attempt = this.pendingAttempt(row, mandate);
+      if (attempt === null) { await this.deps.repository.update(row, { state: 'refused', reason: 'live_leg_attempt_unproven' }); return; }
+      const key = this.attemptKey(row, mandate, attempt);
       // A journal under this identity means an earlier pass reached the
       // exchange boundary; only reconciliation may continue it.
       const journal = await this.deps.repository.journalState(key);
       if (journal !== null) { await this.deps.repository.update(row, { state: 'submitted', executionKey: key }); return; }
-      return this.submit(row, mandate, signalAgeMs);
+      return this.submit(row, mandate, signalAgeMs, attempt);
     }
     const state = row.executionKey ? await this.deps.repository.journalState(row.executionKey) : null;
     if (state === null) return;
-    if (!TERMINAL_STATES.has(state)) { await this.execute(row, mandate); return; }
-    // API owns only durable terminal testnet work; offline leaves this row submitted.
-    if (this.deps.network === 'testnet' && this.deps.apiTerminalSettlement) return;
+    const attempt = this.attemptOf(row, mandate, row.executionKey!);
+    // Reconciliation of the row's own order (its attempt). A key that is none
+    // of the leg's attempts (never written here) falls back to the original
+    // order, as before attempts existed.
+    if (!TERMINAL_STATES.has(state)) { await this.execute(row, mandate, undefined, attempt ?? 0); return; }
+    // API owns only durable terminal testnet work; offline leaves this row
+    // submitted. One it released as never sent comes back for its next attempt.
+    if (this.deps.network === 'testnet' && this.deps.apiTerminalSettlement) {
+      if (row.reason === UNSENT_RELEASED) await this.afterUnsent(row, mandate, signalAgeMs);
+      return;
+    }
     const outcome = await this.deps.settler.settle({ userId: row.userId, accountId: row.accountId, accountAddress: mandate.accountAddress,
       sourceNetwork: mandate.sourceNetwork, leaderAddress: mandate.leaderAddress, key: row.executionKey! });
     if (outcome.kind === 'released') {
@@ -461,12 +473,48 @@ export class CopyLiveEngine {
       try { await this.deps.settlementObservation?.(row.executionKey!); }
       catch { this.deps.log?.('Committed settlement observation could not be retained; scheduled reporting will retry'); }
     }
+    else if (outcome.kind === 'unplaced' && outcome.unsent) await this.afterUnsent(row, mandate, signalAgeMs);
     else if (outcome.kind === 'unplaced') await this.deps.repository.update(row, { state: 'refused', reason: 'exchange_order_never_placed' });
     else if (outcome.kind === 'quarantine' || outcome.kind === 'unsent') await this.deps.repository.update(row, { state: 'refused', reason: outcome.reason.slice(0, 80) });
     else await this.deps.repository.update(row, { reason: outcome.reason.slice(0, 80) });
   }
 
-  private async submit(row: DispatchRow, m: LiveMandateWork, signalAgeMs: number): Promise<void> {
+  /** The execution key of `attempt` of this leg on the copy's account. */
+  private attemptKey(row: Pick<DispatchRow, 'mandateId' | 'sourceFillId' | 'leg'>, m: Pick<LiveMandateWork, 'accountAddress'>, attempt: number): string {
+    return `${this.deps.network}:${m.accountAddress}:${liveSourceExecutionCloid(row.mandateId, row.sourceFillId, row.leg, attempt)}`;
+  }
+  /** Which attempt of this leg `key` is, or null when it is none of them. */
+  private attemptOf(row: Pick<DispatchRow, 'mandateId' | 'sourceFillId' | 'leg'>, m: Pick<LiveMandateWork, 'accountAddress'>, key: string): number | null {
+    const prefix = `${this.deps.network}:${m.accountAddress}:`;
+    return key.startsWith(prefix) ? liveSourceExecutionAttempt(row.mandateId, row.sourceFillId, row.leg, key.slice(prefix.length)) : null;
+  }
+  /** A pending leg's next order: 0, or the one after the attempt it names. */
+  private pendingAttempt(row: DispatchRow, m: LiveMandateWork): number | null {
+    if (row.executionKey === null) return 0;
+    const previous = this.attemptOf(row, m, row.executionKey);
+    return previous !== null && previous + 1 < MAX_LIVE_LEG_ATTEMPTS ? previous + 1 : null;
+  }
+  /**
+   * The leg's order was released as never sent (its request never began):
+   * the leg is planned again as its next attempt, a new order (new cloid,
+   * key, nonce) that goes through every gate of a first submission (submit),
+   * while its signal is still fresh (an open: maxSignalAgeSeconds; a close
+   * never ages), it is not a merged adjustment, and fewer than
+   * MAX_LIVE_LEG_ATTEMPTS were made. Otherwise it is refused as before.
+   */
+  private async afterUnsent(row: DispatchRow, m: LiveMandateWork, signalAgeMs: number): Promise<void> {
+    const previous = row.executionKey ? this.attemptOf(row, m, row.executionKey) : null;
+    const fresh = row.leg !== 'open' || this.now() - row.leaderTime.getTime() <= signalAgeMs;
+    if (previous !== null && previous + 1 < MAX_LIVE_LEG_ATTEMPTS && row.adjustmentId === null && fresh) {
+      this.legRetryAt.delete(row.id);
+      if (await this.deps.repository.update(row, { state: 'pending', reason: UNSENT_RETRY }))
+        this.deps.log?.(`leg ${row.id}: attempt ${previous + 1} released as never sent; planning attempt ${previous + 2} of ${MAX_LIVE_LEG_ATTEMPTS}`);
+      return;
+    }
+    await this.deps.repository.update(row, { state: 'refused', reason: 'exchange_order_never_placed' });
+  }
+
+  private async submit(row: DispatchRow, m: LiveMandateWork, signalAgeMs: number, attempt = 0): Promise<void> {
     // Existing fixed claims are once per exchange trade, even across partial
     // batches. This is only a refusal: the original journal still reconciles.
     if (row.leg === 'open' && await this.deps.repository.knownFixedOpenClaim(row, m)) {
@@ -475,7 +523,7 @@ export class CopyLiveEngine {
     const now = this.now();
     // Only an open ages: a reduction or close is sent however late (CP-EXE-14-02).
     if (row.leg === 'open' && now - row.leaderTime.getTime() > signalAgeMs) {
-      await this.deps.repository.update(row, { state: 'refused', reason: row.reason && row.attempts > 0 ? row.reason : 'signal_expired' }); return;
+      await this.deps.repository.update(row, { state: 'refused', reason: row.reason && row.reason !== UNSENT_RETRY && row.attempts > 0 ? row.reason : 'signal_expired' }); return;
     }
     if (m.strategyStatus === 'stopping' || m.strategyStatus === 'stopped') {
       // The stop closes every position itself; no new leg of a stopping copy is sent.
@@ -518,19 +566,19 @@ export class CopyLiveEngine {
     if (await this.deps.repository.earlierPending(row)) return;
     // Not before its retry time: a failed attempt's next one waits (retryDelayMs).
     if ((this.legRetryAt.get(row.id) ?? 0) > this.now()) return;
-    await this.execute(row, m, row.leg === 'open' ? row.leaderTime.getTime() + signalAgeMs : undefined);
+    await this.execute(row, m, row.leg === 'open' ? row.leaderTime.getTime() + signalAgeMs : undefined, attempt);
   }
 
   /** Submits (first time) or reconciles (afterwards) the leg's one order. A
    * first submission's budget wait never outlasts the signal (`signalDeadline`). */
-  private async execute(row: DispatchRow, m: LiveMandateWork, signalDeadline?: number): Promise<void> {
+  private async execute(row: DispatchRow, m: LiveMandateWork, signalDeadline?: number, attempt = 0): Promise<void> {
     const attemptedAt = this.now();
     const timing: { sentAt?: number; ackedAt?: number } = {}, first = row.firstAttemptAt ?? new Date(attemptedAt);
     const runtime = this.deps.runtime({ onExchange: event => { if (event.phase === 'request') timing.sentAt ??= event.at; else timing.ackedAt ??= event.at; } });
     try {
       const members = row.adjustmentId === row.id ? await this.deps.repository.members(row.id) : [];
       const record = await runtime.execute({ userId: row.userId, accountId: row.accountId, mandateId: row.mandateId, sourceFillId: row.sourceFillId, leg: row.leg,
-        ...(members.length ? { members } : {}), ...(signalDeadline !== undefined ? { signalDeadline } : {}) });
+        ...(members.length ? { members } : {}), ...(signalDeadline !== undefined ? { signalDeadline } : {}), ...(attempt ? { attempt } : {}) });
       const times = { ...(timing.sentAt ? { sentAt: new Date(timing.sentAt) } : {}), ...(timing.ackedAt ? { ackedAt: new Date(timing.ackedAt) } : {}) };
       if (record.errorCode === 'unattempted_expired' || record.errorCode === UNHELD_REJECTED) {
         const reason = record.errorCode === UNHELD_REJECTED ? (record.outcome?.reason ?? UNHELD_REJECTED).slice(0, 80) : 'unattempted_expired';
@@ -555,7 +603,7 @@ export class CopyLiveEngine {
       if (unexpected) this.deps.log?.(`leg ${row.id} failed unexpectedly: ${unexpected}`);
       const times = timing.sentAt ? { sentAt: new Date(timing.sentAt), ...(timing.ackedAt ? { ackedAt: new Date(timing.ackedAt) } : {}) } : {};
       // A POST that began leaves an exchange-side outcome to reconcile.
-      const key = `${this.deps.network}:${m.accountAddress}:${liveSourceExecutionCloid(row.mandateId, row.sourceFillId, row.leg)}`;
+      const key = this.attemptKey(row, m, attempt);
       const journal = await this.deps.repository.journalState(key);
       if (row.state === 'pending' && journal !== null && journal !== 'prepared') {
         await this.deps.repository.update(row, { state: 'submitted', executionKey: key, firstAttemptAt: first, attempts: row.attempts + 1, reason, ...times }); return;

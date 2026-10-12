@@ -93,6 +93,21 @@ const isHip3 = (coin: string) => coin.includes(':');
  * leader fill is older than the policy's signal age. The account's leverage
  * above the cap is set by the runtime before an open (live-leverage-update.ts):
  * a refusal still saying so, or an update the exchange rejected, is final. */
+/**
+ * How long a failed first submission waits before its next attempt. A budget
+ * wait sent nothing: retried each pass. A failed provider read opened a socket
+ * and spent weight: 10 s, so a burst of retries can't use up Hyperliquid's 30
+ * new WebSocket connections a minute and its 10 at once (every account read
+ * failed for five minutes after nine leases were lost together, local harness
+ * 2026-10-12). Anything else: 3 s.
+ */
+export function retryDelayMs(error: unknown, reason: string): number {
+  if (error instanceof HyperliquidBudgetWait) return 0;
+  if (PROVIDER_READ_FAILURES.has(reason) || reason.startsWith('hyperliquid_quota_')) return 10_000;
+  return 3_000;
+}
+const PROVIDER_READ_FAILURES = new Set(['live_account_observation_unavailable', 'live_account_observation_changed', 'live_read_deadline_exceeded',
+  'live_risk_stale', 'live_risk_provider_unavailable', 'live_risk_busy']);
 /** Reads of an unsupported account mode before its refusal is final. */
 const ABSTRACTION_ATTEMPT_LIMIT = 3;
 const PERMANENT = new Set(['live_source_price_deviation', 'live_budget_over_capacity', 'below_min_notional', 'live_risk_adoption_unproven', 'live_market_unknown',
@@ -128,6 +143,8 @@ const reasonOf = (error: unknown) => errorCode(error);
 export class CopyLiveEngine {
   private readonly lastTestnetRead = new Map<string, number>();
   private readonly testnetSourceRetryAt = new Map<string, number>();
+  /** A leg's next first-submission attempt after a failed one (retryDelayMs). */
+  private readonly legRetryAt = new Map<string, number>();
   private readonly lastFastRead = new Map<string, number>();
   private readonly ingesting = new Set<string>();
   constructor(private readonly deps: LiveEngineDependencies, private readonly options: LiveEngineOptions = DEFAULT_ENGINE_OPTIONS,
@@ -477,6 +494,8 @@ export class CopyLiveEngine {
     }
     // In the leader's order: an earlier leg of the coin still waiting goes first.
     if (await this.deps.repository.earlierPending(row)) return;
+    // Not before its retry time: a failed attempt's next one waits (retryDelayMs).
+    if ((this.legRetryAt.get(row.id) ?? 0) > this.now()) return;
     await this.execute(row, m, row.leg === 'open' ? row.leaderTime.getTime() + signalAgeMs : undefined);
   }
 
@@ -495,6 +514,7 @@ export class CopyLiveEngine {
         const reason = record.errorCode === UNHELD_REJECTED ? (record.outcome?.reason ?? UNHELD_REJECTED).slice(0, 80) : 'unattempted_expired';
         await this.deps.repository.update(row, { state: 'refused', reason, executionKey: record.key, firstAttemptAt: first, attempts: row.attempts + 1 }); return;
       }
+      this.legRetryAt.delete(row.id);
       await this.deps.repository.update(row, { state: 'submitted', executionKey: record.key, firstAttemptAt: first, attempts: row.attempts + 1, reason: null, ...times });
       if (row.state === 'pending') this.deps.trace?.(`Copy order ${row.id}${members.length ? ` (+${members.length} merged)` : ''}: received +${row.receivedAt.getTime() - row.leaderTime.getTime()}, ` +
         `first attempt +${first.getTime() - row.leaderTime.getTime()}, sent ${times.sentAt ? `+${times.sentAt.getTime() - row.leaderTime.getTime()}` : '-'} ms after the leader`);
@@ -529,6 +549,8 @@ export class CopyLiveEngine {
       // 2026-10-12) may be the exchange catching up: final on its third read.
       const transient = reason === 'live_account_unsupported_abstraction' && row.attempts + 1 < ABSTRACTION_ATTEMPT_LIMIT;
       const permanent = row.state === 'pending' && !transient && (PERMANENT.has(reason) || row.leg === 'close' && (reason === 'no_follower_position' || row.attempts + 1 >= CLOSE_ATTEMPT_LIMIT));
+      if (permanent || row.state !== 'pending') this.legRetryAt.delete(row.id);
+      else this.legRetryAt.set(row.id, this.now() + retryDelayMs(error, reason));
       await this.deps.repository.update(row, { ...(permanent ? { state: 'refused' as const } : {}), reason, firstAttemptAt: first, attempts: row.attempts + 1, ...times });
     }
   }

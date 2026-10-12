@@ -135,6 +135,20 @@ describe('same-coin leader legs become one follower adjustment', () => {
     expect((await dispatches()).find(d => d.sourceFillId === other)).toMatchObject({ state: 'refused', reason: 'live_account_unsupported_abstraction', attempts: 3 });
   });
 
+  it('a failed provider read waits 10 s before its next attempt: retries can\'t use up the exchange\'s new connections (2026-10-12)', async () => {
+    const big = await leaderFill(39, now + 100, 'B', '2', '0');
+    let reads = 0;
+    runtimeImpl = async (request, hooks) => { if (++reads === 1) throw new LiveBoundaryError('live_account_observation_unavailable'); return filled(request, hooks); };
+    // One engine: the worker keeps its instance (copy-live-engine.provider.ts).
+    const worker = engine();
+    await coverage(now - 10_000, now + 200); clock = now + 300; await worker.tick();
+    expect(reads).toBe(1);
+    for (const at of [1_300, 5_300, 10_000]) { clock = now + at; await worker.tick(); }
+    expect(reads).toBe(1);
+    clock = now + 10_400; await worker.tick();
+    expect(calls).toEqual([expect.objectContaining({ sourceFillId: big, leg: 'open' })]);
+  });
+
   it('TEST ONLY: with COPY_LIVE_TEST_MIN_FLOOR_MAX_USD a small open is not held: it goes at once, for the planner to raise to the minimum (Paul 2026-10-11)', async () => {
     const leaderEquity = vi.fn(async () => '1000');
     registerLiveDeployment({ network: 'testnet', caps: { maxStrategiesPerUser: 2, testMinFloorMaxUsd: 15 }, builderFee: true, testnetSourceIntervalMs: 60_000,

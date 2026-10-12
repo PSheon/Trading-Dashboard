@@ -499,7 +499,8 @@ describe('testnet copy execution engine', () => {
     const open = await leaderFill(62, now + 100, 'B', '1', '0', 'ETH');
     runtimeImpl = async request => { runtimeCalls.push(request); throw new LiveBoundaryError('no_follower_position'); };
     const worker = engine();
-    for (const offset of [1000, 2000]) { clock = now + offset; await worker.tick(); }
+    // A failed attempt waits 3 s for its next (retryDelayMs).
+    for (const offset of [1000, 2000, 4000]) { clock = now + offset; await worker.tick(); }
     expect((await dispatches()).find(r => r.sourceFillId === open)).toMatchObject({ state: 'pending', attempts: 2 });
   });
 
@@ -512,7 +513,8 @@ describe('testnet copy execution engine', () => {
       throw new LiveBoundaryError('no_follower_position');
     };
     const worker = engine();
-    for (const offset of [1000, 2000]) { clock = now + offset; await worker.tick(); }
+    // A failed attempt waits 3 s for its next (retryDelayMs).
+    for (const offset of [1000, 2000, 5000, 8000]) { clock = now + offset; await worker.tick(); }
     expect((await dispatches()).find(r => r.sourceFillId === close)).toMatchObject({ state: 'submitted', executionKey: keyOf(close, 'close') });
   });
 

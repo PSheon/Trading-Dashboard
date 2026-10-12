@@ -23,9 +23,16 @@ import { address, assertSameAuthorization, assertWalletAuthorization, LiveBounda
 export function riskSourceRequire(value: unknown, code: string): asserts value { if (!value) throw new LiveBoundaryError(code); }
 export const riskSourceDigest = (value: unknown) => liveSourceDigest(JSON.parse(JSON.stringify(value)) as unknown);
 /** Shared current authority, before an execution journal/provenance exists.
- * Requires the original source/account lock and performs only SQL reads. */
-export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSession,db:DbExecutor,raw:{accountId:string;mandateId:string},now:number) {
+ * Requires the original source/account lock and performs only SQL reads.
+ * `leg`: the order's leg when the caller knows it. A 'close' leg is always a
+ * reduce-only order (the planner and the generation projection hold it to
+ * that, and the exchange enforces the signed flag); it passes the caps and
+ * the owner allowlist, which bound new risk only. Tightening them must not
+ * strand a running copy's positions (a safety exit). Without a leg every
+ * check applies. */
+export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSession,db:DbExecutor,raw:{accountId:string;mandateId:string;leg?:'open'|'close'},now:number) {
   const binding=structuredClone(raw); session.scope.assertFresh();
+  const increasesRisk=binding.leg!=='close';
   const read=async<T>(work:PromiseLike<T>):Promise<T>=>{const result=await work;await session.scope.assertHeld();return result;};
   const generalSetting=alias(appSettings,'live_general_setting'),revenueSetting=alias(appSettings,'live_revenue_setting');
   const [source]=await read(db.select({policyRow:copyRiskPolicies,generalRow:generalSetting,revenueRow:revenueSetting,account:copyExecutionAccounts,owner:users,strategy:copyStrategies,config:copyLiveStrategyConfigs,version:copyStrategyVersions,
@@ -68,13 +75,14 @@ export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSessi
   const deployment=liveDeploymentPolicy();
   riskSourceRequire(a.network!=='mainnet'||deployment?.network==='mainnet','live_risk_deployment_unproven');
   riskSourceRequire(!deployment||deployment.network===a.network,'live_risk_deployment_unproven');
-  riskSourceRequire(!deployment?.allowedPrivyUserIds||deployment.allowedPrivyUserIds.has(o.privyUserId),'live_risk_owner_not_allowed');
+  // These bound new risk only: a close of a running copy passes them.
+  riskSourceRequire(!increasesRisk||!deployment?.allowedPrivyUserIds||deployment.allowedPrivyUserIds.has(o.privyUserId),'live_risk_owner_not_allowed');
   const limits=effectiveLiveLimits(deployment?.caps,copyRiskLimitsSchema.parse(policy.limits));
-  riskSourceRequire(Dec.from(c.budgetUsd).lte(String(limits.maxAllocationUsd)),'live_risk_budget_above_cap');
+  riskSourceRequire(!increasesRisk||Dec.from(c.budgetUsd).lte(String(limits.maxAllocationUsd)),'live_risk_budget_above_cap');
   const fixed=deployment?.caps.fixedPerTradeUsd;
-  riskSourceRequire(!deployment?.caps.ratioOnly||settings.sizingMode==='ratio','live_risk_sizing_above_cap');
-  riskSourceRequire(!fixed||(settings.sizingMode==='fixed'&&settings.perTradeUsd!==null&&settings.perTradeUsd>=fixed.min&&settings.perTradeUsd<=fixed.max),'live_risk_sizing_above_cap');
-  riskSourceRequire(settings.maxLeverage===null||settings.maxLeverage<=limits.maxLeverage,'live_risk_leverage_above_cap');
+  riskSourceRequire(!increasesRisk||!deployment?.caps.ratioOnly||settings.sizingMode==='ratio','live_risk_sizing_above_cap');
+  riskSourceRequire(!increasesRisk||!fixed||(settings.sizingMode==='fixed'&&settings.perTradeUsd!==null&&settings.perTradeUsd>=fixed.min&&settings.perTradeUsd<=fixed.max),'live_risk_sizing_above_cap');
+  riskSourceRequire(!increasesRisk||settings.maxLeverage===null||settings.maxLeverage<=limits.maxLeverage,'live_risk_leverage_above_cap');
   const controls=await read(db.select().from(copyControls).where(sql`${copyControls.scope}='platform' or (${copyControls.scope}='user' and ${copyControls.scopeId}=${a.userId})`));
   const platform=controls.find(c=>c.scope==='platform'&&c.scopeId===0),user=controls.find(c=>c.scope==='user'&&c.scopeId===a.userId);
   riskSourceRequire(controls.length===2&&platform&&user,'live_risk_controls_unproven');
@@ -93,7 +101,7 @@ export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSessi
     .where(and(eq(copyExecutionAccounts.userId,a.userId),eq(copyExecutionAccounts.network,a.network),liveAccountExposureSql(copyExecutionAccounts.id,copyStrategies.mode,copyStrategies.status)))
     .orderBy(copyExecutionAccounts.id).limit(9)).then(rows=>rows.map(row=>row.account));
   // This network's live copies of the owner: at most the deployment's cap.
-  riskSourceRequire(!deployment||copies.length<=limits.maxStrategiesPerUser,'live_risk_strategy_cap');
+  riskSourceRequire(!increasesRisk||!deployment||copies.length<=limits.maxStrategiesPerUser,'live_risk_strategy_cap');
   // A copy whose wallet is still being created has no address yet: nothing can
   // reach it, so it carries no exposure and is not observed (its setup no
   // longer refuses the owner's other copies).
@@ -129,7 +137,9 @@ export async function loadLiveRiskAuthority(session: LiveRiskDatabaseSession, db
   const [p] = await read(db.select().from(copyLiveIntentProvenance).where(eq(copyLiveIntentProvenance.key,binding.key)));
   riskSourceRequire(p,'live_risk_provenance_missing');
   riskSourceRequire(JSON.stringify(p.intent).length<=16384&&Buffer.byteLength(JSON.stringify(p.sizingBasis))<=2*1024*1024,'live_risk_source_unbounded');
-  const prep=await loadLivePreparationAuthority(session,db,{accountId:binding.accountId,mandateId:p.mandateId},now);
+  // The leg the provenance's intent was planned for: reduce-only exactly for a
+  // close (checked against the signed action's fingerprint below).
+  const prep=await loadLivePreparationAuthority(session,db,{accountId:binding.accountId,mandateId:p.mandateId,leg:(p.intent as {reduceOnly?:unknown}).reduceOnly===true?'close':'open'},now);
   const [execution]=await read(db.select({leg:copyLiveSignalLegs,fill:copyLiveSourceFills,stream:copyLiveSourceStreams,journal:copyLiveExecutions})
     .from(copyLiveIntentProvenance).innerJoin(copyLiveSignalLegs,eq(copyLiveSignalLegs.id,copyLiveIntentProvenance.legId))
     .innerJoin(copyLiveSourceFills,eq(copyLiveSourceFills.id,copyLiveSignalLegs.sourceFillId)).innerJoin(copyLiveSourceStreams,eq(copyLiveSourceStreams.id,copyLiveSourceFills.streamId))

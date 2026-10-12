@@ -52,7 +52,7 @@ export class PostgresLiveRiskSource {
       const owned=input?await this.reservations.read(session,{accountId:binding.accountId,ownKey:binding.key}):undefined;
       const sizing=this.validateSizing(local);mark(stage);stage='risk_provider_epoch';
       const reusedProviderEpoch=this.epoch.hasCompleted(session);
-      const frames=await this.epoch.collect(session,{accountId:binding.accountId,mandateId:local.row.mandate.id,key:binding.key,coin:local.fill.coin});await session.scope.assertHeld();
+      const frames=await this.epoch.collect(session,{accountId:binding.accountId,mandateId:local.row.mandate.id,key:binding.key,coin:local.fill.coin,leg:local.intent.reduceOnly?'close':'open'});await session.scope.assertHeld();
       requireProof(frames.authorityDigest===riskSourceDigest(local.preparation),'live_risk_local_changed');this.fresh(frames.oldest);
       mark(stage);stage='risk_final_local_read';
       const {market,snapshots,target,others}=frames;

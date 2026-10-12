@@ -481,6 +481,20 @@ describe('durable local actual source authority before remote reads',()=>{
     }finally{registerLiveDeployment(undefined);}
     expect(fetcher).not.toHaveBeenCalled();
   });
+  it('a reduce-only intent (a close) passes the tightened caps and allowlist, which bound new risk only (safety exit)',async()=>{
+    const live=(over:Partial<LiveCopyConfig>):LiveCopyConfig=>({network:'testnet',caps:{maxStrategiesPerUser:2},builderFee:true,testnetSourceIntervalMs:60_000,maxSourceDeviationBps:500,slippageBps:30,intervalMs:3000,weightPerMin:300,...over});
+    const hold=async(reason:string)=>{await scopes.run(id(),async(_scope,session)=>{await expect(source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold()).rejects.toThrow(reason);});};
+    // Only the provenance's reduce-only flag changes: the record no longer matches,
+    // which is checked after the caps. Reaching that check means the caps passed.
+    const [provenance]=await db.select().from(copyLiveIntentProvenance);
+    await db.update(copyLiveIntentProvenance).set({intent:{...(provenance!.intent as object),reduceOnly:true}}).where(eq(copyLiveIntentProvenance.key,provenance!.key));
+    try{
+      registerLiveDeployment(live({caps:{maxStrategiesPerUser:2,maxAllocationUsd:50}}));await hold('live_risk_record_mismatch');
+      registerLiveDeployment(live({allowedPrivyUserIds:new Set(['did:privy:someone-else'])}));await hold('live_risk_record_mismatch');
+      registerLiveDeployment(live({caps:{maxStrategiesPerUser:2,fixedPerTradeUsd:{min:500,max:600}}}));await hold('live_risk_record_mismatch');
+    }finally{registerLiveDeployment(undefined);}
+    expect(fetcher).not.toHaveBeenCalled();
+  });
   it('requires a durable first-empty baseline even for the genuine authority chain',async()=>{
     await scopes.run(id(),async(_scope,session)=>{await expect(source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold()).rejects.toThrow('live_risk_baseline_unproven');});
     expect(fetcher).not.toHaveBeenCalled();

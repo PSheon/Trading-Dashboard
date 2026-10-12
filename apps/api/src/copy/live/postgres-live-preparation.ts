@@ -146,7 +146,7 @@ export class PostgresLivePreparation {
     this.beforeProviderRead?.(local.wallet.privyWalletId);
     // The leader trades on another network than this copy executes on.
     const crossNetworkSource = local.consent.sourceNetwork !== network;
-    const frames = await this.epoch.collect(session, { accountId: binding.accountId, mandateId: binding.mandateId, key, coin: source.fill.coin,
+    const frames = await this.epoch.collect(session, { accountId: binding.accountId, mandateId: binding.mandateId, key, coin: source.fill.coin, leg: binding.leg,
       checkLeverage: binding.leg === 'open',
       includeLeader: !crossNetworkSource && local.settings.sizingMode === 'ratio' && binding.leg === 'open' });
     mark('preparation_provider_collection');

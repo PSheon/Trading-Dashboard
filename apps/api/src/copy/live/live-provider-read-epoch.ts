@@ -29,6 +29,8 @@ export interface LiveProviderEpochBinding {
   readonly mandateId: string;
   readonly key: string;
   readonly coin: string;
+  /** The order's leg: a close passes the caps that bound new risk (loadLivePreparationAuthority). */
+  readonly leg?: 'open' | 'close';
   readonly includeLeader?: boolean;
   /** Preparation may lower excessive leverage before the other order reads.
    * A preview never supplies authority for an order. */
@@ -92,7 +94,8 @@ export class LiveProviderReadEpoch {
     const mark = beginLiveExecutionTiming(this.resolver.network, 'collect', this.now, this.onTiming);
     riskSourceRequire(binding && [binding.accountId, binding.mandateId, binding.key, binding.coin].every(v => typeof v === 'string' && v.length > 0 && v.length <= 160) &&
       (binding.includeLeader === undefined || typeof binding.includeLeader === 'boolean') &&
-      (binding.checkLeverage === undefined || typeof binding.checkLeverage === 'boolean'), 'live_risk_epoch_mismatch');
+      (binding.checkLeverage === undefined || typeof binding.checkLeverage === 'boolean') &&
+      (binding.leg === undefined || binding.leg === 'open' || binding.leg === 'close'), 'live_risk_epoch_mismatch');
     // includeLeader is a coverage request, never a new execution identity.
     const bindingDigest = riskSourceDigest({ accountId: binding.accountId, mandateId: binding.mandateId, key: binding.key, coin: binding.coin });
     const previous = this.#epochs.get(session);

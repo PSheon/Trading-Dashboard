@@ -28,7 +28,7 @@ import type { LiveSourceReferenceReader } from './live-source-reference.js';
 import type { LiveSourceReferenceV1 } from './copy-live-sizing-evidence.js';
 import { minOrderNotional } from '../min-order-notional.js';
 import { effectiveLeverage } from '../copy-risk.js';
-import { LiveLeverageUpdateRequired } from './live-leverage-update.js';
+import { leverageReductionMarginFits, LiveLeverageUpdateRequired } from './live-leverage-update.js';
 import { liveDeploymentPolicy } from '../live-deployment.js';
 import { beginLiveExecutionTiming, type LiveExecutionTimingHook } from './live-execution-diagnostics.js';
 
@@ -159,13 +159,24 @@ export class PostgresLivePreparation {
     if (binding.leg === 'open') {
       const cap = effectiveLeverage(local.limits, local.settings, market.maxLeverage), proof = quote.leverageProofs.find(p => p.coin === market.coin);
       riskSourceRequire(proof, 'live_risk_leverage');
-      if (proof.value > cap) throw new LiveLeverageUpdateRequired(market.coin, market.asset, proof.value, cap);
       // The risk gate refuses an open while ANY cross position of the account
       // sits above its coin's cap: that coin's leverage is set down first too.
-      for (const p of follower.positions) {
+      const others = follower.positions.flatMap(p => {
         const other = effectiveLeverage(local.limits, local.settings, p.maxLeverage);
-        if (p.coin !== market.coin && p.leverageType === 'cross' && p.leverage > other) throw new LiveLeverageUpdateRequired(p.coin, p.asset, p.leverage, other);
+        return p.coin !== market.coin && p.leverageType === 'cross' && p.leverage > other ? [{ position: p, leverage: other }] : [];
+      });
+      // A lower leverage holds more margin (value / leverage). When the
+      // account cannot hold it for every position to set down (the order
+      // coin's held position too), the open is refused before any update is
+      // sent (permanent for the leg, as live_risk_leverage).
+      if (others.length) {
+        const own = proof.value > cap && follower.positions.some(p => p.coin === market.coin) ? [{ coin: market.coin, leverage: cap }] : [];
+        riskSourceRequire(leverageReductionMarginFits(follower, [...own, ...others.map(v => ({ coin: v.position.coin, leverage: v.leverage }))]),
+          'live_risk_leverage_margin');
       }
+      if (proof.value > cap) throw new LiveLeverageUpdateRequired(market.coin, market.asset, proof.value, cap);
+      const first = others[0];
+      if (first) throw new LiveLeverageUpdateRequired(first.position.coin, first.position.asset, first.position.leverage, first.leverage);
     }
     // A leader's open on another network is priced on the execution network but
     // checked against the source network's mid and sized by the leader's capital

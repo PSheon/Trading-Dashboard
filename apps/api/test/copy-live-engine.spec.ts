@@ -429,6 +429,15 @@ describe('testnet copy execution engine', () => {
     expect(runtimeCalls).toHaveLength(2);
   });
 
+  it('refuses an open for good when the account cannot hold the margin of another position set down (O8b), never retrying it', async () => {
+    await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+    const short = await leaderFill(13, now + 100, 'B', '1', '0', 'BTC');
+    runtimeImpl = async request => { runtimeCalls.push(request); throw new LiveBoundaryError('live_risk_leverage_margin'); };
+    clock = now + 1000; await engine().tick(); clock = now + 5000; await engine().tick();
+    expect((await dispatches()).find(r => r.sourceFillId === short)).toMatchObject({ state: 'refused', reason: 'live_risk_leverage_margin', attempts: 1 });
+    expect(runtimeCalls).toHaveLength(1);
+  });
+
   it('refuses a leg whose journal was rejected before its hold (never sent), instead of waiting on a settlement forever', async () => {
     await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
     const fill = await leaderFill(15, now + 100, 'B', '1', '0');

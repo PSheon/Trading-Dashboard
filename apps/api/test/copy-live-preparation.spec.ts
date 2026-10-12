@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import { copyLiveExecutions, copyLiveIntentProvenance, copyLivePositionBaselines, copyLiveReductionCarry, copyLiveSignalLegs, copySignerNonces,
   copyLiveMandates, copyStrategies, copyLiveSourceStreams, copyExecutionAccounts, users } from '@trading-dashboard/shared/database';
 import { CopyWalletRepository } from '../src/copy/copy-wallet.repository.js';
-import { LiveLeverageUpdateRequired } from '../src/copy/live/live-leverage-update.js';
+import { leverageReductionMarginFits, LiveLeverageUpdateRequired } from '../src/copy/live/live-leverage-update.js';
 import { PostgresLivePreparation } from '../src/copy/live/postgres-live-preparation.js';
 import { LiveProviderReadEpoch } from '../src/copy/live/live-provider-read-epoch.js';
 import { PostgresLiveRiskScope } from '../src/copy/live/postgres-live-risk-scope.js';
@@ -159,6 +159,44 @@ describe('atomic original-session live preparation', () => {
       expect(refused).toMatchObject({ coin: 'ETH', asset: 1, current: 20 }); expect((refused as LiveLeverageUpdateRequired).leverage).toBeLessThan(20);
     });
     await untouched();
+  });
+  it('refuses the open (live_risk_leverage_margin) instead of asking to set another position down when the account cannot hold the higher margin (O8b)', async () => {
+    const snapshot = structuredClone(seed.f.accountSource.snapshot) as any;
+    // ETH 2500 at 20x holds 125; at the cap (10x or lower) it would hold at least 250: 125 more, with 75 free.
+    snapshot.positions = [{ coin: 'ETH', dex: '', asset: 1, sizeDecimals: 2, size: '25', entryPrice: '100', positionValue: '2500', unrealizedPnl: '0', marginUsed: '125',
+      leverage: 20, leverageType: 'cross', maxLeverage: 20, fundingSinceOpen: '0', fundingSinceChange: '0' }];
+    Object.assign(snapshot.dexes[0], { equity: '200', marginUsed: '125', withdrawable: '75' });
+    vi.mocked(observer.observe).mockResolvedValue(snapshot);
+    await scope.run(identity(), async (_s, session) => {
+      const refused = await preparation.prepare(session, binding()).catch((error: unknown) => error);
+      expect(refused).not.toBeInstanceOf(LiveLeverageUpdateRequired);
+      expect(refused).toMatchObject({ code: 'live_risk_leverage_margin' });
+    });
+    await untouched();
+    // With the free collateral for it, the same position is set down as before.
+    Object.assign(snapshot.dexes[0], { equity: '5000', withdrawable: '4875' });
+    await scope.run(identity(), async (_s, session) => {
+      expect(await preparation.prepare(session, binding()).catch((error: unknown) => error)).toMatchObject({ coin: 'ETH', current: 20 });
+    });
+    await untouched();
+  });
+  it('the margin check counts every position to set down on the same dex, against that dex\'s free collateral (O8b)', () => {
+    const position = (coin: string, positionValue: string, marginUsed: string, dex = '') => ({ coin, dex, asset: 0, sizeDecimals: 2, size: '1', entryPrice: '1', positionValue,
+      unrealizedPnl: '0', marginUsed, leverage: 20, leverageType: 'cross' as const, maxLeverage: 20, fundingSinceOpen: '0', fundingSinceChange: '0' });
+    const dex = (name: string, equity: string, marginUsed: string, withdrawable: string) => ({ dex: name, equity, marginUsed, withdrawable }) as any;
+    const account = { positions: [position('ETH', '200', '10'), position('SOL', '200', '10'), position('xyz:A', '200', '10', 'xyz')],
+      dexes: [dex('', '100', '20', '15'), dex('xyz', '100', '10', '90')] };
+    // ETH alone at 10x: 10 more, 15 free.
+    expect(leverageReductionMarginFits(account, [{ coin: 'ETH', leverage: 10 }])).toBe(true);
+    // ETH and SOL: 20 more on the same dex, 15 free.
+    expect(leverageReductionMarginFits(account, [{ coin: 'ETH', leverage: 10 }, { coin: 'SOL', leverage: 10 }])).toBe(false);
+    // Free collateral is also bounded by equity less margin used.
+    expect(leverageReductionMarginFits({ ...account, dexes: [dex('', '25', '20', '15'), account.dexes[1]] }, [{ coin: 'ETH', leverage: 10 }])).toBe(false);
+    // Another dex's collateral does not count; its own does.
+    expect(leverageReductionMarginFits(account, [{ coin: 'ETH', leverage: 10 }, { coin: 'xyz:A', leverage: 4 }])).toBe(true);
+    expect(leverageReductionMarginFits(account, [{ coin: 'xyz:A', leverage: 1 }])).toBe(false);
+    // A position or dex missing from the snapshot is not proof of room.
+    expect(leverageReductionMarginFits(account, [{ coin: 'BTC', leverage: 10 }])).toBe(false);
   });
   it('recovers the same original key and nonce without recollecting or repricing', async () => {
     const first = await scope.run(identity(), async (_s, session) => preparation.prepare(session, binding()));

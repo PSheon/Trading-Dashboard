@@ -112,7 +112,7 @@ const PROVIDER_READ_FAILURES = new Set(['live_account_observation_unavailable', 
 const ABSTRACTION_ATTEMPT_LIMIT = 3;
 const PERMANENT = new Set(['live_source_price_deviation', 'live_budget_over_capacity', 'below_min_notional', 'live_risk_adoption_unproven', 'live_market_unknown',
   'live_account_unsupported_role', 'live_account_unsupported_abstraction', 'unattempted_expired', 'live_risk_provider_fee_scope_unproven', HIP3_REFUSAL,
-  'live_risk_leverage', 'live_leverage_update_rejected',
+  'live_risk_leverage', 'live_risk_leverage_margin', 'live_leverage_update_rejected',
   // A control-refused unsent open must never queue ahead of reductions or
   // catch up after resume. Historical journals remain on settlement instead.
   'platform_paused', 'user_paused', 'strategy_paused', 'platform_reduce_only', 'user_reduce_only', 'strategy_reduce_only']);

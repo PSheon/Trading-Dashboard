@@ -17,6 +17,9 @@ import { address, assertVerifiedAuthorizationFresh, LiveBoundaryError, WalletAut
 import { Logger } from '@nestjs/common';
 import { sharedCapacityWait } from '../../hyperliquid/hyperliquid-budget-wait.js';
 import { safeErrorText } from '../../runtime/safe-error-text.js';
+import { Dec, USD_DP } from '../../common/decimal/dec.js';
+import { ceilDecimalProduct } from './live-risk-rounding.js';
+import type { LiveAccountSnapshot } from './live-account-observer.js';
 
 /**
  * The copy account's leverage on the order's coin is above the copy's cap
@@ -34,6 +37,31 @@ export class LiveLeverageUpdateRequired extends LiveBoundaryError {
 /** The leverage was set (the exchange acknowledged it): prepare the order again. */
 export class LiveLeverageUpdated extends LiveBoundaryError {
   constructor(readonly coin: string) { super('live_leverage_updated'); }
+}
+
+/**
+ * Whether the account keeps enough margin once these positions' leverage is
+ * set down: a cross position's margin is its value over its leverage, so a
+ * lower leverage takes more of the dex's free collateral (the risk gate's
+ * min(withdrawable, equity - margin used)). Each reduction's extra margin is
+ * rounded up; a dex whose extra margin is above its free collateral fails.
+ */
+export function leverageReductionMarginFits(snapshot: Pick<LiveAccountSnapshot, 'positions' | 'dexes'>,
+  reductions: readonly { readonly coin: string; readonly leverage: number }[]): boolean {
+  const extra = new Map<string, Dec>();
+  for (const r of reductions) {
+    const p = snapshot.positions.find(v => v.coin === r.coin);
+    if (!p || !Number.isSafeInteger(r.leverage) || r.leverage < 1) return false;
+    const needed = ceilDecimalProduct([Dec.from(p.positionValue).abs()], [r.leverage], USD_DP).sub(Dec.from(p.marginUsed));
+    extra.set(p.dex, (extra.get(p.dex) ?? Dec.ZERO).add(Dec.max(Dec.ZERO, needed)));
+  }
+  for (const [venue, more] of extra) {
+    const d = snapshot.dexes.find(v => v.dex === venue);
+    if (!d) return false;
+    const free = Dec.min(Dec.from(d.withdrawable), Dec.max(Dec.ZERO, Dec.from(d.equity).sub(Dec.from(d.marginUsed))));
+    if (more.gt(free)) return false;
+  }
+  return true;
 }
 
 export interface LiveLeverageTarget {

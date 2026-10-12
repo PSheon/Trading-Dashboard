@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { HlInfoRequestBody } from "./types.js";
+import { userAbstractionSchema } from "./info-schemas.js";
 
 // Validate consumed fields, retain unknown fields for raw fill history / forward compatibility.
 const decimal = z.string().max(128).regex(/^-?(?:\d+(?:\.\d*)?|\.\d+)$/).refine(v => Number.isFinite(Number(v)));
@@ -64,7 +65,7 @@ const schemas = {
     }).passthrough(),
     list(z.object({ coin: name, markPx: decimal, midPx: decimal.nullable().optional() }).passthrough()),
   ]),
-  userAbstraction: z.enum(["unifiedAccount", "portfolioMargin", "disabled", "default", "dexAbstraction"]),
+  userAbstraction: userAbstractionSchema,
   delegatorSummary: z.object({ delegated: decimal, undelegated: decimal, totalPendingWithdrawal: decimal, nPendingWithdrawals: integer }).passthrough(),
   portfolio: list(z.tuple([name, z.object({ accountValueHistory: history, pnlHistory: history, vlm: decimal }).passthrough()]), 32),
   frontendOpenOrders: list(z.object({

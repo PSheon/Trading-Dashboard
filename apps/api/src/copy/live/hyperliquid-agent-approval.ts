@@ -3,6 +3,7 @@ import { WALLET_NETWORKS } from "@trading-dashboard/shared/contracts";
 import { sharedCapacityWait } from "../../hyperliquid/hyperliquid-budget-wait.js";
 import { readInfoJson } from "../../hyperliquid/response-validation.js";
 import { infoWeight } from "../../hyperliquid/info-weights.js";
+import { extraAgentsSchema } from "../../hyperliquid/info-schemas.js";
 import { boundedLiveRead, RESERVE_BOUND_MS } from "./live-market-resolver.js";
 import { address, LiveBoundaryError, type ExchangeApprovalEvidence, type ExchangeApprovalVerifier, type LiveNetwork, type WalletAuthorization } from "./wallet-authorization.js";
 
@@ -13,8 +14,6 @@ const roleSchema = z.discriminatedUnion("role", [
   z.object({ role: z.literal("agent"), data: z.object({ user: ethereumAddress }) }),
   z.object({ role: z.literal("subAccount"), data: z.object({ master: ethereumAddress }) }),
 ]);
-const agentsSchema = z.array(z.object({ address: ethereumAddress, name: z.string().max(256),
-  validUntil: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable() })).max(100);
 
 /** Read-only, uncached exchange proof. Explicitly listed agents are supported.
  * An unnamed/default agent that is absent from
@@ -43,7 +42,7 @@ export class HyperliquidAgentApprovalVerifier implements ExchangeApprovalVerifie
       checkedAt = this.now();
       let expiresAt: number | null = null;
       if (signer !== account) {
-        const matches = agentsSchema.parse(await this.read({ type: "extraAgents", user: account })).filter((agent) => address(agent.address) === signer);
+        const matches = extraAgentsSchema.parse(await this.read({ type: "extraAgents", user: account })).filter((agent) => address(agent.address) === signer);
         if (matches.length !== 1) throw new LiveBoundaryError("exchange_agent_not_approved");
         expiresAt = matches[0].validUntil;
         if (expiresAt !== null && expiresAt <= this.now()) throw new LiveBoundaryError("exchange_agent_expired");

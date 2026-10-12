@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { Dec } from '../../common/decimal/dec.js';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
 import { infoPrepaidWeights } from '../../hyperliquid/info-weights.js';
+import { userAbstractionSchema, type UserAbstraction } from '../../hyperliquid/info-schemas.js';
 import { boundedLiveRead } from './live-market-resolver.js';
 import {HyperliquidGlobalTransport} from '../../hyperliquid/hyperliquid-global-transport.js';
 import { LiveBoundaryError } from './wallet-authorization.js';
@@ -33,7 +34,7 @@ export interface AccountModeObserveOptions {
 export interface AccountModeObservation {
   readonly network: HyperliquidNetwork; readonly accountAddress: string;
   readonly role: 'missing' | 'user' | 'agent' | 'vault' | 'subAccount';
-  readonly abstraction: 'default' | 'disabled' | 'unifiedAccount' | 'portfolioMargin';
+  readonly abstraction: UserAbstraction;
   readonly dexAbstraction: boolean | null; readonly portfolioMarginEnabled: boolean;
   readonly earliestObservedAt: number; readonly completedAt: number;
   readonly source: (typeof WALLET_NETWORKS)[HyperliquidNetwork]['infoUrl']; readonly sourceDigest: `0x${string}`;
@@ -47,7 +48,6 @@ const intentSchema = z.object({ operationId: identifier, accountId: identifier, 
   .refine(v => v.consentExpiresAt > v.nonce && v.consentExpiresAt - v.nonce <= 300_000);
 const types = frozen(structuredClone(UserSetAbstractionTypes));
 const roleSchema = z.object({ role: z.enum(['missing', 'user', 'agent', 'vault', 'subAccount']) });
-const abstractionSchema = z.enum(['default', 'disabled', 'unifiedAccount', 'portfolioMargin']);
 const decimal = z.string().max(80).regex(/^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/);
 const spotSchema = z.object({ portfolioMarginEnabled: z.boolean().optional(), balances: z.array(z.object({
   coin: z.string().min(1).max(80), token: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), total: decimal, hold: decimal,
@@ -176,7 +176,7 @@ export class PrivyAccountModeClient {
         }
         return { body: bodies[i]!, value };
       }));
-      const role = roleSchema.parse(evidence[0]!.value).role, abstraction = abstractionSchema.parse(evidence[1]!.value);
+      const role = roleSchema.parse(evidence[0]!.value).role, abstraction = userAbstractionSchema.parse(evidence[1]!.value);
       const dexAbstraction = z.boolean().nullable().parse(evidence[2]!.value), spot = spotSchema.parse(evidence[3]!.value);
       if (new Set(spot.balances.map(b => b.token)).size !== spot.balances.length || new Set(spot.balances.map(b => b.coin)).size !== spot.balances.length ||
           spot.balances.some(b => Dec.from(b.hold).gt(b.total))) throw new Error();

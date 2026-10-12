@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { WALLET_NETWORKS, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { Dec } from '../common/decimal/dec.js';
 import { readInfoJson } from '../hyperliquid/response-validation.js';
+import { extraAgentsSchema } from '../hyperliquid/info-schemas.js';
 import { HyperliquidAllDexsAccountSource, type LiveAllDexsAccountEvidence, type LiveAllDexsAccountSource } from './live/live-account-ws-source.js';
 import { boundedLiveRead, LIVE_DEX_NAME, MAX_LIVE_PERP_DEXES } from './live/live-market-resolver.js';
 import { address, LiveBoundaryError } from './live/wallet-authorization.js';
@@ -107,7 +108,7 @@ export class HyperliquidAccountModeAbsenceReader implements AccountModeAbsenceRe
       const dexes = ['', ...list.flatMap(row => row ? [row.name] : [])]; unique(dexes);
       // Existing arbitrary agent authority and spot-held collateral are outside
       // the newly dedicated dormant bootstrap this action is allowed to change.
-      z.array(z.unknown()).max(0).parse(agents);
+      if (extraAgentsSchema.parse(agents).length) fail();
       const balances = z.object({ portfolioMarginEnabled: z.literal(false).optional(), balances: z.array(z.object({
         coin: z.string().min(1).max(80), token: integer, total: zero, hold: zero,
       })).max(10000) }).parse(spot).balances;

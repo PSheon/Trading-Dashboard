@@ -2,9 +2,9 @@ import {HyperliquidGlobalTransport} from '../hyperliquid/hyperliquid-global-tran
 import {boundedLiveRead} from './live/live-market-resolver.js';
 import { LIVE_RESERVE_WAIT_MS, sharedCapacityWait } from "../hyperliquid/hyperliquid-budget-wait.js";
 import { WALLET_NETWORKS, splitSignature } from "@trading-dashboard/shared/contracts";
-import { z } from "zod";
 import { readInfoJson } from "../hyperliquid/response-validation.js";
 import { infoWeight } from "../hyperliquid/info-weights.js";
+import { extraAgentsSchema } from "../hyperliquid/info-schemas.js";
 import { agentApprovalTypedData, type AgentConsentIntent } from "./copy-agent-consent.js";
 import { LiveBoundaryError } from "./live/wallet-authorization.js";
 import { Logger } from "@nestjs/common";
@@ -22,8 +22,6 @@ export interface AgentApprovalClient {
   /** `prepaid`: the caller reserved OBSERVE_WEIGHT before its own clock. */
   observe(intent: AgentConsentIntent, options?: { prepaid?: boolean }): Promise<{ checkedAt: number; validUntil: number } | null>;
 }
-const agents = z.array(z.object({ address: z.string().regex(/^0x[0-9a-fA-F]{40}$/), name: z.string().max(256),
-  validUntil: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable() })).max(100);
 
 /** Sends one exact master approval (signed by the copy account in the
  * owner's browser) and observes it; signs nothing itself. */
@@ -90,7 +88,7 @@ export class PrivyAgentApprovalClient implements AgentApprovalClient {
       // A strategy master must be a user account. Agents/vaults/subaccounts are
       // not interchangeable with an explicitly owned, funded master account.
       if (!role || typeof role !== "object" || !("role" in role) || role.role !== "user") throw new Error();
-      const list = agents.parse(listed);
+      const list = extraAgentsSchema.parse(listed);
       const matches = list.filter(a => a.address.toLowerCase() === data.message.agentAddress);
       if (this.now() < checkedAt || this.now() - checkedAt > 5_000) throw new Error();
       if (!matches.length) return null;

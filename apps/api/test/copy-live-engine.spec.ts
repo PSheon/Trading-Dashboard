@@ -565,6 +565,31 @@ describe('testnet copy execution engine', () => {
     expect(runtimeCalls.some(c => c.sourceFillId === open)).toBe(true);
   });
 
+  it('a flip of a side the leader opened before this copy: nothing to close, so the open is sent (never flip_close_not_settled)', async () => {
+    await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+    // The leader was long 2 before activation and flips to short 1: the copy never held its long.
+    const flip = await leaderFill(7, now + 100, 'A', '3', '2');
+    clock = now + 1000; await engine().tick(); clock += 3000; await engine().tick(); clock += 3000; await engine().tick();
+    const rows = (await dispatches()).filter(r => r.sourceFillId === flip);
+    expect(rows.find(r => r.leg === 'close')).toMatchObject({ state: 'refused', reason: 'no_follower_position' });
+    expect(rows.find(r => r.leg === 'open')).toMatchObject({ state: 'settled' });
+    expect(runtimeCalls.filter(c => c.sourceFillId === flip).map(c => c.leg)).toEqual(['open']);
+  });
+
+  it('a flip whose close was refused for another reason still never sends its open', async () => {
+    await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+    const open = await leaderFill(6, now + 100, 'B', '2', '0');
+    clock = now + 1000; await engine().tick(); clock = now + 1200; await engine().tick();
+    expect((await dispatches()).find(r => r.sourceFillId === open)).toMatchObject({ state: 'settled' });
+    const flip = await leaderFill(7, now + 1500, 'A', '3', '2');
+    runtimeImpl = async (request, hooks) => { if (request.leg === 'close') { runtimeCalls.push(request); throw new LiveBoundaryError('live_market_unknown'); } return filled(request, hooks); };
+    clock = now + 2000; await engine().tick(); clock += 3000; await engine().tick(); clock += 3000; await engine().tick();
+    const rows = (await dispatches()).filter(r => r.sourceFillId === flip);
+    expect(rows.find(r => r.leg === 'close')).toMatchObject({ state: 'refused', reason: 'live_market_unknown' });
+    expect(rows.find(r => r.leg === 'open')).toMatchObject({ state: 'refused', reason: 'flip_close_not_settled' });
+    expect(runtimeCalls.filter(c => c.sourceFillId === flip).every(c => c.leg === 'close')).toBe(true);
+  });
+
   it('after a restart, an order left unknown is only reconciled; a journal found for a pending leg is never sent again', async () => {
     await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
     const fill = await leaderFill(8, now + 100, 'B', '1', '0');

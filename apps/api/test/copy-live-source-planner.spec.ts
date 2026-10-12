@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { followerReceiptDigestV1 } from '../src/copy/live/actual-fill-accounting.js';
-import { canonicalLiveSourceLegs, parseLiveSourceFill, liveSourceDigest, type LiveSourceFillEvidence } from '../src/copy/live/copy-live-source-evidence.js';
+import { canonicalLiveSourceLegs, parseLiveSourceFill, liveSourceDigest, liveSourceLegId, type LiveSourceFillEvidence } from '../src/copy/live/copy-live-source-evidence.js';
 import { combinedCloseFraction, planLiveSourceOrder, type LiveSourcePlanInput } from '../src/copy/live/copy-live-source-planner.js';
 import type { LiveSourceSizingEnvelopeV1 } from '../src/copy/live/copy-live-sizing-evidence.js';
 import { Dec } from '../src/common/decimal/dec.js';
@@ -101,6 +101,21 @@ describe('actual source sizing from retained original observations',()=>{
     b.leader.equity=l.perpEquity;b.leader.snapshotDigest=followerReceiptDigestV1(l);
     expect(l.perpEquity).toBe('2000');expect(planLiveSourceOrder(e).order.size).toBe('0.05');
     expect(()=>mapLiveAccountView({accountId:'leader',strategyId:9,network:'testnet',accountAddress:l.accountAddress},{...l,accountAbstraction:'disabled'},{blocked:false,reason:null},e.now,5000)).toThrow('follower_snapshot_invalid');
+  });
+  describe('a flip whose close had nothing to close: the leader\'s old side was opened before this copy',()=>{
+    // The leader goes from long 2 to short 1: a close leg and an open leg.
+    const flip=(e:LiveSourcePlanInput):LiveSourcePlanInput=>{
+      const fill=parseLiveSourceFill({tid:2,oid:8,time:e.now-50,coin:'BTC',side:'A',px:'100',sz:'3',startPosition:'2'},{network:'testnet',leaderAddress:e.mandate.leaderAddress,from:e.now-1000,to:e.now,receivedAt:e.now,kind:'fills'});
+      Object.assign((e.sizingBasis as any).basis,{sourceFillId:fill.id,sourceDigest:fill.sourceDigest,leg:'open',fixedTradeClaim:true,settledDependency:null});
+      return {...e,fill,leg:canonicalLiveSourceLegs(fill).find(l=>l.leg==='open')!};
+    };
+    it('opens the new side when the follower is flat and no close of the flip was ever journaled, still depending on that close leg',()=>{
+      const e=flip(structuredClone(example()));
+      expect(planLiveSourceOrder(e)).toMatchObject({dependsOnLegId:liveSourceLegId('mandate',e.fill.id,'close'),order:{side:'A',reduceOnly:false}});
+    });
+    it('still refuses it while the follower holds the old side (its close must settle first)',()=>{
+      expect(()=>planLiveSourceOrder(flip(closeExample('1','0')))).toThrow('live_source_sizing_unproven');
+    });
   });
   describe('the exchange\'s 10 USD order minimum (a basis binding exchangeMinimum)',()=>{
     const bind=(e:LiveSourcePlanInput,patch:Record<string,unknown>={})=>{Object.assign((e.sizingBasis as any).basis,{exchangeMinimum:true,...patch});return e;};

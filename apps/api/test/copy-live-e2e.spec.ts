@@ -172,11 +172,11 @@ function engine(midPrice = '100', egress = global, withStopper = false, apiTermi
       new HyperliquidFollowerReceiptReader('testnet', weight => settleBudget.acquire(weight, 'live', undefined, { signal: AbortSignal.timeout(5000) }), settleGlobal.fetchInfo, clock)), clock), log: message => logs.push(message),
   }, { testnetSourceIntervalMs: 60_000, sourceLagMs: 0, passBudgetMs: 60_000 }, clock);
 }
-async function leaderOpens(tid = 1001, coin = 'BTC') {
+async function leaderOpens(tid = 1001, coin = 'BTC', side: 'B' | 'A' = 'B', sz = '1', startPosition = '0', dir = 'Open Long') {
   await new Promise(resolve => setTimeout(resolve, 5));
-  const time = Date.now() - 2, rawFill = { coin, px: '100', sz: '1', side: 'B', time, startPosition: '0', dir: 'Open Long', closedPnl: '0',
+  const time = Date.now() - 2, rawFill = { coin, px: '100', sz, side, time, startPosition, dir, closedPnl: '0',
     hash: `0x${'12'.repeat(32)}`, oid: 1000 + tid, crossed: true, fee: '0.01', tid, feeToken: 'USDC' };
-  await db.insert(schema.fills).values({ address: leader, tid: BigInt(tid), coin, side: 'B', dir: 'Open Long', px: '100', sz: '1', fee: '0.01', hash: rawFill.hash, ts: new Date(time), raw: rawFill });
+  await db.insert(schema.fills).values({ address: leader, tid: BigInt(tid), coin, side, dir, px: '100', sz, fee: '0.01', hash: rawFill.hash, ts: new Date(time), raw: rawFill });
 }
 
 describe('testnet copy of a mainnet leader, end to end against provider doubles', { timeout: 30_000 }, () => {
@@ -376,6 +376,24 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     await new Promise(resolve => setTimeout(resolve, 5)); await e.tick();
     expect((await db.select().from(schema.copyLiveDispatches)).map(r => r.state)).toEqual(['settled', 'settled']);
     expect((await db.select().from(schema.copyLiveReductionCarry)).map(r => r.coin).sort()).toEqual(['BTC', 'ETH']);
+  });
+  it('a leader flip of a long it opened before this copy: nothing to close, the follower opens the short and it settles', async () => {
+    const e = engine(); await e.tick();
+    // Long 2 before the copy's activation, then a sell of 3: a close leg (nothing
+    // for the follower to close) and an open of a short 1.
+    await leaderOpens(1001, 'BTC', 'A', '3', '2', 'Long > Short'); await e.tick(); await e.tick();
+    let rows = await db.select().from(schema.copyLiveDispatches);
+    expect(rows.find(r => r.leg === 'close')).toMatchObject({ state: 'refused', reason: 'no_follower_position' });
+    expect(rows.find(r => r.leg === 'open')!.reason).not.toBe('flip_close_not_settled');
+    expect(exchangeBodies).toHaveLength(1);
+    expect(exchangeBodies[0]).toMatchObject({ action: { orders: [{ b: false, r: false }] } });
+    await new Promise(resolve => setTimeout(resolve, 5)); await e.tick();
+    rows = await db.select().from(schema.copyLiveDispatches);
+    expect(rows.find(r => r.leg === 'open')).toMatchObject({ state: 'settled' });
+    // Its leg still names the flip's close (never journaled, left planned).
+    const legs = await db.select().from(schema.copyLiveSignalLegs), close = legs.find(l => l.leg === 'close');
+    expect(close).toMatchObject({ state: 'planned', executionKey: null });
+    expect(legs.find(l => l.leg === 'open')).toMatchObject({ state: 'settled', dependsOnId: close!.id });
   });
   it('waits six seconds for close evidence quota before observing and still sends only the fresh reduce-only position', async () => {
     // A cold cross-order read cache: the close pays its full observation (> 284).

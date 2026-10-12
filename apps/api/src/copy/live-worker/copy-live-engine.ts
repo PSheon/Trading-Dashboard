@@ -487,10 +487,14 @@ export class CopyLiveEngine {
       await this.deps.repository.update(row, { state: 'refused', reason: 'no_follower_position' }); return;
     }
     if (row.leg === 'open') {
-      // A flip opens only after its close leg settled (the planner proves it).
+      // A flip opens only after its close leg settled (the planner proves it),
+      // or when the follower had nothing to close (the leader's old side was
+      // opened before this copy): the planner then proves the follower flat
+      // on the coin and that no close of this flip was ever journaled.
       const close = await this.deps.repository.dispatch(`${row.mandateId}|${row.sourceFillId}|close`);
-      if (close?.state === 'refused') { await this.deps.repository.update(row, { state: 'refused', reason: 'flip_close_not_settled' }); return; }
-      if (close && close.state !== 'settled') return;
+      const nothingToClose = close?.state === 'refused' && close.reason === 'no_follower_position';
+      if (close?.state === 'refused' && !nothingToClose) { await this.deps.repository.update(row, { state: 'refused', reason: 'flip_close_not_settled' }); return; }
+      if (close && close.state !== 'settled' && !nothingToClose) return;
     }
     // In the leader's order: an earlier leg of the coin still waiting goes first.
     if (await this.deps.repository.earlierPending(row)) return;

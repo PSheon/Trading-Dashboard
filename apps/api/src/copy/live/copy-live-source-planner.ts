@@ -206,8 +206,14 @@ export function planLiveSourceOrder(raw: LiveSourcePlanInput): PlannedLiveSource
       requireSizing(b.settledDependency===null);
     }else{
       const close=canonicalLiveSourceLegs(fill).find(l=>l.leg==='close');
-      if(close){dependsOnLegId=liveSourceLegId(m.id,fill.id,'close');requireSizing(position.isZero&&b.settledDependency?.legId===dependsOnLegId);
-        const dependency=o.generationManifest.journals.find(j=>j.leg?.id===dependsOnLegId);requireSizing(dependency?.evidence?.settlementDigest===b.settledDependency?.certificateDigest&&dependency.leg?.state==='settled');
+      if(close){dependsOnLegId=liveSourceLegId(m.id,fill.id,'close');
+        const dependency=o.generationManifest.journals.find(j=>j.leg?.id===dependsOnLegId);
+        // The follower never held the leader's old side (opened before this
+        // copy): its close had nothing to close and was never journaled. The
+        // open needs the follower flat on the coin, as after a settled close.
+        if(b.settledDependency===null)requireSizing(position.isZero&&!dependency);
+        else{requireSizing(position.isZero&&b.settledDependency.legId===dependsOnLegId);
+          requireSizing(dependency?.evidence?.settlementDigest===b.settledDependency.certificateDigest&&dependency.leg?.state==='settled');}
       }else requireSizing(b.settledDependency===null);
       requireSizing(position.isZero||position.sign===sign);
       // Budget buys at their maximum admitted execution price. A lower sell

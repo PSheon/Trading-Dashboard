@@ -6,7 +6,7 @@ import { verifyTypedData, type TypedDataDefinition } from 'viem';
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { adminSettingsSchema, copyFundingInputSchema, DEFAULT_COPY_RISK_LIMITS, findHttpContract, leaderCopyActivity, type LeaderCopyActivity, liveCopySetupConsentTypedData, liveCopySetupSchema, liveCopySetupAbortSchema, usdSendTypedData, WALLET_NETWORKS, type LiveCopySetupIntent } from '@trading-dashboard/shared/contracts';
-import { appSettings, copyAgentSetups, copyControls, copyExecutionAccounts, copyExecutionWallets, copyFundingOperations, copyLiveActivations, copyLiveMandates, copyLiveSetupAborts, copyLiveSetups,
+import { appSettings, copyAgentSetups, copyControls, copyExecutionAccounts, copyExecutionWallets, copyFundingOperations, copyLiveActivations, copyLiveBuilderApprovals, copyLiveMandates, copyLiveSetupAborts, copyLiveSetups,
   copyLiveStrategyConfigs, copyRiskPolicies, copyStrategies, copyWalletAuthorizations, leaders } from '@trading-dashboard/shared/database';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
 import { CopyFundingRepository } from '../src/copy/copy-funding.repository.js';
@@ -338,6 +338,71 @@ describe('one-click testnet copy setup', () => {
     later(5_000); await service.tick();
     expect((await service.get(uid, setup.id)).stage).toBe('running');
     expect(fakes.modes.submit).not.toHaveBeenCalled();
+  });
+
+  describe('the builder fee approval: never sent is signed again, possibly sent is only observed', () => {
+    const builder = `0x${'5b'.repeat(20)}`;
+    let exchange: { sendAction: ReturnType<typeof vi.fn>; maxBuilderFee: ReturnType<typeof vi.fn> };
+    const ok = { status: 'ok', response: { type: 'default' } };
+    const driver = () => new CopyLiveSetupService(config(), new CopyLiveSetupRepository(db), new UnitOfWork(db), new CopyLiveMandateRepository(db, testConfig()), fakes.wallets as never,
+      new CopyWalletRepository(db), fakes.agents as never, fakes.modes as never, fakes.funding as never, new CopyFundingRepository(db), new CopyLiveReturnRepository(db, testConfig()),
+      exchange as never, { available: true, sign: workerSign } as never, () => clock, fakes.jobs, null, fakes.leaderActivity);
+    const approval = async () => (await db.select().from(copyLiveBuilderApprovals))[0]!;
+    const isBuilder = (data: unknown) => (data as { primaryType: string }).primaryType === 'HyperliquidTransaction:ApproveBuilderFee';
+    /** A confirmed, credited setup whose next pass reaches the builder step. */
+    async function atBuilder() {
+      await db.update(appSettings).set({ value: adminSettingsSchema.shape.revenue.parse({ builderAddress: builder, builderFeeTenthsBps: 10 }) }).where(eq(appSettings.key, 'revenue'));
+      const setup = await start();
+      expect(setup.consent).toMatchObject({ builderAddress: builder, builderMaxFeeTenthsOfBps: 10 });
+      await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit(); later(5_000);
+      return setup;
+    }
+    let builderSignFails = false;
+    beforeEach(() => {
+      exchange = { sendAction: vi.fn(async () => ok), maxBuilderFee: vi.fn(async () => 0) }; builderSignFails = false;
+      workerSign.mockImplementation(async (_account: unknown, data: unknown) => {
+        if (!isBuilder(data)) return `0x${'cd'.repeat(65)}`;
+        if (builderSignFails) throw new Error('privy down');
+        return `0x${'11'.repeat(64)}1b`;
+      });
+    });
+    afterEach(() => { workerSign.mockImplementation(async () => `0x${'cd'.repeat(65)}`); });
+
+    it('a builder fee the worker could not sign goes back to prepared and is retried (transient), not a failed funded setup', async () => {
+      const setup = await atBuilder();
+      builderSignFails = true; await driver().tick(); builderSignFails = false;
+      expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'agent_active', issue: 'builder_approval_not_signed' });
+      expect(await approval()).toMatchObject({ state: 'prepared', attemptedAt: null });
+      expect(exchange.sendAction).not.toHaveBeenCalled();
+      later(60_000); await driver().tick();
+      expect(exchange.sendAction).toHaveBeenCalledTimes(1);
+      expect(await approval()).toMatchObject({ state: 'accepted' });
+      exchange.maxBuilderFee.mockResolvedValue(10);
+      later(60_000); await driver().tick();
+      expect((await service.get(uid, setup.id)).stage).toBe('running');
+      expect(exchange.sendAction).toHaveBeenCalledTimes(1);
+    });
+    it('a builder fee refused before its POST goes back to prepared and is sent on a later pass, same nonce', async () => {
+      const setup = await atBuilder();
+      exchange.sendAction.mockImplementationOnce(async (_network: unknown, _body: unknown, fresh: () => void) => { fresh(); throw new LiveBoundaryError('account_action_not_dispatched'); });
+      await driver().tick();
+      const first = await approval();
+      expect(first).toMatchObject({ state: 'prepared', attemptedAt: null });
+      expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'agent_active', issue: 'account_action_not_dispatched' });
+      later(60_000); await driver().tick();
+      expect(exchange.sendAction).toHaveBeenCalledTimes(2);
+      expect(await approval()).toMatchObject({ state: 'accepted', nonce: first.nonce });
+    });
+    it('a builder fee possibly sent (its answer lost) stays unknown and is never resent, only observed', async () => {
+      const setup = await atBuilder();
+      exchange.sendAction.mockImplementationOnce(async (_network: unknown, _body: unknown, fresh: () => void, sent: () => void) => { fresh(); sent(); throw new LiveBoundaryError('account_action_submission_unknown'); });
+      await driver().tick();
+      expect(await approval()).toMatchObject({ state: 'unknown', attemptedAt: expect.any(Date) });
+      expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'agent_active', issue: 'builder_approval_pending' });
+      later(60_000); await driver().tick();
+      expect(exchange.sendAction).toHaveBeenCalledTimes(1); expect(exchange.maxBuilderFee).toHaveBeenCalled();
+      expect(await approval()).toMatchObject({ state: 'unknown' });
+    });
   });
 
   it('past its deadline nothing new is signed: the setup expires (the funds stay withdrawable)', async () => {

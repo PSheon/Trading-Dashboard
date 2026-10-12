@@ -13,6 +13,7 @@ import { CopyAccountModeService } from './copy-account-mode.service.js';
 import { HyperliquidBudgetWait } from '../hyperliquid/hyperliquid-budget-wait.js';
 import { DEFAULT_LIVE_SETUP_TIMINGS, type LiveSetupTimings } from '../config/live-timings.js';
 import { classify, exhausted, StepFail, StepWait } from './live/error-class.js';
+import { LiveBoundaryError } from './live/wallet-authorization.js';
 import { CopyAgentService } from './copy-agent.service.js';
 import { CopyFundingExchangeClient } from './copy-funding-exchange.client.js';
 import { CopyFundingRepository } from './copy-funding.repository.js';
@@ -822,19 +823,33 @@ export class CopyLiveSetupService {
     const attempt = await this.returns.beginBuilder(row.userId, approval.id);
     if (!attempt) throw new Wait('builder_approval_pending', 1_000);
     const deadline = this.now() + this.timings.stepBudgetMs.signMs;
-    let signature: string;
+    let request: unknown;
     try {
-      signature = await active.sign({ walletId: account.privyWalletId!, address: intent.accountAddress, ownerQuorumId: account.ownerQuorumId! },
+      const signature = await active.sign({ walletId: account.privyWalletId!, address: intent.accountAddress, ownerQuorumId: account.ownerQuorumId! },
         approveBuilderFeeTypedData(network, attempt.builderAddress, attempt.maxFeeTenthsBps, attempt.nonce) as unknown as MasterTypedData, { network: intent.network, builder: intent.builderAddress }, deadline);
+      request = approveBuilderFeeRequest(network, attempt.builderAddress, attempt.maxFeeTenthsBps, attempt.nonce, signature);
     } catch (error) {
-      // Not signed: the exchange cannot have it, so the attempt ends refused (never resent).
+      // Not signed (or no usable signature): the exchange cannot have it.
+      // Back to prepared, signed again on a later pass: a transient failure
+      // (live/error-class.ts), counted and backed off, the setup failing only
+      // at the attempt limit.
       this.logger.warn(`setup ${row.id} builder fee not signed: ${safeErrorText(error)}`);
-      await this.returns.finishBuilder(row.userId, approval.id, 'rejected', digest({ reason: 'master_signature_unavailable', id: approval.id }));
-      throw new Fail('setup_builder_rejected');
+      await this.returns.restoreBuilderNotDispatched(row.userId, attempt);
+      throw new LiveBoundaryError('builder_approval_not_signed');
     }
-    // An unknown outcome stays unknown (observed above on the next pass, never resent).
-    const reply = await this.exchange.sendAction(intent.network, approveBuilderFeeRequest(network, attempt.builderAddress, attempt.maxFeeTenthsBps, attempt.nonce, signature),
-      () => { if (this.now() >= deadline) throw new Error('stale'); }).catch((error: unknown) => { this.logger.warn(`setup ${row.id} builder fee outcome unknown: ${safeErrorText(error)}`); return null; });
+    // Dispatched only once every check passed, right before the POST: a
+    // refusal before it (a stale proof, the meter) never reached the
+    // exchange and is tried again like a failed signature. An unknown
+    // outcome stays unknown (observed above on the next pass, never resent).
+    let dispatched = false;
+    const reply = await this.exchange.sendAction(intent.network, request, () => { if (this.now() >= deadline) throw new Error('stale'); }, () => { dispatched = true; }).catch(async (error: unknown) => {
+      if (!dispatched) {
+        this.logger.warn(`setup ${row.id} builder fee not sent: ${safeErrorText(error)}`);
+        await this.returns.restoreBuilderNotDispatched(row.userId, attempt);
+        throw new LiveBoundaryError('account_action_not_dispatched');
+      }
+      this.logger.warn(`setup ${row.id} builder fee outcome unknown: ${safeErrorText(error)}`); return null;
+    });
     if (reply && typeof reply === 'object' && 'status' in reply && reply.status === 'err') { await this.returns.finishBuilder(row.userId, approval.id, 'rejected', digest(reply)); throw new Fail('setup_builder_rejected'); }
     if (reply && typeof reply === 'object' && 'status' in reply && reply.status === 'ok') await this.returns.finishBuilder(row.userId, approval.id, 'accepted', digest(reply));
     throw new Wait('builder_approval_pending', 2_000);

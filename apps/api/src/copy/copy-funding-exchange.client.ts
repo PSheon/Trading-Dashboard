@@ -82,15 +82,18 @@ export class CopyFundingExchangeClient {
     const empty = Math.abs(Number(accountValue)) < 0.01 && positions === 0 && orders.length === 0 && spotBalances === 0;
     return { empty, accountValue, positions, openOrders: orders.length, spotBalances };
   }
-  /** Sends an exact user-signed action (approveBuilderFee) from the account. */
-  async sendAction(network: FundingRow["network"], body: unknown, assertFreshProof: () => void): Promise<unknown> {
+  /** Sends an exact user-signed action (approveBuilderFee) from the account.
+   * `onDispatch` runs after every check, right before the POST (as send's):
+   * a refusal before it was never sent (account_action_not_dispatched). */
+  async sendAction(network: FundingRow["network"], body: unknown, assertFreshProof: () => void, onDispatch?: () => void): Promise<unknown> {
+    let dispatched = false;
     try {
       const request: RequestInit = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(20000) };
       const permit = this.global ? await this.global.currentQuota().acquireRest(1, Date.now() + 5000) : undefined;
-      const dispatch = () => { const result: unknown = assertFreshProof(); if (result !== undefined) { void Promise.resolve(result).catch(() => {}); throw new Error(); } permit?.assertFresh(); return fetch(WALLET_NETWORKS[network].exchangeUrl, request); };
+      const dispatch = () => { const result: unknown = assertFreshProof(); if (result !== undefined) { void Promise.resolve(result).catch(() => {}); throw new Error(); } permit?.assertFresh(); request.signal?.throwIfAborted(); dispatched = true; onDispatch?.(); return fetch(WALLET_NETWORKS[network].exchangeUrl, request); };
       const response = await (permit ? permit.dispatch(dispatch) : dispatch()); if (!response.ok) { await response.body?.cancel().catch(() => {}); throw new Error(); }
       return await readInfoJson(response, 'copy account action', 64 * 1024);
-    } catch { throw new LiveBoundaryError('account_action_submission_unknown'); }
+    } catch { throw new LiveBoundaryError(dispatched ? 'account_action_submission_unknown' : 'account_action_not_dispatched'); }
   }
   async maxBuilderFee(network: FundingRow["network"], user: string, builder: string): Promise<number> {
     const value = await this.read(WALLET_NETWORKS[network].infoUrl, { type: "maxBuilderFee", user, builder }, 20);

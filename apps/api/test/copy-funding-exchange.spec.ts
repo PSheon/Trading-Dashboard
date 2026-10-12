@@ -144,6 +144,24 @@ describe("strategy funding trusted transport", () => {
     expect(isFundingNotDispatched(error, op)).toBe(false);
     expect(fetcher).toHaveBeenCalledTimes(kind === 'hook' ? 0 : 1);
   });
+  it("an account action refused before its POST (the quota permit) is not dispatched; one lost after it stays unknown", async () => {
+    const fetcher = vi.fn(async () => { throw new Error("response lost"); }); vi.stubGlobal("fetch", fetcher);
+    const global = Object.create(HyperliquidGlobalTransport.prototype) as HyperliquidGlobalTransport;
+    let refuse = true;
+    const permit = { assertFresh: () => { if (refuse) throw new Error("hyperliquid_quota_expired"); }, dispatch: <T>(work: () => T) => work() };
+    Object.defineProperty(global, "currentQuota", { value: () => ({ acquireRest: async () => permit }) });
+    const budget = { acquire: vi.fn(async () => {}), liveCapacity: 1000, liveWaitMs: () => 0, refillMs: () => 0 };
+    const transport = new CopyFundingExchangeClient(budget as unknown as RequestBudgeterService, global);
+    let dispatched = 0;
+    await expect(transport.sendAction("testnet", { action: {} }, () => undefined, () => { dispatched++; })).rejects.toMatchObject({ code: "account_action_not_dispatched" });
+    expect(dispatched).toBe(0); expect(fetcher).not.toHaveBeenCalled();
+    // A stale caller proof: not dispatched either.
+    refuse = false;
+    await expect(transport.sendAction("testnet", { action: {} }, () => { throw new Error("stale"); }, () => { dispatched++; })).rejects.toMatchObject({ code: "account_action_not_dispatched" });
+    expect(dispatched).toBe(0); expect(fetcher).not.toHaveBeenCalled();
+    await expect(transport.sendAction("testnet", { action: {} }, () => undefined, () => { dispatched++; })).rejects.toMatchObject({ code: "account_action_submission_unknown" });
+    expect(dispatched).toBe(1); expect(fetcher).toHaveBeenCalledTimes(1);
+  });
   it("never retries response loss", async () => {
     const fetcher = vi.fn(async () => { throw new Error("response lost"); }); vi.stubGlobal("fetch", fetcher);
     await expect(client().transport.send(op, signature)).rejects.toThrow("funding_submission_unknown"); expect(fetcher).toHaveBeenCalledTimes(1);

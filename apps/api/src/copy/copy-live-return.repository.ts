@@ -263,6 +263,18 @@ export class CopyLiveReturnRepository {
     });
     return row ?? null;
   }
+  /** A builder fee approval this pass began and proved never handed to the
+   * exchange (not signed, or refused before its POST) goes back to prepared:
+   * the next pass signs and sends it (same nonce). Only that exact attempt:
+   * anything that moved since wins, and it stays as it is. */
+  async restoreBuilderNotDispatched(userId: number, attempt: BuilderApprovalRow): Promise<BuilderApprovalRow | null> {
+    if (attempt.userId !== userId || attempt.state !== 'unknown' || !attempt.attemptedAt) return null;
+    const [row] = await this.locked(userId, tx => tx.update(copyLiveBuilderApprovals).set({ state: 'prepared', attemptedAt: null, updatedAt: new Date() })
+      .where(and(eq(copyLiveBuilderApprovals.id, attempt.id), eq(copyLiveBuilderApprovals.userId, userId), eq(copyLiveBuilderApprovals.state, 'unknown'),
+        eq(copyLiveBuilderApprovals.nonce, attempt.nonce), eq(copyLiveBuilderApprovals.attemptedAt, attempt.attemptedAt!), eq(copyLiveBuilderApprovals.updatedAt, attempt.updatedAt),
+        isNull(copyLiveBuilderApprovals.evidenceDigest))).returning());
+    return row ?? null;
+  }
   async finishBuilder(userId: number, id: string, state: 'accepted' | 'rejected' | 'approved', evidenceDigest: string | null): Promise<BuilderApprovalRow> {
     const [row] = await this.locked(userId, tx => tx.update(copyLiveBuilderApprovals).set({ state, evidenceDigest, updatedAt: new Date() })
       .where(and(eq(copyLiveBuilderApprovals.id, id), eq(copyLiveBuilderApprovals.userId, userId), inArray(copyLiveBuilderApprovals.state, ['unknown', 'accepted']))).returning());

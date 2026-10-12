@@ -1,5 +1,6 @@
 import { Pool } from 'pg';
 import { sql } from 'drizzle-orm';
+import { PgDatabase, PgDialect } from 'drizzle-orm/pg-core';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { closeTestDb, getTestDb } from './db-test-utils.js';
 import { assertOriginalLiveRiskSession, PostgresLiveRiskScope, type LiveRiskScope } from '../src/copy/live/postgres-live-risk-scope.js';
@@ -316,6 +317,38 @@ describe('distributed user and account risk serialization', () => {
       expect(sent.slice(begin + 1).filter(q => !/^(select|rollback)\b/.test(q.text)).map(q => q.text)).toEqual([]);
     }, text => text.startsWith('begin') ? new Error('begin refused') : undefined);
     expect((await pool.query('select id from live_scope_probe order by id')).rows).toEqual([{ id: 'reads-first' }]);
+  });
+  it('tells Drizzle BEGIN answered with a value that throws on any read, and real Drizzle transactions never read it', async () => {
+    // drizzle-orm 0.45.3 (pinned) awaits `tx.execute(sql`begin`)` and ignores
+    // the result. A Drizzle that reads it fails here: the read throws.
+    await pool.query('create table if not exists live_scope_probe (id text primary key)');
+    await pool.query('delete from live_scope_probe');
+    // Drizzle's execute() is lazy (it runs when awaited): what Drizzle's own
+    // await of BEGIN resolved to is recorded as it happens.
+    const dialect = new PgDialect(), original = PgDatabase.prototype.execute, begins: unknown[] = [];
+    const execute = vi.spyOn(PgDatabase.prototype, 'execute').mockImplementation(function (this: PgDatabase<never>, query) {
+      const pending = original.call(this, query);
+      if (!/^begin\b/i.test(dialect.sqlToQuery(query as never).sql)) return pending;
+      return { then: (resolve: (value: unknown) => unknown, reject: (error: unknown) => unknown) => pending.then(value => { begins.push(value); return value; }).then(resolve, reject) } as never;
+    });
+    try {
+      await scopes.run(identity, async (_scope, session) => {
+        const read = await session.read(async db => (await db.execute<{ n: number }>(sql`select count(*)::int as n from live_scope_probe`)).rows[0]);
+        const written = await session.transaction(async tx => {
+          const [before] = await tx.select({ n: sql<number>`count(*)::int` }).from(sql`live_scope_probe`);
+          await tx.execute(sql`insert into live_scope_probe values ('proxy-begin')`);
+          return before;
+        }, { readsFirst: true });
+        expect([read, written]).toEqual([{ n: 0 }, { n: 0 }]);
+      });
+      expect(begins).toHaveLength(2);
+      for (const answer of begins as Record<string, unknown>[]) {
+        expect(answer.then).toBeUndefined();
+        for (const read of [() => answer.rows, () => answer.rowCount, () => answer.command, () => Object.keys(answer), () => 'rows' in answer, () => JSON.stringify(answer)])
+          expect(read).toThrow('live_risk_database_dirty');
+      }
+    } finally { execute.mockRestore(); }
+    expect((await pool.query('select id from live_scope_probe')).rows).toEqual([{ id: 'proxy-begin' }]);
   });
   it('captures identity before awaiting pool admission', async () => {
     const mutable = { ...identity };

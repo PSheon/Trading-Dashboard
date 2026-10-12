@@ -55,6 +55,22 @@ const HELD_SQL = `
                 and objid::bigint = (hashtextextended($3::text, 8) & 4294967295)))`;
 /** SET LOCAL statement_timeout and idle_in_transaction_session_timeout, as one statement. */
 const TRANSACTION_TIMEOUTS_SQL = "select set_config('statement_timeout', '5000ms', true), set_config('idle_in_transaction_session_timeout', '5000ms', true)";
+/**
+ * What Drizzle is told BEGIN answered, for a transaction whose reads go out
+ * before BEGIN's real answer (see the scope). drizzle-orm (pinned exactly,
+ * 0.45.3: node-postgres/session.js `transaction`) awaits
+ * `tx.execute(sql\`begin\`)` and never reads its result. Any read of this one
+ * throws (live_risk_database_dirty), so a Drizzle that starts reading it
+ * fails the transaction instead of acting on an invented answer. Only `then`
+ * answers (undefined: not a thenable), because awaiting a value looks it up.
+ */
+const UNANSWERED_BEGIN: unknown = new Proxy(Object.freeze({}), {
+  get: (_target, property) => { if (property === 'then') return undefined; fail('live_risk_database_dirty'); },
+  has: () => fail('live_risk_database_dirty'),
+  ownKeys: () => fail('live_risk_database_dirty'),
+  getOwnPropertyDescriptor: () => fail('live_risk_database_dirty'),
+  getPrototypeOf: () => fail('live_risk_database_dirty'),
+});
 /** How recently an answered lock check, with no statement on the session
  * since, still answers the next assertHeld (`lockCheck`). */
 export const LOCK_CHECK_REUSE_MS = 50;
@@ -210,7 +226,7 @@ export class PostgresLiveRiskScope {
         void opened.catch(() => {});
       }
       void issueCheck().result.catch(() => {});
-      return begin && begin !== 'write' ? Promise.resolve({ command: 'BEGIN', rowCount: null, oid: 0, rows: [], fields: [] }) : result;
+      return begin && begin !== 'write' ? Promise.resolve(UNANSWERED_BEGIN) : result;
     } };
     const database = drizzle(dal as unknown as PoolClient, { schema });
     const local = <R>(callback: () => Promise<R>, pipelined = false): Promise<R> => {

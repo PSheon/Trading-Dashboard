@@ -6,9 +6,6 @@ import type { DrizzleDb } from "../../db/drizzle.provider.js";
 import { recordAdminAudit } from "../audit/admin-audit.js";
 import { lockCopyUser } from "../../copy/copy-user-lock.js";
 
-/** Advisory-lock key serializing first-admin bootstraps. */
-const BOOTSTRAP_LOCK = 7404;
-
 export type AuthUserRow = typeof users.$inferSelect;
 
 /** Identity persistence only; Privy verification and authorization policy live in AuthService. */
@@ -74,7 +71,8 @@ export class AuthRepository {
    */
   async createBootstrapCandidate(input: Pick<AuthUserRow, "privyUserId" | "email" | "walletAddress"> & { embeddedWalletAddress?: string | null; locale?: AuthUserRow["locale"] }) {
     return this.recoverConcurrentIdentity(input.privyUserId, () => this.db.transaction(async (tx) => {
-      await tx.execute(sql`select pg_advisory_xact_lock(${sql.raw(String(BOOTSTRAP_LOCK))}, 0)`);
+      // BOOTSTRAP (7406, 0): its own namespace, see db/advisory-lock.ts.
+      await tx.execute(sql`select pg_advisory_xact_lock(7406, 0)`);
       const [admin] = await tx.select({ id: users.id }).from(users).where(and(eq(users.role, "admin"), isNull(users.disabledAt))).limit(1);
       const role = admin ? "user" as const : "admin" as const;
       const [row] = await tx.insert(users).values({ ...input, role }).onConflictDoNothing({ target: users.privyUserId }).returning();

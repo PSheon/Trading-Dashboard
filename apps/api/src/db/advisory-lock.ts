@@ -91,11 +91,11 @@ export const ADVISORY_LOCKS = {
       { file: "src/copy/live/postgres-live-risk-scope.ts", args: "7404, $1::integer", count: 2 },
     ],
   },
-  /** Shares namespace 7404 with COPY_USER; safe only because user ids start at 1. */
+  /** Own namespace (was (7404, 0) inside COPY_USER's space until G8, 2026-10-12). */
   BOOTSTRAP: {
     purpose: "First-admin bootstrap.",
-    scope: "xact", form: "pair", namespace: 7404, key: { kind: "const", value: 0 },
-    sites: [{ file: "src/common/auth/auth.repository.ts", args: "${sql.raw(String(BOOTSTRAP_LOCK))}, 0" }],
+    scope: "xact", form: "pair", namespace: 7406, key: { kind: "const", value: 0 },
+    sites: [{ file: "src/common/auth/auth.repository.ts", args: "7406, 0" }],
   },
   PLATFORM: {
     purpose: "Platform copy control (stop) and live authority settings.",

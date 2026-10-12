@@ -31,6 +31,7 @@ import type { DbExecutor, DbTransaction } from "../db/unit-of-work.js";
 import type { HlUserFill } from "../hyperliquid/types.js";
 import { unwatchLeaderIfUnused, watchLeader } from "../watcher/leader-watch.js";
 import { LIVE_STRATEGY_STATUSES, catchUpCopySignals, lockCopyLeader } from "./copy-outbox.js";
+import { assertCopyUserLockId } from "./copy-user-lock.js";
 
 export type StrategyRow = typeof copyStrategies.$inferSelect;
 export type OrderRow = typeof copyOrders.$inferSelect;
@@ -74,6 +75,7 @@ export class CopyRepository {
   /** All risk/money writers serialize per owner BEFORE acquiring strategy
    * rows. Cross-strategy reservations then observe a consistent user cap. */
   async lockCopyUser(tx: DbTransaction, userId: number): Promise<void> {
+    assertCopyUserLockId(userId);
     await tx.execute(sql`select pg_advisory_xact_lock(7404, ${userId})`);
   }
 
@@ -115,7 +117,10 @@ export class CopyRepository {
    * waits for one in progress), so an order is never approved against a
    * control state that a committed command already replaced. */
   async readControls(userId: number, lock: "share" | "none" = "none", ex: DbExecutor = this.db) {
-    if (lock === "share") await ex.execute(sql`select pg_advisory_xact_lock(7404, ${userId})`);
+    if (lock === "share") {
+      assertCopyUserLockId(userId);
+      await ex.execute(sql`select pg_advisory_xact_lock(7404, ${userId})`);
+    }
     const q = ex.select().from(copyControls).where(
       sql`(${copyControls.scope} = 'platform' and ${copyControls.scopeId} = 0) or (${copyControls.scope} = 'user' and ${copyControls.scopeId} = ${userId})`,
     );

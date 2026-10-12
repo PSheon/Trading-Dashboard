@@ -11,6 +11,7 @@ import { copyAccountModeOperations, copyExecutionAccounts, copyExecutionWallets,
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
 import type { DbTransaction } from '../db/unit-of-work.js';
+import { assertCopyUserLockId } from './copy-user-lock.js';
 
 export type AccountModeRow = typeof copyAccountModeOperations.$inferSelect;
 type Executor = DrizzleDb | DbTransaction;
@@ -21,7 +22,10 @@ export class CopyAccountModeRepository {
   /** Only the deployment's network's accounts change mode here. */
   private get network() { return deploymentNetwork(this.config); }
   async owner(userId: number, tx: Executor = this.db) {
-    if (tx !== this.db) await tx.execute(sql`select pg_advisory_xact_lock(7404, ${userId})`);
+    if (tx !== this.db) {
+      assertCopyUserLockId(userId);
+      await tx.execute(sql`select pg_advisory_xact_lock(7404, ${userId})`);
+    }
     const query = tx.select().from(users).where(and(eq(users.id, userId), isNull(users.disabledAt)));
     const [owner] = await (tx === this.db ? query : query.for('update'));
     if (!owner) throw new NotFoundException('User not found'); return owner;

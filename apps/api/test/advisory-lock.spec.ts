@@ -127,13 +127,13 @@ describe("advisory-lock registry", () => {
   it("matches the legacy drizzle templates byte for byte, parameters included", () => {
     const userId = 42, address = "0xabc", network = "mainnet", signerAddress = "0xabc", leaderAddress = "0xdef", k = "k";
     const action = { chain: "hl", address: "0xabc", coin: "BTC" };
-    const ACTIONS_LOCK_NAMESPACE = 7401, COPY_LEADER_LOCK_NAMESPACE = 7402, BOOTSTRAP_LOCK = 7404, WATCH_CAPACITY_LOCK = 4_203_401;
+    const ACTIONS_LOCK_NAMESPACE = 7401, COPY_LEADER_LOCK_NAMESPACE = 7402, WATCH_CAPACITY_LOCK = 4_203_401;
     const pairs: [AdvisoryLockName, SQL][] = [
       ["ACTIONS", sql`${sql.raw(String(ACTIONS_LOCK_NAMESPACE))}, hashtext(${address})`],
       ["COPY_LEADER", sql`${sql.raw(String(COPY_LEADER_LOCK_NAMESPACE))}, hashtext(${address})`],
       ["RISK", sql`7403, 0`],
       ["COPY_USER", sql`7404, ${userId}`],
-      ["BOOTSTRAP", sql`${sql.raw(String(BOOTSTRAP_LOCK))}, 0`],
+      ["BOOTSTRAP", sql`7406, 0`],
       ["PLATFORM", sql`7405, 0`],
       ["REFERRAL", sql`7410, 0`],
       ["SETTINGS", sql`73104, 1`],
@@ -154,6 +154,14 @@ describe("advisory-lock registry", () => {
       ["LIVE_ORDER", `live-order:${k}`], ["RISK_SCOPE_ACCOUNT", `live-risk-account:${network}:${signerAddress}`], ["SETTLEMENT", `copy-live-settlement:${k}`],
     ];
     for (const [name, value] of raw) expect(render(key(name)).params, name).toEqual([value]);
+  });
+
+  it("gives the first-admin bootstrap a namespace of its own (G8)", () => {
+    const sharing = Object.entries(registry)
+      .filter(([name, spec]) => name !== "BOOTSTRAP" && spec.form === "pair" && spec.namespace === ADVISORY_LOCKS.BOOTSTRAP.namespace)
+      .map(([name]) => name);
+    expect(sharing).toEqual([]);
+    expect(ADVISORY_LOCKS.BOOTSTRAP.namespace).not.toBe(ADVISORY_LOCKS.COPY_USER.namespace);
   });
 
   it("rejects keys outside the registered range", () => {

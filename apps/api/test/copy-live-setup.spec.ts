@@ -422,27 +422,27 @@ describe('one-click testnet copy setup', () => {
     expect((await db.select().from(copyLiveSetups))[0]).toMatchObject({ attempts: 0, lastWait: { retryMs: 1_000 } });
   });
 
-  // The documented rule (handoff 2026-10-11 §4e, architecture review §6.3):
-  // a transient failure is retried, then ends the setup at its third attempt.
-  it('a transient step failure is retried with back-off and ends the setup (failed) at its third attempt', async () => {
+  // A transient failure is retried with back-off and ends the setup at its
+  // eighth attempt: about four minutes of retries for a real-money setup,
+  // so a brief Privy or database blip never ends it (3 ended it in 9 s).
+  it('a transient step failure is retried with back-off and ends the setup (failed) at its eighth attempt', async () => {
     const setup = await start();
     await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit(); later(5_000);
     fakes.modes.submit.mockRejectedValue(new Error('privy_unavailable'));
-    expect(await service.advance(uid, setup.id)).toMatchObject({ stage: 'funded', issue: 'privy_unavailable' });
-    let [row] = await db.select().from(copyLiveSetups);
-    expect(row).toMatchObject({ attempts: 1 }); expect(row!.nextAttemptAt!.getTime()).toBe(clock + 3_000);
-    later(3_000);
-    expect(await service.advance(uid, setup.id)).toMatchObject({ stage: 'funded', issue: 'privy_unavailable' });
-    [row] = await db.select().from(copyLiveSetups);
-    expect(row).toMatchObject({ attempts: 2 }); expect(row!.nextAttemptAt!.getTime()).toBe(clock + 6_000);
-    later(6_000);
+    const delays = [3_000, 6_000, 12_000, 24_000, 48_000, 60_000, 60_000];
+    for (const [i, delay] of delays.entries()) {
+      expect(await service.advance(uid, setup.id)).toMatchObject({ stage: 'funded', issue: 'privy_unavailable' });
+      const [row] = await db.select().from(copyLiveSetups);
+      expect(row).toMatchObject({ attempts: i + 1 }); expect(row!.nextAttemptAt!.getTime()).toBe(clock + delay);
+      later(delay);
+    }
     expect(await service.advance(uid, setup.id)).toMatchObject({ stage: 'failed', issue: 'privy_unavailable' });
-    [row] = await db.select().from(copyLiveSetups);
-    expect(row).toMatchObject({ stage: 'failed', attempts: 3, nextAttemptAt: null });
-    expect(fakes.modes.submit).toHaveBeenCalledTimes(3);
+    const [row] = await db.select().from(copyLiveSetups);
+    expect(row).toMatchObject({ stage: 'failed', attempts: 8, nextAttemptAt: null });
+    expect(fakes.modes.submit).toHaveBeenCalledTimes(8);
     // Ended: the worker's pass never tries it again.
     later(60_000); await service.tick();
-    expect(fakes.modes.submit).toHaveBeenCalledTimes(3);
+    expect(fakes.modes.submit).toHaveBeenCalledTimes(8);
   });
 
   it('budget waits never use up the transient attempts, and a failure without a code ends as setup_step_failed', async () => {
@@ -457,8 +457,14 @@ describe('one-click testnet copy setup', () => {
     later(3_000);
     expect(await service.advance(uid, setup.id)).toMatchObject({ stage: 'funded', issue: 'setup_step_pending' });
     expect((await db.select().from(copyLiveSetups))[0]).toMatchObject({ attempts: 2 });
-    later(6_000); fakes.modes.submit.mockRejectedValueOnce(new TypeError('x'));
+    // Attempts 3..7 fail and back off; the eighth ends the setup.
+    fakes.modes.submit.mockRejectedValue(new TypeError('x'));
+    for (const delay of [6_000, 12_000, 24_000, 48_000, 60_000]) {
+      later(delay); expect(await service.advance(uid, setup.id)).toMatchObject({ stage: 'funded', issue: 'setup_step_pending' });
+    }
+    later(60_000);
     expect(await service.advance(uid, setup.id)).toMatchObject({ stage: 'failed', issue: 'setup_step_failed' });
+    expect((await db.select().from(copyLiveSetups))[0]).toMatchObject({ attempts: 8 });
   });
 
   it('an outcome still unknown is reconciled past the attempt limit, never ended by count', async () => {

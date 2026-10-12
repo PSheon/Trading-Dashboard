@@ -119,7 +119,7 @@ describe("startup environment", () => {
     it("carries the setup and stop timings with today's values, and refuses a setup step budget that does not fit its lease", () => {
       const copy = validateEnvironment(live).copy;
       expect(copy.live?.setup).toEqual({ leaseMs: 60_000, stepBudgetMs: { reserveWaitMs: 15_000, signMs: 30_000, postMs: 10_000 }, answerMs: 10_000, confirmLeaseWaitMs: 30_000,
-        retry: { pendingMs: 3_000, signerUnavailableMs: 15_000, backoffBaseMs: 3_000, backoffMaxMs: 60_000, transientAttempts: 3, needsOwnerMs: 15_000 } });
+        retry: { pendingMs: 3_000, signerUnavailableMs: 15_000, backoffBaseMs: 3_000, backoffMaxMs: 60_000, transientAttempts: 8, needsOwnerMs: 15_000 } });
       expect(copy.live?.stop).toEqual({ systemCheckMs: 60_000, agentExpiryMarginMs: 86_400_000, retry: { closeAttempts: 10, cancelAttempts: 3 } });
       expect(validateEnvironment({ ...live, COPY_LIVE_SETUP_TRANSIENT_ATTEMPTS: "5", COPY_LIVE_STOP_SYSTEM_CHECK_MS: "30000" }).copy.live)
         .toMatchObject({ setup: { retry: { transientAttempts: 5 } }, stop: { systemCheckMs: 30_000 } });

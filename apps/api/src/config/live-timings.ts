@@ -64,7 +64,7 @@ export const DEFAULT_LIVE_SETUP_TIMINGS: LiveSetupTimings = Object.freeze({
   stepBudgetMs: Object.freeze({ reserveWaitMs: 15_000, signMs: 30_000, postMs: 10_000 }),
   answerMs: 10_000,
   confirmLeaseWaitMs: 30_000,
-  retry: Object.freeze({ pendingMs: 3_000, signerUnavailableMs: 15_000, backoffBaseMs: 3_000, backoffMaxMs: 60_000, transientAttempts: 3, needsOwnerMs: 15_000 }),
+  retry: Object.freeze({ pendingMs: 3_000, signerUnavailableMs: 15_000, backoffBaseMs: 3_000, backoffMaxMs: 60_000, transientAttempts: 8, needsOwnerMs: 15_000 }),
 });
 
 export const DEFAULT_LIVE_STOP_TIMINGS: LiveStopTimings = Object.freeze({

@@ -250,7 +250,12 @@ export class CopyLiveWorkerRepository {
       verifiedFrom: fillCoverage.verifiedFrom, verifiedThrough: fillCoverage.verifiedThrough }).from(fills)
       .innerJoin(fillCoverage, and(eq(fillCoverage.chain, fills.chain), eq(fillCoverage.address, fills.address)))
       .innerJoin(copyLiveSourceStreams, eq(copyLiveSourceStreams.id, id))
+      // greatest/least skip NULLs: a stream with no coverage yet (a copy just
+      // started) would otherwise return rows whose bounds are null (Stage
+      // 2026-10-12: TypeError in the audit).
       .where(and(eq(fills.chain, CHAIN_DEFAULT), eq(fills.address, leader),
+        isNotNull(copyLiveSourceStreams.coverageFrom), isNotNull(copyLiveSourceStreams.coverageThrough),
+        isNotNull(fillCoverage.verifiedFrom), isNotNull(fillCoverage.verifiedThrough),
         sql`${fills.ts} >= greatest(${copyLiveSourceStreams.coverageFrom}, ${fillCoverage.verifiedFrom})`,
         sql`${fills.ts} <= least(${copyLiveSourceStreams.coverageThrough}, ${fillCoverage.verifiedThrough})`,
         sql`not (coalesce(${fills.raw}->>'hash', '') ~ '^0x0{64}$' and coalesce(jsonb_typeof(${fills.raw}->'twapId'), 'null') = 'null')`,

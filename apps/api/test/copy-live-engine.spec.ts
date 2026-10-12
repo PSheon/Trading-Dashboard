@@ -591,6 +591,14 @@ describe('testnet copy execution engine', () => {
     expect((await dispatches())[0]!.sentAt!.getTime()).toBe(clock);
   });
 
+  it('audits nothing for a stream with no coverage yet, instead of failing (Stage 2026-10-12)', async () => {
+    // Postgres greatest/least skip NULLs: the bounds came back null and the
+    // audit threw a TypeError right after a copy started.
+    await db.insert(schema.copyLiveSourceStreams).values({ id: `mainnet:${leader}`, network: 'mainnet', leaderAddress: leader, state: 'gap' });
+    await coverage(now - 10_000, now + 500);
+    await leaderFill(77, now - 5000, 'B', '1', '0');
+    expect(await new CopyLiveWorkerRepository(db, new UnitOfWork(db), testConfig()).unmirroredFills(leader)).toEqual([]);
+  });
   it('restarts a stale stream at the new cursor instead of reading the idle gap', async () => {
     await db.insert(schema.copyLiveSourceStreams).values({ id: `mainnet:${leader}`, network: 'mainnet', leaderAddress: leader, state: 'ready',
       coverageFrom: new Date(now - 900_000), coverageThrough: new Date(now - 800_000), coverageDigest: 'c'.repeat(64) });

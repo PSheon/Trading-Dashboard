@@ -6,6 +6,8 @@ import { CopyLiveSetupAbortService } from '../src/copy/copy-live-setup-abort.ser
 import { CopyLiveApiSettlementService } from '../src/copy/live-worker/copy-live-api-settlement.service.js';
 import { CopyLiveStopper, type StopperDependencies } from '../src/copy/live-worker/copy-live-stopper.js';
 import { HyperliquidBudgetWait } from '../src/hyperliquid/hyperliquid-budget-wait.js';
+import { DEFAULT_LIVE_STOP_TIMINGS } from '../src/config/live-timings.js';
+import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
 import { BackgroundJobs } from '../src/runtime/background-jobs.service.js';
 import { testConfig } from './config-test-utils.js';
 
@@ -31,6 +33,26 @@ it("the stopper logs what a step's failure was, and still stores stop_step_faile
   expect(payload(second!)).toMatchObject({ code: 'agent_not_active' });
   expect(payload(third!)).toEqual({ code: 'hyperliquid_busy', error: '503 live_budget_wait',
     wait: { reason: 'local_budget', retryMs: 12_345, weight: 613, lane: 'live', bucket: 'wallet:testnet', tokens: 40, queued: 1 } });
+});
+
+it("the stopper stores a boundary code as it is (and anything else as stop_step_failed), and looks for system stops at its configured interval", async () => {
+  const issue = vi.fn(async () => undefined), stopExpiring = vi.fn(async () => ({ stopped: [], refused: [] }));
+  let clock = 1_000_000;
+  const repository = { expirePendingRevokes: async () => [], open: async () => [{ id: 's1' }, { id: 's2' }], issue };
+  const deps = (timings?: StopperDependencies['timings']) => ({ repository, closer: {}, canceller: null, swept: async () => false, ...(timings ? { timings } : {}),
+    systemStops: { agentExpiryMarginMs: 1, stopExpiring, resumePendingCloseAll: async () => [] } }) as unknown as StopperDependencies;
+  const stopper = new CopyLiveStopper(deps(), () => clock);
+  vi.spyOn(stopper, 'step').mockRejectedValueOnce(new LiveBoundaryError('cancel_current_authority_stale')).mockRejectedValueOnce(new LiveBoundaryError('live_budget_over_capacity'));
+  await stopper.tick();
+  expect(issue.mock.calls.map(call => (call as unknown[])[1])).toEqual(['cancel_current_authority_stale', 'live_budget_over_capacity']);
+  // Default: once a minute.
+  clock += 59_999; await stopper.tick(); expect(stopExpiring).toHaveBeenCalledTimes(1);
+  clock += 1; await stopper.tick(); expect(stopExpiring).toHaveBeenCalledTimes(2);
+  // Configured (AppConfig.copy.live.stop.systemCheckMs).
+  const fast = new CopyLiveStopper(deps({ ...DEFAULT_LIVE_STOP_TIMINGS, systemCheckMs: 5_000 }), () => clock);
+  vi.spyOn(fast, 'step').mockResolvedValue(undefined);
+  await fast.tick(); clock += 5_000; await fast.tick();
+  expect(stopExpiring).toHaveBeenCalledTimes(4);
 });
 
 it('API settlement logs which key failed and why, and still goes on to the next key', async () => {

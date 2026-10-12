@@ -2027,9 +2027,10 @@ export const copyLiveSetups = pgTable("copy_live_setups", {
   /** Who holds the lease: only that driver's release clears it. */
   leaseToken: text("lease_token"),
   /** The last time a step waited for Hyperliquid weight (hyperliquid_busy):
-   * when, at which stage, why, for how long, and what the bucket held.
+   * when, at which stage, why, for how long, how many waits that stage had
+   * (a wait is never an attempt), and what the bucket held.
    * Diagnostics only; kept across stages, never shown to the owner. */
-  lastWait: jsonb("last_wait").$type<{ at: string; step: string; reason: "local_budget" | "shared_capacity"; retryMs: number;
+  lastWait: jsonb("last_wait").$type<{ at: string; step: string; reason: "local_budget" | "shared_capacity"; retryMs: number; waits?: number;
     weight?: number; lane?: "live" | "background"; bucket?: string; tokens?: number; queued?: number }>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [

@@ -27,7 +27,8 @@ import { CopyLiveSettler } from './copy-live-settler.js';
 import { CopyLiveWorkerRepository } from './copy-live-worker.repository.js';
 import { WatchedMainnetSource } from './watched-mainnet-source.js';
 import { CopyLiveStopWorkerRepository } from './copy-live-stop-worker.repository.js';
-import { AGENT_EXPIRY_STOP_MARGIN_MS, CopyLiveManualCloser, CopyLiveStopper, StopCanceller } from './copy-live-stopper.js';
+import { CopyLiveManualCloser, CopyLiveStopper, StopCanceller } from './copy-live-stopper.js';
+import { DEFAULT_LIVE_STOP_TIMINGS } from '../../config/live-timings.js';
 import { CopyLiveSystemStops } from '../copy-live-stop-system.js';
 import { CopyLiveStopRepository } from '../copy-live-stop.repository.js';
 import { CopyLiveMandateRepository } from '../copy-live-mandate.repository.js';
@@ -96,15 +97,16 @@ export const liveEngineProvider: FactoryProvider<CopyLiveEngine | null> = {
     const closer = new ReduceOnlyCloser(network, pool, db, uow, walletConfig, walletGlobal, walletBudget, Math.max(100, live.slippageBps * 3));
     // A copy is stopped a day before its agent expires (the stop's closes
     // need it), and an admin close-all the api did not finish is resumed.
+    const stopTimings = live.stop ?? DEFAULT_LIVE_STOP_TIMINGS;
     const systemStops = new CopyLiveSystemStops(db, uow, new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, config)), config);
-    const stopper = new CopyLiveStopper({ repository: stops, closer, log: message => logger.warn(message), revokeDeadlineMs: live.revokeDeadlineMs,
-      systemStops: { agentExpiryMarginMs: AGENT_EXPIRY_STOP_MARGIN_MS, stopExpiring: marginMs => systemStops.stopExpiring(marginMs), stopLiquidated: () => systemStops.stopLiquidated(), resumePendingCloseAll: () => systemStops.resumePendingCloseAll() },
+    const stopper = new CopyLiveStopper({ repository: stops, closer, log: message => logger.warn(message), revokeDeadlineMs: live.revokeDeadlineMs, timings: stopTimings,
+      systemStops: { agentExpiryMarginMs: stopTimings.agentExpiryMarginMs, stopExpiring: marginMs => systemStops.stopExpiring(marginMs), stopLiquidated: () => systemStops.stopLiquidated(), resumePendingCloseAll: () => systemStops.resumePendingCloseAll() },
       canceller: new StopCanceller(network, pool, db, walletConfig, walletGlobal, walletBudget, stops, (account, key) => closer.reconcile(account, key)),
       // The stop ends once a sweep to the main wallet is credited: signed by
       // the worker under the owner's policy (CopyModule's one signer).
       swept: stop => returns.swept(stop.id),
       autoReturn: new CopyLiveAutoReturn(network, returns, new CopyFundingExchangeClient(walletBudget, walletGlobal), workerSigner) });
-    const manual = new CopyLiveManualCloser(stops, closer, scanner, message => logger.warn(message));
+    const manual = new CopyLiveManualCloser(stops, closer, scanner, message => logger.warn(message), Date.now, stopTimings.retry.closeAttempts);
     // Realtime mainnet signal (COPY_LIVE_FAST_SOURCE): the worker's mainnet
     // info client in the live lane, which acquires the worst case and gives
     // back what each answer didn't use.

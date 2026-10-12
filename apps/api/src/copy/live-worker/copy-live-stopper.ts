@@ -21,14 +21,16 @@ import { findCurrentWalletAuthorization } from '../live/postgres-wallet-authoriz
 import { PrivyTrackedCancellationSigner } from '../live/privy-cancellation-signer.js';
 import { BoundaryPrivyOrderSigningClient } from '../live/privy-order-client.js';
 import { address, LiveBoundaryError } from '../live/wallet-authorization.js';
+import { classify } from '../live/error-class.js';
+import { DEFAULT_LIVE_STOP_TIMINGS, type LiveStopTimings } from '../../config/live-timings.js';
 import type { CopyLiveStopWorkerRepository, StopRow } from './copy-live-stop-worker.repository.js';
 import { CLOSE_NEVER_SENT, closeCloid, closeRetryDelayMs, type CloseAccount, type ReduceOnlyCloser } from './reduce-only-closer.js';
 import type { AutoReturn } from './copy-live-auto-return.js';
 import type { SystemStopOutcome } from '../copy-live-stop-system.js';
 
-/** A single-position close gives up after this many orders (the owner can
- * ask again, or stop the copy); a stop never does (it backs off). */
-const MAX_CLOSE_ATTEMPTS = 10, MAX_CANCEL_ATTEMPTS = 3;
+// A single-position close gives up after copy.live.stop.retry.closeAttempts
+// orders (the owner can ask again, or stop the copy); a stop never does (it
+// backs off). A tracked order's cancel after retry.cancelAttempts.
 const TERMINAL: ReadonlySet<string> = new Set(['filled', 'partial', 'cancelled', 'rejected']);
 /** Below this the account holds nothing worth a transfer back (USDC). */
 export const SWEEP_DUST_USD = '0.01';
@@ -43,6 +45,8 @@ export interface StopperDependencies {
    * (or for a legacy account) the owner returns the funds by hand. */
   readonly autoReturn?: AutoReturn | null;
   readonly log?: (message: string) => void;
+  /** How often the system stops are looked for (AppConfig.copy.live.stop; default today's). */
+  readonly timings?: LiveStopTimings;
   /** A revoke-requested grant is revoked anyway after this long. */
   readonly revokeDeadlineMs?: number;
   /** The system's stops (CopyLiveSystemStops): copies whose agent is about
@@ -58,12 +62,13 @@ export interface StopperDependencies {
 }
 /** A copy is stopped this long before its agent expires (one day: room for
  * the stop's closes, retries and return while the agent still signs). */
-export const AGENT_EXPIRY_STOP_MARGIN_MS = 24 * 3_600_000;
-/** How often expiring agents and unfinished close-alls are looked for. */
-const SYSTEM_CHECK_MS = 60_000;
+export const AGENT_EXPIRY_STOP_MARGIN_MS = DEFAULT_LIVE_STOP_TIMINGS.agentExpiryMarginMs;
 /** Default bound on a pending admin revoke (COPY_LIVE_REVOKE_DEADLINE_MINUTES). */
 export const REVOKE_DEADLINE_MS = 30 * 60_000;
-const reason = (error: unknown) => (error instanceof LiveBoundaryError ? error.code : 'stop_step_failed').replace(/[^a-z0-9_]/g, '_').slice(0, 80);
+/** The stored reason: a boundary code (live/error-class.ts), else
+ * stop_step_failed. A stop never gives up, whatever the class: it backs off. */
+const reason = (error: unknown) => { const classified = classify(error);
+  return (classified.source === 'boundary' && classified.code !== null ? classified.code : 'stop_step_failed').replace(/[^a-z0-9_]/g, '_').slice(0, 80); };
 /** For the log: the stored reason, then what it stood for (stop_step_failed
  * hides an HTTP code, a Hyperliquid wait, a TypeError). */
 const why = (error: unknown) => `${reason(error)} ${JSON.stringify(errorLogFields(error))}`;
@@ -91,7 +96,7 @@ export class CopyLiveStopper {
     // margin is stopped (close, then return) while the agent can still sign.
     // Their stops run below.
     const system = this.deps.systemStops;
-    if (system && this.now() - this.systemCheckedAt >= SYSTEM_CHECK_MS) {
+    if (system && this.now() - this.systemCheckedAt >= (this.deps.timings ?? DEFAULT_LIVE_STOP_TIMINGS).systemCheckMs) {
       this.systemCheckedAt = this.now();
       try {
         for (const resumed of await system.resumePendingCloseAll())
@@ -269,7 +274,7 @@ export class StopCanceller {
     const last = attempts.at(-1);
     if (last && last.expiresAfter > now) return 'waiting';
     if (last) { const reconciled = await this.reconcile(account, target.record.key); if (reconciled.state !== 'resting') return 'waiting'; }
-    if (attempts.length >= MAX_CANCEL_ATTEMPTS) return 'stop_cancel_attempts_exhausted';
+    if (attempts.length >= (this.config.value.copy.live?.stop ?? DEFAULT_LIVE_STOP_TIMINGS).retry.cancelAttempts) return 'stop_cancel_attempts_exhausted';
     const authorization: CancellationAuthorization = { id: `stop-cancel:${stop.id}`.slice(0, 200), version: 1, userId: stop.userId, strategyId: stop.strategyId,
       walletId: intent.agentWalletId, privyOwnerId: intent.agentOwnerQuorumId, signerAddress: address(intent.agentAddress), accountAddress: address(intent.accountAddress),
       network: this.network, scope: 'copy:cancel', validFrom: intent.nonce, expiresAt: intent.expiresAt, revokedAt: null };
@@ -315,7 +320,8 @@ export class StopCanceller {
 export class CopyLiveManualCloser {
   constructor(private readonly repository: CopyLiveStopWorkerRepository, private readonly closer: ReduceOnlyCloser,
     /** Books the account's fills now, so the copy's next order sees the close. */
-    private readonly scanner: { runFor(accountId: string): Promise<void> }, private readonly log?: (message: string) => void, private readonly now: () => number = Date.now) {}
+    private readonly scanner: { runFor(accountId: string): Promise<void> }, private readonly log?: (message: string) => void, private readonly now: () => number = Date.now,
+    private readonly closeAttempts = DEFAULT_LIVE_STOP_TIMINGS.retry.closeAttempts) {}
   async tick(): Promise<void> {
     for (const row of await this.repository.manualCloses()) {
       try { await this.step(row); }
@@ -342,7 +348,7 @@ export class CopyLiveManualCloser {
       if (row.executionKeys.length) await this.scanner.runFor(row.accountId);
       await this.repository.finishManual(row.id, 'done', null); return;
     }
-    if (row.executionKeys.length >= MAX_CLOSE_ATTEMPTS) { await this.repository.finishManual(row.id, 'refused', 'close_attempts_exhausted'); return; }
+    if (row.executionKeys.length >= this.closeAttempts) { await this.repository.finishManual(row.id, 'refused', 'close_attempts_exhausted'); return; }
     const attempt = row.executionKeys.length;
     // A retry waits after the previous attempt ended, and goes at a wider price.
     const previous = last ? (await this.repository.journalStates([last])).get(last) : undefined;

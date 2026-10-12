@@ -3,6 +3,7 @@ import { createPrivateKey, createPublicKey } from "node:crypto";
 import { WALLET_NETWORKS } from "@trading-dashboard/shared/contracts";
 
 import { booleanValue, databaseUrl, integerValue, servicePermissions } from "./parse-env.js";
+import { liveSetupTimings, liveStopTimings, type LiveSetupTimings, type LiveStopTimings } from "./live-timings.js";
 
 type Environment = Record<string, string | undefined>;
 const optional = (value: string | undefined) => value?.trim() || undefined;
@@ -137,6 +138,12 @@ export interface LiveCopyConfig {
    * empty: every mainnet leader keeps the watcher-verified source. A testnet
    * leader is always read from REST, every testnetSourceIntervalMs. */
   fastSource?: { leaders: "all" | ReadonlySet<string>; graceMs: number };
+  /** The setup driver's lease, step budget and retries (live-timings.ts;
+   * COPY_LIVE_SETUP_*). Startup refuses a step budget that exceeds the lease.
+   * Always set when loaded; a hand-built config without it reads the defaults. */
+  setup?: LiveSetupTimings;
+  /** The stop worker's checks and retries (live-timings.ts; COPY_LIVE_STOP_*). */
+  stop?: LiveStopTimings;
 }
 /** COPY_LIVE_FAST_SOURCE: `all`, or comma-separated 0x addresses. */
 function fastSourceLeaders(raw: string | undefined): "all" | ReadonlySet<string> | null {
@@ -200,6 +207,8 @@ function copyTrading(source: Environment, wallet: "mainnet" | "testnet", egressK
       intervalMs: integerValue("COPY_LIVE_INTERVAL_MS", source.COPY_LIVE_INTERVAL_MS, 3000, 1000, 60_000),
       weightPerMin: integerValue("COPY_LIVE_WEIGHT_PER_MIN", source.COPY_LIVE_WEIGHT_PER_MIN, 300, 100, 700),
       revokeDeadlineMs: integerValue("COPY_LIVE_REVOKE_DEADLINE_MINUTES", source.COPY_LIVE_REVOKE_DEADLINE_MINUTES, 30, 1, 1440) * 60_000,
+      setup: liveSetupTimings(source),
+      stop: liveStopTimings(source),
     };
     const fast = fastSourceLeaders(source.COPY_LIVE_FAST_SOURCE);
     // G: a read certifies fills only up to this long before it was sent

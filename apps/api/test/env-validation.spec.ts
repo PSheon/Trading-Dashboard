@@ -116,6 +116,21 @@ describe("startup environment", () => {
       expect(() => validateEnvironment({ ...live, PRIVY_AGENT_AUTHORIZATION_KEY: undefined, PRIVY_AGENT_WORKER_QUORUM_ID: undefined })).toThrow("PRIVY_AGENT_AUTHORIZATION_KEY");
       expect(() => validateEnvironment({ ...live, COPY_LIVE_MAX_STRATEGIES_PER_USER: "0" })).toThrow("COPY_LIVE_MAX_STRATEGIES_PER_USER");
     });
+    it("carries the setup and stop timings with today's values, and refuses a setup step budget that does not fit its lease", () => {
+      const copy = validateEnvironment(live).copy;
+      expect(copy.live?.setup).toEqual({ leaseMs: 60_000, stepBudgetMs: { reserveWaitMs: 15_000, signMs: 30_000, postMs: 10_000 }, answerMs: 10_000, confirmLeaseWaitMs: 30_000,
+        retry: { pendingMs: 3_000, signerUnavailableMs: 15_000, backoffBaseMs: 3_000, backoffMaxMs: 60_000, transientAttempts: 3, needsOwnerMs: 15_000 } });
+      expect(copy.live?.stop).toEqual({ systemCheckMs: 60_000, agentExpiryMarginMs: 86_400_000, retry: { closeAttempts: 10, cancelAttempts: 3 } });
+      expect(validateEnvironment({ ...live, COPY_LIVE_SETUP_TRANSIENT_ATTEMPTS: "5", COPY_LIVE_STOP_SYSTEM_CHECK_MS: "30000" }).copy.live)
+        .toMatchObject({ setup: { retry: { transientAttempts: 5 } }, stop: { systemCheckMs: 30_000 } });
+      // A longer lease makes room for a longer wait; the wait alone past it refuses startup.
+      expect(validateEnvironment({ ...live, COPY_LIVE_SETUP_LEASE_MS: "90000", COPY_LIVE_SETUP_RESERVE_WAIT_MS: "45000" }).copy.live?.setup?.stepBudgetMs.reserveWaitMs).toBe(45_000);
+      expect(() => validateEnvironment({ ...live, COPY_LIVE_SETUP_RESERVE_WAIT_MS: "20000" }))
+        .toThrow("A live setup step's budget (reserve wait 20000 + sign 30000 + POST 10000 = 60000 ms) must be below its lease (COPY_LIVE_SETUP_LEASE_MS 60000 ms)");
+      expect(() => validateEnvironment({ ...live, COPY_LIVE_SETUP_LEASE_MS: "50000" })).toThrow("must be below its lease");
+      expect(() => validateEnvironment({ ...live, COPY_LIVE_SETUP_TRANSIENT_ATTEMPTS: "0" })).toThrow("COPY_LIVE_SETUP_TRANSIENT_ATTEMPTS");
+      expect(() => validateEnvironment({ ...live, COPY_LIVE_SETUP_BACKOFF_BASE_MS: "90000" })).toThrow("must not exceed COPY_LIVE_SETUP_BACKOFF_MAX_MS");
+    });
     it("leaves a testnet deployment's caps as they were unless set, and its testnet source interval configurable", () => {
       const testnet = { ...live, COPY_TRADING_MODE: "testnet", HYPERLIQUID_NETWORK: "testnet", COPY_LIVE_ALLOWED_PRIVY_USER_IDS: undefined };
       expect(validateEnvironment(testnet).copy.live).toMatchObject({ network: "testnet", builderFee: true, caps: { maxStrategiesPerUser: 2 } });

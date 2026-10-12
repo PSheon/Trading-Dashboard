@@ -8,7 +8,7 @@ import { BudgetWaitError, type RequestBudgeterService, type RequestPriority } fr
 export const SHARED_CAPACITY_RETRY_MS = 65_000;
 /** Longest a setup step's read waits for its Hyperliquid weight before it
  * starts its evidence clock (a reservation the step's client queues waits up
- * to SETUP_RESERVE_WAIT_MS, copy-live-setup.service.ts). */
+ * to AppConfig.copy.live.setup.stepBudgetMs.reserveWaitMs, live-timings.ts). */
 export const LIVE_RESERVE_WAIT_MS = 8_000;
 /** What `reserveLive` adds to a wait it allows: the estimate is a hint (a
  * background turn or a 429 backoff can make it longer). */

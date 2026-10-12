@@ -10,8 +10,9 @@ import { BackgroundJobs } from '../runtime/background-jobs.service.js';
 import { outsideRequest } from '../runtime/request-context.js';
 import { UnitOfWork, type DbExecutor } from '../db/unit-of-work.js';
 import { CopyAccountModeService } from './copy-account-mode.service.js';
-import { HyperliquidBudgetWait, SHARED_CAPACITY_RETRY_MS } from '../hyperliquid/hyperliquid-budget-wait.js';
-import { LiveBoundaryError } from './live/wallet-authorization.js';
+import { HyperliquidBudgetWait } from '../hyperliquid/hyperliquid-budget-wait.js';
+import { DEFAULT_LIVE_SETUP_TIMINGS, type LiveSetupTimings } from '../config/live-timings.js';
+import { classify, exhausted, StepFail, StepWait } from './live/error-class.js';
 import { CopyAgentService } from './copy-agent.service.js';
 import { CopyFundingExchangeClient } from './copy-funding-exchange.client.js';
 import { CopyFundingRepository } from './copy-funding.repository.js';
@@ -40,24 +41,12 @@ export function setupFundingKey(row: Pick<SetupRow, 'id' | 'revision' | 'funding
   const h = createHash('sha256').update(`live-setup-funding:${row.id}:${row.revision}:${row.fundingOperationId ?? ''}`).digest('hex');
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-${(8 | (parseInt(h[16]!, 16) & 3)).toString(16)}${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
-/** How long one driver holds a setup (a crashed driver's lease lapses). */
-export const SETUP_LEASE_MS = 60_000;
-const LEASE_MS = SETUP_LEASE_MS;
-/** The Privy signature (≤ 30 s) and the exchange POST (≤ 10 s) a setup step
- * may still need after its weight: with the wait below they stay inside the
- * lease, since transition() does not fence on the lease token (§6.4). */
-export const SETUP_STEP_AFTER_RESERVE_MS = 40_000;
-/** Longest a setup step's client (account mode, agent approval, absence
- * proof) waits in line for its Hyperliquid weight: 15 s, the lease less the
- * signature and POST and a 5 s margin. Queued, not refused at once when the
- * estimate is longer: see LiveReserveOptions.queue. */
-export const SETUP_RESERVE_WAIT_MS = SETUP_LEASE_MS - SETUP_STEP_AFTER_RESERVE_MS - 5_000;
+// The driver's lease, a step's budget inside it (reserve wait, signature,
+// POST), the HTTP answer and confirm waits and the retries are
+// AppConfig.copy.live.setup (config/live-timings.ts): startup refuses a step
+// budget that does not fit the lease.
 /** How long after its setup ended an approval left unknown is still looked at. */
 const ABANDONED_APPROVAL_WINDOW_MS = 3 * 86_400_000;
-/** Long setup work answers with its durable row before the HTTP deadline. */
-const SETUP_ANSWER_MS = 10_000;
-/** How long a confirmation waits for the worker to let go of its setup. */
-const CONFIRM_LEASE_WAIT_MS = 30_000;
 const THROTTLED_STAGES: readonly SetupStage[] = ['funded', 'mode_set', 'agent_active'];
 /** Every step after confirm is signed by the worker under the owner's Privy
  * policy (the one signing model, 2026-10-07), with exactly the payload the
@@ -70,10 +59,11 @@ export interface SetupSigner {
 const WORKER_SIGNER_MISSING = 'Orbie needs to add its signer to run this copy. Nothing was deposited and the copy did not start.';
 /** Failures that are the deadline passing (the setup ends `expired`). */
 const EXPIRED_ISSUES: readonly string[] = ['setup_expired', 'setup_deposit_uncredited'];
-/** A step can't go on yet (a lookup is pending, or a signature is due). */
-class Wait extends Error { constructor(readonly issue: string, readonly retryMs = 3_000) { super(issue); } }
-/** The setup cannot finish; the owner sees the code. */
-class Fail extends Error { constructor(readonly issue: string) { super(issue); } }
+/** A step can't go on yet (a lookup is pending, or a signature is due): a
+ * `budget` wait, never an attempt (live/error-class.ts). */
+class Wait extends StepWait { constructor(issue: string, retryMs = DEFAULT_LIVE_SETUP_TIMINGS.retry.pendingMs) { super(issue, retryMs); } }
+/** The setup cannot finish; the owner sees the code (`permanent`). */
+class Fail extends StepFail {}
 
 const editSchema = z.object({ idempotencyKey: copyIdempotencyKeySchema, budgetUsd: liveCopyBudgetSchema,
   settings: copyStrategySettingsSchema.strict().refine(value => value.sizingMode !== 'fixed' || value.perTradeUsd !== null).refine(value => value.copyStartMode === 'delta') }).strict();
@@ -128,6 +118,8 @@ export class CopyLiveSetupService {
       refuse(503, 'setup_unavailable', 'Copying with real funds is not available right now');
   }
   private get network() { return deploymentNetwork(this.config); }
+  /** The lease, step budget and retries (AppConfig.copy.live.setup). */
+  private get timings(): LiveSetupTimings { return this.config.value.copy.live?.setup ?? DEFAULT_LIVE_SETUP_TIMINGS; }
   /** A live deployment's default leverage cap (COPY_LIVE_MAX_LEVERAGE) when the
    * owner set none, so the consent binds the leverage the copy really uses. */
   private liveSettings<T extends { maxLeverage: number | null }>(settings: T): T {
@@ -220,7 +212,7 @@ export class CopyLiveSetupService {
    * the worker's policy; then the consent challenge. No challenge without the
    * policy: the worker signs every step after confirm. */
   private async provisionLeased(id: string): Promise<SetupRow> {
-    const row = await this.repository.lease(id, LEASE_MS);
+    const row = await this.repository.lease(id, this.timings.leaseMs);
     if (!row) return (await this.repository.get(id))!;
     try {
       if (row.kind !== 'start' || !['provisioning', 'awaiting_consent'].includes(row.stage)) return row;
@@ -427,12 +419,12 @@ export class CopyLiveSetupService {
       // rather than drop the owner's signatures (each dropped confirm cost
       // the owner another press and signature, Stage 2026-10-11).
       // Only a held lease is waited for (an abort's hold is final).
-      let leased = await this.repository.lease(id, LEASE_MS);
-      for (const until = Date.now() + CONFIRM_LEASE_WAIT_MS; !leased && Date.now() < until;) {
+      let leased = await this.repository.lease(id, this.timings.leaseMs);
+      for (const until = Date.now() + this.timings.confirmLeaseWaitMs; !leased && Date.now() < until;) {
         const current = await this.repository.find(userId, id);
         if (current.stage !== 'awaiting_consent' || !current.leaseToken) return current;
         await new Promise(resolve => setTimeout(resolve, 500));
-        leased = await this.repository.lease(id, LEASE_MS);
+        leased = await this.repository.lease(id, this.timings.leaseMs);
       }
       if (!leased) return this.repository.find(userId, id);
       let row: SetupRow;
@@ -543,7 +535,7 @@ export class CopyLiveSetupService {
     const running = this.detached(work);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const result = await Promise.race([running,
-      new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), SETUP_ANSWER_MS); })]).finally(() => clearTimeout(timer));
+      new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), this.timings.answerMs); })]).finally(() => clearTimeout(timer));
     return this.wire(result ?? await this.repository.find(row.userId, row.id));
   }
   /** Work that outlives the request that started it (drained on shutdown). */
@@ -632,7 +624,7 @@ export class CopyLiveSetupService {
    * setup waits (`worker_signer_unavailable`) until its deadline.
    */
   async drive(id: string, signer: SetupSigner | null): Promise<SetupRow> {
-    const leased = await this.repository.lease(id, LEASE_MS);
+    const leased = await this.repository.lease(id, this.timings.leaseMs);
     if (!leased) return (await this.repository.get(id))!;
     let row = leased;
     try {
@@ -645,29 +637,52 @@ export class CopyLiveSetupService {
           // Another driver/cancellation may have ended it while I/O was in
           // flight. A late failure cannot overwrite that terminal outcome.
           if (!DRIVEN_STAGES.includes(row.stage)) break;
-          if (error instanceof Wait) { row = (await this.repository.transition(row, { issue: error.issue, nextAttemptAt: new Date(this.now() + error.retryMs) })) ?? row; break; }
-          // Hyperliquid weight not available yet: nothing was read or sent.
-          // Come back when it is (the shared per-IP window: no sooner than 65 s).
-          // What it waited for is logged and kept on the row (lastWait): a
-          // setup looping on hyperliquid_busy says which bucket and why.
-          if (error instanceof HyperliquidBudgetWait) {
-            const retryMs = error.reason === 'shared_capacity' ? Math.max(SHARED_CAPACITY_RETRY_MS, error.retryMs) : Math.max(1_000, error.retryMs);
-            const lastWait: SetupWait = { at: new Date(this.now()).toISOString(), step: row.stage, reason: error.reason, retryMs: Math.ceil(retryMs), ...error.detail };
-            this.logger.warn(`setup ${row.id} hyperliquid_busy ${JSON.stringify({ setupId: row.id, attempts: row.attempts + 1, ...lastWait })}`);
-            row = (await this.repository.transition(row, { issue: 'hyperliquid_busy', attempts: row.attempts + 1, lastWait, nextAttemptAt: new Date(this.now() + retryMs) })) ?? row; break;
-          }
-          if (error instanceof Fail) { row = (await this.repository.transition(row, { stage: EXPIRED_ISSUES.includes(error.issue) ? 'expired' : 'failed', issue: error.issue, nextAttemptAt: null })) ?? row; break; }
-          const code = error instanceof HttpException && typeof error.getResponse() === 'object' && (error.getResponse() as { code?: unknown }).code;
-          const issue = typeof code === 'string' ? code : error instanceof Error && /^[a-z][a-z0-9_]{2,79}$/.test(error.message) ? error.message : 'setup_step_pending';
-          const capacity = error instanceof LiveBoundaryError && error.code === 'hyperliquid_quota_exhausted';
-          const backoff = capacity ? SHARED_CAPACITY_RETRY_MS : Math.min(60_000, 3_000 * 2 ** Math.min(row.attempts, 5));
-          row = (await this.repository.transition(row, { issue, attempts: row.attempts + 1, nextAttemptAt: new Date(this.now() + backoff) })) ?? row;
+          row = await this.failed(row, error);
           break;
         }
         if (row.stage === before) break;
       }
       return row;
     } finally { await this.repository.release(id, leased.leaseToken); }
+  }
+  /**
+   * Records why a step did not finish, by its class (live/error-class.ts):
+   * - budget (Hyperliquid weight, or a step waiting on what it started):
+   *   back at its time, never an attempt. A weight wait is logged and kept on
+   *   the row (lastWait, with how many waits this stage had): a setup looping
+   *   on hyperliquid_busy says which bucket and why.
+   * - needs_owner: the code is shown; looked at again, never exhausted.
+   * - permanent: the setup ends (failed, or expired for a deadline).
+   * - transient: one attempt more, backed off; at `transientAttempts` in this
+   *   stage it is permanent (an outcome still unknown never is).
+   */
+  private async failed(row: SetupRow, error: unknown): Promise<SetupRow> {
+    const classified = classify(error), retry = this.timings.retry, now = this.now();
+    const issue = classified.code ?? 'setup_step_pending';
+    const end = async (code: string, changes: Partial<SetupRow> = {}) =>
+      (await this.repository.transition(row, { stage: EXPIRED_ISSUES.includes(code) ? 'expired' : 'failed', issue: code, nextAttemptAt: null, ...changes })) ?? row;
+    switch (classified.class) {
+      case 'budget': {
+        const retryMs = classified.retryAfterMs ?? retry.pendingMs;
+        if (!(error instanceof HyperliquidBudgetWait)) return (await this.repository.transition(row, { issue, nextAttemptAt: new Date(now + retryMs) })) ?? row;
+        const waits = (row.lastWait?.step === row.stage ? row.lastWait.waits ?? 0 : 0) + 1;
+        const lastWait: SetupWait = { at: new Date(now).toISOString(), step: row.stage, reason: error.reason, retryMs: Math.ceil(retryMs), waits, ...error.detail };
+        this.logger.warn(`setup ${row.id} hyperliquid_busy ${JSON.stringify({ setupId: row.id, attempts: row.attempts, ...lastWait })}`);
+        return (await this.repository.transition(row, { issue: 'hyperliquid_busy', lastWait, nextAttemptAt: new Date(now + retryMs) })) ?? row;
+      }
+      case 'needs_owner': return (await this.repository.transition(row, { issue, nextAttemptAt: new Date(now + retry.needsOwnerMs) })) ?? row;
+      case 'permanent': return end(issue);
+      case 'transient': {
+        const attempts = row.attempts + 1;
+        if (exhausted(classified, attempts, retry.transientAttempts)) {
+          const code = classified.code ?? 'setup_step_failed';
+          this.logger.warn(`setup ${row.id} ${code} after ${attempts} attempts at ${row.stage}: ${safeErrorText(error)}`);
+          return end(code, { attempts });
+        }
+        const backoff = Math.min(retry.backoffMaxMs, retry.backoffBaseMs * 2 ** Math.min(row.attempts, 5));
+        return (await this.repository.transition(row, { issue, attempts, nextAttemptAt: new Date(now + backoff) })) ?? row;
+      }
+    }
   }
   private async move(row: SetupRow, stage: SetupStage, changes: Partial<SetupRow> = {}): Promise<SetupRow> {
     const next = await this.repository.transition(row, { stage, issue: null, attempts: 0, nextAttemptAt: null, ...changes });
@@ -685,7 +700,7 @@ export class CopyLiveSetupService {
     if (row.setupDeadline && this.now() >= row.setupDeadline.getTime()) throw new Fail('setup_expired');
   }
   private requireSigner(signer: SetupSigner | null): SetupSigner {
-    if (!signer) throw new Wait('worker_signer_unavailable', 15_000);
+    if (!signer) throw new Wait('worker_signer_unavailable', this.timings.retry.signerUnavailableMs);
     return signer;
   }
 
@@ -709,7 +724,7 @@ export class CopyLiveSetupService {
         // return and account deletion are no longer held by it. A credit seen
         // later lands in the copy wallet and is returned from the portfolio.
         if (row.setupDeadline && this.now() >= row.setupDeadline.getTime()) throw new Fail('setup_deposit_uncredited');
-        throw new Wait('awaiting_credit', 3_000);
+        throw new Wait('awaiting_credit', this.timings.retry.pendingMs);
       }
       case 'funded': return this.modeStep(row, intent, signer);
       case 'mode_set': return this.agentStep(row, intent, signer);
@@ -733,7 +748,7 @@ export class CopyLiveSetupService {
       const observed = await this.modes.reconcile(row.userId, op.id, { busy: 'throw' });
       if (observed.targetState === 'supported') return this.move(row, 'mode_set');
       if (observed.targetState === 'unsupported' || observed.submissionState === 'rejected') throw new Fail('setup_account_mode_failed');
-      if (observed.submissionState !== 'prepared') { this.assertBeforeDeadline(row); throw new Wait('account_mode_pending', 3_000); }
+      if (observed.submissionState !== 'prepared') { this.assertBeforeDeadline(row); throw new Wait('account_mode_pending', this.timings.retry.pendingMs); }
     }
     this.assertBeforeDeadline(row);
     const active = this.requireSigner(signer);
@@ -744,7 +759,7 @@ export class CopyLiveSetupService {
     } });
     if (result.targetState === 'supported') return this.move(row, 'mode_set');
     if (result.submissionState === 'rejected') throw new Fail('setup_account_mode_failed');
-    throw new Wait('account_mode_pending', 3_000);
+    throw new Wait('account_mode_pending', this.timings.retry.pendingMs);
   }
 
   private async agentStep(row: SetupRow, intent: LiveCopySetupIntent, signer: SetupSigner | null): Promise<SetupRow> {
@@ -756,7 +771,7 @@ export class CopyLiveSetupService {
       if (agent.state === 'active') return this.move(row, 'agent_active');
       if (agent.state === 'blocked' || agent.state === 'revoked') throw new Fail('setup_agent_rejected');
       // A reverted (never sent) approval is ready again: signed below.
-      if (agent.state !== 'ready') { this.assertBeforeDeadline(row); throw new Wait('agent_approval_pending', 3_000); }
+      if (agent.state !== 'ready') { this.assertBeforeDeadline(row); throw new Wait('agent_approval_pending', this.timings.retry.pendingMs); }
     }
     if (agent.agentAddress !== intent.agentAddress || agent.expiresAt.getTime() !== intent.agentValidUntil || agent.policyId !== intent.agentPolicyId) throw new Fail('setup_binding_changed');
     this.assertBeforeDeadline(row);
@@ -771,7 +786,7 @@ export class CopyLiveSetupService {
     } });
     if (result.state === 'active') return this.move(row, 'agent_active');
     if (result.state === 'blocked') throw new Fail('setup_agent_rejected');
-    throw new Wait('agent_approval_pending', 3_000);
+    throw new Wait('agent_approval_pending', this.timings.retry.pendingMs);
   }
 
   /** A fee of 0 (testnet's decision 7; a live deployment for now) is skipped. Otherwise the
@@ -797,14 +812,14 @@ export class CopyLiveSetupService {
       if (outcome === 'approved') { await this.returns.finishBuilder(row.userId, approval.id, 'approved', digest({ cap, checkedAt: this.now() })); return this.move(row, 'builder_ready'); }
       // Its nonce expired and the exchange shows no fee: it never executed.
       if (outcome === 'rejected') { await this.returns.finishBuilder(row.userId, approval.id, 'rejected', digest({ reason: 'not_executed', cap, checkedAt: readAt })); throw new Fail('setup_builder_rejected'); }
-      throw new Wait('builder_approval_pending', 3_000);
+      throw new Wait('builder_approval_pending', this.timings.retry.pendingMs);
     }
     this.assertBeforeDeadline(row);
     const active = this.requireSigner(signer);
     const account = (await this.walletRows.account(intent.accountId, row.userId))!;
     const attempt = await this.returns.beginBuilder(row.userId, approval.id);
     if (!attempt) throw new Wait('builder_approval_pending', 1_000);
-    const deadline = this.now() + 30_000;
+    const deadline = this.now() + this.timings.stepBudgetMs.signMs;
     let signature: string;
     try {
       signature = await active.sign({ walletId: account.privyWalletId!, address: intent.accountAddress, ownerQuorumId: account.ownerQuorumId! },

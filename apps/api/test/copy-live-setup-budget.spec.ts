@@ -6,7 +6,7 @@ import { CopyModule } from '../src/copy/copy.module.js';
 import { ACCOUNT_MODE_ABSENCE_READER, ACCOUNT_MODE_CLIENT, ATTEMPT_WEIGHT } from '../src/copy/copy-account-mode.service.js';
 import { ACCOUNT_MODE_ABSENCE_WEIGHT } from '../src/copy/copy-account-mode-evidence.js';
 import { AGENT_APPROVAL_CLIENT, AGENT_OBSERVE_WEIGHT } from '../src/copy/copy-agent-exchange.client.js';
-import { SETUP_LEASE_MS, SETUP_RESERVE_WAIT_MS, SETUP_STEP_AFTER_RESERVE_MS } from '../src/copy/copy-live-setup.service.js';
+import { DEFAULT_LIVE_SETUP_TIMINGS, setupStepBudgetMs } from '../src/config/live-timings.js';
 import { HyperliquidBudgetWait, LIVE_RESERVE_WAIT_MS, type LiveBudget } from '../src/hyperliquid/hyperliquid-budget-wait.js';
 import { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
 import { LIVE_HEADROOM_SHARE, type WalletNetworkHyperliquid } from '../src/hyperliquid/wallet-network-hyperliquid.js';
@@ -26,15 +26,16 @@ function wallet() {
   const reserve = {
     mode: (weight: number) => (factory(ACCOUNT_MODE_CLIENT)(config, hl) as { reserve(weight: number): Promise<unknown> }).reserve(weight),
     agent: (weight: number) => (factory(AGENT_APPROVAL_CLIENT)(config, hl) as { reserve(weight: number): Promise<unknown> }).reserve(weight),
-    absence: (weight: number) => (factory(ACCOUNT_MODE_ABSENCE_READER)(hl) as unknown as { acquire: LiveBudget }).acquire(weight),
+    absence: (weight: number) => (factory(ACCOUNT_MODE_ABSENCE_READER)(config, hl) as unknown as { acquire: LiveBudget }).acquire(weight),
   };
   return { budget, reserve };
 }
 
-it('a setup step waits in line at most half its lease', () => {
+const SETUP_RESERVE_WAIT_MS = DEFAULT_LIVE_SETUP_TIMINGS.stepBudgetMs.reserveWaitMs;
+it('a setup step waits in line at most a quarter of its lease', () => {
   expect(SETUP_RESERVE_WAIT_MS).toBe(15_000);
   // The wait, the signature and the POST all fit in one lease.
-  expect(SETUP_RESERVE_WAIT_MS + SETUP_STEP_AFTER_RESERVE_MS).toBeLessThan(SETUP_LEASE_MS);
+  expect(setupStepBudgetMs(DEFAULT_LIVE_SETUP_TIMINGS)).toBeLessThan(DEFAULT_LIVE_SETUP_TIMINGS.leaseMs);
 });
 
 it("the account-mode attempt (613) queues past 8 s instead of being refused, and background work can't take the refill meanwhile", async () => {

@@ -12,7 +12,8 @@ import { loadLiveGenerationManifest } from './postgres-live-generation-manifest.
 import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceLegId } from './copy-live-source-evidence.js';
 import { planLiveSourceOrder } from './copy-live-source-planner.js';
 import type { LiveSourceSizingEnvelopeV1 } from './copy-live-sizing-evidence.js';
-import { compactLiveGenerationManifest, liveSettlementProofsOf, projectLiveGenerationPositions, type LiveGenerationManifestV1 } from './copy-live-generation-projection.js';
+import { compactLiveGenerationManifest, liveSettlementProofsOf, LiveGenerationProjectionMemo, projectLiveGenerationPositions, type LiveGenerationManifestV1 } from './copy-live-generation-projection.js';
+import { freezeLiveReservation } from './live-risk-reservation.js';
 import { captureLivePositionBaseline } from './live-position-baseline.js';
 import { followerReceiptDigestV1 } from './actual-fill-accounting.js';
 import { HyperliquidLiveAccountObserver } from './live-account-observer.js';
@@ -259,11 +260,15 @@ export class PostgresLivePreparation {
       // Settled orders' proofs by digest only (compactLiveGenerationManifest):
       // the planner reads them from this manifest, a replay from SQL.
       observations: { follower, leader, quote, generationManifest: compactLiveGenerationManifest(withCarry) } };
-    const settlementProofs = liveSettlementProofsOf(withCarry);
+    // Frozen, so the planner's three checks below plan the very same envelope
+    // and proofs: the later two reuse the first one's generation projection
+    // (re-asserting its equivalence and the checks that depend on the time).
+    freezeLiveReservation(sizing);
+    const settlementProofs = freezeLiveReservation(liveSettlementProofsOf(withCarry)), projectionMemo = new LiveGenerationProjectionMemo();
     // The planner verifies every merged leg against its persisted fill.
     const members = source.members.map(member => member.fill);
     const plan = planLiveSourceOrder({ mandate: local.mandate, settings: local.settings, fill: source.fill, leg: source.leg, sizingBasis: sizing,
-      now: planningAt, limits: local.limits, currentExecutionKey: key, ...(members.length ? { members } : {}), settlementProofs });
+      now: planningAt, limits: local.limits, currentExecutionKey: key, ...(members.length ? { members } : {}), settlementProofs, projectionMemo });
     // A merged open below the exchange minimum is refused here, before any
     // journal or nonce claims its identity, so its legs can keep accumulating
     // (a single leg keeps the risk gate's refusal after its journal).
@@ -284,7 +289,7 @@ export class PostgresLivePreparation {
         riskSourceRequire(riskSourceDigest(final) === riskSourceDigest(manifest), 'live_preparation_generation_changed');
       } else await this.assertFirstAccount(session, tx, local.account.id, network, local.account.address!);
       const now = this.now(), authorization = assertWalletAuthorization(current.currentAuthorization, intent, now);
-      planLiveSourceOrder({ mandate: current.mandate, settings: current.settings, fill: source.fill, leg: source.leg, sizingBasis: sizing, now, limits: current.limits, currentExecutionKey: key, ...(members.length ? { members } : {}), settlementProofs });
+      planLiveSourceOrder({ mandate: current.mandate, settings: current.settings, fill: source.fill, leg: source.leg, sizingBasis: sizing, now, limits: current.limits, currentExecutionKey: key, ...(members.length ? { members } : {}), settlementProofs, projectionMemo });
       const [currentFill] = await this.checked(session, tx.select().from(copyLiveSourceFills).where(eq(copyLiveSourceFills.id, source.fill.id)));
       riskSourceRequire(currentFill && decodeLiveSourceFill(currentFill).sourceDigest === source.fill.sourceDigest, 'live_preparation_source');
       if (seedCarry) await this.checked(session, tx.insert(copyLiveReductionCarry).values({ mandateId: binding.mandateId, coin: source.fill.coin, carry: '0', revision: 1, updatedAt: new Date(carry.updatedAt) }));
@@ -339,7 +344,7 @@ export class PostgresLivePreparation {
         settingsDigest: current.consent.settingsDigest, fingerprint, plannerVersion: 1, intent: intent as unknown as Record<string, unknown>, sizingBasis: sizing as unknown as Record<string, unknown>,
         sizingBasisDigest: riskSourceDigest(sizing), admittedAt: new Date(now) }));
       await session.scope.assertHeld(); this.fresh(started);
-      planLiveSourceOrder({ mandate: current.mandate, settings: current.settings, fill: source.fill, leg: source.leg, sizingBasis: sizing, now: this.now(), limits: current.limits, currentExecutionKey: key, ...(members.length ? { members } : {}), settlementProofs });
+      planLiveSourceOrder({ mandate: current.mandate, settings: current.settings, fill: source.fill, leg: source.leg, sizingBasis: sizing, now: this.now(), limits: current.limits, currentExecutionKey: key, ...(members.length ? { members } : {}), settlementProofs, projectionMemo });
       this.fresh(oldest);
       return saved;
     });

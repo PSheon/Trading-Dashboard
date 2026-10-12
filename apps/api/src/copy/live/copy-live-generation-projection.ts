@@ -111,6 +111,81 @@ function millis(value: unknown): number {
 function same(value: unknown, expected: unknown) { requireGeneration(isDeepStrictEqual(value, expected)); }
 function keys(rows: readonly {key:string}[]) { requireGeneration(new Set(rows.map(row=>row.key)).size===rows.length); }
 
+/** The projection's checks that depend on the time it is asked at: the
+ * manifest checked at most 5 s before, the account snapshot fresh and
+ * complete. Every other check is a function of the input alone, except
+ * `baseline.createdAt <= now` and an unattempted release's `checkedAt <= now`,
+ * which hold at any later time once they held. */
+function assertGenerationCurrent(id:LiveGenerationProjectionIdentity,manifest:LiveGenerationManifestV1,snapshot:LiveAccountSnapshot,now:number):void{
+  requireGeneration(Number.isSafeInteger(now)&&now>0&&Number.isSafeInteger(manifest.checkedAt)&&manifest.checkedAt<=now&&now-manifest.checkedAt<=5000);
+  const view=mapLiveAccountView(id,snapshot,{blocked:false,reason:null},now,5000);
+  requireGeneration(view.freshness==='fresh'&&view.coverage.complete&&view.coverage.balanceComplete&&view.coverage.orderComplete);
+}
+function deepFrozen(value:unknown):boolean{
+  if(!value||typeof value!=='object')return true;
+  if(!Object.isFrozen(value))return false;
+  for(const child of Object.values(value))if(!deepFrozen(child))return false;
+  return true;
+}
+function unproven(error:unknown):never{
+  // Which of the proof's checks failed: its line in this module (no values).
+  // Every refusal read only live_generation_unproven (Stage mainnet
+  // 2026-10-12, the copy's second order, 16 attempts).
+  const at=error instanceof Error?(error.stack??'').split('\n').find(line=>line.includes('copy-live-generation-projection')&&!/at (requireGeneration|same|millis|keys|unproven) /.test(line))?.match(/:(\d+):\d+\)?$/)?.[1]:undefined;
+  new Logger('LiveGenerationProjection').warn(`live_generation_unproven at line ${at??'unknown'}${error instanceof LiveBoundaryError?'':` (${error instanceof Error?error.name:'error'})`}`);
+  throw new LiveBoundaryError('live_generation_unproven');
+}
+
+const counts=(m:LiveGenerationManifestV1)=>[m.journals.length,m.receipts.length,m.ledger.length,m.carry.length];
+/** Journals, receipts with their ledger (the projection's receiptManifestDigest), carry, and everything else. */
+function digests(m:LiveGenerationManifestV1):string[]{
+  const {journals,receipts,ledger,carry,...rest}=m;
+  return [liveSourceDigest(journals),liveSourceDigest({receipts,ledger}),liveSourceDigest(carry),liveSourceDigest(rest)];
+}
+/**
+ * One preparation's projection of its sizing envelope, reused by that
+ * preparation's later planner checks of the same envelope (the planner runs it
+ * three times: when planning, and twice in the journal transaction). A
+ * projection re-verified every retained settlement proof each time.
+ *
+ * Reused only for the very same deep-frozen envelope and proofs objects (so
+ * the same content), the same identity, order key and account snapshot, and a
+ * time not before the one it was projected at. The equivalence is asserted
+ * again on every reuse: the manifest's checkedAt, its journal, receipt and
+ * carry counts and their digests. The checks that depend on the time are
+ * always run at the new time. Anything else is projected in full. Create one
+ * per preparation; never keep it across preparations.
+ */
+export class LiveGenerationProjectionMemo {
+  #entry:{readonly envelope:object;readonly proofs:object|undefined;readonly key:string;readonly identity:LiveGenerationProjectionIdentity;readonly snapshot:LiveAccountSnapshot;
+    readonly now:number;readonly checkedAt:number;readonly counts:readonly number[];readonly digests:readonly string[];readonly projection:LiveGenerationProjection}|undefined;
+  #reused=0;
+  /** How many projections were reused (tests and diagnostics). */
+  get reused():number{return this.#reused;}
+  project(input:LiveGenerationProjectionInput,source:{readonly envelope:unknown;readonly proofs:unknown}):LiveGenerationProjection{
+    const reusable=!!source.envelope&&typeof source.envelope==='object'&&deepFrozen(source.envelope)&&(source.proofs===undefined||!!source.proofs&&typeof source.proofs==='object'&&deepFrozen(source.proofs))&&
+      input.ownSubmittingReservation===undefined;
+    const e=this.#entry;
+    if(reusable&&e&&e.envelope===source.envelope&&e.proofs===source.proofs&&Number.isSafeInteger(input.now)&&input.now>=e.now){
+      try{
+        const manifest=input.manifest as LiveGenerationManifestV1;
+        requireGeneration(input.currentExecutionKey===e.key&&isDeepStrictEqual(input.identity,e.identity)&&isDeepStrictEqual(input.snapshot,e.snapshot)&&manifest?.version===1&&
+          manifest.checkedAt===e.checkedAt&&isDeepStrictEqual(counts(manifest),e.counts)&&isDeepStrictEqual(digests(manifest),e.digests));
+        assertGenerationCurrent(input.identity,manifest,input.snapshot,input.now);
+      }catch(error){return unproven(error);}
+      this.#reused++;
+      return e.projection;
+    }
+    const projection=projectLiveGenerationPositions(input);
+    if(reusable){
+      const manifest=input.manifest as LiveGenerationManifestV1;
+      this.#entry={envelope:source.envelope as object,proofs:source.proofs as object|undefined,key:input.currentExecutionKey,identity:structuredClone(input.identity),snapshot:structuredClone(input.snapshot),
+        now:input.now,checkedAt:manifest.checkedAt,counts:counts(manifest),digests:digests(manifest),projection};
+    }
+    return projection;
+  }
+}
+
 /** Complete SQL manifests come from the original scoped producer, never HTTP.
  * Every historical terminal certificate is reconstructed at its original time.
  * This quantity projection grants neither current risk nor authority to sign. */
@@ -118,12 +193,10 @@ export function projectLiveGenerationPositions(raw: LiveGenerationProjectionInpu
   try {
     const input=structuredClone(raw),{identity:id,snapshot,currentExecutionKey,now}=input, manifest=input.manifest as LiveGenerationManifestV1;
     requireGeneration(isHyperliquidNetwork(id.network)&&address(id.accountAddress)===id.accountAddress&&address(id.leaderAddress)===id.leaderAddress&&['same','reverse'].includes(id.direction)&&
-      Number.isSafeInteger(id.mandateRevision)&&id.mandateRevision>0&&Number.isSafeInteger(now)&&now>0&&manifest?.version===1&&manifest.accountId===id.accountId&&manifest.mandateId===id.mandateId&&
-      Number.isSafeInteger(manifest.checkedAt)&&manifest.checkedAt<=now&&now-manifest.checkedAt<=5000&&
+      Number.isSafeInteger(id.mandateRevision)&&id.mandateRevision>0&&manifest?.version===1&&manifest.accountId===id.accountId&&manifest.mandateId===id.mandateId&&
       [manifest.journals,manifest.receipts,manifest.ledger,manifest.conflicts,manifest.carry].every(Array.isArray)&&manifest.journals.length<=5001&&manifest.receipts.length<=10000&&manifest.ledger.length<=30000&&manifest.conflicts.length===0&&manifest.carry.length<=1024&&
       (!manifest.accountState||manifest.accountState.accountId===id.accountId&&!manifest.accountState.quarantined));
-    const view=mapLiveAccountView(id,snapshot,{blocked:false,reason:null},now,5000);
-    requireGeneration(view.freshness==='fresh'&&view.coverage.complete&&view.coverage.balanceComplete&&view.coverage.orderComplete);
+    assertGenerationCurrent(id,manifest,snapshot,now);
     const baseline=decodeLivePositionBaseline({mandateId:id.mandateId,accountId:id.accountId,strategyId:id.strategyId,network:id.network,accountAddress:id.accountAddress,firstExecutionKey:manifest.baseline.firstExecutionKey},manifest.baseline);
     requireGeneration(baseline.createdAt<=manifest.checkedAt&&baseline.createdAt<=now);
     keys(manifest.receipts);keys(manifest.journals.map(entry=>entry.journal));
@@ -246,12 +319,5 @@ export function projectLiveGenerationPositions(raw: LiveGenerationProjectionInpu
     requireGeneration(Object.keys(actual).length===snapshot.positions.filter(p=>!Dec.from(p.size).isZero).length);same(projected,actual);
     return freezeLiveReservation({mandateId:id.mandateId,baselineDigest:baseline.baselineDigest,receiptManifestDigest:liveSourceDigest({receipts:manifest.receipts,ledger:manifest.ledger}),
       positionsDigest:liveSourceDigest(projected),positions:projected,checkedAt:manifest.checkedAt});
-  }catch(error){
-    // Which of the proof's checks failed: its line in this module (no values).
-    // Every refusal read only live_generation_unproven (Stage mainnet
-    // 2026-10-12, the copy's second order, 16 attempts).
-    const at=error instanceof Error?(error.stack??'').split('\n').find(line=>line.includes('copy-live-generation-projection')&&!/at (requireGeneration|same|millis|keys) /.test(line))?.match(/:(\d+):\d+\)?$/)?.[1]:undefined;
-    new Logger('LiveGenerationProjection').warn(`live_generation_unproven at line ${at??'unknown'}${error instanceof LiveBoundaryError?'':` (${error instanceof Error?error.name:'error'})`}`);
-    throw new LiveBoundaryError('live_generation_unproven');
-  }
+  }catch(error){return unproven(error);}
 }

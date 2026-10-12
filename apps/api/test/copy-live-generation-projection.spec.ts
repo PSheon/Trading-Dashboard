@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { fixture } from './copy-live-risk-test-utils.js';
 import { captureLivePositionBaseline } from '../src/copy/live/live-position-baseline.js';
-import { compactLiveGenerationManifest, liveSettlementProofsOf, projectLiveGenerationPositions, retainedSettlementProofRefs, type LiveGenerationProjectionInput, type LiveGenerationManifestV1 } from '../src/copy/live/copy-live-generation-projection.js';
+import { compactLiveGenerationManifest, liveSettlementProofsOf, LiveGenerationProjectionMemo, projectLiveGenerationPositions, retainedSettlementProofRefs, type LiveGenerationProjectionInput, type LiveGenerationManifestV1 } from '../src/copy/live/copy-live-generation-projection.js';
+import { freezeLiveReservation } from '../src/copy/live/live-risk-reservation.js';
 import { settledGenerationExample } from './copy-live-generation-test-utils.js';
 import { parseFollowerFunding, followerReceiptDigestV1 } from '../src/copy/live/actual-fill-accounting.js';
 const key = `testnet:0x${'22'.repeat(20)}:0x${'ab'.repeat(16)}`;
@@ -117,5 +118,41 @@ describe('a retained manifest names settled proofs by digest (sizing envelopes, 
     // A null proof column is not a retained reference: never filled from the map.
     if(kind==='null_inline')manifest={...m,journals:m.journals.map(j=>({...j,evidence:{...j.evidence!,settlementProof:null}}))};
     expect(()=>projectLiveGenerationPositions({...e,manifest,settlementProofs:supplied})).toThrow('live_generation_unproven');
+  });
+});
+describe('one preparation projects its sizing envelope once (LiveGenerationProjectionMemo)',()=>{
+  const prepared=()=>{
+    const e=settledGenerationExample(),m=e.manifest as LiveGenerationManifestV1,compact=compactLiveGenerationManifest(m),proofs=freezeLiveReservation(liveSettlementProofsOf(m));
+    const envelope=freezeLiveReservation(structuredClone({observations:{generationManifest:compact,follower:e.snapshot}}));
+    // What the planner hands the projection: its own clone of the envelope, at its time.
+    const at=(now:number,manifest:LiveGenerationManifestV1=compact,identity=e.identity):LiveGenerationProjectionInput=>({...e,identity,manifest:structuredClone(manifest),snapshot:structuredClone(e.snapshot),settlementProofs:structuredClone(proofs),now});
+    return {e,compact,proofs,envelope,at};
+  };
+  it('a later check of the same frozen envelope and proofs reuses the projection, its time-dependent checks run again at the later time',()=>{
+    const {e,proofs,envelope,at}=prepared(),memo=new LiveGenerationProjectionMemo();
+    const first=memo.project(at(e.now),{envelope,proofs});
+    expect(first).toEqual(projectLiveGenerationPositions(at(e.now)));expect(memo.reused).toBe(0);
+    expect(memo.project(at(e.now+1000),{envelope,proofs})).toBe(first);expect(memo.reused).toBe(1);
+    // The manifest was checked over 5 s before: refused, reused or not.
+    expect(()=>memo.project(at(e.now+5001),{envelope,proofs})).toThrow('live_generation_unproven');
+    expect(()=>projectLiveGenerationPositions(at(e.now+5001))).toThrow('live_generation_unproven');
+    expect(memo.reused).toBe(1);
+  });
+  it('anything not provably the same is projected in full, and a manifest that differs from the reused one is refused',()=>{
+    const {e,compact,proofs,envelope,at}=prepared(),memo=new LiveGenerationProjectionMemo(),first=memo.project(at(e.now+1000),{envelope,proofs});
+    // An earlier time than the reused projection's, another (equal) envelope object, an unfrozen one, other proofs, another identity.
+    for(const [input,source] of [[at(e.now+500),{envelope,proofs}],[at(e.now+1000),{envelope:freezeLiveReservation(structuredClone(envelope)),proofs}],
+      [at(e.now+1000),{envelope:structuredClone(envelope),proofs}],[at(e.now+1000),{envelope,proofs:freezeLiveReservation(structuredClone(proofs))}],
+      [at(e.now+1000,compact,{...e.identity,mandateRevision:3}),{envelope,proofs}]] as const){
+      const projection=memo.project(input,source);expect(projection).not.toBe(first);expect(projection).toEqual(first);
+    }
+    expect(memo.reused).toBe(0);
+    // Same envelope and proofs objects, but the manifest handed over is not theirs (its carry, a journal, a receipt changed): refused.
+    const fresh=new LiveGenerationProjectionMemo(),reference=fresh.project(at(e.now),{envelope,proofs});
+    const carry={...compact,carry:compact.carry.map(row=>({...row,revision:row.revision+1}))};
+    const journal={...compact,journals:compact.journals.map(j=>({...j,journal:{...j.journal,cloid:`0x${'ee'.repeat(16)}`}}))};
+    const receipt={...compact,receipts:compact.receipts.map(r=>({...r,createdAt:new Date(e.now-1).toISOString()}))};
+    for(const manifest of [carry,journal,receipt])expect(()=>fresh.project(at(e.now+10,manifest),{envelope,proofs})).toThrow('live_generation_unproven');
+    expect(fresh.project(at(e.now+20),{envelope,proofs})).toBe(reference);
   });
 });

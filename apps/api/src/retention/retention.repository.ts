@@ -30,6 +30,8 @@ export interface RetentionOutcome {
  *   other is what stops the action from being evaluated or sent twice;
  * - a copy signal row at or above the consumer's checkpoint;
  * - an alert record whose delivery is still queued;
+ * - a Hyperliquid socket lease that is not closed (reserved, open, closing,
+ *   uncertain): it still reserves capacity, however old;
  * - `actions` themselves. Both outboxes reference `actions` (ON DELETE
  *   CASCADE), so deleting an action would take its queue rows with it; this
  *   job deletes queue rows only, which touches nothing else.
@@ -166,4 +168,8 @@ export const STATEMENTS: Record<Exclude<RetentionTable, "deleted_accounts">, (cu
           AND (a.action_id IS NULL OR EXISTS (SELECT 1 FROM actions x WHERE x.id = a.action_id AND x.ts < ${cutoff}))
           AND NOT EXISTS (SELECT 1 FROM notification_outbox n WHERE n.action_id = a.action_id AND n.user_id = a.user_id AND n.status IN ${UNFINISHED})
         ORDER BY a.id LIMIT ${limit})))`,
+  hyperliquid_ws_leases: (cutoff, limit) => sql`
+    DELETE FROM hyperliquid_ws_leases WHERE id = ANY (ARRAY(
+      SELECT id FROM hyperliquid_ws_leases WHERE state = 'closed' AND closed_at < ${cutoff} ORDER BY closed_at LIMIT ${limit}))
+      AND state = 'closed'`,
 };

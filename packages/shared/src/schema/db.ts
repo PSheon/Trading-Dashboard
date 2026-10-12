@@ -2107,7 +2107,9 @@ export const hyperliquidEgressQuota = pgTable("hyperliquid_egress_quota", {
 /** Expiry is uncertainty, not proof of a provider disconnect. A nonclosed
  * lease keeps reserving capacity until its original socket is closed or its
  * `lease_until` is more than the stale margin in the past (the planner's
- * HYPERLIQUID_STALE_LEASE_RECLAIM_MS); the row and its evidence are kept. */
+ * HYPERLIQUID_STALE_LEASE_RECLAIM_MS); the row and its evidence are kept.
+ * A closed lease no longer counts for anything; the retention job deletes
+ * it (with its cleanup evidence) a day after `closed_at`. */
 export const hyperliquidWsLeases = pgTable("hyperliquid_ws_leases", {
   id: text("id").primaryKey(), egressKey: text("egress_key").notNull().references(() => hyperliquidEgressQuota.egressKey, { onDelete: "restrict" }),
   socketId: text("socket_id").notNull(), fenceToken: text("fence_token").notNull(), ownerId: text("owner_id").notNull(),
@@ -2118,6 +2120,11 @@ export const hyperliquidWsLeases = pgTable("hyperliquid_ws_leases", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(), closedAt: timestamp("closed_at", { withTimezone: true }),
 }, (t) => [
   uniqueIndex("hyperliquid_ws_socket_uq").on(t.egressKey, t.socketId), index("hyperliquid_ws_capacity_idx").on(t.egressKey, t.state),
+  // The meter's active-lease read (egress key, not closed, lease_until past
+  // the stale margin) in every quota transaction, order path included: a
+  // btree on (egress_key, state) cannot serve `state <> 'closed'`, so it
+  // scanned every closed row of the key.
+  index("hyperliquid_ws_active_lease_idx").on(t.egressKey, t.leaseUntil).where(sql`${t.state} <> 'closed'`),
   check("hyperliquid_ws_cleanup_evidence_check", sql`(${t.cleanupEvidence} is null and ${t.cleanupEvidenceDigest} is null) or (${t.cleanupEvidence} is not null and ${t.cleanupEvidenceDigest} is not null and jsonb_typeof(${t.cleanupEvidence}) = 'object' and pg_column_size(${t.cleanupEvidence}) <= 524288 and ${t.cleanupEvidenceDigest} ~ '^[0-9a-f]{64}$')`),
   check("hyperliquid_ws_lease_check", sql`length(${t.id}) between 1 and 160 and length(${t.socketId}) between 1 and 160 and length(${t.ownerId}) between 1 and 160 and ${t.fenceToken} ~ '^[0-9a-f]{64}$' and ${t.revision} > 0 and ${t.state} in ('reserved','open','closing','uncertain','closed') and jsonb_typeof(${t.subscriptions}) = 'array' and jsonb_array_length(${t.subscriptions}) <= 1000 and ${t.leaseUntil} >= ${t.createdAt} and ${t.latestAllowedSendAt} >= ${t.createdAt} and ${t.updatedAt} >= ${t.createdAt} and ((${t.state} = 'closed' and ${t.closedAt} is not null and ${t.closedAt} >= ${t.createdAt} and jsonb_array_length(${t.subscriptions}) = 0) or (${t.state} <> 'closed' and ${t.closedAt} is null))`),
 ]);

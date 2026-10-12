@@ -1,0 +1,1 @@
+CREATE INDEX "hyperliquid_ws_active_lease_idx" ON "hyperliquid_ws_leases" USING btree ("egress_key","lease_until") WHERE "hyperliquid_ws_leases"."state" <> 'closed';

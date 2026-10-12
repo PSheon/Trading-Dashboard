@@ -3,7 +3,7 @@ import {isDeepStrictEqual} from 'node:util';
 import {performance} from 'node:perf_hooks';
 import {TLSSocket} from 'node:tls';
 import WebSocket from 'ws';
-import {and,eq,gt,ne,sql} from 'drizzle-orm';
+import {and,eq,gt,sql} from 'drizzle-orm';
 import {hyperliquidEgressQuota as quota,hyperliquidWsLeases as leases} from '@trading-dashboard/shared/database';
 import type { UnitOfWork,DbTransaction } from '../db/unit-of-work.js';
 import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from '../copy/live/postgres-live-risk-scope.js';
@@ -39,6 +39,7 @@ export interface BoundHyperliquidQuota {
   reserveSocket(deadline:number,network?:LiveNetwork):Promise<{readonly connect:HyperliquidSendPermit;readonly connection:HyperliquidSocketQuota}>;
 }
 const fail=(code:string):never=>{throw new LiveBoundaryError(code);};
+const notClosed=sql`${leases.state} <> 'closed'`;
 function identifier(v:unknown):asserts v is string {if(typeof v!=='string'||v.length<1||v.length>128||/[\s\p{Cc}\p{Cf}]/u.test(v))fail('hyperliquid_quota_invalid');}
 function capture(raw:HyperliquidQuotaBinding):Readonly<HyperliquidQuotaBinding>{const b=structuredClone(raw);identifier(b?.egressKey);identifier(b.ownerId);return Object.freeze(b);}
 type Queue={tail:Promise<unknown>;pending:number};
@@ -143,9 +144,11 @@ export class PostgresHyperliquidQuota {
         // Leases past the stale margin no longer count, so they are not scanned
         // either (they would otherwise fill the bounded scan and hide live rows);
         // the one a request names is still read so its owner can record close
-        // evidence for it.
-        const stored=await tx.select().from(leases).where(and(eq(leases.egressKey,binding.egressKey),ne(leases.state,'closed'),gt(leases.leaseUntil,new Date(dbNow-HYPERLIQUID_STALE_LEASE_RECLAIM_MS)))).limit(11);
-        if(referenced!==undefined&&!stored.some(l=>l.id===referenced)){stored.push(...await tx.select().from(leases).where(and(eq(leases.egressKey,binding.egressKey),ne(leases.state,'closed'),eq(leases.id,referenced))).limit(1));}
+        // evidence for it. `'closed'` is a literal, not a parameter, so the
+        // planner can match the partial index hyperliquid_ws_active_lease_idx
+        // (egress_key, lease_until) WHERE state <> 'closed'.
+        const stored=await tx.select().from(leases).where(and(eq(leases.egressKey,binding.egressKey),notClosed,gt(leases.leaseUntil,new Date(dbNow-HYPERLIQUID_STALE_LEASE_RECLAIM_MS)))).limit(11);
+        if(referenced!==undefined&&!stored.some(l=>l.id===referenced)){stored.push(...await tx.select().from(leases).where(and(eq(leases.egressKey,binding.egressKey),notClosed,eq(leases.id,referenced))).limit(1));}
         const previous=rows[0]!,state={egressKey:previous.egressKey,revision:previous.revision,events:previous.events,updatedAt:previous.updatedAt.getTime()},captured:HyperliquidQuotaLease[]=stored.map(({cleanupEvidence:_cleanupEvidence,cleanupEvidenceDigest:_cleanupEvidenceDigest,...l})=>({...l,leaseUntil:l.leaseUntil.getTime(),latestAllowedSendAt:l.latestAllowedSendAt.getTime(),createdAt:l.createdAt.getTime(),updatedAt:l.updatedAt.getTime(),closedAt:l.closedAt?.getTime()??null}));
         const plan=planHyperliquidQuota({now:dbNow,state,leases:captured,request:planned,backgroundCap:this.backgroundCap});
         const result=await tx.update(quota).set({revision:plan.state.revision,events:structuredClone(plan.state.events) as typeof previous.events,updatedAt:new Date(dbNow)}).where(and(eq(quota.egressKey,binding.egressKey),eq(quota.revision,previous.revision))).returning({key:quota.egressKey});if(result.length!==1)fail('hyperliquid_quota_conflict');

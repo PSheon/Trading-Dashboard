@@ -15,6 +15,11 @@ export const RETENTION_WINDOW_UTC = { fromHour: 18, toHour: 22 } as const;
 /** A finished run is not repeated before this (one run a day). */
 export const RETENTION_MIN_INTERVAL_MS = 20 * 3_600_000;
 const DAY_MS = 86_400_000;
+/** A closed Hyperliquid socket lease (and its cleanup evidence) is kept
+ * this long after `closed_at`. Nothing reads a closed lease: the meter
+ * counts nonclosed ones only, and a request naming a closed or missing
+ * lease is refused the same way (hyperliquid_quota_lease_lost). */
+export const CLOSED_WS_LEASE_RETENTION_MS = DAY_MS;
 
 export interface RetentionLimits {
   /** Rows per DELETE statement. */
@@ -48,6 +53,7 @@ export function retentionCutoffs(settings: RetentionSettings, now: Date): Record
     notification_outbox: before(settings.queueDays),
     copy_signal_outbox: before(settings.queueDays),
     alerts: before(settings.alertDays),
+    hyperliquid_ws_leases: new Date(now.getTime() - CLOSED_WS_LEASE_RETENTION_MS),
   };
 }
 
@@ -70,6 +76,7 @@ export function inRetentionWindow(now: Date): boolean {
  * | deleted identities' keyed hashes (account_deletion_markers) | 1 year after deletion |
  * | finished action / notification / copy-signal outbox rows | 30 days |
  * | alert delivery records (`alerts`) | 30 days |
+ * | closed Hyperliquid socket leases (`hyperliquid_ws_leases`) | 1 day after closing (fixed) |
  *
  * Deletes are bounded (`RETENTION_LIMITS`): a table that has more to remove
  * than one run allows is finished by the next runs ("partial"). A lease row

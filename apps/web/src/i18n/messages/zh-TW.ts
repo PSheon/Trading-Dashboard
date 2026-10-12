@@ -990,6 +990,7 @@ export const zhTW = {
         notification_outbox: "已完成的通知發送",
         copy_signal_outbox: "已完成的跟單訊號",
         alerts: "提醒發送紀錄",
+        hyperliquid_ws_leases: "已關閉的 Hyperliquid 連線租約",
       },
     },
     system: {

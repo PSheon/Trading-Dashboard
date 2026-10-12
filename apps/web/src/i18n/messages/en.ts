@@ -987,6 +987,7 @@ export const en: Messages = {
         notification_outbox: "Finished notification deliveries",
         copy_signal_outbox: "Finished copy signals",
         alerts: "Alert delivery records",
+        hyperliquid_ws_leases: "Closed Hyperliquid socket leases",
       },
     },
     system: {

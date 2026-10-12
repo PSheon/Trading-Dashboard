@@ -1503,10 +1503,12 @@ export type MaintenanceSettings = z.infer<typeof maintenanceSettingsSchema>;
  * other audit row is `admin_audit_logs`. `deleted_accounts` are the
  * account-deletion tombstones and the financial and audit records kept under
  * them (docs/account-deletion.md), counted per tombstone; and
- * `account_deletion_markers`, the deleted identities' keyed hashes. */
+ * `account_deletion_markers`, the deleted identities' keyed hashes.
+ * `hyperliquid_ws_leases` are closed Hyperliquid socket leases (a fixed
+ * day, not a setting: they are operational, not personal data). */
 export const RETENTION_TABLES = [
   "position_snapshots", "equity_snapshots", "admin_audit_logs", "account_deletion_records", "deleted_accounts", "account_deletion_markers",
-  "action_outbox", "notification_outbox", "copy_signal_outbox", "alerts",
+  "action_outbox", "notification_outbox", "copy_signal_outbox", "alerts", "hyperliquid_ws_leases",
 ] as const;
 export type RetentionTable = (typeof RETENTION_TABLES)[number];
 

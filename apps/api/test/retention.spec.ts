@@ -3,7 +3,7 @@ import { AppConfig } from "../src/config/app-config.js";
 import { TUNING_DEFAULTS, validateEnvironment } from "../src/config/runtime-config.js";
 import {
   actionOutbox, actions, adminAuditLogs, alerts, appSettings, copyConsumerCheckpoints, copySignalOutbox,
-  equitySnapshots, notificationOutbox, positionSnapshots, retentionState,
+  equitySnapshots, hyperliquidEgressQuota, hyperliquidWsLeases, notificationOutbox, positionSnapshots, retentionState,
 } from "@trading-dashboard/shared/database";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
@@ -41,8 +41,20 @@ async function action(ts: Date): Promise<bigint> {
 }
 const count = async (table: string, where = "true") => Number((await db.execute(sql.raw(`select count(*)::int as n from ${table} where ${where}`))).rows[0].n);
 
-beforeEach(async () => { await truncateAll(db); });
+beforeEach(async () => {
+  await truncateAll(db);
+  await db.delete(hyperliquidWsLeases);
+  await db.delete(hyperliquidEgressQuota);
+});
 afterAll(closeTestDb);
+
+/** A socket lease row as the meter writes it, `state` and times aside. */
+function lease(id: string, state: "reserved" | "open" | "closing" | "uncertain" | "closed", createdAt: Date, leaseUntil: Date, closedAt: Date | null) {
+  return {
+    id, egressKey: "retention-egress", socketId: `socket-${id}`, fenceToken: "a".repeat(64), ownerId: "worker-a", state,
+    leaseUntil, latestAllowedSendAt: createdAt, createdAt, updatedAt: closedAt ?? createdAt, closedAt,
+  };
+}
 
 describe("data retention", () => {
   it("has the periods the privacy policy states as defaults", () => {
@@ -57,6 +69,29 @@ describe("data retention", () => {
     expect(cut.admin_audit_logs).toEqual(ago(365));
     expect(cut.account_deletion_records).toEqual(ago(365));
     for (const table of ["action_outbox", "notification_outbox", "copy_signal_outbox", "alerts"] as const) expect(cut[table]).toEqual(ago(30));
+    expect(cut.hyperliquid_ws_leases).toEqual(ago(1));
+  });
+
+  it("deletes closed Hyperliquid socket leases a day after closing, and never a lease that is not closed", async () => {
+    const { service } = setup();
+    await db.insert(hyperliquidEgressQuota).values({ egressKey: "retention-egress", events: [], updatedAt: NOW });
+    const evidence = { version: 1, kind: "closed" };
+    await db.insert(hyperliquidWsLeases).values([
+      { ...lease("closed-old", "closed", ago(3), ago(2.9), ago(2)), cleanupEvidence: evidence, cleanupEvidenceDigest: "b".repeat(64) },
+      lease("closed-25h", "closed", ago(1.2), ago(1.1), new Date(NOW.getTime() - 25 * 3_600_000)),
+      lease("closed-recent", "closed", ago(1), ago(0.99), new Date(NOW.getTime() - 23 * 3_600_000)),
+      // Ancient but never closed: each still reserves capacity (or is the
+      // meter's to reclaim), whatever its age.
+      lease("uncertain-ancient", "uncertain", ago(30), ago(29.9), null),
+      lease("open-ancient", "open", ago(30), ago(29.9), null),
+      lease("closing-ancient", "closing", ago(30), ago(29.9), null),
+      lease("reserved-ancient", "reserved", ago(30), ago(29.9), null),
+    ]);
+    const run = await service.run(NOW, true);
+    expect(run).toMatchObject({ ran: true, status: "ok", removed: { hyperliquid_ws_leases: 2 } });
+    expect((await db.select({ id: hyperliquidWsLeases.id }).from(hyperliquidWsLeases)).map((r) => r.id).sort()).toEqual([
+      "closed-recent", "closing-ancient", "open-ancient", "reserved-ancient", "uncertain-ancient",
+    ]);
   });
 
   it("removes what is older than its period from every table, and nothing younger", async () => {
@@ -102,7 +137,7 @@ describe("data retention", () => {
     if (!run.ran) throw new Error("did not run");
     expect(run.removed).toEqual({
       position_snapshots: 2, equity_snapshots: 2, admin_audit_logs: 1, account_deletion_records: 1, deleted_accounts: 0, account_deletion_markers: 0,
-      action_outbox: 2, notification_outbox: 2, copy_signal_outbox: 2, alerts: 1,
+      action_outbox: 2, notification_outbox: 2, copy_signal_outbox: 2, alerts: 1, hyperliquid_ws_leases: 0,
     });
     expect(Object.keys(run.removed)).toEqual([...RETENTION_TABLES]);
 

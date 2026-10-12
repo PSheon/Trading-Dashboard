@@ -17,6 +17,7 @@ periods of 2026-10-01.
 | Finished deliveries | `notification_outbox` (`sent`, `dry_run`, `failed`) | 30 days | `RETENTION_QUEUE_DAYS` |
 | Finished copy signals | `copy_signal_outbox` (`done`, `failed`) | 30 days | `RETENTION_QUEUE_DAYS` |
 | Alert delivery records | `alerts` | 30 days | `RETENTION_ALERT_DAYS` (7–3650) |
+| Closed Hyperliquid socket leases (with their cleanup evidence) | `hyperliquid_ws_leases` where `state = 'closed'` | 1 day after `closed_at` | fixed (`CLOSED_WS_LEASE_RETENTION_MS`) |
 
 The periods are deploy-time since 2026-10-05 (they were `general.retention`
 in the admin settings): set them on the worker and restart it;
@@ -58,6 +59,11 @@ in the worker (three ticks an hour; none in the api role).
 - A copy signal at or above the consumer's checkpoint
   (`copy_consumer_checkpoints.last_outbox_id`).
 - An alert record whose delivery is still queued.
+- A Hyperliquid socket lease that is not closed (`reserved`, `open`,
+  `closing`, `uncertain`), however old: it still reserves connection capacity
+  until it is closed or past the meter's stale margin, and the meter reads it.
+  A closed lease is never read (a request naming one is refused exactly as one
+  naming a missing lease).
 - `actions`. Both outboxes reference `actions` with `ON DELETE CASCADE`, so
   deleting an action would take its queue rows with it. The job deletes queue
   rows only, which cascades to nothing: no table references `action_outbox`,

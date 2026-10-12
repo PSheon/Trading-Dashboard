@@ -71,6 +71,27 @@ Pass criteria (exit 0, `ALL GREEN`, and every row of the gate table `PASS`):
   settled still fails it), and its evidence check (a quiet trader with no order is a skip, not a pass:
   rerun with a busier one).
 
+Still to script, and to pass by hand until then (the order-path fixes O3, O4, O6 and O9 of 2026-10-12 are
+covered by unit and database tests only):
+
+- same-ms burst (O3): the leader sends one market order that sweeps 500+ resting makers, or 500+ fills
+  land in one millisecond. Pass: the stream's `coverage_through` moves past that millisecond within one
+  read (`copy_live_source_streams`), the burst's legs are enqueued, and no `source … in gap` line follows;
+  a burst a single read cannot hold (2,000+ fills in one ms) shows `ALERT fast source` / `ALERT watched
+  source` and the stream in `gap`, never a silent stall;
+- quick re-open after flat (O4): with the follower left holding part of a coin after the leader closed it
+  (an IOC close that filled partly), the leader opens that coin again before the reconcile close runs.
+  Pass: the reconcile close ends `refused` `leader_reopened` without an order, the new open waits until
+  then and settles, and the leader's next close of the coin is sent (not `position_closed_by_owner`);
+- re-verify during a copy (O6): while a copy runs, the owner re-verifies the copy wallet once with the
+  wallet provider failing (`provider_unavailable`), then again successfully. Pass: the account's
+  `revision` is unchanged, the copy's next leader leg settles, and an order in flight during the failed
+  check reconciles;
+- clock skew (O9): the worker's clock set 1.5 s ahead of real time, then 1.5 s behind (one run each).
+  Pass: no `live_risk_stale`, `live_account_evidence_expired`, `live_settlement_stale` or
+  `follower_execution_identity_mismatch`; the worker logs `WARN clock skew` and its heartbeat shows
+  `clockSkew.warning` true.
+
 The summary (its path is the last line printed: `.claude/logs/copy-harness/<run>-summary.txt`) has every
 check, then the gate table — per scenario the result and its orders' evidence p50 / p95 / max (ms) — then
 each order's evidence spans summed per role (follower / leader / target / other_account / none) and each

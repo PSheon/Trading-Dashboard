@@ -7,7 +7,8 @@ import { DataList } from "@/components/ui/data-list";
 import { Link, usePathname, useRouter } from "@/i18n/navigation";
 import { useSearchParams } from "next/navigation";
 import { Fragment, useMemo, useState } from "react";
-import { ArrowRight, ChevronDown, Search } from "lucide-react";
+import { ArrowRight, ChevronDown } from "lucide-react";
+import { SearchInput } from "@/components/ui/search-input";
 import { cn } from "cn";
 import { COPY_STUCK_ORDER_ATTEMPTS as STUCK_ORDER_ATTEMPTS, copyControlCommandEnum, type CopyControlCommand } from "@trading-dashboard/shared/contracts";
 
@@ -156,11 +157,7 @@ export function AdminCopyStatus() {
       <section aria-labelledby="copy-users-title" className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 id="copy-users-title" className="type-h2">{t("admin.copy.exposureTitle")}</h2>
-          <label className="relative w-full sm:w-64">
-            <Search className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("admin.copy.searchUsers")} aria-label={t("admin.copy.searchUsers")}
-              className="h-11 w-full rounded-full border-2 border-transparent bg-raised pr-4 pl-10 text-[15px] font-bold outline-none placeholder:text-subtle-foreground focus-visible:border-primary" />
-          </label>
+          <SearchInput className="w-full sm:w-64" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("admin.copy.searchUsers")} aria-label={t("admin.copy.searchUsers")} />
         </div>
         {exposure.isError && !exposure.data ? <ErrorState message={exposure.error.message} onRetry={() => exposure.refetch()} />
           : !exposure.data ? <TableSkeleton rows={3} columns={[{ label: t("copyAdmin.cols.user") }, { label: t("admin.copy.cols.strategies"), right: true, className: "hidden sm:table-cell" }, { label: t("admin.copy.cols.exposure"), right: true, className: "hidden sm:table-cell" }, { label: t("admin.copy.cols.unrealized"), right: true, className: "hidden md:table-cell" }, { label: t("copyAdmin.cols.status") }, {}]} />

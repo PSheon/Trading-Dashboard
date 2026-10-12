@@ -3,7 +3,8 @@
 import { useSaveToast } from "@/lib/use-action-toast";
 import { LOCALE_NAMES, type Locale } from "@/i18n/config";
 import { userRoleEnum, type AdminUser, type UserRole } from "@/lib/contracts";
-import { ChevronLeft, ChevronRight, Search, Users } from "lucide-react";
+import { ChevronLeft, ChevronRight, Users } from "lucide-react";
+import { SearchInput } from "@/components/ui/search-input";
 import { useEffect, useState } from "react";
 import { cn } from "cn";
 
@@ -68,17 +69,15 @@ export function AdminUsers() {
       <AdminSubTabs tab="users" labels={USERS_SUB_TABS} />
       <UnresolvedWithdrawals />
       <div className="flex flex-wrap items-center gap-2.5">
-        <div className="relative w-full sm:w-[360px]">
-          <Search className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t("admin.users.search")}
-            aria-label={t("admin.users.search")}
-            className="h-12 w-full rounded-full border-2 border-transparent bg-raised pr-4 pl-11 text-[15px] font-bold outline-none placeholder:text-subtle-foreground focus-visible:border-primary"
-          />
-        </div>
+        <SearchInput
+          size="lg"
+          className="w-full sm:w-[360px]"
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t("admin.users.search")}
+          aria-label={t("admin.users.search")}
+        />
         <Select
           size="sm"
           value={role}

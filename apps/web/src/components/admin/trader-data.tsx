@@ -4,7 +4,7 @@ import { Link, usePathname, useRouter } from "@/i18n/navigation";
 import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Search } from "lucide-react";
+import { SearchInput } from "@/components/ui/search-input";
 
 import { buttonVariants } from "@/components/ui/button-variants";
 import { Drawer } from "@/components/ui/drawer";
@@ -49,19 +49,16 @@ export function AdminTraderData({ view }: { view: "kols" | "lists" | "jobs" }) {
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
         {canDiagnose ? (
           <form className="min-w-0 flex-1" role="search" onSubmit={(e) => { e.preventDefault(); if (valid) open(draft.trim().toLowerCase()); }}>
-            <label className="relative block">
-              <Search className="pointer-events-none absolute top-1/2 left-5 size-[18px] -translate-y-1/2 text-muted-foreground" aria-hidden />
-              <input
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                maxLength={42}
-                spellCheck={false}
-                autoComplete="off"
-                aria-label={t("admin.traders.searchLabel")}
-                placeholder={t("admin.traders.searchPlaceholder")}
-                className="h-[52px] w-full rounded-full border-2 border-transparent bg-raised pr-5 pl-12 text-[15px] font-extrabold outline-none placeholder:font-bold placeholder:text-subtle-foreground focus-visible:border-primary"
-              />
-            </label>
+            <SearchInput
+              size="xl"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              maxLength={42}
+              spellCheck={false}
+              autoComplete="off"
+              aria-label={t("admin.traders.searchLabel")}
+              placeholder={t("admin.traders.searchPlaceholder")}
+            />
           </form>
         ) : null}
         <AdminSubTabs tab="traders" labels={TRADER_SUB_TABS} />

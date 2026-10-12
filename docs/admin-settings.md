@@ -102,6 +102,20 @@ snapshots out of order and temporarily show older values in clean sections. Dirt
 drafts keep their baseline and stale writes are still rejected by server revisions;
 merging only the saved section into the query cache is deferred.
 
+## Announcement banner
+
+`general.announcement` is `{ enabled, text, label?, summary?, href? }`. The
+banner is one 36px line: a pill (`label`, `{ "zh-TW", en }`, max 40; empty
+shows "公開測試" / "Public beta"), a short phrase (`summary`, hidden below md)
+and "了解更多 ›" (`href`: a site path or an https URL, max 200; absent links to
+`/help`), then ✕. `text` was the only field before 2026-10-12: a stored row
+with only `text` still renders, as the phrase under the default pill and link,
+and the admin form saves the phrase into both `summary` and `text` so older
+webs keep showing it. The longer explanation ("Orbie 公開測試中：…") is the FAQ
+entry 「「公開測試」是什麼意思？」 on /help. Dismissal is a cookie with a hash of
+label, phrase and link (just the phrase when label and href are unset, which
+is the pre-split hash), so editing any of them shows the banner again.
+
 ## Maintenance mode (review finding 17)
 
 `general.maintenance` is `{ enabled, message: { "zh-TW", en }, endsAt }`

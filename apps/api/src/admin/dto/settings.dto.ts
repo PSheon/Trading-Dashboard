@@ -13,11 +13,25 @@ class LocalizedTextDto {
   @ApiProperty({ type: String, maxLength: 280 })
   @IsString() @MaxLength(280) declare en: string;
 }
+class AnnouncementLabelDto {
+  @ApiProperty({ type: String, maxLength: 40 })
+  @IsString() @MaxLength(40) "zh-TW"!: string;
+  @ApiProperty({ type: String, maxLength: 40 })
+  @IsString() @MaxLength(40) declare en: string;
+}
+/** Same rule as the shared `announcementHrefSchema`. */
+const ANNOUNCEMENT_HREF = /^(?:\/(?![/\\])\S*|https:\/\/\S+)$/;
 class AnnouncementDto {
   @ApiProperty({ type: Boolean })
   @IsBoolean() declare enabled: boolean;
-  @ApiProperty({ type: () => LocalizedTextDto })
+  @ApiProperty({ type: () => LocalizedTextDto, description: "The banner's text before label/summary; shown as the summary when summary is absent or empty" })
   @IsDefined() @IsObject() @Type(() => LocalizedTextDto) @ValidateNested() declare text: LocalizedTextDto;
+  @ApiPropertyOptional({ type: () => AnnouncementLabelDto, description: "The pill; empty shows the web's default (\"Public beta\")" })
+  @Optional() @IsObject() @Type(() => AnnouncementLabelDto) @ValidateNested() declare label?: AnnouncementLabelDto;
+  @ApiPropertyOptional({ type: () => LocalizedTextDto, description: "The short phrase next to the pill (hidden on phones)" })
+  @Optional() @IsObject() @Type(() => LocalizedTextDto) @ValidateNested() declare summary?: LocalizedTextDto;
+  @ApiPropertyOptional({ type: String, maxLength: 200, pattern: ANNOUNCEMENT_HREF.source, description: "The \"Learn more\" target: a path on the site or an https URL; absent links to /help" })
+  @Optional() @IsString() @MaxLength(200) @Matches(ANNOUNCEMENT_HREF) declare href?: string;
 }
 class MaintenanceDto {
   @ApiProperty({ type: Boolean })

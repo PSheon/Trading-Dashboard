@@ -64,6 +64,18 @@ describe("admin settings — real Postgres", () => {
     expect(pub).not.toHaveProperty("referralCode");
   });
 
+  it("serves a stored single-text announcement as before, and saves label, summary and href", async () => {
+    const legacy = { enabled: true, text: { "zh-TW": "公開測試中", en: "Open beta" } };
+    await db.insert(appSettings).values({ key: "general", value: { announcement: legacy } });
+    expect((await new PublicSettingsController(settings).get()).announcement).toEqual(legacy);
+
+    const next = { ...legacy, label: { "zh-TW": "公開測試", en: "Public beta" }, summary: { "zh-TW": "探索交易員", en: "Explore traders" }, href: "/help#beta" };
+    const saved = await patch({ general: { announcement: next } }, service_);
+    expect(saved.general.announcement).toEqual(next);
+    settings.invalidate();
+    expect((await new PublicSettingsController(settings).get()).announcement).toEqual(next);
+  });
+
   it("merges a partial section over the stored one and records who saved it", async () => {
     const admin = await insertUser(db, { role: "admin" });
     const user: RequestUser = { kind: "user", id: admin.id, privyUserId: admin.privyUserId, role: "admin" };

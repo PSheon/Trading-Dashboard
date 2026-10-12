@@ -13927,6 +13927,47 @@
                                     "en"
                                   ],
                                   "additionalProperties": false
+                                },
+                                "label": {
+                                  "type": "object",
+                                  "properties": {
+                                    "zh-TW": {
+                                      "type": "string",
+                                      "maxLength": 40
+                                    },
+                                    "en": {
+                                      "type": "string",
+                                      "maxLength": 40
+                                    }
+                                  },
+                                  "required": [
+                                    "zh-TW",
+                                    "en"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "summary": {
+                                  "type": "object",
+                                  "properties": {
+                                    "zh-TW": {
+                                      "type": "string",
+                                      "maxLength": 280
+                                    },
+                                    "en": {
+                                      "type": "string",
+                                      "maxLength": 280
+                                    }
+                                  },
+                                  "required": [
+                                    "zh-TW",
+                                    "en"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "href": {
+                                  "type": "string",
+                                  "maxLength": 200,
+                                  "pattern": "^(?:\\/(?![/\\\\])\\S*|https:\\/\\/\\S+)$"
                                 }
                               },
                               "required": [
@@ -14300,6 +14341,47 @@
                                     "en"
                                   ],
                                   "additionalProperties": false
+                                },
+                                "label": {
+                                  "type": "object",
+                                  "properties": {
+                                    "zh-TW": {
+                                      "type": "string",
+                                      "maxLength": 40
+                                    },
+                                    "en": {
+                                      "type": "string",
+                                      "maxLength": 40
+                                    }
+                                  },
+                                  "required": [
+                                    "zh-TW",
+                                    "en"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "summary": {
+                                  "type": "object",
+                                  "properties": {
+                                    "zh-TW": {
+                                      "type": "string",
+                                      "maxLength": 280
+                                    },
+                                    "en": {
+                                      "type": "string",
+                                      "maxLength": 280
+                                    }
+                                  },
+                                  "required": [
+                                    "zh-TW",
+                                    "en"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "href": {
+                                  "type": "string",
+                                  "maxLength": 200,
+                                  "pattern": "^(?:\\/(?![/\\\\])\\S*|https:\\/\\/\\S+)$"
                                 }
                               },
                               "required": [
@@ -15387,6 +15469,47 @@
                                 "en"
                               ],
                               "additionalProperties": false
+                            },
+                            "label": {
+                              "type": "object",
+                              "properties": {
+                                "zh-TW": {
+                                  "type": "string",
+                                  "maxLength": 40
+                                },
+                                "en": {
+                                  "type": "string",
+                                  "maxLength": 40
+                                }
+                              },
+                              "required": [
+                                "zh-TW",
+                                "en"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "summary": {
+                              "type": "object",
+                              "properties": {
+                                "zh-TW": {
+                                  "type": "string",
+                                  "maxLength": 280
+                                },
+                                "en": {
+                                  "type": "string",
+                                  "maxLength": 280
+                                }
+                              },
+                              "required": [
+                                "zh-TW",
+                                "en"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "href": {
+                              "type": "string",
+                              "maxLength": 200,
+                              "pattern": "^(?:\\/(?![/\\\\])\\S*|https:\\/\\/\\S+)$"
                             }
                           },
                           "required": [
@@ -43396,6 +43519,24 @@
         ],
         "additionalProperties": false
       },
+      "AnnouncementLabelDto": {
+        "type": "object",
+        "properties": {
+          "zh-TW": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "en": {
+            "type": "string",
+            "maxLength": 40
+          }
+        },
+        "required": [
+          "zh-TW",
+          "en"
+        ],
+        "additionalProperties": false
+      },
       "AnnouncementDto": {
         "type": "object",
         "properties": {
@@ -43403,7 +43544,34 @@
             "type": "boolean"
           },
           "text": {
-            "$ref": "#/components/schemas/LocalizedTextDto"
+            "description": "The banner's text before label/summary; shown as the summary when summary is absent or empty",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LocalizedTextDto"
+              }
+            ]
+          },
+          "label": {
+            "description": "The pill; empty shows the web's default (\"Public beta\")",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AnnouncementLabelDto"
+              }
+            ]
+          },
+          "summary": {
+            "description": "The short phrase next to the pill (hidden on phones)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LocalizedTextDto"
+              }
+            ]
+          },
+          "href": {
+            "type": "string",
+            "maxLength": 200,
+            "pattern": "^(?:\\/(?![/\\\\])\\S*|https:\\/\\/\\S+)$",
+            "description": "The \"Learn more\" target: a path on the site or an https URL; absent links to /help"
           }
         },
         "required": [

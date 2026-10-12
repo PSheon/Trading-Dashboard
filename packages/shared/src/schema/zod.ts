@@ -1456,6 +1456,33 @@ export const localizedTextSchema = z.object({
   en: z.string().max(280),
 });
 
+/** The announcement pill's text: a word or two. */
+export const announcementLabelSchema = z.object({
+  "zh-TW": z.string().max(40),
+  en: z.string().max(40),
+});
+
+/** Where the announcement's "Learn more" goes: a path on this site
+ * (`/help`, `/help#beta`) or an https URL. */
+export const announcementHrefSchema = z.string().max(200)
+  .regex(/^(?:\/(?![/\\])\S*|https:\/\/\S+)$/, "A path starting with / or an https:// URL");
+
+/**
+ * The banner across the top of every page: a pill (`label`), a short
+ * phrase (`summary`) and a "Learn more" link (`href`). `text` was its only
+ * text before 2026-10-12 and stays for older webs and stored rows: it is
+ * shown as the summary when `summary` is absent or empty. An empty label
+ * and a missing href show the web's defaults ("Public beta", `/help`).
+ */
+export const announcementSettingsSchema = z.object({
+  enabled: z.boolean(),
+  text: localizedTextSchema,
+  label: announcementLabelSchema.optional(),
+  summary: localizedTextSchema.optional(),
+  href: announcementHrefSchema.optional(),
+});
+export type AnnouncementSettings = z.infer<typeof announcementSettingsSchema>;
+
 /**
  * Maintenance mode (review finding 17). While `enabled` the api refuses
  * writes with 503 `maintenance` (admins and the health routes excepted),
@@ -1511,9 +1538,7 @@ export const RETENTION_DEFAULTS = { enabled: true, snapshotDays: 90, auditDays: 
  * an admin saves anything. */
 export const generalSettingsSchema = z.object({
   /** Banner across the top of every page. */
-  announcement: z
-    .object({ enabled: z.boolean(), text: localizedTextSchema })
-    .default({ enabled: false, text: { "zh-TW": "", en: "" } }),
+  announcement: announcementSettingsSchema.default({ enabled: false, text: { "zh-TW": "", en: "" } }),
   /** New Privy users may sign up; existing users can always sign in. */
   signupsOpen: z.boolean().default(true),
   /** The copy panel's CTA; nothing is executed in Stage 2 regardless. */
@@ -1593,7 +1618,11 @@ export type AdminSettingsSnapshot = z.infer<typeof adminSettingsSnapshotSchema>;
 
 export const patchAdminSettingsRequestSchema = z.object({
   general: generalSettingsSchema.partial().extend({
-    announcement: z.object({ enabled: z.boolean(), text: localizedTextSchema.strict() }).strict().optional(),
+    announcement: announcementSettingsSchema.extend({
+      text: localizedTextSchema.strict(),
+      label: announcementLabelSchema.strict().optional(),
+      summary: localizedTextSchema.strict().optional(),
+    }).strict().optional(),
     maintenance: maintenanceSettingsSchema.extend({ message: localizedTextSchema.strict() }).strict().optional(),
   }).strict().optional(),
   discovery: discoverySettingsSchema.partial().strict().optional(),

@@ -37,6 +37,8 @@ const cases: [Type<unknown>, { parse(input: unknown): unknown }, object][] = [
   [ImportListDto, c.importLeaderListRequestSchema, { fileName: "  file.csv ", rows: [{ address: A, customColumn: 7 }] }],
   [UpsertRuleDto, c.upsertAlertRuleRequestSchema, { scope: "address", kind: "R9", paramsJson: {}, cooldownS: 0, tiers: [] }],
   [PatchAdminSettingsDto, c.patchAdminSettingsRequestSchema, { general: { signupsOpen: false }, expectedRevisions: { general: "0".repeat(64) } }],
+  [PatchAdminSettingsDto, c.patchAdminSettingsRequestSchema, { general: { announcement: { enabled: true, text: { en: "a", "zh-TW": "b" },
+    label: { en: "Public beta", "zh-TW": "公開測試" }, summary: { en: "a", "zh-TW": "b" }, href: "/help#beta" } } }],
 ];
 it.each(cases)("%s preserves contract defaults and explicit conversions", async (dto, schema, input) => {
   expect(json(await validate(dto, input))).toEqual(json(schema.parse(input)));
@@ -47,7 +49,10 @@ it.each([
   [TradesQueryDto, { cursor: "123_9223372036854775808" }],
   [PatchMeDto, { locale: null }], [PatchAdminUserDto, { disabled: "false" }], [PatchFavoriteAlertDto, { enabled: null }],
   [PatchAdminSettingsDto, { general: { announcement: { enabled: false, text: { en: "", "zh-TW": "", secret: "x" } } } }],
-  [PatchAdminSettingsDto, { general: null }], [PatchAdminSettingsDto, { general: { signupsOpen: "false" } }],
+  [PatchAdminSettingsDto, { general: { announcement: { enabled: false, text: { en: "", "zh-TW": "" }, href: "javascript:alert(1)" } } }],
+  [PatchAdminSettingsDto, { general: { announcement: { enabled: false, text: { en: "", "zh-TW": "" }, href: "//evil.example" } } }],
+  [PatchAdminSettingsDto, { general: { announcement: { enabled: false, text: { en: "", "zh-TW": "" }, label: { en: "x".repeat(41), "zh-TW": "" } } } }],
+  [PatchAdminSettingsDto, { general: null }],[PatchAdminSettingsDto, { general: { signupsOpen: "false" } }],
   [PatchAdminSettingsDto, { expectedRevisions: { bogus: "0".repeat(64) } }],
   [UpsertRuleDto, { scope: "address", kind: "R1", paramsJson: {}, cooldownS: 0, tiers: [] }],
   // Ids are int4 in the database: out of range is a 400 here, not a 500 there (review finding 37).

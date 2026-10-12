@@ -283,75 +283,104 @@ export class PostgresLivePreparation {
     const action = buildOrderAction(intent), fingerprint = intentFingerprint(intent, action);
     mark('preparation_sizing_plan');
     const record = await session.transaction(async tx => {
-      const current = await loadLivePreparationAuthority(session, tx, binding, this.now());
+      // Round trips (each ~8 ms on Stage, all inside the order's evidence
+      // window): statements whose parameters are already known go out
+      // together (pipelined; executed in this order) in three batches, and
+      // every result is checked in the original order before anything that
+      // depends on it, and all of them before COMMIT. A write sent before an
+      // earlier check fails is this transaction's own and rolls back with it.
+      const sent = <T>(work: Promise<T>): Promise<T> => { void work.catch(() => {}); return work; };
+      // 1. The current authority; the generation as of it (read with the
+      // earlier authority's account and mandate: the digest check below
+      // requires the two authorities equal before the generation is used);
+      // the source fill.
+      const currentWork = sent(loadLivePreparationAuthority(session, tx, binding, this.now()));
+      const finalWork = manifest ? sent(loadLiveGenerationManifest(session, tx, local, { currentExecutionKey: key, now: started })) : undefined;
+      const firstAccountWork = manifest ? undefined : sent(this.assertFirstAccount(session, tx, local.account.id, network, local.account.address!));
+      const currentFillWork = sent(this.checked(session, tx.select().from(copyLiveSourceFills).where(eq(copyLiveSourceFills.id, source.fill.id))));
+      const current = await currentWork;
       riskSourceRequire(riskSourceDigest(current) === riskSourceDigest(local), 'live_risk_local_changed');
       if (manifest) {
-        const final = await loadLiveGenerationManifest(session, tx, current, { currentExecutionKey: key, now: started });
+        const final = await finalWork!;
         // Both are the loader's canonical JSON (no undefined, Date or -0), for
         // which deep equality is canonical-digest equality, without hashing
         // every settled proof twice.
         riskSourceRequire(isDeepStrictEqual(final, manifest), 'live_preparation_generation_changed');
-      } else await this.assertFirstAccount(session, tx, local.account.id, network, local.account.address!);
+      } else await firstAccountWork;
       const now = this.now(), authorization = assertWalletAuthorization(current.currentAuthorization, intent, now);
       planLiveSourceOrder({ mandate: current.mandate, settings: current.settings, fill: source.fill, leg: source.leg, sizingBasis: sizing, now, limits: current.limits, currentExecutionKey: key, ...(members.length ? { members } : {}), settlementProofs, projectionMemo });
-      const [currentFill] = await this.checked(session, tx.select().from(copyLiveSourceFills).where(eq(copyLiveSourceFills.id, source.fill.id)));
+      const [currentFill] = await currentFillWork;
       riskSourceRequire(currentFill && decodeLiveSourceFill(currentFill).sourceDigest === source.fill.sourceDigest, 'live_preparation_source');
-      if (seedCarry) await this.checked(session, tx.insert(copyLiveReductionCarry).values({ mandateId: binding.mandateId, coin: source.fill.coin, carry: '0', revision: 1, updatedAt: new Date(carry.updatedAt) }));
-      if (owedCarry) {
-        // The row is still the one the (unchanged) manifest read, and no other
-        // journal of this generation and coin is prepared, submitting, unknown
-        // or resting, nor a reservation of it unreleased: their sizing basis
-        // names the old carry, which settlement, the risk gate and an
-        // unattempted release require unchanged. Otherwise nothing is reset
-        // or journaled and the leg is tried again (as a changed generation).
-        const changed = await this.checked(session, tx.update(copyLiveReductionCarry).set({ carry: reset.carry, revision: reset.revision, updatedAt: new Date(reset.updatedAt) })
-          .where(and(eq(copyLiveReductionCarry.mandateId, binding.mandateId), eq(copyLiveReductionCarry.coin, source.fill.coin), eq(copyLiveReductionCarry.revision, owedCarry.revision),
-            eq(copyLiveReductionCarry.carry, owedCarry.carry),
-            sql`not exists (select 1 from ${copyLiveIntentProvenance} p join ${copyLiveExecutions} e on e.key = p.key
-              join ${copyLiveSignalLegs} l on l.id = p.leg_id join ${copyLiveSourceFills} f on f.id = l.source_fill_id
-              where p.mandate_id = ${binding.mandateId} and f.coin = ${source.fill.coin} and e.state in ('prepared', 'submitting', 'unknown', 'resting'))`,
-            sql`not exists (select 1 from ${copyLiveIntentProvenance} p join ${copyLiveRiskReservations} r on r.key = p.key
-              where p.mandate_id = ${binding.mandateId} and r.coin = ${source.fill.coin} and r.state <> 'released')`))
-          .returning({ mandateId: copyLiveReductionCarry.mandateId }));
-        riskSourceRequire(changed.length === 1, 'live_preparation_generation_changed');
-      }
+      // 2. The carry, the legs and their claims, the order's leg locked, the
+      // signer's nonce.
+      const seedWork = seedCarry ? sent(this.checked(session, tx.insert(copyLiveReductionCarry).values({ mandateId: binding.mandateId, coin: source.fill.coin, carry: '0', revision: 1, updatedAt: new Date(carry.updatedAt) }))) : undefined;
+      // The row is still the one the (unchanged) manifest read, and no other
+      // journal of this generation and coin is prepared, submitting, unknown
+      // or resting, nor a reservation of it unreleased: their sizing basis
+      // names the old carry, which settlement, the risk gate and an
+      // unattempted release require unchanged. Otherwise nothing is reset
+      // or journaled and the leg is tried again (as a changed generation).
+      const resetWork = owedCarry ? sent(this.checked(session, tx.update(copyLiveReductionCarry).set({ carry: reset.carry, revision: reset.revision, updatedAt: new Date(reset.updatedAt) })
+        .where(and(eq(copyLiveReductionCarry.mandateId, binding.mandateId), eq(copyLiveReductionCarry.coin, source.fill.coin), eq(copyLiveReductionCarry.revision, owedCarry.revision),
+          eq(copyLiveReductionCarry.carry, owedCarry.carry),
+          sql`not exists (select 1 from ${copyLiveIntentProvenance} p join ${copyLiveExecutions} e on e.key = p.key
+            join ${copyLiveSignalLegs} l on l.id = p.leg_id join ${copyLiveSourceFills} f on f.id = l.source_fill_id
+            where p.mandate_id = ${binding.mandateId} and f.coin = ${source.fill.coin} and e.state in ('prepared', 'submitting', 'unknown', 'resting'))`,
+          sql`not exists (select 1 from ${copyLiveIntentProvenance} p join ${copyLiveRiskReservations} r on r.key = p.key
+            where p.mandate_id = ${binding.mandateId} and r.coin = ${source.fill.coin} and r.state <> 'released')`))
+        .returning({ mandateId: copyLiveReductionCarry.mandateId }))) : undefined;
+      const legWorks: Promise<unknown>[] = [];
       for (const canonical of [...canonicalLiveSourceLegs(source.fill)].sort((a, b) => a.leg === b.leg ? 0 : a.leg === 'close' ? -1 : 1)) {
         const id = liveSourceLegId(binding.mandateId, source.fill.id, canonical.leg), dependencyId = canonical.leg === 'open' && closeLeg ? liveSourceLegId(binding.mandateId, source.fill.id, 'close') : null;
-        await this.checked(session, tx.insert(copyLiveSignalLegs).values({ id, mandateId: binding.mandateId, sourceFillId: source.fill.id, ...canonical, dependsOnId: dependencyId, createdAt: new Date(now), updatedAt: new Date(now) }).onConflictDoNothing());
+        legWorks.push(sent(this.checked(session, tx.insert(copyLiveSignalLegs).values({ id, mandateId: binding.mandateId, sourceFillId: source.fill.id, ...canonical, dependsOnId: dependencyId, createdAt: new Date(now), updatedAt: new Date(now) }).onConflictDoNothing())));
       }
       // The merged legs are claimed by this order: planned, then skipped (never
       // sent on their own); one already claimed elsewhere refuses the merge.
-      for (const member of source.members) {
-        const [currentMember] = await this.checked(session, tx.select().from(copyLiveSourceFills).where(eq(copyLiveSourceFills.id, member.fill.id)));
-        riskSourceRequire(currentMember && decodeLiveSourceFill(currentMember).sourceDigest === member.fill.sourceDigest, 'live_preparation_source');
+      const memberWorks = source.members.map(member => {
         const id = liveSourceLegId(binding.mandateId, member.fill.id, member.leg.leg);
-        await this.checked(session, tx.insert(copyLiveSignalLegs).values({ id, mandateId: binding.mandateId, sourceFillId: member.fill.id, ...member.leg, dependsOnId: null, createdAt: new Date(now), updatedAt: new Date(now) }).onConflictDoNothing());
-        const skipped = await this.checked(session, tx.update(copyLiveSignalLegs).set({ state: 'skipped', revision: sql`${copyLiveSignalLegs.revision} + 1`, updatedAt: new Date(now) })
-          .where(and(eq(copyLiveSignalLegs.id, id), eq(copyLiveSignalLegs.state, 'planned'), sql`${copyLiveSignalLegs.executionKey} is null`)).returning({ id: copyLiveSignalLegs.id }));
-        riskSourceRequire(skipped.length === 1, 'live_preparation_claim_conflict');
+        return { member,
+          current: sent(this.checked(session, tx.select().from(copyLiveSourceFills).where(eq(copyLiveSourceFills.id, member.fill.id)))),
+          inserted: sent(this.checked(session, tx.insert(copyLiveSignalLegs).values({ id, mandateId: binding.mandateId, sourceFillId: member.fill.id, ...member.leg, dependsOnId: null, createdAt: new Date(now), updatedAt: new Date(now) }).onConflictDoNothing())),
+          skipped: sent(this.checked(session, tx.update(copyLiveSignalLegs).set({ state: 'skipped', revision: sql`${copyLiveSignalLegs.revision} + 1`, updatedAt: new Date(now) })
+            .where(and(eq(copyLiveSignalLegs.id, id), eq(copyLiveSignalLegs.state, 'planned'), sql`${copyLiveSignalLegs.executionKey} is null`)).returning({ id: copyLiveSignalLegs.id }))) };
+      });
+      const legWork = sent(this.checked(session, tx.select().from(copyLiveSignalLegs).where(eq(copyLiveSignalLegs.id, legId)).for('update')));
+      const nonceWork = sent(allocateSignerNonce(tx, network, authorization.signerAddress, now, query => this.checked(session, query), true));
+      if (seedWork) await seedWork;
+      if (resetWork) riskSourceRequire((await resetWork).length === 1, 'live_preparation_generation_changed');
+      for (const work of legWorks) await work;
+      for (const { member, current: memberRow, inserted, skipped } of memberWorks) {
+        const [currentMember] = await memberRow;
+        riskSourceRequire(currentMember && decodeLiveSourceFill(currentMember).sourceDigest === member.fill.sourceDigest, 'live_preparation_source');
+        await inserted;
+        riskSourceRequire((await skipped).length === 1, 'live_preparation_claim_conflict');
       }
-      const [leg] = await this.checked(session, tx.select().from(copyLiveSignalLegs).where(eq(copyLiveSignalLegs.id, legId)).for('update'));
+      const [leg] = await legWork;
       riskSourceRequire(leg?.state === 'planned' && leg.executionKey === null && leg.mandateId === binding.mandateId && leg.sourceFillId === source.fill.id &&
         leg.tradeKey === source.leg.tradeKey && leg.sign === source.leg.sign && leg.size === source.leg.size && leg.fraction === source.leg.fraction && leg.dependsOnId === plan.dependsOnLegId, 'live_preparation_claim_conflict');
-      const nonce = await allocateSignerNonce(tx, network, authorization.signerAddress, now, query => this.checked(session, query));
+      const nonce = await nonceWork;
       riskSourceRequire(Number.isSafeInteger(nonce) && nonce >= now && nonce <= now + 30000, 'nonce_clock_skew');
+      // 3. The journal, the first baseline, the leg's claim, the provenance.
       const saved: LiveExecutionRecord = { key, fingerprint, authorization, action, market, nonce, expiresAfter: now + 60000, state: 'prepared', createdAt: now, updatedAt: now };
-      await this.checked(session, tx.insert(copyLiveExecutions).values({ key, network, accountAddress: local.account.address!, signerAddress: authorization.signerAddress,
-        cloid, nonce, userId: local.account.userId, strategyId: local.strategy.id, state: 'prepared', record: saved as unknown as Record<string, unknown>, updatedAt: new Date(now) }));
-      if (!manifest) await this.checked(session, tx.insert(copyLivePositionBaselines).values({ mandateId: baseline.mandateId, firstExecutionKey: key, accountId: baseline.accountId, strategyId: baseline.strategyId,
+      const journalWork = sent(this.checked(session, tx.insert(copyLiveExecutions).values({ key, network, accountAddress: local.account.address!, signerAddress: authorization.signerAddress,
+        cloid, nonce, userId: local.account.userId, strategyId: local.strategy.id, state: 'prepared', record: saved as unknown as Record<string, unknown>, updatedAt: new Date(now) })));
+      const baselineWork = manifest ? undefined : sent(this.checked(session, tx.insert(copyLivePositionBaselines).values({ mandateId: baseline.mandateId, firstExecutionKey: key, accountId: baseline.accountId, strategyId: baseline.strategyId,
         network: baseline.network, accountAddress: baseline.accountAddress, observedAt: new Date(baseline.observedAt), completedAt: new Date(baseline.completedAt), createdAt: new Date(baseline.createdAt),
-        sourceDigest: baseline.sourceDigest, snapshotDigest: baseline.snapshotDigest, baselineDigest: baseline.baselineDigest, record: baseline as unknown as Record<string, unknown>, producerVersion: 1 }));
-      const claimed = await this.checked(session, tx.update(copyLiveSignalLegs).set({ executionKey: key, state: 'prepared', fixedTradeClaim: plan.fixedTradeClaim, revision: leg.revision + 1, updatedAt: new Date(now) })
-        .where(and(eq(copyLiveSignalLegs.id, legId), eq(copyLiveSignalLegs.revision, leg.revision), eq(copyLiveSignalLegs.state, 'planned'))).returning({ id: copyLiveSignalLegs.id }));
-      riskSourceRequire(claimed.length === 1, 'live_preparation_claim_conflict');
-      await this.checked(session, tx.insert(copyLiveIntentProvenance).values({ key, legId, mandateId: binding.mandateId, mandateRevision: current.mandate.revision, sourceDigest: source.fill.sourceDigest,
+        sourceDigest: baseline.sourceDigest, snapshotDigest: baseline.snapshotDigest, baselineDigest: baseline.baselineDigest, record: baseline as unknown as Record<string, unknown>, producerVersion: 1 })));
+      const claimWork = sent(this.checked(session, tx.update(copyLiveSignalLegs).set({ executionKey: key, state: 'prepared', fixedTradeClaim: plan.fixedTradeClaim, revision: leg.revision + 1, updatedAt: new Date(now) })
+        .where(and(eq(copyLiveSignalLegs.id, legId), eq(copyLiveSignalLegs.revision, leg.revision), eq(copyLiveSignalLegs.state, 'planned'))).returning({ id: copyLiveSignalLegs.id })));
+      const provenanceWork = sent(this.checked(session, tx.insert(copyLiveIntentProvenance).values({ key, legId, mandateId: binding.mandateId, mandateRevision: current.mandate.revision, sourceDigest: source.fill.sourceDigest,
         settingsDigest: current.consent.settingsDigest, fingerprint, plannerVersion: 1, intent: intent as unknown as Record<string, unknown>, sizingBasis: sizing as unknown as Record<string, unknown>,
-        sizingBasisDigest: riskSourceDigest(sizing), admittedAt: new Date(now) }));
+        sizingBasisDigest: riskSourceDigest(sizing), admittedAt: new Date(now) })));
+      await journalWork;
+      if (baselineWork) await baselineWork;
+      riskSourceRequire((await claimWork).length === 1, 'live_preparation_claim_conflict');
+      await provenanceWork;
       await session.scope.assertHeld(); this.fresh(started);
       planLiveSourceOrder({ mandate: current.mandate, settings: current.settings, fill: source.fill, leg: source.leg, sizingBasis: sizing, now: this.now(), limits: current.limits, currentExecutionKey: key, ...(members.length ? { members } : {}), settlementProofs, projectionMemo });
       this.fresh(oldest);
       return saved;
-    });
+    }, { readsFirst: true });
     mark('preparation_journal_transaction');
     session.scope.assertFresh();
     this.fresh(started); this.fresh(oldest);

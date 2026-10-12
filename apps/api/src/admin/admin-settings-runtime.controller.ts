@@ -5,7 +5,7 @@ import { ApiDoc } from "../common/decorators/http.decorator.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { AdminSystemService } from "./admin-system.service.js";
 @Controller("admin/settings/runtime")
-@RequirePermissions("settings.read")
+@RequirePermissions("admin.access", "settings.read")
 export class AdminSettingsRuntimeController {
   constructor(private readonly settings: SettingsService, private readonly system: AdminSystemService) {}
   @Get()

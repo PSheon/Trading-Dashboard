@@ -28,7 +28,7 @@ const address = "0x" + "ab".repeat(20);
 const token = "admin-trader-read-service-token-123456789";
 beforeAll(async () => {
   vi.stubEnv("AUTH_SERVICE_TOKEN", token);
-  vi.stubEnv("AUTH_SERVICE_PERMISSIONS", "traders.read");
+  vi.stubEnv("AUTH_SERVICE_PERMISSIONS", "admin.access,traders.read");
   await truncateAll(db);
   await insertUser(db, {
     privyUserId: "did:privy:trader-admin",

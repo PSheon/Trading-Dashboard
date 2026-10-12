@@ -24,7 +24,7 @@ const address = "0x" + "ab".repeat(20);
 const token = "sources-read-only-token-123456789012345";
 beforeAll(async () => {
   vi.stubEnv("AUTH_SERVICE_TOKEN", token);
-  vi.stubEnv("AUTH_SERVICE_PERMISSIONS", "sources.read");
+  vi.stubEnv("AUTH_SERVICE_PERMISSIONS", "admin.access,sources.read");
   await truncateAll(db);
   await insertUser(db, {
     privyUserId: "did:privy:sources-admin",

@@ -4,7 +4,7 @@ import { RequirePermissions } from "../common/auth/permissions.js";
 import { ApiDoc } from "../common/decorators/http.decorator.js";
 import { AdminTraderRepository } from "./admin-trader.repository.js";
 @Controller("admin/traders")
-@RequirePermissions("traders.read")
+@RequirePermissions("admin.access", "traders.read")
 export class AdminTraderController {
   constructor(private readonly repository: AdminTraderRepository) {}
   @Get(":chain/:address")

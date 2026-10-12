@@ -4,7 +4,7 @@ import { ApiDoc } from "../common/decorators/http.decorator.js";
 import { AdminAuditRepository } from "./admin-audit.repository.js";
 import { AuditQueryDto } from "./dto/audit.dto.js";
 @Controller("admin/audit")
-@RequirePermissions("audit.read")
+@RequirePermissions("admin.access", "audit.read")
 export class AdminAuditController {
   constructor(private readonly repository: AdminAuditRepository) {}
   @Get()

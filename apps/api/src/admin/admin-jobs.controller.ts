@@ -18,7 +18,7 @@ import { CurrentUser, type RequestUser } from "../common/auth/current-user.js";
 import { BackfillJobsRepository } from "../jobs/backfill-jobs.repository.js";
 
 @Controller("admin/jobs")
-@RequirePermissions("jobs.read")
+@RequirePermissions("admin.access", "jobs.read")
 export class AdminJobsController {
   constructor(private readonly repository: BackfillJobsRepository) {}
   @ApiDoc("List initial backfill jobs")

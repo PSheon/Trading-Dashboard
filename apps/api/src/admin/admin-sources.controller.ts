@@ -3,7 +3,7 @@ import { RequirePermissions } from "../common/auth/permissions.js";
 import { ApiDoc } from "../common/decorators/http.decorator.js";
 import { AdminSourcesRepository } from "./admin-sources.repository.js";
 @Controller("admin/data-sources")
-@RequirePermissions("sources.read")
+@RequirePermissions("admin.access", "sources.read")
 export class AdminSourcesController {
   constructor(private readonly repository: AdminSourcesRepository) {}
   @Get()

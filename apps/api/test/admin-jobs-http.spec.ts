@@ -20,7 +20,7 @@ let app: INestApplication;
 const serviceToken = 'jobs-read-only-service-test-1234567890';
 beforeAll(async () => {
   vi.stubEnv('AUTH_SERVICE_TOKEN', serviceToken);
-  vi.stubEnv('AUTH_SERVICE_PERMISSIONS', 'jobs.read');
+  vi.stubEnv('AUTH_SERVICE_PERMISSIONS', 'admin.access,jobs.read');
   await truncateAll(db);
   await insertUser(db, { privyUserId: 'did:privy:jobs-admin', role: 'admin' });
   ({ app } = await createAuthedApp({

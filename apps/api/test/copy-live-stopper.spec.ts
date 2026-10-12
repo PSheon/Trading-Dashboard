@@ -318,6 +318,29 @@ describe('testnet stop execution', () => {
     expect(await db.select().from(schema.copyLiveStopOperations)).toHaveLength(1);
   });
 
+  it('a copy Hyperliquid liquidated is stopped and its remaining positions closed, despite the quarantine (architecture review §7.3)', async () => {
+    await db.delete(schema.copyLiveStopOperations); await db.update(schema.copyStrategies).set({ status: 'active', pauseNewRisk: false, reduceOnly: false });
+    await db.update(schema.copyLiveMandates).set({ state: 'active' });
+    const base = testConfig(), live = { get value() { return { ...base.value, copy: { ...base.value.copy, live: { network: 'testnet' } } }; } } as unknown as typeof base;
+    const system = new CopyLiveSystemStops(db, new UnitOfWork(db), new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, live)), live);
+    system.now = () => clock;
+    const liquidation = () => new CopyLiveStopper({ repository: new CopyLiveStopWorkerRepository(db, new UnitOfWork(db), testConfig()), closer, canceller: canceller as unknown as StopCanceller,
+      swept: async () => swept, systemStops: { agentExpiryMarginMs: AGENT_EXPIRY_STOP_MARGIN_MS, stopExpiring: margin => system.stopExpiring(margin),
+        stopLiquidated: () => system.stopLiquidated(), resumePendingCloseAll: async () => [] } }, () => clock);
+    await db.update(schema.copyAgentSetups).set({ expiresAt: new Date(clock + 30 * 86_400_000) }); // not an expiry stop
+    await liquidation().tick();
+    expect(await db.select().from(schema.copyLiveStopOperations)).toEqual([]);
+    await db.insert(schema.copyFollowerAccountState).values({ accountId: 'account', quarantined: true, reason: 'follower_liquidated' })
+      .onConflictDoUpdate({ target: schema.copyFollowerAccountState.accountId, set: { quarantined: true, reason: 'follower_liquidated' } });
+    positions = [{ coin: 'BTC', size: '0.5' }];
+    clock += 61_000; await liquidation().tick();
+    const stop = await stopRow();
+    expect(stop).toMatchObject({ state: 'closing', trackingComplete: true });
+    expect(stop.idempotencyKey).toMatch(/^liquidated-liquidation-mandate-\d+$/);
+    await liquidation().tick();
+    expect(closes.map(c => c.seed.split(':').slice(-2).join(':'))).toEqual(['BTC:0']);
+  });
+
   it('tracked resting orders need the owner\'s cancellation consent; untracked orders block the close', async () => {
     const tracked = `testnet:${account()}:0x${'cd'.repeat(16)}`; await journal(tracked, 'resting');
     await stopper().tick(); expect(await stopRow()).toMatchObject({ state: 'cancelling' });

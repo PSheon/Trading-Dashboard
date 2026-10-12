@@ -98,7 +98,7 @@ export const liveEngineProvider: FactoryProvider<CopyLiveEngine | null> = {
     // need it), and an admin close-all the api did not finish is resumed.
     const systemStops = new CopyLiveSystemStops(db, uow, new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, config)), config);
     const stopper = new CopyLiveStopper({ repository: stops, closer, log: message => logger.warn(message), revokeDeadlineMs: live.revokeDeadlineMs,
-      systemStops: { agentExpiryMarginMs: AGENT_EXPIRY_STOP_MARGIN_MS, stopExpiring: marginMs => systemStops.stopExpiring(marginMs), resumePendingCloseAll: () => systemStops.resumePendingCloseAll() },
+      systemStops: { agentExpiryMarginMs: AGENT_EXPIRY_STOP_MARGIN_MS, stopExpiring: marginMs => systemStops.stopExpiring(marginMs), stopLiquidated: () => systemStops.stopLiquidated(), resumePendingCloseAll: () => systemStops.resumePendingCloseAll() },
       canceller: new StopCanceller(network, pool, db, walletConfig, walletGlobal, walletBudget, stops, (account, key) => closer.reconcile(account, key)),
       // The stop ends once a sweep to the main wallet is credited: signed by
       // the worker under the owner's policy (CopyModule's one signer).

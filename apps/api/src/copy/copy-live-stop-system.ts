@@ -25,8 +25,8 @@ export interface CloseAllOutcome {
   readonly liveCloseAll: 'done'; readonly liveStops: number; readonly liveStopping: number; readonly liveUnhandled: Unhandled[]; readonly complete: boolean;
 }
 /** Why the system stops a copy; part of the stop's idempotency key and audit. */
-export type SystemStopReason = 'admin_close_all' | 'agent_expiring';
-const KEY_PREFIX: Record<SystemStopReason, string> = { admin_close_all: 'admin-close-all', agent_expiring: 'agent-expiry' };
+export type SystemStopReason = 'admin_close_all' | 'agent_expiring' | 'follower_liquidated';
+const KEY_PREFIX: Record<SystemStopReason, string> = { admin_close_all: 'admin-close-all', agent_expiring: 'agent-expiry', follower_liquidated: 'liquidated' };
 const PAGE = 500;
 /** A close-all the api did not finish (it crashed after the control commit)
  * is resumed by the worker once it is this old. */
@@ -56,7 +56,7 @@ export class CopyLiveSystemStops {
   /** Actual copies of this network that have not stopped, optionally of one
    * owner, started before `createdBefore`, or whose active agent expires by
    * `agentExpiresBy`; all of them (paged), none skipped silently. */
-  async targets(filter: { userId?: number; createdBefore?: Date; agentExpiresBy?: Date } = {}): Promise<CloseAllTargets> {
+  async targets(filter: { userId?: number; createdBefore?: Date; agentExpiresBy?: Date; liquidated?: boolean } = {}): Promise<CloseAllTargets> {
     const network = deploymentNetwork(this.config), enabled = liveExecutionEnabled(this.config);
     const copies: RunningCopy[] = [], stopping: CloseAllTargets['stopping'] = [], unhandled: Unhandled[] = [];
     for (let after = '';;) {
@@ -65,7 +65,8 @@ export class CopyLiveSystemStops {
         .where(and(eq(copyStrategies.mode, ACTUAL_STRATEGY_MODE), eq(copyStrategies.network, network), eq(copyExecutionAccounts.network, network), ne(copyStrategies.status, 'stopped'),
           gt(copyExecutionAccounts.id, after), filter.userId === undefined ? undefined : eq(copyExecutionAccounts.userId, filter.userId),
           filter.createdBefore ? lt(copyStrategies.createdAt, filter.createdBefore) : undefined,
-          filter.agentExpiresBy ? sql`exists (select 1 from copy_agent_setups s where s.account_id = ${copyExecutionAccounts.id} and s.state = 'active' and s.expires_at <= ${filter.agentExpiresBy})` : undefined))
+          filter.agentExpiresBy ? sql`exists (select 1 from copy_agent_setups s where s.account_id = ${copyExecutionAccounts.id} and s.state = 'active' and s.expires_at <= ${filter.agentExpiresBy})` : undefined,
+          filter.liquidated ? sql`exists (select 1 from copy_follower_account_state q where q.account_id = ${copyExecutionAccounts.id} and q.quarantined and q.reason = 'follower_liquidated')` : undefined))
         .orderBy(asc(copyExecutionAccounts.id)).limit(PAGE);
       for (const account of page) {
         const [open] = await this.db.select({ id: copyLiveStopOperations.id, state: copyLiveStopOperations.state }).from(copyLiveStopOperations)
@@ -151,6 +152,15 @@ export class CopyLiveSystemStops {
     const done: Array<{ event: string } & CloseAllOutcome> = [];
     for (const event of pending) done.push({ event: String(event.id), ...await this.closeAll(event, null) });
     return done;
+  }
+
+  /** Copies Hyperliquid liquidated are stopped (architecture review §7.3):
+   * before, the account was only quarantined, the copy stayed active and
+   * what was left of its funds was never returned. */
+  async stopLiquidated(): Promise<SystemStopOutcome> {
+    const targets = await this.targets({ liquidated: true });
+    const outcome = targets.copies.length ? await this.stopAll(targets.copies, 'follower_liquidated', null, 'liquidation') : { stopped: [], refused: [] };
+    return { stopped: outcome.stopped, refused: [...targets.unhandled, ...outcome.refused] };
   }
 
   /** Copies whose agent expires within `marginMs` are stopped before it does

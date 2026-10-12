@@ -51,6 +51,8 @@ export interface StopperDependencies {
   readonly systemStops?: {
     readonly agentExpiryMarginMs: number;
     stopExpiring(marginMs: number): Promise<SystemStopOutcome>;
+    /** Copies whose account Hyperliquid liquidated (optional: older wiring). */
+    stopLiquidated?(): Promise<SystemStopOutcome>;
     resumePendingCloseAll(): Promise<Array<{ event: string; liveStops: number; liveUnhandled: readonly { accountId: string; code: string }[] }>>;
   } | null;
 }
@@ -100,6 +102,11 @@ export class CopyLiveStopper {
         for (const stopped of outcome.stopped) this.deps.log?.(`copy account ${stopped.accountId} stopped before its agent expires (stop ${stopped.stopId})`);
         for (const refused of outcome.refused) this.deps.log?.(`copy account ${refused.accountId} could not be stopped before its agent expires: ${refused.code}`);
       } catch (error) { this.deps.log?.(`agent expiry check failed: ${why(error)}`); }
+      if (system.stopLiquidated) try {
+        const outcome = await system.stopLiquidated();
+        for (const stopped of outcome.stopped) this.deps.log?.(`copy account ${stopped.accountId} stopped after Hyperliquid liquidated it (stop ${stopped.stopId})`);
+        for (const refused of outcome.refused) this.deps.log?.(`copy account ${refused.accountId} was liquidated and could not be stopped: ${refused.code}`);
+      } catch (error) { this.deps.log?.(`liquidation stop check failed: ${why(error)}`); }
     }
     // A pending admin revoke is bounded: once the stop it waits for is
     // blocked or gone, or past the deadline once that stop is flat, the

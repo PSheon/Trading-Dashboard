@@ -44,6 +44,29 @@ async function midSetupCopy(id: number) {
     privyUserId: 'did:privy:risk-source', externalId: `external-${id}`, privyWalletId: `master-${id}`, ownerQuorumId: 'owner' });
 }
 
+describe('a copy Hyperliquid liquidated (architecture review §7.3)', () => {
+  it('is stopped (close, then return) instead of staying active and quarantined; any other copy is left alone', async () => {
+    expect(await system.stopLiquidated()).toEqual({ stopped: [], refused: [] });
+    expect(await db.select().from(schema.copyLiveStopOperations)).toHaveLength(0);
+    await db.insert(schema.copyFollowerAccountState).values({ accountId: 'account', quarantined: true, reason: 'follower_liquidated' })
+      .onConflictDoUpdate({ target: schema.copyFollowerAccountState.accountId, set: { quarantined: true, reason: 'follower_liquidated' } });
+    const outcome = await system.stopLiquidated();
+    const [stop] = await db.select().from(schema.copyLiveStopOperations);
+    expect(outcome).toEqual({ stopped: [{ accountId: 'account', stopId: stop!.id }], refused: [] });
+    expect(stop).toMatchObject({ accountId: 'account', mandateId: 'mandate', state: 'requested' });
+    expect(stop!.idempotencyKey).toBe('liquidated-liquidation-mandate-2');
+    expect((await db.select().from(schema.copyStrategies))[0]).toMatchObject({ status: 'stopping', reduceOnly: true });
+    // Checked again: the copy is already stopping, no second stop.
+    expect((await system.stopLiquidated()).stopped).toEqual([]);
+    expect(await db.select().from(schema.copyLiveStopOperations)).toHaveLength(1);
+  });
+  it('another quarantine reason is not a liquidation: nothing is stopped', async () => {
+    await db.insert(schema.copyFollowerAccountState).values({ accountId: 'account', quarantined: true, reason: 'follower_unattributed_trade' })
+      .onConflictDoUpdate({ target: schema.copyFollowerAccountState.accountId, set: { quarantined: true, reason: 'follower_unattributed_trade' } });
+    expect(await system.stopLiquidated()).toEqual({ stopped: [], refused: [] });
+  });
+});
+
 describe('admin close-all on actual copies', () => {
   it('stops every running actual copy (close, then return) through the stop executor, audited per copy and with its outcome on the event', async () => {
     const result = await controls.apply({ scope: 'platform', command: 'close_positions', expectedRevision: 0, reason: 'kill switch drill' }, admin);

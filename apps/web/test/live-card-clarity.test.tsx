@@ -54,36 +54,71 @@ it('never claims a stopped return was credited from accepted or unknown evidence
     await render(); expect(card().textContent).toContain('返還中'); expect(card().textContent).not.toContain('返還已入帳');
   }
 });
-it('places the specific unknown-PnL reason beside the number', async () => {
-  await render(); expect(card().textContent).toContain('帳戶觀察尚未確認');
-  state.snapshot = { status: 'observed', metrics: { perpEquity: '49', withdrawable: '49' }, positions: [], asOf: { observedAt: Date.parse('2026-10-08T01:00:00Z') } };
-  await render(); expect(card().textContent).toContain('資金紀錄尚未完整核對');
-  expect(card().querySelector('time[datetime="2026-10-08T01:00:00.000Z"]')).not.toBeNull();
-  state.items = [item({ stage: 'sweeping' })];
-  await render(); expect(card().textContent).toContain('返還尚未確認入帳');
-  state.items = [item({ stage: 'stopping' })];
-  await render(); expect(card().textContent).toContain('停止與平倉進行中');
-  expect(card().textContent).not.toContain('資金移轉中');
+const sheet = () => document.querySelector<HTMLElement>('[data-testid="live-copy-sheet"]')!;
+const observedAt = Date.parse('2026-10-08T01:00:00Z');
+const observed = { status: 'observed', metrics: { perpEquity: '49', withdrawable: '49' }, positions: [], asOf: { observedAt } };
+const transfer = { id: 'op-1', direction: 'to_account', status: 'accepted', amount: '10' } as LiveCopyItem['pendingTransfer'];
+// Each reason the PnL is unknown: the card says 待確認 only; the sheet says which.
+const unknownCases: [string, () => void, string][] = [
+  ['observation', () => { state.items = [item()]; state.snapshot = null; }, '帳戶觀察尚未確認，損益未知'],
+  ['history', () => { state.items = [item()]; state.snapshot = observed; }, '資金紀錄尚未完整核對，損益未知'],
+  ['transfer', () => { state.items = [item({ pendingTransfer: transfer })]; state.snapshot = observed; }, '資金移轉狀態待確認，損益未知'],
+  ['funding', () => { state.items = [item({ stage: 'funding' })]; state.snapshot = null; }, '入金尚未確認入帳，損益待確認'],
+  ['stopping', () => { state.items = [item({ stage: 'stopping' })]; state.snapshot = null; }, '停止與平倉進行中，損益待確認'],
+  ['return', () => { state.items = [item({ stage: 'sweeping' })]; state.snapshot = null; }, '返還尚未確認入帳，損益待確認'],
+  ['stopped', () => { state.items = [item({ stage: 'stopped', status: 'stopped' })]; state.snapshot = null; }, '已停止，此處未確認最終損益'],
+];
+it.each(unknownCases)('an unknown PnL (%s) is one 待確認 pill on the card, its reason in the detail', async (_name, arrange, reason) => {
+  arrange();
+  await render();
+  expect(card().querySelector('[data-testid="live-copy-unconfirmed"]')!.textContent).toBe('待確認');
+  expect(card().textContent).toContain('—');
+  for (const sentence of unknownCases.map(([, , r]) => r)) expect(card().textContent).not.toContain(sentence);
+  await openCard();
+  const detail = sheet().querySelector('[data-testid="live-copy-unknown-reason"]')!;
+  expect(detail.textContent).toContain('待確認');
+  expect(detail.textContent).toContain(reason);
+});
+it('a known PnL has no 待確認 pill on the card or in the detail', async () => {
+  state.snapshot = observed;
+  state.flows = [{ id: 'funding:1', kind: 'copy_funding', mode: 'testnet', amount: 50, strategyId: liveAccount.strategyId, status: 'credited', counterparty: liveAccount.address, fee: null, time: '2026-10-08T00:00:00Z' }];
+  await render(); await openCard();
+  expect(card().textContent).toContain('-$1.00');
+  expect(document.querySelector('[data-testid="live-copy-unconfirmed"]')).toBeNull();
+  expect(document.querySelector('[data-testid="live-copy-unknown-reason"]')).toBeNull();
+});
+it('keeps the operational times off the card and shows them in the detail', async () => {
+  state.snapshot = observed;
+  state.items = [item({ lastRefusal: { reason: 'live_source_price_deviation', at: '2026-10-08T03:00:00Z' }, executionSummary: { pending: 2, confirming: 1, oldestPendingAt: '2026-10-08T01:00:00Z',
+    lastCompletedAt: '2026-10-08T01:30:00Z', sourceThrough: '2026-10-08T02:00:00Z', observedAt: '2026-10-08T02:00:05Z' } })];
+  await render();
+  expect(card().textContent).toContain('策略已啟用');
+  for (const line of ['待處理 2', '待確認 1', '最早待處理', '最近核對完成', '領單紀錄已讀取至', '執行狀態更新', '最新帳戶觀察', '最近未執行紀錄']) expect(card().textContent).not.toContain(line);
+  expect(card().querySelector('time')).toBeNull();
+  await openCard();
+  for (const line of ['待處理 2', '待確認 1', '最早待處理', '最近核對完成', '領單紀錄已讀取至', '執行狀態更新', '最新帳戶觀察', '最近未執行紀錄']) expect(sheet().textContent).toContain(line);
+  for (const at of ['2026-10-08T01:00:00Z', '2026-10-08T01:30:00Z', '2026-10-08T02:00:00Z', '2026-10-08T02:00:05Z', '2026-10-08T01:00:00.000Z', '2026-10-08T03:00:00Z']) expect(sheet().querySelector(`time[datetime="${at}"]`), at).not.toBeNull();
 });
 it('separates enabled strategy from pending execution and verified completion', async () => {
   state.items = [item({ executionSummary: { pending: 2, confirming: 1, oldestPendingAt: '2026-10-08T01:00:00Z',
     lastCompletedAt: null, sourceThrough: '2026-10-08T02:00:00Z', observedAt: '2026-10-08T02:00:05Z' } })];
-  await render();
-  expect(card().textContent).toContain('策略已啟用');
-  expect(card().textContent).toContain('待處理 2'); expect(card().textContent).toContain('待確認 1');
-  expect(card().textContent).toContain('最早待處理');
-  expect(card().textContent).not.toContain('最近核對完成');
-  expect(card().querySelector('time[datetime="2026-10-08T01:00:00Z"]')).not.toBeNull();
+  await render(); await openCard();
+  expect(sheet().textContent).toContain('策略已啟用');
+  expect(sheet().textContent).toContain('待處理 2'); expect(sheet().textContent).toContain('待確認 1');
+  expect(sheet().textContent).toContain('最早待處理');
+  expect(sheet().textContent).not.toContain('最近核對完成');
   state.items = [item({ executionSummary: { pending: 0, confirming: 0, oldestPendingAt: null,
     lastCompletedAt: '2026-10-08T02:00:00Z', sourceThrough: null, observedAt: '2026-10-08T02:00:05Z' } })];
-  await render(); expect(card().textContent).toContain('最近核對完成');
-  expect(card().textContent).not.toContain('最早待處理');
+  await render(); expect(sheet().textContent).toContain('最近核對完成');
+  expect(sheet().textContent).not.toContain('最早待處理');
 });
 it('does not invent healthy execution from a legacy API or unavailable observation', async () => {
+  await render(); await openCard();
   for (const executionSummary of [undefined, null]) {
     state.items = [item({ executionSummary })]; await render();
-    expect(card().textContent).toContain('執行狀態尚未確認');
-    expect(card().textContent).not.toContain('待處理 0');
+    expect(sheet().textContent).toContain('執行狀態尚未確認');
+    expect(sheet().textContent).not.toContain('待處理 0');
+    expect(card().textContent).not.toContain('執行狀態尚未確認');
   }
 });
 it('names wallet roles and only identifies the controlled leader on explicit testnet', async () => {

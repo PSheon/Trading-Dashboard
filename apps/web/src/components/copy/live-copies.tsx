@@ -190,7 +190,7 @@ function lifecycleLabel(item: LiveCopyItem, t: ReturnType<typeof useI18n>['t']):
   return null;
 }
 
-function ExecutionObservation({ item, detailed = false }: { item: LiveCopyItem; detailed?: boolean }) {
+function ExecutionObservation({ item }: { item: LiveCopyItem }) {
   const { t, format } = useI18n();
   if (!['active', 'paused', 'starting', 'stopping'].includes(item.stage)) return null;
   const summary = item.executionSummary;
@@ -202,14 +202,20 @@ function ExecutionObservation({ item, detailed = false }: { item: LiveCopyItem; 
     </span>
     {summary.oldestPendingAt ? <span>{t('liveCopyUi.oldestPending')} · {date(summary.oldestPendingAt)}</span> : null}
     {summary.lastCompletedAt ? <span>{t('liveCopyUi.lastCompleted')} · {date(summary.lastCompletedAt)}</span> : null}
-    {detailed && summary.sourceThrough ? <span>{t('liveCopyUi.sourceThrough')} · {date(summary.sourceThrough)}</span> : null}
+    {summary.sourceThrough ? <span>{t('liveCopyUi.sourceThrough')} · {date(summary.sourceThrough)}</span> : null}
     <span>{t('liveCopyUi.executionObservation')} · {date(summary.observedAt)}</span>
   </span>;
 }
 
+/** One pill for every reason the PnL is not known yet (the reason is in the detail). */
+function UnconfirmedPill({ className }: { className?: string }) {
+  const { t } = useI18n();
+  return <span data-testid="live-copy-unconfirmed" className={cn('chip-sm shrink-0 bg-tag-warning text-tag-warning-foreground', className)}>{t('liveCopyUi.unconfirmed')}</span>;
+}
+
 function LiveCopyCard({ item, leader, account, onOpen, onEquity }: { item: LiveCopyItem; leader: Leader; account: CopyExecutionAccount | null; onOpen: () => void; onEquity?: (strategyId: number, equity: number | null) => void }) {
   const { t, format } = useI18n();
-  const { equity, pnl, roi, unknownReason, observedTime } = useFigures(item, account);
+  const { equity, pnl, roi } = useFigures(item, account);
   useEffect(() => { onEquity?.(item.strategyId, item.stage === 'stopped' ? null : equity); }, [onEquity, item.strategyId, item.stage, equity]);
   const status = cardStatus(item);
   return (
@@ -222,14 +228,12 @@ function LiveCopyCard({ item, leader, account, onOpen, onEquity }: { item: LiveC
           <span aria-hidden className={cn('size-2 rounded-full', DOT[status])} />{lifecycleLabel(item, t) ?? (status === 'running' ? t('liveCopyUi.enabled') : t(`folio.status.${status}`))}
         </span>
       </span>
-      {pnl === null ? <span className="pl-12 text-[11px] leading-4 text-muted-foreground">{t(unknownReason)}</span> : null}
-      {pnl === null && observedTime ? <span className="pl-12 text-[11px] leading-4 text-muted-foreground">{t('liveCopyUi.latestObservation')} · <time dateTime={observedTime}>{format.dateTime(observedTime)}</time></span> : null}
-      {item.lastRefusal ? <span className="pl-12 text-[11px] leading-4 text-warning">{t('liveCopyUi.riskAttention')} · <time dateTime={item.lastRefusal.at}>{format.dateTime(item.lastRefusal.at)}</time></span> : null}
-      <span className="min-w-0 pl-12"><ExecutionObservation item={item} /></span>
+      {/* The card is the state and the figures; why a figure is unknown and
+          the execution's times are in the detail sheet. */}
       <span className="flex min-w-0 items-center gap-2 pl-12">
         <span className="text-xs text-muted-foreground">{t('folio.pnl')}</span>
         <span className={cn('num text-[0.9375rem] font-bold', pnl === null ? 'text-muted-foreground' : pnl >= 0 ? 'text-positive' : 'text-negative')}>{pnl === null ? '—' : format.usd(pnl, { sign: true, digits: 2 })}</span>
-        {roi === null ? null : <RoiPill value={roi} className="ml-auto" />}
+        {pnl === null ? <UnconfirmedPill className="ml-auto" /> : roi === null ? null : <RoiPill value={roi} className="ml-auto" />}
       </span>
     </button>
   );
@@ -293,7 +297,7 @@ const floorCents = (value: string) => { const [whole, fraction = ''] = value.spl
 
 function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; text: LiveCopiesText; account: CopyExecutionAccount | null; strategy: LiveCopyStrategy | null }) {
   const { format, t } = useI18n(), auth = useAuth();
-  const { snapshot, fundingFees, observedTime } = useFigures(item, account);
+  const { snapshot, fundingFees, observedTime, pnl, unknownReason } = useFigures(item, account);
   const actions = useLiveCopyPortfolioActions();
   const track = useActionToast(), pendingToast = usePendingToast(), toast = useToast();
   const [amount, setAmount] = useState('');
@@ -345,11 +349,14 @@ function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; te
         <span role="status" className={cn('chip-sm', stageTone[item.stage])}>{autoReturning ? text.autoReturning : item.stage === 'active' ? t('liveCopyUi.enabled') : text.stages[item.stage]}</span>
         {lifecycleLabel(item, t) ? <span className="text-xs font-semibold text-muted-foreground">{lifecycleLabel(item, t)}</span> : null}
       </div>
-      <ExecutionObservation item={item} detailed />
+      {/* The card's 待確認 pill, with its reason. */}
+      {pnl === null ? <p data-testid="live-copy-unknown-reason" className="flex flex-wrap items-center gap-2 text-xs leading-5 text-muted-foreground"><UnconfirmedPill />{t(unknownReason)}</p> : null}
+      <ExecutionObservation item={item} />
       {/* A setup has its own stages (繼續設定); the hint that pointed at
           the Settings forms is gone (audit 2026-10-07). */}
       {item.stage !== 'setup' ? <p className="text-xs leading-5 text-muted-foreground">{autoReturning ? text.autoReturningHint : item.stage === 'active' ? t('liveCopyUi.enabledHint') : text.hints[item.stage]}</p> : null}
       {item.stage === 'stopped' && item.sweep?.status === 'credited' ? <p className="num text-xs font-semibold text-positive">{text.returned.replace('{amount}', item.sweep.amount)}</p> : null}
+      {item.lastRefusal ? <p className="text-xs text-warning">{t('liveCopyUi.riskAttention')} · <time dateTime={item.lastRefusal.at}>{format.dateTime(item.lastRefusal.at)}</time></p> : null}
       {reason ? <p className="text-xs text-warning">{text.refusal.replace('{reason}', reason)}</p> : null}
       {running ? <p className="text-xs leading-5 text-muted-foreground">{t('portfolio.copy.order.smallCloseHint')}</p> : null}
       {fundingFees !== null && fundingFees > 0 ? <div className="rounded-xl bg-inset px-3 py-2 text-xs"><p>{t('liveCopyUi.fundingFees')}: <span className="num font-semibold">{format.num(fundingFees, 2)} USDC</span></p><p className="mt-1 text-muted-foreground">{t('liveCopyUi.feeIncluded')}</p></div> : null}

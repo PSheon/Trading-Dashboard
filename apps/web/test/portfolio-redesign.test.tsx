@@ -127,16 +127,17 @@ it("withholds a combined total while a copy is returning funds, even when its pr
   expect(funds.textContent).not.toContain("$707.50");
 });
 
-it("a copy card distinguishes enabled strategy from unknown execution and opens its detail sheet", async () => {
+it("a copy card is its state and figures; the execution status is in its detail sheet", async () => {
   await render();
   expect(cards()).toHaveLength(3);
-  expect(cards()[0]!.textContent).toContain("solanadoomer"); expect(cards()[0]!.textContent).toContain("策略已啟用"); expect(cards()[0]!.textContent).toContain("執行狀態尚未確認"); expect(cards()[0]!.textContent).toContain("+$12.50");
+  expect(cards()[0]!.textContent).toContain("solanadoomer"); expect(cards()[0]!.textContent).toContain("策略已啟用"); expect(cards()[0]!.textContent).not.toContain("執行狀態尚未確認"); expect(cards()[0]!.textContent).toContain("+$12.50");
   expect(phone().textContent).toContain("已結束（1）");
   expect(document.querySelector('[data-testid="live-copy-sheet"]')).toBeNull();
   await act(async () => cards()[0]!.click());
   const sheet = document.querySelector('[data-testid="live-copy-sheet"]')!;
   expect(sheet).toBeTruthy();
   expect(sheet.textContent).toContain("$112.50"); expect(sheet.textContent).toContain("停止跟單");
+  expect(sheet.textContent).toContain("執行狀態尚未確認");
 });
 
 it("renders no internal id: no mandate UUID, 授權版本, full account address or copy number, and no other copy's stop", async () => {

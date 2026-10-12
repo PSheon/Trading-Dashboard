@@ -1,4 +1,5 @@
 import { Controller, Get, Global, Module, Post, type INestApplication } from "@nestjs/common";
+import { Reflector } from "@nestjs/core";
 import { adminAuditLogs } from "@trading-dashboard/shared/database";
 import { publicSettingsSchema } from "@trading-dashboard/shared/contracts";
 import * as schema from "@trading-dashboard/shared/database";
@@ -14,6 +15,14 @@ import { AdminController, PublicSettingsController } from "../src/admin/admin.co
 import { RevenueService } from "../src/admin/revenue.service.js";
 import type { AuthService } from "../src/common/auth/auth.service.js";
 import { Public } from "../src/common/auth/public.decorator.js";
+import { SafetyExit, SAFETY_EXIT_KEY } from "../src/common/auth/safety-exit.decorator.js";
+import { CopyFundingController } from "../src/copy/copy-funding.controller.js";
+import { CopyLiveCloseController } from "../src/copy/copy-live-close.controller.js";
+import { CopyLiveMandateController } from "../src/copy/copy-live-mandate.controller.js";
+import { CopyLiveReturnController } from "../src/copy/copy-live-return.controller.js";
+import { CopyLiveSetupController } from "../src/copy/copy-live-setup.controller.js";
+import { CopyLiveStopController } from "../src/copy/copy-live-stop.controller.js";
+import { CopyWalletController } from "../src/copy/copy-wallet.controller.js";
 import { SkipTransform } from "../src/common/decorators/http.decorator.js";
 import { DATABASE_POOL } from "../src/db/drizzle.provider.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
@@ -37,7 +46,38 @@ class ProbeController {
   @Public() @Post("probe/write") write() { return { written: true }; }
   @Public() @Get("probe/read") read() { return { read: true }; }
   @Public() @Post("health/probe") health() { return { ok: true }; }
+  @SafetyExit() @Post("probe/exit") exit() { return { exited: true }; }
 }
+
+type Handlers = { prototype: object; name: string };
+/** Every route that takes risk off a live copy or returns its funds. */
+const SAFETY_EXITS: [Handlers, string][] = [
+  [CopyLiveStopController, "request"], // POST me/copy/live/mandates/:id/stop
+  [CopyLiveMandateController, "pause"], // POST me/copy/live/mandates/:id/pause
+  [CopyLiveMandateController, "revoke"], // POST me/copy/live/mandates/:id/revoke
+  [CopyLiveCloseController, "request"], // POST me/copy/live/execution-wallets/:id/positions/close
+  [CopyLiveReturnController, "reserve"], // POST me/copy/live/execution-wallets/:id/returns
+  [CopyLiveReturnController, "approve"], // POST me/copy/live/returns/:id/approve
+  [CopyLiveSetupController, "abort"], // POST me/copy/live/setups/:id/abort
+  [CopyLiveSetupController, "cancel"], // POST me/copy/live/setups/:id/cancel
+  [CopyWalletController, "revoke"], // POST me/copy/wallet-authorizations/:id/revoke
+  [CopyWalletController, "automaticReturn"], // POST me/copy/execution-wallets/:id/automatic-return
+  [CopyFundingController, "cancel"], // POST me/copy/funding/:id/cancel
+  [CopyFundingController, "reconcile"], // POST me/copy/funding/:id/reconcile
+];
+/** Routes that add risk or move money in stay behind maintenance. */
+const NOT_EXITS: [Handlers, string][] = [
+  [CopyLiveMandateController, "resume"],
+  [CopyLiveSetupController, "start"], [CopyLiveSetupController, "confirm"], [CopyLiveSetupController, "advance"], [CopyLiveSetupController, "edit"],
+  [CopyFundingController, "reserve"], [CopyFundingController, "claim"], [CopyFundingController, "submit"],
+  [CopyWalletController, "prepare"],
+];
+const reflector = new Reflector();
+const marked = ([controller, method]: [Handlers, string]) => {
+  const handler = (controller.prototype as Record<string, unknown>)[method];
+  if (typeof handler !== "function") throw new Error(`${controller.name}.${method} is not a route handler`);
+  return reflector.get<boolean | undefined>(SAFETY_EXIT_KEY, handler as () => unknown) === true;
+};
 
 describe("maintenance mode (review finding 17)", () => {
   const db = getTestDb();
@@ -145,6 +185,19 @@ describe("maintenance mode (review finding 17)", () => {
     expect((await save("admin-token", maintenance({ enabled: false }))).status).toBe(200);
     await as("user-token").patch("/me", { displayName: "After" }).expect(200);
     expect((await db.select().from(adminAuditLogs)).map((a) => a.event)).toEqual(["settings.update", "settings.update"]);
+  });
+
+  it("on: a safety exit (stop, pause, close, cancel, abort, revoke, return) still runs for a user; other writes wait", async () => {
+    expect((await save("admin-token", maintenance())).status).toBe(200);
+    expect((await as("user-token").post("/probe/exit").expect(201)).body).toEqual({ exited: true });
+    // Still behind authentication.
+    await as().post("/probe/exit").expect(401);
+    await as("user-token").post("/probe/write").expect(503);
+  });
+
+  it("every live-copy safety exit route is marked, and no route that adds risk or money is", () => {
+    for (const route of SAFETY_EXITS) expect(marked(route), `${route[0].name}.${route[1]}`).toBe(true);
+    for (const route of NOT_EXITS) expect(marked(route), `${route[0].name}.${route[1]}`).toBe(false);
   });
 
   it("a user can't switch it on or off; an end time in the past sends no Retry-After and ends nothing by itself", async () => {

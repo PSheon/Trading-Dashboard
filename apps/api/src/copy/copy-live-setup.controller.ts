@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Header, HttpCode, Inject, Optional, Param, Patch, Post, ServiceUnavailableException, UseFilters } from '@nestjs/common';
 import { CurrentUser, requireUserId, type RequestUser } from '../common/auth/current-user.js';
+import { SafetyExit } from '../common/auth/safety-exit.decorator.js';
 import { ApiDoc } from '../common/decorators/http.decorator.js';
 import { BusyFilter } from '../traders/busy.js';
 import { CopyStrategyParamsDto } from './dto/copy.dto.js';
@@ -25,7 +26,7 @@ export class CopyLiveSetupController {
   recover(@CurrentUser() user: RequestUser | null, @Param() params: LiveSetupKeyDto) { return this.setups.recover(requireUserId(user), params.key); }
   @Get('setups/:id') @Header('Cache-Control', 'no-store') @ApiDoc('Read one setup (the progress dialog polls it)')
   get(@CurrentUser() user: RequestUser | null, @Param() params: LiveSetupIdDto) { return this.setups.get(requireUserId(user), params.id); }
-  @Post('setups/:id/abort') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Safely abort my original setup', 'Establishes one durable original setup barrier. No provider work in this request, no new deposit, no client amount, destination or signature. Original attempted operations are reconciled; a pre-generation refund needs fresh full-flat evidence. An applied edit cannot stop its old generation.')
+  @SafetyExit() @Post('setups/:id/abort') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Safely abort my original setup', 'Establishes one durable original setup barrier. No provider work in this request, no new deposit, no client amount, destination or signature. Original attempted operations are reconciled; a pre-generation refund needs fresh full-flat evidence. An applied edit cannot stop its old generation.')
   abort(@CurrentUser() user: RequestUser | null, @Param() params: LiveSetupIdDto, @Body() body: RequestLiveCopySetupAbortDto) {
     return this.abortService().request(requireUserId(user), params.id, body);
   }
@@ -39,7 +40,7 @@ export class CopyLiveSetupController {
   advance(@CurrentUser() user: RequestUser | null, @Param() params: LiveSetupIdDto, @Body() body: AdvanceLiveCopySetupDto) {
     const userId = requireUserId(user); return this.setups.advance(userId, params.id, { ...body });
   }
-  @Post('setups/:id/cancel') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Cancel or end a setup', "Before its consent was confirmed (the reserved deposit is cancelled), or once it failed or expired. A start that never ran a generation stops its copy; a deposit that arrived stays in the copy account and is returned to the main wallet from the portfolio. 409 funding_pending while a confirmed setup is still going.")
+  @SafetyExit() @Post('setups/:id/cancel') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Cancel or end a setup', "Before its consent was confirmed (the reserved deposit is cancelled), or once it failed or expired. A start that never ran a generation stops its copy; a deposit that arrived stays in the copy account and is returned to the main wallet from the portfolio. 409 funding_pending while a confirmed setup is still going.")
   cancel(@CurrentUser() user: RequestUser | null, @Param() params: LiveSetupIdDto) { return this.setups.cancel(requireUserId(user), params.id); }
   @Patch('strategies/:id') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Edit a testnet copy', 'A new generation with the new settings or budget under one setup consent; the current one keeps running until the consent is confirmed.')
   edit(@CurrentUser() user: RequestUser | null, @Param() params: CopyStrategyParamsDto, @Body() body: EditLiveCopyDto) { return this.setups.startEdit(requireUserId(user), params.id, body); }

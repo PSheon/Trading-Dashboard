@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Header, HttpCode, Param, Post, UseFilters } from "@nestjs/common";
 import { CurrentUser, requireUserId, type RequestUser } from "../common/auth/current-user.js";
+import { SafetyExit } from "../common/auth/safety-exit.decorator.js";
 import { ApiDoc } from "../common/decorators/http.decorator.js";
 import { BusyFilter } from "../traders/busy.js";
 import { CopyWalletIdDto } from "./dto/copy-wallet.dto.js";
@@ -18,8 +19,8 @@ export class CopyFundingController {
   claim(@CurrentUser() user: RequestUser | null, @Param() params: CopyFundingIdDto) { return this.funding.claim(requireUserId(user), params.id); }
   @Post("funding/:id/submit") @HttpCode(200) @Header("Cache-Control", "no-store") @ApiDoc("Submit the exact owner-signed funding intent", "One attempt only. Exchange acknowledgement remains accepted until recipient ledger and transaction nonce confirm credit.")
   submit(@CurrentUser() user: RequestUser | null, @Param() params: CopyFundingIdDto, @Body() body: CopyFundingSubmitDto) { return this.funding.submit(requireUserId(user), params.id, body.signature); }
-  @Post("funding/:id/cancel") @HttpCode(200) @Header("Cache-Control", "no-store") @ApiDoc("Cancel an unattempted funding intent")
+  @SafetyExit() @Post("funding/:id/cancel") @HttpCode(200) @Header("Cache-Control", "no-store") @ApiDoc("Cancel an unattempted funding intent")
   cancel(@CurrentUser() user: RequestUser | null, @Param() params: CopyFundingIdDto) { return this.funding.cancel(requireUserId(user), params.id); }
-  @Post("funding/:id/reconcile") @HttpCode(200) @Header("Cache-Control", "no-store") @ApiDoc("Confirm the original funding nonce and recipient credit", "Lookup only; missing evidence never authorizes another transfer.")
+  @SafetyExit() @Post("funding/:id/reconcile") @HttpCode(200) @Header("Cache-Control", "no-store") @ApiDoc("Confirm the original funding nonce and recipient credit", "Lookup only; missing evidence never authorizes another transfer.")
   reconcile(@CurrentUser() user: RequestUser | null, @Param() params: CopyFundingIdDto) { return this.funding.reconcile(requireUserId(user), params.id); }
 }

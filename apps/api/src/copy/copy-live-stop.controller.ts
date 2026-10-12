@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Header, HttpCode, Param, Post, UseFilters } from '@nestjs/common';
 import { CurrentUser, requireUserId, type RequestUser } from '../common/auth/current-user.js';
+import { SafetyExit } from '../common/auth/safety-exit.decorator.js';
 import { ApiDoc } from '../common/decorators/http.decorator.js';
 import { BusyFilter } from '../traders/busy.js';
 import { CopyLiveStopService } from './copy-live-stop.service.js';
@@ -11,7 +12,7 @@ import { RequestLiveCopyStopDto } from './dto/copy-live-stop.dto.js';
 @UseFilters(BusyFilter)
 export class CopyLiveStopController {
   constructor(private readonly stops: CopyLiveStopService) {}
-  @Post('mandates/:id/stop') @HttpCode(200) @Header('Cache-Control', 'no-store')
+  @SafetyExit() @Post('mandates/:id/stop') @HttpCode(200) @Header('Cache-Control', 'no-store')
   @ApiDoc('Record my original stop request and block new risk locally',
     'Persists the exact owner request and known pending execution targets. Does not sign, cancel, close, release reservations, verify flatness or return funds.')
   request(@CurrentUser() user: RequestUser | null, @Param() params: CopyWalletIdDto, @Body() body: RequestLiveCopyStopDto) {

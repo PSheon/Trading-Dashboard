@@ -6,6 +6,8 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppConfig } from '../src/config/app-config.js';
 import { validateEnvironment } from '../src/config/runtime-config.js';
 import { CopyFundingExchangeClient } from '../src/copy/copy-funding-exchange.client.js';
+import { HyperliquidGlobalTransport } from '../src/hyperliquid/hyperliquid-global-transport.js';
+import type { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
 import { CopyFundingRepository } from '../src/copy/copy-funding.repository.js';
 import { CopyLiveReturnRepository } from '../src/copy/copy-live-return.repository.js';
 import { CopyLiveReturnService } from '../src/copy/copy-live-return.service.js';
@@ -60,11 +62,41 @@ describe('returning USDC from a copy account to the main wallet', () => {
     await expect(service.approve(1, moved.operation.id, {})).rejects.toMatchObject({ status: 409, response: expect.objectContaining({ code: 'setup_wallet_conflict' }) });
     expect(worker.sign).not.toHaveBeenCalled();
   });
-  it('a return the worker could not sign is refused, never sent', async () => {
+  it('a return the worker could not sign is never sent and stays prepared: approved again, it is sent once', async () => {
     worker.sign.mockRejectedValueOnce(new Error('privy down'));
     const challenge = await service.reserve(1, 'account', { idempotencyKey: key(33), amount: '2' });
-    expect(await service.approve(1, challenge.operation.id, {})).toMatchObject({ status: 'rejected' });
+    await expect(service.approve(1, challenge.operation.id, {})).rejects.toMatchObject({ status: 503, response: expect.objectContaining({ code: 'return_not_sent' }) });
     expect(exchange.send).not.toHaveBeenCalled();
+    expect((await db.select().from(schema.copyFundingOperations))[0]).toMatchObject({ status: 'prepared', attemptedAt: null, claimedAt: null });
+    expect(await service.approve(1, challenge.operation.id, {})).toMatchObject({ status: 'accepted' });
+    expect(exchange.send).toHaveBeenCalledOnce();
+  });
+  it("a slow signature is not inside the send's 5 s proof: the return is sent, not left unknown", async () => {
+    // Privy took 8 s; the proof guards the balance read and the claim after it.
+    worker.sign.mockImplementationOnce(async () => { clock += 8_000; return `0x${'22'.repeat(64)}1b`; });
+    exchange.send.mockImplementationOnce(async (_row: unknown, _signature: string, fresh: () => void, sent?: () => void) => { fresh(); sent?.(); return { status: 'ok', response: { type: 'default' } }; });
+    const challenge = await service.reserve(1, 'account', { idempotencyKey: key(34), amount: '2' });
+    expect(await service.approve(1, challenge.operation.id, {})).toMatchObject({ status: 'accepted' });
+    expect(exchange.send).toHaveBeenCalledOnce();
+  });
+  it('a return refused before its POST (the quota permit) was not sent: back to prepared, never left unknown; approved again it is sent once', async () => {
+    const fetcher = vi.fn(async () => Response.json({ status: 'ok', response: { type: 'default' } })); vi.stubGlobal('fetch', fetcher);
+    const global = Object.create(HyperliquidGlobalTransport.prototype) as HyperliquidGlobalTransport;
+    let refuse = true;
+    const permit = { assertFresh: () => { if (refuse) throw new Error('hyperliquid_quota_expired'); }, dispatch: <T>(work: () => T) => work() };
+    Object.defineProperty(global, 'currentQuota', { value: () => ({ acquireRest: async () => permit }) });
+    const client = new CopyFundingExchangeClient({ acquire: vi.fn(async () => {}) } as unknown as RequestBudgeterService, global);
+    Object.assign(client, { withdrawable: exchange.withdrawable });
+    const returns = new CopyLiveReturnService(config(), new CopyLiveReturnRepository(db, testConfig()), client, () => clock, worker as never);
+    try {
+      const challenge = await returns.reserve(1, 'account', { idempotencyKey: key(35), amount: '2' });
+      await expect(returns.approve(1, challenge.operation.id, {})).rejects.toMatchObject({ status: 503, response: expect.objectContaining({ code: 'return_not_sent' }) });
+      expect(fetcher).not.toHaveBeenCalled();
+      expect((await db.select().from(schema.copyFundingOperations))[0]).toMatchObject({ status: 'prepared', attemptedAt: null, claimedAt: null });
+      refuse = false;
+      expect(await returns.approve(1, challenge.operation.id, {})).toMatchObject({ status: 'accepted' });
+      expect(fetcher).toHaveBeenCalledOnce();
+    } finally { vi.unstubAllGlobals(); }
   });
   it('a return is signed by the worker only: nothing for the browser to sign, a body with signatures is refused 400, an account without the signer 409 worker_signer_missing', async () => {
     await db.update(schema.copyExecutionAccounts).set({ masterPolicyId: null, masterPolicyFingerprint: null, masterSignerQuorumId: null, sweepDestination: null, signerAttachedAt: null });
@@ -105,8 +137,8 @@ describe('returning USDC from a copy account to the main wallet', () => {
     await expect(service.approve(1, challenge.operation.id, {})).rejects.toMatchObject({ status: 409 });
     expect((await db.select().from(schema.copyFundingOperations))[0]).toMatchObject({ status: 'prepared', attemptedAt: null });
   });
-  it('an ambiguous send stays unknown and is never resent', async () => {
-    exchange.send.mockRejectedValueOnce(new Error('timeout'));
+  it('an ambiguous send (dispatched, its answer lost) stays unknown and is never resent', async () => {
+    exchange.send.mockImplementationOnce(async (_row: unknown, _signature: string, fresh: () => void, sent?: () => void) => { fresh(); sent?.(); throw new Error('timeout'); });
     const second = await service.reserve(1, 'account', { idempotencyKey: key(5), amount: '1' });
     expect(await service.approve(1, second.operation.id, {})).toMatchObject({ status: 'unknown' });
     expect(await service.approve(1, second.operation.id, {})).toMatchObject({ status: 'unknown' });

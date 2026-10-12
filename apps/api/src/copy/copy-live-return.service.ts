@@ -17,6 +17,8 @@ function input<T>(schema: z.ZodType<T>, value: unknown): T {
   if (!parsed.success) throw new BadRequestException('Invalid request');
   return structuredClone(parsed.data);
 }
+/** A return that provably never reached the exchange: still prepared. */
+const notSent = () => new ServiceUnavailableException({ statusCode: 503, code: 'return_not_sent', message: 'The return was not sent; try again' });
 
 /**
  * USDC back from a copy's account (on the deployment's network) to the owner's main wallet (idle
@@ -68,23 +70,35 @@ export class CopyLiveReturnService {
       throw new ConflictException({ statusCode: 409, code: 'worker_signer_missing', message: 'Turn on the automatic return for this copy first: Orbie needs to add its signer to return the funds.' });
     if (account.sweepDestination !== context.owner.embeddedWalletAddress || row.destination !== account.sweepDestination)
       throw new ConflictException({ statusCode: 409, code: 'setup_wallet_conflict', message: 'Your main wallet changed since this copy started' });
-    if (!Dec.from(await this.exchange.withdrawable(row.network, row.address)).gte(row.amount)) throw new ConflictException({ statusCode: 409, code: 'no_free_collateral', message: 'Not enough transferable USDC' });
-    const checkedAt = this.now();
-    const fresh = () => { const at = this.now(); if (!Number.isSafeInteger(at) || at - checkedAt > 5000 || at >= consentExpiresAt) throw new Error('stale'); };
-    const attempt = await this.repository.begin(userId, id);
-    if (!attempt) return wire(await this.repository.find(userId, id));
+    // Signed before the balance read and the claim: the 5 s below guards that
+    // read, not Privy's signing time (a slow signature used to leave a
+    // never-sent return unknown). Not signed: nothing is claimed, the return
+    // stays prepared (approve again, or cancel it).
     let signature: string;
     try {
       signature = await this.workerSigner.sign({ walletId: account.privyWalletId!, address: row.address, ownerQuorumId: account.ownerQuorumId!, workerQuorumId: account.masterSignerQuorumId, policyId: account.masterPolicyId },
         usdSendTypedData(WALLET_NETWORKS[row.network], row.destination, row.amount, row.nonce), { network: row.network, destination: account.sweepDestination }, consentExpiresAt);
     } catch (error) {
-      // Not signed: the exchange cannot have it. Definitely not sent.
       this.logger.warn(`return ${id} not signed: ${safeErrorText(error)}`);
-      return wire(await this.repository.finish(userId, id, 'rejected', digest({ reason: 'master_signature_unavailable', id })));
+      throw notSent();
     }
+    if (!Dec.from(await this.exchange.withdrawable(row.network, row.address)).gte(row.amount)) throw new ConflictException({ statusCode: 409, code: 'no_free_collateral', message: 'Not enough transferable USDC' });
+    const checkedAt = this.now();
+    const fresh = () => { const at = this.now(); if (!Number.isSafeInteger(at) || at - checkedAt > 5000 || at >= consentExpiresAt) throw new Error('stale'); };
+    const attempt = await this.repository.begin(userId, id);
+    if (!attempt) return wire(await this.repository.find(userId, id));
+    // Dispatched only once every check passed (this proof, then the quota
+    // permit), right before the POST: a refusal before it was not sent.
+    let dispatched = false;
     let reply: unknown;
-    try { reply = await this.exchange.send(attempt, signature, fresh); }
+    try { reply = await this.exchange.send(attempt, signature, fresh, () => { dispatched = true; }); }
     catch (error) {
+      if (!dispatched) {
+        // Nothing left this process: back to prepared (approve again, or cancel it).
+        this.logger.warn(`return ${id} not sent: ${safeErrorText(error)}`);
+        if (await this.repository.restoreNotDispatched(userId, attempt)) throw notSent();
+        return wire(await this.repository.find(userId, id));
+      }
       // Its outcome is unknown: confirmed from the main wallet's ledger, never resent.
       this.logger.warn(`return ${id} outcome unknown: ${safeErrorText(error)}`);
       return wire(await this.repository.find(userId, id));

@@ -158,6 +158,20 @@ export class CopyLiveReturnRepository {
       return claimed ?? null;
     });
   }
+  /** An owner's return whose send was refused before its POST (the caller's
+   * dispatch flag proves nothing left this process) goes back to prepared:
+   * approvable again, or cancelled once its consent window passes. Only the
+   * exact attempt this process claimed: anything that moved since (an
+   * outcome, a reconciliation) wins, and it stays as it is. */
+  async restoreNotDispatched(userId: number, attempt: ReturnRow): Promise<ReturnRow | null> {
+    if (attempt.userId !== userId || attempt.direction !== 'to_main' || attempt.status !== 'unknown' || !attempt.attemptedAt || !attempt.claimedAt || attempt.setupAbortId) return null;
+    const [row] = await this.locked(userId, tx => tx.update(copyFundingOperations).set({ status: 'prepared', claimedAt: null, attemptedAt: null, updatedAt: new Date() })
+      .where(and(eq(copyFundingOperations.id, attempt.id), eq(copyFundingOperations.userId, userId), eq(copyFundingOperations.direction, 'to_main'), eq(copyFundingOperations.status, 'unknown'),
+        eq(copyFundingOperations.nonce, attempt.nonce), eq(copyFundingOperations.attemptedAt, attempt.attemptedAt!), eq(copyFundingOperations.claimedAt, attempt.claimedAt!),
+        eq(copyFundingOperations.updatedAt, attempt.updatedAt), isNull(copyFundingOperations.setupAbortId), isNull(copyFundingOperations.scanState),
+        isNull(copyFundingOperations.evidenceHash), isNull(copyFundingOperations.transactionHash))).returning());
+    return row ?? null;
+  }
   async finish(userId: number, id: string, status: 'accepted' | 'rejected', evidenceHash: string): Promise<ReturnRow> {
     const [row] = await this.locked(userId, tx => tx.update(copyFundingOperations).set({ status, evidenceHash, updatedAt: new Date() })
       .where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.userId, userId), eq(copyFundingOperations.status, 'unknown'), sql`${copyFundingOperations.attemptedAt} is not null`)).returning());

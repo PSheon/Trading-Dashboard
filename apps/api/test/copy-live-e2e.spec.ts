@@ -4,7 +4,8 @@ import { BackgroundJobs } from '../src/runtime/background-jobs.service.js';
 import { testConfig } from './config-test-utils.js';
 import { liveCopyMandateIntentSchema } from '@trading-dashboard/shared/contracts';
 import { generateKeyPairSync } from 'node:crypto';
-import { Pool } from 'pg';
+import pg, { Pool } from 'pg';
+import { PostgresLivePreparation } from '../src/copy/live/postgres-live-preparation.js';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { desc, eq } from 'drizzle-orm';
 import * as schema from '@trading-dashboard/shared/database';
@@ -464,6 +465,52 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     // (~14 projections an order) until orders outlived the 5 s evidence window.
     expect(Math.max(...assessed.slice(5))).toBeLessThanOrEqual(Math.min(2, assessed[5]!));
     shared.dexes = 0; resetLiveReadCaches();
+  });
+  it('an order sends at most 150 database round trips (950 statements) from its preparation to its POST', { timeout: 120_000 }, async () => {
+    // Its evidence is never older than its preparation's start, so the
+    // statements from there to the exchange POST bound the round trips that
+    // the 5 s evidence window (and the pre-mainnet gate's 3500 ms) must
+    // hold: each costs Stage ~8 ms (2026-10-12: ~1,000 of them, one per
+    // round trip, live_risk_stale at 6977 ms). A statement is a new round
+    // trip unless it goes out pipelined behind one still in flight.
+    shared.dexes = 300; resetLiveReadCaches(); // testnet-sized: three account sockets
+    const prepare = PostgresLivePreparation.prototype.prepare, original = pg.Client.prototype.query, inflight = new WeakMap<object, number>();
+    let counting = false, statements = 0, roundTrips = 0;
+    const orders: { statements: number; roundTrips: number }[] = [];
+    vi.spyOn(PostgresLivePreparation.prototype, 'prepare').mockImplementation(function (this: PostgresLivePreparation, ...args) {
+      counting = true; statements = 0; roundTrips = 0; return prepare.apply(this, args);
+    });
+    raw.mockImplementation(async (url, init) => {
+      if (String(url).endsWith('/exchange') && counting) { counting = false; orders.push({ statements, roundTrips }); }
+      return providers(String(url), init?.body ? JSON.parse(String(init.body)) : undefined);
+    });
+    pg.Client.prototype.query = function (this: pg.Client, ...args: unknown[]) {
+      const busy = inflight.get(this) ?? 0;
+      if (counting) { statements++; if (!(this as unknown as { pipeline?: boolean }).pipeline || busy === 0) roundTrips++; }
+      const result = (original as (...values: unknown[]) => unknown).apply(this, args) as Promise<unknown> | undefined;
+      if (result && typeof result.then === 'function') {
+        inflight.set(this, busy + 1);
+        const done = () => { inflight.set(this, (inflight.get(this) ?? 1) - 1); };
+        void result.then(done, done);
+      }
+      return result;
+    } as typeof original;
+    try {
+      let e = engine(); await e.tick();
+      for (const [i, close] of [[0, false], [1, true]] as const) {
+        budget.onModuleDestroy(); budget = new RequestBudgeterService(config);
+        e = engine('100', new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(pool, { schema }))), { egressKey: `e2e-trips-${i}`, ownerId: `e2e-trips-${i}` }, raw), false, false, `e2e-trips-settle-${i}`);
+        if (close) await leaderOpens(3001, 'BTC', 'A', '1', '1', 'Close Long'); else await leaderOpens(3000);
+        await e.tick();
+        for (let pass = 0; pass < 5 && (await db.select().from(schema.copyLiveDispatches)).some(r => r.state !== 'settled'); pass++) {
+          await new Promise(resolve => setTimeout(resolve, 5)); await e.tick();
+        }
+      }
+    } finally { pg.Client.prototype.query = original; shared.dexes = 0; resetLiveReadCaches(); }
+    expect((await db.select().from(schema.copyLiveDispatches)).map(r => [r.leg, r.state])).toEqual([['open', 'settled'], ['close', 'settled']]);
+    process.stdout.write(`order database round trips, preparation to POST: ${JSON.stringify(orders)}\n`);
+    expect(orders).toHaveLength(2);
+    for (const order of orders) { expect(order.roundTrips).toBeLessThanOrEqual(150); expect(order.statements).toBeLessThanOrEqual(950); }
   });
   it('waits six seconds for close evidence quota before observing and still sends only the fresh reduce-only position', async () => {
     // A cold cross-order read cache: the close pays its full observation (> 284).

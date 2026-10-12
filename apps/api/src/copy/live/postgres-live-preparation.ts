@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import { createHash } from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { copyLiveDispatches, copyLiveExecutions, copyLiveIntentProvenance, copyLiveSignalLegs, copyLiveSourceFills, copyLiveSourceStreams,
@@ -286,7 +287,10 @@ export class PostgresLivePreparation {
       riskSourceRequire(riskSourceDigest(current) === riskSourceDigest(local), 'live_risk_local_changed');
       if (manifest) {
         const final = await loadLiveGenerationManifest(session, tx, current, { currentExecutionKey: key, now: started });
-        riskSourceRequire(riskSourceDigest(final) === riskSourceDigest(manifest), 'live_preparation_generation_changed');
+        // Both are the loader's canonical JSON (no undefined, Date or -0), for
+        // which deep equality is canonical-digest equality, without hashing
+        // every settled proof twice.
+        riskSourceRequire(isDeepStrictEqual(final, manifest), 'live_preparation_generation_changed');
       } else await this.assertFirstAccount(session, tx, local.account.id, network, local.account.address!);
       const now = this.now(), authorization = assertWalletAuthorization(current.currentAuthorization, intent, now);
       planLiveSourceOrder({ mandate: current.mandate, settings: current.settings, fill: source.fill, leg: source.leg, sizingBasis: sizing, now, limits: current.limits, currentExecutionKey: key, ...(members.length ? { members } : {}), settlementProofs, projectionMemo });

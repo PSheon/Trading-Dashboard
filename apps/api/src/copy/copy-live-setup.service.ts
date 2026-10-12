@@ -34,11 +34,15 @@ const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(va
 /** How long one driver holds a setup (a crashed driver's lease lapses). */
 export const SETUP_LEASE_MS = 60_000;
 const LEASE_MS = SETUP_LEASE_MS;
+/** The Privy signature (≤ 30 s) and the exchange POST (≤ 10 s) a setup step
+ * may still need after its weight: with the wait below they stay inside the
+ * lease, since transition() does not fence on the lease token (§6.4). */
+export const SETUP_STEP_AFTER_RESERVE_MS = 40_000;
 /** Longest a setup step's client (account mode, agent approval, absence
- * proof) waits in line for its Hyperliquid weight: half the lease, the other
- * half left for the step's reads, signature and POST. Queued, not refused
- * at once when the estimate is longer: see LiveReserveOptions.queue. */
-export const SETUP_RESERVE_WAIT_MS = SETUP_LEASE_MS / 2;
+ * proof) waits in line for its Hyperliquid weight: 15 s, the lease less the
+ * signature and POST and a 5 s margin. Queued, not refused at once when the
+ * estimate is longer: see LiveReserveOptions.queue. */
+export const SETUP_RESERVE_WAIT_MS = SETUP_LEASE_MS - SETUP_STEP_AFTER_RESERVE_MS - 5_000;
 /** How long after its setup ended an approval left unknown is still looked at. */
 const ABANDONED_APPROVAL_WINDOW_MS = 3 * 86_400_000;
 /** Long setup work answers with its durable row before the HTTP deadline. */

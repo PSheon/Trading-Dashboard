@@ -6,7 +6,7 @@ import { CopyModule } from '../src/copy/copy.module.js';
 import { ACCOUNT_MODE_ABSENCE_READER, ACCOUNT_MODE_CLIENT, ATTEMPT_WEIGHT } from '../src/copy/copy-account-mode.service.js';
 import { ACCOUNT_MODE_ABSENCE_WEIGHT } from '../src/copy/copy-account-mode-evidence.js';
 import { AGENT_APPROVAL_CLIENT, AGENT_OBSERVE_WEIGHT } from '../src/copy/copy-agent-exchange.client.js';
-import { SETUP_LEASE_MS, SETUP_RESERVE_WAIT_MS } from '../src/copy/copy-live-setup.service.js';
+import { SETUP_LEASE_MS, SETUP_RESERVE_WAIT_MS, SETUP_STEP_AFTER_RESERVE_MS } from '../src/copy/copy-live-setup.service.js';
 import { HyperliquidBudgetWait, LIVE_RESERVE_WAIT_MS, type LiveBudget } from '../src/hyperliquid/hyperliquid-budget-wait.js';
 import { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
 import { LIVE_HEADROOM_SHARE, type WalletNetworkHyperliquid } from '../src/hyperliquid/wallet-network-hyperliquid.js';
@@ -32,8 +32,9 @@ function wallet() {
 }
 
 it('a setup step waits in line at most half its lease', () => {
-  expect(SETUP_RESERVE_WAIT_MS).toBe(30_000);
-  expect(SETUP_RESERVE_WAIT_MS).toBeLessThanOrEqual(SETUP_LEASE_MS / 2);
+  expect(SETUP_RESERVE_WAIT_MS).toBe(15_000);
+  // The wait, the signature and the POST all fit in one lease.
+  expect(SETUP_RESERVE_WAIT_MS + SETUP_STEP_AFTER_RESERVE_MS).toBeLessThan(SETUP_LEASE_MS);
 });
 
 it("the account-mode attempt (613) queues past 8 s instead of being refused, and background work can't take the refill meanwhile", async () => {
@@ -66,7 +67,8 @@ it.each([['agent', AGENT_OBSERVE_WEIGHT], ['absence', ACCOUNT_MODE_ABSENCE_WEIGH
   vi.useFakeTimers();
   const { budget, reserve } = wallet();
   try {
-    await budget.acquire(900, 'live');
+    // About 11 s short at 300/min (5 a second): past the old 8 s, inside 15 s.
+    await budget.acquire(900 - (weight - 55), 'live');
     expect(budget.liveWaitMs(weight)).toBeGreaterThan(LIVE_RESERVE_WAIT_MS);
     let outcome: unknown;
     void reserve[client](weight).then(() => { outcome = 'reserved'; }, (error: unknown) => { outcome = error; });
@@ -77,7 +79,7 @@ it.each([['agent', AGENT_OBSERVE_WEIGHT], ['absence', ACCOUNT_MODE_ABSENCE_WEIGH
   } finally { budget.onModuleDestroy(); }
 });
 
-it('a reservation the bucket cannot give within 30 s is a wait that says which bucket, weight and backlog, and takes nothing', async () => {
+it('a reservation the bucket cannot give within the setup wait is a wait that says which bucket, weight and backlog, and takes nothing', async () => {
   vi.useFakeTimers();
   // AbortSignal.timeout runs on Node's own clock: on the fake one here.
   vi.spyOn(AbortSignal, 'timeout').mockImplementation(ms => { const c = new AbortController(); setTimeout(() => c.abort(new DOMException('timed out', 'TimeoutError')), ms); return c.signal; });
@@ -91,7 +93,7 @@ it('a reservation the bucket cannot give within 30 s is a wait that says which b
     const wait = outcome as HyperliquidBudgetWait;
     expect(wait.reason).toBe('local_budget');
     expect(wait.detail).toMatchObject({ weight: ATTEMPT_WEIGHT, lane: 'live', bucket: 'wallet:mainnet', queued: 0 });
-    expect(wait.detail.tokens).toBeGreaterThan(100); expect(wait.detail.tokens).toBeLessThan(ATTEMPT_WEIGHT);
+    expect(wait.detail.tokens).toBeGreaterThan(50); expect(wait.detail.tokens).toBeLessThan(ATTEMPT_WEIGHT);
     expect(wait.retryMs).toBeGreaterThan(1_000);
     expect(budget.queued()).toEqual({ live: 0, background: 0 });
     // The HTTP answer is unchanged: the detail is for the log and the row only.

@@ -130,7 +130,7 @@ export class PostgresLiveRiskScope {
     // Every statement sent on this connection while the scope owns it, by
     // anyone: a lock can only be released by a statement on its own session.
     let statements = 0, inflight = 0, checking = false;
-    native.query = function counted(this: PoolClient, ...args: unknown[]) {
+    const counted = function counted(this: PoolClient, ...args: unknown[]) {
       if (!checking) statements++;
       const result = (sent as (...values: unknown[]) => unknown).apply(this, args);
       if (result && typeof (result as Promise<unknown>).then === 'function') {
@@ -140,10 +140,27 @@ export class PostgresLiveRiskScope {
       }
       return result;
     } as PoolClient['query'];
+    native.query = counted;
     native.pipeline = true;
+    // The reuse of a lock check (`lockCheck`) rests on `statements` counting
+    // every statement on this session. Everything the scope sends (the DAL's
+    // statements through Drizzle, which calls only `dal.query`; the lock
+    // checks; the locks' acquisition and release) calls `client.query`, never
+    // the connection's protocol (`client.connection`) or a path around
+    // query(); a named prepared statement is still a query() call. So
+    // before each statement and at release the connection must still carry
+    // `counted` (and pipeline mode): else a statement may have gone out
+    // uncounted, a reused check may be stale, and the scope fails closed
+    // (lost; the connection is destroyed, which releases its locks).
+    const assertCounted = () => { if (native.query !== counted || native.pipeline !== true) { lost = true; fail('live_risk_serialization_lost'); } };
+    /** `issuedAt` is `this.now()` (the injectable wall clock, the proof's
+     * time, compared with `this.now()` only); `settledAt` is
+     * `performance.now()` (monotonic, compared with `performance.now()`
+     * only). The two clocks are never compared with each other. */
     interface LockCheck { readonly statements: number; readonly issuedAt: number; readonly result: Promise<boolean>; settledAt?: number }
     let lastCheck: LockCheck | undefined;
     const issueCheck = (): LockCheck => {
+      assertCounted();
       const issuedAt = this.now();
       checking = true;
       let result: Promise<boolean>;
@@ -170,6 +187,7 @@ export class PostgresLiveRiskScope {
      * (earlier) send time stays the proof's time (assertFresh's 5 s).
      */
     const lockCheck = (): LockCheck => {
+      assertCounted();
       const previous = lastCheck, now = this.now();
       if (previous && previous.statements === statements && now >= previous.issuedAt && now - previous.issuedAt <= LOCK_CHECK_REUSE_MS &&
           (previous.settledAt === undefined || performance.now() - previous.settledAt <= LOCK_CHECK_REUSE_MS)) return previous;
@@ -214,6 +232,7 @@ export class PostgresLiveRiskScope {
     let expectBegin: 'read' | 'reads-first' | 'write' | undefined, opened: Promise<unknown> | undefined;
     let beginPending = false, beginFailed = false;
     const dal = { query: (...args: unknown[]) => {
+      try { assertCounted(); } catch (error) { return Promise.reject(error); }
       const text = typeof args[0] === 'string' ? args[0] : (args[0] as { text?: unknown } | null)?.text;
       const begin = expectBegin !== undefined && typeof text === 'string' && /^begin\b/i.test(text) ? expectBegin : undefined;
       if (!begin) {
@@ -314,6 +333,7 @@ export class PostgresLiveRiskScope {
       // or prepared order can be consumed by a concurrent owner of this scope.
       for (const lock of locks) {
         this.externalFence?.assertFresh();
+        assertCounted();
         const result = await client.query<{ locked: boolean }>(lock.acquire, lock.values);
         this.externalFence?.assertFresh();
         if (lost || result.rows[0]?.locked !== true) fail('live_risk_busy');
@@ -345,6 +365,8 @@ export class PostgresLiveRiskScope {
         if (databaseBusy) discard = true;
       }
       if (client.getTransactionStatus() !== 'I') discard = true;
+      // Not released by statements sent around the counted query: destroyed.
+      if (native.query !== counted || native.pipeline !== true) discard = true;
       if (!databaseBusy && !discard) {
         for (const lock of acquired.reverse()) {
           try {
@@ -357,7 +379,7 @@ export class PostgresLiveRiskScope {
       client.removeListener('end', onError);
       // Back to the pool exactly as it came (its query method and protocol
       // mode), with nothing of this scope still on the wire.
-      if (inflight !== 0) discard = true;
+      if (inflight !== 0 || native.query !== counted || native.pipeline !== true) discard = true;
       if (ownQuery) native.query = sent; else delete (client as { query?: unknown }).query;
       native.pipeline = pipelined;
       client.release(discard || client.getTransactionStatus() !== 'I');

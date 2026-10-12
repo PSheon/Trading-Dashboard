@@ -1,4 +1,4 @@
-import { Pool } from 'pg';
+import { Client, Pool, type PoolClient } from 'pg';
 import { sql } from 'drizzle-orm';
 import { PgDatabase, PgDialect } from 'drizzle-orm/pg-core';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -234,18 +234,24 @@ describe('distributed user and account risk serialization', () => {
     let now = 1_790_000_000_000;
     const client = await pool.connect(); const query = client.query.bind(client);
     const connect = vi.spyOn(pool, 'connect').mockResolvedValueOnce(client as never);
+    // The slow wait is on the wire, under the scope's counted query (which
+    // must stay installed: the scope refuses a connection whose query was
+    // replaced while it owns it).
+    let slow = false;
+    const wire = vi.spyOn(client, 'query').mockImplementation((async (...args: Parameters<typeof query>) => {
+      const result = await query(...args); if (slow) now += 5001; return result;
+    }) as never);
     try {
       const controlled = new PostgresLiveRiskScope(pool, () => now);
       await controlled.run(identity, async scope => {
         // A statement since the scope's last lock check: the next assertHeld sends its own.
         await client.query('select 1');
-        const original = client.query;
-        client.query = (async (...args: Parameters<typeof query>) => { const result = await query(...args); now += 5001; return result; }) as typeof client.query;
+        slow = true;
         try { await expect(scope.assertHeld()).rejects.toThrow('live_risk_serialization_stale'); }
-        finally { client.query = original; }
+        finally { slow = false; }
         expect(() => scope.assertFresh()).toThrow('live_risk_serialization_lost');
       });
-    } finally { connect.mockRestore(); }
+    } finally { connect.mockRestore(); wire.mockRestore(); }
   });
   /** The scope's connection, its statements recorded as sent with how many
    * of its earlier ones were still unanswered (0: a new round trip). */
@@ -337,6 +343,44 @@ describe('distributed user and account risk serialization', () => {
         expect(sent.find(q => q.text.startsWith('select id from live_scope_probe'))!.inflight).toBe(0);
       });
     });
+  });
+  it('fails closed when the connection\'s counted query is replaced: no reused lock check proves locks a bypassing statement released', async () => {
+    const raw = Client.prototype.query;
+    // A statement sent around the scope's counted query (here: releasing
+    // every advisory lock) right after an answered check: the next
+    // assertHeld must not be answered by that check.
+    const connection = await pool.connect(), connect = vi.spyOn(pool, 'connect').mockResolvedValueOnce(connection as never), release = vi.spyOn(connection, 'release');
+    try {
+      await expect(scopes.run(identity, async (scope, session) => {
+        await session.read(db => db.execute(sql`select 1`));
+        connection.query = function bypass(this: unknown, ...args: unknown[]) { return (raw as (...values: unknown[]) => unknown).apply(connection, args); } as never;
+        await connection.query('select pg_advisory_unlock_all()');
+        await scope.assertHeld();
+      })).rejects.toThrow('live_risk_serialization_lost');
+      expect(release).toHaveBeenCalledWith(true);
+    } finally { connect.mockRestore(); }
+    // Replaced while idle (nothing sent through it): the next DAL statement
+    // is refused and the connection is destroyed rather than reused.
+    for (const replace of [(c: PoolClient) => { const counted = c.query; c.query = function wrapped(this: unknown, ...args: unknown[]) { return (counted as (...values: unknown[]) => unknown).apply(c, args); } as never; },
+      (c: PoolClient) => { (c as unknown as { pipeline: boolean }).pipeline = false; }]) {
+      const client = await pool.connect(), admitted = vi.spyOn(pool, 'connect').mockResolvedValueOnce(client as never), released = vi.spyOn(client, 'release');
+      try {
+        await expect(scopes.run(identity, async (_scope, session) => {
+          replace(client);
+          await session.read(db => db.execute(sql`select 1`));
+        })).rejects.toThrow('live_risk_serialization_lost');
+        expect(released).toHaveBeenCalledWith(true);
+      } finally { admitted.mockRestore(); }
+    }
+    // Replaced after the work's last statement: released destroyed.
+    const last = await pool.connect(), admitted = vi.spyOn(pool, 'connect').mockResolvedValueOnce(last as never), released = vi.spyOn(last, 'release');
+    try {
+      await scopes.run(identity, async (_scope, session) => {
+        await session.read(db => db.execute(sql`select 1`));
+        last.query = function wrapped(this: unknown, ...args: unknown[]) { return (raw as (...values: unknown[]) => unknown).apply(last, args); } as never;
+      });
+      expect(released).toHaveBeenCalledWith(true);
+    } finally { admitted.mockRestore(); }
   });
   it('tells Drizzle BEGIN answered with a value that throws on any read, and real Drizzle transactions never read it', async () => {
     // drizzle-orm 0.45.3 (pinned) awaits `tx.execute(sql`begin`)` and ignores

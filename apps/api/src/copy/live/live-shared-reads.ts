@@ -37,6 +37,15 @@ export const accountModeBodies = (user: string) => [{ type: 'userRole', user }, 
 /** A copied leader's reads (ratio sizing from its own network): its spot state
  * alone. Its role and modes are its own choice, never read (2026-10-12). */
 export const leaderBodies = (leader: string) => [{ type: 'spotClearinghouseState', user: leader }];
+/** What of a leader's spot state an order goes on: only that it is not
+ * portfolio margin. Its balances move with every trade it makes, so the whole
+ * answer failed every order of an active leader's copy twice (Stage mainnet
+ * 2026-10-12: a SOL open sent 32.7 s late). */
+export const leaderComparison = (leaders: readonly string[]) => {
+  const set = new Set(leaders.map(l => l.toLowerCase()));
+  return (body: Readonly<Record<string, unknown>>) => body.type === 'spotClearinghouseState' && typeof body.user === 'string' && set.has(body.user.toLowerCase())
+    ? (value: unknown) => (value as { portfolioMarginEnabled?: unknown } | null)?.portfolioMarginEnabled === true : undefined;
+};
 /** An order evidence epoch's first wave: every observed user's account modes,
  * the dex list, spot and perp metadata, the order dex's metadata and
  * contexts, the target's leverage for the coin and its fees. */
@@ -284,7 +293,9 @@ export class LiveSharedReads {
   }
   /** Reads `bodies` anew (never from the memo) and requires each to equal
    * this epoch's first read of it: nothing changed while it was observed. */
-  async unchanged(all: readonly Readonly<Record<string, unknown>>[], code: string): Promise<void> {
+  /** `compared`: what of a body's answer must not change (default: all of it). */
+  async unchanged(all: readonly Readonly<Record<string, unknown>>[], code: string,
+    compared: (body: Readonly<Record<string, unknown>>) => ((value: unknown) => unknown) | undefined = () => undefined): Promise<void> {
     // A read served from the cache is what the order goes on by design: not re-read.
     const bodies = all.filter(body => !this.#pinned.has(keyOf(body)));
     if (!bodies.length) return;
@@ -293,7 +304,10 @@ export class LiveSharedReads {
     const responses = await this.send(bodies, () => undefined);
     const after = await Promise.all(responses.map((response, index) => this.decode(response, String(bodies[index]!.type))));
     if (after.length !== before.length) throw new LiveBoundaryError(code);
-    const changed = after.flatMap((value, index) => isDeepStrictEqual(value, before[index]) ? [] : [String(bodies[index]!.type)]);
+    const changed = after.flatMap((value, index) => {
+      const part = compared(bodies[index]!) ?? (v => v);
+      return isDeepStrictEqual(part(value), part(before[index])) ? [] : [String(bodies[index]!.type)];
+    });
     if (changed.length) throw new LiveReadComparisonError(code, changed);
   }
 }

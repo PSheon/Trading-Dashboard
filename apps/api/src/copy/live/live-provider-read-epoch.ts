@@ -4,7 +4,7 @@ import { liveActiveAssetDataSchema, HyperliquidLiveRiskProvider, type LiveRiskPr
 import { assertOriginalLiveRiskSession, type LiveRiskDatabaseSession } from './postgres-live-risk-scope.js';
 import { loadLivePreparationAuthority, riskSourceDigest, riskSourceRequire } from './postgres-live-risk-authority.js';
 import { freezeLiveReservation } from './live-risk-reservation.js';
-import { evidenceFinalCheck, evidenceFirstWave, LiveSharedReads, type LiveInfoBatch } from './live-shared-reads.js';
+import { evidenceFinalCheck, evidenceFirstWave, leaderComparison, LiveSharedReads, type LiveInfoBatch } from './live-shared-reads.js';
 import type { LiveReadCache } from './live-read-cache.js';
 import type { LiveReserveOptions } from '../../hyperliquid/hyperliquid-budget-wait.js';
 import { address } from './wallet-authorization.js';
@@ -252,7 +252,7 @@ export class LiveProviderReadEpoch {
       mark('epoch_other_markets');
       // Nothing changed while it was observed: the account modes and dex
       // list once more, for every reader.
-      await shared.unchanged(finalBodies, 'live_account_observation_changed');
+      await shared.unchanged(finalBodies, 'live_account_observation_changed', leaderComparison(leaders));
       mark('epoch_final_modes');
       const final = await session.read(db => loadLivePreparationAuthority(session, db, binding, this.now()));
       riskSourceRequire(riskSourceDigest(final) === authorityDigest, 'live_risk_local_changed');

@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { LiveSharedReads } from '../src/copy/live/live-shared-reads.js';
+import { leaderComparison, LiveSharedReads } from '../src/copy/live/live-shared-reads.js';
 
 const clock = () => 1_800_000_000_000;
-async function comparison(type: string, before: unknown, after: unknown) {
+async function comparison(type: string, before: unknown, after: unknown, leaders: string[] = []) {
   let calls = 0;
   const shared = new LiveSharedReads('testnet', async () => Response.json(calls++ ? after : before), undefined, clock);
   const bodies = [{ type, user: 'private-wallet' }];
   await shared.wave(bodies);
-  return shared.unchanged(bodies, 'live_account_observation_changed');
+  return shared.unchanged(bodies, 'live_account_observation_changed', leaderComparison(leaders));
 }
 
 describe('shared observation refusal diagnostics without provider payloads', () => {
@@ -32,5 +32,12 @@ describe('shared observation refusal diagnostics without provider payloads', () 
   });
   it('continues to accept genuinely unchanged responses', async () => {
     await expect(comparison('userAbstraction', 'disabled', 'disabled')).resolves.toBeUndefined();
+  });
+  it("goes on only the leader's portfolio-margin flag: its balances move with its own trades (Stage mainnet 2026-10-12)", async () => {
+    const spot = (total: string, portfolioMarginEnabled?: boolean) => ({ balances: [{ coin: 'USDC', total }], ...(portfolioMarginEnabled === undefined ? {} : { portfolioMarginEnabled }) });
+    await expect(comparison('spotClearinghouseState', spot('1'), spot('2'), ['private-wallet'])).resolves.toBeUndefined();
+    await expect(comparison('spotClearinghouseState', spot('1'), spot('2', true), ['private-wallet'])).rejects.toMatchObject({ changedReads: ['spotClearinghouseState'] });
+    // An observed account's own spot state must still not change.
+    await expect(comparison('spotClearinghouseState', spot('1'), spot('2'), ['another-leader'])).rejects.toMatchObject({ changedReads: ['spotClearinghouseState'] });
   });
 });

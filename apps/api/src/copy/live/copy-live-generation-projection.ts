@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { isHyperliquidNetwork, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import type { copyLiveExecutions, copyLiveIntentProvenance, copyLiveSignalLegs, copyLiveSourceFills, copyLiveRiskReservations,
   copyLiveExecutionEvidence, copyFollowerReceipts, copyFollowerLedger, copyFollowerScans, copyFollowerReceiptConflicts,
@@ -207,5 +208,12 @@ export function projectLiveGenerationPositions(raw: LiveGenerationProjectionInpu
     requireGeneration(Object.keys(actual).length===snapshot.positions.filter(p=>!Dec.from(p.size).isZero).length);same(projected,actual);
     return freezeLiveReservation({mandateId:id.mandateId,baselineDigest:baseline.baselineDigest,receiptManifestDigest:liveSourceDigest({receipts:manifest.receipts,ledger:manifest.ledger}),
       positionsDigest:liveSourceDigest(projected),positions:projected,checkedAt:manifest.checkedAt});
-  }catch{throw new LiveBoundaryError('live_generation_unproven');}
+  }catch(error){
+    // Which of the proof's checks failed: its line in this module (no values).
+    // Every refusal read only live_generation_unproven (Stage mainnet
+    // 2026-10-12, the copy's second order, 16 attempts).
+    const at=error instanceof Error?(error.stack??'').split('\n').find(line=>line.includes('copy-live-generation-projection')&&!/at (requireGeneration|same|millis|keys) /.test(line))?.match(/:(\d+):\d+\)?$/)?.[1]:undefined;
+    new Logger('LiveGenerationProjection').warn(`live_generation_unproven at line ${at??'unknown'}${error instanceof LiveBoundaryError?'':` (${error instanceof Error?error.name:'error'})`}`);
+    throw new LiveBoundaryError('live_generation_unproven');
+  }
 }

@@ -79,6 +79,16 @@ describe('generation quantity projection requires actual immutable origin',()=>{
     Object.assign(e.snapshot,{completedAt:time+20});Object.assign(e.snapshot.dexes[0]!,{providerTime:time+10});Object.assign(e.snapshot.coverage,{earliestProviderTime:time+10});
     expect(projectLiveGenerationPositions(e)).toMatchObject({positions:{BTC:'1'}});
   });
+  it('accepts a funding payment as Hyperliquid writes it: zero hash, szi, fundingRate, nSamples null (Stage mainnet 2026-10-12)',()=>{
+    const e=structuredClone(settledGenerationExample()),m=e.manifest as any,time=e.now-50,
+      raw={hash:`0x${'0'.repeat(64)}`,time,delta:{szi:'1',coin:'BTC',type:'funding',usdc:'0.000126',nSamples:null,fundingRate:'0.0000125'}},
+      funding=parseFollowerFunding(raw,{network:'testnet',accountAddress:e.identity.accountAddress,coin:'BTC'});
+    m.receipts.push({key:funding.key,accountId:e.identity.accountId,network:'testnet',accountAddress:e.identity.accountAddress,kind:'funding',sourceId:funding.hash,coin:'BTC',providerTime:new Date(time).toISOString(),digest:followerReceiptDigestV1(raw),record:{...funding,raw},executionKey:null,attribution:'account',createdAt:new Date(e.now).toISOString()});
+    m.ledger.push({receiptKey:funding.key,component:'funding',amount:'0.000126',token:'USDC',createdAt:new Date(e.now).toISOString()});
+    m.scan.through=time;
+    Object.assign(e.snapshot,{completedAt:time+20});Object.assign(e.snapshot.dexes[0]!,{providerTime:time+10});Object.assign(e.snapshot.coverage,{earliestProviderTime:time+10});
+    expect(projectLiveGenerationPositions(e)).toMatchObject({positions:{BTC:'1'}});
+  });
   it('requires every current all-venue frame to follow the latest actual generation fill',()=>{
     const e=structuredClone(settledGenerationExample()),m=e.manifest as any,old=Date.parse(m.receipts[0].providerTime)-1;
     Object.assign(e.snapshot.dexes[0]!,{providerTime:old});Object.assign(e.snapshot.coverage,{earliestProviderTime:old});

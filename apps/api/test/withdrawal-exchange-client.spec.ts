@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { WithdrawalExchangeClient } from "../src/wallet/withdrawal-exchange.client.js";
+import { consumeWithdrawalNotDispatched, isWithdrawalNotDispatched, WithdrawalExchangeClient } from "../src/wallet/withdrawal-exchange.client.js";
+import { LiveBoundaryError } from "../src/copy/live/wallet-authorization.js";
 import type { RequestBudgeterService } from "../src/hyperliquid/request-budgeter.service.js";
 import type { WithdrawalRow } from "../src/wallet/withdrawal.repository.js";
 import { offlineGlobalTransport } from './hyperliquid-global-test-utils.js';
@@ -39,19 +40,31 @@ describe("trusted withdrawal transport", () => {
   it('denies a withdrawal before transport when shared quota is unavailable', async () => {
     const fetcher = vi.fn<typeof fetch>(); vi.stubGlobal('fetch', fetcher); const f = client();
     f.global.acquire.mockRejectedValueOnce(Error('quota exhausted'));
-    await expect(f.client.send(op, signature, () => {})).rejects.toThrow('withdrawal_submission_unknown');
+    await expect(f.client.send(op, signature, () => {})).rejects.toThrow('withdrawal_not_dispatched');
     expect(f.global.acquire).toHaveBeenCalledWith(1, expect.any(Number)); expect(fetcher).not.toHaveBeenCalled();
   });
   it('rechecks the original shared permit after the final identity proof and never renews it', async () => {
     let now = Date.now(); const fetcher = vi.fn<typeof fetch>(); vi.stubGlobal('fetch', fetcher);
     const global = offlineGlobalTransport(fetcher, () => now), transport = new WithdrawalExchangeClient({} as RequestBudgeterService, global.transport);
-    await expect(transport.send(op, signature, () => { now += 5001; })).rejects.toThrow('withdrawal_submission_unknown');
+    await expect(transport.send(op, signature, () => { now += 5001; })).rejects.toThrow('withdrawal_not_dispatched');
     expect(global.acquire).toHaveBeenCalledOnce(); expect(fetcher).not.toHaveBeenCalled();
+  });
+  it('binds not-dispatched evidence to this exact attempt, once; a dispatched failure carries none', async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => { throw new Error('timeout'); }); vi.stubGlobal('fetch', fetcher); const f = client();
+    f.global.acquire.mockRejectedValueOnce(Error('quota exhausted'));
+    const refused = await f.client.send(op, signature, () => {}).catch((error: unknown) => error);
+    expect(isWithdrawalNotDispatched(refused, { ...op, attemptedAt: new Date(op.attemptedAt!.getTime() + 1) })).toBe(false);
+    expect(isWithdrawalNotDispatched(new LiveBoundaryError('withdrawal_not_dispatched'), op)).toBe(false);
+    expect(consumeWithdrawalNotDispatched(refused, op)).toBe(true);
+    expect(consumeWithdrawalNotDispatched(refused, op)).toBe(false);
+    const sent = await f.client.send(op, signature, () => {}).catch((error: unknown) => error);
+    expect(sent).toMatchObject({ code: 'withdrawal_submission_unknown' }); expect(isWithdrawalNotDispatched(sent, op)).toBe(false);
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
   it('requires a synchronous captured proof and a concrete shared transport', async () => {
     const fetcher = vi.fn<typeof fetch>(); vi.stubGlobal('fetch', fetcher);
-    await expect(client().client.send(op, signature)).rejects.toThrow('withdrawal_submission_unknown');
-    await expect(new WithdrawalExchangeClient({} as RequestBudgeterService).send(op, signature, () => {})).rejects.toThrow('withdrawal_submission_unknown');
+    await expect(client().client.send(op, signature)).rejects.toThrow('withdrawal_not_dispatched');
+    await expect(new WithdrawalExchangeClient({} as RequestBudgeterService).send(op, signature, () => {})).rejects.toThrow('withdrawal_not_dispatched');
     expect(fetcher).not.toHaveBeenCalled();
   });
 });

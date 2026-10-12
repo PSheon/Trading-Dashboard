@@ -14,6 +14,9 @@ import { WithdrawalService } from "../src/wallet/withdrawal.service.js";
 import { privateKeyToAccount } from "viem/accounts";
 import { eq, sql } from "drizzle-orm";
 import { users, walletWithdrawals } from "@trading-dashboard/shared/database";
+import { LiveBoundaryError } from "../src/copy/live/wallet-authorization.js";
+import type { RequestBudgeterService } from "../src/hyperliquid/request-budgeter.service.js";
+import { offlineGlobalTransport } from "./hyperliquid-global-test-utils.js";
 import { createAuthedApp, stubPrivy } from "./auth-test-utils.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
 
@@ -89,6 +92,65 @@ describe("durable owner withdrawal metadata", () => {
     const res = await post(`/${op.id}/submit`, { signature: sig }).expect(200);
     expect(res.body.data.status).toBe('unknown'); expect(exchange.send.mock.calls[0][2]).toEqual(expect.any(Function)); expect(nativeCalls).toBe(0);
     await post(`/${op.id}/submit`, { signature: sig }).expect(200); expect(exchange.send).toHaveBeenCalledTimes(1);
+  });
+
+  describe("through the real transport", () => {
+    const row = async (id: string) => (await db.select().from(walletWithdrawals).where(eq(walletWithdrawals.id, id)))[0]!;
+    function through(fetcher: typeof fetch) {
+      vi.stubGlobal("fetch", fetcher);
+      const shared = offlineGlobalTransport(fetcher);
+      const real = new WithdrawalExchangeClient({} as RequestBudgeterService, shared.transport);
+      exchange.send.mockImplementation((operation, sig, guard) => real.send(operation, sig, guard));
+      return shared;
+    }
+    afterEach(() => vi.unstubAllGlobals());
+
+    it("a quota refusal before the POST puts it back to prepared: the owner can cancel or sign again", async () => {
+      const fetcher = vi.fn<typeof fetch>(), shared = through(fetcher);
+      shared.acquire.mockRejectedValueOnce(Error("quota exhausted"));
+      const op = await unknown(), sig = await signature(op);
+      const res = await post(`/${op.id}/submit`, { signature: sig }).expect(200);
+      expect(res.body.data).toMatchObject({ status: "prepared", canCancel: true });
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(await row(op.id)).toMatchObject({ status: "prepared", claimedAt: null, attemptedAt: null });
+      // Signed again: claimed, sent once, answered.
+      fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ status: "ok", response: { type: "default" } })));
+      await post(`/${op.id}/broadcast`).expect(200);
+      expect((await post(`/${op.id}/submit`, { signature: sig }).expect(200)).body.data.status).toBe("accepted");
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    });
+
+    it("a refused proof before the POST is cancellable", async () => {
+      const fetcher = vi.fn<typeof fetch>(); through(fetcher);
+      const op = await unknown(), sig = await signature(op);
+      const clock = vi.spyOn(Date, "now");
+      exchange.send.mockImplementationOnce(async (operation, s, guard) => {
+        clock.mockReturnValue(Date.now() + 5001); // the identity proof has aged: refused before transport
+        try { return await new WithdrawalExchangeClient({} as RequestBudgeterService, offlineGlobalTransport(fetcher).transport).send(operation, s, guard); }
+        finally { clock.mockRestore(); }
+      });
+      expect((await post(`/${op.id}/submit`, { signature: sig }).expect(200)).body.data.status).toBe("prepared");
+      expect(fetcher).not.toHaveBeenCalled();
+      expect((await post(`/${op.id}/cancel`).expect(200)).body.data.status).toBe("cancelled");
+    });
+
+    it("a POST that was dispatched and timed out stays unknown and cannot be cancelled", async () => {
+      const fetcher = vi.fn<typeof fetch>(async () => { throw new DOMException("timed out", "TimeoutError"); }); through(fetcher);
+      const op = await unknown(), sig = await signature(op);
+      expect((await post(`/${op.id}/submit`, { signature: sig }).expect(200)).body.data).toMatchObject({ status: "unknown", canCancel: false });
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect((await row(op.id)).attemptedAt).not.toBeNull();
+      await post(`/${op.id}/cancel`).expect(409);
+      await post(`/${op.id}/submit`, { signature: sig }).expect(200);
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    });
+
+    it("a forged not-dispatched error (no transport evidence) stays unknown", async () => {
+      exchange.send.mockRejectedValueOnce(new LiveBoundaryError("withdrawal_not_dispatched"));
+      const op = await unknown();
+      expect((await post(`/${op.id}/submit`, { signature: await signature(op) }).expect(200)).body.data.status).toBe("unknown");
+      await post(`/${op.id}/cancel`).expect(409);
+    });
   });
 
   it("logs every state change of a withdrawal, with its id and nonce, never the signature or destination", async () => {

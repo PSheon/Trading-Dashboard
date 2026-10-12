@@ -13,7 +13,7 @@ import { BusyException } from "../traders/busy.js";
 import { BUSY_RETRY_AFTER_MS, isBusyError } from "../traders/traders.controller.js";
 import { WalletService } from "./wallet.service.js";
 import { WithdrawalRepository, type WithdrawalRow } from "./withdrawal.repository.js";
-import { WithdrawalExchangeClient } from "./withdrawal-exchange.client.js";
+import { isWithdrawalNotDispatched, WithdrawalExchangeClient } from "./withdrawal-exchange.client.js";
 import type { HlLedgerUpdate } from "../hyperliquid/types.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
 
@@ -133,7 +133,16 @@ export class WithdrawalService {
         claimed.amount !== operation.amount || claimed.nonce !== operation.nonce) throw new ConflictException('withdrawal_identity_evidence_expired');
     }); }
     catch (error) {
-      // Sent or not, the outcome is unknown: never resent, reconciled by nonce.
+      // Proven never handed over (quota, proof or permit refused first): back
+      // to prepared, so the owner can retry or cancel.
+      if (isWithdrawalNotDispatched(error, claimed)) {
+        const restored = await this.repository.restoreNotDispatched(userId, claimed, error);
+        if (restored) {
+          this.note("withdrawal.submit.deferred", restored, { reason: "not_dispatched" }, "warn");
+          return wire(restored);
+        }
+      }
+      // Maybe sent: the outcome is unknown, never resent, reconciled by nonce.
       this.note("withdrawal.submit.failed", claimed, { error: error instanceof Error ? error.name : "unknown", outcome: "unknown" }, "warn");
       return wire(await this.repository.find(userId, id));
     }

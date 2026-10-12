@@ -9,6 +9,7 @@ import type { DbTransaction } from "../db/unit-of-work.js";
 import { lockCopyUser } from "../copy/copy-user-lock.js";
 import { recordAdminAudit, type AuditActor } from "../common/audit/admin-audit.js";
 import { insertOwnerEvent } from "../copy/copy-runtime.repository.js";
+import { consumeWithdrawalNotDispatched } from "./withdrawal-exchange.client.js";
 
 export type WithdrawalRow = typeof walletWithdrawals.$inferSelect;
 type Scope = { userId: number; network: "testnet" | "mainnet"; address: string };
@@ -107,6 +108,22 @@ export class WithdrawalRepository {
   async restoreUnsent(userId: number, id: string) {
     await this.locked(userId, tx => tx.update(walletWithdrawals).set({ status: "prepared", claimedAt: null, updatedAt: new Date() })
       .where(and(eq(walletWithdrawals.id, id), eq(walletWithdrawals.userId, userId), eq(walletWithdrawals.origin, "client"), eq(walletWithdrawals.status, "unknown"), isNull(walletWithdrawals.attemptedAt))));
+  }
+
+  /** Back to `prepared` (owner may retry or cancel) for an attempt whose POST
+   * this process's own transport proves was never handed over. A crash, a
+   * serialized error or an unrelated attempt has no such proof. A CAS on the
+   * exact attempt read: any concurrent change (an answer, a resolution) wins. */
+  async restoreNotDispatched(userId: number, original: WithdrawalRow, error: unknown) {
+    const attempt = structuredClone(original);
+    if (attempt.userId !== userId || attempt.origin !== "client" || attempt.status !== "unknown" || !attempt.claimedAt || !attempt.attemptedAt ||
+        attempt.evidenceHash !== null || !consumeWithdrawalNotDispatched(error, attempt)) return null;
+    const [row] = await this.locked(userId, tx => tx.update(walletWithdrawals).set({ status: "prepared", claimedAt: null, attemptedAt: null, updatedAt: new Date() })
+      .where(and(eq(walletWithdrawals.id, attempt.id), eq(walletWithdrawals.userId, userId), eq(walletWithdrawals.origin, "client"), eq(walletWithdrawals.status, "unknown"),
+        eq(walletWithdrawals.network, attempt.network), eq(walletWithdrawals.address, attempt.address), eq(walletWithdrawals.destination, attempt.destination),
+        eq(walletWithdrawals.amount, attempt.amount), eq(walletWithdrawals.nonce, attempt.nonce), isNull(walletWithdrawals.evidenceHash),
+        eq(walletWithdrawals.claimedAt, attempt.claimedAt!), eq(walletWithdrawals.attemptedAt, attempt.attemptedAt!), eq(walletWithdrawals.updatedAt, attempt.updatedAt))).returning());
+    return row ?? null;
   }
 
   /** The exchange's answer to a hub withdrawal; the owner's live feed gets

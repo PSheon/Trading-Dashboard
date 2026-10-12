@@ -82,7 +82,7 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
       ) : (
         <>
           <div className="grid gap-4 md:grid-cols-[1fr_1.04fr]">
-            <HeroCards data={ready ? data : undefined} />
+            <HeroCards data={data} ready={ready} />
           </div>
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.04fr)]">
             {history.errorUpdateCount > 0 && !history.data ? (
@@ -197,8 +197,30 @@ function HyperliquidWordmark({ className }: { className?: string }) {
   );
 }
 
-function HeroCards({ data }: { data: CohortDetail | undefined }) {
+/**
+ * The two split cards. A skeleton only until the tier's detail arrives; a
+ * tier still being read (below the headline gate) gets its cards with an
+ * explicit "資料收集中 33/150" in place of the figures, never a placeholder
+ * without end and never the partial read's numbers as the tier's.
+ */
+function HeroCards({ data, ready }: { data: CohortDetail | undefined; ready: boolean }) {
   const { t } = useI18n();
+  if (data && !ready) {
+    const collecting = t("insights.cohort.collecting", { wallets: data.walletCount, members: data.memberCount });
+    return (
+      <>
+        {([t("insights.cohort.unrealizedPnl"), t("insights.cohort.notional")]).map((title) => (
+          <section key={title} className="orbit-card card-pad overflow-hidden" data-testid="cohort-hero-collecting">
+            <h2 className="type-h2">{title}</h2>
+            <div className="mt-2.5 flex flex-col gap-3">
+              <div className="cd-bar h-3 rounded-full" />
+              <p className="text-xs leading-[18px] font-bold text-muted-foreground">{collecting}</p>
+            </div>
+          </section>
+        ))}
+      </>
+    );
+  }
   if (!data) {
     // HeroCard's own card, title and split bar, with bars for the legend.
     return (

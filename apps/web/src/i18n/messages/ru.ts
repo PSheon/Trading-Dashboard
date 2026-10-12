@@ -1369,6 +1369,7 @@ export const ru: Messages = {
       tierLabel: "Уровень",
       unrealizedPnl: "Нереализованный PnL",
       notional: "Номинал",
+      collecting: "Сбор данных {wallets}/{members}",
       inProfit: "В прибыли",
       inLoss: "В убытке",
       long: "Лонг",

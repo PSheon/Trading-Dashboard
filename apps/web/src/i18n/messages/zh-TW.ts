@@ -2142,6 +2142,7 @@ export const zhTW = {
       tierLabel: "分層",
       unrealizedPnl: "未實現盈虧",
       notional: "名目金額",
+      collecting: "資料收集中 {wallets}/{members}",
       inProfit: "獲利中",
       inLoss: "虧損中",
       long: "做多",

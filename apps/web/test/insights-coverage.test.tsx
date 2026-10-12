@@ -61,20 +61,42 @@ describe("the insights headline waits for the tier to be read", () => {
     expect(html).toContain('aria-label="120 / 150 個錢包有最新快照"');
   });
 
-  it("a tier read to 33 of 150 shows no headline figure: the cards are placeholders and the page says it is building", () => {
+  it("a tier read to 33 of 150 shows no headline figure: the cards say 資料收集中 33/150, never a skeleton without end", () => {
     state.detail = wireOf("rekt");
     state.history = { tier: "rekt", window: "all", series: [], btc: [] };
     const html = render();
     expect(state.detail).toMatchObject({ walletCount: 33, memberCount: 150, headlineReady: false, hero: { longPct: 6.9 } });
-    // Both split cards are their placeholders (the card and its title, no
-    // figure), so the partial read's "7% 做多" is nowhere; the per-market map
-    // waits as well.
-    expect(html.match(/<section aria-hidden="true" class="orbit-card card-pad ui-skeleton/g)).toHaveLength(2);
+    // Data has arrived, so neither split card is a loading skeleton: each is
+    // the card and its title with an explicit collecting state and no figure,
+    // so the partial read's "7% 做多" is nowhere; the per-market map waits as well.
+    expect(html).not.toMatch(/<section aria-hidden="true" class="orbit-card card-pad ui-skeleton/);
+    const cards = html.match(/<section class="orbit-card card-pad overflow-hidden" data-testid="cohort-hero-collecting">[\s\S]*?<\/section>/g) ?? [];
+    expect(cards).toHaveLength(2);
+    expect(cards[0]).toContain(`>${zhTW.insights.cohort.unrealizedPnl}</h2>`);
+    expect(cards[1]).toContain(`>${zhTW.insights.cohort.notional}</h2>`);
+    for (const card of cards) {
+      expect(card).toContain("資料收集中 33/150");
+      expect(card).not.toMatch(/\d+(?:\.\d+)?%/);
+    }
     expect(html).not.toContain(`7% ${zhTW.insights.cohort.long}`);
     expect(html).not.toContain("$69.00K");
     expect(html).toContain(zhTW.insights.cohort.building);
     // The wallets that were read are still listed.
     expect(html).toContain("<table");
+  });
+
+  it("the split cards are skeletons only while the tier's detail has not arrived", () => {
+    state.detail = undefined;
+    state.history = undefined;
+    const html = render();
+    expect(html.match(/<section aria-hidden="true" class="orbit-card card-pad ui-skeleton/g)).toHaveLength(2);
+    expect(html).not.toContain("cohort-hero-collecting");
+  });
+
+  it("every language names the collecting state with both counts", () => {
+    for (const [locale, catalog] of Object.entries(catalogs)) {
+      expect(catalog.insights.cohort.collecting, locale).toMatch(/\{wallets\}\/\{members\}/);
+    }
   });
 
   it("an api without the field is judged by the two counts", () => {

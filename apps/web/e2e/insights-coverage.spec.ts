@@ -43,7 +43,17 @@ for (const width of [1440, 390]) {
     // Said once, in the per-market map (no empty box there); the title's pill holds the rest.
     await expect(page.getByText("此分層的持倉資料尚未完整，背景持續更新中。")).toHaveCount(1, { timeout: 20000 });
     await expect(page.getByText("此分層的持倉資料尚未完整，背景持續更新中。").first()).toBeVisible();
-    await expect(page.getByRole("heading", { level: 2, name: "名目金額", exact: true })).toHaveCount(0);
+    // The split cards are not a skeleton without end once the data is in:
+    // each says it is collecting, with the counts, and shows no figure.
+    const collecting = page.getByTestId("cohort-hero-collecting");
+    await expect(collecting).toHaveCount(2);
+    for (const name of ["未實現盈虧", "名目金額"]) {
+      const card = collecting.filter({ has: page.getByRole("heading", { level: 2, name, exact: true }) });
+      await expect(card).toBeVisible();
+      await expect(card).toContainText("資料收集中 33/150");
+      await expect(card).not.toContainText("%");
+    }
+    await expect(page.locator("section.ui-skeleton")).toHaveCount(0);
     await expect(page.getByText("7% 做多")).toHaveCount(0);
     await expect(page.getByText("歷史資料會在資料足夠後逐步累積。", { exact: true })).toBeVisible();
     await expect(page.getByText(/每 15 分鐘/)).toHaveCount(0);

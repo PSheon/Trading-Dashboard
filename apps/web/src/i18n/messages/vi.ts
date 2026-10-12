@@ -1369,6 +1369,7 @@ export const vi: Messages = {
       tierLabel: "Cấp",
       unrealizedPnl: "PnL chưa thực hiện",
       notional: "Danh nghĩa",
+      collecting: "Đang thu thập dữ liệu {wallets}/{members}",
       inProfit: "Đang lãi",
       inLoss: "Đang lỗ",
       long: "Long",

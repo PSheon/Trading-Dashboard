@@ -1369,6 +1369,7 @@ export const tr: Messages = {
       tierLabel: "Grup",
       unrealizedPnl: "Gerçekleşmemiş K/Z",
       notional: "Nominal",
+      collecting: "Veri toplanıyor {wallets}/{members}",
       inProfit: "Kârda",
       inLoss: "Zararda",
       long: "Long",

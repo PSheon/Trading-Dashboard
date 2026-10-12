@@ -1369,6 +1369,7 @@ export const zhCN: Messages = {
       tierLabel: "分层",
       unrealizedPnl: "未实现盈亏",
       notional: "名义金额",
+      collecting: "数据收集中 {wallets}/{members}",
       inProfit: "盈利中",
       inLoss: "亏损中",
       long: "做多",

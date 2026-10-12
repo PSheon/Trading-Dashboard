@@ -2138,6 +2138,7 @@ export const en: Messages = {
       tierLabel: "Tier",
       unrealizedPnl: "Unrealized PNL",
       notional: "Notional",
+      collecting: "Collecting data {wallets}/{members}",
       inProfit: "In Profit",
       inLoss: "In Loss",
       long: "Long",

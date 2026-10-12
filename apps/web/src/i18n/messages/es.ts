@@ -1369,6 +1369,7 @@ export const es: Messages = {
       tierLabel: "Nivel",
       unrealizedPnl: "PnL no realizado",
       notional: "Nocional",
+      collecting: "Recopilando datos {wallets}/{members}",
       inProfit: "En ganancia",
       inLoss: "En pérdida",
       long: "Largo",

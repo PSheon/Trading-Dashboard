@@ -1369,6 +1369,7 @@ export const id: Messages = {
       tierLabel: "Tingkat",
       unrealizedPnl: "PnL Belum Terealisasi",
       notional: "Nosional",
+      collecting: "Mengumpulkan data {wallets}/{members}",
       inProfit: "Sedang untung",
       inLoss: "Sedang rugi",
       long: "Long",

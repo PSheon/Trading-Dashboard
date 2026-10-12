@@ -1369,6 +1369,7 @@ export const ja: Messages = {
       tierLabel: "ティア",
       unrealizedPnl: "未実現損益",
       notional: "想定元本",
+      collecting: "データ収集中 {wallets}/{members}",
       inProfit: "利益中",
       inLoss: "損失中",
       long: "ロング",

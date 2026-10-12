@@ -1369,6 +1369,7 @@ export const ko: Messages = {
       tierLabel: "티어",
       unrealizedPnl: "미실현 손익",
       notional: "명목 금액",
+      collecting: "데이터 수집 중 {wallets}/{members}",
       inProfit: "수익 중",
       inLoss: "손실 중",
       long: "롱",

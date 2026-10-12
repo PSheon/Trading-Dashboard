@@ -134,7 +134,10 @@ export class PostgresLiveReservations {
     let consent;
     try { consent = decodeLiveCopyMandate(row.mandate); } catch { fail('live_reservation_mandate_unproven'); }
     const { mandate, provenance: p, leg, config, setup, wallet, owner } = row;
-    check(strategy.status === 'active' && mandate.state === 'active' && mandate.consentDigest && mandate.activationCursor &&
+    // A pause stops new risk only: a paused copy's reduce-only close still holds
+    // (the provenance's intent, bound to the record's fingerprint below).
+    const current = (state: string) => state === 'active' || (p.intent as { reduceOnly?: unknown }).reduceOnly === true && state === 'paused';
+    check(current(strategy.status) && current(mandate.state) && mandate.consentDigest && mandate.activationCursor &&
       mandate.expiresAt.getTime() > this.now() && mandate.revision === p.mandateRevision && p.plannerVersion === consent.plannerVersion &&
       consent.accountId === account.id && consent.userId === account.userId && consent.strategyId === strategy.id && consent.network === account.network &&
       consent.accountAddress === account.address && consent.accountRevision === account.revision && consent.ownerPrivyUserId === account.privyUserId &&

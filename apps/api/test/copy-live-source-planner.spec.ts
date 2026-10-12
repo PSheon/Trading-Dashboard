@@ -154,6 +154,14 @@ describe('actual source sizing from retained original observations',()=>{
     // Prior desired33.75, actualfilled10 -> remaining80 and owed23.75.
     expect(planLiveSourceOrder(closeExample('80','23.75'))).toMatchObject({order:{size:'37.81',reduceOnly:true},nextCarry:'0.0025'});
   });
+  it('plans a paused generation\'s close (a pause stops new risk only), never its open nor a revoked one\'s close',()=>{
+    const close=closeExample('80','23.75',true);(close.mandate as any).state='paused';
+    expect(planLiveSourceOrder(close)).toMatchObject({order:{size:'80',reduceOnly:true}});
+    const open=structuredClone(example());(open.mandate as any).state='paused';
+    expect(()=>planLiveSourceOrder(open)).toThrow('live_source_sizing_unproven');
+    const revoked=closeExample('80','23.75',true);(revoked.mandate as any).state='revoked';
+    expect(()=>planLiveSourceOrder(revoked)).toThrow('live_source_sizing_unproven');
+  });
   it('fully closes the actual remaining generation quantity and clears carry',()=>{
     expect(planLiveSourceOrder(closeExample('80','23.75',true))).toMatchObject({order:{size:'80',reduceOnly:true},nextCarry:'0'});
   });

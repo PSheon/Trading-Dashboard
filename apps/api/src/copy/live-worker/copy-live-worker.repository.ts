@@ -29,6 +29,8 @@ export interface LiveMandateWork {
   mandateId: string; userId: number; strategyId: number; accountId: string; accountAddress: string;
   sourceNetwork: LiveSourceNetwork; leaderAddress: string; cursor: Date; expiresAt: Date;
   strategyStatus: string; activated: boolean;
+  /** The generation's state (a paused copy's closes go only while it is active or paused). */
+  mandateState?: string;
   /** When the worker started trading this generation; fills before it are not copied. */
   activatedAt: Date | null;
   /** Ratio sizing merges same-coin legs into one adjustment; fixed does not. */
@@ -51,7 +53,9 @@ export class CopyLiveWorkerRepository {
     return sql`exists (select 1 from ${copyLiveMandates} n where n.id = ${copyLiveDispatches.mandateId} and n.network = ${this.network})`;
   }
 
-  /** Consent generations that are acknowledged and unexpired. */
+  /** Consent generations that are acknowledged and unexpired: active, or
+   * paused by the owner (a pause stops new risk only; the engine still
+   * mirrors the leader's closes of a paused copy, never its opens). */
   async mandates(now: number): Promise<LiveMandateWork[]> {
     const rows = await this.db.select({ mandate: copyLiveMandates, account: copyExecutionAccounts, strategy: copyStrategies, activatedAt: copyLiveActivations.activatedAt, activationState: copyLiveActivations.state,
       settings: copyStrategyVersions.settings, budgetUsd: copyLiveStrategyConfigs.budgetUsd })
@@ -61,13 +65,13 @@ export class CopyLiveWorkerRepository {
       .leftJoin(copyLiveActivations, eq(copyLiveActivations.mandateId, copyLiveMandates.id))
       .leftJoin(copyStrategyVersions, and(eq(copyStrategyVersions.strategyId, copyStrategies.id), eq(copyStrategyVersions.version, copyStrategies.version)))
       .leftJoin(copyLiveStrategyConfigs, eq(copyLiveStrategyConfigs.strategyId, copyStrategies.id))
-      .where(and(eq(copyLiveMandates.state, 'active'), isNotNull(copyLiveMandates.consentDigest), isNotNull(copyLiveMandates.activationCursor),
+      .where(and(inArray(copyLiveMandates.state, ['active', 'paused']), isNotNull(copyLiveMandates.consentDigest), isNotNull(copyLiveMandates.activationCursor),
         gt(copyLiveMandates.expiresAt, new Date(now)), eq(copyStrategies.mode, ACTUAL_STRATEGY_MODE), eq(copyLiveMandates.network, this.network),
         eq(copyExecutionAccounts.network, this.network), isNotNull(copyExecutionAccounts.address)))
       .orderBy(asc(copyLiveMandates.createdAt)).limit(500);
     return rows.map(({ mandate: m, account: a, strategy: s, activatedAt, activationState, settings, budgetUsd }) => ({ mandateId: m.id, userId: m.userId, strategyId: m.strategyId, accountId: m.accountId,
       accountAddress: a.address!, sourceNetwork: m.sourceNetwork, leaderAddress: m.leaderAddress, cursor: m.activationCursor!, expiresAt: m.expiresAt,
-      strategyStatus: s.status, activated: activationState === 'activated', activatedAt,
+      strategyStatus: s.status, mandateState: m.state, activated: activationState === 'activated', activatedAt,
       sizingMode: copyStrategySettingsSchema.safeParse(settings).data?.sizingMode ?? null, budgetUsd: budgetUsd ?? null }));
   }
   streams(mandates: readonly LiveMandateWork[]): LiveStreamWork[] {

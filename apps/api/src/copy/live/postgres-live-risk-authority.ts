@@ -28,8 +28,10 @@ export const riskSourceDigest = (value: unknown) => liveSourceDigest(JSON.parse(
  * reduce-only order (the planner and the generation projection hold it to
  * that, and the exchange enforces the signed flag); it passes the caps and
  * the owner allowlist, which bound new risk only. Tightening them must not
- * strand a running copy's positions (a safety exit). Without a leg every
- * check applies. */
+ * strand a running copy's positions (a safety exit). Likewise a pause (the
+ * owner's: strategy and generation paused) and copy trading switched off
+ * stop new risk only: a close still passes. Without a leg every check
+ * applies. */
 export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSession,db:DbExecutor,raw:{accountId:string;mandateId:string;leg?:'open'|'close'},now:number) {
   const binding=structuredClone(raw); session.scope.assertFresh();
   const increasesRisk=binding.leg!=='close';
@@ -54,7 +56,7 @@ export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSessi
     a.privyWalletId&&a.ownerQuorumId&&a.privyUserId===o.privyUserId&&o.disabledAt===null,'live_risk_identity');
   const consent=decodeLiveCopyMandate(m),settings=copyStrategySettingsSchema.parse(v.settings);
   riskSourceRequire(scope.source?.network===consent.sourceNetwork&&scope.source.leaderAddress===consent.leaderAddress,'live_risk_source_scope_missing');
-  riskSourceRequire(s.userId===a.userId&&s.mode===ACTUAL_STRATEGY_MODE&&s.status==='active'&&m.state==='active'&&m.consentDigest&&m.activationCursor&&m.expiresAt.getTime()>now&&
+  riskSourceRequire(s.userId===a.userId&&s.mode===ACTUAL_STRATEGY_MODE&&(s.status==='active'||!increasesRisk&&s.status==='paused')&&(m.state==='active'||!increasesRisk&&m.state==='paused')&&m.consentDigest&&m.activationCursor&&m.expiresAt.getTime()>now&&
     consent.accountId===a.id&&consent.userId===a.userId&&consent.strategyId===s.id&&consent.network===a.network&&consent.accountRevision===a.revision&&consent.accountAddress===a.address&&
     consent.ownerPrivyUserId===o.privyUserId&&consent.ownerAddress===o.embeddedWalletAddress&&consent.strategyVersion===s.version&&
     c.strategyVersion===s.version&&c.userId===a.userId&&['testnet','mainnet'].includes(c.sourceNetwork)&&consent.sourceNetwork===c.sourceNetwork&&c.budgetUsd===consent.budgetUsd&&
@@ -87,7 +89,8 @@ export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSessi
   const platform=controls.find(c=>c.scope==='platform'&&c.scopeId===0),user=controls.find(c=>c.scope==='user'&&c.scopeId===a.userId);
   riskSourceRequire(controls.length===2&&platform&&user,'live_risk_controls_unproven');
   const general=generalRow?[generalRow]:[];
-  riskSourceRequire(general.length===1&&(general[0]!.value as {copyTradingEnabled?:unknown}).copyTradingEnabled===true,'live_risk_platform_disabled');
+  // Copy trading switched off stops new risk; a close still goes (a safety exit).
+  riskSourceRequire(general.length===1&&(!increasesRisk||(general[0]!.value as {copyTradingEnabled?:unknown}).copyTradingEnabled===true),'live_risk_platform_disabled');
   const builder=revenue?adminSettingsSchema.shape.revenue.parse(revenue.value):{builderAddress:null,builderFeeTenthsBps:0};
   // A generation that binds no builder fee (a live deployment for now) charges none, whatever the revenue settings say.
   riskSourceRequire((consent.builderAddress===null&&consent.builderMaxFeeTenthsOfBps===0)||((builder.builderAddress?.toLowerCase()??null)===consent.builderAddress&&builder.builderFeeTenthsBps===consent.builderMaxFeeTenthsOfBps),'live_risk_builder_changed');

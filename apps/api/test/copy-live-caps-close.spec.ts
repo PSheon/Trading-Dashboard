@@ -1,6 +1,7 @@
 import { Pool } from 'pg';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { copyStrategyVersions } from '@trading-dashboard/shared/database';
+import { eq } from 'drizzle-orm';
+import { appSettings, copyLiveMandates, copyStrategies, copyStrategyVersions } from '@trading-dashboard/shared/database';
 import type { LiveCopyConfig } from '../src/config/runtime-config.js';
 import { registerLiveDeployment } from '../src/copy/live-deployment.js';
 import { PostgresLiveRiskScope } from '../src/copy/live/postgres-live-risk-scope.js';
@@ -44,6 +45,29 @@ describe('tightened caps refuse a running copy\'s opens, not its closes', () => 
     const close = await authority('close');
     expect(close.account.id).toBe('account');
     expect(close.mandate.id).toBe(before.mandate.id);
+  });
+
+  it.each([
+    ['the owner paused the copy', 'live_risk_mandate_changed', async () => {
+      await db.update(copyStrategies).set({ status: 'paused', pauseNewRisk: true });
+      await db.update(copyLiveMandates).set({ state: 'paused' });
+    }],
+    ['copy trading is switched off', 'live_risk_platform_disabled', async () => {
+      await db.update(appSettings).set({ value: { copyTradingEnabled: false } }).where(eq(appSettings.key, 'general'));
+    }],
+  ] as const)('%s: an open (or an order of unknown leg) is refused; a close passes', async (_control, code, apply) => {
+    await apply();
+    await expect(authority('open')).rejects.toThrow(code);
+    await expect(authority()).rejects.toThrow(code);
+    expect((await authority('close')).account.id).toBe('account');
+  });
+
+  it('a revoked or stopping copy still refuses a close here (its own stop closes it)', async () => {
+    await db.update(copyLiveMandates).set({ state: 'revoked' });
+    await expect(authority('close')).rejects.toThrow('live_risk_mandate_changed');
+    await db.update(copyLiveMandates).set({ state: 'active' });
+    await db.update(copyStrategies).set({ status: 'stopping' });
+    await expect(authority('close')).rejects.toThrow('live_risk_mandate_changed');
   });
 
   it('only the caps and the allowlist: every other check still refuses a close (another network\'s deployment, a changed mandate)', async () => {

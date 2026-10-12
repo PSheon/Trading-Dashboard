@@ -116,6 +116,13 @@ const PERMANENT = new Set(['live_source_price_deviation', 'live_budget_over_capa
   // A control-refused unsent open must never queue ahead of reductions or
   // catch up after resume. Historical journals remain on settlement instead.
   'platform_paused', 'user_paused', 'strategy_paused', 'platform_reduce_only', 'user_reduce_only', 'strategy_reduce_only']);
+/** Copy trading switched off (general.copyTradingEnabled) refuses an unsent
+ * open for good, like a control; a close still goes (a safety exit). */
+const PERMANENT_OPEN = new Set(['live_risk_platform_disabled']);
+/** A started copy whose leader legs are enqueued and worked: an active one,
+ * or one its owner paused. A pause stops new risk only: the leader's opens
+ * are refused (submit), its closes still mirrored. */
+const mirrorsLeader = (m: LiveMandateWork) => m.activated && (m.strategyStatus === 'active' || m.strategyStatus === 'paused');
 /** A merged order is planned within this long after its legs are merged
  * (evidence reads ~4 s): no leg merged older than the signal age less this. */
 const PLANNING_MARGIN_MS = 15_000;
@@ -157,7 +164,7 @@ export class CopyLiveEngine {
     if (this.deps.network !== 'testnet') return;
     const mandates = await this.deps.repository.mandates(this.now());
     const eligible = mandates.filter(m =>
-      m.sourceNetwork === 'testnet' && m.activated && m.strategyStatus === 'active');
+      m.sourceNetwork === 'testnet' && mirrorsLeader(m));
     // Select active streams, but preserve every unexpired generation's
     // required cursor when deciding whether shared coverage can restart.
     for (const stream of this.deps.repository.streams(eligible)) {
@@ -182,7 +189,7 @@ export class CopyLiveEngine {
       catch (error) { this.deps.log?.(`source ${stream.network}:${stream.leaderAddress} not read: ${reasonOf(error)}`); }
     }
     const limit = await this.deps.repository.signalAgeLimitMs();
-    const held = await this.prepareWork(mandates.filter(row => row.activated && row.strategyStatus === 'active'));
+    const held = await this.prepareWork(mandates.filter(mirrorsLeader));
     const byId = new Map(mandates.map(m => [m.mandateId, m]));
     for (const row of await this.deps.repository.open()) {
       if (this.now() - started > this.options.passBudgetMs) break;
@@ -277,7 +284,7 @@ export class CopyLiveEngine {
       catch (error) { this.deps.log?.(`source ${stream.network}:${stream.leaderAddress} not read: ${reasonOf(error)}`); }
     }
     const ingestedAt = this.now();
-    for (const m of mandates.filter(row => row.activated && row.strategyStatus === 'active')) {
+    for (const m of mandates.filter(mirrorsLeader)) {
       try { await this.enqueue(m); } catch (error) { this.deps.log?.(`legs of ${m.mandateId} not enqueued: ${reasonOf(error)}`); }
     }
     return { started, read: this.deps.fast?.source.lastTiming?.get(leader) ?? null, ingest: outcome, ingestedAt, enqueuedAt: this.now() };
@@ -290,7 +297,7 @@ export class CopyLiveEngine {
     const mandates = (await this.deps.repository.mandates(started)).filter(m => m.sourceNetwork === 'mainnet' && m.leaderAddress === leader);
     if (!mandates.length) return;
     const limit = await this.deps.repository.signalAgeLimitMs();
-    const held = await this.prepareWork(mandates.filter(row => row.activated && row.strategyStatus === 'active'));
+    const held = await this.prepareWork(mandates.filter(mirrorsLeader));
     const byId = new Map(mandates.map(m => [m.mandateId, m]));
     for (const row of await this.deps.repository.open(100, [...byId.keys()])) {
       // A kick works this leader's fresh legs, briefly: the rest waits for the pass.
@@ -474,7 +481,15 @@ export class CopyLiveEngine {
       // The stop closes every position itself; no new leg of a stopping copy is sent.
       await this.deps.repository.update(row, { state: 'refused', reason: 'copy_stopping' }); return;
     }
-    if (m.strategyStatus !== 'active') return; // paused: new legs wait, then expire.
+    // Paused: no new risk. An open is refused for good (never sent, nor
+    // caught up after a resume, nor left ahead of a later close); a close
+    // still mirrors the leader (a safety exit).
+    if (m.strategyStatus === 'paused' && row.leg === 'open') {
+      await this.deps.repository.update(row, { state: 'refused', reason: 'strategy_paused' }); return;
+    }
+    // Only a current generation's (active or paused) close; anything else waits as before.
+    const closable = m.strategyStatus === 'paused' && (m.mandateState === 'active' || m.mandateState === 'paused');
+    if (m.strategyStatus !== 'active' && !closable) return;
     if (row.leg === 'close' && await this.deps.repository.closedByOwner(row.mandateId, row.accountId, row.coin)) {
       await this.deps.repository.update(row, { state: 'refused', reason: 'position_closed_by_owner' }); return;
     }
@@ -552,7 +567,7 @@ export class CopyLiveEngine {
       // An unsupported account mode read once right after a setup (testnet,
       // 2026-10-12) may be the exchange catching up: final on its third read.
       const transient = reason === 'live_account_unsupported_abstraction' && row.attempts + 1 < ABSTRACTION_ATTEMPT_LIMIT;
-      const permanent = row.state === 'pending' && !transient && (PERMANENT.has(reason) || row.leg === 'close' && (reason === 'no_follower_position' || row.attempts + 1 >= CLOSE_ATTEMPT_LIMIT));
+      const permanent = row.state === 'pending' && !transient && (PERMANENT.has(reason) || row.leg === 'open' && PERMANENT_OPEN.has(reason) || row.leg === 'close' && (reason === 'no_follower_position' || row.attempts + 1 >= CLOSE_ATTEMPT_LIMIT));
       if (permanent || row.state !== 'pending') this.legRetryAt.delete(row.id);
       else this.legRetryAt.set(row.id, this.now() + retryDelayMs(error, reason));
       await this.deps.repository.update(row, { ...(permanent ? { state: 'refused' as const } : {}), reason, firstAttemptAt: first, attempts: row.attempts + 1, ...times });
@@ -592,6 +607,7 @@ export class CopyLiveEngine {
     if (!mandate) return null;
     return { mandateId: mandate.id, userId: mandate.userId, strategyId: mandate.strategyId, accountId: mandate.accountId, accountAddress: mandate.accountAddress,
       sourceNetwork: mandate.sourceNetwork, leaderAddress: mandate.leaderAddress, cursor: mandate.activationCursor ?? mandate.createdAt, expiresAt: mandate.expiresAt,
-      strategyStatus: await this.deps.repository.strategyStatus(mandate.strategyId) ?? 'stopped', activated: true, activatedAt: null };
+      strategyStatus: await this.deps.repository.strategyStatus(mandate.strategyId) ?? 'stopped', activated: true, activatedAt: null,
+      mandateState: mandate.expiresAt.getTime() > this.now() ? mandate.state : 'expired' };
   }
 }

@@ -185,6 +185,13 @@ async function leaderOpens(tid = 1001, coin = 'BTC', side: 'B' | 'A' = 'B', sz =
     hash: `0x${'12'.repeat(32)}`, oid: 1000 + tid, crossed: true, fee: '0.01', tid, feeToken: 'USDC' };
   await db.insert(schema.fills).values({ address: leader, tid: BigInt(tid), coin, side, dir, px: '100', sz, fee: '0.01', hash: rawFill.hash, ts: new Date(time), raw: rawFill });
 }
+/** A leader fill on BTC: an add to its long, or a close of `sz` of it. */
+async function leaderTrades(tid: number, dir: 'Open Long' | 'Close Long', sz: string, startPosition: string) {
+  await new Promise(resolve => setTimeout(resolve, 5));
+  const side = dir === 'Open Long' ? 'B' : 'A', time = Date.now() - 2, rawFill = { coin: 'BTC', px: '100', sz, side, time, startPosition, dir, closedPnl: '0',
+    hash: `0x${'12'.repeat(32)}`, oid: 1000 + tid, crossed: true, fee: '0.01', tid, feeToken: 'USDC' };
+  await db.insert(schema.fills).values({ address: leader, tid: BigInt(tid), coin: 'BTC', side, dir, px: '100', sz, fee: '0.01', hash: rawFill.hash, ts: new Date(time), raw: rawFill });
+}
 
 describe('testnet copy of a mainnet leader, end to end against provider doubles', { timeout: 30_000 }, () => {
   it('settles terminal proof within five seconds despite slow independent metadata and status reads', async () => {
@@ -531,6 +538,38 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     expect(exchangeBodies).toHaveLength(3);
     expect(exchangeBodies[2]).toMatchObject({ action: { orders: [{ b: true, s: '0.19', r: false }] } });
     expect((await db.select().from(schema.copyStrategies))[0]).toMatchObject({ status: 'active' });
+  });
+  // Safety exits: a pause, reduce-only or copy trading switched off means no
+  // new risk. The leader's add is refused, never sent (nor caught up after a
+  // resume), and its close is still mirrored: a reduce-only IOC of what the
+  // follower holds, never stranded by the control.
+  it.each([
+    ['the owner paused the copy', 'strategy_paused'],
+    ['the platform paused new risk', 'platform_paused'],
+    ['the owner\'s account paused new risk', 'user_paused'],
+    ['the platform set reduce-only', 'platform_reduce_only'],
+    ['copy trading is switched off', 'live_risk_platform_disabled'],
+  ] as const)('%s: the leader\'s add is refused, its close is still mirrored reduce-only', async (_control, refusal) => {
+    let e = engine(); await e.tick(); await leaderOpens(1001); await e.tick(); await new Promise(resolve => setTimeout(resolve, 5)); await e.tick();
+    expect((await db.select().from(schema.copyLiveDispatches))[0]).toMatchObject({ state: 'settled' });
+    expect(shared.position).toBe('0.19');
+    if (refusal === 'strategy_paused') await new UnitOfWork(db).run(tx => new CopyLiveMandateRepository(db, testConfig()).barrier(tx, 1, 'mandate', 'paused', Date.now));
+    if (refusal === 'platform_paused') await db.update(schema.copyControls).set({ pauseNewRisk: true }).where(eq(schema.copyControls.scope, 'platform'));
+    if (refusal === 'user_paused') await db.update(schema.copyControls).set({ pauseNewRisk: true }).where(eq(schema.copyControls.scope, 'user'));
+    if (refusal === 'platform_reduce_only') await db.update(schema.copyControls).set({ reduceOnly: true }).where(eq(schema.copyControls.scope, 'platform'));
+    if (refusal === 'live_risk_platform_disabled') await db.update(schema.appSettings).set({ value: { copyTradingEnabled: false } }).where(eq(schema.appSettings.key, 'general'));
+    // The next minute's testnet quota (production: a later pass).
+    budget.onModuleDestroy(); budget = new RequestBudgeterService(config);
+    e = engine('100', new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(pool, { schema }))), { egressKey: `e2e-${refusal}`, ownerId: `e2e-${refusal}` }, raw));
+    await leaderTrades(1002, 'Open Long', '1', '1');
+    await leaderTrades(1003, 'Close Long', '2', '2');
+    await e.tick();
+    const rows = await db.select().from(schema.copyLiveDispatches);
+    expect(rows.find(row => row.sourceFillId.endsWith(':1002'))).toMatchObject({ leg: 'open', state: 'refused', reason: refusal });
+    expect(exchangeBodies).toHaveLength(2);
+    expect(exchangeBodies[1]).toMatchObject({ action: { type: 'order', orders: [{ a: 0, b: false, s: '0.19', r: true, t: { limit: { tif: 'Ioc' } } }] } });
+    expect(shared.position).toBe('0');
+    expect(rows.find(row => row.sourceFillId.endsWith(':1003'))).toMatchObject({ leg: 'close', state: 'submitted' });
   });
   it('refuses excessive cross-network price deviation before signing RPC, nonce, journal or financial POST', async () => {
     const e = engine('120'); await e.tick(); await leaderOpens(); await e.tick();

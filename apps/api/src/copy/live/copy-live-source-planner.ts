@@ -131,7 +131,8 @@ function conservativeLimit(mid:Dec,side:'B'|'A',slippage:string,szDecimals:numbe
 export function planLiveSourceOrder(raw: LiveSourcePlanInput): PlannedLiveSourceOrder {
   try{
     const input=structuredClone(raw),{mandate:m,now,limits,currentExecutionKey}=input,consent=decodeLiveCopyMandate(m),settings=copyStrategySettingsSchema.strict().parse(input.settings),envelope=decodeLiveSourceSizingEnvelope(input.sizingBasis),b=envelope.basis,o=envelope.observations;
-    requireSizing(Number.isSafeInteger(now)&&now>0&&m.state==='active'&&m.consentDigest&&m.activationCursor&&m.expiresAt.getTime()>now&&isHyperliquidNetwork(consent.network)&&isHyperliquidNetwork(consent.sourceNetwork)&&
+    // A paused generation stops new risk only: its close still plans.
+    requireSizing(Number.isSafeInteger(now)&&now>0&&(m.state==='active'||input.leg.leg==='close'&&m.state==='paused')&&m.consentDigest&&m.activationCursor&&m.expiresAt.getTime()>now&&isHyperliquidNetwork(consent.network)&&isHyperliquidNetwork(consent.sourceNetwork)&&
       settings.copyStartMode==='delta'&&consent.settingsDigest===liveCopySettingsDigest(settings)&&Number.isSafeInteger(limits.maxSignalAgeSeconds)&&limits.maxSignalAgeSeconds>0&&limits.maxSignalAgeSeconds<=86400&&
       Number.isFinite(limits.maxSlippageBps)&&limits.maxSlippageBps>=0&&limits.maxSlippageBps<=10000&&Dec.from(b.quote.slippageBps).lte(limits.maxSlippageBps)&&
       currentExecutionKey.startsWith(`${consent.network}:${consent.accountAddress}:`)&&/^0x[a-f0-9]{32}$/.test(currentExecutionKey.slice(`${consent.network}:${consent.accountAddress}:`.length)));

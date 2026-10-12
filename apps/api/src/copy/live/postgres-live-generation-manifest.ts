@@ -87,7 +87,11 @@ export async function loadLiveGenerationManifest(session:LiveRiskDatabaseSession
     }
     journals.push(canonical({...entry,provenance:p}));
   }
-  const manifest:LiveGenerationManifestV1=canonical({version:1,accountId:a.id,mandateId:m.id,checkedAt:input.now,baseline,journals,receipts,ledger,scan:scan??null,conflicts,accountState:accountState??null,carry,...(manualCloses.length?{manualCloses}:{})});
+  // Each journal entry is already canonical JSON (above, with its settlement
+  // proof): only the rest is, not every proof a second time.
+  const other=canonical<Omit<LiveGenerationManifestV1,'journals'>>({version:1,accountId:a.id,mandateId:m.id,checkedAt:input.now,baseline,receipts,ledger,scan:scan??null,conflicts,accountState:accountState??null,carry,...(manualCloses.length?{manualCloses}:{})});
+  const manifest:LiveGenerationManifestV1={version:other.version,accountId:other.accountId,mandateId:other.mandateId,checkedAt:other.checkedAt,baseline:other.baseline,journals,
+    receipts:other.receipts,ledger:other.ledger,scan:other.scan,conflicts:other.conflicts,accountState:other.accountState,carry:other.carry,...(other.manualCloses?{manualCloses:other.manualCloses}:{})};
   // Bounded as each order's envelope retains it: settled orders' proofs by digest.
   check(Buffer.byteLength(JSON.stringify(compactLiveGenerationManifest(manifest)))<=2*1024*1024,'live_risk_generation_unbounded');session.scope.assertFresh();return freezeLiveReservation(manifest);
 }

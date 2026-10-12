@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import { cn } from "cn";
 
 import { ErrorState, SkelBar } from "@/components/page";
+import { RefreshCw } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs } from "@/components/ui/tabs";
 import { Segmented } from "@/components/ui/segmented";
 import { Select } from "@/components/ui/select";
@@ -35,7 +37,7 @@ const FILTERS = ["all", "crypto", "tradfi"] as const;
 const stale = (updatedAt: string | Date | null | undefined) => updatedAt != null && Date.now() - new Date(updatedAt).getTime() > 30 * 60_000;
 
 export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
-  const { t, format } = useI18n();
+  const { t } = useI18n();
   const params = useSearchParams();
   const fromUrl = params.get("tier");
   const [tier, setTier] = useState<CohortTier>(tierPicker && fromUrl && (TIERS as string[]).includes(fromUrl) ? (fromUrl as CohortTier) : "extremely_profitable");
@@ -62,7 +64,10 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
     <div className="flex flex-col gap-4">
       <header className="relative flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <HyperliquidWordmark className="flex h-[41px] md:hidden" />
-        <h1 className="type-h1 text-balance">{t("insights.cohort.bannerTitle")}</h1>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <h1 className="type-h1 text-balance">{t("insights.cohort.bannerTitle")}</h1>
+          {data ? <CoveragePill data={data} ready={ready} refreshing={detail.isFetching} onRetry={() => void detail.refetch()} /> : null}
+        </div>
         <div className="flex items-center gap-4 max-md:absolute max-md:top-[18px] max-md:right-[18px] md:order-3">
           {tierPicker ? <TierPicker value={tier} onChange={setTier} /> : null}
           <HyperliquidWordmark className="hidden md:flex" />
@@ -79,22 +84,6 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
           <div className="grid gap-4 md:grid-cols-[1fr_1.04fr]">
             <HeroCards data={ready ? data : undefined} />
           </div>
-          {data && ready && data.walletCount < data.memberCount ? (
-            <p role="status" className="text-xs font-bold text-muted-foreground" data-testid="cohort-coverage">
-              {t("insights.cohort.coverage", { wallets: data.walletCount, members: data.memberCount })}
-            </p>
-          ) : null}
-          {data && ready && stale(data.updatedAt) ? (
-            <p role="status" className="text-xs font-bold text-muted-foreground" data-testid="cohort-age">{t("insights.cohort.updated", { time: format.relative(data.updatedAt!) })}</p>
-          ) : null}
-          {data && !ready ? (
-            <div role="status" className="rounded-xl bg-raised px-4 py-3 text-xs font-bold text-muted-foreground">
-              <p>{t("insights.cohort.building")}</p>
-              <p className="mt-1">{t("copyUpdates.coverage", { count: data.walletCount, total: data.memberCount })}</p>
-              {data.updatedAt ? <p className="mt-1" data-testid="cohort-age">{t("insights.cohort.updated", { time: format.relative(data.updatedAt) })}</p> : null}
-              <TextButton busy={detail.isFetching} className="mt-2 text-primary-text" onClick={() => void detail.refetch()}>{t("insights.cohort.retry")}</TextButton>
-            </div>
-          ) : null}
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.04fr)]">
             {history.errorUpdateCount > 0 && !history.data ? (
               // Not a placeholder without end: the history could not be read.
@@ -138,6 +127,45 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * The tier's coverage as one pill by the title, "19/376 · 2 小時前 ↻"
+ * (text density review 2026-10-12 §1.3): members with a fresh snapshot when
+ * not all have one, and the data's age when it is old or the tier is still
+ * being built. A press opens the explanation and 重試. Nothing when the
+ * tier is complete and fresh.
+ */
+function CoveragePill({ data, ready, refreshing, onRetry }: { data: CohortDetail; ready: boolean; refreshing: boolean; onRetry: () => void }) {
+  const { t, format } = useI18n();
+  const partial = data.walletCount < data.memberCount;
+  const age = data.updatedAt && (!ready || stale(data.updatedAt)) ? format.relative(data.updatedAt) : null;
+  if (ready && !partial && !age) return null;
+  const coverage = !ready ? t("copyUpdates.coverage", { count: data.walletCount, total: data.memberCount })
+    : partial ? t("insights.cohort.coverage", { wallets: data.walletCount, members: data.memberCount }) : null;
+  const updated = age ? t("insights.cohort.updated", { time: age }) : null;
+  return (
+    <span role="status">
+      <Popover>
+        <PopoverTrigger
+          className="inline-flex h-7 items-center gap-1.5 rounded-full bg-raised px-3 text-xs font-bold text-muted-foreground outline-none hover:bg-raised-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring aria-expanded:bg-raised-hover aria-expanded:text-foreground"
+          aria-label={[ready ? null : t("insights.cohort.building"), coverage, updated].filter(Boolean).join(" ")}
+          data-testid="cohort-coverage"
+        >
+          {partial ? <span className="num">{data.walletCount}/{data.memberCount}</span> : null}
+          {partial && age ? <span aria-hidden>·</span> : null}
+          {age ? <span data-testid="cohort-age">{age}</span> : null}
+          <RefreshCw className={cn("size-3", refreshing && "motion-safe:animate-spin")} strokeWidth={2.6} aria-hidden />
+        </PopoverTrigger>
+        <PopoverContent align="start" className="flex flex-col gap-1 text-xs leading-relaxed font-bold text-muted-foreground" data-testid="cohort-coverage-detail">
+          {ready ? null : <p className="text-foreground">{t("insights.cohort.building")}</p>}
+          {coverage ? <p>{coverage}</p> : null}
+          {updated ? <p>{updated}</p> : null}
+          <TextButton busy={refreshing} className="mt-1 self-start text-primary-text" onClick={onRetry}>{t("insights.cohort.retry")}</TextButton>
+        </PopoverContent>
+      </Popover>
+    </span>
   );
 }
 

@@ -54,8 +54,11 @@ describe("the insights headline waits for the tier to be read", () => {
     const html = render();
     expect(html).toContain("68.9%");
     expect(html).not.toContain(zhTW.insights.cohort.building);
-    expect(html).toContain("120 / 150 個錢包有最新快照");
+    // One pill by the title (text density review 2026-10-12): the counts on
+    // it, the sentence as its accessible name.
     expect(html).toContain('data-testid="cohort-coverage"');
+    expect(html).toMatch(/data-testid="cohort-coverage"[^>]*>[\s\S]*?120\/150/);
+    expect(html).toContain('aria-label="120 / 150 個錢包有最新快照"');
   });
 
   it("a tier read to 33 of 150 shows no headline figure: the cards are placeholders and the page says it is building", () => {
@@ -93,9 +96,10 @@ it("labels surviving historical percentages when current coverage is insufficien
   state.history = JSON.parse(JSON.stringify(cohortHistoryResponseSchema.parse(fixtureCohortHistory("extremely_profitable", "all"))));
   const html = render();
   expect(html).toContain(zhTW.copyUpdates.historical);
-  expect(html).toContain("33 / 150");
+  expect(html).toContain("33/150");
   expect(html).toContain("<time dateTime=");
-  expect(html).toContain(zhTW.insights.cohort.retry);
+  // 重試 is in the pill's explanation, opened by a press (insights-coverage-pill.test.tsx).
+  expect(html).toContain('data-testid="cohort-coverage"');
 });
 
 describe("insights say what they show (audit 2026-10-07 P1-8)", () => {
@@ -163,8 +167,10 @@ describe("insights say what they show (audit 2026-10-07 P1-8)", () => {
     const map = html.slice(html.indexOf(zhTW.insights.cohort.byMarket));
     expect(map.slice(0, 900)).toContain(zhTW.insights.cohort.building);
     expect(map.slice(0, 900)).not.toContain("ui-skeleton");
+    expect(html).toMatch(/data-testid="cohort-age">3 小時前</);
     expect(html).toContain("更新於 3 小時前");
-    expect(html).toContain("此分層的持倉資料尚未完整，背景持續更新中。");
+    // Said once on the page, by the map; the pill's explanation waits for a press.
+    expect(html.split("此分層的持倉資料尚未完整，背景持續更新中。</").length - 1).toBe(1);
     expect(html).not.toContain("第一次刷新約需數分鐘");
   });
 

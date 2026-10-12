@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { approveCopyReturnSchema, canonicalUsdc, copyReturnChallengeSchema, copyReturnInputSchema, usdSendTypedData, WALLET_NETWORKS, withdrawalUnits } from '@trading-dashboard/shared/contracts';
 import { AppConfig } from '../config/app-config.js';
 import { Dec } from '../common/decimal/dec.js';
+import { classifyUsdSendReply } from '../hyperliquid/exchange-reply.js';
 import { safeErrorText } from '../runtime/safe-error-text.js';
 import { CopyFundingExchangeClient } from './copy-funding-exchange.client.js';
 import { wire } from './copy-funding.service.js';
@@ -91,11 +92,8 @@ export class CopyLiveReturnService {
     return wire(await this.settle(userId, id, reply));
   }
   private async settle(userId: number, id: string, reply: unknown) {
-    if (reply && typeof reply === 'object' && 'status' in reply && 'response' in reply) {
-      if (reply.status === 'ok' && reply.response && typeof reply.response === 'object' && 'type' in reply.response && reply.response.type === 'default') return this.repository.finish(userId, id, 'accepted', digest(reply));
-      if (reply.status === 'err' && typeof reply.response === 'string' && reply.response && !/nonce/i.test(reply.response)) return this.repository.finish(userId, id, 'rejected', digest(reply));
-    }
-    return this.repository.find(userId, id);
+    const outcome = classifyUsdSendReply(reply);
+    return outcome === 'unknown' ? this.repository.find(userId, id) : this.repository.finish(userId, id, outcome, digest(reply));
   }
 
   // --- builder fee approval (signed by the setup driver's worker) -------------

@@ -24,10 +24,24 @@ import { loadMergedMembers } from './copy-live-merged-members.js';
 import type { LiveReservationStored } from './live-risk-reservation.js';
 import {LiveProviderReadEpoch} from './live-provider-read-epoch.js';
 import { beginLiveExecutionTiming, type LiveExecutionTimingHook, type LiveTimingStage } from './live-execution-diagnostics.js';
-type CollectedAuthority=LiveRiskAuthority&{generation:LiveGenerationManifestV1;members?:LiveSourceFillEvidence[];settlementProofs?:LiveSettlementProofs};
+export type CollectedAuthority=LiveRiskAuthority&{generation:LiveGenerationManifestV1;members?:LiveSourceFillEvidence[];settlementProofs?:LiveSettlementProofs};
 export interface BoundPostgresLiveRiskSource { readonly proofSource:LiveAccountRiskProofSource; forHold():Promise<LiveAccountRiskInput>; }
 export interface LiveRiskSourceBinding { readonly accountId:string; readonly key:string; }
 const same=(a:unknown,b:unknown)=>isDeepStrictEqual(JSON.parse(JSON.stringify(a)),JSON.parse(JSON.stringify(b)));
+/**
+ * The digest of one read of the SQL authority (riskSourceDigest), each
+ * settled order's proof hashed once. The proofs the sizing envelope names are
+ * mostly the very objects its generation manifest holds inline (read in the
+ * same snapshot, loadLiveSettlementProofs): such an entry is named by its
+ * digest key and hashed as part of the manifest, an entry that is another
+ * object by its content.
+ */
+export function liveRiskAuthorityDigest(local:CollectedAuthority):string{
+  if(!local.settlementProofs)return riskSourceDigest(local);
+  const inline=new Set<unknown>(local.generation.journals.flatMap(j=>j.evidence?.settlementProof!==undefined&&j.evidence.settlementProof!==null?[j.evidence.settlementProof]:[]));
+  const settlementProofs=Object.fromEntries(Object.entries(local.settlementProofs).map(([digest,proof])=>[digest,inline.has(proof)?'generation':proof]));
+  return riskSourceDigest({...local,settlementProofs});
+}
 /** Unregistered concrete fixed-network proof producer. No caller arrays, paper
  * cash, cached permits, replacement SQL connections or financial provider I/O. */
 export class PostgresLiveRiskSource {
@@ -64,8 +78,8 @@ export class PostgresLiveRiskSource {
       // epoch issues no provider calls: the full current authority above and
       // collect's fresh preparation digest check already follow its original
       // observations under the same held locks. Never cache SQL authority.
-      const localDigest=riskSourceDigest(local);
-      if(!reusedProviderEpoch){const final=await this.load(session,binding,started);requireProof(localDigest===riskSourceDigest(final),'live_risk_local_changed');}
+      const localDigest=liveRiskAuthorityDigest(local);
+      if(!reusedProviderEpoch){const final=await this.load(session,binding,started);requireProof(localDigest===liveRiskAuthorityDigest(final),'live_risk_local_changed');}
       mark(stage);stage='risk_generation_projection';
       this.validateGeneration(local,current,sizing.envelope.basis,owned?.own);mark(stage);stage='risk_proof_build';
       const localSource={checkedAt:Math.min(started,sizing.oldest,frames.oldest,market.observedAt,target.earliestObservedAt,...others.map(p=>p.earliestObservedAt),

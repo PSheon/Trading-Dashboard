@@ -121,17 +121,9 @@ try {
   // Testnet only: a stack whose copies run on mainnet is refused before anything is prepared.
   if (!check("api_testnet_mode", overview.network === "testnet" && overview.capabilities.automaticExecution && overview.capabilities.sourceNetworks.includes("testnet") && overview.capabilities.actualAllowed !== false,
     `network=${overview.network}, automaticExecution=${overview.capabilities.automaticExecution}, sources=${overview.capabilities.sourceNetworks.join(",")}, actualAllowed=${overview.capabilities.actualAllowed ?? "n/a"}`)) await finish(EXIT.failed);
-  const mainBefore = await usdc(main);
-  log("follower_main", { address: main, perp: mainBefore.perp, spot: mainBefore.spot });
-  const gate = fundingGate({ leader: leaderFree, follower: mainBefore.total, terms: TERMS });
-  if (!gate.ok) {
-    const spotHint = Number(leader.spotUsdc) > 0 ? ` The leader holds ${Number(leader.spotUsdc).toFixed(2)} USDC in spot: move it to perps first (usdClassTransfer).` : "";
-    const message = `NOT FUNDED — ${gate.problems.join("; ")}. Fund the harness leader's perp account with testnet USDC (Hyperliquid testnet faucet, or a usdSend from a funded testnet wallet), then rerun.${spotHint}`;
-    if (!DRY) { check("funded", false, message); console.error(`\n${message}\n`); await finish(EXIT.unfunded); }
-    check("funded", null, `dry run continues without funds: ${gate.problems.join("; ")}`);
-  } else check("funded", true, `leader ${leaderFree.toFixed(2)}, follower main ${mainBefore.total.toFixed(2)}${gate.send ? `, will send ${TERMS.sendUsd}` : ""}`);
-
-  // --- 2b. cleanup (idempotent rerun) ------------------------------------------------------------
+  // --- 2b. cleanup (idempotent rerun), before the funding check: a stopped
+  // copy's return reaches the follower's main wallet first (a run cut short
+  // left 49 USDC in its copy account, 2026-10-12) ----------------------------------------------
   const portfolio = async () => (await follower.client.get("/me/copy/live/portfolio")).items;
   const actions = planCleanup(await portfolio());
   log("cleanup_plan", { actions });
@@ -145,6 +137,16 @@ try {
       { timeoutMs: 600_000, intervalMs: 5000 });
     if (!check("cleanup_previous_copies", settled.ok, settled.ok ? `${actions.length} action(s)` : "a previous copy did not settle in 10 min")) await finish(EXIT.failed);
   } else check("cleanup_previous_copies", true, actions.length ? `${actions.length} setup(s) cancelled` : "nothing to clean");
+  const mainBefore = await usdc(main);
+  log("follower_main", { address: main, perp: mainBefore.perp, spot: mainBefore.spot });
+  const gate = fundingGate({ leader: leaderFree, follower: mainBefore.total, terms: TERMS });
+  if (!gate.ok) {
+    const spotHint = Number(leader.spotUsdc) > 0 ? ` The leader holds ${Number(leader.spotUsdc).toFixed(2)} USDC in spot: move it to perps first (usdClassTransfer).` : "";
+    const message = `NOT FUNDED — ${gate.problems.join("; ")}. Fund the harness leader's perp account with testnet USDC (Hyperliquid testnet faucet, or a usdSend from a funded testnet wallet), then rerun.${spotHint}`;
+    if (!DRY) { check("funded", false, message); console.error(`\n${message}\n`); await finish(EXIT.unfunded); }
+    check("funded", null, `dry run continues without funds: ${gate.problems.join("; ")}`);
+  } else check("funded", true, `leader ${leaderFree.toFixed(2)}, follower main ${mainBefore.total.toFixed(2)}${gate.send ? `, will send ${TERMS.sendUsd}` : ""}`);
+
   if (leader.positions.length) {
     if (DRY) check("leader_flat", null, `leader holds ${JSON.stringify(leader.positions)} (dry run leaves it)`);
     else { const r = await node("leader.mjs", ["flatten"]); check("leader_flat", r.code === 0, "closed the leader's leftover positions"); }

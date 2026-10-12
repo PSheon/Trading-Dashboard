@@ -33,6 +33,10 @@ import type { SystemStopOutcome } from '../copy-live-stop-system.js';
 // orders (the owner can ask again, or stop the copy); a stop never does (it
 // backs off). A tracked order's cancel after retry.cancelAttempts.
 const TERMINAL: ReadonlySet<string> = new Set(['filled', 'partial', 'cancelled', 'rejected']);
+/** How long a flat close whose carry reset had to wait (a leg of the coin in
+ * flight, or the account's risk locks busy) waits before it observes the
+ * account again: each observation is a provider read. */
+export const FLAT_CARRY_RETRY_MS = 10_000;
 /** Below this the account holds nothing worth a transfer back (USDC). */
 export const SWEEP_DUST_USD = '0.01';
 export interface StopperDependencies {
@@ -325,8 +329,12 @@ export class CopyLiveManualCloser {
     /** Resets what earlier closes still owed of the coin once it is flat. */
     private readonly carry: Pick<CopyLiveFlatCarry, 'owed' | 'reset'>, private readonly log?: (message: string) => void, private readonly now: () => number = Date.now,
     private readonly closeAttempts = DEFAULT_LIVE_STOP_TIMINGS.retry.closeAttempts) {}
+  /** Closes found flat whose carry reset waits: not observed again before this time. */
+  private readonly carryRetryAt = new Map<string, number>();
   async tick(): Promise<void> {
-    for (const row of await this.repository.manualCloses()) {
+    const rows = await this.repository.manualCloses();
+    for (const id of this.carryRetryAt.keys()) if (!rows.some(row => row.id === id)) this.carryRetryAt.delete(id);
+    for (const row of rows) {
       try { await this.step(row); }
       catch (error) { this.log?.(`close ${row.id} kept for the next pass: ${why(error)}`); }
     }
@@ -353,6 +361,8 @@ export class CopyLiveManualCloser {
       if (row.executionKeys.length) await this.scanner.runFor(row.accountId);
       await this.repository.finishManual(row.id, 'refused', 'leader_reopened'); return;
     }
+    // Found flat, its carry reset waits: observed again only after a while.
+    if (this.now() < (this.carryRetryAt.get(row.id) ?? 0)) return;
     // Read before the observation: the carry of the position it finds closed.
     const owed = await this.carry.owed(row);
     const snapshot = await this.closer.observe(account.accountAddress);
@@ -364,8 +374,10 @@ export class CopyLiveManualCloser {
       // While a leg of the coin is in flight the close stays requested (an open
       // of the coin keeps waiting) and the reset is tried on a later pass.
       if (!await this.carry.reset(row, account.accountAddress, owed)) {
+        this.carryRetryAt.set(row.id, this.now() + FLAT_CARRY_RETRY_MS);
         this.log?.(`close ${row.id} of ${row.coin}: flat, its reduction carry is reset on a later pass`); return;
       }
+      this.carryRetryAt.delete(row.id);
       await this.repository.finishManual(row.id, 'done', null); return;
     }
     if (row.executionKeys.length >= this.closeAttempts) { await this.repository.finishManual(row.id, 'refused', 'close_attempts_exhausted'); return; }

@@ -5,7 +5,7 @@ import { Pool } from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
 import { CopyLiveFlatCarry } from '../src/copy/live-worker/copy-live-flat-carry.js';
-import { CopyLiveManualCloser } from '../src/copy/live-worker/copy-live-stopper.js';
+import { CopyLiveManualCloser, FLAT_CARRY_RETRY_MS } from '../src/copy/live-worker/copy-live-stopper.js';
 import { CopyLiveStopWorkerRepository } from '../src/copy/live-worker/copy-live-stop-worker.repository.js';
 import type { ReduceOnlyCloser } from '../src/copy/live-worker/reduce-only-closer.js';
 import { PostgresLiveRiskScope } from '../src/copy/live/postgres-live-risk-scope.js';
@@ -102,6 +102,27 @@ describe('the reduction carry of a coin a single-position close left flat (2c-B)
     expect(await carry()).toMatchObject({ carry: '0.05', revision: 4 });
     await manual(closer()).tick();
     expect(await carry()).toMatchObject({ carry: '0', revision: 5 });
+  });
+
+  it('a close whose reset waits is not observed again for at least 10 s (each observation is a provider read), then is', async () => {
+    const key = await leg(7, 'unknown'), observe = vi.fn(async () => ({ positions: [] }));
+    const double = { network: 'testnet', close: vi.fn(async () => null), observe } as unknown as ReduceOnlyCloser;
+    let at = now;
+    const closing = new CopyLiveManualCloser(new CopyLiveStopWorkerRepository(db, new UnitOfWork(db), testConfig()), double,
+      { runFor: async () => undefined }, new CopyLiveFlatCarry('testnet', pool, () => at), undefined, () => at);
+    await closing.tick();
+    expect(observe).toHaveBeenCalledTimes(1);
+    expect(await closeRow()).toMatchObject({ state: 'requested' });
+    await db.update(schema.copyLiveExecutions).set({ state: 'cancelled' }).where(eq(schema.copyLiveExecutions.key, key));
+    for (const later of [1, 1000, 9_999]) { at = now + later; await closing.tick(); }
+    expect(observe).toHaveBeenCalledTimes(1);
+    expect(await closeRow()).toMatchObject({ state: 'requested' });
+    expect(await carry()).toMatchObject({ carry: '0.09', revision: 3 });
+    at = now + FLAT_CARRY_RETRY_MS; await closing.tick();
+    expect(observe).toHaveBeenCalledTimes(2);
+    expect(await closeRow()).toMatchObject({ state: 'done' });
+    expect(await carry()).toMatchObject({ carry: '0', revision: 4 });
+    expect(FLAT_CARRY_RETRY_MS).toBeGreaterThanOrEqual(10_000);
   });
 
   it('waits while an order or settlement of the account holds its risk locks', async () => {

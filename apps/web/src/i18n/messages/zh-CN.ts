@@ -1014,6 +1014,10 @@ export const zhCN: Messages = {
       amount: "跟单金额（USDC）",
       enterAmount: "请输入金额",
       minToCopy: "最低 ${min} 才能跟单",
+      tooActive: {
+        rate: "此交易员交易太频繁（近 24 小时 {orders} 笔、峰值每分钟 {peak} 笔），系统无法实时跟上，暂不开放跟单。上限为每日 {perDay} 笔、每分钟 {perMinute} 笔。",
+        saturated: "此交易员近 24 小时交易超过 2000 笔，系统无法实时跟上，暂不开放跟单。",
+      },
       fit: {
         title: "跟单适配估算",
         belowMin: "按比例缩放，最近 {opens} 笔开仓中约 {below} 笔（{pct}%）会低于最低下单额 ${min}，不会执行。",

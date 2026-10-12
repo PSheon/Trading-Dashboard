@@ -40,6 +40,7 @@ export const wireTraderStatsSchema = s.traderStatsSchema.extend({ updatedAt: iso
 export const wireTradersSchema = s.tradersResponseSchema.extend({ updatedAt: iso.nullable(), items: z.array(wireTraderStatsSchema.extend({ favorite: z.boolean() })) });
 export const wireTraderProfileSchema = s.traderProfileResponseSchema.extend({ stats: wireTraderStatsSchema.nullable(), lastTradeAt: iso.nullable().optional(), fetchedAt: iso });
 export const wireTraderActivitySchema = s.traderActivityResponseSchema.extend({ lastTradeAt: iso.nullable(), fetchedAt: iso });
+export const wireLeaderCopyActivitySchema = s.leaderCopyActivitySchema.extend({ measuredAt: iso });
 export const wireRoundTripSchema = s.roundTripSchema.extend({ id: z.string().regex(/^-?\d+$/), entryTime: iso, exitTime: iso.nullable() });
 export const wireTradeCoverageSchema = s.tradeCoverageSchema.extend({ through: iso.nullable().optional(), from: iso.nullable(), fundingFrom: iso.nullable(), fundingThrough: iso.nullable(),
   partialSince: iso.nullable().optional(), archiveFrom: iso.nullable().optional(), archiveThrough: iso.nullable().optional() });
@@ -278,6 +279,7 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/traders/:address/chart-snapshots", status: 200, auth: "public", response: wireChartSnapshotsSchema },
   { method: "GET", path: "/traders/:address/activity", status: 200, auth: "public", response: wireTraderActivitySchema },
   { method: "GET", path: "/traders/:address/fills", status: 200, auth: "public", response: z.array(s.traderFillSchema.extend({ ts: iso })) },
+  { method: "GET", path: "/traders/:address/copy-activity", status: 200, auth: "public; 503 busy", response: wireLeaderCopyActivitySchema },
   { method: "GET", path: "/traders/:address/analytics", status: 200, auth: "public; 503 busy while a cold address computes", response: wireTraderAnalyticsSchema },
   { method: "GET", path: "/traders/:address/trades", pagination: { type: "cursor", query: s.traderTradesQuerySchema }, status: 200, auth: "public; 503 busy while a cold address computes", response: wireTraderTradesSchema },
   { method: "GET", path: "/traders/:address/orders", status: 200, auth: "public; 503 busy", response: wireTraderOrdersSchema },
@@ -443,6 +445,7 @@ export type WireTraderAnalytics = z.infer<typeof wireTraderAnalyticsSchema>;
 export type WireTraderTrades = z.infer<typeof wireTraderTradesSchema>;
 export type WireTraderOrders = z.infer<typeof wireTraderOrdersSchema>;
 export type WireTraderTwaps = z.infer<typeof wireTraderTwapsSchema>;
+export type WireLeaderCopyActivity = z.infer<typeof wireLeaderCopyActivitySchema>;
 export type WireTraderTransfers = z.infer<typeof wireTraderTransfersSchema>;
 export type WireBoardTrader = z.infer<typeof wireBoardTraderSchema>;
 export type WireBoard = z.infer<typeof wireBoardSchema>;

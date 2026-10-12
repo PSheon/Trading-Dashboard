@@ -1014,6 +1014,10 @@ export const ko: Messages = {
       amount: "카피할 금액 (USDC)",
       enterAmount: "금액을 입력하세요",
       minToCopy: "최소 ${min}부터 카피 가능",
+      tooActive: {
+        rate: "이 트레이더는 거래가 너무 잦아(최근 24시간 {orders}건, 최대 분당 {peak}건) 카피가 따라갈 수 없어 지금은 카피할 수 없습니다. 한도는 하루 {perDay}건, 분당 {perMinute}건입니다.",
+        saturated: "이 트레이더는 최근 24시간 동안 2,000건이 넘게 거래해 카피가 따라갈 수 없으므로 지금은 카피할 수 없습니다.",
+      },
       fit: {
         title: "카피 적합도 추정",
         belowMin: "비율로 환산하면 최근 {opens}건의 진입 중 약 {below}건({pct}%)이 최소 주문 ${min} 미만이라 실행되지 않습니다.",

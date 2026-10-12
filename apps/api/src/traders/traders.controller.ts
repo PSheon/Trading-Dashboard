@@ -6,6 +6,7 @@ import { ChartSnapshotsService } from "./chart-snapshots.service.js";
 import { BadGatewayException, BadRequestException, Controller, Get, HttpException, Logger, Param, Query, UseFilters } from "@nestjs/common";
 import {
   type ChartSnapshotsResponse,
+  type LeaderCopyActivity,
   type PortfolioResponse,
   type SparklinesResponse,
   type TraderActivityResponse,
@@ -114,6 +115,15 @@ export class TradersController {
   fills(@Param() params: AddressParamsDto, @Query() query: FillsQueryDto): Promise<TraderFill[]> {
     const addr = params.address;
     return this.upstream(this.traders.fills(addr, query.limit), addr);
+  }
+
+  /** Whether a live copy can keep up with this trader: its orders in the
+   * last 24 h and busiest minute against the copy limits (one fill page). */
+  @ApiDoc("Copy activity")
+  @Get(":address/copy-activity")
+  copyActivity(@Param() params: AddressParamsDto): Promise<LeaderCopyActivity> {
+    const addr = params.address;
+    return this.upstream(this.traders.copyActivity(addr), addr);
   }
 
   /** Sample size and last trade (fills-derived; loads after the profile). */

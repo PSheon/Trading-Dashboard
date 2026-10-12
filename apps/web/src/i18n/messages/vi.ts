@@ -1014,6 +1014,10 @@ export const vi: Messages = {
       amount: "Số tiền sao chép (USDC)",
       enterAmount: "Nhập số tiền",
       minToCopy: "Tối thiểu ${min} để sao chép",
+      tooActive: {
+        rate: "Trader này giao dịch quá thường xuyên nên việc sao chép không theo kịp ({orders} lệnh trong 24 giờ qua, tối đa {peak} lệnh mỗi phút), vì vậy chưa thể sao chép. Giới hạn là {perDay} lệnh mỗi ngày và {perMinute} lệnh mỗi phút.",
+        saturated: "Trader này đã giao dịch hơn 2.000 lần trong 24 giờ qua, quá nhiều để sao chép theo kịp, vì vậy chưa thể sao chép.",
+      },
       fit: {
         title: "Ước tính mức phù hợp khi sao chép",
         belowMin: "Khi quy đổi theo tỷ lệ, khoảng {below} trong {opens} lệnh mở gần nhất ({pct}%) sẽ dưới mức lệnh tối thiểu ${min} và không được thực hiện.",

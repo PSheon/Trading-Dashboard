@@ -1786,6 +1786,10 @@ export const zhTW = {
       amount: "跟單金額（USDC）",
       enterAmount: "請輸入金額",
       minToCopy: "最低 ${min} 才能跟單",
+      tooActive: {
+        rate: "此交易員交易太頻繁（近 24 小時 {orders} 筆、尖峰每分鐘 {peak} 筆），系統無法即時跟上，暫不開放跟單。上限為每日 {perDay} 筆、每分鐘 {perMinute} 筆。",
+        saturated: "此交易員近 24 小時交易超過 2000 筆，系統無法即時跟上，暫不開放跟單。",
+      },
       fit: {
         title: "跟單適配估算",
         belowMin: "依比例縮放，最近 {opens} 筆開倉中約 {below} 筆（{pct}%）會低於最低下單額 ${min}，不會執行。",

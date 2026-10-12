@@ -1782,6 +1782,10 @@ export const en: Messages = {
       amount: "Amount to copy (USDC)",
       enterAmount: "Enter an amount",
       minToCopy: "Minimum ${min} to copy",
+      tooActive: {
+        rate: "This trader trades too often for copying to keep up ({orders} orders in the last 24 hours, up to {peak} a minute), so copying is not available. The limit is {perDay} a day and {perMinute} a minute.",
+        saturated: "This trader made more than 2,000 trades in the last 24 hours, too many for copying to keep up, so copying is not available.",
+      },
       fit: {
         title: "Copy fit estimate",
         belowMin: "Scaled by ratio, about {below} of the last {opens} opens ({pct}%) would be under the ${min} minimum order and not executed.",

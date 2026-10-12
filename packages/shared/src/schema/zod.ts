@@ -720,6 +720,29 @@ export const traderActivityResponseSchema = z.object({
 });
 export type TraderActivityResponse = z.infer<typeof traderActivityResponseSchema>;
 
+/** Why a leader is too active to copy: more orders in the last 24 h than the
+ * daily limit (or a full fill page, which means at least that many), or a
+ * minute with more new orders than the per-minute limit. */
+export const leaderActivityReasonSchema = z.enum(["orders_per_day", "orders_per_minute"]);
+export type LeaderActivityReason = z.infer<typeof leaderActivityReasonSchema>;
+
+/** GET /traders/:address/copy-activity — whether the copy engine can keep up
+ * with this leader (leader-activity.ts). Public; `fits: false` refuses a live
+ * mainnet copy (409 leader_too_active). */
+export const leaderCopyActivitySchema = z.object({
+  /** Distinct orders with a fill in the last 24 h. */
+  orders: z.number().int().nonnegative(),
+  /** Most orders that first filled within any 60 s. */
+  peakPerMinute: z.number().int().nonnegative(),
+  /** The read hit Hyperliquid's 2,000-row page: more activity than measured. */
+  saturated: z.boolean(),
+  fits: z.boolean(),
+  reason: leaderActivityReasonSchema.nullable(),
+  limits: z.object({ perDay: z.number().int().positive(), perMinute: z.number().int().positive() }),
+  measuredAt: z.coerce.date(),
+});
+export type LeaderCopyActivity = z.infer<typeof leaderCopyActivitySchema>;
+
 /** 503 body when Hyperliquid's request budget can't serve a page load in
  * time; the response carries `Retry-After` (seconds). */
 export const busyErrorSchema = z.object({

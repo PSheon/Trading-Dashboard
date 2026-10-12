@@ -21,6 +21,7 @@ import type {
   CoinBoardResponse,
   CoinIndexResponse,
   CopyScoreResponse,
+  LeaderCopyActivity,
   HomeBoardsResponse,
   DiscoverSearchResponse,
   TradingStyle,
@@ -436,6 +437,19 @@ export function useTraderFills(address: string, limit = 100, { enabled = true }:
     queryFn: ({ signal }) => api.get<TraderFill[]>(`/traders/${address}/fills?limit=${limit}`, signal),
     enabled,
     refetchInterval: livePoll(address),
+    ...traderRetry,
+  });
+}
+
+/** GET /traders/:address/copy-activity: whether a live copy can keep up
+ * with this trader (orders in 24 h, busiest minute). The api caches it 5 min
+ * and a mainnet start checks it again; ask only where a copy can start. */
+export function useLeaderCopyActivity(address: string, { enabled = true }: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: queryKeys.trader.copyActivity(address.toLowerCase()),
+    queryFn: ({ signal }) => api.get<LeaderCopyActivity>(`/traders/${address}/copy-activity`, signal),
+    enabled,
+    staleTime: 5 * 60_000,
     ...traderRetry,
   });
 }

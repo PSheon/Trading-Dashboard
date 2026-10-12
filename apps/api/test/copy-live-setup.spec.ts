@@ -5,7 +5,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { verifyTypedData, type TypedDataDefinition } from 'viem';
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { adminSettingsSchema, DEFAULT_COPY_RISK_LIMITS, findHttpContract, liveCopySetupConsentTypedData, liveCopySetupSchema, liveCopySetupAbortSchema, usdSendTypedData, WALLET_NETWORKS, type LiveCopySetupIntent } from '@trading-dashboard/shared/contracts';
+import { adminSettingsSchema, DEFAULT_COPY_RISK_LIMITS, findHttpContract, leaderCopyActivity, type LeaderCopyActivity, liveCopySetupConsentTypedData, liveCopySetupSchema, liveCopySetupAbortSchema, usdSendTypedData, WALLET_NETWORKS, type LiveCopySetupIntent } from '@trading-dashboard/shared/contracts';
 import { appSettings, copyAgentSetups, copyControls, copyExecutionAccounts, copyExecutionWallets, copyFundingOperations, copyLiveActivations, copyLiveMandates, copyLiveSetups,
   copyLiveStrategyConfigs, copyRiskPolicies, copyStrategies, copyWalletAuthorizations, leaders } from '@trading-dashboard/shared/database';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
@@ -56,6 +56,9 @@ let agentIntent: AgentConsentIntent | null;
 /** What each fake submission's sign callback returned. */
 let signed: string[];
 const workerSign = vi.fn(async (..._args: unknown[]) => `0x${'cd'.repeat(65)}`);
+/** What the leader-activity read answers for a mainnet start (an Error: the read fails). */
+const quietLeader = (): LeaderCopyActivity => leaderCopyActivity({ orders: 40, peakPerMinute: 2, saturated: false }, new Date());
+let activity: LeaderCopyActivity | Error;
 
 function config(): AppConfig {
   const base = testConfig();
@@ -145,9 +148,10 @@ function build() {
     }),
     reconcile: vi.fn(async () => undefined),
   };
+  const leaderActivity = { copyActivity: vi.fn(async (_address: string) => { if (activity instanceof Error) throw activity; return activity; }) };
   service = new CopyLiveSetupService(config(), new CopyLiveSetupRepository(db), new UnitOfWork(db), new CopyLiveMandateRepository(db, testConfig()), wallets as never, walletRows,
-    agents as never, modes as never, funding as never, fundingRows, {} as never, {} as never, { available: true, sign: workerSign } as never, () => flags.ticking ? ++clock : clock, jobs);
-  return { wallets, agents, modes, funding, jobs };
+    agents as never, modes as never, funding as never, fundingRows, {} as never, {} as never, { available: true, sign: workerSign } as never, () => flags.ticking ? ++clock : clock, jobs, null, leaderActivity);
+  return { wallets, agents, modes, funding, jobs, leaderActivity };
 }
 let fakes: ReturnType<typeof build>;
 const start = (key = 'setup-start-key-000001', extra: object = {}) => service.start(uid, { idempotencyKey: key, leader, budgetUsd: '100', settings, ...extra });
@@ -163,7 +167,7 @@ beforeAll(() => { db = getTestDb(); });
 beforeEach(async () => {
   testNetwork = 'testnet';
   await truncateAll(db); vi.clearAllMocks(); flags.worker = true; flags.attach = true; flags.ticking = false; clock = Date.now();
-  mode = { id: 'mode-op', targetState: 'unknown', submissionState: 'prepared', submits: 0 }; modeIntent = null; agentIntent = null; signed = [];
+  mode = { id: 'mode-op', targetState: 'unknown', submissionState: 'prepared', submits: 0 }; modeIntent = null; agentIntent = null; signed = []; activity = quietLeader();
   uid = (await insertUser(db, { privyUserId: 'did:privy:setup-owner', embeddedWalletAddress: owner.address.toLowerCase() })).id;
   await openCopyTrading(db);
   await db.insert(copyControls).values([{ scope: 'platform', scopeId: 0 }]);
@@ -173,6 +177,35 @@ beforeEach(async () => {
 });
 afterEach(async () => { vi.useRealTimers(); await fakes?.jobs.drain(1000); });
 afterAll(closeTestDb);
+
+describe('leader activity gate', () => {
+  it('refuses a mainnet leader too active to copy (409 leader_too_active) and creates nothing', async () => {
+    activity = leaderCopyActivity({ orders: 2000, peakPerMinute: 150, saturated: true }, new Date());
+    await expect(start()).rejects.toMatchObject({ status: 409, response: { code: 'leader_too_active' } });
+    activity = leaderCopyActivity({ orders: 120, peakPerMinute: 9, saturated: false }, new Date());
+    await expect(start()).rejects.toMatchObject({ status: 409, response: { code: 'leader_too_active', message: expect.stringContaining('9 a minute') } });
+    expect(fakes.leaderActivity.copyActivity).toHaveBeenCalledWith(leader);
+    expect(await db.select().from(copyLiveSetups)).toHaveLength(0);
+    expect(await db.select().from(copyStrategies)).toHaveLength(0);
+    expect(fakes.wallets.prepare).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the activity cannot be read (503 leader_activity_unavailable)', async () => {
+    activity = new Error('upstream 500');
+    await expect(start()).rejects.toMatchObject({ status: 503, response: { code: 'leader_activity_unavailable' } });
+    expect(await db.select().from(copyLiveSetups)).toHaveLength(0);
+  });
+
+  it('a quiet leader proceeds; a retry of an admitted key and a testnet leader are not measured', async () => {
+    const first = await start();
+    expect(first.stage).toBe('awaiting_consent');
+    expect(fakes.leaderActivity.copyActivity).toHaveBeenCalledTimes(1);
+    activity = new Error('not read again');
+    expect((await start()).id).toBe(first.id);
+    await start('setup-start-key-000002', { sourceNetwork: 'testnet', leader: `0x${'55'.repeat(20)}` }).catch(() => undefined);
+    expect(fakes.leaderActivity.copyActivity).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('one-click testnet copy setup', () => {
   it('start is idempotent: one strategy, wallet, agent and deposit, one consent binding every term; a mainnet leader is watched', async () => {

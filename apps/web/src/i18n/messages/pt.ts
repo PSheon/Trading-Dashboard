@@ -1014,6 +1014,10 @@ export const pt: Messages = {
       amount: "Valor a copiar (USDC)",
       enterAmount: "Informe um valor",
       minToCopy: "Mínimo de ${min} para copiar",
+      tooActive: {
+        rate: "Este trader opera com frequência demais para a cópia acompanhar ({orders} ordens nas últimas 24 horas, até {peak} por minuto), então não é possível copiá-lo. O limite é {perDay} por dia e {perMinute} por minuto.",
+        saturated: "Este trader fez mais de 2.000 operações nas últimas 24 horas, demais para a cópia acompanhar, então não é possível copiá-lo.",
+      },
       fit: {
         title: "Estimativa de compatibilidade",
         belowMin: "Escaladas pela proporção, cerca de {below} das últimas {opens} aberturas ({pct}%) ficariam abaixo da ordem mínima de ${min} e não seriam executadas.",

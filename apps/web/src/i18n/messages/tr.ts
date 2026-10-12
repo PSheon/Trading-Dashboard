@@ -1014,6 +1014,10 @@ export const tr: Messages = {
       amount: "Kopyalanacak tutar (USDC)",
       enterAmount: "Bir tutar girin",
       minToCopy: "Kopyalamak için en az ${min}",
+      tooActive: {
+        rate: "Bu trader kopyalamanın yetişemeyeceği kadar sık işlem yapıyor (son 24 saatte {orders} emir, dakikada en fazla {peak}), bu yüzden kopyalanamaz. Sınır günde {perDay}, dakikada {perMinute} emirdir.",
+        saturated: "Bu trader son 24 saatte 2.000'den fazla işlem yaptı; kopyalamanın yetişemeyeceği kadar çok, bu yüzden kopyalanamaz.",
+      },
       fit: {
         title: "Kopyalama uygunluk tahmini",
         belowMin: "Oranla ölçeklendiğinde son {opens} açılışın yaklaşık {below} tanesi (%{pct}) ${min} minimum emrin altında kalır ve uygulanmaz.",

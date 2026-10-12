@@ -28,6 +28,7 @@ import type { MasterAccount, MasterActionBound, MasterTypedData } from './live/m
 import { safeErrorText } from '../runtime/safe-error-text.js';
 import { WORKER_MASTER_SIGNER, type WorkerMasterSigner } from './live/privy-policy-master-signer.js';
 import { deploymentNetwork, liveExecutionEnabled } from './live-deployment.js';
+import { LeaderActivityService } from '../traders/leader-activity.service.js';
 
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const LEASE_MS = 60_000;
@@ -99,7 +100,8 @@ export class CopyLiveSetupService {
     @Optional() @Inject(WORKER_MASTER_SIGNER) private readonly workerSigner: WorkerMasterSigner | null = null,
     @Optional() private readonly now: () => number = Date.now,
     @Optional() private readonly jobs: BackgroundJobs | null = null,
-    @Optional() @Inject(CopyLiveSetupAbortService) private readonly aborts: CopyLiveSetupAbortService | null = null) {}
+    @Optional() @Inject(CopyLiveSetupAbortService) private readonly aborts: CopyLiveSetupAbortService | null = null,
+    @Optional() @Inject(LeaderActivityService) private readonly leaderActivity: Pick<LeaderActivityService, 'copyActivity'> | null = null) {}
 
   private available() {
     if (!liveExecutionEnabled(this.config) || !this.agents.available || !this.modes.available || !this.wallets.workerPolicyEnabled || !this.workerSigner?.available)
@@ -152,6 +154,7 @@ export class CopyLiveSetupService {
     if (!owner.embeddedWalletAddress) refuse(409, 'setup_wallet_conflict', 'Your main wallet is not ready');
     let row = await this.repository.byKey(userId, request.idempotencyKey);
     if (!row) {
+      if (request.sourceNetwork === 'mainnet') await this.assertLeaderFits(request.leader);
       row = await this.uow.run(async tx => {
         await this.mandates.lock(tx, userId);
         const prior = await this.repository.byKey(userId, request.idempotencyKey, tx);
@@ -172,6 +175,24 @@ export class CopyLiveSetupService {
       liveCopySettingsDigest(row.settings) !== liveCopySettingsDigest(request.settings)) throw new ConflictException('Idempotency payload changed');
     if (row.stage === 'provisioning' || row.stage === 'awaiting_consent') return this.answer(row, () => this.provisionLeased(row!.id));
     return this.wire(row);
+  }
+
+  /** A mainnet leader trading faster than a copy can follow (shared
+   * `leaderActivityVerdict`) is refused before anything is created; an
+   * unreadable activity refuses too (fail closed). A retry of an admitted key
+   * is not measured again. */
+  private async assertLeaderFits(leader: string) {
+    let activity;
+    try {
+      if (!this.leaderActivity) throw new Error('leader activity is not wired');
+      activity = await this.leaderActivity.copyActivity(leader);
+    } catch (error) {
+      this.logger.warn(`leader ${leader} activity not read: ${safeErrorText(error)}`);
+      return refuse(503, 'leader_activity_unavailable', 'This trader\'s recent activity could not be checked. Try again in a minute.');
+    }
+    if (!activity.fits) refuse(409, 'leader_too_active', activity.saturated
+      ? 'This trader made more than 2,000 trades in the last 24 hours, too many for copying to keep up. Copying this trader is not available.'
+      : `This trader trades too often for copying to keep up (${activity.orders} orders in the last 24 hours, up to ${activity.peakPerMinute} a minute). The limit is ${activity.limits.perDay} a day and ${activity.limits.perMinute} a minute.`);
   }
 
   /** Provider-only preparation, none of which needs a consent: the copy

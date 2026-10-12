@@ -46,6 +46,7 @@ export const queryKeys = {
     transfers: (address: string) => ["trader-transfers", address] as const,
     fills: (address: string, limit: number) => ["trader-fills", address, limit] as const,
     copyScore: (address: string) => ["trader-copy-score", address] as const,
+    copyActivity: (address: string) => ["trader-copy-activity", address] as const,
   },
   actions: {
     all: ["actions"] as const,

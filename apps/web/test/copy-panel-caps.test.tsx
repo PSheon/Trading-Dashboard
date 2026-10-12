@@ -36,7 +36,7 @@ vi.mock("../src/lib/copy-live-setup", async () => ({
 }));
 vi.mock("../src/lib/copy-live-portfolio", () => ({ useLiveCopyPortfolio: () => ({ data: { items: [] } }) }));
 vi.mock("../src/lib/wallet", () => ({ useWallet: () => ({ data: { network: "mainnet", hyperliquid: { withdrawable: 180 } } }), signErrorMessage: () => ({ rejected: false, message: "" }) }));
-vi.mock("../src/lib/queries", () => ({ useTraderProfile: () => ({ data: undefined }), useTraderFills: () => ({ data: undefined }), useSiteSettings: () => ({ data: { copyTradingEnabled: true } }) }));
+vi.mock("../src/lib/queries", () => ({ useLeaderCopyActivity: () => ({ data: undefined, isPending: false, refetch() {} }), useTraderProfile: () => ({ data: undefined }), useTraderFills: () => ({ data: undefined }), useSiteSettings: () => ({ data: { copyTradingEnabled: true } }) }));
 
 const leader = `0x${"ab".repeat(20)}`;
 let root: Root, container: HTMLDivElement;

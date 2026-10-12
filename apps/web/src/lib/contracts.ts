@@ -19,6 +19,7 @@ export type TradersResponse = JsonWire<Domain.TradersResponse>;
 export type TraderProfileResponse = JsonWire<Domain.TraderProfileResponse>;
 export type TraderFill = JsonWire<Domain.TraderFill>;
 export type TraderActivityResponse = JsonWire<Domain.TraderActivityResponse>;
+export type LeaderCopyActivity = Domain.WireLeaderCopyActivity;
 export type RoundTrip = Domain.WireRoundTrip;
 export type TraderAnalyticsResponse = Domain.WireTraderAnalytics;
 export type TraderTradesResponse = Domain.WireTraderTrades;

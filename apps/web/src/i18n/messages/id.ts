@@ -1014,6 +1014,10 @@ export const id: Messages = {
       amount: "Jumlah untuk disalin (USDC)",
       enterAmount: "Masukkan jumlah",
       minToCopy: "Minimum ${min} untuk menyalin",
+      tooActive: {
+        rate: "Trader ini terlalu sering bertransaksi sehingga penyalinan tidak bisa mengikuti ({orders} order dalam 24 jam terakhir, hingga {peak} per menit), jadi belum bisa disalin. Batasnya {perDay} per hari dan {perMinute} per menit.",
+        saturated: "Trader ini melakukan lebih dari 2.000 transaksi dalam 24 jam terakhir, terlalu banyak untuk diikuti, jadi belum bisa disalin.",
+      },
       fit: {
         title: "Perkiraan kecocokan salin",
         belowMin: "Jika diskalakan sesuai rasio, sekitar {below} dari {opens} pembukaan terakhir ({pct}%) berada di bawah order minimum ${min} dan tidak dieksekusi.",

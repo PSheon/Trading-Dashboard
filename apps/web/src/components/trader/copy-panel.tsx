@@ -24,7 +24,8 @@ import { liveSetupScope, useLiveCopyDeployment, useLiveCopySetupActions } from "
 import { useLiveCopyPortfolio } from "@/lib/copy-live-portfolio";
 import { useWallet } from "@/lib/wallet";
 import type { CopyStrategySettings, LiveCopySetup } from "@trading-dashboard/shared/contracts";
-import { useSiteSettings } from "@/lib/queries";
+import type { LeaderCopyActivity } from "@/lib/contracts";
+import { useLeaderCopyActivity, useSiteSettings } from "@/lib/queries";
 import { amountInput } from "@/lib/amount-input";
 import { hedgeWarning } from "@/lib/copy-portfolio";
 import { coinLabel, truncateAddress } from "@/lib/format";
@@ -145,6 +146,16 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
   const [maxLeverage, setMaxLeverage] = useState("");
   // Only a loaded "off" closes the panel; the api refuses in any case.
   const closed = useSiteSettings().data?.copyTradingEnabled === false;
+  // A live mainnet copy can't follow a leader who trades faster than the
+  // copy wallet's Hyperliquid lane allows (shared leader-activity limits):
+  // no start for one, and none while the check loads. If it can't be read,
+  // the api decides (it checks again: 409 leader_too_active).
+  const activityGated = testnet && ratioOnly;
+  const copyActivity = useLeaderCopyActivity(address, { enabled: activityGated });
+  const activityPending = activityGated && copyActivity.isPending;
+  const tooActive = activityGated && copyActivity.data && !copyActivity.data.fits ? copyActivity.data : null;
+  const tooActiveText = (activity: LeaderCopyActivity) => activity.saturated ? t("trader.copy.tooActive.saturated")
+    : t("trader.copy.tooActive.rate", { orders: format.num(activity.orders), peak: activity.peakPerMinute, perDay: activity.limits.perDay, perMinute: activity.limits.perMinute });
   const [direction, setDirection] = useState<Direction>("same");
   const [amount, setAmount] = useState("");
   const [more, setMore] = useState(false);
@@ -241,6 +252,8 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
     }
     if (!trading.available) return toast.error(t("mode.unavailable"));
     if (closed) return toast.error(t("trader.copy.errors.disabled"));
+    if (tooActive) return toast.error(tooActiveText(tooActive));
+    if (activityPending) return;
     if (fundFirst) return openDeposit();
     if (!amount || !(value > 0)) return toast.error(t("trader.copy.enterAmount"));
     if (value < min) return toast.error(t("trader.copy.errors.minAllocation", { min: format.num(min) }));
@@ -324,7 +337,9 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
   function liveError(err: unknown) {
     const code = apiErrorCode(err), limit = overview.data?.limits;
     if (code === "already_copying") return toast.info(t("trader.copy.errors.alreadyCopying"));
+    if (code === "leader_too_active") void copyActivity.refetch();
     toast.error(
+      code === "leader_too_active" && tooActive ? tooActiveText(tooActive) :
       code === "below_min_allocation" ? t("trader.copy.errors.minAllocation", { min: format.num(min) }) :
       code === "above_max_allocation" ? t("trader.copy.errors.maxAllocation", { max: format.num(max ?? limit?.maxAllocationUsd ?? 0) }) :
       code === "copy_paused" ? t("trader.copy.errors.paused") :
@@ -491,10 +506,12 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
     );
   }
 
+  // Too active to copy, or not known yet (live mainnet only).
+  const blocked = tooActive !== null || activityPending;
   return (
     <Shell sheet={sheet} form>
      {/* A real form: Enter in the amount field starts the copy. */}
-     <form className="contents" noValidate onSubmit={(event) => { event.preventDefault(); if (!(start.isPending || preparing || started || closed || (empty && !fundFirst))) void submit(); }}>
+     <form className="contents" noValidate onSubmit={(event) => { event.preventDefault(); if (!(start.isPending || preparing || started || closed || blocked || (empty && !fundFirst))) void submit(); }}>
       {/* Direction stays above the scrolling amount controls. */}
       {sheet ? <div className="sticky top-0 z-10 -mx-5 bg-card px-5 pt-1 pb-2 in-data-[scrolled=true]:shadow-[0_6px_8px_-6px_var(--border)]" data-testid="copy-sheet-direction">{directionPill}</div> : directionPill}
       {hedgeNotice}
@@ -681,6 +698,13 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
       {/* Ratio sizing only: a fixed amount per trade is checked against the minimum by its own field. */}
       {!testnet || (!fixedOnly && sizing === "ratio") ? <CopyFitSummary address={address} allocation={Number.isFinite(value) ? value : 0} /> : null}
 
+      {tooActive ? (
+        <p role="alert" data-testid="copy-leader-too-active" className="flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning">
+          <TriangleAlert className="mt-px size-3.5 shrink-0" />
+          {tooActiveText(tooActive)}
+        </p>
+      ) : null}
+
       {paused ? (
         <p className="flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning">
           <TriangleAlert className="mt-px size-3.5 shrink-0" />
@@ -696,7 +720,7 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
           type="submit"
           size="cta"
           loading={start.isPending || preparing}
-          disabled={!(start.isPending || preparing) && (started || closed || !trading.available || (empty && !fundFirst))}
+          disabled={!(start.isPending || preparing) && (started || closed || blocked || !trading.available || (empty && !fundFirst))}
           className="min-h-14 w-full focus-visible:ring-offset-card disabled:cursor-not-allowed"
         >
           {started ? (

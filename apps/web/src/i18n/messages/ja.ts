@@ -1014,6 +1014,10 @@ export const ja: Messages = {
       amount: "コピーする金額（USDC）",
       enterAmount: "金額を入力",
       minToCopy: "コピーは最低 ${min} から",
+      tooActive: {
+        rate: "このトレーダーは取引頻度が高すぎるため（直近 24 時間で {orders} 件、ピーク時 1 分あたり {peak} 件）、コピーが追いつけません。現在コピーできません。上限は 1 日 {perDay} 件、1 分あたり {perMinute} 件です。",
+        saturated: "このトレーダーは直近 24 時間で 2,000 件を超える取引があり、コピーが追いつけないため、現在コピーできません。",
+      },
       fit: {
         title: "コピー適合度の見積もり",
         belowMin: "比率で換算すると、直近 {opens} 件の新規建てのうち約 {below} 件（{pct}%）が最小注文額 ${min} を下回り、執行されません。",

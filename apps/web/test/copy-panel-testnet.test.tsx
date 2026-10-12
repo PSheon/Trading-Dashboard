@@ -9,6 +9,7 @@ import { catalogs } from "../src/i18n/messages";
 import { liveSetupMessages } from "../src/i18n/live-setup";
 import { liveCopiesMessages } from "../src/i18n/live-copies";
 import { ToastProvider } from "../src/components/ui/toast";
+import { ApiError } from "../src/lib/api";
 
 /**
  * The trader panel's 測試網 card (logic review 2026-10-06 §A, §C): a start
@@ -17,7 +18,8 @@ import { ToastProvider } from "../src/components/ui/toast";
  * the panel follows is never shown to another signed-in person.
  */
 const state = vi.hoisted(() => ({ withdrawable: 500, openDeposit: (() => {}) as () => void, identity: "owner@email", item: null as unknown, restart: vi.fn(), cancel: vi.fn(), start: vi.fn(), confirm: vi.fn(), startPending: false,
-  deployment: { network: "testnet", available: true, sourceNetworks: ["mainnet", "testnet"], caps: null } as unknown }));
+  deployment: { network: "testnet", available: true, sourceNetworks: ["mainnet", "testnet"], caps: null } as unknown,
+  activity: { data: undefined, isPending: false, refetch: vi.fn() } as { data: unknown; isPending: boolean; refetch: () => void }, activityEnabled: [] as boolean[] }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh() {}, push() {} }), usePathname: () => "/zh-TW/trader", useSearchParams: () => new URLSearchParams() }));
 vi.mock("../src/lib/auth", () => ({ useAuth: () => ({ status: "signedIn", identity: state.identity, login() {} }) }));
 vi.mock("../src/lib/api", async () => ({ ...(await vi.importActual<typeof import("../src/lib/api")>("../src/lib/api")), sessionKey: () => "1" }));
@@ -34,7 +36,7 @@ vi.mock("../src/lib/copy-live-setup", async () => ({
 vi.mock("../src/lib/copy-live-portfolio", () => ({ useLiveCopyPortfolio: () => ({ data: { items: state.item ? [state.item] : [] } }) }));
 vi.mock("../src/lib/wallet", () => ({ useWallet: () => ({ data: { network: (state.deployment as { network: string }).network, hyperliquid: { withdrawable: state.withdrawable } } }), signErrorMessage: () => ({ rejected: false, message: "" }) }));
 vi.mock("../src/components/wallet/wallet-modals", () => ({ useWalletModals: () => ({ openDeposit: () => state.openDeposit(), openWithdraw() {}, openExport() {} }) }));
-vi.mock("../src/lib/queries", () => ({ useTraderProfile: () => ({ data: undefined }), useTraderFills: () => ({ data: undefined }), useSiteSettings: () => ({ data: { copyTradingEnabled: true } }) }));
+vi.mock("../src/lib/queries", () => ({ useLeaderCopyActivity: (_address: string, { enabled }: { enabled: boolean }) => { state.activityEnabled.push(enabled); return state.activity; }, useTraderProfile: () => ({ data: undefined }), useTraderFills: () => ({ data: undefined }), useSiteSettings: () => ({ data: { copyTradingEnabled: true } }) }));
 
 const leader = `0x${"ab".repeat(20)}`;
 const zh = liveSetupMessages["zh-TW"];
@@ -47,6 +49,7 @@ beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   vi.clearAllMocks(); state.identity = "owner@email"; state.withdrawable = 500;
   state.deployment = { network: "testnet", available: true, sourceNetworks: ["mainnet", "testnet"], caps: null };
+  state.activity = { data: undefined, isPending: false, refetch: vi.fn() }; state.activityEnabled = [];
   localStorage.setItem(`orbie:copy-mode:${state.identity}`, "testnet");
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
 });
@@ -259,4 +262,54 @@ it("preserves the confirmation error when the same owner returns to a replaced r
   await act(async () => root.unmount()); root = createRoot(container);
   await renderWithProbe();
   expect(document.querySelector('[role="dialog"] [role="alert"]')?.textContent).toContain(zh.errors.generic);
+});
+
+const activityOf = (extra: object) => ({ orders: 40, peakPerMinute: 2, saturated: false, fits: true, reason: null, limits: { perDay: 300, perMinute: 6 }, measuredAt: new Date().toISOString(), ...extra });
+async function startWith(amount: string) {
+  const input = container.querySelector<HTMLInputElement>('input[inputmode="decimal"]')!;
+  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+  await act(async () => { setValue.call(input, amount); input.dispatchEvent(new Event("input", { bubbles: true })); });
+  return container.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+}
+
+it("正式 on mainnet refuses a leader too active to copy: the start is disabled and says why (2026-10-12)", async () => {
+  state.deployment = { network: "mainnet", available: true, sourceNetworks: ["mainnet"], caps: null };
+  state.item = null;
+  state.activity = { data: activityOf({ orders: 1200, peakPerMinute: 150, fits: false, reason: "orders_per_day" }), isPending: false, refetch: vi.fn() };
+  await render();
+  expect(state.activityEnabled.at(-1)).toBe(true);
+  expect(container.querySelector('[data-testid="copy-leader-too-active"]')?.textContent)
+    .toBe("此交易員交易太頻繁（近 24 小時 1,200 筆、尖峰每分鐘 150 筆），系統無法即時跟上，暫不開放跟單。上限為每日 300 筆、每分鐘 6 筆。");
+  expect((await startWith("40")).disabled).toBe(true);
+  state.activity = { data: activityOf({ orders: 2000, saturated: true, fits: false, reason: "orders_per_day" }), isPending: false, refetch: vi.fn() };
+  await render();
+  expect(container.querySelector('[data-testid="copy-leader-too-active"]')?.textContent).toBe("此交易員近 24 小時交易超過 2000 筆，系統無法即時跟上，暫不開放跟單。");
+});
+
+it("正式 on mainnet waits for the activity check; a quiet leader or an unreadable check leaves the start to the api", async () => {
+  state.deployment = { network: "mainnet", available: true, sourceNetworks: ["mainnet"], caps: null };
+  state.item = null;
+  state.activity = { data: undefined, isPending: true, refetch: vi.fn() };
+  await render();
+  expect((await startWith("40")).disabled).toBe(true);
+  state.activity = { data: activityOf({}), isPending: false, refetch: vi.fn() };
+  await render();
+  expect((await startWith("40")).disabled).toBe(false);
+  expect(container.querySelector('[data-testid="copy-leader-too-active"]')).toBeNull();
+  // The check failed (no data, not pending): the api decides.
+  state.activity = { data: undefined, isPending: false, refetch: vi.fn() };
+  state.start.mockRejectedValueOnce(new ApiError(409, "too active", { code: "leader_too_active" }));
+  await act(async () => root.render(<I18nProvider locale="zh-TW" messages={catalogs["zh-TW"]}><ToastProvider><CopyPanel address={leader} /></ToastProvider></I18nProvider>));
+  const cta = await startWith("40");
+  expect(cta.disabled).toBe(false);
+  await act(async () => cta.click());
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
+  expect(state.activity.refetch).toHaveBeenCalled();
+  expect(document.querySelector('[data-testid="toasts"] [data-type="error"]')?.textContent).toContain("此交易員交易太頻繁，系統無法即時跟上，暫不開放跟單。");
+});
+
+it("a testnet deployment never asks for the activity", async () => {
+  state.item = null;
+  await render();
+  expect(state.activityEnabled.every((enabled) => !enabled)).toBe(true);
 });

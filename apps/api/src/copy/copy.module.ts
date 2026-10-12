@@ -3,6 +3,7 @@ import { Module } from "@nestjs/common";
 
 import { AuthModule } from "../common/auth/auth.module.js";
 import { HyperliquidModule } from "../hyperliquid/hyperliquid.module.js";
+import { LeaderActivityModule } from "../traders/leader-activity.module.js";
 import { NotifyModule } from "../notify/notify.module.js";
 import { CopyAdminReadService } from "./copy-admin-read.service.js";
 import { CopyAdoptionRepairService } from "./copy-adoption-repair.service.js";
@@ -100,7 +101,7 @@ export { WALLET_NETWORK_HL, walletNetworkHyperliquid, type WalletNetworkHyperliq
 
 @Module({
   // NotifyModule: the operator's system message when an order keeps failing.
-  imports: [AuthModule, HyperliquidModule, NotifyModule],
+  imports: [AuthModule, HyperliquidModule, NotifyModule, LeaderActivityModule],
   controllers: [CopyController, CopyFundsController, CopyWalletController, CopyFundingController, CopyAgentController, CopyFollowerController, CopyAccountModeController, CopyFollowerSnapshotController, CopyLiveMandateController, CopyLiveStopController, CopyLiveReturnController, CopyLivePortfolioController, CopyLiveCloseController, CopyLiveSetupController],
   providers: [apiSettlementProvider, CopyAdminLiveRepository, CopyAdminLiveService,
     CopyRepository, CopyMarketService, CopyRiskPolicyService, CopyOrderPlanner, CopySignalService, CopyExecutionService,

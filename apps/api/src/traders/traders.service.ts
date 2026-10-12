@@ -3,6 +3,7 @@ import { Optional } from "@nestjs/common";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { Injectable, Logger } from "@nestjs/common";
 import {
+  type LeaderCopyActivity,
   type PortfolioQuery,
   type PortfolioResponse,
   type SparklinesResponse,
@@ -47,6 +48,7 @@ import {
   toTraderStats,
 } from "./traders.mappers.js";
 import { TtlCache } from "./ttl-cache.js";
+import { LeaderActivityService } from "./leader-activity.service.js";
 import { kolAvatarPath } from "../discovery/kol-avatar.js";
 import { KolAvatarRepository } from "../discovery/kol-avatar.repository.js";
 
@@ -156,6 +158,7 @@ export class TradersService {
     @Optional() private readonly orderReader?: TraderOrdersReader,
     @Optional() private readonly twapReader?: TraderTwapReader,
     @Optional() private readonly accountReader?: TraderAccountReader,
+    @Optional() private readonly leaderActivity?: LeaderActivityService,
   ) {
     this.spotPrices = spotPrices ?? new SpotPriceService(info);
   }
@@ -515,6 +518,14 @@ export class TradersService {
       out.set(row.address, poolSeries(values, at, spanMs));
     }
     return out;
+  }
+
+  // --- GET /traders/:address/copy-activity ---------------------------------
+
+  /** Whether a live copy can keep up with this trader (5 min cache). */
+  copyActivity(address: string): Promise<LeaderCopyActivity> {
+    if (!this.leaderActivity) return Promise.reject(new Error("Leader activity is not wired"));
+    return this.leaderActivity.copyActivity(address);
   }
 
   // --- GET /traders/:address/fills -----------------------------------------

@@ -174,4 +174,5 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | GET | `/admin/copy/live/orders` | 200 | copy.read |
 | GET | `/admin/copy/live/latency` | 200 | copy.read |
 | POST | `/admin/copy/live/grants/:id/revoke` | 200 | copy.read + execution.pause; audited copy.grant.revoke |
+| POST | `/admin/copy/live/transfers/:id/resolve` | 200 | admin.access + copy.read + users.manage; after the nonce window; audited copy.funding.resolve |
 | GET | `/kols/:address/avatar` | 200 | public; image bytes, 304 on If-None-Match |

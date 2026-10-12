@@ -19,7 +19,7 @@ import { liveCopySetupSchema, liveCopySetupsSchema } from "./copy-live-setup-con
 import { liveCopySetupAbortSchema } from "./copy-live-setup-abort-contracts.js";
 import { liveCopyOverviewSchema, liveCopyMandateSchema, liveCopyPortfolioSchema, liveManualCloseSchema, liveManualClosesSchema } from "./copy-live-mandate-contracts.js";
 import { liveCopyStopSchema, liveCopyStopsSchema } from './copy-live-stop-contracts.js';
-import { adminLiveAccountsSchema, adminLiveTransfersSchema, adminLiveOrdersSchema, adminLiveLatencySchema, adminRevokedLiveGrantSchema } from './admin-copy-live-contracts.js';
+import { adminLiveAccountsSchema, adminLiveTransfersSchema, adminLiveOrdersSchema, adminLiveLatencySchema, adminRevokedLiveGrantSchema, adminResolvedCopyFundingSchema } from './admin-copy-live-contracts.js';
 import * as s from "./schema/zod.js";
 import { referralOverviewSchema, referralCodeSchema, referralCheckSchema, referralBindSchema, referralFriendsSchema, referralClaimSchema, referralClaimsSchema } from './referral-contracts.js';
 
@@ -428,6 +428,7 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/admin/copy/live/orders", status: 200, auth: "copy.read", response: adminLiveOrdersSchema },
   { method: "GET", path: "/admin/copy/live/latency", status: 200, auth: "copy.read", response: adminLiveLatencySchema },
   { method: "POST", path: "/admin/copy/live/grants/:id/revoke", status: 200, auth: "copy.read + execution.pause; audited copy.grant.revoke", response: adminRevokedLiveGrantSchema },
+  { method: "POST", path: "/admin/copy/live/transfers/:id/resolve", status: 200, auth: "admin.access + copy.read + users.manage; after the nonce window; audited copy.funding.resolve", response: adminResolvedCopyFundingSchema },
   { method: "GET", path: "/kols/:address/avatar", status: 200, auth: "public; image bytes, 304 on If-None-Match", response: z.never(),
     binary: { contentTypes: ["image/png", "image/jpeg", "image/gif", "image/webp"] } },
 ];

@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
-import { IsBoolean, IsIn, IsOptional, IsString, Matches, MaxLength, MinLength } from "class-validator";
+import { IsBoolean, IsIn, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength } from "class-validator";
 
 import { Trim } from "../../common/decorators/input.decorator.js";
 
@@ -24,4 +24,19 @@ export class AdminRevokeLiveGrantDto {
   @Trim() @IsString() @MinLength(3) @MaxLength(500) declare reason: string;
   @ApiPropertyOptional({ type: Boolean, description: "Revoke now even while the copy's stop has not ended; positions may remain on the copy account" })
   @IsOptional() @IsBoolean() force?: boolean;
+}
+
+export class AdminCopyFundingParamsDto {
+  @ApiProperty({ type: String, format: "uuid" })
+  @IsUUID() declare id: string;
+}
+
+/** Mirrors adminResolveCopyFundingSchema (the service re-parses with it). */
+export class AdminResolveCopyFundingDto {
+  @ApiProperty({ type: String, enum: ["ledger_receipt", "ledger_absent_after_nonce_expiry"], description: "The evidence the operator names; the api proves it from a fresh ledger read" })
+  @IsIn(["ledger_receipt", "ledger_absent_after_nonce_expiry"]) declare evidence: "ledger_receipt" | "ledger_absent_after_nonce_expiry";
+  @ApiPropertyOptional({ type: String, pattern: "^0x[0-9a-f]{64}$", description: "ledger_receipt only: the transfer's transaction hash" })
+  @IsOptional() @Matches(/^0x[0-9a-f]{64}$/) declare transactionHash?: string;
+  @ApiProperty({ type: String, minLength: 3, maxLength: 500, description: "Why the operator resolves it (audited)" })
+  @Trim() @IsString() @MinLength(3) @MaxLength(500) declare reason: string;
 }

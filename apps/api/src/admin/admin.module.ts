@@ -1,5 +1,6 @@
 import { AdminCopyController } from "./admin-copy.controller.js";
 import { AdminCopyLiveController } from "./admin-copy-live.controller.js";
+import { AdminCopyFundingController } from "./admin-copy-funding.controller.js";
 import { CopyModule } from "../copy/copy.module.js";
 import { AdminSourcesController } from "./admin-sources.controller.js";
 import { AdminSourcesRepository } from "./admin-sources.repository.js";
@@ -34,7 +35,7 @@ import { RevenueModule } from "./revenue.module.js";
  */
 @Module({
   imports: [BackfillJobsModule, AuthModule, HyperliquidModule, CopyModule, RevenueModule],
-  controllers: [AdminCopyController, AdminCopyLiveController, AdminSourcesController, AdminTraderController, AdminAuditController, AdminSettingsRuntimeController, AdminJobsController, AdminSystemController, AdminController, PublicSettingsController],
+  controllers: [AdminCopyController, AdminCopyLiveController, AdminCopyFundingController, AdminSourcesController, AdminTraderController, AdminAuditController, AdminSettingsRuntimeController, AdminJobsController, AdminSystemController, AdminController, PublicSettingsController],
   providers: [AdminSourcesRepository, AdminTraderRepository, AdminAuditRepository, AdminSystemRepository, AdminSystemService, AdminOverviewRepository, AdminUsersRepository, AdminSettingsService, AdminUsersService, AdminOverviewService],
 })
 export class AdminModule {}

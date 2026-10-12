@@ -10,6 +10,7 @@ import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
 import { expireStaleReturns } from "./copy-live-return.repository.js";
 import { lockCopyUser } from "./copy-user-lock.js";
+import { recordAdminAudit, type AuditActor } from "../common/audit/admin-audit.js";
 import type { FundingScan } from "./copy-funding-scan.js";
 
 export type FundingRow = typeof copyFundingOperations.$inferSelect;
@@ -168,6 +169,30 @@ export class CopyFundingRepository {
       .where(and(eq(copyFundingOperations.id, operation.id), eq(copyFundingOperations.userId, operation.userId), eq(copyFundingOperations.status, "unknown"),
         sql`${copyFundingOperations.attemptedAt} is not null`, eq(copyFundingOperations.scanRevision, operation.scanRevision))).returning());
     return row ?? null;
+  }
+  async findAny(id: string) {
+    const [row] = await this.db.select().from(copyFundingOperations).where(eq(copyFundingOperations.id, id));
+    if (!row) throw new NotFoundException("Funding operation not found");
+    return row;
+  }
+  /** An operator's resolution of a transfer read as `row` (unknown or
+   * accepted, attempted), from evidence proven after the nonce window: the
+   * guarded move (still in the status it was read in) and the audit row in
+   * one transaction, under the owner's lock. Null when the row moved
+   * meanwhile. */
+  async resolveByOperator(row: FundingRow, outcome: { status: "rejected" } | { status: "credited"; receipt: { transactionHash: string; creditedAmount: string; fee: string } },
+    evidenceHash: string, actor: AuditActor, reason: string, evidence: string): Promise<FundingRow | null> {
+    const receipt = outcome.status === "credited" ? structuredClone(outcome.receipt) : null;
+    return this.locked(row.userId, async (tx) => {
+      const [updated] = await tx.update(copyFundingOperations).set({ ...receipt, status: outcome.status, evidenceHash, updatedAt: new Date() })
+        .where(and(eq(copyFundingOperations.id, row.id), eq(copyFundingOperations.userId, row.userId), eq(copyFundingOperations.status, row.status),
+          inArray(copyFundingOperations.status, outcome.status === "rejected" ? ["unknown"] : ["unknown", "accepted"]), sql`${copyFundingOperations.attemptedAt} is not null`)).returning();
+      if (!updated) return null;
+      await recordAdminAudit(tx, actor, "copy.funding.resolve", `funding:${row.id}`,
+        { status: row.status, userId: row.userId, direction: row.direction, nonce: row.nonce, amount: row.amount, scanRevision: row.scanRevision },
+        { status: outcome.status, evidence, evidenceHash, transactionHash: receipt?.transactionHash ?? null, reason });
+      return updated;
+    });
   }
   async saveScan(operation: FundingRow, scanState: FundingScan | null) {
     const [row] = await this.db.update(copyFundingOperations).set({ scanState, scanRevision: sql`${copyFundingOperations.scanRevision} + 1`, updatedAt: new Date() })

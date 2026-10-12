@@ -45,6 +45,20 @@ export const adminRevokeLiveGrantSchema = z.object({ reason: z.string().trim().m
  * Otherwise revokeRequestedAt and stopId: the copy is being stopped with the
  * grant and it is revoked when that stop ends. */
 export const adminRevokedLiveGrantSchema = z.object({ id: z.string(), version: z.number().int(), revokedAt: iso.nullable(), revokeRequestedAt: iso.nullable(), stopId: z.string().nullable() }).strict();
+/** An operator's resolution of a copy wallet transfer stuck unknown (or
+ * accepted, never credited) after its nonce window: the evidence the operator
+ * names, which the api proves from a fresh ledger read before it applies.
+ * ledger_receipt: this transfer's own receipt (its hash) → credited.
+ * ledger_absent_after_nonce_expiry: every transfer between the two accounts
+ * is provably another one → rejected (never executed). */
+export const adminResolveCopyFundingSchema = z.discriminatedUnion('evidence', [
+  z.object({ evidence: z.literal('ledger_receipt'), transactionHash: z.string().regex(/^0x[0-9a-f]{64}$/), reason: z.string().trim().min(3).max(500) }).strict(),
+  z.object({ evidence: z.literal('ledger_absent_after_nonce_expiry'), reason: z.string().trim().min(3).max(500) }).strict(),
+]);
+export const adminResolvedCopyFundingSchema = z.object({
+  id: z.string().uuid(), status: z.enum(['credited', 'rejected']), evidence: z.enum(['ledger_receipt', 'ledger_absent_after_nonce_expiry']),
+}).strict();
+export type AdminResolvedCopyFunding = z.infer<typeof adminResolvedCopyFundingSchema>;
 export type AdminLiveAccount = z.infer<typeof adminLiveAccountSchema>;
 export type AdminLiveAccounts = z.infer<typeof adminLiveAccountsSchema>;
 export type AdminLiveTransfer = z.infer<typeof adminLiveTransferSchema>;

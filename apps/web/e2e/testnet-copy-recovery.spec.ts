@@ -113,7 +113,9 @@ for (const width of [1440, 390]) {
         // The previous account is preparing its return, not already credited.
         const cards = page.getByTestId("live-copy-card").filter({ visible: true });
         await expect(cards.filter({ hasText: "策略已啟用" })).toBeVisible();
-        await expect(cards.filter({ hasText: "策略已啟用" })).toContainText("帳戶觀察尚未確認");
+        // The card says 待確認; why is in its sheet (UI text density, F5).
+        await expect(cards.filter({ hasText: "策略已啟用" })).toContainText("待確認");
+        await expect(cards.filter({ hasText: "策略已啟用" })).not.toContainText("帳戶觀察尚未確認");
         await cards.filter({ hasText: "準備返還" }).click();
         const copies = page.getByTestId("live-copy-sheet");
         await expect(copies).toContainText("資金返還中");

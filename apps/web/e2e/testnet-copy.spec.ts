@@ -70,10 +70,13 @@ for (const width of [1440, 390]) {
       // A copy is a card (name, status; PnL and ROI) that opens its detail sheet.
       const card = page.getByTestId("live-copy-card").filter({ visible: true }).first();
       await expect(card).toContainText("Strategy enabled");
-      await expect(card).toContainText("Account observation unconfirmed");
+      // Unknown P&L is one pill on the card; its reason is in the sheet (UI text density, F5).
+      await expect(card).toContainText("Unconfirmed");
+      await expect(card).not.toContainText("Account observation unconfirmed");
       await card.click();
       const copies = page.getByTestId("live-copy-sheet");
       await expect(copies).toContainText("Strategy enabled");
+      await expect(copies).toContainText("Account observation unconfirmed");
       await expect(copies).toContainText(/Runs until/);
       // Pause and resume need no signature.
       await copies.getByRole("button", { name: "Pause", exact: true }).click();

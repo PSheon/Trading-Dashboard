@@ -159,6 +159,8 @@ const setupReserve = (config: AppConfig, network: WalletNetworkHyperliquid['netw
       new PrivyAgentApprovalClient(config.value.auth, liveBudget(budget, setupReserve(config, network)),undefined,Date.now,transport) },
   ],
   exports: [CopyControlService, CopyRiskPolicyService, CopyAdminReadService, CopyAdminLiveService, PostgresLiveExecutionJournal, PostgresWalletAuthorizationSource,
+    // Disabling a user stops their actual copies (AdminUsersService).
+    CopyLiveSystemStops,
     // For CopyWorkerModule's loops (the worker process only).
     CopySignalService, CopyExecutionService, CopyPerformanceService, CopyFundingService, CopyFollowerReconciler, CopyFollowerSnapshotRepository,
     // For the testnet execution engine (CopyWorkerModule).

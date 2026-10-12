@@ -12,7 +12,8 @@ import { AdminUsersService } from "../src/admin/admin-users.service.js";
 import { AdminController, PublicSettingsController } from "../src/admin/admin.controller.js";
 import { RevenueService } from "../src/admin/revenue.service.js";
 import { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
-import { insertUser } from "./admin-test-utils.js";
+import { CopyLiveSystemStops } from "../src/copy/copy-live-stop-system.js";
+import { copyStopsFor, insertUser } from "./admin-test-utils.js";
 import { createAuthedApp, stubPrivy } from "./auth-test-utils.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
 
@@ -38,6 +39,7 @@ describe("admin routes over HTTP", () => {
       providers: [AdminOverviewRepository, AdminUsersRepository,
         AdminSettingsService,
         AdminUsersService,
+        { provide: CopyLiveSystemStops, useValue: copyStopsFor(db) },
         AdminOverviewService,
         RevenueRepository,
         RevenueService,

@@ -1,6 +1,9 @@
 import * as schema from '@trading-dashboard/shared/database';
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AdminUsersRepository } from '../src/admin/admin-users.repository.js';
+import { AdminUsersService } from '../src/admin/admin-users.service.js';
+import type { AuthService } from '../src/common/auth/auth.service.js';
 import { AppConfig } from '../src/config/app-config.js';
 import { CopyControlService } from '../src/copy/copy-control.service.js';
 import { CopyLiveMandateRepository } from '../src/copy/copy-live-mandate.repository.js';
@@ -141,5 +144,41 @@ describe('admin close-all on actual copies', () => {
     await db.update(schema.users).set({ disabledAt: new Date(now) });
     await controls.apply({ scope: 'user', userId: 1, command: 'close_positions', expectedRevision: 0, reason: 'disabled owner' }, admin);
     expect(await db.select().from(schema.copyLiveStopOperations)).toEqual([expect.objectContaining({ userId: 1, state: 'requested' })]);
+  });
+});
+
+describe('an admin disables the owner of a running actual copy (safety exits)', () => {
+  const users = () => new AdminUsersService(new AdminUsersRepository(db), uow, { invalidateUser: vi.fn() } as unknown as AuthService, system);
+  const operator = { kind: 'service', permissions: ['users.manage'] } as const;
+
+  it('the copy is stopped (close, then return; the stopper works it for a disabled owner) in the same transaction as the disable', async () => {
+    const disabled = await users().patch(1, { disabled: true }, operator);
+    expect(disabled.disabled).toBe(true);
+    const [stop] = await db.select().from(schema.copyLiveStopOperations);
+    expect(stop).toMatchObject({ userId: 1, accountId: 'account', mandateId: 'mandate', state: 'requested', issue: null, trackingComplete: true });
+    expect(stop!.idempotencyKey).toBe('owner-disabled-disable-mandate-2');
+    expect((await db.select().from(schema.copyStrategies))[0]).toMatchObject({ status: 'stopping', reduceOnly: true });
+    const audits = await db.select().from(schema.adminAuditLogs).orderBy(schema.adminAuditLogs.id);
+    expect(audits.map(a => [a.event, a.target])).toEqual([['user.update', '1'], ['copy.control', 'account:account']]);
+    expect(audits[1]!.afterJson).toMatchObject({ command: 'close_positions', reason: 'owner_disabled', stopId: stop!.id });
+    // Disabled again (or enabled and disabled): the copy is already stopping, no second stop.
+    await users().patch(1, { disabled: true }, operator);
+    expect(await db.select().from(schema.copyLiveStopOperations)).toHaveLength(1);
+  });
+
+  it('a running copy that can\'t get a stop refuses the disable, and nothing changes', async () => {
+    await db.update(schema.users).set({ embeddedWalletAddress: `0x${'77'.repeat(20)}` });
+    await expect(users().patch(1, { disabled: true }, operator))
+      .rejects.toMatchObject({ status: 409, response: { code: 'owner_copies_unstoppable', copies: [{ accountId: 'account', code: 'live_stop_binding_changed' }] } });
+    expect((await db.select().from(schema.users).where(eq(schema.users.id, 1)))[0]!.disabledAt).toBeNull();
+    expect(await db.select().from(schema.copyLiveStopOperations)).toEqual([]);
+    expect(await db.select().from(schema.adminAuditLogs)).toEqual([]);
+  });
+
+  it('a copy still in setup (never traded) doesn\'t hold the disable', async () => {
+    await db.update(schema.copyStrategies).set({ status: 'stopped', stoppedAt: new Date(now) });
+    await midSetupCopy(41);
+    expect((await users().patch(1, { disabled: true }, operator)).disabled).toBe(true);
+    expect(await db.select().from(schema.copyLiveStopOperations)).toEqual([]);
   });
 });

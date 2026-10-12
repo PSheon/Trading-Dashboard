@@ -6,7 +6,7 @@ import { recordAdminAudit, type AuditActor } from '../common/audit/admin-audit.j
 import { AppConfig } from '../config/app-config.js';
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
-import { UnitOfWork } from '../db/unit-of-work.js';
+import { UnitOfWork, type DbExecutor, type DbTransaction } from '../db/unit-of-work.js';
 import { CopyLiveStopRepository } from './copy-live-stop.repository.js';
 import { deploymentNetwork, liveExecutionEnabled } from './live-deployment.js';
 
@@ -25,8 +25,10 @@ export interface CloseAllOutcome {
   readonly liveCloseAll: 'done'; readonly liveStops: number; readonly liveStopping: number; readonly liveUnhandled: Unhandled[]; readonly complete: boolean;
 }
 /** Why the system stops a copy; part of the stop's idempotency key and audit. */
-export type SystemStopReason = 'admin_close_all' | 'agent_expiring' | 'follower_liquidated';
-const KEY_PREFIX: Record<SystemStopReason, string> = { admin_close_all: 'admin-close-all', agent_expiring: 'agent-expiry', follower_liquidated: 'liquidated' };
+export type SystemStopReason = 'admin_close_all' | 'agent_expiring' | 'follower_liquidated' | 'owner_disabled';
+const KEY_PREFIX: Record<SystemStopReason, string> = { admin_close_all: 'admin-close-all', agent_expiring: 'agent-expiry', follower_liquidated: 'liquidated', owner_disabled: 'owner-disabled' };
+/** Unhandled reasons that leave nothing running: no generation ever traded, or no worker trades on this deployment. */
+const NOTHING_RUNNING = new Set(['no_activated_generation', 'live_execution_disabled']);
 const PAGE = 500;
 /** A close-all the api did not finish (it crashed after the control commit)
  * is resumed by the worker once it is this old. */
@@ -56,11 +58,11 @@ export class CopyLiveSystemStops {
   /** Actual copies of this network that have not stopped, optionally of one
    * owner, started before `createdBefore`, or whose active agent expires by
    * `agentExpiresBy`; all of them (paged), none skipped silently. */
-  async targets(filter: { userId?: number; createdBefore?: Date; agentExpiresBy?: Date; liquidated?: boolean } = {}): Promise<CloseAllTargets> {
+  async targets(filter: { userId?: number; createdBefore?: Date; agentExpiresBy?: Date; liquidated?: boolean } = {}, db: DbExecutor = this.db): Promise<CloseAllTargets> {
     const network = deploymentNetwork(this.config), enabled = liveExecutionEnabled(this.config);
     const copies: RunningCopy[] = [], stopping: CloseAllTargets['stopping'] = [], unhandled: Unhandled[] = [];
     for (let after = '';;) {
-      const page = await this.db.select({ accountId: copyExecutionAccounts.id, userId: copyExecutionAccounts.userId, strategyId: copyStrategies.id }).from(copyExecutionAccounts)
+      const page = await db.select({ accountId: copyExecutionAccounts.id, userId: copyExecutionAccounts.userId, strategyId: copyStrategies.id }).from(copyExecutionAccounts)
         .innerJoin(copyStrategies, eq(copyStrategies.id, copyExecutionAccounts.strategyId))
         .where(and(eq(copyStrategies.mode, ACTUAL_STRATEGY_MODE), eq(copyStrategies.network, network), eq(copyExecutionAccounts.network, network), ne(copyStrategies.status, 'stopped'),
           gt(copyExecutionAccounts.id, after), filter.userId === undefined ? undefined : eq(copyExecutionAccounts.userId, filter.userId),
@@ -69,7 +71,7 @@ export class CopyLiveSystemStops {
           filter.liquidated ? sql`exists (select 1 from copy_follower_account_state q where q.account_id = ${copyExecutionAccounts.id} and q.quarantined and q.reason = 'follower_liquidated')` : undefined))
         .orderBy(asc(copyExecutionAccounts.id)).limit(PAGE);
       for (const account of page) {
-        const [open] = await this.db.select({ id: copyLiveStopOperations.id, state: copyLiveStopOperations.state }).from(copyLiveStopOperations)
+        const [open] = await db.select({ id: copyLiveStopOperations.id, state: copyLiveStopOperations.state }).from(copyLiveStopOperations)
           .where(and(eq(copyLiveStopOperations.accountId, account.accountId), ne(copyLiveStopOperations.state, 'stopped'))).limit(1);
         // A blocked stop is never worked: the copy is not being stopped.
         if (open?.state === 'blocked') { unhandled.push({ accountId: account.accountId, code: 'stop_blocked' }); continue; }
@@ -78,7 +80,7 @@ export class CopyLiveSystemStops {
           else unhandled.push({ accountId: account.accountId, code: 'live_execution_disabled' });
           continue;
         }
-        const [generation] = await this.db.select({ id: copyLiveMandates.id, revision: copyLiveMandates.revision }).from(copyLiveMandates)
+        const [generation] = await db.select({ id: copyLiveMandates.id, revision: copyLiveMandates.revision }).from(copyLiveMandates)
           .where(and(eq(copyLiveMandates.accountId, account.accountId), isNotNull(copyLiveMandates.activationCursor), ne(copyLiveMandates.state, 'stopped')))
           .orderBy(desc(copyLiveMandates.createdAt)).limit(1);
         // Mid-setup (never activated): a stop has nothing to close with; any
@@ -94,14 +96,16 @@ export class CopyLiveSystemStops {
     return { copies, stopping, unhandled };
   }
 
-  /** Stops each copy (close, then return), each in its own transaction. */
-  async stopAll(copies: readonly RunningCopy[], reason: SystemStopReason, actor: AuditActor, ref: string): Promise<SystemStopOutcome> {
+  /** Stops each copy (close, then return), each in its own transaction, or
+   * each in its own savepoint of `tx` when given. */
+  async stopAll(copies: readonly RunningCopy[], reason: SystemStopReason, actor: AuditActor, ref: string, tx?: DbTransaction): Promise<SystemStopOutcome> {
+    const run = <T>(work: (tx: DbTransaction) => Promise<T>): Promise<T> => tx ? tx.transaction(work) : this.uow.run(work);
     const outcome: SystemStopOutcome = { stopped: [], refused: [] };
     for (const copy of copies) {
       // The generation and its revision make the key: a later generation is a new stop.
       const key = `${KEY_PREFIX[reason]}-${ref}-${copy.mandateId}-${copy.mandateRevision}`.replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 128);
       try {
-        const stop = await this.uow.run(async tx => {
+        const stop = await run(async tx => {
           const row = await this.stops.request(tx, copy.userId, copy.mandateId, { idempotencyKey: key, expectedMandateRevision: copy.mandateRevision }, this.now, true);
           await recordAdminAudit(tx, actor, 'copy.control', `account:${copy.accountId}`, null,
             { command: 'close_positions', reason, ref, stopId: row.id, stopState: row.state, strategyId: copy.strategyId, mandateId: copy.mandateId });
@@ -161,6 +165,27 @@ export class CopyLiveSystemStops {
     const targets = await this.targets({ liquidated: true });
     const outcome = targets.copies.length ? await this.stopAll(targets.copies, 'follower_liquidated', null, 'liquidation') : { stopped: [], refused: [] };
     return { stopped: outcome.stopped, refused: [...targets.unhandled, ...outcome.refused] };
+  }
+
+  /** Takes the stop path's fences in `tx`; a caller that will stopOwner in
+   * it calls this before taking the owner's copy lock or rows. */
+  fenceOwnerStops(tx: DbTransaction): Promise<void> { return this.stops.fence(tx); }
+
+  /**
+   * An admin disables an owner (in the disable's transaction `tx`, fenced
+   * with fenceOwnerStops first): a disabled owner can no longer sign in, and
+   * the worker signs only a stop's closes for them, so a running copy left
+   * as it is would hold its positions with nobody managing them. Every one
+   * of the owner's running copies gets the same stop an owner asks for
+   * (close every position, then return the funds). `leftRunning`: copies
+   * that would keep running without a worked stop (its stop refused or
+   * blocked); the caller refuses the disable while there are any.
+   */
+  async stopOwner(tx: DbTransaction, userId: number, actor: AuditActor): Promise<SystemStopOutcome & { stopping: Array<{ accountId: string; stopId: string }>; leftRunning: Unhandled[] }> {
+    const targets = await this.targets({ userId }, tx);
+    const outcome = targets.copies.length ? await this.stopAll(targets.copies, 'owner_disabled', actor, 'disable', tx) : { stopped: [], refused: [] };
+    const refused = [...targets.unhandled, ...outcome.refused];
+    return { stopped: outcome.stopped, refused, stopping: targets.stopping, leftRunning: refused.filter(u => !NOTHING_RUNNING.has(u.code)) };
   }
 
   /** Copies whose agent expires within `marginMs` are stopped before it does

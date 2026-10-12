@@ -43,9 +43,15 @@ export class CopyLiveMandateRepository {
     if (!owner) throw new NotFoundException('Owner not found');
     return owner;
   }
-  async lock(tx: DbTransaction, userId: number, includeDisabled = false) {
+  /** The policy and platform fences a mandate writer takes first, before any
+   * copy user or row lock; a caller that takes those itself (an admin
+   * disabling the owner) takes these before them. */
+  async fence(tx: DbTransaction) {
     await tx.execute(sql`select pg_advisory_xact_lock_shared(7403, 0)`);
     await tx.execute(sql`select pg_advisory_xact_lock_shared(7405, 0)`);
+  }
+  async lock(tx: DbTransaction, userId: number, includeDisabled = false) {
+    await this.fence(tx);
     await lockCopyUser(tx, userId);
     await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for('update');
     return this.owner(userId, tx, includeDisabled);

@@ -10,9 +10,10 @@ import { SettingsService } from "../src/settings/settings.service.js";
 import { SettingsRepository } from "../src/settings/settings.repository.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { getTestDb, truncateAll, closeTestDb } from "./db-test-utils.js";
+import { copyStopsFor } from "./admin-test-utils.js";
 const db = getTestDb();
 const auth = { invalidateUser: vi.fn() } as unknown as AuthService;
-const service = new AdminUsersService(new AdminUsersRepository(db), new UnitOfWork(db), auth);
+const service = new AdminUsersService(new AdminUsersRepository(db), new UnitOfWork(db), auth, copyStopsFor(db));
 beforeEach(async () => { vi.clearAllMocks(); await truncateAll(db); });
 afterAll(closeTestDb);
 

@@ -19,6 +19,7 @@ const conflict = (code = 'live_stop_binding_changed'): never => { throw new Conf
 export class CopyLiveStopRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, private readonly mandates: CopyLiveMandateRepository) {}
   async lock(tx: DbTransaction, userId: number, system = false) { return this.mandates.lock(tx, userId, system); }
+  fence(tx: DbTransaction) { return this.mandates.fence(tx); }
   private async context(tx: DbTransaction, userId: number, mandateId: string, system = false) {
     const owner = await this.mandates.owner(userId, tx, system), mandate = await this.mandates.find(userId, mandateId, tx, true);
     const [binding] = await tx.select({ account: copyExecutionAccounts, strategy: copyStrategies, setup: copyAgentSetups })

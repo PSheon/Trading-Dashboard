@@ -1,6 +1,12 @@
 import { sql } from "drizzle-orm";
 import { users } from "@trading-dashboard/shared/database";
 
+import type { AppConfig } from "../src/config/app-config.js";
+import { CopyLiveMandateRepository } from "../src/copy/copy-live-mandate.repository.js";
+import { CopyLiveStopRepository } from "../src/copy/copy-live-stop.repository.js";
+import { CopyLiveSystemStops } from "../src/copy/copy-live-stop-system.js";
+import { UnitOfWork } from "../src/db/unit-of-work.js";
+import { testConfig } from "./config-test-utils.js";
 import type { TestDb } from "./db-test-utils.js";
 
 /** The tables the admin specs touch. `truncateAll` doesn't know the Stage 2
@@ -27,4 +33,10 @@ export async function insertUser(
     .values({ privyUserId: `did:privy:test-${seq}-${Math.random().toString(36).slice(2)}`, ...values })
     .returning();
   return row;
+}
+
+/** The real system-stop path AdminUsersService stops a disabled owner's
+ * actual copies with (testConfig: this deployment executes none). */
+export function copyStopsFor(db: TestDb, config: AppConfig = testConfig()): CopyLiveSystemStops {
+  return new CopyLiveSystemStops(db, new UnitOfWork(db), new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, config)), config);
 }

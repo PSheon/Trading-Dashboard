@@ -24,6 +24,7 @@ import { SettingsService } from '../src/settings/settings.service.js';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
 import { Dec } from '../src/common/decimal/dec.js';
 import { testConfig } from './config-test-utils.js';
+import { copyStopsFor } from './admin-test-utils.js';
 import { closeTestDb, getTestDb, insertUser, truncateAll, type TestDb } from './db-test-utils.js';
 
 let db: TestDb, pool: Pool, scopes: PostgresLiveRiskScope, uid: number, strategyId: number;
@@ -108,7 +109,7 @@ describe('actual writers serialize with the original live risk scope', () => {
   });
   it('blocks user disable before user/admin row locks', async () => {
     await insertUser(db, { role: 'admin' });
-    const service = new AdminUsersService(new AdminUsersRepository(db), new UnitOfWork(db), { invalidateUser: vi.fn() } as never);
+    const service = new AdminUsersService(new AdminUsersRepository(db), new UnitOfWork(db), { invalidateUser: vi.fn() } as never, copyStopsFor(db));
     await heldWriter(() => service.patch(uid, { disabled: true }, { kind: 'service', permissions: [] }), async () => { expect((await userRow()).disabledAt).toBeNull(); });
     expect((await userRow()).disabledAt).not.toBeNull();
   });

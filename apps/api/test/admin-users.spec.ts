@@ -9,7 +9,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminUsersService } from "../src/admin/admin-users.service.js";
 import type { AuthService } from "../src/common/auth/auth.service.js";
 import type { RequestUser } from "../src/common/auth/current-user.js";
-import { insertUser, truncateAdminTables } from "./admin-test-utils.js";
+import { copyStopsFor, insertUser, truncateAdminTables } from "./admin-test-utils.js";
 import { closeTestDb, getTestDb } from "./db-test-utils.js";
 
 const SERVICE: RequestUser = { kind: "service", permissions: [] };
@@ -32,7 +32,7 @@ async function httpError(promise: Promise<unknown>): Promise<HttpException> {
 describe("admin users — real Postgres", () => {
   const db = getTestDb();
   const invalidateUser = vi.fn();
-  const service = new AdminUsersService(new AdminUsersRepository(db), new UnitOfWork(db), { invalidateUser } as unknown as AuthService);
+  const service = new AdminUsersService(new AdminUsersRepository(db), new UnitOfWork(db), { invalidateUser } as unknown as AuthService, copyStopsFor(db));
 
   beforeEach(async () => {
     await truncateAdminTables(db);

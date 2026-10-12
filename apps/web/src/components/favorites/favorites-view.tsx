@@ -12,7 +12,8 @@ import { cn } from "cn";
 
 import { AlertBell, alertSummary } from "@/components/alerts/alert-bell";
 import { BoardCard, BoardCardSkeleton } from "@/components/discover/board-card";
-import { BoardSparkline, boardName, CopyScoreBar, signTone, TraderAvatar, VerifiedTick } from "@/components/discover/board-bits";
+import { TraderCell } from "@/components/discover/trader-cell";
+import { BoardSparkline, CopyScoreBar, signTone } from "@/components/discover/board-bits";
 import { ViewToggle } from "@/components/explore/boards-view";
 import { EmptyState, ErrorState, SkelBar, SkelCircle } from "@/components/page";
 import { CoinIcon } from "@/components/traders/coin-icon";
@@ -359,23 +360,6 @@ function SavedSkeleton({ view }: { view: "grid" | "list" }) {
   );
 }
 
-function TraderCell({ card, subtitle, size = 44 }: { card: TraderCard; subtitle?: React.ReactNode; size?: number }) {
-  return (
-    <div className="flex min-w-0 items-center gap-3">
-      <Link href={`/trader/${card.address}`} className="shrink-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={boardName(card)}>
-        <TraderAvatar trader={card} size={size} />
-      </Link>
-      <div className="min-w-0 flex-1">
-        <Link href={`/trader/${card.address}`} className="flex min-w-0 items-center gap-1 rounded outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
-          <span className="truncate text-sm font-semibold">{boardName(card)}</span>
-          {card.verified ? <VerifiedTick className="size-3.5" /> : null}
-        </Link>
-        {subtitle}
-      </div>
-    </div>
-  );
-}
-
 function RowActions({ address }: { address: string }) {
   const { t } = useI18n();
   const { toggle, pending } = useToggleFavorite();
@@ -436,7 +420,7 @@ function WatchlistTable({ items, groups, sort, onSort }: { items: TraderCard[]; 
         <TableBody>
           {items.map((c) => (
             <TableRow key={c.address}>
-              <TableCell className="py-2.5"><TraderCell card={c} subtitle={<GroupTags address={c.address} groups={groups} className="mt-1.5" />} /></TableCell>
+              <TableCell className="py-2.5"><TraderCell trader={c} subtitle={<GroupTags address={c.address} groups={groups} className="mt-1.5" />} /></TableCell>
               <TableCell><CopyScoreBar score={c.copyScore} layout="bar-first" barClassName="w-10" className="justify-end" /></TableCell>
               <TableCell className="text-right">{plain(boardUsd(c.accountValue))}</TableCell>
               <TableCell className={cn("text-right", signTone(c.pnl))}>{c.pnl === null ? "—" : format.usd(c.pnl, { compact: true, sign: true })}</TableCell>
@@ -463,7 +447,7 @@ function MobileRow({ card, groups }: { card: TraderCard; groups: FavoriteGroup[]
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
           <TraderCell
-            card={card}
+            trader={card}
             size={40}
             subtitle={
               <>
@@ -515,7 +499,7 @@ function AlertsTab({ favorites }: { favorites: Favorite[] | undefined }) {
   const row = (f: Favorite, withDelete: boolean) => (
     <li key={f.address} className="flex items-center gap-3 px-4 py-3">
       <div className="min-w-0 flex-1">
-        <TraderCell card={card(f)} size={40} subtitle={<p className="mt-1 text-xs text-muted-foreground">{alertSummary(f.alert, t, format)}</p>} />
+        <TraderCell trader={card(f)} size={40} subtitle={<p className="mt-1 text-xs text-muted-foreground">{alertSummary(f.alert, t, format)}</p>} />
       </div>
       <AlertBell address={f.address} variant="pill" />
       {withDelete ? (

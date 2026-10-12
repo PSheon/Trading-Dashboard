@@ -4,6 +4,7 @@ import { useEffect, useId, useMemo, useSyncExternalStore } from 'react';
 import type { CopyExecutionAccount } from '@trading-dashboard/shared/contracts';
 
 import { useCopyFollowerSnapshot } from '@/lib/copy-follower-snapshot';
+import { currentObservation } from '@/lib/copy-observation';
 import { useExecutionWallets } from '@/lib/copy-execution-wallets';
 import { onOtherNetwork, useLiveCopyPortfolio, type LiveCopyItem } from '@/lib/copy-live-portfolio';
 
@@ -66,7 +67,9 @@ export function CopyEquityProbes() {
 function Probe({ id, account }: { id: number; account: CopyExecutionAccount | null }) {
   const token = useId();
   const snapshot = useCopyFollowerSnapshot(account);
-  const equity = snapshot.data?.status === 'observed' ? Number(snapshot.data.metrics.perpEquity) : null;
+  // A stale observation is not a current balance: the total waits (—).
+  const observed = currentObservation(snapshot.data);
+  const equity = observed ? Number(observed.metrics.perpEquity) : null;
   useEffect(() => {
     report(token, id, equity);
     return () => { reports.delete(token); publish(); };

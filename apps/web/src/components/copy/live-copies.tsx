@@ -13,6 +13,7 @@ import type { MessageKey } from '@/i18n/messages';
 import { onOtherNetwork, useLiveCopyPortfolio, useLiveCopyPortfolioActions, type LiveCopyItem } from '@/lib/copy-live-portfolio';
 import { useExecutionWallets } from '@/lib/copy-execution-wallets';
 import { useCopyFollowerSnapshot } from '@/lib/copy-follower-snapshot';
+import { currentObservation } from '@/lib/copy-observation';
 import { useLiveCopyOverview } from '@/lib/copy-live';
 import { CopyIconButton } from '@/components/wallet/bits';
 import { CopyFollowerActivity } from '@/components/copy/copy-follower-activity';
@@ -160,13 +161,16 @@ function useNetDeposits(item: LiveCopyItem): { net: number | null; fundingFees: 
 }
 
 /** The account's figures: equity, PnL (equity less the net deposits, so a
- * withdrawal or return is never a loss) and ROI. */
+ * withdrawal or return is never a loss) and ROI. A stale observation (the
+ * api's last read of the account failed or aged out) is no current figure:
+ * 待確認 on the card, its time in the detail. */
 function useFigures(item: LiveCopyItem, account: CopyExecutionAccount | null) {
   const snapshot = useCopyFollowerSnapshot(account && item.stage !== 'setup' && item.stage !== 'stopped' ? account : null);
   const observed = snapshot.data?.status === 'observed' ? snapshot.data : null;
   const observedAt = observed?.asOf?.observedAt;
   const observedTime = observedAt !== undefined && Number.isFinite(observedAt) && observedAt >= 0 && observedAt <= 8.64e15 ? new Date(observedAt).toISOString() : null;
-  const equity = observed ? Number(observed.metrics.perpEquity) : null;
+  const current = currentObservation(snapshot.data);
+  const equity = current ? Number(current.metrics.perpEquity) : null;
   const { net, fundingFees } = useNetDeposits(item);
   // The funds ledger and account snapshot refresh independently. A transfer
   // in progress cannot back a gain or loss from their mismatched snapshots.
@@ -174,8 +178,8 @@ function useFigures(item: LiveCopyItem, account: CopyExecutionAccount | null) {
   const unknownReason: MessageKey = item.stage === 'stopping' ? 'liveCopyUi.unknownStopping' : item.stage === 'sweeping' ? 'liveCopyUi.unknownReturn'
     : item.stage === 'funding' || item.stage === 'awaiting_credit' ? 'liveCopyUi.unknownFunding'
     : item.pendingTransfer ? 'liveCopyUi.unknownTransfer' : item.stage === 'stopped' ? 'liveCopyUi.unknownStopped'
-    : !observed ? 'liveCopyUi.unknownObservation' : 'liveCopyUi.unknownHistory';
-  return { snapshot, observed, observedTime, equity, fundingFees, unknownReason, ...livePnl(equity, transferring ? null : net) };
+    : !observed ? 'liveCopyUi.unknownObservation' : !current ? 'liveCopyUi.unknownStale' : 'liveCopyUi.unknownHistory';
+  return { snapshot, observed, current, observedTime, equity, fundingFees, unknownReason, ...livePnl(equity, transferring ? null : net) };
 }
 
 /** A stopped strategy is not proof of return credit. Only the sweep's
@@ -297,7 +301,7 @@ const floorCents = (value: string) => { const [whole, fraction = ''] = value.spl
 
 function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; text: LiveCopiesText; account: CopyExecutionAccount | null; strategy: LiveCopyStrategy | null }) {
   const { format, t } = useI18n(), auth = useAuth();
-  const { snapshot, fundingFees, observedTime, pnl, unknownReason } = useFigures(item, account);
+  const { snapshot, current, fundingFees, observedTime, pnl, unknownReason } = useFigures(item, account);
   const actions = useLiveCopyPortfolioActions();
   const track = useActionToast(), pendingToast = usePendingToast(), toast = useToast();
   const [amount, setAmount] = useState('');
@@ -311,7 +315,8 @@ function LiveCopyRow({ item, text, account, strategy }: { item: LiveCopyItem; te
   const texts = useCopyTexts();
   const copyError = (err: unknown) => copyErrorText(texts, err);
   const running = item.stage === 'active' || item.stage === 'paused' || item.stage === 'starting';
-  const withdrawable = observed ? observed.metrics.withdrawable : null;
+  // Max and 全部 offer only a current balance, never a stale one.
+  const withdrawable = current ? current.metrics.withdrawable : null;
   const maxAmount = withdrawable !== null && Number(withdrawable) > 0 ? floorCents(withdrawable) : null;
   const validAmount = AMOUNT.test(amount) && Number(amount) > 0 && (maxAmount === null || Number(amount) <= Number(withdrawable));
   // A refusal code is never shown as is: its own words, else a plain line.

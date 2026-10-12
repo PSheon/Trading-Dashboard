@@ -23,7 +23,9 @@ vi.mock("../src/lib/copy-live-portfolio", async (original) => ({
   useLiveCopyPortfolio: () => ({ data: { network: "mainnet", automaticExecution: true, items: state.empty ? [] : items }, enabled: true }),
 }));
 vi.mock("../src/lib/copy-execution-wallets", () => ({ useExecutionWallets: () => ({ data: { accounts: items.map((i) => ({ id: i.accountId, network: i.network })) } }) }));
-vi.mock("../src/lib/copy-follower-snapshot", () => ({ useCopyFollowerSnapshot: (a: { id: string } | null) => ({ data: a ? equity[a.id] === null ? { status: "unavailable" } : { status: "observed", metrics: { perpEquity: equity[a.id] } } : undefined }) }));
+const stale = new Set<string>();
+vi.mock("../src/lib/copy-follower-snapshot", () => ({
+  useCopyFollowerSnapshot: (a: { id: string } | null) => ({ data: a ? equity[a.id] === null ? { status: "unavailable" } : { status: "observed", freshness: stale.has(a.id) ? "stale" : "fresh", metrics: { perpEquity: equity[a.id] } } : undefined }) }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 it("counts this network's running copies only, the same total wherever it is read, and drops a copy when its probes leave", async () => {
@@ -42,6 +44,19 @@ it("counts this network's running copies only, the same total wherever it is rea
   expect(el.querySelector('[data-testid="pill"]')!.textContent).toBe("0");
   state.empty = false;
   await act(async () => root.unmount());
+});
+
+it("never counts a stale observation as current money in the total", async () => {
+  const el = document.createElement("div"); document.body.append(el); const root = createRoot(el);
+  function Pill() { const total = useCopiesEquity(); return <span>{total === null ? "pending" : total}</span>; }
+  try {
+    stale.add("a1");
+    await act(async () => root.render(<><CopyEquityProbes /><Pill /></>));
+    expect(el.textContent).toBe("pending");
+    stale.clear();
+    await act(async () => root.render(<><CopyEquityProbes /><Pill /></>));
+    expect(el.textContent).toBe("50");
+  } finally { stale.clear(); await act(async () => root.unmount()); el.remove(); }
 });
 
 it("keeps an unobserved copy unknown while distinguishing a genuinely observed zero balance", async () => {

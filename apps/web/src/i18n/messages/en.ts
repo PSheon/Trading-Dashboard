@@ -56,6 +56,7 @@ export const en: Messages = {
     unknownTransfer: "Transfer status unconfirmed; PnL unknown",
     unknownObservation: "Account observation unconfirmed; PnL unknown",
     unknownHistory: "Funds history not fully reconciled; PnL unknown",
+    unknownStale: "Account observation is out of date; PnL unconfirmed",
     unknownStopped: "Stopped; final PnL is unconfirmed here",
     unconfirmed: "Unconfirmed",
     riskAttention: "Latest refusal record",

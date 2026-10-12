@@ -144,6 +144,24 @@ it('explains the real-copy minimum-order reduction exception in the actual detai
   await render(); await openCard();
   expect(document.querySelector('[data-testid="live-copy-sheet"]')!.textContent).toContain('減倉金額低於最小下單金額時，可能放大減倉或改為全平倉');
 });
+it('a stale observation is 待確認 on the card, its time in the detail, and offers no stale amount', async () => {
+  state.snapshot = { ...observed, freshness: 'stale' };
+  state.flows = [{ id: 'funding:1', kind: 'copy_funding', mode: 'testnet', amount: 50, strategyId: liveAccount.strategyId, status: 'credited', counterparty: liveAccount.address, fee: null, time: '2026-10-08T00:00:00Z' }];
+  await render();
+  expect(card().querySelector('[data-testid="live-copy-unconfirmed"]')!.textContent).toBe('待確認');
+  expect(card().textContent).not.toContain('-$1.00');
+  await openCard();
+  expect(sheet().querySelector('[data-testid="live-copy-unknown-reason"]')!.textContent).toContain('帳戶觀察已過時，損益待確認');
+  expect(sheet().querySelector('time[datetime="2026-10-08T01:00:00.000Z"]')).not.toBeNull();
+  // 全部 never fills in the stale withdrawable.
+  expect(sheet().textContent).not.toContain('最多可提款');
+  expect([...sheet().querySelectorAll('button')].some(button => button.textContent === '全部')).toBe(false);
+  state.snapshot = { ...observed, freshness: 'fresh' };
+  await render();
+  expect(card().textContent).toContain('-$1.00');
+  expect(sheet().textContent).toContain('最多可提款');
+  expect(document.querySelector('[data-testid="live-copy-unknown-reason"]')).toBeNull();
+});
 it('separates a proven funding fee without subtracting it from PnL again', async () => {
   state.snapshot = { status: 'observed', metrics: { perpEquity: '49', withdrawable: '49' }, positions: [] };
   state.flows = [{ id: 'funding:1', kind: 'copy_funding', mode: 'testnet', amount: 50, strategyId: liveAccount.strategyId, status: 'credited', counterparty: liveAccount.address, fee: 1, time: '2026-10-08T00:00:00Z' }];

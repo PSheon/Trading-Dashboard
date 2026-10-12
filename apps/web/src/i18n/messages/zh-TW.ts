@@ -59,6 +59,7 @@ export const zhTW = {
     unknownTransfer: "資金移轉狀態待確認，損益未知",
     unknownObservation: "帳戶觀察尚未確認，損益未知",
     unknownHistory: "資金紀錄尚未完整核對，損益未知",
+    unknownStale: "帳戶觀察已過時，損益待確認",
     unknownStopped: "已停止，此處未確認最終損益",
     unconfirmed: "待確認",
     riskAttention: "最近未執行紀錄",

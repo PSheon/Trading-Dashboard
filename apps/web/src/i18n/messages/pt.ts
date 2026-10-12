@@ -2,7 +2,7 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const pt: Messages = {
-  liveCopyUi: { ...en.liveCopyUi, fixedTradeAlreadyClaimed: "Esta operação original do trader já tem uma solicitação de cópia. Esta solicitação não a duplicará; o resultado da execução é confirmado pelos registros reais." },
+  liveCopyUi: { ...en.liveCopyUi, unknownStale: "A observação da conta está desatualizada; PnL não confirmado", fixedTradeAlreadyClaimed: "Esta operação original do trader já tem uma solicitação de cópia. Esta solicitação não a duplicará; o resultado da execução é confirmado pelos registros reais." },
   referral: {
     policyInactive: "A política de recompensas está inativa. Os termos exibidos não concedem elegibilidade atual.",
     invalidCode: "Código de convite indisponível",

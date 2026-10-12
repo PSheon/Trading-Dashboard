@@ -91,7 +91,7 @@ export class PostgresLiveRiskSource {
       requireProof(local.baseline,'live_risk_baseline_unproven');
       const generation=await loadLiveGenerationManifest(session,db,local.preparation,{currentExecutionKey:binding.key,now:observedAt});
       const members=await loadMergedMembers(local.provenance.sizingBasis,local.fill.id,async ids=>{const rows=await db.select().from(copyLiveSourceFills).where(inArray(copyLiveSourceFills.id,ids));await session.scope.assertHeld();return rows;});
-      const settlementProofs=await loadLiveSettlementProofs(local.provenance.sizingBasis,db,async work=>{const rows=await work;await session.scope.assertHeld();return rows;});
+      const settlementProofs=await loadLiveSettlementProofs(local.provenance.sizingBasis,db,async work=>{const rows=await work;await session.scope.assertHeld();return rows;},generation);
       return {...local,generation,...(members?{members}:{}),...(settlementProofs?{settlementProofs}:{})};});
   }
   private validateSizing(local:CollectedAuthority) {

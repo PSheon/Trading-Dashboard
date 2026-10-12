@@ -1,11 +1,12 @@
-import { expect, it } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { assessLiveReservationSettlement, type LiveReservationSettlementInput } from '../src/copy/live/live-reservation-settlement.js';
 import { digestLiveEvidence, parseLiveOrderEvidence, parseLiveIocAcknowledgement } from '../src/copy/live/live-order-evidence.js';
 import { parseFollowerFill, followerReceiptDigestV1 } from '../src/copy/live/actual-fill-accounting.js';
 import { planLiveReservation } from '../src/copy/live/live-risk-reservation.js';
 import { intentFingerprint } from '../src/copy/live/live-order.js';
 import { fixture, now as base } from './copy-live-risk-test-utils.js';
-import { captureLiveSettlementProof, decodeLiveSettlementProof } from '../src/copy/live/live-settlement-proof.js';
+import { captureLiveSettlementProof, clearLiveSettlementProofCache, decodeLiveSettlementProof, liveSettlementProofCacheStats,
+  LIVE_SETTLEMENT_PROOF_CACHE_BYTES, LIVE_SETTLEMENT_PROOF_CACHE_ENTRIES } from '../src/copy/live/live-settlement-proof.js';
 type Mutable<T> = T extends object ? { -readonly [K in keyof T]: Mutable<T[K]> } : T;
 function input(status = 'filled', size = '1'): Mutable<LiveReservationSettlementInput> {
   const f = fixture(), record = { key: f.reservations.own.key, fingerprint: f.reservations.own.fingerprint, nonce: base,
@@ -104,3 +105,71 @@ it('retains a realistic full268-venue original account observation through JSONB
   const persisted:any=JSON.parse(JSON.stringify(result.proof));persisted.input.accountSource={snapshot:persisted.input.accountSource.snapshot,...persisted.input.accountSource};
   expect(decodeLiveSettlementProof(persisted,result.digest).input.accountSource.snapshot.dexes).toHaveLength(268);
 });
+
+beforeEach(()=>clearLiveSettlementProofCache());
+afterEach(()=>{vi.restoreAllMocks();clearLiveSettlementProofCache();});
+function persistedProof(original=input()){
+  const decision=assessLiveReservationSettlement(original);if(decision.kind!=='release')throw Error();
+  const result=captureLiveSettlementProof(original,decision.certificate);
+  return {digest:result.digest,saved:JSON.parse(JSON.stringify(result.proof))};
+}
+it('a verified proof is assessed once, reused at any later time, and content changed under its cached digest is still refused',()=>{
+  const {digest,saved}=persistedProof();clearLiveSettlementProofCache();
+  const first=decodeLiveSettlementProof(saved,digest);
+  expect(liveSettlementProofCacheStats()).toMatchObject({entries:1,hits:0,assessments:1});
+  // Decoding reads no clock: the same proof a day later, with the clock unreadable, is the same verified proof.
+  vi.spyOn(Date,'now').mockImplementation(()=>{throw Error('clock read');});
+  expect(decodeLiveSettlementProof(JSON.parse(JSON.stringify(saved)),digest)).toBe(first);
+  expect(liveSettlementProofCacheStats()).toMatchObject({entries:1,hits:1,assessments:1});
+  // Changed content, claiming the cached digest (or rehashed under its own): refused.
+  for(const change of [(p:any)=>{p.input.accountSource.snapshot.dexes[0].equity='999';},(p:any)=>{p.certificate.filledSize='0.5';},(p:any)=>{p.input.now++;},
+    (p:any)=>{p.extra=true;},(p:any)=>{p.input.evidence.raw.extra=NaN;},(p:any)=>{p.input.receipts.rows[0].ledger[0].amount='-0.1';}]){
+    const tampered=structuredClone(saved);change(tampered);
+    expect(()=>decodeLiveSettlementProof(tampered,digest)).toThrow('live_settlement_proof_invalid');
+    if(Number.isFinite(tampered.input.evidence.raw.extra??0))expect(()=>decodeLiveSettlementProof(tampered,digestLiveEvidence(tampered))).toThrow('live_settlement_proof_invalid');
+  }
+  // A getter that would answer differently on a second read is not plain JSON.
+  const accessor=structuredClone(saved);Object.defineProperty(accessor.input,'now',{get:()=>saved.input.now,enumerable:true});
+  expect(()=>decodeLiveSettlementProof(accessor,digest)).toThrow('live_settlement_proof_invalid');
+  // Only the rehashed changes were assessed (and refused); nothing changed was cached.
+  expect(liveSettlementProofCacheStats()).toMatchObject({entries:1,hits:1,assessments:5});
+  expect(decodeLiveSettlementProof(saved,digest)).toBe(first);
+});
+function variant(extra:number){
+  const original=input(),row=original.receipts.rows[0]!;row.record.raw.extra=extra;row.digest=followerReceiptDigestV1(row.record.raw);return original;
+}
+it('a failed proof is never cached, and a negative zero (which the digest reads as 0) is verified in full',()=>{
+  const {digest,saved}=persistedProof(variant(0));clearLiveSettlementProofCache();
+  const wrong=structuredClone(saved);wrong.certificate.filledSize='0.5';const wrongDigest=digestLiveEvidence(wrong);
+  for(let i=0;i<2;i++)expect(()=>decodeLiveSettlementProof(wrong,wrongDigest)).toThrow('live_settlement_proof_invalid');
+  expect(liveSettlementProofCacheStats()).toMatchObject({entries:0,hits:0,assessments:2});
+  const verified=decodeLiveSettlementProof(saved,digest);
+  const negative=structuredClone(saved);negative.input.receipts.rows[0].record.raw.extra=-0;
+  expect(digestLiveEvidence(negative)).toBe(digest);
+  expect(decodeLiveSettlementProof(negative,digest)).not.toBe(verified);
+  expect(liveSettlementProofCacheStats()).toMatchObject({entries:1,hits:0,assessments:4});
+});
+it('the cache is bounded by entries and by bytes, least recently used first out',()=>{
+  // Distinct valid proofs: the same order with a different unknown provider field.
+  const proofs=Array.from({length:LIVE_SETTLEMENT_PROOF_CACHE_ENTRIES+8},(_,i)=>persistedProof(variant(i)));
+  clearLiveSettlementProofCache();
+  for(const {saved,digest} of proofs)decodeLiveSettlementProof(saved,digest);
+  expect(liveSettlementProofCacheStats()).toMatchObject({entries:LIVE_SETTLEMENT_PROOF_CACHE_ENTRIES,assessments:proofs.length});
+  decodeLiveSettlementProof(proofs[0]!.saved,proofs[0]!.digest);
+  expect(liveSettlementProofCacheStats()).toMatchObject({hits:0,assessments:proofs.length+1});
+  decodeLiveSettlementProof(proofs.at(-1)!.saved,proofs.at(-1)!.digest);
+  expect(liveSettlementProofCacheStats().hits).toBe(1);
+  // Large proofs (a 268-venue account snapshot each) are bounded by bytes first.
+  clearLiveSettlementProofCache();
+  let decoded=0,count=0;
+  while(decoded<=LIVE_SETTLEMENT_PROOF_CACHE_BYTES*1.1){
+    const original=variant(count++),s=original.accountSource.snapshot;
+    for(let i=1;i<=267;i++){const dex=`venue${i}`;s.dexes.push({...s.dexes[0]!,dex,perpDexIndex:i,supported:false,equity:'0',rawUsd:'0',marginUsed:'0',withdrawable:'0',exposureUsd:'0',crossEquity:'0',crossMarginUsed:'0',crossExposureUsd:'0',crossMaintenanceMarginUsed:'0'});
+      s.coverage.listedDexes.push(dex);s.coverage.observedOrderDexes.push(dex);}
+    const {saved,digest}=persistedProof(original);decoded+=Buffer.byteLength(JSON.stringify(saved));
+    decodeLiveSettlementProof(saved,digest);
+  }
+  const stats=liveSettlementProofCacheStats();
+  expect(stats.bytes).toBeLessThanOrEqual(LIVE_SETTLEMENT_PROOF_CACHE_BYTES);expect(stats.bytes).toBeGreaterThan(LIVE_SETTLEMENT_PROOF_CACHE_BYTES*0.9);
+  expect(count).toBeLessThan(LIVE_SETTLEMENT_PROOF_CACHE_ENTRIES);expect(stats.entries).toBeLessThan(count);
+},120_000);

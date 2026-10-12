@@ -45,6 +45,7 @@ import { closeTestDb, getTestDb, type TestDb } from './db-test-utils.js';
 import { resetLiveReadCaches } from '../src/copy/live/live-read-cache.js';
 import { liveSourceDigest } from '../src/copy/live/copy-live-source-evidence.js';
 import { Dec } from '../src/common/decimal/dec.js';
+import { liveSettlementProofCacheStats } from '../src/copy/live/live-settlement-proof.js';
 
 // Only native network endpoints are doubles (Privy, Hyperliquid REST/WS).
 // The engine, runtime, risk, journal, reservation, receipt ledger and
@@ -430,17 +431,18 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     const [mandate] = await db.select().from(schema.copyLiveMandates), intent = liveCopyMandateIntentSchema.parse({ ...mandate!.intent, expiresAt: until.getTime() });
     await db.update(schema.copyLiveMandates).set({ intent, intentDigest: mandateDigest(intent), expiresAt: until });
     let e = engine(); await e.tick();
-    const sizes: number[] = [], prepared: number[] = [];
+    const sizes: number[] = [], prepared: number[] = [], assessed: number[] = [];
     for (let i = 0; i < 30; i++) {
       budget.onModuleDestroy(); budget = new RequestBudgeterService(config);
       e = engine('100', new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(pool, { schema }))), { egressKey: `e2e-many-${i}`, ownerId: `e2e-many-${i}` }, raw), false, false, `e2e-many-settle-${i}`);
       if (i % 2 === 0) await leaderOpens(2000 + i); else await leaderOpens(2000 + i, 'BTC', 'A', '1', '1', 'Close Long');
-      const started = Date.now(); await e.tick(); prepared.push(Date.now() - started);
+      const assessments = liveSettlementProofCacheStats().assessments, started = Date.now(); await e.tick(); prepared.push(Date.now() - started);
       let rows = await db.select().from(schema.copyLiveDispatches).orderBy(schema.copyLiveDispatches.leaderTime);
       for (let pass = 0; pass < 5 && rows.some(r => r.state !== 'settled'); pass++) {
         await new Promise(resolve => setTimeout(resolve, 5)); await e.tick();
         rows = await db.select().from(schema.copyLiveDispatches).orderBy(schema.copyLiveDispatches.leaderTime);
       }
+      assessed.push(liveSettlementProofCacheStats().assessments - assessments);
       expect(rows.map(r => [r.leg, r.state, r.reason])).toEqual(Array.from({ length: i + 1 }, (_, n) => [n % 2 ? 'close' : 'open', 'settled', null]));
       const [latest] = await db.select().from(schema.copyLiveIntentProvenance).orderBy(desc(schema.copyLiveIntentProvenance.admittedAt)).limit(1);
       sizes.push(Buffer.byteLength(JSON.stringify(latest!.sizingBasis)));
@@ -456,6 +458,11 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     // Each later order adds only its compact journal entry and receipts, not a snapshot.
     expect((sizes[29]! - sizes[1]!) / 28).toBeLessThan(20_000);
     expect(Math.max(...prepared.slice(-5))).toBeLessThan(10_000);
+    // Growth guard: an order assesses only its own settlement proof in full
+    // (captured at settlement, verified on its first use), flat from order 5
+    // to order 30. Every projection used to re-assess every earlier proof
+    // (~14 projections an order) until orders outlived the 5 s evidence window.
+    expect(Math.max(...assessed.slice(5))).toBeLessThanOrEqual(Math.min(2, assessed[5]!));
     shared.dexes = 0; resetLiveReadCaches();
   });
   it('waits six seconds for close evidence quota before observing and still sends only the fresh reduce-only position', async () => {

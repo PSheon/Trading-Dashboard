@@ -88,6 +88,9 @@ let raw: ReturnType<typeof vi.fn<typeof fetch>>, exchangeBodies: unknown[];
 let placedOrders: { oid: number; cloid: string; p: string; s: string; f: string; side: string; r: boolean; at: number; coin: string }[] = [];
 // The actual clock throughout: the shared egress quota checks deadlines against it.
 const clock = () => Date.now();
+/** O10b: the single-position closer ends a flat close without resetting the
+ * coin's carry (as one before 2c-B, or any close that left it flat unreset). */
+let missedFlatReset = false;
 
 beforeAll(() => { db = getTestDb(); pool = new Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 2 }); });
 afterEach(() => { budget.onModuleDestroy(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
@@ -102,7 +105,7 @@ beforeEach(async () => {
   const original = budget.acquire.bind(budget); weights = [];
   vi.spyOn(budget, 'acquire').mockImplementation((weight, ...rest) => { weights.push(weight); return original(weight, ...rest); });
   // The actual clock, so every bound identity and consent is current.
-  shared.clock = Date.now(); shared.position = '0'; shared.eth = '0'; shared.withdrawable = '80'; shared.privyDown = 0; shared.dexes = 0; shared.fillCap = ''; logs = []; exchangeBodies = []; placedOrders = [];
+  shared.clock = Date.now(); shared.position = '0'; shared.eth = '0'; shared.withdrawable = '80'; shared.privyDown = 0; shared.dexes = 0; shared.fillCap = ''; logs = []; exchangeBodies = []; placedOrders = []; missedFlatReset = false;
   const t = shared.clock, delta = t - now, date = (value: number) => new Date(value + delta);
   const [version] = await db.select().from(schema.copyStrategyVersions);
   const settings = { ...version!.settings, perTradeUsd: 20 };
@@ -174,7 +177,7 @@ function engine(midPrice = '100', egress = global, withStopper = false, apiTermi
   const stopOnly = new CopyLiveStopper({ repository: stops, canceller: null, swept: async () => false, closer, log: message => logs.push(message) }, clock);
   const manual = new CopyLiveManualCloser(stops, closer, new CopyFollowerReconciler(new CopyFollowerScanRepository(db, testConfig()), new CopyFollowerLedger(db, new UnitOfWork(db)),
     new HyperliquidFollowerReceiptReader('testnet', weight => budget.acquire(weight, 'live', undefined, { signal: AbortSignal.timeout(5000) }), egress.fetchInfo, clock)),
-    new CopyLiveFlatCarry('testnet', pool, clock), message => logs.push(message));
+    missedFlatReset ? { owed: async () => [], reset: async () => true } : new CopyLiveFlatCarry('testnet', pool, clock), message => logs.push(message));
   const stopper = withStopper ? { tick: async () => { await stopOnly.tick(); await manual.tick(); } } : undefined;
   return new CopyLiveEngine({ stopper, apiTerminalSettlement,
     network: 'testnet', repository: new CopyLiveWorkerRepository(db, new UnitOfWork(db), testConfig()), sources: new CopyLiveSourceRepository(db), uow: new UnitOfWork(db),
@@ -575,6 +578,107 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     await new Promise(resolve => setTimeout(resolve, 5)); await pass('e2e-2c-partial-settle', false);
     expect((await db.select().from(schema.copyLiveDispatches)).find(r => r.sourceFillId.endsWith(':1004'))).toMatchObject({ state: 'settled' });
     expect(await carry()).toMatchObject({ carry: '0.004' });
+  });
+  // O10b: the open's preparation itself resets the carry of a coin the
+  // generation proves flat, whichever close emptied it without resetting it.
+  describe('a re-open of a coin left flat with its carry still owed (O10b)', () => {
+    const fresh = (name: string) => new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(pool, { schema }))), { egressKey: name, ownerId: name }, raw);
+    const pass = async (name: string, stopper = true) => { budget.onModuleDestroy(); budget = new RequestBudgeterService(config); await engine('100', fresh(name), stopper).tick(); };
+    const carry = async () => (await db.select().from(schema.copyLiveReductionCarry).where(eq(schema.copyLiveReductionCarry.coin, 'BTC')))[0]!;
+    const dispatch = async (tid: number) => (await db.select().from(schema.copyLiveDispatches)).find(r => r.sourceFillId.endsWith(`:${tid}`));
+    /** Mirrors the open, a close filled 0.1 of 0.19, then the flat close of the
+     * 0.09 left ends done without resetting the carry it owed. */
+    async function flatOwing(name: string) {
+      const e = engine(); await e.tick(); await leaderOpens(1001); await e.tick(); await new Promise(resolve => setTimeout(resolve, 5)); await e.tick();
+      shared.fillCap = '0.1';
+      await leaderTrades(1002, 'Close Long', '1', '1'); await pass(`${name}-close`, false);
+      await new Promise(resolve => setTimeout(resolve, 5)); await pass(`${name}-settle`, false);
+      expect(await carry()).toMatchObject({ carry: '0.09' });
+      missedFlatReset = true;
+      for (let i = 0; i < 4 && (await db.select().from(schema.copyLiveManualCloses))[0]?.state !== 'done'; i++) await pass(`${name}-flat-${i}`);
+      expect((await db.select().from(schema.copyLiveManualCloses))[0]).toMatchObject({ state: 'done' });
+      expect(shared.position).toBe('0');
+      const owed = await carry();
+      expect(owed).toMatchObject({ carry: '0.09' });
+      return owed;
+    }
+    /** The re-open (N = 0.19) settled, then 60 % closed: f·N = 0.114 → 0.11. */
+    async function partialCloseSizesFromN(name: string) {
+      await new Promise(resolve => setTimeout(resolve, 5)); await pass(`${name}-reopen-settle`, false);
+      expect(shared.position).toBe('0.19');
+      await leaderTrades(1004, 'Close Long', '0.6', '1'); await pass(`${name}-partial`, false);
+      expect(logs.filter(l => l.includes('failed'))).toEqual([]);
+      expect(exchangeBodies.at(-1)).toMatchObject({ action: { orders: [{ b: false, s: '0.11', r: true }] } });
+      expect(shared.position).toBe('0.08');
+      await new Promise(resolve => setTimeout(resolve, 5)); await pass(`${name}-partial-settle`, false);
+      expect(await dispatch(1004)).toMatchObject({ state: 'settled' });
+      expect(await carry()).toMatchObject({ carry: '0.004' });
+    }
+
+    it('the open resets it (revision + 1, never an earlier time) and the partial close sends f·N, not carry + f·(N − carry)', async () => {
+      const owed = await flatOwing('o10b');
+      await leaderTrades(1003, 'Open Long', '1', '0'); await pass('o10b-reopen', false);
+      const reset = await carry();
+      expect(reset).toMatchObject({ carry: '0', revision: owed.revision + 1 });
+      expect(reset.updatedAt.getTime()).toBeGreaterThanOrEqual(owed.updatedAt.getTime());
+      // The open's sizing basis names the reset carry, as its settlement requires.
+      const [latest] = await db.select().from(schema.copyLiveIntentProvenance).orderBy(desc(schema.copyLiveIntentProvenance.admittedAt)).limit(1);
+      expect((latest!.sizingBasis as { basis: { carry: unknown } }).basis.carry).toEqual({ amount: '0', revision: owed.revision + 1 });
+      await partialCloseSizesFromN('o10b');
+    });
+
+    // A leg of the coin this generation's manifest does not show (journaled on
+    // another address): the SQL conditions of the reset are a check of their own.
+    const other = `0x${'66'.repeat(20)}`, otherStream = `mainnet:0x${'77'.repeat(20)}`;
+    async function otherLeg(state: string) {
+      await db.insert(schema.copyLiveSourceStreams).values({ id: otherStream, network: 'mainnet', leaderAddress: `0x${'77'.repeat(20)}` });
+      await db.insert(schema.copyLiveSourceFills).values({ id: `${otherStream}:900`, streamId: otherStream, network: 'mainnet', leaderAddress: `0x${'77'.repeat(20)}`, tid: '900',
+        providerTime: new Date(Date.now() - 3000), receivedAt: new Date(Date.now() - 3000), coin: 'BTC', oid: '1900', tradeKey: 'oid:1900', px: '100', sz: '1', side: 'A', startPosition: '1',
+        normalized: {}, raw: {}, sourceDigest: 'a'.repeat(64) });
+      await db.insert(schema.copyLiveExecutions).values({ key: 'other-leg', network: 'testnet', accountAddress: other, signerAddress: `0x${'33'.repeat(20)}`, cloid: `0x${'9'.repeat(32)}`,
+        nonce: Date.now(), userId: 1, strategyId: 9, state, updatedAt: new Date(Date.now() - 2000), record: { key: 'other-leg', state } });
+      await db.insert(schema.copyLiveSignalLegs).values({ id: 'other-leg', mandateId: 'mandate', sourceFillId: `${otherStream}:900`, leg: 'close', tradeKey: 'oid:1900', sign: 1, size: '1',
+        fraction: '0.5', executionKey: 'other-leg', state: 'prepared', createdAt: new Date(Date.now() - 2000), updatedAt: new Date(Date.now() - 2000) });
+      await db.insert(schema.copyLiveIntentProvenance).values({ key: 'other-leg', legId: 'other-leg', mandateId: 'mandate', mandateRevision: 1, sourceDigest: 'a'.repeat(64),
+        settingsDigest: 'b'.repeat(64), fingerprint: 'c'.repeat(64), plannerVersion: 1, intent: {}, sizingBasis: {}, admittedAt: new Date(Date.now() - 2000) });
+    }
+    async function otherReservation(state: 'held' | 'unknown') {
+      await otherLeg('filled');
+      await db.insert(schema.copyStrategies).values({ id: 10, userId: 1, mode: 'testnet', leaderAddress: `0x${'77'.repeat(20)}`, allocated: '0', cash: '0', status: 'active', activatedAt: new Date() });
+      await db.insert(schema.copyExecutionAccounts).values({ id: 'other-account', userId: 1, strategyId: 10, network: 'testnet', state: 'ready', address: other, privyUserId: 'did:privy:risk-source',
+        externalId: 'other-master', privyWalletId: 'other-master', ownerQuorumId: 'owner' });
+      await db.insert(schema.copyLiveRiskReservations).values({ key: 'other-leg', accountId: 'other-account', userId: 1, strategyId: 10, network: 'testnet', accountAddress: other,
+        cloid: `0x${'9'.repeat(32)}`, fingerprint: 'c'.repeat(64), walletId: 'agent', authorizationId: 'grant', strategyVersion: 2, policyVersion: 1, authorizationVersion: 4,
+        coin: 'BTC', dex: '', asset: 0, notionalUsd: '10', marginUsd: '1', feeBufferUsd: '0.01', payload: { intent: {}, action: {} }, sourceDigest: 'a'.repeat(64), state,
+        ...(state === 'unknown' ? { attemptedAt: new Date(Date.now() - 1900) } : {}), expiresAt: new Date(Date.now() + 60000), createdAt: new Date(Date.now() - 2000), updatedAt: new Date(Date.now() - 2000) });
+    }
+    it.each([
+      ['a journal of it prepared', () => otherLeg('prepared')],
+      ['a journal of it submitting', () => otherLeg('submitting')],
+      ['a journal of it unknown', () => otherLeg('unknown')],
+      ['a journal of it resting', () => otherLeg('resting')],
+      ['a reservation of it held', () => otherReservation('held')],
+      ['a reservation of it unknown', () => otherReservation('unknown')],
+    ] as const)('while another leg of the coin is in flight (%s) nothing is reset or sent; once it ended the open resets and goes', async (_case, inFlight) => {
+      const owed = await flatOwing('o10b-busy');
+      await inFlight();
+      const sent = exchangeBodies.length, journals = async () => (await db.select().from(schema.copyLiveExecutions).where(eq(schema.copyLiveExecutions.accountAddress, seed.f.identity.accountAddress))).length;
+      const journaled = await journals();
+      await leaderTrades(1003, 'Open Long', '1', '0'); await pass('o10b-busy-reopen', false);
+      expect(exchangeBodies).toHaveLength(sent);
+      expect(await carry()).toEqual(owed);
+      expect(await dispatch(1003)).toMatchObject({ leg: 'open', state: 'pending', reason: 'live_preparation_generation_changed' });
+      expect(await journals()).toBe(journaled);
+      logs = [];
+      // The other leg ended (its order settled).
+      await db.update(schema.copyLiveExecutions).set({ state: 'cancelled' }).where(eq(schema.copyLiveExecutions.key, 'other-leg'));
+      await db.update(schema.copyLiveRiskReservations).set({ state: 'released', releaseReason: 'verified_settlement', releaseEvidenceDigest: 'd'.repeat(64), attemptedAt: new Date(Date.now() - 1900) })
+        .where(eq(schema.copyLiveRiskReservations.key, 'other-leg'));
+      await pass('o10b-busy-reopen-again', false);
+      expect(exchangeBodies).toHaveLength(sent + 1);
+      expect(await carry()).toMatchObject({ carry: '0', revision: owed.revision + 1 });
+      await partialCloseSizesFromN('o10b-busy');
+    });
   });
   // Safety exits: a pause, reduce-only or copy trading switched off means no
   // new risk. The leader's add is refused, never sent (nor caught up after a

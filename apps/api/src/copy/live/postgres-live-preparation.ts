@@ -210,13 +210,31 @@ export class PostgresLivePreparation {
       // SOL, live_generation_unproven). The row is stored with the same time.
       carry = { mandateId: binding.mandateId, coin: source.fill.coin, carry: '0', revision: 1, updatedAt: new Date(currentManifest.checkedAt).toISOString() };
     }
-    const withCarry: LiveGenerationManifestV1 = { ...currentManifest, carry: seedCarry ? [...currentManifest.carry, carry] : currentManifest.carry };
+    const seeded: LiveGenerationManifestV1 = { ...currentManifest, carry: seedCarry ? [...currentManifest.carry, carry] : currentManifest.carry };
     const projection = projectLiveGenerationPositions({ identity: { mandateId: binding.mandateId, mandateRevision: local.mandate.revision, accountId: local.account.id, userId: local.account.userId,
       strategyId: local.strategy.id, network, accountAddress: local.account.address!, authorizationId: local.grant.id, settingsDigest: local.consent.settingsDigest,
-      leaderAddress: local.consent.leaderAddress, direction: local.settings.direction }, manifest: withCarry, snapshot: follower, currentExecutionKey: key, now: planningAt });
+      leaderAddress: local.consent.leaderAddress, direction: local.settings.direction }, manifest: seeded, snapshot: follower, currentExecutionKey: key, now: planningAt });
+    const positionSize = projection.positions[source.fill.coin] ?? '0';
+    // O10b: an open of a coin the generation proves flat while its carry still
+    // owes something (a close emptied it without resetting it: reconcile,
+    // owner, or one cancelled before its reset) is sized from carry 0. The
+    // reset is the carry change the closer's would be (revision + 1, an
+    // updatedAt never earlier: the manifest's own check time, at or after the
+    // row's, which the projection proved) and is written in the journal
+    // transaction below, only while nothing else relies on the old carry.
+    // The projection already refuses any other journal of the generation
+    // still in flight; a close plans nothing on a flat follower, so only an
+    // open resets.
+    const owedCarry = binding.leg === 'open' && Dec.from(positionSize).isZero && Dec.from(carry.carry).isPositive ? carry : null;
+    if (owedCarry) {
+      const at = Math.max(Date.parse(owedCarry.updatedAt), currentManifest.checkedAt);
+      riskSourceRequire(Number.isSafeInteger(owedCarry.revision + 1) && at <= currentManifest.checkedAt, 'live_preparation_generation_changed');
+      carry = { ...owedCarry, carry: '0', revision: owedCarry.revision + 1, updatedAt: new Date(at).toISOString() };
+    }
+    const reset = carry;
+    const withCarry: LiveGenerationManifestV1 = owedCarry ? { ...seeded, carry: seeded.carry.map(row => row.coin === reset.coin ? reset : row) } : seeded;
     const closeLeg = canonicalLiveSourceLegs(source.fill).find(v => v.leg === 'close'), dependsOn = binding.leg === 'open' && closeLeg ? liveSourceLegId(binding.mandateId, source.fill.id, 'close') : null;
     const dependency = dependsOn ? withCarry.journals.find(v => v.leg?.id === dependsOn) : null;
-    const positionSize = projection.positions[source.fill.coin] ?? '0';
     // A fixed open rounded up to the order minimum stays within the deployment's per-trade maximum.
     const fixedMax = binding.leg === 'open' && local.settings.sizingMode === 'fixed' ? liveDeploymentPolicy()?.caps.fixedPerTradeUsd?.max : undefined;
     // TEST ONLY: a ratio open under the minimum is raised to it (COPY_LIVE_TEST_MIN_FLOOR_MAX_USD).
@@ -270,6 +288,24 @@ export class PostgresLivePreparation {
       const [currentFill] = await this.checked(session, tx.select().from(copyLiveSourceFills).where(eq(copyLiveSourceFills.id, source.fill.id)));
       riskSourceRequire(currentFill && decodeLiveSourceFill(currentFill).sourceDigest === source.fill.sourceDigest, 'live_preparation_source');
       if (seedCarry) await this.checked(session, tx.insert(copyLiveReductionCarry).values({ mandateId: binding.mandateId, coin: source.fill.coin, carry: '0', revision: 1, updatedAt: new Date(carry.updatedAt) }));
+      if (owedCarry) {
+        // The row is still the one the (unchanged) manifest read, and no other
+        // journal of this generation and coin is prepared, submitting, unknown
+        // or resting, nor a reservation of it unreleased: their sizing basis
+        // names the old carry, which settlement, the risk gate and an
+        // unattempted release require unchanged. Otherwise nothing is reset
+        // or journaled and the leg is tried again (as a changed generation).
+        const changed = await this.checked(session, tx.update(copyLiveReductionCarry).set({ carry: reset.carry, revision: reset.revision, updatedAt: new Date(reset.updatedAt) })
+          .where(and(eq(copyLiveReductionCarry.mandateId, binding.mandateId), eq(copyLiveReductionCarry.coin, source.fill.coin), eq(copyLiveReductionCarry.revision, owedCarry.revision),
+            eq(copyLiveReductionCarry.carry, owedCarry.carry),
+            sql`not exists (select 1 from ${copyLiveIntentProvenance} p join ${copyLiveExecutions} e on e.key = p.key
+              join ${copyLiveSignalLegs} l on l.id = p.leg_id join ${copyLiveSourceFills} f on f.id = l.source_fill_id
+              where p.mandate_id = ${binding.mandateId} and f.coin = ${source.fill.coin} and e.state in ('prepared', 'submitting', 'unknown', 'resting'))`,
+            sql`not exists (select 1 from ${copyLiveIntentProvenance} p join ${copyLiveRiskReservations} r on r.key = p.key
+              where p.mandate_id = ${binding.mandateId} and r.coin = ${source.fill.coin} and r.state <> 'released')`))
+          .returning({ mandateId: copyLiveReductionCarry.mandateId }));
+        riskSourceRequire(changed.length === 1, 'live_preparation_generation_changed');
+      }
       for (const canonical of [...canonicalLiveSourceLegs(source.fill)].sort((a, b) => a.leg === b.leg ? 0 : a.leg === 'close' ? -1 : 1)) {
         const id = liveSourceLegId(binding.mandateId, source.fill.id, canonical.leg), dependencyId = canonical.leg === 'open' && closeLeg ? liveSourceLegId(binding.mandateId, source.fill.id, 'close') : null;
         await this.checked(session, tx.insert(copyLiveSignalLegs).values({ id, mandateId: binding.mandateId, sourceFillId: source.fill.id, ...canonical, dependsOnId: dependencyId, createdAt: new Date(now), updatedAt: new Date(now) }).onConflictDoNothing());

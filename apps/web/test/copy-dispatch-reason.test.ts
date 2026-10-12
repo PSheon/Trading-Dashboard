@@ -28,6 +28,10 @@ it.each(LOCALES)(
     expect(
       copyDispatchReasonText(texts, "fixed_trade_already_claimed_other", t),
     ).toBe(texts.extra.refusal);
+    // A live skip reason has its own words, never "another reason" (Stage 2026-10-12).
+    expect(copyDispatchReasonText(texts, "no_follower_position", t)).toBe(catalogs[locale].copyAdmin.reasons.nothing_to_reduce);
+    for (const code of ["below_min_notional", "signal_expired", "merged_into_adjustment", "copy_stopping", "live_market_hip3_unsupported"])
+      expect(copyDispatchReasonText(texts, code, t)).not.toBe(texts.extra.refusal);
     expect(copyDispatchReasonText(texts, "consent_expired", t)).toBe(
       texts.live.errors.consent_expired,
     );

@@ -6,13 +6,14 @@ import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
 import { lockCopyPlatform } from "../copy/copy-user-lock.js";
+import { advisoryLockKey } from "../db/advisory-lock.js";
 @Injectable()
 export class SettingsRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
   readSections(db: Pick<DrizzleDb, "select"> = this.db) { return db.select().from(appSettings); }
   async lockSections(tx: DbTransaction, liveAuthority = false) {
     if (liveAuthority) await lockCopyPlatform(tx);
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(73104, 1)`);
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(${advisoryLockKey("SETTINGS")})`);
   }
   /** NOTIFY inside the saving transaction: other processes hear it only if this commits. */
   async announceChange(tx: DbTransaction, channel: string, origin: string) { await tx.execute(sql`SELECT pg_notify(${channel}, ${origin})`); }

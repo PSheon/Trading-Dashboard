@@ -1,6 +1,7 @@
 import { SettingsRepository } from "../src/settings/settings.repository.js";
-import { UnitOfWork } from "../src/db/unit-of-work.js";
-import { sql } from "drizzle-orm";
+import { UnitOfWork, type DbTransaction } from "../src/db/unit-of-work.js";
+import { sql, type SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { appSettings } from "@trading-dashboard/shared/database";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -173,5 +174,24 @@ describe("SettingsService — real Postgres", () => {
     expect(pub).not.toHaveProperty("featuredAddresses");
     expect(pub).not.toHaveProperty("builderFeeTenthsBps");
     expect(pub).not.toHaveProperty("builderAddress");
+  });
+
+  it("takes the settings advisory lock with byte-identical SQL to the pre-registry literal", async () => {
+    const executed: SQL[] = [];
+    const tx = { execute: (query: SQL) => { executed.push(query); return Promise.resolve(); } } as unknown as DbTransaction;
+    await new SettingsRepository(db).lockSections(tx);
+    const dialect = new PgDialect();
+    expect(executed.map((q) => dialect.sqlToQuery(q))).toEqual([dialect.sqlToQuery(sql`SELECT pg_advisory_xact_lock(73104, 1)`)]);
+    expect(dialect.sqlToQuery(executed[0]!)).toEqual({ sql: "SELECT pg_advisory_xact_lock(73104, 1)", params: [] });
+  });
+
+  it("holds advisory key (73104, 1) in pg_locks while sections are locked", async () => {
+    const held = await db.transaction(async (tx) => {
+      await new SettingsRepository(db).lockSections(tx);
+      return tx.execute<{ classid: string; objid: string; objsubid: number; mode: string }>(sql`
+        select classid::text, objid::text, objsubid, mode from pg_locks
+        where locktype = 'advisory' and pid = pg_backend_pid() and granted`);
+    });
+    expect(held.rows).toEqual([{ classid: "73104", objid: "1", objsubid: 2, mode: "ExclusiveLock" }]);
   });
 });

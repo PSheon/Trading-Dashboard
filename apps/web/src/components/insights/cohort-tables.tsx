@@ -42,6 +42,9 @@ const WALLET_KEYS: Record<WalletKey, (w: CohortWallet) => number | string> = {
   biasPct: (w) => w.biasPct ?? -1,
 };
 
+/** Phones' wallet rows: name, PNL, ROI, perp equity, the chevron. */
+const MOBILE_ROW = "grid grid-cols-[minmax(0,1fr)_4rem_3.5rem_4rem_1.75rem] items-center gap-x-2";
+
 /** 錢包: CopyDog's wallet columns, perp equity first by default. */
 export function WalletsTable({ rows }: { rows: CohortWallet[] }) {
   const { t } = useI18n();
@@ -63,23 +66,35 @@ export function WalletsTable({ rows }: { rows: CohortWallet[] }) {
           <Button variant="secondary" size="icon" aria-label={t(sort.dir === "desc" ? "insights.cohort.sortAscending" : "insights.cohort.sortDescending")}
             onClick={() => onSort(sort.key)}>{sort.dir === "asc" ? <ArrowUp className="size-4" aria-hidden /> : <ArrowDown className="size-4" aria-hidden />}</Button>
         </div>
+        {/* The figures' labels once, over the rows' three columns. */}
+        <div data-wallet-head className={cn(MOBILE_ROW, "pb-2 text-xs font-medium text-muted-foreground")}>
+          <span>{c("address")}</span>
+          <span className="text-right">{c("pnl")}</span>
+          <span className="text-right">{c("roi")}</span>
+          <span className="text-right">{c("perpEquity")}</span>
+          <span />
+        </div>
         <DataList data-testid="cohort-wallets-mobile">
           {pageRows.map((w) => {
             const expanded = openWallet === w.address;
-            return <li key={w.address} className="py-3 text-sm">
-              <Link href={`/trader/${w.address}`} className="flex min-h-11 min-w-0 items-center gap-2 rounded font-semibold outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
-                <TraderAvatar trader={w} size={32} /><span className="min-w-0 truncate">{w.displayName ?? truncateAddress(w.address)}</span>{w.verified ? <VerifiedTick className="size-3.5 shrink-0" /> : null}
-              </Link>
-              <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2">
-                <div><dt className="text-muted-foreground">{c("pnl")}</dt><dd className={cn("num mt-1 font-semibold", signTone(w.totalPnl))}>{money(w.totalPnl, true)}</dd></div>
-                <div><dt className="text-muted-foreground">{c("roi")}</dt><dd className={cn("num mt-1 font-semibold", signTone(w.roi))}>{pctText(w.roi)}</dd></div>
-                <div className="col-span-2"><dt className="text-muted-foreground">{c("perpEquity")}</dt><dd className="num mt-1 font-semibold">{money(w.perpEquity)}</dd></div>
-              </dl>
-              <button type="button" aria-expanded={expanded} aria-controls={`cohort-wallet-${w.address}`} onClick={() => setOpenWallet(expanded ? null : w.address)}
-                className="mt-2 inline-flex min-h-11 items-center gap-2 rounded-full px-3 font-semibold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring">
-                {t(expanded ? "common.collapse" : "common.expand")}<ChevronDown className={cn("size-4 transition-transform", expanded && "rotate-180")} aria-hidden />
-              </button>
-              {expanded ? <dl id={`cohort-wallet-${w.address}`} data-wallet-details className="mt-2 grid gap-3 rounded-xl bg-raised p-3">
+            const name = w.displayName ?? truncateAddress(w.address);
+            const toggle = () => setOpenWallet(expanded ? null : w.address);
+            return <li key={w.address} className="py-1 text-sm">
+              {/* The whole row opens the details; the name still opens the trader. */}
+              <div data-wallet-row className={cn(MOBILE_ROW, "min-h-11 cursor-pointer")}
+                onClick={(e) => { if ((e.target as HTMLElement).closest("a, button")) return; toggle(); }}>
+                <Link href={`/trader/${w.address}`} className="flex min-h-11 min-w-0 items-center gap-2 rounded font-semibold outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
+                  <TraderAvatar trader={w} size={24} /><span className="min-w-0 truncate">{name}</span>{w.verified ? <VerifiedTick className="size-3.5 shrink-0" /> : null}
+                </Link>
+                <span className={cn("num text-right font-semibold", signTone(w.totalPnl))}>{money(w.totalPnl, true)}</span>
+                <span className={cn("num text-right font-semibold", signTone(w.roi))}>{pctText(w.roi)}</span>
+                <span className="num text-right font-semibold">{money(w.perpEquity)}</span>
+                <button type="button" aria-expanded={expanded} aria-controls={`cohort-wallet-${w.address}`} aria-label={`${t(expanded ? "common.collapse" : "common.expand")} ${name}`} onClick={toggle}
+                  className="-mx-2 inline-flex size-11 items-center justify-center rounded-full outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring">
+                  <ChevronDown className={cn("size-4 transition-transform", expanded && "rotate-180")} aria-hidden />
+                </button>
+              </div>
+              {expanded ? <dl id={`cohort-wallet-${w.address}`} data-wallet-details className="mb-2 grid gap-3 rounded-xl bg-raised p-3">
                 <div><dt className="text-muted-foreground">{c("assets")}</dt><dd className="mt-1"><CoinStack coins={w.topAssets} size={20} dash /></dd></div>
                 <div><dt className="text-muted-foreground">{c("copyScore")}</dt><dd className="mt-1"><CopyScoreBar score={w.copyScore} layout="number-first" className="flex items-center gap-2.5" barClassName="w-16" /></dd></div>
                 <div><dt className="text-muted-foreground">{c("positionValue")}</dt><dd className="num mt-1 font-semibold">{money(w.positionValue)}</dd></div>

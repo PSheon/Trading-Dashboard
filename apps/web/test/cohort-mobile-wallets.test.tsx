@@ -23,14 +23,25 @@ it("shows each mobile wallet's primary figures with complete secondary details o
   expect(container.querySelector("table")).toBeNull();
   const first = list().querySelector("li")!;
   expect(first.textContent).toContain("Wallet 12");
-  for (const label of ["PNL", "ROI", "Perp Equity"]) expect(first.textContent).toContain(label);
+  // The figures' labels appear once, over the list, not in every row.
+  const head = container.querySelector("[data-wallet-head]")!;
+  for (const label of ["PNL", "ROI", "Perp Equity"]) {
+    expect(head.textContent).toContain(label);
+    for (const li of list().querySelectorAll("li")) expect(li.textContent).not.toContain(label);
+  }
+  expect(first.textContent).not.toContain("Expand");
   const toggle = first.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
+  expect(toggle.textContent).toBe("");
+  expect(toggle.getAttribute("aria-label")).toBe("Expand Wallet 12");
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
-  await act(async () => toggle.click());
+  // Anywhere on the row opens the details; the name still goes to the trader.
+  const row = first.querySelector<HTMLElement>("[data-wallet-row]")!;
+  await act(async () => row.querySelector<HTMLElement>(".num")!.click());
   expect(toggle.getAttribute("aria-expanded")).toBe("true");
   const details = first.querySelector('[data-wallet-details]')!;
   for (const label of ["Traded Assets", "Copy Score", "Position Value", "Leverage", "UPNL", "Perp Bias"]) expect(details.textContent).toContain(label);
   expect(details.textContent).toContain("2.50×");
+  expect(toggle.getAttribute("aria-label")).toBe("Collapse Wallet 12");
   expect(new URL(first.querySelector<HTMLAnchorElement>("a")!.href).pathname).toBe(`/en/trader/${rows[11].address}`);
   await act(async () => toggle.click());
   expect(first.querySelector('[data-wallet-details]')).toBeNull();

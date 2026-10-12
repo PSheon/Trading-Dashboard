@@ -1,5 +1,6 @@
 import { testConfig } from './config-test-utils.js';
 import * as schema from '@trading-dashboard/shared/database';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
 import { CopyLiveManualCloser } from '../src/copy/live-worker/copy-live-stopper.js';
@@ -20,10 +21,11 @@ beforeEach(async () => {
 });
 afterAll(async () => { await closeTestDb(); });
 
-async function leg(tid: number, time: number, leg: 'open' | 'close', state: 'pending' | 'submitted' | 'settled', extra: Partial<typeof schema.copyLiveDispatches.$inferInsert> = {}) {
+async function leg(tid: number, time: number, leg: 'open' | 'close', state: 'pending' | 'submitted' | 'settled', extra: Partial<typeof schema.copyLiveDispatches.$inferInsert> = {},
+  side: 'B' | 'A' = leg === 'open' ? 'B' : 'A') {
   const fillId = `${stream}:${tid}`;
   await db.insert(schema.copyLiveSourceFills).values({ id: fillId, streamId: stream, network: 'mainnet', leaderAddress: leader, tid: String(tid), providerTime: new Date(time),
-    receivedAt: new Date(time), coin: 'BTC', oid: String(1000 + tid), tradeKey: `oid:${1000 + tid}`, px: '100', sz: '1', side: leg === 'open' ? 'B' : 'A', startPosition: '0',
+    receivedAt: new Date(time), coin: 'BTC', oid: String(1000 + tid), tradeKey: `oid:${1000 + tid}`, px: '100', sz: '1', side, startPosition: '0',
     normalized: {}, raw: {}, sourceDigest: 'a'.repeat(64) });
   const id = `mandate|${fillId}|${leg}`, key = `exec-${tid}`;
   if (state !== 'pending') await db.insert(schema.copyLiveExecutions).values({ key, network: 'testnet', accountAddress: seed.f.identity.accountAddress, signerAddress: `0x${'33'.repeat(20)}`,
@@ -68,15 +70,57 @@ describe('a close after the leader went flat, when the leader opens the coin aga
     expect(close).toHaveBeenCalledTimes(1);
   });
 
-  it('an order already sent stops at the gate once the leader re-opened', async () => {
+  it('an order already sent stops at the gate once the copy journaled a re-open, not while that open only waits', async () => {
     const closeLeg = await leg(1, now - 5000, 'close', 'settled'); await flatClose(closeLeg, now - 4000);
     let stillWanted: (() => Promise<boolean>) | undefined;
     const { double, close } = closer();
     close.mockImplementation((async (request: { stillWanted: () => Promise<boolean> }) => { stillWanted = request.stillWanted; return null; }) as never);
     await manual(double).tick();
     expect(await stillWanted!()).toBe(true);
-    await leg(2, now - 3000, 'open', 'pending');
+    const reopen = await leg(2, now - 3000, 'open', 'pending');
+    expect(await stillWanted!()).toBe(true);
+    await db.insert(schema.copyLiveExecutions).values({ key: 'exec-2', network: 'testnet', accountAddress: seed.f.identity.accountAddress, signerAddress: `0x${'33'.repeat(20)}`,
+      cloid: `0x${'2'.padStart(32, '0')}`, nonce: now + 2, userId: 1, strategyId: 9, state: 'unknown', updatedAt: new Date(now), record: { key: 'exec-2', state: 'unknown' } });
+    await db.update(schema.copyLiveDispatches).set({ state: 'submitted', executionKey: 'exec-2' }).where(eq(schema.copyLiveDispatches.id, reopen));
     expect(await stillWanted!()).toBe(false);
+  });
+
+  // 2c-A: only an open the copy journaled or sent can be in what the follower
+  // holds. One still waiting (either side) waits for the close, which runs.
+  it.each([['same side', 'B'], ['opposite side', 'A']] as const)('a %s re-open not journaled yet: the close runs, then the open may go', async (_side, side) => {
+    const repo = new CopyLiveWorkerRepository(db, new UnitOfWork(db), testConfig());
+    const closeLeg = await leg(1, now - 5000, 'close', 'settled'); await flatClose(closeLeg, now - 4000);
+    await leg(2, now - 3000, 'open', 'pending', {}, side);
+    const { double, close } = closer();
+    await manual(double).tick();
+    expect(close).toHaveBeenCalledTimes(1);
+    expect((await db.select().from(schema.copyLiveManualCloses))[0]).toMatchObject({ state: 'requested' });
+    expect(await repo.closeRequested('account', 'BTC')).toBe(true); // the open waits
+    // The close's attempt ended and the follower is flat: done, and the open may go.
+    await db.insert(schema.copyLiveExecutions).values({ key: (await db.select().from(schema.copyLiveManualCloses))[0]!.executionKeys[0]!, network: 'testnet', accountAddress: seed.f.identity.accountAddress,
+      signerAddress: `0x${'33'.repeat(20)}`, cloid: `0x${'c'.repeat(32)}`, nonce: now + 9, userId: 1, strategyId: 9, state: 'filled', updatedAt: new Date(now), record: { state: 'filled' } });
+    (double.observe as ReturnType<typeof vi.fn>).mockResolvedValue({ positions: [] });
+    await manual(double).tick();
+    expect(close).toHaveBeenCalledTimes(1);
+    expect((await db.select().from(schema.copyLiveManualCloses))[0]).toMatchObject({ state: 'done', reason: null });
+    expect(await repo.closeRequested('account', 'BTC')).toBe(false);
+  });
+
+  it.each(['submitted', 'journaled'] as const)('a re-open already %s: the close is refused leader_reopened, sending nothing', async how => {
+    const closeLeg = await leg(1, now - 5000, 'close', 'settled'); await flatClose(closeLeg, now - 4000);
+    if (how === 'submitted') await leg(2, now - 3000, 'open', 'submitted', {}, 'A');
+    else {
+      // Journaled by the preparation, the dispatch row not updated yet (a crash between).
+      await leg(2, now - 3000, 'open', 'pending', {}, 'A');
+      await db.insert(schema.copyLiveExecutions).values({ key: 'exec-2', network: 'testnet', accountAddress: seed.f.identity.accountAddress, signerAddress: `0x${'33'.repeat(20)}`,
+        cloid: `0x${'2'.padStart(32, '0')}`, nonce: now + 2, userId: 1, strategyId: 9, state: 'prepared', updatedAt: new Date(now), record: { key: 'exec-2', state: 'prepared' } });
+      await db.insert(schema.copyLiveSignalLegs).values({ id: 'leg-2', mandateId: 'mandate', sourceFillId: `${stream}:2`, leg: 'open', tradeKey: 'oid:1002', sign: -1, size: '1',
+        executionKey: 'exec-2', state: 'prepared', createdAt: new Date(now), updatedAt: new Date(now) });
+    }
+    const { double, close } = closer();
+    await manual(double).tick();
+    expect(close).not.toHaveBeenCalled();
+    expect((await db.select().from(schema.copyLiveManualCloses))[0]).toMatchObject({ state: 'refused', reason: 'leader_reopened' });
   });
 
   it('a new open of the coin waits while that close is requested', async () => {

@@ -333,8 +333,9 @@ export class CopyLiveManualCloser {
     if (status === 'stopping' || status === 'stopped') { await this.repository.finishManual(row.id, 'refused', 'copy_stopping'); return; }
     const account = await this.repository.closeAccountOf(row);
     if (!account) { await this.repository.finishManual(row.id, 'refused', 'agent_unavailable'); return; }
-    // A close after the leader went flat ends once the leader opens the coin
-    // again: what the follower then holds includes the new open's mirror.
+    // A close after the leader went flat ends once the copy journaled or sent
+    // an open of the coin again: what the follower holds may then include it.
+    // An open not journaled yet waits for this close, never the reverse.
     const stillWanted = async () => (await this.repository.manualClose(row.id))?.state === 'requested' && !['stopping', 'stopped'].includes(await this.repository.strategyStatus(row.strategyId) ?? 'stopped') &&
       !await this.repository.leaderReopened(row.idempotencyKey);
     const last = row.executionKeys.at(-1);
@@ -345,7 +346,7 @@ export class CopyLiveManualCloser {
       }
     }
     if (await this.repository.leaderReopened(row.idempotencyKey)) {
-      this.log?.(`close ${row.id} of ${row.coin} cancelled: the leader opened it again`);
+      this.log?.(`close ${row.id} of ${row.coin} cancelled: the copy already opened it again`);
       if (row.executionKeys.length) await this.scanner.runFor(row.accountId);
       await this.repository.finishManual(row.id, 'refused', 'leader_reopened'); return;
     }

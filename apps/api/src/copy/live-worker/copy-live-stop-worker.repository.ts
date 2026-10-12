@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
-import { copyAgentSetups, copyExecutionAccounts, copyLiveDispatches, copyLiveExecutions, copyLiveIntentProvenance, copyLiveManualCloses, copyLiveMandates, copyLiveStopCancellations,
+import { copyAgentSetups, copyExecutionAccounts, copyLiveDispatches, copyLiveExecutions, copyLiveIntentProvenance, copyLiveManualCloses, copyLiveMandates, copyLiveSignalLegs, copyLiveStopCancellations,
   copyExecutionWallets, copyLiveStopConsents, copyLiveStopOperations, copyStrategies, copyWalletAuthorizationEvents, copyWalletAuthorizations, users } from '@trading-dashboard/shared/database';
 import { ACTUAL_STRATEGY_MODE } from '@trading-dashboard/shared/contracts';
 import { recordAdminAudit } from '../../common/audit/admin-audit.js';
@@ -68,15 +68,20 @@ export class CopyLiveStopWorkerRepository {
     return row ?? null;
   }
   /** For a close requested after the leader went flat (`reconcile:<leg>`):
-   * whether the leader opened that coin again since, a later leader fill
-   * (exchange time, then tid) with an open leg of the same copy. */
+   * whether the copy already journaled or sent an open of that coin for a
+   * later leader fill (exchange time, then tid): only such an open can be in
+   * what the follower holds. One not journaled yet does not count, whichever
+   * side it opens: it waits for this close (closeRequested), so the old
+   * side's remainder is closed first and the open then sizes from flat. */
   async leaderReopened(idempotencyKey: string): Promise<boolean> {
     if (!idempotencyKey.startsWith('reconcile:')) return false;
     const found = await this.db.execute<{ reopened: boolean }>(sql`select exists (
       select 1 from ${copyLiveDispatches} d join copy_live_source_fills f on f.id = d.source_fill_id
         join ${copyLiveDispatches} o on o.mandate_id = d.mandate_id and o.coin = d.coin and o.leg = 'open'
         join copy_live_source_fills g on g.id = o.source_fill_id
-      where d.id = ${idempotencyKey.slice('reconcile:'.length)} and (g.provider_time, g.tid::numeric) > (f.provider_time, f.tid::numeric)) as reopened`);
+      where d.id = ${idempotencyKey.slice('reconcile:'.length)} and (g.provider_time, g.tid::numeric) > (f.provider_time, f.tid::numeric)
+        and (o.execution_key is not null or o.state in ('submitted', 'settled')
+          or exists (select 1 from ${copyLiveSignalLegs} l where l.mandate_id = o.mandate_id and l.source_fill_id = o.source_fill_id and l.leg = 'open' and l.execution_key is not null))) as reopened`);
     return found.rows[0]?.reopened === true;
   }
   async strategyStatus(id: number): Promise<string | null> {

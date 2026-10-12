@@ -1,3 +1,4 @@
+import { HttpException } from '@nestjs/common';
 import { LiveBoundaryError } from '../copy/live/wallet-authorization.js';
 import { HyperliquidBudgetWait } from '../hyperliquid/hyperliquid-budget-wait.js';
 
@@ -31,4 +32,13 @@ export const errorCode = (error: unknown, fallback = 'live_execution_failed'): s
 export const safeErrorText = (error: unknown): string => {
   const status = (error as { status?: unknown } | null)?.status;
   return `${typeof status === 'number' && Number.isInteger(status) ? `${status} ` : ''}${describeUnexpected(error) ?? errorCode(error)}`;
+};
+/** One structured log payload for a failure a loop keeps going past: its
+ * code (an HttpException's response code, else errorCode), safeErrorText,
+ * and a Hyperliquid wait's reason, retry and detail (bucket, weight…). */
+export const errorLogFields = (error: unknown): Record<string, unknown> => {
+  const response = error instanceof HttpException ? error.getResponse() : null;
+  const http = response && typeof response === 'object' ? (response as { code?: unknown }).code : undefined;
+  return { code: typeof http === 'string' && /^[a-z][a-z0-9_]{2,79}$/.test(http) ? http : errorCode(error, 'unexpected'), error: safeErrorText(error),
+    ...(error instanceof HyperliquidBudgetWait ? { wait: { reason: error.reason, retryMs: Math.ceil(error.retryMs), ...error.detail } } : {}) };
 };

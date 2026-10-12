@@ -7,6 +7,7 @@ import type { DrizzleDb } from '../../db/drizzle.provider.js';
 import { HyperliquidGlobalTransport } from '../../hyperliquid/hyperliquid-global-transport.js';
 import { RequestBudgeterService } from '../../hyperliquid/request-budgeter.service.js';
 import { reserveLive } from '../../hyperliquid/hyperliquid-budget-wait.js';
+import { errorLogFields } from '../../runtime/safe-error-text.js';
 import { liveStopCancellationIntentDigest } from '../copy-live-stop-consent.js';
 import { HyperliquidAgentApprovalVerifier } from '../live/hyperliquid-agent-approval.js';
 import { HyperliquidTrackedCancellationTransport } from '../live/hyperliquid-cancellation-transport.js';
@@ -61,6 +62,9 @@ const SYSTEM_CHECK_MS = 60_000;
 /** Default bound on a pending admin revoke (COPY_LIVE_REVOKE_DEADLINE_MINUTES). */
 export const REVOKE_DEADLINE_MS = 30 * 60_000;
 const reason = (error: unknown) => (error instanceof LiveBoundaryError ? error.code : 'stop_step_failed').replace(/[^a-z0-9_]/g, '_').slice(0, 80);
+/** For the log: the stored reason, then what it stood for (stop_step_failed
+ * hides an HTTP code, a Hyperliquid wait, a TypeError). */
+const why = (error: unknown) => `${reason(error)} ${JSON.stringify(errorLogFields(error))}`;
 
 /**
  * Executes owner stop requests, resumable at every step because each step's
@@ -90,12 +94,12 @@ export class CopyLiveStopper {
       try {
         for (const resumed of await system.resumePendingCloseAll())
           this.deps.log?.(`close-all ${resumed.event} resumed: ${resumed.liveStops} stop(s) started, ${resumed.liveUnhandled.length} cop(ies) left unstopped`);
-      } catch (error) { this.deps.log?.(`close-all resume failed: ${reason(error)}`); }
+      } catch (error) { this.deps.log?.(`close-all resume failed: ${why(error)}`); }
       try {
         const outcome = await system.stopExpiring(system.agentExpiryMarginMs);
         for (const stopped of outcome.stopped) this.deps.log?.(`copy account ${stopped.accountId} stopped before its agent expires (stop ${stopped.stopId})`);
         for (const refused of outcome.refused) this.deps.log?.(`copy account ${refused.accountId} could not be stopped before its agent expires: ${refused.code}`);
-      } catch (error) { this.deps.log?.(`agent expiry check failed: ${reason(error)}`); }
+      } catch (error) { this.deps.log?.(`agent expiry check failed: ${why(error)}`); }
     }
     // A pending admin revoke is bounded: once the stop it waits for is
     // blocked or gone, or past the deadline once that stop is flat, the
@@ -105,7 +109,7 @@ export class CopyLiveStopper {
     }
     for (const stop of await this.deps.repository.open()) {
       try { await this.step(stop); }
-      catch (error) { this.deps.log?.(`stop ${stop.id} kept for the next pass: ${reason(error)}`); await this.deps.repository.issue(stop, reason(error)); }
+      catch (error) { this.deps.log?.(`stop ${stop.id} kept for the next pass: ${why(error)}`); await this.deps.repository.issue(stop, reason(error)); }
     }
   }
 
@@ -308,7 +312,7 @@ export class CopyLiveManualCloser {
   async tick(): Promise<void> {
     for (const row of await this.repository.manualCloses()) {
       try { await this.step(row); }
-      catch (error) { this.log?.(`close ${row.id} kept for the next pass: ${reason(error)}`); }
+      catch (error) { this.log?.(`close ${row.id} kept for the next pass: ${why(error)}`); }
     }
   }
   private async step(row: Awaited<ReturnType<CopyLiveStopWorkerRepository['manualCloses']>>[number]): Promise<void> {

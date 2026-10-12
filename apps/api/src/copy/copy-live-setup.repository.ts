@@ -9,6 +9,7 @@ import type { DbExecutor } from '../db/unit-of-work.js';
 
 export type SetupRow = typeof copyLiveSetups.$inferSelect;
 export type SetupStage = SetupRow['stage'];
+export type SetupWait = NonNullable<SetupRow['lastWait']>;
 /** Stages the setup driver works: confirmed, not finished. */
 export const DRIVEN_STAGES: readonly SetupStage[] = ['consented', 'funding_submitted', 'funded', 'mode_set', 'agent_active', 'builder_ready'];
 

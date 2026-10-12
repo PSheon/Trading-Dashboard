@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { liveCopySetupAbortSchema, requestLiveCopySetupAbortSchema, usdSendTypedData, WALLET_NETWORKS, type LiveCopySetupAbort } from '@trading-dashboard/shared/contracts';
 import { AppConfig } from '../config/app-config.js';
 import { BackgroundJobs } from '../runtime/background-jobs.service.js';
-import { safeErrorText } from '../runtime/safe-error-text.js';
+import { errorLogFields } from '../runtime/safe-error-text.js';
 import { CopyLiveSetupAbortRepository, type SetupAbortRow } from './copy-live-setup-abort.repository.js';
 import { CopyLiveSetupAbortReturnRepository } from './copy-live-setup-abort-return.repository.js';
 import { CopyLiveSetupRepository } from './copy-live-setup.repository.js';
@@ -68,10 +68,15 @@ export class CopyLiveSetupAbortService {
     for (const row of await this.repository.open()) {
       if (this.running.has(row.id)) continue;
       this.running.add(row.id); admitted++;
-      void this.jobs.run(() => this.process(row.id)).catch(error => this.logger.warn(`setup abort ${row.id} kept for recovery: ${safeErrorText(error)}`))
+      void this.jobs.run(() => this.process(row.id)).catch(error => this.logger.warn(`setup abort ${row.id} kept for recovery ${JSON.stringify(errorLogFields(error))}`))
         .finally(() => this.running.delete(row.id));
     }
     return admitted;
+  }
+  /** A child's reconcile that failed is looked at again on the next pass:
+   * the log says why (it used to be dropped). */
+  private kept(abortId: string, child: string, childId: string) {
+    return (error: unknown) => { this.logger.warn(`setup abort ${abortId} ${child} ${childId} reconcile kept for the next pass ${JSON.stringify(errorLogFields(error))}`); };
   }
   /** Worker pass only; never called from an HTTP mutation. */
   async process(id: string) {
@@ -101,18 +106,18 @@ export class CopyLiveSetupAbortService {
         if (op.setupAbortId === row.id) continue;
         if (op.direction !== 'to_account' || op.network !== row.network || op.strategyId !== row.strategyId) { await wait('blocked', 'setup_abort_binding_unknown'); return; }
         if (!op.attemptedAt && ['prepared','unknown'].includes(op.status)) await this.fundingRows.cancel(row.userId, op.id);
-        else if (op.attemptedAt && ['unknown','accepted'].includes(op.status)) await this.funding.reconcile(row.userId, op.id).catch(() => undefined);
+        else if (op.attemptedAt && ['unknown','accepted'].includes(op.status)) await this.funding.reconcile(row.userId, op.id).catch(this.kept(row.id, 'funding', op.id));
       }
       // Seal only ordinary reservations that never crossed the SDK boundary;
       // attempted transfers retain their original receipt and reconcile only.
       for (const op of children.otherFunding) {
         if (!op.attemptedAt && ['prepared','unknown'].includes(op.status)) await this.repository.sealOrdinaryFunding(row, op);
-        else if (op.attemptedAt && ['unknown','accepted'].includes(op.status)) await this.funding.reconcile(row.userId, op.id).catch(() => undefined);
+        else if (op.attemptedAt && ['unknown','accepted'].includes(op.status)) await this.funding.reconcile(row.userId, op.id).catch(this.kept(row.id, 'funding', op.id));
       }
       for (const op of children.modes) if (op.submissionState === 'signing' || (op.attemptedAt && op.targetState !== 'supported' && op.submissionState !== 'rejected'))
-        await this.modes.reconcile(row.userId, op.id).catch(() => undefined);
-      for (const op of children.agents) if (['approval_signing','approval_unknown'].includes(op.state)) await this.agents.reconcile(row.userId, op.id).catch(() => undefined);
-      for (const op of children.builders) if (['unknown','accepted'].includes(op.state)) await this.returnService.reconcileBuilder(row.userId, op.id).catch(() => undefined);
+        await this.modes.reconcile(row.userId, op.id).catch(this.kept(row.id, 'mode', op.id));
+      for (const op of children.agents) if (['approval_signing','approval_unknown'].includes(op.state)) await this.agents.reconcile(row.userId, op.id).catch(this.kept(row.id, 'agent', op.id));
+      for (const op of children.builders) if (['unknown','accepted'].includes(op.state)) await this.returnService.reconcileBuilder(row.userId, op.id).catch(this.kept(row.id, 'builder', op.id));
       children = await this.repository.children(row);
       if (row.kind !== 'start') {
         if (!await this.repository.finishPending(row)) await wait('draining', 'setup_abort_child_pending');
@@ -124,7 +129,7 @@ export class CopyLiveSetupAbortService {
       if (!row.accountId || !row.accountAddress || !deposit) { await wait('blocked', 'setup_abort_binding_unknown'); return; }
       let refund: ReturnRow | null | undefined = children.funding.find(op => op.id === row!.returnOperationId);
       if (refund && ['unknown','accepted'].includes(refund.status)) {
-        await this.funding.reconcile(row.userId, refund.id).catch(() => undefined);
+        await this.funding.reconcile(row.userId, refund.id).catch(this.kept(row.id, 'refund', refund.id));
         refund = await this.returns.find(row.userId, refund.id);
         if (['unknown','accepted'].includes(refund.status)) { await wait('returning', 'setup_abort_refund_pending'); return; }
       }
@@ -169,7 +174,7 @@ export class CopyLiveSetupAbortService {
         }
       } catch (error) {
         if (!dispatched) await this.returns.finish(row.userId, attempt.id, 'rejected', digest({ reason: 'setup_abort_not_dispatched', id: attempt.id }));
-        this.logger.warn(`setup abort ${row.id} original refund retained: ${safeErrorText(error)}`);
+        this.logger.warn(`setup abort ${row.id} original refund retained ${JSON.stringify(errorLogFields(error))}`);
       }
       row = await this.repository.find(row.userId, row.id);
       await wait('returning', 'setup_abort_refund_pending');
@@ -177,7 +182,7 @@ export class CopyLiveSetupAbortService {
       const code = error instanceof ConflictException ? error.getResponse() : null;
       const reason = code && typeof code === 'object' && 'code' in code && typeof code.code === 'string' ? issue(code.code) : null;
       await wait('blocked', reason ?? 'setup_abort_evidence_unavailable');
-      this.logger.warn(`setup abort ${row.id} kept for recovery: ${safeErrorText(error)}`);
+      this.logger.warn(`setup abort ${row.id} kept for recovery ${JSON.stringify(errorLogFields(error))}`);
     } finally { await this.repository.release(originalLease); }
   }
 }

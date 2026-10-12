@@ -370,13 +370,37 @@ describe('one-click testnet copy setup', () => {
     fakes.modes.submit.mockRejectedValueOnce(new HyperliquidBudgetWait(20_000, 'shared_capacity'));
     expect(await service.advance(uid, setup.id)).toMatchObject({ stage: 'funded', issue: 'hyperliquid_busy' });
     const [row] = await db.select().from(copyLiveSetups);
-    expect(row!.nextAttemptAt!.getTime()).toBeGreaterThanOrEqual(clock + 65_000); expect(row!.attempts).toBe(0);
+    // The wait counts as an attempt and is kept on the row (what, when, why).
+    expect(row!.nextAttemptAt!.getTime()).toBeGreaterThanOrEqual(clock + 65_000); expect(row!.attempts).toBe(1);
+    expect(row!.lastWait).toEqual({ at: new Date(clock).toISOString(), step: 'funded', reason: 'shared_capacity', retryMs: 65_000 });
     // Asked to drive every 3 s (and the worker's pass): nothing runs until then.
     for (let i = 0; i < 20; i++) { later(3_000); await service.advance(uid, setup.id); await service.tick(); }
     expect(fakes.modes.submit).toHaveBeenCalledTimes(1);
     later(6_000);
     expect((await service.advance(uid, setup.id)).stage).toBe('running');
     expect(fakes.modes.submit).toHaveBeenCalledTimes(2);
+  });
+
+  it('a local-budget wait says which bucket, weight and step it waited on: one warn line and the row, the API answer unchanged', async () => {
+    const setup = await start();
+    await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit(); later(5_000);
+    const warn = vi.spyOn((service as unknown as { logger: { warn(message: string): void } }).logger, 'warn').mockImplementation(() => undefined);
+    fakes.modes.submit.mockRejectedValueOnce(new HyperliquidBudgetWait(22_600, 'local_budget', { weight: 613, lane: 'live', bucket: 'wallet:testnet', tokens: 500, queued: 2 }));
+    const answered = await service.advance(uid, setup.id);
+    expect(answered).toMatchObject({ stage: 'funded', issue: 'hyperliquid_busy' }); expect(answered).not.toHaveProperty('lastWait');
+    const wait = { at: new Date(clock).toISOString(), step: 'funded', reason: 'local_budget', retryMs: 22_600, weight: 613, lane: 'live', bucket: 'wallet:testnet', tokens: 500, queued: 2 };
+    const [row] = await db.select().from(copyLiveSetups);
+    expect(row).toMatchObject({ attempts: 1, lastWait: wait }); expect(row!.nextAttemptAt!.getTime()).toBe(clock + 22_600);
+    const lines = warn.mock.calls.map(([message]) => String(message)).filter(message => message.includes('hyperliquid_busy'));
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0]!.slice(lines[0]!.indexOf('{')))).toEqual({ setupId: setup.id, attempts: 1, ...wait });
+    // A second wait counts again; moving on clears the count, not the last wait.
+    later(23_000); fakes.modes.submit.mockRejectedValueOnce(new HyperliquidBudgetWait(1_000, 'local_budget'));
+    await service.advance(uid, setup.id);
+    expect((await db.select().from(copyLiveSetups))[0]).toMatchObject({ attempts: 2, lastWait: { step: 'funded', reason: 'local_budget', retryMs: 1_000, at: new Date(clock).toISOString() } });
+    later(2_000);
+    expect((await service.advance(uid, setup.id)).stage).toBe('running');
+    expect((await db.select().from(copyLiveSetups))[0]).toMatchObject({ attempts: 0, lastWait: { retryMs: 1_000 } });
   });
 
   it('past its deadline a mode submission still pending no longer holds the setup open', async () => {

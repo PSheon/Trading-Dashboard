@@ -1,6 +1,7 @@
 import { Logger, type OnApplicationBootstrap, type OnModuleDestroy } from '@nestjs/common';
 import type { AppConfig } from '../../config/app-config.js';
 import type { BackgroundJobs } from '../../runtime/background-jobs.service.js';
+import { errorLogFields } from '../../runtime/safe-error-text.js';
 import { CopyLiveApiSettlementRepository } from './copy-live-api-settlement.repository.js';
 import { CopyLiveSettlementClaims, type SettlementClaim } from './copy-live-settlement-claim.js';
 import type { LiveSettleOutcome, LiveSettleRequest } from './copy-live-settler.js';
@@ -44,10 +45,10 @@ export class CopyLiveApiSettlementService implements OnApplicationBootstrap, OnM
             if (outcome.kind === 'released' && !await w.saveSettlement(key)) return;
             claim.assertFresh();
             await w.repository.finish(loaded.row, outcome); claim.assertFresh();
-          }, AbortSignal.any([this.jobs.signal, this.shutdown.signal])); } catch { this.logger.warn('Terminal settlement pending; durable journal retained'); }
+          }, AbortSignal.any([this.jobs.signal, this.shutdown.signal])); } catch (error) { this.logger.warn(`Terminal settlement ${key} pending; durable journal retained ${JSON.stringify(errorLogFields(error))}`); }
         }
       });
-    } catch { this.logger.warn('Terminal settlement admission pending'); }
+    } catch (error) { this.logger.warn(`Terminal settlement admission pending ${JSON.stringify(errorLogFields(error))}`); }
     finally { this.running = false; }
   }
 }

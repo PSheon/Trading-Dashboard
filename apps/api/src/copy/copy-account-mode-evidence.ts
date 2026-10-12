@@ -55,7 +55,7 @@ export class HyperliquidAccountModeAbsenceReader implements AccountModeAbsenceRe
     let timer: ReturnType<typeof setTimeout> | undefined, abort: (() => void) | undefined;
     try {
       await new Promise<void>((resolve, reject) => {
-        timer = setTimeout(() => reject(new HyperliquidBudgetWait(maxWaitMs, 'local_budget')), Math.max(1, maxWaitMs));
+        timer = setTimeout(() => reject(new HyperliquidBudgetWait(maxWaitMs, 'local_budget', { bucket: 'account_mode_absence_turn' })), Math.max(1, maxWaitMs));
         abort = () => reject(signal!.reason); signal?.addEventListener('abort', abort, { once: true });
         void prior.then(resolve);
       });

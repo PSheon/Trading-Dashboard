@@ -13,6 +13,18 @@ export const LIVE_RESERVE_WAIT_MS = 8_000;
  * background turn or a 429 backoff can make it longer). */
 const WAIT_SLACK_MS = 1_000;
 
+/** What a throw site knows about a wait, for the log and the setup's
+ * `last_wait` (never part of the HTTP answer): the weight asked for, its
+ * lane, which bucket, what that bucket held and how many calls waited on it. */
+export interface BudgetWaitDetail {
+  readonly weight?: number; readonly lane?: RequestPriority; readonly bucket?: string; readonly tokens?: number; readonly queued?: number;
+}
+/** The detail of a wait on `budget` for `weight` (read when it is refused). */
+const waitDetail = (budget: RequestBudgeterService, weight: number, lane: RequestPriority, bucket?: string): BudgetWaitDetail => {
+  const queued = budget.queued();
+  return { weight, lane, ...(bucket ? { bucket } : {}), tokens: Math.floor(budget.introspect().tokensAvailable), queued: queued.live + queued.background };
+};
+
 /**
  * A Hyperliquid step was not started because its weight is not available
  * yet: in this process's token bucket (`local_budget`) or in the shared
@@ -21,7 +33,7 @@ const WAIT_SLACK_MS = 1_000;
  * budget never turns into stale evidence (the setup stall of 2026-10-05).
  */
 export class HyperliquidBudgetWait extends ServiceUnavailableException {
-  constructor(readonly retryMs: number, readonly reason: 'local_budget' | 'shared_capacity') {
+  constructor(readonly retryMs: number, readonly reason: 'local_budget' | 'shared_capacity', readonly detail: BudgetWaitDetail = {}) {
     super({ statusCode: 503, code: 'hyperliquid_busy', message: 'Hyperliquid is busy; try again shortly', retryAfterMs: Math.ceil(retryMs) });
   }
 }
@@ -56,6 +68,8 @@ export interface LiveReserveOptions {
   /** `live` (default): latency-sensitive copy and wallet work, first in line;
    * `background`: work nobody waits for (follower snapshots, receipts). */
   readonly lane?: RequestPriority;
+  /** Which bucket, for a refusal's detail (logs, the setup's `last_wait`). */
+  readonly bucket?: string;
 }
 /** Weight taken from a token bucket before a read starts its clock. */
 export interface LiveBudgetReservation {
@@ -81,13 +95,13 @@ export type LiveBudget = ((weight: number, options?: LiveReserveOptions) => Prom
  *   `TimeoutError`.
  * - The caller's own `signal` aborting is passed through as it is.
  */
-export async function reserveLive(budget: RequestBudgeterService, weight: number, { maxWaitMs, signal, lane = 'live' }: LiveReserveOptions = {}): Promise<void> {
+export async function reserveLive(budget: RequestBudgeterService, weight: number, { maxWaitMs, signal, lane = 'live', bucket }: LiveReserveOptions = {}): Promise<void> {
   signal?.throwIfAborted();
   if (lane === 'live' && weight > budget.liveCapacity) throw new HyperliquidBudgetOverCapacity(weight, budget.liveCapacity);
   const limit = maxWaitMs ?? budget.refillMs();
   if (lane === 'live') {
     const estimate = budget.liveWaitMs(weight);
-    if (estimate > limit) throw new HyperliquidBudgetWait(estimate, 'local_budget');
+    if (estimate > limit) throw new HyperliquidBudgetWait(estimate, 'local_budget', waitDetail(budget, weight, lane, bucket));
   }
   const timeout = AbortSignal.timeout(Math.max(1, limit) + WAIT_SLACK_MS);
   try { await budget.acquire(weight, lane, lane === 'live' ? 0 : undefined, { signal: signal ? AbortSignal.any([signal, timeout]) : timeout }); }
@@ -97,7 +111,7 @@ export async function reserveLive(budget: RequestBudgeterService, weight: number
     // queue: come back later. Anything else (the budgeter stopping with the
     // process) is not a wait.
     if (!timeout.aborted && !(error instanceof BudgetWaitError) && !(error instanceof Error && error.message === 'Hyperliquid queue is full')) throw error;
-    throw new HyperliquidBudgetWait(Math.max(1_000, lane === 'live' ? budget.liveWaitMs(weight) : budget.refillMs(weight)), 'local_budget');
+    throw new HyperliquidBudgetWait(Math.max(1_000, lane === 'live' ? budget.liveWaitMs(weight) : budget.refillMs(weight)), 'local_budget', waitDetail(budget, weight, lane, bucket));
   }
 }
 

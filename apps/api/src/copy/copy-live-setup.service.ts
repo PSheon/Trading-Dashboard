@@ -21,7 +21,7 @@ import { CopyLiveMandateRepository } from './copy-live-mandate.repository.js';
 import { assertSetupAdmission } from './copy-live-setup-barrier.js';
 import { CopyLiveSetupAbortService } from './copy-live-setup-abort.service.js';
 import { builderOutcome, CopyLiveReturnRepository } from './copy-live-return.repository.js';
-import { CopyLiveSetupRepository, DRIVEN_STAGES, type SetupRow, type SetupStage } from './copy-live-setup.repository.js';
+import { CopyLiveSetupRepository, DRIVEN_STAGES, type SetupRow, type SetupStage, type SetupWait } from './copy-live-setup.repository.js';
 import { CopyWalletRepository } from './copy-wallet.repository.js';
 import { CopyWalletService } from './copy-wallet.service.js';
 import type { MasterAccount, MasterActionBound, MasterTypedData } from './live/master-action.js';
@@ -628,9 +628,13 @@ export class CopyLiveSetupService {
           if (error instanceof Wait) { row = (await this.repository.transition(row, { issue: error.issue, nextAttemptAt: new Date(this.now() + error.retryMs) })) ?? row; break; }
           // Hyperliquid weight not available yet: nothing was read or sent.
           // Come back when it is (the shared per-IP window: no sooner than 65 s).
+          // What it waited for is logged and kept on the row (lastWait): a
+          // setup looping on hyperliquid_busy says which bucket and why.
           if (error instanceof HyperliquidBudgetWait) {
             const retryMs = error.reason === 'shared_capacity' ? Math.max(SHARED_CAPACITY_RETRY_MS, error.retryMs) : Math.max(1_000, error.retryMs);
-            row = (await this.repository.transition(row, { issue: 'hyperliquid_busy', nextAttemptAt: new Date(this.now() + retryMs) })) ?? row; break;
+            const lastWait: SetupWait = { at: new Date(this.now()).toISOString(), step: row.stage, reason: error.reason, retryMs: Math.ceil(retryMs), ...error.detail };
+            this.logger.warn(`setup ${row.id} hyperliquid_busy ${JSON.stringify({ setupId: row.id, attempts: row.attempts + 1, ...lastWait })}`);
+            row = (await this.repository.transition(row, { issue: 'hyperliquid_busy', attempts: row.attempts + 1, lastWait, nextAttemptAt: new Date(this.now() + retryMs) })) ?? row; break;
           }
           if (error instanceof Fail) { row = (await this.repository.transition(row, { stage: EXPIRED_ISSUES.includes(error.issue) ? 'expired' : 'failed', issue: error.issue, nextAttemptAt: null })) ?? row; break; }
           const code = error instanceof HttpException && typeof error.getResponse() === 'object' && (error.getResponse() as { code?: unknown }).code;

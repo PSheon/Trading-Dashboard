@@ -1,0 +1,1 @@
+ALTER TABLE "copy_live_setups" ADD COLUMN "last_wait" jsonb;

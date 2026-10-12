@@ -1,13 +1,20 @@
 import { HttpException, Injectable, Logger, type CanActivate, type ExecutionContext } from "@nestjs/common";
+import { Reflector } from "@nestjs/core";
 import type { Request, Response } from "express";
 import { AppConfig } from "../../config/app-config.js";
 import type { RequestUser } from "./current-user.js";
 import { clientKey } from "../http/client-key.js";
+import { isSafetyExit } from "./safety-exit.decorator.js";
 
 /** `/health` and `/health/ready` per client and minute: ample for a
  * platform's health checks (answers are cached for a second anyway), and
  * outside the ingress and read limits so a busy client can't fail them. */
 export const HEALTH_PER_MINUTE = 120;
+
+/** Safety exits (@SafetyExit: stop, close, cancel, revoke, return) per
+ * caller and minute, in their own bucket: the caller's other writes never
+ * hold back taking risk off a real-money copy, and the exits stay bounded. */
+export const SAFETY_EXIT_PER_MINUTE = 30;
 
 /** Keys (client × category) tracked at once. */
 export const RATE_LIMIT_MAX_KEYS = 50_000;
@@ -108,13 +115,16 @@ export class IngressRateGuard implements CanActivate {
 /** Runs after auth; one verified account remains one bucket across token/IP changes. */
 @Injectable()
 export class CallerRateGuard implements CanActivate {
-  constructor(private readonly limiter: RequestRateLimiter, private readonly config: AppConfig) {}
+  constructor(private readonly limiter: RequestRateLimiter, private readonly config: AppConfig, private readonly reflector: Reflector) {}
   canActivate(context: ExecutionContext) {
     const req = context.switchToHttp().getRequest<Request & { user?: RequestUser }>();
     // Already limited by its own bucket in IngressRateGuard.
     if (health(req)) return true;
     const identity = req.user?.kind === "user" ? `user:${req.user.id}` : req.user?.kind === "service" ? "service" : `ip:${ipOf(req)}`;
     const write = !["GET", "HEAD", "OPTIONS"].includes(req.method);
+    // A safety exit never waits behind the caller's other writes (a full
+    // write bucket held a stop back for up to a minute).
+    if (write && isSafetyExit(this.reflector, context)) return enforce(context, this.limiter, `safety:${identity}`, SAFETY_EXIT_PER_MINUTE);
     const expensive = write && (req.path.startsWith("/import") || req.path.endsWith("/telegram/test"));
     const category = expensive ? "expensive" : write ? "write" : "read";
     const limits = this.config.value.limits;

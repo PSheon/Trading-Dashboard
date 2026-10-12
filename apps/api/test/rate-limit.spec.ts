@@ -54,7 +54,7 @@ function context(request: object) {
   return { setHeader, ctx: { switchToHttp: () => ({ getRequest: () => ({ method: "GET", path: "/traders", ip: "127.0.0.1", socket: {}, ...request }), getResponse: () => ({ setHeader }) }) } as unknown as ExecutionContext };
 }
 it("uses verified user identity across token/IP rotation, separating different users", () => {
-  const guard = new CallerRateGuard(new RequestRateLimiter(), config);
+  const guard = new CallerRateGuard(new RequestRateLimiter(), config, new Reflector());
   expect(guard.canActivate(context({ user: { kind: "user", id: 1 } }).ctx)).toBe(true);
   const second = context({ user: { kind: "user", id: 1 }, ip: "203.0.113.1", headers: { authorization: "Bearer different" } });
   expect(() => guard.canActivate(second.ctx)).toThrow("Too many requests");
@@ -67,8 +67,9 @@ it("does not accept forged forwarded headers as an IP identity", () => {
   expect(() => guard.canActivate(context({ headers: { "x-forwarded-for": "203.0.113.2" } }).ctx)).toThrow();
 });
 
-import { Controller, Get } from "@nestjs/common";
-import { APP_GUARD } from "@nestjs/core";
+import { Controller, Get, HttpCode, Post } from "@nestjs/common";
+import { APP_GUARD, Reflector } from "@nestjs/core";
+import { SafetyExit } from "../src/common/auth/safety-exit.decorator.js";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
 import { HttpModule } from "../src/common/http/http.module.js";
@@ -93,7 +94,7 @@ it("throttles /health and /health/ready per client in their own bucket, apart fr
   const { HEALTH_PER_MINUTE } = await import("../src/common/auth/rate-limit.guard.js");
   const limiter = new RequestRateLimiter();
   const ingress = new IngressRateGuard(limiter, config);
-  const caller = new CallerRateGuard(limiter, config);
+  const caller = new CallerRateGuard(limiter, config, new Reflector());
   for (let i = 0; i < HEALTH_PER_MINUTE; i++) {
     const path = i % 2 ? "/health" : "/health/ready";
     expect(ingress.canActivate(context({ path, ip: "198.51.100.5" }).ctx)).toBe(true);
@@ -117,4 +118,32 @@ it("counts IPv6 clients per /64 and IPv4 per address", () => {
   expect(guard.canActivate(context({ ip: "198.51.100.1" }).ctx)).toBe(true);
   expect(guard.canActivate(context({ ip: "198.51.100.2" }).ctx)).toBe(true);
   expect(() => guard.canActivate(context({ ip: "::ffff:198.51.100.2" }).ctx)).toThrow("Too many requests");
+});
+
+it("a safety exit (stop) is not held back by the caller's spent write bucket, and has its own bound", async () => {
+  const { SAFETY_EXIT_PER_MINUTE } = await import("../src/common/auth/rate-limit.guard.js");
+  @SkipTransform() @Controller("copy-probe") class Probe {
+    @Post("edit") @HttpCode(200) edit() { return { ok: true }; }
+    @Post("stop") @HttpCode(200) @SafetyExit() stop() { return { ok: true }; }
+  }
+  const writes = new AppConfig(validateEnvironment({ DATABASE_URL: "postgres://test@localhost/test", API_WRITE_PER_MINUTE: "2" }));
+  const module = await Test.createTestingModule({
+    imports: [HttpModule], controllers: [Probe],
+    providers: [RequestRateLimiter, { provide: AppConfig, useValue: writes }, { provide: APP_GUARD, useClass: CallerRateGuard }],
+  }).compile();
+  const app = module.createNestApplication({ logger: false });
+  await app.listen(0, "127.0.0.1");
+  try {
+    const server = app.getHttpServer();
+    await request(server).post("/copy-probe/edit").expect(200);
+    await request(server).post("/copy-probe/edit").expect(200);
+    await request(server).post("/copy-probe/edit").set("x-api-contract", "1").expect(429);
+    // The caller's writes are spent: the stop still goes through, at once.
+    await request(server).post("/copy-probe/stop").expect(200);
+    for (let i = 1; i < SAFETY_EXIT_PER_MINUTE; i++) await request(server).post("/copy-probe/stop").expect(200);
+    // Bounded: a flood of exits is limited in its own bucket.
+    const res = await request(server).post("/copy-probe/stop").set("x-api-contract", "1").expect(429);
+    expect(res.body.error.code).toBe("rate_limited");
+    expect(Number(res.headers["retry-after"])).toBeGreaterThan(0);
+  } finally { await app.close(); }
 });

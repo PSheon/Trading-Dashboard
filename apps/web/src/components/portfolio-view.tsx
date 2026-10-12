@@ -14,6 +14,7 @@ import { CopyEquityProbes, useCopiesEquity } from "@/lib/copy-equity";
 import { ExposurePanel, InsightsPanel, PaperSummary, PaperSummarySkeleton, PortfolioChart, PortfolioChartSkeleton } from "@/components/copy/portfolio-parts";
 import { ErrorState, Skeleton } from "@/components/page";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { InfoTip } from "@/components/ui/info-tip";
 import { Tabs } from "@/components/ui/tabs";
 import { boardName } from "@/components/discover/board-bits";
 import { useLiveCopyPortfolio } from "@/lib/copy-live-portfolio";
@@ -106,13 +107,16 @@ function MyFunds({ wallet, inCopies, className }: { wallet: ReturnType<typeof us
   const main = walletTotalValue(wallet.data);
   return (
     <section className={cn("orbit-card card-pad flex flex-col gap-3", className)} aria-label={t("folio.myFunds")} data-testid="my-funds">
-      <p className="text-[13px] font-bold text-muted-foreground">{t("folio.myFunds")}</p>
+      <p className="flex items-center gap-1 text-[13px] font-bold text-muted-foreground">
+        {t("folio.myFunds")}
+        {/* The parts may miss the total by a cent: said in a tip. */}
+        {main !== null && inCopies !== null && inCopies !== 0 ? <InfoTip label={t("common.moreInfo")} align="start">{t("liveCopyUi.roundingHint")}</InfoTip> : null}
+      </p>
       {main !== null ? <p className="num font-display text-[2.25rem] leading-tight">{inCopies === null ? "—" : format.usd(main + inCopies, { digits: 2 })}</p> : <TotalValue wallet={wallet} className="font-display text-[2.25rem] leading-tight" />}
       <dl className="grid grid-cols-2 gap-3 text-xs">
         <div><dt className="text-muted-foreground">{t("folio.mainWallet")}</dt><dd className="num mt-0.5 text-sm font-bold">{main === null ? "—" : format.usd(main, { digits: 2 })}</dd></div>
         <div><dt className="text-muted-foreground">{t("folio.inCopies")}</dt><dd className="num mt-0.5 text-sm font-bold">{inCopies === null ? t("folio.balancePending") : format.usd(inCopies, { digits: 2 })}</dd></div>
       </dl>
-      {main !== null && inCopies !== null && inCopies !== 0 ? <p className="text-xs leading-5 text-muted-foreground">{t("liveCopyUi.roundingHint")}</p> : null}
       {wallet.isError && !wallet.data ? <ErrorState onRetry={() => wallet.refetch()} /> : null}
       {wallet.data && main === null ? <p role="status" className="text-xs text-muted-foreground">{t("folio.balancePending")}</p> : null}
       <FundButtons />

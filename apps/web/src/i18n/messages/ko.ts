@@ -460,6 +460,7 @@ export const ko: Messages = {
   },
   common: {
     moreActions: en.common.moreActions,
+    moreInfo: en.common.moreInfo,
     errors: {
       rateLimited: "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
       busy: "서비스가 혼잡합니다. 잠시 후 다시 시도해 주세요.",
@@ -1599,7 +1600,8 @@ export const ko: Messages = {
     colProfitable: "수익 트레이더",
     colProfit: "합산 수익",
     title: "Hyperliquid {coin} 상위 트레이더",
-    body: "Hyperliquid에서 {coin} 수익이 가장 높은 트레이더입니다. {coin} 실현 손익만으로 순위를 매기며, 승률과 거래 횟수는 저희가 직접 복원한 모든 청산 완료 왕복 거래에서 산출됩니다.",
+    body: "Hyperliquid에서 {coin} 수익이 가장 높은 트레이더입니다. {coin} 실현 손익만으로 순위를 매깁니다.",
+    method: "승률과 거래 횟수는 저희가 직접 복원한 모든 청산 완료 왕복 거래에서 산출됩니다.",
     listed: "표시된 트레이더",
     profit: "합산 수익",
     volume: "거래량",

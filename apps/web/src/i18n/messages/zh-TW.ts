@@ -1231,6 +1231,7 @@ export const zhTW = {
   },
   common: {
     moreActions: "更多操作",
+    moreInfo: "說明",
     errors: {
       rateLimited: "操作太頻繁，請稍後再試。",
       busy: "服務忙碌中，請稍後再試。",
@@ -2734,7 +2735,8 @@ export const zhTW = {
     colProfitable: "獲利交易員",
     colProfit: "獲利總額",
     title: "Hyperliquid 上最強的 {coin} 交易員",
-    body: "Hyperliquid 上最賺錢的 {coin} 交易員，只依 {coin} 的已實現損益排名。勝率與交易次數來自我們自行還原的每一筆已平倉來回交易。",
+    body: "Hyperliquid 上最賺錢的 {coin} 交易員，只依 {coin} 的已實現損益排名。",
+    method: "勝率與交易次數來自我們自行還原的每一筆已平倉來回交易。",
     listed: "列出的交易員",
     profit: "獲利總額",
     volume: "交易量",

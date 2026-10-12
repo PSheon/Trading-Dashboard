@@ -460,6 +460,7 @@ export const es: Messages = {
   },
   common: {
     moreActions: en.common.moreActions,
+    moreInfo: en.common.moreInfo,
     errors: {
       rateLimited: "Demasiadas solicitudes. Inténtalo de nuevo en un momento.",
       busy: "El servicio está ocupado. Inténtalo de nuevo en un momento.",
@@ -1599,7 +1600,8 @@ export const es: Messages = {
     colProfitable: "Traders rentables",
     colProfit: "Beneficio combinado",
     title: "Mejores traders de {coin} en Hyperliquid",
-    body: "Los traders más rentables de {coin} en Hyperliquid, ordenados solo por el PnL realizado en {coin}. La tasa de acierto y el número de operaciones salen de nuestra propia reconstrucción de cada operación completa cerrada.",
+    body: "Los traders más rentables de {coin} en Hyperliquid, ordenados solo por el PnL realizado en {coin}.",
+    method: "La tasa de acierto y el número de operaciones salen de nuestra propia reconstrucción de cada operación completa cerrada.",
     listed: "Traders listados",
     profit: "Beneficio combinado",
     volume: "Volumen",

@@ -10,6 +10,7 @@ import { boardName, HScroll, TraderAvatar, VerifiedTick } from "@/components/dis
 import { HomeCard, HomeCardSkeleton } from "@/components/discover/board-card";
 import { ErrorState, SkelBar, SkelCircle, Skeleton } from "@/components/page";
 import { buttonVariants } from "@/components/ui/button-variants";
+import { InfoTip } from "@/components/ui/info-tip";
 import { SiteFooter } from "@/components/shell/site-footer";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { useI18n } from "@/i18n/provider";
@@ -330,6 +331,10 @@ export function Calculator({ traders }: { traders: BoardTrader[] }) {
           </div>
           <span className="mt-2.5 flex items-center gap-1 text-[13px] font-bold text-muted-foreground">
             {hover !== null ? t("home.youWouldHaveHad") : t("home.youWouldHave")}
+            {/* The illustration's disclaimer: one ⓘ, not three grey lines
+                (text density review 2026-10-12 §1.1). The amount field is
+                described by it too. */}
+            <InfoTip id="calc-note" label={t("common.moreInfo")} align="end">{t("home.heroNote")}</InfoTip>
           </span>
           <div className={cn("flex h-[52px] items-center rounded-[26px] px-4", shown === null ? "bg-inset" : up ? "bg-tag-profit" : "bg-tag-loss")} aria-live="polite">
             <span className={cn("num truncate font-display text-[22px]", shown === null ? "text-muted-foreground" : up ? "text-tag-profit-foreground" : "text-tag-loss-foreground")}>{shown === null ? "—" : `$${Math.round(shown).toLocaleString("en-US")}`}</span>
@@ -343,7 +348,6 @@ export function Calculator({ traders }: { traders: BoardTrader[] }) {
           <HoverChartOrEmpty series={series} animateKey={trader.address} hover={hover} onHover={setHover} missingRoi={simulation === null} />
         </div>
       </div>
-      <p id="calc-note" className="text-xs leading-relaxed text-muted-foreground">{t("home.heroNote")}</p>
     </section>
   );
 }

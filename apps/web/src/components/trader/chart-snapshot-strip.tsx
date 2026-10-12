@@ -2,6 +2,7 @@
 
 import { cn } from "cn";
 
+import { InfoTip } from "@/components/ui/info-tip";
 import { useI18n } from "@/i18n/provider";
 import { coinLabel, usdCompact } from "@/lib/format";
 import type { WireChartSnapshots } from "@trading-dashboard/shared/contracts";
@@ -36,7 +37,8 @@ export function ChartSnapshotStrip({ data, time, className }: { data: WireChartS
   return (
     <div className={cn("flex min-h-9 flex-wrap items-center gap-x-3 gap-y-1 px-3 pb-2 text-xs", className)} data-testid="chart-snapshot" aria-live="polite">
       {time === null ? (
-        <span className="text-muted-foreground">{t("chartSnap.hint")}</span>
+        // How to use the strip is a tip, not a line that is always there.
+        <InfoTip label={t("common.moreInfo")} align="start">{t("chartSnap.hint")}</InfoTip>
       ) : !snap ? (
         <span className="text-muted-foreground">{t("chartSnap.none")}</span>
       ) : (

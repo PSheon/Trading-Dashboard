@@ -460,6 +460,7 @@ export const id: Messages = {
   },
   common: {
     moreActions: en.common.moreActions,
+    moreInfo: en.common.moreInfo,
     errors: {
       rateLimited: "Terlalu banyak permintaan. Coba lagi sebentar lagi.",
       busy: "Layanan sedang sibuk. Coba lagi sebentar lagi.",
@@ -1599,7 +1600,8 @@ export const id: Messages = {
     colProfitable: "Trader untung",
     colProfit: "Total keuntungan",
     title: "Trader {coin} teratas di Hyperliquid",
-    body: "Trader {coin} paling menguntungkan di Hyperliquid, diurutkan hanya berdasarkan PnL terealisasi pada {coin}. Win rate dan jumlah transaksi berasal dari rekonstruksi kami sendiri atas setiap transaksi lengkap yang sudah ditutup.",
+    body: "Trader {coin} paling menguntungkan di Hyperliquid, diurutkan hanya berdasarkan PnL terealisasi pada {coin}.",
+    method: "Win rate dan jumlah transaksi berasal dari rekonstruksi kami sendiri atas setiap transaksi lengkap yang sudah ditutup.",
     listed: "Trader terdaftar",
     profit: "Total keuntungan",
     volume: "Volume",

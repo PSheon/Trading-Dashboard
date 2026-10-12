@@ -460,6 +460,7 @@ export const tr: Messages = {
   },
   common: {
     moreActions: en.common.moreActions,
+    moreInfo: en.common.moreInfo,
     errors: {
       rateLimited: "Çok fazla istek. Birazdan tekrar deneyin.",
       busy: "Hizmet meşgul. Birazdan tekrar deneyin.",
@@ -1599,7 +1600,8 @@ export const tr: Messages = {
     colProfitable: "Kâr eden trader'lar",
     colProfit: "Toplam kâr",
     title: "Hyperliquid'de en iyi {coin} trader'ları",
-    body: "Hyperliquid'de {coin} üzerinde en çok kazanan trader'lar; sıralama yalnızca {coin} üzerinde gerçekleşen kâra dayanır. Kazanma oranı ve işlem sayısı, kapanmış her turu kendi yeniden kurgumuzdan gelir.",
+    body: "Hyperliquid'de {coin} üzerinde en çok kazanan trader'lar; sıralama yalnızca {coin} üzerinde gerçekleşen kâra dayanır.",
+    method: "Kazanma oranı ve işlem sayısı, kapanmış her turu kendi yeniden kurgumuzdan gelir.",
     listed: "Listelenen trader",
     profit: "Toplam kâr",
     volume: "Hacim",

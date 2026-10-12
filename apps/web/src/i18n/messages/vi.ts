@@ -460,6 +460,7 @@ export const vi: Messages = {
   },
   common: {
     moreActions: en.common.moreActions,
+    moreInfo: en.common.moreInfo,
     errors: {
       rateLimited: "Quá nhiều yêu cầu. Vui lòng thử lại sau giây lát.",
       busy: "Dịch vụ đang bận. Vui lòng thử lại sau giây lát.",
@@ -1599,7 +1600,8 @@ export const vi: Messages = {
     colProfitable: "Trader có lãi",
     colProfit: "Tổng lợi nhuận",
     title: "Trader {coin} hàng đầu trên Hyperliquid",
-    body: "Những trader lãi nhiều nhất với {coin} trên Hyperliquid, xếp hạng chỉ theo PnL đã thực hiện trên {coin}. Tỷ lệ thắng và số lệnh đến từ việc chúng tôi tự dựng lại toàn bộ giao dịch trọn vòng đã đóng.",
+    body: "Những trader lãi nhiều nhất với {coin} trên Hyperliquid, xếp hạng chỉ theo PnL đã thực hiện trên {coin}.",
+    method: "Tỷ lệ thắng và số lệnh đến từ việc chúng tôi tự dựng lại toàn bộ giao dịch trọn vòng đã đóng.",
     listed: "Trader được liệt kê",
     profit: "Tổng lợi nhuận",
     volume: "Khối lượng",

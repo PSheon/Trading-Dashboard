@@ -1228,6 +1228,7 @@ export const en: Messages = {
   },
   common: {
     moreActions: "More actions",
+    moreInfo: "More info",
     errors: {
       rateLimited: "Too many requests. Try again in a moment.",
       busy: "The service is busy. Try again in a moment.",
@@ -2730,7 +2731,8 @@ export const en: Messages = {
     colProfitable: "Profitable traders",
     colProfit: "Combined profit",
     title: "Top {coin} traders on Hyperliquid",
-    body: "The most profitable {coin} traders on Hyperliquid, ranked by realized PnL on {coin} alone. Win rates and trade counts come from our own reconstruction of every closed round trip.",
+    body: "The most profitable {coin} traders on Hyperliquid, ranked by realized PnL on {coin} alone.",
+    method: "Win rates and trade counts come from our own reconstruction of every closed round trip.",
     listed: "Traders listed",
     profit: "Combined profit",
     volume: "Volume",

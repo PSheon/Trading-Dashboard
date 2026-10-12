@@ -10,6 +10,7 @@ import { cn } from "cn";
 import { EmptyState, ErrorState, SkelBar, SkelCircle } from "@/components/page";
 import { boardName, TraderAvatar } from "@/components/discover/board-bits";
 import { CoinIcon } from "@/components/traders/coin-icon";
+import { InfoTip } from "@/components/ui/info-tip";
 import { useI18n } from "@/i18n/provider";
 import { APP_NAME } from "@/lib/config";
 import { coinHref } from "@/lib/coin-slug";
@@ -136,7 +137,10 @@ export function CoinBoardView({ coin }: { coin: string }) {
         <span aria-current="page">{label}</span>
       </nav>
       <h1 className="type-h1 mt-3">{t("coins.title", { coin: label })}</h1>
-      <p className="mt-2 max-w-[68ch] text-[15px] leading-[1.5] font-bold text-muted-foreground">{t("coins.body", { coin: label })}</p>
+      <p className="mt-2 max-w-[68ch] text-[15px] leading-[1.5] font-bold text-muted-foreground">
+        {t("coins.body", { coin: label })}{" "}
+        <InfoTip label={t("common.moreInfo")}>{t("coins.method")}</InfoTip>
+      </p>
 
       {noData ? (
         <p data-testid="coin-no-data" className="mt-8 text-sm leading-[1.5] text-muted-foreground">{t("coins.noData")}</p>

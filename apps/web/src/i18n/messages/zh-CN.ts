@@ -460,6 +460,7 @@ export const zhCN: Messages = {
   },
   common: {
     moreActions: "更多操作",
+    moreInfo: "说明",
     errors: {
       rateLimited: "操作太频繁，请稍后再试。",
       busy: "服务繁忙，请稍后再试。",
@@ -1599,7 +1600,8 @@ export const zhCN: Messages = {
     colProfitable: "盈利交易员",
     colProfit: "盈利总额",
     title: "Hyperliquid 上最强的 {coin} 交易员",
-    body: "Hyperliquid 上最赚钱的 {coin} 交易员，仅按 {coin} 的已实现盈亏排名。胜率与交易次数来自我们自行还原的每一笔已平仓往返交易。",
+    body: "Hyperliquid 上最赚钱的 {coin} 交易员，仅按 {coin} 的已实现盈亏排名。",
+    method: "胜率与交易次数来自我们自行还原的每一笔已平仓往返交易。",
     listed: "列出的交易员",
     profit: "盈利总额",
     volume: "交易量",

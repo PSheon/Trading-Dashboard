@@ -12,6 +12,7 @@ import { useWalletModals } from "@/components/wallet/wallet-modals";
 import { HedgeNotice } from "@/components/copy/portfolio-parts";
 import { useTradingMode, type SiteMode } from "@/lib/site-mode";
 import { useToast } from "@/components/ui/toast";
+import { InfoTip } from "@/components/ui/info-tip";
 import { usePendingToast } from "@/lib/use-action-toast";
 import { UsdcIcon } from "@/components/wallet/bits";
 import { useI18n } from "@/i18n/provider";
@@ -608,6 +609,7 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
             <span className="num ml-auto text-sm font-bold" data-testid="copy-available">
               {t("trader.copy.availableFrom", { amount: balanceKnown ? format.num(balance, 2) : "—", source: testnet ? liveText.testnetBalance : t("trader.copy.paperAccount") })}
             </span>
+            {testnet ? <InfoTip label={t("common.moreInfo")} align="end">{liveText.testnetNote}</InfoTip> : null}
           </div>
           <div role="group" aria-label={t("trader.copy.amount")} className="grid grid-cols-3 gap-1">
             {KEYPAD.flat().map((k) => (
@@ -631,6 +633,8 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
           <div className="flex items-center justify-between gap-3 text-sm leading-[21px]">
             <span className="flex items-center gap-2 text-muted-foreground">
               {testnet ? <span className="whitespace-nowrap">{liveText.testnetBalance}</span> : t("trader.copy.balance")}
+              {/* Which money this is: a tip, not a line under the button. */}
+              {testnet ? <InfoTip label={t("common.moreInfo")} align="start">{liveText.testnetNote}</InfoTip> : null}
             </span>
             <span className="num font-semibold">{balanceText} USDC</span>
           </div>
@@ -730,8 +734,7 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
             </>
           ) : testnet && preparing ? liveText.preparing : label}
         </Button>
-        {testnet && preparing ? <p role="status" className="text-center text-xs leading-5 text-muted-foreground">{liveText.preparingHint}</p>
-          : testnet ? <p className="text-center text-xs leading-5 text-muted-foreground">{liveText.testnetNote}</p> : null}
+        {testnet && preparing ? <p role="status" className="text-center text-xs leading-5 text-muted-foreground">{liveText.preparingHint}</p> : null}
       </div>
      </form>
      {liveDialogs}

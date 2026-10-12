@@ -22,7 +22,10 @@ export async function generateMetadata({ params }: PageProps<"/[locale]/coins/[c
   const messages = getMessages(locale);
   if (!coin || (await unknownMarket(coin))) return {}; // a 404 takes its title from not-found.tsx
   const label = coinLabel(coin);
-  return pageSeo(locale, { path: coinHref(coin), title: messages.coins.title.replace("{coin}", label), description: messages.coins.body.replaceAll("{coin}", label) });
+  // The page shows the method as a tip; the description keeps both sentences
+  // (Chinese and Japanese sentences join without a space).
+  const description = [messages.coins.body, messages.coins.method].join(/^(zh|ja)/.test(locale) ? "" : " ").replaceAll("{coin}", label);
+  return pageSeo(locale, { path: coinHref(coin), title: messages.coins.title.replace("{coin}", label), description });
 }
 
 /** CopyDog's `/hyperliquid/coins/BTC` (`/coins/xyz-TSLA` for HIP-3). A slug

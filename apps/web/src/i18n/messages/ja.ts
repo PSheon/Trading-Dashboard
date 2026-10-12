@@ -460,6 +460,7 @@ export const ja: Messages = {
   },
   common: {
     moreActions: en.common.moreActions,
+    moreInfo: en.common.moreInfo,
     errors: {
       rateLimited: "リクエストが多すぎます。しばらくしてからもう一度お試しください。",
       busy: "サービスが混み合っています。しばらくしてからもう一度お試しください。",
@@ -1599,7 +1600,8 @@ export const ja: Messages = {
     colProfitable: "利益を出したトレーダー",
     colProfit: "利益合計",
     title: "Hyperliquid の {coin} トップトレーダー",
-    body: "Hyperliquid で {coin} の利益が最も大きいトレーダー。{coin} の実現損益のみでランク付けし、勝率と取引回数は当社が独自に復元した全決済往復から算出しています。",
+    body: "Hyperliquid で {coin} の利益が最も大きいトレーダー。{coin} の実現損益のみでランク付けしています。",
+    method: "勝率と取引回数は当社が独自に復元した全決済往復から算出しています。",
     listed: "掲載トレーダー数",
     profit: "利益合計",
     volume: "取引高",

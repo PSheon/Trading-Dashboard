@@ -74,16 +74,24 @@ export class CopyWalletRepository {
         .where(and(eq(copyExecutionAccounts.id, id), eq(copyExecutionAccounts.state, "requested"))).returning())[0];
     });
   }
-  /** The wallet Privy shows is this account's. Only a change (first seen,
-   * or ready again after a failed check) moves the revision that consents
-   * and generations bind: a reconcile that finds it as it was (every agent
-   * challenge, every setup step) leaves the row untouched. */
+  /** The wallet Privy shows is this account's. Only an identity change
+   * (first seen, or another wallet, address or owner quorum) moves the
+   * revision that consents and generations bind: a reconcile that finds it
+   * as it was (every agent challenge, every setup step, a re-verification
+   * after a failed one) leaves it, so a running copy keeps trading. */
   async confirmIdentity(id: string, rawIdentity: ProvisionedUserWallet) {
     const found = structuredClone(rawIdentity);
     try { return await this.withLockedAccount(id, async tx => {
       const [current] = await tx.select().from(copyExecutionAccounts).where(eq(copyExecutionAccounts.id, id));
-      if (current && current.state === "ready" && current.issue === null && current.privyWalletId === found.id && current.address === found.address && current.ownerQuorumId === found.ownerQuorumId) {
+      const same = !!current && current.privyWalletId === found.id && current.address === found.address && current.ownerQuorumId === found.ownerQuorumId;
+      if (current && current.state === "ready" && current.issue === null && same) {
         return (await tx.update(copyExecutionAccounts).set({ identityChecks: sql`${copyExecutionAccounts.identityChecks} + 1` }).where(eq(copyExecutionAccounts.id, id)).returning())[0];
+      }
+      // Ready again after a failed check, the identity unchanged: a new check
+      // (so a stale failure no longer applies), the same revision.
+      if (current && current.state === "unknown" && same) {
+        return (await tx.update(copyExecutionAccounts).set({ state: "ready", issue: null, updatedAt: new Date(), identityChecks: sql`${copyExecutionAccounts.identityChecks} + 1` })
+          .where(and(eq(copyExecutionAccounts.id, id), eq(copyExecutionAccounts.state, "unknown"))).returning())[0];
       }
       return (await tx.update(copyExecutionAccounts).set({ state: "ready", issue: null, privyWalletId: found.id,
         address: found.address, ownerQuorumId: found.ownerQuorumId, updatedAt: new Date(), revision: sql`${copyExecutionAccounts.revision} + 1` })
@@ -108,9 +116,11 @@ export class CopyWalletRepository {
         sql`(${copyExecutionAccounts.masterPolicyId} is null or ${copyExecutionAccounts.signerDetachedAt} is not null)`)).returning())[0]);
   }
   /** A failed check of a ready account, unless the account changed or a
-   * newer check succeeded since this one read it. */
+   * newer check succeeded since this one read it. The account stops being
+   * ready (nothing trades on it) but its identity did not change, so the
+   * revision consents bind stays: confirmed again, the copy goes on. */
   async failReverification(id: string, seen: Pick<AccountRow, "revision" | "identityChecks">, issue: AccountRow["issue"]) {
-    await this.withLockedAccount(id, tx => tx.update(copyExecutionAccounts).set({ state: "unknown", issue, updatedAt: new Date(), revision: sql`${copyExecutionAccounts.revision} + 1` })
+    await this.withLockedAccount(id, tx => tx.update(copyExecutionAccounts).set({ state: "unknown", issue, updatedAt: new Date() })
       .where(and(eq(copyExecutionAccounts.id, id), eq(copyExecutionAccounts.state, "ready"), eq(copyExecutionAccounts.revision, seen.revision), eq(copyExecutionAccounts.identityChecks, seen.identityChecks))));
   }
   async finish(id: string, state: AccountRow["state"], issue: AccountRow["issue"]) {

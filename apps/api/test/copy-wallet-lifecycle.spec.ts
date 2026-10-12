@@ -147,10 +147,20 @@ describe("dedicated user-owned execution wallet lifecycle", () => {
     for (let i = 0; i < 3; i++) expect((await service.reconcile(uid, initial.id)).state).toBe("ready");
     const [after] = await db.select().from(copyExecutionAccounts);
     expect(after).toMatchObject({ revision: before.revision, updatedAt: before.updatedAt });
+    // A failed re-verification and a new one that finds the same identity:
+    // the revision a running copy's consent binds stays (O6).
+    const [seen] = await db.select().from(copyExecutionAccounts);
     vi.mocked(provider.findOwned).mockRejectedValueOnce(new Error("provider unavailable"));
-    await service.reconcile(uid, initial.id);
+    expect((await service.reconcile(uid, initial.id)).state).toBe("unknown");
     expect((await service.reconcile(uid, initial.id)).state).toBe("ready");
-    expect((await db.select().from(copyExecutionAccounts))[0].revision).toBe(before.revision + 2);
+    expect((await db.select().from(copyExecutionAccounts))[0].revision).toBe(before.revision);
+    // A stale failure (read before that new check) no longer applies.
+    await new CopyWalletRepository(db).failReverification(initial.id, seen, "provider_unavailable");
+    expect((await db.select().from(copyExecutionAccounts))[0].state).toBe("ready");
+    // A real identity change still moves it (and blocks the account).
+    stored = { ...stored!, ownerQuorumId: "foreign-quorum" };
+    expect((await service.reconcile(uid, initial.id)).state).toBe("blocked");
+    expect((await db.select().from(copyExecutionAccounts))[0].revision).toBeGreaterThan(before.revision);
   });
   it("failed reverification hides a stale positive result until new proof arrives", async () => {
     const initial = await service.prepare(uid, strategy, { network: "testnet" });

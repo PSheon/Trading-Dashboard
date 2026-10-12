@@ -2,7 +2,8 @@ import { Pool } from 'pg';
 import { beforeAll, beforeEach, afterAll, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { copyLiveExecutions, copyLiveIntentProvenance, copyLivePositionBaselines, copyLiveReductionCarry, copyLiveSignalLegs, copySignerNonces,
-  copyLiveMandates, copyStrategies, copyLiveSourceStreams, users } from '@trading-dashboard/shared/database';
+  copyLiveMandates, copyStrategies, copyLiveSourceStreams, copyExecutionAccounts, users } from '@trading-dashboard/shared/database';
+import { CopyWalletRepository } from '../src/copy/copy-wallet.repository.js';
 import { PostgresLivePreparation } from '../src/copy/live/postgres-live-preparation.js';
 import { LiveProviderReadEpoch } from '../src/copy/live/live-provider-read-epoch.js';
 import { PostgresLiveRiskScope } from '../src/copy/live/postgres-live-risk-scope.js';
@@ -136,6 +137,15 @@ describe('atomic original-session live preparation', () => {
     expect((await db.select().from(copyLiveSignalLegs))[0]).toMatchObject({ state: 'prepared', fixedTradeClaim: true, revision: 2 });
     expect((await db.select().from(copyLiveReductionCarry))[0]).toMatchObject({ carry: '0', revision: 1 });
     expect((await db.select().from(copyStrategies))[0]).toMatchObject({ allocated: '0', cash: '0' });
+  });
+  it('a running copy still prepares after its account failed one re-verification and was confirmed again with the same identity (O6)', async () => {
+    const wallets = new CopyWalletRepository(db), [account] = await db.select().from(copyExecutionAccounts);
+    await wallets.failReverification('account', account!, 'provider_unavailable');
+    // Not ready meanwhile: nothing trades on it.
+    await scope.run(identity(), async (_s, session) => { await expect(preparation.prepare(session, binding())).rejects.toThrow('live_risk_identity'); });
+    await wallets.confirmIdentity('account', { id: 'master', address: seed.f.identity.accountAddress, externalId: 'source-master', ownerQuorumId: 'owner' });
+    expect((await db.select().from(copyExecutionAccounts))[0]).toMatchObject({ state: 'ready', issue: null, revision: account!.revision });
+    await scope.run(identity(), async (_s, session) => { expect((await preparation.prepare(session, binding())).intent).toMatchObject({ size: '0.1', side: 'B' }); });
   });
   it('recovers the same original key and nonce without recollecting or repricing', async () => {
     const first = await scope.run(identity(), async (_s, session) => preparation.prepare(session, binding()));

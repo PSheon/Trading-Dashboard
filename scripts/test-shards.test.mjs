@@ -38,6 +38,6 @@ test('reads vitest and Playwright list-reporter lines from gh run logs', () => {
 });
 test('finds the browser specs Playwright would run', () => {
   const files = e2eFiles();
-  assert.ok(files.length > 10 && files.every((file) => /\.spec\.ts$/.test(file)), String(files));
+  assert.ok(files.length > 10 && files.every((file) => file.endsWith('.spec.ts')), String(files));
   assert.ok(!files.includes('helpers.ts') && !files.includes('global-setup.ts'));
 });

@@ -67,6 +67,7 @@ export function e2eFiles(dir = SUITES.e2e.dir) {
 /** Per-file seconds from CI logs: vitest's file lines and Playwright's list reporter. */
 export function parseLogs(text) {
   // `gh run view --log` writes the escape character as a literal ^[.
+  // oxlint-disable-next-line no-control-regex -- matches ANSI colour codes
   const clean = text.replace(/(?:\x1b|\^\[)\[[0-9;]*m/g, '');
   const api = {}; const e2e = {};
   for (const match of clean.matchAll(/[✓×↓] (test\/\S+\.spec\.ts) \(\d+ tests?[^)]*\)(?: (\d+)ms)?/g)) {

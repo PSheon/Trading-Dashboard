@@ -95,7 +95,7 @@ export function apiClient(base, token) {
   const call = async (method, path, body) => {
     const response = await fetch(`${base}${path}`, {
       method, headers: { authorization: `Bearer ${await token()}`, "content-type": "application/json", accept: "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
     const json = await response.json().catch(() => null);
     // Errors: { success: false, statusCode, message, error: { code }, meta }.
@@ -121,7 +121,7 @@ export async function confirmFromPortfolio(page, { web, setupId, dryRun = false,
   let watching = false;
   const onPrivy = (r) => {
     const url = new URL(r.url());
-    if (!watching || !/privy\.io$/.test(url.hostname) || r.request().method() === "GET" || r.request().method() === "OPTIONS") return;
+    if (!watching || !url.hostname.endsWith("privy.io") || r.request().method() === "GET" || r.request().method() === "OPTIONS") return;
     seen.privy.push(`${r.request().method()} ${url.pathname.replace(/[0-9a-z]{20,}/g, ":id")} ${r.status()}`);
   };
   page.on("response", onPrivy);

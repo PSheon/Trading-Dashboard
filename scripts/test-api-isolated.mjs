@@ -12,7 +12,7 @@ const stop = (signal = "SIGTERM") => {
   if (!child?.pid) return;
   const active = child;
   const kill = (value) => {
-    try { process.platform === "win32" ? active.kill(value) : process.kill(-active.pid, value); } catch { /* already exited */ }
+    try { if (process.platform === "win32") active.kill(value); else process.kill(-active.pid, value); } catch { /* already exited */ }
   };
   kill(signal);
   killTimer ??= setTimeout(() => kill("SIGKILL"), 10000);
@@ -24,7 +24,7 @@ function run(args, env = process.env) {
   return new Promise((resolve, reject) => {
     child = spawn("pnpm", args, { cwd: root, env, stdio: "inherit", detached: process.platform !== "win32" });
     child.once("error", reject);
-    child.once("exit", (code, signal) => { clearTimeout(killTimer); child = undefined; code === 0 ? resolve() : reject(new Error(`Test command failed (${signal ?? code})`)); });
+    child.once("exit", (code, signal) => { clearTimeout(killTimer); child = undefined; if (code === 0) resolve(); else reject(new Error(`Test command failed (${signal ?? code})`)); });
   });
 }
 try {

@@ -263,7 +263,7 @@ test("reconcile accepts the same proven minimum reduction for a short position",
 
 test("reconcile FAILS on a follower order no leg sent (a double send), but not on a stop's or owner's close", () => {
   const extra = { cloid: "0xc9", oid: 99, coin: "ETH", side: "B", sz: "0.004", px: "2995" };
-  const fills = [...[{ cloid: "0xc1", oid: 91, coin: "ETH", side: "B", sz: "0.004", px: "2995" }, { cloid: "0xc2", oid: 92, coin: "ETH", side: "A", sz: "0.004", px: "2994" }], extra];
+  const fills = [{ cloid: "0xc1", oid: 91, coin: "ETH", side: "B", sz: "0.004", px: "2995" }, { cloid: "0xc2", oid: 92, coin: "ETH", side: "A", sz: "0.004", px: "2994" }, extra];
   assert.deepEqual(run({ followerFills: fills }), ["follower_order_without_dispatch"]);
   assert.deepEqual(run({ followerFills: fills, closeCloids: new Set(["0xc9"]) }), []);
   assert.deepEqual(run({ followerFills: fills, dispatches: null }), []);

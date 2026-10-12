@@ -80,23 +80,6 @@ const TYPES = {
 };
 Object.assign(TYPES, MASTER_POLICY_TYPES);
 const TESTNET_CHAIN_ID = 421614, ZERO = `0x${'00'.repeat(20)}`;
-const message = (primary, field, value) => ({ field_source: 'ethereum_typed_data_message', field, operator: 'eq', value,
-  typed_data: { primary_type: primary, types: { EIP712Domain: DOMAIN, [primary]: TYPES[primary] } } });
-const domain = [
-  { field_source: 'ethereum_typed_data_domain', field: 'chainId', operator: 'eq', value: String(TESTNET_CHAIN_ID) },
-  { field_source: 'ethereum_typed_data_domain', field: 'verifyingContract', operator: 'eq', value: ZERO },
-];
-function protoRules(ownerMain, agent) {
-  return [
-    { name: 'UsdSend to the owner main wallet on testnet', method: 'eth_signTypedData_v4', action: 'ALLOW', conditions: [...domain,
-      message('HyperliquidTransaction:UsdSend', 'destination', ownerMain.toLowerCase()), message('HyperliquidTransaction:UsdSend', 'hyperliquidChain', 'Testnet')] },
-    { name: 'ApproveAgent for the consented agent and expiry', method: 'eth_signTypedData_v4', action: 'ALLOW', conditions: [...domain,
-      message('HyperliquidTransaction:ApproveAgent', 'agentAddress', agent.address.toLowerCase()), message('HyperliquidTransaction:ApproveAgent', 'agentName', agent.name),
-      message('HyperliquidTransaction:ApproveAgent', 'hyperliquidChain', 'Testnet')] },
-    { name: 'Deny key export', method: 'exportPrivateKey', action: 'DENY', conditions: [] },
-    { name: 'Deny seed export', method: 'exportSeedPhrase', action: 'DENY', conditions: [] },
-  ];
-}
 const typed = (primary, msg, chainId = TESTNET_CHAIN_ID) => ({ domain: { name: 'HyperliquidSignTransaction', version: '1', chainId, verifyingContract: ZERO },
   types: { EIP712Domain: DOMAIN, [primary]: TYPES[primary] }, primary_type: primary, message: msg });
 

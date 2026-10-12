@@ -32,7 +32,7 @@ for (let i = 0; i < args.length; i++) {
 }
 if (files.length === 0) {
   const dir = `${root}packages/shared/drizzle/`;
-  for (const name of readdirSync(dir).sort()) if (/\.sql$/.test(name) && /ADD CONSTRAINT "[^"]+" CHECK/.test(readFileSync(dir + name, "utf8"))) files.push(dir + name);
+  for (const name of readdirSync(dir).sort()) if (name.endsWith(".sql") && /ADD CONSTRAINT "[^"]+" CHECK/.test(readFileSync(dir + name, "utf8"))) files.push(dir + name);
 }
 
 /** Every CHECK a migration file adds: `ALTER TABLE … ADD CONSTRAINT` and those inside `CREATE TABLE`. */

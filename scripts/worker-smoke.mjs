@@ -39,7 +39,7 @@ try {
  const api=launch(3313,false);await until(3313,'/health/ready',200);await until(3313,'/health',200);
  await stop(api);await until(3311,'/health/ready',200);
  await stop(a);await until(3312,'/health/ready',200);
- const c=launch(3314,true);await until(3314,'/health/live',200);
+ launch(3314,true);await until(3314,'/health/live',200);
  const pool=new Pool({connectionString:env.DATABASE_URL});
  try {await pool.query("SELECT pg_terminate_backend(pid) FROM pg_locks WHERE locktype='advisory' AND classid=73106 AND objid=1 AND granted AND database=(SELECT oid FROM pg_database WHERE datname=current_database())");} finally{await pool.end();}
  await until(3314,'/health/ready',200);

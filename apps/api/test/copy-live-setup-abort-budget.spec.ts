@@ -6,6 +6,7 @@ import { AppConfig } from '../src/config/app-config.js';
 import { CopyModule } from '../src/copy/copy.module.js';
 import { CopyLiveSetupAbortService, SETUP_ABORT_OBSERVER } from '../src/copy/copy-live-setup-abort.service.js';
 import { CopyFundingExchangeClient } from '../src/copy/copy-funding-exchange.client.js';
+import { SYSTEM_SWEEP_ATTEMPTS, sweepNotSentEvidence } from '../src/copy/copy-live-return.repository.js';
 import { HyperliquidLiveAccountObserver, HyperliquidAllDexsAccountSource } from '../src/copy/live/live-account-observer.js';
 import { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
 import type { WalletNetworkHyperliquid } from '../src/hyperliquid/wallet-network-hyperliquid.js';
@@ -142,6 +143,28 @@ it.each(['accepted', 'credited', 'rejected'] as const)('a delegated stopped gene
     expect(observer.observeSetupAbortFlat).not.toHaveBeenCalled();
   } finally { budget.onModuleDestroy(); }
 });
+
+it.each([['retried', 'delegated', 'setup_abort_refund_pending'], ['credited on its next attempt', 'done', null], ['never sent on every attempt', 'blocked', 'setup_abort_refund_not_completed']] as const)(
+  "a delegated generation's automatic return never sent is not its outcome while another attempt follows: %s", async (_case, state, issue) => {
+    const config = testConfig(), budget = new RequestBudgeterService(config);
+    const observer = { observeSetupAbortFlat: vi.fn() };
+    try {
+      const pass = recoveryPass(config, budget, observer as unknown as HyperliquidLiveAccountObserver);
+      const row = await pass.repository.lease();
+      Object.assign(row, { stopId: 'original-stop', mandateId: 'original-mandate' });
+      const children = await pass.repository.children();
+      Object.assign(children, { stop: { id: 'original-stop', mandateId: 'original-mandate', accountId: 'account', network: 'testnet', state: 'stopped', issue: null } });
+      const attempt = (n: number, status: string) => ({ ...pass.refund, id: `sweep-${n}`, setupAbortId: null, stopId: 'original-stop', transactionHash: null,
+        idempotencyKey: n ? `sweep:original-stop:${n}` : 'sweep:original-stop', status,
+        evidenceHash: status === 'rejected' ? sweepNotSentEvidence('sweep_not_dispatched', `sweep-${n}`) : null }) as unknown as typeof children.funding[number];
+      const attempts = state === 'blocked' ? Array.from({ length: SYSTEM_SWEEP_ATTEMPTS }, (_, n) => attempt(n, 'rejected'))
+        : state === 'done' ? [attempt(0, 'rejected'), attempt(1, 'credited')] : [attempt(0, 'rejected')];
+      children.funding.splice(1, 1, ...attempts);
+      await pass.service.process(row.id);
+      expect(pass.repository.transition).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ state, issue }));
+      expect(pass.exchange.send).not.toHaveBeenCalled();
+    } finally { budget.onModuleDestroy(); }
+  });
 
 it('a warmed 400/min bucket submits its original prepared refund with one fresh proof and the same nonce', async () => {
   vi.useFakeTimers();

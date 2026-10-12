@@ -17,7 +17,7 @@ import { CopyLiveAutoReturn } from '../src/copy/live-worker/copy-live-auto-retur
 import { CopyFundingExchangeClient } from '../src/copy/copy-funding-exchange.client.js';
 import { HyperliquidGlobalTransport } from '../src/hyperliquid/hyperliquid-global-transport.js';
 import type { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
-import { CopyLiveReturnRepository, expireStaleReturns } from '../src/copy/copy-live-return.repository.js';
+import { CopyLiveReturnRepository, expireStaleReturns, SYSTEM_SWEEP_ATTEMPTS, sweepRetryDelayMs } from '../src/copy/copy-live-return.repository.js';
 import { CopyLiveStopWorkerRepository } from '../src/copy/live-worker/copy-live-stop-worker.repository.js';
 import { CLOSE_NEVER_SENT, closeCloid, closeRetryDelayMs, closeSlippageBps, type CloseRequest, type ReduceOnlyCloser } from '../src/copy/live-worker/reduce-only-closer.js';
 import type { LiveAccountSnapshot } from '../src/copy/live/live-account-observer.js';
@@ -131,6 +131,9 @@ describe('testnet stop execution', () => {
     const withSigner = () => db.update(schema.copyExecutionAccounts).set({ masterPolicyId: 'policy-1', masterPolicyFingerprint: 'c'.repeat(64), masterSignerQuorumId: 'worker',
       sweepDestination: main, signerAttachedAt: new Date(clock) });
     const returns = () => db.select().from(schema.copyFundingOperations).where(eq(schema.copyFundingOperations.direction, 'to_main'));
+    /** Time passes for the ended attempts (their back-off is on the clock that stamped them). */
+    const age = (ms: number) => db.update(schema.copyFundingOperations).set({ updatedAt: sql`${schema.copyFundingOperations.updatedAt} - make_interval(secs => ${ms / 1000})` })
+      .where(eq(schema.copyFundingOperations.direction, 'to_main'));
     beforeEach(async () => {
       await db.update(schema.users).set({ embeddedWalletAddress: main });
       exchange = { send: vi.fn(async () => ({ status: 'ok', response: { type: 'default' } })) };
@@ -185,10 +188,35 @@ describe('testnet stop execution', () => {
       await db.update(schema.copyFundingOperations).set({ status: 'cancelled' }).where(eq(schema.copyFundingOperations.id, 'pending-deposit'));
       worker.sign.mockRejectedValueOnce(new Error('privy down'));
       await auto().tick();
-      // Not signed: refused, and the owner's manual return remains.
+      // Not signed: that attempt ends refused (never sent) and the next waits its back-off.
       expect((await returns())[0]).toMatchObject({ status: 'rejected' });
       await auto().tick();
-      expect(await stopRow()).toMatchObject({ issue: 'stop_awaiting_return_to_main_wallet' });
+      expect(await stopRow()).toMatchObject({ issue: 'stop_return_waiting' });
+      expect(await returns()).toHaveLength(1); expect(exchange.send).not.toHaveBeenCalled();
+      // After it: a new attempt with a new nonce, sent once.
+      await age(sweepRetryDelayMs(0) + 1_000); await auto().tick();
+      const stop = await stopRow(), rows = await returns();
+      expect(stop.issue).toBe('stop_returning_to_main_wallet');
+      expect(rows.map(r => [r.idempotencyKey, r.status]).sort(([a], [b]) => a!.localeCompare(b!))).toEqual([[`sweep:${stop.id}`, 'rejected'], [`sweep:${stop.id}:1`, 'accepted']]);
+      expect(new Set(rows.map(r => r.nonce)).size).toBe(2);
+      expect(exchange.send).toHaveBeenCalledTimes(1);
+    });
+
+    it('a sweep never sent is tried again at most SYSTEM_SWEEP_ATTEMPTS times in all, then the owner returns it', async () => {
+      await withSigner(); withdrawable = '25';
+      worker.sign.mockRejectedValue(new Error('privy down'));
+      await auto().tick(); await auto().tick();
+      for (let n = 0; n < SYSTEM_SWEEP_ATTEMPTS; n++) {
+        await auto().tick(); expect(await returns()).toHaveLength(n + 1);
+        // Inside its back-off: no new attempt.
+        await auto().tick(); expect(await returns()).toHaveLength(n + 1);
+        await age(sweepRetryDelayMs(n) + 1_000);
+      }
+      expect((await returns()).every(r => r.status === 'rejected')).toBe(true);
+      await auto().tick(); await age(3_600_000); await auto().tick();
+      expect(await returns()).toHaveLength(SYSTEM_SWEEP_ATTEMPTS);
+      expect(await stopRow()).toMatchObject({ state: 'flat', issue: 'stop_awaiting_return_to_main_wallet' });
+      expect(exchange.send).not.toHaveBeenCalled();
     });
 
     it('a sweep whose send failed is never counted as sent: not dispatched it is refused (the owner returns it), dispatched it stays unconfirmed and is not resent', async () => {
@@ -209,7 +237,7 @@ describe('testnet stop execution', () => {
       expect(exchange.send).toHaveBeenCalledTimes(2);
     });
 
-    it('a sweep whose quota permit is refused at the send was not dispatched: refused (the owner returns it), never left unconfirmed', async () => {
+    it('a sweep whose quota permit is refused at the send was not dispatched: that attempt ends refused and the next waits, never left unconfirmed', async () => {
       await withSigner(); withdrawable = '25';
       const stop = await auto().tick().then(() => auto().tick()).then(stopRow);
       expect(stop.state).toBe('flat');
@@ -219,7 +247,7 @@ describe('testnet stop execution', () => {
       Object.defineProperty(global, 'currentQuota', { value: () => ({ acquireRest: async () => permit }) });
       const client = new CopyFundingExchangeClient({ acquire: vi.fn(async () => {}) } as unknown as RequestBudgeterService, global);
       try {
-        expect(await new CopyLiveAutoReturn('testnet', new CopyLiveReturnRepository(db, testConfig()), client, worker as never, () => clock).sweep(stop, withdrawable)).toBe('failed');
+        expect(await new CopyLiveAutoReturn('testnet', new CopyLiveReturnRepository(db, testConfig()), client, worker as never, () => clock).sweep(stop, withdrawable)).toBe('waiting');
       } finally { vi.unstubAllGlobals(); }
       expect(fetcher).not.toHaveBeenCalled();
       expect((await returns())[0]).toMatchObject({ status: 'rejected' });

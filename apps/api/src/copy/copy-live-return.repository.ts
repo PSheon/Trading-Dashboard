@@ -1,7 +1,7 @@
 import { assertSetupAdmission, assertAccountAbortAdmission } from './copy-live-setup-barrier.js';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, like, ne, or, sql } from 'drizzle-orm';
 import { copyExecutionAccounts, copyFundingOperations, copyLiveBuilderApprovals, copyLiveStopOperations, copyStrategies, users, walletWithdrawals } from '@trading-dashboard/shared/database';
 import { ACTUAL_STRATEGY_MODE } from '@trading-dashboard/shared/contracts';
 import { AppConfig } from '../config/app-config.js';
@@ -34,8 +34,41 @@ export async function expireStaleReturns(tx: DbTransaction, accountId: string): 
       // The worker's own sweep has no consent window: it waits for its turn.
       sql`${copyFundingOperations.idempotencyKey} not like ${SYSTEM_SWEEP_PREFIX + '%'}`));
 }
-/** Idempotency keys of the worker's automatic returns: `sweep:<stop id>`. */
+/** Idempotency keys of the worker's automatic returns: `sweep:<stop id>`,
+ * then `sweep:<stop id>:<n>` for attempt n after one never sent. */
 export const SYSTEM_SWEEP_PREFIX = 'sweep:';
+/** A stop's automatic return that provably never reached the exchange (not
+ * signed, or refused before its POST) is reserved again with a new nonce, at
+ * most this many attempts in all, the next one no sooner than
+ * sweepRetryDelayMs(n) after attempt n ended. */
+export const SYSTEM_SWEEP_ATTEMPTS = 5;
+export const sweepRetryDelayMs = (attempt: number) => 60_000 * 2 ** attempt;
+const jsonDigest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+/** The evidence an automatic return records when it ended unsent: only the
+ * worker's own process writes it, right after it proved no POST left. */
+export const sweepNotSentEvidence = (reason: 'worker_signature_unavailable' | 'sweep_not_dispatched', id: string) => jsonDigest({ reason, id });
+/** Attempt n of a stop's automatic return (null: not one). */
+export function sweepAttempt(row: Pick<ReturnRow, 'idempotencyKey' | 'stopId'>): number | null {
+  if (!row.stopId) return null;
+  const key = `${SYSTEM_SWEEP_PREFIX}${row.stopId}`;
+  if (row.idempotencyKey === key) return 0;
+  const n = row.idempotencyKey.startsWith(`${key}:`) ? row.idempotencyKey.slice(key.length + 1) : '';
+  return /^[1-9]\d{0,2}$/.test(n) ? Number(n) : null;
+}
+/** An automatic return that ended without reaching the exchange. */
+export function sweepNotSent(row: ReturnRow): boolean {
+  return row.direction === 'to_main' && row.status === 'rejected' && !row.transactionHash &&
+    (row.evidenceHash === sweepNotSentEvidence('worker_signature_unavailable', row.id) || row.evidenceHash === sweepNotSentEvidence('sweep_not_dispatched', row.id)) &&
+    sweepAttempt(row) !== null;
+}
+/** Never sent, and another attempt follows (or will). */
+export function sweepRetrying(row: ReturnRow): boolean { return sweepNotSent(row) && sweepAttempt(row)! + 1 < SYSTEM_SWEEP_ATTEMPTS; }
+/** Never sent, and a later attempt of the same stop's automatic return exists. */
+export function sweepSuperseded(row: ReturnRow, rows: readonly ReturnRow[]): boolean {
+  if (!sweepNotSent(row)) return false;
+  const n = sweepAttempt(row)!;
+  return rows.some(other => other.stopId === row.stopId && other.direction === 'to_main' && (sweepAttempt(other) ?? -1) > n);
+}
 
 /**
  * What the exchange's builder-fee cap, read at `readAt` (taken before the
@@ -115,16 +148,26 @@ export class CopyLiveReturnRepository {
   /**
    * The automatic return of a flat stop on an account with the master
    * signer (one-click plan §3c): everything withdrawable, keyed by the stop
-   * (`sweep:<stop id>`), so it is reserved once. Waits (null) while the stop
+   * (`sweep:<stop id>`), so it is reserved once (again only after an attempt
+   * that provably never left, SYSTEM_SWEEP_ATTEMPTS). Waits (null) while the stop
    * isn't flat or another wallet operation of the account or a main-wallet
    * withdrawal is pending, instead of refusing as an owner's request does.
    */
   async reserveSystem(stop: { id: string; userId: number; accountId: string }, amount: string): Promise<ReturnRow | null> {
     return this.locked(stop.userId, async tx => {
       const { owner, account, stop: open } = await this.context(tx, stop.userId, stop.accountId, true);
-      const key = `${SYSTEM_SWEEP_PREFIX}${stop.id}`;
-      const [original] = await tx.select().from(copyFundingOperations).where(and(eq(copyFundingOperations.userId, stop.userId), eq(copyFundingOperations.idempotencyKey, key)));
-      if (original) return original;
+      let key = `${SYSTEM_SWEEP_PREFIX}${stop.id}`;
+      // The latest attempt answers, unless it provably never reached the
+      // exchange: then a new one (new nonce) after its back-off, bounded.
+      const [latest] = (await tx.select().from(copyFundingOperations).where(and(eq(copyFundingOperations.userId, stop.userId), eq(copyFundingOperations.stopId, stop.id),
+        or(eq(copyFundingOperations.idempotencyKey, key), like(copyFundingOperations.idempotencyKey, `${key}:%`)))))
+        .filter(row => sweepAttempt(row) !== null).sort((a, b) => sweepAttempt(b)! - sweepAttempt(a)!);
+      if (latest) {
+        if (!sweepRetrying(latest)) return latest;
+        // The same clock that stamped its end (finish).
+        if (Date.now() < latest.updatedAt.getTime() + sweepRetryDelayMs(sweepAttempt(latest)!)) return null;
+        key = `${key}:${sweepAttempt(latest)! + 1}`;
+      }
       if (open?.id !== stop.id || open.state !== 'flat' || !account.sweepDestination || account.sweepDestination !== owner.embeddedWalletAddress) return null;
       await expireStaleReturns(tx, account.id);
       const pendingRows = await tx.select({ id: copyFundingOperations.id }).from(copyFundingOperations)

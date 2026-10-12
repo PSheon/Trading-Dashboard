@@ -12,7 +12,7 @@ import { CopyFundingService, wire as fundingWire } from './copy-funding.service.
 import { CopyAgentService } from './copy-agent.service.js';
 import { CopyAccountModeService } from './copy-account-mode.service.js';
 import { CopyLiveReturnService } from './copy-live-return.service.js';
-import { CopyLiveReturnRepository, type ReturnRow } from './copy-live-return.repository.js';
+import { CopyLiveReturnRepository, sweepRetrying, sweepSuperseded, type ReturnRow } from './copy-live-return.repository.js';
 import { CopyFundingExchangeClient } from './copy-funding-exchange.client.js';
 import { WORKER_MASTER_SIGNER, type WorkerMasterSigner } from './live/privy-policy-master-signer.js';
 import type { SetupAbortFlatObservation } from './live/live-account-observer.js';
@@ -50,7 +50,7 @@ export class CopyLiveSetupAbortService {
   async get(userId: number, setupId: string) { await this.setups.owner(userId); return this.wire(await this.repository.forSetup(userId, setupId)); }
   async wire(row: SetupAbortRow): Promise<LiveCopySetupAbort> {
     const children = await this.repository.children(row), deposit = children.funding.find(op => op.id === row.fundingOperationId),
-      refund = children.funding.find(op => op.id === row.returnOperationId || row.stopId !== null && op.stopId === row.stopId && op.direction === 'to_main');
+      refund = children.funding.find(op => op.id === row.returnOperationId || row.stopId !== null && op.stopId === row.stopId && op.direction === 'to_main' && !sweepSuperseded(op, children.funding));
     // Old parents may have finished when the stop accepted its sweep. Preserve
     // the original funding outcome instead of presenting acceptance as credit.
     const pendingRefund = row.state === 'done' && refund && refund.status !== 'credited';
@@ -93,8 +93,9 @@ export class CopyLiveSetupAbortService {
           await wait('blocked', 'setup_abort_generation_conflict'); return;
         }
         const deposit = children.funding.find(op => op.id === row!.fundingOperationId);
-        const returns = children.funding.filter(op => op.stopId === row!.stopId && op.direction === 'to_main');
-        if (returns.some(op => ['rejected', 'cancelled'].includes(op.status))) { await wait('blocked', 'setup_abort_refund_not_completed'); return; }
+        // An automatic return never sent is superseded by its next attempt, or retried.
+        const returns = children.funding.filter(op => op.stopId === row!.stopId && op.direction === 'to_main' && !sweepSuperseded(op, children.funding));
+        if (returns.some(op => ['rejected', 'cancelled'].includes(op.status) && !sweepRetrying(op))) { await wait('blocked', 'setup_abort_refund_not_completed'); return; }
         if (returns.some(op => op.status !== 'credited')) { await wait('delegated', 'setup_abort_refund_pending'); return; }
         if (children.stop.state === 'stopped' && (!deposit || !['prepared','unknown','accepted'].includes(deposit.status))) await wait('done', null);
         else await wait('delegated', issue(children.stop.issue));

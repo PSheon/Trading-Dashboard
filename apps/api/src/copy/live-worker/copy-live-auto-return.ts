@@ -4,7 +4,7 @@ import { WALLET_NETWORKS, canonicalUsdc, usdSendTypedData, withdrawalUnits, type
 import { Dec } from '../../common/decimal/dec.js';
 import { safeErrorText } from '../../runtime/safe-error-text.js';
 import type { CopyFundingExchangeClient } from '../copy-funding-exchange.client.js';
-import type { CopyLiveReturnRepository } from '../copy-live-return.repository.js';
+import { sweepNotSentEvidence, sweepRetrying, type CopyLiveReturnRepository } from '../copy-live-return.repository.js';
 import type { WorkerMasterSigner } from '../live/privy-policy-master-signer.js';
 import type { StopRow } from './copy-live-stop-worker.repository.js';
 
@@ -13,8 +13,10 @@ import type { StopRow } from './copy-live-stop-worker.repository.js';
  * operation goes first; `sent`: the exchange accepted the sweep (the funding
  * monitor confirms the credit, then the stop ends); `unknown`: it was sent
  * but its answer was lost, so it is confirmed from the main wallet's ledger
- * and never resent; `failed`: it was not sent (not signed, refused before
- * the POST, or refused by the exchange): the owner's return remains. */
+ * and never resent; `failed`: refused by the exchange, or never sent on its
+ * last attempt (SYSTEM_SWEEP_ATTEMPTS): the owner's return remains. An
+ * attempt never sent (not signed, refused before the POST) with attempts
+ * left is `waiting`: the next one is reserved after its back-off. */
 export type AutoReturnOutcome = 'legacy' | 'waiting' | 'sent' | 'unknown' | 'failed';
 export interface AutoReturn { sweep(stop: StopRow, withdrawable: string): Promise<AutoReturnOutcome> }
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -23,7 +25,8 @@ const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(va
  * The automatic return after a flat stop (one-click plan §3c): a UsdSend of
  * everything withdrawable (floored to 6 decimals) from the copy account to
  * the owner's main wallet, signed by the worker quorum under the owner's
- * Privy policy, once per stop (`sweep:<stop id>`), never resent.
+ * Privy policy, once per stop (`sweep:<stop id>`), never resent; reserved
+ * again (new nonce) only after an attempt that provably never left.
  */
 export class CopyLiveAutoReturn implements AutoReturn {
   private readonly logger = new Logger('CopyLiveAutoReturn');
@@ -57,10 +60,9 @@ export class CopyLiveAutoReturn implements AutoReturn {
       signature = await this.signer.sign({ walletId: account.privyWalletId!, address: attempt.address, ownerQuorumId: account.ownerQuorumId!, workerQuorumId: account.masterSignerQuorumId, policyId: account.masterPolicyId },
         usdSendTypedData(WALLET_NETWORKS[this.network], attempt.destination, attempt.amount, attempt.nonce), { network: this.network, destination: account.sweepDestination }, checkedAt + 30_000);
     } catch (error) {
-      // Not signed: the exchange cannot have it.
+      // Not signed: the exchange cannot have it (another attempt follows its back-off).
       this.logger.warn(`sweep ${row.id} not signed: ${safeErrorText(error)}`);
-      await this.returns.finish(stop.userId, row.id, 'rejected', digest({ reason: 'worker_signature_unavailable', id: row.id }));
-      return 'failed';
+      return sweepRetrying(await this.returns.finish(stop.userId, row.id, 'rejected', sweepNotSentEvidence('worker_signature_unavailable', row.id))) ? 'waiting' : 'failed';
     }
     // Dispatched only once every check passed (this proof, then the quota
     // permit rechecked after it), right before the POST: from then on the
@@ -73,8 +75,7 @@ export class CopyLiveAutoReturn implements AutoReturn {
       if (!dispatched) {
         // Refused before the POST (a stale proof, the meter): nothing left this process.
         this.logger.warn(`sweep ${row.id} not sent: ${safeErrorText(error)}`);
-        await this.returns.finish(stop.userId, row.id, 'rejected', digest({ reason: 'sweep_not_dispatched', id: row.id }));
-        return 'failed';
+        return sweepRetrying(await this.returns.finish(stop.userId, row.id, 'rejected', sweepNotSentEvidence('sweep_not_dispatched', row.id))) ? 'waiting' : 'failed';
       }
       // Possibly sent: confirmed from the main wallet's ledger, never resent.
       this.logger.warn(`sweep ${row.id} outcome unknown: ${safeErrorText(error)}`);

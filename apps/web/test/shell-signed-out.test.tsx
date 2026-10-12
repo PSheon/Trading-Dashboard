@@ -8,7 +8,7 @@ import { en } from "@/i18n/messages/en";
 
 const state = vi.hoisted(() => ({ status: "signedOut", pathname: "/explore" }));
 vi.mock("@/lib/auth", () => ({ useAuth: () => ({ status: state.status }) }));
-vi.mock("next/navigation", () => ({ usePathname: () => state.pathname, useRouter: () => ({ refresh() {} }) }));
+vi.mock("next/navigation", async () => { const { routeGroupOf } = await import("./route-group-of"); return { usePathname: () => state.pathname, useSelectedLayoutSegment: () => routeGroupOf(state.pathname), useRouter: () => ({ refresh() {} }) }; });
 vi.mock("@/components/shell/account-controls", () => ({ AccountControls: () => null, AuthButton: () => null }));
 vi.mock("@/components/shell/address-search", () => ({ AddressSearch: () => null }));
 vi.mock("@/components/shell/phone-menu", () => ({ PhoneMenu: () => null }));
@@ -102,7 +102,7 @@ it("retains one complete brand footer while the portfolio resolves and changes i
   }
 });
 
-it.each(["/favorites", "/settings", "/settings/account", "/settings/language", "/r/INVITE"])("uses one complete brand footer on %s regardless of login state", async (pathname) => {
+it.each(["/favorites", "/settings", "/privacy", "/coins/BTC", "/r/INVITE"])("uses one complete brand footer on %s regardless of login state", async (pathname) => {
   state.pathname = pathname;
   for (const status of ["signedOut", "signedIn", "loading"]) {
     await render(status);

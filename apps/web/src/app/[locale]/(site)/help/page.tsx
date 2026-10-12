@@ -1,7 +1,6 @@
 import { InlineText } from "@/components/content/markdown";
 import { FaqList, faqSections } from "@/components/content/faq";
 import { JsonLd } from "@/components/json-ld";
-import { SiteFooter } from "@/components/shell/site-footer";
 import { getLocale } from "@/i18n/server";
 import { contentBlocks, splitTitle } from "@/lib/content";
 import { inlineText } from "@/lib/markdown";
@@ -18,8 +17,9 @@ export default async function HelpPage() {
   return (
     // CopyDog's `.hl-page`: 16px page edges on phones; on desktop the page is
     // centred between the rail and the window edge (x=758 at 1440), the
-    // title 56px/84px with 40px under it.
-    <div className="pt-2 md:pt-4">
+    // title 56px/84px with 40px under it. The footer is the shell's (mt-16);
+    // the bottom padding keeps it 80px below the questions.
+    <div className="pt-2 pb-4 md:pt-4">
       {/* CopyDog's FAQPage: every question with its answer as text. */}
       <JsonLd data={faqJsonLd(questions.map((q) => ({ question: inlineText(q.question), answer: blocksText(q.answer) })))} />
       <h1 className="type-hero text-center">
@@ -28,7 +28,6 @@ export default async function HelpPage() {
       <div className="mt-8">
         <FaqList sections={sections} />
       </div>
-      <SiteFooter className="mt-20" />
     </div>
   );
 }

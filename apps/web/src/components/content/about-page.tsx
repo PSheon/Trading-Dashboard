@@ -4,7 +4,6 @@ import { cn } from "cn";
 
 import { AlertsMock, AvatarStack, BoardMock, CopyMock, KolMarquee, PortfolioMock, ProfileMock } from "@/components/content/about-visuals";
 import { InlineText, MarkdownBlocks } from "@/components/content/markdown";
-import { SiteFooter } from "@/components/shell/site-footer";
 import { parseInline, type Block } from "@/lib/markdown";
 
 type Heading = Extract<Block, { type: "heading" }>;
@@ -99,9 +98,11 @@ export function AboutPage({ blocks }: { blocks: Block[] }) {
   const body = blocks.filter((b) => !(b.type === "heading" && b.level === 1));
   const parts = chunks(body);
   let feature = 0;
+  // The footer is the shell's (route group chrome, mt-16), in the page
+  // frame outside the full-bleed sections; the bottom padding keeps it 80px
+  // below them.
   return (
-    <>
-    <div className="-mx-4 -mt-4 flex flex-col md:-mx-5 md:-mt-2">
+    <div className="-mx-4 -mt-4 flex flex-col pb-4 md:-mx-5 md:-mt-2">
       {parts.map((part, p) => {
         const secs = sections(part);
         const steps = part.filter((b): b is Heading => b.type === "heading" && b.level === 3);
@@ -244,9 +245,5 @@ export function AboutPage({ blocks }: { blocks: Block[] }) {
         );
       })}
     </div>
-    {/* In the page frame, outside the full-bleed sections: its edges match
-        the header's. */}
-    <SiteFooter className="mt-20" />
-    </>
   );
 }

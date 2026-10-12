@@ -47,7 +47,7 @@ it("wraps every island of the shell and each wallet dialog", () => {
   for (const island of ["<AddressSearch />", "<AccountControls />", "<AddressSearch compact />", "<MaintenanceBanner />", "<AnnouncementBanner dismissed={announcementDismissed} />", "<CopyFeed />"]) {
     expect(shell, island).toContain(`<IslandBoundary>${island}</IslandBoundary>`);
   }
-  expect(shell).toContain('<IslandBoundary>{chrome === "marketing" ? <PhoneMenu /> : <AuthButton compact />}</IslandBoundary>');
+  expect(shell).toContain('<IslandBoundary>{chrome.phoneHeader === "menu" ? <PhoneMenu /> : <AuthButton compact />}</IslandBoundary>');
   const modals = read("wallet/wallet-modals.tsx");
   for (const dialog of ["<DepositDialog", "<WithdrawDialog", "<ExportKeyDialog"]) expect(modals, dialog).toContain(`<IslandBoundary resetKey={open}>${dialog}`);
 });

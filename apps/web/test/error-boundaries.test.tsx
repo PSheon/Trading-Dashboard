@@ -46,10 +46,10 @@ describe("error boundaries", () => {
     // notFound(), which would turn these real 404s back into soft ones.
     const root = join(import.meta.dirname, "../src/app");
     const app = join(root, "[locale]");
-    for (const dir of ["", "trader", "trader/[address]", "coins", "coins/[coin]", "[...missing]", "dev"]) {
+    for (const dir of ["", "(app)", "(detail)", "(detail)/trader", "(detail)/trader/[address]", "(bare)", "(bare)/coins", "(bare)/coins/[coin]", "(missing)", "(missing)/[...missing]", "(lab)", "(lab)/dev"]) {
       expect(existsSync(join(app, dir, "loading.tsx")), `app/${dir}/loading.tsx`).toBe(false);
     }
-    for (const dir of ["explore", "insights", "favorites", "portfolio", "settings", "admin"]) {
+    for (const dir of ["(app)/explore", "(app)/insights", "(app)/favorites", "(app-fill)/portfolio", "(app)/settings", "(admin)/admin"]) {
       expect(existsSync(join(app, dir, "loading.tsx")), `app/${dir}/loading.tsx`).toBe(true);
     }
     for (const file of ["error.tsx", "not-found.tsx"]) expect(existsSync(join(app, file)), file).toBe(true);

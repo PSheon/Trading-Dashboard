@@ -5,6 +5,7 @@ import { prefersReducedMotion } from "@/lib/motion";
 import { useUrlState } from "@/lib/url-state";
 import { usePageScrolled } from "@/lib/use-page-scrolled";
 import { Link, usePathname } from "@/i18n/navigation";
+import { useSelectedLayoutSegment } from "next/navigation";
 import { cn } from "cn";
 import * as React from "react";
 
@@ -24,6 +25,7 @@ import type { PublicSettings } from "@/lib/contracts";
 import { type InitialRead, useSiteSettings } from "@/lib/queries";
 import { discoverNav, isActive, mineNav, mobileNav, mobileNavSignedOut, type NavItem } from "./nav";
 import { IslandBoundary } from "@/components/island-boundary";
+import { chromeFor } from "./chrome";
 
 /** React's <ViewTransition>: in the App Router's bundled React, absent from
  * the plain react package (tests) and in browsers without view transitions,
@@ -39,37 +41,6 @@ function PageTransition({ children }: { children: React.ReactNode }) {
   return <ReactViewTransition name="page-content" share="page-swap" enter="page-swap" exit="page-swap" default="none">{children}</ReactViewTransition>;
 }
 
-/** Every route the app serves; anything else is the 404 page. */
-const ROUTES = ["/explore", "/favorites", "/insights", "/portfolio", "/settings", "/coins", "/trader", "/admin", "/about", "/help", "/dev"];
-const isAppRoute = (pathname: string) => pathname === "/" || ROUTES.some((r) => pathname === r || pathname.startsWith(`${r}/`));
-
-/**
- * Phone chrome differs per page (Orbit's M boards):
- * - home and the main browsing/personal pages: the wordmark, search and
- *   登入 / the account, with the floating bottom navigation;
- * - about, help and the 404 page: wordmark, search and the ☰ menu, with no
- *   tab bar;
- * - a trader's page: the same app header, its own back / name / actions bar
- *   below it, and its sticky 跟單 button in place of the tab bar;
- * - other detail pages keep their own page chrome; settings shares the app header.
- */
-function phoneChrome(pathname: string): "home" | "detail" | "marketing" | "none" {
-  if (pathname === "/" || ["/explore", "/favorites", "/portfolio", "/insights", "/settings"].some(r => pathname === r || pathname.startsWith(`${r}/`))) return "home";
-  if (pathname.startsWith("/trader/")) return "detail";
-  if (pathname === "/about" || pathname === "/help" || !isAppRoute(pathname)) return "marketing";
-  return "none";
-}
-
-/** Every app page shares the one brand footer (a trader's included, Paul
- * 2026-10-11); a trader's insights tab has none (see AppShell). */
-function shellFooter(pathname: string): "everywhere" | null {
-  if (pathname.startsWith("/r/")) return "everywhere";
-  if (["/portfolio", "/favorites", "/settings"].some(route => pathname === route || pathname.startsWith(`${route}/`))) return "everywhere";
-  if (["/privacy", "/terms", "/delete-account", "/explore", "/insights", "/coins"].includes(pathname) || pathname.startsWith("/coins/")) return "everywhere";
-  if (pathname.startsWith("/trader/")) return "everywhere";
-  return null;
-}
-
 /**
  * Orbit frame. No sidebar: on desktop and tablet a three-column header —
  * wordmark and the 探索 / 洞察 capsule, the search centred, the 投資組合 /
@@ -79,6 +50,10 @@ function shellFooter(pathname: string): "everywhere" | null {
  * 投資組合 / 收藏 are the visitor's own pages: they show once someone is
  * signed in, never while signed out or while sign-in is still unknown (the
  * signed-out header is drawn until then, and the capsule fades in).
+ *
+ * What else a page gets (the phone top bar, the tab bar, the footer) is its
+ * route group's chrome (./chrome.ts): the frame reads the active group, so
+ * it stays mounted when the visitor moves between groups.
  */
 export function AppShell({
   children,
@@ -99,30 +74,22 @@ export function AppShell({
   const scrolled = usePageScrolled();
   const authStatus = useAuth().status;
   const signedIn = authStatus === "signedIn";
-  const portfolioPage = pathname === "/portfolio";
-  const guestPortfolio = portfolioPage && (authStatus === "signedOut" || authStatus === "disabled");
+  const chrome = chromeFor(useSelectedLayoutSegment());
+  const fill = Boolean(chrome?.fill);
+  const guestFill = fill && (authStatus === "signedOut" || authStatus === "disabled");
   const [mobileRef, mobileBox] = useSlidingIndicator<HTMLElement>(`${pathname}:${signedIn}`);
   const mobilePill = mobileBox?.width ? mobileBox : null;
   // Seeds the query the banners (and pages) read, before they mount.
   useSiteSettings(settings);
-  // A trader page on a phone has the app header, its own bar under it and a
-  // sticky 跟單 button in place of the tab bar.
-  const traderPage = pathname.startsWith("/trader/");
-  // The 市場 pages are bare on a phone: no top bar and no tab bar, only the
-  // page and its breadcrumb.
-  const barePhonePage = pathname === "/coins" || pathname.startsWith("/coins/");
-  const chrome = phoneChrome(pathname);
-  const [traderTab] = useUrlState("tab", ["positions", "insights"], "positions");
-  const footer = traderPage && traderTab === "insights" ? null : shellFooter(pathname);
+  const [tab] = useUrlState("tab", ["positions", "insights"], "positions");
+  const footer = Boolean(chrome?.footer) && !(chrome?.noFooterOnInsightsTab && tab === "insights");
 
   // The design lab owns its frame; the production shell stays unchanged.
-  if (pathname === "/dev" || pathname.startsWith("/dev/")) return <>{children}</>;
-
-  const tabBar = !(traderPage || barePhonePage || chrome === "marketing");
+  if (!chrome) return <>{children}</>;
 
   return (
     <WalletModalsProvider>
-    <div className={cn("min-h-dvh", portfolioPage && "md:flex md:flex-col")}>
+    <div className={cn("min-h-dvh", fill && "md:flex md:flex-col")}>
       <a
         href="#main"
         className="sr-only z-50 rounded-full bg-primary px-4 py-2 font-extrabold text-primary-foreground focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
@@ -167,31 +134,19 @@ export function AppShell({
       {/* No backdrop-filter on the header itself (it would become the
           containing block of the full-screen search overlay inside it); the
           blur lives on its .bar-scrim child. */}
-      {chrome !== "none" ? (
+      {chrome.phoneHeader ? (
         <header data-testid="app-phone-header" data-scrolled={scrolled} className="fixed inset-x-0 top-0 z-40 isolate flex h-[72px] items-center gap-2 px-4 max-[374px]:gap-1 max-[374px]:px-3 md:hidden">
           <div aria-hidden className="bar-scrim" />
           <Link href="/" aria-label={APP_NAME} className="mr-auto flex h-11 min-w-11 shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <Lockup className="[&>span]:text-2xl max-[479px]:[&>span]:hidden" />
           </Link>
           <IslandBoundary><AddressSearch compact /></IslandBoundary>
-          <IslandBoundary>{chrome === "marketing" ? <PhoneMenu /> : <AuthButton compact />}</IslandBoundary>
+          <IslandBoundary>{chrome.phoneHeader === "menu" ? <PhoneMenu /> : <AuthButton compact />}</IslandBoundary>
         </header>
       ) : null}
 
       <div
-        className={cn(
-          traderPage
-            ? "pt-[72px] pb-[calc(96px+env(safe-area-inset-bottom))]"
-            : barePhonePage
-              ? "pt-4 pb-10"
-              : chrome === "marketing"
-                ? "pt-[72px] pb-10"
-                : chrome === "home"
-                  ? "pt-[64px] pb-[calc(100px+env(safe-area-inset-bottom))]"
-                  : "pt-0 pb-[calc(100px+env(safe-area-inset-bottom))]",
-          "md:pt-0 md:pb-0",
-          portfolioPage && "md:flex md:flex-1 md:flex-col",
-        )}
+        className={cn(chrome.phonePad, "md:pt-0 md:pb-0", fill && "md:flex md:flex-1 md:flex-col")}
       >
         {/* Each island of the shell fails on its own (web audit H5). */}
         <IslandBoundary><MaintenanceBanner /></IslandBoundary>
@@ -204,14 +159,14 @@ export function AppShell({
             // overflow-x-clip: row scroll arrows hang half outside their
             // row; without the clip they add a few px of page scroll.
             "page-frame overflow-x-clip py-4 outline-none md:pt-2 md:pb-10",
-            traderPage && "md:pb-14",
-            portfolioPage && "md:flex md:flex-1 md:flex-col md:pb-6",
+            chrome.main,
+            fill && "md:flex md:flex-1 md:flex-col md:pb-6",
           )}
         >
           <PageTransition key={pathname.split("/")[1] ?? ""}>
-            {guestPortfolio ? <div className="md:flex md:flex-1 md:items-center md:justify-center md:py-3">{children}</div> : portfolioPage ? <div className="md:flex-1">{children}</div> : children}
+            {guestFill ? <div className="md:flex md:flex-1 md:items-center md:justify-center md:py-3">{children}</div> : fill ? <div className="md:flex-1">{children}</div> : children}
           </PageTransition>
-          {footer ? <SiteFooter className={guestPortfolio ? "mt-10 md:mt-0 md:shrink-0" : portfolioPage ? "mt-10 md:mt-8 md:shrink-0" : "mt-16"} /> : null}
+          {footer ? <SiteFooter className={guestFill ? "mt-10 md:mt-0 md:shrink-0" : fill ? "mt-10 md:mt-8 md:shrink-0" : "mt-16"} /> : null}
         </main>
       </div>
 
@@ -221,7 +176,7 @@ export function AppShell({
         className={cn(
           "phone-floating-bar z-30 gap-1 md:hidden",
           signedIn ? "grid-cols-4" : "grid-cols-3",
-          tabBar ? "grid" : "hidden",
+          chrome.tabBar ? "grid" : "hidden",
         )}
       >
         <NavPill box={mobilePill} />

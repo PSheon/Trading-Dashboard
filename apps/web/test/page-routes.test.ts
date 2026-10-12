@@ -76,10 +76,10 @@ describe("the proxy answers a 404 it can decide with the status, before the page
 
 describe("the 404 pages", () => {
   it("render the 404 themselves when the proxy answered, instead of throwing into an empty document", () => {
-    const missing = readFileSync(join(LOCALE_DIR, "[...missing]/page.tsx"), "utf8");
+    const missing = readFileSync(join(LOCALE_DIR, "(missing)/[...missing]/page.tsx"), "utf8");
     expect(missing).toContain("renderNotFound()");
     expect(missing).not.toMatch(/\bnotFound\(\)/);
-    const trader = readFileSync(join(LOCALE_DIR, "trader/[address]/page.tsx"), "utf8");
+    const trader = readFileSync(join(LOCALE_DIR, "(detail)/trader/[address]/page.tsx"), "utf8");
     expect(trader).toMatch(/if \(!ADDRESS\.test\(address\)\) return renderNotFound\(\);/);
   });
 });

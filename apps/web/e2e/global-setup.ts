@@ -24,7 +24,8 @@ const SAMPLE: Record<string, string> = {
   "[item]": "home",
 };
 
-/** Every `page.tsx` under src/app as a URL path, dynamic segments filled in. */
+/** Every `page.tsx` under src/app as a URL path, dynamic segments filled
+ * in, route groups (`(app)`) dropped. */
 export function routes(appDir: string): string[] {
   const found: string[] = [];
   const walk = (dir: string) => {
@@ -32,6 +33,7 @@ export function routes(appDir: string): string[] {
       if (entry.isDirectory()) walk(join(dir, entry.name));
       else if (entry.name === "page.tsx") {
         const segments = relative(appDir, dir).split(sep).filter(Boolean).map((segment) => {
+          if (/^\(.+\)$/.test(segment)) return "";
           if (!segment.startsWith("[")) return segment;
           if (!(segment in SAMPLE)) throw new Error(`e2e/global-setup.ts has no sample value for the route segment ${segment}`);
           return SAMPLE[segment];

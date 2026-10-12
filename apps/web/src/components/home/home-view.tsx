@@ -11,7 +11,6 @@ import { HomeCard, HomeCardSkeleton } from "@/components/discover/board-card";
 import { ErrorState, SkelBar, SkelCircle, Skeleton } from "@/components/page";
 import { buttonVariants } from "@/components/ui/button-variants";
 import { InfoTip } from "@/components/ui/info-tip";
-import { SiteFooter } from "@/components/shell/site-footer";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { useI18n } from "@/i18n/provider";
 import { boardCoinLabel, homeTiles, roiPillShort } from "@/lib/board-format";
@@ -69,7 +68,9 @@ function HomeContent({ home }: { home: { data: HomeBoardsResponse | undefined; i
     : null;
 
   return (
-    <div className="flex flex-col gap-7 md:gap-8">
+    // The footer is the shell's (route group chrome, mt-16); the bottom
+    // padding keeps its 76px / 80px from the last row.
+    <div className="flex flex-col gap-7 pb-3 md:gap-8 md:pb-4">
       {/* Phones: the compact two-line title (登入 is in the phone header). The
           page's one <h1> is the desktop hero's; this is the same level-1
           heading where that one is not displayed. */}
@@ -152,7 +153,6 @@ function HomeContent({ home }: { home: { data: HomeBoardsResponse | undefined; i
             ))
           : null}
 
-      <SiteFooter />
     </div>
   );
 }

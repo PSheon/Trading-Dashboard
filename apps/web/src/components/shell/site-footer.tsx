@@ -11,7 +11,8 @@ import { useI18n } from "@/i18n/provider";
 import { LanguageMenu } from "./language-menu";
 
 /**
- * The footer card (home, about, help; C-Home board): wordmark and tagline;
+ * The footer card (C-Home board), drawn by the shell for every route group
+ * whose chrome has one (./chrome.ts): wordmark and tagline;
  * 資源 (關於我們, 即時動態, 常見問題), 社群 and 法律 columns; a dotted rule,
  * the copyright and the language switch. X (@orbie_fun) and the Telegram
  * bot open in a new tab; a channel Orbie doesn't have yet (email) says

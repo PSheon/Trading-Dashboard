@@ -32,7 +32,7 @@ describe("home rendered from the server's read", () => {
 describe("the home page's Suspense fallback", () => {
   it("is skeletons with no query of its own, so a client navigation keeps the server's rows", async () => {
     vi.doMock("next/headers", () => ({ headers: async () => new Headers() }));
-    const { default: HomePage } = await import("@/app/[locale]/page");
+    const { default: HomePage } = await import("@/app/[locale]/(app)/page");
     const fallback = (HomePage() as { props: { fallback: { type: unknown } } }).props.fallback;
     expect(fallback.type).toBe(HomeSkeleton);
     const client = new QueryClient();

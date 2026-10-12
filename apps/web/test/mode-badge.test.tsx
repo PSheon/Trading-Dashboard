@@ -11,7 +11,7 @@ import { zhTW } from "@/i18n/messages/zh-TW";
 
 const state = vi.hoisted(() => ({ automatic: false, pathname: "/explore", get: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ useAuth: () => ({ status: "signedIn", mode: "privy", identity: "owner@email", wallet: { address: `0x${"11".repeat(20)}` }, login() {} }) }));
-vi.mock("next/navigation", () => ({ usePathname: () => state.pathname, useRouter: () => ({ refresh() {}, push() {} }), useSearchParams: () => new URLSearchParams() }));
+vi.mock("next/navigation", async () => { const { routeGroupOf } = await import("./route-group-of"); return { usePathname: () => state.pathname, useSelectedLayoutSegment: () => routeGroupOf(state.pathname), useRouter: () => ({ refresh() {}, push() {} }), useSearchParams: () => new URLSearchParams() }; });
 vi.mock("@/lib/api", async () => ({ ...(await vi.importActual<typeof import("@/lib/api")>("@/lib/api")), api: { get: state.get, post: vi.fn() }, sessionKey: () => "1" }));
 vi.mock("@/components/shell/account-controls", () => ({ AccountControls: () => null, AuthButton: () => null }));
 vi.mock("@/components/shell/address-search", () => ({ AddressSearch: () => null }));

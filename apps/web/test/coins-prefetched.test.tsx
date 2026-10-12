@@ -36,7 +36,7 @@ describe("the coin index rendered from the server's read", () => {
 
   it("the page's Suspense fallback is skeletons with no query of its own", async () => {
     vi.doMock("next/headers", () => ({ headers: async () => new Headers() }));
-    const { default: CoinsPage } = await import("@/app/[locale]/coins/page");
+    const { default: CoinsPage } = await import("@/app/[locale]/(bare)/coins/page");
     expect((CoinsPage() as { props: { fallback: { type: unknown } } }).props.fallback.type).toBe(CoinIndexSkeleton);
     const client = new QueryClient();
     expect(wrap(client, <CoinIndexSkeleton />)).toContain("ui-skeleton");

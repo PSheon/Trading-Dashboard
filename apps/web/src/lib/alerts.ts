@@ -131,7 +131,7 @@ export function useAddFavorite() {
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.favorites });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.trader.all });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.trader.profiles });
       void queryClient.invalidateQueries({ queryKey: queryKeys.traders.all });
     },
   });

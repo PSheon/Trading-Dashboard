@@ -25,7 +25,7 @@ it("cancels the actual HTTP request when a profile query is retired", async () =
   try {
     const result = client.fetchQuery(traderProfileOptions("0x123")).catch(() => "cancelled");
     await ready;
-    await client.cancelQueries({ queryKey: queryKeys.trader.all });
+    await client.cancelQueries({ queryKey: queryKeys.trader.profiles });
     expect(requestSignal?.aborted).toBe(true);
     expect(await result).toBe("cancelled");
     expect(client.getQueryData(queryKeys.trader.profile("0x123"))).toBeUndefined();

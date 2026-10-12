@@ -7,6 +7,12 @@ import { currentRequestSignal } from "../runtime/request-context.js";
  * loads are not cached. Size is bounded: expired entries are dropped first,
  * then the oldest.
  *
+ * Expired entries are released even if nobody reads their key again: `set`
+ * sweeps them at most once per sweep interval (amortized), and while the
+ * cache holds anything an unref'd timer sweeps on the same interval, so an
+ * idle cache of large values (a trader's 4 000 fills) does not stay
+ * resident until 5 000 other keys push it out.
+ *
  * A shared load runs in the async context of whoever started it: its
  * Hyperliquid calls wait at that caller's budget rank and are cancelled with
  * that caller's request. Two rules keep a joiner from inheriting a worse
@@ -24,12 +30,19 @@ import { currentRequestSignal } from "../runtime/request-context.js";
 export class TtlCache<V> {
   private readonly entries = new Map<string, { value: V; expiresAt: number; observedAt: number }>();
   private readonly inflight = new Map<string, { promise: Promise<V>; rank: number | undefined }>();
+  /** How often expired entries are swept: the TTL, clamped to 1 s – 60 s. */
+  readonly sweepIntervalMs: number;
+  private lastSweepAt: number;
+  private sweeper: ReturnType<typeof setInterval> | undefined;
 
   constructor(
     private readonly ttlMs: number,
-    private readonly maxEntries = 5_000,
+    readonly maxEntries = 5_000,
     private readonly now: () => number = () => Date.now(),
-  ) {}
+  ) {
+    this.sweepIntervalMs = Math.min(60_000, Math.max(1_000, ttlMs));
+    this.lastSweepAt = now();
+  }
 
   /**
    * The fresh value, else the load in flight (see the class comment), else
@@ -95,17 +108,43 @@ export class TtlCache<V> {
   }
 
   set(key: string, value: V, ttlMs = this.ttlMs): void {
-    this.entries.delete(key);
-    this.entries.set(key, { value, expiresAt: this.now() + ttlMs, observedAt: this.now() });
-    if (this.entries.size <= this.maxEntries) return;
     const now = this.now();
-    for (const [k, e] of this.entries) if (e.expiresAt <= now) this.entries.delete(k);
+    if (now - this.lastSweepAt >= this.sweepIntervalMs) this.sweepExpired();
+    this.entries.delete(key);
+    this.entries.set(key, { value, expiresAt: now + ttlMs, observedAt: now });
+    this.armSweeper();
+    if (this.entries.size <= this.maxEntries) return;
+    this.sweepExpired();
     // Map iteration is insertion order, and `set` re-inserts, so the first
     // keys are the least recently written.
     for (const k of this.entries.keys()) {
       if (this.entries.size <= this.maxEntries) break;
       this.entries.delete(k);
     }
+  }
+
+  /** Drops every expired entry. */
+  sweepExpired(): void {
+    const now = this.now();
+    this.lastSweepAt = now;
+    for (const [k, e] of this.entries) if (e.expiresAt <= now) this.entries.delete(k);
+  }
+
+  /** Sweeps on a timer while there is anything to sweep; the timer never
+   * keeps the process alive and stops once the cache is empty. */
+  private armSweeper(): void {
+    if (this.sweeper !== undefined) return;
+    this.sweeper = setInterval(() => {
+      this.sweepExpired();
+      if (this.entries.size === 0) this.stopSweeper();
+    }, this.sweepIntervalMs);
+    this.sweeper.unref?.();
+  }
+
+  private stopSweeper(): void {
+    if (this.sweeper === undefined) return;
+    clearInterval(this.sweeper);
+    this.sweeper = undefined;
   }
 
   /** Observation time survives cache hits; never pretend a hit is a new fetch. */
@@ -126,6 +165,7 @@ export class TtlCache<V> {
   /** Drops every stored entry (tests); loads in flight still complete. */
   clear(): void {
     this.entries.clear();
+    this.stopSweeper();
   }
 }
 

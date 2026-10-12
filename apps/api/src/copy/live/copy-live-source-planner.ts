@@ -220,7 +220,9 @@ export function planLiveSourceOrder(raw: LiveSourcePlanInput): PlannedLiveSource
     }else{
       const close=canonicalLiveSourceLegs(fill).find(l=>l.leg==='close');
       if(close){dependsOnLegId=liveSourceLegId(m.id,fill.id,'close');
-        const dependency=o.generationManifest.journals.find(j=>j.leg?.id===dependsOnLegId);
+        // The close leg's current order: an earlier attempt of it released as
+        // never sent (copy-live-leg-attempt.ts) names the same leg row.
+        const dependency=o.generationManifest.journals.find(j=>j.leg?.id===dependsOnLegId&&j.leg.executionKey===j.journal.key);
         // The follower never held the leader's old side (opened before this
         // copy): its close had nothing to close and was never journaled. The
         // open needs the follower flat on the coin, as after a settled close.

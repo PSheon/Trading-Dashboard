@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
-import { createHash } from 'node:crypto';
+import { liveSourceExecutionCloid, MAX_LIVE_LEG_ATTEMPTS } from './copy-live-leg-attempt.js';
+import { isDefinitelyUnsent } from './live-execution.js';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { copyLiveDispatches, copyLiveExecutions, copyLiveIntentProvenance, copyLiveSignalLegs, copyLiveSourceFills, copyLiveSourceStreams,
   copyLivePositionBaselines, copyLiveReductionCarry, copyFollowerReceipts, copyLiveRiskReservations } from '@trading-dashboard/shared/database';
@@ -39,6 +40,10 @@ export interface LivePreparationBinding {
   /** Other same-coin leader legs this order also carries (one merged follower
    * adjustment, ratio sizing): their source fill ids, each with this leg. */
   readonly members?: readonly string[];
+  /** Which order of the leg this is (copy-live-leg-attempt.ts): 0 or absent
+   * for its original order; k > 0 only after attempt k - 1 was released as
+   * never sent. Never with members (a merged adjustment is not re-planned). */
+  readonly attempt?: number;
 }
 export interface LivePreparationOptions extends LiveRiskProviderOptions {
   readonly slippageBps: string;
@@ -47,10 +52,7 @@ export interface LivePreparationOptions extends LiveRiskProviderOptions {
    * mirrored. Required when the source network differs from the execution network. */
   readonly maxSourceDeviationBps?: string;
 }
-/** Stable economic identity, independent of a worker, quote or retry time. */
-export function liveSourceExecutionCloid(mandateId: string, sourceFillId: string, leg: 'open' | 'close'): `0x${string}` {
-  return `0x${createHash('sha256').update(JSON.stringify(['live-copy-v1', mandateId, sourceFillId, leg])).digest('hex').slice(0, 32)}`;
-}
+export { liveSourceExecutionCloid } from './copy-live-leg-attempt.js';
 
 /** Prepares authority, never signs or submits. All remote observations occur
  * outside SQL; the first baseline, canonical source claim, monotonic nonce,
@@ -81,12 +83,17 @@ export class PostgresLivePreparation {
     const mark = beginLiveExecutionTiming(this.observer.network, 'prepare', this.now, this.onTiming);
     riskSourceRequire(binding && ['open', 'close'].includes(binding.leg) && [binding.accountId, binding.mandateId, binding.sourceFillId].every(v => typeof v === 'string' && v.length > 0 && v.length <= 160) &&
       (binding.members === undefined || Array.isArray(binding.members) && binding.members.length >= 1 && binding.members.length < MAX_MERGED_LEGS &&
-        binding.members.every(v => typeof v === 'string' && v.length > 0 && v.length <= 160 && v !== binding.sourceFillId) && new Set(binding.members).size === binding.members.length), 'live_preparation_binding');
+        binding.members.every(v => typeof v === 'string' && v.length > 0 && v.length <= 160 && v !== binding.sourceFillId) && new Set(binding.members).size === binding.members.length) &&
+      (binding.attempt === undefined || Number.isSafeInteger(binding.attempt) && binding.attempt >= 0 && binding.attempt < MAX_LIVE_LEG_ATTEMPTS && (binding.attempt === 0 || binding.members === undefined)), 'live_preparation_binding');
+    const attempt = binding.attempt ?? 0;
     const local = await session.read(db => loadLivePreparationAuthority(session, db, binding, started));
     mark('preparation_local_authority');
     // The execution network: the account's (the authority binds it to the scope).
     const network = local.account.network;
-    const cloid = liveSourceExecutionCloid(binding.mandateId, binding.sourceFillId, binding.leg), key = executionKey({ network, accountAddress: address(local.account.address!), cloid });
+    const cloid = liveSourceExecutionCloid(binding.mandateId, binding.sourceFillId, binding.leg, attempt), key = executionKey({ network, accountAddress: address(local.account.address!), cloid });
+    // A later attempt replaces exactly the previous one, which must have been
+    // released as never sent (checked again under the journal transaction).
+    const previousKey = attempt ? executionKey({ network, accountAddress: address(local.account.address!), cloid: liveSourceExecutionCloid(binding.mandateId, binding.sourceFillId, binding.leg, attempt - 1) }) : null;
     const existing = await session.read(async db => {
       const [row] = await this.checked(session, db.select().from(copyLiveExecutions).where(eq(copyLiveExecutions.key, key)));
       if (!row) return null;
@@ -236,7 +243,8 @@ export class PostgresLivePreparation {
     const reset = carry;
     const withCarry: LiveGenerationManifestV1 = owedCarry ? { ...seeded, carry: seeded.carry.map(row => row.coin === reset.coin ? reset : row) } : seeded;
     const closeLeg = canonicalLiveSourceLegs(source.fill).find(v => v.leg === 'close'), dependsOn = binding.leg === 'open' && closeLeg ? liveSourceLegId(binding.mandateId, source.fill.id, 'close') : null;
-    const dependency = dependsOn ? withCarry.journals.find(v => v.leg?.id === dependsOn) : null;
+    // The close leg's current order (its latest attempt), not an earlier attempt released as never sent.
+    const dependency = dependsOn ? withCarry.journals.find(v => v.leg?.id === dependsOn && v.leg.executionKey === v.journal.key) : null;
     // A fixed open rounded up to the order minimum stays within the deployment's per-trade maximum.
     const fixedMax = binding.leg === 'open' && local.settings.sizingMode === 'fixed' ? liveDeploymentPolicy()?.caps.fixedPerTradeUsd?.max : undefined;
     // TEST ONLY: a ratio open under the minimum is raised to it (COPY_LIVE_TEST_MIN_FLOOR_MAX_USD).
@@ -345,6 +353,12 @@ export class PostgresLivePreparation {
             .where(and(eq(copyLiveSignalLegs.id, id), eq(copyLiveSignalLegs.state, 'planned'), sql`${copyLiveSignalLegs.executionKey} is null`)).returning({ id: copyLiveSignalLegs.id }))) };
       });
       const legWork = sent(this.checked(session, tx.select().from(copyLiveSignalLegs).where(eq(copyLiveSignalLegs.id, legId)).for('update')));
+      // A later attempt: the previous one is terminal and released as never
+      // sent (its request never began), with no fill, oid or evidence of one.
+      const previousWork = previousKey ? sent(this.checked(session, tx.select({ journal: copyLiveExecutions, reservation: copyLiveRiskReservations,
+        hasReceipt: sql<boolean>`exists(select 1 from ${copyFollowerReceipts} where ${copyFollowerReceipts.executionKey} = ${previousKey})`,
+        hasEvidenceOid: sql<boolean>`exists(select 1 from copy_live_execution_evidence e where e.key = ${previousKey} and e.exchange_order_id is not null)` })
+        .from(copyLiveExecutions).innerJoin(copyLiveRiskReservations, eq(copyLiveRiskReservations.key, copyLiveExecutions.key)).where(eq(copyLiveExecutions.key, previousKey)))) : undefined;
       const nonceWork = sent(allocateSignerNonce(tx, network, authorization.signerAddress, now, query => this.checked(session, query), true));
       if (seedWork) await seedWork;
       if (resetWork) riskSourceRequire((await resetWork).length === 1, 'live_preparation_generation_changed');
@@ -356,7 +370,13 @@ export class PostgresLivePreparation {
         riskSourceRequire((await skipped).length === 1, 'live_preparation_claim_conflict');
       }
       const [leg] = await legWork;
-      riskSourceRequire(leg?.state === 'planned' && leg.executionKey === null && leg.mandateId === binding.mandateId && leg.sourceFillId === source.fill.id &&
+      if (previousWork) {
+        const [previous] = await previousWork;
+        riskSourceRequire(previous && isDefinitelyUnsent(decodeLiveExecutionRow(previous.journal)) && previous.reservation.state === 'released' &&
+          previous.reservation.releaseReason === 'expired_unplaced' && previous.reservation.exchangeOrderId === null && previous.hasReceipt === false &&
+          previous.hasEvidenceOid === false, 'live_preparation_claim_conflict');
+      }
+      riskSourceRequire(leg && (attempt === 0 ? leg.state === 'planned' && leg.executionKey === null : leg.state === 'skipped' && leg.executionKey === previousKey) && leg.mandateId === binding.mandateId && leg.sourceFillId === source.fill.id &&
         leg.tradeKey === source.leg.tradeKey && leg.sign === source.leg.sign && leg.size === source.leg.size && leg.fraction === source.leg.fraction && leg.dependsOnId === plan.dependsOnLegId, 'live_preparation_claim_conflict');
       const nonce = await nonceWork;
       riskSourceRequire(Number.isSafeInteger(nonce) && nonce >= now && nonce <= now + 30000, 'nonce_clock_skew');
@@ -368,7 +388,8 @@ export class PostgresLivePreparation {
         network: baseline.network, accountAddress: baseline.accountAddress, observedAt: new Date(baseline.observedAt), completedAt: new Date(baseline.completedAt), createdAt: new Date(baseline.createdAt),
         sourceDigest: baseline.sourceDigest, snapshotDigest: baseline.snapshotDigest, baselineDigest: baseline.baselineDigest, record: baseline as unknown as Record<string, unknown>, producerVersion: 1 })));
       const claimWork = sent(this.checked(session, tx.update(copyLiveSignalLegs).set({ executionKey: key, state: 'prepared', fixedTradeClaim: plan.fixedTradeClaim, revision: leg.revision + 1, updatedAt: new Date(now) })
-        .where(and(eq(copyLiveSignalLegs.id, legId), eq(copyLiveSignalLegs.revision, leg.revision), eq(copyLiveSignalLegs.state, 'planned'))).returning({ id: copyLiveSignalLegs.id })));
+        .where(and(eq(copyLiveSignalLegs.id, legId), eq(copyLiveSignalLegs.revision, leg.revision), previousKey
+          ? and(eq(copyLiveSignalLegs.state, 'skipped'), eq(copyLiveSignalLegs.executionKey, previousKey)) : eq(copyLiveSignalLegs.state, 'planned'))).returning({ id: copyLiveSignalLegs.id })));
       const provenanceWork = sent(this.checked(session, tx.insert(copyLiveIntentProvenance).values({ key, legId, mandateId: binding.mandateId, mandateRevision: current.mandate.revision, sourceDigest: source.fill.sourceDigest,
         settingsDigest: current.consent.settingsDigest, fingerprint, plannerVersion: 1, intent: intent as unknown as Record<string, unknown>, sizingBasis: sizing as unknown as Record<string, unknown>,
         sizingBasisDigest: riskSourceDigest(sizing), admittedAt: new Date(now) })));

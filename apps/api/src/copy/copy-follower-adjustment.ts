@@ -32,7 +32,7 @@ import {
 import { decodeLiveSettlementProof } from './live/live-settlement-proof.js';
 import type { LiveSettlementProofs } from './live/copy-live-generation-projection.js';
 import { executionKey, intentFingerprint } from './live/live-order.js';
-import { liveSourceExecutionCloid } from './live/postgres-live-preparation.js';
+import { liveSourceExecutionAttempt } from './live/copy-live-leg-attempt.js';
 import type { LiveExecutionRecord } from './live/live-execution.js';
 
 export type FollowerAdjustment = NonNullable<
@@ -242,7 +242,8 @@ export function originalFollowerAdjustment(
       isDeepStrictEqual(p.intent, r.payload.intent) &&
         intentFingerprint(p.intent as never, record.action) === p.fingerprint,
     );
-    requireOriginal(j.cloid === liveSourceExecutionCloid(m.id, f.id, 'close'));
+    // Any attempt of the close leg (copy-live-leg-attempt.ts); the leg row names it (checked below).
+    requireOriginal(liveSourceExecutionAttempt(m.id, f.id, 'close', j.cloid) !== null);
     const fill = decodeLiveSourceFill(f),
       canonical = canonicalLiveSourceLegs(fill).find(
         (item) => item.leg === 'close',

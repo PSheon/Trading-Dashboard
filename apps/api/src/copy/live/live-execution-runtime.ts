@@ -16,6 +16,7 @@ import { liveBudget, HyperliquidBudgetWait } from '../../hyperliquid/hyperliquid
 import { Dec } from '../../common/decimal/dec.js';
 import { decodeLiveCopyMandate } from '../copy-live-mandate-evidence.js';
 import { PostgresLivePreparation, liveSourceExecutionCloid, type LivePreparationOptions } from './postgres-live-preparation.js';
+import { MAX_LIVE_LEG_ATTEMPTS } from './copy-live-leg-attempt.js';
 import { LiveOrderExecutor, UNHELD_REJECTED, type LiveExecutionRecord } from './live-execution.js';
 import { errorCode } from '../../runtime/safe-error-text.js';
 import { address, LiveBoundaryError, WalletAuthorizationService } from './wallet-authorization.js';
@@ -58,7 +59,9 @@ const MAX_LEVERAGE_UPDATES = 3;
 const id = z.string().min(1).max(160).regex(/^[^\s\p{Cc}\p{Cf}]+$/u);
 const requestSchema = z.object({ userId: z.number().int().positive().max(2147483647), accountId: id,
   mandateId: id, sourceFillId: id, leg: z.enum(['open', 'close']), members: z.array(id).min(1).max(63).optional(),
-  signalDeadline: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional() }).strict();
+  signalDeadline: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+  attempt: z.number().int().min(1).max(MAX_LIVE_LEG_ATTEMPTS - 1).optional() }).strict()
+  .refine(request => request.attempt === undefined || request.members === undefined);
 const bps = z.string().max(80).regex(/^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/).refine(v => {
   try { return Dec.from(v).gte(0) && Dec.from(v).lte(10000); } catch { return false; }
 });
@@ -79,6 +82,9 @@ export interface LiveExecutionRequest {
   readonly leg: 'open' | 'close';
   /** One merged adjustment: the other same-coin leader legs it carries. */
   readonly members?: readonly string[];
+  /** A later order of the leg (copy-live-leg-attempt.ts) after its previous
+   * attempt was released as never sent; absent for the original order. */
+  readonly attempt?: number;
   /** When the leader's signal stops being worth copying (the leg is refused
    * as expired after it): the evidence's budget wait never outlasts it, so a
    * full bucket can't hold the worker's pass longer than the signal lives. */
@@ -140,7 +146,7 @@ export class LiveExecutionRuntime {
     // Bootstrap supplies routing coordinates only. This connection is released
     // before the original lock session, including with a one-connection pool.
     const db = drizzle(this.pool);
-    const cloid = liveSourceExecutionCloid(request.mandateId, request.sourceFillId, request.leg);
+    const cloid = liveSourceExecutionCloid(request.mandateId, request.sourceFillId, request.leg, request.attempt ?? 0);
     const [routing] = await db.select({ account: copyExecutionAccounts, mandate: copyLiveMandates,
       budgetAccounts: sql<number>`(select count(*)::integer from copy_execution_accounts a inner join copy_strategies s on s.id=a.strategy_id
         where a.user_id=${request.userId} and a.network=${this.network} and (a.address is not null or a.privy_wallet_id is not null)

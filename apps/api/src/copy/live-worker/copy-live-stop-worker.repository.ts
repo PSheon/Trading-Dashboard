@@ -13,7 +13,7 @@ import { UnitOfWork } from '../../db/unit-of-work.js';
 import { lockCopyUser } from '../copy-user-lock.js';
 import { allocateSignerNonce } from '../signer-nonce.js';
 import { decodeLiveExecutionRow } from '../live/postgres-live-journal.js';
-import { liveSourceExecutionCloid } from '../live/postgres-live-preparation.js';
+import { liveSourceExecutionAttempt } from '../live/copy-live-leg-attempt.js';
 import type { LiveExecutionRecord } from '../live/live-execution.js';
 import type { LiveOrderIntent } from '../live/live-order.js';
 import { unwatchLeaderIfUnused } from '../../watcher/leader-watch.js';
@@ -215,8 +215,10 @@ export class CopyLiveStopWorkerRepository {
       .where(and(eq(copyLiveDispatches.executionKey, executionKey), eq(copyLiveMandates.accountId, stop.accountId), eq(copyLiveMandates.userId, stop.userId),
         eq(copyLiveMandates.consentKind, 'setup'))).limit(1);
     if (!row || !row.mandate.consentDigest || !row.mandate.liveSetupId) return null;
-    const cloid = liveSourceExecutionCloid(row.dispatch.mandateId, row.dispatch.sourceFillId, row.dispatch.leg);
-    if (executionKey !== `${row.mandate.network}:${row.mandate.accountAddress}:${cloid}` || row.mandate.network !== this.network) return null;
+    // Any attempt of the leg (copy-live-leg-attempt.ts): its cloid derives from this generation.
+    const prefix = `${row.mandate.network}:${row.mandate.accountAddress}:`;
+    if (!executionKey.startsWith(prefix) || liveSourceExecutionAttempt(row.dispatch.mandateId, row.dispatch.sourceFillId, row.dispatch.leg, executionKey.slice(prefix.length)) === null ||
+      row.mandate.network !== this.network) return null;
     return row.mandate;
   }
   async mandateConsentDigest(mandateId: string): Promise<string | null> {

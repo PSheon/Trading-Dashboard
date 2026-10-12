@@ -13,7 +13,8 @@ import { parseFollowerFill, parseFollowerFunding, followerReceiptDigestV1 } from
 import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceDigest, liveSourceLegId } from './copy-live-source-evidence.js';
 import { captureLiveOrderIdentity } from './live-order-evidence.js';
 import { buildOrderAction, executionKey, intentFingerprint, type LiveOrderIntent } from './live-order.js';
-import { NEVER_PLACED, UNHELD_REJECTED, type LiveExecutionRecord } from './live-execution.js';
+import { isDefinitelyUnsent, NEVER_PLACED, UNHELD_REJECTED, type LiveExecutionRecord } from './live-execution.js';
+import { liveSourceExecutionAttempt } from './copy-live-leg-attempt.js';
 import { decodeLiveSettlementProof } from './live-settlement-proof.js';
 import { decodeLiveUnattemptedRelease,assertLiveUnattemptedReleaseMirrors } from './live-unattempted-release.js';
 import { freezeLiveReservation, validateLiveReservationPayload, type LiveReservationStored } from './live-risk-reservation.js';
@@ -237,8 +238,16 @@ export function projectLiveGenerationPositions(raw: LiveGenerationProjectionInpu
         intent.network===id.network&&intent.accountAddress===id.accountAddress&&intentFingerprint(intent,action)===record.fingerprint&&millis(p!.admittedAt)>=baseline.createdAt);
       same(action,record.action);
       const fill=decodeLiveSourceFill({...fillRow!,providerTime:new Date(fillRow!.providerTime),receivedAt:new Date(fillRow!.receivedAt)}),canonical=canonicalLiveSourceLegs(fill).find(l=>l.leg===leg!.leg);
+      // An earlier attempt of this leg (copy-live-leg-attempt.ts) released as
+      // never sent, whose leg row now names a later attempt of the same leg:
+      // both keys are this leg's derived identities on this account. It
+      // carries no fill (checked below with every never-placed order); every
+      // other journal is still its leg's own order.
+      const prefix=`${id.network}:${id.accountAddress}:`,attemptOf=(key:string|null)=>key!==null&&key.startsWith(prefix)?liveSourceExecutionAttempt(id.mandateId,fill.id,leg!.leg,key.slice(prefix.length)):null;
+      const own=attemptOf(j.key),later=attemptOf(leg!.executionKey);
+      const retired=leg!.executionKey!==j.key&&isDefinitelyUnsent(record)&&own!==null&&later!==null&&later>own;
       requireGeneration(fill.leaderAddress===id.leaderAddress&&p!.sourceDigest===fill.sourceDigest&&canonical&&leg!.mandateId===id.mandateId&&leg!.id===liveSourceLegId(id.mandateId,fill.id,leg!.leg)&&
-        p!.legId===leg!.id&&leg!.sourceFillId===fill.id&&leg!.executionKey===j.key&&leg!.sign===canonical.sign&&leg!.size===canonical.size&&leg!.fraction===canonical.fraction&&leg!.tradeKey===canonical.tradeKey&&
+        p!.legId===leg!.id&&leg!.sourceFillId===fill.id&&(leg!.executionKey===j.key||retired)&&leg!.sign===canonical.sign&&leg!.size===canonical.size&&leg!.fraction===canonical.fraction&&leg!.tradeKey===canonical.tradeKey&&
         intent.reduceOnly===(canonical.leg==='close')&&intent.side===(followerSign(canonical.sign,id.direction)*(canonical.leg==='close'?-1:1)>0?'B':'A')&&intent.market?.coin===fill.coin);
       if(r)requireGeneration(r.key===j.key&&r.accountId===id.accountId&&r.userId===id.userId&&r.strategyId===id.strategyId&&r.network===id.network&&r.accountAddress===id.accountAddress&&
         r.fingerprint===record.fingerprint&&r.authorizationId===id.authorizationId&&r.cloid===j.cloid);
@@ -265,9 +274,11 @@ export function projectLiveGenerationPositions(raw: LiveGenerationProjectionInpu
       }
       if(record.errorCode===NEVER_PLACED){
         // An attempted order the exchange never placed: no fill, no carry
-        // change, its liability released as expired_unplaced, its leg skipped.
+        // change, its liability released as expired_unplaced, its leg skipped
+        // (or, for an earlier attempt released as never sent, planned again
+        // under a later attempt that the leg row now names).
         requireGeneration(r&&j.state==='rejected'&&r.state==='released'&&r.releaseReason==='expired_unplaced'&&r.exchangeOrderId===null&&r.releaseEvidenceDigest&&
-          leg!.state==='skipped'&&ownReceipts.length===0&&(!e||e.exchangeOrderId===null&&!e.settlementCertificate));
+          (retired||leg!.state==='skipped')&&ownReceipts.length===0&&(!e||e.exchangeOrderId===null&&!e.settlementCertificate));
         continue;
       }
       if(record.errorCode===UNHELD_REJECTED){

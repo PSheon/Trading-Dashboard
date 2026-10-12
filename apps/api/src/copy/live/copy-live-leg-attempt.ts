@@ -1,0 +1,34 @@
+import { createHash } from 'node:crypto';
+
+/**
+ * Most orders one leader leg may be planned as. Attempt 0 is the leg's
+ * original order; a later attempt exists only after the previous one was
+ * released as never sent (its exchange request provably never began:
+ * isDefinitelyUnsent, released by releaseUnsent) and is a new order with its
+ * own cloid, execution key, nonce, provenance, reservation and every gate.
+ * The previous attempt's journal stays rejected (immutable); it is never
+ * re-armed. After the last attempt the leg is skipped as before.
+ */
+export const MAX_LIVE_LEG_ATTEMPTS = 3;
+
+/** Stable economic identity of one attempt of one leader leg, independent of
+ * a worker, quote or retry time. Attempt 0 is the original derivation
+ * (unchanged); attempt k > 0 adds k to it. */
+export function liveSourceExecutionCloid(mandateId: string, sourceFillId: string, leg: 'open' | 'close', attempt = 0): `0x${string}` {
+  if (!Number.isSafeInteger(attempt) || attempt < 0 || attempt >= MAX_LIVE_LEG_ATTEMPTS) throw new RangeError('live_leg_attempt_invalid');
+  const parts: unknown[] = ['live-copy-v1', mandateId, sourceFillId, leg, ...(attempt ? [attempt] : [])];
+  return `0x${createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 32)}`;
+}
+
+/** Which attempt of this leg `cloid` is (0 .. MAX_LIVE_LEG_ATTEMPTS - 1), or
+ * null when it is not one of the leg's derived order identities. */
+export function liveSourceExecutionAttempt(mandateId: string, sourceFillId: string, leg: 'open' | 'close', cloid: string): number | null {
+  for (let attempt = 0; attempt < MAX_LIVE_LEG_ATTEMPTS; attempt++)
+    if (liveSourceExecutionCloid(mandateId, sourceFillId, leg, attempt) === cloid) return attempt;
+  return null;
+}
+
+/** The cloid of an execution key `<network>:<account>:<cloid>`. */
+export function executionKeyCloid(key: string): string {
+  return key.slice(key.lastIndexOf(':') + 1);
+}

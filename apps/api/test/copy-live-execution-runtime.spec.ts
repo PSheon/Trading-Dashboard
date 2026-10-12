@@ -41,6 +41,7 @@ import { PostgresLiveSettlement } from '../src/copy/live/postgres-live-settlemen
 import { PostgresLivePreparation } from '../src/copy/live/postgres-live-preparation.js';
 import { LiveLeverageUpdateRequired } from '../src/copy/live/live-leverage-update.js';
 import { ScopedLiveExecutionJournal } from '../src/copy/live/scoped-live-journal.js';
+import { liveSourceExecutionCloid, MAX_LIVE_LEG_ATTEMPTS } from '../src/copy/live/copy-live-leg-attempt.js';
 
 // Native network endpoints alone are replaced. Every provider decoder, private
 // quota capability, SQL authority and SDK request boundary remains concrete.
@@ -1131,6 +1132,68 @@ describe('an order whose final check refused before its POST began (definite uns
     expect((await runtime(config, { ...options, slippageBps: '0' }).execute({ ...request(), sourceFillId: next })).state).toBe('filled');
     expect(clock).toBeLessThan((journal.record as { expiresAfter: number }).expiresAfter + 80_000);
   }, 20_000);
+  /** Real time catches up with the test clock the stall moved (the shared quota reads the database's). */
+  async function catchUp() {
+    while (Date.now() < clock) await new Promise(resolve => setTimeout(resolve, 100));
+    clock = Date.now();
+  }
+  it('is placed on the next attempt under a new cloid and key, the released attempt kept rejected', async () => {
+    const first = await unsentOrder();
+    await catchUp();
+    expect(await settle(first.key, new CopyLiveSettler('testnet', pool, global, budget, { runFor: async () => {} }, () => clock))).toEqual({ kind: 'unplaced', unsent: true });
+    raw.mockClear();
+    const retried = await runtime(config, { ...options, slippageBps: '0' }).execute({ ...request(), attempt: 1 });
+    expect(retried.state).toBe('filled');
+    expect(retried.key).not.toBe(first.key);
+    expect(retried.action.orders[0]!.c).toBe(liveSourceExecutionCloid('mandate', seed.fill.id, 'open', 1));
+    expect(raw.mock.calls.filter(([url]) => String(url).endsWith('/exchange'))).toHaveLength(1);
+    const journals = await db.select().from(schema.copyLiveExecutions);
+    expect(journals.find(j => j.key === first.key)).toEqual(first);
+    expect((await db.select().from(schema.copyLiveSignalLegs))[0]).toMatchObject({ state: 'prepared', executionKey: retried.key });
+    expect((await db.select().from(schema.copyLiveIntentProvenance)).map(p => p.key).sort()).toEqual([first.key, retried.key].sort());
+    // The released attempt is never prepared, signed or sent again (its leg now names attempt 1).
+    raw.mockClear();
+    await expect(runtime(config, { ...options, slippageBps: '0' }).execute(request())).rejects.toThrow('live_runtime_historical_identity');
+    expect(raw.mock.calls.some(([url]) => String(url).endsWith('/exchange') || String(url).endsWith('/rpc'))).toBe(false);
+    expect((await db.select().from(schema.copyLiveExecutions)).find(j => j.key === first.key)).toEqual(first);
+  }, 20_000);
+  it('refuses a next attempt while the previous one is not released as never sent, and any attempt past the cap', async () => {
+    const first = await unsentOrder();
+    await catchUp();
+    // Not yet released: the reservation is still held.
+    await expect(runtime(config, { ...options, slippageBps: '0' }).execute({ ...request(), attempt: 1 })).rejects.toThrow();
+    expect((await db.select().from(schema.copyLiveExecutions)).map(j => j.key)).toEqual([first.key]);
+    // Skipping an attempt is refused even once released.
+    expect(await settle(first.key, new CopyLiveSettler('testnet', pool, global, budget, { runFor: async () => {} }, () => clock))).toEqual({ kind: 'unplaced', unsent: true });
+    await expect(runtime(config, { ...options, slippageBps: '0' }).execute({ ...request(), attempt: 2 })).rejects.toThrow('live_preparation_claim_conflict');
+    await expect(runtime(config, { ...options, slippageBps: '0' }).execute({ ...request(), attempt: MAX_LIVE_LEG_ATTEMPTS })).rejects.toThrow('live_runtime_request');
+    expect((await db.select().from(schema.copyLiveExecutions)).map(j => j.key)).toEqual([first.key]);
+  }, 20_000);
+  it('keeps the generation proof after a retried leg: two released attempts, then the third proven and placed', async () => {
+    const first = await unsentOrder();
+    await catchUp();
+    const settler = () => new CopyLiveSettler('testnet', pool, global, budget, { runFor: async () => {} }, () => clock);
+    expect(await settle(first.key, settler())).toEqual({ kind: 'unplaced', unsent: true });
+    staleFinalCheck();
+    await expect(runtime(config, { ...options, slippageBps: '0' }).execute({ ...request(), attempt: 1 })).rejects.toThrow();
+    vi.mocked(ScopedLiveExecutionJournal.prototype.save).mockRestore();
+    await catchUp();
+    const second = (await db.select().from(schema.copyLiveExecutions)).find(j => j.key !== first.key)!;
+    expect(second.record).toMatchObject({ unsent: 'request_never_began' });
+    expect(await settle(second.key, settler())).toEqual({ kind: 'unplaced', unsent: true });
+    // Attempt 0 is now an earlier attempt whose leg names attempt 1: its
+    // projection is the retired branch, attempt 1 the ordinary never-placed one.
+    // Without its unsent marker attempt 0 is not a retired attempt: unproven.
+    const { unsent: _marker, ...unmarked } = first.record as Record<string, unknown>;
+    await db.update(schema.copyLiveExecutions).set({ record: unmarked }).where(eq(schema.copyLiveExecutions.key, first.key));
+    await expect(runtime(config, { ...options, slippageBps: '0' }).execute({ ...request(), attempt: 2 })).rejects.toThrow('live_generation_unproven');
+    await db.update(schema.copyLiveExecutions).set({ record: first.record }).where(eq(schema.copyLiveExecutions.key, first.key));
+    expect(await db.select().from(schema.copyLiveExecutions)).toHaveLength(2);
+    const third = await runtime(config, { ...options, slippageBps: '0' }).execute({ ...request(), attempt: 2 });
+    expect(third.state).toBe('filled');
+    expect((await db.select().from(schema.copyLiveSignalLegs))[0]).toMatchObject({ state: 'prepared', executionKey: third.key });
+    expect(raw.mock.calls.filter(([url]) => String(url).endsWith('/exchange'))).toHaveLength(1);
+  }, 30_000);
   it('only the marker skips the grace: a POST that began and failed stays unknown, and never placed without the marker waits', async () => {
     await actualClockFixture();
     const previous = raw.getMockImplementation()!;

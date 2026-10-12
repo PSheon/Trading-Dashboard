@@ -1843,7 +1843,11 @@ export const copyLiveIntentProvenance = pgTable("copy_live_intent_provenance", {
   sizingBasisDigest: text("sizing_basis_digest"),
 }, (t) => [
   foreignKey({ columns: [t.legId, t.mandateId], foreignColumns: [copyLiveSignalLegs.id, copyLiveSignalLegs.mandateId] }).onDelete("restrict"),
-  uniqueIndex("copy_live_provenance_leg_uq").on(t.legId), index("copy_live_provenance_admission_idx").on(t.mandateId, t.admittedAt),
+  // One provenance per order (key). A leg has one per attempt: its later
+  // attempts (copy-live-leg-attempt.ts, at most MAX_LIVE_LEG_ATTEMPTS) exist
+  // only after the previous one was released as never sent; each key is one
+  // of the leg's derived cloids, and the leg row names the current one.
+  index("copy_live_provenance_leg_idx").on(t.legId), index("copy_live_provenance_admission_idx").on(t.mandateId, t.admittedAt),
   check("copy_live_provenance_evidence_check", sql`${t.mandateRevision} > 0 and ${t.plannerVersion} = 1 and ${t.sourceDigest} ~ '^[0-9a-f]{64}$' and ${t.settingsDigest} ~ '^[0-9a-f]{64}$' and ${t.fingerprint} ~ '^[0-9a-f]{64}$' and jsonb_typeof(${t.intent}) = 'object' and jsonb_typeof(${t.sizingBasis}) = 'object' and extract(epoch from ${t.admittedAt}) > 0`),
   check("copy_live_provenance_basis_digest_check", sql`${t.sizingBasisDigest} is null or ${t.sizingBasisDigest} ~ '^[0-9a-f]{64}$'`),
 ]);

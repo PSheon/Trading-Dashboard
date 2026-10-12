@@ -34,7 +34,9 @@ export class CopyLiveSourceRepository {
     if (new Set(decoded.map(fill => fill.id)).size !== decoded.length || decoded.some(fill => fill.network !== result.network || fill.leaderAddress !== leader || fill.providerTime < result.from || fill.providerTime > result.to || fill.receivedAt < result.observedAt || fill.receivedAt > result.completedAt)) throw new LiveBoundaryError('invalid_live_source_evidence');
     for (const window of result.observations) if (!['fills','twap'].includes(window.kind) || ![window.from,window.to,window.depth,window.observedAt,window.completedAt,window.count].every(Number.isSafeInteger) ||
       window.from < result.from || window.to > result.to || window.from > window.to || window.depth < 0 || window.depth > 48 || window.observedAt < result.observedAt || window.completedAt < window.observedAt || window.completedAt > result.completedAt ||
-      window.count < 0 || window.count > 2000 || window.saturated !== (window.count >= 500) || !/^[a-f0-9]{64}$/.test(window.responseDigest)) throw new LiveBoundaryError('invalid_live_source_evidence');
+      window.count < 0 || window.count > 2000 || window.saturated !== (window.count >= 500 && window.sealed !== true) || !/^[a-f0-9]{64}$/.test(window.responseDigest) ||
+      // Only a single millisecond read whole, under the provider's page cap, is sealed.
+      (window.sealed !== undefined && (window.sealed !== true || window.from !== window.to || window.count < 500 || window.count >= 2000))) throw new LiveBoundaryError('invalid_live_source_evidence');
     const kinds = result.kinds ?? ['fills', 'twap'];
     if (!Array.isArray(kinds) || kinds.length < 1 || kinds.length > 2 || new Set(kinds).size !== kinds.length || kinds.some(kind => !['fills','twap'].includes(kind)) ||
       result.observations.some(window => !kinds.includes(window.kind))) throw new LiveBoundaryError('invalid_live_source_evidence');

@@ -6,6 +6,7 @@ import { UnitOfWork } from '../src/db/unit-of-work.js';
 import { digest as mandateDigest } from '../src/copy/copy-live-mandate-evidence.js';
 import { CopyLiveSourceRepository } from '../src/copy/copy-live-source.repository.js';
 import { liveSourceExecutionCloid } from '../src/copy/live/postgres-live-preparation.js';
+import { liveSourceDigest } from '../src/copy/live/copy-live-source-evidence.js';
 import type { LiveExecutionRecord } from '../src/copy/live/live-execution.js';
 import type { LiveExecutionHooks, LiveExecutionRequest } from '../src/copy/live/live-execution-runtime.js';
 import { CopyLiveEngine, type LiveEngineDependencies } from '../src/copy/live-worker/copy-live-engine.js';
@@ -212,6 +213,74 @@ describe('realtime copy signal (fast mainnet source)', () => {
     // The gap ends with the next complete read: the copy goes on.
     clock = now + 8000; await engine(fast).kick(leader);
     expect(await stream()).toMatchObject({ state: 'ready', lastIssue: null }); expect((await stream()).coverageThrough!.getTime()).toBe(now + 6000);
+  });
+
+  describe('a burst of fills in one millisecond (O3)', () => {
+    const burst = (count: number, time: number, firstTid = 1) => Array.from({ length: count }, (_, i) => rest(firstTid + i, time));
+    const apply = (result: Parameters<CopyLiveSourceRepository['apply']>[2]) => new UnitOfWork(db).run(async tx => {
+      const sources = new CopyLiveSourceRepository(db), current = await sources.ensure(tx, leader, 'mainnet');
+      return sources.apply(tx, current.revision, result, clock);
+    });
+
+    it('600 fast fills at the window start: the window is that millisecond, and coverage moves past it', async () => {
+      const fills = [...burst(600, 1000), rest(900, 3000)], { read } = reader(() => fills), fast = new FastMainnetSource(read, G, () => clock);
+      clock = 10_000;
+      const first = await fast.read(leader, 1000);
+      expect(first).toMatchObject({ from: 1000, to: 1000, complete: true }); expect(first!.fills).toHaveLength(600);
+      expect(first!.observations).toEqual([expect.objectContaining({ from: 1000, to: 1000, count: 600, saturated: false, sealed: true })]);
+      expect((await apply(first!)).stream).toMatchObject({ state: 'ready' });
+      expect((await stream()).coverageThrough!.getTime()).toBe(1000);
+      const next = await fast.read(leader, 1001);
+      expect(next).toMatchObject({ from: 1001, to: 8000, complete: true }); expect(next!.fills.map(f => f.tid)).toEqual(['900']);
+      expect((await apply(next!)).stream).toMatchObject({ state: 'ready' }); expect((await stream()).coverageThrough!.getTime()).toBe(8000);
+    });
+
+    it('fewer rows before the burst: the window still stops before it, as before', async () => {
+      const fills = [...burst(100, 500, 5000), ...burst(600, 1000)], { read } = reader(() => fills), fast = new FastMainnetSource(read, G, () => clock);
+      clock = 10_000;
+      const first = await fast.read(leader, 400);
+      expect(first).toMatchObject({ to: 999, complete: true }); expect(first!.fills).toHaveLength(100);
+      expect(first!.observations[0]).not.toHaveProperty('sealed');
+    });
+
+    it('a full page in one millisecond cannot be read whole: the stream goes to gap with an alert, not a silent stall', async () => {
+      const log = vi.fn(), fills = burst(2500, 1000), page = () => fills.slice(0, 2000);
+      const { read } = reader(page), fast = new FastMainnetSource(read, G, () => clock, log);
+      clock = 10_000;
+      const result = await fast.read(leader, 1000);
+      expect(result).toMatchObject({ from: 1000, to: 1000, complete: false, fills: [] });
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('ALERT fast source'));
+      expect((await apply(result!)).stream).toMatchObject({ state: 'gap', lastIssue: 'incomplete_coverage' });
+    });
+
+    it('600 watched fills at the window start: read whole as a window of its own', async () => {
+      for (const fill of burst(600, now + 1000)) await watcherFill(fill);
+      await watcherFill(rest(900, now + 1500)); await verified(now - 10_000, now + 2000);
+      clock = now + 5000;
+      const watched = new WatchedMainnetSource(db, () => clock), first = await watched.read(leader, now + 1000, now + 2000);
+      expect(first).toMatchObject({ from: now + 1000, to: now + 1000, complete: true }); expect(first!.fills).toHaveLength(600);
+      expect(first!.observations[0]).toMatchObject({ count: 600, saturated: false, sealed: true });
+      expect((await apply(first!)).stream).toMatchObject({ state: 'ready' });
+      const next = await watched.read(leader, now + 1001, now + 2000);
+      expect(next!.fills.map(f => f.tid)).toEqual(['900']);
+      expect((await apply(next!)).stream).toMatchObject({ state: 'ready' }); expect((await stream()).coverageThrough!.getTime()).toBe(now + 2000);
+    });
+
+    it('a sealed window is only one millisecond under the page cap', async () => {
+      const fills = burst(600, 1000), { read } = reader(() => fills), fast = new FastMainnetSource(read, G, () => clock);
+      clock = 10_000;
+      const good = (await fast.read(leader, 1000))!;
+      const forged = (change: (observation: Record<string, unknown>) => void) => {
+        const { sourceDigest: _digest, ...body } = structuredClone(good);
+        change(body.observations[0] as unknown as Record<string, unknown>);
+        return { ...body, sourceDigest: liveSourceDigest(body) };
+      };
+      await expect(apply(forged(o => { delete o.sealed; }))).rejects.toThrow('invalid_live_source_evidence');
+      await expect(apply(forged(o => { o.to = 1001; }))).rejects.toThrow('invalid_live_source_evidence');
+      await expect(apply(forged(o => { o.count = 2000; }))).rejects.toThrow('invalid_live_source_evidence');
+      await expect(apply(forged(o => { o.count = 499; }))).rejects.toThrow('invalid_live_source_evidence');
+      await expect(apply(forged(o => { o.sealed = false; }))).rejects.toThrow('invalid_live_source_evidence');
+    });
   });
 
   it('a read that waited for the mainnet budget certifies from when it left, and stays fresh', async () => {

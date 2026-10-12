@@ -141,10 +141,26 @@ export class FastMainnetSource {
     // A full page may stop mid-millisecond; a window must stay unsaturated.
     if (regular.length >= PAGE_ROWS) to = Math.min(to, regular[regular.length - 1]!.time - 1);
     const inWindow = () => rows.filter(row => row.time <= to);
-    if (inWindow().length >= FAST_SOURCE_WINDOW_ROWS) to = Math.min(to, inWindow()[FAST_SOURCE_WINDOW_ROWS - 1]!.time - 1);
+    // A window of this many rows stops before the millisecond that fills it,
+    // except when that is the window's first millisecond (a sweep of many
+    // makers, a liquidation): stopping before it would end every later read
+    // before `from` as well, and the stream would never pass it. The answer
+    // holds that millisecond whole (a full page already ends `to` before its
+    // last millisecond), so the window is that millisecond alone, sealed.
+    let sealed = false;
+    if (inWindow().length >= FAST_SOURCE_WINDOW_ROWS) {
+      const at = inWindow()[FAST_SOURCE_WINDOW_ROWS - 1]!.time;
+      if (at > from) to = Math.min(to, at - 1);
+      else { to = from; sealed = true; }
+    }
     const kept = inWindow(), past = rows.filter(row => row.time > to && !isOutOfScopeSpotFill(row) && !untaggedZeroHash(row));
     state.beyond = past.length ? past[0]!.time : null;
     state.misses = [...state.witnessed.values()].some(time => observedAt - time > this.graceMs) ? state.misses + 1 : 0;
+    // A full page all in the first millisecond (or a sealed one past the
+    // 2,000-row cap): that millisecond cannot be read whole. The stream goes
+    // to gap (incomplete) with an alert instead of waiting forever unseen.
+    if (to < from && regular.length >= PAGE_ROWS && regular[regular.length - 1]!.time === from || sealed && kept.length >= PAGE_ROWS)
+      return this.unreadable(leaderAddress, from, observedAt, regular.filter(row => row.time === from).slice(0, PAGE_ROWS), requests);
     if (to < from) return null;
     const receivedAt = this.now(), parsed = new Map<string, LiveSourceFillEvidence>();
     for (const row of kept) {
@@ -154,10 +170,23 @@ export class FastMainnetSource {
     }
     const completedAt = this.now(), fresh = completedAt - observedAt <= 5000;
     const observations = [{ kind: 'fills' as const, from, to, depth: 0, observedAt, completedAt, count: kept.length,
-      responseDigest: liveSourceDigest(kept), saturated: false }];
+      responseDigest: liveSourceDigest(kept), saturated: false, ...(sealed ? { sealed: true as const } : {}) }];
     const result = { network: 'mainnet' as const, leaderAddress, from, to, observedAt, completedAt, fresh, complete: fresh,
       historicalCompleteness: 'unproven' as const, requestsUsed: requests, kinds: ['fills' as const],
       fills: [...parsed.values()].sort((a, b) => a.providerTime - b.providerTime || (BigInt(a.tid) < BigInt(b.tid) ? -1 : 1)), observations, unresolved: [] };
+    return { ...result, sourceDigest: liveSourceDigest(result) };
+  }
+
+  /** An incomplete read of the millisecond at `from` (it certifies nothing):
+   * applied, it puts the stream into gap, so the stall is seen. */
+  private unreadable(leaderAddress: string, from: number, observedAt: number, rows: HlUserFill[], requests: number): LiveSourceReadResult {
+    this.log?.(`ALERT fast source: ${leaderAddress} has ${rows.length}+ fills at ${new Date(from).toISOString()}, more than one read returns; ` +
+      'that millisecond cannot be read whole, stream set to gap (incomplete_coverage)');
+    const completedAt = this.now(), fresh = completedAt - observedAt <= 5000;
+    const observations = [{ kind: 'fills' as const, from, to: from, depth: 0, observedAt, completedAt, count: rows.length,
+      responseDigest: liveSourceDigest(rows), saturated: rows.length >= FAST_SOURCE_WINDOW_ROWS }];
+    const result = { network: 'mainnet' as const, leaderAddress, from, to: from, observedAt, completedAt, fresh, complete: false,
+      historicalCompleteness: 'unproven' as const, requestsUsed: requests, kinds: ['fills' as const], fills: [], observations, unresolved: [] };
     return { ...result, sourceDigest: liveSourceDigest(result) };
   }
 }

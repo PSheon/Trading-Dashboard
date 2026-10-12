@@ -5,7 +5,12 @@ import { boundedLiveRead, RESERVE_BOUND_MS } from './live/live-market-resolver.j
 import { settleListAnswer } from '../hyperliquid/hyperliquid-global-transport.js';
 export interface LiveSourceReadRequest { leaderAddress: string; from: number; to: number; maxRequests: number; maxDepth?: number; maxFills?: number; }
 export interface LiveSourceWindow { kind: 'fills' | 'twap'; from: number; to: number; depth: number; }
-export interface LiveSourceWindowObservation extends LiveSourceWindow { observedAt: number; completedAt: number; count: number; responseDigest: string; saturated: boolean; }
+export interface LiveSourceWindowObservation extends LiveSourceWindow { observedAt: number; completedAt: number; count: number; responseDigest: string; saturated: boolean;
+  /** A single-millisecond window of 500+ rows that the source read whole
+   * (the answer went on past it, under the 2,000-row cap): complete
+   * although that many rows would otherwise count as saturated. Absent
+   * unless true. */
+  sealed?: true; }
 export interface LiveSourceReadResult {
   network: LiveSourceNetwork; leaderAddress: string; from: number; to: number; observedAt: number; completedAt: number; fresh: boolean;
   complete: boolean; historicalCompleteness: 'unproven'; requestsUsed: number; fills: LiveSourceFillEvidence[];

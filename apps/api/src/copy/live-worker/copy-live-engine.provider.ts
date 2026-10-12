@@ -120,7 +120,7 @@ export const liveEngineProvider: FactoryProvider<CopyLiveEngine | null> = {
       feedUp: () => { const status = feed?.status(); return !!status && status.socketsTotal > 0 && status.disconnectedSince === null; },
     } : undefined;
     return new CopyLiveEngine({ network, apiTerminalSettlement: network === 'testnet', setups, stopper: { tick: async () => { await stopper.tick(); await manual.tick(); } },
-      repository, sources, uow, watched: new WatchedMainnetSource(db),
+      repository, sources, uow, watched: new WatchedMainnetSource(db, Date.now, message => logger.warn(message)),
       // Testnet leaders (a testnet deployment only: a mainnet one copies mainnet leaders).
       testnetSource: new HyperliquidLiveSourceClient('testnet', weight => reserve(weight), walletGlobal.fetchInfo,
         Date.now, weight => { if (weight > 0) walletBudget.adjust(-weight); }),

@@ -232,6 +232,23 @@ describe("durable strategy funding", () => {
     } finally { later.mockRestore(); }
   });
 
+  it("an earlier credited deposit inside the window does not keep a never-executed one pending forever", async () => {
+    const d1 = await attempted(); receipt(d1);
+    expect((await service.reconcile(userId, d1.id)).status).toBe("credited");
+    exchange.send.mockRejectedValue(new Error("private response loss"));
+    const d2 = await attempted(); expect(d2.status).toBe("unknown");
+    // Only D1 is on the ledger; its details are D1's own (D1's nonce).
+    let clock = d2.nonce + 3 * 86_400_000;
+    const later = vi.spyOn(Date, "now").mockImplementation(() => clock);
+    try {
+      let status = "unknown";
+      for (let i = 0; i < 3 && status === "unknown"; i++) { clock += 60_000; status = (await service.reconcile(userId, d2.id)).status; }
+      expect(status).toBe("rejected");
+    } finally { later.mockRestore(); }
+    expect((await repository.find(userId, d1.id)).status).toBe("credited");
+    await expect(new WithdrawalRepository(db).reserve({ userId, network: "testnet", address: MAIN }, { destination: DEST, amount: "20" })).resolves.toBeTruthy();
+  });
+
   it("the not-executed decision is a compare-and-set: a concurrent turn that saved anything wins", async () => {
     exchange.send.mockRejectedValue(new Error("private response loss"));
     const op = await attempted();

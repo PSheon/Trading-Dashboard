@@ -15,7 +15,7 @@ import { TtlCache } from "../traders/ttl-cache.js";
 import { CopyWalletService } from "./copy-wallet.service.js";
 import { CopyFundingRepository, type FundingRow } from "./copy-funding.repository.js";
 import { CopyFundingExchangeClient } from "./copy-funding-exchange.client.js";
-import { fundingCreditEvidence } from "./copy-funding-evidence.js";
+import { fundingCreditEvidence, fundingOtherOperation } from "./copy-funding-evidence.js";
 import { FUNDING_NONCE_SKEW_MS, FUNDING_NONCE_EXPIRY_MS, fundingScanSchema, fundingDetailBatch, type FundingScan } from "./copy-funding-scan.js";
 
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -178,9 +178,12 @@ export class CopyFundingService {
           }
           const candidates = [...new Set(rows.filter((row) => row.delta.type === "internalTransfer" && typeof row.delta.user === "string" && row.delta.user.toLowerCase() === operation.address && typeof row.delta.destination === "string" && row.delta.destination.toLowerCase() === operation.destination && /^0x[0-9a-f]{64}$/.test(row.hash)).map((row) => row.hash))].sort().filter((hash) => !window.afterHash || hash > window.afterHash);
           // Counted before any proof: a matching transfer whose details could
-          // not be proven still rules out "never executed".
-          scan.seen = (scan.seen ?? 0) + candidates.length;
+          // not be proven still rules out "never executed" (until its details
+          // prove it is another operation, below). Each batch counts only its
+          // own hashes: the rest are counted when their batch is read, and the
+          // window stays open (no "never executed") until then.
           const hashes = candidates.slice(0, 5);
+          scan.seen = (scan.seen ?? 0) + hashes.length;
           scan.pendingDetails = fundingDetailBatch(hashes, rows);
           if (candidates.length > hashes.length) window.afterHash = hashes.at(-1)!;
           else scan.windows.shift();
@@ -195,6 +198,9 @@ export class CopyFundingService {
           const details = await this.exchange.txDetails(operation.network, pending.hash);
           const proof = fundingCreditEvidence(operation, pending.hash, details, pending.ledger);
           if (proof && !scan.receipts.some((receipt) => digest(receipt) === digest(proof)) && scan.receipts.length < 2) scan.receipts.push(proof);
+          // Its details prove another operation between the same accounts
+          // (e.g. an earlier deposit): it no longer rules out "never executed".
+          if (!proof && scan.seen && fundingOtherOperation(operation, pending.hash, details)) scan.seen -= 1;
           scan.pendingDetails.shift();
           const checkpoint = await this.repository.saveScan(current, scan);
           if (!checkpoint) return wire(await this.repository.find(userId, id));

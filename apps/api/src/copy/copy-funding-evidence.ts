@@ -30,3 +30,19 @@ export function fundingCreditEvidence(operation: FundingIntent, hash: string, de
     return { transactionHash: hash, creditedAmount, fee: canonicalUsdc(fee) };
   } catch { return null; }
 }
+
+/** True only when the explorer's own details for `hash` prove another
+ * operation between the same two accounts: a well-formed usdSend on this
+ * network, from this source to this destination, signed with a different
+ * nonce (action.time). A source uses each nonce once, so it can never be this
+ * transfer (e.g. an earlier deposit). Unread, malformed or partial details, or
+ * details that disagree with the ledger (other signer, destination or action
+ * type), prove nothing: false, and the transfer still counts as seen. */
+export function fundingOtherOperation(operation: FundingIntent, hash: string, details: unknown) {
+  if (!/^0x[0-9a-f]{64}$/.test(hash)) return false;
+  const reply = object(details), tx = object(reply?.tx), action = object(tx?.action);
+  const network = WALLET_NETWORKS[operation.network];
+  return reply?.type === "txDetails" && tx?.hash === hash && sameAddress(tx.user, operation.address) && !!action &&
+    action.type === "usdSend" && action.hyperliquidChain === network.hyperliquidChain && action.signatureChainId === network.signatureChainId &&
+    sameAddress(action.destination, operation.destination) && Number.isSafeInteger(action.time) && action.time !== operation.nonce;
+}

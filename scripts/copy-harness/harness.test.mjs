@@ -278,7 +278,8 @@ test("scenarios: by name or number, deduplicated, base by default; unknown ones 
   assert.deepEqual(parseScenarios(undefined), ["base"]);
   assert.deepEqual(parseScenarios("3,stop-open,6,7,8,9,14,3"), ["reduce-min", "stop-open", "close-then-stop", "worker-restart", "refused-open", "burst", "kill-switch"]);
   assert.throws(() => parseScenarios("5"), /unknown scenario 5/);
-  assert.equal(Object.values(SCENARIOS).filter((s) => s.endsCopy).length, 4);
+  assert.deepEqual(parseScenarios("20"), ["follow"]);
+  assert.equal(Object.values(SCENARIOS).filter((s) => s.endsCopy).length, 5);
 });
 test("profiles: stage-caps mirrors Stage (12–15 per trade, 50 per copy, leverage 3)", () => {
   assert.deepEqual(termsFor("stage-caps"), { ...TERMS, budgetUsd: 50, maxPerTradeUsd: 15, maxLeverage: 3, profile: "stage-caps" });

@@ -137,6 +137,7 @@ export const SCENARIOS = Object.freeze({
   "refused-open": { no: "8", endsCopy: false, about: "an open refused under the order minimum (below_min_notional), then later legs, a close included, execute" },
   burst: { no: "9", endsCopy: false, about: "the leader closes in 3 fills within 20 s; the follower ends flat" },
   "kill-switch": { no: "14", endsCopy: true, about: "platform pause (opens refused, reductions mirrored), then admin close-all closes and returns" },
+  follow: { no: "20", endsCopy: true, about: "follow --leader (a real mainnet trader) for --watch-min minutes: every leg settled or refused for an expected reason, then stop" },
 });
 /** `--scenarios` → scenario names, in the given order (default: base). */
 export function parseScenarios(value) {

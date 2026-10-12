@@ -44,6 +44,8 @@ const flag = (name, fallback) => { const i = args.indexOf(`--${name}`); return i
 const has = (name) => args.includes(`--${name}`);
 const WEB = flag("web", "http://localhost:3000"), API = flag("api", "http://localhost:3100"), WORKER = flag("worker", "http://localhost:3010");
 const DRY = has("dry-run"), GAP = flag("gap", "20");
+// --leader 0x…: copy that real mainnet trader (a mainnet source on this testnet stack) instead of the scripted testnet leader.
+const LEADER = (flag("leader") ?? HARNESS_LEADER).toLowerCase(), SOURCE = flag("leader") ? "mainnet" : "testnet", WATCH_MIN = Number(flag("watch-min", "15"));
 let SCENARIO_LIST, TERMS;
 try { SCENARIO_LIST = parseScenarios(flag("scenarios")); TERMS = termsFor(flag("profile", "default")); }
 catch (error) { console.error(error.message); process.exit(EXIT.usage); }
@@ -164,12 +166,12 @@ try {
   const settings = { direction: "same", sizingMode: ratio ? "ratio" : "fixed", perTradeUsd: ratio ? null : TERMS.perTradeUsd, maxTotalExposureUsd: null, maxLeverage: TERMS.maxLeverage, copyStartMode: "delta" };
   /** Prepares a copy, confirms it in the browser and waits until it runs. Dry run: stops after the consent. */
   async function startCopy(label) {
-    const startBody = { idempotencyKey: `harness-${randomUUID()}`, leader: HARNESS_LEADER, sourceNetwork: "testnet", budgetUsd: String(TERMS.budgetUsd), settings };
+    const startBody = { idempotencyKey: `harness-${randomUUID()}`, leader: LEADER, sourceNetwork: SOURCE, budgetUsd: String(TERMS.budgetUsd), settings };
     const prepared = await waitFor(() => follower.client.post("/me/copy/live/setups", startBody), (s) => s.stage !== "provisioning", { timeoutMs: 60_000, intervalMs: 2000 });
     const setup = prepared.value;
     setupId = setup.id;
     const consent = setup.consent;
-    if (!check(`${label}_setup_prepared`, prepared.ok && setup.stage === "awaiting_consent" && consent?.sourceNetwork === "testnet" && consent?.leaderAddress === HARNESS_LEADER &&
+    if (!check(`${label}_setup_prepared`, prepared.ok && setup.stage === "awaiting_consent" && consent?.sourceNetwork === SOURCE && consent?.leaderAddress === LEADER &&
         consent?.budgetUsd === String(TERMS.budgetUsd) && consent?.fundingAmount === String(TERMS.budgetUsd) && Boolean(consent?.masterPolicyId && consent?.workerQuorumId),
       `setup ${setup.id} ${setup.stage}${setup.issue ? ` (${setup.issue})` : ""}, source ${consent?.sourceNetwork}, budget ${consent?.budgetUsd}, account ${consent?.accountAddress}`)) await finish(EXIT.failed);
 
@@ -264,8 +266,27 @@ try {
   const adminToken = process.env.HARNESS_ADMIN_TOKEN || env.AUTH_SERVICE_TOKEN || null;
   const admin = adminToken ? apiClient(API, async () => adminToken) : null;
 
+  /** The copy's legs by outcome, from the local database (psql, the stack's DATABASE_URL). */
+  const legOutcomes = async (strategyId) => {
+    const sql = `select state || ':' || coalesce(reason, '') as outcome, count(*) from copy_live_dispatches where mandate_id in (select id from copy_live_mandates where strategy_id = ${Number(strategyId)}) group by 1 order by 2 desc`;
+    const out = await new Promise((resolveOut) => { const child = spawn("psql", [env.DATABASE_URL, "-At", "-F", "=", "-c", sql]); let text = ""; child.stdout.on("data", (d) => { text += d; }); child.on("close", () => resolveOut(text)); });
+    return Object.fromEntries(out.trim().split("\n").filter(Boolean).map((line) => { const [k, v] = line.split("="); return [k, Number(v)]; }));
+  };
+  /** A refusal the copy may record for a real trader's leg; anything else is a defect. */
+  const EXPECTED_REFUSALS = /^(refused:(merged_into_adjustment|below_min_notional|live_market_hip3_unsupported|no_follower_position|signal_expired|max_strategy_exposure|max_user_exposure|max_coin_exposure|available_collateral|max_order|copy_stopping|flip_close_not_settled|position_closed_by_owner))$/;
   /** Each scenario runs on `copy` (a running copy) and returns whether the copy still runs. */
   const scenarios = {
+    // A real mainnet trader for WATCH_MIN minutes: what this stack does with its real fill rate and bursts.
+    follow: async (copy) => {
+      const until = Date.now() + WATCH_MIN * 60_000;
+      while (Date.now() < until) { log("follow_tick", { outcomes: await legOutcomes(copy.strategyId) }); await sleep(60_000); }
+      const outcomes = await legOutcomes(copy.strategyId);
+      const settled = outcomes["settled:"] ?? 0, unexpected = Object.entries(outcomes).filter(([k]) => k !== "settled:" && !k.startsWith("pending:") && !k.startsWith("submitted:") && !EXPECTED_REFUSALS.test(k));
+      check("follow_legs_settled", settled > 0, `${settled} settled of ${Object.values(outcomes).reduce((a, b) => a + b, 0)}: ${JSON.stringify(outcomes)}`);
+      check("follow_no_unexpected_refusal", unexpected.length === 0, unexpected.length ? JSON.stringify(Object.fromEntries(unexpected)) : "none");
+      await stopCheck("follow", copy);
+      return false;
+    },
     async base(copy) {
       const since = nowIso();
       await leaderRun("base", ["scenario", "base", "--gap", GAP]);

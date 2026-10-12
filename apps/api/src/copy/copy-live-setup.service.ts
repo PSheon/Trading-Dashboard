@@ -480,8 +480,8 @@ export class CopyLiveSetupService {
       });
       if (!evidenced) return this.repository.find(userId, id);
       row = evidenced;
-      await this.funding.claim(userId, intent.fundingOperationId);
-      const submitted = await this.funding.submit(userId, intent.fundingOperationId, request.fundingSignature);
+      await this.funding.claim(userId, intent.fundingOperationId, { liveSetupId: id });
+      const submitted = await this.funding.submit(userId, intent.fundingOperationId, request.fundingSignature, { liveSetupId: id });
       const deposit = await this.fundingRows.find(userId, submitted.id);
       if (!deposit.attemptedAt) {
         // Not sent (busy or refused before the POST): the consent stays due.

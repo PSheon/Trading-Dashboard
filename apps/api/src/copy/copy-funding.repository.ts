@@ -16,6 +16,15 @@ import type { FundingScan } from "./copy-funding-scan.js";
 export type FundingRow = typeof copyFundingOperations.$inferSelect;
 const pending = () => inArray(copyFundingOperations.status, ["prepared", "unknown", "accepted"]);
 const conflict = () => new ConflictException({ statusCode: 409, code: "funding_pending", message: "Resolve the pending wallet operation first" });
+/** A one-click setup's deposit is sent only by that setup's confirm (the
+ * owner's consent, the worker signer added): sent on its own, it would fund a
+ * copy that has neither, and so no way to run or return it. */
+const setupDeposit = () => new ConflictException({ statusCode: 409, code: "funding_setup_confirm_required", message: "This deposit is sent by confirming its copy setup" });
+/** Which deposits a caller may send: a setup's confirm passes its setup id
+ * (`via.liveSetupId`) and sends only that setup's; anyone else only a
+ * deposit that belongs to no setup. */
+export interface FundingSender { readonly liveSetupId?: string }
+const sendable = (row: Pick<FundingRow, "liveSetupId">, via: FundingSender) => row.liveSetupId === (via.liveSetupId ?? null);
 
 @Injectable()
 export class CopyFundingRepository {
@@ -87,9 +96,14 @@ export class CopyFundingRepository {
       return row!;
     });
   }
-  async claim(userId: number, id: string) {
-    const [row] = await this.locked(userId, tx => tx.update(copyFundingOperations).set({ status: "unknown", claimedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.userId, userId), eq(copyFundingOperations.status, "prepared"))).returning());
+  async claim(userId: number, id: string, via: FundingSender = {}) {
+    const [row] = await this.locked(userId, async tx => {
+      const [current] = await tx.select({ liveSetupId: copyFundingOperations.liveSetupId }).from(copyFundingOperations)
+        .where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.userId, userId)));
+      if (current && !sendable(current, via)) throw setupDeposit();
+      return tx.update(copyFundingOperations).set({ status: "unknown", claimedAt: new Date(), updatedAt: new Date() })
+        .where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.userId, userId), eq(copyFundingOperations.status, "prepared"))).returning();
+    });
     return { row: row ?? await this.find(userId, id), claimed: Boolean(row) };
   }
   async cancel(userId: number, id: string) {
@@ -99,12 +113,13 @@ export class CopyFundingRepository {
     if (current.status !== "cancelled") throw conflict();
     return current;
   }
-  async beginSubmit(userId: number, id: string) {
+  async beginSubmit(userId: number, id: string, via: FundingSender = {}) {
     // Serialize against owner disablement, account re-verification and copy stop.
     return this.locked(userId, async (tx) => {
       const [user] = await tx.select().from(users).where(and(eq(users.id, userId), isNull(users.disabledAt))).for("share");
       const [row] = await tx.select().from(copyFundingOperations).where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.userId, userId)));
       if (!row) throw new NotFoundException("Funding operation not found");
+      if (!sendable(row, via)) throw setupDeposit();
       if (!row.attemptedAt) {
         await assertAccountAbortAdmission(tx, userId, row.accountId, row.network);
         await assertSetupAdmission(tx, userId, row.liveSetupId);

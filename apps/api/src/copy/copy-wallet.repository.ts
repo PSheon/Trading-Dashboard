@@ -102,9 +102,10 @@ export class CopyWalletRepository {
    * unchanged, so the revision (which consents bind) stays as it is. */
   async recordMasterSigner(id: string, fields: { masterPolicyId: string; masterPolicyFingerprint: string; masterSignerQuorumId: string; sweepDestination: string; signerAttachedAt: Date; walletId: string; address: string }) {
     return this.withLockedAccount(id, async tx => (await tx.update(copyExecutionAccounts).set({ masterPolicyId: fields.masterPolicyId, masterPolicyFingerprint: fields.masterPolicyFingerprint,
-      masterSignerQuorumId: fields.masterSignerQuorumId, sweepDestination: fields.sweepDestination, signerAttachedAt: fields.signerAttachedAt, updatedAt: new Date() })
+      masterSignerQuorumId: fields.masterSignerQuorumId, sweepDestination: fields.sweepDestination, signerAttachedAt: fields.signerAttachedAt, signerDetachedAt: null, updatedAt: new Date() })
       .where(and(eq(copyExecutionAccounts.id, id), eq(copyExecutionAccounts.state, "ready"), eq(copyExecutionAccounts.privyWalletId, fields.walletId), eq(copyExecutionAccounts.address, fields.address),
-        sql`${copyExecutionAccounts.masterPolicyId} is null`)).returning())[0]);
+        // A first signer, or one added again after it was detached.
+        sql`(${copyExecutionAccounts.masterPolicyId} is null or ${copyExecutionAccounts.signerDetachedAt} is not null)`)).returning())[0]);
   }
   /** A failed check of a ready account, unless the account changed or a
    * newer check succeeded since this one read it. */

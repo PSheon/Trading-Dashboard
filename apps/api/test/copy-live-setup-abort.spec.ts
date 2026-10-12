@@ -73,9 +73,33 @@ it('an abort is a permanent barrier before a prepared deposit can be admitted to
   const operation = await repository.reserve(1, 'account', 'testnet', { idempotencyKey: 'deposit-original-request-key', amount: '10' });
   await installAbort();
   await db.update(copyFundingOperations).set({ liveSetupId: setupId }).where(eq(copyFundingOperations.id, operation.id));
-  await repository.claim(1, operation.id);
-  await expect(repository.beginSubmit(1, operation.id)).rejects.toMatchObject({ response: { code: 'setup_abort_requested' } });
+  // Its setup's confirm is the only sender of a setup's deposit (FundingSender).
+  await repository.claim(1, operation.id, { liveSetupId: setupId });
+  await expect(repository.beginSubmit(1, operation.id, { liveSetupId: setupId })).rejects.toMatchObject({ response: { code: 'setup_abort_requested' } });
   expect((await repository.find(1, operation.id)).attemptedAt).toBeNull();
+});
+
+it('a setup\'s deposit is sent only by that setup\'s confirm, never by the public broadcast/submit routes (no consent, no worker signer)', async () => {
+  const repository = new CopyFundingRepository(db);
+  await db.insert(copyLiveSetups).values({ id: setupId, userId: 1, strategyId: 9, accountId: 'account', kind: 'start', idempotencyKey: 'confirm-only-start-key',
+    leaderAddress: seed.consent.leaderAddress, sourceNetwork: 'testnet', budgetUsd: '100', settings: seed.f.strategy.settings });
+  const refused = { status: 409, response: { code: 'funding_setup_confirm_required' } };
+  // A deposit of no setup is the public routes' (and not a setup confirm's).
+  const plain = await repository.reserve(1, 'account', 'testnet', { idempotencyKey: 'plain-deposit-request-key', amount: '10' });
+  await expect(repository.claim(1, plain.id, { liveSetupId: setupId })).rejects.toMatchObject(refused);
+  expect((await repository.claim(1, plain.id)).claimed).toBe(true);
+  await repository.cancel(1, plain.id);
+  const operation = await repository.reserve(1, 'account', 'testnet', { idempotencyKey: 'deposit-of-a-setup-request-key', amount: '10' });
+  await db.update(copyFundingOperations).set({ liveSetupId: setupId }).where(eq(copyFundingOperations.id, operation.id));
+  // POST /me/copy/funding/:id/broadcast, and another setup's confirm.
+  await expect(repository.claim(1, operation.id)).rejects.toMatchObject(refused);
+  await expect(repository.claim(1, operation.id, { liveSetupId: abortId })).rejects.toMatchObject(refused);
+  expect((await repository.find(1, operation.id))).toMatchObject({ status: 'prepared', claimedAt: null });
+  // Its own confirm claims it; POST /me/copy/funding/:id/submit still can't send it.
+  expect((await repository.claim(1, operation.id, { liveSetupId: setupId })).claimed).toBe(true);
+  await expect(repository.beginSubmit(1, operation.id)).rejects.toMatchObject(refused);
+  expect((await repository.find(1, operation.id)).attemptedAt).toBeNull();
+  expect((await repository.beginSubmit(1, operation.id, { liveSetupId: setupId }))?.attemptedAt).toBeInstanceOf(Date);
 });
 
 it('a late builder driver cannot acquire financial authority after abort', async () => {

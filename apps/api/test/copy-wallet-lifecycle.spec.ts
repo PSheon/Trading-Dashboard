@@ -309,6 +309,29 @@ describe("the automatic return: the policy-bound worker signer the owner's brows
     expect(await enabled.enableAutomaticReturn(uid, id)).toMatchObject({ automaticReturn: true });
   });
 
+  it("works on a stopping or stopped copy: that is when its funds go back (safety exit)", async () => {
+    const id = await ready();
+    const enabled = new CopyWalletService(new CopyWalletRepository(db), new UnitOfWork(db), on(true), provider, policy as never);
+    await db.update(copyStrategies).set({ status: "stopping" }).where(eq(copyStrategies.id, strategy));
+    expect(await enabled.enableAutomaticReturn(uid, id)).toMatchObject({ id, automaticReturn: true });
+    await db.update(copyExecutionAccounts).set({ masterPolicyId: null, masterPolicyFingerprint: null, masterSignerQuorumId: null, sweepDestination: null, signerAttachedAt: null }).where(eq(copyExecutionAccounts.id, id));
+    await db.update(copyStrategies).set({ status: "stopped", stoppedAt: new Date() }).where(eq(copyStrategies.id, strategy));
+    expect(await enabled.enableAutomaticReturn(uid, id)).toMatchObject({ id, automaticReturn: true });
+  });
+
+  it("a signer taken off the wallet is added again, not answered as already on with the automatic return off", async () => {
+    const id = await ready();
+    const enabled = new CopyWalletService(new CopyWalletRepository(db), new UnitOfWork(db), on(true), provider, policy as never);
+    await enabled.enableAutomaticReturn(uid, id);
+    await db.update(copyExecutionAccounts).set({ signerDetachedAt: new Date(Date.now() + 1000) }).where(eq(copyExecutionAccounts.id, id));
+    expect((await enabled.overview(uid)).accounts.find(a => a.id === id)).toMatchObject({ automaticReturn: false });
+    // Until the browser adds it again: what to add; once added, recorded again.
+    policy.assertSigner.mockRejectedValueOnce(new MasterPolicyConflict());
+    expect(await enabled.enableAutomaticReturn(uid, id).catch((e: { response: unknown }) => e.response)).toMatchObject({ code: "automatic_return_signer_missing", policyId: "policy-1" });
+    expect(await enabled.enableAutomaticReturn(uid, id)).toMatchObject({ id, automaticReturn: true });
+    expect((await db.select().from(copyExecutionAccounts).where(eq(copyExecutionAccounts.id, id)))[0]).toMatchObject({ signerDetachedAt: null, masterPolicyId: "policy-1", masterSignerQuorumId: "worker-quorum" });
+  });
+
   it("a setup's policy is created only while the worker can sign (no orphan policies at Privy)", async () => {
     const id = await ready();
     const agent = { address: `0x${"33".repeat(20)}`, name: "copy1 valid_until 1" };

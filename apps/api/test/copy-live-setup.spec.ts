@@ -9,7 +9,7 @@ import { adminSettingsSchema, copyFundingInputSchema, DEFAULT_COPY_RISK_LIMITS, 
 import { appSettings, copyAgentSetups, copyControls, copyExecutionAccounts, copyExecutionWallets, copyFundingOperations, copyLiveActivations, copyLiveBuilderApprovals, copyLiveMandates, copyLiveSetupAborts, copyLiveSetups,
   copyLiveStrategyConfigs, copyRiskPolicies, copyStrategies, copyWalletAuthorizations, leaders } from '@trading-dashboard/shared/database';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
-import { CopyFundingRepository } from '../src/copy/copy-funding.repository.js';
+import { CopyFundingRepository, type FundingSender } from '../src/copy/copy-funding.repository.js';
 import { wire as fundingWire } from '../src/copy/copy-funding.service.js';
 import { CopyLiveMandateRepository } from '../src/copy/copy-live-mandate.repository.js';
 import { CopyLiveSetupRepository } from '../src/copy/copy-live-setup.repository.js';
@@ -139,12 +139,12 @@ function build() {
   const funding = {
     reserve: vi.fn(async (userId: number, accountId: string, input: { idempotencyKey: string; amount: string }, internal?: { liveSetupId: string }) =>
       fundingWire(await fundingRows.reserve(userId, accountId, testNetwork, input, undefined, internal?.liveSetupId))),
-    claim: vi.fn(async (userId: number, id: string) => fundingRows.claim(userId, id)),
-    submit: vi.fn(async (userId: number, id: string, signature: string) => {
+    claim: vi.fn(async (userId: number, id: string, via?: FundingSender) => fundingRows.claim(userId, id, via)),
+    submit: vi.fn(async (userId: number, id: string, signature: string, via?: FundingSender) => {
       const row = await fundingRows.find(userId, id);
       const valid = await verifyTypedData({ ...(usdSendTypedData(WALLET_NETWORKS[testNetwork], row.destination, row.amount, row.nonce) as unknown as TypedDataDefinition), address: row.address as `0x${string}`, signature: signature as `0x${string}` });
       if (!valid) throw new Error('Invalid funding signature');
-      await fundingRows.beginSubmit(userId, id);
+      await fundingRows.beginSubmit(userId, id, via);
       return fundingWire(await fundingRows.finish(userId, id, 'accepted', 'e'.repeat(64)));
     }),
     reconcile: vi.fn(async () => undefined),
@@ -270,6 +270,9 @@ describe('one-click testnet copy setup', () => {
     // A second confirm (a retried request) neither verifies nor sends again.
     await service.confirm(uid, setup.id, await sign(setup.consent!));
     expect(fakes.funding.submit).toHaveBeenCalledTimes(1);
+    // Sent as this setup's deposit: the only sender the funding rows accept for it.
+    expect(fakes.funding.claim).toHaveBeenCalledExactlyOnceWith(uid, setup.consent!.fundingOperationId, { liveSetupId: setup.id });
+    expect(fakes.funding.submit.mock.calls[0]![3]).toEqual({ liveSetupId: setup.id });
     later(5_000); expect(await service.tick()).toBe(1);
     expect((await service.get(uid, setup.id))).toMatchObject({ stage: 'funding_submitted', issue: 'awaiting_credit' });
     await credit(); later(5_000);
@@ -1291,8 +1294,9 @@ it('request recovery review: cancel checks deposit admission under the same user
   });
   const cancelling = service.cancel(uid, prepared.id).catch(error => error);
   await entered.promise;
-  await fundingRows.claim(uid, prepared.consent!.fundingOperationId);
-  await fundingRows.beginSubmit(uid, prepared.consent!.fundingOperationId);
+  // As the setup's confirm sends it (the only sender of a setup's deposit).
+  await fundingRows.claim(uid, prepared.consent!.fundingOperationId, { liveSetupId: prepared.id });
+  await fundingRows.beginSubmit(uid, prepared.consent!.fundingOperationId, { liveSetupId: prepared.id });
   release.resolve(); const result = await cancelling; spy.mockRestore();
   expect(result).toMatchObject({ status: 409, response: { code: 'funding_pending' } });
   expect((await service.get(uid, prepared.id)).stage).toBe('awaiting_consent');

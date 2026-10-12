@@ -50,10 +50,13 @@ export class CopyWalletService {
     const user = await this.owner(userId);
     const row = await this.repository.account(id, userId);
     if (!row) throw new NotFoundException("Execution wallet not found");
-    if (row.masterPolicyId) return account(row);
+    // Recorded and still attached: nothing to do. A detached signer (taken off
+    // the wallet) is added again like a first one: a return needs it.
+    if (row.masterPolicyId && !row.signerDetachedAt) return account(row);
     const strategy = await this.repository.ownedStrategy(userId, row.strategyId);
+    // A stopping or stopped copy is exactly when its funds go back: allowed.
     if (row.state !== "ready" || row.network !== deploymentNetwork(this.config) || !row.privyWalletId || !row.address || !row.ownerQuorumId || row.privyUserId !== user.privyUserId ||
-      !user.embeddedWalletAddress || !strategy || strategy.status === "stopped" || strategy.status === "stopping") throw new ConflictException({ statusCode: 409, code: "setup_wallet_conflict", message: "This copy wallet can't take the automatic return" });
+      !user.embeddedWalletAddress || !strategy) throw new ConflictException({ statusCode: 409, code: "setup_wallet_conflict", message: "This copy wallet can't take the automatic return" });
     const binding = { network: row.network, ownerMain: user.embeddedWalletAddress.toLowerCase(), account: row.address };
     try {
       const policy = await this.masterPolicy.create(user.privyUserId, binding, `master_${row.id.replaceAll("-", "")}`);

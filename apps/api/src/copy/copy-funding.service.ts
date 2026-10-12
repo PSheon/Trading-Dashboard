@@ -16,7 +16,7 @@ import { parseOr400 } from "../common/http/validation.js";
 import type { HlLedgerUpdate } from "../hyperliquid/types.js";
 import { TtlCache } from "../traders/ttl-cache.js";
 import { CopyWalletService } from "./copy-wallet.service.js";
-import { CopyFundingRepository, type FundingRow } from "./copy-funding.repository.js";
+import { CopyFundingRepository, type FundingRow, type FundingSender } from "./copy-funding.repository.js";
 import { CopyFundingExchangeClient } from "./copy-funding-exchange.client.js";
 import { fundingCreditEvidence, fundingOtherOperation } from "./copy-funding-evidence.js";
 import { FUNDING_NONCE_SKEW_MS, FUNDING_NONCE_EXPIRY_MS, fundingScanSchema, fundingDetailBatch, type FundingScan } from "./copy-funding-scan.js";
@@ -82,16 +82,18 @@ export class CopyFundingService {
         throw new ConflictException({ statusCode: 409, code: "above_max_allocation", message: "This would put more than the maximum allocation in the copy", max: Math.min(...caps) });
     };
   }
-  async claim(userId: number, id: string) {
+  /** `via`: a setup's confirm sends its own deposit (FundingSender); the
+   * public routes send only a deposit of no setup. */
+  async claim(userId: number, id: string, via: FundingSender = {}) {
     this.assertAvailable();
     const row = await this.repository.find(userId, id);
     if (row.direction !== "to_account") throw new ConflictException("A return is approved through its own consent");
     await this.verified(userId, row.accountId);
-    const claimed = await this.repository.claim(userId, id);
+    const claimed = await this.repository.claim(userId, id, via);
     return { operation: wire(claimed.row), claimed: claimed.claimed };
   }
   async cancel(userId: number, id: string) { await this.wallets.overview(userId); return wire(await this.repository.cancel(userId, id)); }
-  async submit(userId: number, id: string, signature: string) {
+  async submit(userId: number, id: string, signature: string, via: FundingSender = {}) {
     this.assertAvailable();
     const row = await this.repository.find(userId, id);
     if (row.direction !== "to_account") throw new ConflictException("A return is approved through its own consent");
@@ -115,7 +117,7 @@ export class CopyFundingService {
     // Reverify identity after balance/budget reads, before durable attempt.
     const identityCheckedAt = Date.now();
     const account = await this.verified(userId, row.accountId);
-    const attempt = await this.repository.beginSubmit(userId, id);
+    const attempt = await this.repository.beginSubmit(userId, id, via);
     if (!attempt) return wire(await this.repository.find(userId, id));
     let reply: unknown;
     try { reply = await this.exchange.send(attempt, signature, () => {

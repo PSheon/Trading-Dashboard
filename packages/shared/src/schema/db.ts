@@ -1837,10 +1837,15 @@ export const copyLiveIntentProvenance = pgTable("copy_live_intent_provenance", {
   sourceDigest: text("source_digest").notNull(), settingsDigest: text("settings_digest").notNull(), fingerprint: text("fingerprint").notNull(), plannerVersion: integer("planner_version").notNull(),
   intent: jsonb("intent").$type<Record<string, unknown>>().notNull(), sizingBasis: jsonb("sizing_basis").$type<Record<string, unknown>>().notNull(),
   admittedAt: timestamp("admitted_at", { withTimezone: true }).notNull(),
+  /** liveSourceDigest(sizing_basis), written with it: a generation manifest
+   * names each order's sizing basis by this digest without reading the
+   * envelope. Null on rows admitted before it (the reader computes those). */
+  sizingBasisDigest: text("sizing_basis_digest"),
 }, (t) => [
   foreignKey({ columns: [t.legId, t.mandateId], foreignColumns: [copyLiveSignalLegs.id, copyLiveSignalLegs.mandateId] }).onDelete("restrict"),
   uniqueIndex("copy_live_provenance_leg_uq").on(t.legId), index("copy_live_provenance_admission_idx").on(t.mandateId, t.admittedAt),
   check("copy_live_provenance_evidence_check", sql`${t.mandateRevision} > 0 and ${t.plannerVersion} = 1 and ${t.sourceDigest} ~ '^[0-9a-f]{64}$' and ${t.settingsDigest} ~ '^[0-9a-f]{64}$' and ${t.fingerprint} ~ '^[0-9a-f]{64}$' and jsonb_typeof(${t.intent}) = 'object' and jsonb_typeof(${t.sizingBasis}) = 'object' and extract(epoch from ${t.admittedAt}) > 0`),
+  check("copy_live_provenance_basis_digest_check", sql`${t.sizingBasisDigest} is null or ${t.sizingBasisDigest} ~ '^[0-9a-f]{64}$'`),
 ]);
 
 /** Reduction rounding carry is actual generation/market state, never a

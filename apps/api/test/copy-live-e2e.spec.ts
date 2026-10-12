@@ -2,10 +2,11 @@ import { CopyLiveApiSettlementRepository } from '../src/copy/live-worker/copy-li
 import { apiSettlementProvider } from '../src/copy/live-worker/copy-live-api-settlement.provider.js';
 import { BackgroundJobs } from '../src/runtime/background-jobs.service.js';
 import { testConfig } from './config-test-utils.js';
+import { liveCopyMandateIntentSchema } from '@trading-dashboard/shared/contracts';
 import { generateKeyPairSync } from 'node:crypto';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import * as schema from '@trading-dashboard/shared/database';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -41,11 +42,14 @@ import { preparationFixture } from './copy-live-preparation-test-utils.js';
 import { now } from './copy-live-risk-test-utils.js';
 import { closeTestDb, getTestDb, type TestDb } from './db-test-utils.js';
 import { resetLiveReadCaches } from '../src/copy/live/live-read-cache.js';
+import { liveSourceDigest } from '../src/copy/live/copy-live-source-evidence.js';
 
 // Only native network endpoints are doubles (Privy, Hyperliquid REST/WS).
 // The engine, runtime, risk, journal, reservation, receipt ledger and
 // settlement are the production classes on a real database.
-const shared = vi.hoisted(() => ({ clock: 0, position: '0', eth: '0', withdrawable: '80', privyDown: 0 }));
+const shared = vi.hoisted(() => ({ clock: 0, position: '0', eth: '0', withdrawable: '80', privyDown: 0, dexes: 0 }));
+/** Listed HIP-3 venues besides the main one (testnet lists about 300). */
+const venues = () => Array.from({ length: shared.dexes }, (_, i) => `d${i}`);
 vi.mock('ws', async () => {
   const { EventEmitter } = await import('node:events');
   return { default: class extends EventEmitter {
@@ -62,8 +66,10 @@ vi.mock('ws', async () => {
         const assetPositions = held.map(([coin, szi]) => ({ type: 'oneWay', position: { coin, szi, entryPx: '100', positionValue: String(Math.abs(Number(szi)) * 100), unrealizedPnl: '0',
           marginUsed: String(Math.abs(Number(szi)) * 10), maxLeverage: 20, leverage: { type: 'cross', value: 10 }, cumFunding: { allTime: '0', sinceOpen: '0', sinceChange: '0' } } }));
         const state = { marginSummary: sums, crossMarginSummary: sums, crossMaintenanceMarginUsed: '0', withdrawable: shared.withdrawable, time: Date.now(), assetPositions };
+        const zero = { accountValue: '0', totalNtlPos: '0', totalRawUsd: '0', totalMarginUsed: '0' };
+        const empty = { marginSummary: zero, crossMarginSummary: zero, crossMaintenanceMarginUsed: '0', withdrawable: '0', time: Date.now(), assetPositions: [] };
         this.emit('message', Buffer.from(JSON.stringify(subscription.type === 'allDexsClearinghouseState'
-          ? { channel: subscription.type, data: { user: subscription.user, clearinghouseStates: [['', state]] } }
+          ? { channel: subscription.type, data: { user: subscription.user, clearinghouseStates: [['', state], ...venues().map(dex => [dex, empty])] } }
           : { channel: 'openOrders', data: { user: subscription.user, dex: subscription.dex, orders: [] } })));
       });
     }
@@ -94,7 +100,7 @@ beforeEach(async () => {
   const original = budget.acquire.bind(budget); weights = [];
   vi.spyOn(budget, 'acquire').mockImplementation((weight, ...rest) => { weights.push(weight); return original(weight, ...rest); });
   // The actual clock, so every bound identity and consent is current.
-  shared.clock = Date.now(); shared.position = '0'; shared.eth = '0'; shared.withdrawable = '80'; shared.privyDown = 0; logs = []; exchangeBodies = []; placedOrders = [];
+  shared.clock = Date.now(); shared.position = '0'; shared.eth = '0'; shared.withdrawable = '80'; shared.privyDown = 0; shared.dexes = 0; logs = []; exchangeBodies = []; placedOrders = [];
   const t = shared.clock, delta = t - now, date = (value: number) => new Date(value + delta);
   const [version] = await db.select().from(schema.copyStrategyVersions);
   const settings = { ...version!.settings, perTradeUsd: 20 };
@@ -139,23 +145,24 @@ async function providers(endpoint: string, body: Record<string, unknown> | undef
   expect(endpoint).toBe('https://api.hyperliquid-testnet.xyz/info');
   const user = body!.user, status = placedOrders.find(o => o.cloid === body!.oid);
   const values: Record<string, unknown> = { userRole: { role: 'user' }, userAbstraction: 'disabled', userDexAbstraction: false,
-    spotClearinghouseState: { portfolioMarginEnabled: false, balances: [] }, perpDexs: [null], spotMeta: { tokens: [{ index: 7, name: 'USDC', isCanonical: true }] },
-    meta, allPerpMetas: [meta], metaAndAssetCtxs: [meta, [{ midPx: '100', markPx: '100' }, { midPx: '100', markPx: '100' }]], allMids: { BTC: '100', ETH: '100' },
+    spotClearinghouseState: { portfolioMarginEnabled: false, balances: [] }, perpDexs: [null, ...venues().map(name => ({ name }))], spotMeta: { tokens: [{ index: 7, name: 'USDC', isCanonical: true }] },
+    meta, allPerpMetas: [meta, ...venues().map(dex => ({ collateralToken: 7, universe: [{ name: `${dex}:X`, szDecimals: 2, maxLeverage: 10 }] }))], metaAndAssetCtxs: [meta, [{ midPx: '100', markPx: '100' }, { midPx: '100', markPx: '100' }]], allMids: { BTC: '100', ETH: '100' },
     activeAssetData: { user, coin: body!.coin ?? 'BTC', leverage: { type: 'cross', value: 10 }, maxTradeSzs: ['1', '1'], availableToTrade: ['100', '100'], markPx: '100' },
     userFees: { userAddRate: '-0.0001', userCrossRate: '0.0005', activeReferralDiscount: '0', trial: null },
     extraAgents: [{ address: agent.address, name: 'dedicated', validUntil: Date.now() + 60000 }],
     orderStatus: status ? { status: 'order', order: { status: 'filled', statusTimestamp: status.at + 2, order: { coin: status.coin, oid: status.oid, cloid: status.cloid, side: status.side, reduceOnly: status.r,
       tif: 'Ioc', origSz: status.s, sz: '0', limitPx: status.p, timestamp: status.at, isTrigger: false, isPositionTpsl: false, children: [] } } } : { status: 'unknownOid' },
     userFillsByTime: placedOrders.map((o, i) => ({ coin: o.coin, px: '100', sz: o.s, side: o.side, time: o.at + 1, startPosition: '0', dir: 'Open Long', closedPnl: '0',
-      hash: `0x${String(34 + i).repeat(32)}`, oid: o.oid, crossed: true, fee: '0.01', tid: 501 + i, feeToken: 'USDC' })), userFunding: [] };
+      hash: `0x${String(34 + i).repeat(32)}`, oid: o.oid, crossed: true, fee: '0.01', tid: 501 + i, feeToken: 'USDC' }))
+      .filter(fill => (typeof body!.startTime !== 'number' || fill.time >= body!.startTime) && (typeof body!.endTime !== 'number' || fill.time <= body!.endTime)), userFunding: [] };
   if (!(String(body!.type) in values)) throw Error(`Unsupported offline INFO ${String(body!.type)}`);
   return Response.json(values[String(body!.type)]);
 }
-function engine(midPrice = '100', egress = global, withStopper = false, apiTerminalSettlement = false) {
+function engine(midPrice = '100', egress = global, withStopper = false, apiTerminalSettlement = false, settleEgress = 'e2e-settle-egress') {
   // Settlement right after the order (scan 240 + status + account ~630): an
   // order and its settlement exceed one minute's 1200 testnet weight, so in
   // production settlement waits for a later pass; here it gets its own room.
-  const settleGlobal = new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(pool, { schema }))), { egressKey: 'e2e-settle-egress', ownerId: 'e2e-settle' }, raw);
+  const settleGlobal = new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(pool, { schema }))), { egressKey: settleEgress, ownerId: `${settleEgress}-owner` }, raw);
   const settleBudget = new RequestBudgeterService(new AppConfig({ ...config.value, hyperliquid: { ...config.value.hyperliquid, budgetPerMin: 200, burst: 1000 } }));
   const reference = { network: 'mainnet' as const, read: vi.fn(async () => ({ midPrice, midObservedAt: Date.now(), leaderEquity: null, leaderEquityObservedAt: null })) };
   const options = { slippageBps: '30', extraRiskBufferBps: '5', restingOrderBuilderFeeCapTenthsBps: 100, maxSourceDeviationBps: '500' };
@@ -394,6 +401,47 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     const legs = await db.select().from(schema.copyLiveSignalLegs), close = legs.find(l => l.leg === 'close');
     expect(close).toMatchObject({ state: 'planned', executionKey: null });
     expect(legs.find(l => l.leg === 'open')).toMatchObject({ state: 'settled', dependsOnId: close!.id });
+  });
+  it('thirty settled orders later the copy still opens and closes: each envelope keeps settled proofs by digest, far below 2 MiB (testnet-sized snapshots)', { timeout: 600_000 }, async () => {
+    // About 300 listed venues make a testnet account snapshot ~95 KB. Each
+    // settled order's proof holds one; inline in every later envelope they
+    // reached the 2 MiB bound after ~16 orders and every order failed after.
+    shared.dexes = 300; resetLiveReadCaches(); // the venue list and metas earlier tests cached
+    // Room for thirty orders: the grant and its setup (equal expiry) and the leader's coverage.
+    const until = new Date(Date.now() + 900_000);
+    await db.update(schema.copyWalletAuthorizations).set({ expiresAt: until });
+    await db.update(schema.copyAgentSetups).set({ expiresAt: until });
+    await db.update(schema.fillCoverage).set({ verifiedThrough: until });
+    const [mandate] = await db.select().from(schema.copyLiveMandates), intent = liveCopyMandateIntentSchema.parse({ ...mandate!.intent, expiresAt: until.getTime() });
+    await db.update(schema.copyLiveMandates).set({ intent, intentDigest: mandateDigest(intent), expiresAt: until });
+    let e = engine(); await e.tick();
+    const sizes: number[] = [], prepared: number[] = [];
+    for (let i = 0; i < 30; i++) {
+      budget.onModuleDestroy(); budget = new RequestBudgeterService(config);
+      e = engine('100', new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(pool, { schema }))), { egressKey: `e2e-many-${i}`, ownerId: `e2e-many-${i}` }, raw), false, false, `e2e-many-settle-${i}`);
+      if (i % 2 === 0) await leaderOpens(2000 + i); else await leaderOpens(2000 + i, 'BTC', 'A', '1', '1', 'Close Long');
+      const started = Date.now(); await e.tick(); prepared.push(Date.now() - started);
+      let rows = await db.select().from(schema.copyLiveDispatches).orderBy(schema.copyLiveDispatches.leaderTime);
+      for (let pass = 0; pass < 5 && rows.some(r => r.state !== 'settled'); pass++) {
+        await new Promise(resolve => setTimeout(resolve, 5)); await e.tick();
+        rows = await db.select().from(schema.copyLiveDispatches).orderBy(schema.copyLiveDispatches.leaderTime);
+      }
+      expect(rows.map(r => [r.leg, r.state, r.reason])).toEqual(Array.from({ length: i + 1 }, (_, n) => [n % 2 ? 'close' : 'open', 'settled', null]));
+      const [latest] = await db.select().from(schema.copyLiveIntentProvenance).orderBy(desc(schema.copyLiveIntentProvenance.admittedAt)).limit(1);
+      sizes.push(Buffer.byteLength(JSON.stringify(latest!.sizingBasis)));
+      // The settled orders' proofs are named by digest only; each row stores its envelope's digest.
+      const retained = (latest!.sizingBasis as { observations: { generationManifest: { journals: { evidence: Record<string, unknown> | null }[] } } }).observations.generationManifest.journals;
+      expect(retained.filter(j => j.evidence?.settlementProofDigest)).toHaveLength(i);
+      expect(retained.every(j => !j.evidence || !('settlementProof' in j.evidence))).toBe(true);
+      expect(latest!.sizingBasisDigest).toBe(liveSourceDigest(latest!.sizingBasis));
+    }
+    expect(exchangeBodies).toHaveLength(30);
+    expect(logs.filter(l => l.includes('failed'))).toEqual([]);
+    expect(Math.max(...sizes)).toBeLessThan(1024 * 1024);
+    // Each later order adds only its compact journal entry and receipts, not a snapshot.
+    expect((sizes[29]! - sizes[1]!) / 28).toBeLessThan(20_000);
+    expect(Math.max(...prepared.slice(-5))).toBeLessThan(10_000);
+    shared.dexes = 0; resetLiveReadCaches();
   });
   it('waits six seconds for close evidence quota before observing and still sends only the fresh reduce-only position', async () => {
     // A cold cross-order read cache: the close pays its full observation (> 284).

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fixture } from './copy-live-risk-test-utils.js';
 import { captureLivePositionBaseline } from '../src/copy/live/live-position-baseline.js';
-import { projectLiveGenerationPositions, type LiveGenerationProjectionInput, type LiveGenerationManifestV1 } from '../src/copy/live/copy-live-generation-projection.js';
+import { compactLiveGenerationManifest, liveSettlementProofsOf, projectLiveGenerationPositions, retainedSettlementProofRefs, type LiveGenerationProjectionInput, type LiveGenerationManifestV1 } from '../src/copy/live/copy-live-generation-projection.js';
 import { settledGenerationExample } from './copy-live-generation-test-utils.js';
 import { parseFollowerFunding, followerReceiptDigestV1 } from '../src/copy/live/actual-fill-accounting.js';
 const key = `testnet:0x${'22'.repeat(20)}:0x${'ab'.repeat(16)}`;
@@ -93,5 +93,29 @@ describe('generation quantity projection requires actual immutable origin',()=>{
     const e=structuredClone(settledGenerationExample()),m=e.manifest as any,old=Date.parse(m.receipts[0].providerTime)-1;
     Object.assign(e.snapshot.dexes[0]!,{providerTime:old});Object.assign(e.snapshot.coverage,{earliestProviderTime:old});
     expect(()=>projectLiveGenerationPositions(e)).toThrow();
+  });
+});
+describe('a retained manifest names settled proofs by digest (sizing envelopes, O1)',()=>{
+  const settled=()=>{const e=settledGenerationExample(),m=e.manifest as LiveGenerationManifestV1;return {e,m,compact:compactLiveGenerationManifest(m),proofs:liveSettlementProofsOf(m)};};
+  it('projects a compact manifest with its proofs by digest exactly as the inline one; an inline (older) manifest is unchanged',()=>{
+    const {e,m,compact,proofs}=settled(),digest=m.journals[0]!.evidence!.settlementProofDigest!;
+    expect(compact.journals[0]!.evidence).not.toHaveProperty('settlementProof');expect(compact.journals[0]!.evidence!.settlementProofDigest).toBe(digest);
+    expect(Object.keys(proofs)).toEqual([digest]);
+    expect(Buffer.byteLength(JSON.stringify(compact))).toBeLessThan(Buffer.byteLength(JSON.stringify(m)));
+    const inline=projectLiveGenerationPositions(e);
+    expect(projectLiveGenerationPositions({...e,manifest:compact,settlementProofs:proofs})).toEqual(inline);
+    // Proofs supplied for an inline manifest are never consulted.
+    expect(projectLiveGenerationPositions({...e,settlementProofs:{}})).toEqual(inline);
+    expect(retainedSettlementProofRefs(compact)).toEqual([{key:m.journals[0]!.journal.key,digest}]);expect(retainedSettlementProofRefs(m)).toEqual([]);
+  });
+  it.each(['missing','altered','other_digest','null_inline'] as const)('refuses a compact manifest whose proof is %s',kind=>{
+    const {e,m,compact,proofs}=settled(),digest=m.journals[0]!.evidence!.settlementProofDigest!;
+    let supplied:Record<string,unknown>=proofs,manifest:LiveGenerationManifestV1=compact;
+    if(kind==='missing')supplied={};
+    if(kind==='altered'){const p=structuredClone(proofs[digest]) as {certificate:{filledSize:string}};p.certificate.filledSize='2';supplied={[digest]:p};}
+    if(kind==='other_digest')supplied={['f'.repeat(64)]:proofs[digest]};
+    // A null proof column is not a retained reference: never filled from the map.
+    if(kind==='null_inline')manifest={...m,journals:m.journals.map(j=>({...j,evidence:{...j.evidence!,settlementProof:null}}))};
+    expect(()=>projectLiveGenerationPositions({...e,manifest,settlementProofs:supplied})).toThrow('live_generation_unproven');
   });
 });

@@ -50,7 +50,7 @@ async function genuineSizing() {
       generationManifest:{version:1,accountId:'account',mandateId:'mandate',checkedAt:now,baseline,journals:[],receipts:[],ledger:[],scan:null,conflicts:[],accountState:null,carry:[{mandateId:'mandate',coin:'BTC',carry:'0',revision:1,updatedAt:new Date(now).toISOString()}]}}};
   const planned=planLiveSourceOrder({mandate:mandate!,settings:version!.settings as never,fill,leg:canonicalLiveSourceLegs(fill)[0]!,sizingBasis:envelope,now,limits:f.policy.limits,currentExecutionKey:f.reservations.own.key});
   expect(planned.order).toMatchObject({size:'1',limitPrice:'100',timeInForce:'Ioc'});
-  await db.update(copyLiveIntentProvenance).set({intent:f.intent as never,fingerprint,sizingBasis:envelope as never}).where(eq(copyLiveIntentProvenance.key,provenance!.key));
+  await db.update(copyLiveIntentProvenance).set({intent:f.intent as never,fingerprint,sizingBasis:envelope as never,sizingBasisDigest:liveSourceDigest(envelope)}).where(eq(copyLiveIntentProvenance.key,provenance!.key));
 
 }
 async function fullAuthority() {
@@ -117,6 +117,14 @@ describe('typed consolidated current SQL authority',()=>{
     else {const v=(kind==='risk'?(candidate.value as Awaited<ReturnType<typeof authority.loadLiveRiskAuthority>>).preparation:candidate.value) as Awaited<ReturnType<typeof authority.loadLivePreparationAuthority>>;
       expect(v.revenue).toBeUndefined();expect(Object.hasOwn(v,'revenue')).toBe(true);
       expect(v.mandate.createdAt).toBeInstanceOf(Date);expect(v.mandate.createdAt.getTime()).toBe(now-3000);expect(v.general[0]!.key).toBe('general');}
+  });
+  it('names each sizing basis by its stored digest without reading it; one admitted before that digest is read once and digested the same',async()=>{
+    await genuineSizing();const current=(await observed('generation')).candidate;expect(current.error).toBeUndefined();
+    expect(current.data.some(q=>/select[^]*"sizing_basis"[^]*from "copy_live_executions"/i.test(q))).toBe(false);
+    await db.update(copyLiveIntentProvenance).set({sizingBasisDigest:null});
+    const legacy=(await observed('generation')).candidate;expect(legacy.error).toBeUndefined();expect(legacy.data).toHaveLength(current.data.length+1);
+    const digestOf=(v:unknown)=>(v as {journals:{provenance:{sizingBasisDigest:string}|null}[]}).journals.map(j=>j.provenance?.sizingBasisDigest);
+    expect(digestOf(legacy.value)).toEqual(digestOf(current.value));expect(digestOf(current.value)[0]).toMatch(/^[0-9a-f]{64}$/);
   });
   it('decodes present aliases and nullable table Dates, choosing the latest current policy',async()=>{
     await genuineSizing();await db.insert(appSettings).values({key:'revenue',value:{builderAddress:null,builderFeeTenthsBps:0}});

@@ -12,7 +12,7 @@ import { loadLiveGenerationManifest } from './postgres-live-generation-manifest.
 import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceLegId } from './copy-live-source-evidence.js';
 import { planLiveSourceOrder } from './copy-live-source-planner.js';
 import type { LiveSourceSizingEnvelopeV1 } from './copy-live-sizing-evidence.js';
-import { projectLiveGenerationPositions, type LiveGenerationManifestV1 } from './copy-live-generation-projection.js';
+import { compactLiveGenerationManifest, liveSettlementProofsOf, projectLiveGenerationPositions, type LiveGenerationManifestV1 } from './copy-live-generation-projection.js';
 import { captureLivePositionBaseline } from './live-position-baseline.js';
 import { followerReceiptDigestV1 } from './actual-fill-accounting.js';
 import { HyperliquidLiveAccountObserver } from './live-account-observer.js';
@@ -221,11 +221,14 @@ export class PostgresLivePreparation {
       ...(source.members.length ? { merged: { members: [{ fill: source.fill, leg: source.leg }, ...source.members]
         .sort((a, b) => compareMergedLegs({ providerTime: a.fill.providerTime, sourceFillId: a.fill.id }, { providerTime: b.fill.providerTime, sourceFillId: b.fill.id }))
         .map(({ fill, leg }) => ({ sourceFillId: fill.id, sourceDigest: fill.sourceDigest, providerTime: fill.providerTime, sign: leg.sign, size: leg.size, px: fill.px, fraction: leg.fraction })) } } : {}) },
-      observations: { follower, leader, quote, generationManifest: withCarry } };
+      // Settled orders' proofs by digest only (compactLiveGenerationManifest):
+      // the planner reads them from this manifest, a replay from SQL.
+      observations: { follower, leader, quote, generationManifest: compactLiveGenerationManifest(withCarry) } };
+    const settlementProofs = liveSettlementProofsOf(withCarry);
     // The planner verifies every merged leg against its persisted fill.
     const members = source.members.map(member => member.fill);
     const plan = planLiveSourceOrder({ mandate: local.mandate, settings: local.settings, fill: source.fill, leg: source.leg, sizingBasis: sizing,
-      now: planningAt, limits: local.limits, currentExecutionKey: key, ...(members.length ? { members } : {}) });
+      now: planningAt, limits: local.limits, currentExecutionKey: key, ...(members.length ? { members } : {}), settlementProofs });
     // A merged open below the exchange minimum is refused here, before any
     // journal or nonce claims its identity, so its legs can keep accumulating
     // (a single leg keeps the risk gate's refusal after its journal).
@@ -246,7 +249,7 @@ export class PostgresLivePreparation {
         riskSourceRequire(riskSourceDigest(final) === riskSourceDigest(manifest), 'live_preparation_generation_changed');
       } else await this.assertFirstAccount(session, tx, local.account.id, network, local.account.address!);
       const now = this.now(), authorization = assertWalletAuthorization(current.currentAuthorization, intent, now);
-      planLiveSourceOrder({ mandate: current.mandate, settings: current.settings, fill: source.fill, leg: source.leg, sizingBasis: sizing, now, limits: current.limits, currentExecutionKey: key, ...(members.length ? { members } : {}) });
+      planLiveSourceOrder({ mandate: current.mandate, settings: current.settings, fill: source.fill, leg: source.leg, sizingBasis: sizing, now, limits: current.limits, currentExecutionKey: key, ...(members.length ? { members } : {}), settlementProofs });
       const [currentFill] = await this.checked(session, tx.select().from(copyLiveSourceFills).where(eq(copyLiveSourceFills.id, source.fill.id)));
       riskSourceRequire(currentFill && decodeLiveSourceFill(currentFill).sourceDigest === source.fill.sourceDigest, 'live_preparation_source');
       if (seedCarry) await this.checked(session, tx.insert(copyLiveReductionCarry).values({ mandateId: binding.mandateId, coin: source.fill.coin, carry: '0', revision: 1, updatedAt: new Date(carry.updatedAt) }));
@@ -280,9 +283,10 @@ export class PostgresLivePreparation {
         .where(and(eq(copyLiveSignalLegs.id, legId), eq(copyLiveSignalLegs.revision, leg.revision), eq(copyLiveSignalLegs.state, 'planned'))).returning({ id: copyLiveSignalLegs.id }));
       riskSourceRequire(claimed.length === 1, 'live_preparation_claim_conflict');
       await this.checked(session, tx.insert(copyLiveIntentProvenance).values({ key, legId, mandateId: binding.mandateId, mandateRevision: current.mandate.revision, sourceDigest: source.fill.sourceDigest,
-        settingsDigest: current.consent.settingsDigest, fingerprint, plannerVersion: 1, intent: intent as unknown as Record<string, unknown>, sizingBasis: sizing as unknown as Record<string, unknown>, admittedAt: new Date(now) }));
+        settingsDigest: current.consent.settingsDigest, fingerprint, plannerVersion: 1, intent: intent as unknown as Record<string, unknown>, sizingBasis: sizing as unknown as Record<string, unknown>,
+        sizingBasisDigest: riskSourceDigest(sizing), admittedAt: new Date(now) }));
       await session.scope.assertHeld(); this.fresh(started);
-      planLiveSourceOrder({ mandate: current.mandate, settings: current.settings, fill: source.fill, leg: source.leg, sizingBasis: sizing, now: this.now(), limits: current.limits, currentExecutionKey: key, ...(members.length ? { members } : {}) });
+      planLiveSourceOrder({ mandate: current.mandate, settings: current.settings, fill: source.fill, leg: source.leg, sizingBasis: sizing, now: this.now(), limits: current.limits, currentExecutionKey: key, ...(members.length ? { members } : {}), settlementProofs });
       this.fresh(oldest);
       return saved;
     });

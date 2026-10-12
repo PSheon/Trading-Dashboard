@@ -7,6 +7,7 @@ import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
 
 import { mergedMemberIds } from './live/copy-live-source-planner.js';
+import { retainedSettlementProofRefs } from './live/copy-live-generation-projection.js';
 import type { FollowerAdjustmentEvidence } from './copy-follower-adjustment.js';
 
 type Account = { id: string; strategyId: number; network: 'testnet' | 'mainnet'; address: string; privyUserId: string };
@@ -77,9 +78,20 @@ export class CopyFollowerActivityRepository {
           const eligibleMembers = boundedIds.length ? (await tx.execute<{id:string}>(sql`select id from (select f.id,sum(octet_length(to_jsonb(f)::text)) over(order by f.id) as bytes from copy_live_source_fills f where f.id in (${sql.join(boundedIds.map(id=>sql`${id}`),sql`,`)}) and octet_length(to_jsonb(f)::text)<=524288) bounded where bytes<=2097152`)).rows.map(row=>row.id) : [];
           const members = eligibleMembers.length ? await tx.select().from(copyLiveSourceFills).where(inArray(copyLiveSourceFills.id,eligibleMembers)) : [];
           const memberBytes=Buffer.byteLength(JSON.stringify(members));
+          // Retained generation manifests name earlier settled orders' proofs by
+          // digest only: read once for the page, at most 8 MiB (past it, an
+          // order whose replay needs one more shows no adjustment).
+          const refs=original.flatMap(row=>retainedSettlementProofRefs((row.provenance.sizingBasis as {observations?:{generationManifest?:unknown}}).observations?.generationManifest));
+          const proofKeys=[...new Set(refs.map(ref=>ref.key))];
+          const boundedProofKeys=proofKeys.length ? (await tx.execute<{key:string}>(sql`select key from (select e.key,sum(octet_length(e.settlement_proof::text)) over(order by e.key) as bytes from copy_live_execution_evidence e where e.key in (${sql.join(proofKeys.map(key=>sql`${key}`),sql`,`)}) and e.settlement_proof is not null) bounded where bytes<=8388608`)).rows.map(row=>row.key) : [];
+          const proofRows=boundedProofKeys.length ? await tx.select({key:copyLiveExecutionEvidence.key,digest:copyLiveExecutionEvidence.settlementProofDigest,proof:copyLiveExecutionEvidence.settlementProof})
+            .from(copyLiveExecutionEvidence).where(inArray(copyLiveExecutionEvidence.key,boundedProofKeys)) : [];
+          const proofs=new Map(proofRows.flatMap(row=>row.digest&&row.proof?[[row.digest,row.proof] as const]:[]));
           for(const row of original) {
             const ids=mergedMemberIds(row.provenance.sizingBasis,row.fill.id);
-            adjustmentEvidence.push({...row,members:memberBytes<=2097152?members.filter(member=>ids.includes(member.id)):[]});
+            const own=retainedSettlementProofRefs((row.provenance.sizingBasis as {observations?:{generationManifest?:unknown}}).observations?.generationManifest)
+              .flatMap(ref=>proofs.has(ref.digest)?[[ref.digest,proofs.get(ref.digest)] as const]:[]);
+            adjustmentEvidence.push({...row,members:memberBytes<=2097152?members.filter(member=>ids.includes(member.id)):[],...(own.length?{settlementProofs:Object.fromEntries(own)}:{})});
           }
         }
       }

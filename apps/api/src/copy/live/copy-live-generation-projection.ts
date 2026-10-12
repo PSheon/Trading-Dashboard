@@ -34,7 +34,13 @@ export interface LiveGenerationProjectionInput {
   /** Supplied only after the same original-session private hold reader verifies
    * its lineage. Serialized caller values are never admission authority. */
   readonly ownSubmittingReservation?: LiveReservationStored;
+  /** Settlement proofs by digest, for a retained (compact) manifest naming a
+   * settled order's proof by its digest only: read from
+   * copy_live_execution_evidence, each verified against that digest here. */
+  readonly settlementProofs?: LiveSettlementProofs;
 }
+/** Settlement proof content by its digest (copy_live_execution_evidence). */
+export type LiveSettlementProofs = Readonly<Record<string, unknown>>;
 
 /** SQL rows are canonically JSON-encoded before storing the provenance envelope. */
 export type LiveGenerationSqlRow<T> = { readonly [K in keyof T]: T[K] extends Date ? string : T[K] extends Date | null ? string | null : T[K] };
@@ -50,8 +56,9 @@ export interface LiveGenerationJournalV1 {
   readonly leg: LiveGenerationSqlRow<typeof copyLiveSignalLegs.$inferSelect> | null;
   readonly fill: LiveGenerationSqlRow<typeof copyLiveSourceFills.$inferSelect> | null;
   readonly reservation: LiveGenerationSqlRow<typeof copyLiveRiskReservations.$inferSelect> | null;
-  /** Root 0049 adds settlementProof/settlementProofDigest; no certificate-only fallback. */
-  readonly evidence: (LiveGenerationSqlRow<typeof copyLiveExecutionEvidence.$inferSelect> & { readonly settlementProof?: unknown; readonly settlementProofDigest?: string | null }) | null;
+  /** Root 0049 adds settlementProof/settlementProofDigest; no certificate-only fallback.
+   * A retained (compact) manifest omits settlementProof, keeping its digest. */
+  readonly evidence: (Omit<LiveGenerationSqlRow<typeof copyLiveExecutionEvidence.$inferSelect>, 'settlementProof' | 'settlementProofDigest'> & { readonly settlementProof?: unknown; readonly settlementProofDigest?: string | null }) | null;
 }
 export interface LiveGenerationManifestV1 {
   readonly version: 1;
@@ -68,6 +75,33 @@ export interface LiveGenerationManifestV1 {
   readonly carry: readonly LiveGenerationSqlRow<typeof copyLiveReductionCarry.$inferSelect>[];
   /** Order keys of the owner's single-position closes on this account. */
   readonly manualCloses?: readonly string[];
+}
+
+/** The manifest an order's sizing envelope retains: each settled order's
+ * settlement proof by its digest only (settlementProofDigest stays). A proof
+ * is immutable, content-addressed evidence kept in copy_live_execution_evidence;
+ * inline, every settled order added its whole account snapshot to every later
+ * envelope until the 2 MiB bound refused every order (O1). Replay supplies the
+ * proofs by digest (settlementProofs), so the projection is unchanged. */
+export function compactLiveGenerationManifest(manifest: LiveGenerationManifestV1): LiveGenerationManifestV1 {
+  return { ...manifest, journals: manifest.journals.map(entry => {
+    if (!entry.evidence?.settlementProofDigest || entry.evidence.settlementProof === undefined || entry.evidence.settlementProof === null) return entry;
+    const { settlementProof: _proof, ...evidence } = entry.evidence;
+    return { ...entry, evidence };
+  }) };
+}
+/** The settlement proofs of a manifest read with them inline, by digest. */
+export function liveSettlementProofsOf(manifest: LiveGenerationManifestV1): LiveSettlementProofs {
+  const proofs: Record<string, unknown> = {};
+  for (const { evidence: e } of manifest.journals) if (e?.settlementProofDigest && e.settlementProof !== undefined && e.settlementProof !== null) proofs[e.settlementProofDigest] = e.settlementProof;
+  return proofs;
+}
+/** The journal keys and proof digests a retained manifest names without the proof. */
+export function retainedSettlementProofRefs(manifest: unknown): { key: string; digest: string }[] {
+  const journals = (manifest as LiveGenerationManifestV1 | undefined)?.journals;
+  if (!Array.isArray(journals)) return [];
+  return journals.flatMap(entry => entry?.evidence && typeof entry.evidence.settlementProofDigest === 'string' && entry.evidence.settlementProof === undefined &&
+    typeof entry.journal?.key === 'string' ? [{ key: entry.journal.key, digest: entry.evidence.settlementProofDigest }] : []);
 }
 
 function requireGeneration(value: unknown): asserts value { if (!value) throw new LiveBoundaryError('live_generation_unproven'); }
@@ -167,8 +201,12 @@ export function projectLiveGenerationPositions(raw: LiveGenerationProjectionInpu
         }
         continue;
       }
-      requireGeneration(r&&e&&r.state==='released'&&r.attemptedAt&&leg!.state==='settled'&&['filled','partial','cancelled','rejected'].includes(j.state)&&e.settlementProof&&e.settlementProofDigest);
-      const proof=decodeLiveSettlementProof(e!.settlementProof,e!.settlementProofDigest!),cert=proof.certificate,past=proof.input;
+      // A retained (compact) manifest names the proof by its digest only; the
+      // supplied content must hash to that digest (decodeLiveSettlementProof).
+      const proofs=input.settlementProofs??{},retained=e&&e.settlementProof===undefined&&e.settlementProofDigest&&Object.hasOwn(proofs,e.settlementProofDigest)?proofs[e.settlementProofDigest]:undefined;
+      const rawProof=e?(e.settlementProof===undefined?retained:e.settlementProof):undefined;
+      requireGeneration(r&&e&&r.state==='released'&&r.attemptedAt&&leg!.state==='settled'&&['filled','partial','cancelled','rejected'].includes(j.state)&&rawProof&&e.settlementProofDigest);
+      const proof=decodeLiveSettlementProof(rawProof,e!.settlementProofDigest!),cert=proof.certificate,past=proof.input;
       requireGeneration(cert.key===j.key&&cert.accountId===id.accountId&&cert.fingerprint===record.fingerprint&&cert.nonce===record.nonce&&cert.digest===e!.settlementDigest&&cert.digest===r!.releaseEvidenceDigest&&
         r!.revision===past.reservation.revision+1&&millis(r!.attemptedAt!)===past.reservation.attemptedAt&&cert.oid===r!.exchangeOrderId&&cert.oid===e!.exchangeOrderId&&past.accountId===id.accountId&&
         e!.accountId===id.accountId&&e!.userId===id.userId&&e!.strategyId===id.strategyId&&e!.network===id.network&&e!.accountAddress===id.accountAddress&&e!.fingerprint===record.fingerprint&&e!.nonce===record.nonce&&e!.cloid===j.cloid);

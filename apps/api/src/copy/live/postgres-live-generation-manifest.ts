@@ -1,4 +1,4 @@
-import { and,eq, inArray, or, sql } from 'drizzle-orm';
+import { and,eq, getTableColumns, inArray, or, sql } from 'drizzle-orm';
 import { loadMergedMembers } from './copy-live-merged-members.js';
 import { copyLivePositionBaselines,copyLiveExecutions,copyLiveIntentProvenance,copyLiveSignalLegs,copyLiveSourceFills,copyLiveRiskReservations,copyLiveExecutionEvidence,
   copyFollowerReceipts,copyFollowerLedger,copyFollowerScans,copyFollowerReceiptConflicts,copyFollowerAccountState,copyLiveReductionCarry,copyLiveManualCloses,copyLiveMandates,copyStrategyVersions,copyRiskPolicies } from '@trading-dashboard/shared/database';
@@ -6,7 +6,8 @@ import {copyRiskLimitsSchema,copyStrategySettingsSchema} from '@trading-dashboar
 import type { DbExecutor } from '../../db/unit-of-work.js';
 import { assertOriginalLiveRiskSession,type LiveRiskDatabaseSession } from './postgres-live-risk-scope.js';
 import { riskSourceRequire as check,type LivePreparationAuthority } from './postgres-live-risk-authority.js';
-import type { LiveGenerationManifestV1,LiveGenerationJournalV1 } from './copy-live-generation-projection.js';
+import { compactLiveGenerationManifest,type LiveGenerationManifestV1,type LiveGenerationJournalV1 } from './copy-live-generation-projection.js';
+import { loadLiveSettlementProofs } from './copy-live-settlement-proofs.js';
 import { decodeLivePositionBaseline } from './live-position-baseline.js';
 import { canonicalLiveSourceLegs,decodeLiveSourceFill,liveSourceDigest } from './copy-live-source-evidence.js';
 import {decodeLiveSourceSizingEnvelope,planLiveSourceOrder} from './copy-live-source-planner.js';
@@ -15,6 +16,9 @@ import type {LiveOrderIntent} from './live-order.js';
 import { freezeLiveReservation } from './live-risk-reservation.js';
 import type { LiveExecutionRecord } from './live-execution.js';
 const canonical=<T>(value:unknown):T=>JSON.parse(JSON.stringify(value)) as T;
+// Every provenance column but the sizing envelope itself (up to 2 MiB a row):
+// the manifest names it by its digest (sizing_basis_digest).
+const {sizingBasis:_sizingBasis,...provenanceColumns}=getTableColumns(copyLiveIntentProvenance);
 /** Existing generation only. Initial empty baselines belong to the atomic
  * preparation coordinator. All quantities come from the original SQL session. */
 export async function loadLiveGenerationManifest(session:LiveRiskDatabaseSession,db:DbExecutor,authority:LivePreparationAuthority,raw:{currentExecutionKey:string;now:number}):Promise<LiveGenerationManifestV1> {
@@ -33,7 +37,7 @@ export async function loadLiveGenerationManifest(session:LiveRiskDatabaseSession
   const baseline=decodeLivePositionBaseline({mandateId:m.id,accountId:a.id,strategyId:a.strategyId,network:a.network,accountAddress:a.address!,firstExecutionKey:row.firstExecutionKey},row.record);
   for(const field of ['mandateId','accountId','strategyId','network','accountAddress','firstExecutionKey','sourceDigest','snapshotDigest','baselineDigest','producerVersion'] as const)check(row[field]===baseline[field],'live_risk_baseline_unproven');
   check(row.observedAt.getTime()===baseline.observedAt&&row.completedAt.getTime()===baseline.completedAt&&row.createdAt.getTime()===baseline.createdAt&&baseline.createdAt<=input.now,'live_risk_baseline_unproven');
-  const entries=await read(db.select({journal:copyLiveExecutions,provenance:copyLiveIntentProvenance,leg:copyLiveSignalLegs,fill:copyLiveSourceFills,reservation:copyLiveRiskReservations,evidence:copyLiveExecutionEvidence})
+  const entries=await read(db.select({journal:copyLiveExecutions,provenance:provenanceColumns,leg:copyLiveSignalLegs,fill:copyLiveSourceFills,reservation:copyLiveRiskReservations,evidence:copyLiveExecutionEvidence})
     .from(copyLiveExecutions).leftJoin(copyLiveIntentProvenance,eq(copyLiveIntentProvenance.key,copyLiveExecutions.key))
     .leftJoin(copyLiveSignalLegs,eq(copyLiveSignalLegs.id,copyLiveIntentProvenance.legId)).leftJoin(copyLiveSourceFills,eq(copyLiveSourceFills.id,copyLiveSignalLegs.sourceFillId))
     .leftJoin(copyLiveRiskReservations,eq(copyLiveRiskReservations.key,copyLiveExecutions.key)).leftJoin(copyLiveExecutionEvidence,eq(copyLiveExecutionEvidence.key,copyLiveExecutions.key))
@@ -48,14 +52,21 @@ export async function loadLiveGenerationManifest(session:LiveRiskDatabaseSession
   const manual=await read(db.select({keys:copyLiveManualCloses.executionKeys}).from(copyLiveManualCloses).where(eq(copyLiveManualCloses.accountId,a.id)).limit(1001));
   check(manual.length<=1000,'live_risk_generation_unbounded');const manualCloses=[...new Set(manual.flatMap(row=>row.keys))].sort();
   check(receipts.length<=10000&&ledger.length<=30000&&carry.length<=1024,'live_risk_generation_unbounded');
+  // The envelope is read only where it is replayed (an unattempted release)
+  // or where its digest predates sizing_basis_digest.
+  const basisKeys=entries.flatMap(({provenance,journal})=>provenance&&(provenance.sizingBasisDigest===null||(journal.record as unknown as LiveExecutionRecord).unattemptedRelease)?[provenance.key]:[]);
+  const bases=new Map(basisKeys.length?(await read(db.select({key:copyLiveIntentProvenance.key,sizingBasis:copyLiveIntentProvenance.sizingBasis}).from(copyLiveIntentProvenance)
+    .where(inArray(copyLiveIntentProvenance.key,basisKeys)))).map(row=>[row.key,row.sizingBasis] as const):[]);
   const journals:LiveGenerationJournalV1[]=[];
   for(const {provenance,...entry} of entries){
-    let p:LiveGenerationJournalV1['provenance']=provenance?(({sizingBasis,...rest})=>canonical({...rest,sizingBasisDigest:liveSourceDigest(sizingBasis)}))(provenance):null;
+    const sizingBasis=provenance?bases.get(provenance.key):undefined;
+    if(provenance&&sizingBasis!==undefined&&provenance.sizingBasisDigest!==null)check(provenance.sizingBasisDigest===liveSourceDigest(sizingBasis),'live_risk_generation_unproven');
+    let p:LiveGenerationJournalV1['provenance']=provenance?canonical({...provenance,sizingBasisDigest:provenance.sizingBasisDigest??liveSourceDigest(sizingBasis)}):null;
     if((entry.journal.record as unknown as LiveExecutionRecord).unattemptedRelease){
-      check(provenance&&p&&entry.fill&&entry.leg&&entry.reservation,'live_risk_generation_unproven');
+      check(provenance&&p&&sizingBasis!==undefined&&entry.fill&&entry.leg&&entry.reservation,'live_risk_generation_unproven');
       // Do not infer original carry from a self-hash or mutable current row.
       // Reconstruct the original plan from its full retained SQL observations.
-      const envelope=decodeLiveSourceSizingEnvelope(provenance.sizingBasis),record=entry.journal.record as unknown as LiveExecutionRecord;
+      const envelope=decodeLiveSourceSizingEnvelope(sizingBasis),record=entry.journal.record as unknown as LiveExecutionRecord;
       const [history]=await read(db.select({historical:copyLiveMandates,version:copyStrategyVersions,policy:copyRiskPolicies})
         .from(copyLiveMandates).leftJoin(copyStrategyVersions,and(eq(copyStrategyVersions.strategyId,entry.journal.strategyId),eq(copyStrategyVersions.version,copyLiveMandates.strategyVersion)))
         .leftJoin(copyRiskPolicies,eq(copyRiskPolicies.version,entry.reservation.policyVersion))
@@ -67,7 +78,8 @@ export async function loadLiveGenerationManifest(session:LiveRiskDatabaseSession
       check(version&&policy&&version.version===consent.strategyVersion&&provenance.admittedAt.getTime()===record.createdAt&&envelope.basis.mandateRevision===provenance.mandateRevision&&envelope.basis.settingsDigest===provenance.settingsDigest,'live_risk_generation_unproven');
       const fill=decodeLiveSourceFill(entry.fill),leg=canonicalLiveSourceLegs(fill).find(l=>l.leg===entry.leg!.leg);check(leg,'live_risk_generation_unproven');
       const members=await loadMergedMembers(envelope,fill.id,ids=>read(db.select().from(copyLiveSourceFills).where(inArray(copyLiveSourceFills.id,ids))));
-      const plan=planLiveSourceOrder({mandate:{...historical,state:'active',revision:provenance.mandateRevision},settings:copyStrategySettingsSchema.strict().parse(version.settings),fill,leg,sizingBasis:envelope,now:record.createdAt,limits:copyRiskLimitsSchema.parse(policy.limits),currentExecutionKey:record.key,...(members?{members}:{})}),intent=provenance.intent as unknown as LiveOrderIntent;
+      const settlementProofs=await loadLiveSettlementProofs(envelope,db,read);
+      const plan=planLiveSourceOrder({mandate:{...historical,state:'active',revision:provenance.mandateRevision},settings:copyStrategySettingsSchema.strict().parse(version.settings),fill,leg,sizingBasis:envelope,now:record.createdAt,limits:copyRiskLimitsSchema.parse(policy.limits),currentExecutionKey:record.key,...(members?{members}:{}),...(settlementProofs?{settlementProofs}:{})}),intent=provenance.intent as unknown as LiveOrderIntent;
       check(plan.legId===entry.leg.id&&plan.fixedTradeClaim===entry.leg.fixedTradeClaim&&plan.dependsOnLegId===entry.leg.dependsOnId,'live_risk_generation_unproven');
       for(const field of ['asset','side','size','limitPrice','sizeDecimals','reduceOnly','timeInForce'] as const)check(plan.order[field]===intent[field],'live_risk_generation_unproven');
       const originalCarry=envelope.observations.generationManifest.carry.find(row=>row.mandateId===historical.id&&row.coin===fill.coin);check(originalCarry,'live_risk_generation_unproven');
@@ -76,5 +88,6 @@ export async function loadLiveGenerationManifest(session:LiveRiskDatabaseSession
     journals.push(canonical({...entry,provenance:p}));
   }
   const manifest:LiveGenerationManifestV1=canonical({version:1,accountId:a.id,mandateId:m.id,checkedAt:input.now,baseline,journals,receipts,ledger,scan:scan??null,conflicts,accountState:accountState??null,carry,...(manualCloses.length?{manualCloses}:{})});
-  check(Buffer.byteLength(JSON.stringify(manifest))<=2*1024*1024,'live_risk_generation_unbounded');session.scope.assertFresh();return freezeLiveReservation(manifest);
+  // Bounded as each order's envelope retains it: settled orders' proofs by digest.
+  check(Buffer.byteLength(JSON.stringify(compactLiveGenerationManifest(manifest)))<=2*1024*1024,'live_risk_generation_unbounded');session.scope.assertFresh();return freezeLiveReservation(manifest);
 }

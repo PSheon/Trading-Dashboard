@@ -30,6 +30,7 @@ import {
   canonicalLiveSourceLegs,
 } from './live/copy-live-source-evidence.js';
 import { decodeLiveSettlementProof } from './live/live-settlement-proof.js';
+import type { LiveSettlementProofs } from './live/copy-live-generation-projection.js';
 import { executionKey, intentFingerprint } from './live/live-order.js';
 import { liveSourceExecutionCloid } from './live/postgres-live-preparation.js';
 import type { LiveExecutionRecord } from './live/live-execution.js';
@@ -48,6 +49,8 @@ export type FollowerAdjustmentEvidence = {
   version: typeof copyStrategyVersions.$inferSelect;
   policy: typeof copyRiskPolicies.$inferSelect;
   members: (typeof copyLiveSourceFills.$inferSelect)[];
+  /** Proofs its retained generation manifest names by digest only. */
+  settlementProofs?: LiveSettlementProofs;
 };
 export type FollowerAdjustmentContext = {
   userId: number;
@@ -272,6 +275,7 @@ export function originalFollowerAdjustment(
       limits: copyRiskLimitsSchema.parse(policy.limits),
       currentExecutionKey: j.key,
       ...(members.length ? { members: members.map(decodeLiveSourceFill) } : {}),
+      ...(raw.settlementProofs ? { settlementProofs: raw.settlementProofs } : {}),
     });
     requireOriginal(
       plan.legId === l.id &&

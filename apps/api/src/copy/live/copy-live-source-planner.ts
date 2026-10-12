@@ -9,7 +9,7 @@ import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceDigest, liveSo
 import type { LiveSourceReferenceV1, LiveSourceSizingBasisV1, LiveSourceSizingEnvelopeV1, PlannedLiveSourceOrder } from './copy-live-sizing-evidence.js';
 import { assertMarketIdentity, marketIdentityKey } from './live-market-resolver.js';
 import { mapLiveAccountView } from './live-account-view.js';
-import { projectLiveGenerationPositions } from './copy-live-generation-projection.js';
+import { projectLiveGenerationPositions, type LiveSettlementProofs } from './copy-live-generation-projection.js';
 import { followerReceiptDigestV1 } from './actual-fill-accounting.js';
 import { freezeLiveReservation } from './live-risk-reservation.js';
 import { address, LiveBoundaryError } from './wallet-authorization.js';
@@ -25,6 +25,10 @@ export interface LiveSourcePlanInput {
    * every member the basis lists besides the order's own, which the planner
    * verifies field by field. Required when the basis is merged. */
   readonly members?: readonly LiveSourceFillEvidence[];
+  /** The settlement proofs the basis's retained generation manifest names by
+   * digest only (copy_live_execution_evidence, loadLiveSettlementProofs);
+   * the projection verifies each against its digest. */
+  readonly settlementProofs?: LiveSettlementProofs;
 }
 /** Most leader legs one follower adjustment may merge, and the longest a
  * leg too small for the exchange may wait for more (never past the risk
@@ -147,7 +151,7 @@ export function planLiveSourceOrder(raw: LiveSourcePlanInput): PlannedLiveSource
     equal(b.quote,{midPrice:q.quote.midPrice,slippageBps:b.quote.slippageBps,observedAt:q.quote.observedAt,completedAt:q.completedAt,sourceDigest:q.quote.sourceDigest});
     requireSizing(b.quote.observedAt<=b.quote.completedAt&&q.earliestObservedAt<=q.quote.observedAt);fresh(q.earliestObservedAt,now);fresh(q.completedAt,now);
     const projection=projectLiveGenerationPositions({identity:{mandateId:m.id,mandateRevision:m.revision,accountId:consent.accountId,userId:consent.userId,strategyId:consent.strategyId,network:consent.network,accountAddress:consent.accountAddress,
-      authorizationId:consent.authorizationId,settingsDigest:consent.settingsDigest,leaderAddress:consent.leaderAddress,direction:settings.direction},manifest:o.generationManifest,snapshot:o.follower,currentExecutionKey,now});
+      authorizationId:consent.authorizationId,settingsDigest:consent.settingsDigest,leaderAddress:consent.leaderAddress,direction:settings.direction},manifest:o.generationManifest,snapshot:o.follower,currentExecutionKey,now,...(input.settlementProofs?{settlementProofs:input.settlementProofs}:{})});
     equal(b.generation,{mandateId:m.id,baselineDigest:projection.baselineDigest,receiptManifestDigest:projection.receiptManifestDigest,positionsDigest:projection.positionsDigest,positionSize:projection.positions[fill.coin]??'0'});
     equal(b.follower.positionsDigest,projection.positionsDigest);equal(b.follower.positionSize,b.generation.positionSize);
     const carry=o.generationManifest.carry.filter(row=>row.mandateId===m.id&&row.coin===fill.coin);requireSizing(carry.length===1);equal(b.carry,{amount:carry[0]!.carry,revision:carry[0]!.revision});

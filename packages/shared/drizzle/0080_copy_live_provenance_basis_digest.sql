@@ -1,0 +1,2 @@
+ALTER TABLE "copy_live_intent_provenance" ADD COLUMN "sizing_basis_digest" text;--> statement-breakpoint
+ALTER TABLE "copy_live_intent_provenance" ADD CONSTRAINT "copy_live_provenance_basis_digest_check" CHECK ("copy_live_intent_provenance"."sizing_basis_digest" is null or "copy_live_intent_provenance"."sizing_basis_digest" ~ '^[0-9a-f]{64}$');

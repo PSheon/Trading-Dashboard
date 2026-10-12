@@ -318,6 +318,26 @@ describe('distributed user and account risk serialization', () => {
     }, text => text.startsWith('begin') ? new Error('begin refused') : undefined);
     expect((await pool.query('select id from live_scope_probe order by id')).rows).toEqual([{ id: 'reads-first' }]);
   });
+  it.each(['for update', 'FOR NO KEY UPDATE', 'For Share', 'for  key\n share'])('refuses a row lock (%j) sent before BEGIN\'s answer and sends it after', async lock => {
+    // A row-locking read is not a plain read: outside a transaction (BEGIN
+    // failed) it would still lock, and wait without the transaction's timeouts.
+    await pool.query('create table if not exists live_scope_probe (id text primary key)');
+    await pool.query('delete from live_scope_probe');
+    await pool.query("insert into live_scope_probe values ('locked')");
+    await wired(async sent => {
+      await scopes.run(identity, async (_scope, session) => {
+        sent.length = 0;
+        await expect(session.transaction(tx => tx.execute(sql.raw(`select id from live_scope_probe ${lock}`)), { readsFirst: true }))
+          .rejects.toMatchObject({ cause: expect.objectContaining({ code: 'live_risk_database_dirty' }) });
+        expect(sent.filter(q => q.text.startsWith('select id from live_scope_probe'))).toEqual([]);
+        // Without readsFirst it goes out after BEGIN's answer, behind nothing.
+        sent.length = 0;
+        const rows = await session.transaction(async tx => (await tx.execute(sql.raw(`select id from live_scope_probe ${lock}`))).rows);
+        expect(rows).toEqual([{ id: 'locked' }]);
+        expect(sent.find(q => q.text.startsWith('select id from live_scope_probe'))!.inflight).toBe(0);
+      });
+    });
+  });
   it('tells Drizzle BEGIN answered with a value that throws on any read, and real Drizzle transactions never read it', async () => {
     // drizzle-orm 0.45.3 (pinned) awaits `tx.execute(sql`begin`)` and ignores
     // the result. A Drizzle that reads it fails here: the read throws.

@@ -466,7 +466,7 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     expect(Math.max(...assessed.slice(5))).toBeLessThanOrEqual(Math.min(2, assessed[5]!));
     shared.dexes = 0; resetLiveReadCaches();
   });
-  it('an order sends at most 150 database round trips (950 statements) from its preparation to its POST', { timeout: 120_000 }, async () => {
+  it('an order sends at most 150 database round trips (950 statements) from its preparation to its POST, and no row lock before BEGIN\'s answer or the reads sent behind it', { timeout: 120_000 }, async () => {
     // Its evidence is never older than its preparation's start, so the
     // statements from there to the exchange POST bound the round trips that
     // the 5 s evidence window (and the pre-mainnet gate's 3500 ms) must
@@ -484,14 +484,40 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
       if (String(url).endsWith('/exchange') && counting) { counting = false; orders.push({ statements, roundTrips }); }
       return providers(String(url), init?.body ? JSON.parse(String(init.body)) : undefined);
     });
+    // Every pipelined transaction (hold, reservation, journal, meter, the
+    // authority loaders, all on the risk scope's session): a row lock (FOR
+    // UPDATE / NO KEY UPDATE / SHARE / KEY SHARE) goes out only once BEGIN has
+    // answered and every read sent behind the unanswered BEGIN (the batch
+    // whose answers prove the identity the later statements are keyed by)
+    // has answered. Before that, a BEGIN that failed leaves the lock outside
+    // any transaction (without its timeouts), and a lock keyed by an unproven
+    // identity has already been taken.
+    const rowLock = /\bfor\s+(?:update|share|no\s+key\s+update|key\s+share)\b/i;
+    const transactions = new WeakMap<object, { answered: boolean; early: Set<number>; pending: Set<number> }>();
+    const rowLocks: { text: string; answered: boolean; pendingEarlyReads: number }[] = [];
+    let sequence = 0;
     pg.Client.prototype.query = function (this: pg.Client, ...args: unknown[]) {
-      const busy = inflight.get(this) ?? 0;
-      if (counting) { statements++; if (!(this as unknown as { pipeline?: boolean }).pipeline || busy === 0) roundTrips++; }
+      const busy = inflight.get(this) ?? 0, pipelined = (this as unknown as { pipeline?: boolean }).pipeline === true;
+      if (counting) { statements++; if (!pipelined || busy === 0) roundTrips++; }
+      const text = String(typeof args[0] === 'string' ? args[0] : (args[0] as { text?: string } | null)?.text ?? '').trim();
+      const transaction = transactions.get(this), id = sequence++;
+      if (pipelined && transaction && rowLock.test(text)) rowLocks.push({ text, answered: transaction.answered, pendingEarlyReads: [...transaction.early].filter(read => transaction.pending.has(read)).length });
       const result = (original as (...values: unknown[]) => unknown).apply(this, args) as Promise<unknown> | undefined;
       if (result && typeof result.then === 'function') {
         inflight.set(this, busy + 1);
         const done = () => { inflight.set(this, (inflight.get(this) ?? 1) - 1); };
         void result.then(done, done);
+        if (pipelined && /^begin\b/i.test(text)) {
+          const opened = { answered: false, early: new Set<number>(), pending: new Set<number>() };
+          transactions.set(this, opened);
+          const answer = () => { opened.answered = true; };
+          void result.then(answer, answer);
+        } else if (pipelined && transaction && /^(commit|rollback)\b/i.test(text)) transactions.delete(this);
+        else if (pipelined && transaction && /^select\b/i.test(text) && !rowLock.test(text) && !text.includes('from pg_locks') && !text.includes('set_config(')) {
+          transaction.pending.add(id); if (!transaction.answered) transaction.early.add(id);
+          const answered = () => { transaction.pending.delete(id); };
+          void result.then(answered, answered);
+        }
       }
       return result;
     } as typeof original;
@@ -511,6 +537,12 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     process.stdout.write(`order database round trips, preparation to POST: ${JSON.stringify(orders)}\n`);
     expect(orders).toHaveLength(2);
     for (const order of orders) { expect(order.roundTrips).toBeLessThanOrEqual(150); expect(order.statements).toBeLessThanOrEqual(950); }
+    // The pipelined transactions that lock rows ran: the hold and the journal
+    // save (the journal row), the preparation (the order's leg), the meter
+    // (the quota row).
+    for (const table of ['copy_live_executions', 'copy_live_signal_legs', 'hyperliquid_egress_quota'])
+      expect(rowLocks.some(lock => lock.text.includes(`"${table}"`))).toBe(true);
+    expect(rowLocks.filter(lock => !lock.answered || lock.pendingEarlyReads > 0)).toEqual([]);
   });
   it('waits six seconds for close evidence quota before observing and still sends only the fresh reduce-only position', async () => {
     // A cold cross-order read cache: the close pays its full observation (> 284).

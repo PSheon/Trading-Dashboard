@@ -66,6 +66,8 @@ export class ScopedLiveExecutionJournal implements LiveExecutionJournal {
   async save(supplied: LiveExecutionRecord): Promise<void> {
     const record = structuredClone(supplied);
     this.assertKey(record.key);
+    // Not readsFirst: its first statement locks the row (FOR UPDATE), which
+    // the scope sends only after BEGIN's answer.
     await this.session.transaction(async tx => {
       const [row] = await tx.select().from(copyLiveExecutions).where(eq(copyLiveExecutions.key, record.key)).for('update');
       await this.session.scope.assertHeld();
@@ -80,6 +82,6 @@ export class ScopedLiveExecutionJournal implements LiveExecutionJournal {
       await tx.update(copyLiveExecutions).set({ state: record.state, record: record as unknown as Record<string, unknown>, updatedAt: new Date(record.updatedAt) })
         .where(eq(copyLiveExecutions.key, record.key));
       await this.session.scope.assertHeld();
-    }, { readsFirst: true });
+    });
   }
 }

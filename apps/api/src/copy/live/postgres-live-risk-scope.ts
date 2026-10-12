@@ -29,9 +29,11 @@ export interface LiveRiskDatabaseSession {
   readonly scope: LiveRiskScope;
   read<T>(work: (db: DbExecutor) => Promise<T>): Promise<T>;
   /** `readsFirst`: the work's statements up to its first awaited answer are
-   * all reads (SELECT): they are then sent right behind BEGIN, without
-   * waiting for its answer (see the scope). Any other statement sent before
-   * BEGIN's answer is refused (live_risk_database_dirty). */
+   * all plain reads (SELECT without a row lock): they are then sent right
+   * behind BEGIN, without waiting for its answer (see the scope). Any other
+   * statement sent before BEGIN's answer, a row-locking read (FOR UPDATE,
+   * FOR NO KEY UPDATE, FOR SHARE, FOR KEY SHARE) included, is refused
+   * (live_risk_database_dirty). */
   transaction<T>(work: (tx: DbTransaction) => Promise<T>, options?: { readonly readsFirst?: boolean }): Promise<T>;
 }
 const originalSessions = new WeakSet<object>();
@@ -71,6 +73,8 @@ const UNANSWERED_BEGIN: unknown = new Proxy(Object.freeze({}), {
   getOwnPropertyDescriptor: () => fail('live_risk_database_dirty'),
   getPrototypeOf: () => fail('live_risk_database_dirty'),
 });
+/** A row-locking clause (FOR UPDATE, FOR NO KEY UPDATE, FOR SHARE, FOR KEY SHARE). */
+const ROW_LOCK = /\bfor\s+(?:update|share|no\s+key\s+update|key\s+share)\b/i;
 /** How recently an answered lock check, with no statement on the session
  * since, still answers the next assertHeld (`lockCheck`). */
 export const LOCK_CHECK_REUSE_MS = 50;
@@ -200,9 +204,11 @@ export class PostgresLiveRiskScope {
     // A read-only transaction's BEGIN, or a `readsFirst` one's, is not
     // waited for before its first reads go out behind it (scopedTransaction):
     // Drizzle is told it began, and the transaction awaits the real answer
-    // with its first results. Until that answer only reads are sent, so a
-    // BEGIN that failed (leaving them to run outside any transaction) changed
-    // nothing; after a failed BEGIN nothing but its ROLLBACK is sent (its
+    // with its first results. Until that answer only plain reads are sent,
+    // so a BEGIN that failed (leaving them to run outside any transaction)
+    // changed nothing. A row-locking read is not one: it writes the row's
+    // lock into the tuple, and outside the transaction it would wait for a
+    // contended row without the transaction's timeouts. After a failed BEGIN nothing but its ROLLBACK is sent (its
     // answer is read before any of those reads' answers, and the work only
     // sends more after one of them).
     let expectBegin: 'read' | 'reads-first' | 'write' | undefined, opened: Promise<unknown> | undefined;
@@ -212,7 +218,7 @@ export class PostgresLiveRiskScope {
       const begin = expectBegin !== undefined && typeof text === 'string' && /^begin\b/i.test(text) ? expectBegin : undefined;
       if (!begin) {
         if (beginFailed && !(typeof text === 'string' && /^rollback\b/i.test(text))) return Promise.reject(new LiveBoundaryError('live_risk_database_dirty'));
-        if (beginPending && !(typeof text === 'string' && /^\s*select\b/i.test(text))) return Promise.reject(new LiveBoundaryError('live_risk_database_dirty'));
+        if (beginPending && !(typeof text === 'string' && /^\s*select\b/i.test(text) && !ROW_LOCK.test(text))) return Promise.reject(new LiveBoundaryError('live_risk_database_dirty'));
       }
       const result = (client.query as (...values: unknown[]) => unknown)(...args);
       if (begin) {

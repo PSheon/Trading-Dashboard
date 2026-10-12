@@ -207,7 +207,9 @@ export class PostgresLiveReservations {
     const stored = await session.transaction(async tx => {
       // The journal row's lock first; every read the hold checks is sent
       // right behind it (one round trip; executed after the lock, in this
-      // order) and checked in the original order.
+      // order) and checked in the original order. Not readsFirst: the lock
+      // goes out only after BEGIN's answer (the scope refuses a row lock
+      // before it).
       const key = executionKey(input.intent);
       const journalWork = this.sent(session, tx.select().from(copyLiveExecutions).where(eq(copyLiveExecutions.key, key)).for('update'));
       const localReads = this.localReads(session, tx, input, key), rowReads = this.rowReads(session, tx, input.identity.accountId);
@@ -236,7 +238,7 @@ export class PostgresLiveReservations {
         sourceDigest: candidate.sourceDigest, expiresAt: new Date(candidate.expiresAt), createdAt: new Date(candidate.createdAt), updatedAt: new Date(candidate.createdAt) }).returning());
       const final = assessLiveAccountRisk({ ...input, now: this.now(), reservations }); check(final.ok, final.ok ? undefined : final.reason);
       const stored = this.decode(row!); session.scope.assertFresh(); this.fresh(oldest); return stored;
-    }, { readsFirst: true });
+    });
     session.scope.assertFresh(); this.fresh(oldest);
     const owned = this.lineage.get(session) ?? new Map<string, number>(); owned.set(stored.payload.key, stored.revision); this.lineage.set(session, owned);
     return stored;

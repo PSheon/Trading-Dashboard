@@ -174,7 +174,9 @@ export class PostgresHyperliquidQuota {
         for(const write of writes){const changed=await write;if(changed!==null&&changed.length!==1)fail('hyperliquid_quota_lease_lost');}
         fresh();
       };
-      try{if(session)await session.transaction(transaction,{readsFirst:true});else await this.uow.run(transaction);}finally{whole();}
+      // Not readsFirst: the quota row's SELECT ... FOR UPDATE goes out only
+      // after BEGIN's answer (the scope refuses a row lock before it).
+      try{if(session)await session.transaction(transaction);else await this.uow.run(transaction);}finally{whole();}
     });
     // Completion fence includes COMMIT. A failed fence retains all durable
     // charges; it never issues a replacement or refunds an uncertain send.

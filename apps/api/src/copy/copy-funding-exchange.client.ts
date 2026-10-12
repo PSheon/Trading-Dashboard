@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
 import { Injectable,Optional } from "@nestjs/common";
+import { jsonDigest } from '../common/crypto/digest.js';
 import { WALLET_NETWORKS, usdSendRequest, withdrawalUnits } from "@trading-dashboard/shared/contracts";
 import { RequestBudgeterService } from "../hyperliquid/request-budgeter.service.js";
 import { reserveLive } from "../hyperliquid/hyperliquid-budget-wait.js";
@@ -12,9 +12,7 @@ import type { FundingRow } from "./copy-funding.repository.js";
  * a balance, a quota charge or a historical operation. The exact private error
  * object is bound to the exact attempt captured by this transport invocation. */
 const notDispatched = new WeakMap<object, string>();
-const attemptDigest = (row: FundingRow) => createHash('sha256').update(JSON.stringify(
-  Object.fromEntries(Object.entries(row).sort(([a], [b]) => a.localeCompare(b))),
-)).digest('hex');
+export const attemptDigest = (row: FundingRow) => jsonDigest(Object.fromEntries(Object.entries(row).sort(([a], [b]) => a.localeCompare(b))));
 export function isFundingNotDispatched(error: unknown, attempt: FundingRow): boolean {
   return error instanceof LiveBoundaryError && error.code === 'funding_not_dispatched' &&
     notDispatched.get(error) === attemptDigest(attempt);

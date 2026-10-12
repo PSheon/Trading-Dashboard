@@ -428,7 +428,10 @@ export class HyperliquidLiveAccountObserver {
       fail('live_account_observation_unavailable');
     }
   }
-  close(): void { this.aggregateSource.close?.(); }
+  close(): void {
+    void Promise.resolve(this.aggregateSource.close?.())
+      .catch((error: unknown) => new Logger('LiveAccountObserver').warn(`all-venue source close failed: ${safeErrorText(error)}`));
+  }
   private fresh(at: number): void {
     const now = this.now();
     if (!Number.isSafeInteger(at) || !Number.isSafeInteger(now) || at < 0 || now < at || now - at > this.maxAgeMs)

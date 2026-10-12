@@ -37,7 +37,7 @@ describe('full public trader order snapshot', () => {
       expect(result.dexes).toEqual(dexes); expect(result.orders.flat()).toEqual([order]); expect(result.observedAt).toBe(now);
       expect(s.factory.mock.calls[0]![0]).toBe('wss://api.hyperliquid.xyz/ws');
       expect(s.socket.send).toHaveBeenCalledTimes(536);
-    } finally { s.reader.onModuleDestroy(); }
+    } finally { await s.reader.onModuleDestroy(); }
   });
   it.each(['foreign user', 'wrong dex', 'malformed order', 'foreign coin'] as const)('refuses %s instead of returning partial orders', async kind => {
     const s = setup((_request, p) => {
@@ -47,18 +47,18 @@ describe('full public trader order snapshot', () => {
       if (kind === 'foreign coin' && p.data.dex === 'xyz') p.data.orders[0].coin = 'other:TSLA';
     });
     try { await expect(s.reader.read(user, ['', 'xyz'])).rejects.toThrow(); }
-    finally { s.reader.onModuleDestroy(); }
+    finally { await s.reader.onModuleDestroy(); }
   });
   it('retains the original oldest venue time and refuses expired completion', async () => {
     let s: ReturnType<typeof setup>;
     s = setup(() => s.clock(now + 5001));
     try { await expect(s.reader.read(user, ['', 'xyz'])).rejects.toThrow('trader_orders_stale'); }
-    finally { s.reader.onModuleDestroy(); }
+    finally { await s.reader.onModuleDestroy(); }
   });
   it('never accepts a truncated or duplicated venue list', async () => {
     const s = setup();
     try { await expect(s.reader.read(user, ['xyz'])).rejects.toThrow(); await expect(s.reader.read(user, ['', 'xyz', 'xyz'])).rejects.toThrow(); }
-    finally { s.reader.onModuleDestroy(); }
+    finally { await s.reader.onModuleDestroy(); }
     expect(s.factory).not.toHaveBeenCalled();
   });
 });

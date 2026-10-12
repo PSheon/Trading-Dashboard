@@ -1,8 +1,9 @@
-import type { OnModuleDestroy } from '@nestjs/common';
+import { Logger, type OnModuleDestroy } from '@nestjs/common';
 import { z } from 'zod';
 import { WALLET_NETWORKS, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { Dec } from '../common/decimal/dec.js';
 import { readInfoJson } from '../hyperliquid/response-validation.js';
+import { safeErrorText } from '../runtime/safe-error-text.js';
 import { extraAgentsSchema } from '../hyperliquid/info-schemas.js';
 import { HyperliquidAllDexsAccountSource, type LiveAllDexsAccountEvidence, type LiveAllDexsAccountSource } from './live/live-account-ws-source.js';
 import { boundedLiveRead, LIVE_DEX_NAME, MAX_LIVE_PERP_DEXES } from './live/live-market-resolver.js';
@@ -42,7 +43,10 @@ export class HyperliquidAccountModeAbsenceReader implements AccountModeAbsenceRe
     private readonly now = Date.now, source?: LiveAllDexsAccountSource, private readonly global?: HyperliquidGlobalTransport) {
     this.source = source ?? new HyperliquidAllDexsAccountSource(now, undefined, network);
   }
-  onModuleDestroy() { this.source.close?.(); }
+  onModuleDestroy() {
+    void Promise.resolve(this.source.close?.())
+      .catch((error: unknown) => new Logger('HyperliquidAccountModeAbsenceReader').warn(`all-venue source close failed: ${safeErrorText(error)}`));
+  }
   /** Waits (at most `maxWaitMs`) for this process's all-venue source: the
    * proofs before it to finish and a second since the last one. Taken
    * before any evidence clock starts; released when the proof's read is over. */

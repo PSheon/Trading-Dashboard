@@ -137,7 +137,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
     this.watchedTimer = setInterval(() => void this.refreshWatched(), WATCHED_REFRESH_MS);
     this.copiedTimer = setInterval(() => void this.catchUpCopied(), COPIED_CATCH_UP_MS);
     await this.startFeed();
-    if (!this.running || this.jobs.stopping) { this.feed.stop(); return; }
+    if (!this.running || this.jobs.stopping) { this.stopFeed(); return; }
     // Covers whatever happened while the process was down, however long.
     void this.sweep();
   }
@@ -149,7 +149,12 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
     clearTimeout(this.feedRetryTimer);
     for (const timer of this.timers) clearTimeout(timer);
     this.timers.clear();
-    this.feed.stop();
+    this.stopFeed();
+  }
+
+  /** Closing the feed's sockets finishes in the background. */
+  private stopFeed(): void {
+    void this.feed.stop().catch((error: unknown) => this.logger.warn(`Trade feed stop failed: ${(error as Error).message}`));
   }
 
   private later(ms: number, fn: () => void): void {
@@ -169,7 +174,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
       });
     } catch (error) {
       this.logger.error(`Trade feed failed to start, retrying in 30s: ${(error as Error).message}`);
-      this.feed.stop();
+      this.stopFeed();
       if (this.running) this.feedRetryTimer = setTimeout(() => void this.startFeed(), FEED_START_RETRY_MS);
     }
   }

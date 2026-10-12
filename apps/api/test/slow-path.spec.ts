@@ -254,7 +254,7 @@ describe("Slow path: FillSyncService after the fast path — real Postgres, fake
         return r;
       });
       const watcher = new WatcherService(testConfig(),
-        { setWatched: () => {}, status: () => ({}), stop: () => {} } as unknown as TradeFeedService,
+        { setWatched: () => {}, status: () => ({}), stop: async () => {} } as unknown as TradeFeedService,
         sync,
         new AccountStateService(info as unknown as HyperliquidInfoClient, new AccountStateRepository(db)),
         fast,

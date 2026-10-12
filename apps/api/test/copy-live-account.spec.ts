@@ -450,7 +450,7 @@ describe('official all-dex snapshot transport (offline)', () => {
     expect(proof.state).toMatchObject({ accountAddress: account, observedAt: now });
     expect(proof.orders.venues.map((v) => v.dex)).toEqual(dexes);
     expect(s.maxInflight()).toBeLessThanOrEqual(90);
-    expect(s.socket.send).toHaveBeenCalledTimes(538); s.source.close();
+    expect(s.socket.send).toHaveBeenCalledTimes(538); await s.source.close();
   });
   it('never returns combined coverage or opens a next batch before aggregate cleanup acknowledgement', async () => {
     let stateCleanup: unknown;
@@ -471,7 +471,7 @@ describe('official all-dex snapshot transport (offline)', () => {
     expect(completed).toBe(false);
     expect(s.socket.send.mock.calls.filter(([body]) => JSON.parse(body).method === 'subscribe')).toHaveLength(90);
     s.socket.emit('message', Buffer.from(JSON.stringify({ channel: 'subscriptionResponse', data: stateCleanup })));
-    expect((await pending).orders.venues).toHaveLength(91); s.source.close();
+    expect((await pending).orders.venues).toHaveLength(91); await s.source.close();
   });
   it.each(['missing', 'cross_account', 'duplicate', 'malformed'])('refuses combined aggregate %s acknowledgements', async (failure) => {
     const s = orderSource((socket, request) => {
@@ -486,7 +486,7 @@ describe('official all-dex snapshot transport (offline)', () => {
         data: aggregate ? { user: account, clearinghouseStates: [['', state()]] } : { user: account, dex: request.subscription.dex, orders: [] } })));
     });
     await expect(s.source.readAccount(account, [''], 5000)).rejects.toThrow('live_account_order_ack');
-    expect(s.socket.terminate).toHaveBeenCalledTimes(1); s.source.close();
+    expect(s.socket.terminate).toHaveBeenCalledTimes(1); await s.source.close();
   });
   it('retains the socket mutex and rejects incomplete combined cleanup at the unchanged deadline', async () => {
     vi.useFakeTimers();
@@ -501,7 +501,7 @@ describe('official all-dex snapshot transport (offline)', () => {
       const denied = expect(s.source.readAccount(account, [''], 5000)).rejects.toThrow('live_account_orders_deadline_exceeded');
       await expect(s.source.read(account, 5000)).rejects.toThrow('live_account_aggregate_unavailable');
       await vi.advanceTimersByTimeAsync(5001); await denied;
-      expect(s.socket.terminate).toHaveBeenCalledTimes(1); s.source.close();
+      expect(s.socket.terminate).toHaveBeenCalledTimes(1); await s.source.close();
     } finally { vi.useRealTimers(); }
   });
   it('waits for delayed aggregate cleanup before immediately reusing the socket', async () => {
@@ -523,14 +523,14 @@ describe('official all-dex snapshot transport (offline)', () => {
       emit({ channel: 'subscriptionResponse', data: { method: 'unsubscribe', subscription: { type: 'allDexsClearinghouseState', user: account } } });
       await pending;
     }
-    source.close();
+    await source.close();
   });
   it('bounds aggregate decoded frame counts before the deadline', async () => {
     const socket = new OfflineSocket(); socket.readyState = WebSocket.OPEN;
     const source = new HyperliquidAllDexsAccountSource(() => now, () => socket as unknown as WebSocket);
     const pending = source.read(account, 5000);
     for (let i = 0; i < 4001; i++) socket.emit('message', Buffer.from('{}'));
-    await expect(pending).rejects.toThrow('live_account_unbounded_evidence'); source.close();
+    await expect(pending).rejects.toThrow('live_account_unbounded_evidence'); await source.close();
   });
   it('reads 268 exact venues in batches of at most90 commands and waits for all cleanup acknowledgements', async () => {
     const s = orderSource(), dexes = ['', ...Array.from({ length: 267 }, (_, i) => i === 11 ? 'i<3fl' : `dex${i + 1}`)];
@@ -539,7 +539,7 @@ describe('official all-dex snapshot transport (offline)', () => {
     expect(proof.venues.every((v) => v.user === account && v.receivedAt === now)).toBe(true);
     expect(s.maxInflight()).toBeLessThanOrEqual(90);
     expect(s.socket.send).toHaveBeenCalledTimes(536);
-    expect(s.socket.terminate).not.toHaveBeenCalled(); s.source.close();
+    expect(s.socket.terminate).not.toHaveBeenCalled(); await s.source.close();
   });
   it('reserves whole scans before sending and enforces minimum spacing and rolling message bounds', async () => {
     const s = orderSource(), dexes = ['', ...Array.from({ length: 267 }, (_, i) => `dex${i + 1}`)];
@@ -550,7 +550,7 @@ describe('official all-dex snapshot transport (offline)', () => {
     s.setClock(now + 2000); await s.source.readOrders(account, dexes, 5000);
     s.setClock(now + 3000); await expect(s.source.readOrders(account, dexes, 5000)).rejects.toThrow('live_account_ws_message_budget');
     expect(s.socket.send).toHaveBeenCalledTimes(1608);
-    s.setClock(now + 60_001); await s.source.readOrders(account, dexes, 5000); s.source.close();
+    s.setClock(now + 60_001); await s.source.readOrders(account, dexes, 5000); await s.source.close();
   });
   it.each(['missing', 'duplicate', 'cross_account', 'wrong_dex', 'malformed'])('refuses %s order acknowledgements and invalidates connection', async (mode) => {
     const s = orderSource((socket, request) => {
@@ -564,7 +564,7 @@ describe('official all-dex snapshot transport (offline)', () => {
       socket.emit('message', Buffer.from(JSON.stringify({ channel: 'openOrders', data: { user: account, dex: '', orders: [] } })));
     });
     await expect(s.source.readOrders(account, [''], 5000)).rejects.toThrow('live_account_order_ack');
-    expect(s.socket.terminate).toHaveBeenCalledTimes(1); s.source.close();
+    expect(s.socket.terminate).toHaveBeenCalledTimes(1); await s.source.close();
   });
   it('refuses disconnects and cross-account snapshots even after valid acknowledgements', async () => {
     for (const disconnect of [true, false]) {
@@ -575,7 +575,7 @@ describe('official all-dex snapshot transport (offline)', () => {
           data: { user: `0x${'33'.repeat(20)}`, dex: '', orders: [] } })));
       });
       await expect(s.source.readOrders(account, [''], 5000)).rejects.toThrow();
-      expect(s.socket.terminate).toHaveBeenCalledTimes(1); s.source.close();
+      expect(s.socket.terminate).toHaveBeenCalledTimes(1); await s.source.close();
     }
   });
   it('refuses partial snapshots or unacknowledged cleanup at the overall deadline', async () => {
@@ -590,7 +590,7 @@ describe('official all-dex snapshot transport (offline)', () => {
         });
         const failure = expect(s.source.readOrders(account, [''], 5000)).rejects.toThrow('live_account_orders_deadline_exceeded');
         await vi.advanceTimersByTimeAsync(5001); await failure;
-        expect(s.socket.terminate).toHaveBeenCalledTimes(1); s.source.close();
+        expect(s.socket.terminate).toHaveBeenCalledTimes(1); await s.source.close();
       }
     } finally { vi.useRealTimers(); }
   });
@@ -600,7 +600,7 @@ describe('official all-dex snapshot transport (offline)', () => {
     const pending = source.read(account, 5000);
     socket.emit('message', Buffer.from(JSON.stringify({ channel: 'allDexsClearinghouseState',
       data: { user: account, clearinghouseStates: [['', state()]] } })));
-    await expect(pending).rejects.toThrow('live_account_order_ack_missing'); source.close();
+    await expect(pending).rejects.toThrow('live_account_order_ack_missing'); await source.close();
   });
   it('binds fixed testnet/account and reuses a single bounded read-only connection', async () => {
     const socket = new OfflineSocket();
@@ -626,7 +626,7 @@ describe('official all-dex snapshot transport (offline)', () => {
       { method: 'subscribe', subscription: { type: 'allDexsClearinghouseState', user: account } },
       { method: 'unsubscribe', subscription: { type: 'allDexsClearinghouseState', user: account } },
     ]).flat());
-    source.close(); expect(socket.terminate).toHaveBeenCalledTimes(1);
+    await source.close(); expect(socket.terminate).toHaveBeenCalledTimes(1);
   });
   it('refuses mismatched account messages and bounds a connection without a snapshot', async () => {
     const socket = new OfflineSocket(); socket.readyState = WebSocket.OPEN;
@@ -642,13 +642,13 @@ describe('official all-dex snapshot transport (offline)', () => {
       const failure = expect(source.read(account, 5000)).rejects.toThrow('live_account_aggregate_unavailable');
       await vi.advanceTimersByTimeAsync(5001); await failure;
       expect(socket.terminate.mock.calls.length).toBeGreaterThanOrEqual(1);
-    } finally { source.close(); vi.useRealTimers(); }
+    } finally { await source.close(); vi.useRealTimers(); }
   });
   it('rejects unexpected native ping without sending an unmetered automatic pong',async()=>{
     const socket=new OfflineSocket();socket.readyState=WebSocket.OPEN;
     const source=new HyperliquidAllDexsAccountSource(()=>now,(_url,options)=>{expect(options.autoPong).toBe(false);return socket as unknown as WebSocket;});
     const pending=source.read(account,5000);socket.emit('ping',Buffer.from('probe'));
-    await expect(pending).rejects.toThrow('live_account_aggregate_unavailable');expect(socket.send).toHaveBeenCalledTimes(1);source.close();
+    await expect(pending).rejects.toThrow('live_account_aggregate_unavailable');expect(socket.send).toHaveBeenCalledTimes(1);await source.close();
   });
 
   it('renews and sends a metered ping for idle unscoped reuse, then stops background work at shutdown',async()=>{

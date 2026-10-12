@@ -18,7 +18,7 @@ function setup(active: string[], copied: string[], mainnet: string[]) {
   const emit = vi.fn(), order: string[] = [];
   const catchUp = vi.fn(async (address: string) => { order.push(address); return { inserted: 0, actions: 0, complete: true, through: 0 }; });
   const repository = { activeAddresses: async () => active, copiedAddresses: async () => ({ copied: new Set(copied), mainnet: new Set(mainnet) }) };
-  const watcher = new WatcherService(testConfig(), { setWatched: vi.fn(), status: () => ({}), stop: () => {} } as unknown as TradeFeedService,
+  const watcher = new WatcherService(testConfig(), { setWatched: vi.fn(), status: () => ({}), stop: async () => {} } as unknown as TradeFeedService,
     { sync: vi.fn(async () => ({ fetched: 0, inserted: 0, actions: 0, missingTids: [], latestFillTime: null })), catchUp,
       getLastFillAt: () => null, getFastPathStats: () => ({ verified: 0, corrected: 0 }) } as unknown as FillSyncService,
     { getEquityUsd: () => null, dropBooks: vi.fn() } as unknown as AccountStateService,

@@ -32,7 +32,7 @@ describe("WatcherService", () => {
   let catchUp: ReturnType<typeof vi.fn>;
   let fastPath: ReturnType<typeof vi.fn>;
   let dropBooks: ReturnType<typeof vi.fn>;
-  let feed: { setWatched: ReturnType<typeof vi.fn>; status: () => unknown; stop: () => void };
+  let feed: { setWatched: ReturnType<typeof vi.fn>; status: () => unknown; stop: () => Promise<void> };
   let watcher: WatcherService;
 
   const confirms = () => sync.mock.calls.filter((c) => c[1] === "confirm");
@@ -43,7 +43,7 @@ describe("WatcherService", () => {
     catchUp = vi.fn(async () => ({ inserted: 1, actions: 0, complete: true, through: 0 }));
     fastPath = vi.fn(async () => 1);
     dropBooks = vi.fn();
-    feed = { setWatched: vi.fn(), status: () => ({}), stop: () => {} };
+    feed = { setWatched: vi.fn(), status: () => ({}), stop: async () => {} };
     watcher = new WatcherService(testConfig(),
       feed as unknown as TradeFeedService,
       { sync, catchUp, getLastFillAt: () => null, getFastPathStats: () => ({ verified: 0, corrected: 0 }) } as unknown as FillSyncService,

@@ -101,9 +101,15 @@ export class PostgresLiveRiskSource {
     return Object.freeze({forHold:()=>read(),proofSource:Object.freeze({read:async (input:Parameters<LiveAccountRiskProofSource['read']>[0])=>{const proof=await read(input);return Object.freeze({proof,assertHeld:()=>{session.scope.assertFresh();this.fresh(proof.localSource.checkedAt);}});}})});
   }
   private async load(session:LiveRiskDatabaseSession,binding:LiveRiskSourceBinding,observedAt:number):Promise<CollectedAuthority> {
-    return session.read(async db=>{const local=await loadLiveRiskAuthority(session,db,binding,this.now());
-      requireProof(local.baseline,'live_risk_baseline_unproven');
-      const generation=await loadLiveGenerationManifest(session,db,local.preparation,{currentExecutionKey:binding.key,now:observedAt});
+    return session.read(async db=>{
+      // The generation's reads go out as soon as the preparation authority
+      // (its account and mandate, local.preparation) is read, with the
+      // authority's last read; its result is used only after the checks below.
+      let generationWork:Promise<LiveGenerationManifestV1>|undefined;
+      const local=await loadLiveRiskAuthority(session,db,binding,this.now(),preparation=>{
+        generationWork=loadLiveGenerationManifest(session,db,preparation,{currentExecutionKey:binding.key,now:observedAt});void generationWork.catch(()=>{});});
+      requireProof(local.baseline&&generationWork,'live_risk_baseline_unproven');
+      const generation=await generationWork;
       const members=await loadMergedMembers(local.provenance.sizingBasis,local.fill.id,async ids=>{const rows=await db.select().from(copyLiveSourceFills).where(inArray(copyLiveSourceFills.id,ids));await session.scope.assertHeld();return rows;});
       const settlementProofs=await loadLiveSettlementProofs(local.provenance.sizingBasis,db,async work=>{const rows=await work;await session.scope.assertHeld();return rows;},generation);
       return {...local,generation,...(members?{members}:{}),...(settlementProofs?{settlementProofs}:{})};});

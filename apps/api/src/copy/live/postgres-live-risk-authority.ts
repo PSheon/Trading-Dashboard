@@ -37,7 +37,14 @@ export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSessi
   const increasesRisk=binding.leg!=='close';
   const read=async<T>(work:PromiseLike<T>):Promise<T>=>{const result=await work;await session.scope.assertHeld();return result;};
   const generalSetting=alias(appSettings,'live_general_setting'),revenueSetting=alias(appSettings,'live_revenue_setting');
-  const [source]=await read(db.select({policyRow:copyRiskPolicies,generalRow:generalSetting,revenueRow:revenueSetting,account:copyExecutionAccounts,owner:users,strategy:copyStrategies,config:copyLiveStrategyConfigs,version:copyStrategyVersions,
+  // Every read here is keyed by the binding and the scope's own identity
+  // (which the account row must match, checked below before any of them is
+  // used): all seven go out together (pipelined, one round trip; executed in
+  // this order, each followed by the held-lock fence) and are checked in the
+  // original order. A refused authority only discards reads it did not need.
+  const sent=<T>(work:Promise<T>):Promise<T>=>{void work.catch(()=>{});return work;};
+  const scopeIdentity=session.scope.identity,owner=scopeIdentity.userId,network=scopeIdentity.network,source0=scopeIdentity.source;
+  const sourceWork=sent(read(db.select({policyRow:copyRiskPolicies,generalRow:generalSetting,revenueRow:revenueSetting,account:copyExecutionAccounts,owner:users,strategy:copyStrategies,config:copyLiveStrategyConfigs,version:copyStrategyVersions,
     mandate:copyLiveMandates,setup:copyAgentSetups,wallet:copyExecutionWallets,grant:copyWalletAuthorizations})
     .from(copyExecutionAccounts).innerJoin(users,eq(users.id,copyExecutionAccounts.userId))
     .innerJoin(copyStrategies,eq(copyStrategies.id,copyExecutionAccounts.strategyId))
@@ -47,7 +54,16 @@ export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSessi
     .innerJoin(copyExecutionWallets,eq(copyExecutionWallets.id,copyLiveMandates.executionWalletId)).innerJoin(copyWalletAuthorizations,eq(copyWalletAuthorizations.id,copyLiveMandates.authorizationId))
     .leftJoin(copyRiskPolicies,sql`${copyRiskPolicies.version}=(select max(version) from copy_risk_policies)`)
     .leftJoin(generalSetting,eq(generalSetting.key,'general')).leftJoin(revenueSetting,eq(revenueSetting.key,'revenue'))
-    .where(eq(copyExecutionAccounts.id,binding.accountId)));
+    .where(eq(copyExecutionAccounts.id,binding.accountId))));
+  const controlsWork=sent(read(db.select().from(copyControls).where(sql`${copyControls.scope}='platform' or (${copyControls.scope}='user' and ${copyControls.scopeId}=${owner})`)));
+  const copiesWork=sent(read(db.select({account:copyExecutionAccounts}).from(copyExecutionAccounts).innerJoin(copyStrategies,eq(copyStrategies.id,copyExecutionAccounts.strategyId))
+    .where(and(eq(copyExecutionAccounts.userId,owner),eq(copyExecutionAccounts.network,network),liveAccountExposureSql(copyExecutionAccounts.id,copyStrategies.mode,copyStrategies.status)))
+    .orderBy(copyExecutionAccounts.id).limit(9)).then(rows=>rows.map(row=>row.account)));
+  const statesWork=sent(read(db.select().from(copyFollowerAccountState).where(sql`${copyFollowerAccountState.accountId} in (select id from copy_execution_accounts where user_id=${owner} and network=${network})`)));
+  const pendingWork=sent(read(db.select({id:copyFundingOperations.id}).from(copyFundingOperations).where(and(eq(copyFundingOperations.accountId,binding.accountId),sql`${copyFundingOperations.status} in ('prepared','unknown','accepted')`)).limit(1)));
+  const modesWork=sent(read(db.select({id:copyAccountModeOperations.id}).from(copyAccountModeOperations).where(and(eq(copyAccountModeOperations.accountId,binding.accountId),sql`(${copyAccountModeOperations.submissionState} in ('signing','unknown') or (${copyAccountModeOperations.submissionState}='accepted' and ${copyAccountModeOperations.targetState}<>'supported'))`)).limit(1)));
+  const streamWork=source0?sent(read(db.select().from(copyLiveSourceStreams).where(and(eq(copyLiveSourceStreams.network,source0.network),eq(copyLiveSourceStreams.leaderAddress,source0.leaderAddress))))):undefined;
+  const [source]=await sourceWork;
   riskSourceRequire(source,'live_risk_authority_missing');
   const {policyRow:policy,generalRow,revenueRow,...row}=source; const revenue=revenueRow??undefined;
   const {account:a,owner:o,strategy:s,config:c,version:v,mandate:m,setup,wallet:w,grant:g}=row;
@@ -85,7 +101,7 @@ export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSessi
   riskSourceRequire(!increasesRisk||!deployment?.caps.ratioOnly||settings.sizingMode==='ratio','live_risk_sizing_above_cap');
   riskSourceRequire(!increasesRisk||!fixed||(settings.sizingMode==='fixed'&&settings.perTradeUsd!==null&&settings.perTradeUsd>=fixed.min&&settings.perTradeUsd<=fixed.max),'live_risk_sizing_above_cap');
   riskSourceRequire(!increasesRisk||settings.maxLeverage===null||settings.maxLeverage<=limits.maxLeverage,'live_risk_leverage_above_cap');
-  const controls=await read(db.select().from(copyControls).where(sql`${copyControls.scope}='platform' or (${copyControls.scope}='user' and ${copyControls.scopeId}=${a.userId})`));
+  const controls=await controlsWork;
   const platform=controls.find(c=>c.scope==='platform'&&c.scopeId===0),user=controls.find(c=>c.scope==='user'&&c.scopeId===a.userId);
   riskSourceRequire(controls.length===2&&platform&&user,'live_risk_controls_unproven');
   const general=generalRow?[generalRow]:[];
@@ -100,9 +116,7 @@ export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSessi
   // after the old ones had stopped (one-click plan §3i). Only this network's
   // accounts: another network's copies (a database that moved networks) hold
   // no exposure here and never block this one's orders.
-  const copies=await read(db.select({account:copyExecutionAccounts}).from(copyExecutionAccounts).innerJoin(copyStrategies,eq(copyStrategies.id,copyExecutionAccounts.strategyId))
-    .where(and(eq(copyExecutionAccounts.userId,a.userId),eq(copyExecutionAccounts.network,a.network),liveAccountExposureSql(copyExecutionAccounts.id,copyStrategies.mode,copyStrategies.status)))
-    .orderBy(copyExecutionAccounts.id).limit(9)).then(rows=>rows.map(row=>row.account));
+  const copies=await copiesWork;
   // This network's live copies of the owner: at most the deployment's cap.
   riskSourceRequire(!increasesRisk||!deployment||copies.length<=limits.maxStrategiesPerUser,'live_risk_strategy_cap');
   // A copy whose wallet is still being created has no address yet: nothing can
@@ -110,17 +124,19 @@ export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSessi
   // longer refuses the owner's other copies).
   const accounts=copies.filter(account=>account.address!==null||account.privyWalletId!==null);
   riskSourceRequire(copies.length<=8&&accounts.every(account=>account.network===a.network&&account.address&&account.privyWalletId&&account.ownerQuorumId&&account.privyUserId===o.privyUserId),'live_risk_user_coverage_unproven');
-  const states=await read(db.select().from(copyFollowerAccountState).where(sql`${copyFollowerAccountState.accountId} in (select id from copy_execution_accounts where user_id=${a.userId} and network=${a.network})`));
+  const states=await statesWork;
   riskSourceRequire(!states.some(state=>state.quarantined),'live_risk_quarantined');
   // A transfer or mode change in flight on this account (its balance or mode
   // is moving under the order). Another copy's funding or sweep, or a main
   // wallet withdrawal, doesn't touch this account and no longer pauses its
   // legs (one-click plan §3i).
-  const pending=await read(db.select({id:copyFundingOperations.id}).from(copyFundingOperations).where(and(eq(copyFundingOperations.accountId,a.id),sql`${copyFundingOperations.status} in ('prepared','unknown','accepted')`)).limit(1));
+  const pending=await pendingWork;
   riskSourceRequire(pending.length===0,'live_risk_transfer_pending');
-  const modes=await read(db.select({id:copyAccountModeOperations.id}).from(copyAccountModeOperations).where(and(eq(copyAccountModeOperations.accountId,a.id),sql`(${copyAccountModeOperations.submissionState} in ('signing','unknown') or (${copyAccountModeOperations.submissionState}='accepted' and ${copyAccountModeOperations.targetState}<>'supported'))`)).limit(1));
+  const modes=await modesWork;
   riskSourceRequire(modes.length===0,'live_risk_mode_pending');
-  const [sourceStream]=await read(db.select().from(copyLiveSourceStreams).where(and(eq(copyLiveSourceStreams.network,consent.sourceNetwork),eq(copyLiveSourceStreams.leaderAddress,consent.leaderAddress))));
+  // The scope's source is the consent's (checked above, live_risk_source_scope_missing).
+  riskSourceRequire(streamWork,'live_risk_source_scope_missing');
+  const [sourceStream]=await streamWork;
   riskSourceRequire(sourceStream&&sourceStream.state==='ready'&&sourceStream.coverageFrom&&sourceStream.coverageThrough&&sourceStream.coverageDigest&&sourceStream.coverageFrom.getTime()<=m.activationCursor!.getTime(),'live_risk_source_changed');
   const identity={accountId:a.id,userId:a.userId,strategyId:s.id,strategyVersion:s.version,policyVersion:policy.version,authorizationVersion:g.version,
     authorizationId:g.id,walletId:w.privyWalletId,network:a.network,accountAddress:a.address,dedicated:true as const};
@@ -135,18 +151,45 @@ export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSessi
 export type LivePreparationAuthority=Awaited<ReturnType<typeof loadLivePreparationAuthority>>;
 
 /** Only invoked inside the original session's read-only transaction. */
-export async function loadLiveRiskAuthority(session: LiveRiskDatabaseSession, db: DbExecutor, binding: {accountId:string;key:string}, now:number) {
+/** `alongside`: called with the preparation authority as soon as it is read,
+ * so a caller's reads that need it go out with this loader's last ones. */
+export async function loadLiveRiskAuthority(session: LiveRiskDatabaseSession, db: DbExecutor, binding: {accountId:string;key:string}, now:number,
+  alongside?: (preparation: LivePreparationAuthority) => void) {
   const read = async <T>(work:PromiseLike<T>):Promise<T> => { const result=await work;await session.scope.assertHeld();return result; };
-  const [p] = await read(db.select().from(copyLiveIntentProvenance).where(eq(copyLiveIntentProvenance.key,binding.key)));
+  // Reads keyed by the binding and the scope's identity (which the
+  // preparation authority proves the account's) go out together with the
+  // provenance (pipelined: one round trip, executed in this order, each
+  // followed by the held-lock fence); those needing the provenance (its
+  // mandate) with the preparation authority; `recent` (the policy's limit)
+  // last. Their results are checked in the original order.
+  const sent=<T>(work:Promise<T>):Promise<T>=>{void work.catch(()=>{});return work;};
+  const owner=session.scope.identity.userId,network=session.scope.identity.network;
+  const provenanceWork=sent(read(db.select().from(copyLiveIntentProvenance).where(eq(copyLiveIntentProvenance.key,binding.key))));
+  const executionWork=sent(read(db.select({leg:copyLiveSignalLegs,fill:copyLiveSourceFills,stream:copyLiveSourceStreams,journal:copyLiveExecutions})
+    .from(copyLiveIntentProvenance).innerJoin(copyLiveSignalLegs,eq(copyLiveSignalLegs.id,copyLiveIntentProvenance.legId))
+    .innerJoin(copyLiveSourceFills,eq(copyLiveSourceFills.id,copyLiveSignalLegs.sourceFillId)).innerJoin(copyLiveSourceStreams,eq(copyLiveSourceStreams.id,copyLiveSourceFills.streamId))
+    .innerJoin(copyLiveExecutions,eq(copyLiveExecutions.key,copyLiveIntentProvenance.key)).where(eq(copyLiveIntentProvenance.key,binding.key))));
+  const liabilitiesWork=sent(read(db.select({reservation:copyLiveRiskReservations,journal:copyLiveExecutions,historicalGrant:copyWalletAuthorizations,historicalWallet:copyExecutionWallets}).from(copyLiveRiskReservations)
+    .innerJoin(copyLiveExecutions,eq(copyLiveExecutions.key,copyLiveRiskReservations.key))
+    .leftJoin(copyWalletAuthorizations,eq(copyWalletAuthorizations.id,copyLiveRiskReservations.authorizationId))
+    .leftJoin(copyExecutionWallets,eq(copyExecutionWallets.id,copyWalletAuthorizations.walletId)).where(and(eq(copyLiveRiskReservations.userId,owner),eq(copyLiveRiskReservations.network,network),ne(copyLiveRiskReservations.state,'released'))).orderBy(copyLiveRiskReservations.key).limit(5002)));
+  const orphanWork=sent(read(db.select({key:copyLiveExecutions.key}).from(copyLiveExecutions).leftJoin(copyLiveRiskReservations,eq(copyLiveRiskReservations.key,copyLiveExecutions.key))
+    .where(and(eq(copyLiveExecutions.userId,owner),eq(copyLiveExecutions.network,network),sql`${copyLiveExecutions.state} in ('prepared','submitting','unknown','resting')`,sql`(${copyLiveRiskReservations.key} is null or ${copyLiveRiskReservations.state}='released')`,ne(copyLiveExecutions.key,binding.key))).limit(1)));
+  const [p] = await provenanceWork;
   riskSourceRequire(p,'live_risk_provenance_missing');
   riskSourceRequire(JSON.stringify(p.intent).length<=16384&&Buffer.byteLength(JSON.stringify(p.sizingBasis))<=2*1024*1024,'live_risk_source_unbounded');
   // The leg the provenance's intent was planned for: reduce-only exactly for a
   // close (checked against the signed action's fingerprint below).
-  const prep=await loadLivePreparationAuthority(session,db,{accountId:binding.accountId,mandateId:p.mandateId,leg:(p.intent as {reduceOnly?:unknown}).reduceOnly===true?'close':'open'},now);
-  const [execution]=await read(db.select({leg:copyLiveSignalLegs,fill:copyLiveSourceFills,stream:copyLiveSourceStreams,journal:copyLiveExecutions})
-    .from(copyLiveIntentProvenance).innerJoin(copyLiveSignalLegs,eq(copyLiveSignalLegs.id,copyLiveIntentProvenance.legId))
-    .innerJoin(copyLiveSourceFills,eq(copyLiveSourceFills.id,copyLiveSignalLegs.sourceFillId)).innerJoin(copyLiveSourceStreams,eq(copyLiveSourceStreams.id,copyLiveSourceFills.streamId))
-    .innerJoin(copyLiveExecutions,eq(copyLiveExecutions.key,copyLiveIntentProvenance.key)).where(eq(copyLiveIntentProvenance.key,binding.key)));
+  const prepWork=sent(loadLivePreparationAuthority(session,db,{accountId:binding.accountId,mandateId:p.mandateId,leg:(p.intent as {reduceOnly?:unknown}).reduceOnly===true?'close':'open'},now));
+  // The preparation authority's mandate is the provenance's (joined by p.mandateId).
+  const baselineWork=sent(read(db.select({baseline:copyLivePositionBaselines,journal:copyLiveExecutions,provenance:{mandateId:copyLiveIntentProvenance.mandateId,admittedAt:copyLiveIntentProvenance.admittedAt}})
+    .from(copyLivePositionBaselines).leftJoin(copyLiveExecutions,eq(copyLiveExecutions.key,copyLivePositionBaselines.firstExecutionKey))
+    .leftJoin(copyLiveIntentProvenance,eq(copyLiveIntentProvenance.key,copyLivePositionBaselines.firstExecutionKey))
+    .where(eq(copyLivePositionBaselines.mandateId,p.mandateId))));
+  const prep=await prepWork;
+  alongside?.(prep);
+  const recentWork=sent(read(db.select({key:copyLiveExecutions.key}).from(copyLiveExecutions).where(and(eq(copyLiveExecutions.userId,owner),ne(copyLiveExecutions.key,binding.key),sql`(${copyLiveExecutions.record}->>'createdAt')::numeric >= ${now-60000}`)).limit(prep.limits.maxOrdersPerMinute+1)));
+  const [execution]=await executionWork;
   riskSourceRequire(execution,'live_risk_authority_missing');
   const row={account:prep.account,owner:prep.owner,strategy:prep.strategy,config:prep.config,version:prep.version,mandate:prep.mandate,setup:prep.setup,wallet:prep.wallet,grant:prep.grant,...execution};
   riskSourceRequire(JSON.stringify(row.journal.record).length<=16384&&JSON.stringify(row.fill.raw).length<=262144,'live_risk_source_unbounded');
@@ -169,19 +212,12 @@ export async function loadLiveRiskAuthority(session: LiveRiskDatabaseSession, db
     stream.coverageFrom.getTime()<=m.activationCursor!.getTime()&&stream.coverageThrough.getTime()>=fill.providerTime,'live_risk_source_changed');
   const {policy,limits,platform,user,accounts,states,general,revenue,controlsRows:controls}=prep;
   riskSourceRequire(intent.builder?intent.builder.address===consent.builderAddress&&intent.builder.feeTenthsBps<=consent.builderMaxFeeTenthsOfBps:consent.builderMaxFeeTenthsOfBps===0,'live_risk_builder_changed');
-  const liabilities=await read(db.select({reservation:copyLiveRiskReservations,journal:copyLiveExecutions,historicalGrant:copyWalletAuthorizations,historicalWallet:copyExecutionWallets}).from(copyLiveRiskReservations)
-    .innerJoin(copyLiveExecutions,eq(copyLiveExecutions.key,copyLiveRiskReservations.key))
-    .leftJoin(copyWalletAuthorizations,eq(copyWalletAuthorizations.id,copyLiveRiskReservations.authorizationId))
-    .leftJoin(copyExecutionWallets,eq(copyExecutionWallets.id,copyWalletAuthorizations.walletId)).where(and(eq(copyLiveRiskReservations.userId,a.userId),eq(copyLiveRiskReservations.network,a.network),ne(copyLiveRiskReservations.state,'released'))).orderBy(copyLiveRiskReservations.key).limit(5002));
+  const liabilities=await liabilitiesWork;
   riskSourceRequire(liabilities.length<=5001&&JSON.stringify(liabilities).length<=8*1024*1024,'live_risk_user_coverage_unbounded');
-  const orphan=await read(db.select({key:copyLiveExecutions.key}).from(copyLiveExecutions).leftJoin(copyLiveRiskReservations,eq(copyLiveRiskReservations.key,copyLiveExecutions.key))
-    .where(and(eq(copyLiveExecutions.userId,a.userId),eq(copyLiveExecutions.network,a.network),sql`${copyLiveExecutions.state} in ('prepared','submitting','unknown','resting')`,sql`(${copyLiveRiskReservations.key} is null or ${copyLiveRiskReservations.state}='released')`,ne(copyLiveExecutions.key,binding.key))).limit(1));
+  const orphan=await orphanWork;
   riskSourceRequire(orphan.length===0,'live_risk_orphan_execution');
-  const recent=await read(db.select({key:copyLiveExecutions.key}).from(copyLiveExecutions).where(and(eq(copyLiveExecutions.userId,a.userId),ne(copyLiveExecutions.key,binding.key),sql`(${copyLiveExecutions.record}->>'createdAt')::numeric >= ${now-60000}`)).limit(limits.maxOrdersPerMinute+1));
-  const [baselineRows]=await read(db.select({baseline:copyLivePositionBaselines,journal:copyLiveExecutions,provenance:{mandateId:copyLiveIntentProvenance.mandateId,admittedAt:copyLiveIntentProvenance.admittedAt}})
-    .from(copyLivePositionBaselines).leftJoin(copyLiveExecutions,eq(copyLiveExecutions.key,copyLivePositionBaselines.firstExecutionKey))
-    .leftJoin(copyLiveIntentProvenance,eq(copyLiveIntentProvenance.key,copyLivePositionBaselines.firstExecutionKey))
-    .where(eq(copyLivePositionBaselines.mandateId,m.id)));
+  const recent=await recentWork;
+  const [baselineRows]=await baselineWork;
   const baselineRow=baselineRows?.baseline;
   let baseline:ReturnType<typeof decodeLivePositionBaseline>|null=null;
   if(baselineRow) {

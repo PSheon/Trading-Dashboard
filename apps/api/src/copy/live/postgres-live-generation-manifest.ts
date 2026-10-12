@@ -25,31 +25,38 @@ export async function loadLiveGenerationManifest(session:LiveRiskDatabaseSession
   assertOriginalLiveRiskSession(session);session.scope.assertFresh();const input=structuredClone(raw),{account:a,mandate:m}=authority;
   check(a.userId===session.scope.identity.userId&&a.network===session.scope.identity.network&&a.address===session.scope.identity.accountAddress&&typeof input.currentExecutionKey==='string'&&input.currentExecutionKey.length>0&&Number.isSafeInteger(input.now)&&input.now>0,'live_risk_identity');
   const read=async<T>(work:PromiseLike<T>):Promise<T>=>{const result=await work;await session.scope.assertHeld();return result;};
+  // Its seven reads need only the account and mandate: they go out together
+  // (pipelined, one round trip; executed in this order in the same snapshot),
+  // each still followed by the held-lock fence, and are checked in this order.
+  const sent=<T>(work:Promise<T>):Promise<T>=>{void work.catch(()=>{});return work;};
   // All three lookups are unique-key reads of this original account/mandate.
   // Keep typed Drizzle column decoders (including Date), the same SQL snapshot,
   // and the original post-query held-lock fence; never refresh input.now.
-  const [baseRows]=await read(db.select({baseline:copyLivePositionBaselines,scan:copyFollowerScans,accountState:copyFollowerAccountState})
+  const baseWork=sent(read(db.select({baseline:copyLivePositionBaselines,scan:copyFollowerScans,accountState:copyFollowerAccountState})
     .from(copyLivePositionBaselines).leftJoin(copyFollowerScans,eq(copyFollowerScans.accountId,a.id))
     .leftJoin(copyFollowerAccountState,eq(copyFollowerAccountState.accountId,a.id))
-    .where(eq(copyLivePositionBaselines.mandateId,m.id)));
+    .where(eq(copyLivePositionBaselines.mandateId,m.id))));
+  const entriesWork=sent(read(db.select({journal:copyLiveExecutions,provenance:provenanceColumns,leg:copyLiveSignalLegs,fill:copyLiveSourceFills,reservation:copyLiveRiskReservations,evidence:copyLiveExecutionEvidence})
+    .from(copyLiveExecutions).leftJoin(copyLiveIntentProvenance,eq(copyLiveIntentProvenance.key,copyLiveExecutions.key))
+    .leftJoin(copyLiveSignalLegs,eq(copyLiveSignalLegs.id,copyLiveIntentProvenance.legId)).leftJoin(copyLiveSourceFills,eq(copyLiveSourceFills.id,copyLiveSignalLegs.sourceFillId))
+    .leftJoin(copyLiveRiskReservations,eq(copyLiveRiskReservations.key,copyLiveExecutions.key)).leftJoin(copyLiveExecutionEvidence,eq(copyLiveExecutionEvidence.key,copyLiveExecutions.key))
+    .where(or(eq(copyLiveExecutions.accountAddress,a.address!),eq(copyLiveRiskReservations.accountId,a.id),eq(copyLiveExecutionEvidence.accountId,a.id))).orderBy(copyLiveExecutions.key).limit(5002)));
+  const receiptsWork=sent(read(db.select().from(copyFollowerReceipts).where(or(eq(copyFollowerReceipts.accountId,a.id),eq(copyFollowerReceipts.accountAddress,a.address!))).orderBy(copyFollowerReceipts.key).limit(10001)));
+  const ledgerWork=sent(read(db.select().from(copyFollowerLedger).where(sql`${copyFollowerLedger.receiptKey} in (select key from copy_follower_receipts where account_id=${a.id} or account_address=${a.address})`).orderBy(copyFollowerLedger.receiptKey,copyFollowerLedger.component).limit(30001)));
+  const conflictsWork=sent(read(db.select().from(copyFollowerReceiptConflicts).where(sql`${copyFollowerReceiptConflicts.receiptKey} in (select key from copy_follower_receipts where account_id=${a.id} or account_address=${a.address})`).limit(1)));
+  const carryWork=sent(read(db.select().from(copyLiveReductionCarry).where(eq(copyLiveReductionCarry.mandateId,m.id)).orderBy(copyLiveReductionCarry.coin).limit(1025)));
+  const manualWork=sent(read(db.select({keys:copyLiveManualCloses.executionKeys}).from(copyLiveManualCloses).where(eq(copyLiveManualCloses.accountId,a.id)).limit(1001)));
+  const [baseRows]=await baseWork;
   const row=baseRows?.baseline,scan=baseRows?.scan,accountState=baseRows?.accountState;
   check(row&&Buffer.byteLength(JSON.stringify(row.record))<=2*1024*1024,'live_risk_baseline_unproven');
   const baseline=decodeLivePositionBaseline({mandateId:m.id,accountId:a.id,strategyId:a.strategyId,network:a.network,accountAddress:a.address!,firstExecutionKey:row.firstExecutionKey},row.record);
   for(const field of ['mandateId','accountId','strategyId','network','accountAddress','firstExecutionKey','sourceDigest','snapshotDigest','baselineDigest','producerVersion'] as const)check(row[field]===baseline[field],'live_risk_baseline_unproven');
   check(row.observedAt.getTime()===baseline.observedAt&&row.completedAt.getTime()===baseline.completedAt&&row.createdAt.getTime()===baseline.createdAt&&baseline.createdAt<=input.now,'live_risk_baseline_unproven');
-  const entries=await read(db.select({journal:copyLiveExecutions,provenance:provenanceColumns,leg:copyLiveSignalLegs,fill:copyLiveSourceFills,reservation:copyLiveRiskReservations,evidence:copyLiveExecutionEvidence})
-    .from(copyLiveExecutions).leftJoin(copyLiveIntentProvenance,eq(copyLiveIntentProvenance.key,copyLiveExecutions.key))
-    .leftJoin(copyLiveSignalLegs,eq(copyLiveSignalLegs.id,copyLiveIntentProvenance.legId)).leftJoin(copyLiveSourceFills,eq(copyLiveSourceFills.id,copyLiveSignalLegs.sourceFillId))
-    .leftJoin(copyLiveRiskReservations,eq(copyLiveRiskReservations.key,copyLiveExecutions.key)).leftJoin(copyLiveExecutionEvidence,eq(copyLiveExecutionEvidence.key,copyLiveExecutions.key))
-    .where(or(eq(copyLiveExecutions.accountAddress,a.address!),eq(copyLiveRiskReservations.accountId,a.id),eq(copyLiveExecutionEvidence.accountId,a.id))).orderBy(copyLiveExecutions.key).limit(5002));
+  const entries=await entriesWork;
   check(entries.length<=5001,'live_risk_generation_unbounded');
   const first=entries.find(e=>e.journal.key===baseline.firstExecutionKey),firstRecord=first?.journal.record as unknown as LiveExecutionRecord;
   check(first&&first.provenance?.mandateId===m.id&&first.journal.network===a.network&&first.journal.accountAddress===a.address&&first.journal.userId===a.userId&&first.journal.strategyId===a.strategyId&&firstRecord.key===baseline.firstExecutionKey&&firstRecord.createdAt>=baseline.createdAt&&first.provenance.admittedAt.getTime()>=baseline.createdAt,'live_risk_baseline_unproven');
-  const receipts=await read(db.select().from(copyFollowerReceipts).where(or(eq(copyFollowerReceipts.accountId,a.id),eq(copyFollowerReceipts.accountAddress,a.address!))).orderBy(copyFollowerReceipts.key).limit(10001));
-  const ledger=await read(db.select().from(copyFollowerLedger).where(sql`${copyFollowerLedger.receiptKey} in (select key from copy_follower_receipts where account_id=${a.id} or account_address=${a.address})`).orderBy(copyFollowerLedger.receiptKey,copyFollowerLedger.component).limit(30001));
-  const conflicts=await read(db.select().from(copyFollowerReceiptConflicts).where(sql`${copyFollowerReceiptConflicts.receiptKey} in (select key from copy_follower_receipts where account_id=${a.id} or account_address=${a.address})`).limit(1));
-  const carry=await read(db.select().from(copyLiveReductionCarry).where(eq(copyLiveReductionCarry.mandateId,m.id)).orderBy(copyLiveReductionCarry.coin).limit(1025));
-  const manual=await read(db.select({keys:copyLiveManualCloses.executionKeys}).from(copyLiveManualCloses).where(eq(copyLiveManualCloses.accountId,a.id)).limit(1001));
+  const receipts=await receiptsWork,ledger=await ledgerWork,conflicts=await conflictsWork,carry=await carryWork,manual=await manualWork;
   check(manual.length<=1000,'live_risk_generation_unbounded');const manualCloses=[...new Set(manual.flatMap(row=>row.keys))].sort();
   check(receipts.length<=10000&&ledger.length<=30000&&carry.length<=1024,'live_risk_generation_unbounded');
   // The envelope is read only where it is replayed (an unattempted release)

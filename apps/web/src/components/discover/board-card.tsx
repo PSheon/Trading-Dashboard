@@ -1,10 +1,11 @@
 "use client";
 
-import { ArrowDownRight, ArrowUpRight, Clock3 } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Clock3, ClockAlert } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { cn } from "cn";
 
 import { SkelBar, SkelCircle } from "@/components/page";
+import { InfoTip } from "@/components/ui/info-tip";
 import { Tooltip } from "@/components/ui/tooltip";
 import { TIME_ZONE } from "@/i18n/config";
 import { TraderName } from "@/components/traders/trader-name";
@@ -50,6 +51,7 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory,
           <span className="flex min-w-0 items-center gap-1.5">
             <span className="truncate text-[0.9375rem] leading-5 font-extrabold">{boardName(trader)}</span>
             {trader.verified ? <VerifiedTick /> : null}
+            <MetricsStamp at={trader.metricsUpdatedAt} now={now} />
           </span>
           <CoinStack coins={trader.topCoins} size={16} />
           {tags}
@@ -84,7 +86,6 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory,
           </Tooltip>
         ) : null}
       </div>
-      <MetricsStamp at={trader.metricsUpdatedAt} now={now} />
       <button
         type="button"
         onClick={(e) => {
@@ -157,13 +158,13 @@ export function HomeCard({ trader }: { trader: BoardTrader }) {
           <TraderName trader={trader} className="text-sm font-extrabold" />
           {trader.verified ? <VerifiedTick className="size-[13px]" /> : null}
         </span>
+        <MetricsStamp at={trader.metricsUpdatedAt} className="ml-auto" />
       </div>
       <BoardSparkline values={trader.sparkline} height={52} plain />
       <span className={cn("num block truncate font-display text-xl leading-7", signTone(trader.pnl))} title={t("home.cardPnl")}>
         {format.usd(trader.pnl, { compact: true, sign: true })}
       </span>
       {pill}
-      <MetricsStamp at={trader.metricsUpdatedAt} />
     </Link>
   );
 }
@@ -216,9 +217,9 @@ export function BoardMobileRow({ trader }: { trader: BoardTrader }) {
           <span className="flex min-w-0 items-center gap-1">
             <span className="truncate text-[0.9375rem] font-extrabold">{boardName(trader)}</span>
             {trader.verified ? <VerifiedTick className="size-3.5" /> : null}
+            <MetricsStamp at={trader.metricsUpdatedAt} />
           </span>
           <CoinStack coins={trader.topCoins.slice(0, 3)} size={14} />
-          <MetricsStamp at={trader.metricsUpdatedAt} compact />
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
           <span className={cn("num font-display text-[1.0625rem] leading-5", signTone(trader.pnl))}>{format.usd(trader.pnl, { compact: true, sign: true })}</span>
@@ -234,14 +235,18 @@ export function BoardMobileRow({ trader }: { trader: BoardTrader }) {
 }
 
 
-/** Age refers to the metrics read, never the browser's most recent fetch. */
-function MetricsStamp({ at, now, compact = false }: { at?: string | null; now?: number; compact?: boolean }) {
-  const { t, format, locale } = useI18n();
+/** Nothing while the metrics are fresh: an update time helps no one choosing
+ * a trader, an outdated one does. Past 24 h, a small clock whose tip gives
+ * the time (UTC). Age refers to the metrics read, never the browser's most
+ * recent fetch; nothing until the clock is known (server render, hydration). */
+export function MetricsStamp({ at, now, className }: { at?: string | null; now?: number; className?: string }) {
+  const { t, format } = useI18n();
   const ticking = useNow(), clock = now ?? ticking;
-  if (!at) return null;
-  const outdated = clock > 0 && clock - Date.parse(at) >= 24 * 60 * 60 * 1000;
-  return <span className={cn("text-[10px] leading-4 text-muted-foreground", outdated && "text-tag-alert-foreground")}>
-    {t("discover.metricsUpdated")} · <time dateTime={at} title={`${format.dateTime(at)} (UTC)`}>{compact && clock > 0 ? timeAgo(at, clock, locale) : `${format.dateTime(at)} (UTC)`}</time>
-    {outdated ? <span className="block">{t("discover.metricsStale")}</span> : null}
-  </span>;
+  if (!at || clock <= 0 || clock - Date.parse(at) < 24 * 60 * 60 * 1000) return null;
+  return (
+    <InfoTip label={t("discover.metricsStale")} icon={ClockAlert} className={cn("text-tag-alert-foreground hover:text-tag-alert-foreground data-[state=open]:text-tag-alert-foreground", className)}>
+      <span className="block">{t("discover.metricsStale")}</span>
+      {t("discover.metricsUpdated")} · <time dateTime={at}>{format.dateTime(at)} (UTC)</time>
+    </InfoTip>
+  );
 }

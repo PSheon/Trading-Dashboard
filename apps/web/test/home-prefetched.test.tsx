@@ -63,20 +63,16 @@ describe("依市場瀏覽 tiles", () => {
   });
 });
 
-it("shows the actual metrics timestamp on homepage cards instead of treating a new page fetch as fresh metrics", async () => {
+// The stale clock itself: test/metrics-stamp.test.tsx. The server does not
+// know the time, so it never prints a metrics line (text density review
+// 2026-10-12 §1.1: the stamp was two lines on every card).
+it("prints no metrics line on server-rendered homepage cards or mobile rows", async () => {
   const home = JSON.parse(JSON.stringify(await fixtureRequest("GET", "/discover/home", undefined, null)));
   home.featured[0].metricsUpdatedAt = "2026-09-30T21:03:32.429Z";
   const html = render({ home: { data: home, fetchedAt: Date.now() } });
-  expect(html).toContain('dateTime="2026-09-30T21:03:32.429Z"');
-  expect(html).toContain("Metrics updated");
-  expect(html).toMatch(/<time[^>]*title="[^"]*\(UTC\)"/);
-});
-
-it("also exposes the metrics observation date in the mobile exploration list", async () => {
-  const home = JSON.parse(JSON.stringify(await fixtureRequest("GET", "/discover/home", undefined, null)));
+  expect(html).not.toContain("Metrics updated");
+  expect(html).not.toContain('dateTime="2026-09-30T21:03:32.429Z"');
   const trader = { ...home.featured[0], metricsUpdatedAt: "2026-09-30T21:03:32.429Z" };
-  const html = renderToString(<QueryClientProvider client={new QueryClient()}><I18nProvider locale="en" messages={en}><ul><BoardMobileRow trader={trader} /></ul></I18nProvider></QueryClientProvider>);
-  expect(html).toContain('dateTime="2026-09-30T21:03:32.429Z"');
-  expect(html).toContain("Metrics updated");
-  expect(html).toMatch(/<time[^>]*title="[^"]*\(UTC\)"/);
+  const row = renderToString(<QueryClientProvider client={new QueryClient()}><I18nProvider locale="en" messages={en}><ul><BoardMobileRow trader={trader} /></ul></I18nProvider></QueryClientProvider>);
+  expect(row).not.toContain("Metrics updated");
 });

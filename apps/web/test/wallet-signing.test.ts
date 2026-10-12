@@ -98,5 +98,8 @@ describe("withdraw validation", () => {
   it("accepts a valid request up to the full balance", () => {
     expect(withdrawProblem(ok, "100", 100)).toEqual({ ready: true, problem: null });
     expect(withdrawProblem(ok, "1.5", 100)).toEqual({ ready: true, problem: null });
+    // An unknown balance (its read failed): never ready, never "more than available".
+    expect(withdrawProblem(ok, "1.5", null)).toEqual({ ready: false, problem: null });
+    expect(withdrawProblem("0x12", "1.5", null).problem).toBe("address");
   });
 });

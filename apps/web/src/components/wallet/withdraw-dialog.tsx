@@ -24,12 +24,13 @@ const AMOUNT = /^\d+(?:\.\d{0,6})?$/;
 export type WithdrawProblem = "address" | "belowMin" | "overAvailable" | null;
 
 /** Pure validation, shared with tests: what's wrong with this input, if
- * anything. An empty field is "not ready", not an error to show. */
-export function withdrawProblem(destination: string, amount: string, withdrawable: number): { ready: boolean; problem: WithdrawProblem } {
+ * anything. An empty field is "not ready", not an error to show; so is an
+ * unknown balance (null: its read failed), never "more than available". */
+export function withdrawProblem(destination: string, amount: string, withdrawable: number | null): { ready: boolean; problem: WithdrawProblem } {
   const dest = destination.trim();
   const amt = amount.trim();
   if (dest && !ADDRESS.test(dest)) return { ready: false, problem: "address" };
-  if (!amt || !AMOUNT.test(amt)) return { ready: false, problem: null };
+  if (!amt || !AMOUNT.test(amt) || withdrawable === null) return { ready: false, problem: null };
   const value = Number(amt);
   // More than there is comes first: 0.5 from an empty account is 超過可用餘額,
   // not "more than $1" (audit P2-16).
@@ -91,13 +92,13 @@ export function WithdrawDialog({ open, onOpenChange }: { open: boolean; onOpenCh
         <p className="rounded-xl bg-raised p-4 text-sm text-muted-foreground">{t("wallet.noWallet")}</p>
       ) : (
         // Keyed so a reopened modal starts clean.
-        <WithdrawForm key={open ? "open" : "closed"} summary={summary} onDone={() => onOpenChange(false)} />
+        <WithdrawForm key={open ? "open" : "closed"} summary={summary} onDone={() => onOpenChange(false)} retrying={wallet.isFetching} onRetry={() => void wallet.refetch()} />
       )}
     </Modal>
   );
 }
 
-function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () => void }) {
+function WithdrawForm({ summary, onDone, retrying, onRetry }: { summary: WalletSummary; onDone: () => void; retrying: boolean; onRetry: () => void }) {
   const { t, format } = useI18n();
   const toast = useToast();
   const { wallet } = useAuth();
@@ -129,7 +130,8 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
   const destId = useId();
   const amountId = useId();
   const network = networkConfig(summary.network);
-  const withdrawable = summary.hyperliquid?.withdrawable ?? 0;
+  // Unknown when Hyperliquid's read failed: "—" and a retry, never $0.00.
+  const withdrawable = summary.hyperliquid?.withdrawable ?? null;
   const { ready, problem } = withdrawProblem(destination, amount, withdrawable);
 
   const problemText =
@@ -193,12 +195,19 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
         className="num mt-2.5 h-12 rounded-xl border-2 border-transparent bg-inset px-4 font-bold focus-visible:border-primary text-sm outline-none placeholder:text-subtle-foreground focus-visible:ring-2 focus-visible:ring-ring aria-invalid:border-negative"
       />
       <div className="mt-1.5 flex items-center justify-between text-xs">
-        <span className="num text-muted-foreground">{t("wallet.available", { amount: format.usd(withdrawable, { digits: 2 }) })}</span>
+        <span className="flex items-center gap-2">
+          <span className="num text-muted-foreground" data-testid="withdrawable">{t("wallet.available", { amount: withdrawable === null ? "—" : format.usd(withdrawable, { digits: 2 }) })}</span>
+          {withdrawable === null ? (
+            <button type="button" disabled={retrying} onClick={onRetry} className="font-semibold text-primary-text outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-45">
+              {t("common.retry")}
+            </button>
+          ) : null}
+        </span>
         <button
           type="button"
           className="font-semibold text-primary-text outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-45"
-          disabled={withdrawable <= 0 || recovering}
-          onClick={() => setAmount(usdcString(withdrawable))}
+          disabled={withdrawable === null || withdrawable <= 0 || recovering}
+          onClick={() => { if (withdrawable !== null) setAmount(usdcString(withdrawable)); }}
         >
           {t("wallet.max")}
         </button>

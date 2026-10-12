@@ -10,7 +10,7 @@ import { en } from "../src/i18n/messages/en";
 const DEST = `0x${"22".repeat(20)}`;
 const state = vi.hoisted(() => ({
   signing: true, posts: [] as string[], release: null as null | (() => void), fail: null as null | Error,
-  toasts: [] as Array<[string, string]>, pendingOptions: undefined as undefined | { autoClose?: number | false }, currentFails: false,
+  toasts: [] as Array<[string, string]>, pendingOptions: undefined as undefined | { autoClose?: number | false }, currentFails: false, hlUnknown: false,
 }));
 const OP = { id: "11111111-1111-4111-8111-111111111111", network: "testnet", address: `0x${"11".repeat(20)}`, destination: `0x${"22".repeat(20)}`, amount: "12.5", nonce: 1780000000000, status: "prepared", createdAt: "2026-10-03T00:00:00.000Z", updatedAt: "2026-10-03T00:00:00.000Z" };
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh() {} }) }));
@@ -23,7 +23,7 @@ vi.mock("../src/lib/auth", () => ({ useAuth: () => ({ status: "signedIn", wallet
 vi.mock("../src/lib/api", () => ({ api: {
   get: async (path: string) => {
     if (path === "/me/wallet/withdrawals/current") { if (state.currentFails) throw Object.assign(new Error("Service Unavailable"), { status: 503 }); return null; }
-    if (path === "/me/wallet") return { network: "testnet", address: `0x${"11".repeat(20)}`, hyperliquid: { perpValue: 100, withdrawable: 100, spotUsdc: 0, spotUsdcHold: 0 }, arbitrum: null, totalValue: 100, fetchedAt: "2026-10-03T00:00:00.000Z" };
+    if (path === "/me/wallet") return { network: "testnet", address: `0x${"11".repeat(20)}`, hyperliquid: state.hlUnknown ? null : { perpValue: 100, withdrawable: 100, spotUsdc: 0, spotUsdcHold: 0 }, arbitrum: null, totalValue: 100, fetchedAt: "2026-10-03T00:00:00.000Z" };
     throw new Error("unexpected GET " + path);
   },
   post: async (path: string, body: { destination?: string; amount?: string }) => {
@@ -68,7 +68,7 @@ const escape = () => act(async () => { document.activeElement?.dispatchEvent(new
 
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-  localStorage.clear(); state.signing = true; state.posts = []; state.release = null; state.fail = null; state.toasts = []; state.pendingOptions = undefined;
+  localStorage.clear(); state.signing = true; state.posts = []; state.release = null; state.fail = null; state.toasts = []; state.pendingOptions = undefined; state.hlUnknown = false;
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
 });
@@ -142,4 +142,25 @@ it("keeps the network, destination and fee visible but blocks unavailable signin
   expect(document.body.textContent).toContain("$11.50");
   expect(submit.disabled).toBe(true);
   expect(state.posts).toEqual([]);
+});
+
+it("an unread balance is —, not $0.00, with a retry, and Max stays off", async () => {
+  state.hlUnknown = true;
+  await render();
+  const available = () => document.querySelector('[data-testid="withdrawable"]')!.textContent;
+  const button = (label: string) => [...document.querySelectorAll("button")].find((b) => b.textContent === label) as HTMLButtonElement | undefined;
+  expect(available()).toBe("Available: —");
+  expect(document.body.textContent).not.toContain("$0.00");
+  expect(button(en.wallet.max)!.disabled).toBe(true);
+  // An amount cannot be judged against an unknown balance: no "more than available", no submit.
+  const [dest, amount] = [...document.querySelectorAll("input")];
+  await act(async () => { type(dest!, DEST); type(amount!, "12.5"); });
+  expect(document.body.textContent).not.toContain(en.wallet.overAvailable);
+  expect(button(en.wallet.withdrawTitle)!.disabled).toBe(true);
+  state.hlUnknown = false;
+  await act(async () => button(en.common.retry)!.click()); await settle();
+  await act(async () => { await vi.waitFor(() => { if (client.isFetching() > 0) throw new Error("still fetching"); }, { timeout: 5000, interval: 10 }); });
+  expect(available()).toBe("Available: $100.00");
+  expect(button(en.common.retry)).toBeUndefined();
+  expect(button(en.wallet.max)!.disabled).toBe(false);
 });

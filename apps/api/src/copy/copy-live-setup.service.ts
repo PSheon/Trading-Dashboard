@@ -31,7 +31,14 @@ import { deploymentNetwork, liveExecutionEnabled } from './live-deployment.js';
 import { LeaderActivityService } from '../traders/leader-activity.service.js';
 
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-const LEASE_MS = 60_000;
+/** How long one driver holds a setup (a crashed driver's lease lapses). */
+export const SETUP_LEASE_MS = 60_000;
+const LEASE_MS = SETUP_LEASE_MS;
+/** Longest a setup step's client (account mode, agent approval, absence
+ * proof) waits in line for its Hyperliquid weight: half the lease, the other
+ * half left for the step's reads, signature and POST. Queued, not refused
+ * at once when the estimate is longer: see LiveReserveOptions.queue. */
+export const SETUP_RESERVE_WAIT_MS = SETUP_LEASE_MS / 2;
 /** How long after its setup ended an approval left unknown is still looked at. */
 const ABANDONED_APPROVAL_WINDOW_MS = 3 * 86_400_000;
 /** Long setup work answers with its durable row before the HTTP deadline. */

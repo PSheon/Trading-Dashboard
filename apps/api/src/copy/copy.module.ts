@@ -77,7 +77,7 @@ import { CopyLivePortfolioRepository } from './copy-live-portfolio.repository.js
 import { CopyLiveReturnRepository } from './copy-live-return.repository.js';
 import { CopyLiveReturnService } from './copy-live-return.service.js';
 import { HyperliquidAllDexsAccountSource } from './live/live-account-ws-source.js';
-import { assertBucketHolds, LIVE_RESERVE_WAIT_MS, liveBudget } from "../hyperliquid/hyperliquid-budget-wait.js";
+import { assertBucketHolds, liveBudget, type LiveReserveOptions } from "../hyperliquid/hyperliquid-budget-wait.js";
 
 /**
  * Paper copy trading (Stage 4 step 3): /me/copy for the signed-in user, the
@@ -90,7 +90,7 @@ import { assertBucketHolds, LIVE_RESERVE_WAIT_MS, liveBudget } from "../hyperliq
 import { CopyLiveSetupController } from "./copy-live-setup.controller.js";
 import { CopyLiveSetupRepository } from "./copy-live-setup.repository.js";
 import { deploymentNetwork } from "./live-deployment.js";
-import { CopyLiveSetupService } from "./copy-live-setup.service.js";
+import { CopyLiveSetupService, SETUP_RESERVE_WAIT_MS } from "./copy-live-setup.service.js";
 import { CopyLiveSetupAbortRepository } from './copy-live-setup-abort.repository.js';
 import { CopyLiveSetupAbortReturnRepository } from './copy-live-setup-abort-return.repository.js';
 import { CopyLiveSetupAbortService, SETUP_ABORT_OBSERVER } from './copy-live-setup-abort.service.js';
@@ -98,6 +98,10 @@ import { HyperliquidLiveAccountObserver } from './live/live-account-observer.js'
 // The wallet network's budget, transport and info client: one per process,
 // provided by HyperliquidModule (re-exported here for existing imports).
 export { WALLET_NETWORK_HL, walletNetworkHyperliquid, type WalletNetworkHyperliquid } from "../hyperliquid/wallet-network-hyperliquid.js";
+/** A setup step's clients' reservations: queued (never refused at once on
+ * the estimate) for at most SETUP_RESERVE_WAIT_MS. The order path keeps its
+ * own bounds (copy-live-engine, live-execution-runtime). */
+const setupReserve = (network: WalletNetworkHyperliquid['network']): LiveReserveOptions => ({ maxWaitMs: SETUP_RESERVE_WAIT_MS, queue: true, bucket: `wallet:${network}` });
 
 @Module({
   // NotifyModule: the operator's system message when an order keeps failing.
@@ -117,17 +121,17 @@ export { WALLET_NETWORK_HL, walletNetworkHyperliquid, type WalletNetworkHyperliq
     CopyFundingRepository, CopyFundingService, {provide:CopyFundingExchangeClient,inject:[WALLET_NETWORK_HL],useFactory:({budget,transport}:WalletNetworkHyperliquid)=>new CopyFundingExchangeClient(budget,transport)},
     CopyAgentRepository, CopyAgentService,
     CopyAccountModeRepository, CopyAccountModeService,
-    { provide: ACCOUNT_MODE_CLIENT, inject: [AppConfig, WALLET_NETWORK_HL], useFactory: (config: AppConfig, { budget, transport }: WalletNetworkHyperliquid) => {
+    { provide: ACCOUNT_MODE_CLIENT, inject: [AppConfig, WALLET_NETWORK_HL], useFactory: (config: AppConfig, { budget, transport, network }: WalletNetworkHyperliquid) => {
       // A copy setup's account-mode attempt is reserved at once (613): a
       // bucket that can never hold it would fail every setup at that step.
       // With live copy the wallet network has its own bucket on both networks.
       if (config.value.copy.live) assertBucketHolds(budget, ATTEMPT_WEIGHT, "A copy setup's account-mode attempt", 'Lower COPY_LIVE_WEIGHT_PER_MIN (at most 587).');
       // Weight is reserved before any evidence clock starts (reserveLive):
       // a busy bucket answers HyperliquidBudgetWait instead of stale evidence.
-      // Setup steps wait at most LIVE_RESERVE_WAIT_MS (their driver's lease).
-      return new PrivyAccountModeClient(config.value.auth, liveBudget(budget, { maxWaitMs: LIVE_RESERVE_WAIT_MS }),undefined,Date.now,transport); } },
+      // Setup steps wait in line at most SETUP_RESERVE_WAIT_MS (half their driver's lease).
+      return new PrivyAccountModeClient(config.value.auth, liveBudget(budget, setupReserve(network)),undefined,Date.now,transport); } },
     { provide: ACCOUNT_MODE_ABSENCE_READER, inject: [WALLET_NETWORK_HL], useFactory: ({ budget, transport, network }: WalletNetworkHyperliquid) =>
-      new HyperliquidAccountModeAbsenceReader(network, liveBudget(budget, { maxWaitMs: LIVE_RESERVE_WAIT_MS }), transport.fetchInfo, Date.now,
+      new HyperliquidAccountModeAbsenceReader(network, liveBudget(budget, setupReserve(network)), transport.fetchInfo, Date.now,
         new HyperliquidAllDexsAccountSource(Date.now, undefined, network, transport, { closeAfterRead: true }), transport) },
     CopyFollowerLedger, CopyFollowerScanRepository, CopyFollowerReconciler, CopyFollowerStatementService, CopyFollowerStatementRepository,
     CopyFollowerActivityRepository, CopyFollowerActivityService,
@@ -148,8 +152,8 @@ export { WALLET_NETWORK_HL, walletNetworkHyperliquid, type WalletNetworkHyperliq
     { provide: USER_AGENT_PROVISIONER, inject: [AppConfig], useFactory: (config: AppConfig) => new PrivyUserAgentProvisioner({
       appId: config.value.auth.appId, appSecret: config.value.auth.appSecret, workerQuorumId: config.value.copy.agent?.workerQuorumId,
       authorizationPublicKey: config.value.copy.agent?.authorizationPublicKey, network: deploymentNetwork(config) }) },
-    { provide: AGENT_APPROVAL_CLIENT, inject: [AppConfig, WALLET_NETWORK_HL], useFactory: (config: AppConfig, { budget, transport }: WalletNetworkHyperliquid) =>
-      new PrivyAgentApprovalClient(config.value.auth, liveBudget(budget, { maxWaitMs: LIVE_RESERVE_WAIT_MS }),undefined,Date.now,transport) },
+    { provide: AGENT_APPROVAL_CLIENT, inject: [AppConfig, WALLET_NETWORK_HL], useFactory: (config: AppConfig, { budget, transport, network }: WalletNetworkHyperliquid) =>
+      new PrivyAgentApprovalClient(config.value.auth, liveBudget(budget, setupReserve(network)),undefined,Date.now,transport) },
   ],
   exports: [CopyControlService, CopyRiskPolicyService, CopyAdminReadService, CopyAdminLiveService, PostgresLiveExecutionJournal, PostgresWalletAuthorizationSource,
     // For CopyWorkerModule's loops (the worker process only).

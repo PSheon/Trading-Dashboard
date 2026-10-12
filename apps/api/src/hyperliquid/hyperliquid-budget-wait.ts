@@ -6,8 +6,9 @@ import { BudgetWaitError, type RequestBudgeterService, type RequestPriority } fr
 /** After the shared per-IP window refused a charge: no sooner than this (the
  * provider's 60 s window plus the 5 s send window of the charges in it). */
 export const SHARED_CAPACITY_RETRY_MS = 65_000;
-/** Longest a setup step waits for its Hyperliquid weight before it starts its
- * evidence clock. Several of these fit in a setup driver's 60 s lease. */
+/** Longest a setup step's read waits for its Hyperliquid weight before it
+ * starts its evidence clock (a reservation the step's client queues waits up
+ * to SETUP_RESERVE_WAIT_MS, copy-live-setup.service.ts). */
 export const LIVE_RESERVE_WAIT_MS = 8_000;
 /** What `reserveLive` adds to a wait it allows: the estimate is a hint (a
  * background turn or a 429 backoff can make it longer). */
@@ -68,6 +69,12 @@ export interface LiveReserveOptions {
   /** `live` (default): latency-sensitive copy and wallet work, first in line;
    * `background`: work nobody waits for (follower snapshots, receipts). */
   readonly lane?: RequestPriority;
+  /** `live` only: wait in line for up to `maxWaitMs` even when the estimate
+   * says longer, instead of refusing at once. A waiter at the head of the
+   * live lane has the refill build up for it; refused, it comes back to a
+   * bucket background work drained meanwhile (a 613 account-mode
+   * reservation never fit 8 s: the mainnet setup loop of 2026-10-12). */
+  readonly queue?: boolean;
   /** Which bucket, for a refusal's detail (logs, the setup's `last_wait`). */
   readonly bucket?: string;
 }
@@ -91,15 +98,15 @@ export type LiveBudget = ((weight: number, options?: LiveReserveOptions) => Prom
  *   (`HyperliquidBudgetOverCapacity`, code `live_budget_over_capacity`).
  * - When the bucket can't give it within `maxWaitMs`, nothing is taken and a
  *   `HyperliquidBudgetWait` says when it can: at once when the estimate
- *   already says so (`live`), else once the wait runs out. Never a bare
- *   `TimeoutError`.
+ *   already says so (`live`, unless `queue`), else once the wait runs out.
+ *   Never a bare `TimeoutError`.
  * - The caller's own `signal` aborting is passed through as it is.
  */
-export async function reserveLive(budget: RequestBudgeterService, weight: number, { maxWaitMs, signal, lane = 'live', bucket }: LiveReserveOptions = {}): Promise<void> {
+export async function reserveLive(budget: RequestBudgeterService, weight: number, { maxWaitMs, signal, lane = 'live', queue = false, bucket }: LiveReserveOptions = {}): Promise<void> {
   signal?.throwIfAborted();
   if (lane === 'live' && weight > budget.liveCapacity) throw new HyperliquidBudgetOverCapacity(weight, budget.liveCapacity);
   const limit = maxWaitMs ?? budget.refillMs();
-  if (lane === 'live') {
+  if (lane === 'live' && !queue) {
     const estimate = budget.liveWaitMs(weight);
     if (estimate > limit) throw new HyperliquidBudgetWait(estimate, 'local_budget', waitDetail(budget, weight, lane, bucket));
   }

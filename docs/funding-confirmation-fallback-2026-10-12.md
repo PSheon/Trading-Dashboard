@@ -6,11 +6,13 @@
 
 開始跟單時，系統會從使用者主錢包轉 USDC 到新建的跟單帳戶。要確認這筆錢「已入帳」，目前**一定要**向 Hyperliquid 的區塊瀏覽器（explorer，`rpc.hyperliquid.xyz/explorer`，測試網是 `rpc.hyperliquid-testnet.xyz/explorer`）查交易明細。
 
-2026-10-12 01:10 起，測試網的 explorer 無法連線（之後連 DNS 都查不到），持續超過 30 分鐘：
+2026-10-12 01:10 起，本機連不到測試網的 explorer（DNS 查詢失敗）。事後確認是 Paul 當時所在網路的防火牆擋住，不是 Hyperliquid 故障；但結果一樣，持續超過 30 分鐘：
 
 - 錢其實已經到了，跟單帳戶查得到 49 USDC；
 - 但設定一直停在「等待入帳」，跟單無法開始；
 - 同一時間 Hyperliquid 的一般 API（`api.hyperliquid-testnet.xyz`）是正常的。
+
+雖然這次是本機網路造成，但它顯示了同一個弱點：只要 explorer 連不到（Hyperliquid 故障、或伺服器所在網路的問題），入金就無法確認。
 
 主網目前正常，但主網 explorer 只要出一次同樣的狀況，所有新跟單都會卡在「等待入帳」，直到 explorer 恢復。
 

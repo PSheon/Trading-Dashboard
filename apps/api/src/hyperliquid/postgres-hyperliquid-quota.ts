@@ -3,7 +3,7 @@ import {isDeepStrictEqual} from 'node:util';
 import {performance} from 'node:perf_hooks';
 import {TLSSocket} from 'node:tls';
 import WebSocket from 'ws';
-import {and,eq,gt,sql} from 'drizzle-orm';
+import {and,eq,sql} from 'drizzle-orm';
 import {hyperliquidEgressQuota as quota,hyperliquidWsLeases as leases} from '@trading-dashboard/shared/database';
 import type { UnitOfWork,DbTransaction } from '../db/unit-of-work.js';
 import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from '../copy/live/postgres-live-risk-scope.js';
@@ -134,11 +134,9 @@ export class PostgresHyperliquidQuota {
         }
         locking();
         const localBeforeClock=this.now();
-        const clock=await tx.execute<{now:string}>(sql`select floor(extract(epoch from clock_timestamp())*1000)::bigint as now`);
-        const dbNow=Number(clock.rows[0]?.now);if(!Number.isSafeInteger(dbNow)||dbNow<=0||rows.length!==1)fail('hyperliquid_quota_invalid');
-        const localAfterClock=this.now();if(Math.abs(dbNow-localBeforeClock)>1000||Math.abs(dbNow-localAfterClock)>1000)fail('hyperliquid_quota_clock_skew');
-        const remaining=deadline===undefined?0:deadline-localBeforeClock;if(deadline!==undefined&&(remaining<=0||remaining>5000))fail('hyperliquid_quota_expired');
-        const planned=request(dbNow,dbNow+remaining),referenced='leaseId'in planned?planned.leaseId:undefined;
+        // The database clock (read once, after the row lock) and the active
+        // leases as of that very clock, in one statement (one round trip, was
+        // two): the clock row is right-joined, so it comes back with no lease.
         // A close/ACK operation can reference a nonclosed row only. Closed
         // historical rows are retained but never scanned as active capacity.
         // Leases past the stale margin no longer count, so they are not scanned
@@ -147,20 +145,36 @@ export class PostgresHyperliquidQuota {
         // evidence for it. `'closed'` is a literal, not a parameter, so the
         // planner can match the partial index hyperliquid_ws_active_lease_idx
         // (egress_key, lease_until) WHERE state <> 'closed'.
-        const stored=await tx.select().from(leases).where(and(eq(leases.egressKey,binding.egressKey),notClosed,gt(leases.leaseUntil,new Date(dbNow-HYPERLIQUID_STALE_LEASE_RECLAIM_MS)))).limit(11);
+        const clocked=await tx.select({now:sql<string>`quota_clock.now`.mapWith(String),lease:leases}).from(leases)
+          .rightJoin(sql`(select floor(extract(epoch from clock_timestamp())*1000)::bigint as now) as quota_clock`,
+            and(eq(leases.egressKey,binding.egressKey),notClosed,sql`${leases.leaseUntil} > to_timestamp(0) + (quota_clock.now - ${HYPERLIQUID_STALE_LEASE_RECLAIM_MS}::bigint) * interval '1 millisecond'`)).limit(11);
+        const dbNow=Number(clocked[0]?.now);if(!Number.isSafeInteger(dbNow)||dbNow<=0||rows.length!==1||clocked.some(row=>Number(row.now)!==dbNow))fail('hyperliquid_quota_invalid');
+        const localAfterClock=this.now();if(Math.abs(dbNow-localBeforeClock)>1000||Math.abs(dbNow-localAfterClock)>1000)fail('hyperliquid_quota_clock_skew');
+        const remaining=deadline===undefined?0:deadline-localBeforeClock;if(deadline!==undefined&&(remaining<=0||remaining>5000))fail('hyperliquid_quota_expired');
+        const planned=request(dbNow,dbNow+remaining),referenced='leaseId'in planned?planned.leaseId:undefined;
+        // A clock row with no lease has every lease column null (the primary key too).
+        const stored=clocked.flatMap(row=>row.lease&&row.lease.id!==null?[row.lease]:[]);
         if(referenced!==undefined&&!stored.some(l=>l.id===referenced)){stored.push(...await tx.select().from(leases).where(and(eq(leases.egressKey,binding.egressKey),notClosed,eq(leases.id,referenced))).limit(1));}
         const previous=rows[0]!,state={egressKey:previous.egressKey,revision:previous.revision,events:previous.events,updatedAt:previous.updatedAt.getTime()},captured:HyperliquidQuotaLease[]=stored.map(({cleanupEvidence:_cleanupEvidence,cleanupEvidenceDigest:_cleanupEvidenceDigest,...l})=>({...l,leaseUntil:l.leaseUntil.getTime(),latestAllowedSendAt:l.latestAllowedSendAt.getTime(),createdAt:l.createdAt.getTime(),updatedAt:l.updatedAt.getTime(),closedAt:l.closedAt?.getTime()??null}));
         const plan=planHyperliquidQuota({now:dbNow,state,leases:captured,request:planned,backgroundCap:this.backgroundCap});
-        const result=await tx.update(quota).set({revision:plan.state.revision,events:structuredClone(plan.state.events) as typeof previous.events,updatedAt:new Date(dbNow)}).where(and(eq(quota.egressKey,binding.egressKey),eq(quota.revision,previous.revision))).returning({key:quota.egressKey});if(result.length!==1)fail('hyperliquid_quota_conflict');
+        // The meter row's CAS and the lease writes are sent together (one
+        // round trip; executed in this order) and checked in this order. They
+        // are this transaction's own uncommitted writes: one that fails its
+        // check fails the transaction, which then rolls all of them back.
+        const sent=<T>(work:Promise<T>)=>{void work.catch(()=>{});return work;};
+        const result=sent(Promise.resolve(tx.update(quota).set({revision:plan.state.revision,events:structuredClone(plan.state.events) as typeof previous.events,updatedAt:new Date(dbNow)}).where(and(eq(quota.egressKey,binding.egressKey),eq(quota.revision,previous.revision))).returning({key:quota.egressKey})));
+        const writes:Promise<unknown[]|null>[]=[];
         for(const l of plan.leases){
           const old=stored.find(s=>s.id===l.id);if(old&&old.revision===l.revision)continue;
           const record={...l,subscriptions:structuredClone(l.subscriptions) as typeof leases.$inferInsert.subscriptions,leaseUntil:new Date(l.leaseUntil),latestAllowedSendAt:new Date(l.latestAllowedSendAt),createdAt:new Date(l.createdAt),updatedAt:new Date(l.updatedAt),closedAt:l.closedAt===null?null:new Date(l.closedAt),...(cleanup?.leaseId===l.id?{cleanupEvidence:structuredClone(cleanup.record) as Record<string,unknown>,cleanupEvidenceDigest:liveSourceDigest(cleanup.record)}:{})};
-          if(old){const changed=await tx.update(leases).set(record).where(and(eq(leases.id,l.id),eq(leases.revision,old.revision),eq(leases.fenceToken,l.fenceToken),eq(leases.ownerId,old.ownerId))).returning({id:leases.id});if(changed.length!==1)fail('hyperliquid_quota_lease_lost');}
-          else await tx.insert(leases).values(record);
+          if(old)writes.push(sent(Promise.resolve(tx.update(leases).set(record).where(and(eq(leases.id,l.id),eq(leases.revision,old.revision),eq(leases.fenceToken,l.fenceToken),eq(leases.ownerId,old.ownerId))).returning({id:leases.id}))));
+          else writes.push(sent(Promise.resolve(tx.insert(leases).values(record)).then(()=>null)));
         }
+        if((await result).length!==1)fail('hyperliquid_quota_conflict');
+        for(const write of writes){const changed=await write;if(changed!==null&&changed.length!==1)fail('hyperliquid_quota_lease_lost');}
         fresh();
       };
-      try{if(session)await session.transaction(transaction);else await this.uow.run(transaction);}finally{whole();}
+      try{if(session)await session.transaction(transaction,{readsFirst:true});else await this.uow.run(transaction);}finally{whole();}
     });
     // Completion fence includes COMMIT. A failed fence retains all durable
     // charges; it never issues a replacement or refunds an uncertain send.

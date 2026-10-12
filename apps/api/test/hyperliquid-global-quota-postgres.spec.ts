@@ -30,7 +30,8 @@ describe('durable shared egress meter, never provider I/O',()=>{
   expect((await db.select().from(schema.hyperliquidEgressQuota))[0]!.events.reduce((n,e)=>n+e.units,0)).toBe(1200);
  });
  it('retains unused permits over a new meter instance and cannot refund after expiry',async()=>{
-  await meter.bindUnscoped(identity).acquireRest(1200,Date.now()+100);
+  // A deadline in seconds: 100 ms had lapsed on a slow full-suite run (hyperliquid_quota_expired).
+  await meter.bindUnscoped(identity).acquireRest(1200,Date.now()+5000);
   const restarted=new PostgresHyperliquidQuota(new UnitOfWork(db));
   await expect(restarted.bindUnscoped(identity).acquireRest(1,Date.now()+5000)).rejects.toThrow('hyperliquid_quota_exhausted');
  });

@@ -7,6 +7,7 @@ import { HyperliquidGlobalTransport } from '../hyperliquid/hyperliquid-global-tr
 import { quotaSubscription } from '../hyperliquid/hyperliquid-global-quota.js';
 import type { HyperliquidSocketQuota } from '../hyperliquid/postgres-hyperliquid-quota.js';
 import { LiveBoundaryError } from '../copy/live/wallet-authorization.js';
+import { ReconnectBackoff } from '../runtime/reconnect-backoff.js';
 import { LIVE_PERP_COIN, MAX_LIVE_PERP_DEXES } from '../copy/live/live-market-resolver.js';
 import type { HlWsIncomingMessage, HlWsTrade } from "../hyperliquid/types.js";
 
@@ -16,7 +17,6 @@ const MAX_SUBSCRIPTIONS_PER_SOCKET = 200;
 const PING_INTERVAL_MS = 30_000;
 /** No message at all (not even a pong) for this long → assume dead. */
 const STALE_AFTER_MS = 90_000;
-const MAX_RECONNECT_DELAY_MS = 30_000;
 /** Subscribing replays each market's recent trades, which in a quiet market
  * can be hours old. Only fresh trades mean "just traded"; anything older is
  * left to the sweeps, so a (re)connect never raises alerts on old trades. */
@@ -46,7 +46,7 @@ interface Shard {
   socket?: WebSocket;
   connectedOnce: boolean;
   downSince: number | null;
-  attempt: number;
+  backoff: ReconnectBackoff;
   lastMessageAt: number;
   pingTimer?: ReturnType<typeof setInterval>;
   reconnectTimer?: ReturnType<typeof setTimeout>;
@@ -129,7 +129,7 @@ export class TradeFeedService {
     for (const coin of coins) {
       let shard = this.shards.find((s) => s.coins.length < MAX_SUBSCRIPTIONS_PER_SOCKET);
       if (!shard) {
-        shard = { coins: [], connectedOnce: false, downSince: null, attempt: 0, lastMessageAt: Date.now() };
+        shard = { coins: [], connectedOnce: false, downSince: null, backoff: new ReconnectBackoff(), lastMessageAt: Date.now() };
         this.shards.push(shard);
       }
       shard.coins.push(coin);
@@ -215,7 +215,7 @@ export class TradeFeedService {
     shard.socket=socket;shard.quota=reservation.connection;
     socket.on('open',()=>{void (async()=>{
       if(this.stopped||shard.socket!==socket){await this.closeShard(shard);return;}
-      shard.attempt=0;shard.lastMessageAt=Date.now();await this.subscribe(shard,shard.coins);
+      shard.backoff.connected();shard.lastMessageAt=Date.now();await this.subscribe(shard,shard.coins);
       if(shard.connectedOnce&&shard.downSince!==null)this.handlers?.onGap(shard.downSince);
       shard.connectedOnce=true;shard.downSince=null;
       clearInterval(shard.pingTimer);shard.pingTimer=setInterval(()=>{void this.beat(shard);},PING_INTERVAL_MS);
@@ -233,7 +233,7 @@ export class TradeFeedService {
    * hourly market refresh. */
   private scheduleReconnect(shard:Shard):void{
     if(this.stopped)return;clearTimeout(shard.reconnectTimer);
-    const delay=Math.min(MAX_RECONNECT_DELAY_MS,1000*2**shard.attempt);shard.attempt++;
+    const delay=shard.backoff.failed().delayMs;
     shard.reconnectTimer=setTimeout(()=>{shard.reconnectTimer=undefined;void this.open(shard).catch(()=>{shard.downSince??=Date.now();this.logger.warn('Trade feed global admission unavailable; retrying');this.scheduleReconnect(shard);});},delay);
   }
   private async subscribe(shard:Shard,coins:string[]):Promise<void>{

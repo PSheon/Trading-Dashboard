@@ -209,19 +209,20 @@ describe('leader activity gate', () => {
 });
 
 describe('the setup deposit key (architecture review §2)', () => {
-  it('is a UUID derived from the setup, its revision and the deposit it replaces, never random', () => {
+  it('is a UUID derived from the setup and the deposit it replaces, never random, and not from the revision', () => {
     const row = { id: '00000000-0000-4000-8000-0000000000aa', revision: 3, fundingOperationId: null };
     const key = setupFundingKey(row);
     expect(copyFundingInputSchema.shape.idempotencyKey.safeParse(key).success).toBe(true);
     expect(setupFundingKey(row)).toBe(key);
-    expect(setupFundingKey({ ...row, revision: 4 })).not.toBe(key);
+    // A pass after a lost step CAS (the row moved on) reserves the same deposit.
+    const moved = { ...row, revision: 4 };
+    expect(setupFundingKey(moved)).toBe(key);
     expect(setupFundingKey({ ...row, fundingOperationId: 'cancelled-deposit' })).not.toBe(key);
   });
   it("a start reserves its deposit under that key: two drivers of one revision reserve one deposit, not an orphan", async () => {
     const setup = await start();
     const [deposit] = await db.select().from(copyFundingOperations).where(eq(copyFundingOperations.id, setup.consent!.fundingOperationId));
-    const revisions = Array.from({ length: 20 }, (_, revision) => setupFundingKey({ id: setup.id, revision, fundingOperationId: null }));
-    expect(revisions).toContain(deposit!.idempotencyKey);
+    expect(deposit!.idempotencyKey).toBe(setupFundingKey({ id: setup.id, fundingOperationId: null }));
   });
 });
 

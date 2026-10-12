@@ -32,13 +32,15 @@ import { deploymentNetwork, liveExecutionEnabled } from './live-deployment.js';
 import { LeaderActivityService } from '../traders/leader-activity.service.js';
 
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-/** The deposit a setup reserves at one revision, as a UUID: two drivers of
- * the same revision reserve the same deposit, never an orphan beside it (a
- * random key left one `prepared` when the step's CAS lost: funding_pending
- * until the setup ended, architecture review §2). A cancelled deposit is
- * replaced under a new key (its id is part of it). */
-export function setupFundingKey(row: Pick<SetupRow, 'id' | 'revision' | 'fundingOperationId'>): string {
-  const h = createHash('sha256').update(`live-setup-funding:${row.id}:${row.revision}:${row.fundingOperationId ?? ''}`).digest('hex');
+/** The deposit a setup reserves, as a UUID derived from the setup and the
+ * deposit it replaces: every pass and every driver reserve the same deposit,
+ * never an orphan beside it. Not the revision: a pass whose step CAS lost
+ * (another driver moved the row) would mint a new key next pass and leave
+ * the first `prepared` deposit orphaned (funding_pending until the setup
+ * ended; money audit 2026-10-12). A cancelled deposit is replaced under a
+ * new key (its id is part of it). */
+export function setupFundingKey(row: Pick<SetupRow, 'id' | 'fundingOperationId'>): string {
+  const h = createHash('sha256').update(`live-setup-funding:${row.id}:${row.fundingOperationId ?? ''}`).digest('hex');
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-${(8 | (parseInt(h[16]!, 16) & 3)).toString(16)}${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
 // The driver's lease, a step's budget inside it (reserve wait, signature,

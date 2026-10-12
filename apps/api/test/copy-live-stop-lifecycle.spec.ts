@@ -98,6 +98,12 @@ it('recovers the exact original key across retries and a restarted service after
   expect(await db.select().from(copyLiveStopOperations)).toHaveLength(1);
   await expect(service.request(1, 'mandate', { ...body(), idempotencyKey: 'durable-stop-request-0002', expectedMandateRevision: 3 })).rejects.toMatchObject({ status: 409 });
 });
+it("lists only this deployment's network: another network's stop is history, not a 409 for the whole list (Stage 2026-10-12)", async () => {
+  const original = await service.request(1, 'mandate', body());
+  expect(await service.overview(1)).toEqual({ items: [original], truncated: false });
+  await db.update(copyLiveStopOperations).set({ network: 'mainnet' });
+  expect(await service.overview(1)).toEqual({ items: [], truncated: false });
+});
 it('serializes concurrent requests to one operation and one admission revision', async () => {
   const results = await Promise.all([service.request(1, 'mandate', body()), service.request(1, 'mandate', body())]);
   expect(results[0]).toEqual(results[1]);

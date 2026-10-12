@@ -70,7 +70,11 @@ export class CopyLiveStopRepository {
   }
   async overview(tx: DbTransaction, userId: number) {
     await this.lock(tx, userId);
-    const ids = await tx.select({ id: copyLiveStopOperations.id }).from(copyLiveStopOperations).where(eq(copyLiveStopOperations.userId, userId))
+    // Only this deployment's network: another network's stops are history that
+    // `context` refuses, and one of them made the whole list 409 (Stage
+    // mainnet 2026-10-12, an owner with earlier testnet stops).
+    const ids = await tx.select({ id: copyLiveStopOperations.id }).from(copyLiveStopOperations)
+      .where(and(eq(copyLiveStopOperations.userId, userId), eq(copyLiveStopOperations.network, this.mandates.network)))
       .orderBy(sql`case when ${copyLiveStopOperations.state} <> 'stopped' then 0 else 1 end`, desc(copyLiveStopOperations.createdAt)).limit(101);
     const items: ReturnType<CopyLiveStopRepository['wire']>[] = [];
     // Validate one bounded manifest at a time; history never retains 100 full

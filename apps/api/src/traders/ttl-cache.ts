@@ -8,10 +8,10 @@ import { currentRequestSignal } from "../runtime/request-context.js";
  * then the oldest.
  *
  * Expired entries are released even if nobody reads their key again: `set`
- * sweeps them at most once per sweep interval (amortized), and while the
- * cache holds anything an unref'd timer sweeps on the same interval, so an
- * idle cache of large values (a trader's 4 000 fills) does not stay
- * resident until 5 000 other keys push it out.
+ * sweeps them at most once per sweep interval (amortized). A cache of large
+ * values (a trader's 4 000 fills) also passes `sweepTimer`: while it holds
+ * anything an unref'd timer sweeps on the same interval, so an idle cache
+ * does not stay resident until 5 000 other keys push it out.
  *
  * A shared load runs in the async context of whoever started it: its
  * Hyperliquid calls wait at that caller's budget rank and are cancelled with
@@ -39,6 +39,7 @@ export class TtlCache<V> {
     private readonly ttlMs: number,
     readonly maxEntries = 5_000,
     private readonly now: () => number = () => Date.now(),
+    private readonly options: { sweepTimer?: boolean } = {},
   ) {
     this.sweepIntervalMs = Math.min(60_000, Math.max(1_000, ttlMs));
     this.lastSweepAt = now();
@@ -133,7 +134,7 @@ export class TtlCache<V> {
   /** Sweeps on a timer while there is anything to sweep; the timer never
    * keeps the process alive and stops once the cache is empty. */
   private armSweeper(): void {
-    if (this.sweeper !== undefined) return;
+    if (!this.options.sweepTimer || this.sweeper !== undefined) return;
     this.sweeper = setInterval(() => {
       this.sweepExpired();
       if (this.entries.size === 0) this.stopSweeper();

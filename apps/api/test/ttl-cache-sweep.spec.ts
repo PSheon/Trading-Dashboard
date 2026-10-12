@@ -14,7 +14,7 @@ describe("TtlCache sweeping", () => {
 
   it("releases expired entries on a timer, without any read or write", () => {
     vi.useFakeTimers();
-    const cache = new TtlCache<number[]>(60_000);
+    const cache = new TtlCache<number[]>(60_000, 5_000, undefined, { sweepTimer: true });
     for (let i = 0; i < 50; i++) cache.set(`k${i}`, Array.from({ length: 1_000 }, () => i));
     expect(cache.size).toBe(50);
     vi.advanceTimersByTime(59_999);
@@ -36,11 +36,12 @@ describe("TtlCache sweeping", () => {
     cache.clear();
   });
 
-  it("keeps fresh entries and respects the size bound", () => {
+  it("keeps fresh entries and respects the size bound; without sweepTimer it schedules nothing", () => {
     vi.useFakeTimers();
     const cache = new TtlCache<number>(60_000, 3);
     for (let i = 0; i < 5; i++) cache.set(`k${i}`, i);
     expect(cache.size).toBe(3);
+    expect(vi.getTimerCount()).toBe(0);
     vi.advanceTimersByTime(30_000);
     expect(cache.size).toBe(3);
     expect(cache.peek("k4")).toEqual({ value: 4 });
@@ -64,5 +65,14 @@ describe("TtlCache sweeping", () => {
       cache.clear();
     }
     expect(service.sparklineCache.maxEntries).toBe(SPARKLINE_CACHE_MAX_ENTRIES);
+    // The heavy caches release expired entries on their own.
+    vi.useFakeTimers();
+    for (const cache of [service.userFillsCache, service.twapFillsCache, service.portfolioCache, service.sparklineCache]) {
+      cache.set("0xidle", [] as never);
+      expect(vi.getTimerCount()).toBe(1);
+      vi.advanceTimersByTime(11 * 60_000);
+      expect(cache.size).toBe(0);
+      expect(vi.getTimerCount()).toBe(0);
+    }
   });
 });

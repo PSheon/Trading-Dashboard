@@ -95,6 +95,8 @@ export const SPARKLINE_MAX_POINTS = 40;
  * sparkline cache holds a leaderboard page's worth of portfolios. */
 export const HEAVY_CACHE_MAX_ENTRIES = 200;
 export const SPARKLINE_CACHE_MAX_ENTRIES = 500;
+/** These caches also sweep expired entries on a timer, not only on writes. */
+const HEAVY = { sweepTimer: true } as const;
 /** A sparkline batch answers with what is ready by then (see `sparklines`). */
 export const SPARKLINE_DEADLINE_MS = 8_000;
 /** A discovery-pool sparkline older than this is fetched instead. */
@@ -136,10 +138,10 @@ export class TradersService {
   perpsSourceDeadlineMs = ACCOUNT_READ_DEADLINE_MS + 500;
 
   readonly profileCache = new TtlCache<SharedProfile>(PROFILE_TTL_MS);
-  readonly portfolioCache = new TtlCache<HlPortfolioResponse>(PORTFOLIO_TTL_MS, HEAVY_CACHE_MAX_ENTRIES);
-  readonly sparklineCache = new TtlCache<HlPortfolioResponse>(SPARKLINE_TTL_MS, SPARKLINE_CACHE_MAX_ENTRIES);
-  readonly userFillsCache = new TtlCache<HlUserFill[]>(FILLS_TTL_MS, HEAVY_CACHE_MAX_ENTRIES);
-  readonly twapFillsCache = new TtlCache<HlUserFill[]>(FILLS_TTL_MS, HEAVY_CACHE_MAX_ENTRIES);
+  readonly portfolioCache = new TtlCache<HlPortfolioResponse>(PORTFOLIO_TTL_MS, HEAVY_CACHE_MAX_ENTRIES, undefined, HEAVY);
+  readonly sparklineCache = new TtlCache<HlPortfolioResponse>(SPARKLINE_TTL_MS, SPARKLINE_CACHE_MAX_ENTRIES, undefined, HEAVY);
+  readonly userFillsCache = new TtlCache<HlUserFill[]>(FILLS_TTL_MS, HEAVY_CACHE_MAX_ENTRIES, undefined, HEAVY);
+  readonly twapFillsCache = new TtlCache<HlUserFill[]>(FILLS_TTL_MS, HEAVY_CACHE_MAX_ENTRIES, undefined, HEAVY);
   readonly dexCache = new TtlCache<string[]>(DEX_LIST_TTL_MS, 1);
   /** Hyperliquid's `userAbstraction` per address (rarely changes). */
   readonly abstractionCache = new TtlCache<string>(ACCOUNT_MODE_TTL_MS);

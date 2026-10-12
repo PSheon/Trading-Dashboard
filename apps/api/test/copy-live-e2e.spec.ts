@@ -31,6 +31,7 @@ import { HyperliquidLiveAccountObserver } from '../src/copy/live/live-account-ob
 import { CopyLiveWorkerRepository } from '../src/copy/live-worker/copy-live-worker.repository.js';
 import { WatchedMainnetSource } from '../src/copy/live-worker/watched-mainnet-source.js';
 import { CopyLiveManualCloser, CopyLiveStopper } from '../src/copy/live-worker/copy-live-stopper.js';
+import { CopyLiveFlatCarry } from '../src/copy/live-worker/copy-live-flat-carry.js';
 import { CopyLiveCloseService } from '../src/copy/copy-live-close.service.js';
 import { CopyLiveCloseRepository } from '../src/copy/copy-live-close.repository.js';
 import { CopyLiveStopWorkerRepository } from '../src/copy/live-worker/copy-live-stop-worker.repository.js';
@@ -43,11 +44,12 @@ import { now } from './copy-live-risk-test-utils.js';
 import { closeTestDb, getTestDb, type TestDb } from './db-test-utils.js';
 import { resetLiveReadCaches } from '../src/copy/live/live-read-cache.js';
 import { liveSourceDigest } from '../src/copy/live/copy-live-source-evidence.js';
+import { Dec } from '../src/common/decimal/dec.js';
 
 // Only native network endpoints are doubles (Privy, Hyperliquid REST/WS).
 // The engine, runtime, risk, journal, reservation, receipt ledger and
 // settlement are the production classes on a real database.
-const shared = vi.hoisted(() => ({ clock: 0, position: '0', eth: '0', withdrawable: '80', privyDown: 0, dexes: 0 }));
+const shared = vi.hoisted(() => ({ clock: 0, position: '0', eth: '0', withdrawable: '80', privyDown: 0, dexes: 0, fillCap: '' }));
 /** Listed HIP-3 venues besides the main one (testnet lists about 300). */
 const venues = () => Array.from({ length: shared.dexes }, (_, i) => `d${i}`);
 vi.mock('ws', async () => {
@@ -83,7 +85,7 @@ const agent = privateKeyToAccount(`0x${'11'.repeat(32)}`), leader = `0x${'44'.re
 let db: TestDb, pool: Pool, seed: Awaited<ReturnType<typeof preparationFixture>>, budget: RequestBudgeterService, config: AppConfig, global: HyperliquidGlobalTransport;
 let logs: string[] = [], weights: number[] = [];
 let raw: ReturnType<typeof vi.fn<typeof fetch>>, exchangeBodies: unknown[];
-let placedOrders: { oid: number; cloid: string; p: string; s: string; side: string; r: boolean; at: number; coin: string }[] = [];
+let placedOrders: { oid: number; cloid: string; p: string; s: string; f: string; side: string; r: boolean; at: number; coin: string }[] = [];
 // The actual clock throughout: the shared egress quota checks deadlines against it.
 const clock = () => Date.now();
 
@@ -100,7 +102,7 @@ beforeEach(async () => {
   const original = budget.acquire.bind(budget); weights = [];
   vi.spyOn(budget, 'acquire').mockImplementation((weight, ...rest) => { weights.push(weight); return original(weight, ...rest); });
   // The actual clock, so every bound identity and consent is current.
-  shared.clock = Date.now(); shared.position = '0'; shared.eth = '0'; shared.withdrawable = '80'; shared.privyDown = 0; shared.dexes = 0; logs = []; exchangeBodies = []; placedOrders = [];
+  shared.clock = Date.now(); shared.position = '0'; shared.eth = '0'; shared.withdrawable = '80'; shared.privyDown = 0; shared.dexes = 0; shared.fillCap = ''; logs = []; exchangeBodies = []; placedOrders = [];
   const t = shared.clock, delta = t - now, date = (value: number) => new Date(value + delta);
   const [version] = await db.select().from(schema.copyStrategyVersions);
   const settings = { ...version!.settings, perTradeUsd: 20 };
@@ -136,11 +138,13 @@ async function providers(endpoint: string, body: Record<string, unknown> | undef
   }
   if (endpoint === 'https://api.hyperliquid-testnet.xyz/exchange') {
     exchangeBodies.push(body); const order = (body as { action: { orders: { a: number; c: string; p: string; s: string; b: boolean; r: boolean }[] } }).action.orders[0]!;
-    const placed = { oid: 77 + placedOrders.length, cloid: order.c, p: order.p, s: order.s, side: order.b ? 'B' : 'A', r: order.r, at: Date.now(), coin: meta.universe[order.a]!.name };
+    // An IOC fills in full, or only `fillCap` of it once (then cancelled).
+    const f = shared.fillCap && Dec.from(shared.fillCap).lt(Dec.from(order.s)) ? shared.fillCap : order.s; shared.fillCap = '';
+    const placed = { oid: 77 + placedOrders.length, cloid: order.c, p: order.p, s: order.s, f, side: order.b ? 'B' : 'A', r: order.r, at: Date.now(), coin: meta.universe[order.a]!.name };
     placedOrders.push(placed);
-    const net = (coin: string) => String(placedOrders.filter(o => o.coin === coin).reduce((sum, o) => sum + (o.side === 'B' ? 1 : -1) * Number(o.s), 0));
+    const net = (coin: string) => Dec.sum(placedOrders.filter(o => o.coin === coin).map(o => Dec.from(o.f).mul(o.side === 'B' ? 1 : -1))).toString();
     shared.position = net('BTC'); shared.eth = net('ETH');
-    return Response.json({ status: 'ok', response: { type: 'order', data: { statuses: [{ filled: { oid: placed.oid, totalSz: order.s, avgPx: '100' } }] } } });
+    return Response.json({ status: 'ok', response: { type: 'order', data: { statuses: [{ filled: { oid: placed.oid, totalSz: f, avgPx: '100' } }] } } });
   }
   expect(endpoint).toBe('https://api.hyperliquid-testnet.xyz/info');
   const user = body!.user, status = placedOrders.find(o => o.cloid === body!.oid);
@@ -150,9 +154,9 @@ async function providers(endpoint: string, body: Record<string, unknown> | undef
     activeAssetData: { user, coin: body!.coin ?? 'BTC', leverage: { type: 'cross', value: 10 }, maxTradeSzs: ['1', '1'], availableToTrade: ['100', '100'], markPx: '100' },
     userFees: { userAddRate: '-0.0001', userCrossRate: '0.0005', activeReferralDiscount: '0', trial: null },
     extraAgents: [{ address: agent.address, name: 'dedicated', validUntil: Date.now() + 60000 }],
-    orderStatus: status ? { status: 'order', order: { status: 'filled', statusTimestamp: status.at + 2, order: { coin: status.coin, oid: status.oid, cloid: status.cloid, side: status.side, reduceOnly: status.r,
-      tif: 'Ioc', origSz: status.s, sz: '0', limitPx: status.p, timestamp: status.at, isTrigger: false, isPositionTpsl: false, children: [] } } } : { status: 'unknownOid' },
-    userFillsByTime: placedOrders.map((o, i) => ({ coin: o.coin, px: '100', sz: o.s, side: o.side, time: o.at + 1, startPosition: '0', dir: 'Open Long', closedPnl: '0',
+    orderStatus: status ? { status: 'order', order: { status: status.f === status.s ? 'filled' : 'canceled', statusTimestamp: status.at + 2, order: { coin: status.coin, oid: status.oid, cloid: status.cloid, side: status.side, reduceOnly: status.r,
+      tif: 'Ioc', origSz: status.s, sz: Dec.from(status.s).sub(Dec.from(status.f)).toString(), limitPx: status.p, timestamp: status.at, isTrigger: false, isPositionTpsl: false, children: [] } } } : { status: 'unknownOid' },
+    userFillsByTime: placedOrders.map((o, i) => ({ coin: o.coin, px: '100', sz: o.f, side: o.side, time: o.at + 1, startPosition: '0', dir: 'Open Long', closedPnl: '0',
       hash: `0x${String(34 + i).repeat(32)}`, oid: o.oid, crossed: true, fee: '0.01', tid: 501 + i, feeToken: 'USDC' }))
       .filter(fill => (typeof body!.startTime !== 'number' || fill.time >= body!.startTime) && (typeof body!.endTime !== 'number' || fill.time <= body!.endTime)), userFunding: [] };
   if (!(String(body!.type) in values)) throw Error(`Unsupported offline INFO ${String(body!.type)}`);
@@ -169,7 +173,8 @@ function engine(midPrice = '100', egress = global, withStopper = false, apiTermi
   const stops = new CopyLiveStopWorkerRepository(db, new UnitOfWork(db), testConfig()), closer = new ReduceOnlyCloser('testnet', pool, db, new UnitOfWork(db), config, egress, budget, 100, clock);
   const stopOnly = new CopyLiveStopper({ repository: stops, canceller: null, swept: async () => false, closer, log: message => logs.push(message) }, clock);
   const manual = new CopyLiveManualCloser(stops, closer, new CopyFollowerReconciler(new CopyFollowerScanRepository(db, testConfig()), new CopyFollowerLedger(db, new UnitOfWork(db)),
-    new HyperliquidFollowerReceiptReader('testnet', weight => budget.acquire(weight, 'live', undefined, { signal: AbortSignal.timeout(5000) }), egress.fetchInfo, clock)), message => logs.push(message));
+    new HyperliquidFollowerReceiptReader('testnet', weight => budget.acquire(weight, 'live', undefined, { signal: AbortSignal.timeout(5000) }), egress.fetchInfo, clock)),
+    new CopyLiveFlatCarry('testnet', pool, clock), message => logs.push(message));
   const stopper = withStopper ? { tick: async () => { await stopOnly.tick(); await manual.tick(); } } : undefined;
   return new CopyLiveEngine({ stopper, apiTerminalSettlement,
     network: 'testnet', repository: new CopyLiveWorkerRepository(db, new UnitOfWork(db), testConfig()), sources: new CopyLiveSourceRepository(db), uow: new UnitOfWork(db),
@@ -538,6 +543,38 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     expect(exchangeBodies).toHaveLength(3);
     expect(exchangeBodies[2]).toMatchObject({ action: { orders: [{ b: true, s: '0.19', r: false }] } });
     expect((await db.select().from(schema.copyStrategies))[0]).toMatchObject({ status: 'active' });
+  });
+  // 2c-B: what a settled close still owed (its reduction carry) is owed of
+  // nothing once a close after the leader went flat left the follower flat.
+  // Kept, a later re-open's partial close closed carry + f·(N − carry), not f·N.
+  it('after a close left the follower flat, a re-opened position\'s partial close sizes from the new position, not the old carry', async () => {
+    const fresh = (name: string) => new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(pool, { schema }))), { egressKey: name, ownerId: name }, raw);
+    const pass = async (name: string, stopper = true) => { budget.onModuleDestroy(); budget = new RequestBudgeterService(config); await engine('100', fresh(name), stopper).tick(); };
+    const carry = async () => (await db.select().from(schema.copyLiveReductionCarry).where(eq(schema.copyLiveReductionCarry.coin, 'BTC')))[0];
+    let e = engine(); await e.tick(); await leaderOpens(1001); await e.tick(); await new Promise(resolve => setTimeout(resolve, 5)); await e.tick();
+    expect(shared.position).toBe('0.19');
+    // The leader closes all of it; the follower's IOC fills 0.1 of its 0.19.
+    shared.fillCap = '0.1';
+    await leaderTrades(1002, 'Close Long', '1', '1'); await pass('e2e-2c-close', false);
+    expect(shared.position).toBe('0.09');
+    await new Promise(resolve => setTimeout(resolve, 5)); await pass('e2e-2c-settle', false);
+    expect((await db.select().from(schema.copyLiveDispatches)).find(r => r.sourceFillId.endsWith(':1002'))).toMatchObject({ leg: 'close', state: 'settled' });
+    expect(await carry()).toMatchObject({ carry: '0.09' });
+    // The leader is flat: the single-position closer closes the 0.09 left.
+    for (let i = 0; i < 4 && (await db.select().from(schema.copyLiveManualCloses))[0]?.state !== 'done'; i++) await pass(`e2e-2c-flat-${i}`);
+    expect((await db.select().from(schema.copyLiveManualCloses))[0]).toMatchObject({ state: 'done', idempotencyKey: expect.stringMatching(/^reconcile:/) });
+    expect(shared.position).toBe('0');
+    // The leader opens again (N = 0.19), then closes 60 % of it: f·N = 0.114 → 0.11.
+    await leaderTrades(1003, 'Open Long', '1', '0'); await pass('e2e-2c-reopen', false);
+    await new Promise(resolve => setTimeout(resolve, 5)); await pass('e2e-2c-reopen-settle', false);
+    expect(shared.position).toBe('0.19');
+    await leaderTrades(1004, 'Close Long', '0.6', '1'); await pass('e2e-2c-partial', false);
+    expect(logs.filter(l => l.includes('failed'))).toEqual([]);
+    expect(exchangeBodies.at(-1)).toMatchObject({ action: { orders: [{ b: false, s: '0.11', r: true }] } });
+    expect(shared.position).toBe('0.08');
+    await new Promise(resolve => setTimeout(resolve, 5)); await pass('e2e-2c-partial-settle', false);
+    expect((await db.select().from(schema.copyLiveDispatches)).find(r => r.sourceFillId.endsWith(':1004'))).toMatchObject({ state: 'settled' });
+    expect(await carry()).toMatchObject({ carry: '0.004' });
   });
   // Safety exits: a pause, reduce-only or copy trading switched off means no
   // new risk. The leader's add is refused, never sent (nor caught up after a

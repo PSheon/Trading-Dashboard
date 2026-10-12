@@ -41,8 +41,9 @@ function closer() {
   const double = { network: 'testnet', close, observe: vi.fn(async () => ({ positions: [{ coin: 'BTC', size: '0.5' }] })) } as unknown as ReduceOnlyCloser;
   return { double, close };
 }
+// No carry is owed in these tests (copy-live-flat-carry.spec.ts covers its reset).
 const manual = (double: ReduceOnlyCloser) => new CopyLiveManualCloser(new CopyLiveStopWorkerRepository(db, new UnitOfWork(db), testConfig()), double, { runFor: async () => undefined },
-  undefined, () => now);
+  { owed: async () => [], reset: async () => true }, undefined, () => now);
 
 describe('a close after the leader went flat, when the leader opens the coin again (O4)', () => {
   it('still closes what the follower holds while the leader stays flat', async () => {

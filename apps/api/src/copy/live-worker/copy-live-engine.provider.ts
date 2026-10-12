@@ -28,6 +28,7 @@ import { CopyLiveWorkerRepository } from './copy-live-worker.repository.js';
 import { WatchedMainnetSource } from './watched-mainnet-source.js';
 import { CopyLiveStopWorkerRepository } from './copy-live-stop-worker.repository.js';
 import { CopyLiveManualCloser, CopyLiveStopper, StopCanceller } from './copy-live-stopper.js';
+import { CopyLiveFlatCarry } from './copy-live-flat-carry.js';
 import { DEFAULT_LIVE_STOP_TIMINGS } from '../../config/live-timings.js';
 import { CopyLiveSystemStops } from '../copy-live-stop-system.js';
 import { CopyLiveStopRepository } from '../copy-live-stop.repository.js';
@@ -107,7 +108,7 @@ export const liveEngineProvider: FactoryProvider<CopyLiveEngine | null> = {
       // the worker under the owner's policy (CopyModule's one signer).
       swept: stop => returns.swept(stop.id),
       autoReturn: new CopyLiveAutoReturn(network, returns, new CopyFundingExchangeClient(walletBudget, walletGlobal), workerSigner) });
-    const manual = new CopyLiveManualCloser(stops, closer, scanner, message => logger.warn(message), Date.now, stopTimings.retry.closeAttempts);
+    const manual = new CopyLiveManualCloser(stops, closer, scanner, new CopyLiveFlatCarry(network, pool), message => logger.warn(message), Date.now, stopTimings.retry.closeAttempts);
     // Realtime mainnet signal (COPY_LIVE_FAST_SOURCE): the worker's mainnet
     // info client in the live lane, which acquires the worst case and gives
     // back what each answer didn't use.

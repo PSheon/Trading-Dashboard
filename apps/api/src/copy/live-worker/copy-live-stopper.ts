@@ -26,6 +26,7 @@ import { DEFAULT_LIVE_STOP_TIMINGS, type LiveStopTimings } from '../../config/li
 import type { CopyLiveStopWorkerRepository, StopRow } from './copy-live-stop-worker.repository.js';
 import { CLOSE_NEVER_SENT, closeCloid, closeRetryDelayMs, type CloseAccount, type ReduceOnlyCloser } from './reduce-only-closer.js';
 import type { AutoReturn } from './copy-live-auto-return.js';
+import type { CopyLiveFlatCarry } from './copy-live-flat-carry.js';
 import type { SystemStopOutcome } from '../copy-live-stop-system.js';
 
 // A single-position close gives up after copy.live.stop.retry.closeAttempts
@@ -320,7 +321,9 @@ export class StopCanceller {
 export class CopyLiveManualCloser {
   constructor(private readonly repository: CopyLiveStopWorkerRepository, private readonly closer: ReduceOnlyCloser,
     /** Books the account's fills now, so the copy's next order sees the close. */
-    private readonly scanner: { runFor(accountId: string): Promise<void> }, private readonly log?: (message: string) => void, private readonly now: () => number = Date.now,
+    private readonly scanner: { runFor(accountId: string): Promise<void> },
+    /** Resets what earlier closes still owed of the coin once it is flat. */
+    private readonly carry: Pick<CopyLiveFlatCarry, 'owed' | 'reset'>, private readonly log?: (message: string) => void, private readonly now: () => number = Date.now,
     private readonly closeAttempts = DEFAULT_LIVE_STOP_TIMINGS.retry.closeAttempts) {}
   async tick(): Promise<void> {
     for (const row of await this.repository.manualCloses()) {
@@ -350,11 +353,19 @@ export class CopyLiveManualCloser {
       if (row.executionKeys.length) await this.scanner.runFor(row.accountId);
       await this.repository.finishManual(row.id, 'refused', 'leader_reopened'); return;
     }
+    // Read before the observation: the carry of the position it finds closed.
+    const owed = await this.carry.owed(row);
     const snapshot = await this.closer.observe(account.accountAddress);
     const position = snapshot.positions.find(p => p.coin === row.coin && !Dec.from(p.size).isZero);
     if (!position) {
       // The close's own fills must be booked before the copy trades again.
       if (row.executionKeys.length) await this.scanner.runFor(row.accountId);
+      // Flat: what settled closes still owed of the coin is owed of nothing.
+      // While a leg of the coin is in flight the close stays requested (an open
+      // of the coin keeps waiting) and the reset is tried on a later pass.
+      if (!await this.carry.reset(row, account.accountAddress, owed)) {
+        this.log?.(`close ${row.id} of ${row.coin}: flat, its reduction carry is reset on a later pass`); return;
+      }
       await this.repository.finishManual(row.id, 'done', null); return;
     }
     if (row.executionKeys.length >= this.closeAttempts) { await this.repository.finishManual(row.id, 'refused', 'close_attempts_exhausted'); return; }

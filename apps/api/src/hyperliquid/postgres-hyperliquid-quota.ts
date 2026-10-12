@@ -8,6 +8,7 @@ import {hyperliquidEgressQuota as quota,hyperliquidWsLeases as leases} from '@tr
 import type { UnitOfWork,DbTransaction } from '../db/unit-of-work.js';
 import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from '../copy/live/postgres-live-risk-scope.js';
 import {LiveBoundaryError,type LiveNetwork} from '../copy/live/wallet-authorization.js';
+import {HyperliquidRestCapacityError,sharedRestRetryAfterMs} from './hyperliquid-capacity-error.js';
 import {HYPERLIQUID_MAX_SETTLEMENTS,HYPERLIQUID_STALE_LEASE_RECLAIM_MS,planHyperliquidQuota,quotaSubscription,type HyperliquidRestLane,type HyperliquidQuotaLease,type HyperliquidQuotaRequest,type HyperliquidQuotaSubscription} from './hyperliquid-global-quota.js';
 import {freezeLiveReservation} from '../copy/live/live-risk-reservation.js';
 import {liveSourceDigest} from '../copy/live/copy-live-source-evidence.js';
@@ -54,6 +55,26 @@ export class PostgresHyperliquidQuota {
     for(const [id,entry] of pending)if(entry.at<cutoff)pending.delete(id);
     return [...pending.entries()].slice(0,HYPERLIQUID_MAX_SETTLEMENTS).map(([id,entry])=>({id,units:entry.units}));
   }
+  /** A background request the meter just refused, per egress key: until when
+   * (monotonic) no request of at least that weight can fit. Charges only
+   * expire (or settle, which this process sends itself), so until then the
+   * meter would refuse it again; it is refused here, without a transaction
+   * on the meter's one row. A full background lane retried by every
+   * background loop otherwise held that row's lock most of the time, and
+   * each real-money evidence transaction queued behind it (2026-10-12). */
+  private readonly backgroundFull=new Map<string,{weight:number;until:number}>();
+  private refuseKnownFull(egressKey:string,weight:number):void {
+    const full=this.backgroundFull.get(egressKey);if(!full)return;
+    const left=Math.ceil(full.until-this.monotonic());
+    if(!Number.isFinite(left)||left<=0||left>65_000){this.backgroundFull.delete(egressKey);return;}
+    if(weight>=full.weight&&this.pendingSettlements(egressKey).length===0)throw new HyperliquidRestCapacityError(left);
+  }
+  private rememberFull(egressKey:string,weight:number,error:unknown):void {
+    const retry=sharedRestRetryAfterMs(error);if(retry===undefined)return;
+    const until=this.monotonic()+retry,known=this.backgroundFull.get(egressKey);
+    if(!Number.isFinite(until))return;
+    if(!known||known.until<=this.monotonic()||weight<=known.weight)this.backgroundFull.set(egressKey,{weight,until});
+  }
   /** `backgroundCap`: this process's background REST cap on the shared window (default 840). */
   constructor(private readonly uow:UnitOfWork,private readonly now=Date.now,private readonly monotonic=()=>performance.now(),private readonly backgroundCap?:number){}
   bindUnscoped(identity:HyperliquidQuotaBinding):BoundHyperliquidQuota {return this.bind(capture(identity));}
@@ -88,15 +109,31 @@ export class PostgresHyperliquidQuota {
     const kind=request(1,1).kind,queued=liveSpan(`quota_${kind}_queue`);
     await this.queue(session,async()=>{
       queued();const whole=liveSpan(`quota_${kind}_tx`);
+      // Every statement is one database round trip, and an original
+      // session's meter requests run one at a time inside its 5 s evidence
+      // window (an order's two account sockets alone make eight, 2.3 s of its
+      // 2.4 s account snapshots at a Stage-like 8 ms, 2026-10-12). So the
+      // transaction sends only what it needs (12 statements here, was 22). The original session's own
+      // transaction already sets both timeouts and proves its locks right
+      // after BEGIN and right before COMMIT; nothing here is durable or
+      // leaves the database before that COMMIT, and session locks cannot be
+      // released mid-transaction except by ending this connection, which
+      // fails the statements themselves. The row exists after its first use.
       const transaction=async(tx:DbTransaction)=>{
-        const held=async()=>{if(session)await session.scope.assertHeld();};
-        await tx.execute(sql`set local statement_timeout = '5000ms'`);await held();
-        await tx.execute(sql`set local idle_in_transaction_session_timeout = '5000ms'`);await held();
-        await tx.insert(quota).values({egressKey:binding.egressKey,events:[],updatedAt:sql`date_trunc('milliseconds',clock_timestamp())`}).onConflictDoNothing();await held();
+        if(!session){
+          await tx.execute(sql`set local statement_timeout = '5000ms'`);
+          await tx.execute(sql`set local idle_in_transaction_session_timeout = '5000ms'`);
+        }
         const locking=liveSpan(`quota_${kind}_lock`);
-        const rows=await tx.select().from(quota).where(eq(quota.egressKey,binding.egressKey)).for('update');locking();await held();
+        const lock=()=>tx.select().from(quota).where(eq(quota.egressKey,binding.egressKey)).for('update');
+        let rows=await lock();
+        if(rows.length===0){
+          await tx.insert(quota).values({egressKey:binding.egressKey,events:[],updatedAt:sql`date_trunc('milliseconds',clock_timestamp())`}).onConflictDoNothing();
+          rows=await lock();
+        }
+        locking();
         const localBeforeClock=this.now();
-        const clock=await tx.execute<{now:string}>(sql`select floor(extract(epoch from clock_timestamp())*1000)::bigint as now`);await held();
+        const clock=await tx.execute<{now:string}>(sql`select floor(extract(epoch from clock_timestamp())*1000)::bigint as now`);
         const dbNow=Number(clock.rows[0]?.now);if(!Number.isSafeInteger(dbNow)||dbNow<=0||rows.length!==1)fail('hyperliquid_quota_invalid');
         const localAfterClock=this.now();if(Math.abs(dbNow-localBeforeClock)>1000||Math.abs(dbNow-localAfterClock)>1000)fail('hyperliquid_quota_clock_skew');
         const remaining=deadline===undefined?0:deadline-localBeforeClock;if(deadline!==undefined&&(remaining<=0||remaining>5000))fail('hyperliquid_quota_expired');
@@ -107,16 +144,16 @@ export class PostgresHyperliquidQuota {
         // either (they would otherwise fill the bounded scan and hide live rows);
         // the one a request names is still read so its owner can record close
         // evidence for it.
-        const stored=await tx.select().from(leases).where(and(eq(leases.egressKey,binding.egressKey),ne(leases.state,'closed'),gt(leases.leaseUntil,new Date(dbNow-HYPERLIQUID_STALE_LEASE_RECLAIM_MS)))).limit(11);await held();
-        if(referenced!==undefined&&!stored.some(l=>l.id===referenced)){stored.push(...await tx.select().from(leases).where(and(eq(leases.egressKey,binding.egressKey),ne(leases.state,'closed'),eq(leases.id,referenced))).limit(1));await held();}
+        const stored=await tx.select().from(leases).where(and(eq(leases.egressKey,binding.egressKey),ne(leases.state,'closed'),gt(leases.leaseUntil,new Date(dbNow-HYPERLIQUID_STALE_LEASE_RECLAIM_MS)))).limit(11);
+        if(referenced!==undefined&&!stored.some(l=>l.id===referenced)){stored.push(...await tx.select().from(leases).where(and(eq(leases.egressKey,binding.egressKey),ne(leases.state,'closed'),eq(leases.id,referenced))).limit(1));}
         const previous=rows[0]!,state={egressKey:previous.egressKey,revision:previous.revision,events:previous.events,updatedAt:previous.updatedAt.getTime()},captured:HyperliquidQuotaLease[]=stored.map(({cleanupEvidence:_cleanupEvidence,cleanupEvidenceDigest:_cleanupEvidenceDigest,...l})=>({...l,leaseUntil:l.leaseUntil.getTime(),latestAllowedSendAt:l.latestAllowedSendAt.getTime(),createdAt:l.createdAt.getTime(),updatedAt:l.updatedAt.getTime(),closedAt:l.closedAt?.getTime()??null}));
         const plan=planHyperliquidQuota({now:dbNow,state,leases:captured,request:planned,backgroundCap:this.backgroundCap});
-        const result=await tx.update(quota).set({revision:plan.state.revision,events:structuredClone(plan.state.events) as typeof previous.events,updatedAt:new Date(dbNow)}).where(and(eq(quota.egressKey,binding.egressKey),eq(quota.revision,previous.revision))).returning({key:quota.egressKey});await held();if(result.length!==1)fail('hyperliquid_quota_conflict');
+        const result=await tx.update(quota).set({revision:plan.state.revision,events:structuredClone(plan.state.events) as typeof previous.events,updatedAt:new Date(dbNow)}).where(and(eq(quota.egressKey,binding.egressKey),eq(quota.revision,previous.revision))).returning({key:quota.egressKey});if(result.length!==1)fail('hyperliquid_quota_conflict');
         for(const l of plan.leases){
           const old=stored.find(s=>s.id===l.id);if(old&&old.revision===l.revision)continue;
           const record={...l,subscriptions:structuredClone(l.subscriptions) as typeof leases.$inferInsert.subscriptions,leaseUntil:new Date(l.leaseUntil),latestAllowedSendAt:new Date(l.latestAllowedSendAt),createdAt:new Date(l.createdAt),updatedAt:new Date(l.updatedAt),closedAt:l.closedAt===null?null:new Date(l.closedAt),...(cleanup?.leaseId===l.id?{cleanupEvidence:structuredClone(cleanup.record) as Record<string,unknown>,cleanupEvidenceDigest:liveSourceDigest(cleanup.record)}:{})};
-          if(old){const changed=await tx.update(leases).set(record).where(and(eq(leases.id,l.id),eq(leases.revision,old.revision),eq(leases.fenceToken,l.fenceToken),eq(leases.ownerId,old.ownerId))).returning({id:leases.id});await held();if(changed.length!==1)fail('hyperliquid_quota_lease_lost');}
-          else {await tx.insert(leases).values(record);await held();}
+          if(old){const changed=await tx.update(leases).set(record).where(and(eq(leases.id,l.id),eq(leases.revision,old.revision),eq(leases.fenceToken,l.fenceToken),eq(leases.ownerId,old.ownerId))).returning({id:leases.id});if(changed.length!==1)fail('hyperliquid_quota_lease_lost');}
+          else await tx.insert(leases).values(record);
         }
         fresh();
       };
@@ -133,7 +170,11 @@ export class PostgresHyperliquidQuota {
       // Settlements ride on the next charge (no transaction of their own);
       // they are dropped once that charge commits, kept if it fails.
       const settle=session?[]:this.pendingSettlements(binding.egressKey);
-      const id=randomUUID(),fresh=await apply((_now,sendUntil)=>({kind:'rest',id,weight,sendUntil,...(lane?{lane}:{}),...(settle.length?{settle}:{})}),deadline);
+      if(lane==='background'&&!session)this.refuseKnownFull(binding.egressKey,weight);
+      const id=randomUUID();let fresh:()=>void;
+      try{fresh=await apply((_now,sendUntil)=>({kind:'rest',id,weight,sendUntil,...(lane?{lane}:{}),...(settle.length?{settle}:{})}),deadline);}
+      catch(error){if(lane==='background'&&!session)this.rememberFull(binding.egressKey,weight,error);throw error;}
+      if(lane==='background'&&!session)this.backgroundFull.delete(binding.egressKey);
       const pending=this.settlements.get(binding.egressKey);for(const s of settle)pending?.delete(s.id);
       const permit=this.permit(fresh);
       return Object.freeze({...permit,settle:(units:number)=>{

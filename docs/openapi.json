@@ -13237,6 +13237,29 @@
                                               ],
                                               "additionalProperties": false
                                             },
+                                            "clockSkew": {
+                                              "type": "object",
+                                              "properties": {
+                                                "aheadMs": {
+                                                  "type": [
+                                                    "number",
+                                                    "null"
+                                                  ]
+                                                },
+                                                "samples": {
+                                                  "type": "integer"
+                                                },
+                                                "warning": {
+                                                  "type": "boolean"
+                                                }
+                                              },
+                                              "required": [
+                                                "aheadMs",
+                                                "samples",
+                                                "warning"
+                                              ],
+                                              "additionalProperties": false
+                                            },
                                             "discovery": {
                                               "type": "object",
                                               "properties": {

@@ -7,7 +7,7 @@ import { auditEvents, type AuditResponse } from "@/lib/contracts";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
 import { useI18n } from "@/i18n/provider";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableExpansionRow, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { AdminSubTabs } from "./admin-shell";
 import { AdminCard, Notice } from "./ui";
@@ -73,8 +73,7 @@ export function AuditEntries({ items }: { items: AuditResponse["items"] }) {
               </TableCell>
             </TableRow>
             {open === row.id ? (
-              <tr>
-                <td colSpan={5} className="p-0">
+              <TableExpansionRow colSpan={5}>
                   <div className="row-expansion mb-1.5 grid gap-3 px-4 py-3 sm:grid-cols-2">
                     <p className="text-xs font-bold break-all text-muted-foreground sm:col-span-2 md:hidden">{t("settingsOps.target")} · {row.target}</p>
                     {(["before", "after"] as const).map((key) => (
@@ -84,8 +83,7 @@ export function AuditEntries({ items }: { items: AuditResponse["items"] }) {
                       </div>
                     ))}
                   </div>
-                </td>
-              </tr>
+              </TableExpansionRow>
             ) : null}
           </Fragment>
         ))}

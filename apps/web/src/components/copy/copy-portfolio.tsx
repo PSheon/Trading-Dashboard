@@ -17,7 +17,7 @@ import { RoiPill } from "@/components/traders/bits";
 import { DataList } from "@/components/ui/data-list";
 import { useIsDesktop } from "@/lib/use-is-desktop";
 import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableExpansionRow, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TablePager, usePaged } from "@/components/ui/table-pager";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { Modal } from "@/components/ui/dialog";
@@ -219,11 +219,9 @@ export function CopyTable({ strategies, leaders, onSelect, sparklines, bare = fa
                   </TableCell>
                 </TableRow>
                 {expanded ? (
-                  <tr>
-                    <td colSpan={9} className="p-0">
-                      <div className="row-expansion mb-1.5 px-2 py-1"><PositionsTable positions={s.positions} /></div>
-                    </td>
-                  </tr>
+                  <TableExpansionRow colSpan={9}>
+                    <div className="row-expansion mb-1.5 px-2 py-1"><PositionsTable positions={s.positions} /></div>
+                  </TableExpansionRow>
                 ) : null}
               </Fragment>
             );
@@ -509,11 +507,9 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
                     </TableCell>
                   </TableRow>
                   {openOrder === o.id ? (
-                    <tr>
-                      <td colSpan={7} className="p-0">
-                        <div className="row-expansion mb-1.5 px-4 py-3"><OrderFills strategyId={s.id} orderId={o.id} /></div>
-                      </td>
-                    </tr>
+                    <TableExpansionRow colSpan={7}>
+                      <div className="row-expansion mb-1.5 px-4 py-3"><OrderFills strategyId={s.id} orderId={o.id} /></div>
+                    </TableExpansionRow>
                   ) : null}
                   </Fragment>
                   );

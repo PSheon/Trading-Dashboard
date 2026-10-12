@@ -10,7 +10,7 @@ import { cn } from "cn";
 
 import { AddressAvatar } from "@/components/traders/address-avatar";
 import { CoinIcon } from "@/components/traders/coin-icon";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableExpansionRow, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useI18n } from "@/i18n/provider";
 import { api } from "@/lib/api";
 import { TraderName } from "@/components/traders/trader-name";
@@ -161,8 +161,7 @@ function FillsRow({ actionId, colSpan }: { actionId: string; colSpan: number }) 
   // The action's fills open under its row (the paper orders' expansion),
   // as the site's dense table; nested in an expansion its rows are wells.
   return (
-    <tr>
-      <td colSpan={colSpan} className="p-0">
+    <TableExpansionRow colSpan={colSpan}>
         <div className="row-expansion mb-1.5 px-4 py-3 text-xs" data-testid="action-fills">
           {isLoading ? <span className="text-muted-foreground">{t("actions.loadingFills")}</span> : null}
           {data && data.length === 0 ? <span className="text-muted-foreground">{t("actions.noFills")}</span> : null}
@@ -198,7 +197,6 @@ function FillsRow({ actionId, colSpan }: { actionId: string; colSpan: number }) 
             </Table>
           ) : null}
         </div>
-      </td>
-    </tr>
+    </TableExpansionRow>
   );
 }

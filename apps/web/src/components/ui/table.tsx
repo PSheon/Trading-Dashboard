@@ -106,4 +106,18 @@ function TableCaption({ className, ...props }: React.ComponentProps<"caption">) 
   )
 }
 
-export { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell, TableCaption }
+/** The row that opens under a data row (its details): one bare cell across
+ * all `colSpan` columns, no padding, so the content (usually a
+ * `.row-expansion` panel) draws its own inset. Not a `TableRow`: it is not
+ * a data row. */
+function TableExpansionRow({ colSpan, children, ...props }: Omit<React.ComponentProps<"tr">, "children"> & { colSpan: number; children: React.ReactNode }) {
+  return (
+    <tr {...props}>
+      <td colSpan={colSpan} className="p-0">
+        {children}
+      </td>
+    </tr>
+  )
+}
+
+export { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell, TableCaption, TableExpansionRow }

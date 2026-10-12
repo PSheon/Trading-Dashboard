@@ -18,7 +18,7 @@ import { ErrorState, PanelSkeleton, SectionHeader } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Drawer } from "@/components/ui/drawer";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableExpansionRow, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { useI18n } from "@/i18n/provider";
 import { signalLagSeconds, useAdminCopyExposure, useAdminCopyOverview, useAdminCopyStrategies } from "@/lib/admin-copy";
@@ -196,11 +196,9 @@ export function AdminCopyStatus() {
                         </TableCell>
                       </TableRow>
                       {expanded ? (
-                        <tr id={`copy-user-${u.userId}`}>
-                          <td colSpan={6} className="p-0">
-                            <UserStrategies strategies={byUser.get(u.userId)} loading={!strategies.data} coins={u.coins} onLedger={setLedger} />
-                          </td>
-                        </tr>
+                        <TableExpansionRow id={`copy-user-${u.userId}`} colSpan={6}>
+                          <UserStrategies strategies={byUser.get(u.userId)} loading={!strategies.data} coins={u.coins} onLedger={setLedger} />
+                        </TableExpansionRow>
                       ) : null}
                     </Fragment>
                   );

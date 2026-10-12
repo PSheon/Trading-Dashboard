@@ -45,7 +45,7 @@ import { resetLiveReadCaches } from '../src/copy/live/live-read-cache.js';
 // Only native network endpoints are doubles (Privy, Hyperliquid REST/WS).
 // The engine, runtime, risk, journal, reservation, receipt ledger and
 // settlement are the production classes on a real database.
-const shared = vi.hoisted(() => ({ clock: 0, position: '0', withdrawable: '80', privyDown: 0 }));
+const shared = vi.hoisted(() => ({ clock: 0, position: '0', eth: '0', withdrawable: '80', privyDown: 0 }));
 vi.mock('ws', async () => {
   const { EventEmitter } = await import('node:events');
   return { default: class extends EventEmitter {
@@ -56,10 +56,11 @@ vi.mock('ws', async () => {
       queueMicrotask(() => {
         this.emit('message', Buffer.from(JSON.stringify({ channel: 'subscriptionResponse', data: request })));
         if (request.method !== 'subscribe') return;
-        const size = shared.position, notional = String(Math.abs(Number(size)) * 100), margin = String(Math.abs(Number(size)) * 10);
-        const sums = { accountValue: shared.withdrawable === '0' && size === '0' ? '0' : '100', totalNtlPos: notional, totalRawUsd: String((shared.withdrawable === '0' && size === '0' ? 0 : 100) - Number(notional)), totalMarginUsed: margin };
-        const assetPositions = size === '0' ? [] : [{ type: 'oneWay', position: { coin: 'BTC', szi: size, entryPx: '100', positionValue: notional, unrealizedPnl: '0',
-          marginUsed: margin, maxLeverage: 20, leverage: { type: 'cross', value: 10 }, cumFunding: { allTime: '0', sinceOpen: '0', sinceChange: '0' } } }];
+        const size = shared.position, held = [['BTC', size], ['ETH', shared.eth]].filter(([, v]) => v !== '0') as [string, string][];
+        const notional = String(held.reduce((n, [, v]) => n + Math.abs(Number(v)) * 100, 0)), margin = String(held.reduce((n, [, v]) => n + Math.abs(Number(v)) * 10, 0));
+        const sums = { accountValue: shared.withdrawable === '0' && !held.length ? '0' : '100', totalNtlPos: notional, totalRawUsd: String((shared.withdrawable === '0' && !held.length ? 0 : 100) - Number(notional)), totalMarginUsed: margin };
+        const assetPositions = held.map(([coin, szi]) => ({ type: 'oneWay', position: { coin, szi, entryPx: '100', positionValue: String(Math.abs(Number(szi)) * 100), unrealizedPnl: '0',
+          marginUsed: String(Math.abs(Number(szi)) * 10), maxLeverage: 20, leverage: { type: 'cross', value: 10 }, cumFunding: { allTime: '0', sinceOpen: '0', sinceChange: '0' } } }));
         const state = { marginSummary: sums, crossMarginSummary: sums, crossMaintenanceMarginUsed: '0', withdrawable: shared.withdrawable, time: Date.now(), assetPositions };
         this.emit('message', Buffer.from(JSON.stringify(subscription.type === 'allDexsClearinghouseState'
           ? { channel: subscription.type, data: { user: subscription.user, clearinghouseStates: [['', state]] } }
@@ -76,7 +77,7 @@ const agent = privateKeyToAccount(`0x${'11'.repeat(32)}`), leader = `0x${'44'.re
 let db: TestDb, pool: Pool, seed: Awaited<ReturnType<typeof preparationFixture>>, budget: RequestBudgeterService, config: AppConfig, global: HyperliquidGlobalTransport;
 let logs: string[] = [], weights: number[] = [];
 let raw: ReturnType<typeof vi.fn<typeof fetch>>, exchangeBodies: unknown[];
-let placedOrders: { oid: number; cloid: string; p: string; s: string; side: string; r: boolean; at: number }[] = [];
+let placedOrders: { oid: number; cloid: string; p: string; s: string; side: string; r: boolean; at: number; coin: string }[] = [];
 // The actual clock throughout: the shared egress quota checks deadlines against it.
 const clock = () => Date.now();
 
@@ -93,7 +94,7 @@ beforeEach(async () => {
   const original = budget.acquire.bind(budget); weights = [];
   vi.spyOn(budget, 'acquire').mockImplementation((weight, ...rest) => { weights.push(weight); return original(weight, ...rest); });
   // The actual clock, so every bound identity and consent is current.
-  shared.clock = Date.now(); shared.position = '0'; shared.withdrawable = '80'; shared.privyDown = 0; logs = []; exchangeBodies = []; placedOrders = [];
+  shared.clock = Date.now(); shared.position = '0'; shared.eth = '0'; shared.withdrawable = '80'; shared.privyDown = 0; logs = []; exchangeBodies = []; placedOrders = [];
   const t = shared.clock, delta = t - now, date = (value: number) => new Date(value + delta);
   const [version] = await db.select().from(schema.copyStrategyVersions);
   const settings = { ...version!.settings, perTradeUsd: 20 };
@@ -119,7 +120,7 @@ beforeEach(async () => {
   vi.stubGlobal('fetch', raw);
 });
 
-const meta = { collateralToken: 7, universe: [{ name: 'BTC', szDecimals: 2, maxLeverage: 20 }] };
+const meta = { collateralToken: 7, universe: [{ name: 'BTC', szDecimals: 2, maxLeverage: 20 }, { name: 'ETH', szDecimals: 2, maxLeverage: 20 }] };
 async function providers(endpoint: string, body: Record<string, unknown> | undefined): Promise<Response> {
   if (endpoint === 'https://api.privy.io/v1/wallets/agent') return Response.json({ id: 'agent', chain_type: 'ethereum', address: agent.address, owner_id: 'owner', archived_at: null });
   if (endpoint === 'https://api.privy.io/v1/wallets/agent/rpc') {
@@ -128,23 +129,24 @@ async function providers(endpoint: string, body: Record<string, unknown> | undef
     return Response.json({ method: 'eth_signTypedData_v4', data: { encoding: 'hex', signature: await agent.signTypedData({ ...typed, primaryType: typed.primary_type } as unknown as TypedDataDefinition) } });
   }
   if (endpoint === 'https://api.hyperliquid-testnet.xyz/exchange') {
-    exchangeBodies.push(body); const order = (body as { action: { orders: { c: string; p: string; s: string; b: boolean; r: boolean }[] } }).action.orders[0]!;
-    const placed = { oid: 77 + placedOrders.length, cloid: order.c, p: order.p, s: order.s, side: order.b ? 'B' : 'A', r: order.r, at: Date.now() };
+    exchangeBodies.push(body); const order = (body as { action: { orders: { a: number; c: string; p: string; s: string; b: boolean; r: boolean }[] } }).action.orders[0]!;
+    const placed = { oid: 77 + placedOrders.length, cloid: order.c, p: order.p, s: order.s, side: order.b ? 'B' : 'A', r: order.r, at: Date.now(), coin: meta.universe[order.a]!.name };
     placedOrders.push(placed);
-    shared.position = String(placedOrders.reduce((sum, o) => sum + (o.side === 'B' ? 1 : -1) * Number(o.s), 0));
+    const net = (coin: string) => String(placedOrders.filter(o => o.coin === coin).reduce((sum, o) => sum + (o.side === 'B' ? 1 : -1) * Number(o.s), 0));
+    shared.position = net('BTC'); shared.eth = net('ETH');
     return Response.json({ status: 'ok', response: { type: 'order', data: { statuses: [{ filled: { oid: placed.oid, totalSz: order.s, avgPx: '100' } }] } } });
   }
   expect(endpoint).toBe('https://api.hyperliquid-testnet.xyz/info');
   const user = body!.user, status = placedOrders.find(o => o.cloid === body!.oid);
   const values: Record<string, unknown> = { userRole: { role: 'user' }, userAbstraction: 'disabled', userDexAbstraction: false,
     spotClearinghouseState: { portfolioMarginEnabled: false, balances: [] }, perpDexs: [null], spotMeta: { tokens: [{ index: 7, name: 'USDC', isCanonical: true }] },
-    meta, allPerpMetas: [meta], metaAndAssetCtxs: [meta, [{ midPx: '100', markPx: '100' }]], allMids: { BTC: '100' },
-    activeAssetData: { user, coin: 'BTC', leverage: { type: 'cross', value: 10 }, maxTradeSzs: ['1', '1'], availableToTrade: ['100', '100'], markPx: '100' },
+    meta, allPerpMetas: [meta], metaAndAssetCtxs: [meta, [{ midPx: '100', markPx: '100' }, { midPx: '100', markPx: '100' }]], allMids: { BTC: '100', ETH: '100' },
+    activeAssetData: { user, coin: body!.coin ?? 'BTC', leverage: { type: 'cross', value: 10 }, maxTradeSzs: ['1', '1'], availableToTrade: ['100', '100'], markPx: '100' },
     userFees: { userAddRate: '-0.0001', userCrossRate: '0.0005', activeReferralDiscount: '0', trial: null },
     extraAgents: [{ address: agent.address, name: 'dedicated', validUntil: Date.now() + 60000 }],
-    orderStatus: status ? { status: 'order', order: { status: 'filled', statusTimestamp: status.at + 2, order: { coin: 'BTC', oid: status.oid, cloid: status.cloid, side: status.side, reduceOnly: status.r,
+    orderStatus: status ? { status: 'order', order: { status: 'filled', statusTimestamp: status.at + 2, order: { coin: status.coin, oid: status.oid, cloid: status.cloid, side: status.side, reduceOnly: status.r,
       tif: 'Ioc', origSz: status.s, sz: '0', limitPx: status.p, timestamp: status.at, isTrigger: false, isPositionTpsl: false, children: [] } } } : { status: 'unknownOid' },
-    userFillsByTime: placedOrders.map((o, i) => ({ coin: 'BTC', px: '100', sz: o.s, side: o.side, time: o.at + 1, startPosition: '0', dir: 'Open Long', closedPnl: '0',
+    userFillsByTime: placedOrders.map((o, i) => ({ coin: o.coin, px: '100', sz: o.s, side: o.side, time: o.at + 1, startPosition: '0', dir: 'Open Long', closedPnl: '0',
       hash: `0x${String(34 + i).repeat(32)}`, oid: o.oid, crossed: true, fee: '0.01', tid: 501 + i, feeToken: 'USDC' })), userFunding: [] };
   if (!(String(body!.type) in values)) throw Error(`Unsupported offline INFO ${String(body!.type)}`);
   return Response.json(values[String(body!.type)]);
@@ -170,11 +172,11 @@ function engine(midPrice = '100', egress = global, withStopper = false, apiTermi
       new HyperliquidFollowerReceiptReader('testnet', weight => settleBudget.acquire(weight, 'live', undefined, { signal: AbortSignal.timeout(5000) }), settleGlobal.fetchInfo, clock)), clock), log: message => logs.push(message),
   }, { testnetSourceIntervalMs: 60_000, sourceLagMs: 0, passBudgetMs: 60_000 }, clock);
 }
-async function leaderOpens(tid = 1001) {
+async function leaderOpens(tid = 1001, coin = 'BTC') {
   await new Promise(resolve => setTimeout(resolve, 5));
-  const time = Date.now() - 2, rawFill = { coin: 'BTC', px: '100', sz: '1', side: 'B', time, startPosition: '0', dir: 'Open Long', closedPnl: '0',
+  const time = Date.now() - 2, rawFill = { coin, px: '100', sz: '1', side: 'B', time, startPosition: '0', dir: 'Open Long', closedPnl: '0',
     hash: `0x${'12'.repeat(32)}`, oid: 1000 + tid, crossed: true, fee: '0.01', tid, feeToken: 'USDC' };
-  await db.insert(schema.fills).values({ address: leader, tid: BigInt(tid), coin: 'BTC', side: 'B', dir: 'Open Long', px: '100', sz: '1', fee: '0.01', hash: rawFill.hash, ts: new Date(time), raw: rawFill });
+  await db.insert(schema.fills).values({ address: leader, tid: BigInt(tid), coin, side: 'B', dir: 'Open Long', px: '100', sz: '1', fee: '0.01', hash: rawFill.hash, ts: new Date(time), raw: rawFill });
 }
 
 describe('testnet copy of a mainnet leader, end to end against provider doubles', { timeout: 30_000 }, () => {
@@ -359,6 +361,21 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     const rows = await db.select().from(schema.copyLiveDispatches);
     expect(rows.map(r => r.state)).toEqual(['settled', 'settled']);
     expect(await db.select().from(schema.copyFollowerReceipts)).toHaveLength(2);
+  });
+  it('after a settled order the leader opens another coin: it is planned and settles too (Stage mainnet 2026-10-12, BTC after SOL)', async () => {
+    // The second coin's carry is seeded during planning: at a time after the
+    // manifest's check it failed the generation proof (live_generation_unproven).
+    let e = engine(); await e.tick(); await leaderOpens(1001); await e.tick(); await new Promise(resolve => setTimeout(resolve, 5)); await e.tick();
+    expect((await db.select().from(schema.copyLiveDispatches))[0]).toMatchObject({ state: 'settled' });
+    budget.onModuleDestroy(); budget = new RequestBudgeterService(config);
+    e = engine('100', new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(pool, { schema }))), { egressKey: 'e2e-second-coin-egress', ownerId: 'e2e-3' }, raw));
+    await leaderOpens(1002, 'ETH'); await e.tick();
+    expect(logs.filter(l => l.includes('live_generation_unproven'))).toEqual([]);
+    expect(exchangeBodies).toHaveLength(2);
+    expect(exchangeBodies[1]).toMatchObject({ action: { orders: [{ a: 1, b: true, r: false }] } });
+    await new Promise(resolve => setTimeout(resolve, 5)); await e.tick();
+    expect((await db.select().from(schema.copyLiveDispatches)).map(r => r.state)).toEqual(['settled', 'settled']);
+    expect((await db.select().from(schema.copyLiveReductionCarry)).map(r => r.coin).sort()).toEqual(['BTC', 'ETH']);
   });
   it('waits six seconds for close evidence quota before observing and still sends only the fresh reduce-only position', async () => {
     // A cold cross-order read cache: the close pays its full observation (> 284).

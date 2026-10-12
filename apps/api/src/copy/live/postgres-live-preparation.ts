@@ -186,7 +186,12 @@ export class PostgresLivePreparation {
     const seedCarry = !carry;
     if (!carry) {
       riskSourceRequire(!currentManifest.journals.some(v => v.journal.record && (v.journal.record as unknown as LiveExecutionRecord).market?.coin === source.fill.coin), 'live_preparation_carry_missing');
-      carry = { mandateId: binding.mandateId, coin: source.fill.coin, carry: '0', revision: 1, updatedAt: new Date(planningAt).toISOString() };
+      // Seeded at the manifest's own check time, not planningAt: with an
+      // earlier order's manifest (checked before planning) a later time
+      // failed the proof's updatedAt <= checkedAt, refusing every open of a
+      // coin the copy had not traded yet (Stage mainnet 2026-10-12: BTC after
+      // SOL, live_generation_unproven). The row is stored with the same time.
+      carry = { mandateId: binding.mandateId, coin: source.fill.coin, carry: '0', revision: 1, updatedAt: new Date(currentManifest.checkedAt).toISOString() };
     }
     const withCarry: LiveGenerationManifestV1 = { ...currentManifest, carry: seedCarry ? [...currentManifest.carry, carry] : currentManifest.carry };
     const projection = projectLiveGenerationPositions({ identity: { mandateId: binding.mandateId, mandateRevision: local.mandate.revision, accountId: local.account.id, userId: local.account.userId,
@@ -244,7 +249,7 @@ export class PostgresLivePreparation {
       planLiveSourceOrder({ mandate: current.mandate, settings: current.settings, fill: source.fill, leg: source.leg, sizingBasis: sizing, now, limits: current.limits, currentExecutionKey: key, ...(members.length ? { members } : {}) });
       const [currentFill] = await this.checked(session, tx.select().from(copyLiveSourceFills).where(eq(copyLiveSourceFills.id, source.fill.id)));
       riskSourceRequire(currentFill && decodeLiveSourceFill(currentFill).sourceDigest === source.fill.sourceDigest, 'live_preparation_source');
-      if (seedCarry) await this.checked(session, tx.insert(copyLiveReductionCarry).values({ mandateId: binding.mandateId, coin: source.fill.coin, carry: '0', revision: 1, updatedAt: new Date(planningAt) }));
+      if (seedCarry) await this.checked(session, tx.insert(copyLiveReductionCarry).values({ mandateId: binding.mandateId, coin: source.fill.coin, carry: '0', revision: 1, updatedAt: new Date(carry.updatedAt) }));
       for (const canonical of [...canonicalLiveSourceLegs(source.fill)].sort((a, b) => a.leg === b.leg ? 0 : a.leg === 'close' ? -1 : 1)) {
         const id = liveSourceLegId(binding.mandateId, source.fill.id, canonical.leg), dependencyId = canonical.leg === 'open' && closeLeg ? liveSourceLegId(binding.mandateId, source.fill.id, 'close') : null;
         await this.checked(session, tx.insert(copyLiveSignalLegs).values({ id, mandateId: binding.mandateId, sourceFillId: source.fill.id, ...canonical, dependsOnId: dependencyId, createdAt: new Date(now), updatedAt: new Date(now) }).onConflictDoNothing());

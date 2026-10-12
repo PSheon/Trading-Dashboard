@@ -13,7 +13,7 @@ import { decodeLiveSourceSizingEnvelope, planLiveSourceOrder } from './copy-live
 import { intentFingerprint } from './live-order.js';
 import type { DbTransaction } from '../../db/unit-of-work.js';
 import type { LiveRiskDatabaseSession } from './postgres-live-risk-scope.js';
-import { NEVER_PLACED, NEVER_PLACED_GRACE_MS, type LiveExecutionRecord } from './live-execution.js';
+import { isDefinitelyUnsent, NEVER_PLACED, NEVER_PLACED_GRACE_MS, type LiveExecutionRecord } from './live-execution.js';
 import { captureLiveOrderIdentity, digestLiveEvidence, liveOrderIdentityBinding, parseLiveOrderEvidence, parseLiveIocAcknowledgement,
   type LiveOrderEvidence, type LiveIocAcknowledgement } from './live-order-evidence.js';
 import type { LiveAccountRiskInput } from './live-account-risk.js';
@@ -206,6 +206,46 @@ export class PostgresLiveSettlement {
         .where(and(eq(copyLiveRiskReservations.key, row.key), eq(copyLiveRiskReservations.revision, row.revision), inArray(copyLiveRiskReservations.state, ['held', 'unknown']))).returning());
       check(changed.length === 1, 'live_settlement_revision_changed');
       await this.query(session, tx.update(copyLiveSignalLegs).set({ state: 'skipped', revision: sql`${copyLiveSignalLegs.revision} + 1`, updatedAt: new Date(this.now()) })
+        .where(and(eq(copyLiveSignalLegs.executionKey, row.key), eq(copyLiveSignalLegs.state, 'prepared'))));
+      session.scope.assertFresh(); this.fresh(started);
+      return { kind: 'released' as const };
+    });
+    return freezeLiveReservation(result);
+  }
+  /**
+   * Releases at once the liability of an order whose exchange request never
+   * began (isDefinitelyUnsent: the executor's durable unsent marker, written
+   * only before any POST). The never-placed grace exists because a request
+   * already on its way may still be accepted; this one was never handed to
+   * fetch and its signature was never persisted, so nothing can land. Still
+   * required under the original locks: no exchange order id on the
+   * reservation or any evidence, no acknowledgement, observation or
+   * certificate, and no receipt (a receipt quarantines). Released as
+   * expired_unplaced (what the generation projection accepts for a never-
+   * placed order), its leg skipped. Every other never-placed order keeps
+   * releaseNeverPlaced and its grace.
+   */
+  async releaseUnsent(session: LiveRiskDatabaseSession, raw: { accountId: string; key: string }): Promise<Readonly<{ kind: 'released' } | { kind: 'pending' | 'quarantine'; reason: string }>> {
+    const input = structuredClone(raw), started = this.now(); session.scope.assertFresh();
+    const result = await session.transaction(async tx => {
+      const { row, record, evidence } = await this.load(session, tx, input.accountId, input.key);
+      if (row.state === 'quarantined') return { kind: 'quarantine' as const, reason: 'live_settlement_quarantined' };
+      if (!isDefinitelyUnsent(record)) return { kind: 'pending' as const, reason: 'live_settlement_not_unsent' };
+      if (row.state === 'released') return { kind: 'released' as const };
+      // A stored status read finding no order (kind missing) carries no oid
+      // and does not block; one that found the order carries its oid.
+      if (row.exchangeOrderId !== null || evidence && (evidence.exchangeOrderId !== null || evidence.acknowledgement !== null ||
+        evidence.settlementCertificate !== null || (evidence.statusObservation as { kind?: unknown } | null)?.kind === 'order'))
+        return { kind: 'pending' as const, reason: 'live_settlement_terminal_unproven' };
+      const receipts = await this.query(session, tx.select({ key: copyFollowerReceipts.key }).from(copyFollowerReceipts).where(eq(copyFollowerReceipts.executionKey, row.key)).limit(1));
+      if (receipts.length) return this.quarantine(session, tx, row, 'live_settlement_unplaced_order_has_fills');
+      const attemptedAt = row.attemptedAt ?? new Date(Math.max(record.updatedAt, row.createdAt.getTime())), checkedAt = this.now();
+      const changed = await this.query(session, tx.update(copyLiveRiskReservations).set({ state: 'released', attemptedAt, exchangeOrderId: null, releaseReason: 'expired_unplaced',
+        releaseEvidenceDigest: digestLiveEvidence({ key: row.key, fingerprint: record.fingerprint, expiresAfter: record.expiresAfter, unsent: record.unsent, updatedAt: record.updatedAt, checkedAt }),
+        revision: row.revision + 1, updatedAt: new Date(checkedAt) })
+        .where(and(eq(copyLiveRiskReservations.key, row.key), eq(copyLiveRiskReservations.revision, row.revision), inArray(copyLiveRiskReservations.state, ['held', 'unknown']))).returning());
+      check(changed.length === 1, 'live_settlement_revision_changed');
+      await this.query(session, tx.update(copyLiveSignalLegs).set({ state: 'skipped', revision: sql`${copyLiveSignalLegs.revision} + 1`, updatedAt: new Date(checkedAt) })
         .where(and(eq(copyLiveSignalLegs.executionKey, row.key), eq(copyLiveSignalLegs.state, 'prepared'))));
       session.scope.assertFresh(); this.fresh(started);
       return { kind: 'released' as const };

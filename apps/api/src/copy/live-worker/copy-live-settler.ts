@@ -9,7 +9,7 @@ import { HyperliquidGlobalTransport } from '../../hyperliquid/hyperliquid-global
 import { RequestBudgeterService } from '../../hyperliquid/request-budgeter.service.js';
 import { reserveLive } from '../../hyperliquid/hyperliquid-budget-wait.js';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
-import { NEVER_PLACED, NEVER_PLACED_GRACE_MS, UNHELD_REJECTED, type LiveExecutionRecord } from '../live/live-execution.js';
+import { isDefinitelyUnsent, NEVER_PLACED, NEVER_PLACED_GRACE_MS, UNHELD_REJECTED, type LiveExecutionRecord } from '../live/live-execution.js';
 import { HyperliquidLiveAccountObserver, observerRestWeight } from '../live/live-account-observer.js';
 import { HyperliquidAllDexsAccountSource, PerReadAllDexsAccountSource } from '../live/live-account-ws-source.js';
 import { boundedLiveRead, HyperliquidLiveMarketResolver } from '../live/live-market-resolver.js';
@@ -28,8 +28,10 @@ export interface LiveSettleRequest {
   readonly sourceNetwork: LiveSourceNetwork; readonly leaderAddress: string; readonly key: string;
 }
 /** `unsent`: a journal rejected before its hold committed (never signed or
- * sent, no reservation): nothing to settle; `reason` is its refusal. */
-export type LiveSettleOutcome = { kind: 'released' } | { kind: 'unplaced' } | { kind: 'pending' | 'quarantine' | 'unsent'; reason: string };
+ * sent, no reservation): nothing to settle; `reason` is its refusal.
+ * `unplaced`: a never-placed order's liability released; `unsent` when its
+ * request provably never began (released at once, its leg may be planned again). */
+export type LiveSettleOutcome = { kind: 'released' } | { kind: 'unplaced'; unsent?: true } |{ kind: 'pending' | 'quarantine' | 'unsent'; reason: string };
 
 /**
  * Settles one terminal order on the deployment's network (`network`): scans the account's own fills now
@@ -56,6 +58,16 @@ export class CopyLiveSettler {
     // never read or settled here.
     if (record.authorization.network !== this.network) return { kind: 'pending', reason: 'live_other_network' };
     if (record.errorCode === UNHELD_REJECTED) return { kind: 'unsent', reason: record.outcome?.reason ?? UNHELD_REJECTED };
+    // Its request never began (the journal's durable unsent marker): nothing
+    // is in flight, so no grace and no provider read. Released at once under
+    // the original locks, which re-check the marker and that no oid, receipt
+    // or exchange evidence exists (releaseUnsent).
+    if (isDefinitelyUnsent(record)) {
+      const released = await new PostgresLiveRiskScope(this.pool, this.now, claim).run({ userId: request.userId, network: this.network, accountAddress: request.accountAddress,
+        source: { network: request.sourceNetwork, leaderAddress: request.leaderAddress } }, async (_scope, session) =>
+        new PostgresLiveSettlement(this.now).releaseUnsent(session, { accountId: request.accountId, key: request.key }));
+      return released.kind === 'released' ? { kind: 'unplaced', unsent: true } : released;
+    }
     // This is a routing wait, never missing-order or release evidence. Before
     // the unchanged signed expiry plus grace, releaseNeverPlaced cannot pass.
     // Skip provider/quota/scanner work only when current local SQL has no

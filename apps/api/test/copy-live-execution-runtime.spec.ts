@@ -40,6 +40,7 @@ import { CopyLiveSettler } from '../src/copy/live-worker/copy-live-settler.js';
 import { PostgresLiveSettlement } from '../src/copy/live/postgres-live-settlement.js';
 import { PostgresLivePreparation } from '../src/copy/live/postgres-live-preparation.js';
 import { LiveLeverageUpdateRequired } from '../src/copy/live/live-leverage-update.js';
+import { ScopedLiveExecutionJournal } from '../src/copy/live/scoped-live-journal.js';
 
 // Native network endpoints alone are replaced. Every provider decoder, private
 // quota capability, SQL authority and SDK request boundary remains concrete.
@@ -1069,5 +1070,87 @@ describe('a refusal after the journal commits (no orphan journal)', () => {
     expect((await db.select().from(schema.copyLiveSignalLegs))[0]!.state).toBe('skipped');
     const next = await secondFill();
     expect((await runtime(config, { ...options, slippageBps: '0' }).execute({ ...request(), sourceFillId: next })).state).toBe('filled');
+  });
+});
+
+describe('an order whose final check refused before its POST began (definite unsent)', () => {
+  /** Persisting `submitting` blocks past the five-second evidence once: the
+   * executor's final check then refuses before any POST. */
+  function staleFinalCheck() {
+    const save = ScopedLiveExecutionJournal.prototype.save;
+    let stalled = false;
+    return vi.spyOn(ScopedLiveExecutionJournal.prototype, 'save').mockImplementation(async function(this: ScopedLiveExecutionJournal, record) {
+      await save.call(this, record);
+      if (record.state === 'submitting' && !stalled) { stalled = true; clock += 5001; }
+    });
+  }
+  async function otherFill(tid: number) {
+    const fill = parseLiveSourceFill({ ...seed.fill.raw, tid, oid: tid + 1, time: clock - 900 }, { network: 'testnet', leaderAddress: seed.consent.leaderAddress,
+      from: clock - 2000, to: clock, receivedAt: clock, kind: 'fills' });
+    await db.update(schema.copyLiveSourceStreams).set({ coverageThrough: new Date(clock) });
+    await db.insert(schema.copyLiveSourceFills).values({ ...fill, normalized: { ...fill.normalized }, providerTime: new Date(fill.providerTime), receivedAt: new Date(fill.receivedAt) });
+    return fill.id;
+  }
+  const settle = (key: string, settler: CopyLiveSettler) => settler.settle({ userId: 1, accountId: 'account', accountAddress: seed.consent.accountAddress,
+    sourceNetwork: 'testnet', leaderAddress: seed.consent.leaderAddress, key });
+  async function unsentOrder() {
+    await actualClockFixture();
+    staleFinalCheck();
+    await expect(runtime(config, { ...options, slippageBps: '0' }).execute(request())).rejects.toThrow();
+    vi.mocked(ScopedLiveExecutionJournal.prototype.save).mockRestore();
+    const [journal] = await db.select().from(schema.copyLiveExecutions);
+    expect(journal).toMatchObject({ state: 'rejected', record: { errorCode: 'exchange_order_never_placed', unsent: 'request_never_began',
+      outcome: { state: 'rejected', reason: 'final_execution_check_failed' } } });
+    expect(raw.mock.calls.filter(([url]) => String(url).endsWith('/exchange'))).toHaveLength(0);
+    expect((await db.select().from(schema.copyLiveRiskReservations))[0]?.state).toBe('held');
+    return journal!;
+  }
+  it('is released at once by a restarted settler reading the durable marker, with no grace, provider read or quota', async () => {
+    const journal = await unsentOrder();
+    // A restart: a new pool and settler, nothing in memory from the attempt.
+    const restarted = new Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 1 });
+    try {
+      raw.mockClear(); const acquire = vi.spyOn(budget, 'acquire'), scan = vi.fn(async () => {});
+      expect(clock).toBeLessThan((journal.record as { expiresAfter: number }).expiresAfter + 80_000);
+      expect(await settle(journal.key, new CopyLiveSettler('testnet', restarted, global, budget, { runFor: scan }, () => clock))).toEqual({ kind: 'unplaced', unsent: true });
+      expect(raw).not.toHaveBeenCalled(); expect(acquire).not.toHaveBeenCalled(); expect(scan).not.toHaveBeenCalled();
+    } finally { await restarted.end(); }
+    expect((await db.select().from(schema.copyLiveRiskReservations))[0]).toMatchObject({ state: 'released', releaseReason: 'expired_unplaced', exchangeOrderId: null });
+    expect((await db.select().from(schema.copyLiveSignalLegs))[0]).toMatchObject({ state: 'skipped', executionKey: journal.key });
+    // The journal itself is unchanged (immutable, still rejected).
+    expect((await db.select().from(schema.copyLiveExecutions))[0]).toEqual(journal);
+  });
+  it('does not block the copy\'s other orders for the never-placed grace', async () => {
+    const journal = await unsentOrder();
+    // The stall moved the test clock 5 s ahead of the database's (the shared
+    // quota's): let real time catch up before the next order.
+    while (Date.now() < clock) await new Promise(resolve => setTimeout(resolve, 100));
+    clock = Date.now();
+    expect(await settle(journal.key, new CopyLiveSettler('testnet', pool, global, budget, { runFor: async () => {} }, () => clock))).toEqual({ kind: 'unplaced', unsent: true });
+    const next = await otherFill(2);
+    expect((await runtime(config, { ...options, slippageBps: '0' }).execute({ ...request(), sourceFillId: next })).state).toBe('filled');
+    expect(clock).toBeLessThan((journal.record as { expiresAfter: number }).expiresAfter + 80_000);
+  }, 20_000);
+  it('only the marker skips the grace: a POST that began and failed stays unknown, and never placed without the marker waits', async () => {
+    await actualClockFixture();
+    const previous = raw.getMockImplementation()!;
+    raw.mockImplementation(async (url, init) => {
+      if (String(url).endsWith('/exchange')) throw new TypeError('fetch failed');
+      return previous(url, init);
+    });
+    const began = await runtime(config, { ...options, slippageBps: '0' }).execute(request());
+    expect(raw.mock.calls.filter(([url]) => String(url).endsWith('/exchange'))).toHaveLength(1);
+    expect(began).toMatchObject({ state: 'unknown', errorCode: 'exchange_submission_ambiguous' }); expect(began.unsent).toBeUndefined();
+    const settler = new CopyLiveSettler('testnet', pool, global, budget, { runFor: async () => {} }, () => clock);
+    expect(await settle(began.key, settler)).toEqual({ kind: 'pending', reason: 'live_settlement_not_terminal' });
+    // As reconciliation records it never placed: without the marker it keeps the grace.
+    const neverPlaced = { ...began, state: 'rejected' as const, errorCode: 'exchange_order_never_placed', outcome: { state: 'rejected' as const, reason: 'exchange_order_never_placed' }, updatedAt: clock };
+    await db.update(schema.copyLiveExecutions).set({ state: 'rejected', record: neverPlaced, updatedAt: new Date(clock) });
+    expect(await settle(began.key, settler)).toEqual({ kind: 'pending', reason: 'live_settlement_never_placed_grace' });
+    expect((await db.select().from(schema.copyLiveRiskReservations))[0]?.state).not.toBe('released');
+    // The same journal had its request never begun: released at once.
+    const unsent = { ...neverPlaced, outcome: { state: 'rejected' as const, reason: 'final_execution_check_failed' }, unsent: 'request_never_began' };
+    await db.update(schema.copyLiveExecutions).set({ record: unsent });
+    expect(await settle(began.key, settler)).toEqual({ kind: 'unplaced', unsent: true });
   });
 });

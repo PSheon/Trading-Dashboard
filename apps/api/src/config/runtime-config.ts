@@ -337,6 +337,9 @@ function productionSecret(key: string, value: string | undefined, production: bo
   }
 }
 
+export const DATABASE_POOL_MAX_API = 20;
+export const DATABASE_POOL_MAX_WORKER = 30;
+
 /** Validate before Nest constructs any DB client, watcher or bot. No I/O. */
 export function validateEnvironment(source: Environment = process.env) {
   const nodeEnv = source.NODE_ENV ?? "development";
@@ -365,7 +368,16 @@ export function validateEnvironment(source: Environment = process.env) {
   // A worker beside an api on one machine needs its own port: WORKER_PORT
   // wins for the worker (Railway sets PORT per service and leaves it unset).
   port: isWorker && source.WORKER_PORT ? integerValue("WORKER_PORT", source.WORKER_PORT, 3000, 1, 65535) : integerValue("PORT", source.PORT, 3000, 1, 65535) };
-  const database = { url: databaseUrl(source.DATABASE_URL) };
+  // The main pool's size (DATABASE_POOL_MAX). pg's default of 10 was shared
+  // by the LISTEN relays, the two dedicated connections of every live order
+  // (order lock, risk scope), the snapshot cron, sweeps, analytics and
+  // retention; when it ran out an order waited 3 s for a connection and
+  // failed inside its 5 s window. Defaults: api 20, worker 30, which with
+  // the worker's lease connection, an api overlapping its replacement in a
+  // rolling deploy and the release's migration stay well under Postgres's
+  // default max_connections of 100 (docs/railway-deploy.md).
+  const database = { url: databaseUrl(source.DATABASE_URL),
+    poolMax: integerValue("DATABASE_POOL_MAX", source.DATABASE_POOL_MAX, isWorker ? DATABASE_POOL_MAX_WORKER : DATABASE_POOL_MAX_API, 2, 200) };
   const serviceToken = optional(source.AUTH_SERVICE_TOKEN);
   const permissions = servicePermissions(source.AUTH_SERVICE_PERMISSIONS);
   if (permissions.length && !serviceToken) throw new Error("AUTH_SERVICE_TOKEN is required when AUTH_SERVICE_PERMISSIONS is set");

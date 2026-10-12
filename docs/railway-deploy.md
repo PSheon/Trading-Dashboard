@@ -57,6 +57,7 @@ Secrets are set in Railway per service and per environment; nothing here belongs
 | `NODE_ENV` | `staging` | `production` | both enable production-grade validation |
 | `PORT` | `3000` | `3000` | |
 | `DATABASE_URL` | ref → Stage Postgres | ref → production Postgres | never the other environment's |
+| `DATABASE_POOL_MAX` | unset (20) | unset (20) | the api's main pool; see "Database connections" below |
 | `PRIVY_APP_ID`, `PRIVY_APP_SECRET`, `PRIVY_VERIFICATION_KEY` | Stage Privy app | production Privy app | api only |
 | `AUTH_ADMIN_EMAILS` | owner's email(s) | owner's email(s) | bootstrap admins |
 | `AUTH_SERVICE_TOKEN`, `AUTH_SERVICE_PERMISSIONS` | unset | unset unless a service caller exists | ≥ 32 chars when set |
@@ -73,6 +74,7 @@ Secrets are set in Railway per service and per environment; nothing here belongs
 | Variable | Stage | Production | Notes |
 | --- | --- | --- | --- |
 | `IS_WORKER` | `true` | `true` | replaces `APP_ROLE=worker` (delete `APP_ROLE`) |
+| `DATABASE_POOL_MAX` | unset (30) | unset (30) | the worker's main pool (its lease takes one more connection); see "Database connections" |
 | `NODE_ENV`, `PORT`, `DATABASE_URL` | as api | as api | `WORKER_PORT` wins over `PORT` when set (one machine). `DATABASE_URL` must be the api's exact value: `/health/monitor` (the admin system page's worker telemetry) answers only the key the api derives from it (`src/runtime/worker-calls.ts`); with another value the page shows the worker as unavailable |
 | `HYPERLIQUID_WEIGHT_BUDGET_PER_MIN` / `HYPERLIQUID_WEIGHT_BURST` | `360` / `100` | `360` / `100` | 480 + 360 = 840 of 1,200. On one machine with one `.env` (local), the worker reads `HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN` / `HYPERLIQUID_WORKER_WEIGHT_BURST` instead (as `WORKER_PORT`); not needed on Railway. With both at 840 locally the worker alone filled the background lane: 45–136 `hyperliquid_quota_exhausted` every 10 minutes on 2026-10-04 (`shared-egress-budget.spec.ts`: 167 → 0 in a simulated 10 minutes) |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `TELEGRAM_SYSTEM_CHAT_ID` | Stage bot | production bot | different bots per environment (one poller per token) |
@@ -149,6 +151,18 @@ no cap), `DISCOVERY_COHORT_REFRESH_MINUTES` 40 (15 before; CopyDog's rows are
 each refresh.
 
 At the default 840/min: jobs 630 (see the table), plus the home warm-up (24 portfolios every 10 min ≈ 48), leader snapshots and sweeps (≈ 60 averaged) ≈ 750 when every job is busy, leaving ≈ 90 plus the page reserve for pages; every job scales down to a quarter of its allowance while page traffic approaches half the budget (`backgroundFactor` on `/health`). The page reserve (60 % of the burst, refilled first; `HYPERLIQUID_PAGE_RESERVE_SHARE` of the rate is its floor) is never spent by jobs. Pool freshness at 240: ≈ 480 visible rows of ≈ 1,140 are read every ≈ 54 min (median age ≈ 27 min), the rest every ≈ 3.6 h (`discovery.*AgeSeconds` on `/health`). The archive ingest spends no Hyperliquid weight.
+
+## Database connections
+
+Each process has one main pool (`DATABASE_POOL_MAX`, default api 20, worker 30; pg's own default of 10 ran out under live orders, which take two dedicated connections each beside the LISTEN relays, the snapshot cron and the sweeps). The worker also holds one lease connection. Budget against Postgres's `max_connections` (100 on Railway's PostgreSQL unless changed; `SHOW max_connections`, 3 of them reserved for superusers):
+
+| Moment | Connections at most |
+| --- | --- |
+| Steady (api + active worker) | 20 + 30 + 1 = 51 |
+| api rolling deploy (old and new api, pre-deploy migration) | 20 + 20 + 30 + 1 + 1 = 72 |
+| worker rolling deploy (the standby builds nothing until it owns the lease) | 20 + 30 + 1 + 1 = 52 |
+
+Raise either value only after checking that sum (plus any admin `psql` sessions) still fits.
 
 ## Volumes and storage
 

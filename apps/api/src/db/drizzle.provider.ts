@@ -16,7 +16,7 @@ export const poolProvider: Provider = {
   provide: DATABASE_POOL,
   inject: [AppConfig],
   useFactory: (config: AppConfig) => guardPool(new Pool({ connectionString: config.value.database.url,
-    connectionTimeoutMillis: 3000, statement_timeout: 15000,
+    max: config.value.database.poolMax, connectionTimeoutMillis: 3000, statement_timeout: 15000,
     idle_in_transaction_session_timeout: 15000, query_timeout: 20000 }), new Logger("DatabasePool")),
 };
 

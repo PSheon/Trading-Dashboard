@@ -8,6 +8,15 @@ import { useLiveCopyDeployment } from './copy-live-setup';
 import { useSiteMode } from './site-mode';
 import { createSetupAbortJournal, requestSetupAbort, setupAbortFence, validateSetupAbortProgress, type SetupAbortOwner } from './copy-live-setup-abort-recovery';
 
+/** How often an abort's progress is read again: every 3 s while it moves
+ * (and until the first answer); never once there is none (404: a request
+ * sets it) or it completed; every 30 s while blocked (no fast change is expected). */
+export function setupAbortPollInterval(progress: LiveCopySetupAbort | null | undefined): number | false {
+  if (progress === undefined) return 3000;
+  if (progress === null || progress.state === 'completed') return false;
+  return progress.state === 'blocked' ? 30_000 : 3000;
+}
+
 /** GET only while viewing progress. A POST happens only on the explicit
  * confirmation button and requests the same durable local abort barrier. */
 export function useLiveSetupAbort(setup: LiveCopySetup) {
@@ -26,7 +35,7 @@ export function useLiveSetupAbort(setup: LiveCopySetup) {
   const enabled = readable && signedIn && correctMode;
   const key = ['copy', 'setup-abort', auth.userId, auth.mode, owner.session, mode, owner.network, setup.id] as const;
   const query = useQuery<LiveCopySetupAbort | null>({ queryKey: key, enabled, retry: false,
-    refetchInterval: q => q.state.data?.state === 'completed' ? false : 3000,
+    refetchInterval: q => setupAbortPollInterval(q.state.data),
     queryFn: async ({ signal }): Promise<LiveCopySetupAbort | null> => {
       const guard = setupAbortFence(() => ({ ...snapshot(), available: mounted.current && readable })); guard();
       try {

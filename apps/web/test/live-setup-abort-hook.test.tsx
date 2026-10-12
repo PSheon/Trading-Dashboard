@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { LiveCopySetup } from '@trading-dashboard/shared/contracts';
-import { useLiveSetupAbort } from '@/lib/copy-live-setup-abort';
+import { setupAbortPollInterval, useLiveSetupAbort } from '@/lib/copy-live-setup-abort';
 import { liveSettings } from './copy-live-fixtures';
 const state = vi.hoisted(() => ({ network: 'testnet' as 'testnet' | 'mainnet', capability: false, userId: 'did:privy:owner', session: '1', siteMode: 'testnet', get: vi.fn(), post: vi.fn() }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ status: 'signedIn', mode: 'privy', userId: state.userId, identity: state.userId, wallet: null }) }));
@@ -36,4 +36,32 @@ it('exposes mainnet abort only when the server capability is enabled and the act
   expect(probe.current?.available).toBe(false);
   expect(probe.current?.progress).toBeNull();
   expect(state.post).not.toHaveBeenCalled();
+});
+
+it('polls abort progress only while it moves: never with none, slowly while blocked', () => {
+  expect(setupAbortPollInterval(undefined)).toBe(3000);
+  expect(setupAbortPollInterval(null)).toBe(false);
+  expect(setupAbortPollInterval({ ...progress(), state: 'completed' } as never)).toBe(false);
+  expect(setupAbortPollInterval({ ...progress(), state: 'blocked' } as never)).toBe(30_000);
+  for (const state of ['requested', 'reconciling', 'refunding', 'delegated']) expect(setupAbortPollInterval({ ...progress(), state } as never)).toBe(3000);
+});
+it('reads once and stops when there is no abort (404), and every 30 s while blocked', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+  try {
+    state.capability = true;
+    state.get.mockRejectedValue(Object.assign(new Error('not found'), { status: 404 }));
+    await render(); await settle();
+    expect(probe.current?.progress).toBeNull();
+    expect(state.get).toHaveBeenCalledTimes(1);
+    await act(async () => { vi.advanceTimersByTime(30_000); }); await settle();
+    expect(state.get).toHaveBeenCalledTimes(1);
+    await act(async () => root.unmount()); client.clear(); root = createRoot(container); state.get.mockReset();
+    state.get.mockResolvedValue({ ...progress(), state: 'blocked', issue: 'manual_review' });
+    await render(); await settle();
+    expect(state.get).toHaveBeenCalledTimes(1);
+    await act(async () => { vi.advanceTimersByTime(29_000); }); await settle();
+    expect(state.get).toHaveBeenCalledTimes(1);
+    await act(async () => { vi.advanceTimersByTime(1_000); }); await settle();
+    expect(state.get).toHaveBeenCalledTimes(2);
+  } finally { vi.useRealTimers(); }
 });

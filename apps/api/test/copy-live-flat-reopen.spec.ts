@@ -21,15 +21,15 @@ beforeEach(async () => {
 });
 afterAll(async () => { await closeTestDb(); });
 
-async function leg(tid: number, time: number, leg: 'open' | 'close', state: 'pending' | 'submitted' | 'settled', extra: Partial<typeof schema.copyLiveDispatches.$inferInsert> = {},
-  side: 'B' | 'A' = leg === 'open' ? 'B' : 'A') {
+async function leg(tid: number, time: number, leg: 'open' | 'close', state: 'pending' | 'submitted' | 'settled' | 'refused', extra: Partial<typeof schema.copyLiveDispatches.$inferInsert> = {},
+  side: 'B' | 'A' = leg === 'open' ? 'B' : 'A', journal = 'filled') {
   const fillId = `${stream}:${tid}`;
   await db.insert(schema.copyLiveSourceFills).values({ id: fillId, streamId: stream, network: 'mainnet', leaderAddress: leader, tid: String(tid), providerTime: new Date(time),
     receivedAt: new Date(time), coin: 'BTC', oid: String(1000 + tid), tradeKey: `oid:${1000 + tid}`, px: '100', sz: '1', side, startPosition: '0',
     normalized: {}, raw: {}, sourceDigest: 'a'.repeat(64) });
   const id = `mandate|${fillId}|${leg}`, key = `exec-${tid}`;
   if (state !== 'pending') await db.insert(schema.copyLiveExecutions).values({ key, network: 'testnet', accountAddress: seed.f.identity.accountAddress, signerAddress: `0x${'33'.repeat(20)}`,
-    cloid: `0x${tid.toString(16).padStart(32, '0')}`, nonce: now + tid, userId: 1, strategyId: 9, state: 'filled', updatedAt: new Date(now), record: { key, state: 'filled' } });
+    cloid: `0x${tid.toString(16).padStart(32, '0')}`, nonce: now + tid, userId: 1, strategyId: 9, state: journal, updatedAt: new Date(now), record: { key, state: journal } });
   await db.insert(schema.copyLiveDispatches).values({ id, mandateId: 'mandate', userId: 1, strategyId: 9, accountId: 'account', sourceFillId: fillId, leg, coin: 'BTC', state,
     ...(state !== 'pending' ? { executionKey: key } : {}), leaderTime: new Date(time), receivedAt: new Date(time), ...extra });
   return id;
@@ -105,6 +105,21 @@ describe('a close after the leader went flat, when the leader opens the coin aga
     expect(close).toHaveBeenCalledTimes(1);
     expect((await db.select().from(schema.copyLiveManualCloses))[0]).toMatchObject({ state: 'done', reason: null });
     expect(await repo.closeRequested('account', 'BTC')).toBe(false);
+  });
+
+  // A re-open with an execution key that never filled is nothing the follower holds.
+  it.each([
+    ['refused unattempted_expired', 'refused', 'rejected', 'unattempted_expired'],
+    ['refused exchange_order_never_placed', 'refused', 'rejected', 'exchange_order_never_placed'],
+    ['still submitted, its journal expired unattempted', 'submitted', 'rejected', null],
+    ['settled cancelled without a fill', 'settled', 'cancelled', null],
+  ] as const)('a re-open %s: the reconcile close still runs', async (_case, dispatch, journal, reason) => {
+    const closeLeg = await leg(1, now - 5000, 'close', 'settled'); await flatClose(closeLeg, now - 4000);
+    await leg(2, now - 3000, 'open', dispatch, reason ? { reason } : {}, 'A', journal);
+    const { double, close } = closer();
+    await manual(double).tick();
+    expect(close).toHaveBeenCalledTimes(1);
+    expect((await db.select().from(schema.copyLiveManualCloses))[0]).toMatchObject({ state: 'requested' });
   });
 
   it.each(['submitted', 'journaled'] as const)('a re-open already %s: the close is refused leader_reopened, sending nothing', async how => {

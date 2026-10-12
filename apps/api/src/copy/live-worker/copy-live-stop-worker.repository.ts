@@ -69,8 +69,12 @@ export class CopyLiveStopWorkerRepository {
   }
   /** For a close requested after the leader went flat (`reconcile:<leg>`):
    * whether the copy already journaled or sent an open of that coin for a
-   * later leader fill (exchange time, then tid): only such an open can be in
-   * what the follower holds. One not journaled yet does not count, whichever
+   * later leader fill (exchange time, then tid) that is still in flight or
+   * filled (its journal prepared, submitting, unknown, resting, filled or
+   * partial): only such an open can be in what the follower holds. A refused
+   * one, or one that ended without a fill (unattempted_expired, never placed,
+   * unheld rejected, cancelled unfilled), does not count, even with an
+   * execution key. One not journaled yet does not count either, whichever
    * side it opens: it waits for this close (closeRequested), so the old
    * side's remainder is closed first and the open then sizes from flat. */
   async leaderReopened(idempotencyKey: string): Promise<boolean> {
@@ -80,8 +84,10 @@ export class CopyLiveStopWorkerRepository {
         join ${copyLiveDispatches} o on o.mandate_id = d.mandate_id and o.coin = d.coin and o.leg = 'open'
         join copy_live_source_fills g on g.id = o.source_fill_id
       where d.id = ${idempotencyKey.slice('reconcile:'.length)} and (g.provider_time, g.tid::numeric) > (f.provider_time, f.tid::numeric)
-        and (o.execution_key is not null or o.state in ('submitted', 'settled')
-          or exists (select 1 from ${copyLiveSignalLegs} l where l.mandate_id = o.mandate_id and l.source_fill_id = o.source_fill_id and l.leg = 'open' and l.execution_key is not null))) as reopened`);
+        and o.state <> 'refused'
+        and exists (select 1 from ${copyLiveExecutions} e where e.state in ('prepared', 'submitting', 'unknown', 'resting', 'filled', 'partial')
+          and (e.key = o.execution_key or e.key in (select l.execution_key from ${copyLiveSignalLegs} l
+            where l.mandate_id = o.mandate_id and l.source_fill_id = o.source_fill_id and l.leg = 'open')))) as reopened`);
     return found.rows[0]?.reopened === true;
   }
   async strategyStatus(id: number): Promise<string | null> {

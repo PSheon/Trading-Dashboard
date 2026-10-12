@@ -1,8 +1,9 @@
+import { setTimeout as delay } from "node:timers/promises";
 import type { PoolClient } from "pg";
 
 /** Session-scoped, database-local singleton. Keep this dedicated connection open
  * until all worker jobs have drained; never return it to a pool while locked. */
-export async function acquireWorkerLease(client: PoolClient): Promise<boolean> {
+export async function acquireWorkerLease(client: Pick<PoolClient, "query">): Promise<boolean> {
   const result = await client.query<{ acquired: boolean }>("SELECT pg_try_advisory_lock(73106, 1) AS acquired");
   return result.rows[0]?.acquired === true;
 }
@@ -15,3 +16,77 @@ export async function acquireWorkerLease(client: PoolClient): Promise<boolean> {
  * long), and its own keepalives drop a peer that stopped answering.
  */
 export const WORKER_LEASE_SESSION_OPTIONS = "-c idle_session_timeout=30s -c tcp_keepalives_idle=10 -c tcp_keepalives_interval=5 -c tcp_keepalives_count=3";
+
+/** How long the worker keeps retrying while it cannot use Postgres (no
+ * connection, or the standby connection dropped) before it exits. A DB
+ * outage (2026-10-12: the usage limit stopped Postgres) used to make the
+ * worker exit within 3 s of every start and use up Railway's restart
+ * retries, leaving it dead once the database was back. */
+export const WORKER_DB_RETRY_WINDOW_MS = 10 * 60_000;
+const BACKOFF_MIN_MS = 1_000;
+const BACKOFF_MAX_MS = 30_000;
+/** Standby: how often a worker whose database is up asks for the lease again. */
+export const WORKER_LEASE_POLL_MS = 1_000;
+
+export interface LeaseClient {
+  query: PoolClient["query"];
+  release(destroy?: boolean): void;
+}
+
+export interface AcquireOwnershipOptions<C extends LeaseClient> {
+  connect(): Promise<C>;
+  /** Default: `acquireWorkerLease`. */
+  acquire?(client: C): Promise<boolean>;
+  signal: AbortSignal;
+  logger: { log(message: string): void; warn(message: string): void };
+  /** Continuous time without a usable database before giving up. */
+  retryWindowMs?: number;
+  now?(): number;
+  sleep?(ms: number, signal: AbortSignal): Promise<void>;
+}
+
+/**
+ * Connects and takes the worker lease, waiting as standby while another
+ * worker holds it. Database failures (cannot connect, or the standby
+ * connection fails) are retried on a fresh connection with exponential
+ * backoff (1 s → 30 s) for `retryWindowMs` of continuous unavailability,
+ * then rethrown; any answer from the database restarts the window. Standby
+ * itself is not bounded: a live worker holds the lease. Resolves with the
+ * connection that holds the lease. Nothing runs before this resolves, so
+ * reconnecting here can never make two workers active.
+ */
+export async function acquireWorkerOwnership<C extends LeaseClient>(options: AcquireOwnershipOptions<C>): Promise<C> {
+  const { signal, logger } = options;
+  const acquire = (client: C) => options.acquire ? options.acquire(client) : acquireWorkerLease(client);
+  const window = options.retryWindowMs ?? WORKER_DB_RETRY_WINDOW_MS;
+  const now = () => options.now ? options.now() : Date.now();
+  const sleep = (ms: number) => options.sleep ? options.sleep(ms, signal) : delay(ms, undefined, { signal });
+  let failingSince: number | undefined;
+  let attempt = 0;
+  for (;;) {
+    signal.throwIfAborted();
+    let client: C | undefined;
+    try {
+      client = await options.connect();
+      for (;;) {
+        const acquired = await acquire(client);
+        if (failingSince !== undefined) logger.log("Worker database reachable again");
+        failingSince = undefined;
+        attempt = 0;
+        if (acquired) return client;
+        await sleep(WORKER_LEASE_POLL_MS);
+      }
+    } catch (error) {
+      client?.release(true);
+      if (signal.aborted) throw error;
+      const at = now();
+      failingSince ??= at;
+      const left = failingSince + window - at;
+      if (left <= 0) throw error;
+      const wait = Math.min(BACKOFF_MAX_MS, BACKOFF_MIN_MS * 2 ** attempt, left);
+      attempt += 1;
+      logger.warn(`Worker database unavailable (attempt ${attempt}, for ${Math.round((at - failingSince) / 1000)} s); retrying in ${Math.round(wait / 1000)} s`);
+      await sleep(wait);
+    }
+  }
+}

@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { setTimeout as delay } from "node:timers/promises";
 
 import type { INestApplicationContext } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
@@ -11,7 +10,7 @@ import { RequestBudgeterService } from "../hyperliquid/request-budgeter.service.
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { operationalSwitches } from "../runtime/operational-switches.js";
 import type { StructuredLogger } from "../runtime/structured-logger.js";
-import { acquireWorkerLease, WORKER_LEASE_SESSION_OPTIONS } from "../runtime/worker-lease.js";
+import { acquireWorkerOwnership, WORKER_LEASE_SESSION_OPTIONS } from "../runtime/worker-lease.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { WorkerHeartbeatService } from "../worker/worker-heartbeat.service.js";
 import { startWorkerHealthServer } from "./worker-health-server.js";
@@ -23,7 +22,9 @@ import { workerMonitorKey } from "../runtime/worker-calls.js";
  * before stopping the old deployment, and the replacement stays on standby,
  * live but not ready, constructing nothing). With the lease it creates
  * `AppModule.worker()` as an application context: no HTTP routes, only the
- * health server's. Losing the lease connection exits the process.
+ * health server's. Losing the lease connection exits the process. Until it
+ * owns the lease, an unreachable database is retried (up to 10 minutes of
+ * continuous unavailability) instead of exiting.
  */
 export async function startWorker(config: RuntimeConfig, logger: StructuredLogger): Promise<void> {
   const pool = guardPool(new Pool({ connectionString: config.database.url, max: 1, keepAlive: true, connectionTimeoutMillis: 3000, query_timeout: 3000, options: WORKER_LEASE_SESSION_OPTIONS }), logger, "worker lease");
@@ -73,22 +74,32 @@ export async function startWorker(config: RuntimeConfig, logger: StructuredLogge
   onShutdownSignals(shutdown);
 
   try {
-    client = await pool.connect();
+    // Standby and a database outage before ownership are retried here
+    // (acquireWorkerOwnership: backoff, up to WORKER_DB_RETRY_WINDOW_MS of
+    // continuous unavailability): nothing runs yet, so reconnecting is safe.
+    const owner = await acquireWorkerOwnership({ connect: () => pool.connect(), signal: abort.signal, logger });
+    client = owner;
+    // Once it owns the lease, losing that connection exits at once. The
+    // lock is session-scoped: the server drops it with the session, and a
+    // standby may already be taking over while this process's jobs still
+    // run on their own pool. Exiting is the only fence that stops them
+    // immediately (closing the Nest context waits for jobs to drain), so
+    // the process does not drop back to standby; the restart is survivable
+    // instead: the new process waits out an outage in acquireWorkerOwnership.
     const ownershipLost = () => {
       if (stopping) return;
       logger.error("Worker ownership connection lost");
       process.exit(1);
     };
-    client.on("error", ownershipLost);
-    client.on("end", ownershipLost);
+    owner.on("error", ownershipLost);
+    owner.on("end", ownershipLost);
     // A slow probe is not a lost lock: only three failures in a row (15 s),
     // or the connection's own 'error'/'end', give up the lease.
     let probeFailures = 0;
     leaseProbe = setInterval(() => {
-      void client?.query("SELECT 1").then(() => { probeFailures = 0; }, () => { probeFailures += 1; if (probeFailures >= 3) ownershipLost(); });
+      void owner.query("SELECT 1").then(() => { probeFailures = 0; }, () => { probeFailures += 1; if (probeFailures >= 3) ownershipLost(); });
     }, 5000);
     leaseProbe.unref();
-    while (!await acquireWorkerLease(client)) await delay(1000, undefined, { signal: abort.signal });
     if (stopping) return;
     logger.log("Worker ownership acquired");
     const { AppModule } = await import("../app.module.js");

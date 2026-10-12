@@ -44,6 +44,8 @@ export function useWalletHistory() {
     queryFn: ({ signal }) => api.get<WalletHistory>("/me/wallet/history", signal),
     enabled: status === "signedIn",
     staleTime: 30_000,
+    // Deposits and withdrawals until credited: polled (was the global default).
+    refetchInterval: 10_000,
     refetchOnWindowFocus: true,
     ...busyRetry,
   });

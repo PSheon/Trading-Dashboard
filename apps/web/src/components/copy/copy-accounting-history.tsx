@@ -45,6 +45,8 @@ function useHistoryPages<K extends "ledger" | "fills">(strategyId: number, kind:
     initialPageParam: null as string | null,
     getNextPageParam: (last) => (last.hasMore && last.previousCursor ? last.previousCursor : undefined),
     enabled: enabled && status === "signedIn",
+    // A running paper copy's fills and ledger as they land: polled (was the global default).
+    refetchInterval: 10_000,
     ...defaultRetry,
   });
 }

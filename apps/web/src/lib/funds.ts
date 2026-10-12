@@ -22,6 +22,8 @@ export function useFundsHistory(mode?: "paper" | "actual") {
     getNextPageParam: (last) => last.nextCursor,
     enabled: status === "signedIn",
     staleTime: 30_000,
+    // Live copies' PnL is equity less these net deposits: polled (was the global default).
+    refetchInterval: 10_000,
     ...defaultRetry,
   });
 }

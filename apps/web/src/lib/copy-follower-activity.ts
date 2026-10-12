@@ -41,6 +41,8 @@ export function useCopyFollowerActivity(account: CopyExecutionAccount | null, be
       return loadCopyFollowerActivity(account, before, { signal, currentAccount: () => latest.current.account, read: (path, abort) => api.get(path, abort), snapshot: () => {
         const a = latest.current.auth; return { status: mounted.current ? a.status : 'disposed', mode: a.mode, identity: a.identity, session: sessionKey(), walletAddress: a.wallet?.address?.toLowerCase() ?? null };
       } });
-    }, retry: false, staleTime: 0, gcTime: 0, refetchOnWindowFocus: false });
+    }, retry: false, staleTime: 0, gcTime: 0, refetchOnWindowFocus: false,
+    // A running copy's fills as they land: polled (was the global default).
+    refetchInterval: 10_000 });
   return { ...query, data: enabled && !query.isError ? query.data : undefined };
 }

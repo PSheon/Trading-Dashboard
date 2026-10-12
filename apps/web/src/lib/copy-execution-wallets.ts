@@ -24,6 +24,8 @@ export function useExecutionWallets() {
     queryFn: ({ signal }) => api.get<ExecutionWalletOverview>("/me/copy/execution-wallets", signal),
     enabled: status === "signedIn",
     staleTime: 5_000,
+    // A copy started meanwhile gets its account here (its card's balance): polled (was the global default).
+    refetchInterval: 10_000,
     ...defaultRetry,
   });
 }

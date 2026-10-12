@@ -191,7 +191,10 @@ export class LiveGenerationProjectionMemo {
  * This quantity projection grants neither current risk nor authority to sign. */
 export function projectLiveGenerationPositions(raw: LiveGenerationProjectionInput): LiveGenerationProjection {
   try {
-    const input=structuredClone(raw),{identity:id,snapshot,currentExecutionKey,now}=input, manifest=input.manifest as LiveGenerationManifestV1;
+    // Settlement proofs are passed on uncopied: only decodeLiveSettlementProof
+    // reads them, taking each as untrusted (plain JSON, hashed against its
+    // digest, copied before any assessment). A copy of each was ~100 KB.
+    const {settlementProofs,...plain}=raw,input={...structuredClone(plain),...(settlementProofs!==undefined?{settlementProofs}:{})},{identity:id,snapshot,currentExecutionKey,now}=input, manifest=input.manifest as LiveGenerationManifestV1;
     requireGeneration(isHyperliquidNetwork(id.network)&&address(id.accountAddress)===id.accountAddress&&address(id.leaderAddress)===id.leaderAddress&&['same','reverse'].includes(id.direction)&&
       Number.isSafeInteger(id.mandateRevision)&&id.mandateRevision>0&&manifest?.version===1&&manifest.accountId===id.accountId&&manifest.mandateId===id.mandateId&&
       [manifest.journals,manifest.receipts,manifest.ledger,manifest.conflicts,manifest.carry].every(Array.isArray)&&manifest.journals.length<=5001&&manifest.receipts.length<=10000&&manifest.ledger.length<=30000&&manifest.conflicts.length===0&&manifest.carry.length<=1024&&

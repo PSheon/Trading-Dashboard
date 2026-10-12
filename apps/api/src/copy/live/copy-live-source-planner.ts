@@ -133,7 +133,10 @@ function conservativeLimit(mid:Dec,side:'B'|'A',slippage:string,szDecimals:numbe
 }
 export function planLiveSourceOrder(raw: LiveSourcePlanInput): PlannedLiveSourceOrder {
   try{
-    const {projectionMemo,...plain}=raw,input=structuredClone(plain),{mandate:m,now,limits,currentExecutionKey}=input,consent=decodeLiveCopyMandate(m),settings=copyStrategySettingsSchema.strict().parse(input.settings),envelope=decodeLiveSourceSizingEnvelope(input.sizingBasis),b=envelope.basis,o=envelope.observations;
+    // The settlement proofs are not copied: only decodeLiveSettlementProof reads
+    // them, and it takes each as untrusted (checked as plain JSON, hashed against
+    // its digest, copied before any assessment).
+    const {projectionMemo,settlementProofs,...plain}=raw,input=structuredClone(plain),{mandate:m,now,limits,currentExecutionKey}=input,consent=decodeLiveCopyMandate(m),settings=copyStrategySettingsSchema.strict().parse(input.settings),envelope=decodeLiveSourceSizingEnvelope(input.sizingBasis),b=envelope.basis,o=envelope.observations;
     // A paused generation stops new risk only: its close still plans.
     requireSizing(Number.isSafeInteger(now)&&now>0&&(m.state==='active'||input.leg.leg==='close'&&m.state==='paused')&&m.consentDigest&&m.activationCursor&&m.expiresAt.getTime()>now&&isHyperliquidNetwork(consent.network)&&isHyperliquidNetwork(consent.sourceNetwork)&&
       settings.copyStartMode==='delta'&&consent.settingsDigest===liveCopySettingsDigest(settings)&&Number.isSafeInteger(limits.maxSignalAgeSeconds)&&limits.maxSignalAgeSeconds>0&&limits.maxSignalAgeSeconds<=86400&&
@@ -155,9 +158,9 @@ export function planLiveSourceOrder(raw: LiveSourcePlanInput): PlannedLiveSource
     equal(b.quote,{midPrice:q.quote.midPrice,slippageBps:b.quote.slippageBps,observedAt:q.quote.observedAt,completedAt:q.completedAt,sourceDigest:q.quote.sourceDigest});
     requireSizing(b.quote.observedAt<=b.quote.completedAt&&q.earliestObservedAt<=q.quote.observedAt);fresh(q.earliestObservedAt,now);fresh(q.completedAt,now);
     const projectionInput={identity:{mandateId:m.id,mandateRevision:m.revision,accountId:consent.accountId,userId:consent.userId,strategyId:consent.strategyId,network:consent.network,accountAddress:consent.accountAddress,
-      authorizationId:consent.authorizationId,settingsDigest:consent.settingsDigest,leaderAddress:consent.leaderAddress,direction:settings.direction},manifest:o.generationManifest,snapshot:o.follower,currentExecutionKey,now,...(input.settlementProofs?{settlementProofs:input.settlementProofs}:{})};
+      authorizationId:consent.authorizationId,settingsDigest:consent.settingsDigest,leaderAddress:consent.leaderAddress,direction:settings.direction},manifest:o.generationManifest,snapshot:o.follower,currentExecutionKey,now,...(settlementProofs?{settlementProofs}:{})};
     // `input` is a clone of `raw`: the memo reuses only for the same frozen originals.
-    const projection=projectionMemo?projectionMemo.project(projectionInput,{envelope:raw.sizingBasis,proofs:raw.settlementProofs}):projectLiveGenerationPositions(projectionInput);
+    const projection=projectionMemo?projectionMemo.project(projectionInput,{envelope:raw.sizingBasis,proofs:settlementProofs}):projectLiveGenerationPositions(projectionInput);
     equal(b.generation,{mandateId:m.id,baselineDigest:projection.baselineDigest,receiptManifestDigest:projection.receiptManifestDigest,positionsDigest:projection.positionsDigest,positionSize:projection.positions[fill.coin]??'0'});
     equal(b.follower.positionsDigest,projection.positionsDigest);equal(b.follower.positionSize,b.generation.positionSize);
     const carry=o.generationManifest.carry.filter(row=>row.mandateId===m.id&&row.coin===fill.coin);requireSizing(carry.length===1);equal(b.carry,{amount:carry[0]!.carry,revision:carry[0]!.revision});

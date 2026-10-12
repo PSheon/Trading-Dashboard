@@ -32,6 +32,7 @@ import { hedgeWarning } from "@/lib/copy-portfolio";
 import { coinLabel, truncateAddress } from "@/lib/format";
 import { rovingFocus } from "@/lib/roving-focus";
 import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Switch } from "@/components/ui/switch";
 import { useTraderCopyFlow } from "./trader-copy-flow";
 import { CopyFitSummary } from "./copy-fit-summary";
 
@@ -673,21 +674,19 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
               <span id="copy-positions" className="text-[13px] font-semibold" title={t("trader.copy.copyPositionsDesc")}>
                 {t("trader.copy.copyPositions")}
               </span>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={testnet ? false : copyExisting}
+              <Switch
+                checked={testnet ? false : copyExisting}
                 aria-labelledby="copy-positions"
                 aria-describedby={testnet ? "copy-positions-note" : undefined}
                 disabled={testnet}
-                onClick={() => setCopyExisting((v) => !v)}
+                onCheckedChange={() => setCopyExisting((v) => !v)}
                 className={cn(
                   "relative h-5 w-9 shrink-0 rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
                   copyExisting && !testnet ? "bg-primary" : "bg-border-strong",
                 )}
               >
                 <span className={cn("absolute top-0.5 left-0.5 size-4 rounded-full bg-primary-foreground shadow-xs transition-transform", copyExisting && !testnet && "translate-x-4")} />
-              </button>
+              </Switch>
             </div>
             {testnet ? (
               <>

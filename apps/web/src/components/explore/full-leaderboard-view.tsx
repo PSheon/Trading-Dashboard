@@ -6,12 +6,12 @@ import { activeWithinSchema, type ActiveWithin, type TraderWindow } from "@/lib/
 import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { cn } from "cn";
 
 import { EmptyState, ErrorState, PageHeader, Panel, Skeleton } from "@/components/page";
 import { TradersTable } from "@/components/traders/traders-table";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
+import { Switch, SwitchTrack } from "@/components/ui/switch";
 import { useI18n } from "@/i18n/provider";
 import { useSiteSettings, useSparklines, useTraders, type TraderSort } from "@/lib/queries";
 import { usd0 } from "@/lib/format";
@@ -142,31 +142,17 @@ export function FullLeaderboardView() {
           }}
           options={MIN_VALUES.map((v) => ({ value: String(v), label: v === 0 ? t("explore.anyValue") : `≥ ${usd0(v)}` }))}
         />
-        <button
-          type="button"
-          role="switch"
-          aria-checked={Boolean(hideVaults)}
-          onClick={() => {
-            setHideVaultsChoice(!hideVaults);
+        <Switch
+          checked={Boolean(hideVaults)}
+          onCheckedChange={(next) => {
+            setHideVaultsChoice(next);
             setPage(0);
           }}
           className="flex h-10 items-center gap-2.5 rounded-full bg-raised px-4 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <span
-            className={cn(
-              "relative h-5 w-9 rounded-full transition-colors",
-              hideVaults ? "bg-primary" : "bg-border-strong",
-            )}
-          >
-            <span
-              className={cn(
-                "absolute top-0.5 size-4 rounded-full bg-foreground transition-[left]",
-                hideVaults ? "left-[18px]" : "left-0.5",
-              )}
-            />
-          </span>
+          <SwitchTrack checked={Boolean(hideVaults)} />
           {t("explore.hideVaults")}
-        </button>
+        </Switch>
         <div className="num ml-auto flex flex-col items-end text-xs text-muted-foreground">
           {traders.data ? <span>{t("explore.total", { total: format.num(total, 0) })}</span> : null}
           {traders.data?.updatedAt ? (

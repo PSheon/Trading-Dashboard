@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch, SwitchTrack } from "@/components/ui/switch";
 import { useI18n } from "@/i18n/provider";
 
 const TIERS: Tier[] = ["A", "B", "C"];
@@ -68,25 +69,16 @@ export function RuleEditor({
           <span className="rounded-lg bg-background px-2 py-1 font-mono text-sm font-bold text-primary-text">{rule.kind}</span>
           <span className="text-xs text-muted-foreground">{t(`admin.rules.scopes.${rule.scope}`)}</span>
         </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={enabled}
-          onClick={() => setEnabled((e) => !e)}
+        <Switch
+          checked={enabled}
+          onCheckedChange={() => setEnabled((e) => !e)}
           className="flex items-center gap-2 rounded-full text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <span className={enabled ? "text-foreground" : "text-muted-foreground"}>
             {enabled ? t("common.enabled") : t("common.disabled")}
           </span>
-          <span className={cn("relative h-5 w-9 rounded-full transition-colors", enabled ? "bg-primary" : "bg-border-strong")}>
-            <span
-              className={cn(
-                "absolute top-0.5 size-4 rounded-full bg-foreground transition-[left]",
-                enabled ? "left-[18px]" : "left-0.5",
-              )}
-            />
-          </span>
-        </button>
+          <SwitchTrack checked={enabled} />
+        </Switch>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">

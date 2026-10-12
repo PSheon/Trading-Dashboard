@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { TIME_ZONE_LABEL } from "@/i18n/config";
 import type { MessageKey } from "@/i18n/messages";
 import { useI18n } from "@/i18n/provider";
@@ -238,16 +239,14 @@ function Toggle({ checked, onChange, label, hint }: { checked: boolean; onChange
         <span className="block text-[15px] font-extrabold">{label}</span>
         {hint ? <span className="type-caption mt-0.5 block">{hint}</span> : null}
       </span>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
+      <Switch
+        checked={checked}
         aria-label={label}
-        onClick={() => onChange(!checked)}
+        onCheckedChange={onChange}
         className={cn("relative h-8 w-[52px] shrink-0 rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50", checked ? "bg-primary" : "bg-inset shadow-[inset_0_0_0_2px_var(--border)]")}
       >
         <span className={cn("absolute top-1 size-6 rounded-full bg-card shadow-sm transition-[left] motion-reduce:transition-none", checked ? "left-[24px]" : "left-1")} />
-      </button>
+      </Switch>
     </div>
   );
 }

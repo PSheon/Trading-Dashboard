@@ -2,6 +2,7 @@ import { Injectable, Logger, type OnApplicationBootstrap, type OnModuleDestroy }
 import { AppConfig } from "../config/app-config.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { CopyFundingService } from "./copy-funding.service.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** Receipt lookups only; never signs, retries, funds or activates a copy. */
 @Injectable()
@@ -19,7 +20,7 @@ export class CopyFundingMonitor implements OnApplicationBootstrap, OnModuleDestr
     if (this.running || this.jobs.stopping) return;
     this.running = true;
     try { await this.jobs.run(() => this.funding.reconcilePending()); }
-    catch { this.logger.warn("Strategy funding confirmation unavailable; pending records retained"); }
+    catch (error) { this.logger.warn(`Strategy funding confirmation unavailable; pending records retained (${safeErrorText(error)})`); }
     finally { this.running = false; }
   }
 }

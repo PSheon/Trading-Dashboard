@@ -43,7 +43,8 @@ export class OutboxService implements OnApplicationBootstrap {
         // backup) is closed, not alerted on.
         if (action && Date.now() - action.ts.getTime() > ALERT_MAX_AGE_MS) { await this.repository.markExpired(id, claimed.attempts); continue; }
         if (action) await this.rules.evaluateAction(action);
-      } catch {
+      } catch (error) {
+        this.logger.warn(`Outbox ${id} evaluation failed (attempt ${claimed.attempts}): ${safeErrorText(error)}`);
         await this.repository.recordFailure(id, claimed.attempts >= 5 ? "failed" : "pending",
           new Date(Date.now() + 60_000), claimed.attempts);
       }

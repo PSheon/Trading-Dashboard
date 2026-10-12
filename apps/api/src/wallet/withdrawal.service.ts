@@ -15,6 +15,7 @@ import { WalletService } from "./wallet.service.js";
 import { WithdrawalRepository, type WithdrawalRow } from "./withdrawal.repository.js";
 import { WithdrawalExchangeClient } from "./withdrawal-exchange.client.js";
 import type { HlLedgerUpdate } from "../hyperliquid/types.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** A ledger read returns at most this many updates; a full page means
  * there may be more after it (read on from its last time). */
@@ -65,7 +66,8 @@ export class WithdrawalService {
     if (row.status === "unknown") {
       // Polling may confirm a positive match. Read failures still expose the
       // durable pending state; manual reconciliation reports the retry error.
-      try { return await this.reconcile(userId, row.id); } catch { return wire(row); }
+      try { return await this.reconcile(userId, row.id); }
+      catch (error) { this.note("withdrawal.reconcile.deferred", row, { error: safeErrorText(error) }, "warn"); return wire(row); }
     }
     return wire(row);
   }

@@ -8,6 +8,7 @@ import { HyperliquidFollowerReceiptReader } from "./live/follower-receipt-reader
 import { LiveBoundaryError } from "./live/wallet-authorization.js";
 
 import { CopyFollowerScanRepository, type ScanClaim, type ScanState } from "./copy-follower-scan.repository.js";
+import { safeErrorText } from "../runtime/safe-error-text.js";
 
 const ms = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const pendingWindow = z.object({ kind: z.enum(["fills", "funding"]), from: ms, to: ms, depth: z.number().int().min(0).max(53) });
@@ -86,7 +87,7 @@ export class CopyFollowerMonitor implements OnApplicationBootstrap, OnModuleDest
   async tick() {
     if (this.running || this.jobs.stopping) return; this.running = true;
     try { await this.jobs.run(() => this.reconciler.runOnce()); }
-    catch { this.logger.warn("Follower receipt coverage pending; original window retained"); }
+    catch (error) { this.logger.warn(`Follower receipt coverage pending; original window retained (${safeErrorText(error)})`); }
     finally { this.running = false; }
   }
 }

@@ -67,7 +67,7 @@ export class CopyFollowerSnapshotCollector implements OnApplicationBootstrap, On
     if (this.running || this.jobs.stopping) return;
     this.running = true;
     try { await this.jobs.run(() => budgetConsumer('copy.snapshots', () => this.runOnce())); }
-    catch { this.logger.warn('Actual account observation acquisition pending'); }
+    catch (error) { this.logger.warn(`Actual account observation acquisition pending (${safeErrorText(error)})`); }
     finally { this.running = false; }
   }
 }

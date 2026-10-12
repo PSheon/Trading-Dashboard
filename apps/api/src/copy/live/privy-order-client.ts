@@ -5,6 +5,7 @@ import { isHyperliquidNetwork, type HyperliquidNetwork } from '@trading-dashboar
 import type { PrivyOrderSigningClient, PrivyOrderSignInput } from './privy-order-signer.js';
 import { boundedLiveRead } from './live-market-resolver.js';
 import { LiveBoundaryError } from './wallet-authorization.js';
+import { Logger } from '@nestjs/common';
 
 const domain = { name: 'Exchange', version: '1', chainId: 1337, verifyingContract: `0x${'00'.repeat(20)}` };
 const types = { EIP712Domain: [{ name: 'name', type: 'string' }, { name: 'version', type: 'string' }, { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' }],
@@ -175,7 +176,14 @@ export class BoundaryPrivyOrderSigningClient implements PrivyOrderSigningClient 
       const result = await boundedLiveRead(() => client.wallets().ethereum().signTypedData(id, input), deadlineRemaining());
       if (result.encoding !== 'hex' || !/^0x[0-9a-fA-F]{128}(?:00|01|1b|1c)$/i.test(result.signature)) throw new Error();
       return { encoding: result.encoding, signature: result.signature };
-    } catch { return fail('privy_order_signing_unavailable'); }
+    } catch (error) {
+      // Only the HTTP status and Privy's error code (a policy denial, a bad key,
+      // a rate limit and a timeout looked the same, Stage 2026-10-12); never a
+      // body, signature or key.
+      const e = error as { status?: unknown; code?: unknown; name?: unknown };
+      new Logger('PrivyOrderSigning').warn(`signTypedData failed: status ${typeof e?.status === 'number' ? e.status : 'none'}, code ${typeof e?.code === 'string' ? e.code.slice(0, 60) : 'none'}, ${typeof e?.name === 'string' ? e.name.slice(0, 40) : 'error'}`);
+      return fail('privy_order_signing_unavailable');
+    }
     finally { if (timer) clearTimeout(timer); controller.abort(); }
   }
 }

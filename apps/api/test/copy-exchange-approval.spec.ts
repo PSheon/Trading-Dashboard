@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { HyperliquidBudgetWait } from "../src/hyperliquid/hyperliquid-budget-wait.js";
 import { HyperliquidAgentApprovalVerifier } from "../src/copy/live/hyperliquid-agent-approval.js";
 import { LiveBoundaryError, WalletAuthorizationService, type ExchangeApprovalEvidence, type WalletAuthorization, type WalletRequest } from "../src/copy/live/wallet-authorization.js";
 
@@ -104,6 +105,18 @@ describe("fresh Hyperliquid agent approval evidence", () => {
     });
     await expect(s.verifier.verify(grant)).rejects.toThrow("exchange_approval_unavailable");
     expect(s.fetcher.mock.calls.length).toBeLessThanOrEqual(1);
+  });
+  it("keeps a refused budget or exhausted IP meter a wait, never a final refusal", async () => {
+    // Stage mainnet 2026-10-12: an exhausted meter during a leverage update
+    // failed the order as live_leverage_signing_failed.
+    for (const refusal of [new HyperliquidBudgetWait(2000, "local_budget"), new LiveBoundaryError("hyperliquid_quota_exhausted")]) {
+      const s = setup();
+      s.acquire.mockRejectedValue(refusal);
+      await expect(s.verifier.verify(grant)).rejects.toBeInstanceOf(HyperliquidBudgetWait);
+    }
+    const s = setup();
+    s.fetcher.mockRejectedValue(new LiveBoundaryError("hyperliquid_quota_exhausted"));
+    await expect(s.verifier.verify(grant)).rejects.toMatchObject({ reason: "shared_capacity" });
   });
 });
 

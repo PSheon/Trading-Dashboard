@@ -14,6 +14,9 @@ import { PHANTOM_AGENT_SOURCE } from './privy-agent-provisioner.js';
 import type { PrivyOrderSigningClient, PrivySigningAuthorization } from './privy-order-signer.js';
 import type { LiveRiskDatabaseSession } from './postgres-live-risk-scope.js';
 import { address, assertVerifiedAuthorizationFresh, LiveBoundaryError, WalletAuthorizationService, type VerifiedWalletAuthorization, type WalletRequest } from './wallet-authorization.js';
+import { Logger } from '@nestjs/common';
+import { sharedCapacityWait } from '../../hyperliquid/hyperliquid-budget-wait.js';
+import { safeErrorText } from '../../runtime/safe-error-text.js';
 
 /**
  * The copy account's leverage on the order's coin is above the copy's cap
@@ -101,8 +104,16 @@ export class LiveLeverageUpdater {
       signature = await signL1Action({ action: { ...action }, nonce, expiresAfter, isTestnet: this.network === 'testnet', wallet: this.wallet(target, request, signer, action, nonce, expiresAfter, v => { verified = v; }) });
     } catch (error) {
       // Nothing was sent: the update is refused, never retried under this nonce.
-      await finish('rejected', 'leverage_signing_failed', ['prepared']);
-      throw new LiveBoundaryError(error instanceof LiveBoundaryError ? error.code : 'live_leverage_signing_failed');
+      // The SDK wraps the wallet's error in its `cause`. On Stage mainnet
+      // (2026-10-12) the approval check's provider read inside it met an
+      // exhausted IP meter and the order failed as a final signing failure:
+      // a budget refusal stays a budget wait (retried), our own code stays ours.
+      const root = error instanceof LiveBoundaryError || sharedCapacityWait(error) ? error : (error as { cause?: unknown })?.cause ?? error;
+      const wait = sharedCapacityWait(root), inner = !wait && root instanceof LiveBoundaryError ? root : null;
+      new Logger('LiveLeverageUpdate').warn(`leverage update for ${accountAddress} ${target.coin} not signed: ${wait ? `budget wait (${wait.reason})` : inner?.code ?? safeErrorText(root)}`);
+      await finish('rejected', wait ? 'leverage_budget_wait' : inner ? inner.code.slice(0, 80) : 'leverage_signing_failed', ['prepared']);
+      if (wait) throw wait;
+      throw new LiveBoundaryError(inner?.code ?? 'live_leverage_signing_failed');
     }
     await finish('submitting', null, ['prepared']);
     let began = false, state: LiveLeverageUpdateState = 'unknown', issue: string | null = 'leverage_response_ambiguous';

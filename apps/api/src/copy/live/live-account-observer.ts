@@ -94,6 +94,8 @@ const decimal = z.string().max(80).regex(/^-?(?:0|[1-9]\d*)(?:\.\d{1,18})?$/).tr
 const nonnegative = decimal.refine((v) => Dec.from(v).gte(0));
 const positive = decimal.refine((v) => Dec.from(v).gt(0));
 const coin = z.string().regex(LIVE_PERP_COIN).max(80);
+/** The float rounding a provider total may carry: 1e-9 of it, at least 1e-6 USD. */
+const PROVIDER_FLOAT_RELATIVE = Dec.from('0.000000001'), PROVIDER_FLOAT_ABSOLUTE = Dec.from('0.000001');
 const summary = z.object({ accountValue: nonnegative, totalNtlPos: nonnegative, totalRawUsd: decimal, totalMarginUsed: nonnegative });
 const stateSchema = z.object({ marginSummary: summary, crossMarginSummary: summary,
   crossMaintenanceMarginUsed: nonnegative, withdrawable: nonnegative, time: integer,
@@ -364,11 +366,25 @@ export class HyperliquidLiveAccountObserver {
         const s = state.marginSummary, cross = state.crossMarginSummary;
         const positionSum = (key: 'positionValue' | 'marginUsed', crossOnly = false) => Dec.sum(state.assetPositions
           .filter(({ position }) => !crossOnly || position.leverage.type === 'cross').map(({ position }) => Dec.from(position[key])));
-        if (!positionSum('positionValue').eq(s.totalNtlPos) || !positionSum('marginUsed').eq(s.totalMarginUsed) ||
-            !positionSum('positionValue', true).eq(cross.totalNtlPos) || !positionSum('marginUsed', true).eq(cross.totalMarginUsed))
+        // Hyperliquid computes these totals in floating point (a 177-position
+        // vault: Σ positionValue 4000508.665867, totalNtlPos 4000508.6658669999),
+        // so each is checked within float rounding and the exact sums of the
+        // positions become the dex's figures (every later check is exact).
+        const near = (sum: Dec, total: string) => sum.sub(total).abs().lte(Dec.max(PROVIDER_FLOAT_ABSOLUTE, Dec.from(total).abs().mul(PROVIDER_FLOAT_RELATIVE)));
+        const notAbove = (value: string, bound: string) => near(Dec.min(Dec.from(value), Dec.from(bound)), value);
+        // Which comparison failed, on which account and dex (no amounts).
+        const inconsistent = (what: string) => {
+          new Logger('LiveAccountObserver').warn(`live_account_inconsistent_balances for ${user} (${options.leader ? 'leader' : options.unsetup ? 'other account' : 'ordering account'}), dex '${venue.dex}': ${what}`);
           fail('live_account_inconsistent_balances');
-        if (Dec.from(cross.totalMarginUsed).gt(s.totalMarginUsed) || Dec.from(cross.totalNtlPos).gt(s.totalNtlPos) ||
-            Dec.from(state.withdrawable).gt(s.accountValue)) fail('live_account_inconsistent_balances');
+        };
+        const exposure = positionSum('positionValue'), margin = positionSum('marginUsed');
+        const crossExposure = positionSum('positionValue', true), crossMargin = positionSum('marginUsed', true);
+        if (!near(exposure, s.totalNtlPos)) inconsistent('sum(positionValue) != totalNtlPos');
+        if (!near(margin, s.totalMarginUsed)) inconsistent('sum(marginUsed) != totalMarginUsed');
+        if (!near(crossExposure, cross.totalNtlPos)) inconsistent('sum(cross positionValue) != cross totalNtlPos');
+        if (!near(crossMargin, cross.totalMarginUsed)) inconsistent('sum(cross marginUsed) != cross totalMarginUsed');
+        if (!notAbove(state.withdrawable, s.accountValue)) inconsistent('withdrawable > accountValue');
+        if (!notAbove(cross.accountValue, s.accountValue)) inconsistent('cross accountValue > accountValue');
         const active = Object.values(s).some((v) => !Dec.from(v).isZero) || Object.values(cross).some((v) => !Dec.from(v).isZero) ||
           !Dec.from(state.withdrawable).isZero || !Dec.from(state.crossMaintenanceMarginUsed).isZero ||
           state.assetPositions.length > 0 || pending.length > 0;
@@ -377,9 +393,10 @@ export class HyperliquidLiveAccountObserver {
         if (!supported.has(venue.dex) && active) fail('live_account_unsupported_dex_exposure');
         dexes.push({ dex: venue.dex, perpDexIndex: venue.index, supported: supported.has(venue.dex),
           collateralToken: collateral.index, collateralCoin: collateral.name, providerTime: state.time,
-          equity: s.accountValue, rawUsd: s.totalRawUsd, marginUsed: s.totalMarginUsed, withdrawable: state.withdrawable,
-          exposureUsd: s.totalNtlPos, crossEquity: cross.accountValue, crossMarginUsed: cross.totalMarginUsed,
-          crossExposureUsd: cross.totalNtlPos, crossMaintenanceMarginUsed: state.crossMaintenanceMarginUsed });
+          equity: s.accountValue, rawUsd: s.totalRawUsd, marginUsed: margin.toString(),
+          withdrawable: Dec.min(Dec.from(state.withdrawable), Dec.from(s.accountValue)).toString(),
+          exposureUsd: exposure.toString(), crossEquity: Dec.min(Dec.from(cross.accountValue), Dec.from(s.accountValue)).toString(),
+          crossMarginUsed: crossMargin.toString(), crossExposureUsd: crossExposure.toString(), crossMaintenanceMarginUsed: state.crossMaintenanceMarginUsed });
       }
       unique(orders.map((o) => o.oid));
       if (orders.length > 5000 || positions.length > 10000) fail('live_account_unbounded_evidence');

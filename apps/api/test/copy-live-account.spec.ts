@@ -201,6 +201,16 @@ describe('authoritative dedicated standard account observations', () => {
         ? { ...value as object, ...patch } : value).observer.observe(account)).rejects.toThrow('live_account_inconsistent_balances');
     }
   });
+  it('accepts provider totals within float rounding and keeps the exact position sums', async () => {
+    // Hyperliquid sums in floating point (a 177-position vault on mainnet,
+    // 2026-10-12: Σ positionValue 4000508.665867, totalNtlPos 4000508.6658669999).
+    const rounded = { accountValue: '990', totalRawUsd: '1000', totalNtlPos: '659.9999999999999', totalMarginUsed: '66.00000000000001' };
+    const snapshot = await setup((body, value) => body.type === 'clearinghouseState' && !body.dex
+      ? { ...value as object, marginSummary: rounded, crossMarginSummary: rounded } : value).observer.observe(account);
+    const main = snapshot.dexes.find(d => d.dex === '')!;
+    expect([main.exposureUsd, main.marginUsed, main.crossExposureUsd, main.crossMarginUsed]).toEqual(['660', '66', '660', '66']);
+    expect(snapshot.exposureUsd).toBe('660');
+  });
   it('refuses unseen coin/dex identities and duplicate positions/orders', async () => {
     for (const patch of [
       { assetPositions: [{ ...mainPosition, position: { ...mainPosition.position, coin: 'xyz:TSLA' } }] },

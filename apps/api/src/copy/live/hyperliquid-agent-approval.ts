@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { WALLET_NETWORKS } from "@trading-dashboard/shared/contracts";
+import { sharedCapacityWait } from "../../hyperliquid/hyperliquid-budget-wait.js";
 import { readInfoJson } from "../../hyperliquid/response-validation.js";
 import { boundedLiveRead, RESERVE_BOUND_MS } from "./live-market-resolver.js";
 import { address, LiveBoundaryError, type ExchangeApprovalEvidence, type ExchangeApprovalVerifier, type LiveNetwork, type WalletAuthorization } from "./wallet-authorization.js";
@@ -53,6 +54,10 @@ export class HyperliquidAgentApprovalVerifier implements ExchangeApprovalVerifie
       if (this.now() - checkedAt > 5_000) throw new LiveBoundaryError("exchange_approval_evidence_expired");
       return { network: this.network, accountAddress: account, signerAddress: signer, checkedAt, expiresAt };
     } catch (error) {
+      // A refused budget or IP meter stays a wait the caller retries (Stage
+      // mainnet 2026-10-12: an exhausted meter failed an order as final).
+      const wait = sharedCapacityWait(error);
+      if (wait) throw wait;
       if (error instanceof LiveBoundaryError) throw error;
       // Do not expose response payloads, SDK errors or remote error text.
       throw new LiveBoundaryError("exchange_approval_unavailable");

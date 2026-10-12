@@ -34,7 +34,8 @@ import { CopyWalletRepository } from '../src/copy/copy-wallet.repository.js';
 import { CopyAgentRepository } from '../src/copy/copy-agent.repository.js';
 import { UNHELD_REJECTED } from '../src/copy/live/live-execution.js';
 import { registerLiveDeployment } from '../src/copy/live-deployment.js';
-import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
+import { LiveBoundaryError, WalletAuthorizationService } from '../src/copy/live/wallet-authorization.js';
+import { HyperliquidBudgetWait } from '../src/hyperliquid/hyperliquid-budget-wait.js';
 import { CopyLiveSettler } from '../src/copy/live-worker/copy-live-settler.js';
 import { PostgresLiveSettlement } from '../src/copy/live/postgres-live-settlement.js';
 
@@ -927,6 +928,15 @@ describe('the account leverage an open needs (a fresh account sits at the exchan
     // 446 before the cross-order read cache: the fresh epoch's market meta (20)
     // now comes from the cache the preview filled.
     expect(reservations.reduce((sum, weight) => sum + weight, 0)).toBe(426);
+  });
+  it('keeps an exhausted IP meter during the leverage signing a budget wait, not a final signing failure', async () => {
+    // Stage mainnet 2026-10-12: the approval read inside the signing met an
+    // exhausted meter, and the SDK's wrapping made it live_leverage_signing_failed.
+    await defaultLeverageFixture({ status: 'ok', response: { type: 'default' } });
+    vi.spyOn(WalletAuthorizationService.prototype, 'authorizeWithEvidence').mockRejectedValueOnce(new LiveBoundaryError('hyperliquid_quota_exhausted'));
+    await expect(runtime(config, { ...options, slippageBps: '0' }).execute(request())).rejects.toBeInstanceOf(HyperliquidBudgetWait);
+    expect(exchangeActions()).toHaveLength(0);
+    expect((await db.select().from(schema.copyLiveLeverageUpdates)).map(row => row.issue)).toEqual(['leverage_budget_wait']);
   });
   it('returns unused prepaid weight when the leverage update is rejected, counting the action actually sent', async () => {
     await defaultLeverageFixture({ status: 'err', response: 'Cannot switch leverage type with open position.' });

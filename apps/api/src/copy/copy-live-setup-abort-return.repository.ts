@@ -1,6 +1,6 @@
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { canonicalUsdc, liveCopySetupIntentSchema, withdrawalUnits } from '@trading-dashboard/shared/contracts';
 import { copyFundingOperations, copyLiveSetupAborts, copyLiveSetups, copyStrategies } from '@trading-dashboard/shared/database';
 import { Dec } from '../common/decimal/dec.js';
@@ -126,6 +126,38 @@ export class CopyLiveSetupAbortReturnRepository {
       const [attempt] = await tx.update(copyFundingOperations).set({ status: 'unknown', attemptedAt: at, claimedAt: at, updatedAt: at })
         .where(and(eq(copyFundingOperations.id, id), sql`${copyFundingOperations.attemptedAt} is null`, eq(copyFundingOperations.status, 'prepared'))).returning();
       return attempt ?? null;
+    });
+  }
+  /** A new flat proof for the attempt this pass claimed (its signature took
+   * part of the first proof's 5 s): the same checks as begin, under the same
+   * lock, against the same claimed attempt; nothing is claimed again. */
+  async reprove(expected: SetupAbortRow, attempt: ReturnRow, proof: SetupAbortFlatObservation, now: () => number = Date.now): Promise<boolean> {
+    return this.db.transaction(async tx => {
+      const context = await this.context(tx, expected), { abort } = context;
+      const [row] = await tx.select().from(copyFundingOperations).where(and(eq(copyFundingOperations.id, attempt.id), eq(copyFundingOperations.setupAbortId, abort.id))).for('update');
+      if (!row || abort.returnOperationId !== row.id || row.status !== 'unknown' || !row.attemptedAt || row.attemptedAt.getTime() !== attempt.attemptedAt?.getTime() ||
+        row.nonce !== attempt.nonce || row.amount !== attempt.amount || row.evidenceHash !== null || row.transactionHash !== null) return false;
+      const evidence = this.proof(abort, proof, now());
+      if (!evidence.amount || !Dec.from(evidence.amount).gte(row.amount) || !await this.quiescent(tx, context)) return false;
+      await tx.update(copyLiveSetupAborts).set({ proofDigest: evidence.digest, proofReadAt: new Date(proof.snapshot.observedAt), revision: abort.revision + 1, updatedAt: new Date(now()) })
+        .where(eq(copyLiveSetupAborts.id, abort.id));
+      return true;
+    });
+  }
+  /** The refund this pass claimed, proven never handed to the exchange (the
+   * caller's dispatch flag), goes back to prepared with its same nonce: begun
+   * again under a new proof. Only that exact attempt: anything that moved
+   * since (an outcome, a reconciliation) wins, and it stays as it is. */
+  async restoreNotDispatched(expected: SetupAbortRow, attempt: ReturnRow): Promise<ReturnRow | null> {
+    if (attempt.setupAbortId !== expected.id || attempt.userId !== expected.userId || attempt.status !== 'unknown' || !attempt.attemptedAt || !attempt.claimedAt) return null;
+    return this.db.transaction(async tx => {
+      await this.mandates.lock(tx, expected.userId, true);
+      const [row] = await tx.update(copyFundingOperations).set({ status: 'prepared', attemptedAt: null, claimedAt: null, updatedAt: new Date() })
+        .where(and(eq(copyFundingOperations.id, attempt.id), eq(copyFundingOperations.setupAbortId, expected.id), eq(copyFundingOperations.userId, expected.userId),
+          eq(copyFundingOperations.status, 'unknown'), eq(copyFundingOperations.nonce, attempt.nonce), eq(copyFundingOperations.attemptedAt, attempt.attemptedAt!),
+          eq(copyFundingOperations.claimedAt, attempt.claimedAt!), eq(copyFundingOperations.updatedAt, attempt.updatedAt), isNull(copyFundingOperations.scanState),
+          isNull(copyFundingOperations.evidenceHash), isNull(copyFundingOperations.transactionHash))).returning();
+      return row ?? null;
     });
   }
   async complete(expected: SetupAbortRow, proof: SetupAbortFlatObservation, now: () => number = Date.now): Promise<boolean> {

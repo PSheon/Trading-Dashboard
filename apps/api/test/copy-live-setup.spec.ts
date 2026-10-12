@@ -6,7 +6,7 @@ import { verifyTypedData, type TypedDataDefinition } from 'viem';
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { adminSettingsSchema, copyFundingInputSchema, DEFAULT_COPY_RISK_LIMITS, findHttpContract, leaderCopyActivity, type LeaderCopyActivity, liveCopySetupConsentTypedData, liveCopySetupSchema, liveCopySetupAbortSchema, usdSendTypedData, WALLET_NETWORKS, type LiveCopySetupIntent } from '@trading-dashboard/shared/contracts';
-import { appSettings, copyAgentSetups, copyControls, copyExecutionAccounts, copyExecutionWallets, copyFundingOperations, copyLiveActivations, copyLiveMandates, copyLiveSetups,
+import { appSettings, copyAgentSetups, copyControls, copyExecutionAccounts, copyExecutionWallets, copyFundingOperations, copyLiveActivations, copyLiveMandates, copyLiveSetupAborts, copyLiveSetups,
   copyLiveStrategyConfigs, copyRiskPolicies, copyStrategies, copyWalletAuthorizations, leaders } from '@trading-dashboard/shared/database';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
 import { CopyFundingRepository } from '../src/copy/copy-funding.repository.js';
@@ -870,6 +870,45 @@ it('safe abort: a proof that ages before refund admission never creates a transf
   later(5_001);
   await expect(refunds.begin(await aborts.find(uid, authority.id), row.id, proof, () => clock)).rejects.toMatchObject({ response: { code: 'setup_abort_proof_stale' } });
   expect((await returns.find(uid, row.id)).attemptedAt).toBeNull();
+});
+
+it('safe abort: a refund never handed to the exchange goes back to prepared with its nonce and is sent on a later pass; a slow signature is proven again; a possibly-sent one is never resent', async () => {
+  const setup = await start(); await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit();
+  const mandates = new CopyLiveMandateRepository(db, testConfig()), returns = new CopyLiveReturnRepository(db, testConfig());
+  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(db, mandates));
+  const refunds = new CopyLiveSetupAbortReturnRepository(db, testConfig(), mandates, returns);
+  const observer = { observeSetupAbortFlat: vi.fn(async () => flatAbortProof()) };
+  const ok = { status: 'ok', response: { type: 'default' } };
+  const exchange = { acquire: vi.fn(async () => undefined), send: vi.fn(async (_op: unknown, _sig: string, fresh: () => void, dispatched: () => void) => { fresh(); dispatched(); return ok; }) };
+  const signer = { available: true, sign: vi.fn(async () => 'test-worker-signature') };
+  const worker = () => new CopyLiveSetupAbortService(config(), aborts, refunds, new CopyLiveSetupRepository(db), new CopyFundingRepository(db),
+    fakes.funding as never, fakes.agents as never, fakes.modes as never, {} as never, returns, exchange as never, signer as never, observer as never, new BackgroundJobs(), () => clock);
+  const requested = await worker().request(uid, setup.id, { idempotencyKey: 'abort-refund-not-dispatched-key' });
+  const due = () => db.update(copyLiveSetupAborts).set({ nextAttemptAt: null }).where(eq(copyLiveSetupAborts.id, requested.id));
+  // Refused before its POST (the meter): nothing left, it is prepared again.
+  exchange.send.mockImplementationOnce(async (_op: unknown, _sig: string, fresh: () => void) => { fresh(); throw new Error('hyperliquid_quota_expired'); });
+  await worker().process(requested.id);
+  const refundId = (await aborts.find(uid, requested.id)).returnOperationId!, first = await returns.find(uid, refundId);
+  expect(first).toMatchObject({ status: 'prepared', attemptedAt: null, claimedAt: null, setupAbortId: requested.id });
+  expect((await aborts.find(uid, requested.id))).toMatchObject({ state: 'returning', issue: 'setup_abort_refund_pending' });
+  // A later pass, whose signature takes 4 s: proven again, then sent once, same refund and nonce.
+  await due(); later(1_000);
+  signer.sign.mockImplementationOnce(async () => { later(4_000); return 'test-worker-signature'; });
+  await worker().process(requested.id);
+  // Pass 1: reservation and begin proofs; pass 2: begin proof, then again after the slow signature.
+  expect(observer.observeSetupAbortFlat).toHaveBeenCalledTimes(4);
+  expect(exchange.send).toHaveBeenCalledTimes(2);
+  expect(await returns.find(uid, refundId)).toMatchObject({ status: 'accepted', nonce: first.nonce });
+  expect((await db.select().from(copyFundingOperations)).filter(row => row.setupAbortId === requested.id)).toHaveLength(1);
+  // Possibly sent (its answer lost): it stays unknown and is never resent.
+  await db.update(copyFundingOperations).set({ status: 'prepared', attemptedAt: null, claimedAt: null, evidenceHash: null }).where(eq(copyFundingOperations.id, refundId));
+  await due();
+  exchange.send.mockImplementationOnce(async (_op: unknown, _sig: string, fresh: () => void, dispatched: () => void) => { fresh(); dispatched(); throw new Error('socket hang up'); });
+  await worker().process(requested.id);
+  expect(await returns.find(uid, refundId)).toMatchObject({ status: 'unknown', attemptedAt: expect.any(Date) });
+  await due(); await worker().process(requested.id);
+  expect(exchange.send).toHaveBeenCalledTimes(3);
+  expect(await returns.find(uid, refundId)).toMatchObject({ status: 'unknown' });
 });
 
 it.each(['late-credit', 'prepared-deposit', 'claimed-deposit', 'prepared-return'] as const)('safe abort: worker restart seals original driver and the unattempted ordinary %s before one verified refund', async ordinaryKind => {

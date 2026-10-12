@@ -110,7 +110,9 @@ function recoveryPass(config: AppConfig, budget: RequestBudgeterService, observe
       if (Date.now() - proof.snapshot.observedAt > 5000) throw new ConflictException({ code: 'setup_abort_proof_stale' });
       if (refund.attemptedAt) return null;
       expect(id).toBe(refund.id); return { ...refund, status: 'unknown', attemptedAt: new Date() };
-    }) };
+    }),
+    reprove: vi.fn(async (_row: unknown, _attempt: unknown, proof: { snapshot: { observedAt: number } }) => Date.now() - proof.snapshot.observedAt <= 5000),
+    restoreNotDispatched: vi.fn(async (_row: unknown, attempt: object) => ({ ...attempt, status: 'prepared', attemptedAt: null })) };
   const returns = { contextRead: vi.fn(async () => ({ account: { privyWalletId: 'wallet', masterSignerQuorumId: 'quorum', masterPolicyId: 'policy' } })),
     finish: vi.fn(async () => {}) };
   const signer = { available: true, sign: vi.fn(async () => ({ r: '0x01', s: '0x02', v: 27 })) };
@@ -183,6 +185,46 @@ it('a warmed 400/min bucket submits its original prepared refund with one fresh 
     expect(budget.introspect()).toMatchObject({ configuredBudgetPerMin: 400, burstCapacity: 800, weightLastMinute: 800 });
   } finally { budget.onModuleDestroy(); }
 });
+
+it("a slow Privy signature is not inside the flat proof's 5 s: the refund is proven again under the lease, then sent once", async () => {
+  vi.useFakeTimers();
+  const c = testConfig().value, config = new AppConfig({ ...c, hyperliquid: { ...c.hyperliquid, budgetPerMin: 400, burst: 800, startupPaceSeconds: 0 } });
+  const budget = new RequestBudgeterService(config), { observer, native } = composedObserver(budget, config);
+  try {
+    const pass = recoveryPass(config, budget, observer);
+    pass.signer.sign.mockImplementationOnce(async () => { await vi.advanceTimersByTimeAsync(6_000); return { r: '0x01', s: '0x02', v: 27 }; });
+    await pass.service.process('original-abort');
+    expect(native).toHaveBeenCalledTimes(2);
+    expect(pass.refunds.reprove).toHaveBeenCalledTimes(1);
+    expect(pass.exchange.send).toHaveBeenCalledTimes(1);
+    expect(pass.exchange.send.mock.calls[0]![0]).toMatchObject({ id: 'original-refund', nonce: 123 });
+    expect(pass.refunds.restoreNotDispatched).not.toHaveBeenCalled(); expect(pass.refunds.reserve).not.toHaveBeenCalled();
+  } finally { budget.onModuleDestroy(); }
+});
+
+it.each([['refused before its POST', false, 'restored'], ['possibly sent, its answer lost', true, 'retained']] as const)(
+  'a refund %s: never sent it goes back to prepared (same nonce, retried after a back-off); possibly sent it stays unknown', async (_case, sent, outcome) => {
+    vi.useFakeTimers();
+    const c = testConfig().value, config = new AppConfig({ ...c, hyperliquid: { ...c.hyperliquid, budgetPerMin: 400, burst: 800, startupPaceSeconds: 0 } });
+    const budget = new RequestBudgeterService(config), { observer } = composedObserver(budget, config);
+    try {
+      const pass = recoveryPass(config, budget, observer);
+      pass.exchange.send.mockImplementationOnce(async (_attempt: unknown, _signature: unknown, fresh: () => void, dispatched: () => void) => {
+        fresh(); if (sent) dispatched(); throw new Error(sent ? 'socket hang up' : 'hyperliquid_quota_expired');
+      });
+      const before = Date.now();
+      await pass.service.process('original-abort');
+      expect(pass.exchange.send).toHaveBeenCalledTimes(1);
+      const returns = (pass.service as unknown as { returns: { finish: ReturnType<typeof vi.fn> } }).returns;
+      expect(returns.finish).not.toHaveBeenCalled();
+      if (outcome === 'restored') expect(pass.refunds.restoreNotDispatched).toHaveBeenCalledExactlyOnceWith(expect.anything(), expect.objectContaining({ id: 'original-refund', nonce: 123, status: 'unknown' }));
+      else expect(pass.refunds.restoreNotDispatched).not.toHaveBeenCalled();
+      const [, patch] = pass.repository.transition.mock.calls.at(-1)! as unknown as [unknown, { state: string; issue: string; nextAttemptAt: Date }];
+      expect(patch).toMatchObject({ state: 'returning', issue: 'setup_abort_refund_pending' });
+      const delay = patch.nextAttemptAt.getTime() - before;
+      if (outcome === 'restored') expect(delay).toBeGreaterThanOrEqual(120_000); else expect(delay).toBeLessThan(60_000);
+    } finally { budget.onModuleDestroy(); }
+  });
 
 it('new refund reservation retains two independently timed real proofs and original begin', async () => {
   vi.useFakeTimers();

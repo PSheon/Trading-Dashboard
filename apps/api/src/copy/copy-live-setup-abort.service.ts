@@ -22,6 +22,10 @@ export const SETUP_ABORT_OBSERVER = Symbol('SETUP_ABORT_OBSERVER');
 export interface SetupAbortObserver { observeSetupAbortFlat(address: string): Promise<SetupAbortFlatObservation> }
 const digest = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex');
 const issue = (value: string | null) => value && /^[a-z][a-z0-9_]{0,79}$/.test(value) ? value : null;
+/** A flat proof older than this when the refund is signed is taken again. */
+const REPROVE_AFTER_MS = 2_500;
+/** A refund that never left is tried again no sooner than this. */
+const NOT_DISPATCHED_RETRY_MS = 120_000;
 const states = { requested: 'requested', draining: 'reconciling', waiting_credit: 'reconciling', proving: 'reconciling', returning: 'refunding',
   delegated: 'delegated', blocked: 'blocked', done: 'completed' } as const;
 
@@ -82,8 +86,8 @@ export class CopyLiveSetupAbortService {
   async process(id: string) {
     let row = await this.repository.lease(id); if (!row) return;
     const originalLease = row;
-    const wait = async (state: SetupAbortRow['state'], reason: string | null) => {
-      const next = await this.repository.transition(row!, { state, issue: reason, nextAttemptAt: new Date(this.now() + 30_000) });
+    const wait = async (state: SetupAbortRow['state'], reason: string | null, delayMs = 30_000) => {
+      const next = await this.repository.transition(row!, { state, issue: reason, nextAttemptAt: new Date(this.now() + delayMs) });
       if (next) row = next;
     };
     try {
@@ -157,14 +161,21 @@ export class CopyLiveSetupAbortService {
       const attempt = await this.refunds.begin(row, refund.id, proof, this.now);
       if (!attempt) { await wait('draining', 'setup_abort_child_pending'); return; }
       const context = await this.returns.contextRead(row.userId, row.accountId!, true), account = context.account;
-      const deadline = proof.snapshot.observedAt + 5000;
-      const fresh = () => { const at = this.now(); if (!Number.isSafeInteger(at) || at < proof.snapshot.observedAt || at >= deadline) throw new Error('stale'); };
-      let dispatched = false;
+      // The flat observation the POST relies on: at most 5 s old when it leaves.
+      let proven = proof;
+      const fresh = () => { const at = this.now(), observedAt = proven.snapshot.observedAt; if (!Number.isSafeInteger(at) || at < observedAt || at >= observedAt + 5000) throw new Error('stale'); };
+      let dispatched = false, retryMs = 30_000;
       try {
-        fresh();
         const signature = await this.signer.sign({ walletId: account.privyWalletId!, address: attempt.address, ownerQuorumId: account.ownerQuorumId!,
           workerQuorumId: account.masterSignerQuorumId!, policyId: account.masterPolicyId! }, usdSendTypedData(WALLET_NETWORKS[row.network], attempt.destination, attempt.amount, attempt.nonce),
-          { network: row.network, destination: row.destination }, deadline);
+          { network: row.network, destination: row.destination }, this.now() + 30_000);
+        // Privy's signing time is not taken from the observation's 5 s: a
+        // proof past half its window is observed again and checked under the
+        // lease (as begin checked the first) before the POST.
+        if (this.now() - proven.snapshot.observedAt > REPROVE_AFTER_MS) {
+          proven = await this.observer.observeSetupAbortFlat(row.accountAddress!);
+          if (!await this.refunds.reprove(row, attempt, proven, this.now)) throw new Error('setup_abort_reproof_refused');
+        }
         fresh();
         const reply = await this.exchange.send(attempt, signature, fresh, () => { dispatched = true; });
         if (reply && typeof reply === 'object' && 'status' in reply && 'response' in reply) {
@@ -174,11 +185,15 @@ export class CopyLiveSetupAbortService {
             await this.returns.finish(row.userId, attempt.id, 'rejected', digest(reply));
         }
       } catch (error) {
-        if (!dispatched) await this.returns.finish(row.userId, attempt.id, 'rejected', digest({ reason: 'setup_abort_not_dispatched', id: attempt.id }));
-        this.logger.warn(`setup abort ${row.id} original refund retained ${JSON.stringify(errorLogFields(error))}`);
+        // Never handed to the exchange (not signed, a stale or refused proof,
+        // the meter): the same refund and nonce go back to prepared and are
+        // tried again after a back-off. Possibly sent: retained, reconciled.
+        const restored = !dispatched && await this.refunds.restoreNotDispatched(row, attempt);
+        if (restored) retryMs = NOT_DISPATCHED_RETRY_MS;
+        this.logger.warn(`setup abort ${row.id} original refund ${restored ? 'not sent, kept prepared' : 'retained'} ${JSON.stringify(errorLogFields(error))}`);
       }
       row = await this.repository.find(row.userId, row.id);
-      await wait('returning', 'setup_abort_refund_pending');
+      await wait('returning', 'setup_abort_refund_pending', retryMs);
     } catch (error) {
       const code = error instanceof ConflictException ? error.getResponse() : null;
       const reason = code && typeof code === 'object' && 'code' in code && typeof code.code === 'string' ? issue(code.code) : null;

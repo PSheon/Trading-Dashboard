@@ -621,12 +621,10 @@
   background-color: var(--inset);
 }
 /* Inside a card the rows are wells. */
-.orbit-card .data-rows > tr > td,
-[data-slot="card"] .data-rows > tr > td {
+.orbit-card .data-rows > tr > td {
   background-color: var(--inset);
 }
-.orbit-card .data-rows > tr:hover > td,
-[data-slot="card"] .data-rows > tr:hover > td {
+.orbit-card .data-rows > tr:hover > td {
   background-color: var(--raised-hover);
 }
 /* Dense trader tables: 6 px gutters, 14 px at the row ends. */

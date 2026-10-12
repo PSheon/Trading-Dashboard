@@ -3,28 +3,30 @@
 // profile (scripts/copy-harness/harness.env over the repo-root .env).
 //
 //   node scripts/copy-harness/stack.mjs status
-//   node scripts/copy-harness/stack.mjs restart worker|api [--profile stage-caps] [--dry-run]
+//   node scripts/copy-harness/stack.mjs restart worker|api [--profile stage-caps|ratio-floor|stage-like] [--dry-run]
 //
 // `--profile stage-caps` layers stage-caps.env (Stage's caps: 12–15 USD per
 // trade, 50 per copy, leverage 3, 2 copies) over harness.env. Restart both
 // the api and the worker with the same profile. A restart without it goes
-// back to the plain harness profile.
+// back to the plain harness profile. `--profile stage-like` is ratio-floor.env
+// then stage-like.env: Stage's 8 ms database round trip (COPY_HARNESS_DB_RTT_MS,
+// db-rtt.mjs, loaded with `node --import db-rtt.preload.mjs`).
 //
 // A restart stops the process listening on the port (by PID), starts
 // `node dist/main.js` from apps/api detached (it outlives this script and the
 // session), appends to .claude/logs/<role>-<port>.log and waits for /health.
 // Build first when the api changed (pnpm turbo run build --filter=@trading-dashboard/api --concurrency=1).
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, openSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, openSync } from "node:fs";
 import { resolve } from "node:path";
-import { ROOT, parseEnv } from "./lib.mjs";
+import { pathToFileURL } from "node:url";
+import { rttFromEnv } from "./db-rtt.mjs";
+import { PROFILE_FILES, ROOT, profileEnv } from "./lib.mjs";
 
 const ROLES = { api: { port: 3100, env: { IS_WORKER: "false" } }, worker: { port: 3010, env: { IS_WORKER: "true" } } };
-const PROFILE = resolve(import.meta.dirname, "harness.env");
-const PROFILES = { "stage-caps": resolve(import.meta.dirname, "stage-caps.env"), "ratio-floor": resolve(import.meta.dirname, "ratio-floor.env") };
 const args = process.argv.slice(2), [command, role] = args, dry = args.includes("--dry-run");
 const profileName = args.includes("--profile") ? args[args.indexOf("--profile") + 1] : null;
-if (profileName && !PROFILES[profileName]) { console.error(`unknown --profile ${profileName} (stage-caps | ratio-floor)`); process.exit(2); }
+if (profileName && !PROFILE_FILES[profileName]) { console.error(`unknown --profile ${profileName} (${Object.keys(PROFILE_FILES).join(" | ")})`); process.exit(2); }
 const log = (event, data = {}) => console.log(JSON.stringify({ at: new Date().toISOString(), event, ...data }));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -39,11 +41,14 @@ if (command === "status") {
   for (const [name, { port }] of Object.entries(ROLES)) log("status", { role: name, port, pid: listener(port), healthy: await healthy(port) });
 } else if (command === "restart" && ROLES[role]) {
   const { port, env: roleEnv } = ROLES[role];
-  const profile = { ...parseEnv(readFileSync(PROFILE, "utf8")), ...(profileName ? parseEnv(readFileSync(PROFILES[profileName], "utf8")) : {}) };
+  const profile = profileEnv(profileName ?? "default");
+  // TEST ONLY: a database round trip (db-rtt.mjs) for the profile that asks for it.
+  const rttMs = rttFromEnv({ ...process.env, ...profile });
+  const nodeArgs = rttMs > 0 ? ["--import", pathToFileURL(resolve(import.meta.dirname, "db-rtt.preload.mjs")).href] : [];
   const main = resolve(ROOT, "apps/api/dist/main.js");
   if (!existsSync(main)) throw new Error(`${main} is missing: build the api first`);
   const pid = listener(port);
-  log("plan", { role, port, stopping: pid, profile: profileName ?? "harness", keys: Object.keys(profile), set: { ...roleEnv, PORT: String(port) } });
+  log("plan", { role, port, stopping: pid, profile: profileName ?? "harness", keys: Object.keys(profile), dbRttMs: rttMs, set: { ...roleEnv, PORT: String(port) } });
   if (dry) process.exit(0);
   if (pid) {
     process.kill(pid, "SIGTERM");
@@ -52,11 +57,11 @@ if (command === "status") {
   }
   mkdirSync(resolve(ROOT, ".claude/logs"), { recursive: true });
   const out = openSync(resolve(ROOT, `.claude/logs/${role}-${port}.log`), "a");
-  const child = spawn(process.execPath, ["dist/main.js"], { cwd: resolve(ROOT, "apps/api"), env: { ...process.env, ...profile, ...roleEnv, PORT: String(port) }, detached: true, stdio: ["ignore", out, out] });
+  const child = spawn(process.execPath, [...nodeArgs, "dist/main.js"], { cwd: resolve(ROOT, "apps/api"), env: { ...process.env, ...profile, ...roleEnv, PORT: String(port) }, detached: true, stdio: ["ignore", out, out] });
   child.unref();
   for (let i = 0; i < 90; i++) { if (await healthy(port)) { log("started", { role, port, pid: child.pid }); process.exit(0); } await sleep(1000); }
   throw new Error(`${role} on ${port} not healthy after 90 s (see .claude/logs/${role}-${port}.log)`);
 } else {
-  console.error("usage: stack.mjs status | restart worker|api [--profile stage-caps] [--dry-run]");
+  console.error("usage: stack.mjs status | restart worker|api [--profile stage-caps|ratio-floor|stage-like] [--dry-run]");
   process.exit(2);
 }

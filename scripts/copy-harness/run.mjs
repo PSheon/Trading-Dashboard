@@ -2,7 +2,8 @@
 // Copy harness — the whole loop against the local stack, in one command.
 //
 //   node scripts/copy-harness/run.mjs [--dry-run] [--headed] [--gap 20] [--scenarios base,3,4,…]
-//        [--profile default|stage-caps] [--web http://localhost:3000] [--api http://localhost:3100] [--worker http://localhost:3010]
+//        [--profile default|stage-caps|ratio-floor|stage-like] [--web http://localhost:3000] [--api http://localhost:3100] [--worker http://localhost:3010]
+//        [--leader 0x… --watch-min 15] [--contention] [--worker-log .claude/logs/worker-3010.log] [--evidence-max-ms 3500]
 //
 // 1. leader and follower balances: too little stops the run (exit 3) before anything is signed;
 // 2. cleanup: running copies of the harness leader are stopped, waiting setups cancelled, the leader flattened;
@@ -19,8 +20,17 @@
 //    refused-open (8) an open refused under the order minimum, then later legs (a close included) execute;
 //    burst (9) the leader closes in 3 fills within 20 s: the follower ends flat;
 //    kill-switch (14) platform pause (opens refused, reductions mirrored), then admin close-all closes and returns;
-//    each reconciled by reconcile.mjs with the profile's rules (fixed size, leverage cap, refusal allowlist, flat);
-// 7. a copy still running at the end is stopped; a summary table (pass/fail per check, latency p50/p95).
+//    new-coin (21) BTC, then a first ETH and SOL open, each settled, then closes; add-reduce (22) open, add,
+//    partial reduce, close; merged (23) opens and reductions 3 s apart (merged legs); flip (24) long → short in one fill;
+//    gate: new-coin, add-reduce, merged, flip, stop-open (the pre-mainnet gate; see README.md);
+//    each reconciled by reconcile.mjs with the profile's rules (fixed size, leverage cap, refusal allowlist, flat),
+//    and each order's evidence read from the worker's live_execution_timing lines (--worker-log, default
+//    .claude/logs/worker-3010.log): under --evidence-max-ms (3500), and no attempt failed live_risk_stale or
+//    a generation proof (lib.mjs EVIDENCE_FAILURES);
+// 7. a copy still running at the end is stopped; a summary table (pass/fail per check, latency p50/p95),
+//    then one line per scenario: pass/fail and its orders' evidence p50/p95/max.
+//
+// --contention runs contention.mjs beside the scenarios: the orders' meter background lane kept full, as on Stage.
 //
 // --dry-run needs no funds: login, cleanup, the setup up to its consent challenge, the browser's two
 // signatures and addSigners (its /confirm is intercepted, so nothing is deposited; with an empty main
@@ -34,9 +44,10 @@
 // api's AUTH_SERVICE_TOKEN from .env. Secrets (.env, the leader's key) stay in their processes.
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { closeSync, fstatSync, mkdirSync, openSync, readSync, statSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { EXIT, HARNESS_LEADER, ROOT, SCENARIOS, fundingGate, loadEnv, parseScenarios, planCleanup, renderSummary, stopSettled, termsFor, waitFor } from "./lib.mjs";
+import { EVIDENCE_FAILURES, EVIDENCE_MAX_MS, EXIT, GATE_SCENARIOS, HARNESS_LEADER, ROOT, SCENARIOS, evidenceStats, fundingGate, lastStartRtt, loadEnv, parseScenarios, parseStuckRows, planCleanup, profileEnv,
+  renderGateSummary, renderSpans, renderSummary, scanWorkerLog, stopSettled, stuckRowsSql, termsFor, waitFor, zeroCodeCounts } from "./lib.mjs";
 import { apiClient, confirmFromPortfolio, launch, login } from "./follower.mjs";
 
 const args = process.argv.slice(2);
@@ -49,6 +60,9 @@ const LEADER = (flag("leader") ?? HARNESS_LEADER).toLowerCase(), SOURCE = flag("
 let SCENARIO_LIST, TERMS;
 try { SCENARIO_LIST = parseScenarios(flag("scenarios")); TERMS = termsFor(flag("profile", "default")); }
 catch (error) { console.error(error.message); process.exit(EXIT.usage); }
+const WORKER_LOG = resolve(flag("worker-log", resolve(ROOT, ".claude/logs/worker-3010.log")));
+const EVIDENCE_MAX = Number(flag("evidence-max-ms", String(EVIDENCE_MAX_MS)));
+if (!(EVIDENCE_MAX > 0)) { console.error("--evidence-max-ms: a positive number of ms"); process.exit(EXIT.usage); }
 const OUT = resolve(ROOT, ".claude/logs/copy-harness"); mkdirSync(OUT, { recursive: true });
 const runId = new Date().toISOString().replace(/[:.]/g, "-");
 const log = (event, data = {}) => console.log(JSON.stringify({ at: new Date().toISOString(), event, ...data }));
@@ -86,28 +100,60 @@ async function leaderState() {
   if (r.code !== 0 || !state) throw new Error(`leader.mjs state failed: ${r.err.trim().split("\n").at(-1)}`);
   return state;
 }
+/** The worker log's size now (null: no log), and the text appended after `offset` (the last 16 MB at most). */
+function logSize() { try { return statSync(WORKER_LOG).size; } catch { return null; } }
+function readLogFrom(offset) {
+  const fd = openSync(WORKER_LOG, "r");
+  try {
+    const size = fstatSync(fd).size, from = Math.max(size < offset ? 0 : offset, size - 16 * 2 ** 20), buffer = Buffer.alloc(size - from);
+    readSync(fd, buffer, 0, buffer.length, from);
+    return buffer.toString("utf8");
+  } finally { closeSync(fd); }
+}
 async function health(url) { try { const r = await fetch(url, { signal: AbortSignal.timeout(8000) }); return r.status < 500; } catch { return false; } }
 
 const env = loadEnv();
 let browser = null, follower = null, setupId = null;
+/** One row per scenario (the gate's table): pass/fail and its orders' evidence. */
+const scenarioRows = [];
+/** contention.mjs while the scenarios run (--contention), and its latest counts. */
+let contention = null;
 const summary = (extra = {}) => {
-  const text = renderSummary({ checks, mode: DRY ? "dry run" : "full", ...extra });
+  const text = renderSummary({ checks, mode: DRY ? "dry run" : "full", ...extra }) +
+    (scenarioRows.length ? `\n\n${renderGateSummary(scenarioRows, EVIDENCE_MAX)}\n\n${renderSpans(scenarioRows)}` : "");
   console.log(`\n${text}\n`);
-  writeFileSync(resolve(OUT, `${runId}-summary.txt`), `${text}\n`);
-  log("summary_written", { path: resolve(OUT, `${runId}-summary.txt`) });
+  writeFileSync(SUMMARY, `${text}\n`);
+  log("summary_written", { path: SUMMARY });
 };
+const SUMMARY = resolve(OUT, `${runId}-summary.txt`);
 const finish = async (code, extra) => {
+  if (contention) {
+    contention.child.kill("SIGTERM");
+    const c = contention.counts;
+    check("contention_background_lane_full", contention.exited ? false : c ? c.refused > 0 : null,
+      c ? `background asks granted ${c.granted}, refused ${c.refused} (lane full), errors ${c.errors}; sockets ${c.sockets}, refused ${c.socketRefused}` : "no counts yet");
+    contention = null;
+  }
   summary(extra);
   // Only our isolated context is owned; preserve the shared Stage login.
   await follower?.context?.close().catch(() => {});
   await browser?.close().catch(() => {});
-  process.exit(code);
+  console.log(`summary: ${SUMMARY}`);
+  process.exit(code === EXIT.green && checks.some((c) => c.ok === false) ? EXIT.failed : code);
 };
 
 try {
   // --- 0. the local stack --------------------------------------------------------------------
   for (const [name, url] of [["web", WEB], ["api", `${API}/health`], ["worker", `${WORKER}/health`]])
     if (!check(`stack_${name}_up`, await health(url), url)) await finish(EXIT.failed);
+  // The worker runs with the profile's database round trip (stage-like: 8 ms), or the gate measures the wrong stack.
+  {
+    const expected = Number(profileEnv(TERMS.profile).COPY_HARNESS_DB_RTT_MS || 0);
+    const actual = logSize() === null ? null : lastStartRtt(readLogFrom(0));
+    const ok = actual === null ? (expected > 0 ? false : null) : actual === expected;
+    if (false === check("stack_worker_db_rtt", ok, `worker's latest start: ${actual === null ? `unknown (no start in ${WORKER_LOG})` : `${actual} ms`}, profile ${TERMS.profile}: ${expected} ms` +
+      (ok === false ? `; restart it: node scripts/copy-harness/stack.mjs restart worker${TERMS.profile === "default" ? "" : ` --profile ${TERMS.profile}`} (and api)` : ""))) await finish(EXIT.failed);
+  }
 
   // --- 1. balances -----------------------------------------------------------------------------
   const leader = await leaderState();
@@ -272,18 +318,56 @@ try {
     const out = await new Promise((resolveOut) => { const child = spawn("psql", [env.DATABASE_URL, "-At", "-F", "=", "-c", sql]); let text = ""; child.stdout.on("data", (d) => { text += d; }); child.on("close", () => resolveOut(text)); });
     return Object.fromEntries(out.trim().split("\n").filter(Boolean).map((line) => { const [k, v] = line.split("="); return [k, Number(v)]; }));
   };
+  /** The manual stuck detector: setups, stops, funding and account-mode operations with an issue
+   * whose retry is over 2 minutes past (lib.mjs stuckRowsSql), in the whole local database. */
+  const stuckCheck = async () => {
+    const result = await new Promise((resolveOut) => {
+      const child = spawn("psql", [env.DATABASE_URL, "-At", "-F", "|", "-v", "ON_ERROR_STOP=1", "-c", stuckRowsSql()]);
+      let text = "", err = ""; child.stdout.on("data", (d) => { text += d; }); child.stderr.on("data", (d) => { err += d; });
+      child.on("error", (e) => resolveOut({ code: -1, text, err: e.message })); child.on("close", (code) => resolveOut({ code, text, err }));
+    });
+    if (result.code !== 0) return check("no_stuck_rows", false, `psql failed: ${result.err.trim().split("\n").at(-1)}`);
+    const rows = parseStuckRows(result.text);
+    return check("no_stuck_rows", rows.length === 0, rows.length ? rows.map((r) => `${r.table} ${r.id}: ${r.issue ?? `(no issue column) ${r.state}`}`).join("; ") : "none waiting over 2 min past its retry");
+  };
   /** A refusal the copy may record for a real trader's leg; anything else is a defect. */
   const EXPECTED_REFUSALS = /^(refused:(merged_into_adjustment|below_min_notional|live_market_hip3_unsupported|no_follower_position|signal_expired|max_strategy_exposure|max_user_exposure|max_coin_exposure|available_collateral|max_order|copy_stopping|flip_close_not_settled|position_closed_by_owner))$/;
+  /**
+   * The orders the worker ran since `mark` (its live_execution_timing lines):
+   * each one's evidence under EVIDENCE_MAX, and no attempt failed for its
+   * evidence's age or generation proof. `required`: a scenario whose legs
+   * must have produced orders (a gate scenario); otherwise none is a skip.
+   */
+  function evidenceCheck(label, mark, { required }) {
+    if (mark.offset === null) { check(`${label}_evidence`, required ? false : null, `no worker log at ${WORKER_LOG} (--worker-log)`); return []; }
+    const { orders, failures } = scanWorkerLog(readLogFrom(mark.offset), { since: mark.at - 1000 });
+    const stats = evidenceStats(orders, EVIDENCE_MAX);
+    writeFileSync(resolve(OUT, `${runId}-${label}-evidence.json`), `${JSON.stringify({ maxMs: EVIDENCE_MAX, stats, orders, failures }, null, 2)}\n`);
+    const slowest = orders.reduce((a, b) => (!a || b.evidenceMs > a.evidenceMs ? b : a), null);
+    check(`${label}_evidence_under_${EVIDENCE_MAX}ms`, orders.length ? stats.over === 0 : required ? false : null,
+      orders.length ? `${orders.length} order(s), evidence p50 ${stats.p50} / p95 ${stats.p95} / max ${stats.max} ms, ${stats.over} at or over; slowest phases ${JSON.stringify(slowest.phases)}`
+        : `no live_execution_timing line in ${WORKER_LOG} since the scenario began`);
+    const bad = failures.filter((f) => EVIDENCE_FAILURES.includes(f.reason));
+    const count = (list) => JSON.stringify(Object.fromEntries([...new Set(list.map((f) => f.reason))].map((r) => [r, list.filter((f) => f.reason === r).length])));
+    check(`${label}_no_evidence_failures`, bad.length === 0, bad.length ? `failed attempts: ${count(bad)}` : failures.length ? `other failed attempts: ${count(failures)}` : "no failed attempt");
+    return orders;
+  }
   /** Each scenario runs on `copy` (a running copy) and returns whether the copy still runs. */
   const scenarios = {
     // A real mainnet trader for WATCH_MIN minutes: what this stack does with its real fill rate and bursts.
     follow: async (copy) => {
-      const until = Date.now() + WATCH_MIN * 60_000;
+      const mark = { offset: logSize(), at: Date.now() }, until = Date.now() + WATCH_MIN * 60_000;
       while (Date.now() < until) { log("follow_tick", { outcomes: await legOutcomes(copy.strategyId) }); await sleep(60_000); }
       const outcomes = await legOutcomes(copy.strategyId);
       const settled = outcomes["settled:"] ?? 0, unexpected = Object.entries(outcomes).filter(([k]) => k !== "settled:" && !k.startsWith("pending:") && !k.startsWith("submitted:") && !EXPECTED_REFUSALS.test(k));
       check("follow_legs_settled", settled > 0, `${settled} settled of ${Object.values(outcomes).reduce((a, b) => a + b, 0)}: ${JSON.stringify(outcomes)}`);
       check("follow_no_unexpected_refusal", unexpected.length === 0, unexpected.length ? JSON.stringify(Object.fromEntries(unexpected)) : "none");
+      // 2026-10-12's codes: none at all, in any attempt, boundary failure or dispatch (a retry that later settled still counts).
+      const scan = mark.offset === null ? null : scanWorkerLog(readLogFrom(mark.offset), { since: mark.at - 1000 });
+      const zero = zeroCodeCounts({ failures: scan?.failures, boundary: scan?.boundary, outcomes });
+      for (const [code, n] of Object.entries(zero))
+        check(`follow_zero_${code}`, scan === null ? false : n.attempts + n.boundary + n.dispatches === 0,
+          scan === null ? `no worker log at ${WORKER_LOG}` : `failed attempts ${n.attempts}, boundary failures ${n.boundary}, dispatches ${n.dispatches}`);
       await stopCheck("follow", copy);
       return false;
     },
@@ -411,6 +495,49 @@ try {
       }
       return false;
     },
+    // --- the pre-mainnet gate's legs (lib.mjs GATE_SCENARIOS) ---
+    // (21) Stage 2026-10-12: after the copy's first order every open of another coin was refused
+    // live_generation_unproven. Each open waits for the follower's fill before the next coin's.
+    async "new-coin"(copy) {
+      const since = nowIso(), coins = ["BTC", "ETH", "SOL"];
+      for (const coin of coins) {
+        await leaderRun(`new_coin_open_${coin}`, ["open", coin, "20"]);
+        const held = await followerHolds(copy, coin);
+        if (!check(`new_coin_${coin}_mirrored`, held.ok, JSON.stringify(held.value.positions))) break;
+      }
+      for (const coin of [...coins].reverse()) {
+        if ((await leaderState()).positions.some((p) => p.coin === coin && Number(p.szi) !== 0)) await leaderRun(`new_coin_close_${coin}`, ["close", coin]);
+        await sleep(5000);
+      }
+      await reconcileCheck("new_coin", copy, since);
+      return true;
+    },
+    // (22) open, a same-coin add, a partial reduce (half), a full close.
+    async "add-reduce"(copy) {
+      const since = nowIso();
+      await leaderRun("add_reduce", ["scenario", "add-reduce", "--gap", GAP]);
+      await reconcileCheck("add_reduce", copy, since);
+      return true;
+    },
+    // (23) legs 3 s apart: one source read carries them, the copy merges them (ratio sizing).
+    async merged(copy) {
+      const since = nowIso();
+      await leaderRun("merged", ["scenario", "merged", "--gap", GAP]);
+      await reconcileCheck("merged", copy, since);
+      const flat = await waitFor(() => usdc(copy.account), (b) => b.positions.length === 0, { timeoutMs: 120_000, intervalMs: 3000 });
+      check("merged_follower_flat", flat.ok, JSON.stringify(flat.value.positions));
+      const merged = (lastReconcile?.dispatches?.byStateReason ?? {})["refused/merged_into_adjustment"] ?? 0;
+      // Informational: whether legs merge depends on the source read's timing (and on ratio sizing).
+      check("merged_legs_merged", merged > 0 ? true : null, `${merged} leg(s) merged into another's order${TERMS.sizingMode === "ratio" ? "" : " (fixed sizing never merges)"}`);
+      return true;
+    },
+    // (24) long → short in one leader fill: the copy's close leg, then its open leg.
+    async flip(copy) {
+      const since = nowIso();
+      await leaderRun("flip", ["scenario", "flip", "--gap", GAP]);
+      await reconcileCheck("flip", copy, since);
+      return true;
+    },
   };
 
   // --- 6. the scenarios ---------------------------------------------------------------------------------------
@@ -419,23 +546,49 @@ try {
     await startCopy("dry_run");
     // Each scenario's leader legs, planned from live markets (nothing signed).
     for (const name of SCENARIO_LIST) {
-      const leaderScenario = ["base", "reduce-min", "burst", "refused-open"].includes(name) ? name : null;
+      const leaderScenario = ["base", "reduce-min", "burst", "refused-open", "new-coin", "add-reduce", "merged", "flip"].includes(name) ? name : null;
       if (!leaderScenario) { check(`dry_run_${name}_planned`, null, `${SCENARIOS[name].about} (orchestrated live; no leader plan)`); continue; }
       const r = await node("leader.mjs", ["scenario", leaderScenario, "--dry-run", ...sizingArgs], { quiet: true });
       const skipped = r.code === 0 && r.lines.some(l => l.event === "start" && l.skipped === true && l.reason === "no_refusable_market");
       check(`dry_run_${name}_planned`, skipped ? null : r.code === 0, skipped ? "no testnet perp fits scenario 8 within the cap" : r.code === 0 ? r.lines.filter((l) => l.event === "trade_planned").map((l) => l.label).join(" → ") : r.err.trim().split("\n").at(-1));
     }
+    // The evidence check's input: the worker log's recent orders (none yet is a skip).
+    const size = logSize();
+    const recent = size === null ? null : scanWorkerLog(readLogFrom(Math.max(0, size - 4 * 2 ** 20)));
+    const stats = recent && evidenceStats(recent.orders, EVIDENCE_MAX);
+    check("dry_run_worker_log_timings", recent && recent.orders.length ? true : null, recent ? `${recent.orders.length} recent order(s) in ${WORKER_LOG}` +
+      (stats.orders ? `: evidence p50 ${stats.p50} / p95 ${stats.p95} / max ${stats.max} ms, ${stats.over} at or over ${EVIDENCE_MAX}` : "") : `no worker log at ${WORKER_LOG}`);
+    await stuckCheck();
     await finish(checks.some((c) => c.ok === false) ? EXIT.failed : EXIT.green);
+  }
+  if (has("contention")) {
+    // Stage's background lane, full, on the orders' egress key, with the profile's round trip.
+    const child = spawn(process.execPath, [resolve(import.meta.dirname, "contention.mjs")], { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, HARNESS_DATABASE_URL: env.DATABASE_URL, COPY_HARNESS_DB_RTT_MS: profileEnv(TERMS.profile).COPY_HARNESS_DB_RTT_MS ?? "0" } });
+    contention = { child, counts: null, exited: false };
+    const own = contention;
+    child.stdout.on("data", (d) => { for (const line of String(d).split("\n")) { try { const j = JSON.parse(line); if (j.event === "contention") own.counts = j; } catch { /* partial line */ } } });
+    child.stderr.on("data", (d) => process.stderr.write(d));
+    child.on("exit", (code) => { own.exited = true; log("contention_exited", { code }); });
+    await sleep(3000); // the lane fills before the first order
   }
   let copy = null;
   for (const [i, name] of SCENARIO_LIST.entries()) {
     copy ??= await startCopy(i === 0 ? "copy" : `copy_${i + 1}`);
     log("scenario_start", { scenario: name, about: SCENARIOS[name].about, strategyId: copy.strategyId, account: copy.account });
+    const first = checks.length, mark = { offset: logSize(), at: Date.now() };
     if (!(await scenarios[name](copy))) copy = null;
-    if (checks.some((c) => c.ok === false)) { log("scenarios_stopped_after_failure", { scenario: name }); break; }
+    const orders = evidenceCheck(name.replace(/-/g, "_"), mark, { required: GATE_SCENARIOS.includes(name) });
+    scenarioRows.push({ name, ok: !checks.slice(first).some((c) => c.ok === false), orders });
+    if (checks.some((c) => c.ok === false)) {
+      log("scenarios_stopped_after_failure", { scenario: name });
+      for (const rest of SCENARIO_LIST.slice(i + 1)) scenarioRows.push({ name: rest, ok: null, orders: [] });
+      break;
+    }
   }
   // --- 7. a copy still running is stopped (its return credited) ---------------------------------------------
   if (copy) await stopCheck("final", copy);
+  await stuckCheck();
   if (checks.some((c) => c.ok === false) && (await leaderState()).positions.length) await leaderRun("failure_cleanup", ["flatten"]);
 
   const latency = lastReconcile?.latencySeconds ? { "signal received": lastReconcile.latencySeconds.received, "order sent": lastReconcile.latencySeconds.sent, "first follower fill": lastReconcile.latencySeconds.filled } : null;

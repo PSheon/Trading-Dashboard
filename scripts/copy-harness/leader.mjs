@@ -8,7 +8,7 @@
 // Key: HARNESS_LEADER_PRIVATE_KEY from .env.harness-leader.testnet.local
 // (gitignored, 0600); never printed. Run from apps/api (it uses its deps):
 //   node ../../scripts/copy-harness/leader.mjs scenario [name] [--coin ETH] [--gap 20] [--dry-run]
-//        name: base (default) | reduce-min | burst | refused-open (see SCENARIO_LEGS)
+//        name: base (default) | reduce-min | burst | refused-open | new-coin | add-reduce | merged | flip (see SCENARIO_LEGS)
 //   node ../../scripts/copy-harness/leader.mjs open <coin> <usd>        (negative usd: short)
 //   node ../../scripts/copy-harness/leader.mjs reduce <coin> <fraction>  (reduce-only)
 //   node ../../scripts/copy-harness/leader.mjs close <coin>              (reduce-only, all of it)
@@ -158,6 +158,39 @@ if (command === "state") {
       ["close refusable", reduce(odd.coin, 1, `close ${odd.coin} (follower holds none)`)],
       ["close ETH", reduce(coin, 1, `close ${coin}`)],
     ] : [],
+    // Pre-mainnet gate (lib.mjs GATE_SCENARIOS). (21) A first open of a coin
+    // after an order on another (run.mjs waits for each fill instead of `gap`).
+    "new-coin": [
+      ["open BTC", () => trade("BTC", { usd: 20, label: "open BTC" })],
+      ["open ETH (new coin)", () => trade(coin, { usd: 20, label: `open ${coin} (new coin)` })],
+      ["open SOL (new coin)", () => trade("SOL", { usd: 20, label: "open SOL (new coin)" })],
+      ["close SOL", reduce("SOL", 1, "close SOL")],
+      ["close ETH", reduce(coin, 1, `close ${coin}`)],
+      ["close BTC", reduce("BTC", 1, "close BTC")],
+    ],
+    // (22) open, a same-coin add, a partial reduce, a full close.
+    "add-reduce": [
+      ["open 20", () => trade(coin, { usd: 20, label: "open 20" })],
+      ["add 20", () => trade(coin, { usd: 20, label: "add 20" })],
+      ["reduce half", reduce(coin, 0.5, "reduce half")],
+      ["close", reduce(coin, 1, "close")],
+    ],
+    // (23) three opens, then three reductions, each 3 s apart: one source
+    // read carries them together, so the copy merges them (ratio sizing).
+    merged: [
+      ["open 20", () => trade(coin, { usd: 20, label: "open 20" }), 3000],
+      ["add 20", () => trade(coin, { usd: 20, label: "add 20" }), 3000],
+      ["add 20 more", () => trade(coin, { usd: 20, label: "add 20 more" }), gap],
+      ["reduce 1/3", reduce(coin, 1 / 3, "reduce 1/3"), 3000],
+      ["reduce 1/2", reduce(coin, 1 / 2, "reduce 1/2"), 3000],
+      ["close rest", reduce(coin, 1, "close rest")],
+    ],
+    // (24) long, then short in ONE fill (its close and open legs), then close.
+    flip: [
+      ["open long 20", () => trade(coin, { usd: 20, label: "open long 20" })],
+      ["flip to short", async () => { const p = await position(coin); return trade(coin, { size: -p.szi - 20 / (await market(coin)).mid, label: "flip to short" }); }],
+      ["close short", reduce(coin, 1, "close short")],
+    ],
   };
   const steps = SCENARIO_LEGS[name];
   if (!steps) { console.error(`unknown scenario ${name} (${Object.keys(SCENARIO_LEGS).join(" | ")})`); process.exit(2); }
@@ -165,11 +198,11 @@ if (command === "state") {
   log("start", { address: wallet.address, scenario: name, coin, ...(odd ? { refusable: odd } : {}), ...start });
   if (start.szi !== 0 && !DRY) throw new Error(`leader already holds ${coin} ${start.szi}; close it first`);
   for (const [label, run, pause = gap] of steps) {
-    if (DRY && /reduce|close/.test(label)) { log("trade_planned", { label, reduceOnly: true, note: "sized from the position at the time" }); continue; }
+    if (DRY && /reduce|close|flip/.test(label)) { log("trade_planned", { label, reduceOnly: !label.includes("flip"), note: "sized from the position at the time" }); continue; }
     await run(); if (!DRY) log("leg_done", { leg: label, position: await position(coin) }); if (!DRY) await sleep(pause);
   }
   log("done", DRY ? { dryRun: true } : await position(coin));
 } else {
-  console.error("usage: leader.mjs scenario [base|reduce-min|burst|refused-open]|open|reduce|close|refusable|send|state|flatten");
+  console.error("usage: leader.mjs scenario [base|reduce-min|burst|refused-open|new-coin|add-reduce|merged|flip]|open|reduce|close|refusable|send|state|flatten");
   process.exit(2);
 }

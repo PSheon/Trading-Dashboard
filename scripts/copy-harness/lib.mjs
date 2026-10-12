@@ -118,6 +118,27 @@ export async function waitFor(read, done, { timeoutMs, intervalMs = 2000, onTick
 
 // --- profiles and scenarios ---------------------------------------------------------------------
 
+/** Each stack profile's files (this directory), layered in order over harness.env (stack.mjs). */
+export const PROFILE_FILES = Object.freeze({ "stage-caps": ["stage-caps.env"], "ratio-floor": ["ratio-floor.env"], "stage-like": ["ratio-floor.env", "stage-like.env"] });
+/** The variables a profile gives the api and the worker (harness.env, then its files). No secrets live in them. */
+export function profileEnv(profile = "default") {
+  const files = ["harness.env", ...(profile === "default" ? [] : PROFILE_FILES[profile] ?? [])];
+  if (profile !== "default" && !PROFILE_FILES[profile]) throw new Error(`unknown profile ${profile} (${Object.keys(PROFILE_FILES).join(" | ")})`);
+  return Object.assign({}, ...files.map((f) => parseEnv(readFileSync(resolve(import.meta.dirname, f), "utf8"))));
+}
+
+/** The database round trip (ms) the worker's latest start runs with, from its
+ * log: db-rtt.preload.mjs prints `copy_harness_db_rtt` just before Nest starts.
+ * 0: started without one; null: no start in the text. */
+export function lastStartRtt(text) {
+  let pending = null, current = null;
+  for (const line of text.split("\n")) {
+    if (line.includes('"event":"copy_harness_db_rtt"')) { try { pending = Number(JSON.parse(line).ms); } catch { /* not ours */ } }
+    else if (line.includes("Starting Nest application")) { current = pending ?? 0; pending = null; }
+  }
+  return current;
+}
+
 /** The run's terms per stack profile: `default` (harness.env) or `stage-caps`
  * (stage-caps.env over it: Stage's caps, 12–15 per trade, 50 per copy, leverage 3). */
 export function termsFor(profile = "default") {
@@ -125,7 +146,9 @@ export function termsFor(profile = "default") {
   if (profile === "stage-caps") return { ...TERMS, budgetUsd: 50, maxPerTradeUsd: 15, maxLeverage: 3, profile };
   // The planned mainnet functional test: ratio sizing with the TEST ONLY minimum floor (ratio-floor.env).
   if (profile === "ratio-floor") return { ...TERMS, budgetUsd: 50, sizingMode: "ratio", ratioFloorMaxUsd: 15, maxPerTradeUsd: 15, maxLeverage: 3, profile };
-  throw new Error(`unknown profile ${profile} (default | stage-caps | ratio-floor)`);
+  // The pre-mainnet gate: ratio-floor with Stage's 8 ms database round trip (stage-like.env).
+  if (profile === "stage-like") return { ...termsFor("ratio-floor"), profile };
+  throw new Error(`unknown profile ${profile} (default | stage-caps | ratio-floor | stage-like)`);
 }
 
 /**
@@ -142,11 +165,19 @@ export const SCENARIOS = Object.freeze({
   burst: { no: "9", endsCopy: false, about: "the leader closes in 3 fills within 20 s; the follower ends flat" },
   "kill-switch": { no: "14", endsCopy: true, about: "platform pause (opens refused, reductions mirrored), then admin close-all closes and returns" },
   follow: { no: "20", endsCopy: true, about: "follow --leader (a real mainnet trader) for --watch-min minutes: every leg settled or refused for an expected reason, then stop" },
+  // The pre-mainnet gate's legs (2026-10-12: a second coin's open refused live_generation_unproven).
+  "new-coin": { no: "21", endsCopy: false, about: "open BTC, settled; then a first open of ETH, then of SOL, each settled; then close all three" },
+  "add-reduce": { no: "22", endsCopy: false, about: "open ETH, add (same coin), partial reduce (half), full close: each its own order" },
+  merged: { no: "23", endsCopy: false, about: "three ETH opens 3 s apart, then three reductions 3 s apart ending flat: legs merged within the window, follower flat" },
+  flip: { no: "24", endsCopy: false, about: "open ETH long, then flip to short in ONE fill (a close and an open leg), then close" },
 });
-/** `--scenarios` → scenario names, in the given order (default: base). */
+/** `--scenarios gate`: every leg type, in order, on a fresh copy (new-coin
+ * first, so its coins are the copy's first), ending with a stop and its return. */
+export const GATE_SCENARIOS = Object.freeze(["new-coin", "add-reduce", "merged", "flip", "stop-open"]);
+/** `--scenarios` → scenario names, in the given order (default: base; `gate` expands to GATE_SCENARIOS). */
 export function parseScenarios(value) {
   if (!value) return ["base"];
-  const names = value.split(",").map((s) => s.trim()).filter(Boolean).map((s) => {
+  const names = value.split(",").map((s) => s.trim()).filter(Boolean).flatMap((s) => s === "gate" ? GATE_SCENARIOS : [s]).map((s) => {
     const name = SCENARIOS[s] ? s : Object.entries(SCENARIOS).find(([, v]) => v.no === s)?.[0];
     if (!name) throw new Error(`unknown scenario ${s} (${Object.entries(SCENARIOS).map(([k, v]) => `${v.no}=${k}`).join(", ")})`);
     return name;
@@ -171,4 +202,163 @@ export function refusableCoin(markets, { perTradeUsd, maxPerTradeUsd, minOrderUs
   const candidates = markets.filter((m) => !m.delisted && m.mid > 0 && !m.name.includes(":") && fits(m));
   // The cheapest lot keeps the leader's own order small.
   return candidates.sort((a, b) => a.mid / 10 ** a.szDecimals - b.mid / 10 ** b.szDecimals)[0] ?? null;
+}
+
+// --- the worker's order timings (pre-mainnet gate) ---------------------------------------------------
+
+/** An order's evidence must stay well inside the 5 s window (live_risk_stale) — the gate's limit. */
+export const EVIDENCE_MAX_MS = 3500;
+/** Attempt failures that mean the evidence or its generation proof could not be held: the gate fails on any. */
+export const EVIDENCE_FAILURES = Object.freeze(["live_risk_stale", "live_risk_serialization_stale", "market_evidence_expired",
+  "live_risk_generation_unproven", "live_generation_unproven", "live_preparation_generation_changed", "live_read_deadline_exceeded"]);
+
+/**
+ * One order from a worker `live_execution_timing` line (LiveExecutionRuntime):
+ * its phases' timings, in the order they were marked. The runtime's own
+ * `execute` mark runs from the preparation's start (where the evidence window
+ * opens) through `runtime_hold`; the executor's `execute` mark starts right
+ * after and reaches `executor_submit_gate`, the last evidence check before the
+ * exchange. `evidenceMs` is the two together: what the 5 s window has to hold.
+ * `orderMs` adds the exchange call (`executor_submit`). `phases`: the longest
+ * total of each phase (prepare, collect, hold, sign, submit, execute).
+ * Null for a line that is not an order's preparation (a recovery's reconcile).
+ * @param {{ phase: string, stage: string, elapsedMs: number, totalMs: number }[]} timings
+ */
+export function orderEvidence(timings) {
+  if (!Array.isArray(timings)) return null;
+  const stage = (name) => timings.find((t) => t.phase === "execute" && t.stage === name);
+  const prepared = stage("runtime_prepare");
+  if (!prepared) return null;
+  const runtime = (stage("runtime_hold") ?? prepared).totalMs;
+  const executor = timings.filter((t) => t.phase === "execute" && t.stage.startsWith("executor_"));
+  const gate = stage("executor_submit_gate") ?? executor.filter((t) => t.stage !== "executor_submit").at(-1);
+  const submit = stage("executor_submit");
+  /** @type {Record<string, number>} */
+  const phases = {};
+  for (const t of timings) phases[t.phase] = Math.max(phases[t.phase] ?? 0, t.totalMs);
+  return { evidenceMs: runtime + (gate?.totalMs ?? 0), orderMs: runtime + (submit?.totalMs ?? gate?.totalMs ?? 0), submitted: Boolean(submit), phases };
+}
+
+/** `leg <id> attempt <n> failed: <reason>; elapsed <ms> ms, source age <ms> ms, …` (CopyLiveEngine). */
+const ATTEMPT_FAILED = /^leg (\S+) attempt (\d+) failed: ([a-z0-9_]+); elapsed (\d+) ms, source age (\d+) ms/;
+
+/**
+ * The orders and failed attempts in a slice of the worker's log (JSON lines,
+ * as stack.mjs writes them), within [since, until] when given (ms epoch).
+ * @param {string} text @param {{ since?: number, until?: number }} [window]
+ */
+export function scanWorkerLog(text, { since = -Infinity, until = Infinity } = {}) {
+  const orders = [], failures = [], boundary = [];
+  for (const line of text.split("\n")) {
+    if (!line.includes("live_execution_timing") && !line.includes(" failed: ") && !line.includes("live_execution_boundary_failure")) continue;
+    let row;
+    try { row = JSON.parse(line); } catch { continue; }
+    const at = Date.parse(row?.timestamp);
+    if (!Number.isFinite(at) || at < since || at > until) continue;
+    const message = row.message;
+    if (message && typeof message === "object" && message.event === "live_execution_timing") {
+      const order = orderEvidence(message.timings);
+      if (order) orders.push({ at: row.timestamp, ...order, spans: Array.isArray(message.spans) ? message.spans : [] });
+    } else if (message && typeof message === "object" && message.event === "live_execution_boundary_failure") {
+      boundary.push({ at: row.timestamp, stage: message.stage, errorCode: message.errorCode, ...(message.budgetReason ? { budgetReason: message.budgetReason } : {}) });
+    } else if (typeof message === "string") {
+      const m = message.match(ATTEMPT_FAILED);
+      if (m) failures.push({ at: row.timestamp, leg: m[1], attempt: Number(m[2]), reason: m[3], elapsedMs: Number(m[4]), sourceAgeMs: Number(m[5]) });
+    }
+  }
+  return { orders, failures, boundary };
+}
+
+/** An order's spans (LiveSpanRecorder.summary) summed per role: follower, leader, target, other_account, and `none` (unlabelled). */
+export function spansByRole(order) {
+  /** @type {Record<string, number>} */
+  const out = {};
+  for (const s of order.spans ?? []) { const role = String(s.span).split(":")[1] ?? "none"; out[role] = (out[role] ?? 0) + (Number(s.totalMs) || 0); }
+  return out;
+}
+/** Per span (name:role) over the orders: in how many it occurs and p50/p95/max of its total per order, slowest p95 first. */
+export function spanStats(orders) {
+  const per = new Map();
+  for (const o of orders) for (const s of o.spans ?? []) per.set(s.span, [...(per.get(s.span) ?? []), Number(s.totalMs) || 0]);
+  return [...per].map(([span, xs]) => ({ span, orders: xs.length, p50: percentile(xs, 0.5), p95: percentile(xs, 0.95), max: Math.max(...xs) }))
+    .sort((a, b) => b.p95 - a.p95 || a.span.localeCompare(b.span));
+}
+/** The spans block of the summary: each order's evidence and its spans per role, then each span's p50/p95/max. */
+export function renderSpans(rows) {
+  const lines = ["evidence spans per order (ms; per role: follower / leader / target / other_account / none)"];
+  for (const r of rows) for (const o of r.orders ?? []) {
+    const roles = spansByRole(o);
+    lines.push(`  ${r.name.padEnd(10)} ${o.at}  evidence ${String(o.evidenceMs).padStart(5)}  ` + ["follower", "leader", "target", "other_account", "none"].map((k) => `${k} ${roles[k] ?? 0}`).join(", "));
+  }
+  const stats = spanStats(rows.flatMap((r) => r.orders ?? []));
+  if (stats.length) {
+    const width = Math.max(4, ...stats.map((s) => s.span.length));
+    lines.push("", `${"span".padEnd(width)}  orders     p50    p95    max  (ms per order)`);
+    for (const s of stats) lines.push(`${s.span.padEnd(width)}  ${String(s.orders).padStart(6)}  ${[s.p50, s.p95, s.max].map((v) => String(Math.round(v)).padStart(6)).join(" ")}`);
+  }
+  return lines.join("\n");
+}
+
+/** Codes a real leader's follow must never show (2026-10-12), in the worker's attempts and boundary failures and in the dispatches. */
+export const FOLLOW_ZERO_CODES = Object.freeze(["live_risk_stale", "hyperliquid_busy", "live_generation_unproven", "live_risk_generation_unproven"]);
+/**
+ * How often each code appears: failed attempts and boundary failures (the
+ * worker log) and the dispatches' final reasons (`state:reason` → count, as
+ * run.mjs legOutcomes gives them).
+ */
+export function zeroCodeCounts({ failures = [], boundary = [], outcomes = {} }, codes = FOLLOW_ZERO_CODES) {
+  return Object.fromEntries(codes.map((code) => [code, {
+    attempts: failures.filter((f) => f.reason === code).length,
+    boundary: boundary.filter((b) => b.errorCode === code).length,
+    dispatches: Object.entries(outcomes).filter(([k]) => k.split(":")[1] === code).reduce((sum, [, n]) => sum + n, 0),
+  }]));
+}
+
+// --- stuck rows (a manual stuck detector) --------------------------------------------------------------------
+
+/** How long a row with an issue may wait past its retry before it counts as stuck. */
+export const STUCK_AFTER_MS = 120_000;
+/**
+ * One query (psql -At, `|` separated: table|id|issue|state|waiting since) for
+ * the operations that stopped moving: a row with an issue (or, for funding,
+ * which has no issue column, any row) in a non-final state whose retry time —
+ * copy_live_setups.next_attempt_at; the other tables have none, so updated_at
+ * — is over 2 minutes past. `userId`/`since` narrow it to one user's rows
+ * created since then (a run's own); omit them for the whole database.
+ * @param {{ userId?: number | null, since?: string | null, stuckAfterMs?: number }} [scope]
+ */
+export function stuckRowsSql({ userId = null, since = null, stuckAfterMs = STUCK_AFTER_MS } = {}) {
+  if (userId !== null && !Number.isSafeInteger(userId)) throw new Error("userId: an integer");
+  if (since !== null && !Number.isFinite(Date.parse(since))) throw new Error("since: an ISO time");
+  const scope = `${userId === null ? "" : ` and user_id = ${userId}`}${since === null ? "" : ` and created_at >= '${new Date(since).toISOString()}'`}`;
+  const cutoff = `now() - interval '${Math.round(stuckAfterMs / 1000)} seconds'`;
+  return [
+    `select 'copy_live_setups', id, issue, stage, next_attempt_at from copy_live_setups where issue is not null and stage not in ('running', 'cancelled', 'failed', 'expired') and next_attempt_at < ${cutoff}${scope}`,
+    `select 'copy_live_stop_operations', id, issue, state, updated_at from copy_live_stop_operations where issue is not null and state <> 'stopped' and updated_at < ${cutoff}${scope}`,
+    `select 'copy_funding_operations', id, null, status, updated_at from copy_funding_operations where status not in ('credited', 'rejected', 'cancelled') and updated_at < ${cutoff}${scope}`,
+    `select 'copy_account_mode_operations', id, issue, submission_state || '/' || target_state, updated_at from copy_account_mode_operations where issue is not null and target_state not in ('supported', 'unsupported') and updated_at < ${cutoff}${scope}`,
+  ].join(" union all ") + " order by 1, 2";
+}
+/** psql -At output of stuckRowsSql → rows. */
+export function parseStuckRows(text) {
+  return text.split("\n").filter((l) => l.trim()).map((l) => { const [table, id, issue, state, since] = l.split("|"); return { table, id, issue: issue || null, state, since }; });
+}
+
+/** p50/p95/max of the orders' evidence (ms), and how many reached `maxMs`. */
+export function evidenceStats(orders, maxMs = EVIDENCE_MAX_MS) {
+  const xs = orders.map((o) => o.evidenceMs);
+  return { orders: xs.length, p50: percentile(xs, 0.5), p95: percentile(xs, 0.95), max: xs.length ? Math.max(...xs) : null, over: xs.filter((x) => x >= maxMs).length };
+}
+
+/** The gate's table: one line per scenario, pass/fail and its orders' evidence p50/p95/max (ms), then all of them. */
+export function renderGateSummary(rows, maxMs = EVIDENCE_MAX_MS) {
+  const width = Math.max(8, ...rows.map((r) => r.name.length));
+  const ms = (v) => (v === null || v === undefined ? "—" : String(Math.round(v))).padStart(6);
+  const mark = (ok) => ok === true ? "PASS" : ok === false ? "FAIL" : "SKIP";
+  const line = (name, ok, s) => `${name.padEnd(width)}  ${mark(ok).padEnd(6)}  ${String(s.orders).padStart(6)}  ${ms(s.p50)} ${ms(s.p95)} ${ms(s.max)}`;
+  const lines = [`pre-mainnet gate: every leg settled or refused for an expected reason, each order's evidence < ${maxMs} ms`,
+    `${"scenario".padEnd(width)}  result  orders     p50    p95    max  (evidence ms)`];
+  for (const r of rows) lines.push(line(r.name, r.ok, evidenceStats(r.orders ?? [], maxMs)));
+  if (rows.length > 1) lines.push(line("all", rows.some((r) => r.ok === false) ? false : rows.every((r) => r.ok === null) ? null : true, evidenceStats(rows.flatMap((r) => r.orders ?? []), maxMs)));
+  return lines.join("\n");
 }

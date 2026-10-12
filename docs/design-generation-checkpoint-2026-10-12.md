@@ -122,3 +122,22 @@ A cut at T is valid only if all of these hold:
 8. **The baseline is still inline** (a large part of the 195 KB). Storing it by digest is a follow-up.
 9. **v1 orders in flight at rollout** still replay linearly, once.
 10. **Naming.** Avoid clashing with `generationManifest` in `copy-live-stop.repository.ts:150`.
+
+## 9. Review revisions (2026-10-12, reviewer, tracker H-O1)
+
+Adopted. Where these differ from §2–§8, they override them.
+
+1. **Time domain.**
+   - T lives in **provider time**: T = the providerTime of the last folded receipt, and T ≤ `scan.through − 60 s`.
+   - A journal belongs to the cut by its receipts' providerTime, not by `createdAt`. This removes the dependency on O9 clock skew between the DB and Hyperliquid.
+2. **The cut is per prefix, not per account.**
+   - Only journals and reservations that belong to ≤ T must be terminal. Journals after T may be in flight, since they are in the tail.
+   - This replaces "no journal or reservation is in flight" in §2.3 and removes §8.3.
+3. **Explicit invalidators.** Any ≤ T receipt that is `follower_unattributed_trade` or a liquidation makes the cut invalid. Stating it in §5 only is not enough.
+4. **Reverse assertion in the tail loader.** An anti-join must find no journal or receipt at ≤ T that is missing from the folded tables. This catches rows inserted late with older times, and incomplete backfill.
+5. **Pinning rule** (refines §3.5). The gate refuses only when a newer checkpoint has T ≥ the order's own first receipt time (or admission time). A newer checkpoint whose T is earlier than the order is allowed.
+6. **The baseline by digest ships in the same release** (moved out of §8.8). Otherwise the ≤ 250 KB target in the 300-order e2e is mostly used up by the baseline.
+7. **The chain audit runs inside the E6 stuck-detector loop** (§8.1).
+8. **Product sign-off (§5 / §8.4) is bundled with an admin un-quarantine endpoint, with audit, in the same release.** No admin path exists today (architecture review §D), and the new rule makes quarantine more likely.
+
+**Gate:** implementation starts only after Paul signs off on item 8.

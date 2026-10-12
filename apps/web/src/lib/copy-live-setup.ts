@@ -30,7 +30,7 @@ export interface LiveCopyDeployment {
   /** Explicit server capability; an older deployment does not expose abort. */
   setupAbort?: boolean;
   network: 'testnet' | 'mainnet'; available: boolean; sourceNetworks: ReadonlyArray<'testnet' | 'mainnet'>;
-  caps: { fixedPerTradeUsd: { min: number; max: number } | null; maxAllocationUsd: number | null; maxLeverage: number | null; maxStrategiesPerUser: number } | null;
+  caps: { fixedPerTradeUsd: { min: number; max: number } | null; maxAllocationUsd: number | null; maxLeverage: number | null; maxStrategiesPerUser: number; testMinFloorMaxUsd?: number | null } | null;
   /** Actual copies run here, but not for this owner yet (`actualAllowed: false`: invited users only). */
   inviteOnly?: boolean;
 }

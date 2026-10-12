@@ -1022,6 +1022,7 @@ export const tr: Messages = {
         title: "Kopyalama uygunluk tahmini",
         belowMin: "Oranla ölçeklendiğinde son {opens} açılışın yaklaşık {below} tanesi (%{pct}) ${min} minimum emrin altında kalır ve uygulanmaz.",
         allFit: "Oranla ölçeklendiğinde son {opens} açılışın tamamı ${min} minimum emre ulaşır.",
+        raised: "Test modu: orana göre ölçeklenince son {opens} açılışın yaklaşık {below} tanesi ({pct}%) ${min} minimum emrin altında kalır ve minimuma yükseltilir (her biri en fazla ${max}).",
         suggested: "Yaklaşık %{pct} kadarını uygulamak için en az ${amount} ile kopyalayın.",
         hip3: "Ayrıca {count} tanesi platformun risk politikasının kopyalamayabileceği HIP-3 piyasaları.",
         sample: "Örnek: {from} – {to} (UTC) işlemleri. Sonraki PnL, limitler ve sinyal süresi dahil değildir; esas olan emir geçmişidir.",

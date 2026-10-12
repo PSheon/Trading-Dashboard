@@ -314,6 +314,15 @@ it('allows a safe reduction after leverage policy tightens without authorizing n
   expect(assessLiveAccountRisk(updateIntent(f, { reduceOnly: false, side: 'B' }))).toEqual({ ok: false, reason: 'live_risk_leverage' });
 });
 
+it('closes a position above its coin\'s since-lowered maximum leverage, and refuses only opens (O8)', () => {
+  const f = edit(updateIntent(withPosition(fixture(), '1', '100', '4'), { reduceOnly: true, side: 'A' }), v => {
+    v.accountSource.snapshot.positions[0].leverage = 25; v.leverageProofs[0].value = 25;
+  });
+  expect(f.leverageProofs[0]!.maxLeverage).toBe(20);
+  expect(assessLiveAccountRisk(f)).toMatchObject({ ok: true, requiredMarginUsd: '0' });
+  expect(assessLiveAccountRisk(updateIntent(f, { reduceOnly: false, side: 'B' }))).toEqual({ ok: false, reason: 'live_risk_leverage' });
+});
+
 /** The same proof for a mainnet deployment: every piece observed on mainnet. */
 function onMainnet(f: LiveAccountRiskInput): LiveAccountRiskInput {
   const value = JSON.parse(JSON.stringify(f), (key, v) => key === 'network' && v === 'testnet' ? 'mainnet' : v) as LiveAccountRiskInput;

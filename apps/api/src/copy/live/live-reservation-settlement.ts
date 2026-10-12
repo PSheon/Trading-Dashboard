@@ -159,7 +159,8 @@ export function assessLiveReservationSettlement(raw: LiveReservationSettlementIn
     for (const position of snapshot.positions) {
       venue(position.coin, position.dex, position.asset);
       requireProof(!decimal(position.size, true).isZero && integer(position.sizeDecimals) && position.sizeDecimals <= 6 && integer(position.leverage, 1) &&
-        integer(position.maxLeverage, 1) && position.leverage <= position.maxLeverage && ['cross', 'isolated'].includes(position.leverageType), 'live_settlement_account_invalid');
+        // Above the coin's (since lowered) maximum is valid evidence.
+        integer(position.maxLeverage, 1) && ['cross', 'isolated'].includes(position.leverageType), 'live_settlement_account_invalid');
       for (const amount of [position.entryPrice, position.positionValue, position.marginUsed]) decimal(amount);
       for (const amount of [position.unrealizedPnl, position.fundingSinceOpen, position.fundingSinceChange]) decimal(amount, true);
     }

@@ -313,7 +313,9 @@ export class HyperliquidLiveRiskProvider {
         fees = feeSchema.parse(rawFees);
       if (address(active.user) !== user || active.coin !== market.coin)
         deny('live_risk_provider_source_mismatch');
-      if (active.leverage.value > row.maxLeverage)
+      // Above the coin's (since lowered) maximum is valid evidence: a close
+      // must still go; the risk gate holds an open to its cap.
+      if (!Number.isSafeInteger(active.leverage.value) || active.leverage.value < 1)
         deny('live_risk_provider_invalid_evidence');
       // Official fee formula: positive maker and taker base fractional rates
       // receive active referral discount; negative rebates do not. Main perps

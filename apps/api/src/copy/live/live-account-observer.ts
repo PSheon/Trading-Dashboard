@@ -356,8 +356,11 @@ export class HyperliquidLiveAccountObserver {
         };
         for (const { position: p } of state.assetPositions) {
           const identity = market(p.coin);
+          // A leverage above the coin's maximum is kept (the exchange lowered the
+          // maximum after the position opened): reductions and closes of the
+          // account must still go; the risk gate refuses opens above it.
           if (!Dec.from(p.szi).isZero && (!Dec.from(p.entryPx).gt(0) || !Dec.from(p.positionValue).gt(0)) ||
-              p.leverage.value > p.maxLeverage || !Dec.from(p.szi).eq(Dec.from(p.szi).floor(identity.sizeDecimals)))
+              !Number.isSafeInteger(p.leverage.value) || p.leverage.value < 1 || !Dec.from(p.szi).eq(Dec.from(p.szi).floor(identity.sizeDecimals)))
             fail('live_account_invalid_position');
           positions.push({ ...identity, size: p.szi, entryPrice: p.entryPx, positionValue: p.positionValue,
             unrealizedPnl: p.unrealizedPnl, marginUsed: p.marginUsed, leverage: p.leverage.value,

@@ -200,6 +200,10 @@ describe('authoritative testnet risk provider', () => {
       (await s.provider.observe(user, market, options)).leverageProofs[0],
     ).toMatchObject({ type: 'isolated', value: 7 });
   });
+  it('observes a leverage above the coin\'s since-lowered maximum: a close must still go, the risk gate holds opens (O8)', async () => {
+    const s = setup((b, v) => b.type === 'activeAssetData' ? { ...(v as object), leverage: { type: 'cross', value: 41 } } : v);
+    expect((await s.provider.observe(user, market, options)).leverageProofs[0]).toMatchObject({ type: 'cross', value: 41, maxLeverage: 40 });
+  });
   it('refuses null active data instead of inventing zero-position leverage', async () => {
     await expect(
       setup((b, v) =>
@@ -257,7 +261,6 @@ describe('authoritative testnet risk provider', () => {
   it.each([
     { leverage: undefined },
     { leverage: { type: 'cross', value: 0 } },
-    { leverage: { type: 'cross', value: 41 } },
     { leverage: { type: 'isolated', value: 3 } },
     { leverage: { type: 'cross', value: '3' } },
     { coin: 'ETH' },

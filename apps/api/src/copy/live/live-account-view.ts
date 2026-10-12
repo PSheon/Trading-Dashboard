@@ -51,7 +51,8 @@ export function mapLiveAccountView(identity: FollowerViewIdentity, snapshot: Liv
       if (!d || !d.supported || !Number.isSafeInteger(base) || item.asset < base || item.asset >= base + 10000 ||
         (item.dex ? !item.coin.startsWith(`${item.dex}:`) : item.coin.includes(':'))) throw new Error();
     }
-    for (const p of view.positions) if (p.leverage > p.maxLeverage || !Dec.from(p.size).eq(Dec.from(p.size).floor(p.sizeDecimals))) throw new Error();
+    // A leverage above the coin's (since lowered) maximum is valid evidence.
+    for (const p of view.positions) if (!Number.isSafeInteger(p.leverage) || p.leverage < 1 || !Dec.from(p.size).eq(Dec.from(p.size).floor(p.sizeDecimals))) throw new Error();
     for (const o of view.restingOrders) if (o.timestamp > asOf.completedAt || !Dec.from(o.remainingSize).gt(0) || !Dec.from(o.limitPrice).gt(0) || Dec.from(o.remainingSize).gt(o.originalSize) || !Dec.from(o.remainingSize).mul(o.limitPrice).eq(o.notionalUsd)) throw new Error();
     return freeze(view);
   } catch { throw new LiveBoundaryError('follower_snapshot_invalid'); }

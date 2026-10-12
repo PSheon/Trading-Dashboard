@@ -160,6 +160,12 @@ export class PostgresLivePreparation {
       const cap = effectiveLeverage(local.limits, local.settings, market.maxLeverage), proof = quote.leverageProofs.find(p => p.coin === market.coin);
       riskSourceRequire(proof, 'live_risk_leverage');
       if (proof.value > cap) throw new LiveLeverageUpdateRequired(market.coin, market.asset, proof.value, cap);
+      // The risk gate refuses an open while ANY cross position of the account
+      // sits above its coin's cap: that coin's leverage is set down first too.
+      for (const p of follower.positions) {
+        const other = effectiveLeverage(local.limits, local.settings, p.maxLeverage);
+        if (p.coin !== market.coin && p.leverageType === 'cross' && p.leverage > other) throw new LiveLeverageUpdateRequired(p.coin, p.asset, p.leverage, other);
+      }
     }
     // A leader's open on another network is priced on the execution network but
     // checked against the source network's mid and sized by the leader's capital

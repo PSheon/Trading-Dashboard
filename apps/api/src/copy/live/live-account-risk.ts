@@ -176,7 +176,8 @@ function assess(input: LiveAccountRiskInput): LiveAccountRiskAssessment {
     observedIdentity(p.coin, p.dex, p.asset);
     const quantity = money(p.size, true), value = money(p.positionValue), margin = money(p.marginUsed);
     requireProof(integer(p.sizeDecimals, 0) && p.sizeDecimals <= 6 && quantity.eq(quantity.floor(p.sizeDecimals)) &&
-      integer(p.leverage) && integer(p.maxLeverage) && p.leverage <= p.maxLeverage && ['cross', 'isolated'].includes(p.leverageType) &&
+      // Above the coin's (since lowered) maximum is valid: only an open refuses it (below).
+      integer(p.leverage) && integer(p.maxLeverage) && ['cross', 'isolated'].includes(p.leverageType) &&
       (quantity.isZero ? value.isZero && margin.isZero : value.isPositive && money(p.entryPrice).isPositive), 'live_risk_account_totals');
     money(p.unrealizedPnl, true); money(p.fundingSinceOpen, true); money(p.fundingSinceChange, true);
   }
@@ -230,7 +231,8 @@ function assess(input: LiveAccountRiskInput): LiveAccountRiskAssessment {
   for (const p of input.leverageProofs) {
     requireProof(p.network === id.network && address(p.accountAddress) === address(id.accountAddress), 'live_risk_identity');
     fresh(p.observedAt, now); digest(p.sourceDigest); observedIdentity(p.coin, p.dex, p.asset);
-    requireProof(integer(p.value) && integer(p.maxLeverage) && p.value <= p.maxLeverage && ['cross', 'isolated'].includes(p.type), 'live_risk_leverage');
+    // An open's coin is held to its cap (at most the maximum) by `leverage` below.
+    requireProof(integer(p.value) && integer(p.maxLeverage) && ['cross', 'isolated'].includes(p.type), 'live_risk_leverage');
     const position = positionByCoin.get(p.coin);
     requireProof(!position || position.asset === p.asset && position.dex === p.dex && position.leverage === p.value && position.leverageType === p.type, 'live_risk_leverage');
   }

@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { copyLiveExecutions, copyLiveIntentProvenance, copyLivePositionBaselines, copyLiveReductionCarry, copyLiveSignalLegs, copySignerNonces,
   copyLiveMandates, copyStrategies, copyLiveSourceStreams, copyExecutionAccounts, users } from '@trading-dashboard/shared/database';
 import { CopyWalletRepository } from '../src/copy/copy-wallet.repository.js';
+import { LiveLeverageUpdateRequired } from '../src/copy/live/live-leverage-update.js';
 import { PostgresLivePreparation } from '../src/copy/live/postgres-live-preparation.js';
 import { LiveProviderReadEpoch } from '../src/copy/live/live-provider-read-epoch.js';
 import { PostgresLiveRiskScope } from '../src/copy/live/postgres-live-risk-scope.js';
@@ -146,6 +147,18 @@ describe('atomic original-session live preparation', () => {
     await wallets.confirmIdentity('account', { id: 'master', address: seed.f.identity.accountAddress, externalId: 'source-master', ownerQuorumId: 'owner' });
     expect((await db.select().from(copyExecutionAccounts))[0]).toMatchObject({ state: 'ready', issue: null, revision: account!.revision });
     await scope.run(identity(), async (_s, session) => { expect((await preparation.prepare(session, binding())).intent).toMatchObject({ size: '0.1', side: 'B' }); });
+  });
+  it('asks for another cross position\'s leverage to be set down when it sits above its coin\'s cap, before any journal (O8)', async () => {
+    const snapshot = structuredClone(seed.f.accountSource.snapshot);
+    Object.assign(snapshot, { positions: [{ coin: 'ETH', dex: '', asset: 1, sizeDecimals: 2, size: '0.05', entryPrice: '100', positionValue: '5', unrealizedPnl: '0', marginUsed: '0.25',
+      leverage: 20, leverageType: 'cross', maxLeverage: 20, fundingSinceOpen: '0', fundingSinceChange: '0' }] });
+    vi.mocked(observer.observe).mockResolvedValue(snapshot);
+    await scope.run(identity(), async (_s, session) => {
+      const refused = await preparation.prepare(session, binding()).catch((error: unknown) => error);
+      expect(refused).toBeInstanceOf(LiveLeverageUpdateRequired);
+      expect(refused).toMatchObject({ coin: 'ETH', asset: 1, current: 20 }); expect((refused as LiveLeverageUpdateRequired).leverage).toBeLessThan(20);
+    });
+    await untouched();
   });
   it('recovers the same original key and nonce without recollecting or repricing', async () => {
     const first = await scope.run(identity(), async (_s, session) => preparation.prepare(session, binding()));

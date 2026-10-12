@@ -51,6 +51,10 @@ import { PostgresLiveSettlement } from './postgres-live-settlement.js';
 import { LiveLeverageUpdated, LiveLeverageUpdater, LiveLeverageUpdateRequired } from './live-leverage-update.js';
 import { beginLiveExecutionTiming, LiveSpanRecorder, timedLiveSpan, type LiveExecutionTiming, type LiveExecutionTimingHook, type LiveExecutionDiagnosticHook } from './live-execution-diagnostics.js';
 
+/** Leverage updates one order may make before it is sent (its coin's and
+ * other positions' above their caps): each costs an exchange action and a
+ * fresh evidence epoch inside the order's signal age. */
+const MAX_LEVERAGE_UPDATES = 3;
 const id = z.string().min(1).max(160).regex(/^[^\s\p{Cc}\p{Cf}]+$/u);
 const requestSchema = z.object({ userId: z.number().int().positive().max(2147483647), accountId: id,
   mandateId: id, sourceFillId: id, leg: z.enum(['open', 'close']), members: z.array(id).min(1).max(63).optional(),
@@ -116,14 +120,18 @@ export class LiveExecutionRuntime {
   async execute(supplied: LiveExecutionRequest): Promise<LiveExecutionRecord> {
     // An open the account's leverage refuses sets the leverage first (in its
     // own journaled, signed exchange action), then prepares once more on a
-    // fresh session and epoch. Once only: still above the cap is a refusal.
-    const credit = { weight: 0 };
+    // fresh session and epoch. Once per coin (the order's, or another
+    // position's above its cap), at most MAX_LEVERAGE_UPDATES: still above
+    // the cap after that is a refusal.
+    const credit = { weight: 0 }, updated = new Set<string>();
     try {
-      try { return await this.attempt(supplied, false, credit); }
-      catch (error) { if (error instanceof LiveLeverageUpdated) return await this.attempt(supplied, true, credit); throw error; }
+      for (;;) {
+        try { return await this.attempt(supplied, updated, credit); }
+        catch (error) { if (!(error instanceof LiveLeverageUpdated)) throw error; updated.add(error.coin); }
+      }
     } finally { if (credit.weight > 0) this.budget.adjust(-credit.weight); }
   }
-  private async attempt(supplied: LiveExecutionRequest, leverageUpdated: boolean, credit: { weight: number }): Promise<LiveExecutionRecord> {
+  private async attempt(supplied: LiveExecutionRequest, leverageUpdated: ReadonlySet<string>, credit: { weight: number }): Promise<LiveExecutionRecord> {
     const parsed = requestSchema.safeParse(structuredClone(supplied));
     if (!parsed.success) throw new LiveBoundaryError('live_runtime_request');
     const request = Object.freeze(parsed.data), app = this.config.value;
@@ -308,12 +316,12 @@ export class LiveExecutionRuntime {
         catch (error) {
           if (!(error instanceof LiveLeverageUpdateRequired)) throw error;
           // Set once; still above the cap after an accepted update is permanent.
-          if (leverageUpdated) throw new LiveBoundaryError('live_risk_leverage');
+          if (leverageUpdated.has(error.coin) || leverageUpdated.size >= MAX_LEVERAGE_UPDATES) throw new LiveBoundaryError('live_risk_leverage');
           await acquire(1); // The leverage exchange action spends its own weight.
           const state = await new LiveLeverageUpdater(this.network, signingClient, authorizations, signingAuthorization, this.global, fetch, this.now)
             .update(session, { accountId: request.accountId, userId: request.userId, strategyId: authority.strategy.id, walletId: authority.wallet.privyWalletId,
               authorizationId: authority.grant.id, accountAddress, coin: error.coin, asset: error.asset, from: error.current, leverage: error.leverage });
-          if (state === 'accepted') throw new LiveLeverageUpdated();
+          if (state === 'accepted') throw new LiveLeverageUpdated(error.coin);
           throw new LiveBoundaryError(state === 'rejected' ? 'live_leverage_update_rejected' : 'live_leverage_update_unknown');
         }
         preparationMark('runtime_prepare');

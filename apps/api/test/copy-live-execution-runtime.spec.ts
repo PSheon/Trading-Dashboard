@@ -38,6 +38,8 @@ import { LiveBoundaryError, WalletAuthorizationService } from '../src/copy/live/
 import { HyperliquidBudgetWait } from '../src/hyperliquid/hyperliquid-budget-wait.js';
 import { CopyLiveSettler } from '../src/copy/live-worker/copy-live-settler.js';
 import { PostgresLiveSettlement } from '../src/copy/live/postgres-live-settlement.js';
+import { PostgresLivePreparation } from '../src/copy/live/postgres-live-preparation.js';
+import { LiveLeverageUpdateRequired } from '../src/copy/live/live-leverage-update.js';
 
 // Native network endpoints alone are replaced. Every provider decoder, private
 // quota capability, SQL authority and SDK request boundary remains concrete.
@@ -1007,6 +1009,22 @@ describe('the account leverage an open needs (a fresh account sits at the exchan
     expect(exchangeActions()).toHaveLength(1);
     const [journal] = await db.select().from(schema.copyLiveLeverageUpdates); expect(journal).toMatchObject({ state: 'rejected', issue: 'exchange_rejected_leverage' });
     expect(await db.select().from(schema.copyLiveExecutions)).toHaveLength(0);
+  });
+  it('sets another position\'s leverage down as well as the order coin\'s, each once, then sends the open (O8)', async () => {
+    await defaultLeverageFixture({ status: 'ok', response: { type: 'default' } });
+    const previous = raw.getMockImplementation()!;
+    raw.mockImplementation(async (url, init) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+      // ETH (asset 1) is another position's coin: its update leaves BTC's leverage as it is.
+      if (String(url).endsWith('/exchange') && body.action.type === 'updateLeverage' && body.action.asset === 1) return Response.json({ status: 'ok', response: { type: 'default' } });
+      return previous(url, init);
+    });
+    // The first preparation finds an ETH position above its cap (what the preparation asks for then).
+    vi.spyOn(PostgresLivePreparation.prototype, 'prepare').mockRejectedValueOnce(new LiveLeverageUpdateRequired('ETH', 1, 20, 10));
+    expect((await runtime(config, { ...options, slippageBps: '0' }).execute(request())).state).toBe('filled');
+    expect(exchangeActions().map(body => body.action)).toEqual([{ type: 'updateLeverage', asset: 1, isCross: true, leverage: 10 },
+      { type: 'updateLeverage', asset: 0, isCross: true, leverage: 10 }, expect.objectContaining({ type: 'order' })]);
+    expect((await db.select().from(schema.copyLiveLeverageUpdates)).map(row => [row.coin, row.state]).sort()).toEqual([['BTC', 'accepted'], ['ETH', 'accepted']]);
   });
   it('never loops: still above the cap after an accepted update is live_risk_leverage, with one update only', async () => {
     await defaultLeverageFixture({ status: 'ok', response: { type: 'default' } }, false);

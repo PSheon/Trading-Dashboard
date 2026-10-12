@@ -204,8 +204,9 @@ export class LiveProviderReadEpoch {
       const market = await this.resolver.resolve(binding.coin, shared);
       const active = liveActiveAssetDataSchema.parse(await shared.get({ type: 'activeAssetData', user: target, coin: binding.coin }));
       await session.scope.assertHeld(); this.fresh(started);
-      riskSourceRequire(address(active.user) === target && active.coin === market.coin && active.leverage.type === 'cross' &&
-        active.leverage.value <= market.maxLeverage, 'live_risk_leverage');
+      // Above the coin's maximum (lowered since the position opened) is set
+      // down to the cap like any other excess.
+      riskSourceRequire(address(active.user) === target && active.coin === market.coin && active.leverage.type === 'cross', 'live_risk_leverage');
       const cap = effectiveLeverage(authority.limits, authority.settings, market.maxLeverage);
       if (active.leverage.value > cap) throw new LiveLeverageUpdateRequired(market.coin, market.asset, active.leverage.value, cap);
     }

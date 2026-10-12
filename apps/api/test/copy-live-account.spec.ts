@@ -219,6 +219,12 @@ describe('authoritative dedicated standard account observations', () => {
       await expect(setup((body, value) => body.type === 'clearinghouseState' && !body.dex
         ? { ...value as object, marginSummary: { ...summary, ...patch } } : value).observer.observe(account)).rejects.toThrow();
     });
+  it('observes a position above its coin\'s since-lowered maximum leverage, so its close can still go (O8)', async () => {
+    const snapshot = await setup((body, value) => body.type === 'clearinghouseState' && !body.dex
+      ? { ...state(), assetPositions: [{ ...mainPosition, position: { ...mainPosition.position, leverage: { type: 'cross', value: 50 } } }] } : value)
+      .observer.observe(account);
+    expect(snapshot.positions[0]).toMatchObject({ coin: 'BTC', leverage: 50, maxLeverage: 40 });
+  });
   it('refuses a negative position margin instead of inferring used collateral', async () => {
     await expect(setup((body, value) => body.type === 'clearinghouseState' && !body.dex
       ? { ...state(), assetPositions: [{ ...mainPosition, position: { ...mainPosition.position, marginUsed: '-66' } }] } : value)

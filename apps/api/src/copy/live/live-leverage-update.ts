@@ -33,7 +33,7 @@ export class LiveLeverageUpdateRequired extends LiveBoundaryError {
 }
 /** The leverage was set (the exchange acknowledged it): prepare the order again. */
 export class LiveLeverageUpdated extends LiveBoundaryError {
-  constructor() { super('live_leverage_updated'); }
+  constructor(readonly coin: string) { super('live_leverage_updated'); }
 }
 
 export interface LiveLeverageTarget {

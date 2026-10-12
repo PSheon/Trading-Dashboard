@@ -31,6 +31,15 @@ import { deploymentNetwork, liveExecutionEnabled } from './live-deployment.js';
 import { LeaderActivityService } from '../traders/leader-activity.service.js';
 
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+/** The deposit a setup reserves at one revision, as a UUID: two drivers of
+ * the same revision reserve the same deposit, never an orphan beside it (a
+ * random key left one `prepared` when the step's CAS lost: funding_pending
+ * until the setup ended, architecture review §2). A cancelled deposit is
+ * replaced under a new key (its id is part of it). */
+export function setupFundingKey(row: Pick<SetupRow, 'id' | 'revision' | 'fundingOperationId'>): string {
+  const h = createHash('sha256').update(`live-setup-funding:${row.id}:${row.revision}:${row.fundingOperationId ?? ''}`).digest('hex');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-${(8 | (parseInt(h[16]!, 16) & 3)).toString(16)}${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
 /** How long one driver holds a setup (a crashed driver's lease lapses). */
 export const SETUP_LEASE_MS = 60_000;
 const LEASE_MS = SETUP_LEASE_MS;
@@ -255,7 +264,7 @@ export class CopyLiveSetupService {
       // A reserved deposit's nonce stays valid for two days: reserve a new one before that.
       if (deposit && this.now() - deposit.nonce > 86_400_000) { await this.fundingRows.cancel(userId, deposit.id); deposit = null; }
       if (!deposit) {
-        const reserved = await this.funding.reserve(userId, row.accountId!, { idempotencyKey: randomUUID(), amount: row.budgetUsd }, { liveSetupId: row.id });
+        const reserved = await this.funding.reserve(userId, row.accountId!, { idempotencyKey: setupFundingKey(row), amount: row.budgetUsd }, { liveSetupId: row.id });
         deposit = await this.fundingRows.find(userId, reserved.id);
         if (!await step({ fundingOperationId: deposit.id })) return row;
       }

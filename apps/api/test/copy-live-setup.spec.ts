@@ -5,7 +5,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { verifyTypedData, type TypedDataDefinition } from 'viem';
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { adminSettingsSchema, DEFAULT_COPY_RISK_LIMITS, findHttpContract, leaderCopyActivity, type LeaderCopyActivity, liveCopySetupConsentTypedData, liveCopySetupSchema, liveCopySetupAbortSchema, usdSendTypedData, WALLET_NETWORKS, type LiveCopySetupIntent } from '@trading-dashboard/shared/contracts';
+import { adminSettingsSchema, copyFundingInputSchema, DEFAULT_COPY_RISK_LIMITS, findHttpContract, leaderCopyActivity, type LeaderCopyActivity, liveCopySetupConsentTypedData, liveCopySetupSchema, liveCopySetupAbortSchema, usdSendTypedData, WALLET_NETWORKS, type LiveCopySetupIntent } from '@trading-dashboard/shared/contracts';
 import { appSettings, copyAgentSetups, copyControls, copyExecutionAccounts, copyExecutionWallets, copyFundingOperations, copyLiveActivations, copyLiveMandates, copyLiveSetups,
   copyLiveStrategyConfigs, copyRiskPolicies, copyStrategies, copyWalletAuthorizations, leaders } from '@trading-dashboard/shared/database';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
@@ -13,7 +13,7 @@ import { CopyFundingRepository } from '../src/copy/copy-funding.repository.js';
 import { wire as fundingWire } from '../src/copy/copy-funding.service.js';
 import { CopyLiveMandateRepository } from '../src/copy/copy-live-mandate.repository.js';
 import { CopyLiveSetupRepository } from '../src/copy/copy-live-setup.repository.js';
-import { CopyLiveSetupService } from '../src/copy/copy-live-setup.service.js';
+import { CopyLiveSetupService, setupFundingKey } from '../src/copy/copy-live-setup.service.js';
 import { CopyLiveSetupAbortRepository } from '../src/copy/copy-live-setup-abort.repository.js';
 import { CopyLiveStopRepository } from '../src/copy/copy-live-stop.repository.js';
 import { CopyLiveSetupAbortReturnRepository } from '../src/copy/copy-live-setup-abort-return.repository.js';
@@ -204,6 +204,23 @@ describe('leader activity gate', () => {
     expect((await start()).id).toBe(first.id);
     await start('setup-start-key-000002', { sourceNetwork: 'testnet', leader: `0x${'55'.repeat(20)}` }).catch(() => undefined);
     expect(fakes.leaderActivity.copyActivity).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the setup deposit key (architecture review §2)', () => {
+  it('is a UUID derived from the setup, its revision and the deposit it replaces, never random', () => {
+    const row = { id: '00000000-0000-4000-8000-0000000000aa', revision: 3, fundingOperationId: null };
+    const key = setupFundingKey(row);
+    expect(copyFundingInputSchema.shape.idempotencyKey.safeParse(key).success).toBe(true);
+    expect(setupFundingKey(row)).toBe(key);
+    expect(setupFundingKey({ ...row, revision: 4 })).not.toBe(key);
+    expect(setupFundingKey({ ...row, fundingOperationId: 'cancelled-deposit' })).not.toBe(key);
+  });
+  it("a start reserves its deposit under that key: two drivers of one revision reserve one deposit, not an orphan", async () => {
+    const setup = await start();
+    const [deposit] = await db.select().from(copyFundingOperations).where(eq(copyFundingOperations.id, setup.consent!.fundingOperationId));
+    const revisions = Array.from({ length: 20 }, (_, revision) => setupFundingKey({ id: setup.id, revision, fundingOperationId: null }));
+    expect(revisions).toContain(deposit!.idempotencyKey);
   });
 });
 

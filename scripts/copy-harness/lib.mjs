@@ -24,18 +24,22 @@ export function parseEnv(text) {
 export const loadEnv = (path = resolve(ROOT, ".env")) => parseEnv(readFileSync(path, "utf8"));
 
 /** Sending is needed only while the follower's main wallet can't cover the
- * budget; the leader then needs the send plus room for its scenario. Zero
- * (or too little) on either side stops the run before anything is signed. */
+ * budget; the leader then sends up to `sendUsd`, at least the shortfall
+ * (whole USDC, plus 1), and keeps room for its scenario (none when the copy
+ * follows a real trader). Too little on either side stops the run before
+ * anything is signed. */
 export function fundingGate({ leader, follower, terms = TERMS }) {
   const send = follower < terms.budgetUsd;
-  const leaderNeeds = terms.leaderScenarioUsd + (send ? terms.sendUsd : 0);
+  const minimumSend = send ? Math.ceil(terms.budgetUsd - follower) + 1 : 0;
+  const leaderNeeds = terms.leaderScenarioUsd + minimumSend;
+  const sendUsd = send ? Math.min(terms.sendUsd, Math.floor(leader - terms.leaderScenarioUsd)) : 0;
   const problems = [];
   if (leader < leaderNeeds) {
     problems.push(`the harness leader ${HARNESS_LEADER} holds ${leader.toFixed(2)} testnet USDC and needs at least ${leaderNeeds.toFixed(2)}` +
-      (send ? ` (${terms.sendUsd} for the follower, ${terms.leaderScenarioUsd} for its scenario)` : ` (for its scenario)`));
+      (send ? ` (${minimumSend} for the follower, ${terms.leaderScenarioUsd} for its scenario)` : ` (for its scenario)`));
     if (send) problems.push(`the follower's main wallet holds ${follower.toFixed(2)} testnet USDC, under the ${terms.budgetUsd} USDC budget, and the leader can't top it up`);
   }
-  return { ok: problems.length === 0, send, leaderNeeds, problems };
+  return { ok: problems.length === 0, send, sendUsd, leaderNeeds, problems };
 }
 
 /** Nearest-rank percentile, two decimals; null for no samples. */

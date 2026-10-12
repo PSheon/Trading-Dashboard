@@ -10,14 +10,14 @@ test("fundingGate: zero balances stop the run with both reasons", () => {
   const gate = fundingGate({ leader: 0, follower: 0 });
   assert.equal(gate.ok, false);
   assert.equal(gate.send, true);
-  assert.equal(gate.leaderNeeds, TERMS.sendUsd + TERMS.leaderScenarioUsd);
+  assert.equal(gate.leaderNeeds, TERMS.budgetUsd + 1 + TERMS.leaderScenarioUsd);
   assert.equal(gate.problems.length, 2);
-  assert.match(gate.problems[0], new RegExp(`${HARNESS_LEADER} holds 0.00 testnet USDC and needs at least 170.00`));
+  assert.match(gate.problems[0], new RegExp(`${HARNESS_LEADER} holds 0.00 testnet USDC and needs at least ${(TERMS.budgetUsd + 1 + TERMS.leaderScenarioUsd).toFixed(2)}`));
   assert.match(gate.problems[1], /follower's main wallet holds 0.00/);
 });
 
 test("fundingGate: a funded follower (a rerun) needs no send, only the scenario's room", () => {
-  assert.deepEqual(fundingGate({ leader: 25, follower: 140 }), { ok: true, send: false, leaderNeeds: 20, problems: [] });
+  assert.deepEqual(fundingGate({ leader: 25, follower: 140 }), { ok: true, send: false, sendUsd: 0, leaderNeeds: 20, problems: [] });
   const short = fundingGate({ leader: 5, follower: 140 });
   assert.equal(short.ok, false);
   assert.equal(short.problems.length, 1);
@@ -25,7 +25,11 @@ test("fundingGate: a funded follower (a rerun) needs no send, only the scenario'
 });
 
 test("fundingGate: a funded leader tops up an empty follower", () => {
-  assert.deepEqual(fundingGate({ leader: 300, follower: 0 }), { ok: true, send: true, leaderNeeds: 170, problems: [] });
+  assert.deepEqual(fundingGate({ leader: 300, follower: 0 }), { ok: true, send: true, sendUsd: TERMS.sendUsd, leaderNeeds: TERMS.budgetUsd + 1 + TERMS.leaderScenarioUsd, problems: [] });
+});
+test("fundingGate: a follower just short of the budget gets what the leader can spare, at least the shortfall", () => {
+  const terms = { ...TERMS, budgetUsd: 50, leaderScenarioUsd: 0 };
+  assert.deepEqual(fundingGate({ leader: 116.38, follower: 49.92, terms }), { ok: true, send: true, sendUsd: Math.min(TERMS.sendUsd, 116), leaderNeeds: 2, problems: [] });
 });
 
 test("percentile is nearest-rank and ignores non-numbers", () => {

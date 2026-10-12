@@ -141,13 +141,13 @@ try {
   } else check("cleanup_previous_copies", true, actions.length ? `${actions.length} setup(s) cancelled` : "nothing to clean");
   const mainBefore = await usdc(main);
   log("follower_main", { address: main, perp: mainBefore.perp, spot: mainBefore.spot });
-  const gate = fundingGate({ leader: leaderFree, follower: mainBefore.total, terms: TERMS });
+  const gate = fundingGate({ leader: leaderFree, follower: mainBefore.total, terms: SOURCE === "mainnet" ? { ...TERMS, leaderScenarioUsd: 0 } : TERMS });
   if (!gate.ok) {
     const spotHint = Number(leader.spotUsdc) > 0 ? ` The leader holds ${Number(leader.spotUsdc).toFixed(2)} USDC in spot: move it to perps first (usdClassTransfer).` : "";
     const message = `NOT FUNDED — ${gate.problems.join("; ")}. Fund the harness leader's perp account with testnet USDC (Hyperliquid testnet faucet, or a usdSend from a funded testnet wallet), then rerun.${spotHint}`;
     if (!DRY) { check("funded", false, message); console.error(`\n${message}\n`); await finish(EXIT.unfunded); }
     check("funded", null, `dry run continues without funds: ${gate.problems.join("; ")}`);
-  } else check("funded", true, `leader ${leaderFree.toFixed(2)}, follower main ${mainBefore.total.toFixed(2)}${gate.send ? `, will send ${TERMS.sendUsd}` : ""}`);
+  } else check("funded", true, `leader ${leaderFree.toFixed(2)}, follower main ${mainBefore.total.toFixed(2)}${gate.send ? `, will send ${gate.sendUsd}` : ""}`);
 
   if (leader.positions.length) {
     if (DRY) check("leader_flat", null, `leader holds ${JSON.stringify(leader.positions)} (dry run leaves it)`);
@@ -156,8 +156,8 @@ try {
 
   // --- 3. the leader funds the follower ------------------------------------------------------------
   if (!DRY && gate.send) {
-    const r = await node("leader.mjs", ["send", main, String(TERMS.sendUsd)]);
-    const credited = await waitFor(() => usdc(main), (b) => b.total >= mainBefore.total + TERMS.sendUsd - 1, { timeoutMs: 90_000, intervalMs: 3000 });
+    const r = await node("leader.mjs", ["send", main, String(gate.sendUsd)]);
+    const credited = await waitFor(() => usdc(main), (b) => b.total >= mainBefore.total + gate.sendUsd - 1, { timeoutMs: 90_000, intervalMs: 3000 });
     if (!check("leader_sent_150", r.code === 0 && credited.ok, `main wallet ${mainBefore.total.toFixed(2)} → ${credited.value.total.toFixed(2)}`)) await finish(EXIT.failed);
   } else if (!DRY) check("leader_sent_150", null, `not needed: main wallet holds ${mainBefore.total.toFixed(2)}`);
 

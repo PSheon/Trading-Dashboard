@@ -6,6 +6,7 @@ import type { LiveSourceSizingEnvelopeV1 } from '../src/copy/live/copy-live-sizi
 import { Dec } from '../src/common/decimal/dec.js';
 import { digest } from '../src/copy/copy-live-mandate-evidence.js';
 import { captureLivePositionBaseline } from '../src/copy/live/live-position-baseline.js';
+import { mapLiveAccountView } from '../src/copy/live/live-account-view.js';
 import { settledGenerationExample, sourceSizingExample } from './copy-live-generation-test-utils.js';
 const example=sourceSizingExample;
 function closeExample(position='90',carry='15',full=false,mode:'fixed'|'ratio'='fixed',ageMs=50,leaderSize?:string):LiveSourcePlanInput{
@@ -88,6 +89,18 @@ describe('actual source sizing from retained original observations',()=>{
     const f=example('ratio') as any,fo=f.sizingBasis.observations,fb=f.sizingBasis.basis;
     fo.follower.accountAbstraction='default';fb.follower.snapshotDigest=followerReceiptDigestV1(fo.follower);
     expect(()=>planLiveSourceOrder(f)).toThrow('live_source_sizing_unproven');
+  });
+  it('sizes a ratio open from a leader with a HIP-3 position on another collateral (its equity counted); a follower snapshot like it stays refused',()=>{
+    const e=example('ratio') as any,o=e.sizingBasis.observations,b=e.sizingBasis.basis,l=o.leader,main=l.dexes[0];
+    l.dexes.push({...main,dex:'xyz',perpDexIndex:1,supported:true,collateralToken:9,collateralCoin:'USDE',equity:'1000',rawUsd:'980',marginUsed:'2',withdrawable:'998',exposureUsd:'20',
+      crossEquity:'1000',crossMarginUsed:'2',crossExposureUsd:'20',crossMaintenanceMarginUsed:'1'});
+    l.positions.push({coin:'xyz:TSLA',dex:'xyz',asset:110000,sizeDecimals:3,size:'0.1',entryPrice:'200',positionValue:'20',unrealizedPnl:'0',marginUsed:'2',leverage:10,leverageType:'cross',maxLeverage:20,fundingSinceOpen:'0',fundingSinceChange:'0'});
+    const add=(x:string,y:string)=>Dec.from(x).add(Dec.from(y)).toString();
+    Object.assign(l,{perpEquity:add(l.perpEquity,'1000'),totalMarginUsed:add(l.totalMarginUsed,'2'),withdrawable:add(l.withdrawable,'998'),exposureUsd:add(l.exposureUsd,'20')});
+    l.coverage.listedDexes.push('xyz');l.coverage.observedOrderDexes.push('xyz');
+    b.leader.equity=l.perpEquity;b.leader.snapshotDigest=followerReceiptDigestV1(l);
+    expect(l.perpEquity).toBe('2000');expect(planLiveSourceOrder(e).order.size).toBe('0.05');
+    expect(()=>mapLiveAccountView({accountId:'leader',strategyId:9,network:'testnet',accountAddress:l.accountAddress},{...l,accountAbstraction:'disabled'},{blocked:false,reason:null},e.now,5000)).toThrow('follower_snapshot_invalid');
   });
   describe('the exchange\'s 10 USD order minimum (a basis binding exchangeMinimum)',()=>{
     const bind=(e:LiveSourcePlanInput,patch:Record<string,unknown>={})=>{Object.assign((e.sizingBasis as any).basis,{exchangeMinimum:true,...patch});return e;};

@@ -102,7 +102,7 @@ function snapshotMirror(snapshot:LiveSourceSizingEnvelopeV1['observations']['fol
   // A leader's own account mode is its choice (read with { leader: true }); every
   // freshness, coverage and sum check of the view still applies to its snapshot.
   // The follower's must be the disabled mode its setup set.
-  const view=mapLiveAccountView({accountId:id.accountId,strategyId:id.strategyId,network,accountAddress:expected.accountAddress},leader?{...snapshot,accountAbstraction:'disabled'}:snapshot,{blocked:false,reason:null},now,5000);
+  const view=mapLiveAccountView({accountId:id.accountId,strategyId:id.strategyId,network,accountAddress:expected.accountAddress},leader?{...snapshot,accountAbstraction:'disabled'}:snapshot,{blocked:false,reason:null},now,5000,leader);
   requireSizing(view.freshness==='fresh'&&view.coverage.complete&&view.coverage.balanceComplete&&view.coverage.orderComplete);
   equal({network:snapshot.network,accountAddress:snapshot.accountAddress,equity:snapshot.perpEquity,observedAt:snapshot.observedAt,completedAt:snapshot.completedAt,sourceDigest:snapshot.sourceDigest,snapshotDigest:followerReceiptDigestV1(snapshot)},expected);
 }

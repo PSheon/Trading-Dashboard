@@ -152,6 +152,36 @@ describe('authoritative dedicated standard account observations', () => {
     await expect(setup((body, value) => body.type === 'spotClearinghouseState' ? { ...(value as object), portfolioMarginEnabled: true } : value).observer.observe(account, { leader: true }))
       .rejects.toThrow('live_account_unsupported_abstraction');
   });
+  describe('a copied leader is read for its equity only: its orders and venues never refuse the follower', () => {
+    // A position TP/SL (size 0: the whole position), a trigger, and an order
+    // stamped a few ms past our clock: each refused every ratio open before.
+    const tpsl = { ...open, oid: 12, sz: '0.0', origSz: '0.0', reduceOnly: true, isTrigger: true, isPositionTpsl: true, cloid: null };
+    const trigger = { ...open, oid: 13, isTrigger: true };
+    const ahead = { ...open, oid: 14, timestamp: now + 3 };
+    // A HIP-3 position on a venue whose collateral is USDE (token 9).
+    const hip3 = (body: Record<string, unknown>, value: unknown) => body.type === 'clearinghouseState' && body.dex ? { ...state(false),
+      marginSummary: { accountValue: '50', totalRawUsd: '30', totalNtlPos: '20', totalMarginUsed: '2' }, crossMarginSummary: { accountValue: '50', totalRawUsd: '30', totalNtlPos: '20', totalMarginUsed: '2' },
+      withdrawable: '48', assetPositions: [{ ...mainPosition, position: { ...mainPosition.position, coin: 'xyz:TSLA', szi: '0.1', positionValue: '20', marginUsed: '2', entryPx: '200' } }] } : value;
+    it.each([['position TP/SL', [tpsl]], ['trigger', [trigger]], ['future timestamp', [ahead]], ['all three', [tpsl, trigger, ahead]]] as const)('observes a leader with a %s order', async (_name, orders) => {
+      const s = setup((body, value) => body.type === 'frontendOpenOrders' && !body.dex ? [open, ...orders] : value);
+      expect(await s.observer.observe(account, { leader: true })).toMatchObject({ perpEquity: '990', restingOrders: [], coverage: { complete: true, orderComplete: true } });
+      await expect(setup((body, value) => body.type === 'frontendOpenOrders' && !body.dex ? [open, ...orders] : value).observer.observe(account)).rejects.toBeDefined();
+    });
+    it('observes a leader with a HIP-3 position on another collateral (its equity counted); the follower is still refused', async () => {
+      const snapshot = await setup(hip3).observer.observe(account, { leader: true });
+      expect(snapshot).toMatchObject({ perpEquity: '1040', positions: [{ coin: 'BTC' }, { coin: 'xyz:TSLA', dex: 'xyz', size: '0.1' }] });
+      expect(snapshot.dexes[1]).toMatchObject({ dex: 'xyz', supported: true, collateralCoin: 'USDE', equity: '50' });
+      await expect(setup(hip3).observer.observe(account)).rejects.toThrow('live_account_unsupported_collateral');
+      // A USDC HIP-3 venue: an unsupported dex exposure for the follower only.
+      const usdc = (body: Record<string, unknown>, value: unknown) => body.type === 'meta' && body.dex ? { ...value as object, collateralToken: 7 } : hip3(body, value);
+      expect(await setup(usdc).observer.observe(account, { leader: true })).toMatchObject({ perpEquity: '1040' });
+      await expect(setup(usdc).observer.observe(account)).rejects.toThrow('live_account_unsupported_dex_exposure');
+    });
+    it('still refuses a leader whose equity figures are inconsistent', async () => {
+      await expect(setup((body, value) => body.type === 'clearinghouseState' && !body.dex ? { ...state(), withdrawable: '2000' } : value).observer.observe(account, { leader: true }))
+        .rejects.toThrow('live_account_inconsistent_balances');
+    });
+  });
   it.each(['agent', 'vault', 'missing', 'subAccount'])('refuses unsupported account role %s', async (role) => {
     await expect(setup((body, value) => body.type === 'userRole' ? { role } : value).observer.observe(account))
       .rejects.toThrow('live_account_unsupported_role');

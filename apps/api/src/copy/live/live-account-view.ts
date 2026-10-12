@@ -10,7 +10,9 @@ function sameSet(a: readonly string[], b: readonly string[]): boolean { return a
 /** Pure reporting projection. It never acquires evidence, changes account mode,
  * or turns a retained observation into financial admission authority. */
 export function mapLiveAccountView(identity: FollowerViewIdentity, snapshot: LiveAccountSnapshot,
-  quarantine: { blocked: boolean; reason: string | null }, nowMs: number, maxAgeMs: number): CopyFollowerSnapshot {
+  quarantine: { blocked: boolean; reason: string | null }, nowMs: number, maxAgeMs: number,
+  /** A copied leader's snapshot (read with { leader: true }): a HIP-3 venue's other collateral is its own choice. */
+  leader = false): CopyFollowerSnapshot {
   try {
     if (!Number.isSafeInteger(nowMs) || nowMs < 0 || !Number.isSafeInteger(maxAgeMs) || maxAgeMs < 1 || maxAgeMs > 5000 ||
       !isHyperliquidNetwork(identity.network) || snapshot.network !== identity.network || address(snapshot.accountAddress) !== address(identity.accountAddress)) throw new Error();
@@ -40,7 +42,7 @@ export function mapLiveAccountView(identity: FollowerViewIdentity, snapshot: Liv
       const positions = view.positions.filter(p => p.dex === d.dex), orders = view.restingOrders.filter(o => o.dex === d.dex);
       const active = positions.length > 0 || orders.length > 0 || ['equity', 'rawUsd', 'marginUsed', 'withdrawable', 'exposureUsd', 'crossEquity', 'crossMarginUsed', 'crossExposureUsd', 'crossMaintenanceMarginUsed'].some(k => !Dec.from(d[k as keyof typeof d] as string).isZero);
       if (d.providerTime > asOf.completedAt || asOf.completedAt - d.providerTime > maxAgeMs || d.dex === '' && d.perpDexIndex !== 0 || d.dex !== '' && d.perpDexIndex === 0 ||
-        active && (!d.supported || d.collateralCoin !== 'USDC' || d.collateralToken !== view.collateral.tokenIndex) ||
+        active && (!d.supported || !(leader && d.dex !== '') && (d.collateralCoin !== 'USDC' || d.collateralToken !== view.collateral.tokenIndex)) ||
         !sum(positions.map(p => p.positionValue)).eq(d.exposureUsd) || !sum(positions.map(p => p.marginUsed)).eq(d.marginUsed) ||
         !sum(positions.filter(p => p.leverageType === 'cross').map(p => p.positionValue)).eq(d.crossExposureUsd) || !sum(positions.filter(p => p.leverageType === 'cross').map(p => p.marginUsed)).eq(d.crossMarginUsed)) throw new Error();
     }

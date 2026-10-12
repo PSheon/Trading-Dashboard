@@ -196,6 +196,13 @@ export class HyperliquidLiveAccountObserver {
       const allowed = z.array(z.string().regex(LIVE_DEX_NAME).max(40)).max(MAX_LIVE_PERP_DEXES - 1).parse(options.supportedDexes ?? []);
       unique(allowed);
       const supported = new Set(['', ...allowed]);
+      // A leader is read for its equity only (ratio sizing): its resting
+      // orders (TP/SL, triggers, a timestamp a few ms past our clock) and its
+      // venues (HIP-3 positions, another collateral) are its own choice, never a
+      // reason to refuse the follower. Every venue is still read and counted
+      // (a HIP-3 venue's equity at its collateral's face value: USD stablecoins),
+      // and every consistency check of the equity figures still applies.
+      const leader = options.leader === true, counted = (dex: string) => leader || supported.has(dex);
       // Exactly the REST weight of this observation's reads (account modes and
       // dex list 122 twice, spotMeta 20, allPerpMetas 20; a source without
       // all-venue orders also reads each supported dex's open orders, 20),
@@ -334,7 +341,7 @@ export class HyperliquidLiveAccountObserver {
         const scope = venue.dex ? { dex: venue.dex } : {};
         const meta = metas[venue.index], state = states.get(venue.dex);
         if (!meta || !state) fail('live_account_unobserved_dex');
-        const pending = allOrders ? ordersSchema.parse(allOrders.get(venue.dex))
+        const pending = leader ? [] : allOrders ? ordersSchema.parse(allOrders.get(venue.dex))
           : supported.has(venue.dex) ? ordersSchema.parse(await read('frontendOpenOrders', 20, { user, ...scope })) : [];
         this.fresh(state.time);
         unique(meta.universe.map((m) => m.name)); unique(state.assetPositions.map((p) => p.position.coin));
@@ -392,9 +399,9 @@ export class HyperliquidLiveAccountObserver {
           !Dec.from(state.withdrawable).isZero || !Dec.from(state.crossMaintenanceMarginUsed).isZero ||
           state.assetPositions.length > 0 || pending.length > 0;
         if (zeroOnly && active) fail(accountMode.role !== 'user' ? 'live_account_unsupported_role' : 'live_account_unsupported_abstraction');
-        if (collateral.index !== usdc[0]!.index && (active || !venue.dex)) fail('live_account_unsupported_collateral');
-        if (!supported.has(venue.dex) && active) fail('live_account_unsupported_dex_exposure');
-        dexes.push({ dex: venue.dex, perpDexIndex: venue.index, supported: supported.has(venue.dex),
+        if (collateral.index !== usdc[0]!.index && (active || !venue.dex) && !(leader && venue.dex)) fail('live_account_unsupported_collateral');
+        if (!counted(venue.dex) && active) fail('live_account_unsupported_dex_exposure');
+        dexes.push({ dex: venue.dex, perpDexIndex: venue.index, supported: counted(venue.dex),
           collateralToken: collateral.index, collateralCoin: collateral.name, providerTime: state.time,
           equity: s.accountValue, rawUsd: s.totalRawUsd, marginUsed: margin.toString(),
           withdrawable: Dec.min(Dec.from(state.withdrawable), Dec.from(s.accountValue)).toString(),
@@ -413,7 +420,7 @@ export class HyperliquidLiveAccountObserver {
       }
       this.fresh(started); for (const d of dexes) this.fresh(d.providerTime);
       const sum = (key: 'equity' | 'marginUsed' | 'withdrawable' | 'exposureUsd') => Dec.sum(dexes.map((d) => Dec.from(d[key]))).toString();
-      const unobservedOrderDexes = allOrders ? [] : venues.filter((v) => !supported.has(v.dex)).map((v) => v.dex);
+      const unobservedOrderDexes = allOrders ? [] : venues.filter((v) => !counted(v.dex)).map((v) => v.dex);
       return frozen({ network: this.network, accountAddress: user, role: accountMode.role, accountMode: 'standard', accountAbstraction: accountMode.abstraction,
         observedAt: started, completedAt: this.now(), sourceDigest: createHash('sha256').update(JSON.stringify(sources)).digest('hex'),
         collateralToken: usdc[0]!.index, collateralCoin: 'USDC', perpEquity: sum('equity'), totalMarginUsed: sum('marginUsed'),
@@ -422,7 +429,7 @@ export class HyperliquidLiveAccountObserver {
         grossRestingExposureUsd: Dec.sum(orders.map((o) => Dec.from(o.notionalUsd))).toString(),
         positions: positions.sort((a, b) => a.asset - b.asset), restingOrders: orders,
         dexes, coverage: { complete: unobservedOrderDexes.length === 0, balanceComplete: true, orderComplete: unobservedOrderDexes.length === 0,
-          listedDexes: venues.map((v) => v.dex), observedOrderDexes: venues.filter((v) => allOrders || supported.has(v.dex)).map((v) => v.dex),
+          listedDexes: venues.map((v) => v.dex), observedOrderDexes: venues.filter((v) => allOrders || counted(v.dex)).map((v) => v.dex),
           unobservedOrderDexes, earliestProviderTime: Math.min(...dexes.map((d) => d.providerTime)) } });
     } catch (error) {
       if (error instanceof LiveBoundaryError && error.code.startsWith('live_account_')) throw error;

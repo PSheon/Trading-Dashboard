@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { copyLiveExecutions } from '@trading-dashboard/shared/database';
 import { isDeepStrictEqual } from 'node:util';
-import type { LiveExecutionJournal, LiveExecutionRecord } from './live-execution.js';
+import { assertLiveUnsentTransition, type LiveExecutionJournal, type LiveExecutionRecord } from './live-execution.js';
 import type { LiveExecutionLease } from './live-execution-gate.js';
 import type { LiveRiskDatabaseSession } from './postgres-live-risk-scope.js';
 import { decodeLiveExecutionRow, immutableLiveExecution, liveExecutionTransitions } from './postgres-live-journal.js';
@@ -74,6 +74,7 @@ export class ScopedLiveExecutionJournal implements LiveExecutionJournal {
       if (!isDeepStrictEqual(immutableLiveExecution(current), immutableLiveExecution(record))) throw new LiveBoundaryError('execution_record_immutable');
       if (!Number.isSafeInteger(record.updatedAt) || record.updatedAt < current.updatedAt || record.outcome && record.outcome.state !== record.state)
         throw new LiveBoundaryError('execution_record_invalid');
+      assertLiveUnsentTransition(current, record);
       if (isDeepStrictEqual(current, JSON.parse(JSON.stringify(record)))) return;
       if (!liveExecutionTransitions[current.state].includes(record.state)) throw new LiveBoundaryError('execution_state_transition_denied');
       await tx.update(copyLiveExecutions).set({ state: record.state, record: record as unknown as Record<string, unknown>, updatedAt: new Date(record.updatedAt) })

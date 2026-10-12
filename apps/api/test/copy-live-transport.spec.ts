@@ -11,7 +11,7 @@ import { HyperliquidBudgetWait } from '../src/hyperliquid/hyperliquid-budget-wai
 import type { LiveExecutionDiagnosticHook } from '../src/copy/live/live-execution-diagnostics.js';
 import { HyperliquidAgentApprovalVerifier } from "../src/copy/live/hyperliquid-agent-approval.js";
 import type { ExchangeApprovalVerifier } from "../src/copy/live/wallet-authorization.js";
-import { LiveOrderExecutor, type LiveExecutionJournal } from "../src/copy/live/live-execution.js";
+import { assertLiveUnsentTransition, isDefinitelyUnsent, LIVE_REQUEST_NEVER_BEGAN, LiveOrderExecutor, type LiveExecutionJournal } from "../src/copy/live/live-execution.js";
 import type { LiveExecutionRecord } from "../src/copy/live/live-execution.js";
 import type { LiveExecutionGate } from '../src/copy/live/live-execution-gate.js';
 import { HyperliquidGlobalTransport } from '../src/hyperliquid/hyperliquid-global-transport.js';
@@ -185,7 +185,7 @@ function statusReply(status = "open", overrides = {}) {
 }
 
 describe('global quota at the actual financial POST boundary', () => {
-  function metered(finalGate: LiveExecutionGate = gate, clock = () => now, onDiagnostic = vi.fn()) {
+  function metered(finalGate: LiveExecutionGate = gate, clock = () => now, onDiagnostic = vi.fn(), timeoutMs = 10000) {
     const s = setup(finalGate, exchangeApprovalFixture(clock), clock);
     const quota = new PostgresHyperliquidQuota(new UnitOfWork({} as DrizzleDb));
     const acquire = vi.fn(async () => { let used = false; return { assertFresh: () => {}, dispatch: <T>(work: () => T): T => {
@@ -193,7 +193,7 @@ describe('global quota at the actual financial POST boundary', () => {
     } }; });
     vi.spyOn(quota, 'bindUnscoped').mockReturnValue({ acquireRest: acquire, reserveSocket: vi.fn() });
     const globalTransport = new HyperliquidGlobalTransport(quota, { egressKey: 'test-shared-egress', ownerId: 'test-worker' }, s.fetcher, clock);
-    return { ...s, acquireGlobal: acquire, transport: new HyperliquidLiveTransport('testnet', s.signer, finalGate, s.fetcher, 10000, clock,
+    return { ...s, acquireGlobal: acquire, transport: new HyperliquidLiveTransport('testnet', s.signer, finalGate, s.fetcher, timeoutMs, clock,
       { marketResolver: s.resolver, acquire: s.acquire, globalTransport, onDiagnostic }) };
   }
   it('observes a typed wait from shared SQL admission before masking it, without dispatch', async () => {
@@ -274,6 +274,51 @@ describe('global quota at the actual financial POST boundary', () => {
     catch (caught) { error = caught; }
     expect(s.fetcher).toHaveBeenCalledOnce(); expect(error).not.toBeInstanceOf(LiveSubmissionBlockedError);
     expect(error).toMatchObject({ code: 'exchange_submission_ambiguous' });
+  });
+  /** The executor with this real transport and a journal that enforces the
+   * marker's only transition (submitting -> rejected unsent). */
+  function markerExecutor(s: ReturnType<typeof metered>) {
+    let stored: LiveExecutionRecord | null = null;
+    const journal: LiveExecutionJournal = {
+      withOrderLock: async (_key, work) => work(lease), get: async () => stored,
+      prepare: async input => stored ??= { key: input.key, fingerprint: input.fingerprint, authorization: input.authorization,
+        action: input.action, nonce: input.now, expiresAfter: input.now + 60000, state: 'prepared', createdAt: input.now, updatedAt: input.now },
+      save: async value => { if (stored) assertLiveUnsentTransition(stored, value); stored = structuredClone(value); },
+    };
+    return { executor: new LiveOrderExecutor(s.auth, journal, s.transport, gate, () => now), stored: () => stored };
+  }
+  it.each(['network error', 'blocked error after entry', 'timeout', 'HTTP 502', 'exchange err'] as const)(
+    'a POST that began and then failed (%s) is unknown and never marked unsent', async kind => {
+    const s = metered(gate, () => now, vi.fn(), kind === 'timeout' ? 20 : 10000), run = markerExecutor(s);
+    if (kind === 'network error') s.fetcher.mockRejectedValueOnce(new TypeError('fetch failed'));
+    if (kind === 'blocked error after entry') s.fetcher.mockRejectedValueOnce(new LiveSubmissionBlockedError('after entry'));
+    if (kind === 'timeout') s.fetcher.mockImplementationOnce((_url, init) => new Promise((_resolve, reject) =>
+      init!.signal!.addEventListener('abort', () => reject(init!.signal!.reason), { once: true })));
+    if (kind === 'HTTP 502') s.fetcher.mockResolvedValueOnce(new Response('', { status: 502 }));
+    if (kind === 'exchange err') s.fetcher.mockResolvedValueOnce(reply({ status: 'err', response: 'Nonce already used.' }));
+    const result = await run.executor.execute(intent);
+    expect(s.fetcher).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({ state: 'unknown', errorCode: 'exchange_submission_ambiguous' });
+    expect(result.unsent).toBeUndefined(); expect(run.stored()?.unsent).toBeUndefined();
+    expect(isDefinitelyUnsent(run.stored()!)).toBe(false);
+  });
+  it('only a dispatch refused before fetch was entered is marked unsent', async () => {
+    const s = metered(), run = markerExecutor(s);
+    s.acquireGlobal.mockResolvedValueOnce({ assertFresh: () => {}, dispatch: () => { throw Error('stale scope'); } });
+    const result = await run.executor.execute(intent);
+    expect(s.fetcher).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ state: 'rejected', errorCode: 'exchange_order_never_placed', unsent: LIVE_REQUEST_NEVER_BEGAN });
+    expect(isDefinitelyUnsent(run.stored()!)).toBe(true);
+  });
+  it('a journal refuses the marker on any transition but submitting -> rejected, and never drops it', () => {
+    const submitting: LiveExecutionRecord = { ...record, state: 'submitting' };
+    const unsent: LiveExecutionRecord & { outcome: NonNullable<LiveExecutionRecord['outcome']> } = { ...submitting, state: 'rejected' as const, errorCode: 'exchange_order_never_placed',
+      outcome: { state: 'rejected' as const, reason: 'final_execution_check_failed' }, unsent: LIVE_REQUEST_NEVER_BEGAN };
+    expect(() => assertLiveUnsentTransition(submitting, unsent)).not.toThrow();
+    expect(() => assertLiveUnsentTransition({ ...record, state: 'unknown' }, unsent)).toThrow('execution_record_invalid');
+    expect(() => assertLiveUnsentTransition(submitting, { ...unsent, state: 'unknown', outcome: undefined })).toThrow('execution_record_invalid');
+    expect(() => assertLiveUnsentTransition(submitting, { ...unsent, outcome: { ...unsent.outcome, exchangeOrderId: '7' } })).toThrow('execution_record_invalid');
+    expect(() => assertLiveUnsentTransition(unsent, { ...unsent, unsent: undefined })).toThrow('execution_record_invalid');
   });
 });
 

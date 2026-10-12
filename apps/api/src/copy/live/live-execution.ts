@@ -13,6 +13,13 @@ export const NEVER_PLACED = "exchange_order_never_placed";
  * worker stopped between the two commits): it was never signed, since signing
  * requires the hold. Rejected terminally with its leg skipped, never sent. */
 export const UNHELD_REJECTED = "live_unheld_rejected";
+/** The marker (`LiveExecutionRecord.unsent`) of a never-placed order whose
+ * exchange request provably never began: the executor's final check refused
+ * after `submitting` was saved, or the transport threw
+ * LiveSubmissionBlockedError (only before its fetch was entered). Only
+ * LiveOrderExecutor.unsent() writes it, and a journal accepts it only on the
+ * submitting -> rejected transition (assertLiveUnsentTransition). */
+export const LIVE_REQUEST_NEVER_BEGAN = "request_never_began";
 /** How long an order request may still be on its way (the transport's HTTP
  * timeout) … */
 export const LIVE_HTTP_TIMEOUT_MS = 20_000;
@@ -44,6 +51,12 @@ export interface LiveExecutionRecord {
   outcome?: ExchangeOutcome;
   /** Codes only, never SDK errors containing authorization material. */
   errorCode?: string;
+  /** Present only on an order whose exchange request never began
+   * (LIVE_REQUEST_NEVER_BEGAN). Its signature existed only in the executor's
+   * memory (a journal never stores it) and was never handed to fetch, so
+   * nothing can land later: settlement releases it at once instead of waiting
+   * out NEVER_PLACED_GRACE_MS. Absent on every order whose POST began. */
+  unsent?: typeof LIVE_REQUEST_NEVER_BEGAN;
   /** Retained local zero-effect expiry proof; never exchange terminal evidence. */
   unattemptedRelease?: Readonly<LiveUnattemptedReleaseCertificate>;
 }
@@ -185,12 +198,16 @@ export class LiveOrderExecutor {
   }
 
   /** A definite non-submission after `submitting` (a final check refused
-   * before the POST began): recorded as never placed, so settlement releases
-   * its reservation once the exchange still does not know the cloid past
-   * expiresAfter and the grace (releaseNeverPlaced), like any order that
-   * never reached the exchange. Its reservation is never kept for ever. */
+   * before the POST began): recorded as never placed and marked unsent
+   * (LIVE_REQUEST_NEVER_BEGAN), so settlement releases its reservation at
+   * once (releaseUnsent) instead of after expiresAfter and the grace. Called
+   * only where no request began: the executor's own final check, and a
+   * transport LiveSubmissionBlockedError. Every other submit failure is
+   * `unknown`, never marked. */
   private unsent(record: LiveExecutionRecord): LiveExecutionRecord {
-    return { ...record, state: "rejected", errorCode: NEVER_PLACED, outcome: { state: "rejected", reason: "final_execution_check_failed" }, updatedAt: this.now() };
+    if (record.state !== "submitting") throw new LiveBoundaryError("execution_state_transition_denied");
+    return { ...record, state: "rejected", errorCode: NEVER_PLACED, outcome: { state: "rejected", reason: "final_execution_check_failed" },
+      unsent: LIVE_REQUEST_NEVER_BEGAN, updatedAt: this.now() };
   }
 
   private async persist(record: LiveExecutionRecord, lease: LiveExecutionLease): Promise<LiveExecutionRecord> {
@@ -198,4 +215,20 @@ export class LiveOrderExecutor {
     await this.journal.save(record);
     return record;
   }
+}
+
+/** A never-placed order whose exchange request provably never began: the
+ * executor's unsent marker, rejected as never placed, with no exchange order
+ * id and no fill. Anything else that is never placed keeps the grace. */
+export function isDefinitelyUnsent(record: LiveExecutionRecord): boolean {
+  return record.state === "rejected" && record.errorCode === NEVER_PLACED && record.unsent === LIVE_REQUEST_NEVER_BEGAN &&
+    record.outcome?.state === "rejected" && record.outcome.reason === "final_execution_check_failed" &&
+    record.outcome.exchangeOrderId === undefined && (record.outcome.filledSize === undefined || record.outcome.filledSize === "0");
+}
+/** A journal write may add the unsent marker only on submitting -> rejected
+ * as never placed, and never change or drop it afterwards. */
+export function assertLiveUnsentTransition(current: LiveExecutionRecord, next: LiveExecutionRecord): void {
+  if (current.unsent === next.unsent) return;
+  if (current.unsent === undefined && current.state === "submitting" && isDefinitelyUnsent(next)) return;
+  throw new LiveBoundaryError("execution_record_invalid");
 }

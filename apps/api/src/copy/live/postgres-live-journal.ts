@@ -8,7 +8,7 @@ import { DRIZZLE_CLIENT } from "../../db/db.constants.js";
 import { DATABASE_POOL, type DrizzleDb } from "../../db/drizzle.provider.js";
 import { UnitOfWork } from "../../db/unit-of-work.js";
 import { allocateSignerNonce } from "../signer-nonce.js";
-import { type LiveExecutionJournal, type LiveExecutionRecord } from "./live-execution.js";
+import { assertLiveUnsentTransition, type LiveExecutionJournal, type LiveExecutionRecord } from "./live-execution.js";
 import { LiveBoundaryError, address } from "./wallet-authorization.js";
 import { marketIdentityKey } from './live-market-resolver.js';
 
@@ -123,6 +123,7 @@ export class PostgresLiveExecutionJournal implements LiveExecutionJournal {
       if (!isDeepStrictEqual(immutableLiveExecution(existing), immutableLiveExecution(record))) throw new LiveBoundaryError("execution_record_immutable");
       if (!Number.isSafeInteger(record.updatedAt) || record.updatedAt < existing.updatedAt ||
           (record.outcome && record.outcome.state !== record.state)) throw new LiveBoundaryError("execution_record_invalid");
+      assertLiveUnsentTransition(existing, record);
       // JSONB omits undefined optional properties. Preserve idempotent persistence retries.
       if (isDeepStrictEqual(existing, JSON.parse(JSON.stringify(record)))) return;
       if (!liveExecutionTransitions[existing.state].includes(record.state)) throw new LiveBoundaryError("execution_state_transition_denied");

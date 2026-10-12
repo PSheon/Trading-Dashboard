@@ -1,7 +1,7 @@
 import { exchangeApprovalFixture, executionGateFixture } from "./copy-live-test-utils.js";
 import { LiveSubmissionBlockedError, type LiveExecutionGate, type LiveExecutionLease } from "../src/copy/live/live-execution-gate.js";
 import { describe, expect, it, vi } from "vitest";
-import { LiveOrderExecutor, NEVER_PLACED, NEVER_PLACED_GRACE_MS, type LiveExecutionJournal, type LiveExecutionRecord, type LiveExchangeTransport } from "../src/copy/live/live-execution.js";
+import { LIVE_REQUEST_NEVER_BEGAN, LiveOrderExecutor, NEVER_PLACED, NEVER_PLACED_GRACE_MS, type LiveExecutionJournal, type LiveExecutionRecord, type LiveExchangeTransport } from "../src/copy/live/live-execution.js";
 import { buildOrderAction, executionKey, wireDecimal, type LiveOrderIntent } from "../src/copy/live/live-order.js";
 import { LiveBoundaryError, assertWalletAuthorization, WalletAuthorizationService, type WalletAuthorization } from "../src/copy/live/wallet-authorization.js";
 
@@ -55,7 +55,8 @@ describe('executor diagnostic observation preserves journal outcomes', () => {
     const s = setup(gate, diagnostic);
     await expect(s.executor.execute(intent)).rejects.toMatchObject({ code: 'wallet_authorization_revoked' });
     expect(s.transport.submit).not.toHaveBeenCalled();
-    expect(await s.journal.get(executionKey(intent))).toMatchObject({ state: 'rejected', errorCode: NEVER_PLACED, outcome: { state: 'rejected', reason: 'final_execution_check_failed' } });
+    expect(await s.journal.get(executionKey(intent))).toMatchObject({ state: 'rejected', errorCode: NEVER_PLACED, outcome: { state: 'rejected', reason: 'final_execution_check_failed' },
+      unsent: LIVE_REQUEST_NEVER_BEGAN });
     expect(diagnostic.mock.calls).toEqual([[{ network: 'testnet', stage: 'executor_final_check', elapsedMs: 0, errorCode: 'wallet_authorization_revoked' }]]);
   });
   it.each([true, false])('diagnoses blocked=%s while preserving never-placed versus POST uncertainty', async blocked => {
@@ -63,7 +64,8 @@ describe('executor diagnostic observation preserves journal outcomes', () => {
     const s = setup(executionGateFixture(), diagnostic);
     vi.mocked(s.transport.submit).mockRejectedValueOnce(blocked ? new LiveSubmissionBlockedError('signed_order_expired') : new LiveBoundaryError('exchange_submission_ambiguous'));
     const result = await s.executor.execute(intent);
-    expect(result).toMatchObject(blocked ? { state: 'rejected', errorCode: NEVER_PLACED, outcome: { state: 'rejected', reason: 'final_execution_check_failed' } } : { state: 'unknown', errorCode: 'exchange_submission_ambiguous' });
+    expect(result).toMatchObject(blocked ? { state: 'rejected', errorCode: NEVER_PLACED, outcome: { state: 'rejected', reason: 'final_execution_check_failed' }, unsent: LIVE_REQUEST_NEVER_BEGAN } : { state: 'unknown', errorCode: 'exchange_submission_ambiguous' });
+    expect(result.unsent === LIVE_REQUEST_NEVER_BEGAN).toBe(blocked);
     expect(diagnostic.mock.calls).toEqual([[{ network: 'testnet', stage: 'executor_submit', elapsedMs: 0, errorCode: blocked ? 'signed_order_expired' : 'exchange_submission_ambiguous' }]]);
   });
 });

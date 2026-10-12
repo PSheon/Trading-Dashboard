@@ -10411,6 +10411,7 @@
           }
         ],
         "x-required-permissions": [
+          "admin.access",
           "sources.read"
         ],
         "x-required-roles": [],
@@ -10937,6 +10938,7 @@
           }
         ],
         "x-required-permissions": [
+          "admin.access",
           "traders.read"
         ],
         "x-required-roles": [],
@@ -11796,6 +11798,7 @@
           }
         ],
         "x-required-permissions": [
+          "admin.access",
           "audit.read"
         ],
         "x-required-roles": [],
@@ -11950,6 +11953,7 @@
           }
         ],
         "x-required-permissions": [
+          "admin.access",
           "settings.read"
         ],
         "x-required-roles": [],
@@ -12207,6 +12211,7 @@
           }
         ],
         "x-required-permissions": [
+          "admin.access",
           "jobs.read"
         ],
         "x-required-roles": [],
@@ -12426,6 +12431,7 @@
         ],
         "x-required-permissions": [
           "jobs.retry",
+          "admin.access",
           "jobs.read"
         ],
         "x-required-roles": [],

@@ -1,8 +1,8 @@
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
+import { performance } from 'node:perf_hooks';
 import { acquireSettlementConnection, type SettlementClaim } from '../live-worker/copy-live-settlement-claim.js';
 import * as schema from '@trading-dashboard/shared/database';
 import { drizzle } from 'drizzle-orm/node-postgres';
-import { sql } from 'drizzle-orm';
 import type { DbExecutor, DbTransaction } from '../../db/unit-of-work.js';
 import { LiveBoundaryError, type LiveNetwork } from './wallet-authorization.js';
 
@@ -28,7 +28,11 @@ export interface LiveRiskScope {
 export interface LiveRiskDatabaseSession {
   readonly scope: LiveRiskScope;
   read<T>(work: (db: DbExecutor) => Promise<T>): Promise<T>;
-  transaction<T>(work: (tx: DbTransaction) => Promise<T>): Promise<T>;
+  /** `readsFirst`: the work's statements up to its first awaited answer are
+   * all reads (SELECT): they are then sent right behind BEGIN, without
+   * waiting for its answer (see the scope). Any other statement sent before
+   * BEGIN's answer is refused (live_risk_database_dirty). */
+  transaction<T>(work: (tx: DbTransaction) => Promise<T>, options?: { readonly readsFirst?: boolean }): Promise<T>;
 }
 const originalSessions = new WeakSet<object>();
 /** Concrete risk producers accept only capabilities issued by this factory,
@@ -38,6 +42,22 @@ export function assertOriginalLiveRiskSession(session: LiveRiskDatabaseSession):
   session.scope.assertFresh();
 }
 function fail(code: string): never { throw new LiveBoundaryError(code); }
+/** Proves the scope's $4 advisory locks are all still held by this session. */
+const HELD_SQL = `
+          select count(*) = $4::integer as held from pg_locks where pid = pg_backend_pid()
+            and locktype = 'advisory' and granted
+            and ((objsubid = 2 and mode = 'ShareLock' and classid::bigint in (7403,7405) and objid::bigint = 0)
+              or (objsubid = 2 and mode = 'ExclusiveLock' and classid::bigint = 7404 and objid::bigint = $1)
+              or (objsubid = 1 and mode = 'ExclusiveLock' and classid::bigint = ((hashtextextended($2, 7) >> 32) & 4294967295)
+                and objid::bigint = (hashtextextended($2, 7) & 4294967295))
+              or ($3::text is not null and objsubid = 1 and mode = 'ShareLock'
+                and classid::bigint = ((hashtextextended($3::text, 8) >> 32) & 4294967295)
+                and objid::bigint = (hashtextextended($3::text, 8) & 4294967295)))`;
+/** SET LOCAL statement_timeout and idle_in_transaction_session_timeout, as one statement. */
+const TRANSACTION_TIMEOUTS_SQL = "select set_config('statement_timeout', '5000ms', true), set_config('idle_in_transaction_session_timeout', '5000ms', true)";
+/** How recently an answered lock check, with no statement on the session
+ * since, still answers the next assertHeld (`lockCheck`). */
+export const LOCK_CHECK_REUSE_MS = 50;
 function capture(value: LiveRiskIdentity): Readonly<LiveRiskIdentity> {
   if (!value || !Number.isSafeInteger(value.userId) || value.userId <= 0 || value.userId > 2147483647 ||
       !['testnet', 'mainnet'].includes(value.network) || typeof value.accountAddress !== 'string' ||
@@ -79,6 +99,62 @@ export class PostgresLiveRiskScope {
     const onError = () => { lost = true; };
     client.on('error', onError);
     client.on('end', onError);
+    // Round trips (Stage's database is ~8 ms away, and an order's evidence
+    // must stay inside 5 s): this session's statements go out pipelined (each
+    // with its own Sync, executed in the order sent), and every statement of
+    // its DAL is followed on the wire by the lock check, so the check a
+    // repository makes right after a statement is answered with it (see
+    // `lockCheck`). The connection goes back to the pool as it came.
+    const native = client as unknown as { pipeline: boolean; query: PoolClient['query'] };
+    const pipelined = native.pipeline, ownQuery = Object.hasOwn(client, 'query'), sent = native.query;
+    // Every statement sent on this connection while the scope owns it, by
+    // anyone: a lock can only be released by a statement on its own session.
+    let statements = 0, inflight = 0, checking = false;
+    native.query = function counted(this: PoolClient, ...args: unknown[]) {
+      if (!checking) statements++;
+      const result = (sent as (...values: unknown[]) => unknown).apply(this, args);
+      if (result && typeof (result as Promise<unknown>).then === 'function') {
+        inflight++;
+        const done = () => { inflight--; };
+        (result as Promise<unknown>).then(done, done);
+      }
+      return result;
+    } as PoolClient['query'];
+    native.pipeline = true;
+    interface LockCheck { readonly statements: number; readonly issuedAt: number; readonly result: Promise<boolean>; settledAt?: number }
+    let lastCheck: LockCheck | undefined;
+    const issueCheck = (): LockCheck => {
+      const issuedAt = this.now();
+      checking = true;
+      let result: Promise<boolean>;
+      try {
+        result = Promise.resolve(client.query<{ held: boolean }>(HELD_SQL, [identity.userId, accountKey, sourceKey, locks.length]))
+          .then(value => value.rows[0]?.held === true);
+      } catch (error) { result = Promise.reject(error); }
+      finally { checking = false; }
+      const check: LockCheck = { statements, issuedAt, result };
+      const settled = () => { check.settledAt = performance.now(); };
+      void result.then(settled, settled);
+      lastCheck = check;
+      return check;
+    };
+    /**
+     * The lock check that answers an assertHeld now: the one already sent
+     * right behind the latest statement on this session, when it was sent and
+     * answered (or is still pending) within LOCK_CHECK_REUSE_MS and no
+     * statement was sent since; else a new one. Advisory session locks
+     * change only by a statement on their own session (or its end, which
+     * fails every pending query and raises `lost`), so with no statement
+     * since, that check ran at the point of the session's statement order
+     * where a new one would, and found what a new one would. Its own
+     * (earlier) send time stays the proof's time (assertFresh's 5 s).
+     */
+    const lockCheck = (): LockCheck => {
+      const previous = lastCheck, now = this.now();
+      if (previous && previous.statements === statements && now >= previous.issuedAt && now - previous.issuedAt <= LOCK_CHECK_REUSE_MS &&
+          (previous.settledAt === undefined || performance.now() - previous.settledAt <= LOCK_CHECK_REUSE_MS)) return previous;
+      return issueCheck();
+    };
     const assertFresh = () => {
       this.externalFence?.assertFresh();
       if (!held || lost) fail('live_risk_serialization_lost');
@@ -89,21 +165,12 @@ export class PostgresLiveRiskScope {
     const scope: LiveRiskScope = Object.freeze({ identity, assertFresh, assertHeld: async () => {
       this.externalFence?.assertFresh();
       if (!held || lost) fail('live_risk_serialization_lost');
-      const started = this.now();
       try {
-        const result = await client.query<{ held: boolean }>(`
-          select count(*) = $4::integer as held from pg_locks where pid = pg_backend_pid()
-            and locktype = 'advisory' and granted
-            and ((objsubid = 2 and mode = 'ShareLock' and classid::bigint in (7403,7405) and objid::bigint = 0)
-              or (objsubid = 2 and mode = 'ExclusiveLock' and classid::bigint = 7404 and objid::bigint = $1)
-              or (objsubid = 1 and mode = 'ExclusiveLock' and classid::bigint = ((hashtextextended($2, 7) >> 32) & 4294967295)
-                and objid::bigint = (hashtextextended($2, 7) & 4294967295))
-              or ($3::text is not null and objsubid = 1 and mode = 'ShareLock'
-                and classid::bigint = ((hashtextextended($3::text, 8) >> 32) & 4294967295)
-                and objid::bigint = (hashtextextended($3::text, 8) & 4294967295)))`, [identity.userId, accountKey, sourceKey, locks.length]);
-        if (!held || lost || result.rows[0]?.held !== true) throw new Error();
+        const check = lockCheck();
+        const ok = await check.result;
+        if (!held || lost || ok !== true) throw new Error();
         // Timestamp is the beginning of the query, including SQL queue waits.
-        checkedAt = started;
+        checkedAt = check.issuedAt;
         assertFresh();
       } catch (error) {
         lost = true;
@@ -111,8 +178,42 @@ export class PostgresLiveRiskScope {
         fail('live_risk_serialization_lost');
       }
     } });
-    const database = drizzle(client, { schema });
-    const local = <R>(callback: () => Promise<R>): Promise<R> => {
+    // The DAL's statements, each followed on the wire by the lock check. The
+    // BEGIN of a scoped transaction is followed by its two transaction-local
+    // timeouts (one statement), then that check; `opened` is their answers.
+    // A read-only transaction's BEGIN, or a `readsFirst` one's, is not
+    // waited for before its first reads go out behind it (scopedTransaction):
+    // Drizzle is told it began, and the transaction awaits the real answer
+    // with its first results. Until that answer only reads are sent, so a
+    // BEGIN that failed (leaving them to run outside any transaction) changed
+    // nothing; after a failed BEGIN nothing but its ROLLBACK is sent (its
+    // answer is read before any of those reads' answers, and the work only
+    // sends more after one of them).
+    let expectBegin: 'read' | 'reads-first' | 'write' | undefined, opened: Promise<unknown> | undefined;
+    let beginPending = false, beginFailed = false;
+    const dal = { query: (...args: unknown[]) => {
+      const text = typeof args[0] === 'string' ? args[0] : (args[0] as { text?: unknown } | null)?.text;
+      const begin = expectBegin !== undefined && typeof text === 'string' && /^begin\b/i.test(text) ? expectBegin : undefined;
+      if (!begin) {
+        if (beginFailed && !(typeof text === 'string' && /^rollback\b/i.test(text))) return Promise.reject(new LiveBoundaryError('live_risk_database_dirty'));
+        if (beginPending && !(typeof text === 'string' && /^\s*select\b/i.test(text))) return Promise.reject(new LiveBoundaryError('live_risk_database_dirty'));
+      }
+      const result = (client.query as (...values: unknown[]) => unknown)(...args);
+      if (begin) {
+        expectBegin = undefined;
+        const answered = Promise.resolve(result);
+        if (begin !== 'write') {
+          beginPending = true; beginFailed = false;
+          answered.then(() => { beginPending = false; }, () => { beginPending = false; beginFailed = true; });
+        }
+        opened = Promise.all([answered, client.query(TRANSACTION_TIMEOUTS_SQL)]);
+        void opened.catch(() => {});
+      }
+      void issueCheck().result.catch(() => {});
+      return begin && begin !== 'write' ? Promise.resolve({ command: 'BEGIN', rowCount: null, oid: 0, rows: [], fields: [] }) : result;
+    } };
+    const database = drizzle(dal as unknown as PoolClient, { schema });
+    const local = <R>(callback: () => Promise<R>, pipelined = false): Promise<R> => {
       try {
         assertFresh();
         if (databaseBusy) fail('live_risk_database_busy');
@@ -121,8 +222,21 @@ export class PostgresLiveRiskScope {
       databaseBusy = true;
       const operation = (async () => {
         try {
-          await scope.assertHeld();
-          const result = await callback();
+          let result: R;
+          if (!pipelined) {
+            await scope.assertHeld();
+            result = await callback();
+          } else {
+            // A read-only (or readsFirst) transaction goes out behind its
+            // opening lock check (one round trip): the check still runs first
+            // and answers first, and a lost lock still fails the work, which
+            // never reaches COMMIT without its own check before it.
+            const opening = scope.assertHeld();
+            const [held, work] = await Promise.allSettled([opening, callback()]);
+            if (held.status === 'rejected') throw held.reason;
+            if (work.status === 'rejected') throw work.reason;
+            result = work.value;
+          }
           if (client.getTransactionStatus() !== 'I') { lost = true; fail('live_risk_database_dirty'); }
           await scope.assertHeld();
           return result;
@@ -139,18 +253,37 @@ export class PostgresLiveRiskScope {
       void operation.catch(() => {}).finally(() => { if (activeOperation === operation) activeOperation = undefined; });
       return operation;
     };
-    const scopedTransaction = <R>(callback: (tx: DbTransaction) => Promise<R>, readOnly = false) => local(() => database.transaction(async tx => {
-        await tx.execute(sql`set local statement_timeout = '5000ms'`);
-        await tx.execute(sql`set local idle_in_transaction_session_timeout = '5000ms'`);
-        await scope.assertHeld();
-        const result = await callback(tx);
-        // A released/ended original scope must roll back before COMMIT.
-        await scope.assertHeld();
-        return result;
-      }, readOnly ? { isolationLevel: 'repeatable read', accessMode: 'read only' } : undefined));
+    const scopedTransaction = <R>(callback: (tx: DbTransaction) => Promise<R>, readOnly = false, readsFirst = false) => local(async () => {
+      expectBegin = readOnly ? 'read' : readsFirst ? 'reads-first' : 'write'; opened = undefined; beginPending = false; beginFailed = false;
+      try {
+        return await database.transaction(async tx => {
+          // BEGIN and the SET LOCAL of both timeouts sent right behind it.
+          const begun = opened; opened = undefined;
+          if (!begun) fail('live_risk_database_dirty');
+          let result: R;
+          if (!readOnly && !readsFirst) {
+            await begun;
+            await scope.assertHeld();
+            result = await callback(tx);
+          } else {
+            // Its first reads go out behind BEGIN, the timeouts and the lock
+            // check, executed after them; all three answers are required
+            // before its result, and before COMMIT (below) as ever.
+            const held = scope.assertHeld();
+            const [opening, work] = await Promise.allSettled([Promise.all([begun, held]), callback(tx)]);
+            if (opening.status === 'rejected') throw opening.reason;
+            if (work.status === 'rejected') throw work.reason;
+            result = work.value;
+          }
+          // A released/ended original scope must roll back before COMMIT.
+          await scope.assertHeld();
+          return result;
+        }, readOnly ? { isolationLevel: 'repeatable read', accessMode: 'read only' } : undefined);
+      } finally { expectBegin = undefined; opened = undefined; beginPending = false; beginFailed = false; }
+    }, readOnly || readsFirst);
     const session: LiveRiskDatabaseSession = Object.freeze({ scope,
       read: <R>(callback: (db: DbExecutor) => Promise<R>) => scopedTransaction(callback, true),
-      transaction: scopedTransaction,
+      transaction: <R>(callback: (tx: DbTransaction) => Promise<R>, options?: { readonly readsFirst?: boolean }) => scopedTransaction(callback, false, options?.readsFirst === true),
     });
     try {
       // Never adopt or commit another caller's unfinished SQL transaction.
@@ -200,6 +333,11 @@ export class PostgresLiveRiskScope {
       }
       client.removeListener('error', onError);
       client.removeListener('end', onError);
+      // Back to the pool exactly as it came (its query method and protocol
+      // mode), with nothing of this scope still on the wire.
+      if (inflight !== 0) discard = true;
+      if (ownQuery) native.query = sent; else delete (client as { query?: unknown }).query;
+      native.pipeline = pipelined;
       client.release(discard || client.getTransactionStatus() !== 'I');
     }
   }

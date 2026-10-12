@@ -236,6 +236,8 @@ describe('distributed user and account risk serialization', () => {
     try {
       const controlled = new PostgresLiveRiskScope(pool, () => now);
       await controlled.run(identity, async scope => {
+        // A statement since the scope's last lock check: the next assertHeld sends its own.
+        await client.query('select 1');
         const original = client.query;
         client.query = (async (...args: Parameters<typeof query>) => { const result = await query(...args); now += 5001; return result; }) as typeof client.query;
         try { await expect(scope.assertHeld()).rejects.toThrow('live_risk_serialization_stale'); }
@@ -243,6 +245,77 @@ describe('distributed user and account risk serialization', () => {
         expect(() => scope.assertFresh()).toThrow('live_risk_serialization_lost');
       });
     } finally { connect.mockRestore(); }
+  });
+  /** The scope's connection, its statements recorded as sent with how many
+   * of its earlier ones were still unanswered (0: a new round trip). */
+  async function wired(work: (sent: { text: string; inflight: number }[], connection: import('pg').PoolClient) => Promise<void>,
+    refuse?: (text: string) => Error | undefined) {
+    const connection = await pool.connect(), connect = vi.spyOn(pool, 'connect').mockResolvedValueOnce(connection as never);
+    const query = connection.query, sent: { text: string; inflight: number }[] = [];
+    let inflight = 0;
+    const wire = vi.spyOn(connection, 'query').mockImplementation(function (this: unknown, ...args: unknown[]) {
+      const text = String(typeof args[0] === 'string' ? args[0] : (args[0] as { text?: unknown })?.text ?? '').trim();
+      sent.push({ text, inflight });
+      const refused = refuse?.(text);
+      if (refused) return Promise.reject(refused) as never;
+      const result = (query as (...values: unknown[]) => unknown).apply(connection, args) as Promise<unknown>;
+      inflight++; const done = () => { inflight--; }; void result.then(done, done);
+      return result as never;
+    } as never);
+    try { await work(sent, connection); } finally { connect.mockRestore(); wire.mockRestore(); }
+  }
+  const kind = (text: string) => text.includes('from pg_locks') ? 'check' : text.split(/\s+/).slice(0, 2).join(' ');
+  it('pipelines a read: one round trip for BEGIN, its reads and their lock checks, then COMMIT; the connection goes back as it came', async () => {
+    await wired(async (sent, connection) => {
+      const installed = connection.query;
+      await scopes.run(identity, async (scope, session) => {
+        expect((connection as unknown as { pipeline: boolean }).pipeline).toBe(true);
+        await scope.assertHeld();
+        sent.length = 0;
+        const rows = await session.read(async db => {
+          const [one, two] = await Promise.all([db.execute(sql`select 1 as one`), db.execute(sql`select 2 as two`)]);
+          await scope.assertHeld(); await scope.assertHeld();
+          return [one.rows[0], two.rows[0]];
+        });
+        expect(rows).toEqual([{ one: 1 }, { two: 2 }]);
+        // Each statement is followed on the wire by the lock check; every
+        // assertHeld (the transaction's, the read's, the scope's) is answered
+        // by those: no check of its own.
+        expect(sent.map(q => kind(q.text))).toEqual(['begin isolation', 'select set_config(\'statement_timeout\',', 'check',
+          'select 1', 'check', 'select 2', 'check', 'commit', 'check']);
+        // Two round trips: BEGIN with everything behind it, then COMMIT.
+        expect(sent.map(q => q.inflight === 0)).toEqual([true, false, false, false, false, false, false, true, false]);
+      });
+      expect((connection as unknown as { pipeline: boolean }).pipeline).toBe(false);
+      expect(connection.query).toBe(installed);
+    });
+  });
+  it('sends a readsFirst transaction\'s first reads behind BEGIN, refuses a write before BEGIN\'s answer, and after a failed BEGIN sends nothing but ROLLBACK', async () => {
+    await pool.query('create table if not exists live_scope_probe (id text primary key)');
+    await pool.query('delete from live_scope_probe');
+    await wired(async sent => {
+      await scopes.run(identity, async (_scope, session) => {
+        sent.length = 0;
+        const counted = await session.transaction(async tx => {
+          const [before] = (await tx.execute<{ n: number }>(sql`select count(*)::int as n from live_scope_probe`)).rows;
+          await tx.execute(sql`insert into live_scope_probe values ('reads-first')`);
+          return before;
+        }, { readsFirst: true });
+        expect(counted).toEqual({ n: 0 });
+        expect(sent.find(q => q.text.startsWith('select count(*)'))!.inflight).toBeGreaterThan(0);
+        await expect(session.transaction(tx => tx.execute(sql`insert into live_scope_probe values ('write-first')`), { readsFirst: true }))
+          .rejects.toMatchObject({ cause: expect.objectContaining({ code: 'live_risk_database_dirty' }) });
+      });
+    });
+    await wired(async sent => {
+      await expect(scopes.run(identity, (_scope, session) => session.transaction(async tx => {
+        await tx.execute(sql`select count(*)::int as n from live_scope_probe`);
+        await tx.execute(sql`insert into live_scope_probe values ('after-failed-begin')`);
+      }, { readsFirst: true }))).rejects.toThrow();
+      const begin = sent.findIndex(q => q.text.startsWith('begin'));
+      expect(sent.slice(begin + 1).filter(q => !/^(select|rollback)\b/.test(q.text)).map(q => q.text)).toEqual([]);
+    }, text => text.startsWith('begin') ? new Error('begin refused') : undefined);
+    expect((await pool.query('select id from live_scope_probe order by id')).rows).toEqual([{ id: 'reads-first' }]);
   });
   it('captures identity before awaiting pool admission', async () => {
     const mutable = { ...identity };

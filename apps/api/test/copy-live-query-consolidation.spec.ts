@@ -78,6 +78,12 @@ async function fullAuthority() {
 
 type Kind='preparation'|'risk'|'generation';
 async function observed(kind:Kind,at=now){
+  // The lock checks go to the scope's connection itself, each right behind
+  // the statement it follows (postgres-live-risk-scope.ts): counted there.
+  const connection=await pool.connect(),connect=vi.spyOn(pool,'connect').mockResolvedValueOnce(connection as never),wire=vi.spyOn(connection,'query');
+  try{return await observedOn(kind,at,wire);}finally{connect.mockRestore();wire.mockRestore();}
+}
+async function observedOn(kind:Kind,at:number,wire:{mock:{calls:unknown[][]};mockClear():unknown}){
   return scopes.run(id(),async(_scope,session)=>session.read(async tx=>{
     const a=kind==='generation'?await authority.loadLivePreparationAuthority(session,tx,{accountId:'account',mandateId:'mandate'},now):undefined;
     const pgSession=(tx as unknown as {session:{prepareQuery(query:{sql:string;params:unknown[]},...args:unknown[]):unknown;client:{query(...args:unknown[]):unknown}}}).session;
@@ -91,7 +97,7 @@ async function observed(kind:Kind,at=now){
       }
     });
     async function capture(){
-      compiled.mockClear();queries.mockClear();perQuery=[];const started=process.hrtime.bigint();
+      compiled.mockClear();queries.mockClear();wire.mockClear();perQuery=[];const started=process.hrtime.bigint();
       let value:unknown,error:unknown;
       try{
         const mod=authority;
@@ -99,7 +105,7 @@ async function observed(kind:Kind,at=now){
         else if(kind==='risk')value=await mod.loadLiveRiskAuthority(session,tx,{accountId:'account',key:f.reservations.own.key},at);
         else value=await loadLiveGenerationManifest(session,tx,a!,{currentExecutionKey:f.reservations.own.key,now:at});
       }catch(e){error=e instanceof Error?{name:e.name,message:e.message}:e;}
-      return {value,error,data:compiled.mock.calls.map(([q])=>q.sql),locks:queries.mock.calls.filter(([q])=>typeof q==='string'&&q.includes('from pg_locks')).length,ms:Number(process.hrtime.bigint()-started)/1e6,perQuery:[...perQuery]};
+      return {value,error,data:compiled.mock.calls.map(([q])=>q.sql),locks:wire.mock.calls.filter(([q])=>typeof q==='string'&&q.includes('from pg_locks')).length,ms:Number(process.hrtime.bigint()-started)/1e6,perQuery:[...perQuery]};
     }
     try{
       const candidate=await capture();

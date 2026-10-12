@@ -79,6 +79,6 @@ export class ScopedLiveExecutionJournal implements LiveExecutionJournal {
       await tx.update(copyLiveExecutions).set({ state: record.state, record: record as unknown as Record<string, unknown>, updatedAt: new Date(record.updatedAt) })
         .where(eq(copyLiveExecutions.key, record.key));
       await this.session.scope.assertHeld();
-    });
+    }, { readsFirst: true });
   }
 }

@@ -6,6 +6,7 @@ import {PostgresHyperliquidQuota,type BoundHyperliquidQuota} from './postgres-hy
 import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from '../copy/live/postgres-live-risk-scope.js';
 import {LiveBoundaryError} from '../copy/live/wallet-authorization.js';
 import {infoListSurcharge,infoPrepaidWeight,infoWeight} from './info-weights.js';
+import {liveSpan,timedLiveSpan} from '../copy/live/live-execution-diagnostics.js';
 const fail=(code:string):never=>{throw new LiveBoundaryError(code);};
 // The requests this process may send (any other is refused, never guessed);
 // their weights come from the one table (info-weights.ts).
@@ -145,12 +146,12 @@ export class HyperliquidGlobalTransport {
   const requests=bodies.map(body=>this.#infoRequest(url,{method:'POST',body:JSON.stringify(body)}));
   if(requests.some(r=>lists.has(r.type)))fail('hyperliquid_quota_request_invalid');
   const weight=requests.reduce((sum,r)=>sum+r.weight,0);
-  signal?.throwIfAborted();const permit=await this.#acquire(budget,weight,lane,maxWaitMs>0,signal,maxWaitMs);signal?.throwIfAborted();
+  signal?.throwIfAborted();const permit=await timedLiveSpan('rest_wave_quota',()=>this.#acquire(budget,weight,lane,maxWaitMs>0,signal,maxWaitMs));signal?.throwIfAborted();
   return permit.dispatch(()=>{
    signal?.throwIfAborted();const bound=onDispatch?.(),signals=[signal,bound].filter((s):s is AbortSignal=>s!==undefined);
    const shared=signals.length>1?AbortSignal.any(signals):signals[0];
    const work=requests.map(r=>this.rawFetch(r.url,{method:'POST',body:r.body,headers:new Headers({'Content-Type':'application/json'}),redirect:'error',signal:shared}));
-   return Promise.all(work);
+   const answered=liveSpan('rest_wave_http');return Promise.all(work).finally(()=>answered());
   });
  }
  async #info(input:Parameters<typeof fetch>[0],init:Parameters<typeof fetch>[1],lane:HyperliquidRestLane|undefined,waitForCapacity:boolean,maxWaitMs=PAGE_CAPACITY_WAIT_MS):Promise<Response>{

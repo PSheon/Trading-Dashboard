@@ -11,6 +11,7 @@ import { boundedLiveRead, MAX_LIVE_PERP_DEXES, LIVE_DEX_NAME, LIVE_PERP_COIN, RE
 import { address, LiveBoundaryError } from './wallet-authorization.js';
 import { accountModeBodies, liveInfoWeights, type LiveSharedReads } from './live-shared-reads.js';
 import { LiveReadCache } from './live-read-cache.js';
+import { liveSpan } from './live-execution-diagnostics.js';
 
 export interface LiveObservedPosition {
   readonly coin: string; readonly dex: string; readonly asset: number; readonly sizeDecimals: number;
@@ -241,7 +242,8 @@ export class HyperliquidLiveAccountObserver {
       // bounded even if an early account mode rejection prevents its use.
       const metadataRead = read('allPerpMetas', 20);
       void metadataRead.catch(() => {});
-      const [initial, rawTokens] = await initialWork;
+      const restSpan = liveSpan('observer_rest');
+      const [initial, rawTokens] = await initialWork.finally(() => restSpan());
       let accountMode: AccountMode;
       try { accountMode = mode(...initial.slice(0, 4) as [unknown, unknown, unknown, unknown], options.unsetup === true, setupAbort, options.leader === true); }
       catch (error) {
@@ -284,7 +286,8 @@ export class HyperliquidLiveAccountObserver {
         this.fresh(proof.observedAt); this.fresh(started);
         sources.push({ subscription: { type: 'allDexsClearinghouseState', user }, proof }); return proof.data;
       };
-      const [rawMetas, rawAggregate] = await Promise.all([metadataRead, aggregate()]);
+      const wsSpan = liveSpan('observer_ws');
+      const [rawMetas, rawAggregate] = await Promise.all([metadataRead, aggregate().finally(() => wsSpan())]);
       const metas = z.array(metaSchema.nullable()).max(MAX_LIVE_PERP_DEXES).parse(rawMetas);
       const sourceStates = z.object({ clearinghouseStates: z.array(z.tuple([z.string(), z.record(z.unknown())]))
         .max(MAX_LIVE_PERP_DEXES) }).parse(rawAggregate);

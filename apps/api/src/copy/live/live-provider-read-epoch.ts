@@ -10,7 +10,7 @@ import type { LiveReserveOptions } from '../../hyperliquid/hyperliquid-budget-wa
 import { address } from './wallet-authorization.js';
 import { effectiveLeverage } from '../copy-risk.js';
 import { LiveLeverageUpdateRequired } from './live-leverage-update.js';
-import { beginLiveExecutionTiming, type LiveExecutionTimingHook, type LiveTimingStage } from './live-execution-diagnostics.js';
+import { beginLiveExecutionTiming, withLiveSpanRole, type LiveExecutionTimingHook, type LiveTimingStage } from './live-execution-diagnostics.js';
 
 /** Shared provider reads for an epoch (on the readers' network): the budget the epoch pays
  * its reads from, the info fetch, and the batch transport for each wave. */
@@ -213,11 +213,12 @@ export class LiveProviderReadEpoch {
     await Promise.race([shared.begun, firstWave]);
     const snapshots: LiveAccountSnapshot[] = [];
     // Another copy's account still in setup counts as zero exposure (unsetup).
-    const accountsWork = Promise.all(authority.accounts.map(account => this.observer.observe(account.address!, { shared, ...(account.id === binding.accountId ? {} : { unsetup: true }) })));
+    const accountsWork = Promise.all(authority.accounts.map(account => withLiveSpanRole(account.id === binding.accountId ? 'follower' : 'other_account',
+      () => this.observer.observe(account.address!, { shared, ...(account.id === binding.accountId ? {} : { unsetup: true }) }))));
     void accountsWork.catch(() => {});
     // The leader's equity is read alongside the accounts, not after them: one
     // all-venue read less in the 5 s clock (a flip's open went stale at 5.08 s, 2026-10-12).
-    const leaderWork = binding.includeLeader ? this.observer.observe(authority.consent.leaderAddress, { shared, leader: true }) : Promise.resolve(null);
+    const leaderWork = binding.includeLeader ? withLiveSpanRole('leader', () => this.observer.observe(authority.consent.leaderAddress, { shared, leader: true })) : Promise.resolve(null);
     void leaderWork.catch(() => {});
     let targetWork: Promise<LiveRiskProviderProof> | undefined, otherWork: Promise<LiveRiskProviderProof[]> | undefined;
     try {
@@ -226,7 +227,7 @@ export class LiveProviderReadEpoch {
       await session.scope.assertHeld(); this.fresh(started);
       const market = await this.resolver.resolve(binding.coin, shared);
       await session.scope.assertHeld(); this.fresh(started);
-      targetWork = this.provider.observe(target, market, this.options, shared);
+      targetWork = withLiveSpanRole('target', () => this.provider.observe(target, market, this.options, shared));
       void targetWork.catch(() => {});
       snapshots.push(...await accountsWork);
       await session.scope.assertHeld(); this.fresh(started);

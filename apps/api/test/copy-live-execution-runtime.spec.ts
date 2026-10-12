@@ -338,6 +338,12 @@ describe('unregistered concrete testnet execution runtime', () => {
       expect(timings).toContainEqual(expect.objectContaining({ phase, stage: 'risk_final_local_read' }));
     expect(timings).toContainEqual(expect.objectContaining({ stage: 'executor_submit' }));
     expect(timings.length).toBeLessThanOrEqual(128);
+    // Below the stages: where the evidence waited (names and durations only).
+    const spans: { span: string }[] = events[0].spans;
+    for (const span of ['quota_rest_tx', 'quota_rest_lock', 'rest_wave_quota', 'rest_wave_http', 'observer_rest:follower', 'observer_ws:follower',
+      'ws_reserve:follower', 'quota_connect_tx:follower', 'ws_subscribe_quota:follower', 'ws_first_message:follower', 'ws_close:follower'])
+      expect(spans.map(s => s.span)).toContain(span);
+    for (const span of spans) expect(Object.keys(span)).toEqual(['span', 'count', 'totalMs', 'maxMs', 'firstAtMs', 'lastEndMs']);
     const text = JSON.stringify(events);
     for (const timing of timings)
       expect(Object.keys(timing)).toEqual(['network', 'phase', 'stage', 'elapsedMs', 'totalMs', 'clockValid']);

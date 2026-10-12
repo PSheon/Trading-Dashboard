@@ -49,7 +49,7 @@ import type { LiveSourceReferenceReader } from './live-source-reference.js';
 import { captureLiveOrderIdentity, parseLiveIocAcknowledgement } from './live-order-evidence.js';
 import { PostgresLiveSettlement } from './postgres-live-settlement.js';
 import { LiveLeverageUpdated, LiveLeverageUpdater, LiveLeverageUpdateRequired } from './live-leverage-update.js';
-import { beginLiveExecutionTiming, type LiveExecutionTiming, type LiveExecutionTimingHook, type LiveExecutionDiagnosticHook } from './live-execution-diagnostics.js';
+import { beginLiveExecutionTiming, LiveSpanRecorder, timedLiveSpan, type LiveExecutionTiming, type LiveExecutionTimingHook, type LiveExecutionDiagnosticHook } from './live-execution-diagnostics.js';
 
 const id = z.string().min(1).max(160).regex(/^[^\s\p{Cc}\p{Cf}]+$/u);
 const requestSchema = z.object({ userId: z.number().int().positive().max(2147483647), accountId: id,
@@ -204,7 +204,9 @@ export class LiveExecutionRuntime {
     let completionDiagnostic: Readonly<{ event: 'live_execution_completion_stale'; network: HyperliquidNetwork;
       oldestCheckedAt: number; completedAt: number; evidenceAgeMs: number; freshnessLimitMs: 5000 }> | undefined;
     const onTiming: LiveExecutionTimingHook = event => { if (timings.length < 128) timings.push(event); };
-    try { return await scope.run({ userId: request.userId, network: this.network, accountAddress,
+    // Below the stages: where the evidence waits (meter transactions, sockets, waves).
+    const spans = new LiveSpanRecorder();
+    try { return await spans.run(() => scope.run({ userId: request.userId, network: this.network, accountAddress,
       source: { network: routing.mandate.sourceNetwork, leaderAddress } }, async (_scope, session) => this.global.runOriginal(session, async () => {
       // Resolve global configuration against the original private context before
       // creating native clients. No unscoped fallback can open a second pool.
@@ -219,7 +221,7 @@ export class LiveExecutionRuntime {
       const acquire = async (weight: number) => {
         const credit = Math.min(prepaid, weight);
         prepaid -= credit;
-        try { if (weight > credit) await reserve(weight - credit); }
+        try { if (weight > credit) await timedLiveSpan('local_budget', () => reserve(weight - credit)); }
         catch (error) { prepaid += credit; throw error; }
       };
       const prepay = acquire;
@@ -365,7 +367,7 @@ export class LiveExecutionRuntime {
         // live. This source is never reused by a successor execution scope.
         provider?.close(); await sockets?.close();
       }
-    })); } finally {
+    }))); } finally {
       credit.weight += prepaid;
       // The original scope has closed before any unused read drains. A slow
       // provider cancellation cannot keep financial SQL locks or sign later.
@@ -377,7 +379,7 @@ export class LiveExecutionRuntime {
         catch { /* completion observation cannot change the committed result */ }
       }
       if (timings.length) {
-        try { new Logger('LiveExecutionRuntime').log({ event: 'live_execution_timing', timings }); }
+        try { new Logger('LiveExecutionRuntime').log({ event: 'live_execution_timing', timings, spans: spans.summary() }); }
         catch { /* a logging failure cannot change the original execution result */ }
       }
     }

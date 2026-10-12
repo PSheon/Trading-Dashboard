@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { beginLiveExecutionTiming, type LiveExecutionTiming } from '../src/copy/live/live-execution-diagnostics.js';
+import { beginLiveExecutionTiming, LiveSpanRecorder, liveSpan, timedLiveSpan, withLiveSpanRole, type LiveExecutionTiming } from '../src/copy/live/live-execution-diagnostics.js';
 
 it('records successive elapsed costs without resetting the original financial clock', () => {
   let clock = 1000;
@@ -47,4 +47,30 @@ it.each([NaN, Infinity, -1, 999])('marks invalid or backward observation clocks 
   expect(events[0]?.elapsedMs).toBe(0);
   expect(events[0]?.totalMs).toBe(0);
   expect(events[0]?.clockValid).toBe(false);
+});
+
+it('records sub-stage spans of the work it runs, by role, and nothing outside it', async () => {
+  let clock = 0;
+  const recorder = new LiveSpanRecorder(() => clock);
+  liveSpan('ws_open')(); // no recorder: nothing
+  await recorder.run(async () => {
+    const reserve = liveSpan('ws_reserve');
+    clock = 40; reserve();
+    await Promise.all([
+      withLiveSpanRole('follower', () => timedLiveSpan('observer_ws', async () => { await Promise.resolve(); clock = 300; })),
+      withLiveSpanRole('leader', async () => { const end = liveSpan(); clock = 320; end('quota_closed_tx'); end('quota_closed_tx'); }),
+    ]);
+  });
+  expect(recorder.spans).toEqual([
+    { name: 'ws_reserve', atMs: 0, ms: 40 },
+    { name: 'quota_closed_tx', role: 'leader', atMs: 40, ms: 280 },
+    { name: 'observer_ws', role: 'follower', atMs: 40, ms: 260 },
+  ]);
+  expect(recorder.summary().map(s => s.span)).toEqual(['ws_reserve', 'quota_closed_tx:leader', 'observer_ws:follower']);
+});
+
+it('cannot throw into the work it times when its clock fails', async () => {
+  const recorder = new LiveSpanRecorder(() => { throw new Error('clock'); });
+  await expect(recorder.run(() => timedLiveSpan('rest_wave_http', async () => 7))).resolves.toBe(7);
+  expect(recorder.spans).toEqual([]);
 });

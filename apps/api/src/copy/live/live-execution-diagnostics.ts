@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { performance } from 'node:perf_hooks';
 import { HyperliquidBudgetWait } from '../../hyperliquid/hyperliquid-budget-wait.js';
 import { LiveBoundaryError, type LiveNetwork } from './wallet-authorization.js';
 
@@ -91,4 +93,82 @@ export function observeLiveExecutionFailure(hook: LiveExecutionDiagnosticHook | 
       void Promise.resolve(result).catch(() => undefined);
     }
   } catch { /* diagnostics cannot veto, retry or reclassify a financial action */ }
+}
+
+/** Where an order's evidence waits, below the epoch stages: each meter
+ * transaction (its session-queue wait, quota-row lock wait and whole
+ * transaction), each socket step, REST wave and local budget wait. Names and
+ * durations only: never a value, address or body. */
+export type LiveSpanName =
+  `quota_${'rest' | 'connect' | 'subscribe' | 'unsubscribe' | 'ping' | 'close' | 'opened' | 'uncertain' | 'closing' | 'closed' | 'renew' | 'ack_unsubscribe'}_${'queue' | 'lock' | 'tx'}` |
+  'ws_heartbeat_wait' | 'ws_reserve' | 'ws_open' | 'ws_idle' | 'ws_subscribe_quota' | 'ws_first_message' | 'ws_messages' | 'ws_close' |
+  'rest_wave_quota' | 'rest_wave_http' | 'local_budget' | 'observer_rest' | 'observer_ws';
+export type LiveSpanRole = 'follower' | 'other_account' | 'leader' | 'target';
+export interface LiveEvidenceSpan {
+  readonly name: LiveSpanName;
+  readonly role?: LiveSpanRole;
+  /** Start, from the recorder's start. */
+  readonly atMs: number;
+  readonly ms: number;
+}
+export interface LiveSpanSummary {
+  readonly span: string; readonly count: number; readonly totalMs: number; readonly maxMs: number; readonly firstAtMs: number; readonly lastEndMs: number;
+}
+interface SpanStore { readonly recorder: LiveSpanRecorder; readonly role?: LiveSpanRole }
+const spanStore = new AsyncLocalStorage<SpanStore>();
+const SPAN_LIMIT = 512;
+
+/** Collects the spans of the work it runs (only that work's). Observation
+ * only: it never throws into, awaits in or retimes the work it records. */
+export class LiveSpanRecorder {
+  readonly #spans: LiveEvidenceSpan[] = [];
+  readonly #started: number;
+  constructor(private readonly now: () => number = () => performance.now()) { this.#started = this.clock(); }
+  run<T>(work: () => T): T { return spanStore.run({ recorder: this }, work); }
+  /** @internal */
+  clock(): number { try { const value = this.now(); return Number.isFinite(value) ? value : NaN; } catch { return NaN; } }
+  /** @internal */
+  add(name: LiveSpanName, role: LiveSpanRole | undefined, start: number): void {
+    const end = this.clock();
+    if (this.#spans.length >= SPAN_LIMIT || !Number.isFinite(start) || !Number.isFinite(end) || end < start || !Number.isFinite(this.#started)) return;
+    this.#spans.push(Object.freeze({ name, ...(role ? { role } : {}), atMs: Math.round(start - this.#started), ms: Math.round(end - start) }));
+  }
+  get spans(): readonly LiveEvidenceSpan[] { return [...this.#spans]; }
+  /** Per span (and role): how many, their total and longest, first start and last end. */
+  summary(): LiveSpanSummary[] {
+    const rows = new Map<string, { span: string; count: number; totalMs: number; maxMs: number; firstAtMs: number; lastEndMs: number }>();
+    for (const s of this.#spans) {
+      const key = s.role ? `${s.name}:${s.role}` : s.name, row = rows.get(key);
+      if (!row) rows.set(key, { span: key, count: 1, totalMs: s.ms, maxMs: s.ms, firstAtMs: s.atMs, lastEndMs: s.atMs + s.ms });
+      else {
+        row.count++; row.totalMs += s.ms; row.maxMs = Math.max(row.maxMs, s.ms);
+        row.firstAtMs = Math.min(row.firstAtMs, s.atMs); row.lastEndMs = Math.max(row.lastEndMs, s.atMs + s.ms);
+      }
+    }
+    return [...rows.values()].sort((a, b) => a.firstAtMs - b.firstAtMs);
+  }
+}
+/** Starts a span in the current recorder (none: a no-op); call the result
+ * when it ends, with its name if that is only known then. Never throws. */
+export function liveSpan(name?: LiveSpanName): (named?: LiveSpanName) => void {
+  const store = spanStore.getStore();
+  if (!store) return () => {};
+  const start = store.recorder.clock();
+  let ended = false;
+  return named => {
+    const span = named ?? name;
+    if (ended || !span) return;
+    ended = true;
+    try { store.recorder.add(span, store.role, start); } catch { /* observation only */ }
+  };
+}
+/** Times `work` as one span. */
+export async function timedLiveSpan<T>(name: LiveSpanName, work: () => Promise<T>): Promise<T> {
+  const end = liveSpan(name);
+  try { return await work(); } finally { end(); }
+}
+/** Runs `work` with its spans labelled `role` (same recorder). */
+export function withLiveSpanRole<T>(role: LiveSpanRole, work: () => T): T {
+  const store = spanStore.getStore();
+  return store ? spanStore.run({ recorder: store.recorder, role }, work) : work();
 }

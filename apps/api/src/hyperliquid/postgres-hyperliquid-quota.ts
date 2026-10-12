@@ -11,6 +11,7 @@ import {LiveBoundaryError,type LiveNetwork} from '../copy/live/wallet-authorizat
 import {HYPERLIQUID_MAX_SETTLEMENTS,HYPERLIQUID_STALE_LEASE_RECLAIM_MS,planHyperliquidQuota,quotaSubscription,type HyperliquidRestLane,type HyperliquidQuotaLease,type HyperliquidQuotaRequest,type HyperliquidQuotaSubscription} from './hyperliquid-global-quota.js';
 import {freezeLiveReservation} from '../copy/live/live-risk-reservation.js';
 import {liveSourceDigest} from '../copy/live/copy-live-source-evidence.js';
+import {liveSpan} from '../copy/live/live-execution-diagnostics.js';
 
 export interface HyperliquidQuotaBinding {readonly egressKey:string;readonly ownerId:string;}
 export interface HyperliquidSendPermit {assertFresh():void;dispatch<T>(work:()=>T):T;
@@ -82,13 +83,18 @@ export class PostgresHyperliquidQuota {
     const fresh=deadline===undefined?()=>this.guard(session):this.fence(deadline,session);
     const cleanup=evidence?freezeLiveReservation(structuredClone(evidence)):undefined;
     if(cleanup&&Buffer.byteLength(JSON.stringify(cleanup.record))>524288)fail('hyperliquid_quota_invalid');
+    // Spans (names and durations only): this request's wait in the session's
+    // queue, for the quota row's lock, and its whole transaction.
+    const kind=request(1,1).kind,queued=liveSpan(`quota_${kind}_queue`);
     await this.queue(session,async()=>{
+      queued();const whole=liveSpan(`quota_${kind}_tx`);
       const transaction=async(tx:DbTransaction)=>{
         const held=async()=>{if(session)await session.scope.assertHeld();};
         await tx.execute(sql`set local statement_timeout = '5000ms'`);await held();
         await tx.execute(sql`set local idle_in_transaction_session_timeout = '5000ms'`);await held();
         await tx.insert(quota).values({egressKey:binding.egressKey,events:[],updatedAt:sql`date_trunc('milliseconds',clock_timestamp())`}).onConflictDoNothing();await held();
-        const rows=await tx.select().from(quota).where(eq(quota.egressKey,binding.egressKey)).for('update');await held();
+        const locking=liveSpan(`quota_${kind}_lock`);
+        const rows=await tx.select().from(quota).where(eq(quota.egressKey,binding.egressKey)).for('update');locking();await held();
         const localBeforeClock=this.now();
         const clock=await tx.execute<{now:string}>(sql`select floor(extract(epoch from clock_timestamp())*1000)::bigint as now`);await held();
         const dbNow=Number(clock.rows[0]?.now);if(!Number.isSafeInteger(dbNow)||dbNow<=0||rows.length!==1)fail('hyperliquid_quota_invalid');
@@ -114,7 +120,7 @@ export class PostgresHyperliquidQuota {
         }
         fresh();
       };
-      if(session)await session.transaction(transaction);else await this.uow.run(transaction);
+      try{if(session)await session.transaction(transaction);else await this.uow.run(transaction);}finally{whole();}
     });
     // Completion fence includes COMMIT. A failed fence retains all durable
     // charges; it never issues a replacement or refunds an uncertain send.

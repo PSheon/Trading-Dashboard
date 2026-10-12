@@ -30,66 +30,61 @@ import type {
   HlUserFundingEntry,
   HlCandle,
 } from "./types.js";
+import { infoListSurcharge, infoWeight, MAX_INFO_LIST_ITEMS } from "./info-weights.js";
 
-/** Hyperliquid `info` request weights (verified live against the docs —
- * see `request-budgeter.service.ts` for the full citation/reasoning). */
-const WEIGHT_CLEARINGHOUSE_STATE = 2;
-const WEIGHT_USER_FILLS_BY_TIME_BASE = 20;
-const WEIGHT_META = 20;
-const WEIGHT_PERP_DEXS = 20;
+/** Hyperliquid `info` request weights, from the one table (info-weights.ts,
+ * the docs' rate-limits page). */
+const WEIGHT_CLEARINGHOUSE_STATE = infoWeight({ type: "clearinghouseState" });
+const WEIGHT_USER_FILLS_BY_TIME_BASE = infoWeight({ type: "userFillsByTime" });
+const WEIGHT_META = infoWeight({ type: "meta" });
+const WEIGHT_PERP_DEXS = infoWeight({ type: "perpDexs" });
 /** Not in the weight-2 list, so 20. */
-const WEIGHT_META_AND_ASSET_CTXS = 20;
+const WEIGHT_META_AND_ASSET_CTXS = infoWeight({ type: "metaAndAssetCtxs" });
 /** In the docs' weight-2 list with clearinghouseState (rate-limits-and-user-limits). */
-const WEIGHT_ALL_MIDS = 2;
-const WEIGHT_PORTFOLIO = 20;
+const WEIGHT_ALL_MIDS = infoWeight({ type: "allMids" });
+const WEIGHT_PORTFOLIO = infoWeight({ type: "portfolio" });
 /** In the docs' weight-2 list (rate-limits-and-user-limits, checked 2026-09-29). */
-const WEIGHT_SPOT_CLEARINGHOUSE_STATE = 2;
+const WEIGHT_SPOT_CLEARINGHOUSE_STATE = infoWeight({ type: "spotClearinghouseState" });
 /** Not in the weight-2 list, so 20 (checked 2026-09-29). */
-const WEIGHT_SPOT_META_AND_CTXS = 20;
-const WEIGHT_USER_ABSTRACTION = 20;
-const WEIGHT_DELEGATOR_SUMMARY = 20;
-const WEIGHT_USER_FILLS_BASE = 20;
+const WEIGHT_SPOT_META_AND_CTXS = infoWeight({ type: "spotMetaAndAssetCtxs" });
+const WEIGHT_USER_ABSTRACTION = infoWeight({ type: "userAbstraction" });
+const WEIGHT_DELEGATOR_SUMMARY = infoWeight({ type: "delegatorSummary" });
+const WEIGHT_USER_FILLS_BASE = infoWeight({ type: "userFills" });
 /** `userTwapSliceFills` and `userTwapSliceFillsByTime` are both in the
  * docs' list of requests with "additional weight per 20 items returned"
  * (rate-limits-and-user-limits, checked 2026-09-29); base 20 like every
  * other request not in the weight-2 list. */
-const WEIGHT_TWAP_SLICE_FILLS_BASE = 20;
+const WEIGHT_TWAP_SLICE_FILLS_BASE = infoWeight({ type: "userTwapSliceFills" });
 /** Not in the weight-2 list, so "all other documented info requests" = 20
  * (rate-limits-and-user-limits, checked 2026-09-29). */
-const WEIGHT_REFERRAL = 20;
+const WEIGHT_REFERRAL = infoWeight({ type: "referral" });
 /** `candleSnapshot`: base 20 plus 1 per 60 candles returned (rate-limits
  * docs, "additional weight per 60 items"). At most 5,000 candles a call. */
-const WEIGHT_CANDLE_SNAPSHOT_BASE = 20;
-const CANDLES_PER_EXTRA_WEIGHT = 60;
-export const MAX_CANDLES = 5000;
+const WEIGHT_CANDLE_SNAPSHOT_BASE = infoWeight({ type: "candleSnapshot" });
 /** `frontendOpenOrders`: not in the weight-2 list, so 20, per dex (the
  * request names one dex; spot orders come with the main one). */
-const WEIGHT_FRONTEND_OPEN_ORDERS = 20;
+const WEIGHT_FRONTEND_OPEN_ORDERS = infoWeight({ type: "frontendOpenOrders" });
 /** `twapHistory` and `userNonFundingLedgerUpdates`: base 20, budgeted as
  * list requests (+1 per 20 items), the conservative reading of the
  * rate-limit docs, which don't list either explicitly. */
-const WEIGHT_TWAP_HISTORY_BASE = 20;
-const WEIGHT_LEDGER_UPDATES_BASE = 20;
+const WEIGHT_TWAP_HISTORY_BASE = infoWeight({ type: "twapHistory" });
+const WEIGHT_LEDGER_UPDATES_BASE = infoWeight({ type: "userNonFundingLedgerUpdates" });
 /** Items acquired up front for those two: a TWAP history is every TWAP the
  * address ever ran (170 for a heavy TWAP user, checked 2026-09-30); a
  * 90-day ledger window rarely has more than a few hundred. The difference
  * to the real count is settled afterwards, as for every list. */
 export const TWAP_HISTORY_MAX_ITEMS = 2000;
 export const LEDGER_MAX_ITEMS = 2000;
-/** Assumed per-docs multiplier for the "additional weight per 20 items
- * returned" surcharge on userFillsByTime — see the budgeter's doc comment
- * for why this is 1 and not something else. */
-const EXTRA_WEIGHT_PER_20_ITEMS = 1;
 /** `userFunding`: in the surcharge list, base 20 (rate-limits docs). */
-const WEIGHT_USER_FUNDING_BASE = 20;
+const WEIGHT_USER_FUNDING_BASE = infoWeight({ type: "userFunding" });
 /** `userFunding` returns at most 500 entries per call (verified live). */
 export const USER_FUNDING_PAGE_SIZE = 500;
 /** Every fill list endpoint returns at most 2,000 items per call. */
-export const MAX_LIST_ITEMS = 2000;
+export const MAX_LIST_ITEMS = MAX_INFO_LIST_ITEMS;
 /** The worst-case surcharge of one list call, acquired up front. */
 /** Items a recent-window fills read prepays (`userFillsSince`). */
 const RECENT_FILLS_ITEMS = 200;
-export const MAX_LIST_SURCHARGE = Math.ceil(MAX_LIST_ITEMS / 20) * EXTRA_WEIGHT_PER_20_ITEMS;
+export const MAX_LIST_SURCHARGE = infoListSurcharge("userFills", MAX_LIST_ITEMS);
 /** A dead connection must not hold a caller (and its per-address sync
  * chain) forever. */
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -101,7 +96,8 @@ const ESSENTIAL_LANE_CONSUMERS = new Set(["snapshots", "confirm", "sweep"]);
 /** The budget consumer of a trade-analytics job a request started. */
 export const ANALYTICS_CONSUMER = CONSUMER_ANALYTICS;
 
-const surcharge = (items: number) => Math.ceil(items / 20) * EXTRA_WEIGHT_PER_20_ITEMS;
+/** 1 more weight per 20 items (info-weights.ts). */
+const surcharge = (items: number) => infoListSurcharge("userFills", items);
 
 /** A TWAP slice as a regular fill, tagged with its TWAP's id. */
 export function twapSliceToFill(slice: HlTwapSliceFill): HlUserFill {
@@ -358,7 +354,7 @@ export class HyperliquidInfoClient {
     priority: RequestPriority = "background",
     rank?: number,
   ): Promise<HlCandle[]> {
-    const extra = (n: number) => Math.ceil(Math.min(n, MAX_CANDLES) / CANDLES_PER_EXTRA_WEIGHT);
+    const extra = (n: number) => infoListSurcharge("candleSnapshot", n);
     const guess = extra(expected);
     const candles = await this.post<HlCandle[]>(
       { type: "candleSnapshot", req: { coin, interval, startTime, endTime } },

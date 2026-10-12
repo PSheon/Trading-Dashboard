@@ -4,6 +4,7 @@ import { LIVE_RESERVE_WAIT_MS, sharedCapacityWait } from "../hyperliquid/hyperli
 import { WALLET_NETWORKS, splitSignature } from "@trading-dashboard/shared/contracts";
 import { z } from "zod";
 import { readInfoJson } from "../hyperliquid/response-validation.js";
+import { infoWeight } from "../hyperliquid/info-weights.js";
 import { agentApprovalTypedData, type AgentConsentIntent } from "./copy-agent-consent.js";
 import { LiveBoundaryError } from "./live/wallet-authorization.js";
 import { Logger } from "@nestjs/common";
@@ -11,7 +12,7 @@ import { safeErrorText } from "../runtime/safe-error-text.js";
 
 export const AGENT_APPROVAL_CLIENT = Symbol("AGENT_APPROVAL_CLIENT");
 /** Provider weight of one agent observation: userRole 60 + extraAgents 20. */
-export const AGENT_OBSERVE_WEIGHT = 80;
+export const AGENT_OBSERVE_WEIGHT = infoWeight({ type: "userRole" }) + infoWeight({ type: "extraAgents" });
 export interface AgentApprovalClient {
   readonly available: boolean;
   acquire(): Promise<unknown>;

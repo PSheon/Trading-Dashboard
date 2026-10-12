@@ -5,9 +5,12 @@ import type {HyperliquidRestLane} from './hyperliquid-global-quota.js';
 import {PostgresHyperliquidQuota,type BoundHyperliquidQuota} from './postgres-hyperliquid-quota.js';
 import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from '../copy/live/postgres-live-risk-scope.js';
 import {LiveBoundaryError} from '../copy/live/wallet-authorization.js';
+import {infoListSurcharge,infoPrepaidWeight,infoWeight} from './info-weights.js';
 const fail=(code:string):never=>{throw new LiveBoundaryError(code);};
+// The requests this process may send (any other is refused, never guessed);
+// their weights come from the one table (info-weights.ts).
 const cheap=new Set(['l2Book','allMids','clearinghouseState','orderStatus','spotClearinghouseState','exchangeStatus']);
-const ordinary=new Set(['meta','perpDexs','metaAndAssetCtxs','spotMeta','spotMetaAndAssetCtxs','userAbstraction','userDexAbstraction','delegatorSummary','portfolio','referral','frontendOpenOrders','openOrders','allPerpMetas','activeAssetData','userFees','extraAgents','maxBuilderFee']);
+const ordinary=new Set(['userRole','meta','perpDexs','metaAndAssetCtxs','spotMeta','spotMetaAndAssetCtxs','userAbstraction','userDexAbstraction','delegatorSummary','portfolio','referral','frontendOpenOrders','openOrders','allPerpMetas','activeAssetData','userFees','extraAgents','maxBuilderFee']);
 // Prepay the provider's bounded list cap. The global meter never refunds an
 // unused surcharge; local RequestBudgeter adjustments remain scheduling only.
 /** Longest an unlabelled request waits in all for shared REST capacity: within
@@ -28,6 +31,11 @@ export const ESSENTIAL_CAPACITY_WAIT_MS=15_000;
  * don't race each other for that room. */
 export const ANALYTICS_CAPACITY_WAIT_MS=2*REST_CHARGE_LIFETIME_MS;
 const lists=new Set(['recentTrades','userFillsByTime','userFills','userTwapSliceFills','userTwapSliceFillsByTime','userFunding','userNonFundingLedgerUpdates']);
+const sendable=new Set([...cheap,...ordinary,...lists,'candleSnapshot']);
+/** A list's prepaid weight (20 + its largest answer's 100). */
+const LIST_PREPAID=infoPrepaidWeight({type:'userFills'});
+/** The request types this transport sends, for the weight-table agreement test. */
+export const TRANSPORT_INFO_TYPES:readonly string[]=Object.freeze([...sendable]);
 /** An answered list call's settlement hook, by its response. */
 const listSettlements=new WeakMap<Response,(units:number)=>void>();
 /** A list call's real weight once its items are counted (the provider's 20 +
@@ -36,7 +44,7 @@ const listSettlements=new WeakMap<Response,(units:number)=>void>();
  * address with few fills) no longer holds 120 of the window for a minute. */
 export function settleListAnswer(response:Response,items:number):void {
  if(!Number.isSafeInteger(items)||items<0)return;
- listSettlements.get(response)?.(Math.min(120,20+Math.ceil(items/20)));
+ listSettlements.get(response)?.(Math.min(LIST_PREPAID,infoWeight({type:'userFills'})+infoListSurcharge('userFills',items)));
 }
 /** Fixed-origin actual dispatch. Original-session context is private and may
  * never be replaced with an unscoped SQL transaction while locks are held. */
@@ -109,7 +117,7 @@ export class HyperliquidGlobalTransport {
   if(!['https://api.hyperliquid.xyz/info','https://api.hyperliquid-testnet.xyz/info'].includes(url)||!init||init.method!=='POST'||typeof init.body!=='string'||Buffer.byteLength(init.body)>65536)return fail('hyperliquid_quota_request_invalid');
   let parsed:unknown;try{parsed=JSON.parse(init.body);}catch{fail('hyperliquid_quota_request_invalid');}
   if(!parsed||typeof parsed!=='object'||Array.isArray(parsed)||!Object.hasOwn(parsed,'type')||typeof (parsed as {type:unknown}).type!=='string')fail('hyperliquid_quota_request_invalid');
-  const type=(parsed as {type:string}).type,weight=cheap.has(type)?2:type==='userRole'?60:ordinary.has(type)?20:lists.has(type)?120:type==='candleSnapshot'?104:0;
+  const type=(parsed as {type:string}).type,weight=sendable.has(type)?infoPrepaidWeight({type}):0;
   if(!weight)fail('hyperliquid_quota_request_invalid');
   return {url,type,weight,body:init.body};
  }

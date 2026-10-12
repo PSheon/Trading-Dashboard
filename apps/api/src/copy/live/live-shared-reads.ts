@@ -6,14 +6,14 @@ import { LiveBoundaryError } from './wallet-authorization.js';
 import { HYPERLIQUID_BACKGROUND_REST_CAP, HYPERLIQUID_REST_CAP } from '../../hyperliquid/hyperliquid-global-quota.js';
 import type { LiveReserveOptions } from '../../hyperliquid/hyperliquid-budget-wait.js';
 import { LiveReadCache } from './live-read-cache.js';
+import { infoPrepaidWeight, infoPrepaidWeights, infoWeight } from '../../hyperliquid/info-weights.js';
 
-/** Hyperliquid's info weights for the reads evidence uses (the shared meter's
- * table, hyperliquid-global-transport.ts): 2 for the cheap reads, 60 for
- * userRole, 20 for every other one. */
-export function liveInfoWeight(body: Readonly<Record<string, unknown>>): number {
-  return body.type === 'userRole' ? 60 : ['spotClearinghouseState', 'clearinghouseState', 'allMids', 'orderStatus'].includes(String(body.type)) ? 2 : 20;
-}
-export const liveInfoWeights = (bodies: readonly Readonly<Record<string, unknown>>[]) => bodies.reduce((sum, body) => sum + liveInfoWeight(body), 0);
+/** What the shared meter charges for a read evidence uses (info-weights.ts,
+ * the table hyperliquid-global-transport.ts charges by): 2 for the cheap
+ * reads, 60 for userRole, 20 for every other one (a list, never read here,
+ * its largest answer). */
+export function liveInfoWeight(body: Readonly<Record<string, unknown>>): number { return infoPrepaidWeight(body); }
+export const liveInfoWeights = (bodies: readonly Readonly<Record<string, unknown>>[]) => infoPrepaidWeights(bodies);
 /** Several reads sent together under ONE shared-meter charge
  * (`HyperliquidGlobalTransport.fetchInfoBatch`); `onDispatch` runs as they go out. */
 export type LiveInfoBatch = (bodies: readonly Readonly<Record<string, unknown>>[], onDispatch: () => void, signal: AbortSignal) => Promise<Response[]>;
@@ -78,9 +78,12 @@ export function liveEvidenceWarmWeight(users: number): number {
 /** The live accounts one owner's evidence may observe (the risk authority's
  * bound, postgres-live-risk-authority.ts). */
 export const MAX_LIVE_ACCOUNTS_PER_OWNER = 8;
-/** The current agent approval (20) and the order POST (1), required after
- * collection. Pay these before the SQL/evidence clocks as well. */
-export const LIVE_ORDER_BOUNDARY_WEIGHT = 21;
+/** The current agent approval (extraAgents 20) and the order POST (1),
+ * required after collection. Pay these before the SQL/evidence clocks as
+ * well. An order's signer is always its agent (the grant joins the agent
+ * setup's own wallet, postgres-wallet-authorizations.ts); a self-signing
+ * account's approval (userRole 60) would pay its other 40 as it goes. */
+export const LIVE_ORDER_BOUNDARY_WEIGHT = infoWeight({ type: 'extraAgents' }) + 1;
 /** The shared per-IP meter keeps this much for unlabelled work (pages, copy
  * orders) however full the background lane is: no single evidence charge
  * is larger, so a full background lane never refuses one on its own. */

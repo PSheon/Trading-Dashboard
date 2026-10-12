@@ -2,6 +2,7 @@ import { z } from "zod";
 import { WALLET_NETWORKS } from "@trading-dashboard/shared/contracts";
 import { sharedCapacityWait } from "../../hyperliquid/hyperliquid-budget-wait.js";
 import { readInfoJson } from "../../hyperliquid/response-validation.js";
+import { infoWeight } from "../../hyperliquid/info-weights.js";
 import { boundedLiveRead, RESERVE_BOUND_MS } from "./live-market-resolver.js";
 import { address, LiveBoundaryError, type ExchangeApprovalEvidence, type ExchangeApprovalVerifier, type LiveNetwork, type WalletAuthorization } from "./wallet-authorization.js";
 
@@ -38,7 +39,7 @@ export class HyperliquidAgentApprovalVerifier implements ExchangeApprovalVerifie
     try {
       // Official weights: userRole 60, extraAgents 20. Taken before the clock
       // starts, so a budget wait never ages the evidence.
-      await boundedLiveRead(() => this.acquire(signer !== account ? 20 : 60), RESERVE_BOUND_MS);
+      await boundedLiveRead(() => this.acquire(infoWeight({ type: signer !== account ? 'extraAgents' : 'userRole' })), RESERVE_BOUND_MS);
       checkedAt = this.now();
       let expiresAt: number | null = null;
       if (signer !== account) {

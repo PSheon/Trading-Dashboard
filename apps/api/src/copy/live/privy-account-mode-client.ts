@@ -5,6 +5,7 @@ import { HYPERLIQUID_NETWORKS, WALLET_NETWORKS, splitSignature, type Hyperliquid
 import { z } from 'zod';
 import { Dec } from '../../common/decimal/dec.js';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
+import { infoPrepaidWeights } from '../../hyperliquid/info-weights.js';
 import { boundedLiveRead } from './live-market-resolver.js';
 import {HyperliquidGlobalTransport} from '../../hyperliquid/hyperliquid-global-transport.js';
 import { LiveBoundaryError } from './wallet-authorization.js';
@@ -17,7 +18,7 @@ export interface AccountModeIntent {
 export interface AccountModeOwnedMaster { readonly walletId: string; readonly address: string; readonly ownerQuorumId: string }
 /** Provider weight of one observation: userRole 60, userAbstraction 20,
  * userDexAbstraction 20, spotClearinghouseState 2. */
-export const ACCOUNT_MODE_OBSERVE_WEIGHT = 102;
+export const ACCOUNT_MODE_OBSERVE_WEIGHT = infoPrepaidWeights((['userRole', 'userAbstraction', 'userDexAbstraction', 'spotClearinghouseState'] as const).map(type => ({ type })));
 export interface AccountModeObserveOptions {
   readonly consume?: (weight: number) => void;
   /** The caller already took the weight from the budget (a preflight). */

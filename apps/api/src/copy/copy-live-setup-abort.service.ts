@@ -47,6 +47,11 @@ export const SETUP_ABORT_ALERT_EVERY_MS = 10 * 60_000;
  * Since when is kept on the row's backoff (notFlatSince); a flat proof
  * resets it. */
 export const SETUP_ABORT_NOT_FLAT_ESCALATE_MS = 30 * 60_000;
+/** A blocked abort (a permanent or the owner's issue) is looked at again
+ * this often, not every 30 s: what it waits for is someone's action. The
+ * same block again changes nothing (repository.defer: no revision, no
+ * updatedAt); anything that moved transitions it as usual. */
+export const SETUP_ABORT_BLOCKED_RECHECK_MS = 5 * 60_000;
 const NOT_FLAT = 'setup_abort_proof_not_flat', NOT_FLAT_PERSISTENT = 'setup_abort_not_flat_persistent';
 const states = { requested: 'requested', draining: 'reconciling', waiting_credit: 'reconciling', proving: 'reconciling', returning: 'refunding',
   delegated: 'delegated', blocked: 'blocked', done: 'completed' } as const;
@@ -146,6 +151,16 @@ export class CopyLiveSetupAbortService {
       const next = await this.repository.transition(row!, { state, issue: reason, nextAttemptAt: new Date(at + delayMs), ...(row!.backoff || backoff ? { backoff } : {}) });
       if (next) row = next;
     };
+    /** Blocked on `code`, looked at again after SETUP_ABORT_BLOCKED_RECHECK_MS;
+     * the same block again is bookkeeping only (defer: no revision). */
+    const block = async (code: string) => {
+      const current = row!, at = this.now(), since = notFlatSince();
+      const backoff = since === null ? null : { failures: 0, nextAt: at + SETUP_ABORT_BLOCKED_RECHECK_MS, notFlatSince: since };
+      const changes = { nextAttemptAt: new Date(at + SETUP_ABORT_BLOCKED_RECHECK_MS), ...(current.backoff || backoff ? { backoff } : {}) };
+      const next = current.state === 'blocked' && current.issue === code ? await this.repository.defer(current, changes)
+        : await this.repository.transition(current, { state: 'blocked', issue: code, ...changes });
+      if (next) row = next;
+    };
     /** A step that cannot go on, through the classifier (live/error-class):
      * only permanent and needs_owner block. Transient and budget wait in the
      * step they were in, on the row's own backoff (fundingBackoffMs: 3 s
@@ -158,9 +173,9 @@ export class CopyLiveSetupAbortService {
       const since = reason === NOT_FLAT ? notFlatSince() ?? at : notFlatSince();
       if (reason === NOT_FLAT && (current.issue === NOT_FLAT_PERSISTENT || at - since! > SETUP_ABORT_NOT_FLAT_ESCALATE_MS)) {
         this.alert(current, 'not_flat', { notFlatSince: new Date(since!).toISOString(), minutes: Math.floor((at - since!) / 60_000) });
-        await wait('blocked', NOT_FLAT_PERSISTENT); return;
+        await block(NOT_FLAT_PERSISTENT); return;
       }
-      if (blocks(classified)) { await wait('blocked', reason); return; }
+      if (blocks(classified)) { await block(reason); return; }
       const failures = (current.backoff?.failures ?? 0) + 1;
       const delayMs = Math.max(fundingBackoffMs(failures), classified.retryAfterMs ?? 0);
       // The step it waits in: the stop it delegated to, its refund, else its proof.

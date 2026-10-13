@@ -21,7 +21,7 @@ import { CopyLiveSetupAbortReturnRepository, SETUP_ABORT_RESIDUAL_RETURNS } from
 import { classify } from '../src/copy/live/error-class.js';
 import { CopyLiveReturnRepository } from '../src/copy/copy-live-return.repository.js';
 import type { SetupAbortFlatObservation } from '../src/copy/live/live-account-observer.js';
-import { CopyLiveSetupAbortService, SETUP_ABORT_ALERT_EVERY_MS, SETUP_ABORT_NOT_FLAT_ESCALATE_MS } from '../src/copy/copy-live-setup-abort.service.js';
+import { CopyLiveSetupAbortService, SETUP_ABORT_ALERT_EVERY_MS, SETUP_ABORT_BLOCKED_RECHECK_MS, SETUP_ABORT_NOT_FLAT_ESCALATE_MS } from '../src/copy/copy-live-setup-abort.service.js';
 import { BackgroundJobs } from '../src/runtime/background-jobs.service.js';
 import { requestContext } from '../src/runtime/request-middleware.js';
 import { CopyLiveSetupController } from '../src/copy/copy-live-setup.controller.js';
@@ -1797,6 +1797,35 @@ describe('cancel and refund a confirmed setup awaiting its credit (funding_submi
     expect(await w.pass(setup.id)).toMatchObject({ state: 'blocked', issue: 'setup_abort_not_flat_persistent' });
     expect(alerts(errors, 'not_flat')).toBe(1);
     expect(w.exchange.send).not.toHaveBeenCalled();
+    errors.mockRestore();
+  });
+
+  it(`a blocked abort (the owner's) is looked at again only every SETUP_ABORT_BLOCKED_RECHECK_MS, without a new revision; a change still moves it on`, async () => {
+    const errors = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const setup = await awaitingCredit(), w = cancelWorld();
+    await w.setups.cancel(uid, setup.id);
+    w.world.balance = '100';
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'returning' });
+    for (let n = 0; n <= SETUP_ABORT_RESIDUAL_RETURNS; n++) { await creditRefunds(); w.world.balance = '5'; later(30_000); await w.pass(setup.id); }
+    const blocked = await w.abortOf(setup.id);
+    expect(blocked).toMatchObject({ state: 'blocked', issue: 'setup_abort_residual_balance' });
+    // Not due again for five minutes (not 30 s): the worker's tick leaves it.
+    expect(blocked.nextAttemptAt!.getTime()).toBe(clock + SETUP_ABORT_BLOCKED_RECHECK_MS);
+    expect((await w.aborts.open()).map(row => row.id)).not.toContain(blocked.id);
+    expect(await w.worker.tick()).toBe(0);
+    // Looked at again after them: the same block, bookkeeping only.
+    for (let i = 0; i < 3; i++) {
+      later(SETUP_ABORT_BLOCKED_RECHECK_MS);
+      const again = await w.pass(setup.id);
+      expect(again).toMatchObject({ state: 'blocked', issue: 'setup_abort_residual_balance', revision: blocked.revision, updatedAt: blocked.updatedAt });
+      expect(again.nextAttemptAt!.getTime()).toBe(clock + SETUP_ABORT_BLOCKED_RECHECK_MS);
+    }
+    expect(await w.worker.get(uid, setup.id)).toMatchObject({ state: 'blocked', issue: 'setup_abort_residual_balance', updatedAt: blocked.updatedAt.toISOString() });
+    // The owner moved the money out: the next look completes the cancel.
+    w.world.balance = '0'; later(SETUP_ABORT_BLOCKED_RECHECK_MS);
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'done' });
+    expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'cancelled' });
+    expect(w.exchange.send).toHaveBeenCalledTimes(SETUP_ABORT_RESIDUAL_RETURNS + 1);
     errors.mockRestore();
   });
 

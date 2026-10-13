@@ -486,3 +486,7 @@ Then Phase 2 (in-memory scheduler). §1 scoping and Phase 3 (node) come after ma
 **Decision:** keep the workers on Railway and put the **proxy VMs in Singapore** (the same metro as Railway's `asia-southeast1`), not Tokyo. The extra hop is only Singapore → Singapore, and DB latency stays private. Watch proxy health: the egress identity guard plus a heartbeat field `proxyReachable`. If the proxy is down, worker-copy refuses to start or fails closed; it never falls back to Railway's shared egress.
 
 **I-12** `foreign_usage_suspected` (an HL 429 while our own window usage is below 80 %) ships in **1b**, not Phase 2. It should go to zero after the move to our own IPs; that is the only evidence for or against risk 7.
+
+**I-13 (2026-10-14) Correction: the egress split alone does not remove "an order in the same minute as a setup's mode step waits".** After the split, the setup and the order both run on worker-copy's IP A and still share 1200. What removes the wait is **1a-4**: the setup drive moves into worker-copy, so the first order's read cache is warm (69 + boundary), and 635 + 69 fits. Do not count this as fixed after 1b alone.
+
+**I-14** The `live_standby` marker (c8e8f7d7) should hold the current mandate's *actual* heaviest need: about 385 for one account cold, or about 69 plus the boundary once the cache is warm. It currently holds the startup bound of 793, which leaves two thirds of the window idle. Fix this in the next batch; also show the setup bucket in the heartbeat and admin.

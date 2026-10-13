@@ -6,6 +6,7 @@ import { CopyAgentRepository } from "../src/copy/copy-agent.repository.js";
 import { LiveBoundaryError } from "../src/copy/live/wallet-authorization.js";
 import { CopyAgentService } from "../src/copy/copy-agent.service.js";
 import { FUNDING_NONCE_EXPIRY_MS } from "../src/copy/copy-funding-scan.js";
+import { PRIVY_IDENTITY_MAX_AGE_MS } from "../src/copy/live/privy-identity-freshness.js";
 import { CopyWalletRepository } from "../src/copy/copy-wallet.repository.js";
 import { CopyWalletService } from "../src/copy/copy-wallet.service.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
@@ -210,7 +211,7 @@ describe("explicit recoverable dedicated strategy agent setup", () => {
     await challengeOf(prepared.id);
     let nativeCalls = 0;
     const sign = async (_account: unknown, intent: AgentConsentIntent, guard: () => void) => {
-      const now = Date.now(), clock = vi.spyOn(Date, 'now').mockReturnValue(now + 5001);
+      const now = Date.now(), clock = vi.spyOn(Date, 'now').mockReturnValue(now + PRIVY_IDENTITY_MAX_AGE_MS + 1);
       try { guard(); nativeCalls++; return await master.signTypedData(agentApprovalTypedData(intent)); }
       finally { clock.mockRestore(); }
     };
@@ -224,7 +225,7 @@ describe("explicit recoverable dedicated strategy agent setup", () => {
     await challengeOf(prepared.id);
     let nativeCalls = 0;
     vi.mocked(exchange.send).mockImplementation(async (_intent, _signature, guard?: () => void) => {
-      const now = Date.now(), clock = vi.spyOn(Date, 'now').mockReturnValue(now + 5001);
+      const now = Date.now(), clock = vi.spyOn(Date, 'now').mockReturnValue(now + PRIVY_IDENTITY_MAX_AGE_MS + 1);
       try { if (!guard) throw new Error('missing native send guard'); guard(); nativeCalls++; return { status: 'ok', response: { type: 'default' } }; }
       finally { clock.mockRestore(); }
     });
@@ -242,7 +243,8 @@ describe("explicit recoverable dedicated strategy agent setup", () => {
     expect(result.state).toBe("approval_unknown"); approvalExists = true; return result;
   }
 
-  it.each([[0, 5001], [3000, 3000]])("does not discard provider proof age after %sms of identity reads and %sms of exchange reads", async (identityDelay, exchangeDelay) => {
+  // The exchange's evidence ages 5 s at most; the Privy identity proof its own bound (30 s).
+  it.each([[0, PRIVY_IDENTITY_MAX_AGE_MS + 1], [PRIVY_IDENTITY_MAX_AGE_MS - 1000, 1001]])("does not discard provider proof age after %sms of identity reads and %sms of exchange reads", async (identityDelay, exchangeDelay) => {
     const pending = await pendingApproval(); let clock = Date.now(); vi.spyOn(Date, "now").mockImplementation(() => clock);
     const find = vi.mocked(provider.findOwned).getMockImplementation()!;
     vi.mocked(provider.findOwned).mockImplementation(async (input) => { const result = await find(input); clock += identityDelay; return result; });

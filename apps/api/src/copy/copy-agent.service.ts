@@ -13,6 +13,20 @@ import { safeErrorText } from "../runtime/safe-error-text.js";
 import { deploymentNetwork } from "./live-deployment.js";
 import { FUNDING_NONCE_EXPIRY_MS } from "./copy-funding-scan.js";
 import { takeReserved, type LiveBudgetReservation } from "../hyperliquid/hyperliquid-budget-wait.js";
+import { allInOrder, IdentitySpans, privyIdentityFresh, type IdentitySpan } from "./live/privy-identity-freshness.js";
+
+/** An identity proof slower than this is logged with its spans (the bound it
+ * had before 2026-10-13, copied from the exchange's evidence checks). */
+const SLOW_IDENTITY_PROOF_MS = 5_000;
+/** The agent's identity proof aged past PRIVY_IDENTITY_MAX_AGE_MS: a wait
+ * (transient), never a block. Carries the proof's read spans. */
+export class AgentIdentityEvidenceExpired extends ConflictException {
+  readonly elapsedMs: number | null; readonly spans: readonly IdentitySpan[];
+  constructor(timing?: IdentitySpans) {
+    super({ statusCode: 409, code: "agent_identity_evidence_expired", message: "agent_identity_evidence_expired" });
+    this.elapsedMs = timing ? timing.elapsed() : null; this.spans = timing ? [...timing.spans] : [];
+  }
+}
 
 function wire(row: AgentSetupRow): CopyAgentSetup {
   return copyAgentSetupSchema.parse({ id: row.id, strategyId: row.strategyId, accountId: row.accountId, network: row.network,
@@ -79,28 +93,41 @@ export class CopyAgentService {
     await this.assertSetup(userId, row);
     return consent(await this.uow.run(tx => this.repository.challenge(tx, userId, id)));
   }
+  /**
+   * The agent's identity proof: the copy account and the agent wallet, its
+   * policy and the worker quorum as Privy holds them, matching the row, with
+   * the database state read before and after. The Privy reads are
+   * independent and run together (before 2026-10-13 they ran one after
+   * another: about twelve Privy round trips, more than 5 s over a phone
+   * hotspot, so the proof never passed). Its age runs from its first read
+   * (`checkedAt`) and is bounded by PRIVY_IDENTITY_MAX_AGE_MS; each read is
+   * timed, and the spans go with an expiry and into the log when slow.
+   */
   private async assertSetup(userId: number, row: AgentSetupRow) {
-    const checkedAt = Date.now();
+    const checkedAt = Date.now(), timing = new IdentitySpans(checkedAt);
     if (row.network !== deploymentNetwork(this.config) || row.workerQuorumId !== this.provider.configuredWorkerQuorumId ||
       row.expiresAt.getTime() <= Date.now() || row.state === "revoked" || row.state === "blocked") throw new ConflictException("agent_setup_changed");
-    const { owner } = await this.repository.assertCurrent(userId, row);
-    const master = await this.wallets.reconcile(userId, row.accountId);
-    if (master.state !== "ready" || master.address !== row.accountAddress) throw new ConflictException("agent_account_changed");
-    await this.provider.verifyWorkerQuorum();
     if (!row.policyId || !row.agentWalletId || !row.agentAddress || !row.agentOwnerQuorumId) throw new ConflictException("agent_not_ready");
+    const { owner } = await timing.time("db_current", () => this.repository.assertCurrent(userId, row));
     const expected = { userId: owner.privyUserId, policyId: row.policyId, expiresAt: row.expiresAt.getTime(), externalId: row.externalId };
-    const policy = await this.provider.verifyPolicy(expected);
-    const agent = await this.provider.findOwned(expected);
+    const [master, , policy, agent] = await allInOrder([
+      timing.time("privy_master_account", () => this.wallets.reconcile(userId, row.accountId)),
+      timing.time("privy_worker_quorum", () => this.provider.verifyWorkerQuorum()),
+      timing.time("privy_policy", () => this.provider.verifyPolicy(expected)),
+      timing.time("privy_agent_wallet", () => this.provider.findOwned(expected)),
+    ] as const);
+    if (master.state !== "ready" || master.address !== row.accountAddress) throw new ConflictException("agent_account_changed");
     if (!agent || policy.id !== row.policyId || policy.fingerprint !== row.policyFingerprint || agent.id !== row.agentWalletId ||
       agent.address !== row.agentAddress || agent.externalId !== row.externalId || agent.ownerQuorumId !== row.agentOwnerQuorumId ||
       agent.policyId !== row.policyId || agent.workerQuorumId !== row.workerQuorumId) throw new ConflictException("agent_identity_changed");
-    const current = await this.repository.assertCurrent(userId, row);
-    this.assertFresh(checkedAt);
+    const current = await timing.time("db_current_after", () => this.repository.assertCurrent(userId, row));
+    // The old bound, for the log: how often a proof would have expired.
+    if (timing.elapsed() > SLOW_IDENTITY_PROOF_MS) this.logger.warn(`agent ${row.id} identity proof slow ${JSON.stringify(timing)}`);
+    this.assertFresh(checkedAt, timing);
     return { ...current, checkedAt };
   }
-  private assertFresh(checkedAt: number) {
-    const now = Date.now();
-    if (!Number.isSafeInteger(checkedAt) || checkedAt > now || now - checkedAt > 5_000) throw new ConflictException("agent_identity_evidence_expired");
+  private assertFresh(checkedAt: number, timing?: IdentitySpans) {
+    if (!privyIdentityFresh(checkedAt)) throw new AgentIdentityEvidenceExpired(timing);
   }
   private assertConsentFresh(intent: AgentConsentIntent, checkedAt: number) {
     this.assertFresh(checkedAt);
@@ -209,7 +236,7 @@ export class CopyAgentService {
     }
     // Persisted attempt precedes POST. A crash, timeout or rejected transport
     // never authorizes a new nonce or a second submission.
-    if (Date.now() >= intent.consentExpiresAt || proofCheckedAt > Date.now() || Date.now() - proofCheckedAt > 5_000) return this.notDispatched(userId, row);
+    if (Date.now() >= intent.consentExpiresAt || !privyIdentityFresh(proofCheckedAt)) return this.notDispatched(userId, row);
     try {
       const response = await this.exchange.send(intent, signature, () => this.assertConsentFresh(intent, proofCheckedAt));
       if (response && typeof response === "object" && "status" in response && response.status === "err") {

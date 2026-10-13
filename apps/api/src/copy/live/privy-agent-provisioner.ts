@@ -3,6 +3,7 @@ import { PrivyClient } from "@privy-io/node";
 import type { PolicyRuleRequestBody } from "@privy-io/node/resources";
 import { z } from "zod";
 import type { HyperliquidNetwork } from "@trading-dashboard/shared/contracts";
+import { allInOrder } from "./privy-identity-freshness.js";
 
 export interface AgentProviderConfig {
   appId?: string; appSecret?: string; workerQuorumId?: string; authorizationPublicKey?: string;
@@ -238,9 +239,8 @@ export class PrivyUserAgentProvisioner implements UserAgentProvisioner {
     // The SDK normalizes a null/missing cursor to "". Any nonempty continuation
     // leaves uniqueness unresolved; do not traverse unbounded pages or return a grant.
     if (listed.next_cursor) throw new AgentProvisioningVerificationPending();
-    await this.verifyUserQuorum(wallet.owner_id, args.userId);
-    await this.verifyWorkerQuorum();
-    await this.verifyPolicy(args);
+    // Independent reads, together; the first failure in this order is raised.
+    await allInOrder([this.verifyUserQuorum(wallet.owner_id, args.userId), this.verifyWorkerQuorum(), this.verifyPolicy(args)]);
     this.assertInput(args);
     return { id: wallet.id, address: wallet.address.toLowerCase(), externalId: args.externalId,
       ownerQuorumId: wallet.owner_id, policyId: args.policyId, workerQuorumId: this.config.workerQuorumId!,

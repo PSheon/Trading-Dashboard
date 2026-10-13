@@ -8,6 +8,7 @@ import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
 import { lockCopyUser } from "./copy-user-lock.js";
 import { allocateSignerNonce } from "./signer-nonce.js";
+import { privyIdentityFresh } from "./live/privy-identity-freshness.js";
 
 export type AgentSetupRow = typeof copyAgentSetups.$inferSelect;
 @Injectable()
@@ -132,7 +133,8 @@ export class CopyAgentRepository {
     if (locked.state !== "approval_unknown" || !locked.approvalAttemptedAt || locked.revision !== row.revision) throw new ConflictException("agent_approval_evidence_stale");
     const assertFresh = () => {
       const now = Date.now();
-      if ([observedAt, identityCheckedAt].some(time => !Number.isSafeInteger(time) || time > now || now - time > 5_000)) throw new ConflictException("agent_approval_evidence_stale");
+      // The exchange's evidence: 5 s. The Privy identity proof: its own bound.
+      if (!Number.isSafeInteger(observedAt) || observedAt > now || now - observedAt > 5_000 || !privyIdentityFresh(identityCheckedAt, now)) throw new ConflictException("agent_approval_evidence_stale");
       if (locked.expiresAt.getTime() <= now) throw new ConflictException("agent_expired");
     };
     assertFresh();

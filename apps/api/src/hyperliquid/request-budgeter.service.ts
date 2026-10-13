@@ -946,7 +946,15 @@ export class RequestBudgeterService {
     }
     const now = Date.now();
     this.refill(now);
-    this.tokens = Math.min(this.mainCapacity, this.tokens - delta);
+    // A real-money bucket's refunds are mostly live reservations' (an order's
+    // unused evidence credit, the leader's source lists that came back short:
+    // 240 prepaid, ~40 spent), taken from the reserve first: what the main
+    // bucket can't hold goes back to the reserve, never discarded. Before,
+    // with the main bucket full, every source read on the order bucket cost
+    // its whole 240 (the 7th gate's model, 2026-10-13).
+    const back = this.liveFirst ? Math.min(-delta, Math.max(0, this.mainCapacity - this.tokens)) : -delta;
+    this.tokens = Math.min(this.mainCapacity, this.tokens + back);
+    if (this.liveFirst) this.reserve = Math.min(this.reserveCapacity, this.reserve - delta - back);
     this.chargeCap(this.consumerOf(), delta);
     this.record(now, delta, false);
     this.rearm();

@@ -37,3 +37,16 @@ it("a live order's evidence goes at once while the bucket holds it, whatever bac
     expect(receipts).toBe(true);
   } finally { budget.onModuleDestroy(); }
 });
+
+it("a live reservation's unused weight goes back to the bucket even when its main part is full: a source read costs what it read, not its prepaid 240", async () => {
+  const budget = new RequestBudgeterService(new AppConfig({ hyperliquid: { budgetPerMin: 300, burst: 900, startupPaceSeconds: 0, pageReserveShare: 0.25, liveHeadroomShare: LIVE_HEADROOM_SHARE } } as never));
+  try {
+    // The leader's fills and TWAP lists, 120 each prepaid (from the reserve), each answered empty (20).
+    await reserveLive(budget, 240, { maxWaitMs: 5_000 });
+    budget.adjust(-200);
+    expect(budget.introspect().tokensAvailable).toBeCloseTo(860, 0);
+    // Twice more: the order's evidence (568) still fits at once (before: 900 − 3 × 240 = 180).
+    for (let i = 0; i < 2; i++) { await reserveLive(budget, 240, { maxWaitMs: 5_000 }); budget.adjust(-200); }
+    expect(budget.liveWaitMs(568)).toBe(0);
+  } finally { budget.onModuleDestroy(); }
+});

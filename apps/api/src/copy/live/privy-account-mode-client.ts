@@ -138,6 +138,9 @@ export class PrivyAccountModeClient {
   async reserve(weight: number, options: LiveReserveOptions = {}): Promise<LiveBudgetReservation | void> {
     if (!Number.isSafeInteger(weight) || weight < 1 || weight > 1200) fail('account_mode_invalid_client');
     if (this.budget.reserve) return this.budget.reserve(weight, options);
+    // A step's reservation the caller hands on (holdKey) must be tracked; a
+    // budget that can't track one leaves each part to pay for itself.
+    if (options.holdKey !== undefined) return;
     await this.budget(weight, options);
   }
   /** Read-only recovery intentionally permits an expired original consent.

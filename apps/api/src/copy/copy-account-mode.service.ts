@@ -115,6 +115,14 @@ export const ATTEMPT_REST_WEIGHT = 2 * PREFLIGHT_REST_WEIGHT + EXCHANGE_POST_WEI
  * in the meter reproduction.
  */
 export const ATTEMPT_STEP_REST_WEIGHT = ATTEMPT_REST_WEIGHT + ACCOUNT_MODE_OBSERVE_WEIGHT;
+/** What a setup's account-mode step takes from this process's bucket before
+ * it claims the shared meter: the attempt and the observation after its POST
+ * (715), so nothing of the step waits on the local bucket once its first
+ * read went out. */
+export const ATTEMPT_STEP_WEIGHT = ATTEMPT_WEIGHT + ACCOUNT_MODE_OBSERVE_WEIGHT;
+/** Socket connects one attempt opens (each preflight's absence proof reads
+ * every venue on a socket of its own). */
+export const ATTEMPT_SOCKET_CONNECTS = 2;
 /** Longest wait for room in the shared per-IP meter once a 5 s clock runs. */
 const IN_WINDOW_METER_WAIT_MS = 1_000;
 /** A setup's nonce keeps this much of its five-minute window to sign and send. */
@@ -151,6 +159,13 @@ export class CopyAccountModeService {
     });
   }
   async row(userId: number, id: string) { return this.repository.find(userId, id); }
+  /** A setup's step weight from this process's bucket, taken before its
+   * shared-meter claim (`key`: the setup's; its place in the bucket's queue
+   * is kept across passes, LiveReserveOptions.holdKey). Undefined: the
+   * client has no budget (test doubles). */
+  async reserveForSetup(weight: number, key: string): Promise<LiveBudgetReservation | void> {
+    return this.exchange.reserve?.(weight, { holdKey: key });
+  }
   private async identity(userId: number, row: AccountModeRow, mutation = false) {
     const checkedAt = Date.now(), current = await this.repository.assertCurrent(userId, row, undefined, mutation);
     const master = await this.wallets.findOwned(current.owner.privyUserId, current.account.externalId,
@@ -203,12 +218,14 @@ export class CopyAccountModeService {
   /** Observes the account's mode. Its weight is paid first: when the budget
    * is busy nothing is read and the row is left as it is (`busy: 'throw'`:
    * the `HyperliquidBudgetWait` is passed on, for a driver to come back). */
-  async reconcile(userId: number, id: string, { busy = 'keep' }: { busy?: 'keep' | 'throw' } = {}): Promise<CopyAccountModeOperation> {
+  async reconcile(userId: number, id: string, { busy = 'keep', reservation: prepaid }: { busy?: 'keep' | 'throw'; reservation?: LiveBudgetReservation | void } = {}): Promise<CopyAccountModeOperation> {
     let row = await this.repository.find(userId, id);
+    // A caller's reservation (a setup's step: taken before its shared claim) pays for it; it releases it.
     let reservation: LiveBudgetReservation | void = undefined;
     try {
-      reservation = await this.exchange.reserve?.(ACCOUNT_MODE_OBSERVE_WEIGHT);
-      const consume = reservation ? (weight: number) => reservation!.consume(weight) : undefined;
+      if (!prepaid) reservation = await this.exchange.reserve?.(ACCOUNT_MODE_OBSERVE_WEIGHT);
+      const paid = prepaid ?? reservation;
+      const consume = paid ? (weight: number) => paid.consume(weight) : undefined;
       const work = [this.identity(userId, row), this.exchange.observe(readIntent(row), { prepaid: true, meterWaitMs: IN_WINDOW_METER_WAIT_MS, consume })] as const;
       const [identity, proof] = await Promise.all(work).catch(async error => { await Promise.allSettled(work); throw error; });
       this.assertObservation(row, proof); fresh(identity.checkedAt);
@@ -242,7 +259,7 @@ export class CopyAccountModeService {
   }
   /** One attempt of the exact prepared operation; the attempt is durable
    * before the POST, and an attempted operation is only reconciled. */
-  async submit(userId: number, id: string, authority: AccountModeAuthority): Promise<CopyAccountModeOperation> {
+  async submit(userId: number, id: string, authority: AccountModeAuthority, { reservation: prepaid }: { reservation?: LiveBudgetReservation | void } = {}): Promise<CopyAccountModeOperation> {
     this.enabled(); let row = await this.repository.find(userId, id);
     // An HTTP caller (Settings) is answered 504 at its deadline: past that,
     // nothing is attempted or sent for it (a setup's drive runs outside any
@@ -251,14 +268,16 @@ export class CopyAccountModeService {
     const answered = () => { if (requestSignal?.aborted) throw new ConflictException('account_mode_request_expired'); };
     // A duplicate request observes the existing claim without revising it.
     if (row.submissionState === 'signing' && !row.attemptedAt) return wire(row);
-    if (row.submissionState !== 'prepared' || row.attemptedAt || row.targetState === 'supported') return this.reconcile(userId, id);
+    if (row.submissionState !== 'prepared' || row.attemptedAt || row.targetState === 'supported') return this.reconcile(userId, id, { reservation: prepaid });
     // The whole attempt is paid before its first clock starts: the preflight
-    // before signing, the one before the POST, and the POST.
-    const reservation = await this.exchange.reserve?.(ATTEMPT_WEIGHT);
+    // before signing, the one before the POST, and the POST (a setup's step:
+    // by its caller, before its shared claim, with the reconcile after it).
+    const reservation = prepaid ?? await this.exchange.reserve?.(ATTEMPT_WEIGHT);
     const consume = reservation ? (weight: number) => reservation.consume(weight) : undefined;
+    const followUp = () => (prepaid ? { reservation: prepaid } : {});
     try {
       const first = await this.preflight(userId, row, { prepaid: true, consume });
-      if (baseline(first.observation) === 'supported') return this.reconcile(userId, id);
+      if (baseline(first.observation) === 'supported') return this.reconcile(userId, id, followUp());
       // A setup's consent bound the account to "disabled", not a nonce: the
       // nonce is allocated here, under this preflight (no separate challenge
       // preflight), with time left in its window to sign and send.
@@ -271,7 +290,7 @@ export class CopyAccountModeService {
         const next = await this.repository.transition(row, { submissionState: 'signing', claimToken: randomUUID(), signingStartedAt: new Date(), consentDigest, issue: null }, tx);
         first.assertFresh(); liveConsent(original); return next;
       });
-      if (!claimed) return this.reconcile(userId, id); row = claimed;
+      if (!claimed) return this.reconcile(userId, id, followUp()); row = claimed;
       let signature: string, final: Awaited<ReturnType<CopyAccountModeService['preflight']>>;
       try {
         first.assertFresh(); liveConsent(original);
@@ -282,7 +301,7 @@ export class CopyAccountModeService {
         final = await this.preflight(userId, row, { prepaid: true, consume });
         if (baseline(final.observation) === 'supported') {
           await this.repository.transition(row, { submissionState: 'prepared', claimToken: null, signingStartedAt: null, consentDigest: null });
-          return this.reconcile(userId, id);
+          return this.reconcile(userId, id, followUp());
         }
         row = await this.uow.run(async tx => {
           await this.repository.assertCurrent(userId, row, tx, true); final.assertFresh(); liveConsent(original); answered();
@@ -312,10 +331,11 @@ export class CopyAccountModeService {
         this.logger.warn(`account mode ${row.id} outcome unknown: ${safeErrorText(error)}`);
         return wire(row);
       }
-      // Paid for separately (the attempt's own weight is spent): when the
-      // budget is busy the operation is left for the next reconcile.
-      return this.reconcile(userId, row.id);
-    } finally { reservation?.release(); }
+      // Paid for separately (the attempt's own weight is spent), or by a
+      // setup's step reservation: when the budget is busy the operation is
+      // left for the next reconcile.
+      return this.reconcile(userId, row.id, followUp());
+    } finally { if (!prepaid) reservation?.release(); }
   }
   /** The attempt was persisted but the POST was never handed to the
    * transport (a refused meter permit, a stale final proof, the clock): no

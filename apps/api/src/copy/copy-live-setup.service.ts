@@ -9,10 +9,10 @@ import { AppConfig } from '../config/app-config.js';
 import { BackgroundJobs } from '../runtime/background-jobs.service.js';
 import { outsideRequest } from '../runtime/request-context.js';
 import { UnitOfWork, type DbExecutor, type DbTransaction } from '../db/unit-of-work.js';
-import { ATTEMPT_STEP_REST_WEIGHT, CopyAccountModeService } from './copy-account-mode.service.js';
+import { ATTEMPT_SOCKET_CONNECTS, ATTEMPT_STEP_REST_WEIGHT, ATTEMPT_STEP_WEIGHT, CopyAccountModeService } from './copy-account-mode.service.js';
 import type { HyperliquidMeterComposition } from '../hyperliquid/hyperliquid-global-quota.js';
 import { ACCOUNT_MODE_OBSERVE_WEIGHT } from './live/privy-account-mode-client.js';
-import { HyperliquidBudgetWait, SHARED_CAPACITY_MIN_RETRY_MS, sharedCapacityWait } from '../hyperliquid/hyperliquid-budget-wait.js';
+import { HyperliquidBudgetWait, SHARED_CAPACITY_MIN_RETRY_MS, sharedCapacityWait, type LiveBudgetReservation } from '../hyperliquid/hyperliquid-budget-wait.js';
 import { infoWeight } from '../hyperliquid/info-weights.js';
 import { DEFAULT_LIVE_SETUP_TIMINGS, type LiveSetupTimings } from '../config/live-timings.js';
 import { classify, exhausted, StepFail, StepWait } from './live/error-class.js';
@@ -64,8 +64,11 @@ const THROTTLED_STAGES: readonly SetupStage[] = ['funded', 'mode_set', 'agent_ac
 export const SETUP_REST_CAPACITY = Symbol('SETUP_REST_CAPACITY');
 export interface SetupRestCapacity {
   /** Records the setup's demand and answers in how many ms `weight` fits
-   * (0: now, and granted). `key`: the setup's id. */
-  claimSetup(weight: number, key?: string, observe?: (meter: HyperliquidMeterComposition) => void): Promise<number>;
+   * (0: now, and granted: the weight, and `connects` socket connects, are
+   * held for the step). `key`: the setup's id. */
+  claimSetup(weight: number, key?: string, observe?: (meter: HyperliquidMeterComposition) => void, connects?: number, queue?: boolean): Promise<number>;
+  /** The step is over: what its grant still holds goes back (`key`: as claimed). */
+  releaseSetup?(key: string): Promise<void>;
   /** Runs the step: its Hyperliquid charges are the setup lane's (`key`: as claimed). */
   runSetup<T>(work: () => Promise<T>, key?: string): Promise<T>;
   /** Runs work nobody waits for (abandoned approvals): its charges are background. */
@@ -854,30 +857,66 @@ export class CopyLiveSetupService {
    * bounded so a burst of setups never takes live orders' room. A refusal
    * partway is waited out within SETUP_CLAIM_RENEW_MS too, then claimed
    * again. Without the meter (no transport), the step runs as it is.
+   *
+   * Admission happens before the step's first read, in this order:
+   * - `local`: the step's weight from this process's bucket (cheap, one
+   *   process; its place in the bucket's queue is kept across passes). Taken
+   *   first, so the shared grant's hold is never spent waiting on it, and no
+   *   local wait comes after the step started charging (gate 2026-10-13:
+   *   `local_budget` 613 after a grant).
+   * - the shared claim: `weight` and `connects` socket connects, held for the
+   *   step once granted (its reads draw it; none of them is refused partway).
+   *   While it waits, the local reservation is parked for the next pass.
+   * A step that ends gives back what its grant still holds; one that waits
+   * (a budget wait) keeps it for its next pass, whose claim continues it.
+   * A wait keeps its own reason and bucket (a local bucket's wait inside the
+   * step was logged as `shared_capacity`/`shared:setup`).
    */
-  private async withCapacity(row: SetupRow, weight: number, step: () => Promise<SetupRow>): Promise<SetupRow> {
+  private async withCapacity(row: SetupRow, weight: number, step: (reservation?: LiveBudgetReservation) => Promise<SetupRow>,
+    { local, connects }: { local?: () => Promise<LiveBudgetReservation | void>; connects?: number } = {}): Promise<SetupRow> {
     const capacity = this.capacity;
-    if (!capacity || weight <= 0) return step();
-    let waitMs: number, meter: HyperliquidMeterComposition | undefined;
-    try { waitMs = await capacity.claimSetup(weight, row.id, observed => { meter = observed; }); }
+    if (!capacity || weight <= 0) return this.withLocal(local, step);
+    let reservation: LiveBudgetReservation | undefined;
+    try { reservation = (await local?.()) ?? undefined; }
     catch (error) {
-      const wait = sharedCapacityWait(error);
-      if (wait) throw wait;
-      // A demand that could not be recorded: the step runs as before (its
-      // own charges still go through the meter).
-      this.logger.warn(`setup capacity not claimed: ${safeErrorText(error)}`);
-      waitMs = 0;
-    }
-    if (waitMs > 0) {
-      this.logClaimWait(row.id, weight, waitMs, meter);
-      throw new HyperliquidBudgetWait(Math.min(SETUP_CLAIM_RENEW_MS, Math.max(SHARED_CAPACITY_MIN_RETRY_MS, waitMs + 250)), 'shared_capacity', { weight, bucket: 'shared:setup' });
-    }
-    try { return await capacity.runSetup(step, row.id); }
-    catch (error) {
-      const wait = sharedCapacityWait(error);
-      if (wait && wait.retryMs > SETUP_CLAIM_RENEW_MS) throw new HyperliquidBudgetWait(SETUP_CLAIM_RENEW_MS, 'shared_capacity', { ...wait.detail, weight, bucket: 'shared:setup' });
+      // Still gathering locally: its place in the shared queue meanwhile
+      // (background starts to leave its need), never a grant.
+      if (error instanceof HyperliquidBudgetWait) await capacity.claimSetup(weight, row.id, undefined, connects || undefined, true)
+        .catch((queued: unknown) => this.logger.warn(`setup ${row.id} not queued: ${safeErrorText(queued)}`));
       throw error;
     }
+    try {
+      let waitMs: number, meter: HyperliquidMeterComposition | undefined;
+      try { waitMs = await capacity.claimSetup(weight, row.id, observed => { meter = observed; }, connects || undefined); }
+      catch (error) {
+        const wait = sharedCapacityWait(error);
+        if (wait) { reservation?.park?.(); reservation = undefined; throw wait; }
+        // A demand that could not be recorded: the step runs as before (its
+        // own charges still go through the meter).
+        this.logger.warn(`setup capacity not claimed: ${safeErrorText(error)}`);
+        waitMs = 0;
+      }
+      if (waitMs > 0) {
+        this.logClaimWait(row.id, weight, waitMs, meter);
+        reservation?.park?.(); reservation = undefined;
+        throw new HyperliquidBudgetWait(Math.min(SETUP_CLAIM_RENEW_MS, Math.max(SHARED_CAPACITY_MIN_RETRY_MS, waitMs + 250)), 'shared_capacity', { weight, bucket: 'shared:setup' });
+      }
+      let ended = true;
+      try { return await capacity.runSetup(() => step(reservation), row.id); }
+      catch (error) {
+        const wait = sharedCapacityWait(error);
+        ended = !wait;
+        if (wait && wait.retryMs > SETUP_CLAIM_RENEW_MS) throw new HyperliquidBudgetWait(SETUP_CLAIM_RENEW_MS, wait.reason, { weight, bucket: 'shared:setup', ...wait.detail });
+        throw error;
+      } finally {
+        if (ended) await capacity.releaseSetup?.(row.id).catch((error: unknown) => this.logger.warn(`setup ${row.id} grant not released: ${safeErrorText(error)}`));
+      }
+    } finally { reservation?.release(); }
+  }
+  /** A step without the shared meter: its local weight first, then the step. */
+  private async withLocal(local: (() => Promise<LiveBudgetReservation | void>) | undefined, step: (reservation?: LiveBudgetReservation) => Promise<SetupRow>): Promise<SetupRow> {
+    const reservation = (await local?.()) ?? undefined;
+    try { return await step(reservation); } finally { reservation?.release(); }
   }
 
   /** When each setup's claim wait was last logged (SETUP_CLAIM_LOG_EVERY_MS). */
@@ -907,11 +946,19 @@ export class CopyLiveSetupService {
     // Only an operation in flight (or a signing claim to recover) needs its
     // own observation; a prepared one is observed by submit's first preflight.
     const inFlight = op.submissionState !== 'prepared' || Boolean(op.attemptedAt), operation = op;
-    return this.withCapacity(row, inFlight ? ACCOUNT_MODE_OBSERVE_WEIGHT : ACCOUNT_MODE_STEP_WEIGHT, () => this.modeAttempt(row, intent, signer, operation, inFlight));
+    // Its local weight first (kept in the bucket's queue across passes), then
+    // its shared claim with the attempt's socket connects: nothing of the step
+    // waits or is refused once its first read went out.
+    const local = () => this.modes.reserveForSetup(inFlight ? ACCOUNT_MODE_OBSERVE_WEIGHT : ATTEMPT_STEP_WEIGHT, `setup:${row.id}`);
+    return this.withCapacity(row, inFlight ? ACCOUNT_MODE_OBSERVE_WEIGHT : ACCOUNT_MODE_STEP_WEIGHT,
+      reservation => this.modeAttempt(row, intent, signer, operation, inFlight, reservation), { local, connects: inFlight ? 0 : ATTEMPT_SOCKET_CONNECTS });
   }
-  private async modeAttempt(row: SetupRow, intent: LiveCopySetupIntent, signer: SetupSigner | null, op: { id: string }, inFlight: boolean): Promise<SetupRow> {
+  private async modeAttempt(row: SetupRow, intent: LiveCopySetupIntent, signer: SetupSigner | null, op: { id: string }, inFlight: boolean, reservation?: LiveBudgetReservation): Promise<SetupRow> {
     if (inFlight) {
-      const observed = await this.modes.reconcile(row.userId, op.id, { busy: 'throw' });
+      // Its observation is the step's reservation; a prepared operation found
+      // here (a signing claim recovered) is submitted with its own.
+      const observed = await this.modes.reconcile(row.userId, op.id, { busy: 'throw', reservation });
+      reservation = undefined;
       if (observed.targetState === 'supported') return this.move(row, 'mode_set');
       if (observed.targetState === 'unsupported' || observed.submissionState === 'rejected') throw new Fail('setup_account_mode_failed');
       if (observed.submissionState !== 'prepared') { this.assertBeforeDeadline(row); throw new Wait('account_mode_pending', this.timings.retry.pendingMs); }
@@ -922,7 +969,7 @@ export class CopyLiveSetupService {
       assertFresh();
       if (master.address !== intent.accountAddress || modeIntent.accountAddress !== intent.accountAddress) throw new Fail('setup_binding_changed');
       return active.sign(master, modeTypedData(modeIntent), { network: intent.network, account: intent.accountAddress }, modeIntent.consentExpiresAt);
-    } });
+    } }, { reservation });
     if (result.targetState === 'supported') return this.move(row, 'mode_set');
     if (result.submissionState === 'rejected') throw new Fail('setup_account_mode_failed');
     throw new Wait('account_mode_pending', this.timings.retry.pendingMs);

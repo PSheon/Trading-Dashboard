@@ -16,7 +16,7 @@ import { UnitOfWork } from '../src/db/unit-of-work.js';
 import { planHyperliquidQuota, type HyperliquidQuotaRequest, type HyperliquidQuotaState } from '../src/hyperliquid/hyperliquid-global-quota.js';
 import { HyperliquidGlobalTransport } from '../src/hyperliquid/hyperliquid-global-transport.js';
 import { PostgresHyperliquidQuota } from '../src/hyperliquid/postgres-hyperliquid-quota.js';
-import { reserveLive } from '../src/hyperliquid/hyperliquid-budget-wait.js';
+import { liveBudget, reserveLive, type LiveReserveOptions } from '../src/hyperliquid/hyperliquid-budget-wait.js';
 import { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
 
 /**
@@ -80,10 +80,15 @@ export class Testnet {
   };
 }
 
-/** The all-venue WS source (its socket units are another meter; not modelled). */
-export function allVenueSource(): LiveAllDexsAccountSource {
+/** The all-venue WS source. Its socket units are another meter: modelled only
+ * with `transport` (a read reserves its socket's connect on the shared meter,
+ * as HyperliquidAllDexsAccountSource does with closeAfterRead: a new socket
+ * per read; refused when the connect window is full). */
+export function allVenueSource(transport?: HyperliquidGlobalTransport): LiveAllDexsAccountSource {
   const readAccount = async (user: string, dexes: readonly string[], timeoutMs: number): Promise<LiveAllDexsAccountEvidence> => {
-    const observedAt = Date.now(); await sleep(Math.min(timeoutMs, 900));
+    const observedAt = Date.now();
+    if (transport) { const socket = await transport.currentQuota().reserveSocket(observedAt + timeoutMs, 'testnet'); await socket.connection.cancelBeforeConnect(); }
+    await sleep(Math.min(timeoutMs - (Date.now() - observedAt), 900));
     const state = { marginSummary: { accountValue: '100', totalRawUsd: '100', totalNtlPos: '0', totalMarginUsed: '0' },
       crossMarginSummary: { accountValue: '100', totalRawUsd: '100', totalNtlPos: '0', totalMarginUsed: '0' }, crossMaintenanceMarginUsed: '0', withdrawable: '100', time: observedAt, assetPositions: [] };
     // Each venue's answer arrives, then the read completes (never before its
@@ -142,14 +147,18 @@ export function database(intent: LiveCopySetupIntent, setupId: string, at = T0) 
 }
 
 /** The worker: its bucket, transport, clients and setup service on the shared rows and meter. */
-export function worker(meter: Meter | PostgresHyperliquidQuota, testnet: Testnet, db: ReturnType<typeof database>, signed: string[], egressKey = 'gate:testnet') {
-  const budget = new RequestBudgeterService(new AppConfig({ hyperliquid: { budgetPerMin: 300, burst: 900, startupPaceSeconds: 0, pageReserveShare: 0.25 } } as never));
+/** `wired`: the setup's clients on `budget` exactly as copy.module wires them
+ * (liveBudget with the setup's reserve options), and the all-venue source
+ * reserving its sockets on the shared meter. */
+export interface WorkerWiring { readonly budget: RequestBudgeterService; readonly reserve: LiveReserveOptions; readonly sockets: boolean }
+export function worker(meter: Meter | PostgresHyperliquidQuota, testnet: Testnet, db: ReturnType<typeof database>, signed: string[], egressKey = 'gate:testnet', wired?: WorkerWiring) {
+  const budget = wired?.budget ?? new RequestBudgeterService(new AppConfig({ hyperliquid: { budgetPerMin: 300, burst: 900, startupPaceSeconds: 0, pageReserveShare: 0.25 } } as never));
   const quota = meter instanceof Meter ? meter.quota() : meter;
   const transport = new HyperliquidGlobalTransport(quota, { egressKey, ownerId: 'worker' }, testnet.fetch, Date.now, ms => sleep(ms));
-  const live = (weight: number, options?: { maxWaitMs?: number; signal?: AbortSignal }) => reserveLive(budget, weight, options);
+  const live = wired ? liveBudget(budget, wired.reserve) : (weight: number, options?: { maxWaitMs?: number; signal?: AbortSignal }) => reserveLive(budget, weight, options);
   const config = new AppConfig({ hyperliquid: { wallet: { network: 'testnet' } }, copy: { mode: 'testnet' } } as never);
   const client = new PrivyAccountModeClient({ appId: 'app', appSecret: 'secret' }, live, testnet.fetch, Date.now, transport);
-  const absence = new HyperliquidAccountModeAbsenceReader('testnet', live, transport.fetchInfo, Date.now, allVenueSource(), transport);
+  const absence = new HyperliquidAccountModeAbsenceReader('testnet', live, transport.fetchInfo, Date.now, allVenueSource(wired?.sockets ? transport : undefined), transport);
   const wallets = { available: true, findOwned: async () => { await sleep(150); return { id: 'master-wallet', address: accountAddress, externalId: 'ext', ownerQuorumId: 'owner-quorum' }; } };
   const uow = { run: <T>(work: (tx: unknown) => Promise<T>) => work({}) };
   const modes = new CopyAccountModeService(db.modeRepository as never, uow as never, config, wallets as never, client, absence);
@@ -183,7 +192,7 @@ export function worker(meter: Meter | PostgresHyperliquidQuota, testnet: Testnet
   // As copy.module wires it: the wallet network's transport is the setups' lane on the meter.
   const service = new CopyLiveSetupService(config, db.setupRepository as never, uow as never, mandates as never, {} as never, walletRows as never, agents as never, modes,
     {} as never, {} as never, {} as never, {} as never, workerSigner, Date.now, null, null, null, transport);
-  return { service, quota, transport };
+  return { service, quota, transport, budget };
 }
 
 /** The one-click setup's intent (testnet copy account, mainnet leader), confirmed `now`. */

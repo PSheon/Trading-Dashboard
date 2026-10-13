@@ -53,7 +53,7 @@ import { CopyFollowerController } from "./copy-follower.controller.js";
 import { CopyFollowerStatementService } from "./copy-follower-statement.service.js";
 import { CopyAccountModeController } from "./copy-account-mode.controller.js";
 import { CopyAccountModeRepository } from "./copy-account-mode.repository.js";
-import { CopyAccountModeService, ACCOUNT_MODE_CLIENT, ACCOUNT_MODE_ABSENCE_READER, ATTEMPT_WEIGHT } from "./copy-account-mode.service.js";
+import { CopyAccountModeService, ACCOUNT_MODE_CLIENT, ACCOUNT_MODE_ABSENCE_READER, ATTEMPT_STEP_WEIGHT } from "./copy-account-mode.service.js";
 import { PrivyAccountModeClient } from "./live/privy-account-mode-client.js";
 import { HyperliquidAccountModeAbsenceReader } from "./copy-account-mode-evidence.js";
 import { CopyFollowerActivityRepository } from "./copy-follower-activity.repository.js";
@@ -127,10 +127,10 @@ const setupReserve = (config: AppConfig, network: WalletNetworkHyperliquid['netw
     { provide: SETUP_REST_CAPACITY, inject: [WALLET_NETWORK_HL], useFactory: ({ transport }: WalletNetworkHyperliquid): SetupRestCapacity => transport },
     CopyAccountModeRepository, CopyAccountModeService,
     { provide: ACCOUNT_MODE_CLIENT, inject: [AppConfig, WALLET_NETWORK_HL], useFactory: (config: AppConfig, { budget, transport, network }: WalletNetworkHyperliquid) => {
-      // A copy setup's account-mode attempt is reserved at once (613): a
+      // A copy setup's account-mode step is reserved at once (715: the attempt and its reconcile): a
       // bucket that can never hold it would fail every setup at that step.
       // With live copy the wallet network has its own bucket on both networks.
-      if (config.value.copy.live) assertBucketHolds(budget, ATTEMPT_WEIGHT, "A copy setup's account-mode attempt", 'Lower COPY_LIVE_WEIGHT_PER_MIN (at most 587).');
+      if (config.value.copy.live) assertBucketHolds(budget, ATTEMPT_STEP_WEIGHT, "A copy setup's account-mode step", 'Lower COPY_LIVE_WEIGHT_PER_MIN (at most 485).');
       // Weight is reserved before any evidence clock starts (reserveLive):
       // a busy bucket answers HyperliquidBudgetWait instead of stale evidence.
       // Setup steps wait in line at most their reserve wait (inside their driver's lease).

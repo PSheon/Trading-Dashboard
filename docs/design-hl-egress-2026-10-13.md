@@ -463,7 +463,7 @@ Each step can be deployed alone.
 **Revised mainnet critical path (I-10)**
 1. 1a-3 role split (`WORKER_ROLE`, two leases, WatcherModule split): about 3 days.
 2. 1a-4 setup drive and API terminal settlement move to worker-copy (NOTIFY): about 2 days.
-3. 1b egress split: two proxy VMs with static IPv4 (A for worker-copy, B for worker-read), distinct `HYPERLIQUID_EGRESS_KEY`, the identity guard. About 1–2 days, including the VMs.
+3. 1b egress split: two proxy VMs in Singapore with static IPv4 (A for worker-copy, B for worker-read), distinct `HYPERLIQUID_EGRESS_KEY`, the identity guard, `foreign_usage_suspected`. About 1–2 days, including the VMs.
 
 Result: one process on A (setup and first order share a cache, and the local-bucket split problem disappears), snapshots and background off A, and no strangers on A.
 Then Phase 2 (in-memory scheduler). §1 scoping and Phase 3 (node) come after mainnet.
@@ -473,3 +473,16 @@ Then Phase 2 (in-memory scheduler). §1 scoping and Phase 3 (node) come after ma
 - Q3 owner POSTs refused while worker-copy restarts: acceptable. Moot after I-7.
 - Q4 V1–V4 testnet experiments: allowed (only needed if §1 is built).
 - Q2, Q5–Q8: still open.
+
+**I-11 follow-up (2026-10-14): run worker-copy on the VM, or proxy through it?**
+
+| | Worker on the VM | Railway worker → proxy VM → HL |
+|---|---|---|
+| DB round trips | The order path is about 125 sequential round trips to Railway Postgres (Singapore). The VM reaches it only through Railway's public TCP proxy over the internet. From Tokyo (about 70 ms RTT) that is about 9 s per order, so the 5 s window is impossible. From Singapore it is a few ms plus public-internet jitter, with TLS and a public DB endpoint to secure. | Stays on Railway's private network (about 8 ms, as measured by the gate) |
+| HL latency | VM → HL | Railway (Singapore) → proxy → HL. An extra hop of about 1–2 ms if the proxy sits in the same Singapore region as Railway. Today traffic already goes Singapore → HL. |
+| Deploy | A second pipeline (image pull, systemd/docker, secrets) outside `railway up`. The guard scripts and the lease hand-off need rework. | Unchanged. The proxy is a static, rarely changed process (tinyproxy/squid with an allow-list) |
+| Failure points | VM + worker | VM + proxy process. The VM is already a single point of failure in both. |
+
+**Decision:** keep the workers on Railway and put the **proxy VMs in Singapore** (the same metro as Railway's `asia-southeast1`), not Tokyo. The extra hop is only Singapore → Singapore, and DB latency stays private. Watch proxy health: the egress identity guard plus a heartbeat field `proxyReachable`. If the proxy is down, worker-copy refuses to start or fails closed; it never falls back to Railway's shared egress.
+
+**I-12** `foreign_usage_suspected` (an HL 429 while our own window usage is below 80 %) ships in **1b**, not Phase 2. It should go to zero after the move to our own IPs; that is the only evidence for or against risk 7.

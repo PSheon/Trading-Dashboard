@@ -15,6 +15,11 @@ import { hyperliquidMeterComposition, type HyperliquidQuotaEvent } from '../src/
 import { installDbRtt } from '../../../scripts/copy-harness/db-rtt.mjs';
 import { closeTestDb, getTestDb } from './db-test-utils.js';
 import { Testnet, database, setupIntent, worker } from './copy-setup-capacity-test-utils.js';
+import { AppConfig } from '../src/config/app-config.js';
+import { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
+import { HyperliquidBudgetWait, reserveLive } from '../src/hyperliquid/hyperliquid-budget-wait.js';
+import { LIVE_HEADROOM_SHARE } from '../src/hyperliquid/wallet-network-hyperliquid.js';
+import { DEFAULT_LIVE_SETUP_TIMINGS } from '../src/config/live-timings.js';
 
 /**
  * The pre-mainnet gate of 2026-10-13 08:18–08:31 UTC (4th run, after
@@ -71,14 +76,32 @@ const settled = async (response: Promise<Response>) => { const answered = await 
 type Stats = { granted: number; refused: number; failed: number; oldestWaitMs: number };
 const stats = () => ({ granted: 0, refused: 0, failed: 0, oldestWaitMs: 0 }) as Stats;
 
-describe('a copy setup beside the real worker\'s and api\'s consumers on the real Postgres meter (gate 2026-10-13 08:18)', () => {
-  it('reaches running within a bounded time; live is never refused; pages are served within the page hold; 1200 holds', { timeout: DEADLINE_MS + 90_000 }, async () => {
+/**
+ * The 5th gate run (2026-10-13 09:48–09:58 UTC, setup 8a79a7e0): the claim
+ * was granted again and again, and each attempt then failed, leaving 144–410
+ * of its own charges in the window for the next claim to wait out:
+ * - its 613 from the worker's testnet bucket was reserved only after the
+ *   grant, and the bucket (rate 300, burst 900, other live work keeping it at
+ *   ~500) never held it within its 15 s (`local_budget`, tokens 524–575; the
+ *   same wait past 20 s was logged as `shared_capacity` / `shared:setup`,
+ *   lane live, tokens 433–498);
+ * - its absence proof's socket connect (one per preflight) was refused by
+ *   the shared connect window (30 a minute; contention.mjs's two socket loops
+ *   take ~29) after its first reads were charged.
+ * `gate5` adds what the 4th run's model left out: the worker's testnet bucket
+ * as wallet-network-hyperliquid builds it, the setup's clients on it as
+ * copy.module wires them, other live work spending it at about its rate,
+ * and the all-venue reads' sockets on the shared meter.
+ */
+type Scenario = 'gate4' | 'gate5';
+const scenario = (variant: Scenario) => async () => {
     const restore = installDbRtt(pg.Client, RTT_MS);
     const egressKey = `setup-queue-${randomUUID()}`, pool = new pg.Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 30 });
     const uow = () => new UnitOfWork(drizzle(pool, { schema }));
     const stop = new AbortController();
     const readRow = async () => (await drizzle(pool, { schema }).select().from(schema.hyperliquidEgressQuota).where(eq(schema.hyperliquidEgressQuota.egressKey, egressKey)))[0];
     const loops: Promise<unknown>[] = [];
+    const budget = new RequestBudgeterService(new AppConfig({ hyperliquid: { budgetPerMin: 300, burst: 900, startupPaceSeconds: 0, pageReserveShare: 0.25, liveHeadroomShare: LIVE_HEADROOM_SHARE } } as never));
     try {
       // contention.mjs's first minute: background at its 840, 20 at a time,
       // their 65 s lives ending evenly over the next 64 s.
@@ -161,9 +184,23 @@ describe('a copy setup beside the real worker\'s and api\'s consumers on the rea
         await (token ? workerSide.runLive(token, run) : run());
       }));
 
+      // The worker's testnet bucket (wallet-network-hyperliquid: rate
+      // COPY_LIVE_WEIGHT_PER_MIN 300, burst 900, 80 % live headroom), with
+      // other live work (the copy engine's reads, the snapshot collector's
+      // observations) spending it at about its rate: ~500 left, as the gate's
+      // refusals showed (tokens 524–575 after a 15 s wait).
+      const local = { granted: 0, refused: 0 };
+      if (variant === 'gate5') {
+        await budget.acquire(400, 'live', 0);
+        every(2_000, 0, async () => {
+          try { await reserveLive(budget, 10, { maxWaitMs: 5_000 }); local.granted++; }
+          catch (error) { if (error instanceof HyperliquidBudgetWait) local.refused++; else throw error; }
+        });
+      }
       // The worker's setup service (its own meter object), as copy.module wires it.
       const setupId = randomUUID(), intent = setupIntent(setupId, Date.now()), rows = database(intent, setupId, Date.now()), signed: string[] = [];
-      const { service } = worker(new PostgresHyperliquidQuota(uow()), new Testnet(), rows, signed, egressKey);
+      const wired = variant === 'gate5' ? { budget, reserve: { maxWaitMs: DEFAULT_LIVE_SETUP_TIMINGS.stepBudgetMs.reserveWaitMs, queue: true, bucket: 'wallet:testnet' }, sockets: true } : undefined;
+      const { service } = worker(new PostgresHyperliquidQuota(uow()), new Testnet(), rows, signed, egressKey, wired);
       const decisions: { at: number; stage: string; wait: unknown; meter: unknown }[] = [];
       const transition = rows.setupRepository.transition;
       rows.setupRepository.transition = async (row, changes) => {
@@ -198,10 +235,10 @@ describe('a copy setup beside the real worker\'s and api\'s consumers on the rea
       setupOpen = false;
       stop.abort(); await Promise.all(loops);
       const classes = Object.fromEntries(Object.entries(held).map(([k, v]) => [k, { meanHeld: Math.round(v.sum / Math.max(1, samples)), maxHeld: v.max }]));
-      const report = JSON.stringify({ elapsed, stage: rows.rows.setup.stage, stages: rows.rows.stages, peak, grantsSeen: grants, grantedWhileSetup, held: classes, consumers: record, decisions }, null, 1);
+      const report = JSON.stringify({ variant, elapsed, stage: rows.rows.setup.stage, stages: rows.rows.stages, peak, grantsSeen: grants, grantedWhileSetup, held: classes, consumers: record, localLive: local, decisions }, null, 1);
       console.log(report);
       // SETUP_QUEUE_RECORD: also written to that file (a passing run's output is not printed).
-      if (process.env.SETUP_QUEUE_RECORD) writeFileSync(process.env.SETUP_QUEUE_RECORD, report);
+      if (process.env.SETUP_QUEUE_RECORD) writeFileSync(`${process.env.SETUP_QUEUE_RECORD}.${variant}.json`, report);
 
       expect(errors).toEqual([]);
       expect(rows.rows.stages.map(s => s.stage)).toEqual(['mode_set', 'agent_active', 'builder_ready', 'running']);
@@ -215,13 +252,23 @@ describe('a copy setup beside the real worker\'s and api\'s consumers on the rea
       expect(record.pages!.oldestWaitMs).toBeLessThan(6_000);
       expect(record.background!.failed).toBe(0);
       expect(peak).toBeLessThanOrEqual(1200);
+      if (variant === 'gate5') {
+        // No partial attempt: when the mode step moved on, its own charges in the window were its one attempt's 635.
+        const moved = decisions.find(d => d.stage === 'mode_set' && d.wait === null)!.meter as { setup: Record<string, number> };
+        expect(Object.values(moved.setup)).toEqual([635]);
+      }
     } finally {
       stop.abort();
       await Promise.allSettled(loops);
+      budget.onModuleDestroy();
       restore();
       await db.delete(schema.hyperliquidWsLeases).where(eq(schema.hyperliquidWsLeases.egressKey, egressKey));
       await db.delete(schema.hyperliquidEgressQuota).where(eq(schema.hyperliquidEgressQuota.egressKey, egressKey));
       await pool.end();
     }
-  });
+};
+
+describe('a copy setup beside the real worker\'s and api\'s consumers on the real Postgres meter (gate 2026-10-13 08:18)', () => {
+  it('reaches running within a bounded time; live is never refused; pages are served within the page hold; 1200 holds', { timeout: DEADLINE_MS + 90_000 }, scenario('gate4'));
+  it('with the worker\'s testnet bucket drained by other live work and the absence proofs\' sockets on the meter (gate 2026-10-13 09:48): every grant runs its attempt through, running within about 3 min', { timeout: DEADLINE_MS + 90_000 }, scenario('gate5'));
 });

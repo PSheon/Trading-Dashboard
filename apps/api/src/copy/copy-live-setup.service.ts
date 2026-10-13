@@ -8,7 +8,7 @@ import { agentApprovalTypedData, approveBuilderFeeRequest, approveBuilderFeeType
 import { AppConfig } from '../config/app-config.js';
 import { BackgroundJobs } from '../runtime/background-jobs.service.js';
 import { outsideRequest } from '../runtime/request-context.js';
-import { UnitOfWork, type DbExecutor } from '../db/unit-of-work.js';
+import { UnitOfWork, type DbExecutor, type DbTransaction } from '../db/unit-of-work.js';
 import { CopyAccountModeService } from './copy-account-mode.service.js';
 import { HyperliquidBudgetWait } from '../hyperliquid/hyperliquid-budget-wait.js';
 import { DEFAULT_LIVE_SETUP_TIMINGS, type LiveSetupTimings } from '../config/live-timings.js';
@@ -52,6 +52,9 @@ export function setupFundingKey(row: Pick<SetupRow, 'id' | 'fundingOperationId'>
 /** How long after its setup ended an approval left unknown is still looked at. */
 const ABANDONED_APPROVAL_WINDOW_MS = 3 * 86_400_000;
 const THROTTLED_STAGES: readonly SetupStage[] = ['funded', 'mode_set', 'agent_active'];
+/** Stages a confirmed start reaches after its deposit's credit: the copy is
+ * starting and is stopped like a running one, not cancelled. */
+const PAST_FUNDING_STAGES: readonly SetupStage[] = ['funded', 'mode_set', 'agent_active', 'builder_ready', 'running'];
 /** Every step after confirm is signed by the worker under the owner's Privy
  * policy (the one signing model, 2026-10-07), with exactly the payload the
  * consent bound; the owner's browser signs nothing after confirm. */
@@ -563,8 +566,18 @@ export class CopyLiveSetupService {
    * reserved deposit is cancelled), or once it failed or expired. A start
    * ends with its paused strategy stopped when no generation ever ran; a
    * deposit that already arrived stays in the copy account and is returned
-   * to the main wallet from the portfolio. A confirmed setup still going
-   * (the deposit sent, a step in flight) can't be cancelled.
+   * to the main wallet from the portfolio.
+   *
+   * A confirmed start whose deposit was sent and is awaiting its credit
+   * (funding_submitted) is cancelled and refunded: the setup enters the
+   * setup abort (its durable barrier: no step, mandate or activation after
+   * it), whose worker returns everything the copy account holds to the
+   * owner's main wallet (the consent's sweepDestination), proven from the
+   * account's own state, never from the explorer. A CAS on the setup's
+   * revision under the owner's lock: a driver that already moved it past
+   * funding wins, and the cancel is refused 409 setup_past_funding (stop
+   * the copy instead). Any other confirmed setup still going can't be
+   * cancelled (409 funding_pending).
    */
   async cancel(userId: number, id: string): Promise<LiveCopySetup> {
     const next = await this.uow.run(async tx => {
@@ -573,6 +586,10 @@ export class CopyLiveSetupService {
       await this.mandates.lock(tx, userId);
       const row = await this.repository.find(userId, id, tx);
       if (row.stage === 'cancelled') return row;
+      if (await this.repository.aborted(userId, id, tx)) return row;
+      if (PAST_FUNDING_STAGES.includes(row.stage) || row.mandateId || await this.repository.hasMandate(id, tx))
+        throw new ConflictException({ statusCode: 409, code: 'setup_past_funding', message: 'This copy is already starting: stop it once it runs to get your funds back' });
+      if (row.stage === 'funding_submitted' && row.kind === 'start') return this.cancelFunding(tx, row);
       const unconfirmed = ['provisioning', 'awaiting_consent'].includes(row.stage), ended = ['failed', 'expired'].includes(row.stage);
       if (!unconfirmed && !ended || unconfirmed && row.fundingOperationId && await this.repository.fundingAttempted(userId, row.fundingOperationId, tx))
         throw new ConflictException({ statusCode: 409, code: 'funding_pending', message: 'The deposit was already sent' });
@@ -582,6 +599,17 @@ export class CopyLiveSetupService {
       return updated;
     });
     return this.wire(next);
+  }
+  /** cancel's funding_submitted branch, under the owner's lock with the
+   * setup row locked: the revision CAS fences every driver (its own
+   * transitions are CAS on the revision and refused once the abort exists),
+   * then the abort is admitted in the same transaction. */
+  private async cancelFunding(tx: DbTransaction, row: SetupRow): Promise<SetupRow> {
+    if (!this.aborts) throw new ServiceUnavailableException({ statusCode: 503, code: 'setup_abort_unavailable', message: 'Cancelling a confirmed setup is not available right now' });
+    const fenced = await this.repository.transition(row, { nextAttemptAt: null }, tx);
+    if (!fenced) throw new ConflictException({ statusCode: 409, code: 'setup_changed', message: 'The setup changed; refresh it' });
+    await this.aborts.requestIn(tx, row.userId, row.id, `cancel-${row.id}`);
+    return this.repository.find(row.userId, row.id, tx);
   }
 
   // --- the driver ---------------------------------------------------------------

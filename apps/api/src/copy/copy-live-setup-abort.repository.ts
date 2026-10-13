@@ -164,8 +164,12 @@ export class CopyLiveSetupAbortRepository {
   }
 
   async request(userId: number, setupId: string, key: string, now: () => number = Date.now): Promise<SetupAbortRow> {
+    return this.db.transaction(tx => this.admit(tx, userId, setupId, key, now));
+  }
+  /** request, inside the caller's transaction (the setup's own cancel). */
+  async admit(tx: DbTransaction, userId: number, setupId: string, key: string, now: () => number = Date.now): Promise<SetupAbortRow> {
     if (!/^[A-Za-z0-9_-]{16,128}$/.test(key)) throw conflict('setup_abort_key_invalid');
-    return this.db.transaction(async tx => {
+    {
       const owner = await this.mandates.lock(tx, userId);
       const [setup] = await tx.select().from(copyLiveSetups).where(and(eq(copyLiveSetups.id, setupId), eq(copyLiveSetups.userId, userId))).for('update');
       if (!setup) throw new NotFoundException('Setup not found');
@@ -208,6 +212,6 @@ export class CopyLiveSetupAbortRepository {
         mandateId: generation?.id ?? null, stopId, state: bindingIssue ? 'blocked' : stopId ? 'delegated' : 'requested', issue: bindingIssue, createdAt: at, updatedAt: at }).returning();
       await tx.update(copyLiveSetups).set({ revision: setup.revision + 1, updatedAt: at }).where(and(eq(copyLiveSetups.id, setupId), eq(copyLiveSetups.revision, setup.revision)));
       return abort!;
-    });
+    }
   }
 }

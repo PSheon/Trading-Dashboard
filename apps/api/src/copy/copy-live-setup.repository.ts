@@ -69,9 +69,14 @@ export class CopyLiveSetupRepository {
       .where(and(eq(copyLiveSetups.id, row.id), eq(copyLiveSetups.revision, row.revision), sql`not exists (select 1 from ${copyLiveSetupAborts} a where a.setup_id = ${copyLiveSetups.id})`)).returning();
     return next ?? null;
   }
-  async aborted(userId: number, setupId: string): Promise<boolean> {
-    const [row] = await this.db.select({ id: copyLiveSetupAborts.id }).from(copyLiveSetupAborts)
+  async aborted(userId: number, setupId: string, tx: DbExecutor = this.db): Promise<boolean> {
+    const [row] = await tx.select({ id: copyLiveSetupAborts.id }).from(copyLiveSetupAborts)
       .where(and(eq(copyLiveSetupAborts.userId, userId), eq(copyLiveSetupAborts.setupId, setupId))).limit(1);
+    return Boolean(row);
+  }
+  /** A generation was ever prepared from this setup. */
+  async hasMandate(setupId: string, tx: DbExecutor = this.db): Promise<boolean> {
+    const [row] = await tx.select({ id: copyLiveMandates.id }).from(copyLiveMandates).where(eq(copyLiveMandates.liveSetupId, setupId)).limit(1);
     return Boolean(row);
   }
   /** One driver (the worker's pass or the owner's open dialog) works a

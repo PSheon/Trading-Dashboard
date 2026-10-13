@@ -424,8 +424,9 @@ describe('one-click testnet copy setup', () => {
     await service.confirm(uid, setup.id, await sign(setup.consent!));
     later(5_000); await service.tick();
     expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'funding_submitted', issue: 'awaiting_credit' });
-    // Before the deadline the deposit still holds everything.
-    await expect(service.cancel(uid, setup.id)).rejects.toMatchObject({ status: 409, response: { code: 'funding_pending' } });
+    // Before the deadline its cancel is a refund through the setup abort,
+    // which this deployment (no abort worker) can't run: nothing changes.
+    await expect(service.cancel(uid, setup.id)).rejects.toMatchObject({ status: 503, response: { code: 'setup_abort_unavailable' } });
     later(25 * 3_600_000); await service.tick();
     // Ended, with where the money went: sent (accepted) to the copy wallet.
     const ended = await service.get(uid, setup.id);
@@ -580,7 +581,9 @@ describe('one-click testnet copy setup', () => {
     expect((await db.select().from(copyStrategies))[0]!.status).toBe('stopped');
     const second = await start('setup-start-key-000002');
     await service.confirm(uid, second.id, await sign(second.consent!));
-    await expect(service.cancel(uid, second.id)).rejects.toMatchObject({ status: 409, response: { code: 'funding_pending' } });
+    // Sent: cancelled only as a refund, through the setup abort (none here).
+    await expect(service.cancel(uid, second.id)).rejects.toMatchObject({ status: 503, response: { code: 'setup_abort_unavailable' } });
+    expect((await service.get(uid, second.id))).toMatchObject({ stage: 'funding_submitted', abortRequested: false });
   });
 
   it('a start whose sheet was closed (its key gone with a reload) gives way to a new start for the same leader, not already_copying', async () => {
@@ -620,7 +623,7 @@ describe('one-click testnet copy setup', () => {
     const setup = await start();
     await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit();
     await expect(start('setup-start-key-000002')).rejects.toMatchObject({ status: 409, response: { code: 'already_copying' } });
-    await expect(service.cancel(uid, setup.id)).rejects.toMatchObject({ status: 409, response: { code: 'funding_pending' } });
+    await expect(service.cancel(uid, setup.id)).rejects.toMatchObject({ status: 503, response: { code: 'setup_abort_unavailable' } });
     later(25 * 3_600_000); await service.advance(uid, setup.id);
     expect((await service.get(uid, setup.id)).stage).toBe('expired');
     const again = await start('setup-start-key-000003');
@@ -1427,5 +1430,97 @@ describe('a setup awaiting its credit backs off (an unreachable explorer, 2026-1
     later(60_000); await service.tick();
     expect(alerts()).toHaveLength(2);
     expect(await current()).toMatchObject({ stage: 'funding_submitted', attempts: 0 });
+  });
+});
+
+describe('cancel and refund a confirmed setup awaiting its credit (funding_submitted)', () => {
+  const ok = { status: 'ok', response: { type: 'default' } };
+  const EXPIRY = 2 * 86_400_000 + 3_600_000;
+  /** A flat account holding `balance` (the account's own state, info API). */
+  function proofOf(balance: string): SetupAbortFlatObservation {
+    const proof = flatAbortProof();
+    Object.assign(proof.snapshot, { withdrawable: balance, perpEquity: balance });
+    Object.assign(proof.snapshot.dexes[0]!, { equity: balance, rawUsd: balance, withdrawable: balance, crossEquity: balance });
+    return proof;
+  }
+  /** The setup service with the real abort worker behind its cancel; the
+   * worker's exchange and observer read `world.balance` (the copy account). */
+  function cancelWorld(funding: object = fakes.funding) {
+    const mandates = new CopyLiveMandateRepository(db, testConfig()), returns = new CopyLiveReturnRepository(db, testConfig());
+    const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(db, mandates));
+    const refunds = new CopyLiveSetupAbortReturnRepository(db, testConfig(), mandates, returns);
+    const world = { balance: '0' };
+    const observer = { observeSetupAbortFlat: vi.fn(async () => proofOf(world.balance)) };
+    const exchange = { acquire: vi.fn(async () => undefined), withdrawable: vi.fn(async () => world.balance),
+      send: vi.fn(async (_op: unknown, _sig: string, fresh: () => void, dispatched: () => void) => { fresh(); dispatched(); world.balance = '0'; return ok; }) };
+    const signer = { available: true, sign: vi.fn(async () => 'test-worker-signature') };
+    const worker = new CopyLiveSetupAbortService(config(), aborts, refunds, new CopyLiveSetupRepository(db), new CopyFundingRepository(db),
+      funding as never, fakes.agents as never, fakes.modes as never, {} as never, returns, exchange as never, signer as never, observer as never, new BackgroundJobs(), () => clock);
+    const setups = new CopyLiveSetupService(config(), new CopyLiveSetupRepository(db), new UnitOfWork(db), mandates, fakes.wallets as never, new CopyWalletRepository(db),
+      fakes.agents as never, fakes.modes as never, fakes.funding as never, new CopyFundingRepository(db), {} as never, {} as never, { available: true, sign: workerSign } as never,
+      () => clock, fakes.jobs, worker, fakes.leaderActivity);
+    const abortOf = async (setupId: string) => (await db.select().from(copyLiveSetupAborts).where(eq(copyLiveSetupAborts.setupId, setupId)))[0]!;
+    const pass = async (setupId: string) => { const abort = await abortOf(setupId); await worker.process(abort.id); return abortOf(setupId); };
+    return { world, setups, worker, exchange, observer, signer, aborts, returns, abortOf, pass };
+  }
+  async function awaitingCredit() {
+    const setup = await start();
+    expect(await service.confirm(uid, setup.id, await sign(setup.consent!))).toMatchObject({ stage: 'funding_submitted', issue: 'awaiting_credit' });
+    return setup;
+  }
+  /** No generation, no activation and nothing the driver signs after the cancel. */
+  async function neverStarted(setupId: string) {
+    await credit(); later(120_000); await service.tick();
+    expect(await db.select().from(copyLiveMandates)).toHaveLength(0);
+    expect(await db.select().from(copyLiveActivations)).toHaveLength(0);
+    expect(workerSign).not.toHaveBeenCalled(); expect(fakes.modes.submit).not.toHaveBeenCalled(); expect(fakes.agents.submit).not.toHaveBeenCalled();
+    expect((await service.get(uid, setupId)).stage).not.toBe('running');
+  }
+
+  it('races the setup driver: a driver mid-step when the cancel commits cannot move the setup on', async () => {
+    const setup = await awaitingCredit(), w = cancelWorld();
+    await credit(); later(120_000);
+    const entered = deferred<void>(), release = deferred<void>();
+    const find = CopyFundingRepository.prototype.find;
+    const spy = vi.spyOn(CopyFundingRepository.prototype, 'find').mockImplementationOnce(async function (this: CopyFundingRepository, ...args) {
+      const row = await find.apply(this, args); entered.resolve(); await release.promise; return row;
+    });
+    const driving = service.tick(); await entered.promise;
+    await w.setups.cancel(uid, setup.id);
+    release.resolve(); await driving; spy.mockRestore();
+    expect((await db.select().from(copyLiveSetups).where(eq(copyLiveSetups.id, setup.id)))[0]!.stage).toBe('funding_submitted');
+    await neverStarted(setup.id);
+  });
+
+  it('races the setup driver: a driver that moved past funding first wins; the cancel waiting for the lock is refused setup_past_funding', async () => {
+    const setup = await awaitingCredit(), w = cancelWorld();
+    await credit(); later(120_000);
+    const entered = deferred<void>(), release = deferred<void>();
+    const original = CopyLiveMandateRepository.prototype.lock;
+    const spy = vi.spyOn(CopyLiveMandateRepository.prototype, 'lock').mockImplementationOnce(async function (this: CopyLiveMandateRepository, ...args: Parameters<typeof original>) {
+      entered.resolve(); await release.promise; return original.call(this, ...args);
+    });
+    const cancelling = w.setups.cancel(uid, setup.id).catch(error => error);
+    await entered.promise;
+    await service.tick();
+    release.resolve(); const result = await cancelling; spy.mockRestore();
+    expect(result).toMatchObject({ status: 409, response: { code: 'setup_past_funding' } });
+    expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'running', abortRequested: false });
+    expect(await db.select().from(copyLiveSetupAborts)).toHaveLength(0);
+  });
+
+  it('is refused once the setup moved past funding (no mandate yet, or the mandate exists): the copy is stopped instead', async () => {
+    const setup = await awaitingCredit(), w = cancelWorld();
+    await db.update(copyLiveSetups).set({ stage: 'mode_set' }).where(eq(copyLiveSetups.id, setup.id));
+    await expect(w.setups.cancel(uid, setup.id)).rejects.toMatchObject({ status: 409, response: { code: 'setup_past_funding' } });
+    await db.update(copyLiveSetups).set({ stage: 'funding_submitted' }).where(eq(copyLiveSetups.id, setup.id));
+    await credit(); later(120_000); await service.tick();
+    expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'running' });
+    await expect(w.setups.cancel(uid, setup.id)).rejects.toMatchObject({ status: 409, response: { code: 'setup_past_funding' } });
+    // A mandate recorded while the stage still reads funding_submitted is refused too.
+    await db.update(copyLiveSetups).set({ stage: 'funding_submitted', mandateId: null }).where(eq(copyLiveSetups.id, setup.id));
+    await expect(w.setups.cancel(uid, setup.id)).rejects.toMatchObject({ status: 409, response: { code: 'setup_past_funding' } });
+    expect(await db.select().from(copyLiveSetupAborts)).toHaveLength(0);
+    expect((await db.select().from(copyLiveMandates))[0]).toMatchObject({ state: 'active' });
   });
 });

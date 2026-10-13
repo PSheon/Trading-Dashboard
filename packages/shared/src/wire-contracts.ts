@@ -233,6 +233,7 @@ export const copyErrorCodes = [
   "builder_fee_approval_required", "live_stop_in_progress",
   "consent_expired", "invalid_consent", "setup_unavailable", "setup_wallet_conflict", "setup_funding_rejected",
   "setup_abort_unavailable", "setup_abort_key_conflict", "setup_abort_wallet_conflict", "setup_abort_generation_conflict", "setup_already_applied",
+  "setup_past_funding", "setup_changed",
   "setup_account_mode_failed", "setup_agent_rejected", "setup_builder_rejected", "setup_expired", "worker_signer_missing", "renewal_unavailable",
   "live_not_allowed", "live_fixed_sizing_required", "live_ratio_sizing_required", "live_per_trade_out_of_range", "live_source_network_unsupported",
 ] as const;
@@ -371,7 +372,7 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "POST", path: "/me/copy/live/setups/:id/abort", status: 200, auth: "user (owner); deployment capability; durable original setup barrier and proof-bound return, no client amount, destination or signature", response: liveCopySetupAbortSchema, errors: ["setup_abort_unavailable", "setup_abort_key_conflict", "setup_abort_wallet_conflict", "setup_abort_generation_conflict", "setup_already_applied"] },
   { method: "POST", path: "/me/copy/live/setups/:id/confirm", status: 200, auth: "user (owner); the worker signer the browser added, the setup consent, the deposit signature and a fresh session; one deposit attempt", response: liveCopySetupSchema, errors: ["consent_expired", "invalid_consent", "worker_signer_missing", "setup_unavailable", "setup_wallet_conflict", "setup_builder_rejected", "insufficient_main_balance"] },
   { method: "POST", path: "/me/copy/live/setups/:id/advance", status: 200, auth: "user (owner); drives the setup now, signed by the worker; no body; attempted steps are only reconciled", response: liveCopySetupSchema },
-  { method: "POST", path: "/me/copy/live/setups/:id/cancel", status: 200, auth: "user (owner); before the consent, or once the setup failed or expired", response: liveCopySetupSchema, errors: ["funding_pending"] },
+  { method: "POST", path: "/me/copy/live/setups/:id/cancel", status: 200, auth: "user (owner); before the consent, once the setup failed or expired, or while its confirmed deposit awaits its credit (cancel and refund)", response: liveCopySetupSchema, errors: ["funding_pending", "setup_past_funding", "setup_changed", "setup_abort_unavailable"] },
   { method: "PATCH", path: "/me/copy/live/strategies/:id", status: 200, auth: "user (owner); a new generation under one setup consent", response: liveCopySetupSchema, errors: ["setup_unavailable", "live_stop_in_progress", "below_min_allocation", "above_max_allocation", "leverage_above_limit", "copy_not_open"] },
   { method: "POST", path: "/me/copy/live/strategies/:id/renew", status: 200, auth: "user (owner); refused for now (renewal_unavailable)", response: liveCopySetupSchema, errors: ["renewal_unavailable"] },
   { method: 'GET', path: '/me/copy/live/portfolio', status: 200, auth: 'user (owner); testnet copies with their funding and stop stage; read only', response: liveCopyPortfolioSchema },

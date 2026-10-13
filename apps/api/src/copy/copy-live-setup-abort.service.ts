@@ -17,6 +17,7 @@ import { CopyFundingExchangeClient } from './copy-funding-exchange.client.js';
 import { WORKER_MASTER_SIGNER, type WorkerMasterSigner } from './live/privy-policy-master-signer.js';
 import type { SetupAbortFlatObservation } from './live/live-account-observer.js';
 import { deploymentNetwork, liveExecutionEnabled } from './live-deployment.js';
+import type { DbTransaction } from '../db/unit-of-work.js';
 
 export const SETUP_ABORT_OBSERVER = Symbol('SETUP_ABORT_OBSERVER');
 export interface SetupAbortObserver { observeSetupAbortFlat(address: string): Promise<SetupAbortFlatObservation> }
@@ -50,6 +51,13 @@ export class CopyLiveSetupAbortService {
     const parsed = requestLiveCopySetupAbortSchema.safeParse(body);
     if (!parsed.success) throw new BadRequestException('Invalid setup abort request');
     return this.wire(await this.repository.request(userId, setupId, parsed.data.idempotencyKey, this.now));
+  }
+  /** The owner's cancel of a confirmed setup still awaiting its deposit's
+   * credit (CopyLiveSetupService.cancel): the same durable authority as
+   * request, admitted inside the caller's transaction. */
+  async requestIn(tx: DbTransaction, userId: number, setupId: string, key: string): Promise<SetupAbortRow> {
+    if (!this.available) throw new ServiceUnavailableException({ statusCode: 503, code: 'setup_abort_unavailable', message: 'Cancelling a confirmed setup is not available right now' });
+    return this.repository.admit(tx, userId, setupId, key, this.now);
   }
   async get(userId: number, setupId: string) { await this.setups.owner(userId); return this.wire(await this.repository.forSetup(userId, setupId)); }
   async wire(row: SetupAbortRow): Promise<LiveCopySetupAbort> {

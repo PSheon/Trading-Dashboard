@@ -219,6 +219,14 @@ const PAGE_CLIENT_SHARE = 0.5;
 const SLOW_PAGE_WAIT_MS = 2_000;
 /** … at most once per this long. */
 const SLOW_PAGE_LOG_EVERY_MS = 10_000;
+/** The live rank of a reservation that yields to every other live call: a
+ * keyed setup hold (hyperliquid-budget-wait `holdKey`). The live lane serves
+ * the lowest rank first, so the refill builds up for it only while no other
+ * live call waits, and any live call that comes takes it first (gate
+ * 2026-10-13 11:13, 7th run: a setup's 715 held FIFO at the head of the
+ * wallet bucket's live queue, and the leader's source read behind it was
+ * refused at once on its estimate, `live_budget_wait`). */
+export const LIVE_YIELD_RANK = Number.MAX_SAFE_INTEGER;
 /** Waiters other than page work (live and background) that may queue. */
 export const MAX_QUEUED = 1000;
 
@@ -683,12 +691,14 @@ export class RequestBudgeterService {
    * live waiters ahead of it plus its own weight, less what the buckets
    * hold, at the current refill rate (0: it would go now). A hint for a
    * caller deciding whether to wait or come back later, not a promise:
-   * background turns and 429 backoffs can make it longer.
+   * background turns and 429 backoffs can make it longer. Only the live
+   * waiters that go before a call of `rank` count (a keyed setup hold,
+   * LIVE_YIELD_RANK, goes after every other live call: it is not ahead).
    */
-  liveWaitMs(weight: number): number {
+  liveWaitMs(weight: number, rank = 0): number {
     const now = Date.now();
     this.refill(now);
-    const ahead = this.queues.live.reduce((sum, waiter) => sum + waiter.gate, 0);
+    const ahead = this.queues.live.reduce((sum, waiter) => waiter.rank <= rank ? sum + waiter.gate : sum, 0);
     const short = Math.min(weight, this.mainCapacity + this.reserveCapacity) + ahead - (this.tokens + this.reserve);
     return short <= 0 ? 0 : this.msToRefill(short, now);
   }

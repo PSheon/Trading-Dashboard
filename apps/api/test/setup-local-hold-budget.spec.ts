@@ -20,17 +20,18 @@ const bucket = () => new RequestBudgeterService(new AppConfig({ hyperliquid: { b
 const SETUP = { maxWaitMs: 15_000, queue: true, bucket: 'wallet:testnet' } as const;
 
 describe('a setup\'s keyed reservation on the worker\'s testnet bucket', () => {
-  it('gathers its 715 across passes beside live work that drains the bucket, within the refill time', async () => {
+  it('gathers its 715 across passes beside other live work on its bucket, within the refill time', async () => {
     vi.useFakeTimers({ now: 1_800_000_000_000, toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
     const budget = bucket();
     try {
-      // Other live work has left ~500, and spends 20 every 2 s (600 a minute) whenever the bucket lets it.
+      // Other live work has left ~500, and spends 20 every 10 s (120 a minute)
+      // whenever the bucket lets it: it goes first (the hold yields to it).
       await budget.acquire(400, 'live', 0);
       let stop = false, others = 0;
       const drain = (async () => {
         while (!stop) {
           await reserveLive(budget, 20, { maxWaitMs: 5_000 }).then(() => { others++; }, () => undefined);
-          await new Promise(resolve => setTimeout(resolve, 2_000));
+          await new Promise(resolve => setTimeout(resolve, 10_000));
         }
       })();
       const setup = liveBudget(budget, SETUP);
@@ -51,9 +52,9 @@ describe('a setup\'s keyed reservation on the worker\'s testnet bucket', () => {
       stop = true;
       await vi.advanceTimersByTimeAsync(5_000); await drain;
       expect(reservation).toBeDefined();
-      // (715 − ~500) at 5 a second: whole after ~45 s, taken by the third pass.
-      expect(Date.now() - started).toBeLessThan(61_000);
-      expect(waits).toBeLessThanOrEqual(3);
+      // (715 − ~500) at 5 a second less the others' 2: whole after ~75 s, taken by the fourth pass.
+      expect(Date.now() - started).toBeLessThan(81_000);
+      expect(waits).toBeLessThanOrEqual(4);
       expect(others).toBeGreaterThan(0);
       reservation!.release();
     } finally { budget.onModuleDestroy(); }
@@ -94,6 +95,35 @@ describe('a setup\'s keyed reservation on the worker\'s testnet bucket', () => {
       await vi.advanceTimersByTimeAsync(LOCAL_HOLD_IDLE_MS + 1);
       expect(localHoldKeys(budget)).toEqual([]);
       expect(budget.queued().live).toBe(0);
+    } finally { budget.onModuleDestroy(); }
+  });
+
+  it('yields to every other live call: one that comes while it gathers goes first, and its estimate does not count the hold (gate 2026-10-13 11:13)', async () => {
+    vi.useFakeTimers({ now: 1_800_000_000_000, toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    const budget = bucket();
+    try {
+      // ~400 left: the hold (715) gathers at the head of the live queue.
+      await budget.acquire(500, 'live', 0);
+      const setup = liveBudget(budget, SETUP);
+      const pass = setup.reserve!(715, { holdKey: 'setup:d', maxWaitMs: 1_000 }).catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(1_100);
+      expect(await pass).toBeInstanceOf(HyperliquidBudgetWait);
+      expect(budget.queued().live).toBe(1);
+      // The leader's source read (240, at most 5 s, refused at once on its
+      // estimate): the hold is not ahead of it, so it goes now. Before, the
+      // 715 counted ahead (estimate ~63 s) and it was refused (live_budget_wait).
+      expect(budget.liveWaitMs(240)).toBe(0);
+      let read = false;
+      const source = reserveLive(budget, 240, { maxWaitMs: 5_000 }).then(() => { read = true; });
+      await vi.advanceTimersByTimeAsync(10);
+      await source;
+      expect(read).toBe(true);
+      // A live order's evidence (568) queued behind the hold's place gets the refill first too.
+      let evidence = false;
+      void reserveLive(budget, 568, { maxWaitMs: 120_000 }).then(() => { evidence = true; }, () => undefined);
+      // ~160 left after the read: (568 − 160) at 5 a second.
+      await vi.advanceTimersByTimeAsync(85_000);
+      expect(evidence).toBe(true);
     } finally { budget.onModuleDestroy(); }
   });
 });

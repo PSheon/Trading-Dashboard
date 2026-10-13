@@ -16,6 +16,7 @@ export const en: Messages = {
     abortBlocked: "Safe completion needs attention",
     abortCompleted: "Setup safely ended",
     abortBlockedHint: "The original operations have not been safely resolved. Keep this progress page; a submitted transfer will not be sent again.",
+    abortNotFlatHint: "The copy account still holds a position or a balance after 30 minutes. Contact an administrator to resolve it; a submitted transfer will not be sent again.",
     abortUnavailable: "Safely ending a setup is not yet available. Keep the original progress link and check submitted operations; do not deposit again.",
     abortProgressError: "The latest progress could not be confirmed. Check this same setup again; do not create another transfer.",
     abortRefresh: "Check original progress",

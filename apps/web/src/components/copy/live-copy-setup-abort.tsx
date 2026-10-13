@@ -30,7 +30,7 @@ export function LiveSetupAbortDialog({ setup, open, onOpenChange, onRequested }:
         {status ? <p role="status" className="flex items-start gap-2 text-sm font-semibold" data-abort-state={progress!.state}>
           {busy ? <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin" aria-hidden /> : null}{status}
         </p> : null}
-        {progress?.state === 'blocked' ? <p role="alert" className="text-sm leading-6 text-warning">{t('liveCopyUi.abortBlockedHint')}</p> : null}
+        {progress?.state === 'blocked' ? <p role="alert" className="text-sm leading-6 text-warning">{t(progress.issue === 'setup_abort_not_flat_persistent' ? 'liveCopyUi.abortNotFlatHint' : 'liveCopyUi.abortBlockedHint')}</p> : null}
         {progress && (progress.deposit || progress.refund) ? <dl className="grid grid-cols-1 gap-3 rounded-xl bg-inset p-3 text-sm">
           {progress.deposit ? <div><dt className="text-muted-foreground">{t('liveCopyUi.abortOriginalDeposit')}</dt><dd className="num mt-1 font-semibold">{money(progress.deposit)}</dd></div> : null}
           {progress.refund ? <div><dt className="text-muted-foreground">{t('liveCopyUi.abortOriginalReturn')}</dt><dd className="num mt-1 font-semibold">{money(progress.refund)}</dd></div> : null}

@@ -19,6 +19,7 @@ export const zhTW = {
     abortBlocked: "安全中止需要處理",
     abortCompleted: "設定已安全中止",
     abortBlockedHint: "原操作尚未安全結束。請保留這份進度；已提交的轉帳不會重新送出。",
+    abortNotFlatHint: "跟單帳戶的持倉或餘額超過 30 分鐘仍未清空，請聯絡管理員協助處理。已送出的轉帳不會重新送出。",
     abortUnavailable: "安全中止暫未開放。請保留原進度連結並核對已提交的操作，勿再次入金。",
     abortProgressError: "目前無法確認最新進度。請查回這份原設定，勿另建一筆轉帳。",
     abortRefresh: "重新核對原進度",

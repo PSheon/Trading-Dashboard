@@ -455,7 +455,7 @@ describe('one-click testnet copy setup', () => {
     expect((await start('setup-start-key-000003', { leader: other })).stage).toBe('awaiting_consent');
   });
 
-  it('no step runs sooner than it was told: a busy shared Hyperliquid window is a wait of at least 65 s, not a failure', async () => {
+  it('no step runs sooner than it was told: a busy shared Hyperliquid window is a wait until the meter said, not a failure', async () => {
     const setup = await start();
     await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit(); later(5_000);
     fakes.modes.submit.mockRejectedValueOnce(new HyperliquidBudgetWait(20_000, 'shared_capacity'));
@@ -463,12 +463,14 @@ describe('one-click testnet copy setup', () => {
     const [row] = await db.select().from(copyLiveSetups);
     // The wait is kept on the row (what, when, why, how many) and is never an
     // attempt: a budget wait can't use up a step's transient attempts.
-    expect(row!.nextAttemptAt!.getTime()).toBeGreaterThanOrEqual(clock + 65_000); expect(row!.attempts).toBe(0);
-    expect(row!.lastWait).toEqual({ at: new Date(clock).toISOString(), step: 'funded', reason: 'shared_capacity', retryMs: 65_000, waits: 1 });
+    // The meter's own estimate (when the charges ahead of it expire), not a
+    // blind 65 s window (a setup waited out ten of them on 2026-10-13).
+    expect(row!.nextAttemptAt!.getTime()).toBeGreaterThanOrEqual(clock + 20_000); expect(row!.nextAttemptAt!.getTime()).toBeLessThan(clock + 65_000); expect(row!.attempts).toBe(0);
+    expect(row!.lastWait).toEqual({ at: new Date(clock).toISOString(), step: 'funded', reason: 'shared_capacity', retryMs: 20_000, waits: 1 });
     // Asked to drive every 3 s (and the worker's pass): nothing runs until then.
-    for (let i = 0; i < 20; i++) { later(3_000); await service.advance(uid, setup.id); await service.tick(); }
+    for (let i = 0; i < 6; i++) { later(3_000); await service.advance(uid, setup.id); await service.tick(); }
     expect(fakes.modes.submit).toHaveBeenCalledTimes(1);
-    later(6_000);
+    later(3_000);
     expect((await service.advance(uid, setup.id)).stage).toBe('running');
     expect(fakes.modes.submit).toHaveBeenCalledTimes(2);
   });
@@ -1537,9 +1539,9 @@ describe('cancel and refund a confirmed setup awaiting its credit (funding_submi
     const setup = await awaitingCredit(), w = cancelWorld();
     await w.setups.cancel(uid, setup.id);
     w.world.balance = '100';
-    // The shared per-IP meter: its own later time (65 s), not 3 s.
+    // The shared per-IP meter: its own later time (when it said), not 3 s.
     w.exchange.acquire.mockRejectedValueOnce(new HyperliquidBudgetWait(20_000, 'shared_capacity'));
-    expect(await w.pass(setup.id)).toMatchObject({ state: 'proving', issue: 'hyperliquid_busy', backoff: { failures: 1, nextAt: clock + 65_000 } });
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'proving', issue: 'hyperliquid_busy', backoff: { failures: 1, nextAt: clock + 20_000 } });
     // The worker's signer not available: a wait, not "needs action".
     w.signer.available = false; later(65_000);
     expect(await w.pass(setup.id)).toMatchObject({ state: 'proving', issue: 'setup_abort_unavailable', backoff: { failures: 2, nextAt: clock + 6_000 } });

@@ -1,5 +1,6 @@
 import { HttpException } from '@nestjs/common';
-import { HyperliquidBudgetWait, SHARED_CAPACITY_RETRY_MS } from '../../hyperliquid/hyperliquid-budget-wait.js';
+import { HyperliquidBudgetWait, SHARED_CAPACITY_RETRY_MS, sharedCapacityWait } from '../../hyperliquid/hyperliquid-budget-wait.js';
+import { sharedRestRetryAfterMs } from '../../hyperliquid/hyperliquid-capacity-error.js';
 import { LiveBoundaryError } from './wallet-authorization.js';
 
 /**
@@ -129,11 +130,12 @@ export function classify(error: unknown): ErrorClassification {
   const { code, source } = own(error);
   if (error instanceof StepWait) return { class: 'budget', code, source, retryAfterMs: error.retryMs };
   if (error instanceof StepFail) return { class: 'permanent', code, source };
-  // The shared window: no sooner than its 65 s; a local bucket: its estimate, at least 1 s.
-  if (error instanceof HyperliquidBudgetWait) return { class: 'budget', code, source,
-    retryAfterMs: error.reason === 'shared_capacity' ? Math.max(SHARED_CAPACITY_RETRY_MS, error.retryMs) : Math.max(1_000, error.retryMs) };
+  // Its estimate, at least 1 s: a local bucket's, or the shared window's (when
+  // its charges ahead expire, sharedCapacityWait; 65 s when it can't say).
+  if (error instanceof HyperliquidBudgetWait) return { class: 'budget', code, source, retryAfterMs: Math.max(1_000, error.retryMs) };
   if (code !== null && BUDGET_CODES.has(code)) {
-    const retryAfterMs = BUDGET_CODES.get(code);
+    // A meter refusal that says when the weight fits is retried then.
+    const retryAfterMs = sharedRestRetryAfterMs(error) !== undefined ? sharedCapacityWait(error)!.retryMs : BUDGET_CODES.get(code);
     return { class: 'budget', code, source, ...(retryAfterMs !== undefined ? { retryAfterMs } : {}) };
   }
   if (code !== null && TRANSIENT_WAIT_CODES.has(code)) return { class: 'transient', code, source, exhausts: true };

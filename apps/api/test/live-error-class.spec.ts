@@ -7,14 +7,16 @@ import { HyperliquidBudgetOverCapacity, HyperliquidBudgetWait, SHARED_CAPACITY_R
 import { HyperliquidRestCapacityError } from '../src/hyperliquid/hyperliquid-capacity-error.js';
 
 describe('the live error classifier', () => {
-  it('a Hyperliquid weight wait is budget: the shared window no sooner than 65 s, a local bucket its estimate (at least 1 s)', () => {
-    expect(classify(new HyperliquidBudgetWait(20_000, 'shared_capacity'))).toEqual({ class: 'budget', code: 'hyperliquid_busy', source: 'budget', retryAfterMs: SHARED_CAPACITY_RETRY_MS });
+  it('a Hyperliquid weight wait is budget at its estimate (at least 1 s): the shared window when the meter said, a local bucket its own', () => {
+    expect(classify(new HyperliquidBudgetWait(20_000, 'shared_capacity'))).toEqual({ class: 'budget', code: 'hyperliquid_busy', source: 'budget', retryAfterMs: 20_000 });
     expect(classify(new HyperliquidBudgetWait(70_000, 'shared_capacity')).retryAfterMs).toBe(70_000);
+    expect(classify(new HyperliquidBudgetWait(10, 'shared_capacity')).retryAfterMs).toBe(1_000);
     expect(classify(new HyperliquidBudgetWait(22_600, 'local_budget')).retryAfterMs).toBe(22_600);
     expect(classify(new HyperliquidBudgetWait(10, 'local_budget')).retryAfterMs).toBe(1_000);
     // The shared meter's refusals, typed or by code.
-    expect(classify(new HyperliquidRestCapacityError(5_000))).toEqual({ class: 'budget', code: 'hyperliquid_quota_exhausted', source: 'boundary', retryAfterMs: SHARED_CAPACITY_RETRY_MS });
-    expect(classify(new LiveBoundaryError('hyperliquid_quota_exhausted')).class).toBe('budget');
+    // A refusal that says when is retried then (and a little after); one that can't say, a window later.
+    expect(classify(new HyperliquidRestCapacityError(5_000))).toEqual({ class: 'budget', code: 'hyperliquid_quota_exhausted', source: 'boundary', retryAfterMs: 5_250 });
+    expect(classify(new LiveBoundaryError('hyperliquid_quota_exhausted'))).toMatchObject({ class: 'budget', retryAfterMs: SHARED_CAPACITY_RETRY_MS });
     expect(classify(new LiveBoundaryError('hyperliquid_quota_queue_full'))).toEqual({ class: 'budget', code: 'hyperliquid_quota_queue_full', source: 'boundary' });
   });
   it("a step's own wait is budget at its time; its own failure is permanent", () => {

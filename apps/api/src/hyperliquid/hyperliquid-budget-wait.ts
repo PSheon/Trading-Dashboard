@@ -1,11 +1,17 @@
 import { ServiceUnavailableException } from '@nestjs/common';
-import { HyperliquidRestCapacityError } from './hyperliquid-capacity-error.js';
+import { HyperliquidRestCapacityError, sharedRestRetryAfterMs } from './hyperliquid-capacity-error.js';
 import { LiveBoundaryError } from '../copy/live/wallet-authorization.js';
 import { BudgetWaitError, type RequestBudgeterService, type RequestPriority } from './request-budgeter.service.js';
 
-/** After the shared per-IP window refused a charge: no sooner than this (the
- * provider's 60 s window plus the 5 s send window of the charges in it). */
+/** After the shared per-IP window refused a charge without saying when it
+ * fits: no sooner than this (the provider's 60 s window plus the 5 s send
+ * window of the charges in it). A refusal that says when
+ * (HyperliquidRestCapacityError.retryAfterMs) is retried then. */
 export const SHARED_CAPACITY_RETRY_MS = 65_000;
+/** Earliest retry after a shared-window refusal, and what is added to the
+ * meter's estimate (its clock and ours, the next charge's transaction). */
+export const SHARED_CAPACITY_MIN_RETRY_MS = 1_000;
+const SHARED_CAPACITY_SLACK_MS = 250;
 /** Longest a setup step's read waits for its Hyperliquid weight before it
  * starts its evidence clock (a reservation the step's client queues waits up
  * to AppConfig.copy.live.setup.stepBudgetMs.reserveWaitMs, live-timings.ts). */
@@ -55,9 +61,15 @@ export class HyperliquidBudgetOverCapacity extends LiveBoundaryError {
   constructor(readonly weight: number, readonly capacity: number) { super('live_budget_over_capacity'); }
 }
 
-/** The shared meter refused a REST charge: a wait of at least 65 s. */
+/** The shared meter refused a REST charge: a wait until the meter said the
+ * weight fits (its charges ahead expire; at least 1 s), or 65 s when it
+ * could not say. A fixed 65 s kept a setup's mode step waiting out whole
+ * windows for 10 minutes (2026-10-13). */
 export function sharedCapacityWait(error: unknown): HyperliquidBudgetWait | undefined {
   if (error instanceof HyperliquidBudgetWait) return error;
+  const retry = sharedRestRetryAfterMs(error);
+  if (retry !== undefined)
+    return new HyperliquidBudgetWait(Math.min(SHARED_CAPACITY_RETRY_MS, Math.max(SHARED_CAPACITY_MIN_RETRY_MS, retry + SHARED_CAPACITY_SLACK_MS)), 'shared_capacity');
   if (error instanceof HyperliquidRestCapacityError || error instanceof LiveBoundaryError && error.code === 'hyperliquid_quota_exhausted')
     return new HyperliquidBudgetWait(SHARED_CAPACITY_RETRY_MS, 'shared_capacity');
   return undefined;

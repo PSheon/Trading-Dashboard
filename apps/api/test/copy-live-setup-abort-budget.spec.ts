@@ -94,7 +94,8 @@ it('abort proofs still refuse an exhausted live bucket behind prior original wor
 function recoveryPass(config: AppConfig, budget: RequestBudgeterService, observer: HyperliquidLiveAccountObserver,
   options: { prepared?: boolean; attempted?: boolean; rejection?: string; delayMs?: number } = {}) {
   const row = { id: 'original-abort', userId: 14, kind: 'start', network: 'testnet', accountId: 'account', accountAddress: address,
-    fundingOperationId: 'original-deposit', returnOperationId: options.prepared === false ? null : 'original-refund', stopId: null };
+    fundingOperationId: 'original-deposit', returnOperationId: options.prepared === false ? null : 'original-refund', stopId: null,
+    state: options.prepared === false ? 'requested' : 'returning', issue: null };
   const refund = { id: 'original-refund', setupAbortId: row.id, userId: 14, network: 'testnet', accountId: 'account', address,
     destination: `0x${'33'.repeat(20)}`, strategyId: 70, direction: 'to_main', status: 'prepared', amount: '49', nonce: 123,
     attemptedAt: options.attempted ? new Date() : null };
@@ -241,12 +242,14 @@ it('new refund reservation retains two independently timed real proofs and origi
   } finally { budget.onModuleDestroy(); }
 });
 
-it.each(['setup_abort_binding_unknown', 'setup_abort_lease_changed'])('prepared recovery preserves locked begin refusal %s before signing', async rejection => {
+// A binding that no longer matches is permanent (blocked); a lease that moved
+// only waits (error-class): kept in its step, backed off 3 s, never blocked.
+it.each([['setup_abort_binding_unknown', { state: 'blocked' }], ['setup_abort_lease_changed', { state: 'returning', backoff: { failures: 1, nextAt: expect.any(Number) } }]] as const)('prepared recovery preserves locked begin refusal %s before signing', async (rejection, outcome) => {
   vi.useFakeTimers();const c = testConfig().value, config = new AppConfig({ ...c, hyperliquid: { ...c.hyperliquid, budgetPerMin: 400, burst: 800, startupPaceSeconds: 0 } });
   const budget = new RequestBudgeterService(config), { observer } = composedObserver(budget, config);
   try { const pass = recoveryPass(config, budget, observer, { rejection });await pass.service.process('original-abort');
     expect(pass.refunds.begin).toHaveBeenCalledTimes(1);expect(pass.signer.sign).not.toHaveBeenCalled();expect(pass.exchange.send).not.toHaveBeenCalled();
-    expect(pass.repository.transition).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ state: 'blocked', issue: rejection }));
+    expect(pass.repository.transition).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ ...outcome, issue: rejection }));
   } finally { budget.onModuleDestroy(); }
 });
 

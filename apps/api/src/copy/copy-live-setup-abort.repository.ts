@@ -53,9 +53,19 @@ export class CopyLiveSetupAbortRepository {
     await this.db.update(copyLiveSetupAborts).set({ leaseToken: null, leaseUntil: null })
       .where(and(eq(copyLiveSetupAborts.id, row.id), eq(copyLiveSetupAborts.leaseToken, row.leaseToken)));
   }
-  async transition(row: SetupAbortRow, changes: Pick<Partial<typeof copyLiveSetupAborts.$inferInsert>, 'state' | 'issue' | 'nextAttemptAt'>): Promise<SetupAbortRow | null> {
+  async transition(row: SetupAbortRow, changes: Pick<Partial<typeof copyLiveSetupAborts.$inferInsert>, 'state' | 'issue' | 'nextAttemptAt' | 'backoff'>): Promise<SetupAbortRow | null> {
     if (!row.leaseToken) return null;
     const [next] = await this.db.update(copyLiveSetupAborts).set({ ...changes, revision: row.revision + 1, updatedAt: sql`greatest(clock_timestamp(), ${copyLiveSetupAborts.createdAt})` })
+      .where(and(eq(copyLiveSetupAborts.id, row.id), eq(copyLiveSetupAborts.revision, row.revision), eq(copyLiveSetupAborts.leaseToken, row.leaseToken),
+        sql`${copyLiveSetupAborts.leaseUntil} > clock_timestamp()`)).returning();
+    return next ?? null;
+  }
+  /** A wait that changes nothing the owner sees (the same state and issue):
+   * bookkeeping only, as a funding row's backoff (saveBackoff). Under the
+   * same lease, never a new revision or updatedAt. */
+  async defer(row: SetupAbortRow, changes: Pick<Partial<typeof copyLiveSetupAborts.$inferInsert>, 'nextAttemptAt' | 'backoff'>): Promise<SetupAbortRow | null> {
+    if (!row.leaseToken) return null;
+    const [next] = await this.db.update(copyLiveSetupAborts).set(changes)
       .where(and(eq(copyLiveSetupAborts.id, row.id), eq(copyLiveSetupAborts.revision, row.revision), eq(copyLiveSetupAborts.leaseToken, row.leaseToken),
         sql`${copyLiveSetupAborts.leaseUntil} > clock_timestamp()`)).returning();
     return next ?? null;

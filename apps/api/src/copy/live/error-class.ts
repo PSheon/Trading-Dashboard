@@ -57,11 +57,22 @@ const BUDGET_CODES: ReadonlyMap<string, number | undefined> = new Map([
 const PERMANENT_CODES: ReadonlySet<string> = new Set([
   // Heavier than the bucket can ever hold (hyperliquid-budget-wait.ts).
   'live_budget_over_capacity',
+  // A setup abort whose original setup, generation or wallet no longer
+  // matches what it was admitted on, or whose refund the exchange refused:
+  // no retry makes it match (copy-live-setup-abort.service.ts).
+  'setup_abort_binding_unknown', 'setup_abort_generation_conflict', 'setup_abort_wallet_conflict', 'setup_abort_refund_not_completed',
 ]);
 /** Only the owner can move these on. */
 const NEEDS_OWNER_CODES: ReadonlySet<string> = new Set([
   'consent_expired', 'agent_consent_expired', 'worker_signer_missing', 'exchange_agent_expired',
   'wallet_authorization_missing', 'wallet_authorization_expired', 'wallet_authorization_revoked',
+]);
+/** Waits, not failures: a read that was stale or could not be had, or the
+ * worker's signer not up yet. Unlisted codes are `transient` already; these
+ * are named so no one moves them to a blocking class by accident (a setup
+ * abort shows them as waiting, never as needing action). */
+export const TRANSIENT_WAIT_CODES: ReadonlySet<string> = new Set([
+  'setup_abort_evidence_unavailable', 'setup_abort_proof_stale', 'setup_abort_proof_not_flat', 'setup_abort_lease_changed', 'setup_abort_unavailable',
 ]);
 /** An outcome still unknown: reconciled until known, never given up by count
  * (giving up would abandon a submission that may have landed). */
@@ -118,6 +129,7 @@ export function classify(error: unknown): ErrorClassification {
     const retryAfterMs = BUDGET_CODES.get(code);
     return { class: 'budget', code, source, ...(retryAfterMs !== undefined ? { retryAfterMs } : {}) };
   }
+  if (code !== null && TRANSIENT_WAIT_CODES.has(code)) return { class: 'transient', code, source, exhausts: true };
   if (code !== null && PERMANENT_CODES.has(code)) return { class: 'permanent', code, source };
   if (code !== null && NEEDS_OWNER_CODES.has(code)) return { class: 'needs_owner', code, source };
   return { class: 'transient', code, source, exhausts: code === null || !UNKNOWN_OUTCOME_CODES.has(code) };

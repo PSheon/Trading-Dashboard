@@ -1500,6 +1500,51 @@ describe('cancel and refund a confirmed setup awaiting its credit (funding_submi
     expect(w.exchange.send).toHaveBeenCalledTimes(1);
   });
 
+  it('a stale or unavailable read waits (never blocked) and backs off per row from 3 s doubling to 60 s, without new revisions; the refund then goes out', async () => {
+    const setup = await awaitingCredit(), w = cancelWorld();
+    await w.setups.cancel(uid, setup.id);
+    w.world.balance = '100';
+    // The flat proof's read fails with no code of its own (a stale or timed-out read).
+    w.observer.observeSetupAbortFlat.mockRejectedValue(new Error('info read timed out'));
+    const first = await w.pass(setup.id);
+    expect(first).toMatchObject({ state: 'proving', issue: 'setup_abort_evidence_unavailable', backoff: { failures: 1, nextAt: clock + 3_000 } });
+    expect(first.nextAttemptAt!.getTime()).toBe(clock + 3_000);
+    expect(await w.worker.get(uid, setup.id)).toMatchObject({ state: 'reconciling', issue: 'setup_abort_evidence_unavailable', refund: null });
+    for (const [failures, delay] of [[2, 6_000], [3, 12_000], [4, 24_000], [5, 48_000], [6, 60_000], [7, 60_000]] as const) {
+      clock = (await w.abortOf(setup.id)).backoff!.nextAt;
+      // The same wait again: bookkeeping only, no new revision.
+      expect(await w.pass(setup.id)).toMatchObject({ state: 'proving', issue: 'setup_abort_evidence_unavailable', revision: first.revision,
+        backoff: { failures, nextAt: clock + delay }, nextAttemptAt: new Date(clock + delay) });
+    }
+    expect(w.exchange.send).not.toHaveBeenCalled();
+    // The read answers again: the refund leaves, the wait ends.
+    w.observer.observeSetupAbortFlat.mockImplementation(async () => proofOf(w.world.balance));
+    later(60_000);
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'returning', issue: 'setup_abort_refund_pending', backoff: null });
+    expect(w.exchange.send).toHaveBeenCalledTimes(1);
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'done' });
+    expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'cancelled' });
+  });
+
+  it('a Hyperliquid weight wait or the worker signer not up waits too; a permanent failure (a binding that no longer matches) still blocks and ends the wait', async () => {
+    const setup = await awaitingCredit(), w = cancelWorld();
+    await w.setups.cancel(uid, setup.id);
+    w.world.balance = '100';
+    // The shared per-IP meter: its own later time (65 s), not 3 s.
+    w.exchange.acquire.mockRejectedValueOnce(new HyperliquidBudgetWait(20_000, 'shared_capacity'));
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'proving', issue: 'hyperliquid_busy', backoff: { failures: 1, nextAt: clock + 65_000 } });
+    // The worker's signer not available: a wait, not "needs action".
+    w.signer.available = false; later(65_000);
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'proving', issue: 'setup_abort_unavailable', backoff: { failures: 2, nextAt: clock + 6_000 } });
+    expect(await w.worker.get(uid, setup.id)).toMatchObject({ state: 'reconciling', issue: 'setup_abort_unavailable' });
+    w.signer.available = true; later(6_000);
+    // The setup no longer matches what the abort was admitted on: permanent.
+    await db.update(copyLiveSetups).set({ intentDigest: 'f'.repeat(64) }).where(eq(copyLiveSetups.id, setup.id));
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'blocked', issue: 'setup_abort_binding_unknown', backoff: null });
+    expect(await w.worker.get(uid, setup.id)).toMatchObject({ state: 'blocked', issue: 'setup_abort_binding_unknown' });
+    expect(w.exchange.send).not.toHaveBeenCalled();
+  });
+
   it('races the setup driver: a driver mid-step when the cancel commits cannot move the setup on', async () => {
     const setup = await awaitingCredit(), w = cancelWorld();
     await credit(); later(120_000);

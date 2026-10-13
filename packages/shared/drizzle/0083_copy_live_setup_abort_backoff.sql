@@ -1,0 +1,1 @@
+ALTER TABLE "copy_live_setup_aborts" ADD COLUMN "backoff" jsonb;

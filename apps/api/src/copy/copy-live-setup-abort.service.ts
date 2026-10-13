@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Inject, Injectable, Logger, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { liveCopySetupAbortSchema, requestLiveCopySetupAbortSchema, usdSendTypedData, WALLET_NETWORKS, type LiveCopySetupAbort } from '@trading-dashboard/shared/contracts';
 import { AppConfig } from '../config/app-config.js';
@@ -18,6 +18,8 @@ import { WORKER_MASTER_SIGNER, type WorkerMasterSigner } from './live/privy-poli
 import type { SetupAbortFlatObservation } from './live/live-account-observer.js';
 import { deploymentNetwork, liveExecutionEnabled } from './live-deployment.js';
 import { abortDepositSettled } from './copy-live-setup-abort-deposit.js';
+import { fundingBackoffMs } from './copy-funding-scan.js';
+import { classify, type ErrorClassification } from './live/error-class.js';
 import type { DbTransaction } from '../db/unit-of-work.js';
 
 export const SETUP_ABORT_OBSERVER = Symbol('SETUP_ABORT_OBSERVER');
@@ -28,6 +30,14 @@ const issue = (value: string | null) => value && /^[a-z][a-z0-9_]{0,79}$/.test(v
 const REPROVE_AFTER_MS = 2_500;
 /** A refund that never left is tried again no sooner than this. */
 const NOT_DISPATCHED_RETRY_MS = 120_000;
+/** A failed pass whose error names no code of its own (a read that failed,
+ * a stale or missing row): a wait, never a block (error-class: transient). */
+const EVIDENCE_UNAVAILABLE = 'setup_abort_evidence_unavailable';
+/** Only these classes block an abort (the owner reads `blocked` as "act"):
+ * transient and budget waits are shown as the step still going. */
+const blocks = (classified: ErrorClassification) => classified.class === 'permanent' || classified.class === 'needs_owner';
+/** Whether an abort's stored issue blocks it (error-class over its code). */
+export const setupAbortIssueBlocks = (code: string | null) => code !== null && blocks(classify(new Error(code)));
 const states = { requested: 'requested', draining: 'reconciling', waiting_credit: 'reconciling', proving: 'reconciling', returning: 'refunding',
   delegated: 'delegated', blocked: 'blocked', done: 'completed' } as const;
 
@@ -72,11 +82,17 @@ export class CopyLiveSetupAbortService {
     // deposit's confirmation (the explorer) still lags: not yet `completed`.
     const pendingDeposit = row.state === 'done' && !pendingRefund && deposit && ['prepared', 'unknown', 'accepted'].includes(deposit.status);
     return liveCopySetupAbortSchema.parse({ id: row.id, setupId: row.setupId, strategyId: row.strategyId, accountId: row.accountId, kind: row.kind, network: row.network,
-      state: pendingRefund ? rejectedRefund ? 'blocked' : row.stopId ? 'delegated' : 'refunding' : pendingDeposit ? 'reconciling' : states[row.state],
+      state: pendingRefund ? rejectedRefund ? 'blocked' : row.stopId ? 'delegated' : 'refunding' : pendingDeposit ? 'reconciling' : CopyLiveSetupAbortService.waitingWire(row) ?? states[row.state],
       issue: pendingRefund ? rejectedRefund ? 'setup_abort_refund_not_completed' : 'setup_abort_refund_pending' : pendingDeposit ? 'setup_abort_deposit_pending' : issue(row.issue), deposit: deposit ? { ...fundingWire(deposit), direction: deposit.direction } : null,
       refund: refund ? { ...fundingWire(refund), direction: refund.direction } : null,
       stop: children.stop ? { id: children.stop.id, state: children.stop.state, issue: issue(children.stop.issue) } : null,
       createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() });
+  }
+  /** A row left `blocked` on an issue that only waits (an older pass, before
+   * the classifier): shown as the step it waits in. */
+  private static waitingWire(row: SetupAbortRow) {
+    if (row.state !== 'blocked' || !issue(row.issue) || setupAbortIssueBlocks(row.issue)) return null;
+    return row.stopId ? 'delegated' as const : row.returnOperationId ? 'refunding' as const : 'reconciling' as const;
   }
   async tick() {
     if (this.jobs.stopping) return 0;
@@ -103,19 +119,36 @@ export class CopyLiveSetupAbortService {
     let row = await this.repository.lease(id); if (!row) return;
     const originalLease = row;
     const wait = async (state: SetupAbortRow['state'], reason: string | null, delayMs = 30_000) => {
-      const next = await this.repository.transition(row!, { state, issue: reason, nextAttemptAt: new Date(this.now() + delayMs) });
+      const next = await this.repository.transition(row!, { state, issue: reason, nextAttemptAt: new Date(this.now() + delayMs), ...(row!.backoff ? { backoff: null } : {}) });
       if (next) row = next;
     };
+    /** A step that cannot go on, through the classifier (live/error-class):
+     * only permanent and needs_owner block. Transient and budget wait in the
+     * step they were in, on the row's own backoff (fundingBackoffMs: 3 s
+     * doubling to 60 s, or the error's own later time), never an attempt;
+     * the same wait again is bookkeeping only (no revision). */
+    const settle = async (classified: ErrorClassification, reason: string) => {
+      if (blocks(classified)) { await wait('blocked', reason); return; }
+      const current = row!, at = this.now(), failures = (current.backoff?.failures ?? 0) + 1;
+      const delayMs = Math.max(fundingBackoffMs(failures), classified.retryAfterMs ?? 0);
+      // The step it waits in: the stop it delegated to, its refund, else its proof.
+      const state: SetupAbortRow['state'] = current.stopId ? 'delegated' : current.returnOperationId ? 'returning' : 'proving';
+      const changes = { nextAttemptAt: new Date(at + delayMs), backoff: { failures, nextAt: at + delayMs } };
+      const next = state === current.state && reason === current.issue ? await this.repository.defer(current, changes)
+        : await this.repository.transition(current, { state, issue: reason, ...changes });
+      if (next) row = next;
+    };
+    const stop = (code: string) => settle(classify(new Error(code)), code);
     try {
       let children = await this.repository.children(row);
       if (row.stopId) {
         if (!children.stop || children.stop.mandateId !== row.mandateId || children.stop.accountId !== row.accountId || children.stop.network !== row.network) {
-          await wait('blocked', 'setup_abort_generation_conflict'); return;
+          await stop('setup_abort_generation_conflict'); return;
         }
         const deposit = children.funding.find(op => op.id === row!.fundingOperationId);
         // An automatic return never sent is superseded by its next attempt, or retried.
         const returns = children.funding.filter(op => op.stopId === row!.stopId && op.direction === 'to_main' && !sweepSuperseded(op, children.funding));
-        if (returns.some(op => ['rejected', 'cancelled'].includes(op.status) && !sweepRetrying(op))) { await wait('blocked', 'setup_abort_refund_not_completed'); return; }
+        if (returns.some(op => ['rejected', 'cancelled'].includes(op.status) && !sweepRetrying(op))) { await stop('setup_abort_refund_not_completed'); return; }
         if (returns.some(op => op.status !== 'credited')) { await wait('delegated', 'setup_abort_refund_pending'); return; }
         if (children.stop.state === 'stopped' && (!deposit || !['prepared','unknown','accepted'].includes(deposit.status))) await wait('done', null);
         else await wait('delegated', issue(children.stop.issue));
@@ -125,7 +158,7 @@ export class CopyLiveSetupAbortService {
       // boundary. An attempted original deposit/return is ledger-read only.
       for (const op of children.funding) {
         if (op.setupAbortId === row.id) continue;
-        if (op.direction !== 'to_account' || op.network !== row.network || op.strategyId !== row.strategyId) { await wait('blocked', 'setup_abort_binding_unknown'); return; }
+        if (op.direction !== 'to_account' || op.network !== row.network || op.strategyId !== row.strategyId) { await stop('setup_abort_binding_unknown'); return; }
         if (!op.attemptedAt && ['prepared','unknown'].includes(op.status)) await this.fundingRows.cancel(row.userId, op.id);
         else if (op.attemptedAt && ['unknown','accepted'].includes(op.status)) await this.funding.reconcile(row.userId, op.id).catch(this.kept(row.id, 'funding', op.id));
       }
@@ -146,7 +179,7 @@ export class CopyLiveSetupAbortService {
       }
       if (children.otherFunding.length) { await wait('draining', 'setup_abort_child_pending'); return; }
       const deposit = children.funding.find(op => op.id === row!.fundingOperationId);
-      if (!row.accountId || !row.accountAddress || !deposit) { await wait('blocked', 'setup_abort_binding_unknown'); return; }
+      if (!row.accountId || !row.accountAddress || !deposit) { await stop('setup_abort_binding_unknown'); return; }
       // The deposit sent but not confirmed (its credit needs the explorer):
       // settled for the refund once the account's own state shows it (its
       // ledger, or its balance), or once its nonce can no longer execute.
@@ -165,7 +198,7 @@ export class CopyLiveSetupAbortService {
         // account is needed to complete below. Unknown still waits.
         if (refund.status === 'unknown' || refund.status === 'prepared') { await wait('returning', 'setup_abort_refund_pending'); return; }
       }
-      if (refund && ['rejected','cancelled'].includes(refund.status)) { await wait('blocked', 'setup_abort_refund_not_completed'); return; }
+      if (refund && ['rejected','cancelled'].includes(refund.status)) { await stop('setup_abort_refund_not_completed'); return; }
       // Pay local attempt weight before the evidence clock. The global
       // transport still rechecks its own quota and this <=5s proof at POST.
       await this.exchange.acquire();
@@ -173,10 +206,10 @@ export class CopyLiveSetupAbortService {
       if (!originalPrepared) {
         const reservationProof = await this.observer.observeSetupAbortFlat(row.accountAddress);
         if (await this.refunds.complete(row, reservationProof, this.now)) return;
-        if (refund?.status === 'credited') { await wait('blocked', 'setup_abort_residual_balance'); return; }
-        if (!this.available) { await wait('blocked', 'setup_abort_unavailable'); return; }
+        if (refund?.status === 'credited') { await stop('setup_abort_residual_balance'); return; }
+        if (!this.available) { await stop('setup_abort_unavailable'); return; }
         refund = await this.refunds.reserve(row, reservationProof, this.now);
-      } else if (!this.available) { await wait('blocked', 'setup_abort_unavailable'); return; }
+      } else if (!this.available) { await stop('setup_abort_unavailable'); return; }
       if (!refund) { await wait('draining', 'setup_abort_child_pending'); return; }
       row = await this.repository.find(row.userId, row.id);
       if (refund.status !== 'prepared') { await wait('returning', 'setup_abort_refund_pending'); return; }
@@ -222,9 +255,11 @@ export class CopyLiveSetupAbortService {
       row = await this.repository.find(row.userId, row.id);
       await wait('returning', 'setup_abort_refund_pending', retryMs);
     } catch (error) {
-      const code = error instanceof ConflictException ? error.getResponse() : null;
-      const reason = code && typeof code === 'object' && 'code' in code && typeof code.code === 'string' ? issue(code.code) : null;
-      await wait('blocked', reason ?? 'setup_abort_evidence_unavailable');
+      // The error's own code (a refusal, a boundary, a budget wait), else the
+      // evidence was not had: classified, so only a permanent or the owner's
+      // own issue blocks; a stale or failed read waits and backs off.
+      const classified = classify(error);
+      await settle(classified, (classified.source === 'unknown' || classified.source === 'message' ? null : issue(classified.code)) ?? EVIDENCE_UNAVAILABLE);
       this.logger.warn(`setup abort ${row.id} kept for recovery ${JSON.stringify(errorLogFields(error))}`);
     } finally { await this.repository.release(originalLease); }
   }

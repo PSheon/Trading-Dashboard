@@ -2088,6 +2088,10 @@ export const copyLiveSetupAborts = pgTable("copy_live_setup_aborts", {
   generationDigest: text("generation_digest"),
   issue: text("issue"), proofDigest: text("proof_digest"), proofReadAt: timestamp("proof_read_at", { withTimezone: true }),
   revision: integer("revision").notNull().default(1), nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+  /** A pass that failed and waits (a transient or budget error, error-class):
+   * consecutive failures and when to look again (epoch ms), as a funding
+   * row's scan_state.backoff. Bookkeeping only; cleared once a pass moves on. */
+  backoff: jsonb("backoff").$type<{ failures: number; nextAt: number }>(),
   leaseToken: text("lease_token"), leaseUntil: timestamp("lease_until", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [

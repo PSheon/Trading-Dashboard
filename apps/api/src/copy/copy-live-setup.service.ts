@@ -9,7 +9,7 @@ import { AppConfig } from '../config/app-config.js';
 import { BackgroundJobs } from '../runtime/background-jobs.service.js';
 import { outsideRequest } from '../runtime/request-context.js';
 import { UnitOfWork, type DbExecutor, type DbTransaction } from '../db/unit-of-work.js';
-import { ATTEMPT_WEIGHT, CopyAccountModeService } from './copy-account-mode.service.js';
+import { ATTEMPT_STEP_REST_WEIGHT, CopyAccountModeService } from './copy-account-mode.service.js';
 import type { HyperliquidMeterComposition } from '../hyperliquid/hyperliquid-global-quota.js';
 import { ACCOUNT_MODE_OBSERVE_WEIGHT } from './live/privy-account-mode-client.js';
 import { HyperliquidBudgetWait, SHARED_CAPACITY_MIN_RETRY_MS, sharedCapacityWait } from '../hyperliquid/hyperliquid-budget-wait.js';
@@ -80,12 +80,13 @@ export interface SetupRestCapacity {
 export const SETUP_CLAIM_RENEW_MS = 20_000;
 /** A setup's claim waits are logged with the meter's composition at most this often. */
 export const SETUP_CLAIM_LOG_EVERY_MS = 5_000;
-/** A throttled step's provider weight in its minute, claimed before it runs:
- * the account-mode attempt (its two preflights and the POST; an operation
- * in flight is only observed, ACCOUNT_MODE_OBSERVE_WEIGHT), the agent's
- * observation and approval, the builder fee's read and approval (0: no
- * builder fee, nothing sent). */
-const ACCOUNT_MODE_STEP_WEIGHT = ATTEMPT_WEIGHT;
+/** A throttled step's charges on the shared meter, claimed before it runs:
+ * the account-mode attempt (its two preflights, the POST and the
+ * observation after it, ATTEMPT_STEP_REST_WEIGHT; an operation in flight is
+ * only observed, ACCOUNT_MODE_OBSERVE_WEIGHT), the agent's observation and
+ * approval, the builder fee's read and approval (0: no builder fee, nothing
+ * sent). */
+const ACCOUNT_MODE_STEP_WEIGHT = ATTEMPT_STEP_REST_WEIGHT;
 const AGENT_STEP_WEIGHT = AGENT_OBSERVE_WEIGHT + 1;
 const BUILDER_STEP_WEIGHT = infoWeight({ type: 'maxBuilderFee' }) + 1;
 /** Stages a confirmed start reaches after its deposit's credit: the copy is

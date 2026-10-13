@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { WALLET_NETWORKS, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { Dec } from '../common/decimal/dec.js';
 import { readInfoJson } from '../hyperliquid/response-validation.js';
+import { infoWeight } from '../hyperliquid/info-weights.js';
 import { safeErrorText } from '../runtime/safe-error-text.js';
 import { extraAgentsSchema } from '../hyperliquid/info-schemas.js';
 import { HyperliquidAllDexsAccountSource, type LiveAllDexsAccountEvidence, type LiveAllDexsAccountSource } from './live/live-account-ws-source.js';
@@ -28,6 +29,10 @@ function fresh(at: number, now: number) { if (!Number.isSafeInteger(at) || at <=
  * 2, extraAgents 20, the all-venue WS read 40 (local scheduling only), and
  * the final perpDexs 20. */
 export const ACCOUNT_MODE_ABSENCE_WEIGHT = 102;
+/** What one absence proof charges the shared per-IP REST meter: its first
+ * batch (perpDexs, spotClearinghouseState, extraAgents) and the final
+ * perpDexs (62). The all-venue read is socket units, another meter's. */
+export const ACCOUNT_MODE_ABSENCE_REST_WEIGHT = 2 * infoWeight({ type: 'perpDexs' }) + infoWeight({ type: 'spotClearinghouseState' }) + infoWeight({ type: 'extraAgents' });
 /** The shared all-venue source serves one read at a time, at most one a second. */
 const SOURCE_SPACING_MS = 1_000;
 

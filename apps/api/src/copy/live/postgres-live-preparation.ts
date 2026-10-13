@@ -98,7 +98,8 @@ export class PostgresLivePreparation {
       const [row] = await this.checked(session, db.select().from(copyLiveExecutions).where(eq(copyLiveExecutions.key, key)));
       if (!row) return null;
       const [provenance] = await this.checked(session, db.select().from(copyLiveIntentProvenance).where(eq(copyLiveIntentProvenance.key, key)));
-      riskSourceRequire(provenance && provenance.mandateId === binding.mandateId && provenance.legId === liveSourceLegId(binding.mandateId, binding.sourceFillId, binding.leg), 'live_preparation_conflict');
+      riskSourceRequire(provenance && provenance.mandateId === binding.mandateId && provenance.legId === liveSourceLegId(binding.mandateId, binding.sourceFillId, binding.leg) &&
+        provenance.attempt === attempt, 'live_preparation_conflict');
       const intent = structuredClone(provenance.intent) as unknown as LiveOrderIntent, record = decodeLiveExecutionRow(row);
       riskSourceRequire(executionKey(intent) === key && record.fingerprint === intentFingerprint(intent, buildOrderAction(intent)) && record.fingerprint === provenance.fingerprint, 'live_preparation_conflict');
       await session.scope.assertHeld();
@@ -392,7 +393,7 @@ export class PostgresLivePreparation {
           ? and(eq(copyLiveSignalLegs.state, 'skipped'), eq(copyLiveSignalLegs.executionKey, previousKey)) : eq(copyLiveSignalLegs.state, 'planned'))).returning({ id: copyLiveSignalLegs.id })));
       const provenanceWork = sent(this.checked(session, tx.insert(copyLiveIntentProvenance).values({ key, legId, mandateId: binding.mandateId, mandateRevision: current.mandate.revision, sourceDigest: source.fill.sourceDigest,
         settingsDigest: current.consent.settingsDigest, fingerprint, plannerVersion: 1, intent: intent as unknown as Record<string, unknown>, sizingBasis: sizing as unknown as Record<string, unknown>,
-        sizingBasisDigest: riskSourceDigest(sizing), admittedAt: new Date(now) })));
+        sizingBasisDigest: riskSourceDigest(sizing), admittedAt: new Date(now), attempt })));
       await journalWork;
       if (baselineWork) await baselineWork;
       riskSourceRequire((await claimWork).length === 1, 'live_preparation_claim_conflict');

@@ -83,6 +83,17 @@ describe('local expiry recovery for actual orders with no submission',()=>{
   if(kind==='future_event')await db.update(copyWalletAuthorizationEvents).set({createdAt:new Date(clock+1)});if(kind==='future_revoke')await db.update(copyWalletAuthorizations).set({revokedAt:new Date(clock+1)});if(kind==='before_original')await db.update(copyWalletAuthorizations).set({revokedAt:new Date(now-1)});if(kind==='changed_scopes')await db.update(copyWalletAuthorizations).set({scopes:['copy:reduce']});if(kind==='changed_validity')await db.update(copyWalletAuthorizations).set({validFrom:new Date(now)});
   const before=await financialRows();await expect(release()).rejects.toThrow();expect(await financialRows()).toEqual(before);
  });
+ it('keeps the provenance row as before 0082 (no attempt) in a certificate and the manifest, so a certificate issued before the column still verifies',async()=>{
+  // The provenance columns a certificate issued before 0082 holds (every one but the sizing envelope).
+  const before0082=['admittedAt','fingerprint','intent','key','legId','mandateId','mandateRevision','plannerVersion','settingsDigest','sizingBasisDigest','sourceDigest'];
+  expect((await db.select().from(copyLiveIntentProvenance)).map(p=>p.attempt)).toEqual([0]);
+  const cert=await release();expect(Object.keys(cert.original.provenance!).sort()).toEqual(before0082);
+  const after=await scope.run(identity(),(_s,session)=>manifest(session));
+  expect(Object.keys(after.journals[0]!.provenance!).filter(k=>k!=='sizingCarryWitness').sort()).toEqual(before0082);
+  expect(project(after).positions).toEqual({});
+  // The retained certificate replays unchanged after the column exists.
+  expect(await release(2)).toEqual(cert);
+ });
  it('unblocks generation only after independently verified local zero-effect certificate',async()=>{const before=await scope.run(identity(),(_s,session)=>manifest(session));expect(()=>project(before)).toThrow('live_generation_unproven');await release();const after=await scope.run(identity(),(_s,session)=>manifest(session));expect(project(after).positions).toEqual({});const bad=structuredClone(after);(bad.journals[0]!.journal.record as any).unattemptedRelease.checkedAt=prepared.record.expiresAfter;expect(()=>project(bad)).toThrow('live_generation_unproven');});
  it('denies a genuine oversized source witness before writing an unreadable terminal journal',async()=>{await setup('x'.repeat(20000));const before=await financialRows();await expect(release()).rejects.toThrow();expect(await financialRows()).toEqual(before);});
  it.each(['grant_version','grant_scopes','grant_valid_from','grant_expiry','setup_wallet','setup_agent','setup_owner','setup_worker','setup_policy','setup_policy_digest','owner_address'] as const)('rejects historical immutable binding drift: %s',async(field)=>{

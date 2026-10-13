@@ -17,8 +17,10 @@ import { freezeLiveReservation } from './live-risk-reservation.js';
 import type { LiveExecutionRecord } from './live-execution.js';
 const canonical=<T>(value:unknown):T=>JSON.parse(JSON.stringify(value)) as T;
 // Every provenance column but the sizing envelope itself (up to 2 MiB a row):
-// the manifest names it by its digest (sizing_basis_digest).
-const {sizingBasis:_sizingBasis,...provenanceColumns}=getTableColumns(copyLiveIntentProvenance);
+// the manifest names it by its digest (sizing_basis_digest). Nor the attempt
+// (0082): an unattempted-release certificate mirrors this row exactly, and one
+// issued before the column existed has none (LiveGenerationProvenanceV1).
+const {sizingBasis:_sizingBasis,attempt:_attempt,...provenanceColumns}=getTableColumns(copyLiveIntentProvenance);
 /** Existing generation only. Initial empty baselines belong to the atomic
  * preparation coordinator. All quantities come from the original SQL session. */
 export async function loadLiveGenerationManifest(session:LiveRiskDatabaseSession,db:DbExecutor,authority:LivePreparationAuthority,raw:{currentExecutionKey:string;now:number}):Promise<LiveGenerationManifestV1> {

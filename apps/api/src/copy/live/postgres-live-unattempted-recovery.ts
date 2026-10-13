@@ -69,7 +69,8 @@ export class PostgresLiveUnattemptedRecovery {
   const [carry]=await this.query(session,tx.select().from(copyLiveReductionCarry).where(and(eq(copyLiveReductionCarry.mandateId,m.id),eq(copyLiveReductionCarry.coin,fill.coin))).for('update'));check(carry);
   const evidence=await this.query(session,tx.select().from(copyLiveExecutionEvidence).where(eq(copyLiveExecutionEvidence.key,input.key)).limit(1));check(evidence.length===0);
   const receipts=await this.query(session,tx.select({key:copyFollowerReceipts.key}).from(copyFollowerReceipts).where(or(eq(copyFollowerReceipts.executionKey,input.key),and(eq(copyFollowerReceipts.accountId,account.id),or(sql`${copyFollowerReceipts.record}->>'cloid' = ${journal.cloid}`,sql`${copyFollowerReceipts.record}->'raw'->>'cloid' = ${journal.cloid}`)))).limit(1));check(receipts.length===0);
-  const {sizingBasis,...provenance}=p;
+  // Never the attempt column (LiveGenerationProvenanceV1): the certificate keeps the row as the manifest reads it.
+  const {sizingBasis,attempt:_attempt,...provenance}=p;
   const entry:LiveGenerationJournalV1=canonical({journal,provenance:{...provenance,sizingBasisDigest:liveSourceDigest(sizingBasis)},leg,fill:fillRow,reservation:r,evidence:null});
   const id:LiveGenerationProjectionIdentity={mandateId:m.id,mandateRevision:p.mandateRevision,accountId:account.id,userId:account.userId,strategyId:strategy.id,network:account.network,accountAddress:account.address!,authorizationId:consent.authorizationId,settingsDigest:consent.settingsDigest,leaderAddress:consent.leaderAddress,direction:settings.direction};
   const originalCarry=envelope.observations.generationManifest.carry.find(row=>row.mandateId===m.id&&row.coin===fill.coin);check(originalCarry);

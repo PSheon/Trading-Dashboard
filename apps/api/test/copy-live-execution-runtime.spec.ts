@@ -1,4 +1,6 @@
 import { generateKeyPairSync } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { Logger } from '@nestjs/common';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
@@ -1169,6 +1171,145 @@ describe('an order whose final check refused before its POST began (definite uns
     await expect(runtime(config, { ...options, slippageBps: '0' }).execute({ ...request(), attempt: MAX_LIVE_LEG_ATTEMPTS })).rejects.toThrow('live_runtime_request');
     expect((await db.select().from(schema.copyLiveExecutions)).map(j => j.key)).toEqual([first.key]);
   }, 20_000);
+  /** Attempt 0 released as never sent: the leg is ready for attempt 1. */
+  async function releasedFirst() {
+    const first = await unsentOrder();
+    await catchUp();
+    expect(await settle(first.key, new CopyLiveSettler('testnet', pool, global, budget, { runFor: async () => {} }, () => clock))).toEqual({ kind: 'unplaced', unsent: true });
+    raw.mockClear();
+    return first;
+  }
+  const exchangePosts = () => raw.mock.calls.filter(([url]) => String(url).endsWith('/exchange')).length;
+  /** Every row an order's preparation writes, to prove a refused one wrote none. */
+  const preparedRows = async () => ({ journals: await db.select().from(schema.copyLiveExecutions), provenance: await db.select().from(schema.copyLiveIntentProvenance),
+    legs: await db.select().from(schema.copyLiveSignalLegs), reservations: await db.select().from(schema.copyLiveRiskReservations) });
+  it('records each order\'s attempt in its provenance (0082), and the database admits one order per leg and attempt, below MAX_LIVE_LEG_ATTEMPTS', async () => {
+    const first = await releasedFirst();
+    const retried = await runtime(config, { ...options, slippageBps: '0' }).execute({ ...request(), attempt: 1 });
+    expect(retried.state).toBe('filled');
+    const rows = await db.select().from(schema.copyLiveIntentProvenance);
+    expect(Object.fromEntries(rows.map(p => [p.key, p.attempt]))).toEqual({ [first.key]: 0, [retried.key]: 1 });
+    // Whatever writes it: a second order of (leg, attempt) is refused, and an
+    // attempt outside 0 .. MAX_LIVE_LEG_ATTEMPTS - 1 is too.
+    const [journal] = await db.select().from(schema.copyLiveExecutions).where(eq(schema.copyLiveExecutions.key, retried.key));
+    const [provenance] = rows.filter(p => p.key === retried.key);
+    const refusal = async (attempt: number, omitAttempt = false) => {
+      const cloid = `0x${(attempt + 10).toString(16).padStart(2, '0').repeat(16)}`, key = `testnet:${journal!.accountAddress}:${cloid}`;
+      const error = await db.transaction(async tx => {
+        const nonce = journal!.nonce + 100 + attempt;
+        await tx.insert(schema.copyLiveExecutions).values({ ...journal!, key, cloid, nonce, record: { ...journal!.record, key, nonce } });
+        if (omitAttempt) {
+          // A process from before 0082 names no attempt: the column's default (0).
+          const { attempt: _attempt, ...old } = provenance!;
+          await tx.insert(schema.copyLiveIntentProvenance).values({ ...old, key });
+        } else await tx.insert(schema.copyLiveIntentProvenance).values({ ...provenance!, key, attempt });
+      }).then(() => null, (e: { cause?: { code?: string; constraint?: string } }) => e.cause);
+      expect(await db.select({ key: schema.copyLiveExecutions.key }).from(schema.copyLiveExecutions).where(eq(schema.copyLiveExecutions.key, key))).toEqual([]);
+      return error && { code: error.code, constraint: error.constraint };
+    };
+    expect(await refusal(1)).toEqual({ code: '23505', constraint: 'copy_live_provenance_leg_attempt_uq' });
+    expect(await refusal(0)).toEqual({ code: '23505', constraint: 'copy_live_provenance_leg_attempt_uq' });
+    expect(await refusal(0, true)).toEqual({ code: '23505', constraint: 'copy_live_provenance_leg_attempt_uq' });
+    expect(await refusal(MAX_LIVE_LEG_ATTEMPTS)).toEqual({ code: '23514', constraint: 'copy_live_provenance_attempt_check' });
+    expect(await refusal(-1)).toEqual({ code: '23514', constraint: 'copy_live_provenance_attempt_check' });
+    // An order whose provenance names another attempt than its cloid is not its own.
+    await db.update(schema.copyLiveIntentProvenance).set({ attempt: 2 }).where(eq(schema.copyLiveIntentProvenance.key, retried.key));
+    await expect(runtime(config, { ...options, slippageBps: '0' }).execute({ ...request(), attempt: 1 })).rejects.toThrow('live_runtime_historical_identity');
+  }, 20_000);
+  it('migration 0082 gives a later attempt admitted before it (0081) its attempt, every other row 0', async () => {
+    const first = await releasedFirst();
+    const retried = await runtime(config, { ...options, slippageBps: '0' }).execute({ ...request(), attempt: 1 });
+    const statements = readFileSync(fileURLToPath(new URL('../../../packages/shared/drizzle/0082_copy_live_provenance_attempt.sql', import.meta.url)), 'utf8')
+      .split('--> statement-breakpoint').map(part => part.replace(/^\s*--.*$/gm, '').trim()).filter(Boolean);
+    class Rollback extends Error { constructor(readonly rows: { key: string; attempt: number }[]) { super('rollback'); } }
+    // Inside a transaction that is rolled back, so the schema stays 0082's.
+    const rows = await db.transaction(async tx => {
+      // The table as 0081 left it, with both orders admitted under it.
+      await tx.execute(sql.raw(`ALTER TABLE "copy_live_intent_provenance" DROP CONSTRAINT "copy_live_provenance_attempt_check";
+        DROP INDEX "copy_live_provenance_leg_attempt_uq"; ALTER TABLE "copy_live_intent_provenance" DROP COLUMN "attempt";`));
+      for (const statement of statements) await tx.execute(sql.raw(statement));
+      const { rows: after } = await tx.execute<{ key: string; attempt: number }>(sql`select key, attempt from copy_live_intent_provenance order by key`);
+      throw new Rollback(after);
+    }).then(() => null, (error: unknown) => { if (error instanceof Rollback) return error.rows; throw error; });
+    expect(Object.fromEntries(rows!.map(r => [r.key, r.attempt]))).toEqual({ [first.key]: 0, [retried.key]: 1 });
+    expect((await db.select().from(schema.copyLiveIntentProvenance)).map(p => p.attempt).sort()).toEqual([0, 1]);
+  }, 20_000);
+  it('two drivers minting the same attempt: one order, the other refused with no partial write, and the next pass does not send it again', async () => {
+    const first = await releasedFirst();
+    // Each driver its own pool (one connection each): they genuinely overlap.
+    const pools = [new Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 1 }), new Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 1 })];
+    try {
+      const driver = (p: Pool) => new LiveExecutionRuntime('testnet', p, config, global, budget, { ...options, slippageBps: '0' }, () => clock).execute({ ...request(), attempt: 1 });
+      const results = await Promise.allSettled(pools.map(driver));
+      const placed = results.filter(r => r.status === 'fulfilled').map(r => (r as PromiseFulfilledResult<Awaited<ReturnType<typeof driver>>>).value);
+      // The account's risk scope (exclusive advisory locks on the user and
+      // account, tried, never waited for) admits one driver at a time: the
+      // other is refused before it reads or writes anything (live_risk_busy),
+      // or, if it starts after the first finished, finds that order and
+      // reconciles it (the same key; nothing is signed or sent again).
+      for (const r of results) if (r.status === 'rejected') expect(String(r.reason)).toMatch(/live_risk_busy/);
+      expect(placed.length).toBeGreaterThanOrEqual(1);
+      expect(new Set(placed.map(r => r.key)).size).toBe(1);
+      expect(exchangePosts()).toBe(1);
+      const rows = await db.select().from(schema.copyLiveIntentProvenance);
+      expect(rows.map(p => ({ key: p.key, attempt: p.attempt })).sort((a, b) => a.attempt - b.attempt)).toEqual([{ key: first.key, attempt: 0 }, { key: placed[0]!.key, attempt: 1 }]);
+      // The next pass: the same attempt is the same order (reconciled, never re-sent).
+      raw.mockClear();
+      expect((await runtime(config, { ...options, slippageBps: '0' }).execute({ ...request(), attempt: 1 })).key).toBe(placed[0]!.key);
+      expect(exchangePosts()).toBe(0);
+    } finally { await Promise.all(pools.map(p => p.end())); }
+  }, 30_000);
+  it('a driver that read attempt 0 as released while another minted attempt 1 fails at the database and rolls back, nothing sent', async () => {
+    const first = await releasedFirst();
+    // Another driver, past every lock and the leg row's CAS (it never moves the
+    // leg), mints an attempt-1 order of this leg under its own key in a
+    // transaction this driver cannot see yet.
+    const [journal] = await db.select().from(schema.copyLiveExecutions), [provenance] = await db.select().from(schema.copyLiveIntentProvenance);
+    const cloid = `0x${'ab'.repeat(16)}`, otherKey = `testnet:${journal!.accountAddress}:${cloid}`, nonce = journal!.nonce - 1000;
+    const otherPool = new Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 1 }), other = await otherPool.connect();
+    try {
+      await other.query('begin');
+      const tx = drizzle(other, { schema });
+      await tx.insert(schema.copyLiveExecutions).values({ ...journal!, key: otherKey, cloid, nonce, record: { ...journal!.record, key: otherKey, nonce } });
+      await tx.insert(schema.copyLiveIntentProvenance).values({ ...provenance!, key: otherKey, attempt: 1 });
+      // This driver: attempt 0 released and the leg naming it, all true in its
+      // snapshot. Its journal transaction waits at the leg row (the other's
+      // provenance foreign key holds it FOR KEY SHARE), then reads the leg
+      // still naming attempt 0 (the other never moved it): only the (leg,
+      // attempt) uniqueness stands between it and a second attempt-1 order.
+      let settled = false, waited = false;
+      const driver = runtime(config, { ...options, slippageBps: '0' }).execute({ ...request(), attempt: 1 }).then(
+        value => ({ value }), (error: unknown) => ({ error })).finally(() => { settled = true; });
+      for (let i = 0; i < 100 && !settled; i++) {
+        const { rows } = await db.execute<{ waiting: number }>(sql`select count(*)::int as waiting from pg_stat_activity
+          where datname = current_database() and wait_event_type = 'Lock' and query ilike 'select %from "copy_live_signal_legs"%for update'`);
+        if (rows[0]!.waiting > 0) { waited = true; break; }
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      await other.query('commit');
+      // It waited for the other to commit, then failed: the unique violation
+      // aborts its journal transaction, and the scope's lock check pipelined
+      // behind the insert reports the aborted session (never committed).
+      expect(waited).toBe(true);
+      const outcome = await driver;
+      expect(outcome).toHaveProperty('error');
+      const error = (outcome as { error: unknown }).error;
+      expect(error).toBeInstanceOf(LiveBoundaryError);
+      expect((error as LiveBoundaryError).message).toBe('live_risk_serialization_lost');
+    } finally { other.release(); await otherPool.end(); }
+    // Its whole journal transaction rolled back: no journal, leg move, provenance or hold of its own.
+    const after = await preparedRows();
+    expect(after.journals.map(j => j.key).sort()).toEqual([first.key, otherKey].sort());
+    expect(after.provenance.map(p => [p.key, p.attempt]).sort()).toEqual([[first.key, 0], [otherKey, 1]].sort());
+    expect(after.legs[0]).toMatchObject({ state: 'skipped', executionKey: first.key });
+    expect(after.reservations.map(r => r.key)).toEqual([first.key]);
+    expect(raw.mock.calls.some(([url]) => String(url).endsWith('/exchange') || String(url).endsWith('/rpc'))).toBe(false);
+    // The next pass is refused before any write (the other order is no proven
+    // order of this generation), never half-written, nothing sent.
+    await expect(runtime(config, { ...options, slippageBps: '0' }).execute({ ...request(), attempt: 1 })).rejects.toThrow();
+    expect(await preparedRows()).toEqual(after);
+    expect(raw.mock.calls.some(([url]) => String(url).endsWith('/exchange') || String(url).endsWith('/rpc'))).toBe(false);
+  }, 30_000);
   it('keeps the generation proof after a retried leg: two released attempts, then the third proven and placed', async () => {
     const first = await unsentOrder();
     await catchUp();

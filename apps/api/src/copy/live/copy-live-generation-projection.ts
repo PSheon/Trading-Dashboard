@@ -45,7 +45,11 @@ export type LiveSettlementProofs = Readonly<Record<string, unknown>>;
 
 /** SQL rows are canonically JSON-encoded before storing the provenance envelope. */
 export type LiveGenerationSqlRow<T> = { readonly [K in keyof T]: T[K] extends Date ? string : T[K] extends Date | null ? string | null : T[K] };
-export type LiveGenerationProvenanceV1 = Omit<LiveGenerationSqlRow<typeof copyLiveIntentProvenance.$inferSelect>, 'sizingBasis'> & {
+/** Never the attempt column (0082): every unattempted-release certificate
+ * keeps the provenance row as it was read, and those issued before the column
+ * existed must keep mirroring the row exactly. The attempt is the cloid's
+ * (copy-live-leg-attempt.ts), which the journal key already carries. */
+export type LiveGenerationProvenanceV1 = Omit<LiveGenerationSqlRow<typeof copyLiveIntentProvenance.$inferSelect>, 'sizingBasis' | 'attempt'> & {
   readonly sizingBasisDigest: string;
   /** Original scoped SQL producer derives this only after decoding and replaying
    * the retained full sizing envelope. It is never an HTTP admission input. */

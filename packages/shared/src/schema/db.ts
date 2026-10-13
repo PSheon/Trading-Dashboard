@@ -66,6 +66,7 @@ import {
   pgTable,
   primaryKey,
   serial,
+  smallint,
   text,
   timestamp,
   uniqueIndex,
@@ -1841,6 +1842,10 @@ export const copyLiveIntentProvenance = pgTable("copy_live_intent_provenance", {
    * names each order's sizing basis by this digest without reading the
    * envelope. Null on rows admitted before it (the reader computes those). */
   sizingBasisDigest: text("sizing_basis_digest"),
+  /** Which order of the leg this is (apps/api copy-live-leg-attempt.ts): 0 for
+   * its original order, k > 0 only after attempt k - 1 was released as never
+   * sent. 0 on rows admitted before the column (always the original order). */
+  attempt: smallint("attempt").notNull().default(0),
 }, (t) => [
   foreignKey({ columns: [t.legId, t.mandateId], foreignColumns: [copyLiveSignalLegs.id, copyLiveSignalLegs.mandateId] }).onDelete("restrict"),
   // One provenance per order (key). A leg has one per attempt: its later
@@ -1848,6 +1853,12 @@ export const copyLiveIntentProvenance = pgTable("copy_live_intent_provenance", {
   // only after the previous one was released as never sent; each key is one
   // of the leg's derived cloids, and the leg row names the current one.
   index("copy_live_provenance_leg_idx").on(t.legId), index("copy_live_provenance_admission_idx").on(t.mandateId, t.admittedAt),
+  // At most one order per (leg, attempt), whatever the caller: two preparations
+  // of the same attempt cannot both commit.
+  uniqueIndex("copy_live_provenance_leg_attempt_uq").on(t.legId, t.attempt),
+  // The bound is MAX_LIVE_LEG_ATTEMPTS (apps/api/src/copy/live/copy-live-leg-attempt.ts);
+  // copy-live-leg-attempt.spec.ts keeps the two equal.
+  check("copy_live_provenance_attempt_check", sql`${t.attempt} >= 0 and ${t.attempt} < 3`),
   check("copy_live_provenance_evidence_check", sql`${t.mandateRevision} > 0 and ${t.plannerVersion} = 1 and ${t.sourceDigest} ~ '^[0-9a-f]{64}$' and ${t.settingsDigest} ~ '^[0-9a-f]{64}$' and ${t.fingerprint} ~ '^[0-9a-f]{64}$' and jsonb_typeof(${t.intent}) = 'object' and jsonb_typeof(${t.sizingBasis}) = 'object' and extract(epoch from ${t.admittedAt}) > 0`),
   check("copy_live_provenance_basis_digest_check", sql`${t.sizingBasisDigest} is null or ${t.sizingBasisDigest} ~ '^[0-9a-f]{64}$'`),
 ]);

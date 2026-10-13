@@ -73,6 +73,22 @@ describe('/admin/copy/live — testnet copy operations (B16) and latency (B18)',
     await as('admin-token').get('/admin/copy/live/orders?state=bogus').expect(400);
   });
 
+  it('a sent transfer not yet credited says since when it awaits its credit, and since when its explorer is unreachable', async () => {
+    const sent = now - 14 * 60_000, failing = now - 13 * 60_000;
+    const transfer = (id: string, key: string, status: 'accepted' | 'credited', scanState: Record<string, unknown> | null) => ({ id, userId: 1, accountId: 'account', strategyId: 9, idempotencyKey: key, network: 'testnet' as const,
+      address: `0x${'55'.repeat(20)}`, destination: seed.f.identity.accountAddress, amount: '50', nonce: status === 'credited' ? sent - 1 : sent, status, claimedAt: new Date(sent), attemptedAt: new Date(sent), scanState,
+      evidenceHash: 'a'.repeat(64), ...(status === 'credited' ? { transactionHash: `0x${'b'.repeat(64)}`, creditedAmount: '50', fee: '0' } : {}), createdAt: new Date(sent) });
+    const pending = { version: 1, windows: [], receipts: [], pendingDetails: [{ hash: `0x${'c'.repeat(64)}`, ledger: [{ hash: `0x${'c'.repeat(64)}`, time: sent, delta: { type: 'internalTransfer', user: null, destination: null, usdc: '50', fee: '0' } }] }],
+      backoff: { failures: 9, nextAt: now + 60_000 }, explorerFailingSince: failing };
+    await db.insert(copyFundingOperations).values([transfer('44444444-4444-4444-8444-444444444444', 'admin-fund-pending', 'accepted', pending),
+      transfer('55555555-5555-4555-8555-555555555555', 'admin-fund-credited', 'credited', null)]);
+    const transfers = adminLiveTransfersSchema.parse((await as(READ_ONLY).get('/admin/copy/live/transfers').expect(200)).body.data);
+    expect(Object.fromEntries(transfers.items.map(t => [t.id, [t.awaitingCreditSince, t.explorerFailingSince]]))).toMatchObject({
+      '44444444-4444-4444-8444-444444444444': [new Date(sent).toISOString(), new Date(failing).toISOString()],
+      '55555555-5555-4555-8555-555555555555': [null, null],
+    });
+  });
+
   it('tells an order whose request never began from one not found after the never-placed grace', async () => {
     const rejected = (key: string, nonce: number, outcome: Record<string, unknown>, extra: Record<string, unknown>) => {
       const row = execution(key, 'rejected', nonce);

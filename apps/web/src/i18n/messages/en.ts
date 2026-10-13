@@ -680,6 +680,8 @@ export const en: Messages = {
         amount: "Amount",
         status: "Status",
         time: "Time",
+        awaitingCreditSince: "Awaiting credit since {date}",
+        explorerFailingSince: "Explorer unreachable since {date}",
       },
       orders: {
         title: "Orders",

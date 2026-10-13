@@ -19,6 +19,7 @@ import { CopyWalletService } from "./copy-wallet.service.js";
 import { CopyFundingRepository, type FundingRow, type FundingSender } from "./copy-funding.repository.js";
 import { CopyFundingExchangeClient } from "./copy-funding-exchange.client.js";
 import { fundingCreditEvidence, fundingOtherOperation } from "./copy-funding-evidence.js";
+import { classify } from "./live/error-class.js";
 import { FUNDING_NONCE_SKEW_MS, FUNDING_NONCE_EXPIRY_MS, fundingBackoffMs, fundingScanSchema, fundingDetailBatch, type FundingScan } from "./copy-funding-scan.js";
 
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -295,7 +296,7 @@ export class CopyFundingService {
         while (scan.pendingDetails?.length) {
           const pending = scan.pendingDetails[0]!;
           const details = await read(() => this.exchange.txDetails(operation.network, pending.hash));
-          delete scan.backoff;
+          delete scan.backoff; delete scan.explorerFailingSince;
           const proof = fundingCreditEvidence(operation, pending.hash, details, pending.ledger);
           if (proof && !scan.receipts.some((receipt) => digest(receipt) === digest(proof)) && scan.receipts.length < 2) scan.receipts.push(proof);
           // Its details prove another operation between the same accounts
@@ -329,10 +330,12 @@ export class CopyFundingService {
   }
   /** A failed read's backoff (fundingBackoffMs), kept on the row without a
    * new scan revision: one more failure, the next background pass due after
-   * it. Bookkeeping only, so its own failure never hides the read's. */
+   * it, and since when the explorer has been unreachable (an outage's first
+   * failure). Bookkeeping only, so its own failure never hides the read's. */
   private async backoff(current: FundingRow, scan: FundingScan, error: unknown) {
-    const failures = (scan.backoff?.failures ?? 0) + 1, nextAt = Date.now() + fundingBackoffMs(failures);
-    try { await this.repository.saveBackoff(current, { ...structuredClone(scan), backoff: { failures, nextAt } }); }
+    const now = Date.now(), failures = (scan.backoff?.failures ?? 0) + 1, nextAt = now + fundingBackoffMs(failures);
+    const explorerFailingSince = classify(error).code === "funding_explorer_unreachable" ? scan.explorerFailingSince ?? now : scan.explorerFailingSince;
+    try { await this.repository.saveBackoff(current, { ...structuredClone(scan), backoff: { failures, nextAt }, ...(explorerFailingSince !== undefined ? { explorerFailingSince } : {}) }); }
     catch (saveError) { this.logger.warn(`transfer ${current.id} backoff not kept (${safeErrorText(saveError)}) after: ${safeErrorText(error)}`); }
   }
 }

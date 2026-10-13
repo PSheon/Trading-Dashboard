@@ -430,11 +430,28 @@ describe("a confirmation whose explorer can't be reached (backoff per row)", () 
     vi.spyOn(repository, "claimPending").mockResolvedValueOnce([await repository.find(userId, op.id)]);
     expect(await restarted.reconcilePending()).toBe(1);
     expect(exchange.txDetails).toHaveBeenCalledTimes(1);
-    // Due: read again (failing again: one more failure).
+    // Due (well past, whatever the database's clock): read again, failing again: one more failure.
     const scan = (await scanOf(op.id))!;
-    await db.update(copyFundingOperations).set({ scanState: { ...scan, backoff: { failures: 1, nextAt: Date.now() - 1 } } }).where(eq(copyFundingOperations.id, op.id));
+    await db.update(copyFundingOperations).set({ scanState: { ...scan, backoff: { failures: 1, nextAt: Date.now() - 60_000 } } }).where(eq(copyFundingOperations.id, op.id));
     expect(await restarted.reconcilePending()).toBe(1);
     expect(exchange.txDetails).toHaveBeenCalledTimes(2);
     expect(await scanOf(op.id)).toMatchObject({ backoff: { failures: 2 } });
+  });
+  it("records on the row since when its explorer reads have failed: the outage's first, kept through other failures, gone once the explorer answers", async () => {
+    const op = await attempted(); receipt(op);
+    const first = Date.now(), clock = vi.spyOn(Date, "now").mockReturnValue(first);
+    exchange.txDetails.mockRejectedValue(unreachable());
+    await expect(service.reconcile(userId, op.id)).rejects.toThrow();
+    clock.mockReturnValue(first + 60_000);
+    await expect(service.reconcile(userId, op.id)).rejects.toThrow();
+    // A budget refusal is no answer: the outage stands.
+    exchange.txDetails.mockRejectedValueOnce(new Error("live_budget_wait"));
+    clock.mockReturnValue(first + 120_000);
+    await expect(service.reconcile(userId, op.id)).rejects.toThrow();
+    clock.mockRestore();
+    expect(await scanOf(op.id)).toMatchObject({ explorerFailingSince: first, backoff: { failures: 3 } });
+    receipt(op);
+    expect((await service.reconcile(userId, op.id)).status).toBe("credited");
+    expect(await scanOf(op.id)).not.toHaveProperty("explorerFailingSince");
   });
 });

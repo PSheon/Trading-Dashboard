@@ -7,6 +7,7 @@ import { readInfoJson } from "../hyperliquid/response-validation.js";
 import {HyperliquidGlobalTransport} from '../hyperliquid/hyperliquid-global-transport.js';
 import {LiveBoundaryError} from './live/wallet-authorization.js';
 import { networkUnreachable } from './live/error-class.js';
+import { explorerHealth } from './explorer-health.js';
 import type { FundingRow } from "./copy-funding.repository.js";
 
 /** Process-local evidence only. Never infer dispatch from a serialized code,
@@ -124,12 +125,15 @@ export class CopyFundingExchangeClient {
   /** A transfer's details from the explorer. An explorer that can't be
    * reached (DNS, connect, timeout) rejects with
    * `funding_explorer_unreachable` (a budget wait, live/error-class.ts):
-   * the caller backs off, never counts it as an attempt. */
+   * the caller backs off, never counts it as an attempt. Either outcome
+   * moves the process's explorer gauge (explorerHealth, the heartbeat's). */
   txDetails(network: FundingRow["network"], hash: string): Promise<unknown> {
     if (!/^0x[0-9a-f]{64}$/.test(hash)) throw new Error("Invalid funding evidence");
     const url = network === "mainnet" ? "https://rpc.hyperliquid.xyz/explorer" : "https://rpc.hyperliquid-testnet.xyz/explorer";
-    return this.read(url, { type: "txDetails", hash }, 40, true).catch((error: unknown) => {
-      throw networkUnreachable(error) ? new LiveBoundaryError("funding_explorer_unreachable") : error;
+    return this.read(url, { type: "txDetails", hash }, 40, true).then((details) => { explorerHealth.reachable(); return details; }, (error: unknown) => {
+      if (!networkUnreachable(error)) throw error;
+      explorerHealth.unreachable();
+      throw new LiveBoundaryError("funding_explorer_unreachable");
     });
   }
 }

@@ -138,3 +138,20 @@ it('labels an order whose request never began apart from one not found after the
     expect(labels).toEqual([['request_never_began', began], ['expired_after_grace', grace]]);
   }
 });
+
+it('shows how long a sent transfer has awaited its credit, and since when the explorer is unreachable', async () => {
+  const sent = '2026-10-04T09:46:00.000Z', failing = '2026-10-04T09:47:00.000Z';
+  const transfer = (id: string, awaitingCreditSince: string | null, explorerFailingSince: string | null) => ({ id, userId: 7, accountId: 'account', strategyId: 9, direction: 'to_account',
+    status: awaitingCreditSince ? 'accepted' : 'credited', amount: '50', source: addr('11'), destination: addr('55'), stopId: null, transactionHash: null, attemptedAt: sent, createdAt: sent, updatedAt: sent,
+    awaitingCreditSince, explorerFailingSince });
+  const base = state.get.getMockImplementation()!;
+  state.get.mockImplementation(async (path: string) => path === '/admin/copy/live/transfers'
+    ? { items: [transfer('44444444-4444-4444-8444-444444444444', sent, failing), transfer('55555555-5555-4555-8555-555555555555', null, null)] } : base(path));
+  for (const [locale, awaiting, unreachable] of [['en', 'Awaiting credit since', 'Explorer unreachable since'], ['zh-TW', '起等待入帳', '起無法連線區塊瀏覽器']] as const) {
+    await render(locale);
+    const since = [...document.querySelectorAll('[data-awaiting-credit-since]')], explorer = [...document.querySelectorAll('[data-explorer-failing-since]')];
+    expect(since.map(el => el.getAttribute('data-awaiting-credit-since'))).toEqual([sent]);
+    expect(explorer.map(el => el.getAttribute('data-explorer-failing-since'))).toEqual([failing]);
+    expect(since[0]!.textContent).toContain(awaiting); expect(explorer[0]!.textContent).toContain(unreachable);
+  }
+});

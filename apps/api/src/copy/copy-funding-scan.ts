@@ -40,6 +40,10 @@ export const fundingScanSchema = z.object({
    * (fundingBackoffMs). Bookkeeping only: written without a scan revision,
    * cleared by the next pass that reads anything. */
   backoff: z.object({ failures: z.number().int().positive().max(1_000_000), nextAt: time }).strict().optional(),
+  /** Since when this row's explorer reads have failed for the network
+   * (funding_explorer_unreachable) with none answering in between: kept
+   * with the backoff, cleared by the next detail the explorer answers. */
+  explorerFailingSince: time.optional(),
 }).strict();
 export type FundingScan = z.infer<typeof fundingScanSchema>;
 

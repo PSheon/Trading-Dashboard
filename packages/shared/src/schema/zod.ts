@@ -402,6 +402,12 @@ export const heartbeatResponseSchema = z.object({
    * read: the recent smallest (ours − theirs) in ms (positive: ours runs
    * ahead), and a warning above 1 s. Additive. */
   clockSkew: z.object({ aheadMs: z.number().nullable(), samples: z.number().int(), warning: z.boolean() }).optional(),
+  /** Whether this process reaches Hyperliquid's explorer (a deposit's
+   * credit is proven with its txDetails), and since when its reads have
+   * failed for the network (DNS, connect, timeout) without one answering;
+   * null while reachable. Additive. */
+  explorerReachable: z.boolean().optional(),
+  explorerFailingSince: z.coerce.date().nullable().optional(),
   /** Age of the discovery pool's stored performance figures: the rows the
    * boards and home rows show (`visible`) and the whole pool. Additive. */
   discovery: z.object({

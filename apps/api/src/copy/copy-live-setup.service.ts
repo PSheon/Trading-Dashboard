@@ -31,6 +31,7 @@ import { safeErrorText } from '../runtime/safe-error-text.js';
 import { WORKER_MASTER_SIGNER, type WorkerMasterSigner } from './live/privy-policy-master-signer.js';
 import { deploymentNetwork, liveExecutionEnabled } from './live-deployment.js';
 import { LeaderActivityService } from '../traders/leader-activity.service.js';
+import { explorerHealth } from './explorer-health.js';
 
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 /** The deposit a setup reserves, as a UUID derived from the setup and the
@@ -65,6 +66,11 @@ const WORKER_SIGNER_MISSING = 'Orbie needs to add its signer to run this copy. N
  * reached is not polled every pass (a local setup reached revision 12716 in
  * 14 h, 2026-10-12). Only the credit (the stage moving on) resets it. */
 export const AWAITING_CREDIT_MAX_WAIT_MS = 60_000;
+/** A setup awaiting its credit longer than this (since its confirm sent the
+ * deposit) logs `ALERT funding awaiting_credit`… */
+export const AWAITING_CREDIT_ALERT_AFTER_MS = 10 * 60_000;
+/** …at most once per this, per setup (lastWait.alertedAt: across restarts). */
+export const AWAITING_CREDIT_ALERT_EVERY_MS = 10 * 60_000;
 /** Failures that are the deadline passing (the setup ends `expired`). */
 const EXPIRED_ISSUES: readonly string[] = ['setup_expired', 'setup_deposit_uncredited'];
 /** A step can't go on yet (a lookup is pending, or a signature is due): a
@@ -698,13 +704,22 @@ export class CopyLiveSetupService {
    * each pass of this stage (AWAITING_CREDIT_MAX_WAIT_MS at most), counted
    * on the row (lastWait.waits) so a restart keeps it. Never an attempt. The
    * first wait sets the issue (a change: a new revision); every later one is
-   * bookkeeping only (defer: no revision, no updatedAt).
+   * bookkeeping only (defer: no revision, no updatedAt). Past
+   * AWAITING_CREDIT_ALERT_AFTER_MS since the confirm, an ALERT, rate-limited.
    */
   private async awaitCredit(row: SetupRow, now: number): Promise<SetupRow> {
     const prior = row.lastWait?.step === row.stage && row.lastWait.reason === 'awaiting_credit' ? row.lastWait : null;
     const waits = (prior?.waits ?? 0) + 1;
     const retryMs = Math.min(AWAITING_CREDIT_MAX_WAIT_MS, this.timings.retry.pendingMs * 2 ** Math.min(waits - 1, 16));
-    const lastWait: SetupWait = { at: new Date(now).toISOString(), step: row.stage, reason: 'awaiting_credit', retryMs, waits };
+    let alertedAt = prior?.alertedAt;
+    const since = row.confirmedAt?.getTime();
+    if (since !== undefined && now - since > AWAITING_CREDIT_ALERT_AFTER_MS && (!alertedAt || !(now - Date.parse(alertedAt) < AWAITING_CREDIT_ALERT_EVERY_MS))) {
+      alertedAt = new Date(now).toISOString();
+      const explorer = explorerHealth.status();
+      this.logger.error(`ALERT funding awaiting_credit ${JSON.stringify({ setupId: row.id, fundingOperationId: row.fundingOperationId, awaitingCreditSince: new Date(since).toISOString(),
+        minutes: Math.floor((now - since) / 60_000), waits, explorerReachable: explorer.reachable, explorerFailingSince: explorer.failingSince?.toISOString() ?? null })}`);
+    }
+    const lastWait: SetupWait = { at: new Date(now).toISOString(), step: row.stage, reason: 'awaiting_credit', retryMs, waits, ...(alertedAt ? { alertedAt } : {}) };
     const nextAttemptAt = new Date(now + retryMs);
     if (row.issue !== 'awaiting_credit') return (await this.repository.transition(row, { issue: 'awaiting_credit', nextAttemptAt, lastWait })) ?? row;
     return (await this.repository.defer(row, { nextAttemptAt, lastWait })) ?? row;

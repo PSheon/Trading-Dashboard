@@ -58,6 +58,7 @@ export const wireFavoriteSchema = s.favoriteSchema.extend({ createdAt: iso, stat
 export const wireHeartbeatSchema = s.heartbeatResponseSchema.extend({
   feedDisconnectedSince: iso.nullable(), lastTradeAt: iso.nullable(), lastFillAt: iso.nullable(), lastSnapshotAt: iso.nullable(),
   lastSnapshotAttemptAt: iso.nullable().optional(), lastSnapshotFailureAt: iso.nullable().optional(), lastSweepAt: iso.nullable(), now: iso,
+  explorerFailingSince: iso.nullable().optional(),
   fillsUnavailable: z.array(z.object({ address: z.string(), missedTrades: z.number().int(), since: iso })),
   archive: s.heartbeatResponseSchema.shape.archive.unwrap().extend({ liveNextHour: iso.nullable(), backfillCursorHour: iso.nullable(), lastRunAt: iso.nullable(),
     backfillFloor: iso.optional(), backfillPassStartedAt: iso.nullable().optional(), backfillNextPassAt: iso.nullable().optional() }).optional(),

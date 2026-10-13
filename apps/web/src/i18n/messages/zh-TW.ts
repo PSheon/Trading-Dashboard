@@ -683,6 +683,8 @@ export const zhTW = {
         amount: "金額",
         status: "狀態",
         time: "時間",
+        awaitingCreditSince: "自 {date} 起等待入帳",
+        explorerFailingSince: "自 {date} 起無法連線區塊瀏覽器",
       },
       orders: {
         title: "訂單",

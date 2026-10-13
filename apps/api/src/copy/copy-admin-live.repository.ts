@@ -10,6 +10,7 @@ import type { DrizzleDb } from '../db/drizzle.provider.js';
 import type { DbTransaction } from '../db/unit-of-work.js';
 import { lockCopyUser } from './copy-user-lock.js';
 import { isDefinitelyUnsent, NEVER_PLACED, type LiveExecutionRecord } from './live/live-execution.js';
+import { fundingScanSchema } from './copy-funding-scan.js';
 
 const LIMIT = 200;
 /** Fewer legs than this make a P95 the maximum: not reported. */
@@ -17,6 +18,13 @@ const MIN_P95_SAMPLE = 20;
 const OPEN = ['prepared', 'submitting', 'unknown', 'resting'] as const;
 const lower = (value: string | null) => value?.toLowerCase() ?? null;
 const iso = (value: Date | null) => value?.toISOString() ?? null;
+/** A sent transfer not yet confirmed credited: since it was sent, and since
+ * when its confirmation can't reach the explorer (its scan's own record). */
+function awaitingCredit(row: typeof copyFundingOperations.$inferSelect): Pick<AdminLiveTransfer, 'awaitingCreditSince' | 'explorerFailingSince'> {
+  if (!['unknown', 'accepted'].includes(row.status) || !row.attemptedAt) return { awaitingCreditSince: null, explorerFailingSince: null };
+  const failingSince = fundingScanSchema.safeParse(row.scanState).data?.explorerFailingSince;
+  return { awaitingCreditSince: row.attemptedAt.toISOString(), explorerFailingSince: failingSince === undefined ? null : new Date(failingSince).toISOString() };
+}
 const latest = <T extends { createdAt: Date }>(rows: T[], match: (row: T) => boolean) => rows.filter(match).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0] ?? null;
 
 /**
@@ -62,7 +70,7 @@ export class CopyAdminLiveRepository {
     const rows = await this.db.select().from(copyFundingOperations).where(eq(copyFundingOperations.network, this.network)).orderBy(desc(copyFundingOperations.createdAt)).limit(LIMIT);
     return rows.map(r => ({ id: r.id, userId: r.userId, accountId: r.accountId, strategyId: r.strategyId, direction: r.direction, status: r.status, amount: r.amount,
       source: r.address.toLowerCase(), destination: r.destination.toLowerCase(), stopId: r.stopId, transactionHash: r.transactionHash, attemptedAt: iso(r.attemptedAt),
-      createdAt: r.createdAt.toISOString(), updatedAt: r.updatedAt.toISOString() }));
+      createdAt: r.createdAt.toISOString(), updatedAt: r.updatedAt.toISOString(), ...awaitingCredit(r) }));
   }
 
   /** `open`: not yet terminal (prepared, submitting, unknown, resting);

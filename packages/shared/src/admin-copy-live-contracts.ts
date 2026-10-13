@@ -13,11 +13,15 @@ export const adminLiveAccountSchema = z.object({
   createdAt: iso,
 }).strict();
 export const adminLiveAccountsSchema = z.object({ items: z.array(adminLiveAccountSchema).max(200) }).strict();
-/** Wallet transfers of copy accounts: deposits and returns to the main wallet. */
+/** Wallet transfers of copy accounts: deposits and returns to the main wallet.
+ * `awaitingCreditSince`: a sent transfer (unknown or accepted) not yet
+ * confirmed credited, since it was sent; `explorerFailingSince`: since when
+ * its confirmation could not reach Hyperliquid's explorer (null otherwise). */
 export const adminLiveTransferSchema = z.object({
   id: z.string().uuid(), userId: z.number().int(), accountId: z.string(), strategyId: z.number().int(), direction: z.enum(['to_account', 'to_main']),
   status: z.string(), amount: z.string(), source: addr, destination: addr, stopId: z.string().nullable(), transactionHash: z.string().nullable(),
   attemptedAt: iso.nullable(), createdAt: iso, updatedAt: iso,
+  awaitingCreditSince: iso.nullable().optional(), explorerFailingSince: iso.nullable().optional(),
 }).strict();
 export const adminLiveTransfersSchema = z.object({ items: z.array(adminLiveTransferSchema).max(200) }).strict();
 /** Why an order rejected as never placed (exchange_order_never_placed) was

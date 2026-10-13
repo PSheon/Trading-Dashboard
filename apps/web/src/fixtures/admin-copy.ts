@@ -262,7 +262,13 @@ export function fixtureAdminLiveAccounts() {
 }
 export function fixtureAdminLiveTransfers() {
   return { items: [{ id: "6f1c2a4e-3b7d-4c8e-9a1f-2d3e4f5a6b7c", userId: 1, accountId: "account-demo", strategyId: 41, direction: "to_account" as const, status: "credited", amount: "50",
-    source: `0x${"11".repeat(20)}`, destination: LIVE_ACCOUNT, stopId: null, transactionHash: `0x${"ab".repeat(32)}`, attemptedAt: LIVE_AT, createdAt: LIVE_AT, updatedAt: LIVE_AT }] };
+    source: `0x${"11".repeat(20)}`, destination: LIVE_ACCOUNT, stopId: null, transactionHash: `0x${"ab".repeat(32)}`, attemptedAt: LIVE_AT, createdAt: LIVE_AT, updatedAt: LIVE_AT,
+    awaitingCreditSince: null, explorerFailingSince: null },
+  // A deposit sent 14 minutes ago whose credit can't be proven: the explorer has been unreachable for 13.
+  { id: "7a2d3b5f-4c8e-4d9f-8b2a-3e4f5a6b7c8d", userId: 1, accountId: "account-demo-2", strategyId: 42, direction: "to_account" as const, status: "accepted", amount: "50",
+    source: `0x${"11".repeat(20)}`, destination: `0x${"5c".repeat(20)}`, stopId: null, transactionHash: null, attemptedAt: new Date(NOW - 14 * 60_000).toISOString(),
+    createdAt: new Date(NOW - 15 * 60_000).toISOString(), updatedAt: new Date(NOW - 14 * 60_000).toISOString(),
+    awaitingCreditSince: new Date(NOW - 14 * 60_000).toISOString(), explorerFailingSince: new Date(NOW - 13 * 60_000).toISOString() }] };
 }
 export function fixtureAdminLiveOrders(state: string | null) {
   const order = { key: `testnet:${LIVE_ACCOUNT}:0x${"7e".repeat(16)}`, userId: 1, strategyId: 41, accountAddress: LIVE_ACCOUNT, coin: "BTC", side: "B" as const, size: "0.0004", limitPrice: "118456",

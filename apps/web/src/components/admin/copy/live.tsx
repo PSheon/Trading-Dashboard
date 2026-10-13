@@ -287,7 +287,9 @@ function Transfers() {
                   <TableRow key={x.id}>
                     <TableCell className="whitespace-nowrap text-muted-foreground">{format.dateTime(x.createdAt)}</TableCell>
                     <TableCell className="whitespace-nowrap">#{x.strategyId}<span className="num block text-xs text-muted-foreground">{short(x.source)} → {short(x.destination)}</span></TableCell>
-                    <TableCell>{t(`copyAdmin.live.transfers.${x.direction}`)} · <Chip tone={x.status === "credited" ? "good" : x.status === "rejected" ? "bad" : "neutral"}>{x.status}</Chip></TableCell>
+                    <TableCell>{t(`copyAdmin.live.transfers.${x.direction}`)} · <Chip tone={x.status === "credited" ? "good" : x.status === "rejected" ? "bad" : "neutral"}>{x.status}</Chip>
+                      {x.awaitingCreditSince ? <span className="block text-xs text-muted-foreground" data-awaiting-credit-since={x.awaitingCreditSince}>{t("copyAdmin.live.transfers.awaitingCreditSince", { date: format.dateTime(x.awaitingCreditSince) })}</span> : null}
+                      {x.explorerFailingSince ? <span className="block text-xs font-medium text-foreground" data-explorer-failing-since={x.explorerFailingSince}>{t("copyAdmin.live.transfers.explorerFailingSince", { date: format.dateTime(x.explorerFailingSince) })}</span> : null}</TableCell>
                     <TableCell className="num text-right font-semibold">{x.amount} USDC</TableCell>
                   </TableRow>
                 ))}

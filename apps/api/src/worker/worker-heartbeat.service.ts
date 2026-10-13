@@ -9,6 +9,7 @@ import { WALLET_NETWORK_HL, type WalletNetworkHyperliquid } from "../hyperliquid
 import { SchedulerService } from "../scheduler/scheduler.service.js";
 import { WatcherService } from "../watcher/watcher.service.js";
 import { clockSkew } from "../copy/live/clock-skew.js";
+import { explorerHealth } from "../copy/explorer-health.js";
 
 /** §8 可觀測: the worker's own heartbeat (feed, snapshots, sweeps, budget,
  * discovery and archive progress), served on its health port and read by
@@ -27,7 +28,7 @@ export class WorkerHeartbeatService {
 
   async heartbeat(): Promise<HeartbeatResponse> {
     const { feed, lastFillAt, lastSweepAt, fillsUnavailable } = this.watcher.getHeartbeat();
-    const budget = this.budgeter.introspect();
+    const budget = this.budgeter.introspect(), explorer = explorerHealth.status();
     return {
       feedConnected: feed.socketsTotal > 0 && feed.socketsOpen === feed.socketsTotal,
       feedSocketsOpen: feed.socketsOpen,
@@ -58,6 +59,9 @@ export class WorkerHeartbeatService {
         reserveTokens: Math.round(w.reserveTokens), queued: this.wallet!.budget.queued(), consumers: w.consumers }; })() : undefined,
       // Our clock against Hyperliquid's (warns above 1 s; comparisons tolerate 2 s).
       clockSkew: clockSkew.status(),
+      // Hyperliquid's explorer, which proves a deposit's credit: reached, or failing since when.
+      explorerReachable: explorer.reachable,
+      explorerFailingSince: explorer.failingSince,
       // Age of the boards' and home rows' figures; a failed read must not fail the heartbeat.
       discovery: await this.pool?.freshness().then((f) => ({
         visibleRows: f.visible.rows, medianVisibleAgeSeconds: f.visible.medianAgeSeconds, oldestVisibleAgeSeconds: f.visible.oldestAgeSeconds,

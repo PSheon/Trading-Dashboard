@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { setTimeout as yieldIo } from 'node:timers/promises';
 import { createHash } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
@@ -1407,5 +1408,24 @@ describe('a setup awaiting its credit backs off (an unreachable explorer, 2026-1
     expect(await current()).toMatchObject({ revision: before.revision, nextAttemptAt: before.nextAttemptAt, lastWait: before.lastWait });
     later(14_000); expect(await service.tick()).toBe(1);
     expect(await current()).toMatchObject({ revision: before.revision, attempts: 0, lastWait: { waits: 5, retryMs: 48_000 } });
+  });
+  it('logs ALERT funding awaiting_credit past 10 minutes since its confirm, at most once per 10 minutes, across a restart', async () => {
+    const errors = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const alerts = () => errors.mock.calls.map(([message]) => String(message)).filter(message => message.startsWith('ALERT funding awaiting_credit '));
+    const setup = await awaiting(), confirmedAt = clock;
+    for (let minute = 1; minute <= 10; minute++) { later(60_000); await service.tick(); }
+    expect(alerts()).toEqual([]);
+    later(60_000); await service.tick();
+    expect(alerts()).toHaveLength(1);
+    expect(JSON.parse(alerts()[0]!.slice('ALERT funding awaiting_credit '.length))).toMatchObject({ setupId: setup.id, fundingOperationId: setup.consent!.fundingOperationId,
+      awaitingCreditSince: new Date(confirmedAt).toISOString(), minutes: 11, explorerReachable: true, explorerFailingSince: null });
+    expect((await current()).lastWait).toMatchObject({ alertedAt: new Date(clock).toISOString() });
+    // A restart keeps the rate: the next one ten minutes after the first.
+    fakes = build();
+    for (let minute = 1; minute <= 9; minute++) { later(60_000); await service.tick(); }
+    expect(alerts()).toHaveLength(1);
+    later(60_000); await service.tick();
+    expect(alerts()).toHaveLength(2);
+    expect(await current()).toMatchObject({ stage: 'funding_submitted', attempts: 0 });
   });
 });

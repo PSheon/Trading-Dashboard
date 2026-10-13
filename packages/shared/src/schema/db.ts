@@ -2052,7 +2052,9 @@ export const copyLiveSetups = pgTable("copy_live_setups", {
    * (a wait is never an attempt), and what the bucket held.
    * Diagnostics only; kept across stages, never shown to the owner. */
   lastWait: jsonb("last_wait").$type<{ at: string; step: string; reason: "local_budget" | "shared_capacity" | "awaiting_credit"; retryMs: number; waits?: number;
-    weight?: number; lane?: "live" | "background"; bucket?: string; tokens?: number; queued?: number }>(),
+    weight?: number; lane?: "live" | "background"; bucket?: string; tokens?: number; queued?: number;
+    /** awaiting_credit: when its last ALERT was logged (rate-limited across restarts). */
+    alertedAt?: string }>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   uniqueIndex("copy_live_setups_key_uq").on(t.userId, t.idempotencyKey),

@@ -86,9 +86,12 @@ export function allVenueSource(): LiveAllDexsAccountSource {
     const observedAt = Date.now(); await sleep(Math.min(timeoutMs, 900));
     const state = { marginSummary: { accountValue: '100', totalRawUsd: '100', totalNtlPos: '0', totalMarginUsed: '0' },
       crossMarginSummary: { accountValue: '100', totalRawUsd: '100', totalNtlPos: '0', totalMarginUsed: '0' }, crossMaintenanceMarginUsed: '0', withdrawable: '100', time: observedAt, assetPositions: [] };
+    // Each venue's answer arrives, then the read completes (never before its
+    // last answer: a completedAt taken first failed the proof whenever the
+    // clock ticked over 268 venues, account_mode_absence_unproven).
+    const venues = dexes.map(dex => ({ dex, user, observedAt, receivedAt: Date.now(), orders: [] }));
     return { state: { network: 'testnet', accountAddress: user, observedAt, data: { user, clearinghouseStates: dexes.map(dex => [dex, state]) } },
-      orders: { network: 'testnet', accountAddress: user, observedAt, completedAt: Date.now(), requestedDexes: [...dexes],
-        venues: dexes.map(dex => ({ dex, user, observedAt, receivedAt: Date.now(), orders: [] })) } };
+      orders: { network: 'testnet', accountAddress: user, observedAt, completedAt: Date.now(), requestedDexes: [...dexes], venues } };
   };
   return { read: vi.fn(), readAccount };
 }

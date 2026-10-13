@@ -2,7 +2,7 @@ import {AsyncLocalStorage} from 'node:async_hooks';
 import {setTimeout as wait} from 'node:timers/promises';
 import {HyperliquidRestCapacityError,REST_CHARGE_LIFETIME_MS,sharedRestRetryAfterMs} from './hyperliquid-capacity-error.js';
 import {HYPERLIQUID_LIVE_DEMAND_HOLD_MS,HYPERLIQUID_MAX_LIVE_DEMAND,type HyperliquidMeterComposition,type HyperliquidRestLane} from './hyperliquid-global-quota.js';
-import {PostgresHyperliquidQuota,newLiveLaneToken,runInBackgroundLane,runInLiveLane,runInSetupLane,setupLaneToken,type BoundHyperliquidQuota,type HyperliquidSendPermit} from './postgres-hyperliquid-quota.js';
+import {PostgresHyperliquidQuota,newLiveLaneToken,runInBackgroundLane,runInLiveLane,runInSetupLane,setupLaneToken,type BoundHyperliquidQuota,type HyperliquidMeterSnapshot,type HyperliquidSendPermit} from './postgres-hyperliquid-quota.js';
 import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from '../copy/live/postgres-live-risk-scope.js';
 import {LiveBoundaryError} from '../copy/live/wallet-authorization.js';
 import {infoListSurcharge,infoPrepaidWeight,infoWeight} from './info-weights.js';
@@ -117,6 +117,11 @@ export class HyperliquidGlobalTransport {
   * (heartbeat): undefined when no egress is configured. */
  async laneStatus():Promise<Awaited<ReturnType<PostgresHyperliquidQuota['laneStatus']>>|undefined>{
   const egressKey=this.options.egressKey;return egressKey?this.quota.laneStatus(egressKey):undefined;
+ }
+ /** The shared meter on this transport's egress as it stands (diagnostics:
+  * a plain read, no lock); undefined when no egress is configured. */
+ async meterSnapshot():Promise<HyperliquidMeterSnapshot|undefined>{
+  const egressKey=this.options.egressKey;return egressKey?this.quota.meterSnapshot(egressKey):undefined;
  }
  /** Runs a live order under its demand token: its charges are the live lane's and count against its need. */
  runLive<T>(token:string,work:()=>Promise<T>):Promise<T>{return runInLiveLane(token,work);}

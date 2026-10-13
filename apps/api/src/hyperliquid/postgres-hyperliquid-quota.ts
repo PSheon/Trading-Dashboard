@@ -10,12 +10,14 @@ import type { UnitOfWork,DbTransaction } from '../db/unit-of-work.js';
 import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from '../copy/live/postgres-live-risk-scope.js';
 import {LiveBoundaryError,type LiveNetwork} from '../copy/live/wallet-authorization.js';
 import {HyperliquidRestCapacityError,sharedRestRetryAfterMs} from './hyperliquid-capacity-error.js';
-import {BACKGROUND_REST_ID_PREFIX,PAGE_REST_ID_PREFIX,HYPERLIQUID_MAX_LIVE_DEMAND,HYPERLIQUID_MAX_SETTLEMENTS,LIVE_LANE_TOKEN,LIVE_REST_ID_PREFIX,liveDemandTicket,HYPERLIQUID_STALE_LEASE_RECLAIM_MS,SETUP_DEMAND_ID_PREFIX,SETUP_LANE_TOKEN,SETUP_REST_ID_PREFIX,hyperliquidLaneStatus,planHyperliquidQuota,setupDemandTicket,quotaSubscription,type HyperliquidMeterComposition,type HyperliquidQuotaPlan,type HyperliquidRestLane,type HyperliquidQuotaLease,type HyperliquidQuotaRequest,type HyperliquidQuotaSubscription} from './hyperliquid-global-quota.js';
+import {BACKGROUND_REST_ID_PREFIX,PAGE_REST_ID_PREFIX,HYPERLIQUID_MAX_LIVE_DEMAND,HYPERLIQUID_MAX_SETTLEMENTS,LIVE_LANE_TOKEN,LIVE_REST_ID_PREFIX,liveDemandTicket,HYPERLIQUID_STALE_LEASE_RECLAIM_MS,SETUP_DEMAND_ID_PREFIX,SETUP_LANE_TOKEN,SETUP_REST_ID_PREFIX,hyperliquidLaneStatus,hyperliquidMeterComposition,planHyperliquidQuota,setupDemandTicket,quotaSubscription,type HyperliquidMeterComposition,type HyperliquidQuotaPlan,type HyperliquidRestLane,type HyperliquidQuotaLease,type HyperliquidQuotaRequest,type HyperliquidQuotaSubscription} from './hyperliquid-global-quota.js';
 import {freezeLiveReservation} from '../copy/live/live-risk-reservation.js';
 import {liveSourceDigest} from '../copy/live/copy-live-source-evidence.js';
 import {liveSpan} from '../copy/live/live-execution-diagnostics.js';
 
 export interface HyperliquidQuotaBinding {readonly egressKey:string;readonly ownerId:string;}
+/** PostgresHyperliquidQuota.meterSnapshot (diagnostics). */
+export interface HyperliquidMeterSnapshot {readonly rest:HyperliquidMeterComposition;readonly wsConnect:number;readonly wsMessages:number;readonly leases:number;}
 export interface HyperliquidSendPermit {assertFresh():void;dispatch<T>(work:()=>T):T;
   /** REST only: what the provider counted for the answered call; lowers the
    * prepaid charge with this process's next REST request. */
@@ -138,6 +140,16 @@ export class PostgresHyperliquidQuota {
     identifier(egressKey);
     const [row]=await this.uow.run(tx=>tx.select({events:quota.events}).from(quota).where(eq(quota.egressKey,egressKey)).limit(1));
     return hyperliquidLaneStatus(row?.events??[],this.now());
+  }
+  /** The meter as it stands (diagnostics; a plain read, no lock): its REST
+   * composition by class, the socket meters' held units and the leases that
+   * still count against the connection cap. */
+  async meterSnapshot(egressKey:string):Promise<HyperliquidMeterSnapshot>{
+    identifier(egressKey);
+    const [row]=await this.uow.run(tx=>tx.select({events:quota.events}).from(quota).where(eq(quota.egressKey,egressKey)).limit(1));
+    const now=this.now(),events=row?.events??[],held=(kind:string)=>events.filter(e=>e.kind===kind&&e.expiresAt>now).reduce((sum,e)=>sum+e.units,0);
+    const [counted]=await this.uow.run(tx=>tx.select({n:sql<number>`count(*)::int`}).from(leases).where(and(eq(leases.egressKey,egressKey),notClosed,sql`${leases.leaseUntil} > now() - ${HYPERLIQUID_STALE_LEASE_RECLAIM_MS}::bigint * interval '1 millisecond'`)));
+    return {rest:hyperliquidMeterComposition(events,now),wsConnect:held('ws_connect'),wsMessages:held('ws_message'),leases:counted?.n??0};
   }
   bindOriginal(session:LiveRiskDatabaseSession,identity:HyperliquidQuotaBinding):BoundHyperliquidQuota {
     assertOriginalLiveRiskSession(session);return this.bind(capture(identity),session);

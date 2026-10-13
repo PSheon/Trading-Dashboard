@@ -78,3 +78,16 @@ it('the admin system overview shows the api process\'s view of both lanes; none 
     expect(adminSystemSchema.parse(await overview()).api.setupDemand).toBeUndefined();
   } finally { await cleanup(); }
 });
+
+it('the meter snapshot (an absence proof\'s failure log) shows the REST composition, socket units and counted leases', async () => {
+  const { transport, cleanup, egressKey } = await meter();
+  try {
+    const reserved = await transport.currentQuota().reserveSocket(Date.now() + 5000, 'testnet');
+    const snapshot = await transport.meterSnapshot();
+    expect(snapshot).toMatchObject({ wsConnect: 1, wsMessages: 0, leases: 1, rest: { live: 300, markers: { setup: 1, live: 1 } } });
+    expect(Object.values(snapshot!.rest.setup)).toEqual([102]);
+    await reserved.connection.cancelBeforeConnect();
+    expect((await transport.meterSnapshot())!.leases).toBe(0);
+    await db.delete(schema.hyperliquidWsLeases).where(eq(schema.hyperliquidWsLeases.egressKey, egressKey));
+  } finally { await cleanup(); }
+});

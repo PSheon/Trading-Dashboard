@@ -22,6 +22,23 @@ const stateSchema = z.object({ marginSummary: summary, crossMarginSummary: summa
   withdrawable: decimal, time: integer, assetPositions: z.array(z.unknown()).max(0) });
 const dexSchema = z.array(z.object({ name: z.string().regex(LIVE_DEX_NAME).max(40) }).nullable()).min(1).max(MAX_LIVE_PERP_DEXES);
 const fail = (): never => { throw new LiveBoundaryError('account_mode_absence_unproven'); };
+/** Why an absence proof was not made (logged, and on the error): the check
+ * that failed, the cause's code, how long the all-venue socket read took,
+ * whether the socket was refused by the shared meter (its connect, lease or
+ * subscription caps), and the meter's state then. */
+export interface AccountModeAbsenceFailure {
+  readonly check: string; readonly cause: string; readonly wsReadMs: number | null; readonly wsConnectRefused: boolean;
+  readonly elapsedMs: number; readonly quota?: unknown;
+}
+/** account_mode_absence_unproven, with what failed (AccountModeAbsenceFailure). */
+export class AccountModeAbsenceUnproven extends LiveBoundaryError {
+  constructor(readonly detail: AccountModeAbsenceFailure) { super('account_mode_absence_unproven'); }
+}
+/** The shared meter's socket refusals (reserveSocket): connect units, the
+ * connection, subscription and user caps. */
+const SOCKET_REFUSALS = new Set(['hyperliquid_quota_exhausted', 'hyperliquid_quota_connections', 'hyperliquid_quota_subscriptions', 'hyperliquid_quota_users', 'hyperliquid_quota_expired']);
+const causeOf = (error: unknown): string => error instanceof LiveBoundaryError ? error.code : error instanceof z.ZodError ? 'schema' :
+  error instanceof Error ? (error.name === 'Error' ? 'error' : error.name) : 'unknown';
 function unique(values: readonly string[]) { if (new Set(values).size !== values.length) fail(); }
 function fresh(at: number, now: number) { if (!Number.isSafeInteger(at) || at <= 0 || at > now || now - at > 5000) fail(); }
 
@@ -82,6 +99,9 @@ export class HyperliquidAccountModeAbsenceReader implements AccountModeAbsenceRe
   async prove(accountAddress: string, options: AccountModeAbsenceOptions = {}): Promise<Readonly<AccountModeAbsenceProof>> {
     const { signal } = options;
     let turn = options.turn, reading: Promise<LiveAllDexsAccountEvidence> | undefined;
+    // Diagnostics: the check under way, and the socket read's timing.
+    const begun = this.now();
+    let step = 'admission', wsStarted: number | undefined, wsEnded: number | undefined;
     try {
       const user = address(accountAddress);
       const readAccount = this.source.readAccount;
@@ -110,24 +130,30 @@ export class HyperliquidAccountModeAbsenceReader implements AccountModeAbsenceRe
       }));
       // One meter charge for the first three reads; the clock starts as they go out.
       const meterWaitMs = options.prepaid ? 0 : LIVE_RESERVE_WAIT_MS;
+      step = 'first_batch';
       const first = await boundedLiveRead(() => send([{ type: 'perpDexs' }, { type: 'spotClearinghouseState', user }, { type: 'extraAgents', user }], meterWaitMs, startClock), meterWaitMs + 5000);
       const [rawDexes, spot, agents] = await answers(first);
+      step = 'perp_dexs';
       const list = dexSchema.parse(rawDexes);
       if (list[0] !== null) fail();
       const dexes = ['', ...list.flatMap(row => row ? [row.name] : [])]; unique(dexes);
       // Existing arbitrary agent authority and spot-held collateral are outside
       // the newly dedicated dormant bootstrap this action is allowed to change.
+      step = 'extra_agents';
       if (extraAgentsSchema.parse(agents).length) fail();
+      step = 'spot_balances';
       const balances = z.object({ portfolioMarginEnabled: z.literal(false).optional(), balances: z.array(z.object({
         coin: z.string().min(1).max(80), token: integer, total: zero, hold: zero,
       })).max(10000) }).parse(spot).balances;
       unique(balances.map(b => String(b.token))); unique(balances.map(b => b.coin));
       signal?.throwIfAborted();
       this.lastReadAt = this.now();
+      step = 'ws_read'; wsStarted = this.now();
       const proof = structuredClone(await boundedLiveRead(() => {
         const timeout = remaining(); signal?.throwIfAborted(); options.consume?.(40);
         reading = readAccount.call(this.source, user, dexes, timeout, signal); return reading;
       }, remaining));
+      wsEnded = this.now(); step = 'ws_evidence';
       if (proof.state.network !== this.network || address(proof.state.accountAddress) !== user || proof.orders.network !== this.network || address(proof.orders.accountAddress) !== user) fail();
       for (const at of [proof.state.observedAt, proof.orders.observedAt, proof.orders.completedAt]) fresh(at, this.now());
       if (proof.orders.completedAt < proof.orders.observedAt) fail();
@@ -149,9 +175,12 @@ export class HyperliquidAccountModeAbsenceReader implements AccountModeAbsenceRe
         if (address(venue.user) !== user || venue.receivedAt < venue.observedAt || venue.observedAt < proof.orders.observedAt || venue.receivedAt > proof.orders.completedAt) fail();
         fresh(venue.observedAt, this.now()); fresh(venue.receivedAt, this.now());
       }
+      step = 'final_perp_dexs';
       const [finalRaw] = await answers(await boundedLiveRead(() => send([{ type: 'perpDexs' }], Math.max(0, Math.min(LIVE_RESERVE_WAIT_MS, remaining() - 2_000)), () => { const bound = AbortSignal.timeout(remaining()); options.consume?.(20); return bound; }), remaining));
+      step = 'perp_dexs_unchanged';
       const finalDexes = dexSchema.parse(finalRaw);
       if (JSON.stringify(finalDexes) !== JSON.stringify(list)) fail();
+      step = 'freshness';
       const observedAt = Math.min(started, proof.state.observedAt, proof.orders.observedAt, ...aggregate.clearinghouseStates.map(([, s]) => s.time)), completedAt = this.now();
       fresh(observedAt, completedAt);
       return Object.freeze({ network: this.network, accountAddress: user, observedAt, completedAt, dexes: Object.freeze(dexes),
@@ -160,7 +189,11 @@ export class HyperliquidAccountModeAbsenceReader implements AccountModeAbsenceRe
       // Weight or the source not available yet: nothing was proven or refused.
       const wait = sharedCapacityWait(error);
       if (wait) throw wait;
-      return fail();
+      const cause = causeOf(error), wsReadMs = wsStarted === undefined ? null : (wsEnded ?? this.now()) - wsStarted;
+      const quota = await this.global?.meterSnapshot().catch(() => undefined);
+      const detail: AccountModeAbsenceFailure = { check: step, cause, wsReadMs, wsConnectRefused: step === 'ws_read' && SOCKET_REFUSALS.has(cause), elapsedMs: this.now() - begun, ...(quota ? { quota } : {}) };
+      new Logger('HyperliquidAccountModeAbsenceReader').warn(`account_mode_absence_unproven ${JSON.stringify(detail)}`);
+      throw new AccountModeAbsenceUnproven(detail);
     } finally {
       // The source is free once its read is over, even when this proof gave up first.
       if (turn) { if (reading) void reading.then(turn.release, turn.release); else turn.release(); }

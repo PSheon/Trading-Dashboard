@@ -1,4 +1,6 @@
+import { Logger } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
+import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
 import { HyperliquidAccountModeAbsenceReader } from '../src/copy/copy-account-mode-evidence.js';
 import type { LiveAllDexsAccountEvidence } from '../src/copy/live/live-account-ws-source.js';
 const user = `0x${'22'.repeat(20)}`, time = 1_800_000_000_000;
@@ -102,5 +104,29 @@ describe('all-venue mode-bootstrap absence proof', () => {
   it('never substitutes a main-only or missing combined source for complete absence', async () => {
     const reader = new HyperliquidAccountModeAbsenceReader('testnet', async () => undefined, fetch, () => time, { read: vi.fn() });
     await expect(reader.prove(user)).rejects.toThrow('account_mode_absence_unproven');
+  });
+  // Why a proof failed is logged and on the error (2026-10-13: attempts in
+  // the meter reproduction were interrupted by account_mode_absence_unproven,
+  // with nothing to say which check or why).
+  it('a socket the shared meter refused says so: the check, its cause, the socket read\'s time', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const s = setup();
+    s.readAccount.mockImplementation(async () => { s.setClock(time + 120); throw new LiveBoundaryError('hyperliquid_quota_connections'); });
+    const error = await s.reader.prove(user).catch((e: unknown) => e) as { code: string; detail: Record<string, unknown> };
+    expect(error.code).toBe('account_mode_absence_unproven');
+    expect(error.detail).toEqual({ check: 'ws_read', cause: 'hyperliquid_quota_connections', wsReadMs: 120, wsConnectRefused: true, elapsedMs: 120 });
+    expect(warn.mock.calls.map(c => String(c[0])).find(m => m.startsWith('account_mode_absence_unproven '))).toContain('"check":"ws_read"');
+    warn.mockRestore();
+  });
+  it.each([
+    ['first_batch', (s: ReturnType<typeof setup>) => s.fetcher.mockImplementation(async () => Response.json({}, { status: 500 })), 'account_mode_absence_unproven', null],
+    ['extra_agents', (s: ReturnType<typeof setup>) => s.fetcher.mockImplementation(async (_u, o) => JSON.parse(o?.body as string).type === 'extraAgents' ? Response.json([{ address: user, name: 'a', validUntil: 1 }]) : JSON.parse(o?.body as string).type === 'perpDexs' ? Response.json([null]) : Response.json({ balances: [] })), 'account_mode_absence_unproven', null],
+    ['ws_evidence', (s: ReturnType<typeof setup>) => s.patch(proof => ({ ...proof, orders: { ...proof.orders, observedAt: time - 5001 } })), 'account_mode_absence_unproven', 0],
+  ] as const)('names the failed check (%s)', async (check, arrange, cause, wsReadMs) => {
+    vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const s = setup(); arrange(s);
+    const error = await s.reader.prove(user).catch((e: unknown) => e) as { detail: Record<string, unknown> };
+    expect(error.detail).toMatchObject({ check, cause, wsReadMs, wsConnectRefused: false });
+    vi.restoreAllMocks();
   });
 });

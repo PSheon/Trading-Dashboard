@@ -58,7 +58,8 @@ import { safeErrorText } from "../runtime/safe-error-text.js";
  *   the watcher, and the watcher never eats what a background call is
  *   saving up for.
  * - Starvation guard: while `background` waiters exist, at least one in
- *   every four dispatches goes to `background`.
+ *   every four dispatches goes to `background` (not on a real-money bucket,
+ *   `liveHeadroomShare`: there live always goes first).
  * - Within a lane the lowest `rank` goes first; the lowest-ranked waiter is
  *   served first even when a later one would fit now, so a heavy page call
  *   isn't starved by a stream of small background calls: the tokens build
@@ -732,7 +733,13 @@ export class RequestBudgeterService {
   private nextLane(): { lane: RequestPriority; forced: boolean } | null {
     const { live, background } = this.queues;
     if (live.length === 0) return background.length > 0 ? { lane: "background", forced: false } : null;
-    if (background.length > 0 && this.liveStreak >= MAX_LIVE_STREAK) return { lane: "background", forced: true };
+    // A real-money bucket (liveFirst: the wallet network's order and setup
+    // buckets) has no starvation guard: live always goes first, background
+    // has what live leaves. A forced background turn there held a live
+    // order's evidence (568, beside a full 900 bucket) ~24 s while a
+    // receipts read (240, background) waited for the main bucket to refill
+    // (the 7th gate's model, 2026-10-13).
+    if (background.length > 0 && this.liveStreak >= MAX_LIVE_STREAK && !this.liveFirst) return { lane: "background", forced: true };
     return { lane: "live", forced: false };
   }
 

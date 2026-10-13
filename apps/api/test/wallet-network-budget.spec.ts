@@ -28,6 +28,9 @@ describe("the wallet network's Hyperliquid budget", () => {
     expect(wallet.dedicated).toBe(true); expect(wallet.info).not.toBe(info);
     expect((wallet.info as unknown as { budgeter: unknown }).budgeter).toBe(wallet.budget);
     expect(wallet.budget.introspect()).toMatchObject({ configuredBudgetPerMin: 300, burstCapacity: 900 });
+    // Copy setups' steps have a bucket of their own beside it: the order bucket's burst is the orders'.
+    expect(wallet.setupBudget).not.toBe(wallet.budget); expect(wallet.setupBudget).not.toBe(main);
+    expect(wallet.setupBudget.introspect()).toMatchObject({ configuredBudgetPerMin: 300, burstCapacity: 900 });
   });
 
   it("on mainnet, the wallet network is the mainnet host: the api's own budget and transport", () => {
@@ -37,6 +40,7 @@ describe("the wallet network's Hyperliquid budget", () => {
     expect(wallet.budget).toBe(main);
     expect(wallet.transport).toBe(transport);
     expect(wallet.dedicated).toBe(false); expect(wallet.info).toBe(info);
+    expect(wallet.setupBudget).toBe(main);
   });
 
   it("on mainnet with real-money copy, setup steps get their own bucket: a main bucket drained by background work no longer stalls the account-mode step", async () => {
@@ -51,6 +55,7 @@ describe("the wallet network's Hyperliquid budget", () => {
     await main.acquire(main.liveCapacity, "background");
     expect(wallet.dedicated).toBe(true);
     expect(wallet.budget).not.toBe(main);
+    expect(wallet.setupBudget).not.toBe(wallet.budget); expect(wallet.setupBudget).not.toBe(main);
     // Same host, IP and egress key: the shared per-IP meter counts both.
     expect(wallet.transport).toBe(transport);
     expect(wallet.config.value.hyperliquid.egressKey).toBe("egress");

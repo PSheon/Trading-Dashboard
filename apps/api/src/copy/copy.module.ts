@@ -99,12 +99,14 @@ import { HyperliquidLiveAccountObserver } from './live/live-account-observer.js'
 // The wallet network's budget, transport and info client: one per process,
 // provided by HyperliquidModule (re-exported here for existing imports).
 export { WALLET_NETWORK_HL, walletNetworkHyperliquid, type WalletNetworkHyperliquid } from "../hyperliquid/wallet-network-hyperliquid.js";
-/** A setup step's clients' reservations: queued (never refused at once on
- * the estimate) for at most the setup step's reserve wait
- * (AppConfig.copy.live.setup.stepBudgetMs.reserveWaitMs, inside its lease).
- * The order path keeps its own bounds (copy-live-engine, live-execution-runtime). */
-const setupReserve = (config: AppConfig, network: WalletNetworkHyperliquid['network']): LiveReserveOptions =>
-  ({ maxWaitMs: (config.value.copy.live?.setup ?? DEFAULT_LIVE_SETUP_TIMINGS).stepBudgetMs.reserveWaitMs, queue: true, bucket: `wallet:${network}` });
+/** A setup step's clients' reservations, on the setup bucket
+ * (WalletNetworkHyperliquid.setupBudget: never the order bucket): queued
+ * (never refused at once on the estimate) for at most the setup step's
+ * reserve wait (AppConfig.copy.live.setup.stepBudgetMs.reserveWaitMs,
+ * inside its lease). The order path keeps its own bounds (copy-live-engine,
+ * live-execution-runtime). */
+const setupReserve = (config: AppConfig, { network, dedicated }: Pick<WalletNetworkHyperliquid, 'network' | 'dedicated'>): LiveReserveOptions =>
+  ({ maxWaitMs: (config.value.copy.live?.setup ?? DEFAULT_LIVE_SETUP_TIMINGS).stepBudgetMs.reserveWaitMs, queue: true, bucket: `${dedicated ? 'setup' : 'wallet'}:${network}` });
 
 @Module({
   // NotifyModule: the operator's system message when an order keeps failing.
@@ -126,17 +128,18 @@ const setupReserve = (config: AppConfig, network: WalletNetworkHyperliquid['netw
     // A setup step's weight on the shared meter: ahead of background, within the setups' share.
     { provide: SETUP_REST_CAPACITY, inject: [WALLET_NETWORK_HL], useFactory: ({ transport }: WalletNetworkHyperliquid): SetupRestCapacity => transport },
     CopyAccountModeRepository, CopyAccountModeService,
-    { provide: ACCOUNT_MODE_CLIENT, inject: [AppConfig, WALLET_NETWORK_HL], useFactory: (config: AppConfig, { budget, transport, network }: WalletNetworkHyperliquid) => {
+    { provide: ACCOUNT_MODE_CLIENT, inject: [AppConfig, WALLET_NETWORK_HL], useFactory: (config: AppConfig, wallet: WalletNetworkHyperliquid) => {
       // A copy setup's account-mode step is reserved at once (715: the attempt and its reconcile): a
       // bucket that can never hold it would fail every setup at that step.
-      // With live copy the wallet network has its own bucket on both networks.
-      if (config.value.copy.live) assertBucketHolds(budget, ATTEMPT_STEP_WEIGHT, "A copy setup's account-mode step", 'Lower COPY_LIVE_WEIGHT_PER_MIN (at most 485).');
+      // With live copy the wallet network has its own setup bucket on both networks.
+      if (config.value.copy.live) assertBucketHolds(wallet.setupBudget, ATTEMPT_STEP_WEIGHT, "A copy setup's account-mode step", 'Lower COPY_LIVE_WEIGHT_PER_MIN (at most 485).');
       // Weight is reserved before any evidence clock starts (reserveLive):
       // a busy bucket answers HyperliquidBudgetWait instead of stale evidence.
-      // Setup steps wait in line at most their reserve wait (inside their driver's lease).
-      return new PrivyAccountModeClient(config.value.auth, liveBudget(budget, setupReserve(config, network)),undefined,Date.now,transport); } },
-    { provide: ACCOUNT_MODE_ABSENCE_READER, inject: [AppConfig, WALLET_NETWORK_HL], useFactory: (config: AppConfig, { budget, transport, network }: WalletNetworkHyperliquid) =>
-      new HyperliquidAccountModeAbsenceReader(network, liveBudget(budget, setupReserve(config, network)), transport.fetchInfo, Date.now,
+      // Setup steps wait in line at most their reserve wait (inside their driver's lease),
+      // on the setup bucket: never ahead of an order on the order bucket.
+      return new PrivyAccountModeClient(config.value.auth, liveBudget(wallet.setupBudget, setupReserve(config, wallet)),undefined,Date.now,wallet.transport); } },
+    { provide: ACCOUNT_MODE_ABSENCE_READER, inject: [AppConfig, WALLET_NETWORK_HL], useFactory: (config: AppConfig, { setupBudget, transport, network, dedicated }: WalletNetworkHyperliquid) =>
+      new HyperliquidAccountModeAbsenceReader(network, liveBudget(setupBudget, setupReserve(config, { network, dedicated })), transport.fetchInfo, Date.now,
         new HyperliquidAllDexsAccountSource(Date.now, undefined, network, transport, { closeAfterRead: true }), transport) },
     CopyFollowerLedger, CopyFollowerScanRepository, CopyFollowerReconciler, CopyFollowerStatementService, CopyFollowerStatementRepository,
     CopyFollowerActivityRepository, CopyFollowerActivityService,
@@ -159,8 +162,8 @@ const setupReserve = (config: AppConfig, network: WalletNetworkHyperliquid['netw
     { provide: USER_AGENT_PROVISIONER, inject: [AppConfig], useFactory: (config: AppConfig) => new PrivyUserAgentProvisioner({
       appId: config.value.auth.appId, appSecret: config.value.auth.appSecret, workerQuorumId: config.value.copy.agent?.workerQuorumId,
       authorizationPublicKey: config.value.copy.agent?.authorizationPublicKey, network: deploymentNetwork(config) }) },
-    { provide: AGENT_APPROVAL_CLIENT, inject: [AppConfig, WALLET_NETWORK_HL], useFactory: (config: AppConfig, { budget, transport, network }: WalletNetworkHyperliquid) =>
-      new PrivyAgentApprovalClient(config.value.auth, liveBudget(budget, setupReserve(config, network)),undefined,Date.now,transport) },
+    { provide: AGENT_APPROVAL_CLIENT, inject: [AppConfig, WALLET_NETWORK_HL], useFactory: (config: AppConfig, wallet: WalletNetworkHyperliquid) =>
+      new PrivyAgentApprovalClient(config.value.auth, liveBudget(wallet.setupBudget, setupReserve(config, wallet)),undefined,Date.now,wallet.transport) },
   ],
   exports: [CopyControlService, CopyRiskPolicyService, CopyAdminReadService, CopyAdminLiveService, PostgresLiveExecutionJournal, PostgresWalletAuthorizationSource,
     // Disabling a user stops their actual copies (AdminUsersService).

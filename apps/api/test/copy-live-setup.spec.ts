@@ -125,6 +125,8 @@ function build() {
   const modes = {
     available: true,
     ensureForSetup: vi.fn(async () => mode), row: vi.fn(async () => mode), reconcile: vi.fn(async () => mode),
+    // No local bucket here: the step's weight is not reserved ahead.
+    reserveForSetup: vi.fn(async () => undefined),
     // As the service does: the current nonce while it keeps the minimum left, else a new one.
     setupNonce: vi.fn(async (_userId: number, _id: string, minRemainingMs: number) => {
       if (!modeIntent || modeIntent.consentExpiresAt <= clock + minRemainingMs) modeIntent = { operationId: 'mode-op', accountId: 'a', strategyId: 1, network: testNetwork, accountAddress, nonce: clock, consentExpiresAt: clock + 300_000 };

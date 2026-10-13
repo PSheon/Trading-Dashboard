@@ -32,6 +32,9 @@ export interface ErrorClassification {
   readonly retryAfterMs?: number;
   /** `transient` only: false for an outcome still unknown (never exhausted). */
   readonly exhausts?: boolean;
+  /** `transient` only: what it becomes at the caller's limit of attempts
+   * instead of permanent (PRIVY_IDENTITY_EVIDENCE_CODES: its owner is told). */
+  readonly exhaustedAs?: 'needs_owner';
 }
 
 /** A step can't go on yet (a lookup is pending, or a signature is due): `budget`. */
@@ -93,6 +96,8 @@ const NEEDS_OWNER_CODES: ReadonlySet<string> = new Set([
   // margin) past SETUP_ABORT_NOT_FLAT_ESCALATE_MS: setup_abort_proof_not_flat
   // waits until then (copy-live-setup-abort.service.ts).
   'setup_abort_not_flat_persistent',
+  // A Privy identity proof that kept expiring (PRIVY_IDENTITY_EVIDENCE_CODES).
+  'privy_identity_unverified',
 ]);
 /** Waits, not failures: a read that was stale or could not be had, or the
  * worker's signer not up yet. Unlisted codes are `transient` already; these
@@ -101,6 +106,19 @@ const NEEDS_OWNER_CODES: ReadonlySet<string> = new Set([
 export const TRANSIENT_WAIT_CODES: ReadonlySet<string> = new Set([
   'setup_abort_evidence_unavailable', 'setup_abort_proof_stale', 'setup_abort_proof_not_flat', 'setup_abort_lease_changed', 'setup_abort_unavailable',
 ]);
+/**
+ * A Privy identity proof that aged past PRIVY_IDENTITY_MAX_AGE_MS before its
+ * decision (a slow link to Privy): nothing was signed or sent, and the next
+ * proof may pass. A wait with backoff (transient, counted); at the caller's
+ * limit it is not a failure but `needs_owner` (IDENTITY_UNVERIFIED_ISSUE,
+ * with an ALERT): the link, not the setup, is what's wrong. Gate run 8
+ * (2026-10-13): agent_identity_evidence_expired every pass for 10+ minutes.
+ */
+export const PRIVY_IDENTITY_EVIDENCE_CODES: ReadonlySet<string> = new Set([
+  'agent_identity_evidence_expired', 'account_mode_identity_evidence_expired', 'funding_identity_evidence_expired',
+]);
+/** What an identity proof that kept expiring leaves on its operation. */
+export const IDENTITY_UNVERIFIED_ISSUE = 'privy_identity_unverified';
 /** An outcome still unknown: reconciled until known, never given up by count
  * (giving up would abandon a submission that may have landed). */
 const UNKNOWN_OUTCOME_CODES: ReadonlySet<string> = new Set([
@@ -162,6 +180,7 @@ export function classify(error: unknown, depth = 0): ErrorClassification {
     return { class: 'budget', code, source, ...(retryAfterMs !== undefined ? { retryAfterMs } : {}) };
   }
   if (code !== null && TRANSIENT_WAIT_CODES.has(code)) return { class: 'transient', code, source, exhausts: true };
+  if (code !== null && PRIVY_IDENTITY_EVIDENCE_CODES.has(code)) return { class: 'transient', code, source, exhausts: true, exhaustedAs: 'needs_owner' };
   if (code !== null && PERMANENT_CODES.has(code)) return { class: 'permanent', code, source };
   if (code !== null && NEEDS_OWNER_CODES.has(code)) return { class: 'needs_owner', code, source };
   return { class: 'transient', code, source, exhausts: code === null || !UNKNOWN_OUTCOME_CODES.has(code) };

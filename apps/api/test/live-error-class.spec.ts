@@ -1,7 +1,8 @@
 import { BadGatewayException, ConflictException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { assertSetupTimings, DEFAULT_LIVE_SETUP_TIMINGS, setupStepBudgetMs } from '../src/config/live-timings.js';
-import { classify, exhausted, liveRetryDelayMs, StepFail, StepWait } from '../src/copy/live/error-class.js';
+import { classify, exhausted, IDENTITY_UNVERIFIED_ISSUE, liveRetryDelayMs, PRIVY_IDENTITY_EVIDENCE_CODES, StepFail, StepWait } from '../src/copy/live/error-class.js';
+import { AgentIdentityEvidenceExpired } from '../src/copy/copy-agent.service.js';
 import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
 import { HyperliquidBudgetOverCapacity, HyperliquidBudgetWait, SHARED_CAPACITY_RETRY_MS } from '../src/hyperliquid/hyperliquid-budget-wait.js';
 /** What the account observer throws when what failed underneath was `cause` (LiveObservationUnavailable). */
@@ -57,6 +58,22 @@ describe('the live error classifier', () => {
     expect(exhausted(classify(new HyperliquidBudgetWait(1_000, 'local_budget')), 99, 3)).toBe(false);
     expect(exhausted(classify(new LiveBoundaryError('wallet_authorization_revoked')), 99, 3)).toBe(false);
     expect(exhausted(classify(new LiveBoundaryError('account_action_submission_unknown')), 99, 3)).toBe(false);
+  });
+});
+
+describe('a Privy identity proof that aged out (gate run 8, 2026-10-13)', () => {
+  it('is a transient wait that becomes needs_owner at the attempts limit, never permanent', () => {
+    for (const code of PRIVY_IDENTITY_EVIDENCE_CODES) {
+      const classified = classify(new ConflictException(code));
+      expect(classified).toEqual({ class: 'transient', code, source: 'message', exhausts: true, exhaustedAs: 'needs_owner' });
+      expect(exhausted(classified, 8, 8)).toBe(true);
+    }
+    expect(classify(new AgentIdentityEvidenceExpired())).toMatchObject({ class: 'transient', code: 'agent_identity_evidence_expired', exhaustedAs: 'needs_owner' });
+    expect([...PRIVY_IDENTITY_EVIDENCE_CODES].sort((a, b) => a.localeCompare(b))).toEqual(['account_mode_identity_evidence_expired', 'agent_identity_evidence_expired', 'funding_identity_evidence_expired']);
+    expect(IDENTITY_UNVERIFIED_ISSUE).toBe('privy_identity_unverified');
+    expect(classify(new ConflictException(IDENTITY_UNVERIFIED_ISSUE))).toMatchObject({ class: 'needs_owner' });
+    // The exchange's own evidence expiring stays an ordinary transient failure.
+    expect(classify(new ConflictException('account_mode_evidence_expired')).exhaustedAs).toBeUndefined();
   });
 });
 

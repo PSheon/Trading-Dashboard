@@ -195,7 +195,12 @@ export class CopyAgentService {
       return wire(row);
     } catch (error) {
       if (error instanceof AgentProvisioningConflict) await this.repository.transition(row, { state: "blocked", issue: "agent_identity_changed" });
-      else await this.repository.transition(row, { issue: "agent_verification_pending" });
+      // The first time only: a repeat changes nothing (no new revision every
+      // pass; gate run 8 climbed one about every 10 s while nothing was sent).
+      else if (row.issue !== "agent_verification_pending") {
+        this.logger.warn(`agent ${id} verification pending ${JSON.stringify({ state: row.state, ...errorLogFields(error) })}`);
+        await this.repository.transition(row, { issue: "agent_verification_pending" });
+      }
       return wire(await this.repository.find(userId, id));
     }
   }

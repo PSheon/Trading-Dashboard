@@ -15,7 +15,7 @@ import { ACCOUNT_MODE_OBSERVE_WEIGHT } from './live/privy-account-mode-client.js
 import { HyperliquidBudgetWait, SHARED_CAPACITY_MIN_RETRY_MS, sharedCapacityWait, type LiveBudget, type LiveBudgetReservation } from '../hyperliquid/hyperliquid-budget-wait.js';
 import { infoWeight } from '../hyperliquid/info-weights.js';
 import { DEFAULT_LIVE_SETUP_TIMINGS, type LiveSetupTimings } from '../config/live-timings.js';
-import { classify, exhausted, StepFail, StepWait } from './live/error-class.js';
+import { classify, exhausted, IDENTITY_UNVERIFIED_ISSUE, StepFail, StepWait } from './live/error-class.js';
 import { LiveBoundaryError } from './live/wallet-authorization.js';
 import { CopyAgentService } from './copy-agent.service.js';
 import { AGENT_OBSERVE_WEIGHT } from './copy-agent-exchange.client.js';
@@ -127,6 +127,12 @@ const EXPIRED_ISSUES: readonly string[] = ['setup_expired', 'setup_deposit_uncre
 class Wait extends StepWait { constructor(issue: string, retryMs = DEFAULT_LIVE_SETUP_TIMINGS.retry.pendingMs) { super(issue, retryMs); } }
 /** The setup cannot finish; the owner sees the code (`permanent`). */
 class Fail extends StepFail {}
+/** An expired identity proof's timing (AgentIdentityEvidenceExpired), for the log. */
+function identityTiming(error: unknown): { elapsedMs?: number; spans?: unknown } {
+  if (!error || typeof error !== 'object' || !('spans' in error) || !Array.isArray(error.spans)) return {};
+  const elapsedMs = 'elapsedMs' in error && typeof error.elapsedMs === 'number' ? error.elapsedMs : undefined;
+  return { ...(elapsedMs !== undefined ? { elapsedMs } : {}), spans: error.spans };
+}
 
 const editSchema = z.object({ idempotencyKey: copyIdempotencyKeySchema, budgetUsd: liveCopyBudgetSchema,
   settings: copyStrategySettingsSchema.strict().refine(value => value.sizingMode !== 'fixed' || value.perTradeUsd !== null).refine(value => value.copyStartMode === 'delta') }).strict();
@@ -746,7 +752,9 @@ export class CopyLiveSetupService {
    * - needs_owner: the code is shown; looked at again, never exhausted.
    * - permanent: the setup ends (failed, or expired for a deadline).
    * - transient: one attempt more, backed off; at `transientAttempts` in this
-   *   stage it is permanent (an outcome still unknown never is).
+   *   stage it is permanent (an outcome still unknown never is), or, for a
+   *   Privy identity proof that kept expiring (`exhaustedAs`), it waits for
+   *   its owner (IDENTITY_UNVERIFIED_ISSUE) with an ALERT the first time.
    */
   private async failed(row: SetupRow, error: unknown): Promise<SetupRow> {
     const classified = classify(error), retry = this.timings.retry, now = this.now();
@@ -767,6 +775,12 @@ export class CopyLiveSetupService {
       case 'permanent': return end(issue);
       case 'transient': {
         const attempts = row.attempts + 1;
+        if (exhausted(classified, attempts, retry.transientAttempts) && classified.exhaustedAs === 'needs_owner') {
+          const fields = { setupId: row.id, stage: row.stage, code: classified.code, attempts, ...identityTiming(error) };
+          if (row.issue !== IDENTITY_UNVERIFIED_ISSUE) this.logger.error(`ALERT setup identity unverified ${JSON.stringify(fields)}`);
+          else this.logger.warn(`setup ${row.id} identity still unverified ${JSON.stringify(fields)}`);
+          return (await this.repository.transition(row, { issue: IDENTITY_UNVERIFIED_ISSUE, attempts, nextAttemptAt: new Date(now + retry.needsOwnerMs) })) ?? row;
+        }
         if (exhausted(classified, attempts, retry.transientAttempts)) {
           const code = classified.code ?? 'setup_step_failed';
           this.logger.warn(`setup ${row.id} ${code} after ${attempts} attempts at ${row.stage}: ${safeErrorText(error)}`);

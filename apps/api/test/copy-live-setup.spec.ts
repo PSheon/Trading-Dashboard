@@ -31,6 +31,7 @@ import { HyperliquidBudgetWait } from '../src/hyperliquid/hyperliquid-budget-wai
 import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
 import { CopyWalletRepository } from '../src/copy/copy-wallet.repository.js';
 import type { AgentConsentIntent } from '../src/copy/copy-agent-consent.js';
+import { AgentIdentityEvidenceExpired } from '../src/copy/copy-agent.service.js';
 import type { AppConfig } from '../src/config/app-config.js';
 import { AccountRepository } from '../src/users/account.repository.js';
 import { testConfig as baseTestConfig } from './config-test-utils.js';
@@ -520,6 +521,38 @@ describe('one-click testnet copy setup', () => {
     // Ended: the worker's pass never tries it again.
     later(60_000); await service.tick();
     expect(fakes.modes.submit).toHaveBeenCalledTimes(8);
+  });
+
+  // Gate run 8 (2026-10-13): an identity proof over a slow link to Privy
+  // expired every pass. A wait backed off as a transient one; at the eighth in
+  // a row the owner is told (needs_owner) with one ALERT, and the setup is not
+  // failed: the next proof that passes goes on.
+  it('an agent identity proof that keeps expiring backs off, then waits for its owner with an ALERT instead of failing the setup', async () => {
+    const setup = await start();
+    await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit(); later(5_000);
+    const alert = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    fakes.agents.challengeRow.mockRejectedValue(new AgentIdentityEvidenceExpired());
+    for (const delay of [3_000, 6_000, 12_000, 24_000, 48_000, 60_000, 60_000]) {
+      expect(await service.advance(uid, setup.id)).toMatchObject({ stage: 'mode_set', issue: 'agent_identity_evidence_expired' });
+      later(delay);
+    }
+    expect(alert.mock.calls.filter(call => String(call[0]).includes('ALERT'))).toHaveLength(0);
+    expect(await service.advance(uid, setup.id)).toMatchObject({ stage: 'mode_set', issue: 'privy_identity_unverified' });
+    const [row] = await db.select().from(copyLiveSetups);
+    expect(row).toMatchObject({ attempts: 8 }); expect(row!.nextAttemptAt!.getTime()).toBe(clock + 15_000);
+    expect(alert.mock.calls.filter(call => String(call[0]).includes('ALERT setup identity unverified'))).toHaveLength(1);
+    // Still unverified: no second ALERT, still not failed.
+    later(15_000);
+    expect(await service.advance(uid, setup.id)).toMatchObject({ stage: 'mode_set', issue: 'privy_identity_unverified' });
+    expect(alert.mock.calls.filter(call => String(call[0]).includes('ALERT'))).toHaveLength(1);
+    // The link recovers: the next proof passes and the setup goes on.
+    fakes.agents.challengeRow.mockImplementation(async (_userId: number, id: string) => {
+      const [agent] = await db.select().from(copyAgentSetups).where(eq(copyAgentSetups.id, id));
+      return { id, strategyId: agent!.strategyId, network: testNetwork, accountAddress, agentAddress, policyId: 'agent-policy', workerQuorumId: 'worker-quorum',
+        nonce: clock, expiresAt: agent!.expiresAt.getTime(), consentExpiresAt: clock + 300_000 };
+    });
+    later(15_000);
+    expect((await service.advance(uid, setup.id)).stage).not.toBe('mode_set');
   });
 
   it('budget waits never use up the transient attempts, and a failure without a code ends as setup_step_failed', async () => {

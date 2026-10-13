@@ -256,6 +256,17 @@ describe("explicit recoverable dedicated strategy agent setup", () => {
     expect(exchange.send).toHaveBeenCalledTimes(1);
   });
 
+  it("a verification that stays pending changes its row once, not on every pass (gate run 8: a new revision about every 10 s)", async () => {
+    const pending = await pendingApproval();
+    vi.mocked(exchange.observe).mockRejectedValue(new Error("live_read_deadline_exceeded"));
+    expect(await service.reconcile(uid, pending.id)).toMatchObject({ state: "approval_unknown", issue: "agent_verification_pending" });
+    const [first] = await db.select().from(copyAgentSetups);
+    for (let pass = 0; pass < 3; pass++) await service.reconcile(uid, pending.id);
+    const [after] = await db.select().from(copyAgentSetups);
+    expect(after).toMatchObject({ revision: first.revision, updatedAt: first.updatedAt, issue: "agent_verification_pending" });
+    expect(exchange.observe).toHaveBeenCalledTimes(4);
+  });
+
   it("an exchange listing older than 5 s is not recorded: the exchange's evidence keeps its own bound", async () => {
     const pending = await pendingApproval(); let clock = Date.now(); vi.spyOn(Date, "now").mockImplementation(() => clock);
     vi.mocked(exchange.observe).mockImplementation(async (intent) => { const checkedAt = clock; clock += 5001; return { checkedAt, validUntil: intent.expiresAt }; });

@@ -1,7 +1,7 @@
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {setTimeout as wait} from 'node:timers/promises';
 import {HyperliquidRestCapacityError,REST_CHARGE_LIFETIME_MS,sharedRestRetryAfterMs} from './hyperliquid-capacity-error.js';
-import {HYPERLIQUID_LIVE_DEMAND_HOLD_MS,HYPERLIQUID_MAX_LIVE_DEMAND,type HyperliquidRestLane} from './hyperliquid-global-quota.js';
+import {HYPERLIQUID_LIVE_DEMAND_HOLD_MS,HYPERLIQUID_MAX_LIVE_DEMAND,type HyperliquidMeterComposition,type HyperliquidRestLane} from './hyperliquid-global-quota.js';
 import {PostgresHyperliquidQuota,newLiveLaneToken,runInLiveLane,runInSetupLane,setupLaneToken,type BoundHyperliquidQuota} from './postgres-hyperliquid-quota.js';
 import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from '../copy/live/postgres-live-risk-scope.js';
 import {LiveBoundaryError} from '../copy/live/wallet-authorization.js';
@@ -79,10 +79,10 @@ export class HyperliquidGlobalTransport {
   * answers in how many ms that weight fits in the setup lane (0: now, and
   * the step's weight stays free for it while it runs). `key`: the setup's id
   * (its earlier charges never count against its own share). Nothing is sent. */
- async claimSetup(weight:number,key?:string):Promise<number>{
+ async claimSetup(weight:number,key?:string,observe?:(meter:HyperliquidMeterComposition)=>void):Promise<number>{
   if(this.isOriginal())fail('hyperliquid_quota_invalid');
   const budget=this.currentQuota();
-  return budget.claimSetupRest?budget.claimSetupRest(weight,this.now()+5000,key===undefined?undefined:setupLaneToken(key)):0;
+  return budget.claimSetupRest?budget.claimSetupRest(weight,this.now()+5000,key===undefined?undefined:setupLaneToken(key),observe):0;
  }
  /** Runs a copy setup's step: its unlabelled REST charges go in the setup
   * lane (`key`: the setup's id, as claimed). */

@@ -10,6 +10,7 @@ import { BackgroundJobs } from '../runtime/background-jobs.service.js';
 import { outsideRequest } from '../runtime/request-context.js';
 import { UnitOfWork, type DbExecutor, type DbTransaction } from '../db/unit-of-work.js';
 import { ATTEMPT_WEIGHT, CopyAccountModeService } from './copy-account-mode.service.js';
+import type { HyperliquidMeterComposition } from '../hyperliquid/hyperliquid-global-quota.js';
 import { ACCOUNT_MODE_OBSERVE_WEIGHT } from './live/privy-account-mode-client.js';
 import { HyperliquidBudgetWait, SHARED_CAPACITY_MIN_RETRY_MS, sharedCapacityWait } from '../hyperliquid/hyperliquid-budget-wait.js';
 import { infoWeight } from '../hyperliquid/info-weights.js';
@@ -64,7 +65,7 @@ export const SETUP_REST_CAPACITY = Symbol('SETUP_REST_CAPACITY');
 export interface SetupRestCapacity {
   /** Records the setup's demand and answers in how many ms `weight` fits
    * (0: now, and granted). `key`: the setup's id. */
-  claimSetup(weight: number, key?: string): Promise<number>;
+  claimSetup(weight: number, key?: string, observe?: (meter: HyperliquidMeterComposition) => void): Promise<number>;
   /** Runs the step: its Hyperliquid charges are the setup lane's (`key`: as claimed). */
   runSetup<T>(work: () => Promise<T>, key?: string): Promise<T>;
 }
@@ -75,6 +76,8 @@ export interface SetupRestCapacity {
  * had just expired, background had refilled the window, and the next claim
  * said ~63.5 s again: ten minutes at `funded`. */
 export const SETUP_CLAIM_RENEW_MS = 20_000;
+/** A setup's claim waits are logged with the meter's composition at most this often. */
+export const SETUP_CLAIM_LOG_EVERY_MS = 5_000;
 /** A throttled step's provider weight in its minute, claimed before it runs:
  * the account-mode attempt (its two preflights and the POST; an operation
  * in flight is only observed, ACCOUNT_MODE_OBSERVE_WEIGHT), the agent's
@@ -850,8 +853,8 @@ export class CopyLiveSetupService {
   private async withCapacity(row: SetupRow, weight: number, step: () => Promise<SetupRow>): Promise<SetupRow> {
     const capacity = this.capacity;
     if (!capacity || weight <= 0) return step();
-    let waitMs: number;
-    try { waitMs = await capacity.claimSetup(weight, row.id); }
+    let waitMs: number, meter: HyperliquidMeterComposition | undefined;
+    try { waitMs = await capacity.claimSetup(weight, row.id, observed => { meter = observed; }); }
     catch (error) {
       const wait = sharedCapacityWait(error);
       if (wait) throw wait;
@@ -860,13 +863,32 @@ export class CopyLiveSetupService {
       this.logger.warn(`setup capacity not claimed: ${safeErrorText(error)}`);
       waitMs = 0;
     }
-    if (waitMs > 0) throw new HyperliquidBudgetWait(Math.min(SETUP_CLAIM_RENEW_MS, Math.max(SHARED_CAPACITY_MIN_RETRY_MS, waitMs + 250)), 'shared_capacity', { weight, bucket: 'shared:setup' });
+    if (waitMs > 0) {
+      this.logClaimWait(row.id, weight, waitMs, meter);
+      throw new HyperliquidBudgetWait(Math.min(SETUP_CLAIM_RENEW_MS, Math.max(SHARED_CAPACITY_MIN_RETRY_MS, waitMs + 250)), 'shared_capacity', { weight, bucket: 'shared:setup' });
+    }
     try { return await capacity.runSetup(step, row.id); }
     catch (error) {
       const wait = sharedCapacityWait(error);
       if (wait && wait.retryMs > SETUP_CLAIM_RENEW_MS) throw new HyperliquidBudgetWait(SETUP_CLAIM_RENEW_MS, 'shared_capacity', { ...wait.detail, weight, bucket: 'shared:setup' });
       throw error;
     }
+  }
+
+  /** When each setup's claim wait was last logged (SETUP_CLAIM_LOG_EVERY_MS). */
+  private readonly claimWaitLogged = new Map<string, number>();
+  /**
+   * A setup's claim that waits: its need and what the shared meter held at
+   * that decision, by class (hyperliquidMeterComposition), so a gate run
+   * shows who held the window. At most once per SETUP_CLAIM_LOG_EVERY_MS per
+   * setup; the composition comes with the claim's own transaction (no read).
+   */
+  private logClaimWait(setupId: string, need: number, waitMs: number, meter: HyperliquidMeterComposition | undefined): void {
+    const now = this.now(), last = this.claimWaitLogged.get(setupId);
+    if (last !== undefined && now - last < SETUP_CLAIM_LOG_EVERY_MS) return;
+    if (this.claimWaitLogged.size >= 256) this.claimWaitLogged.clear();
+    this.claimWaitLogged.set(setupId, now);
+    this.logger.warn(`setup ${setupId} claim waits ${JSON.stringify({ setupId, need, waitMs: Math.ceil(waitMs), ...(meter ? { meter } : {}) })}`);
   }
 
   private async modeStep(row: SetupRow, intent: LiveCopySetupIntent, signer: SetupSigner | null): Promise<SetupRow> {

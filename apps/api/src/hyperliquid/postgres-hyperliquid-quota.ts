@@ -10,7 +10,7 @@ import type { UnitOfWork,DbTransaction } from '../db/unit-of-work.js';
 import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from '../copy/live/postgres-live-risk-scope.js';
 import {LiveBoundaryError,type LiveNetwork} from '../copy/live/wallet-authorization.js';
 import {HyperliquidRestCapacityError,sharedRestRetryAfterMs} from './hyperliquid-capacity-error.js';
-import {HYPERLIQUID_MAX_LIVE_DEMAND,HYPERLIQUID_MAX_SETTLEMENTS,LIVE_LANE_TOKEN,LIVE_REST_ID_PREFIX,liveDemandTicket,HYPERLIQUID_STALE_LEASE_RECLAIM_MS,SETUP_DEMAND_ID_PREFIX,SETUP_LANE_TOKEN,SETUP_REST_ID_PREFIX,hyperliquidLaneStatus,planHyperliquidQuota,setupDemandTicket,quotaSubscription,type HyperliquidQuotaPlan,type HyperliquidRestLane,type HyperliquidQuotaLease,type HyperliquidQuotaRequest,type HyperliquidQuotaSubscription} from './hyperliquid-global-quota.js';
+import {BACKGROUND_REST_ID_PREFIX,HYPERLIQUID_MAX_LIVE_DEMAND,HYPERLIQUID_MAX_SETTLEMENTS,LIVE_LANE_TOKEN,LIVE_REST_ID_PREFIX,liveDemandTicket,HYPERLIQUID_STALE_LEASE_RECLAIM_MS,SETUP_DEMAND_ID_PREFIX,SETUP_LANE_TOKEN,SETUP_REST_ID_PREFIX,hyperliquidLaneStatus,planHyperliquidQuota,setupDemandTicket,quotaSubscription,type HyperliquidMeterComposition,type HyperliquidQuotaPlan,type HyperliquidRestLane,type HyperliquidQuotaLease,type HyperliquidQuotaRequest,type HyperliquidQuotaSubscription} from './hyperliquid-global-quota.js';
 import {freezeLiveReservation} from '../copy/live/live-risk-reservation.js';
 import {liveSourceDigest} from '../copy/live/copy-live-source-evidence.js';
 import {liveSpan} from '../copy/live/live-execution-diagnostics.js';
@@ -43,7 +43,7 @@ export interface BoundHyperliquidQuota {
    * what the step still needs stays free for it). `token`
    * (setupLaneToken): the setup's; its own earlier charges never count
    * against its share. Never in an original session. */
-  claimSetupRest?(weight:number,deadline:number,token?:string):Promise<number>;
+  claimSetupRest?(weight:number,deadline:number,token?:string,observe?:(meter:HyperliquidMeterComposition)=>void):Promise<number>;
   /** A live order about to read its evidence and send (`weight`: what that
    * weighs), under its demand `token` (newLiveLaneToken): records its demand
    * (setups, background and unlabelled work leave what it still needs free
@@ -243,7 +243,7 @@ export class PostgresHyperliquidQuota {
       const settle=session?[]:this.pendingSettlements(binding.egressKey);
       if(lane==='background'&&!session)this.refuseKnownFull(binding.egressKey,weight);
       const id=lane==='setup'?`${SETUP_REST_ID_PREFIX}${setup?.token!==undefined?`${setup.token}:`:''}${randomUUID()}`
-        :lane==='live'?`${LIVE_REST_ID_PREFIX}${live!==undefined?`${live}:`:''}${randomUUID()}`:randomUUID();let fresh:()=>void;
+        :lane==='live'?`${LIVE_REST_ID_PREFIX}${live!==undefined?`${live}:`:''}${randomUUID()}`:lane==='background'?`${BACKGROUND_REST_ID_PREFIX}${randomUUID()}`:randomUUID();let fresh:()=>void;
       try{fresh=await apply((_now,sendUntil)=>({kind:'rest',id,weight,sendUntil,...(lane?{lane}:{}),...(settle.length?{settle}:{})}),deadline);}
       catch(error){if(lane==='background'&&!session)this.rememberFull(binding.egressKey,weight,error);throw error;}
       if(lane==='background'&&!session)this.backgroundFull.delete(binding.egressKey);
@@ -254,11 +254,14 @@ export class PostgresHyperliquidQuota {
         let map=this.settlements.get(binding.egressKey);if(!map){map=new Map();this.settlements.set(binding.egressKey,map);}
         if(map.size<256)map.set(id,{units,at:this.now()});
       }});
-    },claimSetupRest:async(weight:number,deadline:number,token?:string)=>{
+    },claimSetupRest:async(weight:number,deadline:number,token?:string,observe?:(meter:HyperliquidMeterComposition)=>void)=>{
       if(session||!Number.isSafeInteger(weight)||weight<1||weight>1200||token!==undefined&&(typeof token!=='string'||!SETUP_LANE_TOKEN.test(token)))fail('hyperliquid_quota_invalid');
       const id=token===undefined?`${SETUP_DEMAND_ID_PREFIX}${randomUUID()}`:setupDemandTicket(weight,token);let waitMs:number|undefined;
-      await this.apply(binding,(_now,sendUntil)=>({kind:'setup_demand',id,weight,sendUntil}),deadline,undefined,undefined,plan=>{waitMs=plan.waitMs;});
+      let meter:HyperliquidMeterComposition|undefined;
+      await this.apply(binding,(_now,sendUntil)=>({kind:'setup_demand',id,weight,sendUntil}),deadline,undefined,undefined,plan=>{waitMs=plan.waitMs;meter=plan.composition;});
       if(waitMs===undefined)fail('hyperliquid_quota_invalid');
+      // Diagnostics only: an observer that throws never fails the claim.
+      if(meter&&observe)try{observe(meter);}catch{/* diagnostics only */}
       return waitMs!;
     },claimLiveRest:async(weight:number,deadline:number,token:string)=>{
       if(session||!Number.isSafeInteger(weight)||weight<1||weight>HYPERLIQUID_MAX_LIVE_DEMAND||typeof token!=='string'||!LIVE_LANE_TOKEN.test(token))fail('hyperliquid_quota_invalid');

@@ -154,10 +154,49 @@ export function hyperliquidLaneStatus(events:readonly HyperliquidQuotaEvent[],no
     liveDemand:{count:tokens.size,held:units(rest.filter(e=>e.id.startsWith(LIVE_REST_ID_PREFIX))),until:orders.length?Math.max(...orders.map(e=>e.reservedAt+HYPERLIQUID_LIVE_DEMAND_HOLD_MS)):null},
   };
 }
+/** Background charges' tickets (`bg:<id>`): told apart from unlabelled ones
+ * in the meter's composition only (a process on the previous release reads
+ * them as ordinary REST charges, which they are). */
+export const BACKGROUND_REST_ID_PREFIX='bg:';
+/** What the meter held at one decision, by class (diagnostics: the setup's
+ * claim waits log it, so a gate run shows who held the window): `background`
+ * (`bg:`), `other` (no lane ticket: pages, wallet and live work outside an
+ * original session, a previous release's charges), `live` (`live:`), each
+ * setup's charges by its token's first 8 hex (`setup`), the 1-unit markers,
+ * setups whose claim waits (`pending`: need, since when its earliest alive
+ * marker) and granted claims (`granted`: what each still needs). */
+export interface HyperliquidMeterComposition {
+  readonly total:number;readonly background:number;readonly other:number;readonly live:number;
+  readonly setup:Readonly<Record<string,number>>;readonly markers:{readonly setup:number;readonly live:number};
+  readonly pending:readonly {readonly token:string;readonly need:number;readonly waitingMs:number}[];
+  readonly granted:readonly {readonly token:string;readonly left:number}[];
+  readonly liveNeed:number;
+}
+export function hyperliquidMeterComposition(events:readonly HyperliquidQuotaEvent[],now:number):HyperliquidMeterComposition{
+  const rest=events.filter(e=>e.kind==='rest'&&e.expiresAt>now);
+  let background=0,other=0,live=0,setupMarkers=0,liveMarkers=0;const setup:Record<string,number>={};
+  for(const e of rest){
+    if(e.id.startsWith(SETUP_DEMAND_ID_PREFIX))setupMarkers+=e.units;
+    else if(e.id.startsWith(LIVE_DEMAND_ID_PREFIX))liveMarkers+=e.units;
+    else if(e.id.startsWith(SETUP_REST_ID_PREFIX)){const token=(SETUP_TOKEN_CHARGE.exec(e.id)?.[1]??'untagged').slice(0,8);setup[token]=(setup[token]??0)+e.units;}
+    else if(e.id.startsWith(LIVE_REST_ID_PREFIX))live+=e.units;
+    else if(e.id.startsWith(BACKGROUND_REST_ID_PREFIX))background+=e.units;
+    else other+=e.units;
+  }
+  const claims=setupClaims(rest,now),since=new Map<string,{need:number;first:number;latest:number;granted:boolean}>();
+  for(const e of rest){const m=SETUP_DEMAND_TICKET.exec(e.id);if(!m)continue;const t=m[2]!,known=since.get(t);
+    if(!known)since.set(t,{need:Number(m[1]),first:e.reservedAt,latest:e.reservedAt,granted:m[3]===':g'});
+    else{known.first=Math.min(known.first,e.reservedAt);if(e.reservedAt>=known.latest){known.latest=e.reservedAt;known.need=Number(m[1]);known.granted=m[3]===':g';}}}
+  const pending=[...since].filter(([,c])=>!c.granted).map(([t,c])=>({token:t.slice(0,8),need:c.need,waitingMs:now-c.first}));
+  const granted=[...since].filter(([t,c])=>c.granted&&claims.left(t)>0).map(([t])=>({token:t.slice(0,8),left:claims.left(t)}));
+  return {total:rest.reduce((sum,e)=>sum+e.units,0),background,other,live,setup,markers:{setup:setupMarkers,live:liveMarkers},pending,granted,liveNeed:liveClaims(rest,now).outstanding()};
+}
 const isLaneTicket=(id:string)=>[SETUP_REST_ID_PREFIX,SETUP_DEMAND_ID_PREFIX,LIVE_REST_ID_PREFIX,LIVE_DEMAND_ID_PREFIX].some(prefix=>id.startsWith(prefix));
 export interface HyperliquidQuotaPlan {readonly state:HyperliquidQuotaState;readonly leases:readonly HyperliquidQuotaLease[];readonly charged:number;
   /** `setup_demand` and `live_demand` only: 0 when the weight fits now, else in how many ms it should (its marker is recorded either way). */
-  readonly waitMs?:number;}
+  readonly waitMs?:number;
+  /** `setup_demand` only: what the meter held at this decision (diagnostics). */
+  readonly composition?:HyperliquidMeterComposition;}
 const integer=z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const identifier=z.string().min(1).max(128).regex(/^[^\s\p{Cc}\p{Cf}]+$/u);
 const network=z.enum(['mainnet','testnet']);
@@ -239,7 +278,7 @@ export function planHyperliquidQuota(raw:{readonly now:number;readonly state:Hyp
       if(event&&settled.units<event.units)event.units=settled.units;
     }
     for(const kind of ['rest','ws_message','ws_connect'] as const)requireQuota(events.filter(e=>e.kind===kind).reduce((sum,e)=>sum+e.units,0)<=caps[kind]);
-    let charged=0,waitMs:number|undefined;
+    let charged=0,waitMs:number|undefined,composition:HyperliquidMeterComposition|undefined;
     const sum=(list:readonly HyperliquidQuotaEvent[])=>list.reduce((total,e)=>total+e.units,0);
     /** In how many ms `units` more fit under `cap` as charges of `pool`
      * expire (0: now), assuming nothing else is charged; undefined: never. */
@@ -338,6 +377,7 @@ export function planHyperliquidQuota(raw:{readonly now:number;readonly state:Hyp
       if(marker===undefined)throw new LiveBoundaryError('hyperliquid_quota_exhausted');
       if(marker>0)throw new HyperliquidRestCapacityError(marker);
       events.push({id:ticket&&fits===0?`${request.id}:g`:request.id,kind:'rest',units:1,reservedAt:now,expiresAt:request.sendUntil+60000});charged=1;waitMs=fits;
+      composition=hyperliquidMeterComposition(events,now);
     }
     else if(request.kind==='live_demand'){
       // A live order about to read its evidence and send (its need: what
@@ -385,6 +425,6 @@ export function planHyperliquidQuota(raw:{readonly now:number;readonly state:Hyp
       else l.state=request.kind;
       l.revision++;l.updatedAt=now;
     }
-    requireQuota(events.length<=3500);return freezeLiveReservation({state:{...s,events,revision:s.revision+1,updatedAt:now},leases,charged,...(waitMs===undefined?{}:{waitMs})});
+    requireQuota(events.length<=3500);return freezeLiveReservation({state:{...s,events,revision:s.revision+1,updatedAt:now},leases,charged,...(waitMs===undefined?{}:{waitMs}),...(composition===undefined?{}:{composition})});
   }catch(error){if(error instanceof LiveBoundaryError)throw error;throw new LiveBoundaryError('hyperliquid_quota_invalid');}
 }

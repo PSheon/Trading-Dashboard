@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { Logger } from '@nestjs/common';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { sharedRestRetryAfterMs } from '../src/hyperliquid/hyperliquid-capacity-error.js';
 import { Meter, T0, Testnet, database, setupIntent, sleep, worker } from './copy-setup-capacity-test-utils.js';
@@ -52,6 +53,7 @@ describe('a copy setup beside a full background lane (2026-10-13 gate)', () => {
     expect(meter.restHeld()).toBeGreaterThanOrEqual(820);
     expect(background.refused).toBeGreaterThan(0);
 
+    const warn = vi.spyOn(Logger.prototype, 'warn');
     const started = Date.now();
     setupRunning = true;
     let ticking = false, nextTick = started;
@@ -92,5 +94,11 @@ describe('a copy setup beside a full background lane (2026-10-13 gate)', () => {
     expect(background.granted - grantedBefore).toBeGreaterThan(20);
     // Never over the provider's per-IP 1200.
     expect(meter.peak).toBeLessThanOrEqual(1200);
+    // Each claim that waited logged its need and what the meter held then, by class.
+    const claimWaits = warn.mock.calls.map(c => String(c[0])).filter(m => m.includes(' claim waits '))
+      .map(m => JSON.parse(m.slice(m.indexOf('{'))) as { need: number; waitMs: number; meter: { total: number; background: number; pending: { need: number }[] } });
+    expect(claimWaits.length).toBeGreaterThan(0);
+    expect(claimWaits[0]!.meter.background).toBeGreaterThan(0);
+    expect(claimWaits[0]!.meter.pending.map(p => p.need)).toContain(claimWaits[0]!.need);
   }, 120_000);
 });

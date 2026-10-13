@@ -17,6 +17,7 @@ import { CopyFundingExchangeClient } from './copy-funding-exchange.client.js';
 import { WORKER_MASTER_SIGNER, type WorkerMasterSigner } from './live/privy-policy-master-signer.js';
 import type { SetupAbortFlatObservation } from './live/live-account-observer.js';
 import { deploymentNetwork, liveExecutionEnabled } from './live-deployment.js';
+import { abortDepositSettled } from './copy-live-setup-abort-deposit.js';
 import type { DbTransaction } from '../db/unit-of-work.js';
 
 export const SETUP_ABORT_OBSERVER = Symbol('SETUP_ABORT_OBSERVER');
@@ -67,9 +68,12 @@ export class CopyLiveSetupAbortService {
     // the original funding outcome instead of presenting acceptance as credit.
     const pendingRefund = row.state === 'done' && refund && refund.status !== 'credited';
     const rejectedRefund = pendingRefund && ['rejected', 'cancelled'].includes(refund.status);
+    // A cancel completed on the account's own state while the original
+    // deposit's confirmation (the explorer) still lags: not yet `completed`.
+    const pendingDeposit = row.state === 'done' && !pendingRefund && deposit && ['prepared', 'unknown', 'accepted'].includes(deposit.status);
     return liveCopySetupAbortSchema.parse({ id: row.id, setupId: row.setupId, strategyId: row.strategyId, accountId: row.accountId, kind: row.kind, network: row.network,
-      state: pendingRefund ? rejectedRefund ? 'blocked' : 'delegated' : states[row.state],
-      issue: pendingRefund ? rejectedRefund ? 'setup_abort_refund_not_completed' : 'setup_abort_refund_pending' : issue(row.issue), deposit: deposit ? { ...fundingWire(deposit), direction: deposit.direction } : null,
+      state: pendingRefund ? rejectedRefund ? 'blocked' : row.stopId ? 'delegated' : 'refunding' : pendingDeposit ? 'reconciling' : states[row.state],
+      issue: pendingRefund ? rejectedRefund ? 'setup_abort_refund_not_completed' : 'setup_abort_refund_pending' : pendingDeposit ? 'setup_abort_deposit_pending' : issue(row.issue), deposit: deposit ? { ...fundingWire(deposit), direction: deposit.direction } : null,
       refund: refund ? { ...fundingWire(refund), direction: refund.direction } : null,
       stop: children.stop ? { id: children.stop.id, state: children.stop.state, issue: issue(children.stop.issue) } : null,
       createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() });
@@ -89,6 +93,10 @@ export class CopyLiveSetupAbortService {
    * the log says why (it used to be dropped). */
   private kept(abortId: string, child: string, childId: string) {
     return (error: unknown) => { this.logger.warn(`setup abort ${abortId} ${child} ${childId} reconcile kept for the next pass ${JSON.stringify(errorLogFields(error))}`); };
+  }
+  /** A balance read that failed proves nothing: the refund waits. */
+  private unread(abortId: string) {
+    return (error: unknown) => { this.logger.warn(`setup abort ${abortId} balance not read ${JSON.stringify(errorLogFields(error))}`); return null; };
   }
   /** Worker pass only; never called from an HTTP mutation. */
   async process(id: string) {
@@ -138,13 +146,24 @@ export class CopyLiveSetupAbortService {
       }
       if (children.otherFunding.length) { await wait('draining', 'setup_abort_child_pending'); return; }
       const deposit = children.funding.find(op => op.id === row!.fundingOperationId);
-      if (deposit && ['prepared','unknown','accepted'].includes(deposit.status)) { await wait('waiting_credit', 'setup_abort_deposit_pending'); return; }
       if (!row.accountId || !row.accountAddress || !deposit) { await wait('blocked', 'setup_abort_binding_unknown'); return; }
+      // The deposit sent but not confirmed (its credit needs the explorer):
+      // settled for the refund once the account's own state shows it (its
+      // ledger, or its balance), or once its nonce can no longer execute.
+      // Until then the money may still be travelling and the refund waits.
+      // A refund already reserved was admitted on that proof: it stays settled.
+      if (!row.returnOperationId && !abortDepositSettled(deposit, this.now(), null) &&
+        !abortDepositSettled(deposit, this.now(), await this.exchange.withdrawable(row.network, row.accountAddress).catch(this.unread(row.id)))) {
+        await wait('waiting_credit', 'setup_abort_deposit_pending'); return;
+      }
       let refund: ReturnRow | null | undefined = children.funding.find(op => op.id === row!.returnOperationId);
       if (refund && ['unknown','accepted'].includes(refund.status)) {
         await this.funding.reconcile(row.userId, refund.id).catch(this.kept(row.id, 'refund', refund.id));
         refund = await this.returns.find(row.userId, refund.id);
-        if (['unknown','accepted'].includes(refund.status)) { await wait('returning', 'setup_abort_refund_pending'); return; }
+        // Accepted by the exchange (its own reply): it executed. Its credit
+        // is confirmed later (the explorer may lag) and only a flat zero
+        // account is needed to complete below. Unknown still waits.
+        if (refund.status === 'unknown' || refund.status === 'prepared') { await wait('returning', 'setup_abort_refund_pending'); return; }
       }
       if (refund && ['rejected','cancelled'].includes(refund.status)) { await wait('blocked', 'setup_abort_refund_not_completed'); return; }
       // Pay local attempt weight before the evidence clock. The global

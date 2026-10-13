@@ -12,6 +12,7 @@ import { CopyLiveReturnRepository, type ReturnRow } from './copy-live-return.rep
 import type { SetupAbortRow } from './copy-live-setup-abort.repository.js';
 import type { SetupAbortFlatObservation } from './live/live-account-observer.js';
 import { allocateSignerNonce } from './signer-nonce.js';
+import { abortDepositSettled } from './copy-live-setup-abort-deposit.js';
 import { AppConfig } from '../config/app-config.js';
 import { deploymentNetwork } from './live-deployment.js';
 
@@ -57,8 +58,12 @@ export class CopyLiveSetupAbortReturnRepository {
   /** No lease expiry is evidence that an old driver or attempted child ended.
    * Every attempted outcome remains pending until its own reconciliation says
    * it cannot execute, and a real generation always uses a genuine stop. */
-  private async quiescent(tx: DbTransaction, context: Awaited<ReturnType<CopyLiveSetupAbortReturnRepository['context']>>) {
-    const { abort, setup } = context;
+  private async quiescent(tx: DbTransaction, context: Awaited<ReturnType<CopyLiveSetupAbortReturnRepository['context']>>, proof: SetupAbortFlatObservation, now: number) {
+    const { abort, setup, deposit } = context;
+    // The original deposit, once settled for the refund from the account's
+    // own state (abortDepositSettled: never the explorer), no longer holds
+    // it: its credit confirmation lags on its own (funding monitor).
+    const settled = this.depositSettled(context, proof, now) ? deposit.id : null;
     // An expired token alone never grants permission. The persistent abort
     // already fences every new attempt; the locked child queries below seal
     // all prior SDK outcomes, and callers must provide a fresh purpose proof.
@@ -68,13 +73,19 @@ export class CopyLiveSetupAbortReturnRepository {
       or exists(select 1 from copy_live_mandates where account_id = ${abort.accountId} and activation_cursor is not null)
       or exists(select 1 from copy_live_risk_reservations where account_id = ${abort.accountId} and state <> 'released')
       or exists(select 1 from copy_live_executions where network = ${abort.network} and account_address = ${abort.accountAddress} and state in ('prepared','submitting','unknown','resting'))
-      or exists(select 1 from copy_funding_operations where account_id = ${abort.accountId} and status in ('prepared','unknown','accepted') and (setup_abort_id is null or setup_abort_id <> ${abort.id}))
+      or exists(select 1 from copy_funding_operations where account_id = ${abort.accountId} and status in ('prepared','unknown','accepted') and (setup_abort_id is null or setup_abort_id <> ${abort.id})
+        and (${settled}::text is null or id <> ${settled}))
       or exists(select 1 from wallet_withdrawals where network = ${abort.network} and address = ${abort.destination} and status in ('prepared','unknown'))
       or exists(select 1 from copy_account_mode_operations where account_id = ${abort.accountId} and (submission_state = 'signing' or (attempted_at is not null and target_state <> 'supported' and submission_state <> 'rejected')))
       or exists(select 1 from copy_agent_setups where account_id = ${abort.accountId} and (state in ('policy_prepared','policy_unknown','wallet_prepared','wallet_unknown','approval_signing','approval_unknown') or (approval_attempted_at is not null and state <> 'active')))
       or exists(select 1 from copy_live_builder_approvals where account_id = ${abort.accountId} and (state in ('unknown','accepted') or (attempted_at is not null and state not in ('approved','rejected'))))
     ) as busy`);
     return result.rows[0]?.busy === false;
+  }
+  /** abortDepositSettled; a refund already reserved was admitted on that
+   * proof (the refund then took the balance that proved it). */
+  private depositSettled(context: { abort: SetupAbortRow; deposit: ReturnRow }, proof: SetupAbortFlatObservation, now: number) {
+    return context.abort.returnOperationId !== null || abortDepositSettled(context.deposit, now, proof.snapshot.withdrawable);
   }
   private proof(abort: SetupAbortRow, proof: SetupAbortFlatObservation, now: number) {
     const s = proof.snapshot;
@@ -103,7 +114,7 @@ export class CopyLiveSetupAbortReturnRepository {
       const [original] = await tx.select().from(copyFundingOperations).where(eq(copyFundingOperations.setupAbortId, abort.id));
       if (original) return original;
       const evidence = this.proof(abort, proof, now());
-      if (!evidence.amount || !await this.quiescent(tx, context)) return null;
+      if (!evidence.amount || !await this.quiescent(tx, context, proof, now())) return null;
       const [row] = await tx.insert(copyFundingOperations).values({ id: randomUUID(), userId: abort.userId, accountId: account.id, strategyId: abort.strategyId,
         idempotencyKey: `abort:${abort.id}`, setupAbortId: abort.id, direction: 'to_main', network: abort.network, address: abort.accountAddress!, destination: abort.destination,
         amount: evidence.amount, nonce: await allocateSignerNonce(tx, abort.network, abort.accountAddress!, now()) }).returning();
@@ -120,7 +131,7 @@ export class CopyLiveSetupAbortReturnRepository {
         row.direction !== 'to_main' || row.stopId || abort.returnOperationId !== id) refuse('setup_abort_binding_unknown');
       if (row.status !== 'prepared' || row.attemptedAt) return null;
       const evidence = this.proof(abort, proof, now());
-      if (!evidence.amount || !Dec.from(evidence.amount).gte(row.amount) || !await this.quiescent(tx, context)) return null;
+      if (!evidence.amount || !Dec.from(evidence.amount).gte(row.amount) || !await this.quiescent(tx, context, proof, now())) return null;
       const at = new Date(now());
       await tx.update(copyLiveSetupAborts).set({ proofDigest: evidence.digest, proofReadAt: new Date(proof.snapshot.observedAt), revision: abort.revision + 1, updatedAt: at }).where(eq(copyLiveSetupAborts.id, abort.id));
       const [attempt] = await tx.update(copyFundingOperations).set({ status: 'unknown', attemptedAt: at, claimedAt: at, updatedAt: at })
@@ -138,7 +149,7 @@ export class CopyLiveSetupAbortReturnRepository {
       if (!row || abort.returnOperationId !== row.id || row.status !== 'unknown' || !row.attemptedAt || row.attemptedAt.getTime() !== attempt.attemptedAt?.getTime() ||
         row.nonce !== attempt.nonce || row.amount !== attempt.amount || row.evidenceHash !== null || row.transactionHash !== null) return false;
       const evidence = this.proof(abort, proof, now());
-      if (!evidence.amount || !Dec.from(evidence.amount).gte(row.amount) || !await this.quiescent(tx, context)) return false;
+      if (!evidence.amount || !Dec.from(evidence.amount).gte(row.amount) || !await this.quiescent(tx, context, proof, now())) return false;
       await tx.update(copyLiveSetupAborts).set({ proofDigest: evidence.digest, proofReadAt: new Date(proof.snapshot.observedAt), revision: abort.revision + 1, updatedAt: new Date(now()) })
         .where(eq(copyLiveSetupAborts.id, abort.id));
       return true;
@@ -162,12 +173,15 @@ export class CopyLiveSetupAbortReturnRepository {
   }
   async complete(expected: SetupAbortRow, proof: SetupAbortFlatObservation, now: () => number = Date.now): Promise<boolean> {
     return this.db.transaction(async tx => {
-      const context = await this.context(tx, expected, true), { abort, setup, deposit, strategy } = context;
+      const context = await this.context(tx, expected, true), { abort, setup, strategy } = context;
       const evidence = this.proof(abort, proof, now());
-      if (evidence.amount || !await this.quiescent(tx, context) || ['prepared','unknown','accepted'].includes(deposit.status) ||
+      if (evidence.amount || !await this.quiescent(tx, context, proof, now()) || !this.depositSettled(context, proof, now()) ||
         !['paused','stopped'].includes(strategy.status)) return false;
+      // The refund the exchange accepted (its own reply) with the account now
+      // proven flat at zero has left: its credit is confirmed later by the
+      // funding monitor (the explorer may lag), never holding the setup.
       const refunds = await tx.select().from(copyFundingOperations).where(eq(copyFundingOperations.setupAbortId, abort.id));
-      if (refunds.some(row => row.status !== 'credited') || (abort.returnOperationId && !refunds.some(row => row.id === abort.returnOperationId))) return false;
+      if (refunds.some(row => !['credited', 'accepted'].includes(row.status)) || (abort.returnOperationId && !refunds.some(row => row.id === abort.returnOperationId))) return false;
       const others = await tx.execute<{ busy: boolean }>(sql`select exists(select 1 from copy_live_setups where strategy_id = ${abort.strategyId}
         and id <> ${abort.setupId} and stage not in ('running','failed','expired','cancelled')) as busy`);
       if (others.rows[0]?.busy !== false) return false;

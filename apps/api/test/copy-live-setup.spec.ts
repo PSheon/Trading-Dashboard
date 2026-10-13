@@ -11,7 +11,7 @@ import { appSettings, copyAgentSetups, copyControls, copyExecutionAccounts, copy
   copyLiveStrategyConfigs, copyRiskPolicies, copyStrategies, copyWalletAuthorizations, leaders } from '@trading-dashboard/shared/database';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
 import { CopyFundingRepository, type FundingSender } from '../src/copy/copy-funding.repository.js';
-import { wire as fundingWire } from '../src/copy/copy-funding.service.js';
+import { CopyFundingService, wire as fundingWire } from '../src/copy/copy-funding.service.js';
 import { CopyLiveMandateRepository } from '../src/copy/copy-live-mandate.repository.js';
 import { CopyLiveSetupRepository } from '../src/copy/copy-live-setup.repository.js';
 import { CopyLiveSetupService, setupFundingKey } from '../src/copy/copy-live-setup.service.js';
@@ -990,7 +990,8 @@ it.each(['late-credit', 'prepared-deposit', 'claimed-deposit', 'prepared-return'
   const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(db, mandates));
   const refunds = new CopyLiveSetupAbortReturnRepository(db, testConfig(), mandates, returns);
   const observer = { observeSetupAbortFlat: vi.fn(async () => flatAbortProof()) };
-  const exchange = { acquire: vi.fn(async () => undefined), send: vi.fn(async (_op: unknown, _sig: string, fresh: () => void, dispatched: () => void) => {
+  // The copy account's balance read: the late credit has not landed yet.
+  const exchange = { acquire: vi.fn(async () => undefined), withdrawable: vi.fn(async () => '0'), send: vi.fn(async (_op: unknown, _sig: string, fresh: () => void, dispatched: () => void) => {
     fresh(); dispatched(); return { status: 'ok', response: { type: 'default' } };
   }) };
   const signer = { available: true, sign: vi.fn(async () => 'test-worker-signature') };
@@ -1468,6 +1469,8 @@ describe('cancel and refund a confirmed setup awaiting its credit (funding_submi
     expect(await service.confirm(uid, setup.id, await sign(setup.consent!))).toMatchObject({ stage: 'funding_submitted', issue: 'awaiting_credit' });
     return setup;
   }
+  const refundsOf = async () => (await db.select().from(copyFundingOperations)).filter(row => row.direction === 'to_main');
+  const depositOf = async () => (await db.select().from(copyFundingOperations)).find(row => row.direction === 'to_account')!;
   /** No generation, no activation and nothing the driver signs after the cancel. */
   async function neverStarted(setupId: string) {
     await credit(); later(120_000); await service.tick();
@@ -1476,6 +1479,26 @@ describe('cancel and refund a confirmed setup awaiting its credit (funding_submi
     expect(workerSign).not.toHaveBeenCalled(); expect(fakes.modes.submit).not.toHaveBeenCalled(); expect(fakes.agents.submit).not.toHaveBeenCalled();
     expect((await service.get(uid, setupId)).stage).not.toBe('running');
   }
+
+  it('returns everything the account holds to the main wallet and never creates a mandate', async () => {
+    const setup = await awaitingCredit(), w = cancelWorld();
+    const cancelled = await w.setups.cancel(uid, setup.id);
+    expect(cancelled).toMatchObject({ id: setup.id, stage: 'funding_submitted', abortRequested: true });
+    // Idempotent: a second press is the same cancel.
+    expect(await w.setups.cancel(uid, setup.id)).toMatchObject({ abortRequested: true });
+    expect(await db.select().from(copyLiveSetupAborts)).toHaveLength(1);
+    // The deposit arrived (the account's balance), its credit not yet confirmed.
+    w.world.balance = '100';
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'returning', issue: 'setup_abort_refund_pending' });
+    expect(w.exchange.send).toHaveBeenCalledTimes(1);
+    expect(await refundsOf()).toMatchObject([{ amount: '100', status: 'accepted', address: accountAddress, destination: owner.address.toLowerCase() }]);
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'done' });
+    expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'cancelled', abortRequested: true });
+    expect((await db.select().from(copyStrategies))[0]).toMatchObject({ status: 'stopped' });
+    expect(await w.worker.get(uid, setup.id)).toMatchObject({ state: 'refunding', issue: 'setup_abort_refund_pending', refund: { amount: '100', status: 'accepted' } });
+    await neverStarted(setup.id);
+    expect(w.exchange.send).toHaveBeenCalledTimes(1);
+  });
 
   it('races the setup driver: a driver mid-step when the cancel commits cannot move the setup on', async () => {
     const setup = await awaitingCredit(), w = cancelWorld();
@@ -1522,5 +1545,87 @@ describe('cancel and refund a confirmed setup awaiting its credit (funding_submi
     await expect(w.setups.cancel(uid, setup.id)).rejects.toMatchObject({ status: 409, response: { code: 'setup_past_funding' } });
     expect(await db.select().from(copyLiveSetupAborts)).toHaveLength(0);
     expect((await db.select().from(copyLiveMandates))[0]).toMatchObject({ state: 'active' });
+  });
+
+  it('funds still travelling when cancelled: the refund waits for the balance, then returns all of it', async () => {
+    const setup = await awaitingCredit(), w = cancelWorld();
+    await w.setups.cancel(uid, setup.id);
+    for (let i = 0; i < 3; i++) {
+      later(30_000);
+      expect(await w.pass(setup.id)).toMatchObject({ state: 'waiting_credit', issue: 'setup_abort_deposit_pending' });
+    }
+    expect(w.exchange.send).not.toHaveBeenCalled(); expect(await refundsOf()).toHaveLength(0);
+    expect(await w.worker.get(uid, setup.id)).toMatchObject({ state: 'reconciling', issue: 'setup_abort_deposit_pending', refund: null });
+    // The deposit lands: 100 USDC in the copy account.
+    w.world.balance = '100'; later(30_000);
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'returning' });
+    expect(w.exchange.send).toHaveBeenCalledTimes(1);
+    expect(await refundsOf()).toMatchObject([{ amount: '100', status: 'accepted' }]);
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'done' });
+    await neverStarted(setup.id);
+  });
+
+  it.each([
+    ['proven never executed (the existing not-executed logic: the deposit ends rejected)', 'rejected'],
+    ['still unresolved once its nonce expired (it can no longer execute)', 'unknown'],
+  ] as const)('a deposit %s ends the abort with nothing to return', async (_case, outcome) => {
+    const setup = await awaitingCredit(), w = cancelWorld();
+    // Its POST answer was lost: Hyperliquid may or may not have taken it.
+    await db.update(copyFundingOperations).set({ status: 'unknown', evidenceHash: null }).where(eq(copyFundingOperations.direction, 'to_account'));
+    await w.setups.cancel(uid, setup.id);
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'waiting_credit', issue: 'setup_abort_deposit_pending' });
+    const deposit = await depositOf();
+    if (outcome === 'rejected') {
+      // The funding monitor's own pass past the nonce window: a complete
+      // ledger read with no transfer at all, so it can never execute.
+      const info = { userNonFundingLedgerUpdates: vi.fn(async () => []) };
+      const monitor = new CopyFundingService(testConfig(), new CopyFundingRepository(db), { overview: vi.fn(async () => ({})) } as never, { txDetails: vi.fn() } as never, info as never);
+      vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(deposit.nonce + EXPIRY + 1);
+      try { await monitor.reconcile(uid, deposit.id); } finally { vi.useRealTimers(); }
+      expect((await depositOf()).status).toBe('rejected');
+      later(30_000);
+    } else {
+      // Just before expiry it still waits; once past it, the balance is final.
+      clock = deposit.nonce + EXPIRY - 1;
+      expect(await w.pass(setup.id)).toMatchObject({ state: 'waiting_credit' });
+      clock = deposit.nonce + EXPIRY;
+    }
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'done', returnOperationId: null });
+    expect(w.exchange.send).not.toHaveBeenCalled(); expect(await refundsOf()).toHaveLength(0);
+    expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'cancelled' });
+    // Nothing returned; a deposit still unresolved shows its confirmation pending (the funding monitor ends it).
+    expect(await w.worker.get(uid, setup.id)).toMatchObject(outcome === 'rejected' ? { state: 'completed', refund: null }
+      : { state: 'reconciling', issue: 'setup_abort_deposit_pending', refund: null, deposit: { status: 'unknown' } });
+    expect((await db.select().from(copyStrategies))[0]).toMatchObject({ status: 'stopped' });
+  });
+
+  it('refunds with the explorer unreachable: the ledger proves the deposit, the refund is sent, and its lagging credit does not hold the cancel', async () => {
+    const setup = await awaitingCredit(), deposit = await depositOf(), main = owner.address.toLowerCase();
+    // The real confirmation: the info API answers, every txDetails read fails.
+    const unreachable = vi.fn(async () => { throw new LiveBoundaryError('funding_explorer_unreachable'); });
+    const ledger: Record<string, Array<{ hash: string; time: number; delta: Record<string, unknown> }>> = { [accountAddress]: [], [main]: [] };
+    const info = { userNonFundingLedgerUpdates: vi.fn(async (user: string) => ledger[user] ?? []) };
+    const real = new CopyFundingService(testConfig(), new CopyFundingRepository(db), { overview: vi.fn(async () => ({})) } as never, { txDetails: unreachable } as never, info as never);
+    const w = cancelWorld(real);
+    await w.setups.cancel(uid, setup.id);
+    // The deposit lands in the copy account's ledger; the balance read fails.
+    ledger[accountAddress] = [{ hash: `0x${'a1'.repeat(32)}`, time: deposit.nonce + 100, delta: { type: 'internalTransfer', user: main, destination: accountAddress, usdc: '100', fee: '0' } }];
+    w.exchange.withdrawable.mockRejectedValue(new Error('info unavailable'));
+    w.world.balance = '100';
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'returning', issue: 'setup_abort_refund_pending' });
+    expect(unreachable).toHaveBeenCalled();
+    expect(await depositOf()).toMatchObject({ status: 'accepted', scanState: { pendingDetails: [{ hash: `0x${'a1'.repeat(32)}` }], explorerFailingSince: expect.any(Number) } });
+    const [refund] = await refundsOf();
+    expect(refund).toMatchObject({ amount: '100', status: 'accepted' });
+    // The refund's own credit needs the explorer too: it stays accepted, the cancel completes.
+    ledger[main] = [{ hash: `0x${'b2'.repeat(32)}`, time: refund!.nonce + 100, delta: { type: 'internalTransfer', user: accountAddress, destination: main, usdc: '100', fee: '0' } }];
+    later(30_000);
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'done' });
+    expect(info.userNonFundingLedgerUpdates).toHaveBeenCalledWith(main, expect.anything(), expect.anything(), expect.anything(), expect.anything(), expect.anything());
+    expect((await refundsOf())[0]).toMatchObject({ status: 'accepted' });
+    expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'cancelled' });
+    expect(await w.worker.get(uid, setup.id)).toMatchObject({ state: 'refunding', issue: 'setup_abort_refund_pending' });
+    expect(w.exchange.send).toHaveBeenCalledTimes(1);
+    await neverStarted(setup.id);
   });
 });

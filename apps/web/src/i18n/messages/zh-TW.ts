@@ -701,6 +701,10 @@ export const zhTW = {
         purpose: "用途",
         error: "代碼",
         purposes: { copy: "跟單", stop: "停止平倉", close: "擁有者平倉", other: "其他" },
+        neverPlaced: {
+          request_never_began: "未送出：請求從未開始（立即釋放）",
+          expired_after_grace: "未下單：到期並經寬限期後仍查無此單",
+        },
       },
     },
     state: {

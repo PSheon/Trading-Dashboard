@@ -266,9 +266,13 @@ export function fixtureAdminLiveTransfers() {
 }
 export function fixtureAdminLiveOrders(state: string | null) {
   const order = { key: `testnet:${LIVE_ACCOUNT}:0x${"7e".repeat(16)}`, userId: 1, strategyId: 41, accountAddress: LIVE_ACCOUNT, coin: "BTC", side: "B" as const, size: "0.0004", limitPrice: "118456",
-    reduceOnly: false, state: "unknown", errorCode: "exchange_order_not_yet_found", purpose: "copy" as const, leg: { leg: "open" as const, state: "submitted", reason: null },
+    reduceOnly: false, state: "unknown", errorCode: "exchange_order_not_yet_found", neverPlaced: null, purpose: "copy" as const, leg: { leg: "open" as const, state: "submitted", reason: null },
     createdAt: new Date(NOW - 20_000).toISOString(), updatedAt: new Date(NOW - 5_000).toISOString() };
-  return { items: state === "all" || state === "open" || state === "unknown" || state === null ? [order] : [] };
+  // Two orders rejected as never placed: one whose request never began, one not found after its expiry and the grace.
+  const neverPlaced = (byte: string, kind: "request_never_began" | "expired_after_grace", at: number) => ({ ...order, key: `testnet:${LIVE_ACCOUNT}:0x${byte.repeat(16)}`, state: "rejected",
+    errorCode: "exchange_order_never_placed", neverPlaced: kind, leg: { leg: "open" as const, state: "skipped", reason: null }, createdAt: new Date(at - 2_000).toISOString(), updatedAt: new Date(at).toISOString() });
+  if (state === "all") return { items: [order, neverPlaced("7f", "request_never_began", NOW - 60_000), neverPlaced("80", "expired_after_grace", NOW - 600_000)] };
+  return { items: state === "open" || state === "unknown" || state === null ? [order] : [] };
 }
 export function fixtureAdminLiveLatency(window: string | null) {
   const w = window === "7d" ? "7d" as const : "24h" as const;

@@ -73,6 +73,28 @@ describe('/admin/copy/live — testnet copy operations (B16) and latency (B18)',
     await as('admin-token').get('/admin/copy/live/orders?state=bogus').expect(400);
   });
 
+  it('tells an order whose request never began from one not found after the never-placed grace', async () => {
+    const rejected = (key: string, nonce: number, outcome: Record<string, unknown>, extra: Record<string, unknown>) => {
+      const row = execution(key, 'rejected', nonce);
+      return { ...row, record: { ...row.record, errorCode: outcome.reason === 'final_execution_check_failed' || outcome.reason === 'exchange_order_never_placed' ? 'exchange_order_never_placed' : 'exchange_rejected', outcome, ...extra } };
+    };
+    await db.insert(copyLiveExecutions).values([
+      // The executor's final check refused before the POST began: the unsent marker.
+      rejected('k1', now + 1, { state: 'rejected', reason: 'final_execution_check_failed' }, { unsent: 'request_never_began' }),
+      // Sent (or maybe sent), never found by its cloid after expiry and the grace.
+      rejected('k2', now + 2, { state: 'rejected', reason: 'exchange_order_never_placed' }, {}),
+      // Never placed but without the marker (a write that never carried it): the grace.
+      rejected('k3', now + 3, { state: 'rejected', reason: 'final_execution_check_failed' }, {}),
+      // Rejected by the exchange: neither.
+      rejected('k4', now + 4, { state: 'rejected', reason: 'Order must have minimum value of $10' }, {}),
+      execution('k5', 'filled', now + 5),
+    ]);
+    const all = adminLiveOrdersSchema.parse((await as('admin-token').get('/admin/copy/live/orders?state=all').expect(200)).body.data);
+    expect(Object.fromEntries(all.items.map(o => [o.key, o.neverPlaced]))).toEqual({ k1: 'request_never_began', k2: 'expired_after_grace', k3: 'expired_after_grace', k4: null, k5: null });
+    expect(all.items.find(o => o.key === 'k1')).toMatchObject({ state: 'rejected', errorCode: 'exchange_order_never_placed' });
+    expect(all.items.find(o => o.key === 'k2')).toMatchObject({ state: 'rejected', errorCode: 'exchange_order_never_placed' });
+  });
+
   it('measures P50/P95 from the leader fill to signal, send, answer and booking within the window', async () => {
     await db.insert(copyLiveExecutions).values([execution('k1', 'filled', now + 1), execution('k2', 'filled', now + 2)]);
     await db.insert(copyLiveDispatches).values([

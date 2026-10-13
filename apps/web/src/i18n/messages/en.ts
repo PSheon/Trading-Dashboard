@@ -698,6 +698,10 @@ export const en: Messages = {
         purpose: "Purpose",
         error: "Code",
         purposes: { copy: "Copy", stop: "Stop close", close: "Owner close", other: "Other" },
+        neverPlaced: {
+          request_never_began: "Never sent: its request never began (released at once)",
+          expired_after_grace: "Not placed: not found after its expiry and the grace",
+        },
       },
     },
     state: {

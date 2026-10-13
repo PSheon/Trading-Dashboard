@@ -20,11 +20,17 @@ export const adminLiveTransferSchema = z.object({
   attemptedAt: iso.nullable(), createdAt: iso, updatedAt: iso,
 }).strict();
 export const adminLiveTransfersSchema = z.object({ items: z.array(adminLiveTransferSchema).max(200) }).strict();
+/** Why an order rejected as never placed (exchange_order_never_placed) was
+ * not: its request never began (the journal's unsent marker; released at
+ * once), or it expired unfound after the never-placed grace. */
+export const adminLiveNeverPlacedSchema = z.enum(['request_never_began', 'expired_after_grace']);
 /** Testnet orders by journal state; `unknown` is an order whose outcome the
  * exchange has not confirmed yet (reconciled each worker pass). */
 export const adminLiveOrderSchema = z.object({
   key: z.string(), userId: z.number().int(), strategyId: z.number().int(), accountAddress: addr, coin: z.string().nullable(), side: z.enum(['B', 'A']),
   size: z.string(), limitPrice: z.string(), reduceOnly: z.boolean(), state: z.string(), errorCode: z.string().nullable(),
+  /** Set only for an order rejected as never placed; null otherwise. */
+  neverPlaced: adminLiveNeverPlacedSchema.nullable(),
   purpose: z.enum(['copy', 'stop', 'close', 'other']), leg: z.object({ leg: z.enum(['open', 'close']), state: z.string(), reason: z.string().nullable() }).nullable(),
   createdAt: iso, updatedAt: iso,
 }).strict();
@@ -64,6 +70,7 @@ export type AdminLiveAccounts = z.infer<typeof adminLiveAccountsSchema>;
 export type AdminLiveTransfer = z.infer<typeof adminLiveTransferSchema>;
 export type AdminLiveTransfers = z.infer<typeof adminLiveTransfersSchema>;
 export type AdminLiveOrder = z.infer<typeof adminLiveOrderSchema>;
+export type AdminLiveNeverPlaced = z.infer<typeof adminLiveNeverPlacedSchema>;
 export type AdminLiveOrders = z.infer<typeof adminLiveOrdersSchema>;
 export type AdminLiveLatency = z.infer<typeof adminLiveLatencySchema>;
 export type AdminRevokedLiveGrant = z.infer<typeof adminRevokedLiveGrantSchema>;

@@ -124,3 +124,17 @@ it('names the actual-copies page by the deployment: 正式 on mainnet, 測試網
   expect(container.textContent).not.toContain('測試網跟單');
   state.network = 'testnet';
 });
+
+it('labels an order whose request never began apart from one not found after the never-placed grace', async () => {
+  const neverPlaced = (key: string, kind: string | null) => ({ ...order(key, 'rejected', 'copy'), errorCode: kind ? 'exchange_order_never_placed' : 'exchange_rejected', neverPlaced: kind });
+  const base = state.get.getMockImplementation()!;
+  state.get.mockImplementation(async (path: string) => path === '/admin/copy/live/orders?state=all'
+    ? { items: [neverPlaced('k1', 'request_never_began'), neverPlaced('k2', 'expired_after_grace'), neverPlaced('k3', null)] } : base(path));
+  for (const [locale, all, began, grace] of [['en', 'All', 'Never sent: its request never began (released at once)', 'Not placed: not found after its expiry and the grace'],
+    ['zh-TW', '全部', '未送出：請求從未開始（立即釋放）', '未下單：到期並經寬限期後仍查無此單']] as const) {
+    await render(locale);
+    await act(async () => button(all)!.click()); await settle();
+    const labels = [...document.querySelectorAll('[data-never-placed]')].map(el => [el.getAttribute('data-never-placed'), el.textContent]);
+    expect(labels).toEqual([['request_never_began', began], ['expired_after_grace', grace]]);
+  }
+});

@@ -9,6 +9,7 @@ import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
 import type { DbTransaction } from '../db/unit-of-work.js';
 import { lockCopyUser } from './copy-user-lock.js';
+import { isDefinitelyUnsent, NEVER_PLACED, type LiveExecutionRecord } from './live/live-execution.js';
 
 const LIMIT = 200;
 /** Fewer legs than this make a P95 the maximum: not reported. */
@@ -83,6 +84,9 @@ export class CopyAdminLiveRepository {
       const order = record.action?.orders?.[0], leg = legs.find(l => l.executionKey === r.key) ?? null;
       return { key: r.key, userId: r.userId, strategyId: r.strategyId, accountAddress: r.accountAddress.toLowerCase(), coin: record.market?.coin ?? leg?.coin ?? null,
         side: order?.b ? 'B' : 'A', size: order?.s ?? '0', limitPrice: order?.p ?? '0', reduceOnly: order?.r ?? false, state: r.state, errorCode: record.errorCode ?? null,
+        // Never placed: its request never began (the unsent marker, released at
+        // once), or it expired unfound after the never-placed grace.
+        neverPlaced: r.state === 'rejected' && record.errorCode === NEVER_PLACED ? isDefinitelyUnsent(record as unknown as LiveExecutionRecord) ? 'request_never_began' : 'expired_after_grace' : null,
         purpose: leg ? 'copy' : manual.has(r.key) ? 'close' : order?.r ? 'stop' : 'other',
         leg: leg ? { leg: leg.leg, state: leg.state, reason: leg.reason } : null,
         createdAt: new Date(typeof record.createdAt === 'number' ? record.createdAt : r.updatedAt.getTime()).toISOString(), updatedAt: r.updatedAt.toISOString() } satisfies AdminLiveOrder;

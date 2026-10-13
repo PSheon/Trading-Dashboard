@@ -249,7 +249,8 @@ function Orders() {
                     <TableCell className="num text-right">{o.size}</TableCell>
                     <TableCell className="num text-right">{o.limitPrice}</TableCell>
                     <TableCell><Chip tone={o.state === "unknown" || o.state === "submitting" ? "warn" : o.state === "rejected" ? "bad" : "neutral"}>{o.state}</Chip></TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{o.errorCode ?? "—"}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{o.errorCode ?? "—"}
+                      {o.neverPlaced ? <span className="block font-medium text-foreground" data-never-placed={o.neverPlaced}>{t(`copyAdmin.live.orders.neverPlaced.${o.neverPlaced}`)}</span> : null}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

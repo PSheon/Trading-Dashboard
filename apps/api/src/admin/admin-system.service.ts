@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable, Optional } from "@nestjs/common";
 import { workerMonitorSchema, type AdminSystemOverview } from "@trading-dashboard/shared/contracts";
 import { AppConfig } from "../config/app-config.js";
 import { RequestBudgeterService } from "../hyperliquid/request-budgeter.service.js";
@@ -6,13 +6,15 @@ import { operationalSwitches } from "../runtime/operational-switches.js";
 import { workerCallHeaders, workerMonitorKey } from "../runtime/worker-calls.js";
 import { AdminSystemRepository } from "./admin-system.repository.js";
 import { explorerHealth } from "../copy/explorer-health.js";
+import { WALLET_NETWORK_HL, type WalletNetworkHyperliquid } from "../hyperliquid/wallet-network-hyperliquid.js";
 
 @Injectable()
 export class AdminSystemService {
   private cached?: { until: number; value: AdminSystemOverview };
   private pending?: Promise<AdminSystemOverview>;
   constructor(private readonly repository: AdminSystemRepository, private readonly config: AppConfig,
-    private readonly budgeter: RequestBudgeterService) {}
+    private readonly budgeter: RequestBudgeterService,
+    @Optional() @Inject(WALLET_NETWORK_HL) private readonly wallet?: Pick<WalletNetworkHyperliquid, "transport">) {}
 
   overview(): Promise<AdminSystemOverview> {
     if (this.cached && Date.now() < this.cached.until) return Promise.resolve(this.cached.value);
@@ -38,9 +40,12 @@ export class AdminSystemService {
   }
 
   private async collect(): Promise<AdminSystemOverview> {
-    const [database, data, outbox, worker, retention] = await Promise.allSettled([
+    const [database, data, outbox, worker, retention, lanes] = await Promise.allSettled([
       this.repository.probe(), this.repository.data(), this.repository.outbox(), this.worker(), this.repository.retention(),
+      this.wallet?.transport.laneStatus() ?? Promise.resolve(undefined),
     ]);
+    const meter = lanes.status === "fulfilled" ? lanes.value : undefined;
+    const lane = (demand: { count: number; held: number; until: number | null }) => ({ ...demand, until: demand.until === null ? null : new Date(demand.until).toISOString() });
     const budget = this.budgeter.introspect(), explorer = explorerHealth.status();
     return {
       sampledAt: new Date().toISOString(),
@@ -48,7 +53,9 @@ export class AdminSystemService {
         budget: { ...budget, lastRateLimitedAt: budget.lastRateLimitedAt?.toISOString() ?? null, queued: this.budgeter.queued() },
         switches: operationalSwitches(this.config.value), tuning: this.config.value.tuning,
         // This process's own gauge: the api confirms deposits and returns too.
-        explorerReachable: explorer.reachable, explorerFailingSince: explorer.failingSince?.toISOString() ?? null },
+        explorerReachable: explorer.reachable, explorerFailingSince: explorer.failingSince?.toISOString() ?? null,
+        // The shared meter's setup and live lanes, as this process reads them.
+        ...(meter ? { setupDemand: lane(meter.setupDemand), liveDemand: lane(meter.liveDemand) } : {}) },
       worker: worker.status === "fulfilled" ? worker.value : { state: "unavailable", sample: null },
       database: database.status === "fulfilled" ? { state: "available", latencyMs: database.value } : { state: "unavailable", latencyMs: null },
       data: data.status === "fulfilled" ? data.value : null,

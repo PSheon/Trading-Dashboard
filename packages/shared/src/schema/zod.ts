@@ -358,6 +358,14 @@ export type LeaderDetailResponse = z.infer<typeof leaderDetailResponseSchema>;
  * did it last see a trade / store a fill, when did the safety nets last run,
  * and how much REST budget is in use.
  */
+/** One lane of the shared per-IP Hyperliquid meter (copy setups, live
+ * orders): its demands alive now, what its charges hold of the window, and
+ * when its last demand ends (null: none). */
+export const meterLaneDemandSchema = z.object({
+  count: z.number().int().nonnegative(),
+  held: z.number().nonnegative(),
+  until: z.coerce.date().nullable(),
+});
 export const heartbeatResponseSchema = z.object({
   feedConnected: z.boolean(),
   feedSocketsOpen: z.number().int(),
@@ -408,6 +416,11 @@ export const heartbeatResponseSchema = z.object({
    * null while reachable. Additive. */
   explorerReachable: z.boolean().optional(),
   explorerFailingSince: z.coerce.date().nullable().optional(),
+  /** The shared meter's setup and live lanes on this process's wallet
+   * network egress: a setup waiting for room, a live order's need kept
+   * ahead of setups and background. Additive. */
+  setupDemand: meterLaneDemandSchema.optional(),
+  liveDemand: meterLaneDemandSchema.optional(),
   /** Age of the discovery pool's stored performance figures: the rows the
    * boards and home rows show (`visible`) and the whole pool. Additive. */
   discovery: z.object({

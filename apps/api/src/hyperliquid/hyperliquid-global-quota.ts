@@ -139,6 +139,21 @@ const LIVE_TOKEN_CHARGE=/^live:([0-9a-f]{16}):/;
 /** A live order's demand ticket: its need, its token and a fresh id. */
 export function liveDemandTicket(need:number,token:string):string{return `${LIVE_DEMAND_ID_PREFIX}${need}:${token}:${randomUUID()}`;}
 const liveClaims=(rest:readonly HyperliquidQuotaEvent[],now:number)=>reservations(rest,now,LIVE_DEMAND_TICKET,LIVE_TOKEN_CHARGE,HYPERLIQUID_LIVE_DEMAND_HOLD_MS,()=>true);
+/** A lane's demand as the meter holds it (heartbeat): demands alive, what
+ * the lane's charges hold, and when the last demand ends (null: none). */
+export interface HyperliquidLaneDemand {readonly count:number;readonly held:number;readonly until:number|null;}
+/** The setup and live lanes at `now`, from the meter's events: setup
+ * markers alive (a setup waiting or granted, for its marker's minute) and
+ * live orders' demands alive (HYPERLIQUID_LIVE_DEMAND_HOLD_MS). */
+export function hyperliquidLaneStatus(events:readonly HyperliquidQuotaEvent[],now:number):{readonly setupDemand:HyperliquidLaneDemand;readonly liveDemand:HyperliquidLaneDemand}{
+  const rest=events.filter(e=>e.kind==='rest'&&e.expiresAt>now),units=(list:readonly HyperliquidQuotaEvent[])=>list.reduce((sum,e)=>sum+e.units,0);
+  const markers=rest.filter(e=>e.id.startsWith(SETUP_DEMAND_ID_PREFIX)),orders=rest.filter(e=>LIVE_DEMAND_TICKET.test(e.id)&&e.reservedAt+HYPERLIQUID_LIVE_DEMAND_HOLD_MS>now);
+  const tokens=new Set(orders.map(e=>LIVE_DEMAND_TICKET.exec(e.id)![2]));
+  return {
+    setupDemand:{count:markers.length,held:units(rest.filter(e=>e.id.startsWith(SETUP_REST_ID_PREFIX))),until:markers.length?Math.max(...markers.map(e=>e.expiresAt)):null},
+    liveDemand:{count:tokens.size,held:units(rest.filter(e=>e.id.startsWith(LIVE_REST_ID_PREFIX))),until:orders.length?Math.max(...orders.map(e=>e.reservedAt+HYPERLIQUID_LIVE_DEMAND_HOLD_MS)):null},
+  };
+}
 const isLaneTicket=(id:string)=>[SETUP_REST_ID_PREFIX,SETUP_DEMAND_ID_PREFIX,LIVE_REST_ID_PREFIX,LIVE_DEMAND_ID_PREFIX].some(prefix=>id.startsWith(prefix));
 export interface HyperliquidQuotaPlan {readonly state:HyperliquidQuotaState;readonly leases:readonly HyperliquidQuotaLease[];readonly charged:number;
   /** `setup_demand` and `live_demand` only: 0 when the weight fits now, else in how many ms it should (its marker is recorded either way). */

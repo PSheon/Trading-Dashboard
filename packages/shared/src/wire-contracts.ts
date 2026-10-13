@@ -55,10 +55,13 @@ export const wireTraderTradesSchema = s.traderTradesResponseSchema.extend({ item
 export const wireAdminUserSchema = s.adminUserSchema.extend({ createdAt: iso, lastLoginAt: iso });
 export const wireMeSchema = s.meResponseSchema.extend({ createdAt: iso });
 export const wireFavoriteSchema = s.favoriteSchema.extend({ createdAt: iso, stats: wireTraderStatsSchema.nullable() });
+/** A meter lane's demand as JSON (meterLaneDemandSchema). */
+export const wireMeterLaneDemandSchema = s.meterLaneDemandSchema.extend({ until: iso.nullable() });
 export const wireHeartbeatSchema = s.heartbeatResponseSchema.extend({
   feedDisconnectedSince: iso.nullable(), lastTradeAt: iso.nullable(), lastFillAt: iso.nullable(), lastSnapshotAt: iso.nullable(),
   lastSnapshotAttemptAt: iso.nullable().optional(), lastSnapshotFailureAt: iso.nullable().optional(), lastSweepAt: iso.nullable(), now: iso,
   explorerFailingSince: iso.nullable().optional(),
+  setupDemand: wireMeterLaneDemandSchema.optional(), liveDemand: wireMeterLaneDemandSchema.optional(),
   fillsUnavailable: z.array(z.object({ address: z.string(), missedTrades: z.number().int(), since: iso })),
   archive: s.heartbeatResponseSchema.shape.archive.unwrap().extend({ liveNextHour: iso.nullable(), backfillCursorHour: iso.nullable(), lastRunAt: iso.nullable(),
     backfillFloor: iso.optional(), backfillPassStartedAt: iso.nullable().optional(), backfillNextPassAt: iso.nullable().optional() }).optional(),
@@ -120,7 +123,11 @@ export const adminSystemSchema = z.object({
     /** Whether this api process reaches Hyperliquid's explorer (its own
      * deposit and return confirmations read txDetails), and since when its
      * reads have failed for the network; null while reachable. Additive. */
-    explorerReachable: z.boolean().optional(), explorerFailingSince: iso.nullable().optional() }),
+    explorerReachable: z.boolean().optional(), explorerFailingSince: iso.nullable().optional(),
+    /** The shared per-IP meter's setup and live lanes as this api process
+     * reads them (its wallet network egress): demands alive, what each
+     * lane's charges hold, when the last demand ends. Additive. */
+    setupDemand: wireMeterLaneDemandSchema.optional(), liveDemand: wireMeterLaneDemandSchema.optional() }),
   worker: z.object({ state: z.enum(["active", "standby", "stopping", "stale", "unavailable", "not_configured"]), sample: workerMonitorSchema.nullable() }),
   database: z.object({ state: z.enum(["available", "unavailable"]), latencyMs: z.number().nullable() }),
   data: z.object({

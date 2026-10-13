@@ -110,6 +110,11 @@ export class HyperliquidGlobalTransport {
    await this.sleep(Math.min(wait,LIVE_DEMAND_RENEW_MS));
   }
  }
+ /** The shared meter's setup and live lanes on this transport's egress
+  * (heartbeat): undefined when no egress is configured. */
+ async laneStatus():Promise<Awaited<ReturnType<PostgresHyperliquidQuota['laneStatus']>>|undefined>{
+  const egressKey=this.options.egressKey;return egressKey?this.quota.laneStatus(egressKey):undefined;
+ }
  /** Runs a live order under its demand token: its charges are the live lane's and count against its need. */
  runLive<T>(token:string,work:()=>Promise<T>):Promise<T>{return runInLiveLane(token,work);}
  readonly fetchExplorer:typeof fetch=async(input,init)=>{

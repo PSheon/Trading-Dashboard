@@ -29,6 +29,9 @@ export class WorkerHeartbeatService {
   async heartbeat(): Promise<HeartbeatResponse> {
     const { feed, lastFillAt, lastSweepAt, fillsUnavailable } = this.watcher.getHeartbeat();
     const budget = this.budgeter.introspect(), explorer = explorerHealth.status();
+    // The shared meter's setup and live lanes (the wallet network's egress); a failed read must not fail the heartbeat.
+    const lanes = await this.wallet?.transport.laneStatus().catch(() => undefined);
+    const lane = (demand: { count: number; held: number; until: number | null }) => ({ ...demand, until: demand.until === null ? null : new Date(demand.until) });
     return {
       feedConnected: feed.socketsTotal > 0 && feed.socketsOpen === feed.socketsTotal,
       feedSocketsOpen: feed.socketsOpen,
@@ -62,6 +65,8 @@ export class WorkerHeartbeatService {
       // Hyperliquid's explorer, which proves a deposit's credit: reached, or failing since when.
       explorerReachable: explorer.reachable,
       explorerFailingSince: explorer.failingSince,
+      setupDemand: lanes ? lane(lanes.setupDemand) : undefined,
+      liveDemand: lanes ? lane(lanes.liveDemand) : undefined,
       // Age of the boards' and home rows' figures; a failed read must not fail the heartbeat.
       discovery: await this.pool?.freshness().then((f) => ({
         visibleRows: f.visible.rows, medianVisibleAgeSeconds: f.visible.medianAgeSeconds, oldestVisibleAgeSeconds: f.visible.oldestAgeSeconds,

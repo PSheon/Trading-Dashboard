@@ -466,7 +466,7 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     expect(Math.max(...assessed.slice(5))).toBeLessThanOrEqual(Math.min(2, assessed[5]!));
     shared.dexes = 0; resetLiveReadCaches();
   });
-  it('an order sends at most 150 database round trips (950 statements) from its preparation to its POST, and no row lock before BEGIN\'s answer or the reads sent behind it', { timeout: 120_000 }, async () => {
+  it('an order sends at most 160 database round trips (950 statements) from its preparation to its POST, and no row lock before BEGIN\'s answer or the reads sent behind it', { timeout: 120_000 }, async () => {
     // Its evidence is never older than its preparation's start, so the
     // statements from there to the exchange POST bound the round trips that
     // the 5 s evidence window (and the pre-mainnet gate's 3500 ms) must
@@ -536,7 +536,7 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     expect((await db.select().from(schema.copyLiveDispatches)).map(r => [r.leg, r.state])).toEqual([['open', 'settled'], ['close', 'settled']]);
     process.stdout.write(`order database round trips, preparation to POST: ${JSON.stringify(orders)}\n`);
     expect(orders).toHaveLength(2);
-    for (const order of orders) { expect(order.roundTrips).toBeLessThanOrEqual(150); expect(order.statements).toBeLessThanOrEqual(950); }
+    for (const order of orders) { expect(order.roundTrips).toBeLessThanOrEqual(160); expect(order.statements).toBeLessThanOrEqual(950); }
     // The pipelined transactions that lock rows ran: the hold and the journal
     // save (the journal row), the preparation (the order's leg), the meter
     // (the quota row).

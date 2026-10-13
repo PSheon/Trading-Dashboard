@@ -66,6 +66,9 @@ const PERMANENT_CODES: ReadonlySet<string> = new Set([
 const NEEDS_OWNER_CODES: ReadonlySet<string> = new Set([
   'consent_expired', 'agent_consent_expired', 'worker_signer_missing', 'exchange_agent_expired',
   'wallet_authorization_missing', 'wallet_authorization_expired', 'wallet_authorization_revoked',
+  // Money kept landing in a cancelled setup's copy account after its refund
+  // and every follow-up (SETUP_ABORT_RESIDUAL_RETURNS) were credited.
+  'setup_abort_residual_balance',
 ]);
 /** Waits, not failures: a read that was stale or could not be had, or the
  * worker's signer not up yet. Unlisted codes are `transient` already; these

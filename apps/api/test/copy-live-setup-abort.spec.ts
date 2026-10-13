@@ -59,13 +59,21 @@ it('setup abort authority persists independently of transient setup stage and pr
   expect(result.rows[0]?.authority).toBe('copy_live_setup_aborts');
 });
 
-it('database authority permits at most one original abort return even after the first operation ends', async () => {
+it('database authority: an abort return is never doubled while one is open, and each follow-up key is admitted once', async () => {
   await installAbort();
   const refund = { userId: 1, strategyId: 9, accountId: 'account', network: 'testnet' as const, address: seed.consent.accountAddress,
-    destination: seed.consent.ownerAddress, direction: 'to_main' as const, amount: '10', status: 'cancelled' as const, setupAbortId: abortId };
-  await db.insert(copyFundingOperations).values({ ...refund, id: 'original-abort-return', idempotencyKey: 'original-abort-return-key', nonce: Date.now() });
-  await expect(db.insert(copyFundingOperations).values({ ...refund, id: 'duplicate-abort-return', idempotencyKey: 'different-abort-return-key', nonce: Date.now() + 1 }))
-    .rejects.toMatchObject({ cause: { code: '23505', constraint: 'copy_funding_setup_abort_uq' } });
+    destination: seed.consent.ownerAddress, direction: 'to_main' as const, amount: '10', setupAbortId: abortId };
+  const nonce = Date.now();
+  await db.insert(copyFundingOperations).values({ ...refund, id: 'original-abort-return', idempotencyKey: `abort:${abortId}`, status: 'unknown', nonce });
+  // A second return of the account while the first may still execute.
+  await expect(db.insert(copyFundingOperations).values({ ...refund, id: 'early-follow-up', idempotencyKey: `abort:${abortId}:1`, status: 'prepared', nonce: nonce + 1 }))
+    .rejects.toMatchObject({ cause: { code: '23505', constraint: 'copy_funding_pending_uq' } });
+  // Once it ended, a follow-up for money that landed after it (SETUP_ABORT_RESIDUAL_RETURNS)…
+  await db.update(copyFundingOperations).set({ status: 'cancelled' }).where(eq(copyFundingOperations.id, 'original-abort-return'));
+  await db.insert(copyFundingOperations).values({ ...refund, id: 'follow-up-1', idempotencyKey: `abort:${abortId}:1`, status: 'cancelled', nonce: nonce + 2 });
+  // …each exactly once.
+  await expect(db.insert(copyFundingOperations).values({ ...refund, id: 'follow-up-1-again', idempotencyKey: `abort:${abortId}:1`, status: 'prepared', nonce: nonce + 3 }))
+    .rejects.toMatchObject({ cause: { code: '23505', constraint: 'copy_funding_key_uq' } });
 });
 
 it('an abort is a permanent barrier before a prepared deposit can be admitted to the exchange', async () => {

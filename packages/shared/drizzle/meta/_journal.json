@@ -589,6 +589,13 @@
       "when": 1791862939850,
       "tag": "0083_copy_live_setup_abort_backoff",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1791863362013,
+      "tag": "0084_copy_funding_setup_abort_follow_ups",
+      "breakpoints": true
     }
   ]
 }

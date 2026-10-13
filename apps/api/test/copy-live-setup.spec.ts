@@ -17,10 +17,11 @@ import { CopyLiveSetupRepository } from '../src/copy/copy-live-setup.repository.
 import { CopyLiveSetupService, setupFundingKey } from '../src/copy/copy-live-setup.service.js';
 import { CopyLiveSetupAbortRepository } from '../src/copy/copy-live-setup-abort.repository.js';
 import { CopyLiveStopRepository } from '../src/copy/copy-live-stop.repository.js';
-import { CopyLiveSetupAbortReturnRepository } from '../src/copy/copy-live-setup-abort-return.repository.js';
+import { CopyLiveSetupAbortReturnRepository, SETUP_ABORT_RESIDUAL_RETURNS } from '../src/copy/copy-live-setup-abort-return.repository.js';
+import { classify } from '../src/copy/live/error-class.js';
 import { CopyLiveReturnRepository } from '../src/copy/copy-live-return.repository.js';
 import type { SetupAbortFlatObservation } from '../src/copy/live/live-account-observer.js';
-import { CopyLiveSetupAbortService } from '../src/copy/copy-live-setup-abort.service.js';
+import { CopyLiveSetupAbortService, SETUP_ABORT_ALERT_EVERY_MS } from '../src/copy/copy-live-setup-abort.service.js';
 import { BackgroundJobs } from '../src/runtime/background-jobs.service.js';
 import { requestContext } from '../src/runtime/request-middleware.js';
 import { CopyLiveSetupController } from '../src/copy/copy-live-setup.controller.js';
@@ -1462,7 +1463,7 @@ describe('cancel and refund a confirmed setup awaiting its credit (funding_submi
       () => clock, fakes.jobs, worker, fakes.leaderActivity);
     const abortOf = async (setupId: string) => (await db.select().from(copyLiveSetupAborts).where(eq(copyLiveSetupAborts.setupId, setupId)))[0]!;
     const pass = async (setupId: string) => { const abort = await abortOf(setupId); await worker.process(abort.id); return abortOf(setupId); };
-    return { world, setups, worker, exchange, observer, signer, aborts, returns, abortOf, pass };
+    return { world, setups, worker, exchange, observer, signer, aborts, refunds, returns, abortOf, pass };
   }
   async function awaitingCredit() {
     const setup = await start();
@@ -1471,6 +1472,12 @@ describe('cancel and refund a confirmed setup awaiting its credit (funding_submi
   }
   const refundsOf = async () => (await db.select().from(copyFundingOperations)).filter(row => row.direction === 'to_main');
   const depositOf = async () => (await db.select().from(copyFundingOperations)).find(row => row.direction === 'to_account')!;
+  /** The funding monitor confirms every accepted refund's credit. */
+  const creditRefunds = async () => {
+    for (const row of await refundsOf()) if (row.status === 'accepted') await db.update(copyFundingOperations).set({ status: 'credited',
+      transactionHash: `0x${createHash('sha256').update(row.id).digest('hex')}`, creditedAmount: row.amount, fee: '0' }).where(eq(copyFundingOperations.id, row.id));
+  };
+  const alerts = (errors: { mock: { calls: unknown[][] } }, kind: string) => errors.mock.calls.filter(([line]) => String(line).startsWith(`ALERT setup_abort ${kind} `)).length;
   /** No generation, no activation and nothing the driver signs after the cancel. */
   async function neverStarted(setupId: string) {
     await credit(); later(120_000); await service.tick();
@@ -1543,6 +1550,83 @@ describe('cancel and refund a confirmed setup awaiting its credit (funding_submi
     expect(await w.pass(setup.id)).toMatchObject({ state: 'blocked', issue: 'setup_abort_binding_unknown', backoff: null });
     expect(await w.worker.get(uid, setup.id)).toMatchObject({ state: 'blocked', issue: 'setup_abort_binding_unknown' });
     expect(w.exchange.send).not.toHaveBeenCalled();
+  });
+
+  it('money landing after the refund was credited is returned again (a follow-up, abort:<id>:1) with an ALERT, and the cancel completes', async () => {
+    const errors = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const setup = await awaitingCredit(), w = cancelWorld();
+    await w.setups.cancel(uid, setup.id);
+    w.world.balance = '100';
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'returning' });
+    await creditRefunds();
+    // 5 USDC lands in the copy account after the refund left.
+    w.world.balance = '5'; later(30_000);
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'returning', issue: 'setup_abort_refund_pending' });
+    expect(w.exchange.send).toHaveBeenCalledTimes(2);
+    const abort = await w.abortOf(setup.id), refunds = (await refundsOf()).sort((a, b) => a.nonce - b.nonce);
+    expect(refunds).toMatchObject([{ idempotencyKey: `abort:${abort.id}`, amount: '100', status: 'credited' },
+      { idempotencyKey: `abort:${abort.id}:1`, amount: '5', status: 'accepted', setupAbortId: abort.id, address: accountAddress, destination: owner.address.toLowerCase() }]);
+    expect(abort.returnOperationId).toBe(refunds[1]!.id);
+    expect(alerts(errors, 'residual_return')).toBe(1);
+    later(30_000);
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'done' });
+    expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'cancelled' });
+    expect(await w.worker.get(uid, setup.id)).toMatchObject({ state: 'refunding', refund: { amount: '5', status: 'accepted' } });
+    expect(w.exchange.send).toHaveBeenCalledTimes(2);
+    errors.mockRestore();
+  });
+
+  it(`follow-ups are capped (SETUP_ABORT_RESIDUAL_RETURNS): past them the abort blocks as the owner's (setup_abort_residual_balance) with a rate-limited ALERT`, async () => {
+    const errors = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const setup = await awaitingCredit(), w = cancelWorld();
+    await w.setups.cancel(uid, setup.id);
+    w.world.balance = '100';
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'returning' });
+    for (let n = 1; n <= SETUP_ABORT_RESIDUAL_RETURNS; n++) {
+      await creditRefunds(); w.world.balance = '5'; later(30_000);
+      expect(await w.pass(setup.id)).toMatchObject({ state: 'returning', issue: 'setup_abort_refund_pending' });
+      expect(w.exchange.send).toHaveBeenCalledTimes(n + 1);
+    }
+    await creditRefunds(); w.world.balance = '5'; later(30_000);
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'blocked', issue: 'setup_abort_residual_balance' });
+    expect(classify(new Error('setup_abort_residual_balance')).class).toBe('needs_owner');
+    expect(await w.worker.get(uid, setup.id)).toMatchObject({ state: 'blocked', issue: 'setup_abort_residual_balance' });
+    const abort = await w.abortOf(setup.id);
+    expect((await refundsOf()).map(row => row.idempotencyKey).sort()).toEqual([`abort:${abort.id}`, `abort:${abort.id}:1`, `abort:${abort.id}:2`, `abort:${abort.id}:3`]);
+    expect(w.exchange.send).toHaveBeenCalledTimes(SETUP_ABORT_RESIDUAL_RETURNS + 1);
+    expect(alerts(errors, 'residual_cap')).toBe(1);
+    // Still blocked on the next pass; the ALERT is not repeated until its interval passed.
+    later(30_000);
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'blocked', issue: 'setup_abort_residual_balance' });
+    expect(alerts(errors, 'residual_cap')).toBe(1);
+    later(SETUP_ABORT_ALERT_EVERY_MS);
+    await w.pass(setup.id);
+    expect(alerts(errors, 'residual_cap')).toBe(2);
+    expect(w.exchange.send).toHaveBeenCalledTimes(SETUP_ABORT_RESIDUAL_RETURNS + 1);
+    errors.mockRestore();
+  });
+
+  it('a residual is returned once under concurrent drivers: one lease, one follow-up, one send', async () => {
+    const errors = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const setup = await awaitingCredit(), w = cancelWorld();
+    await w.setups.cancel(uid, setup.id);
+    w.world.balance = '100';
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'returning' });
+    await creditRefunds(); w.world.balance = '5'; later(30_000);
+    // Two reservations racing under one lease (the user lock): the same follow-up.
+    const abort = await w.abortOf(setup.id), authority = (await w.aborts.lease(abort.id))!;
+    const [first, second] = await Promise.all([w.refunds.reserve(authority, proofOf('5'), () => clock), w.refunds.reserve(authority, proofOf('5'), () => clock)]);
+    expect(first!.id).toBe(second!.id);
+    expect(first).toMatchObject({ idempotencyKey: `abort:${abort.id}:1`, status: 'prepared', amount: '5' });
+    await w.aborts.release(authority);
+    // Two worker passes at once (two replicas): one lease sends it, once.
+    await Promise.all([w.pass(setup.id), w.pass(setup.id)]);
+    expect(w.exchange.send).toHaveBeenCalledTimes(2);
+    expect(await refundsOf()).toHaveLength(2);
+    later(30_000);
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'done' });
+    expect(w.exchange.send).toHaveBeenCalledTimes(2);
+    errors.mockRestore();
   });
 
   it('races the setup driver: a driver mid-step when the cancel commits cannot move the setup on', async () => {

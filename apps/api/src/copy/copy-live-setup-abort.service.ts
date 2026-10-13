@@ -5,7 +5,7 @@ import { AppConfig } from '../config/app-config.js';
 import { BackgroundJobs } from '../runtime/background-jobs.service.js';
 import { errorLogFields } from '../runtime/safe-error-text.js';
 import { CopyLiveSetupAbortRepository, type SetupAbortRow } from './copy-live-setup-abort.repository.js';
-import { CopyLiveSetupAbortReturnRepository } from './copy-live-setup-abort-return.repository.js';
+import { CopyLiveSetupAbortReturnRepository, SETUP_ABORT_RESIDUAL_RETURNS, setupAbortRefundAttempt } from './copy-live-setup-abort-return.repository.js';
 import { CopyLiveSetupRepository } from './copy-live-setup.repository.js';
 import { CopyFundingRepository } from './copy-funding.repository.js';
 import { CopyFundingService, wire as fundingWire } from './copy-funding.service.js';
@@ -38,6 +38,9 @@ const EVIDENCE_UNAVAILABLE = 'setup_abort_evidence_unavailable';
 const blocks = (classified: ErrorClassification) => classified.class === 'permanent' || classified.class === 'needs_owner';
 /** Whether an abort's stored issue blocks it (error-class over its code). */
 export const setupAbortIssueBlocks = (code: string | null) => code !== null && blocks(classify(new Error(code)));
+/** An abort's ALERT (a follow-up refund, or the follow-ups exhausted) is
+ * logged at most once per this, per abort and kind. */
+export const SETUP_ABORT_ALERT_EVERY_MS = 10 * 60_000;
 const states = { requested: 'requested', draining: 'reconciling', waiting_credit: 'reconciling', proving: 'reconciling', returning: 'refunding',
   delegated: 'delegated', blocked: 'blocked', done: 'completed' } as const;
 
@@ -47,6 +50,7 @@ const states = { requested: 'requested', draining: 'reconciling', waiting_credit
 export class CopyLiveSetupAbortService {
   private readonly logger = new Logger(CopyLiveSetupAbortService.name);
   private readonly running = new Set<string>();
+  private readonly alerted = new Map<string, number>();
   constructor(private readonly config: AppConfig, private readonly repository: CopyLiveSetupAbortRepository,
     private readonly refunds: CopyLiveSetupAbortReturnRepository, private readonly setups: CopyLiveSetupRepository,
     private readonly fundingRows: CopyFundingRepository, private readonly funding: CopyFundingService,
@@ -109,6 +113,13 @@ export class CopyLiveSetupAbortService {
    * the log says why (it used to be dropped). */
   private kept(abortId: string, child: string, childId: string) {
     return (error: unknown) => { this.logger.warn(`setup abort ${abortId} ${child} ${childId} reconcile kept for the next pass ${JSON.stringify(errorLogFields(error))}`); };
+  }
+  /** `ALERT setup_abort <kind>`, rate-limited (SETUP_ABORT_ALERT_EVERY_MS). */
+  private alert(row: SetupAbortRow, kind: 'residual_return' | 'residual_cap', fields: Record<string, unknown>) {
+    const key = `${row.id}:${kind}`, at = this.now(), last = this.alerted.get(key);
+    if (last !== undefined && at - last < SETUP_ABORT_ALERT_EVERY_MS) return;
+    this.alerted.set(key, at);
+    this.logger.error(`ALERT setup_abort ${kind} ${JSON.stringify({ abortId: row.id, setupId: row.setupId, accountId: row.accountId, network: row.network, ...fields })}`);
   }
   /** A balance read that failed proves nothing: the refund waits. */
   private unread(abortId: string) {
@@ -206,9 +217,18 @@ export class CopyLiveSetupAbortService {
       if (!originalPrepared) {
         const reservationProof = await this.observer.observeSetupAbortFlat(row.accountAddress);
         if (await this.refunds.complete(row, reservationProof, this.now)) return;
-        if (refund?.status === 'credited') { await stop('setup_abort_residual_balance'); return; }
+        // Money landed after the refund was credited: it is returned again
+        // (a follow-up, reserve), at most SETUP_ABORT_RESIDUAL_RETURNS times;
+        // only then does the abort need its owner (needs_owner, blocked).
+        const credited = refund?.status === 'credited' ? refund : null;
+        if (credited && (setupAbortRefundAttempt(credited) ?? SETUP_ABORT_RESIDUAL_RETURNS) >= SETUP_ABORT_RESIDUAL_RETURNS) {
+          this.alert(row, 'residual_cap', { refunds: (setupAbortRefundAttempt(credited) ?? 0) + 1, withdrawable: reservationProof.snapshot.withdrawable });
+          await stop('setup_abort_residual_balance'); return;
+        }
         if (!this.available) { await stop('setup_abort_unavailable'); return; }
         refund = await this.refunds.reserve(row, reservationProof, this.now);
+        if (credited && refund && refund.id !== credited.id)
+          this.alert(row, 'residual_return', { followUp: setupAbortRefundAttempt(refund), of: SETUP_ABORT_RESIDUAL_RETURNS, amount: refund.amount, previousRefundId: credited.id });
       } else if (!this.available) { await stop('setup_abort_unavailable'); return; }
       if (!refund) { await wait('draining', 'setup_abort_child_pending'); return; }
       row = await this.repository.find(row.userId, row.id);

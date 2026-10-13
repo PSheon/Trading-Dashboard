@@ -1484,7 +1484,11 @@ export const copyFundingOperations = pgTable("copy_funding_operations", {
 }, (t) => [
   check("copy_funding_direction_check", sql`${oneOf(t.direction, ["to_account", "to_main"])} and (${t.stopId} is null or ${t.direction} = 'to_main')`),
   check("copy_funding_setup_abort_check", sql`${t.setupAbortId} is null or (${t.direction} = 'to_main' and ${t.stopId} is null and ${t.liveSetupId} is null)`),
-  uniqueIndex("copy_funding_setup_abort_uq").on(t.setupAbortId).where(sql`${t.setupAbortId} is not null`),
+  // A setup abort's refunds: the original (`abort:<abort id>`), then at most
+  // SETUP_ABORT_RESIDUAL_RETURNS follow-ups (`abort:<abort id>:<n>`) for money
+  // that landed after it, each once (copy_funding_key_uq) and never while
+  // another transfer of the account is open (copy_funding_pending_uq).
+  index("copy_funding_setup_abort_idx").on(t.setupAbortId).where(sql`${t.setupAbortId} is not null`),
   uniqueIndex("copy_funding_key_uq").on(t.userId, t.idempotencyKey),
   uniqueIndex("copy_funding_nonce_uq").on(t.network, t.address, t.nonce),
   uniqueIndex("copy_funding_pending_uq").on(t.network, t.address).where(sql`${t.status} in ('prepared', 'unknown', 'accepted')`),

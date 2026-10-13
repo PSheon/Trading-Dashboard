@@ -1,0 +1,2 @@
+DROP INDEX "copy_funding_setup_abort_uq";--> statement-breakpoint
+CREATE INDEX "copy_funding_setup_abort_idx" ON "copy_funding_operations" USING btree ("setup_abort_id") WHERE "copy_funding_operations"."setup_abort_id" is not null;

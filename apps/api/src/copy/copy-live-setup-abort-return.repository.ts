@@ -8,7 +8,7 @@ import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
 import type { DbTransaction } from '../db/unit-of-work.js';
 import { CopyLiveMandateRepository } from './copy-live-mandate.repository.js';
-import { CopyLiveReturnRepository, type ReturnRow } from './copy-live-return.repository.js';
+import { CopyLiveReturnRepository, keyedAttempt, type ReturnRow } from './copy-live-return.repository.js';
 import type { SetupAbortRow } from './copy-live-setup-abort.repository.js';
 import type { SetupAbortFlatObservation } from './live/live-account-observer.js';
 import { allocateSignerNonce } from './signer-nonce.js';
@@ -17,6 +17,16 @@ import { AppConfig } from '../config/app-config.js';
 import { deploymentNetwork } from './live-deployment.js';
 
 const hash = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex');
+/** Follow-up refunds of a setup abort at most: money that landed in the copy
+ * account after its refund was credited is returned again, the same way
+ * (`abort:<abort id>:<n>`, as a stop's sweep is `sweep:<stop id>:<n>`).
+ * Past this the abort needs its owner (setup_abort_residual_balance). */
+export const SETUP_ABORT_RESIDUAL_RETURNS = 3;
+const refundKey = (abortId: string) => `abort:${abortId}`;
+/** Refund n of a setup abort: 0 the original, then its follow-ups (null: not one). */
+export function setupAbortRefundAttempt(row: Pick<ReturnRow, 'idempotencyKey' | 'setupAbortId'>): number | null {
+  return row.setupAbortId ? keyedAttempt(row.idempotencyKey, refundKey(row.setupAbortId)) : null;
+}
 function refuse(code: string): never { throw new ConflictException({ statusCode: 409, code, message: 'Check the saved setup abort progress' }); }
 
 /** Worker-only refund admission. This is neither owner approval nor a stop
@@ -111,12 +121,22 @@ export class CopyLiveSetupAbortReturnRepository {
   async reserve(expected: SetupAbortRow, proof: SetupAbortFlatObservation, now: () => number = Date.now): Promise<ReturnRow | null> {
     return this.db.transaction(async tx => {
       const context = await this.context(tx, expected), { abort, account } = context;
-      const [original] = await tx.select().from(copyFundingOperations).where(eq(copyFundingOperations.setupAbortId, abort.id));
-      if (original) return original;
+      // The abort's current refund answers, unless it was credited and the
+      // account (proven flat below) still holds money that landed after it:
+      // then the next follow-up, at most SETUP_ABORT_RESIDUAL_RETURNS. Under
+      // the user lock, keyed once each (copy_funding_key_uq).
+      const refunds = await tx.select().from(copyFundingOperations).where(eq(copyFundingOperations.setupAbortId, abort.id));
+      const current = refunds.find(row => row.id === abort.returnOperationId) ?? refunds[0];
+      let key = refundKey(abort.id);
+      if (current) {
+        const n = setupAbortRefundAttempt(current);
+        if (current.id !== abort.returnOperationId || current.status !== 'credited' || n === null || n >= SETUP_ABORT_RESIDUAL_RETURNS) return current;
+        key = `${key}:${n + 1}`;
+      }
       const evidence = this.proof(abort, proof, now());
       if (!evidence.amount || !await this.quiescent(tx, context, proof, now())) return null;
       const [row] = await tx.insert(copyFundingOperations).values({ id: randomUUID(), userId: abort.userId, accountId: account.id, strategyId: abort.strategyId,
-        idempotencyKey: `abort:${abort.id}`, setupAbortId: abort.id, direction: 'to_main', network: abort.network, address: abort.accountAddress!, destination: abort.destination,
+        idempotencyKey: key, setupAbortId: abort.id, direction: 'to_main', network: abort.network, address: abort.accountAddress!, destination: abort.destination,
         amount: evidence.amount, nonce: await allocateSignerNonce(tx, abort.network, abort.accountAddress!, now()) }).returning();
       await tx.update(copyLiveSetupAborts).set({ state: 'returning', issue: null, returnOperationId: row!.id, proofDigest: evidence.digest, proofReadAt: new Date(proof.snapshot.observedAt),
         revision: abort.revision + 1, updatedAt: new Date(now()) }).where(eq(copyLiveSetupAborts.id, abort.id));

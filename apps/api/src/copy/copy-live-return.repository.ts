@@ -47,13 +47,16 @@ const jsonDigest = (value: unknown) => createHash('sha256').update(JSON.stringif
 /** The evidence an automatic return records when it ended unsent: only the
  * worker's own process writes it, right after it proved no POST left. */
 export const sweepNotSentEvidence = (reason: 'worker_signature_unavailable' | 'sweep_not_dispatched', id: string) => jsonDigest({ reason, id });
+/** Attempt n of an automatic return keyed `<base>` (0), then `<base>:<n>`
+ * (null: not one): a stop's sweep, or a setup abort's refund. */
+export function keyedAttempt(idempotencyKey: string, base: string): number | null {
+  if (idempotencyKey === base) return 0;
+  const n = idempotencyKey.startsWith(`${base}:`) ? idempotencyKey.slice(base.length + 1) : '';
+  return /^[1-9]\d{0,2}$/.test(n) ? Number(n) : null;
+}
 /** Attempt n of a stop's automatic return (null: not one). */
 export function sweepAttempt(row: Pick<ReturnRow, 'idempotencyKey' | 'stopId'>): number | null {
-  if (!row.stopId) return null;
-  const key = `${SYSTEM_SWEEP_PREFIX}${row.stopId}`;
-  if (row.idempotencyKey === key) return 0;
-  const n = row.idempotencyKey.startsWith(`${key}:`) ? row.idempotencyKey.slice(key.length + 1) : '';
-  return /^[1-9]\d{0,2}$/.test(n) ? Number(n) : null;
+  return row.stopId ? keyedAttempt(row.idempotencyKey, `${SYSTEM_SWEEP_PREFIX}${row.stopId}`) : null;
 }
 /** An automatic return that ended without reaching the exchange. */
 export function sweepNotSent(row: ReturnRow): boolean {

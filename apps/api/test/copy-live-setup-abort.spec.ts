@@ -76,6 +76,28 @@ it('database authority: an abort return is never doubled while one is open, and 
     .rejects.toMatchObject({ cause: { code: '23505', constraint: 'copy_funding_key_uq' } });
 });
 
+it('database authority: an accepted abort return no longer holds the account for the next follow-up; a prepared or unknown one, or an ordinary accepted transfer, still does', async () => {
+  await installAbort();
+  const refund = { userId: 1, strategyId: 9, accountId: 'account', network: 'testnet' as const, address: seed.consent.accountAddress,
+    destination: seed.consent.ownerAddress, direction: 'to_main' as const, amount: '10', setupAbortId: abortId };
+  const nonce = Date.now();
+  await db.insert(copyFundingOperations).values({ ...refund, id: 'original-abort-return', idempotencyKey: `abort:${abortId}`, status: 'accepted', evidenceHash: 'e'.repeat(64), nonce });
+  // The exchange took it (it executed): the follow-up may be reserved…
+  await db.insert(copyFundingOperations).values({ ...refund, id: 'follow-up-1', idempotencyKey: `abort:${abortId}:1`, status: 'prepared', nonce: nonce + 1 });
+  // …but never a second one while that one is prepared, then unknown.
+  for (const status of ['prepared', 'unknown'] as const) {
+    await db.update(copyFundingOperations).set({ status }).where(eq(copyFundingOperations.id, 'follow-up-1'));
+    await expect(db.insert(copyFundingOperations).values({ ...refund, id: 'follow-up-2', idempotencyKey: `abort:${abortId}:2`, status: 'prepared', nonce: nonce + 2 }))
+      .rejects.toMatchObject({ cause: { code: '23505', constraint: 'copy_funding_pending_uq' } });
+  }
+  // An ordinary transfer the exchange accepted still holds its account.
+  await db.update(copyFundingOperations).set({ status: 'cancelled' }).where(eq(copyFundingOperations.id, 'follow-up-1'));
+  const ordinary = { ...refund, setupAbortId: null };
+  await db.insert(copyFundingOperations).values({ ...ordinary, id: 'ordinary-return', idempotencyKey: 'ordinary-return-key', status: 'accepted', evidenceHash: 'e'.repeat(64), nonce: nonce + 3 });
+  await expect(db.insert(copyFundingOperations).values({ ...ordinary, id: 'ordinary-return-2', idempotencyKey: 'ordinary-return-key-2', status: 'prepared', nonce: nonce + 4 }))
+    .rejects.toMatchObject({ cause: { code: '23505', constraint: 'copy_funding_pending_uq' } });
+});
+
 it('an abort is a permanent barrier before a prepared deposit can be admitted to the exchange', async () => {
   const repository = new CopyFundingRepository(db);
   const operation = await repository.reserve(1, 'account', 'testnet', { idempotencyKey: 'deposit-original-request-key', amount: '10' });

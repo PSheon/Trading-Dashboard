@@ -5,7 +5,7 @@ import { AppConfig } from '../config/app-config.js';
 import { BackgroundJobs } from '../runtime/background-jobs.service.js';
 import { errorLogFields } from '../runtime/safe-error-text.js';
 import { CopyLiveSetupAbortRepository, type SetupAbortRow } from './copy-live-setup-abort.repository.js';
-import { CopyLiveSetupAbortReturnRepository, SETUP_ABORT_RESIDUAL_RETURNS, setupAbortRefundAttempt } from './copy-live-setup-abort-return.repository.js';
+import { CopyLiveSetupAbortReturnRepository, SETUP_ABORT_RESIDUAL_RETURNS, setupAbortRefundAttempt, setupAbortRefundLeft } from './copy-live-setup-abort-return.repository.js';
 import { CopyLiveSetupRepository } from './copy-live-setup.repository.js';
 import { CopyFundingRepository } from './copy-funding.repository.js';
 import { CopyFundingService, wire as fundingWire } from './copy-funding.service.js';
@@ -217,18 +217,21 @@ export class CopyLiveSetupAbortService {
       if (!originalPrepared) {
         const reservationProof = await this.observer.observeSetupAbortFlat(row.accountAddress);
         if (await this.refunds.complete(row, reservationProof, this.now)) return;
-        // Money landed after the refund was credited: it is returned again
-        // (a follow-up, reserve), at most SETUP_ABORT_RESIDUAL_RETURNS times;
-        // only then does the abort need its owner (needs_owner, blocked).
-        const credited = refund?.status === 'credited' ? refund : null;
-        if (credited && (setupAbortRefundAttempt(credited) ?? SETUP_ABORT_RESIDUAL_RETURNS) >= SETUP_ABORT_RESIDUAL_RETURNS) {
-          this.alert(row, 'residual_cap', { refunds: (setupAbortRefundAttempt(credited) ?? 0) + 1, withdrawable: reservationProof.snapshot.withdrawable });
+        // Money still there after the refund left (credited, or accepted with
+        // its debit already in this proof; its credit needs the explorer and
+        // is not waited for): it is returned again (a follow-up, reserve), at
+        // most SETUP_ABORT_RESIDUAL_RETURNS times; only then does the abort
+        // need its owner (needs_owner, blocked).
+        const left = refund && setupAbortRefundLeft(refund, reservationProof) ? refund : null;
+        if (left && (setupAbortRefundAttempt(left) ?? SETUP_ABORT_RESIDUAL_RETURNS) >= SETUP_ABORT_RESIDUAL_RETURNS) {
+          this.alert(row, 'residual_cap', { refunds: (setupAbortRefundAttempt(left) ?? 0) + 1, withdrawable: reservationProof.snapshot.withdrawable });
           await stop('setup_abort_residual_balance'); return;
         }
         if (!this.available) { await stop('setup_abort_unavailable'); return; }
         refund = await this.refunds.reserve(row, reservationProof, this.now);
-        if (credited && refund && refund.id !== credited.id)
-          this.alert(row, 'residual_return', { followUp: setupAbortRefundAttempt(refund), of: SETUP_ABORT_RESIDUAL_RETURNS, amount: refund.amount, previousRefundId: credited.id });
+        if (left && refund && refund.id !== left.id)
+          this.alert(row, 'residual_return', { followUp: setupAbortRefundAttempt(refund), of: SETUP_ABORT_RESIDUAL_RETURNS, amount: refund.amount,
+            previousRefundId: left.id, previousStatus: left.status });
       } else if (!this.available) { await stop('setup_abort_unavailable'); return; }
       if (!refund) { await wait('draining', 'setup_abort_child_pending'); return; }
       row = await this.repository.find(row.userId, row.id);

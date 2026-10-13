@@ -1,0 +1,2 @@
+DROP INDEX "copy_funding_pending_uq";--> statement-breakpoint
+CREATE UNIQUE INDEX "copy_funding_pending_uq" ON "copy_funding_operations" USING btree ("network","address") WHERE "copy_funding_operations"."status" in ('prepared', 'unknown') or ("copy_funding_operations"."status" = 'accepted' and "copy_funding_operations"."setup_abort_id" is null);

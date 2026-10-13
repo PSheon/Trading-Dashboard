@@ -1629,6 +1629,104 @@ describe('cancel and refund a confirmed setup awaiting its credit (funding_submi
     errors.mockRestore();
   });
 
+  it('with the explorer unreachable, money left after an accepted (not yet credited) refund is returned by a follow-up and the cancel completes', async () => {
+    const errors = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const setup = await awaitingCredit(), deposit = await depositOf(), main = owner.address.toLowerCase();
+    // The real confirmation: the info API answers (each transfer is in its
+    // ledger), every txDetails read fails.
+    const unreachable = vi.fn(async () => { throw new LiveBoundaryError('funding_explorer_unreachable'); });
+    const ledger: Record<string, Array<{ hash: string; time: number; delta: Record<string, unknown> }>> = {
+      [accountAddress]: [{ hash: `0x${'a1'.repeat(32)}`, time: deposit.nonce + 100, delta: { type: 'internalTransfer', user: main, destination: accountAddress, usdc: '100', fee: '0' } }], [main]: [] };
+    const info = { userNonFundingLedgerUpdates: vi.fn(async (user: string) => ledger[user] ?? []) };
+    const real = new CopyFundingService(testConfig(), new CopyFundingRepository(db), { overview: vi.fn(async () => ({})) } as never, { txDetails: unreachable } as never, info as never);
+    const w = cancelWorld(real);
+    await w.setups.cancel(uid, setup.id);
+    w.world.balance = '100';
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'returning', issue: 'setup_abort_refund_pending' });
+    // 5 USDC lands after the refund left; the refund's credit cannot be confirmed.
+    const [refund] = await refundsOf();
+    ledger[main] = [{ hash: `0x${'b2'.repeat(32)}`, time: refund!.nonce + 100, delta: { type: 'internalTransfer', user: accountAddress, destination: main, usdc: '100', fee: '0' } }];
+    unreachable.mockClear();
+    w.world.balance = '5'; later(30_000);
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'returning', issue: 'setup_abort_refund_pending' });
+    expect(unreachable).toHaveBeenCalled();
+    const abort = await w.abortOf(setup.id), refunds = (await refundsOf()).sort((a, b) => a.nonce - b.nonce);
+    // The follow-up is for what the fresh proof shows (the 100's debit already in it): 5, never 105.
+    expect(refunds).toMatchObject([{ idempotencyKey: `abort:${abort.id}`, amount: '100', status: 'accepted' },
+      { idempotencyKey: `abort:${abort.id}:1`, amount: '5', status: 'accepted' }]);
+    expect(w.exchange.send).toHaveBeenCalledTimes(2);
+    expect(errors.mock.calls.some(([line]) => String(line).startsWith('ALERT setup_abort residual_return ') && String(line).includes('"previousStatus":"accepted"'))).toBe(true);
+    later(30_000);
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'done' });
+    expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'cancelled' });
+    expect((await refundsOf()).map(row => row.status)).toEqual(['accepted', 'accepted']);
+    expect(w.exchange.send).toHaveBeenCalledTimes(2);
+    errors.mockRestore();
+  });
+
+  it('a refund whose outcome is unknown (or a proof read before its acceptance) holds the follow-up; once accepted and seen debited, the residual is returned', async () => {
+    const errors = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const setup = await awaitingCredit(), w = cancelWorld();
+    await w.setups.cancel(uid, setup.id);
+    w.world.balance = '100';
+    // The POST's answer is lost: the refund may or may not have executed.
+    w.exchange.send.mockImplementationOnce(async (_op: unknown, _sig: string, fresh: () => void, dispatched: () => void) => { fresh(); dispatched(); w.world.balance = '0'; return undefined as never; });
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'returning', issue: 'setup_abort_refund_pending' });
+    const [original] = await refundsOf();
+    expect(original).toMatchObject({ status: 'unknown' });
+    w.world.balance = '5';
+    for (let i = 0; i < 3; i++) {
+      later(30_000);
+      expect(await w.pass(setup.id)).toMatchObject({ state: 'returning', issue: 'setup_abort_refund_pending', returnOperationId: original!.id });
+    }
+    // The reservation itself refuses to stack a follow-up on an unknown refund.
+    let authority = (await w.aborts.lease((await w.abortOf(setup.id)).id))!;
+    expect(await w.refunds.reserve(authority, proofOf('5'), () => clock)).toMatchObject({ id: original!.id, status: 'unknown' });
+    await w.aborts.release(authority);
+    expect(await refundsOf()).toHaveLength(1);
+    expect(w.exchange.send).toHaveBeenCalledTimes(1);
+    // Its receipt arrives: accepted. A proof read before that is not taken as its debit.
+    const acceptedAt = new Date(clock + 60_000);
+    await db.update(copyFundingOperations).set({ status: 'accepted', evidenceHash: 'e'.repeat(64), updatedAt: acceptedAt }).where(eq(copyFundingOperations.id, original!.id));
+    authority = (await w.aborts.lease((await w.abortOf(setup.id)).id))!;
+    expect(await w.refunds.reserve(authority, proofOf('5'), () => clock)).toMatchObject({ id: original!.id, status: 'accepted' });
+    await w.aborts.release(authority);
+    expect(await refundsOf()).toHaveLength(1);
+    // A proof read after it: the follow-up goes out for the 5.
+    later(90_000);
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'returning', issue: 'setup_abort_refund_pending' });
+    const abort = await w.abortOf(setup.id);
+    expect((await refundsOf()).sort((a, b) => a.nonce - b.nonce)).toMatchObject([{ id: original!.id, status: 'accepted' }, { idempotencyKey: `abort:${abort.id}:1`, amount: '5', status: 'accepted' }]);
+    expect(w.exchange.send).toHaveBeenCalledTimes(2);
+    later(30_000);
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'done' });
+    errors.mockRestore();
+  });
+
+  it('a residual after an accepted (uncredited) refund is returned once under concurrent drivers: one follow-up, one send', async () => {
+    const errors = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const setup = await awaitingCredit(), w = cancelWorld();
+    await w.setups.cancel(uid, setup.id);
+    w.world.balance = '100';
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'returning' });
+    expect(await refundsOf()).toMatchObject([{ status: 'accepted' }]);
+    w.world.balance = '5'; later(30_000);
+    // Two reservations racing under one lease (the user lock): the same follow-up.
+    const abort = await w.abortOf(setup.id), authority = (await w.aborts.lease(abort.id))!;
+    const [first, second] = await Promise.all([w.refunds.reserve(authority, proofOf('5'), () => clock), w.refunds.reserve(authority, proofOf('5'), () => clock)]);
+    expect(first!.id).toBe(second!.id);
+    expect(first).toMatchObject({ idempotencyKey: `abort:${abort.id}:1`, status: 'prepared', amount: '5' });
+    await w.aborts.release(authority);
+    // Two worker passes at once (two replicas): one lease sends it, once.
+    await Promise.all([w.pass(setup.id), w.pass(setup.id)]);
+    expect(w.exchange.send).toHaveBeenCalledTimes(2);
+    expect(await refundsOf()).toHaveLength(2);
+    later(30_000);
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'done' });
+    expect(w.exchange.send).toHaveBeenCalledTimes(2);
+    errors.mockRestore();
+  });
+
   it('races the setup driver: a driver mid-step when the cancel commits cannot move the setup on', async () => {
     const setup = await awaitingCredit(), w = cancelWorld();
     await credit(); later(120_000);

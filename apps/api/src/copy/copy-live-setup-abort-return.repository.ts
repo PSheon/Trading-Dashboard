@@ -18,7 +18,7 @@ import { deploymentNetwork } from './live-deployment.js';
 
 const hash = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex');
 /** Follow-up refunds of a setup abort at most: money that landed in the copy
- * account after its refund was credited is returned again, the same way
+ * account after its refund left (setupAbortRefundLeft) is returned again, the same way
  * (`abort:<abort id>:<n>`, as a stop's sweep is `sweep:<stop id>:<n>`).
  * Past this the abort needs its owner (setup_abort_residual_balance). */
 export const SETUP_ABORT_RESIDUAL_RETURNS = 3;
@@ -26,6 +26,21 @@ const refundKey = (abortId: string) => `abort:${abortId}`;
 /** Refund n of a setup abort: 0 the original, then its follow-ups (null: not one). */
 export function setupAbortRefundAttempt(row: Pick<ReturnRow, 'idempotencyKey' | 'setupAbortId'>): number | null {
   return row.setupAbortId ? keyedAttempt(row.idempotencyKey, refundKey(row.setupAbortId)) : null;
+}
+/**
+ * Whether a refund of a setup abort has left the copy account, for its next
+ * follow-up: credited (the funding monitor's confirmation), or accepted by
+ * the exchange (its own reply: it executed) with this flat proof read wholly
+ * after that reply was recorded, so the refund's debit is already in the
+ * withdrawable the proof shows and the follow-up's amount (all of it) never
+ * holds the same money again. The credit is not waited for (it needs the
+ * explorer). Prepared, unknown or a proof that may predate it: not left.
+ */
+export function setupAbortRefundLeft(refund: Pick<ReturnRow, 'status' | 'updatedAt'>, proof: SetupAbortFlatObservation): boolean {
+  if (refund.status === 'credited') return true;
+  if (refund.status !== 'accepted') return false;
+  const s = proof.snapshot, read = Math.min(s.observedAt, s.coverage.earliestProviderTime, ...s.dexes.map(d => d.providerTime));
+  return Number.isSafeInteger(read) && read > refund.updatedAt.getTime();
 }
 function refuse(code: string): never { throw new ConflictException({ statusCode: 409, code, message: 'Check the saved setup abort progress' }); }
 
@@ -121,16 +136,19 @@ export class CopyLiveSetupAbortReturnRepository {
   async reserve(expected: SetupAbortRow, proof: SetupAbortFlatObservation, now: () => number = Date.now): Promise<ReturnRow | null> {
     return this.db.transaction(async tx => {
       const context = await this.context(tx, expected), { abort, account } = context;
-      // The abort's current refund answers, unless it was credited and the
-      // account (proven flat below) still holds money that landed after it:
-      // then the next follow-up, at most SETUP_ABORT_RESIDUAL_RETURNS. Under
-      // the user lock, keyed once each (copy_funding_key_uq).
+      // The abort's current refund answers, unless it has left (credited, or
+      // accepted with its debit in this proof: setupAbortRefundLeft) and the
+      // account (proven flat below) still holds money: then the next
+      // follow-up, for what the account holds now, at most
+      // SETUP_ABORT_RESIDUAL_RETURNS. Under the user lock (read here, under
+      // it), keyed once each (copy_funding_key_uq), never while one is
+      // prepared or unknown (copy_funding_pending_uq).
       const refunds = await tx.select().from(copyFundingOperations).where(eq(copyFundingOperations.setupAbortId, abort.id));
       const current = refunds.find(row => row.id === abort.returnOperationId) ?? refunds[0];
       let key = refundKey(abort.id);
       if (current) {
         const n = setupAbortRefundAttempt(current);
-        if (current.id !== abort.returnOperationId || current.status !== 'credited' || n === null || n >= SETUP_ABORT_RESIDUAL_RETURNS) return current;
+        if (current.id !== abort.returnOperationId || !setupAbortRefundLeft(current, proof) || n === null || n >= SETUP_ABORT_RESIDUAL_RETURNS) return current;
         key = `${key}:${n + 1}`;
       }
       const evidence = this.proof(abort, proof, now());

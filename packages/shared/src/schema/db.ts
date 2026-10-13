@@ -1487,11 +1487,16 @@ export const copyFundingOperations = pgTable("copy_funding_operations", {
   // A setup abort's refunds: the original (`abort:<abort id>`), then at most
   // SETUP_ABORT_RESIDUAL_RETURNS follow-ups (`abort:<abort id>:<n>`) for money
   // that landed after it, each once (copy_funding_key_uq) and never while
-  // another transfer of the account is open (copy_funding_pending_uq).
+  // another transfer of the account is in flight (copy_funding_pending_uq).
   index("copy_funding_setup_abort_idx").on(t.setupAbortId).where(sql`${t.setupAbortId} is not null`),
   uniqueIndex("copy_funding_key_uq").on(t.userId, t.idempotencyKey),
   uniqueIndex("copy_funding_nonce_uq").on(t.network, t.address, t.nonce),
-  uniqueIndex("copy_funding_pending_uq").on(t.network, t.address).where(sql`${t.status} in ('prepared', 'unknown', 'accepted')`),
+  // One open transfer per source wallet. A setup abort's refund the exchange
+  // accepted (its own reply: it executed, its debit is in the account) no
+  // longer holds the account for the abort's next follow-up; its credit is
+  // still confirmed by the funding monitor. Prepared or unknown always holds.
+  uniqueIndex("copy_funding_pending_uq").on(t.network, t.address)
+    .where(sql`${t.status} in ('prepared', 'unknown') or (${t.status} = 'accepted' and ${t.setupAbortId} is null)`),
   uniqueIndex("copy_funding_receipt_uq").on(t.network, t.transactionHash),
   index("copy_funding_owner_idx").on(t.userId, t.createdAt),
   check("copy_funding_network_check", oneOf(t.network, ["testnet", "mainnet"])),

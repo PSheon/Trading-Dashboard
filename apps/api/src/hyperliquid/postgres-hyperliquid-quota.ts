@@ -10,7 +10,7 @@ import type { UnitOfWork,DbTransaction } from '../db/unit-of-work.js';
 import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from '../copy/live/postgres-live-risk-scope.js';
 import {LiveBoundaryError,type LiveNetwork} from '../copy/live/wallet-authorization.js';
 import {HyperliquidRestCapacityError,sharedRestRetryAfterMs} from './hyperliquid-capacity-error.js';
-import {BACKGROUND_REST_ID_PREFIX,PAGE_REST_ID_PREFIX,HYPERLIQUID_MAX_LIVE_DEMAND,HYPERLIQUID_MAX_SETUP_CONNECTS,HYPERLIQUID_MAX_SETTLEMENTS,LIVE_LANE_TOKEN,LIVE_REST_ID_PREFIX,liveDemandTicket,HYPERLIQUID_STALE_LEASE_RECLAIM_MS,SETUP_DEMAND_ID_PREFIX,SETUP_LANE_TOKEN,SETUP_REST_ID_PREFIX,hyperliquidLaneStatus,hyperliquidMeterComposition,planHyperliquidQuota,setupDemandTicket,quotaSubscription,type HyperliquidMeterComposition,type HyperliquidQuotaPlan,type HyperliquidRestLane,type HyperliquidQuotaLease,type HyperliquidQuotaRequest,type HyperliquidQuotaSubscription} from './hyperliquid-global-quota.js';
+import {BACKGROUND_REST_ID_PREFIX,PAGE_REST_ID_PREFIX,HYPERLIQUID_MAX_LIVE_DEMAND,HYPERLIQUID_MAX_SETUP_CONNECTS,HYPERLIQUID_MAX_SETTLEMENTS,LIVE_LANE_TOKEN,LIVE_REST_ID_PREFIX,liveDemandTicket,liveStandbyTicket,HYPERLIQUID_STALE_LEASE_RECLAIM_MS,SETUP_DEMAND_ID_PREFIX,SETUP_LANE_TOKEN,SETUP_REST_ID_PREFIX,hyperliquidLaneStatus,hyperliquidMeterComposition,planHyperliquidQuota,setupDemandTicket,quotaSubscription,type HyperliquidMeterComposition,type HyperliquidQuotaPlan,type HyperliquidRestLane,type HyperliquidQuotaLease,type HyperliquidQuotaRequest,type HyperliquidQuotaSubscription} from './hyperliquid-global-quota.js';
 import {freezeLiveReservation} from '../copy/live/live-risk-reservation.js';
 import {liveSourceDigest} from '../copy/live/copy-live-source-evidence.js';
 import {liveSpan} from '../copy/live/live-execution-diagnostics.js';
@@ -62,6 +62,8 @@ export interface BoundHyperliquidQuota {
    * whole window (0: now). Claimed before the order's SQL locks: never in an
    * original session. */
   claimLiveRest?(weight:number,deadline:number,token:string):Promise<number>;
+  /** A worker running live copies: keeps one order's need free (live_standby). Optional: test doubles. */
+  standbyLiveRest?(weight:number,deadline:number):Promise<void>;
   reserveSocket(deadline:number,network?:LiveNetwork):Promise<{readonly connect:HyperliquidSendPermit;readonly connection:HyperliquidSocketQuota}>;
 }
 /** A REST charge's class when nothing more specific applies (`fallback`),
@@ -307,6 +309,10 @@ export class PostgresHyperliquidQuota {
       await this.apply(binding,(_now,sendUntil)=>({kind:'live_demand',id,weight,sendUntil}),deadline,undefined,undefined,plan=>{waitMs=plan.waitMs;});
       if(waitMs===undefined)fail('hyperliquid_quota_invalid');
       return waitMs!;
+    },standbyLiveRest:async(weight:number,deadline:number)=>{
+      if(session||!Number.isSafeInteger(weight)||weight<1||weight>HYPERLIQUID_MAX_LIVE_DEMAND)fail('hyperliquid_quota_invalid');
+      const id=liveStandbyTicket(weight);
+      await this.apply(binding,(_now,sendUntil)=>({kind:'live_standby',id,weight,sendUntil}),deadline);
     },reserveSocket:async(deadline:number,network:LiveNetwork='testnet')=>{
       if(network!=='testnet'&&network!=='mainnet')fail('hyperliquid_quota_invalid');
       const id=randomUUID(),fenceToken=randomBytes(32).toString('hex'),socketId=randomUUID(),ownerId=binding.ownerId,source={leaseId:id,fenceToken,ownerId};

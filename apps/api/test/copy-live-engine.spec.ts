@@ -574,6 +574,21 @@ describe('testnet copy execution engine', () => {
     expect(logs.some(m => m.includes('refused: signal_expired') && m.includes('last live_risk_busy'))).toBe(true);
   });
 
+  it('keeps one order\'s need free on the shared meter while a copy mirrors its leader: the standby is renewed every 10 s', async () => {
+    const standby = vi.fn(async () => undefined);
+    // No copy running yet: nothing is kept.
+    clock = now + 500; await engine({ standby }).tick();
+    expect(standby).not.toHaveBeenCalled();
+    await credit(); await coverage(now - 10_000, now + 5000);
+    const worker = engine({ standby });
+    clock = now + 1000; await worker.tick();
+    expect(standby).toHaveBeenCalledTimes(1);
+    clock = now + 6000; await worker.tick(); await worker.pollTestnetSources();
+    expect(standby).toHaveBeenCalledTimes(1);
+    clock = now + 11_000; await worker.tick();
+    expect(standby).toHaveBeenCalledTimes(2);
+  });
+
   it('a close at its attempt limit is not refused by a wait that sent nothing', async () => {
     await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
     const open = await leaderFill(83, now + 100, 'B', '1', '0', 'ETH'), close = await leaderFill(84, now + 200, 'A', '1', '1', 'ETH');

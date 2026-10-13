@@ -122,6 +122,9 @@ export const liveEngineProvider: FactoryProvider<CopyLiveEngine | null> = {
       feedUp: () => { const status = feed?.status(); return !!status && status.socketsTotal > 0 && status.disconnectedSince === null; },
     } : undefined;
     return new CopyLiveEngine({ network, apiTerminalSettlement: network === 'testnet', setups, stopper: { tick: async () => { await stopper.tick(); await manual.tick(); } },
+      // The heaviest order's evidence (and its boundary) kept free on the
+      // shared meter while copies run: an order never waits for background.
+      standby: () => walletGlobal.standbyLive(fit.weight),
       repository, sources, uow, watched: new WatchedMainnetSource(db, Date.now, message => logger.warn(message)),
       // Testnet leaders (a testnet deployment only: a mainnet one copies mainnet leaders).
       testnetSource: new HyperliquidLiveSourceClient('testnet', weight => reserve(weight), walletGlobal.fetchInfo,

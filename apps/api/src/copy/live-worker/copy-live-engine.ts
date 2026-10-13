@@ -47,6 +47,9 @@ export interface LiveEngineDependencies {
   /** One-click setups (credit → mode → agent → builder → generation), before
    * funded generations start, so a generation made now starts this pass. */
   readonly setups?: { tick(): Promise<number> };
+  /** Keeps one order's need free on the shared meter while copies run
+   * (HyperliquidGlobalTransport.standbyLive with the heaviest evidence). */
+  readonly standby?: () => Promise<void>;
   /** Owner stop requests (cancel, close, flat, return); after the legs. */
   readonly stopper?: { tick(): Promise<void> };
   readonly log?: (message: string) => void;
@@ -83,6 +86,9 @@ export interface LiveEngineOptions {
    * at most this often. */
   readonly fastPollMs?: number;
 }
+/** While live copies run, the shared meter's standby (one order's need kept
+ * free) is renewed this often, well inside HYPERLIQUID_LIVE_STANDBY_HOLD_MS. */
+export const LIVE_STANDBY_RENEW_MS = 10_000;
 export const DEFAULT_ENGINE_OPTIONS: LiveEngineOptions = { testnetSourceIntervalMs: 60_000, sourceLagMs: 1_000, passBudgetMs: 20_000, fastPollMs: 7_500 };
 
 /** A HIP-3 (builder-deployed dex) market: its fee scope cannot be proven
@@ -159,6 +165,7 @@ export class CopyLiveEngine {
   async pollTestnetSources(): Promise<void> {
     if (this.deps.network !== 'testnet') return;
     const mandates = await this.deps.repository.mandates(this.now());
+    await this.standby(mandates);
     const eligible = mandates.filter(m =>
       m.sourceNetwork === 'testnet' && mirrorsLeader(m));
     // Select active streams, but preserve every unexpired generation's
@@ -169,6 +176,17 @@ export class CopyLiveEngine {
     }
   }
 
+  /** When the shared meter's standby was last renewed (LIVE_STANDBY_RENEW_MS). */
+  private standbyAt = Number.NEGATIVE_INFINITY;
+  /** While a copy mirrors its leader, one order's need is kept free on the
+   * shared meter (deps.standby): its first order never waits for
+   * background's charges to expire. A failure is logged, never fatal. */
+  private async standby(mandates: readonly LiveMandateWork[]): Promise<void> {
+    if (!this.deps.standby || !mandates.some(mirrorsLeader) || this.now() - this.standbyAt < LIVE_STANDBY_RENEW_MS) return;
+    this.standbyAt = this.now();
+    try { await this.deps.standby(); } catch (error) { this.deps.log?.(`live standby not recorded: ${reasonOf(error)}`); }
+  }
+
   async tick(): Promise<void> {
     const started = this.now();
     if (this.deps.setups) {
@@ -177,6 +195,7 @@ export class CopyLiveEngine {
     }
     let mandates = await this.deps.repository.mandates(started);
     if ((await this.deps.repository.activateFunded(mandates, started)).length) mandates = await this.deps.repository.mandates(this.now());
+    await this.standby(mandates);
     for (const stream of this.deps.repository.streams(mandates)) {
       // Without kicks (feed down), a fast-source leader is polled.
       const poll = this.fastLeader(stream) && this.deps.fast!.feedUp?.() === false &&

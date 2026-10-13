@@ -123,6 +123,15 @@ export class HyperliquidGlobalTransport {
    await this.sleep(Math.min(wait,LIVE_DEMAND_RENEW_MS));
   }
  }
+ /** A worker running live copies: records that one order's need (`weight`,
+  * its heaviest evidence) is kept free on the shared meter for
+  * HYPERLIQUID_LIVE_STANDBY_HOLD_MS, so an order that comes finds it free
+  * instead of waiting for background's charges to expire. Nothing is sent
+  * or waited for; a meter without standbys ignores it. */
+ async standbyLive(weight:number):Promise<void>{
+  if(this.isOriginal()||!Number.isSafeInteger(weight)||weight<1)fail('hyperliquid_quota_invalid');
+  await this.currentQuota().standbyLiveRest?.(Math.min(HYPERLIQUID_MAX_LIVE_DEMAND,weight),this.now()+5000);
+ }
  /** The shared meter's setup and live lanes on this transport's egress
   * (heartbeat): undefined when no egress is configured. */
  async laneStatus():Promise<Awaited<ReturnType<PostgresHyperliquidQuota['laneStatus']>>|undefined>{

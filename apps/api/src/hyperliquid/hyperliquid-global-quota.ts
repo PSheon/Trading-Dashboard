@@ -258,16 +258,19 @@ const liveClaims=(rest:readonly HyperliquidQuotaEvent[],now:number)=>reservation
 /** A lane's demand as the meter holds it (heartbeat): demands alive, what
  * the lane's charges hold, and when the last demand ends (null: none). */
 export interface HyperliquidLaneDemand {readonly count:number;readonly held:number;readonly until:number|null;}
-/** The setup and live lanes at `now`, from the meter's events: setup
- * markers alive (a setup waiting or granted, for its marker's minute) and
- * live orders' demands alive (HYPERLIQUID_LIVE_DEMAND_HOLD_MS). */
-export function hyperliquidLaneStatus(events:readonly HyperliquidQuotaEvent[],now:number):{readonly setupDemand:HyperliquidLaneDemand;readonly liveDemand:HyperliquidLaneDemand}{
+/** The setup, live and page lanes at `now`, from the meter's events: setup
+ * markers alive (a setup waiting or granted, for its marker's minute), live
+ * orders' demands alive (HYPERLIQUID_LIVE_DEMAND_HOLD_MS), and the page
+ * lane, which announces nothing: its reads alive in the window (`count`),
+ * what they hold, and when the last of them ends. */
+export function hyperliquidLaneStatus(events:readonly HyperliquidQuotaEvent[],now:number):{readonly setupDemand:HyperliquidLaneDemand;readonly liveDemand:HyperliquidLaneDemand;readonly pageLane:HyperliquidLaneDemand}{
   const rest=events.filter(e=>e.kind==='rest'&&e.expiresAt>now),units=(list:readonly HyperliquidQuotaEvent[])=>list.reduce((sum,e)=>sum+e.units,0);
   const markers=rest.filter(e=>e.id.startsWith(SETUP_DEMAND_ID_PREFIX)),orders=rest.filter(e=>LIVE_DEMAND_TICKET.test(e.id)&&e.reservedAt+HYPERLIQUID_LIVE_DEMAND_HOLD_MS>now);
-  const tokens=new Set(orders.map(e=>LIVE_DEMAND_TICKET.exec(e.id)![2]));
+  const tokens=new Set(orders.map(e=>LIVE_DEMAND_TICKET.exec(e.id)![2])),pages=rest.filter(e=>e.id.startsWith(PAGE_REST_ID_PREFIX));
   return {
     setupDemand:{count:markers.length,held:units(rest.filter(e=>e.id.startsWith(SETUP_REST_ID_PREFIX))),until:markers.length?Math.max(...markers.map(e=>e.expiresAt)):null},
     liveDemand:{count:tokens.size,held:units(rest.filter(e=>e.id.startsWith(LIVE_REST_ID_PREFIX))),until:orders.length?Math.max(...orders.map(e=>e.reservedAt+HYPERLIQUID_LIVE_DEMAND_HOLD_MS)):null},
+    pageLane:{count:pages.length,held:units(pages),until:pages.length?Math.max(...pages.map(e=>e.expiresAt)):null},
   };
 }
 /** Background charges' tickets (`bg:<id>`): told apart from unlabelled ones

@@ -61,7 +61,7 @@ export const wireHeartbeatSchema = s.heartbeatResponseSchema.extend({
   feedDisconnectedSince: iso.nullable(), lastTradeAt: iso.nullable(), lastFillAt: iso.nullable(), lastSnapshotAt: iso.nullable(),
   lastSnapshotAttemptAt: iso.nullable().optional(), lastSnapshotFailureAt: iso.nullable().optional(), lastSweepAt: iso.nullable(), now: iso,
   explorerFailingSince: iso.nullable().optional(),
-  setupDemand: wireMeterLaneDemandSchema.optional(), liveDemand: wireMeterLaneDemandSchema.optional(),
+  setupDemand: wireMeterLaneDemandSchema.optional(), liveDemand: wireMeterLaneDemandSchema.optional(), pageLane: wireMeterLaneDemandSchema.optional(),
   fillsUnavailable: z.array(z.object({ address: z.string(), missedTrades: z.number().int(), since: iso })),
   archive: s.heartbeatResponseSchema.shape.archive.unwrap().extend({ liveNextHour: iso.nullable(), backfillCursorHour: iso.nullable(), lastRunAt: iso.nullable(),
     backfillFloor: iso.optional(), backfillPassStartedAt: iso.nullable().optional(), backfillNextPassAt: iso.nullable().optional() }).optional(),
@@ -126,8 +126,9 @@ export const adminSystemSchema = z.object({
     explorerReachable: z.boolean().optional(), explorerFailingSince: iso.nullable().optional(),
     /** The shared per-IP meter's setup and live lanes as this api process
      * reads them (its wallet network egress): demands alive, what each
-     * lane's charges hold, when the last demand ends. Additive. */
-    setupDemand: wireMeterLaneDemandSchema.optional(), liveDemand: wireMeterLaneDemandSchema.optional() }),
+     * lane's charges hold, when the last demand ends; the page lane (no
+     * demand): its reads alive, what they hold, when the last ends. Additive. */
+    setupDemand: wireMeterLaneDemandSchema.optional(), liveDemand: wireMeterLaneDemandSchema.optional(), pageLane: wireMeterLaneDemandSchema.optional() }),
   worker: z.object({ state: z.enum(["active", "standby", "stopping", "stale", "unavailable", "not_configured"]), sample: workerMonitorSchema.nullable() }),
   database: z.object({ state: z.enum(["available", "unavailable"]), latencyMs: z.number().nullable() }),
   data: z.object({

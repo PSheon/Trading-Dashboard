@@ -421,6 +421,10 @@ export const heartbeatResponseSchema = z.object({
    * ahead of setups and background. Additive. */
   setupDemand: meterLaneDemandSchema.optional(),
   liveDemand: meterLaneDemandSchema.optional(),
+  /** The shared meter's page lane on the same egress (it announces no
+   * demand): its reads alive in the window, what they hold, when the last
+   * ends. Additive. */
+  pageLane: meterLaneDemandSchema.optional(),
   /** Age of the discovery pool's stored performance figures: the rows the
    * boards and home rows show (`visible`) and the whole pool. Additive. */
   discovery: z.object({

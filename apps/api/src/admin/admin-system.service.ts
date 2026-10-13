@@ -54,8 +54,8 @@ export class AdminSystemService {
         switches: operationalSwitches(this.config.value), tuning: this.config.value.tuning,
         // This process's own gauge: the api confirms deposits and returns too.
         explorerReachable: explorer.reachable, explorerFailingSince: explorer.failingSince?.toISOString() ?? null,
-        // The shared meter's setup and live lanes, as this process reads them.
-        ...(meter ? { setupDemand: lane(meter.setupDemand), liveDemand: lane(meter.liveDemand) } : {}) },
+        // The shared meter's setup, live and page lanes, as this process reads them.
+        ...(meter ? { setupDemand: lane(meter.setupDemand), liveDemand: lane(meter.liveDemand), pageLane: lane(meter.pageLane) } : {}) },
       worker: worker.status === "fulfilled" ? worker.value : { state: "unavailable", sample: null },
       database: database.status === "fulfilled" ? { state: "available", latencyMs: database.value } : { state: "unavailable", latencyMs: null },
       data: data.status === "fulfilled" ? data.value : null,

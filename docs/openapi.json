@@ -12782,6 +12782,36 @@
                                 "until"
                               ],
                               "additionalProperties": false
+                            },
+                            "pageLane": {
+                              "type": "object",
+                              "properties": {
+                                "count": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "held": {
+                                  "type": "number",
+                                  "minimum": 0
+                                },
+                                "until": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "count",
+                                "held",
+                                "until"
+                              ],
+                              "additionalProperties": false
                             }
                           },
                           "required": [
@@ -13382,6 +13412,36 @@
                                               "additionalProperties": false
                                             },
                                             "liveDemand": {
+                                              "type": "object",
+                                              "properties": {
+                                                "count": {
+                                                  "type": "integer",
+                                                  "minimum": 0
+                                                },
+                                                "held": {
+                                                  "type": "number",
+                                                  "minimum": 0
+                                                },
+                                                "until": {
+                                                  "anyOf": [
+                                                    {
+                                                      "type": "string",
+                                                      "format": "date-time"
+                                                    },
+                                                    {
+                                                      "type": "null"
+                                                    }
+                                                  ]
+                                                }
+                                              },
+                                              "required": [
+                                                "count",
+                                                "held",
+                                                "until"
+                                              ],
+                                              "additionalProperties": false
+                                            },
+                                            "pageLane": {
                                               "type": "object",
                                               "properties": {
                                                 "count": {

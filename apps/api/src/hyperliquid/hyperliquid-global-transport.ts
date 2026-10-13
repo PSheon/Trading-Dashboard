@@ -2,7 +2,7 @@ import {AsyncLocalStorage} from 'node:async_hooks';
 import {setTimeout as wait} from 'node:timers/promises';
 import {REST_CHARGE_LIFETIME_MS,sharedRestRetryAfterMs} from './hyperliquid-capacity-error.js';
 import type {HyperliquidRestLane} from './hyperliquid-global-quota.js';
-import {PostgresHyperliquidQuota,type BoundHyperliquidQuota} from './postgres-hyperliquid-quota.js';
+import {PostgresHyperliquidQuota,runInSetupLane,type BoundHyperliquidQuota} from './postgres-hyperliquid-quota.js';
 import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from '../copy/live/postgres-live-risk-scope.js';
 import {LiveBoundaryError} from '../copy/live/wallet-authorization.js';
 import {infoListSurcharge,infoPrepaidWeight,infoWeight} from './info-weights.js';
@@ -70,6 +70,18 @@ export class HyperliquidGlobalTransport {
   assertOriginalLiveRiskSession(session);const prior=this.#original.getStore();if(prior&&prior!==session)fail('live_risk_serialization_lost');
   const result=await this.#original.run(session,work);assertOriginalLiveRiskSession(session);return result;
  }
+ /** A copy setup about to run a step of `weight` (its provider weight in the
+  * next minute): records the setup's demand on the shared meter, so
+  * background leaves the setups' share free (HYPERLIQUID_SETUP_REST_CAP), and
+  * answers in how many ms that weight fits in the setup lane (0: now).
+  * Nothing is sent. */
+ async claimSetup(weight:number):Promise<number>{
+  if(this.isOriginal())fail('hyperliquid_quota_invalid');
+  const budget=this.currentQuota();
+  return budget.claimSetupRest?budget.claimSetupRest(weight,this.now()+5000):0;
+ }
+ /** Runs a copy setup's step: its unlabelled REST charges go in the setup lane. */
+ runSetup<T>(work:()=>Promise<T>):Promise<T>{return runInSetupLane(work);}
  readonly fetchExplorer:typeof fetch=async(input,init)=>{
   const budget=this.currentQuota(),url=typeof input==='string'?input:input instanceof URL?input.toString():'';
   if(!['https://rpc.hyperliquid.xyz/explorer','https://rpc.hyperliquid-testnet.xyz/explorer'].includes(url)||!init||init.method!=='POST'||typeof init.body!=='string'||Buffer.byteLength(init.body)>1024)return fail('hyperliquid_quota_request_invalid');

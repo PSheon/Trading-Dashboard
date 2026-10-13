@@ -12,6 +12,7 @@ export interface HyperliquidQuotaLease {readonly id:string;readonly egressKey:st
 export interface HyperliquidQuotaState {readonly egressKey:string;readonly revision:number;readonly events:readonly HyperliquidQuotaEvent[];readonly updatedAt:number;}
 export type HyperliquidQuotaRequest=
  |{readonly kind:'rest';readonly id:string;readonly weight:number;readonly sendUntil:number;readonly lane?:HyperliquidRestLane;readonly settle?:readonly HyperliquidRestSettlement[]}
+ |{readonly kind:'setup_demand';readonly id:string;readonly weight:number;readonly sendUntil:number}
  |{readonly kind:'connect';readonly id:string;readonly sendUntil:number;readonly lease:Omit<HyperliquidQuotaLease,'state'|'revision'|'subscriptions'|'createdAt'|'updatedAt'|'closedAt'>}
  |{readonly kind:'subscribe';readonly id:string;readonly leaseId:string;readonly fenceToken:string;readonly ownerId:string;readonly sendUntil:number;readonly subscriptions:readonly HyperliquidQuotaSubscription[];readonly prepayCleanup:boolean;readonly prepayClose?:boolean}
  |{readonly kind:'ping'|'close'|'unsubscribe';readonly id:string;readonly leaseId:string;readonly fenceToken:string;readonly ownerId:string;readonly sendUntil:number;readonly subscriptionIds?:readonly string[]}
@@ -28,9 +29,12 @@ export const HYPERLIQUID_MAX_SETTLEMENTS=64;
 /** `background`: work nobody is waiting for (pool loops, warm-ups, sweeps of
  * uncopied leaders). It may fill the shared per-IP REST window only up to
  * HYPERLIQUID_BACKGROUND_REST_CAP, so a page or a copy signal always finds
- * room. Unlabelled requests (pages, live copy work, exchange actions) may use
+ * room, and less while a setup waits (HYPERLIQUID_SETUP_REST_CAP).
+ * `setup`: a copy setup's steps (funded → mode_set → agent_active), someone
+ * waiting on them: ahead of background, within their own share.
+ * Unlabelled requests (pages, live copy work, exchange actions) may use
  * the whole window. */
-export type HyperliquidRestLane='background';
+export type HyperliquidRestLane='background'|'setup';
 /** Hyperliquid's REST weight per minute per IP. */
 export const HYPERLIQUID_REST_CAP=1200;
 /** What background work may hold of it. Before this, the worker's and the
@@ -42,7 +46,27 @@ export const HYPERLIQUID_BACKGROUND_REST_CAP=840;
  * it to keep more of the window for copy orders, whose evidence (568–772 a
  * minute for one order) must fit beside whatever background holds. */
 export function backgroundRestCap(value:number|undefined):number{return value===undefined?HYPERLIQUID_BACKGROUND_REST_CAP:Math.max(0,Math.min(HYPERLIQUID_REST_CAP,Math.floor(value)));}
-export interface HyperliquidQuotaPlan {readonly state:HyperliquidQuotaState;readonly leases:readonly HyperliquidQuotaLease[];readonly charged:number;}
+/** Of the window, what neither setups nor background ever take: live orders,
+ * pages and exchange actions (unlabelled) always find at least this. */
+export const HYPERLIQUID_LIVE_REST_RESERVE=240;
+/** What copy setups' charges may hold of the window together: one setup's
+ * account-mode attempt (613) and its reconcile, so a burst of setups queues
+ * behind it instead of taking the live reserve or every live order's room.
+ * While a setup waits (a `setup_demand` marker within the last minute),
+ * background may hold only what leaves this share free below the live
+ * reserve: background is refused first. On 2026-10-13 a setup's mode step
+ * (613 in a minute, beside the 360 that background's 840 left) waited out
+ * 65 s windows for 10 minutes beside the Stage-like background load. */
+export const HYPERLIQUID_SETUP_REST_CAP=720;
+/** A setup's charges and demand markers are told apart by their ticket id
+ * (the stored event's shape is unchanged: a process on the previous release
+ * reads them as ordinary REST charges, which they are). */
+export const SETUP_REST_ID_PREFIX='setup:';
+export const SETUP_DEMAND_ID_PREFIX='setup-demand:';
+const isSetupEvent=(e:{kind:string;id:string})=>e.kind==='rest'&&(e.id.startsWith(SETUP_REST_ID_PREFIX)||e.id.startsWith(SETUP_DEMAND_ID_PREFIX));
+export interface HyperliquidQuotaPlan {readonly state:HyperliquidQuotaState;readonly leases:readonly HyperliquidQuotaLease[];readonly charged:number;
+  /** `setup_demand` only: 0 when the setup's weight fits now, else in how many ms it should (its marker is recorded either way). */
+  readonly waitMs?:number;}
 const integer=z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const identifier=z.string().min(1).max(128).regex(/^[^\s\p{Cc}\p{Cf}]+$/u);
 const network=z.enum(['mainnet','testnet']);
@@ -60,7 +84,8 @@ const leaseSchema=z.object({id:identifier,egressKey:identifier,socketId:identifi
 const sourceIdentity={leaseId:identifier,fenceToken:identifier,ownerId:identifier};
 const ids=z.array(z.string().regex(/^[a-f0-9]{64}$/)).min(1).max(1000);
 const requestSchema=z.union([
-  z.object({kind:z.literal('rest'),id:identifier,weight:integer.positive().max(1200),sendUntil:integer.positive(),lane:z.literal('background').optional(),
+  z.object({kind:z.literal('setup_demand'),id:identifier,weight:integer.positive().max(1200),sendUntil:integer.positive()}).strict(),
+  z.object({kind:z.literal('rest'),id:identifier,weight:integer.positive().max(1200),sendUntil:integer.positive(),lane:z.enum(['background','setup']).optional(),
     settle:z.array(z.object({id:identifier,units:integer.positive().max(1200)}).strict()).max(HYPERLIQUID_MAX_SETTLEMENTS).optional()}).strict(),
   z.object({kind:z.literal('connect'),id:identifier,sendUntil:integer.positive(),lease:leaseSchema.omit({state:true,revision:true,subscriptions:true,createdAt:true,updatedAt:true,closedAt:true})}).strict(),
   z.object({kind:z.literal('subscribe'),id:identifier,...sourceIdentity,sendUntil:integer.positive(),subscriptions:z.array(subSchema).min(1).max(1000),prepayCleanup:z.boolean(),prepayClose:z.boolean().optional()}).strict(),
@@ -122,28 +147,65 @@ export function planHyperliquidQuota(raw:{readonly now:number;readonly state:Hyp
       if(event&&settled.units<event.units)event.units=settled.units;
     }
     for(const kind of ['rest','ws_message','ws_connect'] as const)requireQuota(events.filter(e=>e.kind===kind).reduce((sum,e)=>sum+e.units,0)<=caps[kind]);
-    let charged=0;
-    const charge=(kind:HyperliquidQuotaEvent['kind'],units:number,id:string,sendUntil:number,cap:number=caps[kind])=>{
+    let charged=0,waitMs:number|undefined;
+    const sum=(list:readonly HyperliquidQuotaEvent[])=>list.reduce((total,e)=>total+e.units,0);
+    /** In how many ms `units` more fit under `cap` as charges of `pool`
+     * expire (0: now), assuming nothing else is charged; undefined: never. */
+    const fitsIn=(pool:readonly HyperliquidQuotaEvent[],units:number,cap:number):number|undefined=>{
+      let missing=sum(pool)+units-cap;if(missing<=0)return 0;
+      for(const event of [...pool].sort((a,b)=>a.expiresAt-b.expiresAt)){missing-=event.units;if(missing<=0)return event.expiresAt-now;}
+      return undefined;
+    };
+    /** A setup's `units` more: the window below the live reserve, and the setups' share. */
+    const setupFitsIn=(units:number)=>{
+      const rest=events.filter(e=>e.kind==='rest'),all=fitsIn(rest,units,HYPERLIQUID_REST_CAP-HYPERLIQUID_LIVE_REST_RESERVE),own=fitsIn(rest.filter(isSetupEvent),units,HYPERLIQUID_SETUP_REST_CAP);
+      return all===undefined||own===undefined?undefined:Math.max(all,own);
+    };
+    const restCharge=(units:number,id:string,sendUntil:number,lane:HyperliquidRestLane|undefined)=>{
       requireQuota(sendUntil>=now&&sendUntil<=now+5000);requireQuota(!s.events.some(e=>e.id===id),'hyperliquid_quota_ticket_conflict');
-      const sameKind=events.filter(e=>e.kind===kind);
-      let missing=sameKind.reduce((sum,e)=>sum+e.units,0)+units-cap;
-      if(missing>0&&kind==='rest'){
-        // The first expiry alone may not free enough for this request.
-        // Only retained REST charges contribute; leases are never refunded.
-        for(const event of [...sameKind].sort((a,b)=>a.expiresAt-b.expiresAt)){
-          missing-=event.units;
-          if(missing<=0)throw new HyperliquidRestCapacityError(event.expiresAt-now);
-        }
-        throw new LiveBoundaryError('hyperliquid_quota_exhausted');
-      }
-      requireQuota(missing<=0,'hyperliquid_quota_exhausted');
+      requireQuota(lane==='setup'?id.startsWith(SETUP_REST_ID_PREFIX):!isSetupEvent({kind:'rest',id}));
+      const rest=events.filter(e=>e.kind==='rest');
+      let wait:number|undefined;
+      if(lane==='setup')wait=setupFitsIn(units);
+      else if(lane==='background'){
+        // While a setup waits, background leaves the setups' unused share
+        // free below the live reserve (it is refused first); otherwise its cap.
+        const demands=rest.filter(e=>e.id.startsWith(SETUP_DEMAND_ID_PREFIX));
+        const cap=demands.length===0?backgroundRestCap(raw.backgroundCap)
+          :Math.min(backgroundRestCap(raw.backgroundCap),HYPERLIQUID_REST_CAP-HYPERLIQUID_LIVE_REST_RESERVE-Math.max(0,HYPERLIQUID_SETUP_REST_CAP-sum(rest.filter(isSetupEvent))));
+        wait=fitsIn(rest,units,cap);
+        // Room that only comes back once no setup waits: when its last marker expires.
+        if(wait===undefined&&demands.length>0&&fitsIn([],units,backgroundRestCap(raw.backgroundCap))===0)throw new HyperliquidRestCapacityError(Math.max(...demands.map(e=>e.expiresAt))-now);
+      }else wait=fitsIn(rest,units,HYPERLIQUID_REST_CAP);
+      // The first expiry alone may not free enough for this request. Only
+      // retained REST charges contribute; leases are never refunded.
+      if(wait===undefined)throw new LiveBoundaryError('hyperliquid_quota_exhausted');
+      if(wait>0)throw new HyperliquidRestCapacityError(wait);
+      events.push({id,kind:'rest',units,reservedAt:now,expiresAt:sendUntil+60000});charged=units;
+    };
+    /** Socket messages and connects (REST: restCharge). */
+    const charge=(kind:'ws_message'|'ws_connect',units:number,id:string,sendUntil:number)=>{
+      requireQuota(sendUntil>=now&&sendUntil<=now+5000);requireQuota(!s.events.some(e=>e.id===id),'hyperliquid_quota_ticket_conflict');
+      requireQuota(sum(events.filter(e=>e.kind===kind))+units<=caps[kind],'hyperliquid_quota_exhausted');
       events.push({id,kind,units,reservedAt:now,expiresAt:sendUntil+60000});charged=units;
     };
     const active=()=>leases.filter(l=>l.state!=='closed'&&!hyperliquidLeaseReclaimed(l,now));
     const limits=()=>{requireQuota(active().length<=10,'hyperliquid_quota_connections');requireQuota(active().reduce((sum,l)=>sum+l.subscriptions.length,0)<=1000,'hyperliquid_quota_subscriptions');
       requireQuota(new Set(active().flatMap(l=>l.subscriptions.filter(sub=>sub.user!==null).map(sub=>`${sub.network}:${sub.user}`))).size<=10,'hyperliquid_quota_users');};
     limits();
-    if(request.kind==='rest')charge('rest',request.weight,request.id,request.sendUntil,request.lane==='background'?backgroundRestCap(raw.backgroundCap):HYPERLIQUID_REST_CAP);
+    if(request.kind==='rest')restCharge(request.weight,request.id,request.sendUntil,request.lane);
+    else if(request.kind==='setup_demand'){
+      // A setup about to run a step that needs `weight`: its marker (1 unit,
+      // an ordinary charge never sent) makes background leave the setups'
+      // share free for the next minute, and says when the step fits.
+      requireQuota(request.id.startsWith(SETUP_DEMAND_ID_PREFIX));
+      const fits=setupFitsIn(request.weight+1);if(fits===undefined)throw new LiveBoundaryError('hyperliquid_quota_exhausted');
+      requireQuota(request.sendUntil>=now&&request.sendUntil<=now+5000);requireQuota(!s.events.some(e=>e.id===request.id),'hyperliquid_quota_ticket_conflict');
+      const marker=fitsIn(events.filter(e=>e.kind==='rest'),1,HYPERLIQUID_REST_CAP);
+      if(marker===undefined)throw new LiveBoundaryError('hyperliquid_quota_exhausted');
+      if(marker>0)throw new HyperliquidRestCapacityError(marker);
+      events.push({id:request.id,kind:'rest',units:1,reservedAt:now,expiresAt:request.sendUntil+60000});charged=1;waitMs=fits;
+    }
     else if(request.kind==='connect'){
       requireQuota(!leases.some(l=>l.id===request.lease.id||l.socketId===request.lease.socketId),'hyperliquid_quota_lease_lost');
       requireQuota(request.lease.egressKey===s.egressKey&&request.lease.leaseUntil>now&&request.lease.leaseUntil<=now+60000&&request.lease.latestAllowedSendAt===request.sendUntil&&request.sendUntil<=request.lease.leaseUntil);
@@ -173,6 +235,6 @@ export function planHyperliquidQuota(raw:{readonly now:number;readonly state:Hyp
       else l.state=request.kind;
       l.revision++;l.updatedAt=now;
     }
-    requireQuota(events.length<=3500);return freezeLiveReservation({state:{...s,events,revision:s.revision+1,updatedAt:now},leases,charged});
+    requireQuota(events.length<=3500);return freezeLiveReservation({state:{...s,events,revision:s.revision+1,updatedAt:now},leases,charged,...(waitMs===undefined?{}:{waitMs})});
   }catch(error){if(error instanceof LiveBoundaryError)throw error;throw new LiveBoundaryError('hyperliquid_quota_invalid');}
 }

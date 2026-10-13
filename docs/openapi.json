@@ -12708,6 +12708,20 @@
                                 "retention"
                               ],
                               "additionalProperties": false
+                            },
+                            "explorerReachable": {
+                              "type": "boolean"
+                            },
+                            "explorerFailingSince": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
                             }
                           },
                           "required": [

@@ -5,6 +5,7 @@ import { RequestBudgeterService } from "../hyperliquid/request-budgeter.service.
 import { operationalSwitches } from "../runtime/operational-switches.js";
 import { workerCallHeaders, workerMonitorKey } from "../runtime/worker-calls.js";
 import { AdminSystemRepository } from "./admin-system.repository.js";
+import { explorerHealth } from "../copy/explorer-health.js";
 
 @Injectable()
 export class AdminSystemService {
@@ -40,12 +41,14 @@ export class AdminSystemService {
     const [database, data, outbox, worker, retention] = await Promise.allSettled([
       this.repository.probe(), this.repository.data(), this.repository.outbox(), this.worker(), this.repository.retention(),
     ]);
-    const budget = this.budgeter.introspect();
+    const budget = this.budgeter.introspect(), explorer = explorerHealth.status();
     return {
       sampledAt: new Date().toISOString(),
       api: { state: "active", uptimeSeconds: Math.floor(process.uptime()),
         budget: { ...budget, lastRateLimitedAt: budget.lastRateLimitedAt?.toISOString() ?? null, queued: this.budgeter.queued() },
-        switches: operationalSwitches(this.config.value), tuning: this.config.value.tuning },
+        switches: operationalSwitches(this.config.value), tuning: this.config.value.tuning,
+        // This process's own gauge: the api confirms deposits and returns too.
+        explorerReachable: explorer.reachable, explorerFailingSince: explorer.failingSince?.toISOString() ?? null },
       worker: worker.status === "fulfilled" ? worker.value : { state: "unavailable", sample: null },
       database: database.status === "fulfilled" ? { state: "available", latencyMs: database.value } : { state: "unavailable", latencyMs: null },
       data: data.status === "fulfilled" ? data.value : null,

@@ -116,7 +116,11 @@ export const adminSystemSchema = z.object({
   api: z.object({ state: z.literal("active"), uptimeSeconds: z.number(), budget: runtimeBudgetSchema,
     /** Optional while older APIs roll out. */
     switches: operationalSwitchesSchema.optional(),
-    tuning: deploymentTuningSchema.optional() }),
+    tuning: deploymentTuningSchema.optional(),
+    /** Whether this api process reaches Hyperliquid's explorer (its own
+     * deposit and return confirmations read txDetails), and since when its
+     * reads have failed for the network; null while reachable. Additive. */
+    explorerReachable: z.boolean().optional(), explorerFailingSince: iso.nullable().optional() }),
   worker: z.object({ state: z.enum(["active", "standby", "stopping", "stale", "unavailable", "not_configured"]), sample: workerMonitorSchema.nullable() }),
   database: z.object({ state: z.enum(["available", "unavailable"]), latencyMs: z.number().nullable() }),
   data: z.object({

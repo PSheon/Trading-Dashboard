@@ -5,6 +5,7 @@ import { AppConfig } from "../src/config/app-config.js";
 import { testConfig } from "./config-test-utils.js";
 import { withRequestSignal } from "../src/runtime/request-context.js";
 import { workerMonitorKey } from "../src/runtime/worker-calls.js";
+import { explorerHealth } from "../src/copy/explorer-health.js";
 
 const budget = { requestsLastMinute: 1, weightLastMinute: 20, effectiveBudgetPerMin: 240, configuredBudgetPerMin: 240, burstCapacity: 100, tokensAvailable: 80, lastRateLimitedAt: null };
 function setup() {
@@ -75,4 +76,15 @@ it("reads the worker's telemetry with the key derived from the shared DATABASE_U
   const [url, init] = fetcher.mock.calls[0]!;
   expect(String(url)).toBe("http://worker:3000/health/monitor");
   expect(init.headers).toEqual({ Authorization: `Bearer ${workerMonitorKey(testConfig().value.database.url)}`, "x-request-id": "admin-req-1" });
+});
+it("shows the api process's own explorer gauge beside its budget: since when its txDetails reads fail, cleared by the next answer", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
+  const since = Date.parse("2026-10-12T08:00:00.000Z");
+  try {
+    explorerHealth.unreachable(since); explorerHealth.unreachable(since + 60_000);
+    const failing = adminSystemSchema.parse(await setup().service.overview());
+    expect(failing.api).toMatchObject({ explorerReachable: false, explorerFailingSince: "2026-10-12T08:00:00.000Z", budget: { weightLastMinute: 20 } });
+    explorerHealth.reachable();
+    expect(adminSystemSchema.parse(await setup().service.overview()).api).toMatchObject({ explorerReachable: true, explorerFailingSince: null });
+  } finally { explorerHealth.reachable(); }
 });

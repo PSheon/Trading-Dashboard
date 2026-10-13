@@ -1,5 +1,5 @@
 import {AsyncLocalStorage} from 'node:async_hooks';
-import {randomBytes,randomUUID} from 'node:crypto';
+import {createHash,randomBytes,randomUUID} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
 import {performance} from 'node:perf_hooks';
 import {TLSSocket} from 'node:tls';
@@ -10,7 +10,7 @@ import type { UnitOfWork,DbTransaction } from '../db/unit-of-work.js';
 import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from '../copy/live/postgres-live-risk-scope.js';
 import {LiveBoundaryError,type LiveNetwork} from '../copy/live/wallet-authorization.js';
 import {HyperliquidRestCapacityError,sharedRestRetryAfterMs} from './hyperliquid-capacity-error.js';
-import {HYPERLIQUID_MAX_SETTLEMENTS,HYPERLIQUID_STALE_LEASE_RECLAIM_MS,SETUP_DEMAND_ID_PREFIX,SETUP_REST_ID_PREFIX,planHyperliquidQuota,quotaSubscription,type HyperliquidQuotaPlan,type HyperliquidRestLane,type HyperliquidQuotaLease,type HyperliquidQuotaRequest,type HyperliquidQuotaSubscription} from './hyperliquid-global-quota.js';
+import {HYPERLIQUID_MAX_SETTLEMENTS,HYPERLIQUID_STALE_LEASE_RECLAIM_MS,SETUP_DEMAND_ID_PREFIX,SETUP_LANE_TOKEN,SETUP_REST_ID_PREFIX,planHyperliquidQuota,setupDemandTicket,quotaSubscription,type HyperliquidQuotaPlan,type HyperliquidRestLane,type HyperliquidQuotaLease,type HyperliquidQuotaRequest,type HyperliquidQuotaSubscription} from './hyperliquid-global-quota.js';
 import {freezeLiveReservation} from '../copy/live/live-risk-reservation.js';
 import {liveSourceDigest} from '../copy/live/copy-live-source-evidence.js';
 import {liveSpan} from '../copy/live/live-execution-diagnostics.js';
@@ -39,16 +39,28 @@ export interface BoundHyperliquidQuota {
   acquireRest(weight:number,deadline:number,lane?:HyperliquidRestLane):Promise<HyperliquidSendPermit>;
   /** A copy setup about to run a step of `weight`: records its demand (background
    * leaves the setups' share free for the next minute) and answers in how many
-   * ms that weight fits in the setup lane (0: now). Never in an original session. */
-  claimSetupRest?(weight:number,deadline:number):Promise<number>;
+   * ms that weight fits in the setup lane (0: now, and the claim is granted:
+   * what the step still needs stays free for it). `token`
+   * (setupLaneToken): the setup's; its own earlier charges never count
+   * against its share. Never in an original session. */
+  claimSetupRest?(weight:number,deadline:number,token?:string):Promise<number>;
   reserveSocket(deadline:number,network?:LiveNetwork):Promise<{readonly connect:HyperliquidSendPermit;readonly connection:HyperliquidSocketQuota}>;
 }
 const fail=(code:string):never=>{throw new LiveBoundaryError(code);};
-const setupLane=new AsyncLocalStorage<true>();
+const setupLane=new AsyncLocalStorage<{readonly token?:string}>();
 /** Runs a copy setup's step: its unlabelled REST charges (outside an original
  * session) go in the `setup` lane, ahead of background within the setups'
- * share (HYPERLIQUID_SETUP_REST_CAP). An explicit lane is kept as it is. */
-export function runInSetupLane<T>(work:()=>Promise<T>):Promise<T>{return setupLane.run(true,work);}
+ * share (HYPERLIQUID_SETUP_REST_CAP); with the setup's `token`, they carry it
+ * and take what its granted claim kept free. An explicit lane is kept. */
+export function runInSetupLane<T>(work:()=>Promise<T>,token?:string):Promise<T>{
+  if(token!==undefined&&(typeof token!=='string'||!SETUP_LANE_TOKEN.test(token)))fail('hyperliquid_quota_invalid');
+  return setupLane.run(token===undefined?{}:{token},work);
+}
+/** A setup's lane token: from its id, the same in every process and pass. */
+export function setupLaneToken(key:string):string{
+  if(typeof key!=='string'||key.length<1||key.length>200)fail('hyperliquid_quota_invalid');
+  return createHash('sha256').update(`setup-lane:${key}`).digest('hex').slice(0,16);
+}
 const notClosed=sql`${leases.state} <> 'closed'`;
 function identifier(v:unknown):asserts v is string {if(typeof v!=='string'||v.length<1||v.length>128||/[\s\p{Cc}\p{Cf}]/u.test(v))fail('hyperliquid_quota_invalid');}
 function capture(raw:HyperliquidQuotaBinding):Readonly<HyperliquidQuotaBinding>{const b=structuredClone(raw);identifier(b?.egressKey);identifier(b.ownerId);return Object.freeze(b);}
@@ -198,12 +210,12 @@ export class PostgresHyperliquidQuota {
     return Object.freeze({acquireRest:async(weight:number,deadline:number,requested?:HyperliquidRestLane)=>{
       if(requested!==undefined&&requested!=='background'&&requested!=='setup')fail('hyperliquid_quota_invalid');
       // A setup's step (runInSetupLane): its unlabelled charges are the setup lane's.
-      const lane=requested??(!session&&setupLane.getStore()?'setup':undefined);
+      const setup=session?undefined:setupLane.getStore(),lane=requested??(setup?'setup':undefined);
       // Settlements ride on the next charge (no transaction of their own);
       // they are dropped once that charge commits, kept if it fails.
       const settle=session?[]:this.pendingSettlements(binding.egressKey);
       if(lane==='background'&&!session)this.refuseKnownFull(binding.egressKey,weight);
-      const id=lane==='setup'?`${SETUP_REST_ID_PREFIX}${randomUUID()}`:randomUUID();let fresh:()=>void;
+      const id=lane==='setup'?`${SETUP_REST_ID_PREFIX}${setup?.token!==undefined?`${setup.token}:`:''}${randomUUID()}`:randomUUID();let fresh:()=>void;
       try{fresh=await apply((_now,sendUntil)=>({kind:'rest',id,weight,sendUntil,...(lane?{lane}:{}),...(settle.length?{settle}:{})}),deadline);}
       catch(error){if(lane==='background'&&!session)this.rememberFull(binding.egressKey,weight,error);throw error;}
       if(lane==='background'&&!session)this.backgroundFull.delete(binding.egressKey);
@@ -214,9 +226,9 @@ export class PostgresHyperliquidQuota {
         let map=this.settlements.get(binding.egressKey);if(!map){map=new Map();this.settlements.set(binding.egressKey,map);}
         if(map.size<256)map.set(id,{units,at:this.now()});
       }});
-    },claimSetupRest:async(weight:number,deadline:number)=>{
-      if(session||!Number.isSafeInteger(weight)||weight<1||weight>1200)fail('hyperliquid_quota_invalid');
-      const id=`${SETUP_DEMAND_ID_PREFIX}${randomUUID()}`;let waitMs:number|undefined;
+    },claimSetupRest:async(weight:number,deadline:number,token?:string)=>{
+      if(session||!Number.isSafeInteger(weight)||weight<1||weight>1200||token!==undefined&&(typeof token!=='string'||!SETUP_LANE_TOKEN.test(token)))fail('hyperliquid_quota_invalid');
+      const id=token===undefined?`${SETUP_DEMAND_ID_PREFIX}${randomUUID()}`:setupDemandTicket(weight,token);let waitMs:number|undefined;
       await this.apply(binding,(_now,sendUntil)=>({kind:'setup_demand',id,weight,sendUntil}),deadline,undefined,undefined,plan=>{waitMs=plan.waitMs;});
       if(waitMs===undefined)fail('hyperliquid_quota_invalid');
       return waitMs!;

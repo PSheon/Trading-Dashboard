@@ -62,11 +62,19 @@ const THROTTLED_STAGES: readonly SetupStage[] = ['funded', 'mode_set', 'agent_ac
  * the setups' share (hyperliquid-global-quota.ts HYPERLIQUID_SETUP_REST_CAP). */
 export const SETUP_REST_CAPACITY = Symbol('SETUP_REST_CAPACITY');
 export interface SetupRestCapacity {
-  /** Records the setup's demand and answers in how many ms `weight` fits (0: now). */
-  claimSetup(weight: number): Promise<number>;
-  /** Runs the step: its Hyperliquid charges are the setup lane's. */
-  runSetup<T>(work: () => Promise<T>): Promise<T>;
+  /** Records the setup's demand and answers in how many ms `weight` fits
+   * (0: now, and granted). `key`: the setup's id. */
+  claimSetup(weight: number, key?: string): Promise<number>;
+  /** Runs the step: its Hyperliquid charges are the setup lane's (`key`: as claimed). */
+  runSetup<T>(work: () => Promise<T>, key?: string): Promise<T>;
 }
+/** Longest a setup waits on the shared meter before it claims again: its
+ * demand (the marker background yields to) is renewed well inside the
+ * marker's 65 s, so background never gets the window back between two
+ * claims. On 2026-10-13 a setup came back 65 s after its claim, its marker
+ * had just expired, background had refilled the window, and the next claim
+ * said ~63.5 s again: ten minutes at `funded`. */
+export const SETUP_CLAIM_RENEW_MS = 20_000;
 /** A throttled step's provider weight in its minute, claimed before it runs:
  * the account-mode attempt (its two preflights and the POST; an operation
  * in flight is only observed, ACCOUNT_MODE_OBSERVE_WEIGHT), the agent's
@@ -819,8 +827,8 @@ export class CopyLiveSetupService {
         throw new Wait('awaiting_credit', this.timings.retry.pendingMs);
       }
       case 'funded': return this.modeStep(row, intent, signer);
-      case 'mode_set': return this.withCapacity(AGENT_STEP_WEIGHT, () => this.agentStep(row, intent, signer));
-      case 'agent_active': return this.withCapacity(builderFeeDue(row, intent) ? BUILDER_STEP_WEIGHT : 0, () => this.builderStep(row, intent, signer));
+      case 'mode_set': return this.withCapacity(row, AGENT_STEP_WEIGHT, () => this.agentStep(row, intent, signer));
+      case 'agent_active': return this.withCapacity(row, builderFeeDue(row, intent) ? BUILDER_STEP_WEIGHT : 0, () => this.builderStep(row, intent, signer));
       case 'builder_ready': return this.mandateStep(row, intent);
       default: return row;
     }
@@ -831,15 +839,19 @@ export class CopyLiveSetupService {
    * is recorded on the shared meter first (background then leaves the
    * setups' share free), and the step starts only once its weight fits;
    * until then it waits as long as the meter says (`shared_capacity`, at
-   * least 1 s), never a whole 65 s window by default. Its charges are the
-   * setup lane's, bounded so a burst of setups never takes live orders'
-   * room. Without the meter (no transport), the step runs as it is.
+   * least 1 s), never a whole 65 s window by default, and claims again at
+   * least every SETUP_CLAIM_RENEW_MS. A granted claim keeps the step's
+   * weight free while it runs. Its charges are the setup lane's (this
+   * setup's: its own earlier charges never count against its share),
+   * bounded so a burst of setups never takes live orders' room. A refusal
+   * partway is waited out within SETUP_CLAIM_RENEW_MS too, then claimed
+   * again. Without the meter (no transport), the step runs as it is.
    */
-  private async withCapacity(weight: number, step: () => Promise<SetupRow>): Promise<SetupRow> {
+  private async withCapacity(row: SetupRow, weight: number, step: () => Promise<SetupRow>): Promise<SetupRow> {
     const capacity = this.capacity;
     if (!capacity || weight <= 0) return step();
     let waitMs: number;
-    try { waitMs = await capacity.claimSetup(weight); }
+    try { waitMs = await capacity.claimSetup(weight, row.id); }
     catch (error) {
       const wait = sharedCapacityWait(error);
       if (wait) throw wait;
@@ -848,8 +860,13 @@ export class CopyLiveSetupService {
       this.logger.warn(`setup capacity not claimed: ${safeErrorText(error)}`);
       waitMs = 0;
     }
-    if (waitMs > 0) throw new HyperliquidBudgetWait(Math.max(SHARED_CAPACITY_MIN_RETRY_MS, waitMs + 250), 'shared_capacity', { weight, bucket: 'shared:setup' });
-    return capacity.runSetup(step);
+    if (waitMs > 0) throw new HyperliquidBudgetWait(Math.min(SETUP_CLAIM_RENEW_MS, Math.max(SHARED_CAPACITY_MIN_RETRY_MS, waitMs + 250)), 'shared_capacity', { weight, bucket: 'shared:setup' });
+    try { return await capacity.runSetup(step, row.id); }
+    catch (error) {
+      const wait = sharedCapacityWait(error);
+      if (wait && wait.retryMs > SETUP_CLAIM_RENEW_MS) throw new HyperliquidBudgetWait(SETUP_CLAIM_RENEW_MS, 'shared_capacity', { ...wait.detail, weight, bucket: 'shared:setup' });
+      throw error;
+    }
   }
 
   private async modeStep(row: SetupRow, intent: LiveCopySetupIntent, signer: SetupSigner | null): Promise<SetupRow> {
@@ -863,7 +880,7 @@ export class CopyLiveSetupService {
     // Only an operation in flight (or a signing claim to recover) needs its
     // own observation; a prepared one is observed by submit's first preflight.
     const inFlight = op.submissionState !== 'prepared' || Boolean(op.attemptedAt), operation = op;
-    return this.withCapacity(inFlight ? ACCOUNT_MODE_OBSERVE_WEIGHT : ACCOUNT_MODE_STEP_WEIGHT, () => this.modeAttempt(row, intent, signer, operation, inFlight));
+    return this.withCapacity(row, inFlight ? ACCOUNT_MODE_OBSERVE_WEIGHT : ACCOUNT_MODE_STEP_WEIGHT, () => this.modeAttempt(row, intent, signer, operation, inFlight));
   }
   private async modeAttempt(row: SetupRow, intent: LiveCopySetupIntent, signer: SetupSigner | null, op: { id: string }, inFlight: boolean): Promise<SetupRow> {
     if (inFlight) {

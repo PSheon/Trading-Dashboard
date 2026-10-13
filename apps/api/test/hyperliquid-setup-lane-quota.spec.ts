@@ -1,6 +1,6 @@
 import {describe,expect,it} from 'vitest';
 import {HyperliquidRestCapacityError} from '../src/hyperliquid/hyperliquid-capacity-error.js';
-import {HYPERLIQUID_BACKGROUND_REST_CAP,planHyperliquidQuota,type HyperliquidQuotaEvent,type HyperliquidQuotaRequest,type HyperliquidQuotaState} from '../src/hyperliquid/hyperliquid-global-quota.js';
+import {HYPERLIQUID_BACKGROUND_REST_CAP,HYPERLIQUID_SETUP_GRANT_HOLD_MS,planHyperliquidQuota,setupDemandTicket,type HyperliquidQuotaEvent,type HyperliquidQuotaRequest,type HyperliquidQuotaState} from '../src/hyperliquid/hyperliquid-global-quota.js';
 
 /**
  * The shared per-IP window's setup lane (2026-10-13 gate: a setup sat at
@@ -97,5 +97,50 @@ describe('the shared window: setups ahead of background, live orders keep their 
     expect(refusal(()=>demand(10,state))).toBeInstanceOf(HyperliquidRestCapacityError);
     expect(refusal(()=>setupCharge(1,state))).toBeInstanceOf(HyperliquidRestCapacityError);
     expect(refusal(()=>live(1,state))).toBeInstanceOf(HyperliquidRestCapacityError);
+  });
+
+  // The gate of 2026-10-13 06:51 on the real meter (copy-setup-contention-postgres.spec.ts):
+  // a claim that fit was never kept, and a setup's own charges were counted twice.
+  const T='0123456789abcdef',U='fedcba9876543210';
+  const claim=(weight:number,state:HyperliquidQuotaState,token=T,at=now)=>plan({kind:'setup_demand',id:setupDemandTicket(weight,token),weight,sendUntil:at+5000},state,at);
+  const own=(weight:number,state:HyperliquidQuotaState,token=T,at=now)=>plan({kind:'rest',id:id(`setup:${token}:`),weight,sendUntil:at+5000,lane:'setup'},state,at);
+
+  it('a setup\'s own earlier charges never count against its next claim\'s share: a retry after a partial attempt fits at once', () => {
+    // Its attempt charged 144 (a preflight) and failed; the retry claims 613 again.
+    let state=S([rest('bg',200)]);
+    state=claim(613,state).state;
+    state=own(102,state).state;state=own(42,state).state;
+    // Before: 144 + its markers + 613 > 720, waited out until the 144 expired (~61 s).
+    expect(claim(613,state).waitMs).toBe(0);
+    // Another setup's charges still count against the share.
+    const other=own(144,S([rest('bg',200)]),U).state;
+    expect(claim(613,other).waitMs).toBeGreaterThan(0);
+  });
+
+  it('a granted claim keeps its step\'s weight: a page between the claim and the reads no longer refuses the attempt partway; background is refused', () => {
+    let state=S([rest('bg',300)]);
+    const granted=claim(613,state);
+    expect(granted.waitMs).toBe(0);
+    expect(granted.state.events.some(e=>e.id.startsWith('setup-demand:613:')&&e.id.endsWith(':g'))).toBe(true);
+    // A cold trader page's reads land right after the claim.
+    state=live(200,granted.state).state;
+    // Background is refused: the step's 613 stays free.
+    expect(refusal(()=>background(20,state))).toBeInstanceOf(HyperliquidRestCapacityError);
+    // The whole attempt goes out (before: refused at the 960 ceiling, a 65 s wait).
+    for(const weight of ATTEMPT){const next=own(weight,state);expect(next.charged).toBe(weight);state=next.state;}
+    expect(total(state)).toBeLessThanOrEqual(1200);
+    // Once its hold is over, its step's charges are ordinary setup charges again.
+    expect(refusal(()=>own(102,state,T,now+HYPERLIQUID_SETUP_GRANT_HOLD_MS+1))).toBeInstanceOf(HyperliquidRestCapacityError);
+  });
+
+  it('a claim that does not fit yet is not granted and keeps nothing beyond the setups\' share', () => {
+    const state=S(fullBackground());
+    const waiting=claim(613,state);
+    expect(waiting.waitMs).toBeGreaterThan(0);
+    expect(waiting.state.events.some(e=>e.id.endsWith(':g'))).toBe(false);
+    // Its step's charges are not covered: the ordinary setup limits apply.
+    expect(refusal(()=>own(200,waiting.state))).toBeInstanceOf(HyperliquidRestCapacityError);
+    expect(()=>plan({kind:'setup_demand',id:`${setupDemandTicket(613,T)}:g`,weight:613,sendUntil:now+5000},state)).toThrow('hyperliquid_quota_invalid');
+    expect(()=>plan({kind:'setup_demand',id:setupDemandTicket(612,T),weight:613,sendUntil:now+5000},state)).toThrow('hyperliquid_quota_invalid');
   });
 });

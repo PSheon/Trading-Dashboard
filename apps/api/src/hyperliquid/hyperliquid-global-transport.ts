@@ -2,7 +2,7 @@ import {AsyncLocalStorage} from 'node:async_hooks';
 import {setTimeout as wait} from 'node:timers/promises';
 import {REST_CHARGE_LIFETIME_MS,sharedRestRetryAfterMs} from './hyperliquid-capacity-error.js';
 import type {HyperliquidRestLane} from './hyperliquid-global-quota.js';
-import {PostgresHyperliquidQuota,runInSetupLane,type BoundHyperliquidQuota} from './postgres-hyperliquid-quota.js';
+import {PostgresHyperliquidQuota,runInSetupLane,setupLaneToken,type BoundHyperliquidQuota} from './postgres-hyperliquid-quota.js';
 import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from '../copy/live/postgres-live-risk-scope.js';
 import {LiveBoundaryError} from '../copy/live/wallet-authorization.js';
 import {infoListSurcharge,infoPrepaidWeight,infoWeight} from './info-weights.js';
@@ -73,15 +73,17 @@ export class HyperliquidGlobalTransport {
  /** A copy setup about to run a step of `weight` (its provider weight in the
   * next minute): records the setup's demand on the shared meter, so
   * background leaves the setups' share free (HYPERLIQUID_SETUP_REST_CAP), and
-  * answers in how many ms that weight fits in the setup lane (0: now).
-  * Nothing is sent. */
- async claimSetup(weight:number):Promise<number>{
+  * answers in how many ms that weight fits in the setup lane (0: now, and
+  * the step's weight stays free for it while it runs). `key`: the setup's id
+  * (its earlier charges never count against its own share). Nothing is sent. */
+ async claimSetup(weight:number,key?:string):Promise<number>{
   if(this.isOriginal())fail('hyperliquid_quota_invalid');
   const budget=this.currentQuota();
-  return budget.claimSetupRest?budget.claimSetupRest(weight,this.now()+5000):0;
+  return budget.claimSetupRest?budget.claimSetupRest(weight,this.now()+5000,key===undefined?undefined:setupLaneToken(key)):0;
  }
- /** Runs a copy setup's step: its unlabelled REST charges go in the setup lane. */
- runSetup<T>(work:()=>Promise<T>):Promise<T>{return runInSetupLane(work);}
+ /** Runs a copy setup's step: its unlabelled REST charges go in the setup
+  * lane (`key`: the setup's id, as claimed). */
+ runSetup<T>(work:()=>Promise<T>,key?:string):Promise<T>{return runInSetupLane(work,key===undefined?undefined:setupLaneToken(key));}
  readonly fetchExplorer:typeof fetch=async(input,init)=>{
   const budget=this.currentQuota(),url=typeof input==='string'?input:input instanceof URL?input.toString():'';
   if(!['https://rpc.hyperliquid.xyz/explorer','https://rpc.hyperliquid-testnet.xyz/explorer'].includes(url)||!init||init.method!=='POST'||typeof init.body!=='string'||Buffer.byteLength(init.body)>1024)return fail('hyperliquid_quota_request_invalid');

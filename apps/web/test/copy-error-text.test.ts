@@ -71,3 +71,15 @@ describe('never-sent money operations (money audit 2026-10-12)', () => {
     }
   });
 });
+
+describe('cancel and refund of a setup awaiting its credit', () => {
+  it.each(LOCALES)('says in %s why the cancel was refused or is not available, never the code or the busy line', (locale) => {
+    const texts = { live: liveSetupMessages[locale], extra: copyErrorMessages[locale] };
+    for (const [status, code] of [[409, 'setup_past_funding'], [503, 'setup_abort_unavailable']] as const) {
+      const text = copyErrorText(texts, new ApiError(status, 'Refused', { code }));
+      expect(text).toBe(texts.extra.codes[code]);
+      expect(text).not.toContain(code); expect(text).not.toBe(texts.extra.busy);
+      expect(text.length).toBeGreaterThan(10);
+    }
+  });
+});

@@ -53,6 +53,12 @@ export function LiveCopyActions({ item, strategy, held = null }: { item: LiveCop
   const abortRequested = item.setup?.abortRequested === true || Boolean(item.setup && chosenAbortId === item.setup.id) || actions.hasSavedAbortIntent?.(item.setup?.id ?? null, deployment?.network ?? null) === true;
   const abortCandidate = item.setup && item.setup.stage !== "running" && item.setup.stage !== "cancelled" ? item.setup : null;
   const fundedAbort = deployment?.setupAbort === true && abortCandidate?.kind === "start" && abortCandidate.fundingStatus === "credited";
+  // A confirmed start whose deposit is awaiting its credit: 取消並退款 (the
+  // cancel enters the setup abort, which never starts the copy and returns
+  // everything the copy wallet holds to the main wallet).
+  const awaitingCredit = !abortRequested && deployment?.setupAbort === true && item.setup?.kind === "start" && item.setup.stage === "funding_submitted" &&
+    item.setup.issue === "awaiting_credit" ? item.setup : null;
+  const [refundingId, setRefundingId] = useState<string | null>(null);
   const legacySetupActions = !abortRequested && !fundedAbort;
   // A copy of another network than this deployment's (Stage's testnet copies
   // after the move to mainnet) is history: shown, never acted on here.
@@ -98,7 +104,8 @@ export function LiveCopyActions({ item, strategy, held = null }: { item: LiveCop
       {lapsed ? <p className="text-xs text-muted-foreground">{text.consentLapsedHint}</p> : null}
       <div className="flex flex-wrap items-center gap-2">
         {abortRequested && item.setup ? <Button size="sm" className="min-h-11" onClick={() => setAbortId(item.setup!.id)}>{t('liveCopyUi.abortRefresh')}</Button> : null}
-        {!abortRequested && abortCandidate && canRequestSetupAbort(abortCandidate) && deployment?.setupAbort === true ? <Button size="sm" variant="secondary" className="min-h-11" disabled={busy} onClick={() => setAbortId(abortCandidate.id)}>{t(abortCandidate.kind === 'start' ? 'liveCopyUi.abortAction' : 'liveCopyUi.abortChange')}</Button> : null}
+        {awaitingCredit ? <Button size="sm" variant="secondary" className="min-h-11" disabled={busy} data-cancel-refund onClick={() => { setError(null); setRefundingId(awaitingCredit.id); }}>{t('liveCopyUi.cancelRefund')}</Button> : null}
+        {!abortRequested && !awaitingCredit && abortCandidate && canRequestSetupAbort(abortCandidate) && deployment?.setupAbort === true ? <Button size="sm" variant="secondary" className="min-h-11" disabled={busy} onClick={() => setAbortId(abortCandidate.id)}>{t(abortCandidate.kind === 'start' ? 'liveCopyUi.abortAction' : 'liveCopyUi.abortChange')}</Button> : null}
         {unfinished && !lapsed && !abortRequested ? <Button size="sm" className="min-h-11" onClick={() => setProgressId(unfinished.id)}>{text.continueSetup}</Button> : null}
         {legacySetupActions && (stopped || lapsed) ? <Button size="sm" className="min-h-11" loading={actions.restart.isPending} disabled={busy && !actions.restart.isPending} onClick={() => restart((stopped ?? lapsed)!.id)}>{text.restart}</Button> : null}
         {legacySetupActions && (stopped || lapsed) ? <Button size="sm" variant="secondary" className="min-h-11" loading={actions.cancel.isPending} disabled={busy && !actions.cancel.isPending} onClick={() => cancel((stopped ?? lapsed)!.id)}>{text.cancelSetup}</Button> : null}
@@ -138,6 +145,18 @@ export function LiveCopyActions({ item, strategy, held = null }: { item: LiveCop
       <LiveCopyProgress setupId={progressId} open={progressId !== null} onOpenChange={(open) => { if (!open) setProgressId(null); }}
         onAbortRequested={setup => setChosenAbortId(setup.id)}
         onConsent={review} onRetry={(setup) => { setProgressId(null); restart(setup); }} />
+      {refundingId ? (
+        <Modal open onOpenChange={(open) => { if (!open && !actions.cancel.isPending) setRefundingId(null); }} title={t('liveCopyUi.cancelRefundTitle')}>
+          <div className="flex flex-col gap-3 px-6 pt-3 pb-6">
+            <p className="text-xs leading-5 text-muted-foreground">{t('liveCopyUi.cancelRefundConfirm')}</p>
+            {error ? <p role="alert" className="text-xs text-negative">{error}</p> : null}
+            <Button loading={actions.cancel.isPending} onClick={() => { const id = refundingId; setError(null);
+              void track(actions.cancel.mutateAsync(id), { success: t("toast.copy.setupCancelled"), error: message, onSuccess: () => { setRefundingId(null); setChosenAbortId(id); }, onError: fail }); }}>
+              {t('liveCopyUi.cancelRefund')}
+            </Button>
+          </div>
+        </Modal>
+      ) : null}
       {item.setup && abortId === item.setup.id ? <PortfolioAbortDialog setupId={abortId} onRequested={() => setChosenAbortId(abortId)} onClose={() => setAbortId(null)} /> : null}
     </div>
   );

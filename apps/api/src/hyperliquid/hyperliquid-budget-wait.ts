@@ -93,6 +93,16 @@ export interface LiveReserveOptions {
   readonly queue?: boolean;
   /** Which bucket, for a refusal's detail (logs, the setup's `last_wait`). */
   readonly bucket?: string;
+  /** `reserve` only (live lane): the reservation keeps its place in the
+   * bucket's live queue under this key when its caller stops waiting
+   * (`maxWaitMs`). The refill builds up for it in arrival order, ahead of
+   * every later live call; the caller's next pass with the same key takes it
+   * over (or what it gathered once it is whole). A copy setup's account-mode
+   * attempt (715) waited 15 s on a bucket other live work kept at ~500,
+   * gave up its place, and came back to the same ~500 (gate 2026-10-13,
+   * `local_budget` 613, tokens 524–575). Abandoned after LOCAL_HOLD_IDLE_MS
+   * without a caller; gathered but not taken, refunded after LOCAL_HOLD_READY_MS. */
+  readonly holdKey?: string;
 }
 /** Weight taken from a token bucket before a read starts its clock. */
 export interface LiveBudgetReservation {
@@ -100,6 +110,10 @@ export interface LiveBudgetReservation {
   consume(weight: number): void;
   /** Refund only weight never consumed; idempotent. */
   release(): void;
+  /** A keyed reservation (`holdKey`) not used at all: kept for the key's next
+   * pass instead of refunded (LOCAL_HOLD_READY_MS at most). Ends this handle
+   * like `release`. */
+  park?(): void;
 }
 export type LiveBudget = ((weight: number, options?: LiveReserveOptions) => Promise<unknown>) & {
   reserve?(weight: number, options?: LiveReserveOptions): Promise<LiveBudgetReservation>;
@@ -138,26 +152,121 @@ export async function reserveLive(budget: RequestBudgeterService, weight: number
   }
 }
 
+/** A keyed live reservation (`holdKey`) waiting with nobody asking for it is
+ * abandoned after this (its caller comes back at least every 20 s). */
+export const LOCAL_HOLD_IDLE_MS = 60_000;
+/** A keyed reservation whose weight is gathered (or parked) but not taken is
+ * refunded after this. */
+export const LOCAL_HOLD_READY_MS = 30_000;
+/** Longest a keyed reservation's refusal asks its caller to stay away (well
+ * inside LOCAL_HOLD_IDLE_MS). */
+const LOCAL_HOLD_RETRY_MS = 15_000;
+interface LocalHold { readonly weight: number; ready: boolean; readonly gathered: Promise<void>; readonly abort: AbortController; timer?: ReturnType<typeof setTimeout> }
+const localHolds = new WeakMap<RequestBudgeterService, Map<string, LocalHold>>();
+/** Keyed holds of a bucket (tests, diagnostics). */
+export const localHoldKeys = (budget: RequestBudgeterService): string[] => [...(localHolds.get(budget)?.keys() ?? [])];
+
+/** A tracked live reservation of `weight` taken from `budget`. `park`: put back under `key`. */
+function trackedReservation(budget: RequestBudgeterService, weight: number, key?: string): LiveBudgetReservation {
+  let unused = weight, released = false;
+  return {
+    consume(cost) {
+      if (released || !Number.isSafeInteger(cost) || cost < 1 || cost > unused) throw new Error('Invalid reservation consumption');
+      unused -= cost;
+    },
+    release() {
+      if (released) return;
+      released = true;
+      if (unused > 0) budget.refundLive(unused);
+      unused = 0;
+    },
+    ...(key === undefined ? {} : { park() {
+      if (released) return;
+      released = true;
+      if (unused !== weight) { if (unused > 0) budget.refundLive(unused); return; }
+      parkHold(budget, key, weight);
+    } }),
+  };
+}
+
+function holdsOf(budget: RequestBudgeterService): Map<string, LocalHold> {
+  let map = localHolds.get(budget);
+  if (!map) { map = new Map(); localHolds.set(budget, map); }
+  return map;
+}
+/** Ends a hold: a gathered one's weight goes back to the bucket, a waiting one leaves the queue. */
+function dropHold(budget: RequestBudgeterService, key: string, hold: LocalHold): void {
+  const map = holdsOf(budget);
+  if (map.get(key) !== hold) return;
+  map.delete(key); clearTimeout(hold.timer);
+  if (hold.ready) budget.refundLive(hold.weight); else hold.abort.abort(new Error('Local hold abandoned'));
+}
+function arm(budget: RequestBudgeterService, key: string, hold: LocalHold, ms: number): void {
+  clearTimeout(hold.timer);
+  hold.timer = setTimeout(() => dropHold(budget, key, hold), ms);
+  hold.timer.unref?.();
+}
+/** Gathered weight nobody took yet, kept for `key`'s next pass. */
+function parkHold(budget: RequestBudgeterService, key: string, weight: number): void {
+  const map = holdsOf(budget), prior = map.get(key);
+  if (prior) dropHold(budget, key, prior);
+  const hold: LocalHold = { weight, ready: true, gathered: Promise.resolve(), abort: new AbortController() };
+  map.set(key, hold); arm(budget, key, hold, LOCAL_HOLD_READY_MS);
+}
+
+/**
+ * `reserve` with a `holdKey`: the weight is gathered in the bucket's live
+ * queue in arrival order (the refill builds up for it; later live calls go
+ * after it), and keeps its place there when the caller stops waiting after
+ * `maxWaitMs`: the refusal (`local_budget`, retry within LOCAL_HOLD_RETRY_MS)
+ * says when to come back, and the same key's next call takes over what was
+ * gathered. A wait never runs out with the place lost.
+ */
+async function reserveHeld(budget: RequestBudgeterService, weight: number, key: string, { maxWaitMs, signal, bucket }: LiveReserveOptions): Promise<LiveBudgetReservation> {
+  signal?.throwIfAborted();
+  if (weight > budget.liveCapacity) throw new HyperliquidBudgetOverCapacity(weight, budget.liveCapacity);
+  const map = holdsOf(budget);
+  let hold = map.get(key);
+  if (hold && hold.weight !== weight) { dropHold(budget, key, hold); hold = undefined; }
+  if (!hold) {
+    const abort = new AbortController();
+    const created: LocalHold = { weight, ready: false, abort, gathered: budget.acquire(weight, 'live', 0, { signal: abort.signal }).then(() => {
+      created.ready = true;
+      if (map.get(key) === created) arm(budget, key, created, LOCAL_HOLD_READY_MS);
+      // Gathered after its holder left the map (dropped meanwhile): give it back.
+      else budget.refundLive(weight);
+    }) };
+    created.gathered.catch(() => { if (map.get(key) === created) { map.delete(key); clearTimeout(created.timer); } });
+    hold = created; map.set(key, hold);
+  }
+  if (!hold.ready) arm(budget, key, hold, LOCAL_HOLD_IDLE_MS);
+  const current = hold, limit = maxWaitMs ?? budget.refillMs();
+  let timer: ReturnType<typeof setTimeout> | undefined, onAbort: (() => void) | undefined;
+  const outcome = await Promise.race([
+    current.gathered.then(() => 'ready' as const, () => 'gone' as const),
+    new Promise<'waiting'>(resolve => { timer = setTimeout(() => resolve('waiting'), Math.max(1, limit)); }),
+    new Promise<'aborted'>(resolve => { onAbort = () => resolve('aborted'); signal?.addEventListener('abort', onAbort, { once: true }); }),
+  ]).finally(() => { clearTimeout(timer); if (onAbort) signal?.removeEventListener('abort', onAbort); });
+  if (outcome === 'aborted') signal!.throwIfAborted();
+  if (outcome === 'ready' && map.get(key) === current) {
+    map.delete(key); clearTimeout(current.timer);
+    return trackedReservation(budget, weight, key);
+  }
+  // Still gathering (or ended under us): come back; its place is kept.
+  const estimate = budget.liveWaitMs(0);
+  throw new HyperliquidBudgetWait(Math.min(LOCAL_HOLD_RETRY_MS, Math.max(1_000, estimate)), 'local_budget', waitDetail(budget, weight, 'live', bucket));
+}
+
 /** Binds `reserveLive` to one bucket, with defaults a caller's options override. */
 export const liveBudget = (budget: RequestBudgeterService, defaults: LiveReserveOptions = {}): LiveBudget => {
   const acquire: LiveBudget = (weight, options) => reserveLive(budget, weight, { ...defaults, ...options });
   acquire.reserve = async (weight, options) => {
     // Background reservations have page bookkeeping and remain conventional.
     if ((options?.lane ?? defaults.lane ?? 'live') !== 'live') throw new Error('Tracked reservation requires live lane');
+    const merged = { ...defaults, ...options };
+    if (merged.holdKey !== undefined) return reserveHeld(budget, weight, merged.holdKey, merged);
     await acquire(weight, options);
-    let unused = weight, released = false;
-    return {
-      consume(cost) {
-        if (released || !Number.isSafeInteger(cost) || cost < 1 || cost > unused) throw new Error('Invalid reservation consumption');
-        unused -= cost;
-      },
-      release() {
-        if (released) return;
-        released = true;
-        if (unused > 0) budget.refundLive(unused);
-        unused = 0;
-      },
-    };
+    return trackedReservation(budget, weight);
   };
   return acquire;
 };

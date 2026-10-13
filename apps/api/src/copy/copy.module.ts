@@ -90,7 +90,7 @@ import { assertBucketHolds, liveBudget, type LiveReserveOptions } from "../hyper
 import { CopyLiveSetupController } from "./copy-live-setup.controller.js";
 import { CopyLiveSetupRepository } from "./copy-live-setup.repository.js";
 import { deploymentNetwork } from "./live-deployment.js";
-import { CopyLiveSetupService, SETUP_REST_CAPACITY, type SetupRestCapacity } from "./copy-live-setup.service.js";
+import { CopyLiveSetupService, SETUP_LOCAL_BUDGET, SETUP_REST_CAPACITY, type SetupRestCapacity } from "./copy-live-setup.service.js";
 import { DEFAULT_LIVE_SETUP_TIMINGS } from "../config/live-timings.js";
 import { CopyLiveSetupAbortRepository } from './copy-live-setup-abort.repository.js';
 import { CopyLiveSetupAbortReturnRepository } from './copy-live-setup-abort-return.repository.js';
@@ -128,6 +128,7 @@ const setupReserve = (config: AppConfig, { network, dedicated }: Pick<WalletNetw
     // A setup step's weight on the shared meter: ahead of background, within the setups' share.
     { provide: SETUP_REST_CAPACITY, inject: [WALLET_NETWORK_HL], useFactory: ({ transport }: WalletNetworkHyperliquid): SetupRestCapacity => transport },
     CopyAccountModeRepository, CopyAccountModeService,
+    { provide: SETUP_LOCAL_BUDGET, inject: [AppConfig, WALLET_NETWORK_HL], useFactory: (config: AppConfig, wallet: WalletNetworkHyperliquid) => liveBudget(wallet.setupBudget, setupReserve(config, wallet)) },
     { provide: ACCOUNT_MODE_CLIENT, inject: [AppConfig, WALLET_NETWORK_HL], useFactory: (config: AppConfig, wallet: WalletNetworkHyperliquid) => {
       // A copy setup's account-mode step is reserved at once (715: the attempt and its reconcile): a
       // bucket that can never hold it would fail every setup at that step.

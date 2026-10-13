@@ -12,14 +12,14 @@ import { UnitOfWork, type DbExecutor, type DbTransaction } from '../db/unit-of-w
 import { ATTEMPT_SOCKET_CONNECTS, ATTEMPT_STEP_REST_WEIGHT, ATTEMPT_STEP_WEIGHT, CopyAccountModeService } from './copy-account-mode.service.js';
 import type { HyperliquidMeterComposition } from '../hyperliquid/hyperliquid-global-quota.js';
 import { ACCOUNT_MODE_OBSERVE_WEIGHT } from './live/privy-account-mode-client.js';
-import { HyperliquidBudgetWait, SHARED_CAPACITY_MIN_RETRY_MS, sharedCapacityWait, type LiveBudgetReservation } from '../hyperliquid/hyperliquid-budget-wait.js';
+import { HyperliquidBudgetWait, SHARED_CAPACITY_MIN_RETRY_MS, sharedCapacityWait, type LiveBudget, type LiveBudgetReservation } from '../hyperliquid/hyperliquid-budget-wait.js';
 import { infoWeight } from '../hyperliquid/info-weights.js';
 import { DEFAULT_LIVE_SETUP_TIMINGS, type LiveSetupTimings } from '../config/live-timings.js';
 import { classify, exhausted, StepFail, StepWait } from './live/error-class.js';
 import { LiveBoundaryError } from './live/wallet-authorization.js';
 import { CopyAgentService } from './copy-agent.service.js';
 import { AGENT_OBSERVE_WEIGHT } from './copy-agent-exchange.client.js';
-import { CopyFundingExchangeClient } from './copy-funding-exchange.client.js';
+import { BUILDER_FEE_READ_WEIGHT, CopyFundingExchangeClient } from './copy-funding-exchange.client.js';
 import { CopyFundingRepository } from './copy-funding.repository.js';
 import { CopyFundingService, wire as fundingWire } from './copy-funding.service.js';
 import { liveCopySettingsDigest } from './copy-live-mandate-consent.js';
@@ -74,6 +74,10 @@ export interface SetupRestCapacity {
   /** Runs work nobody waits for (abandoned approvals): its charges are background. */
   runBackground?<T>(work: () => Promise<T>): Promise<T>;
 }
+/** The setup bucket (WalletNetworkHyperliquid.setupBudget, as the setup's
+ * clients reserve it): a step whose weight its own client does not reserve
+ * (the builder fee's read) takes it here before its shared claim. */
+export const SETUP_LOCAL_BUDGET = Symbol('SETUP_LOCAL_BUDGET');
 /** Longest a setup waits on the shared meter before it claims again: its
  * demand (the marker background yields to) is renewed well inside the
  * marker's 65 s, so background never gets the window back between two
@@ -92,6 +96,8 @@ export const SETUP_CLAIM_LOG_EVERY_MS = 5_000;
 const ACCOUNT_MODE_STEP_WEIGHT = ATTEMPT_STEP_REST_WEIGHT;
 const AGENT_STEP_WEIGHT = AGENT_OBSERVE_WEIGHT + 1;
 const BUILDER_STEP_WEIGHT = infoWeight({ type: 'maxBuilderFee' }) + 1;
+/** A setup's key in its bucket's queue (LiveReserveOptions.holdKey): one per setup, every step. */
+const setupHoldKey = (row: Pick<SetupRow, 'id'>) => `setup:${row.id}`;
 /** Stages a confirmed start reaches after its deposit's credit: the copy is
  * starting and is stopped like a running one, not cancelled. */
 const PAST_FUNDING_STAGES: readonly SetupStage[] = ['funded', 'mode_set', 'agent_active', 'builder_ready', 'running'];
@@ -169,7 +175,8 @@ export class CopyLiveSetupService {
     @Optional() private readonly jobs: BackgroundJobs | null = null,
     @Optional() @Inject(CopyLiveSetupAbortService) private readonly aborts: CopyLiveSetupAbortService | null = null,
     @Optional() @Inject(LeaderActivityService) private readonly leaderActivity: Pick<LeaderActivityService, 'copyActivity'> | null = null,
-    @Optional() @Inject(SETUP_REST_CAPACITY) private readonly capacity: SetupRestCapacity | null = null) {}
+    @Optional() @Inject(SETUP_REST_CAPACITY) private readonly capacity: SetupRestCapacity | null = null,
+    @Optional() @Inject(SETUP_LOCAL_BUDGET) private readonly setupBudget: LiveBudget | null = null) {}
 
   private available() {
     if (!liveExecutionEnabled(this.config) || !this.agents.available || !this.modes.available || !this.wallets.workerPolicyEnabled || !this.workerSigner?.available)
@@ -838,8 +845,16 @@ export class CopyLiveSetupService {
         throw new Wait('awaiting_credit', this.timings.retry.pendingMs);
       }
       case 'funded': return this.modeStep(row, intent, signer);
-      case 'mode_set': return this.withCapacity(row, AGENT_STEP_WEIGHT, () => this.agentStep(row, intent, signer));
-      case 'agent_active': return this.withCapacity(row, builderFeeDue(row, intent) ? BUILDER_STEP_WEIGHT : 0, () => this.builderStep(row, intent, signer));
+      // Each step's local weight first (the setup bucket, its place kept
+      // across passes), then its shared claim: no local wait comes after a
+      // grant (the reviewer's 2026-10-13 item, as the mode step since 7076006b).
+      case 'mode_set': return this.withCapacity(row, AGENT_STEP_WEIGHT, reservation => this.agentStep(row, intent, signer, reservation),
+        { local: async () => this.agents.reserveForSetup?.(AGENT_STEP_WEIGHT, setupHoldKey(row)) });
+      case 'agent_active': {
+        const due = builderFeeDue(row, intent);
+        return this.withCapacity(row, due ? BUILDER_STEP_WEIGHT : 0, reservation => this.builderStep(row, intent, signer, reservation),
+          { local: due ? async () => this.setupBudget?.reserve?.(BUILDER_FEE_READ_WEIGHT, { holdKey: setupHoldKey(row) }) : undefined });
+      }
       case 'builder_ready': return this.mandateStep(row, intent);
       default: return row;
     }
@@ -946,22 +961,29 @@ export class CopyLiveSetupService {
     // Only an operation in flight (or a signing claim to recover) needs its
     // own observation; a prepared one is observed by submit's first preflight.
     const inFlight = op.submissionState !== 'prepared' || Boolean(op.attemptedAt), operation = op;
+    // A signing claim never attempted may be recovered by that observation
+    // (back to prepared) and then submitted in the same step: the whole
+    // attempt is paid and claimed up front, as for a prepared one, so its
+    // submit never reserves locally after the grant.
+    const full = !inFlight || op.submissionState === 'signing' && !op.attemptedAt;
     // Its local weight first (kept in the bucket's queue across passes), then
     // its shared claim with the attempt's socket connects: nothing of the step
     // waits or is refused once its first read went out.
-    const local = () => this.modes.reserveForSetup(inFlight ? ACCOUNT_MODE_OBSERVE_WEIGHT : ATTEMPT_STEP_WEIGHT, `setup:${row.id}`);
-    return this.withCapacity(row, inFlight ? ACCOUNT_MODE_OBSERVE_WEIGHT : ACCOUNT_MODE_STEP_WEIGHT,
-      reservation => this.modeAttempt(row, intent, signer, operation, inFlight, reservation), { local, connects: inFlight ? 0 : ATTEMPT_SOCKET_CONNECTS });
+    const local = () => this.modes.reserveForSetup(full ? ATTEMPT_STEP_WEIGHT : ACCOUNT_MODE_OBSERVE_WEIGHT, setupHoldKey(row));
+    return this.withCapacity(row, full ? ACCOUNT_MODE_STEP_WEIGHT : ACCOUNT_MODE_OBSERVE_WEIGHT,
+      reservation => this.modeAttempt(row, intent, signer, operation, inFlight, full, reservation), { local, connects: full ? ATTEMPT_SOCKET_CONNECTS : 0 });
   }
-  private async modeAttempt(row: SetupRow, intent: LiveCopySetupIntent, signer: SetupSigner | null, op: { id: string }, inFlight: boolean, reservation?: LiveBudgetReservation): Promise<SetupRow> {
+  private async modeAttempt(row: SetupRow, intent: LiveCopySetupIntent, signer: SetupSigner | null, op: { id: string }, inFlight: boolean, full: boolean, reservation?: LiveBudgetReservation): Promise<SetupRow> {
     if (inFlight) {
-      // Its observation is the step's reservation; a prepared operation found
-      // here (a signing claim recovered) is submitted with its own.
+      // Its observation is paid from the step's reservation; what is left of
+      // it (a full step's: the attempt's) pays the submit below.
       const observed = await this.modes.reconcile(row.userId, op.id, { busy: 'throw', reservation });
-      reservation = undefined;
       if (observed.targetState === 'supported') return this.move(row, 'mode_set');
       if (observed.targetState === 'unsupported' || observed.submissionState === 'rejected') throw new Fail('setup_account_mode_failed');
       if (observed.submissionState !== 'prepared') { this.assertBeforeDeadline(row); throw new Wait('account_mode_pending', this.timings.retry.pendingMs); }
+      // Recovered, but this step claimed only an observation: the next pass
+      // claims the whole attempt (local, then shared) before submitting it.
+      if (!full) throw new Wait('account_mode_pending', SHARED_CAPACITY_MIN_RETRY_MS);
     }
     this.assertBeforeDeadline(row);
     const active = this.requireSigner(signer);
@@ -975,12 +997,12 @@ export class CopyLiveSetupService {
     throw new Wait('account_mode_pending', this.timings.retry.pendingMs);
   }
 
-  private async agentStep(row: SetupRow, intent: LiveCopySetupIntent, signer: SetupSigner | null): Promise<SetupRow> {
+  private async agentStep(row: SetupRow, intent: LiveCopySetupIntent, signer: SetupSigner | null, reservation?: LiveBudgetReservation): Promise<SetupRow> {
     let agent = await this.agents.row(row.userId, row.agentSetupId!);
     if (agent.state === 'active') return this.move(row, 'agent_active');
     if (agent.state === 'blocked' || agent.state === 'revoked') throw new Fail('setup_agent_rejected');
     if (agent.state !== 'ready') {
-      await this.agents.reconcile(row.userId, agent.id); agent = await this.agents.row(row.userId, agent.id);
+      await this.agents.reconcile(row.userId, agent.id, { reservation }); agent = await this.agents.row(row.userId, agent.id);
       if (agent.state === 'active') return this.move(row, 'agent_active');
       if (agent.state === 'blocked' || agent.state === 'revoked') throw new Fail('setup_agent_rejected');
       // A reverted (never sent) approval is ready again: signed below.
@@ -996,7 +1018,7 @@ export class CopyLiveSetupService {
       assertFresh();
       if (master.address !== intent.accountAddress || consent.agentAddress.toLowerCase() !== intent.agentAddress || consent.expiresAt !== intent.agentValidUntil) throw new Fail('setup_binding_changed');
       return active.sign(master, agentApprovalTypedData(consent) as unknown as MasterTypedData, { network: intent.network, agent: { address: intent.agentAddress, name } }, consent.consentExpiresAt);
-    } });
+    } }, { reservation });
     if (result.state === 'active') return this.move(row, 'agent_active');
     if (result.state === 'blocked') throw new Fail('setup_agent_rejected');
     throw new Wait('agent_approval_pending', this.timings.retry.pendingMs);
@@ -1004,7 +1026,7 @@ export class CopyLiveSetupService {
 
   /** A fee of 0 (testnet's decision 7; a live deployment for now) is skipped. Otherwise the
    * consented builder and rate, once, then observed on the exchange. */
-  private async builderStep(row: SetupRow, intent: LiveCopySetupIntent, signer: SetupSigner | null): Promise<SetupRow> {
+  private async builderStep(row: SetupRow, intent: LiveCopySetupIntent, signer: SetupSigner | null, reservation?: LiveBudgetReservation): Promise<SetupRow> {
     if (!builderFeeDue(row, intent) || !intent.builderAddress) return this.move(row, 'builder_ready');
     const network = WALLET_NETWORKS[intent.network];
     let approval = row.builderApprovalId ? await this.returns.builder(row.userId, row.builderApprovalId) : null;
@@ -1018,7 +1040,7 @@ export class CopyLiveSetupService {
     if (approval.state === 'unknown' || approval.state === 'accepted') {
       // Only a read: an unanswered one is looked at again on the next pass.
       const readAt = this.now();
-      const cap = await this.exchange.maxBuilderFee(intent.network, intent.accountAddress, intent.builderAddress).catch((error: unknown) => {
+      const cap = await this.exchange.maxBuilderFee(intent.network, intent.accountAddress, intent.builderAddress, reservation).catch((error: unknown) => {
         this.logger.warn(`setup ${row.id} builder fee not read: ${safeErrorText(error)}`); return null;
       });
       const outcome = cap === null ? null : builderOutcome(approval, cap, readAt);

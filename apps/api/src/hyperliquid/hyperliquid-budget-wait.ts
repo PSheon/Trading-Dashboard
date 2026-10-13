@@ -155,6 +155,14 @@ export async function reserveLive(budget: RequestBudgeterService, weight: number
   }
 }
 
+/** Takes `weight` from a caller's reservation (a setup step's local weight,
+ * taken before its shared claim): true when it covered it, false when there
+ * is none or what is left of it is less (the caller then reserves as before). */
+export function takeReserved(reservation: LiveBudgetReservation | void | undefined, weight: number): boolean {
+  if (!reservation) return false;
+  try { reservation.consume(weight); return true; } catch { return false; }
+}
+
 /** A keyed live reservation (`holdKey`) waiting with nobody asking for it is
  * abandoned after this (its caller comes back at least every 20 s). */
 export const LOCAL_HOLD_IDLE_MS = 60_000;

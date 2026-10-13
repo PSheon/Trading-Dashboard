@@ -1,6 +1,6 @@
 import {HyperliquidGlobalTransport} from '../hyperliquid/hyperliquid-global-transport.js';
 import {boundedLiveRead} from './live/live-market-resolver.js';
-import { LIVE_RESERVE_WAIT_MS, sharedCapacityWait } from "../hyperliquid/hyperliquid-budget-wait.js";
+import { LIVE_RESERVE_WAIT_MS, sharedCapacityWait, type LiveBudget, type LiveBudgetReservation } from "../hyperliquid/hyperliquid-budget-wait.js";
 import { WALLET_NETWORKS, splitSignature } from "@trading-dashboard/shared/contracts";
 import { readInfoJson } from "../hyperliquid/response-validation.js";
 import { infoWeight } from "../hyperliquid/info-weights.js";
@@ -18,6 +18,10 @@ export interface AgentApprovalClient {
   acquire(): Promise<unknown>;
   /** Takes weight before a clock starts (HyperliquidBudgetWait when busy). Optional for doubles. */
   reserve?(weight: number): Promise<unknown>;
+  /** A setup step's weight, taken before its shared claim and kept in the
+   * bucket's queue across passes under `key` (LiveReserveOptions.holdKey);
+   * undefined when the budget tracks no reservations (doubles). */
+  reserveForSetup?(weight: number, key: string): Promise<LiveBudgetReservation | void>;
   send(intent: AgentConsentIntent, signature: string,assertFreshProof?:()=>void): Promise<unknown>;
   /** `prepaid`: the caller reserved OBSERVE_WEIGHT before its own clock. */
   observe(intent: AgentConsentIntent, options?: { prepaid?: boolean }): Promise<{ checkedAt: number; validUntil: number } | null>;
@@ -35,6 +39,9 @@ export class PrivyAgentApprovalClient implements AgentApprovalClient {
   get available() { return this.credentials !== null; }
   acquire() { return this.budget(1); }
   reserve(weight: number) { return this.budget(weight); }
+  reserveForSetup(weight: number, key: string): Promise<LiveBudgetReservation | void> {
+    return Promise.resolve((this.budget as Partial<LiveBudget>).reserve?.(weight, { holdKey: key }));
+  }
   async send(rawIntent:AgentConsentIntent,signature:string,assertFreshProof?:()=>void):Promise<unknown>{
     const intent=Object.freeze(structuredClone(rawIntent)),data=agentApprovalTypedData(intent);
     if(this.now()>=intent.consentExpiresAt)throw new LiveBoundaryError('agent_consent_expired');

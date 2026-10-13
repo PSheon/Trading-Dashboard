@@ -2,8 +2,9 @@ import { Injectable,Optional } from "@nestjs/common";
 import { jsonDigest } from '../common/crypto/digest.js';
 import { WALLET_NETWORKS, usdSendRequest, withdrawalUnits } from "@trading-dashboard/shared/contracts";
 import { RequestBudgeterService } from "../hyperliquid/request-budgeter.service.js";
-import { reserveLive } from "../hyperliquid/hyperliquid-budget-wait.js";
+import { reserveLive, takeReserved, type LiveBudgetReservation } from "../hyperliquid/hyperliquid-budget-wait.js";
 import { readInfoJson } from "../hyperliquid/response-validation.js";
+import { infoWeight } from "../hyperliquid/info-weights.js";
 import {HyperliquidGlobalTransport} from '../hyperliquid/hyperliquid-global-transport.js';
 import {LiveBoundaryError} from './live/wallet-authorization.js';
 import { networkUnreachable } from './live/error-class.js';
@@ -27,18 +28,22 @@ export function consumeFundingNotDispatched(error: unknown, attempt: FundingRow)
   return true;
 }
 
+/** One maxBuilderFee read's provider weight. */
+export const BUILDER_FEE_READ_WEIGHT = infoWeight({ type: "maxBuilderFee" });
+
 @Injectable()
 export class CopyFundingExchangeClient {
   constructor(private readonly budget: RequestBudgeterService,@Optional() private readonly global?:HyperliquidGlobalTransport) {if(global!==undefined&&!(global instanceof HyperliquidGlobalTransport))throw new LiveBoundaryError("funding_client_invalid");}
   acquire() { return reserveLive(this.budget, 1, { maxWaitMs: 10_000 }); }
-  private async read(url: string, body: Record<string, unknown>, weight: number, receipt = false): Promise<unknown> {
+  private async read(url: string, body: Record<string, unknown>, weight: number, receipt = false, prepaid?: LiveBudgetReservation | void): Promise<unknown> {
     // A durable receipt lookup has no quote/proof clock yet. Keep its place
     // behind admitted order evidence for one bucket refill (at most 120 s),
     // rather than repeatedly abandoning the queue on a 10 s estimate. HTTP
     // remains bounded to 10 s AFTER admission; balances and sends keep their
     // original short wait. This grants no submission or credit authority.
     const maxWaitMs = receipt ? Math.min(120_000, Math.max(10_000, this.budget.refillMs())) : 10_000;
-    await reserveLive(this.budget, weight, { maxWaitMs });
+    // A caller's reservation (a setup step's, taken before its shared claim) pays for it.
+    if (!takeReserved(prepaid, weight)) await reserveLive(this.budget, weight, { maxWaitMs });
     const fetcher=this.global?(url.endsWith("/explorer")?this.global.fetchExplorer:this.global.fetchInfo):fetch;
     const response = await fetcher(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), redirect: "error", signal: AbortSignal.timeout(10_000) });
     if (!response.ok) { await response.body?.cancel().catch(() => undefined); throw new Error("Funding evidence unavailable"); }
@@ -97,8 +102,10 @@ export class CopyFundingExchangeClient {
       return await readInfoJson(response, 'copy account action', 64 * 1024);
     } catch { throw new LiveBoundaryError(dispatched ? 'account_action_submission_unknown' : 'account_action_not_dispatched'); }
   }
-  async maxBuilderFee(network: FundingRow["network"], user: string, builder: string): Promise<number> {
-    const value = await this.read(WALLET_NETWORKS[network].infoUrl, { type: "maxBuilderFee", user, builder }, 20);
+  /** `reservation`: a setup's builder step's weight, taken from its setup
+   * bucket before its shared claim (else this client's bucket, as before). */
+  async maxBuilderFee(network: FundingRow["network"], user: string, builder: string, reservation?: LiveBudgetReservation | void): Promise<number> {
+    const value = await this.read(WALLET_NETWORKS[network].infoUrl, { type: "maxBuilderFee", user, builder }, BUILDER_FEE_READ_WEIGHT, false, reservation);
     if (!Number.isSafeInteger(value) || (value as number) < 0) throw new Error("Builder approval unavailable");
     return value as number;
   }

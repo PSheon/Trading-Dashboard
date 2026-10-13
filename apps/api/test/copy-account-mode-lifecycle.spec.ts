@@ -14,6 +14,7 @@ import { testConfig } from './config-test-utils.js';
 import { liveBudget } from '../src/hyperliquid/hyperliquid-budget-wait.js';
 import type { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
 import { liveReadCache, resetLiveReadCaches } from '../src/copy/live/live-read-cache.js';
+import { PRIVY_IDENTITY_MAX_AGE_MS } from '../src/copy/live/privy-identity-freshness.js';
 
 const owner = privateKeyToAccount(`0x${'01'.repeat(32)}`), master = privateKeyToAccount(`0x${'02'.repeat(32)}`), foreign = privateKeyToAccount(`0x${'03'.repeat(32)}`);
 const address = master.address.toLowerCase(), accountId = 'mode-account', key = 'mode-preparation-key-001';
@@ -323,5 +324,32 @@ describe('durable owned-master standard-mode operation', () => {
       expect(waiting).toBe(true); clock += 5001;
     } finally { release(); await blocker; }
     await pending; expect(exchange.send).not.toHaveBeenCalled(); expect((await db.select().from(copyAccountModeOperations))[0]!.attemptedAt).toBeNull();
+  });
+
+  // Gate run 8 (2026-10-13, a phone hotspot): Privy calls of a second or more.
+  it("a slow Privy identity read neither expires the identity nor ages the exchange's 5 s evidence", async () => {
+    const c = { operation: await prepare() }; let clock = Date.now(); vi.spyOn(Date, 'now').mockImplementation(() => clock);
+    const find = vi.mocked(provider.findOwned).getMockImplementation()!;
+    vi.mocked(provider.findOwned).mockImplementation(async (...args) => { clock += 4_000; return find(...args); });
+    const observe = exchange.observe;
+    exchange.observe = vi.fn(async (intent, options) => { clock += 1_000; return observe(intent, options); });
+    expect(await submit(c.operation.id)).toMatchObject({ submissionState: 'accepted', targetState: 'supported' });
+    expect(exchange.send).toHaveBeenCalledTimes(1);
+  });
+  it('an identity proof older than its own bound (30 s) is refused before signing', async () => {
+    const c = { operation: await prepare() }; let clock = Date.now(); vi.spyOn(Date, 'now').mockImplementation(() => clock);
+    vi.mocked(provider.findOwned).mockImplementation(async () => { clock += PRIVY_IDENTITY_MAX_AGE_MS + 1; return { id: 'master-wallet', address, externalId: 'dedicated-master', ownerQuorumId: 'owner-quorum' }; });
+    await expect(submit(c.operation.id)).rejects.toThrow('account_mode_identity_evidence_expired');
+    expect(exchange.send).not.toHaveBeenCalled(); expect((await db.select().from(copyAccountModeOperations))[0]!.attemptedAt).toBeNull();
+  });
+  it('an observation that stays pending changes its row once, not on every pass', async () => {
+    const c = { operation: await prepare() };
+    exchange.observe = vi.fn(async () => { throw new Error('observation failed'); });
+    expect(await service.reconcile(uid, c.operation.id)).toMatchObject({ targetState: 'unknown', issue: 'account_mode_observation_pending' });
+    const [first] = await db.select().from(copyAccountModeOperations);
+    for (let pass = 0; pass < 3; pass++) await service.reconcile(uid, c.operation.id);
+    const [after] = await db.select().from(copyAccountModeOperations);
+    expect(after).toMatchObject({ revision: first!.revision, updatedAt: first!.updatedAt, issue: 'account_mode_observation_pending' });
+    expect(exchange.observe).toHaveBeenCalledTimes(4);
   });
 });

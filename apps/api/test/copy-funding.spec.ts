@@ -15,6 +15,7 @@ import { WithdrawalRepository } from "../src/wallet/withdrawal.repository.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { closeTestDb, getTestDb, insertUser, truncateAll } from "./db-test-utils.js";
 import { testConfig } from "./config-test-utils.js";
+import { PRIVY_IDENTITY_MAX_AGE_MS } from "../src/copy/live/privy-identity-freshness.js";
 
 const signer = privateKeyToAccount(`0x${"11".repeat(32)}`);
 const MAIN = signer.address.toLowerCase(), DEST = `0x${"22".repeat(20)}`, HASH = `0x${"aa".repeat(32)}`;
@@ -168,7 +169,7 @@ describe("durable strategy funding", () => {
   it('carries wallet identity age across global admission to the native funding POST', async () => {
     const op = await reserve(); await service.claim(userId, op.id); let nativeCalls = 0;
     exchange.send.mockImplementation(async (_operation, _signature, guard) => {
-      const now = Date.now(), clock = vi.spyOn(Date, 'now').mockReturnValue(now + 5001);
+      const now = Date.now(), clock = vi.spyOn(Date, 'now').mockReturnValue(now + PRIVY_IDENTITY_MAX_AGE_MS + 1);
       try { if (!guard) throw new Error('missing native funding guard'); guard(); nativeCalls++; return { status: 'ok', response: { type: 'default' } }; }
       finally { clock.mockRestore(); }
     });
@@ -176,6 +177,15 @@ describe("durable strategy funding", () => {
     expect(exchange.send.mock.calls[0][2]).toEqual(expect.any(Function)); expect(nativeCalls).toBe(0);
     await service.submit(userId, op.id, await signature(op)); expect(exchange.send).toHaveBeenCalledTimes(1);
     expect((await repository.find(userId, op.id)).attemptedAt).not.toBeNull();
+  });
+  // Gate run 8 (2026-10-13, a phone hotspot): the identity's Privy calls took seconds.
+  it('a wallet identity read slower than 5 s still lets the funding POST go (its bound is Privy identity\'s, 30 s)', async () => {
+    const op = await reserve(); await service.claim(userId, op.id); let nativeCalls = 0;
+    let clock = Date.now(); vi.spyOn(Date, 'now').mockImplementation(() => clock);
+    provider.findOwned.mockImplementation(async () => { clock += 6_000; return { id: "provider-wallet", address: DEST, externalId: "copy_funding_test", ownerQuorumId: "quorum" }; });
+    exchange.send.mockImplementation(async (_operation, _signature, guard) => { guard!(); nativeCalls++; return { status: 'ok', response: { type: 'default' } }; });
+    await service.submit(userId, op.id, await signature(op));
+    expect(nativeCalls).toBe(1);
   });
   it("refuses signatures for changed amount, destination or nonce before querying funds", async () => {
     const op = await reserve(); await service.claim(userId, op.id);

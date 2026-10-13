@@ -14,6 +14,7 @@ import { LiveBoundaryError } from './live/wallet-authorization.js';
 import { safeErrorText } from '../runtime/safe-error-text.js';
 import { deploymentNetwork } from './live-deployment.js';
 import { liveReadCache } from './live/live-read-cache.js';
+import { IdentitySpans, privyIdentityFresh } from './live/privy-identity-freshness.js';
 
 export const ACCOUNT_MODE_CLIENT = Symbol('ACCOUNT_MODE_CLIENT');
 export const ACCOUNT_MODE_ABSENCE_READER = Symbol('ACCOUNT_MODE_ABSENCE_READER');
@@ -74,6 +75,10 @@ function readIntent(row: AccountModeRow): AccountModeIntent {
 }
 function fresh(timestamp: number, now = Date.now()) {
   if (!Number.isSafeInteger(now) || now <= 0 || !Number.isSafeInteger(timestamp) || timestamp <= 0 || timestamp > now || now - timestamp > 5000) throw new ConflictException('account_mode_evidence_expired');
+}
+/** The Privy identity proof's own bound (PRIVY_IDENTITY_MAX_AGE_MS). */
+function identityFresh(checkedAt: number, now = Date.now()) {
+  if (!privyIdentityFresh(checkedAt, now)) throw new ConflictException('account_mode_identity_evidence_expired');
 }
 function liveConsent(value: AccountModeIntent, now = Date.now()) {
   if (!Number.isSafeInteger(now) || now < value.nonce || now >= value.consentExpiresAt) throw new ConflictException('account_mode_consent_expired');
@@ -166,13 +171,20 @@ export class CopyAccountModeService {
   async reserveForSetup(weight: number, key: string): Promise<LiveBudgetReservation | void> {
     return this.exchange.reserve?.(weight, { holdKey: key });
   }
+  /** The copy account's identity with Privy (three calls) between two
+   * database checks. It ages by PRIVY_IDENTITY_MAX_AGE_MS from its first
+   * read, not by the exchange's 5 s (copied there in 22f9e963): a slow link
+   * to Privy must not expire it, nor age the exchange evidence read after it. */
   private async identity(userId: number, row: AccountModeRow, mutation = false) {
-    const checkedAt = Date.now(), current = await this.repository.assertCurrent(userId, row, undefined, mutation);
-    const master = await this.wallets.findOwned(current.owner.privyUserId, current.account.externalId,
-      current.account.masterPolicyId && current.account.masterSignerQuorumId ? { workerQuorumId: current.account.masterSignerQuorumId, policyId: current.account.masterPolicyId } : null);
+    const timing = new IdentitySpans(), checkedAt = timing.startedAt;
+    const current = await timing.time('db_current', () => this.repository.assertCurrent(userId, row, undefined, mutation));
+    const master = await timing.time('privy_master_account', () => this.wallets.findOwned(current.owner.privyUserId, current.account.externalId,
+      current.account.masterPolicyId && current.account.masterSignerQuorumId ? { workerQuorumId: current.account.masterSignerQuorumId, policyId: current.account.masterPolicyId } : null));
     if (!master || master.id !== row.accountWalletId || master.address !== row.accountAddress || master.externalId !== current.account.externalId || master.ownerQuorumId !== row.accountOwnerQuorumId)
       throw new ConflictException('account_mode_identity_changed');
-    await this.repository.assertCurrent(userId, row, undefined, mutation); fresh(checkedAt); return { ...current, checkedAt };
+    await timing.time('db_current_after', () => this.repository.assertCurrent(userId, row, undefined, mutation));
+    if (timing.elapsed() > 5_000) this.logger.warn(`account mode ${row.id} identity proof slow ${JSON.stringify(timing)}`);
+    identityFresh(checkedAt); return { ...current, checkedAt };
   }
   private assertObservation(row: AccountModeRow, proof: AccountModeObservation) {
     if (proof.network !== row.network || proof.accountAddress !== row.accountAddress || proof.source !== WALLET_NETWORKS[row.network].infoUrl ||
@@ -180,36 +192,41 @@ export class CopyAccountModeService {
     fresh(proof.earliestObservedAt); fresh(proof.completedAt);
   }
   /**
-   * Fresh evidence for one decision: identity, mode and all-venue absence in
-   * parallel, then the mode again. Every read's weight is paid and the shared
-   * all-venue source is ours before `started`: waiting for either never ages
-   * the evidence (before, the 5 s clock ran through the budget queue and a
-   * drained bucket turned every attempt into stale evidence). When one read
-   * fails the others are abandoned (nothing more reserved or subscribed).
+   * Fresh evidence for one decision: the copy account's identity with Privy
+   * first, then mode and all-venue absence in parallel, then the mode again.
+   * Every read's weight is paid and the shared all-venue source is ours
+   * before `started`: waiting for either never ages the evidence (before, the
+   * 5 s clock ran through the budget queue and a drained bucket turned every
+   * attempt into stale evidence). The identity runs before that clock: its
+   * Privy calls age only the identity (PRIVY_IDENTITY_MAX_AGE_MS), never the
+   * exchange's 5 s (they ran inside it until 2026-10-13), and the absence
+   * source is not held while Privy answers. When one exchange read fails the
+   * others are abandoned (nothing more reserved or subscribed).
    */
   private async preflight(userId: number, row: AccountModeRow, { prepaid = false, consume }: { prepaid?: boolean; consume?: (weight: number) => void } = {}) {
     const readable = readIntent(row);
     if (!prepaid) await this.exchange.reserve?.(PREFLIGHT_WEIGHT);
+    const identity = await this.identity(userId, row, true);
     const turn = await this.absence.turn?.();
     const abandon = new AbortController();
     const settle = <T>(work: Promise<T>) => work.catch((error: unknown) => { abandon.abort(); throw error; });
     const started = Date.now();
     const proving = settle(this.absence.prove(row.accountAddress, { prepaid: true, turn, signal: abandon.signal, consume }));
-    const work = [settle(this.identity(userId, row, true)),
-      settle(this.exchange.observe(readable, { prepaid: true, signal: abandon.signal, meterWaitMs: IN_WINDOW_METER_WAIT_MS, consume })), proving] as const;
+    const work = [settle(this.exchange.observe(readable, { prepaid: true, signal: abandon.signal, meterWaitMs: IN_WINDOW_METER_WAIT_MS, consume })), proving] as const;
     // A failed sibling aborts further dispatch. Wait for their bounded readers
     // to finish before the caller releases prepaid weight.
-    const [identity, observation, absence] = await Promise.all(work).catch(async error => { await Promise.allSettled(work); throw error; });
+    const [observation, absence] = await Promise.all(work).catch(async error => { await Promise.allSettled(work); throw error; });
     this.assertObservation(row, observation); baseline(observation);
     if (absence.network !== row.network || absence.accountAddress !== row.accountAddress || absence.complete !== true || absence.empty !== true ||
         !/^[0-9a-f]{64}$/.test(absence.sourceDigest) || !Array.isArray(absence.dexes) || !absence.dexes.includes('') || new Set(absence.dexes).size !== absence.dexes.length || absence.completedAt < absence.observedAt)
       throw new ConflictException('account_mode_absence_unproven');
-    fresh(absence.observedAt); fresh(absence.completedAt); fresh(identity.checkedAt); fresh(started);
+    fresh(absence.observedAt); fresh(absence.completedAt); identityFresh(identity.checkedAt); fresh(started);
     const finalMode = await this.exchange.observe(readIntent(row), { prepaid: true, meterWaitMs: IN_WINDOW_METER_WAIT_MS, consume }); this.assertObservation(row, finalMode); baseline(finalMode);
-    const oldestObservedAt = Math.min(started, identity.checkedAt, absence.observedAt, finalMode.earliestObservedAt);
-    const assertCompletion = (now: number) => fresh(oldestObservedAt, now);
+    // The exchange's evidence: 5 s from its oldest read. The identity: its own bound.
+    const oldestObservedAt = Math.min(started, absence.observedAt, finalMode.earliestObservedAt);
+    const assertCompletion = (now: number) => { fresh(oldestObservedAt, now); identityFresh(identity.checkedAt, now); };
     const assertFresh = () => {
-      fresh(started); fresh(identity.checkedAt); fresh(absence.observedAt); this.assertObservation(row, finalMode);
+      fresh(started); identityFresh(identity.checkedAt); fresh(absence.observedAt); this.assertObservation(row, finalMode);
       // Earlier sources must still be fresh when all validation completes.
       fresh(oldestObservedAt);
     };
@@ -226,9 +243,10 @@ export class CopyAccountModeService {
       if (!prepaid) reservation = await this.exchange.reserve?.(ACCOUNT_MODE_OBSERVE_WEIGHT);
       const paid = prepaid ?? reservation;
       const consume = paid ? (weight: number) => paid.consume(weight) : undefined;
-      const work = [this.identity(userId, row), this.exchange.observe(readIntent(row), { prepaid: true, meterWaitMs: IN_WINDOW_METER_WAIT_MS, consume })] as const;
-      const [identity, proof] = await Promise.all(work).catch(async error => { await Promise.allSettled(work); throw error; });
-      this.assertObservation(row, proof); fresh(identity.checkedAt);
+      // The identity first: its Privy calls never age the exchange's evidence.
+      const identity = await this.identity(userId, row);
+      const proof = await this.exchange.observe(readIntent(row), { prepaid: true, meterWaitMs: IN_WINDOW_METER_WAIT_MS, consume });
+      this.assertObservation(row, proof); identityFresh(identity.checkedAt);
       const supported = proof.role === 'user' && proof.abstraction === 'disabled' && proof.dexAbstraction === false && proof.portfolioMarginEnabled === false;
       const unsupported = proof.role !== 'user' || proof.portfolioMarginEnabled || proof.abstraction === 'unifiedAccount' || proof.abstraction === 'portfolioMargin' || proof.dexAbstraction === true;
       const targetState = supported ? 'supported' as const : unsupported ? 'unsupported' as const : 'unproven' as const;
@@ -241,19 +259,21 @@ export class CopyAccountModeService {
         cache.put({ type: 'userDexAbstraction', user }, false);
       }
       const updated = await this.uow.run(async tx => {
-        await this.repository.assertCurrent(userId, row, tx); fresh(identity.checkedAt); this.assertObservation(row, proof);
+        await this.repository.assertCurrent(userId, row, tx); identityFresh(identity.checkedAt); this.assertObservation(row, proof);
         const current = await this.repository.find(userId, row.id, tx, true);
         const recovery = current.submissionState === 'signing' && !current.attemptedAt && current.signingStartedAt && Date.now() - current.signingStartedAt.getTime() > 30000
           ? { submissionState: 'prepared' as const, claimToken: null, signingStartedAt: null, consentDigest: null } : {};
         const next = await this.repository.transition(current, { ...recovery, targetState, observation: { ...proof }, observedAt: new Date(proof.earliestObservedAt),
           issue: targetState === 'supported' ? null : proof.abstraction === 'disabled' && proof.dexAbstraction === null ? 'account_mode_legacy_state_unproven' : unsupported ? 'account_mode_unsupported' : 'account_mode_standard_unproven' }, tx);
-        fresh(identity.checkedAt); this.assertObservation(row, proof); return next;
+        identityFresh(identity.checkedAt); this.assertObservation(row, proof); return next;
       });
       row = updated ?? await this.repository.find(userId, id);
     } catch (error) {
       if (error instanceof HyperliquidBudgetWait) { if (busy === 'throw') throw error; return wire(row); }
       this.logger.warn(`account mode ${row.id} not observed: ${safeErrorText(error)}`);
-      row = (await this.repository.transition(row, { targetState: 'unknown', issue: 'account_mode_observation_pending' })) ?? await this.repository.find(userId, id);
+      // A repeat changes nothing (no new revision every pass).
+      if (row.targetState !== 'unknown' || row.issue !== 'account_mode_observation_pending')
+        row = (await this.repository.transition(row, { targetState: 'unknown', issue: 'account_mode_observation_pending' })) ?? await this.repository.find(userId, id);
     } finally { reservation?.release(); }
     return wire(row);
   }

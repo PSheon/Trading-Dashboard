@@ -20,6 +20,7 @@ import { CopyFundingRepository, type FundingRow, type FundingSender } from "./co
 import { CopyFundingExchangeClient } from "./copy-funding-exchange.client.js";
 import { fundingCreditEvidence, fundingOtherOperation } from "./copy-funding-evidence.js";
 import { classify } from "./live/error-class.js";
+import { privyIdentityFresh } from "./live/privy-identity-freshness.js";
 import { FUNDING_NONCE_SKEW_MS, FUNDING_NONCE_EXPIRY_MS, fundingBackoffMs, fundingScanSchema, fundingDetailBatch, type FundingScan } from "./copy-funding-scan.js";
 
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -124,7 +125,9 @@ export class CopyFundingService {
     try { reply = await this.exchange.send(attempt, signature, () => {
       const now = Date.now();
       this.assertAvailable();
-      if (!Number.isSafeInteger(identityCheckedAt) || now < identityCheckedAt || now - identityCheckedAt > 5000 ||
+      // The account's Privy identity (three Privy calls): its own bound, not
+      // the exchange's 5 s (PRIVY_IDENTITY_MAX_AGE_MS).
+      if (!privyIdentityFresh(identityCheckedAt, now) ||
         account.id !== attempt.accountId || account.address !== attempt.destination || account.network !== attempt.network ||
         attempt.network !== this.config.value.hyperliquid.wallet.network) throw new ConflictException("funding_identity_evidence_expired");
     }); } catch (error) {

@@ -81,7 +81,7 @@ it('abort proofs still refuse an exhausted live bucket behind prior original wor
     const exhausted = budget.acquire(800, 'live');
     await vi.advanceTimersByTimeAsync(0);
     await exhausted;
-    void budget.acquire(800, 'live').catch(() => undefined); // Ahead of this proof; cannot fit its bounded wait.
+    void budget.acquire(800, 'live', 0).catch(() => undefined); // Ahead of this proof (in line as reserveLive queues it); cannot fit its bounded wait.
     await expect(observer.observeSetupAbortFlat(address)).rejects.toMatchObject({
       code: 'live_account_observation_unavailable',
     });

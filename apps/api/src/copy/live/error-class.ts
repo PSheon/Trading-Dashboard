@@ -43,6 +43,10 @@ export class StepFail extends Error {
   constructor(readonly issue: string) { super(issue); this.name = 'StepFail'; }
 }
 
+/** When a busy live-risk scope (another order, stop or settlement of the
+ * same account holds its advisory try-lock) is tried again: it is held for
+ * one order's evidence and POST at most, a few seconds. */
+export const LIVE_RISK_BUSY_RETRY_MS = 1_000;
 /** Codes whose weight is not available yet: nothing was read or sent. */
 const BUDGET_CODES: ReadonlyMap<string, number | undefined> = new Map([
   // The shared per-IP meter refused the charge: its window and send window.
@@ -53,7 +57,22 @@ const BUDGET_CODES: ReadonlyMap<string, number | undefined> = new Map([
   // (networkUnreachable). Nothing was learned and nothing is wrong with the
   // operation: it waits, backed off per row, and never counts as an attempt.
   ['funding_explorer_unreachable', undefined],
+  // The live-risk scope's advisory try-lock was busy (postgres-live-risk-scope):
+  // nothing was read, reserved or sent. Gate 2026-10-13 11:15 (7th run): it
+  // counted as an attempt, and the leg was refused with it once the signal aged.
+  ['live_risk_busy', LIVE_RISK_BUSY_RETRY_MS],
 ]);
+/** Codes that wrap what failed underneath (`cause`): a wait underneath (the
+ * shared meter refused a socket connect or a read) makes them a wait too.
+ * Gate 2026-10-13 11:15: an order's follower observation was refused its
+ * connect (`hyperliquid_quota_exhausted`), surfaced as
+ * `live_account_observation_unavailable` and counted as a failed attempt. */
+const WRAPPING_CODES: ReadonlySet<string> = new Set(['live_account_observation_unavailable']);
+/** A failed provider read (it opened a socket or spent weight): its retry is
+ * spaced (liveRetryDelayMs), so a burst of them can't use up the 30 new
+ * WebSocket connections a minute and the 10 at once. */
+export const PROVIDER_READ_FAILURES: ReadonlySet<string> = new Set(['live_account_observation_unavailable', 'live_account_observation_changed', 'live_read_deadline_exceeded',
+  'live_risk_stale', 'live_risk_provider_unavailable', 'live_risk_busy']);
 /** No retry helps until the configuration changes. */
 const PERMANENT_CODES: ReadonlySet<string> = new Set([
   // Heavier than the bucket can ever hold (hyperliquid-budget-wait.ts).
@@ -126,8 +145,12 @@ function own(error: unknown): Pick<ErrorClassification, 'code' | 'source'> {
   return { code: null, source: 'unknown' };
 }
 
-export function classify(error: unknown): ErrorClassification {
+export function classify(error: unknown, depth = 0): ErrorClassification {
   const { code, source } = own(error);
+  if (code !== null && WRAPPING_CODES.has(code) && depth < 3 && error instanceof Error && error.cause !== undefined) {
+    const inner = classify(error.cause, depth + 1);
+    if (inner.class === 'budget') return { class: 'budget', code, source, ...(inner.retryAfterMs !== undefined ? { retryAfterMs: inner.retryAfterMs } : {}) };
+  }
   if (error instanceof StepWait) return { class: 'budget', code, source, retryAfterMs: error.retryMs };
   if (error instanceof StepFail) return { class: 'permanent', code, source };
   // Its estimate, at least 1 s: a local bucket's, or the shared window's (when
@@ -147,4 +170,22 @@ export function classify(error: unknown): ErrorClassification {
 /** A transient failure that reached `limit` attempts (counting this one) is permanent. */
 export function exhausted(classified: ErrorClassification, attempts: number, limit: number): boolean {
   return classified.class === 'transient' && classified.exhausts !== false && attempts >= limit;
+}
+
+/**
+ * How long a live step that failed waits before it is tried again (a copy
+ * leg's next submission, a stop's next pass): THE one policy for both.
+ * - a wait (`budget`): when it said (a local bucket's estimate, the shared
+ *   meter's, a busy lock's), at least 1 s; never an attempt;
+ * - a failed provider read (PROVIDER_READ_FAILURES, a meter refusal): 10 s;
+ * - anything else: 3 s.
+ * Gate 2026-10-13 11:16: a stop whose observation was refused looped many
+ * times a second (`stop … kept for the next pass`), each pass opening
+ * sockets into a full connect window.
+ */
+export function liveRetryDelayMs(error: unknown, reason = classify(error).code ?? ''): number {
+  const classified = classify(error);
+  if (classified.class === 'budget') return Math.max(1_000, classified.retryAfterMs ?? 1_000);
+  if (PROVIDER_READ_FAILURES.has(reason) || reason.startsWith('hyperliquid_quota_')) return 10_000;
+  return 3_000;
 }

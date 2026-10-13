@@ -102,6 +102,7 @@ const scenario = (variant: Scenario) => async () => {
     const readRow = async () => (await drizzle(pool, { schema }).select().from(schema.hyperliquidEgressQuota).where(eq(schema.hyperliquidEgressQuota.egressKey, egressKey)))[0];
     const loops: Promise<unknown>[] = [];
     const budget = new RequestBudgeterService(new AppConfig({ hyperliquid: { budgetPerMin: 300, burst: 900, startupPaceSeconds: 0, pageReserveShare: 0.25, liveHeadroomShare: LIVE_HEADROOM_SHARE } } as never));
+    const orders = new RequestBudgeterService(new AppConfig({ hyperliquid: { budgetPerMin: 300, burst: 900, startupPaceSeconds: 0, pageReserveShare: 0.25, liveHeadroomShare: LIVE_HEADROOM_SHARE } } as never));
     try {
       // contention.mjs's first minute: background at its 840, 20 at a time,
       // their 65 s lives ending evenly over the next 64 s.
@@ -184,22 +185,25 @@ const scenario = (variant: Scenario) => async () => {
         await (token ? workerSide.runLive(token, run) : run());
       }));
 
-      // The worker's testnet bucket (wallet-network-hyperliquid: rate
+      // The worker's testnet order bucket (wallet-network-hyperliquid: rate
       // COPY_LIVE_WEIGHT_PER_MIN 300, burst 900, 80 % live headroom), with
       // other live work (the copy engine's reads, the snapshot collector's
       // observations) spending it at about its rate: ~500 left, as the gate's
-      // refusals showed (tokens 524–575 after a 15 s wait).
+      // refusals showed (tokens 524–575 after a 15 s wait). Since the 7th
+      // gate run the setup's clients take from a setup bucket of their own
+      // (`budget` here, WalletNetworkHyperliquid.setupBudget): the drained
+      // order bucket no longer holds the setup back, nor the setup it.
       const local = { granted: 0, refused: 0 };
       if (variant === 'gate5') {
-        await budget.acquire(400, 'live', 0);
+        await orders.acquire(400, 'live', 0);
         every(2_000, 0, async () => {
-          try { await reserveLive(budget, 10, { maxWaitMs: 5_000 }); local.granted++; }
+          try { await reserveLive(orders, 10, { maxWaitMs: 5_000 }); local.granted++; }
           catch (error) { if (error instanceof HyperliquidBudgetWait) local.refused++; else throw error; }
         });
       }
       // The worker's setup service (its own meter object), as copy.module wires it.
       const setupId = randomUUID(), intent = setupIntent(setupId, Date.now()), rows = database(intent, setupId, Date.now()), signed: string[] = [];
-      const wired = variant === 'gate5' ? { budget, reserve: { maxWaitMs: DEFAULT_LIVE_SETUP_TIMINGS.stepBudgetMs.reserveWaitMs, queue: true, bucket: 'wallet:testnet' }, sockets: true } : undefined;
+      const wired = variant === 'gate5' ? { budget, reserve: { maxWaitMs: DEFAULT_LIVE_SETUP_TIMINGS.stepBudgetMs.reserveWaitMs, queue: true, bucket: 'setup:testnet' }, sockets: true } : undefined;
       const { service } = worker(new PostgresHyperliquidQuota(uow()), new Testnet(), rows, signed, egressKey, wired);
       const decisions: { at: number; stage: string; wait: unknown; meter: unknown }[] = [];
       const transition = rows.setupRepository.transition;
@@ -260,7 +264,7 @@ const scenario = (variant: Scenario) => async () => {
     } finally {
       stop.abort();
       await Promise.allSettled(loops);
-      budget.onModuleDestroy();
+      budget.onModuleDestroy(); orders.onModuleDestroy();
       restore();
       await db.delete(schema.hyperliquidWsLeases).where(eq(schema.hyperliquidWsLeases.egressKey, egressKey));
       await db.delete(schema.hyperliquidEgressQuota).where(eq(schema.hyperliquidEgressQuota.egressKey, egressKey));

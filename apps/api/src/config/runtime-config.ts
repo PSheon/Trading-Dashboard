@@ -26,6 +26,9 @@ function urlValue(key: string, raw: string | undefined, fallback: string, protoc
  * explicit approval (Stage 4 §6). The discovery reads keep using
  * HYPERLIQUID_API_URL (mainnet) either way.
  */
+/** COPY_LIVE_WEIGHT_PER_MIN's ceiling: a wallet-network bucket holds
+ * 1200 − its rate at once, and must hold a setup's account-mode step (715). */
+export const MAX_COPY_LIVE_WEIGHT_PER_MIN = 1200 - 715;
 function walletNetwork(source: Environment) {
   const raw = (source.HYPERLIQUID_NETWORK ?? "testnet").trim().toLowerCase();
   if (raw !== "mainnet" && raw !== "testnet") throw new Error("HYPERLIQUID_NETWORK must be mainnet or testnet");
@@ -205,7 +208,10 @@ function copyTrading(source: Environment, wallet: "mainnet" | "testnet", egressK
       maxSourceDeviationBps: integerValue("COPY_TESTNET_MAX_PRICE_DEVIATION_BPS", source.COPY_TESTNET_MAX_PRICE_DEVIATION_BPS, 500, 0, 10_000),
       slippageBps: integerValue("COPY_LIVE_SLIPPAGE_BPS", source.COPY_LIVE_SLIPPAGE_BPS, 30, 0, 500),
       intervalMs: integerValue("COPY_LIVE_INTERVAL_MS", source.COPY_LIVE_INTERVAL_MS, 3000, 1000, 60_000),
-      weightPerMin: integerValue("COPY_LIVE_WEIGHT_PER_MIN", source.COPY_LIVE_WEIGHT_PER_MIN, 300, 100, 700),
+      // At most 485: the wallet network's buckets (order and setup) hold
+      // 1200 − this at once, and a setup's account-mode step takes 715 in one
+      // reservation (1200 − 715); above it the api and worker refuse to start.
+      weightPerMin: integerValue("COPY_LIVE_WEIGHT_PER_MIN", source.COPY_LIVE_WEIGHT_PER_MIN, 300, 100, MAX_COPY_LIVE_WEIGHT_PER_MIN),
       revokeDeadlineMs: integerValue("COPY_LIVE_REVOKE_DEADLINE_MINUTES", source.COPY_LIVE_REVOKE_DEADLINE_MINUTES, 30, 1, 1440) * 60_000,
       setup: liveSetupTimings(source),
       stop: liveStopTimings(source),

@@ -12,6 +12,7 @@ import { LiveBoundaryError } from "./live/wallet-authorization.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
 import { deploymentNetwork } from "./live-deployment.js";
 import { FUNDING_NONCE_EXPIRY_MS } from "./copy-funding-scan.js";
+import { takeReserved, type LiveBudgetReservation } from "../hyperliquid/hyperliquid-budget-wait.js";
 
 function wire(row: AgentSetupRow): CopyAgentSetup {
   return copyAgentSetupSchema.parse({ id: row.id, strategyId: row.strategyId, accountId: row.accountId, network: row.network,
@@ -107,7 +108,15 @@ export class CopyAgentService {
     if (intent.network !== this.config.value.hyperliquid.wallet.network || intent.workerQuorumId !== this.provider.configuredWorkerQuorumId ||
       Date.now() >= intent.consentExpiresAt || Date.now() >= intent.expiresAt) throw new ConflictException("agent_consent_expired");
   }
-  async reconcile(userId: number, id: string): Promise<CopyAgentSetup> {
+  /** A copy setup's agent step weight (its approval's POST and the
+   * observation after it), from the setup's bucket before its shared claim
+   * (`key`: the setup's; kept in the bucket's queue across passes). The step
+   * passes it to `submit`/`reconcile`, which take from it instead of
+   * reserving after the claim was granted. */
+  async reserveForSetup(weight: number, key: string): Promise<LiveBudgetReservation | void> {
+    return this.exchange.reserveForSetup?.(weight, key);
+  }
+  async reconcile(userId: number, id: string, { reservation }: { reservation?: LiveBudgetReservation | void } = {}): Promise<CopyAgentSetup> {
     this.enabled();
     let row = await this.repository.refreshGrant(await this.repository.find(userId, id));
     if (row.state === "blocked" || row.state === "revoked" || row.expiresAt.getTime() <= Date.now()) return wire(row);
@@ -148,7 +157,7 @@ export class CopyAgentService {
           !/^0x[0-9a-f]{40}$/.test(found.address) || found.address === row.accountAddress) throw new AgentProvisioningConflict();
         row = (await this.repository.transition(row, { state: "ready", agentWalletId: found.id, agentAddress: found.address, agentOwnerQuorumId: found.ownerQuorumId, issue: null })) ?? await this.repository.find(userId, id);
       }
-      if (row.state === "approval_unknown" && row.approvalAttemptedAt) return await this.observe(userId, row);
+      if (row.state === "approval_unknown" && row.approvalAttemptedAt) return await this.observe(userId, row, reservation);
       if (row.state === "approval_signing" && !row.approvalAttemptedAt && row.consentExpiresAt && row.consentExpiresAt.getTime() <= Date.now()) {
         row = (await this.repository.transition(row, { state: "ready", consentDigest: null, issue: "agent_consent_expired" })) ?? await this.repository.find(userId, id);
       }
@@ -161,11 +170,11 @@ export class CopyAgentService {
   }
   /** One approval attempt of the exact prepared agent; durable before the
    * POST, and an attempted approval is only observed, never resent. */
-  async submit(userId: number, id: string, authority: AgentApprovalAuthority): Promise<CopyAgentSetup> {
+  async submit(userId: number, id: string, authority: AgentApprovalAuthority, { reservation }: { reservation?: LiveBudgetReservation | void } = {}): Promise<CopyAgentSetup> {
     this.enabled();
     let row = await this.repository.refreshGrant(await this.repository.find(userId, id));
     if (row.state === "active") return wire(row);
-    if (row.state === "approval_unknown" || row.state === "approval_signing") return this.reconcile(userId, id);
+    if (row.state === "approval_unknown" || row.state === "approval_signing") return this.reconcile(userId, id, { reservation });
     if (row.state !== "ready") throw new ConflictException("agent_consent_required");
     const intent = consent(row);
     const initialProof = await this.assertSetup(userId, row);
@@ -175,7 +184,7 @@ export class CopyAgentService {
       await this.repository.assertCurrent(userId, row, tx);
       return this.repository.transition(row, { state: "approval_signing", consentDigest: authority.consentDigest }, tx);
     });
-    if (!claimed) return this.reconcile(userId, id);
+    if (!claimed) return this.reconcile(userId, id, { reservation });
     row = claimed;
     let signature: string;
     let proofCheckedAt: number;
@@ -183,7 +192,7 @@ export class CopyAgentService {
       const master = { walletId: account.privyWalletId!, address: account.address!, ownerQuorumId: account.ownerQuorumId! };
       signature = await authority.sign(master, intent, () => this.assertConsentFresh(intent, initialProof.checkedAt));
       if (!/^0x[0-9a-fA-F]{130}$/.test(signature) || !await verifyTypedData({ address: row.accountAddress as `0x${string}`, ...agentApprovalTypedData(intent), signature: signature as `0x${string}` })) throw new BadRequestException("agent_master_signature_invalid");
-      await this.exchange.acquire();
+      if (!takeReserved(reservation, 1)) await this.exchange.acquire();
       const finalProof = await this.assertSetup(userId, row);
       proofCheckedAt = finalProof.checkedAt;
       row = await this.uow.run(async tx => {
@@ -213,7 +222,7 @@ export class CopyAgentService {
       this.logger.warn(`agent ${id} approval outcome unknown: ${safeErrorText(error)}`);
       return wire(row);
     }
-    try { return await this.observe(userId, row); }
+    try { return await this.observe(userId, row, reservation); }
     catch (error) {
       this.logger.warn(`agent ${id} approval not observed yet: ${safeErrorText(error)}`);
       return wire(await this.repository.find(userId, id));
@@ -227,9 +236,10 @@ export class CopyAgentService {
     const reverted = await this.repository.transition(row, { state: "ready", approvalAttemptedAt: null, consentDigest: null, issue: "agent_approval_not_submitted" });
     return wire(reverted ?? await this.repository.find(userId, row.id));
   }
-  private async observe(userId: number, row: AgentSetupRow): Promise<CopyAgentSetup> {
-    // Paid before the identity clock starts: a budget wait can't age it.
-    if (this.exchange.reserve) await this.exchange.reserve(AGENT_OBSERVE_WEIGHT);
+  private async observe(userId: number, row: AgentSetupRow, reservation?: LiveBudgetReservation | void): Promise<CopyAgentSetup> {
+    // Paid before the identity clock starts: a budget wait can't age it
+    // (a setup step's: from the weight it took before its shared claim).
+    if (!takeReserved(reservation, AGENT_OBSERVE_WEIGHT) && this.exchange.reserve) await this.exchange.reserve(AGENT_OBSERVE_WEIGHT);
     const identity = await this.assertSetup(userId, row);
     const intent = consent(row);
     const readAt = Date.now();

@@ -1,7 +1,7 @@
 import { ServiceUnavailableException } from '@nestjs/common';
 import { HyperliquidRestCapacityError, sharedRestRetryAfterMs } from './hyperliquid-capacity-error.js';
 import { LiveBoundaryError } from '../copy/live/wallet-authorization.js';
-import { BudgetWaitError, type RequestBudgeterService, type RequestPriority } from './request-budgeter.service.js';
+import { BudgetWaitError, LIVE_YIELD_RANK, type RequestBudgeterService, type RequestPriority } from './request-budgeter.service.js';
 
 /** After the shared per-IP window refused a charge without saying when it
  * fits: no sooner than this (the provider's 60 s window plus the 5 s send
@@ -95,9 +95,12 @@ export interface LiveReserveOptions {
   readonly bucket?: string;
   /** `reserve` only (live lane): the reservation keeps its place in the
    * bucket's live queue under this key when its caller stops waiting
-   * (`maxWaitMs`). The refill builds up for it in arrival order, ahead of
-   * every later live call; the caller's next pass with the same key takes it
-   * over (or what it gathered once it is whole). A copy setup's account-mode
+   * (`maxWaitMs`). It yields to every other live call (LIVE_YIELD_RANK):
+   * the refill builds up for it only while no unkeyed live call waits, and
+   * holds among themselves go in arrival order; the caller's next pass with
+   * the same key takes it over (or what it gathered once it is whole). A
+   * hold never sits ahead of a live order, its source read or its
+   * observation (gate 2026-10-13 11:13). A copy setup's account-mode
    * attempt (715) waited 15 s on a bucket other live work kept at ~500,
    * gave up its place, and came back to the same ~500 (gate 2026-10-13,
    * `local_budget` 613, tokens 524–575). Abandoned after LOCAL_HOLD_IDLE_MS
@@ -150,6 +153,14 @@ export async function reserveLive(budget: RequestBudgeterService, weight: number
     if (!timeout.aborted && !(error instanceof BudgetWaitError) && !(error instanceof Error && error.message === 'Hyperliquid queue is full')) throw error;
     throw new HyperliquidBudgetWait(Math.max(1_000, lane === 'live' ? budget.liveWaitMs(weight) : budget.refillMs(weight)), 'local_budget', waitDetail(budget, weight, lane, bucket));
   }
+}
+
+/** Takes `weight` from a caller's reservation (a setup step's local weight,
+ * taken before its shared claim): true when it covered it, false when there
+ * is none or what is left of it is less (the caller then reserves as before). */
+export function takeReserved(reservation: LiveBudgetReservation | void | undefined, weight: number): boolean {
+  if (!reservation) return false;
+  try { reservation.consume(weight); return true; } catch { return false; }
 }
 
 /** A keyed live reservation (`holdKey`) waiting with nobody asking for it is
@@ -216,8 +227,9 @@ function parkHold(budget: RequestBudgeterService, key: string, weight: number): 
 
 /**
  * `reserve` with a `holdKey`: the weight is gathered in the bucket's live
- * queue in arrival order (the refill builds up for it; later live calls go
- * after it), and keeps its place there when the caller stops waiting after
+ * queue behind every other live call (LIVE_YIELD_RANK: the refill builds up
+ * for it while none waits; holds go in arrival order among themselves), and
+ * keeps its place there when the caller stops waiting after
  * `maxWaitMs`: the refusal (`local_budget`, retry within LOCAL_HOLD_RETRY_MS)
  * says when to come back, and the same key's next call takes over what was
  * gathered. A wait never runs out with the place lost.
@@ -230,7 +242,7 @@ async function reserveHeld(budget: RequestBudgeterService, weight: number, key: 
   if (hold && hold.weight !== weight) { dropHold(budget, key, hold); hold = undefined; }
   if (!hold) {
     const abort = new AbortController();
-    const created: LocalHold = { weight, ready: false, abort, gathered: budget.acquire(weight, 'live', 0, { signal: abort.signal }).then(() => {
+    const created: LocalHold = { weight, ready: false, abort, gathered: budget.acquire(weight, 'live', LIVE_YIELD_RANK, { signal: abort.signal }).then(() => {
       created.ready = true;
       if (map.get(key) === created) arm(budget, key, created, LOCAL_HOLD_READY_MS);
       // Gathered after its holder left the map (dropped meanwhile): give it back.
@@ -253,7 +265,7 @@ async function reserveHeld(budget: RequestBudgeterService, weight: number, key: 
     return trackedReservation(budget, weight, key);
   }
   // Still gathering (or ended under us): come back; its place is kept.
-  const estimate = budget.liveWaitMs(0);
+  const estimate = budget.liveWaitMs(0, LIVE_YIELD_RANK);
   throw new HyperliquidBudgetWait(Math.min(LOCAL_HOLD_RETRY_MS, Math.max(1_000, estimate)), 'local_budget', waitDetail(budget, weight, 'live', bucket));
 }
 

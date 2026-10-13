@@ -34,6 +34,18 @@ export interface WalletNetworkHyperliquid {
    * stopper and snapshot collector) takes weight from this one, through
    * `reserveLive` (hyperliquid-budget-wait.ts). */
   readonly budget: RequestBudgeterService; readonly transport: HyperliquidGlobalTransport;
+  /** THE token bucket of copy setups' steps on this network in this
+   * process (account mode 715, agent approval 81, builder fee): on a
+   * dedicated wallet network a bucket of its own, never `budget`. A setup's
+   * steps drained the order bucket (mode 715 + agent 81 at 300 a minute, the
+   * refill of 900 takes 3 min) right before its copy's first order: the
+   * leader's source read was refused (`live_budget_wait`) and the order's
+   * evidence (568) waited 67.6 s (gate 2026-10-13 11:13, 7th run). `budget`'s
+   * burst is kept for orders, their source reads and observations. The
+   * shared per-IP meter (postgres-hyperliquid-quota) is the one ceiling both
+   * buckets have in common: it keeps the IP at 1200 a minute, setups behind
+   * live orders. Not dedicated: `budget` itself, as before. */
+  readonly setupBudget: RequestBudgeterService;
   /** Info reads (balances, ledgers) on the wallet network's budget and transport. */
   readonly info: HyperliquidInfoClient;
   /** The configuration `budget` was built from (its rate, burst and egress
@@ -57,11 +69,12 @@ export function walletNetworkHyperliquid(config: AppConfig, budget: RequestBudge
     // hours (Stage, 2026-10-11). Wallet page reads stay on the main budget.
     const weightPerMin = live.weightPerMin;
     const liveConfig = new AppConfig({ ...config.value, hyperliquid: { ...hl, budgetPerMin: weightPerMin, burst: 1200 - weightPerMin, startupPaceSeconds: 0, liveHeadroomShare: LIVE_HEADROOM_SHARE } });
-    return { network, budget: new RequestBudgeterService(liveConfig), transport, info: mainInfo(), config: liveConfig, dedicated: true };
+    return { network, budget: new RequestBudgeterService(liveConfig), setupBudget: new RequestBudgeterService(liveConfig), transport, info: mainInfo(), config: liveConfig, dedicated: true };
   }
-  if (network !== 'testnet' || !hl.egressKey) return { network, budget, transport, info: mainInfo(), config, dedicated: false };
+  if (network !== 'testnet' || !hl.egressKey) return { network, budget, setupBudget: budget, transport, info: mainInfo(), config, dedicated: false };
   const weightPerMin = config.value.copy.live?.weightPerMin ?? 300, egressKey = `${hl.egressKey}:testnet`;
   const testnetConfig = new AppConfig({ ...config.value, hyperliquid: { ...hl, egressKey, budgetPerMin: weightPerMin, burst: 1200 - weightPerMin, startupPaceSeconds: 0, liveHeadroomShare: LIVE_HEADROOM_SHARE } });
   const testnetBudget = new RequestBudgeterService(testnetConfig), testnetTransport = new HyperliquidGlobalTransport(quota, { egressKey, ownerId: randomUUID() });
-  return { network, budget: testnetBudget, transport: testnetTransport, info: new HyperliquidInfoClient(testnetConfig, testnetBudget, jobs, testnetTransport), config: testnetConfig, dedicated: true };
+  return { network, budget: testnetBudget, setupBudget: new RequestBudgeterService(testnetConfig), transport: testnetTransport,
+    info: new HyperliquidInfoClient(testnetConfig, testnetBudget, jobs, testnetTransport), config: testnetConfig, dedicated: true };
 }

@@ -116,8 +116,9 @@ describe("the order path's token bucket", () => {
     vi.useFakeTimers();
     const budget = orderBucket({ HYPERLIQUID_NETWORK: "testnet" }).budget;
     await budget.acquire(900, "live");
-    // Another order's evidence is already waiting for the whole bucket (180 s).
-    void budget.acquire(900, "live").catch(() => undefined);
+    // Another order's evidence is already waiting for the whole bucket (180 s),
+    // in line as reserveLive queues it (rank 0).
+    void budget.acquire(900, "live", 0).catch(() => undefined);
     const client = new CopyFundingExchangeClient(budget);
     const settled = client.acquire().then(() => "acquired", (error: unknown) => error);
     // The send waits for the order bucket at most 10 s; an empty one needs more.

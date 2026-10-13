@@ -3,6 +3,8 @@ import { HyperliquidLiveAccountObserver, HyperliquidAllDexsAccountSource } from 
 import { EventEmitter } from 'node:events';
 import WebSocket from 'ws';
 import {offlineGlobalTransport} from './hyperliquid-global-test-utils.js';
+import { classify } from '../src/copy/live/error-class.js';
+import { HyperliquidRestCapacityError } from '../src/hyperliquid/hyperliquid-capacity-error.js';
 import type {HyperliquidSocketQuota} from '../src/hyperliquid/postgres-hyperliquid-quota.js';
 
 const account = `0x${'22'.repeat(20)}`;
@@ -285,6 +287,15 @@ describe('authoritative dedicated standard account observations', () => {
       .observer.observe(account)).rejects.toThrow('live_account_evidence_expired');
     const s = setup((body, value) => { if (body.type === 'frontendOpenOrders') s.setClock(now + 5001); return value; });
     await expect(s.observer.observe(account)).rejects.toThrow('live_account_evidence_expired');
+  });
+  it('an observation the shared meter refused keeps what refused it (gate 2026-10-13 11:15): a wait for when the meter said, never a failed attempt', async () => {
+    const s = setup(); s.fetcher.mockRejectedValue(new HyperliquidRestCapacityError(4_000));
+    const error = await s.observer.observe(account).catch((e: unknown) => e);
+    expect(error).toMatchObject({ code: 'live_account_observation_unavailable' });
+    expect(classify(error)).toMatchObject({ class: 'budget', code: 'live_account_observation_unavailable', retryAfterMs: 4_250 });
+    // Anything else underneath is still a failed read.
+    s.fetcher.mockRejectedValue(new Error('provider_secret_token'));
+    expect(classify(await s.observer.observe(account).catch((e: unknown) => e))).toMatchObject({ class: 'transient' });
   });
   it('redacts provider errors and bounds a budget that never resolves', async () => {
     const s = setup(); s.fetcher.mockRejectedValue(new Error('provider_secret_token'));

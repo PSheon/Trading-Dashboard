@@ -15,11 +15,12 @@ const S=(events:HyperliquidQuotaEvent[]):HyperliquidQuotaState=>({egressKey:'com
 describe('the shared meter\'s composition at a setup\'s claim', () => {
   it('classifies every alive REST charge by its ticket', () => {
     const events=[rest('bg:1',300),rest('plain',120),rest('live:x',40),rest(`live:${L}:y`,60),rest(`setup:${T}:a`,102),rest(`setup:${U}:b`,42),
-      rest(setupDemandTicket(613,T),1,20_000),rest(setupDemandTicket(613,T),1,5_000),rest(`${setupDemandTicket(81,U)}:g`,1),rest(liveDemandTicket(589,L),1),
+      rest(setupDemandTicket(613,T),1,20_000),rest(setupDemandTicket(613,T),1,5_000),rest(`${setupDemandTicket(81,U)}:g`,1),rest(`setup-hold:${U}:81:${U}:z`,39,0,45_000),rest(liveDemandTicket(589,L),1),
       rest('expired',500,70_000),{id:'ws',kind:'ws_message' as const,units:5,reservedAt:now,expiresAt:now+65_000}];
     const c=hyperliquidMeterComposition(events,now);
-    expect(c).toMatchObject({total:300+120+40+60+102+42+4,background:300,other:120,live:100,setup:{[T.slice(0,8)]:102,[U.slice(0,8)]:42},markers:{setup:3,live:1}});
-    // T waits since its earliest alive marker; U's claim is granted and still needs 81 − 42.
+    expect(c).toMatchObject({total:300+120+40+60+102+42+4+39,background:300,other:120,live:100,setup:{[T.slice(0,8)]:102,[U.slice(0,8)]:42},markers:{setup:3,live:1}});
+    // T waits since its earliest alive marker; U's claim is granted and still holds 81 − 42
+    // (its hold is in the total, in no class).
     expect(c.pending).toEqual([{token:T.slice(0,8),need:613,waitingMs:20_000}]);
     expect(c.granted).toEqual([{token:U.slice(0,8),left:39}]);
     expect(c.liveNeed).toBe(589-60);

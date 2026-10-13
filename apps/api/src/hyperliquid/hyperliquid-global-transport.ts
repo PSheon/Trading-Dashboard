@@ -78,11 +78,21 @@ export class HyperliquidGlobalTransport {
   * background leaves the setups' share free (HYPERLIQUID_SETUP_REST_CAP), and
   * answers in how many ms that weight fits in the setup lane (0: now, and
   * the step's weight stays free for it while it runs). `key`: the setup's id
-  * (its earlier charges never count against its own share). Nothing is sent. */
- async claimSetup(weight:number,key?:string,observe?:(meter:HyperliquidMeterComposition)=>void):Promise<number>{
+  * (its earlier charges never count against its own share). Nothing is sent.
+  * `connects`: the step's socket connects, held with it. `queue`: only its
+  * place in the queue (while it still waits for its local bucket): never
+  * granted, nothing held. */
+ async claimSetup(weight:number,key?:string,observe?:(meter:HyperliquidMeterComposition)=>void,connects?:number,queue?:boolean):Promise<number>{
   if(this.isOriginal())fail('hyperliquid_quota_invalid');
   const budget=this.currentQuota();
-  return budget.claimSetupRest?budget.claimSetupRest(weight,this.now()+5000,key===undefined?undefined:setupLaneToken(key),observe):0;
+  return budget.claimSetupRest?budget.claimSetupRest(weight,this.now()+5000,key===undefined?undefined:setupLaneToken(key),observe,connects,queue):0;
+ }
+ /** A copy setup's step is over: what its granted claim still holds (`key`:
+  * the setup's id, as claimed) goes back to the shared window. */
+ async releaseSetup(key:string):Promise<void>{
+  if(this.isOriginal())fail('hyperliquid_quota_invalid');
+  const budget=this.currentQuota();
+  await budget.releaseSetupRest?.(setupLaneToken(key),this.now()+5000);
  }
  /** Runs work nobody waits for through clients shared with live or setup
   * work: its charges are background (runInBackgroundLane). */

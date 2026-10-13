@@ -10,7 +10,7 @@ import type { UnitOfWork,DbTransaction } from '../db/unit-of-work.js';
 import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from '../copy/live/postgres-live-risk-scope.js';
 import {LiveBoundaryError,type LiveNetwork} from '../copy/live/wallet-authorization.js';
 import {HyperliquidRestCapacityError,sharedRestRetryAfterMs} from './hyperliquid-capacity-error.js';
-import {BACKGROUND_REST_ID_PREFIX,PAGE_REST_ID_PREFIX,HYPERLIQUID_MAX_LIVE_DEMAND,HYPERLIQUID_MAX_SETTLEMENTS,LIVE_LANE_TOKEN,LIVE_REST_ID_PREFIX,liveDemandTicket,HYPERLIQUID_STALE_LEASE_RECLAIM_MS,SETUP_DEMAND_ID_PREFIX,SETUP_LANE_TOKEN,SETUP_REST_ID_PREFIX,hyperliquidLaneStatus,hyperliquidMeterComposition,planHyperliquidQuota,setupDemandTicket,quotaSubscription,type HyperliquidMeterComposition,type HyperliquidQuotaPlan,type HyperliquidRestLane,type HyperliquidQuotaLease,type HyperliquidQuotaRequest,type HyperliquidQuotaSubscription} from './hyperliquid-global-quota.js';
+import {BACKGROUND_REST_ID_PREFIX,PAGE_REST_ID_PREFIX,HYPERLIQUID_MAX_LIVE_DEMAND,HYPERLIQUID_MAX_SETUP_CONNECTS,HYPERLIQUID_MAX_SETTLEMENTS,LIVE_LANE_TOKEN,LIVE_REST_ID_PREFIX,liveDemandTicket,HYPERLIQUID_STALE_LEASE_RECLAIM_MS,SETUP_DEMAND_ID_PREFIX,SETUP_LANE_TOKEN,SETUP_REST_ID_PREFIX,hyperliquidLaneStatus,hyperliquidMeterComposition,planHyperliquidQuota,setupDemandTicket,quotaSubscription,type HyperliquidMeterComposition,type HyperliquidQuotaPlan,type HyperliquidRestLane,type HyperliquidQuotaLease,type HyperliquidQuotaRequest,type HyperliquidQuotaSubscription} from './hyperliquid-global-quota.js';
 import {freezeLiveReservation} from '../copy/live/live-risk-reservation.js';
 import {liveSourceDigest} from '../copy/live/copy-live-source-evidence.js';
 import {liveSpan} from '../copy/live/live-execution-diagnostics.js';
@@ -48,8 +48,13 @@ export interface BoundHyperliquidQuota {
    * ms that weight fits in the setup lane (0: now, and the claim is granted:
    * what the step still needs stays free for it). `token`
    * (setupLaneToken): the setup's; its own earlier charges never count
-   * against its share. Never in an original session. */
-  claimSetupRest?(weight:number,deadline:number,token?:string,observe?:(meter:HyperliquidMeterComposition)=>void):Promise<number>;
+   * against its share. Never in an original session. A granted claim holds
+   * its weight (and `connects` socket connects, with a token) in the window
+   * until its step's charges draw it, it is released, or
+   * HYPERLIQUID_SETUP_GRANT_HOLD_MS passes. */
+  claimSetupRest?(weight:number,deadline:number,token?:string,observe?:(meter:HyperliquidMeterComposition)=>void,connects?:number,queue?:boolean):Promise<number>;
+  /** A setup's step is over: what its grant still holds goes back. */
+  releaseSetupRest?(token:string,deadline:number):Promise<void>;
   /** A live order about to read its evidence and send (`weight`: what that
    * weighs), under its demand `token` (newLiveLaneToken): records its demand
    * (setups, background and unlabelled work leave what it still needs free
@@ -283,15 +288,19 @@ export class PostgresHyperliquidQuota {
         let map=this.settlements.get(binding.egressKey);if(!map){map=new Map();this.settlements.set(binding.egressKey,map);}
         if(map.size<256)map.set(id,{units,at:this.now()});
       }});
-    },claimSetupRest:async(weight:number,deadline:number,token?:string,observe?:(meter:HyperliquidMeterComposition)=>void)=>{
+    },claimSetupRest:async(weight:number,deadline:number,token?:string,observe?:(meter:HyperliquidMeterComposition)=>void,connects?:number,queue?:boolean)=>{
       if(session||!Number.isSafeInteger(weight)||weight<1||weight>1200||token!==undefined&&(typeof token!=='string'||!SETUP_LANE_TOKEN.test(token)))fail('hyperliquid_quota_invalid');
-      const id=token===undefined?`${SETUP_DEMAND_ID_PREFIX}${randomUUID()}`:setupDemandTicket(weight,token);let waitMs:number|undefined;
+      if(connects!==undefined&&(token===undefined||!Number.isSafeInteger(connects)||connects<1||connects>HYPERLIQUID_MAX_SETUP_CONNECTS))fail('hyperliquid_quota_invalid');
+      const id=token===undefined?`${SETUP_DEMAND_ID_PREFIX}${randomUUID()}`:setupDemandTicket(weight,token,connects);let waitMs:number|undefined;
       let meter:HyperliquidMeterComposition|undefined;
-      await this.apply(binding,(_now,sendUntil)=>({kind:'setup_demand',id,weight,sendUntil}),deadline,undefined,undefined,plan=>{waitMs=plan.waitMs;meter=plan.composition;});
+      await this.apply(binding,(_now,sendUntil)=>({kind:'setup_demand',id,weight,sendUntil,...(connects!==undefined?{connects}:{}),...(queue?{queue:true as const}:{})}),deadline,undefined,undefined,plan=>{waitMs=plan.waitMs;meter=plan.composition;});
       if(waitMs===undefined)fail('hyperliquid_quota_invalid');
       // Diagnostics only: an observer that throws never fails the claim.
       if(meter&&observe)try{observe(meter);}catch{/* diagnostics only */}
       return waitMs!;
+    },releaseSetupRest:async(token:string,deadline:number)=>{
+      if(session||typeof token!=='string'||!SETUP_LANE_TOKEN.test(token))fail('hyperliquid_quota_invalid');
+      await this.apply(binding,()=>({kind:'setup_release',token}),deadline);
     },claimLiveRest:async(weight:number,deadline:number,token:string)=>{
       if(session||!Number.isSafeInteger(weight)||weight<1||weight>HYPERLIQUID_MAX_LIVE_DEMAND||typeof token!=='string'||!LIVE_LANE_TOKEN.test(token))fail('hyperliquid_quota_invalid');
       const id=liveDemandTicket(weight,token);let waitMs:number|undefined;
@@ -301,7 +310,10 @@ export class PostgresHyperliquidQuota {
     },reserveSocket:async(deadline:number,network:LiveNetwork='testnet')=>{
       if(network!=='testnet'&&network!=='mainnet')fail('hyperliquid_quota_invalid');
       const id=randomUUID(),fenceToken=randomBytes(32).toString('hex'),socketId=randomUUID(),ownerId=binding.ownerId,source={leaseId:id,fenceToken,ownerId};
-      const freshConnect=await apply((now,sendUntil)=>({kind:'connect',id:randomUUID(),sendUntil,lease:{id,egressKey:binding.egressKey,socketId,fenceToken,ownerId,leaseUntil:now+60000,latestAllowedSendAt:sendUntil}}),deadline);
+      // A setup step's socket draws a connect its grant holds; a live one is never held back for a waiting setup.
+      const liveToken=liveLane.getStore(),setupToken=session||liveToken!==undefined?undefined:setupLane.getStore()?.token;
+      const owner={...(setupToken!==undefined?{setupToken}:{}),...(session||liveToken!==undefined?{live:true}:{})};
+      const freshConnect=await apply((now,sendUntil)=>({kind:'connect',id:randomUUID(),sendUntil,lease:{id,egressKey:binding.egressKey,socketId,fenceToken,ownerId,leaseUntil:now+60000,latestAllowedSendAt:sendUntil},...owner}),deadline);
       const connect=this.permit(freshConnect);let socket:WebSocket|undefined,connected=false,canceled=false,cleanup:Promise<unknown>=Promise.resolve(),prepaidClose:HyperliquidSendPermit|undefined,peerFinished=false,peerReleased=false,peerDurablyReleased=false,closeSent=false;
       let finishPeer!:(clean:boolean)=>void;const peerClosed=new Promise<boolean>(resolve=>{finishPeer=resolve;});
       let faulted=false,outstandingCommands=0;const activeSubscriptions=new Set<string>(),pendingUnsub=new Set<string>(),acknowledged=new Map<string,{receivedAt:number;raw:Readonly<Record<string,unknown>>}>(),cleanupAcknowledgements=new Map<string,{receivedAt:number;raw:Readonly<Record<string,unknown>>}>(),transportFault=()=>{if(faulted)return;faulted=true;void enqueue(()=>apply(()=>({kind:'uncertain',...source}))).catch(()=>{});};

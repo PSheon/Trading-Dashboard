@@ -60,6 +60,15 @@ export class CopyLiveSetupRepository {
       .where(and(eq(copyLiveSetups.id, row.id), eq(copyLiveSetups.revision, row.revision), sql`not exists (select 1 from ${copyLiveSetupAborts} a where a.setup_id = ${copyLiveSetups.id})`)).returning();
     return next ?? null;
   }
+  /** A wait's bookkeeping only (when to look again, the wait record), on the
+   * revision read: no new revision and no updatedAt, since nothing the setup
+   * is (stage, issue, attempts) changed. A concurrent step that moved the
+   * row wins; this then writes nothing (null). */
+  async defer(row: SetupRow, changes: { nextAttemptAt: Date; lastWait: SetupWait }): Promise<SetupRow | null> {
+    const [next] = await this.db.update(copyLiveSetups).set({ nextAttemptAt: changes.nextAttemptAt, lastWait: changes.lastWait })
+      .where(and(eq(copyLiveSetups.id, row.id), eq(copyLiveSetups.revision, row.revision), sql`not exists (select 1 from ${copyLiveSetupAborts} a where a.setup_id = ${copyLiveSetups.id})`)).returning();
+    return next ?? null;
+  }
   async aborted(userId: number, setupId: string): Promise<boolean> {
     const [row] = await this.db.select({ id: copyLiveSetupAborts.id }).from(copyLiveSetupAborts)
       .where(and(eq(copyLiveSetupAborts.userId, userId), eq(copyLiveSetupAborts.setupId, setupId))).limit(1);

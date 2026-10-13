@@ -3,6 +3,7 @@ import { CopyFundingExchangeClient, isFundingNotDispatched, consumeFundingNotDis
 import type { RequestBudgeterService } from "../src/hyperliquid/request-budgeter.service.js";
 import { HyperliquidGlobalTransport } from "../src/hyperliquid/hyperliquid-global-transport.js";
 import { LiveBoundaryError } from "../src/copy/live/wallet-authorization.js";
+import { classify, exhausted } from "../src/copy/live/error-class.js";
 import type { FundingRow } from "../src/copy/copy-funding.repository.js";
 import { RequestBudgeterService as RealRequestBudgeter } from "../src/hyperliquid/request-budgeter.service.js";
 import type { AppConfig } from "../src/config/app-config.js";
@@ -165,5 +166,30 @@ describe("strategy funding trusted transport", () => {
   it("never retries response loss", async () => {
     const fetcher = vi.fn(async () => { throw new Error("response lost"); }); vi.stubGlobal("fetch", fetcher);
     await expect(client().transport.send(op, signature)).rejects.toThrow("funding_submission_unknown"); expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("an explorer that can't be reached", () => {
+  const hash = `0x${"aa".repeat(32)}`;
+  const coded = (message: string, code: string) => Object.assign(new Error(message), { code });
+  it.each([
+    ["DNS", new TypeError("fetch failed", { cause: coded("getaddrinfo ENOTFOUND rpc.hyperliquid-testnet.xyz", "ENOTFOUND") })],
+    ["every address refused", new TypeError("fetch failed", { cause: Object.assign(new AggregateError([coded("connect ECONNREFUSED", "ECONNREFUSED")]), { code: "ECONNREFUSED" }) })],
+    ["connect timeout", new TypeError("fetch failed", { cause: coded("Connect Timeout Error", "UND_ERR_CONNECT_TIMEOUT") })],
+    ["the request's timeout", new DOMException("The operation was aborted due to timeout", "TimeoutError")],
+  ])("%s is funding_explorer_unreachable: a budget wait, never an attempt", async (_case, failure) => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw failure; }));
+    const error: unknown = await client().transport.txDetails("testnet", hash).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(LiveBoundaryError); expect(error).toMatchObject({ code: "funding_explorer_unreachable" });
+    expect(classify(error)).toEqual({ class: "budget", code: "funding_explorer_unreachable", source: "boundary" });
+    expect(exhausted(classify(error), 99, 3)).toBe(false);
+  });
+  it("only the network is unreachability: an answer of any status, or another failure, keeps its own error", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("down", { status: 503 })));
+    await expect(client().transport.txDetails("testnet", hash)).rejects.toThrow("Funding evidence unavailable");
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Cannot read properties of undefined"); }));
+    await expect(client().transport.txDetails("testnet", hash)).rejects.toThrow(TypeError);
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("fetch failed", { cause: coded("getaddrinfo EAI_AGAIN", "EAI_AGAIN") }); }));
+    await expect(client().transport.txDetails("testnet", hash)).rejects.toMatchObject({ code: "funding_explorer_unreachable" });
   });
 });

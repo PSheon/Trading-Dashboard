@@ -60,6 +60,11 @@ export interface SetupSigner {
 /** Why a start can't go on without the worker signer (the owner declined
  * Privy's addSigners, or it timed out): nothing was deposited. */
 const WORKER_SIGNER_MISSING = 'Orbie needs to add its signer to run this copy. Nothing was deposited and the copy did not start.';
+/** A setup waiting for its deposit's credit looks again after
+ * pendingMs × 2^(waits − 1), at most this: an explorer or ledger that can't be
+ * reached is not polled every pass (a local setup reached revision 12716 in
+ * 14 h, 2026-10-12). Only the credit (the stage moving on) resets it. */
+export const AWAITING_CREDIT_MAX_WAIT_MS = 60_000;
 /** Failures that are the deadline passing (the setup ends `expired`). */
 const EXPIRED_ISSUES: readonly string[] = ['setup_expired', 'setup_deposit_uncredited'];
 /** A step can't go on yet (a lookup is pending, or a signature is due): a
@@ -666,6 +671,7 @@ export class CopyLiveSetupService {
       (await this.repository.transition(row, { stage: EXPIRED_ISSUES.includes(code) ? 'expired' : 'failed', issue: code, nextAttemptAt: null, ...changes })) ?? row;
     switch (classified.class) {
       case 'budget': {
+        if (error instanceof StepWait && error.issue === 'awaiting_credit') return this.awaitCredit(row, now);
         const retryMs = classified.retryAfterMs ?? retry.pendingMs;
         if (!(error instanceof HyperliquidBudgetWait)) return (await this.repository.transition(row, { issue, nextAttemptAt: new Date(now + retryMs) })) ?? row;
         const waits = (row.lastWait?.step === row.stage ? row.lastWait.waits ?? 0 : 0) + 1;
@@ -686,6 +692,22 @@ export class CopyLiveSetupService {
         return (await this.repository.transition(row, { issue, attempts, nextAttemptAt: new Date(now + backoff) })) ?? row;
       }
     }
+  }
+  /**
+   * The deposit is not credited yet: look again after a wait that doubles
+   * each pass of this stage (AWAITING_CREDIT_MAX_WAIT_MS at most), counted
+   * on the row (lastWait.waits) so a restart keeps it. Never an attempt. The
+   * first wait sets the issue (a change: a new revision); every later one is
+   * bookkeeping only (defer: no revision, no updatedAt).
+   */
+  private async awaitCredit(row: SetupRow, now: number): Promise<SetupRow> {
+    const prior = row.lastWait?.step === row.stage && row.lastWait.reason === 'awaiting_credit' ? row.lastWait : null;
+    const waits = (prior?.waits ?? 0) + 1;
+    const retryMs = Math.min(AWAITING_CREDIT_MAX_WAIT_MS, this.timings.retry.pendingMs * 2 ** Math.min(waits - 1, 16));
+    const lastWait: SetupWait = { at: new Date(now).toISOString(), step: row.stage, reason: 'awaiting_credit', retryMs, waits };
+    const nextAttemptAt = new Date(now + retryMs);
+    if (row.issue !== 'awaiting_credit') return (await this.repository.transition(row, { issue: 'awaiting_credit', nextAttemptAt, lastWait })) ?? row;
+    return (await this.repository.defer(row, { nextAttemptAt, lastWait })) ?? row;
   }
   private async move(row: SetupRow, stage: SetupStage, changes: Partial<SetupRow> = {}): Promise<SetupRow> {
     const next = await this.repository.transition(row, { stage, issue: null, attempts: 0, nextAttemptAt: null, ...changes });

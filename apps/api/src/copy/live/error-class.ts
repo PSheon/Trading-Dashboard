@@ -48,6 +48,10 @@ const BUDGET_CODES: ReadonlyMap<string, number | undefined> = new Map([
   ['hyperliquid_quota_exhausted', SHARED_CAPACITY_RETRY_MS],
   // 64 waiters already queue on the shared meter.
   ['hyperliquid_quota_queue_full', undefined],
+  // The explorer (txDetails) could not be reached: DNS, connect or timeout
+  // (networkUnreachable). Nothing was learned and nothing is wrong with the
+  // operation: it waits, backed off per row, and never counts as an attempt.
+  ['funding_explorer_unreachable', undefined],
 ]);
 /** No retry helps until the configuration changes. */
 const PERMANENT_CODES: ReadonlySet<string> = new Set([
@@ -66,6 +70,29 @@ const UNKNOWN_OUTCOME_CODES: ReadonlySet<string> = new Set([
   'cancel_signing_ambiguous', 'non_ioc_partial_fill_requires_reconciliation',
 ]);
 const CODE = /^[a-z][a-z0-9_]{2,79}$/;
+/** Network codes that mean the host was never reached or never answered
+ * (Node's resolver and sockets, undici's connect and header timeouts). */
+const UNREACHABLE_CODES: ReadonlySet<string> = new Set([
+  'ENOTFOUND', 'EAI_AGAIN', 'EAI_FAIL', 'EAI_NONAME', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH', 'ENETDOWN', 'EPIPE',
+  'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT', 'UND_ERR_SOCKET', 'UND_ERR_CLOSED',
+]);
+
+/**
+ * Whether a fetch failed because the host could not be reached: a DNS
+ * failure, a refused or reset connection, or a timeout (the request's
+ * AbortSignal.timeout or undici's own). Looks through `cause` (fetch wraps
+ * the socket error in `TypeError: fetch failed`) and an AggregateError's
+ * errors (every address refused). An HTTP answer of any status, a refused
+ * budget or a bad body is not unreachability.
+ */
+export function networkUnreachable(error: unknown, depth = 0): boolean {
+  if (!error || typeof error !== 'object' || depth > 4) return false;
+  const { name, code, cause } = error as { name?: unknown; code?: unknown; cause?: unknown };
+  if (name === 'TimeoutError') return true;
+  if (typeof code === 'string' && UNREACHABLE_CODES.has(code)) return true;
+  if (error instanceof AggregateError && error.errors.some(inner => networkUnreachable(inner, depth + 1))) return true;
+  return networkUnreachable(cause, depth + 1);
+}
 
 /** The error's own code and where it came from (see ErrorClassification.code). */
 function own(error: unknown): Pick<ErrorClassification, 'code' | 'source'> {

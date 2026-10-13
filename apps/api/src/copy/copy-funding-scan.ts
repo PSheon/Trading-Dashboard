@@ -6,6 +6,14 @@ export const FUNDING_NONCE_SKEW_MS = 86_400_000;
  * T + 1 day)"): a transfer signed with an older nonce can no longer execute.
  * An hour of margin on top. */
 export const FUNDING_NONCE_EXPIRY_MS = 2 * 86_400_000 + 3_600_000;
+/** A confirmation pass that failed (the explorer or the ledger unreachable,
+ * the budget refused) waits base × 2^(failures − 1) before the row's next
+ * background pass, at most the cap. Kept on the row (scan_state.backoff), so
+ * a restart or another replica honours it too. */
+export const FUNDING_BACKOFF_BASE_MS = 3_000;
+export const FUNDING_BACKOFF_MAX_MS = 60_000;
+export const fundingBackoffMs = (failures: number): number =>
+  Math.min(FUNDING_BACKOFF_MAX_MS, FUNDING_BACKOFF_BASE_MS * 2 ** Math.min(Math.max(failures, 1) - 1, 16));
 const hash = z.string().regex(/^0x[0-9a-f]{64}$/);
 const time = z.number().int().nonnegative().safe();
 const units = z.string().max(32).regex(/^\d+(?:\.\d{1,6})?$/);
@@ -28,6 +36,10 @@ export const fundingScanSchema = z.object({
   /** Already-read ledger evidence awaiting explorer details. A quota failure
    * resumes here after restart instead of paying for the ledger again. */
   pendingDetails: z.array(z.object({ hash, ledger: z.array(ledgerRow).min(1).max(2) }).strict()).max(5).optional(),
+  /** Consecutive failed passes and when the next background pass is due
+   * (fundingBackoffMs). Bookkeeping only: written without a scan revision,
+   * cleared by the next pass that reads anything. */
+  backoff: z.object({ failures: z.number().int().positive().max(1_000_000), nextAt: time }).strict().optional(),
 }).strict();
 export type FundingScan = z.infer<typeof fundingScanSchema>;
 

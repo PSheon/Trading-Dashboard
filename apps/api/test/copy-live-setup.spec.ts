@@ -275,7 +275,8 @@ describe('one-click testnet copy setup', () => {
     expect(fakes.funding.submit.mock.calls[0]![3]).toEqual({ liveSetupId: setup.id });
     later(5_000); expect(await service.tick()).toBe(1);
     expect((await service.get(uid, setup.id))).toMatchObject({ stage: 'funding_submitted', issue: 'awaiting_credit' });
-    await credit(); later(5_000);
+    // The credit is looked for at most a minute later (the wait backs off).
+    await credit(); later(60_000);
     await service.tick();
     const done = await service.get(uid, setup.id);
     expect(done).toMatchObject({ stage: 'running' });
@@ -1363,4 +1364,48 @@ it('mainnet advertises abort only when execution and the policy signer are avail
   expect(new CopyLiveSetupAbortService(...args).available).toBe(true);
   signer.available = false;
   expect(new CopyLiveSetupAbortService(...args).available).toBe(false);
+});
+
+describe('a setup awaiting its credit backs off (an unreachable explorer, 2026-10-12: revision 12716 in 14 h)', () => {
+  const current = async () => (await db.select().from(copyLiveSetups))[0]!;
+  async function awaiting() {
+    // The confirm drives the setup at once: its first wait.
+    const setup = await start();
+    expect(await service.confirm(uid, setup.id, await sign(setup.consent!))).toMatchObject({ stage: 'funding_submitted', issue: 'awaiting_credit' });
+    return setup;
+  }
+  it('waits 3 s, doubling each pass up to 60 s; never an attempt; one revision for the issue and none for each wait', async () => {
+    await awaiting();
+    const first = await current();
+    expect(first).toMatchObject({ stage: 'funding_submitted', issue: 'awaiting_credit', attempts: 0, lastWait: { step: 'funding_submitted', reason: 'awaiting_credit', retryMs: 3_000, waits: 1 } });
+    expect(first.nextAttemptAt!.getTime()).toBe(clock + 3_000);
+    const waits: number[] = [];
+    for (let i = 0; i < 7; i++) {
+      later(60_000); expect(await service.tick()).toBe(1);
+      const row = await current();
+      waits.push(row.nextAttemptAt!.getTime() - clock);
+      expect(row).toMatchObject({ stage: 'funding_submitted', issue: 'awaiting_credit', revision: first.revision, attempts: 0, updatedAt: first.updatedAt, lastWait: { waits: i + 2 } });
+    }
+    expect(waits).toEqual([6_000, 12_000, 24_000, 48_000, 60_000, 60_000, 60_000]);
+  });
+  it('is not driven before its wait is due; the credit resets it: the setup moves on and waits no more', async () => {
+    const setup = await awaiting();
+    later(3_000); await service.tick(); later(6_000); await service.tick();
+    expect((await current()).nextAttemptAt!.getTime()).toBe(clock + 12_000);
+    later(11_000); expect(await service.tick()).toBe(0);
+    await credit(); later(1_000); expect(await service.tick()).toBe(1);
+    expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'running', issue: null });
+    expect(await current()).toMatchObject({ attempts: 0, nextAttemptAt: null });
+  });
+  it('survives a restart: a new service instance keeps the wait the row holds', async () => {
+    await awaiting();
+    for (const ms of [3_000, 6_000, 12_000]) { later(ms); await service.tick(); }
+    const before = await current();
+    expect(before.nextAttemptAt!.getTime()).toBe(clock + 24_000);
+    fakes = build();
+    later(10_000); expect(await service.tick()).toBe(0);
+    expect(await current()).toMatchObject({ revision: before.revision, nextAttemptAt: before.nextAttemptAt, lastWait: before.lastWait });
+    later(14_000); expect(await service.tick()).toBe(1);
+    expect(await current()).toMatchObject({ revision: before.revision, attempts: 0, lastWait: { waits: 5, retryMs: 48_000 } });
+  });
 });

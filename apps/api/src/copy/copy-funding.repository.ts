@@ -42,11 +42,14 @@ export class CopyFundingRepository {
     return row;
   }
   /** Fair bounded read-reconciliation admission across worker replicas. The
-   * lease never grants submission rights or changes the transfer status. */
+   * lease never grants submission rights or changes the transfer status. A
+   * row backing off (scan_state.backoff.nextAt, epoch ms, still ahead) is not
+   * due: neither read nor leased (no write) until then. */
   claimPending(limit: number) {
     return this.db.transaction(async (tx) => {
       const rows = await tx.select().from(copyFundingOperations)
-        .where(and(inArray(copyFundingOperations.status, ["unknown", "accepted"]), sql`${copyFundingOperations.attemptedAt} is not null`, sql`${copyFundingOperations.updatedAt} < now() - interval '30 seconds'`))
+        .where(and(inArray(copyFundingOperations.status, ["unknown", "accepted"]), sql`${copyFundingOperations.attemptedAt} is not null`, sql`${copyFundingOperations.updatedAt} < now() - interval '30 seconds'`,
+          sql`(case when jsonb_typeof(${copyFundingOperations.scanState}->'backoff'->'nextAt') = 'number' then (${copyFundingOperations.scanState}->'backoff'->>'nextAt')::float8 else 0 end) <= extract(epoch from now()) * 1000`))
         .orderBy(copyFundingOperations.updatedAt).limit(Math.min(Math.max(limit, 1), 5)).for("update", { skipLocked: true });
       if (!rows.length) return [];
       return tx.update(copyFundingOperations).set({ updatedAt: new Date() }).where(inArray(copyFundingOperations.id, rows.map((row) => row.id))).returning();
@@ -211,6 +214,15 @@ export class CopyFundingRepository {
   }
   async saveScan(operation: FundingRow, scanState: FundingScan | null) {
     const [row] = await this.db.update(copyFundingOperations).set({ scanState, scanRevision: sql`${copyFundingOperations.scanRevision} + 1`, updatedAt: new Date() })
+      .where(and(eq(copyFundingOperations.id, operation.id), eq(copyFundingOperations.userId, operation.userId), eq(copyFundingOperations.scanRevision, operation.scanRevision), inArray(copyFundingOperations.status, ["unknown", "accepted"]), sql`${copyFundingOperations.attemptedAt} is not null`)).returning();
+    return row ?? null;
+  }
+  /** A failed pass's backoff (and explorer health) on the scan the pass
+   * read, as bookkeeping: no new scan revision and no updatedAt, so nothing
+   * that compares either sees a change. Only while the scan is still the one
+   * read (`operation.scanRevision`): a pass that saved evidence meanwhile wins. */
+  async saveBackoff(operation: FundingRow, scanState: FundingScan) {
+    const [row] = await this.db.update(copyFundingOperations).set({ scanState })
       .where(and(eq(copyFundingOperations.id, operation.id), eq(copyFundingOperations.userId, operation.userId), eq(copyFundingOperations.scanRevision, operation.scanRevision), inArray(copyFundingOperations.status, ["unknown", "accepted"]), sql`${copyFundingOperations.attemptedAt} is not null`)).returning();
     return row ?? null;
   }

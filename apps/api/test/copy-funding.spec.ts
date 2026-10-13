@@ -387,3 +387,54 @@ describe("durable strategy funding", () => {
     await expect(reserve()).rejects.toThrow("pending"); expect(exchange.send).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("a confirmation whose explorer can't be reached (backoff per row)", () => {
+  const unreachable = () => new LiveBoundaryError("funding_explorer_unreachable");
+  type Backoff = { failures: number; nextAt: number };
+  const scanOf = async (id: string) => (await repository.find(userId, id)).scanState as ({ backoff?: Backoff } & Record<string, unknown>) | null;
+  it("doubles the row's wait on each failed read up to 60 s, with no new scan revision or updatedAt; a credit clears it", async () => {
+    const op = await attempted(); receipt(op);
+    exchange.txDetails.mockRejectedValue(unreachable());
+    await expect(service.reconcile(userId, op.id)).rejects.toThrow("Funding confirmation unavailable");
+    // The ledger read is real progress (its checkpoint is a revision); the explorer failure is not.
+    const settled = await repository.find(userId, op.id);
+    expect(settled.scanState).toMatchObject({ pendingDetails: [{ hash: HASH }], backoff: { failures: 1 } });
+    const waits: number[] = [];
+    for (let i = 0; i < 7; i++) {
+      const now = Date.now(); const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+      await expect(service.reconcile(userId, op.id)).rejects.toThrow("Funding confirmation unavailable");
+      clock.mockRestore();
+      const row = await repository.find(userId, op.id), backoff = (row.scanState as { backoff: Backoff }).backoff;
+      expect(backoff.failures).toBe(i + 2);
+      waits.push(backoff.nextAt - now);
+      expect(row.scanRevision).toBe(settled.scanRevision); expect(row.updatedAt).toEqual(settled.updatedAt);
+    }
+    expect(waits).toEqual([6_000, 12_000, 24_000, 48_000, 60_000, 60_000, 60_000]);
+    expect(info.userNonFundingLedgerUpdates).toHaveBeenCalledTimes(1);
+    // The explorer answers again: the receipt is proven, the deposit credited, the backoff gone.
+    receipt(op);
+    expect((await service.reconcile(userId, op.id)).status).toBe("credited");
+    expect(await scanOf(op.id)).not.toHaveProperty("backoff");
+  });
+  it("survives a restart: a new instance's background pass neither leases nor reads a row backing off until it is due", async () => {
+    const op = await attempted(); receipt(op);
+    exchange.txDetails.mockRejectedValue(unreachable());
+    await expect(service.reconcile(userId, op.id)).rejects.toThrow();
+    // Old enough for the monitor's lease: only the backoff holds it back.
+    const old = new Date(Date.now() - 60_000);
+    await db.update(copyFundingOperations).set({ updatedAt: old }).where(eq(copyFundingOperations.id, op.id));
+    const restarted = new CopyFundingService(testConfig(), repository, {} as never, exchange as never, info as never);
+    expect(await restarted.reconcilePending()).toBe(0);
+    expect((await repository.find(userId, op.id)).updatedAt).toEqual(old);
+    // Even handed the row (another replica's claim), the pass leaves it alone while it backs off.
+    vi.spyOn(repository, "claimPending").mockResolvedValueOnce([await repository.find(userId, op.id)]);
+    expect(await restarted.reconcilePending()).toBe(1);
+    expect(exchange.txDetails).toHaveBeenCalledTimes(1);
+    // Due: read again (failing again: one more failure).
+    const scan = (await scanOf(op.id))!;
+    await db.update(copyFundingOperations).set({ scanState: { ...scan, backoff: { failures: 1, nextAt: Date.now() - 1 } } }).where(eq(copyFundingOperations.id, op.id));
+    expect(await restarted.reconcilePending()).toBe(1);
+    expect(exchange.txDetails).toHaveBeenCalledTimes(2);
+    expect(await scanOf(op.id)).toMatchObject({ backoff: { failures: 2 } });
+  });
+});

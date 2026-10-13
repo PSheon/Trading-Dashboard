@@ -19,7 +19,7 @@ import { CopyWalletService } from "./copy-wallet.service.js";
 import { CopyFundingRepository, type FundingRow, type FundingSender } from "./copy-funding.repository.js";
 import { CopyFundingExchangeClient } from "./copy-funding-exchange.client.js";
 import { fundingCreditEvidence, fundingOtherOperation } from "./copy-funding-evidence.js";
-import { FUNDING_NONCE_SKEW_MS, FUNDING_NONCE_EXPIRY_MS, fundingScanSchema, fundingDetailBatch, type FundingScan } from "./copy-funding-scan.js";
+import { FUNDING_NONCE_SKEW_MS, FUNDING_NONCE_EXPIRY_MS, fundingBackoffMs, fundingScanSchema, fundingDetailBatch, type FundingScan } from "./copy-funding-scan.js";
 
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 /** An operator's ledger read: a full page reads on (oldest first), at most
@@ -152,7 +152,7 @@ export class CopyFundingService {
     const operations = await this.repository.claimPending(5);
     for (const operation of operations) {
       // Kept pending for the next bounded check; why, for the log.
-      try { await this.confirm(operation); } catch (error) { this.logger.warn(`transfer ${operation.id} not confirmed yet: ${safeErrorText(error)}`); }
+      try { await this.confirm(operation, true); } catch (error) { this.logger.warn(`transfer ${operation.id} not confirmed yet: ${safeErrorText(error)}`); }
     }
     return operations.length;
   }
@@ -228,9 +228,17 @@ export class CopyFundingService {
     this.logger.warn(`transfer ${id} resolved by operator: ${resolved.status} (${body.evidence})`);
     return { id, status: resolved.status === "credited" ? "credited" : "rejected", evidence: body.evidence };
   }
-  private async confirm(operation: FundingRow) {
+  /** `background` (the monitor's pass) skips a row still backing off
+   * (scan_state.backoff): a restart or another replica honours the wait
+   * another pass recorded. An owner's own lookup is not held back. */
+  private async confirm(operation: FundingRow, background = false) {
     const { userId, id } = operation;
     if (!["unknown", "accepted"].includes(operation.status) || !operation.attemptedAt) return wire(operation);
+    if (background) {
+      // Not cached as a lookup: the row is simply not due yet.
+      const backoff = fundingScanSchema.safeParse(operation.scanState).data?.backoff;
+      if (backoff && backoff.nextAt > Date.now()) return wire(operation);
+    }
     try {
       return await this.lookups.get(id, async () => {
         // Each cycle freezes its upper bound. Cursor/remainder and positive
@@ -240,6 +248,12 @@ export class CopyFundingService {
         const cycleEnd = Math.max(start, Date.now());
         const scan: FundingScan = parsed.success ? parsed.data : { version: 1, windows: [{ start, end: cycleEnd }], receipts: [], cycleEnd };
         let current = operation;
+        // A provider read that fails records the row's backoff on the scan as
+        // it stands (the one saved at `current`'s revision: each read runs
+        // before this pass changes anything after its last checkpoint).
+        const read = async <T>(work: () => Promise<T>): Promise<T> => {
+          try { return await work(); } catch (error) { await this.backoff(current, scan, error); throw error; }
+        };
         if (!scan.windows.length && !scan.pendingDetails?.length) {
           if (scan.receipts.length === 1) return wire(await this.repository.credit(userId, id, scan.receipts[0]!, digest(scan.receipts[0]), operation.scanRevision));
           return wire(await this.repository.find(userId, id)); // Ambiguous evidence stays pending.
@@ -249,7 +263,9 @@ export class CopyFundingService {
           // A copy account's ledger is on the wallet network: its own budget, so
           // a testnet 429 never halves the mainnet budget.
           const info = operation.network === this.config.value.hyperliquid.wallet.network ? this.walletNetwork?.info ?? this.info : this.info;
-          const rows = await info.userNonFundingLedgerUpdates(operation.destination, window.start, window.end, "live", PAGE_RANK.fills, url);
+          const rows = await read(() => info.userNonFundingLedgerUpdates(operation.destination, window.start, window.end, "live", PAGE_RANK.fills, url));
+          // A read answered: whatever this pass saves next ends the backoff.
+          delete scan.backoff;
           if (rows.length >= MAX_LIST_ITEMS) {
             // Temporal subdivision works whether the provider caps earliest or
             // latest records. Never infer completeness from a capped response.
@@ -278,7 +294,8 @@ export class CopyFundingService {
         }
         while (scan.pendingDetails?.length) {
           const pending = scan.pendingDetails[0]!;
-          const details = await this.exchange.txDetails(operation.network, pending.hash);
+          const details = await read(() => this.exchange.txDetails(operation.network, pending.hash));
+          delete scan.backoff;
           const proof = fundingCreditEvidence(operation, pending.hash, details, pending.ledger);
           if (proof && !scan.receipts.some((receipt) => digest(receipt) === digest(proof)) && scan.receipts.length < 2) scan.receipts.push(proof);
           // Its details prove another operation between the same accounts
@@ -309,5 +326,13 @@ export class CopyFundingService {
       this.logger.warn(`transfer ${id} confirmation unavailable: ${safeErrorText(error)}`);
       throw new BadGatewayException("Funding confirmation unavailable");
     }
+  }
+  /** A failed read's backoff (fundingBackoffMs), kept on the row without a
+   * new scan revision: one more failure, the next background pass due after
+   * it. Bookkeeping only, so its own failure never hides the read's. */
+  private async backoff(current: FundingRow, scan: FundingScan, error: unknown) {
+    const failures = (scan.backoff?.failures ?? 0) + 1, nextAt = Date.now() + fundingBackoffMs(failures);
+    try { await this.repository.saveBackoff(current, { ...structuredClone(scan), backoff: { failures, nextAt } }); }
+    catch (saveError) { this.logger.warn(`transfer ${current.id} backoff not kept (${safeErrorText(saveError)}) after: ${safeErrorText(error)}`); }
   }
 }

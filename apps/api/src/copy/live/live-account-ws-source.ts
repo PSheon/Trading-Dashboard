@@ -9,6 +9,7 @@ import {HyperliquidGlobalTransport} from '../../hyperliquid/hyperliquid-global-t
 import {quotaSubscription} from '../../hyperliquid/hyperliquid-global-quota.js';
 import type {HyperliquidSocketQuota,HyperliquidCommandPermit} from '../../hyperliquid/postgres-hyperliquid-quota.js';
 import {liveSpan,timedLiveSpan} from './live-execution-diagnostics.js';
+import { clockSkew, type ClockSkewMonitor } from './clock-skew.js';
 
 export interface LiveAllDexsStateEvidence {
   readonly network: HyperliquidNetwork; readonly accountAddress: string; readonly observedAt: number; readonly data: unknown;
@@ -129,9 +130,31 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
      * venue: 270 WS units for 268 dexes instead of 538, and no unsubscribe
      * round trips. For a source whose reads are occasional (the api's
      * account-mode absence proof); a new socket per read. */
-    private readonly options:{readonly closeAfterRead?:boolean}={}) {
+    private readonly options:{readonly closeAfterRead?:boolean;
+      /** Where this source's clock samples go (default: the process's ClockSkewMonitor). */
+      readonly clock?:Pick<ClockSkewMonitor,'observe'>}={}) {
     if (!isHyperliquidNetwork(network)) fail('live_account_source_mismatch');
     if(global!==undefined&&!(global instanceof HyperliquidGlobalTransport))fail('live_account_source_mismatch');
+  }
+
+  /**
+   * One clock sample per all-venue state message: our clock when the frame
+   * arrived (taken first in the socket's message handler, before parsing)
+   * minus the latest provider `time` in it. Only socket frames are sampled,
+   * outside the meter and the budget: a sample taken once the whole read was
+   * validated carried every wait after the frame (the order batches, the
+   * meter's queue) and inflated the estimate (2026-10-13 08:22: "ahead by
+   * about 3748 ms" with the host in sync to 0.1 s), which then shrank the
+   * fast source's certified window and alerted for nothing.
+   */
+  private sampleClock(data: unknown, receivedAt: number): void {
+    try {
+      const states = (data as { clearinghouseStates?: unknown })?.clearinghouseStates;
+      if (!Array.isArray(states)) return;
+      let latest = 0;
+      for (const row of states) { const time = Array.isArray(row) ? (row[1] as { time?: unknown } | undefined)?.time : undefined; if (typeof time === 'number' && Number.isSafeInteger(time) && time > latest) latest = time; }
+      if (latest > 0) (this.options.clock ?? clockSkew).observe(latest, receivedAt);
+    } catch { /* a sample is diagnostics only */ }
   }
 
   private reserve(count: number): void {
@@ -218,6 +241,7 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
         open = () => { try { this.send(socket!,{ method: 'subscribe',
           subscription: { type: 'allDexsClearinghouseState', user } },permit); } catch (error) { note('state subscribe not sent')(error); deny(); } };
         message = (raw) => {
+          const receivedAt = this.now();
           try {
             bytes += Buffer.byteLength(String(raw)); frames++;
             if (bytes > 16 * 1024 * 1024 || frames > 4000) { deny('live_account_unbounded_evidence'); return; }
@@ -236,6 +260,7 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
             if (!acknowledged) { deny('live_account_order_ack_missing'); return; }
             if (typeof payload.data?.user !== 'string' || address(payload.data.user) !== user) { deny('live_account_source_mismatch'); return; }
             if (phase === 'unsubscribe') return;
+            this.sampleClock(payload.data, receivedAt);
             evidence = { network: this.network, accountAddress: user, observedAt, data: payload.data };
             phase = 'unsubscribe'; this.send(socket!,{ method: 'unsubscribe', subscription: { type: 'allDexsClearinghouseState', user } },permit);
           } catch (error) { note('account frame refused')(error); deny(); }
@@ -335,6 +360,7 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
         open = next;
         message = (raw) => {
           if (stopped) return;
+          const receivedAt = this.now();
           try {
             bytes += Buffer.byteLength(String(raw));
             frames++;
@@ -359,6 +385,7 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
               if (typeof payload.data?.user !== 'string' || address(payload.data.user) !== user) { deny('live_account_source_mismatch'); return; }
               if (statePhase !== 'subscribe') return;
               first();
+              this.sampleClock(payload.data, receivedAt);
               state = { network: this.network, accountAddress: user, observedAt, data: payload.data };
               if (unsubscribes) { statePhase = 'unsubscribe'; sendState('unsubscribe'); } else { statePhase = 'done'; finish(); }
             } else if (payload.channel === 'openOrders') {

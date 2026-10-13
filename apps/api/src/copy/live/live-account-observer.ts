@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import { safeErrorText } from '../../runtime/safe-error-text.js';
-import { clockSkew, providerTimeNotAfter } from './clock-skew.js';
+import { providerTimeNotAfter } from './clock-skew.js';
 import { z } from 'zod';
 import { isHyperliquidNetwork, WALLET_NETWORKS, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { HyperliquidAllDexsAccountSource, type LiveAllDexsAccountSource, type LiveAllDexsOrderEvidence } from './live-account-ws-source.js';
@@ -345,7 +345,8 @@ export class HyperliquidLiveAccountObserver {
         const pending = leader ? [] : allOrders ? ordersSchema.parse(allOrders.get(venue.dex))
           : supported.has(venue.dex) ? ordersSchema.parse(await read('frontendOpenOrders', 20, { user, ...scope })) : [];
         // Hyperliquid's own time: within PROVIDER_CLOCK_SKEW_MS ahead of ours.
-        this.freshProvider(state.time); clockSkew.observe(state.time, this.now());
+        // The clock is sampled where the frame arrived (HyperliquidAllDexsAccountSource), not here.
+        this.freshProvider(state.time);
         unique(meta.universe.map((m) => m.name)); unique(state.assetPositions.map((p) => p.position.coin));
         const collateral = tokens.find((t) => t.index === meta.collateralToken);
         if (!collateral) fail('live_account_unsupported_collateral');

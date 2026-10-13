@@ -434,3 +434,42 @@ Each step can be deployed alone.
 - `apps/api/src/copy/copy-account-mode-evidence.ts`
 - `apps/api/src/hyperliquid/hyperliquid-global-transport.ts` (with `postgres-hyperliquid-quota.ts:24-66`, the seam for the in-memory backend)
 - `apps/api/src/app.module.ts` and `apps/api/src/bootstrap/worker.bootstrap.ts` (with `runtime/worker-lease.ts`, `worker/worker.module.ts`, `copy/copy-live-setup.service.ts:469-600`)
+
+---
+
+## 8. Revisions after review (2026-10-14, reviewer tracker §I) — override §1–§7 where they differ
+
+**Facts found after the draft**
+- **I-1 Mainnet has 11 perp dexes, testnet has 270.** The reviewer queried `perpDexs` on 10-14. A full-venue scan on mainnet is about 11 subscriptions and 14 messages, so §1 (scoping, V1–V4, shadow, audit, `T_db`) is a testnet-harness problem, not a mainnet one. **§1 moves off the mainnet critical path.** The testnet subscription overflow (1076 > 1000) is solved by the role split instead: once snapshots move to B, A carries the order (538) and the setup (269), 807 in total.
+- **Railway static egress (checked with the Railway API, workspace plan PRO, Stage environment).**
+  - Neither api nor worker has an egress gateway today, so both use the default shared egress.
+  - The static-egress *preview* is **the same for both services**: HA `208.77.246.240/.241/.242` (sin, eqsg3a), legacy `208.77.246.15`.
+  - So Railway static egress is a regional gateway, **not a per-service dedicated IP**. It is very likely shared with other Railway tenants in that region.
+  - **Distinct, dedicated IPs for A and B therefore need our own forward proxy VMs** (§3 fallback), each with its own static IPv4. Run one per role, near Tokyo. That becomes the plan, not the fallback.
+  - The default and the gateway egress may also carry other tenants' Hyperliquid traffic. This makes risk 7 concrete: some 429s or capacity loss may not be ours, and only our own IPs remove it.
+
+**Design changes**
+- **I-7 Phase 2.2 (internal HMAC HTTP for owner POSTs) is deleted.** Browser-signed `usdSend`/`withdraw3`/return use the owner's own signer nonce space, weigh 1 each, and stay on the api's egress. Only agent-signed actions must run on A, and those are already worker-driven DB rows. This removes risk 6. Paul also accepted the alternative ("busy, retry later" while worker-copy restarts), so either way is acceptable.
+- **I-3** A setup's absence proof never becomes "history empty". Non-empty history means a full scan, not a refusal. Settings mode switches act on existing wallets that may have traded before.
+- **I-2/I-4/I-5** These apply if §1 is ever built:
+  - the baseline must be the WS initial snapshot (no REST baseline);
+  - V3 must prove the list is a contiguous tail under its sort key;
+  - a missing `T_db` forces a full scan;
+  - `T_db` only ever grows.
+- **I-6** Scheduler floors apply only while no live bundle is waiting. Mandate-activation pre-warm (first order pays 69, not 589) moves into Phase 2.
+- **I-8** A standby worker-copy sends nothing to Hyperliquid until it holds lease 1. Add a worker-smoke check: the standby makes zero HL calls.
+- **I-9** After Phase 2.3 the scheduler keeps its own persisted send log (or A's meter rows stay as a log only), so startup seeding has a source.
+
+**Revised mainnet critical path (I-10)**
+1. 1a-3 role split (`WORKER_ROLE`, two leases, WatcherModule split): about 3 days.
+2. 1a-4 setup drive and API terminal settlement move to worker-copy (NOTIFY): about 2 days.
+3. 1b egress split: two proxy VMs with static IPv4 (A for worker-copy, B for worker-read), distinct `HYPERLIQUID_EGRESS_KEY`, the identity guard. About 1–2 days, including the VMs.
+
+Result: one process on A (setup and first order share a cache, and the local-bucket split problem disappears), snapshots and background off A, and no strangers on A.
+Then Phase 2 (in-memory scheduler). §1 scoping and Phase 3 (node) come after mainnet.
+
+**Paul's answers to §7 (2026-10-14)**
+- Q1 static IPs: check with the Railway CLI. Done above: not per-service, so proxy VMs.
+- Q3 owner POSTs refused while worker-copy restarts: acceptable. Moot after I-7.
+- Q4 V1–V4 testnet experiments: allowed (only needed if §1 is built).
+- Q2, Q5–Q8: still open.

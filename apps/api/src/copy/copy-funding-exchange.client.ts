@@ -91,7 +91,7 @@ export class CopyFundingExchangeClient {
     let dispatched = false;
     try {
       const request: RequestInit = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(20000) };
-      const permit = this.global ? await this.global.currentQuota().acquireRest(1, Date.now() + 5000) : undefined;
+      const permit = this.global ? await this.global.acquireExchange(Date.now() + 5000) : undefined;
       const dispatch = () => { const result: unknown = assertFreshProof(); if (result !== undefined) { void Promise.resolve(result).catch(() => {}); throw new Error(); } permit?.assertFresh(); request.signal?.throwIfAborted(); dispatched = true; onDispatch?.(); return fetch(WALLET_NETWORKS[network].exchangeUrl, request); };
       const response = await (permit ? permit.dispatch(dispatch) : dispatch()); if (!response.ok) { await response.body?.cancel().catch(() => {}); throw new Error(); }
       return await readInfoJson(response, 'copy account action', 64 * 1024);
@@ -112,7 +112,7 @@ export class CopyFundingExchangeClient {
     try{
       const request:RequestInit={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(usdSendRequest(WALLET_NETWORKS[operation.network],operation.destination,operation.amount,operation.nonce,signature)),redirect:'error',signal:AbortSignal.timeout(20000)};
       if(this.global&&typeof assertFreshProof!=='function')throw new Error();
-      const permit=this.global?await this.global.currentQuota().acquireRest(1,Date.now()+5000):undefined;
+      const permit=this.global?await this.global.acquireExchange(Date.now()+5000):undefined;
       const dispatch=()=>{const result:unknown=assertFreshProof?.();if(result!==undefined){void Promise.resolve(result).catch(()=>{});throw new Error();}permit?.assertFresh();request.signal?.throwIfAborted();dispatched=true;onDispatch?.();return fetch(WALLET_NETWORKS[operation.network].exchangeUrl,request);};
       const response=await (permit?permit.dispatch(dispatch):dispatch());if(!response.ok){await response.body?.cancel().catch(()=>{});throw new Error();}return await readInfoJson(response,'copy funding',64*1024);
     }catch{

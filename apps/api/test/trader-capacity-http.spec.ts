@@ -45,7 +45,7 @@ describe('shared REST capacity Retry-After on trader routes', () => {
           { id: 'private-second', kind: 'rest', units: 70, reservedAt: now, expiresAt: now + 12345 },
           { id: 'private-last', kind: 'rest', units: 1080, reservedAt: now, expiresAt: now + 65000 },
         ],
-      }, request: { kind: 'rest', id: 'private-request', weight: 120, sendUntil: now + 5000 } });
+      }, request: { kind: 'rest', id: 'page:private-request', weight: 120, sendUntil: now + 5000, lane: 'page' } });
     } catch (error) { failure = error; }
     expect(failure).toBeInstanceOf(LiveBoundaryError);
     const response = await request(app.getHttpServer()).get(`/traders/${address}/${suffix}`).expect(503);

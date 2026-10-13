@@ -41,7 +41,7 @@ describe("trusted withdrawal transport", () => {
     const fetcher = vi.fn<typeof fetch>(); vi.stubGlobal('fetch', fetcher); const f = client();
     f.global.acquire.mockRejectedValueOnce(Error('quota exhausted'));
     await expect(f.client.send(op, signature, () => {})).rejects.toThrow('withdrawal_not_dispatched');
-    expect(f.global.acquire).toHaveBeenCalledWith(1, expect.any(Number)); expect(fetcher).not.toHaveBeenCalled();
+    expect(f.global.acquire).toHaveBeenCalledWith(1, expect.any(Number), undefined, { fallback: 'live' }); expect(fetcher).not.toHaveBeenCalled();
   });
   it('rechecks the original shared permit after the final identity proof and never renews it', async () => {
     let now = Date.now(); const fetcher = vi.fn<typeof fetch>(); vi.stubGlobal('fetch', fetcher);

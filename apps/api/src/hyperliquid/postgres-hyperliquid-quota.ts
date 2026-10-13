@@ -10,7 +10,7 @@ import type { UnitOfWork,DbTransaction } from '../db/unit-of-work.js';
 import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from '../copy/live/postgres-live-risk-scope.js';
 import {LiveBoundaryError,type LiveNetwork} from '../copy/live/wallet-authorization.js';
 import {HyperliquidRestCapacityError,sharedRestRetryAfterMs} from './hyperliquid-capacity-error.js';
-import {BACKGROUND_REST_ID_PREFIX,HYPERLIQUID_MAX_LIVE_DEMAND,HYPERLIQUID_MAX_SETTLEMENTS,LIVE_LANE_TOKEN,LIVE_REST_ID_PREFIX,liveDemandTicket,HYPERLIQUID_STALE_LEASE_RECLAIM_MS,SETUP_DEMAND_ID_PREFIX,SETUP_LANE_TOKEN,SETUP_REST_ID_PREFIX,hyperliquidLaneStatus,planHyperliquidQuota,setupDemandTicket,quotaSubscription,type HyperliquidMeterComposition,type HyperliquidQuotaPlan,type HyperliquidRestLane,type HyperliquidQuotaLease,type HyperliquidQuotaRequest,type HyperliquidQuotaSubscription} from './hyperliquid-global-quota.js';
+import {BACKGROUND_REST_ID_PREFIX,PAGE_REST_ID_PREFIX,HYPERLIQUID_MAX_LIVE_DEMAND,HYPERLIQUID_MAX_SETTLEMENTS,LIVE_LANE_TOKEN,LIVE_REST_ID_PREFIX,liveDemandTicket,HYPERLIQUID_STALE_LEASE_RECLAIM_MS,SETUP_DEMAND_ID_PREFIX,SETUP_LANE_TOKEN,SETUP_REST_ID_PREFIX,hyperliquidLaneStatus,planHyperliquidQuota,setupDemandTicket,quotaSubscription,type HyperliquidMeterComposition,type HyperliquidQuotaPlan,type HyperliquidRestLane,type HyperliquidQuotaLease,type HyperliquidQuotaRequest,type HyperliquidQuotaSubscription} from './hyperliquid-global-quota.js';
 import {freezeLiveReservation} from '../copy/live/live-risk-reservation.js';
 import {liveSourceDigest} from '../copy/live/copy-live-source-evidence.js';
 import {liveSpan} from '../copy/live/live-execution-diagnostics.js';
@@ -36,7 +36,11 @@ export interface HyperliquidSocketQuota {
   whenIdle():Promise<void>;
 }
 export interface BoundHyperliquidQuota {
-  acquireRest(weight:number,deadline:number,lane?:HyperliquidRestLane):Promise<HyperliquidSendPermit>;
+  /** `lane`: the charge's class, whatever runs it. Without one, an original
+   * session's or a live order's charge is live, a setup step's is the
+   * setup's, else `options.fallback` (none: background). `options.heldMs`: a
+   * page read's wait so far (HYPERLIQUID_PAGE_HOLD_MS). */
+  acquireRest(weight:number,deadline:number,lane?:HyperliquidRestLane,options?:HyperliquidRestOptions):Promise<HyperliquidSendPermit>;
   /** A copy setup about to run a step of `weight`: records its demand (background
    * leaves the setups' share free for the next minute) and answers in how many
    * ms that weight fits in the setup lane (0: now, and the claim is granted:
@@ -53,7 +57,11 @@ export interface BoundHyperliquidQuota {
   claimLiveRest?(weight:number,deadline:number,token:string):Promise<number>;
   reserveSocket(deadline:number,network?:LiveNetwork):Promise<{readonly connect:HyperliquidSendPermit;readonly connection:HyperliquidSocketQuota}>;
 }
+/** A REST charge's class when nothing more specific applies (`fallback`),
+ * and how long a page read has waited so far (`heldMs`). */
+export interface HyperliquidRestOptions {readonly fallback?:HyperliquidRestLane;readonly heldMs?:number;}
 const fail=(code:string):never=>{throw new LiveBoundaryError(code);};
+const LANES:readonly unknown[]=['background','setup','live','page'];
 const setupLane=new AsyncLocalStorage<{readonly token?:string}>();
 /** Runs a copy setup's step: its unlabelled REST charges (outside an original
  * session) go in the `setup` lane, ahead of background within the setups'
@@ -63,6 +71,12 @@ export function runInSetupLane<T>(work:()=>Promise<T>,token?:string):Promise<T>{
   if(token!==undefined&&(typeof token!=='string'||!SETUP_LANE_TOKEN.test(token)))fail('hyperliquid_quota_invalid');
   return setupLane.run(token===undefined?{}:{token},work);
 }
+const backgroundLane=new AsyncLocalStorage<true>();
+/** Runs work nobody waits for whose charges would otherwise take a caller's
+ * fallback (a client shared with live or setup work, e.g. the agent
+ * approval client): they are background charges. A live or setup context
+ * and an explicit lane still win. */
+export function runInBackgroundLane<T>(work:()=>Promise<T>):Promise<T>{return backgroundLane.run(true,work);}
 const liveLane=new AsyncLocalStorage<string>();
 /** Runs a live order under its demand `token` (claimLiveRest): its charges
  * are the live lane's and carry the token, so what they take is no longer
@@ -231,20 +245,23 @@ export class PostgresHyperliquidQuota {
   }
   private bind(binding:HyperliquidQuotaBinding,session?:LiveRiskDatabaseSession):BoundHyperliquidQuota {
     const apply=(request:(now:number,sendUntil:number)=>HyperliquidQuotaRequest,deadline?:number)=>this.apply(binding,request,deadline,session);
-    return Object.freeze({acquireRest:async(weight:number,deadline:number,requested?:HyperliquidRestLane)=>{
-      if(requested!==undefined&&requested!=='background'&&requested!=='setup'&&requested!=='live')fail('hyperliquid_quota_invalid');
+    return Object.freeze({acquireRest:async(weight:number,deadline:number,requested?:HyperliquidRestLane,options:HyperliquidRestOptions={})=>{
+      if(requested!==undefined&&!LANES.includes(requested)||options.fallback!==undefined&&!LANES.includes(options.fallback))fail('hyperliquid_quota_invalid');
+      const heldMs=options.heldMs===undefined?0:Math.max(0,Math.min(65_000,Math.floor(options.heldMs)));if(!Number.isSafeInteger(heldMs))fail('hyperliquid_quota_invalid');
       // Live copy work (an original session, or a live order's runInLiveLane)
-      // and a setup's step (runInSetupLane): their unlabelled charges are the
-      // live and the setup lane's.
+      // and a setup's step (runInSetupLane): their charges without a lane are
+      // the live and the setup lane's; else the caller's fallback; else
+      // background (the meter treats a charge without a lane as background).
       const live=liveLane.getStore(),setup=session||live!==undefined?undefined:setupLane.getStore();
-      const lane=requested??(session||live!==undefined?'live':setup?'setup':undefined);
+      const lane=requested??(session||live!==undefined?'live':setup?'setup':backgroundLane.getStore()?'background':options.fallback);
       // Settlements ride on the next charge (no transaction of their own);
       // they are dropped once that charge commits, kept if it fails.
       const settle=session?[]:this.pendingSettlements(binding.egressKey);
       if(lane==='background'&&!session)this.refuseKnownFull(binding.egressKey,weight);
       const id=lane==='setup'?`${SETUP_REST_ID_PREFIX}${setup?.token!==undefined?`${setup.token}:`:''}${randomUUID()}`
-        :lane==='live'?`${LIVE_REST_ID_PREFIX}${live!==undefined?`${live}:`:''}${randomUUID()}`:lane==='background'?`${BACKGROUND_REST_ID_PREFIX}${randomUUID()}`:randomUUID();let fresh:()=>void;
-      try{fresh=await apply((_now,sendUntil)=>({kind:'rest',id,weight,sendUntil,...(lane?{lane}:{}),...(settle.length?{settle}:{})}),deadline);}
+        :lane==='live'?`${LIVE_REST_ID_PREFIX}${live!==undefined?`${live}:`:''}${randomUUID()}`:lane==='background'?`${BACKGROUND_REST_ID_PREFIX}${randomUUID()}`
+        :lane==='page'?`${PAGE_REST_ID_PREFIX}${randomUUID()}`:randomUUID();let fresh:()=>void;
+      try{fresh=await apply((_now,sendUntil)=>({kind:'rest',id,weight,sendUntil,...(lane?{lane}:{}),...(lane==='page'&&heldMs>0?{heldMs}:{}),...(settle.length?{settle}:{})}),deadline);}
       catch(error){if(lane==='background'&&!session)this.rememberFull(binding.egressKey,weight,error);throw error;}
       if(lane==='background'&&!session)this.backgroundFull.delete(binding.egressKey);
       const pending=this.settlements.get(binding.egressKey);for(const s of settle)pending?.delete(s.id);

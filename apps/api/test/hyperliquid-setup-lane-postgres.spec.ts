@@ -57,12 +57,12 @@ describe('a copy setup on the shared Postgres meter beside a full background lan
           }
         }
       });
-      // A live copy's orders: an unlabelled 20 every 2 s.
+      // A live copy's orders: 20 in the live lane every 2 s.
       const live = { sent: 0, refused: 0 };
       const orders = (async () => {
         const bound = quota.bindUnscoped({ egressKey, ownerId: 'live' });
         while (!stop.signal.aborted) {
-          try { await bound.acquireRest(20, Date.now() + 5000); live.sent++; } catch { live.refused++; }
+          try { await bound.acquireRest(20, Date.now() + 5000, 'live'); live.sent++; } catch { live.refused++; }
           await wait(2_000);
         }
       })();

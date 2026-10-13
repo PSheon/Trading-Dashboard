@@ -36,7 +36,7 @@ describe('a copy setup beside a full background lane (2026-10-13 gate)', () => {
         }
       }
     });
-    // A live copy's orders: an order's unlabelled charges (its boundary
+    // A live copy's orders: an order's live-lane charges (its boundary
     // read, account snapshot and the POST) every 10 s.
     const liveOrders = { sent: 0, refused: 0 };
     const orders = (async () => {
@@ -44,7 +44,7 @@ describe('a copy setup beside a full background lane (2026-10-13 gate)', () => {
       while (!stop) {
         await sleep(10_000);
         for (const weight of [21, 22, 1]) {
-          try { (await bound.acquireRest(weight, Date.now() + 5000)).dispatch(() => undefined); liveOrders.sent++; } catch { liveOrders.refused++; }
+          try { (await bound.acquireRest(weight, Date.now() + 5000, 'live')).dispatch(() => undefined); liveOrders.sent++; } catch { liveOrders.refused++; }
         }
       }
     })();

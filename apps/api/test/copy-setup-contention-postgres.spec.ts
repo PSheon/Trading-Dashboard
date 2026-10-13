@@ -105,14 +105,14 @@ describe('a copy setup beside contention.mjs on the real Postgres meter (gate 20
         }
         return result;
       };
-      // A live copy's orders: an order's unlabelled charges every 10 s.
+      // A live copy's orders: an order's live-lane charges every 10 s.
       const live = { sent: 0, refused: 0 };
       const orders = (async () => {
         const bound = quota.bindUnscoped({ egressKey, ownerId: 'live' });
         while (!stop.signal.aborted) {
           await wait(10_000);
           for (const weight of [21, 22, 1]) {
-            try { (await bound.acquireRest(weight, Date.now() + 5000)).dispatch(() => undefined); live.sent++; } catch { live.refused++; }
+            try { (await bound.acquireRest(weight, Date.now() + 5000, 'live')).dispatch(() => undefined); live.sent++; } catch { live.refused++; }
           }
         }
       })();

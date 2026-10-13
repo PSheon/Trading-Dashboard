@@ -43,7 +43,7 @@ export class PrivyAgentApprovalClient implements AgentApprovalClient {
       const network=WALLET_NETWORKS[intent.network];
       const request:RequestInit={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:{type:'approveAgent',signatureChainId:network.signatureChainId,...data.message},nonce:intent.nonce,signature:splitSignature(signature)}),redirect:'error',signal:AbortSignal.timeout(10000)};
       if(this.global&&typeof assertFreshProof!=='function')throw new Error();
-      const permit=this.global?await this.global.currentQuota().acquireRest(1,Math.min(this.now()+5000,intent.consentExpiresAt)):undefined;
+      const permit=this.global?await this.global.acquireExchange(Math.min(this.now()+5000,intent.consentExpiresAt)):undefined;
       const dispatch=()=>{
         const result:unknown=assertFreshProof?.();if(result!==undefined){void Promise.resolve(result).catch(()=>{});throw new Error();}
         permit?.assertFresh();if(this.now()<intent.nonce||this.now()>=intent.consentExpiresAt)throw new Error();

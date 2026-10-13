@@ -144,8 +144,9 @@ describe("the order path's token bucket", () => {
 
   it("HYPERLIQUID_BACKGROUND_REST_CAP keeps room on the shared window for an order's evidence beside a full background lane", () => {
     const now = 1_800_000_000_000;
+    // An order's evidence is the live lane (`live:` tickets).
     const charge = (state: HyperliquidQuotaState, id: string, weight: number, lane: "background" | undefined, backgroundCap?: number) =>
-      planHyperliquidQuota({ now, state, leases: [], backgroundCap, request: { kind: "rest", id, weight, sendUntil: now + 1000, ...(lane ? { lane } : {}) } }).state;
+      planHyperliquidQuota({ now, state, leases: [], backgroundCap, request: { kind: "rest", id: lane ? id : `live:${id}`, weight, sendUntil: now + 1000, lane: lane ?? "live" } }).state;
     const empty: HyperliquidQuotaState = { egressKey: "egress", revision: 1, events: [], updatedAt: now };
     // Default 840: a full background lane leaves 360, less than one order (772 with the leader).
     expect(() => charge(charge(empty, "bg", 840, "background"), "order", 772, undefined)).toThrow();

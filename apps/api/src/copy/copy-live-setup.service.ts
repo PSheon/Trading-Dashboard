@@ -68,6 +68,8 @@ export interface SetupRestCapacity {
   claimSetup(weight: number, key?: string, observe?: (meter: HyperliquidMeterComposition) => void): Promise<number>;
   /** Runs the step: its Hyperliquid charges are the setup lane's (`key`: as claimed). */
   runSetup<T>(work: () => Promise<T>, key?: string): Promise<T>;
+  /** Runs work nobody waits for (abandoned approvals): its charges are background. */
+  runBackground?<T>(work: () => Promise<T>): Promise<T>;
 }
 /** Longest a setup waits on the shared meter before it claims again: its
  * demand (the marker background yields to) is renewed well inside the
@@ -668,7 +670,9 @@ export class CopyLiveSetupService {
       try { if (row.stage === 'provisioning') await this.provisionLeased(row.id); else await this.drive(row.id, await this.workerPolicySigner(row)); worked++; }
       catch (error) { this.logger.warn(`setup ${row.id} kept for the next pass: ${safeErrorText(error)}`); }
     }
-    await this.reconcileAbandonedApprovals();
+    // Nobody waits on these: the shared meter's background lane.
+    const capacity = this.capacity;
+    await (capacity?.runBackground ? capacity.runBackground(() => this.reconcileAbandonedApprovals()) : this.reconcileAbandonedApprovals());
     return worked;
   }
   /** When each abandoned approval was last looked at (one look a minute). */

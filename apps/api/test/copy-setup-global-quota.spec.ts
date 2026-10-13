@@ -27,7 +27,7 @@ describe('registered setup clients share durable quota at actual transport',()=>
  it.each(['mode','agent','funding'] as const)('denies %s exchange POST when global quota denies, proving no dispatch',async kind=>{
   const f=fixture();f.global.acquire.mockRejectedValueOnce(Error('private provider quota detail'));
   const work=kind==='mode'?f.mode.send(f.modeIntent,signature,()=>{}):kind==='agent'?f.agent.send(f.agentIntent,signature,()=>{}):f.funding.send(f.operation,signature,()=>{});
-  await expect(work).rejects.toThrow(/not_dispatched/);expect(f.fetcher).not.toHaveBeenCalled();expect(f.global.acquire).toHaveBeenCalledWith(1,expect.any(Number));
+  await expect(work).rejects.toThrow(/not_dispatched/);expect(f.fetcher).not.toHaveBeenCalled();expect(f.global.acquire).toHaveBeenCalledWith(1,expect.any(Number),undefined,{fallback:'live'});
  });
  it.each(['mode','agent','funding'] as const)('rechecks the same %s quota permit after costly final proof with no transport gap',async kind=>{
   const f=fixture(),guard=vi.fn(()=>{f.advance();});

@@ -312,7 +312,7 @@ describe('exact tracked testnet cancellation with installed SDK and HTTP mocks',
       expiresAfter: time + 60_000,
       signature,
     });
-    expect(f.acquire).toHaveBeenCalledWith(1, time + 5000);
+    expect(f.acquire).toHaveBeenCalledWith(1, time + 5000, undefined, { fallback: 'live' }); // the live lane (an exchange POST)
     expect(f.saved.target.record.state).toBe('unknown'); // No reconciliation/release capability.
     expect(f.saved.target.record.authorization.walletId).toBe('old-agent');
     expect(f.authorize.mock.calls.at(-1)![1]).toBe('submit');

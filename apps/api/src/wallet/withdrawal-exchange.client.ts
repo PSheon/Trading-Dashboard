@@ -42,7 +42,7 @@ export class WithdrawalExchangeClient {
         body: JSON.stringify(withdraw3Request(network, operation.destination, operation.amount, operation.nonce, signature)),
         signal: AbortSignal.timeout(20_000), redirect: 'error',
       };
-      const permit = await this.global.currentQuota().acquireRest(1, Date.now() + 5000);
+      const permit = await this.global.acquireExchange(Date.now() + 5000);
       const response = await permit.dispatch(() => {
         const result: unknown = assertFreshProof();
         if (result !== undefined) { void Promise.resolve(result).catch(() => undefined); throw new Error(); }

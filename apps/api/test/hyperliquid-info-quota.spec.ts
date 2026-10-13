@@ -37,14 +37,15 @@ it('preserves aggregate metadata venue slots and never substitutes a per-venue R
   expect(await info.allPerpMetas('live')).toEqual(metadata); expect(fetcher).toHaveBeenCalledOnce();
   expect(JSON.parse(fetcher.mock.calls[0]![1]!.body as string)).toEqual({ type: 'allPerpMetas' });
 });
-it('sends page work and live work in the unlabelled lane, background work in the capped one', async () => {
+it('sends page work in the page lane, live work in the live lane (a setup step keeps its own), background work in the capped one', async () => {
   const fetcher = vi.fn<typeof fetch>(async () => Response.json([null])), q = offlineGlobalTransport(fetcher);
   const info = new HyperliquidInfoClient(testConfig(), budget() as unknown as RequestBudgeterService, undefined, q.transport);
   await info.perpDexs('background', PAGE_RANK.profile);
   await info.perpDexs('live');
   await info.perpDexs('background', PAGE_RANK.analytics);
   await info.perpDexs('background', 1_000);
-  expect(q.acquire.mock.calls.map((call) => (call as unknown[])[2])).toEqual([undefined, undefined, 'background', 'background']);
+  expect(q.acquire.mock.calls.map((call) => (call as unknown[])[2])).toEqual(['page', undefined, 'background', 'background']);
+  expect((q.acquire.mock.calls[1] as unknown[])[3]).toEqual({ fallback: 'live' });
 });
 it('a page call waits for shared capacity to free instead of answering busy at once; background work does not', async () => {
   const fetcher = vi.fn<typeof fetch>(async () => Response.json([null])), q = offlineGlobalTransport(fetcher);
@@ -87,7 +88,7 @@ it('settles a list call to its item count, and a trade-analytics job waits in th
   await info.userFillsByTime('0x' + '12'.repeat(20), 0, undefined, 'background', PAGE_RANK.fills);
   // 20 + 1 per 20 items: 90 fills weigh 25, not the 120 prepaid.
   expect(settle).toHaveBeenCalledWith(25);
-  expect((q.acquire.mock.calls.at(-1) as unknown[])[2]).toBeUndefined();
+  expect((q.acquire.mock.calls.at(-1) as unknown[])[2]).toBe('page');
   // The same call from an analytics job: background lane, and it waits out a full window.
   q.acquire.mockRejectedValueOnce(new HyperliquidRestCapacityError(50));
   await budgetConsumer('analytics', () => info.userFillsByTime('0x' + '12'.repeat(20), 0, undefined, 'background', PAGE_RANK.analytics));

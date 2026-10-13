@@ -110,8 +110,8 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
       // SQL admission precedes the final current authority/risk checks. An
       // asynchronous fetch wrapper after those checks would open a new gap.
       diagnosticStage = 'transport_shared_quota';
-      if (this.dependencies?.globalTransport) quotaPermit = await this.dependencies.globalTransport.currentQuota()
-        .acquireRest(1, Math.min(this.now() + 5000, record.expiresAfter));
+      // The live lane also outside an original session (a stop's closes).
+      if (this.dependencies?.globalTransport) quotaPermit = await this.dependencies.globalTransport.acquireExchange(Math.min(this.now() + 5000, record.expiresAfter));
       diagnosticStage = 'transport_risk_check';
       const permit = await assertLiveExecutionReady(this.gate, lease, "submit", intent, record);
       diagnosticStage = 'transport_market_check';

@@ -155,9 +155,7 @@ export class HyperliquidTrackedCancellationTransport {
       scopedGuard();
       // Quota is durably prepaid before the final current permission read.
       const quota = await boundedLiveRead(() => 
-        this.global
-          .currentQuota()
-          .acquireRest(1, Math.min(this.now() + 5000, operation.expiresAfter)),
+        this.global.acquireExchange(Math.min(this.now() + 5000, operation.expiresAfter)),
         5000,
       );
       const permit = await this.signer.current(operation, 'submit');

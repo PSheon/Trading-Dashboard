@@ -102,7 +102,7 @@ describe('real-money meter requests beside a full background lane (2026-10-12 li
       expect(background.sent.count).toBeGreaterThan(before);
       // Live and page requests are never refused in-process.
       before = background.sent.count;
-      await lane.acquireRest(20, Date.now() + 5000);
+      await lane.acquireRest(20, Date.now() + 5000, 'live');
       expect(background.sent.count).toBeGreaterThan(before);
     } finally {
       await db.delete(schema.hyperliquidEgressQuota).where(eq(schema.hyperliquidEgressQuota.egressKey, egressKey));

@@ -216,7 +216,7 @@ describe('global quota at the actual financial POST boundary', () => {
       signature: { r: `0x${'aa'.repeat(32)}` as `0x${string}`, s: `0x${'bb'.repeat(32)}` as `0x${string}`, v: 27 } };
     s.fetcher.mockResolvedValue(reply({ status: 'ok', response: { type: 'order', data: { statuses: [{ resting: { oid: 10 } }] } } }));
     expect(await s.transport.submit(signed, { ...record, state: 'submitting' }, intent, lease)).toMatchObject({ state: 'resting' });
-    expect(s.acquireGlobal).toHaveBeenCalledWith(1, now + 5000);
+    expect(s.acquireGlobal).toHaveBeenCalledWith(1, now + 5000, undefined, { fallback: 'live' });
     expect(s.fetcher).toHaveBeenCalledOnce();
     expect(JSON.parse(s.fetcher.mock.calls[0]![1]!.body as string)).toEqual(signed);
   });
@@ -240,7 +240,7 @@ describe('global quota at the actual financial POST boundary', () => {
   it('charges actual order-status INFO on the same global meter', async () => {
     const s = metered(); s.fetcher.mockResolvedValue(reply(statusReply('open')));
     await s.transport.query(record);
-    expect(s.acquireGlobal).toHaveBeenCalledWith(2, now + 5000);
+    expect(s.acquireGlobal).toHaveBeenCalledWith(2, now + 5000, undefined, { fallback: 'live' });
     expect(s.fetcher).toHaveBeenCalledOnce();
   });
   it('rechecks older risk evidence after JSON request construction even while the newer quota permit remains valid', async () => {
@@ -258,7 +258,7 @@ describe('global quota at the actual financial POST boundary', () => {
     });
     try {
       await expect(s.transport.submit(signed, { ...record, state: 'submitting' }, intent, lease)).rejects.toBeInstanceOf(LiveSubmissionBlockedError);
-      expect(s.acquireGlobal).toHaveBeenCalledWith(1, now + 9999); expect(s.fetcher).not.toHaveBeenCalled();
+      expect(s.acquireGlobal).toHaveBeenCalledWith(1, now + 9999, undefined, { fallback: 'live' }); expect(s.fetcher).not.toHaveBeenCalled();
       expect(clock - now).toBe(5001);
       expect(diagnostic.mock.calls).toEqual([[{ network: 'testnet', stage: 'transport_dispatch', elapsedMs: 2, errorCode: 'live_risk_stale' }]]);
     } finally { serialization.mockRestore(); }

@@ -19,7 +19,8 @@ const refusal=(work:()=>unknown)=>{try{work();}catch(error){return error;}return
 let tickets=0;const id=(prefix='')=>`${prefix}t${++tickets}`;
 const setupCharge=(weight:number,state:HyperliquidQuotaState,at=now)=>plan({kind:'rest',id:id('setup:'),weight,sendUntil:at+5000,lane:'setup'},state,at);
 const background=(weight:number,state:HyperliquidQuotaState,at=now)=>plan({kind:'rest',id:id(),weight,sendUntil:at+5000,lane:'background'},state,at);
-const live=(weight:number,state:HyperliquidQuotaState,at=now)=>plan({kind:'rest',id:id(),weight,sendUntil:at+5000},state,at);
+const live=(weight:number,state:HyperliquidQuotaState,at=now)=>plan({kind:'rest',id:id('live:'),weight,sendUntil:at+5000,lane:'live'},state,at);
+const page=(weight:number,state:HyperliquidQuotaState,at=now)=>plan({kind:'rest',id:id('page:'),weight,sendUntil:at+5000,lane:'page'},state,at);
 const demand=(weight:number,state:HyperliquidQuotaState,at=now)=>plan({kind:'setup_demand',id:id('setup-demand:'),weight,sendUntil:at+5000} as unknown as HyperliquidQuotaRequest,state,at);
 /** One account-mode attempt's REST charges (two preflights and the POST). */
 const ATTEMPT=[102,42,102,102,42,102,1];
@@ -123,7 +124,7 @@ describe('the shared window: setups ahead of background, live orders keep their 
     expect(granted.waitMs).toBe(0);
     expect(granted.state.events.some(e=>e.id.startsWith('setup-demand:613:')&&e.id.endsWith(':g'))).toBe(true);
     // A cold trader page's reads land right after the claim.
-    state=live(200,granted.state).state;
+    state=page(200,granted.state).state;
     // Background is refused: the step's 613 stays free.
     expect(refusal(()=>background(20,state))).toBeInstanceOf(HyperliquidRestCapacityError);
     // The whole attempt goes out (before: refused at the 960 ceiling, a 65 s wait).

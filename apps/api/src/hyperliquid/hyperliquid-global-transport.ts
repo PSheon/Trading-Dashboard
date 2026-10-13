@@ -2,7 +2,7 @@ import {AsyncLocalStorage} from 'node:async_hooks';
 import {setTimeout as wait} from 'node:timers/promises';
 import {HyperliquidRestCapacityError,REST_CHARGE_LIFETIME_MS,sharedRestRetryAfterMs} from './hyperliquid-capacity-error.js';
 import {HYPERLIQUID_LIVE_DEMAND_HOLD_MS,HYPERLIQUID_MAX_LIVE_DEMAND,type HyperliquidMeterComposition,type HyperliquidRestLane} from './hyperliquid-global-quota.js';
-import {PostgresHyperliquidQuota,newLiveLaneToken,runInLiveLane,runInSetupLane,setupLaneToken,type BoundHyperliquidQuota} from './postgres-hyperliquid-quota.js';
+import {PostgresHyperliquidQuota,newLiveLaneToken,runInBackgroundLane,runInLiveLane,runInSetupLane,setupLaneToken,type BoundHyperliquidQuota,type HyperliquidSendPermit} from './postgres-hyperliquid-quota.js';
 import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from '../copy/live/postgres-live-risk-scope.js';
 import {LiveBoundaryError} from '../copy/live/wallet-authorization.js';
 import {infoListSurcharge,infoPrepaidWeight,infoWeight} from './info-weights.js';
@@ -84,6 +84,9 @@ export class HyperliquidGlobalTransport {
   const budget=this.currentQuota();
   return budget.claimSetupRest?budget.claimSetupRest(weight,this.now()+5000,key===undefined?undefined:setupLaneToken(key),observe):0;
  }
+ /** Runs work nobody waits for through clients shared with live or setup
+  * work: its charges are background (runInBackgroundLane). */
+ runBackground<T>(work:()=>Promise<T>):Promise<T>{return runInBackgroundLane(work);}
  /** Runs a copy setup's step: its unlabelled REST charges go in the setup
   * lane (`key`: the setup's id, as claimed). */
  runSetup<T>(work:()=>Promise<T>,key?:string):Promise<T>{return runInSetupLane(work,key===undefined?undefined:setupLaneToken(key));}
@@ -123,16 +126,28 @@ export class HyperliquidGlobalTransport {
   let body:unknown;try{body=JSON.parse(init.body);}catch{fail('hyperliquid_quota_request_invalid');}
   if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).sort().join(',')!=='hash,type'||(body as {type:unknown}).type!=='txDetails'||!/^0x[0-9a-f]{64}$/.test((body as {hash:string}).hash))fail('hyperliquid_quota_request_invalid');
   const captured:RequestInit={method:'POST',body:init.body,headers:new Headers(init.headers),redirect:'error',signal:init.signal};captured.signal?.throwIfAborted();
-  const permit=await budget.acquireRest(40,this.now()+5000);return permit.dispatch(()=>{captured.signal?.throwIfAborted();return this.rawFetch(url,captured);});
+  const permit=await budget.acquireRest(40,this.now()+5000,undefined,{fallback:'live'});return permit.dispatch(()=>{captured.signal?.throwIfAborted();return this.rawFetch(url,captured);});
  };
- /** Unlabelled info request (live copy work, wallet and operator calls): may
-  * use the whole shared window; refused at once when it is full. */
- readonly fetchInfo:typeof fetch=(input,init)=>this.#info(input,init,undefined,false);
- /** A page's info request: the whole window too, and when it is full it
-  * waits for the charges ahead of it to expire (at most
-  * PAGE_CAPACITY_WAIT_MS in all, never past its own signal) instead of
-  * answering the page "busy" at once. */
- readonly fetchPageInfo:typeof fetch=(input,init)=>this.#info(input,init,undefined,true);
+ /**
+  * The permit for one exchange POST (1 unit): an order, a cancel, a
+  * leverage update, a deposit, return, refund or withdrawal (usdSend,
+  * withdraw3), an account-mode or agent approval. Real money or an account
+  * action: the live lane (a setup step's stays its setup's), so a full
+  * background lane or a waiting setup never leaves it not dispatched.
+  */
+ acquireExchange(deadline:number):Promise<HyperliquidSendPermit>{return this.currentQuota().acquireRest(1,deadline,undefined,{fallback:'live'});}
+ /** Live copy work's info request: an order's evidence outside its session,
+  * settlement and receipts that release its reservation, closes and stops,
+  * the testnet leader source, funding evidence, wallet authorization checks
+  * (a setup step's reads stay the setup's). The live lane: the whole window,
+  * ahead of setups, pages and background; refused at once when it is full. */
+ readonly fetchInfo:typeof fetch=(input,init)=>this.#info(input,init,undefined,false,PAGE_CAPACITY_WAIT_MS,'live');
+ /** A page's info request (`page` lane): the whole window less what live
+  * orders and granted setup claims need, held back for a waiting setup at
+  * most HYPERLIQUID_PAGE_HOLD_MS; when it is full it waits for the charges
+  * ahead of it to expire (at most PAGE_CAPACITY_WAIT_MS in all, never past
+  * its own signal) instead of answering the page "busy" at once. */
+ readonly fetchPageInfo:typeof fetch=(input,init)=>this.#info(input,init,'page',true);
  /** Background info request (`HyperliquidRestLane`): capped below the window
   * so pages and live work keep room; refused at once when it is full. */
  readonly fetchBackgroundInfo:typeof fetch=(input,init)=>this.#info(input,init,'background',false);
@@ -148,10 +163,12 @@ export class HyperliquidGlobalTransport {
   * fills and activity no room (503), so they never take the room above
   * HYPERLIQUID_BACKGROUND_REST_CAP that pages keep. */
  readonly fetchAnalyticsInfo:typeof fetch=(input,init)=>this.#info(input,init,'background',true,ANALYTICS_CAPACITY_WAIT_MS);
- async #acquire(budget:BoundHyperliquidQuota,weight:number,lane:HyperliquidRestLane|undefined,waitForCapacity:boolean,signal:AbortSignal|null|undefined,maxWaitMs=PAGE_CAPACITY_WAIT_MS){
-  const giveUpAt=this.now()+maxWaitMs;
+ async #acquire(budget:BoundHyperliquidQuota,weight:number,lane:HyperliquidRestLane|undefined,waitForCapacity:boolean,signal:AbortSignal|null|undefined,maxWaitMs=PAGE_CAPACITY_WAIT_MS,fallback?:HyperliquidRestLane){
+  const asked=this.now(),giveUpAt=asked+maxWaitMs;
   for(;;){
-   try{return await (lane===undefined?budget.acquireRest(weight,this.now()+5000):budget.acquireRest(weight,this.now()+5000,lane));}
+   // A page says how long it has waited (the meter holds it back for a waiting setup at most HYPERLIQUID_PAGE_HOLD_MS).
+   const options=lane==='page'?{heldMs:this.now()-asked}:fallback?{fallback}:undefined;
+   try{return await (options?budget.acquireRest(weight,this.now()+5000,lane,options):lane===undefined?budget.acquireRest(weight,this.now()+5000):budget.acquireRest(weight,this.now()+5000,lane));}
    catch(error){
     const wait=waitForCapacity?sharedRestRetryAfterMs(error):undefined;
     if(wait===undefined||this.now()+wait>giveUpAt)throw error;
@@ -179,7 +196,7 @@ export class HyperliquidGlobalTransport {
   * afterwards) are not accepted here.
   */
  async fetchInfoBatch(url:string,bodies:readonly Readonly<Record<string,unknown>>[],{maxWaitMs,signal,onDispatch}:{maxWaitMs:number;signal?:AbortSignal;onDispatch?:()=>AbortSignal|undefined}):Promise<Response[]>{
-  return this.#sendInfoBatch(url,bodies,{maxWaitMs,signal,onDispatch},undefined,16);
+  return this.#sendInfoBatch(url,bodies,{maxWaitMs,signal,onDispatch},undefined,16,'live');
  }
  /** Complete background snapshots keep the capped background lane. A denial
   * happens before any venue is sent; this never borrows live/page capacity.
@@ -187,13 +204,13 @@ export class HyperliquidGlobalTransport {
  async fetchBackgroundInfoBatch(url:string,bodies:readonly Readonly<Record<string,unknown>>[],{signal,onDispatch}:{signal?:AbortSignal;onDispatch?:()=>AbortSignal|undefined}={}):Promise<Response[]>{
   return this.#sendInfoBatch(url,bodies,{maxWaitMs:ESSENTIAL_CAPACITY_WAIT_MS,signal,onDispatch},'background',64);
  }
- async #sendInfoBatch(url:string,bodies:readonly Readonly<Record<string,unknown>>[],{maxWaitMs,signal,onDispatch}:{maxWaitMs:number;signal?:AbortSignal;onDispatch?:()=>AbortSignal|undefined},lane:HyperliquidRestLane|undefined,limit:number):Promise<Response[]>{
+ async #sendInfoBatch(url:string,bodies:readonly Readonly<Record<string,unknown>>[],{maxWaitMs,signal,onDispatch}:{maxWaitMs:number;signal?:AbortSignal;onDispatch?:()=>AbortSignal|undefined},lane:HyperliquidRestLane|undefined,limit:number,fallback?:HyperliquidRestLane):Promise<Response[]>{
   const budget=this.currentQuota();
   if(!Array.isArray(bodies)||bodies.length<1||bodies.length>limit||!Number.isSafeInteger(maxWaitMs)||maxWaitMs<0||maxWaitMs>ESSENTIAL_CAPACITY_WAIT_MS)return fail('hyperliquid_quota_request_invalid');
   const requests=bodies.map(body=>this.#infoRequest(url,{method:'POST',body:JSON.stringify(body)}));
   if(requests.some(r=>lists.has(r.type)))fail('hyperliquid_quota_request_invalid');
   const weight=requests.reduce((sum,r)=>sum+r.weight,0);
-  signal?.throwIfAborted();const permit=await timedLiveSpan('rest_wave_quota',()=>this.#acquire(budget,weight,lane,maxWaitMs>0,signal,maxWaitMs));signal?.throwIfAborted();
+  signal?.throwIfAborted();const permit=await timedLiveSpan('rest_wave_quota',()=>this.#acquire(budget,weight,lane,maxWaitMs>0,signal,maxWaitMs,fallback));signal?.throwIfAborted();
   return permit.dispatch(()=>{
    signal?.throwIfAborted();const bound=onDispatch?.(),signals=[signal,bound].filter((s):s is AbortSignal=>s!==undefined);
    const shared=signals.length>1?AbortSignal.any(signals):signals[0];
@@ -201,12 +218,12 @@ export class HyperliquidGlobalTransport {
    const answered=liveSpan('rest_wave_http');return Promise.all(work).finally(()=>answered());
   });
  }
- async #info(input:Parameters<typeof fetch>[0],init:Parameters<typeof fetch>[1],lane:HyperliquidRestLane|undefined,waitForCapacity:boolean,maxWaitMs=PAGE_CAPACITY_WAIT_MS):Promise<Response>{
+ async #info(input:Parameters<typeof fetch>[0],init:Parameters<typeof fetch>[1],lane:HyperliquidRestLane|undefined,waitForCapacity:boolean,maxWaitMs=PAGE_CAPACITY_WAIT_MS,fallback?:HyperliquidRestLane):Promise<Response>{
   // Configuration is checked before parsing or scheduling any outbound work.
   const budget=this.currentQuota(),{url,type,weight}=this.#infoRequest(input,init);
   if(!init)return fail('hyperliquid_quota_request_invalid');
   const captured:RequestInit={method:'POST',body:init.body,headers:new Headers(init.headers),redirect:'error',signal:init.signal};
-  captured.signal?.throwIfAborted();const permit=await this.#acquire(budget,weight,lane,waitForCapacity,captured.signal,maxWaitMs);captured.signal?.throwIfAborted();
+  captured.signal?.throwIfAborted();const permit=await this.#acquire(budget,weight,lane,waitForCapacity,captured.signal,maxWaitMs,fallback);captured.signal?.throwIfAborted();
   const response=await permit.dispatch(()=>{captured.signal?.throwIfAborted();return this.rawFetch(url,captured);});
   if(lists.has(type)&&permit.settle&&response instanceof Response)listSettlements.set(response,permit.settle);
   return response;

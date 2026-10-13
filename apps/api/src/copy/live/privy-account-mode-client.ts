@@ -116,7 +116,7 @@ export class PrivyAccountModeClient {
       const remaining = () => { const now = this.now(); validTime(now); if (now < started || now >= deadline) throw new Error(); return deadline - now; };
       const request: RequestInit = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, redirect: 'error', signal: AbortSignal.timeout(timeout) };
       if(this.global&&typeof assertFreshProof!=='function')throw new Error();
-      const permit=this.global?await this.global.currentQuota().acquireRest(1,Math.min(this.now()+5000,intent.consentExpiresAt)):undefined;
+      const permit=this.global?await this.global.acquireExchange(Math.min(this.now()+5000,intent.consentExpiresAt)):undefined;
       live(intent, this.now()); remaining();
       // Complete request construction first, then check captured caller proof.
       // No await or further clock-dependent preparation precedes actual POST.

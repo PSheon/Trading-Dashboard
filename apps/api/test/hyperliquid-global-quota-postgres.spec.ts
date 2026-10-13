@@ -23,33 +23,33 @@ beforeEach(async()=>{await db.delete(schema.hyperliquidWsLeases);await db.delete
 afterAll(async()=>{await pool?.end();await closeTestDb();});
 describe('durable shared egress meter, never provider I/O',()=>{
  it('serializes two owners racing for the last REST weight',async()=>{
-  await meter.bindUnscoped(identity).acquireRest(1199,Date.now()+5000);
+  await meter.bindUnscoped(identity).acquireRest(1199,Date.now()+5000,'live');
   const a=meter.bindUnscoped(identity),b=meter.bindUnscoped({...identity,ownerId:'worker-b'});
-  const result=await Promise.allSettled([a.acquireRest(1,Date.now()+5000),b.acquireRest(1,Date.now()+5000)]);
+  const result=await Promise.allSettled([a.acquireRest(1,Date.now()+5000,'live'),b.acquireRest(1,Date.now()+5000,'live')]);
   expect(result.filter(r=>r.status==='fulfilled')).toHaveLength(1);expect(result.filter(r=>r.status==='rejected')).toHaveLength(1);
   expect((await db.select().from(schema.hyperliquidEgressQuota))[0]!.events.reduce((n,e)=>n+e.units,0)).toBe(1200);
  });
  it('retains unused permits over a new meter instance and cannot refund after expiry',async()=>{
   // A deadline in seconds: 100 ms had lapsed on a slow full-suite run (hyperliquid_quota_expired).
-  await meter.bindUnscoped(identity).acquireRest(1200,Date.now()+5000);
+  await meter.bindUnscoped(identity).acquireRest(1200,Date.now()+5000,'live');
   const restarted=new PostgresHyperliquidQuota(new UnitOfWork(db));
-  await expect(restarted.bindUnscoped(identity).acquireRest(1,Date.now()+5000)).rejects.toThrow('hyperliquid_quota_exhausted');
+  await expect(restarted.bindUnscoped(identity).acquireRest(1,Date.now()+5000,'live')).rejects.toThrow('hyperliquid_quota_exhausted');
  });
  it('settles an answered list call to its real weight with the next charge, never raising it (item 6)',async()=>{
   const charges=async()=>(await db.select().from(schema.hyperliquidEgressQuota))[0]!.events.map(e=>e.units);
-  const list=await meter.bindUnscoped(identity).acquireRest(120,Date.now()+5000);
+  const list=await meter.bindUnscoped(identity).acquireRest(120,Date.now()+5000,'live');
   list.dispatch(()=>undefined);list.settle!(25);
   // Ten such pages would have held the whole window for a minute.
   expect(await charges()).toEqual([120]);
-  await meter.bindUnscoped(identity).acquireRest(2,Date.now()+5000);
+  await meter.bindUnscoped(identity).acquireRest(2,Date.now()+5000,'live');
   expect(await charges()).toEqual([25,2]);
   // A full page is not settled, and a settlement never raises a charge.
-  const full=await meter.bindUnscoped(identity).acquireRest(120,Date.now()+5000);full.settle!(120);full.settle!(500);
-  await meter.bindUnscoped(identity).acquireRest(2,Date.now()+5000);
+  const full=await meter.bindUnscoped(identity).acquireRest(120,Date.now()+5000,'live');full.settle!(120);full.settle!(500);
+  await meter.bindUnscoped(identity).acquireRest(2,Date.now()+5000,'live');
   expect(await charges()).toEqual([25,2,120,2]);
   // With the prepaid surplus back, room that was gone is there again.
-  await meter.bindUnscoped(identity).acquireRest(1200-25-2-120-2,Date.now()+5000);
-  await expect(meter.bindUnscoped(identity).acquireRest(1,Date.now()+5000)).rejects.toThrow('hyperliquid_quota_exhausted');
+  await meter.bindUnscoped(identity).acquireRest(1200-25-2-120-2,Date.now()+5000,'live');
+  await expect(meter.bindUnscoped(identity).acquireRest(1,Date.now()+5000,'live')).rejects.toThrow('hyperliquid_quota_exhausted');
  });
  it('returns a private one-use send fence only after durable reservation',async()=>{
   const permit=await meter.bindUnscoped(identity).acquireRest(20,Date.now()+5000);

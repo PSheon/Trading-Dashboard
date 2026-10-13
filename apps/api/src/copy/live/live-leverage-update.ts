@@ -146,7 +146,7 @@ export class LiveLeverageUpdater {
     await finish('submitting', null, ['prepared']);
     let began = false, state: LiveLeverageUpdateState = 'unknown', issue: string | null = 'leverage_response_ambiguous';
     try {
-      const quota = await boundedLiveRead(() => this.global.currentQuota().acquireRest(1, Math.min(this.now() + 5000, expiresAfter)), 5000);
+      const quota = await boundedLiveRead(() => this.global.acquireExchange(Math.min(this.now() + 5000, expiresAfter)), 5000);
       const timeout = Math.max(1, Math.min(10_000, expiresAfter - this.now()));
       const pending = quota.dispatch(() => {
         quota.assertFresh();

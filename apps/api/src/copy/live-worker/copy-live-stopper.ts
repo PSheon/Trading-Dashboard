@@ -21,7 +21,7 @@ import { findCurrentWalletAuthorization } from '../live/postgres-wallet-authoriz
 import { PrivyTrackedCancellationSigner } from '../live/privy-cancellation-signer.js';
 import { BoundaryPrivyOrderSigningClient } from '../live/privy-order-client.js';
 import { address, LiveBoundaryError } from '../live/wallet-authorization.js';
-import { classify } from '../live/error-class.js';
+import { classify, liveRetryDelayMs } from '../live/error-class.js';
 import { DEFAULT_LIVE_STOP_TIMINGS, type LiveStopTimings } from '../../config/live-timings.js';
 import type { CopyLiveStopWorkerRepository, StopRow } from './copy-live-stop-worker.repository.js';
 import { CLOSE_NEVER_SENT, closeCloid, closeRetryDelayMs, type CloseAccount, type ReduceOnlyCloser } from './reduce-only-closer.js';
@@ -93,6 +93,13 @@ const why = (error: unknown) => `${reason(error)} ${JSON.stringify(errorLogField
  */
 export class CopyLiveStopper {
   private systemCheckedAt = Number.NEGATIVE_INFINITY;
+  /** A stop whose step failed is not stepped again before this time
+   * (liveRetryDelayMs: the copy legs' retry policy). Gate 2026-10-13 11:16:
+   * a stop whose observation the shared meter refused was stepped again on
+   * every pass, many times a second, each opening sockets into a full
+   * connect window (`stop … kept for the next pass:
+   * live_account_observation_unavailable`). */
+  private readonly retryAt = new Map<string, number>();
   constructor(private readonly deps: StopperDependencies, private readonly now: () => number = Date.now) {}
 
   async tick(): Promise<void> {
@@ -124,9 +131,15 @@ export class CopyLiveStopper {
     for (const forced of await this.deps.repository.expirePendingRevokes(this.now(), this.deps.revokeDeadlineMs ?? REVOKE_DEADLINE_MS)) {
       this.deps.log?.(`grant ${forced.id} revoked without its stop ending (${forced.reason})`);
     }
-    for (const stop of await this.deps.repository.open()) {
-      try { await this.step(stop); }
-      catch (error) { this.deps.log?.(`stop ${stop.id} kept for the next pass: ${why(error)}`); await this.deps.repository.issue(stop, reason(error)); }
+    const stops = await this.deps.repository.open();
+    for (const id of this.retryAt.keys()) if (!stops.some(stop => stop.id === id)) this.retryAt.delete(id);
+    for (const stop of stops) {
+      if (this.now() < (this.retryAt.get(stop.id) ?? 0)) continue;
+      try { await this.step(stop); this.retryAt.delete(stop.id); }
+      catch (error) {
+        this.retryAt.set(stop.id, this.now() + liveRetryDelayMs(error));
+        this.deps.log?.(`stop ${stop.id} kept for the next pass: ${why(error)}`); await this.deps.repository.issue(stop, reason(error));
+      }
     }
   }
 
@@ -331,12 +344,19 @@ export class CopyLiveManualCloser {
     private readonly closeAttempts = DEFAULT_LIVE_STOP_TIMINGS.retry.closeAttempts) {}
   /** Closes found flat whose carry reset waits: not observed again before this time. */
   private readonly carryRetryAt = new Map<string, number>();
+  /** A close whose step failed: not stepped again before this time (liveRetryDelayMs, as a stop). */
+  private readonly retryAt = new Map<string, number>();
   async tick(): Promise<void> {
     const rows = await this.repository.manualCloses();
     for (const id of this.carryRetryAt.keys()) if (!rows.some(row => row.id === id)) this.carryRetryAt.delete(id);
+    for (const id of this.retryAt.keys()) if (!rows.some(row => row.id === id)) this.retryAt.delete(id);
     for (const row of rows) {
-      try { await this.step(row); }
-      catch (error) { this.log?.(`close ${row.id} kept for the next pass: ${why(error)}`); }
+      if (this.now() < (this.retryAt.get(row.id) ?? 0)) continue;
+      try { await this.step(row); this.retryAt.delete(row.id); }
+      catch (error) {
+        this.retryAt.set(row.id, this.now() + liveRetryDelayMs(error));
+        this.log?.(`close ${row.id} kept for the next pass: ${why(error)}`);
+      }
     }
   }
   private async step(row: Awaited<ReturnType<CopyLiveStopWorkerRepository['manualCloses']>>[number]): Promise<void> {

@@ -117,7 +117,7 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | POST | `/me/copy/live/setups/:id/abort` | 200 | user (owner); deployment capability; durable original setup barrier and proof-bound return, no client amount, destination or signature |
 | POST | `/me/copy/live/setups/:id/confirm` | 200 | user (owner); the worker signer the browser added, the setup consent, the deposit signature and a fresh session; one deposit attempt |
 | POST | `/me/copy/live/setups/:id/advance` | 200 | user (owner); drives the setup now, signed by the worker; no body; attempted steps are only reconciled |
-| POST | `/me/copy/live/setups/:id/cancel` | 200 | user (owner); before the consent, or once the setup failed or expired |
+| POST | `/me/copy/live/setups/:id/cancel` | 200 | user (owner); before the consent, once the setup failed or expired, or while its confirmed deposit awaits its credit (cancel and refund) |
 | PATCH | `/me/copy/live/strategies/:id` | 200 | user (owner); a new generation under one setup consent |
 | POST | `/me/copy/live/strategies/:id/renew` | 200 | user (owner); refused for now (renewal_unavailable) |
 | GET | `/me/copy/live/portfolio` | 200 | user (owner); testnet copies with their funding and stop stage; read only |

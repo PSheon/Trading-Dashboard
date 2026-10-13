@@ -9,12 +9,15 @@ import { AppConfig } from '../config/app-config.js';
 import { BackgroundJobs } from '../runtime/background-jobs.service.js';
 import { outsideRequest } from '../runtime/request-context.js';
 import { UnitOfWork, type DbExecutor, type DbTransaction } from '../db/unit-of-work.js';
-import { CopyAccountModeService } from './copy-account-mode.service.js';
-import { HyperliquidBudgetWait } from '../hyperliquid/hyperliquid-budget-wait.js';
+import { ATTEMPT_WEIGHT, CopyAccountModeService } from './copy-account-mode.service.js';
+import { ACCOUNT_MODE_OBSERVE_WEIGHT } from './live/privy-account-mode-client.js';
+import { HyperliquidBudgetWait, SHARED_CAPACITY_MIN_RETRY_MS, sharedCapacityWait } from '../hyperliquid/hyperliquid-budget-wait.js';
+import { infoWeight } from '../hyperliquid/info-weights.js';
 import { DEFAULT_LIVE_SETUP_TIMINGS, type LiveSetupTimings } from '../config/live-timings.js';
 import { classify, exhausted, StepFail, StepWait } from './live/error-class.js';
 import { LiveBoundaryError } from './live/wallet-authorization.js';
 import { CopyAgentService } from './copy-agent.service.js';
+import { AGENT_OBSERVE_WEIGHT } from './copy-agent-exchange.client.js';
 import { CopyFundingExchangeClient } from './copy-funding-exchange.client.js';
 import { CopyFundingRepository } from './copy-funding.repository.js';
 import { CopyFundingService, wire as fundingWire } from './copy-funding.service.js';
@@ -34,6 +37,8 @@ import { LeaderActivityService } from '../traders/leader-activity.service.js';
 import { explorerHealth } from './explorer-health.js';
 
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+/** A start's consented builder fee (none at 0: testnet's decision 7). */
+const builderFeeDue = (row: Pick<SetupRow, 'kind'>, intent: LiveCopySetupIntent) => Boolean(intent.builderAddress) && intent.builderMaxFeeTenthsOfBps > 0 && row.kind === 'start';
 /** The deposit a setup reserves, as a UUID derived from the setup and the
  * deposit it replaces: every pass and every driver reserve the same deposit,
  * never an orphan beside it. Not the revision: a pass whose step CAS lost
@@ -52,6 +57,24 @@ export function setupFundingKey(row: Pick<SetupRow, 'id' | 'fundingOperationId'>
 /** How long after its setup ended an approval left unknown is still looked at. */
 const ABANDONED_APPROVAL_WINDOW_MS = 3 * 86_400_000;
 const THROTTLED_STAGES: readonly SetupStage[] = ['funded', 'mode_set', 'agent_active'];
+/** The shared per-IP meter's setup lane (the wallet network's
+ * HyperliquidGlobalTransport): a setup step goes ahead of background, within
+ * the setups' share (hyperliquid-global-quota.ts HYPERLIQUID_SETUP_REST_CAP). */
+export const SETUP_REST_CAPACITY = Symbol('SETUP_REST_CAPACITY');
+export interface SetupRestCapacity {
+  /** Records the setup's demand and answers in how many ms `weight` fits (0: now). */
+  claimSetup(weight: number): Promise<number>;
+  /** Runs the step: its Hyperliquid charges are the setup lane's. */
+  runSetup<T>(work: () => Promise<T>): Promise<T>;
+}
+/** A throttled step's provider weight in its minute, claimed before it runs:
+ * the account-mode attempt (its two preflights and the POST; an operation
+ * in flight is only observed, ACCOUNT_MODE_OBSERVE_WEIGHT), the agent's
+ * observation and approval, the builder fee's read and approval (0: no
+ * builder fee, nothing sent). */
+const ACCOUNT_MODE_STEP_WEIGHT = ATTEMPT_WEIGHT;
+const AGENT_STEP_WEIGHT = AGENT_OBSERVE_WEIGHT + 1;
+const BUILDER_STEP_WEIGHT = infoWeight({ type: 'maxBuilderFee' }) + 1;
 /** Stages a confirmed start reaches after its deposit's credit: the copy is
  * starting and is stopped like a running one, not cancelled. */
 const PAST_FUNDING_STAGES: readonly SetupStage[] = ['funded', 'mode_set', 'agent_active', 'builder_ready', 'running'];
@@ -128,7 +151,8 @@ export class CopyLiveSetupService {
     @Optional() private readonly now: () => number = Date.now,
     @Optional() private readonly jobs: BackgroundJobs | null = null,
     @Optional() @Inject(CopyLiveSetupAbortService) private readonly aborts: CopyLiveSetupAbortService | null = null,
-    @Optional() @Inject(LeaderActivityService) private readonly leaderActivity: Pick<LeaderActivityService, 'copyActivity'> | null = null) {}
+    @Optional() @Inject(LeaderActivityService) private readonly leaderActivity: Pick<LeaderActivityService, 'copyActivity'> | null = null,
+    @Optional() @Inject(SETUP_REST_CAPACITY) private readonly capacity: SetupRestCapacity | null = null) {}
 
   private available() {
     if (!liveExecutionEnabled(this.config) || !this.agents.available || !this.modes.available || !this.wallets.workerPolicyEnabled || !this.workerSigner?.available)
@@ -795,11 +819,37 @@ export class CopyLiveSetupService {
         throw new Wait('awaiting_credit', this.timings.retry.pendingMs);
       }
       case 'funded': return this.modeStep(row, intent, signer);
-      case 'mode_set': return this.agentStep(row, intent, signer);
-      case 'agent_active': return this.builderStep(row, intent, signer);
+      case 'mode_set': return this.withCapacity(AGENT_STEP_WEIGHT, () => this.agentStep(row, intent, signer));
+      case 'agent_active': return this.withCapacity(builderFeeDue(row, intent) ? BUILDER_STEP_WEIGHT : 0, () => this.builderStep(row, intent, signer));
       case 'builder_ready': return this.mandateStep(row, intent);
       default: return row;
     }
+  }
+
+  /**
+   * A throttled step's Hyperliquid weight, ahead of background: its demand
+   * is recorded on the shared meter first (background then leaves the
+   * setups' share free), and the step starts only once its weight fits;
+   * until then it waits as long as the meter says (`shared_capacity`, at
+   * least 1 s), never a whole 65 s window by default. Its charges are the
+   * setup lane's, bounded so a burst of setups never takes live orders'
+   * room. Without the meter (no transport), the step runs as it is.
+   */
+  private async withCapacity(weight: number, step: () => Promise<SetupRow>): Promise<SetupRow> {
+    const capacity = this.capacity;
+    if (!capacity || weight <= 0) return step();
+    let waitMs: number;
+    try { waitMs = await capacity.claimSetup(weight); }
+    catch (error) {
+      const wait = sharedCapacityWait(error);
+      if (wait) throw wait;
+      // A demand that could not be recorded: the step runs as before (its
+      // own charges still go through the meter).
+      this.logger.warn(`setup capacity not claimed: ${safeErrorText(error)}`);
+      waitMs = 0;
+    }
+    if (waitMs > 0) throw new HyperliquidBudgetWait(Math.max(SHARED_CAPACITY_MIN_RETRY_MS, waitMs + 250), 'shared_capacity', { weight, bucket: 'shared:setup' });
+    return capacity.runSetup(step);
   }
 
   private async modeStep(row: SetupRow, intent: LiveCopySetupIntent, signer: SetupSigner | null): Promise<SetupRow> {
@@ -812,7 +862,11 @@ export class CopyLiveSetupService {
     if (op.submissionState === 'rejected' || op.targetState === 'unsupported') throw new Fail('setup_account_mode_failed');
     // Only an operation in flight (or a signing claim to recover) needs its
     // own observation; a prepared one is observed by submit's first preflight.
-    if (op.submissionState !== 'prepared' || op.attemptedAt) {
+    const inFlight = op.submissionState !== 'prepared' || Boolean(op.attemptedAt), operation = op;
+    return this.withCapacity(inFlight ? ACCOUNT_MODE_OBSERVE_WEIGHT : ACCOUNT_MODE_STEP_WEIGHT, () => this.modeAttempt(row, intent, signer, operation, inFlight));
+  }
+  private async modeAttempt(row: SetupRow, intent: LiveCopySetupIntent, signer: SetupSigner | null, op: { id: string }, inFlight: boolean): Promise<SetupRow> {
+    if (inFlight) {
       const observed = await this.modes.reconcile(row.userId, op.id, { busy: 'throw' });
       if (observed.targetState === 'supported') return this.move(row, 'mode_set');
       if (observed.targetState === 'unsupported' || observed.submissionState === 'rejected') throw new Fail('setup_account_mode_failed');
@@ -860,7 +914,7 @@ export class CopyLiveSetupService {
   /** A fee of 0 (testnet's decision 7; a live deployment for now) is skipped. Otherwise the
    * consented builder and rate, once, then observed on the exchange. */
   private async builderStep(row: SetupRow, intent: LiveCopySetupIntent, signer: SetupSigner | null): Promise<SetupRow> {
-    if (!intent.builderAddress || intent.builderMaxFeeTenthsOfBps <= 0 || row.kind !== 'start') return this.move(row, 'builder_ready');
+    if (!builderFeeDue(row, intent) || !intent.builderAddress) return this.move(row, 'builder_ready');
     const network = WALLET_NETWORKS[intent.network];
     let approval = row.builderApprovalId ? await this.returns.builder(row.userId, row.builderApprovalId) : null;
     if (!approval) {

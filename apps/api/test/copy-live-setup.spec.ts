@@ -21,7 +21,7 @@ import { CopyLiveSetupAbortReturnRepository, SETUP_ABORT_RESIDUAL_RETURNS } from
 import { classify } from '../src/copy/live/error-class.js';
 import { CopyLiveReturnRepository } from '../src/copy/copy-live-return.repository.js';
 import type { SetupAbortFlatObservation } from '../src/copy/live/live-account-observer.js';
-import { CopyLiveSetupAbortService, SETUP_ABORT_ALERT_EVERY_MS } from '../src/copy/copy-live-setup-abort.service.js';
+import { CopyLiveSetupAbortService, SETUP_ABORT_ALERT_EVERY_MS, SETUP_ABORT_NOT_FLAT_ESCALATE_MS } from '../src/copy/copy-live-setup-abort.service.js';
 import { BackgroundJobs } from '../src/runtime/background-jobs.service.js';
 import { requestContext } from '../src/runtime/request-middleware.js';
 import { CopyLiveSetupController } from '../src/copy/copy-live-setup.controller.js';
@@ -1724,6 +1724,79 @@ describe('cancel and refund a confirmed setup awaiting its credit (funding_submi
     later(30_000);
     expect(await w.pass(setup.id)).toMatchObject({ state: 'done' });
     expect(w.exchange.send).toHaveBeenCalledTimes(2);
+    errors.mockRestore();
+  });
+
+  /** The copy account holding margin (a position): never proven flat. */
+  const notFlatOf = (balance: string) => { const proof = proofOf(balance); Object.assign(proof.snapshot, { totalMarginUsed: '1' }); return proof; };
+
+  it(`an account not flat waits up to SETUP_ABORT_NOT_FLAT_ESCALATE_MS (a failed read in between does not reset it); past it the abort blocks as the owner's with a rate-limited ALERT`, async () => {
+    const errors = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const setup = await awaitingCredit(), w = cancelWorld();
+    await w.setups.cancel(uid, setup.id);
+    w.world.balance = '100';
+    w.observer.observeSetupAbortFlat.mockImplementation(async () => notFlatOf(w.world.balance));
+    const since = clock;
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'proving', issue: 'setup_abort_proof_not_flat', backoff: { failures: 1, notFlatSince: since } });
+    expect(await w.worker.get(uid, setup.id)).toMatchObject({ state: 'reconciling', issue: 'setup_abort_proof_not_flat' });
+    for (const minutes of [1, 10, 20]) {
+      clock = since + minutes * 60_000;
+      expect(await w.pass(setup.id)).toMatchObject({ state: 'proving', issue: 'setup_abort_proof_not_flat', backoff: { notFlatSince: since } });
+    }
+    // A read that failed proves nothing either way: the clock goes on.
+    w.observer.observeSetupAbortFlat.mockRejectedValueOnce(new Error('info read timed out'));
+    clock = since + 25 * 60_000;
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'proving', issue: 'setup_abort_evidence_unavailable', backoff: { notFlatSince: since } });
+    clock = since + SETUP_ABORT_NOT_FLAT_ESCALATE_MS;
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'proving', issue: 'setup_abort_proof_not_flat', backoff: { notFlatSince: since } });
+    expect(alerts(errors, 'not_flat')).toBe(0);
+    // More than 30 minutes on the same abort: the owner's.
+    clock = since + SETUP_ABORT_NOT_FLAT_ESCALATE_MS + 1;
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'blocked', issue: 'setup_abort_not_flat_persistent', backoff: { notFlatSince: since } });
+    expect(classify(new Error('setup_abort_not_flat_persistent')).class).toBe('needs_owner');
+    expect(await w.worker.get(uid, setup.id)).toMatchObject({ state: 'blocked', issue: 'setup_abort_not_flat_persistent' });
+    expect(alerts(errors, 'not_flat')).toBe(1);
+    // Still not flat: still blocked, the ALERT not repeated within its interval.
+    later(5 * 60_000);
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'blocked', issue: 'setup_abort_not_flat_persistent' });
+    expect(alerts(errors, 'not_flat')).toBe(1);
+    expect(w.exchange.send).not.toHaveBeenCalled();
+    // The owner closes it: a flat proof, the refund leaves, the cancel completes.
+    w.observer.observeSetupAbortFlat.mockImplementation(async () => proofOf(w.world.balance));
+    later(5 * 60_000);
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'returning', issue: 'setup_abort_refund_pending', backoff: null });
+    expect(w.exchange.send).toHaveBeenCalledTimes(1);
+    errors.mockRestore();
+  });
+
+  it('a flat proof while the account was not flat starts its clock over', async () => {
+    const errors = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const setup = await awaitingCredit(), w = cancelWorld();
+    await w.setups.cancel(uid, setup.id);
+    w.world.balance = '100';
+    w.observer.observeSetupAbortFlat.mockImplementation(async () => notFlatOf(w.world.balance));
+    const since = clock;
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'proving', issue: 'setup_abort_proof_not_flat', backoff: { notFlatSince: since } });
+    clock = since + 20 * 60_000;
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'proving', issue: 'setup_abort_proof_not_flat', backoff: { notFlatSince: since } });
+    // Flat for one pass (the refund then waits for the worker's signer).
+    w.observer.observeSetupAbortFlat.mockImplementation(async () => proofOf(w.world.balance));
+    w.signer.available = false; clock = since + 21 * 60_000;
+    const flatPass = await w.pass(setup.id);
+    expect(flatPass).toMatchObject({ state: 'proving', issue: 'setup_abort_unavailable' });
+    expect(flatPass.backoff).not.toHaveProperty('notFlatSince');
+    // Not flat again: a new clock, from now.
+    w.observer.observeSetupAbortFlat.mockImplementation(async () => notFlatOf(w.world.balance));
+    w.signer.available = true; clock = since + 22 * 60_000;
+    const restarted = clock;
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'proving', issue: 'setup_abort_proof_not_flat', backoff: { notFlatSince: restarted } });
+    // 40 minutes since the first, 18 since the flat proof: still a wait.
+    clock = since + 40 * 60_000;
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'proving', issue: 'setup_abort_proof_not_flat', backoff: { notFlatSince: restarted } });
+    clock = restarted + SETUP_ABORT_NOT_FLAT_ESCALATE_MS + 1;
+    expect(await w.pass(setup.id)).toMatchObject({ state: 'blocked', issue: 'setup_abort_not_flat_persistent' });
+    expect(alerts(errors, 'not_flat')).toBe(1);
+    expect(w.exchange.send).not.toHaveBeenCalled();
     errors.mockRestore();
   });
 

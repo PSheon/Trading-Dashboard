@@ -67,8 +67,12 @@ const NEEDS_OWNER_CODES: ReadonlySet<string> = new Set([
   'consent_expired', 'agent_consent_expired', 'worker_signer_missing', 'exchange_agent_expired',
   'wallet_authorization_missing', 'wallet_authorization_expired', 'wallet_authorization_revoked',
   // Money kept landing in a cancelled setup's copy account after its refund
-  // and every follow-up (SETUP_ABORT_RESIDUAL_RETURNS) were credited.
+  // and every follow-up (SETUP_ABORT_RESIDUAL_RETURNS) left.
   'setup_abort_residual_balance',
+  // A cancelled setup's copy account still not flat (a position, an order,
+  // margin) past SETUP_ABORT_NOT_FLAT_ESCALATE_MS: setup_abort_proof_not_flat
+  // waits until then (copy-live-setup-abort.service.ts).
+  'setup_abort_not_flat_persistent',
 ]);
 /** Waits, not failures: a read that was stale or could not be had, or the
  * worker's signer not up yet. Unlisted codes are `transient` already; these

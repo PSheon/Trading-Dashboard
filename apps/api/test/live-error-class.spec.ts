@@ -44,6 +44,8 @@ describe('the live error classifier', () => {
       expect(classify(new ConflictException({ statusCode: 409, code, message: 'x' }))).toEqual({ class: 'transient', code, source: 'http', exhausts: true });
     for (const code of ['setup_abort_binding_unknown', 'setup_abort_generation_conflict', 'setup_abort_wallet_conflict', 'setup_abort_refund_not_completed'])
       expect(classify(new ConflictException({ statusCode: 409, code, message: 'x' })).class).toBe('permanent');
+    // Not flat waits; past SETUP_ABORT_NOT_FLAT_ESCALATE_MS it is the owner's.
+    expect(classify(new ConflictException({ statusCode: 409, code: 'setup_abort_not_flat_persistent', message: 'x' })).class).toBe('needs_owner');
   });
   it('a transient failure is exhausted at the limit; budget, owner and unknown outcomes never are', () => {
     const transient = classify(new Error('privy_unavailable'));

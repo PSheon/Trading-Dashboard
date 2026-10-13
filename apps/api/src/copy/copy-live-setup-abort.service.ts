@@ -41,6 +41,13 @@ export const setupAbortIssueBlocks = (code: string | null) => code !== null && b
 /** An abort's ALERT (a follow-up refund, or the follow-ups exhausted) is
  * logged at most once per this, per abort and kind. */
 export const SETUP_ABORT_ALERT_EVERY_MS = 10 * 60_000;
+/** The copy account proven not flat (a position, an order, margin:
+ * setup_abort_proof_not_flat) waits; the same abort still not flat for more
+ * than this is the owner's (setup_abort_not_flat_persistent, needs_owner).
+ * Since when is kept on the row's backoff (notFlatSince); a flat proof
+ * resets it. */
+export const SETUP_ABORT_NOT_FLAT_ESCALATE_MS = 30 * 60_000;
+const NOT_FLAT = 'setup_abort_proof_not_flat', NOT_FLAT_PERSISTENT = 'setup_abort_not_flat_persistent';
 const states = { requested: 'requested', draining: 'reconciling', waiting_credit: 'reconciling', proving: 'reconciling', returning: 'refunding',
   delegated: 'delegated', blocked: 'blocked', done: 'completed' } as const;
 
@@ -115,7 +122,7 @@ export class CopyLiveSetupAbortService {
     return (error: unknown) => { this.logger.warn(`setup abort ${abortId} ${child} ${childId} reconcile kept for the next pass ${JSON.stringify(errorLogFields(error))}`); };
   }
   /** `ALERT setup_abort <kind>`, rate-limited (SETUP_ABORT_ALERT_EVERY_MS). */
-  private alert(row: SetupAbortRow, kind: 'residual_return' | 'residual_cap', fields: Record<string, unknown>) {
+  private alert(row: SetupAbortRow, kind: 'residual_return' | 'residual_cap' | 'not_flat', fields: Record<string, unknown>) {
     const key = `${row.id}:${kind}`, at = this.now(), last = this.alerted.get(key);
     if (last !== undefined && at - last < SETUP_ABORT_ALERT_EVERY_MS) return;
     this.alerted.set(key, at);
@@ -129,8 +136,14 @@ export class CopyLiveSetupAbortService {
   async process(id: string) {
     let row = await this.repository.lease(id); if (!row) return;
     const originalLease = row;
+    // A flat proof was had this pass (complete, begin or reprove took one):
+    // the account's not-flat clock (backoff.notFlatSince) starts over.
+    let flat = false;
+    const notFlatSince = () => flat ? null : row!.backoff?.notFlatSince ?? null;
     const wait = async (state: SetupAbortRow['state'], reason: string | null, delayMs = 30_000) => {
-      const next = await this.repository.transition(row!, { state, issue: reason, nextAttemptAt: new Date(this.now() + delayMs), ...(row!.backoff ? { backoff: null } : {}) });
+      const at = this.now(), since = notFlatSince();
+      const backoff = since === null ? null : { failures: 0, nextAt: at + delayMs, notFlatSince: since };
+      const next = await this.repository.transition(row!, { state, issue: reason, nextAttemptAt: new Date(at + delayMs), ...(row!.backoff || backoff ? { backoff } : {}) });
       if (next) row = next;
     };
     /** A step that cannot go on, through the classifier (live/error-class):
@@ -139,12 +152,20 @@ export class CopyLiveSetupAbortService {
      * doubling to 60 s, or the error's own later time), never an attempt;
      * the same wait again is bookkeeping only (no revision). */
     const settle = async (classified: ErrorClassification, reason: string) => {
+      const current = row!, at = this.now();
+      // Not flat: a wait, until it lasted SETUP_ABORT_NOT_FLAT_ESCALATE_MS on
+      // this abort (a flat proof in between starts it over); then the owner's.
+      const since = reason === NOT_FLAT ? notFlatSince() ?? at : notFlatSince();
+      if (reason === NOT_FLAT && (current.issue === NOT_FLAT_PERSISTENT || at - since! > SETUP_ABORT_NOT_FLAT_ESCALATE_MS)) {
+        this.alert(current, 'not_flat', { notFlatSince: new Date(since!).toISOString(), minutes: Math.floor((at - since!) / 60_000) });
+        await wait('blocked', NOT_FLAT_PERSISTENT); return;
+      }
       if (blocks(classified)) { await wait('blocked', reason); return; }
-      const current = row!, at = this.now(), failures = (current.backoff?.failures ?? 0) + 1;
+      const failures = (current.backoff?.failures ?? 0) + 1;
       const delayMs = Math.max(fundingBackoffMs(failures), classified.retryAfterMs ?? 0);
       // The step it waits in: the stop it delegated to, its refund, else its proof.
       const state: SetupAbortRow['state'] = current.stopId ? 'delegated' : current.returnOperationId ? 'returning' : 'proving';
-      const changes = { nextAttemptAt: new Date(at + delayMs), backoff: { failures, nextAt: at + delayMs } };
+      const changes = { nextAttemptAt: new Date(at + delayMs), backoff: { failures, nextAt: at + delayMs, ...(since === null ? {} : { notFlatSince: since }) } };
       const next = state === current.state && reason === current.issue ? await this.repository.defer(current, changes)
         : await this.repository.transition(current, { state, issue: reason, ...changes });
       if (next) row = next;
@@ -217,6 +238,7 @@ export class CopyLiveSetupAbortService {
       if (!originalPrepared) {
         const reservationProof = await this.observer.observeSetupAbortFlat(row.accountAddress);
         if (await this.refunds.complete(row, reservationProof, this.now)) return;
+        flat = true;
         // Money still there after the refund left (credited, or accepted with
         // its debit already in this proof; its credit needs the explorer and
         // is not waited for): it is returned again (a follow-up, reserve), at
@@ -243,6 +265,7 @@ export class CopyLiveSetupAbortService {
       const proof = await this.observer.observeSetupAbortFlat(row.accountAddress!);
       const attempt = await this.refunds.begin(row, refund.id, proof, this.now);
       if (!attempt) { await wait('draining', 'setup_abort_child_pending'); return; }
+      flat = true;
       const context = await this.returns.contextRead(row.userId, row.accountId!, true), account = context.account;
       // The flat observation the POST relies on: at most 5 s old when it leaves.
       let proven = proof;

@@ -115,6 +115,18 @@ export const SETUP_LANE_TOKEN=/^[0-9a-f]{16}$/;
  * and its retry waited ~45 s for those 410 to expire). Long enough for the
  * attempt's two preflights, its signature and its POST. */
 export const HYPERLIQUID_SETUP_GRANT_HOLD_MS=45_000;
+/** Of the 30 socket connects a minute, what only live sockets (an original
+ * live-risk session's, a live order's: its follower and leader account
+ * observations, a stop's or a close's) may take: every other socket, and a
+ * setup's claim for its step's connects, leaves it free. One order's
+ * observations open about six (three per account and the leader's), and a
+ * stop or close beside it a few more. Gate 2026-10-13 11:15 (7th run): the
+ * harness's two socket loops (one connect every 2 s, as many as the window
+ * holds) kept it full, and the order's follower observation was refused its
+ * connect, twice (`live_account_observation_unavailable`, cause
+ * `hyperliquid_quota_exhausted`), and so was the stop after it, many times
+ * a second. */
+export const HYPERLIQUID_LIVE_WS_CONNECT_RESERVE=10;
 /** Socket connects one claim may ask to hold (an account-mode attempt opens two). */
 export const HYPERLIQUID_MAX_SETUP_CONNECTS=9;
 const SETUP_DEMAND_TICKET=/^setup-demand:([1-9][0-9]{0,3}):([0-9a-f]{16}):[0-9a-f-]{1,36}(?::c([1-9]))?(:g)?$/;
@@ -448,8 +460,8 @@ export function planHyperliquidQuota(raw:{readonly now:number;readonly state:Hyp
       return wait;
     };
     /** `connects` socket connects for `token`'s step: the connect window
-     * beside everything but its own hold. */
-    const connectsFitIn=(connects:number,token:string)=>fitsIn(events.filter(e=>e.kind==='ws_connect'&&!(isHold(e)&&ownedBy(e,token))),connects,caps.ws_connect);
+     * beside everything but its own hold, below live sockets' reserve. */
+    const connectsFitIn=(connects:number,token:string)=>fitsIn(events.filter(e=>e.kind==='ws_connect'&&!(isHold(e)&&ownedBy(e,token))),connects,caps.ws_connect-HYPERLIQUID_LIVE_WS_CONNECT_RESERVE);
     const restCharge=(units:number,id:string,sendUntil:number,lane:HyperliquidRestLane|undefined,heldMs=0)=>{
       requireQuota(sendUntil>=now&&sendUntil<=now+5000);requireQuota(!s.events.some(e=>e.id===id),'hyperliquid_quota_ticket_conflict');
       requireQuota(lane==='setup'?id.startsWith(SETUP_REST_ID_PREFIX):lane==='live'?id.startsWith(LIVE_REST_ID_PREFIX):lane==='page'?id.startsWith(PAGE_REST_ID_PREFIX):!isLaneTicket(id));
@@ -516,10 +528,16 @@ export function planHyperliquidQuota(raw:{readonly now:number;readonly state:Hyp
       if(wait>0)throw new HyperliquidRestCapacityError(wait);
       events.push({id,kind:'rest',units,reservedAt:now,expiresAt:sendUntil+60000});charged=units;
     };
-    /** Socket messages and connects (REST: restCharge). */
+    /** Socket messages and connects (REST: restCharge). A refusal says when
+     * the units fit beside `reserved` as the window's events expire (a
+     * HyperliquidRestCapacityError), when they ever do. */
     const charge=(kind:'ws_message'|'ws_connect',units:number,id:string,sendUntil:number,reserved=0)=>{
       requireQuota(sendUntil>=now&&sendUntil<=now+5000);requireQuota(!s.events.some(e=>e.id===id),'hyperliquid_quota_ticket_conflict');
-      requireQuota(sum(events.filter(e=>e.kind===kind))+units+reserved<=caps[kind],'hyperliquid_quota_exhausted');
+      if(sum(events.filter(e=>e.kind===kind))+units+reserved>caps[kind]){
+        const wait=fitsIn(events.filter(e=>e.kind===kind),units,caps[kind]-reserved);
+        if(wait!==undefined&&wait>0)throw new HyperliquidRestCapacityError(wait);
+        throw new LiveBoundaryError('hyperliquid_quota_exhausted');
+      }
       events.push({id,kind,units,reservedAt:now,expiresAt:sendUntil+60000});charged=units;
     };
     const active=()=>leases.filter(l=>l.state!=='closed'&&!hyperliquidLeaseReclaimed(l,now));
@@ -583,14 +601,15 @@ export function planHyperliquidQuota(raw:{readonly now:number;readonly state:Hyp
     else if(request.kind==='connect'){
       requireQuota(!leases.some(l=>l.id===request.lease.id||l.socketId===request.lease.socketId),'hyperliquid_quota_lease_lost');
       requireQuota(request.lease.egressKey===s.egressKey&&request.lease.leaseUntil>now&&request.lease.leaseUntil<=now+60000&&request.lease.latestAllowedSendAt===request.sendUntil&&request.sendUntil<=request.lease.leaseUntil);
-      // A setup step's socket takes a connect its grant holds. Any other
-      // socket but a live one leaves the oldest waiting setup's connects free
-      // (as background leaves its REST need), so a step that opens sockets is
-      // not refused partway through by a connect taken meanwhile (gate
-      // 2026-10-13: the harness's two socket loops take ~29 of the 30 a minute).
+      // A setup step's socket takes a connect its grant holds. A live socket
+      // has the whole window; any other leaves live sockets' reserve free,
+      // and the oldest waiting setup's connects (as background leaves its
+      // REST need), so a step that opens sockets is not refused partway
+      // through by a connect taken meanwhile (gate 2026-10-13: the harness's
+      // two socket loops take ~29 of the 30 a minute).
       const head=pendingSetups(events.filter(e=>e.kind==='rest'),now)[0];
       const covered=request.setupToken===undefined?0:drawHold(events,'ws_connect',request.setupToken,1,now);
-      charge('ws_connect',1,request.id,request.sendUntil,covered>0||request.live||!head||head.token===request.setupToken?0:head.connects);
+      charge('ws_connect',1,request.id,request.sendUntil,covered>0||request.live?0:HYPERLIQUID_LIVE_WS_CONNECT_RESERVE+(!head||head.token===request.setupToken?0:head.connects));
       leases.push({...request.lease,state:'reserved',revision:1,subscriptions:[],createdAt:now,updatedAt:now,closedAt:null});limits();
     }else{
       const l=leases.find(l=>l.id===request.leaseId);requireQuota(l&&l.fenceToken===request.fenceToken&&l.ownerId===request.ownerId&&l.state!=='closed','hyperliquid_quota_lease_lost');

@@ -1,6 +1,6 @@
 import {describe,expect,it} from 'vitest';
 import {HyperliquidRestCapacityError} from '../src/hyperliquid/hyperliquid-capacity-error.js';
-import {planHyperliquidQuota,setupDemandTicket,type HyperliquidQuotaEvent,type HyperliquidQuotaRequest,type HyperliquidQuotaState} from '../src/hyperliquid/hyperliquid-global-quota.js';
+import {HYPERLIQUID_LIVE_WS_CONNECT_RESERVE,planHyperliquidQuota,setupDemandTicket,type HyperliquidQuotaEvent,type HyperliquidQuotaRequest,type HyperliquidQuotaState} from '../src/hyperliquid/hyperliquid-global-quota.js';
 
 /**
  * A granted setup claim is a reservation, not a priority (gate 2026-10-13
@@ -112,22 +112,25 @@ describe('a granted setup claim holds its step\'s weight in the window', () => {
   });
 
   it('the step\'s socket connects: claimed with it, held once granted, and its sockets draw them while others fill the connect window', () => {
-    // contention.mjs's two socket loops: 28 of the 30 connects a minute, expiring one every ~2 s.
-    let state=S([rest('bg:a',240),...Array.from({length:28},(_,i)=>connected(`ws-${i}`,2_000*(i+1)))]);
+    // contention.mjs's two socket loops: 18 of the 20 connects a minute that
+    // non-live sockets may take (live keeps HYPERLIQUID_LIVE_WS_CONNECT_RESERVE), expiring one every ~2 s.
+    let state=S([rest('bg:a',240),...Array.from({length:18},(_,i)=>connected(`ws-${i}`,2_000*(i+1)))]);
     // 2 free: granted, and they are held.
     const granted=claim(635,state,{connects:2});
     expect(granted.waitMs).toBe(0);
     state=granted.state;
-    expect(total(state,'ws_connect')).toBe(30);
+    expect(total(state,'ws_connect')).toBe(30-HYPERLIQUID_LIVE_WS_CONNECT_RESERVE);
     // Another socket is refused; the step's two are not.
     expect(refusal(()=>connect(state))).toBeDefined();
     state=connect(state,{setupToken:T}).state;state=connect(state,{setupToken:T}).state;
-    expect(total(state,'ws_connect')).toBe(30);
+    expect(total(state,'ws_connect')).toBe(30-HYPERLIQUID_LIVE_WS_CONNECT_RESERVE);
     expect(refusal(()=>connect(state,{setupToken:T}))).toBeDefined();
+    // A live socket still has its reserve.
+    expect(connect(state,{live:true}).charged).toBe(1);
   });
 
   it('a waiting setup\'s connects: other sockets leave them free (live ones excepted), and the claim is told when they fit', () => {
-    let state=S([rest('bg:a',240),...Array.from({length:29},(_,i)=>connected(`ws-${i}`,2_000*(i+1)))]);
+    let state=S([rest('bg:a',240),...Array.from({length:19},(_,i)=>connected(`ws-${i}`,2_000*(i+1)))]);
     const waiting=claim(635,state,{connects:2});
     // One connect is free, two are needed: in ~2 s.
     expect(waiting.waitMs).toBeGreaterThan(0);
@@ -155,5 +158,24 @@ describe('a granted setup claim holds its step\'s weight in the window', () => {
     const state=claim(635,S([rest('bg:a',240)]),{connects:2}).state;
     for(const e of state.events){expect(Object.keys(e).sort()).toEqual(['expiresAt','id','kind','reservedAt','units']);expect(e.id).toMatch(/^[^\s\p{Cc}\p{Cf}]{1,128}$/u);}
     expect(refusal(()=>plan({kind:'rest',id:id(),weight:1200-total(state)+1,sendUntil:now+5000},state))).toBeDefined();
+  });
+
+  it('live sockets keep a reserve of the connect window: other sockets are refused below it and told when one fits; a live order\'s observation is not (gate 2026-10-13 11:15)', () => {
+    // contention.mjs's socket loops keep taking a connect every ~2 s, as many as the window lets them.
+    let state=S([rest('bg:a',240)]),granted=0;
+    for(let i=0;i<30;i++){try{state=connect(state).state;granted++;}catch{break;}}
+    // Before: all 30; the order's six account sockets were then refused (live_account_observation_unavailable).
+    expect(granted).toBe(30-HYPERLIQUID_LIVE_WS_CONNECT_RESERVE);
+    const refused=refusal(()=>connect(state));
+    expect(refused).toBeInstanceOf(HyperliquidRestCapacityError);
+    expect((refused as HyperliquidRestCapacityError).retryAfterMs).toBeGreaterThan(0);
+    expect((refused as HyperliquidRestCapacityError).retryAfterMs).toBeLessThanOrEqual(65_000);
+    // A live order's follower and leader observations: six connects, and a stop's beside them.
+    for(let i=0;i<HYPERLIQUID_LIVE_WS_CONNECT_RESERVE;i++)state=connect(state,{live:true}).state;
+    expect(total(state,'ws_connect')).toBe(30);
+    // 30 a minute still holds for everyone.
+    expect(refusal(()=>connect(state,{live:true}))).toBeDefined();
+    // A setup's claim for its step's connects is below the reserve too.
+    expect(claim(635,S([rest('bg:a',240),...Array.from({length:19},(_,i)=>connected(`ws-${i}`,2_000*(i+1)))]),{connects:2}).waitMs).toBeGreaterThan(0);
   });
 });

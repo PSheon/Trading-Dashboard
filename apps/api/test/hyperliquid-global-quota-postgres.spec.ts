@@ -5,7 +5,7 @@ import {sql} from 'drizzle-orm';
 import {afterAll,beforeAll,beforeEach,describe,expect,it,vi} from 'vitest';
 import {closeTestDb,getTestDb} from './db-test-utils.js';
 import {UnitOfWork,type DbTransaction} from '../src/db/unit-of-work.js';
-import {PostgresHyperliquidQuota} from '../src/hyperliquid/postgres-hyperliquid-quota.js';
+import {PostgresHyperliquidQuota,newLiveLaneToken,runInLiveLane} from '../src/hyperliquid/postgres-hyperliquid-quota.js';
 import {HyperliquidGlobalTransport} from '../src/hyperliquid/hyperliquid-global-transport.js';
 import {HyperliquidAllDexsAccountSource,PerReadAllDexsAccountSource} from '../src/copy/live/live-account-ws-source.js';
 import {liveSourceDigest} from '../src/copy/live/copy-live-source-evidence.js';
@@ -100,11 +100,13 @@ describe('durable shared egress meter, never provider I/O',()=>{
  it('still refuses an eleventh connection with ten live leases when more stale leases than the scan bound exist',async()=>{
   const bound=meter.bindUnscoped(identity),T=schema.hyperliquidWsLeases;
   const age=()=>db.update(T).set({state:'uncertain',createdAt:sql`now() - interval '11 minutes'`,leaseUntil:sql`now() - interval '10 minutes'`,latestAllowedSendAt:sql`now() - interval '11 minutes'`,updatedAt:sql`now() - interval '10 minutes'`}).where(sql`${T.state} <> 'uncertain'`);
-  for(let i=0;i<10;i++)await bound.reserveSocket(Date.now()+5000);await age();
-  for(let i=0;i<2;i++)await bound.reserveSocket(Date.now()+5000);await age();
-  for(let i=0;i<10;i++)await bound.reserveSocket(Date.now()+5000);
+  // Live sockets (a live order's), so the connect window's reserve for them is not what refuses the eleventh.
+  const live=<R>(work:()=>Promise<R>)=>runInLiveLane(newLiveLaneToken(),work);
+  for(let i=0;i<10;i++)await live(()=>bound.reserveSocket(Date.now()+5000));await age();
+  for(let i=0;i<2;i++)await live(()=>bound.reserveSocket(Date.now()+5000));await age();
+  for(let i=0;i<10;i++)await live(()=>bound.reserveSocket(Date.now()+5000));
   expect((await db.select().from(T)).filter(r=>r.state==='uncertain')).toHaveLength(12);
-  await expect(meter.bindUnscoped({...identity,ownerId:'worker-b'}).reserveSocket(Date.now()+5000)).rejects.toThrow('hyperliquid_quota_connections');
+  await expect(live(()=>meter.bindUnscoped({...identity,ownerId:'worker-b'}).reserveSocket(Date.now()+5000))).rejects.toThrow('hyperliquid_quota_connections');
  });
  it('lets the original owner of a reclaimed lease still record its close evidence',async()=>{
   const result=await meter.bindUnscoped(identity).reserveSocket(Date.now()+5000);const T=schema.hyperliquidWsLeases;

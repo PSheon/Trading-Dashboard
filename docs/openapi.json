@@ -42744,6 +42744,20 @@
                                   "null"
                                 ]
                               },
+                              "neverPlaced": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "request_never_began",
+                                      "expired_after_grace"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
                               "purpose": {
                                 "type": "string",
                                 "enum": [
@@ -42808,6 +42822,7 @@
                               "reduceOnly",
                               "state",
                               "errorCode",
+                              "neverPlaced",
                               "purpose",
                               "leg",
                               "createdAt",

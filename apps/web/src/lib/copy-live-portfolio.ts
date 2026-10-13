@@ -21,7 +21,7 @@ export function onOtherNetwork(item: Pick<LiveCopyItem, 'network'>, deploymentNe
 
 function usePortfolioKey() {
   const auth = useAuth();
-  return [...queryKeys.copy.all, 'live-portfolio', auth.status, auth.mode, auth.identity, sessionKey()] as const;
+  return [...queryKeys.copy.livePortfolio, auth.status, auth.mode, auth.identity, sessionKey()] as const;
 }
 
 /** The owner's testnet copies with their stage (setup, deposit, funding,

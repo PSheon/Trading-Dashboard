@@ -2,7 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { liveCopyMandateSchema, liveCopyOverviewSchema, liveCopySetupConsentTypedData, liveCopySetupSchema, LIVE_SETUP_TERMINAL, usdSendTypedData, WALLET_NETWORKS,
-  type CopyStrategySettings, type LiveCopySetup } from '@trading-dashboard/shared/contracts';
+  type CopyStrategySettings, type LiveCopyPortfolioItem, type LiveCopySetup } from '@trading-dashboard/shared/contracts';
 import { api, ApiError, sessionKey } from './api';
 import { useAuth } from './auth';
 import { isTransient, retryAfter } from './copy-error-text';
@@ -182,6 +182,18 @@ export function useLiveCopySetupActions() {
   /** The progress dialog opens on what the server just answered: a first
    * poll that fails in passing still shows the stages (never an empty list). */
   const seed = (setup: LiveCopySetup) => { client.setQueryData(liveSetupKey(setup.id, latest.current.identity), setup); return setup; };
+  /** A cancel's answer (取消並退款 included) is shown at once: that setup's
+   * poll and the portfolio item's setup take it, then both are read again.
+   * Before, the sheet kept 完成設定 / 待確認 until its next 10 s poll. */
+  const cancelled = (setup: LiveCopySetup) => {
+    seed(setup);
+    client.setQueriesData<{ items: LiveCopyPortfolioItem[] }>({ queryKey: [...queryKeys.copy.livePortfolio] }, data => data && { ...data,
+      items: data.items.map(item => item.setup?.id === setup.id ? { ...item, setup: { ...item.setup, stage: setup.stage, issue: setup.issue,
+        abortRequested: setup.abortRequested ?? item.setup.abortRequested } } : item) });
+    void client.invalidateQueries({ queryKey: queryKeys.copy.liveSetup(setup.id) });
+    void client.invalidateQueries({ queryKey: [...queryKeys.copy.livePortfolio] });
+    refresh();
+  };
   const owner = () => {
     const current = latest.current, wallet = current.wallet, identity = current.identity, session = sessionKey();
     if (!wallet || !liveCopyEnabled(current)) throw new Error('owner_wallet_unavailable');
@@ -350,7 +362,7 @@ export function useLiveCopySetupActions() {
       const result = liveCopySetupSchema.parse(await api.post(`${ROOT}/setups/${encodeURIComponent(id)}/cancel`, {}));
       assertScope(scope);
       for (const name of namesOf(result)) await forget(name);
-      refresh(); return result;
+      cancelled(result); return result;
     },
   });
   /** The same terms again under a new key: a fresh consent challenge. */
@@ -408,7 +420,7 @@ export function useLiveCopySetupActions() {
 
 /** One setup's poll, for this person and session. */
 function liveSetupKey(id: string | null, identity: string | null) {
-  return [...queryKeys.copy.all, 'live-setup', id, identity, sessionKey()] as const;
+  return [...queryKeys.copy.liveSetup(id), identity, sessionKey()] as const;
 }
 
 /**

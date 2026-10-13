@@ -19,6 +19,10 @@ export const queryKeys = {
     all: ["copy"] as const,
     overview: ["copy", "overview"] as const,
     orders: (strategyId: number) => ["copy", "orders", strategyId] as const,
+    /** The actual copies' portfolio (then auth and session: copy-live-portfolio). */
+    livePortfolio: ["copy", "live-portfolio"] as const,
+    /** One one-click setup's poll (then identity and session: copy-live-setup). */
+    liveSetup: (id: string | null) => ["copy", "live-setup", id] as const,
   },
   traders: {
     all: ["traders"] as const,

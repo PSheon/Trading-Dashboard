@@ -12,7 +12,8 @@ import { copyExecutionAccounts, copyLiveMandates, copyLiveExecutions, copyLiveIn
 import { AppConfig } from '../../config/app-config.js';
 import { HyperliquidGlobalTransport } from '../../hyperliquid/hyperliquid-global-transport.js';
 import { RequestBudgeterService } from '../../hyperliquid/request-budgeter.service.js';
-import { liveBudget, HyperliquidBudgetWait } from '../../hyperliquid/hyperliquid-budget-wait.js';
+import { liveBudget, HyperliquidBudgetWait, LIVE_RESERVE_WAIT_MS } from '../../hyperliquid/hyperliquid-budget-wait.js';
+import { REST_CHARGE_LIFETIME_MS, sharedRestRetryAfterMs } from '../../hyperliquid/hyperliquid-capacity-error.js';
 import { Dec } from '../../common/decimal/dec.js';
 import { decodeLiveCopyMandate } from '../copy-live-mandate-evidence.js';
 import { PostgresLivePreparation, liveSourceExecutionCloid, type LivePreparationOptions } from './postgres-live-preparation.js';
@@ -120,6 +121,25 @@ export class LiveExecutionRuntime {
     if (!parsed.success) throw new LiveBoundaryError('live_runtime_options');
     this.options = Object.freeze(parsed.data);
   }
+  /**
+   * The order's weight announced on the shared per-IP meter before its SQL
+   * locks (HyperliquidGlobalTransport.claimLive): live orders come before
+   * setups and background, and its evidence reads (589 cold, 772 with two
+   * accounts: more than the 240 live reserve) are never refused beside a
+   * setup's share and background's cap. It waits for room no longer than
+   * the signal lives (else LIVE_RESERVE_WAIT_MS), then is a `shared_capacity`
+   * budget wait; a meter that records no demand leaves the order as before.
+   */
+  private async claimLive(weight: number, signalDeadline?: number): Promise<string | undefined> {
+    const now = this.now(), giveUpAt = Math.min(now + REST_CHARGE_LIFETIME_MS, signalDeadline ?? now + LIVE_RESERVE_WAIT_MS);
+    try { return await this.global.claimLive(weight, giveUpAt); }
+    catch (error) {
+      const retry = sharedRestRetryAfterMs(error);
+      if (retry !== undefined) throw new HyperliquidBudgetWait(Math.max(1_000, retry), 'shared_capacity', { weight, bucket: 'shared:live' });
+      new Logger('LiveExecutionRuntime').warn(`live demand not claimed: ${errorCode(error) ?? 'unknown'}`);
+      return undefined;
+    }
+  }
   /** Unregistered application capability. IDs route SQL only; every authority,
    * snapshot and permit is produced by concrete components in this invocation.
    * This method does not settle/release attempted reservations or run a worker. */
@@ -184,6 +204,7 @@ export class LiveExecutionRuntime {
     // These routing estimates grant no authority. Wait for initial evidence
     // weight before taking the original SQL locks and their five-second clock.
     // Every identity, live account and setting is reloaded inside that scope.
+    let liveToken: string | undefined;
     if (!routing.journalExists) {
       riskSourceRequire(Number.isSafeInteger(routing.budgetAccounts) && routing.budgetAccounts >= 1 && routing.budgetAccounts <= 8, 'live_risk_user_coverage_unproven');
       const leader = request.leg === 'open' && routing.mandate.sourceNetwork === this.network && routing.budgetSizing === 'ratio';
@@ -209,6 +230,7 @@ export class LiveExecutionRuntime {
         throw error;
       }
       credit.weight += missing;
+      liveToken = await this.claimLive(weight, request.signalDeadline);
     }
     let prepaid = credit.weight;
     credit.weight = 0;
@@ -220,7 +242,8 @@ export class LiveExecutionRuntime {
     const onTiming: LiveExecutionTimingHook = event => { if (timings.length < 128) timings.push(event); };
     // Below the stages: where the evidence waits (meter transactions, sockets, waves).
     const spans = new LiveSpanRecorder();
-    try { return await spans.run(() => scope.run({ userId: request.userId, network: this.network, accountAddress,
+    const lane = <T>(work: () => Promise<T>) => liveToken === undefined ? work() : this.global.runLive(liveToken, work);
+    try { return await spans.run(() => lane(() => scope.run({ userId: request.userId, network: this.network, accountAddress,
       source: { network: routing.mandate.sourceNetwork, leaderAddress } }, async (_scope, session) => this.global.runOriginal(session, async () => {
       // Resolve global configuration against the original private context before
       // creating native clients. No unscoped fallback can open a second pool.
@@ -381,7 +404,7 @@ export class LiveExecutionRuntime {
         // live. This source is never reused by a successor execution scope.
         provider?.close(); await sockets?.close();
       }
-    }))); } finally {
+    })))); } finally {
       credit.weight += prepaid;
       // The original scope has closed before any unused read drains. A slow
       // provider cancellation cannot keep financial SQL locks or sign later.

@@ -13,6 +13,7 @@ export interface HyperliquidQuotaState {readonly egressKey:string;readonly revis
 export type HyperliquidQuotaRequest=
  |{readonly kind:'rest';readonly id:string;readonly weight:number;readonly sendUntil:number;readonly lane?:HyperliquidRestLane;readonly settle?:readonly HyperliquidRestSettlement[]}
  |{readonly kind:'setup_demand';readonly id:string;readonly weight:number;readonly sendUntil:number}
+ |{readonly kind:'live_demand';readonly id:string;readonly weight:number;readonly sendUntil:number}
  |{readonly kind:'connect';readonly id:string;readonly sendUntil:number;readonly lease:Omit<HyperliquidQuotaLease,'state'|'revision'|'subscriptions'|'createdAt'|'updatedAt'|'closedAt'>}
  |{readonly kind:'subscribe';readonly id:string;readonly leaseId:string;readonly fenceToken:string;readonly ownerId:string;readonly sendUntil:number;readonly subscriptions:readonly HyperliquidQuotaSubscription[];readonly prepayCleanup:boolean;readonly prepayClose?:boolean}
  |{readonly kind:'ping'|'close'|'unsubscribe';readonly id:string;readonly leaseId:string;readonly fenceToken:string;readonly ownerId:string;readonly sendUntil:number;readonly subscriptionIds?:readonly string[]}
@@ -32,9 +33,14 @@ export const HYPERLIQUID_MAX_SETTLEMENTS=64;
  * room, and less while a setup waits (HYPERLIQUID_SETUP_REST_CAP).
  * `setup`: a copy setup's steps (funded → mode_set → agent_active), someone
  * waiting on them: ahead of background, within their own share.
- * Unlabelled requests (pages, live copy work, exchange actions) may use
- * the whole window. */
-export type HyperliquidRestLane='background'|'setup';
+ * `live`: real-money copy work (every charge of an original live-risk
+ * session: an order's evidence and epoch reads, its risk gates, transport
+ * check and exchange POST; settlement, stops and closes): the whole window.
+ * A live order that announced its need (`live_demand`) comes before setups,
+ * background and unlabelled work while that need is outstanding.
+ * Unlabelled requests (pages, wallet and operator calls) may use the whole
+ * window, less what live orders and granted setup claims still need. */
+export type HyperliquidRestLane='background'|'setup'|'live';
 /** Hyperliquid's REST weight per minute per IP. */
 export const HYPERLIQUID_REST_CAP=1200;
 /** What background work may hold of it. Before this, the worker's and the
@@ -109,8 +115,33 @@ function reservations(rest:readonly HyperliquidQuotaEvent[],now:number,ticket:Re
     until:(except?:string)=>{const ends=holding(except).map(t=>latest.get(t)!.until);return ends.length?Math.max(...ends):undefined;}};
 }
 const setupClaims=(rest:readonly HyperliquidQuotaEvent[],now:number)=>reservations(rest,now,SETUP_DEMAND_TICKET,SETUP_TOKEN_CHARGE,HYPERLIQUID_SETUP_GRANT_HOLD_MS,match=>match[3]===':g');
+/** Live copy work's charges (`live:`; `live:<token>:` for an order that
+ * announced its need) and a live order's demand marker
+ * (`live-demand:<need>:<token>:<id>`, 1 unit, never sent), told apart by
+ * ticket id only: a process on the previous release reads them as ordinary
+ * REST charges. */
+export const LIVE_REST_ID_PREFIX='live:';
+export const LIVE_DEMAND_ID_PREFIX='live-demand:';
+/** A live order's demand token (16 hex; its charges carry it). */
+export const LIVE_LANE_TOKEN=/^[0-9a-f]{16}$/;
+/** How long a live order's demand comes first after it is recorded: its
+ * wait for its SQL locks, its 5 s evidence window and its exchange POST. An
+ * order still waiting for room records it again (the same token); once no
+ * order's demand is alive or outstanding, setups and background are as
+ * before. A cold order's evidence (589, or 772 with two accounts) is more
+ * than the 240 live reserve: beside a setup's share and background's cap it
+ * was refused, and then waited out a 65 s window. */
+export const HYPERLIQUID_LIVE_DEMAND_HOLD_MS=15_000;
+/** The most a live order announces: with its marker's unit, the window. */
+export const HYPERLIQUID_MAX_LIVE_DEMAND=HYPERLIQUID_REST_CAP-1;
+const LIVE_DEMAND_TICKET=/^live-demand:([1-9][0-9]{0,3}):([0-9a-f]{16}):[0-9a-f-]{1,36}$/;
+const LIVE_TOKEN_CHARGE=/^live:([0-9a-f]{16}):/;
+/** A live order's demand ticket: its need, its token and a fresh id. */
+export function liveDemandTicket(need:number,token:string):string{return `${LIVE_DEMAND_ID_PREFIX}${need}:${token}:${randomUUID()}`;}
+const liveClaims=(rest:readonly HyperliquidQuotaEvent[],now:number)=>reservations(rest,now,LIVE_DEMAND_TICKET,LIVE_TOKEN_CHARGE,HYPERLIQUID_LIVE_DEMAND_HOLD_MS,()=>true);
+const isLaneTicket=(id:string)=>[SETUP_REST_ID_PREFIX,SETUP_DEMAND_ID_PREFIX,LIVE_REST_ID_PREFIX,LIVE_DEMAND_ID_PREFIX].some(prefix=>id.startsWith(prefix));
 export interface HyperliquidQuotaPlan {readonly state:HyperliquidQuotaState;readonly leases:readonly HyperliquidQuotaLease[];readonly charged:number;
-  /** `setup_demand` only: 0 when the setup's weight fits now, else in how many ms it should (its marker is recorded either way). */
+  /** `setup_demand` and `live_demand` only: 0 when the weight fits now, else in how many ms it should (its marker is recorded either way). */
   readonly waitMs?:number;}
 const integer=z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const identifier=z.string().min(1).max(128).regex(/^[^\s\p{Cc}\p{Cf}]+$/u);
@@ -130,7 +161,8 @@ const sourceIdentity={leaseId:identifier,fenceToken:identifier,ownerId:identifie
 const ids=z.array(z.string().regex(/^[a-f0-9]{64}$/)).min(1).max(1000);
 const requestSchema=z.union([
   z.object({kind:z.literal('setup_demand'),id:identifier,weight:integer.positive().max(1200),sendUntil:integer.positive()}).strict(),
-  z.object({kind:z.literal('rest'),id:identifier,weight:integer.positive().max(1200),sendUntil:integer.positive(),lane:z.enum(['background','setup']).optional(),
+  z.object({kind:z.literal('live_demand'),id:identifier,weight:integer.positive().max(HYPERLIQUID_MAX_LIVE_DEMAND),sendUntil:integer.positive()}).strict(),
+  z.object({kind:z.literal('rest'),id:identifier,weight:integer.positive().max(1200),sendUntil:integer.positive(),lane:z.enum(['background','setup','live']).optional(),
     settle:z.array(z.object({id:identifier,units:integer.positive().max(1200)}).strict()).max(HYPERLIQUID_MAX_SETTLEMENTS).optional()}).strict(),
   z.object({kind:z.literal('connect'),id:identifier,sendUntil:integer.positive(),lease:leaseSchema.omit({state:true,revision:true,subscriptions:true,createdAt:true,updatedAt:true,closedAt:true})}).strict(),
   z.object({kind:z.literal('subscribe'),id:identifier,...sourceIdentity,sendUntil:integer.positive(),subscriptions:z.array(subSchema).min(1).max(1000),prepayCleanup:z.boolean(),prepayClose:z.boolean().optional()}).strict(),
@@ -201,47 +233,64 @@ export function planHyperliquidQuota(raw:{readonly now:number;readonly state:Hyp
       for(const event of [...pool].sort((a,b)=>a.expiresAt-b.expiresAt)){missing-=event.units;if(missing<=0)return event.expiresAt-now;}
       return undefined;
     };
+    /** `units` more under `cap`, beside `reserved` (what claims still
+     * need), or once those claims end (`ends`) and the window has room. */
+    const beside=(pool:readonly HyperliquidQuotaEvent[],units:number,cap:number,reserved:number,ends:readonly (number|undefined)[])=>{
+      const fits=fitsIn(pool,units,cap-reserved);if(fits!==undefined||reserved<=0)return fits;
+      const after=fitsIn(pool,units,cap),end=Math.max(0,...ends.filter((e):e is number=>e!==undefined));
+      return after===undefined||end<=now?after:Math.max(after,end-now);
+    };
     /** A setup's `units` more (`token`: that setup's): the window below the
      * live reserve and the setups' share, beside what other setups' granted
-     * claims still need (or once those end). Its own earlier charges count
-     * in the window, never in the share. */
+     * claims still need, and only once what live orders announced fits too
+     * (setups come after live). Its own earlier charges count in the window,
+     * never in the share. */
     const setupFitsIn=(units:number,token?:string)=>{
-      const rest=events.filter(e=>e.kind==='rest'),claims=setupClaims(rest,now),others=claims.outstanding(token),ends=claims.until(token);
-      const within=(pool:readonly HyperliquidQuotaEvent[],cap:number)=>{
-        const beside=fitsIn(pool,units,cap-others);if(beside!==undefined||ends===undefined)return beside;
-        const after=fitsIn(pool,units,cap);return after===undefined?undefined:Math.max(after,ends-now);
-      };
-      const all=within(rest,HYPERLIQUID_REST_CAP-HYPERLIQUID_LIVE_REST_RESERVE),own=within(rest.filter(e=>isSetupEvent(e)&&!ownedBy(e,token)),HYPERLIQUID_SETUP_REST_CAP);
+      const rest=events.filter(e=>e.kind==='rest'),claims=setupClaims(rest,now),others=claims.outstanding(token),live=liveClaims(rest,now),ahead=live.outstanding();
+      // min(960 − others, 1200 − live's need − others)
+      const all=beside(rest,units,HYPERLIQUID_REST_CAP-HYPERLIQUID_LIVE_REST_RESERVE,others+Math.max(0,ahead-HYPERLIQUID_LIVE_REST_RESERVE),[claims.until(token),ahead>0?live.until():undefined]);
+      const own=beside(rest.filter(e=>isSetupEvent(e)&&!ownedBy(e,token)),units,HYPERLIQUID_SETUP_REST_CAP,others,[claims.until(token)]);
       return all===undefined||own===undefined?undefined:Math.max(all,own);
     };
     const restCharge=(units:number,id:string,sendUntil:number,lane:HyperliquidRestLane|undefined)=>{
       requireQuota(sendUntil>=now&&sendUntil<=now+5000);requireQuota(!s.events.some(e=>e.id===id),'hyperliquid_quota_ticket_conflict');
-      requireQuota(lane==='setup'?id.startsWith(SETUP_REST_ID_PREFIX):!isSetupEvent({kind:'rest',id}));
-      const rest=events.filter(e=>e.kind==='rest');
+      requireQuota(lane==='setup'?id.startsWith(SETUP_REST_ID_PREFIX):lane==='live'?id.startsWith(LIVE_REST_ID_PREFIX):!isLaneTicket(id));
+      const rest=events.filter(e=>e.kind==='rest'),setups=setupClaims(rest,now),live=liveClaims(rest,now),ahead=live.outstanding();
       let wait:number|undefined;
-      if(lane==='setup'){
+      if(lane==='live')wait=fitsIn(rest,units,HYPERLIQUID_REST_CAP);
+      else if(lane==='setup'){
         // Within its granted claim: the room was kept for it (background
-        // left it), so the whole window beside other setups' claims; past
-        // its claim, as any setup charge.
-        const token=SETUP_TOKEN_CHARGE.exec(id)?.[1],claims=setupClaims(rest,now),covered=token===undefined?0:Math.min(units,claims.left(token));
+        // left it), so the whole window beside other setups' claims and what
+        // live orders announced; past its claim, as any setup charge.
+        const token=SETUP_TOKEN_CHARGE.exec(id)?.[1],covered=token===undefined?0:Math.min(units,setups.left(token)),others=setups.outstanding(token);
         if(covered===0)wait=setupFitsIn(units,token);
         else{
-          wait=fitsIn(rest,units,HYPERLIQUID_REST_CAP-claims.outstanding(token));
-          if(wait!==undefined&&covered<units){const past=fitsIn(rest,units,HYPERLIQUID_REST_CAP-HYPERLIQUID_LIVE_REST_RESERVE-claims.outstanding(token)+covered);wait=past===undefined?undefined:Math.max(wait,past);}
+          wait=beside(rest,units,HYPERLIQUID_REST_CAP,others+ahead,[setups.until(token),ahead>0?live.until():undefined]);
+          if(wait!==undefined&&covered<units){
+            const past=beside(rest,units,HYPERLIQUID_REST_CAP-HYPERLIQUID_LIVE_REST_RESERVE+covered,others+Math.max(0,ahead-HYPERLIQUID_LIVE_REST_RESERVE),[setups.until(token),ahead>0?live.until():undefined]);
+            wait=past===undefined?undefined:Math.max(wait,past);
+          }
         }
       }
       else if(lane==='background'){
         // While a setup waits, background leaves the setups' unused share
-        // free below the live reserve (it is refused first); otherwise its cap.
-        // A granted setup claim's step: background also leaves what it still needs.
-        const demands=rest.filter(e=>e.id.startsWith(SETUP_DEMAND_ID_PREFIX)),granted=setupClaims(rest,now).outstanding();
-        let cap=demands.length===0?backgroundRestCap(raw.backgroundCap)
-          :Math.min(backgroundRestCap(raw.backgroundCap),HYPERLIQUID_REST_CAP-HYPERLIQUID_LIVE_REST_RESERVE-Math.max(0,HYPERLIQUID_SETUP_REST_CAP-sum(rest.filter(isSetupEvent))));
+        // free below the live reserve; it also leaves what granted setup
+        // claims and live orders' demands still need (it is refused first);
+        // otherwise its cap.
+        const demands=rest.filter(e=>e.id.startsWith(SETUP_DEMAND_ID_PREFIX)),granted=setups.outstanding(),base=backgroundRestCap(raw.backgroundCap);
+        const share=demands.length===0?0:Math.max(0,HYPERLIQUID_SETUP_REST_CAP-sum(rest.filter(isSetupEvent)));
+        let cap=demands.length===0?base:Math.min(base,HYPERLIQUID_REST_CAP-HYPERLIQUID_LIVE_REST_RESERVE-share);
         if(granted>0)cap=Math.min(cap,HYPERLIQUID_REST_CAP-HYPERLIQUID_LIVE_REST_RESERVE-granted);
+        if(ahead>0)cap=Math.min(cap,HYPERLIQUID_REST_CAP-ahead-granted-share);
         wait=fitsIn(rest,units,cap);
-        // Room that only comes back once no setup waits: when its last marker expires.
-        if(wait===undefined&&demands.length>0&&fitsIn([],units,backgroundRestCap(raw.backgroundCap))===0)throw new HyperliquidRestCapacityError(Math.max(...demands.map(e=>e.expiresAt))-now);
-      }else wait=fitsIn(rest,units,HYPERLIQUID_REST_CAP);
+        // Room that only comes back once no setup waits and no claim is
+        // outstanding: when the last of them ends.
+        if(wait===undefined&&(demands.length>0||granted>0||ahead>0)&&fitsIn([],units,base)===0)
+          throw new HyperliquidRestCapacityError(Math.max(...demands.map(e=>e.expiresAt),setups.until()??0,ahead>0?live.until()!:0)-now);
+      }
+      // Pages, wallet and operator calls: the whole window, less what live
+      // orders and granted setup claims still need.
+      else wait=beside(rest,units,HYPERLIQUID_REST_CAP,ahead+setups.outstanding(),[setups.until(),ahead>0?live.until():undefined]);
       // The first expiry alone may not free enough for this request. Only
       // retained REST charges contribute; leases are never refunded.
       if(wait===undefined)throw new LiveBoundaryError('hyperliquid_quota_exhausted');
@@ -274,6 +323,23 @@ export function planHyperliquidQuota(raw:{readonly now:number;readonly state:Hyp
       if(marker===undefined)throw new LiveBoundaryError('hyperliquid_quota_exhausted');
       if(marker>0)throw new HyperliquidRestCapacityError(marker);
       events.push({id:ticket&&fits===0?`${request.id}:g`:request.id,kind:'rest',units:1,reservedAt:now,expiresAt:request.sendUntil+60000});charged=1;waitMs=fits;
+    }
+    else if(request.kind==='live_demand'){
+      // A live order about to read its evidence and send (its need: what
+      // that weighs in the next seconds): its marker (1 unit, an ordinary
+      // charge never sent) makes setups, background and unlabelled work
+      // leave what it still needs free for HYPERLIQUID_LIVE_DEMAND_HOLD_MS,
+      // and says when that fits in the whole window beside other live
+      // orders' demands. Recorded whether it fits or not: from now on the
+      // room that frees up is the order's first.
+      const ticket=LIVE_DEMAND_TICKET.exec(request.id);requireQuota(ticket&&Number(ticket[1])===request.weight);
+      requireQuota(request.sendUntil>=now&&request.sendUntil<=now+5000);requireQuota(!s.events.some(e=>e.id===request.id),'hyperliquid_quota_ticket_conflict');
+      const marker=fitsIn(events.filter(e=>e.kind==='rest'),1,HYPERLIQUID_REST_CAP);
+      if(marker===undefined)throw new LiveBoundaryError('hyperliquid_quota_exhausted');
+      if(marker>0)throw new HyperliquidRestCapacityError(marker);
+      events.push({id:request.id,kind:'rest',units:1,reservedAt:now,expiresAt:request.sendUntil+60000});charged=1;
+      const rest=events.filter(e=>e.kind==='rest'),live=liveClaims(rest,now),token=ticket[2]!,need=live.left(token);
+      waitMs=Math.min(65000,beside(rest,need,HYPERLIQUID_REST_CAP,live.outstanding(token),[live.until(token)])??65000);
     }
     else if(request.kind==='connect'){
       requireQuota(!leases.some(l=>l.id===request.lease.id||l.socketId===request.lease.socketId),'hyperliquid_quota_lease_lost');

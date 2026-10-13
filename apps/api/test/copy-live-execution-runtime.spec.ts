@@ -287,12 +287,20 @@ describe('unregistered concrete testnet execution runtime', () => {
       collect = vi.spyOn(LiveProviderReadEpoch.prototype, 'collect'), hold = vi.spyOn(PostgresLiveReservations.prototype, 'hold');
     const result = await runtime(config, { ...options, slippageBps: '0' }).execute(request());
     expect(result).toMatchObject({ state: 'filled', nonce: clock, outcome: { exchangeOrderId: '77', filledSize: '0.1' } });
-    expect(connect).toHaveBeenCalledTimes(2); expect(observe).toHaveBeenCalledOnce(); expect(hold).toHaveBeenCalledOnce();
+    // Routing, the order's live demand on the shared meter (before the locks), the original session.
+    expect(connect).toHaveBeenCalledTimes(3); expect(observe).toHaveBeenCalledOnce(); expect(hold).toHaveBeenCalledOnce();
     expect(new Set(collect.mock.contexts).size).toBe(1); expect(new Set(collect.mock.calls.map(([session]) => session)).size).toBe(1);
     expect(raw.mock.calls.filter(([url]) => String(url).endsWith('/exchange'))).toHaveLength(1);
     expect(raw.mock.calls.filter(([url]) => String(url).endsWith('/rpc'))).toHaveLength(1);
     const [lease] = await db.select().from(schema.hyperliquidWsLeases); expect(lease?.state).toBe('closed');
     const [quota] = await db.select().from(schema.hyperliquidEgressQuota); expect(quota!.egressKey).toBe(config.value.hyperliquid.egressKey);
+    // The order announced its weight before its locks, and every REST charge
+    // of its original session is the live lane's, under that demand.
+    const demand = quota!.events.find(e => e.id.startsWith('live-demand:')), token = demand?.id.split(':')[2];
+    expect(token).toMatch(/^[0-9a-f]{16}$/);
+    const rest = quota!.events.filter(e => e.kind === 'rest' && e !== demand);
+    expect(rest.length).toBeGreaterThan(0);
+    for (const e of rest) expect(e.id.startsWith(`live:${token}:`)).toBe(true);
     // The exchange's own IOC answer is kept as settlement evidence at once and
     // marks the liability attempted; it alone grants no settlement release.
     const [reservation] = await db.select().from(schema.copyLiveRiskReservations); expect(reservation?.state).toBe('unknown');
@@ -494,7 +502,7 @@ describe('unregistered concrete testnet execution runtime', () => {
     const result = await runtime(config, { ...options, slippageBps: '0' }).execute(request());
     expect(result.state).toBe('filled');
     expect(connectionsWhenWaiting).toBe(1);
-    expect(connect).toHaveBeenCalledTimes(2);
+    expect(connect).toHaveBeenCalledTimes(3);
   }, 15_000);
   it('takes exactly the REST weight its reads send, at most 450 for an order', async () => {
     await actualClockFixture();

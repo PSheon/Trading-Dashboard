@@ -1,8 +1,8 @@
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {setTimeout as wait} from 'node:timers/promises';
-import {REST_CHARGE_LIFETIME_MS,sharedRestRetryAfterMs} from './hyperliquid-capacity-error.js';
-import type {HyperliquidRestLane} from './hyperliquid-global-quota.js';
-import {PostgresHyperliquidQuota,runInSetupLane,setupLaneToken,type BoundHyperliquidQuota} from './postgres-hyperliquid-quota.js';
+import {HyperliquidRestCapacityError,REST_CHARGE_LIFETIME_MS,sharedRestRetryAfterMs} from './hyperliquid-capacity-error.js';
+import {HYPERLIQUID_LIVE_DEMAND_HOLD_MS,HYPERLIQUID_MAX_LIVE_DEMAND,type HyperliquidRestLane} from './hyperliquid-global-quota.js';
+import {PostgresHyperliquidQuota,newLiveLaneToken,runInLiveLane,runInSetupLane,setupLaneToken,type BoundHyperliquidQuota} from './postgres-hyperliquid-quota.js';
 import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from '../copy/live/postgres-live-risk-scope.js';
 import {LiveBoundaryError} from '../copy/live/wallet-authorization.js';
 import {infoListSurcharge,infoPrepaidWeight,infoWeight} from './info-weights.js';
@@ -14,6 +14,9 @@ const cheap=new Set(['l2Book','allMids','clearinghouseState','orderStatus','spot
 const ordinary=new Set(['userRole','meta','perpDexs','metaAndAssetCtxs','spotMeta','spotMetaAndAssetCtxs','userAbstraction','userDexAbstraction','delegatorSummary','portfolio','referral','frontendOpenOrders','openOrders','allPerpMetas','activeAssetData','userFees','extraAgents','maxBuilderFee']);
 // Prepay the provider's bounded list cap. The global meter never refunds an
 // unused surcharge; local RequestBudgeter adjustments remain scheduling only.
+/** A live order still waiting for room records its demand again this
+ * often, well inside its HYPERLIQUID_LIVE_DEMAND_HOLD_MS. */
+export const LIVE_DEMAND_RENEW_MS=HYPERLIQUID_LIVE_DEMAND_HOLD_MS-5_000;
 /** Longest an unlabelled request waits in all for shared REST capacity: within
  * a trader page's 12 s deadline, with room for the call itself. */
 export const PAGE_CAPACITY_WAIT_MS=6_000;
@@ -84,6 +87,31 @@ export class HyperliquidGlobalTransport {
  /** Runs a copy setup's step: its unlabelled REST charges go in the setup
   * lane (`key`: the setup's id, as claimed). */
  runSetup<T>(work:()=>Promise<T>,key?:string):Promise<T>{return runInSetupLane(work,key===undefined?undefined:setupLaneToken(key));}
+ /**
+  * A live order's need (`weight`: its evidence reads, risk gates, transport
+  * check and POST), announced on the shared meter before its SQL locks:
+  * from then on setups, background and unlabelled work leave what it still
+  * needs free, and the room that frees up is its first. Waits (recording the
+  * demand again every LIVE_DEMAND_RENEW_MS) until it fits; answers its token
+  * (run the order in runLive(token)). Throws HyperliquidRestCapacityError
+  * when it won't fit before `giveUpAt`. Undefined when this meter records no
+  * demand: the order runs as before. Nothing is sent.
+  */
+ async claimLive(weight:number,giveUpAt:number):Promise<string|undefined>{
+  if(this.isOriginal()||!Number.isFinite(weight)||weight<1||!Number.isFinite(giveUpAt))fail('hyperliquid_quota_invalid');
+  const budget=this.currentQuota();if(!budget.claimLiveRest)return undefined;
+  const token=newLiveLaneToken(),need=Math.min(HYPERLIQUID_MAX_LIVE_DEMAND,Math.ceil(weight));
+  for(;;){
+   let wait:number;
+   try{wait=await budget.claimLiveRest(need,this.now()+5000,token);}
+   catch(error){const retry=sharedRestRetryAfterMs(error);if(retry===undefined)throw error;wait=retry;}
+   if(wait<=0)return token;
+   if(this.now()+wait>giveUpAt)throw new HyperliquidRestCapacityError(Math.min(REST_CHARGE_LIFETIME_MS,Math.max(1,Math.ceil(wait))));
+   await this.sleep(Math.min(wait,LIVE_DEMAND_RENEW_MS));
+  }
+ }
+ /** Runs a live order under its demand token: its charges are the live lane's and count against its need. */
+ runLive<T>(token:string,work:()=>Promise<T>):Promise<T>{return runInLiveLane(token,work);}
  readonly fetchExplorer:typeof fetch=async(input,init)=>{
   const budget=this.currentQuota(),url=typeof input==='string'?input:input instanceof URL?input.toString():'';
   if(!['https://rpc.hyperliquid.xyz/explorer','https://rpc.hyperliquid-testnet.xyz/explorer'].includes(url)||!init||init.method!=='POST'||typeof init.body!=='string'||Buffer.byteLength(init.body)>1024)return fail('hyperliquid_quota_request_invalid');

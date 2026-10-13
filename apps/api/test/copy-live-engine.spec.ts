@@ -11,6 +11,7 @@ import { liveSourceExecutionCloid } from '../src/copy/live/postgres-live-prepara
 import { MAX_LIVE_LEG_ATTEMPTS } from '../src/copy/live/copy-live-leg-attempt.js';
 import { CopyLiveApiSettlementRepository } from '../src/copy/live-worker/copy-live-api-settlement.repository.js';
 import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
+import { HyperliquidRestCapacityError } from '../src/hyperliquid/hyperliquid-capacity-error.js';
 import { NEVER_PLACED, type LiveExecutionRecord } from '../src/copy/live/live-execution.js';
 import { buildOrderAction } from '../src/copy/live/live-order.js';
 import { planLiveReservation } from '../src/copy/live/live-risk-reservation.js';
@@ -21,6 +22,8 @@ import { WatchedMainnetSource } from '../src/copy/live-worker/watched-mainnet-so
 import type { LiveSettleOutcome, LiveSettleRequest } from '../src/copy/live-worker/copy-live-settler.js';
 import { preparationFixture } from './copy-live-preparation-test-utils.js';
 import { now } from './copy-live-risk-test-utils.js';
+/** What the account observer throws when what failed underneath was `cause` (LiveObservationUnavailable). */
+const unavailable = (cause: unknown) => Object.assign(new LiveBoundaryError('live_account_observation_unavailable'), { cause });
 import { closeTestDb, getTestDb, type TestDb } from './db-test-utils.js';
 
 // Real SQL, real watched-source reads and source repository; the runtime
@@ -492,7 +495,8 @@ describe('testnet copy execution engine', () => {
     expect((await dispatches()).find(r => r.sourceFillId === transient)).toMatchObject({ state: 'pending', attempts: 2 });
     clock = now + 200 + 120_001; await engine().tick();
     rows = await dispatches();
-    expect(rows.find(r => r.sourceFillId === transient)).toMatchObject({ state: 'refused', reason: 'live_risk_stale', attempts: 2 });
+    // Refused for its signal's age, not for its last failure (live_risk_stale goes to the log).
+    expect(rows.find(r => r.sourceFillId === transient)).toMatchObject({ state: 'refused', reason: 'signal_expired', attempts: 2 });
     expect(runtimeCalls.filter(c => c.sourceFillId === deviating)).toHaveLength(1);
   });
 
@@ -541,6 +545,43 @@ describe('testnet copy execution engine', () => {
     expect(rows.find(r => r.sourceFillId === close)).toMatchObject({ state: 'submitted', executionKey: keyOf(close, 'close') });
     expect(rows.find(r => r.sourceFillId === late)).toMatchObject({ state: 'refused' });
     expect(runtimeCalls).toEqual([{ userId: 1, accountId: 'account', mandateId: 'mandate', sourceFillId: close, leg: 'close' }]);
+  });
+
+  it("a wait that sent nothing (a busy risk lock, an observation the shared meter refused) is never an attempt, is retried when it said, and an open that outlives its signal is refused signal_expired (gate 2026-10-13 11:15)", async () => {
+    await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+    const open = await leaderFill(81, now + 100, 'B', '1', '0', 'BTC');
+    // Attempts 1 and 2 of the gate: the follower observation's socket connect
+    // refused by the shared meter (it said: in 4 s); attempt 3: the risk lock busy.
+    const refusals = [unavailable(new HyperliquidRestCapacityError(4_000)), unavailable(new HyperliquidRestCapacityError(4_000)), new LiveBoundaryError('live_risk_busy')];
+    runtimeImpl = async request => { runtimeCalls.push(request); throw refusals.shift() ?? new LiveBoundaryError('live_risk_busy'); };
+    const worker = engine(), logs: string[] = [];
+    (worker as unknown as { deps: { log?: (m: string) => void } }).deps.log = message => { logs.push(message); };
+    clock = now + 1000; await worker.tick();
+    expect((await dispatches()).find(r => r.sourceFillId === open)).toMatchObject({ state: 'pending', reason: 'live_account_observation_unavailable', attempts: 0 });
+    // Not before the meter said (4 s and its slack; before: 10 s, as a failed provider read).
+    clock = now + 5000; await worker.tick();
+    expect(runtimeCalls).toHaveLength(1);
+    clock = now + 5300; await worker.tick();
+    expect(runtimeCalls).toHaveLength(2);
+    clock = now + 9600; await worker.tick();
+    expect((await dispatches()).find(r => r.sourceFillId === open)).toMatchObject({ state: 'pending', reason: 'live_risk_busy', attempts: 0 });
+    // A busy lock is tried again a second later.
+    clock = now + 10_700; await worker.tick();
+    expect(runtimeCalls).toHaveLength(4);
+    // Past the signal age: refused for that, with the last wait in the log only.
+    clock = now + 100 + 120_001; await worker.tick();
+    expect((await dispatches()).find(r => r.sourceFillId === open)).toMatchObject({ state: 'refused', reason: 'signal_expired', attempts: 0 });
+    expect(logs.some(m => m.includes('refused: signal_expired') && m.includes('last live_risk_busy'))).toBe(true);
+  });
+
+  it('a close at its attempt limit is not refused by a wait that sent nothing', async () => {
+    await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+    const open = await leaderFill(83, now + 100, 'B', '1', '0', 'ETH'), close = await leaderFill(84, now + 200, 'A', '1', '1', 'ETH');
+    runtimeImpl = async (request, hooks) => { if (request.sourceFillId === open) return filled(request, hooks); runtimeCalls.push(request); throw new LiveBoundaryError('live_risk_busy'); };
+    clock = now + 1000; await engine().tick();
+    await db.update(schema.copyLiveDispatches).set({ attempts: CLOSE_ATTEMPT_LIMIT - 1 }).where(eq(schema.copyLiveDispatches.sourceFillId, close));
+    clock = now + 1_000_000; await engine().tick();
+    expect((await dispatches()).find(r => r.sourceFillId === close)).toMatchObject({ state: 'pending', reason: 'live_risk_busy', attempts: CLOSE_ATTEMPT_LIMIT - 1 });
   });
 
   it('refuses a close that keeps failing after CLOSE_ATTEMPT_LIMIT attempts, never retrying it for ever', async () => {

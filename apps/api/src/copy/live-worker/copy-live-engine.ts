@@ -16,6 +16,7 @@ import type { FastMainnetSource } from './fast-mainnet-source.js';
 import { minOrderNotional } from '../min-order-notional.js';
 import { Dec } from '../../common/decimal/dec.js';
 import { HyperliquidBudgetWait, SHARED_CAPACITY_RETRY_MS } from '../../hyperliquid/hyperliquid-budget-wait.js';
+import { classify, liveRetryDelayMs } from '../live/error-class.js';
 import { budgetConsumer } from '../../hyperliquid/request-budgeter.service.js';
 import { LiveReadComparisonError } from '../live/live-shared-reads.js';
 import { liveDeploymentPolicy } from '../live-deployment.js';
@@ -94,20 +95,15 @@ const isHip3 = (coin: string) => coin.includes(':');
  * above the cap is set by the runtime before an open (live-leverage-update.ts):
  * a refusal still saying so, or an update the exchange rejected, is final. */
 /**
- * How long a failed first submission waits before its next attempt. A budget
- * wait sent nothing: retried each pass. A failed provider read opened a socket
- * and spent weight: 10 s, so a burst of retries can't use up Hyperliquid's 30
- * new WebSocket connections a minute and its 10 at once (every account read
- * failed for five minutes after nine leases were lost together, local harness
- * 2026-10-12). Anything else: 3 s.
+ * How long a failed first submission waits before its next attempt: the one
+ * policy a stop's pass shares (live/error-class.ts liveRetryDelayMs). A wait
+ * (a budget, a meter refusal underneath, a busy lock) sent nothing: when it
+ * said. A failed provider read opened a socket and spent weight: 10 s, so a
+ * burst of retries can't use up Hyperliquid's 30 new WebSocket connections a
+ * minute and its 10 at once (every account read failed for five minutes after
+ * nine leases were lost together, local harness 2026-10-12). Anything else: 3 s.
  */
-export function retryDelayMs(error: unknown, reason: string): number {
-  if (error instanceof HyperliquidBudgetWait) return 0;
-  if (PROVIDER_READ_FAILURES.has(reason) || reason.startsWith('hyperliquid_quota_')) return 10_000;
-  return 3_000;
-}
-const PROVIDER_READ_FAILURES = new Set(['live_account_observation_unavailable', 'live_account_observation_changed', 'live_read_deadline_exceeded',
-  'live_risk_stale', 'live_risk_provider_unavailable', 'live_risk_busy']);
+export function retryDelayMs(error: unknown, reason: string): number { return liveRetryDelayMs(error, reason); }
 /** Reads of an unsupported account mode before its refusal is final. */
 const ABSTRACTION_ATTEMPT_LIMIT = 3;
 const PERMANENT = new Set(['live_source_price_deviation', 'live_budget_over_capacity', 'below_min_notional', 'live_risk_adoption_unproven', 'live_market_unknown',
@@ -522,8 +518,12 @@ export class CopyLiveEngine {
     }
     const now = this.now();
     // Only an open ages: a reduction or close is sent however late (CP-EXE-14-02).
+    // Refused for what it is, its signal's age: never for the last failure
+    // before it (gate 2026-10-13 11:15: refused `live_risk_busy`, a busy lock
+    // 146 ms long, at a source age of 115 s). That failure goes to the log.
     if (row.leg === 'open' && now - row.leaderTime.getTime() > signalAgeMs) {
-      await this.deps.repository.update(row, { state: 'refused', reason: row.reason && row.reason !== UNSENT_RETRY && row.attempts > 0 ? row.reason : 'signal_expired' }); return;
+      if (row.reason && row.reason !== UNSENT_RETRY) this.deps.log?.(`leg ${row.id} refused: signal_expired (source age ${now - row.leaderTime.getTime()} ms, ${row.attempts} attempt(s), last ${row.reason})`);
+      await this.deps.repository.update(row, { state: 'refused', reason: 'signal_expired' }); return;
     }
     if (m.strategyStatus === 'stopping' || m.strategyStatus === 'stopped') {
       // The stop closes every position itself; no new leg of a stopping copy is sent.
@@ -615,13 +615,20 @@ export class CopyLiveEngine {
         this.now() - row.leaderTime.getTime() < Math.max(0, signalAgeMs - HOLD_MARGIN_MS)) {
         await this.deps.repository.dissolve(row, row.attempts + 1); return;
       }
+      // A wait (live/error-class.ts `budget`: a local bucket, the shared
+      // meter's refusal of a read or a socket connect underneath, a busy
+      // risk lock) sent nothing and is not a failure: never an attempt, never
+      // what refuses a close at its limit (gate 2026-10-13 11:15: two meter
+      // refusals and a busy lock counted three attempts, nothing sent).
+      const waiting = classify(error).class === 'budget' && timing.sentAt === undefined;
+      const attempts = waiting ? row.attempts : row.attempts + 1;
       // An unsupported account mode read once right after a setup (testnet,
       // 2026-10-12) may be the exchange catching up: final on its third read.
-      const transient = reason === 'live_account_unsupported_abstraction' && row.attempts + 1 < ABSTRACTION_ATTEMPT_LIMIT;
-      const permanent = row.state === 'pending' && !transient && (PERMANENT.has(reason) || row.leg === 'open' && PERMANENT_OPEN.has(reason) || row.leg === 'close' && (reason === 'no_follower_position' || row.attempts + 1 >= CLOSE_ATTEMPT_LIMIT));
+      const transient = reason === 'live_account_unsupported_abstraction' && attempts < ABSTRACTION_ATTEMPT_LIMIT;
+      const permanent = row.state === 'pending' && !waiting && !transient && (PERMANENT.has(reason) || row.leg === 'open' && PERMANENT_OPEN.has(reason) || row.leg === 'close' && (reason === 'no_follower_position' || attempts >= CLOSE_ATTEMPT_LIMIT));
       if (permanent || row.state !== 'pending') this.legRetryAt.delete(row.id);
       else this.legRetryAt.set(row.id, this.now() + retryDelayMs(error, reason));
-      await this.deps.repository.update(row, { ...(permanent ? { state: 'refused' as const } : {}), reason, firstAttemptAt: first, attempts: row.attempts + 1, ...times });
+      await this.deps.repository.update(row, { ...(permanent ? { state: 'refused' as const } : {}), reason, firstAttemptAt: first, attempts, ...times });
     }
   }
 

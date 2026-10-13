@@ -1,9 +1,11 @@
 import { BadGatewayException, ConflictException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { assertSetupTimings, DEFAULT_LIVE_SETUP_TIMINGS, setupStepBudgetMs } from '../src/config/live-timings.js';
-import { classify, exhausted, StepFail, StepWait } from '../src/copy/live/error-class.js';
+import { classify, exhausted, liveRetryDelayMs, StepFail, StepWait } from '../src/copy/live/error-class.js';
 import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
 import { HyperliquidBudgetOverCapacity, HyperliquidBudgetWait, SHARED_CAPACITY_RETRY_MS } from '../src/hyperliquid/hyperliquid-budget-wait.js';
+/** What the account observer throws when what failed underneath was `cause` (LiveObservationUnavailable). */
+const unavailable = (cause: unknown) => Object.assign(new LiveBoundaryError('live_account_observation_unavailable'), { cause });
 import { HyperliquidRestCapacityError } from '../src/hyperliquid/hyperliquid-capacity-error.js';
 
 describe('the live error classifier', () => {
@@ -68,5 +70,26 @@ describe('the live setup timings', () => {
     const at = (leaseMs: number) => () => assertSetupTimings({ ...DEFAULT_LIVE_SETUP_TIMINGS, leaseMs });
     expect(at(55_000)).toThrow('must be below its lease');
     expect(at(55_001)).not.toThrow();
+  });
+});
+
+describe('the gate of 2026-10-13 11:15 (7th run): what an order and a stop waited on', () => {
+  it('a busy live-risk lock is a wait of a second, never an attempt', () => {
+    expect(classify(new LiveBoundaryError('live_risk_busy'))).toEqual({ class: 'budget', code: 'live_risk_busy', source: 'boundary', retryAfterMs: 1_000 });
+    expect(exhausted(classify(new LiveBoundaryError('live_risk_busy')), 99, 3)).toBe(false);
+  });
+  it('an observation the shared meter refused (its socket connect, a read) is a wait for when the meter said; one that failed otherwise is still transient', () => {
+    expect(classify(unavailable(new HyperliquidRestCapacityError(4_000)))).toEqual({ class: 'budget', code: 'live_account_observation_unavailable', source: 'boundary', retryAfterMs: 4_250 });
+    expect(classify(unavailable(new LiveBoundaryError('hyperliquid_quota_exhausted')))).toMatchObject({ class: 'budget', retryAfterMs: SHARED_CAPACITY_RETRY_MS });
+    expect(classify(unavailable(new TypeError('fetch failed')))).toMatchObject({ class: 'transient', code: 'live_account_observation_unavailable', exhausts: true });
+    expect(classify(new LiveBoundaryError('live_account_observation_unavailable'))).toMatchObject({ class: 'transient' });
+  });
+  it('one retry policy for a leg and a stop: a wait when it said (at least 1 s), a failed provider read 10 s, else 3 s', () => {
+    expect(liveRetryDelayMs(unavailable(new HyperliquidRestCapacityError(4_000)))).toBe(4_250);
+    expect(liveRetryDelayMs(new LiveBoundaryError('live_risk_busy'))).toBe(1_000);
+    expect(liveRetryDelayMs(new HyperliquidBudgetWait(20, 'local_budget'))).toBe(1_000);
+    expect(liveRetryDelayMs(unavailable(new TypeError('fetch failed')))).toBe(10_000);
+    expect(liveRetryDelayMs(new LiveBoundaryError('live_risk_stale'))).toBe(10_000);
+    expect(liveRetryDelayMs(new LiveBoundaryError('no_follower_position'))).toBe(3_000);
   });
 });

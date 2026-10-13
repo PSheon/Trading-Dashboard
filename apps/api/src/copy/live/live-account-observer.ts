@@ -119,6 +119,12 @@ const spotSchema = z.object({ portfolioMarginEnabled: z.boolean().optional(), ba
   coin: z.string().min(1).max(80), token: integer, total: nonnegative, hold: nonnegative,
 })).max(10_000) });
 function fail(code: string): never { throw new LiveBoundaryError(code); }
+/** An observation that could not be had, with what failed underneath
+ * (`cause`): a refusal of the shared meter there makes it a wait
+ * (live/error-class.ts), never a failed attempt. */
+export class LiveObservationUnavailable extends LiveBoundaryError {
+  constructor(cause: unknown) { super('live_account_observation_unavailable'); this.cause = cause; }
+}
 function unique(values: readonly (string | number)[]): void {
   if (new Set(values).size !== values.length) fail('live_account_duplicate_evidence');
 }
@@ -441,7 +447,7 @@ export class HyperliquidLiveAccountObserver {
       if (error instanceof LiveBoundaryError && error.code.startsWith('live_account_')) throw error;
       // Still refused as unavailable; what it really was goes to the log.
       new Logger('LiveAccountObserver').warn(`observation unavailable: ${safeErrorText(error)}`);
-      fail('live_account_observation_unavailable');
+      throw new LiveObservationUnavailable(error);
     }
   }
   close(): void {

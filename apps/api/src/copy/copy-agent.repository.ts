@@ -8,8 +8,6 @@ import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
 import { lockCopyUser } from "./copy-user-lock.js";
 import { allocateSignerNonce } from "./signer-nonce.js";
-import { privyIdentityFresh } from "./live/privy-identity-freshness.js";
-
 export type AgentSetupRow = typeof copyAgentSetups.$inferSelect;
 @Injectable()
 export class CopyAgentRepository {
@@ -125,7 +123,9 @@ export class CopyAgentRepository {
     if (!Number.isSafeInteger(nonce) || nonce > now + 30_000) throw new ConflictException("agent_nonce_clock_skew");
     return (await this.transition(locked, { approvalNonce: nonce, consentExpiresAt: new Date(nonce + 300_000), issue: null }, tx))!;
   }
-  async activate(tx: DbTransaction, userId: number, row: AgentSetupRow, observedAt: number, identityCheckedAt: number) {
+  /** Records an approval the exchange lists (`observedAt`: its read, at most
+   * 5 s old through every lock wait here) as the agent's grant. */
+  async activate(tx: DbTransaction, userId: number, row: AgentSetupRow, observedAt: number) {
     await this.assertCurrent(userId, row, tx);
     const [locked] = await tx.select().from(copyAgentSetups).where(and(eq(copyAgentSetups.id, row.id), eq(copyAgentSetups.userId, userId))).for("update");
     if (!locked) throw new NotFoundException("Agent setup not found");
@@ -133,8 +133,7 @@ export class CopyAgentRepository {
     if (locked.state !== "approval_unknown" || !locked.approvalAttemptedAt || locked.revision !== row.revision) throw new ConflictException("agent_approval_evidence_stale");
     const assertFresh = () => {
       const now = Date.now();
-      // The exchange's evidence: 5 s. The Privy identity proof: its own bound.
-      if (!Number.isSafeInteger(observedAt) || observedAt > now || now - observedAt > 5_000 || !privyIdentityFresh(identityCheckedAt, now)) throw new ConflictException("agent_approval_evidence_stale");
+      if (!Number.isSafeInteger(observedAt) || observedAt > now || now - observedAt > 5_000) throw new ConflictException("agent_approval_evidence_stale");
       if (locked.expiresAt.getTime() <= now) throw new ConflictException("agent_expired");
     };
     assertFresh();

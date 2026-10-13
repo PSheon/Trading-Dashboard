@@ -4,7 +4,8 @@ import { privateKeyToAccount } from "viem/accounts";
 import { copyAgentSetups, copyExecutionAccounts, copyLiveSetups, copyExecutionWallets, copyStrategies, copyWalletAuthorizations, copyWalletAuthorizationEvents, users } from "@trading-dashboard/shared/database";
 import { CopyAgentRepository } from "../src/copy/copy-agent.repository.js";
 import { LiveBoundaryError } from "../src/copy/live/wallet-authorization.js";
-import { CopyAgentService } from "../src/copy/copy-agent.service.js";
+import { ConflictException, Logger } from "@nestjs/common";
+import { AGENT_APPROVED_UNRECORDED_ALERT_MS, CopyAgentService } from "../src/copy/copy-agent.service.js";
 import { FUNDING_NONCE_EXPIRY_MS } from "../src/copy/copy-funding-scan.js";
 import { PRIVY_IDENTITY_MAX_AGE_MS } from "../src/copy/live/privy-identity-freshness.js";
 import { CopyWalletRepository } from "../src/copy/copy-wallet.repository.js";
@@ -243,14 +244,39 @@ describe("explicit recoverable dedicated strategy agent setup", () => {
     expect(result.state).toBe("approval_unknown"); approvalExists = true; return result;
   }
 
-  // The exchange's evidence ages 5 s at most; the Privy identity proof its own bound (30 s).
-  it.each([[0, PRIVY_IDENTITY_MAX_AGE_MS + 1], [PRIVY_IDENTITY_MAX_AGE_MS - 1000, 1001]])("does not discard provider proof age after %sms of identity reads and %sms of exchange reads", async (identityDelay, exchangeDelay) => {
+  it("records an approval the exchange lists without reading Privy: a slow or failing identity proof can't hold it back (gate run 8)", async () => {
+    const pending = await pendingApproval();
+    // 12:51 on: Hyperliquid listed the agent; every identity proof expired.
+    for (const read of [provider.findOwned, provider.verifyPolicy, provider.verifyWorkerQuorum, wallets.reconcile]) {
+      vi.mocked(read).mockReset(); vi.mocked(read).mockRejectedValue(new Error("agent_identity_evidence_expired"));
+    }
+    expect(await service.reconcile(uid, pending.id)).toMatchObject({ state: "active", issue: null });
+    expect(await db.select().from(copyWalletAuthorizations)).toHaveLength(1);
+    for (const read of [provider.findOwned, provider.verifyPolicy, provider.verifyWorkerQuorum, wallets.reconcile]) expect(read).not.toHaveBeenCalled();
+    expect(exchange.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("an exchange listing older than 5 s is not recorded: the exchange's evidence keeps its own bound", async () => {
     const pending = await pendingApproval(); let clock = Date.now(); vi.spyOn(Date, "now").mockImplementation(() => clock);
-    const find = vi.mocked(provider.findOwned).getMockImplementation()!;
-    vi.mocked(provider.findOwned).mockImplementation(async (input) => { const result = await find(input); clock += identityDelay; return result; });
-    vi.mocked(exchange.observe).mockImplementation(async (intent) => { clock += exchangeDelay; return { checkedAt: clock, validUntil: intent.expiresAt }; });
+    vi.mocked(exchange.observe).mockImplementation(async (intent) => { const checkedAt = clock; clock += 5001; return { checkedAt, validUntil: intent.expiresAt }; });
     expect((await service.reconcile(uid, pending.id)).state).toBe("approval_unknown");
     expect(await db.select().from(copyWalletAuthorizations)).toHaveLength(0); expect(exchange.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("says when the exchange lists the agent but recording it fails, and raises an ALERT when that lasts", async () => {
+    const pending = await pendingApproval(); let clock = Date.now(); vi.spyOn(Date, "now").mockImplementation(() => clock);
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined), error = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    vi.spyOn(CopyAgentRepository.prototype, "activate").mockRejectedValue(new ConflictException("agent_approval_evidence_stale"));
+    expect((await service.reconcile(uid, pending.id)).state).toBe("approval_unknown");
+    const said = warn.mock.calls.map(call => String(call[0])).find(line => line.includes("approved on exchange, not recorded yet"));
+    expect(said).toContain('"exchangeListsAgent":true'); expect(said).toContain("agent_approval_evidence_stale");
+    expect(error).not.toHaveBeenCalled();
+    clock += AGENT_APPROVED_UNRECORDED_ALERT_MS;
+    await service.reconcile(uid, pending.id);
+    expect(error.mock.calls.map(call => String(call[0]))).toEqual([expect.stringContaining("ALERT agent approved on exchange but not recorded")]);
+    // Rate-limited: not again on the next pass.
+    clock += 3_000; await service.reconcile(uid, pending.id);
+    expect(error).toHaveBeenCalledTimes(1);
   });
 
   it("permits the exact five-second combined proof boundary", async () => {

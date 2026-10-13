@@ -172,7 +172,7 @@ describe('actual writers serialize with the original live risk scope', () => {
       policyId: 'user-policy', policyFingerprint: 'a'.repeat(64), approvalNonce: now, consentExpiresAt: new Date(now + 300000),
       consentDigest: 'b'.repeat(64), approvalAttemptedAt: new Date(now) }).returning();
     const repository = new CopyAgentRepository(db);
-    const active = await heldWriter(() => db.transaction(tx => repository.activate(tx, uid, row, Date.now(), Date.now())), async () => {
+    const active = await heldWriter(() => db.transaction(tx => repository.activate(tx, uid, row, Date.now())), async () => {
       expect((await grantRow()).revokedAt).toBeNull();
       expect((await db.select().from(copyExecutionWallets).where(eq(copyExecutionWallets.id, walletId)))[0].retiredAt).toBeNull();
     });

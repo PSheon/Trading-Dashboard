@@ -9,7 +9,7 @@ import { AGENT_APPROVAL_CLIENT, AGENT_OBSERVE_WEIGHT, type AgentApprovalClient }
 import { agentApprovalTypedData, type AgentConsentIntent } from "./copy-agent-consent.js";
 import { AgentProvisioningConflict, USER_AGENT_PROVISIONER, type UserAgentProvisioner } from "./live/privy-agent-provisioner.js";
 import { LiveBoundaryError } from "./live/wallet-authorization.js";
-import { safeErrorText } from "../runtime/safe-error-text.js";
+import { errorLogFields, safeErrorText } from "../runtime/safe-error-text.js";
 import { deploymentNetwork } from "./live-deployment.js";
 import { FUNDING_NONCE_EXPIRY_MS } from "./copy-funding-scan.js";
 import { takeReserved, type LiveBudgetReservation } from "../hyperliquid/hyperliquid-budget-wait.js";
@@ -18,6 +18,10 @@ import { allInOrder, IdentitySpans, privyIdentityFresh, type IdentitySpan } from
 /** An identity proof slower than this is logged with its spans (the bound it
  * had before 2026-10-13, copied from the exchange's evidence checks). */
 const SLOW_IDENTITY_PROOF_MS = 5_000;
+/** The exchange lists an agent whose grant still isn't recorded: an ALERT
+ * past this long, and again every AGENT_APPROVED_UNRECORDED_ALERT_EVERY_MS. */
+export const AGENT_APPROVED_UNRECORDED_ALERT_MS = 5 * 60_000;
+export const AGENT_APPROVED_UNRECORDED_ALERT_EVERY_MS = 10 * 60_000;
 /** The agent's identity proof aged past PRIVY_IDENTITY_MAX_AGE_MS: a wait
  * (transient), never a block. Carries the proof's read spans. */
 export class AgentIdentityEvidenceExpired extends ConflictException {
@@ -263,11 +267,20 @@ export class CopyAgentService {
     const reverted = await this.repository.transition(row, { state: "ready", approvalAttemptedAt: null, consentDigest: null, issue: "agent_approval_not_submitted" });
     return wire(reverted ?? await this.repository.find(userId, row.id));
   }
+  /**
+   * An attempted approval, observed on the exchange. The exchange listing the
+   * agent (this address, this expiry) on the account is the fact on chain
+   * that it was approved: it is recorded as such, with no Privy identity
+   * read. The identity proof decided whether the approval might be sent
+   * (submit, before its POST); after the POST it can't change what the
+   * exchange did, and every order this grant signs proves the agent wallet
+   * with Privy again (privy-order-signer). Gate run 8 (2026-10-13): the
+   * exchange listed the agent from 12:51, but each observation first re-read
+   * the identity, which expired every pass, so the approval was never recorded.
+   */
   private async observe(userId: number, row: AgentSetupRow, reservation?: LiveBudgetReservation | void): Promise<CopyAgentSetup> {
-    // Paid before the identity clock starts: a budget wait can't age it
-    // (a setup step's: from the weight it took before its shared claim).
+    // A setup step's: from the weight it took before its shared claim.
     if (!takeReserved(reservation, AGENT_OBSERVE_WEIGHT) && this.exchange.reserve) await this.exchange.reserve(AGENT_OBSERVE_WEIGHT);
-    const identity = await this.assertSetup(userId, row);
     const intent = consent(row);
     const readAt = Date.now();
     const evidence = await this.exchange.observe(intent, { prepaid: this.exchange.reserve !== undefined });
@@ -278,10 +291,34 @@ export class CopyAgentService {
       return wire(ended ?? await this.repository.find(userId, row.id));
     }
     if (!evidence || evidence.validUntil !== intent.expiresAt || !Number.isSafeInteger(evidence.checkedAt) || evidence.checkedAt > Date.now() || Date.now() - evidence.checkedAt > 5_000) return wire(row);
-    // Exchange evidence cannot reset the age of the earlier provider identity
-    // reads. Carry both proofs through the transaction and its SQL lock waits.
-    this.assertFresh(identity.checkedAt);
-    const active = await this.uow.run(tx => this.repository.activate(tx, userId, row, evidence.checkedAt, identity.checkedAt));
-    return wire(active);
+    // The exchange's evidence is carried through the transaction and its SQL
+    // lock waits (5 s); the database state (owner, account, strategy) is
+    // checked again inside it.
+    try {
+      const active = await this.uow.run(tx => this.repository.activate(tx, userId, row, evidence.checkedAt));
+      this.approvedUnrecorded.delete(row.id);
+      return wire(active);
+    } catch (error) {
+      this.reportApprovedUnrecorded(row, evidence.checkedAt, error);
+      throw error;
+    }
+  }
+  /** Agents the exchange lists as approved whose grant wasn't recorded yet:
+   * when that was first seen, and when it was last raised as an ALERT. */
+  private readonly approvedUnrecorded = new Map<string, { since: number; alertedAt?: number }>();
+  /** The exchange lists the agent but recording it failed: both facts in one
+   * line, and an ALERT once that has lasted AGENT_APPROVED_UNRECORDED_ALERT_MS
+   * (again every AGENT_APPROVED_UNRECORDED_ALERT_EVERY_MS). */
+  private reportApprovedUnrecorded(row: AgentSetupRow, observedAt: number, error: unknown) {
+    const now = Date.now();
+    for (const [id, seen] of this.approvedUnrecorded) if (now - seen.since > 86_400_000) this.approvedUnrecorded.delete(id);
+    const seen = this.approvedUnrecorded.get(row.id) ?? { since: now };
+    this.approvedUnrecorded.set(row.id, seen);
+    const fields = { agentSetupId: row.id, agentAddress: row.agentAddress, accountAddress: row.accountAddress, exchangeListsAgent: true,
+      observedAt: new Date(observedAt).toISOString(), unrecordedSince: new Date(seen.since).toISOString(), state: row.state, issue: row.issue, ...errorLogFields(error) };
+    if (now - seen.since >= AGENT_APPROVED_UNRECORDED_ALERT_MS && (seen.alertedAt === undefined || now - seen.alertedAt >= AGENT_APPROVED_UNRECORDED_ALERT_EVERY_MS)) {
+      seen.alertedAt = now;
+      this.logger.error(`ALERT agent approved on exchange but not recorded ${JSON.stringify({ ...fields, minutes: Math.floor((now - seen.since) / 60_000) })}`);
+    } else this.logger.warn(`agent ${row.id} approved on exchange, not recorded yet ${JSON.stringify(fields)}`);
   }
 }

@@ -45,7 +45,8 @@ describe('a setup step\'s admission order', () => {
     const { service } = worker(new Meter(), new Testnet(), db, signed);
     const capacity = { claimSetup: vi.fn(async () => 0), runSetup: vi.fn(async () => { throw new HyperliquidBudgetWait(30_000, 'local_budget', { weight: 102, lane: 'live', bucket: 'wallet:testnet', tokens: 498, queued: 2 }); }),
       releaseSetup: vi.fn(async () => undefined) };
-    (service as unknown as { capacity: unknown }).capacity = capacity;
+    // The steps part holds the shared meter's seam since the service was split (copy-live-setup-steps.ts).
+    (service as unknown as { steps: { capacity: unknown } }).steps.capacity = capacity;
     await service.tick();
     expect(capacity.claimSetup).toHaveBeenCalledTimes(1);
     expect(db.rows.waits[0]).toMatchObject({ reason: 'local_budget', retryMs: 20_000, bucket: 'wallet:testnet', lane: 'live', tokens: 498, queued: 2 });
@@ -62,7 +63,8 @@ describe('a setup step\'s admission order', () => {
     const setupId = randomUUID(), db = database(setupIntent(setupId), setupId), signed: string[] = [];
     const { service } = worker(new Meter(), new Testnet(), db, signed);
     const capacity = { claimSetup: vi.fn(async () => 5_000), runSetup: vi.fn(), releaseSetup: vi.fn(async () => undefined) };
-    (service as unknown as { capacity: unknown }).capacity = capacity;
+    // The steps part holds the shared meter's seam since the service was split (copy-live-setup-steps.ts).
+    (service as unknown as { steps: { capacity: unknown } }).steps.capacity = capacity;
     await service.tick();
     expect(capacity.claimSetup).toHaveBeenCalledWith(635, setupId, expect.any(Function), 2);
     expect(capacity.runSetup).not.toHaveBeenCalled();

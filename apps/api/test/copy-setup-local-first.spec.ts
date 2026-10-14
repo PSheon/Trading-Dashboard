@@ -33,19 +33,21 @@ function service(intent: LiveCopySetupIntent, stage: SetupRow['stage']) {
   const order: string[] = [], claims: unknown[][] = [];
   const capacity = { claimSetup: vi.fn(async (...args: unknown[]) => { order.push('claim'); claims.push(args); return 0; }),
     runSetup: vi.fn(<T>(work: () => Promise<T>) => work()), releaseSetup: vi.fn(async () => undefined) };
-  (service as unknown as { capacity: unknown }).capacity = capacity;
+  // The steps part (copy-live-setup-steps.ts) holds the step's seams since the service was split (2026-10-15).
+  const steps = (service as unknown as { steps: Record<string, unknown> & { step(row: SetupRow, signer: unknown): Promise<SetupRow> } }).steps;
+  steps.capacity = capacity;
   const signer = { sign: vi.fn(async () => `0x${'1'.repeat(130)}`) };
-  const step = () => (service as unknown as { step(row: SetupRow, signer: unknown): Promise<SetupRow> }).step(db.rows.setup, signer).catch((error: unknown) => error);
-  return { service, db, order, claims, step };
+  const step = () => steps.step(db.rows.setup, signer).catch((error: unknown) => error);
+  return { service, steps, db, order, claims, step };
 }
 
 describe("a setup step's local weight comes before its shared claim", () => {
   it('the agent step: its 81 from the setup bucket first, then the claim; its approval and observation are paid from it (no local wait after the grant)', async () => {
     const intent = setupIntent(randomUUID(), Date.now());
-    const { service, order, claims, step } = service_(intent, 'mode_set');
+    const { steps, order, claims, step } = service_(intent, 'mode_set');
     const local = reservation(AGENT_OBSERVE_WEIGHT + 1);
     let paid: unknown;
-    (service as unknown as { agents: unknown }).agents = {
+    steps.agents = {
       available: true,
       row: vi.fn(async () => ({ id: 'agent-op', state: 'ready', agentAddress: intent.agentAddress, expiresAt: new Date(intent.agentValidUntil), policyId: intent.agentPolicyId })),
       challengeRow: vi.fn(async () => undefined),
@@ -65,10 +67,10 @@ describe("a setup step's local weight comes before its shared claim", () => {
   });
 
   it("the mode step's signing recovery: a never-attempted signing claim pays and claims the whole attempt up front, and its submit is paid from it", async () => {
-    const { service, db, order, claims, step } = service_(setupIntent(randomUUID(), Date.now()), 'funded');
+    const { steps, db, order, claims, step } = service_(setupIntent(randomUUID(), Date.now()), 'funded');
     db.rows.mode = { ...db.rows.mode, submissionState: 'signing', attemptedAt: null, signingStartedAt: new Date(Date.now() - 60_000) } as typeof db.rows.mode;
     const local = reservation(ATTEMPT_STEP_WEIGHT);
-    const modes = (service as unknown as { modes: Record<string, unknown> }).modes;
+    const modes = steps.modes as Record<string, unknown>;
     let submitted: unknown = 'not submitted';
     Object.assign(modes, {
       reserveForSetup: vi.fn(async (weight: number) => { order.push(`local ${weight}`); return local; }),
@@ -88,10 +90,10 @@ describe("a setup step's local weight comes before its shared claim", () => {
 
   it('the builder step: its read from the setup bucket first, then the claim; the read is paid from it', async () => {
     const intent = { ...setupIntent(randomUUID(), Date.now()), builderAddress: `0x${'77'.repeat(20)}`, builderMaxFeeTenthsOfBps: 10 } as LiveCopySetupIntent;
-    const { service, order, claims, step } = service_(intent, 'agent_active');
+    const { steps, order, claims, step } = service_(intent, 'agent_active');
     const local = reservation(BUILDER_FEE_READ_WEIGHT);
     let read: unknown;
-    Object.assign(service as unknown as Record<string, unknown>, {
+    Object.assign(steps, {
       setupBudget: Object.assign(vi.fn(), { reserve: vi.fn(async (weight: number) => { order.push(`local ${weight}`); return local; }) }),
       returns: { builder: vi.fn(async () => ({ id: 'builder-op', state: 'accepted' })) },
       exchange: { maxBuilderFee: vi.fn(async (_n: unknown, _u: unknown, _b: unknown, prepaid?: LiveBudgetReservation) => { order.push('read'); read = prepaid; throw new Error('no answer'); }) },

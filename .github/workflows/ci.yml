@@ -106,11 +106,12 @@ jobs:
         if: env.CODE == 'true'
         run: pnpm --filter @trading-dashboard/web test
 
-  # The api suite, split by file across four runners by recorded run time
-  # (apps/api/vitest.config.ts). Each shard has its own PostgreSQL service and
+  # The api suite, split by file across six runners by recorded run time
+  # (apps/api/vitest.config.ts); four ran 10-15 min and hit the 15 min
+  # timeout (run 38642389694). Each shard has its own PostgreSQL service and
   # its own disposable migrated database.
   api:
-    name: api (${{ matrix.shard }}/4)
+    name: api (${{ matrix.shard }}/6)
     needs: changes
     if: needs.changes.outputs.api == 'true'
     runs-on: ubuntu-24.04
@@ -118,7 +119,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     services:
       postgres:
         image: postgres:16-alpine
@@ -140,7 +141,7 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup
       - name: API tests with disposable migrated database
-        run: pnpm test:api:isolated --shard=${{ matrix.shard }}/4
+        run: pnpm test:api:isolated --shard=${{ matrix.shard }}/6
 
   # Release migration and backup tooling against a real PostgreSQL 16.
   smokes:

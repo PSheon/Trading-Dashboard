@@ -22,7 +22,11 @@ export class WorkerHeartbeatService {
     private readonly config: AppConfig,
     private readonly watcher: WatcherService,
     // Absent on a `copy` worker (the snapshots are the `read` worker's).
-    @Optional() private readonly scheduler: SchedulerService | null,
+    // The explicit token matters: a union's design:paramtypes is `Object`,
+    // which no provider answers, so `@Optional()` alone injected nothing and
+    // /health showed no snapshot on `read` and `all` (Stage, 2026-10-14;
+    // test/injection-metadata.spec.ts).
+    @Optional() @Inject(SchedulerService) private readonly scheduler: SchedulerService | null,
     private readonly budgeter: RequestBudgeterService,
     @Optional() private readonly archive?: ArchiveIngestService,
     @Optional() private readonly pool?: DiscoveryPoolService,

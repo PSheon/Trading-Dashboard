@@ -178,7 +178,7 @@ export class CopyLiveSetupService {
     private readonly returns: CopyLiveReturnRepository, private readonly exchange: CopyFundingExchangeClient,
     @Optional() @Inject(WORKER_MASTER_SIGNER) private readonly workerSigner: WorkerMasterSigner | null = null,
     @Optional() private readonly now: () => number = Date.now,
-    @Optional() private readonly jobs: BackgroundJobs | null = null,
+    @Optional() @Inject(BackgroundJobs) private readonly jobs: BackgroundJobs | null = null,
     @Optional() @Inject(CopyLiveSetupAbortService) private readonly aborts: CopyLiveSetupAbortService | null = null,
     @Optional() @Inject(LeaderActivityService) private readonly leaderActivity: Pick<LeaderActivityService, 'copyActivity'> | null = null,
     @Optional() @Inject(SETUP_REST_CAPACITY) private readonly capacity: SetupRestCapacity | null = null,

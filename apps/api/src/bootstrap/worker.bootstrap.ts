@@ -14,8 +14,28 @@ import { acquireWorkerLeases, acquireWorkerOwnership, WORKER_LEASE_SESSION_OPTIO
 import { roleLeases } from "../runtime/worker-role.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { WorkerHeartbeatService } from "../worker/worker-heartbeat.service.js";
-import { startWorkerHealthServer } from "./worker-health-server.js";
+import { startWorkerHealthServer, type WorkerHealthSource } from "./worker-health-server.js";
 import { workerMonitorKey } from "../runtime/worker-calls.js";
+
+/** What the health server reads from the worker's application context:
+ * /health's heartbeat and /health/monitor's sample (`active`: the worker
+ * holds its lease and has not begun stopping). */
+export function workerHealthReads(config: RuntimeConfig, app: () => INestApplicationContext, active: () => boolean): Pick<WorkerHealthSource, "heartbeat" | "monitor"> {
+  return {
+    heartbeat: () => app().get(WorkerHeartbeatService).heartbeat(),
+    monitor: async (isActive) => {
+      const live = isActive && active();
+      const budgeter = live ? app().get(RequestBudgeterService) : undefined;
+      return {
+        settings: live ? app().get(SettingsService).appliedDiscovery() : [],
+        switches: operationalSwitches(config),
+        tuning: config.tuning,
+        budget: budgeter ? { ...budgeter.introspect(), queued: budgeter.queued() } : null,
+        heartbeat: live ? await app().get(WorkerHeartbeatService).heartbeat() : null,
+      };
+    },
+  };
+}
 
 /**
  * IS_WORKER=true. Serves health first, then waits for the PG advisory-lock
@@ -50,18 +70,7 @@ export async function startWorker(config: RuntimeConfig, logger: StructuredLogge
     monitorKey: workerMonitorKey(config.database.url),
     state: () => stopping ? "stopping" : ready ? "active" : "standby",
     probe: async () => { if (!client) throw new Error("no lease"); await client.query("SELECT 1"); },
-    heartbeat: () => app!.get(WorkerHeartbeatService).heartbeat(),
-    monitor: async (isActive) => {
-      const live = isActive && active();
-      const budgeter = live ? app!.get(RequestBudgeterService) : undefined;
-      return {
-        settings: live ? app!.get(SettingsService).appliedDiscovery() : [],
-        switches: operationalSwitches(config),
-        tuning: config.tuning,
-        budget: budgeter ? { ...budgeter.introspect(), queued: budgeter.queued() } : null,
-        heartbeat: live ? await app!.get(WorkerHeartbeatService).heartbeat() : null,
-      };
-    },
+    ...workerHealthReads(config, () => app!, active),
   }, config.app.port);
 
   async function shutdown(code: number): Promise<void> {

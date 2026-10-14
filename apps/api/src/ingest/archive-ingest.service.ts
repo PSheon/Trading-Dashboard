@@ -1,4 +1,4 @@
-import { Injectable, Logger, Optional } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import type { HeartbeatResponse } from "@trading-dashboard/shared/contracts";
 
 import { AppConfig } from "../config/app-config.js";
@@ -17,6 +17,12 @@ const INSERT_BATCH = 2_000;
 export const HEAVY_ADDRESS_HOUR = 20_000;
 
 export type ObjectOutcome = "ingested" | "missing" | "over_budget" | "lost" | "idle";
+
+/** A store to read in place of the configured one (tests construct the
+ * service with it; no module provides it, so Nest builds the store from the
+ * config). A token, because the `ArchiveStore` interface's
+ * design:paramtypes is `Object` (test/injection-metadata.spec.ts). */
+export const ARCHIVE_STORE = Symbol("ARCHIVE_STORE");
 
 /** Builds the configured store; `undefined` when the ingest is off. */
 export function archiveStoreFrom(config: AppConfig): ArchiveStore | undefined {
@@ -61,7 +67,7 @@ export class ArchiveIngestService {
     private readonly config: AppConfig,
     private readonly repository: ArchiveIngestRepository,
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
-    @Optional() store?: ArchiveStore,
+    @Optional() @Inject(ARCHIVE_STORE) store?: ArchiveStore,
   ) {
     this.store = store ?? archiveStoreFrom(config);
   }

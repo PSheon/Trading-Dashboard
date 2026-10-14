@@ -138,7 +138,7 @@ export function analyzeRun(raw) {
     // collect plus the boundary reads: the provider part of an order's evidence window.
     providerAgeMs: clock === null || !raw.boundary ? null : raw.boundary.endAtMs - clock,
     // The evidence epoch reads no fills (no userFills*/userFillsByTime in collect).
-    fillIndexReadMs: raw.rest.filter((r) => /^userFills/.test(r.type)).reduce((sum, r) => sum + (r.ms ?? 0), 0),
+    fillIndexReadMs: raw.rest.filter((r) => r.type.startsWith('userFills')).reduce((sum, r) => sum + (r.ms ?? 0), 0),
   };
 }
 

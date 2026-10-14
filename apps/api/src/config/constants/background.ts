@@ -219,7 +219,7 @@ export const TWAP_ACTIVE_MS = 48 * HOUR_MS;
  */
 export const INITIAL_LOOKBACK_MS = 75 * MINUTE_MS;
 
-/** basis: measured — the fill index trails the exchange by seconds (p90 1.5 s); a minute of margin
+/** basis: guessed — 60 s, a settlement safety bound (fills are stamped early and published late); lower-bound sample: mainnet 2026-10-14, one address, 10 min, p99 3.75 s, max miss 6.3 s; lower only with >= 24 h of samples from >= 3 addresses (one high-frequency), new value >= 4x the largest observed miss, basis then measured with the samples attached; verify: gate 11 fill index lag p99
  * A completed read certifies fills only up to this long before it was
  * sent: the fill index trails the exchange by seconds (p90 1.5 s).
  */

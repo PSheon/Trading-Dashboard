@@ -75,6 +75,28 @@ it('API settlement logs which key failed and why, and still goes on to the next 
   api.onModuleDestroy(); failing.onModuleDestroy();
 });
 
+it('the terminal settlement loop logs why an order is still pending, at most once per order per 30 s', async () => {
+  const c = testConfig().value;
+  const config = new AppConfig({ ...c, hyperliquid: { ...c.hyperliquid, wallet: { ...c.hyperliquid.wallet, network: 'testnet' } },
+    copy: { ...c.copy, live: { network: 'testnet' } } } as never);
+  const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+  let clock = 1_000_000; vi.spyOn(Date, 'now').mockImplementation(() => clock);
+  const claim = { assertFresh: () => undefined };
+  const run = vi.fn(async (_key: string, work: (claim: unknown) => Promise<void>) => { await work(claim); return true; });
+  const finish = vi.fn(async () => undefined);
+  const work = () => ({ repository: { load: async () => ({ request: {}, row: {} }), finish }, saveSettlement: async () => true,
+    settle: async () => ({ kind: 'pending' as const, reason: 'live_settlement_terminal_stale' }) });
+  const api = new CopyLiveApiSettlementService(config, new BackgroundJobs(), { candidates: async () => ['testnet:a:k1', 'testnet:a:k2'] } as never, { run } as never, work as never);
+  const pending = () => warn.mock.calls.map(([line]) => String(line)).filter(line => line.startsWith('settlement '));
+  await api.tick(); clock += 3000; await api.tick(); clock += 26_000; await api.tick();
+  expect(pending()).toEqual(['settlement testnet:a:k1 pending: live_settlement_terminal_stale', 'settlement testnet:a:k2 pending: live_settlement_terminal_stale']);
+  clock += 1000; await api.tick();
+  expect(pending()).toHaveLength(4);
+  // What the loop stores and does next is unchanged.
+  expect(finish).toHaveBeenCalledTimes(8);
+  api.onModuleDestroy();
+});
+
 it("a setup abort logs a child's reconcile it keeps for the next pass, and finishes the pass as before", async () => {
   const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
   const row = { id: 'abort-1', userId: 7, kind: 'edit', stopId: null, network: 'testnet', strategyId: 70 };

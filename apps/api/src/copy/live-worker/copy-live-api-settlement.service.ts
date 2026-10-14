@@ -5,6 +5,7 @@ import { errorLogFields } from '../../runtime/safe-error-text.js';
 import { CopyLiveApiSettlementRepository } from './copy-live-api-settlement.repository.js';
 import { CopyLiveSettlementClaims, type SettlementClaim } from './copy-live-settlement-claim.js';
 import type { LiveSettleOutcome, LiveSettleRequest } from './copy-live-settler.js';
+import { SettlementPendingLog } from './settlement-pending-log.js';
 
 export interface ApiSettlementWork {
   repository: CopyLiveApiSettlementRepository;
@@ -41,6 +42,8 @@ export class CopyLiveApiSettlementService implements OnApplicationBootstrap, OnM
   private timer: ReturnType<typeof setInterval> | undefined;
   private stopped = false;
   private readonly shutdown = new AbortController();
+  /** Why an order's settlement is still pending (rate-limited per order). */
+  private readonly pending = new SettlementPendingLog(message => this.logger.warn(message));
   constructor(private readonly config: AppConfig, private readonly jobs: BackgroundJobs,
     private readonly candidates: CopyLiveApiSettlementRepository, private readonly claims: CopyLiveSettlementClaims,
     private readonly work: (claim: SettlementClaim) => ApiSettlementWork) {}
@@ -61,7 +64,7 @@ export class CopyLiveApiSettlementService implements OnApplicationBootstrap, OnM
             const w = this.work(claim);
             const loaded = await w.repository.load(key); claim.assertFresh();
             if (!loaded) return;
-            const outcome = await w.settle(loaded.request); claim.assertFresh();
+            const outcome = await w.settle(loaded.request); this.pending.note(key, outcome); claim.assertFresh();
             // Persist reporting before marking dispatch complete: a crash retains
             // submitted work and the original committed proof's replay path.
             if (outcome.kind === 'released' && !await w.saveSettlement(key)) return;

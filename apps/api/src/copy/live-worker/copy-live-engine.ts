@@ -8,6 +8,7 @@ import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceDigest, liveSo
 import { liveSourceExecutionAttempt, liveSourceExecutionCloid } from '../live/copy-live-leg-attempt.js';
 import { describeUnexpected, errorCode } from '../../runtime/safe-error-text.js';
 import { TERMINAL_STATES, type LiveSettleOutcome, type LiveSettleRequest } from './copy-live-settler.js';
+import { SettlementPendingLog } from './settlement-pending-log.js';
 import { UNSENT_RELEASED, UNSENT_RETRY, type CopyLiveWorkerRepository, type DispatchRow, type LiveMandateWork, type LiveStreamWork } from './copy-live-worker.repository.js';
 import { openNotionalCeiling, planAdjustments, type PendingLeg } from './copy-live-adjustments.js';
 import { MAX_ACCUMULATE_MS } from '../live/copy-live-source-planner.js';
@@ -151,6 +152,8 @@ export class CopyLiveEngine {
   private readonly legRetryAt = new Map<string, number>();
   private readonly lastFastRead = new Map<string, number>();
   private readonly ingesting = new Set<string>();
+  /** Why an order's settlement is still pending (rate-limited per order). */
+  private readonly pendingSettlements = new SettlementPendingLog(message => this.deps.log?.(message), () => this.now());
   constructor(private readonly deps: LiveEngineDependencies, private readonly options: LiveEngineOptions = DEFAULT_ENGINE_OPTIONS,
     private readonly now: () => number = Date.now) {}
 
@@ -498,6 +501,7 @@ export class CopyLiveEngine {
     }
     const outcome = await this.deps.settler.settle({ userId: row.userId, accountId: row.accountId, accountAddress: mandate.accountAddress,
       sourceNetwork: mandate.sourceNetwork, leaderAddress: mandate.leaderAddress, key: row.executionKey! });
+    this.pendingSettlements.note(row.executionKey!, outcome);
     if (outcome.kind === 'released') {
       await this.deps.repository.update(row, { state: 'settled', settledAt: new Date(this.now()), reason: null });
       try { await this.deps.settlementObservation?.(row.executionKey!); }

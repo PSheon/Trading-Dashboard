@@ -87,7 +87,7 @@ describe('terminal settlement beside saturated background and page lanes on the 
         leaderAddress: '0x00000000000000000000000000000000000000b2', key: record(now).key })).rejects.toThrow('evidence stage reached');
       expect(scanned).toBeDefined();
       expect(scanned! - started).toBeLessThan(BOUND_MS);
-      expect(raw.mock.calls.filter(([, init]) => JSON.parse(String(init?.body)).type === 'userFillsByTime')).toHaveLength(2);
+      expect(raw.mock.calls.filter(([, init]) => (JSON.parse(init?.body as string) as { type: string }).type === 'userFillsByTime')).toHaveLength(2);
       // The lanes it went ahead of were asking all along (pages were granted, and refused).
       expect(counts.page).toBeGreaterThan(0); expect(counts.refused).toBeGreaterThan(0);
       stop.abort(); await Promise.all(loops);

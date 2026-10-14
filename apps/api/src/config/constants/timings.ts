@@ -361,3 +361,9 @@ export const SOURCE_EQUITY_MAX_AGE_MS = 120_000;
  * own later deadline still wins.
  */
 export const TESTNET_SOURCE_RETRY_MS = 5_000;
+
+/** basis: guessed — the settlement loop retries every 3 s; one line per order per 30 s says why it is still pending without flooding the log (gate run 10, 2026-10-14); verify: the next gate's settlement log
+ * How often a terminal order's pending settlement outcome is logged
+ * (SettlementPendingLog): at most once per order in this long.
+ */
+export const SETTLEMENT_PENDING_LOG_INTERVAL_MS = 30_000;

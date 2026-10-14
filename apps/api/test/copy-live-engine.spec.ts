@@ -281,6 +281,18 @@ describe('testnet copy execution engine', () => {
     expect(runtimeCalls.filter(r => r.sourceFillId === add)).toHaveLength(1);
     expect(runtimeCalls.some(r => r.sourceFillId === reduce && r.leg === 'close')).toBe(true);
   });
+  it('logs why a settlement is still pending, at most once per order per 30 s', async () => {
+    const log = vi.fn<(message: string) => void>(), run = engine({ log });
+    await credit(); await coverage(now - 10_000, now + 5000); await run.tick();
+    const first = await leaderFill(26, now + 100, 'B', '1', '0');
+    clock = now + 1000; await run.tick();
+    settleImpl = async () => ({ kind: 'pending', reason: 'live_settlement_terminal_unproven' });
+    const pending = () => log.mock.calls.map(([line]) => line).filter(line => line.startsWith('settlement '));
+    for (const at of [2000, 3000, 31_000]) { clock = now + at; await run.tick(); }
+    expect(pending()).toEqual([`settlement ${keyOf(first, 'open')} pending: live_settlement_terminal_unproven`]);
+    clock = now + 32_000; await run.tick();
+    expect(pending()).toHaveLength(2);
+  });
   it('publishes an observation only after settlement, without reverting settled work when reporting fails', async () => {
     const published = vi.fn(async (_key: string) => { throw new Error('reporting unavailable'); });
     const run = engine({ settlementObservation: published } as Partial<LiveEngineDependencies>);

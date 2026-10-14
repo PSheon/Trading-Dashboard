@@ -138,9 +138,11 @@ describe('live orders come before setups and background on the shared window', (
     expect(total(state)).toBeLessThanOrEqual(1200);
   });
 
-  it('the provider\'s 1200 holds: a live order\'s marker and charges are charges like any other, and never past the window', () => {
+  it('the provider\'s 1200 holds: a live order\'s charges never go past the window; its marker (never sent) goes in on a full one', () => {
     const full=S([rest('page',1200)]);
-    expect(refusal(()=>announce(100,full))).toBeInstanceOf(HyperliquidRestCapacityError);
+    // Recorded, not fitting (hyperliquid-demand-marker-full-window.spec.ts: refused, it lost every freed unit to pages).
+    const marked=announce(100,full);expect(marked.charged).toBe(1);expect(marked.waitMs).toBeGreaterThan(0);
+    expect(refusal(()=>liveCharge(1,marked.state))).toBeInstanceOf(HyperliquidRestCapacityError);
     expect(refusal(()=>liveCharge(1,full))).toBeInstanceOf(HyperliquidRestCapacityError);
     const announced=announce(1199,S([]));
     expect(announced.charged).toBe(1);

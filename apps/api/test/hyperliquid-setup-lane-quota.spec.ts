@@ -94,9 +94,11 @@ describe('the shared window: setups ahead of background, live orders keep their 
     expect(()=>demand(720,S([]))).toThrow('hyperliquid_quota_exhausted');
   });
 
-  it('the provider\'s 1200 holds whatever the lanes: a setup marker is a charge like any other', () => {
-    const state=S([rest('live',1200)]);
-    expect(refusal(()=>demand(10,state))).toBeInstanceOf(HyperliquidRestCapacityError);
+  it('the provider\'s 1200 holds whatever the lanes: a setup marker (never sent) goes in on a full window, and is never room for a charge', () => {
+    let state=S([rest('live',1200)]);
+    // Recorded, not fitting (hyperliquid-demand-marker-full-window.spec.ts: refused, it lost every freed unit to pages).
+    const claimed=demand(10,state);expect(claimed.charged).toBe(1);expect(claimed.waitMs).toBeGreaterThan(0);
+    state=claimed.state;expect(total(state)).toBe(1201);
     expect(refusal(()=>setupCharge(1,state))).toBeInstanceOf(HyperliquidRestCapacityError);
     expect(refusal(()=>live(1,state))).toBeInstanceOf(HyperliquidRestCapacityError);
   });

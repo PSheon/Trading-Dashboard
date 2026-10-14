@@ -6,7 +6,7 @@ import {LIVE_DEX_NAME,LIVE_PERP_COIN} from '../copy/live/live-market-resolver.js
 import {freezeLiveReservation} from '../copy/live/live-risk-reservation.js';
 import {HyperliquidRestCapacityError} from './hyperliquid-capacity-error.js';
 import type { LiveNetwork } from '../copy/live/wallet-authorization.js';
-import { HYPERLIQUID_BACKGROUND_REST_CAP, HYPERLIQUID_LIVE_DEMAND_HOLD_MS, HYPERLIQUID_LIVE_REST_RESERVE, HYPERLIQUID_LIVE_STANDBY_HOLD_MS, HYPERLIQUID_LIVE_WS_CONNECT_RESERVE, HYPERLIQUID_MAX_SETUP_CONNECTS, HYPERLIQUID_PAGE_FLOOR, HYPERLIQUID_PAGE_HOLD_MS, HYPERLIQUID_REST_CAP, HYPERLIQUID_SETUP_GRANT_HOLD_MS, HYPERLIQUID_SETUP_PENDING_HOLD_MS, HYPERLIQUID_SETUP_REST_CAP, HYPERLIQUID_STALE_LEASE_RECLAIM_MS } from '../config/constants/hyperliquid.js';
+import { HYPERLIQUID_BACKGROUND_REST_CAP, HYPERLIQUID_DEMAND_MARKER_CAP, HYPERLIQUID_LIVE_DEMAND_HOLD_MS, HYPERLIQUID_LIVE_REST_RESERVE, HYPERLIQUID_LIVE_STANDBY_HOLD_MS, HYPERLIQUID_LIVE_WS_CONNECT_RESERVE, HYPERLIQUID_MAX_SETUP_CONNECTS, HYPERLIQUID_PAGE_FLOOR, HYPERLIQUID_PAGE_HOLD_MS, HYPERLIQUID_REST_CAP, HYPERLIQUID_SETUP_GRANT_HOLD_MS, HYPERLIQUID_SETUP_PENDING_HOLD_MS, HYPERLIQUID_SETUP_REST_CAP, HYPERLIQUID_STALE_LEASE_RECLAIM_MS } from '../config/constants/hyperliquid.js';
 export interface HyperliquidQuotaEvent {readonly id:string;readonly kind:'rest'|'ws_message'|'ws_connect';readonly units:number;readonly reservedAt:number;readonly expiresAt:number;}
 export interface HyperliquidQuotaSubscription {readonly id:string;readonly network:LiveNetwork;readonly user:string|null;readonly subscription:Readonly<Record<string,unknown>>;}
 export interface HyperliquidQuotaLease {readonly id:string;readonly egressKey:string;readonly socketId:string;readonly fenceToken:string;readonly ownerId:string;readonly state:'reserved'|'open'|'closing'|'uncertain'|'closed';readonly revision:number;readonly leaseUntil:number;readonly latestAllowedSendAt:number;readonly subscriptions:readonly HyperliquidQuotaSubscription[];readonly createdAt:number;readonly updatedAt:number;readonly closedAt:number|null;}
@@ -280,6 +280,20 @@ export function hyperliquidMeterComposition(events:readonly HyperliquidQuotaEven
   const granted=holds.tokens().map(t=>({token:t.slice(0,8),left:holds.held(t)}));
   return {total:rest.reduce((sum,e)=>sum+e.units,0),background,other,live,page,setup,markers:{setup:setupMarkers,live:liveMarkers},pending,granted,liveNeed:liveAhead(rest,now).outstanding()};
 }
+/**
+ * A live order's or a setup's demand marker (1 unit, never sent). It is
+ * recorded whether or not the window has a unit free, so it may stand over
+ * HYPERLIQUID_REST_CAP (by at most HYPERLIQUID_DEMAND_MARKER_CAP, and a
+ * claimant's renewal replaces its earlier marker: recordDemandMarker): what
+ * is sent never does. Before, it went in only
+ * when a unit was free, and on a window kept full by pages that wait for
+ * room (each takes the 20 that frees up first) a settlement's claim lost
+ * that race again and again (ten times in a row on a loaded runner) and was
+ * refused at ~9 s, inside its 15 s (CI, 2026-10-14): nothing had been kept
+ * free for it. It still counts as a charge in every lane's room (it leaves
+ * one unit less to send), until it expires.
+ */
+const isDemandMarker=(e:{kind:string;id:string})=>e.kind==='rest'&&(e.id.startsWith(LIVE_DEMAND_ID_PREFIX)||e.id.startsWith(SETUP_DEMAND_ID_PREFIX));
 const isLaneTicket=(id:string)=>[SETUP_REST_ID_PREFIX,SETUP_DEMAND_ID_PREFIX,SETUP_HOLD_ID_PREFIX,LIVE_REST_ID_PREFIX,LIVE_DEMAND_ID_PREFIX,LIVE_STANDBY_ID_PREFIX,PAGE_REST_ID_PREFIX].some(prefix=>id.startsWith(prefix));
 export interface HyperliquidQuotaPlan {readonly state:HyperliquidQuotaState;readonly leases:readonly HyperliquidQuotaLease[];readonly charged:number;
   /** `setup_demand` and `live_demand` only: 0 when the weight fits now, else in how many ms it should (its marker is recorded either way). */
@@ -358,7 +372,9 @@ export function planHyperliquidQuota(raw:{readonly now:number;readonly state:Hyp
       const event=events.find(e=>e.kind==='rest'&&e.id===settled.id);
       if(event&&settled.units<event.units)event.units=settled.units;
     }
-    for(const kind of ['rest','ws_message','ws_connect'] as const)requireQuota(events.filter(e=>e.kind===kind).reduce((sum,e)=>sum+e.units,0)<=caps[kind]);
+    // What is sent stays within the provider's window; a demand marker (never
+    // sent) may stand over it (isDemandMarker).
+    for(const kind of ['rest','ws_message','ws_connect'] as const)requireQuota(events.filter(e=>e.kind===kind&&!isDemandMarker(e)).reduce((sum,e)=>sum+e.units,0)<=caps[kind]);
     let charged=0,waitMs:number|undefined,composition:HyperliquidMeterComposition|undefined;
     const sum=(list:readonly HyperliquidQuotaEvent[])=>list.reduce((total,e)=>total+e.units,0);
     /** In how many ms `units` more fit under `cap` as charges of `pool`
@@ -367,6 +383,23 @@ export function planHyperliquidQuota(raw:{readonly now:number;readonly state:Hyp
       let missing=sum(pool)+units-cap;if(missing<=0)return 0;
       for(const event of [...pool].sort((a,b)=>a.expiresAt-b.expiresAt)){missing-=event.units;if(missing<=0)return event.expiresAt-now;}
       return undefined;
+    };
+    /**
+     * Records a demand marker (`id`): its claimant's earlier markers
+     * (`earlier`) are dropped first, so a renewal reuses their room; then it
+     * goes in where a unit is free, or over the window while what stands over
+     * it stays within HYPERLIQUID_DEMAND_MARKER_CAP; past that it is refused
+     * with the wait for a unit, as before (isDemandMarker). Not checked when
+     * the state is read: a row over it never fails the meter's other calls.
+     */
+    const recordDemandMarker=(id:string,sendUntil:number,earlier:(e:HyperliquidQuotaEvent)=>boolean)=>{
+      const kept=events.filter(e=>!(isDemandMarker(e)&&earlier(e))),rest=kept.filter(e=>e.kind==='rest');
+      if(sum(rest)+1>HYPERLIQUID_REST_CAP+HYPERLIQUID_DEMAND_MARKER_CAP){
+        const wait=fitsIn(rest,1,HYPERLIQUID_REST_CAP+HYPERLIQUID_DEMAND_MARKER_CAP);
+        if(wait===undefined)throw new LiveBoundaryError('hyperliquid_quota_exhausted');
+        throw new HyperliquidRestCapacityError(Math.max(1,wait));
+      }
+      events.splice(0,events.length,...kept,{id,kind:'rest',units:1,reservedAt:now,expiresAt:sendUntil+60000});charged=1;
     };
     /** `units` more under `cap`, beside `reserved` (what claims still
      * need), or once those claims end (`ends`) and the window has room. */
@@ -512,11 +545,14 @@ export function planHyperliquidQuota(raw:{readonly now:number;readonly state:Hyp
       if(fits!==undefined&&token!==undefined&&request.connects){const connects=connectsFitIn(request.connects,token);fits=connects===undefined?undefined:Math.max(fits,connects);}
       if(fits===undefined)throw new LiveBoundaryError('hyperliquid_quota_exhausted');
       requireQuota(request.sendUntil>=now&&request.sendUntil<=now+5000);requireQuota(!s.events.some(e=>e.id===request.id||e.id===`${request.id}:g`),'hyperliquid_quota_ticket_conflict');
-      const marker=fitsIn(events.filter(e=>e.kind==='rest'),1,HYPERLIQUID_REST_CAP);
-      if(marker===undefined)throw new LiveBoundaryError('hyperliquid_quota_exhausted');
-      if(marker>0)throw new HyperliquidRestCapacityError(marker);
+      // Its marker goes in on a full window too (recordDemandMarker). A setup
+      // keeps at most three: its first (its place in the queue,
+      // pendingSetups), its latest grant (`:g`: revoke and revoked read the
+      // grant from it while its hold lives, whatever it claimed since) and this one.
       const granted=token!==undefined&&fits===0&&request.queue!==true;
-      events.push({id:granted?`${request.id}:g`:request.id,kind:'rest',units:1,reservedAt:now,expiresAt:request.sendUntil+60000});charged=1;waitMs=fits;
+      const mine=token===undefined?[]:events.filter(e=>e.kind==='rest'&&SETUP_DEMAND_TICKET.exec(e.id)?.[2]===token).sort((a,b)=>a.reservedAt-b.reservedAt||(a.id<b.id?-1:1)),first=mine[0];
+      const grant=granted?undefined:mine.filter(e=>SETUP_DEMAND_TICKET.exec(e.id)?.[4]===':g').at(-1);
+      recordDemandMarker(granted?`${request.id}:g`:request.id,request.sendUntil,e=>e!==first&&e!==grant&&mine.includes(e));waitMs=fits;
       if(granted){
         dropHolds(events,token);
         const hold=`${SETUP_HOLD_ID_PREFIX}${token}:${request.id.slice(SETUP_DEMAND_ID_PREFIX.length)}`,until=now+HYPERLIQUID_SETUP_GRANT_HOLD_MS;
@@ -539,10 +575,10 @@ export function planHyperliquidQuota(raw:{readonly now:number;readonly state:Hyp
       // room that frees up is the order's first.
       const ticket=LIVE_DEMAND_TICKET.exec(request.id);requireQuota(ticket&&Number(ticket[1])===request.weight);
       requireQuota(request.sendUntil>=now&&request.sendUntil<=now+5000);requireQuota(!s.events.some(e=>e.id===request.id),'hyperliquid_quota_ticket_conflict');
-      const marker=fitsIn(events.filter(e=>e.kind==='rest'),1,HYPERLIQUID_REST_CAP);
-      if(marker===undefined)throw new LiveBoundaryError('hyperliquid_quota_exhausted');
-      if(marker>0)throw new HyperliquidRestCapacityError(marker);
-      events.push({id:request.id,kind:'rest',units:1,reservedAt:now,expiresAt:request.sendUntil+60000});charged=1;
+      // Recorded on a full window too (recordDemandMarker): it was not, and
+      // pages that wait for room took every unit that freed up before it (CI,
+      // 2026-10-14). It replaces the order's earlier markers: its latest is its claim.
+      recordDemandMarker(request.id,request.sendUntil,e=>LIVE_DEMAND_TICKET.exec(e.id)?.[2]===ticket[2]);
       const rest=events.filter(e=>e.kind==='rest'),live=liveClaims(rest,now),token=ticket[2]!,need=live.left(token);
       waitMs=Math.min(65000,preempting(pool=>beside(pool,need,HYPERLIQUID_REST_CAP,live.outstanding(token),[live.until(token)]))??65000);
     }

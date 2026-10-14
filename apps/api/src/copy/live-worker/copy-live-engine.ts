@@ -598,6 +598,9 @@ export class CopyLiveEngine {
     }
     // In the leader's order: an earlier leg of the coin still waiting goes first.
     if (await this.deps.repository.earlierPending(row)) return;
+    // Any other coin too: until another order on the account settles, this
+    // one's generation proof refuses it. A wait, not an attempt.
+    if (await this.deps.repository.unsettledOnAccount(row)) return;
     // Not before its retry time: a failed attempt's next one waits (retryDelayMs).
     if ((this.legRetryAt.get(row.id) ?? 0) > this.now()) return;
     await this.execute(row, m, row.leg === 'open' ? row.leaderTime.getTime() + signalAgeMs : undefined, attempt);

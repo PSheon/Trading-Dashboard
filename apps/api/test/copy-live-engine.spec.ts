@@ -381,7 +381,7 @@ describe('testnet copy execution engine', () => {
     expect(runtimeCalls).toHaveLength(1); expect(settleCalls).toHaveLength(1);
   });
 
-  it('waits for a prior same-coin never-placed release without blocking another coin or spending a new attempt', async () => {
+  it('waits for a prior never-placed release, on its coin and on another, without spending a new attempt', async () => {
     await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
     const first = await leaderFill(20, now + 100, 'B', '1', '0');
     runtimeImpl = async (request, hooks) => {
@@ -397,12 +397,15 @@ describe('testnet copy execution engine', () => {
     const other = await leaderFill(22, now + 1200, 'B', '1', '0', 'ETH');
     settleImpl = async () => ({ kind: 'pending', reason: 'live_settlement_terminal_unproven' });
     clock = now + 2000; await engine().tick();
-    expect(runtimeCalls.map(c => c.sourceFillId)).toEqual([first, other]);
+    // The other coin waits too: until the never-placed order is released,
+    // every other order's generation proof refuses (gate run 10).
+    expect(runtimeCalls.map(c => c.sourceFillId)).toEqual([first]);
     expect((await dispatches()).find(r => r.sourceFillId === next)).toMatchObject({ state: 'pending', attempts: 0, reason: null });
+    expect((await dispatches()).find(r => r.sourceFillId === other)).toMatchObject({ state: 'pending', attempts: 0, reason: null });
     expect(settleCalls.map(c => c.key)).toContain(keyOf(first, 'open'));
     settleImpl = async request => request.key === keyOf(first, 'open') ? { kind: 'unplaced' } : { kind: 'released' };
     clock = now + 3000; await engine().tick();
-    expect(runtimeCalls.map(c => c.sourceFillId)).toEqual([first, other, next]);
+    expect(runtimeCalls.map(c => c.sourceFillId).sort()).toEqual([first, other, next].sort());
     expect((await dispatches()).find(r => r.sourceFillId === first)).toMatchObject({ state: 'refused', reason: NEVER_PLACED });
     expect((await dispatches()).find(r => r.sourceFillId === next)).toMatchObject({ state: 'submitted', attempts: 1 });
   });
@@ -510,6 +513,40 @@ describe('testnet copy execution engine', () => {
     expect(runtimeCalls.map(c => c.sourceFillId)).toEqual([first, next]);
     expect((await dispatches()).find(r => r.sourceFillId === first)).toMatchObject({ state: 'settled', attempts: 1 });
     expect((await dispatches()).find(r => r.sourceFillId === next)).toMatchObject({ state: 'submitted', attempts: 1 });
+  });
+
+  // Gate run 10 (2026-10-14): ETH's open was attempted six times while BTC's
+  // filled order waited for its settlement; two attempts were refused by the
+  // generation proof (every other journal must be settled), the others spent
+  // their evidence, sockets and the user's risk lock beside BTC's settlement.
+  it('waits for another coin\'s filled order to settle before attempting a leg, spending no attempt and no evidence', async () => {
+    await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+    const btc = await leaderFill(25, now + 100, 'B', '1', '0');
+    clock = now + 1000; await engine().tick();
+    const f = seed.f, intent = { ...f.intent, cloid: liveSourceExecutionCloid('mandate', btc, 'open') };
+    const payload = planLiveReservation({ now: clock, identity: f.identity, localSource: f.localSource, intent,
+      action: buildOrderAction(intent), market: f.market, quote: f.quote, leverage: f.leverageProofs[0]!, fees: f.fees,
+      policy: f.policy, expiresAt: clock + 60_000 });
+    await db.insert(schema.copyLiveRiskReservations).values({ ...payload, cloid: intent.cloid, coin: intent.market!.coin,
+      dex: intent.market!.dex, asset: intent.asset, payload: payload as unknown as Record<string, unknown>, state: 'unknown',
+      attemptedAt: new Date(clock), createdAt: new Date(payload.createdAt), expiresAt: new Date(payload.expiresAt), updatedAt: new Date(clock) });
+    const eth = await leaderFill(26, now + 1100, 'B', '1', '0', 'ETH');
+    settleImpl = async () => ({ kind: 'pending', reason: 'live_settlement_terminal_unproven' });
+    clock = now + 2000; await engine().tick();
+    clock = now + 2500; await engine().tick();
+    expect(runtimeCalls.map(c => c.sourceFillId)).toEqual([btc]);
+    expect((await dispatches()).find(r => r.sourceFillId === eth)).toMatchObject({ state: 'pending', attempts: 0, reason: null });
+    settleImpl = async () => {
+      await db.update(schema.copyLiveRiskReservations).set({ state: 'released', releaseReason: 'verified_settlement',
+        releaseEvidenceDigest: 'a'.repeat(64), revision: 2, updatedAt: new Date(clock) }).where(eq(schema.copyLiveRiskReservations.key, payload.key));
+      return { kind: 'released' };
+    };
+    // The pass settles BTC after it looked at ETH (pending legs first); ETH goes next pass.
+    clock = now + 3000; await engine().tick();
+    clock = now + 3500; await engine().tick();
+    expect(runtimeCalls.map(c => c.sourceFillId)).toEqual([btc, eth]);
+    expect((await dispatches()).find(r => r.sourceFillId === btc)).toMatchObject({ state: 'settled', attempts: 1 });
+    expect((await dispatches()).find(r => r.sourceFillId === eth)).toMatchObject({ state: 'submitted', attempts: 1 });
   });
 
   it('refuses a price-deviation open for good but retries a transient refusal until the signal is too old', async () => {

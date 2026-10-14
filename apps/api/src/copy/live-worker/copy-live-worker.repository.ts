@@ -185,6 +185,20 @@ export class CopyLiveWorkerRepository {
         sql`(${copyLiveDispatches.leaderTime}, ${copyLiveDispatches.id}) < (${row.leaderTime}, ${row.id})`)).limit(1);
     return earlier !== undefined;
   }
+  /** Another order on this copy's account is still unsettled (sent or in
+   * flight, its reservation not yet released, or a never-placed one not yet
+   * released): every order's generation projection refuses until it is
+   * (copy-live-generation-projection.ts: each other journal must be settled
+   * or released), so a leg waits for it instead of spending its evidence,
+   * sockets and the user's risk lock on a refusal (gate run 10, 2026-10-14:
+   * ETH's attempts failed while BTC's settlement was starved). Released as
+   * never sent (UNSENT_RELEASED) is the worker's own next attempt, not a wait. */
+  async unsettledOnAccount(row: Pick<DispatchRow, 'id' | 'accountId'>): Promise<boolean> {
+    const [other] = await this.db.select({ id: copyLiveDispatches.id }).from(copyLiveDispatches)
+      .where(and(eq(copyLiveDispatches.accountId, row.accountId), eq(copyLiveDispatches.state, 'submitted'), ne(copyLiveDispatches.id, row.id),
+        sql`${copyLiveDispatches.reason} is distinct from ${UNSENT_RELEASED}`, unresolvedExecution)).limit(1);
+    return other !== undefined;
+  }
   /** The source fills an adjustment's lead order carries besides its own. */
   async members(leadId: string): Promise<string[]> {
     const rows = await this.db.select({ fill: copyLiveDispatches.sourceFillId }).from(copyLiveDispatches)

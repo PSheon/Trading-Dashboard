@@ -19,14 +19,14 @@ import { EGRESS_IP_TTL_MS } from '../config/constants/background.js';
  * of the gateway's addresses, so identities are compared as sets.
  * HL_EGRESS_IDENTITY=off (default) asks nothing.
  */
-export type EgressIdentityMode = EgressIdentity["mode"];
-export type EgressRole = EgressIdentity["role"];
+type EgressIdentityMode = EgressIdentity["mode"];
+type EgressRole = EgressIdentity["role"];
 /** Echo calls at startup: a gateway may answer from a different address each time. */
 export const EGRESS_STARTUP_SAMPLES = 3;
 /** An echo's answer is at most this long (an IPv4 and a newline). */
 const MAX_ECHO_BYTES = 64;
 
-export interface EgressLogger { log(message: string): void; warn(message: string): void; error(message: string): void }
+interface EgressLogger { log(message: string): void; warn(message: string): void; error(message: string): void }
 const QUIET: EgressLogger = { log: () => undefined, warn: () => undefined, error: () => undefined };
 
 /** The addresses two sets share. */
@@ -131,10 +131,10 @@ export function egressIdentityFor(authorization: string | undefined, monitorKey:
 }
 
 /** What a peer (the api, the read worker) says of itself, or why it could not be read. */
-export type EgressPeerReading = { url: string; identity: EgressIdentity } | { url: string; error: string };
+type EgressPeerReading = { url: string; identity: EgressIdentity } | { url: string; error: string };
 
 /** When the copy worker may take its lease (HL_EGRESS_IDENTITY=enforce). */
-export interface EgressLeaseVerdict { allowed: boolean; reason: string; ips: string[]; shared: string[]; peers: string[] }
+interface EgressLeaseVerdict { allowed: boolean; reason: string; ips: string[]; shared: string[]; peers: string[] }
 
 /**
  * The decision, from what is known now:
@@ -165,7 +165,7 @@ export function egressLeaseVerdict(own: readonly string[], peers: readonly Egres
 }
 
 /** Each peer's GET /health/egress (the worker monitor key), bounded by `timeoutMs`. */
-export async function readEgressPeers(urls: readonly string[], monitorKey: string, timeoutMs: number, fetcher: typeof fetch = (input, init) => fetch(input, init)): Promise<EgressPeerReading[]> {
+async function readEgressPeers(urls: readonly string[], monitorKey: string, timeoutMs: number, fetcher: typeof fetch = (input, init) => fetch(input, init)): Promise<EgressPeerReading[]> {
   return Promise.all(urls.map(async (url): Promise<EgressPeerReading> => {
     try {
       const response = await fetcher(new URL("/health/egress", url), { headers: { Authorization: `Bearer ${monitorKey}` }, signal: AbortSignal.timeout(timeoutMs), cache: "no-store" });

@@ -8,6 +8,8 @@ import { DEFAULT_LIVE_SETUP_TIMINGS, type LiveSetupTimings } from '../config/liv
 import { StepFail, StepWait } from './live/error-class.js';
 import { CopyLiveSetupRepository, type SetupRow, type SetupStage } from './copy-live-setup.repository.js';
 import type { MasterAccount, MasterActionBound, MasterTypedData } from './live/master-action.js';
+import { jsonDigest as digest } from '../common/crypto/digest.js';
+export { digest };
 
 /**
  * What every part of a live copy setup shares (copy-live-setup.service.ts
@@ -15,7 +17,7 @@ import type { MasterAccount, MasterActionBound, MasterTypedData } from './live/m
  * steps): the row repository, the clock, the deployment's network and the
  * timings, plus the few helpers every step uses.
  */
-export const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+
 /** The deposit a setup reserves, as a UUID derived from the setup and the
  * deposit it replaces: every pass and every driver reserve the same deposit,
  * never an orphan beside it. Not the revision: a pass whose step CAS lost

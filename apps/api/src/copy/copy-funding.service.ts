@@ -3,7 +3,6 @@ import { BadGatewayException, BadRequestException, ConflictException, Inject, In
 import { Dec } from "../common/decimal/dec.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
 import { WALLET_NETWORK_HL, type WalletNetworkHyperliquid } from "../hyperliquid/wallet-network-hyperliquid.js";
-import { createHash } from "node:crypto";
 import { verifyTypedData } from "viem";
 import { adminResolveCopyFundingSchema, copyFundingInputSchema, usdSendTypedData, WALLET_NETWORKS, type AdminResolvedCopyFunding, type CopyFunding } from "@trading-dashboard/shared/contracts";
 import { AppConfig } from "../config/app-config.js";
@@ -24,8 +23,8 @@ import { privyIdentityFresh } from "./live/privy-identity-freshness.js";
 import { fundingBackoffMs, fundingScanSchema, fundingDetailBatch, type FundingScan } from './copy-funding-scan.js';
 import { FUNDING_NONCE_EXPIRY_MS, FUNDING_NONCE_SKEW_MS } from '../config/constants/timings.js';
 import { BUSY_RETRY_AFTER_MS } from '../config/constants/http.js';
+import { jsonDigest as digest } from "../common/crypto/digest.js";
 
-const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 /** An operator's ledger read: a full page reads on (oldest first), at most
  * this many pages, as the withdrawal resolution. */
 const RESOLVE_LEDGER_PAGE = 500, RESOLVE_LEDGER_MAX_PAGES = 20;

@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { copyAgentSetups, copyExecutionAccounts, copyLiveDispatches, copyLiveExecutions, copyLiveIntentProvenance, copyLiveManualCloses, copyLiveMandates, copyLiveSignalLegs, copyLiveStopCancellations,
@@ -18,10 +18,10 @@ import type { LiveExecutionRecord } from '../live/live-execution.js';
 import type { LiveOrderIntent } from '../live/live-order.js';
 import { unwatchLeaderIfUnused } from '../../watcher/leader-watch.js';
 import type { CloseAccount } from './reduce-only-closer.js';
+import { jsonDigest as digest } from '../../common/crypto/digest.js';
 
 export type StopRow = typeof copyLiveStopOperations.$inferSelect;
 type StopState = StopRow['state'];
-const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
 /** SQL for the stop executor; every state change is a compare-and-set on the
  * stop's revision, so a stale pass changes nothing. Only the deployment's

@@ -1,5 +1,4 @@
 import { BadRequestException, Inject, Injectable, Logger, Optional, ServiceUnavailableException } from '@nestjs/common';
-import { createHash } from 'node:crypto';
 import { liveCopySetupAbortSchema, requestLiveCopySetupAbortSchema, usdSendTypedData, WALLET_NETWORKS, type LiveCopySetupAbort } from '@trading-dashboard/shared/contracts';
 import { AppConfig } from '../config/app-config.js';
 import { BackgroundJobs } from '../runtime/background-jobs.service.js';
@@ -22,10 +21,10 @@ import { backoffMs, classify, FUNDING_RETRY_POLICY, type ErrorClassification } f
 import type { DbTransaction } from '../db/unit-of-work.js';
 import { ALERT_EVERY_MS } from '../config/constants/alerts.js';
 import { NOT_DISPATCHED_RETRY_MS, REPROVE_AFTER_MS, SETUP_ABORT_BLOCKED_RECHECK_MS, SETUP_ABORT_NOT_FLAT_ESCALATE_MS } from '../config/constants/timings.js';
+import { jsonDigest as digest } from '../common/crypto/digest.js';
 
 export const SETUP_ABORT_OBSERVER = Symbol('SETUP_ABORT_OBSERVER');
 interface SetupAbortObserver { observeSetupAbortFlat(address: string): Promise<SetupAbortFlatObservation> }
-const digest = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex');
 const issue = (value: string | null) => value && /^[a-z][a-z0-9_]{0,79}$/.test(value) ? value : null;
 /** A failed pass whose error names no code of its own (a read that failed,
  * a stale or missing row): a wait, never a block (error-class: transient). */

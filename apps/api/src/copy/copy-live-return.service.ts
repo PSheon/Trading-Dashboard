@@ -1,5 +1,4 @@
 import { BadRequestException, ConflictException, Inject, Injectable, Logger, Optional, ServiceUnavailableException } from '@nestjs/common';
-import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { approveCopyReturnSchema, canonicalUsdc, copyReturnChallengeSchema, copyReturnInputSchema, usdSendTypedData, WALLET_NETWORKS, withdrawalUnits } from '@trading-dashboard/shared/contracts';
 import { AppConfig } from '../config/app-config.js';
@@ -11,8 +10,8 @@ import { wire } from './copy-funding.service.js';
 import { builderOutcome, CopyLiveReturnRepository, type BuilderApprovalRow } from './copy-live-return.repository.js';
 import { WORKER_MASTER_SIGNER, type WorkerMasterSigner } from './live/privy-policy-master-signer.js';
 import { LIVE_EVIDENCE_MAX_AGE_MS, RETURN_CONSENT_WINDOW_MS } from '../config/constants/timings.js';
+import { jsonDigest as digest } from '../common/crypto/digest.js';
 
-const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 function input<T>(schema: z.ZodType<T>, value: unknown): T {
   const parsed = schema.safeParse(value);
   if (!parsed.success) throw new BadRequestException('Invalid request');

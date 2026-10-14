@@ -8,11 +8,7 @@ import type { DbTransaction } from "../db/unit-of-work.js";
 import { recordAdminAudit } from "../common/audit/admin-audit.js";
 import type { RequestUser } from "../common/auth/current-user.js";
 import { lockCopyUser } from "../copy/copy-user-lock.js";
-
-/** `\`, `%` and `_` taken literally in a LIKE pattern (escape char `\`). */
-export function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, "\\$&");
-}
+import { escapeLike } from "../common/sql/escape-like.js";
 
 const adminUserColumns = {
   id: users.id,

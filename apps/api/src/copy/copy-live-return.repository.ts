@@ -1,5 +1,5 @@
 import { assertSetupAdmission, assertAccountAbortAdmission } from './copy-live-setup-barrier.js';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, eq, inArray, isNull, like, ne, or, sql } from 'drizzle-orm';
 import { copyExecutionAccounts, copyFundingOperations, copyLiveBuilderApprovals, copyLiveStopOperations, copyStrategies, users, walletWithdrawals } from '@trading-dashboard/shared/database';
@@ -15,6 +15,7 @@ import { blockingFunding } from './funding-blocking.js';
 import { deploymentNetwork } from './live-deployment.js';
 import { SYSTEM_SWEEP_ATTEMPTS } from '../config/constants/limits.js';
 import { FUNDING_NONCE_EXPIRY_MS, RETURN_CONSENT_WINDOW_MS } from '../config/constants/timings.js';
+import { jsonDigest } from '../common/crypto/digest.js';
 
 export type ReturnRow = typeof copyFundingOperations.$inferSelect;
 export type BuilderApprovalRow = typeof copyLiveBuilderApprovals.$inferSelect;
@@ -38,7 +39,6 @@ export async function expireStaleReturns(tx: DbTransaction, accountId: string): 
  * then `sweep:<stop id>:<n>` for attempt n after one never sent. */
 const SYSTEM_SWEEP_PREFIX = 'sweep:';
 export const sweepRetryDelayMs = (attempt: number) => 60_000 * 2 ** attempt;
-const jsonDigest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 /** The evidence an automatic return records when it ended unsent: only the
  * worker's own process writes it, right after it proved no POST left. */
 export const sweepNotSentEvidence = (reason: 'worker_signature_unavailable' | 'sweep_not_dispatched', id: string) => jsonDigest({ reason, id });

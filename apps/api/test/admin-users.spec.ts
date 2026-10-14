@@ -1,5 +1,6 @@
 import { UnitOfWork } from "../src/db/unit-of-work.js";
-import { AdminUsersRepository, escapeLike } from "../src/admin/admin-users.repository.js";
+import { AdminUsersRepository } from "../src/admin/admin-users.repository.js";
+import { escapeLike } from "../src/common/sql/escape-like.js";
 import { BadRequestException, ConflictException, NotFoundException, type HttpException } from "@nestjs/common";
 import { asc, eq } from "drizzle-orm";
 import { adminAuditLogs, notificationChannels, userFavorites, users } from "@trading-dashboard/shared/database";

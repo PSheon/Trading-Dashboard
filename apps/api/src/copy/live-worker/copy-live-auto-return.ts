@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import { WALLET_NETWORKS, canonicalUsdc, usdSendTypedData, withdrawalUnits, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { Dec } from '../../common/decimal/dec.js';
@@ -7,6 +6,7 @@ import type { CopyFundingExchangeClient } from '../copy-funding-exchange.client.
 import { sweepNotSentEvidence, sweepRetrying, type CopyLiveReturnRepository } from '../copy-live-return.repository.js';
 import type { WorkerMasterSigner } from '../live/privy-policy-master-signer.js';
 import type { StopRow } from './copy-live-stop-worker.repository.js';
+import { jsonDigest as digest } from '../../common/crypto/digest.js';
 
 /** What the automatic return did on this pass. `legacy`: the account has no
  * master signer (the owner returns the funds); `waiting`: another wallet
@@ -19,7 +19,6 @@ import type { StopRow } from './copy-live-stop-worker.repository.js';
  * left is `waiting`: the next one is reserved after its back-off. */
 type AutoReturnOutcome = 'legacy' | 'waiting' | 'sent' | 'unknown' | 'failed';
 export interface AutoReturn { sweep(stop: StopRow, withdrawable: string): Promise<AutoReturnOutcome> }
-const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
 /**
  * The automatic return after a flat stop (one-click plan §3c): a UsdSend of

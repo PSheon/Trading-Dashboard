@@ -1,5 +1,5 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { and, eq, isNotNull, sql, or, isNull, lte } from 'drizzle-orm';
 import { liveCopySetupIntentSchema } from '@trading-dashboard/shared/contracts';
 import { copyExecutionAccounts, copyLiveMandates, copyLiveSetupAborts, copyLiveSetups, copyStrategies, copyFundingOperations,
@@ -11,10 +11,10 @@ import type { DrizzleDb } from '../db/drizzle.provider.js';
 import { CopyLiveMandateRepository } from './copy-live-mandate.repository.js';
 import { CopyLiveStopRepository } from './copy-live-stop.repository.js';
 import { deploymentNetwork } from './live-deployment.js';
+import { jsonDigest as digest } from '../common/crypto/digest.js';
 
 export type SetupAbortRow = typeof copyLiveSetupAborts.$inferSelect;
 const conflict = (code: string) => new ConflictException({ statusCode: 409, code, message: 'The setup changed; check its saved progress' });
-const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
 /** Creates durable authority and the permanent barrier in the same user lock
  * as child attempts and genuine generation activation. No provider calls. */

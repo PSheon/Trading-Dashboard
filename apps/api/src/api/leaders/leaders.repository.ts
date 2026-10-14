@@ -23,6 +23,7 @@ import {
 import type { AlertsScope } from "../../common/auth/alerts-scope.js";
 import { DRIZZLE_CLIENT } from "../../db/db.constants.js";
 import type { DrizzleDb } from "../../db/drizzle.provider.js";
+import { LEADER_ALERTS_HISTORY_LIMIT, LEADER_FILLS_HISTORY_LIMIT } from '../../config/constants/limits.js';
 
 /** The public projection of a leader (`publicLeaderSchema`). */
 export const PUBLIC_LEADER_COLUMNS = {
@@ -34,8 +35,6 @@ export const PUBLIC_LEADER_COLUMNS = {
   firstSeenAt: leaders.firstSeenAt,
 };
 
-const FILLS_HISTORY_LIMIT = 200;
-const ALERTS_HISTORY_LIMIT = 50;
 @Injectable()
 export class LeadersRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
@@ -151,7 +150,7 @@ export class LeadersRepository {
       .from(fills)
       .where(and(eq(fills.chain, chain), eq(fills.address, address)))
       .orderBy(desc(fills.ts))
-      .limit(FILLS_HISTORY_LIMIT);
+      .limit(LEADER_FILLS_HISTORY_LIMIT);
     return rows as unknown as Fill[];
   }
   async alertsHistory(address: string, scope: AlertsScope): Promise<AlertEntry[]> {
@@ -165,7 +164,7 @@ export class LeadersRepository {
           : and(eq(alertsTable.address, address), eq(alertsTable.userId, scope.userId)),
       )
       .orderBy(desc(alertsTable.sentAt))
-      .limit(ALERTS_HISTORY_LIMIT);
+      .limit(LEADER_ALERTS_HISTORY_LIMIT);
     return rows as unknown as AlertEntry[];
   }
 }

@@ -11,11 +11,12 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { AdminSystemRepository } from "../src/admin/admin-system.repository.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { RetentionRepository } from "../src/retention/retention.repository.js";
-import { RETENTION_MIN_INTERVAL_MS, RetentionService, inRetentionWindow, retentionCutoffs } from "../src/retention/retention.service.js";
+import { RetentionService, inRetentionWindow, retentionCutoffs } from '../src/retention/retention.service.js';
 import { BackgroundJobs } from "../src/runtime/background-jobs.service.js";
 import { SettingsRepository } from "../src/settings/settings.repository.js";
 import { SettingsService } from "../src/settings/settings.service.js";
 import { closeTestDb, getTestDb, insertUser, truncateAll } from "./db-test-utils.js";
+import { RETENTION_MIN_INTERVAL_MS } from '../src/config/constants/background.js';
 
 const db = getTestDb();
 const address = `0x${"cd".repeat(20)}`;

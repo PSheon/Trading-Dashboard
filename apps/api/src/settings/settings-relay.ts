@@ -3,8 +3,8 @@ import type { Pool, PoolClient } from "pg";
 
 import { DATABASE_POOL } from "../db/drizzle.provider.js";
 import { SETTINGS_CHANNEL, SettingsService } from "./settings.service.js";
+import { SETTINGS_RELAY_RETRY_MS } from '../config/constants/background.js';
 
-const RETRY_MS = 1000;
 
 /**
  * Makes a settings save in one process visible in every other one at once
@@ -78,7 +78,7 @@ export class SettingsRelay implements OnApplicationBootstrap, OnModuleDestroy {
   private reconnect() {
     if (this.stopped || this.retry) return;
     this.logger.warn("Settings relay disconnected; settings are read uncached until it is back");
-    this.retry = setTimeout(() => { this.retry = undefined; void this.connect(); }, RETRY_MS);
+    this.retry = setTimeout(() => { this.retry = undefined; void this.connect(); }, SETTINGS_RELAY_RETRY_MS);
     this.retry.unref();
   }
 

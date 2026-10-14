@@ -8,6 +8,7 @@ import { AuthRepository, type AuthUserRow as UserRow } from "./auth.repository.j
 import { SettingsService } from "../../settings/settings.service.js";
 import type { RequestUser } from "./current-user.js";
 import { PRIVY_VERIFIER, type PrivyVerifier } from "./privy-verifier.js";
+import { AUTH_CACHE_TTL_MS, AUTH_PROFILE_RETRY_MS, EMBEDDED_WALLET_RETRY_MS } from '../../config/constants/cache-ttls.js';
 
 /**
  * Constant-time string equality. `timingSafeEqual` itself throws on unequal
@@ -25,17 +26,7 @@ function tokenKey(token: string): string {
   return createHash("sha256").update(token).digest("base64url");
 }
 
-/** Signature/identity verification may be reused briefly. Persisted role and
- * disabled state are re-read for every request, including cache hits. */
-const CACHE_TTL_MS = 30_000;
 const CACHE_MAX_ENTRIES = 5_000;
-/** A returning user with no email on file is looked up at Privy again at
- * most this often (they may have linked one since). */
-const PROFILE_RETRY_MS = 10 * 60_000;
-/** A missing embedded wallet is looked up far more often: the browser
- * creates it right after the first sign-in, seconds after the api first
- * saw the Privy record without one. */
-export const EMBEDDED_WALLET_RETRY_MS = 15_000;
 
 /**
  * What a bearer token amounts to:
@@ -73,7 +64,7 @@ export type SignInResult =
  *   created on first sign-in unless sign-ups are closed.
  *
  * Outcomes of verified tokens are cached (keyed by a hash, never the raw
- * token) until the token expires or CACHE_TTL_MS passes, whichever is
+ * token) until the token expires or AUTH_CACHE_TTL_MS passes, whichever is
  * first. Every request still reads current database authorization; cached
  * outcomes never grant a stale role. Invalid tokens are not cached.
  */
@@ -137,7 +128,7 @@ export class AuthService {
     // this user. Re-read after that work before publishing an authorization.
     const current = await this.currentAuthorization(outcome);
     if (verified.expiresAt.getTime() <= Date.now()) return { status: "invalid" };
-    if (current.status !== "invalid") this.remember(key, current, Math.min(verified.expiresAt.getTime(), now + CACHE_TTL_MS), verified.expiresAt.getTime());
+    if (current.status !== "invalid") this.remember(key, current, Math.min(verified.expiresAt.getTime(), now + AUTH_CACHE_TTL_MS), verified.expiresAt.getTime());
     return current;
   }
 
@@ -243,7 +234,7 @@ export class AuthService {
 
     const now = Date.now();
     if ((this.profileRetryAt.get(user.id) ?? 0) > now) return user;
-    this.profileRetryAt.set(user.id, now + (user.embeddedWalletAddress === null ? EMBEDDED_WALLET_RETRY_MS : PROFILE_RETRY_MS));
+    this.profileRetryAt.set(user.id, now + (user.embeddedWalletAddress === null ? EMBEDDED_WALLET_RETRY_MS : AUTH_PROFILE_RETRY_MS));
     const profile = await this.privy.fetchProfile(user.privyUserId);
     const email = user.email ?? profile?.email ?? null;
     const embedded = user.embeddedWalletAddress ?? profile?.embeddedWalletAddress ?? null;

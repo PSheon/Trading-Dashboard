@@ -17,29 +17,17 @@ import { COHORT_TIERS, aggregate, candleInterval, cohortEligible, cohortHistoryR
 import { CohortRepository, type CohortCandidate, type CohortMemberRow } from "./cohort.repository.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
 import { SHARED_CAPACITY_RETRY_MS } from '../config/constants/hyperliquid.js';
+import { COHORT_FAILURE_RETRY_MS, COHORT_SWEEP_MS, TICK_WORK_MS } from '../config/constants/background.js';
+import { COHORT_CANDLES_TTL_MS, COHORT_DETAIL_TTL_MS, DEX_LIST_TTL_MS } from '../config/constants/cache-ttls.js';
 
 /** Weight of one `clearinghouseState` (per dex). */
 const WEIGHT_STATE = 2;
-/** Every dex of a member is swept this often; in between only the main
- * dex and the dexes it holds or has traded are queried. */
-export const SWEEP_MS = 24 * 3_600_000;
-/** A tick spends at most this long, so ticks never overlap. */
-const TICK_WORK_MS = 50_000;
 /** The job may save up at most this many minutes of its allowance. */
 const MAX_SAVED_MINUTES = 2;
-/** Detail responses are rebuilt at most this often per tier. */
-export const DETAIL_TTL_MS = 30_000;
-/** BTC candles are fetched at most this often per window. */
-export const CANDLES_TTL_MS = 10 * 60_000;
 /** Chart points per history response. */
 const MAX_POINTS = 400;
 /** Behind page loads, level with other background work (like the pool). */
 const COHORT_RANK = ESSENTIAL_RANK.cohort;
-/** The perp dex list changes rarely. */
-const DEX_LIST_TTL_MS = 60 * 60_000;
-/** Provider/account failures retry slowly; capacity pauses the whole job
- * until its validated release hint, or the conservative accounting window. */
-const FAILURE_RETRY_MS = 5 * 60_000;
 
 /** One refresh's cost, kept for the docs and the admin view. */
 export interface CohortRefreshLog {
@@ -80,8 +68,8 @@ export class CohortService implements OnModuleDestroy {
   private destroyed = false;
   private lastSnapshot: Map<string, Date> | null = null;
   readonly log: CohortRefreshLog[] = [];
-  readonly detailCache = new TtlCache<CohortDetailResponse>(DETAIL_TTL_MS);
-  readonly candleCache = new TtlCache<Array<[number, number]>>(CANDLES_TTL_MS);
+  readonly detailCache = new TtlCache<CohortDetailResponse>(COHORT_DETAIL_TTL_MS);
+  readonly candleCache = new TtlCache<Array<[number, number]>>(COHORT_CANDLES_TTL_MS);
   private readonly dexCache = new TtlCache<string[]>(DEX_LIST_TTL_MS, 1);
   /** The last BTC closes read per candle size, served while Hyperliquid is busy. */
   private readonly lastBtc = new Map<string, Array<[number, number]>>();
@@ -146,7 +134,7 @@ export class CohortService implements OnModuleDestroy {
       while (this.tokens > 0 && Date.now() < until && !this.jobs.stopping) {
         const at = Date.now();
         const [next] = await this.repository.nextDue(1, new Date(at - intervalMs), {
-          failureBefore: new Date(at - FAILURE_RETRY_MS), capacityBefore: new Date(at - SHARED_CAPACITY_RETRY_MS),
+          failureBefore: new Date(at - COHORT_FAILURE_RETRY_MS), capacityBefore: new Date(at - SHARED_CAPACITY_RETRY_MS),
           staleBefore: this.freshSince(intervalMs, new Date(at)),
         });
         if (!next) break;
@@ -223,7 +211,7 @@ export class CohortService implements OnModuleDestroy {
       // The first read and then one a day cover every dex; in between only
       // the dexes it holds or traded (HIP-3 positions elsewhere show up
       // within a day).
-      swept = member.sweptAt === null || now - member.sweptAt.getTime() >= SWEEP_MS;
+      swept = member.sweptAt === null || now - member.sweptAt.getTime() >= COHORT_SWEEP_MS;
       const dexes = swept ? all : member.dexes.filter((d) => all.includes(d));
       const venues = ["", ...dexes];
       const states = await this.info.clearinghouseStates(member.address, venues, COHORT_RANK, () => {
@@ -330,7 +318,7 @@ export class CohortService implements OnModuleDestroy {
     });
   }
 
-  /** GET /insights/cohorts/:tier (cached `DETAIL_TTL_MS`; no upstream calls).
+  /** GET /insights/cohorts/:tier (cached `COHORT_DETAIL_TTL_MS`; no upstream calls).
    * @throws NotFoundException for an unknown tier. */
   async detail(tier: string): Promise<CohortDetailResponse> {
     const parsed = parseTier(tier);
@@ -357,7 +345,7 @@ export class CohortService implements OnModuleDestroy {
    * GET /insights/cohorts/:tier/history: the stored long share over the
    * window (at most 400 points) and BTC closes over the same span from
    * `candleSnapshot` (20 weight + 1 per 60 candles, cached
-   * `CANDLES_TTL_MS`; left empty when Hyperliquid is busy).
+   * `COHORT_CANDLES_TTL_MS`; left empty when Hyperliquid is busy).
    */
   async history(tier: string, window: CohortWindow): Promise<CohortHistoryResponse> {
     const parsed = parseTier(tier);

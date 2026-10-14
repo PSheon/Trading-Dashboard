@@ -1,5 +1,4 @@
-/** How long a health or readiness answer is reused. */
-export const HEALTH_CACHE_MS = 1_000;
+import { HEALTH_CACHE_MS } from '../../config/constants/http.js';
 
 /**
  * Single-flight, briefly cached probe: callers arriving while a probe runs

@@ -3,13 +3,14 @@ import { sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { NotifyRepository } from "../src/notify/notify.repository.js";
-import { ALERT_MAX_AGE_MS, NotifyService } from "../src/notify/notify.service.js";
+import { NotifyService } from '../src/notify/notify.service.js';
 import type { TelegramHttpClient } from "../src/notify/telegram-http.client.js";
 import { TelegramLinkRepository } from "../src/telegram/telegram-link.repository.js";
 import { testConfig } from "./config-test-utils.js";
 import { preparationFixture } from "./copy-live-preparation-test-utils.js";
 import { now as fixtureNow } from "./copy-live-risk-test-utils.js";
 import { closeTestDb, getTestDb } from "./db-test-utils.js";
+import { ALERT_MAX_AGE_MS } from '../src/config/constants/alerts.js';
 
 /** Actual (testnet/mainnet) copies write no owner events: the trade bot reads
  * their terminal live rows, once each, through the paper copy pipeline. */

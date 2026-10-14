@@ -2,8 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AppConfig } from "../src/config/app-config.js";
 import { validateEnvironment } from "../src/config/runtime-config.js";
-import { TELEGRAM_CHAT_INTERVAL_MS, TELEGRAM_MESSAGES_PER_SECOND, TelegramHttpClient } from "../src/notify/telegram-http.client.js";
+import { TELEGRAM_MESSAGES_PER_SECOND, TelegramHttpClient } from '../src/notify/telegram-http.client.js';
 import { BackgroundJobs } from "../src/runtime/background-jobs.service.js";
+import { TELEGRAM_CHAT_INTERVAL_MS } from '../src/config/constants/http.js';
 
 const config = () => new AppConfig(validateEnvironment({ DATABASE_URL: "postgres://test@localhost/test", TELEGRAM_BOT_TOKEN: "123:token", TELEGRAM_BOT_USERNAME: "orbie_test_bot" }));
 

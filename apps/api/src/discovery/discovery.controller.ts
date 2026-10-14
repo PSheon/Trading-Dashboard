@@ -19,13 +19,14 @@ import { Public } from "../common/auth/public.decorator.js";
 import { ApiDoc, ResponseMessage, SkipTransform } from "../common/decorators/http.decorator.js";
 import { AddressParamsDto } from "../common/dto/params.dto.js";
 import { BusyException, BusyFilter } from "../traders/busy.js";
-import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS, isBusyError } from "../traders/traders.controller.js";
+import { isBusyError } from '../traders/traders.controller.js';
 import { DiscoveryService } from "./discovery.service.js";
 import { AvatarQueryDto, BoardQueryDto, CoinParamsDto, KolImportDto, KolInputDto, KolPatchDto, TraderCardsQueryDto, DiscoverSearchQueryDto } from "./dto/discovery.dto.js";
 import { AVATAR_MAX_AGE_S, avatarVersion } from "./kol-avatar.js";
 import { KolAvatarService } from "./kol-avatar.service.js";
 import { KolService } from "./kol.service.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
+import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS } from '../config/constants/http.js';
 
 /** Explore boards and home rows (Stage 3). Public; served from the
  * discovery pool table. No Hyperliquid call per request: the coin page's

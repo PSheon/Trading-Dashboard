@@ -8,15 +8,8 @@ import { EgressIdentityMonitor, egressIdentity, sharedIps } from "../../runtime/
 import { workerCallHeaders, workerMonitorKey } from "../../runtime/worker-calls.js";
 import { runsCopy, runsRead } from "../../runtime/worker-role.js";
 import { ALERT_EVERY_MS } from '../../config/constants/alerts.js';
+import { SETTLEMENT_OWNER_WINDOW_MS, SNAPSHOT_STALE_MS, WORKER_GUARD_CHECK_MS } from '../../config/constants/alerts.js';
 
-/** How long the api waits for a copy worker heartbeat that reports the
- * terminal settlement loop on, while its own loop is off. */
-export const SETTLEMENT_OWNER_WINDOW_MS = 2 * 60_000;
-/** Snapshots run every 5 minutes (SchedulerService.snapshotAll): three
- * missed runs make them stale. */
-export const SNAPSHOT_STALE_MS = 15 * 60_000;
-/** How often the api reads the workers on its own for its guards. */
-export const WORKER_GUARD_CHECK_MS = 30_000;
 
 /**
  * What the `read` worker owns in a heartbeat once the roles are split: the

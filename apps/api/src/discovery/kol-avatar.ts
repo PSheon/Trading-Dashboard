@@ -5,8 +5,6 @@ import { Readable } from "node:stream";
 
 /** Largest avatar kept (𝕏's 400×400 JPEGs are 10–60 KB). */
 export const AVATAR_MAX_BYTES = 512 * 1024;
-/** A cached avatar is fetched again after a week. */
-export const AVATAR_REFRESH_MS = 7 * 24 * 3_600_000;
 /** Browsers and CDNs keep a versioned avatar URL this long (the version
  * changes whenever the bytes do). */
 export const AVATAR_MAX_AGE_S = 30 * 24 * 3_600;

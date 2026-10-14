@@ -4,12 +4,8 @@ import { type CrowdCoin, type CrowdResponse } from "@trading-dashboard/shared/co
 import { InsightsRepository } from "./insights.repository.js";
 import { TtlCache } from "../traders/ttl-cache.js";
 import { DAY_MS } from '../config/constants/time.js';
+import { CROWD_TTL_MS, INSIGHTS_SNAPSHOT_MAX_AGE_MS } from '../config/constants/cache-ttls.js';
 
-export const CROWD_TTL_MS = 60_000;
-/** A snapshot set older than this is ignored, so an address the scheduler
- * stopped snapshotting doesn't keep showing positions it may have closed.
- * Snapshots run every 5 minutes. */
-export const SNAPSHOT_MAX_AGE_MS = 15 * 60_000;
 
 /**
  * Position notional at the snapshot's own mark price. A snapshot stores
@@ -57,11 +53,11 @@ export class InsightsService {
    */
   async computeCrowd(now: Date): Promise<CrowdResponse> {
     const [current, past] = await Promise.all([
-      this.repository.snapshotSet(now, now.getTime() - SNAPSHOT_MAX_AGE_MS, now.getTime()),
+      this.repository.snapshotSet(now, now.getTime() - INSIGHTS_SNAPSHOT_MAX_AGE_MS, now.getTime()),
       this.repository.snapshotSet(
         new Date(now.getTime() - DAY_MS),
-        now.getTime() - DAY_MS - SNAPSHOT_MAX_AGE_MS,
-        now.getTime() - DAY_MS + SNAPSHOT_MAX_AGE_MS,
+        now.getTime() - DAY_MS - INSIGHTS_SNAPSHOT_MAX_AGE_MS,
+        now.getTime() - DAY_MS + INSIGHTS_SNAPSHOT_MAX_AGE_MS,
       ),
     ]);
 

@@ -12,8 +12,9 @@ import { BusyException, BusyFilter } from "./busy.js";
 import { sharedRestRetryAfterMs } from "../hyperliquid/hyperliquid-capacity-error.js";
 import { TradeAnalyticsService } from "./trade-analytics.service.js";
 import { currentRequestClient } from "../runtime/request-context.js";
-import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS, isBusyError } from "./traders.controller.js";
+import { isBusyError } from './traders.controller.js';
 import { safeErrorText } from "../runtime/safe-error-text.js";
+import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS } from '../config/constants/http.js';
 
 /** Addresses one client may have computing (or waiting to) at once. A cold
  * address runs for many seconds after its 503, so without this one client

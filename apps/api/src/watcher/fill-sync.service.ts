@@ -14,37 +14,19 @@ import { ACTION_CORRECTED_EVENT, type ActionCorrectedEvent } from "./action-crea
 import { emitRecent } from "./action-store.js";
 import { FillSyncRepository, type ActionRow, type FillCoverageBreak } from "./fill-sync.repository.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
+import { BACKFILL_LOOKBACK_MS, FILL_SYNC_ACCOUNT_REUSE_MS, FILL_SYNC_MAX_SPAN_MS, FILL_SYNC_MIN_SPAN_MS, INDEX_LAG_MS, INITIAL_LOOKBACK_MS, TWAP_ACTIVE_MS } from '../config/constants/background.js';
 
 /** Hyperliquid's per-call cap on `userFillsByTime` (and TWAP slice) rows. */
 export const PAGE_SIZE = 2000;
 /** Only the latest 10,000 fills exist, so 5 full pages cover everything;
  * one spare page absorbs the overlap between pages. */
 const MAX_PAGES = 6;
-/** An address that used a TWAP this recently gets its slices read by the
- * hourly sweep too. */
-export const TWAP_ACTIVE_MS = 48 * 3_600_000;
 
-/** An address with no verified span yet starts this far back (what the
- * start-up sweep used to re-read for everyone). */
-export const INITIAL_LOOKBACK_MS = 75 * 60_000;
-/** A completed read certifies fills only up to this long before it was
- * sent: the fill index trails the exchange by seconds (p90 1.5 s). */
-export const INDEX_LAG_MS = 60_000;
-/** Backward backfill stops at this age (analytics read a year), where
- * REST's retention starts, or once the span holds this many fills. The
- * cap bounds a market maker's storage, not the sample: at 50,000 it
- * stopped a 10,000-fills-a-day address after a week while REST still held
- * three more (audit A2); the span is read in pages (`storedFillPages`), so
- * its size is not bounded by memory. The calls are paced by the backfill's
- * budget cap (`HYPERLIQUID_BACKFILL_WEIGHT_PER_MIN`). */
-export const BACKFILL_LOOKBACK_MS = 365 * 86_400_000;
 export const BACKFILL_MAX_FILLS = 500_000;
 /** Most pages per endpoint in one backward window or targeted re-read.
  * Windows aim at a page and a half; the headroom lets a busier one finish
  * instead of being read for nothing. */
 export const BACKFILL_STEP_PAGES = 12;
-const MIN_SPAN_MS = 60_000;
-const MAX_SPAN_MS = 30 * 86_400_000;
 /** Position breaks re-read per continuity check. */
 const MAX_REPAIRS_PER_CHECK = 25;
 /** Emitted when history inside an address's verified span changed. */
@@ -95,9 +77,6 @@ async function readPages(
     start = last > start ? last : last + 1;
   }
 }
-/** A live sync reuses account state younger than this (equity for R1/R3),
- * unless the action opened a position the cached state doesn't have yet. */
-const ACCOUNT_REUSE_MS = 10_000;
 
 /**
  * - `confirm`: after the fast path alerted on feed trades, store their fills
@@ -390,9 +369,9 @@ export class FillSyncService {
       throw error;
     }
     if (!regular.complete || !twap.complete) {
-      if (span <= MIN_SPAN_MS) return finish("blocked");
+      if (span <= FILL_SYNC_MIN_SPAN_MS) return finish("blocked");
       const held = Math.min(regular.complete ? end : regular.through, twap.complete ? end : twap.through) - start;
-      await this.repository.patchCoverage(address, { backfillSpanMs: Math.max(MIN_SPAN_MS, Math.min(Math.floor(span / 2), Math.floor(held * 0.75))) });
+      await this.repository.patchCoverage(address, { backfillSpanMs: Math.max(FILL_SYNC_MIN_SPAN_MS, Math.min(Math.floor(span / 2), Math.floor(held * 0.75))) });
       return { status: "pending", inserted: 0 };
     }
     const fetched = [...regular.fills, ...twap.fills];
@@ -402,7 +381,7 @@ export class FillSyncService {
     const next = fetched.length === 0 ? span * 8 : Math.min(span * 2, (span * 1.5 * PAGE_SIZE) / fetched.length);
     const done = start <= floor;
     await this.repository.extend(address, false, end, start, floor, {
-      backfillSpanMs: Math.round(Math.max(MIN_SPAN_MS, Math.min(MAX_SPAN_MS, next))),
+      backfillSpanMs: Math.round(Math.max(FILL_SYNC_MIN_SPAN_MS, Math.min(FILL_SYNC_MAX_SPAN_MS, next))),
       revisedAt: new Date(),
     });
     if (done) return { ...(await finish("complete")), inserted: stored.inserted };
@@ -592,7 +571,7 @@ export class FillSyncService {
 
   private needsAccountRefresh(address: string, newFills: HlUserFill[], drafts: { kind: string; leverage: string | null }[]): boolean {
     const cached = this.accounts.get(address);
-    if (!cached || Date.now() - cached.fetchedAt.getTime() > ACCOUNT_REUSE_MS) return true;
+    if (!cached || Date.now() - cached.fetchedAt.getTime() > FILL_SYNC_ACCOUNT_REUSE_MS) return true;
     if (newFills.some((f) => !cached.byDex.has(dexOf(f.coin)))) return true;
     return drafts.some((d) => (d.kind === "open" || d.kind === "flip") && d.leverage === null);
   }

@@ -10,7 +10,7 @@ import type {
   HlSpotBalance,
   HlSpotMetaAndAssetCtxsResponse,
 } from "../src/hyperliquid/types.js";
-import { SPOT_PRICE_TTL_MS, SpotPriceService } from "../src/traders/spot-price.service.js";
+import { SpotPriceService } from '../src/traders/spot-price.service.js';
 import {
   buildSpotPriceBook,
   hypePrice,
@@ -19,6 +19,7 @@ import {
   totalAccountValue,
   valueSpotBalances,
 } from "../src/traders/spot-prices.js";
+import { SPOT_PRICE_TTL_MS } from '../src/config/constants/cache-ttls.js';
 
 const bal = (coin: string, token: number | undefined, total: string): HlSpotBalance => ({
   coin,

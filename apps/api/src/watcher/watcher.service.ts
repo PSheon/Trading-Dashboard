@@ -8,34 +8,17 @@ import { forEachConcurrent } from "../runtime/concurrency.js";
 import { WatcherRepository } from "./watcher.repository.js";
 import type { HlWsTrade } from "../hyperliquid/types.js";
 import { AccountStateService } from "./account-state.service.js";
-import { GROUP_GAP_MS } from "./action-classifier.js";
+
 import { FeedActionsService } from "./feed-actions.service.js";
 import { FillSyncService, type FastPathStats } from "./fill-sync.service.js";
 import { TradeFeedService, type TradeFeedStatus } from "./trade-feed.service.js";
 import { COPY_LEADER_TRADED_EVENT, COPY_LEADER_VERIFIED_EVENT, type CopyLeaderTradedEvent, type CopyLeaderVerifiedEvent } from "./copy-leader-events.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
+import { CONFIRM_DELAY_MS, CONFIRM_LOOKBACK_MS, CONFIRM_MIN_INTERVAL_MS, CONFIRM_RETRY_DELAYS_MS, COPIED_CATCH_UP_MS, FEED_START_RETRY_MS, GROUP_GAP_MS, WATCHED_REFRESH_MS } from '../config/constants/background.js';
 
-/** The fill index usually has a feed trade within 1.5 s (measured live
- * 2026-09-29: p50 0.6 s, p90 1.5 s); the first confirm waits this long. */
-export const CONFIRM_DELAY_MS = 2_000;
-/** Confirms of one address start at least this far apart: an address that
- * trades every second costs one `userFillsByTime` per 15 s, not per trade. */
-export const CONFIRM_MIN_INTERVAL_MS = 15_000;
-/** A trade whose fill Hyperliquid hasn't returned yet is looked for again
- * after these delays, then the address is listed as `fillsUnavailable`. */
-export const CONFIRM_RETRY_DELAYS_MS = [5_000, 15_000, 60_000];
-/** How far before the first trade a confirm starts reading. Trade and fill
- * times share the exchange clock, so this only needs to catch fills of the
- * same order that landed just before. */
-const CONFIRM_LOOKBACK_MS = 10_000;
 /** Catch-up rounds per address in one sweep (each reads up to six pages
  * per endpoint); a longer backlog continues in the next sweep. */
 const SWEEP_MAX_ROUNDS = 10;
-const WATCHED_REFRESH_MS = 15_000;
-/** A copied leader's verified span is caught up this often (besides the
- * quarter-hourly sweeps), and its copy stream audited after each. */
-export const COPIED_CATCH_UP_MS = 120_000;
-const FEED_START_RETRY_MS = 30_000;
 
 interface Expected {
   time: number;

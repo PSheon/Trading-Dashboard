@@ -6,3 +6,5 @@ export * from './timings.js';
 export * from './limits.js';
 export * from './alerts.js';
 export * from './cache-ttls.js';
+export * from './http.js';
+export * from './background.js';

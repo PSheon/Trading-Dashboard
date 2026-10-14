@@ -11,22 +11,13 @@ import { PRIVY_VERIFIER, type PrivyVerifier } from "../common/auth/privy-verifie
 import { HyperliquidInfoClient } from "../hyperliquid/hyperliquid-info.client.js";
 import { PAGE_RANK } from "../hyperliquid/request-budgeter.service.js";
 import { toTraderTransfer } from "../traders/trader-tabs.mappers.js";
-import { TRANSFERS_MAX_ROWS, TRANSFERS_WINDOW_MS } from "../traders/traders.service.js";
+import { TRANSFERS_MAX_ROWS } from '../traders/traders.service.js';
 import { TtlCache } from "../traders/ttl-cache.js";
 import { ArbitrumBalanceClient } from "./arbitrum-balance.client.js";
 import { WalletRepository } from "./wallet.repository.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
+import { TRANSFERS_WINDOW_MS, WALLET_ADDRESS_RETRY_MS, WALLET_HISTORY_TTL_MS, WALLET_TTL_MS } from '../config/constants/cache-ttls.js';
 
-/** Balances: short enough that a deposit shows up within a poll or two
- * (Bridge2 credits in under a minute), long enough that a page's header
- * pill, portfolio and modal share one read. Weight 4 per refresh. */
-export const WALLET_TTL_MS = 15_000;
-/** Ledger: 20 weight + 1 per 20 rows; a withdrawal takes minutes anyway. */
-export const WALLET_HISTORY_TTL_MS = 60_000;
-/** A user without a stored embedded wallet is looked up at Privy at most
- * this often: the browser creates the wallet right after login, so the
- * first reads may come before Privy has it. */
-export const WALLET_ADDRESS_RETRY_MS = 15_000;
 
 const toNumber = (value: string | undefined) => {
   const n = Number(value);

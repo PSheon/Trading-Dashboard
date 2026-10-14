@@ -11,17 +11,11 @@ import { ReconnectBackoff } from '../runtime/reconnect-backoff.js';
 import { LIVE_PERP_COIN, MAX_LIVE_PERP_DEXES } from '../copy/live/live-market-resolver.js';
 import type { HlWsIncomingMessage, HlWsTrade } from "../hyperliquid/types.js";
 import { safeErrorText } from '../runtime/safe-error-text.js';
+import { FEED_PING_INTERVAL_MS, FEED_STALE_AFTER_MS, MAX_TRADE_AGE_MS } from '../config/constants/background.js';
 
 /** Headroom under the documented 1000 subscriptions per IP, spread over a
  * few sockets so one slow socket doesn't stall every market. */
 const MAX_SUBSCRIPTIONS_PER_SOCKET = 200;
-const PING_INTERVAL_MS = 30_000;
-/** No message at all (not even a pong) for this long → assume dead. */
-const STALE_AFTER_MS = 90_000;
-/** Subscribing replays each market's recent trades, which in a quiet market
- * can be hours old. Only fresh trades mean "just traded"; anything older is
- * left to the sweeps, so a (re)connect never raises alerts on old trades. */
-export const MAX_TRADE_AGE_MS = 60_000;
 
 export interface TradeFeedHandlers {
   /** A watched address was one side of `trade`. */
@@ -196,7 +190,7 @@ export class TradeFeedService {
     if(shard.heartbeat)return;
     const task=(async()=>{
       const socket=shard.socket,quota=shard.quota;if(this.stopped||!socket||socket.readyState!==WebSocket.OPEN||!quota)return;
-      if(Date.now()-shard.lastMessageAt>STALE_AFTER_MS){await this.closeShard(shard);return;}
+      if(Date.now()-shard.lastMessageAt>FEED_STALE_AFTER_MS){await this.closeShard(shard);return;}
       const deadline=Date.now()+5000;await quota.renew(deadline);const permit=await quota.ping(deadline);
       if(this.stopped||shard.socket!==socket||socket.readyState!==WebSocket.OPEN)return;
       permit.dispatch(()=>{if(pong)socket.pong(pong);else socket.send(JSON.stringify({method:'ping'}));});
@@ -221,7 +215,7 @@ export class TradeFeedService {
       shard.backoff.connected();shard.lastMessageAt=Date.now();await this.subscribe(shard,shard.coins);
       if(shard.connectedOnce&&shard.downSince!==null)this.handlers?.onGap(shard.downSince);
       shard.connectedOnce=true;shard.downSince=null;
-      clearInterval(shard.pingTimer);shard.pingTimer=setInterval(()=>{void this.beat(shard);},PING_INTERVAL_MS);
+      clearInterval(shard.pingTimer);shard.pingTimer=setInterval(()=>{void this.beat(shard);},FEED_PING_INTERVAL_MS);
     })().catch(()=>{void this.closeShard(shard);});});
     socket.on('ping',payload=>{void this.beat(shard,payload);});
     socket.on('message',data=>{shard.lastMessageAt=Date.now();try{this.handleMessage(data.toString());}catch(error){this.logger.warn(`Trade feed message skipped: ${safeErrorText(error)}`);}});

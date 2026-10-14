@@ -3,9 +3,10 @@ import { Injectable, Logger, Optional, type OnApplicationBootstrap } from "@nest
 import { Interval } from "@nestjs/schedule";
 import { OutboxRepository } from "./outbox.repository.js";
 import { RulesService } from "../rules/rules.service.js";
-import { ALERT_MAX_AGE_MS, NotifyService } from "../notify/notify.service.js";
+import { NotifyService } from '../notify/notify.service.js';
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
+import { ALERT_MAX_AGE_MS } from '../config/constants/alerts.js';
 
 /** Recover interrupted action evaluation and drain durable notification
  * deliveries, every 5 s: the worker process only (OutboxWorkerModule). */

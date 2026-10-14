@@ -11,13 +11,8 @@ import { AccountStateService, MAIN_DEX, type AccountState } from "../watcher/acc
 import { FillSyncService } from "../watcher/fill-sync.service.js";
 import { WatcherService } from "../watcher/watcher.service.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
+import { SNAPSHOT_QUEUE_MS, SNAPSHOT_RECONCILE_OVERLAP_MS, SWEEP_QUEUE_MS } from '../config/constants/background.js';
 
-const RECONCILE_OVERLAP_MS = 60_000;
-/** A snapshot or sweep call that has waited this long for the Hyperliquid
- * budget fails, so the run ends (and is reported as failed) before its
- * next period instead of holding every later run behind it. */
-export const SNAPSHOT_QUEUE_MS = 4 * 60_000;
-export const SWEEP_QUEUE_MS = 14 * 60_000;
 
 /**
  * Periodic jobs:
@@ -128,7 +123,7 @@ export class SchedulerService {
     if (unexplained.length === 0) return false;
 
     this.logger.warn(`Reconcile ${address}: ${unexplained.join(",")} changed with no fill; syncing`);
-    await this.fillSync.sync(address, "reconcile", previous.fetchedAt.getTime() - RECONCILE_OVERLAP_MS);
+    await this.fillSync.sync(address, "reconcile", previous.fetchedAt.getTime() - SNAPSHOT_RECONCILE_OVERLAP_MS);
     return true;
   }
 

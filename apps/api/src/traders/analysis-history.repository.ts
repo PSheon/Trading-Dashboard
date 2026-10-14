@@ -7,6 +7,7 @@ import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { HlUserFill } from "../hyperliquid/types.js";
 import { HistoryFillStore, type StoredHistoryFill } from "./history-fill.store.js";
 import { certifiedSpan, completeCheckpoint, initialCheckpoint, type ArchiveSpan, type HistoryCheckpoint, type HistorySource } from "../analytics/history-checkpoint.js";
+import { REQUESTED_JOB_TTL_MS } from '../config/constants/background.js';
 
 export type HistoryJob = typeof analysisHistoryJobs.$inferSelect;
 /** Who asks for an address's durable history: the product's own jobs (the
@@ -16,8 +17,6 @@ export type HistoryCaller = "product" | "user" | "anonymous";
  * person asked for. Each costs worker turns (one job a minute) and stored
  * fills, so the number a few accounts can create is bounded. */
 export const MAX_REQUESTED_JOBS = 200;
-/** Such a job is deleted, with its fills, this long after it was last asked for. */
-export const REQUESTED_JOB_TTL_MS = 14 * 24 * 3_600_000;
 /**
  * Most stored fills one analytics build reads: the newest ones. An address
  * can hold millions (`0xf5d8…` trades 8,000 times an hour: 18 million in a

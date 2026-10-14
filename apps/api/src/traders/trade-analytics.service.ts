@@ -38,42 +38,25 @@ import { positionBreaks } from "../analytics/fill-integrity.js";
 import { lastMillisecondPerCoin } from "../watcher/stored-fill-pages.js";
 import { TradeAnalyticsRepository, type AnalyticsInsert, type AnalyticsRow, type FillCoverage, type TradeAnalyticsTx } from "./trade-analytics.repository.js";
 import { portfolioSeries } from "./traders.mappers.js";
-import { FILLS_TTL_MS, TradersService } from "./traders.service.js";
+import { TradersService } from './traders.service.js';
 import { safeErrorText } from "../runtime/safe-error-text.js";
+import { ANALYTICS_LOOKBACK_MS, FUNDING_LOOKBACK_MS, TRACKED_BACKOFF_BASE_MS, TRACKED_BACKOFF_MAX_MS, TRACKED_FUNDING_EVERY_MS } from '../config/constants/background.js';
+import { ANALYTICS_STALE_MS, FILLS_TTL_MS, TRACKED_FALLBACK_MS } from '../config/constants/cache-ttls.js';
 
-/** Served from the store for this long; older answers are still served
- * while a refresh runs in the background. */
-export const STALE_MS = 10 * 60_000;
-/** A watched address's figures are the worker's to refresh (every minute,
- * once older than `STALE_MS`). Older than this, the worker is not doing it
- * (down, not deployed beside this api, or starved), and a page read
- * refreshes them itself, as for any other address. Three worker periods. */
-export const TRACKED_FALLBACK_MS = 3 * STALE_MS;
 /** A cold read keeps the newest this many fills and at least
- * `COLD_MIN_TRADES` closed trades, back to `LOOKBACK_MS` at most, within
+ * `COLD_MIN_TRADES` closed trades, back to `ANALYTICS_LOOKBACK_MS` at most, within
  * `COLD_FILL_CALLS` fill calls (≈ 120 weight each when full). A burst of
  * fills (one position built from thousands) can hold few trades. */
 export const COLD_TARGET_FILLS = 10_000;
 export const COLD_MIN_TRADES = 30;
-export const LOOKBACK_MS = 365 * 86_400_000;
 /** `…ByTime` calls per cold read: fills, then TWAP slices. */
 export const COLD_FILL_CALLS = 24;
 export const COLD_TWAP_CALLS = 8;
 /** Watched addresses one worker turn refreshes (one turn a minute: 60
- * watched addresses every `STALE_MS`). */
+ * watched addresses every `ANALYTICS_STALE_MS`). */
 export const TRACKED_REFRESH_PER_TICK = 6;
-/** A watched address whose refresh failed is left out of the worker's turns
- * for this long, doubling with each failure in a row up to
- * `TRACKED_BACKOFF_MAX_MS`; a success clears it. */
-export const TRACKED_BACKOFF_BASE_MS = 2 * 60_000;
-export const TRACKED_BACKOFF_MAX_MS = 60 * 60_000;
-/** A worker refresh reads a watched address's funding at most this often. */
-export const TRACKED_FUNDING_EVERY_MS = 60 * 60_000;
 /** Pages per incremental refresh (a refresh every ~10 min rarely needs 2). */
 export const REFRESH_PAGES = 6;
-/** Funding is read from the start of coverage (at most the lookback), 40
- * pages per step; a long history completes over the next refreshes. */
-export const FUNDING_LOOKBACK_MS = LOOKBACK_MS;
 export const FUNDING_MAX_PAGES = 40;
 /** Cold computations at once; more wait. Beyond `MAX_WAITING` a new cold
  * address is answered busy without queueing. */
@@ -144,7 +127,7 @@ type Stored = Pick<AnalyticsRow, "summary" | "classification" | "source" | "cove
  * - Funding: a second, lower-priority step after the trades are stored.
  *
  * Everything is stored (`trader_trades`, `trader_analytics`) and served
- * from there; an answer older than `STALE_MS` is served while a refresh
+ * from there; an answer older than `ANALYTICS_STALE_MS` is served while a refresh
  * runs. Work runs as background jobs, outside any request, so a 503 busy
  * answer doesn't cancel it: the retry finds it stored. Per address one
  * step at a time; at most `MAX_CONCURRENT` addresses compute at once.
@@ -247,13 +230,13 @@ export class TradeAnalyticsService {
     // now), so it goes behind every page's own calls: at the analytics rank
     // its list and state reads drained the main bucket the next cold page's
     // first paint and fill lists needed (Stage, 2026-10-05).
-    if (age > (watched ? TRACKED_FALLBACK_MS : STALE_MS)) this.compute(address, false, { caller, rank: UNRANKED_BASE }).catch(() => undefined);
+    if (age > (watched ? TRACKED_FALLBACK_MS : ANALYTICS_STALE_MS)) this.compute(address, false, { caller, rank: UNRANKED_BASE }).catch(() => undefined);
     return { row, watched };
   }
 
   /**
    * The worker's turn, every minute: the watched addresses whose figures
-   * are due (none yet, older than `STALE_MS`, or a backfill that just ended),
+   * are due (none yet, older than `ANALYTICS_STALE_MS`, or a backfill that just ended),
    * oldest first, `TRACKED_REFRESH_PER_TICK` at most, one after another. A
    * tracked rebuild reads our fills (no fill weight) and the account's state;
    * funding is read at most once an hour per address. Returns the addresses
@@ -273,7 +256,7 @@ export class TradeAnalyticsService {
 
   private async refreshTrackedTurn(now: number): Promise<string[]> {
     const waiting = [...this.trackedBackoff].filter(([, backoff]) => backoff.retryAt > now).map(([address]) => address);
-    const due = await this.repository.trackedDue(new Date(now - STALE_MS), TRACKED_REFRESH_PER_TICK, waiting);
+    const due = await this.repository.trackedDue(new Date(now - ANALYTICS_STALE_MS), TRACKED_REFRESH_PER_TICK, waiting);
     const done: string[] = [];
     for (const { address, fundingCursor } of due) {
       if (this.jobs.stopping) break;
@@ -547,7 +530,7 @@ export class TradeAnalyticsService {
     // (REST keeps a moving window); before `verified_from` it is the source.
     const span = await this.history?.archiveSpan(address).catch(() => null);
     const archiveFrom = span && span.from < verifiedFrom && span.through >= verifiedFrom ? span.from : null;
-    const start = archiveFrom ?? Math.max(Date.now() - LOOKBACK_MS, verifiedFrom);
+    const start = archiveFrom ?? Math.max(Date.now() - ANALYTICS_LOOKBACK_MS, verifiedFrom);
     const revised = coverage.revisedAt !== null && state !== undefined && coverage.revisedAt > state.computedAt;
     if (state?.source === "tracked" && state.fillCursor && state.fillCursor.getTime() >= verifiedFrom && !revised && this.trackedDepth.get(address) === start) {
       return this.extendTracked(address, state, coverage);
@@ -679,13 +662,13 @@ export class TradeAnalyticsService {
     }
     const history = await readRecentHistory(this.fillSource(address, false, latest, cost), {
       now,
-      lookbackStart: now - LOOKBACK_MS,
+      lookbackStart: now - ANALYTICS_LOOKBACK_MS,
       target: COLD_TARGET_FILLS,
       maxCalls: COLD_FILL_CALLS,
       enough: (fills) => reconstructTrades(address, fills).filter(isClosed).length >= COLD_MIN_TRADES,
     });
     // TWAP slices over the same span (they interleave with the fills).
-    const twapFrom = history.from ?? now - LOOKBACK_MS;
+    const twapFrom = history.from ?? now - ANALYTICS_LOOKBACK_MS;
     const twap = await readRecentHistory(this.fillSource(address, true, latestTwap, cost), {
       now,
       lookbackStart: twapFrom,
@@ -746,7 +729,7 @@ export class TradeAnalyticsService {
     const now = Date.now();
     const stored = await this.history!.archivedFills(address, span);
     // A cut read may have split its oldest millisecond: start after it.
-    let from = stored.capped ? stored.reduce((min, f) => Math.min(min, f.time), Infinity) + 1 : Math.max(span.from, now - LOOKBACK_MS);
+    let from = stored.capped ? stored.reduce((min, f) => Math.min(min, f.time), Infinity) + 1 : Math.max(span.from, now - ANALYTICS_LOOKBACK_MS);
     const forward = async (twap: boolean) => {
       const result = await readForward(async (since) => {
         const batch = twap
@@ -1019,7 +1002,7 @@ function labelled<T>(work: () => Promise<T>): Promise<T> {
 /** A watched address's figures the worker is due to refresh (stale, not yet
  * past the age at which a read refreshes them itself). */
 function workerDue(computedAt: number, now: number): boolean {
-  return now - computedAt > STALE_MS && now - computedAt <= TRACKED_FALLBACK_MS;
+  return now - computedAt > ANALYTICS_STALE_MS && now - computedAt <= TRACKED_FALLBACK_MS;
 }
 
 function coverageOf(row: Stored): TradeCoverage {

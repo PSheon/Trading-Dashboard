@@ -4,9 +4,10 @@ import { Injectable, Logger, Optional } from "@nestjs/common";
 
 import { AppConfig } from "../config/app-config.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
-import { AVATAR_MAX_BYTES, AVATAR_REFRESH_MS, allowedImageUrl, avatarEtag, avatarSource, isPublicAddress, pinnedGet, sniffImageType } from "./kol-avatar.js";
+import { AVATAR_MAX_BYTES, allowedImageUrl, avatarEtag, avatarSource, isPublicAddress, pinnedGet, sniffImageType } from './kol-avatar.js';
 import { KolAvatarRepository, type AvatarCandidate, type StoredAvatar } from "./kol-avatar.repository.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
+import { AVATAR_ERROR_RETRY_MS, AVATAR_MAX_PAUSE_MS, AVATAR_MIN_PAUSE_MS, AVATAR_NOT_FOUND_RETRY_MS, AVATAR_REFRESH_MS } from '../config/constants/background.js';
 
 /** Where an 𝕏 profile picture comes from. unavatar.io is the primary; its
  * anonymous quota is 25 a day per IP, so once it answers 429 the job asks
@@ -20,21 +21,14 @@ type Fetched =
   | { kind: "rate_limited" }
   | { kind: "error"; message: string };
 
-/** Clamp of a 429's pause: at least 5 min, at most a day. */
-const MIN_PAUSE_MS = 5 * 60_000;
-const MAX_PAUSE_MS = 24 * 3_600_000;
 /** Redirects followed for one image before giving up. */
 const MAX_REDIRECTS = 3;
-/** A missing picture is looked for again a day later … */
-const NOT_FOUND_RETRY_MS = 24 * 3_600_000;
-/** … a failure after 15 min, doubling, at most a day. */
-const ERROR_RETRY_MS = 15 * 60_000;
 const USER_AGENT = "OrbieAvatarCache/1.0 (+https://app.orbie.fun)";
 
 /** When to try a failed source again. */
 export function retryDelayMs(kind: "not_found" | "error", failures: number): number {
-  if (kind === "not_found") return NOT_FOUND_RETRY_MS;
-  return Math.min(NOT_FOUND_RETRY_MS, ERROR_RETRY_MS * 2 ** Math.max(0, failures));
+  if (kind === "not_found") return AVATAR_NOT_FOUND_RETRY_MS;
+  return Math.min(AVATAR_NOT_FOUND_RETRY_MS, AVATAR_ERROR_RETRY_MS * 2 ** Math.max(0, failures));
 }
 
 /**
@@ -206,10 +200,10 @@ export class KolAvatarService {
    * consecutive 429; clamped to 5 min – 24 h. */
   private limited(provider: AvatarProvider, response: Response): Fetched {
     const retry = Number(response.headers.get("retry-after"));
-    const doubled = Math.min(MAX_PAUSE_MS, 2 * (this.backoff.get(provider) ?? MIN_PAUSE_MS / 2));
+    const doubled = Math.min(AVATAR_MAX_PAUSE_MS, 2 * (this.backoff.get(provider) ?? AVATAR_MIN_PAUSE_MS / 2));
     this.backoff.set(provider, doubled);
     const pause = Number.isFinite(retry) && retry > 0 ? retry * 1000 : doubled;
-    const until = Date.now() + Math.min(MAX_PAUSE_MS, Math.max(MIN_PAUSE_MS, pause));
+    const until = Date.now() + Math.min(AVATAR_MAX_PAUSE_MS, Math.max(AVATAR_MIN_PAUSE_MS, pause));
     this.pausedUntil.set(provider, until);
     this.logger.log(`KOL avatars: ${provider} rate limited until ${new Date(until).toISOString()}`);
     return { kind: "rate_limited" };

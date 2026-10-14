@@ -18,14 +18,9 @@ import {
 import { TelegramLinkRepository } from "./telegram-link.repository.js";
 import { UnitOfWork } from "../db/unit-of-work.js";
 import { NotifyService } from "../notify/notify.service.js";
+import { LINK_TOKEN_RETENTION_MS, LINK_TOKEN_TTL_MS } from '../config/constants/cache-ttls.js';
+import { LINK_RATE_LIMIT, LINK_RATE_WINDOW_MS } from '../config/constants/limits.js';
 
-export const LINK_TOKEN_TTL_MS = 10 * 60_000;
-/** Link requests per user per window; beyond it, 429. */
-export const LINK_RATE_LIMIT = 5;
-export const LINK_RATE_WINDOW_MS = 10 * 60_000;
-/** Token rows are kept this long after expiring (they back the rate
- * limit), then deleted on the user's next link request. */
-const TOKEN_RETENTION_MS = 24 * 60 * 60_000;
 
 /** Only this is stored; the token itself exists in the t.me link alone. */
 export function hashLinkToken(token: string): string {
@@ -144,7 +139,7 @@ export class TelegramLinkService {
       }
 
       await this.repository.replaceToken(tx, userId, hashLinkToken(token), now, expiresAt,
-        new Date(now.getTime() - TOKEN_RETENTION_MS));
+        new Date(now.getTime() - LINK_TOKEN_RETENTION_MS));
     });
 
     return { url: `https://t.me/${bot}?start=${token}`, expiresAt };

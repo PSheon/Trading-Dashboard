@@ -2,13 +2,14 @@ import { createReadStream, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { auditFills, duplicateTids, lifetimeComplete, pnlIdentity, positionBreaks, reconcileFills } from "../src/analytics/fill-integrity.js";
-import { advanceCheckpoint, ARCHIVE_BOUNDARY_MARGIN_MS, certifiedSpan, initialCheckpoint, planRange } from "../src/analytics/history-checkpoint.js";
+import { advanceCheckpoint, certifiedSpan, initialCheckpoint, planRange } from '../src/analytics/history-checkpoint.js';
 import { applyFills, type Trade } from "../src/analytics/trade-reconstruction.js";
 import type { HlUserFill } from "../src/hyperliquid/types.js";
 import { ARCHIVE_FIRST_HOUR, archiveKey, archiveKeys, backfillFloor, ArchiveFormatError, BY_BLOCK_FIRST_HOUR, fillStream, parseArchiveLine } from "../src/ingest/archive-format.js";
 import { signS3Request } from "../src/ingest/archive-store.js";
 import { decodeLz4Frames, Lz4FormatError, splitLines, XxHash32 } from "../src/ingest/lz4-frame.js";
 import { storedFrame } from "./archive-test-utils.js";
+import { ARCHIVE_BOUNDARY_MARGIN_MS } from '../src/config/constants/background.js';
 
 const FIXTURES = new URL("./fixtures/archive/", import.meta.url);
 const fixture = (hour: number) => new URL(`node_fills_by_block/hourly/20260925/${hour}.lz4`, FIXTURES);

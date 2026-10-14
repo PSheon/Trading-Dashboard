@@ -13,9 +13,8 @@ import {
   type TraderStatsInsert,
 } from "./leaderboard.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
+import { LEADERBOARD_FETCH_TIMEOUT_MS } from '../config/constants/http.js';
 
-/** The payloads are ≈38 MB and ≈14 MB; allow a slow link, never hang. */
-const FETCH_TIMEOUT_MS = 120_000;
 
 export interface IngestResult {
   rows: number;
@@ -28,7 +27,7 @@ export interface IngestResult {
 }
 
 async function fetchJson(url: string, signal?: AbortSignal): Promise<unknown> {
-  const res = await fetch(url, { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(FETCH_TIMEOUT_MS)]) : AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+  const res = await fetch(url, { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(LEADERBOARD_FETCH_TIMEOUT_MS)]) : AbortSignal.timeout(LEADERBOARD_FETCH_TIMEOUT_MS) });
   if (!res.ok) throw new Error(`${url} failed: HTTP ${res.status}`);
   return res.json();
 }

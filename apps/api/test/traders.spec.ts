@@ -51,7 +51,7 @@ import type {
 } from "../src/hyperliquid/types.js";
 import { parseLeaderboard } from "../src/traders/leaderboard.js";
 import { LeaderboardIngestService } from "../src/traders/leaderboard-ingest.service.js";
-import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS, TradersController } from "../src/traders/traders.controller.js";
+import { TradersController } from '../src/traders/traders.controller.js';
 import { ChartSnapshotsRepository } from "../src/traders/chart-snapshots.repository.js";
 import { ChartSnapshotsService } from "../src/traders/chart-snapshots.service.js";
 import {
@@ -59,11 +59,13 @@ import {
   portfolioKey,
   sampleFromUserFills,
 } from "../src/traders/traders.mappers.js";
-import { FILLS_TTL_MS, POOL_SPARKLINE_MAX_AGE_MS, TradersService } from "../src/traders/traders.service.js";
+import { TradersService } from '../src/traders/traders.service.js';
 import { PageBusyError } from "../src/hyperliquid/request-budgeter.service.js";
 import { TtlCache } from "../src/traders/ttl-cache.js";
 import { withRequestSignal } from "../src/runtime/request-context.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
+import { FILLS_TTL_MS, POOL_SPARKLINE_MAX_AGE_MS } from '../src/config/constants/cache-ttls.js';
+import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS } from '../src/config/constants/http.js';
 
 const fixture = <T>(name: string): T =>
   JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8")) as T;

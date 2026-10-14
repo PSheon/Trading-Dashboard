@@ -16,26 +16,12 @@ import { TelegramApiError, TelegramHttpClient } from "./telegram-http.client.js"
 import { safeErrorText } from "../runtime/safe-error-text.js";
 
 export type { AlertContext, AlertRecipient } from "./notify.types.js";
+import { ALERT_MAX_AGE_MS } from '../config/constants/alerts.js';
+import { DELIVERY_DRAIN_BUDGET_MS, NOTIFY_RETRY_DELAYS_MS } from '../config/constants/background.js';
 
 /** Deliveries sent at once within a drain; the Telegram client's pacing sets the actual rate. */
 export const DELIVERY_CONCURRENCY = 8;
-/** One drain call stops reading new batches after this long (the next call goes on). */
-export const DELIVERY_DRAIN_BUDGET_MS = 30_000;
-/**
- * An alert is evaluated and sent only while its trade is this recent
- * (review 51). An action is queued for alerts only when it is at most
- * `maxActionAgeSeconds` old (120 s; `insertActions`), but the queue is
- * durable: a row left by a worker that was down, by a restored backup or by
- * Telegram refusing for a long time used to be evaluated and sent whenever
- * it was next read, as if the trade had just happened. Ten minutes covers
- * the retry schedule (five attempts a minute apart) and a restart; past it
- * the evaluation is closed and the delivery dropped, both marked `expired`.
- */
-export const ALERT_MAX_AGE_MS = 10 * 60_000;
 
-/** Backoff between attempts for alerts and system messages: 3 retries
- * after the first attempt = 4 attempts in all. */
-const RETRY_DELAYS_MS = [1000, 2000, 4000];
 
 /** Why an alert was not sent again: a previous attempt may have reached
  * Telegram (its answer timed out, or the sender stopped before recording). */
@@ -305,7 +291,7 @@ export class NotifyService {
    * pass (network, 429, 5xx); "blocked by the user" fails at once. Returns
    * whether the message was delivered — never throws. */
   private async sendWithRetry(chatId: string, text: string, result = { delayMs: 0, permanent: false }, preflight?: () => Promise<boolean>, guard?: SendGuard): Promise<boolean> {
-    for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    for (let attempt = 0; attempt <= NOTIFY_RETRY_DELAYS_MS.length; attempt++) {
       if (this.jobs.stopping) return false;
       let started = false;
       try {
@@ -318,7 +304,7 @@ export class NotifyService {
         return true;
       } catch (error) {
         this.logger.error(
-          `Telegram send attempt ${attempt + 1}/${RETRY_DELAYS_MS.length + 1} failed: ${safeErrorText(error)}`,
+          `Telegram send attempt ${attempt + 1}/${NOTIFY_RETRY_DELAYS_MS.length + 1} failed: ${safeErrorText(error)}`,
         );
         if (guard && started) {
           // A timeout or a connection cut after the request was sent: Telegram
@@ -332,8 +318,8 @@ export class NotifyService {
         // Long rate limits are recorded as failed, never retried earlier than Telegram permits.
         result.delayMs = Math.max(result.delayMs, retryAfterMs);
         if (retryAfterMs > 60_000) return false;
-        if (attempt < RETRY_DELAYS_MS.length) {
-          try { await delay(Math.max(RETRY_DELAYS_MS[attempt], retryAfterMs), this.jobs.signal); }
+        if (attempt < NOTIFY_RETRY_DELAYS_MS.length) {
+          try { await delay(Math.max(NOTIFY_RETRY_DELAYS_MS[attempt], retryAfterMs), this.jobs.signal); }
           catch { return false; }
         }
       }

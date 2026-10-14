@@ -20,15 +20,13 @@ import { RoundTripService } from "../../analytics/round-trip.service.js";
 import { TtlCache } from "../../traders/ttl-cache.js";
 import type { AlertsScope } from "../../common/auth/alerts-scope.js";
 import { DAY_MS } from '../../config/constants/time.js';
+import { LEADERS_CACHE_TTL_MS } from '../../config/constants/cache-ttls.js';
 
 /** GET /leaders reads this much action history per leader: the 30-day
  * figures need trips closed in the last 30 days, and a trip opened up to
  * 60 days before that is still whole. Average hold time is over the same
  * window. Without a bound every call loaded every leader's whole history. */
 export const LEADERS_HISTORY_DAYS = 90;
-/** The public list is the same for everyone: computed at most this often,
- * and by one computation at a time however many requests wait. */
-export const LEADERS_CACHE_TTL_MS = 30_000;
 const EQUITY_CURVE_WINDOW_DAYS = 30;
 
 /** D2 Leaders table + D3 Leader detail + A3 manual leader management. */

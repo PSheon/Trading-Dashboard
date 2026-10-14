@@ -3,6 +3,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { PrivyClient, type LinkedAccount } from "@privy-io/node";
 import { isPrivyWallet, primaryEmbeddedWalletAddress, type EmbeddedWalletIdentity } from "@trading-dashboard/shared/contracts";
 import { safeErrorText } from "../../runtime/safe-error-text.js";
+import { PRIVY_TIMEOUT_MS } from '../../config/constants/http.js';
 
 
 /** A Privy access token that passed signature, issuer, audience and expiry
@@ -80,8 +81,6 @@ export function profileFromLinkedAccounts(accounts: LinkedAccount[]): PrivyProfi
  * `PRIVY_VERIFICATION_KEY` set, verification is local (no network call);
  * without it the SDK fetches and caches the app's JWKS.
  */
-/** Per Privy API call from the verifier (see the constructor). */
-export const PRIVY_TIMEOUT_MS = 8_000;
 
 @Injectable()
 export class SdkPrivyVerifier implements PrivyVerifier {

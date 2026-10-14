@@ -4,9 +4,10 @@ import { analysisHistoryJobs, actions, archiveCoverage, discoveryTraders, kolTra
 import { advanceCheckpoint, initialCheckpoint } from "../src/analytics/history-checkpoint.js";
 import type { HlUserFill } from "../src/hyperliquid/types.js";
 import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
-import { AnalysisHistoryRepository, MAX_REQUESTED_JOBS, REQUESTED_JOB_TTL_MS } from "../src/traders/analysis-history.repository.js";
+import { AnalysisHistoryRepository, MAX_REQUESTED_JOBS } from '../src/traders/analysis-history.repository.js';
 import { AnalysisHistoryService } from "../src/traders/analysis-history.service.js";
 import { closeTestDb, getTestDb, insertUser, storedFills, truncateAll } from "./db-test-utils.js";
+import { REQUESTED_JOB_TTL_MS } from '../src/config/constants/background.js';
 
 const ADDRESS = `0x${"ab".repeat(20)}`;
 const fill = (tid: number, time = tid): HlUserFill => ({

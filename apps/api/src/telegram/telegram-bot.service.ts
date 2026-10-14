@@ -11,11 +11,10 @@ import {
 import { botMessages } from "./bot-messages.js";
 import { TelegramLinkService } from "./telegram-link.service.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
+import { TELEGRAM_CONFLICT_BACKOFF_MS, TELEGRAM_ERROR_BACKOFF_MS, TELEGRAM_REQUEST_SLACK_MS } from '../config/constants/http.js';
 
 /** Long-poll wait per getUpdates call (Telegram allows up to 50 s). */
 const LONG_POLL_S = 30;
-/** The HTTP request may take the long poll plus this before we give up. */
-const REQUEST_SLACK_MS = 15_000;
 const ALLOWED_UPDATES = ["message", "my_chat_member", "callback_query"];
 /** A deep-link payload: [A-Za-z0-9_-], at most 64 chars. Ours are 43. */
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
@@ -24,11 +23,6 @@ const COMMAND_PATTERN = /^\/([A-Za-z0-9_]+)(?:@\w+)?(?:\s+([\s\S]*))?$/;
  * with our 43-char tokens; Telegram allows 64) or `link:no:<token>`. */
 const LINK_CALLBACK = /^link:(ok|no):([A-Za-z0-9_-]{16,55})$/;
 
-/** 409 from getUpdates: another process polls this token (or a webhook is
- * set). Back off, doubling, up to a minute; it may be a deploy overlap. */
-const CONFLICT_BACKOFF_MS = { first: 5_000, max: 60_000 };
-/** Network errors, 429, 5xx. */
-const ERROR_BACKOFF_MS = { first: 1_000, max: 30_000 };
 
 /**
  * The official bot's side of the conversation: receives updates by long
@@ -128,7 +122,7 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
         if (!this.running) break; // aborted by stop()
         if (error instanceof TelegramApiError && error.status === 409) {
           conflicts += 1;
-          const delay = backoff(CONFLICT_BACKOFF_MS, conflicts);
+          const delay = backoff(TELEGRAM_CONFLICT_BACKOFF_MS, conflicts);
           this.logger.warn(
             `Telegram getUpdates 409 Conflict (${error.description}): another process is polling this bot token, ` +
               `or a webhook is set. Only one poller may run; set TELEGRAM_BOT_POLLING=false on the others. ` +
@@ -141,7 +135,7 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
         } else {
           errors += 1;
           const retryAfterMs = error instanceof TelegramApiError && error.retryAfterS ? error.retryAfterS * 1000 : 0;
-          const delay = Math.max(retryAfterMs, backoff(ERROR_BACKOFF_MS, errors));
+          const delay = Math.max(retryAfterMs, backoff(TELEGRAM_ERROR_BACKOFF_MS, errors));
           this.logger.warn(`Telegram getUpdates failed: ${safeErrorText(error)}. Retrying in ${delay / 1000}s.`);
           await this.wait(delay);
         }
@@ -155,7 +149,7 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
   async pollOnce(): Promise<number> {
     const signal = AbortSignal.any([
       ...(this.abort ? [this.abort.signal] : []),
-      AbortSignal.timeout(LONG_POLL_S * 1000 + REQUEST_SLACK_MS),
+      AbortSignal.timeout(LONG_POLL_S * 1000 + TELEGRAM_REQUEST_SLACK_MS),
     ]);
     const updates = await this.telegram.getUpdates(
       { offset: this.offset, timeoutS: LONG_POLL_S, allowedUpdates: ALLOWED_UPDATES },

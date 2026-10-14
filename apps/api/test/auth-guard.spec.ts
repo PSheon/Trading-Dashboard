@@ -9,7 +9,7 @@ import request from "supertest";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuthService } from "../src/common/auth/auth.service.js";
-import { EMBEDDED_WALLET_RETRY_MS } from "../src/common/auth/auth.service.js";
+
 import type { SettingsService } from "../src/settings/settings.service.js";
 import { CurrentUser, Roles, type RequestUser } from "../src/common/auth/current-user.js";
 import { profileFromLinkedAccounts, SdkPrivyVerifier } from "../src/common/auth/privy-verifier.js";
@@ -17,6 +17,7 @@ import { Public } from "../src/common/auth/public.decorator.js";
 import { RulesSeedService } from "../src/rules/rules-seed.service.js";
 import { createAuthedApp, stubPrivy } from "./auth-test-utils.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
+import { EMBEDDED_WALLET_RETRY_MS } from '../src/config/constants/cache-ttls.js';
 
 const SERVICE_TOKEN = "service-token-for-tests-0123456789";
 

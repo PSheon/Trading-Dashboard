@@ -20,11 +20,12 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 
 import { NotifyService, type AlertContext } from "../src/notify/notify.service.js";
 import type { TelegramHttpClient } from "../src/notify/telegram-http.client.js";
-import { FAVORITE_BURST_GUARD_MS, RulesService } from "../src/rules/rules.service.js";
+import { RulesService } from '../src/rules/rules.service.js';
 import { RulesSeedService } from "../src/rules/rules-seed.service.js";
 import { SettingsService } from "../src/settings/settings.service.js";
 import type { WatcherService } from "../src/watcher/watcher.service.js";
 import { closeTestDb, getTestDb, insertUser, truncateAll } from "./db-test-utils.js";
+import { FAVORITE_BURST_GUARD_MS } from '../src/config/constants/background.js';
 
 const CHAIN = "hyperliquid";
 const ADDRESS = "0x" + "12".repeat(20);

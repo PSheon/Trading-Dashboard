@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import { HyperliquidAllDexsAccountSource } from '../src/copy/live/live-account-ws-source.js';
-import { ACCOUNT_READ_QUEUE_MAX, ACCOUNT_READ_WAIT_MS, TraderAccountReader } from '../src/traders/trader-account-reader.js';
+import { ACCOUNT_READ_QUEUE_MAX, TraderAccountReader } from '../src/traders/trader-account-reader.js';
 import { EventEmitter } from 'node:events';
 import WebSocket from 'ws';
+import { ACCOUNT_READ_WAIT_MS } from '../src/config/constants/http.js';
 const user = `0x${'11'.repeat(20)}`, now = Date.now();
 const state = (coin?: string) => ({ assetPositions: coin ? [{ position: { coin, szi: '1', leverage: { type: 'cross', value: 1 }, entryPx: '10', marginUsed: '10', unrealizedPnl: '0' } }] : [],
   marginSummary: { accountValue: '10', totalNtlPos: '10', totalRawUsd: '10', totalMarginUsed: '0' },

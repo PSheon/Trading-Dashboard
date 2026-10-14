@@ -14,7 +14,8 @@ import { budgetConsumer, PAGE_RANK, RequestBudgeterService, UNRANKED_BASE } from
 import type { HlUserFill } from "../src/hyperliquid/types.js";
 import { BackgroundJobs } from "../src/runtime/background-jobs.service.js";
 import { withRequestSignal } from "../src/runtime/request-context.js";
-import { COLD_FILL_CALLS, COLD_TARGET_FILLS, LOOKBACK_MS } from "../src/traders/trade-analytics.service.js";
+import { COLD_FILL_CALLS, COLD_TARGET_FILLS } from "../src/traders/trade-analytics.service.js";
+import { ANALYTICS_LOOKBACK_MS } from "../src/config/constants/background.js";
 import { isBusyError } from "../src/traders/traders.controller.js";
 import { testConfig } from "./config-test-utils.js";
 import { offlineGlobalTransport } from "./hyperliquid-quota-test-utils.js";
@@ -93,7 +94,7 @@ function coldRead(info: HyperliquidInfoClient, address: string) {
     latest: async () => denseFills(now - 2000 * SECOND, now),
     range: (start: number, end: number) => info.userFillsByTime(address, start, end, "background", PAGE_RANK.analytics),
   };
-  return budgetConsumer("analytics", () => readRecentHistory(source, { now, lookbackStart: now - LOOKBACK_MS, target: COLD_TARGET_FILLS, maxCalls: COLD_FILL_CALLS }));
+  return budgetConsumer("analytics", () => readRecentHistory(source, { now, lookbackStart: now - ANALYTICS_LOOKBACK_MS, target: COLD_TARGET_FILLS, maxCalls: COLD_FILL_CALLS }));
 }
 
 describe("Stage (mainnet) env: a cold dense trader's analytics complete", () => {

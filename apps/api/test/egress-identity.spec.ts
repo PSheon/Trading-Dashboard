@@ -9,12 +9,13 @@ import { startWorkerHealthServer } from '../src/bootstrap/worker-health-server.j
 import { AppConfig } from '../src/config/app-config.js';
 import { validateEnvironment } from '../src/config/runtime-config.js';
 import { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
-import { EGRESS_IP_TTL_MS, EGRESS_STARTUP_SAMPLES, EgressIdentityMonitor, EgressLeaseGuard, egressLeaseVerdict, sharedIps } from '../src/runtime/egress-identity.js';
+import { EGRESS_STARTUP_SAMPLES, EgressIdentityMonitor, EgressLeaseGuard, egressLeaseVerdict, sharedIps } from '../src/runtime/egress-identity.js';
 import { workerMonitorKey } from '../src/runtime/worker-calls.js';
 import type { WorkerRole } from '../src/runtime/worker-role.js';
 import { WorkerHeartbeatService } from '../src/worker/worker-heartbeat.service.js';
 import { testConfig } from './config-test-utils.js';
 import { ALERT_EVERY_MS } from '../src/config/constants/alerts.js';
+import { EGRESS_IP_TTL_MS } from '../src/config/constants/background.js';
 
 // Railway static egress (an HA gateway, three shared IPs) is on the copy
 // worker only (design §8 I-15): the api and the read worker keep the default

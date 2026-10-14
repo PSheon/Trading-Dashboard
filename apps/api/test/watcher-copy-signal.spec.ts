@@ -8,8 +8,9 @@ import type { FillSyncService } from '../src/watcher/fill-sync.service.js';
 import type { TradeFeedService } from '../src/watcher/trade-feed.service.js';
 import type { WatcherRepository } from '../src/watcher/watcher.repository.js';
 import { COPY_LEADER_TRADED_EVENT, COPY_LEADER_VERIFIED_EVENT } from '../src/watcher/copy-leader-events.js';
-import { COPIED_CATCH_UP_MS, WatcherService } from '../src/watcher/watcher.service.js';
+import { WatcherService } from '../src/watcher/watcher.service.js';
 import { testConfig } from './config-test-utils.js';
+import { COPIED_CATCH_UP_MS } from '../src/config/constants/background.js';
 
 const T0 = 1_790_000_000_000;
 const trade = (tid: number, time: number): HlWsTrade => ({ coin: 'BTC', side: 'B', px: '1', sz: '1', time, hash: '0x', tid, users: ['0xa', '0xz'] });

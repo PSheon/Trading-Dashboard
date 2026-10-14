@@ -271,9 +271,9 @@ export const en: Messages = {
     }
   },
   copyFunding: {
-    "title": "Testnet strategy funding",
-    "hint": "Transfer test USDC from your main account to a dedicated account. Review and sign the prepared transfer. Once it is credited and the copy consent is signed, copying starts on testnet. Your paper balance does not change.",
-    "unavailable": "Mainnet strategy funding is not available yet, or the wallet provider is unavailable.",
+    "title": "Strategy funding",
+    "hint": "Transfer USDC from your main account to a dedicated account. Review and sign the prepared transfer. Once it is credited and the copy consent is signed, copying starts. Your paper balance does not change.",
+    "unavailable": "Strategy funding is not available right now, or the wallet provider is unavailable.",
     "amount": "Funding amount",
     "prepare": "Prepare funding",
     "confirm": "Confirm and sign transfer",

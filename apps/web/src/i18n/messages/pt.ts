@@ -205,9 +205,9 @@ export const pt: Messages = {
     }
   },
   copyFunding: {
-    "title": "Fundos de estratégia na testnet",
-    "hint": "Transfira USDC de teste da conta principal para uma conta dedicada. Revise e assine a transferência preparada. Quando for creditada e o consentimento de cópia estiver assinado, a cópia começa na testnet. O seu saldo simulado não muda.",
-    "unavailable": "Os fundos de estratégia na mainnet ainda não estão disponíveis, ou o provedor de carteiras está indisponível.",
+    "title": "Fundos de estratégia",
+    "hint": "Transfira USDC da conta principal para uma conta dedicada. Revise e assine a transferência preparada. Quando for creditada e o consentimento de cópia estiver assinado, a cópia começa. O seu saldo simulado não muda.",
+    "unavailable": "Os fundos de estratégia não estão disponíveis agora, ou o provedor de carteiras está indisponível.",
     "amount": "Valor",
     "prepare": "Preparar transferência",
     "confirm": "Confirmar e assinar",

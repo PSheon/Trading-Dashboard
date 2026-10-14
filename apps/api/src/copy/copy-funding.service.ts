@@ -37,8 +37,8 @@ export const wire = (row: FundingRow): CopyFunding => ({ id: row.id, accountId: 
   transactionHash: row.transactionHash, creditedAmount: row.creditedAmount, fee: row.fee, direction: row.direction, stopId: row.stopId,
   createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() });
 
-/** Testnet setup funds never become paper collateral. Mainnet stays disabled
- * until the complete live trading lifecycle is connected and verified. */
+/** Strategy funding for live copies (COPY_TRADING_MODE testnet or live); setup
+ * funds never become paper collateral. Off while copy trading is disabled. */
 @Injectable()
 export class CopyFundingService {
   private readonly logger = new Logger(CopyFundingService.name);
@@ -48,7 +48,7 @@ export class CopyFundingService {
     /** The wallet network's own budget and egress (testnet's), not mainnet's. */
     @Optional() @Inject(WALLET_NETWORK_HL) private readonly walletNetwork: WalletNetworkHyperliquid | null = null) {}
   private get available() { return this.config.value.copy.mode !== "disabled"; }
-  private assertAvailable() { if (!this.available) throw new ServiceUnavailableException("Strategy funding is available on testnet only"); }
+  private assertAvailable() { if (!this.available) throw new ServiceUnavailableException("Strategy funding is not available right now"); }
   async overview(userId: number) {
     const wallets = await this.wallets.overview(userId); // enabled owner check; no provider mutations
     return { available: this.available && wallets.available, network: this.config.value.hyperliquid.wallet.network, operations: (await this.repository.list(userId)).map(wire) };

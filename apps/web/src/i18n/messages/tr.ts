@@ -205,9 +205,9 @@ export const tr: Messages = {
     }
   },
   copyFunding: {
-    "title": "Testnet strateji fonlama",
-    "hint": "Ana hesabınızdan özel hesaba test USDC aktarın. Hazırlanan transferi inceleyip imzalayın. Para hesaba geçip kopyalama onayı imzalandığında kopyalama testnet'te başlar. Sanal bakiyeniz değişmez.",
-    "unavailable": "Mainnet strateji fonlama henüz açık değil veya cüzdan sağlayıcısı kullanılamıyor.",
+    "title": "Strateji fonlama",
+    "hint": "Ana hesabınızdan özel hesaba USDC aktarın. Hazırlanan transferi inceleyip imzalayın. Para hesaba geçip kopyalama onayı imzalandığında kopyalama başlar. Sanal bakiyeniz değişmez.",
+    "unavailable": "Strateji fonlama şu anda kullanılamıyor veya cüzdan sağlayıcısı kullanılamıyor.",
     "amount": "Fonlama tutarı",
     "prepare": "Transferi hazırla",
     "confirm": "Onayla ve imzala",

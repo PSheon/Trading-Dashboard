@@ -205,9 +205,9 @@ export const es: Messages = {
     }
   },
   copyFunding: {
-    "title": "Fondos de estrategia en testnet",
-    "hint": "Transfiere USDC de prueba desde tu cuenta principal a una cuenta dedicada. Revisa y firma la transferencia preparada. Cuando se acredite y el consentimiento de copia esté firmado, la copia empieza en testnet. Tu saldo simulado no cambia.",
-    "unavailable": "Los fondos de estrategia en mainnet aún no están disponibles, o el proveedor de monederos no está disponible.",
+    "title": "Fondos de estrategia",
+    "hint": "Transfiere USDC desde tu cuenta principal a una cuenta dedicada. Revisa y firma la transferencia preparada. Cuando se acredite y el consentimiento de copia esté firmado, la copia empieza. Tu saldo simulado no cambia.",
+    "unavailable": "Los fondos de estrategia no están disponibles ahora, o el proveedor de monederos no está disponible.",
     "amount": "Importe",
     "prepare": "Preparar transferencia",
     "confirm": "Confirmar y firmar",

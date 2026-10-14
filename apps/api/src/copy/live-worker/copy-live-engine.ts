@@ -48,8 +48,9 @@ export interface LiveEngineDependencies {
    * funded generations start, so a generation made now starts this pass. */
   readonly setups?: { tick(): Promise<number> };
   /** Keeps one order's need free on the shared meter while copies run
-   * (HyperliquidGlobalTransport.standbyLive with the heaviest evidence). */
-  readonly standby?: () => Promise<void>;
+   * (HyperliquidGlobalTransport.standbyLive with the heaviest order these
+   * generations can send now: liveStandbyNeed). */
+  readonly standby?: (mandates: readonly LiveMandateWork[]) => Promise<void>;
   /** Owner stop requests (cancel, close, flat, return); after the legs. */
   readonly stopper?: { tick(): Promise<void> };
   readonly log?: (message: string) => void;
@@ -124,7 +125,7 @@ const PERMANENT_OPEN = new Set(['live_risk_platform_disabled']);
 /** A started copy whose leader legs are enqueued and worked: an active one,
  * or one its owner paused. A pause stops new risk only: the leader's opens
  * are refused (submit), its closes still mirrored. */
-const mirrorsLeader = (m: LiveMandateWork) => m.activated && (m.strategyStatus === 'active' || m.strategyStatus === 'paused');
+export const mirrorsLeader = (m: LiveMandateWork) => m.activated && (m.strategyStatus === 'active' || m.strategyStatus === 'paused');
 /** A merged order is planned within this long after its legs are merged
  * (evidence reads ~4 s): no leg merged older than the signal age less this. */
 const PLANNING_MARGIN_MS = 15_000;
@@ -184,7 +185,7 @@ export class CopyLiveEngine {
   private async standby(mandates: readonly LiveMandateWork[]): Promise<void> {
     if (!this.deps.standby || !mandates.some(mirrorsLeader) || this.now() - this.standbyAt < LIVE_STANDBY_RENEW_MS) return;
     this.standbyAt = this.now();
-    try { await this.deps.standby(); } catch (error) { this.deps.log?.(`live standby not recorded: ${reasonOf(error)}`); }
+    try { await this.deps.standby(mandates); } catch (error) { this.deps.log?.(`live standby not recorded: ${reasonOf(error)}`); }
   }
 
   async tick(): Promise<void> {

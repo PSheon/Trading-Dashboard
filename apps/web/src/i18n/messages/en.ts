@@ -1163,7 +1163,8 @@ export const en: Messages = {
     "alertsTitle": "Alerts",
     "alert_terminal_settlement_unowned": "Terminal copies are not being settled: the api's settlement loop is off (API_TERMINAL_SETTLEMENT=off) and no copy worker has reported its loop on (WORKER_TERMINAL_SETTLEMENT) for over 2 minutes.",
     "alertLastOk": "Last seen fine",
-    "alert_snapshots_stale": "Snapshots are stale: the read worker (WORKER_READ_URL) has shown no snapshot for over 15 minutes."
+    "alert_snapshots_stale": "Snapshots are stale: the read worker (WORKER_READ_URL) has shown no snapshot for over 15 minutes.",
+    "alert_egress_identity_shared": "The copy worker shares a public IP with the api or the read worker: its Hyperliquid per-IP limit is not its own. Check its static egress gateway."
 },
   methodology: {
     scope: "Ranked within the candidate pool, not all Hyperliquid traders. The pool takes the top N by all-time PnL among non-vault accounts with positive account value and trading volume in the last 30 days, then adds KOLs. N is configured by the platform.",

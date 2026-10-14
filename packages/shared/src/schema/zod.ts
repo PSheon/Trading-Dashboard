@@ -366,6 +366,49 @@ export const meterLaneDemandSchema = z.object({
   held: z.number().nonnegative(),
   until: z.coerce.date().nullable(),
 });
+/** What a process learned of its own public IPv4 (HL_EGRESS_IDENTITY, an IP
+ * echo outside Hyperliquid): its role (`api`, or the worker's WORKER_ROLE),
+ * its HYPERLIQUID_EGRESS_KEY, the latest address seen and every address
+ * seen in the last day (a static egress gateway has several, and a request
+ * may leave from any of them), when an echo last answered, and the last
+ * failure (null after a success). Times are ISO strings. */
+export const egressIdentitySchema = z.object({
+  role: z.enum(["api", "all", "copy", "read"]),
+  egressKey: z.string().nullable(),
+  mode: z.enum(["off", "observe", "enforce"]),
+  publicIp: z.string().nullable(),
+  publicIps: z.array(z.string()),
+  observedAt: z.string().nullable(),
+  lastError: z.string().nullable(),
+});
+export type EgressIdentity = z.infer<typeof egressIdentitySchema>;
+/** Hyperliquid's rate limits as this process met them: `rateLimited`, every
+ * REST 429 or WebSocket rate-limit error since its start; `count`, those
+ * that came while our own shared meter for that egress key held less than
+ * 80 % of the window (`foreign_usage_suspected`: someone else's traffic
+ * leaves from our IP), and the last of those: when, on which key, which
+ * kind (`429`, `ws_rate_limit`) and our share then (0..1). */
+export const foreignUsageSchema = z.object({
+  rateLimited: z.number().int().nonnegative(),
+  count: z.number().int().nonnegative(),
+  lastAt: z.string().nullable(),
+  lastKey: z.string().nullable(),
+  lastStatus: z.string().nullable(),
+  lastOurWindowUse: z.number().nullable(),
+});
+export type ForeignUsage = z.infer<typeof foreignUsageSchema>;
+/** One of the wallet network's local token buckets (the order bucket, the
+ * setup bucket): its rate, trailing-minute spend per consumer, the tokens
+ * it holds, its reserve and the calls waiting on it. */
+export const walletBucketSchema = z.object({
+  network: z.enum(["mainnet", "testnet"]),
+  effectivePerMin: z.number(),
+  weightLastMinute: z.number(),
+  tokensAvailable: z.number(),
+  reserveTokens: z.number(),
+  queued: z.object({ live: z.number().int(), background: z.number().int() }),
+  consumers: z.record(z.number()),
+});
 export const heartbeatResponseSchema = z.object({
   feedConnected: z.boolean(),
   feedSocketsOpen: z.number().int(),
@@ -397,15 +440,12 @@ export const heartbeatResponseSchema = z.object({
   }).optional(),
   /** The wallet network's own bucket (real-money copy work), when it has
    * one: its trailing-minute spend per consumer and what it holds. Additive. */
-  walletBudget: z.object({
-    network: z.enum(["mainnet", "testnet"]),
-    effectivePerMin: z.number(),
-    weightLastMinute: z.number(),
-    tokensAvailable: z.number(),
-    reserveTokens: z.number(),
-    queued: z.object({ live: z.number().int(), background: z.number().int() }),
-    consumers: z.record(z.number()),
-  }).optional(),
+  walletBudget: walletBucketSchema.optional(),
+  /** The wallet network's copy-setup bucket (WalletNetworkHyperliquid
+   * .setupBudget: account mode, agent approval, builder fee), when it is a
+   * bucket of its own beside walletBudget: what it holds and who waits.
+   * Additive. */
+  setupBudget: walletBucketSchema.optional(),
   /** Our clock against Hyperliquid's, from account state times this process
    * read: the recent smallest (ours − theirs) in ms (positive: ours runs
    * ahead), and a warning above 1 s. Additive. */
@@ -477,6 +517,12 @@ export const heartbeatResponseSchema = z.object({
    * this worker runs the terminal settlement loop (WORKER_TERMINAL_SETTLEMENT
    * in effect on a testnet copy deployment); optional for the same reason. */
   worker: z.object({ role: z.enum(["all", "copy", "read"]), leases: z.array(z.number().int()), terminalSettlement: z.boolean().optional() }).optional(),
+  /** This worker's public egress identity (HL_EGRESS_IDENTITY observe or
+   * enforce; absent while off). Additive. */
+  egressIdentity: egressIdentitySchema.optional(),
+  /** Hyperliquid's rate limits this worker met, and those suspected to be
+   * someone else's use of its IP (foreign_usage_suspected). Additive. */
+  foreignUsage: foreignUsageSchema.optional(),
   now: z.coerce.date(),
 });
 export type HeartbeatResponse = z.infer<typeof heartbeatResponseSchema>;

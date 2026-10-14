@@ -12830,6 +12830,170 @@
                                 "until"
                               ],
                               "additionalProperties": false
+                            },
+                            "egressIdentity": {
+                              "type": "object",
+                              "properties": {
+                                "role": {
+                                  "type": "string",
+                                  "enum": [
+                                    "api",
+                                    "all",
+                                    "copy",
+                                    "read"
+                                  ]
+                                },
+                                "egressKey": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "mode": {
+                                  "type": "string",
+                                  "enum": [
+                                    "off",
+                                    "observe",
+                                    "enforce"
+                                  ]
+                                },
+                                "publicIp": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "publicIps": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "observedAt": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "lastError": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "role",
+                                "egressKey",
+                                "mode",
+                                "publicIp",
+                                "publicIps",
+                                "observedAt",
+                                "lastError"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "foreignUsage": {
+                              "type": "object",
+                              "properties": {
+                                "rateLimited": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "count": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "lastAt": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "lastKey": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "lastStatus": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "lastOurWindowUse": {
+                                  "type": [
+                                    "number",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "rateLimited",
+                                "count",
+                                "lastAt",
+                                "lastKey",
+                                "lastStatus",
+                                "lastOurWindowUse"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "setupBudget": {
+                              "type": "object",
+                              "properties": {
+                                "network": {
+                                  "type": "string",
+                                  "enum": [
+                                    "mainnet",
+                                    "testnet"
+                                  ]
+                                },
+                                "effectivePerMin": {
+                                  "type": "number"
+                                },
+                                "weightLastMinute": {
+                                  "type": "number"
+                                },
+                                "tokensAvailable": {
+                                  "type": "number"
+                                },
+                                "reserveTokens": {
+                                  "type": "number"
+                                },
+                                "queued": {
+                                  "type": "object",
+                                  "properties": {
+                                    "live": {
+                                      "type": "integer"
+                                    },
+                                    "background": {
+                                      "type": "integer"
+                                    }
+                                  },
+                                  "required": [
+                                    "live",
+                                    "background"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "consumers": {
+                                  "type": "object",
+                                  "additionalProperties": {
+                                    "type": "number"
+                                  }
+                                }
+                              },
+                              "required": [
+                                "network",
+                                "effectivePerMin",
+                                "weightLastMinute",
+                                "tokensAvailable",
+                                "reserveTokens",
+                                "queued",
+                                "consumers"
+                              ],
+                              "additionalProperties": false
                             }
                           },
                           "required": [
@@ -13380,6 +13544,62 @@
                                               ],
                                               "additionalProperties": false
                                             },
+                                            "setupBudget": {
+                                              "type": "object",
+                                              "properties": {
+                                                "network": {
+                                                  "type": "string",
+                                                  "enum": [
+                                                    "mainnet",
+                                                    "testnet"
+                                                  ]
+                                                },
+                                                "effectivePerMin": {
+                                                  "type": "number"
+                                                },
+                                                "weightLastMinute": {
+                                                  "type": "number"
+                                                },
+                                                "tokensAvailable": {
+                                                  "type": "number"
+                                                },
+                                                "reserveTokens": {
+                                                  "type": "number"
+                                                },
+                                                "queued": {
+                                                  "type": "object",
+                                                  "properties": {
+                                                    "live": {
+                                                      "type": "integer"
+                                                    },
+                                                    "background": {
+                                                      "type": "integer"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "live",
+                                                    "background"
+                                                  ],
+                                                  "additionalProperties": false
+                                                },
+                                                "consumers": {
+                                                  "type": "object",
+                                                  "additionalProperties": {
+                                                    "type": "number"
+                                                  }
+                                                }
+                                              },
+                                              "required": [
+                                                "network",
+                                                "effectivePerMin",
+                                                "weightLastMinute",
+                                                "tokensAvailable",
+                                                "reserveTokens",
+                                                "queued",
+                                                "consumers"
+                                              ],
+                                              "additionalProperties": false
+                                            },
                                             "clockSkew": {
                                               "type": "object",
                                               "properties": {
@@ -13754,6 +13974,114 @@
                                               "required": [
                                                 "role",
                                                 "leases"
+                                              ],
+                                              "additionalProperties": false
+                                            },
+                                            "egressIdentity": {
+                                              "type": "object",
+                                              "properties": {
+                                                "role": {
+                                                  "type": "string",
+                                                  "enum": [
+                                                    "api",
+                                                    "all",
+                                                    "copy",
+                                                    "read"
+                                                  ]
+                                                },
+                                                "egressKey": {
+                                                  "type": [
+                                                    "string",
+                                                    "null"
+                                                  ]
+                                                },
+                                                "mode": {
+                                                  "type": "string",
+                                                  "enum": [
+                                                    "off",
+                                                    "observe",
+                                                    "enforce"
+                                                  ]
+                                                },
+                                                "publicIp": {
+                                                  "type": [
+                                                    "string",
+                                                    "null"
+                                                  ]
+                                                },
+                                                "publicIps": {
+                                                  "type": "array",
+                                                  "items": {
+                                                    "type": "string"
+                                                  }
+                                                },
+                                                "observedAt": {
+                                                  "type": [
+                                                    "string",
+                                                    "null"
+                                                  ]
+                                                },
+                                                "lastError": {
+                                                  "type": [
+                                                    "string",
+                                                    "null"
+                                                  ]
+                                                }
+                                              },
+                                              "required": [
+                                                "role",
+                                                "egressKey",
+                                                "mode",
+                                                "publicIp",
+                                                "publicIps",
+                                                "observedAt",
+                                                "lastError"
+                                              ],
+                                              "additionalProperties": false
+                                            },
+                                            "foreignUsage": {
+                                              "type": "object",
+                                              "properties": {
+                                                "rateLimited": {
+                                                  "type": "integer",
+                                                  "minimum": 0
+                                                },
+                                                "count": {
+                                                  "type": "integer",
+                                                  "minimum": 0
+                                                },
+                                                "lastAt": {
+                                                  "type": [
+                                                    "string",
+                                                    "null"
+                                                  ]
+                                                },
+                                                "lastKey": {
+                                                  "type": [
+                                                    "string",
+                                                    "null"
+                                                  ]
+                                                },
+                                                "lastStatus": {
+                                                  "type": [
+                                                    "string",
+                                                    "null"
+                                                  ]
+                                                },
+                                                "lastOurWindowUse": {
+                                                  "type": [
+                                                    "number",
+                                                    "null"
+                                                  ]
+                                                }
+                                              },
+                                              "required": [
+                                                "rateLimited",
+                                                "count",
+                                                "lastAt",
+                                                "lastKey",
+                                                "lastStatus",
+                                                "lastOurWindowUse"
                                               ],
                                               "additionalProperties": false
                                             },
@@ -14350,6 +14678,62 @@
                                               ],
                                               "additionalProperties": false
                                             },
+                                            "setupBudget": {
+                                              "type": "object",
+                                              "properties": {
+                                                "network": {
+                                                  "type": "string",
+                                                  "enum": [
+                                                    "mainnet",
+                                                    "testnet"
+                                                  ]
+                                                },
+                                                "effectivePerMin": {
+                                                  "type": "number"
+                                                },
+                                                "weightLastMinute": {
+                                                  "type": "number"
+                                                },
+                                                "tokensAvailable": {
+                                                  "type": "number"
+                                                },
+                                                "reserveTokens": {
+                                                  "type": "number"
+                                                },
+                                                "queued": {
+                                                  "type": "object",
+                                                  "properties": {
+                                                    "live": {
+                                                      "type": "integer"
+                                                    },
+                                                    "background": {
+                                                      "type": "integer"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "live",
+                                                    "background"
+                                                  ],
+                                                  "additionalProperties": false
+                                                },
+                                                "consumers": {
+                                                  "type": "object",
+                                                  "additionalProperties": {
+                                                    "type": "number"
+                                                  }
+                                                }
+                                              },
+                                              "required": [
+                                                "network",
+                                                "effectivePerMin",
+                                                "weightLastMinute",
+                                                "tokensAvailable",
+                                                "reserveTokens",
+                                                "queued",
+                                                "consumers"
+                                              ],
+                                              "additionalProperties": false
+                                            },
                                             "clockSkew": {
                                               "type": "object",
                                               "properties": {
@@ -14727,6 +15111,114 @@
                                               ],
                                               "additionalProperties": false
                                             },
+                                            "egressIdentity": {
+                                              "type": "object",
+                                              "properties": {
+                                                "role": {
+                                                  "type": "string",
+                                                  "enum": [
+                                                    "api",
+                                                    "all",
+                                                    "copy",
+                                                    "read"
+                                                  ]
+                                                },
+                                                "egressKey": {
+                                                  "type": [
+                                                    "string",
+                                                    "null"
+                                                  ]
+                                                },
+                                                "mode": {
+                                                  "type": "string",
+                                                  "enum": [
+                                                    "off",
+                                                    "observe",
+                                                    "enforce"
+                                                  ]
+                                                },
+                                                "publicIp": {
+                                                  "type": [
+                                                    "string",
+                                                    "null"
+                                                  ]
+                                                },
+                                                "publicIps": {
+                                                  "type": "array",
+                                                  "items": {
+                                                    "type": "string"
+                                                  }
+                                                },
+                                                "observedAt": {
+                                                  "type": [
+                                                    "string",
+                                                    "null"
+                                                  ]
+                                                },
+                                                "lastError": {
+                                                  "type": [
+                                                    "string",
+                                                    "null"
+                                                  ]
+                                                }
+                                              },
+                                              "required": [
+                                                "role",
+                                                "egressKey",
+                                                "mode",
+                                                "publicIp",
+                                                "publicIps",
+                                                "observedAt",
+                                                "lastError"
+                                              ],
+                                              "additionalProperties": false
+                                            },
+                                            "foreignUsage": {
+                                              "type": "object",
+                                              "properties": {
+                                                "rateLimited": {
+                                                  "type": "integer",
+                                                  "minimum": 0
+                                                },
+                                                "count": {
+                                                  "type": "integer",
+                                                  "minimum": 0
+                                                },
+                                                "lastAt": {
+                                                  "type": [
+                                                    "string",
+                                                    "null"
+                                                  ]
+                                                },
+                                                "lastKey": {
+                                                  "type": [
+                                                    "string",
+                                                    "null"
+                                                  ]
+                                                },
+                                                "lastStatus": {
+                                                  "type": [
+                                                    "string",
+                                                    "null"
+                                                  ]
+                                                },
+                                                "lastOurWindowUse": {
+                                                  "type": [
+                                                    "number",
+                                                    "null"
+                                                  ]
+                                                }
+                                              },
+                                              "required": [
+                                                "rateLimited",
+                                                "count",
+                                                "lastAt",
+                                                "lastKey",
+                                                "lastStatus",
+                                                "lastOurWindowUse"
+                                              ],
+                                              "additionalProperties": false
+                                            },
                                             "now": {
                                               "type": "string",
                                               "format": "date-time"
@@ -15095,12 +15587,29 @@
                                 "type": "string",
                                 "enum": [
                                   "terminal_settlement_unowned",
-                                  "snapshots_stale"
+                                  "snapshots_stale",
+                                  "egress_identity_shared"
                                 ]
                               },
                               "lastOkAt": {
                                 "type": "string",
                                 "format": "date-time"
+                              },
+                              "ips": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "peers": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "enum": [
+                                    "api",
+                                    "read"
+                                  ]
+                                }
                               }
                             },
                             "required": [
@@ -18350,6 +18859,106 @@
         "x-required-permissions": [],
         "x-required-roles": [],
         "description": "Access: public; raw"
+      }
+    },
+    "/health/egress": {
+      "get": {
+        "operationId": "EgressIdentityController_egress",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "role": {
+                      "type": "string",
+                      "enum": [
+                        "api",
+                        "all",
+                        "copy",
+                        "read"
+                      ]
+                    },
+                    "egressKey": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "mode": {
+                      "type": "string",
+                      "enum": [
+                        "off",
+                        "observe",
+                        "enforce"
+                      ]
+                    },
+                    "publicIp": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "publicIps": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "observedAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "lastError": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "role",
+                    "egressKey",
+                    "mode",
+                    "publicIp",
+                    "publicIps",
+                    "observedAt",
+                    "lastError"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Raw operational error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Egress identity (worker monitor key)",
+        "tags": [
+          "EgressIdentity"
+        ],
+        "security": [
+          {},
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: worker monitor key (else 404); raw"
       }
     },
     "/leaders": {

@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import type { z } from 'zod';
+import type { walletBucketSchema } from '@trading-dashboard/shared/contracts';
 import { AppConfig } from '../config/app-config.js';
 import { BackgroundJobs } from '../runtime/background-jobs.service.js';
 import { HyperliquidGlobalTransport } from './hyperliquid-global-transport.js';
@@ -21,6 +23,7 @@ import { RequestBudgeterService } from './request-budgeter.service.js';
  * transport and client; with it (COPY_TRADING_MODE=live) a bucket of its own
  * (COPY_LIVE_WEIGHT_PER_MIN) on the same transport. */
 export const WALLET_NETWORK_HL = Symbol('WALLET_NETWORK_HL');
+type WalletBucket = z.infer<typeof walletBucketSchema>;
 /** Share of a wallet-network bucket kept for real-money work (its reserve,
  * refilled first, never spent by background work): an order's evidence
  * (589) and a setup's account mode (613) fit 80 % of an 800 (testnet) or
@@ -54,6 +57,18 @@ export interface WalletNetworkHyperliquid {
   /** True when the budget is the wallet network's own (testnet, or mainnet
    * real-money copy), not the process's main one. */
   readonly dedicated: boolean;
+}
+/** One wallet-network bucket as the heartbeat and the admin overview show
+ * it: rate, trailing-minute spend, tokens, reserve, queue and consumers. */
+export function walletBucket(network: 'mainnet' | 'testnet', budget: Pick<RequestBudgeterService, 'introspect' | 'queued'>): WalletBucket {
+  const w = budget.introspect();
+  return { network, effectivePerMin: w.effectiveBudgetPerMin, weightLastMinute: w.weightLastMinute, tokensAvailable: Math.round(w.tokensAvailable),
+    reserveTokens: Math.round(w.reserveTokens), queued: budget.queued(), consumers: w.consumers };
+}
+/** The setup bucket, when it is a bucket of its own (a dedicated wallet
+ * network); undefined when setups share `budget`. */
+export function walletSetupBucket(wallet: Pick<WalletNetworkHyperliquid, 'network' | 'budget' | 'setupBudget' | 'dedicated'>): WalletBucket | undefined {
+  return wallet.dedicated && wallet.setupBudget !== wallet.budget ? walletBucket(wallet.network, wallet.setupBudget) : undefined;
 }
 export function walletNetworkHyperliquid(config: AppConfig, budget: RequestBudgeterService, transport: HyperliquidGlobalTransport, quota: PostgresHyperliquidQuota,
   info?: HyperliquidInfoClient, jobs: BackgroundJobs = new BackgroundJobs()): WalletNetworkHyperliquid {

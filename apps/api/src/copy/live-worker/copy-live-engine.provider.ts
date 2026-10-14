@@ -23,6 +23,7 @@ import { CopyLiveReturnRepository } from '../copy-live-return.repository.js';
 import { MainnetSourceReferenceReader } from '../live/live-source-reference.js';
 import { LiveExecutionRuntime } from '../live/live-execution-runtime.js';
 import { CopyLiveEngine, DEFAULT_ENGINE_OPTIONS } from './copy-live-engine.js';
+import { liveStandbyNeed } from './live-standby-need.js';
 import { CopyLiveSettler } from './copy-live-settler.js';
 import { CopyLiveWorkerRepository } from './copy-live-worker.repository.js';
 import { WatchedMainnetSource } from './watched-mainnet-source.js';
@@ -122,9 +123,11 @@ export const liveEngineProvider: FactoryProvider<CopyLiveEngine | null> = {
       feedUp: () => { const status = feed?.status(); return !!status && status.socketsTotal > 0 && status.disconnectedSince === null; },
     } : undefined;
     return new CopyLiveEngine({ network, apiTerminalSettlement: network === 'testnet', setups, stopper: { tick: async () => { await stopper.tick(); await manual.tick(); } },
-      // The heaviest order's evidence (and its boundary) kept free on the
-      // shared meter while copies run: an order never waits for background.
-      standby: () => walletGlobal.standbyLive(fit.weight),
+      // The heaviest order these copies can send now (its evidence and
+      // boundary, what the read cache holds left out; at most the startup
+      // bound fit.weight) kept free on the shared meter while copies run:
+      // an order never waits for background (liveStandbyNeed).
+      standby: async mandates => { const need = liveStandbyNeed(mandates, network, fit.weight); if (need >= 1) await walletGlobal.standbyLive(need); },
       repository, sources, uow, watched: new WatchedMainnetSource(db, Date.now, message => logger.warn(message)),
       // Testnet leaders (a testnet deployment only: a mainnet one copies mainnet leaders).
       testnetSource: new HyperliquidLiveSourceClient('testnet', weight => reserve(weight), walletGlobal.fetchInfo,

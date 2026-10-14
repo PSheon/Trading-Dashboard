@@ -5,13 +5,15 @@ import { AppConfig } from "../config/app-config.js";
 import { DiscoveryPoolService } from "../discovery/discovery-pool.service.js";
 import { ArchiveIngestService } from "../ingest/archive-ingest.service.js";
 import { RequestBudgeterService } from "../hyperliquid/request-budgeter.service.js";
-import { WALLET_NETWORK_HL, type WalletNetworkHyperliquid } from "../hyperliquid/wallet-network-hyperliquid.js";
+import { WALLET_NETWORK_HL, walletBucket, walletSetupBucket, type WalletNetworkHyperliquid } from "../hyperliquid/wallet-network-hyperliquid.js";
 import { SchedulerService } from "../scheduler/scheduler.service.js";
 import { roleLeases } from "../runtime/worker-role.js";
 import { WatcherService } from "../watcher/watcher.service.js";
 import { clockSkew } from "../copy/live/clock-skew.js";
 import { explorerHealth } from "../copy/explorer-health.js";
 import { terminalSettlementRuns } from "../copy/live-worker/copy-live-api-settlement.service.js";
+import { EgressIdentityMonitor, egressIdentity } from "../runtime/egress-identity.js";
+import { foreignUsage } from "../hyperliquid/foreign-usage.js";
 
 /** §8 可觀測: the worker's own heartbeat (feed, snapshots, sweeps, budget,
  * discovery and archive progress), served on its health port and read by
@@ -31,6 +33,8 @@ export class WorkerHeartbeatService {
     @Optional() private readonly archive?: ArchiveIngestService,
     @Optional() private readonly pool?: DiscoveryPoolService,
     @Optional() @Inject(WALLET_NETWORK_HL) private readonly wallet?: WalletNetworkHyperliquid,
+    /** The process's egress identity (tests pass their own). */
+    @Optional() @Inject(EgressIdentityMonitor) private readonly identity: EgressIdentityMonitor = egressIdentity,
   ) {}
 
   async heartbeat(): Promise<HeartbeatResponse> {
@@ -64,9 +68,9 @@ export class WorkerHeartbeatService {
         caps: budget.consumerCaps,
       },
       // The real-money bucket: who spends it (local testnet, 2026-10-12, where no copy order fitted).
-      walletBudget: this.wallet?.dedicated ? (() => { const w = this.wallet!.budget.introspect(); return {
-        network: this.wallet!.network, effectivePerMin: w.effectiveBudgetPerMin, weightLastMinute: w.weightLastMinute, tokensAvailable: Math.round(w.tokensAvailable),
-        reserveTokens: Math.round(w.reserveTokens), queued: this.wallet!.budget.queued(), consumers: w.consumers }; })() : undefined,
+      walletBudget: this.wallet?.dedicated ? walletBucket(this.wallet.network, this.wallet.budget) : undefined,
+      // Copy setups' own bucket beside it (c2581938): its tokens and who waits on it.
+      setupBudget: this.wallet ? walletSetupBucket(this.wallet) : undefined,
       // Our clock against Hyperliquid's (warns above 1 s; comparisons tolerate 2 s).
       clockSkew: clockSkew.status(),
       // Hyperliquid's explorer, which proves a deposit's credit: reached, or failing since when.
@@ -90,6 +94,12 @@ export class WorkerHeartbeatService {
       // (WORKER_TERMINAL_SETTLEMENT as it takes effect here), which the api's
       // guard needs to see while API_TERMINAL_SETTLEMENT=off (WorkerFleetService).
       worker: { role: this.config.value.app.workerRole, leases: [...roleLeases(this.config.value.app.workerRole)], terminalSettlement: terminalSettlementRuns(this.config) },
+      // Its public IPs (HL_EGRESS_IDENTITY): the api compares the copy
+      // worker's with its own and the read worker's (WorkerFleetService).
+      egressIdentity: this.identity.mode === "off" ? undefined : this.identity.snapshot(),
+      // Hyperliquid's rate limits met here, and those while our own meter
+      // held under 80 % of the window (foreign_usage_suspected).
+      foreignUsage: foreignUsage.status(),
       now: new Date(),
     };
   }

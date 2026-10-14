@@ -11,7 +11,8 @@ import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { operationalSwitches } from "../runtime/operational-switches.js";
 import type { StructuredLogger } from "../runtime/structured-logger.js";
 import { acquireWorkerLeases, acquireWorkerOwnership, WORKER_LEASE_SESSION_OPTIONS } from "../runtime/worker-lease.js";
-import { roleLeases } from "../runtime/worker-role.js";
+import { roleLeases, runsCopy } from "../runtime/worker-role.js";
+import { EgressLeaseGuard, egressIdentity, type EgressIdentityMonitor } from "../runtime/egress-identity.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { WorkerHeartbeatService } from "../worker/worker-heartbeat.service.js";
 import { startWorkerHealthServer, type WorkerHealthSource } from "./worker-health-server.js";
@@ -37,6 +38,23 @@ export function workerHealthReads(config: RuntimeConfig, app: () => INestApplica
   };
 }
 
+/** The lease gate of HL_EGRESS_IDENTITY=enforce, on a worker that runs copy
+ * work (`copy`, `all`); undefined otherwise (off and observe never block). */
+export function egressLeaseGuard(config: RuntimeConfig, logger: Pick<StructuredLogger, "log" | "warn" | "error">,
+  options: { fetcher?: typeof fetch; now?: () => number; monitor?: EgressIdentityMonitor } = {}): EgressLeaseGuard | undefined {
+  const egress = config.egressIdentity;
+  if (egress?.mode !== "enforce" || !runsCopy(config.app.workerRole)) return undefined;
+  return new EgressLeaseGuard({ monitor: options.monitor ?? egressIdentity, peers: egress.peers, monitorKey: workerMonitorKey(config.database.url), expectedIps: egress.expectedIps,
+    timeoutMs: egress.timeoutMs, logger: { log: m => logger.log(m), warn: m => logger.warn(m), error: m => logger.error(m) }, fetcher: options.fetcher, now: options.now });
+}
+
+/** A lease attempt: the role's leases, unless the egress gate (when there
+ * is one) refuses first; then no lease query runs and the worker stays on
+ * standby (acquireWorkerOwnership asks again a second later). */
+export function gatedLeaseAcquire<C extends Pick<PoolClient, "query">>(guard: Pick<EgressLeaseGuard, "allows"> | undefined, leases: readonly number[]): (client: C) => Promise<boolean> {
+  return async client => guard && !(await guard.allows()) ? false : acquireWorkerLeases(client, leases);
+}
+
 /**
  * IS_WORKER=true. Serves health first, then waits for the PG advisory-lock
  * lease (one active worker per database; Railway may start a replacement
@@ -47,7 +65,9 @@ export function workerHealthReads(config: RuntimeConfig, app: () => INestApplica
  * (runtime/worker-role.ts): `copy` holds (73106, 1), `read` (73106, 2) and
  * `all` (unset, today's worker) both at once. A standby has constructed
  * nothing, so it sends nothing to Hyperliquid (no market catalog, no
- * perpDexs, no feed) until it holds its lease (design I-8). Losing the
+ * perpDexs, no feed) until it holds its lease (design I-8). With
+ * HL_EGRESS_IDENTITY=enforce a worker that runs copy work takes no lease
+ * while its public IP is unknown or shared (gatedLeaseAcquire). Losing the
  * lease connection exits the process. Until it
  * owns the lease, an unreachable database is retried (up to 10 minutes of
  * continuous unavailability) instead of exiting.
@@ -65,9 +85,13 @@ export async function startWorker(config: RuntimeConfig, logger: StructuredLogge
   const instanceId = randomUUID();
   const active = () => ready && !stopping && app !== undefined;
 
+  // Learns this worker's public IP (HL_EGRESS_IDENTITY; off: nothing),
+  // on standby too: never awaited, it holds nothing up.
+  egressIdentity.configure({ role: config.app.workerRole, egressKey: config.hyperliquid.egressKey, config: config.egressIdentity, logger }).start();
   const server = await startWorkerHealthServer({
     instanceId,
     monitorKey: workerMonitorKey(config.database.url),
+    egress: () => egressIdentity.snapshot(),
     state: () => stopping ? "stopping" : ready ? "active" : "standby",
     probe: async () => { if (!client) throw new Error("no lease"); await client.query("SELECT 1"); },
     ...workerHealthReads(config, () => app!, active),
@@ -95,7 +119,9 @@ export async function startWorker(config: RuntimeConfig, logger: StructuredLogge
     // (acquireWorkerOwnership: backoff, up to WORKER_DB_RETRY_WINDOW_MS of
     // continuous unavailability): nothing runs yet, so reconnecting is safe.
     const role = config.app.workerRole, leases = roleLeases(role);
-    const owner = await acquireWorkerOwnership({ connect: () => pool.connect(), acquire: client => acquireWorkerLeases(client, leases), signal: abort.signal, logger });
+    // HL_EGRESS_IDENTITY=enforce on a worker that runs copy work: no lease
+    // (standby, nothing constructed) while its egress is unknown or shared.
+    const owner = await acquireWorkerOwnership({ connect: () => pool.connect(), acquire: gatedLeaseAcquire(egressLeaseGuard(config, logger), leases), signal: abort.signal, logger });
     client = owner;
     // Once it owns the lease, losing that connection exits at once. The
     // lock is session-scoped: the server drops it with the session, and a

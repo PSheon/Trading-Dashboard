@@ -6,6 +6,7 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | --- | --- | --- | --- |
 | GET | `/health` | 200 | public; raw |
 | GET | `/health/ready` | 200 | public; raw |
+| GET | `/health/egress` | 200 | worker monitor key (else 404); raw |
 | GET | `/actions` | 200 | public; favorites requires user |
 | GET | `/actions/stream` | 200 | public; favorites requires user; SSE |
 | GET | `/actions/:id/fills` | 200 | public |

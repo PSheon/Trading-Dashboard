@@ -1,6 +1,6 @@
 import { createServer, type Server, type ServerResponse } from "node:http";
 
-import type { HeartbeatResponse } from "@trading-dashboard/shared/contracts";
+import type { EgressIdentity, HeartbeatResponse } from "@trading-dashboard/shared/contracts";
 
 import { withRequestSignal } from "../runtime/request-context.js";
 import { hasWorkerMonitorKey, REQUEST_ID_PATTERN } from "../runtime/worker-calls.js";
@@ -20,6 +20,10 @@ export interface WorkerHealthSource {
    * caller that shows it (the api); anyone else gets the 404 of an unknown
    * path. */
   monitorKey: string;
+  /** This worker's public egress identity (runtime/egress-identity.ts) for
+   * /health/egress: with the monitor key, in any state (a copy worker on
+   * standby reads the read worker's, HL_EGRESS_PEERS). */
+  egress?(): EgressIdentity;
 }
 
 /**
@@ -31,6 +35,8 @@ export interface WorkerHealthSource {
  *   /health/ready   readiness: active and the lease connection answers
  *   /health/monitor private telemetry for the api's admin system page,
  *                   only with the api's key (else 404)
+ *   /health/egress  its public egress identity, only with the same key
+ *                   (else 404), also while standby
  * Everything else is 404 (405 for another method). A caller's
  * `x-request-id` (the api's) is echoed and carried into the worker's log
  * lines for the request.
@@ -53,7 +59,12 @@ export function startWorkerHealthServer(source: WorkerHealthSource, port: number
       if (method !== "GET") { res.writeHead(405).end(); return; }
       const path = (url ?? "").split("?")[0];
       const state = source.state();
-      if (path === "/health/monitor" && !hasWorkerMonitorKey(authorization, source.monitorKey)) { res.writeHead(404).end(); return; }
+      if ((path === "/health/monitor" || path === "/health/egress") && !hasWorkerMonitorKey(authorization, source.monitorKey)) { res.writeHead(404).end(); return; }
+      if (path === "/health/egress") {
+        if (!source.egress) { res.writeHead(404).end(); return; }
+        res.end(JSON.stringify(source.egress()));
+        return;
+      }
       if (path === "/health/monitor") {
         const extra = await source.monitor(state === "active");
         res.end(JSON.stringify({ state, instanceId: source.instanceId, sampledAt: new Date().toISOString(), uptimeSeconds: Math.floor(process.uptime()), ...extra }));

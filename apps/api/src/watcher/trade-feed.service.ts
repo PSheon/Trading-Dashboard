@@ -163,6 +163,8 @@ export class TradeFeedService {
     }
     if (message.channel === "error") {
       this.logger.error(`Hyperliquid WS error: ${JSON.stringify(message.data)}`);
+      // A rate limit while our meter is under 80 %: foreign_usage_suspected.
+      this.global?.noteWsError(message.data);
       return;
     }
     if (message.channel !== "trades" || !Array.isArray(message.data)) return;

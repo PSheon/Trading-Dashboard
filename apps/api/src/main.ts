@@ -41,6 +41,10 @@ async function startApi(config: RuntimeConfig, logger: StructuredLogger): Promis
     setupSwagger(app, config.app.nodeEnv);
   }
   await app.listen(config.app.port);
+  // Learns the api's public IP (HL_EGRESS_IDENTITY; off: nothing). Never
+  // awaited: the api serves whatever the echo does.
+  const { egressIdentity } = await import("./runtime/egress-identity.js");
+  egressIdentity.configure({ role: "api", egressKey: config.hyperliquid.egressKey, config: config.egressIdentity, logger }).start();
 }
 
 /** One entry point, as in DonutMe: IS_WORKER=true starts the worker

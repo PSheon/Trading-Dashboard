@@ -7,6 +7,7 @@ import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from '../cop
 import {LiveBoundaryError} from '../copy/live/wallet-authorization.js';
 import {infoListSurcharge,infoPrepaidWeight,infoWeight} from './info-weights.js';
 import {liveSpan,timedLiveSpan} from '../copy/live/live-execution-diagnostics.js';
+import {foreignUsage as processForeignUsage,isWsRateLimit,restWindowUse,wsWindowUse,type ForeignUsageCounter} from './foreign-usage.js';
 const fail=(code:string):never=>{throw new LiveBoundaryError(code);};
 // The requests this process may send (any other is refused, never guessed);
 // their weights come from the one table (info-weights.ts).
@@ -57,7 +58,9 @@ export class HyperliquidGlobalTransport {
  readonly #unscoped=Object.freeze({});
  private readonly options:Readonly<{egressKey?:string;ownerId:string}>;
  constructor(private readonly quota:PostgresHyperliquidQuota,options:{egressKey?:string;ownerId:string},private readonly rawFetch:typeof fetch=fetch,private readonly now=Date.now,
-  private readonly sleep:(ms:number,signal?:AbortSignal|null)=>Promise<void>=(ms,signal)=>wait(ms,undefined,signal?{signal}:undefined)){
+  private readonly sleep:(ms:number,signal?:AbortSignal|null)=>Promise<void>=(ms,signal)=>wait(ms,undefined,signal?{signal}:undefined),
+  /** Where this transport's rate limits are counted (foreign-usage.ts; tests pass their own). */
+  private readonly foreignUsage:ForeignUsageCounter=processForeignUsage){
   if(!(quota instanceof PostgresHyperliquidQuota)||!options||typeof options.ownerId!=='string'||!/^[^\s\p{Cc}\p{Cf}]{1,128}$/u.test(options.ownerId))fail('hyperliquid_quota_invalid');
   if(options.egressKey!==undefined&&!/^[A-Za-z0-9:._-]{1,128}$/.test(options.egressKey))fail('hyperliquid_quota_invalid');
   this.options=Object.freeze({...options});
@@ -144,13 +147,34 @@ export class HyperliquidGlobalTransport {
  }
  /** Runs a live order under its demand token: its charges are the live lane's and count against its need. */
  runLive<T>(token:string,work:()=>Promise<T>):Promise<T>{return runInLiveLane(token,work);}
+ /**
+  * Hyperliquid refused a request of this egress for its rate limit (`rest`:
+  * an HTTP 429; `ws`: a WebSocket rate-limit error): reads our own meter's
+  * share of that window and counts `foreign_usage_suspected` below 80 %
+  * (foreign-usage.ts). Never throws, never delays the caller.
+  */
+ async noteRateLimited(kind:'rest'|'ws'):Promise<boolean>{
+  const egressKey=this.options.egressKey;if(!egressKey)return false;
+  let use:number|undefined;
+  try{const snapshot=await this.quota.meterSnapshot(egressKey);use=kind==='rest'?restWindowUse(snapshot):wsWindowUse(snapshot);}catch{use=undefined;}
+  return this.foreignUsage.note(egressKey,kind==='rest'?'429':'ws_rate_limit',use);
+ }
+ /** A WebSocket `error` channel message on this egress: a rate limit is noted (noteRateLimited). */
+ noteWsError(data:unknown):void{if(isWsRateLimit(data))void this.noteRateLimited('ws').catch(()=>{});}
+ /** Looks at what a dispatched REST send answered (a Response, a list of
+  * them, or a promise of either) for a 429, without changing it. */
+ #watch<T>(result:T):T{
+  const seen=(value:unknown)=>{const answers=Array.isArray(value)?value:[value];if(answers.some(a=>(a as {status?:unknown}|null)?.status===429))void this.noteRateLimited('rest').catch(()=>{});};
+  if(result&&typeof (result as {then?:unknown}).then==='function')(result as unknown as Promise<unknown>).then(seen,()=>{});else seen(result);
+  return result;
+ }
  readonly fetchExplorer:typeof fetch=async(input,init)=>{
   const budget=this.currentQuota(),url=typeof input==='string'?input:input instanceof URL?input.toString():'';
   if(!['https://rpc.hyperliquid.xyz/explorer','https://rpc.hyperliquid-testnet.xyz/explorer'].includes(url)||!init||init.method!=='POST'||typeof init.body!=='string'||Buffer.byteLength(init.body)>1024)return fail('hyperliquid_quota_request_invalid');
   let body:unknown;try{body=JSON.parse(init.body);}catch{fail('hyperliquid_quota_request_invalid');}
   if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).sort().join(',')!=='hash,type'||(body as {type:unknown}).type!=='txDetails'||!/^0x[0-9a-f]{64}$/.test((body as {hash:string}).hash))fail('hyperliquid_quota_request_invalid');
   const captured:RequestInit={method:'POST',body:init.body,headers:new Headers(init.headers),redirect:'error',signal:init.signal};captured.signal?.throwIfAborted();
-  const permit=await budget.acquireRest(40,this.now()+5000,undefined,{fallback:'live'});return permit.dispatch(()=>{captured.signal?.throwIfAborted();return this.rawFetch(url,captured);});
+  const permit=await budget.acquireRest(40,this.now()+5000,undefined,{fallback:'live'});return this.#watch(permit.dispatch(()=>{captured.signal?.throwIfAborted();return this.rawFetch(url,captured);}));
  };
  /**
   * The permit for one exchange POST (1 unit): an order, a cancel, a
@@ -159,7 +183,11 @@ export class HyperliquidGlobalTransport {
   * action: the live lane (a setup step's stays its setup's), so a full
   * background lane or a waiting setup never leaves it not dispatched.
   */
- acquireExchange(deadline:number):Promise<HyperliquidSendPermit>{return this.currentQuota().acquireRest(1,deadline,undefined,{fallback:'live'});}
+ async acquireExchange(deadline:number):Promise<HyperliquidSendPermit>{
+  const permit=await this.currentQuota().acquireRest(1,deadline,undefined,{fallback:'live'});
+  // Its answer is looked at for a 429 (foreign_usage_suspected), never changed.
+  return Object.freeze({...permit,dispatch:<T>(work:()=>T):T=>this.#watch(permit.dispatch(work))});
+ }
  /** Live copy work's info request: an order's evidence outside its session,
   * settlement and receipts that release its reservation, closes and stops,
   * the testnet leader source, funding evidence, wallet authorization checks
@@ -235,12 +263,12 @@ export class HyperliquidGlobalTransport {
   if(requests.some(r=>lists.has(r.type)))fail('hyperliquid_quota_request_invalid');
   const weight=requests.reduce((sum,r)=>sum+r.weight,0);
   signal?.throwIfAborted();const permit=await timedLiveSpan('rest_wave_quota',()=>this.#acquire(budget,weight,lane,maxWaitMs>0,signal,maxWaitMs,fallback));signal?.throwIfAborted();
-  return permit.dispatch(()=>{
+  return this.#watch(permit.dispatch(()=>{
    signal?.throwIfAborted();const bound=onDispatch?.(),signals=[signal,bound].filter((s):s is AbortSignal=>s!==undefined);
    const shared=signals.length>1?AbortSignal.any(signals):signals[0];
    const work=requests.map(r=>this.rawFetch(r.url,{method:'POST',body:r.body,headers:new Headers({'Content-Type':'application/json'}),redirect:'error',signal:shared}));
    const answered=liveSpan('rest_wave_http');return Promise.all(work).finally(()=>answered());
-  });
+  }));
  }
  async #info(input:Parameters<typeof fetch>[0],init:Parameters<typeof fetch>[1],lane:HyperliquidRestLane|undefined,waitForCapacity:boolean,maxWaitMs=PAGE_CAPACITY_WAIT_MS,fallback?:HyperliquidRestLane):Promise<Response>{
   // Configuration is checked before parsing or scheduling any outbound work.
@@ -248,7 +276,7 @@ export class HyperliquidGlobalTransport {
   if(!init)return fail('hyperliquid_quota_request_invalid');
   const captured:RequestInit={method:'POST',body:init.body,headers:new Headers(init.headers),redirect:'error',signal:init.signal};
   captured.signal?.throwIfAborted();const permit=await this.#acquire(budget,weight,lane,waitForCapacity,captured.signal,maxWaitMs,fallback);captured.signal?.throwIfAborted();
-  const response=await permit.dispatch(()=>{captured.signal?.throwIfAborted();return this.rawFetch(url,captured);});
+  const response=await this.#watch(permit.dispatch(()=>{captured.signal?.throwIfAborted();return this.rawFetch(url,captured);}));
   if(lists.has(type)&&permit.settle&&response instanceof Response)listSettlements.set(response,permit.settle);
   return response;
  }

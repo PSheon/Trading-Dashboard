@@ -44,6 +44,47 @@ Everything is in-process (`@nestjs/schedule`); there is no Railway cron service 
 | Revenue snapshot | hourly at :07 | builder/referral revenue | global |
 | Copy worker | `COPY_WORKER_INTERVAL_MS` (2 s) | paper copy execution | — |
 
+## Worker roles: worker-copy and worker-read (2026-10-14)
+
+From the release with `WORKER_ROLE` (feat/worker-roles), the single `worker` can be split into two services built from the same image. Design and rationale: `docs/design-hl-egress-2026-10-13.md` §2, §3, §8. Every flag defaults to today's behaviour, so deploying the release changes nothing until the variables below are set.
+
+| Service | `IS_WORKER` | `WORKER_ROLE` | Lease | Runs |
+| --- | --- | --- | --- | --- |
+| `worker` (becomes worker-copy) | `true` | `copy` | (73106,1) | live copy engine, setup driver and aborts, stops, closer, settler, funding monitor, setup-due listener (NOTIFY), terminal settlement loop (testnet copy), trade feed and its check, rules |
+| `worker-read` (new) | `true` | `read` | (73106,2) | scheduler (snapshots, sweep, catch-up, backfill), traders, discovery, cohorts, revenue, archive, retention, outbox, Telegram, paper copy, follower snapshots and receipts |
+| one `worker`, unset | `true` | unset (`all`) | both | everything (today) |
+
+A standby process makes no Hyperliquid call until it holds its lease (`scripts/worker-smoke.mjs`).
+
+**Variables**
+
+| Service | Variable | Value | Notes |
+| --- | --- | --- | --- |
+| worker-read | everything the worker has (DB, Telegram, archive, AWS, Hyperliquid budget, `COPY_TRADING_MODE`, `HYPERLIQUID_NETWORK`, `HYPERLIQUID_EGRESS_KEY`, …) | same as `worker` | plus `WORKER_ROLE=read`. `DATABASE_URL` must be the api's exact value (monitor key) |
+| worker | `WORKER_ROLE` | `copy` | `WORKER_TERMINAL_SETTLEMENT` defaults to on for `copy` and off for `all` |
+| api | `WORKER_URL` | `http://worker.railway.internal:3000` | the copy worker (feed, copy health); `/health` is 503 without it |
+| api | `WORKER_READ_URL` | `http://worker-read.railway.internal:3000` | optional; snapshot, sweep, discovery and archive health come from it; `snapshots_stale` alerts after 15 min |
+| api | `API_SETUP_DRIVE` | `local` → `worker` | `worker`: confirm and advance mark the setup due and `NOTIFY copy_setup_due`; the copy worker drives it (and reconciles the deposit) |
+| api | `API_TERMINAL_SETTLEMENT` | `on` → `off` | turn off only after the copy worker logs "Terminal settlement loop on the worker"; with it off, the api alerts `terminal_settlement_unowned` if no copy heartbeat reports the loop on for 2 min |
+
+Until the egress split (1b), every service keeps the same `HYPERLIQUID_EGRESS_KEY`: they still share one outbound IP. With 1b (Railway static egress on worker only) worker-copy gets its own key.
+
+**Rollout (in this order)**
+
+1. Back up, then deploy the release (api → worker → web) with no new variable. Nothing changes (`all`).
+2. Create `worker-read` from the same source and start command, with the worker's variables plus `WORKER_ROLE=read`, restart policy **Always**. It waits on standby for lease 2 (held by `all`) and makes no Hyperliquid call. Set `WORKER_READ_URL` on the api.
+3. Set `WORKER_ROLE=copy` on `worker`. Its redeploy starts a copy standby; when the old `all` exits both leases free: copy takes lease 1, worker-read takes lease 2 (about 1 s, or about 30 s after an unclean exit).
+4. Check `/health` and the admin system page: the copy heartbeat shows `worker.role=copy`, `leases=[1]`, `terminalSettlement=true` (testnet copy); worker-read shows `role=read`, `leases=[2]`, fresh snapshots.
+5. Set `API_SETUP_DRIVE=worker` on the api.
+6. After the copy worker's log shows "Terminal settlement loop on the worker", set `API_TERMINAL_SETTLEMENT=off` on the api.
+
+**Rollback (in this order)**
+
+1. On the api: `API_TERMINAL_SETTLEMENT=on`, `API_SETUP_DRIVE=local` (the api must own these again before the worker becomes `all`, because `all` keeps the worker's settlement loop off).
+2. Scale `worker-read` to 0 (or delete it).
+3. Unset `WORKER_ROLE` on `worker` (back to `all`, both leases).
+4. Unset `WORKER_READ_URL` on the api.
+
 ## Variables
 
 Secrets are set in Railway per service and per environment; nothing here belongs in git. "ref" means a Railway reference variable.

@@ -73,3 +73,7 @@ Privy 設定檢查另見 [2026-09-30 audit](privy-configuration-audit-2026-09-30
 私有 `/health/monitor` 回傳候選池與排行榜排程實際採用的 discovery 設定版本、確認時間與相關值。資料僅存在該 worker 程序記憶體，綁定既有 instance ID；重啟後未確認即為未知。讀取設定、儲存設定或打開監控頁不會自行標記為套用。候選池須先完成名單決策才確認；排行榜確認的是刷新間隔政策，並非一次匯入已完成。
 
 候選池大小變更會在下一個可執行的分鐘排程重建，不再等十分鐘的週期。設定儲存後各行程立即失效快取（`SettingsRelay`），忙碌中的上一輪仍可能延後採用；將 weight 預算設為 0 不取消已發出的上游請求。管理端 `/admin/settings/runtime` 僅在 worker 樣本有效、確認未超過三分鐘且版本相符時顯示已採用；使用復原設定另行標示。
+
+## 角色拆分（2026-10-14）
+
+`WORKER_ROLE=copy|read`（未設定＝`all`，即現況）可把 worker 拆成 worker-copy 與 worker-read 兩個 Railway 服務，各持一把 lease（73106,1／73106,2）。變數、上線與回滾順序見 `docs/railway-deploy.md`「Worker roles」一節；設計見 `docs/design-hl-egress-2026-10-13.md` §2、§3、§8。api 端相關變數：`WORKER_READ_URL`、`API_SETUP_DRIVE`、`API_TERMINAL_SETTLEMENT`。

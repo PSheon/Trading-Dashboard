@@ -514,3 +514,7 @@ Then Phase 2 (in-memory scheduler). §1 scoping and Phase 3 (node) come after ma
 - Railway's docs say the gateway "may be shared with other customers". `foreign_usage_suspected` measures this. If it is non-zero, the next step is to move worker-read (or worker-copy) to another Railway region so it gets a different pool.
 - The identity guard compares the public IP each role observes and refuses to start worker-copy when its IP equals the api's or worker-read's.
 - Rollback: `egressGatewayAssociationsClear` on the service.
+
+**I-15 notes (review):**
+1. The HA gateway has 3 IPs, and a request may leave from any of them. The limiter still caps at a single IP's 1200, so don't assume 3×.
+2. It is unknown whether the static gateway and the default egress share a pool. For the first week after 1b, keep the `foreign_usage_suspected` and 429 counts in the gate record.

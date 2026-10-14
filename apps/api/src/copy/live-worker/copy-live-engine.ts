@@ -109,7 +109,7 @@ const isHip3 = (coin: string) => coin.includes(':');
  * minute and its 10 at once (every account read failed for five minutes after
  * nine leases were lost together, local harness 2026-10-12). Anything else: 3 s.
  */
-export function retryDelayMs(error: unknown, reason: string): number { return liveRetryDelayMs(error, reason); }
+export function retryDelayMs(error: unknown): number { return liveRetryDelayMs(error); }
 /** Reads of an unsupported account mode before its refusal is final. */
 const ABSTRACTION_ATTEMPT_LIMIT = 3;
 const PERMANENT = new Set(['live_source_price_deviation', 'live_budget_over_capacity', 'below_min_notional', 'live_risk_adoption_unproven', 'live_market_unknown',
@@ -648,7 +648,7 @@ export class CopyLiveEngine {
       const transient = reason === 'live_account_unsupported_abstraction' && attempts < ABSTRACTION_ATTEMPT_LIMIT;
       const permanent = row.state === 'pending' && !waiting && !transient && (PERMANENT.has(reason) || row.leg === 'open' && PERMANENT_OPEN.has(reason) || row.leg === 'close' && (reason === 'no_follower_position' || attempts >= CLOSE_ATTEMPT_LIMIT));
       if (permanent || row.state !== 'pending') this.legRetryAt.delete(row.id);
-      else this.legRetryAt.set(row.id, this.now() + retryDelayMs(error, reason));
+      else this.legRetryAt.set(row.id, this.now() + retryDelayMs(error));
       await this.deps.repository.update(row, { ...(permanent ? { state: 'refused' as const } : {}), reason, firstAttemptAt: first, attempts, ...times });
     }
   }

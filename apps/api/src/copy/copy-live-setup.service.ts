@@ -14,8 +14,8 @@ import type { HyperliquidMeterComposition } from '../hyperliquid/hyperliquid-glo
 import { ACCOUNT_MODE_OBSERVE_WEIGHT } from './live/privy-account-mode-client.js';
 import { HyperliquidBudgetWait, SHARED_CAPACITY_MIN_RETRY_MS, sharedCapacityWait, type LiveBudget, type LiveBudgetReservation } from '../hyperliquid/hyperliquid-budget-wait.js';
 import { infoWeight } from '../hyperliquid/info-weights.js';
-import { DEFAULT_LIVE_SETUP_TIMINGS, type LiveSetupTimings } from '../config/live-timings.js';
-import { classify, exhausted, IDENTITY_UNVERIFIED_ISSUE, StepFail, StepWait } from './live/error-class.js';
+import { DEFAULT_LIVE_SETUP_TIMINGS, setupRetryPolicy, type LiveSetupTimings } from '../config/live-timings.js';
+import { decideRetry, IDENTITY_UNVERIFIED_ISSUE, StepFail, StepWait } from './live/error-class.js';
 import { LiveBoundaryError } from './live/wallet-authorization.js';
 import { CopyAgentService } from './copy-agent.service.js';
 import { AGENT_OBSERVE_WEIGHT } from './copy-agent-exchange.client.js';
@@ -781,51 +781,49 @@ export class CopyLiveSetupService {
     } finally { await this.repository.release(id, leased.leaseToken); }
   }
   /**
-   * Records why a step did not finish, by its class (live/error-class.ts):
-   * - budget (Hyperliquid weight, or a step waiting on what it started):
-   *   back at its time, never an attempt. A weight wait is logged and kept on
-   *   the row (lastWait, with how many waits this stage had): a setup looping
-   *   on hyperliquid_busy says which bucket and why.
-   * - needs_owner: the code is shown; looked at again, never exhausted.
-   * - permanent: the setup ends (failed, or expired for a deadline).
-   * - transient: one attempt more, backed off; at `transientAttempts` in this
-   *   stage it is permanent (an outcome still unknown never is), or, for a
-   *   Privy identity proof that kept expiring (`exhaustedAs`), it waits for
-   *   its owner (IDENTITY_UNVERIFIED_ISSUE) with an ALERT the first time.
+   * Records what a step that did not finish does next: decideRetry
+   * (live/error-class.ts, THE retry policy of every live step) under the
+   * setup's policy (setupRetryPolicy):
+   * - wait (a Hyperliquid weight, or a step waiting on what it started):
+   *   back at its time, never an attempt. A weight wait is logged and kept
+   *   on the row (lastWait, with how many waits this stage had): a setup
+   *   looping on hyperliquid_busy says which bucket and why.
+   * - owner: the code is shown; looked at again, never exhausted. A Privy
+   *   identity proof that kept expiring arrives here exhausted
+   *   (IDENTITY_UNVERIFIED_ISSUE) with an ALERT the first time.
+   * - end: the setup ends (failed, or expired for a deadline).
+   * - retry: one attempt more, backed off (a failed provider read at least
+   *   PROVIDER_READ_RETRY_MS, as a leg's and a stop's).
    */
   private async failed(row: SetupRow, error: unknown): Promise<SetupRow> {
-    const classified = classify(error), retry = this.timings.retry, now = this.now();
-    const issue = classified.code ?? 'setup_step_pending';
+    const decision = decideRetry(error, row.attempts, setupRetryPolicy(this.timings)), now = this.now();
+    const issue = decision.classified.code ?? 'setup_step_pending';
     const end = async (code: string, changes: Partial<SetupRow> = {}) =>
       (await this.repository.transition(row, { stage: EXPIRED_ISSUES.includes(code) ? 'expired' : 'failed', issue: code, nextAttemptAt: null, ...changes })) ?? row;
-    switch (classified.class) {
-      case 'budget': {
+    switch (decision.kind) {
+      case 'wait': {
         if (error instanceof StepWait && error.issue === 'awaiting_credit') return this.awaitCredit(row, now);
-        const retryMs = classified.retryAfterMs ?? retry.pendingMs;
+        const retryMs = decision.delayMs;
         if (!(error instanceof HyperliquidBudgetWait)) return (await this.repository.transition(row, { issue, nextAttemptAt: new Date(now + retryMs) })) ?? row;
         const waits = (row.lastWait?.step === row.stage ? row.lastWait.waits ?? 0 : 0) + 1;
         const lastWait: SetupWait = { at: new Date(now).toISOString(), step: row.stage, reason: error.reason, retryMs: Math.ceil(retryMs), waits, ...error.detail };
         this.logger.warn(`setup ${row.id} hyperliquid_busy ${JSON.stringify({ setupId: row.id, attempts: row.attempts, ...lastWait })}`);
         return (await this.repository.transition(row, { issue: 'hyperliquid_busy', lastWait, nextAttemptAt: new Date(now + retryMs) })) ?? row;
       }
-      case 'needs_owner': return (await this.repository.transition(row, { issue, nextAttemptAt: new Date(now + retry.needsOwnerMs) })) ?? row;
-      case 'permanent': return end(issue);
-      case 'transient': {
-        const attempts = row.attempts + 1;
-        if (exhausted(classified, attempts, retry.transientAttempts) && classified.exhaustedAs === 'needs_owner') {
-          const fields = { setupId: row.id, stage: row.stage, code: classified.code, attempts, ...identityTiming(error) };
-          if (row.issue !== IDENTITY_UNVERIFIED_ISSUE) this.logger.error(`ALERT setup identity unverified ${JSON.stringify(fields)}`);
-          else this.logger.warn(`setup ${row.id} identity still unverified ${JSON.stringify(fields)}`);
-          return (await this.repository.transition(row, { issue: IDENTITY_UNVERIFIED_ISSUE, attempts, nextAttemptAt: new Date(now + retry.needsOwnerMs) })) ?? row;
-        }
-        if (exhausted(classified, attempts, retry.transientAttempts)) {
-          const code = classified.code ?? 'setup_step_failed';
-          this.logger.warn(`setup ${row.id} ${code} after ${attempts} attempts at ${row.stage}: ${safeErrorText(error)}`);
-          return end(code, { attempts });
-        }
-        const backoff = Math.min(retry.backoffMaxMs, retry.backoffBaseMs * 2 ** Math.min(row.attempts, 5));
-        return (await this.repository.transition(row, { issue, attempts, nextAttemptAt: new Date(now + backoff) })) ?? row;
+      case 'owner': {
+        if (!decision.exhausted) return (await this.repository.transition(row, { issue, nextAttemptAt: new Date(now + decision.delayMs) })) ?? row;
+        const fields = { setupId: row.id, stage: row.stage, code: decision.classified.code, attempts: decision.attempts, ...identityTiming(error) };
+        if (row.issue !== IDENTITY_UNVERIFIED_ISSUE) this.logger.error(`ALERT setup identity unverified ${JSON.stringify(fields)}`);
+        else this.logger.warn(`setup ${row.id} identity still unverified ${JSON.stringify(fields)}`);
+        return (await this.repository.transition(row, { issue: IDENTITY_UNVERIFIED_ISSUE, attempts: decision.attempts, nextAttemptAt: new Date(now + decision.delayMs) })) ?? row;
       }
+      case 'end': {
+        if (!decision.exhausted) return end(issue);
+        const code = decision.classified.code ?? 'setup_step_failed';
+        this.logger.warn(`setup ${row.id} ${code} after ${decision.attempts} attempts at ${row.stage}: ${safeErrorText(error)}`);
+        return end(code, { attempts: decision.attempts });
+      }
+      case 'retry': return (await this.repository.transition(row, { issue, attempts: decision.attempts, nextAttemptAt: new Date(now + decision.delayMs) })) ?? row;
     }
   }
   /**

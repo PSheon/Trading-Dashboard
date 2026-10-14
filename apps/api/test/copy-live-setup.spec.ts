@@ -504,6 +504,22 @@ describe('one-click testnet copy setup', () => {
     expect((await db.select().from(copyLiveSetups))[0]).toMatchObject({ attempts: 0, lastWait: { retryMs: 1_000 } });
   });
 
+  // One retry policy with the copy legs and the stops (live/error-class.ts
+  // decideRetry): a setup step whose provider read failed waits at least
+  // 10 s like a leg, not its 3 s back-off (a burst of retries into a full
+  // socket window, gate 2026-10-13 11:16). Before 2026-10-15 it waited 3 s.
+  it("a setup step whose provider read failed is retried after 10 s like a leg, then by its back-off", async () => {
+    const setup = await start();
+    await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit(); later(5_000);
+    fakes.modes.submit.mockRejectedValue(new LiveBoundaryError('live_read_deadline_exceeded'));
+    for (const [i, delay] of [10_000, 10_000, 12_000].entries()) {
+      expect(await service.advance(uid, setup.id)).toMatchObject({ stage: 'funded', issue: 'live_read_deadline_exceeded' });
+      const [row] = await db.select().from(copyLiveSetups);
+      expect(row).toMatchObject({ attempts: i + 1 }); expect(row!.nextAttemptAt!.getTime()).toBe(clock + delay);
+      later(delay);
+    }
+  });
+
   // A transient failure is retried with back-off and ends the setup at its
   // eighth attempt: about four minutes of retries for a real-money setup,
   // so a brief Privy or database blip never ends it (3 ended it in 9 s).

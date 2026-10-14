@@ -1,7 +1,9 @@
 import { BadGatewayException, ConflictException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { assertSetupTimings, DEFAULT_LIVE_SETUP_TIMINGS, setupStepBudgetMs } from '../src/config/live-timings.js';
-import { classify, exhausted, IDENTITY_UNVERIFIED_ISSUE, liveRetryDelayMs, PRIVY_IDENTITY_EVIDENCE_CODES, StepFail, StepWait } from '../src/copy/live/error-class.js';
+import { classify, decideRetry, exhausted, IDENTITY_UNVERIFIED_ISSUE, LIVE_LEG_RETRY_POLICY, liveRetryDelayMs, PRIVY_IDENTITY_EVIDENCE_CODES, PROVIDER_READ_RETRY_MS, StepFail, StepWait, WAIT_FLOOR_MS } from '../src/copy/live/error-class.js';
+import { errorCode } from '../src/runtime/safe-error-text.js';
+import { setupRetryPolicy } from '../src/config/live-timings.js';
 import { AgentIdentityEvidenceExpired } from '../src/copy/copy-agent.service.js';
 import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
 import { HyperliquidBudgetOverCapacity, HyperliquidBudgetWait, SHARED_CAPACITY_RETRY_MS } from '../src/hyperliquid/hyperliquid-budget-wait.js';
@@ -108,5 +110,58 @@ describe('the gate of 2026-10-13 11:15 (7th run): what an order and a stop waite
     expect(liveRetryDelayMs(unavailable(new TypeError('fetch failed')))).toBe(10_000);
     expect(liveRetryDelayMs(new LiveBoundaryError('live_risk_stale'))).toBe(10_000);
     expect(liveRetryDelayMs(new LiveBoundaryError('no_follower_position'))).toBe(3_000);
+  });
+});
+
+describe('THE retry policy of a live step (decideRetry): a leg, a stop and a setup step decide the same way', () => {
+  const setup = setupRetryPolicy(DEFAULT_LIVE_SETUP_TIMINGS);
+  it('a wait is back when it said (at least 1 s) and never an attempt, under any policy', () => {
+    for (const policy of [LIVE_LEG_RETRY_POLICY, setup]) {
+      expect(decideRetry(new HyperliquidBudgetWait(22_600, 'local_budget'), 5, policy)).toMatchObject({ kind: 'wait', delayMs: 22_600 });
+      expect(decideRetry(new LiveBoundaryError('live_risk_busy'), 5, policy)).toMatchObject({ kind: 'wait', delayMs: 1_000 });
+      expect(decideRetry(unavailable(new HyperliquidRestCapacityError(4_000)), 5, policy)).toMatchObject({ kind: 'wait', delayMs: 4_250 });
+      expect(decideRetry(new StepWait('awaiting_credit', 3_000), 5, policy)).toMatchObject({ kind: 'wait', delayMs: 3_000 });
+    }
+  });
+  it("a wait whose error says no time is back after the policy's default: a setup step its pendingMs (3 s, as before), a leg a second; a hint under a second is a second", () => {
+    expect(decideRetry(new LiveBoundaryError('hyperliquid_quota_queue_full'), 0, setup)).toMatchObject({ kind: 'wait', delayMs: DEFAULT_LIVE_SETUP_TIMINGS.retry.pendingMs });
+    expect(decideRetry(new LiveBoundaryError('hyperliquid_quota_queue_full'), 0, LIVE_LEG_RETRY_POLICY)).toMatchObject({ kind: 'wait', delayMs: WAIT_FLOOR_MS });
+    expect(decideRetry(new StepWait('x', 10), 0, setup)).toMatchObject({ kind: 'wait', delayMs: WAIT_FLOOR_MS });
+    expect(WAIT_FLOOR_MS).toBe(1_000);
+  });
+  it("the engine's reason (errorCode) and the classifier's code agree on every code the policy reads, wrapped observations included", () => {
+    for (const error of [new LiveBoundaryError('live_risk_stale'), unavailable(new TypeError('fetch failed')), new LiveBoundaryError('hyperliquid_quota_users'), new Error('no_follower_position')])
+      expect(classify(error).code).toBe(errorCode(error));
+    // The one divergence: an HttpException carries its code in the response, which errorCode never read; the policy now spaces it as the provider read it is.
+    expect(errorCode(new ConflictException({ statusCode: 409, code: 'live_risk_stale', message: 'Stale read.' }))).toBe('live_execution_failed');
+    expect(liveRetryDelayMs(new ConflictException({ statusCode: 409, code: 'live_risk_stale', message: 'Stale read.' }))).toBe(PROVIDER_READ_RETRY_MS);
+  });
+  it("a transient failure backs off under the setup's policy (3 s × 2^attempts, 60 s at most) and ends at its eighth attempt", () => {
+    const error = new Error('privy_unavailable');
+    expect([0, 1, 2, 3, 4, 5, 6].map(prior => decideRetry(error, prior, setup))).toMatchObject(
+      [3_000, 6_000, 12_000, 24_000, 48_000, 60_000, 60_000].map((delayMs, i) => ({ kind: 'retry', delayMs, attempts: i + 1 })));
+    expect(decideRetry(error, 7, setup)).toMatchObject({ kind: 'end', attempts: 8, exhausted: true });
+    // An outcome still unknown is never exhausted.
+    expect(decideRetry(new LiveBoundaryError('account_action_submission_unknown'), 99, setup)).toMatchObject({ kind: 'retry', attempts: 100 });
+  });
+  it("a failed provider read waits at least PROVIDER_READ_RETRY_MS whatever the back-off: a setup step's first retry too (before 2026-10-15 it was 3 s)", () => {
+    expect(decideRetry(unavailable(new TypeError('fetch failed')), 0, setup)).toMatchObject({ kind: 'retry', delayMs: PROVIDER_READ_RETRY_MS, attempts: 1 });
+    expect(decideRetry(new LiveBoundaryError('live_read_deadline_exceeded'), 1, setup)).toMatchObject({ kind: 'retry', delayMs: PROVIDER_READ_RETRY_MS });
+    expect(decideRetry(new LiveBoundaryError('live_read_deadline_exceeded'), 2, setup)).toMatchObject({ kind: 'retry', delayMs: 12_000 });
+    expect(decideRetry(new LiveBoundaryError('hyperliquid_quota_users'), 0, LIVE_LEG_RETRY_POLICY)).toMatchObject({ kind: 'retry', delayMs: PROVIDER_READ_RETRY_MS });
+  });
+  it("a leg's policy is 3 s flat and never ends a leg by count; liveRetryDelayMs is its delay", () => {
+    expect(decideRetry(new LiveBoundaryError('no_follower_position'), 0, LIVE_LEG_RETRY_POLICY)).toMatchObject({ kind: 'retry', delayMs: 3_000 });
+    expect(decideRetry(new LiveBoundaryError('no_follower_position'), 50, LIVE_LEG_RETRY_POLICY)).toMatchObject({ kind: 'retry', delayMs: 3_000, attempts: 51 });
+    expect(liveRetryDelayMs(new LiveBoundaryError('no_follower_position'))).toBe(3_000);
+    expect(liveRetryDelayMs(new HyperliquidBudgetOverCapacity(1_000, 720))).toBe(3_000);
+  });
+  it("the owner's turn: needs_owner after needsOwnerMs with attempts unchanged; an identity proof exhausted as needs_owner after the same, exhausted", () => {
+    expect(decideRetry(new LiveBoundaryError('wallet_authorization_revoked'), 3, setup)).toEqual({ kind: 'owner', delayMs: 15_000, attempts: 3, exhausted: false, classified: classify(new LiveBoundaryError('wallet_authorization_revoked')) });
+    expect(decideRetry(new AgentIdentityEvidenceExpired(), 7, setup)).toMatchObject({ kind: 'owner', delayMs: 15_000, attempts: 8, exhausted: true });
+    expect(decideRetry(new AgentIdentityEvidenceExpired(), 2, setup)).toMatchObject({ kind: 'retry', delayMs: 12_000, attempts: 3 });
+  });
+  it('a permanent failure ends at once with its attempts unchanged', () => {
+    expect(decideRetry(new StepFail('setup_account_mode_failed'), 2, setup)).toMatchObject({ kind: 'end', attempts: 2, exhausted: false });
   });
 });

@@ -10,6 +10,7 @@
  */
 
 import { DAY_MS, HOUR_MS, MINUTE_MS } from './time.js';
+import { INDEX_LAG_MS } from './background.js';
 
 /** basis: guessed — exchange evidence (positions, orders, a mode) is used within 5 s of its read (2026-10-09, three reads take ~4 s at 8 ms RTT); verify: gate 9 evidence age p99
  */
@@ -321,17 +322,26 @@ export const LIVE_CLOCK_SKEW_ALLOWANCE_MS = 60_000;
  */
 export const NEVER_PLACED_GRACE_MS = LIVE_HTTP_TIMEOUT_MS + LIVE_CLOCK_SKEW_ALLOWANCE_MS;
 
-/** basis: derived — LIVE_CLOCK_SKEW_ALLOWANCE_MS + LIVE_HTTP_TIMEOUT_MS: every fill of a cancelled order was committed before the scan
+/** basis: derived — INDEX_LAG_MS (fill index lag, measured p90 1.5 s, a minute of margin) + LIVE_EVIDENCE_MAX_AGE_MS (our clock ahead of the exchange's, as far as the certificate's own account snapshot allows): 65 s (was 80 s)
  * How far past a cancel the account's fill scan must reach before its
- * booked fills stand for an unacknowledged IOC's filled quantity. The scan's
- * horizon is this machine's clock when it asked (`to = now`), the cancel's
- * time the exchange's: the margin covers this machine running ahead of the
- * exchange (LIVE_CLOCK_SKEW_ALLOWANCE_MS) and a request in flight
- * (LIVE_HTTP_TIMEOUT_MS), so every fill of the order (all before its cancel)
- * was committed before the scan read. A fill booked to it after its release
- * still quarantines the account (copy-follower-ledger.ts).
+ * booked fills stand for an unacknowledged IOC's filled quantity. Every fill
+ * of the order is stamped (exchange clock) at or before its cancel; the
+ * scan's horizon is this machine's clock when it asked (`to = now`). Two
+ * things can hide a fill from a scan that reached it:
+ * - the fill index trails the exchange (a fill stamped earlier is published
+ *   later): INDEX_LAG_MS, the same horizon fill-sync certifies reads to;
+ * - this machine's clock running ahead of the exchange's, so `to` names an
+ *   exchange instant that had not happened yet. The same certificate needs
+ *   an account snapshot whose provider times are at most
+ *   LIVE_EVIDENCE_MAX_AGE_MS behind our clock (freshProvider), so a release
+ *   is only certified while our clock runs at most that far ahead
+ *   (PROVIDER_CLOCK_SKEW_MS bounds only the other direction).
+ * A request in flight is not a term: the provider reads its index when the
+ * request arrives, after `to` (LIVE_HTTP_TIMEOUT_MS is NEVER_PLACED_GRACE_MS's
+ * term, an order that may still land). A fill booked to the order after its
+ * release still quarantines the account (copy-follower-ledger.ts).
  */
-export const LIVE_FILL_SCAN_MARGIN_MS = LIVE_CLOCK_SKEW_ALLOWANCE_MS + LIVE_HTTP_TIMEOUT_MS;
+export const LIVE_FILL_SCAN_MARGIN_MS = INDEX_LAG_MS + LIVE_EVIDENCE_MAX_AGE_MS;
 
 /** basis: derived — the shared mainnet mids read is cached 3 s; 10 s bounds a reference older than the 5 s frames
  * Source-network references may be older than the 5 s provider frames: a mid is the

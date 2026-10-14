@@ -309,8 +309,8 @@ describe('same-session PostgreSQL attempted order settlement', () => {
     });
     it('stays pending while the scan cursor is short of the cancel plus the margin', async () => {
       await lostAcknowledgement();
-      await db.insert(copyFollowerScans).values({ accountId: 'account', through: base + 10 + 80_000 - 1 }); // 80 s: clock skew allowance plus a request in flight
-      expect(LIVE_FILL_SCAN_MARGIN_MS).toBe(80_000);
+      await db.insert(copyFollowerScans).values({ accountId: 'account', through: base + 10 + 65_000 - 1 }); // 65 s: the fill index's lag plus our clock ahead of the exchange's
+      expect(LIVE_FILL_SCAN_MARGIN_MS).toBe(65_000);
       expect(await attempt()).toMatchObject({kind:'pending',reason:'live_settlement_quantity_unproven'});
       expect((await db.select().from(copyLiveRiskReservations))[0]?.state).toBe('unknown');
     });

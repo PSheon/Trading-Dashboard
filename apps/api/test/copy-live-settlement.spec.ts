@@ -5,7 +5,8 @@ import { parseFollowerFill, followerReceiptDigestV1 } from '../src/copy/live/act
 import { planLiveReservation } from '../src/copy/live/live-risk-reservation.js';
 import { intentFingerprint } from '../src/copy/live/live-order.js';
 import { fixture, now as base } from './copy-live-risk-test-utils.js';
-import { LIVE_FILL_SCAN_MARGIN_MS } from '../src/config/constants/timings.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS, LIVE_FILL_SCAN_MARGIN_MS } from '../src/config/constants/timings.js';
+import { INDEX_LAG_MS } from '../src/config/constants/background.js';
 type Mutable<T> = T extends object ? { -readonly [K in keyof T]: Mutable<T[K]> } : T;
 function input(status = 'filled', size = '1'): Mutable<LiveReservationSettlementInput> {
   const f = fixture(), record = { key: f.reservations.own.key, fingerprint: f.reservations.own.fingerprint, nonce: base,
@@ -66,6 +67,17 @@ describe('pure terminal reservation settlement', () => {
   it('tolerates exact replay receipts and preserves signed fee components once', () => {
     const f = input(); f.receipts.rows.push(structuredClone(f.receipts.rows[0]!));
     expect(assessLiveReservationSettlement(f)).toMatchObject({ kind: 'release' });
+  });
+  it('settles a lost-acknowledgement IOC once the scan is past the cancel by the index lag plus the clock skew the certificate allows (65 s), not 80 s', () => {
+    // INDEX_LAG_MS (a fill stamped earlier, published later) + LIVE_EVIDENCE_MAX_AGE_MS
+    // (our clock ahead of the exchange's, bounded by the certificate's own
+    // account snapshot). A request in flight is not a term: it reads later.
+    expect(LIVE_FILL_SCAN_MARGIN_MS).toBe(INDEX_LAG_MS + LIVE_EVIDENCE_MAX_AGE_MS);
+    const f = iocInput(); f.acknowledgement = null;
+    f.receipts.scannedThrough = base + 10 + 65_000;
+    expect(assessLiveReservationSettlement(f)).toMatchObject({ kind: 'release', certificate: { filledSize: '0.5', acknowledgementDigest: null } });
+    f.receipts.scannedThrough = base + 10 + 65_000 - 1;
+    expect(assessLiveReservationSettlement(f)).toEqual({ kind: 'pending', reason: 'live_settlement_quantity_unproven' });
   });
   it('settles a cancelled IOC whose acknowledgement was lost from its booked fills once the fill scan is past the cancel', () => {
     const f = iocInput(); f.acknowledgement = null;

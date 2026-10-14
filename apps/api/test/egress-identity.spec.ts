@@ -103,6 +103,16 @@ describe('each process learns its public IPv4 set from a stubbed echo', () => {
     expect(worker).toMatchObject({ mode: 'enforce', peers: ['http://api.railway.internal:3000', 'http://worker-read.railway.internal:3000'], expectedIps: GATEWAY });
     expect(() => validateEnvironment({ ...base, HL_EGRESS_EXPECTED_IPS: '2001:db8::1' })).toThrow(/IPv4/);
   });
+
+  it('enforce with no HL_EGRESS_PEERS is refused at startup: with nothing to compare, every lease would be allowed', () => {
+    const copy = { NODE_ENV: 'test', DATABASE_URL: DB, IS_WORKER: 'true', WORKER_ROLE: 'copy', HL_EGRESS_IDENTITY: 'enforce' };
+    expect(() => validateEnvironment(copy)).toThrow(/HL_EGRESS_IDENTITY=enforce needs HL_EGRESS_PEERS/);
+    expect(() => validateEnvironment({ ...copy, HL_EGRESS_PEERS: ' , ' })).toThrow(/needs HL_EGRESS_PEERS/);
+    expect(() => validateEnvironment({ ...copy, WORKER_ROLE: 'all', HL_EGRESS_EXPECTED_IPS: GATEWAY.join(',') })).toThrow(/needs HL_EGRESS_PEERS/);
+    // One peer is enough; observe needs none.
+    expect(validateEnvironment({ ...copy, HL_EGRESS_PEERS: 'http://api.railway.internal:3000' }).egressIdentity).toMatchObject({ mode: 'enforce', peers: ['http://api.railway.internal:3000'] });
+    expect(validateEnvironment({ ...copy, HL_EGRESS_IDENTITY: 'observe' }).egressIdentity).toMatchObject({ mode: 'observe', peers: [] });
+  });
 });
 
 describe('enforce: the copy worker refuses its lease on a shared egress (fail closed)', () => {

@@ -544,6 +544,8 @@ export function validateEnvironment(source: Environment = process.env) {
  *   (default 3000).
  * - HL_EGRESS_PEERS (copy worker): base URLs of the api and the read
  *   worker, whose GET /health/egress (the worker monitor key) says their IPs.
+ *   Required under enforce (at least one): without a peer every lease would
+ *   be allowed, so enforce would silently act as observe.
  * - HL_EGRESS_EXPECTED_IPS (copy worker, optional): the static egress
  *   gateway's addresses; an IP outside them means the gateway is not in use.
  */
@@ -553,6 +555,9 @@ function egressIdentityConfig(source: Environment, isWorker: boolean) {
   const list = (raw: string | undefined) => (raw ?? "").split(",").map((v) => v.trim()).filter(Boolean);
   const echoUrls = list(source.HL_EGRESS_ECHO_URLS);
   const peers = list(source.HL_EGRESS_PEERS);
+  // With no peer, egressLeaseVerdict has nothing to compare with and always
+  // allows the lease: enforce would act as observe while looking protected.
+  if (mode === "enforce" && !peers.length) throw new Error("HL_EGRESS_IDENTITY=enforce needs HL_EGRESS_PEERS (the api's and worker-read's base URLs): with no peer there is nothing to compare with and every lease would be allowed. Set the peers, or use observe");
   const expectedIps = list(source.HL_EGRESS_EXPECTED_IPS);
   if (expectedIps.some((ip) => isIP(ip) !== 4)) throw new Error("HL_EGRESS_EXPECTED_IPS must be IPv4 addresses");
   return {

@@ -22,19 +22,16 @@ import { CopyReadModule } from "./copy-read.module.js";
 import { CopySetupDueListener } from "./live-worker/copy-setup-due.listener.js";
 
 export function followerSnapshotReader({ budget, transport, network }: Pick<WalletNetworkHyperliquid, 'budget' | 'transport' | 'network'>) {
-  // Reporting waits before its evidence clock, under the existing background
-  // fairness policy. Collector admission still permits one claim per minute.
+  // Reporting waits before its evidence clock, under background fairness.
   const waitMs = Math.min(180_000, budget.refillMs());
   const acquire = liveBudget(budget, { lane: 'background', maxWaitMs: waitMs });
   const source = new HyperliquidAllDexsAccountSource(Date.now, undefined, network, transport);
   const shutdown = new AbortController(), cache = liveReadCache(network);
   return {
     async observe(accountAddress: string, beforeRead?: () => Promise<void>) {
-      // Keep the original decoder before charging anything. Each read owns
-      // its credit; neither SQL nor a late continuation owns a provider call.
+      // Decode before charging anything; each read owns its credit.
       const account = address(accountAddress);
-      // What the cross-order cache doesn't hold (live-read-cache.ts): 4 for a
-      // warm standard account instead of OBSERVER_REST_WEIGHT (284).
+      // Only what the cross-order cache lacks: 4 for a warm account instead of 284.
       const paid = observerRestWeight(account, cache);
       await acquire(paid, { signal: shutdown.signal });
       let issued = false, refunded = 0;
@@ -43,8 +40,7 @@ export function followerSnapshotReader({ budget, transport, network }: Pick<Wall
         let timer: ReturnType<typeof setTimeout> | undefined;
         let cancelled: (() => void) | undefined;
         try {
-          // Scheduling has its own pre-clock bound, separate from the local
-          // reserve. Late SELECT completion cannot continue into the observer.
+          // Scheduling has its own pre-clock bound; a late SELECT cannot continue into the observer.
           await Promise.race([
             Promise.resolve().then(() => beforeRead?.()),
             new Promise<never>((_, reject) => {
@@ -68,15 +64,12 @@ export function followerSnapshotReader({ budget, transport, network }: Pick<Wall
         }, (input, init) => {
           shutdown.signal.throwIfAborted();
           issued = true;
-          // Scheduled reporting must honor both the local background queue
-          // and the shared background cap; it cannot spend the foreground
-          // reserve needed by an order in another process.
+          // Background lane: never spends the foreground reserve another process's order needs.
           return transport.fetchBackgroundInfo(input, init);
         }, Date.now, 5000, source, waitMs + 2000, cache);
         return await observer.observe(account);
       } finally {
-        // Only this outer phase refunds. A failed/late SQL check and close
-        // have issued nothing; once a transport read starts its charge stays.
+        // Only this phase refunds; once a transport read starts its charge stays.
         if (!issued) budget.adjust(refunded - paid);
       }
     },
@@ -84,10 +77,8 @@ export function followerSnapshotReader({ budget, transport, network }: Pick<Wall
   };
 }
 
-/** The `read` worker's copy loops: the paper copy worker, the follower
- * receipt monitor and the follower snapshot collector. They sign and send
- * nothing (CopyReadModule): paper copy fills are simulated and its
- * repository only ever touches `mode = 'paper'` strategies. */
+/** The `read` worker's copy loops (paper worker, follower monitor, snapshot collector). They sign
+ * and send nothing; paper fills are simulated. */
 @Module({
   imports: [CopyReadModule, HyperliquidModule],
   providers: [CopyWorkerService, CopyFollowerMonitor, CopyFollowerSnapshotCollector,
@@ -97,11 +88,8 @@ export function followerSnapshotReader({ budget, transport, network }: Pick<Wall
 })
 export class CopyReportingWorkerModule {}
 
-/** The `copy` worker's loops: copy execution on the deployment's network
- * (with COPY_TRADING_MODE testnet or live: the engine, stops, closes,
- * settlement, the setup driver and aborts, the fast source), strategy
- * funding confirmations, the setup wake-ups and, when it runs here, the
- * terminal settlement loop (CopyModule's CopyLiveApiSettlementService). */
+/** The `copy` worker's loops: live execution (engine, stops, closes, settlement, setup driver,
+ * fast source), funding confirmations and setup wake-ups. */
 @Module({
   // WatcherRuntimeModule: the running trade feed (the fast copy source polls while it is down).
   imports: [CopyModule, HyperliquidModule, WatcherRuntimeModule],

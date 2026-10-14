@@ -74,11 +74,8 @@ export class CopyWalletRepository {
         .where(and(eq(copyExecutionAccounts.id, id), eq(copyExecutionAccounts.state, "requested"))).returning())[0];
     });
   }
-  /** The wallet Privy shows is this account's. Only an identity change
-   * (first seen, or another wallet, address or owner quorum) moves the
-   * revision that consents and generations bind: a reconcile that finds it
-   * as it was (every agent challenge, every setup step, a re-verification
-   * after a failed one) leaves it, so a running copy keeps trading. */
+  /** Records the Privy wallet. Only an identity change moves the revision that consents bind, so an
+   * unchanged reconcile never stops a running copy. */
   async confirmIdentity(id: string, rawIdentity: ProvisionedUserWallet) {
     const found = structuredClone(rawIdentity);
     try { return await this.withLockedAccount(id, async tx => {
@@ -99,8 +96,7 @@ export class CopyWalletRepository {
           sql`(${copyExecutionAccounts.privyWalletId} is null or (${copyExecutionAccounts.privyWalletId} = ${found.id} and ${copyExecutionAccounts.address} = ${found.address} and ${copyExecutionAccounts.ownerQuorumId} = ${found.ownerQuorumId}))`)).returning())[0];
     });
     } catch (error) {
-      // Drizzle wraps the pg SQLSTATE in cause. Reusing a wallet/address bound
-      // to another account is a permanent identity conflict, not an outage.
+      // SQLSTATE is in cause; reusing another account's wallet/address is a permanent conflict.
       const cause = error && typeof error === "object" && "cause" in error ? error.cause : error;
       if (cause && typeof cause === "object" && "code" in cause && cause.code === "23505") throw new ProvisioningWalletConflict("wallet_conflict");
       throw error;
@@ -115,10 +111,8 @@ export class CopyWalletRepository {
         // A first signer, or one added again after it was detached.
         sql`(${copyExecutionAccounts.masterPolicyId} is null or ${copyExecutionAccounts.signerDetachedAt} is not null)`)).returning())[0]);
   }
-  /** A failed check of a ready account, unless the account changed or a
-   * newer check succeeded since this one read it. The account stops being
-   * ready (nothing trades on it) but its identity did not change, so the
-   * revision consents bind stays: confirmed again, the copy goes on. */
+  /** A failed check (unless something newer happened): the account stops being ready but keeps
+   * its revision, so once confirmed again the copy goes on. */
   async failReverification(id: string, seen: Pick<AccountRow, "revision" | "identityChecks">, issue: AccountRow["issue"]) {
     await this.withLockedAccount(id, tx => tx.update(copyExecutionAccounts).set({ state: "unknown", issue, updatedAt: new Date() })
       .where(and(eq(copyExecutionAccounts.id, id), eq(copyExecutionAccounts.state, "ready"), eq(copyExecutionAccounts.revision, seen.revision), eq(copyExecutionAccounts.identityChecks, seen.identityChecks))));

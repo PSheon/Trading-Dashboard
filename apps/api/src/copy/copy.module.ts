@@ -68,14 +68,8 @@ import { CopyLiveReturnService } from './copy-live-return.service.js';
 import { HyperliquidAllDexsAccountSource } from './live/live-account-ws-source.js';
 import { assertBucketHolds, liveBudget, type LiveReserveOptions } from "../hyperliquid/hyperliquid-budget-wait.js";
 
-/**
- * Paper copy trading (Stage 4 step 3): /me/copy for the signed-in user, the
- * signal consumer and the paper executor. Their loops are CopyWorkerModule's
- * (the worker process only). The admin API
- * (/admin/copy, AdminCopyController in AdminModule) uses the exported
- * CopyControlService.apply, CopyRiskPolicyService.get/put and
- * CopyAdminReadService.
- */
+/** Copy trading's API side: /me/copy, setup and admin services. The loops run in
+ * CopyWorkerModule (worker process only). */
 import { CopyLiveSetupController } from "./copy-live-setup.controller.js";
 import { CopyLiveSetupRepository } from "./copy-live-setup.repository.js";
 import { deploymentNetwork } from "./live-deployment.js";
@@ -153,8 +147,7 @@ const setupReserve = (config: AppConfig, { network, dedicated }: Pick<WalletNetw
   exports: [CopyControlService, CopyAdminReadService, CopyAdminLiveService, PostgresLiveExecutionJournal, PostgresWalletAuthorizationSource,
     // Disabling a user stops their actual copies (AdminUsersService).
     CopyLiveSystemStops,
-    // CopyRiskPolicyService, the paper loops' services and the reporting
-    // reconciler, ledger and repositories (one instance per process).
+    // Risk policy, paper loops, reporting and repositories (one instance per process).
     CopyReadModule,
     // For the copy worker's loops (CopyLiveWorkerModule).
     CopyFundingService, CopyLiveReturnRepository, CopyLiveSetupService, WORKER_MASTER_SIGNER],

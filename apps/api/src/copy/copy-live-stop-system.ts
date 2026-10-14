@@ -33,19 +33,11 @@ const NOTHING_RUNNING = new Set(['no_activated_generation', 'live_execution_disa
 const PAGE = 500;
 
 /**
- * Stops the system starts for actual copies of this deployment's network:
- * the admin's 全部平倉 (close-all at platform or user scope) and a copy whose
- * agent is about to expire. Each is the same stop an owner asks for (close
- * every position, then return the funds, worked by CopyLiveStopper), one
- * transaction per copy so one copy's refusal never holds the others, audited
- * as copy.control on the account.
- *
- * A close-all covers every actual copy of the network that has not stopped
- * (any of them may hold funds or positions): each is stopped, or already
- * stopping, or reported as unhandled with its reason. Its control event is
- * written `liveCloseAll: 'pending'` in the control transaction and `done`
- * with the outcome afterwards; a pending one (the api died in between) is
- * resumed by the worker (resumePendingCloseAll), with the same stop keys.
+ * System-initiated stops for this network's actual copies (admin 全部平倉, expiring agent,
+ * liquidation, disabled owner): the owner's stop (close, then return), one transaction per copy so
+ * one refusal never holds the others, audited as copy.control.
+ * A close-all's event is written `liveCloseAll: 'pending'`, then `done` with the outcome; a pending
+ * one is resumed by the worker (resumePendingCloseAll) with the same stop keys.
  */
 @Injectable()
 export class CopyLiveSystemStops {
@@ -53,9 +45,7 @@ export class CopyLiveSystemStops {
   now: () => number = Date.now;
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, private readonly uow: UnitOfWork, private readonly stops: CopyLiveStopRepository, private readonly config: AppConfig) {}
 
-  /** Actual copies of this network that have not stopped, optionally of one
-   * owner, started before `createdBefore`, or whose active agent expires by
-   * `agentExpiresBy`; all of them (paged), none skipped silently. */
+  /** Every not-stopped actual copy of this network matching `filter` (paged), none skipped silently. */
   async targets(filter: { userId?: number; createdBefore?: Date; agentExpiresBy?: Date; liquidated?: boolean } = {}, db: DbExecutor = this.db): Promise<CloseAllTargets> {
     const network = deploymentNetwork(this.config), enabled = liveExecutionEnabled(this.config);
     const copies: RunningCopy[] = [], stopping: CloseAllTargets['stopping'] = [], unhandled: Unhandled[] = [];
@@ -113,8 +103,7 @@ export class CopyLiveSystemStops {
         if (stop.state === 'blocked') outcome.refused.push({ accountId: copy.accountId, code: 'stop_blocked' });
         else outcome.stopped.push({ accountId: copy.accountId, stopId: stop.id });
       } catch (error) {
-        // Its records disagree, it changed meanwhile, or it already stopped:
-        // reported, and the other copies still stop.
+        // Reported; the other copies still stop.
         const response = error instanceof HttpException ? error.getResponse() : null;
         const code = response && typeof response === 'object' && 'code' in response && typeof response.code === 'string' ? response.code : error instanceof HttpException ? `http_${error.getStatus()}` : 'stop_request_failed';
         outcome.refused.push({ accountId: copy.accountId, code });
@@ -123,13 +112,8 @@ export class CopyLiveSystemStops {
     return outcome;
   }
 
-  /**
-   * The actual-copy half of a close-all whose control event is `eventId`
-   * (scope: the platform, or one owner): every not-stopped copy started
-   * before the event is stopped or reported; the event's result and the
-   * audit record the outcome. Idempotent (same stop keys): the worker
-   * resumes one the api did not finish.
-   */
+  /** The actual-copy half of a close-all: every not-stopped copy started before the event is stopped
+   * or reported, recorded on the event and audit. Idempotent (same stop keys). */
   async closeAll(event: { id: bigint; scope: string; scopeId: number; revision: number; createdAt: Date }, actor: AuditActor): Promise<CloseAllOutcome> {
     const targets = await this.targets({ ...(event.scope === 'user' ? { userId: event.scopeId } : {}), createdBefore: event.createdAt });
     const outcome = await this.stopAll(targets.copies, 'admin_close_all', actor, `r${event.revision}`);
@@ -156,9 +140,7 @@ export class CopyLiveSystemStops {
     return done;
   }
 
-  /** Copies Hyperliquid liquidated are stopped (architecture review §7.3):
-   * before, the account was only quarantined, the copy stayed active and
-   * what was left of its funds was never returned. */
+  /** Liquidated copies are stopped so what is left is returned (architecture review §7.3). */
   async stopLiquidated(): Promise<SystemStopOutcome> {
     const targets = await this.targets({ liquidated: true });
     const outcome = targets.copies.length ? await this.stopAll(targets.copies, 'follower_liquidated', null, 'liquidation') : { stopped: [], refused: [] };
@@ -170,14 +152,9 @@ export class CopyLiveSystemStops {
   fenceOwnerStops(tx: DbTransaction): Promise<void> { return this.stops.fence(tx); }
 
   /**
-   * An admin disables an owner (in the disable's transaction `tx`, fenced
-   * with fenceOwnerStops first): a disabled owner can no longer sign in, and
-   * the worker signs only a stop's closes for them, so a running copy left
-   * as it is would hold its positions with nobody managing them. Every one
-   * of the owner's running copies gets the same stop an owner asks for
-   * (close every position, then return the funds). `leftRunning`: copies
-   * that would keep running without a worked stop (its stop refused or
-   * blocked); the caller refuses the disable while there are any.
+   * Admin disables an owner (in the disable's `tx`, after fenceOwnerStops): nobody would manage their
+   * running copies, so each is stopped. `leftRunning`: copies without a worked stop; the caller
+   * refuses the disable while there are any.
    */
   async stopOwner(tx: DbTransaction, userId: number, actor: AuditActor): Promise<SystemStopOutcome & { stopping: Array<{ accountId: string; stopId: string }>; leftRunning: Unhandled[] }> {
     const targets = await this.targets({ userId }, tx);

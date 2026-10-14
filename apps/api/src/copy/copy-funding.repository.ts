@@ -16,13 +16,10 @@ import type { FundingScan } from "./copy-funding-scan.js";
 export type FundingRow = typeof copyFundingOperations.$inferSelect;
 const pending = () => inArray(copyFundingOperations.status, ["prepared", "unknown", "accepted"]);
 const conflict = () => new ConflictException({ statusCode: 409, code: "funding_pending", message: "Resolve the pending wallet operation first" });
-/** A one-click setup's deposit is sent only by that setup's confirm (the
- * owner's consent, the worker signer added): sent on its own, it would fund a
- * copy that has neither, and so no way to run or return it. */
+/** A setup's deposit is sent only by its confirm; alone it would fund a copy with no consent or
+ * signer, so no way to run or return it. */
 const setupDeposit = () => new ConflictException({ statusCode: 409, code: "funding_setup_confirm_required", message: "This deposit is sent by confirming its copy setup" });
-/** Which deposits a caller may send: a setup's confirm passes its setup id
- * (`via.liveSetupId`) and sends only that setup's; anyone else only a
- * deposit that belongs to no setup. */
+/** A setup's confirm (`liveSetupId`) sends only that setup's deposit; others only setup-less ones. */
 export interface FundingSender { readonly liveSetupId?: string }
 const sendable = (row: Pick<FundingRow, "liveSetupId">, via: FundingSender) => row.liveSetupId === (via.liveSetupId ?? null);
 
@@ -41,10 +38,8 @@ export class CopyFundingRepository {
     if (!row) throw new NotFoundException("Funding operation not found");
     return row;
   }
-  /** Fair bounded read-reconciliation admission across worker replicas. The
-   * lease never grants submission rights or changes the transfer status. A
-   * row backing off (scan_state.backoff.nextAt, epoch ms, still ahead) is not
-   * due: neither read nor leased (no write) until then. */
+  /** Fair read-reconciliation lease across replicas (never a submission right). A row still
+   * backing off (scan_state.backoff.nextAt) is not due. */
   claimPending(limit: number) {
     return this.db.transaction(async (tx) => {
       const rows = await tx.select().from(copyFundingOperations)
@@ -55,9 +50,8 @@ export class CopyFundingRepository {
       return tx.update(copyFundingOperations).set({ updatedAt: new Date() }).where(inArray(copyFundingOperations.id, rows.map((row) => row.id))).returning();
     });
   }
-  /** `guard` sees the owner and what the account already holds from deposits
-   * (sent or pending, less credited returns) inside the reservation's lock,
-   * and throws to refuse it (the deployment's allowlist and allocation cap). */
+  /** `guard` sees the owner and the account's net deposits under the lock and throws to refuse
+   * (allowlist, allocation cap). */
   async reserve(userId: number, accountId: string, network: FundingRow["network"], rawInput: CopyFundingInput,
     guard?: (context: { privyUserId: string; depositedUsd: string; policyMaxAllocationUsd: number | null }) => void, liveSetupId?: string) {
     const input = structuredClone(rawInput);
@@ -87,8 +81,7 @@ export class CopyFundingRepository {
       }
       const source = and(eq(copyFundingOperations.network, network), eq(copyFundingOperations.address, user.embeddedWalletAddress));
       await expireStaleReturns(tx, accountId);
-      // Either direction on this copy account: a return to the main wallet in
-      // flight excludes a new deposit, as a deposit in flight excludes a return.
+      // A transfer in flight in either direction excludes a new one.
       if ((await tx.select({ id: copyFundingOperations.id }).from(copyFundingOperations).where(and(or(source, eq(copyFundingOperations.accountId, accountId)), pending())).limit(1)).length ||
           (await tx.select({ id: walletWithdrawals.id }).from(walletWithdrawals).where(and(eq(walletWithdrawals.network, network), eq(walletWithdrawals.address, user.embeddedWalletAddress), inArray(walletWithdrawals.status, ["prepared", "unknown"]))).limit(1)).length) throw conflict();
       const clock = await tx.execute<{ nonce: number }>(sql`select greatest(floor(extract(epoch from clock_timestamp()) * 1000)::bigint,
@@ -140,9 +133,8 @@ export class CopyFundingRepository {
     await this.locked(userId, tx => tx.update(copyFundingOperations).set({ status: "prepared", claimedAt: null, updatedAt: new Date() })
       .where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.userId, userId), eq(copyFundingOperations.status, "unknown"), isNull(copyFundingOperations.attemptedAt))));
   }
-  /** Only this process's original transport can prove no POST was handed
-   * over. A crash, serialized error or unrelated attempt has no such proof.
-   * Any concurrent reconciliation or identity/state change wins this CAS. */
+  /** Only this process's original transport proves no POST was handed over; any concurrent change
+   * wins this CAS. */
   async restoreNotDispatched(userId: number, original: FundingRow, error: unknown) {
     const operation = structuredClone(original);
     if (operation.userId !== userId || operation.direction !== 'to_account' ||
@@ -179,9 +171,8 @@ export class CopyFundingRepository {
       .where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.userId, userId), eq(copyFundingOperations.status, "unknown"), sql`${copyFundingOperations.attemptedAt} is not null`)).returning());
     return row ?? this.find(userId, id);
   }
-  /** Rejected as never executed, only if nothing changed the operation since
-   * `operation` was read (status, attempt and scan revision), under the
-   * owner's lock; null when something did. */
+  /** Rejected as never executed, only if unchanged since read (status, attempt, scan revision);
+   * null otherwise. */
   async notExecuted(operation: FundingRow, evidenceHash: string) {
     const [row] = await this.locked(operation.userId, tx => tx.update(copyFundingOperations).set({ status: "rejected", evidenceHash, updatedAt: new Date() })
       .where(and(eq(copyFundingOperations.id, operation.id), eq(copyFundingOperations.userId, operation.userId), eq(copyFundingOperations.status, "unknown"),
@@ -193,11 +184,8 @@ export class CopyFundingRepository {
     if (!row) throw new NotFoundException("Funding operation not found");
     return row;
   }
-  /** An operator's resolution of a transfer read as `row` (unknown or
-   * accepted, attempted), from evidence proven after the nonce window: the
-   * guarded move (still in the status it was read in) and the audit row in
-   * one transaction, under the owner's lock. Null when the row moved
-   * meanwhile. */
+  /** Operator resolution: guarded move from the status read plus the audit row, one tx under the
+   * owner's lock. Null when the row moved meanwhile. */
   async resolveByOperator(row: FundingRow, outcome: { status: "rejected" } | { status: "credited"; receipt: { transactionHash: string; creditedAmount: string; fee: string } },
     evidenceHash: string, actor: AuditActor, reason: string, evidence: string): Promise<FundingRow | null> {
     const receipt = outcome.status === "credited" ? structuredClone(outcome.receipt) : null;
@@ -217,10 +205,8 @@ export class CopyFundingRepository {
       .where(and(eq(copyFundingOperations.id, operation.id), eq(copyFundingOperations.userId, operation.userId), eq(copyFundingOperations.scanRevision, operation.scanRevision), inArray(copyFundingOperations.status, ["unknown", "accepted"]), sql`${copyFundingOperations.attemptedAt} is not null`)).returning();
     return row ?? null;
   }
-  /** A failed pass's backoff (and explorer health) on the scan the pass
-   * read, as bookkeeping: no new scan revision and no updatedAt, so nothing
-   * that compares either sees a change. Only while the scan is still the one
-   * read (`operation.scanRevision`): a pass that saved evidence meanwhile wins. */
+  /** Backoff bookkeeping: no new scan revision or updatedAt, and only while the scan is still the
+   * one read (a pass that saved evidence meanwhile wins). */
   async saveBackoff(operation: FundingRow, scanState: FundingScan) {
     const [row] = await this.db.update(copyFundingOperations).set({ scanState })
       .where(and(eq(copyFundingOperations.id, operation.id), eq(copyFundingOperations.userId, operation.userId), eq(copyFundingOperations.scanRevision, operation.scanRevision), inArray(copyFundingOperations.status, ["unknown", "accepted"]), sql`${copyFundingOperations.attemptedAt} is not null`)).returning();

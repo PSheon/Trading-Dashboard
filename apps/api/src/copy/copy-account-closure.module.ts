@@ -8,9 +8,7 @@ import { CopyAccountClosureService } from "./copy-account-closure.service.js";
 import { CopyFundingExchangeClient } from "./copy-funding-exchange.client.js";
 import { MASTER_POLICY, PrivyMasterPolicy } from "./live/privy-master-policy.js";
 
-/** Account deletion's view of the copy side (users/account-closure.port.ts):
- * the exchange read of a copy account and Privy's signer removal, without
- * the rest of CopyModule. */
+/** Account deletion's view of the copy side: exchange read and Privy signer removal only. */
 @Module({
   imports: [HyperliquidModule],
   providers: [

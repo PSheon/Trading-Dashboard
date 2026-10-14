@@ -21,23 +21,14 @@ export class FollowerSnapshotDeferred extends LiveBoundaryError {
   constructor() { super('live_account_snapshot_scheduling_deferred'); }
 }
 export type FollowerSnapshotIssue = NonNullable<typeof copyFollowerObservationJobs.$inferSelect['issue']>;
-/** Observations of the deployment's network's copy accounts only (another
- * network's accounts keep their last observation as history). */
-/**
- * Accounts worth an observation: those of a live or stopping copy, and those
- * that may hold funds (a deposit was sent to them and their latest
- * observation, if any, still showed equity). A setup that ended before its
- * deposit (Stage's 0x0a6a…, never moved to standard mode) was observed every
- * two minutes forever and logged unsupported_mode each time.
- */
+/** Accounts worth an observation: a live or stopping copy's, or one that may hold funds (deposit
+ * sent, last observation still showed equity). A setup that ended before its deposit is not. */
 const observable = sql`(exists (select 1 from copy_live_mandates m where m.account_id = ${copyExecutionAccounts.id} and m.state in ('active', 'paused', 'stopping'))
   or (exists (select 1 from copy_funding_operations f where f.account_id = ${copyExecutionAccounts.id} and f.direction = 'to_account' and f.status in ('unknown', 'accepted', 'credited'))
     and not exists (select 1 from copy_follower_observations o where o.id = ${copyFollowerObservationJobs.latestObservationId}
       and coalesce(nullif(o.snapshot->>'perpEquity', ''), '0')::numeric < 0.01)))`;
-/** Reporting shares the order bucket. Defer it during capability setup and
- * in-flight financial dispatches. A new active copy gets at most two minutes
- * for its first terminal dispatch; an idle funded copy remains observable.
- * Failed/cancelled setups and revoked/stopped generations never hide funds. */
+/** Reporting shares the order bucket: deferred during setup and in-flight dispatches (a new copy
+ * gets at most two minutes for its first). Failed setups and stopped generations never hide funds. */
 const reportingEligible = sql`not exists (select 1 from copy_live_setups s where s.account_id = ${copyExecutionAccounts.id}
     and s.stage not in ('running', 'failed', 'expired', 'cancelled')
     and (s.created_at > clock_timestamp() - interval '120 seconds' or s.lease_until > clock_timestamp()))
@@ -72,12 +63,8 @@ export class CopyFollowerSnapshotRepository {
         ordinaryDue: sql<boolean>`coalesce(${copyFollowerObservationBudget.nextSnapshotAllowedAt} <= clock_timestamp(), false)` })
         .from(copyFollowerObservationBudget).where(eq(copyFollowerObservationBudget.network, network));
       if (!budget?.available) return null;
-      // Testnet reporting uses the same bucket as every execution account.
-      // Deferring only the account being traded still lets an older funded
-      // account consume a full observation while another order waits. Keep
-      // retained observations unchanged. A stalled order cannot starve other
-      // accounts forever: reporting still gets one admission per five busy
-      // minutes. This hint never grants or changes financial authority.
+      // Testnet reporting shares the execution bucket: while busy only recovery accounts are
+      // admitted, plus one ordinary admission per five busy minutes. Never grants financial authority.
       if (busy && !budget.ordinaryDue) {
         const recovery = await tx.select({ id: copyExecutionAccounts.id }).from(copyExecutionAccounts)
           .where(and(eq(copyExecutionAccounts.network, network), followerRecoveryAccount)).limit(1);

@@ -13,12 +13,8 @@ import { safeErrorText } from '../runtime/safe-error-text.js';
 import { LeaderActivityService } from '../traders/leader-activity.service.js';
 import { digest, Fail, refuse, SetupPart, setupFundingKey, Wait, type SetupContext } from './copy-live-setup-shared.js';
 
-/**
- * What a live copy setup prepares before any consent (the copy wallet, the
- * agent, the deposit reservation, the worker's policy) and the consent
- * challenge itself, for a start and again for an edit. Composed by
- * CopyLiveSetupService.
- */
+/** What a setup prepares before consent (wallet, agent, deposit reservation, worker policy) and the
+ * consent challenge itself, for a start or an edit. */
 interface SetupProvisioningDeps {
   readonly wallets: CopyWalletService; readonly agents: CopyAgentService; readonly funding: CopyFundingService; readonly fundingRows: CopyFundingRepository;
   readonly mandates: CopyLiveMandateRepository; readonly walletRows: CopyWalletRepository; readonly leaderActivity: Pick<LeaderActivityService, 'copyActivity'> | null;
@@ -33,10 +29,8 @@ export class SetupProvisioning extends SetupPart {
     this.mandates = deps.mandates; this.walletRows = deps.walletRows; this.leaderActivity = deps.leaderActivity;
   }
 
-  /** A mainnet leader trading faster than a copy can follow (shared
-   * `leaderActivityVerdict`) is refused before anything is created; an
-   * unreadable activity refuses too (fail closed). A retry of an admitted key
-   * is not measured again. */
+  /** A mainnet leader trading faster than a copy can follow (`leaderActivityVerdict`) is refused
+   * before anything is created; unreadable activity refuses too (fail closed). */
   async assertLeaderFits(leader: string) {
     let activity;
     try {
@@ -51,9 +45,7 @@ export class SetupProvisioning extends SetupPart {
       : `This trader trades too often for copying to keep up (${activity.orders} orders in the last 24 hours, up to ${activity.peakPerMinute} a minute). The limit is ${activity.limits.perDay} a day and ${activity.limits.perMinute} a minute.`);
   }
 
-  /** Provider-only preparation, none of which needs a consent: the copy
-   * wallet, the agent (policy + wallet, ready), the deposit reservation and
-   * the worker's policy; then the consent challenge. No challenge without the
+  /** Provider-only preparation, then the consent challenge. No challenge without the worker's
    * policy: the worker signs every step after confirm. */
   async provisionLeased(id: string): Promise<SetupRow> {
     const row = await this.repository.lease(id, this.timings.leaseMs);
@@ -70,8 +62,7 @@ export class SetupProvisioning extends SetupPart {
     const step = async (changes: Partial<SetupRow>) => {
       const next = await this.repository.transition(row, changes);
       row = next ?? await this.repository.find(userId, row.id);
-      // A cancelled/superseded revision is never adopted as authority to
-      // prepare another child or renew its consent challenge.
+      // A cancelled/superseded revision never authorizes another child or a renewed challenge.
       return Boolean(next);
     };
     try {
@@ -145,9 +136,8 @@ export class SetupProvisioning extends SetupPart {
     return next ?? this.repository.find(row.userId, row.id);
   }
 
-  /** Ends a start whose consent never came or that ended without a
-   * generation (one never-sent deposit cancelled, its strategy stopped). A
-   * deposit already sent stays with its setup (that setup is still going). */
+  /** Ends an abandoned start (never-sent deposit cancelled, strategy stopped); a sent deposit stays
+   * with its still-going setup. */
   async endAbandoned(tx: DbExecutor, row: SetupRow): Promise<void> {
     if (['provisioning', 'awaiting_consent'].includes(row.stage) && row.fundingOperationId) {
       const deposit = await this.fundingRows.find(row.userId, row.fundingOperationId);

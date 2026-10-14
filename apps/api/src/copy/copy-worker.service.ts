@@ -12,14 +12,9 @@ import { COPY_SNAPSHOT_INTERVAL_MS, FUNDING_CHECK_MS } from '../config/constants
 const MAX_PASSES = 5;
 
 /**
- * Drives paper copy trading: every COPY_WORKER_INTERVAL_MS (default 2 s)
- * the signal consumer drains the execution outbox, the executor fills
- * approved orders, strategies below their maintenance margin are
- * liquidated, stopping strategies settle, and once a minute hourly
- * funding is checked. One tick at a time. Runs in the worker process only
- * (CopyWorkerModule); not started under NODE_ENV=test or COPY_TRADING_MODE=disabled. On restart the consumer resumes from its
- * checkpoint (pending outbox rows) and the executor from orders left
- * `risk_approved` or `submitting`.
+ * Paper copy loop, every COPY_WORKER_INTERVAL_MS: drain signals, fill approved orders, liquidate,
+ * settle stopping strategies, and once a minute accrue funding. One tick at a time; worker only,
+ * off under NODE_ENV=test or COPY_TRADING_MODE=disabled. Restarts resume from durable state.
  */
 @Injectable()
 export class CopyWorkerService implements OnApplicationBootstrap, OnModuleDestroy {

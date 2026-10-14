@@ -18,10 +18,8 @@ import { deploymentNetwork } from './live-deployment.js';
 import { LIVE_EVIDENCE_MAX_AGE_MS } from '../config/constants/timings.js';
 
 const hash = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex');
-/** Follow-up refunds of a setup abort at most: money that landed in the copy
- * account after its refund left (setupAbortRefundLeft) is returned again, the same way
- * (`abort:<abort id>:<n>`, as a stop's sweep is `sweep:<stop id>:<n>`).
- * Past this the abort needs its owner (setup_abort_residual_balance). */
+/** Max follow-up refunds (`abort:<abort id>:<n>`) for money left after a refund left; past this the
+ * abort needs its owner (setup_abort_residual_balance). */
 export const SETUP_ABORT_RESIDUAL_RETURNS = 3;
 const refundKey = (abortId: string) => `abort:${abortId}`;
 /** Refund n of a setup abort: 0 the original, then its follow-ups (null: not one). */
@@ -29,13 +27,9 @@ export function setupAbortRefundAttempt(row: Pick<ReturnRow, 'idempotencyKey' | 
   return row.setupAbortId ? keyedAttempt(row.idempotencyKey, refundKey(row.setupAbortId)) : null;
 }
 /**
- * Whether a refund of a setup abort has left the copy account, for its next
- * follow-up: credited (the funding monitor's confirmation), or accepted by
- * the exchange (its own reply: it executed) with this flat proof read wholly
- * after that reply was recorded, so the refund's debit is already in the
- * withdrawable the proof shows and the follow-up's amount (all of it) never
- * holds the same money again. The credit is not waited for (it needs the
- * explorer). Prepared, unknown or a proof that may predate it: not left.
+ * Whether a refund has left the copy account: credited, or accepted with this proof read wholly after
+ * the reply was recorded (so its debit is in the proof's withdrawable and a follow-up never returns
+ * the same money twice). A proof that may predate it: not left.
  */
 export function setupAbortRefundLeft(refund: Pick<ReturnRow, 'status' | 'updatedAt'>, proof: SetupAbortFlatObservation): boolean {
   if (refund.status === 'credited') return true;
@@ -71,9 +65,7 @@ export class CopyLiveSetupAbortReturnRepository {
       deposit.accountId !== account.id || deposit.strategyId !== abort.strategyId || deposit.network !== abort.network || deposit.direction !== 'to_account' ||
       deposit.address !== abort.destination || deposit.destination !== abort.accountAddress || deposit.nonce !== parsed.data.fundingNonce || deposit.amount !== parsed.data.fundingAmount)
       refuse('setup_abort_binding_unknown');
-    // Completing an original operation that was provably never attempted
-    // grants no signing authority. Every attempted/credited deposit and every
-    // refund still requires the genuine consent and its original policy.
+    // Only completing over a never-attempted deposit skips the consent/policy check: it grants no signing authority.
     const neverAttempted = !deposit.attemptedAt && deposit.status === 'cancelled';
     if (!(completing && neverAttempted) && (!abort.consentDigest || setup.consentDigest !== abort.consentDigest ||
       !account.masterPolicyId || account.masterPolicyId !== parsed.data.masterPolicyId || account.masterPolicyFingerprint !== parsed.data.masterPolicyFingerprint ||
@@ -81,18 +73,12 @@ export class CopyLiveSetupAbortReturnRepository {
     return { abort, setup, account, strategy, deposit };
   }
 
-  /** No lease expiry is evidence that an old driver or attempted child ended.
-   * Every attempted outcome remains pending until its own reconciliation says
-   * it cannot execute, and a real generation always uses a genuine stop. */
+  /** No child may be in flight; a lease expiry alone never proves a driver or child ended. */
   private async quiescent(tx: DbTransaction, context: Awaited<ReturnType<CopyLiveSetupAbortReturnRepository['context']>>, proof: SetupAbortFlatObservation, now: number) {
     const { abort, setup, deposit } = context;
-    // The original deposit, once settled for the refund from the account's
-    // own state (abortDepositSettled: never the explorer), no longer holds
-    // it: its credit confirmation lags on its own (funding monitor).
+    // A deposit settled from the account's own state (never the explorer) no longer holds the refund.
     const settled = this.depositSettled(context, proof, now) ? deposit.id : null;
-    // An expired token alone never grants permission. The persistent abort
-    // already fences every new attempt; the locked child queries below seal
-    // all prior SDK outcomes, and callers must provide a fresh purpose proof.
+    // A live setup lease still holds; the queries below find any child outcome still open.
     if (setup.leaseToken && (!setup.leaseUntil || setup.leaseUntil.getTime() > Date.now())) return false;
     const result = await tx.execute<{ busy: boolean }>(sql`select (
       exists(select 1 from copy_execution_accounts where id = ${abort.accountId} and state <> 'ready')
@@ -137,13 +123,9 @@ export class CopyLiveSetupAbortReturnRepository {
   async reserve(expected: SetupAbortRow, proof: SetupAbortFlatObservation, now: () => number = Date.now): Promise<ReturnRow | null> {
     return this.db.transaction(async tx => {
       const context = await this.context(tx, expected), { abort, account } = context;
-      // The abort's current refund answers, unless it has left (credited, or
-      // accepted with its debit in this proof: setupAbortRefundLeft) and the
-      // account (proven flat below) still holds money: then the next
-      // follow-up, for what the account holds now, at most
-      // SETUP_ABORT_RESIDUAL_RETURNS. Under the user lock (read here, under
-      // it), keyed once each (copy_funding_key_uq), never while one is
-      // prepared or unknown (copy_funding_pending_uq).
+      // The current refund answers unless it has left (setupAbortRefundLeft): then the next follow-up
+      // for what the account holds now, at most SETUP_ABORT_RESIDUAL_RETURNS (copy_funding_key_uq,
+      // copy_funding_pending_uq).
       const refunds = await tx.select().from(copyFundingOperations).where(eq(copyFundingOperations.setupAbortId, abort.id));
       const current = refunds.find(row => row.id === abort.returnOperationId) ?? refunds[0];
       let key = refundKey(abort.id);
@@ -178,9 +160,7 @@ export class CopyLiveSetupAbortReturnRepository {
       return attempt ?? null;
     });
   }
-  /** A new flat proof for the attempt this pass claimed (its signature took
-   * part of the first proof's 5 s): the same checks as begin, under the same
-   * lock, against the same claimed attempt; nothing is claimed again. */
+  /** A new flat proof for the already-claimed attempt (signing aged the first): begin's checks, nothing claimed again. */
   async reprove(expected: SetupAbortRow, attempt: ReturnRow, proof: SetupAbortFlatObservation, now: () => number = Date.now): Promise<boolean> {
     return this.db.transaction(async tx => {
       const context = await this.context(tx, expected), { abort } = context;
@@ -194,10 +174,8 @@ export class CopyLiveSetupAbortReturnRepository {
       return true;
     });
   }
-  /** The refund this pass claimed, proven never handed to the exchange (the
-   * caller's dispatch flag), goes back to prepared with its same nonce: begun
-   * again under a new proof. Only that exact attempt: anything that moved
-   * since (an outcome, a reconciliation) wins, and it stays as it is. */
+  /** A claimed refund proven never dispatched goes back to prepared (same nonce). Only that exact
+   * attempt: anything that moved since wins. */
   async restoreNotDispatched(expected: SetupAbortRow, attempt: ReturnRow): Promise<ReturnRow | null> {
     if (attempt.setupAbortId !== expected.id || attempt.userId !== expected.userId || attempt.status !== 'unknown' || !attempt.attemptedAt || !attempt.claimedAt) return null;
     return this.db.transaction(async tx => {
@@ -216,9 +194,7 @@ export class CopyLiveSetupAbortReturnRepository {
       const evidence = this.proof(abort, proof, now());
       if (evidence.amount || !await this.quiescent(tx, context, proof, now()) || !this.depositSettled(context, proof, now()) ||
         !['paused','stopped'].includes(strategy.status)) return false;
-      // The refund the exchange accepted (its own reply) with the account now
-      // proven flat at zero has left: its credit is confirmed later by the
-      // funding monitor (the explorer may lag), never holding the setup.
+      // An accepted refund with the account proven flat at zero has left; its credit never holds the setup.
       const refunds = await tx.select().from(copyFundingOperations).where(eq(copyFundingOperations.setupAbortId, abort.id));
       if (refunds.some(row => !['credited', 'accepted'].includes(row.status)) || (abort.returnOperationId && !refunds.some(row => row.id === abort.returnOperationId))) return false;
       const others = await tx.execute<{ busy: boolean }>(sql`select exists(select 1 from copy_live_setups where strategy_id = ${abort.strategyId}

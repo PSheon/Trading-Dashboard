@@ -63,27 +63,22 @@ export class CopyLiveSetupRepository {
       .where(and(eq(copyLiveSetups.id, row.id), eq(copyLiveSetups.revision, row.revision), sql`not exists (select 1 from ${copyLiveSetupAborts} a where a.setup_id = ${copyLiveSetups.id})`)).returning();
     return next ?? null;
   }
-  /** A wait's bookkeeping only (when to look again, the wait record), on the
-   * revision read: no new revision and no updatedAt, since nothing the setup
-   * is (stage, issue, attempts) changed. A concurrent step that moved the
-   * row wins; this then writes nothing (null). */
+  /** A wait's bookkeeping only: no new revision or updatedAt. A concurrent step that moved the row
+   * wins (null). */
   async defer(row: SetupRow, changes: { nextAttemptAt: Date; lastWait: SetupWait }): Promise<SetupRow | null> {
     const [next] = await this.db.update(copyLiveSetups).set({ nextAttemptAt: changes.nextAttemptAt, lastWait: changes.lastWait })
       .where(and(eq(copyLiveSetups.id, row.id), eq(copyLiveSetups.revision, row.revision), sql`not exists (select 1 from ${copyLiveSetupAborts} a where a.setup_id = ${copyLiveSetups.id})`)).returning();
     return next ?? null;
   }
-  /** API_SETUP_DRIVE=worker: a confirmed, unfinished setup is due now (the
-   * copy worker's pass picks it up even if the wake-up is lost). Bookkeeping
-   * only, like `defer`: no new revision. Null when it is not driven (any
-   * more), aborted, or already due. */
+  /** API_SETUP_DRIVE=worker: due now, so the pass picks it up even if the wake-up is lost. No new
+   * revision; null when not driven, aborted, or already due. */
   async markDue(id: string): Promise<SetupRow | null> {
     const [next] = await this.db.update(copyLiveSetups).set({ nextAttemptAt: sql`clock_timestamp()` })
       .where(and(eq(copyLiveSetups.id, id), inArray(copyLiveSetups.stage, [...DRIVEN_STAGES]), sql`${copyLiveSetups.nextAttemptAt} > clock_timestamp()`,
         sql`not exists (select 1 from ${copyLiveSetupAborts} a where a.setup_id = ${copyLiveSetups.id})`)).returning();
     return next ?? null;
   }
-  /** Wakes the copy worker for this setup (CopySetupDueListener). A hint
-   * only: the row is the durable record, and the worker's pass the fallback. */
+  /** Wakes the copy worker (CopySetupDueListener); a hint only, the pass is the fallback. */
   async notifyDue(id: string): Promise<void> {
     await this.db.execute(sql`select pg_notify(${COPY_SETUP_DUE_CHANNEL}, ${id})`);
   }
@@ -97,23 +92,18 @@ export class CopyLiveSetupRepository {
     const [row] = await tx.select({ id: copyLiveMandates.id }).from(copyLiveMandates).where(eq(copyLiveMandates.liveSetupId, setupId)).limit(1);
     return Boolean(row);
   }
-  /** One driver (the worker's pass or the owner's open dialog) works a
-   * setup at a time; a crashed holder's lease lapses after `ms`. The row's
-   * `leaseToken` names the holder. */
+  /** One driver at a time, named by `leaseToken`; a crashed holder's lease lapses after `ms`. */
   async lease(id: string, ms: number): Promise<SetupRow | null> {
     const [row] = await this.db.update(copyLiveSetups).set({ leaseUntil: sql`clock_timestamp() + ${`${ms} milliseconds`}::interval`, leaseToken: randomUUID() })
       .where(and(eq(copyLiveSetups.id, id), or(isNull(copyLiveSetups.leaseUntil), lte(copyLiveSetups.leaseUntil, sql`clock_timestamp()`)), sql`not exists (select 1 from ${copyLiveSetupAborts} a where a.setup_id = ${copyLiveSetups.id})`)).returning();
     return row ?? null;
   }
-  /** Ends this holder's lease only: a drive that outlived its lease (another
-   * driver took the setup since) leaves the new holder's lease in place. */
+  /** Ends this holder's lease only, never a newer holder's. */
   async release(id: string, token: string | null): Promise<void> {
     if (!token) return;
     await this.db.update(copyLiveSetups).set({ leaseUntil: null, leaseToken: null }).where(and(eq(copyLiveSetups.id, id), eq(copyLiveSetups.leaseToken, token)));
   }
-  /** Admitted provisioning and confirmed, unfinished setups on `network` (the deployment's)
-   * whose next attempt is due, oldest first. Another network's setups are
-   * never driven here. */
+  /** Due provisioning starts and driven setups on `network` only, oldest first. */
   open(now: Date, network: HyperliquidNetwork, limit = 20) {
     return this.db.select().from(copyLiveSetups).where(and(or(inArray(copyLiveSetups.stage, [...DRIVEN_STAGES]), and(eq(copyLiveSetups.stage, 'provisioning'), eq(copyLiveSetups.kind, 'start'))),
       or(isNull(copyLiveSetups.nextAttemptAt), lte(copyLiveSetups.nextAttemptAt, now)),
@@ -149,12 +139,9 @@ export class CopyLiveSetupRepository {
     await this.db.update(copyFundingOperations).set({ liveSetupId: setupId }).where(eq(copyFundingOperations.id, fundingId));
   }
   /**
-   * A start that ended without a generation (cancelled before its deposit,
-   * or failed / expired after it): its reserved, never-sent deposit is
-   * cancelled and its paused strategy stops, unless a generation ever ran
-   * or another of its setups is still going. Its copy account stays: funds
-   * that arrived are returned to the main wallet from the portfolio (a
-   * sweep is allowed once the strategy is stopped).
+   * A start that ended without a generation: its never-sent deposit is cancelled and its paused
+   * strategy stops, unless a generation ever ran or another setup is still going. Arrived funds are
+   * returned from the portfolio (a sweep is allowed once stopped).
    */
   async endStart(tx: DbExecutor, userId: number, setup: Pick<SetupRow, 'id' | 'strategyId' | 'fundingOperationId'>): Promise<boolean> {
     if (setup.fundingOperationId) {
@@ -179,10 +166,8 @@ export class CopyLiveSetupRepository {
       inArray(copyLiveSetups.stage, ['provisioning', 'awaiting_consent', 'failed', 'expired']),
       sql`exists (select 1 from ${copyStrategies} s where s.id = ${copyLiveSetups.strategyId} and s.network = ${network})`));
   }
-  /** Agents whose approval was being signed or sent when their setup ended
-   * (expired, failed, cancelled) in the last `since`, on a copy not stopped
-   * (a stopped copy's agent is not reconciled: it can't trade): nothing
-   * drives them any more, so the worker reconciles them (oldest first). */
+  /** Agents with an approval in flight whose setup ended since `since`, on a copy not stopping or
+   * stopped: the worker reconciles them, oldest first. */
   abandonedApprovals(since: Date, network: HyperliquidNetwork, limit = 20) {
     return this.db.select({ id: copyAgentSetups.id, userId: copyAgentSetups.userId }).from(copyAgentSetups)
       .innerJoin(copyLiveSetups, eq(copyLiveSetups.id, copyAgentSetups.liveSetupId))

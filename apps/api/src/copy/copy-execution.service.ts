@@ -37,54 +37,20 @@ interface Pricing {
 const signalAgeSeconds = (order: Pick<OrderRow, "signalTime">) => (Date.now() - order.signalTime.getTime()) / 1000;
 
 /**
- * Paper execution. Moves orders through
- * risk_approved → submitting → filled | partial | cancelled, each step its
- * own committed transition:
+ * Paper execution: risk_approved → submitting → filled | partial | cancelled,
+ * each step its own transaction.
+ * 1. Boundary: re-read controls, strategy, policy, prices, exposure and reservations under
+ *    locks (never a cache); cancel a risk increase that no longer fits, else mark `submitting`.
+ * 2. Simulated fill at mid ± policy slippage; reduce-only clamps to the own position, never flips.
  *
- * 1. Execution boundary: in one transaction, read the platform and user
- *    control rows (FOR SHARE) and the strategy row (FOR UPDATE) — the
- *    authoritative revisions, never a cache. Recheck current policy,
- *    strategy settings, fresh prices, exposure, equity and reservations;
- *    cancel any risk increase that no longer fits. Otherwise mark it
- *    `submitting` and refresh its own reservation.
- * 2. Simulated fill: mid now (allMids) ± the policy's slippage, rounded to
- *    the asset's price rules; taker fee from the policy, builder fee from
- *    revenue.builderFeeTenthsBps. Reduce-only orders are clamped to the
- *    strategy's own position and never flip it (`partial` when clamped).
- *    Position, cash, ledger, paper fill and reservation change together.
+ * Within a strategy orders run strictly in id order; a failed one holds the strategy's later
+ * orders (a flip's open must never run before its close). At COPY_STUCK_ORDER_ATTEMPTS the
+ * operator is told once. Waited orders: a stale risk increase (non-adopt) or one against an
+ * opposite-signed position is cancelled.
  *
- * `submitting` exists so that testnet/live can put the exchange round trip
- * between the two; there an unanswered request becomes `unknown` and is
- * reconciled by client order id instead of being re-sent. In paper a
- * leftover `submitting` order is revalidated before being re-simulated.
- *
- * Order within a strategy is strict: its orders run in id order, and while
- * one is `submitting` (its fill failed and waits for the retry) nothing
- * later of that strategy runs, so a flip's open never executes before its
- * close. A failure stops only that strategy for the pass; every other
- * strategy's orders still execute. Two more guards at the boundary, for an
- * order that waited (worker downtime, an earlier order that kept failing):
- * a risk-increasing order older than the policy's maxSignalAgeSeconds is
- * cancelled (an adoption leg is not a reaction to a fill and has no age
- * limit), and one that would trade against the strategy's own
- * opposite-signed position is cancelled instead of being booked as a
- * reduction.
- *
- * An order that keeps failing is not silent: every failure is counted on the
- * order with its error; at COPY_STUCK_ORDER_ATTEMPTS the operator gets one system
- * message and /admin/copy lists the order until it goes through. It still
- * holds its strategy's later orders (running an open ahead of its failed
- * close would put the copy on the wrong side).
- *
- * Liquidation (review 41). A strategy is its own cross-margin account:
- * equity = cash + unrealized PnL. When equity falls below the maintenance
- * margin of its positions (Hyperliquid's: notional ÷ (2 × the coin's max
- * leverage)), every position is closed at the mid less slippage and fees,
- * pending orders are cancelled, and the strategy is paused. A loss beyond
- * the equity is written off (ledger kind `liquidation`), so cash ends at 0
- * or above and a copy can lose at most what was allocated to it. The same
- * write-off applies whenever a strategy is flat with negative cash, so the
- * paper balance can never be charged for it.
+ * Liquidation (review 41): a strategy is its own cross-margin account; below maintenance margin
+ * (notional ÷ (2 × max leverage)) everything closes, the strategy pauses, and any loss beyond
+ * equity is written off so a copy never loses more than allocated.
  */
 @Injectable()
 export class CopyExecutionService {
@@ -318,9 +284,7 @@ export class CopyExecutionService {
         }
         size = Dec.min(size, current.abs());
       } else if (!current.isZero && current.sign !== sign) {
-        // The close this open follows has not run (it failed, or was
-        // cancelled): filling now would be booked as a reduction of the
-        // position and leave the copy on the wrong side of the leader.
+        // The preceding close has not run: filling would book a reduction, wrong side of the leader.
         await this.cancel(tx, order, "opposite_position");
         return false;
       } else if (order.leg !== "adopt" && pricing.maxSignalAgeSeconds !== undefined && signalAgeSeconds(order) > pricing.maxSignalAgeSeconds) {
@@ -335,16 +299,8 @@ export class CopyExecutionService {
   }
 
   /**
-   * Books one simulated fill of `size` at `basePx` moved by the policy's
-   * slippage: position, strategy cash and totals, paper fill, ledger, the
-   * order's final state and its reservation, all in the caller's
-   * transaction.
-   *
-   * The realized PnL and the two fees are each quantized once (USD_DP).
-   * Those same three values are what the fill row, the three ledger rows,
-   * the order and the strategy's totals carry, and the cash moves by their
-   * exact sum: cash = Σ ledger, fees = Σ fill fees and realized PnL = Σ fill
-   * PnL hold to the last digit, whatever the order of fills.
+   * Books one simulated fill in the caller's transaction. Realized PnL and both fees are
+   * quantized once (USD_DP) and the same values go to every row, so cash = Σ ledger holds exactly.
    */
   private async book(tx: DbTransaction, strategy: StrategyRow, order: OrderRow, position: PositionRow | undefined, size: Dec, basePx: Dec, source: string, pricing: Pricing): Promise<void> {
     const current = Dec.from(position?.size ?? 0);
@@ -379,12 +335,8 @@ export class CopyExecutionService {
     await this.repository.settleReservation(tx, order.id, "consumed");
   }
 
-  /**
-   * A strategy with no position left and cash below zero lost more than it
-   * had (a gap the liquidation check could not act inside). The shortfall
-   * is written off, so its cash is 0 and what later returns to the paper
-   * balance is never negative. Returns the amount written off.
-   */
+  /** A flat strategy with negative cash (a gap liquidation could not catch): writes the
+   * shortfall off so cash is 0. Returns the amount written off. */
   private async writeOffIfFlat(tx: DbTransaction, strategyId: number): Promise<Dec> {
     const strategy = await this.repository.lockStrategy(tx, strategyId);
     if (!strategy) return Dec.ZERO;
@@ -397,13 +349,8 @@ export class CopyExecutionService {
     return shortfall;
   }
 
-  /**
-   * The liquidation check, every tick: values every live strategy's open
-   * positions at the mids and liquidates those whose equity is below their
-   * maintenance margin. A strategy with a position that has no price or no
-   * universe entry right now is left for the next tick (never liquidated on
-   * missing data). Returns how many strategies were liquidated.
-   */
+  /** Liquidates live strategies below maintenance margin; one with an unpriceable position
+   * waits for the next tick (never liquidated on missing data). Returns the count. */
   async liquidate(): Promise<number> {
     const rows = await this.repository.openPositionsOfLive();
     if (rows.length === 0) return 0;
@@ -473,11 +420,8 @@ export class CopyExecutionService {
     await this.repository.settleReservation(tx, order.id, "released");
   }
 
-  /**
-   * A stopping strategy with no position and no open order is finished: its
-   * cash goes back to the paper balance, it becomes `stopped`, and a
-   * copy-sourced leader nobody else needs stops being watched.
-   */
+  /** A stopping strategy with no position or open order returns its cash to the paper
+   * balance, becomes `stopped`, and its leader is unwatched if unused. */
   async settleStopping(): Promise<number> {
     let settled = 0;
     for (const s of await this.repository.stoppingStrategies()) {
@@ -508,12 +452,9 @@ export class CopyExecutionService {
   }
 
   /**
-   * Hourly funding on open paper positions at the current hourly rate and
-   * mark (metaAndAssetCtxs): one payment for every hour boundary the
-   * position was held across, the first one included (a position opened at
-   * 10:30 pays at 11:00). Longs pay when the rate is positive. Missed hours
-   * (downtime) are charged at the current rate. Positions without a rate
-   * are left for the next pass.
+   * Hourly paper funding at the current rate and mark: one payment per hour boundary held
+   * across (opened 10:30 pays at 11:00); longs pay on a positive rate; missed hours use the
+   * current rate; no rate → next pass.
    */
   async accrueFunding(now = new Date()): Promise<number> {
     const hour = new Date(Math.floor(now.getTime() / 3_600_000) * 3_600_000);

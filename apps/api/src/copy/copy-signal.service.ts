@@ -33,10 +33,8 @@ function toLeaderFill(f: HlUserFill): LeaderFill {
 
 type Group = { coin: string; leg: "open" | "close"; sign: 1 | -1; tradeKey: string; legs: SignalLeg[] };
 
-/** Consecutive legs of one coin, kind and side form one order (the fills of
- * one leader order usually arrive together); anything in between splits
- * them. With `perTrade` (fixed sizing) opens are also split by leader trade,
- * so two leader orders are two trades however they were batched. */
+/** Consecutive legs of one coin, kind and side form one order. With `perTrade` (fixed sizing)
+ * opens also split by leader trade. */
 function groupLegs(legs: SignalLeg[], perTrade: boolean): Group[] {
   const out: Group[] = [];
   for (const l of legs) {
@@ -48,41 +46,19 @@ function groupLegs(legs: SignalLeg[], perTrade: boolean): Group[] {
 }
 
 /**
- * The copy-execution consumer: turns verified leader fills (the execution
- * outbox) into paper orders. Never reads the notification `actions` or their
- * outbox.
+ * Turns verified leader fills (the execution outbox) into paper orders.
  *
- * Idempotency: every (strategy, fill tid, leg) is claimed once in
- * copy_signal_legs, in the same transaction that creates its order and marks
- * the outbox row done, so a replayed, duplicated or re-enqueued fill can't
- * trade twice, and a crash before commit leaves the row pending for the next
- * pass (restart resumes from the checkpoint). Fills are processed in
- * (time, tid) order; each leg is sized from the fill's own startPosition, so
- * arrival order does not change what a leg means. A late open that a newer
- * processed fill of the same coin supersedes is skipped; late reductions
- * still apply. Only fills after a strategy's activation cursor count.
+ * Idempotency: each (strategy, tid, leg) is claimed once in copy_signal_legs in the same tx that
+ * creates its order and marks the row done. Fills run in (time, tid) order, each leg sized from
+ * its own startPosition; a late open superseded by a newer fill of the coin is skipped, late
+ * reductions still apply. Only fills after the activation cursor count.
  *
- * Market data that failed to load (mids, the universe, or the leader's
- * account value a ratio-sized copy needs: a Hyperliquid timeout, a starved
- * budget) is not a reason to reject. In such a pass
- * reductions are still placed (they need no price to be approved); an open
- * is left unclaimed and its outbox row stays pending with a short backoff,
- * so the next pass decides it with real prices. The wait is bounded by the
- * policy's maxSignalAgeSeconds: an open older than that is rejected as
- * `stale_signal`, with or without data.
+ * Missing market data is never a rejection: reductions still go; an open stays pending with
+ * backoff, bounded by maxSignalAgeSeconds (then `stale_signal`).
  *
- * Sizing unit (review 40). Ratio sizing scales every leader fill, so it does
- * not matter how fills are grouped. Fixed sizing ("amount per trade") spends
- * its amount once per leader trade: all fills of one order (`oid`) or one
- * TWAP (`twapId`) are one trade, whether they arrive in one pass or over
- * hours. The first fill of a trade places the order; its later fills are
- * resolved `same_trade`.
- *
- * Failure isolation (review 42). Each leader's rows are one transaction. If
- * it throws, that leader's rows are tried again one at a time, so a single
- * bad row is the only one counted as failed (retried with backoff, parked
- * as `failed` after MAX_SIGNAL_ATTEMPTS and listed in /admin/copy); every
- * other row of the batch, of this leader and of the others, still completes.
+ * Fixed sizing spends once per leader trade (`oid`/`twapId`), later fills → `same_trade` (review 40).
+ * A leader's rows are one tx; if it throws they are retried one at a time so only the bad row
+ * fails (parked after MAX_SIGNAL_ATTEMPTS) (review 42).
  */
 @Injectable()
 export class CopySignalService {
@@ -184,10 +160,7 @@ export class CopySignalService {
     const raw = await this.repository.leaderFills(tx, address, rows.map((r) => r.tid));
     if (raw.length < rows.length) this.logger.warn(`${rows.length - raw.length} outbox fills of ${address} are not stored; skipped`);
     const fills = raw.map(toLeaderFill).sort((a, b) => a.time - b.time || (a.tid < b.tid ? -1 : a.tid > b.tid ? 1 : 0));
-    // One transaction takes several owners' locks here: always in ascending
-    // owner, then strategy, order, so two leaders' passes (or a pass and an
-    // owner's command) that share owners cannot take them in opposite orders
-    // and deadlock.
+    // Several owners' locks in one tx: always ascending owner, then strategy, to avoid deadlock.
     const strategies = (await this.repository.liveStrategiesOf([address], tx)).sort((a, b) => a.userId - b.userId || a.id - b.id);
     let orders = 0;
     for (const s of strategies) {
@@ -240,16 +213,14 @@ export class CopySignalService {
             await this.repository.resolveLegs(tx, strategy.id, refs, "opposite_position", null);
             continue;
           }
-          // Fixed sizing: this leader trade already has its order (an earlier
-          // fill of the same order or TWAP placed it).
+          // Fixed sizing: an earlier fill of this leader trade already placed its order.
           if (settings.sizingMode === "fixed" && (await this.repository.tradeAlreadyOrdered(tx, strategy.id, g.tradeKey))) {
             await this.repository.resolveLegs(tx, strategy.id, refs, "same_trade", null);
             continue;
           }
           const age = (Date.now() - last.time) / 1000;
-          // Ratio sizing divides by the leader's account value: a read of it
-          // that failed is a gap like the mids, not "the leader has nothing".
-          // A market the policy never copies waits for nothing: it is refused.
+          // A failed leader-equity read is a gap like the mids, not "the leader has nothing".
+          // A market the policy never copies does not wait: it is refused.
           const gap: CopyDataGap | null = strategy.status === "active" && !ctx.policy.invalid && symbolRefusal(ctx.policy.limits, g.coin) === null
             ? (marketDataGap(ctx.mids, ctx.assets, g.coin) ?? (settings.sizingMode === "ratio" && ctx.leaderEquity.state === "failed" ? "leader_equity" : null))
             : null;
@@ -288,9 +259,7 @@ export class CopySignalService {
           continue;
         }
         const remaining = g.legs.reduce((keep, l) => (l.leg === "close" ? keep.mul(Dec.ONE.sub(l.fraction)) : keep), Dec.ONE);
-        // What rounding to the lot size leaves over is carried to the next
-        // reduction, never dropped: a leader who trims 1% twenty times ends
-        // as reduced here as there.
+        // Lot-rounding remainder carries to the next reduction, never dropped.
         const reduction = reduceWithCarry(current.abs(), Dec.ONE.sub(remaining), Dec.from(position?.reduceCarry ?? 0), ctx.assets?.get(g.coin)?.szDecimals ?? null);
         // The carry is a size the lot rule could not express: kept at full precision.
         if (position) await this.repository.setReduceCarry(tx, strategy.id, g.coin, reduction.carry.toString());

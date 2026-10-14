@@ -32,7 +32,7 @@ import { SetupDriver } from './copy-live-setup-driver.js';
 import { SetupProvisioning } from './copy-live-setup-provisioning.js';
 import { SETUP_LOCAL_BUDGET, SETUP_REST_CAPACITY, SetupSteps, type SetupRestCapacity } from './copy-live-setup-steps.js';
 
-// What this file exported before it was split (2026-10-15): its callers' imports stay.
+// Re-exported so callers' imports survive the 2026-10-15 split.
 export { setupFundingKey, type SetupSigner } from './copy-live-setup-shared.js';
 export { SETUP_LOCAL_BUDGET, SETUP_REST_CAPACITY, type SetupRestCapacity } from './copy-live-setup-steps.js';
 export { SETUP_CLAIM_RENEW_MS } from '../config/constants/hyperliquid.js';
@@ -58,17 +58,10 @@ const editPayloadDigest = (change: { kind: string; strategyId: number; budgetUsd
   digest({ kind: change.kind, strategyId: change.strategyId, budgetUsd: change.budgetUsd, settingsDigest: liveCopySettingsDigest(change.settings) });
 /**
  * One-click copy on the deployment's network (docs/one-click-copy-plan-2026-10-05.md §2, §3a).
- *
- * start: a paused strategy, its copy wallet, a ready 30-day agent, the
- * reserved deposit and the owner-owned Privy policy, then ONE consent
- * challenge binding every term. confirm: the owner's browser has added the
- * worker as the account's policy-bound signer (Privy's addSigners: only the
- * owner can); the server checks that with Privy and records it, verifies the
- * consent once and submits the deposit. Without the signer nothing is
- * deposited (409 worker_signer_missing). The worker then signs every step,
- * credit → account mode → agent → (builder fee) → generation, resumable from
- * this row after a crash or a closed tab; each child operation keeps its own
- * never-resend state.
+ * start provisions everything then issues ONE consent binding every term; confirm records the worker
+ * signer the owner's browser added (addSigners), verifies the consent and submits the deposit (none
+ * without the signer). The worker then signs each step, resumable from this row; each child operation
+ * keeps its own never-resend state.
  */
 @Injectable()
 export class CopyLiveSetupService {
@@ -89,9 +82,7 @@ export class CopyLiveSetupService {
     @Optional() @Inject(SETUP_REST_CAPACITY) private readonly capacity: SetupRestCapacity | null = null,
     @Optional() @Inject(SETUP_LOCAL_BUDGET) private readonly setupBudget: LiveBudget | null = null)
   {
-    // The parts share this service's repository, clock, network and logger
-    // (copy-live-setup-shared.ts SetupContext); the pass drives through this
-    // service's own `drive`, so a spy on it sees every drive.
+    // The pass drives through this service's own `drive`, so a spy on it sees every drive.
     const ctx: SetupContext = { config, repository, now, network: () => this.network, logger: this.logger };
     this.provisioning = new SetupProvisioning(ctx, { wallets, agents, funding, fundingRows, mandates, walletRows, leaderActivity });
     this.steps = new SetupSteps(ctx, { modes, agents, returns, exchange, walletRows, mandates, uow, fundingRows, capacity, setupBudget });
@@ -156,9 +147,8 @@ export class CopyLiveSetupService {
         await this.mandates.lock(tx, userId);
         const prior = await this.repository.byKey(userId, request.idempotencyKey, tx);
         if (prior) return prior;
-        // A start for this leader that ended without a generation, or never
-        // got its consent (the sheet closed, the page reloaded: its key is
-        // gone), ends first instead of answering already_copying forever.
+        // An abandoned start for this leader (no generation, or consent never came) ends first,
+        // instead of answering already_copying forever.
         for (const abandoned of await this.repository.abandonedStarts(tx, userId, request.leader, this.network)) await this.provisioning.endAbandoned(tx, abandoned);
         const strategy = await this.mandates.create(tx, userId, { idempotencyKey: request.idempotencyKey, leader: request.leader, sourceNetwork: request.sourceNetwork,
           budgetUsd: request.budgetUsd, settings: request.settings }, this.now);
@@ -181,9 +171,8 @@ export class CopyLiveSetupService {
     if (['stopping', 'stopped'].includes(found.strategy.status)) throw new ConflictException({ statusCode: 409, code: 'live_stop_in_progress', message: 'A stop is in progress for this copy' });
     if (!mandate) refuse(409, 'setup_unavailable', 'This copy has no running generation to change');
     if (!agent || !agent.agentAddress || !agent.policyId || !agent.policyFingerprint) refuse(409, 'setup_unavailable', 'This copy has no active agent');
-    // An edit or renewal whose consent never came (the sheet closed, its key
-    // is gone) gives way to the new one; a confirmed one still runs. One
-    // made with this request's own key is this request's (a concurrent retry).
+    // An unconsented edit/renewal under another key gives way to this one; a confirmed one still
+    // runs, and one under this request's key is a concurrent retry.
     let current = await this.repository.current(strategyId);
     if (current && current.kind !== 'start' && current.idempotencyKey !== key && ['provisioning', 'awaiting_consent'].includes(current.stage)) {
       const superseded = await this.repository.transition(current, { stage: 'cancelled', issue: null, nextAttemptAt: null });
@@ -194,10 +183,8 @@ export class CopyLiveSetupService {
   /** A new generation with new settings or budget, one silent signature (plan §4). */
   async startEdit(userId: number, strategyId: number, body: unknown): Promise<LiveCopySetup> {
     const parsed = input(editSchema, body); this.available();
-    // Refused on mainnet (2026-10-07): an edit's new generation needs a
-    // position baseline, and one is only taken on an account that never
-    // traded (postgres-live-preparation assertFirstAccount), so it could
-    // never trade and the copy would stop following. Stop and start again.
+    // Refused on mainnet (2026-10-07): a new generation needs a position baseline, taken only on a
+    // never-traded account (assertFirstAccount), so an edited copy would stop following.
     if (this.network === 'mainnet') refuse(409, 'edit_unavailable', 'Editing a copy with real funds is not available yet. To change its settings or budget, stop this copy and start a new one.');
     const request = { ...parsed, settings: this.liveSettings(parsed.settings) };
     const payload = editPayloadDigest({ kind: 'edit', strategyId, budgetUsd: request.budgetUsd, settings: request.settings });
@@ -220,11 +207,8 @@ export class CopyLiveSetupService {
     if (editPayloadDigest(prior) !== payload) refuse(409, 'idempotency_conflict', 'This request key was already used for a different change');
     return prior.stage === 'awaiting_consent' ? this.provisioning.rechallengeChange(prior) : prior;
   }
-  /**
-   * Renewal is refused for now (2026-10-07): the worker's policy binds the
-   * exact agent the start consented to, so a new agent needs a new policy
-   * added by the owner's browser (addSigners), which renewal doesn't do yet.
-   */
+  /** Refused for now (2026-10-07): the worker's policy binds the consented agent, so a new agent
+   * needs a new policy added by the owner's browser (addSigners), which renewal doesn't do yet. */
   async startRenewal(_userId: number, _strategyId: number, body: unknown): Promise<LiveCopySetup> {
     input(renewSchema, body);
     return refuse(409, 'renewal_unavailable', 'Renewing a copy is not available yet. Stop this copy and start a new one before it ends.');
@@ -244,10 +228,8 @@ export class CopyLiveSetupService {
     return inserted.prior ? this.replayChange(inserted.prior, payload) : this.provisioning.rechallengeChange(inserted.row);
   }
   // --- confirm -----------------------------------------------------------------
-  /** Records the worker signer the owner's browser added, verifies the one
-   * consent, submits the deposit, and runs what it can. A start whose
-   * account has no worker signer (addSigners declined or timed out) is
-   * refused before anything is deposited; it can be confirmed again while
+  /** Records the worker signer, verifies the consent, submits the deposit and runs what it can. A
+   * start without the worker signer is refused before any deposit and can be confirmed again while
    * its consent lasts. */
   async confirm(userId: number, id: string, body: unknown): Promise<LiveCopySetup> {
     const request = input(confirmLiveCopySetupSchema, body); this.available();
@@ -256,10 +238,8 @@ export class CopyLiveSetupService {
     const original = await this.repository.find(userId, id);
     if (original.stage !== 'awaiting_consent') return this.wire(original);
     return this.answer(original, async () => {
-      // The worker's driver may hold the row for a moment: wait for it
-      // rather than drop the owner's signatures (each dropped confirm cost
-      // the owner another press and signature, Stage 2026-10-11).
-      // Only a held lease is waited for (an abort's hold is final).
+      // Wait out a driver's brief lease rather than drop the owner's signatures (Stage 2026-10-11);
+      // an abort's hold is final and is not waited for.
       let leased = await this.repository.lease(id, this.timings.leaseMs);
       for (const until = Date.now() + this.timings.confirmLeaseWaitMs; !leased && Date.now() < until;) {
         const current = await this.repository.find(userId, id);
@@ -277,8 +257,7 @@ export class CopyLiveSetupService {
   private async confirmLeased(original: SetupRow, request: z.infer<typeof confirmLiveCopySetupSchema>): Promise<SetupRow> {
     const userId = original.userId, id = original.id;
     let row = original;
-    // A new explicit confirmation has its own uncertain outcome. Previous
-    // evidence that nothing was sent must not describe this in-flight attempt.
+    // A new confirmation has its own uncertain outcome: clear the stale "nothing was sent" evidence.
     if (row.issue === 'funding_not_submitted') {
       const admitted = await this.repository.transition(row, { issue: null });
       if (!admitted) return this.repository.find(userId, id);
@@ -287,10 +266,7 @@ export class CopyLiveSetupService {
     const parsed = liveCopySetupIntentSchema.safeParse(row.intent);
     if (!parsed.success || digest(parsed.data) !== row.intentDigest) throw new ConflictException('Setup binding changed');
     const intent = parsed.data, now = this.now();
-    // The owner's browser added the worker as the copy account's signer
-    // under the consented policy just before this request (Privy's
-    // addSigners: only the owner can). Checked with Privy (exactly that
-    // signer and policy) and recorded first, before any refusal below, so a
+    // Checked with Privy (exact signer and policy) and recorded before any refusal below, so a
     // signer Privy shows is never left unrecorded on the account.
     const attached = row.kind === 'start' && intent.masterPolicyId !== '' && await this.wallets.attachSetupSigner(userId, intent.accountId,
       { id: intent.masterPolicyId, fingerprint: intent.masterPolicyFingerprint }, { address: intent.agentAddress, name: liveSetupAgentName(intent) });
@@ -308,9 +284,8 @@ export class CopyLiveSetupService {
       // No worker signer, no deposit: the copy could never run its steps.
       if (!attached) refuse(409, 'worker_signer_missing', WORKER_SIGNER_MISSING);
       if (!request.fundingSignature) throw new BadRequestException('The deposit signature is required');
-      // Preserve the genuine owner's consent before any deposit attempt.
-      // This records evidence only: confirmation/stage still follow the
-      // original child outcome, and abort shares this admission's user lock.
+      // Record the consent as evidence before any deposit attempt (stage still follows the child
+      // outcome); abort shares this admission's user lock.
       const evidenced = await this.uow.run(async tx => {
         await this.mandates.lock(tx, userId);
         await assertSetupAdmission(tx, userId, id);
@@ -350,35 +325,23 @@ export class CopyLiveSetupService {
       throw new ConflictException({ statusCode: 409, code: 'setup_builder_rejected', message: 'The builder fee changed; start again' });
   }
 
-  /**
-   * Drives a confirmed setup now (the worker's pass does the same on its
-   * own): the next steps run with the worker's signer. Takes no body; a body
-   * (the browser-signed path's `{ digest, signature }`) is refused 400.
-   */
+  /** Drives a confirmed setup now with the worker's signer. Any body is refused 400. */
   async advance(userId: number, id: string, body: unknown = {}): Promise<LiveCopySetup> {
     if (!advanceSchema.safeParse(body ?? {}).success) throw new BadRequestException({ statusCode: 400, code: 'setup_advance_takes_no_signature', message: 'The worker signs every step; send no body' });
     const row = await this.repository.find(userId, id);
     if (!DRIVEN_STAGES.includes(row.stage)) return this.wire(row);
     return this.answer(row, async () => {
-      // Reconciliation can wait for provider budget too: it belongs to
-      // the detached lifecycle, not the request's deadline. It reads
-      // Hyperliquid, so with API_SETUP_DRIVE=worker it is the copy worker's
-      // (driveDue), on its egress, not the api's.
+      // Detached, since it can wait for provider budget; with API_SETUP_DRIVE=worker this
+      // Hyperliquid read is the copy worker's (driveDue).
       if (this.config.value.app?.setupDrive !== 'worker') await this.reconcileDeposit(row);
       if (THROTTLED_STAGES.includes(row.stage) && row.nextAttemptAt && row.nextAttemptAt.getTime() > this.now()) return row;
       return this.handOff(row);
     });
   }
   /**
-   * What confirm and advance do once the request's own work is recorded.
-   * API_SETUP_DRIVE=local (default): drive the setup here, as before.
-   * API_SETUP_DRIVE=worker: never drive in the api (its steps' Hyperliquid
-   * calls and signatures belong to the copy worker's egress, and the
-   * worker's read cache is then warm for the copy's first order, design
-   * I-13): mark the setup due now and wake the copy worker
-   * (NOTIFY copy_setup_due), which drives it at once (CopySetupDueListener);
-   * its regular pass is the fallback. The answer is the current row, as
-   * after `answerMs` today.
+   * After confirm/advance record their work. API_SETUP_DRIVE=local (default): drive here.
+   * API_SETUP_DRIVE=worker: never drive in the api (Hyperliquid calls belong to the worker's egress
+   * and warm its cache, design I-13); mark due and NOTIFY copy_setup_due, the regular pass is the fallback.
    */
   private async handOff(row: SetupRow): Promise<SetupRow> {
     if (this.config.value.app?.setupDrive !== 'worker') return this.drive(row.id, await this.driver.workerPolicySigner(row));
@@ -388,16 +351,11 @@ export class CopyLiveSetupService {
     catch (error) { this.logger.warn(`setup ${row.id} wake-up not sent; the worker's pass drives it: ${safeErrorText(error)}`); }
     return due ?? row;
   }
-  /**
-   * The copy worker's wake-up for one setup (CopySetupDueListener): drives
-   * it now if it is still a confirmed, unfinished setup on this deployment's
-   * network. The setup's lease keeps this and the regular pass from driving
-   * it at once; an aborted setup is never leased.
-   */
+  /** The copy worker's wake-up for one setup (CopySetupDueListener). The lease keeps this and the
+   * regular pass from driving it at once; an aborted setup is never leased. */
   async driveDue(id: string): Promise<SetupRow | null> {
     const row = await this.repository.get(id);
     if (!row || !DRIVEN_STAGES.includes(row.stage)) return row;
-    // The deposit reconcile advance did in the api before (API_SETUP_DRIVE=local).
     await this.reconcileDeposit(row);
     return this.drive(row.id, await this.driver.workerPolicySigner(row));
   }
@@ -406,9 +364,8 @@ export class CopyLiveSetupService {
     if (!row.fundingOperationId || row.stage !== 'funding_submitted') return;
     await this.funding.reconcile(row.userId, row.fundingOperationId).catch((error: unknown) => this.logger.warn(`setup ${row.id} deposit not reconciled: ${safeErrorText(error)}`));
   }
-  /** Quick work returns its result; slow work keeps the same id outside the
-   * request and answers once with its current row. Fast validation errors
-   * retain their existing HTTP contract. */
+  /** Quick work returns its result; slow work continues detached and the request answers with the
+   * current row after answerMs. */
   private async answer(row: SetupRow, work: () => Promise<SetupRow>): Promise<LiveCopySetup> {
     const running = this.detached(work);
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -423,27 +380,15 @@ export class CopyLiveSetupService {
     return running;
   }
   /**
-   * Ends a setup that is not running a step: before its consent (the
-   * reserved deposit is cancelled), or once it failed or expired. A start
-   * ends with its paused strategy stopped when no generation ever ran; a
-   * deposit that already arrived stays in the copy account and is returned
-   * to the main wallet from the portfolio.
-   *
-   * A confirmed start whose deposit was sent and is awaiting its credit
-   * (funding_submitted) is cancelled and refunded: the setup enters the
-   * setup abort (its durable barrier: no step, mandate or activation after
-   * it), whose worker returns everything the copy account holds to the
-   * owner's main wallet (the consent's sweepDestination), proven from the
-   * account's own state, never from the explorer. A CAS on the setup's
-   * revision under the owner's lock: a driver that already moved it past
-   * funding wins, and the cancel is refused 409 setup_past_funding (stop
-   * the copy instead). Any other confirmed setup still going can't be
-   * cancelled (409 funding_pending).
+   * Ends a setup not running a step: before consent, or once failed/expired. A start's paused
+   * strategy is stopped; a deposit that already arrived is returned from the portfolio.
+   * A start awaiting its deposit's credit (funding_submitted) enters the setup abort (durable barrier),
+   * which refunds the account to the main wallet. Revision CAS under the owner's lock: a driver already
+   * past funding wins (409 setup_past_funding); other confirmed setups refuse 409 funding_pending.
    */
   async cancel(userId: number, id: string): Promise<LiveCopySetup> {
     const next = await this.uow.run(async tx => {
-      // The same fence as funding.beginSubmit: check attempt admission after
-      // acquiring it, not on a stale row before waiting for the lock.
+      // As in funding.beginSubmit: read the row after the lock, never before.
       await this.mandates.lock(tx, userId);
       const row = await this.repository.find(userId, id, tx);
       if (row.stage === 'cancelled') return row;
@@ -461,10 +406,8 @@ export class CopyLiveSetupService {
     });
     return this.wire(next);
   }
-  /** cancel's funding_submitted branch, under the owner's lock with the
-   * setup row locked: the revision CAS fences every driver (its own
-   * transitions are CAS on the revision and refused once the abort exists),
-   * then the abort is admitted in the same transaction. */
+  /** cancel's funding_submitted branch: the revision CAS fences every driver, then the abort is
+   * admitted in the same transaction. */
   private async cancelFunding(tx: DbTransaction, row: SetupRow): Promise<SetupRow> {
     if (!this.aborts) throw new ServiceUnavailableException({ statusCode: 503, code: 'setup_abort_unavailable', message: 'Cancelling a confirmed setup is not available right now' });
     const fenced = await this.repository.transition(row, { nextAttemptAt: null }, tx);
@@ -476,10 +419,7 @@ export class CopyLiveSetupService {
   // --- the driver (copy-live-setup-driver.ts) --------------------------------------
   /** The worker's pass: every confirmed, unfinished setup that is due. */
   async tick(): Promise<number> { return this.driver.tick(); }
-  /**
-   * Advances one setup as far as it can go now, under a lease. Steps that
-   * need a signature run only with the worker's signer; without one the
-   * setup waits (`worker_signer_unavailable`) until its deadline.
-   */
+  /** Advances one setup under a lease. Without the worker's signer it waits
+   * (`worker_signer_unavailable`) until its deadline. */
   async drive(id: string, signer: SetupSigner | null): Promise<SetupRow> { return this.driver.drive(id, signer); }
 }

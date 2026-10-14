@@ -74,9 +74,8 @@ export class CopyAgentService {
     const row = await this.uow.run(tx => this.repository.ensure(tx, userId, accountId, parsed.data, this.provider.configuredWorkerQuorumId!, null, deploymentNetwork(this.config)));
     return this.reconcile(userId, row.id);
   }
-  /** A one-click setup's agent (30 days by default): prepared and made
-   * ready (policy and wallet) with no exchange call. `renewal` lets a new
-   * agent be prepared while the current one has under three days left. */
+  /** A setup's agent made ready (policy and wallet) with no exchange call. `renewal` allows a new
+   * one while the current has under three days left. */
   async prepareForSetup(userId: number, accountId: string, idempotencyKey: string, liveSetupId: string, validForDays: number, renewal = false): Promise<AgentSetupRow> {
     this.enabled();
     const verified = await this.wallets.reconcile(userId, accountId);
@@ -94,14 +93,9 @@ export class CopyAgentService {
     return consent(await this.uow.run(tx => this.repository.challenge(tx, userId, id)));
   }
   /**
-   * The agent's identity proof: the copy account and the agent wallet, its
-   * policy and the worker quorum as Privy holds them, matching the row, with
-   * the database state read before and after. The Privy reads are
-   * independent and run together (before 2026-10-13 they ran one after
-   * another: about twelve Privy round trips, more than 5 s over a phone
-   * hotspot, so the proof never passed). Its age runs from its first read
-   * (`checkedAt`) and is bounded by PRIVY_IDENTITY_MAX_AGE_MS; each read is
-   * timed, and the spans go with an expiry and into the log when slow.
+   * The agent's identity proof: account, agent wallet, policy and worker quorum in Privy match
+   * the row, with DB state read before and after. Privy reads run in parallel (serial took >5 s,
+   * 2026-10-13). Ages from `checkedAt`, bounded by PRIVY_IDENTITY_MAX_AGE_MS; spans logged when slow.
    */
   private async assertSetup(userId: number, row: AgentSetupRow) {
     const checkedAt = Date.now(), timing = new IdentitySpans(checkedAt);
@@ -191,8 +185,7 @@ export class CopyAgentService {
       return wire(row);
     } catch (error) {
       if (error instanceof AgentProvisioningConflict) await this.repository.transition(row, { state: "blocked", issue: "agent_identity_changed" });
-      // The first time only: a repeat changes nothing (no new revision every
-      // pass; gate run 8 climbed one about every 10 s while nothing was sent).
+      // First time only: no new revision every pass (gate run 8).
       else if (row.issue !== "agent_verification_pending") {
         this.logger.warn(`agent ${id} verification pending ${JSON.stringify({ state: row.state, ...errorLogFields(error) })}`);
         await this.repository.transition(row, { issue: "agent_verification_pending" });
@@ -260,24 +253,16 @@ export class CopyAgentService {
       return wire(await this.repository.find(userId, id));
     }
   }
-  /** The attempt was persisted but its POST never reached the transport (a
-   * refused meter permit, a stale proof, the clock): no signature left this
-   * process, so the agent is ready again (a new nonce is challenged next
-   * time) instead of waiting forever for an approval that was never sent. */
+  /** Persisted attempt whose POST never reached the transport: no signature left, so the agent is
+   * ready again (new nonce next time). */
   private async notDispatched(userId: number, row: AgentSetupRow): Promise<CopyAgentSetup> {
     const reverted = await this.repository.transition(row, { state: "ready", approvalAttemptedAt: null, consentDigest: null, issue: "agent_approval_not_submitted" });
     return wire(reverted ?? await this.repository.find(userId, row.id));
   }
   /**
-   * An attempted approval, observed on the exchange. The exchange listing the
-   * agent (this address, this expiry) on the account is the fact on chain
-   * that it was approved: it is recorded as such, with no Privy identity
-   * read. The identity proof decided whether the approval might be sent
-   * (submit, before its POST); after the POST it can't change what the
-   * exchange did, and every order this grant signs proves the agent wallet
-   * with Privy again (privy-order-signer). Gate run 8 (2026-10-13): the
-   * exchange listed the agent from 12:51, but each observation first re-read
-   * the identity, which expired every pass, so the approval was never recorded.
+   * An attempted approval, observed on the exchange: the exchange listing this agent and expiry
+   * is the on-chain fact, recorded with no Privy identity read (identity gated the POST; every
+   * order re-proves the agent wallet). Re-reading identity here never recorded it (gate run 8, 2026-10-13).
    */
   private async observe(userId: number, row: AgentSetupRow, reservation?: LiveBudgetReservation | void): Promise<CopyAgentSetup> {
     // A setup step's: from the weight it took before its shared claim.
@@ -292,9 +277,7 @@ export class CopyAgentService {
       return wire(ended ?? await this.repository.find(userId, row.id));
     }
     if (!evidence || evidence.validUntil !== intent.expiresAt || !Number.isSafeInteger(evidence.checkedAt) || evidence.checkedAt > Date.now() || Date.now() - evidence.checkedAt > LIVE_EVIDENCE_MAX_AGE_MS) return wire(row);
-    // The exchange's evidence is carried through the transaction and its SQL
-    // lock waits (5 s); the database state (owner, account, strategy) is
-    // checked again inside it.
+    // Exchange evidence (5 s) spans the tx's lock waits; DB state is rechecked inside it.
     try {
       const active = await this.uow.run(tx => this.repository.activate(tx, userId, row, evidence.checkedAt));
       this.approvedUnrecorded.delete(row.id);
@@ -307,9 +290,8 @@ export class CopyAgentService {
   /** Agents the exchange lists as approved whose grant wasn't recorded yet:
    * when that was first seen, and when it was last raised as an ALERT. */
   private readonly approvedUnrecorded = new Map<string, { since: number; alertedAt?: number }>();
-  /** The exchange lists the agent but recording it failed: both facts in one
-   * line, and an ALERT once that has lasted AGENT_APPROVED_UNRECORDED_ALERT_MS
-   * (again every ALERT_EVERY_MS). */
+  /** Exchange lists the agent but recording failed: ALERT after AGENT_APPROVED_UNRECORDED_ALERT_MS,
+   * repeated every ALERT_EVERY_MS. */
   private reportApprovedUnrecorded(row: AgentSetupRow, observedAt: number, error: unknown) {
     const now = Date.now();
     for (const [id, seen] of this.approvedUnrecorded) if (now - seen.since > 86_400_000) this.approvedUnrecorded.delete(id);

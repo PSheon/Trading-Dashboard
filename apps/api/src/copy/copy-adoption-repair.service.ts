@@ -44,29 +44,14 @@ interface AdoptionRepairItem {
 }
 
 /**
- * Re-runs adoption for copies that started without the leader's positions
- * because market data failed to load at that moment (before that became a
- * 503): active strategies whose original adopt leg of a coin was rejected
- * with `no_asset_info` / `no_price` and that have no other adopt order for
- * that coin.
+ * Re-runs adoption for active copies whose original adopt leg was rejected `no_asset_info` /
+ * `no_price` (a failed read) and that have no other adopt order for the coin. Sized as at the
+ * start, risk-checked like any adopt leg, keyed once per (strategy, coin) by
+ * {@link adoptionRepairKey} so reruns write nothing.
  *
- * Each is adopted from the leader's position now, sized as at the start
- * (ratio: leader notional × strategy equity / leader equity; fixed: the
- * per-trade amount) and risk-checked by the planner like any adopt leg,
- * priced at the mid now. The new order has its own dedupe key
- * ({@link adoptionRepairKey}), one per (strategy, coin) for ever: a second
- * run, a concurrent run or a replay finds it and writes nothing. The
- * executor fills it on its next pass.
- *
- * Nothing is written when the leader no longer holds the coin, when the
- * strategy already has a position or an open order in it (the leader traded
- * it since and those fills were copied), when the leader has fills the
- * consumer hasn't finished, or when market data is still missing.
- *
- * Not exact to the fill: a leader fill made before the snapshot read here
- * but stored after this commit is in the adopted size and is also copied
- * as a signal. The check for unfinished fills narrows that to the watcher's
- * lag (seconds); run it while the leader is quiet.
+ * Skipped when the leader no longer holds the coin, the strategy already has a position or open
+ * order in it, the leader has unfinished fills, or data is still missing. Not exact: a fill
+ * stored after the snapshot can be counted twice within the watcher's lag; run while the leader is quiet.
  */
 @Injectable()
 export class CopyAdoptionRepairService {

@@ -19,8 +19,7 @@ export function fundingCreditEvidence(operation: FundingIntent, hash: string, de
     const matches = recipientLedger.map(object).filter((row) => row?.hash === hash);
     if (matches.length !== 1) return null;
     const row = matches[0]!, delta = object(row.delta);
-    // The signed nonce can be ahead of the ledger block timestamp. Original
-    // action.time (above), not a timestamp ordering assumption, binds intent.
+    // The nonce can be ahead of the block time: action.time binds intent, not time ordering.
     if (!Number.isSafeInteger(row.time) || (row.time as number) < 0 || !delta || delta.type !== "internalTransfer" ||
         !sameAddress(delta.user, operation.address) || !sameAddress(delta.destination, operation.destination) ||
         typeof delta.usdc !== "string" || typeof delta.fee !== "string") return null;
@@ -31,13 +30,9 @@ export function fundingCreditEvidence(operation: FundingIntent, hash: string, de
   } catch { return null; }
 }
 
-/** True only when the explorer's own details for `hash` prove another
- * operation between the same two accounts: a well-formed usdSend on this
- * network, from this source to this destination, signed with a different
- * nonce (action.time). A source uses each nonce once, so it can never be this
- * transfer (e.g. an earlier deposit). Unread, malformed or partial details, or
- * details that disagree with the ledger (other signer, destination or action
- * type), prove nothing: false, and the transfer still counts as seen. */
+/** True only when the explorer details prove another operation between the same accounts: a
+ * well-formed usdSend source → destination with a different nonce. Anything unread, malformed or
+ * inconsistent proves nothing (false; the transfer still counts as seen). */
 export function fundingOtherOperation(operation: FundingIntent, hash: string, details: unknown) {
   if (!/^0x[0-9a-f]{64}$/.test(hash)) return false;
   const reply = object(details), tx = object(reply?.tx), action = object(tx?.action);

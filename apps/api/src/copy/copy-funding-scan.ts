@@ -1,18 +1,14 @@
 import { z } from "zod";
 import { backoffMs, FUNDING_RETRY_POLICY } from "./live/error-class.js";
 
-/** A confirmation pass that failed (the explorer or the ledger unreachable,
- * the budget refused) waits before the row's next background pass:
- * backoffMs(failures − 1, FUNDING_RETRY_POLICY) (live/error-class.ts, THE
- * back-off table: 3 s doubling to 60 s). Kept on the row
- * (scan_state.backoff), so a restart or another replica honours it too. */
+/** Wait after a failed confirmation pass (3 s doubling to 60 s, FUNDING_RETRY_POLICY); kept on the
+ * row so restarts and replicas honour it. */
 export const fundingBackoffMs = (failures: number): number => backoffMs(Math.max(failures, 1) - 1, FUNDING_RETRY_POLICY);
 const hash = z.string().regex(/^0x[0-9a-f]{64}$/);
 const time = z.number().int().nonnegative().safe();
 const units = z.string().max(32).regex(/^\d+(?:\.\d{1,6})?$/);
-// Only the fields consumed by fundingCreditEvidence are retained. Invalid
-// fields remain null, and duplicate hash rows remain duplicated: neither can
-// become positive credit evidence by being omitted from the checkpoint.
+// Only fundingCreditEvidence's fields; invalid stay null and duplicates stay duplicated, so
+// nothing becomes credit evidence by omission.
 const ledgerRow = z.object({ hash, time: time.nullable(), delta: z.object({
   type: z.string().max(128).nullable(), user: z.string().max(128).nullable(),
   destination: z.string().max(128).nullable(), usdc: z.string().max(128).nullable(), fee: z.string().max(128).nullable(),
@@ -23,19 +19,13 @@ export const fundingScanSchema = z.object({
   receipts: z.array(z.object({ transactionHash: hash, creditedAmount: units, fee: units })).max(2),
   /** Where this scan cycle's ledger read ends (frozen when it starts). */
   cycleEnd: time.optional(),
-  /** Ledger transfers from this source to this destination seen in this
-   * cycle, proven or not: any at all means "no credit" is not known. */
+  /** Source → destination transfers seen this cycle, proven or not: any rules out "never executed". */
   seen: z.number().int().nonnegative().max(1_000_000).optional(),
-  /** Already-read ledger evidence awaiting explorer details. A quota failure
-   * resumes here after restart instead of paying for the ledger again. */
+  /** Read ledger evidence awaiting explorer details (resumed without re-reading the ledger). */
   pendingDetails: z.array(z.object({ hash, ledger: z.array(ledgerRow).min(1).max(2) }).strict()).max(5).optional(),
-  /** Consecutive failed passes and when the next background pass is due
-   * (fundingBackoffMs). Bookkeeping only: written without a scan revision,
-   * cleared by the next pass that reads anything. */
+  /** Failed passes and next due time; written without a scan revision, cleared by a successful read. */
   backoff: z.object({ failures: z.number().int().positive().max(1_000_000), nextAt: time }).strict().optional(),
-  /** Since when this row's explorer reads have failed for the network
-   * (funding_explorer_unreachable) with none answering in between: kept
-   * with the backoff, cleared by the next detail the explorer answers. */
+  /** Start of the current explorer outage for this row; cleared when the explorer answers. */
   explorerFailingSince: time.optional(),
 }).strict();
 export type FundingScan = z.infer<typeof fundingScanSchema>;

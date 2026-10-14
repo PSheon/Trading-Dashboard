@@ -27,12 +27,8 @@ export interface PolicyRead {
   createdAt: Date | null;
 }
 
-/**
- * The copy risk policy: immutable versions (review A07), the newest in
- * force. `current()` reads the database on every call (no cache) and every
- * order records the version it was approved under. Version 0 = never
- * edited, the schema defaults.
- */
+/** Immutable risk policy versions, newest in force (review A07). `current()` never caches; every
+ * order records its version. Version 0 = schema defaults. */
 @Injectable()
 export class CopyRiskPolicyService {
   private readonly logger = new Logger(CopyRiskPolicyService.name);
@@ -62,14 +58,10 @@ export class CopyRiskPolicyService {
   }
 
   /**
-   * Saves a whole new version (the admin API: AdminCopyController). `input` is
-   * parsed here with putCopyRiskRequestSchema (strict, bounded, cross-field
-   * checks). Every blocked coin is resolved to Hyperliquid's own spelling
-   * from the live universe (case-insensitive via coinKey); an unknown name
-   * is a 400, and an unreachable universe a 503 (nothing saved). Needs
-   * risk.manage. 409 stale_version unless `expectedVersion` is current.
-   * Audited (copy.risk) in the same transaction. Tightening applies to the
-   * next decision, including execution-time revalidation of approved orders.
+   * Saves a new version (needs risk.manage). Blocked coins resolve to Hyperliquid's spelling from
+   * the live universe (unknown → 400, unreachable → 503). 409 stale_version on an old
+   * `expectedVersion`. Audited (copy.risk). Tightening applies to the next decision, including
+   * revalidation of approved orders.
    */
   async put(input: unknown, actor: RequestUser): Promise<AdminCopyRiskResponse> {
     if (!hasPermission(actor, "risk.manage")) throw new ForbiddenException("Requires risk.manage");

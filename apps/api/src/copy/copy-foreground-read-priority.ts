@@ -20,13 +20,9 @@ export const followerRecoveryAccount = sql`(${copyExecutionAccounts.network} = '
       and ((recovery_f.direction = 'to_account' and recovery_f.destination = ${copyExecutionAccounts.address})
         or (recovery_f.direction = 'to_main' and recovery_f.address = ${copyExecutionAccounts.address})))))`;
 
-/** All testnet accounts share the process bucket. A fresh pending/submitted
- * fill takes priority over ordinary background reads even of another account.
- * New orders use the ORIGINAL leader timestamp and database clock. A terminal
- * original execution with an attempted, unreleased reservation retains proof
- * priority independently of source age: expiry does not settle a liability.
- * Other accounts retain their independent five-minute fairness admission.
- * Foreground runFor bypasses this ordinary reporting scheduler. */
+/** Testnet accounts share the process bucket: a fresh pending/submitted fill (by original leader
+ * time) outranks ordinary background reads; an attempted unreleased reservation keeps priority
+ * regardless of age (expiry does not settle a liability). Foreground runFor bypasses this. */
 const foregroundRows = sql`from copy_live_dispatches priority_d
     inner join copy_live_mandates priority_m on priority_m.id = priority_d.mandate_id
     inner join copy_execution_accounts priority_a on priority_a.id = priority_d.account_id

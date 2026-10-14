@@ -44,9 +44,7 @@ export class CopyFollowerActivityRepository {
       const executionKeys = [...new Set(receipts.filter(r => r.kind === 'fill' && r.attribution === 'execution' && r.executionKey).map(r => r.executionKey!))];
       const adjustmentEvidence: FollowerAdjustmentEvidence[] = [];
       if (executionKeys.length) {
-        // SQL counts serialized bytes before returning historical material.
-        // Oversized evidence is omitted, never interpreted as an adjustment.
-        // Fifty receipt keys maximum; at most 8 MiB across unique executions.
+        // Size-bounded in SQL (≤50 keys, ≤8 MiB); oversized evidence is omitted, never an adjustment.
         const candidates = await tx.execute<{key:string}>(sql`select key from (
           select j.key, sum(octet_length(to_jsonb(j)::text)+octet_length(to_jsonb(p)::text)+octet_length(to_jsonb(m)::text)+octet_length(to_jsonb(l)::text)+octet_length(to_jsonb(f)::text)+octet_length(to_jsonb(r)::text)+octet_length(to_jsonb(e)::text)+octet_length(to_jsonb(v)::text)+octet_length(to_jsonb(policy)::text)) over(order by j.key) as bytes
           from copy_live_executions j join copy_live_intent_provenance p on p.key=j.key
@@ -78,9 +76,7 @@ export class CopyFollowerActivityRepository {
           const eligibleMembers = boundedIds.length ? (await tx.execute<{id:string}>(sql`select id from (select f.id,sum(octet_length(to_jsonb(f)::text)) over(order by f.id) as bytes from copy_live_source_fills f where f.id in (${sql.join(boundedIds.map(id=>sql`${id}`),sql`,`)}) and octet_length(to_jsonb(f)::text)<=524288) bounded where bytes<=2097152`)).rows.map(row=>row.id) : [];
           const members = eligibleMembers.length ? await tx.select().from(copyLiveSourceFills).where(inArray(copyLiveSourceFills.id,eligibleMembers)) : [];
           const memberBytes=Buffer.byteLength(JSON.stringify(members));
-          // Retained generation manifests name earlier settled orders' proofs by
-          // digest only: read once for the page, at most 8 MiB (past it, an
-          // order whose replay needs one more shows no adjustment).
+          // Manifest proofs by digest, read once per page, ≤8 MiB (past it: no adjustment shown).
           const refs=original.flatMap(row=>retainedSettlementProofRefs((row.provenance.sizingBasis as {observations?:{generationManifest?:unknown}}).observations?.generationManifest));
           const proofKeys=[...new Set(refs.map(ref=>ref.key))];
           const boundedProofKeys=proofKeys.length ? (await tx.execute<{key:string}>(sql`select key from (select e.key,sum(octet_length(e.settlement_proof::text)) over(order by e.key) as bytes from copy_live_execution_evidence e where e.key in (${sql.join(proofKeys.map(key=>sql`${key}`),sql`,`)}) and e.settlement_proof is not null) bounded where bytes<=8388608`)).rows.map(row=>row.key) : [];

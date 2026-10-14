@@ -50,13 +50,9 @@ interface PlaceOrder {
 /** An upstream read an open may be waiting for. */
 export type CopyDataGap = "mids" | "asset_info" | "leader_equity";
 
-/** Which upstream read a risk-increasing order of `coin` is missing, if any.
- * `null` maps mean the main dex's read failed (Hyperliquid timeout, budget
- * starvation); a HIP-3 market needs its own dex's mids and universe, and a
- * dex listed in `missingDexes` could not be read. Either is a transient
- * gap, not a fact about the coin. Callers ask this only for a coin the
- * policy allows (`symbolRefusal`): a HIP-3 market that is not allowed is
- * never read at all, and is refused without data. */
+/** Which upstream read a risk increase of `coin` is missing: a null map (main dex failed) or a
+ * HIP-3 dex in `missingDexes`. A transient gap, not a fact about the coin. Ask only for coins the
+ * policy allows (disallowed markets are refused without data). */
 export function marketDataGap(mids: Mids | null, assets: AssetMap | null, coin: string): "mids" | "asset_info" | null {
   if (mids === null) return "mids";
   const dex = coinDex(coin);
@@ -65,11 +61,8 @@ export function marketDataGap(mids: Mids | null, assets: AssetMap | null, coin: 
   return null;
 }
 
-/** Thrown instead of recording a rejection when a risk-increasing order
- * can't be decided because market data is missing right now. Callers check
- * {@link marketDataGap} first and retry (signals) or fail the request
- * (starting a copy); this is the backstop that keeps a transient gap from
- * ever becoming a terminal `rejected` row. */
+/** Backstop behind {@link marketDataGap}: a transient data gap throws instead of becoming a
+ * terminal `rejected` row. */
 export class CopyMarketDataUnavailableError extends Error {
   constructor(readonly gap: "mids" | "asset_info", coin: string) {
     super(`market_data_unavailable:${gap} (${coin})`);
@@ -99,14 +92,9 @@ export function strategyValue(strategy: Pick<StrategyRow, "cash">, positions: Pi
 }
 
 /**
- * Turns one copy decision into an order row, with pre-trade risk and the
- * margin reservation in the caller's transaction (review §6). The caller
- * holds, in this order: the platform and user control rows FOR SHARE, then
- * the strategy row FOR UPDATE.
- *
- * A risk-increasing order whose market data failed to load throws
- * {@link CopyMarketDataUnavailableError} (nothing is written). Reductions
- * need no price to be approved and are always placed.
+ * One copy decision → order row, with pre-trade risk and margin reservation in the caller's tx
+ * (review §6). Caller holds control rows FOR SHARE, then the strategy FOR UPDATE. Reductions
+ * need no price and are always placed.
  * @throws CopyMarketDataUnavailableError
  */
 @Injectable()
@@ -148,13 +136,10 @@ export class CopyOrderPlanner {
     if (o.rejectReason) return reject(o.rejectReason);
     if (o.policy.invalid) return reject("risk_policy_invalid");
     if (o.strategy.status !== "active") return reject(`strategy_${o.strategy.status}`);
-    // A market the policy never copies needs no data to be refused (a HIP-3
-    // market while allowHip3 is off is not even read).
+    // A market the policy never copies is refused without data.
     const refused = symbolRefusal(o.policy.limits, o.coin);
     if (refused) return reject(refused);
-    // Data that failed to load is retried by the caller, never rejected.
-    // Below this line `no_asset_info` and `no_price` are facts: the universe
-    // and the mids were read and do not have this coin.
+    // Failed loads are retried by the caller; below, `no_asset_info`/`no_price` are facts.
     const gap = marketDataGap(o.mids, o.assets, o.coin);
     if (gap) throw new CopyMarketDataUnavailableError(gap, o.coin);
     if (!asset) return reject("no_asset_info");
@@ -168,9 +153,7 @@ export class CopyOrderPlanner {
     const userPositions = await this.repository.positionsOf(userIds, tx);
     const userReserved = await this.repository.heldReservations(userIds, tx);
     const reducing = await this.repository.pendingReduceSizes(tx, userIds);
-    // Exposure nets out pending reduce-only orders (e.g. a flip's close,
-    // queued just ahead of its open), so the open isn't capped by exposure
-    // that is already being removed.
+    // Exposure nets out pending reduce-only orders (a flip's close ahead of its open).
     let userExposure = Dec.ZERO;
     let coinExposure = Dec.ZERO;
     let strategyExposure = Dec.ZERO;

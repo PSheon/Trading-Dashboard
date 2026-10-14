@@ -17,10 +17,8 @@ export async function assertSetupAdmission(tx: DbTransaction, userId: number, se
   return setup;
 }
 
-/** Account-wide admission prevents ordinary top-ups/returns racing a setup
- * abort. Known original attempts remain readable; only its genuine delegated
- * stop may admit the already-bound stop return for a start. A pending
- * edit/renewal never owns its older generation's genuine system stop. */
+/** Account-wide admission keeps top-ups/returns from racing a setup abort; only the abort's delegated
+ * stop may admit its bound stop return. A pending edit/renewal never owns the older generation's stop. */
 export async function assertAccountAbortAdmission(tx: DbTransaction, userId: number, accountId: string,
   network: 'testnet' | 'mainnet', delegatedStopId?: string | null, genuineSystemStop = false) {
   await lockCopyUser(tx, userId);

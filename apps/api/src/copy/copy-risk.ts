@@ -1,9 +1,5 @@
-/**
- * Pre-trade risk for one copy order (review §6): platform hard caps ∩ the
- * user's layer ∩ the strategy's own limits. Pure; the caller gathers the
- * state inside the transaction that also creates the order and its
- * reservation, so the numbers can't move between check and reserve.
- */
+/** Pre-trade risk (review §6): platform ∩ user ∩ strategy limits. Pure; the caller gathers state
+ * in the same tx that creates the order and reservation. */
 import { coinDex, coinKey, type CopyRiskLimits, type CopyStrategySettings } from "@trading-dashboard/shared/contracts";
 
 import { Dec } from "../common/decimal/dec.js";
@@ -22,9 +18,7 @@ export interface RiskInput {
   coin: string;
   /** Risk-increasing (open / adopt) or reduce-only (close / stop_close). */
   increasesRisk: boolean;
-  /** An adoption leg (the leader's position at the start of a copy, or its
-   * repair): not a reaction to a fill, so the signal-age and per-minute
-   * rules don't apply (review 39). Every cap still does. */
+  /** Adoption leg: no signal-age or per-minute rule (review 39); every cap still applies. */
   adoption?: boolean;
   /** Requested notional, USDC. */
   notional: Dec;
@@ -74,29 +68,22 @@ export function isHip3(coin: string): boolean {
   return coinDex(coin) !== "";
 }
 
-/** Why the policy never lets `coin` take new risk, whatever the market
- * data says: a HIP-3 market while `allowHip3` is off, or a blocked coin.
- * Decided before any price is needed. */
+/** Why the policy refuses new risk on `coin` regardless of market data (HIP-3 while disallowed,
+ * or blocked). */
 export function symbolRefusal(limits: CopyRiskLimits, coin: string): "symbol_not_allowed" | "symbol_blocked" | null {
   if (isHip3(coin) && !limits.allowHip3) return "symbol_not_allowed";
   if (limits.blockedCoins.some((c) => coinKey(c) === coinKey(coin))) return "symbol_blocked";
   return null;
 }
 
-/** The coins of `coins` whose market data is worth reading: everything on
- * the main dex, and HIP-3 markets only while the policy allows them (each
- * builder dex costs its own requests). */
+/** Coins worth pricing: main dex always, HIP-3 only while allowed (each dex costs requests). */
 export function pricedCoins(limits: CopyRiskLimits, coins: Iterable<string>): string[] {
   return [...new Set(coins)].filter((coin) => !isHip3(coin) || limits.allowHip3);
 }
 
-/**
- * Decide one order. Reductions are only refused by the kill of the whole
- * copy (never by caps, age, price or frequency): refusing to reduce would
- * leave the follower more exposed than the leader. Risk-increasing orders
- * are clamped to every remaining cap and refused when what is left is
- * under the minimum order.
- */
+/** Decide one order. Reductions are never refused by caps, age, price or frequency (that would
+ * leave the follower more exposed than the leader); risk increases are clamped to every cap and
+ * refused below the minimum order. */
 export function evaluateRisk(input: RiskInput): RiskDecision {
   const { limits, settings, controls } = input;
   const leverage = effectiveLeverage(limits, settings, input.coinMaxLeverage);

@@ -72,9 +72,7 @@ export class CopyAgentRepository {
     if (account.state !== "ready" || account.privyUserId !== owner.privyUserId || !account.address || !account.privyWalletId || !account.ownerQuorumId || account.network !== network) throw new ConflictException("agent_account_not_ready");
     const currents = await tx.select().from(copyAgentSetups).where(and(eq(copyAgentSetups.accountId, accountId), sql`${copyAgentSetups.state} not in ('blocked', 'revoked')`));
     if (setup?.renewal) {
-      // A renewal prepares the next agent while the current one keeps trading
-      // (offered in its last three days): one active and one pending agent may
-      // coexist. Approving the new one retires the old grant (activate).
+      // Renewal: one active and one pending agent may coexist; approving the new one retires the old.
       const active = currents.find(row => row.state === "active");
       if (!active || active.expiresAt.getTime() <= Date.now() || active.expiresAt.getTime() - Date.now() > 3 * 86_400_000 + 3_600_000) throw new ConflictException("agent_renewal_unavailable");
       for (const pending of currents.filter(row => row.state !== "active")) {
@@ -157,8 +155,7 @@ export class CopyAgentRepository {
     await tx.insert(copyWalletAuthorizations).values({ id: authorizationId, walletId, version: 1, scopes: ["copy:trade", "copy:reduce"],
       validFrom: new Date(observedAt), expiresAt: locked.expiresAt, exchangeApprovedAt: new Date(observedAt) });
     const active = (await this.transition(locked, { state: "active", authorizationId, issue: null }, tx))!;
-    // Includes waits on old grant rows, insert constraints and the final setup
-    // update. Throwing here rolls back retirement, revocation and grant creation.
+    // After all lock waits; throwing rolls back retirement, revocation and grant creation.
     assertFresh();
     return active;
   }

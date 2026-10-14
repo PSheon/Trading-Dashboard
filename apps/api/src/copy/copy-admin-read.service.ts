@@ -18,11 +18,7 @@ import { CopyRiskPolicyService } from "./copy-risk-policy.service.js";
 import { CopyRepository } from "./copy.repository.js";
 import { COPY_STUCK_ORDER_ATTEMPTS } from '@trading-dashboard/shared/contracts';
 
-/**
- * Read models for the copy admin pages (AdminCopyController is built on this
- * service; every method needs `copy.read` at the route). Database reads plus
- * at most one allMids (weight 2, shared 3 s cache) to value positions.
- */
+/** Read models for the copy admin pages (`copy.read` at the route): DB plus at most one allMids. */
 @Injectable()
 export class CopyAdminReadService {
   constructor(

@@ -59,8 +59,7 @@ export class PrivyAgentApprovalClient implements AgentApprovalClient {
       const response=await (permit?permit.dispatch(dispatch):dispatch());
       if(!response.ok){await response.body?.cancel().catch(()=>{});throw new Error();}return await readInfoJson(response,'agent approval submission',64*1024);
     }catch(error){
-      // Refused before the POST reached the transport (the meter's permit, a
-      // stale proof, the clock): nothing left this process. Either way, why.
+      // Refused before the POST reached the transport: nothing left this process.
       const code=dispatched?'agent_approval_submission_unknown':'agent_approval_not_dispatched';
       new Logger('PrivyAgentApprovalClient').warn(`agent approval ${code}: ${safeErrorText(error)}`);
       throw new LiveBoundaryError(code);
@@ -70,17 +69,12 @@ export class PrivyAgentApprovalClient implements AgentApprovalClient {
   static readonly OBSERVE_WEIGHT = AGENT_OBSERVE_WEIGHT;
   async observe(intent: AgentConsentIntent, options: { prepaid?: boolean } = {}): Promise<{ checkedAt: number; validUntil: number } | null> {
     const data = agentApprovalTypedData(intent);
-    // The agent is read on the account's own network: a mainnet approval
-    // read on testnet finds no account (userRole "missing") and the setup
-    // never leaves its agent step.
-    // Both reads are paid for before the 5 s clock starts: a budget wait
-    // never ages the evidence (it did, and after the mode step drained the
-    // bucket every observation timed out). A busy budget is a typed wait.
+    // Read on the account's own network (elsewhere userRole is "missing"). Paid before the 5 s clock
+    // starts, so a budget wait never ages the evidence.
     if (!options.prepaid) await this.budget(PrivyAgentApprovalClient.OBSERVE_WEIGHT);
     let checkedAt = 0;
     try {
-      // Both reads are one charge of the shared meter, sent together; the
-      // clock starts as they go out (after any wait for room).
+      // One shared-meter charge for both reads; the clock starts as they go out.
       const bodies = [{ type: "userRole", user: intent.accountAddress }, { type: "extraAgents", user: intent.accountAddress }] as const;
       const start = () => { checkedAt = this.now(); return AbortSignal.timeout(5_000); };
       const global = this.global, infoUrl = WALLET_NETWORKS[intent.network].infoUrl;
@@ -92,8 +86,7 @@ export class PrivyAgentApprovalClient implements AgentApprovalClient {
         if (!response.ok) { await response.body?.cancel().catch(() => undefined); throw new Error(); }
         return boundedLiveRead(() => readInfoJson(response, "agent approval evidence", 64 * 1024), () => Math.max(1, 5_000 - (this.now() - checkedAt)));
       }));
-      // A strategy master must be a user account. Agents/vaults/subaccounts are
-      // not interchangeable with an explicitly owned, funded master account.
+      // The master must be a user account (not an agent, vault or subaccount).
       if (!role || typeof role !== "object" || !("role" in role) || role.role !== "user") throw new Error();
       const list = extraAgentsSchema.parse(listed);
       const matches = list.filter(a => a.address.toLowerCase() === data.message.agentAddress);

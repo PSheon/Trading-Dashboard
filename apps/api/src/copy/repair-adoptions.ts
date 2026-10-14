@@ -1,6 +1,5 @@
 /**
- * Re-runs adoption (跟單目前持倉) for active paper copies that started
- * without the leader's positions because market data failed to load.
+ * Re-runs adoption for active paper copies that started without the leader's positions.
  *
  *   DATABASE_URL=postgres://… pnpm --filter @trading-dashboard/api copy:repair-adoptions [options]
  *
@@ -8,11 +7,8 @@
  *   --strategy N   only this strategy (default: every active strategy)
  *   --dry-run      report what would be ordered; no write
  *
- * Reads clearinghouseState (weight 2) per leader, allMids (2) and
- * metaAndAssetCtxs (20). Writes at most one `adopt` order per
- * (strategy, coin), with its own dedupe key; the running worker fills it.
- * Idempotent: see CopyAdoptionRepairService. Prints one JSON line per
- * candidate.
+ * At most one `adopt` order per (strategy, coin); idempotent (CopyAdoptionRepairService).
+ * Prints one JSON line per candidate.
  */
 import "reflect-metadata";
 import { existsSync } from "node:fs";

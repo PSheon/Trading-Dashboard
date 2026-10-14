@@ -22,9 +22,7 @@ export const ACCOUNT_MODE_CLIENT = Symbol('ACCOUNT_MODE_CLIENT');
 export const ACCOUNT_MODE_ABSENCE_READER = Symbol('ACCOUNT_MODE_ABSENCE_READER');
 export interface AccountModeClient {
   readonly available: boolean; acquire(): Promise<void>;
-  /** Takes Hyperliquid weight before any evidence clock starts; throws
-   * `HyperliquidBudgetWait` when it isn't available soon. (Test doubles
-   * without a budget may omit it.) */
+  /** Takes weight before any evidence clock starts; throws `HyperliquidBudgetWait` if not soon. */
   reserve?(weight: number, options?: LiveReserveOptions): Promise<LiveBudgetReservation | void>;
   send(intent: AccountModeIntent, signature: string, assertFreshProof: () => void, consume?: (weight: number) => void): Promise<unknown>;
   observe(intent: AccountModeIntent, options?: AccountModeObserveOptions): Promise<Readonly<AccountModeObservation>>;
@@ -130,10 +128,8 @@ export class CopyAccountModeService {
   async reserveForSetup(weight: number, key: string): Promise<LiveBudgetReservation | void> {
     return this.exchange.reserve?.(weight, { holdKey: key });
   }
-  /** The copy account's identity with Privy (three calls) between two
-   * database checks. It ages by PRIVY_IDENTITY_MAX_AGE_MS from its first
-   * read, not by the exchange's 5 s (copied there in 22f9e963): a slow link
-   * to Privy must not expire it, nor age the exchange evidence read after it. */
+  /** The account's Privy identity between two DB checks; ages by PRIVY_IDENTITY_MAX_AGE_MS, not
+   * the exchange's 5 s, so slow Privy neither expires it nor ages later exchange evidence. */
   private async identity(userId: number, row: AccountModeRow, mutation = false) {
     const timing = new IdentitySpans(), checkedAt = timing.startedAt;
     const current = await timing.time('db_current', () => this.repository.assertCurrent(userId, row, undefined, mutation));
@@ -151,16 +147,10 @@ export class CopyAccountModeService {
     fresh(proof.earliestObservedAt); fresh(proof.completedAt);
   }
   /**
-   * Fresh evidence for one decision: the copy account's identity with Privy
-   * first, then mode and all-venue absence in parallel, then the mode again.
-   * Every read's weight is paid and the shared all-venue source is ours
-   * before `started`: waiting for either never ages the evidence (before, the
-   * 5 s clock ran through the budget queue and a drained bucket turned every
-   * attempt into stale evidence). The identity runs before that clock: its
-   * Privy calls age only the identity (PRIVY_IDENTITY_MAX_AGE_MS), never the
-   * exchange's 5 s (they ran inside it until 2026-10-13), and the absence
-   * source is not held while Privy answers. When one exchange read fails the
-   * others are abandoned (nothing more reserved or subscribed).
+   * Fresh evidence for one decision: Privy identity, then mode and all-venue absence in parallel,
+   * then mode again. Weight and the all-venue source are secured before `started`, so queueing
+   * never ages the 5 s evidence; identity runs before that clock with its own bound
+   * (PRIVY_IDENTITY_MAX_AGE_MS). One failed exchange read abandons the others.
    */
   private async preflight(userId: number, row: AccountModeRow, { prepaid = false, consume }: { prepaid?: boolean; consume?: (weight: number) => void } = {}) {
     const readable = readIntent(row);
@@ -191,9 +181,8 @@ export class CopyAccountModeService {
     };
     assertFresh(); return { identity, observation: finalMode, absence, started, assertFresh, assertCompletion };
   }
-  /** Observes the account's mode. Its weight is paid first: when the budget
-   * is busy nothing is read and the row is left as it is (`busy: 'throw'`:
-   * the `HyperliquidBudgetWait` is passed on, for a driver to come back). */
+  /** Observes the account's mode, weight paid first; when busy the row is left as is
+   * (`busy: 'throw'` rethrows the `HyperliquidBudgetWait`). */
   async reconcile(userId: number, id: string, { busy = 'keep', reservation: prepaid }: { busy?: 'keep' | 'throw'; reservation?: LiveBudgetReservation | void } = {}): Promise<CopyAccountModeOperation> {
     let row = await this.repository.find(userId, id);
     // A caller's reservation (a setup's step: taken before its shared claim) pays for it; it releases it.
@@ -209,8 +198,7 @@ export class CopyAccountModeService {
       const supported = proof.role === 'user' && proof.abstraction === 'disabled' && proof.dexAbstraction === false && proof.portfolioMarginEnabled === false;
       const unsupported = proof.role !== 'user' || proof.portfolioMarginEnabled || proof.abstraction === 'unifiedAccount' || proof.abstraction === 'portfolioMargin' || proof.dexAbstraction === true;
       const targetState = supported ? 'supported' as const : unsupported ? 'unsupported' as const : 'unproven' as const;
-      // The setup just proved the account's mode: its first order reads it from
-      // the cross-order cache instead of paying 200 for it again (2026-10-12).
+      // Seed the cross-order cache so the first order doesn't pay 200 weight again (2026-10-12).
       if (supported && isHyperliquidNetwork(row.network)) {
         const cache = liveReadCache(row.network), user = row.accountAddress;
         cache.put({ type: 'userRole', user }, { role: 'user' });
@@ -240,26 +228,20 @@ export class CopyAccountModeService {
    * before the POST, and an attempted operation is only reconciled. */
   async submit(userId: number, id: string, authority: AccountModeAuthority, { reservation: prepaid }: { reservation?: LiveBudgetReservation | void } = {}): Promise<CopyAccountModeOperation> {
     this.enabled(); let row = await this.repository.find(userId, id);
-    // An HTTP caller (Settings) is answered 504 at its deadline: past that,
-    // nothing is attempted or sent for it (a setup's drive runs outside any
-    // request and has no such signal).
+    // Past an HTTP caller's 504 deadline nothing is attempted or sent (setup drives have no signal).
     const requestSignal = currentRequestSignal();
     const answered = () => { if (requestSignal?.aborted) throw new ConflictException('account_mode_request_expired'); };
     // A duplicate request observes the existing claim without revising it.
     if (row.submissionState === 'signing' && !row.attemptedAt) return wire(row);
     if (row.submissionState !== 'prepared' || row.attemptedAt || row.targetState === 'supported') return this.reconcile(userId, id, { reservation: prepaid });
-    // The whole attempt is paid before its first clock starts: the preflight
-    // before signing, the one before the POST, and the POST (a setup's step:
-    // by its caller, before its shared claim, with the reconcile after it).
+    // The whole attempt (two preflights and the POST) is paid before its first clock starts.
     const reservation = prepaid ?? await this.exchange.reserve?.(ATTEMPT_WEIGHT);
     const consume = reservation ? (weight: number) => reservation.consume(weight) : undefined;
     const followUp = () => (prepaid ? { reservation: prepaid } : {});
     try {
       const first = await this.preflight(userId, row, { prepaid: true, consume });
       if (baseline(first.observation) === 'supported') return this.reconcile(userId, id, followUp());
-      // A setup's consent bound the account to "disabled", not a nonce: the
-      // nonce is allocated here, under this preflight (no separate challenge
-      // preflight), with time left in its window to sign and send.
+      // Consent bound the target, not a nonce: the nonce is allocated here, with time left to sign and send.
       row = await this.uow.run(tx => this.repository.challenge(tx, userId, row, first.assertFresh, SETUP_NONCE_MIN_REMAINING_MS));
       const original = intent(row); liveConsent(original);
       if (!/^[0-9a-f]{64}$/.test(authority.consentDigest) || typeof authority.sign !== 'function') throw new BadRequestException('invalid_account_mode_consent');
@@ -310,17 +292,12 @@ export class CopyAccountModeService {
         this.logger.warn(`account mode ${row.id} outcome unknown: ${safeErrorText(error)}`);
         return wire(row);
       }
-      // Paid for separately (the attempt's own weight is spent), or by a
-      // setup's step reservation: when the budget is busy the operation is
-      // left for the next reconcile.
+      // When the budget is busy the operation is left for the next reconcile.
       return this.reconcile(userId, row.id, followUp());
     } finally { if (!prepaid) reservation?.release(); }
   }
-  /** The attempt was persisted but the POST was never handed to the
-   * transport (a refused meter permit, a stale final proof, the clock): no
-   * signature left this process, so the operation goes back to prepared
-   * with its nonce, instead of staying unknown with nothing to observe. A
-   * crash between persisting and sending still stays unknown. */
+  /** Persisted attempt whose POST never reached the transport: no signature left the process, so
+   * back to prepared. A crash between persisting and sending still stays unknown. */
   private async notDispatched(userId: number, row: AccountModeRow): Promise<CopyAccountModeOperation> {
     const reverted = await this.repository.transition(row, { submissionState: 'prepared', attemptedAt: null, attemptProof: null, claimToken: null,
       signingStartedAt: null, consentDigest: null, issue: 'account_mode_not_submitted' });

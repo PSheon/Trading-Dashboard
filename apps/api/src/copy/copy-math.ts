@@ -1,18 +1,8 @@
 /**
- * Pure copy-trading math (no I/O): canonical legs of a verified leader
- * fill, follower sizing, exchange rounding and the paper ledger.
- *
- * Every price, size, notional, fee and balance is a {@link Dec} (an exact
- * decimal; review finding 9), from Hyperliquid's strings and Postgres
- * `numeric` through to what is written back. Nothing here is a binary
- * float. A value is rounded only where a rule says so, once:
- * - a size is cut down to the asset's lot (`floorSize`);
- * - a price follows Hyperliquid's tick rule (`roundPx`);
- * - a USDC amount (fee, realized PnL, funding, margin) is quantized to
- *   {@link USD_DP} decimals when it is computed, and that same value is
- *   what is added to the balance and written to the ledger, so the two
- *   always agree to the last digit;
- * - an averaged entry price keeps {@link PX_DP} decimals.
+ * Pure copy-trading math (no I/O). Every amount is an exact {@link Dec}, never a float
+ * (review 9), rounded once where a rule says so: sizes floor to the lot, prices follow the
+ * tick rule, USDC amounts quantize to {@link USD_DP} when computed (that same value goes to
+ * balance and ledger), averaged entry prices keep {@link PX_DP}.
  */
 import { createHash } from "node:crypto";
 
@@ -35,13 +25,8 @@ export interface LeaderFill {
   tradeKey: string;
 }
 
-/**
- * The leader trade a fill belongs to: every slice of one TWAP shares
- * `twap:<id>`, every partial fill of one order shares `oid:<order id>`.
- * This is the unit of fixed sizing ("amount per trade"): a strategy spends
- * its per-trade amount once per key, however many fills the trade arrives
- * in and however the consumer happens to batch them.
- */
+/** The leader trade a fill belongs to (`twap:<id>` or `oid:<id>`): fixed sizing spends its
+ * per-trade amount once per key, however the fills arrive or are batched. */
 export function tradeKeyOf(fill: { oid: number; twapId?: number | null }): string {
   return fill.twapId !== undefined && fill.twapId !== null ? `twap:${fill.twapId}` : `oid:${fill.oid}`;
 }
@@ -84,12 +69,9 @@ export function followerSign(leaderSign: 1 | -1, direction: CopyDirection): 1 | 
 }
 
 /**
- * Follower notional for a copied open (review §5).
- * - ratio: the leader's fill notional × (strategy equity ÷ leader account
- *   value), CopyDog's "if they use 5% of their balance, you use 5% of
- *   yours". An unknown or non-positive leader account value yields null:
- *   partial leader data is never treated as 0.
- * - fixed: the strategy's per-trade USDC notional.
+ * Follower notional for a copied open (review §5). ratio: leader notional × (strategy equity ÷
+ * leader account value), null when the leader value is unknown (never treated as 0).
+ * fixed: the per-trade USDC notional.
  */
 export function openNotional(args: {
   mode: CopySizingMode;
@@ -109,13 +91,9 @@ export function openNotional(args: {
 const FULL = Dec.from("0.999999999999");
 
 /**
- * A proportional reduction that keeps what rounding would lose (review 42).
- * `carry` is the size earlier reductions called for that was below one lot
- * and so was not traded: the follower's position is that much larger than
- * the leader's fractions say. This reduction is owed the carry plus
- * `fraction` of the rest; `size` is what one order can do (whole lots) and
- * the remainder becomes the new carry. A full close takes everything.
- * Without `szDecimals` (the universe could not be read) nothing is rounded.
+ * Proportional reduction that keeps what lot rounding would lose (review 42). `carry` is
+ * sub-lot size owed by earlier reductions; this one owes carry + `fraction` of the rest, trades
+ * whole lots, and carries the remainder. A full close takes everything; null szDecimals → no rounding.
  */
 export function reduceWithCarry(followerAbsSize: Dec, fraction: Dec, carry: Dec, szDecimals: number | null): { size: Dec; carry: Dec } {
   if (!followerAbsSize.isPositive || !fraction.isPositive) return { size: Dec.ZERO, carry: Dec.max(Dec.ZERO, Dec.min(carry, followerAbsSize)) };
@@ -155,10 +133,8 @@ export function slippedPx(basePx: Dec, side: "B" | "A", slippageBps: DecInput): 
   return side === "B" ? basePx.mul(Dec.ONE.add(k)) : basePx.mul(Dec.ONE.sub(k));
 }
 
-/** A position after one fill. `sign` +1 buys, −1 sells; the fill never
- * crosses zero (flips arrive as a reduce-only close then an open). The
- * entry price keeps {@link PX_DP} decimals and the realized PnL is a USDC
- * amount ({@link USD_DP}). */
+/** A position after one fill (`sign` +1 buy, −1 sell). Never crosses zero: flips arrive as a
+ * reduce-only close then an open. */
 export function applyFill(pos: { size: Dec; entryPx: Dec }, sign: 1 | -1, size: Dec, px: Dec): { size: Dec; entryPx: Dec; realizedPnl: Dec } {
   const delta = sign > 0 ? size : size.neg();
   const current = pos.size;
@@ -195,12 +171,8 @@ export function leaderPositionPx(position: { szi: string; positionValue?: string
   return Dec.parse(position.entryPx) ?? Dec.ZERO;
 }
 
-/**
- * Hourly funding payments a position owes at `hour` (a whole hour): one for
- * every hour boundary after `fundingThrough` up to and including `hour`.
- * A position opened at 10:30 pays at 11:00 (review 38: counting whole
- * elapsed hours skipped that first boundary of every holding period).
- */
+/** Funding payments owed at `hour`: one per hour boundary after `fundingThrough` through `hour`,
+ * so a position opened at 10:30 pays at 11:00 (review 38). */
 export function fundingHours(fundingThrough: Date, hour: Date): number {
   return Math.max(0, Math.floor(hour.getTime() / HOUR_MS) - Math.floor(fundingThrough.getTime() / HOUR_MS));
 }

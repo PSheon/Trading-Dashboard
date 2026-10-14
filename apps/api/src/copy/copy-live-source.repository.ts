@@ -28,10 +28,8 @@ export class CopyLiveSourceRepository {
   }
   async apply(tx: DbTransaction, expectedRevision: number, input: LiveSourceReadResult, now: number): Promise<SourceApplyResult> {
     const result = structuredClone(input), { sourceDigest, ...body } = result;
-    // The reader sends both channels' first requests together (ordinary fills
-    // and TWAP), so up to two requests can fail without an observation: with
-    // the first one refused, the read stops with neither observed (gate run 9,
-    // 2026-10-14). Any later request is sent alone and stops the read.
+    // Both channels' first requests go out together, so up to two can fail without an observation
+    // (gate run 9, 2026-10-14); a later request is sent alone.
     const times = { from: result.from, to: result.to, observedAt: result.observedAt, completedAt: result.completedAt, now };
     if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) invalid('expected_revision', { expectedRevision });
     if (!['testnet', 'mainnet'].includes(result.network)) invalid('network', { network: result.network });
@@ -111,10 +109,8 @@ export class CopyLiveSourceRepository {
     if (stream.revision !== expectedRevision) return { kind: 'stale', stream };
     return this.change(tx, stream, ['invalid_fill','duplicate_conflict'].includes(issue) ? 'quarantined' : 'gap', issue, now);
   }
-  /** Starts a stream's coverage afresh, so the next read can begin at a new
-   * activation cursor. Only for a span no current consent generation needs:
-   * the caller checks that every active cursor lies after `coverageThrough`.
-   * Stored fills stay; a quarantined stream is never reset here. */
+  /** Restarts a stream's coverage for a new activation cursor; the caller checks every active cursor
+   * lies after `coverageThrough`. Stored fills stay; a quarantined stream is never reset. */
   async restart(tx: DbTransaction, leader: string, network: LiveSourceNetwork, expectedRevision: number, now: number): Promise<SourceApplyResult> {
     const stream = await this.ensure(tx, leader, network);
     if (stream.state === 'quarantined') return { kind: 'quarantined', stream };

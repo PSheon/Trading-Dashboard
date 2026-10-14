@@ -21,15 +21,9 @@ function input<T>(schema: z.ZodType<T>, value: unknown): T {
 const notSent = () => new ServiceUnavailableException({ statusCode: 503, code: 'return_not_sent', message: 'The return was not sent; try again' });
 
 /**
- * USDC back from a copy's account (on the deployment's network) to the owner's main wallet (idle
- * funds while copying, or everything once its stop is flat). The account is
- * a wallet the owner alone owns; every return is signed by the worker under
- * the owner's Privy policy, which allows a UsdSend to the owner's main
- * wallet only (the one signing model, 2026-10-07): the browser signs
- * nothing. An account without the worker signer (a legacy account) turns on
- * the automatic return first (its browser adds the signer). One attempt
- * only; credit is confirmed from the main wallet's ledger by the funding
- * monitor; uncertainty is never resent.
+ * USDC back from a copy's account to the owner's main wallet (idle funds, or everything once its stop
+ * is flat), signed by the worker under the owner's Privy policy, which allows a UsdSend to the main
+ * wallet only (2026-10-07). One attempt; credit is confirmed by the funding monitor; never resent.
  */
 @Injectable()
 export class CopyLiveReturnService {
@@ -70,10 +64,8 @@ export class CopyLiveReturnService {
       throw new ConflictException({ statusCode: 409, code: 'worker_signer_missing', message: 'Turn on the automatic return for this copy first: Orbie needs to add its signer to return the funds.' });
     if (account.sweepDestination !== context.owner.embeddedWalletAddress || row.destination !== account.sweepDestination)
       throw new ConflictException({ statusCode: 409, code: 'setup_wallet_conflict', message: 'Your main wallet changed since this copy started' });
-    // Signed before the balance read and the claim: the 5 s below guards that
-    // read, not Privy's signing time (a slow signature used to leave a
-    // never-sent return unknown). Not signed: nothing is claimed, the return
-    // stays prepared (approve again, or cancel it).
+    // Signed before the balance read and claim, so the freshness window guards the read, not Privy's
+    // signing time. Not signed: nothing is claimed and the return stays prepared.
     let signature: string;
     try {
       signature = await this.workerSigner.sign({ walletId: account.privyWalletId!, address: row.address, ownerQuorumId: account.ownerQuorumId!, workerQuorumId: account.masterSignerQuorumId, policyId: account.masterPolicyId },
@@ -87,8 +79,7 @@ export class CopyLiveReturnService {
     const fresh = () => { const at = this.now(); if (!Number.isSafeInteger(at) || at - checkedAt > LIVE_EVIDENCE_MAX_AGE_MS || at >= consentExpiresAt) throw new Error('stale'); };
     const attempt = await this.repository.begin(userId, id);
     if (!attempt) return wire(await this.repository.find(userId, id));
-    // Dispatched only once every check passed (this proof, then the quota
-    // permit), right before the POST: a refusal before it was not sent.
+    // `dispatched` flips right before the POST: a refusal before it was not sent.
     let dispatched = false;
     let reply: unknown;
     try { reply = await this.exchange.send(attempt, signature, fresh, () => { dispatched = true; }); }

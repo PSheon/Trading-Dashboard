@@ -4,12 +4,8 @@ import { Dec, type DecInput } from "../common/decimal/dec.js";
 import type { Mids } from "./copy-market.service.js";
 import type { OrderRow, PositionRow, StrategyRow } from "./copy.repository.js";
 
-/**
- * The JSON boundary: the wire contract carries money and sizes as JSON
- * numbers, for display. Everything is computed as a {@link Dec} first and
- * becomes a number here, in the last step, and nowhere else in the copy
- * engine. A value from the response is never fed back into the ledger.
- */
+/** The JSON boundary: the only place a {@link Dec} becomes a display number; response values are
+ * never fed back into the ledger. */
 export const wire = (value: DecInput): number => Dec.from(value).toNumber();
 
 function toCopyPosition(p: PositionRow, mids: Mids | null): CopyPosition {

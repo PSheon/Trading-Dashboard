@@ -22,8 +22,7 @@ export class CopyFollowerScanRepository {
   claim(): Promise<ScanClaim | null> {
     const network = this.network;
     return this.db.transaction(async tx => {
-      // Global database admission also spans worker replicas. Reserve at most
-      // one 240-weight pass per minute rather than one per process/account.
+      // Global admission across replicas: at most one 240-weight pass per minute.
       const lock = await tx.execute<{ held: boolean }>(sql`select pg_try_advisory_xact_lock(hashtext(${`copy-follower-scan-budget:${network}`})) as held`);
       if (!lock.rows[0]?.held) return null;
       const recent = await tx.select({ id: copyFollowerScans.accountId }).from(copyFollowerScans)
@@ -35,9 +34,8 @@ export class CopyFollowerScanRepository {
         freshForeground = busy.rows[0]?.busy === true;
         if (freshForeground) {
           await tx.insert(copyFollowerObservationBudget).values({ network, nextAllowedAt: sql`clock_timestamp()` }).onConflictDoNothing();
-          // A separate persisted marker prevents scans and reporting from
-          // consuming each other's five-minute busy-period fairness. Its first
-          // deferral is initialized once; foreground runFor never renews it.
+          // A separate marker keeps scans and reporting from consuming each other's busy-period
+          // fairness; initialized once, never renewed by foreground runFor.
           const [fairness] = await tx.update(copyFollowerObservationBudget)
             .set({ nextReceiptAllowedAt: sql`coalesce(${copyFollowerObservationBudget.nextReceiptAllowedAt}, clock_timestamp() + interval '300 seconds')` })
             .where(eq(copyFollowerObservationBudget.network, network))
@@ -45,8 +43,7 @@ export class CopyFollowerScanRepository {
           allowRetainedFairness = fairness?.available === true;
         }
       }
-      // Avoid a second paid receipt pass beside live settlement. Recovery
-      // accounts remain admitted; a stale fill cannot starve ordinary scans.
+      // No second paid receipt pass beside live settlement; recovery accounts still admitted.
       const eligible = await tx.select({ id: copyExecutionAccounts.id }).from(copyExecutionAccounts)
         .where(and(eq(copyExecutionAccounts.network, network), isNotNull(copyExecutionAccounts.address), followerForegroundReadEligible(allowRetainedFairness))).limit(1);
       if (!eligible.length) return null;
@@ -63,9 +60,7 @@ export class CopyFollowerScanRepository {
       const [claimed] = await tx.update(copyFollowerScans).set({ claimToken: randomUUID(), nextRunAt: sql`clock_timestamp() + interval '120 seconds'`, updatedAt: sql`clock_timestamp()` })
         .where(eq(copyFollowerScans.accountId, row.scan.accountId)).returning();
       if (network === 'testnet' && !row.recovery) {
-        // Record every ordinary scheduled admission, including idle passes.
-        // Only busy periods consult this marker; idle 60/120 s scheduling is
-        // unchanged. Null/recovery/foreground claims never consume it.
+        // Every ordinary admission is recorded; only busy periods consult it.
         await tx.insert(copyFollowerObservationBudget).values({ network, nextAllowedAt: sql`clock_timestamp()`, nextReceiptAllowedAt: sql`clock_timestamp() + interval '300 seconds'` })
           .onConflictDoUpdate({ target: copyFollowerObservationBudget.network, set: { nextReceiptAllowedAt: sql`clock_timestamp() + interval '300 seconds'` } });
       }

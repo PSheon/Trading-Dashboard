@@ -22,14 +22,8 @@ const WINDOW_MS: Record<Exclude<CopyPerformanceWindow, "all">, number> = { "1d":
 type ActualTransfer = { direction: "to_account" | "to_main"; status: string; amount: string; creditedAmount: string | null;
   attemptedAt: Date | null; createdAt: Date; updatedAt: Date };
 
-/**
- * What the owner had put into an actual copy's account as of `at`: deposits
- * credited minus returns credited (a return takes its whole amount, fee
- * included, from the account). Null when that is unknown at `at`: a transfer
- * was sent by then but not yet recorded as credited by then. Transfers not
- * sent by `at` (never attempted, cancelled, rejected, or attempted later)
- * have not moved money the observation could show.
- */
+/** Net deposits into a live copy's account as of `at` (credited deposits − credited returns, fee
+ * included). Null when a transfer sent by `at` was not yet credited by then. */
 function actualNetDeposits(transfers: readonly ActualTransfer[], at: number): Dec | null {
   let net = Dec.from(0);
   for (const t of transfers) {
@@ -51,13 +45,8 @@ export class CopyPerformanceService {
     await this.captureActual();
   }
 
-  /**
-   * Actual copies of this deployment's network: one valuation per stored
-   * follower observation, at its own time (the collector's reads only; none
-   * here). Equity is the observed account value; exposure the observed
-   * positions' value. Nothing is written without a valid observation or
-   * while net deposits are unknown (never a zero or a guess).
-   */
+  /** One valuation per stored follower observation (no reads here). Nothing is written without a
+   * valid observation or while net deposits are unknown (never a zero or a guess). */
   private async captureActual(): Promise<void> {
     const network = deploymentNetwork(this.config);
     for (const row of await this.repository.runtime.actualSnapshotInputs(network)) {
@@ -136,11 +125,7 @@ export class CopyPerformanceService {
       coverage: { firstSnapshotAt: first?.time ?? null, lastSnapshotAt: last?.time ?? null, complete } };
   }
 
-  /**
-   * The whole paper portfolio (CopyDog's `hl-portfolio/chart`): every copy
-   * the owner ever ran, merged. The window starts no earlier than the first
-   * copy; `todayPnl` is since 00:00 UTC (as each copy's own today figure).
-   */
+  /** The merged paper portfolio of every copy ever run, from the first copy; `todayPnl` since 00:00 UTC. */
   async portfolio(userId: number, query: unknown, now = new Date()): Promise<CopyPortfolioResponse> {
     const { window } = parseOr400(copyPortfolioQuerySchema, query);
     const first = await this.repository.runtime.firstCopyAt(userId);

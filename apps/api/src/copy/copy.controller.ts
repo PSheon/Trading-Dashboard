@@ -12,14 +12,8 @@ import { CopyStrategyService } from "./copy-strategy.service.js";
 import { CopyPerformanceService } from "./copy-performance.service.js";
 import { AddCopyFundsDto, CopyEventsQueryDto, CopyHistoryQueryDto, CopyPerformanceQueryDto, CopyPortfolioQueryDto, CopyTradesQueryDto, CopyStrategyCommandDto, CopyStrategyParamsDto, CreateCopyStrategyDto, PatchCopyStrategyDto } from "./dto/copy.dto.js";
 
-/**
- * The signed-in user's paper copies (Stage 4 step 3). Not @Public: 401
- * without a token, 403 for the service token. Every strategy route acts
- * only on a strategy the caller owns (404 otherwise). Database only, except
- * that valuing open positions reads allMids (weight 2, shared 3 s cache)
- * and starting a copy with 跟單目前持倉 reads the leader's
- * clearinghouseState (weight 2).
- */
+/** The user's paper copies. Not @Public (401 without token, 403 for the service token); every
+ * strategy route acts only on the caller's own strategy (404 otherwise). */
 @Controller("me/copy")
 export class CopyController {
   constructor(
@@ -29,13 +23,8 @@ export class CopyController {
     private readonly auth: AuthService,
   ) {}
 
-  /**
-   * Server-sent events: the caller's own copy events as they commit
-   * (`event: copy`, SSE id = event id), a heartbeat comment every ~15 s.
-   * Resume with `Last-Event-ID` (replays up to 200 missed events; `reset`
-   * beyond). Browsers use fetch streaming, so the Authorization header goes
-   * along; it is rechecked before every delivery.
-   */
+  /** SSE of the caller's copy events (`event: copy`, id = event id), heartbeat ~15 s. `Last-Event-ID`
+   * replays up to 200 (`reset` beyond); auth rechecked before every delivery. */
   @SkipTransform()
   @ApiHeader({ name: "Last-Event-ID", required: false, description: "Positive int64 copy event id; replays up to 200 missed events.", schema: { type: "string", pattern: "^[1-9]\\d{0,18}$" } })
   @ApiDoc("Stream my copy events")

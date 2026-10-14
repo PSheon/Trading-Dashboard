@@ -3,21 +3,15 @@ import type { CopyRiskLimits, CopyStrategySettings } from '@trading-dashboard/sh
 import type { LiveCopyCaps } from '../config/runtime-config.js';
 import { Dec } from '../common/decimal/dec.js';
 
-/**
- * The deployment's caps on actual copies (COPY_LIVE_*), applied as the
- * stricter of each cap and the newest risk policy: a database policy that is
- * looser than the deployment (Stage's v1: 10 copies, 100,000 USDC) can't
- * widen it, and a stricter policy still wins. Without caps (no actual
- * execution on this deployment) the policy is unchanged.
- */
+/** The deployment's caps (COPY_LIVE_*) and the newest risk policy, the stricter of each wins; without
+ * caps the policy is unchanged. */
 export function effectiveMaxStrategiesPerUser(caps: LiveCopyCaps | undefined, limits: Pick<CopyRiskLimits, 'maxStrategiesPerUser'> | null): number {
   if (!caps) return limits?.maxStrategiesPerUser ?? 1;
   return limits ? Math.min(caps.maxStrategiesPerUser, limits.maxStrategiesPerUser) : caps.maxStrategiesPerUser;
 }
 
-/** The policy's limits with the deployment's caps applied. A policy minimum
- * allocation above the deployment's maximum (Stage's v1: 100 against a 50
- * cap) gives way to it, or no budget could ever pass. */
+/** The policy's limits with the deployment's caps applied. A policy minimum above the capped maximum
+ * gives way to it, or no budget could ever pass. */
 export function effectiveLiveLimits<T extends Pick<CopyRiskLimits, 'maxStrategiesPerUser' | 'maxAllocationUsd' | 'minAllocationUsd' | 'maxLeverage'>>(caps: LiveCopyCaps | undefined, limits: T): T {
   if (!caps) return limits;
   const maxAllocationUsd = caps.maxAllocationUsd === undefined ? limits.maxAllocationUsd : Math.min(caps.maxAllocationUsd, limits.maxAllocationUsd);

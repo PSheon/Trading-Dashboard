@@ -9,7 +9,7 @@ import { CopyLiveSetupService } from './copy-live-setup.service.js';
 import { CopyLiveSetupAbortService } from './copy-live-setup-abort.service.js';
 import { RequestLiveCopySetupAbortDto } from './dto/copy-live-setup-abort.dto.js';
 
-/** One-click testnet copy (docs/one-click-copy-plan-2026-10-05.md §3a). */
+/** One-click copy (docs/one-click-copy-plan-2026-10-05.md §3a). */
 @Controller('me/copy/live')
 @UseFilters(BusyFilter)
 export class CopyLiveSetupController {

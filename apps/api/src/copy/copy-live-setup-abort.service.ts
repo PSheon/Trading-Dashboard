@@ -61,9 +61,7 @@ export class CopyLiveSetupAbortService {
     if (!parsed.success) throw new BadRequestException('Invalid setup abort request');
     return this.wire(await this.repository.request(userId, setupId, parsed.data.idempotencyKey, this.now));
   }
-  /** The owner's cancel of a confirmed setup still awaiting its deposit's
-   * credit (CopyLiveSetupService.cancel): the same durable authority as
-   * request, admitted inside the caller's transaction. */
+  /** CopyLiveSetupService.cancel's abort: same authority as request, inside the caller's transaction. */
   async requestIn(tx: DbTransaction, userId: number, setupId: string, key: string): Promise<SetupAbortRow> {
     if (!this.available) throw new ServiceUnavailableException({ statusCode: 503, code: 'setup_abort_unavailable', message: 'Cancelling a confirmed setup is not available right now' });
     return this.repository.admit(tx, userId, setupId, key, this.now);
@@ -72,12 +70,10 @@ export class CopyLiveSetupAbortService {
   async wire(row: SetupAbortRow): Promise<LiveCopySetupAbort> {
     const children = await this.repository.children(row), deposit = children.funding.find(op => op.id === row.fundingOperationId),
       refund = children.funding.find(op => op.id === row.returnOperationId || row.stopId !== null && op.stopId === row.stopId && op.direction === 'to_main' && !sweepSuperseded(op, children.funding));
-    // Old parents may have finished when the stop accepted its sweep. Preserve
-    // the original funding outcome instead of presenting acceptance as credit.
+    // A parent may be done once its sweep was accepted: don't present acceptance as credit.
     const pendingRefund = row.state === 'done' && refund && refund.status !== 'credited';
     const rejectedRefund = pendingRefund && ['rejected', 'cancelled'].includes(refund.status);
-    // A cancel completed on the account's own state while the original
-    // deposit's confirmation (the explorer) still lags: not yet `completed`.
+    // Done on the account's state while the deposit's explorer confirmation lags: not yet `completed`.
     const pendingDeposit = row.state === 'done' && !pendingRefund && deposit && ['prepared', 'unknown', 'accepted'].includes(deposit.status);
     return liveCopySetupAbortSchema.parse({ id: row.id, setupId: row.setupId, strategyId: row.strategyId, accountId: row.accountId, kind: row.kind, network: row.network,
       state: pendingRefund ? rejectedRefund ? 'blocked' : row.stopId ? 'delegated' : 'refunding' : pendingDeposit ? 'reconciling' : CopyLiveSetupAbortService.waitingWire(row) ?? states[row.state],
@@ -86,8 +82,7 @@ export class CopyLiveSetupAbortService {
       stop: children.stop ? { id: children.stop.id, state: children.stop.state, issue: issue(children.stop.issue) } : null,
       createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() });
   }
-  /** A row left `blocked` on an issue that only waits (an older pass, before
-   * the classifier): shown as the step it waits in. */
+  /** A row `blocked` on an issue that only waits (pre-classifier rows): shown as the step it waits in. */
   private static waitingWire(row: SetupAbortRow) {
     if (row.state !== 'blocked' || !issue(row.issue) || setupAbortIssueBlocks(row.issue)) return null;
     return row.stopId ? 'delegated' as const : row.returnOperationId ? 'refunding' as const : 'reconciling' as const;
@@ -103,8 +98,7 @@ export class CopyLiveSetupAbortService {
     }
     return admitted;
   }
-  /** A child's reconcile that failed is looked at again on the next pass:
-   * the log says why (it used to be dropped). */
+  /** A failed child reconcile is logged and retried on the next pass. */
   private kept(abortId: string, child: string, childId: string) {
     return (error: unknown) => { this.logger.warn(`setup abort ${abortId} ${child} ${childId} reconcile kept for the next pass ${JSON.stringify(errorLogFields(error))}`); };
   }
@@ -123,8 +117,7 @@ export class CopyLiveSetupAbortService {
   async process(id: string) {
     let row = await this.repository.lease(id); if (!row) return;
     const originalLease = row;
-    // A flat proof was had this pass (complete, begin or reprove took one):
-    // the account's not-flat clock (backoff.notFlatSince) starts over.
+    // A flat proof this pass restarts the not-flat clock (backoff.notFlatSince).
     let flat = false;
     const notFlatSince = () => flat ? null : row!.backoff?.notFlatSince ?? null;
     const wait = async (state: SetupAbortRow['state'], reason: string | null, delayMs = 30_000) => {
@@ -143,15 +136,12 @@ export class CopyLiveSetupAbortService {
         : await this.repository.transition(current, { state: 'blocked', issue: code, ...changes });
       if (next) row = next;
     };
-    /** A step that cannot go on, through the classifier (live/error-class):
-     * only permanent and needs_owner block. Transient and budget wait in the
-     * step they were in, on the row's own backoff (backoffMs under
-     * FUNDING_RETRY_POLICY: 3 s doubling to 60 s, or the error's own later time), never an attempt;
-     * the same wait again is bookkeeping only (no revision). */
+    /** Only permanent and needs_owner block (live/error-class). Transient and budget wait in their
+     * step on the row's backoff (FUNDING_RETRY_POLICY, or the error's later retry time); a repeated
+     * wait is bookkeeping only (no revision). */
     const settle = async (classified: ErrorClassification, reason: string) => {
       const current = row!, at = this.now();
-      // Not flat: a wait, until it lasted SETUP_ABORT_NOT_FLAT_ESCALATE_MS on
-      // this abort (a flat proof in between starts it over); then the owner's.
+      // Not flat waits until SETUP_ABORT_NOT_FLAT_ESCALATE_MS without a flat proof, then blocks.
       const since = reason === NOT_FLAT ? notFlatSince() ?? at : notFlatSince();
       if (reason === NOT_FLAT && (current.issue === NOT_FLAT_PERSISTENT || at - since! > SETUP_ABORT_NOT_FLAT_ESCALATE_MS)) {
         this.alert(current, 'not_flat', { notFlatSince: new Date(since!).toISOString(), minutes: Math.floor((at - since!) / 60_000) });
@@ -183,16 +173,14 @@ export class CopyLiveSetupAbortService {
         else await wait('delegated', issue(children.stop.issue));
         return;
       }
-      // Cancel only children that provably never crossed their attempt
-      // boundary. An attempted original deposit/return is ledger-read only.
+      // Cancel only children that provably never crossed their attempt boundary; attempted ones are only reconciled.
       for (const op of children.funding) {
         if (op.setupAbortId === row.id) continue;
         if (op.direction !== 'to_account' || op.network !== row.network || op.strategyId !== row.strategyId) { await stop('setup_abort_binding_unknown'); return; }
         if (!op.attemptedAt && ['prepared','unknown'].includes(op.status)) await this.fundingRows.cancel(row.userId, op.id);
         else if (op.attemptedAt && ['unknown','accepted'].includes(op.status)) await this.funding.reconcile(row.userId, op.id).catch(this.kept(row.id, 'funding', op.id));
       }
-      // Seal only ordinary reservations that never crossed the SDK boundary;
-      // attempted transfers retain their original receipt and reconcile only.
+      // Same for ordinary reservations: seal the unattempted, reconcile the attempted.
       for (const op of children.otherFunding) {
         if (!op.attemptedAt && ['prepared','unknown'].includes(op.status)) await this.repository.sealOrdinaryFunding(row, op);
         else if (op.attemptedAt && ['unknown','accepted'].includes(op.status)) await this.funding.reconcile(row.userId, op.id).catch(this.kept(row.id, 'funding', op.id));
@@ -209,11 +197,8 @@ export class CopyLiveSetupAbortService {
       if (children.otherFunding.length) { await wait('draining', 'setup_abort_child_pending'); return; }
       const deposit = children.funding.find(op => op.id === row!.fundingOperationId);
       if (!row.accountId || !row.accountAddress || !deposit) { await stop('setup_abort_binding_unknown'); return; }
-      // The deposit sent but not confirmed (its credit needs the explorer):
-      // settled for the refund once the account's own state shows it (its
-      // ledger, or its balance), or once its nonce can no longer execute.
-      // Until then the money may still be travelling and the refund waits.
-      // A refund already reserved was admitted on that proof: it stays settled.
+      // An unconfirmed deposit is settled once the account's ledger or balance shows it, or its nonce
+      // can no longer execute; until then the refund waits. A reserved refund stays settled.
       if (!row.returnOperationId && !abortDepositSettled(deposit, this.now(), null) &&
         !abortDepositSettled(deposit, this.now(), await this.exchange.withdrawable(row.network, row.accountAddress).catch(this.unread(row.id)))) {
         await wait('waiting_credit', 'setup_abort_deposit_pending'); return;
@@ -222,9 +207,7 @@ export class CopyLiveSetupAbortService {
       if (refund && ['unknown','accepted'].includes(refund.status)) {
         await this.funding.reconcile(row.userId, refund.id).catch(this.kept(row.id, 'refund', refund.id));
         refund = await this.returns.find(row.userId, refund.id);
-        // Accepted by the exchange (its own reply): it executed. Its credit
-        // is confirmed later (the explorer may lag) and only a flat zero
-        // account is needed to complete below. Unknown still waits.
+        // Accepted means executed; completion below needs only a flat zero account. Unknown waits.
         if (refund.status === 'unknown' || refund.status === 'prepared') { await wait('returning', 'setup_abort_refund_pending'); return; }
       }
       if (refund && ['rejected','cancelled'].includes(refund.status)) { await stop('setup_abort_refund_not_completed'); return; }
@@ -236,11 +219,8 @@ export class CopyLiveSetupAbortService {
         const reservationProof = await this.observer.observeSetupAbortFlat(row.accountAddress);
         if (await this.refunds.complete(row, reservationProof, this.now)) return;
         flat = true;
-        // Money still there after the refund left (credited, or accepted with
-        // its debit already in this proof; its credit needs the explorer and
-        // is not waited for): it is returned again (a follow-up, reserve), at
-        // most SETUP_ABORT_RESIDUAL_RETURNS times; only then does the abort
-        // need its owner (needs_owner, blocked).
+        // Money left after the refund is returned again by a follow-up, at most
+        // SETUP_ABORT_RESIDUAL_RETURNS times; then the abort blocks for its owner.
         const left = refund && setupAbortRefundLeft(refund, reservationProof) ? refund : null;
         if (left && (setupAbortRefundAttempt(left) ?? SETUP_ABORT_RESIDUAL_RETURNS) >= SETUP_ABORT_RESIDUAL_RETURNS) {
           this.alert(row, 'residual_cap', { refunds: (setupAbortRefundAttempt(left) ?? 0) + 1, withdrawable: reservationProof.snapshot.withdrawable });
@@ -255,10 +235,7 @@ export class CopyLiveSetupAbortService {
       if (!refund) { await wait('draining', 'setup_abort_child_pending'); return; }
       row = await this.repository.find(row.userId, row.id);
       if (refund.status !== 'prepared') { await wait('returning', 'setup_abort_refund_pending'); return; }
-      // A stored unattempted original refund cannot complete yet, and reserve
-      // would return that same child. Read once for its locked begin instead
-      // of spending another full proof on every retry. A new reservation still
-      // gets this independent post-lock proof; no earlier clock is reused.
+      // A fresh proof for the locked begin; no earlier proof's clock is reused.
       const proof = await this.observer.observeSetupAbortFlat(row.accountAddress!);
       const attempt = await this.refunds.begin(row, refund.id, proof, this.now);
       if (!attempt) { await wait('draining', 'setup_abort_child_pending'); return; }
@@ -272,9 +249,7 @@ export class CopyLiveSetupAbortService {
         const signature = await this.signer.sign({ walletId: account.privyWalletId!, address: attempt.address, ownerQuorumId: account.ownerQuorumId!,
           workerQuorumId: account.masterSignerQuorumId!, policyId: account.masterPolicyId! }, usdSendTypedData(WALLET_NETWORKS[row.network], attempt.destination, attempt.amount, attempt.nonce),
           { network: row.network, destination: row.destination }, this.now() + 30_000);
-        // Privy's signing time is not taken from the observation's 5 s: a
-        // proof past half its window is observed again and checked under the
-        // lease (as begin checked the first) before the POST.
+        // A proof aged past REPROVE_AFTER_MS by Privy's signing is observed again and rechecked under the lease.
         if (this.now() - proven.snapshot.observedAt > REPROVE_AFTER_MS) {
           proven = await this.observer.observeSetupAbortFlat(row.accountAddress!);
           if (!await this.refunds.reprove(row, attempt, proven, this.now)) throw new Error('setup_abort_reproof_refused');
@@ -288,9 +263,8 @@ export class CopyLiveSetupAbortService {
             await this.returns.finish(row.userId, attempt.id, 'rejected', digest(reply));
         }
       } catch (error) {
-        // Never handed to the exchange (not signed, a stale or refused proof,
-        // the meter): the same refund and nonce go back to prepared and are
-        // tried again after a back-off. Possibly sent: retained, reconciled.
+        // Never dispatched: same refund and nonce back to prepared, retried after a back-off.
+        // Possibly sent: retained and reconciled.
         const restored = !dispatched && await this.refunds.restoreNotDispatched(row, attempt);
         if (restored) retryMs = NOT_DISPATCHED_RETRY_MS;
         this.logger.warn(`setup abort ${row.id} original refund ${restored ? 'not sent, kept prepared' : 'retained'} ${JSON.stringify(errorLogFields(error))}`);
@@ -298,9 +272,7 @@ export class CopyLiveSetupAbortService {
       row = await this.repository.find(row.userId, row.id);
       await wait('returning', 'setup_abort_refund_pending', retryMs);
     } catch (error) {
-      // The error's own code (a refusal, a boundary, a budget wait), else the
-      // evidence was not had: classified, so only a permanent or the owner's
-      // own issue blocks; a stale or failed read waits and backs off.
+      // The error's own code, else EVIDENCE_UNAVAILABLE; classified so only permanent/needs_owner block.
       const classified = classify(error);
       await settle(classified, (classified.source === 'unknown' || classified.source === 'message' ? null : issue(classified.code)) ?? EVIDENCE_UNAVAILABLE);
       this.logger.warn(`setup abort ${row.id} kept for recovery ${JSON.stringify(errorLogFields(error))}`);

@@ -17,12 +17,9 @@ export async function lockCopyLeader(tx: DbTransaction, address: string): Promis
 /** Live strategy statuses: their leader's fills are copy signals. */
 export const LIVE_STRATEGY_STATUSES = ["active", "paused", "stopping"] as const;
 
-/**
- * Execution outbox write, in the same transaction as the fills insert: each
- * newly stored fill of an address that somebody copies, at or after the
- * earliest activation cursor, becomes one pending row. Idempotent on
- * (chain, address, tid). Caller holds {@link lockCopyLeader}.
- */
+/** Outbox write in the fills-insert tx: each new fill of a copied address at or after the earliest
+ * activation cursor → one pending row. Idempotent on (chain, address, tid). Caller holds
+ * {@link lockCopyLeader}. */
 export async function enqueueCopySignals(tx: DbTransaction, address: string, inserted: { tid: bigint; ts: Date }[]): Promise<number> {
   if (inserted.length === 0) return 0;
   const [cursor] = await tx

@@ -11,27 +11,17 @@ import type { MasterAccount, MasterActionBound, MasterTypedData } from './live/m
 import { jsonDigest as digest } from '../common/crypto/digest.js';
 export { digest };
 
-/**
- * What every part of a live copy setup shares (copy-live-setup.service.ts
- * composes them: the HTTP facade, the provisioning, the driver and the
- * steps): the row repository, the clock, the deployment's network and the
- * timings, plus the few helpers every step uses.
- */
+/** What every part of a live copy setup shares (composed by copy-live-setup.service.ts). */
 
-/** The deposit a setup reserves, as a UUID derived from the setup and the
- * deposit it replaces: every pass and every driver reserve the same deposit,
- * never an orphan beside it. Not the revision: a pass whose step CAS lost
- * (another driver moved the row) would mint a new key next pass and leave
- * the first `prepared` deposit orphaned (funding_pending until the setup
- * ended; money audit 2026-10-12). A cancelled deposit is replaced under a
- * new key (its id is part of it). */
+/** The setup's deposit key, a UUID from the setup id and the deposit it replaces, so every pass and
+ * driver reserves the same deposit. Never the revision: a lost CAS would orphan a `prepared` deposit
+ * (money audit 2026-10-12). */
 export function setupFundingKey(row: Pick<SetupRow, 'id' | 'fundingOperationId'>): string {
   const h = createHash('sha256').update(`live-setup-funding:${row.id}:${row.fundingOperationId ?? ''}`).digest('hex');
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-${(8 | (parseInt(h[16]!, 16) & 3)).toString(16)}${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
-/** Every step after confirm is signed by the worker under the owner's Privy
- * policy (the one signing model, 2026-10-07), with exactly the payload the
- * consent bound; the owner's browser signs nothing after confirm. */
+/** Signs every step after confirm: the worker under the owner's Privy policy, exactly the payload the
+ * consent bound (2026-10-07). */
 export interface SetupSigner {
   sign(account: MasterAccount, data: MasterTypedData, bound: MasterActionBound, deadline: number): Promise<string>;
 }

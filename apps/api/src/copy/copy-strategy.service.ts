@@ -35,12 +35,8 @@ import { safeErrorText } from "../runtime/safe-error-text.js";
 
 const conflict = (code: string, message: string, extra: Record<string, unknown> = {}) => new ConflictException({ statusCode: 409, code, message, ...extra });
 
-/**
- * The signed-in user's paper copies: start (CopyDog's configure), edit
- * (a new immutable version), add funds, commands, and the portfolio read.
- * Paper money only: the virtual balance in paper_accounts, never the
- * user's wallet.
- */
+/** The user's paper copies (start, edit as a new version, funds, commands, reads). Paper money
+ * only: paper_accounts, never the user's wallet. */
 @Injectable()
 export class CopyStrategyService {
   private readonly logger = new Logger(CopyStrategyService.name);
@@ -106,25 +102,13 @@ export class CopyStrategyService {
   }
 
   /**
-   * POST /me/copy/strategies. With copyStartMode `adopt` (CopyDog's 跟單目前持倉,
-   * on by default) the leader is read first and the activation cursor is
-   * that snapshot's time: the positions it shows are adopted, and only fills
-   * after it are copied, so nothing is counted twice. With `delta` the
-   * cursor is now. 403 copy_not_open while the admin's
-   * `general.copyTradingEnabled` is off: no new copy starts; copies already
-   * running, and their pause, resume, edit and stop, are untouched (the
-   * admin copy commands are what stops those). 409: already_copying, insufficient_balance,
-   * copy_paused (platform or user stop), strategy_limit. 503
-   * leader_unavailable when the leader, the mids or the universe can't be
-   * read while there are positions to adopt: nothing is created.
+   * POST /me/copy/strategies. `adopt`: the cursor is the leader snapshot's time, its positions are
+   * adopted and only later fills copied (nothing twice); `delta`: cursor is now. 403 copy_not_open
+   * while `general.copyTradingEnabled` is off (running copies untouched). 503 leader_unavailable
+   * when data for adoption can't be read: nothing is created.
    *
-   * Adoption is not cut short (review 39): its legs have no signal age and
-   * are not counted by the per-minute order cap, so a leader with fifty
-   * positions is adopted whole, within the exposure and funds caps. The
-   * leader's builder-dex (HIP-3) positions are read as well: adopted when
-   * the policy's `allowHip3` is on, listed as `symbol_not_allowed` when it
-   * is off. The answer's `adoption` lists every position the leader held
-   * and whether it was adopted, with the reason when not.
+   * Adoption is never cut short (review 39): no signal age, not counted by the per-minute cap.
+   * HIP-3 positions are adopted only with `allowHip3`; `adoption` reports each position's outcome.
    */
   async create(userId: number, input: unknown): Promise<CopyStrategy> {
     this.requireEnabled();
@@ -152,19 +136,15 @@ export class CopyStrategyService {
     const adoptable = pricedCoins(limitsNow, held.map((ap) => ap.position.coin)).filter((coin) => symbolRefusal(limitsNow, coin) === null);
     const mids = adoptable.length ? await this.market.midPrices(adoptable) : null;
     const assets = adoptable.length ? await this.market.assetInfo(adoptable) : null;
-    // Adoption is all-or-nothing on market data: without mids or the
-    // universe no adoption order can be sized, and a copy that started
-    // without the leader's positions would stay wrong until the leader
-    // trades again. Nothing is created; the person retries (the web shows
-    // this code as a toast).
+    // All-or-nothing on market data: a copy started without the leader's positions would stay
+    // wrong until the leader trades again.
     const gap = adoptable.map((coin) => marketDataGap(mids, assets, coin)).find((g) => g !== null);
     if (gap) {
       this.logger.warn(`Copy of ${req.leader} not started: ${gap} unavailable for adoption`);
       throw new ServiceUnavailableException({ statusCode: 503, code: "leader_unavailable", message: "Market data is unavailable, so the trader's positions can't be copied right now; try again" });
     }
 
-    // Ratio sizing divides by the leader's whole account value. A read of
-    // it that failed is the same case as missing market data: start nothing.
+    // A failed leader-equity read (ratio sizing) is like missing market data: start nothing.
     const equity = adoptable.length && settings.sizingMode === "ratio" ? await this.market.leaderEquity(req.leader) : null;
     if (equity?.state === "failed") {
       throw new ServiceUnavailableException({ statusCode: 503, code: "leader_unavailable", message: "Couldn't read the trader's account value; try again" });
@@ -195,10 +175,8 @@ export class CopyStrategyService {
       await this.repository.insertVersion(tx, strategy.id, 1, settings, userId);
       await this.repository.adjustPaperBalance(tx, userId, `-${amount}`);
       await this.repository.insertLedger(tx, [{ strategyId: strategy.id, userId, kind: "allocate", amount }]);
-      // Watched so its fills arrive (the watcher picks it up on its next refresh).
-      // …within the site-wide cap on watched addresses (review finding 34):
-      // at the cap, a leader nobody watches yet can't be copied, and the
-      // whole start is rolled back.
+      // Watched so its fills arrive, within the site-wide watch cap (review 34): at the cap the
+      // whole start rolls back.
       try {
         await this.repository.watchLeader(tx, req.leader, (await this.site.get("general")).maxWatchedAddresses);
       } catch (error) {

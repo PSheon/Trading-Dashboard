@@ -311,9 +311,7 @@ export function originalFollowerAdjustment(
         ).size,
         b.market.sizeDecimals,
       );
-    // The original planner alone chooses the final size. This explains only
-    // its minimum-order full-close branch, never a full leader close or carry
-    // that already requested the whole position. Actual fills remain separate.
+    // Explains only the planner's minimum-order full-close branch, not a full close or carry.
     if (
       !fraction.isPositive ||
       fraction.gte(1) ||

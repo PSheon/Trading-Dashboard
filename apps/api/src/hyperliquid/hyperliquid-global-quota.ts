@@ -546,10 +546,13 @@ export function planHyperliquidQuota(raw:{readonly now:number;readonly state:Hyp
       if(fits===undefined)throw new LiveBoundaryError('hyperliquid_quota_exhausted');
       requireQuota(request.sendUntil>=now&&request.sendUntil<=now+5000);requireQuota(!s.events.some(e=>e.id===request.id||e.id===`${request.id}:g`),'hyperliquid_quota_ticket_conflict');
       // Its marker goes in on a full window too (recordDemandMarker). A setup
-      // keeps two: its first (its place in the queue, pendingSetups) and this one.
+      // keeps at most three: its first (its place in the queue,
+      // pendingSetups), its latest grant (`:g`: revoke and revoked read the
+      // grant from it while its hold lives, whatever it claimed since) and this one.
       const granted=token!==undefined&&fits===0&&request.queue!==true;
       const mine=token===undefined?[]:events.filter(e=>e.kind==='rest'&&SETUP_DEMAND_TICKET.exec(e.id)?.[2]===token).sort((a,b)=>a.reservedAt-b.reservedAt||(a.id<b.id?-1:1)),first=mine[0];
-      recordDemandMarker(granted?`${request.id}:g`:request.id,request.sendUntil,e=>e!==first&&mine.includes(e));waitMs=fits;
+      const grant=granted?undefined:mine.filter(e=>SETUP_DEMAND_TICKET.exec(e.id)?.[4]===':g').at(-1);
+      recordDemandMarker(granted?`${request.id}:g`:request.id,request.sendUntil,e=>e!==first&&e!==grant&&mine.includes(e));waitMs=fits;
       if(granted){
         dropHolds(events,token);
         const hold=`${SETUP_HOLD_ID_PREFIX}${token}:${request.id.slice(SETUP_DEMAND_ID_PREFIX.length)}`,until=now+HYPERLIQUID_SETUP_GRANT_HOLD_MS;

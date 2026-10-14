@@ -88,6 +88,26 @@ describe('a demand marker is recorded on a full window: the claim is never starv
     expect(plan({kind:'rest',id:id(`live:${ORDER}:`),weight:20,sendUntil:later+5000,lane:'live'},state,later).charged).toBe(20);
   });
 
+  it('a granted setup that claims again without a grant keeps its grant marker: a live order that takes its room still revokes it', () => {
+    // One pass a millisecond (a marker per pass; ties are told apart by id only).
+    let at=now+10;const setup=(s:HyperliquidQuotaState,extra:object={})=>plan({kind:'setup_demand',id:setupDemandTicket(300,SETUP),weight:300,sendUntil:at+5000,...extra} as HyperliquidQuotaRequest,s,at);
+    let state=S([{id:'bg-600',kind:'rest',units:600,reservedAt:now-1_000,expiresAt:now+59_000}]);
+    // Queued (its first marker), granted (`:g`, its hold of 300), then a pass that only queues again.
+    state=setup(state,{queue:true}).state;at++;
+    const granted=setup(state);expect(granted.waitMs).toBe(0);state=granted.state;at++;
+    state=setup(state,{queue:true}).state;
+    const mine=alive(state,at).filter(e=>e.id.startsWith(`setup-demand:300:${SETUP}:`));
+    expect(mine).toHaveLength(3);expect(mine.filter(e=>e.id.endsWith(':g'))).toHaveLength(1);
+    // A live order whose need fits only without the setup's hold takes it back.
+    const announced=plan({kind:'live_demand',id:`live-demand:400:${ORDER}:${id()}`,weight:400,sendUntil:at+5000},state,at);
+    expect(announced.waitMs).toBe(0);state=announced.state;
+    expect(alive(state,at).some(e=>e.id.startsWith(`setup-demand:300:${SETUP}:`)&&e.id.endsWith(':g:r'))).toBe(true);
+    // Revoked: nothing more of the step goes out until it claims again (it would fit as a plain setup charge).
+    expect(refusal(()=>plan({kind:'rest',id:id(`setup:${SETUP}:`),weight:20,sendUntil:at+5000,lane:'setup'},state,at))).toBeInstanceOf(HyperliquidRestCapacityError);
+    // Its next claim is a claim like any other: it waits for room (the order comes first), it is not let through on a lost grant.
+    expect(setup(state).waitMs).toBeGreaterThan(0);
+  });
+
   it('the provider\'s 1200 holds for what is sent: a marker over the window is never room for a charge', () => {
     let state=staircase();const at=now+10;
     state=plan({kind:'live_demand',id:`live-demand:100:${ORDER}:${id()}`,weight:100,sendUntil:at+5000},state,at).state;

@@ -61,8 +61,9 @@ export const HYPERLIQUID_SETUP_PENDING_HOLD_MS = 30_000;
 /** basis: guessed — 20 claimants at once on a full window (gate 10 had one settlement, one order and up to two setup steps claiming); verify: the meter heartbeat's live and setup marker counts p99 at the next gate
  * Demand markers (1 unit each, never sent) the shared meter records over
  * HYPERLIQUID_REST_CAP on a full window: at most this many units. A live
- * claimant keeps one marker and a setup two (its first, for its place in the
- * queue, and its latest), so a renewal reuses its own room; a new claimant
+ * claimant keeps one marker and a setup at most three (its first, for its
+ * place in the queue, its latest grant and its latest), so a renewal reuses
+ * its own room; a new claimant
  * past this is refused with a wait, as before 2026-10-15. Markers count as
  * taken room in every lane, so this is also the most they hold over the window.
  */

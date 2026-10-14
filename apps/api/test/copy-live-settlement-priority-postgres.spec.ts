@@ -95,4 +95,39 @@ describe('terminal settlement beside saturated background and page lanes on the 
       stop.abort(); restore(); await pool.end();
     }
   });
+
+  it('its claim is recorded on a full window even when a page takes every unit that frees up first, and its read goes out', { timeout: 30_000 }, async () => {
+    // CI 2026-10-14 (5 of 8 runs): the claim's marker went in only when a unit
+    // was free, the pages took each freed 20 first, and once the room due to
+    // free up in time was gone the claim was refused at ~9 s. Here the pages
+    // always win that race: each time the claim waits, a page asks first.
+    const egressKey = `settle-marker-${randomUUID()}`, pool = new pg.Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 4 });
+    const uow = () => new UnitOfWork(drizzle(pool, { schema }));
+    try {
+      // The window full: 600 freeing 20 every 100 ms (3 s in all), 600 held for a minute.
+      const now = Date.now();
+      const events = [...Array.from({ length: 30 }, (_, i) => ({ id: `page:${randomUUID()}`, kind: 'rest' as const, units: 20, reservedAt: now - 60_000 + i * 100, expiresAt: now + (i + 1) * 100 })),
+        { id: 'held', kind: 'rest' as const, units: 600, reservedAt: now - 5_000, expiresAt: now + 55_000 }];
+      await db.insert(schema.hyperliquidEgressQuota).values({ egressKey, events, updatedAt: new Date(now - 1) });
+      const page = new PostgresHyperliquidQuota(uow()).bindUnscoped({ egressKey, ownerId: 'harness-page' });
+      let pages = 0;
+      const sleep = async (ms: number) => {
+        await wait(ms);
+        try { (await page.acquireRest(20, Date.now() + 5000, 'page')).dispatch(() => undefined); pages++; } catch { /* refused: the room is the claim's */ }
+      };
+      const raw = vi.fn<typeof fetch>(async () => Response.json([]));
+      const transport = new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(uow()), { egressKey, ownerId: 'worker' }, raw, Date.now, sleep);
+      const started = Date.now();
+      // Before: refused at ~3 s (hyperliquid_quota_exhausted), every freed unit a page's.
+      const token = await transport.claimLive(200, started + 15_000);
+      expect(token).toBeDefined();
+      expect(Date.now() - started).toBeLessThan(2_500);
+      expect(pages).toBe(0);
+      await transport.runLive(token!, () => transport.fetchInfo(INFO, { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ type: 'userFillsByTime', user: ACCOUNT, startTime: now - 120_000, endTime: now }) }));
+      expect(raw).toHaveBeenCalledTimes(1);
+    } finally {
+      await pool.end();
+    }
+  });
 });

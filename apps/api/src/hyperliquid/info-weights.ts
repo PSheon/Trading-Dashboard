@@ -6,9 +6,7 @@
  * - 20: every other documented info request;
  * - plus 1 per 20 items returned for the list requests below, 1 per 60 for candleSnapshot.
  * (Explorer requests weigh 40; none goes through these clients.)
- * The info client (local scheduling), the shared per-IP meter
- * (hyperliquid-global-transport.ts) and live evidence (live-shared-reads.ts)
- * read this table: they used to keep three that disagreed.
+ * The info client, the shared per-IP meter and live evidence all read this table.
  */
 const CHEAP: ReadonlySet<string> = new Set(['l2Book', 'allMids', 'clearinghouseState', 'orderStatus', 'spotClearinghouseState', 'exchangeStatus']);
 /** The docs' "additional weight per 20 items returned" list, plus
@@ -21,7 +19,7 @@ export const EXPLORER_WEIGHT = 40;
 /** Every list request answers at most this many items. */
 export const MAX_INFO_LIST_ITEMS = 2000;
 /** candleSnapshot answers at most this many candles. */
-export const MAX_CANDLES = 5000;
+const MAX_CANDLES = 5000;
 
 /** The provider weight of one info request before any list surcharge. */
 export function infoWeight(body: Readonly<{ type?: unknown }>): number {
@@ -29,10 +27,9 @@ export function infoWeight(body: Readonly<{ type?: unknown }>): number {
   return CHEAP.has(type) ? 2 : type === 'userRole' ? USER_ROLE_WEIGHT : 20;
 }
 /** Items per extra weight for a list request (20, candles 60); undefined when it is no list. */
-export function infoItemsPerWeight(type: string): 20 | 60 | undefined {
+function infoItemsPerWeight(type: string): 20 | 60 | undefined {
   return PER_20_ITEMS.has(type) ? 20 : type === 'candleSnapshot' ? 60 : undefined;
 }
-export const isInfoList = (type: string) => infoItemsPerWeight(type) !== undefined;
 /** The surcharge of a list answer of `items` items (0 for a request that is no list). */
 export function infoListSurcharge(type: string, items: number): number {
   const per = infoItemsPerWeight(type);

@@ -46,7 +46,7 @@ export interface LeaseClient {
   release(destroy?: boolean): void;
 }
 
-export interface AcquireOwnershipOptions<C extends LeaseClient> {
+interface AcquireOwnershipOptions<C extends LeaseClient> {
   connect(): Promise<C>;
   /** Default: `acquireWorkerLease`. */
   acquire?(client: C): Promise<boolean>;

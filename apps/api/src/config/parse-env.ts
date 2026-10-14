@@ -32,10 +32,9 @@ export function servicePermissions(raw: string | undefined): Permission[] {
   return [...new Set(names)] as Permission[];
 }
 
-/** Grants a service token never gets (backend review: users.manage could
- * promote anyone to admin, settings.write could reopen signups or switch
- * maintenance off). */
-export const SERVICE_FORBIDDEN = ["users.manage", "settings.write"] as const;
+/** Grants a service token never gets: users.manage could promote anyone to
+ * admin, settings.write could reopen signups or switch maintenance off. */
+const SERVICE_FORBIDDEN = ["users.manage", "settings.write"] as const;
 
 export function databaseUrl(raw: string | undefined): string {
   if (!raw?.trim()) throw new Error("DATABASE_URL is required");

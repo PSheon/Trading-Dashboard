@@ -1,7 +1,6 @@
 /**
  * What a worker process runs (WORKER_ROLE, docs/design-hl-egress-2026-10-13.md
- * §3, Phase 1a-3). Unset is `all`: today's single worker, which runs
- * everything and holds both leases.
+ * §3). Unset is `all`: a single worker that runs everything and holds both leases.
  *
  * - `copy`: real-money work and its signal source (the live engine, stops,
  *   closes, settlement, the setup driver and aborts, the funding monitor,
@@ -11,12 +10,12 @@
  *   revenue, follower snapshots and receipts, paper copy, outbox, Telegram,
  *   retention, archive). Lease (73106, 2).
  */
-export const WORKER_ROLES = ["all", "copy", "read"] as const;
+const WORKER_ROLES = ["all", "copy", "read"] as const;
 export type WorkerRole = (typeof WORKER_ROLES)[number];
 
 /** The advisory-lock key's second half, per lease. */
-export const COPY_LEASE = 1;
-export const READ_LEASE = 2;
+const COPY_LEASE = 1;
+const READ_LEASE = 2;
 
 /** The leases a role must hold, all at once, before it constructs anything. */
 export function roleLeases(role: WorkerRole): readonly number[] {

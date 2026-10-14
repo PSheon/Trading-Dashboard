@@ -28,16 +28,15 @@ function urlValue(key: string, raw: string | undefined, fallback: string, protoc
   return value;
 }
 
+/** COPY_LIVE_WEIGHT_PER_MIN's ceiling: a wallet-network bucket holds
+ * 1200 − its rate at once, and must hold a setup's account-mode step (715). */
+export const MAX_COPY_LIVE_WEIGHT_PER_MIN = 1200 - 715;
 /**
  * HYPERLIQUID_NETWORK picks where the user's own wallet lives: the network
  * whose balances /me/wallet reads and whose chain the browser signs bridge
  * and withdraw actions for. Default testnet: mainnet signing needs Paul's
- * explicit approval (Stage 4 §6). The discovery reads keep using
- * HYPERLIQUID_API_URL (mainnet) either way.
+ * explicit approval. Discovery reads use HYPERLIQUID_API_URL (mainnet) either way.
  */
-/** COPY_LIVE_WEIGHT_PER_MIN's ceiling: a wallet-network bucket holds
- * 1200 − its rate at once, and must hold a setup's account-mode step (715). */
-export const MAX_COPY_LIVE_WEIGHT_PER_MIN = 1200 - 715;
 function walletNetwork(source: Environment) {
   const raw = (source.HYPERLIQUID_NETWORK ?? "testnet").trim().toLowerCase();
   if (raw !== "mainnet" && raw !== "testnet") throw new Error("HYPERLIQUID_NETWORK must be mainnet or testnet");
@@ -49,18 +48,6 @@ function walletNetwork(source: Environment) {
   };
 }
 
-/**
- * COPY_TRADING_MODE is the deployment's copy capability (review #11):
- * `paper` (default: virtual balances, simulated fills), `disabled`,
- * `testnet` or `live`. With `testnet` or `live`, paper keeps working and, in
- * addition, dedicated copies execute real orders on the deployment's one
- * Hyperliquid network (HYPERLIQUID_NETWORK): `testnet` needs
- * HYPERLIQUID_NETWORK=testnet, `live` needs HYPERLIQUID_NETWORK=mainnet and
- * an explicit allowlist of the Privy users who may copy with real funds
- * (COPY_LIVE_ALLOWED_PRIVY_USER_IDS; everyone else keeps paper). Both need the
- * worker's Privy signing key and quorum and a shared egress key; a missing
- * one refuses startup rather than running as paper.
- */
 interface AgentSigningConfig { authorizationPrivateKey: string; authorizationPublicKey: string; workerQuorumId: string }
 function agentSigning(source: Environment): AgentSigningConfig | undefined {
   const authorizationPrivateKey = optional(source.PRIVY_AGENT_AUTHORIZATION_KEY);
@@ -195,6 +182,15 @@ function liveCaps(source: Environment, mode: "testnet" | "live"): LiveCopyCaps {
   };
 }
 export type CopyTradingMode = "paper" | "disabled" | "testnet" | "live";
+/**
+ * COPY_TRADING_MODE is the deployment's copy capability: `paper` (default:
+ * virtual balances, simulated fills), `disabled`, `testnet` or `live`. With
+ * `testnet` or `live`, paper keeps working and dedicated copies also execute
+ * real orders on HYPERLIQUID_NETWORK (`testnet` / `mainnet` respectively;
+ * `live` also needs COPY_LIVE_ALLOWED_PRIVY_USER_IDS). Both need the worker's
+ * Privy signing key and quorum and a shared egress key; a missing one refuses
+ * startup rather than running as paper.
+ */
 function copyTrading(source: Environment, wallet: "mainnet" | "testnet", egressKey: string | undefined):
   { mode: CopyTradingMode; workerIntervalMs: number; agent?: AgentSigningConfig; live?: LiveCopyConfig } {
   const mode = (source.COPY_TRADING_MODE ?? "paper").trim().toLowerCase();
@@ -247,6 +243,11 @@ function decimalValue(key: string, raw: string | undefined, fallback: number, mi
   return parsed;
 }
 
+function trust(raw: string | undefined): "none" | "regular" | "all" {
+  const value = (raw ?? "regular").trim().toLowerCase();
+  if (value !== "none" && value !== "regular" && value !== "all") throw new Error("S3_ARCHIVE_TRUST must be none, regular or all");
+  return value;
+}
 /**
  * Hyperliquid's public node archive (requester-pays S3). Off unless
  * S3_ARCHIVE_ENABLED=true. Transfers are billed to the AWS account of
@@ -255,11 +256,6 @@ function decimalValue(key: string, raw: string | undefined, fallback: number, mi
  * S3_ARCHIVE_USD_PER_GB, and S3_ARCHIVE_MAX_BYTES_PER_MINUTE paces them.
  * S3_ARCHIVE_LOCAL_DIR reads the same keys from disk instead (no AWS).
  */
-function trust(raw: string | undefined): "none" | "regular" | "all" {
-  const value = (raw ?? "regular").trim().toLowerCase();
-  if (value !== "none" && value !== "regular" && value !== "all") throw new Error("S3_ARCHIVE_TRUST must be none, regular or all");
-  return value;
-}
 function archive(source: Environment) {
   const enabled = booleanValue("S3_ARCHIVE_ENABLED", source.S3_ARCHIVE_ENABLED, false);
   const accessKeyId = optional(source.AWS_ACCESS_KEY_ID);
@@ -300,14 +296,10 @@ function archive(source: Environment) {
 }
 
 /**
- * Deploy-time tuning (Paul, 2026-10-05): the Hyperliquid weight caps of the
- * background loops, the discovery refresh and size knobs, and data
- * retention used to be admin settings; nobody tunes them day to day and a
- * wrong value starves user requests or deletes data, so they are read here
- * once at startup (change the variable, restart the worker). Defaults are
- * the values Stage and local ran with. The weight caps are each loop's own
- * allowance inside the process's HYPERLIQUID_WEIGHT_* budget (0 pauses a
- * loop). Retention periods are what the privacy policy (§6) states.
+ * Deploy-time tuning, read once at startup (a wrong value starves user
+ * requests or deletes data, so it is not an admin setting). The weight caps
+ * are each loop's allowance inside the process's HYPERLIQUID_WEIGHT_* budget
+ * (0 pauses a loop). Retention periods are what the privacy policy (§6) states.
  */
 export const TUNING_DEFAULTS = {
   discovery: { leaderboardRefreshMinutes: 15, candidatePoolSize: 1000, cohortMembersPerTier: 500, cohortRefreshMinutes: 40 },
@@ -402,14 +394,10 @@ export function validateEnvironment(source: Environment = process.env) {
   // A worker beside an api on one machine needs its own port: WORKER_PORT
   // wins for the worker (Railway sets PORT per service and leaves it unset).
   port: isWorker && source.WORKER_PORT ? integerValue("WORKER_PORT", source.WORKER_PORT, 3000, 1, 65535) : integerValue("PORT", source.PORT, 3000, 1, 65535) };
-  // The main pool's size (DATABASE_POOL_MAX). pg's default of 10 was shared
-  // by the LISTEN relays, the two dedicated connections of every live order
-  // (order lock, risk scope), the snapshot cron, sweeps, analytics and
-  // retention; when it ran out an order waited 3 s for a connection and
-  // failed inside its 5 s window. Defaults: api 20, worker 30, which with
-  // the worker's lease connection, an api overlapping its replacement in a
-  // rolling deploy and the release's migration stay well under Postgres's
-  // default max_connections of 100 (docs/railway-deploy.md).
+  // The main pool's size (DATABASE_POOL_MAX). pg's default 10 ran out and a
+  // live order failed its 5 s window waiting for a connection. api 20 +
+  // worker 30, with a rolling-deploy overlap and the migration, stay under
+  // Postgres's default max_connections of 100 (docs/railway-deploy.md).
   const database = { url: databaseUrl(source.DATABASE_URL),
     poolMax: integerValue("DATABASE_POOL_MAX", source.DATABASE_POOL_MAX, isWorker ? DATABASE_POOL_MAX_WORKER : DATABASE_POOL_MAX_API, 2, 200) };
   const serviceToken = optional(source.AUTH_SERVICE_TOKEN);
@@ -448,11 +436,8 @@ export function validateEnvironment(source: Environment = process.env) {
   };
   const egressKey = optional(source.HYPERLIQUID_EGRESS_KEY);
   if (source.HYPERLIQUID_EGRESS_KEY !== undefined && (!egressKey || !/^[A-Za-z0-9:._-]{1,128}$/.test(egressKey))) throw new Error('HYPERLIQUID_EGRESS_KEY must be a canonical shared egress identifier');
-  // Every Hyperliquid info call goes through the shared quota, which refuses
-  // to run without the alias: a deployment that forgot it would start, pass
-  // its readiness check, and then fail every trader page, snapshot and
-  // discovery read. It fails here instead (staging and production; local
-  // development and tests may run without it, public reads then fail).
+  // The shared quota refuses every info call without the alias: fail at
+  // startup rather than pass readiness and then fail every read.
   if (production && !egressKey) throw new Error("HYPERLIQUID_EGRESS_KEY is required in staging and production (the same value on the api and the worker)");
   const wallet = walletNetwork(source), mainnetWorker = isWorker && wallet.network === "mainnet";
   const hyperliquid = {
@@ -461,23 +446,12 @@ export function validateEnvironment(source: Environment = process.env) {
     egressKey,
     apiUrl: urlValue("HYPERLIQUID_API_URL", source.HYPERLIQUID_API_URL, "https://api.hyperliquid.xyz/info", ["http:", "https:"]),
     wsUrl: urlValue("HYPERLIQUID_WS_URL", source.HYPERLIQUID_WS_URL, "wss://api.hyperliquid.xyz/ws", ["ws:", "wss:"]),
-    /** This process's share of the per-IP REST limit. The api's and the
-     * worker's must add up (with their bursts) to what one IP may spend:
-     * both draw on the same meter, whose background lane holds 840
-     * (HYPERLIQUID_BACKGROUND_REST_CAP). A worker beside an api that reads the
-     * same environment (one .env on one machine) takes
-     * HYPERLIQUID_WORKER_WEIGHT_*, as it takes WORKER_PORT; a deployment
-     * sets each service's own HYPERLIQUID_WEIGHT_* instead.
-     *
-     * A worker on the MAINNET wallet network always takes
-     * HYPERLIQUID_WORKER_WEIGHT_* (default 360 / 840): there the copy orders'
-     * evidence is paid from this process bucket (wallet-network-hyperliquid.ts),
-     * and one order of an owner with two accounts plus the leader weighs 772
-     * (live-shared-reads.ts liveEvidencePrepaidWeight), more than the api-shaped
-     * 200 (or Stage's 100) burst can ever hold. 360 keeps the worker's rate
-     * (api 480 + worker 360 = the meter's 840 background lane); the 840 burst
-     * is the rest of the IP's 1,200 and holds that order (capacity 840; the
-     * startup check refuses to boot when it doesn't fit). */
+    /** This process's share of the per-IP REST limit; the api's and the
+     * worker's draw on the same meter. A worker reading the api's .env takes
+     * HYPERLIQUID_WORKER_WEIGHT_* (as it takes WORKER_PORT). A worker on the
+     * MAINNET wallet network always does (MAINNET_WORKER_WEIGHT): copy orders'
+     * evidence is paid from this bucket, and one two-account order plus its
+     * leader (772) must fit its burst; the startup check refuses otherwise. */
     budgetPerMin: isWorker && (mainnetWorker || source.HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN !== undefined)
       ? integerValue("HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN", source.HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN, MAINNET_WORKER_WEIGHT.perMin, 1, 1199)
       : integerValue("HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", source.HYPERLIQUID_WEIGHT_BUDGET_PER_MIN, 840, 1, 1199),
@@ -529,11 +503,10 @@ export function validateEnvironment(source: Environment = process.env) {
     egressIdentity: egressIdentityConfig(source, isWorker) };
 }
 
-/** The default IP echoes, in order: three independent providers, each an
- * IPv4-only https host answering the address as plain text (ipify;
- * Amazon; Cloudflare's icanhazip, its ipv4 host so a dual-stack egress
- * never answers IPv6). */
-export const DEFAULT_EGRESS_ECHO_URLS: readonly string[] = ["https://api.ipify.org", "https://checkip.amazonaws.com", "https://ipv4.icanhazip.com"];
+/** The default IP echoes, in order: three independent IPv4-only https hosts
+ * answering the address as plain text (icanhazip's ipv4 host so a
+ * dual-stack egress never answers IPv6). */
+const DEFAULT_EGRESS_ECHO_URLS: readonly string[] = ["https://api.ipify.org", "https://checkip.amazonaws.com", "https://ipv4.icanhazip.com"];
 
 /**
  * The egress identity guard (runtime/egress-identity.ts; design §8 I-15).
@@ -544,11 +517,10 @@ export const DEFAULT_EGRESS_ECHO_URLS: readonly string[] = ["https://api.ipify.o
  *   anything; `enforce` also makes a worker that runs copy work refuse its
  *   lease while its IP is unknown, outside HL_EGRESS_EXPECTED_IPS, or one
  *   the api or the read worker reports (HL_EGRESS_PEERS).
- * - HL_EGRESS_ECHO_URLS: the echoes tried in order (an https URL answering
- *   the caller's IPv4 as plain text); default DEFAULT_EGRESS_ECHO_URLS, three
- *   independent providers, so one or two being down never keeps a new copy
- *   worker on standby under enforce (all three down still fails closed).
- *   Each call is bounded by HL_EGRESS_ECHO_TIMEOUT_MS (default 3000).
+ * - HL_EGRESS_ECHO_URLS: the echoes tried in order; default
+ *   DEFAULT_EGRESS_ECHO_URLS, so one or two being down never keeps a copy
+ *   worker on standby under enforce (all down fails closed). Each call is
+ *   bounded by HL_EGRESS_ECHO_TIMEOUT_MS (default 3000).
  * - HL_EGRESS_PEERS (copy worker): base URLs of the api and the read
  *   worker, whose GET /health/egress (the worker monitor key) says their IPs.
  *   Required under enforce (at least one): without a peer every lease would

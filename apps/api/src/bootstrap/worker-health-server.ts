@@ -26,6 +26,8 @@ export interface WorkerHealthSource {
   egress?(): EgressIdentity;
 }
 
+const NEVER = new AbortController().signal;
+
 /**
  * The worker's only HTTP surface, as in DonutMe: a raw `node:http` server
  * beside a Nest application context (no controllers, no admin or user
@@ -41,8 +43,6 @@ export interface WorkerHealthSource {
  * `x-request-id` (the api's) is echoed and carried into the worker's log
  * lines for the request.
  */
-const NEVER = new AbortController().signal;
-
 export function startWorkerHealthServer(source: WorkerHealthSource, port: number, host = "::"): Promise<Server> {
   const server = createServer((req, res) => {
     res.setHeader("Content-Type", "application/json");

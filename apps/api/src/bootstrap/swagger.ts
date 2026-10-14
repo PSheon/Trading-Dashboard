@@ -9,7 +9,7 @@ import { IS_PUBLIC_KEY } from "../common/auth/public.decorator.js";
 import { requiredPermissions } from "../common/auth/permissions.js";
 import { ROLES_KEY } from "../common/auth/current-user.js";
 
-export const SWAGGER_PATH = "docs";
+const SWAGGER_PATH = "docs";
 /** Zod 3 exports draft-07 tuples; OAS 3.1 uses JSON Schema 2020-12. */
 function to2020(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(to2020);

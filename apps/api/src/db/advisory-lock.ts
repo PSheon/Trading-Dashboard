@@ -1,8 +1,7 @@
 import { sql, type SQL } from "drizzle-orm";
 
 /**
- * Registry of every Postgres advisory-lock namespace this repo uses
- * (architecture review 2026-10-12 §E3 row 7).
+ * Registry of every Postgres advisory-lock namespace this repo uses.
  *
  * Postgres has two disjoint advisory key spaces (pg_locks.objsubid):
  * - `pair`: `pg_advisory_*(int4, int4)`, objsubid = 2. Identity is (namespace, key).
@@ -18,7 +17,7 @@ import { sql, type SQL } from "drizzle-orm";
  * same key, so a migration onto `advisoryLockKey` has to render the same SQL.
  *
  * Only settings.repository.ts uses `advisoryLockKey` so far; the remaining
- * callers move in one deploy (review: never run old and new processes mixed).
+ * callers must move in one deploy (old and new processes never run mixed).
  */
 
 type Site = {

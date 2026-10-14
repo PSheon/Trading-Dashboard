@@ -1,44 +1,32 @@
 /**
  * Hyperliquid's per-IP limits and how the shared meter and the local buckets divide them: caps, reserves, holds and waits.
- *
- * Every constant states its basis on the first comment line (AGENTS.md):
- * measured (a gate, a harness or the provider's docs), derived (from another
- * constant), copied (from another check, with no reason of its own) or
- * guessed (a number that looked right; it says how it will be verified).
- * test/tuning-constants.spec.ts keeps every tuning constant here, unique,
- * with its basis.
+ * Basis lines: see AGENTS.md (checked by test/tuning-constants.spec.ts).
  */
 
 import { MINUTE_MS } from './time.js';
 
 /** basis: measured — Hyperliquid docs: 1,200 REST weight per IP per minute
- * Hyperliquid's REST weight per minute per IP.
  */
 export const HYPERLIQUID_REST_CAP = 1200;
 
 /** basis: derived — api 480 + worker 360 of the 1,200 (MAINNET_WORKER_WEIGHT); the rest is the live reserve
- * What background work may hold of it. Before this, the worker's and the
- * api's background loops (each budgeted 840 a minute locally; the shared
- * meter prepays list calls at 120) kept the window full, and a cold trader
- * page's /activity and /fills answered 503 within 0.4 s.
+ * What background work may hold of it; without it, background loops kept the
+ * window full and cold trader pages answered 503.
  */
 export const HYPERLIQUID_BACKGROUND_REST_CAP = 840;
 
 /** basis: guessed — 20 % of the window kept for live orders (2026-10-11); verify: gate 9 live wait p99 with the reserve at 240
- * Of the window, what neither setups nor background ever take: live orders,
- * pages and exchange actions (unlabelled) always find at least this.
+ * Neither setups nor background ever take it: live orders, pages and
+ * exchange actions (unlabelled) always find at least this.
  */
 export const HYPERLIQUID_LIVE_REST_RESERVE = 240;
 
 /** basis: derived — 1,200 − the live reserve − the page floor
- * What copy setups' charges may hold of the window together: one setup's
- * account-mode attempt (613) and its reconcile, so a burst of setups queues
- * behind it instead of taking the live reserve or every live order's room.
- * While a setup waits (a `setup_demand` marker within the last minute),
- * background may hold only what leaves this share free below the live
- * reserve: background is refused first. On 2026-10-13 a setup's mode step
- * (613 in a minute, beside the 360 that background's 840 left) waited out
- * 65 s windows for 10 minutes beside the Stage-like background load.
+ * What copy setups' charges may hold of the window together (one setup's
+ * account-mode attempt and its reconcile), so a burst of setups queues
+ * instead of taking live room. While a setup waits, background is refused
+ * first: without that, a mode step waited 10 minutes beside Stage-like
+ * background load (2026-10-13).
  */
 export const HYPERLIQUID_SETUP_REST_CAP = 720;
 
@@ -123,28 +111,19 @@ export const HYPERLIQUID_MAX_SETUP_CONNECTS = 9;
 
 /** basis: derived — past the 5 s send bound and Hyperliquid's 60 s idle close, with margin
  * How long after `leaseUntil` an unclosed lease still counts toward the
- * connection, subscription and user limits. An owner cannot send anything but a
- * close frame once its lease has passed (every send permit is bounded by
- * `latestAllowedSendAt <= leaseUntil`, at most 5 s after reservation, and renewals
- * need a live lease), and Hyperliquid closes any connection that has sent it no
- * message for 60 s. Five minutes is well past both, plus the 1 s clock-skew
- * bound, so a lease left by a killed or partitioned process can no longer hold a
- * provider connection. The row, its subscriptions and its cleanup evidence are
- * kept as they are (state stays `uncertain`, never forged to `closed`), and no
- * charged unit is refunded.
+ * connection, subscription and user limits. Past it, a lease left by a killed
+ * process can no longer hold a provider connection. The row stays
+ * `uncertain` (never forged to `closed`) and no charged unit is refunded.
  */
 export const HYPERLIQUID_STALE_LEASE_RECLAIM_MS = 5 * MINUTE_MS;
 
 /** basis: derived — a worker's 840 burst holds one two-account-plus-leader order (772); 360/min keeps api 480 + worker 360 = the 840 background lane
- * A mainnet worker's own Hyperliquid budget by default (rate, burst): see
- * `hyperliquid.budgetPerMin`.
+ * Default (rate, burst); see `hyperliquid.budgetPerMin`.
  */
 export const MAINNET_WORKER_WEIGHT = { perMin: 360, burst: 840 } as const;
 
 /** basis: derived — the provider's 60 s window plus the 5 s send window of a charge
- * How long a REST charge holds the shared meter: its permitted send window
- * (at most 5 s) plus the provider's 60 s accounting window. Every charge ahead
- * of a waiting request has expired within this. Never applies to leases.
+ * How long a REST charge holds the shared meter. Never applies to leases.
  */
 export const REST_CHARGE_LIFETIME_MS = 65_000;
 
@@ -167,15 +146,13 @@ export const SHARED_CAPACITY_MIN_RETRY_MS = 1_000;
 export const SHARED_CAPACITY_SLACK_MS = 250;
 
 /** basis: guessed — longer than a 5 s evidence clock, shorter than a setup step's budget (2026-10-12); verify: gate 9 local_budget waits by weight
- * Longest a setup step's read waits for its Hyperliquid weight before it
- * starts its evidence clock (a reservation the step's client queues waits up
- * to AppConfig.copy.live.setup.stepBudgetMs.reserveWaitMs, live-timings.ts).
+ * Longest a setup step's read waits for its weight before its evidence clock
+ * starts (a queued reservation waits up to stepBudgetMs.reserveWaitMs).
  */
 export const LIVE_RESERVE_WAIT_MS = 8_000;
 
 /** basis: guessed — a background turn or a 429 back-off can make a local estimate a second longer; verify: gate 9 local wait estimate vs actual
- * What `reserveLive` adds to a wait it allows: the estimate is a hint (a
- * background turn or a 429 backoff can make it longer).
+ * What `reserveLive` adds to a wait it allows.
  */
 export const WAIT_SLACK_MS = 1_000;
 
@@ -220,74 +197,57 @@ export const LIVE_DEMAND_RENEW_MS = HYPERLIQUID_LIVE_DEMAND_HOLD_MS-5_000;
 export const PAGE_CAPACITY_WAIT_MS = 6_000;
 
 /** basis: guessed — inside the info client's 20 s request timeout (2026-10-07); verify: snapshot/sweep capacity-wait histogram on Stage
- * Longest a snapshot or sweep of watched leaders waits in all for room in
- * the background lane (within the info client's 20 s request timeout).
+ * Longest a snapshot or sweep of watched leaders waits for background room.
  */
 export const ESSENTIAL_CAPACITY_WAIT_MS = 15_000;
 
 /** basis: derived — two REST_CHARGE_LIFETIME_MS: outlasts the page's own full list and one other background list (Stage 2026-10-07)
- * Longest a trade-analytics read (a background job a page started, never
- * the page's own request) waits in all for room in the background lane: two
- * charge lifetimes, so it outlasts the full page its own computation sent
- * just before it and one more list of another process's background job.
- * On Stage (lane 400, ~250 of the window held by live and page reads) the
- * lane holds one full list (120) at a time: at 40 s a cold dense trader's
- * second page could never wait out the first one's 65 s, the computation
- * failed, and every retry of the page answered 503 busy (2026-10-07). The
- * info client sends this process's analytics reads one at a time, so they
- * don't race each other for that room.
+ * Longest a trade-analytics read (a background job a page started) waits for
+ * background room. At 40 s a cold dense trader's second list could never wait
+ * out the first one's 65 s and the page answered 503 on every retry (Stage
+ * 2026-10-07). Analytics reads of one process go out one at a time.
  */
 export const ANALYTICS_CAPACITY_WAIT_MS = 2*REST_CHARGE_LIFETIME_MS;
 
 /** basis: guessed — a tenth of the main bucket only live may spend; verify: Stage order bucket reserve tokens over a week
- * Share of the main bucket only `live` may spend.
  */
 export const LIVE_RESERVE_SHARE = 0.1;
 
 /** basis: measured — a cold trader page's first paint and chart ≈ 106–130 weight of a 200 burst
- * Share of the burst that is the page reserve (first paint + chart of a
- * cold trader page ≈ 106–130 weight at 200 burst → 120).
+ * Share of the burst that is the page reserve.
  */
 export const PAGE_RESERVE_CAPACITY_SHARE = 0.6;
 
 /** basis: measured — a page list's real cost settles within a second of its worst-case surcharge
  * A page list's worst-case surcharge is forgiven in the next page list's
- * gate for this long (its real cost is settled within a second), so a cold
- * page's second fill list doesn't wait out the first one's worst case.
- * One list at a time: at most 100 weight of exposure beyond budget + burst.
+ * gate for this long, so a cold page's second list doesn't wait out the
+ * first one's worst case (at most 100 weight beyond budget + burst).
  */
 export const PAGE_LIST_GRACE_MS = 3_000;
 
 /** basis: guessed — three quarters of the effective budget for the capped consumers together; verify: consumer caps vs refusals in the heartbeat
- * Share of the effective budget the capped consumers may take together.
  */
 export const CAPPED_SHARE = 0.75;
 
 /** basis: guessed — half rate for the first window after a restart, since the previous process's sends still count; verify: 429s in the first minute after Stage deploys
- * Share of the rate a process refills at while it is starting up.
  */
 export const STARTUP_RATE_SHARE = 0.5;
 
 /** basis: guessed — consumer caps re-read from settings every 30 s; verify: none needed (admin latency only)
- * Consumer caps are re-read from settings this often.
  */
 export const CAPS_TTL_MS = 30_000;
 
 /** basis: guessed — half the budget for page work while background waits; verify: page vs background wait p99 on Stage
- * Share of the budget page work may spend, over `PAGE_SHARE_WINDOW_MS`,
- * while other background work is waiting.
+ * Measured over `PAGE_SHARE_WINDOW_MS`.
  */
 export const PAGE_SHARE = 0.5;
 
 /** basis: guessed — three minutes lets a few cold pages in a row go at once; verify: Stage page-wait histogram
- * The share is measured over this window, not a single minute, so a few
- * cold pages in a row (≈ 270–360 weight each) go out at once and only a
- * sustained flood is held to the share.
+ * Only a sustained flood is held to the share.
  */
 export const PAGE_SHARE_WINDOW_MS = 3 * MINUTE_MS;
 
 /** basis: guessed — one client may hold half the page queue; verify: page queue composition by client on Stage
- * Share of the page queue one client may hold.
  */
 export const PAGE_CLIENT_SHARE = 0.5;
 
@@ -300,32 +260,22 @@ export const PAGE_CLIENT_SHARE = 0.5;
 export const LIVE_HEADROOM_SHARE = 0.8;
 
 /** basis: guessed — a 429 while our meter holds under 80 % of the window is someone else's use (design I-12); verify: observe week on Stage
- * `foreign_usage_suspected` (design §8 I-12, I-15): Hyperliquid refused us
- * for its per-IP rate limit (a REST 429, or a WebSocket rate-limit error)
- * while our own shared meter for that egress key held less than
- * FOREIGN_USAGE_SHARE of the window. Our meter counts everything our
- * processes send from that egress, so the rest of the IP's use is someone
- * else's: Railway's egress (the default pool, and the static gateway "may be
- * shared with other customers") carries other tenants' Hyperliquid traffic.
- * It should stay at zero on our own addresses; a non-zero count is the
+ * `foreign_usage_suspected` (design §8 I-12, I-15): our meter counts all our
+ * sends from that egress, so a rate-limit refusal below this share means
+ * another tenant on Railway's shared egress. A non-zero count is the
  * evidence for moving a role to another region.
  */
 export const FOREIGN_USAGE_SHARE = 0.8;
 
 /** basis: guessed — a failed catalog read is retried after a minute while the last list answers; verify: none needed
- * After a failed read the next one waits this long (the last good list
- * keeps answering meanwhile).
  */
 export const MARKET_CATALOG_RETRY_MS = 60_000;
 
 /** basis: guessed — a caller waits 2 s for a new process's first catalog read; verify: cold-start page latency on Stage
- * How long one answer waits for the first read of a new process.
  */
 export const MARKET_CATALOG_WAIT_MS = 2_000;
 
 /** basis: guessed — a dead info connection must not hold a caller (and its per-address chain) forever: 20 s; verify: none needed
- * A dead connection must not hold a caller (and its per-address sync
- * chain) forever.
  */
 export const REQUEST_TIMEOUT_MS = 20_000;
 

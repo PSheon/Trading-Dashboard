@@ -1,6 +1,6 @@
 /**
  * What a Hyperliquid `/exchange` reply to a signed usdSend says about the
- * transfer (architecture review E3 #4):
+ * transfer:
  * - `accepted`: `{ status: 'ok', response: { type: 'default', … } }`;
  * - `rejected`: `{ status: 'err', response: '<non-empty reason>' }` whose
  *   reason does not mention the nonce (a nonce error may mean an earlier copy

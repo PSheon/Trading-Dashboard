@@ -8,7 +8,7 @@
 // info endpoint: POST https://api.hyperliquid.xyz/info
 // ---------------------------------------------------------------------------
 
-export interface HlMetaUniverseAsset {
+interface HlMetaUniverseAsset {
   /** Main-dex coins are bare ("BTC"); HIP-3 coins carry their dex prefix
    * ("xyz:TSLA"). */
   name: string;
@@ -24,7 +24,7 @@ export interface HlMetaResponse {
 
 /** One `metaAndAssetCtxs` context, index-aligned with `universe`.
  * `funding` is the current hourly funding rate. */
-export interface HlPerpAssetCtx {
+interface HlPerpAssetCtx {
   dayNtlVlm?: string;
   funding: string;
   markPx: string;
@@ -34,7 +34,7 @@ export interface HlPerpAssetCtx {
 }
 export type HlMetaAndAssetCtxsResponse = [HlMetaResponse, HlPerpAssetCtx[]];
 
-export interface HlAssetPosition {
+interface HlAssetPosition {
   position: {
     coin: string;
     szi: string;
@@ -152,7 +152,7 @@ export interface HlSpotClearinghouseStateResponse {
   portfolioMarginEnabled?: boolean;
 }
 
-export interface HlSpotToken {
+interface HlSpotToken {
   name: string;
   index: number;
   szDecimals?: number;
@@ -161,21 +161,21 @@ export interface HlSpotToken {
 /** A spot pair: `tokens` is [base, quote] by token index; `name` is
  * "PURR/USDC" for the first pair and "@<index>" for the rest, which is also
  * its `allMids` key. */
-export interface HlSpotPair {
+interface HlSpotPair {
   name: string;
   index: number;
   tokens: [number, number];
   isCanonical?: boolean;
 }
 
-export interface HlSpotMeta {
+interface HlSpotMeta {
   tokens: HlSpotToken[];
   universe: HlSpotPair[];
 }
 
 /** A pair's market context. Matched to its pair by `coin` = pair name: the
  * arrays are NOT index-aligned (verified live 2026-09-29: 71 of 330). */
-export interface HlSpotAssetCtx {
+interface HlSpotAssetCtx {
   coin: string;
   markPx: string;
   midPx?: string | null;
@@ -310,7 +310,7 @@ export interface HlLedgerUpdate {
 }
 
 /** One `portfolio` history: [epoch ms, decimal string] points. */
-export interface HlPortfolioHistory {
+interface HlPortfolioHistory {
   accountValueHistory: Array<[number, string]>;
   pnlHistory: Array<[number, string]>;
   vlm: string;
@@ -322,7 +322,7 @@ export type HlPortfolioResponse = Array<[string, HlPortfolioHistory]>;
 
 /** Cumulative reward counters. The top-level fields of the `referral`
  * response are USDC (token 0) only; other tokens appear in `tokenToState`. */
-export interface HlReferralRewardState {
+interface HlReferralRewardState {
   cumVlm: string;
   /** Includes unclaimed builder rewards (verified live 2026-09-29: an
    * address with only builder income has unclaimed = builderRewards). */
@@ -347,7 +347,7 @@ export interface HlReferralState {
  * code; data = {required}), "needToCreateCode" (no data), "ready" (has a
  * code; data = {code, nReferrals, referralStates}). Verified live
  * 2026-09-29 against the docs' "Query a user's referral information". */
-export type HlReferrerState =
+type HlReferrerState =
   | { stage: "ready"; data: { code: string; nReferrals?: number; referralStates: HlReferralState[] } }
   | { stage: "needToTrade"; data?: { required: string } }
   | { stage: "needToCreateCode"; data?: unknown }

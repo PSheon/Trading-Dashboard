@@ -57,20 +57,15 @@ export function gatedLeaseAcquire<C extends Pick<PoolClient, "query">>(guard: Pi
 
 /**
  * IS_WORKER=true. Serves health first, then waits for the PG advisory-lock
- * lease (one active worker per database; Railway may start a replacement
- * before stopping the old deployment, and the replacement stays on standby,
- * live but not ready, constructing nothing). With the lease it creates
- * `AppModule.worker()` as an application context: no HTTP routes, only the
- * health server's. WORKER_ROLE picks the leases and the modules
- * (runtime/worker-role.ts): `copy` holds (73106, 1), `read` (73106, 2) and
- * `all` (unset, today's worker) both at once. A standby has constructed
- * nothing, so it sends nothing to Hyperliquid (no market catalog, no
- * perpDexs, no feed) until it holds its lease (design I-8). With
- * HL_EGRESS_IDENTITY=enforce a worker that runs copy work takes no lease
+ * lease (one active worker per database; a replacement Railway starts before
+ * stopping the old deployment stays on standby, live but not ready). With the
+ * lease it creates `AppModule.worker()` as an application context (no HTTP
+ * routes). WORKER_ROLE picks the leases and the modules (runtime/worker-role.ts).
+ * A standby constructs nothing, so it sends nothing to Hyperliquid (design
+ * I-8). Under HL_EGRESS_IDENTITY=enforce a copy-running worker takes no lease
  * while its public IP is unknown or shared (gatedLeaseAcquire). Losing the
- * lease connection exits the process. Until it
- * owns the lease, an unreachable database is retried (up to 10 minutes of
- * continuous unavailability) instead of exiting.
+ * lease connection exits the process; before ownership, an unreachable
+ * database is retried instead (WORKER_DB_RETRY_WINDOW_MS).
  */
 export async function startWorker(config: RuntimeConfig, logger: StructuredLogger,
   /** Where SIGTERM/SIGINT come from (tests stop a worker without signalling the test process). */

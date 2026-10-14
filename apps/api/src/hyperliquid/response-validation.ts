@@ -98,7 +98,7 @@ export function validateInfoResponse(type: HlInfoRequestBody["type"], value: unk
 }
 
 /** Bound decoded bytes too; Content-Length may be absent or refer to compressed bytes. */
-export const MAX_INFO_RESPONSE_BYTES = 16 * 1024 * 1024;
+const MAX_INFO_RESPONSE_BYTES = 16 * 1024 * 1024;
 export async function readInfoJson(response: Response, type: string, maxBytes = MAX_INFO_RESPONSE_BYTES): Promise<unknown> {
   const invalid = () => new Error(`Invalid Hyperliquid ${type} response`);
   const declared = Number(response.headers.get("content-length"));

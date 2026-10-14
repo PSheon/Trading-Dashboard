@@ -33,63 +33,43 @@ import type {
 import { infoListSurcharge, infoWeight, MAX_INFO_LIST_ITEMS } from "./info-weights.js";
 import { ANALYTICS_CAPACITY_WAIT_MS, ESSENTIAL_CAPACITY_WAIT_MS, REQUEST_TIMEOUT_MS } from '../config/constants/hyperliquid.js';
 
-/** Hyperliquid `info` request weights, from the one table (info-weights.ts,
- * the docs' rate-limits page). */
+/** Request weights, from the one table (info-weights.ts). List requests
+ * (`*_BASE`) also pay 1 per 20 items returned (candles: 1 per 60);
+ * twapHistory and userNonFundingLedgerUpdates are budgeted as lists, the
+ * conservative reading of docs that don't list them. */
 const WEIGHT_CLEARINGHOUSE_STATE = infoWeight({ type: "clearinghouseState" });
 const WEIGHT_USER_FILLS_BY_TIME_BASE = infoWeight({ type: "userFillsByTime" });
 const WEIGHT_META = infoWeight({ type: "meta" });
 const WEIGHT_PERP_DEXS = infoWeight({ type: "perpDexs" });
-/** Not in the weight-2 list, so 20. */
 const WEIGHT_META_AND_ASSET_CTXS = infoWeight({ type: "metaAndAssetCtxs" });
-/** In the docs' weight-2 list with clearinghouseState (rate-limits-and-user-limits). */
 const WEIGHT_ALL_MIDS = infoWeight({ type: "allMids" });
 const WEIGHT_PORTFOLIO = infoWeight({ type: "portfolio" });
-/** In the docs' weight-2 list (rate-limits-and-user-limits, checked 2026-09-29). */
 const WEIGHT_SPOT_CLEARINGHOUSE_STATE = infoWeight({ type: "spotClearinghouseState" });
-/** Not in the weight-2 list, so 20 (checked 2026-09-29). */
 const WEIGHT_SPOT_META_AND_CTXS = infoWeight({ type: "spotMetaAndAssetCtxs" });
 const WEIGHT_USER_ABSTRACTION = infoWeight({ type: "userAbstraction" });
 const WEIGHT_DELEGATOR_SUMMARY = infoWeight({ type: "delegatorSummary" });
 const WEIGHT_USER_FILLS_BASE = infoWeight({ type: "userFills" });
-/** `userTwapSliceFills` and `userTwapSliceFillsByTime` are both in the
- * docs' list of requests with "additional weight per 20 items returned"
- * (rate-limits-and-user-limits, checked 2026-09-29); base 20 like every
- * other request not in the weight-2 list. */
 const WEIGHT_TWAP_SLICE_FILLS_BASE = infoWeight({ type: "userTwapSliceFills" });
-/** Not in the weight-2 list, so "all other documented info requests" = 20
- * (rate-limits-and-user-limits, checked 2026-09-29). */
 const WEIGHT_REFERRAL = infoWeight({ type: "referral" });
-/** `candleSnapshot`: base 20 plus 1 per 60 candles returned (rate-limits
- * docs, "additional weight per 60 items"). At most 5,000 candles a call. */
 const WEIGHT_CANDLE_SNAPSHOT_BASE = infoWeight({ type: "candleSnapshot" });
-/** `frontendOpenOrders`: not in the weight-2 list, so 20, per dex (the
- * request names one dex; spot orders come with the main one). */
+/** Per dex (spot orders come with the main one). */
 const WEIGHT_FRONTEND_OPEN_ORDERS = infoWeight({ type: "frontendOpenOrders" });
-/** `twapHistory` and `userNonFundingLedgerUpdates`: base 20, budgeted as
- * list requests (+1 per 20 items), the conservative reading of the
- * rate-limit docs, which don't list either explicitly. */
 const WEIGHT_TWAP_HISTORY_BASE = infoWeight({ type: "twapHistory" });
 const WEIGHT_LEDGER_UPDATES_BASE = infoWeight({ type: "userNonFundingLedgerUpdates" });
-/** Items acquired up front for those two: a TWAP history is every TWAP the
- * address ever ran (170 for a heavy TWAP user, checked 2026-09-30); a
- * 90-day ledger window rarely has more than a few hundred. The difference
- * to the real count is settled afterwards, as for every list. */
-export const TWAP_HISTORY_MAX_ITEMS = 2000;
+/** Items prepaid for those two (a heavy TWAP user has ~170 TWAPs; a 90-day
+ * ledger a few hundred); the difference is settled afterwards. */
+const TWAP_HISTORY_MAX_ITEMS = 2000;
 export const LEDGER_MAX_ITEMS = 2000;
-/** `userFunding`: in the surcharge list, base 20 (rate-limits docs). */
 const WEIGHT_USER_FUNDING_BASE = infoWeight({ type: "userFunding" });
 /** `userFunding` returns at most 500 entries per call (verified live). */
 export const USER_FUNDING_PAGE_SIZE = 500;
 /** Every fill list endpoint returns at most 2,000 items per call. */
 export const MAX_LIST_ITEMS = MAX_INFO_LIST_ITEMS;
-/** The worst-case surcharge of one list call, acquired up front. */
 /** Items a recent-window fills read prepays (`userFillsSince`). */
 const RECENT_FILLS_ITEMS = 200;
-export const MAX_LIST_SURCHARGE = infoListSurcharge("userFills", MAX_LIST_ITEMS);
-/** Budget consumers whose calls wait for room in the shared background lane:
- * snapshots and sweeps of watched leaders, and the confirms that store the
- * fills the trade feed alerted on (they used to fail at once whenever the
- * pool's loops held the lane, 85 times in two hours on 2026-10-04). */
+/** Budget consumers whose calls wait for room in the shared background lane
+ * instead of failing at once: snapshots and sweeps of watched leaders, and
+ * the confirms that store the fills the trade feed alerted on. */
 const ESSENTIAL_LANE_CONSUMERS = new Set(["snapshots", "confirm", "sweep"]);
 /** The budget consumer of a trade-analytics job a request started. */
 export const ANALYTICS_CONSUMER = CONSUMER_ANALYTICS;
@@ -194,13 +174,9 @@ export class HyperliquidInfoClient {
 
   /**
    * Waits until every trade-analytics read queued before this one has
-   * finished, and returns the release of this one's turn. Where the
-   * background lane holds one full list at a time (Stage), two cold
-   * computations racing for each freed slot let one of them take every
-   * slot while the other's read gave up (both woke at the same expiry, and
-   * the one that had just been served asked first). In order, each read
-   * waits for at most the charges ahead of it. Leaving the queue (abort)
-   * keeps the order of the rest.
+   * finished, and returns the release of this one's turn. Racing for freed
+   * lane slots let one cold computation starve another; in order, each read
+   * waits for at most the charges ahead of it. An abort keeps the rest's order.
    */
   private async analyticsTurn(signal: AbortSignal): Promise<() => void> {
     let release!: () => void;
@@ -395,13 +371,6 @@ export class HyperliquidInfoClient {
     );
   }
 
-  /**
-   * Fills for one address across every dex, used by A5 backfill, the
-   * trade-triggered live sync and the hourly sweep (W2/W3). Hyperliquid only returns a bounded
-   * window / row count — see §5 known constraints (2000 rows/call, most
-   * recent 10,000 fills retained). Time-ascending order, confirmed live.
-   * TWAP slice fills are not included; see `userTwapSliceFillsByTime`.
-   */
   /** `userFillsByTime` from `startTime` to now, with the time the request
    * left (after every budget wait): what the answer can be certain of starts
    * there, not when the caller began waiting. */
@@ -414,6 +383,11 @@ export class HyperliquidInfoClient {
     return { fills, sentAt: admission.at ?? Date.now() };
   }
 
+  /**
+   * Fills for one address across every dex, oldest first (2,000 rows a call,
+   * the latest 10,000 fills retained). TWAP slice fills are not included;
+   * see `userTwapSliceFillsByTime`.
+   */
   userFillsByTime(
     address: string,
     startTime: number,
@@ -464,8 +438,6 @@ export class HyperliquidInfoClient {
     );
   }
 
-  /** Mid prices for every main-dex perp and spot pair ("@107", "#123"
-   * outcomes), used for alert scoring (N3) and outcome-token values. */
   /** One dex's perp universe (sizes, leverage) with each asset's mark, mid,
    * oracle price and current hourly funding rate. Weight 20. `dex` selects
    * a HIP-3 dex (its coins come back prefixed, "xyz:TSLA"); omitted means

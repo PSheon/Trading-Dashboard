@@ -25,6 +25,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import { percentile } from "./lib.mjs";
 
 /** n / p50 / p95 / max of the finite numbers (nearest rank); nulls for none. */
@@ -124,6 +125,8 @@ export function analyzeRun(raw) {
   for (const r of collectRest) { const row = (byType[r.type] ??= { requests: 0, weight: 0 }); row.requests++; row.weight += r.weight; }
   return {
     run: raw.run, case: raw.case, ok: raw.ok, ...(raw.error ? { error: raw.error } : {}),
+    // live_account_observation_changed: production's changedReads and the probe's key-path diffs.
+    ...(raw.observationChange ? { change: raw.observationChange } : {}),
     collectMs,
     // From the clock's start (the first wave's dispatch) to collect's return:
     // the age the order's 5 s window must already hold when collect returns.
@@ -151,7 +154,7 @@ export function aggregateRuns(runs) {
   const kinds = [...new Set(ok.flatMap((r) => Object.keys(r.quota?.inClock.byKind ?? {})))];
   const restTypes = [...new Set(ok.flatMap((r) => Object.keys(r.rest.byType)))];
   return {
-    runs: runs.length, ok: ok.length, errors: runs.filter((r) => !r.ok).map((r) => ({ run: r.run, error: r.error })),
+    runs: runs.length, ok: ok.length, errors: runs.filter((r) => !r.ok).map((r) => ({ run: r.run, error: r.error, ...(r.change ? { change: r.change } : {}) })),
     collectMs: pick((r) => r.collectMs), evidenceAgeMs: pick((r) => r.evidenceAgeMs), preClockMs: pick((r) => r.preClockMs),
     stages: Object.fromEntries(stageNames.map((s) => [s, pick((r) => r.stages[s])])),
     spans: Object.fromEntries(spanNames.map((name) => [name, {
@@ -175,6 +178,69 @@ export function aggregateRuns(runs) {
     providerAgeMs: pick((r) => r.providerAgeMs),
   };
 }
+
+// --- which observation changed -----------------------------------------------------------------------
+
+/** The epoch's final check re-reads these (live-shared-reads.ts evidenceFinalCheck):
+ * the dex list is the same for every account, the rest are the observed account's own. */
+export const ACCOUNT_INDEPENDENT_READS = new Set(["perpDexs"]);
+
+// An array element's name in a path: a dex's or a coin's name, a [coin, value] pair's coin, else its index.
+const elementLabel = (v, i) => Array.isArray(v) ? (typeof v[0] === "string" ? v[0] : String(i))
+  : v && typeof v === "object" ? (typeof v.name === "string" ? v.name : typeof v.coin === "string" ? v.coin : String(i)) : String(i);
+
+/**
+ * Where two provider answers differ, as key paths only (never a value): object
+ * keys, array elements by their name (a dex's `name`, a balance's `coin`, a
+ * pair's first string) or index, down to `depth`; at most `limit` paths.
+ */
+export function changedPaths(a, b, { depth = 4, limit = 12 } = {}) {
+  const out = [];
+  const walk = (x, y, path, d) => {
+    if (out.length >= limit || isDeepStrictEqual(x, y)) return;
+    const objects = x !== null && y !== null && typeof x === "object" && typeof y === "object" && Array.isArray(x) === Array.isArray(y);
+    if (d >= depth || !objects) { out.push(path || "(whole answer)"); return; }
+    if (Array.isArray(x)) {
+      const mx = new Map(x.map((v, i) => [elementLabel(v, i), v])), my = new Map(y.map((v, i) => [elementLabel(v, i), v]));
+      for (const k of new Set([...mx.keys(), ...my.keys()])) walk(mx.get(k), my.get(k), `${path}[${k}]`, d + 1);
+    } else for (const k of new Set([...Object.keys(x), ...Object.keys(y)])) walk(x[k], y[k], path ? `${path}.${k}` : k, d + 1);
+  };
+  walk(a, b, "", 0);
+  return out;
+}
+
+/**
+ * Which final-check read changed within one epoch, from the raw answers the
+ * probe's fetch saw (`answers`: [{type, account: 'follower'|'leader'|'-', value}]
+ * in arrival order): per read and account with at least two answers, its first
+ * against its last (the first wave's and the final check's). `changedReads`:
+ * what the epoch's LiveReadComparisonError named (production's own comparison);
+ * only those reads are diffed ('unclassified' diffs all). The leader's spot
+ * state is compared as production does: portfolioMarginEnabled alone.
+ */
+export function observationDiffs(answers, changedReads) {
+  const wanted = changedReads.includes("unclassified") ? null : new Set(changedReads);
+  const groups = new Map();
+  for (const a of answers) {
+    if (wanted && !wanted.has(a.type)) continue;
+    const key = `${a.type}|${a.account}`;
+    if (!groups.has(key)) groups.set(key, { read: a.type, account: a.account, values: [] });
+    groups.get(key).values.push(a.value);
+  }
+  const out = [];
+  for (const g of groups.values()) {
+    const part = g.read === "spotClearinghouseState" && g.account === "leader" ? (v) => ({ portfolioMarginEnabled: v?.portfolioMarginEnabled === true }) : (v) => v;
+    const scope = ACCOUNT_INDEPENDENT_READS.has(g.read) ? "account-independent" : "account-specific";
+    if (g.values.length < 2) { out.push({ read: g.read, account: g.account, scope, answers: g.values.length, paths: null }); continue; }
+    const paths = changedPaths(part(g.values[0]), part(g.values.at(-1)));
+    if (paths.length) out.push({ read: g.read, account: g.account, scope, answers: g.values.length, paths });
+  }
+  return out;
+}
+
+/** `changed perpDexs = perpDexs/- (account-independent): [xyz].assetToStreamingOiCap[ETH]`. */
+const renderChange = (c) => `changed ${c.changedReads.join(",")}` +
+  (c.diffs?.length ? ` = ${c.diffs.map((d) => `${d.read}/${d.account} (${d.scope}): ${d.paths ? d.paths.join(" ") : `${d.answers} answer seen, no diff`}`).join("; ")}` : "");
 
 // --- the fill index lag -------------------------------------------------------------------------------
 
@@ -265,6 +331,14 @@ export function renderReport(result) {
         `${r.quota ? `${r.quota.inClock.requests}/${f(r.quota.inClock.txMs)}/${f(r.quota.inClock.wallMs)}` : "–"}`.padEnd(16) +
         ` ${r.rest.requests}/${r.rest.weight}`.padEnd(10) + ` ${r.ws.sockets}/${r.ws.subscribes}/${r.ws.framesIn}`.padEnd(14) + ` ${r.dexes ?? "–"}  ` +
         Object.entries(r.stages).map(([s, ms]) => `${s.replace(/^epoch_/, "")}=${ms}`).join(" ") + (r.error ? `  ${r.error}` : ""));
+    }
+    const changes = a.errors.filter((e) => e.change);
+    if (changes.length) {
+      out.push(`  observation changes (${changes.length}):`);
+      for (const e of changes) out.push(`    #${e.run} ${renderChange(e.change)}`);
+      const tally = {};
+      for (const e of changes) for (const d of e.change.diffs ?? []) { const k = `${d.read}/${d.account} (${d.scope})`; tally[k] = (tally[k] ?? 0) + 1; }
+      out.push(`    by read: ${Object.entries(tally).map(([k, n]) => `${k} ×${n}`).join(", ") || "–"}`);
     }
     out.push("  p50 / p95 / max over ok runs:");
     out.push(`    collect total (ms)               ${triple(a.collectMs)}`);

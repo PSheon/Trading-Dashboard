@@ -11,7 +11,7 @@ import * as schema from '@trading-dashboard/shared/database';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error -- the harness's plain ESM helper (no declarations)
 import { installDbRtt } from '../../../scripts/copy-harness/db-rtt.mjs';
-import { renderReport } from '../../../scripts/copy-harness/mainnet-evidence-probe.mjs';
+import { observationDiffs, renderReport } from '../../../scripts/copy-harness/mainnet-evidence-probe.mjs';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
 import { HyperliquidGlobalTransport, settleListAnswer } from '../src/hyperliquid/hyperliquid-global-transport.js';
 import { PostgresHyperliquidQuota } from '../src/hyperliquid/postgres-hyperliquid-quota.js';
@@ -24,7 +24,7 @@ import { HyperliquidLiveRiskProvider } from '../src/copy/live/live-risk-provider
 import { LiveProviderReadEpoch } from '../src/copy/live/live-provider-read-epoch.js';
 import { originalLiveInfoBatch } from '../src/copy/live/live-execution-runtime.js';
 import { liveReadCache } from '../src/copy/live/live-read-cache.js';
-import { liveEvidenceWeight } from '../src/copy/live/live-shared-reads.js';
+import { evidenceFinalCheck, liveEvidenceWeight, LiveReadComparisonError } from '../src/copy/live/live-shared-reads.js';
 import { LiveSpanRecorder, type LiveExecutionTiming } from '../src/copy/live/live-execution-diagnostics.js';
 import { LIVE_ORDER_BOUNDARY_WEIGHT } from '../src/config/constants/weights.js';
 
@@ -99,6 +99,12 @@ interface WsCounts { sockets: number; subscribes: number; unsubscribes: number; 
 const wsCounts = (): WsCounts => ({ sockets: 0, subscribes: 0, unsubscribes: 0, other: 0, framesIn: 0, bytesIn: 0, subscriptionsByType: {} });
 /** The current run's requests and socket traffic, and every provider weight sent (a rolling minute). */
 let sent: Sent[] = [], ws = wsCounts(), rateLimited = false, inBoundary = false;
+/** The current run's answers to the reads the epoch's final check repeats
+ * (evidenceFinalCheck), parsed, kept in memory only: on
+ * live_account_observation_changed the run records which of them differed and
+ * where (key paths, never values). */
+const FINAL_CHECK_TYPES = new Set(evidenceFinalCheck(['0x0'], ['0x1']).map(body => String(body.type)));
+let answers: { type: string; account: string; value: unknown }[] = [];
 const ledger: { at: number; weight: number }[] = [];
 const recentWeight = () => { const since = Date.now() - 60_000; return ledger.filter(e => e.at > since).reduce((s, e) => s + e.weight, 0); };
 
@@ -106,8 +112,15 @@ const recentWeight = () => { const since = Date.now() - 60_000; return ledger.fi
 const probeFetch: typeof fetch = async (input, init) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
   if (url !== INFO || init?.method !== 'POST' || typeof init.body !== 'string') throw new Error(`mainnet probe refuses ${String(init?.method)} ${url}`);
-  const type = String((JSON.parse(init.body) as { type?: unknown }).type), started = performance.now();
+  const body = JSON.parse(init.body) as { type?: unknown; user?: unknown };
+  const type = String(body.type), started = performance.now();
   const response = await fetch(url, init);
+  if (FINAL_CHECK_TYPES.has(type) && response.ok) {
+    const user = typeof body.user === 'string' ? body.user.toLowerCase() : undefined;
+    const account = user === undefined ? '-' : user === config.follower ? 'follower' : user === config.leader ? 'leader' : 'other';
+    const value = await response.clone().json().catch(() => undefined);
+    answers.push({ type, account, value });
+  }
   const weight = infoWeight({ type });
   sent.push({ type, weight, status: response.status, ms: Math.round(performance.now() - started), ...(inBoundary ? { boundary: true as const } : {}) });
   ledger.push({ at: Date.now(), weight });
@@ -152,7 +165,7 @@ describe.skipIf(env.HL_MAINNET_PROBE !== '1')('mainnet evidence probe (manual, r
 
   /** One order's provider epoch, as LiveExecutionRuntime runs it (see the header). */
   async function epochRun(kind: 'open' | 'close', run: number) {
-    sent = []; ws = wsCounts();
+    sent = []; ws = wsCounts(); answers = [];
     const open = kind === 'open', timings: LiveExecutionTiming[] = [];
     const weight = liveEvidenceWeight([config.follower], 0, liveReadCache('mainnet'), open ? [config.leader] : []) + LIVE_ORDER_BOUNDARY_WEIGHT;
     const token = await global.claimLive(weight, Date.now() + 10_000);
@@ -196,7 +209,11 @@ describe.skipIf(env.HL_MAINNET_PROBE !== '1')('mainnet evidence probe (manual, r
               }
             } finally { inBoundary = false; }
             raw.boundary = { atMs: boundaryAtMs, endAtMs: at(), reads };
-          } catch (e) { error = code(e); }
+          } catch (e) {
+            error = code(e);
+            // Which repeated read changed: production's own names, and where in the answer.
+            if (e instanceof LiveReadComparisonError) raw.observationChange = { changedReads: [...e.changedReads], diffs: observationDiffs(answers, e.changedReads) };
+          }
           finally {
             raw.collectEndAtMs ??= at();
             const shared = epoch.sharedReads(session);
@@ -205,6 +222,7 @@ describe.skipIf(env.HL_MAINNET_PROBE !== '1')('mainnet evidence probe (manual, r
             provider.close(); sockets.close();
           }
         })))).catch((e: unknown) => { error ??= code(e); raw.collectEndAtMs ??= at(); });
+    answers = [];
     Object.assign(raw, { ok: error === undefined, ...(error ? { error } : {}), timings, spans: recorder.spans, rest: [...sent], ws: { ...ws } });
     return raw;
   }
@@ -219,7 +237,7 @@ describe.skipIf(env.HL_MAINNET_PROBE !== '1')('mainnet evidence probe (manual, r
       const raw = await epochRun(kind, run);
       (result.cases[kind] ??= { runs: [] }).runs.push(raw);
       save();
-      console.log(JSON.stringify({ case: kind, run, ok: raw.ok, error: raw.error, collectMs: (raw.collectEndAtMs as number) - (raw.collectAtMs as number),
+      console.log(JSON.stringify({ case: kind, run, ok: raw.ok, error: raw.error, change: raw.observationChange, collectMs: (raw.collectEndAtMs as number) - (raw.collectAtMs as number),
         ageMs: raw.clockAtMs === null ? null : (raw.collectEndAtMs as number) - (raw.clockAtMs as number), rest: (raw.rest as Sent[]).length, ws: raw.ws, minuteWeight: recentWeight() }));
       if (rateLimited) throw new Error('Hyperliquid answered 429: the probe stopped');
     }

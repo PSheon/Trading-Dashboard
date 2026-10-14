@@ -3,7 +3,7 @@
 // with `node --test scripts/copy-harness/mainnet-evidence-probe.test.mjs`.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { aggregateRuns, analyzeRun, fillIndexLag, isotonic, quotaSpans, renderReport, spread, unionMs } from "./mainnet-evidence-probe.mjs";
+import { aggregateRuns, analyzeRun, changedPaths, fillIndexLag, isotonic, observationDiffs, quotaSpans, renderReport, spread, unionMs } from "./mainnet-evidence-probe.mjs";
 
 test("unionMs merges overlapping and touching intervals", () => {
   assert.equal(unionMs([[0, 10], [5, 15], [20, 25], [25, 30], [40, 40]]), 25);
@@ -109,4 +109,32 @@ test("analyzeRun: the boundary reads after collect are counted apart from collec
   assert.equal(r.providerAgeMs, 1100);
   const a = aggregateRuns([r]);
   assert.deepEqual(a.boundaryReads.extraAgents, { n: 1, p50: 120, p95: 120, max: 120 });
+});
+
+test("changedPaths: key paths of a difference, array elements by name, never a value", () => {
+  const before = [null, { name: "xyz", fullName: "XYZ", assetToStreamingOiCap: [["xyz:ETH", "100"], ["xyz:BTC", "5"]] }];
+  const after = [null, { name: "xyz", fullName: "XYZ", assetToStreamingOiCap: [["xyz:ETH", "101"], ["xyz:BTC", "5"]] }];
+  assert.deepEqual(changedPaths(before, after), ["[xyz].assetToStreamingOiCap[xyz:ETH][1]"]);
+  assert.deepEqual(changedPaths(before, after, { depth: 3 }), ["[xyz].assetToStreamingOiCap[xyz:ETH]"]);
+  assert.deepEqual(changedPaths({ a: 1 }, { a: 1 }), []);
+  assert.deepEqual(changedPaths(1, 2), ["(whole answer)"]);
+  assert.doesNotMatch(JSON.stringify(changedPaths({ balances: [{ coin: "USDC", total: "secret-1" }] }, { balances: [{ coin: "USDC", total: "secret-2" }] })), /secret/);
+});
+
+test("observationDiffs: per read and account, first answer against the last; the leader's spot state by portfolio margin alone", () => {
+  const answers = [
+    { type: "perpDexs", account: "-", value: [null, { name: "xyz", oi: "1" }] },
+    { type: "spotClearinghouseState", account: "follower", value: { balances: [{ coin: "USDC", total: "1" }] } },
+    { type: "spotClearinghouseState", account: "leader", value: { balances: [], portfolioMarginEnabled: false } },
+    { type: "perpDexs", account: "-", value: [null, { name: "xyz", oi: "2" }] },
+    { type: "spotClearinghouseState", account: "follower", value: { balances: [{ coin: "USDC", total: "1" }] } },
+    { type: "spotClearinghouseState", account: "leader", value: { balances: [{ coin: "HYPE", total: "3" }], portfolioMarginEnabled: false } },
+  ];
+  assert.deepEqual(observationDiffs(answers, ["perpDexs", "spotClearinghouseState"]),
+    [{ read: "perpDexs", account: "-", scope: "account-independent", answers: 2, paths: ["[xyz].oi"] }]);
+  assert.deepEqual(observationDiffs(answers, ["userRole"]), []);
+  const text = renderReport({ cases: { open: { runs: [raw(1, { ok: false, error: "live_account_observation_changed",
+    observationChange: { changedReads: ["perpDexs"], diffs: observationDiffs(answers, ["perpDexs"]) } })] } } });
+  assert.match(text, /#1 changed perpDexs = perpDexs\/- \(account-independent\): \[xyz\]\.oi/);
+  assert.match(text, /by read: perpDexs\/- \(account-independent\) ×1/);
 });

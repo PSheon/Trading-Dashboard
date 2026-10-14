@@ -232,7 +232,7 @@ Raise either value only after checking that sum (plus any admin `psql` sessions)
 ac8e81e1 reached Stage with CI red. The deploy script's `[[ "$c" == success ]]` printed `CI failure` and carried on, because macOS's bash 3.2 does not exit on a failed `[[ ]]` under `set -e`. Every deploy script follows these rules:
 
 1. Every gate is written as `cond || exit 1` and never relies on `set -e`. This covers CI, the backup checkpoint, the in-flight guard and each deployment's status.
-2. The CI gate passes only when **every job** of the commit's latest run concluded `success`. A cancelled job (such as an api shard cancelled after another shard failed) counts as not passed.
+2. The CI gate passes only when the run concluded `success` and **every job** concluded `success` or `skipped`. `skipped` means the workflow's own path filter decided not to run the job, for example browser shards when no web file changed. A cancelled job (such as an api shard cancelled after another shard failed) counts as not passed, and so does any other conclusion.
 3. Before deploying, the script prints the CI run URL and each job's conclusion. That output is kept in the gate record.
 
 ## Rollback

@@ -246,7 +246,7 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
             bytes += Buffer.byteLength(String(raw)); frames++;
             if (bytes > 16 * 1024 * 1024 || frames > 4000) { deny('live_account_unbounded_evidence'); return; }
             const payload = JSON.parse(String(raw));
-            if (payload.channel === 'error') { deny(); return; }
+            if (payload.channel === 'error') { this.global?.noteWsError(payload.data); deny(); return; }
             if (payload.channel === 'subscriptionResponse' && payload.data?.subscription?.type === 'allDexsClearinghouseState') {
               const scope = payload.data.subscription;
               if (payload.data.method !== phase || typeof scope.user !== 'string' || address(scope.user) !== user || phase === 'subscribe' && acknowledged) {
@@ -366,7 +366,7 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
             frames++;
             if (bytes > 16 * 1024 * 1024 || frames > 4000) { deny('live_account_unbounded_evidence'); return; }
             const payload = JSON.parse(String(raw));
-            if (payload.channel === 'error') { deny(); return; }
+            if (payload.channel === 'error') { this.global?.noteWsError(payload.data); deny(); return; }
             if (payload.channel === 'subscriptionResponse') {
               const ack = payload.data, scope = ack?.subscription;
               if (includeState && scope?.type === 'allDexsClearinghouseState') {

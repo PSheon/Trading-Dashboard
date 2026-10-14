@@ -12892,6 +12892,52 @@
                                 "lastError"
                               ],
                               "additionalProperties": false
+                            },
+                            "foreignUsage": {
+                              "type": "object",
+                              "properties": {
+                                "rateLimited": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "count": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "lastAt": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "lastKey": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "lastStatus": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "lastOurWindowUse": {
+                                  "type": [
+                                    "number",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "rateLimited",
+                                "count",
+                                "lastAt",
+                                "lastKey",
+                                "lastStatus",
+                                "lastOurWindowUse"
+                              ],
+                              "additionalProperties": false
                             }
                           },
                           "required": [
@@ -13878,6 +13924,52 @@
                                                 "publicIps",
                                                 "observedAt",
                                                 "lastError"
+                                              ],
+                                              "additionalProperties": false
+                                            },
+                                            "foreignUsage": {
+                                              "type": "object",
+                                              "properties": {
+                                                "rateLimited": {
+                                                  "type": "integer",
+                                                  "minimum": 0
+                                                },
+                                                "count": {
+                                                  "type": "integer",
+                                                  "minimum": 0
+                                                },
+                                                "lastAt": {
+                                                  "type": [
+                                                    "string",
+                                                    "null"
+                                                  ]
+                                                },
+                                                "lastKey": {
+                                                  "type": [
+                                                    "string",
+                                                    "null"
+                                                  ]
+                                                },
+                                                "lastStatus": {
+                                                  "type": [
+                                                    "string",
+                                                    "null"
+                                                  ]
+                                                },
+                                                "lastOurWindowUse": {
+                                                  "type": [
+                                                    "number",
+                                                    "null"
+                                                  ]
+                                                }
+                                              },
+                                              "required": [
+                                                "rateLimited",
+                                                "count",
+                                                "lastAt",
+                                                "lastKey",
+                                                "lastStatus",
+                                                "lastOurWindowUse"
                                               ],
                                               "additionalProperties": false
                                             },
@@ -14910,6 +15002,52 @@
                                                 "publicIps",
                                                 "observedAt",
                                                 "lastError"
+                                              ],
+                                              "additionalProperties": false
+                                            },
+                                            "foreignUsage": {
+                                              "type": "object",
+                                              "properties": {
+                                                "rateLimited": {
+                                                  "type": "integer",
+                                                  "minimum": 0
+                                                },
+                                                "count": {
+                                                  "type": "integer",
+                                                  "minimum": 0
+                                                },
+                                                "lastAt": {
+                                                  "type": [
+                                                    "string",
+                                                    "null"
+                                                  ]
+                                                },
+                                                "lastKey": {
+                                                  "type": [
+                                                    "string",
+                                                    "null"
+                                                  ]
+                                                },
+                                                "lastStatus": {
+                                                  "type": [
+                                                    "string",
+                                                    "null"
+                                                  ]
+                                                },
+                                                "lastOurWindowUse": {
+                                                  "type": [
+                                                    "number",
+                                                    "null"
+                                                  ]
+                                                }
+                                              },
+                                              "required": [
+                                                "rateLimited",
+                                                "count",
+                                                "lastAt",
+                                                "lastKey",
+                                                "lastStatus",
+                                                "lastOurWindowUse"
                                               ],
                                               "additionalProperties": false
                                             },

@@ -382,6 +382,21 @@ export const egressIdentitySchema = z.object({
   lastError: z.string().nullable(),
 });
 export type EgressIdentity = z.infer<typeof egressIdentitySchema>;
+/** Hyperliquid's rate limits as this process met them: `rateLimited`, every
+ * REST 429 or WebSocket rate-limit error since its start; `count`, those
+ * that came while our own shared meter for that egress key held less than
+ * 80 % of the window (`foreign_usage_suspected`: someone else's traffic
+ * leaves from our IP), and the last of those: when, on which key, which
+ * kind (`429`, `ws_rate_limit`) and our share then (0..1). */
+export const foreignUsageSchema = z.object({
+  rateLimited: z.number().int().nonnegative(),
+  count: z.number().int().nonnegative(),
+  lastAt: z.string().nullable(),
+  lastKey: z.string().nullable(),
+  lastStatus: z.string().nullable(),
+  lastOurWindowUse: z.number().nullable(),
+});
+export type ForeignUsage = z.infer<typeof foreignUsageSchema>;
 export const heartbeatResponseSchema = z.object({
   feedConnected: z.boolean(),
   feedSocketsOpen: z.number().int(),
@@ -496,6 +511,9 @@ export const heartbeatResponseSchema = z.object({
   /** This worker's public egress identity (HL_EGRESS_IDENTITY observe or
    * enforce; absent while off). Additive. */
   egressIdentity: egressIdentitySchema.optional(),
+  /** Hyperliquid's rate limits this worker met, and those suspected to be
+   * someone else's use of its IP (foreign_usage_suspected). Additive. */
+  foreignUsage: foreignUsageSchema.optional(),
   now: z.coerce.date(),
 });
 export type HeartbeatResponse = z.infer<typeof heartbeatResponseSchema>;

@@ -13,6 +13,7 @@ import { clockSkew } from "../copy/live/clock-skew.js";
 import { explorerHealth } from "../copy/explorer-health.js";
 import { terminalSettlementRuns } from "../copy/live-worker/copy-live-api-settlement.service.js";
 import { EgressIdentityMonitor, egressIdentity } from "../runtime/egress-identity.js";
+import { foreignUsage } from "../hyperliquid/foreign-usage.js";
 
 /** §8 可觀測: the worker's own heartbeat (feed, snapshots, sweeps, budget,
  * discovery and archive progress), served on its health port and read by
@@ -96,6 +97,9 @@ export class WorkerHeartbeatService {
       // Its public IPs (HL_EGRESS_IDENTITY): the api compares the copy
       // worker's with its own and the read worker's (WorkerFleetService).
       egressIdentity: this.identity.mode === "off" ? undefined : this.identity.snapshot(),
+      // Hyperliquid's rate limits met here, and those while our own meter
+      // held under 80 % of the window (foreign_usage_suspected).
+      foreignUsage: foreignUsage.status(),
       now: new Date(),
     };
   }

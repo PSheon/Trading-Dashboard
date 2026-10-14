@@ -152,7 +152,10 @@ export const adminSystemSchema = z.object({
     setupDemand: wireMeterLaneDemandSchema.optional(), liveDemand: wireMeterLaneDemandSchema.optional(), pageLane: wireMeterLaneDemandSchema.optional(),
     /** This api process's public egress identity (HL_EGRESS_IDENTITY;
      * absent while off). Additive. */
-    egressIdentity: s.egressIdentitySchema.optional() }),
+    egressIdentity: s.egressIdentitySchema.optional(),
+    /** Hyperliquid's rate limits this api process met, and those suspected
+     * to be someone else's use of its IP (foreign_usage_suspected). Additive. */
+    foreignUsage: s.foreignUsageSchema.optional() }),
   /** WORKER_URL's worker (the `copy` worker, or the single `all` one). While
    * the `read` worker (WORKER_READ_URL) is active, this sample's heartbeat
    * carries its snapshot, sweep, discovery, archive and dry-run fields, and

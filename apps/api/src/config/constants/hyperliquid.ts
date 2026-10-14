@@ -58,6 +58,16 @@ export const HYPERLIQUID_SETUP_GRANT_HOLD_MS = 45_000;
  */
 export const HYPERLIQUID_SETUP_PENDING_HOLD_MS = 30_000;
 
+/** basis: guessed — 20 claimants at once on a full window (gate 10 had one settlement, one order and up to two setup steps claiming); verify: the meter heartbeat's live and setup marker counts p99 at the next gate
+ * Demand markers (1 unit each, never sent) the shared meter records over
+ * HYPERLIQUID_REST_CAP on a full window: at most this many units. A live
+ * claimant keeps one marker and a setup two (its first, for its place in the
+ * queue, and its latest), so a renewal reuses its own room; a new claimant
+ * past this is refused with a wait, as before 2026-10-15. Markers count as
+ * taken room in every lane, so this is also the most they hold over the window.
+ */
+export const HYPERLIQUID_DEMAND_MARKER_CAP = 20;
+
 /** basis: guessed — an order's SQL wait, 5 s evidence and POST fit in 15 s (2026-10-13); verify: gate 9 order duration p99
  * How long a live order's demand comes first after it is recorded: its
  * wait for its SQL locks, its 5 s evidence window and its exchange POST. An

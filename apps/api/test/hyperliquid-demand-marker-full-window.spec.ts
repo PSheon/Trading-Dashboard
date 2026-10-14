@@ -1,5 +1,6 @@
 import {describe,expect,it} from 'vitest';
 import {HyperliquidRestCapacityError} from '../src/hyperliquid/hyperliquid-capacity-error.js';
+import {HYPERLIQUID_DEMAND_MARKER_CAP} from '../src/config/constants/hyperliquid.js';
 import {planHyperliquidQuota,setupDemandTicket,type HyperliquidQuotaEvent,type HyperliquidQuotaRequest,type HyperliquidQuotaState} from '../src/hyperliquid/hyperliquid-global-quota.js';
 
 /**
@@ -57,6 +58,34 @@ describe('a demand marker is recorded on a full window: the claim is never starv
     expect(sent(claimed.state,at)).toBe(1200);
     // The first 20 that frees up is not background's.
     expect(refusal(()=>plan({kind:'rest',id:id('bg:'),weight:20,sendUntil:at+5150,lane:'background'},claimed.state,at+150))).toBeInstanceOf(HyperliquidRestCapacityError);
+  });
+
+  it('a flood of claims stays bounded: a claimant\'s renewals keep one marker (a setup two), new claimants past the cap get the old wait, and pages are served once the window frees', () => {
+    // The window full until now+1000; the flood at now+10.
+    let state=S(Array.from({length:60},(_,i)=>({id:i<42?`bg-${i}`:id('page:'),kind:'rest' as const,units:20,reservedAt:now-59_000,expiresAt:now+1_000})));
+    const at=now+10,live=(token:string,s:HyperliquidQuotaState)=>plan({kind:'live_demand',id:`live-demand:10:${token}:${id()}`,weight:10,sendUntil:at+5000},s,at);
+    const markers=(s:HyperliquidQuotaState)=>alive(s,at).filter(isMarker);
+    // One settlement's claimLive renewing 1300 times (a hot retry loop): one marker.
+    for(let n=0;n<1300;n++)state=live(ORDER,state).state;
+    expect(markers(state).filter(e=>e.id.includes(`:${ORDER}:`))).toHaveLength(1);
+    // One setup step claiming again and again: its first and its latest.
+    for(let n=0;n<50;n++)state=plan({kind:'setup_demand',id:setupDemandTicket(300,SETUP),weight:300,sendUntil:at+5000},state,at).state;
+    expect(markers(state).filter(e=>e.id.includes(`:${SETUP}:`))).toHaveLength(2);
+    // Distinct claimants: recorded until HYPERLIQUID_DEMAND_MARKER_CAP stand over the window, then refused with a wait (as before).
+    let recorded=0,refused=0;
+    for(let n=0;n<40;n++){const token=n.toString(16).padStart(16,'c');
+      const error=refusal(()=>{state=live(token,state).state;recorded++;});
+      if(error!==undefined){expect(error).toBeInstanceOf(HyperliquidRestCapacityError);expect((error as HyperliquidRestCapacityError).retryAfterMs).toBe(990);refused++;}}
+    expect(recorded).toBe(HYPERLIQUID_DEMAND_MARKER_CAP-3);expect(refused).toBe(40-recorded);
+    expect(markers(state).length).toBe(HYPERLIQUID_DEMAND_MARKER_CAP);
+    expect(alive(state,at).reduce((sum,e)=>sum+e.units,0)).toBe(1200+HYPERLIQUID_DEMAND_MARKER_CAP);
+    // A renewal past the cap still goes in: it reuses its own marker's room.
+    expect(live(ORDER,state).charged).toBe(1);
+    // Once the window's charges expire, a page, background and live work are served beside the markers.
+    const later=now+1_100;
+    state=page(state,later).state;
+    state=plan({kind:'rest',id:id('bg:'),weight:20,sendUntil:later+5000,lane:'background'},state,later).state;
+    expect(plan({kind:'rest',id:id(`live:${ORDER}:`),weight:20,sendUntil:later+5000,lane:'live'},state,later).charged).toBe(20);
   });
 
   it('the provider\'s 1200 holds for what is sent: a marker over the window is never room for a charge', () => {

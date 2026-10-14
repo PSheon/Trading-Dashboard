@@ -507,3 +507,10 @@ Then Phase 2 (in-memory scheduler). §1 scoping and Phase 3 (node) come after ma
 **I-13 (2026-10-14) Correction: the egress split alone does not remove "an order in the same minute as a setup's mode step waits".** After the split, the setup and the order both run on worker-copy's IP A and still share 1200. What removes the wait is **1a-4**: the setup drive moves into worker-copy, so the first order's read cache is warm (69 + boundary), and 635 + 69 fits. Do not count this as fixed after 1b alone.
 
 **I-14** The `live_standby` marker (c8e8f7d7) should hold the current mandate's *actual* heaviest need: about 385 for one account cold, or about 69 plus the boundary once the cache is warm. It currently holds the startup bound of 793, which leaves two thirds of the window idle. Fix this in the next batch; also show the setup bucket in the heartbeat and admin.
+
+**I-15 (2026-10-14) Railway only.** Paul uses Railway alone, so there are no external VMs and the proxy plan is dropped. Revised 1b:
+- Enable Railway static egress (the HA gateway, `208.77.246.240–242`, sin) on **worker-copy only**.
+- The api and worker-read stay on Railway's default egress. Our own background and page traffic then leaves IP A.
+- Railway's docs say the gateway "may be shared with other customers". `foreign_usage_suspected` measures this. If it is non-zero, the next step is to move worker-read (or worker-copy) to another Railway region so it gets a different pool.
+- The identity guard compares the public IP each role observes and refuses to start worker-copy when its IP equals the api's or worker-read's.
+- Rollback: `egressGatewayAssociationsClear` on the service.

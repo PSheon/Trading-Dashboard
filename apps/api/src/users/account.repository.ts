@@ -27,7 +27,7 @@ interface AccountFootprint {
  * What stops a deletion: only state still in flight (docs/account-deletion.md).
  * In the order the dialog shows them; history never blocks.
  */
-const DELETION_BLOCKERS = [
+export const DELETION_BLOCKERS = [
   "copies_active", "stop_in_progress", "setup_in_progress", "transfer_pending", "execution_pending",
   "copy_account_not_empty", "withdrawal_pending", "referral_claim_pending",
 ] as const;

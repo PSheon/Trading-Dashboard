@@ -84,8 +84,9 @@ export function renderSummary({ checks, latency = null, weightPerOrder = null, m
   const lines = [`copy harness (${mode}) — ${new Date().toISOString()}`, `${"check".padEnd(width)}  result  detail`, `${"-".repeat(width)}  ------  ------`];
   for (const c of checks) lines.push(`${c.name.padEnd(width)}  ${mark(c.ok).padEnd(6)}  ${c.detail ?? ""}`);
   if (latency) {
-    lines.push("", "latency (s from the leader's fill)    p50     p95     max");
-    for (const [name, v] of Object.entries(latency)) lines.push(`  ${name.padEnd(35)} ${fmt(v?.p50)} ${fmt(v?.p95)} ${fmt(v?.max)}`);
+    const width = Math.max(35, ...Object.keys(latency).map((k) => k.length));
+    lines.push("", `${"latency (s; from the leader's fill unless named)".padEnd(width + 2)}     p50     p95     max`);
+    for (const [name, v] of Object.entries(latency)) lines.push(`  ${name.padEnd(width)} ${fmt(v?.p50)} ${fmt(v?.p95)} ${fmt(v?.max)}`);
   }
   lines.push(`weight per order: ${weightPerOrder ?? "n/a"}`);
   const failed = checks.filter((c) => c.ok === false).length;
@@ -221,6 +222,7 @@ export const EVIDENCE_FAILURES = Object.freeze(["live_risk_stale", "live_risk_se
  * exchange. `evidenceMs` is the two together: what the 5 s window has to hold.
  * `orderMs` adds the exchange call (`executor_submit`). `phases`: the longest
  * total of each phase (prepare, collect, hold, sign, submit, execute).
+ * `network`: the execution network the timings name (testnet | mainnet; null: none).
  * Null for a line that is not an order's preparation (a recovery's reconcile).
  * @param {{ phase: string, stage: string, elapsedMs: number, totalMs: number }[]} timings
  */
@@ -236,7 +238,8 @@ export function orderEvidence(timings) {
   /** @type {Record<string, number>} */
   const phases = {};
   for (const t of timings) phases[t.phase] = Math.max(phases[t.phase] ?? 0, t.totalMs);
-  return { evidenceMs: runtime + (gate?.totalMs ?? 0), orderMs: runtime + (submit?.totalMs ?? gate?.totalMs ?? 0), submitted: Boolean(submit), phases };
+  const network = timings.find((t) => typeof t.network === "string")?.network ?? null;
+  return { network, evidenceMs: runtime + (gate?.totalMs ?? 0), orderMs: runtime + (submit?.totalMs ?? gate?.totalMs ?? 0), submitted: Boolean(submit), phases };
 }
 
 /** `leg <id> attempt <n> failed: <reason>; elapsed <ms> ms, source age <ms> ms, …` (CopyLiveEngine). */
@@ -350,15 +353,24 @@ export function evidenceStats(orders, maxMs = EVIDENCE_MAX_MS) {
   return { orders: xs.length, p50: percentile(xs, 0.5), p95: percentile(xs, 0.95), max: xs.length ? Math.max(...xs) : null, over: xs.filter((x) => x >= maxMs).length };
 }
 
-/** The gate's table: one line per scenario, pass/fail and its orders' evidence p50/p95/max (ms), then all of them. */
+/**
+ * The gate's table: one line per scenario, pass/fail and its orders' judged evidence p50/p95/max (ms),
+ * then the raw max and the mainnet projection's max, then all of them. Judged: `judgedMs` (a testnet
+ * order without its dex fan-out, criteria.mjs), else the raw `evidenceMs`.
+ */
 export function renderGateSummary(rows, maxMs = EVIDENCE_MAX_MS) {
   const width = Math.max(8, ...rows.map((r) => r.name.length));
   const ms = (v) => (v === null || v === undefined ? "—" : String(Math.round(v))).padStart(6);
   const mark = (ok) => ok === true ? "PASS" : ok === false ? "FAIL" : "SKIP";
-  const line = (name, ok, s) => `${name.padEnd(width)}  ${mark(ok).padEnd(6)}  ${String(s.orders).padStart(6)}  ${ms(s.p50)} ${ms(s.p95)} ${ms(s.max)}`;
-  const lines = [`pre-mainnet gate: every leg settled or refused for an expected reason, each order's evidence < ${maxMs} ms`,
-    `${"scenario".padEnd(width)}  result  orders     p50    p95    max  (evidence ms)`];
-  for (const r of rows) lines.push(line(r.name, r.ok, evidenceStats(r.orders ?? [], maxMs)));
-  if (rows.length > 1) lines.push(line("all", rows.some((r) => r.ok === false) ? false : rows.every((r) => r.ok === null) ? null : true, evidenceStats(rows.flatMap((r) => r.orders ?? []), maxMs)));
+  const judged = (orders) => orders.map((o) => ({ evidenceMs: o.judgedMs ?? o.evidenceMs }));
+  const line = (name, ok, orders) => {
+    const s = evidenceStats(judged(orders), maxMs), raw = evidenceStats(orders, maxMs);
+    const projected = orders.map((o) => o.fanout?.projectedMainnetMs).filter(Number.isFinite);
+    return `${name.padEnd(width)}  ${mark(ok).padEnd(6)}  ${String(s.orders).padStart(6)}  ${ms(s.p50)} ${ms(s.p95)} ${ms(s.max)} ${ms(raw.max)} ${ms(projected.length ? Math.max(...projected) : null)}`;
+  };
+  const lines = [`pre-mainnet gate: every leg settled or refused for an expected reason, each order's judged evidence < ${maxMs} ms`,
+    `${"scenario".padEnd(width)}  result  orders     p50    p95    max    raw  mainnet  (judged evidence ms: testnet without the dex fan-out; raw max; mainnet projection max)`];
+  for (const r of rows) lines.push(line(r.name, r.ok, r.orders ?? []));
+  if (rows.length > 1) lines.push(line("all", rows.some((r) => r.ok === false) ? false : rows.every((r) => r.ok === null) ? null : true, rows.flatMap((r) => r.orders ?? [])));
   return lines.join("\n");
 }

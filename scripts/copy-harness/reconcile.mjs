@@ -19,7 +19,13 @@
 //   6. the follower's position per coin has the leader's direction, and it is flat when the leader is;
 //   7. no follower order outside the dispatched legs and the stop's / owner's reduce-only closes;
 //   8. the portfolio's positions and equity equal C (when P is given);
-//   plus latency: received − leader, sent − leader and first follower fill − leader, p50/p95/max.
+//   plus latency: received − leader, sent − leader and first follower fill − leader, p50/p95/max;
+//   and the signal latency in two parts (criteria.mjs signalLatency): leader fill → dispatch created
+//   (the source's poll) and dispatch created → order sent (ours).
+// harness_timing (listed in `harnessTiming`, not a failure): a leader order with no dispatch that the
+// source's last completed read (copy_live_source_streams.coverage_through, read before the dispatches)
+// had not covered yet, or, with no coverage row, that is later than now minus --source-poll-ms; and a
+// direction mismatch that follows from it (checks.mjs).
 //
 // Usage (from the repo root):
 //   node scripts/copy-harness/reconcile.mjs --leader 0x… --leader-network testnet \
@@ -47,6 +53,7 @@ import { pathToFileURL } from "node:url";
 import {loadProofRuntime} from './proof-runtime.mjs';
 import {fixedClaimEvidenceQuery,hydrateFixedClaimEvidence} from './fixed-claim-proof.mjs';
 import { DEFAULT_ALLOWED_REFUSALS, evaluate, parseAllowedRefusals } from "./checks.mjs";
+import { signalLatency } from "./criteria.mjs";
 
 const args = process.argv.slice(2);
 const flag = (name, fallback) => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] : fallback; };
@@ -58,6 +65,8 @@ const all = (name) => args.flatMap((a, i) => (a === `--${name}` ? [args[i + 1]] 
 const num = (name, fallback) => { const v = flag(name); if (v === undefined) return fallback; const n = Number(v); if (!(n > 0)) { console.error(`--${name}: a positive number`); process.exit(2); } return n; };
 const perTradeUsd = num("per-trade-usd", null), maxPerTradeUsd = num("max-per-trade-usd", stage ? 15 : null), minOrderUsd = num("min-order-usd", 10), maxLeverage = num("max-leverage", stage ? 3 : null);
 const ratioFloorMaxUsd = num("ratio-floor-max-usd", null);
+// The copy's source poll interval (COPY_LIVE_TESTNET_SOURCE_INTERVAL_MS): the harness_timing fallback when no coverage row is read.
+const sourcePollMs = num("source-poll-ms", null);
 const rules = { allowedRefusals: [...DEFAULT_ALLOWED_REFUSALS, ...parseAllowedRefusals(all("allow-refusal"))],
   sizing: perTradeUsd ? { perTradeUsd, maxPerTradeUsd: maxPerTradeUsd ?? perTradeUsd, minOrderUsd } : null, maxLeverage,
   // TEST ONLY minimum floor: every ratio open went out at least at the minimum.
@@ -103,14 +112,20 @@ const fail = (check, detail) => failures.push({ check, ...detail });
 const leaderFills = (await info(leaderNet, { type: "userFillsByTime", user: leader, startTime: since })).filter((f) => !f.coin.startsWith("@") && !f.coin.includes(":"));
 const leaderOrders = new Set(leaderFills.map((f) => f.oid));
 
+// The source's coverage: what its last completed read covered (read before D, so a read that
+// lands in between can only add dispatches, never make a covered order look unread).
+const coverageRows = await query(`select coalesce(extract(epoch from coverage_through)*1000, 0) from copy_live_source_streams where network = ${quote(leaderNet)} and leader_address = ${quote(leader)}`);
+const coverageThrough = coverageRows.length === 1 && Number(coverageRows[0][0]) > 0 ? Number(coverageRows[0][0]) : null;
+const endAt = Date.now();
 // D — dispatches of copies of this leader into this follower account.
 const dispatches = (await query(`select d.id, d.source_fill_id, d.leg, d.coin, d.state, coalesce(d.reason,''), coalesce(d.execution_key,''),
   extract(epoch from d.leader_time)*1000, extract(epoch from d.received_at)*1000, coalesce(extract(epoch from d.sent_at)*1000,0), coalesce(d.adjustment_id,''), coalesce(e.state,''), coalesce(e.cloid,''),
-  coalesce(e.record->'action'->'orders'->0->>'s',''), coalesce(e.record->'action'->'orders'->0->>'p',''), coalesce(e.record->'action'->'orders'->0->>'r','false'), d.mandate_id,d.user_id,d.strategy_id,d.account_id
+  coalesce(e.record->'action'->'orders'->0->>'s',''), coalesce(e.record->'action'->'orders'->0->>'p',''), coalesce(e.record->'action'->'orders'->0->>'r','false'), d.mandate_id,d.user_id,d.strategy_id,d.account_id,
+  extract(epoch from d.created_at)*1000
   from copy_live_dispatches d join copy_live_mandates m on m.id = d.mandate_id left join copy_live_executions e on e.key = d.execution_key
   where m.network = ${quote(net)} and m.source_network = ${quote(leaderNet)} and lower(m.leader_address) = ${quote(leader)} and lower(m.account_address) = ${quote(follower)} and d.leader_time >= to_timestamp(${since / 1000})`))
-  .map(([id, sourceFillId, leg, coin, state, reason, executionKey, leaderTime, receivedAt, sentAt, adjustmentId, executionState, cloid, orderSize, limitPx, reduceOnly, mandateId, userId, strategyId, accountId]) =>
-    ({ id, sourceFillId, mandateId, userId:Number(userId),strategyId:Number(strategyId),accountId, tid: sourceFillId.split(":").at(-1), leg, coin, state, reason, executionKey:executionKey||null, leaderTime: Number(leaderTime), receivedAt: Number(receivedAt), sentAt: Number(sentAt), adjustmentId, executionState, cloid, orderSize, limitPx, reduceOnly: reduceOnly === 'true' }));
+  .map(([id, sourceFillId, leg, coin, state, reason, executionKey, leaderTime, receivedAt, sentAt, adjustmentId, executionState, cloid, orderSize, limitPx, reduceOnly, mandateId, userId, strategyId, accountId, createdAt]) =>
+    ({ createdAt: Number(createdAt), id, sourceFillId, mandateId, userId:Number(userId),strategyId:Number(strategyId),accountId, tid: sourceFillId.split(":").at(-1), leg, coin, state, reason, executionKey:executionKey||null, leaderTime: Number(leaderTime), receivedAt: Number(receivedAt), sentAt: Number(sentAt), adjustmentId, executionState, cloid, orderSize, limitPx, reduceOnly: reduceOnly === 'true' }));
 // The account's reduce-only closes that are not copy legs: a stop's or the owner's single-position close.
 const closeCloids = new Set((await query(`select lower(e.cloid) from copy_live_executions e where lower(e.account_address) = ${quote(follower)} and e.network = ${quote(net)}
   and (e.record->'action'->'orders'->0->>'r')::boolean and not exists (select 1 from copy_live_dispatches d where d.execution_key = e.key)`)).map(([cloid]) => cloid));
@@ -142,7 +157,8 @@ if(pinnedProof){
   fixedClaimEvidence.set(candidate.id,hydrateFixedClaimEvidence(rows[0][0],{candidate,dispatches,network:net,accountAddress:follower,fills:followerFills,tools:pinnedProof.tools,now:Date.now()}));
  }
 }
-const evaluated = evaluate({ fixedClaimTools:pinnedProof?.tools,fixedClaimEvidence,leaderFills, dispatches: db === "none" ? null : dispatches, followerFills, leaderPositions: L, followerPositions: C, followerLeverage, szDecimals, rules, closeCloids });
+const sourceTiming = db === "none" ? null : { coverageThrough, endAt, pollMs: sourcePollMs };
+const evaluated = evaluate({ sourceTiming, fixedClaimTools:pinnedProof?.tools,fixedClaimEvidence,leaderFills, dispatches: db === "none" ? null : dispatches, followerFills, leaderPositions: L, followerPositions: C, followerLeverage, szDecimals, rules, closeCloids });
 for (const f of evaluated.failures) failures.push(f);
 const { fillsByCloid } = evaluated;
 
@@ -188,6 +204,10 @@ const report = {
   dispatches: db === "none" ? { skipped: "--db none: the dispatch checks (1-4, 7) need Orbie's database" } : { count: dispatches.length, byStateReason: reasons },
   latencySeconds: { received: { p50: pct(received, 0.5), p95: pct(received, 0.95), max: pct(received, 1) }, sent: { p50: pct(sent, 0.5), p95: pct(sent, 0.95), max: pct(sent, 1) },
     filled: { p50: pct(filled, 0.5), p95: pct(filled, 0.95), max: pct(filled, 1) } },
+  // leaderToCreated: the source's poll (a harness fact on testnet; measured only); createdToSent: ours.
+  signalLatencySeconds: signalLatency(dispatches),
+  sourceTiming: sourceTiming && { coverageThrough: coverageThrough === null ? null : new Date(coverageThrough).toISOString(), endAt: new Date(endAt).toISOString(), pollMs: sourcePollMs },
+  harnessTiming: evaluated.harnessTiming,
   portfolio,
   failures,
 };

@@ -470,6 +470,11 @@ export const heartbeatResponseSchema = z.object({
     lastRunAt: z.coerce.date().nullable(),
     lastError: z.string().nullable(),
   }).optional(),
+  /** What this worker runs (WORKER_ROLE: `all` is the single worker of
+   * before the split, `copy` the real-money worker, `read` the rest) and
+   * the advisory leases it holds ((73106, 1) copy, (73106, 2) read).
+   * Optional while older workers roll out. */
+  worker: z.object({ role: z.enum(["all", "copy", "read"]), leases: z.array(z.number().int()) }).optional(),
   now: z.coerce.date(),
 });
 export type HeartbeatResponse = z.infer<typeof heartbeatResponseSchema>;

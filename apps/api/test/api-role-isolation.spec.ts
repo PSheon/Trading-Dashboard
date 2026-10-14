@@ -108,6 +108,99 @@ it("one entry point picks AppModule.api() or AppModule.worker(); the worker is n
   const worker = readFileSync(resolve(import.meta.dirname, "../src/bootstrap/worker.bootstrap.ts"), "utf8");
   expect(main).toContain("NestFactory.create(AppModule.api()");
   expect(main).toContain("config.app.isWorker");
-  expect(worker).toContain("createApplicationContext(AppModule.worker()");
+  expect(worker).toContain("createApplicationContext(AppModule.worker(role)");
   expect(worker).not.toContain("NestFactory.create(");
+});
+
+/** Every provider instance's class name (and symbol tokens' names) in the composed graph. */
+function providerNames(app: INestApplicationContext): Set<string> {
+  const names = new Set<string>();
+  for (const module of app.get(ModulesContainer).values()) {
+    for (const [token, wrapper] of module.providers) {
+      if (typeof token === "symbol") names.add(token.description ?? String(token));
+      const instance = wrapper.instance as object | null | undefined;
+      if (instance && typeof instance === "object" && instance.constructor !== Object) names.add(instance.constructor.name);
+    }
+  }
+  return names;
+}
+
+/** A worker of `role` (WORKER_ROLE unset for `all`), initialised under NODE_ENV=test with Hyperliquid unreachable. */
+async function worker(role: "all" | "copy" | "read" | undefined, run: (app: INestApplicationContext) => Promise<void>) {
+  vi.stubEnv("DATABASE_URL", process.env.TEST_DATABASE_URL!);
+  const config = new AppConfig(validateEnvironment(environment({ IS_WORKER: "true", ...(role ? { WORKER_ROLE: role } : {}) })));
+  expect(config.value.app.workerRole).toBe(role ?? "all");
+  vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+  const { AppModule } = await import("../src/app.module.js");
+  const ref = await Test.createTestingModule({ imports: [AppModule.worker(config.value.app.workerRole)] }).overrideProvider(AppConfig).useValue(config).compile();
+  const app = await ref.init();
+  try {
+    for (const job of app.get(SchedulerRegistry, { strict: false }).getCronJobs().values()) void job.stop();
+    await run(app);
+  } finally { await app.close(); }
+}
+
+/** The read side's schedules: none may exist on a `copy` worker. */
+const READ_SCHEDULES = ["SchedulerService.snapshotAll", "SchedulerService.hourly", "SchedulerService.catchUp", "SchedulerService.backfillTick",
+  "TradersWorker.historyTick", "TradersWorker.ingestTick", "TradersWorker.trackedTick", "DiscoveryWorker.performanceTick", "DiscoveryWorker.ledgerTick",
+  "CohortWorker.cohortTick", "BackfillWorker.scheduledTick", "RevenueWorker.hourlySnapshot", "ArchiveIngestWorker.archiveTick", "RetentionWorker.tick", "OutboxService.drain"];
+/** What only real-money work constructs: none may exist on a `read` worker. */
+const COPY_ONLY = ["LIVE_ENGINE", "CopyLiveWorkerService", "CopyLiveSetupService", "CopyLiveSetupAbortService", "CopyFundingMonitor", "CopyLiveApiSettlementService",
+  "CopyFundingExchangeClient", "AGENT_APPROVAL_CLIENT", "ACCOUNT_MODE_CLIENT", "WORKER_MASTER_SIGNER", "PrivyPolicyMasterSigner", "PrivyAgentApprovalClient", "PrivyAccountModeClient",
+  "CopyAccountModeService", "CopyAgentService", "CopyFundingService", "WatcherRuntime", "FeedMonitorService", "CopySetupDueListener"];
+
+const roleGraphs: Partial<Record<"copy" | "read", { providers: Set<string>; schedules: string[] }>> = {};
+
+it("WORKER_ROLE=copy constructs no scheduler, traders, discovery, cohort or other read-side cron, and runs the feed and the live loops", async () => {
+  await worker("copy", async (app) => {
+    const providers = providerNames(app), schedules = scheduledProviders(app);
+    roleGraphs.copy = { providers, schedules };
+    for (const name of READ_SCHEDULES) expect(schedules, name).not.toContain(name);
+    for (const type of [SchedulerService, TradersWorker, BackfillWorker, OutboxService, TelegramBotService, RulesSeedService, CopyWorkerService,
+      CopyFollowerMonitor, CopyFollowerSnapshotCollector, RevenueWorker]) expect(() => app.get(type, { strict: false }), type.name).toThrow();
+    for (const name of ["DiscoveryWorker", "CohortWorker", "LeaderboardIngestService", "ArchiveIngestWorker", "RetentionWorker", "DiscoveryPoolService"]) expect(providers, name).not.toContain(name);
+    // Its schedules are the feed's own; its loops are the live ones.
+    expect(schedules).toEqual(["FeedMonitorService.checkFeed", "FeedMonitorService.refreshMarkets"]);
+    for (const name of COPY_ONLY) expect(providers, name).toContain(name);
+    for (const type of [WatcherService, TradeFeedService, CopyFundingMonitor, WorkerHeartbeatService]) expect(app.get(type, { strict: false }), type.name).toBeTruthy();
+    expect((await app.get(WorkerHeartbeatService).heartbeat()).worker).toEqual({ role: "copy", leases: [1] });
+  });
+});
+
+it("WORKER_ROLE=read constructs no live engine, exchange client, signer or setup driver, and never starts a trade feed", async () => {
+  const start = vi.spyOn(TradeFeedService.prototype, "start");
+  const watch = vi.spyOn(WatcherService.prototype, "start");
+  try {
+    await worker("read", async (app) => {
+      const providers = providerNames(app), schedules = scheduledProviders(app);
+      roleGraphs.read = { providers, schedules };
+      for (const name of COPY_ONLY) expect(providers, name).not.toContain(name);
+      expect([...providers].filter((name) => /ExchangeClient|MasterSigner|ApprovalClient|AccountModeClient|LiveEngine|LiveSetup|LiveWorker|LiveSettl/.test(name))).toEqual([]);
+      expect(schedules).toEqual(expect.arrayContaining(READ_SCHEDULES));
+      expect(schedules.filter((name) => name.startsWith("FeedMonitorService."))).toEqual([]);
+      for (const type of [SchedulerService, TradersWorker, BackfillWorker, OutboxService, CopyWorkerService, CopyFollowerMonitor, CopyFollowerSnapshotCollector, RevenueWorker])
+        expect(app.get(type, { strict: false }), type.name).toBeTruthy();
+      expect(() => app.get(CopyFundingMonitor, { strict: false })).toThrow();
+      expect((await app.get(WorkerHeartbeatService).heartbeat()).worker).toEqual({ role: "read", leases: [2] });
+    });
+    expect(start).not.toHaveBeenCalled();
+    expect(watch).not.toHaveBeenCalled();
+  } finally { start.mockRestore(); watch.mockRestore(); }
+});
+
+it("WORKER_ROLE unset is `all`: today's worker, exactly the copy and the read worker together, holding both leases", async () => {
+  await worker(undefined, async (app) => {
+    const providers = providerNames(app), schedules = scheduledProviders(app);
+    for (const type of BACKGROUND) expect(app.get(type, { strict: false }), type.name).toBeTruthy();
+    for (const name of [...COPY_ONLY, ...READ_SCHEDULES.map((s) => s.split(".")[0]!)]) expect(providers, name).toContain(name);
+    expect(schedules).toEqual([...new Set([...roleGraphs.copy!.schedules, ...roleGraphs.read!.schedules])].sort());
+    expect([...providers].sort()).toEqual([...new Set([...roleGraphs.copy!.providers, ...roleGraphs.read!.providers])].sort());
+    expect((await app.get(WorkerHeartbeatService).heartbeat()).worker).toEqual({ role: "all", leases: [1, 2] });
+  });
+});
+
+it("WORKER_ROLE is a worker setting: refused on the api, and anything but all, copy or read is refused", () => {
+  expect(() => validateEnvironment(environment({ WORKER_ROLE: "copy" }))).toThrow(/WORKER_ROLE applies to the worker only/);
+  expect(() => validateEnvironment(environment({ IS_WORKER: "true", WORKER_ROLE: "both" }))).toThrow(/WORKER_ROLE must be all, copy or read/);
+  expect(validateEnvironment(environment({ IS_WORKER: "true", WORKER_ROLE: " Copy " })).app.workerRole).toBe("copy");
 });

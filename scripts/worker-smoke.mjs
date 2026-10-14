@@ -4,7 +4,7 @@ const require = createRequire(new URL('../apps/api/package.json',import.meta.url
 const {Pool}=require('pg');
 import { spawn } from 'node:child_process';
 import { createHmac } from 'node:crypto';
-import { openSync, mkdtempSync } from 'node:fs';
+import { existsSync, openSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 const root=resolve(import.meta.dirname,'..');
@@ -17,7 +17,12 @@ const children=[];
 const env={PATH:process.env.PATH,NODE_ENV:'test',DATABASE_URL:databaseUrl,TELEGRAM_BOT_POLLING:'false'};
 // WORKER_SMOKE_DIST: a throwaway build directory instead of apps/api/dist.
 const entry=(process.env.WORKER_SMOKE_DIST??'dist')+'/main.js';
-const launch=(port,worker)=>{const child=spawn(process.execPath,[entry],{cwd:root+'/apps/api',env:{...env,...(worker?{IS_WORKER:'true'}:{}),PORT:String(port),WORKER_URL:'http://127.0.0.1:3311'},stdio:['ignore',openSync(logDir+'/'+port+'.log','w'),openSync(logDir+'/'+port+'-err.log','w')]}); children.push(child);return child;};
+// `extra`: more environment. Every process records its Hyperliquid requests
+// (worker-smoke-egress.mjs) in <logDir>/<port>-egress.log.
+const egressLog=port=>logDir+'/'+port+'-egress.log';
+const launch=(port,worker,extra={})=>{const child=spawn(process.execPath,['--import',root+'/scripts/worker-smoke-egress.mjs',entry],{cwd:root+'/apps/api',env:{...env,...(worker?{IS_WORKER:'true'}:{}),PORT:String(port),WORKER_URL:'http://127.0.0.1:3311',WORKER_SMOKE_EGRESS_LOG:egressLog(port),...extra},stdio:['ignore',openSync(logDir+'/'+port+'.log','w'),openSync(logDir+'/'+port+'-err.log','w')]}); children.push(child);return child;};
+const egress=port=>existsSync(egressLog(port))?readFileSync(egressLog(port),'utf8').split('\n').filter(Boolean):[];
+const monitorOf=async port=>workerMonitorSchema.parse(await (await probe(port,'/health/monitor')).json());
 // The first active monitor sample reads the discovery pool's freshness, which can wait
 // up to 2 s for the market catalog on a cold start.
 // /health/monitor answers only the api's key (apps/api/src/runtime/worker-calls.ts).
@@ -39,11 +44,31 @@ try {
  const api=launch(3313,false);await until(3313,'/health/ready',200);await until(3313,'/health',200);
  await stop(api);await until(3311,'/health/ready',200);
  await stop(a);await until(3312,'/health/ready',200);
- launch(3314,true);await until(3314,'/health/live',200);
+ const c=launch(3314,true);await until(3314,'/health/live',200);
  const pool=new Pool({connectionString:env.DATABASE_URL});
  try {await pool.query("SELECT pg_terminate_backend(pid) FROM pg_locks WHERE locktype='advisory' AND classid=73106 AND objid=1 AND granted AND database=(SELECT oid FROM pg_database WHERE datname=current_database())");} finally{await pool.end();}
  await until(3314,'/health/ready',200);
  if(b.exitCode!==1)throw Error('lost ownership did not fail-stop');
+ // WORKER_ROLE: an `all` worker (unset, both leases) hands off to a `copy`
+ // and a `read` worker, which wait on standby without a Hyperliquid call.
+ await stop(c);
+ const all=launch(3321,true);await until(3321,'/health/ready',200);
+ const allBeat=(await monitorOf(3321)).heartbeat?.worker;
+ if(allBeat?.role!=='all'||allBeat.leases.join()!=='1,2')throw Error(`all worker reports ${JSON.stringify(allBeat)}`);
+ launch(3322,true,{WORKER_ROLE:'copy'});launch(3323,true,{WORKER_ROLE:'read'});
+ await until(3322,'/health/live',200);await until(3323,'/health/live',200);
+ // Three lease polls on standby: neither takes over, neither reaches Hyperliquid.
+ await new Promise(r=>setTimeout(r,3000));
+ for(const port of [3322,3323]){if((await probe(port,'/health/ready')).status!==503)throw Error(`${port} took over from the all worker`);const m=await monitorOf(port);if(m.state!=='standby'||m.heartbeat!==null)throw Error(`${port} is not on standby`);}
+ const standbyEgress=[...egress(3322),...egress(3323)];
+ if(standbyEgress.length)throw Error(`a standby worker called Hyperliquid: ${standbyEgress.join(', ')}`);
+ const handoffAt=Date.now();await stop(all);
+ await until(3322,'/health/ready',200);await until(3323,'/health/ready',200);
+ for(const [port,role,leases] of [[3322,'copy','1'],[3323,'read','2']]){const beat=(await monitorOf(port)).heartbeat?.worker;if(beat?.role!==role||beat.leases.join()!==leases)throw Error(`${port} reports ${JSON.stringify(beat)}`);}
+ // Whatever reached Hyperliquid (worker-smoke-egress.mjs) did so only after the hand-off.
+ const early=[...egress(3322),...egress(3323)].filter(line=>Number(line.split(' ')[0])<handoffAt);
+ if(early.length)throw Error(`Hyperliquid called before the lease: ${early.join(', ')}`);
+ console.log('Hyperliquid requests: all',egress(3321).length,'copy',egress(3322).length,'read',egress(3323).length);
  console.log('Smoke logs:',logDir);
- console.log(JSON.stringify({ownershipLossFailStop:true,workerReady:true,standbyExcluded:true,noBusinessRoutes:true,apiStopDoesNotStopWorker:true,handoffPassed:true}));
+ console.log(JSON.stringify({ownershipLossFailStop:true,workerReady:true,standbyExcluded:true,noBusinessRoutes:true,apiStopDoesNotStopWorker:true,handoffPassed:true,roleHandoffPassed:true,standbyMadeNoHyperliquidCall:true}));
 }finally{for(const c of children)await stop(c);}

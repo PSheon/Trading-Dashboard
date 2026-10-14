@@ -10,6 +10,7 @@ import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.
 import type { HlClearinghouseStateResponse } from "../src/hyperliquid/types.js";
 import type { NotifyService } from "../src/notify/notify.service.js";
 import { SchedulerService } from "../src/scheduler/scheduler.service.js";
+import { FeedMonitorService } from "../src/watcher/feed-monitor.service.js";
 import { AccountStateService } from "../src/watcher/account-state.service.js";
 import type { FillSyncService } from "../src/watcher/fill-sync.service.js";
 import type { TradeFeedService, TradeFeedStatus } from "../src/watcher/trade-feed.service.js";
@@ -42,6 +43,7 @@ describe("SchedulerService — real Postgres", () => {
   let notify: { sendSystemMessage: ReturnType<typeof vi.fn> };
   let feedStatus: TradeFeedStatus;
   let scheduler: SchedulerService;
+  let feedMonitor: FeedMonitorService;
 
   beforeEach(async () => {
     await truncateAll(db);
@@ -58,11 +60,10 @@ describe("SchedulerService — real Postgres", () => {
       { activeAddresses: async () => [A] } as unknown as WatcherService,
       new AccountStateService(info, new AccountStateRepository(db)),
       { sync } as unknown as FillSyncService,
-      { status: () => feedStatus } as unknown as TradeFeedService,
-      notify as unknown as NotifyService,
       new SchedulerRepository(db),
       new UnitOfWork(db),
     );
+    feedMonitor = new FeedMonitorService({ status: () => feedStatus } as unknown as TradeFeedService, notify as unknown as NotifyService);
   });
 
   afterAll(async () => {
@@ -103,14 +104,14 @@ describe("SchedulerService — real Postgres", () => {
   it("alerts once when the feed has been down 10 minutes, and once when it recovers", async () => {
     const t = Date.now();
     feedStatus = { ...feedStatus, socketsOpen: 1, disconnectedSince: new Date(t) };
-    await scheduler.checkFeed(t + 9 * 60_000);
+    await feedMonitor.checkFeed(t + 9 * 60_000);
     expect(notify.sendSystemMessage).not.toHaveBeenCalled();
-    await scheduler.checkFeed(t + 10 * 60_000);
-    await scheduler.checkFeed(t + 11 * 60_000);
+    await feedMonitor.checkFeed(t + 10 * 60_000);
+    await feedMonitor.checkFeed(t + 11 * 60_000);
     expect(notify.sendSystemMessage).toHaveBeenCalledTimes(1);
 
     feedStatus = { ...feedStatus, socketsOpen: 2, disconnectedSince: null };
-    await scheduler.checkFeed(t + 12 * 60_000);
+    await feedMonitor.checkFeed(t + 12 * 60_000);
     expect(notify.sendSystemMessage).toHaveBeenCalledTimes(2);
     expect(notify.sendSystemMessage.mock.calls[1][0]).toMatch(/recovered/);
   });
@@ -118,8 +119,8 @@ describe("SchedulerService — real Postgres", () => {
   it("treats a feed that never came up as down", async () => {
     feedStatus = { socketsOpen: 0, socketsTotal: 0, markets: 0, lastTradeAt: null, disconnectedSince: null };
     const t = Date.now();
-    await scheduler.checkFeed(t);
-    await scheduler.checkFeed(t + 10 * 60_000);
+    await feedMonitor.checkFeed(t);
+    await feedMonitor.checkFeed(t + 10 * 60_000);
     expect(notify.sendSystemMessage).toHaveBeenCalledTimes(1);
   });
   it("rolls back equity when a position cannot be persisted", async () => {

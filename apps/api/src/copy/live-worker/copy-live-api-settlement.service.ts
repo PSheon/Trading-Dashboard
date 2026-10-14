@@ -11,7 +11,23 @@ export interface ApiSettlementWork {
   settle(request: LiveSettleRequest): Promise<LiveSettleOutcome>;
   saveSettlement(key: string): Promise<boolean>;
 }
-/** The API's only copy background exception: terminal testnet settlement.
+/**
+ * Whether this process runs the terminal settlement loop: only for a
+ * testnet copy deployment, and then on the api unless
+ * API_TERMINAL_SETTLEMENT=off, on a worker that runs copy work when
+ * WORKER_TERMINAL_SETTLEMENT is on (a `copy` worker's default; `all` keeps
+ * today's off). Claims are fenced in the database
+ * (CopyLiveSettlementClaims), so the api and the copy worker may both run
+ * it during the cutover (design §2.3, Phase 1a-4).
+ */
+export function terminalSettlementRuns(config: AppConfig): boolean {
+  const c = config.value;
+  if (c.copy.live?.network !== 'testnet' || c.hyperliquid.wallet.network !== 'testnet') return false;
+  return c.app.isWorker ? c.app.terminalSettlement?.worker === true : c.app.terminalSettlement?.api !== false;
+}
+
+/** The API's only copy background exception: terminal testnet settlement,
+ * which the copy worker can run instead (terminalSettlementRuns).
  * No execution/signing/funding/source ingestion capability is injected. */
 export class CopyLiveApiSettlementService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger('CopyLiveApiSettlement');
@@ -23,13 +39,13 @@ export class CopyLiveApiSettlementService implements OnApplicationBootstrap, OnM
     private readonly candidates: CopyLiveApiSettlementRepository, private readonly claims: CopyLiveSettlementClaims,
     private readonly work: (claim: SettlementClaim) => ApiSettlementWork) {}
   onApplicationBootstrap(): void {
-    const c = this.config.value;
-    if (c.app.nodeEnv === 'test' || c.app.isWorker || c.copy.live?.network !== 'testnet' || c.hyperliquid.wallet.network !== 'testnet') return;
+    if (this.config.value.app.nodeEnv === 'test' || !terminalSettlementRuns(this.config)) return;
+    this.logger.log(`Terminal settlement loop on the ${this.config.value.app.isWorker ? 'worker' : 'api'} every 3 s`);
     this.timer = setInterval(() => { void this.tick(); }, 3000); this.timer.unref?.();
   }
   onModuleDestroy(): void { this.stopped = true; this.shutdown.abort(); clearInterval(this.timer); }
   async tick(): Promise<void> {
-    if (this.running || this.stopped || this.jobs.stopping || this.config.value.app.isWorker || this.config.value.copy.live?.network !== 'testnet' || this.config.value.hyperliquid.wallet.network !== 'testnet') return;
+    if (this.running || this.stopped || this.jobs.stopping || !terminalSettlementRuns(this.config)) return;
     this.running = true;
     try {
       await this.jobs.run(async () => {

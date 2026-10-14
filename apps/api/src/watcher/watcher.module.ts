@@ -1,5 +1,3 @@
-import { BackfillJobsModule } from "../jobs/backfill-jobs.module.js";
-import { BackfillWorker } from "../jobs/backfill-worker.service.js";
 import { Module } from "@nestjs/common";
 
 import { HyperliquidModule } from "../hyperliquid/hyperliquid.module.js";
@@ -10,10 +8,16 @@ import { TradeFeedService } from "./trade-feed.service.js";
 import { WatcherRepository } from "./watcher.repository.js";
 import { WatcherService } from "./watcher.service.js";
 
-/** Explicit worker orchestration; shared on-demand capabilities come from IngestionModule. */
+/**
+ * The watcher's capabilities: the watch list, sweeps and copied catch-ups,
+ * fill sync, account state, the fast path's pieces and the (unstarted) trade
+ * feed. Importing it starts nothing: no feed, no timer. The `read` worker's
+ * schedules use it as is; WatcherRuntimeModule (the `copy` or `all` worker)
+ * starts the watcher and its feed.
+ */
 @Module({
-  imports: [BackfillJobsModule, HyperliquidModule, IngestionModule],
-  providers: [BackfillWorker, WatcherRepository, FeedActionsRepository, WatcherService, TradeFeedService, FeedActionsService],
+  imports: [HyperliquidModule, IngestionModule],
+  providers: [WatcherRepository, FeedActionsRepository, WatcherService, TradeFeedService, FeedActionsService],
   exports: [WatcherService, TradeFeedService, IngestionModule],
 })
 export class WatcherModule {}

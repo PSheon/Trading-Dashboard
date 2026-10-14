@@ -7,6 +7,7 @@ import { ArchiveIngestService } from "../ingest/archive-ingest.service.js";
 import { RequestBudgeterService } from "../hyperliquid/request-budgeter.service.js";
 import { WALLET_NETWORK_HL, type WalletNetworkHyperliquid } from "../hyperliquid/wallet-network-hyperliquid.js";
 import { SchedulerService } from "../scheduler/scheduler.service.js";
+import { roleLeases } from "../runtime/worker-role.js";
 import { WatcherService } from "../watcher/watcher.service.js";
 import { clockSkew } from "../copy/live/clock-skew.js";
 import { explorerHealth } from "../copy/explorer-health.js";
@@ -19,7 +20,8 @@ export class WorkerHeartbeatService {
   constructor(
     private readonly config: AppConfig,
     private readonly watcher: WatcherService,
-    private readonly scheduler: SchedulerService,
+    // Absent on a `copy` worker (the snapshots are the `read` worker's).
+    @Optional() private readonly scheduler: SchedulerService | null,
     private readonly budgeter: RequestBudgeterService,
     @Optional() private readonly archive?: ArchiveIngestService,
     @Optional() private readonly pool?: DiscoveryPoolService,
@@ -40,9 +42,9 @@ export class WorkerHeartbeatService {
       feedDisconnectedSince: feed.disconnectedSince,
       lastTradeAt: feed.lastTradeAt,
       lastFillAt,
-      lastSnapshotAt: this.scheduler.lastSnapshotAt,
-      lastSnapshotAttemptAt: this.scheduler.lastSnapshotAttemptAt,
-      lastSnapshotFailureAt: this.scheduler.lastSnapshotFailureAt,
+      lastSnapshotAt: this.scheduler?.lastSnapshotAt ?? null,
+      lastSnapshotAttemptAt: this.scheduler?.lastSnapshotAttemptAt ?? null,
+      lastSnapshotFailureAt: this.scheduler?.lastSnapshotFailureAt ?? null,
       lastSweepAt,
       requestsLastMinute: budget.requestsLastMinute,
       weightLastMinute: budget.weightLastMinute,
@@ -77,6 +79,9 @@ export class WorkerHeartbeatService {
       dryRun: this.config.value.telegram.dryRun,
       // Progress of the S3 archive ingest; a failed read must not fail the heartbeat.
       archive: this.archive?.enabled ? await this.archive.status().catch(() => undefined) : undefined,
+      // What this worker runs (WORKER_ROLE) and the leases it holds: an
+      // active worker holds all its role's leases (runtime/worker-role.ts).
+      worker: { role: this.config.value.app.workerRole, leases: [...roleLeases(this.config.value.app.workerRole)] },
       now: new Date(),
     };
   }

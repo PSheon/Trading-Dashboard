@@ -5,7 +5,6 @@ import type { WatcherService } from "../src/watcher/watcher.service.js";
 import type { AccountStateService } from "../src/watcher/account-state.service.js";
 import type { FillSyncService } from "../src/watcher/fill-sync.service.js";
 import type { TradeFeedService } from "../src/watcher/trade-feed.service.js";
-import type { NotifyService } from "../src/notify/notify.service.js";
 import type { SchedulerRepository } from "../src/scheduler/scheduler.repository.js";
 import type { WatcherRepository } from "../src/watcher/watcher.repository.js";
 import type { UnitOfWork } from "../src/db/unit-of-work.js";
@@ -23,7 +22,7 @@ it("coalesces overlapping snapshots, limits concurrency and does not mark failur
   const scheduler = new SchedulerService(
     { activeAddresses: async () => Array.from({ length: 10 }, (_, i) => String(i)) } as unknown as WatcherService,
     { get: () => undefined, refresh } as unknown as AccountStateService,
-    {} as FillSyncService, {} as TradeFeedService, {} as NotifyService, {} as SchedulerRepository, {} as UnitOfWork,
+    {} as FillSyncService, {} as SchedulerRepository, {} as UnitOfWork,
   );
   const first = scheduler.snapshotAll();
   const second = scheduler.snapshotAll();

@@ -22,6 +22,7 @@ import { TelegramModule } from "./telegram/telegram.module.js";
 import { TradersModule } from "./traders/traders.module.js";
 import { UsersModule } from "./users/users.module.js";
 import { WalletModule } from "./wallet/wallet.module.js";
+import type { WorkerRole } from "./runtime/worker-role.js";
 import { WorkerModule } from "./worker/worker.module.js";
 
 /** Infrastructure both processes use: validated config, the database, site
@@ -71,11 +72,13 @@ export class AppModule {
     };
   }
 
-  /** The background worker (IS_WORKER=true): an application context, no routes. */
-  static worker(): DynamicModule {
+  /** The background worker (IS_WORKER=true): an application context, no
+   * routes. `role` (WORKER_ROLE) picks its module set (WorkerModule.forRole);
+   * `all`, the default, is today's single worker. */
+  static worker(role: WorkerRole = "all"): DynamicModule {
     return {
       module: AppModule,
-      imports: [...sharedModules(), ScheduleModule.forRoot(), WorkerModule],
+      imports: [...sharedModules(), ScheduleModule.forRoot(), WorkerModule.forRole(role)],
     };
   }
 }

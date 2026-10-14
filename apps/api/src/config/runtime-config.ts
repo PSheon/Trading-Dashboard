@@ -3,10 +3,16 @@ import { createPrivateKey, createPublicKey } from "node:crypto";
 import { WALLET_NETWORKS } from "@trading-dashboard/shared/contracts";
 
 import { booleanValue, databaseUrl, integerValue, servicePermissions } from "./parse-env.js";
+import { runsCopy, workerRoleValue } from "../runtime/worker-role.js";
 import { liveSetupTimings, liveStopTimings, type LiveSetupTimings, type LiveStopTimings } from "./live-timings.js";
 
 type Environment = Record<string, string | undefined>;
 const optional = (value: string | undefined) => value?.trim() || undefined;
+function oneOf<T extends string>(key: string, raw: string | undefined, values: readonly T[], fallback: T): T {
+  const value = optional(raw)?.toLowerCase() ?? fallback;
+  if (!(values as readonly string[]).includes(value)) throw new Error(`${key} must be ${values.join(" or ")}`);
+  return value as T;
+}
 
 function urlValue(key: string, raw: string | undefined, fallback: string, protocols: string[]): string {
   const value = raw ?? fallback;
@@ -370,7 +376,25 @@ export function validateEnvironment(source: Environment = process.env) {
     throw new Error("APP_ROLE was replaced by IS_WORKER: set IS_WORKER=true on the worker and remove APP_ROLE");
   }
   const workerUrl = source.WORKER_URL ? urlValue("WORKER_URL", source.WORKER_URL, "", ["http:", "https:"]) : undefined;
-  const app = { isWorker, workerUrl, nodeEnv, trustedProxyCidrs,
+  // WORKER_ROLE (runtime/worker-role.ts): unset is `all`, today's worker. A
+  // role on the api would mean nothing, so a set one is refused there.
+  const workerRole = workerRoleValue(source.WORKER_ROLE);
+  if (!isWorker && optional(source.WORKER_ROLE) !== undefined) throw new Error("WORKER_ROLE applies to the worker only (IS_WORKER=true)");
+  // API_SETUP_DRIVE: `local` (default, today) drives a setup inside the
+  // api's confirm/advance; `worker` only marks it due and wakes the copy
+  // worker (NOTIFY copy_setup_due, copy/copy-setup-due.ts).
+  const setupDrive = oneOf("API_SETUP_DRIVE", source.API_SETUP_DRIVE, ["local", "worker"], "local");
+  // The terminal testnet settlement loop (CopyLiveApiSettlementService): on
+  // the api unless API_TERMINAL_SETTLEMENT=off; on a worker that runs copy
+  // work when WORKER_TERMINAL_SETTLEMENT=on, which a `copy` worker defaults
+  // to (`all` keeps today's: off). Claims are fenced in the database, so
+  // both may run during a cutover.
+  const terminalSettlement = {
+    api: oneOf("API_TERMINAL_SETTLEMENT", source.API_TERMINAL_SETTLEMENT, ["on", "off"], "on") === "on",
+    worker: isWorker && runsCopy(workerRole)
+      && oneOf("WORKER_TERMINAL_SETTLEMENT", source.WORKER_TERMINAL_SETTLEMENT, ["on", "off"], workerRole === "copy" ? "on" : "off") === "on",
+  };
+  const app = { isWorker, workerUrl, nodeEnv, trustedProxyCidrs, workerRole, setupDrive, terminalSettlement,
   // A worker beside an api on one machine needs its own port: WORKER_PORT
   // wins for the worker (Railway sets PORT per service and leaves it unset).
   port: isWorker && source.WORKER_PORT ? integerValue("WORKER_PORT", source.WORKER_PORT, 3000, 1, 65535) : integerValue("PORT", source.PORT, 3000, 1, 65535) };

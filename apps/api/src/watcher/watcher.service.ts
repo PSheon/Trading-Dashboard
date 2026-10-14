@@ -1,4 +1,4 @@
-import { Injectable, Logger, Optional, type OnApplicationBootstrap, type OnModuleDestroy } from "@nestjs/common";
+import { Injectable, Logger, Optional, type OnModuleDestroy } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 
 import { AppConfig } from "../config/app-config.js";
@@ -70,7 +70,7 @@ interface Expected {
  * watched within a minute; A3: a deactivated one is dropped).
  */
 @Injectable()
-export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
+export class WatcherService implements OnModuleDestroy {
   private readonly logger = new Logger(WatcherService.name);
   /** Feed trades waiting for the address's next fast-path run, by tid. */
   private readonly pending = new Map<string, Map<number, HlWsTrade>>();
@@ -117,14 +117,8 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
     @Optional() private readonly events?: EventEmitter2,
   ) {}
 
-  /** Starts on the worker's boot (WatcherModule is imported by the worker
-   * process only); not under `NODE_ENV=test`, where tests drive the pieces
-   * directly. */
-  onApplicationBootstrap(): void {
-    if (this.config.value.app.nodeEnv === "test") return;
-    void this.start();
-  }
-
+  /** Started by WatcherRuntime (WatcherRuntimeModule: the `copy` or `all`
+   * worker). Constructing it starts nothing: a `read` worker only sweeps. */
   onModuleDestroy(): void {
     this.jobs.stop();
     this.stop();
@@ -373,6 +367,9 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
       this.logger.error(`Sweep could not read leaders: ${safeErrorText(error)}`);
       return { addresses: 0, inserted: 0, failed: 0 };
     }
+    // A watcher that was never started (a `read` worker's sweeps) has not
+    // read which leaders are copied: read it here, so they still go first.
+    if (!this.running) await this.refreshCopied();
     let inserted = 0;
     let failed = 0;
     // Copied leaders first: their verified span gates copy signals.

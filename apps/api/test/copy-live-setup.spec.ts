@@ -1,7 +1,9 @@
 import { Logger } from '@nestjs/common';
 import { setTimeout as yieldIo } from 'node:timers/promises';
 import { createHash } from 'node:crypto';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
+import { Pool, type PoolClient } from 'pg';
+import { CopySetupDueListener } from '../src/copy/live-worker/copy-setup-due.listener.js';
 import { privateKeyToAccount } from 'viem/accounts';
 import { verifyTypedData, type TypedDataDefinition } from 'viem';
 import request from 'supertest';
@@ -64,9 +66,11 @@ const workerSign = vi.fn(async (..._args: unknown[]) => `0x${'cd'.repeat(65)}`);
 const quietLeader = (): LeaderCopyActivity => leaderCopyActivity({ orders: 40, peakPerMinute: 2, saturated: false }, new Date());
 let activity: LeaderCopyActivity | Error;
 
+/** API_SETUP_DRIVE as the service reads it (the api's switch). */
+let setupDrive: 'local' | 'worker' = 'local';
 function config(): AppConfig {
   const base = testConfig();
-  return { get value() { return { ...base.value, copy: { mode: 'testnet', workerIntervalMs: 2000, agent: { workerQuorumId: 'worker-quorum', authorizationPrivateKey: 'k', authorizationPublicKey: 'p' },
+  return { get value() { return { ...base.value, app: { ...base.value.app, setupDrive }, copy: { mode: 'testnet', workerIntervalMs: 2000, agent: { workerQuorumId: 'worker-quorum', authorizationPrivateKey: 'k', authorizationPublicKey: 'p' },
     live: { network: testNetwork, caps: { maxStrategiesPerUser: 10 }, builderFee: true, testnetSourceIntervalMs: 60_000, maxSourceDeviationBps: 500, slippageBps: 30, intervalMs: 3000, weightPerMin: 300 } } } as never; } } as AppConfig;
 }
 function build() {
@@ -171,7 +175,7 @@ async function credit() {
 const later = (ms: number) => { clock += ms; };
 beforeAll(() => { db = getTestDb(); });
 beforeEach(async () => {
-  testNetwork = 'testnet';
+  testNetwork = 'testnet'; setupDrive = 'local';
   await truncateAll(db); vi.clearAllMocks(); flags.worker = true; flags.attach = true; flags.ticking = false; clock = Date.now();
   mode = { id: 'mode-op', targetState: 'unknown', submissionState: 'prepared', submits: 0 }; modeIntent = null; agentIntent = null; signed = []; activity = quietLeader();
   uid = (await insertUser(db, { privyUserId: 'did:privy:setup-owner', embeddedWalletAddress: owner.address.toLowerCase() })).id;
@@ -1994,4 +1998,107 @@ describe('cancel and refund a confirmed setup awaiting its credit (funding_submi
     expect(w.exchange.send).toHaveBeenCalledTimes(1);
     await neverStarted(setup.id);
   });
+});
+
+describe('API_SETUP_DRIVE=worker: the api records, the copy worker drives (design §2.3, Phase 1a-4)', () => {
+  const pools: Pool[] = [], clients: PoolClient[] = [];
+  const pool = () => { const p = new Pool({ connectionString: process.env.TEST_DATABASE_URL }); p.on('error', () => undefined); pools.push(p); return p; };
+  afterEach(async () => {
+    for (const c of clients.splice(0)) c.release(true);
+    for (const p of pools.splice(0)) await p.end().catch(() => undefined);
+  });
+  /** Every `copy_setup_due` notification, as the worker would hear it. */
+  async function hear() {
+    const client = await pool().connect(), heard: string[] = [];
+    clients.push(client);
+    client.on('notification', message => { if (message.channel === 'copy_setup_due') heard.push(message.payload!); });
+    await client.query('LISTEN copy_setup_due');
+    return heard;
+  }
+  const dueAt = async (id: string) => (await db.select().from(copyLiveSetups).where(eq(copyLiveSetups.id, id)))[0]!.nextAttemptAt;
+  const dbNow = async () => new Date((await db.execute<{ now: string }>(sql`select clock_timestamp() as now`)).rows[0]!.now);
+
+  it('confirm records the consent and sends the deposit (browser-signed, still the api\'s), then only marks the setup due and wakes the worker: it never drives', async () => {
+    setupDrive = 'worker';
+    const drive = vi.spyOn(service, 'drive'), heard = await hear();
+    const setup = await start();
+    const confirmed = await service.confirm(uid, setup.id, await sign(setup.consent!));
+    expect(confirmed).toMatchObject({ stage: 'funding_submitted' });
+    expect(fakes.funding.submit).toHaveBeenCalledTimes(1);
+    expect(drive).not.toHaveBeenCalled();
+    expect(workerSign).not.toHaveBeenCalled();
+    const due = await dueAt(setup.id);
+    expect(due === null || due.getTime() <= (await dbNow()).getTime()).toBe(true);
+    await expect.poll(() => heard).toEqual([setup.id]);
+    // The local default still drives inside the request, as before.
+    setupDrive = 'local';
+    await service.advance(uid, setup.id);
+    expect(drive).toHaveBeenCalledTimes(1);
+  });
+
+  it('advance reconciles the deposit as before, then marks the setup due now and wakes the worker: it never drives', async () => {
+    setupDrive = 'worker';
+    const setup = await start();
+    await service.confirm(uid, setup.id, await sign(setup.consent!));
+    // The worker's pass found no credit yet: it looks again later.
+    later(5_000); await service.tick();
+    expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'funding_submitted', issue: 'awaiting_credit' });
+    expect((await dueAt(setup.id))!.getTime()).toBeGreaterThan((await dbNow()).getTime());
+    const drive = vi.spyOn(service, 'drive'), heard = await hear();
+    await credit();
+    const answered = await service.advance(uid, setup.id);
+    expect(answered).toMatchObject({ stage: 'funding_submitted' });
+    expect(fakes.funding.reconcile).toHaveBeenCalledTimes(1);
+    expect(drive).not.toHaveBeenCalled();
+    expect((await dueAt(setup.id))!.getTime()).toBeLessThanOrEqual((await dbNow()).getTime());
+    await expect.poll(() => heard).toEqual([setup.id]);
+    // Due now: the worker's regular pass (the fallback) picks it up and finishes it.
+    expect(await service.tick()).toBe(1);
+    expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'running' });
+  });
+
+  it('the NOTIFY wakes the copy worker, which drives the setup in under a second; a junk payload is ignored and a dropped LISTEN connection comes back', async () => {
+    setupDrive = 'worker';
+    const workerPool = pool();
+    const listener = new CopySetupDueListener(config(), workerPool, service, fakes.jobs);
+    await listener.start();
+    try {
+      // When each NOTIFY was sent, and when the worker began driving.
+      const sentAt: number[] = [], wokenAt: number[] = [];
+      const notify = CopyLiveSetupRepository.prototype.notifyDue, driveNow = service.driveDue.bind(service);
+      const sent = vi.spyOn(CopyLiveSetupRepository.prototype, 'notifyDue').mockImplementation(async function (this: CopyLiveSetupRepository, id: string) {
+        await notify.call(this, id); sentAt.push(Date.now());
+      });
+      const driveDue = vi.spyOn(service, 'driveDue').mockImplementation(async (id: string) => { wokenAt.push(Date.now()); return driveNow(id); });
+      const woken = async (calls: number) => {
+        await expect.poll(() => driveDue.mock.calls.length, { interval: 10, timeout: 1000 }).toBe(calls);
+        return wokenAt[calls - 1]! - sentAt[calls - 1]!;
+      };
+      const setup = await start();
+      const confirmed = await service.confirm(uid, setup.id, await sign(setup.consent!));
+      expect(confirmed.stage).toBe('funding_submitted');
+      expect(sent).toHaveBeenCalledTimes(1);
+      expect(await woken(1)).toBeLessThan(1000);
+      expect(driveDue).toHaveBeenCalledWith(setup.id);
+      // The worker's drive looked for the credit (none yet) and waits for it.
+      await expect.poll(async () => (await service.get(uid, setup.id)).issue, { timeout: 5000 }).toBe('awaiting_credit');
+      // The owner presses on once it arrived: the worker drives it to the end.
+      await credit();
+      await service.advance(uid, setup.id);
+      expect(sent).toHaveBeenCalledTimes(2);
+      expect(await woken(2)).toBeLessThan(1000);
+      // The worker's drive took the credited setup through its account-mode step (signed by the worker).
+      await expect.poll(async () => (await service.get(uid, setup.id)).stage, { timeout: 5000 }).toBe('mode_set');
+      expect(workerSign).toHaveBeenCalledTimes(1);
+      // Junk on the channel drives nothing.
+      await db.execute(sql`select pg_notify('copy_setup_due', 'x; drop table users')`);
+      await new Promise(resolve => setTimeout(resolve, 200));
+      expect(driveDue).toHaveBeenCalledTimes(2);
+      // The LISTEN connection is cut: it reconnects (backoff 1 s) and hears again.
+      await db.execute(sql`select pg_terminate_backend(pid) from pg_stat_activity where query = 'LISTEN copy_setup_due' and datname = current_database()`);
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      await db.execute(sql`select pg_notify('copy_setup_due', ${setup.id})`);
+      await expect.poll(() => driveDue.mock.calls.length, { timeout: 3000 }).toBe(3);
+    } finally { await listener.onModuleDestroy(); }
+  }, 20_000);
 });

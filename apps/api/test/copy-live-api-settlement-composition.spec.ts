@@ -13,7 +13,8 @@ import { HyperliquidGlobalTransport } from '../src/hyperliquid/hyperliquid-globa
 import { PostgresHyperliquidQuota } from '../src/hyperliquid/postgres-hyperliquid-quota.js';
 import { apiSettlementProvider } from '../src/copy/live-worker/copy-live-api-settlement.provider.js';
 import { CopyLiveSettler } from '../src/copy/live-worker/copy-live-settler.js';
-import { CopyLiveApiSettlementService } from '../src/copy/live-worker/copy-live-api-settlement.service.js';
+import { CopyLiveApiSettlementService, terminalSettlementRuns } from '../src/copy/live-worker/copy-live-api-settlement.service.js';
+import { validateEnvironment } from '../src/config/runtime-config.js';
 import { liveEngineProvider } from '../src/copy/live-worker/copy-live-engine.provider.js';
 const configFor = (worker: boolean) => new AppConfig({ ...testConfig().value, app: { ...testConfig().value.app, isWorker: worker },
   hyperliquid: { ...testConfig().value.hyperliquid, egressKey: 'offline', budgetPerMin: 400, burst: 800 },
@@ -38,6 +39,28 @@ describe('production process composition for terminal settlement', () => {
     const candidates = vi.fn();
     const api = new CopyLiveApiSettlementService(config, new BackgroundJobs(), { candidates } as never, {} as never, () => { throw Error('unexpected provider construction'); });
     await api.tick(); expect(candidates).not.toHaveBeenCalled(); api.onModuleDestroy();
+  });
+  it('the loop is switchable: API_TERMINAL_SETTLEMENT=off stops it on the api; a `copy` worker runs it (WORKER_TERMINAL_SETTLEMENT, on by default there), `all` keeps it off', async () => {
+    const env = { NODE_ENV: 'test', DATABASE_URL: 'postgres://localhost/settlement_test' };
+    expect(validateEnvironment(env).app.terminalSettlement).toEqual({ api: true, worker: false });
+    expect(validateEnvironment({ ...env, API_TERMINAL_SETTLEMENT: 'off' }).app.terminalSettlement.api).toBe(false);
+    expect(validateEnvironment({ ...env, IS_WORKER: 'true' }).app.terminalSettlement.worker).toBe(false);
+    expect(validateEnvironment({ ...env, IS_WORKER: 'true', WORKER_ROLE: 'copy' }).app.terminalSettlement.worker).toBe(true);
+    expect(validateEnvironment({ ...env, IS_WORKER: 'true', WORKER_ROLE: 'copy', WORKER_TERMINAL_SETTLEMENT: 'off' }).app.terminalSettlement.worker).toBe(false);
+    expect(validateEnvironment({ ...env, IS_WORKER: 'true', WORKER_TERMINAL_SETTLEMENT: 'on' }).app.terminalSettlement.worker).toBe(true);
+    expect(validateEnvironment({ ...env, IS_WORKER: 'true', WORKER_ROLE: 'read', WORKER_TERMINAL_SETTLEMENT: 'on' }).app.terminalSettlement.worker).toBe(false);
+    expect(() => validateEnvironment({ ...env, API_TERMINAL_SETTLEMENT: 'maybe' })).toThrow(/API_TERMINAL_SETTLEMENT must be on or off/);
+    const run = async (worker: boolean, terminalSettlement: { api: boolean; worker: boolean }) => {
+      const c = configFor(worker), config = new AppConfig({ ...c.value, app: { ...c.value.app, terminalSettlement } });
+      const candidates = vi.fn(async () => []);
+      const loop = new CopyLiveApiSettlementService(config, new BackgroundJobs(), { candidates } as never, {} as never, () => { throw Error('unexpected provider construction'); });
+      await loop.tick(); loop.onModuleDestroy();
+      return { runs: terminalSettlementRuns(config), claimed: candidates.mock.calls.length > 0 };
+    };
+    expect(await run(false, { api: true, worker: false })).toEqual({ runs: true, claimed: true });
+    expect(await run(false, { api: false, worker: false })).toEqual({ runs: false, claimed: false });
+    expect(await run(true, { api: true, worker: true })).toEqual({ runs: true, claimed: true });
+    expect(await run(true, { api: true, worker: false })).toEqual({ runs: false, claimed: false });
   });
   it('real worker provider fixes API handoff on for testnet without an environment or payload toggle', async () => {
     const config = configFor(true), pool = new Pool(), budget = new RequestBudgeterService(config);

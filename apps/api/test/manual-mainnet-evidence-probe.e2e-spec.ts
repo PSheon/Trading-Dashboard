@@ -1,4 +1,5 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
@@ -11,7 +12,7 @@ import * as schema from '@trading-dashboard/shared/database';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error -- the harness's plain ESM helper (no declarations)
 import { installDbRtt } from '../../../scripts/copy-harness/db-rtt.mjs';
-import { observationDiffs, renderReport } from '../../../scripts/copy-harness/mainnet-evidence-probe.mjs';
+import { freshnessCallSite, freshnessReason, freshnessTable, observationDiffs, renderReport, stateTimeLags, type FreshnessCheck, type FreshnessReason } from '../../../scripts/copy-harness/mainnet-evidence-probe.mjs';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
 import { HyperliquidGlobalTransport, settleListAnswer } from '../src/hyperliquid/hyperliquid-global-transport.js';
 import { PostgresHyperliquidQuota } from '../src/hyperliquid/postgres-hyperliquid-quota.js';
@@ -27,6 +28,7 @@ import { liveReadCache } from '../src/copy/live/live-read-cache.js';
 import { evidenceFinalCheck, liveEvidenceWeight, LiveReadComparisonError } from '../src/copy/live/live-shared-reads.js';
 import { LiveSpanRecorder, type LiveExecutionTiming } from '../src/copy/live/live-execution-diagnostics.js';
 import { LIVE_ORDER_BOUNDARY_WEIGHT } from '../src/config/constants/weights.js';
+import { PROVIDER_CLOCK_SKEW_MS } from '../src/config/constants/timings.js';
 
 /**
  * Manual probe, NEVER in CI (the e2e config, and HL_MAINNET_PROBE=1 required):
@@ -106,6 +108,37 @@ let sent: Sent[] = [], ws = wsCounts(), rateLimited = false, inBoundary = false;
 const FINAL_CHECK_TYPES = new Set(evidenceFinalCheck(['0x0'], ['0x1']).map(body => String(body.type)));
 let answers: { type: string; account: string; value: unknown }[] = [];
 const ledger: { at: number; weight: number }[] = [];
+/** The account observer's freshness checks (live-account-observer.ts `fresh` /
+ * `freshProvider`), wrapped on its prototype for the probe only: every call of
+ * the current run is recorded by its call site (the source text, freshnessCallSite),
+ * the observed account's role and its age (now − at, ms); a refusal also by
+ * why (freshnessReason). Ages and check names only: no address, no value. */
+type FreshKind = 'fresh' | 'freshProvider';
+interface FreshFailure { site: string; kind: FreshKind; role: string; ageMs: number; maxAgeMs: number; skewMs: number; reason: FreshnessReason | 'unexplained' }
+const roleStore = new AsyncLocalStorage<string>();
+const observerSource = readFileSync(fileURLToPath(new URL('../src/copy/live/live-account-observer.ts', import.meta.url)), 'utf8').split('\n');
+let freshChecks: FreshnessCheck[] = [], freshFailures: FreshFailure[] = [];
+let stateLags: (NonNullable<ReturnType<typeof stateTimeLags>> & { role: string })[] = [];
+type FreshTarget = { now(): number; maxAgeMs: number };
+const observerProto = HyperliquidLiveAccountObserver.prototype as unknown as Record<FreshKind, (this: FreshTarget, at: number) => void>;
+const originalFresh = { fresh: observerProto.fresh, freshProvider: observerProto.freshProvider };
+function wrapFreshness() {
+  for (const kind of ['fresh', 'freshProvider'] as const) {
+    const original = originalFresh[kind];
+    observerProto[kind] = function (this: FreshTarget, at: number) {
+      const now = this.now(), site = freshnessCallSite(new Error().stack, observerSource) ?? kind, role = roleStore.getStore() ?? '-';
+      const ageMs = Number.isSafeInteger(at) && Number.isSafeInteger(now) ? now - at : Number.NaN;
+      try { original.call(this, at); } catch (e) {
+        freshChecks.push({ site, role, ageMs, ok: false });
+        freshFailures.push({ site, kind, role, ageMs, maxAgeMs: this.maxAgeMs, skewMs: PROVIDER_CLOCK_SKEW_MS,
+          reason: freshnessReason({ kind, at, now, maxAgeMs: this.maxAgeMs, skewMs: PROVIDER_CLOCK_SKEW_MS }) ?? 'unexplained' });
+        throw e;
+      }
+      freshChecks.push({ site, role, ageMs, ok: true });
+    };
+  }
+}
+const unwrapFreshness = () => { observerProto.fresh = originalFresh.fresh; observerProto.freshProvider = originalFresh.freshProvider; };
 const recentWeight = () => { const since = Date.now() - 60_000; return ledger.filter(e => e.at > since).reduce((s, e) => s + e.weight, 0); };
 
 /** Every REST request the probe's transport sends: the mainnet info endpoint only. */
@@ -155,17 +188,18 @@ describe.skipIf(env.HL_MAINNET_PROBE !== '1')('mainnet evidence probe (manual, r
   beforeAll(async () => {
     // Every statement of every pg client waits the round trip first (the stage-like profile).
     restore = installDbRtt(pg.Client, config.dbRttMs);
+    wrapFreshness();
     pool = new pg.Pool({ connectionString: env.TEST_DATABASE_URL, max: 6 });
     const started = performance.now(); await pool.query('select 1');
     console.log(JSON.stringify({ event: 'probe_db_rtt', configuredMs: config.dbRttMs, measuredMs: Math.round(performance.now() - started) }));
     quota = new PostgresHyperliquidQuota(new UnitOfWork(drizzle(pool, { schema })));
     global = new HyperliquidGlobalTransport(quota, { egressKey: config.egressKey, ownerId: 'mainnet-evidence-probe' }, probeFetch);
   });
-  afterAll(async () => { await pool?.end(); restore(); save(); console.log(`\n${renderReport(result)}\n\n${OUT}`); });
+  afterAll(async () => { unwrapFreshness(); await pool?.end(); restore(); save(); console.log(`\n${renderReport(result)}\n\n${OUT}`); });
 
   /** One order's provider epoch, as LiveExecutionRuntime runs it (see the header). */
   async function epochRun(kind: 'open' | 'close', run: number) {
-    sent = []; ws = wsCounts(); answers = [];
+    sent = []; ws = wsCounts(); answers = []; freshChecks = []; freshFailures = []; stateLags = [];
     const open = kind === 'open', timings: LiveExecutionTiming[] = [];
     const weight = liveEvidenceWeight([config.follower], 0, liveReadCache('mainnet'), open ? [config.leader] : []) + LIVE_ORDER_BOUNDARY_WEIGHT;
     const token = await global.claimLive(weight, Date.now() + 10_000);
@@ -180,7 +214,18 @@ describe.skipIf(env.HL_MAINNET_PROBE !== '1')('mainnet evidence probe (manual, r
           global.currentQuota();
           const acquire = async () => {};
           const sockets = new PerReadAllDexsAccountSource(() => new HyperliquidAllDexsAccountSource(Date.now, probeSocket, 'mainnet', global), 3);
+          // Each all-venue snapshot's provider times against our clock when it returned (stateTimeLags).
+          const readAccount = sockets.readAccount.bind(sockets);
+          sockets.readAccount = async (...args: Parameters<typeof readAccount>) => {
+            const evidence = await readAccount(...args), lag = stateTimeLags(evidence.state.data, Date.now());
+            if (lag) stateLags.push({ role: roleStore.getStore() ?? '-', ...lag });
+            return evidence;
+          };
           const observer = new HyperliquidLiveAccountObserver('mainnet', acquire, global.fetchInfo, Date.now, 5000, sockets);
+          // The observed account's role for the freshness record (follower / leader / other).
+          const observe = observer.observe.bind(observer);
+          observer.observe = (address, options) => roleStore.run(options?.leader ? 'leader' : address.toLowerCase() === config.follower ? 'follower' : 'other',
+            () => observe(address, options));
           const resolver = new HyperliquidLiveMarketResolver('mainnet', acquire, global.fetchInfo, Date.now);
           const provider = new HyperliquidLiveRiskProvider('mainnet', acquire, global.fetchInfo, Date.now);
           const epoch = new LiveProviderReadEpoch(observer, resolver, provider, { extraRiskBufferBps: '5', restingOrderBuilderFeeCapTenthsBps: 100 }, Date.now,
@@ -223,6 +268,10 @@ describe.skipIf(env.HL_MAINNET_PROBE !== '1')('mainnet evidence probe (manual, r
           }
         })))).catch((e: unknown) => { error ??= code(e); raw.collectEndAtMs ??= at(); });
     answers = [];
+    raw.freshness = { checks: freshnessTable(freshChecks), failures: freshFailures };
+    raw.stateLags = stateLags;
+    // A wall clock step (NTP) inside the run: Date.now's elapsed against the monotonic one.
+    raw.wallDriftMs = Math.round((Date.now() - wallBase) - (performance.now() - base));
     Object.assign(raw, { ok: error === undefined, ...(error ? { error } : {}), timings, spans: recorder.spans, rest: [...sent], ws: { ...ws } });
     return raw;
   }
@@ -237,7 +286,8 @@ describe.skipIf(env.HL_MAINNET_PROBE !== '1')('mainnet evidence probe (manual, r
       const raw = await epochRun(kind, run);
       (result.cases[kind] ??= { runs: [] }).runs.push(raw);
       save();
-      console.log(JSON.stringify({ case: kind, run, ok: raw.ok, error: raw.error, change: raw.observationChange, collectMs: (raw.collectEndAtMs as number) - (raw.collectAtMs as number),
+      console.log(JSON.stringify({ case: kind, run, ok: raw.ok, error: raw.error, change: raw.observationChange,
+        fresh: (raw.freshness as { failures: FreshFailure[] }).failures, wallDriftMs: raw.wallDriftMs, collectMs: (raw.collectEndAtMs as number) - (raw.collectAtMs as number),
         ageMs: raw.clockAtMs === null ? null : (raw.collectEndAtMs as number) - (raw.clockAtMs as number), rest: (raw.rest as Sent[]).length, ws: raw.ws, minuteWeight: recentWeight() }));
       if (rateLimited) throw new Error('Hyperliquid answered 429: the probe stopped');
     }

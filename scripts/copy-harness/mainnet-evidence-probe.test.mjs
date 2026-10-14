@@ -3,7 +3,7 @@
 // with `node --test scripts/copy-harness/mainnet-evidence-probe.test.mjs`.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { aggregateRuns, analyzeRun, changedPaths, fillIndexLag, isotonic, observationDiffs, quotaSpans, renderReport, spread, unionMs } from "./mainnet-evidence-probe.mjs";
+import { aggregateRuns, analyzeRun, changedPaths, fillIndexLag, freshnessCallSite, freshnessReason, freshnessTable, isotonic, observationDiffs, quotaSpans, renderReport, spread, stateTimeLags, unionMs } from "./mainnet-evidence-probe.mjs";
 
 test("unionMs merges overlapping and touching intervals", () => {
   assert.equal(unionMs([[0, 10], [5, 15], [20, 25], [25, 30], [40, 40]]), 25);
@@ -137,4 +137,52 @@ test("observationDiffs: per read and account, first answer against the last; the
     observationChange: { changedReads: ["perpDexs"], diffs: observationDiffs(answers, ["perpDexs"]) } })] } } });
   assert.match(text, /#1 changed perpDexs = perpDexs\/- \(account-independent\): \[xyz\]\.oi/);
   assert.match(text, /by read: perpDexs\/- \(account-independent\) ×1/);
+});
+
+test("freshnessCallSite: names the observer's check by its source text and line, the per-read deadline apart", () => {
+  const lines = [
+    "      this.fresh(started);",
+    "        const remaining = () => { this.fresh(started); return 1; };",
+    "        this.fresh(proof.observedAt); this.fresh(started);",
+    "        this.freshProvider(state.time);",
+  ];
+  const at = (line, column) => `Error\n    at wrapper (/x/test/spec.ts:6:88)\n    at observeInternal (/x/src/copy/live/live-account-observer.ts:${line}:${column})`;
+  assert.equal(freshnessCallSite(at(1, 12), lines), "fresh(started)@L1");
+  assert.equal(freshnessCallSite(at(2, 40), lines), "remaining:fresh(started)@L2");
+  assert.equal(freshnessCallSite(at(3, 14), lines), "fresh(proof.observedAt)@L3");
+  assert.equal(freshnessCallSite(at(3, 44), lines), "fresh(started)@L3");
+  assert.equal(freshnessCallSite(at(4, 14), lines), "freshProvider(state.time)@L4");
+  assert.equal(freshnessCallSite("Error\n    at elsewhere (/x/a.ts:1:1)", lines), null);
+});
+
+test("freshnessReason: as the observer refuses (a provider time may run ahead by the skew)", () => {
+  const c = (kind, at, now) => freshnessReason({ kind, at, now, maxAgeMs: 5000, skewMs: 2000 });
+  assert.equal(c("fresh", 1000, 6000), null);
+  assert.equal(c("fresh", 1000, 6001), "older_than_bound");
+  assert.equal(c("fresh", 1001, 1000), "ahead_of_clock");
+  assert.equal(c("freshProvider", 2999, 1000), null);
+  assert.equal(c("freshProvider", 3001, 1000), "ahead_of_clock");
+  assert.equal(c("freshProvider", 1000, 6001), "older_than_bound");
+  assert.equal(c("fresh", -1, 1000), "negative");
+  assert.equal(c("fresh", 1.5, 1000), "not_integer");
+});
+
+test("freshnessTable, stateTimeLags and the report: which check refused, its age, each check's largest age", () => {
+  const checks = [{ site: "fresh(started)@L226", role: "follower", ageMs: 0, ok: true }, { site: "fresh(started)@L226", role: "follower", ageMs: 40, ok: true },
+    { site: "freshProvider(state.time)@L356", role: "leader", ageMs: 5100, ok: false }];
+  assert.deepEqual(freshnessTable(checks), [
+    { site: "fresh(started)@L226", role: "follower", n: 2, minAgeMs: 0, maxAgeMs: 40, refused: 0 },
+    { site: "freshProvider(state.time)@L356", role: "leader", n: 1, minAgeMs: 5100, maxAgeMs: 5100, refused: 1 }]);
+  const lags = stateTimeLags({ clearinghouseStates: [["", { time: 9000 }], ["xyz", { time: 4000 }], ["abc", {}]] }, 9500);
+  assert.deepEqual(lags, { dexes: 2, maxLagMs: 5500, maxLagDex: "xyz", minLagMs: 500, minLagDex: "" });
+  assert.equal(stateTimeLags({ clearinghouseStates: [] }, 1), null);
+  const failure = { site: "freshProvider(state.time)@L356", kind: "freshProvider", role: "leader", ageMs: 5100, maxAgeMs: 5000, skewMs: 2000, reason: "older_than_bound" };
+  const text = renderReport({ cases: { open: { runs: [
+    raw(1, { freshness: { checks: freshnessTable(checks.slice(0, 2)), failures: [] }, stateLags: [{ role: "leader", ...lags }], wallDriftMs: -2 }),
+    raw(2, { ok: false, error: "live_account_evidence_expired", freshness: { checks: freshnessTable(checks), failures: [failure] }, stateLags: [], wallDriftMs: 1 }),
+  ] } } });
+  assert.match(text, /freshness refusals \(1\):\n {4}#2 freshProvider\(state\.time\)@L356 leader: age 5100 ms \(bound 5000, ahead allowed 2000\) older_than_bound/);
+  assert.match(text, /fresh\(started\)@L226 follower +40 \/ 40 \/ 40 +min 0 +refused 0\/2 runs/);
+  assert.match(text, /snapshot state time lag leader .*largest per run 5500 \/ 5500 \/ 5500, smallest 500; largest on xyz ×1/);
+  assert.match(text, /\|wall − monotonic clock\| over a run \(ms\) +1 \/ 2 \/ 2/);
 });

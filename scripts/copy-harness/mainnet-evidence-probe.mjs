@@ -142,6 +142,10 @@ export function analyzeRun(raw) {
     providerAgeMs: clock === null || !raw.boundary ? null : raw.boundary.endAtMs - clock,
     // The evidence epoch reads no fills (no userFills*/userFillsByTime in collect).
     fillIndexReadMs: raw.rest.filter((r) => r.type.startsWith('userFills')).reduce((sum, r) => sum + (r.ms ?? 0), 0),
+    // The account observer's freshness checks (freshnessTable rows, the refusals),
+    // each all-venue snapshot's provider times against our clock (stateTimeLags
+    // with its account), and the wall clock against the monotonic one over the run.
+    freshness: raw.freshness ?? null, stateLags: raw.stateLags ?? [], wallDriftMs: raw.wallDriftMs ?? null,
   };
 }
 
@@ -176,6 +180,36 @@ export function aggregateRuns(runs) {
     boundaryReads: Object.fromEntries([...new Set(ok.flatMap((r) => (r.boundary?.reads ?? []).map((b) => b.type)))].map((t) => [t,
       pick((r) => { const reads = (r.boundary?.reads ?? []).filter((b) => b.type === t); return reads.length ? Math.max(...reads.map((b) => b.ms)) : null; })])),
     providerAgeMs: pick((r) => r.providerAgeMs),
+    ...freshnessAggregate(runs),
+  };
+}
+
+/** Over every run (a refused one too): the freshness refusals, each check's
+ * largest age per run, each account's snapshot lags, the wall clock's drift. */
+function freshnessAggregate(runs) {
+  const sites = new Map(), lags = new Map();
+  for (const r of runs) {
+    for (const row of r.freshness?.checks ?? []) {
+      const key = `${row.site}|${row.role}`, s = sites.get(key) ?? { site: row.site, role: row.role, runs: 0, maxAges: [], minAgeMs: Infinity, refused: 0 };
+      s.runs++; s.maxAges.push(row.maxAgeMs); s.minAgeMs = Math.min(s.minAgeMs, row.minAgeMs); s.refused += row.refused; sites.set(key, s);
+    }
+    const byRole = new Map();
+    for (const l of r.stateLags ?? []) {
+      const top = byRole.get(l.role);
+      if (!top || l.maxLagMs > top.maxLagMs) byRole.set(l.role, { ...l, minLagMs: Math.min(l.minLagMs, top?.minLagMs ?? Infinity) });
+      else top.minLagMs = Math.min(top.minLagMs, l.minLagMs);
+    }
+    for (const [role, l] of byRole) {
+      const row = lags.get(role) ?? { role, maxLags: [], minLagMs: Infinity, maxLagDexes: {} };
+      row.maxLags.push(l.maxLagMs); row.minLagMs = Math.min(row.minLagMs, l.minLagMs);
+      row.maxLagDexes[dexName(l.maxLagDex)] = (row.maxLagDexes[dexName(l.maxLagDex)] ?? 0) + 1; lags.set(role, row);
+    }
+  }
+  return {
+    freshnessFailures: runs.flatMap((r) => (r.freshness?.failures ?? []).map((f) => ({ run: r.run, ...f }))),
+    freshness: [...sites.values()].map(({ maxAges, ...s }) => ({ ...s, maxAgeMs: spread(maxAges) })),
+    stateLags: [...lags.values()].map(({ maxLags, ...l }) => ({ ...l, maxLagMs: spread(maxLags) })),
+    wallDriftMs: spread(runs.map((r) => (r.wallDriftMs === null ? null : Math.abs(r.wallDriftMs)))),
   };
 }
 
@@ -241,6 +275,73 @@ export function observationDiffs(answers, changedReads) {
 /** `changed perpDexs = perpDexs/- (account-independent): [xyz].assetToStreamingOiCap[ETH]`. */
 const renderChange = (c) => `changed ${c.changedReads.join(",")}` +
   (c.diffs?.length ? ` = ${c.diffs.map((d) => `${d.read}/${d.account} (${d.scope}): ${d.paths ? d.paths.join(" ") : `${d.answers} answer seen, no diff`}`).join("; ")}` : "");
+
+// --- which freshness check refused --------------------------------------------------------------------
+
+const FRESH_CALL = /this\.(fresh|freshProvider)\(([^()]*)\)/g;
+
+/**
+ * The account observer's freshness check a call came from
+ * (live-account-observer.ts `fresh` / `freshProvider`), named by its source
+ * text and line: `fresh(started)@L244`, `freshProvider(state.time)@L356`, with
+ * `remaining:` in front when it is a read deadline's (`const remaining = () =>
+ * { this.fresh(started); … }`). `stack`: the probe wrapper's Error stack
+ * (source-mapped: the first observer frame is the caller); `sourceLines`: the
+ * observer's source by line. Null when no observer frame is on the stack.
+ */
+export function freshnessCallSite(stack, sourceLines) {
+  const m = /live-account-observer\.ts:(\d+):(\d+)/.exec(stack ?? "");
+  if (!m) return null;
+  const line = Number(m[1]), column = Number(m[2]), text = sourceLines[line - 1] ?? "";
+  // V8 points a method call's frame at the method's name (1-based column).
+  const calls = [...text.matchAll(FRESH_CALL)].map((c) => ({ kind: c[1], arg: c[2].trim(), nameAt: c.index + "this.".length + 1 }));
+  const call = calls.find((c) => c.nameAt === column) ?? calls.filter((c) => c.nameAt <= column).at(-1) ?? calls[0];
+  if (!call) return `L${line}`;
+  return `${/const remaining = /.test(text) ? "remaining:" : ""}${call.kind}(${call.arg})@L${line}`;
+}
+
+/**
+ * Why a freshness check refuses, as the observer decides it (`fresh`: `at`
+ * must be an integer ≥ 0, not after `now`, at most `maxAgeMs` old;
+ * `freshProvider`: the same, but `at` may be up to `skewMs` after `now`). Null
+ * when it passes.
+ */
+export function freshnessReason({ kind, at, now, maxAgeMs, skewMs }) {
+  if (!Number.isSafeInteger(at) || !Number.isSafeInteger(now)) return "not_integer";
+  if (at < 0) return "negative";
+  if (kind === "freshProvider" ? at > now + skewMs : now < at) return "ahead_of_clock";
+  if (now - at > maxAgeMs) return "older_than_bound";
+  return null;
+}
+
+/** Per check site and account: how many calls, the smallest and largest age
+ * (now − at, ms; negative: a time after our clock) and how many refused. */
+export function freshnessTable(checks) {
+  const rows = new Map();
+  for (const c of checks) {
+    const key = `${c.site}|${c.role}`, row = rows.get(key);
+    if (!row) rows.set(key, { site: c.site, role: c.role, n: 1, minAgeMs: c.ageMs, maxAgeMs: c.ageMs, refused: c.ok ? 0 : 1 });
+    else { row.n++; row.minAgeMs = Math.min(row.minAgeMs, c.ageMs); row.maxAgeMs = Math.max(row.maxAgeMs, c.ageMs); if (!c.ok) row.refused++; }
+  }
+  return [...rows.values()];
+}
+
+/**
+ * The provider `time` of each dex's state in one allDexsClearinghouseState
+ * snapshot against our clock when the read returned (`receivedAt`): the
+ * largest and smallest lag (receivedAt − time, ms) and their dexes ('' is the
+ * main dex). Null without any state time.
+ */
+export function stateTimeLags(data, receivedAt) {
+  const rows = Array.isArray(data?.clearinghouseStates) ? data.clearinghouseStates : [];
+  const lags = rows.flatMap((row) => (Array.isArray(row) && Number.isSafeInteger(row[1]?.time) ? [{ dex: String(row[0]), lagMs: receivedAt - row[1].time }] : []));
+  if (!lags.length) return null;
+  const max = lags.reduce((a, b) => (b.lagMs > a.lagMs ? b : a)), min = lags.reduce((a, b) => (b.lagMs < a.lagMs ? b : a));
+  return { dexes: lags.length, maxLagMs: max.lagMs, maxLagDex: max.dex, minLagMs: min.lagMs, minLagDex: min.dex };
+}
+
+const dexName = (d) => (d === "" ? "(main)" : d);
+const renderFreshFailure = (f) => `${f.site} ${f.role}: age ${f.ageMs} ms (bound ${f.maxAgeMs}${f.kind === "freshProvider" ? `, ahead allowed ${f.skewMs}` : ""}) ${f.reason}`;
 
 // --- the fill index lag -------------------------------------------------------------------------------
 
@@ -339,6 +440,16 @@ export function renderReport(result) {
       const tally = {};
       for (const e of changes) for (const d of e.change.diffs ?? []) { const k = `${d.read}/${d.account} (${d.scope})`; tally[k] = (tally[k] ?? 0) + 1; }
       out.push(`    by read: ${Object.entries(tally).map(([k, n]) => `${k} ×${n}`).join(", ") || "–"}`);
+    }
+    if (a.freshnessFailures.length) {
+      out.push(`  freshness refusals (${a.freshnessFailures.length}):`);
+      for (const x of a.freshnessFailures) out.push(`    #${x.run} ${renderFreshFailure(x)}`);
+    }
+    if (a.freshness.length) {
+      out.push("  freshness checks over all runs: each run's largest age (now − at) p50 / p95 / max ms; smallest age; refusals:");
+      for (const s of a.freshness) out.push(`    ${`${s.site} ${s.role}`.padEnd(56)} ${triple(s.maxAgeMs)}   min ${f(s.minAgeMs)}   refused ${s.refused}/${s.runs} runs`);
+      for (const l of a.stateLags) out.push(`    snapshot state time lag ${l.role.padEnd(9)} (read return − dex time): largest per run ${triple(l.maxLagMs)}, smallest ${f(l.minLagMs)}; largest on ${Object.entries(l.maxLagDexes).map(([d, n]) => `${d} ×${n}`).join(", ")}`);
+      out.push(`    |wall − monotonic clock| over a run (ms)  ${triple(a.wallDriftMs)}`);
     }
     out.push("  p50 / p95 / max over ok runs:");
     out.push(`    collect total (ms)               ${triple(a.collectMs)}`);

@@ -186,3 +186,10 @@ p50 / p95 / max 1441 / 1793 / 1793 ms, 1821 / 2515 / 2515 ms with the boundary r
 11 requests, Σ tx 625 / 681 / 681 ms (wall 628 / 688 / 688); REST weight 168 warm, 388 cold; 2 sockets, 24
 subscriptions, 48 messages. Close (no leader), 6/6: 1208 / 1455 / 1455 ms; meter 6 requests, 372 / 401 / 401 ms.
 Fill index lag (819 fills): p50 37, p90 722, p99 3752 ms; the oldest fill a poll missed was 6.3 s old.
+
+The probe also records the account observer's freshness checks (`fresh` / `freshProvider`, wrapped on its
+prototype in the probe's process only): each call site by its source text and line, the account's role and its
+age (now − at, ms), and on a refusal why (`ahead_of_clock` / `older_than_bound` / …); each all-venue snapshot's
+provider `time` against our clock; the wall clock's drift against the monotonic one. The report lists the
+refusals and, per check, each run's largest age. Run of 2026-10-14, 42 open epochs, 0 refusals
+(`docs/evidence/mainnet-evidence-probe-freshness-2026-10-14.txt`).
